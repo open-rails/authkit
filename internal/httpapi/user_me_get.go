@@ -22,7 +22,6 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		ClaimsUsername:         claims.Username,
 		AuthTime:               claims.AuthTime,
 		StepUpSatisfied:        verify.SensitiveClaims(claims),
-		EnabledProviders:       s.providerNames(),
 		ProviderSupportsStepUp: s.providerSupportsStepUp,
 	})
 	if err != nil {

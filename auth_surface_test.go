@@ -21,7 +21,7 @@ func TestClientPublicSurface(t *testing.T) {
 		"UpdateUser", "PatchUserMetadata", "Ban", "Unban", "DeleteUsers", "RestoreUsers",
 		"RevokeSession", "RevokeAccountSessions",
 		// Roles and checks.
-		"AssignGroupRoles", "UnassignGroupRoles", "RemoveGroupMembers", "DefineGroupRole", "DeleteGroupRole",
+		"AssignGroupRoles", "UnassignGroupRoles", "RemoveGroupMembers",
 		"Can", "EffectivePermissions",
 		// Credentials and invitations.
 		"MintAPIKey", "RevokeAPIKey", "CreateInviteLink", "RevokeInviteLink", "CreateAccountInvite",
@@ -36,18 +36,18 @@ func TestClientPublicSurface(t *testing.T) {
 		// Reads: the host is the trust boundary.
 		"User", "Users", "PublicUsers", "ListUsers", "UserMetadata", "ResolveUsername", "CheckUsername",
 		"ActiveDeviceKeys", "Sessions", "SessionEvents",
-		"Group", "Groups", "ListGroups", "ListGroupMembers", "ListSubjectGroups", "OwnerlessGroups", "GroupRoles", "KnownPermission",
+		"Group", "Groups", "ListGroups", "ListGroupMembers", "ListSubjectGroups", "GroupRoles", "KnownPermission",
 		"APIKeys", "ResolveAPIKey", "InviteLinks",
 		// Names read at run time, resolved through Config.Roles.
 		"Persona", "Permission", "Role", "ParseBootstrapManifestYAML", "LoadBootstrapManifestFile",
 		"RemoteApplication", "RemoteApplications", "RemoteApplicationAuthority",
 		// Lifecycle: host wiring at boot and health probes.
-		"SetEntitlements", "Start", "Close", "RiverJobs", "CheckSMSHealth", "PublishDocument",
+		"SetEntitlements", "Start", "Close", "RiverJobs", "CheckSMSHealth",
 		// HTTP surface and request verification.
 		"Handler", "Routes", "Patterns", "Mount", "Verifier", "NewVerifier",
 		"Require", "Optional", "RequireLive", "RequirePermission", "RequirePermissionOn",
 		// Signing that grants no AuthKit authority.
-		"MintServiceJWT", "MintRemoteApplicationAccessToken",
+		"MintServiceJWT",
 	}
 
 	typ := reflect.TypeFor[*authkit.Client]()

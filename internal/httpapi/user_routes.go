@@ -63,16 +63,12 @@ func (s *Service) handleUserPreferredLanguagePATCH(w http.ResponseWriter, r *htt
 	}
 	var body struct {
 		PreferredLanguage string `json:"preferred_language"`
-		Language          string `json:"language"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	language := strings.TrimSpace(body.PreferredLanguage)
-	if language == "" {
-		language = strings.TrimSpace(body.Language)
-	}
 	if language == "" {
 		fail(w, errmodel.CodeInvalidRequest)
 		return

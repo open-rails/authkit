@@ -36,10 +36,14 @@ type NewGroup struct {
 }
 
 // GroupQuery lists the groups of a persona (zero = every persona but root),
-// oldest first.
+// oldest first. Ownerless keeps only live groups that no owner counts for
+// under the last-owner rule: created without one, or left without one by the
+// credential sweep at boot. An owner whose required MFA enrollment is pending
+// does not count.
 type GroupQuery struct {
 	Persona        Persona
 	IncludeDeleted bool
+	Ownerless      bool
 	Page           PageRequest
 }
 

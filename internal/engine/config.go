@@ -32,9 +32,8 @@ type Config struct {
 	Roles                 RoleConfig
 	Applications          ApplicationsConfig
 	Delegated             DelegatedConfig
-	Documents             DocumentsConfig
 	Schema                string
-	SolanaNetwork         string
+	SolanaNetwork         iam.SolanaNetwork
 	SessionEventRetention time.Duration
 }
 
@@ -49,9 +48,7 @@ type PasswordPolicy struct {
 }
 
 type ApplicationsConfig struct {
-	SelfRegistration        bool
 	AllowPrivateNetworkJWKS bool
-	OrgPersona              iam.Persona
 }
 
 type DelegatedConfig struct {
@@ -60,17 +57,6 @@ type DelegatedConfig struct {
 	TTLFloor   time.Duration
 	TTLDefault time.Duration
 	TTLCeiling time.Duration
-}
-
-type DocumentsConfig struct {
-	Readers             []DocumentReader
-	AllowRegisteredTier bool
-}
-
-type DocumentReader struct {
-	ID     string
-	Domain string
-	Issuer string
 }
 
 type TokenConfig struct {
@@ -144,7 +130,6 @@ type RoleConfig struct {
 type Persona struct {
 	Permissions        []string
 	RequireMFA         []string
-	CustomRoles        bool
 	APIKeys            bool
 	RemoteApplications bool
 }
@@ -162,7 +147,6 @@ func (c RoleConfig) schema() (*rbac.Schema, error) {
 		personas[name] = rbac.PersonaSpec{
 			Permissions:        p.Permissions,
 			RequireMFA:         p.RequireMFA,
-			CustomRoles:        p.CustomRoles,
 			APIKeys:            p.APIKeys,
 			RemoteApplications: p.RemoteApplications,
 		}

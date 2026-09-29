@@ -9,7 +9,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
-	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 // lockPermissionGroup is the shared lifecycle lock. The caller supplies a
@@ -24,18 +23,10 @@ func lockPermissionGroup(ctx context.Context, q db.DBTX, groupID string) error {
 	return err
 }
 
-// A role must exist when a durable reference is created. Catalog definitions
-// are immutable configuration; custom definitions are read under the group lock.
-func (s *Engine) requireDefinedGroupRole(ctx context.Context, st *permissionGroupStore, groupID string, persona iam.Persona, role iam.Role) error {
-	if _, ok := s.groupSchemaOrDefault().Role(persona, role); ok {
-		return nil
-	}
-	resolver, err := st.CustomRolesFor(ctx, []string{groupID})
-	if err != nil {
-		return err
-	}
-	if _, ok := resolver(groupID, role); !ok {
-		return errmodel.ErrUnknownRole
+// requireDefinedGroupRole: a durable reference names a catalog role.
+func (s *Engine) requireDefinedGroupRole(_ context.Context, _ *permissionGroupStore, _ string, persona iam.Persona, role iam.Role) error {
+	if _, ok := s.groupSchemaOrDefault().Role(persona, role); !ok {
+		return fmt.Errorf("role %q is not a role of a %q group: %w", role, persona, iam.ErrRoleNotAssignable)
 	}
 	return nil
 }
@@ -148,7 +139,7 @@ func (s *Engine) DeleteGroup(ctx context.Context, ref iam.GroupRef, host pgx.Tx)
 }
 
 // PurgeGroup permanently deletes a group, live or soft-deleted, with every
-// role, custom role, key and link in it. Purging an unknown group is a no-op.
+// role, key and link in it. Purging an unknown group is a no-op.
 func (s *Engine) PurgeGroup(ctx context.Context, ref iam.GroupRef, host pgx.Tx) error {
 	err := s.withAuthorityMutationIn(ctx, iam.SystemActor(), host, func(st *permissionGroupStore) error {
 		if ref.IsRoot() {

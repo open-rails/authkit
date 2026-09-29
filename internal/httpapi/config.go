@@ -26,8 +26,8 @@ type Config struct {
 	DPoPRequestURL func(*http.Request) string
 
 	// Rate limiting defaults to in-memory, per-process counters. Redis shares
-	// them across replicas; Limiter replaces the limiter; DisableRateLimiting
-	// (tests only) turns it off. At most one of the three may be set.
+	// them across replicas; Limiter replaces the limiter. At most one of the
+	// two may be set.
 	//
 	// Redis shares rate-limit counters across replicas. It holds no other
 	// AuthKit state.
@@ -42,9 +42,6 @@ type Config struct {
 	// Limiter replaces AuthKit's limiter. ADVANCED: RateLimits are not applied
 	// to a custom limiter.
 	Limiter RateLimiter
-	// DisableRateLimiting turns rate limiting off. TESTS ONLY: it removes the
-	// brute-force and spam protection.
-	DisableRateLimiting bool
 
 	// Client-IP posture (ak#299). Exactly what sits in front of AuthKit must be
 	// declared — behind an undeclared proxy every client shares the proxy's one
@@ -79,16 +76,10 @@ func (c Config) Validate() error {
 	if _, err := parseProxyCIDRs("Cloudflare proxy", c.CloudflareProxies); err != nil {
 		return err
 	}
-	choices := 0
-	for _, set := range []bool{c.Redis != nil, c.Limiter != nil, c.DisableRateLimiting} {
-		if set {
-			choices++
-		}
+	if c.Redis != nil && c.Limiter != nil {
+		return errors.New("authkit: conflicting rate limiting: set at most one of HTTPConfig.Redis and Limiter")
 	}
-	if choices > 1 {
-		return errors.New("authkit: conflicting rate limiting: set at most one of HTTPConfig.Redis, Limiter and DisableRateLimiting")
-	}
-	if c.Limiter == nil && !c.DisableRateLimiting {
+	if c.Limiter == nil {
 		if err := ratelimit.ValidateLimits(c.RateLimits); err != nil {
 			return err
 		}

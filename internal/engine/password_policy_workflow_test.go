@@ -23,7 +23,7 @@ func TestConfiguredPasswordPolicyIsEnforcedAndPublished(t *testing.T) {
 		Password map[string]any `json:"password"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(caps.raw), &wire))
-	require.Equal(t, map[string]any{"login": true, "min_length": float64(12), "max_length": float64(20),
+	require.Equal(t, map[string]any{"min_length": float64(12), "max_length": float64(20),
 		"require_uppercase": false, "require_lowercase": false, "require_digit": false, "require_symbol": false, "reject_common": true}, wire.Password)
 
 	rejects := func(r flowResponse, code string) {
@@ -90,7 +90,7 @@ func TestDefaultPasswordPolicyRejectsCommonAndIdentifierPasswords(t *testing.T) 
 		Username map[string]any `json:"username"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(caps.raw), &wire))
-	require.Equal(t, map[string]any{"login": true, "min_length": float64(8), "max_length": float64(128),
+	require.Equal(t, map[string]any{"min_length": float64(8), "max_length": float64(128),
 		"require_uppercase": false, "require_lowercase": false, "require_digit": false, "require_symbol": false, "reject_common": true}, wire.Password)
 	require.Equal(t, map[string]any{"min_length": float64(4), "max_length": float64(30), "pattern": iam.UsernamePattern}, wire.Username)
 

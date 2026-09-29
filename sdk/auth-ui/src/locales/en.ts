@@ -604,7 +604,6 @@ export const en = {
     username_not_allowed: "This username is not allowed.",
     username_too_long: "Username must be at most 30 characters.",
     username_too_short: "Username must be at least 4 characters.",
-    verification_link_expired: "This verification link has expired.",
     verification_required: "Verify your contact details to continue.",
     wallet_already_linked: "That wallet is already linked to another account.",
     wallet_change_requires_unlink:

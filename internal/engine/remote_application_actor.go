@@ -19,18 +19,16 @@ import (
 // change to an existing application needs CAP(<persona>:credentials:manage)
 // in its controlling group and COVER of every role it holds anywhere. Only
 // applications a group registered (trust root user) change through a group:
-// system-registered ones rotate through the system and domain-rooted ones
-// through a new domain proof. A group registration starts unapproved (tier
-// registered), and so does any re-key of it.
+// system-registered ones change only through the system.
 //
 // A group registration is a credential (rule CRED, credential_issuers.go):
 // only a user registers one, the user who supplies its keys is its registrar,
 // and its roles never outlive the registrar's authority.
 
 // UpsertRemoteApplication registers the application app.Issuer in the group
-// ref, or updates it there. The system may set Mode, Tier and TrustRoot
-// (new applications default to manual and approved); a user registers at
-// trust root user and tier registered. Machine actors cannot register.
+// ref, or updates it there. The system may set Mode and TrustRoot (new
+// applications default to manual); a user registers at trust root user.
+// Machine actors cannot register.
 func (s *Engine) UpsertRemoteApplication(ctx context.Context, actor iam.Actor, ref iam.GroupRef, in iam.RemoteApplication) (*iam.RemoteApplication, error) {
 	if err := requireActor(actor); err != nil {
 		return nil, err
@@ -46,8 +44,8 @@ func (s *Engine) UpsertRemoteApplication(ctx context.Context, actor iam.Actor, r
 	if s.reservedIssuer(in.Issuer) || !system && s.accountPeerIssuer(in.Issuer) {
 		return nil, iam.ErrReservedIssuer
 	}
-	if !validTier(in.Tier) || !validTrustRoot(in.TrustRoot) {
-		return nil, fmt.Errorf("%w: unknown tier or trust root", iam.ErrInvalidRemoteApplication)
+	if !validTrustRoot(in.TrustRoot) {
+		return nil, fmt.Errorf("%w: unknown trust root", iam.ErrInvalidRemoteApplication)
 	}
 	var out *iam.RemoteApplication
 	err := s.withGroupMutation(ctx, actor, ref, func(st *permissionGroupStore, g groupTarget) error {
@@ -78,9 +76,9 @@ func (s *Engine) UpsertRemoteApplication(ctx context.Context, actor iam.Actor, r
 	return out, err
 }
 
-// groupApplicationChange authorizes a non-system upsert and sets the trust
-// root and tier it produces; the caller's Tier and TrustRoot are ignored.
-// rekey reports whether the actor supplies new keys, becoming the registrar.
+// groupApplicationChange authorizes a non-system upsert and sets its trust
+// root to user; the caller's TrustRoot is ignored. rekey reports whether the
+// actor supplies new keys, becoming the registrar.
 func (s *Engine) groupApplicationChange(ctx context.Context, st *permissionGroupStore, actor iam.Actor, g groupTarget, existing *iam.RemoteApplication, in *iam.RemoteApplication) (rekey bool, err error) {
 	appID := ""
 	if existing != nil {
@@ -92,12 +90,8 @@ func (s *Engine) groupApplicationChange(ctx context.Context, st *permissionGroup
 	if err := s.authorizeApplicationControl(ctx, st, actor, g, appID); err != nil {
 		return false, err
 	}
-	in.TrustRoot, in.Tier = iam.ApplicationTrustRootUser, iam.ApplicationTierRegistered
-	if existing != nil && !rekeys(existing, in) {
-		in.Tier = existing.Tier
-		return false, nil
-	}
-	return true, nil
+	in.TrustRoot = iam.ApplicationTrustRootUser
+	return existing == nil || rekeys(existing, in), nil
 }
 
 // rekeys reports whether in replaces existing's trust source.
@@ -200,16 +194,8 @@ func (s *Engine) authorizeApplicationControl(ctx context.Context, st *permission
 	return nil
 }
 
-func validTier(t iam.ApplicationTier) bool {
-	return t == "" || t == iam.ApplicationTierRegistered || t == iam.ApplicationTierApproved
-}
-
 func validTrustRoot(t iam.ApplicationTrustRoot) bool {
-	switch t {
-	case "", iam.ApplicationTrustRootManual, iam.ApplicationTrustRootDomain, iam.ApplicationTrustRootUser:
-		return true
-	}
-	return false
+	return t == "" || t == iam.ApplicationTrustRootManual || t == iam.ApplicationTrustRootUser
 }
 
 // RemoteApplications lists the applications group ref controls, newest first.
@@ -235,7 +221,7 @@ func (s *Engine) RemoteApplications(ctx context.Context, ref iam.GroupRef, page 
 	limit := page.PageLimit()
 	rows, err := s.pg.Query(ctx,
 		`SELECT id::text, slug, permission_group_id::text, issuer, jwks_uri, mode, public_keys, enabled,
-		        display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at
+		        trust_root, created_at, updated_at
 		 FROM remote_applications
 		 WHERE permission_group_id = $1::uuid AND ($2::uuid IS NULL OR id < $2::uuid)
 		 ORDER BY id DESC LIMIT $3`, g.ID, after, limit+1)
@@ -247,8 +233,7 @@ func (s *Engine) RemoteApplications(ctx context.Context, ref iam.GroupRef, page 
 	for rows.Next() {
 		var row remoteAppRow
 		if err := rows.Scan(&row.ID, &row.Slug, &row.PermissionGroupID, &row.Issuer, &row.JwksUri, &row.Mode,
-			&row.PublicKeys, &row.Enabled, &row.DisplayName, &row.Tier, &row.TrustRoot, &row.Domain,
-			&row.DocumentEndpoint, &row.RootVerifiedAt, &row.CreatedAt, &row.UpdatedAt); err != nil {
+			&row.PublicKeys, &row.Enabled, &row.TrustRoot, &row.CreatedAt, &row.UpdatedAt); err != nil {
 			return out, err
 		}
 		out.Items = append(out.Items, *remoteAppFromRow(row))

@@ -10,6 +10,7 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/contact"
@@ -448,4 +449,9 @@ func (s *Engine) renameUsernameTx(ctx context.Context, tx pgx.Tx, id, username s
 	}
 
 	return nil
+}
+
+func isUniqueViolation(err error, constraint string) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505" && strings.Contains(pgErr.ConstraintName, constraint)
 }

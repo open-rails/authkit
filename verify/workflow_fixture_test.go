@@ -9,7 +9,6 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/json"
 	"encoding/pem"
 
 	"math/big"
@@ -17,7 +16,6 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
@@ -86,26 +84,6 @@ func signTyped(t *testing.T, signer *jwtkit.RSASigner, typ string, claims jwt.Ma
 		t.Fatal(err)
 	}
 	return token
-}
-
-const testDocumentType = "example.entitlements/v1"
-
-func testSignedDocument(t *testing.T, signer jwtkit.Signer, issuer string) documents.SignedDocument {
-	t.Helper()
-	document, err := documents.Sign(context.Background(), signer, documents.Envelope{
-		Issuer: issuer, Audiences: []string{"resource-b"}, Type: testDocumentType,
-		Payload: json.RawMessage(`{"limit":7}`),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return document
-}
-
-func verifyOptions(issuer string, document documents.SignedDocument) documents.VerifyOptions {
-	return documents.VerifyOptions{
-		Issuer: issuer, Audience: "resource-b", Type: document.Reference.Type, Reference: document.Reference,
-	}
 }
 
 func staticApp(t *testing.T, slug, issuer string) (iam.RemoteApplication, *jwtkit.RSASigner) {

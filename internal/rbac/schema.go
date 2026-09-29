@@ -23,7 +23,6 @@ import (
 type PersonaSpec struct {
 	Permissions        []string // app-defined catalog; AuthKit adds its built-ins
 	RequireMFA         []string // permissions or patterns of the catalog that need MFA
-	CustomRoles        bool
 	APIKeys            bool
 	RemoteApplications bool
 }
@@ -42,7 +41,6 @@ type Persona struct {
 	// Permissions is the complete catalog: app-declared plus built-ins, sorted.
 	Permissions        []iam.Perm
 	Roles              []Role // declared roles (includes flattened) plus owner
-	CustomRoles        bool
 	APIKeys            bool
 	RemoteApplications bool
 }
@@ -110,7 +108,6 @@ func New(personas map[string]PersonaSpec, roles []RoleSpec) (*Schema, error) {
 func (s *Schema) compilePersona(name iam.Persona, spec PersonaSpec) (Persona, error) {
 	p := Persona{
 		Name:               name,
-		CustomRoles:        spec.CustomRoles,
 		APIKeys:            spec.APIKeys,
 		RemoteApplications: spec.RemoteApplications,
 	}
@@ -166,13 +163,10 @@ func (s *Schema) compilePersona(name iam.Persona, spec PersonaSpec) (Persona, er
 }
 
 // builtins returns the permissions AuthKit registers for a persona: members
-// always, roles:manage with CustomRoles, credentials with APIKeys or
-// RemoteApplications, and on root its intrinsic account permissions.
+// always, credentials with APIKeys or RemoteApplications, and on root its
+// intrinsic account permissions.
 func builtins(name iam.Persona, spec PersonaSpec) []iam.Perm {
 	out := []iam.Perm{iam.PermMembersRead(name), iam.PermMembersManage(name)}
-	if spec.CustomRoles {
-		out = append(out, iam.PermRolesManage(name))
-	}
 	if spec.APIKeys || spec.RemoteApplications {
 		out = append(out, iam.PermCredentialsRead(name), iam.PermCredentialsManage(name))
 	}
@@ -321,26 +315,6 @@ func (s *Schema) MFAPermissions() []iam.Perm {
 	return slices.SortedFunc(slices.Values(s.mfa), comparePerm)
 }
 
-// CustomRoleGrantsValid checks the grants of a runtime-defined role: each must
-// match the persona's catalog, and none may be the owner grant.
-func (s *Schema) CustomRoleGrantsValid(persona iam.Persona, grants []string) error {
-	for _, g := range grants {
-		if err := iam.ValidateGrantPattern(g); err != nil {
-			return fmt.Errorf("%w: %w", iam.ErrCustomRoleGrantOutsideCatalog, err)
-		}
-		if ident.Perm(g).Persona() != persona {
-			return fmt.Errorf("custom role grant %q is cross-persona: %w", g, iam.ErrCustomRoleGrantCrossPersona)
-		}
-		if ident.Perm(g) == persona.OwnerGrant() {
-			return fmt.Errorf("custom role grant %q is the owner grant: %w", g, iam.ErrCustomRoleGrantOutsideCatalog)
-		}
-		if err := s.validRoleGrant(persona, g); err != nil {
-			return fmt.Errorf("custom role grant %q is outside catalog: %w", g, iam.ErrCustomRoleGrantOutsideCatalog)
-		}
-	}
-	return nil
-}
-
 // KnownPermission reports whether perm is a concrete permission registered in
 // some persona's catalog.
 func (s *Schema) KnownPermission(perm iam.Perm) bool {
@@ -389,20 +363,14 @@ func (s *Schema) Role(persona iam.Persona, role iam.Role) (Role, bool) {
 	return Role{}, false
 }
 
-// ParseRole resolves a role name read at run time for groups of persona: a
-// catalog role or, when the persona has CustomRoles, any valid custom-role
-// name, whose definition in the group is checked where the role is used.
+// ParseRole resolves a catalog role name of persona read at run time.
 func (s *Schema) ParseRole(persona iam.Persona, name string) (iam.Role, error) {
 	name = strings.ToLower(strings.TrimSpace(name))
-	p, ok := s.personas[persona]
-	if !ok || persona.IsZero() {
+	if _, ok := s.personas[persona]; !ok || persona.IsZero() {
 		return iam.Role{}, fmt.Errorf("unknown persona %q: %w", persona, iam.ErrUnknownGroupPersona)
 	}
 	if r, ok := s.RoleNamed(persona, name); ok {
 		return r.Name, nil
-	}
-	if p.CustomRoles && iam.ValidPermissionSegment(name) {
-		return ident.Role(persona, name), nil
 	}
 	return iam.Role{}, fmt.Errorf("%q is not a role of %q: %w", name, persona, iam.ErrRoleNotAssignable)
 }
@@ -416,20 +384,16 @@ func (s *Schema) RoleNamed(persona iam.Persona, name string) (Role, bool) {
 // that group's persona.
 type Assignment struct {
 	Persona           iam.Persona
-	PermissionGroupID string // scopes custom-role lookups
+	PermissionGroupID string
 	Role              iam.Role
 }
-
-// CustomRoleResolver returns a group's custom role grants, or false if the
-// group defines no such role.
-type CustomRoleResolver func(groupID string, role iam.Role) ([]string, bool)
 
 // ResolveGrants returns the de-duplicated union of grant patterns a subject
 // holds in the group with id target, across its assignments on that group and
 // on root. Root is the widest scope: a root role's persona permissions apply in
 // every group, but root's own `root:` permissions count only in root itself.
 // Unknown personas and roles contribute nothing (fail closed).
-func (s *Schema) ResolveGrants(target string, assignments []Assignment, custom CustomRoleResolver) []string {
+func (s *Schema) ResolveGrants(target string, assignments []Assignment) []string {
 	seen := map[string]bool{}
 	var out []string
 	add := func(a Assignment, grants []string) {
@@ -442,18 +406,8 @@ func (s *Schema) ResolveGrants(target string, assignments []Assignment, custom C
 		}
 	}
 	for _, a := range assignments {
-		p, ok := s.personas[a.Persona]
-		if !ok || a.Role.IsZero() {
-			continue
-		}
-		if r, ok := s.Role(a.Persona, a.Role); ok {
+		if r, ok := s.Role(a.Persona, a.Role); ok && !a.Role.IsZero() {
 			add(a, r.Permissions)
-			continue
-		}
-		if p.CustomRoles && custom != nil {
-			if grants, ok := custom(a.PermissionGroupID, a.Role); ok {
-				add(a, grants)
-			}
 		}
 	}
 	return out

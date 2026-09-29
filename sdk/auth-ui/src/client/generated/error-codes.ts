@@ -18,13 +18,6 @@ export type AuthErrorCode =
   | "api_key_expired"
   | "api_key_invalid"
   | "api_key_revoked"
-  | "application_document_fetch_failed"
-  | "application_document_invalid"
-  | "application_domain_conflict"
-  | "application_domain_invalid"
-  | "application_issuer_conflict"
-  | "application_registration_disabled"
-  | "application_slug_conflict"
   | "auth_required_for_link"
   | "authentication_failed"
   | "avatar_url_invalid"
@@ -40,32 +33,12 @@ export type AuthErrorCode =
   | "confirmation_wrong_token_type"
   | "conflicting_subject"
   | "contact_not_verified"
-  | "custom_role_grant_cross_persona"
-  | "custom_role_grant_outside_catalog"
-  | "custom_role_is_catalog_role"
-  | "custom_role_name_invalid"
-  | "custom_roles_not_supported"
   | "delegated_access_has_roles"
   | "delegated_access_has_user_tier"
   | "delegated_access_wrong_typ"
-  | "delegated_document_unavailable"
   | "delegation_authorizer_unavailable"
   | "delegation_refused"
   | "device_keys_disabled"
-  | "document_audience_mismatch"
-  | "document_digest_collision"
-  | "document_digest_mismatch"
-  | "document_fetch_failed"
-  | "document_issuer_mismatch"
-  | "document_not_found"
-  | "document_payload_too_large"
-  | "document_redirect_rejected"
-  | "document_references_too_large"
-  | "document_type_mismatch"
-  | "document_unauthorized"
-  | "documents_wrong_token_type"
-  | "duplicate_claim"
-  | "duplicate_document_reference"
   | "email_already_verified"
   | "email_delivery_failed"
   | "email_in_use"
@@ -85,11 +58,6 @@ export type AuthErrorCode =
   | "invalid_confirmation"
   | "invalid_credentials"
   | "invalid_delegate_certificate"
-  | "invalid_document_digest"
-  | "invalid_document_envelope"
-  | "invalid_document_reference"
-  | "invalid_document_signature"
-  | "invalid_document_type"
   | "invalid_domain"
   | "invalid_email"
   | "invalid_expiry"
@@ -104,7 +72,6 @@ export type AuthErrorCode =
   | "invalid_remote_application"
   | "invalid_request"
   | "invalid_requested_grant"
-  | "invalid_role"
   | "invalid_service_jwt"
   | "invalid_signature"
   | "invalid_signature_encoding"
@@ -119,8 +86,6 @@ export type AuthErrorCode =
   | "issuer_keys_unavailable"
   | "last_owner"
   | "liveness_unavailable"
-  | "malformed_document_jws"
-  | "malformed_payload"
   | "malformed_permissions"
   | "missing_audience"
   | "missing_delegated_sub"
@@ -170,7 +135,6 @@ export type AuthErrorCode =
   | "remote_application_not_found"
   | "rename_rate_limited"
   | "renames_disabled"
-  | "reserved_document_attribute"
   | "reserved_issuer"
   | "role_assignment_escalation"
   | "role_not_assignable"
@@ -181,18 +145,12 @@ export type AuthErrorCode =
   | "step_up_required"
   | "token_expired"
   | "token_not_yet_valid"
-  | "too_many_document_references"
   | "ttl_exceeds_delegate_certificate"
   | "unauthenticated"
-  | "unknown_document_key"
   | "unknown_group_persona"
   | "unknown_kid"
   | "unknown_provider"
-  | "unknown_role"
-  | "unsupported_document_algorithm"
-  | "unsupported_document_signer"
   | "unsupported_token_typ"
-  | "untrusted_document_issuer"
   | "user_banned"
   | "user_not_found"
   | "user_referenced"
@@ -204,11 +162,9 @@ export type AuthErrorCode =
   | "username_not_allowed"
   | "username_too_long"
   | "username_too_short"
-  | "verification_link_expired"
   | "verification_required"
   | "wallet_already_linked"
   | "wallet_change_requires_unlink"
-  | "wrong_document_jose_type"
 
 export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   "2fa_enrollment_required": 403,
@@ -228,13 +184,6 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   "api_key_expired": 401,
   "api_key_invalid": 401,
   "api_key_revoked": 401,
-  "application_document_fetch_failed": 502,
-  "application_document_invalid": 400,
-  "application_domain_conflict": 409,
-  "application_domain_invalid": 400,
-  "application_issuer_conflict": 409,
-  "application_registration_disabled": 403,
-  "application_slug_conflict": 409,
   "auth_required_for_link": 401,
   "authentication_failed": 401,
   "avatar_url_invalid": 400,
@@ -250,32 +199,12 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   "confirmation_wrong_token_type": 401,
   "conflicting_subject": 401,
   "contact_not_verified": 409,
-  "custom_role_grant_cross_persona": 400,
-  "custom_role_grant_outside_catalog": 400,
-  "custom_role_is_catalog_role": 400,
-  "custom_role_name_invalid": 400,
-  "custom_roles_not_supported": 400,
   "delegated_access_has_roles": 401,
   "delegated_access_has_user_tier": 401,
   "delegated_access_wrong_typ": 401,
-  "delegated_document_unavailable": 503,
   "delegation_authorizer_unavailable": 503,
   "delegation_refused": 403,
   "device_keys_disabled": 403,
-  "document_audience_mismatch": 400,
-  "document_digest_collision": 409,
-  "document_digest_mismatch": 400,
-  "document_fetch_failed": 502,
-  "document_issuer_mismatch": 400,
-  "document_not_found": 404,
-  "document_payload_too_large": 400,
-  "document_redirect_rejected": 502,
-  "document_references_too_large": 400,
-  "document_type_mismatch": 400,
-  "document_unauthorized": 401,
-  "documents_wrong_token_type": 400,
-  "duplicate_claim": 401,
-  "duplicate_document_reference": 400,
   "email_already_verified": 409,
   "email_delivery_failed": 502,
   "email_in_use": 400,
@@ -295,11 +224,6 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   "invalid_confirmation": 401,
   "invalid_credentials": 401,
   "invalid_delegate_certificate": 400,
-  "invalid_document_digest": 400,
-  "invalid_document_envelope": 400,
-  "invalid_document_reference": 400,
-  "invalid_document_signature": 400,
-  "invalid_document_type": 400,
   "invalid_domain": 401,
   "invalid_email": 400,
   "invalid_expiry": 400,
@@ -314,7 +238,6 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   "invalid_remote_application": 400,
   "invalid_request": 400,
   "invalid_requested_grant": 400,
-  "invalid_role": 400,
   "invalid_service_jwt": 401,
   "invalid_signature": 401,
   "invalid_signature_encoding": 400,
@@ -329,8 +252,6 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   "issuer_keys_unavailable": 503,
   "last_owner": 409,
   "liveness_unavailable": 401,
-  "malformed_document_jws": 400,
-  "malformed_payload": 401,
   "malformed_permissions": 401,
   "missing_audience": 401,
   "missing_delegated_sub": 401,
@@ -380,7 +301,6 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   "remote_application_not_found": 404,
   "rename_rate_limited": 429,
   "renames_disabled": 403,
-  "reserved_document_attribute": 400,
   "reserved_issuer": 400,
   "role_assignment_escalation": 403,
   "role_not_assignable": 400,
@@ -391,18 +311,12 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   "step_up_required": 403,
   "token_expired": 401,
   "token_not_yet_valid": 401,
-  "too_many_document_references": 400,
   "ttl_exceeds_delegate_certificate": 400,
   "unauthenticated": 401,
-  "unknown_document_key": 400,
   "unknown_group_persona": 400,
   "unknown_kid": 401,
   "unknown_provider": 400,
-  "unknown_role": 400,
-  "unsupported_document_algorithm": 400,
-  "unsupported_document_signer": 400,
   "unsupported_token_typ": 401,
-  "untrusted_document_issuer": 403,
   "user_banned": 401,
   "user_not_found": 404,
   "user_referenced": 409,
@@ -414,9 +328,7 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   "username_not_allowed": 400,
   "username_too_long": 400,
   "username_too_short": 400,
-  "verification_link_expired": 410,
   "verification_required": 403,
   "wallet_already_linked": 409,
   "wallet_change_requires_unlink": 409,
-  "wrong_document_jose_type": 400,
 }

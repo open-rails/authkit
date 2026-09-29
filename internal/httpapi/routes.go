@@ -136,13 +136,6 @@ func (s *Service) APIRoutes(groups ...iam.RouteGroup) []RouteSpec {
 		{Method: http.MethodPut, Path: "/admin/users/{user_id}/roles/{role}", Group: iam.RouteAdmin, Auth: iam.AuthRequired, Bucket: RLAdminUserSessionsRevokeAll, Handler: required(http.HandlerFunc(s.handleAdminUserRolePUT))},
 		{Method: http.MethodDelete, Path: "/admin/users/{user_id}/roles/{role}", Group: iam.RouteAdmin, Auth: iam.AuthRequired, Bucket: RLAdminUserSessionsRevokeAll, Handler: required(http.HandlerFunc(s.handleAdminUserRoleDELETE))},
 
-		// #264 application self-registration: unauthenticated by design — the
-		// domain proof / per-message JWS is the authentication. Mounted only
-		// when Applications.SelfRegistration is enabled (see filter below).
-		{Method: http.MethodPost, Path: "/applications/register", Group: iam.RouteApplications, Auth: iam.AuthSigned, Bucket: RLApplicationRegister, Handler: http.HandlerFunc(s.handleApplicationRegisterPOST)},
-		// Tier changes are an admin act; mounted regardless of self-registration
-		// (manual registrations carry tiers too).
-
 		// #261 delegated-token mint: authenticated users exchange their session
 		// for a short-lived delegated token aimed at the configured audiences.
 		// Mounted only when Config.Delegated is enabled (see filter below).
@@ -159,9 +152,8 @@ func (s *Service) APIRoutes(groups ...iam.RouteGroup) []RouteSpec {
 	passwordlessEnabled := cfg.PasswordlessLogin
 	registrationEnabled := cfg.RegistrationMode != iam.RegistrationModeClosed
 	twoFactorEnabled := s.svc.TwoFactorEnabled()
-	solanaEnabled := strings.TrimSpace(cfg.SolanaNetwork) != ""
+	solanaEnabled := cfg.SolanaNetwork != ""
 	oidcEnabled := len(s.providers) > 0
-	applicationsEnabled := cfg.ApplicationRegistration
 	delegatedEnabled := len(cfg.Delegated.Audiences) > 0
 	deviceKeysEnabled := cfg.DeviceKeys
 	out := make([]RouteSpec, 0, len(routes))
@@ -191,9 +183,6 @@ func (s *Service) APIRoutes(groups ...iam.RouteGroup) []RouteSpec {
 			continue
 		}
 		if isOIDCPath(route.Path) && !oidcEnabled {
-			continue
-		}
-		if isApplicationsPath(route.Path) && !applicationsEnabled {
 			continue
 		}
 		route.Handler = lang(s.rateLimitedRoute(route.Bucket, route.Handler))
@@ -235,10 +224,6 @@ func isSolanaPath(path string) bool {
 
 func isOIDCPath(path string) bool {
 	return strings.HasPrefix(path, "/oidc/")
-}
-
-func isApplicationsPath(path string) bool {
-	return strings.HasPrefix(path, "/applications/")
 }
 
 // OIDCBrowserRoutes returns browser redirect routes with no mount prefix.

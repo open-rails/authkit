@@ -132,10 +132,6 @@ func (s *Engine) entitlementsProvider() EntitlementsProvider {
 // Settings derives the configuration the HTTP layer reads.
 func (s *Engine) Settings() authflow.Settings {
 	c := s.cfg
-	readers := make([]authflow.DocumentReader, 0, len(c.Documents.Readers))
-	for _, r := range c.Documents.Readers {
-		readers = append(readers, authflow.DocumentReader{ID: r.ID, Domain: r.Domain, Issuer: r.Issuer})
-	}
 	return authflow.Settings{
 		Issuer:                   c.Token.Issuer,
 		AccountIssuers:           append([]string(nil), c.Token.AccountIssuers...),
@@ -145,7 +141,6 @@ func (s *Engine) Settings() authflow.Settings {
 		Schema:                   s.dbSchema(),
 		RequireMFAEnrollment:     c.TwoFactor.Mode == iam.TwoFactorRequired,
 		AllowPrivateNetworkJWKS:  c.Applications.AllowPrivateNetworkJWKS,
-		ApplicationRegistration:  c.Applications.SelfRegistration,
 		DeviceKeys:               c.DeviceKeys.Enabled,
 		PasswordlessLogin:        c.Registration.PasswordlessLogin,
 		SolanaNetwork:            c.SolanaNetwork,
@@ -163,6 +158,5 @@ func (s *Engine) Settings() authflow.Settings {
 			TTLDefault: c.Delegated.TTLDefault,
 			TTLCeiling: c.Delegated.TTLCeiling,
 		},
-		Documents: authflow.DocumentSettings{Readers: readers, AllowRegisteredTier: c.Documents.AllowRegisteredTier},
 	}
 }

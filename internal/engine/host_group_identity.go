@@ -66,6 +66,8 @@ func groupBatch(groupIDs []string) ([]string, error) {
 }
 
 // ListGroups lists groups oldest first. The root group is never listed.
+// q.Ownerless keeps live groups with no owner that counts toward the
+// last-owner rule (requireRemainingOwner).
 func (s *Engine) ListGroups(ctx context.Context, q iam.GroupQuery) (iam.ListPage[iam.Group], error) {
 	var out iam.ListPage[iam.Group]
 	if err := s.requirePG(); err != nil {
@@ -79,11 +81,18 @@ func (s *Engine) ListGroups(ctx context.Context, q iam.GroupQuery) (iam.ListPage
 	if err != nil {
 		return out, err
 	}
+	mfaPersonas := []string{} // never NULL: ANY(NULL) is NULL, not false
+	for _, p := range s.groupSchemaOrDefault().Personas() {
+		if s.ownersNeedMFA(p) {
+			mfaPersonas = append(mfaPersonas, p.String())
+		}
+	}
 	limit := q.Page.PageLimit()
-	rows, err := s.pg.Query(ctx, `SELECT `+groupColumns+` FROM permission_groups
- WHERE persona<>'root' AND ($1='' OR persona=$1) AND ($2 OR deleted_at IS NULL)
- AND ($3='' OR id>$3::uuid)
- ORDER BY id LIMIT $4`, persona.String(), q.IncludeDeleted, after[0], limit+1)
+	rows, err := s.pg.Query(ctx, `SELECT `+groupColumns+` FROM permission_groups g
+ WHERE g.persona<>'root' AND ($1='' OR g.persona=$1) AND (($2 AND NOT $5) OR g.deleted_at IS NULL)
+ AND ($3='' OR g.id>$3::uuid)
+ AND (NOT $5 OR NOT `+usableOwner("g.id", "''", "NULL::uuid", "(g.persona=ANY($6::text[]))")+`)
+ ORDER BY g.id LIMIT $4`, persona.String(), q.IncludeDeleted, after[0], limit+1, q.Ownerless, mfaPersonas)
 	if err != nil {
 		return out, err
 	}
@@ -101,54 +110,6 @@ func (s *Engine) ListGroups(ctx context.Context, q iam.GroupQuery) (iam.ListPage
 	if len(out.Items) > limit {
 		out.Items = out.Items[:limit]
 		out.Next = encodePageCursor(out.Items[limit-1].ID)
-	}
-	return out, nil
-}
-
-// OwnerlessGroups lists the live groups, root aside, that have no owner who
-// counts toward the last-owner rule (requireRemainingOwner), ordered by
-// persona, then id: groups created without one, or left without one by
-// a credential sweep at boot. An owner whose required MFA enrollment is still
-// pending does not count.
-func (s *Engine) OwnerlessGroups(ctx context.Context, p iam.PageRequest) (iam.ListPage[iam.Group], error) {
-	var out iam.ListPage[iam.Group]
-	if err := s.requirePG(); err != nil {
-		return out, err
-	}
-	after, err := decodePageCursor(p.Cursor, 2)
-	if err != nil {
-		return out, err
-	}
-	mfaPersonas := []string{} // never NULL: ANY(NULL) is NULL, not false
-	for _, persona := range s.groupSchemaOrDefault().Personas() {
-		if s.ownersNeedMFA(persona) {
-			mfaPersonas = append(mfaPersonas, persona.String())
-		}
-	}
-	limit := p.PageLimit()
-	rows, err := s.pg.Query(ctx, `SELECT `+groupColumns+` FROM permission_groups g
- WHERE g.persona<>'root' AND g.deleted_at IS NULL
- AND ($2='' OR (g.persona,g.id)>($2,NULLIF($3,'')::uuid))
- AND NOT `+usableOwner("g.id", "''", "NULL::uuid", "(g.persona=ANY($1::text[]))")+`
- ORDER BY g.persona,g.id LIMIT $4`, mfaPersonas, after[0], after[1], limit+1)
-	if err != nil {
-		return out, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		g, err := scanGroup(rows)
-		if err != nil {
-			return out, err
-		}
-		out.Items = append(out.Items, g)
-	}
-	if err := rows.Err(); err != nil {
-		return out, err
-	}
-	if len(out.Items) > limit {
-		out.Items = out.Items[:limit]
-		last := out.Items[limit-1]
-		out.Next = encodePageCursor(last.Persona.String(), last.ID)
 	}
 	return out, nil
 }

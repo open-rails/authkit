@@ -52,14 +52,10 @@ func NewRoles(opts ...PersonaOption) *Roles {
 type PersonaOption uint8
 
 const (
-	// CustomRoles lets group owners define roles at run time, composed from
-	// the persona's permissions (Client.DefineGroupRole). It registers
-	// Roles.Manage.
-	CustomRoles PersonaOption = iota + 1
 	// APIKeys mounts the group API-key routes. It registers Credentials.
-	APIKeys
-	// RemoteApplications mounts the group remote-application routes. It
-	// registers Credentials.
+	APIKeys PersonaOption = iota + 1
+	// RemoteApplications lets the persona's groups control remote
+	// applications (Client.UpsertRemoteApplication). It registers Credentials.
 	RemoteApplications
 )
 
@@ -86,8 +82,6 @@ func (r *Roles) persona(p iam.Persona, opts []PersonaOption) *PersonaDef {
 	d := &PersonaDef{Persona: p, Owner: p.OwnerRole(), roles: r, declared: map[iam.Perm]bool{}}
 	for _, o := range opts {
 		switch o {
-		case CustomRoles:
-			d.spec.CustomRoles = true
 		case APIKeys:
 			d.spec.APIKeys = true
 		case RemoteApplications:
@@ -97,7 +91,6 @@ func (r *Roles) persona(p iam.Persona, opts []PersonaOption) *PersonaDef {
 		}
 	}
 	d.Members = MemberPerms{Resource: d.Resource("members"), Read: iam.PermMembersRead(p), Manage: iam.PermMembersManage(p)}
-	d.Roles = RolePerms{Resource: d.Resource("roles"), Manage: iam.PermRolesManage(p)}
 	d.Credentials = CredentialPerms{Resource: d.Resource("credentials"), Read: iam.PermCredentialsRead(p), Manage: iam.PermCredentialsManage(p)}
 	r.personas = append(r.personas, d)
 	return d
@@ -109,15 +102,14 @@ func (r *Roles) errorf(format string, args ...any) {
 
 // PersonaDef is one declared persona: the permissions and roles of its
 // groups. AuthKit registers the built-in permission fields: Members always,
-// Roles with CustomRoles, Credentials with APIKeys or RemoteApplications. A
-// role holding one that is not registered fails New.
+// Credentials with APIKeys or RemoteApplications. A role holding one that is
+// not registered fails New.
 type PersonaDef struct {
 	Persona iam.Persona
 	// Owner is the role every persona has: it holds All(). A group's creator
 	// can be seeded with it (iam.NewGroup.Owner).
 	Owner       iam.Role
 	Members     MemberPerms
-	Roles       RolePerms
 	Credentials CredentialPerms
 
 	roles    *Roles
@@ -146,7 +138,7 @@ func (p *PersonaDef) Permission(resource, action string) iam.Perm {
 }
 
 func (p *PersonaDef) builtIn(perm iam.Perm) bool {
-	builtIns := []iam.Perm{p.Members.Read, p.Members.Manage, p.Roles.Manage, p.Credentials.Read, p.Credentials.Manage}
+	builtIns := []iam.Perm{p.Members.Read, p.Members.Manage, p.Credentials.Read, p.Credentials.Manage}
 	if p.Persona == iam.RootPersona {
 		builtIns = append(builtIns, iam.IntrinsicRootPermissions()...)
 	}
@@ -237,17 +229,11 @@ type MemberPerms struct {
 	Manage iam.Perm // give someone a role, change it or take it away; invites
 }
 
-// RolePerms is the custom-role permission, registered with CustomRoles.
-type RolePerms struct {
-	Resource
-	Manage iam.Perm // define and delete the group's custom roles
-}
-
 // CredentialPerms are the credential permissions, registered with APIKeys or
 // RemoteApplications.
 type CredentialPerms struct {
 	Resource
-	Read   iam.Perm // list the group's API keys and remote applications
+	Read   iam.Perm // list the group's API keys
 	Manage iam.Perm // mint, revoke and re-role them
 }
 

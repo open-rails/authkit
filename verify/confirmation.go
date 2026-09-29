@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/jwtkit"
@@ -78,4 +79,55 @@ func peerCertificateSHA256(r *http.Request) *[32]byte {
 	}
 	sum := jwtkit.CertificateSHA256(r.TLS.PeerCertificates[0].Raw)
 	return &sum
+}
+
+var errMalformedClaims = errors.New("malformed token payload")
+
+// rawTopLevelClaim reads one claim off the already-signature-verified JWT
+// payload strictly enough to preserve duplicate-key failures that MapClaims
+// cannot.
+func rawTopLevelClaim(token, key string) (json.RawMessage, bool, error) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return nil, false, errMalformedClaims
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil, false, errMalformedClaims
+	}
+	dec := json.NewDecoder(bytes.NewReader(payload))
+	tok, err := dec.Token()
+	if err != nil || tok != json.Delim('{') {
+		return nil, false, errMalformedClaims
+	}
+	var raw json.RawMessage
+	present := false
+	for dec.More() {
+		keyToken, err := dec.Token()
+		if err != nil {
+			return nil, false, errMalformedClaims
+		}
+		name, ok := keyToken.(string)
+		if !ok {
+			return nil, false, errMalformedClaims
+		}
+		var value json.RawMessage
+		if err := dec.Decode(&value); err != nil {
+			return nil, false, errMalformedClaims
+		}
+		if name == key {
+			if present {
+				return nil, true, errMalformedClaims
+			}
+			present = true
+			raw = value
+		}
+	}
+	if tok, err = dec.Token(); err != nil || tok != json.Delim('}') {
+		return nil, false, errMalformedClaims
+	}
+	if err := dec.Decode(&struct{}{}); err != io.EOF {
+		return nil, false, errMalformedClaims
+	}
+	return raw, present, nil
 }

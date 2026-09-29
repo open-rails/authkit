@@ -41,7 +41,11 @@ const (
 // test configs stay constructible through newWithKeys.
 func normalizeConfig(cfg Config) (Config, error) {
 	cfg.Token.Issuer = strings.TrimSpace(cfg.Token.Issuer)
-	cfg.SolanaNetwork = strings.TrimSpace(cfg.SolanaNetwork)
+	switch cfg.SolanaNetwork {
+	case "", iam.SolanaMainnet, iam.SolanaTestnet, iam.SolanaDevnet:
+	default:
+		return Config{}, fmt.Errorf("authkit: invalid SolanaNetwork %q (want mainnet, testnet or devnet)", cfg.SolanaNetwork)
+	}
 
 	// BaseURL defaults from a well-formed Issuer URL.
 	cfg.Frontend.BaseURL = strings.TrimSpace(cfg.Frontend.BaseURL)
@@ -135,9 +139,6 @@ func normalizeConfig(cfg Config) (Config, error) {
 	}
 
 	if cfg.Delegated, err = normalizeDelegatedConfig(cfg.Delegated); err != nil {
-		return Config{}, err
-	}
-	if cfg.Documents, err = normalizeDocumentsConfig(cfg.Documents); err != nil {
 		return Config{}, err
 	}
 
@@ -247,9 +248,6 @@ func newClient(norm Config, keys jwtkit.KeySource, gs *rbac.Schema, deps Deps) (
 		s.Close()
 		return nil, err
 	}
-	if s.appHTTPClient == nil {
-		s.appHTTPClient = newApplicationsHTTPClient(norm.Applications.AllowPrivateNetworkJWKS, nil)
-	}
 	if err := s.initRiver(deps.River); err != nil {
 		s.Close()
 		return nil, err
@@ -332,16 +330,6 @@ func newEngine(cfg Config, deps Deps) (_ *Engine, err error) {
 	gs, err := norm.Roles.schema()
 	if err != nil {
 		return nil, err
-	}
-
-	// #264: application self-registration needs a declared org persona to hang
-	// service-owned orgs off; a bad reference fails construction, not the
-	// first registration.
-	if norm.Applications.SelfRegistration {
-		persona := norm.Applications.OrgPersona
-		if _, ok := gs.Persona(persona); !ok || persona == iam.RootPersona {
-			return nil, fmt.Errorf("authkit: Applications.OrgPersona %q is not a declared non-root persona", persona)
-		}
 	}
 
 	// Deps.Postgres MAY be nil at the core layer (verify-only construction or

@@ -36,7 +36,6 @@ export type UsernamePolicy = {
 }
 
 export type PasswordPolicy = {
-  login: boolean
   min_length: number
   max_length: number
   require_uppercase: boolean
@@ -71,7 +70,6 @@ export type TwoFactorStatus = {
   phone_number?: string
   default_factor?: TwoFactorFactor
   factors?: TwoFactorFactor[]
-  available_factors?: TwoFactorFactor[]
   allowed_methods?: string[]
   backup_codes_remaining?: number
 }
@@ -149,14 +147,12 @@ export type UserProfile = {
   has_password: boolean
   solana_linked_account?: SolanaLinkedAccount
   linked_providers?: string[]
-  enabled_providers?: string[]
   roles: string[]
   entitlements: string[]
   avatar_url?: string
   preferred_language?: string
   created_at?: string
   naming: NamingState
-  availability?: ActionAvailability[]
   security: UserSecurity
 }
 
@@ -194,7 +190,6 @@ export type RemovedMfaRole = {
 }
 
 export type PermissionSet = {
-  object: "permission_set"
   group_id: string
   permissions: string[]
 }

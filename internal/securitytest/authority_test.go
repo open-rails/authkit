@@ -5,12 +5,10 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
-	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -40,14 +38,13 @@ func newSecurityModel(root ...authkit.PersonaOption) securityModel {
 	r.Root.Role("superadmin", users.Read, users.Ban, users.Delete, users.Manage, users.Invite)
 	r.Root.Role("moderator", users.Ban)
 	r.Root.Role("admin", users.Ban, users.Manage, users.Read)
-	org := r.Persona("org", authkit.RemoteApplications, authkit.APIKeys, authkit.CustomRoles)
+	org := r.Persona("org", authkit.RemoteApplications, authkit.APIKeys)
 	catalogRead := org.Permission("catalog", "read")
 	org.Permission("settings", "edit")
 	org.Role("member", catalogRead)
 	memberAdmin := org.Role("member-admin", org.Members.Manage, org.Members.Read)
 	credentialAdmin := org.Role("credential-admin", org.Credentials.All())
-	roleAdmin := org.Role("role-admin", org.Roles.All())
-	org.Role("manager", catalogRead, memberAdmin, credentialAdmin, roleAdmin)
+	org.Role("manager", catalogRead, memberAdmin, credentialAdmin)
 	return securityModel{Roles: r, org: org, catalogRead: catalogRead}
 }
 
@@ -131,34 +128,33 @@ func TestSecurityRemoteApplicationTakeover(t *testing.T) {
 	group, err := h.createOrg(ctx, owner)
 	require.NoError(t, err)
 	h.grant(group, manager, "manager")
-	ownerToken, managerToken := h.login(owner).AccessToken, h.login(manager).AccessToken
-	base := "/groups/" + group.ID() + "/remote-applications"
-	register := func(token, slug, issuer, key string, enabled bool) response {
-		return h.post(base, map[string]any{"slug": slug, "issuer": issuer, "public_keys": []map[string]string{{"public_key_pem": key}}, "enabled": enabled}, token)
+	ownerActor, managerActor := iam.UserActor(owner.id), iam.UserActor(manager.id)
+	register := func(actor iam.Actor, slug, issuer, key string, enabled bool) error {
+		_, err := h.upsertGroupApp(actor, group, slug, issuer, key, enabled)
+		return err
 	}
 	ownedKey := publicKeyPEM(t)
-	resp := register(ownerToken, "owner-app", "https://owner-app.security.test", ownedKey, true)
-	require.Equal(t, http.StatusCreated, resp.status, resp.String())
-	resp = h.do(request{method: http.MethodPut, path: base + "/owner-app/roles/owner", token: ownerToken})
-	require.Equal(t, http.StatusOK, resp.status, resp.String())
+	require.NoError(t, register(ownerActor, "owner-app", "https://owner-app.security.test", ownedKey, true))
+	ownerApp, err := h.auth.RemoteApplication(ctx, "https://owner-app.security.test")
+	require.NoError(t, err)
+	grantRole(t, h.auth, group, iam.RemoteApplicationSubject(ownerApp.ID), "owner")
 
 	for _, tc := range []struct {
 		name   string
-		attack func() response
+		attack func() error
 	}{
-		{"swap the owner application's keys", func() response {
-			return register(managerToken, "owner-app", "https://owner-app.security.test", publicKeyPEM(t), true)
+		{"swap the owner application's keys", func() error {
+			return register(managerActor, "owner-app", "https://owner-app.security.test", publicKeyPEM(t), true)
 		}},
-		{"disable the owner application", func() response {
-			return register(managerToken, "owner-app", "https://owner-app.security.test", ownedKey, false)
+		{"disable the owner application", func() error {
+			return register(managerActor, "owner-app", "https://owner-app.security.test", ownedKey, false)
 		}},
-		{"delete the owner application", func() response {
-			return h.do(request{method: http.MethodDelete, path: base + "/owner-app", token: managerToken})
+		{"delete the owner application", func() error {
+			return h.auth.DeleteRemoteApplication(ctx, managerActor, group, "owner-app")
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			resp := tc.attack()
-			require.Equal(t, http.StatusForbidden, resp.status, resp.String())
+			requireRefused(t, tc.attack())
 			app, err := h.auth.RemoteApplication(ctx, "https://owner-app.security.test")
 			require.NoError(t, err)
 			require.True(t, app.Enabled)
@@ -167,21 +163,17 @@ func TestSecurityRemoteApplicationTakeover(t *testing.T) {
 		})
 	}
 	t.Run("control: manager operates an application within their authority", func(t *testing.T) {
-		resp := register(managerToken, "member-app", "https://member-app.security.test", publicKeyPEM(t), true)
-		require.Equal(t, http.StatusCreated, resp.status, resp.String())
-		resp = register(managerToken, "member-app", "https://member-app.security.test", publicKeyPEM(t), true)
-		require.Equal(t, http.StatusCreated, resp.status, resp.String())
-		resp = h.do(request{method: http.MethodDelete, path: base + "/member-app", token: managerToken})
-		require.Equal(t, http.StatusOK, resp.status, resp.String())
+		require.NoError(t, register(managerActor, "member-app", "https://member-app.security.test", publicKeyPEM(t), true))
+		require.NoError(t, register(managerActor, "member-app", "https://member-app.security.test", publicKeyPEM(t), true))
+		require.NoError(t, h.auth.DeleteRemoteApplication(ctx, managerActor, group, "member-app"))
 	})
 	t.Run("control: owner rotates the owner application's keys", func(t *testing.T) {
-		resp := register(ownerToken, "owner-app", "https://owner-app.security.test", publicKeyPEM(t), true)
-		require.Equal(t, http.StatusCreated, resp.status, resp.String())
+		require.NoError(t, register(ownerActor, "owner-app", "https://owner-app.security.test", publicKeyPEM(t), true))
 	})
 }
 
 // TestSecurityRoleEscalation keeps the no-escalation rules for direct grants,
-// custom roles, invite links and API keys under the embedded HTTP surface.
+// invite links and API keys under the embedded HTTP surface.
 func TestSecurityRoleEscalation(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 	ctx := context.Background()
@@ -205,10 +197,6 @@ func TestSecurityRoleEscalation(t *testing.T) {
 		{"manager grants a member owner", request{method: http.MethodPut, path: base + "/members/" + member.id + "/roles/owner", token: managerToken}, false},
 		{"manager demotes the owner", request{method: http.MethodPut, path: base + "/members/" + owner.id + "/roles/member", token: managerToken}, false},
 		{"manager removes the owner", request{method: http.MethodDelete, path: base + "/members/" + owner.id, token: managerToken}, false},
-		{"manager defines a custom role wider than their own", request{method: http.MethodPost, path: base + "/roles", token: managerToken,
-			body: map[string]any{"role": "superuser", "permissions": []string{"org:*"}}}, false},
-		{"manager defines a custom role with root permissions", request{method: http.MethodPost, path: base + "/roles", token: managerToken,
-			body: map[string]any{"role": "rooted", "permissions": []string{"root:users:ban"}}}, false},
 		{"manager mints an owner invite link", request{method: http.MethodPost, path: base + "/invites/links", token: managerToken,
 			body: map[string]any{"role": "owner"}}, false},
 		{"manager mints an owner API key", request{method: http.MethodPost, path: base + "/api-keys", token: managerToken,
@@ -352,69 +340,47 @@ func TestSecurityRevokeAboveOwnRole(t *testing.T) {
 	t.Run("control: manager revokes what they could issue", func(t *testing.T) {
 		key := h.issue(base+"/api-keys", managerToken, map[string]any{"name": "member-key", "role": "member"})
 		link := h.issue(base+"/invites/links", managerToken, map[string]any{"role": "member"})
-		require.Equal(t, http.StatusOK, remove(base+"/api-keys/"+key.ID).status)
-		require.Equal(t, http.StatusOK, remove(base+"/invites/links/"+link.ID).status)
+		require.Equal(t, http.StatusNoContent, remove(base+"/api-keys/"+key.ID).status)
+		require.Equal(t, http.StatusNoContent, remove(base+"/invites/links/"+link.ID).status)
 		require.False(t, liveKey(t, h, group, key.ID))
 		require.False(t, liveLink(t, h, group, link.ID))
 	})
 }
 
 // TestSecurityRemoteApplicationIssuerSquat: a group must not bind this
-// deployment's own or its identity providers' issuers, and naming an
-// unregistered issuer first must not keep it from the domain that controls it.
+// deployment's own or its identity providers' issuers, nor an issuer another
+// group already holds.
 func TestSecurityRemoteApplicationIssuerSquat(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC), withEngine(func(c *authkit.Config) {
-		c.Applications = authkit.ApplicationsConfig{SelfRegistration: true, AllowPrivateNetworkJWKS: true, OrgPersona: orgPersona}
 		c.Identity.Providers = []authprovider.Provider{authprovider.GitHub("squat-client", "squat-secret")}
 	}))
-	ctx := context.Background()
 	squatter := h.newAccount("squatter")
-	_, base := h.newOrg(squatter)
-	token := h.login(squatter).AccessToken
-	register := func(slug, iss string) response {
-		return h.post(base+"/remote-applications", map[string]any{"slug": slug, "issuer": iss,
-			"public_keys": []map[string]string{{"public_key_pem": publicKeyPEM(t)}}, "enabled": true}, token)
+	group, _ := h.newOrg(squatter)
+	register := func(actor account, group iam.GroupRef, slug, iss string) error {
+		_, err := h.upsertGroupApp(iam.UserActor(actor.id), group, slug, iss, publicKeyPEM(t), true)
+		return err
 	}
 	for i, reserved := range []string{issuer + "/", strings.ToUpper(issuer), "https://github.com/login/oauth"} {
-		resp := register(fmt.Sprintf("reserved-%d", i), reserved)
-		require.Equal(t, http.StatusBadRequest, resp.status, "%s: %s", reserved, resp)
+		require.ErrorIs(t, register(squatter, group, fmt.Sprintf("reserved-%d", i), reserved), iam.ErrReservedIssuer, reserved)
 	}
 
 	const victimIssuer = "https://victim-app.security.test"
-	resp := register("squatted-app", victimIssuer)
-	require.Equal(t, http.StatusCreated, resp.status, resp.String())
-	doc, err := json.Marshal(iam.ApplicationDocument{Slug: unique("victim"), Issuer: victimIssuer,
-		PublicKeys: []iam.RemoteApplicationKey{{PublicKeyPEM: publicKeyPEM(t)}}})
-	require.NoError(t, err)
-	domain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != iam.ApplicationWellKnownPath {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(doc)
-	}))
-	t.Cleanup(domain.Close)
-	resp = h.post("/applications/register", map[string]string{"domain": domain.URL}, "")
-	require.Equal(t, http.StatusCreated, resp.status, "the squatter kept the issuer from its domain: %s", resp)
-	app, err := h.auth.RemoteApplication(ctx, victimIssuer)
-	require.NoError(t, err)
-	require.Equal(t, iam.ApplicationTrustRootDomain, app.TrustRoot)
-	resp = register("squatted-again", victimIssuer)
-	require.Equal(t, http.StatusConflict, resp.status, resp.String())
+	require.NoError(t, register(squatter, group, "squatted-app", victimIssuer))
+	rival := h.newAccount("squatrival")
+	rivalGroup, _ := h.newOrg(rival)
+	require.ErrorIs(t, register(rival, rivalGroup, "rival-app", victimIssuer), iam.ErrRemoteApplicationIssuerConflict)
 }
 
 // TestSecurityAccountPeerRemoteApplication: a deployment sharing this account
 // store delegates its users here as a system-registered remote application.
-// Its delegated subjects name accounts in the shared store, so no group or
-// domain may register its issuer; its native user tokens, signed by the same
+// Its delegated subjects name accounts in the shared store, so no group may
+// register its issuer; its native user tokens, signed by the same
 // keys, never authenticate here in either role; and registering it never
 // shadows this deployment's own issuer.
 func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 	const peerIssuer = "https://peer.security.test"
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC), withEngine(func(c *authkit.Config) {
 		c.Token.AccountIssuers = []string{issuer, peerIssuer}
-		c.Applications = authkit.ApplicationsConfig{SelfRegistration: true, AllowPrivateNetworkJWKS: true, OrgPersona: orgPersona}
 		c.Identity.Providers = []authprovider.Provider{authprovider.GitHub("peer-client", "peer-secret")}
 	}))
 	ctx := context.Background()
@@ -425,24 +391,13 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 	peerPEM := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
 	keys := []iam.RemoteApplicationKey{{KID: "peer-kid", PublicKeyPEM: peerPEM}}
 
-	t.Run("no group or domain may claim the peer issuer", func(t *testing.T) {
+	t.Run("no group may claim the peer issuer", func(t *testing.T) {
 		squatter := h.newAccount("peersquatter")
-		_, base := h.newOrg(squatter)
+		group, _ := h.newOrg(squatter)
 		for _, iss := range []string{peerIssuer, strings.ToUpper(peerIssuer) + "/"} {
-			resp := h.post(base+"/remote-applications", map[string]any{"slug": unique("peer"), "issuer": iss,
-				"public_keys": []map[string]string{{"public_key_pem": publicKeyPEM(t)}}, "enabled": true}, h.login(squatter).AccessToken)
-			require.Equal(t, http.StatusBadRequest, resp.status, "%s: %s", iss, resp)
+			_, err := h.upsertGroupApp(iam.UserActor(squatter.id), group, unique("peer"), iss, publicKeyPEM(t), true)
+			require.ErrorIs(t, err, iam.ErrReservedIssuer, iss)
 		}
-		doc, err := json.Marshal(iam.ApplicationDocument{Slug: unique("peerdomain"), Issuer: peerIssuer,
-			PublicKeys: []iam.RemoteApplicationKey{{PublicKeyPEM: publicKeyPEM(t)}}})
-		require.NoError(t, err)
-		domain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write(doc)
-		}))
-		t.Cleanup(domain.Close)
-		resp := h.post("/applications/register", map[string]string{"domain": domain.URL}, "")
-		require.GreaterOrEqual(t, resp.status, 400, resp.String())
 		_, err = h.auth.RemoteApplication(ctx, peerIssuer)
 		require.ErrorIs(t, err, iam.ErrRemoteApplicationNotFound)
 	})
@@ -521,7 +476,7 @@ func TestSecurityGroupRoleIDsAreCanonical(t *testing.T) {
 	token := h.login(manager).AccessToken
 	key := h.issue(base+"/api-keys", token, map[string]any{"name": "ci", "role": "member"})
 	link := h.issue(base+"/invites/links", token, map[string]any{"role": "member"})
-	app := h.registerApp(base, token, "p4-app", "member")
+	app := h.registerApp(group, manager, "p4-app", "member")
 	founderKey := h.issue(base+"/api-keys", h.login(founder).AccessToken, map[string]any{"name": "founder", "role": "member"})
 
 	resp := h.do(request{method: http.MethodDelete, path: base + "/members/" + strings.ToUpper(manager.id), token: token})
@@ -536,13 +491,13 @@ func TestSecurityGroupRoleIDsAreCanonical(t *testing.T) {
 	})
 }
 
-// ownerlessGroups pages through Client.OwnerlessGroups one group at a time.
+// ownerlessGroups pages through the ownerless groups one group at a time.
 func (h *host) ownerlessGroups() []string {
 	h.t.Helper()
 	var ids []string
-	page := iam.PageRequest{Limit: 1}
+	q := iam.GroupQuery{Ownerless: true, Page: iam.PageRequest{Limit: 1}}
 	for {
-		out, err := h.auth.OwnerlessGroups(context.Background(), page)
+		out, err := h.auth.ListGroups(context.Background(), q)
 		require.NoError(h.t, err)
 		for _, g := range out.Items {
 			ids = append(ids, g.ID)
@@ -550,7 +505,7 @@ func (h *host) ownerlessGroups() []string {
 		if out.Next == "" {
 			return ids
 		}
-		page.Cursor = out.Next
+		q.Page.Cursor = out.Next
 	}
 }
 
@@ -558,16 +513,16 @@ func (h *host) ownerlessGroups() []string {
 // registered never stands in for that user as a group's owner, since its
 // authority ends with theirs. The last human owner cannot delete themselves,
 // be deleted or be banned while only their own application co-owns the
-// group; OwnerlessGroups lists groups that have no owner.
+// group; ListGroups with GroupQuery.Ownerless lists groups that have no owner.
 func TestSecurityOwnApplicationIsNoReplacementOwner(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 	ctx := context.Background()
 	founder := h.newAccount("r1founder")
-	group, base := h.newOrg(founder)
+	group, _ := h.newOrg(founder)
 	g, err := h.auth.Group(ctx, group)
 	require.NoError(t, err)
 	token := h.login(founder).AccessToken
-	app := h.registerApp(base, token, "r1-app", "owner")
+	app := h.registerApp(group, founder, "r1-app", "owner")
 
 	resp := h.do(request{method: http.MethodDelete, path: "/user", body: map[string]string{"password": password}, token: token})
 	require.Equal(t, http.StatusConflict, resp.status, "the last human owner deleted itself: %s", resp)
@@ -577,7 +532,7 @@ func TestSecurityOwnApplicationIsNoReplacementOwner(t *testing.T) {
 	require.Equal(t, orgPersona.OwnerRole(), h.roleOf(group, iam.RemoteApplicationSubject(app.ID)))
 	require.NotContains(t, h.ownerlessGroups(), g.ID)
 
-	t.Run("OwnerlessGroups lists groups without an owner", func(t *testing.T) {
+	t.Run("Ownerless lists groups without an owner", func(t *testing.T) {
 		var empty []string
 		for range 2 {
 			created, err := h.auth.CreateGroup(ctx, iam.NewGroup{Persona: orgPersona})

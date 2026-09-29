@@ -17,16 +17,9 @@ const (
 	RouteAdmin            RouteGroup = "admin"
 	RoutePermissionGroups RouteGroup = "permission_groups"
 	RouteBrowserOIDC      RouteGroup = "browser_oidc"
-	// RouteApplications is the application self-registration surface
-	// (register / rotate / repoint), mounted only with
-	// Config.Applications.SelfRegistration.
-	RouteApplications RouteGroup = "applications"
 	// RouteDelegated is the delegated-token mint surface (POST
 	// /delegated/token), mounted only when Config.Delegated declares audiences.
 	RouteDelegated RouteGroup = "delegated"
-	// RouteDocuments is the published signed-document surface at
-	// DocumentsPath, mounted only when document providers are configured.
-	RouteDocuments RouteGroup = "documents"
 )
 
 // RouteAuthTier is the authentication a route enforces before its handler runs.
@@ -37,7 +30,6 @@ const (
 	AuthOptional   RouteAuthTier = "optional"   // principal used when present
 	AuthRequired   RouteAuthTier = "required"   // valid principal
 	AuthPermission RouteAuthTier = "permission" // valid principal holding Route.Permission
-	AuthSigned     RouteAuthTier = "signed"     // per-message proof (domain fetch / JWS)
 )
 
 // Route is one mounted endpoint. Path is the full net/http pattern path
@@ -51,13 +43,9 @@ type Route struct {
 	Permission string // `<persona>` stands for the group's persona
 }
 
-const (
-	// JWKSPath serves the issuer's public signing keys beneath the issuer's
-	// path (the mount's BasePath), so verifiers derive it: issuer + JWKSPath.
-	JWKSPath = "/.well-known/jwks.json"
-	// DocumentsPath is the published-document surface, beside JWKSPath.
-	DocumentsPath = "/.well-known/authkit/documents/{digest}"
-)
+// JWKSPath serves the issuer's public signing keys beneath the issuer's path
+// (the mount's BasePath), so verifiers derive it: issuer + JWKSPath.
+const JWKSPath = "/.well-known/jwks.json"
 
 const (
 	// RefreshCookieName is the refresh cookie on HTTPS deployments. Browsers

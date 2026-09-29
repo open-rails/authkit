@@ -11,7 +11,7 @@ import (
 var ErrUnknownPermission = errors.New("iam: unknown permission")
 
 // ValidPermissionSegment reports whether s is one permission segment (a
-// persona, resource, action or custom role name): [a-z][a-z0-9-]*.
+// persona, resource, action or role name): [a-z][a-z0-9-]*.
 func ValidPermissionSegment(s string) bool {
 	if s == "" || s[0] < 'a' || s[0] > 'z' {
 		return false

@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// credentialFixture is an org persona with API keys and custom roles, the
+// credentialFixture is an org persona with API keys, the
 // group org/acme owned by founder, and a manager role that issues members.
 type credentialFixture struct {
 	t       *testing.T
@@ -35,7 +35,7 @@ func credentialConfig(roles RoleConfig) Config {
 
 func credentialRoles() RoleConfig {
 	return RoleConfig{
-		Personas: map[string]Persona{"org": {Permissions: []string{"org:catalog:read"}, APIKeys: true, CustomRoles: true}},
+		Personas: map[string]Persona{"org": {Permissions: []string{"org:catalog:read"}, APIKeys: true}},
 		Roles: []Role{
 			{Persona: "org", Name: "member", Permissions: []string{"org:catalog:read"}},
 			{Persona: "org", Name: "manager", Permissions: []string{"org:members:manage", "org:credentials:manage", "org:catalog:read"}},
@@ -195,7 +195,7 @@ func TestCredentialIssuance(t *testing.T) {
 	_, _, err = f.e.MintAPIKey(ctx, iam.UserActor(member.ID), f.acme, iam.NewAPIKey{Name: "member", Role: f.role("member")})
 	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 	_, _, err = f.e.MintAPIKey(ctx, iam.SystemActor(), f.acme, iam.NewAPIKey{Name: "unknown", Role: f.role("nobody")})
-	require.ErrorIs(t, err, errmodel.ErrUnknownRole, "the system skips authority, never role validity")
+	require.ErrorIs(t, err, iam.ErrRoleNotAssignable, "the system skips authority, never role validity")
 
 	// Machine actors never issue credentials, whatever authority they hold.
 	managerKey, _, err := f.e.MintAPIKey(ctx, iam.UserActor(f.founder.ID), f.acme, iam.NewAPIKey{Name: "manager-key", Role: f.role("manager")})
@@ -391,12 +391,6 @@ func TestNoCredentialOutlivesItsIssuer(t *testing.T) {
 		{"root role lost", func(t *testing.T, c iam.Subject) { grantRole(t, f.e, iam.RootGroup(), c, "org-admin") }, func(t *testing.T, c iam.Subject) {
 			revokeRole(t, f.e, iam.RootGroup(), c, "org-admin")
 		}},
-		{"custom role narrowed", func(t *testing.T, c iam.Subject) {
-			f.defineCustomRole(t, "keeper", "org:members:manage", "org:credentials:manage", "org:catalog:read")
-			grantRole(t, f.e, f.acme, c, "keeper")
-		}, func(t *testing.T, _ iam.Subject) {
-			f.defineCustomRole(t, "keeper", "org:catalog:read")
-		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			creator := f.user("creator")
@@ -418,13 +412,6 @@ func TestNoCredentialOutlivesItsIssuer(t *testing.T) {
 		requireCredentialsCovered(t, f.e)
 		require.ErrorIs(t, f.e.consumeRegistrationInvite(ctx, "lost@credentials.test", f.user("registrant").ID, plain.Code), errmodel.ErrAccountRegistrationInviteNotFound)
 	})
-}
-
-func (f *credentialFixture) defineCustomRole(t *testing.T, name string, perms ...string) {
-	t.Helper()
-	require.NoError(t, f.e.withGroupMutation(t.Context(), iam.SystemActor(), f.acme, func(st *permissionGroupStore, g groupTarget) error {
-		return st.UpsertCustomRole(t.Context(), g.ID, f.role(name), perms)
-	}))
 }
 
 // L9: a bootstrap that demotes a root admin revokes what they issued.
@@ -449,8 +436,7 @@ func TestBootstrapDemotionRevokesCredentials(t *testing.T) {
 	require.NotNil(t, keys.Items[0].RevokedAt, "revoked in storage, not only refused")
 }
 
-// L9: New re-checks every credential when the role catalog changed, and
-// refuses a catalog role that shadows a stored custom role.
+// L9: New re-checks every credential when the role catalog changed.
 func TestRoleCatalogChangesAtBoot(t *testing.T) {
 	f := newCredentialFixture(t)
 	ctx := t.Context()
@@ -486,10 +472,4 @@ func TestRoleCatalogChangesAtBoot(t *testing.T) {
 	f.requireDead(t, c)
 	_, err = e.ResolveAPIKey(ctx, control.token)
 	require.NoError(t, err, "the owner's credentials survive")
-
-	f.defineCustomRole(t, "auditor", "org:catalog:read")
-	shadowing := credentialRoles()
-	shadowing.Roles = append(shadowing.Roles, Role{Persona: "org", Name: "auditor", Permissions: []string{"org:*"}})
-	_, err = boot(shadowing)
-	require.ErrorContains(t, err, "org/auditor")
 }

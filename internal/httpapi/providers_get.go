@@ -55,7 +55,6 @@ type AuthUsernameCapabilities struct {
 // AuthPasswordCapabilities publishes everything a browser needs to
 // pre-validate a new password except the blocklist itself.
 type AuthPasswordCapabilities struct {
-	Login            bool `json:"login"`
 	MinLength        int  `json:"min_length"`
 	MaxLength        int  `json:"max_length"`
 	RequireUppercase bool `json:"require_uppercase"`
@@ -115,7 +114,6 @@ func (s *Service) Capabilities() AuthCapabilities {
 			Pattern:   iam.UsernamePattern,
 		},
 		Password: AuthPasswordCapabilities{
-			Login:            true,
 			MinLength:        cfg.Password.MinLength,
 			MaxLength:        cfg.Password.MaxLength,
 			RequireUppercase: cfg.Password.RequireUppercase,

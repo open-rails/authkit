@@ -78,8 +78,6 @@ func New(client Backend, verifier *verify.Verifier, hcfg Config) (*Service, erro
 	switch {
 	case hcfg.Limiter != nil:
 		s.rl = hcfg.Limiter
-	case hcfg.DisableRateLimiting:
-		s.rl = nil
 	default:
 		limits := DefaultRateLimits()
 		for bucket, lim := range hcfg.RateLimits {

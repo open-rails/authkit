@@ -23,7 +23,7 @@ func NewListPage[T any](items []T, nextCursor string) ListPage[T] {
 }
 
 // ActionAvailability reports whether a cooldown-gated action is currently
-// allowed; it rides on GET /me and on 429 error metadata.
+// allowed; it rides on 429 error metadata.
 // Action names carried by ActionAvailability.
 const (
 	ActionUpdateUsername       = "update_username"
@@ -85,8 +85,8 @@ type UserSecurity struct {
 }
 
 // UserProfile is the caller's own account as GET /me returns it: identity,
-// contact state, linked providers, roles/entitlements, naming state,
-// cooldown-gated action availability, and the security view.
+// contact state, linked providers, roles/entitlements, naming state and the
+// security view.
 type UserProfile struct {
 	ID                  string               `json:"id"`
 	Username            string               `json:"username"`
@@ -97,13 +97,11 @@ type UserProfile struct {
 	HasPassword         bool                 `json:"has_password"`
 	SolanaLinkedAccount *SolanaLinkedAccount `json:"solana_linked_account,omitempty"`
 	LinkedProviders     []string             `json:"linked_providers,omitempty"`
-	EnabledProviders    []string             `json:"enabled_providers,omitempty"`
 	Roles               []string             `json:"roles"`
 	Entitlements        []string             `json:"entitlements"`
 	AvatarURL           *string              `json:"avatar_url,omitempty"`
 	PreferredLanguage   *string              `json:"preferred_language,omitempty"`
 	CreatedAt           *string              `json:"created_at,omitempty"`
 	Naming              iam.NamingState      `json:"naming"`
-	Availability        []ActionAvailability `json:"availability,omitempty"`
 	Security            UserSecurity         `json:"security"`
 }

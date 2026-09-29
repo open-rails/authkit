@@ -54,16 +54,11 @@ var (
 
 // Groups and naming.
 var (
-	ErrRenameRateLimited             Error = errmodel.E(errmodel.CodeRenameRateLimited)
-	ErrRenamesDisabled               Error = errmodel.E(errmodel.CodeRenamesDisabled)
-	ErrRoleNotAssignable             Error = errmodel.E(errmodel.CodeRoleNotAssignable)
-	ErrUnknownGroupPersona           Error = errmodel.E(errmodel.CodeUnknownGroupPersona)
-	ErrExternalInvitesDisabled       Error = errmodel.E(errmodel.CodeExternalInvitesDisabled)
-	ErrCustomRoleGrantCrossPersona   Error = errmodel.E(errmodel.CodeCustomRoleGrantCrossPersona)
-	ErrCustomRoleGrantOutsideCatalog Error = errmodel.E(errmodel.CodeCustomRoleGrantOutsideCatalog)
-	ErrCustomRoleIsCatalogRole       Error = errmodel.E(errmodel.CodeCustomRoleIsCatalogRole)
-	ErrCustomRoleNameInvalid         Error = errmodel.E(errmodel.CodeCustomRoleNameInvalid)
-	ErrCustomRolesNotSupported       Error = errmodel.E(errmodel.CodeCustomRolesNotSupported)
+	ErrRenameRateLimited       Error = errmodel.E(errmodel.CodeRenameRateLimited)
+	ErrRenamesDisabled         Error = errmodel.E(errmodel.CodeRenamesDisabled)
+	ErrRoleNotAssignable       Error = errmodel.E(errmodel.CodeRoleNotAssignable)
+	ErrUnknownGroupPersona     Error = errmodel.E(errmodel.CodeUnknownGroupPersona)
+	ErrExternalInvitesDisabled Error = errmodel.E(errmodel.CodeExternalInvitesDisabled)
 )
 
 // Users.

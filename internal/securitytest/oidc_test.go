@@ -148,8 +148,8 @@ func TestSecurityFormPostCallbackIsBounded(t *testing.T) {
 	})
 }
 
-// TestSecurityOutboundAddressGuard: fetches of host-supplied URLs (JWKS,
-// application documents) never reach reserved ranges, including IPv6
+// TestSecurityOutboundAddressGuard: fetches of host-supplied URLs (JWKS)
+// never reach reserved ranges, including IPv6
 // translation prefixes that embed an arbitrary IPv4 address.
 func TestSecurityOutboundAddressGuard(t *testing.T) {
 	dial := netguard.DialerWith(net.DefaultResolver, false)

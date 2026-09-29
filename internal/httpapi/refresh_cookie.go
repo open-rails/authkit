@@ -16,14 +16,12 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 )
 
 // refreshCookiePolicy marks a mount that opted into the refresh cookie. It
 // lives in the request context rather than on the Service so one Service
-// mounted twice with different options cannot cross-contaminate. tokenPath is
-// the mount's POST /token, where historical variants lived.
-type refreshCookiePolicy struct{ tokenPath string }
+// mounted twice with different options cannot cross-contaminate.
+type refreshCookiePolicy struct{}
 
 func (s *Service) refreshCookie(r *http.Request) CookieVariant {
 	return CurrentCookie(CookieRefresh, s.cookieSecure(r))
@@ -63,15 +61,13 @@ func refreshCookieEnabled(r *http.Request) (refreshCookiePolicy, bool) {
 // __Host- prefix. Path=/ is what __Host- requires; the cookie is HttpOnly and
 // only POST /token reads it.
 //
-// Historical variants the browser still sends are expired alongside, so an
-// upgraded deployment migrates each browser on its next session response.
+// The other scheme's variant the browser still sends is expired alongside.
 func (s *Service) setRefreshCookie(w http.ResponseWriter, r *http.Request, value string) {
-	policy, ok := refreshCookieEnabled(r)
-	if !ok || strings.TrimSpace(value) == "" {
+	if _, ok := refreshCookieEnabled(r); !ok || strings.TrimSpace(value) == "" {
 		return
 	}
 	current := s.refreshCookie(r)
-	expireCookieVariants(w, r, CookieRefresh, &current, s.cookieSecure(r), variantName, policy.tokenPath, true)
+	expireCookieVariants(w, r, CookieRefresh, &current, s.cookieSecure(r), variantName, true)
 	c := &http.Cookie{
 		Name:     current.Name,
 		Value:    value,
@@ -88,7 +84,7 @@ func (s *Service) setRefreshCookie(w http.ResponseWriter, r *http.Request, value
 	http.SetCookie(w, c)
 }
 
-// clearRefreshCookie expires the cookie and every historical variant.
+// clearRefreshCookie expires every refresh cookie variant.
 //
 // Separate function on purpose, with no caller-supplied MaxAge: net/http omits
 // the attribute entirely for MaxAge == 0, which yields a *session* cookie — a
@@ -96,22 +92,20 @@ func (s *Service) setRefreshCookie(w http.ResponseWriter, r *http.Request, value
 // MaxAge < 0 serializes Max-Age=0. Every other attribute must match the setter
 // or the browser keeps the original cookie alongside the tombstone.
 func (s *Service) clearRefreshCookie(w http.ResponseWriter, r *http.Request) {
-	policy, ok := refreshCookieEnabled(r)
-	if !ok {
+	if _, ok := refreshCookieEnabled(r); !ok {
 		return
 	}
-	expireCookieVariants(w, r, CookieRefresh, nil, s.cookieSecure(r), variantName, policy.tokenPath, false)
+	expireCookieVariants(w, r, CookieRefresh, nil, s.cookieSecure(r), variantName, false)
 }
 
 // noRefreshCookie: a cookie mount's request carries no body token and no
 // refresh cookie of any registered variant.
 func (s *Service) noRefreshCookie(r *http.Request, body string) bool {
-	policy, cookies := refreshCookieEnabled(r)
-	if !cookies || strings.TrimSpace(body) != "" {
+	if _, cookies := refreshCookieEnabled(r); !cookies || strings.TrimSpace(body) != "" {
 		return false
 	}
 	for _, c := range r.Cookies() {
-		if len(refreshPaths(c.Name, policy.tokenPath)) > 0 {
+		if isRefreshCookieName(c.Name) {
 			return false
 		}
 	}
@@ -119,8 +113,8 @@ func (s *Service) noRefreshCookie(r *http.Request, body string) bool {
 }
 
 // refreshTokenFromRequest follows the mount's declared transport. Cookie mounts
-// reject body tokens and same-path duplicate cookies, and read historical
-// variants through the registry; native mounts require a body token.
+// reject body tokens and same-path duplicate cookies and read the registry's
+// variants; native mounts require a body token.
 func (s *Service) refreshTokenFromRequest(r *http.Request, body string) (string, bool) {
 	body = strings.TrimSpace(body)
 	if _, cookies := refreshCookieEnabled(r); !cookies {
@@ -129,8 +123,7 @@ func (s *Service) refreshTokenFromRequest(r *http.Request, body string) (string,
 	if body != "" || !s.cookieOriginAllowed(r) {
 		return "", false
 	}
-	policy, _ := refreshCookieEnabled(r)
-	return refreshCookieCandidate(r, s.cookieSecure(r), policy.tokenPath, time.Now())
+	return refreshCookieCandidate(r, s.cookieSecure(r))
 }
 
 // cookieOriginAllowed guards cookie consumption and session establishment.

@@ -5,7 +5,6 @@ import (
 	"crypto"
 	"fmt"
 	stdlog "log"
-	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -81,23 +80,12 @@ type Engine struct {
 	nameAdmission  func(context.Context, iam.NameAdmissionRequest) error
 	cfg            Config
 	verifyWarnOnce sync.Once
-
-	// appHTTPClient is the outbound client for application self-registration
-	// fetches (application.json, JWKS during signed rotation): the
-	// Deps.OutboundHTTP override, else newApplicationsHTTPClient (#264).
-	appHTTPClient *http.Client
-	// appAdmission is the optional host-injected admission predicate consulted
-	// before any registration fetch (#264 anti-squat doctrine: cost gates live
-	// in the host — authkit never learns what a credit card is). Nil = allow.
-	appAdmission func(ctx context.Context, domain string) error
 	// rootGroupID caches the root group id (string) once resolved.
 	rootGroupID atomic.Value
 
 	smsHealth smsHealth
 
 	verifier *verify.Verifier
-	// published are the documents PublishDocument signed and stored.
-	published publishedDocuments
 }
 
 // SendWelcome triggers the welcome email if an EmailSender is configured.

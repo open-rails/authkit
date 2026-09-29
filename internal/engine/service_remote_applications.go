@@ -25,12 +25,7 @@ func validateRemoteAppSlug(slug string) error {
 	return nil
 }
 
-// NormalizeRemoteAppTrustSource validates the mutually-exclusive trust source of
-// a registration and returns the normalized mode. Empty mode is inferred: a key
-// list means static, otherwise jwks. It is the single validation gate so the XOR
-// rule cannot be bypassed. allowInsecureJWKS relaxes the https/private-address
-// jwks_uri checks (Applications.AllowPrivateNetworkJWKS; local federation only).
-// TrustSourcePolicy relaxes remote-application trust-source validation.
+// trustSourcePolicy relaxes remote-application trust-source validation.
 // AllowPrivateNetworkJWKS admits loopback/private-network JWKS URLs (local
 // development only; production leaves it off, see Config.Applications).
 type trustSourcePolicy struct {
@@ -41,6 +36,10 @@ func (s *Engine) trustSourcePolicy() trustSourcePolicy {
 	return trustSourcePolicy{AllowPrivateNetworkJWKS: s.cfg.Applications.AllowPrivateNetworkJWKS}
 }
 
+// normalizeRemoteAppTrustSource validates the mutually-exclusive trust source
+// of a registration and returns the normalized mode. Empty mode is inferred: a
+// key list means static, otherwise jwks. It is the single validation gate so
+// the XOR rule cannot be bypassed.
 func normalizeRemoteAppTrustSource(jwksURI string, mode iam.RemoteApplicationMode, keys []iam.RemoteApplicationKey, policy trustSourcePolicy) (iam.RemoteApplicationMode, error) {
 	allowInsecureJWKS := policy.AllowPrivateNetworkJWKS
 	mode = iam.RemoteApplicationMode(strings.ToLower(strings.TrimSpace(string(mode))))
@@ -157,28 +156,23 @@ func decodeRemoteAppKeys(raw []byte) []iam.RemoteApplicationKey {
 
 // remoteAppRow is the canonical remote_application projection every sqlc query
 // returns; the per-query row structs are field-identical and convert directly.
-type remoteAppRow = db.RemoteApplicationBySlugRow
+type remoteAppRow = db.RemoteApplicationByIssuerRow
 
 func remoteAppFromRow(row remoteAppRow) *iam.RemoteApplication {
 	ra := &iam.RemoteApplication{
 		ID: row.ID, Slug: row.Slug, PermissionGroupID: row.PermissionGroupID,
 		Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: iam.RemoteApplicationMode(row.Mode),
 		PublicKeys: decodeRemoteAppKeys(row.PublicKeys), Enabled: row.Enabled,
-		DisplayName: row.DisplayName, Tier: iam.ApplicationTier(row.Tier), TrustRoot: iam.ApplicationTrustRoot(row.TrustRoot),
-		Domain:           row.Domain,
-		DocumentEndpoint: row.DocumentEndpoint,
-		CreatedAt:        row.CreatedAt, UpdatedAt: row.UpdatedAt,
-	}
-	if row.RootVerifiedAt != nil {
-		ra.RootVerifiedAt = *row.RootVerifiedAt
+		TrustRoot: iam.ApplicationTrustRoot(row.TrustRoot),
+		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}
 	return ra
 }
 
 // upsertRemoteApplication writes in under the authority transaction st, keyed
-// by issuer, in the group in.PermissionGroupID. A set Tier or TrustRoot is
-// stored; unset, a new row is manual and approved and an existing one keeps its
-// own. Callers authorize.
+// by issuer, in the group in.PermissionGroupID. A set TrustRoot is stored;
+// unset, a new row is manual and an existing one keeps its own. Callers
+// authorize.
 func (s *Engine) upsertRemoteApplication(ctx context.Context, st *permissionGroupStore, in iam.RemoteApplication) (*iam.RemoteApplication, error) {
 	q := db.New(st.q)
 	slug := strings.ToLower(strings.TrimSpace(in.Slug))
@@ -254,14 +248,9 @@ func (s *Engine) upsertRemoteApplication(ctx context.Context, st *permissionGrou
 		return nil, err
 	}
 	out := remoteAppFromRow(remoteAppRow(row))
-	if in.Tier != "" || in.TrustRoot != "" {
-		if in.Tier != "" {
-			out.Tier = in.Tier
-		}
-		if in.TrustRoot != "" {
-			out.TrustRoot = in.TrustRoot
-		}
-		if _, err := st.q.Exec(ctx, `UPDATE remote_applications SET tier=$2, trust_root=$3 WHERE id=$1::uuid`, out.ID, out.Tier, out.TrustRoot); err != nil {
+	if in.TrustRoot != "" && in.TrustRoot != out.TrustRoot {
+		out.TrustRoot = in.TrustRoot
+		if _, err := st.q.Exec(ctx, `UPDATE remote_applications SET trust_root=$2 WHERE id=$1::uuid`, out.ID, out.TrustRoot); err != nil {
 			return nil, err
 		}
 	}
@@ -289,8 +278,8 @@ func (s *Engine) reservedIssuer(issuer string) bool {
 
 // accountPeerIssuer reports whether issuer is another deployment sharing this
 // account store. A peer's delegated subjects name accounts here, so only the
-// system may register it as a remote application; a group or domain
-// registration under it would sign for every shared account.
+// system may register it as a remote application; a group registration under
+// it would sign for every shared account.
 func (s *Engine) accountPeerIssuer(issuer string) bool {
 	key := issuerKey(issuer)
 	for _, peer := range s.cfg.Token.AccountIssuers {
@@ -303,24 +292,6 @@ func (s *Engine) accountPeerIssuer(issuer string) bool {
 
 func issuerKey(issuer string) string {
 	return strings.ToLower(strings.TrimSuffix(strings.TrimSpace(issuer), "/"))
-}
-
-// evictSessionBoundIssuer lets a domain proof reclaim an issuer that a group
-// bound through a member's session (trust root user): naming an unregistered
-// issuer URL first must not keep it from the domain that controls it. The
-// squatter goes even when it is the last owner of its group, which is left
-// without one. An issuer held by a manual or domain-rooted application still
-// conflicts.
-func (s *Engine) evictSessionBoundIssuer(ctx context.Context, st *permissionGroupStore, issuer string) error {
-	holder, err := db.New(st.q).RemoteApplicationByIssuer(ctx, issuer)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
-	}
-	if err != nil || iam.ApplicationTrustRoot(holder.TrustRoot) != iam.ApplicationTrustRootUser {
-		return err
-	}
-	_, err = st.q.Exec(ctx, `DELETE FROM remote_applications WHERE id=$1::uuid`, holder.ID)
-	return err
 }
 
 // GetRemoteApplication returns a remote_application by OIDC issuer URL.
@@ -341,7 +312,7 @@ func (s *Engine) GetRemoteApplication(ctx context.Context, issuer string) (*iam.
 	}
 	// Issuer lookups are verification-facing: a disabled application must fail
 	// closed on the next request, not at the next reconcile (#323). Admin reads
-	// use GetRemoteApplicationBySlug / ListRemoteApplications.
+	// use RemoteApplicationByIssuer / RemoteApplications.
 	if !row.Enabled {
 		return nil, iam.ErrRemoteApplicationNotFound
 	}
@@ -369,25 +340,6 @@ func (s *Engine) RemoteApplicationByIssuer(ctx context.Context, issuer string) (
 		return nil, err
 	}
 	return remoteAppFromRow(remoteAppRow(row)), nil
-}
-
-// GetRemoteApplicationBySlug returns a remote_application by slug.
-func (s *Engine) GetRemoteApplicationBySlug(ctx context.Context, slug string) (*iam.RemoteApplication, error) {
-	if err := s.requirePG(); err != nil {
-		return nil, err
-	}
-	slug = strings.ToLower(strings.TrimSpace(slug))
-	if slug == "" {
-		return nil, iam.ErrInvalidRemoteApplication
-	}
-	row, err := s.q.RemoteApplicationBySlug(ctx, slug)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, iam.ErrRemoteApplicationNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	return remoteAppFromRow(row), nil
 }
 
 // ListEnabledRemoteApplications returns only the enabled remote_applications:

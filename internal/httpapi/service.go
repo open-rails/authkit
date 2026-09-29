@@ -41,10 +41,8 @@ type Service struct {
 // other bucket keeps failing open, so a limiter outage degrades availability for
 // the affected endpoint rather than taking down the whole auth surface.
 //
-// Note: this applies only to the limiter-ERROR path. A deliberately absent limiter
-// (WithoutRateLimiter / s.rl == nil) is a configuration choice, not an outage, and
-// continues to fail open — denying every login because a host opted out of rate
-// limiting would be the wrong default.
+// Note: this applies only to the limiter-ERROR path. An absent limiter
+// (s.rl == nil) fails open.
 var failClosedBuckets = map[string]struct{}{
 	RL2FAVerify:             {},
 	RLPasswordLogin:         {},

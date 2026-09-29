@@ -629,7 +629,6 @@ export const es: AuthUiMessageBundle = {
       "El nombre de usuario debe tener como máximo 30 caracteres.",
     username_too_short:
       "El nombre de usuario debe tener al menos 4 caracteres.",
-    verification_link_expired: "Este enlace de verificación ha expirado.",
     verification_required: "Verifica tus datos de contacto para continuar.",
     wallet_already_linked: "Esa billetera ya está vinculada a otra cuenta.",
     wallet_change_requires_unlink:

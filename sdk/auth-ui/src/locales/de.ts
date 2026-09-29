@@ -639,7 +639,6 @@ export const de: AuthUiMessageBundle = {
     username_not_allowed: "Dieser Benutzername ist nicht erlaubt.",
     username_too_long: "Der Benutzername darf höchstens 30 Zeichen lang sein.",
     username_too_short: "Der Benutzername muss mindestens 4 Zeichen lang sein.",
-    verification_link_expired: "Dieser Verifizierungslink ist abgelaufen.",
     verification_required: "Bestätigen Sie Ihre Kontaktdaten, um fortzufahren.",
     wallet_already_linked:
       "Diese Wallet ist bereits mit einem anderen Konto verknüpft.",

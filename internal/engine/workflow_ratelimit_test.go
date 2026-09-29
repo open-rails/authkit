@@ -190,7 +190,7 @@ func testServiceOwnsBackgroundWorkers(t *testing.T, rdb *redis.Client) {
 
 func TestRateLimiterDefaultsToMemory(t *testing.T) {
 	require.NoError(t, httpapi.Config{DirectPeerIP: true}.Validate())
-	require.NoError(t, httpapi.Config{DirectPeerIP: true, DisableRateLimiting: true}.Validate())
-	require.ErrorContains(t, httpapi.Config{DirectPeerIP: true, Redis: redis.NewClient(&redis.Options{}), DisableRateLimiting: true}.Validate(), "at most one")
+	require.NoError(t, httpapi.Config{DirectPeerIP: true, Limiter: unlimited{}}.Validate())
+	require.ErrorContains(t, httpapi.Config{DirectPeerIP: true, Redis: redis.NewClient(&redis.Options{}), Limiter: unlimited{}}.Validate(), "at most one")
 	require.ErrorContains(t, httpapi.Config{DirectPeerIP: true, RateLimits: map[string]ratelimit.Limit{"no_such_bucket": {Limit: 1, Window: time.Minute}}}.Validate(), "unknown bucket")
 }

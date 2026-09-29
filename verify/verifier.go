@@ -17,7 +17,6 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/apikey"
 	"github.com/open-rails/authkit/internal/dpop"
@@ -365,15 +364,12 @@ func (v *Verifier) resolveRemoteApplicationSelf(ctx context.Context, ra *iam.Rem
 	}
 
 	return Claims{
-		Issuer:                     ra.Issuer,
-		TokenType:                  RemoteApplicationTokenType,
-		TokenTyp:                   tokenTyp,
-		Permissions:                perms,
-		RemoteApplicationID:        ra.ID,
-		RemoteApplicationSlug:      ra.Slug,
-		RemoteApplicationDomain:    ra.Domain,
-		RemoteApplicationTier:      ra.Tier,
-		RemoteApplicationTrustRoot: ra.TrustRoot,
+		Issuer:                ra.Issuer,
+		TokenType:             RemoteApplicationTokenType,
+		TokenTyp:              tokenTyp,
+		Permissions:           perms,
+		RemoteApplicationID:   ra.ID,
+		RemoteApplicationSlug: ra.Slug,
 		// Bind the stored authority to its owning group instance (#248),
 		// resolved server-side alongside the permission ceiling.
 		PermissionGroupID:              authority.PermissionGroupID,
@@ -897,16 +893,6 @@ func (v *Verifier) verify(ctx context.Context, tokenStr string, r *http.Request)
 	isAccessTyp := strings.EqualFold(tokenTyp, jwtkit.AccessTokenType)
 	isDelegatedAccessTyp := strings.EqualFold(tokenTyp, jwtkit.DelegatedAccessTokenType)
 	isRemoteAppTyp := strings.EqualFold(tokenTyp, jwtkit.RemoteApplicationAccessTokenType)
-	documentReferences, hasDocumentReferences, err := documentReferencesClaim(tokenStr)
-	if err != nil {
-		return Claims{}, err
-	}
-	if hasReservedDocumentsAttribute(mapClaims) {
-		return Claims{}, documents.ErrReservedAttribute
-	}
-	if hasDocumentReferences && !isDelegatedAccessTyp {
-		return Claims{}, documents.ErrWrongTokenType
-	}
 	confirmation, confirmationKind, err := confirmationClaim(tokenStr)
 	hasConfirmation := confirmation != nil
 	if err != nil {
@@ -1005,7 +991,6 @@ func (v *Verifier) verify(ctx context.Context, tokenStr string, r *http.Request)
 		}
 	}
 	cl.TokenTyp = tokenTyp
-	cl.Documents = documentReferences
 	if confirmationKind == jwtkit.CertificateThumbprintMember {
 		cl.ConfirmationCertificateSHA256 = confirmation
 	}
@@ -1212,15 +1197,6 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims) Claims {
 func strClaim(mc jwt.MapClaims, key string) string {
 	v, _ := mc[key].(string)
 	return v
-}
-
-func hasReservedDocumentsAttribute(mc jwt.MapClaims) bool {
-	attributes, ok := mc["attributes"].(map[string]any)
-	if !ok {
-		return false
-	}
-	_, reserved := attributes["documents"]
-	return reserved
 }
 
 func strSliceClaim(mc jwt.MapClaims, key string) []string {

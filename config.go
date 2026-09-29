@@ -60,9 +60,7 @@ type Config struct {
 	// (NewRoles). nil is root-only.
 	Roles *Roles
 
-	// Applications configures application self-registration (#264): domain-
-	// proven remote applications with service-owned orgs. Zero value = disabled
-	// (the manual/bootstrap registration paths are unaffected).
+	// Applications configures how AuthKit reaches remote applications.
 	Applications ApplicationsConfig
 
 	// Delegated configures the delegated-token mint route (#261): the audience
@@ -72,12 +70,6 @@ type Config struct {
 	// clamped into the validated bounds).
 	Delegated DelegatedConfig
 
-	// Documents configures the published signed-document surface (#260): the
-	// remote applications that may fetch documents (Client.PublishDocument) from
-	// GET|HEAD {BasePath}/.well-known/authkit/documents/{digest}. Without readers the
-	// route is not mounted and nothing may be published.
-	Documents DocumentsConfig
-
 	// Schema is the Postgres schema AuthKit's tables live in. Empty defaults to
 	// "profiles" (the historical hard-coded name). Set it when multiple apps
 	// embed AuthKit against the same database and must not share auth tables
@@ -86,11 +78,11 @@ type Config struct {
 	// the same schema before New.
 	Schema string
 
-	// SolanaNetwork is the SIWS chain selector ("mainnet"/"testnet"/"devnet").
-	// Empty defaults to mainnet. Solana Name Service (SNS)
-	// resolution is AuthKit-owned: it uses the built-in keyless resolver, with a
-	// fixed 3s lookup timeout and 24h cache TTL. There is no host override.
-	SolanaNetwork string
+	// SolanaNetwork turns on Sign In With Solana for one chain; the zero value
+	// leaves it off. Solana Name Service (SNS) resolution is AuthKit-owned: the
+	// built-in keyless resolver, with a fixed 3s lookup timeout and 24h cache
+	// TTL.
+	SolanaNetwork iam.SolanaNetwork
 
 	// SessionEventRetention is how long session-event history rows
 	// (sign-ins/revocations, incl. IP + user-agent — personal data) are kept
@@ -115,35 +107,19 @@ type PasswordPolicy struct {
 	AllowCommon      bool
 }
 
-// ApplicationsConfig configures application self-registration (#264).
-//
-// The trust root is domain control (or an owning user account) — never the
-// keypair alone: registration fetches
-// https://<domain>/.well-known/authkit/application.json server-side, and that
-// fetch IS the domain-control proof. Re-registration of the same domain
-// re-proves the root and adopts the document's current keys (the boot-time
-// self-heal and the rotation-from-root path).
+// ApplicationsConfig configures how AuthKit reaches remote applications.
 type ApplicationsConfig struct {
-	// SelfRegistration enables the POST /applications/register surface (and
-	// the signed rotate/repoint routes). Off by default.
-	SelfRegistration bool
-	// AllowPrivateNetworkJWKS permits http and private/loopback addresses for
-	// every remote-application fetch — jwks_uri values, application documents
-	// and their domain proofs — and turns off the SSRF guard on the verifier's
-	// JWKS client. Local federation rigs only; the default (false) refuses
-	// anything that is not a public https endpoint.
+	// AllowPrivateNetworkJWKS permits http and private/loopback jwks_uri
+	// values and turns off the SSRF guard on the verifier's JWKS client.
+	// Local federation rigs only; the default (false) refuses anything that
+	// is not a public https endpoint.
 	AllowPrivateNetworkJWKS bool
-	// OrgPersona is the declared persona of the group each self-registered
-	// application owns: registration creates it and seeds the application as
-	// its owner. Required when SelfRegistration is set; must be a declared
-	// non-root persona.
-	OrgPersona iam.Persona
 }
 
 // DelegatedConfig configures the delegated-token mint route (#261/#277,
 // POST /delegated/token under the API prefix). All four knobs are DATA: the
 // mint mechanics (audience-subset clamp, TTL clamp, sender binding, grant
-// check, document stamping, KID reconciliation) live in AuthKit; the host
+// check) live in AuthKit; the host
 // contributes the required delegation authorizer (Deps.DelegatedAuthorization).
 type DelegatedConfig struct {
 	// AllowDPoP allows browser-key binding. The authorizer must handle requests
@@ -160,36 +136,6 @@ type DelegatedConfig struct {
 	TTLDefault time.Duration
 	TTLCeiling time.Duration
 }
-
-// DocumentsConfig configures reader authorization for the published
-// signed-document surface (#260, #296).
-type DocumentsConfig struct {
-	// Readers are the remote applications allowed to fetch published
-	// documents. Authorization is config, not a host callback, and it keys on
-	// an identity nobody else can claim — never on the slug, which is a
-	// claimable handle. Empty + a mounted documents surface is a construction
-	// error, never a public route.
-	Readers []DocumentReader
-	// AllowRegisteredTier admits readers still at the registered tier
-	// (self-registered, not yet approved by an admin). Default: approved only.
-	AllowRegisteredTier bool
-}
-
-// DocumentReader pins one reader by exactly one identity:
-//   - ID: the application's uuid.
-//   - Domain: the proven domain of a domain-rooted (self-registered) application.
-//   - Issuer: the issuer of a manually registered application the platform
-//     itself holds under the root group (bootstrap manifest / root credentials
-//     manager). A tenant-registered application never matches by issuer.
-type DocumentReader struct {
-	ID     string
-	Domain string
-	Issuer string
-}
-
-// NOTE (#264 ruling 5, simplified): re-verification cadence and dormancy
-// scheduling are HOST policy — authkit ships no TTL machinery or background
-// jobs of its own.
 
 // TokenConfig is the JWT issuing/verification contract plus session limits.
 type TokenConfig struct {
@@ -385,23 +331,22 @@ type RiverConfig struct {
 }
 
 // HTTPConfig configures AuthKit's HTTP surface: one handler serving the JSON
-// API, browser OIDC, JWKS and published documents. The engine's own policy
+// API, browser OIDC and JWKS. The engine's own policy
 // lives in Config; this is only what the transport decides.
 //
 // Every route lives beneath BasePath:
 //
-//	{BasePath}{APIPath}/...                               JSON API
-//	{BasePath}/oidc/{provider}/...                        browser OIDC
-//	{BasePath}/.well-known/jwks.json                      JWKS
-//	{BasePath}/.well-known/authkit/documents/{digest}     documents
+//	{BasePath}{APIPath}/...              JSON API
+//	{BasePath}/oidc/{provider}/...       browser OIDC
+//	{BasePath}/.well-known/jwks.json     JWKS
 type HTTPConfig struct {
 	// Groups selects the mounted route groups. Nil mounts the default API
 	// surface plus browser OIDC; non-nil mounts exactly the named groups.
 	Groups []iam.RouteGroup
 	// BasePath roots the whole surface. "" derives it from Token.Issuer's
 	// path ("https://example.com/auth" gives "/auth"); when the issuer is a
-	// URL a set value must equal that path, because verifiers and document
-	// resolvers find JWKS and documents at the issuer plus these paths.
+	// URL a set value must equal that path, because verifiers find JWKS at
+	// the issuer plus JWKSPath.
 	// Serve the paths unchanged: no StripPrefix in front.
 	BasePath string
 	// APIPath anchors the JSON API beneath BasePath. "" means "/api/v1"; "/"
@@ -424,7 +369,7 @@ type HTTPConfig struct {
 
 	// Rate limiting is in-memory and per-process by default: each replica
 	// counts separately. Set Redis when running more than one replica. At most
-	// one of Redis, Limiter and DisableRateLimiting may be set.
+	// one of Redis and Limiter may be set.
 	//
 	// Redis shares rate-limit counters across replicas; it holds no other
 	// AuthKit state.
@@ -437,8 +382,6 @@ type HTTPConfig struct {
 	RateLimits map[string]RateLimit
 	// Limiter replaces AuthKit's limiter; RateLimits do not apply to it.
 	Limiter RateLimiter
-	// DisableRateLimiting turns rate limiting off. Tests only.
-	DisableRateLimiting bool
 
 	// Client-IP posture: exactly what sits in front of AuthKit must be
 	// declared, or every client shares a proxy's one per-IP bucket.

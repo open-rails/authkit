@@ -80,84 +80,18 @@ type RemoteApplication struct {
 	// PublicKeys is the static-mode key list (empty in jwks mode).
 	PublicKeys []RemoteApplicationKey
 	Enabled    bool
-	// DisplayName is free-form, non-unique vanity metadata (#264). The slug is
-	// the public handle; the uuid is the internal join key.
-	DisplayName string
-	// Tier is the application's capability tier. Only the system approves;
-	// every group or domain registration starts at ApplicationTierRegistered.
-	Tier ApplicationTier
-	// TrustRoot is what may rotate the application's keys: the system
-	// (manual), a fresh proof of Domain (domain), or a credentials manager of
-	// its controlling group (user). Never the keypair alone.
+	// TrustRoot is what may change the application's keys: the system
+	// (manual) or a credentials manager of its controlling group (user).
+	// Never the keypair alone.
 	TrustRoot ApplicationTrustRoot
-	// Domain is the trust-root location for domain-rooted applications (the
-	// canonical registration input; empty otherwise). Domains and slugs are
-	// SEPARATE: the domain proves identity, the slug is a claimed handle.
-	Domain string
-	// DocumentEndpoint is the application's optional signed-document base URL
-	// declared in its application.json.
-	DocumentEndpoint string
-	// RootVerifiedAt is the last successful trust-root proof (zero when the
-	// root was never proven, e.g. manual registrations).
-	RootVerifiedAt time.Time
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
-// ApplicationTier is a remote application's capability tier.
-type ApplicationTier string
-
-const (
-	ApplicationTierRegistered ApplicationTier = "registered"
-	ApplicationTierApproved   ApplicationTier = "approved"
-)
-
-// ApplicationTrustRoot is the authority that rotates an application's keys.
+// ApplicationTrustRoot is the authority that changes an application's keys.
 type ApplicationTrustRoot string
 
 const (
 	ApplicationTrustRootManual ApplicationTrustRoot = "manual"
-	ApplicationTrustRootDomain ApplicationTrustRoot = "domain"
 	ApplicationTrustRootUser   ApplicationTrustRoot = "user"
 )
-
-// ApplicationWellKnownPath is where a domain-registered application serves its
-// ApplicationDocument. Fetching it over HTTPS IS the domain-control proof.
-const ApplicationWellKnownPath = "/.well-known/authkit/application.json"
-
-// ApplicationDocument is the well-known application.json a self-registering
-// application serves at https://<domain>/.well-known/authkit/application.json.
-// Unknown fields are ignored (forward-compatible).
-type ApplicationDocument struct {
-	// Slug is the REQUESTED handle — a free claim through the same
-	// availability + anti-squat gates as any org (slugs and domains are
-	// separate). Empty defaults to the serving domain's hostname.
-	Slug string `json:"slug"`
-	// DisplayName is free-form, non-unique metadata.
-	DisplayName string `json:"display_name,omitempty"`
-	// Issuer is the application's token `iss`; its host must be the serving
-	// domain outside dev-like environments.
-	Issuer string `json:"issuer"`
-	// JWKSURI XOR PublicKeys: exactly one trust source.
-	JWKSURI    string                 `json:"jwks_uri,omitempty"`
-	PublicKeys []RemoteApplicationKey `json:"public_keys,omitempty"`
-	// DocumentEndpoint is the optional signed-document base URL.
-	DocumentEndpoint string `json:"document_endpoint,omitempty"`
-}
-
-// RemoteApplicationAccess is a remote-application access token to mint: the
-// application acting as itself. Identity is the issuer and authority is what
-// the verifying deployment stores for it.
-type RemoteApplicationAccess struct {
-	// Issuer becomes iss: the application's registered issuer. Empty means
-	// this deployment's issuer.
-	Issuer    string
-	Audiences []string
-	// TTL defaults to 15m.
-	TTL       time.Duration
-	JTI       string
-	NotBefore time.Time
-	// Permissions, when non-nil, narrows the stored authority (an empty slice
-	// narrows it to nothing); a permission outside it fails verification.
-	Permissions []string
-}

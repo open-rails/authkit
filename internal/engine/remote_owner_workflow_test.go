@@ -42,9 +42,7 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 	grantRole(t, client, group, iam.RemoteApplicationSubject(app.ID), "owner")
 	mint := func(perms []string) string {
 		t.Helper()
-		token, err := MintRemoteApplicationAccessToken(ctx, signer, iam.RemoteApplicationAccess{Issuer: app.Issuer, Audiences: cfg.Token.ExpectedAudiences, TTL: time.Minute, Permissions: perms})
-		require.NoError(t, err)
-		return token.Value
+		return mintRemoteApplicationToken(t, signer, app.Issuer, cfg.Token.ExpectedAudiences, perms)
 	}
 	token := mint(nil)
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -83,8 +81,8 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 	// an existing owner, even if the requested replacement is a lesser role.
 	call(http.MethodPut, base+peer+"/roles/owner", "", token, http.StatusOK)
 	call(http.MethodPut, base+peer+"/roles/member", "", mint([]string{"org:members:manage", "org:catalog:read"}), http.StatusForbidden)
-	call(http.MethodDelete, base+peer, "", token, http.StatusOK)
-	call(http.MethodDelete, base+owner, "", ownerToken, http.StatusOK)
+	call(http.MethodDelete, base+peer, "", token, http.StatusNoContent)
+	call(http.MethodDelete, base+owner, "", ownerToken, http.StatusNoContent)
 	// The last native owner may leave: the remaining remote owner can restore
 	// native ownership through exactly the supported signed HTTP interface.
 	call(http.MethodPut, base+peer+"/roles/owner", "", token, http.StatusOK)

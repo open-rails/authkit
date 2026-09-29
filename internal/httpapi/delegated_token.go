@@ -2,8 +2,8 @@ package httpapi
 
 // ak#261/#277: the delegated-token mint route. AuthKit owns every mechanic:
 // audience-subset clamp, TTL clamp, RFC 8705 certificate or RFC 9449 DPoP
-// sender binding here; the grant check against the user's live authority and
-// published-document stamping in the engine's mint. The host owns exactly one
+// sender binding here; the grant check against the user's live authority in
+// the engine's mint. The host owns exactly one
 // decision: the DelegationAuthorizer's grant, which is the complete authority
 // signed. Client input never becomes authority directly.
 
@@ -160,14 +160,13 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 	token, err := s.svc.MintDelegatedAccessToken(r.Context(), actor, iam.DelegatedAccess{
 		Audiences:                       audiences,
 		Permissions:                     grant.Permissions,
-		Documents:                       grant.Documents,
 		Attributes:                      grant.Attributes,
 		TTL:                             ttl,
 		ConfirmationCertificateSHA256:   certificateBinding,
 		ConfirmationJWKThumbprintSHA256: jwkBinding,
 	})
 	if err != nil {
-		if e := errmodel.As(err); e != nil && (e.Status() < 500 || errors.Is(err, errmodel.E(errmodel.CodeDelegatedDocumentUnavailable))) {
+		if e := errmodel.As(err); e != nil && e.Status() < 500 {
 			writeError(w, err)
 		} else {
 			serverErr(w, "delegated_mint_failed", err)

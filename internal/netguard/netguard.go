@@ -1,7 +1,7 @@
 // Package netguard is the single outbound-network policy for AuthKit: the
 // private/reserved address list, the resolve-then-dial SSRF guard, and the
 // timeout-bounded HTTP client every package uses for fetches it does not fully
-// control (JWKS, application documents, IdP endpoints).
+// control (JWKS, IdP endpoints).
 package netguard
 
 import (

@@ -175,24 +175,12 @@ func (s *Service) GroupHandler(gr GroupRoute) http.HandlerFunc {
 			s.groupMemberRole(w, r, g, actor, pathParam(r, "user"), pathParam(r, "role"))
 		case OpRolesList:
 			s.groupRolesList(w, g)
-		case OpRoleDefine:
-			s.groupCustomRoleDefine(w, r, g, actor)
-		case OpRoleDelete:
-			s.groupCustomRoleDelete(w, r, g, actor, pathParam(r, "role"))
 		case OpAPIKeysList:
 			s.groupAPIKeyList(w, r, g)
 		case OpAPIKeyMint:
 			s.groupAPIKeyMint(w, r, g, actor)
 		case OpAPIKeyRevoke:
 			s.groupAPIKeyRevoke(w, r, g, actor, pathParam(r, "key"))
-		case OpRemoteAppsList:
-			s.groupRemoteAppList(w, r, g)
-		case OpRemoteAppRegister:
-			s.groupRemoteAppRegister(w, r, g, actor)
-		case OpRemoteAppDelete:
-			s.groupRemoteAppDelete(w, r, g, actor, pathParam(r, "app"))
-		case OpRemoteAppRoleAssign:
-			s.groupRemoteAppRole(w, r, g, actor, pathParam(r, "app"), pathParam(r, "role"))
 		case OpInviteLinkList:
 			s.groupInviteLinkList(w, r, g)
 		case OpInviteLinkMint:
@@ -241,23 +229,16 @@ func (s *Service) writeGroupOpError(w http.ResponseWriter, err error) {
 // groupOpCodes: where a group operation's wire code differs from the catalog
 // — one forbidden and one invalid_request per family.
 var groupOpCodes = map[error]errmodel.Code{
-	iam.ErrExternalInvitesDisabled:       errmodel.CodeForbidden,
-	iam.ErrInsufficientAuthority:         errmodel.CodeForbidden,
-	iam.ErrRoleAssignmentEscalation:      errmodel.CodeForbidden,
-	iam.ErrInvalidRemoteApplication:      errmodel.CodeInvalidRequest,
-	iam.ErrReservedIssuer:                errmodel.CodeInvalidRequest,
-	errmodel.ErrInviteLinkExpired:        errmodel.CodeInvalidRequest,
-	errmodel.ErrInviteLinkRevoked:        errmodel.CodeInvalidRequest,
-	iam.ErrRoleNotAssignable:             errmodel.CodeInvalidRequest,
-	errmodel.ErrInvalidRole:              errmodel.CodeInvalidRequest,
-	errmodel.ErrUnknownRole:              errmodel.CodeInvalidRequest,
-	errmodel.ErrMissingName:              errmodel.CodeInvalidRequest,
-	errmodel.ErrInvalidInvite:            errmodel.CodeInvalidRequest,
-	errmodel.ErrInvalidExpiry:            errmodel.CodeInvalidRequest,
-	iam.ErrUnknownGroupPersona:           errmodel.CodeInvalidRequest,
-	iam.ErrCustomRolesNotSupported:       errmodel.CodeInvalidRequest,
-	iam.ErrCustomRoleNameInvalid:         errmodel.CodeInvalidRequest,
-	iam.ErrCustomRoleIsCatalogRole:       errmodel.CodeInvalidRequest,
-	iam.ErrCustomRoleGrantCrossPersona:   errmodel.CodeInvalidRequest,
-	iam.ErrCustomRoleGrantOutsideCatalog: errmodel.CodeInvalidRequest,
+	iam.ErrExternalInvitesDisabled:  errmodel.CodeForbidden,
+	iam.ErrInsufficientAuthority:    errmodel.CodeForbidden,
+	iam.ErrRoleAssignmentEscalation: errmodel.CodeForbidden,
+	iam.ErrInvalidRemoteApplication: errmodel.CodeInvalidRequest,
+	iam.ErrReservedIssuer:           errmodel.CodeInvalidRequest,
+	errmodel.ErrInviteLinkExpired:   errmodel.CodeInvalidRequest,
+	errmodel.ErrInviteLinkRevoked:   errmodel.CodeInvalidRequest,
+	iam.ErrRoleNotAssignable:        errmodel.CodeInvalidRequest,
+	errmodel.ErrMissingName:         errmodel.CodeInvalidRequest,
+	errmodel.ErrInvalidInvite:       errmodel.CodeInvalidRequest,
+	errmodel.ErrInvalidExpiry:       errmodel.CodeInvalidRequest,
+	iam.ErrUnknownGroupPersona:      errmodel.CodeInvalidRequest,
 }

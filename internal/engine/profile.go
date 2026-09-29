@@ -2,8 +2,7 @@ package engine
 
 // The caller's own profile (GET /me) as ONE engine projection (ak#318): one
 // user-row read and one 2FA-settings read threaded through identity, contact
-// state, linked providers, naming state, cooldown availability and the
-// security/step-up view.
+// state, linked providers, naming state and the security/step-up view.
 
 import (
 	"context"
@@ -75,21 +74,9 @@ func (s *Engine) UserProfile(ctx context.Context, in authflow.ProfileInput) (aut
 	if err != nil {
 		return authflow.UserProfile{}, stageErr("load_2fa", err)
 	}
-	// Cooldown-gated action availability (#262): a lookup failure omits the
-	// entry rather than failing the profile.
-	var availability []authflow.ActionAvailability
-	namingState, namingErr := s.UserNamingState(ctx, u.ID)
-	if namingErr == nil {
-		entry := authflow.ActionAvailability{Action: authflow.ActionUpdateUsername, Allowed: namingState.Allowed, NextAllowedAt: namingState.NextRenameAt, RetryAfterSeconds: namingState.RetryAfterSeconds}
-		if !namingState.Policy.Enabled {
-			entry.Reason = "renames_disabled"
-		} else {
-			entry.Reason = "cooldown"
-		}
-		seconds := int64(s.NamingPolicy().RenameInterval / time.Second)
-		entry.CooldownSeconds = &seconds
-		availability = append(availability, entry)
-	}
+	// A naming lookup failure leaves the zero state rather than failing the
+	// profile.
+	namingState, _ := s.UserNamingState(ctx, u.ID)
 	return authflow.UserProfile{
 		ID:                  u.ID,
 		Username:            username,
@@ -100,14 +87,12 @@ func (s *Engine) UserProfile(ctx context.Context, in authflow.ProfileInput) (aut
 		HasPassword:         hasPassword,
 		SolanaLinkedAccount: solanaLinkedAccount,
 		LinkedProviders:     linkedProviders,
-		EnabledProviders:    in.EnabledProviders,
 		Roles:               roles,
 		Entitlements:        s.listEntitlements(ctx, u.ID),
 		AvatarURL:           u.AvatarURL,
 		PreferredLanguage:   preferredLanguage,
 		CreatedAt:           createdAt,
 		Naming:              namingState,
-		Availability:        availability,
 		Security: authflow.UserSecurity{
 			LastAuthenticatedAt:               lastAuthenticatedAt,
 			TimeUntilStepUpRequired:           timeUntilStepUpRequired,

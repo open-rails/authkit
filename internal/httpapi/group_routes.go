@@ -30,15 +30,9 @@ const (
 	OpMemberRemove
 	OpMemberRoleAssign
 	OpRolesList
-	OpRoleDefine
-	OpRoleDelete
 	OpAPIKeysList
 	OpAPIKeyMint
 	OpAPIKeyRevoke
-	OpRemoteAppsList
-	OpRemoteAppRegister
-	OpRemoteAppDelete
-	OpRemoteAppRoleAssign
 	OpInviteLinkList
 	OpInviteLinkMint
 	OpInviteLinkRevoke
@@ -51,15 +45,9 @@ var GroupRoutes = []GroupRoute{
 	{http.MethodDelete, "/groups/:group_id/members/:user", OpMemberRemove},
 	{http.MethodPut, "/groups/:group_id/members/:user/roles/:role", OpMemberRoleAssign},
 	{http.MethodGet, "/groups/:group_id/roles", OpRolesList},
-	{http.MethodPost, "/groups/:group_id/roles", OpRoleDefine},
-	{http.MethodDelete, "/groups/:group_id/roles/:role", OpRoleDelete},
 	{http.MethodGet, "/groups/:group_id/api-keys", OpAPIKeysList},
 	{http.MethodPost, "/groups/:group_id/api-keys", OpAPIKeyMint},
 	{http.MethodDelete, "/groups/:group_id/api-keys/:key", OpAPIKeyRevoke},
-	{http.MethodGet, "/groups/:group_id/remote-applications", OpRemoteAppsList},
-	{http.MethodPost, "/groups/:group_id/remote-applications", OpRemoteAppRegister},
-	{http.MethodDelete, "/groups/:group_id/remote-applications/:app", OpRemoteAppDelete},
-	{http.MethodPut, "/groups/:group_id/remote-applications/:app/roles/:role", OpRemoteAppRoleAssign},
 	{http.MethodGet, "/groups/:group_id/invites/links", OpInviteLinkList},
 	{http.MethodPost, "/groups/:group_id/invites/links", OpInviteLinkMint},
 	{http.MethodDelete, "/groups/:group_id/invites/links/:link", OpInviteLinkRevoke},
@@ -69,16 +57,10 @@ var GroupRoutes = []GroupRoute{
 // members are managed through the admin routes.
 func (op GroupOp) Available(p rbac.Persona) bool {
 	switch op {
-	case OpMembersList, OpMemberAdd, OpMemberRemove, OpMemberRoleAssign, OpInviteLinkList, OpInviteLinkMint, OpInviteLinkRevoke:
+	case OpMembersList, OpMemberAdd, OpMemberRemove, OpMemberRoleAssign, OpRolesList, OpInviteLinkList, OpInviteLinkMint, OpInviteLinkRevoke:
 		return p.Name != iam.RootPersona
-	case OpRolesList:
-		return p.Name != iam.RootPersona || p.CustomRoles
-	case OpRoleDefine, OpRoleDelete:
-		return p.CustomRoles
 	case OpAPIKeysList, OpAPIKeyMint, OpAPIKeyRevoke:
 		return p.APIKeys
-	case OpRemoteAppsList, OpRemoteAppRegister, OpRemoteAppDelete, OpRemoteAppRoleAssign:
-		return p.RemoteApplications
 	}
 	return false
 }
@@ -87,20 +69,13 @@ func (op GroupOp) Available(p rbac.Persona) bool {
 // one of them suffices.
 func (op GroupOp) Perms(p rbac.Persona) []iam.Perm {
 	switch op {
-	case OpMembersList, OpInviteLinkList:
-		return []iam.Perm{iam.PermMembersRead(p.Name)}
-	case OpRolesList:
-		if p.CustomRoles {
-			return []iam.Perm{iam.PermMembersRead(p.Name), iam.PermRolesManage(p.Name)}
-		}
+	case OpMembersList, OpRolesList, OpInviteLinkList:
 		return []iam.Perm{iam.PermMembersRead(p.Name)}
 	case OpMemberAdd, OpMemberRemove, OpMemberRoleAssign, OpInviteLinkMint, OpInviteLinkRevoke:
 		return []iam.Perm{iam.PermMembersManage(p.Name)}
-	case OpRoleDefine, OpRoleDelete:
-		return []iam.Perm{iam.PermRolesManage(p.Name)}
-	case OpAPIKeysList, OpRemoteAppsList:
+	case OpAPIKeysList:
 		return []iam.Perm{iam.PermCredentialsRead(p.Name)}
-	case OpAPIKeyMint, OpAPIKeyRevoke, OpRemoteAppRegister, OpRemoteAppDelete, OpRemoteAppRoleAssign:
+	case OpAPIKeyMint, OpAPIKeyRevoke:
 		return []iam.Perm{iam.PermCredentialsManage(p.Name)}
 	}
 	return nil

@@ -14,9 +14,9 @@ import (
 
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
-	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/authkit/internal/testhttp"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
@@ -25,8 +25,8 @@ import (
 // TestSecurityBasePathConfinesSurface: AuthKit under its issuer's path serves
 // every route there and none at the host root; OIDC redirect URIs name the
 // callback the mount serves (an API-path link start once named one it never
-// served); verifiers and document resolvers reach JWKS and documents from the
-// issuer alone; a BasePath that disagrees with the issuer is refused.
+// served); verifiers reach JWKS from the issuer alone; a BasePath that
+// disagrees with the issuer is refused.
 func TestSecurityBasePathConfinesSurface(t *testing.T) {
 	ctx := context.Background()
 	pg := testdb.ScratchPostgres(t)
@@ -43,7 +43,7 @@ func TestSecurityBasePathConfinesSurface(t *testing.T) {
 		Registration: authkit.RegistrationConfig{NativeUserMode: iam.RegistrationModeOpen, Verification: iam.RegistrationVerificationOptional},
 		TwoFactor:    authkit.TwoFactorConfig{Mode: iam.TwoFactorOptional, Methods: []iam.TwoFactorMethod{iam.TwoFactorTOTP}, TOTPSecretKey: bytes.Repeat([]byte{7}, 32)},
 		Identity:     authkit.IdentityConfig{Providers: []authprovider.Provider{authprovider.GitHub("gh-client", "gh-secret")}},
-		HTTP:         authkit.HTTPConfig{DirectPeerIP: true, DisableRateLimiting: true},
+		HTTP:         testhttp.HTTP(),
 	}
 	withApps(&cfg)
 	auth, err := authkit.New(ctx, cfg, authkit.Deps{Postgres: pg.Pool})
@@ -76,25 +76,17 @@ func TestSecurityBasePathConfinesSurface(t *testing.T) {
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(v))
 	}
 
-	partner := newSigner(t, "partner-kid")
-	_, err = auth.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.RootGroup(), iam.RemoteApplication{
-		Slug: "partner", Issuer: partnerIssuer, PublicKeys: staticKeys(t, partner), Enabled: true,
-	})
-	require.NoError(t, err)
-	doc, err := auth.PublishDocument(ctx, documents.Publication{Type: "example.catalog/v1", Payload: json.RawMessage(`{"catalog":true}`), Audiences: []string{"partner"}})
-	require.NoError(t, err)
-
 	t.Run("no route escapes the base path", func(t *testing.T) {
 		routes := auth.Routes()
 		require.NotEmpty(t, routes)
 		for _, route := range routes {
 			require.Truef(t, strings.HasPrefix(route.Path, base+"/"), "%s %s escapes %s", route.Method, route.Path, base)
 		}
-		for _, want := range []string{"GET " + base + iam.JWKSPath, "GET " + base + "/.well-known/authkit/documents/{digest}",
+		for _, want := range []string{"GET " + base + iam.JWKSPath,
 			"GET " + base + "/oidc/{provider}/callback", "POST " + base + "/api/v1/oidc/{provider}/link/start", "GET " + base + "/api/v1/me"} {
 			require.Contains(t, auth.Patterns(), want)
 		}
-		for _, path := range []string{iam.JWKSPath, "/.well-known/authkit/documents/" + doc.Digest, "/api/v1/capabilities",
+		for _, path := range []string{iam.JWKSPath, "/api/v1/capabilities",
 			"/oidc/github/login", "/auth" + iam.JWKSPath, "/tenant" + iam.JWKSPath} {
 			require.Equal(t, http.StatusTeapot, call(http.MethodGet, path, "", nil).StatusCode, "%s reached AuthKit outside %s", path, base)
 		}
@@ -125,19 +117,6 @@ func TestSecurityBasePathConfinesSurface(t *testing.T) {
 		claims, err := v.Verify(ctx, session.AccessToken)
 		require.NoError(t, err)
 		require.Equal(t, user.ID, claims.UserID)
-	})
-
-	t.Run("a resolver fetches documents from the issuer", func(t *testing.T) {
-		v := verify.NewVerifier()
-		require.NoError(t, v.AddIssuer(iss, []string{"partner"}, verify.IssuerOptions{JWKSURI: iss + iam.JWKSPath}))
-		asPartner := func(r *http.Request) error {
-			r.Header.Set("Authorization", "Bearer "+appToken(t, partner, partnerIssuer))
-			return nil
-		}
-		resolver := documents.NewResolver(v, nil, asPartner, documents.ResolverOptions{AllowHTTP: true})
-		payload, err := resolver.Resolve(ctx, iss, doc, "partner")
-		require.NoError(t, err)
-		require.JSONEq(t, `{"catalog":true}`, string(payload))
 	})
 
 	callback := iss + "/oidc/github/callback"

@@ -11,7 +11,6 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/httpapi"
@@ -42,10 +41,10 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 		if string(req.RequestedGrant) == `{"refuse":true}` {
 			return iam.DelegationGrant{}, iam.ErrDelegationRefused
 		}
-		return iam.DelegationGrant{Permissions: []string{"resource:read"}, Attributes: map[string]any{"tenant": "cozy"}, Documents: map[string]string{"example.policy/v1": documents.Digest([]byte("policy"))}}, nil
+		return iam.DelegationGrant{Permissions: []string{"resource:read"}, Attributes: map[string]any{"tenant": "cozy"}}, nil
 	})}
 	engine := newServerClient(t, cfg, pg.Pool, opts...)
-	service, err := newTestService(engine, httpapi.Config{DirectPeerIP: true, DisableRateLimiting: true})
+	service, err := newTestService(engine, httpapi.Config{DirectPeerIP: true, Limiter: unlimited{}})
 	require.NoError(t, err)
 	t.Cleanup(service.Close)
 	handler, err := httpapi.NewMount(service, httpapi.MountOptions{})
@@ -109,7 +108,6 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 	require.Nil(t, claims["sub"])
 	require.Equal(t, user.ID, claims["delegated_sub"])
 	require.Equal(t, float64(60), claims["exp"].(float64)-claims["iat"].(float64))
-	require.NotEmpty(t, claims["documents"])
 	status, _ = post(body, session.AccessToken, proof, nil)
 	require.Equal(t, 401, status)
 	require.Equal(t, `DPoP error="invalid_dpop_proof", algs="ES256"`, lastChallenge)
@@ -129,7 +127,7 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 
 	// A proxy may remove an external prefix. Its configured resolver supplies
 	// that path explicitly; neither Host nor Forwarded selects the proof target.
-	rewrittenHTTP, err := newTestService(engine, httpapi.Config{DirectPeerIP: true, DisableRateLimiting: true, DPoPRequestURL: func(*http.Request) string { return cfg.Token.Issuer + "/external/api/v1/delegated/token" }})
+	rewrittenHTTP, err := newTestService(engine, httpapi.Config{DirectPeerIP: true, Limiter: unlimited{}, DPoPRequestURL: func(*http.Request) string { return cfg.Token.Issuer + "/external/api/v1/delegated/token" }})
 	require.NoError(t, err)
 	t.Cleanup(rewrittenHTTP.Close)
 	rewrittenHandler, err := httpapi.NewMount(rewrittenHTTP, httpapi.MountOptions{})
@@ -212,7 +210,7 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 	// Disabling DPoP protects existing native authorizers from nil certificates.
 	cfg.Delegated.AllowDPoP = false
 	native := newServerClient(t, cfg, pg.Pool, opts...)
-	nativeHTTP, err := newTestService(native, httpapi.Config{DirectPeerIP: true, DisableRateLimiting: true})
+	nativeHTTP, err := newTestService(native, httpapi.Config{DirectPeerIP: true, Limiter: unlimited{}})
 	require.NoError(t, err)
 	t.Cleanup(nativeHTTP.Close)
 	nativeHandler, err := httpapi.NewMount(nativeHTTP, httpapi.MountOptions{})
@@ -231,7 +229,7 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 		restore := failEphemeralWrites(t, pg.Pool, "dpop:proof:")
 		cfg.Delegated.AllowDPoP = true
 		broken := newServerClient(t, cfg, pg.Pool, opts...)
-		brokenHTTP, err := newTestService(broken, httpapi.Config{DirectPeerIP: true, DisableRateLimiting: true})
+		brokenHTTP, err := newTestService(broken, httpapi.Config{DirectPeerIP: true, Limiter: unlimited{}})
 		require.NoError(t, err)
 		t.Cleanup(brokenHTTP.Close)
 		brokenHandler, err := httpapi.NewMount(brokenHTTP, httpapi.MountOptions{})

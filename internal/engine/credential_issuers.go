@@ -75,9 +75,7 @@ func (s *Engine) requireCredentialRevoke(ctx context.Context, st *permissionGrou
 	return nil
 }
 
-// reconcileRoleCatalog runs at New under the authority lock. A catalog role
-// that shadows a custom role stored in a live group refuses the boot: it would
-// silently re-point every holder, key and link of that custom role. When the
+// reconcileRoleCatalog runs at New under the authority lock. When the
 // catalog differs from the one last reconciled, the whole-site sweep re-checks
 // every live credential against its creator under the new catalog. That sweep
 // never refuses the boot: it retires what the new catalog no longer allows and
@@ -86,13 +84,9 @@ func (s *Engine) reconcileRoleCatalog(ctx context.Context) error {
 	if s.pg == nil {
 		return nil
 	}
-	sch := s.groupSchemaOrDefault()
 	fingerprint := s.roleCatalogFingerprint()
 	return s.withAuthorityMutation(ctx, iam.Actor{}, func(st *permissionGroupStore) error {
 		st.reconcile = true
-		if err := refuseShadowedCustomRoles(ctx, st, sch); err != nil {
-			return err
-		}
 		var stored string
 		err := st.q.QueryRow(ctx, `SELECT fingerprint FROM role_catalog_state`).Scan(&stored)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -112,37 +106,8 @@ func (s *Engine) reconcileRoleCatalog(ctx context.Context) error {
 	})
 }
 
-func refuseShadowedCustomRoles(ctx context.Context, st *permissionGroupStore, sch *rbac.Schema) error {
-	rows, err := st.q.Query(ctx, `SELECT DISTINCT g.persona, r.role FROM group_custom_roles r
- JOIN permission_groups g ON g.id=r.permission_group_id WHERE g.deleted_at IS NULL ORDER BY 1, 2`)
-	if err != nil {
-		return err
-	}
-	var shadowed []string
-	for rows.Next() {
-		var persona iam.Persona
-		var name string
-		if err := rows.Scan(scanPersona(&persona), &name); err != nil {
-			rows.Close()
-			return err
-		}
-		if _, ok := sch.RoleNamed(persona, name); ok {
-			shadowed = append(shadowed, fmt.Sprintf("%s/%s", persona, name))
-		}
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	if len(shadowed) > 0 {
-		return fmt.Errorf("authkit: catalog roles %s shadow custom roles stored in live groups; rename the catalog roles, or delete those custom roles first", strings.Join(shadowed, ", "))
-	}
-	return nil
-}
-
 // roleCatalogFingerprint identifies everything the credential sweep reads from
-// the configuration: each persona's custom-role switch, every role's grants,
-// and which permissions need MFA (no key or application holds one of those
+// the configuration: every role's grants and which permissions need MFA (no key or application holds one of those
 // once 2FA is on).
 func (s *Engine) roleCatalogFingerprint() string {
 	sch := s.groupSchemaOrDefault()
@@ -153,7 +118,7 @@ func (s *Engine) roleCatalogFingerprint() string {
 	}
 	for _, name := range sch.Personas() {
 		p, _ := sch.Persona(name)
-		fmt.Fprintf(h, "persona %s custom=%t\n", name, p.CustomRoles)
+		fmt.Fprintf(h, "persona %s\n", name)
 		roles := slices.Clone(p.Roles)
 		slices.SortFunc(roles, func(a, b rbac.Role) int { return strings.Compare(a.Name.Name(), b.Name.Name()) })
 		for _, r := range roles {

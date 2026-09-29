@@ -22,12 +22,10 @@ func (s *Engine) MintServiceJWT(ctx context.Context, opts iam.ServiceJWT) (iam.T
 	if signer == nil {
 		return iam.Token{}, iam.ServiceJWTClaims{}, iam.ErrSigningNotConfigured
 	}
-	return MintServiceJWT(ctx, signer, strings.TrimSpace(s.cfg.Token.Issuer), opts)
+	return mintServiceJWT(ctx, signer, strings.TrimSpace(s.cfg.Token.Issuer), opts)
 }
 
-// MintServiceJWT signs a service JWT with an explicit signer and issuer, for
-// hosts that manage the signing key outside AuthKit.
-func MintServiceJWT(ctx context.Context, signer jwtkit.Signer, issuer string, opts iam.ServiceJWT) (iam.Token, iam.ServiceJWTClaims, error) {
+func mintServiceJWT(ctx context.Context, signer jwtkit.Signer, issuer string, opts iam.ServiceJWT) (iam.Token, iam.ServiceJWTClaims, error) {
 	if signer == nil {
 		return iam.Token{}, iam.ServiceJWTClaims{}, iam.ErrSigningNotConfigured
 	}

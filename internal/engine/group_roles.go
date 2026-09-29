@@ -289,11 +289,6 @@ func (s *Engine) GroupRoles(ctx context.Context, ref iam.GroupRef, subjects []ia
 	}
 	rows.Close()
 	sch := s.groupSchemaOrDefault()
-	resolver, err := st.CustomRolesFor(ctx, []string{g.ID})
-	if err != nil {
-		return nil, err
-	}
-	td, _ := sch.Persona(g.Persona)
 	for _, subject := range subjects {
 		subject.ID = strings.TrimSpace(subject.ID)
 		role, ok := held[iam.Subject{Kind: subject.Kind, ID: strings.ToLower(subject.ID)}]
@@ -301,8 +296,6 @@ func (s *Engine) GroupRoles(ctx context.Context, ref iam.GroupRef, subjects []ia
 			continue
 		}
 		if _, catalog := sch.Role(g.Persona, role); catalog {
-			out[subject] = role
-		} else if _, custom := resolver(g.ID, role); custom && td.CustomRoles {
 			out[subject] = role
 		}
 	}

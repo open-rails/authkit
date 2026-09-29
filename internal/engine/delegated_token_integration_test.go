@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,7 +21,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/testdb"
@@ -123,7 +123,6 @@ func resourceHandler(ver *verify.Verifier) http.Handler {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"delegated_sub": principal.DelegatedSubject,
 			"permissions":   principal.Permissions,
-			"documents":     principal.Documents,
 			"bound":         principal.ConfirmationCertificateSHA256 != nil,
 		})
 	}))
@@ -175,14 +174,11 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	cfg := newServerTestConfig()
 	cfg.Keys = KeysConfig{Source: keySource}
 	cfg.Delegated = DelegatedConfig{Audiences: []string{"tensorhub.net", "other.example"}}
-	cfg.Documents = DocumentsConfig{Readers: []DocumentReader{{Issuer: "https://tensorhub-" + suffix + ".example"}}}
 
 	delegate := newDelegateCertificate(t, nil)
-	hostDocument := documents.Digest([]byte("host-doc-" + suffix))
 	grant := iam.DelegationGrant{
 		Permissions: []string{"resource:read"},
 		Attributes:  map[string]any{"entitlement": "pro"},
-		Documents:   map[string]string{"example.host-doc/v1": hostDocument},
 	}
 	var requests []iam.DelegationRequest
 	var refuse error
@@ -194,18 +190,6 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 		return grant, nil
 	}
 	client := newServerClient(t, cfg, pool, withDelegatedAuthorization(authorizer))
-
-	docRef, err := client.PublishDocument(ctx, documents.Publication{
-		Type:      documentsTestType,
-		Payload:   json.RawMessage(`{"entitlements":{"pro":{}}}`),
-		Audiences: cfg.Delegated.Audiences,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM signed_documents WHERE digest = $1`, docRef.Digest)
-	})
-	_, err = client.PublishDocument(ctx, documents.Publication{Type: documentsTestType, Payload: json.RawMessage(`{}`), Audiences: cfg.Delegated.Audiences})
-	require.ErrorContains(t, err, "already published")
 	srv, err := newServer(client)
 	require.NoError(t, err)
 	h, err := httpapi.NewMount(srv, httpapi.MountOptions{})
@@ -224,8 +208,8 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	require.Empty(t, requests)
 
 	// Default mint: full audience list, default TTL, the authorizer's grant is
-	// the complete signed authority, provider documents stamped alongside it,
-	// and the token bound to the delegate certificate.
+	// the complete signed authority, and the token bound to the delegate
+	// certificate.
 	rec := postDelegatedToken(h, mintBody(delegate, ""), userToken)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	var responseFields map[string]json.RawMessage
@@ -253,10 +237,6 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	attributes, ok := claims["attributes"].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "pro", attributes["entitlement"])
-	stamped, ok := claims["documents"].(map[string]any)
-	require.True(t, ok, "documents claim missing: %v", claims)
-	require.Equal(t, docRef.Digest, stamped[documentsTestType])
-	require.Equal(t, hostDocument, stamped["example.host-doc/v1"], "authorizer documents ride alongside registered providers")
 	iat, exp := int64(claims["iat"].(float64)), int64(claims["exp"].(float64))
 	require.Equal(t, int64(defaultDelegatedTTLDefault/time.Second), exp-iat, "default TTL")
 	require.WithinDuration(t, time.Unix(exp, 0), resp.ExpiresAt, time.Second)
@@ -267,10 +247,6 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	require.NoError(t, err, "jti %q is not a uuid", firstJTI)
 	require.NotEqual(t, firstJTI, unverifiedClaims(t, mintOK(t, h, mintBody(delegate, ""), userToken).Token)["jti"])
 
-	// The stamped document is resolvable end-to-end by the configured reader.
-	readerToken := registerDocumentReader(t, client, "tensorhub-"+suffix, "https://tensorhub-"+suffix+".example")
-	require.Equal(t, http.StatusOK, getDocument(h, http.MethodGet, docRef.Digest, readerToken, nil).Code)
-
 	// ---- Resource server: real mTLS round trip with the real verifier. ----
 	signer := keySource.ActiveSigner().(*jwtkit.RSASigner)
 	ver := newDelegatedVerifier(t, signer, cfg.Token.Issuer, []string{"tensorhub.net"})
@@ -279,7 +255,6 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	require.Equal(t, http.StatusOK, status, body)
 	require.Contains(t, body, `"bound":true`)
 	require.Contains(t, body, user.ID)
-	require.Contains(t, body, docRef.Digest)
 
 	// A stolen token is useless without the certificate's private key.
 	other := newDelegateCertificate(t, nil)
@@ -325,7 +300,6 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 		Audiences: []string{"tensorhub.net"}, TTL: time.Minute,
 	})
 	require.NoError(t, err)
-	require.Equal(t, docRef.Digest, unverifiedClaims(t, unbound.Value)["documents"].(map[string]any)[documentsTestType], "the Go mint stamps published documents too")
 	status, body = callResource(t, plain.Client(), plain.URL, unbound.Value, nil)
 	require.Equal(t, http.StatusOK, status, body)
 	require.Contains(t, body, `"bound":false`)
@@ -390,7 +364,7 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	require.JSONEq(t, injected, string(requests[len(requests)-1].RequestedGrant))
 	require.Equal(t, []any{"resource:read"}, c["permissions"])
 	require.Equal(t, "pro", c["attributes"].(map[string]any)["entitlement"])
-	require.Nil(t, c["documents"].(map[string]any)["x/v1"])
+	require.Nil(t, c["documents"])
 	require.Nil(t, c["sub"])
 	require.Equal(t, user.ID, c["delegated_sub"])
 	require.Equal(t, cfg.Token.Issuer, c["iss"])
@@ -420,13 +394,6 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError, huge.Code)
 	requireErrorCode(t, huge.Body.String(), "internal_error")
 
-	// A host document colliding with a registered provider's type on another
-	// digest is a wiring bug and fails loudly.
-	grant = iam.DelegationGrant{Documents: map[string]string{documentsTestType: documents.Digest([]byte("stale-" + suffix))}}
-	collision := postDelegatedToken(h, mintBody(delegate, ""), userToken)
-	require.Equal(t, http.StatusServiceUnavailable, collision.Code)
-	require.Contains(t, collision.Body.String(), "delegated_document_unavailable")
-
 	// Construction guards: the route never mounts without its authorizer, and
 	// an authorizer without a route is dead wiring.
 	noAuthorizer := newServerTestConfig()
@@ -444,7 +411,9 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, postDelegatedToken(bareHandler, mintBody(delegate, ""), userToken).Code)
 }
 
-func TestDelegatedTokenRoute_KIDRotationReconciliation(t *testing.T) {
+// A live key rotation: the next delegated mint signs with the new key and
+// still verifies as a delegated principal over mTLS.
+func TestDelegatedTokenRoute_KeyRotation(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
@@ -453,22 +422,10 @@ func TestDelegatedTokenRoute_KIDRotationReconciliation(t *testing.T) {
 	cfg := newServerTestConfig()
 	cfg.Keys = KeysConfig{Source: keySource}
 	cfg.Delegated = DelegatedConfig{Audiences: []string{"tensorhub.net"}}
-	cfg.Documents = DocumentsConfig{Readers: []DocumentReader{{Issuer: "https://tensorhub-" + suffix + ".example"}}}
 	client := newServerClient(t, cfg, pool, withDelegatedAuthorization(
 		func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
 			return iam.DelegationGrant{}, nil
 		}))
-
-	docRef, err := client.PublishDocument(ctx, documents.Publication{
-		Type:      documentsTestType,
-		Payload:   json.RawMessage(fmt.Sprintf(`{"rotation":%q}`, suffix)),
-		Audiences: cfg.Delegated.Audiences,
-	})
-	require.NoError(t, err)
-	digest := docRef.Digest
-	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM signed_documents WHERE digest = $1`, digest)
-	})
 	srv, err := newServer(client)
 	require.NoError(t, err)
 	h, err := httpapi.NewMount(srv, httpapi.MountOptions{})
@@ -480,48 +437,41 @@ func TestDelegatedTokenRoute_KIDRotationReconciliation(t *testing.T) {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, user.ID)
 	})
 	delegate := newDelegateCertificate(t, nil)
-
-	storedKID := func() string {
-		t.Helper()
-		document, err := client.LookupDocument(ctx, digest)
-		require.NoError(t, err)
-		header, _, err := documents.DecodeCompact(document.CompactJWS)
-		require.NoError(t, err)
-		return header.KeyID
-	}
-	require.Equal(t, "rotate-kid-1", storedKID())
-
-	// Mint before rotation: artifact already matches the token key.
 	userToken, _, err := fixtureBackend(srv.Backend()).mintTestAccessToken(ctx, user.ID, nil)
 	require.NoError(t, err)
 	mintOK(t, h, mintBody(delegate, ""), userToken)
 
 	// LIVE key rotation (#238: the Service reads the KeySource per-operation).
 	// The user's EXISTING access token (kid-1, still in the served key set)
-	// keeps authenticating; the next delegated mint signs with rotate-kid-2,
-	// and the route's post-mint reconciliation must re-sign the persisted
-	// document with the SAME digest.
+	// keeps authenticating; the next delegated mint signs with rotate-kid-2.
 	keySource.rotate(t, "rotate-kid-2")
 	resp := mintOK(t, h, mintBody(delegate, ""), userToken)
 	kid, err := signingKID(resp.Token)
 	require.NoError(t, err)
 	require.Equal(t, "rotate-kid-2", kid)
-	require.Equal(t, digest, unverifiedClaims(t, resp.Token)["documents"].(map[string]any)[documentsTestType], "digest is stable across rotation repair")
-	require.Equal(t, "rotate-kid-2", storedKID(), "stored artifact re-signed by the token's key")
 
-	// The re-signed artifact still serves and still verifies as the same digest.
-	readerToken := registerDocumentReader(t, client, "tensorhub-"+suffix, "https://tensorhub-"+suffix+".example")
-	served := getDocument(h, http.MethodGet, digest, readerToken, nil)
-	require.Equal(t, http.StatusOK, served.Code)
-	_, err = documents.FromCompact(served.Body.String(), documents.Reference{Type: documentsTestType, Digest: digest})
-	require.NoError(t, err)
-
-	// And the minted token verifies over mTLS as a delegated principal carrying
-	// the stamped reference (the receiving-service side of the pairing).
 	ver := newDelegatedVerifier(t, keySource.ActiveSigner().(*jwtkit.RSASigner), cfg.Token.Issuer, []string{"tensorhub.net"})
 	resource := mtlsResourceServer(t, ver)
 	status, body := callResource(t, resourceClient(t, resource, &delegate.TLS), resource.URL, resp.Token, nil)
 	require.Equal(t, http.StatusOK, status, body)
 	require.Contains(t, body, user.ID)
-	require.Contains(t, body, digest)
+}
+
+// signingKID is the kid protected header of a compact JWS.
+func signingKID(token string) (string, error) {
+	header, _, ok := strings.Cut(token, ".")
+	if !ok {
+		return "", errors.New("token is not a compact JWS")
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(header)
+	if err != nil {
+		return "", errors.New("token has a malformed protected header")
+	}
+	var h struct {
+		KeyID string `json:"kid"`
+	}
+	if err := json.Unmarshal(raw, &h); err != nil || strings.TrimSpace(h.KeyID) == "" {
+		return "", errors.New("token signing key id is unavailable")
+	}
+	return strings.TrimSpace(h.KeyID), nil
 }

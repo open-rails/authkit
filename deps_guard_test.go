@@ -15,7 +15,7 @@ import (
 
 // The verification surface and the framework adapters must stay DB-less:
 // hosts that only verify tokens must not link pgx, River or the engine (#291).
-var dblessPackages = []string{"./iam", "./documents", "./jwtkit", "./verify", "./adapters/gin", "./adapters/fiber"}
+var dblessPackages = []string{"./iam", "./jwtkit", "./verify", "./adapters/gin", "./adapters/fiber"}
 
 const rootPackage = "github.com/open-rails/authkit"
 

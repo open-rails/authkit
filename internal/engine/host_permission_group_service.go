@@ -1,7 +1,7 @@
 package engine
 
-// Permission groups: the compiled role schema, the root singleton, live
-// permission checks and custom roles.
+// Permission groups: the compiled role schema, the root singleton and live
+// permission checks.
 
 import (
 	"context"
@@ -76,7 +76,6 @@ func (s *Engine) logRBACDrift(ctx context.Context) {
 	if report, err := s.driftReport(ctx); err == nil && report.Total() > 0 {
 		slog.Default().Warn("authkit: rbac drift detected",
 			"group_user_roles", report.GroupUserRoles,
-			"group_custom_roles", report.CustomRoles,
 			"api_keys", report.APIKeys,
 		)
 	}
@@ -107,18 +106,13 @@ func (st *permissionGroupStore) ensureRootGroup(ctx context.Context) (string, er
 	return id, err
 }
 
-// validRoleForPersona reports whether role is assignable in a group of persona: a
-// catalog role, or any role when the persona allows custom roles (custom roles are
-// validated at definition time).
+// validRoleForPersona reports whether role is a catalog role of persona.
 func (s *Engine) validRoleForPersona(sch *rbac.Schema, persona iam.Persona, role iam.Role) bool {
-	if role.IsZero() || role.Persona() != persona {
+	if role.IsZero() {
 		return false
 	}
-	if _, ok := sch.Role(persona, role); ok {
-		return true
-	}
-	td, ok := sch.Persona(persona)
-	return ok && td.CustomRoles
+	_, ok := sch.Role(persona, role)
+	return ok
 }
 
 // Can reports whether a covers perm in the group ref addresses, live: a dead
@@ -273,149 +267,6 @@ func (s *Engine) effectiveGrants(auth authority, g groupTarget) []iam.Perm {
 		}
 	}
 	return out
-}
-
-// DefineGroupRole creates or redefines the custom role name in a group whose
-// persona allows them, and returns it. A redefinition is a deferred grant or revoke to every holder,
-// so the actor needs <p>:roles:manage and COVER of both the current and the
-// new permissions, plus <p>:members:manage when users hold the role and
-// <p>:credentials:manage when applications or API keys do (invite links
-// carrying it count as members). A name that live rows still reference
-// without a definition (a catalog role removed from config) is refused, so a
-// new definition never silently re-binds those holders. Permissions that need
-// MFA are refused while a holder cannot present it.
-func (s *Engine) DefineGroupRole(ctx context.Context, a iam.Actor, ref iam.GroupRef, name string, perms ...iam.Perm) (iam.Role, error) {
-	if err := requireActor(a); err != nil {
-		return iam.Role{}, err
-	}
-	name = strings.TrimSpace(name)
-	if !iam.ValidPermissionSegment(name) {
-		return iam.Role{}, fmt.Errorf("custom role name %q must match [a-z][a-z0-9-]*: %w", name, iam.ErrCustomRoleNameInvalid)
-	}
-	grants := ident.Strings(perms)
-	sch := s.groupSchemaOrDefault()
-	var role iam.Role
-	err := s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
-		role = ident.Role(g.Persona, name)
-		if err := customRolesAllowed(sch, g.Persona, role); err != nil {
-			return err
-		}
-		if err := sch.CustomRoleGrantsValid(g.Persona, grants); err != nil {
-			return err
-		}
-		old, exists, err := st.CustomRole(ctx, g.ID, role)
-		if err != nil {
-			return err
-		}
-		refs, err := st.roleReferences(ctx, g.ID, role)
-		if err != nil {
-			return err
-		}
-		if !exists && refs.any() {
-			return fmt.Errorf("role %q is still held under a definition that no longer exists: %w", role, iam.ErrCustomRoleIsCatalogRole)
-		}
-		if err := s.authorizeCustomRoleChange(ctx, st, a, g, refs, old, grants); err != nil {
-			return err
-		}
-		if err := s.requireHoldersMFA(ctx, st, g, role, refs, grants); err != nil {
-			return err
-		}
-		return st.UpsertCustomRole(ctx, g.ID, role, grants)
-	})
-	if err != nil {
-		return iam.Role{}, err
-	}
-	return role, nil
-}
-
-// DeleteGroupRole deletes a custom role and every reference to it (holders,
-// API keys, invite links), under DefineGroupRole's authority rule over its
-// current permissions. Deleting an undefined role is a no-op.
-func (s *Engine) DeleteGroupRole(ctx context.Context, a iam.Actor, ref iam.GroupRef, role iam.Role) error {
-	if err := requireActor(a); err != nil {
-		return err
-	}
-	sch := s.groupSchemaOrDefault()
-	return s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
-		if role.Persona() != g.Persona {
-			return fmt.Errorf("role %q is not a role of a %q group: %w", role, g.Persona, iam.ErrRoleNotAssignable)
-		}
-		if err := customRolesAllowed(sch, g.Persona, role); err != nil {
-			return err
-		}
-		old, exists, err := st.CustomRole(ctx, g.ID, role)
-		if err != nil {
-			return err
-		}
-		refs, err := st.roleReferences(ctx, g.ID, role)
-		if err != nil {
-			return err
-		}
-		if err := s.authorizeCustomRoleChange(ctx, st, a, g, refs, old, nil); err != nil || !exists {
-			return err
-		}
-		return st.DeleteCustomRole(ctx, g.ID, role)
-	})
-}
-
-func customRolesAllowed(sch *rbac.Schema, persona iam.Persona, role iam.Role) error {
-	td, ok := sch.Persona(persona)
-	if !ok {
-		return fmt.Errorf("unknown group persona %q: %w", persona, iam.ErrUnknownGroupPersona)
-	}
-	if !td.CustomRoles {
-		return fmt.Errorf("group persona %q does not allow custom roles: %w", persona, iam.ErrCustomRolesNotSupported)
-	}
-	if _, isCatalog := sch.Role(persona, role); isCatalog {
-		return fmt.Errorf("role %q is a catalog role and cannot be redefined as custom: %w", role, iam.ErrCustomRoleIsCatalogRole)
-	}
-	return nil
-}
-
-// authorizeCustomRoleChange is the capability and COVER rule of a custom-role
-// definition or deletion.
-func (s *Engine) authorizeCustomRoleChange(ctx context.Context, st *permissionGroupStore, a iam.Actor, g groupTarget, refs roleRefs, oldGrants, newGrants []string) error {
-	auth, err := s.actorAuthority(ctx, st, a, g)
-	if err != nil {
-		return err
-	}
-	caps := []iam.Perm{iam.PermRolesManage(g.Persona)}
-	if refs.users > 0 || refs.invites > 0 {
-		caps = append(caps, iam.PermMembersManage(g.Persona))
-	}
-	if refs.applications > 0 || refs.apiKeys > 0 {
-		caps = append(caps, iam.PermCredentialsManage(g.Persona))
-	}
-	for _, p := range caps {
-		if err := auth.requireCap(p); err != nil {
-			return err
-		}
-	}
-	if err := auth.requireCover(oldGrants); err != nil {
-		return err
-	}
-	return auth.requireCover(newGrants)
-}
-
-// requireHoldersMFA refuses a definition whose permissions need MFA while a
-// user holding the role has none, or an application or API key holds it.
-func (s *Engine) requireHoldersMFA(ctx context.Context, st *permissionGroupStore, g groupTarget, role iam.Role, refs roleRefs, grants []string) error {
-	if !s.TwoFactorEnabled() || !s.groupSchemaOrDefault().RequiresMFA(grants) {
-		return nil
-	}
-	if refs.applications > 0 || refs.apiKeys > 0 {
-		return fmt.Errorf("role %q would need MFA, which applications and API keys holding it cannot provide: %w", role, iam.ErrRoleNotAssignable)
-	}
-	var missing bool
-	err := st.q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM group_user_roles r WHERE r.permission_group_id=$1::uuid AND r.role=$2
- AND NOT EXISTS(SELECT 1 FROM mfa_settings m WHERE m.user_id=r.user_id AND m.enabled AND EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id=r.user_id)))`, g.ID, role.Name()).Scan(&missing)
-	if err != nil {
-		return err
-	}
-	if missing {
-		return iam.ErrTwoFAEnrollmentRequired
-	}
-	return nil
 }
 
 // refuseMFACredential: an API key cannot present a second factor, so it may

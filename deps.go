@@ -2,7 +2,6 @@ package authkit
 
 import (
 	"context"
-	"net/http"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -43,19 +42,9 @@ type Deps struct {
 	// delegated-token mint route (#261/#277); its grant is the complete
 	// authority AuthKit signs. Required when Delegated.Audiences is set.
 	DelegatedAuthorization iam.DelegationAuthorizer
-	// ApplicationAdmission is consulted before any application
-	// self-registration fetch (#264): a non-nil error refuses the attempt.
-	ApplicationAdmission func(ctx context.Context, domain string) error
 	// NameAdmission is the host's side-effect-free username policy for
 	// account creation and rename.
 	NameAdmission func(context.Context, iam.NameAdmissionRequest) error
-	// SolanaSNSResolver replaces the SNS primary-name resolver used after a
-	// verified Solana link.
-	SolanaSNSResolver SolanaSNSResolver
-	// OutboundHTTP overrides the client for application-document and JWKS
-	// fetches (#264); nil builds the timeout-bounded, redirect-refusing,
-	// SSRF-guarded default.
-	OutboundHTTP *http.Client
 	// Clock replaces the engine clock for TTL and grace-window decisions. It
 	// never governs ephemeral state (codes, claims, counters), which always
 	// expires by the database clock so replicas agree.
@@ -131,11 +120,4 @@ type EntitlementsProvider interface {
 // misconfiguration is loud rather than silently returning everyone.
 type EntitlementFilterProvider interface {
 	ListSubjectsWithEntitlement(ctx context.Context, entitlement string) ([]string, error)
-}
-
-// SolanaSNSResolver resolves a wallet's primary SNS name after a verified link.
-// The default talks to the public sdk-proxy; Deps.SolanaSNSResolver replaces
-// it.
-type SolanaSNSResolver interface {
-	ResolvePrimaryName(ctx context.Context, address string) (string, error)
 }

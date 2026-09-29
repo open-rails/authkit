@@ -11,12 +11,8 @@ func PermMembersRead(p Persona) Perm { return Perm{p.name + ":members:read"} }
 // PermMembersManage gates adding, removing and re-roling members and invites.
 func PermMembersManage(p Persona) Perm { return Perm{p.name + ":members:manage"} }
 
-// PermRolesManage gates defining and deleting custom roles. Registered only
-// for personas with CustomRoles.
-func PermRolesManage(p Persona) Perm { return Perm{p.name + ":roles:manage"} }
-
-// PermCredentialsRead gates listing API keys and remote applications.
-// Registered only for personas with APIKeys or RemoteApplications.
+// PermCredentialsRead gates listing API keys. Registered only for personas
+// with APIKeys or RemoteApplications.
 func PermCredentialsRead(p Persona) Perm { return Perm{p.name + ":credentials:read"} }
 
 // PermCredentialsManage gates minting, revoking and re-roling API keys and

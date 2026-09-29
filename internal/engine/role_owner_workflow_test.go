@@ -30,11 +30,12 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(hostPool.Close)
 	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://owners.test"}, TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled}, Registration: RegistrationConfig{NativeUserMode: iam.RegistrationModeInviteOnly}, Roles: RoleConfig{
-		Personas: map[string]Persona{"org": {Permissions: []string{"org:records:read", "org:records:write"}, CustomRoles: true, RemoteApplications: true}},
+		Personas: map[string]Persona{"org": {Permissions: []string{"org:records:read", "org:records:write"}, RemoteApplications: true}},
 		Roles: []Role{
 			{Persona: "root", Name: "manager", Permissions: []string{"root:members:manage", "root:users:ban"}},
 			{Persona: "root", Name: "reader", Permissions: []string{"root:users:ban"}},
 			{Persona: "org", Name: "reader", Permissions: []string{"org:records:read"}},
+			{Persona: "org", Name: "editor", Permissions: []string{"org:records:read", "org:records:write"}},
 			{Persona: "org", Name: "manager", Permissions: []string{"org:members:manage", "org:credentials:manage", "org:records:read"}},
 		},
 	}}, keyset{}, Deps{Postgres: hostPool})
@@ -193,16 +194,13 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		require.NoError(t, svc.softDelete(ctx, sole), "repeated deletion is idempotent")
 		require.ErrorIs(t, svc.softDelete(ctx, alternate), iam.ErrLastOwner)
 	})
-	t.Run("custom_role_is_not_recovery_owner", func(t *testing.T) {
+	t.Run("non_owner_role_is_not_recovery_owner", func(t *testing.T) {
 		human := user()
 		g, gid := group(human)
 		other := user()
-		require.NoError(t, defineRole(svc, ctx, iam.UserActor(human), g, "editor", []string{"org:records:read", "org:records:write"}))
 		require.NoError(t, assignRole(ctx, svc, iam.UserActor(human), g, iam.UserSubject(other), "editor"))
 		require.ErrorIs(t, assignRole(ctx, svc, iam.UserActor(human), g, iam.UserSubject(human), "editor"), iam.ErrLastOwner)
-		require.NoError(t, defineRole(svc, ctx, iam.UserActor(human), g, "editor", []string{"org:records:read"}))
-		require.NoError(t, svc.DeleteGroupRole(ctx, iam.UserActor(human), g, mustRole("org:editor")))
-		require.Empty(t, role(gid, other))
+		require.Equal(t, "editor", role(gid, other))
 		require.Equal(t, "owner", role(gid, human))
 	})
 	t.Run("concurrent_owner_departures", func(t *testing.T) {
@@ -282,12 +280,6 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 
 	t.Run("queued_mutations_read_committed_authority", func(t *testing.T) {
 		target := user()
-		human := user()
-		customGroup, customGID := group(human)
-		customActor, customTarget := user(), user()
-		require.NoError(t, assignRole(ctx, svc, iam.UserActor(human), customGroup, iam.UserSubject(customActor), "manager"))
-		require.NoError(t, defineRole(svc, ctx, iam.UserActor(human), customGroup, "auditor", []string{"org:records:read"}))
-		require.NoError(t, assignRole(ctx, svc, iam.UserActor(human), customGroup, iam.UserSubject(customTarget), "auditor"))
 		expiringActor := user()
 		require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner), iam.RootGroup(), iam.UserSubject(expiringActor), "manager"))
 		for _, tc := range []struct {
@@ -300,11 +292,6 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 				return assignRole(ctx, svc, iam.UserActor(manager), iam.RootGroup(), iam.UserSubject(target), "reader")
 			}, func(st *permissionGroupStore) error {
 				return st.AssignRole(ctx, root, iam.UserSubject(target), iam.RootPersona.OwnerRole())
-			}, iam.ErrRoleAssignmentEscalation},
-			{"custom_role_redefinition", func() error {
-				return assignRole(ctx, svc, iam.UserActor(customActor), customGroup, iam.UserSubject(customTarget), "reader")
-			}, func(st *permissionGroupStore) error {
-				return st.UpsertCustomRole(ctx, customGID, mustRole("org:auditor"), []string{"org:records:write"})
 			}, iam.ErrRoleAssignmentEscalation},
 			{"ban_while_queued_revokes_authority", func() error {
 				return assignRole(ctx, svc, iam.UserActor(expiringActor), iam.RootGroup(), iam.UserSubject(peer), "reader")
@@ -346,8 +333,6 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 				switch tc.name {
 				case "target_promotion":
 					require.Equal(t, "owner", role(root, target))
-				case "custom_role_redefinition":
-					require.Equal(t, "auditor", role(customGID, customTarget))
 				case "actor_revocation":
 					require.Empty(t, role(root, manager))
 				case "ban_expiry_after_transaction_start":

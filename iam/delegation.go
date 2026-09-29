@@ -33,7 +33,6 @@ type DelegationRequest struct {
 type DelegationGrant struct {
 	Permissions []string
 	Attributes  map[string]any
-	Documents   map[string]string
 }
 
 // DelegationAuthorizer is the single host seam of the delegated mint route.
@@ -51,11 +50,7 @@ type DelegatedAccess struct {
 	// persona's namespace must be held live by the subject on the root group;
 	// the host's own vocabulary is the host's decision.
 	Permissions []string
-	// Documents are document references (type → sha256 digest) stamped next
-	// to the documents this deployment publishes.
-	Documents map[string]string
-	// Attributes carries app-specific JSON. The documents key is reserved;
-	// roles is set by Roles.
+	// Attributes carries app-specific JSON; roles is set by Roles.
 	Attributes map[string]any
 	// Roles become attributes.roles.
 	Roles []string
