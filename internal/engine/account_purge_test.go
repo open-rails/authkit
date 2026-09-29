@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -62,4 +63,47 @@ func TestAccountPurgeSweepsCredentialsBeforeTheRowGoes(t *testing.T) {
 	var live int
 	require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT count(*) FROM profiles.api_keys WHERE created_by IS NULL AND revoked_at IS NULL`).Scan(&live))
 	require.Zero(t, live)
+}
+
+// TestAccountPurgeKeepsTheRealDeletionTime: a purge ends the recovery window
+// by moving purge_at forward, never by backdating deleted_at, whether the
+// account was live or deleted earlier.
+func TestAccountPurgeKeepsTheRealDeletionTime(t *testing.T) {
+	pg := testdb.EmptyScratchPostgres(t)
+	require.NoError(t, Migrate(t.Context(), pg.Pool, MigrateOptions{}))
+	runtime, err := New(context.Background(), maintenanceConfig(), Deps{Postgres: pg.Pool})
+	require.NoError(t, err)
+	t.Cleanup(runtime.Close)
+	ctx := t.Context()
+	op := iam.OperatorActor()
+	times := func(userID string) (users, deletion, purge time.Time) {
+		t.Helper()
+		require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT u.deleted_at, d.deleted_at, d.purge_at
+ FROM profiles.users u JOIN profiles.account_deletions d ON d.user_id=u.id WHERE u.id=$1::uuid`, userID).Scan(&users, &deletion, &purge))
+		return users, deletion, purge
+	}
+
+	earlier, err := runtime.createUser(ctx, "earlier@example.test", "earlieruser")
+	require.NoError(t, err)
+	require.NoError(t, itemErr(runtime.DeleteUsers(ctx, op, []string{earlier.ID})))
+	deletedAt, _, windowEnd := times(earlier.ID)
+	require.True(t, windowEnd.Equal(deletedAt.Add(720*time.Hour)))
+	require.NoError(t, itemErr(runtime.PurgeUsers(ctx, op, []string{earlier.ID})))
+	users, deletion, purge := times(earlier.ID)
+	require.True(t, users.Equal(deletedAt) && deletion.Equal(deletedAt), "deleted_at keeps the soft-delete time")
+	require.True(t, purge.Before(windowEnd) && !purge.Before(deletedAt), "purge_at moves to the purge")
+
+	live, err := runtime.createUser(ctx, "live@example.test", "liveuser")
+	require.NoError(t, err)
+	before := time.Now()
+	require.NoError(t, itemErr(runtime.PurgeUsers(ctx, op, []string{live.ID})))
+	users, deletion, purge = times(live.ID)
+	require.True(t, users.Equal(deletion))
+	require.WithinDuration(t, before, deletion, time.Minute, "a purged live account is deleted now")
+	require.False(t, purge.Before(deletion))
+	for _, id := range []string{earlier.ID, live.ID} {
+		res, err := runtime.RestoreUsers(ctx, op, []string{id})
+		require.NoError(t, err)
+		require.ErrorIs(t, res[0].Err, errmodel.E(errmodel.CodeAccountRecoveryExpired))
+	}
 }

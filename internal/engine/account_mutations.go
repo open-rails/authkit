@@ -554,14 +554,9 @@ func (s *Engine) PurgeUsers(ctx context.Context, a iam.Actor, ids []string) ([]i
 			if revoked, err = s.softDeleteTx(ctx, at, client, id); err != nil {
 				return err
 			}
-			// The window is fixed at 30 days from deleted_at, so closing it now
-			// moves the deletion back by the window's length.
 			var deletion iam.UserDeletion
-			err = at.tx.QueryRow(ctx, `WITH d AS (
- UPDATE account_deletions SET deleted_at=statement_timestamp()-interval '720 hours', purge_at=statement_timestamp()
-  WHERE user_id=$1::uuid AND state='deleted' RETURNING id, user_id, deleted_at, purge_at)
-UPDATE users u SET deleted_at=d.deleted_at FROM d WHERE u.id=d.user_id
-RETURNING d.id::text, d.user_id::text, d.deleted_at, d.purge_at`, id).Scan(&deletion.ID, &deletion.UserID, &deletion.DeletedAt, &deletion.PurgeAt)
+			err = at.tx.QueryRow(ctx, `UPDATE account_deletions SET purge_at=statement_timestamp()
+ WHERE user_id=$1::uuid AND state='deleted' RETURNING id::text, user_id::text, deleted_at, purge_at`, id).Scan(&deletion.ID, &deletion.UserID, &deletion.DeletedAt, &deletion.PurgeAt)
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil // already finalizing or purged
 			}
