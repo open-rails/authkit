@@ -277,7 +277,7 @@ func newEngine(cfg Config, deps Deps) (_ *Engine, err error) {
 	keySource := cfg.Keys.Source
 	if keySource == nil && cfg.Keys.VerifyOnly {
 		// #87: explicit verify-only — NO signer and NO key discovery. Minting
-		// returns ErrMissingSigner; verification, RBAC reads, and the (empty)
+		// returns ErrSigningNotConfigured; verification, RBAC reads, and the (empty)
 		// JWKS endpoint all work. A pure resource-server / control-plane boots
 		// without any file/dev key.
 		keySource = jwtkit.StaticKeySource{}

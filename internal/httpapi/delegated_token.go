@@ -59,13 +59,13 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	actor, isActor := verify.ActorFromClaims(claims)
 	if !ok || !isActor || actor.Kind() != iam.ActorUser {
-		fail(w, errmodel.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	// A delegated token outlives its parent, so the parent must still be a live
 	// account and, when session-bound, a live session (ak#392).
 	if live, _, err := s.verifier.IsLive(r.Context(), claims); err != nil || !live {
-		fail(w, errmodel.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	if (claims.SessionID != "" || claims.DeviceKeyID != "") && !s.requireLiveCredential(w, r, claims) {
@@ -104,7 +104,7 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 		}
 		parent := strings.SplitN(r.Header.Get("Authorization"), " ", 2)
 		if len(parent) != 2 || !strings.EqualFold(parent[0], "Bearer") {
-			fail(w, errmodel.CodeUnauthorized)
+			fail(w, errmodel.CodeUnauthenticated)
 			return
 		}
 		target := ""

@@ -12,7 +12,7 @@ import (
 func (s *Service) handleUserSessionsGET(w http.ResponseWriter, r *http.Request) {
 	cl, err := verify.GetClaims(r.Context())
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
-		fail(w, errmodel.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	sessions, err := s.svc.ListUserSessions(r.Context(), cl.UserID)
@@ -38,7 +38,7 @@ func (s *Service) handleUserSessionsGET(w http.ResponseWriter, r *http.Request) 
 func (s *Service) handleUserSessionDELETE(w http.ResponseWriter, r *http.Request) {
 	cl, err := verify.GetClaims(r.Context())
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
-		fail(w, errmodel.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	sid := strings.TrimSpace(r.PathValue("id"))
@@ -57,7 +57,7 @@ func (s *Service) handleUserSessionDELETE(w http.ResponseWriter, r *http.Request
 func (s *Service) handleUserSessionsDELETE(w http.ResponseWriter, r *http.Request) {
 	cl, err := verify.GetClaims(r.Context())
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
-		fail(w, errmodel.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	ctx := authflow.WithSessionRevokeReason(r.Context(), authflow.SessionRevokeReasonUserRevokeAll)

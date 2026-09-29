@@ -114,7 +114,7 @@ func (s *Engine) BeginDeviceKeyEnrollment(ctx context.Context, email, publicKey,
 		return authflow.DeviceKeyChallenge{}, errDeviceKeyInvalid
 	}
 	if s.email == nil {
-		return authflow.DeviceKeyChallenge{}, errmodel.ErrEmailSenderUnavailable
+		return authflow.DeviceKeyChallenge{}, errmodel.ErrEmailUnavailable
 	}
 
 	now := time.Now().UTC()

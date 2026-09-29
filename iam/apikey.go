@@ -7,15 +7,15 @@ import (
 )
 
 var (
-	// ErrInvalidAccessToken indicates an API key that does not exist, has a bad
-	// secret, or whose owning permission group is gone. Deliberately indistinguishable from
-	// a malformed token so callers learn nothing from the error.
-	ErrInvalidAccessToken Error = errmodel.E(errmodel.CodeInvalidToken)
-	// ErrAccessTokenRevoked indicates the API key was revoked, or its creator
+	// ErrAPIKeyInvalid indicates an API key that is malformed, does not exist,
+	// has a bad secret, or whose owning permission group is gone: one answer so
+	// callers learn nothing from the error.
+	ErrAPIKeyInvalid Error = errmodel.E(errmodel.CodeAPIKeyInvalid)
+	// ErrAPIKeyRevoked indicates the API key was revoked, or its creator
 	// can no longer act (banned, deleted or reserved).
-	ErrAccessTokenRevoked Error = errmodel.E(errmodel.CodeAccessTokenRevoked)
-	// ErrAccessTokenExpired indicates the API key is past its expires_at.
-	ErrAccessTokenExpired Error = errmodel.E(errmodel.CodeAccessTokenExpired)
+	ErrAPIKeyRevoked Error = errmodel.E(errmodel.CodeAPIKeyRevoked)
+	// ErrAPIKeyExpired indicates the API key is past its expires_at.
+	ErrAPIKeyExpired Error = errmodel.E(errmodel.CodeAPIKeyExpired)
 )
 
 // APIKey is an API key's metadata. The secret is returned only by MintAPIKey.

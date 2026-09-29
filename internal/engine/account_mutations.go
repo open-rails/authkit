@@ -112,7 +112,7 @@ func (s *Engine) CreateUser(ctx context.Context, a iam.Actor, n iam.NewUser) (ia
 		return iam.User{}, err
 	}
 	if a.Kind() != iam.ActorOperator {
-		return iam.User{}, iam.ErrInsufficientRoleAuthority
+		return iam.User{}, iam.ErrInsufficientAuthority
 	}
 	if err := s.requirePG(); err != nil {
 		return iam.User{}, err
@@ -194,7 +194,7 @@ func selfEditable(u iam.UserUpdate) bool {
 // the next proof would retire its MFA. Nothing is sent to the new address.
 func (s *Engine) UpdateUser(ctx context.Context, a iam.Actor, userID string, u iam.UserUpdate) (iam.User, error) {
 	if a.Kind() != iam.ActorOperator && (u.EmailVerified != nil || u.PhoneVerified != nil || u.PasswordHash != nil) {
-		return iam.User{}, iam.ErrInsufficientRoleAuthority
+		return iam.User{}, iam.ErrInsufficientAuthority
 	}
 	if u.Password != nil && u.PasswordHash != nil {
 		return iam.User{}, errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("password"))
@@ -539,7 +539,7 @@ func (s *Engine) PurgeUsers(ctx context.Context, a iam.Actor, ids []string) ([]i
 		return nil, err
 	}
 	if a.Kind() != iam.ActorOperator {
-		return nil, iam.ErrInsufficientRoleAuthority
+		return nil, iam.ErrInsufficientAuthority
 	}
 	client, err := s.deletionRiver()
 	if err != nil {

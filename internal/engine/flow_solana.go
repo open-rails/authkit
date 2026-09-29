@@ -125,7 +125,7 @@ func (s *Engine) VerifySIWSAndLogin(ctx context.Context, output siws.SignInOutpu
 		return authflow.LoginOutcome{}, fmt.Errorf("failed to consume challenge: %w", err)
 	}
 	if !found {
-		return authflow.LoginOutcome{}, fmt.Errorf("%w", errmodel.ErrSIWSChallengeNotFound)
+		return authflow.LoginOutcome{}, fmt.Errorf("%w", errmodel.ErrChallengeNotFound)
 	}
 
 	// Run the stateless verification (expiry, address, domain, timestamps,
@@ -213,7 +213,7 @@ func (s *Engine) LinkSolanaWallet(ctx context.Context, userID string, output siw
 		return fmt.Errorf("failed to consume challenge: %w", err)
 	}
 	if !found {
-		return fmt.Errorf("%w", errmodel.ErrSIWSChallengeNotFound)
+		return fmt.Errorf("%w", errmodel.ErrChallengeNotFound)
 	}
 
 	// Run the stateless verification against the server-issued challenge.
@@ -289,20 +289,20 @@ func verifySIWSChallenge(challengeData siws.ChallengeData, parsedInput siws.Sign
 	// Enforce the server-issued expiry window. This is authoritative and does
 	// not trust the client-supplied expirationTime in the signed message.
 	if now.After(challengeData.ExpiresAt) {
-		return fmt.Errorf("%w", errmodel.ErrSIWSChallengeExpired)
+		return fmt.Errorf("%w", errmodel.ErrChallengeExpired)
 	}
 
 	// Verify the address matches the one the challenge was issued for, and that
 	// the address line the wallet actually signed names the same account.
 	if challengeData.Address != output.Account.Address || parsedInput.Address != output.Account.Address {
-		return fmt.Errorf("%w", errmodel.ErrSIWSAddressMismatch)
+		return fmt.Errorf("%w", errmodel.ErrAddressMismatch)
 	}
 
 	// Bind the signed message's domain to the server-issued challenge domain
 	// (anti-phishing). Field-level rather than strict byte-compare so wallets
 	// that reconstruct the message text remain compatible.
 	if err := siws.ValidateDomain(parsedInput, challengeData.Input.Domain); err != nil {
-		return fmt.Errorf("%w: %v", errmodel.ErrSIWSDomainInvalid, err)
+		return fmt.Errorf("%w: %v", errmodel.ErrInvalidDomain, err)
 	}
 
 	// Bind the chainId and URI the wallet actually signed to the ones the server
@@ -322,7 +322,7 @@ func verifySIWSChallenge(challengeData siws.ChallengeData, parsedInput siws.Sign
 
 	// Verify the message timestamps (issuedAt skew, notBefore, expirationTime).
 	if err := siws.ValidateTimestamps(parsedInput); err != nil {
-		return fmt.Errorf("%w: %v", errmodel.ErrSIWSTimestampInvalid, err)
+		return fmt.Errorf("%w: %v", errmodel.ErrInvalidTimestamp, err)
 	}
 
 	// If the wallet supplied a public key, ensure it is consistent with the
@@ -333,7 +333,7 @@ func verifySIWSChallenge(challengeData siws.ChallengeData, parsedInput siws.Sign
 
 	// Verify the cryptographic signature.
 	if err := siws.VerifySignature(output); err != nil {
-		return fmt.Errorf("%w: %v", errmodel.ErrSIWSSignatureInvalid, err)
+		return fmt.Errorf("%w: %v", errmodel.ErrInvalidSignature, err)
 	}
 
 	return nil
@@ -351,7 +351,7 @@ func bindChallengeField(name string, issued, signed *string) error {
 		return nil
 	}
 	if signed == nil || *signed != *issued {
-		return fmt.Errorf("%w: %s mismatch", errmodel.ErrSIWSChallengeMismatch, name)
+		return fmt.Errorf("%w: %s mismatch", errmodel.ErrChallengeMismatch, name)
 	}
 	return nil
 }

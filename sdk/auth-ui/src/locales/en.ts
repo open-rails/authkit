@@ -510,8 +510,6 @@ export const en = {
     popup_closed: "The sign-in window was closed.",
     popup_timeout: "The sign-in window timed out. Try again.",
     session_changed: "Your session changed in another tab. Please try again.",
-    "2fa_code_expired":
-      "This code has expired or can't be used again. Send a new code.",
     "2fa_enrollment_required":
       "Two-factor authentication setup is required to finish signing in.",
     "2fa_factor_exists":
@@ -526,39 +524,35 @@ export const en = {
     account_recovery_required: "Confirm account recovery before signing in.",
     auth_required_for_link: "Sign in before linking a provider.",
     authentication_failed: "Authentication failed.",
-    authentication_required: "Please sign in to continue.",
     cannot_unlink_last_login_method:
       "You can't unlink your last way to sign in.",
     challenge_expired: "Your verification session has expired. Start again.",
+    challenge_mismatch: "Authentication failed.",
+    challenge_not_found: "Your verification session has expired. Start again.",
+    code_expired:
+      "This code has expired or can't be used again. Send a new code.",
     email_already_verified: "Your email address is already verified.",
     email_delivery_failed:
       "We couldn't deliver the verification email. Please try again, or contact support.",
     email_in_use: "This email is already in use.",
-    email_password_reset_unavailable:
-      "Password reset by email is unavailable right now.",
-    email_registration_unavailable:
-      "Email registration is unavailable right now.",
-    email_sender_unavailable:
-      "Email delivery is currently unavailable. Please try again later.",
     email_unavailable: "Email is unavailable right now.",
-    email_verification_unavailable:
-      "Email verification is unavailable right now.",
     forbidden: "You don't have permission to do that.",
     internal_error: "Something went wrong on our side. Please try again.",
     invalid_challenge: "Your 2FA session is invalid or expired.",
     invalid_code: "Invalid verification code.",
     invalid_credentials: "Wrong email or password.",
+    invalid_domain: "Authentication failed.",
     invalid_email: "Please enter a valid email address.",
     invalid_identifier: "Please enter a valid email address or phone number.",
-    invalid_or_expired_code: "The verification code is invalid or has expired.",
-    invalid_or_expired_token: "This link is invalid or has expired.",
+    invalid_link: "This link is invalid or has expired.",
     invalid_password: "Incorrect password. Please try again.",
     invalid_phone_number: "Please enter a valid phone number.",
     invalid_provider: "That sign-in provider is not supported.",
     invalid_request: "Invalid request. Please check your input and try again.",
+    invalid_signature: "The wallet signature is invalid.",
     invalid_state: "The sign-in session is invalid. Please try again.",
+    invalid_timestamp: "Your verification session has expired. Start again.",
     missing_fields: "Please fill in all required fields.",
-    not_authenticated: "Please sign in to continue.",
     oidc_begin_failed: "The provider sign-in could not be started.",
     oidc_exchange_failed: "The provider sign-in could not be completed.",
     passkey_not_found: "The passkey was not found.",
@@ -575,18 +569,11 @@ export const en = {
     passwordless_disabled: "Passwordless sign-in is disabled.",
     pending_registration_not_found:
       "No pending registration was found for that address or number. Please sign up again.",
-    phone_2fa_unavailable: "SMS two-factor authentication is unavailable.",
     phone_already_verified: "Your phone number is already verified.",
-    phone_and_code_required: "A phone number is required.",
     phone_in_use: "This phone number is already in use.",
     phone_number_must_be_e164:
       "Enter the phone number in international format, e.g. +1234567890.",
-    phone_registration_unavailable:
-      "Phone signup is unavailable right now. Please use email instead.",
-    phone_unavailable:
-      "Phone verification is currently unavailable. Please use email instead.",
-    phone_verification_unavailable:
-      "Phone verification is unavailable right now.",
+    phone_number_required: "A phone number is required.",
     provider_already_linked:
       "This provider account is already linked to a different user.",
     provider_change_requires_unlink:
@@ -599,15 +586,12 @@ export const en = {
     registration_disabled: "Registration is currently disabled.",
     rename_rate_limited: "Too many username changes. Please try again later.",
     renames_disabled: "Username changes are disabled.",
-    siws_challenge_expired: "The wallet sign-in request expired. Try again.",
-    siws_signature_invalid: "The wallet signature is invalid.",
     sms_delivery_failed:
       "We couldn't deliver the verification text message. Please try email instead, or contact support.",
     sms_unavailable: "SMS is currently unavailable. Please use email instead.",
     step_up_required: "Please confirm it's you to continue.",
     token_expired: "Your session has expired. Please sign in again.",
-    token_revoked: "Your session has ended. Please sign in again.",
-    unauthorized: "Please sign in to continue.",
+    unauthenticated: "Please sign in to continue.",
     unknown_provider: "Unknown sign-in provider.",
     user_banned: "Your account is disabled.",
     user_not_found: "User not found.",

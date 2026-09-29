@@ -13,7 +13,7 @@ import { Button } from "#authui/ui/button"
 import { FormAlert, PasswordField, StepHeader, SubmitButton } from "./parts.tsx"
 import { usePasswordPolicy } from "./password.ts"
 
-const DEAD_LINK = new Set(["invalid_or_expired_token", "token_expired"])
+const DEAD_LINK = new Set(["invalid_link"])
 
 export type ResetPasswordFormProps = {
   // From the reset link: readLinkFragment(location.hash)?.token.

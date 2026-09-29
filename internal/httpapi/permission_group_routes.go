@@ -168,7 +168,7 @@ func (s *Service) GeneratedGroupHandler(gr GeneratedRoute) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		actor, ok := verify.ActorFromContext(r.Context())
 		if !ok {
-			fail(w, errmodel.CodeNotAuthenticated)
+			fail(w, errmodel.CodeUnauthenticated)
 			return
 		}
 		// AuthKit's management routes refuse delegated principals.
@@ -383,12 +383,10 @@ func (s *Service) writeGroupOpError(w http.ResponseWriter, err error) {
 }
 
 // groupOpCodes: where a group operation's wire code differs from the catalog
-// — one forbidden and one invalid_request per family, and the last-owner
-// refusal (#193: unsafe, not unauthorised, so 409).
+// — one forbidden and one invalid_request per family.
 var groupOpCodes = map[error]errmodel.Code{
-	iam.ErrCannotRemoveLastAdminRole:     errmodel.CodeCannotRemoveLastOwner,
 	iam.ErrExternalInvitesDisabled:       errmodel.CodeForbidden,
-	iam.ErrInsufficientRoleAuthority:     errmodel.CodeForbidden,
+	iam.ErrInsufficientAuthority:         errmodel.CodeForbidden,
 	iam.ErrRoleAssignmentEscalation:      errmodel.CodeForbidden,
 	iam.ErrInvalidRemoteApplication:      errmodel.CodeInvalidRequest,
 	iam.ErrReservedIssuer:                errmodel.CodeInvalidRequest,

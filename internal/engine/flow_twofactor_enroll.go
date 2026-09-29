@@ -39,8 +39,8 @@ func (s *Engine) BeginTwoFactorEnrollment(ctx context.Context, userID string, en
 
 // EnrollTwoFactor runs the enrollment decision tree. Input problems:
 // ErrInvalidTwoFAMethod, ErrPhoneNumberRequired, ErrPhoneNumberMustBeE164,
-// ErrInvalidCode, ErrTwoFACodeExpired, ErrTwoFAFactorExists; engine failures carry a stage
-// prefix wrapping ErrPhoneTwoFAUnavailable / ErrTwoFASetupCodeSendFailed (with
+// ErrInvalidCode, ErrCodeExpired, ErrTwoFAFactorExists; engine failures carry a stage
+// prefix wrapping ErrSMSUnavailable / ErrTwoFASetupCodeSendFailed (with
 // the delivery sentinel) / ErrTwoFAEnableFailed.
 func (s *Engine) EnrollTwoFactor(ctx context.Context, in authflow.TwoFactorEnrollInput) (authflow.TwoFactorEnrollOutcome, error) {
 	ctx, authErr := s.authorizeLoginEnrollment(ctx, in)
@@ -138,7 +138,7 @@ func (s *Engine) EnrollTwoFactor(ctx context.Context, in authflow.TwoFactorEnrol
 // is gated up front so an undeliverable sender fails fast.
 func (s *Engine) startPhoneTwoFactorSetup(ctx context.Context, userID, phone string) (authflow.TwoFactorEnrollOutcome, error) {
 	if !s.SMSAvailable() {
-		return authflow.TwoFactorEnrollOutcome{}, errmodel.ErrPhoneTwoFAUnavailable
+		return authflow.TwoFactorEnrollOutcome{}, errmodel.ErrSMSUnavailable
 	}
 	n, err := rand.Int(rand.Reader, big.NewInt(900000))
 	if err != nil {

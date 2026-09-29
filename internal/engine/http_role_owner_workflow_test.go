@@ -39,7 +39,7 @@ func TestRoleOwnerHTTPWorkflow(t *testing.T) {
 	require.Contains(t, w.Body.String(), `"role":"owner"`)
 	w = serveAuthJSON(srv, http.MethodDelete, "/org/owner-flow/members/"+owner, "", token)
 	require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
-	requireErrorCode(t, w.Body.String(), string(errmodel.CodeCannotRemoveLastOwner))
+	requireErrorCode(t, w.Body.String(), string(errmodel.CodeLastOwner))
 	gid, err := groupIDOf(ctx, client, group)
 	require.NoError(t, err)
 	app, err := client.UpsertRemoteApplication(ctx, iam.OperatorActor(), iam.GroupByID(gid), iam.RemoteApplication{Slug: "owner-app", Issuer: "https://owner-app.test", JWKSURI: "https://owner-app.test/jwks", Enabled: true})

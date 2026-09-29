@@ -316,7 +316,7 @@ type KeysConfig struct {
 	// NOT derived from Environment.
 	AllowEphemeralDevKeys bool
 	// VerifyOnly constructs AuthKit with NO active signer (#87): token
-	// MINTING returns ErrMissingSigner, while VERIFICATION and all RBAC reads
+	// MINTING returns ErrSigningNotConfigured, while VERIFICATION and all RBAC reads
 	// work fully and the JWKS endpoint serves an empty key set. When true, key
 	// resolution is SKIPPED. Ignored when Source is non-nil. Use it for a
 	// pure resource-server / control-plane deployment that only verifies inbound

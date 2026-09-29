@@ -21,7 +21,7 @@ const oidcStepUpClockSkew = 2 * time.Minute
 func (s *Service) handlePasswordStepUpPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" || strings.TrimSpace(claims.SessionID) == "" {
-		fail(w, errmodel.CodeNotAuthenticated)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	var body struct {
@@ -57,7 +57,7 @@ func (s *Service) handlePasswordStepUpPOST(w http.ResponseWriter, r *http.Reques
 func (s *Service) handleTwoFactorStepUpPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" || strings.TrimSpace(claims.SessionID) == "" {
-		fail(w, errmodel.CodeNotAuthenticated)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	if s.rateLimitedByIdentifier(w, r, RL2FAVerify, claims.UserID) {
@@ -130,7 +130,7 @@ func (s *Service) handleOIDCStepUpStartPOST(w http.ResponseWriter, r *http.Reque
 	provider := strings.TrimSpace(r.PathValue("provider"))
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" || strings.TrimSpace(claims.SessionID) == "" {
-		fail(w, errmodel.CodeNotAuthenticated)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 

@@ -58,17 +58,17 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, iam.ActorRemoteApplication, actor.Kind())
 	grantRole(t, client, group, iam.RemoteApplicationSubject(app.ID), "member")
-	require.ErrorIs(t, assignRole(ctx, client, actor, group, iam.UserSubject(peer), "member"), iam.ErrInsufficientRoleAuthority)
+	require.ErrorIs(t, assignRole(ctx, client, actor, group, iam.UserSubject(peer), "member"), iam.ErrInsufficientAuthority)
 	grantRole(t, client, group, iam.RemoteApplicationSubject(app.ID), "owner")
 	// Application authority is bound to its controlling group and its ceiling.
-	require.ErrorIs(t, assignRole(ctx, client, actor, iam.GroupBySlug("org", "other-owned"), iam.UserSubject(peer), "member"), iam.ErrInsufficientRoleAuthority)
-	require.ErrorIs(t, assignRole(ctx, client, actor.Within("org:catalog:read"), group, iam.UserSubject(peer), "member"), iam.ErrInsufficientRoleAuthority)
+	require.ErrorIs(t, assignRole(ctx, client, actor, iam.GroupBySlug("org", "other-owned"), iam.UserSubject(peer), "member"), iam.ErrInsufficientAuthority)
+	require.ErrorIs(t, assignRole(ctx, client, actor.Within("org:catalog:read"), group, iam.UserSubject(peer), "member"), iam.ErrInsufficientAuthority)
 	forged := verified
 	forged.TokenType = verify.APIKeyPrincipalType
 	_, ok = verify.ActorFromClaims(forged)
 	require.False(t, ok)
 	_, err = client.AssignGroupRoles(ctx, iam.Actor{}, group, []iam.Subject{iam.UserSubject(peer)}, "member")
-	require.ErrorIs(t, err, iam.ErrInsufficientRoleAuthority)
+	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 	call := func(method, path, body, bearer string, status int) {
 		t.Helper()
 		w := serveAuthJSON(srv, method, path, body, bearer)
@@ -132,5 +132,5 @@ func TestCrossControlRemoteOwnerDoesNotSatisfyOwnerInvariant(t *testing.T) {
 	require.NoError(t, err)
 	w := serveAuthJSON(srv, http.MethodDelete, "/org/control-two/members/"+owner, "", token)
 	require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
-	requireErrorCode(t, w.Body.String(), string(errmodel.CodeCannotRemoveLastOwner))
+	requireErrorCode(t, w.Body.String(), string(errmodel.CodeLastOwner))
 }

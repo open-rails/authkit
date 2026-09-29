@@ -220,7 +220,7 @@ test("email 2FA: enroll with a setup code, then a wrong login code retries", asy
   expect((await outbox(request, email)).length).toBe(before + 1)
   await signOut(page)
 
-  // The 5th miss burns the code: AuthKit's 2fa_code_expired makes a new code primary.
+  // The 5th miss burns the code: AuthKit's code_expired makes a new code primary.
   const burnBefore = (await outbox(request, email)).length
   await signIn(page, email)
   const burned = await nextCode(request, email, burnBefore)
@@ -237,7 +237,7 @@ test("email 2FA: enroll with a setup code, then a wrong login code retries", asy
       "Invalid verification code."
     )
   }
-  expect(await submitMiss()).toBe("2fa_code_expired")
+  expect(await submitMiss()).toBe("code_expired")
   await expect(dialog(page).getByRole("alert")).toContainText(
     "can't be used again"
   )

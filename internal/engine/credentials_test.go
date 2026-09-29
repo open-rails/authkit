@@ -102,7 +102,7 @@ func (f *credentialFixture) requireDead(t *testing.T, c issued) {
 	t.Helper()
 	ctx := t.Context()
 	_, err := f.e.ResolveAPIKey(ctx, c.token)
-	require.ErrorIs(t, err, iam.ErrAccessTokenRevoked, "API key")
+	require.ErrorIs(t, err, iam.ErrAPIKeyRevoked, "API key")
 	_, err = f.e.RedeemInviteLink(ctx, iam.UserActor(f.user("redeemer").ID), c.link.Code)
 	require.ErrorIs(t, err, errmodel.ErrInviteLinkRevoked, "invite link")
 	require.ErrorIs(t, f.e.consumeRegistrationInvite(ctx, c.inviteEmail, f.user("registrant").ID, c.invite.Code), errmodel.ErrAccountRegistrationInviteNotFound, "registration invite")
@@ -185,7 +185,7 @@ func TestCredentialIssuance(t *testing.T) {
 	_, err = f.e.CreateInviteLink(ctx, mgr, f.acme, iam.NewInviteLink{Role: iam.OwnerRole})
 	require.ErrorIs(t, err, iam.ErrRoleAssignmentEscalation)
 	_, _, err = f.e.MintAPIKey(ctx, iam.UserActor(member.ID), f.acme, iam.NewAPIKey{Name: "member", Role: "member"})
-	require.ErrorIs(t, err, iam.ErrInsufficientRoleAuthority)
+	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 	_, _, err = f.e.MintAPIKey(ctx, iam.OperatorActor(), f.acme, iam.NewAPIKey{Name: "unknown", Role: "nobody"})
 	require.ErrorIs(t, err, errmodel.ErrUnknownRole, "the operator skips authority, never role validity")
 
@@ -199,37 +199,37 @@ func TestCredentialIssuance(t *testing.T) {
 		"delegated":          iam.DelegatedActor(iam.DelegatedGrant{Issuer: "https://maintenance.test", Subject: manager.ID, Permissions: []iam.Perm{"org:*"}}),
 	} {
 		_, _, err := f.e.MintAPIKey(ctx, a, f.acme, iam.NewAPIKey{Name: name, Role: "member"})
-		require.ErrorIs(t, err, iam.ErrInsufficientRoleAuthority, name)
+		require.ErrorIs(t, err, iam.ErrInsufficientAuthority, name)
 		_, err = f.e.CreateInviteLink(ctx, a, f.acme, iam.NewInviteLink{Role: "member"})
-		require.ErrorIs(t, err, iam.ErrInsufficientRoleAuthority, name)
+		require.ErrorIs(t, err, iam.ErrInsufficientAuthority, name)
 		_, err = f.e.CreateAccountInvite(ctx, a, iam.NewAccountInvite{Email: name + "@machine.test", Group: f.acme, Role: "member"})
-		require.ErrorIs(t, err, iam.ErrInsufficientRoleAuthority, name)
+		require.ErrorIs(t, err, iam.ErrInsufficientAuthority, name)
 	}
 
 	// Revoking needs the authority to issue, from any actor kind.
 	ok, err := f.e.RevokeAPIKey(ctx, iam.UserActor(member.ID), f.acme, key.ID)
-	require.ErrorIs(t, err, iam.ErrInsufficientRoleAuthority)
+	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 	require.False(t, ok)
 	ok, err = f.e.RevokeAPIKey(ctx, iam.APIKeyActor(managerKey.ID), f.acme, key.ID)
 	require.NoError(t, err)
 	require.True(t, ok)
 	_, err = f.e.ResolveAPIKey(ctx, token)
-	require.ErrorIs(t, err, iam.ErrAccessTokenRevoked)
+	require.ErrorIs(t, err, iam.ErrAPIKeyRevoked)
 	ok, err = f.e.RevokeAPIKey(ctx, mgr, f.acme, key.ID)
 	require.NoError(t, err)
 	require.False(t, ok, "no live key")
-	require.ErrorIs(t, f.e.RevokeInviteLink(ctx, iam.UserActor(member.ID), f.acme, link.ID), iam.ErrInsufficientRoleAuthority)
+	require.ErrorIs(t, f.e.RevokeInviteLink(ctx, iam.UserActor(member.ID), f.acme, link.ID), iam.ErrInsufficientAuthority)
 	require.NoError(t, f.e.RevokeInviteLink(ctx, mgr, f.acme, link.ID))
 	require.ErrorIs(t, f.e.RevokeInviteLink(ctx, mgr, f.acme, link.ID), iam.ErrInviteLinkNotFound)
 
 	// Registration invites: plain needs root:users:invite, a role-carrying one
 	// the group's members:manage and coverage of the role.
 	_, err = f.e.CreateAccountInvite(ctx, mgr, iam.NewAccountInvite{Email: "plain@credentials.test"})
-	require.ErrorIs(t, err, iam.ErrInsufficientRoleAuthority)
+	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 	_, err = f.e.CreateAccountInvite(ctx, iam.UserActor(inviter.ID), iam.NewAccountInvite{Email: "plain@credentials.test"})
 	require.NoError(t, err)
 	_, err = f.e.CreateAccountInvite(ctx, iam.UserActor(inviter.ID), iam.NewAccountInvite{Email: "join@credentials.test", Group: f.acme, Role: "member"})
-	require.ErrorIs(t, err, iam.ErrInsufficientRoleAuthority)
+	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 	_, err = f.e.CreateAccountInvite(ctx, mgr, iam.NewAccountInvite{Email: "join@credentials.test", Group: f.acme, Role: iam.OwnerRole})
 	require.ErrorIs(t, err, iam.ErrRoleAssignmentEscalation)
 	_, err = f.e.CreateAccountInvite(ctx, mgr, iam.NewAccountInvite{Email: "join@credentials.test", Role: "member"})
@@ -267,12 +267,12 @@ func TestCredentialIssuance(t *testing.T) {
 	// Tokens: anything but an exact live key is refused.
 	for _, bad := range []string{"", "st_", "st_" + opKey.LookupID, "st_" + opKey.LookupID + "_wrongsecret", "x" + opToken, opToken + "x"} {
 		_, err := f.e.ResolveAPIKey(ctx, bad)
-		require.ErrorIs(t, err, iam.ErrInvalidAccessToken, bad)
+		require.ErrorIs(t, err, iam.ErrAPIKeyInvalid, bad)
 	}
 	_, err = f.e.pg.Exec(ctx, `UPDATE api_keys SET expires_at=now()-interval '1 minute' WHERE id=$1::uuid`, opKey.ID)
 	require.NoError(t, err)
 	_, err = f.e.ResolveAPIKey(ctx, opToken)
-	require.ErrorIs(t, err, iam.ErrAccessTokenExpired)
+	require.ErrorIs(t, err, iam.ErrAPIKeyExpired)
 }
 
 func TestCredentialListsPage(t *testing.T) {
@@ -330,7 +330,7 @@ func TestCredentialsOfDeadCreatorsAreRefused(t *testing.T) {
 			_, err := f.e.pg.Exec(ctx, end.sql, creator.ID)
 			require.NoError(t, err)
 			f.requireDead(t, c)
-			require.ErrorIs(t, assignRole(ctx, f.e, iam.APIKeyActor(c.key.ID), f.acme, f.user("target"), "member"), iam.ErrInsufficientRoleAuthority)
+			require.ErrorIs(t, assignRole(ctx, f.e, iam.APIKeyActor(c.key.ID), f.acme, f.user("target"), "member"), iam.ErrInsufficientAuthority)
 		})
 	}
 }
@@ -352,7 +352,7 @@ func TestPurgeDeletesTheCreatorsCredentials(t *testing.T) {
 	require.NoError(t, f.e.pg.QueryRow(ctx, `SELECT (SELECT count(*) FROM api_keys WHERE id=$1::uuid)+(SELECT count(*) FROM group_invite_links WHERE id=$2::uuid)`, c.key.ID, c.link.ID).Scan(&rows))
 	require.Zero(t, rows, "the purged creator's credentials remain")
 	_, err = f.e.ResolveAPIKey(ctx, c.token)
-	require.ErrorIs(t, err, iam.ErrInvalidAccessToken)
+	require.ErrorIs(t, err, iam.ErrAPIKeyInvalid)
 	_, err = f.e.ResolveAPIKey(ctx, opToken)
 	require.NoError(t, err)
 	var creatorless, deadCreator int

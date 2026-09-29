@@ -175,7 +175,7 @@ func (m bootstrapMatch) refusal(username string) error {
 		reason = "no_contact"
 	}
 	return fmt.Errorf("bootstrap user %q: an existing account is used only through a verified email or phone the manifest names: %w", username,
-		errmodel.E(errmodel.CodeEmailNotVerified, errmodel.WithMetadata(map[string]any{"identifier": m.identifier, "channel": m.channel, "reason": reason})))
+		errmodel.E(errmodel.CodeContactNotVerified, errmodel.WithMetadata(map[string]any{"identifier": m.identifier, "channel": m.channel, "reason": reason})))
 }
 
 // findBootstrapAccount locks the account the user's email or phone names.

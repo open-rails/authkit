@@ -155,13 +155,8 @@ export type LinkFragment = {
 const STALE_BEARER = new Set<AuthErrorCode>([
   "token_expired",
   "invalid_token",
-  "missing_token",
-  "unauthorized",
   "unauthenticated",
-  "not_authenticated",
-  "authentication_required",
   "unknown_kid",
-  "token_revoked",
 ])
 const TERMINAL_REFRESH = new Set([400, 401, 403])
 const MAX_TIMER = 2_147_483_647
@@ -801,7 +796,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       return {
         ok: false,
         reason: "provider_error",
-        code: "missing_token",
+        code: "oidc_exchange_failed",
         provider: from,
       }
     commit(tokens, gen, "login")

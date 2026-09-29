@@ -114,9 +114,9 @@ func requestAuthenticationError(err error) error {
 	switch {
 	case errors.Is(err, ErrSenderProofRequired):
 		return errors.Join(auth.ErrUnauthenticated, auth.ErrSenderProofRequired, err)
-	case errors.Is(err, iam.ErrAccessTokenExpired), errors.Is(err, jwt.ErrTokenExpired):
+	case errors.Is(err, iam.ErrAPIKeyExpired), errors.Is(err, jwt.ErrTokenExpired):
 		return errors.Join(auth.ErrUnauthenticated, auth.ErrExpired, err)
-	case errors.Is(err, iam.ErrAccessTokenRevoked):
+	case errors.Is(err, iam.ErrAPIKeyRevoked):
 		return errors.Join(auth.ErrUnauthenticated, auth.ErrRevoked, err)
 	case errors.Is(err, ErrLivenessUnconfigured):
 		classification = auth.ErrUnavailable

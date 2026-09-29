@@ -37,7 +37,7 @@ func unauthorizedError(err error) error {
 func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 	tokenStr := requestToken(r)
 	if tokenStr == "" {
-		return Claims{}, errmodel.E(errmodel.CodeMissingToken)
+		return Claims{}, errmodel.E(errmodel.CodeUnauthenticated)
 	}
 
 	// API-key branch, BEFORE JWT verification. A shaped-but-invalid API key is

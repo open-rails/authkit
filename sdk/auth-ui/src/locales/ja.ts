@@ -503,8 +503,6 @@ export const ja: AuthUiMessageBundle = {
       "別のタブでセッションが変更されました。もう一度お試しください。",
     generic: "問題が発生しました。もう一度お試しください。",
     network: "ネットワークエラーです。接続をご確認ください。",
-    "2fa_code_expired":
-      "このコードは期限切れか、再利用できません。新しいコードを送信してください。",
     "2fa_enrollment_required":
       "ログインを完了するには二要素認証の設定が必要です。",
     "2fa_factor_exists":
@@ -520,40 +518,39 @@ export const ja: AuthUiMessageBundle = {
       "ログインする前にアカウントの復旧を確認してください。",
     auth_required_for_link: "プロバイダーを連携する前にログインしてください。",
     authentication_failed: "認証に失敗しました。",
-    authentication_required: "続行するにはログインしてください。",
     cannot_unlink_last_login_method: "最後のログイン方法は連携解除できません。",
     challenge_expired:
       "認証セッションの有効期限が切れました。最初からやり直してください。",
+    challenge_mismatch: "認証に失敗しました。",
+    challenge_not_found:
+      "認証セッションの有効期限が切れました。最初からやり直してください。",
+    code_expired:
+      "このコードは期限切れか、再利用できません。新しいコードを送信してください。",
     email_already_verified: "メールアドレスはすでに認証されています。",
     email_delivery_failed:
       "認証メールを配信できませんでした。もう一度お試しいただくか、サポートにお問い合わせください。",
     email_in_use: "このメールアドレスはすでに使用されています。",
-    email_password_reset_unavailable:
-      "現在、メールによるパスワードリセットはご利用いただけません。",
-    email_registration_unavailable:
-      "現在、メールでの登録はご利用いただけません。",
-    email_sender_unavailable:
-      "現在メールを配信できません。しばらくしてからもう一度お試しください。",
     email_unavailable: "現在メールはご利用いただけません。",
-    email_verification_unavailable: "現在メール認証はご利用いただけません。",
     forbidden: "この操作を行う権限がありません。",
     internal_error: "サーバー側で問題が発生しました。もう一度お試しください。",
     invalid_challenge: "二要素認証のセッションが無効か期限切れです。",
     invalid_code: "認証コードが無効です。",
     invalid_credentials: "メールアドレスまたはパスワードが正しくありません。",
+    invalid_domain: "認証に失敗しました。",
     invalid_email: "有効なメールアドレスを入力してください。",
     invalid_identifier:
       "有効なメールアドレスまたは電話番号を入力してください。",
-    invalid_or_expired_code: "認証コードが無効か期限切れです。",
-    invalid_or_expired_token: "このリンクは無効か期限切れです。",
+    invalid_link: "このリンクは無効か期限切れです。",
     invalid_password: "パスワードが正しくありません。もう一度お試しください。",
     invalid_phone_number: "有効な電話番号を入力してください。",
     invalid_provider: "そのログインプロバイダーには対応していません。",
     invalid_request:
       "無効なリクエストです。入力内容を確認して、もう一度お試しください。",
+    invalid_signature: "ウォレットの署名が無効です。",
     invalid_state: "ログインセッションが無効です。もう一度お試しください。",
+    invalid_timestamp:
+      "認証セッションの有効期限が切れました。最初からやり直してください。",
     missing_fields: "必須項目をすべて入力してください。",
-    not_authenticated: "続行するにはログインしてください。",
     oidc_begin_failed: "プロバイダーでのログインを開始できませんでした。",
     oidc_exchange_failed: "プロバイダーでのログインを完了できませんでした。",
     passkey_not_found: "パスキーが見つかりません。",
@@ -570,18 +567,11 @@ export const ja: AuthUiMessageBundle = {
     passwordless_disabled: "パスワードなしのログインは無効になっています。",
     pending_registration_not_found:
       "そのアドレスまたは番号の保留中の登録が見つかりません。もう一度登録してください。",
-    phone_2fa_unavailable: "SMSによる二要素認証はご利用いただけません。",
     phone_already_verified: "電話番号はすでに認証されています。",
-    phone_and_code_required: "電話番号が必要です。",
     phone_in_use: "この電話番号はすでに使用されています。",
     phone_number_must_be_e164:
       "電話番号を国際形式で入力してください（例: +1234567890）。",
-    phone_registration_unavailable:
-      "現在、電話番号での登録はご利用いただけません。メールアドレスをご利用ください。",
-    phone_unavailable:
-      "現在、電話番号の認証はご利用いただけません。メールアドレスをご利用ください。",
-    phone_verification_unavailable:
-      "現在、電話番号の認証はご利用いただけません。",
+    phone_number_required: "電話番号が必要です。",
     provider_already_linked:
       "このプロバイダーアカウントは別のユーザーに連携されています。",
     provider_change_requires_unlink:
@@ -597,17 +587,13 @@ export const ja: AuthUiMessageBundle = {
     rename_rate_limited:
       "ユーザー名の変更回数が多すぎます。しばらくしてからもう一度お試しください。",
     renames_disabled: "ユーザー名の変更は無効になっています。",
-    siws_challenge_expired:
-      "ウォレットのログインリクエストの有効期限が切れました。もう一度お試しください。",
-    siws_signature_invalid: "ウォレットの署名が無効です。",
     sms_delivery_failed:
       "認証SMSを配信できませんでした。メールをお試しいただくか、サポートにお問い合わせください。",
     sms_unavailable: "現在SMSはご利用いただけません。メールをご利用ください。",
     step_up_required: "続行するには本人確認を行ってください。",
     token_expired:
       "セッションの有効期限が切れました。もう一度ログインしてください。",
-    token_revoked: "セッションが終了しました。もう一度ログインしてください。",
-    unauthorized: "続行するにはログインしてください。",
+    unauthenticated: "続行するにはログインしてください。",
     unknown_provider: "不明なログインプロバイダーです。",
     user_banned: "お使いのアカウントは無効になっています。",
     user_not_found: "ユーザーが見つかりません。",

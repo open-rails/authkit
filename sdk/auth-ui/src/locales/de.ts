@@ -526,8 +526,6 @@ export const de: AuthUiMessageBundle = {
       "Ihre Sitzung hat sich in einem anderen Tab geändert. Bitte versuchen Sie es erneut.",
     generic: "Etwas ist schiefgelaufen. Bitte versuchen Sie es erneut.",
     network: "Netzwerkfehler. Bitte überprüfen Sie Ihre Verbindung.",
-    "2fa_code_expired":
-      "Dieser Code ist abgelaufen oder kann nicht erneut verwendet werden. Fordern Sie einen neuen Code an.",
     "2fa_enrollment_required":
       "Die Einrichtung der Zwei-Faktor-Authentifizierung ist erforderlich, um die Anmeldung abzuschließen.",
     "2fa_factor_exists":
@@ -545,45 +543,42 @@ export const de: AuthUiMessageBundle = {
     auth_required_for_link:
       "Melden Sie sich an, bevor Sie einen Anbieter verknüpfen.",
     authentication_failed: "Authentifizierung fehlgeschlagen.",
-    authentication_required: "Bitte melden Sie sich an, um fortzufahren.",
     cannot_unlink_last_login_method:
       "Sie können Ihre letzte Anmeldemöglichkeit nicht entfernen.",
     challenge_expired:
       "Ihre Bestätigungssitzung ist abgelaufen. Bitte beginnen Sie erneut.",
+    challenge_mismatch: "Authentifizierung fehlgeschlagen.",
+    challenge_not_found:
+      "Ihre Bestätigungssitzung ist abgelaufen. Bitte beginnen Sie erneut.",
+    code_expired:
+      "Dieser Code ist abgelaufen oder kann nicht erneut verwendet werden. Fordern Sie einen neuen Code an.",
     email_already_verified: "Ihre E-Mail-Adresse ist bereits verifiziert.",
     email_delivery_failed:
       "Die Verifizierungs-E-Mail konnte nicht zugestellt werden. Bitte versuchen Sie es erneut oder wenden Sie sich an den Support.",
     email_in_use: "Diese E-Mail-Adresse wird bereits verwendet.",
-    email_password_reset_unavailable:
-      "Das Zurücksetzen des Passworts per E-Mail ist derzeit nicht verfügbar.",
-    email_registration_unavailable:
-      "Die Registrierung per E-Mail ist derzeit nicht verfügbar.",
-    email_sender_unavailable:
-      "Der E-Mail-Versand ist derzeit nicht verfügbar. Bitte versuche es später erneut.",
     email_unavailable: "E-Mail ist derzeit nicht verfügbar.",
-    email_verification_unavailable:
-      "Die E-Mail-Bestätigung ist derzeit nicht verfügbar.",
     forbidden: "Dazu haben Sie keine Berechtigung.",
     internal_error:
       "Bei uns ist etwas schiefgelaufen. Bitte versuche es erneut.",
     invalid_challenge: "Ihre 2FA-Sitzung ist ungültig oder abgelaufen.",
     invalid_code: "Ungültiger Verifizierungscode.",
     invalid_credentials: "Falsche E-Mail oder falsches Passwort.",
+    invalid_domain: "Authentifizierung fehlgeschlagen.",
     invalid_email: "Bitte geben Sie eine gültige E-Mail-Adresse ein.",
     invalid_identifier:
       "Bitte geben Sie eine gültige E-Mail-Adresse oder Telefonnummer ein.",
-    invalid_or_expired_code:
-      "Der Bestätigungscode ist ungültig oder abgelaufen.",
-    invalid_or_expired_token: "Dieser Link ist ungültig oder abgelaufen.",
+    invalid_link: "Dieser Link ist ungültig oder abgelaufen.",
     invalid_password: "Falsches Passwort. Bitte versuchen Sie es erneut.",
     invalid_phone_number: "Bitte geben Sie eine gültige Telefonnummer ein.",
     invalid_provider: "Dieser Anmeldeanbieter wird nicht unterstützt.",
     invalid_request:
       "Ungültige Anfrage. Bitte prüfen Sie Ihre Eingaben und versuchen Sie es erneut.",
+    invalid_signature: "Die Wallet-Signatur ist ungültig.",
     invalid_state:
       "Die Anmeldesitzung ist ungültig. Bitte versuchen Sie es erneut.",
+    invalid_timestamp:
+      "Ihre Bestätigungssitzung ist abgelaufen. Bitte beginnen Sie erneut.",
     missing_fields: "Bitte füllen Sie alle Pflichtfelder aus.",
-    not_authenticated: "Bitte melden Sie sich an, um fortzufahren.",
     oidc_begin_failed:
       "Die Anmeldung beim Anbieter konnte nicht gestartet werden.",
     oidc_exchange_failed:
@@ -603,19 +598,11 @@ export const de: AuthUiMessageBundle = {
     passwordless_disabled: "Die passwortlose Anmeldung ist deaktiviert.",
     pending_registration_not_found:
       "Für diese Adresse oder Nummer wurde keine ausstehende Registrierung gefunden. Bitte registrieren Sie sich erneut.",
-    phone_2fa_unavailable:
-      "SMS-Zwei-Faktor-Authentifizierung ist nicht verfügbar.",
     phone_already_verified: "Ihre Telefonnummer ist bereits verifiziert.",
-    phone_and_code_required: "Eine Telefonnummer ist erforderlich.",
     phone_in_use: "Diese Telefonnummer wird bereits verwendet.",
     phone_number_must_be_e164:
       "Geben Sie die Telefonnummer im internationalen Format ein, z. B. +1234567890.",
-    phone_registration_unavailable:
-      "Die Anmeldung per Telefon ist derzeit nicht verfügbar — bitte registrieren Sie sich stattdessen mit einer E-Mail-Adresse.",
-    phone_unavailable:
-      "Die Telefonverifizierung ist derzeit nicht verfügbar. Bitte verwende stattdessen E-Mail.",
-    phone_verification_unavailable:
-      "Die Telefonbestätigung ist derzeit nicht verfügbar.",
+    phone_number_required: "Eine Telefonnummer ist erforderlich.",
     provider_already_linked:
       "Dieses Anbieterkonto ist bereits mit einem anderen Benutzer verknüpft.",
     provider_change_requires_unlink:
@@ -630,9 +617,6 @@ export const de: AuthUiMessageBundle = {
     rename_rate_limited:
       "Zu viele Änderungen des Benutzernamens. Bitte versuchen Sie es später erneut.",
     renames_disabled: "Änderungen des Benutzernamens sind deaktiviert.",
-    siws_challenge_expired:
-      "Die Wallet-Anmeldeanfrage ist abgelaufen. Bitte versuchen Sie es erneut.",
-    siws_signature_invalid: "Die Wallet-Signatur ist ungültig.",
     sms_delivery_failed:
       "Die Verifizierungs-SMS konnte nicht zugestellt werden. Bitte versuchen Sie es stattdessen per E-Mail oder wenden Sie sich an den Support.",
     sms_unavailable:
@@ -640,9 +624,7 @@ export const de: AuthUiMessageBundle = {
     step_up_required: "Bitte bestätigen Sie Ihre Identität, um fortzufahren.",
     token_expired:
       "Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.",
-    token_revoked:
-      "Ihre Sitzung wurde beendet. Bitte melden Sie sich erneut an.",
-    unauthorized: "Bitte melden Sie sich an, um fortzufahren.",
+    unauthenticated: "Bitte melden Sie sich an, um fortzufahren.",
     unknown_provider: "Unbekannter Anmeldeanbieter.",
     user_banned: "Ihr Konto ist deaktiviert.",
     user_not_found: "Benutzer nicht gefunden.",

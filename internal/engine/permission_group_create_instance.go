@@ -66,7 +66,7 @@ func (s *Engine) CreateGroup(ctx context.Context, a iam.Actor, ng iam.NewGroup) 
 	case iam.ActorUser:
 		self := iam.UserSubject(a.ID())
 		if ng.Owner != nil && *ng.Owner != self {
-			return iam.Group{}, false, iam.ErrInsufficientRoleAuthority
+			return iam.Group{}, false, iam.ErrInsufficientAuthority
 		}
 		if !sch.CreationEnabled(ref.Persona()) {
 			return iam.Group{}, false, fmt.Errorf("group persona %q does not allow creation: %w", ref.Persona(), iam.ErrUnknownGroupPersona)
@@ -76,7 +76,7 @@ func (s *Engine) CreateGroup(ctx context.Context, a iam.Actor, ng iam.NewGroup) 
 		}
 		owner = &self
 	default:
-		return iam.Group{}, false, iam.ErrInsufficientRoleAuthority
+		return iam.Group{}, false, iam.ErrInsufficientAuthority
 	}
 
 	var created iam.Group
@@ -151,7 +151,7 @@ func (s *Engine) authorizeSlugClaim(ctx context.Context, st *permissionGroupStor
 		return err
 	}
 	auth, err := s.actorAuthority(ctx, st, a, groupTarget{ID: rootID, Persona: iam.RootPersona})
-	if errors.Is(err, iam.ErrInsufficientRoleAuthority) || err == nil && !auth.covers(persona.OwnerGrant()) {
+	if errors.Is(err, iam.ErrInsufficientAuthority) || err == nil && !auth.covers(persona.OwnerGrant()) {
 		return iam.ErrGroupSlugReserved
 	}
 	return err

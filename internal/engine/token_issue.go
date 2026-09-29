@@ -22,7 +22,7 @@ func (s *Engine) MintAccessToken(ctx context.Context, a iam.Actor, userID string
 		return iam.Token{}, err
 	}
 	if a.Kind() != iam.ActorOperator {
-		return iam.Token{}, iam.ErrInsufficientRoleAuthority
+		return iam.Token{}, iam.ErrInsufficientAuthority
 	}
 	userID = strings.TrimSpace(userID)
 	if !isUUID(userID) {
@@ -226,7 +226,7 @@ func (s *Engine) mintAccessTokenForUserWithAssurance(ctx context.Context, u *use
 	}
 	signer := s.keys.ActiveSigner()
 	if signer == nil {
-		return "", time.Time{}, iam.ErrMissingSigner // #87: a verify-only engine cannot mint
+		return "", time.Time{}, iam.ErrSigningNotConfigured // #87: a verify-only engine cannot mint
 	}
 	tok, err := jwtkit.SignWithType(ctx, signer, claims, jwtkit.AccessTokenType, true)
 	return tok, expiresAt, err

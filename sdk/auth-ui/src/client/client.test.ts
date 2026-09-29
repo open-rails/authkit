@@ -65,7 +65,7 @@ describe("refresh", () => {
       const client = createAuthClient({
         fetch: vi
           .fn()
-          .mockResolvedValue(authError(status, "invalid_refresh_token")),
+          .mockResolvedValue(authError(status, "invalid_token")),
       })
       await signIn(client)
       expect(await client.refresh()).toBe(false)

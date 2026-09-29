@@ -33,7 +33,7 @@ type rootRoleOp func(ctx context.Context, a iam.Actor, ref iam.GroupRef, subject
 func (s *Service) adminUserRole(w http.ResponseWriter, r *http.Request, op rootRoleOp) {
 	actor, ok := verify.ActorFromContext(r.Context())
 	if !ok {
-		fail(w, errmodel.CodeNotAuthenticated)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	if _, ok := userActorID(w, actor); !ok {

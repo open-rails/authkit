@@ -204,7 +204,7 @@ func (s *Service) groupRolesList(w http.ResponseWriter, persona iam.Persona) {
 func (s *Service) handleMeGroupsGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeNotAuthenticated)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	page, err := s.svc.ListSubjectGroups(r.Context(), iam.UserSubject(claims.UserID), groupPageRequest(r))
@@ -232,7 +232,7 @@ func (s *Service) handleMeGroupsGET(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request) {
 	actor, ok := verify.ActorFromContext(r.Context())
 	if !ok {
-		fail(w, errmodel.CodeNotAuthenticated)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	persona := iam.Persona(strings.TrimSpace(r.URL.Query().Get("persona")))

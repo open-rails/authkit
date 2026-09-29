@@ -93,7 +93,7 @@ func TestSMSHealthProbeRearmsPhoneFlows(t *testing.T) {
 		offered, status, code := phoneFlows()
 		require.False(t, offered, failure)
 		require.Equal(t, http.StatusServiceUnavailable, status, failure)
-		require.Equal(t, string(errmodel.CodePhoneVerificationUnavailable), code, failure)
+		require.Equal(t, string(errmodel.CodeSMSUnavailable), code, failure)
 
 		mode.Store("")
 		require.NoError(t, auth.CheckSMSHealth(t.Context()))

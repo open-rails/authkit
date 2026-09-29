@@ -174,7 +174,7 @@ export function createSolanaAuth(client: AuthClient) {
         if (!owner)
           throw new AuthKitError(401, {
             type: "",
-            code: "authentication_required",
+            code: "unauthenticated",
             message: "Sign in before linking a wallet.",
           })
         if (input.linkedAddress && input.linkedAddress !== signer.publicKey)

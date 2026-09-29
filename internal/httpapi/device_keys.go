@@ -102,7 +102,7 @@ func (s *Service) handleDeviceKeyEnrollFinishPOST(w http.ResponseWriter, r *http
 			fail(w, errmodel.CodeStepUpRequired, errmodel.WithMetadata(map[string]any{"method": secondFactor.Method, "param": "code_2fa"}))
 		case errors.Is(err, jwt.ErrTokenUnverifiable), errors.Is(err, jwt.ErrTokenInvalidClaims):
 			s.svc.RecordFailedDeviceKeyEnrollment(r.Context(), req.EnrollmentID)
-			fail(w, errmodel.CodeInvalidOrExpiredCode)
+			fail(w, errmodel.CodeInvalidCode)
 		default:
 			writeError(w, remap(err, map[error]errmodel.Code{errmodel.ErrUserBanned: errmodel.CodeInvalidCredentials}))
 		}
@@ -187,12 +187,12 @@ func deviceKeyCaller(r *http.Request) (verify.Claims, bool) {
 func (s *Service) handleDeviceKeysGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := deviceKeyCaller(r)
 	if !ok {
-		fail(w, errmodel.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	keys, err := s.svc.ListDeviceKeys(r.Context(), claims.UserID, claims.DeviceKeyID)
 	if err != nil {
-		fail(w, errmodel.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	answer := make([]DeviceKeyListResponse, 0, len(keys))
@@ -209,7 +209,7 @@ func (s *Service) handleDeviceKeysGET(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleDeviceKeyDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := deviceKeyCaller(r)
 	if !ok {
-		fail(w, errmodel.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	target := strings.TrimSpace(r.PathValue("id"))
@@ -218,7 +218,7 @@ func (s *Service) handleDeviceKeyDELETE(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := s.svc.RevokeDeviceKey(r.Context(), claims.UserID, claims.DeviceKeyID, target); err != nil {
-		fail(w, errmodel.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	noContent(w)
@@ -227,7 +227,7 @@ func (s *Service) handleDeviceKeyDELETE(w http.ResponseWriter, r *http.Request) 
 func (s *Service) handleDeviceKeysRevokeOthersPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := deviceKeyCaller(r)
 	if !ok {
-		fail(w, errmodel.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	// The enrollment finish token is the bounded recovery-root proof: it
@@ -244,7 +244,7 @@ func (s *Service) handleDeviceKeysRevokeOthersPOST(w http.ResponseWriter, r *htt
 		}
 	}
 	if err := s.svc.RevokeOtherDeviceKeys(r.Context(), claims.UserID, claims.DeviceKeyID); err != nil {
-		fail(w, errmodel.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	noContent(w)

@@ -88,7 +88,7 @@ func TestTwoFactorCodeSurvivesWrongGuess(t *testing.T) {
 	for range 5 {
 		f.expect(401, verify(body, wrong(code)))
 	}
-	require.Equal(t, "2fa_code_expired", f.expect(401, verify(body, code)).Error.Code)
+	require.Equal(t, "code_expired", f.expect(401, verify(body, code)).Error.Code)
 	// The default 3-session cap has evicted the first session by now.
 	latest := f.expect(200, verify(login()))
 
@@ -117,13 +117,13 @@ func TestTwoFactorCodeSurvivesWrongGuess(t *testing.T) {
 	for range 5 {
 		f.expect(401, stepUp(wrong(code)))
 	}
-	require.Equal(t, "2fa_code_expired", f.expect(401, stepUp(code)).Error.Code)
+	require.Equal(t, "code_expired", f.expect(401, stepUp(code)).Error.Code)
 	code = send()
 	f.expect(200, stepUp(code))
 }
 
 // A miss that leaves the code live is invalid_code; no live code (burned by the
-// 5th miss, expired, never sent, spent) is 2fa_code_expired until a resend.
+// 5th miss, expired, never sent, spent) is code_expired until a resend.
 func TestTwoFactorCodeExpiredSignal(t *testing.T) {
 	ctx := t.Context()
 	f := newAccountFlow(t, testdb.Pool(t), newServerTestConfig())
@@ -160,9 +160,9 @@ func TestTwoFactorCodeExpiredSignal(t *testing.T) {
 	for range 4 {
 		require.Equal(t, "invalid_code", errCode(401, enroll(wrongCode(code))))
 	}
-	require.Equal(t, "2fa_code_expired", errCode(401, enroll(wrongCode(code))))
-	require.Equal(t, "2fa_code_expired", errCode(401, enroll(code)))
-	require.Equal(t, "2fa_code_expired", errCode(401, enroll(wrongCode(code))))
+	require.Equal(t, "code_expired", errCode(401, enroll(wrongCode(code))))
+	require.Equal(t, "code_expired", errCode(401, enroll(code)))
+	require.Equal(t, "code_expired", errCode(401, enroll(wrongCode(code))))
 	f.expect(202, enroll(""))
 	code = f.email.verificationCode(t)
 	require.Equal(t, "invalid_code", errCode(401, enroll(wrongCode(code))))
@@ -180,9 +180,9 @@ func TestTwoFactorCodeExpiredSignal(t *testing.T) {
 	for range 4 {
 		require.Equal(t, "invalid_code", errCode(401, verify(wrongCode(code))))
 	}
-	require.Equal(t, "2fa_code_expired", errCode(401, verify(wrongCode(code))))
-	require.Equal(t, "2fa_code_expired", errCode(401, verify(code)))
-	require.Equal(t, "2fa_code_expired", errCode(401, verify(wrongCode(code))))
+	require.Equal(t, "code_expired", errCode(401, verify(wrongCode(code))))
+	require.Equal(t, "code_expired", errCode(401, verify(code)))
+	require.Equal(t, "code_expired", errCode(401, verify(wrongCode(code))))
 	proof["factor_id"] = ch.Error.Metadata.AvailableFactors[0].ID
 	f.expect(403, f.post("/2fa/challenge", proof))
 	code = f.email.lastLoginCode()
@@ -198,13 +198,13 @@ func TestTwoFactorCodeExpiredSignal(t *testing.T) {
 		require.Equal(t, "2fa_required", errCode(403, f.request("POST", "/step-up/2fa", access, map[string]any{})))
 		return f.email.lastLoginCode()
 	}
-	require.Equal(t, "2fa_code_expired", errCode(401, stepUp("123456")))
+	require.Equal(t, "code_expired", errCode(401, stepUp("123456")))
 	code = send()
 	require.Equal(t, "invalid_code", errCode(401, stepUp(wrongCode(code))))
 	expire()
-	require.Equal(t, "2fa_code_expired", errCode(401, stepUp(code)))
+	require.Equal(t, "code_expired", errCode(401, stepUp(code)))
 	code = send()
 	require.Equal(t, "invalid_code", errCode(401, stepUp(wrongCode(code))))
 	f.expect(200, stepUp(code))
-	require.Equal(t, "2fa_code_expired", errCode(401, stepUp(code)))
+	require.Equal(t, "code_expired", errCode(401, stepUp(code)))
 }

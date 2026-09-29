@@ -33,10 +33,8 @@ type contactChannel struct {
 	isVerified           func(iam.User) bool
 	pendingExists        func(context.Context, string) (bool, error)
 
-	errVerifyUnavailable errmodel.Code
-	errResetUnavailable  errmodel.Code
-	errResendUnavailable errmodel.Code
-	errAlreadyVerified   errmodel.Code
+	errUnavailable     errmodel.Code
+	errAlreadyVerified errmodel.Code
 }
 
 func (s *Service) emailChannel() contactChannel {
@@ -59,10 +57,8 @@ func (s *Service) emailChannel() contactChannel {
 			p, err := s.svc.GetPendingRegistrationByEmail(ctx, id)
 			return p != nil, err
 		},
-		errVerifyUnavailable: errmodel.CodeEmailVerificationUnavailable,
-		errResetUnavailable:  errmodel.CodeEmailPasswordResetUnavailable,
-		errResendUnavailable: errmodel.CodeEmailUnavailable,
-		errAlreadyVerified:   errmodel.CodeEmailAlreadyVerified,
+		errUnavailable:     errmodel.CodeEmailUnavailable,
+		errAlreadyVerified: errmodel.CodeEmailAlreadyVerified,
 	}
 }
 
@@ -86,10 +82,8 @@ func (s *Service) phoneChannel() contactChannel {
 			p, err := s.svc.GetPendingPhoneRegistrationByPhone(ctx, id)
 			return p != nil, err
 		},
-		errVerifyUnavailable: errmodel.CodePhoneVerificationUnavailable,
-		errResetUnavailable:  errmodel.CodeSMSSenderUnavailable,
-		errResendUnavailable: errmodel.CodePhoneUnavailable,
-		errAlreadyVerified:   errmodel.CodePhoneAlreadyVerified,
+		errUnavailable:     errmodel.CodeSMSUnavailable,
+		errAlreadyVerified: errmodel.CodePhoneAlreadyVerified,
 	}
 }
 
@@ -143,7 +137,7 @@ func (s *Service) handleVerifyRequestPOST(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if !ch.senderAvailable() {
-		writeError(w, errmodel.E(ch.errVerifyUnavailable))
+		writeError(w, errmodel.E(ch.errUnavailable))
 		return
 	}
 	if claims, ok := verify.ClaimsFromContext(r.Context()); ok && claims.UserID != "" {
@@ -207,11 +201,11 @@ func (s *Service) handleVerifyConfirmPOST(w http.ResponseWriter, r *http.Request
 		if !errors.Is(err, jwt.ErrTokenUnverifiable) && !errors.Is(err, jwt.ErrTokenInvalidClaims) {
 			writeError(w, err)
 		} else if in.Token == "" {
-			fail(w, errmodel.CodeInvalidOrExpiredCode)
+			fail(w, errmodel.CodeInvalidCode)
 		} else if target != nil {
 			s.classifyVerifyLinkFailure(w, r.Context(), *target, in.Identifier)
 		} else {
-			fail(w, errmodel.CodeInvalidOrExpiredToken)
+			fail(w, errmodel.CodeInvalidLink)
 		}
 		return
 	}
@@ -227,7 +221,7 @@ func (s *Service) handleVerifyConfirmPOST(w http.ResponseWriter, r *http.Request
 
 // classifyVerifyLinkFailure explains a missed link token for a known
 // identifier: already verified → 409; a live account or an unknown identifier
-// → 410 (the link expired); a pending registration → 400 (wrong token).
+// → 410 (the link expired); a pending registration → 400 invalid_link.
 func (s *Service) classifyVerifyLinkFailure(w http.ResponseWriter, ctx context.Context, ch contactChannel, id string) {
 	if u, err := ch.getUser(ctx, id); err == nil {
 		if ch.isVerified(u) {
@@ -238,7 +232,7 @@ func (s *Service) classifyVerifyLinkFailure(w http.ResponseWriter, ctx context.C
 		return
 	}
 	if exists, err := ch.pendingExists(ctx, id); err == nil && exists {
-		fail(w, errmodel.CodeInvalidOrExpiredToken)
+		fail(w, errmodel.CodeInvalidLink)
 		return
 	}
 	fail(w, errmodel.CodeVerificationLinkExpired)
@@ -263,7 +257,7 @@ func (s *Service) handlePasswordResetRequestPOST(w http.ResponseWriter, r *http.
 		return
 	}
 	if !ch.senderAvailable() {
-		writeError(w, errmodel.E(ch.errResetUnavailable))
+		writeError(w, errmodel.E(ch.errUnavailable))
 		return
 	}
 	ua, ip := r.UserAgent(), s.requestIP(r)
@@ -296,7 +290,7 @@ func (s *Service) handlePasswordResetConfirmPOST(w http.ResponseWriter, r *http.
 		if s.confirmBackendFailed(w, r, "password_reset_confirm", "confirm_password_reset", err) {
 			return
 		}
-		fail(w, errmodel.CodeInvalidOrExpiredToken)
+		fail(w, errmodel.CodeInvalidLink)
 		return
 	}
 	noContent(w)
@@ -324,7 +318,7 @@ func (s *Service) handleRegisterResendPOST(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if !ch.senderAvailable() {
-		writeError(w, errmodel.E(ch.errResendUnavailable))
+		writeError(w, errmodel.E(ch.errUnavailable))
 		return
 	}
 	if s.rateLimitedByIdentifier(w, r, RLRegisterResend, id) {

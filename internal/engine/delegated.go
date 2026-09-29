@@ -36,17 +36,17 @@ func (s *Engine) MintDelegatedAccessToken(ctx context.Context, actor iam.Actor, 
 			d.Subject = actor.ID()
 		}
 		if d.Subject != actor.ID() {
-			return iam.Token{}, iam.ErrInsufficientRoleAuthority
+			return iam.Token{}, iam.ErrInsufficientAuthority
 		}
 		if err := s.checkDelegatedGrant(ctx, d.Subject, d.Permissions); err != nil {
 			return iam.Token{}, err
 		}
 	default:
-		return iam.Token{}, iam.ErrInsufficientRoleAuthority
+		return iam.Token{}, iam.ErrInsufficientAuthority
 	}
 	signer := s.keys.ActiveSigner()
 	if signer == nil {
-		return iam.Token{}, iam.ErrMissingSigner
+		return iam.Token{}, iam.ErrSigningNotConfigured
 	}
 	refs, providers, err := s.delegatedDocuments(d.Documents)
 	if err != nil {
@@ -107,7 +107,7 @@ func (s *Engine) checkDelegatedGrant(ctx context.Context, userID string, permiss
 }
 
 // rootUserAuthority is a live user's authority on the root group. A deleted,
-// reserved or banned user is ErrInsufficientRoleAuthority.
+// reserved or banned user is ErrInsufficientAuthority.
 func (s *Engine) rootUserAuthority(ctx context.Context, userID string) (authority, error) {
 	if err := s.requirePG(); err != nil {
 		return authority{}, err

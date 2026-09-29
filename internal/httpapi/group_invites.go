@@ -102,7 +102,7 @@ type inviteRedeemRequest struct {
 func (s *Service) handleInviteRedeemPOST(w http.ResponseWriter, r *http.Request) {
 	actor, ok := verify.ActorFromContext(r.Context())
 	if !ok || actor.Kind() != iam.ActorUser {
-		fail(w, errmodel.CodeNotAuthenticated)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	var body inviteRedeemRequest

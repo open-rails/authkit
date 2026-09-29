@@ -28,9 +28,9 @@ func (a *Auth) RevokeAPIKey(ctx context.Context, actor iam.Actor, ref iam.GroupR
 	return a.engine.RevokeAPIKey(ctx, actor, ref, id)
 }
 
-// ResolveAPIKey authenticates a presented token: iam.ErrInvalidAccessToken,
-// iam.ErrAccessTokenRevoked (also when its creator is banned or deleted) or
-// iam.ErrAccessTokenExpired. The verifier resolves API keys through it.
+// ResolveAPIKey authenticates a presented token: iam.ErrAPIKeyInvalid,
+// iam.ErrAPIKeyRevoked (also when its creator is banned or deleted) or
+// iam.ErrAPIKeyExpired. The verifier resolves API keys through it.
 func (a *Auth) ResolveAPIKey(ctx context.Context, token string) (iam.APIKeyPrincipal, error) {
 	return a.engine.ResolveAPIKey(ctx, token)
 }

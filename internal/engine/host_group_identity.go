@@ -306,7 +306,7 @@ func (s *Engine) PurgeGroup(ctx context.Context, a iam.Actor, ref iam.GroupRef, 
 		return err
 	}
 	if a.Kind() != iam.ActorOperator {
-		return iam.ErrInsufficientRoleAuthority
+		return iam.ErrInsufficientAuthority
 	}
 	err := s.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
 		id := ref.ID()

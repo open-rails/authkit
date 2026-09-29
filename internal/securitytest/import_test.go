@@ -79,7 +79,7 @@ func TestSecurityBootstrapNeverAdoptsSquatters(t *testing.T) {
 		h.registerAs(email, name)
 		squatter := h.userID(email)
 		_, err := apply(iam.BootstrapManifestUser{Username: name, Email: email, EmailVerified: true, RootRole: "admin"})
-		require.ErrorIs(t, err, iam.ErrEmailNotVerified)
+		require.ErrorIs(t, err, iam.ErrContactNotVerified)
 		requireUntouched(t, squatter)
 	})
 
@@ -99,7 +99,7 @@ func TestSecurityBootstrapNeverAdoptsSquatters(t *testing.T) {
 		h.registerAs(unique("bare")+"@security.test", name)
 		squatter := h.userIDByName(name)
 		_, err := apply(iam.BootstrapManifestUser{Username: name, RootRole: "admin"})
-		require.ErrorIs(t, err, iam.ErrEmailNotVerified)
+		require.ErrorIs(t, err, iam.ErrContactNotVerified)
 		requireUntouched(t, squatter)
 		// Nothing to change is not an adoption: the apply stays idempotent.
 		res, err := apply(iam.BootstrapManifestUser{Username: name})
@@ -160,7 +160,7 @@ func TestSecurityBootstrapNeverAdoptsSquatters(t *testing.T) {
 		h.grant(iam.RootGroup(), admin, "admin")
 		for _, actor := range []iam.Actor{{}, iam.UserActor(admin.id)} {
 			_, err := h.auth.ApplyBootstrapManifest(ctx, actor, iam.BootstrapManifest{Users: []iam.BootstrapManifestUser{{Username: unique("x"), RootRole: "admin"}}}, iam.BootstrapOptions{})
-			require.ErrorIs(t, err, iam.ErrInsufficientRoleAuthority)
+			require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 		}
 	})
 }
@@ -188,7 +188,7 @@ func TestSecurityEnsureUserRole(t *testing.T) {
 
 		// Unproven, the account gets nothing more.
 		_, err = h.auth.EnsureUserRole(ctx, op, root, iam.UserByEmail(email), "admin")
-		require.ErrorIs(t, err, iam.ErrEmailNotVerified)
+		require.ErrorIs(t, err, iam.ErrContactNotVerified)
 		require.Equal(t, iam.Role("moderator"), h.rootRole(first.ID))
 		login := h.post("/password/login", map[string]string{"identifier": email, "password": password}, "")
 		require.Equal(t, http.StatusUnauthorized, login.status, login.String())
@@ -212,7 +212,7 @@ func TestSecurityEnsureUserRole(t *testing.T) {
 		h.register(email)
 		squatter := h.userID(email)
 		_, err := h.auth.EnsureUserRole(ctx, op, root, iam.UserByEmail(email), "admin")
-		require.ErrorIs(t, err, iam.ErrEmailNotVerified)
+		require.ErrorIs(t, err, iam.ErrContactNotVerified)
 		require.Empty(t, h.rootRole(squatter))
 		emailVerified, _, hasPassword, _, _ := h.contactState(squatter)
 		require.False(t, emailVerified)
@@ -259,7 +259,7 @@ func TestSecurityEnsureUserRole(t *testing.T) {
 		h.grant(root, admin, "superadmin")
 		for _, actor := range []iam.Actor{{}, iam.UserActor(admin.id)} {
 			_, err := h.auth.EnsureUserRole(ctx, actor, root, iam.UserByEmail(unique("nobody")+"@security.test"), "moderator")
-			require.ErrorIs(t, err, iam.ErrInsufficientRoleAuthority)
+			require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 		}
 	})
 }
@@ -345,7 +345,7 @@ func TestSecurityImportUsers(t *testing.T) {
 	t.Run("non-operator actors are refused", func(t *testing.T) {
 		user := h.newAccount("impuser")
 		_, err := h.auth.ImportUsers(ctx, iam.UserActor(user.id), []iam.ImportUser{{Username: unique("x")}}, iam.ImportOptions{})
-		require.ErrorIs(t, err, iam.ErrInsufficientRoleAuthority)
+		require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 	})
 }
 
@@ -376,7 +376,7 @@ func TestSecurityImportSolanaLinks(t *testing.T) {
 	require.NoError(t, h.pool.QueryRow(ctx, `SELECT verified_at IS NOT NULL FROM user_providers WHERE subject=$1`, address).Scan(&verified))
 	require.False(t, verified, "an imported wallet became a login method")
 	_, err = h.auth.ImportSolanaLinks(ctx, iam.UserActor(one.id), []iam.ImportSolanaLink{link})
-	require.ErrorIs(t, err, iam.ErrInsufficientRoleAuthority)
+	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 }
 
 // TestSecurityLinkProvider: an operator-linked identity signs in to exactly
@@ -388,7 +388,7 @@ func TestSecurityLinkProvider(t *testing.T) {
 	ctx := context.Background()
 	owner := h.newAccount("linked")
 	l := iam.ProviderLink{Issuer: provider.Issuer(), Provider: provider.Name(), Subject: provider.identity.Subject}
-	require.ErrorIs(t, h.auth.LinkProvider(ctx, iam.UserActor(owner.id), owner.id, l), iam.ErrInsufficientRoleAuthority)
+	require.ErrorIs(t, h.auth.LinkProvider(ctx, iam.UserActor(owner.id), owner.id, l), iam.ErrInsufficientAuthority)
 	require.ErrorIs(t, h.auth.LinkProvider(ctx, iam.OperatorActor(), uuid.NewString(), l), iam.ErrUserNotFound)
 	require.NoError(t, h.auth.LinkProvider(ctx, iam.OperatorActor(), owner.id, l))
 	var users int

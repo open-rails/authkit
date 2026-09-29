@@ -54,7 +54,7 @@ const res = await auth.authFetch("/api/v1/things") // Bearer + one refresh retry
   2FA-verified (`enabled` carries `freshAuth`).
 - A wrong email/SMS 2FA code is `invalid_code` and can be retried. Once no
   code is live (the 5th miss, expiry, already used) AuthKit answers
-  `2fa_code_expired`; resend to get a fresh code.
+  `code_expired`; resend to get a fresh code.
 - `readStepUpRequired(err)` turns a `403 step_up_required` into the methods to
   offer; retry the action after `stepUpWithPassword` / `stepUpWithTwoFactor` /
   `startOidcStepUp`.

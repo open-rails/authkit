@@ -23,7 +23,7 @@ import (
 // the contact is verified on it; one that already holds role, the group's
 // owner role, or a role covering role is left as it is (a re-run, including on
 // the unverified account an earlier call created). Any other account is
-// refused with ErrEmailNotVerified: a pre-registered account is never
+// refused with ErrContactNotVerified: a pre-registered account is never
 // adopted, and nothing here marks a contact verified.
 func (s *Engine) EnsureUserRole(ctx context.Context, a iam.Actor, ref iam.GroupRef, u iam.UserRef, role iam.Role) (iam.User, error) {
 	if err := requireOperator(a); err != nil {
@@ -75,7 +75,7 @@ func (s *Engine) EnsureUserRole(ctx context.Context, a iam.Actor, ref iam.GroupR
 		}
 		if !held {
 			if !created && !bound {
-				return errmodel.E(errmodel.CodeEmailNotVerified, errmodel.WithMetadata(map[string]any{
+				return errmodel.E(errmodel.CodeContactNotVerified, errmodel.WithMetadata(map[string]any{
 					"identifier": value, "channel": string(key), "reason": "contact_unproven",
 				}))
 			}

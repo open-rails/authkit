@@ -121,7 +121,7 @@ SELECT 'api_keys', k.id::text, k.permission_group_id::text, t.persona, k.role, k
 		if err == nil {
 			continue
 		}
-		if !errors.Is(err, iam.ErrInsufficientRoleAuthority) && !errors.Is(err, iam.ErrRoleAssignmentEscalation) && !errors.Is(err, iam.ErrRoleNotAssignable) {
+		if !errors.Is(err, iam.ErrInsufficientAuthority) && !errors.Is(err, iam.ErrRoleAssignmentEscalation) && !errors.Is(err, iam.ErrRoleNotAssignable) {
 			return err
 		}
 		stamp := "revoked_at=now()"
@@ -234,7 +234,7 @@ func (s *Engine) requireRemainingOwner(ctx context.Context, st *permissionGroupS
 		return err
 	}
 	if !remains {
-		return iam.ErrCannotRemoveLastAdminRole
+		return iam.ErrLastOwner
 	}
 	return nil
 }

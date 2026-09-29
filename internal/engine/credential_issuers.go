@@ -36,7 +36,7 @@ func credentialIssuer(a iam.Actor) (string, error) {
 	case iam.ActorUser:
 		return a.ID(), nil
 	}
-	return "", iam.ErrInsufficientRoleAuthority
+	return "", iam.ErrInsufficientAuthority
 }
 
 // issuerLive is a SQL predicate: the issuer in column col is the operator

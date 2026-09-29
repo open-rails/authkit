@@ -77,7 +77,7 @@ func (s *Service) handleOIDCLoginPOST(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleOIDCLinkStartPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		fail(w, errmodel.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	if !s.requireProvenContact(w, r, claims.UserID) {
@@ -88,7 +88,7 @@ func (s *Service) handleOIDCLinkStartPOST(w http.ResponseWriter, r *http.Request
 	}
 	freshness, err := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
 	if err != nil || freshness.StepUpRequiredForSensitiveOps {
-		fail(w, errmodel.CodeUnauthorized)
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	s.startProviderFlow(w, r, r.PathValue("provider"), flowStart{link: &authflow.ExternalLinkAuthorization{UserID: claims.UserID, SessionID: claims.SessionID, AuthenticatedAt: freshness.LastAuthenticatedAt}})

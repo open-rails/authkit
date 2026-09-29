@@ -55,7 +55,7 @@ describe("session hint", () => {
       JSON.stringify({ userId: "u1", expiresAt: Date.now() + 60_000 })
     )
     const client = createAuthClient({
-      fetch: vi.fn().mockResolvedValue(authError(401, "invalid_refresh_token")),
+      fetch: vi.fn().mockResolvedValue(authError(401, "invalid_token")),
       sessionHint: { storage },
     })
     const stop = client.start()

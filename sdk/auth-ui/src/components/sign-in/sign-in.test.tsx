@@ -113,7 +113,7 @@ describe("LoginForm", () => {
       "POST /api/v1/password/login": [emailChallenge()],
       "POST /api/v1/2fa/verify": () =>
         ++misses <= 5
-          ? authError(401, misses < 5 ? "invalid_code" : "2fa_code_expired")
+          ? authError(401, misses < 5 ? "invalid_code" : "code_expired")
           : session({ sub: "u1", sid: "s1" }),
       "POST /api/v1/2fa/challenge": () => emailChallenge("ch-2"),
     })
@@ -433,7 +433,7 @@ describe("VerifyLink", () => {
   it("explains a dead or missing link", async () => {
     const fetch = stubFetch({
       "POST /api/v1/verify/confirm": () =>
-        authError(400, "invalid_or_expired_token"),
+        authError(400, "invalid_link"),
     })
     const { unmount } = renderUi(
       <VerifyLink token="stale" navigate={vi.fn()} />,

@@ -334,7 +334,7 @@ func (st *permissionGroupStore) AssignRole(ctx context.Context, groupID string, 
 			return err
 		}
 		if !operable {
-			return iam.ErrInsufficientRoleAuthority
+			return iam.ErrInsufficientAuthority
 		}
 	}
 	table, subjectColumn, err := groupRoleTable(subject.Kind)

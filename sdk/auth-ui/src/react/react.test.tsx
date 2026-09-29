@@ -39,7 +39,7 @@ describe("AuthProvider", () => {
     let meCalls = 0
     const fetch = stubFetch({
       "POST /api/v1/token": [
-        authError(401, "invalid_refresh_token"),
+        authError(401, "invalid_token"),
         session({ sub: "u1", sid: "s1", auth_time: 1 }),
       ],
       "POST /api/v1/password/login": () =>
