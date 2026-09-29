@@ -45,7 +45,7 @@ func TestUsernameCaseWorkflow(t *testing.T) {
 	}
 
 	taken := f.expect(400, f.post("/register", map[string]any{"identifier": uniqueEmail("case-dup"), "username": upper, "password": pass}))
-	require.Equal(t, "owner_slug_taken", taken.Error.Code)
+	require.Equal(t, "username_in_use", taken.Error.Code)
 	var accounts int
 	require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT count(*) FROM users WHERE lower(username::text)=$1`, lower).Scan(&accounts))
 	require.Equal(t, 1, accounts)

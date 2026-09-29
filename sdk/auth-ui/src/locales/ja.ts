@@ -535,13 +535,7 @@ export const ja: AuthUiMessageBundle = {
     email_sender_unavailable:
       "現在メールを配信できません。しばらくしてからもう一度お試しください。",
     email_unavailable: "現在メールはご利用いただけません。",
-    email_unchanged: "新しいメールアドレスが現在のアドレスと同じです",
-    email_verification_failed: "認証メールを送信できませんでした。",
     email_verification_unavailable: "現在メール認証はご利用いただけません。",
-    enable_2fa_failed: "二要素認証を有効にできませんでした。",
-    failed_to_request_phone_change:
-      "電話番号変更のリクエストに失敗しました。しばらくしてからもう一度お試しください。",
-    failed_to_unlink: "アカウントの連携を解除できませんでした。",
     forbidden: "この操作を行う権限がありません。",
     internal_error: "サーバー側で問題が発生しました。もう一度お試しください。",
     invalid_challenge: "二要素認証のセッションが無効か期限切れです。",
@@ -562,8 +556,6 @@ export const ja: AuthUiMessageBundle = {
     not_authenticated: "続行するにはログインしてください。",
     oidc_begin_failed: "プロバイダーでのログインを開始できませんでした。",
     oidc_exchange_failed: "プロバイダーでのログインを完了できませんでした。",
-    owner_slug_taken: "このユーザー名はすでに使用されています。",
-    passkey_failed: "パスキーの操作に失敗しました。",
     passkey_not_found: "パスキーが見つかりません。",
     password_change_failed: "パスワードを変更できませんでした。",
     password_contains_identifier:
@@ -588,8 +580,6 @@ export const ja: AuthUiMessageBundle = {
       "現在、電話番号での登録はご利用いただけません。メールアドレスをご利用ください。",
     phone_unavailable:
       "現在、電話番号の認証はご利用いただけません。メールアドレスをご利用ください。",
-    phone_unchanged: "新しい電話番号が現在の番号と同じです。",
-    phone_verification_failed: "認証SMSを送信できませんでした。",
     phone_verification_unavailable:
       "現在、電話番号の認証はご利用いただけません。",
     provider_already_linked:
@@ -598,24 +588,21 @@ export const ja: AuthUiMessageBundle = {
       "別のアカウントを連携する前に、現在のアカウントの連携を解除してください。",
     provider_error:
       "プロバイダーでエラーが発生しました。もう一度お試しください。",
-    provider_link_failed: "アカウントを連携できませんでした。",
     provider_not_linked: "そのプロバイダーは連携されていません。",
+    provider_unavailable:
+      "サインインプロバイダーは一時的に利用できません。しばらくしてからもう一度お試しください。",
     rate_limited:
       "試行回数が多すぎます。しばらくしてからもう一度お試しください。",
-    regenerate_codes_failed: "バックアップコードを再生成できませんでした。",
     registration_disabled: "現在、新規登録は停止しています。",
     rename_rate_limited:
       "ユーザー名の変更回数が多すぎます。しばらくしてからもう一度お試しください。",
     renames_disabled: "ユーザー名の変更は無効になっています。",
-    send_code_failed: "コードを送信できませんでした。もう一度お試しください。",
-    session_creation_failed: "セッションを作成できませんでした。",
     siws_challenge_expired:
       "ウォレットのログインリクエストの有効期限が切れました。もう一度お試しください。",
     siws_signature_invalid: "ウォレットの署名が無効です。",
     sms_delivery_failed:
       "認証SMSを配信できませんでした。メールをお試しいただくか、サポートにお問い合わせください。",
     sms_unavailable: "現在SMSはご利用いただけません。メールをご利用ください。",
-    step_up_failed: "認証に失敗しました。もう一度お試しください。",
     step_up_required: "続行するには本人確認を行ってください。",
     token_expired:
       "セッションの有効期限が切れました。もう一度ログインしてください。",

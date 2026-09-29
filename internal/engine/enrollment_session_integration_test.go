@@ -66,7 +66,7 @@ func TestEnrollmentVerifiesEnrollingSession(t *testing.T) {
 		_, _, enrolling, other := login("enroll-email")
 		f.expect(202, f.request("POST", "/user/2fa", enrolling.AccessToken, map[string]any{"method": "email"}))
 		code := f.email.verificationCode(t)
-		wrong := f.expect(400, f.request("POST", "/user/2fa", enrolling.AccessToken, map[string]any{"method": "email", "code": "000000x"}))
+		wrong := f.expect(401, f.request("POST", "/user/2fa", enrolling.AccessToken, map[string]any{"method": "email", "code": "000000x"}))
 		require.Equal(t, "invalid_code", wrong.Error.Code)
 		enabled := f.expect(200, f.request("POST", "/user/2fa", enrolling.AccessToken, map[string]any{"method": "email", "code": code}))
 		requireVerified(enabled, enrolling, "email")

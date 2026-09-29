@@ -5,7 +5,7 @@ package errmodel
 // which answers internal_error.
 
 var (
-	CodeTwoFACodeExpired                  = def("2fa_code_expired", 400, "The code has expired or was used up. Request a new one.")
+	CodeTwoFACodeExpired                  = def("2fa_code_expired", 401, "The code has expired or was used up. Request a new one.")
 	CodeTwoFAEnrollmentRequired           = def("2fa_enrollment_required", 403, "Two-factor authentication must be enrolled to continue.")
 	CodeTwoFAFactorExists                 = def("2fa_factor_exists", 409, "A two-factor authentication method is already enrolled. Remove it before enrolling a replacement.")
 	CodeTwoFAMethodUnavailable            = def("2fa_method_unavailable", 400, "That two-factor method is unavailable.")
@@ -81,7 +81,7 @@ var (
 	CodeInvalidAudiences                  = def("invalid_audiences", 400, "The audiences are invalid.")
 	CodeInvalidBootstrapManifest          = def("invalid_bootstrap_manifest", 400, "The bootstrap manifest is invalid.")
 	CodeInvalidChallenge                  = def("invalid_challenge", 401, "The challenge is invalid.")
-	CodeInvalidCode                       = def("invalid_code", 400, "The code is invalid.")
+	CodeInvalidCode                       = def("invalid_code", 401, "The code is invalid.")
 	CodeInvalidConfirmation               = def("invalid_confirmation", 401, "The confirmation claim is invalid.")
 	CodeInvalidCredentials                = def("invalid_credentials", 401, "Invalid credentials.")
 	CodeInvalidDelegateCertificate        = def("invalid_delegate_certificate", 400, "The delegate certificate is invalid.")

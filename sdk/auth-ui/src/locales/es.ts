@@ -555,14 +555,8 @@ export const es: AuthUiMessageBundle = {
     email_sender_unavailable:
       "El envío de correo no está disponible actualmente. Inténtalo más tarde.",
     email_unavailable: "El correo no está disponible en este momento.",
-    email_unchanged: "El nuevo correo es igual al correo actual.",
-    email_verification_failed: "No pudimos enviar el correo de verificación.",
     email_verification_unavailable:
       "La verificación por correo no está disponible en este momento.",
-    enable_2fa_failed: "No se pudo activar la autenticación de dos factores.",
-    failed_to_request_phone_change:
-      "No se pudo solicitar el cambio de teléfono. Inténtalo más tarde.",
-    failed_to_unlink: "No se pudo desvincular la cuenta.",
     forbidden: "No tienes permiso para hacer eso.",
     internal_error: "Algo salió mal de nuestro lado. Inténtalo de nuevo.",
     invalid_challenge: "Tu sesión 2FA es inválida o ha expirado.",
@@ -586,8 +580,6 @@ export const es: AuthUiMessageBundle = {
       "No se pudo iniciar el inicio de sesión con el proveedor.",
     oidc_exchange_failed:
       "No se pudo completar el inicio de sesión con el proveedor.",
-    owner_slug_taken: "Este nombre de usuario ya está en uso.",
-    passkey_failed: "La operación con la llave de acceso falló.",
     passkey_not_found: "No se encontró la llave de acceso.",
     password_change_failed: "No se pudo cambiar la contraseña.",
     password_contains_identifier:
@@ -614,8 +606,6 @@ export const es: AuthUiMessageBundle = {
       "El registro por teléfono no está disponible en este momento; regístrate con un correo electrónico en su lugar.",
     phone_unavailable:
       "La verificación por teléfono no está disponible actualmente. Usa el correo electrónico en su lugar.",
-    phone_unchanged: "El nuevo número de teléfono es igual al actual.",
-    phone_verification_failed: "No pudimos enviar el mensaje de verificación.",
     phone_verification_unavailable:
       "La verificación por teléfono no está disponible en este momento.",
     provider_already_linked:
@@ -623,17 +613,14 @@ export const es: AuthUiMessageBundle = {
     provider_change_requires_unlink:
       "Desvincula la cuenta actual antes de vincular otra.",
     provider_error: "El proveedor devolvió un error. Inténtalo de nuevo.",
-    provider_link_failed: "No se pudo vincular la cuenta.",
     provider_not_linked: "Ese proveedor no está vinculado.",
+    provider_unavailable:
+      "El proveedor de inicio de sesión no está disponible temporalmente. Inténtalo de nuevo en breve.",
     rate_limited: "Demasiados intentos. Inténtalo de nuevo más tarde.",
-    regenerate_codes_failed:
-      "No se pudieron regenerar los códigos de respaldo.",
     registration_disabled: "El registro está deshabilitado en este momento.",
     rename_rate_limited:
       "Demasiados cambios de nombre de usuario. Inténtalo más tarde.",
     renames_disabled: "Los cambios de nombre de usuario están deshabilitados.",
-    send_code_failed: "No se pudo enviar el código. Inténtalo de nuevo.",
-    session_creation_failed: "No se pudo crear la sesión.",
     siws_challenge_expired:
       "La solicitud de inicio con la billetera expiró. Inténtalo de nuevo.",
     siws_signature_invalid: "La firma de la billetera no es válida.",
@@ -641,7 +628,6 @@ export const es: AuthUiMessageBundle = {
       "No pudimos enviar el mensaje de texto de verificación. Prueba con el correo electrónico o contacta con soporte.",
     sms_unavailable:
       "El SMS no está disponible actualmente. Usa el correo electrónico en su lugar.",
-    step_up_failed: "La verificación falló. Inténtalo de nuevo.",
     step_up_required: "Confirma que eres tú para continuar.",
     token_expired: "Tu sesión expiró. Inicia sesión de nuevo.",
     token_revoked: "Tu sesión terminó. Inicia sesión de nuevo.",

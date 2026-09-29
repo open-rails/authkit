@@ -561,16 +561,8 @@ export const de: AuthUiMessageBundle = {
     email_sender_unavailable:
       "Der E-Mail-Versand ist derzeit nicht verfügbar. Bitte versuche es später erneut.",
     email_unavailable: "E-Mail ist derzeit nicht verfügbar.",
-    email_unchanged: "Die neue E-Mail ist dieselbe wie die aktuelle E-Mail.",
-    email_verification_failed:
-      "Die Bestätigungs-E-Mail konnte nicht gesendet werden.",
     email_verification_unavailable:
       "Die E-Mail-Bestätigung ist derzeit nicht verfügbar.",
-    enable_2fa_failed:
-      "Die Zwei-Faktor-Authentifizierung konnte nicht aktiviert werden.",
-    failed_to_request_phone_change:
-      "Telefonnummer konnte nicht geändert werden. Bitte versuchen Sie es später erneut.",
-    failed_to_unlink: "Das Konto konnte nicht getrennt werden.",
     forbidden: "Dazu haben Sie keine Berechtigung.",
     internal_error:
       "Bei uns ist etwas schiefgelaufen. Bitte versuche es erneut.",
@@ -596,8 +588,6 @@ export const de: AuthUiMessageBundle = {
       "Die Anmeldung beim Anbieter konnte nicht gestartet werden.",
     oidc_exchange_failed:
       "Die Anmeldung beim Anbieter konnte nicht abgeschlossen werden.",
-    owner_slug_taken: "Dieser Benutzername ist bereits vergeben.",
-    passkey_failed: "Der Passkey-Vorgang ist fehlgeschlagen.",
     passkey_not_found: "Der Passkey wurde nicht gefunden.",
     password_change_failed: "Das Passwort konnte nicht geändert werden.",
     password_contains_identifier:
@@ -624,10 +614,6 @@ export const de: AuthUiMessageBundle = {
       "Die Anmeldung per Telefon ist derzeit nicht verfügbar — bitte registrieren Sie sich stattdessen mit einer E-Mail-Adresse.",
     phone_unavailable:
       "Die Telefonverifizierung ist derzeit nicht verfügbar. Bitte verwende stattdessen E-Mail.",
-    phone_unchanged:
-      "Die neue Telefonnummer ist identisch mit Ihrer aktuellen.",
-    phone_verification_failed:
-      "Die Bestätigungs-SMS konnte nicht gesendet werden.",
     phone_verification_unavailable:
       "Die Telefonbestätigung ist derzeit nicht verfügbar.",
     provider_already_linked:
@@ -636,18 +622,14 @@ export const de: AuthUiMessageBundle = {
       "Trennen Sie zuerst das aktuelle Konto, bevor Sie ein anderes verknüpfen.",
     provider_error:
       "Der Anbieter hat einen Fehler gemeldet. Bitte versuchen Sie es erneut.",
-    provider_link_failed: "Das Konto konnte nicht verknüpft werden.",
     provider_not_linked: "Dieser Anbieter ist nicht verknüpft.",
+    provider_unavailable:
+      "Der Anmeldeanbieter ist vorübergehend nicht verfügbar. Bitte versuchen Sie es gleich noch einmal.",
     rate_limited: "Zu viele Versuche. Bitte versuchen Sie es später erneut.",
-    regenerate_codes_failed:
-      "Die Backup-Codes konnten nicht neu erstellt werden.",
     registration_disabled: "Die Registrierung ist derzeit deaktiviert.",
     rename_rate_limited:
       "Zu viele Änderungen des Benutzernamens. Bitte versuchen Sie es später erneut.",
     renames_disabled: "Änderungen des Benutzernamens sind deaktiviert.",
-    send_code_failed:
-      "Der Code konnte nicht gesendet werden. Bitte versuchen Sie es erneut.",
-    session_creation_failed: "Die Sitzung konnte nicht erstellt werden.",
     siws_challenge_expired:
       "Die Wallet-Anmeldeanfrage ist abgelaufen. Bitte versuchen Sie es erneut.",
     siws_signature_invalid: "Die Wallet-Signatur ist ungültig.",
@@ -655,8 +637,6 @@ export const de: AuthUiMessageBundle = {
       "Die Verifizierungs-SMS konnte nicht zugestellt werden. Bitte versuchen Sie es stattdessen per E-Mail oder wenden Sie sich an den Support.",
     sms_unavailable:
       "SMS ist derzeit nicht verfügbar. Bitte verwende stattdessen E-Mail.",
-    step_up_failed:
-      "Die Bestätigung ist fehlgeschlagen. Bitte versuchen Sie es erneut.",
     step_up_required: "Bitte bestätigen Sie Ihre Identität, um fortzufahren.",
     token_expired:
       "Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.",

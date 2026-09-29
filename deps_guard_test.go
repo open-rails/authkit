@@ -26,15 +26,24 @@ var forbiddenDepPrefixes = []string{
 }
 
 // sharedInternal are engine-free internal packages the verification surface
-// may share with the engine: one outbound/SSRF policy (ak#316) and one DPoP
-// proof verifier.
+// may share with the engine: one outbound/SSRF policy (ak#316), one DPoP
+// proof verifier and the error catalog.
 var sharedInternal = map[string]bool{
 	"github.com/open-rails/authkit/internal/netguard": true,
 	"github.com/open-rails/authkit/internal/dpop":     true,
+	errmodelPackage: true,
 }
 
-// stdlibOnly packages depend on nothing outside the standard library.
-var stdlibOnly = []string{"./iam", "./internal/netguard"}
+// errmodelPackage is the error catalog behind iam.Error.
+const errmodelPackage = "github.com/open-rails/authkit/internal/errmodel"
+
+// stdlibOnly packages depend on nothing outside the standard library, except
+// the listed packages.
+var stdlibOnly = map[string][]string{
+	"./iam":               {errmodelPackage},
+	"./internal/errmodel": nil,
+	"./internal/netguard": nil,
+}
 
 func listDeps(t *testing.T, pkg string) []string {
 	t.Helper()
@@ -46,11 +55,11 @@ func listDeps(t *testing.T, pkg string) []string {
 }
 
 func TestStdlibOnlyPackages(t *testing.T) {
-	for _, pkg := range stdlibOnly {
+	for pkg, allowed := range stdlibOnly {
 		deps := listDeps(t, pkg)
 		self := deps[len(deps)-1]
 		for _, dep := range deps {
-			if first, _, _ := strings.Cut(dep, "/"); dep != self && strings.Contains(first, ".") {
+			if first, _, _ := strings.Cut(dep, "/"); dep != self && strings.Contains(first, ".") && !slices.Contains(allowed, dep) {
 				t.Fatalf("%s must depend only on the standard library, imports %s", pkg, dep)
 			}
 		}

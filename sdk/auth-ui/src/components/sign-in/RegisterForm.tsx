@@ -11,7 +11,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import { useEffect, useState, type ReactNode } from "react"
 
-import type { Availability } from "#authui/client/types"
+import type { Availability, UsernamePolicy } from "#authui/client/types"
 import { useMessages } from "#authui/i18n/context"
 import { useCapabilities } from "#authui/react/context"
 import { useLogin } from "#authui/react/useLogin"
@@ -64,17 +64,13 @@ const PASSWORD_CODES = new Set([
 const fieldOf = (code: string) =>
   IDENTIFIER_CODES.has(code)
     ? "identifier"
-    : code.startsWith("username_") || code === "owner_slug_taken"
+    : code.startsWith("username_")
       ? "username"
       : PASSWORD_CODES.has(code)
         ? "password"
         : null
 
-function usernameIssue(
-  policy:
-    { min_length: number; max_length: number; pattern: string } | undefined,
-  value: string
-) {
+function usernameIssue(policy: UsernamePolicy | undefined, value: string) {
   if (!policy || !value) return null
   if (value.length < policy.min_length) return "username_too_short"
   if (value.length > policy.max_length) return "username_too_long"

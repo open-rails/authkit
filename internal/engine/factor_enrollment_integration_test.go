@@ -49,7 +49,7 @@ func TestFactorManagementWorkflow(t *testing.T) {
 		return f.request("POST", "/user/2fa", stepped.AccessToken, map[string]any{"method": "totp", "code": testTOTPCode(t, pending.Secret, counter), "default": true})
 	}
 	enabled := enroll(enrolledStep)
-	if enabled.status == 400 && enabled.Error.Code == "invalid_code" && time.Now().Unix()/30 > enrolledStep+1 {
+	if enabled.status == 401 && enabled.Error.Code == "invalid_code" && time.Now().Unix()/30 > enrolledStep+1 {
 		enrolledStep = time.Now().Unix() / 30
 		enabled = enroll(enrolledStep)
 	}

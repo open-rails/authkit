@@ -541,14 +541,8 @@ export const en = {
     email_sender_unavailable:
       "Email delivery is currently unavailable. Please try again later.",
     email_unavailable: "Email is unavailable right now.",
-    email_unchanged: "The new email is the same as your current email.",
-    email_verification_failed: "We couldn't send the verification email.",
     email_verification_unavailable:
       "Email verification is unavailable right now.",
-    enable_2fa_failed: "Two-factor authentication could not be enabled.",
-    failed_to_request_phone_change:
-      "Failed to request phone change. Please try again later.",
-    failed_to_unlink: "The account could not be unlinked.",
     forbidden: "You don't have permission to do that.",
     internal_error: "Something went wrong on our side. Please try again.",
     invalid_challenge: "Your 2FA session is invalid or expired.",
@@ -567,8 +561,6 @@ export const en = {
     not_authenticated: "Please sign in to continue.",
     oidc_begin_failed: "The provider sign-in could not be started.",
     oidc_exchange_failed: "The provider sign-in could not be completed.",
-    owner_slug_taken: "This username is already taken.",
-    passkey_failed: "The passkey operation failed.",
     passkey_not_found: "The passkey was not found.",
     password_change_failed: "The password could not be changed.",
     password_contains_identifier:
@@ -593,8 +585,6 @@ export const en = {
       "Phone signup is unavailable right now. Please use email instead.",
     phone_unavailable:
       "Phone verification is currently unavailable. Please use email instead.",
-    phone_unchanged: "The new phone number is the same as your current one.",
-    phone_verification_failed: "We couldn't send the verification text.",
     phone_verification_unavailable:
       "Phone verification is unavailable right now.",
     provider_already_linked:
@@ -602,23 +592,18 @@ export const en = {
     provider_change_requires_unlink:
       "Unlink the current account before linking another.",
     provider_error: "The provider returned an error. Please try again.",
-    provider_link_failed: "The account could not be linked.",
     provider_not_linked: "That provider is not linked.",
     provider_unavailable:
       "The sign-in provider is temporarily unavailable. Try again shortly.",
     rate_limited: "Too many attempts. Please try again later.",
-    regenerate_codes_failed: "Backup codes could not be regenerated.",
     registration_disabled: "Registration is currently disabled.",
     rename_rate_limited: "Too many username changes. Please try again later.",
     renames_disabled: "Username changes are disabled.",
-    send_code_failed: "The code could not be sent. Please try again.",
-    session_creation_failed: "The session could not be created.",
     siws_challenge_expired: "The wallet sign-in request expired. Try again.",
     siws_signature_invalid: "The wallet signature is invalid.",
     sms_delivery_failed:
       "We couldn't deliver the verification text message. Please try email instead, or contact support.",
     sms_unavailable: "SMS is currently unavailable. Please use email instead.",
-    step_up_failed: "Verification failed. Please try again.",
     step_up_required: "Please confirm it's you to continue.",
     token_expired: "Your session has expired. Please sign in again.",
     token_revoked: "Your session has ended. Please sign in again.",
