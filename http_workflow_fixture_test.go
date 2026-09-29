@@ -171,7 +171,7 @@ func createAccountInvite(t *testing.T, srv *httpapi.Service, pool *pgxpool.Pool,
 	require.NoError(t, err)
 	inviter, err := fixtureBackend(srv.Backend()).CreateUser(ctx, uniqueEmail("account-inviter"), "accountinviter"+uniqueSuffix())
 	require.NoError(t, err)
-	require.NoError(t, fixtureBackend(srv.Backend()).AssignGroupRoleGenesis(ctx, iam.RootGroup(), iam.UserSubject(inviter.ID), iam.OwnerRole))
+	seedRole(t, fixtureBackend(srv.Backend()), iam.RootGroup(), iam.UserSubject(inviter.ID), iam.OwnerRole)
 	invite, err := srv.Backend().CreateAccountRegistrationInvite(ctx, authflow.CreateAccountRegistrationInviteRequest{
 		Email:     email,
 		InvitedBy: inviter.ID,
@@ -329,7 +329,7 @@ func registerDocumentReader(t *testing.T, core *testRuntime, slug, issuer string
 		PermissionGroupID: rootGID,
 		Issuer:            issuer,
 		Enabled:           true,
-		PublicKeys: []iam.RemoteAppKey{{
+		PublicKeys: []iam.RemoteApplicationKey{{
 			KID:          signer.KID(),
 			PublicKeyPEM: adminTestPublicKeyPEM(t, signer.PublicKey()),
 		}},

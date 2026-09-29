@@ -326,3 +326,19 @@ func (o *outbox) SendContactChanged(context.Context, string, string, authkit.Con
 func (o *outbox) SendDeviceKeyEnrolled(context.Context, string, string, authkit.DeviceKeyNotice) error {
 	return nil
 }
+
+// grantRole assigns role with operator authority; the test fails otherwise.
+func grantRole(t testing.TB, auth *authkit.Auth, ref iam.GroupRef, subject iam.Subject, role iam.Role) {
+	t.Helper()
+	res, err := auth.AssignGroupRoles(t.Context(), iam.OperatorActor(), ref, []iam.Subject{subject}, role)
+	require.NoError(t, err)
+	require.NoError(t, res[0].Err)
+}
+
+// revokeRole unassigns role with operator authority; the test fails otherwise.
+func revokeRole(t testing.TB, auth *authkit.Auth, ref iam.GroupRef, subject iam.Subject, role iam.Role) {
+	t.Helper()
+	res, err := auth.UnassignGroupRoles(t.Context(), iam.OperatorActor(), ref, []iam.Subject{subject}, role)
+	require.NoError(t, err)
+	require.NoError(t, res[0].Err)
+}

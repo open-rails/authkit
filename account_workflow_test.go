@@ -466,7 +466,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	passkeyUser, err := bootstrap.CreateUser(ctx, uniqueEmail("uv-role"), "uv"+uniqueSuffix())
 	require.NoError(t, err)
 	require.NoError(t, bootstrap.MarkEmailVerified(ctx, passkeyUser.ID))
-	require.NoError(t, bootstrap.engine.AssignGroupRole(ctx, iam.RootGroup(), iam.UserSubject(passkeyUser.ID), "admin"))
+	grantRole(t, bootstrap.engine, iam.RootGroup(), iam.UserSubject(passkeyUser.ID), "admin")
 	authn := passkeytest.New(t, "https://app.example")
 	creation, err := f.service.Backend().BeginPasskeyRegistration(ctx, passkeyUser.ID)
 	require.NoError(t, err)

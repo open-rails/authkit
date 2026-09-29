@@ -19,7 +19,7 @@ type inviteLinkCreateRequest struct {
 }
 
 // groupInviteLinkMint mints an invite link; the plaintext code is returned ONCE.
-func (s *Service) groupInviteLinkMint(w http.ResponseWriter, r *http.Request, group iam.GroupRef, invitedBy string) {
+func (s *Service) groupInviteLinkMint(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor) {
 	if s.rateLimited(w, r, RLInviteCreate) {
 		return
 	}
@@ -28,9 +28,13 @@ func (s *Service) groupInviteLinkMint(w http.ResponseWriter, r *http.Request, gr
 		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
+	invitedBy, ok := userActorID(w, actor)
+	if !ok {
+		return
+	}
 	req := iam.CreateGroupInviteLinkRequest{
-		Persona:      group.Persona,
-		InstanceSlug: group.Instance,
+		Persona:      group.Persona(),
+		InstanceSlug: group.Slug(),
 		Role:         iam.Role(strings.TrimSpace(body.Role)),
 		InvitedBy:    invitedBy,
 	}
@@ -50,7 +54,7 @@ func (s *Service) groupInviteLinkMint(w http.ResponseWriter, r *http.Request, gr
 }
 
 // groupInviteLinkList lists the group's invite links (never returns the code).
-func (s *Service) groupInviteLinkList(w http.ResponseWriter, r *http.Request, group iam.GroupRef) {
+func (s *Service) groupInviteLinkList(w http.ResponseWriter, r *http.Request, group iam.GroupRef, _ iam.Actor) {
 	links, err := s.svc.ListGroupInviteLinks(r.Context(), group)
 	if err != nil {
 		s.writeGroupOpError(w, err)
@@ -77,19 +81,19 @@ func (s *Service) groupInviteLinkList(w http.ResponseWriter, r *http.Request, gr
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"object":        "list",
-		"persona":       group.Persona,
-		"instance_slug": group.Instance,
+		"persona":       group.Persona(),
+		"instance_slug": group.Slug(),
 		"data":          data,
 	})
 }
 
 // groupInviteLinkRevoke revokes a link by id (the :link path param), scoped to this group.
-func (s *Service) groupInviteLinkRevoke(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor verify.Claims, linkID string) {
+func (s *Service) groupInviteLinkRevoke(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor, linkID string) {
 	if linkID == "" {
 		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
-	if err := s.svc.RevokeGroupInviteLinkFromClaims(r.Context(), actor, group, linkID); err != nil {
+	if err := s.svc.RevokeGroupInviteLinkForActor(r.Context(), actor, group, linkID); err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}

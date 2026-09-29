@@ -11,36 +11,33 @@ import (
 
 // Permission groups, roles and group invitations.
 
-// OperatorAssignGroupRole and OperatorUnassignGroupRole use trusted host-operator
-// authority, not a persona or role named operator. Hosts authorize the operator; request
-// actors use the corresponding actor-checked *As methods. Subject MFA and
-// final-owner invariants still apply. These methods add no HTTP exposure.
-func (a *Auth) OperatorAssignGroupRole(ctx context.Context, group iam.GroupRef, subject iam.Subject, role iam.Role) error {
-	return a.engine.OperatorAssignGroupRole(ctx, group, subject, role)
+// Roles. Every mutation takes an iam.Actor and is checked by the engine: a
+// user subject needs <persona>:members:manage, an application subject
+// <persona>:credentials:manage, and the actor must cover every role it grants
+// or takes away. iam.OperatorActor() skips those rules; the last usable owner
+// and MFA-required roles bind everyone. Items fail independently: each
+// OpResult carries its own error, while the error return is for the whole call
+// (zero actor, unknown group, unassignable role, dead actor).
+
+// AssignGroupRoles assigns role to each subject, replacing the role it holds.
+func (a *Auth) AssignGroupRoles(ctx context.Context, actor iam.Actor, ref iam.GroupRef, subjects []iam.Subject, role iam.Role) ([]iam.OpResult, error) {
+	return a.engine.AssignGroupRoles(ctx, actor, ref, subjects, role)
 }
 
-func (a *Auth) OperatorUnassignGroupRole(ctx context.Context, group iam.GroupRef, subject iam.Subject, role iam.Role) error {
-	return a.engine.OperatorUnassignGroupRole(ctx, group, subject, role)
+// UnassignGroupRoles revokes role from each subject holding it.
+func (a *Auth) UnassignGroupRoles(ctx context.Context, actor iam.Actor, ref iam.GroupRef, subjects []iam.Subject, role iam.Role) ([]iam.OpResult, error) {
+	return a.engine.UnassignGroupRoles(ctx, actor, ref, subjects, role)
 }
 
-// Assign/RemoveRolesBySlugAs are batch-native (#219/#222): the no-escalation
-// check (#136) runs PER ITEM and each OpResult carries its own authority error.
-func (a *Auth) AssignRolesBySlugAs(ctx context.Context, actorUserID string, userIDs []string, role iam.Role) ([]iam.OpResult, error) {
-	return a.engine.AssignRolesBySlugAs(ctx, actorUserID, userIDs, role)
+// RemoveGroupMembers strips each subject's role in the group.
+func (a *Auth) RemoveGroupMembers(ctx context.Context, actor iam.Actor, ref iam.GroupRef, subjects []iam.Subject) ([]iam.OpResult, error) {
+	return a.engine.RemoveGroupMembers(ctx, actor, ref, subjects)
 }
 
-func (a *Auth) RemoveRolesBySlugAs(ctx context.Context, actorUserID string, userIDs []string, role iam.Role) ([]iam.OpResult, error) {
-	return a.engine.RemoveRolesBySlugAs(ctx, actorUserID, userIDs, role)
-}
-
-func (a *Auth) UpsertRoleBySlug(ctx context.Context, name string, role iam.Role, description *string) error {
-	return a.engine.UpsertRoleBySlug(ctx, name, role, description)
-}
-
-// RoleSlugsByUsers returns each user's LIVE configured root role slugs in
-// ONE call (#220); users with no roles are absent; errors PROPAGATE (#136).
-func (a *Auth) RoleSlugsByUsers(ctx context.Context, userIDs []string) (map[string][]string, error) {
-	return a.engine.RoleSlugsByUsers(ctx, userIDs)
+// GroupRoles returns the direct role of each subject holding one in the group
+// (at most iam.MaxBatch subjects). Subjects without a role are absent.
+func (a *Auth) GroupRoles(ctx context.Context, ref iam.GroupRef, subjects []iam.Subject) (map[iam.Subject]iam.Role, error) {
+	return a.engine.GroupRoles(ctx, ref, subjects)
 }
 
 func (a *Auth) CreatePermissionGroup(ctx context.Context, req iam.CreatePermissionGroupRequest) (string, error) {
@@ -73,25 +70,13 @@ func (a *Auth) DeleteGroupInstanceByID(ctx context.Context, groupID string, opts
 
 // GroupInstancesByIDs reads many resolved groups in ONE query, retained
 // soft-deleted ones included (DeletedAt set); unknown ids are absent. At
-// most MaxGroupBatch distinct ids. GroupInstanceByID is its length-1 form.
+// most MaxBatch distinct ids. GroupInstanceByID is its length-1 form.
 func (a *Auth) GroupInstancesByIDs(ctx context.Context, groupIDs []string) (map[string]iam.GroupInstance, error) {
 	return a.engine.GroupInstancesByIDs(ctx, groupIDs)
 }
 
 func (a *Auth) GroupInstanceByID(ctx context.Context, groupID string) (iam.GroupInstance, error) {
 	return a.engine.GroupInstanceByID(ctx, groupID)
-}
-
-func (a *Auth) AssignGroupRoleAs(ctx context.Context, actorUserID string, group iam.GroupRef, subject iam.Subject, role iam.Role) error {
-	return a.engine.AssignGroupRoleAs(ctx, actorUserID, group, subject, role)
-}
-
-func (a *Auth) UnassignGroupRoleAs(ctx context.Context, actorUserID string, group iam.GroupRef, subject iam.Subject, role iam.Role) error {
-	return a.engine.UnassignGroupRoleAs(ctx, actorUserID, group, subject, role)
-}
-
-func (a *Auth) RemoveGroupSubjectAs(ctx context.Context, actorUserID string, group iam.GroupRef, subject iam.Subject) error {
-	return a.engine.RemoveGroupSubjectAs(ctx, actorUserID, group, subject)
 }
 
 func (a *Auth) ListGroupMembers(ctx context.Context, group iam.GroupRef) ([]iam.GroupMember, error) {
@@ -126,7 +111,7 @@ func (a *Auth) RequirePermission(perm iam.Perm, resolve func(*http.Request) veri
 // EffectivePermissionsForGroups returns one subject's effective grant
 // patterns on many resolved groups in ONE query, with ListEffectivePermissions
 // semantics per group; groups granting nothing (unknown, soft-deleted, no
-// assignment) are absent. At most MaxGroupBatch distinct ids.
+// assignment) are absent. At most MaxBatch distinct ids.
 func (a *Auth) EffectivePermissionsForGroups(ctx context.Context, subject iam.Subject, groupIDs []string) (map[string][]iam.Perm, error) {
 	return a.engine.EffectivePermissionsForGroups(ctx, subject, groupIDs)
 }

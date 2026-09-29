@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/verify"
 )
 
 // apiKeyMintRequest is the body for POST /<persona>/<instance_slug>/api-keys. Role
@@ -23,10 +22,14 @@ type apiKeyMintRequest struct {
 // groupAPIKeyMint mints a new API key for the group, returning the plaintext
 // secret ONCE (it is never recoverable afterward). The created-by attribution is
 // the authenticated caller.
-func (s *Service) groupAPIKeyMint(w http.ResponseWriter, r *http.Request, group iam.GroupRef, createdBy string) {
+func (s *Service) groupAPIKeyMint(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor) {
 	var body apiKeyMintRequest
 	if err := decodeJSON(r, &body); err != nil {
 		badRequest(w, iam.CodeInvalidRequest)
+		return
+	}
+	createdBy, ok := userActorID(w, actor)
+	if !ok {
 		return
 	}
 	key, secret, err := s.svc.MintAPIKey(r.Context(), group, iam.APIKeyMintOptions{
@@ -51,7 +54,7 @@ func (s *Service) groupAPIKeyMint(w http.ResponseWriter, r *http.Request, group 
 
 // groupAPIKeyList lists the group's API keys. The secret is NEVER returned here
 // (only on mint).
-func (s *Service) groupAPIKeyList(w http.ResponseWriter, r *http.Request, group iam.GroupRef) {
+func (s *Service) groupAPIKeyList(w http.ResponseWriter, r *http.Request, group iam.GroupRef, _ iam.Actor) {
 	keys, err := s.svc.ListAPIKeys(r.Context(), group)
 	if err != nil {
 		s.writeGroupOpError(w, err)
@@ -80,20 +83,20 @@ func (s *Service) groupAPIKeyList(w http.ResponseWriter, r *http.Request, group 
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"object":        "list",
-		"persona":       group.Persona,
-		"instance_slug": group.Instance,
+		"persona":       group.Persona(),
+		"instance_slug": group.Slug(),
 		"data":          data,
 	})
 }
 
 // groupAPIKeyRevoke revokes the group's API key by token id (the :key path
 // param). 404 if no matching, not-already-revoked key exists in this group.
-func (s *Service) groupAPIKeyRevoke(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor verify.Claims, tokenID string) {
+func (s *Service) groupAPIKeyRevoke(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor, tokenID string) {
 	if tokenID == "" {
 		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
-	ok, err := s.svc.RevokeAPIKeyFromClaims(r.Context(), actor, group, tokenID)
+	ok, err := s.svc.RevokeAPIKeyForActor(r.Context(), actor, group, tokenID)
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return

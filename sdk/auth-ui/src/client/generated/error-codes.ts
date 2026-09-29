@@ -33,6 +33,7 @@ export type AuthErrorCode =
   | "bootstrap_database_not_empty"
   | "cannot_remove_last_admin_role"
   | "cannot_remove_last_owner"
+  | "cannot_target_self"
   | "cannot_unlink_last_login_method"
   | "challenge_expired"
   | "challenge_failed"
@@ -299,6 +300,7 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   "bootstrap_database_not_empty": 409,
   "cannot_remove_last_admin_role": 409,
   "cannot_remove_last_owner": 409,
+  "cannot_target_self": 403,
   "cannot_unlink_last_login_method": 400,
   "challenge_expired": 401,
   "challenge_failed": 500,

@@ -28,7 +28,6 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/secret"
-	"github.com/open-rails/authkit/verify"
 )
 
 const (
@@ -82,10 +81,10 @@ func (s *engine) CreateGroupInviteLink(ctx context.Context, req iam.CreateGroupI
 	if role == "" || invitedBy == "" {
 		return iam.GroupInviteLinkCreated{}, iam.ErrInvalidInvite
 	}
-	group := iam.GroupRef{Persona: iam.Persona(strings.TrimSpace(string(req.Persona))), Instance: strings.TrimSpace(req.InstanceSlug)}
+	group := iam.GroupBySlug(req.Persona, req.InstanceSlug)
 	sch := s.groupSchemaOrDefault()
-	if !s.validRoleForPersona(sch, group.Persona, role) {
-		return iam.GroupInviteLinkCreated{}, fmt.Errorf("role %q is not assignable in a %q group: %w", role, group.Persona, iam.ErrRoleNotAssignable)
+	if !s.validRoleForPersona(sch, group.Persona(), role) {
+		return iam.GroupInviteLinkCreated{}, fmt.Errorf("role %q is not assignable in a %q group: %w", role, group.Persona(), iam.ErrRoleNotAssignable)
 	}
 	gid, err := s.resolveGroupID(ctx, s.groupStore(), group)
 	if err != nil {
@@ -102,7 +101,8 @@ func (s *engine) CreateGroupInviteLink(ctx context.Context, req iam.CreateGroupI
 	code := secret.RandB64(32)
 	var id string
 	err = s.withLockedGroup(ctx, gid, func(st *permissionGroupStore) error {
-		if err := s.authorizeRoleChange(ctx, st, sch, group.Persona, gid, invitedBy, role); err != nil {
+		g := groupTarget{ID: gid, Persona: group.Persona()}
+		if err := s.requireRoleGrant(ctx, st, iam.UserActor(invitedBy), g, iam.PermMembersManage(g.Persona), role); err != nil {
 			return err
 		}
 		return st.q.QueryRow(ctx, `INSERT INTO group_invite_links(permission_group_id,role,invited_by,code_hash,expires_at)
@@ -175,12 +175,11 @@ func (s *engine) RevokeGroupInviteLink(ctx context.Context, group iam.GroupRef, 
 	return nil
 }
 
-// RevokeGroupInviteLinkFromClaims is the runtime revoke: the actor must be able
+// RevokeGroupInviteLinkForActor is the runtime revoke: the actor must be able
 // to mint the link's role, so a bounded manager cannot revoke a link of a role
 // above their own.
-func (s *engine) RevokeGroupInviteLinkFromClaims(ctx context.Context, claims verify.Claims, group iam.GroupRef, linkID string) error {
-	actor, err := groupActorFromClaims(claims)
-	if err != nil {
+func (s *engine) RevokeGroupInviteLinkForActor(ctx context.Context, actor iam.Actor, group iam.GroupRef, linkID string) error {
+	if err := requireActor(actor); err != nil {
 		return err
 	}
 	if err := s.requirePG(); err != nil {
@@ -190,11 +189,11 @@ func (s *engine) RevokeGroupInviteLinkFromClaims(ctx context.Context, claims ver
 	if linkID == "" {
 		return iam.ErrInvalidInvite
 	}
-	gid, err := s.resolveGroupID(ctx, s.groupStore(), group)
+	g, err := s.resolveGroup(ctx, s.groupStore(), group)
 	if err != nil {
 		return err
 	}
-	persona := iam.Persona(strings.TrimSpace(string(group.Persona)))
+	gid := g.ID
 	return s.withLockedGroup(ctx, gid, func(st *permissionGroupStore) error {
 		var role iam.Role
 		err := st.q.QueryRow(ctx, `SELECT role FROM group_invite_links WHERE id=$1::uuid AND permission_group_id=$2::uuid AND revoked_at IS NULL FOR UPDATE`, linkID, gid).Scan(&role)
@@ -204,7 +203,7 @@ func (s *engine) RevokeGroupInviteLinkFromClaims(ctx context.Context, claims ver
 		if err != nil {
 			return err
 		}
-		if err := s.authorizeGroupActorRole(ctx, st, s.groupSchemaOrDefault(), persona, gid, actor, iam.PermMembersManage(persona), role); err != nil {
+		if err := s.requireRoleGrant(ctx, st, actor, g, iam.PermMembersManage(g.Persona), role); err != nil {
 			return err
 		}
 		_, err = st.q.Exec(ctx, `UPDATE group_invite_links SET revoked_at=now(), updated_at=now() WHERE id=$1::uuid`, linkID)

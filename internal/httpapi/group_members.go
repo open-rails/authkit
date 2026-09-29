@@ -22,9 +22,9 @@ type memberRequest struct {
 	Role   string `json:"role"`
 }
 
-// groupMemberAdd assigns a subject (user) a role in the group. Idempotent at the
-// store layer.
-func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group iam.GroupRef) {
+// groupMemberAdd assigns a user a role in the group; an unknown email gets a
+// role-carrying registration invite instead.
+func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor) {
 	var body memberRequest
 	if err := decodeJSON(r, &body); err != nil {
 		badRequest(w, iam.CodeInvalidRequest)
@@ -47,11 +47,6 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group i
 			return
 		}
 	}
-	actor, ok := verify.ClaimsFromContext(r.Context())
-	if !ok {
-		forbidden(w, iam.CodeForbidden)
-		return
-	}
 	if email != "" {
 		u, err := s.svc.GetUserByEmail(r.Context(), email)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -62,10 +57,10 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group i
 			return
 		}
 		if u == nil {
-			// Account-registration invitations currently require a native inviter.
-			// A remote owner can manage existing users, but cannot invent one.
-			if actor.UserID == "" {
-				forbidden(w, iam.CodeForbidden)
+			// Account-registration invitations require a native inviter. A
+			// machine actor can manage existing users, but cannot invent one.
+			inviter, ok := userActorID(w, actor)
+			if !ok {
 				return
 			}
 			if s.rateLimited(w, r, RLInviteCreate) || s.rateLimitedByIdentifier(w, r, RLInviteCreate, email) {
@@ -78,9 +73,9 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group i
 			// grant general root:users:invite authority.
 			invite, err := s.svc.CreateAccountRegistrationInvite(r.Context(), authflow.CreateAccountRegistrationInviteRequest{
 				Email:        email,
-				InvitedBy:    actor.UserID,
-				Persona:      group.Persona,
-				InstanceSlug: group.Instance,
+				InvitedBy:    inviter,
+				Persona:      group.Persona(),
+				InstanceSlug: group.Slug(),
 				Role:         role,
 			})
 			if err != nil {
@@ -89,8 +84,8 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group i
 			}
 			writeJSON(w, http.StatusAccepted, map[string]any{
 				"ok":            true,
-				"persona":       group.Persona,
-				"instance_slug": group.Instance,
+				"persona":       group.Persona(),
+				"instance_slug": group.Slug(),
 				"email":         email,
 				"role":          role,
 				"invited":       true,
@@ -104,73 +99,59 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, group i
 		}
 		userID = u.ID
 	}
-	// #136: actor-aware assignment enforces capability + no-escalation in the engine.
-	if err := s.svc.AssignGroupRoleFromClaims(r.Context(), actor, group, iam.UserSubject(userID), role); err != nil {
-		s.writeGroupOpError(w, err)
+	res, err := s.svc.AssignGroupRoles(r.Context(), actor, group, []iam.Subject{iam.UserSubject(userID)}, role)
+	if !s.writeOpResult(w, res, err) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":            true,
-		"persona":       group.Persona,
-		"instance_slug": group.Instance,
+		"persona":       group.Persona(),
+		"instance_slug": group.Slug(),
 		"user_id":       userID,
 		"role":          role,
 	})
 }
 
 // groupMemberRemove revokes the user's role in the group.
-func (s *Service) groupMemberRemove(w http.ResponseWriter, r *http.Request, group iam.GroupRef, userID string) {
+func (s *Service) groupMemberRemove(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor, userID string) {
 	if userID == "" {
 		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
-	actor, ok := verify.ClaimsFromContext(r.Context())
-	if !ok {
-		forbidden(w, iam.CodeForbidden)
-		return
-	}
-	// #136: actor-aware removal enforces no-escalation across every role the
-	// target holds — a non-owner cannot strip an owner's roles.
-	if err := s.svc.RemoveGroupSubjectFromClaims(r.Context(), actor, group, iam.UserSubject(userID)); err != nil {
-		s.writeGroupOpError(w, err)
+	res, err := s.svc.RemoveGroupMembers(r.Context(), actor, group, []iam.Subject{iam.UserSubject(userID)})
+	if !s.writeOpResult(w, res, err) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":            true,
-		"persona":       group.Persona,
-		"instance_slug": group.Instance,
+		"persona":       group.Persona(),
+		"instance_slug": group.Slug(),
 		"user_id":       userID,
 	})
 }
 
 // groupMemberRole assigns or replaces the user's single role in the group.
-func (s *Service) groupMemberRole(w http.ResponseWriter, r *http.Request, group iam.GroupRef, userID string, role iam.Role) {
+func (s *Service) groupMemberRole(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor, userID string, role iam.Role) {
 	role = iam.Role(strings.TrimSpace(string(role)))
 	if userID == "" || role == "" {
 		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
-	actor, ok := verify.ClaimsFromContext(r.Context())
-	if !ok {
-		forbidden(w, iam.CodeForbidden)
-		return
-	}
-	// #136: actor-aware assignment enforces capability + no-escalation in the engine.
-	if err := s.svc.AssignGroupRoleFromClaims(r.Context(), actor, group, iam.UserSubject(userID), role); err != nil {
-		s.writeGroupOpError(w, err)
+	res, err := s.svc.AssignGroupRoles(r.Context(), actor, group, []iam.Subject{iam.UserSubject(userID)}, role)
+	if !s.writeOpResult(w, res, err) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":            true,
-		"persona":       group.Persona,
-		"instance_slug": group.Instance,
+		"persona":       group.Persona(),
+		"instance_slug": group.Slug(),
 		"user_id":       userID,
 		"role":          role,
 	})
 }
 
 // groupMembersList lists the role assignments in a group.
-func (s *Service) groupMembersList(w http.ResponseWriter, r *http.Request, group iam.GroupRef) {
+func (s *Service) groupMembersList(w http.ResponseWriter, r *http.Request, group iam.GroupRef, _ iam.Actor) {
 	members, err := s.svc.ListGroupMembers(r.Context(), group)
 	if err != nil {
 		s.writeGroupOpError(w, err)
@@ -182,8 +163,8 @@ func (s *Service) groupMembersList(w http.ResponseWriter, r *http.Request, group
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"object":        "list",
-		"persona":       group.Persona,
-		"instance_slug": group.Instance,
+		"persona":       group.Persona(),
+		"instance_slug": group.Slug(),
 		"data":          data,
 	})
 }
@@ -252,13 +233,11 @@ func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request)
 		unauthorized(w, iam.CodeNotAuthenticated)
 		return
 	}
-	group := iam.GroupRef{
-		Persona:  iam.Persona(strings.TrimSpace(r.URL.Query().Get("persona"))),
-		Instance: strings.TrimSpace(r.URL.Query().Get("instance")),
+	persona := iam.Persona(strings.TrimSpace(r.URL.Query().Get("persona")))
+	if persona == "" {
+		persona = iam.RootPersona
 	}
-	if group.Persona == "" {
-		group.Persona = iam.RootPersona
-	}
+	group := iam.GroupBySlug(persona, r.URL.Query().Get("instance"))
 	perms, err := s.svc.ListEffectivePermissions(r.Context(), iam.UserSubject(claims.UserID), group)
 	if err != nil {
 		s.writeGroupOpError(w, err)
@@ -266,8 +245,8 @@ func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"object":        "permission_set",
-		"persona":       group.Persona,
-		"instance_slug": group.Instance,
+		"persona":       group.Persona(),
+		"instance_slug": group.Slug(),
 		"permissions":   perms,
 	})
 }

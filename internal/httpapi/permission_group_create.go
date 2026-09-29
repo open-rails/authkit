@@ -42,7 +42,7 @@ func (s *Service) groupInstanceCreate(w http.ResponseWriter, r *http.Request, pe
 	if s.rateLimitedByIdentifier(w, r, RLGroupCreate, claims.UserID) {
 		return
 	}
-	res, err := s.svc.CreateInstanceForSubject(r.Context(), iam.GroupRef{Persona: persona, Instance: body.Slug}, body.DisplayName, claims.UserID)
+	res, err := s.svc.CreateInstanceForSubject(r.Context(), iam.GroupBySlug(persona, body.Slug), body.DisplayName, claims.UserID)
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return

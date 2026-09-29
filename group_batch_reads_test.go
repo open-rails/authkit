@@ -71,10 +71,10 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 	create := func(persona iam.Persona, slug string) (string, iam.GroupRef) {
 		id, err := client.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: persona, InstanceSlug: slug, OwnerSubjectID: owner.ID})
 		require.NoError(t, err)
-		return id, iam.GroupRef{Persona: persona, Instance: slug}
+		return id, iam.GroupBySlug(persona, slug)
 	}
 	assign := func(ref iam.GroupRef, role iam.Role) {
-		require.NoError(t, client.OperatorAssignGroupRole(ctx, ref, subject, role))
+		grantRole(t, client, ref, subject, role)
 	}
 
 	reader, readerRef := create("channel", "batch-reader")
@@ -130,7 +130,7 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 	for id, ref := range refs {
 		single, err := client.ListEffectivePermissions(ctx, subject, ref)
 		require.NoError(t, err)
-		require.ElementsMatch(t, single, perms[id], "group %s", ref.Instance)
+		require.ElementsMatch(t, single, perms[id], "group %s", ref.Slug())
 		for _, perm := range []iam.Perm{"channel:posts:read", "channel:posts:write", "section:pages:write"} {
 			allowed, err := client.CanOnGroup(ctx, subject, id, perm)
 			require.NoError(t, err)
@@ -138,7 +138,7 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 			for _, grant := range perms[id] {
 				covered = covered || perm.Matches(grant)
 			}
-			require.Equal(t, covered, allowed, "%s on %s", perm, ref.Instance)
+			require.Equal(t, covered, allowed, "%s on %s", perm, ref.Slug())
 		}
 	}
 
@@ -155,7 +155,7 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 	empty, err := client.EffectivePermissionsForGroups(ctx, subject, nil)
 	require.NoError(t, err)
 	require.Empty(t, empty)
-	tooMany := make([]string, iam.MaxGroupBatch+1)
+	tooMany := make([]string, iam.MaxBatch+1)
 	for i := range tooMany {
 		tooMany[i] = uuid.NewString()
 	}

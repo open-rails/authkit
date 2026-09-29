@@ -133,20 +133,28 @@ const APIKeyPrincipalType = "api-key"
 // the live-user enrichment/ban gate is skipped (there is no user).
 const RemoteApplicationTokenType = "remote_application"
 
-// PrincipalKind reports the broad credential class represented by these claims.
-func (c Claims) PrincipalKind() iam.PrincipalKind {
+// kind is the broad credential class of these claims. Unlike ActorFromClaims
+// it also classifies an external user (Subject only) as a user.
+func (c Claims) kind() iam.ActorKind {
 	switch {
 	case c.isAPIKey():
-		return iam.PrincipalKindAPIKey
+		return iam.ActorAPIKey
 	case c.isRemoteApplication():
-		return iam.PrincipalKindRemoteApplication
+		return iam.ActorRemoteApplication
 	case c.isDelegated():
-		return iam.PrincipalKindDelegated
+		return iam.ActorDelegated
 	case strings.TrimSpace(c.UserID) != "" || strings.TrimSpace(c.Subject) != "":
-		return iam.PrincipalKindUser
+		return iam.ActorUser
 	default:
 		return ""
 	}
+}
+
+// IsMachine reports whether these claims are an API key, remote-application
+// or delegated credential rather than a user token.
+func (c Claims) IsMachine() bool {
+	k := c.kind()
+	return k != "" && k != iam.ActorUser
 }
 
 // Identity is the provider-neutral identity of verified claims: the one
@@ -154,8 +162,8 @@ func (c Claims) PrincipalKind() iam.PrincipalKind {
 // false when the claims name no subject under an issuer.
 func (c Claims) Identity() (auth.Identity, bool) {
 	i := auth.Identity{Issuer: c.Issuer, Email: c.Email, EmailVerified: c.EmailVerified, Username: c.Username, SessionID: c.SessionID}
-	switch c.PrincipalKind() {
-	case iam.PrincipalKindUser:
+	switch c.kind() {
+	case iam.ActorUser:
 		i.Kind, i.Subject = auth.KindUser, c.UserID
 		if i.Subject == "" {
 			i.Subject = c.Subject
@@ -163,11 +171,11 @@ func (c Claims) Identity() (auth.Identity, bool) {
 		if c.DeviceKeyID != "" {
 			i.Kind, i.Subject = auth.KindDeviceKey, c.DeviceKeyID
 		}
-	case iam.PrincipalKindAPIKey:
+	case iam.ActorAPIKey:
 		i.Kind, i.Subject, i.Issuer = auth.KindAPIKey, c.APIKeyID, c.PermissionGroupAuthorityIssuer
-	case iam.PrincipalKindRemoteApplication:
+	case iam.ActorRemoteApplication:
 		i.Kind, i.Subject = auth.KindRemoteApplication, c.RemoteApplicationID
-	case iam.PrincipalKindDelegated:
+	case iam.ActorDelegated:
 		i.Kind, i.Subject = auth.KindDelegated, c.DelegatedSubject
 	default:
 		return auth.Identity{}, false
@@ -180,7 +188,7 @@ func (c Claims) Identity() (auth.Identity, bool) {
 
 // IsUser reports whether these claims represent a native human user.
 func (c Claims) IsUser() bool {
-	return c.PrincipalKind() == iam.PrincipalKindUser && c.UserID != ""
+	return c.kind() == iam.ActorUser && c.UserID != ""
 }
 
 func (c Claims) isAPIKey() bool {

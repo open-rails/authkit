@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/verify"
 )
 
 // remoteAppRegisterRequest is the body for POST
@@ -15,11 +14,11 @@ import (
 // permission_group_id is the addressed group (never request-supplied), so the
 // body carries only the issuer/trust-source fields.
 type remoteAppRegisterRequest struct {
-	Slug       string             `json:"slug"`
-	Issuer     string             `json:"issuer"`
-	JWKSURI    string             `json:"jwks_uri"`
-	Mode       string             `json:"mode"`
-	PublicKeys []iam.RemoteAppKey `json:"public_keys"`
+	Slug       string                     `json:"slug"`
+	Issuer     string                     `json:"issuer"`
+	JWKSURI    string                     `json:"jwks_uri"`
+	Mode       string                     `json:"mode"`
+	PublicKeys []iam.RemoteApplicationKey `json:"public_keys"`
 	// Enabled is a pointer so an omitted field ("enabled" absent) is
 	// distinguishable from an explicit false. Omitted defaults to true on this
 	// register/upsert endpoint; an explicit false still disables the issuer.
@@ -29,15 +28,10 @@ type remoteAppRegisterRequest struct {
 // groupRemoteAppRegister registers (upserts) a remote_application owned by the
 // addressed group. The group's internal id becomes the controlling
 // permission_group_id.
-func (s *Service) groupRemoteAppRegister(w http.ResponseWriter, r *http.Request, group iam.GroupRef) {
+func (s *Service) groupRemoteAppRegister(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor) {
 	var body remoteAppRegisterRequest
 	if err := decodeJSON(r, &body); err != nil {
 		badRequest(w, iam.CodeInvalidRequest)
-		return
-	}
-	claims, ok := verify.ClaimsFromContext(r.Context())
-	if !ok {
-		forbidden(w, iam.CodeForbidden)
 		return
 	}
 	// Default to enabled when the field is omitted; preserve an explicit
@@ -47,7 +41,7 @@ func (s *Service) groupRemoteAppRegister(w http.ResponseWriter, r *http.Request,
 	if body.Enabled != nil {
 		enabled = *body.Enabled
 	}
-	ra, err := s.svc.UpsertRemoteApplicationFromClaims(r.Context(), claims, group, iam.RemoteApplication{
+	ra, err := s.svc.UpsertRemoteApplicationForActor(r.Context(), actor, group, iam.RemoteApplication{
 		Slug:       strings.TrimSpace(body.Slug),
 		Issuer:     strings.TrimSpace(body.Issuer),
 		JWKSURI:    strings.TrimSpace(body.JWKSURI),
@@ -64,7 +58,7 @@ func (s *Service) groupRemoteAppRegister(w http.ResponseWriter, r *http.Request,
 
 // groupRemoteAppList lists the remote_applications controlled by the addressed
 // group (only this group's — not every group's).
-func (s *Service) groupRemoteAppList(w http.ResponseWriter, r *http.Request, group iam.GroupRef) {
+func (s *Service) groupRemoteAppList(w http.ResponseWriter, r *http.Request, group iam.GroupRef, _ iam.Actor) {
 	apps, err := s.svc.ListRemoteApplicationsForGroup(r.Context(), group)
 	if err != nil {
 		s.writeGroupOpError(w, err)
@@ -76,8 +70,8 @@ func (s *Service) groupRemoteAppList(w http.ResponseWriter, r *http.Request, gro
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"object":        "list",
-		"persona":       group.Persona,
-		"instance_slug": group.Instance,
+		"persona":       group.Persona(),
+		"instance_slug": group.Slug(),
 		"data":          data,
 	})
 }
@@ -85,17 +79,12 @@ func (s *Service) groupRemoteAppList(w http.ResponseWriter, r *http.Request, gro
 // groupRemoteAppDelete removes a remote_application. The :app path param is the
 // remote_application's slug; it is resolved to its issuer (scoped to this group)
 // before deletion so a manager cannot delete another group's issuer.
-func (s *Service) groupRemoteAppDelete(w http.ResponseWriter, r *http.Request, group iam.GroupRef, slug string) {
+func (s *Service) groupRemoteAppDelete(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor, slug string) {
 	if slug == "" {
 		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
-	claims, ok := verify.ClaimsFromContext(r.Context())
-	if !ok {
-		forbidden(w, iam.CodeForbidden)
-		return
-	}
-	if err := s.svc.DeleteRemoteApplicationFromClaims(r.Context(), claims, group, slug); err != nil {
+	if err := s.svc.DeleteRemoteApplicationForActor(r.Context(), actor, group, slug); err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
@@ -103,29 +92,28 @@ func (s *Service) groupRemoteAppDelete(w http.ResponseWriter, r *http.Request, g
 }
 
 // groupRemoteAppRole assigns (or replaces) a remote application's single role
-// in the group (#263) — the SubjectKindRemoteApp symmetric of the member-role
+// in the group (#263) — the SubjectKindRemoteApplication symmetric of the member-role
 // route, gated <persona>:credentials:manage by the generated route table. The
 // :app slug must resolve to an application controlled by the addressed group.
-func (s *Service) groupRemoteAppRole(w http.ResponseWriter, r *http.Request, group iam.GroupRef, appSlug string, role iam.Role) {
+func (s *Service) groupRemoteAppRole(w http.ResponseWriter, r *http.Request, group iam.GroupRef, actor iam.Actor, appSlug string, role iam.Role) {
 	role = iam.Role(strings.TrimSpace(string(role)))
 	if appSlug == "" || role == "" {
 		badRequest(w, iam.CodeInvalidRequest)
 		return
 	}
-	actor, ok := verify.ClaimsFromContext(r.Context())
-	if !ok || actor.UserID == "" {
-		forbidden(w, iam.CodeForbidden)
+	app, err := s.svc.GetRemoteApplicationBySlug(r.Context(), appSlug)
+	if err != nil {
+		s.writeGroupOpError(w, err)
 		return
 	}
-	// Actor-aware assignment: capability (credentials:manage) + no-escalation.
-	if err := s.svc.AssignRemoteApplicationRoleAs(r.Context(), actor.UserID, group, appSlug, role); err != nil {
-		s.writeGroupOpError(w, err)
+	res, err := s.svc.AssignGroupRoles(r.Context(), actor, group, []iam.Subject{iam.RemoteApplicationSubject(app.ID)}, role)
+	if !s.writeOpResult(w, res, err) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":            true,
-		"persona":       group.Persona,
-		"instance_slug": group.Instance,
+		"persona":       group.Persona(),
+		"instance_slug": group.Slug(),
 		"app":           appSlug,
 		"role":          role,
 	})

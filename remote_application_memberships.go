@@ -3,7 +3,6 @@ package authkit
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
@@ -34,48 +33,6 @@ func (s *engine) remoteApplicationGroupID(ctx context.Context, appID string) (st
 	return gid, nil
 }
 
-// AssignRemoteApplicationRole grants a remote_application a role in its own
-// controlling permission-group with NO actor check (#308): reachable only via
-// bootstrap and authkit.engine.Genesis(). engine callers use
-// AssignRemoteApplicationRoleAs.
-func (s *engine) AssignRemoteApplicationRole(ctx context.Context, appID string, role iam.Role) error {
-	if err := s.requirePG(); err != nil {
-		return err
-	}
-	gid, err := s.remoteApplicationGroupID(ctx, appID)
-	if err != nil {
-		return err
-	}
-	role = iam.Role(strings.ToLower(strings.TrimSpace(string(role))))
-	if role == "" {
-		return fmt.Errorf("role is required")
-	}
-	var persona iam.Persona
-	q := s.pg
-	if err := q.QueryRow(ctx, `SELECT persona FROM permission_groups WHERE id = $1::uuid`, gid).Scan(&persona); err != nil {
-		return err
-	}
-	if !s.validRoleForPersona(s.groupSchemaOrDefault(), persona, role) {
-		return fmt.Errorf("role %q is not assignable in a %q group: %w", role, persona, iam.ErrRoleNotAssignable)
-	}
-	return s.withLockedGroup(ctx, gid, func(st *permissionGroupStore) error {
-		if err := s.requireDefinedGroupRole(ctx, st, gid, persona, role); err != nil {
-			return err
-		}
-		subject := iam.RemoteAppSubject(strings.TrimSpace(appID))
-		old, err := st.directRole(ctx, gid, subject)
-		if err != nil {
-			return err
-		}
-		if old != role {
-			if err := s.refuseOwnerLoss(ctx, st, gid, subject); err != nil {
-				return err
-			}
-		}
-		return st.AssignRole(ctx, gid, iam.RemoteAppSubject(strings.TrimSpace(appID)), role)
-	})
-}
-
 // remoteApplicationRoles returns the roles a remote_application holds in its
 // controlling permission-group, or ErrNotGroupMember when it holds none.
 // Unexported: not on the public contract; only authcore tests use it.
@@ -87,7 +44,7 @@ func (s *engine) remoteApplicationRoles(ctx context.Context, appID string) ([]st
 	if err != nil {
 		return nil, err
 	}
-	asg, err := s.groupStore().WalkAssignments(ctx, gid, iam.RemoteAppSubject(strings.TrimSpace(appID)))
+	asg, err := s.groupStore().WalkAssignments(ctx, gid, iam.RemoteApplicationSubject(strings.TrimSpace(appID)))
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +90,7 @@ func (s *engine) ResolveRemoteApplicationAuthority(ctx context.Context, appID st
 	}
 	out.PermissionGroupID = gid
 	out.AuthorityIssuer = s.cfg.Token.Issuer
-	out.Permissions, err = s.groupStore().GrantsOnGroup(ctx, s.groupSchemaOrDefault(), iam.RemoteAppSubject(appID), gid)
+	out.Permissions, err = s.groupStore().GrantsOnGroup(ctx, s.groupSchemaOrDefault(), iam.RemoteApplicationSubject(appID), gid)
 	if err != nil {
 		return iam.RemoteApplicationAuthority{}, err
 	}

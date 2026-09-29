@@ -13,7 +13,6 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/secret"
-	"github.com/open-rails/authkit/verify"
 )
 
 // API keys: long-lived, revocable shared-secret bearer credentials owned by a
@@ -45,7 +44,8 @@ func randBase62(n int) (string, error) {
 }
 
 func (s *engine) authorizeAPIKeyRoleGrant(ctx context.Context, st *permissionGroupStore, persona iam.Persona, gid, actorUserID string, role iam.Role) error {
-	return s.authorizeRoleGrant(ctx, st, s.groupSchemaOrDefault(), persona, gid, actorUserID, iam.PermCredentialsManage(persona), role)
+	g := groupTarget{ID: gid, Persona: persona}
+	return s.requireRoleGrant(ctx, st, iam.UserActor(actorUserID), g, iam.PermCredentialsManage(persona), role)
 }
 
 // effectiveGroupRolePermissions resolves a role NAME to its effective permission
@@ -76,7 +76,7 @@ func (s *engine) MintAPIKey(ctx context.Context, group iam.GroupRef, opts iam.AP
 	if err := s.requirePG(); err != nil {
 		return iam.APIKey{}, "", err
 	}
-	persona := iam.Persona(strings.TrimSpace(string(group.Persona)))
+	persona := iam.Persona(strings.TrimSpace(string(group.Persona())))
 	gid, err := s.resolveGroupID(ctx, s.groupStore(), group)
 	if err != nil {
 		return iam.APIKey{}, "", err
@@ -182,7 +182,7 @@ func (s *engine) ListAPIKeys(ctx context.Context, group iam.GroupRef) ([]iam.API
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	if err := s.loadAPIKeyPermissions(ctx, gid, iam.Persona(strings.TrimSpace(string(group.Persona))), out); err != nil {
+	if err := s.loadAPIKeyPermissions(ctx, gid, iam.Persona(strings.TrimSpace(string(group.Persona()))), out); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -210,22 +210,21 @@ func (s *engine) RevokeAPIKey(ctx context.Context, group iam.GroupRef, tokenID s
 	return tag.RowsAffected() > 0, nil
 }
 
-// RevokeAPIKeyFromClaims is the runtime revoke: the actor must be able to mint
+// RevokeAPIKeyForActor is the runtime revoke: the actor must be able to mint
 // the key's role, so a bounded credentials manager cannot revoke a key of a
 // role above their own. Returns false if no live key matches in the group.
-func (s *engine) RevokeAPIKeyFromClaims(ctx context.Context, claims verify.Claims, group iam.GroupRef, tokenID string) (bool, error) {
-	actor, err := groupActorFromClaims(claims)
-	if err != nil {
+func (s *engine) RevokeAPIKeyForActor(ctx context.Context, actor iam.Actor, group iam.GroupRef, tokenID string) (bool, error) {
+	if err := requireActor(actor); err != nil {
 		return false, err
 	}
 	if err := s.requirePG(); err != nil {
 		return false, err
 	}
-	gid, err := s.resolveGroupID(ctx, s.groupStore(), group)
+	g, err := s.resolveGroup(ctx, s.groupStore(), group)
 	if err != nil {
 		return false, err
 	}
-	persona := iam.Persona(strings.TrimSpace(string(group.Persona)))
+	gid := g.ID
 	revoked := false
 	err = s.withLockedGroup(ctx, gid, func(st *permissionGroupStore) error {
 		var role iam.Role
@@ -236,7 +235,7 @@ func (s *engine) RevokeAPIKeyFromClaims(ctx context.Context, claims verify.Claim
 		if err != nil {
 			return err
 		}
-		if err := s.authorizeGroupActorRole(ctx, st, s.groupSchemaOrDefault(), persona, gid, actor, iam.PermCredentialsManage(persona), role); err != nil {
+		if err := s.requireRoleGrant(ctx, st, actor, g, iam.PermCredentialsManage(g.Persona), role); err != nil {
 			return err
 		}
 		if _, err := st.q.Exec(ctx, `UPDATE api_keys SET revoked_at=now() WHERE id=$1::uuid`, strings.TrimSpace(tokenID)); err != nil {

@@ -39,7 +39,7 @@ func (s *Service) requirePermission(group iam.GroupRef, perm iam.Perm, next http
 		}
 		scope := verify.PermissionScope{GroupID: group.ID, AuthorityIssuer: s.settings.Issuer, Persona: group.Persona, Instance: group.InstanceSlug}
 		switch {
-		case claims.PrincipalKind() != iam.PrincipalKindUser:
+		case claims.IsMachine():
 			if claims.HasPermission(perm) && claims.PermissionGroupAllows(scope) {
 				next.ServeHTTP(w, r)
 				return

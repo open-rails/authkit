@@ -12,5 +12,5 @@ type apiKeysBackend interface {
 	ListAPIKeys(ctx context.Context, group iam.GroupRef) ([]iam.APIKey, error)
 	MintAPIKey(ctx context.Context, group iam.GroupRef, opts iam.APIKeyMintOptions) (iam.APIKey, string, error)
 	verify.Enricher
-	RevokeAPIKeyFromClaims(ctx context.Context, claims verify.Claims, group iam.GroupRef, tokenID string) (bool, error)
+	RevokeAPIKeyForActor(ctx context.Context, a iam.Actor, group iam.GroupRef, tokenID string) (bool, error)
 }

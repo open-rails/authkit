@@ -44,7 +44,7 @@ func withRBAC(c *authkit.Config) {
 
 func (h *host) grant(group iam.GroupRef, a account, role iam.Role) {
 	h.t.Helper()
-	require.NoError(h.t, h.auth.OperatorAssignGroupRole(context.Background(), group, iam.UserSubject(a.id), role))
+	grantRole(h.t, h.auth, group, iam.UserSubject(a.id), role)
 }
 
 func publicKeyPEM(t *testing.T) string {
@@ -108,14 +108,14 @@ func TestSecurityRemoteApplicationTakeover(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 	ctx := context.Background()
 	owner, manager := h.newAccount("orgowner"), h.newAccount("orgmanager")
-	group := iam.GroupRef{Persona: orgPersona, Instance: unique("org")}
+	group := iam.GroupBySlug(orgPersona, unique("org"))
 	_, err := h.auth.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{
-		Persona: orgPersona, InstanceSlug: group.Instance, OwnerSubjectID: owner.id,
+		Persona: orgPersona, InstanceSlug: group.Slug(), OwnerSubjectID: owner.id,
 	})
 	require.NoError(t, err)
 	h.grant(group, manager, "manager")
 	ownerToken, managerToken := h.login(owner).AccessToken, h.login(manager).AccessToken
-	base := "/" + string(orgPersona) + "/" + group.Instance + "/remote-applications"
+	base := "/" + string(orgPersona) + "/" + group.Slug() + "/remote-applications"
 	register := func(token, slug, issuer, key string, enabled bool) response {
 		return h.post(base, map[string]any{"slug": slug, "issuer": issuer, "public_keys": []map[string]string{{"public_key_pem": key}}, "enabled": enabled}, token)
 	}
@@ -169,21 +169,21 @@ func TestSecurityRoleEscalation(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 	ctx := context.Background()
 	owner, manager, member := h.newAccount("escowner"), h.newAccount("escmanager"), h.newAccount("escmember")
-	group := iam.GroupRef{Persona: orgPersona, Instance: unique("esc")}
+	group := iam.GroupBySlug(orgPersona, unique("esc"))
 	_, err := h.auth.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{
-		Persona: orgPersona, InstanceSlug: group.Instance, OwnerSubjectID: owner.id,
+		Persona: orgPersona, InstanceSlug: group.Slug(), OwnerSubjectID: owner.id,
 	})
 	require.NoError(t, err)
-	other := iam.GroupRef{Persona: orgPersona, Instance: unique("other")}
+	other := iam.GroupBySlug(orgPersona, unique("other"))
 	_, err = h.auth.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{
-		Persona: orgPersona, InstanceSlug: other.Instance, OwnerSubjectID: owner.id,
+		Persona: orgPersona, InstanceSlug: other.Slug(), OwnerSubjectID: owner.id,
 	})
 	require.NoError(t, err)
 	h.grant(group, manager, "manager")
 	h.grant(group, member, "member")
 	managerToken := h.login(manager).AccessToken
 	memberToken := h.login(member).AccessToken
-	base := "/" + string(orgPersona) + "/" + group.Instance
+	base := "/" + string(orgPersona) + "/" + group.Slug()
 
 	for _, tc := range []struct {
 		name  string
@@ -203,7 +203,7 @@ func TestSecurityRoleEscalation(t *testing.T) {
 		{"manager mints an owner API key", request{method: http.MethodPost, path: base + "/api-keys", token: managerToken,
 			body: map[string]any{"name": "k", "role": "owner"}}, false},
 		{"member grants themself manager", request{method: http.MethodPut, path: base + "/members/" + member.id + "/roles/manager", token: memberToken}, false},
-		{"manager acts on a group they do not belong to", request{method: http.MethodPut, path: "/" + string(orgPersona) + "/" + other.Instance + "/members/" + member.id + "/roles/member", token: managerToken}, false},
+		{"manager acts on a group they do not belong to", request{method: http.MethodPut, path: "/" + string(orgPersona) + "/" + other.Slug() + "/members/" + member.id + "/roles/member", token: managerToken}, false},
 		{"root admin surface with a group role", request{method: http.MethodGet, path: "/admin/users", token: managerToken}, false},
 		{"control: manager assigns member", request{method: http.MethodPut, path: base + "/members/" + member.id + "/roles/member", token: managerToken}, true},
 	} {
@@ -227,12 +227,12 @@ func TestSecurityRoleEscalation(t *testing.T) {
 // newOrg creates an org whose founder is its owner.
 func (h *host) newOrg(prefix string, founder account) (iam.GroupRef, string) {
 	h.t.Helper()
-	group := iam.GroupRef{Persona: orgPersona, Instance: unique(prefix)}
+	group := iam.GroupBySlug(orgPersona, unique(prefix))
 	_, err := h.auth.CreatePermissionGroup(context.Background(), iam.CreatePermissionGroupRequest{
-		Persona: orgPersona, InstanceSlug: group.Instance, OwnerSubjectID: founder.id,
+		Persona: orgPersona, InstanceSlug: group.Slug(), OwnerSubjectID: founder.id,
 	})
 	require.NoError(h.t, err)
-	return group, "/" + string(orgPersona) + "/" + group.Instance
+	return group, "/" + string(orgPersona) + "/" + group.Slug()
 }
 
 type issued struct {
@@ -365,7 +365,7 @@ func TestSecurityRemoteApplicationIssuerSquat(t *testing.T) {
 	resp := register("squatted-app", victimIssuer)
 	require.Equal(t, http.StatusCreated, resp.status, resp.String())
 	doc, err := json.Marshal(iam.ApplicationDocument{Slug: unique("victim"), Issuer: victimIssuer,
-		PublicKeys: []iam.RemoteAppKey{{PublicKeyPEM: publicKeyPEM(t)}}})
+		PublicKeys: []iam.RemoteApplicationKey{{PublicKeyPEM: publicKeyPEM(t)}}})
 	require.NoError(t, err)
 	domain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != iam.ApplicationWellKnownPath {
@@ -404,7 +404,7 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 	der, err := x509.MarshalPKIXPublicKey(&peerKey.PublicKey)
 	require.NoError(t, err)
 	peerPEM := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
-	keys := []iam.RemoteAppKey{{KID: "peer-kid", PublicKeyPEM: peerPEM}}
+	keys := []iam.RemoteApplicationKey{{KID: "peer-kid", PublicKeyPEM: peerPEM}}
 
 	t.Run("no group or domain may claim the peer issuer", func(t *testing.T) {
 		squatter := h.newAccount("peersquatter")
@@ -415,7 +415,7 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, resp.status, "%s: %s", iss, resp)
 		}
 		doc, err := json.Marshal(iam.ApplicationDocument{Slug: unique("peerdomain"), Issuer: peerIssuer,
-			PublicKeys: []iam.RemoteAppKey{{PublicKeyPEM: publicKeyPEM(t)}}})
+			PublicKeys: []iam.RemoteApplicationKey{{PublicKeyPEM: publicKeyPEM(t)}}})
 		require.NoError(t, err)
 		domain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
@@ -432,7 +432,7 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 		for _, iss := range []string{issuer, "https://github.com/login/oauth"} {
 			enabled := true
 			_, err := h.auth.OperatorApplyBootstrapManifest(ctx, iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{
-				{Slug: unique("reserved"), Issuer: iss, PublicKeys: []iam.RemoteAppKey{{PublicKeyPEM: publicKeyPEM(t)}}, Enabled: &enabled},
+				{Slug: unique("reserved"), Issuer: iss, PublicKeys: []iam.RemoteApplicationKey{{PublicKeyPEM: publicKeyPEM(t)}}, Enabled: &enabled},
 			}}, iam.BootstrapReconcileOptions{})
 			require.ErrorIs(t, err, iam.ErrReservedIssuer, iss)
 		}

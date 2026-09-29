@@ -6,7 +6,6 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/rbac"
-	"github.com/open-rails/authkit/verify"
 )
 
 // groupsBackend is permission groups, roles and permission checks.
@@ -17,9 +16,10 @@ type groupsBackend interface {
 	ListEffectivePermissions(ctx context.Context, subject iam.Subject, group iam.GroupRef) ([]iam.Perm, error)
 	ListGroupMembers(ctx context.Context, group iam.GroupRef) ([]iam.GroupMember, error)
 	ListSubjectGroups(ctx context.Context, subject iam.Subject) ([]iam.SubjectGroupMembership, error)
-	AssignGroupRoleFromClaims(ctx context.Context, claims verify.Claims, group iam.GroupRef, subject iam.Subject, role iam.Role) error
-	RemoveGroupSubjectFromClaims(ctx context.Context, claims verify.Claims, group iam.GroupRef, subject iam.Subject) error
-	AssignRemoteApplicationRoleAs(ctx context.Context, actorUserID string, group iam.GroupRef, appSlug string, role iam.Role) error
+	AssignGroupRoles(ctx context.Context, a iam.Actor, group iam.GroupRef, subjects []iam.Subject, role iam.Role) ([]iam.OpResult, error)
+	UnassignGroupRoles(ctx context.Context, a iam.Actor, group iam.GroupRef, subjects []iam.Subject, role iam.Role) ([]iam.OpResult, error)
+	RemoveGroupMembers(ctx context.Context, a iam.Actor, group iam.GroupRef, subjects []iam.Subject) ([]iam.OpResult, error)
+	GroupRoles(ctx context.Context, group iam.GroupRef, subjects []iam.Subject) (map[iam.Subject]iam.Role, error)
 	CreateInstanceForSubject(ctx context.Context, group iam.GroupRef, displayName, ownerUserID string) (authflow.CreateInstanceResult, error)
 	DefineGroupCustomRole(ctx context.Context, actorUserID string, group iam.GroupRef, def authflow.CustomRoleDef) error
 	DeleteGroupCustomRole(ctx context.Context, actorUserID string, group iam.GroupRef, role iam.Role) error

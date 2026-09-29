@@ -24,7 +24,7 @@ func TestOperatorAccountRestoreHTTPRequiresCurrentAuthority(t *testing.T) {
 	}
 	operator, operatorID := register("restoreoperator")
 	target, targetID := register("restoretarget")
-	require.NoError(t, fixtureBackend(f.service.Backend()).OperatorAssignGroupRole(t.Context(), iam.RootGroup(), iam.UserSubject(operatorID), "operator"))
+	grantRole(t, fixtureBackend(f.service.Backend()), iam.RootGroup(), iam.UserSubject(operatorID), "operator")
 	path := "/admin/users/" + targetID
 	f.expect(http.StatusNoContent, f.request(http.MethodDelete, path, operator.AccessToken, nil))
 	f.expect(http.StatusUnauthorized, f.request(http.MethodPost, path+"/restore", "", nil))
@@ -35,7 +35,7 @@ func TestOperatorAccountRestoreHTTPRequiresCurrentAuthority(t *testing.T) {
 	require.Nil(t, user.DeletedAt)
 	f.expect(http.StatusUnauthorized, f.post("/token", map[string]any{"grant_type": "refresh_token", "refresh_token": target.RefreshToken}))
 	f.expect(http.StatusNoContent, f.request(http.MethodDelete, path, operator.AccessToken, nil))
-	require.NoError(t, fixtureBackend(f.service.Backend()).OperatorUnassignGroupRole(t.Context(), iam.RootGroup(), iam.UserSubject(operatorID), "operator"))
+	revokeRole(t, fixtureBackend(f.service.Backend()), iam.RootGroup(), iam.UserSubject(operatorID), "operator")
 	f.expect(http.StatusForbidden, f.request(http.MethodPost, path+"/restore", operator.AccessToken, nil))
 	user, err = f.service.Backend().AdminGetUser(t.Context(), targetID)
 	require.NoError(t, err)

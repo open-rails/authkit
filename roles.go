@@ -2,7 +2,6 @@ package authkit
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strings"
 
@@ -82,49 +81,4 @@ func (s *engine) rootRoleSlugsByUser(ctx context.Context, userID string) ([]stri
 		}
 	}
 	return s.splitConfiguredRootRoles(roles)
-}
-
-// AssignRoleBySlug grants a user a role in the root permission-group (#111).
-// This path skips actor-authz/no-escalation (genesis/bootstrap/migration);
-// runtime callers use the actor-aware AssignRoleBySlugAs path. The
-// MFA-required-role enrollment gate is a subject-state invariant and STILL
-// applies — assigning an MFA-required role to a non-enrolled user fails closed
-// with ErrTwoFAEnrollmentRequired.
-func (s *engine) AssignRoleBySlug(ctx context.Context, userID string, role iam.Role) error {
-	if s.pg == nil {
-		return nil
-	}
-	if _, err := s.EnsureRootGroup(ctx); err != nil {
-		return err
-	}
-	return s.AssignGroupRole(ctx, iam.RootGroup(), iam.UserSubject(strings.TrimSpace(userID)), normalizeRootRoleSlug(role))
-}
-
-// UpsertRoleBySlug is a no-op under the permission-group model: catalog roles
-// live in Config.Roles, not the DB, so there is nothing to
-// "define" at runtime. name and description are ignored; it validates the slug
-// is a known root catalog role, ensures the root group exists, and returns.
-func (s *engine) UpsertRoleBySlug(ctx context.Context, name string, role iam.Role, description *string) error {
-	if s.pg == nil {
-		return nil
-	}
-	role = normalizeRootRoleSlug(role)
-	if role == "" {
-		return fmt.Errorf("invalid_role")
-	}
-	if _, err := s.EnsureRootGroup(ctx); err != nil {
-		return err
-	}
-	if !s.validRoleForPersona(s.groupSchemaOrDefault(), iam.RootPersona, role) {
-		return fmt.Errorf("invalid_role")
-	}
-	return nil
-}
-
-// RemoveRoleBySlug revokes a user's role in the root permission-group.
-func (s *engine) RemoveRoleBySlug(ctx context.Context, userID string, role iam.Role) error {
-	if s.pg == nil {
-		return nil
-	}
-	return s.UnassignGroupRole(ctx, iam.RootGroup(), iam.UserSubject(strings.TrimSpace(userID)), normalizeRootRoleSlug(role))
 }

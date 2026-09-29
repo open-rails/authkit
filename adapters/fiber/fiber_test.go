@@ -207,6 +207,9 @@ func TestAccessorsRejectMachineClaimsAsUsers(t *testing.T) {
 			if p, ok := authkitfiber.Identity(c); ok != wantOK || p != want {
 				t.Errorf("identity = %+v, present = %v", p, ok)
 			}
+			if a, ok := authkitfiber.Actor(c); ok && a.Kind() == iam.ActorUser {
+				t.Errorf("machine/delegated principal acts as user %v", a)
+			}
 			return c.SendStatus(http.StatusNoContent)
 		})
 		status, _, _ := request(t, app, http.MethodGet, "/", "")
@@ -222,6 +225,9 @@ func TestAccessorsRejectMachineClaimsAsUsers(t *testing.T) {
 	}
 	if _, ok := authkitfiber.Identity(nil); ok {
 		t.Error("nil context has principal")
+	}
+	if _, ok := authkitfiber.Actor(nil); ok {
+		t.Error("nil context has actor")
 	}
 }
 

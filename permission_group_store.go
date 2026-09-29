@@ -27,7 +27,7 @@ func groupRoleTable(kind iam.SubjectKind) (table, subjectColumn string, err erro
 	switch kind {
 	case iam.SubjectKindUser:
 		return "group_user_roles", "user_id", nil
-	case iam.SubjectKindRemoteApp:
+	case iam.SubjectKindRemoteApplication:
 		return "group_remote_application_roles", "remote_application_id", nil
 	default:
 		return "", "", fmt.Errorf("invalid group subject kind %q", kind)
@@ -69,9 +69,9 @@ func (st *permissionGroupStore) CreateGroupNamed(ctx context.Context, g iam.Grou
          claim AS MATERIALIZED (SELECT id, claim_canonical_name('group',$1,$2,id,$4) FROM identity)
          INSERT INTO permission_groups (id,persona,instance_slug,display_name)
          SELECT id,$1,$2,$3 FROM claim RETURNING id::text`,
-		g.Persona, g.Instance, displayName, st.now()).Scan(&id)
+		g.Persona(), g.Slug(), displayName, st.now()).Scan(&id)
 	if err != nil {
-		return "", fmt.Errorf("create %q group: %w", g.Persona, nameClaimError(err, "group"))
+		return "", fmt.Errorf("create %q group: %w", g.Persona(), nameClaimError(err, "group"))
 	}
 	return id, nil
 }
@@ -120,7 +120,7 @@ func (st *permissionGroupStore) DeleteGroup(ctx context.Context, groupID string,
 // InstanceSlugAvailable applies exactly the resolver's request-time expiry rule.
 func (st *permissionGroupStore) InstanceSlugAvailable(ctx context.Context, g iam.GroupRef) (bool, error) {
 	var available bool
-	err := st.q.QueryRow(ctx, `SELECT NOT EXISTS (SELECT 1 FROM name_claims WHERE owner_kind='group' AND persona=$1 AND name=lower($2) AND (canonical OR expires_at IS NULL OR expires_at>$3))`, g.Persona, g.Instance, st.now()).Scan(&available)
+	err := st.q.QueryRow(ctx, `SELECT NOT EXISTS (SELECT 1 FROM name_claims WHERE owner_kind='group' AND persona=$1 AND name=lower($2) AND (canonical OR expires_at IS NULL OR expires_at>$3))`, g.Persona(), g.Slug(), st.now()).Scan(&available)
 	return available, err
 }
 
@@ -157,7 +157,7 @@ func (st *permissionGroupStore) renameGroupSlug(ctx context.Context, groupID, ne
 
 func (st *permissionGroupStore) ResolveGroupSlug(ctx context.Context, g iam.GroupRef) (iam.NameResolution, error) {
 	var out iam.NameResolution
-	err := st.q.QueryRow(ctx, `SELECT g.id::text,g.instance_slug,NOT c.canonical,c.expires_at FROM name_claims c JOIN permission_groups g ON g.id=c.owner_id WHERE g.deleted_at IS NULL AND c.owner_kind='group' AND c.persona=$1 AND c.name=lower($2) AND (c.canonical OR c.expires_at IS NULL OR c.expires_at>$3)`, g.Persona, g.Instance, st.now()).Scan(&out.ID, &out.CanonicalName, &out.IsAlias, &out.AliasExpiresAt)
+	err := st.q.QueryRow(ctx, `SELECT g.id::text,g.instance_slug,NOT c.canonical,c.expires_at FROM name_claims c JOIN permission_groups g ON g.id=c.owner_id WHERE g.deleted_at IS NULL AND c.owner_kind='group' AND c.persona=$1 AND c.name=lower($2) AND (c.canonical OR c.expires_at IS NULL OR c.expires_at>$3)`, g.Persona(), g.Slug(), st.now()).Scan(&out.ID, &out.CanonicalName, &out.IsAlias, &out.AliasExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return out, iam.ErrGroupNotFound
 	}
@@ -179,7 +179,7 @@ func (st *permissionGroupStore) GroupByLiveInstanceSlug(ctx context.Context, g i
 	err := st.q.QueryRow(ctx,
 		`SELECT id::text FROM permission_groups
 		 WHERE persona = $1 AND instance_slug = $2 AND deleted_at IS NULL`,
-		g.Persona, g.Instance).Scan(&id)
+		g.Persona(), g.Slug()).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", iam.ErrGroupNotFound
 	}
@@ -330,7 +330,7 @@ func (st *permissionGroupStore) RootRolesForUsers(ctx context.Context, rootGID s
 // AssignRole replaces the current role for a group and subject. The composite
 // primary key enforces one assignment; callers validate the role definition.
 func (st *permissionGroupStore) AssignRole(ctx context.Context, groupID string, subject iam.Subject, role iam.Role) error {
-	if subject.Kind == iam.SubjectKindRemoteApp && role == iam.OwnerRole {
+	if subject.Kind == iam.SubjectKindRemoteApplication && role == iam.OwnerRole {
 		var operable bool
 		if err := st.q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM remote_applications WHERE id=$1::uuid AND enabled AND permission_group_id=$2::uuid)`, subject.ID, groupID).Scan(&operable); err != nil {
 			return err
@@ -479,7 +479,7 @@ func (st *permissionGroupStore) CanOnGroup(ctx context.Context, schema *rbac.Sch
 	if err != nil {
 		return false, err
 	}
-	return schema.Can(assignments, resolver, perm), nil
+	return schema.Can(groupID, assignments, resolver, perm), nil
 }
 
 // GrantsOnGroups returns, per live target group, the de-duplicated UNION of
@@ -494,7 +494,7 @@ func (st *permissionGroupStore) GrantsOnGroups(ctx context.Context, schema *rbac
 	}
 	out := make(map[string][]string, len(byGroup))
 	for gid, assignments := range byGroup {
-		if grants := schema.ResolveGrants(assignments, resolver); len(grants) > 0 {
+		if grants := schema.ResolveGrants(gid, assignments, resolver); len(grants) > 0 {
 			out[gid] = grants
 		}
 	}

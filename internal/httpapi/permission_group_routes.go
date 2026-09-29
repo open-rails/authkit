@@ -20,7 +20,6 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
-	jwtkit "github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -161,20 +160,18 @@ func pathParam(r *http.Request, name string) string {
 }
 
 // generatedGroupHandler returns the handler for one generated route. It:
-//  1. extracts the caller's verified claims (401 if absent);
+//  1. derives the caller's actor once (401 if none);
 //  2. resolves persona + :instance_slug from the route/path;
-//  3. authorizes via svc.Can(caller, group, route.Perm), or route.OrPerm
-//     when set (403 on deny);
-//  4. performs the operation. members, roles (catalog read), api-keys,
-//     remote-applications, and invites are fully wired; only custom-role
-//     define/delete routes depend on custom-role support being enabled.
+//  3. authorizes route.Perm (or route.OrPerm when set) on the group (403 on deny);
+//  4. performs the operation, passing the actor to the operation handler,
+//     where the engine applies the operation's own authority rules.
 func (s *Service) GeneratedGroupHandler(gr GeneratedRoute) http.HandlerFunc {
 	op := classifyGeneratedRoute(gr.Method, gr.Path)
+	// Remote-application self credentials may use the member operations only.
+	remoteOperation := op == opMemberAdd || op == opMemberRemove || op == opMemberRoleAssign || op == opMembersList || op == opRolesList
 	return func(w http.ResponseWriter, r *http.Request) {
-		claims, ok := verify.ClaimsFromContext(r.Context())
-		remoteSelf := claims.TokenType == verify.RemoteApplicationTokenType && strings.EqualFold(claims.TokenTyp, jwtkit.RemoteApplicationAccessTokenType) && claims.RemoteApplicationID != "" && claims.UserID == "" && claims.DelegatedSubject == ""
-		remoteOperation := op == opMemberAdd || op == opMemberRemove || op == opMemberRoleAssign || op == opMembersList || op == opRolesList
-		if !ok || (claims.UserID == "" && !(remoteSelf && remoteOperation)) {
+		actor, ok := verify.ActorFromContext(r.Context())
+		if !ok || !(actor.Kind() == iam.ActorUser || actor.Kind() == iam.ActorRemoteApplication && remoteOperation) {
 			unauthorized(w, iam.CodeNotAuthenticated)
 			return
 		}
@@ -184,7 +181,7 @@ func (s *Service) GeneratedGroupHandler(gr GeneratedRoute) http.HandlerFunc {
 			return
 		}
 
-		group := iam.GroupRef{Persona: gr.Persona, Instance: instanceSlug}
+		group := iam.GroupBySlug(gr.Persona, instanceSlug)
 		instance, err := s.svc.GroupInstanceForSlug(r.Context(), group)
 		if err != nil {
 			writeError(w, remap(err, groupScopeCodes))
@@ -195,13 +192,14 @@ func (s *Service) GeneratedGroupHandler(gr GeneratedRoute) http.HandlerFunc {
 		// Native authority is live. Remote self credentials additionally remain
 		// bound to their controlling group and verified permission ceiling.
 		check := func(perm iam.Perm) (bool, error) {
-			if !remoteSelf {
-				return s.groupCan(r, claims.UserID, group, perm)
+			if actor.Kind() != iam.ActorRemoteApplication {
+				return s.groupCan(r, actor.ID(), group, perm)
 			}
-			if !claims.PermissionGroupAllows(verify.PermissionScope{GroupID: instance.ID, AuthorityIssuer: s.settings.Issuer, Persona: gr.Persona}) || !claims.HasPermission(perm) {
+			claims, _ := verify.ClaimsFromContext(r.Context())
+			if !claims.PermissionGroupAllows(verify.PermissionScope{GroupID: instance.ID, AuthorityIssuer: s.settings.Issuer, Persona: gr.Persona}) || !actor.CeilingCovers(perm) {
 				return false, nil
 			}
-			return s.svc.Can(r.Context(), iam.RemoteAppSubject(claims.RemoteApplicationID), group, perm)
+			return s.svc.Can(r.Context(), iam.RemoteApplicationSubject(actor.ID()), group, perm)
 		}
 		allowed, err := check(gr.Perm)
 		if err == nil && !allowed && gr.OrPerm != "" {
@@ -220,48 +218,70 @@ func (s *Service) GeneratedGroupHandler(gr GeneratedRoute) http.HandlerFunc {
 		w.Header().Set("X-AuthKit-Canonical-Instance", instance.InstanceSlug)
 		switch op {
 		case opMembersList:
-			s.groupMembersList(w, r, group)
+			s.groupMembersList(w, r, group, actor)
 		case opMemberAdd:
-			s.groupMemberAdd(w, r, group)
+			s.groupMemberAdd(w, r, group, actor)
 		case opMemberRemove:
-			s.groupMemberRemove(w, r, group, pathParam(r, "user"))
+			s.groupMemberRemove(w, r, group, actor, pathParam(r, "user"))
 		case opMemberRoleAssign:
-			s.groupMemberRole(w, r, group, pathParam(r, "user"), iam.Role(pathParam(r, "role")))
+			s.groupMemberRole(w, r, group, actor, pathParam(r, "user"), iam.Role(pathParam(r, "role")))
 		case opRolesList:
 			s.groupRolesList(w, gr.Persona)
 		case opRoleDefine:
-			s.groupCustomRoleDefine(w, r, group)
+			s.groupCustomRoleDefine(w, r, group, actor)
 		case opRoleDelete:
-			s.groupCustomRoleDelete(w, r, group, iam.Role(pathParam(r, "role")))
+			s.groupCustomRoleDelete(w, r, group, actor, iam.Role(pathParam(r, "role")))
 		case opAPIKeysList:
-			s.groupAPIKeyList(w, r, group)
+			s.groupAPIKeyList(w, r, group, actor)
 		case opAPIKeyMint:
-			s.groupAPIKeyMint(w, r, group, claims.UserID)
+			s.groupAPIKeyMint(w, r, group, actor)
 		case opAPIKeyRevoke:
-			s.groupAPIKeyRevoke(w, r, group, claims, pathParam(r, "key"))
+			s.groupAPIKeyRevoke(w, r, group, actor, pathParam(r, "key"))
 		case opRemoteAppsList:
-			s.groupRemoteAppList(w, r, group)
+			s.groupRemoteAppList(w, r, group, actor)
 		case opRemoteAppRegister:
-			s.groupRemoteAppRegister(w, r, group)
+			s.groupRemoteAppRegister(w, r, group, actor)
 		case opRemoteAppDelete:
-			s.groupRemoteAppDelete(w, r, group, pathParam(r, "app"))
+			s.groupRemoteAppDelete(w, r, group, actor, pathParam(r, "app"))
 		case opRemoteAppRoleAssign:
-			s.groupRemoteAppRole(w, r, group, pathParam(r, "app"), iam.Role(pathParam(r, "role")))
+			s.groupRemoteAppRole(w, r, group, actor, pathParam(r, "app"), iam.Role(pathParam(r, "role")))
 		case opInviteLinkList:
-			s.groupInviteLinkList(w, r, group)
+			s.groupInviteLinkList(w, r, group, actor)
 		case opInviteLinkMint:
-			s.groupInviteLinkMint(w, r, group, claims.UserID)
+			s.groupInviteLinkMint(w, r, group, actor)
 		case opInviteLinkRevoke:
-			s.groupInviteLinkRevoke(w, r, group, claims, pathParam(r, "link"))
+			s.groupInviteLinkRevoke(w, r, group, actor, pathParam(r, "link"))
 		case opGroupUpdate:
-			s.groupUpdate(w, r, group)
+			s.groupUpdate(w, r, group, actor)
 		case opGroupRead:
-			s.groupInstanceDescriptor(w, r, group)
+			s.groupInstanceDescriptor(w, r, group, actor)
 		default:
 			// roles-define (POST/DELETE /roles): not wired yet.
 			sendErr(w, http.StatusNotImplemented, iam.CodeNotImplemented)
 		}
 	}
+}
+
+// userActorID is the user behind actor, for operations only a user may
+// perform; any other actor gets 403.
+func userActorID(w http.ResponseWriter, actor iam.Actor) (string, bool) {
+	if actor.Kind() != iam.ActorUser {
+		forbidden(w, iam.CodeForbidden)
+		return "", false
+	}
+	return actor.ID(), true
+}
+
+// writeOpResult answers a single-item batch operation: its item error or ok.
+func (s *Service) writeOpResult(w http.ResponseWriter, results []iam.OpResult, err error) bool {
+	if err == nil && len(results) == 1 {
+		err = results[0].Err
+	}
+	if err != nil {
+		s.writeGroupOpError(w, err)
+		return false
+	}
+	return true
 }
 
 // generatedOp identifies the operation a generated route (method + path shape)

@@ -106,7 +106,7 @@ func TestAccountRecoveryPasswordConfirmationBoundary(t *testing.T) {
 	require.NoError(t, err)
 	_, err = core.engine.EnsureRootGroup(t.Context())
 	require.NoError(t, err)
-	require.NoError(t, core.OperatorAssignGroupRole(t.Context(), iam.RootGroup(), iam.UserSubject(admin.ID), "owner"))
+	grantRole(t, core, iam.RootGroup(), iam.UserSubject(admin.ID), "owner")
 	require.NoError(t, core.BanUser(t.Context(), user.ID, nil, nil, admin.ID))
 	require.Equal(t, http.StatusUnauthorized, confirm(bannedProof).Code)
 	require.Equal(t, http.StatusUnauthorized, call("/password/login", loginBody).Code)

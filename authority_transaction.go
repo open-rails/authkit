@@ -98,7 +98,6 @@ SELECT 'api_keys', k.id::text, k.permission_group_id::text, t.persona, k.role, k
 			return err
 		}
 	}
-	sch := s.groupSchemaOrDefault()
 	revoked := map[string]bool{}
 	for _, c := range creds {
 		if revoked[c.id] {
@@ -108,7 +107,7 @@ SELECT 'api_keys', k.id::text, k.permission_group_id::text, t.persona, k.role, k
 		if c.table == "api_keys" {
 			capability = iam.PermCredentialsManage(c.persona)
 		}
-		err := s.authorizeRoleGrant(ctx, st, sch, c.persona, c.groupID, c.creator, capability, c.role)
+		err := s.creatorCovers(ctx, st, c.creator, groupTarget{ID: c.groupID, Persona: c.persona}, capability, c.role)
 		if err == nil {
 			continue
 		}
@@ -125,6 +124,40 @@ SELECT 'api_keys', k.id::text, k.permission_group_id::text, t.persona, k.role, k
 		revoked[c.id] = true
 	}
 	return nil
+}
+
+// creatorCovers is rule CRED: the creator is still a live account (not
+// banned, deleted or reserved), holds capability and covers role.
+func (s *engine) creatorCovers(ctx context.Context, st *permissionGroupStore, creator string, g groupTarget, capability iam.Perm, role iam.Role) error {
+	return s.requireRoleGrant(ctx, st, iam.UserActor(creator), g, capability, role)
+}
+
+// revokeCredentialsOf re-checks every live API key, invite link and
+// role-carrying registration invite userID issued, in every group, and
+// revokes those it no longer covers. Account lifecycle paths (ban, soft
+// delete, reserve, and purge before the row goes) call it inside their
+// authority transaction; after any of them the user covers nothing.
+func (s *engine) revokeCredentialsOf(ctx context.Context, st *permissionGroupStore, userID string) error {
+	rows, err := st.q.Query(ctx, `SELECT permission_group_id::text FROM group_invite_links WHERE invited_by=$1::uuid AND revoked_at IS NULL AND redeemed_at IS NULL
+ UNION SELECT permission_group_id::text FROM account_registration_invites WHERE invited_by=$1::uuid AND permission_group_id IS NOT NULL AND revoked_at IS NULL AND consumed_at IS NULL
+ UNION SELECT permission_group_id::text FROM api_keys WHERE created_by=$1::uuid AND revoked_at IS NULL`, userID)
+	if err != nil {
+		return err
+	}
+	var touched []authorityTouch
+	for rows.Next() {
+		var gid string
+		if err := rows.Scan(&gid); err != nil {
+			rows.Close()
+			return err
+		}
+		touched = append(touched, authorityTouch{groupID: gid, userID: userID})
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	return s.revokeUncoveredCredentials(ctx, st, touched...)
 }
 
 func (st *permissionGroupStore) directRole(ctx context.Context, gid string, subject iam.Subject) (iam.Role, error) {
@@ -145,7 +178,7 @@ func subjectUsable(ctx context.Context, q db.DBTX, subject iam.Subject) (bool, e
 	switch subject.Kind {
 	case iam.SubjectKindUser:
 		query = `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1::uuid AND deleted_at IS NULL AND COALESCE(metadata->'reserved','false'::jsonb)<>'true'::jsonb AND ((banned_at IS NULL AND banned_until IS NULL AND ban_reason IS NULL AND banned_by IS NULL) OR banned_until<=statement_timestamp()))`
-	case iam.SubjectKindRemoteApp:
+	case iam.SubjectKindRemoteApplication:
 		query = `SELECT EXISTS(SELECT 1 FROM remote_applications a JOIN permission_groups g ON g.id=a.permission_group_id WHERE a.id=$1::uuid AND a.enabled AND g.deleted_at IS NULL)`
 	default:
 		return false, fmt.Errorf("invalid subject kind %q", subject.Kind)
@@ -174,7 +207,7 @@ func (s *engine) refuseOwnerLoss(ctx context.Context, st *permissionGroupStore, 
 		return err
 	}
 	live, err := subjectUsable(ctx, st.q, subject)
-	if err == nil && live && subject.Kind == iam.SubjectKindRemoteApp {
+	if err == nil && live && subject.Kind == iam.SubjectKindRemoteApplication {
 		err = st.q.QueryRow(ctx, `SELECT permission_group_id=$2::uuid FROM remote_applications WHERE id=$1::uuid`, subject.ID, gid).Scan(&live)
 	}
 	if err != nil || !live {
@@ -253,16 +286,12 @@ func (s *engine) assignInvitedRole(ctx context.Context, st *permissionGroupStore
 		return err
 	}
 	if old != "" && old != role {
-		resolver, err := st.CustomRolesFor(ctx, []string{gid})
+		g := groupTarget{ID: gid, Persona: persona}
+		oldGrants, err := s.roleGrants(ctx, st, g, old)
 		if err != nil {
 			return err
 		}
-		sch := s.groupSchemaOrDefault()
-		oldGrants, err := s.roleGrantsForAuthz(sch, persona, gid, old, resolver)
-		if err != nil {
-			return err
-		}
-		offered, err := s.roleGrantsForAuthz(sch, persona, gid, role, resolver)
+		offered, err := s.roleGrants(ctx, st, g, role)
 		if err != nil {
 			return err
 		}

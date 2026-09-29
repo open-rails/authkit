@@ -61,12 +61,12 @@ type BootstrapManifestUser struct {
 }
 
 type BootstrapManifestRemoteApplication struct {
-	Slug       string         `json:"slug" yaml:"slug"`
-	Issuer     string         `json:"issuer" yaml:"issuer"`
-	JWKSURI    string         `json:"jwks_uri" yaml:"jwks_uri"`
-	PublicKeys []RemoteAppKey `json:"public_keys" yaml:"public_keys"`
-	Enabled    *bool          `json:"enabled" yaml:"enabled"`
-	RootRole   string         `json:"root_role" yaml:"root_role"`
+	Slug       string                 `json:"slug" yaml:"slug"`
+	Issuer     string                 `json:"issuer" yaml:"issuer"`
+	JWKSURI    string                 `json:"jwks_uri" yaml:"jwks_uri"`
+	PublicKeys []RemoteApplicationKey `json:"public_keys" yaml:"public_keys"`
+	Enabled    *bool                  `json:"enabled" yaml:"enabled"`
+	RootRole   string                 `json:"root_role" yaml:"root_role"`
 }
 
 type BootstrapUserPassword struct {
@@ -276,8 +276,8 @@ type SubjectGroupMembership struct {
 	Role         Role
 }
 
-// MaxGroupBatch bounds the group ids accepted by one batch group read.
-const MaxGroupBatch = 500
+// MaxBatch bounds the ids (users, groups, subjects) accepted by one batch call.
+const MaxBatch = 500
 
 // GroupInstance is one persona instance's own identity (#269): the addressing
 // pair a caller already holds, plus the uuid a HOST needs to own rows about the

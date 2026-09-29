@@ -8,7 +8,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
-	"github.com/open-rails/authkit/verify"
 )
 
 // Replacing an application's keys, issuer trust source, slug or enabled state is
@@ -17,20 +16,20 @@ import (
 // current role, exactly as if granting that role. Domain-proven applications
 // change their trust only through a new domain proof (ak#392).
 
-// UpsertRemoteApplicationFromClaims registers or updates an application
-// controlled by group for the verified request actor.
-func (s *engine) UpsertRemoteApplicationFromClaims(ctx context.Context, claims verify.Claims, group iam.GroupRef, in iam.RemoteApplication) (*iam.RemoteApplication, error) {
-	actor, err := groupActorFromClaims(claims)
-	if err != nil {
+// UpsertRemoteApplicationForActor registers or updates an application
+// controlled by group for actor.
+func (s *engine) UpsertRemoteApplicationForActor(ctx context.Context, actor iam.Actor, group iam.GroupRef, in iam.RemoteApplication) (*iam.RemoteApplication, error) {
+	if err := requireActor(actor); err != nil {
 		return nil, err
 	}
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
-	gid, err := s.resolveGroupID(ctx, s.groupStore(), group)
+	g, err := s.resolveGroup(ctx, s.groupStore(), group)
 	if err != nil {
 		return nil, err
 	}
+	gid := g.ID
 	in.PermissionGroupID = gid
 	if s.reservedIssuer(in.Issuer) || s.accountPeerIssuer(in.Issuer) {
 		return nil, iam.ErrReservedIssuer
@@ -44,7 +43,7 @@ func (s *engine) UpsertRemoteApplicationFromClaims(ctx context.Context, claims v
 		bound := false
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
-			if err := s.authorizeApplicationControl(ctx, st, group.Persona, gid, actor, ""); err != nil {
+			if err := s.authorizeApplicationControl(ctx, st, actor, g, ""); err != nil {
 				return err
 			}
 			bound = true
@@ -53,7 +52,7 @@ func (s *engine) UpsertRemoteApplicationFromClaims(ctx context.Context, claims v
 		case existing.PermissionGroupID != gid:
 			return iam.ErrRemoteApplicationIssuerConflict
 		default:
-			if err := s.authorizeApplicationControl(ctx, st, group.Persona, gid, actor, existing.ID); err != nil {
+			if err := s.authorizeApplicationControl(ctx, st, actor, g, existing.ID); err != nil {
 				return err
 			}
 			if existing.TrustRoot == "domain" {
@@ -74,11 +73,10 @@ func (s *engine) UpsertRemoteApplicationFromClaims(ctx context.Context, claims v
 	return out, err
 }
 
-// DeleteRemoteApplicationFromClaims deletes the application named by slug when
-// group controls it and the request actor covers its role.
-func (s *engine) DeleteRemoteApplicationFromClaims(ctx context.Context, claims verify.Claims, group iam.GroupRef, slug string) error {
-	actor, err := groupActorFromClaims(claims)
-	if err != nil {
+// DeleteRemoteApplicationForActor deletes the application named by slug when
+// group controls it and actor covers its role.
+func (s *engine) DeleteRemoteApplicationForActor(ctx context.Context, actor iam.Actor, group iam.GroupRef, slug string) error {
+	if err := requireActor(actor); err != nil {
 		return err
 	}
 	if err := s.requirePG(); err != nil {
@@ -88,10 +86,11 @@ func (s *engine) DeleteRemoteApplicationFromClaims(ctx context.Context, claims v
 	if slug == "" {
 		return iam.ErrInvalidRemoteApplication
 	}
-	gid, err := s.resolveGroupID(ctx, s.groupStore(), group)
+	g, err := s.resolveGroup(ctx, s.groupStore(), group)
 	if err != nil {
 		return err
 	}
+	gid := g.ID
 	return s.withAuthorityMutation(ctx, func(st *permissionGroupStore) error {
 		if err := lockPermissionGroup(ctx, st.q, gid); err != nil {
 			return err
@@ -104,10 +103,10 @@ func (s *engine) DeleteRemoteApplicationFromClaims(ctx context.Context, claims v
 		if err != nil {
 			return err
 		}
-		if err := s.authorizeApplicationControl(ctx, st, group.Persona, gid, actor, app.ID); err != nil {
+		if err := s.authorizeApplicationControl(ctx, st, actor, g, app.ID); err != nil {
 			return err
 		}
-		if err := s.refuseSubjectOwnerLoss(ctx, st, iam.RemoteAppSubject(app.ID)); err != nil {
+		if err := s.refuseSubjectOwnerLoss(ctx, st, iam.RemoteApplicationSubject(app.ID)); err != nil {
 			return err
 		}
 		_, err = q.RemoteApplicationDelete(ctx, app.Issuer)
@@ -115,30 +114,22 @@ func (s *engine) DeleteRemoteApplicationFromClaims(ctx context.Context, claims v
 	})
 }
 
-// authorizeApplicationControl requires credentials:manage in gid, plus coverage
-// of the role appID currently holds there (none for a new application).
-func (s *engine) authorizeApplicationControl(ctx context.Context, st *permissionGroupStore, persona iam.Persona, gid string, actor groupMutationActor, appID string) error {
-	sch := s.groupSchemaOrDefault()
-	capability := iam.PermCredentialsManage(persona)
-	if appID != "" {
-		role, err := st.directRole(ctx, gid, iam.RemoteAppSubject(appID))
-		if err != nil {
-			return err
-		}
-		if role != "" {
-			return s.authorizeGroupActorRole(ctx, st, sch, persona, gid, actor, capability, role)
-		}
-	}
-	subject, err := s.groupMutationSubject(ctx, st, persona, gid, actor)
+// authorizeApplicationControl requires CAP(<persona>:credentials:manage) in g,
+// plus COVER of the role appID currently holds there (none for a new application).
+func (s *engine) authorizeApplicationControl(ctx context.Context, st *permissionGroupStore, actor iam.Actor, g groupTarget, appID string) error {
+	auth, err := s.actorAuthority(ctx, st, actor, g)
 	if err != nil {
 		return err
 	}
-	asg, resolver, err := st.assignmentsWithCustomRoles(ctx, gid, subject, true)
-	if err != nil {
+	if err := auth.requireCap(iam.PermCredentialsManage(g.Persona)); err != nil {
 		return err
 	}
-	if !iam.AnyGrantCovers(sch.ResolveGrants(asg, resolver), capability) || (actor.remote != nil && !actor.remote.HasPermission(capability)) {
-		return iam.ErrInsufficientRoleAuthority
+	if appID == "" {
+		return nil
 	}
-	return nil
+	role, err := st.directRole(ctx, g.ID, iam.RemoteApplicationSubject(appID))
+	if err != nil || role == "" {
+		return err
+	}
+	return s.requireRoleCover(ctx, st, auth, g, role)
 }

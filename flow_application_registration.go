@@ -332,7 +332,7 @@ func (s *engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 			if err := st.SetGroupDisplayName(ctx, row.PermissionGroupID, app.DisplayName); err != nil {
 				return nil, err
 			}
-			if err := st.AssignRole(ctx, row.PermissionGroupID, iam.RemoteAppSubject(row.ID), iam.OwnerRole); err != nil {
+			if err := st.AssignRole(ctx, row.PermissionGroupID, iam.RemoteApplicationSubject(row.ID), iam.OwnerRole); err != nil {
 				return nil, err
 			}
 		}
@@ -367,7 +367,7 @@ func (s *engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
-	if available, err := st.InstanceSlugAvailable(ctx, iam.GroupRef{Persona: td.Name, Instance: app.Slug}); err != nil {
+	if available, err := st.InstanceSlugAvailable(ctx, iam.GroupBySlug(td.Name, app.Slug)); err != nil {
 		return nil, err
 	} else if !available {
 		return nil, iam.ErrApplicationSlugConflict
@@ -375,7 +375,7 @@ func (s *engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 	if err := s.evictSessionBoundIssuer(ctx, st, app.Issuer); err != nil {
 		return nil, err
 	}
-	gid, err := st.CreateGroupNamed(ctx, iam.GroupRef{Persona: td.Name, Instance: app.Slug}, app.DisplayName)
+	gid, err := st.CreateGroupNamed(ctx, iam.GroupBySlug(td.Name, app.Slug), app.DisplayName)
 	if err != nil {
 		return nil, err
 	}
@@ -402,7 +402,7 @@ func (s *engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 	}
 	// Engine-owned org: the application principal owns its own group. Zero
 	// authority outside its persona namespace by construction.
-	if err := st.AssignRole(ctx, gid, iam.RemoteAppSubject(row.ID), iam.OwnerRole); err != nil {
+	if err := st.AssignRole(ctx, gid, iam.RemoteApplicationSubject(row.ID), iam.OwnerRole); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {

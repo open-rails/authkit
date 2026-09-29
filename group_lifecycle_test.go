@@ -78,7 +78,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 			require.Zero(t, remaining)
 			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM group_user_roles WHERE permission_group_id=$1::uuid`, group).Scan(&remaining))
 			require.Zero(t, remaining, "authority rows cascade with the group")
-			available, err := svc.groupStore().InstanceSlugAvailable(ctx, iam.GroupRef{Persona: "org", Instance: renamed})
+			available, err := svc.groupStore().InstanceSlugAvailable(ctx, iam.GroupBySlug("org", renamed))
 			require.NoError(t, err)
 			require.Equal(t, release, available)
 			var retained time.Time
@@ -123,13 +123,13 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		require.NoError(t, blocker.Commit(ctx))
 		require.NoError(t, <-deleted)
 		renameErr := <-renamed
-		newAvailable, err := svc.groupStore().InstanceSlugAvailable(ctx, iam.GroupRef{Persona: "org", Instance: newName})
+		newAvailable, err := svc.groupStore().InstanceSlugAvailable(ctx, iam.GroupBySlug("org", newName))
 		require.NoError(t, err)
 		require.Equal(t, renameErr != nil, newAvailable, "a completed concurrent rename must be reserved; a losing rename leaves no claim")
 	})
 
 	gid := create("role-lifecycle")
-	group := iam.GroupRef{Persona: "org", Instance: "role-lifecycle"}
+	group := iam.GroupBySlug("org", "role-lifecycle")
 	role := iam.Role("auditor")
 	define := func(permission string) {
 		require.NoError(t, svc.DefineGroupCustomRole(ctx, owner.ID, group, authflow.CustomRoleDef{Role: role, Permissions: []string{permission}}))
@@ -137,8 +137,8 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	define("org:billing:read")
 	app, err := svc.UpsertRemoteApplication(ctx, iam.RemoteApplication{Slug: "lifecycle-app", Issuer: "https://app.lifecycle.test", JWKSURI: "https://app.lifecycle.test/keys", PermissionGroupID: gid, Enabled: true})
 	require.NoError(t, err)
-	require.NoError(t, svc.AssignGroupRoleAs(ctx, owner.ID, group, iam.UserSubject(member.ID), role))
-	require.NoError(t, svc.AssignRemoteApplicationRoleAs(ctx, owner.ID, group, app.Slug, role))
+	require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner.ID), group, iam.UserSubject(member.ID), role))
+	require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner.ID), group, iam.RemoteApplicationSubject(app.ID), role))
 	mint := func() (string, string) {
 		_, token, err := svc.MintAPIKey(ctx, group, iam.APIKeyMintOptions{Name: "lifecycle-key", Role: role, CreatedBy: owner.ID})
 		require.NoError(t, err)
@@ -147,9 +147,9 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		return key, secret
 	}
 	key, secret := mint()
-	link, err := svc.CreateGroupInviteLink(ctx, iam.CreateGroupInviteLinkRequest{Persona: group.Persona, InstanceSlug: group.Instance, Role: role, InvitedBy: owner.ID})
+	link, err := svc.CreateGroupInviteLink(ctx, iam.CreateGroupInviteLinkRequest{Persona: group.Persona(), InstanceSlug: group.Slug(), Role: role, InvitedBy: owner.ID})
 	require.NoError(t, err)
-	invite, err := svc.CreateAccountRegistrationInvite(ctx, authflow.CreateAccountRegistrationInviteRequest{Email: "invitee@lifecycle.test", Persona: group.Persona, InstanceSlug: group.Instance, Role: role, InvitedBy: owner.ID})
+	invite, err := svc.CreateAccountRegistrationInvite(ctx, authflow.CreateAccountRegistrationInviteRequest{Email: "invitee@lifecycle.test", Persona: group.Persona(), InstanceSlug: group.Slug(), Role: role, InvitedBy: owner.ID})
 	require.NoError(t, err)
 	define("org:billing:write") // deliberate edits still update every holder
 	allowed, err := svc.Can(ctx, iam.UserSubject(member.ID), group, "org:billing:write")
@@ -185,8 +185,8 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	for _, reader := range []string{"member", "application", "key"} {
 		t.Run("snapshot_"+reader, func(t *testing.T) {
 			define("org:billing:read")
-			require.NoError(t, svc.AssignGroupRoleAs(ctx, owner.ID, group, iam.UserSubject(member.ID), role))
-			require.NoError(t, svc.AssignRemoteApplicationRoleAs(ctx, owner.ID, group, app.Slug, role))
+			require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner.ID), group, iam.UserSubject(member.ID), role))
+			require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner.ID), group, iam.RemoteApplicationSubject(app.ID), role))
 			key, secret := mint()
 			swap := func() {
 				require.NoError(t, svc.DeleteGroupCustomRole(ctx, owner.ID, group, role))
@@ -221,18 +221,22 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		require.NoError(t, svc.lockAuthority(ctx, q))
 		require.NoError(t, lockPermissionGroup(ctx, q, gid))
 		writers := []func() error{
-			func() error { return svc.AssignGroupRoleAs(ctx, owner.ID, group, iam.UserSubject(member.ID), role) },
-			func() error { return svc.AssignRemoteApplicationRoleAs(ctx, owner.ID, group, app.Slug, role) },
+			func() error {
+				return assignRole(ctx, svc, iam.UserActor(owner.ID), group, iam.UserSubject(member.ID), role)
+			},
+			func() error {
+				return assignRole(ctx, svc, iam.UserActor(owner.ID), group, iam.RemoteApplicationSubject(app.ID), role)
+			},
 			func() error {
 				_, _, err := svc.MintAPIKey(ctx, group, iam.APIKeyMintOptions{Name: "waiting", Role: role, CreatedBy: owner.ID})
 				return err
 			},
 			func() error {
-				_, err := svc.CreateGroupInviteLink(ctx, iam.CreateGroupInviteLinkRequest{Persona: group.Persona, InstanceSlug: group.Instance, Role: role, InvitedBy: owner.ID})
+				_, err := svc.CreateGroupInviteLink(ctx, iam.CreateGroupInviteLinkRequest{Persona: group.Persona(), InstanceSlug: group.Slug(), Role: role, InvitedBy: owner.ID})
 				return err
 			},
 			func() error {
-				_, err := svc.CreateAccountRegistrationInvite(ctx, authflow.CreateAccountRegistrationInviteRequest{Email: "waiting@lifecycle.test", Persona: group.Persona, InstanceSlug: group.Instance, Role: role, InvitedBy: owner.ID})
+				_, err := svc.CreateAccountRegistrationInvite(ctx, authflow.CreateAccountRegistrationInviteRequest{Email: "waiting@lifecycle.test", Persona: group.Persona(), InstanceSlug: group.Slug(), Role: role, InvitedBy: owner.ID})
 				return err
 			},
 		}

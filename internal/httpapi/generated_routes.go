@@ -73,7 +73,7 @@ func GeneratedRoutes(s *rbac.Schema) []GeneratedRoute {
 			add("GET", "/remote-applications", rd)
 			add("POST", "/remote-applications", mg)
 			add("DELETE", "/remote-applications/:app", mg)
-			// #263: the SubjectKindRemoteApp symmetric of the member-role route.
+			// #263: the SubjectKindRemoteApplication symmetric of the member-role route.
 			add("PUT", "/remote-applications/:app/roles/:role", mg)
 		}
 		// Invite-LINK routes (#134). Redemption is the persona-agnostic POST

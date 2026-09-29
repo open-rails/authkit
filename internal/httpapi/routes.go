@@ -131,6 +131,11 @@ func (s *Service) APIRoutes(groups ...iam.RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/sessions/revoke", Group: iam.RouteAdmin, Auth: iam.AuthPermission, Permission: iam.PermRootUsersManage, Bucket: RLAdminUserSessionsRevokeAll, Handler: rootPermission(iam.PermRootUsersManage, s.handleAdminUserSessionsRevokePOST)},
 		{Method: http.MethodDelete, Path: "/admin/users/{user_id}", Group: iam.RouteAdmin, Auth: iam.AuthPermission, Permission: iam.PermRootUsersDelete, Bucket: RLAdminUserSessionsRevokeAll, Handler: rootPermission(iam.PermRootUsersDelete, s.handleAdminUserDeleteDELETE)},
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/restore", Group: iam.RouteAdmin, Auth: iam.AuthPermission, Permission: iam.PermRootUsersDelete, Bucket: RLAdminUserSessionsRevokeAll, Handler: rootPermission(iam.PermRootUsersDelete, s.handleAdminUserRestorePOST)},
+		// Root-role administration: the engine enforces root:members:manage,
+		// role coverage, the last owner and MFA.
+		{Method: http.MethodGet, Path: "/admin/roles", Group: iam.RouteAdmin, Auth: iam.AuthPermission, Permission: iam.PermMembersRead(iam.RootPersona), Handler: rootPermission(iam.PermMembersRead(iam.RootPersona), s.handleAdminRolesGET)},
+		{Method: http.MethodPut, Path: "/admin/users/{user_id}/roles/{role}", Group: iam.RouteAdmin, Auth: iam.AuthRequired, Bucket: RLAdminUserSessionsRevokeAll, Handler: required(http.HandlerFunc(s.handleAdminUserRolePUT))},
+		{Method: http.MethodDelete, Path: "/admin/users/{user_id}/roles/{role}", Group: iam.RouteAdmin, Auth: iam.AuthRequired, Bucket: RLAdminUserSessionsRevokeAll, Handler: required(http.HandlerFunc(s.handleAdminUserRoleDELETE))},
 
 		// #264 application self-registration: unauthenticated by design — the
 		// domain proof / per-message JWS is the authentication. Mounted only

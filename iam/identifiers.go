@@ -23,8 +23,8 @@ type Perm string
 type SubjectKind string
 
 const (
-	SubjectKindUser      SubjectKind = "user"
-	SubjectKindRemoteApp SubjectKind = "remote_application"
+	SubjectKindUser              SubjectKind = "user"
+	SubjectKindRemoteApplication SubjectKind = "remote_application"
 
 	// RootPersona is the built-in persona with exactly one group, the whole
 	// site. It always exists.
@@ -35,42 +35,16 @@ const (
 	OwnerRole Role = "owner"
 )
 
-// GroupRef addresses one permission-group instance: the persona plus its
-// instance slug. The root group has no instance.
-type GroupRef struct {
-	Persona  Persona
-	Instance string
-}
-
-// RootGroup addresses the deployment's root group.
-func RootGroup() GroupRef { return GroupRef{Persona: RootPersona} }
-
-func (g GroupRef) IsRoot() bool { return g.Persona == RootPersona }
-
-// Canonical returns g's stored spelling. Instance slugs are stored lowercase,
-// so a slug typed in any case addresses the same group.
-func (g GroupRef) Canonical() GroupRef {
-	return GroupRef{
-		Persona:  Persona(strings.TrimSpace(string(g.Persona))),
-		Instance: strings.ToLower(strings.TrimSpace(g.Instance)),
-	}
-}
-
-func (g GroupRef) String() string {
-	if g.Instance == "" {
-		return string(g.Persona)
-	}
-	return string(g.Persona) + "/" + g.Instance
-}
-
 // Subject is a principal that can hold roles in a permission group.
 type Subject struct {
 	ID   string
 	Kind SubjectKind
 }
 
-func UserSubject(id string) Subject      { return Subject{ID: id, Kind: SubjectKindUser} }
-func RemoteAppSubject(id string) Subject { return Subject{ID: id, Kind: SubjectKindRemoteApp} }
+func UserSubject(id string) Subject { return Subject{ID: id, Kind: SubjectKindUser} }
+func RemoteApplicationSubject(id string) Subject {
+	return Subject{ID: id, Kind: SubjectKindRemoteApplication}
+}
 
 // PermWildcard is the wildcard CHARACTER used inside namespace-anchored globs
 // (`org:*`, `org:members:*`, `org:*:read`, `root:*`). A bare standalone `*`

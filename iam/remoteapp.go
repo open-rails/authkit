@@ -47,9 +47,9 @@ const (
 	RemoteAppModeStatic = "static"
 )
 
-// RemoteAppKey is one entry of a static-mode principal's human-managed key list
+// RemoteApplicationKey is one entry of a static-mode principal's human-managed key list
 // (stored as jsonb; edited like an authorized_keys file).
-type RemoteAppKey struct {
+type RemoteApplicationKey struct {
 	KID          string `json:"kid,omitempty" yaml:"kid,omitempty"`
 	PublicKeyPEM string `json:"public_key_pem" yaml:"public_key_pem"`
 }
@@ -79,7 +79,7 @@ type RemoteApplication struct {
 	// RemoteAppModeStatic (human-managed PublicKeys list). Never both.
 	Mode string
 	// PublicKeys is the static-mode key list (empty in jwks mode).
-	PublicKeys []RemoteAppKey
+	PublicKeys []RemoteApplicationKey
 	Enabled    bool
 	// DisplayName is free-form, non-unique vanity metadata (#264). The slug is
 	// the public handle; the uuid is the internal join key.
@@ -140,8 +140,8 @@ type ApplicationDocument struct {
 	// domain outside dev-like environments.
 	Issuer string `json:"issuer"`
 	// JWKSURI XOR PublicKeys: exactly one trust source.
-	JWKSURI    string         `json:"jwks_uri,omitempty"`
-	PublicKeys []RemoteAppKey `json:"public_keys,omitempty"`
+	JWKSURI    string                 `json:"jwks_uri,omitempty"`
+	PublicKeys []RemoteApplicationKey `json:"public_keys,omitempty"`
 	// DocumentEndpoint is the optional signed-document base URL.
 	DocumentEndpoint string `json:"document_endpoint,omitempty"`
 }

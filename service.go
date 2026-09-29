@@ -118,6 +118,8 @@ type engine struct {
 	// split as appAdmission: authkit owns velocity limits, the host owns cost
 	// gates. Nil = allow.
 	instanceAdmission func(ctx context.Context, group iam.GroupRef, subject string) error
+	// rootGroupID caches the root group id (string) once resolved.
+	rootGroupID atomic.Value
 
 	smsHealth smsHealth
 }

@@ -29,17 +29,17 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 		w := postOrg(srv, ownerToken, `{"slug":"`+slug+`"}`)
 		require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
 	}
-	group := iam.GroupRef{Persona: "org", Instance: "remote-owned"}
+	group := iam.GroupBySlug("org", "remote-owned")
 	gid, err := client.ResolveGroupIDForSlug(ctx, group)
 	require.NoError(t, err)
 	signer, err := jwtkit.NewRSASigner(2048, "remote-owner")
 	require.NoError(t, err)
 	app, err := client.UpsertRemoteApplication(ctx, iam.RemoteApplication{
 		Slug: "operable-owner", PermissionGroupID: gid, Issuer: "https://operable-owner.test", Enabled: true,
-		PublicKeys: []iam.RemoteAppKey{{KID: signer.KID(), PublicKeyPEM: adminTestPublicKeyPEM(t, signer.PublicKey())}},
+		PublicKeys: []iam.RemoteApplicationKey{{KID: signer.KID(), PublicKeyPEM: adminTestPublicKeyPEM(t, signer.PublicKey())}},
 	})
 	require.NoError(t, err)
-	require.NoError(t, client.OperatorAssignGroupRole(ctx, group, iam.RemoteAppSubject(app.ID), "owner"))
+	grantRole(t, client, group, iam.RemoteApplicationSubject(app.ID), "owner")
 	mint := func(perms []string) string {
 		t.Helper()
 		token, err := MintRemoteApplicationAccessToken(ctx, signer, iam.RemoteApplicationAccessParams{Issuer: app.Issuer, Audiences: cfg.Token.ExpectedAudiences, TTL: time.Minute, Permissions: perms})
@@ -53,20 +53,21 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 	require.NoError(t, err)
 	// Verification is not a lease on database authority: a change between
 	// verification and mutation must be seen inside the mutation transaction.
-	require.NoError(t, client.OperatorAssignGroupRole(ctx, group, iam.RemoteAppSubject(app.ID), "member"))
-	require.ErrorIs(t, client.engine.AssignGroupRoleFromClaims(ctx, verified, group, iam.UserSubject(peer), "member"), iam.ErrInsufficientRoleAuthority)
-	require.NoError(t, client.OperatorAssignGroupRole(ctx, group, iam.RemoteAppSubject(app.ID), "owner"))
-	for _, mutate := range []func(*verify.Claims){
-		func(c *verify.Claims) { c.Issuer = "https://another-issuer.test" },
-		func(c *verify.Claims) { c.PermissionGroupAuthorityIssuer = "https://another-authority.test" },
-		func(c *verify.Claims) { c.PermissionGroupPersona = "root" },
-		func(c *verify.Claims) { c.TokenTyp = jwtkit.DelegatedAccessTokenType; c.DelegatedSubject = "external" },
-		func(c *verify.Claims) { c.TokenType = verify.APIKeyPrincipalType },
-	} {
-		invalid := verified
-		mutate(&invalid)
-		require.ErrorIs(t, client.engine.AssignGroupRoleFromClaims(ctx, invalid, group, iam.UserSubject(peer), "member"), iam.ErrInsufficientRoleAuthority)
-	}
+	actor, ok := verify.ActorFromClaims(verified)
+	require.True(t, ok)
+	require.Equal(t, iam.ActorRemoteApplication, actor.Kind())
+	grantRole(t, client, group, iam.RemoteApplicationSubject(app.ID), "member")
+	require.ErrorIs(t, assignRole(ctx, client, actor, group, iam.UserSubject(peer), "member"), iam.ErrInsufficientRoleAuthority)
+	grantRole(t, client, group, iam.RemoteApplicationSubject(app.ID), "owner")
+	// Application authority is bound to its controlling group and its ceiling.
+	require.ErrorIs(t, assignRole(ctx, client, actor, iam.GroupBySlug("org", "other-owned"), iam.UserSubject(peer), "member"), iam.ErrInsufficientRoleAuthority)
+	require.ErrorIs(t, assignRole(ctx, client, actor.Within("org:catalog:read"), group, iam.UserSubject(peer), "member"), iam.ErrInsufficientRoleAuthority)
+	forged := verified
+	forged.TokenType = verify.APIKeyPrincipalType
+	_, ok = verify.ActorFromClaims(forged)
+	require.False(t, ok)
+	_, err = client.AssignGroupRoles(ctx, iam.Actor{}, group, []iam.Subject{iam.UserSubject(peer)}, "member")
+	require.ErrorIs(t, err, iam.ErrInsufficientRoleAuthority)
 	call := func(method, path, body, bearer string, status int) {
 		t.Helper()
 		w := serveAuthJSON(srv, method, path, body, bearer)
@@ -115,15 +116,15 @@ func TestCrossControlRemoteOwnerDoesNotSatisfyOwnerInvariant(t *testing.T) {
 		w := postOrg(srv, token, `{"slug":"`+slug+`"}`)
 		require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
 	}
-	first := iam.GroupRef{Persona: "org", Instance: "control-one"}
-	second := iam.GroupRef{Persona: "org", Instance: "control-two"}
+	first := iam.GroupBySlug("org", "control-one")
+	second := iam.GroupBySlug("org", "control-two")
 	gid, err := client.ResolveGroupIDForSlug(ctx, first)
 	require.NoError(t, err)
 	other, err := client.ResolveGroupIDForSlug(ctx, second)
 	require.NoError(t, err)
 	app, err := client.UpsertRemoteApplication(ctx, iam.RemoteApplication{Slug: "wrong-control", PermissionGroupID: gid, Issuer: "https://wrong-control.test", JWKSURI: "https://wrong-control.test/jwks", Enabled: true})
 	require.NoError(t, err)
-	require.ErrorIs(t, client.OperatorAssignGroupRole(ctx, second, iam.RemoteAppSubject(app.ID), "owner"), iam.ErrInsufficientRoleAuthority)
+	require.ErrorIs(t, assignRole(ctx, client, iam.OperatorActor(), second, iam.RemoteApplicationSubject(app.ID), "owner"), iam.ErrRemoteApplicationNotFound)
 	// Simulate an old invalid assignment: it must not allow the real owner to
 	// depart, although ordinary non-owner ancestor assignments remain valid.
 	_, err = client.engine.Postgres().Exec(ctx, `INSERT INTO group_remote_application_roles(permission_group_id,remote_application_id,role) VALUES($1,$2,'owner')`, other, app.ID)
