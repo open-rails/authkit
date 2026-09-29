@@ -30,12 +30,12 @@ func (s *Engine) gcDeadSessions(ctx context.Context, batchSize int64) (int, erro
 	}
 }
 
-// CleanupExpiredAuthState is the periodic maintenance sweep: expired
+// cleanupExpiredAuthState is the periodic maintenance sweep: expired
 // ephemeral rows (codes, ceremonies, counters), revoked/expired refresh
 // sessions and their consumed-token history, terminal keys/invites (retained
 // terminalRetention after their first terminal event), and session-event
 // history past Config.SessionEventRetention (#245).
-func (s *Engine) CleanupExpiredAuthState(ctx context.Context) error {
+func (s *Engine) cleanupExpiredAuthState(ctx context.Context) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}

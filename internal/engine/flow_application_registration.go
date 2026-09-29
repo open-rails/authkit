@@ -282,8 +282,8 @@ func (s *Engine) RegisterApplicationFromDomain(ctx context.Context, domain strin
 		return nil, err
 	}
 	// Outside the tx: a singleton-index race inside it would abort the whole
-	// registration (#258); EnsureRootGroup self-heals on the pool.
-	if _, err := s.EnsureRootGroup(ctx); err != nil {
+	// registration (#258); ensureRootGroup self-heals on the pool.
+	if _, err := s.ensureRootGroup(ctx); err != nil {
 		return nil, err
 	}
 

@@ -229,8 +229,8 @@ func (s *Engine) resolveAndStoreSolanaSNS(ctx context.Context, userID, address s
 	return account, err
 }
 
-// GetSolanaLinkedAccount retrieves the SIWS-linked wallet and its AuthKit-owned metadata.
-func (s *Engine) GetSolanaLinkedAccount(ctx context.Context, userID string) (*authflow.SolanaLinkedAccount, error) {
+// getSolanaLinkedAccount retrieves the SIWS-linked wallet and its AuthKit-owned metadata.
+func (s *Engine) getSolanaLinkedAccount(ctx context.Context, userID string) (*authflow.SolanaLinkedAccount, error) {
 	if s.pg == nil {
 		return nil, nil
 	}

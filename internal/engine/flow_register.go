@@ -56,7 +56,7 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 	if err != nil {
 		return authflow.RegisterOutcome{}, stageErr("hash_password", err)
 	}
-	requiresVerification := s.RegistrationVerificationRequired()
+	requiresVerification := s.registrationVerificationRequired()
 
 	ctx = contextWithAccountRegistrationInviteToken(ctx, in.AccountInviteToken)
 	if isPhone {
@@ -88,8 +88,8 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 		if err != nil {
 			return authflow.RegisterOutcome{}, err
 		}
-		if s.RegistrationVerificationPolicy() == iam.RegistrationVerificationOptional && s.SMSAvailable() {
-			if err := s.SendPhoneVerificationToUser(ctx, phone, account.ID, 0); err != nil {
+		if s.registrationVerificationPolicy() == iam.RegistrationVerificationOptional && s.SMSAvailable() {
+			if err := s.sendPhoneVerificationToUser(ctx, phone, account.ID, 0); err != nil {
 				slog.Warn("optional registration verification unavailable", "user_id", account.ID, "error", err)
 			}
 		}
@@ -122,7 +122,7 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 	if err != nil {
 		return authflow.RegisterOutcome{}, err
 	}
-	if s.RegistrationVerificationPolicy() == iam.RegistrationVerificationOptional && s.HasEmailSender() {
+	if s.registrationVerificationPolicy() == iam.RegistrationVerificationOptional && s.HasEmailSender() {
 		if err := s.RequestEmailVerification(ctx, email, 0); err != nil {
 			slog.Warn("optional registration verification unavailable", "user_id", account.ID, "error", err)
 		}

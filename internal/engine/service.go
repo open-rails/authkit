@@ -36,8 +36,8 @@ type EntitlementsProvider interface {
 	ListEntitlements(ctx context.Context, userIDs []string) (map[string][]string, error)
 }
 
-// EntitlementFilterProvider mirrors authkit.EntitlementFilterProvider.
-type EntitlementFilterProvider interface {
+// entitlementFilterProvider mirrors authkit.EntitlementFilterProvider.
+type entitlementFilterProvider interface {
 	ListSubjectsWithEntitlement(ctx context.Context, entitlement string) ([]string, error)
 }
 
@@ -90,7 +90,7 @@ type Engine struct {
 	// in the host — authkit never learns what a credit card is). Nil = allow.
 	appAdmission func(ctx context.Context, domain string) error
 	// instanceAdmission is the host admission seam for generated persona-
-	// instance creation (#263) — MayCreateInstance consults it. Same anti-squat
+	// instance creation (#263) — mayCreateInstance consults it. Same anti-squat
 	// split as appAdmission: authkit owns velocity limits, the host owns cost
 	// gates. Nil = allow.
 	instanceAdmission func(ctx context.Context, group iam.GroupRef, subject string) error
@@ -128,10 +128,10 @@ func (s *Engine) HasPassword(ctx context.Context, userID string) (bool, error) {
 	return s.q.UserHasPassword(ctx, userID)
 }
 
-// ListEntitlements returns current entitlement names for a user (fresh from
+// listEntitlements returns current entitlement names for a user (fresh from
 // the provider — a one-element batch, #221). A provider failure is logged and
 // returned as none — callers (admin user views) degrade rather than fail.
-func (s *Engine) ListEntitlements(ctx context.Context, userID string) []string {
+func (s *Engine) listEntitlements(ctx context.Context, userID string) []string {
 	provider := s.entitlementsProvider()
 	if provider == nil {
 		return nil

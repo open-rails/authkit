@@ -13,14 +13,10 @@ import (
 // Provider links: linking and unlinking external identity providers and
 // writing provider usernames.
 
-func (s *Engine) SetProviderUsername(ctx context.Context, userID, provider, subject, username string) error {
-	return s.setProviderUsername(ctx, userID, provider, subject, username)
-}
-
-// UserProfileLinks returns the user's linked provider slugs (non-null) and username
+// userProfileLinks returns the user's linked provider slugs (non-null) and username
 // aliases — the two extra lists GET /me needs beyond AdminGetUser. Keeps raw
 // db.Queries out of the HTTP layer, which previously built its own db handle inline.
-func (s *Engine) UserProfileLinks(ctx context.Context, userID string) (providerSlugs []string, aliases []string, err error) {
+func (s *Engine) userProfileLinks(ctx context.Context, userID string) (providerSlugs []string, aliases []string, err error) {
 	if s.pg == nil {
 		return nil, nil, nil
 	}

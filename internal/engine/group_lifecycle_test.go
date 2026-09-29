@@ -51,7 +51,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://lifecycle.test"}, TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled}, Registration: RegistrationConfig{NativeUserMode: iam.RegistrationModeInviteOnly}, Roles: RoleConfig{
 		Personas: map[string]Persona{"org": {Permissions: []string{"org:billing:read", "org:billing:write"}, CustomRoles: true, APIKeys: true}},
 	}}, keyset{}, Deps{Postgres: pool})
-	_, err = svc.EnsureRootGroup(ctx)
+	_, err = svc.ensureRootGroup(ctx)
 	require.NoError(t, err)
 	owner, err := svc.CreateUser(ctx, "owner@lifecycle.test", "lifecycleowner")
 	require.NoError(t, err)
@@ -178,7 +178,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	require.Error(t, err)
 	_, err = svc.RedeemGroupInviteLink(ctx, link.Code, member.ID)
 	require.Error(t, err)
-	require.Error(t, svc.ConsumeAccountRegistrationInvite(ctx, "invitee@lifecycle.test", member.ID, invite.Code))
+	require.Error(t, svc.consumeRegistrationInvite(ctx, "invitee@lifecycle.test", member.ID, invite.Code))
 
 	// Deletion/recreation exactly between a first result and any subsequent
 	// lookup cannot pair an old credential with replacement permissions.

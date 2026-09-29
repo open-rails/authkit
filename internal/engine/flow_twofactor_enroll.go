@@ -23,7 +23,7 @@ import (
 // the FIRST factor only, and only while no session or factor exists —
 // ErrTwoFAFactorExists otherwise. A full session may add further factors.
 func (s *Engine) BeginTwoFactorEnrollment(ctx context.Context, userID string, enrollmentToken bool, sessionID string) (authflow.TwoFactorEnrollmentScope, error) {
-	factors, err := s.List2FAFactors(ctx, userID)
+	factors, err := s.listUser2FAFactors(ctx, userID)
 	if err != nil {
 		return authflow.TwoFactorEnrollmentScope{}, stageErr("list_factors", err)
 	}
@@ -57,12 +57,12 @@ func (s *Engine) EnrollTwoFactor(ctx context.Context, in authflow.TwoFactorEnrol
 	method := strings.ToLower(strings.TrimSpace(in.Method))
 	factorID := strings.TrimSpace(in.FactorID)
 	if method == "" && in.MakeDefault && factorID != "" {
-		if err := s.SetDefault2FAFactor(ctx, in.UserID, factorID); err != nil {
+		if err := s.setDefault2FAFactor(ctx, in.UserID, factorID); err != nil {
 			return authflow.TwoFactorEnrollOutcome{}, stageErr("set_default_factor", fmt.Errorf("%w: %w", iam.ErrTwoFAEnableFailed, err))
 		}
 		return authflow.TwoFactorEnrollOutcome{Kind: authflow.TwoFactorEnrollDefaultSet}, nil
 	}
-	if method != "email" && method != "sms" && method != "totp" || !s.TwoFactorMethodAvailable(method) {
+	if method != "email" && method != "sms" && method != "totp" || !s.twoFactorMethodAvailable(method) {
 		return authflow.TwoFactorEnrollOutcome{}, iam.ErrInvalidTwoFAMethod
 	}
 	code := strings.TrimSpace(in.Code)
@@ -100,7 +100,7 @@ func (s *Engine) EnrollTwoFactor(ctx context.Context, in authflow.TwoFactorEnrol
 		if code == "" {
 			return s.startPhoneTwoFactorSetup(ctx, in.UserID, p)
 		}
-		valid, err := s.VerifyPhone2FASetupCode(ctx, in.UserID, p, code)
+		valid, err := s.verifyPhone2FASetupCode(ctx, in.UserID, p, code)
 		if err != nil {
 			return authflow.TwoFactorEnrollOutcome{}, enrollmentProofError("verify_sms_setup", err)
 		}
@@ -110,7 +110,7 @@ func (s *Engine) EnrollTwoFactor(ctx context.Context, in authflow.TwoFactorEnrol
 		phone = &p
 	case "totp":
 		if code == "" {
-			secret, uri, err := s.StartTOTPEnrollment(ctx, in.UserID)
+			secret, uri, err := s.startTOTPEnrollment(ctx, in.UserID)
 			if err != nil {
 				return authflow.TwoFactorEnrollOutcome{}, stageErr("start_totp", fmt.Errorf("%w: %w", iam.ErrTwoFAEnableFailed, err))
 			}
@@ -145,7 +145,7 @@ func (s *Engine) startPhoneTwoFactorSetup(ctx context.Context, userID, phone str
 		return authflow.TwoFactorEnrollOutcome{}, stageErr("generate_code", fmt.Errorf("%w: %w", iam.ErrTwoFASetupCodeSendFailed, err))
 	}
 	code := fmt.Sprintf("%06d", 100000+int(n.Int64()))
-	if err := s.SendPhone2FASetupCode(ctx, userID, phone, code); err != nil {
+	if err := s.sendPhone2FASetupCode(ctx, userID, phone, code); err != nil {
 		return authflow.TwoFactorEnrollOutcome{}, stageErr("send_phone_2fa_setup", fmt.Errorf("%w: %w", iam.ErrTwoFASetupCodeSendFailed, err))
 	}
 	return authflow.TwoFactorEnrollOutcome{Kind: authflow.TwoFactorEnrollCodeSent, Method: "sms"}, nil

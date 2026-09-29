@@ -6,7 +6,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 )
 
-// RBACDriftReport counts orphaned authority rows — assigned group roles, custom
+// rbacDriftReport counts orphaned authority rows — assigned group roles, custom
 // roles, and API keys whose role definitions no longer exist.
 type rbacDriftReport struct {
 	GroupUserRoles int `json:"group_user_roles"`
@@ -18,7 +18,7 @@ func (r rbacDriftReport) Total() int {
 	return r.GroupUserRoles + r.CustomRoles + r.APIKeys
 }
 
-func (s *Engine) RBACDriftReport(ctx context.Context) (rbacDriftReport, error) {
+func (s *Engine) driftReport(ctx context.Context) (rbacDriftReport, error) {
 	if s == nil || s.pg == nil {
 		return rbacDriftReport{}, nil
 	}

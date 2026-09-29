@@ -22,18 +22,6 @@ const defaultAccountRegistrationInviteTTL = 7 * 24 * time.Hour
 
 type accountInviteTokenContextKey struct{}
 
-func withAccountRegistrationInviteToken(ctx context.Context, token string) context.Context {
-	return contextWithAccountRegistrationInviteToken(ctx, token)
-}
-
-func (s *Engine) RegistrationAllowedForEmailWithInvite(ctx context.Context, email, token string) (bool, error) {
-	return s.registrationAllowedForEmail(contextWithAccountRegistrationInviteToken(ctx, token), email)
-}
-
-func (s *Engine) ConsumeAccountRegistrationInvite(ctx context.Context, email, userID, token string) error {
-	return s.consumeAccountRegistrationInvite(contextWithAccountRegistrationInviteToken(ctx, token), email, userID)
-}
-
 func contextWithAccountRegistrationInviteToken(ctx context.Context, token string) context.Context {
 	token = strings.TrimSpace(token)
 	if token == "" {

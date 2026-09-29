@@ -14,7 +14,6 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 	jwt "github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/open-rails/authkit/iam"
@@ -30,8 +29,6 @@ const passkeyCeremonyTTL = 10 * time.Minute
 const (
 	passkeyPurposeRegister = "register"
 	passkeyPurposeLogin    = "login"
-	passkeyPurposeVerify   = "verify"
-	passkeyPurposeAccount  = "account"
 )
 
 // PasskeysEnabled reports whether passkey (WebAuthn) support is configured.
@@ -51,14 +48,6 @@ type verifiedPasskey struct {
 	CredentialID      string
 	BackupEligible    bool
 	BackupState       bool
-}
-
-// PendingPasskeyAccount is a passkey-only account ceremony. UserID is the
-// server-minted uuidv7 that becomes the user id and WebAuthn user handle once
-// FinishPasskeyAccount succeeds; no user row exists before that.
-type pendingPasskeyAccount struct {
-	UserID   string
-	Creation *protocol.CredentialCreation
 }
 
 type passkeyUser struct {
@@ -198,38 +187,6 @@ func (s *Engine) FinishPasskeyRegistration(ctx context.Context, userID string, r
 	return s.insertPasskey(ctx, s.pg, strings.TrimSpace(userID), cred, nil)
 }
 
-// FinishPasskeyReplacement registers the new credential and tombstones every
-// other active passkey of the user in the same transaction, for hosts with a
-// single-passkey policy. Any failure leaves the prior passkeys active.
-func (s *Engine) FinishPasskeyReplacement(ctx context.Context, userID string, response []byte) (authflow.Passkey, error) {
-	if err := s.RequireProvenContact(ctx, strings.TrimSpace(userID)); err != nil {
-		return authflow.Passkey{}, err
-	}
-	userID = strings.TrimSpace(userID)
-	cred, err := s.finishPasskeyCreation(ctx, userID, response)
-	if err != nil {
-		return authflow.Passkey{}, err
-	}
-	tx, err := s.pg.Begin(ctx)
-	if err != nil {
-		return authflow.Passkey{}, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	q := tx
-	p, err := s.insertPasskey(ctx, q, userID, cred, nil)
-	if err != nil {
-		return authflow.Passkey{}, err
-	}
-	if _, err := q.Exec(ctx, `UPDATE user_passkeys SET deleted_at=NOW()
-WHERE user_id=$1 AND rpid=$2 AND deleted_at IS NULL AND id<>$3`, userID, s.cfg.Passkeys.RPID, p.ID); err != nil {
-		return authflow.Passkey{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return authflow.Passkey{}, err
-	}
-	return p, nil
-}
-
 func (s *Engine) finishPasskeyCreation(ctx context.Context, userID string, response []byte) (*webauthn.Credential, error) {
 	userID = strings.TrimSpace(userID)
 	parsed, err := protocol.ParseCredentialCreationResponseBytes(response)
@@ -287,19 +244,6 @@ func (s *Engine) FinishPasskeyLogin(ctx context.Context, response []byte, userAg
 	return s.finishFirstFactor(ctx, loginProof{Version: verified.credentialVersion, PasskeyID: verified.PasskeyID, AuthenticatedAt: time.Now().UTC(), Input: loginSessionInput{UserID: verified.UserID, UserAgent: userAgent, IP: address, Event: "passkey_login", AuthMethods: []string{"swk", "mfa"}}})
 }
 
-// BeginDiscoverablePasskeyVerification starts an identity-proof ceremony: the
-// public response is identical for every caller, and user verification is
-// required because the passkey is the only factor.
-func (s *Engine) BeginDiscoverablePasskeyVerification(ctx context.Context) (*protocol.CredentialAssertion, error) {
-	return s.beginDiscoverableAssertion(ctx, passkeyPurposeVerify, protocol.VerificationRequired)
-}
-
-// FinishDiscoverablePasskeyVerification validates the assertion and returns the
-// verified user/credential without minting any session or token.
-func (s *Engine) FinishDiscoverablePasskeyVerification(ctx context.Context, response []byte) (verifiedPasskey, error) {
-	return s.finishDiscoverableAssertion(ctx, passkeyPurposeVerify, response)
-}
-
 func (s *Engine) beginDiscoverableAssertion(ctx context.Context, purpose string, uv protocol.UserVerificationRequirement) (*protocol.CredentialAssertion, error) {
 	wa, err := s.webAuthn()
 	if err != nil {
@@ -355,86 +299,6 @@ func (s *Engine) finishDiscoverableAssertion(ctx context.Context, purpose string
 		BackupEligible:    cred.Flags.BackupEligible,
 		BackupState:       cred.Flags.BackupState,
 	}, nil
-}
-
-// BeginPasskeyAccount starts a passkey-only account: it mints the user id (no
-// row yet), uses its bytes as the discoverable user handle, and requires user
-// verification. Allowed only while public native registration is open.
-func (s *Engine) BeginPasskeyAccount(ctx context.Context) (pendingPasskeyAccount, error) {
-	if err := s.requirePG(); err != nil {
-		return pendingPasskeyAccount{}, err
-	}
-	if !s.PublicNativeUserRegistrationEnabled() {
-		return pendingPasskeyAccount{}, iam.ErrRegistrationDisabled
-	}
-	id, err := uuid.NewV7()
-	if err != nil {
-		return pendingPasskeyAccount{}, err
-	}
-	u := passkeyAccountUser(id)
-	creation, err := s.beginPasskeyCreation(ctx, u, passkeyPurposeAccount, protocol.VerificationRequired)
-	if err != nil {
-		return pendingPasskeyAccount{}, err
-	}
-	return pendingPasskeyAccount{UserID: u.id, Creation: creation}, nil
-}
-
-// FinishPasskeyAccount consumes the ceremony once, validates the credential,
-// then inserts the user (no email/username/password), its handle and the
-// passkey in one transaction. A replayed or concurrent finish cannot create a
-// second user because the ceremony consume is atomic.
-func (s *Engine) FinishPasskeyAccount(ctx context.Context, response []byte) (*iam.User, authflow.Passkey, error) {
-	if err := s.requirePG(); err != nil {
-		return nil, authflow.Passkey{}, err
-	}
-	parsed, err := protocol.ParseCredentialCreationResponseBytes(response)
-	if err != nil {
-		return nil, authflow.Passkey{}, err
-	}
-	data, session, err := s.consumePasskeySession(ctx, parsed.Response.CollectedClientData.Challenge)
-	if err != nil {
-		return nil, authflow.Passkey{}, err
-	}
-	id, err := uuid.Parse(data.UserID)
-	if data.Purpose != passkeyPurposeAccount || err != nil {
-		return nil, authflow.Passkey{}, jwt.ErrTokenUnverifiable
-	}
-	if !s.PublicNativeUserRegistrationEnabled() {
-		return nil, authflow.Passkey{}, iam.ErrRegistrationDisabled
-	}
-	u := passkeyAccountUser(id)
-	cred, err := s.createCredential(u, session, parsed)
-	if err != nil {
-		return nil, authflow.Passkey{}, err
-	}
-	tx, err := s.pg.Begin(ctx)
-	if err != nil {
-		return nil, authflow.Passkey{}, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	q := tx
-	if _, err := q.Exec(ctx, `INSERT INTO users (id) VALUES ($1)`, u.id); err != nil {
-		return nil, authflow.Passkey{}, err
-	}
-	if _, err := q.Exec(ctx, `INSERT INTO user_passkey_handles (user_id, user_handle) VALUES ($1, $2)`, u.id, u.handle); err != nil {
-		return nil, authflow.Passkey{}, err
-	}
-	p, err := s.insertPasskey(ctx, q, u.id, cred, nil)
-	if err != nil {
-		return nil, authflow.Passkey{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, authflow.Passkey{}, err
-	}
-	user, err := s.getUserByID(ctx, u.id)
-	if err != nil {
-		return nil, authflow.Passkey{}, err
-	}
-	return user, p, nil
-}
-
-func passkeyAccountUser(id uuid.UUID) passkeyUser {
-	return passkeyUser{id: id.String(), handle: id[:], name: id.String(), displayName: id.String()}
 }
 
 func (s *Engine) ListPasskeys(ctx context.Context, userID string) ([]authflow.Passkey, error) {

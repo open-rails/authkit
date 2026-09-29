@@ -16,7 +16,7 @@ func TestRuntimeRequestPrincipalUsesLiveAuthority(t *testing.T) {
 	cfg := instanceCreateTestConfig()
 	client := newServerClient(t, cfg, pg.Pool)
 	ctx := t.Context()
-	group, err := client.EnsureRootGroup(ctx)
+	group, err := client.ensureRootGroup(ctx)
 	require.NoError(t, err)
 	service, err := newTestService(client, workflowHTTPConfig())
 	require.NoError(t, err)

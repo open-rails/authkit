@@ -89,8 +89,8 @@ func (s *Engine) logSessionEvent(ctx context.Context, e authflow.AuthSessionEven
 	}
 }
 
-// LogSessionCreated records a session creation event (best-effort).
-func (s *Engine) LogSessionCreated(ctx context.Context, userID string, method string, sessionID string, ip *string, ua *string) {
+// logSessionCreated records a session creation event (best-effort).
+func (s *Engine) logSessionCreated(ctx context.Context, userID string, method string, sessionID string, ip *string, ua *string) {
 	m := strings.TrimSpace(method)
 	var mPtr *string
 	if m != "" {
@@ -119,8 +119,8 @@ func (s *Engine) logSessionRevoked(ctx context.Context, userID string, sessionID
 	})
 }
 
-// LogPasswordChanged records a password change event for a user (best-effort).
-func (s *Engine) LogPasswordChanged(ctx context.Context, userID string, sessionID string, ip *string, ua *string) {
+// logPasswordChanged records a password change event for a user (best-effort).
+func (s *Engine) logPasswordChanged(ctx context.Context, userID string, sessionID string, ip *string, ua *string) {
 	s.logSessionEvent(ctx, authflow.AuthSessionEvent{
 		OccurredAt: time.Now().UTC(),
 		Issuer:     s.cfg.Token.Issuer,
@@ -132,8 +132,8 @@ func (s *Engine) LogPasswordChanged(ctx context.Context, userID string, sessionI
 	})
 }
 
-// LogPasswordRecovery records a password recovery event for a user (best-effort).
-func (s *Engine) LogPasswordRecovery(ctx context.Context, userID string, method, sessionID string, ip *string, ua *string) {
+// logPasswordRecovery records a password recovery event for a user (best-effort).
+func (s *Engine) logPasswordRecovery(ctx context.Context, userID string, method, sessionID string, ip *string, ua *string) {
 	s.logSessionEvent(ctx, authflow.AuthSessionEvent{
 		OccurredAt: time.Now().UTC(),
 		Issuer:     s.cfg.Token.Issuer,
@@ -163,7 +163,7 @@ func (s *Engine) LogSessionFailed(ctx context.Context, userID string, sessionID 
 // pruneSessionEvents enforces Config.SessionEventRetention: bounded DELETE
 // batches walking the occurred_at index until a short batch, so one sweep never
 // runs an unbounded statement. Negative retention keeps events forever.
-// Invoked from CleanupExpiredAuthState (host-scheduled, daily-ish cadence).
+// Invoked from cleanupExpiredAuthState (host-scheduled, daily-ish cadence).
 func (s *Engine) pruneSessionEvents(ctx context.Context) error {
 	if s.cfg.SessionEventRetention < 0 {
 		return nil

@@ -249,5 +249,5 @@ func (w *cleanupAuthStateWorker) Work(ctx context.Context, job *river.Job[cleanu
 	if job.Args.Schema != w.client.dbSchema() {
 		return fmt.Errorf("authkit: cleanup job schema %q does not match worker schema %q", job.Args.Schema, w.client.dbSchema())
 	}
-	return w.client.CleanupExpiredAuthState(ctx)
+	return w.client.cleanupExpiredAuthState(ctx)
 }

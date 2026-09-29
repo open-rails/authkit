@@ -36,7 +36,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 			{Persona: "org", Name: "manager", Permissions: []string{"org:members:manage", "org:credentials:manage", "org:records:read"}},
 		},
 	}}, keyset{}, Deps{Postgres: hostPool})
-	root, err := svc.EnsureRootGroup(ctx)
+	root, err := svc.ensureRootGroup(ctx)
 	require.NoError(t, err)
 	n := 0
 	user := func() string {
@@ -135,7 +135,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 			require.ErrorIs(t, assignRole(ctx, svc, iam.UserActor(human), survivor, iam.RemoteApplicationSubject(a.ID), iam.OwnerRole), iam.ErrRemoteApplicationNotFound)
 			// Historical invalid assignments are not operational owners. Even if
 			// present, neither removal nor a concurrent subtree cascade may count them.
-			_, err := svc.Postgres().Exec(ctx, `INSERT INTO group_remote_application_roles(permission_group_id,remote_application_id,role) VALUES($1,$2,'owner')`, survivorID, a.ID)
+			_, err := svc.pg.Exec(ctx, `INSERT INTO group_remote_application_roles(permission_group_id,remote_application_id,role) VALUES($1,$2,'owner')`, survivorID, a.ID)
 			require.NoError(t, err)
 		}
 		require.ErrorIs(t, removeMember(ctx, svc, iam.UserActor(human), survivor, iam.UserSubject(human)), iam.ErrCannotRemoveLastAdminRole)
@@ -170,8 +170,8 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		require.ErrorIs(t, svc.BanUser(ctx, sole, nil, nil, owner), iam.ErrCannotRemoveLastAdminRole)
 		require.ErrorIs(t, svc.SoftDeleteUser(ctx, sole), iam.ErrCannotRemoveLastAdminRole)
 		require.ErrorIs(t, svc.SoftDeleteUserAs(ctx, sole, sole), iam.ErrCannotRemoveLastAdminRole)
-		require.ErrorIs(t, svc.PatchUserMetadata(ctx, sole, map[string]any{"reserved": true}), iam.ErrCannotRemoveLastAdminRole)
-		require.ErrorIs(t, svc.PatchUserMetadata(ctx, sole, map[string]any{"reserved": json.RawMessage(`true`)}), iam.ErrCannotRemoveLastAdminRole)
+		require.ErrorIs(t, svc.patchUserMetadata(ctx, sole, map[string]any{"reserved": true}), iam.ErrCannotRemoveLastAdminRole)
+		require.ErrorIs(t, svc.patchUserMetadata(ctx, sole, map[string]any{"reserved": json.RawMessage(`true`)}), iam.ErrCannotRemoveLastAdminRole)
 		_, err := svc.UpdateImportedUser(ctx, sole, iam.ImportUserInput{Username: "reservedowner", Metadata: map[string]any{"reserved": json.RawMessage(`true`)}})
 		require.ErrorIs(t, err, iam.ErrCannotRemoveLastAdminRole)
 		now := time.Now()
@@ -182,9 +182,9 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		require.NoError(t, svc.BanUser(ctx, alternate, nil, nil, owner))
 		require.ErrorIs(t, svc.SoftDeleteUser(ctx, sole), iam.ErrCannotRemoveLastAdminRole)
 		require.NoError(t, svc.UnbanUser(ctx, alternate))
-		require.NoError(t, svc.PatchUserMetadata(ctx, alternate, map[string]any{"reserved": true}))
+		require.NoError(t, svc.patchUserMetadata(ctx, alternate, map[string]any{"reserved": true}))
 		require.ErrorIs(t, svc.SoftDeleteUser(ctx, sole), iam.ErrCannotRemoveLastAdminRole)
-		require.NoError(t, svc.PatchUserMetadata(ctx, alternate, map[string]any{"reserved": false}))
+		require.NoError(t, svc.patchUserMetadata(ctx, alternate, map[string]any{"reserved": false}))
 		require.NoError(t, svc.SoftDeleteUser(ctx, sole))
 		require.NoError(t, svc.SoftDeleteUser(ctx, sole), "repeated deletion is idempotent")
 		require.ErrorIs(t, svc.SoftDeleteUser(ctx, alternate), iam.ErrCannotRemoveLastAdminRole)
@@ -216,9 +216,9 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 						Roles:    []Role{{Persona: "org", Name: iam.OwnerRole, Permissions: []string{"org:*"}, RequiresMFA: true}},
 					}
 					raceSvc = mustNewWithKeys(t, cfg, keyset{}, Deps{Postgres: hostPool})
-					_, err := raceSvc.Enable2FA(ctx, one, "email", nil, authflow.AllowAdditionalFactors)
+					_, err := raceSvc.enableFactor(ctx, one, "email", nil, authflow.AllowAdditionalFactors)
 					require.NoError(t, err)
-					_, err = raceSvc.Enable2FA(ctx, two, "email", nil, authflow.AllowAdditionalFactors)
+					_, err = raceSvc.enableFactor(ctx, two, "email", nil, authflow.AllowAdditionalFactors)
 					require.NoError(t, err)
 				}
 				factors := map[string]string{}

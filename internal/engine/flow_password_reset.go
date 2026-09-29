@@ -59,7 +59,7 @@ func (s *Engine) RequestPasswordReset(ctx context.Context, email string, ttl tim
 		return emailDeliveryError(err)
 	}
 
-	s.LogPasswordRecovery(ctx, u.ID, "email", "", ip, ua)
+	s.logPasswordRecovery(ctx, u.ID, "email", "", ip, ua)
 
 	return nil
 }
@@ -127,7 +127,7 @@ func (s *Engine) RequestPhonePasswordReset(ctx context.Context, phone string, tt
 		return smsDeliveryError(err)
 	}
 
-	s.LogPasswordRecovery(ctx, u.ID, "sms", "", ip, ua)
+	s.logPasswordRecovery(ctx, u.ID, "sms", "", ip, ua)
 
 	return nil
 }

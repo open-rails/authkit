@@ -38,9 +38,9 @@ func ParseBootstrapManifestYAML(raw []byte) (iam.BootstrapManifest, error) {
 	return manifest, nil
 }
 
-// ApplyBootstrapManifest commits seed data and its StartupOnly completion claim
+// applyBootstrapManifest commits seed data and its StartupOnly completion claim
 // together. All manifests in one schema serialize, regardless of their names.
-func (s *Engine) ApplyBootstrapManifest(ctx context.Context, manifest iam.BootstrapManifest, opts iam.BootstrapReconcileOptions) (result iam.BootstrapManifestResult, err error) {
+func (s *Engine) applyBootstrapManifest(ctx context.Context, manifest iam.BootstrapManifest, opts iam.BootstrapReconcileOptions) (result iam.BootstrapManifestResult, err error) {
 	if err = s.requirePG(); err != nil {
 		return result, err
 	}
@@ -426,5 +426,5 @@ func boolToInt(v bool) int {
 // OperatorApplyBootstrapManifest is the explicit operator reconciliation operation.
 // engine construction never invokes it or restores user role assignments.
 func (s *Engine) OperatorApplyBootstrapManifest(ctx context.Context, manifest iam.BootstrapManifest, opts iam.BootstrapReconcileOptions) (iam.BootstrapManifestResult, error) {
-	return s.ApplyBootstrapManifest(ctx, manifest, opts)
+	return s.applyBootstrapManifest(ctx, manifest, opts)
 }

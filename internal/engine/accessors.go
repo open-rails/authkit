@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/iam"
@@ -59,20 +58,11 @@ func (s *Engine) AdminSetPassword(ctx context.Context, userID, new string) error
 	return s.changePassword(ctx, userID, new, nil, nil, nil, authflow.SessionRevokeReasonAdminSetPassword)
 }
 
-func (s *Engine) EntitlementsProvider() EntitlementsProvider {
-	return s.entitlementsProvider()
-}
-
 // DelegationAuthorizer returns the host-injected delegated-token authorizer
 // (#277), nil when none was wired.
 func (s *Engine) DelegationAuthorizer() iam.DelegationAuthorizer {
 	return s.delegationAuthorizer
 }
-
-// Config returns THE configuration (#237): the host Config, normalized once at
-// construction. Both the engine and the HTTP transport read it — there is no
-// parallel flat options struct (#236 bug class is structurally impossible).
-func (s *Engine) Config() Config { return s.cfg }
 
 // PublicKeysByKID returns the CURRENT public keys indexed by key ID, read
 // fresh from the KeySource on every call (#238).
@@ -87,10 +77,6 @@ func (s *Engine) nowTime() time.Time {
 	}
 	return s.now()
 }
-
-// Postgres returns AuthKit's schema-bound pgx pool (may be nil). It is an
-// AuthKit-owned clone of Deps.Postgres; callers must not close it directly.
-func (s *Engine) Postgres() *pgxpool.Pool { return s.pg }
 
 // Close releases AuthKit-owned resources, including its schema-bound pool.
 // Injected dependencies, including the host pool, stores and keys, stay host-owned.
@@ -117,10 +103,6 @@ func (s *Engine) close() {
 		s.ephemeral.pool.Close()
 	}
 }
-
-// Schema returns the Postgres schema AuthKit's tables live in ("profiles"
-// unless configured otherwise via Config.Schema).
-func (s *Engine) Schema() string { return s.dbSchema() }
 
 // dbSchema returns the validated schema name, defaulting for zero-value
 // Services (some tests construct engine{} directly).

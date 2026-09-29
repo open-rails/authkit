@@ -23,17 +23,17 @@ func TestDeviceKeyEnrollmentRequiresSecondFactorForMFAUser(t *testing.T) {
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef")
 	srv, sender := deviceKeyTestServerWithConfig(t, cfg)
-	pool := fixtureBackend(srv.Backend()).Postgres()
+	pool := fixtureBackend(srv.Backend()).pg
 
 	email := uniqueEmail("device-key-mfa")
 	user, err := fixtureBackend(srv.Backend()).CreateUser(ctx, email, "dkmfa"+uniqueSuffix())
 	require.NoError(t, err)
 	require.NoError(t, fixtureBackend(srv.Backend()).MarkEmailVerified(ctx, user.ID))
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, user.ID) })
-	secret, _, err := fixtureBackend(srv.Backend()).StartTOTPEnrollment(ctx, user.ID)
+	secret, _, err := fixtureBackend(srv.Backend()).startTOTPEnrollment(ctx, user.ID)
 	require.NoError(t, err)
 	step := time.Now().Unix() / 30
-	_, err = fixtureBackend(srv.Backend()).EnableTOTP2FA(ctx, totpEnrollment{UserID: user.ID, Code: testTOTPCode(t, secret, step), MakeDefault: true, Mode: authflow.FirstFactorOnly})
+	_, err = fixtureBackend(srv.Backend()).enableTOTPFactor(ctx, totpEnrollment{UserID: user.ID, Code: testTOTPCode(t, secret, step), MakeDefault: true, Mode: authflow.FirstFactorOnly})
 	require.NoError(t, err)
 
 	publicKey, privateKey := newDeviceKey(t)

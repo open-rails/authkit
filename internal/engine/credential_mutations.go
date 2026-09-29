@@ -125,7 +125,7 @@ func (s *Engine) changePassword(ctx context.Context, userID, new string, current
 	if keepSessionID != nil {
 		sessionID = *keepSessionID
 	}
-	s.LogPasswordChanged(ctx, userID, sessionID, nil, nil)
+	s.logPasswordChanged(ctx, userID, sessionID, nil, nil)
 	return nil
 }
 

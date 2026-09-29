@@ -126,7 +126,7 @@ func (s *Engine) RequestPhoneVerification(ctx context.Context, phone string, ttl
 			if u.PhoneNumber == nil {
 				return iam.ErrUserNotFound
 			}
-			return s.SendPhoneVerificationToUser(ctx, *u.PhoneNumber, u.ID, ttl)
+			return s.sendPhoneVerificationToUser(ctx, *u.PhoneNumber, u.ID, ttl)
 		}
 	}
 
@@ -140,10 +140,10 @@ func (s *Engine) RequestPhoneVerification(ctx context.Context, phone string, ttl
 	return iam.ErrUserNotFound
 }
 
-// SendPhoneVerificationToUser creates a verification code and sends it via SMS to a known user.
+// sendPhoneVerificationToUser creates a verification code and sends it via SMS to a known user.
 // Use RequestPhoneVerification if you only have a phone number and need to look up the user.
 // Always returns nil for security.
-func (s *Engine) SendPhoneVerificationToUser(ctx context.Context, phone, userID string, ttl time.Duration) error {
+func (s *Engine) sendPhoneVerificationToUser(ctx context.Context, phone, userID string, ttl time.Duration) error {
 	if ttl <= 0 {
 		ttl = defaultPhoneVerificationTTL
 	}

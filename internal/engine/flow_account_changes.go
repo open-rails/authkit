@@ -104,7 +104,7 @@ func (s *Engine) RequestPhoneChange(ctx context.Context, userID, newPhone string
 		if u.PhoneVerified {
 			return iam.ErrPhoneAlreadyVerified
 		}
-		return s.SendPhoneVerificationToUser(ctx, trimmed, userID, 0)
+		return s.sendPhoneVerificationToUser(ctx, trimmed, userID, 0)
 	}
 	// Check if new phone is already in use by another user.
 	existing, _ := s.getUserByPhone(ctx, trimmed)
@@ -124,19 +124,8 @@ func (s *Engine) RequestPhoneChange(ctx context.Context, userID, newPhone string
 		fmt.Errorf("phone change verification unavailable: SMS sender not configured"))
 }
 
-// ConfirmPhoneChange verifies the code and applies the new phone. Every other
-// session is revoked; keepSessionID (the confirming session) survives.
-func (s *Engine) ConfirmPhoneChange(ctx context.Context, userID, phone, code string, keepSessionID *string) error {
-	return s.confirmContactChangeCode(ctx, kindChangePhone, userID, phone, code, keepSessionID)
-}
-
-// ConfirmPhoneChangeByToken applies a pending phone change using its high-entropy link token.
-func (s *Engine) ConfirmPhoneChangeByToken(ctx context.Context, token string) (string, error) {
-	return s.consumePendingChangeByLink(ctx, sha256Hex(token), kindChangePhone)
-}
-
 // RequestEmailChange initiates an email change by sending a verification code to the new email.
-// The current email is NOT changed until the user confirms via ConfirmEmailChange.
+// The current email is NOT changed until the user confirms via confirmEmailChange.
 // The old address is not notified by AuthKit (only a security log line); a host
 // that wants that notification sends it itself.
 func (s *Engine) RequestEmailChange(ctx context.Context, userID, newEmail string) error {
@@ -185,13 +174,8 @@ func (s *Engine) RequestEmailChange(ctx context.Context, userID, newEmail string
 	return nil
 }
 
-// ConfirmEmailChange verifies the code and applies the new email. Every other
+// confirmEmailChange verifies the code and applies the new email. Every other
 // session is revoked; keepSessionID (the confirming session) survives.
-func (s *Engine) ConfirmEmailChange(ctx context.Context, userID, email, code string, keepSessionID *string) error {
+func (s *Engine) confirmEmailChange(ctx context.Context, userID, email, code string, keepSessionID *string) error {
 	return s.confirmContactChangeCode(ctx, kindChangeEmail, userID, email, code, keepSessionID)
-}
-
-// ConfirmEmailChangeByToken applies a pending email change using its high-entropy link token.
-func (s *Engine) ConfirmEmailChangeByToken(ctx context.Context, token string) (string, error) {
-	return s.consumePendingChangeByLink(ctx, sha256Hex(token), kindChangeEmail)
 }

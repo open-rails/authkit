@@ -58,7 +58,7 @@ func (s *Engine) loginFactors(proof loginProof, settings *authflow.TwoFactorSett
 		return factors
 	}
 	for _, f := range settings.Factors {
-		if f.Enabled && s.TwoFactorMethodAvailable(f.Method) && independentFactor(proof, f) {
+		if f.Enabled && s.twoFactorMethodAvailable(f.Method) && independentFactor(proof, f) {
 			factors = append(factors, f)
 		}
 	}
@@ -86,7 +86,7 @@ func (s *Engine) finishFirstFactor(ctx context.Context, proof loginProof) (authf
 		return authflow.LoginOutcome{}, err
 	}
 	settings, settingsErr := s.get2FASettings(ctx, q, user.ID)
-	status, statusErr := s.MFAStatusWith(settings, settingsErr)
+	status, statusErr := s.mfaStatusWith(settings, settingsErr)
 	if statusErr != nil {
 		return authflow.LoginOutcome{}, statusErr
 	}
@@ -160,7 +160,7 @@ func (s *Engine) finishFirstFactor(ctx context.Context, proof loginProof) (authf
 		return authflow.LoginOutcome{}, err
 	}
 	s.logSessionEvictions(ctx, user.ID, evicted)
-	s.LogSessionCreated(ctx, user.ID, proof.Input.Event, session.SessionID, nullable(proof.Input.IP), nullable(proof.Input.UserAgent))
+	s.logSessionCreated(ctx, user.ID, proof.Input.Event, session.SessionID, nullable(proof.Input.IP), nullable(proof.Input.UserAgent))
 	out.Kind = authflow.LoginSessionIssued
 	out.Session = &session
 	return out, nil
@@ -300,7 +300,7 @@ func (s *Engine) CompleteLoginChallenge(ctx context.Context, in authflow.LoginCh
 	proof.Input.AuthMethods = authflow.NormalizeAuthMethods(methods)
 	proof.Input.IP = in.IP
 	proof.Input.UserAgent = in.UserAgent
-	status, err := s.MFAStatusWith(settings, nil)
+	status, err := s.mfaStatusWith(settings, nil)
 	if err != nil {
 		return authflow.LoginOutcome{}, err
 	}
@@ -315,7 +315,7 @@ func (s *Engine) CompleteLoginChallenge(ctx context.Context, in authflow.LoginCh
 		return authflow.LoginOutcome{}, err
 	}
 	s.logSessionEvictions(ctx, user.ID, evicted)
-	s.LogSessionCreated(ctx, user.ID, proof.Input.Event, session.SessionID, nullable(in.IP), nullable(in.UserAgent))
+	s.logSessionCreated(ctx, user.ID, proof.Input.Event, session.SessionID, nullable(in.IP), nullable(in.UserAgent))
 	return authflow.LoginOutcome{Kind: authflow.LoginSessionIssued, UserID: user.ID, Session: &session, ReturnTo: proof.ReturnTo}, nil
 }
 

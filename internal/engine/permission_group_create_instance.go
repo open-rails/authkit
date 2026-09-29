@@ -3,7 +3,7 @@ package engine
 // Generated persona-instance CREATION (#263): the core policy behind
 // POST /<persona>. Per-persona config (GroupCreation) declares the slug
 // pattern and the reserved-slug list; the host cost gate is
-// the MayCreateInstance admission seam (WithInstanceAdmission); velocity limits
+// the mayCreateInstance admission seam (WithInstanceAdmission); velocity limits
 // (per-IP + per-user) are enforced by the HTTP layer. Creation is idempotent
 // for existing members: re-creating a slug you already belong to returns the
 // group instead of a conflict (bootstrap re-runs).
@@ -19,11 +19,11 @@ import (
 	"github.com/open-rails/authkit/internal/rbac"
 )
 
-// MayCreateInstance consults the host admission seam (#263). A nil predicate
+// mayCreateInstance consults the host admission seam (#263). A nil predicate
 // allows; a predicate error is wrapped as ErrGroupCreationRefused. The seam
 // sees the normalized slug (#269) so a host can refuse a specific namespace
 // outright, not merely price the attempt.
-func (s *Engine) MayCreateInstance(ctx context.Context, group iam.GroupRef, subject string) error {
+func (s *Engine) mayCreateInstance(ctx context.Context, group iam.GroupRef, subject string) error {
 	if s.instanceAdmission == nil {
 		return nil
 	}
@@ -63,7 +63,7 @@ func (s *Engine) CreateInstanceForSubject(ctx context.Context, group iam.GroupRe
 	}
 
 	// Host cost gate (anti-squat split: velocity is authkit's, cost is the host's).
-	if err := s.MayCreateInstance(ctx, group, ownerUserID); err != nil {
+	if err := s.mayCreateInstance(ctx, group, ownerUserID); err != nil {
 		return out, err
 	}
 

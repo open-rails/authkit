@@ -178,13 +178,13 @@ func (s *Engine) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, co
 		if err := s.ensureUserAccess(ctx, user); err != nil {
 			return authflow.DeviceKeyAuthResult{}, err
 		}
-		status, err := s.MFAStatus(ctx, user.ID)
+		status, err := s.mfaStatus(ctx, user.ID)
 		if err != nil {
 			return authflow.DeviceKeyAuthResult{}, err
 		}
 		if s.TwoFactorEnabled() && status.Satisfied {
 			if strings.TrimSpace(secondFactor) == "" {
-				_, method, _, err := s.Require2FAForLoginFactor(ctx, user.ID, "")
+				_, method, _, err := s.require2FAForLoginFactor(ctx, user.ID, "")
 				if err != nil {
 					return authflow.DeviceKeyAuthResult{}, err
 				}
@@ -221,7 +221,7 @@ func (s *Engine) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, co
 // verifyDeviceKeySecondFactor accepts the default factor's code (TOTP, or the
 // SMS/email code sent on the first finish attempt) or a backup code.
 func (s *Engine) verifyDeviceKeySecondFactor(ctx context.Context, userID, code string) bool {
-	if ok, err := s.Verify2FACode(ctx, userID, code); err == nil && ok {
+	if ok, err := s.verify2FACode(ctx, userID, code); err == nil && ok {
 		return true
 	}
 	ok, err := s.VerifyBackupCode(ctx, userID, code)

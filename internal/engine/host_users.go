@@ -52,7 +52,7 @@ func (s *Engine) getUserByUsername(ctx context.Context, username string) (*iam.U
 	if s.pg == nil {
 		return nil, nil
 	}
-	resolution, err := s.ResolveUsername(ctx, username)
+	resolution, err := s.resolveUsername(ctx, username)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +93,7 @@ func (s *Engine) ensureUserAccess(ctx context.Context, u *iam.User) error {
 	if u.DeletedAt != nil {
 		return iam.ErrUserBanned
 	}
-	reserved, err := s.IsUserReserved(ctx, strings.TrimSpace(u.ID))
+	reserved, err := s.isUserReserved(ctx, strings.TrimSpace(u.ID))
 	if err != nil {
 		return err
 	}
@@ -107,17 +107,6 @@ func (s *Engine) ensureUserAccess(ctx context.Context, u *iam.User) error {
 		return iam.ErrUserBanned
 	}
 	return nil
-}
-
-func (s *Engine) ensureUserAccessByID(ctx context.Context, userID string) error {
-	if strings.TrimSpace(userID) == "" {
-		return jwt.ErrTokenInvalidClaims
-	}
-	u, err := s.getUserByID(ctx, userID)
-	if err != nil || u == nil {
-		return errOrUnauthorized(err)
-	}
-	return s.ensureUserAccess(ctx, u)
 }
 
 func (s *Engine) autoUnbanIfExpired(ctx context.Context, u *iam.User) error {
@@ -231,13 +220,6 @@ func (s *Engine) normalizeImportUserInput(input iam.ImportUserInput) (email *str
 		updatedAt = input.UpdatedAt.UTC()
 	}
 	return email, phone, username, bannedBy, string(metadataJSON), createdAt, updatedAt, nil
-}
-
-func (s *Engine) ImportUser(ctx context.Context, input iam.ImportUserInput) (*iam.User, error) {
-	if err := s.requirePG(); err != nil {
-		return nil, err
-	}
-	return s.importUser(ctx, s.q, input)
 }
 
 func (s *Engine) importUser(ctx context.Context, q *db.Queries, input iam.ImportUserInput) (*iam.User, error) {
@@ -357,11 +339,6 @@ func (s *Engine) setEmailVerified(ctx context.Context, id string, v bool) error 
 // MarkEmailVerified records that the user's email address is verified.
 func (s *Engine) MarkEmailVerified(ctx context.Context, id string) error {
 	return s.setEmailVerified(ctx, id, true)
-}
-
-// ClearEmailVerified marks the user's email address unverified again.
-func (s *Engine) ClearEmailVerified(ctx context.Context, id string) error {
-	return s.setEmailVerified(ctx, id, false)
 }
 
 func (s *Engine) clearUserBan(ctx context.Context, userID string) error {

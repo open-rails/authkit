@@ -21,15 +21,15 @@ import (
 	"github.com/open-rails/authkit/internal/secret"
 )
 
-// IssueRefreshSession creates a session row and returns a new refresh token string.
-func (s *Engine) IssueRefreshSession(ctx context.Context, userID, userAgent string, ip net.IP) (sessionID, refreshToken string, expiresAt *time.Time, err error) {
-	return s.IssueRefreshSessionWithAuthMethods(ctx, userID, userAgent, ip, []string{"pwd"})
+// issueRefreshSession creates a session row and returns a new refresh token string.
+func (s *Engine) issueRefreshSession(ctx context.Context, userID, userAgent string, ip net.IP) (sessionID, refreshToken string, expiresAt *time.Time, err error) {
+	return s.issueRefreshSessionWithAuthMethods(ctx, userID, userAgent, ip, []string{"pwd"})
 }
 
-// IssueRefreshSessionWithAuthMethods creates a refresh session and records the
+// issueRefreshSessionWithAuthMethods creates a refresh session and records the
 // authentication methods that established it. Callers minting a session after
 // MFA should pass e.g. []string{"pwd", "otp", "mfa"}.
-func (s *Engine) IssueRefreshSessionWithAuthMethods(ctx context.Context, userID, userAgent string, ip net.IP, authMethods []string) (sessionID, refreshToken string, expiresAt *time.Time, err error) {
+func (s *Engine) issueRefreshSessionWithAuthMethods(ctx context.Context, userID, userAgent string, ip net.IP, authMethods []string) (sessionID, refreshToken string, expiresAt *time.Time, err error) {
 	if s.pg == nil {
 		return "", "", nil, errors.New("postgres not configured")
 	}
@@ -43,7 +43,7 @@ func (s *Engine) IssueRefreshSessionWithAuthMethods(ctx context.Context, userID,
 		return "", "", nil, err
 	}
 	settings, settingsErr := s.get2FASettings(ctx, q, userID)
-	status, statusErr := s.MFAStatusWith(settings, settingsErr)
+	status, statusErr := s.mfaStatusWith(settings, settingsErr)
 	if err := s.requireSessionMFAStateOn(ctx, tx, userID, authMethods, status, statusErr); err != nil {
 		return "", "", nil, err
 	}
@@ -248,7 +248,7 @@ func (s *Engine) issueSessionAccessToken(ctx context.Context, userID, sessionID 
 	if err := s.ensureUserAccess(ctx, u); err != nil {
 		return "", time.Time{}, err
 	}
-	mfa, mfaErr := s.MFAStatus(ctx, userID)
+	mfa, mfaErr := s.mfaStatus(ctx, userID)
 	if err := s.requireSessionMFAStateWith(ctx, userID, authMethods, mfa, mfaErr); err != nil {
 		if errors.Is(err, iam.ErrTwoFAEnrollmentRequired) || errors.Is(err, errTwoFARequired) {
 			return "", time.Time{}, &authflow.MFAContinuationRequiredError{UserID: userID, SessionID: sessionID, Reason: err}
@@ -307,10 +307,10 @@ func graceKeystream(predecessor string, n int) []byte {
 	return out[:n]
 }
 
-// IssueAuthenticatedSession issues a session for a trusted, already-authenticated
+// issueAuthenticatedSession issues a session for a trusted, already-authenticated
 // caller. Interactive login flows additionally check their captured proof version
 // before using the same transaction-owned issuance helper.
-func (s *Engine) IssueAuthenticatedSession(ctx context.Context, userID, userAgent string, ip net.IP, authMethods []string, extra map[string]any) (string, string, string, time.Time, *time.Time, error) {
+func (s *Engine) issueAuthenticatedSession(ctx context.Context, userID, userAgent string, ip net.IP, authMethods []string, extra map[string]any) (string, string, string, time.Time, *time.Time, error) {
 	if s.pg == nil {
 		return "", "", "", time.Time{}, nil, errors.New("postgres not configured")
 	}
@@ -325,7 +325,7 @@ func (s *Engine) IssueAuthenticatedSession(ctx context.Context, userID, userAgen
 		return "", "", "", time.Time{}, nil, err
 	}
 	settings, settingsErr := s.get2FASettings(ctx, q, userID)
-	mfa, mfaErr := s.MFAStatusWith(settings, settingsErr)
+	mfa, mfaErr := s.mfaStatusWith(settings, settingsErr)
 	if err := s.requireSessionMFAStateOn(ctx, tx, userID, authMethods, mfa, mfaErr); err != nil {
 		return "", "", "", time.Time{}, nil, err
 	}

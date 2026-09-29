@@ -34,9 +34,9 @@ func (s *Engine) twoFactorMethodConfigured(m iam.TwoFactorMethod) bool {
 	return false
 }
 
-// TwoFactorMethodAvailable reports whether a second-factor method can be
+// twoFactorMethodAvailable reports whether a second-factor method can be
 // enrolled/used right now: enabled by policy AND its delivery dependency present.
-func (s *Engine) TwoFactorMethodAvailable(method string) bool {
+func (s *Engine) twoFactorMethodAvailable(method string) bool {
 	m := iam.TwoFactorMethod(strings.ToLower(strings.TrimSpace(method)))
 	if !s.twoFactorMethodConfigured(m) {
 		return false
@@ -59,7 +59,7 @@ func (s *Engine) TwoFactorMethodAvailable(method string) bool {
 func (s *Engine) TwoFactorAllowedMethods() []string {
 	out := []string{}
 	for _, m := range []iam.TwoFactorMethod{iam.TwoFactorEmail, iam.TwoFactorSMS, iam.TwoFactorTOTP} {
-		if s.TwoFactorMethodAvailable(string(m)) {
+		if s.twoFactorMethodAvailable(string(m)) {
 			out = append(out, string(m))
 		}
 	}

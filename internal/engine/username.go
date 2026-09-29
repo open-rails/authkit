@@ -7,8 +7,8 @@ import (
 	"strings"
 )
 
-// GenerateAvailableUsername tries base, then minimal numeric suffixes, then a short fallback.
-func (s *Engine) GenerateAvailableUsername(ctx context.Context, base string) string {
+// generateAvailableUsername tries base, then minimal numeric suffixes, then a short fallback.
+func (s *Engine) generateAvailableUsername(ctx context.Context, base string) string {
 	base = s.cfg.Username.Derive(base)
 	if base == "" {
 		base = "user"
@@ -47,11 +47,11 @@ func (s *Engine) usernameAvailable(ctx context.Context, username string) bool {
 	return err == nil && !taken
 }
 
-// DeriveUsernameForOAuth prefers provider-preferred usernames; falls back to email local part or display name.
-func (s *Engine) DeriveUsernameForOAuth(ctx context.Context, provider, preferred, email, displayName string) string {
+// deriveUsernameForOAuth prefers provider-preferred usernames; falls back to email local part or display name.
+func (s *Engine) deriveUsernameForOAuth(ctx context.Context, provider, preferred, email, displayName string) string {
 	// Highest: preferred username from provider
 	if strings.TrimSpace(preferred) != "" {
-		return s.GenerateAvailableUsername(ctx, preferred)
+		return s.generateAvailableUsername(ctx, preferred)
 	}
 	// Next: email local part
 	if strings.TrimSpace(email) != "" {
@@ -60,17 +60,17 @@ func (s *Engine) DeriveUsernameForOAuth(ctx context.Context, provider, preferred
 			local = local[:i]
 		}
 		if strings.TrimSpace(local) != "" {
-			return s.GenerateAvailableUsername(ctx, local)
+			return s.generateAvailableUsername(ctx, local)
 		}
 	}
 	// Next: display name
 	if strings.TrimSpace(displayName) != "" {
-		return s.GenerateAvailableUsername(ctx, displayName)
+		return s.generateAvailableUsername(ctx, displayName)
 	}
 	// Last: provider-based generic
 	base := provider
 	if strings.TrimSpace(base) == "" {
 		base = "user"
 	}
-	return s.GenerateAvailableUsername(ctx, base+"_user")
+	return s.generateAvailableUsername(ctx, base+"_user")
 }

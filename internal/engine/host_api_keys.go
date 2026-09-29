@@ -150,7 +150,7 @@ func (s *Engine) MintAPIKey(ctx context.Context, group iam.GroupRef, opts iam.AP
 // ListAPIKeys returns metadata for every API key of the permission-group
 // addressed by (persona, instanceSlug), including revoked/expired ones. The
 // secret is never returned. Terminal keys are retained for 90 days and removed
-// by CleanupExpiredAuthState in bounded batches.
+// by cleanupExpiredAuthState in bounded batches.
 func (s *Engine) ListAPIKeys(ctx context.Context, group iam.GroupRef) ([]iam.APIKey, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err

@@ -19,18 +19,6 @@ import (
 // TOTP crypto and phone-2FA-setup codes live in flow_totp.go; this file is the
 // account-level 2FA machine on top of the mfa_factors/mfa_settings tables.
 
-// Enable2FA enables two-factor authentication for a user and generates backup codes.
-// Returns the plaintext backup codes (caller must show these to user ONCE).
-func (s *Engine) Enable2FA(ctx context.Context, userID, method string, phoneNumber *string, mode authflow.FactorEnrollmentMode) ([]string, error) {
-	codes, _, err := s.enable2FA(ctx, factorEnable{UserID: userID, Method: method, Phone: phoneNumber, Mode: mode})
-	return codes, err
-}
-
-func (s *Engine) Enable2FADefault(ctx context.Context, userID, method string, phoneNumber *string, mode authflow.FactorEnrollmentMode) ([]string, error) {
-	codes, _, err := s.enable2FA(ctx, factorEnable{UserID: userID, Method: method, Phone: phoneNumber, MakeDefault: true, Mode: mode})
-	return codes, err
-}
-
 // factorEnable is one factor insert. ProvenSessionID names the session whose
 // holder just proved possession of the new factor with a code (#389).
 type factorEnable struct {
@@ -262,7 +250,7 @@ func (s *Engine) Disable2FAFactorWithRemovedRoles(ctx context.Context, userID, f
 	return removed, tx.Commit(ctx)
 }
 
-func (s *Engine) SetDefault2FAFactor(ctx context.Context, userID, factorID string) error {
+func (s *Engine) setDefault2FAFactor(ctx context.Context, userID, factorID string) error {
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
 	}
@@ -342,7 +330,7 @@ func (s *Engine) get2FASettings(ctx context.Context, q *db.Queries, userID strin
 	return settings, nil
 }
 
-func (s *Engine) List2FAFactors(ctx context.Context, userID string) ([]authflow.TwoFactorFactor, error) {
+func (s *Engine) listUser2FAFactors(ctx context.Context, userID string) ([]authflow.TwoFactorFactor, error) {
 	if s.pg == nil {
 		return nil, fmt.Errorf("postgres not configured")
 	}
@@ -361,7 +349,7 @@ func (s *Engine) list2FAFactors(ctx context.Context, q *db.Queries, userID strin
 	return out, nil
 }
 
-func (s *Engine) Require2FAForLoginFactor(ctx context.Context, userID, factorID string) (destination, method string, factor authflow.TwoFactorFactor, err error) {
+func (s *Engine) require2FAForLoginFactor(ctx context.Context, userID, factorID string) (destination, method string, factor authflow.TwoFactorFactor, err error) {
 	factor, err = s.twoFactorFactor(ctx, userID, factorID)
 	if err != nil {
 		return "", "", authflow.TwoFactorFactor{}, err
@@ -492,13 +480,13 @@ func (s *Engine) verifyStepUpForFactor(ctx context.Context, userID, sessionID, c
 	return s.consumeMFAStepUpCode(ctx, userID, sessionID, sha256Hex(code), factor.Method)
 }
 
-// Verify2FACode verifies a 2FA code entered by the user during login.
+// verify2FACode verifies a 2FA code entered by the user during login.
 // Returns true if code is valid, false otherwise.
-func (s *Engine) Verify2FACode(ctx context.Context, userID, code string) (bool, error) {
-	return s.Verify2FAFactorCode(ctx, userID, "", code)
+func (s *Engine) verify2FACode(ctx context.Context, userID, code string) (bool, error) {
+	return s.verify2FAFactorCode(ctx, userID, "", code)
 }
 
-func (s *Engine) Verify2FAFactorCode(ctx context.Context, userID, factorID, code string) (bool, error) {
+func (s *Engine) verify2FAFactorCode(ctx context.Context, userID, factorID, code string) (bool, error) {
 	factor, err := s.twoFactorFactor(ctx, userID, factorID)
 	if err != nil {
 		return false, err
@@ -585,7 +573,7 @@ func (s *Engine) twoFactorFactor(ctx context.Context, userID, factorID string) (
 	if s.pg == nil {
 		return authflow.TwoFactorFactor{}, fmt.Errorf("postgres not configured")
 	}
-	factors, err := s.List2FAFactors(ctx, userID)
+	factors, err := s.listUser2FAFactors(ctx, userID)
 	if err != nil {
 		return authflow.TwoFactorFactor{}, err
 	}
@@ -620,7 +608,7 @@ func (s *Engine) twoFactorFactorByMethod(ctx context.Context, userID, method str
 	if method != "email" && method != "sms" && method != "totp" {
 		return authflow.TwoFactorFactor{}, fmt.Errorf("invalid 2FA method: must be 'email', 'sms', or 'totp'")
 	}
-	factors, err := s.List2FAFactors(ctx, userID)
+	factors, err := s.listUser2FAFactors(ctx, userID)
 	if err != nil {
 		return authflow.TwoFactorFactor{}, err
 	}

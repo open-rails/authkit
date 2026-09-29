@@ -37,14 +37,14 @@ func (s *Engine) UserProfile(ctx context.Context, in authflow.ProfileInput) (aut
 	if err != nil {
 		return authflow.UserProfile{}, stageErr("load_password", err)
 	}
-	solanaLinkedAccount, slErr := s.GetSolanaLinkedAccount(ctx, u.ID)
+	solanaLinkedAccount, slErr := s.getSolanaLinkedAccount(ctx, u.ID)
 	solanaAddress := ""
 	if solanaLinkedAccount != nil {
 		solanaAddress = solanaLinkedAccount.Address
 	} else if slErr != nil {
 		// Only when the linked-account read ERRORED; a clean "no wallet" already
 		// means there is no address to find.
-		solanaAddress, _ = s.GetSolanaAddress(ctx, u.ID)
+		solanaAddress, _ = s.getSolanaAddress(ctx, u.ID)
 	}
 	var solanaAddressPtr *string
 	if solanaAddress != "" {
@@ -53,7 +53,7 @@ func (s *Engine) UserProfile(ctx context.Context, in authflow.ProfileInput) (aut
 	linkedProviders := []string{}
 	userAliases := []string{}
 	var providerSlugs []string
-	if providers, aliases, err := s.UserProfileLinks(ctx, u.ID); err == nil {
+	if providers, aliases, err := s.userProfileLinks(ctx, u.ID); err == nil {
 		providerSlugs = providers
 		for _, provider := range providers {
 			if provider = strings.TrimSpace(provider); provider != "" {
@@ -90,7 +90,7 @@ func (s *Engine) UserProfile(ctx context.Context, in authflow.ProfileInput) (aut
 	// One 2FA-settings read feeds MFA status, the step-up methods and the
 	// step-up 2FA options.
 	settings, settingsErr := s.Get2FASettings(ctx, u.ID)
-	mfa, err := s.MFAStatusWith(settings, settingsErr)
+	mfa, err := s.mfaStatusWith(settings, settingsErr)
 	if err != nil {
 		return authflow.UserProfile{}, stageErr("load_2fa", err)
 	}

@@ -101,7 +101,7 @@ func (s *Engine) ConfirmAccountRecovery(ctx context.Context, token string) error
 		return jwt.ErrTokenUnverifiable
 	}
 	settings, settingsErr := s.get2FASettings(ctx, s.qtx(tx), user.ID)
-	status, err := s.MFAStatusWith(settings, settingsErr)
+	status, err := s.mfaStatusWith(settings, settingsErr)
 	if err != nil {
 		return err
 	}

@@ -77,13 +77,6 @@ type passkeyCeremonyData struct {
 	Session []byte `json:"session"`
 }
 
-// consumeLink atomically resolves and burns a link-token pointer, returning the
-// record key it pointed at.
-func (s *Engine) consumeLink(ctx context.Context, linkKey string) (string, bool) {
-	key, ok, err := s.ephemConsumeString(ctx, linkKey)
-	return key, err == nil && ok && key != ""
-}
-
 // DeletePendingRegistrationByEmail removes a pending email registration for the
 // given email, if one exists. No-op when none exists.
 func (s *Engine) DeletePendingRegistrationByEmail(ctx context.Context, email string) error {
@@ -204,12 +197,12 @@ func (s *Engine) deleteEmailVerification(ctx context.Context, userID string) {
 	}
 }
 
-// RecordFailedEmailVerifyCode increments the per-email failed-attempt counter for
+// recordFailedEmailVerifyCode increments the per-email failed-attempt counter for
 // the typed email-verification code. After maxEmailVerifyCodeAttempts failures it
 // invalidates every outstanding code/pending-registration for that address so the
 // short numeric code cannot be brute-forced within its TTL (AK security audit F1).
 // No-op without an ephemeral store.
-func (s *Engine) RecordFailedEmailVerifyCode(ctx context.Context, email string) {
+func (s *Engine) recordFailedEmailVerifyCode(ctx context.Context, email string) {
 	if !s.useEphemeralStore() {
 		return
 	}
@@ -235,9 +228,9 @@ func (s *Engine) recordFailedAttempt(ctx context.Context, key string, ttl time.D
 	return false
 }
 
-// ClearEmailVerifyCodeAttempts resets the per-email failed-attempt counter after a
+// clearEmailVerifyCodeAttempts resets the per-email failed-attempt counter after a
 // successful confirmation.
-func (s *Engine) ClearEmailVerifyCodeAttempts(ctx context.Context, email string) {
+func (s *Engine) clearEmailVerifyCodeAttempts(ctx context.Context, email string) {
 	if !s.useEphemeralStore() {
 		return
 	}
@@ -263,10 +256,10 @@ func (s *Engine) invalidateEmailVerifyCodes(ctx context.Context, email string) {
 	}
 }
 
-// RecordFailedPhoneVerifyCode is the phone twin of RecordFailedEmailVerifyCode:
+// recordFailedPhoneVerifyCode is the phone twin of recordFailedEmailVerifyCode:
 // after maxPhoneVerifyCodeAttempts wrong guesses the outstanding code(s) for the
 // number are invalidated. No-op without an ephemeral store.
-func (s *Engine) RecordFailedPhoneVerifyCode(ctx context.Context, phone string) {
+func (s *Engine) recordFailedPhoneVerifyCode(ctx context.Context, phone string) {
 	if !s.useEphemeralStore() {
 		return
 	}
@@ -279,9 +272,9 @@ func (s *Engine) RecordFailedPhoneVerifyCode(ctx context.Context, phone string) 
 	}
 }
 
-// ClearPhoneVerifyCodeAttempts resets the per-phone failed-attempt counter after a
+// clearPhoneVerifyCodeAttempts resets the per-phone failed-attempt counter after a
 // successful confirmation.
-func (s *Engine) ClearPhoneVerifyCodeAttempts(ctx context.Context, phone string) {
+func (s *Engine) clearPhoneVerifyCodeAttempts(ctx context.Context, phone string) {
 	if !s.useEphemeralStore() {
 		return
 	}

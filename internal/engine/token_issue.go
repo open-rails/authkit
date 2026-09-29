@@ -81,7 +81,7 @@ func (s *Engine) mintAccessToken(ctx context.Context, userID string, extra map[s
 			return "", time.Time{}, err
 		}
 		var mfa *authflow.MFAStatus
-		if status, mfaErr := s.MFAStatus(ctx, userID); mfaErr == nil {
+		if status, mfaErr := s.mfaStatus(ctx, userID); mfaErr == nil {
 			mfa = &status
 		}
 		return s.mintAccessTokenForUser(ctx, u, mfa, extra, ttl)
@@ -212,7 +212,7 @@ func (s *Engine) mintDeviceKeyAccessToken(ctx context.Context, userID, deviceKey
 		return "", time.Time{}, err
 	}
 	var mfa *authflow.MFAStatus
-	if status, mfaErr := s.MFAStatus(ctx, userID); mfaErr == nil {
+	if status, mfaErr := s.mfaStatus(ctx, userID); mfaErr == nil {
 		mfa = &status
 	}
 	now := time.Now().UTC()

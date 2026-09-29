@@ -441,9 +441,9 @@ func normalizeFrontendPath(name, raw, defaultPath string) (string, error) {
 // Registration-policy reads. The stored Config is normalized at construction,
 // but these re-normalize defensively: some tests build a zero engine{}.
 
-// RegistrationVerificationPolicy returns the effective registration
+// registrationVerificationPolicy returns the effective registration
 // verification policy ("none" when unset/invalid).
-func (s *Engine) RegistrationVerificationPolicy() iam.RegistrationVerificationPolicy {
+func (s *Engine) registrationVerificationPolicy() iam.RegistrationVerificationPolicy {
 	v, err := normalizeRegistrationVerification(s.cfg.Registration.Verification)
 	if err != nil {
 		return iam.RegistrationVerificationNone
@@ -451,12 +451,12 @@ func (s *Engine) RegistrationVerificationPolicy() iam.RegistrationVerificationPo
 	return v
 }
 
-func (s *Engine) RegistrationVerificationRequired() bool {
-	return s.RegistrationVerificationPolicy() == iam.RegistrationVerificationRequired
+func (s *Engine) registrationVerificationRequired() bool {
+	return s.registrationVerificationPolicy() == iam.RegistrationVerificationRequired
 }
 
 func (s *Engine) RegistrationVerificationEnabled() bool {
-	return s.RegistrationVerificationPolicy() != iam.RegistrationVerificationNone
+	return s.registrationVerificationPolicy() != iam.RegistrationVerificationNone
 }
 
 // PublicNativeUserRegistrationEnabled reports whether public native-user

@@ -27,7 +27,7 @@ func TestTwoFactorCodeSurvivesWrongGuess(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, fixtureBackend(f.service.Backend()).AdminSetPassword(ctx, user.ID, pass))
 	require.NoError(t, fixtureBackend(f.service.Backend()).MarkEmailVerified(ctx, user.ID))
-	_, err = fixtureBackend(f.service.Backend()).Enable2FA(ctx, user.ID, "email", nil, authflow.AllowAdditionalFactors)
+	_, err = fixtureBackend(f.service.Backend()).enableFactor(ctx, user.ID, "email", nil, authflow.AllowAdditionalFactors)
 	require.NoError(t, err)
 
 	login := func() (map[string]any, string) {
@@ -129,7 +129,7 @@ func TestTwoFactorCodeExpiredSignal(t *testing.T) {
 	f := newAccountFlow(t, testdb.Pool(t), newServerTestConfig())
 	// expire lets the stored step-up codes lapse as if their TTL had passed.
 	expire := func() {
-		tag, err := fixtureBackend(f.service.Backend()).Postgres().Exec(ctx, `UPDATE ephemeral_kv SET expires_at = now() - interval '1 second' WHERE key LIKE '2fa:step-up:%' AND expires_at > now()`)
+		tag, err := fixtureBackend(f.service.Backend()).pg.Exec(ctx, `UPDATE ephemeral_kv SET expires_at = now() - interval '1 second' WHERE key LIKE '2fa:step-up:%' AND expires_at > now()`)
 		require.NoError(t, err)
 		require.NotZero(t, tag.RowsAffected())
 	}

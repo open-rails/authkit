@@ -65,6 +65,6 @@ func TestSolanaLoginRejectsReplayedSignature(t *testing.T) {
 	require.Contains(t, replay.Body.String(), string(iam.CodeChallengeExpired))
 
 	var found bool
-	require.NoError(t, fixtureBackend(srv.Backend()).Postgres().QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM ephemeral_kv WHERE key = 'siws:nonce:' || $1)`, challenge.Nonce).Scan(&found))
+	require.NoError(t, fixtureBackend(srv.Backend()).pg.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM ephemeral_kv WHERE key = 'siws:nonce:' || $1)`, challenge.Nonce).Scan(&found))
 	require.False(t, found, "the nonce must be consumed by the first login")
 }

@@ -180,7 +180,7 @@ func (s *Engine) PasswordlessLogin(ctx context.Context, in authflow.Passwordless
 			return authflow.LoginOutcome{}, err
 		}
 		if !ok || rec.CodeHash == "" || !secret.Equal(rec.CodeHash, sha256Hex(in.Code)) {
-			s.RecordFailedPasswordlessCode(ctx, identifier)
+			s.recordFailedPasswordlessCode(ctx, identifier)
 			return authflow.LoginOutcome{}, jwt.ErrTokenUnverifiable
 		}
 	} else {
@@ -233,7 +233,7 @@ func (s *Engine) deletePasswordlessByTarget(ctx context.Context, channel, identi
 	s.deletePasswordlessChallenge(ctx, passwordlessKey(channel, identifier))
 }
 
-func (s *Engine) RecordFailedPasswordlessCode(ctx context.Context, identifier string) {
+func (s *Engine) recordFailedPasswordlessCode(ctx context.Context, identifier string) {
 	if !s.useEphemeralStore() {
 		return
 	}
@@ -404,7 +404,7 @@ func (s *Engine) derivePasswordlessUsername(ctx context.Context, channel, identi
 			return -1
 		}, identifier), "0")
 	}
-	return s.GenerateAvailableUsername(ctx, base)
+	return s.generateAvailableUsername(ctx, base)
 }
 
 func normalizePasswordlessIdentifier(identifier string) (channel, normalized string, err error) {

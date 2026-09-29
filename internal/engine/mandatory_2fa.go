@@ -16,18 +16,18 @@ import (
 
 var errTwoFARequired = iam.E(iam.CodeTwoFARequired)
 
-func (s *Engine) MFAStatus(ctx context.Context, userID string) (authflow.MFAStatus, error) {
+func (s *Engine) mfaStatus(ctx context.Context, userID string) (authflow.MFAStatus, error) {
 	settings, err := s.Get2FASettings(ctx, userID)
-	return s.MFAStatusWith(settings, err)
+	return s.mfaStatusWith(settings, err)
 }
 
-// MFAStatusWith derives MFAStatus from an ALREADY-loaded Get2FASettings result
+// mfaStatusWith derives MFAStatus from an ALREADY-loaded Get2FASettings result
 // (and its lookup error) instead of re-reading 2FA settings here (#228), so a
 // caller that already read them — e.g. GET /me, which threads one Get2FASettings
 // through MFAStatus, the step-up methods, and the step-up 2FA options — does not
 // recompute the read. Behaviour matches MFAStatus exactly: a "no 2FA row" lookup
 // (pgx.ErrNoRows) is the empty/disabled status, any other error propagates.
-func (s *Engine) MFAStatusWith(settings *authflow.TwoFactorSettings, settingsErr error) (authflow.MFAStatus, error) {
+func (s *Engine) mfaStatusWith(settings *authflow.TwoFactorSettings, settingsErr error) (authflow.MFAStatus, error) {
 	if errors.Is(settingsErr, pgx.ErrNoRows) {
 		return authflow.MFAStatus{}, nil
 	}

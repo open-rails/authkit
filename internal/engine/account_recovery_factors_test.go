@@ -58,7 +58,7 @@ func TestAccountRecoveryUsesExistingCredentialAndMFACeremonies(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, fixtureBackend(f.service.Backend()).AdminSetPassword(t.Context(), user.ID, "Correct-recovery-password-1"))
 	require.NoError(t, fixtureBackend(f.service.Backend()).MarkEmailVerified(t.Context(), user.ID))
-	backups, err := fixtureBackend(f.service.Backend()).Enable2FA(t.Context(), user.ID, "email", nil, authflow.AllowAdditionalFactors)
+	backups, err := fixtureBackend(f.service.Backend()).enableFactor(t.Context(), user.ID, "email", nil, authflow.AllowAdditionalFactors)
 	require.NoError(t, err)
 	beforeDelete := f.expect(403, f.post("/password/login", map[string]any{"identifier": *user.Email, "password": "Correct-recovery-password-1"}))
 	beforeCode := f.email.lastLoginCode()
@@ -143,7 +143,7 @@ func TestAccountRecoveryUsesExistingCredentialAndMFACeremonies(t *testing.T) {
 	}
 	f.expect(200, f.post("/solana/login", walletProof()))
 	var walletUser string
-	require.NoError(t, fixtureBackend(f.service.Backend()).Postgres().QueryRow(t.Context(), `SELECT user_id::text FROM user_providers WHERE subject=$1`, address).Scan(&walletUser))
+	require.NoError(t, fixtureBackend(f.service.Backend()).pg.QueryRow(t.Context(), `SELECT user_id::text FROM user_providers WHERE subject=$1`, address).Scan(&walletUser))
 	remove(walletUser)
 	wallet := walletProof()
 	confirmed = f.expect(409, f.post("/solana/login", wallet))

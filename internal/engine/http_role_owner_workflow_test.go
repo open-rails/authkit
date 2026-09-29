@@ -16,7 +16,7 @@ func TestRoleOwnerHTTPWorkflow(t *testing.T) {
 	cfg.Roles.Roles = append(cfg.Roles.Roles, Role{Persona: "org", Name: "manager", Permissions: []string{"org:members:manage", "org:credentials:manage", "org:catalog:read"}})
 	client := newServerClient(t, cfg, pg.Pool)
 	ctx := context.Background()
-	_, err := client.EnsureRootGroup(ctx)
+	_, err := client.ensureRootGroup(ctx)
 	require.NoError(t, err)
 	srv, err := newTestService(client, workflowHTTPConfig())
 	require.NoError(t, err)

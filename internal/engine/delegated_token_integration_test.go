@@ -201,7 +201,7 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 		Issuer:    cfg.Token.Issuer,
 		Audiences: cfg.Delegated.Audiences,
 		Signer:    client,
-		Store:     client.DocumentStore(),
+		Store:     client.documentStore(),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -465,7 +465,7 @@ func TestDelegatedTokenRoute_KIDRotationReconciliation(t *testing.T) {
 		Issuer:    cfg.Token.Issuer,
 		Audiences: cfg.Delegated.Audiences,
 		Signer:    client,
-		Store:     client.DocumentStore(),
+		Store:     client.documentStore(),
 	})
 	require.NoError(t, err)
 	digest := docSvc.Reference().Digest

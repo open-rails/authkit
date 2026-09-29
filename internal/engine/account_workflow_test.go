@@ -443,7 +443,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	verify := f.expect(403, f.post("/password/login", map[string]any{"identifier": email, "password": "Correct-horse-battery-1"}))
 	require.Equal(t, "verification_required", verify.Error.Code)
 	require.NoError(t, fixtureBackend(f.service.Backend()).MarkEmailVerified(ctx, user.ID))
-	backups, err := fixtureBackend(f.service.Backend()).Enable2FA(ctx, user.ID, "email", nil, authflow.AllowAdditionalFactors)
+	backups, err := fixtureBackend(f.service.Backend()).enableFactor(ctx, user.ID, "email", nil, authflow.AllowAdditionalFactors)
 	require.NoError(t, err)
 	f.expect(202, f.post("/passwordless/start", map[string]any{"identifier": email}))
 	ch := f.expect(403, f.post("/passwordless/confirm", map[string]any{"identifier": email, "code": f.email.verificationCode(t)}))
@@ -461,7 +461,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	bootstrapCfg := cfg
 	bootstrapCfg.TwoFactor.Mode = iam.TwoFactorDisabled
 	bootstrap := newServerClient(t, bootstrapCfg, pg.Pool)
-	_, err = bootstrap.EnsureRootGroup(ctx)
+	_, err = bootstrap.ensureRootGroup(ctx)
 	require.NoError(t, err)
 	passkeyUser, err := bootstrap.CreateUser(ctx, uniqueEmail("uv-role"), "uv"+uniqueSuffix())
 	require.NoError(t, err)
@@ -497,7 +497,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	require.NoError(t, fixtureBackend(old.service.Backend()).AdminSetPassword(ctx, refreshUser.ID, "Correct-horse-battery-1"))
 	require.NoError(t, fixtureBackend(old.service.Backend()).MarkEmailVerified(ctx, refreshUser.ID))
 	initial := old.expect(200, old.post("/password/login", map[string]any{"identifier": *refreshUser.Email, "password": "Correct-horse-battery-1"}))
-	_, err = fixtureBackend(f.service.Backend()).Enable2FA(ctx, refreshUser.ID, "email", nil, authflow.AllowAdditionalFactors)
+	_, err = fixtureBackend(f.service.Backend()).enableFactor(ctx, refreshUser.ID, "email", nil, authflow.AllowAdditionalFactors)
 	require.NoError(t, err)
 	needed := f.expect(403, f.post("/token", map[string]any{"grant_type": "refresh_token", "refresh_token": initial.RefreshToken}))
 	require.Equal(t, "2fa_required", needed.Error.Code)
@@ -633,7 +633,7 @@ func TestProviderAuthenticationWorkflow(t *testing.T) {
 }
 
 func testRegistrationRollback(f *accountFlow, inviter string) {
-	t, pool, ctx := f.t, fixtureBackend(f.service.Backend()).Postgres(), f.t.Context()
+	t, pool, ctx := f.t, fixtureBackend(f.service.Backend()).pg, f.t.Context()
 	_, err := pool.Exec(ctx, `CREATE FUNCTION registration_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected invite consume failure'; END $$; CREATE TRIGGER registration_failure BEFORE UPDATE OF consumed_at ON account_registration_invites FOR EACH ROW EXECUTE FUNCTION registration_failure()`)
 	require.NoError(t, err)
 	defer func() {
@@ -680,7 +680,7 @@ func testRegistrationRollback(f *accountFlow, inviter string) {
 }
 
 func testProofLifecycle(f *accountFlow) {
-	t, pool, ctx := f.t, fixtureBackend(f.service.Backend()).Postgres(), f.t.Context()
+	t, pool, ctx := f.t, fixtureBackend(f.service.Backend()).pg, f.t.Context()
 	for _, phone := range []bool{false, true} {
 		for _, passwordless := range []bool{false, true} {
 			identifier := uniqueEmail("lifecycle")
@@ -781,7 +781,7 @@ func testProofLifecycle(f *accountFlow) {
 }
 
 func testPausedPasswordRecovery(f *accountFlow) {
-	t, pool, ctx := f.t, fixtureBackend(f.service.Backend()).Postgres(), f.t.Context()
+	t, pool, ctx := f.t, fixtureBackend(f.service.Backend()).pg, f.t.Context()
 	user, err := fixtureBackend(f.service.Backend()).CreateUser(ctx, uniqueEmail("paused-password"), "paused"+uniqueSuffix())
 	require.NoError(t, err)
 	require.NoError(t, fixtureBackend(f.service.Backend()).AdminSetPassword(ctx, user.ID, "Original-password-12345"))

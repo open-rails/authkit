@@ -83,17 +83,17 @@ func (s *Engine) ConfirmVerification(ctx context.Context, in authflow.Verificati
 			method, event = "sms", "phone_verification"
 		}
 		if kind.isEmail() {
-			s.ClearEmailVerifyCodeAttempts(ctx, rec.Target)
+			s.clearEmailVerifyCodeAttempts(ctx, rec.Target)
 		} else {
-			s.ClearPhoneVerifyCodeAttempts(ctx, rec.Target)
+			s.clearPhoneVerifyCodeAttempts(ctx, rec.Target)
 		}
 		return s.finishFirstFactor(ctx, loginProof{Version: account.Version, AuthenticatedAt: time.Now().UTC(), Input: loginSessionInput{UserID: account.ID, AuthMethods: []string{method}, Event: event, UserAgent: in.UserAgent, IP: in.IP}})
 	}
 	if in.Token == "" {
 		if strings.Contains(in.Identifier, "@") {
-			s.RecordFailedEmailVerifyCode(ctx, in.Identifier)
+			s.recordFailedEmailVerifyCode(ctx, in.Identifier)
 		} else {
-			s.RecordFailedPhoneVerifyCode(ctx, in.Identifier)
+			s.recordFailedPhoneVerifyCode(ctx, in.Identifier)
 		}
 	}
 	return authflow.LoginOutcome{}, jwt.ErrTokenUnverifiable

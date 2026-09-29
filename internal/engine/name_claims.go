@@ -60,8 +60,8 @@ func renameNameClaim(ctx context.Context, q db.DBTX, kind, persona, id, oldName,
 	return claimCanonicalName(ctx, q, kind, persona, newName, id, now)
 }
 
-// ResolveUsername resolves current names and unexpired aliases directly to UUID.
-func (s *Engine) ResolveUsername(ctx context.Context, name string) (iam.NameResolution, error) {
+// resolveUsername resolves current names and unexpired aliases directly to UUID.
+func (s *Engine) resolveUsername(ctx context.Context, name string) (iam.NameResolution, error) {
 	if err := s.requirePG(); err != nil {
 		return iam.NameResolution{}, err
 	}

@@ -65,7 +65,7 @@ func (s *Engine) adminUserDirectoryQuery(ctx context.Context, o iam.AdminUserLis
 	}
 
 	if ent := strings.TrimSpace(o.Entitlement); ent != "" {
-		fp, ok := s.entitlementsProvider().(EntitlementFilterProvider)
+		fp, ok := s.entitlementsProvider().(entitlementFilterProvider)
 		if !ok {
 			return "", nil, nil, iam.ErrEntitlementFilterUnavailable
 		}
@@ -218,6 +218,6 @@ func (s *Engine) AdminGetUser(ctx context.Context, id string) (*iam.AdminUser, e
 		PreferredLanguage: u.PreferredLanguage, AvatarURL: u.AvatarURL,
 	}
 	a.Roles, a.RemovedRoles = s.rootRoleSlugsByUser(ctx, id)
-	a.Entitlements = s.ListEntitlements(ctx, id)
+	a.Entitlements = s.listEntitlements(ctx, id)
 	return a, nil
 }

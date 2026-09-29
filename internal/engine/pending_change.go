@@ -298,24 +298,3 @@ func (s *Engine) consumePendingChangeCode(ctx context.Context, rec pendingChange
 	}
 	return s.finalizePendingChange(ctx, rec, keepSessionID)
 }
-
-// consumePendingChangeByLink redeems the 256-bit link token: the pointer is
-// consumed atomically (single-use), then the record it names must be of the
-// expected kind and still carry that link hash.
-func (s *Engine) consumePendingChangeByLink(ctx context.Context, linkHash string, expectKind pendingChangeKind) (string, error) {
-	key, ok := s.consumeLink(ctx, pendingChangeLinkKey(expectKind, linkHash))
-	if !ok {
-		return "", jwt.ErrTokenUnverifiable
-	}
-	rec, ok, err := s.loadPendingChange(ctx, key)
-	if err != nil {
-		return "", err
-	}
-	if !ok || rec.Kind != expectKind || !secret.Equal(rec.LinkHash, linkHash) {
-		return "", jwt.ErrTokenUnverifiable
-	}
-	if err := s.claimPendingChange(ctx, rec); err != nil {
-		return "", err
-	}
-	return s.finalizePendingChange(ctx, rec, nil)
-}

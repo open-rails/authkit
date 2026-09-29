@@ -33,16 +33,16 @@ type SMSSender interface {
 	SendContactChanged(ctx context.Context, phone string, change iam.ContactChange) error
 }
 
-// SMSHealthChecker mirrors authkit.SMSHealthChecker.
-type SMSHealthChecker interface {
+// smsHealthChecker mirrors authkit.SMSHealthChecker.
+type smsHealthChecker interface {
 	CheckHealth(ctx context.Context) error
 }
 
 // HasEmailSender returns true if an email sender is configured.
 func (s *Engine) HasEmailSender() bool { return s.email != nil }
 
-// HasSMSSender returns true if an SMS sender is configured.
-func (s *Engine) HasSMSSender() bool { return s.sms != nil }
+// hasSMSSender returns true if an SMS sender is configured.
+func (s *Engine) hasSMSSender() bool { return s.sms != nil }
 
 // smsHealth is the latest SMS deliverability verdict. It is optimistic: SMS
 // counts as available until a check has failed, so startup never waits on the
@@ -70,7 +70,7 @@ func (s *Engine) CheckSMSHealth(ctx context.Context) error {
 	if s == nil {
 		return nil
 	}
-	checker, ok := s.sms.(SMSHealthChecker)
+	checker, ok := s.sms.(smsHealthChecker)
 	if s.sms == nil || !ok {
 		s.smsHealth.record(nil)
 		return nil
@@ -86,7 +86,7 @@ func (s *Engine) SMSHealthy() bool { return s != nil && s.smsHealth.available() 
 // SMSAvailable reports whether phone-based flows should be offered: a sender is
 // configured and the latest health check (if any) passed.
 func (s *Engine) SMSAvailable() bool {
-	return s.HasSMSSender() && s.SMSHealthy()
+	return s.hasSMSSender() && s.SMSHealthy()
 }
 
 func emailDeliveryError(err error) error {
@@ -109,7 +109,7 @@ func (s *Engine) ValidateVerificationConfiguration() error {
 	if s == nil {
 		return nil
 	}
-	policy := s.RegistrationVerificationPolicy()
+	policy := s.registrationVerificationPolicy()
 	hasVerificationSender := s.email != nil || s.sms != nil
 
 	if policy == iam.RegistrationVerificationRequired && !hasVerificationSender {

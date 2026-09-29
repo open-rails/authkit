@@ -21,7 +21,7 @@ import (
 // ErrAccountExistsLinkRequired, ErrRegistrationDisabled, ErrProviderLinkFailed,
 // ErrUserCreationFailed. Session and MFA errors come from the shared login workflow.
 func (s *Engine) CompleteExternalLogin(ctx context.Context, in authflow.ExternalLoginInput) (authflow.LoginOutcome, error) {
-	userID, created, err := s.ResolveExternalIdentity(ctx, in)
+	userID, created, err := s.resolveExternalIdentity(ctx, in)
 	if err != nil {
 		return authflow.LoginOutcome{}, err
 	}
@@ -42,10 +42,10 @@ func (s *Engine) CompleteExternalLogin(ctx context.Context, in authflow.External
 	return out, err
 }
 
-// ResolveExternalIdentity maps a verified provider identity to a local user
+// resolveExternalIdentity maps a verified provider identity to a local user
 // without issuing a session: the explicit link target, the already-linked
 // account, or a newly registered one (created reports the last case).
-func (s *Engine) ResolveExternalIdentity(ctx context.Context, in authflow.ExternalLoginInput) (userID string, created bool, err error) {
+func (s *Engine) resolveExternalIdentity(ctx context.Context, in authflow.ExternalLoginInput) (userID string, created bool, err error) {
 	id := in.Identity
 	issuer, provider := id.Issuer, id.Provider
 	var emailPtr *string
@@ -56,7 +56,7 @@ func (s *Engine) ResolveExternalIdentity(ctx context.Context, in authflow.Extern
 		if strings.TrimSpace(id.PreferredUsername) == "" {
 			return
 		}
-		if err := s.SetProviderUsername(ctx, userID, issuer, id.Subject, id.PreferredUsername); err != nil {
+		if err := s.setProviderUsername(ctx, userID, issuer, id.Subject, id.PreferredUsername); err != nil {
 			stdlog.Printf("[authkit/security] warning: SetProviderUsername failed (user=%s issuer=%s); %s: %v", userID, issuer, note, err)
 		}
 	}
@@ -88,7 +88,7 @@ func (s *Engine) ResolveExternalIdentity(ctx context.Context, in authflow.Extern
 	if s.cfg.Registration.NativeUserMode == iam.RegistrationModeClosed {
 		return "", false, iam.ErrRegistrationDisabled
 	}
-	username := s.DeriveUsernameForOAuth(ctx, provider, id.PreferredUsername, accountEmail, id.DisplayName)
+	username := s.deriveUsernameForOAuth(ctx, provider, id.PreferredUsername, accountEmail, id.DisplayName)
 	u, err := s.registerAccount(ctx, accountRegistration{User: iam.ImportUserInput{Email: accountEmail, Username: username, EmailVerified: accountEmail != ""}, Provider: &id, InviteToken: in.AccountInviteToken})
 	if err != nil {
 		return "", false, err

@@ -98,7 +98,7 @@ func TestRootRolesApplyInEveryGroup(t *testing.T) {
 		return iam.UserSubject(u.ID)
 	}
 	founder, orgAdmin, banner, siteOwner, member := newUser("founder"), newUser("orgadmin"), newUser("banner"), newUser("siteowner"), newUser("member")
-	_, err := engine.EnsureRootGroup(ctx)
+	_, err := engine.ensureRootGroup(ctx)
 	require.NoError(t, err)
 	acme := iam.GroupBySlug("org", "acme")
 	_, err = engine.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: "org", InstanceSlug: "acme", OwnerSubjectID: founder.ID})
@@ -157,7 +157,7 @@ func newEscalationFixture(t *testing.T) escalationFixture {
 		return iam.UserSubject(u.ID)
 	}
 	f.founder = f.newUser("founder")
-	_, err := e.EnsureRootGroup(ctx)
+	_, err := e.ensureRootGroup(ctx)
 	require.NoError(t, err)
 	f.acmeID, err = e.CreatePermissionGroup(ctx, iam.CreatePermissionGroupRequest{Persona: "org", InstanceSlug: "acme", OwnerSubjectID: f.founder.ID})
 	require.NoError(t, err)

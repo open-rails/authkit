@@ -55,10 +55,6 @@ func (s *Engine) externalInvitesEnabled() bool {
 	return mode == iam.RegistrationModeOpen || mode == iam.RegistrationModeInviteOnly
 }
 
-// ExternalInvitesEnabled exposes the registration-mode gate for HTTP adapters
-// (so a closed-registration deployment can omit/zero the invite-link routes).
-func (s *Engine) ExternalInvitesEnabled() bool { return s.externalInvitesEnabled() }
-
 // inviteURL builds the host-facing accept-invite link: BaseURL + the configured
 // FrontendInvitePath + ?code=. The SPA reads the code and POSTs it to redeem.
 func (s *Engine) inviteURL(code string) string {

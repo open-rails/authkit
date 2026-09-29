@@ -19,7 +19,7 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 	cfg := instanceCreateTestConfig()
 	client := newServerClient(t, cfg, pg.Pool)
 	ctx := context.Background()
-	_, err := client.EnsureRootGroup(ctx)
+	_, err := client.ensureRootGroup(ctx)
 	require.NoError(t, err)
 	srv, err := newTestService(client, workflowHTTPConfig())
 	require.NoError(t, err)
@@ -107,7 +107,7 @@ func TestCrossControlRemoteOwnerDoesNotSatisfyOwnerInvariant(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	client := newServerClient(t, instanceCreateTestConfig(), pg.Pool)
 	ctx := context.Background()
-	_, err := client.EnsureRootGroup(ctx)
+	_, err := client.ensureRootGroup(ctx)
 	require.NoError(t, err)
 	srv, err := newTestService(client, workflowHTTPConfig())
 	require.NoError(t, err)
@@ -127,7 +127,7 @@ func TestCrossControlRemoteOwnerDoesNotSatisfyOwnerInvariant(t *testing.T) {
 	require.ErrorIs(t, assignRole(ctx, client, iam.OperatorActor(), second, iam.RemoteApplicationSubject(app.ID), "owner"), iam.ErrRemoteApplicationNotFound)
 	// Simulate an old invalid assignment: it must not allow the real owner to
 	// depart, although ordinary non-owner ancestor assignments remain valid.
-	_, err = client.Postgres().Exec(ctx, `INSERT INTO group_remote_application_roles(permission_group_id,remote_application_id,role) VALUES($1,$2,'owner')`, other, app.ID)
+	_, err = client.pg.Exec(ctx, `INSERT INTO group_remote_application_roles(permission_group_id,remote_application_id,role) VALUES($1,$2,'owner')`, other, app.ID)
 	require.NoError(t, err)
 	w := serveAuthJSON(srv, http.MethodDelete, "/org/control-two/members/"+owner, "", token)
 	require.Equal(t, http.StatusConflict, w.Code, w.Body.String())

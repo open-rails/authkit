@@ -46,7 +46,7 @@ func newHardeningTestService(t *testing.T) (*httpapi.Service, *pgxpool.Pool, str
 	coreSvc, err := coreFromConfig(hardeningTestConfig(), pool)
 	require.NoError(t, err)
 	t.Cleanup(coreSvc.Close)
-	_, err = coreSvc.EnsureRootGroup(ctx)
+	_, err = coreSvc.ensureRootGroup(ctx)
 	require.NoError(t, err)
 
 	var owner string
@@ -167,7 +167,7 @@ func TestCustomRoleRequiresMFA_HTTP(t *testing.T) {
 	require.Contains(t, w.Body.String(), "2fa_enrollment_required")
 
 	// After enrolling, the SAME assignment succeeds.
-	_, err = fixtureBackend(s.Backend()).Enable2FA(ctx, subject, "email", nil, authflow.AllowAdditionalFactors)
+	_, err = fixtureBackend(s.Backend()).enableFactor(ctx, subject, "email", nil, authflow.AllowAdditionalFactors)
 	require.NoError(t, err)
 	w = driveSub(s, t, assignGR, repl, owner)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())

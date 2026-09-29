@@ -28,12 +28,12 @@ func TestSoleRootOwnerDisable2FA_Refused_DB(t *testing.T) {
 	t.Cleanup(func() { cleanRootGroupTables(ctx, pool) })
 
 	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, keyset{}, Deps{Postgres: pool})
-	if _, err := svc.EnsureRootGroup(ctx); err != nil {
+	if _, err := svc.ensureRootGroup(ctx); err != nil {
 		t.Fatalf("EnsureRootGroup: %v", err)
 	}
 
 	owner1 := insertBareUser(t, pool)
-	if _, err := svc.Enable2FA(ctx, owner1, "email", nil, authflow.AllowAdditionalFactors); err != nil {
+	if _, err := svc.enableFactor(ctx, owner1, "email", nil, authflow.AllowAdditionalFactors); err != nil {
 		t.Fatalf("Enable2FA owner1: %v", err)
 	}
 	if err := assignRole(ctx, svc, iam.OperatorActor(), iam.RootGroup(), iam.UserSubject(owner1), iam.OwnerRole); err != nil {
@@ -44,7 +44,7 @@ func TestSoleRootOwnerDisable2FA_Refused_DB(t *testing.T) {
 	if _, err := svc.Disable2FAWithRemovedRoles(ctx, owner1); !errors.Is(err, iam.ErrCannotRemoveLastAdminRole) {
 		t.Fatalf("sole root owner Disable2FA = %v, want ErrCannotRemoveLastAdminRole", err)
 	}
-	status, err := svc.MFAStatus(ctx, owner1)
+	status, err := svc.mfaStatus(ctx, owner1)
 	if err != nil || !status.Enabled {
 		t.Fatalf("sole owner's 2FA must remain enabled after a refused disable; status=%+v err=%v", status, err)
 	}
@@ -55,7 +55,7 @@ func TestSoleRootOwnerDisable2FA_Refused_DB(t *testing.T) {
 	// Add a second owner; now owner1 can disable their own 2FA (only their
 	// owner role is stripped, owner2 is unaffected).
 	owner2 := insertBareUser(t, pool)
-	if _, err := svc.Enable2FA(ctx, owner2, "email", nil, authflow.AllowAdditionalFactors); err != nil {
+	if _, err := svc.enableFactor(ctx, owner2, "email", nil, authflow.AllowAdditionalFactors); err != nil {
 		t.Fatalf("Enable2FA owner2: %v", err)
 	}
 	if err := assignRole(ctx, svc, iam.OperatorActor(), iam.RootGroup(), iam.UserSubject(owner2), iam.OwnerRole); err != nil {

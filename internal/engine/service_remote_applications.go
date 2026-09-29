@@ -378,23 +378,6 @@ func (s *Engine) GetRemoteApplicationBySlug(ctx context.Context, slug string) (*
 	return remoteAppFromRow(row), nil
 }
 
-// ListRemoteApplications returns every registered remote_application,
-// enabled or not (the admin read).
-func (s *Engine) ListRemoteApplications(ctx context.Context) ([]iam.RemoteApplication, error) {
-	if err := s.requirePG(); err != nil {
-		return nil, err
-	}
-	rows, err := s.q.RemoteApplicationsAll(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var out []iam.RemoteApplication
-	for _, r := range rows {
-		out = append(out, *remoteAppFromRow(remoteAppRow(r)))
-	}
-	return out, nil
-}
-
 // ListEnabledRemoteApplications returns only the enabled remote_applications:
 // the verification-facing snapshot a Verifier trusts issuers from.
 func (s *Engine) ListEnabledRemoteApplications(ctx context.Context) ([]iam.RemoteApplication, error) {

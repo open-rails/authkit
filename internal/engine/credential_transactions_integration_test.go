@@ -19,7 +19,7 @@ func TestCredentialTransactionsResetGrantsExpireOnCredentialChanges(t *testing.T
 		t.Run(change, func(t *testing.T) {
 			ctx := context.Background()
 			srv, sender, _ := passwordlessTestServer(t, true)
-			pool := fixtureBackend(srv.Backend()).Postgres()
+			pool := fixtureBackend(srv.Backend()).pg
 			email := uniqueEmail("audit-old-reset")
 			u, err := fixtureBackend(srv.Backend()).CreateUser(ctx, email, "auditreset"+uniqueSuffix())
 			require.NoError(t, err)
@@ -32,7 +32,7 @@ func TestCredentialTransactionsResetGrantsExpireOnCredentialChanges(t *testing.T
 			case "contact_change":
 				newEmail := uniqueEmail("audit-new-email")
 				require.NoError(t, srv.Backend().RequestEmailChange(ctx, u.ID, newEmail))
-				require.NoError(t, fixtureBackend(srv.Backend()).ConfirmEmailChange(ctx, u.ID, newEmail, sender.verificationCode(t), nil))
+				require.NoError(t, fixtureBackend(srv.Backend()).confirmEmailChange(ctx, u.ID, newEmail, sender.verificationCode(t), nil))
 			case "other_reset":
 				require.NoError(t, srv.Backend().RequestPasswordReset(ctx, email, time.Hour, nil, nil))
 				current := sender.passwordResetToken(t)
@@ -59,13 +59,13 @@ func TestCredentialTransactionsPasswordMutationRollsBackOnFailure(t *testing.T) 
 			t.Run(stage.name+"/"+method, func(t *testing.T) {
 				ctx := context.Background()
 				srv, sender, _ := passwordlessTestServer(t, true)
-				pool := fixtureBackend(srv.Backend()).Postgres()
+				pool := fixtureBackend(srv.Backend()).pg
 				uid := mustPasswordUser(t, srv, "atomic-password")
 				user, err := srv.Backend().AdminGetUser(ctx, uid)
 				require.NoError(t, err)
 				require.NoError(t, srv.Backend().RequestPasswordReset(ctx, *user.Email, time.Hour, nil, nil))
 				reset := sender.passwordResetToken(t)
-				_, refresh, _, err := fixtureBackend(srv.Backend()).IssueRefreshSession(ctx, uid, "atomic", nil)
+				_, refresh, _, err := fixtureBackend(srv.Backend()).issueRefreshSession(ctx, uid, "atomic", nil)
 				require.NoError(t, err)
 				var before, after int64
 				require.NoError(t, pool.QueryRow(ctx, `SELECT credential_version FROM users WHERE id=$1`, uid).Scan(&before))
@@ -104,7 +104,7 @@ func TestCredentialTransactionsProviderLinkGrantDoesNotOutliveSessionRevocation(
 			srv, _, _ := passwordlessTestServer(t, true)
 			provider := newSecurityTestProvider(t, srv, oidc)
 			uid := mustPasswordUser(t, srv, "audit-link-revoke")
-			_, _, access, _, _, err := fixtureBackend(srv.Backend()).IssueAuthenticatedSession(ctx, uid, "audit", nil, []string{"pwd"}, nil)
+			_, _, access, _, _, err := fixtureBackend(srv.Backend()).issueAuthenticatedSession(ctx, uid, "audit", nil, []string{"pwd"}, nil)
 			require.NoError(t, err)
 			start := serveAuthJSON(srv, http.MethodPost, "/oidc/"+provider.Name()+"/link/start", "{}", access)
 			require.Equal(t, http.StatusOK, start.Code, start.Body.String())
@@ -125,7 +125,7 @@ func TestCredentialTransactionsProviderLinkBrowserRetainsSession(t *testing.T) {
 			srv, _, _ := passwordlessTestServer(t, true)
 			provider := newSecurityTestProvider(t, srv, oidc)
 			uid := mustPasswordUser(t, srv, "link-browser")
-			sid, _, access, _, _, err := fixtureBackend(srv.Backend()).IssueAuthenticatedSession(ctx, uid, "link", nil, []string{"pwd"}, nil)
+			sid, _, access, _, _, err := fixtureBackend(srv.Backend()).issueAuthenticatedSession(ctx, uid, "link", nil, []string{"pwd"}, nil)
 			require.NoError(t, err)
 			start := serveAuthJSON(srv, http.MethodPost, "/oidc/"+provider.Name()+"/link/start", "{}", access)
 			require.Equal(t, http.StatusOK, start.Code)

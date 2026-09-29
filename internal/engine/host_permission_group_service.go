@@ -64,7 +64,7 @@ func (s *Engine) initializeGroups() error {
 }
 
 func (s *Engine) logRBACDrift(ctx context.Context) {
-	if report, err := s.RBACDriftReport(ctx); err == nil && report.Total() > 0 {
+	if report, err := s.driftReport(ctx); err == nil && report.Total() > 0 {
 		slog.Default().Warn("authkit: rbac drift detected",
 			"group_user_roles", report.GroupUserRoles,
 			"group_custom_roles", report.CustomRoles,
@@ -73,10 +73,10 @@ func (s *Engine) logRBACDrift(ctx context.Context) {
 	}
 }
 
-// EnsureRootGroup creates the singleton root group if absent (idempotent) and
+// ensureRootGroup creates the singleton root group if absent (idempotent) and
 // returns its internal id. Concurrent cold boots race the singleton index; the
 // loser adopts the winner's row instead of failing (#258).
-func (s *Engine) EnsureRootGroup(ctx context.Context) (string, error) {
+func (s *Engine) ensureRootGroup(ctx context.Context) (string, error) {
 	return s.groupStore().ensureRootGroup(ctx)
 }
 
@@ -146,21 +146,6 @@ func (s *Engine) CreatePermissionGroup(ctx context.Context, req iam.CreatePermis
 		return "", err
 	}
 	return id, nil
-}
-
-// SetPermissionGroupDisplayName updates a group's free-form, non-unique
-// display name (#264 naming doctrine: vanity naming lives here, renameable at
-// will; the slug stays the unique handle). Callers gate authorization.
-func (s *Engine) SetPermissionGroupDisplayName(ctx context.Context, group iam.GroupRef, displayName string) error {
-	if err := s.requirePG(); err != nil {
-		return err
-	}
-	st := s.groupStore()
-	gid, err := s.resolveGroupID(ctx, st, group)
-	if err != nil {
-		return err
-	}
-	return st.SetGroupDisplayName(ctx, gid, truncateDisplayName(displayName))
 }
 
 // UpdateGroupInstanceAs applies settings to one captured UUID. It authorizes
@@ -278,42 +263,6 @@ func (s *Engine) validRoleForPersona(sch *rbac.Schema, persona iam.Persona, role
 	}
 	td, ok := sch.Persona(persona)
 	return ok && td.CustomRoles
-}
-
-// DeletePermissionGroup deletes a group instance (role assignments, api keys,
-// and remote applications cascade). Delete-time naming rule (#264
-// ruling 5): by DEFAULT the slug is TOMBSTONED to the group uuid forever —
-// fail-safe, published references can never be re-claimed. Passing
-// ReleaseSlug frees every deleted canonical name instead; that is safe ONLY for names nothing
-// ever referenced, and the judgment is the host's. authkit itself never
-// deletes a group — dormancy policy is entirely host-side.
-func (s *Engine) DeletePermissionGroup(ctx context.Context, group iam.GroupRef, opts iam.DeletePermissionGroupOptions) error {
-	if err := s.requirePG(); err != nil {
-		return err
-	}
-	if group.IsRoot() {
-		return fmt.Errorf("the root group cannot be deleted: %w", iam.ErrUnknownGroupPersona)
-	}
-	tx, err := s.beginAuthorityTransaction(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	st := s.groupStoreFor(tx)
-	if err := s.lockAuthority(ctx, st.q); err != nil {
-		return err
-	}
-	gid, bound, err := st.requestGroupID(ctx, group)
-	if !bound {
-		gid, err = st.GroupByLiveInstanceSlug(ctx, group)
-	}
-	if err != nil {
-		return err
-	}
-	if err := s.deleteGroupTx(ctx, st, gid, opts); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
 }
 
 // Can is the engine-level authorization check: resolve the group addressed by
@@ -460,8 +409,4 @@ func (s *Engine) groupStoreFor(q db.DBTX) *permissionGroupStore {
 	st := newPermissionGroupStore(q)
 	st.now = s.namingNow
 	return st
-}
-
-func (s *Engine) ResolveGroupSlug(ctx context.Context, group iam.GroupRef) (iam.NameResolution, error) {
-	return s.groupStore().ResolveGroupSlug(ctx, group)
 }

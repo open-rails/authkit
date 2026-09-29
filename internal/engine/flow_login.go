@@ -10,7 +10,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"strings"
 	"time"
 
@@ -35,19 +34,6 @@ type loginSessionInput struct {
 	IP          string
 }
 
-// IssueLoginSession creates the refresh session, mints its access token and
-// writes the session-created audit event — the shared tail of every login.
-// The liveness and MFA gates fire exactly as IssueAuthenticatedSession does
-// (ErrUserBanned, ErrTwoFAEnrollmentRequired).
-func (s *Engine) IssueLoginSession(ctx context.Context, in loginSessionInput) (authflow.IssuedSession, error) {
-	sid, rt, access, exp, _, err := s.IssueAuthenticatedSession(ctx, in.UserID, in.UserAgent, net.ParseIP(in.IP), in.AuthMethods, in.Extra)
-	if err != nil {
-		return authflow.IssuedSession{}, err
-	}
-	s.LogSessionCreated(ctx, in.UserID, in.Event, sid, nullable(in.IP), nullable(in.UserAgent))
-	return authflow.IssuedSession{SessionID: sid, RefreshToken: rt, AccessToken: access, AccessExpiresAt: exp}, nil
-}
-
 // PasswordLogin runs the whole password-login decision tree. It returns an
 // error only when the engine itself failed (a send, the challenge store, the
 // session insert — each prefixed with its stage and, for sends, the
@@ -57,7 +43,7 @@ func (s *Engine) PasswordLogin(ctx context.Context, in authflow.PasswordLoginInp
 	if identifier == "" || in.Password == "" {
 		return s.rejectLogin(ctx, in, "", iam.ErrInvalidCredentials), nil
 	}
-	requiresVerification := s.RegistrationVerificationRequired()
+	requiresVerification := s.registrationVerificationRequired()
 
 	var (
 		u   *iam.User
@@ -166,7 +152,7 @@ func (s *Engine) verificationGate(ctx context.Context, in authflow.PasswordLogin
 		return authflow.LoginOutcome{Kind: authflow.LoginVerificationRequired, UserID: u.ID, Verification: &authflow.VerificationRequired{Identifier: *u.Email, Channel: "email"}}, true, nil
 	}
 	if needsPhone && s.SMSAvailable() {
-		if err := s.SendPhoneVerificationToUser(ctx, *u.PhoneNumber, u.ID, 0); err != nil {
+		if err := s.sendPhoneVerificationToUser(ctx, *u.PhoneNumber, u.ID, 0); err != nil {
 			return authflow.LoginOutcome{}, true, stageErr("send_phone_verification", fmt.Errorf("%w: %w", iam.ErrPhoneVerificationSendFailed, err))
 		}
 		s.loginFailed(ctx, in, u.ID, "phone_not_verified")

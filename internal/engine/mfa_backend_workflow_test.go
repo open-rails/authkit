@@ -64,7 +64,7 @@ func TestMFAEnrollmentBackendFailures(t *testing.T) {
 				defer func() { restore() }()
 				failed := f.expect(500, f.request("POST", "/user/2fa", session, body))
 				require.Equal(t, "internal_error", failed.Error.Code)
-				factors, err := fixtureBackend(f.service.Backend()).List2FAFactors(ctx, user.ID)
+				factors, err := fixtureBackend(f.service.Backend()).listUser2FAFactors(ctx, user.ID)
 				require.NoError(t, err)
 				require.Empty(t, factors)
 				restore()
@@ -81,7 +81,7 @@ func TestMFAEnrollmentBackendFailures(t *testing.T) {
 				}
 				proof()
 				f.expect(200, f.request("POST", "/user/2fa", session, body))
-				factors, err = fixtureBackend(f.service.Backend()).List2FAFactors(ctx, user.ID)
+				factors, err = fixtureBackend(f.service.Backend()).listUser2FAFactors(ctx, user.ID)
 				require.NoError(t, err)
 				require.Len(t, factors, 1, fmt.Sprint(method, " must recover after ", failure))
 			})

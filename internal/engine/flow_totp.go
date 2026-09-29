@@ -36,9 +36,9 @@ type totpEnrollmentData struct {
 	SealedSecret []byte `json:"sealed_secret"`
 }
 
-// StartTOTPEnrollment creates a short-lived pending authenticator-app secret.
-func (s *Engine) StartTOTPEnrollment(ctx context.Context, userID string) (secret, otpauthURI string, err error) {
-	if !s.TwoFactorMethodAvailable(string(iam.TwoFactorTOTP)) {
+// startTOTPEnrollment creates a short-lived pending authenticator-app secret.
+func (s *Engine) startTOTPEnrollment(ctx context.Context, userID string) (secret, otpauthURI string, err error) {
+	if !s.twoFactorMethodAvailable(string(iam.TwoFactorTOTP)) {
 		return "", "", iam.ErrTwoFAMethodUnavailable
 	}
 	if _, err := aes.NewCipher(s.cfg.TwoFactor.TOTPSecretKey); err != nil {
@@ -81,17 +81,10 @@ type totpEnrollment struct {
 	Mode        authflow.FactorEnrollmentMode
 }
 
-// EnableTOTP2FA verifies the pending secret and enables authenticator-app 2FA for
-// the user, returning fresh backup codes.
-func (s *Engine) EnableTOTP2FA(ctx context.Context, in totpEnrollment) ([]string, error) {
-	codes, _, err := s.enableTOTP2FA(ctx, in, "")
-	return codes, err
-}
-
 // enableTOTP2FA also marks provenSessionID 2FA-verified (see enable2FA).
 func (s *Engine) enableTOTP2FA(ctx context.Context, in totpEnrollment, provenSessionID string) ([]string, bool, error) {
 	userID := in.UserID
-	if !s.TwoFactorMethodAvailable(string(iam.TwoFactorTOTP)) {
+	if !s.twoFactorMethodAvailable(string(iam.TwoFactorTOTP)) {
 		return nil, false, iam.ErrTwoFAMethodUnavailable
 	}
 	var pending totpEnrollmentData
@@ -236,8 +229,8 @@ func (s *Engine) decryptTOTPSecret(data []byte) (string, error) {
 	return string(plain), nil
 }
 
-// SendPhone2FASetupCode generates and sends a 6-digit code for 2FA setup to the user's phone.
-func (s *Engine) SendPhone2FASetupCode(ctx context.Context, userID, phone, code string) error {
+// sendPhone2FASetupCode generates and sends a 6-digit code for 2FA setup to the user's phone.
+func (s *Engine) sendPhone2FASetupCode(ctx context.Context, userID, phone, code string) error {
 	hash := sha256Hex(code)
 	// Store code in ephemeral store for 10 minutes, purpose: "2fa_setup"
 	if s.useEphemeralStore() {
@@ -260,8 +253,8 @@ func (s *Engine) SendPhone2FASetupCode(ctx context.Context, userID, phone, code 
 	return nil
 }
 
-// VerifyPhone2FASetupCode checks the code for 2FA phone setup.
-func (s *Engine) VerifyPhone2FASetupCode(ctx context.Context, userID, phone, code string) (bool, error) {
+// verifyPhone2FASetupCode checks the code for 2FA phone setup.
+func (s *Engine) verifyPhone2FASetupCode(ctx context.Context, userID, phone, code string) (bool, error) {
 	hash := sha256Hex(code)
 	if s.useEphemeralStore() {
 		uid, err := s.consumePhoneVerification(ctx, "2fa_setup", phone, hash)

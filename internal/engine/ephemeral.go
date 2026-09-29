@@ -189,17 +189,6 @@ func (s *Engine) ephemConsumeJSON(ctx context.Context, key string, out any) (boo
 	return true, json.Unmarshal(b, out)
 }
 
-func (s *Engine) ephemConsumeString(ctx context.Context, key string) (string, bool, error) {
-	if !s.useEphemeralStore() {
-		return "", false, fmt.Errorf("ephemeral store unavailable")
-	}
-	b, ok, err := s.ephemeral.Consume(ctx, key)
-	if err != nil || !ok {
-		return "", ok, err
-	}
-	return string(b), true, nil
-}
-
 func (s *Engine) ephemIncr(ctx context.Context, key string, ttl time.Duration) (int64, error) {
 	if !s.useEphemeralStore() {
 		return 0, fmt.Errorf("ephemeral store unavailable")

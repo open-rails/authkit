@@ -48,8 +48,8 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 	siteA := site(issuerA, accessTTL, issuerB)
 	siteB := site(issuerB, time.Hour, issuerA, issuerB)
 	siteC := site(issuerC, time.Hour)
-	require.Equal(t, []string{issuerA, issuerB}, fixtureBackend(siteA.Backend()).Config().Token.AccountIssuers)
-	_, err := fixtureBackend(siteA.Backend()).EnsureRootGroup(ctx)
+	require.Equal(t, []string{issuerA, issuerB}, fixtureBackend(siteA.Backend()).cfg.Token.AccountIssuers)
+	_, err := fixtureBackend(siteA.Backend()).ensureRootGroup(ctx)
 	require.NoError(t, err)
 
 	type tokens struct {

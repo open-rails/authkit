@@ -74,7 +74,7 @@ func TestTokenEntitlementSelectionAndBounds(t *testing.T) {
 	s := newEngineFor([]string{"premium", "lifetime"})
 	claims = mint(s)
 	require.Equal(t, []any{"premium"}, claims["entitlements"])
-	require.Equal(t, provider.grants, s.ListEntitlements(t.Context(), "user"), "admin/directory responses remain unfiltered")
+	require.Equal(t, provider.grants, s.listEntitlements(t.Context(), "user"), "admin/directory responses remain unfiltered")
 	provider.grants = []string{"product-1"}
 	require.NotContains(t, mint(s), "entitlements", "an allowlist never manufactures a grant")
 	provider.err = errors.New("provider unavailable")

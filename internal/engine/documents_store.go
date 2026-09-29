@@ -11,11 +11,11 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 )
 
-// DocumentStore returns the engine-owned documents.Store over the
+// documentStore returns the engine-owned documents.Store over the
 // signed_documents table. Digest immutability is enforced by
 // the guarded upsert: an existing digest only ever accepts a compact-JWS
 // replacement for the SAME type + payload bytes.
-func (s *Engine) DocumentStore() documents.Store {
+func (s *Engine) documentStore() documents.Store {
 	return documentStore{q: s.q}
 }
 

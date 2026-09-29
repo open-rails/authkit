@@ -157,7 +157,7 @@ func (s *Engine) VerifySIWSAndLogin(ctx context.Context, output siws.SignInOutpu
 			if username == "" {
 				username = "u_" + output.Account.Address[:min(4, len(output.Account.Address))]
 			}
-			username = s.GenerateAvailableUsername(ctx, username)
+			username = s.generateAvailableUsername(ctx, username)
 		}
 
 		// Create user with no email/phone
@@ -275,8 +275,8 @@ func (s *Engine) linkVerifiedSolanaWallet(ctx context.Context, userID, address s
 	return nil
 }
 
-// GetSolanaAddress retrieves the Solana wallet address linked to a user, if any.
-func (s *Engine) GetSolanaAddress(ctx context.Context, userID string) (string, error) {
+// getSolanaAddress retrieves the Solana wallet address linked to a user, if any.
+func (s *Engine) getSolanaAddress(ctx context.Context, userID string) (string, error) {
 	if s.pg == nil {
 		return "", nil
 	}

@@ -37,8 +37,8 @@ func (s *Engine) GetUserMetadata(ctx context.Context, userID string) (map[string
 	return out, nil
 }
 
-// PatchUserMetadata merges patch into a user's metadata.
-func (s *Engine) PatchUserMetadata(ctx context.Context, userID string, patch map[string]any) error {
+// patchUserMetadata merges patch into a user's metadata.
+func (s *Engine) patchUserMetadata(ctx context.Context, userID string, patch map[string]any) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
@@ -69,12 +69,12 @@ func (s *Engine) PatchUserMetadata(ctx context.Context, userID string, patch map
 	})
 }
 
-// IsUserReserved reports whether a user is a reserved, non-loginable placeholder
+// isUserReserved reports whether a user is a reserved, non-loginable placeholder
 // (the `reserved` metadata flag). The login gate (ensureUserAccess) consults it
 // so reserved placeholders cannot authenticate. The owner-namespace reservation
 // FLOW that set this flag was removed in the permission-group hard cut (#111);
 // the read gate stays as defense-in-depth for any externally-set flag.
-func (s *Engine) IsUserReserved(ctx context.Context, userID string) (bool, error) {
+func (s *Engine) isUserReserved(ctx context.Context, userID string) (bool, error) {
 	if err := s.requirePG(); err != nil {
 		return false, err
 	}
