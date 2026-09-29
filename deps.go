@@ -107,11 +107,8 @@ type SMSHealthChecker interface {
 // active grants only; expired/revoked entitlements are the provider's concern,
 // not AuthKit's.
 //
-// BATCH-NATIVE (#221, operation-shape rule #219): one call answers many users —
-// the map is keyed by user id and unknown/entitlement-less ids are simply
-// absent. A single-user read is the batch with a one-element slice. (This
-// replaces the former single-user signature plus the optional
-// BatchEntitlementsProvider type-assertion upgrade.)
+// One call answers many users: the map is keyed by user id and unknown or
+// entitlement-less ids are absent. A single-user read is a one-element batch.
 type EntitlementsProvider interface {
 	ListEntitlements(ctx context.Context, userIDs []string) (map[string][]string, error)
 }
@@ -129,8 +126,8 @@ type EntitlementFilterProvider interface {
 }
 
 // SolanaSNSResolver resolves a wallet's primary SNS name after a verified link.
-// The default talks to the public sdk-proxy; hosts and tests inject their own
-// via WithSolanaSNSResolver.
+// The default talks to the public sdk-proxy; Deps.SolanaSNSResolver replaces
+// it.
 type SolanaSNSResolver interface {
 	ResolvePrimaryName(ctx context.Context, address string) (string, error)
 }
