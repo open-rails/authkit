@@ -62,7 +62,7 @@
       "method": "DELETE",
       "path": "/api/v1/admin/users/{user_id}",
       "group": "admin",
-      "auth": "required"
+      "auth": "session"
     },
     {
       "method": "GET",
@@ -82,31 +82,31 @@
       "method": "POST",
       "path": "/api/v1/admin/users/{user_id}/ban",
       "group": "admin",
-      "auth": "required"
+      "auth": "session"
     },
     {
       "method": "POST",
       "path": "/api/v1/admin/users/{user_id}/restore",
       "group": "admin",
-      "auth": "required"
+      "auth": "session"
     },
     {
       "method": "DELETE",
       "path": "/api/v1/admin/users/{user_id}/roles/{role}",
       "group": "admin",
-      "auth": "required"
+      "auth": "session"
     },
     {
       "method": "PUT",
       "path": "/api/v1/admin/users/{user_id}/roles/{role}",
       "group": "admin",
-      "auth": "required"
+      "auth": "session"
     },
     {
       "method": "POST",
       "path": "/api/v1/admin/users/{user_id}/sessions/revoke",
       "group": "admin",
-      "auth": "required"
+      "auth": "session"
     },
     {
       "method": "GET",
@@ -126,7 +126,7 @@
       "method": "POST",
       "path": "/api/v1/admin/users/{user_id}/unban",
       "group": "admin",
-      "auth": "required"
+      "auth": "session"
     },
     {
       "method": "GET",
@@ -186,13 +186,13 @@
       "method": "POST",
       "path": "/api/v1/oidc/{provider}/link/start",
       "group": "account",
-      "auth": "required"
+      "auth": "session"
     },
     {
       "method": "POST",
       "path": "/api/v1/oidc/{provider}/step-up/start",
       "group": "account",
-      "auth": "required"
+      "auth": "session"
     },
     {
       "method": "GET",
@@ -222,25 +222,25 @@
       "method": "POST",
       "path": "/api/v1/passkeys/register/begin",
       "group": "account",
-      "auth": "required"
+      "auth": "session"
     },
     {
       "method": "POST",
       "path": "/api/v1/passkeys/register/finish",
       "group": "account",
-      "auth": "required"
+      "auth": "session"
     },
     {
       "method": "DELETE",
       "path": "/api/v1/passkeys/{id}",
       "group": "account",
-      "auth": "required"
+      "auth": "session"
     },
     {
       "method": "PATCH",
       "path": "/api/v1/passkeys/{id}",
       "group": "account",
-      "auth": "required"
+      "auth": "session"
     },
     {
       "method": "POST",
@@ -306,7 +306,7 @@
       "method": "POST",
       "path": "/api/v1/solana/link",
       "group": "account",
-      "auth": "required"
+      "auth": "session"
     },
     {
       "method": "POST",
@@ -318,13 +318,13 @@
       "method": "POST",
       "path": "/api/v1/step-up/2fa",
       "group": "account",
-      "auth": "required"
+      "auth": "session"
     },
     {
       "method": "POST",
       "path": "/api/v1/step-up/password",
       "group": "account",
-      "auth": "required"
+      "auth": "session"
     },
     {
       "method": "POST",
@@ -336,13 +336,13 @@
       "method": "DELETE",
       "path": "/api/v1/user",
       "group": "account",
-      "auth": "required"
+      "auth": "session"
     },
     {
       "method": "DELETE",
       "path": "/api/v1/user/2fa",
       "group": "account",
-      "auth": "required"
+      "auth": "session"
     },
     {
       "method": "GET",
@@ -360,37 +360,37 @@
       "method": "POST",
       "path": "/api/v1/user/2fa",
       "group": "account",
-      "auth": "required"
+      "auth": "session"
     },
     {
       "method": "POST",
       "path": "/api/v1/user/2fa/backup-codes",
       "group": "account",
-      "auth": "required"
+      "auth": "session"
     },
     {
       "method": "POST",
       "path": "/api/v1/user/password",
       "group": "account",
-      "auth": "required"
+      "auth": "session"
     },
     {
       "method": "PATCH",
       "path": "/api/v1/user/preferred-language",
       "group": "account",
-      "auth": "required"
+      "auth": "session"
     },
     {
       "method": "DELETE",
       "path": "/api/v1/user/providers/{provider}",
       "group": "account",
-      "auth": "required"
+      "auth": "session"
     },
     {
       "method": "DELETE",
       "path": "/api/v1/user/sessions",
       "group": "account",
-      "auth": "required"
+      "auth": "session"
     },
     {
       "method": "GET",
@@ -408,13 +408,13 @@
       "method": "DELETE",
       "path": "/api/v1/user/sessions/{id}",
       "group": "account",
-      "auth": "required"
+      "auth": "session"
     },
     {
       "method": "PATCH",
       "path": "/api/v1/user/username",
       "group": "account",
-      "auth": "required"
+      "auth": "session"
     },
     {
       "method": "POST",

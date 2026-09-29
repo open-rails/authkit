@@ -99,13 +99,14 @@ func TestSecurityUnbanRequiresAuthority(t *testing.T) {
 		name   string
 		target account
 		token  string
+		status int // the ban ended the moderator's own session
 	}{
-		{"banned moderator lifts own ban with a pre-ban token", moderator, moderatorToken},
-		{"moderator lifts the ban of a more privileged admin", admin, peerToken},
+		{"banned moderator lifts own ban with a pre-ban token", moderator, moderatorToken, http.StatusUnauthorized},
+		{"moderator lifts the ban of a more privileged admin", admin, peerToken, http.StatusForbidden},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			resp := unban(tc.target, tc.token)
-			require.Equal(t, http.StatusForbidden, resp.status, resp.String())
+			require.Equal(t, tc.status, resp.status, resp.String())
 			u, err := h.auth.User(ctx, iam.UserByID(tc.target.id), iam.IncludeDeleted())
 			require.NoError(t, err)
 			require.NotNil(t, u.Ban, "ban was lifted")
