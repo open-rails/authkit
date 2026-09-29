@@ -169,7 +169,7 @@ func createAccountInvite(t *testing.T, srv *httpapi.Service, pool *pgxpool.Pool,
 	ctx := context.Background()
 	_, err := fixtureBackend(srv.Backend()).ensureRootGroup(ctx)
 	require.NoError(t, err)
-	inviter, err := fixtureBackend(srv.Backend()).CreateUser(ctx, uniqueEmail("account-inviter"), "accountinviter"+uniqueSuffix())
+	inviter, err := fixtureBackend(srv.Backend()).createUser(ctx, uniqueEmail("account-inviter"), "accountinviter"+uniqueSuffix())
 	require.NoError(t, err)
 	seedRole(t, fixtureBackend(srv.Backend()), iam.RootGroup(), iam.UserSubject(inviter.ID), iam.OwnerRole)
 	invite, err := srv.Backend().CreateAccountInvite(ctx, iam.UserActor(inviter.ID), iam.NewAccountInvite{Email: email})
@@ -420,15 +420,15 @@ func mustPasswordUser(t *testing.T, srv *httpapi.Service, prefix string) string 
 	t.Helper()
 	email := uniqueEmail(prefix)
 	username := strings.ReplaceAll(prefix, "-", "") + uniqueSuffix()
-	user, err := fixtureBackend(srv.Backend()).CreateUser(context.Background(), email, username)
+	user, err := fixtureBackend(srv.Backend()).createUser(context.Background(), email, username)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_, _ = fixtureBackend(srv.Backend()).pg.Exec(context.Background(), `DELETE FROM users WHERE id=$1::uuid`, user.ID)
 	})
-	require.NoError(t, fixtureBackend(srv.Backend()).MarkEmailVerified(context.Background(), user.ID))
+	require.NoError(t, fixtureBackend(srv.Backend()).markEmailVerified(context.Background(), user.ID))
 	hash, err := password.HashArgon2id("Correct-password-12345")
 	require.NoError(t, err)
-	require.NoError(t, fixtureBackend(srv.Backend()).UpsertPasswordHash(context.Background(), user.ID, hash, "argon2id"))
+	require.NoError(t, fixtureBackend(srv.Backend()).upsertPasswordHash(context.Background(), user.ID, hash, "argon2id"))
 	return user.ID
 }
 
@@ -445,14 +445,14 @@ func testPasskeyFullCeremonyAndAssurance(t *testing.T) {
 	srv, err := newServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
 	require.NoError(t, err)
 
-	user, err := fixtureBackend(srv.Backend()).CreateUser(ctx, uniqueEmail("passkey-full"), "passkeyfull"+uniqueSuffix())
+	user, err := fixtureBackend(srv.Backend()).createUser(ctx, uniqueEmail("passkey-full"), "passkeyfull"+uniqueSuffix())
 	require.NoError(t, err)
-	require.NoError(t, fixtureBackend(srv.Backend()).MarkEmailVerified(ctx, user.ID))
+	require.NoError(t, fixtureBackend(srv.Backend()).markEmailVerified(ctx, user.ID))
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, user.ID) })
 
 	sid, _, _, err := fixtureBackend(srv.Backend()).issueRefreshSession(ctx, user.ID, "test", nil)
 	require.NoError(t, err)
-	setupToken, _, err := srv.Backend().MintAccessToken(ctx, user.ID, map[string]any{"sid": sid})
+	setupToken, _, err := fixtureBackend(srv.Backend()).mintTestAccessToken(ctx, user.ID, map[string]any{"sid": sid})
 	require.NoError(t, err)
 
 	authn := passkeytest.New(t, "https://example.com")
@@ -884,15 +884,15 @@ func instanceCreateTestConfig() Config {
 func newInstanceTestUser(t *testing.T, srv *httpapi.Service, prefix string) (id, token string) {
 	t.Helper()
 	ctx := context.Background()
-	user, err := fixtureBackend(srv.Backend()).CreateUser(ctx, uniqueEmail(prefix), prefix+uniqueSuffix())
+	user, err := fixtureBackend(srv.Backend()).createUser(ctx, uniqueEmail(prefix), prefix+uniqueSuffix())
 	require.NoError(t, err)
-	require.NoError(t, fixtureBackend(srv.Backend()).MarkEmailVerified(ctx, user.ID))
+	require.NoError(t, fixtureBackend(srv.Backend()).markEmailVerified(ctx, user.ID))
 	t.Cleanup(func() {
 		_, _ = fixtureBackend(srv.Backend()).pg.Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, user.ID)
 	})
 	sid, _, _, err := fixtureBackend(srv.Backend()).issueRefreshSession(ctx, user.ID, "test", nil)
 	require.NoError(t, err)
-	tok, _, err := srv.Backend().MintAccessToken(ctx, user.ID, map[string]any{"sid": sid})
+	tok, _, err := fixtureBackend(srv.Backend()).mintTestAccessToken(ctx, user.ID, map[string]any{"sid": sid})
 	require.NoError(t, err)
 	return user.ID, tok
 }
@@ -935,15 +935,15 @@ func newCookieTestUser(t *testing.T, pool *pgxpool.Pool, srv *httpapi.Service, p
 	ctx := context.Background()
 	email = uniqueEmail(prefix)
 	pass = "correct-horse-battery-97"
-	user, err := fixtureBackend(srv.Backend()).CreateUser(ctx, email, prefix+uniqueSuffix())
+	user, err := fixtureBackend(srv.Backend()).createUser(ctx, email, prefix+uniqueSuffix())
 	require.NoError(t, err)
-	require.NoError(t, fixtureBackend(srv.Backend()).MarkEmailVerified(ctx, user.ID))
+	require.NoError(t, fixtureBackend(srv.Backend()).markEmailVerified(ctx, user.ID))
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id=$1::uuid`, user.ID)
 	})
 	hash, err := password.HashArgon2id(pass)
 	require.NoError(t, err)
-	require.NoError(t, fixtureBackend(srv.Backend()).UpsertPasswordHash(ctx, user.ID, hash, "argon2id"))
+	require.NoError(t, fixtureBackend(srv.Backend()).upsertPasswordHash(ctx, user.ID, hash, "argon2id"))
 	return email, pass
 }
 
@@ -952,20 +952,20 @@ func stalePasswordUserToken(t *testing.T, srv *httpapi.Service, pool *pgxpool.Po
 	ctx := context.Background()
 	email := uniqueEmail(prefix)
 	username := strings.ReplaceAll(prefix, "-", "") + uniqueSuffix()
-	user, err := fixtureBackend(srv.Backend()).CreateUser(ctx, email, username)
+	user, err := fixtureBackend(srv.Backend()).createUser(ctx, email, username)
 	require.NoError(t, err)
-	require.NoError(t, fixtureBackend(srv.Backend()).MarkEmailVerified(ctx, user.ID))
+	require.NoError(t, fixtureBackend(srv.Backend()).markEmailVerified(ctx, user.ID))
 	t.Cleanup(func() {
 		_, _ = fixtureBackend(srv.Backend()).pg.Exec(ctx, `DELETE FROM users WHERE id=$1::uuid`, user.ID)
 	})
 	hash, err := password.HashArgon2id(pass)
 	require.NoError(t, err)
-	require.NoError(t, fixtureBackend(srv.Backend()).UpsertPasswordHash(ctx, user.ID, hash, "argon2id"))
+	require.NoError(t, fixtureBackend(srv.Backend()).upsertPasswordHash(ctx, user.ID, hash, "argon2id"))
 	sid, _, _, err := fixtureBackend(srv.Backend()).issueRefreshSession(ctx, user.ID, "test", nil)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE refresh_sessions SET last_authenticated_at=$1 WHERE id=$2::uuid`, time.Now().Add(-time.Hour), sid)
 	require.NoError(t, err)
-	token, _, err := srv.Backend().MintAccessToken(ctx, user.ID, map[string]any{"sid": sid})
+	token, _, err := fixtureBackend(srv.Backend()).mintTestAccessToken(ctx, user.ID, map[string]any{"sid": sid})
 	require.NoError(t, err)
 	return user.ID, token
 }

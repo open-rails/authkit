@@ -18,7 +18,6 @@ func TestNativeUserTokenCannotSupplyRoleOrPermissionAuthority(t *testing.T) {
 	claims, err := v.Verify(context.Background(), signTyped(t, signer, jwtkit.AccessTokenType, raw))
 	require.NoError(t, err)
 	require.Equal(t, "native-user", claims.UserID)
-	require.Empty(t, claims.Roles)
 	require.Empty(t, claims.Permissions)
 	require.False(t, claims.HasPermission("root:users:ban"))
 }

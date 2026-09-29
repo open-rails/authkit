@@ -21,7 +21,7 @@ func TestCredentialTransactionsResetGrantsExpireOnCredentialChanges(t *testing.T
 			srv, sender, _ := passwordlessTestServer(t, true)
 			pool := fixtureBackend(srv.Backend()).pg
 			email := uniqueEmail("audit-old-reset")
-			u, err := fixtureBackend(srv.Backend()).CreateUser(ctx, email, "auditreset"+uniqueSuffix())
+			u, err := fixtureBackend(srv.Backend()).createUser(ctx, email, "auditreset"+uniqueSuffix())
 			require.NoError(t, err)
 			t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id=$1`, u.ID) })
 			require.NoError(t, srv.Backend().RequestPasswordReset(ctx, email, time.Hour, nil, nil))
@@ -61,7 +61,7 @@ func TestCredentialTransactionsPasswordMutationRollsBackOnFailure(t *testing.T) 
 				srv, sender, _ := passwordlessTestServer(t, true)
 				pool := fixtureBackend(srv.Backend()).pg
 				uid := mustPasswordUser(t, srv, "atomic-password")
-				user, err := srv.Backend().AdminGetUser(ctx, uid)
+				user, err := fixtureBackend(srv.Backend()).getUserByID(ctx, uid)
 				require.NoError(t, err)
 				require.NoError(t, srv.Backend().RequestPasswordReset(ctx, *user.Email, time.Hour, nil, nil))
 				reset := sender.passwordResetToken(t)
@@ -81,7 +81,7 @@ func TestCredentialTransactionsPasswordMutationRollsBackOnFailure(t *testing.T) 
 				case "fresh":
 					changeErr = srv.Backend().SetPasswordAfterFreshAuth(ctx, uid, "Replacement-password-12345", nil)
 				case "admin":
-					changeErr = fixtureBackend(srv.Backend()).AdminSetPassword(ctx, uid, "Replacement-password-12345")
+					changeErr = fixtureBackend(srv.Backend()).adminSetPassword(ctx, uid, "Replacement-password-12345")
 				case "reset":
 					_, changeErr = srv.Backend().ConfirmPasswordReset(ctx, reset, "Replacement-password-12345")
 				}

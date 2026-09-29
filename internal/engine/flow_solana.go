@@ -276,22 +276,6 @@ func (s *Engine) linkVerifiedSolanaWallet(ctx context.Context, userID, address s
 	return nil
 }
 
-// getSolanaAddress retrieves the Solana wallet address linked to a user, if any.
-func (s *Engine) getSolanaAddress(ctx context.Context, userID string) (string, error) {
-	if s.pg == nil {
-		return "", nil
-	}
-
-	row, err := s.q.UserProviderSubjectProfileByIssuer(ctx, db.UserProviderSubjectProfileByIssuerParams{UserID: userID, Issuer: s.solanaIssuer()})
-	if err != nil {
-		return "", nil // No wallet linked
-	}
-	if row.VerifiedAt == nil {
-		return "", nil
-	}
-	return row.Subject, nil
-}
-
 // verifySIWSChallenge performs the stateless verification of a SIWS sign-in
 // output against a stored challenge. It does not touch the database or cache, so
 // it is unit-testable in isolation. parsedInput is the result of parsing

@@ -231,7 +231,7 @@ func (s *Engine) verifyDeviceKeySecondFactor(ctx context.Context, userID, code s
 
 // notifyDeviceKeyEnrolled is best-effort: the key is already enrolled, so a
 // delivery failure is logged rather than reported as a failed enrollment.
-func (s *Engine) notifyDeviceKeyEnrolled(ctx context.Context, u *iam.User, key authflow.DeviceKey) {
+func (s *Engine) notifyDeviceKeyEnrolled(ctx context.Context, u *userRecord, key authflow.DeviceKey) {
 	if s.email == nil || u.Email == nil {
 		return
 	}

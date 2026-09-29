@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"time"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
@@ -10,19 +9,16 @@ import (
 
 // usersBackend is the account directory and account administration.
 type usersBackend interface {
-	AdminGetUser(ctx context.Context, id string) (*iam.AdminUser, error)
-	AdminListUsers(ctx context.Context, opts iam.AdminUserListOptions) (*iam.AdminListUsersResult, error)
-	BanUser(ctx context.Context, userID string, reason *string, until *time.Time, bannedBy string) error
-	GetUserByEmail(ctx context.Context, email string) (*iam.User, error)
-	GetUserByPhone(ctx context.Context, phone string) (*iam.User, error)
-	PublicUsersByIDs(ctx context.Context, ids []string) (map[string]iam.PublicUserRef, error)
-	UpdateUsername(ctx context.Context, id, username string) error
-	UnbanUserAs(ctx context.Context, actorUserID, userID string) error
-	GetPreferredLanguage(ctx context.Context, userID string) (authflow.PreferredLanguage, error)
-	SetPreferredLanguage(ctx context.Context, userID, language string) error
-	SoftDeleteUser(ctx context.Context, id string) error
-	SoftDeleteUserAs(ctx context.Context, actorUserID, userID string) error
-	RestoreUserAs(ctx context.Context, actorUserID, userID string) error
+	User(ctx context.Context, ref iam.UserRef, opts ...iam.ReadOption) (iam.User, error)
+	PublicUsers(ctx context.Context, ids []string) (map[string]iam.PublicUser, error)
+	ListUsers(ctx context.Context, q iam.UserQuery) (iam.ListPage[iam.User], error)
+	UserDirectoryDetails(ctx context.Context, ids []string) map[string]authflow.UserDirectoryDetail
+	UpdateUser(ctx context.Context, a iam.Actor, userID string, u iam.UserUpdate) (iam.User, error)
+	Ban(ctx context.Context, a iam.Actor, userID string, b iam.Ban) error
+	Unban(ctx context.Context, a iam.Actor, userID string) error
+	DeleteUsers(ctx context.Context, a iam.Actor, ids []string) ([]iam.OpResult, error)
+	RestoreUsers(ctx context.Context, a iam.Actor, ids []string) ([]iam.OpResult, error)
 	UserNamingState(ctx context.Context, id string) (iam.NamingState, error)
+	HasUsableMFA(ctx context.Context, userID string) (bool, error)
 	UserProfile(ctx context.Context, in authflow.ProfileInput) (authflow.UserProfile, error)
 }

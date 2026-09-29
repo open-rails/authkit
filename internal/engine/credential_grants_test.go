@@ -16,7 +16,7 @@ func TestCredentialChangesHaveOneConcurrentWinner(t *testing.T) {
 			svc, _ := newHardeningService(t)
 			ctx := context.Background()
 			u, email := newHardeningUser(t, ctx, svc, "parallel")
-			require.NoError(t, svc.AdminSetPassword(ctx, u.ID, "Original-password-12345"))
+			require.NoError(t, svc.adminSetPassword(ctx, u.ID, "Original-password-12345"))
 			for _, token := range []string{"reset-a", "reset-b"} {
 				require.NoError(t, svc.storePasswordReset(ctx, sha256Hex(token), u.ID, "email", email, time.Minute))
 			}

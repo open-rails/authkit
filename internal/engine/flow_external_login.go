@@ -82,7 +82,7 @@ func (s *Engine) resolveExternalIdentity(ctx context.Context, in authflow.Extern
 	// local account by matching its asserted email — the user must sign in and
 	// link the provider explicitly.
 	if accountEmail != "" {
-		if u, err := s.GetUserByEmail(ctx, accountEmail); err == nil && u != nil {
+		if u, err := s.getUserByEmail(ctx, accountEmail); err == nil && u != nil {
 			return "", false, errmodel.ErrAccountExistsLinkRequired
 		}
 	}

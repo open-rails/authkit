@@ -31,7 +31,7 @@ func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 		return func(ctx context.Context, deletion iam.UserDeletion) error {
 			// A callback may reenter the same one-slot AuthKit pool. It must
 			// execute outside the mutation/delivery receipt transaction.
-			user, err := runtime.AdminGetUser(ctx, deletion.UserID)
+			user, err := runtime.getUserByID(ctx, deletion.UserID)
 			if err != nil {
 				return err
 			}
@@ -48,11 +48,11 @@ func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(runtime.Close)
 	client := runtime
-	user, err := client.CreateUser(t.Context(), "lifecycle@example.test", "lifecycle")
+	user, err := client.createUser(t.Context(), "lifecycle@example.test", "lifecycle")
 	require.NoError(t, err)
 	remove := func() {
 		t.Helper()
-		results, err := client.SoftDeleteUsers(t.Context(), []string{user.ID})
+		results, err := client.DeleteUsers(t.Context(), iam.OperatorActor(), []string{user.ID})
 		require.NoError(t, err)
 		require.NoError(t, results[0].Err)
 	}
@@ -70,7 +70,7 @@ func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 	require.True(t, first.PurgeAt.Equal(scheduled), "each account has its own exact deadline job")
 	remove()
 	require.Equal(t, first, current(), "repeated deletion must not reset the deadline/generation")
-	results, err := client.OperatorRestoreUsers(t.Context(), []string{user.ID})
+	results, err := client.RestoreUsers(t.Context(), iam.OperatorActor(), []string{user.ID})
 	require.NoError(t, err)
 	require.NoError(t, results[0].Err)
 	remove()
@@ -105,7 +105,7 @@ func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit(t.Context()))
 	require.NoError(t, runtime.finalizeAccountDeletion(t.Context(), second.ID, false))
-	results, err = client.OperatorRestoreUsers(t.Context(), []string{user.ID})
+	results, err = client.RestoreUsers(t.Context(), iam.OperatorActor(), []string{user.ID})
 	require.NoError(t, err)
 	require.Error(t, results[0].Err, "finalization cannot be restored after deadline")
 	// Run the real River client. Prior callbacks are receipt-idempotent, then
@@ -131,9 +131,9 @@ func TestAccountDeletionRollsBackWhenRiverInsertFails(t *testing.T) {
 	runtime, err := New(cfg, Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	t.Cleanup(runtime.Close)
-	user, err := runtime.CreateUser(t.Context(), "rollback@example.test", "rollback")
+	user, err := runtime.createUser(t.Context(), "rollback@example.test", "rollback")
 	require.NoError(t, err)
-	results, err := runtime.SoftDeleteUsers(t.Context(), []string{user.ID})
+	results, err := runtime.DeleteUsers(t.Context(), iam.OperatorActor(), []string{user.ID})
 	require.NoError(t, err)
 	require.Error(t, results[0].Err)
 	var deleted *time.Time
@@ -172,9 +172,9 @@ func TestAccountDeletionDeliveryAcrossSeparateRiverFleets(t *testing.T) {
 	}
 	first := makeRuntime(issuers[0], "public")
 	second := makeRuntime(issuers[1], "sibling_jobs")
-	user, err := first.CreateUser(t.Context(), "two-fleets@example.test", "twofleets")
+	user, err := first.createUser(t.Context(), "two-fleets@example.test", "twofleets")
 	require.NoError(t, err)
-	results, err := first.SoftDeleteUsers(t.Context(), []string{user.ID})
+	results, err := first.DeleteUsers(t.Context(), iam.OperatorActor(), []string{user.ID})
 	require.NoError(t, err)
 	require.NoError(t, results[0].Err)
 	var generation string
@@ -190,7 +190,7 @@ func TestAccountDeletionDeliveryAcrossSeparateRiverFleets(t *testing.T) {
 		defer mu.Unlock()
 		return len(events[issuers[0]]) == 1 && len(events[issuers[1]]) == 0
 	}, 10*time.Second, 25*time.Millisecond)
-	results, err = first.OperatorRestoreUsers(t.Context(), []string{user.ID})
+	results, err = first.RestoreUsers(t.Context(), iam.OperatorActor(), []string{user.ID})
 	require.NoError(t, err)
 	require.NoError(t, results[0].Err)
 	// The second deployment was offline throughout deletion and recovery. Its

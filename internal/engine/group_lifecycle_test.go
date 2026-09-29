@@ -52,9 +52,9 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	}}, keyset{}, Deps{Postgres: pool})
 	_, err = svc.ensureRootGroup(ctx)
 	require.NoError(t, err)
-	owner, err := svc.CreateUser(ctx, "owner@lifecycle.test", "lifecycleowner")
+	owner, err := svc.createUser(ctx, "owner@lifecycle.test", "lifecycleowner")
 	require.NoError(t, err)
-	member, err := svc.CreateUser(ctx, "member@lifecycle.test", "lifecyclemember")
+	member, err := svc.createUser(ctx, "member@lifecycle.test", "lifecyclemember")
 	require.NoError(t, err)
 	create := func(name string) string {
 		id, err := seedGroup(ctx, svc, "org", name, owner.ID)

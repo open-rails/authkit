@@ -23,10 +23,10 @@ func TestTwoFactorCodeSurvivesWrongGuess(t *testing.T) {
 	f := newAccountFlow(t, testdb.Pool(t), newServerTestConfig())
 	const pass = "Correct-horse-battery-1"
 	email := uniqueEmail("code-retry")
-	user, err := fixtureBackend(f.service.Backend()).CreateUser(ctx, email, "coderetry"+uniqueSuffix())
+	user, err := fixtureBackend(f.service.Backend()).createUser(ctx, email, "coderetry"+uniqueSuffix())
 	require.NoError(t, err)
-	require.NoError(t, fixtureBackend(f.service.Backend()).AdminSetPassword(ctx, user.ID, pass))
-	require.NoError(t, fixtureBackend(f.service.Backend()).MarkEmailVerified(ctx, user.ID))
+	require.NoError(t, fixtureBackend(f.service.Backend()).adminSetPassword(ctx, user.ID, pass))
+	require.NoError(t, fixtureBackend(f.service.Backend()).markEmailVerified(ctx, user.ID))
 	_, err = fixtureBackend(f.service.Backend()).enableFactor(ctx, user.ID, "email", nil, authflow.AllowAdditionalFactors)
 	require.NoError(t, err)
 
@@ -135,10 +135,10 @@ func TestTwoFactorCodeExpiredSignal(t *testing.T) {
 	}
 	const pass = "Correct-horse-battery-1"
 	email := uniqueEmail("code-expired")
-	user, err := fixtureBackend(f.service.Backend()).CreateUser(ctx, email, "codeexpired"+uniqueSuffix())
+	user, err := fixtureBackend(f.service.Backend()).createUser(ctx, email, "codeexpired"+uniqueSuffix())
 	require.NoError(t, err)
-	require.NoError(t, fixtureBackend(f.service.Backend()).AdminSetPassword(ctx, user.ID, pass))
-	require.NoError(t, fixtureBackend(f.service.Backend()).MarkEmailVerified(ctx, user.ID))
+	require.NoError(t, fixtureBackend(f.service.Backend()).adminSetPassword(ctx, user.ID, pass))
+	require.NoError(t, fixtureBackend(f.service.Backend()).markEmailVerified(ctx, user.ID))
 
 	errCode := func(status int, r flowResponse) string {
 		t.Helper()

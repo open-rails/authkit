@@ -40,9 +40,9 @@ func TestAccountCallbackFailureAndConcurrentRescue(t *testing.T) {
 	}})
 	require.NoError(t, err)
 	t.Cleanup(runtime.Close)
-	user, err := runtime.CreateUser(t.Context(), "callback-retry@example.test", "callbackretry")
+	user, err := runtime.createUser(t.Context(), "callback-retry@example.test", "callbackretry")
 	require.NoError(t, err)
-	results, err := runtime.SoftDeleteUsers(t.Context(), []string{user.ID})
+	results, err := runtime.DeleteUsers(t.Context(), iam.OperatorActor(), []string{user.ID})
 	require.NoError(t, err)
 	require.NoError(t, results[0].Err)
 	var id int64

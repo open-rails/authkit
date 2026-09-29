@@ -34,7 +34,7 @@ func (s *Engine) EnsureUserRole(ctx context.Context, a iam.Actor, ref iam.GroupR
 	if err != nil {
 		return iam.User{}, err
 	}
-	var out iam.User
+	var outID string
 	err = s.withGroupMutation(ctx, ref, func(st *permissionGroupStore, g groupTarget) error {
 		if !s.validRoleForPersona(s.groupSchemaOrDefault(), g.Persona, role) {
 			return fmt.Errorf("role %q is not assignable in a %q group: %w", role, g.Persona, iam.ErrRoleNotAssignable)
@@ -95,17 +95,13 @@ func (s *Engine) EnsureUserRole(ctx context.Context, a iam.Actor, ref iam.GroupR
 				return err
 			}
 		}
-		row, err := q.UserByID(ctx, id)
-		if err != nil {
-			return err
-		}
-		out = *userFromByIDRow(row)
+		outID = id
 		return nil
 	})
 	if err != nil {
 		return iam.User{}, err
 	}
-	return out, nil
+	return s.User(ctx, iam.UserByID(outID), iam.IncludeDeleted())
 }
 
 // ensureUserKey validates and normalizes u for EnsureUserRole.

@@ -8,7 +8,6 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/secret"
@@ -23,7 +22,7 @@ type accountRecoveryProof struct {
 	ExpiresAt   time.Time `json:"expires_at"`
 }
 
-func (s *Engine) ensureLoginProofAccess(ctx context.Context, user *iam.User) error {
+func (s *Engine) ensureLoginProofAccess(ctx context.Context, user *userRecord) error {
 	if user == nil {
 		return jwt.ErrTokenUnverifiable
 	}
@@ -34,7 +33,7 @@ func (s *Engine) ensureLoginProofAccess(ctx context.Context, user *iam.User) err
 
 // Called with the account row locked; a normal in-flight proof cannot cross a
 // credential-version change or switch to a later deletion cycle.
-func (s *Engine) bindRecoveryGeneration(ctx context.Context, tx pgx.Tx, user *iam.User, proof *loginProof) error {
+func (s *Engine) bindRecoveryGeneration(ctx context.Context, tx pgx.Tx, user *userRecord, proof *loginProof) error {
 	if user.DeletedAt == nil {
 		if proof.DeletionID != "" {
 			return jwt.ErrTokenUnverifiable

@@ -59,7 +59,7 @@ func TestTokenEntitlementSelectionAndBounds(t *testing.T) {
 	require.NoError(t, v.AddIssuer("https://entitlements.test", []string{"app"}, verify.IssuerOptions{IsLocal: true, RawKeys: keys.PublicKeys}))
 	mint := func(s *Engine) map[string]any {
 		t.Helper()
-		token, _, err := s.MintAccessToken(t.Context(), "user", map[string]any{"entitlements": []string{"forged"}, "root_permissions": map[string]any{"grants": []string{"root:*"}}, "roles": []string{"owner"}, "permissions": []string{"root:*"}})
+		token, _, err := s.mintTestAccessToken(t.Context(), "user", map[string]any{"entitlements": []string{"forged"}, "root_permissions": map[string]any{"grants": []string{"root:*"}}, "roles": []string{"owner"}, "permissions": []string{"root:*"}})
 		require.NoError(t, err)
 		claims, err := v.VerifyClaims(t.Context(), token)
 		require.NoError(t, err)

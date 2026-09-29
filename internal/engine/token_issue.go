@@ -2,22 +2,54 @@ package engine
 
 import (
 	"context"
+	"errors"
 	stdlog "log"
 	"strings"
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
-// MintAccessToken builds and signs an access token (JWT) for the given user.
-// Includes core registered claims and explicitly selected, provider-granted
-// entitlement names as an optional short-lived snapshot.
-// Extra claims in `extra` are merged into the token body (e.g., sid).
-func (s *Engine) MintAccessToken(ctx context.Context, userID string, extra map[string]any) (token string, expiresAt time.Time, err error) {
-	return s.mintAccessToken(ctx, userID, extra, s.cfg.Token.AccessTokenDuration)
+// MintAccessToken mints an access token for a live account outside any login
+// flow. Operator only. Reserved claims in o.Claims are dropped; o.SessionID
+// becomes sid.
+func (s *Engine) MintAccessToken(ctx context.Context, a iam.Actor, userID string, o iam.AccessTokenOptions) (iam.Token, error) {
+	if err := requireActor(a); err != nil {
+		return iam.Token{}, err
+	}
+	if a.Kind() != iam.ActorOperator {
+		return iam.Token{}, iam.ErrInsufficientRoleAuthority
+	}
+	userID = strings.TrimSpace(userID)
+	if !isUUID(userID) {
+		return iam.Token{}, iam.ErrUserNotFound
+	}
+	extra := make(map[string]any, len(o.Claims)+1)
+	for k, v := range o.Claims {
+		extra[k] = v
+	}
+	if sid := strings.TrimSpace(o.SessionID); sid != "" {
+		extra["sid"] = sid
+	}
+	ttl := o.TTL
+	if ttl <= 0 {
+		ttl = s.cfg.Token.AccessTokenDuration
+	}
+	token, exp, err := s.mintAccessToken(ctx, userID, extra, ttl)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return iam.Token{}, iam.ErrUserNotFound
+	}
+	return iam.Token{Value: token, ExpiresAt: exp}, err
+}
+
+// MintSessionAccessToken re-mints the access token of the caller's own
+// session (step-up and provider-link responses).
+func (s *Engine) MintSessionAccessToken(ctx context.Context, userID, sessionID string) (string, time.Time, error) {
+	return s.mintAccessToken(ctx, userID, map[string]any{"sid": sessionID}, s.cfg.Token.AccessTokenDuration)
 }
 
 // reservedAccessTokenClaims are claims the verifier extracts as authoritative
@@ -90,7 +122,7 @@ func (s *Engine) mintAccessToken(ctx context.Context, userID string, extra map[s
 	// the userID alone (matches the historical s.pg == nil behavior). The synthetic
 	// row carries only the ID; mintAccessTokenForUser reads no other user field and
 	// its sid/freshness + mfa branches are already guarded by s.pg != nil / mfa != nil.
-	return s.mintAccessTokenForUser(ctx, &iam.User{ID: userID}, nil, extra, ttl)
+	return s.mintAccessTokenForUser(ctx, &userRecord{ID: userID}, nil, extra, ttl)
 }
 
 // mintAccessTokenForUser mints an access token for an ALREADY-LOADED, ALREADY-GATED
@@ -100,7 +132,7 @@ func (s *Engine) mintAccessToken(ctx context.Context, userID string, extra map[s
 // mfa_enrolled claim instead of recomputing it. Pass mfa == nil to omit mfa_enrolled
 // (matches the swallow-on-error / absent-when-not-satisfied behavior of the ID-only
 // path). u must be non-nil.
-func (s *Engine) mintAccessTokenForUser(ctx context.Context, u *iam.User, mfa *authflow.MFAStatus, extra map[string]any, ttl time.Duration) (token string, expiresAt time.Time, err error) {
+func (s *Engine) mintAccessTokenForUser(ctx context.Context, u *userRecord, mfa *authflow.MFAStatus, extra map[string]any, ttl time.Duration) (token string, expiresAt time.Time, err error) {
 	return s.mintAccessTokenForUserWithAssurance(ctx, u, mfa, extra, ttl, nil)
 }
 
@@ -112,7 +144,7 @@ type accessTokenAssurance struct {
 	DeviceKeyID string
 }
 
-func (s *Engine) mintAccessTokenForUserWithAssurance(ctx context.Context, u *iam.User, mfa *authflow.MFAStatus, extra map[string]any, ttl time.Duration, assurance *accessTokenAssurance) (token string, expiresAt time.Time, err error) {
+func (s *Engine) mintAccessTokenForUserWithAssurance(ctx context.Context, u *userRecord, mfa *authflow.MFAStatus, extra map[string]any, ttl time.Duration, assurance *accessTokenAssurance) (token string, expiresAt time.Time, err error) {
 	userID := u.ID
 	base := jwtkit.BaseRegisteredClaims(userID, s.cfg.Token.IssuedAudiences, ttl)
 	expiresAt = base.ExpiresAt.Time

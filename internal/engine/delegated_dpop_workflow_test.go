@@ -52,9 +52,9 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	issuer := httptest.NewServer(handler)
 	t.Cleanup(issuer.Close)
-	user, err := engine.CreateUser(ctx, uniqueEmail("dpop"), "dpop"+uniqueSuffix())
+	user, err := engine.createUser(ctx, uniqueEmail("dpop"), "dpop"+uniqueSuffix())
 	require.NoError(t, err)
-	require.NoError(t, engine.AdminSetPassword(ctx, user.ID, "Browser-profile-pass1!"))
+	require.NoError(t, engine.adminSetPassword(ctx, user.ID, "Browser-profile-pass1!"))
 	login, err := issuer.Client().Post(issuer.URL+"/api/v1/password/login", "application/json", strings.NewReader(`{"identifier":"`+*user.Email+`","password":"Browser-profile-pass1!"}`))
 	require.NoError(t, err)
 	var session iam.TokenSet

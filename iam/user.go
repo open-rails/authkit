@@ -5,83 +5,60 @@ import (
 	"time"
 )
 
-// User is the public user view returned by AuthKit lookups. Plain data: see
-// #138 (contract inversion) — definitions live here in the lean, pgx-free
-// contract package; the embedded engine aliases back to these.
+// User is an account. It is the privileged view: it carries contact details,
+// so render other people with PublicUser.
 type User struct {
-	ID              string
-	Email           *string // Nullable - phone-only users have NULL email
-	PhoneNumber     *string
-	Username        *string
-	DiscordUsername *string
-	EmailVerified   bool
-	PhoneVerified   bool
-	BannedAt        *time.Time
-	BannedUntil     *time.Time
-	BanReason       *string
-	BannedBy        *string
-	DeletedAt       *time.Time
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	LastLogin       *time.Time
-	// PreferredLanguage is populated by the by-ID lookup (UserByID) only; other
-	// lookups leave it nil. Nullable — NULL/unset when the user has no stored
-	// language preference.
-	PreferredLanguage *string
-	// AvatarURL is the host-supplied avatar URL/key string (#262). Blob storage
-	// stays host-owned; authkit stores only this string. Populated by the by-ID
-	// lookup (UserByID) only, like PreferredLanguage.
-	AvatarURL *string
+	ID                string     `json:"id"`
+	Email             string     `json:"email,omitempty"`
+	Phone             string     `json:"phone,omitempty"`
+	Username          string     `json:"username,omitempty"`
+	EmailVerified     bool       `json:"email_verified"`
+	PhoneVerified     bool       `json:"phone_verified"`
+	PreferredLanguage string     `json:"preferred_language,omitempty"`
+	AvatarURL         string     `json:"avatar_url,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+	LastLogin         *time.Time `json:"last_login,omitempty"`
+	DeletedAt         *time.Time `json:"deleted_at,omitempty"`
+	// Ban is nil when no ban is in force.
+	Ban *BanState `json:"ban,omitempty"`
+	// Live reports whether the account may authenticate now: not deleted,
+	// banned or reserved.
+	Live bool `json:"live"`
 }
 
-// UserSummary is the privileged batch projection UsersByIDs returns.
-type UserSummary struct {
-	ID       string
-	Username string // "" if unset
-	Email    string // "" if unset
+// BanState is a ban in force. By is "" when an operator or a machine banned.
+type BanState struct {
+	At     time.Time  `json:"at"`
+	Until  *time.Time `json:"until,omitempty"`
+	Reason string     `json:"reason,omitempty"`
+	By     string     `json:"by,omitempty"`
 }
 
-// PublicUserRef is the PUBLIC-SAFE batch user projection (#268): the display
-// identity of a user as other users may see it. It deliberately has NO email
-// field — the type, not an `omitempty` tag or a caller's discipline, is what
-// makes it safe to nest inside a response body.
-//
-// Every field here is public by nature: a username, an avatar and a join date.
-// Derived assets (thumbnail sizes,
-// CDN rewrites) stay host-owned — authkit stores one avatar string (#262) and
-// does not know a host's image pipeline.
-type PublicUserRef struct {
-	ID string
-	// Username is "" when unset OR when the user is a tombstone — see Deleted.
-	// Prefer DisplayName over reading this directly.
-	Username  string
-	AvatarURL string // "" if unset or tombstoned
-	CreatedAt time.Time
-	// Deleted marks a TOMBSTONE: the id resolved to a soft-deleted account, so
-	// the reference is not dangling — but every other field is zero, including
-	// CreatedAt. Nothing about a deleted account is published. Callers render
-	// DisplayName and show nothing else.
-	Deleted bool
+// PublicUser is what other people may see of an account. A deleted account
+// is a tombstone: Deleted is set and every other field except ID is zero.
+type PublicUser struct {
+	ID        string    `json:"id"`
+	Username  string    `json:"username,omitempty"`
+	AvatarURL string    `json:"avatar_url,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	Deleted   bool      `json:"deleted,omitempty"`
 }
 
-// DisplayName is the name to render for a user, with the fallback both consumer
-// hosts had independently hand-rolled: the username when there is one, else a
-// stable, non-identifying `user-<first 8 of id>`. Tombstoned and unnamed users
-// take the fallback.
-func (r PublicUserRef) DisplayName() string {
-	if !r.Deleted && r.Username != "" {
-		return r.Username
+// DisplayName is the username, or "user-<first 8 of id>" for tombstoned and
+// unnamed users.
+func (u PublicUser) DisplayName() string {
+	if !u.Deleted && u.Username != "" {
+		return u.Username
 	}
-	return fallbackDisplayName(r.ID)
+	return fallbackDisplayName(u.ID)
 }
 
-// PublicDisplayName renders id's display name against a PublicUsersByIDs result,
-// including for ids the batch did not resolve at all (never-existed accounts,
-// which are absent from the map rather than tombstoned). It is the whole
-// author-name branch a caller would otherwise write around every lookup.
-func PublicDisplayName(refs map[string]PublicUserRef, id string) string {
-	if r, ok := refs[id]; ok {
-		return r.DisplayName()
+// PublicDisplayName renders id against a PublicUsers result, including ids the
+// batch did not resolve.
+func PublicDisplayName(users map[string]PublicUser, id string) string {
+	if u, ok := users[id]; ok {
+		return u.DisplayName()
 	}
 	return fallbackDisplayName(id)
 }
@@ -91,43 +68,6 @@ func fallbackDisplayName(id string) string {
 		id = id[:8]
 	}
 	return "user-" + id
-}
-
-// UserLiveness is the per-request account-liveness verdict for one user, plus
-// the identity fields that are fresh AS OF that same lookup (#267). It is what
-// verify's liveness gate consumes, and what lets a host stop reaching for an
-// admin-privileged read just to refresh a username or email onto a request.
-//
-// The verdict is deliberately BOOLEAN: it does not report whether a denial was
-// a ban, a deletion or a reservation. That distinction is an account-status
-// question for an authenticated, entitled surface — not something an
-// authentication gate should hand back to whoever presented the token.
-type UserLiveness struct {
-	ID string
-	// Allowed is the same account gate that guards token mint at login and
-	// refresh: false for deleted, banned and reserved accounts. An expired
-	// temporary ban is allowed (and cleared, exactly as the single-user gate
-	// clears it).
-	Allowed       bool
-	Username      string // "" if unset
-	Email         string // "" if unset (phone-only accounts have none)
-	EmailVerified bool
-	AvatarURL     string // "" if unset
-}
-
-// AccountSessionRevocation reports an account-wide emergency revocation across
-// the configured account issuers (TokenConfig.AccountIssuers). Issued access
-// tokens are not revoked; they stay valid until they expire.
-type AccountSessionRevocation struct {
-	// Issuers is the exact issuer scope covered, this deployment's first.
-	Issuers []string `json:"issuers"`
-	// RevokedSessions counts revoked refresh sessions per covered issuer.
-	RevokedSessions map[string]int `json:"revoked_sessions"`
-	// RevokedDeviceKeys counts revoked device keys; they are not issuer-bound.
-	RevokedDeviceKeys int `json:"revoked_device_keys"`
-	// UnlistedIssuerSessions counts live sessions left under issuers outside
-	// Issuers; nonzero means the account issuer configuration is incomplete.
-	UnlistedIssuerSessions int `json:"unlisted_issuer_sessions"`
 }
 
 // UserKey names how a UserRef addresses an account.
@@ -159,3 +99,114 @@ func (r UserRef) Key() UserKey   { return r.key }
 func (r UserRef) Value() string  { return r.value }
 func (r UserRef) IsZero() bool   { return r.key == "" || r.value == "" }
 func (r UserRef) String() string { return string(r.key) + ":" + r.value }
+
+// ReadOption adjusts a read.
+type ReadOption struct{ includeDeleted bool }
+
+// IncludeDeleted makes a read return soft-deleted accounts too.
+func IncludeDeleted() ReadOption { return ReadOption{includeDeleted: true} }
+
+// IncludesDeleted reports whether opts ask for deleted accounts.
+func IncludesDeleted(opts []ReadOption) bool {
+	for _, o := range opts {
+		if o.includeDeleted {
+			return true
+		}
+	}
+	return false
+}
+
+// NewUser creates a native account. Verified flags are an operator's
+// assertion that the address was proven elsewhere.
+type NewUser struct {
+	Email, Phone, Username, Password string
+	EmailVerified, PhoneVerified     bool
+}
+
+// UserUpdate changes an account; nil fields stay unchanged, and "" clears
+// AvatarURL and PreferredLanguage. A new Email or Phone starts unverified
+// unless the same update sets its verified flag.
+type UserUpdate struct {
+	Email, Phone, Username, AvatarURL, PreferredLanguage, Password *string
+	EmailVerified, PhoneVerified                                   *bool
+	PasswordHash                                                   *PasswordHash
+}
+
+// PasswordHash is an imported password hash: Algo is argon2id or bcrypt,
+// validated at write.
+type PasswordHash struct{ Hash, Algo string }
+
+// Ban bans an account. Until nil bans indefinitely. KeepExisting leaves a ban
+// already in force unchanged, so a repeat call is a no-op.
+type Ban struct {
+	Reason       string
+	Until        *time.Time
+	KeepExisting bool
+}
+
+// UserStatus filters a user list.
+type UserStatus string
+
+const (
+	UserStatusLive    UserStatus = ""        // not deleted (default)
+	UserStatusActive  UserStatus = "active"  // not deleted, not banned
+	UserStatusBanned  UserStatus = "banned"  // not deleted, banned
+	UserStatusDeleted UserStatus = "deleted" // soft-deleted
+	UserStatusAny     UserStatus = "any"
+)
+
+// UserSort orders a user list; ties break on id.
+type UserSort string
+
+const (
+	UserSortCreatedAt UserSort = "created_at" // default
+	UserSortLastLogin UserSort = "last_login"
+	UserSortUsername  UserSort = "username"
+	UserSortEmail     UserSort = "email"
+)
+
+// UserQuery lists accounts. Search matches username, email and phone;
+// RootRole filters on a role in the root group; Entitlement needs an
+// entitlements provider that can list subjects.
+type UserQuery struct {
+	Search      string
+	Status      UserStatus
+	RootRole    Role
+	Entitlement string
+	Sort        UserSort
+	Desc        bool
+	Page        PageRequest
+}
+
+// Session is one refresh session on this deployment's issuer.
+type Session struct {
+	ID         string     `json:"id"`
+	CreatedAt  time.Time  `json:"created_at"`
+	LastUsedAt time.Time  `json:"last_used_at"`
+	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
+	UserAgent  string     `json:"user_agent,omitempty"`
+	IP         string     `json:"ip,omitempty"`
+}
+
+// AccountSessionRevocation reports an account-wide emergency revocation across
+// the configured account issuers (TokenConfig.AccountIssuers). Issued access
+// tokens are not revoked; they stay valid until they expire.
+type AccountSessionRevocation struct {
+	// Issuers is the exact issuer scope covered, this deployment's first.
+	Issuers []string `json:"issuers"`
+	// RevokedSessions counts revoked refresh sessions per covered issuer.
+	RevokedSessions map[string]int `json:"revoked_sessions"`
+	// RevokedDeviceKeys counts revoked device keys; they are not issuer-bound.
+	RevokedDeviceKeys int `json:"revoked_device_keys"`
+	// UnlistedIssuerSessions counts live sessions left under issuers outside
+	// Issuers; nonzero means the account issuer configuration is incomplete.
+	UnlistedIssuerSessions int `json:"unlisted_issuer_sessions"`
+}
+
+// AccessTokenOptions shapes a host-minted access token. Claims AuthKit
+// reserves are dropped.
+type AccessTokenOptions struct {
+	SessionID string
+	TTL       time.Duration // 0 = the configured access-token lifetime
+	Claims    map[string]any
+}

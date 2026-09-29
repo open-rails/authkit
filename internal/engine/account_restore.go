@@ -3,54 +3,11 @@ package engine
 import (
 	"context"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 )
-
-// OperatorRestoreUsers restores accounts under explicit trusted host authority.
-// It never revives old sessions, device keys or an expired deletion generation.
-func (s *Engine) OperatorRestoreUsers(ctx context.Context, userIDs []string) ([]iam.OpResult, error) {
-	out := make([]iam.OpResult, 0, len(userIDs))
-	for _, id := range userIDs {
-		out = append(out, iam.OpResult{ID: id, Err: s.restoreUser(ctx, "", id)})
-	}
-	return out, nil
-}
-
-func (s *Engine) RestoreUserAs(ctx context.Context, actorUserID, userID string) error {
-	if strings.TrimSpace(actorUserID) == "" {
-		return iam.ErrInsufficientRoleAuthority
-	}
-	return s.restoreUser(ctx, actorUserID, userID)
-}
-
-func (s *Engine) restoreUser(ctx context.Context, actorUserID, userID string) error {
-	if err := s.requirePG(); err != nil {
-		return err
-	}
-	tx, err := s.beginAuthorityTransaction(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	store := s.groupStoreFor(tx)
-	if err := s.lockAuthority(ctx, store.q); err != nil {
-		return err
-	}
-	if actorUserID != "" {
-		if err := s.authorizeAccountAuthorityOn(ctx, store, actorUserID, userID); err != nil {
-			return err
-		}
-	}
-	if err := s.restoreAccountDeletionOn(ctx, tx, userID, ""); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
-}
 
 // restoreAccountDeletionOn is the common transactional restore transition.
 // Recovery proofs must pass their server-bound generation; trusted operators

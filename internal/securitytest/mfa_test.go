@@ -1,7 +1,6 @@
 package securitytest
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -37,7 +36,7 @@ type challenge struct {
 // enrollEmail2FA turns on the email second factor through the public routes.
 func (h *host) enrollEmail2FA(a account) {
 	h.t.Helper()
-	require.NoError(h.t, h.auth.MarkEmailVerified(context.Background(), a.id))
+	h.verifyEmail(a.id)
 	token := h.login(a).AccessToken
 	resp := h.post("/user/2fa", map[string]string{"method": "email"}, token)
 	require.Equal(h.t, http.StatusAccepted, resp.status, resp.String())

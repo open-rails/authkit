@@ -229,6 +229,12 @@ func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Requ
 		return true, nil
 	}
 	if password != "" {
+		if s.hasUsableMFA(r, claims.UserID) {
+			// MFA-if-enrolled: a password never clears the gate for an
+			// account with a second factor (M5).
+			s.requireStepUp(w, r, claims)
+			return false, nil
+		}
 		if s.rateLimited(w, r, RLPasswordStepUp) {
 			return false, nil
 		}
@@ -276,7 +282,7 @@ func (s *Service) requireStepUp(w http.ResponseWriter, r *http.Request, claims v
 }
 
 func (s *Service) freshAccessTokenResponse(r *http.Request, userID, sessionID string, freshness authflow.SessionFreshness) (map[string]any, error) {
-	token, exp, err := s.svc.MintAccessToken(r.Context(), userID, map[string]any{"sid": sessionID})
+	token, exp, err := s.svc.MintSessionAccessToken(r.Context(), userID, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -296,6 +302,13 @@ func (s *Service) stepUpMethods(r *http.Request, userID string) ([]string, error
 	return authflow.StepUpMethods(hasPassword, settings, providerSlugs, s.providerSupportsStepUp), nil
 }
 
+// hasUsableMFA reports whether the account has an enabled second factor. A
+// lookup failure counts as enrolled, so the password shortcut fails closed.
+func (s *Service) hasUsableMFA(r *http.Request, userID string) bool {
+	ok, err := s.svc.HasUsableMFA(r.Context(), userID)
+	return ok || err != nil
+}
+
 func (s *Service) stepUpTwoFactorOptions(r *http.Request, userID string) *authflow.StepUpTwoFactorOptions {
 	settings, err := s.svc.Get2FASettings(r.Context(), userID)
 	if err != nil {
@@ -306,8 +319,8 @@ func (s *Service) stepUpTwoFactorOptions(r *http.Request, userID string) *authfl
 	email := ""
 	for _, factor := range settings.Factors {
 		if factor.Enabled && strings.EqualFold(factor.Method, "email") {
-			if user, err := s.svc.AdminGetUser(r.Context(), userID); err == nil && user != nil && user.Email != nil {
-				email = *user.Email
+			if user, err := s.svc.User(r.Context(), iam.UserByID(userID)); err == nil {
+				email = user.Email
 			}
 			break
 		}

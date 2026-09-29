@@ -17,20 +17,17 @@ func TestAuthPublicSurface(t *testing.T) {
 		names = append(names, typ.Method(i).Name)
 	}
 	require.ElementsMatch(t, []string{
-		"APIKeys", "ActiveDeviceKeys", "AdminGetUser", "AdminListUsers", "AdminRevokeAccountSessions", "AdminSetPassword",
-		"AssignGroupRoles", "BanUser", "Can", "CheckSMSHealth", "Close", "CreateAccountInvite",
-		"CreateGroup", "CreateInviteLink", "CreateUser", "DefineGroupRole", "DeleteGroup",
-		"DeleteGroupRole", "EffectivePermissions", "EnsureUserRole", "GetUserByEmail", "GetUserByPhone",
-		"GetUserByUsername", "GetUserMetadata", "Group", "GroupRoles", "Groups", "Handler", "ImportSolanaLinks",
-		"ImportUsers", "InviteLinks", "KnownPermission", "LinkProvider", "ListGroupMembers", "ListGroups",
-		"ListSubjectGroups", "MarkEmailVerified", "MintAPIKey", "MintAccessToken", "MintDelegatedAccessToken",
-		"MintRemoteApplicationAccessToken", "MintServiceJWT", "Mount", "ApplyBootstrapManifest",
-		"OperatorRestoreUsers", "Optional", "Patterns", "PublicUsersByIDs", "PurgeGroup", "RemoveGroupMembers", "Require",
-		"RequireLive", "RequirePermission", "ResolveAPIKey", "RevokeAPIKey",
-		"RevokeInviteLink", "RiverJobs", "Routes", "SetEntitlements", "SoftDeleteUsers", "Start", "UnassignGroupRoles",
-		"UnbanUser", "UpdateAvatarURL", "UpdateEmail", "UpdateGroup", "UpdateUsername",
-		"UpsertPasswordHash", "UpsertRemoteApplication", "UserLivenessByIDs", "UsersByIDs", "Verifier",
-		"DeleteRemoteApplication", "NewVerifier", "PublishDocument", "RemoteApplication", "RemoteApplicationAuthority",
-		"RemoteApplications",
+		"APIKeys", "ActiveDeviceKeys", "ApplyBootstrapManifest", "AssignGroupRoles", "Ban", "Can", "CheckSMSHealth",
+		"Close", "CreateAccountInvite", "CreateGroup", "CreateInviteLink", "CreateUser", "DefineGroupRole", "DeleteGroup",
+		"DeleteGroupRole", "DeleteRemoteApplication", "DeleteUsers", "EffectivePermissions", "EnsureUserRole", "Group",
+		"GroupRoles", "Groups", "Handler", "ImportSolanaLinks", "ImportUsers", "InviteLinks", "KnownPermission",
+		"LinkProvider", "ListGroupMembers", "ListGroups", "ListSubjectGroups", "ListUsers", "MintAPIKey",
+		"MintAccessToken", "MintDelegatedAccessToken", "MintRemoteApplicationAccessToken", "MintServiceJWT", "Mount",
+		"NewVerifier", "Optional", "PatchUserMetadata", "Patterns", "PublicUsers", "PublishDocument", "PurgeGroup",
+		"PurgeUsers", "RemoteApplication", "RemoteApplicationAuthority", "RemoteApplications", "RemoveGroupMembers",
+		"Require", "RequireLive", "RequirePermission", "ResolveAPIKey", "RestoreUsers", "RevokeAPIKey",
+		"RevokeAccountSessions", "RevokeInviteLink", "RevokeSession", "RiverJobs", "Routes", "Sessions", "SetEntitlements",
+		"Start", "UnassignGroupRoles", "Unban", "UpdateGroup", "UpdateUser", "UpsertRemoteApplication", "User",
+		"UserMetadata", "Users", "Verifier",
 	}, names)
 }

@@ -3,10 +3,7 @@ package engine
 import (
 	"context"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/internal/authflow"
-	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/password"
 )
 
@@ -22,17 +19,6 @@ func (s *Engine) getPasswordHash(ctx context.Context, userID string) (hash, algo
 	}
 	row, err := s.q.UserPasswordRow(ctx, userID)
 	return row.PasswordHash, row.HashAlgo, err
-}
-
-// UpsertPasswordHash replaces a precomputed password hash and invalidates all
-// sessions and recovery grants. Intended for trusted host import/maintenance.
-func (s *Engine) UpsertPasswordHash(ctx context.Context, userID, hash, algo string) error {
-	if err := validatePasswordHashForStorage(hash, algo); err != nil {
-		return err
-	}
-	return s.mutateCredentials(ctx, userID, nil, authflow.SessionRevokeReasonAdminSetPassword, func(_ pgx.Tx, q *db.Queries, _ db.UserCredentialVersionForUpdateRow) error {
-		return q.UserPasswordUpsert(ctx, db.UserPasswordUpsertParams{UserID: userID, PasswordHash: hash, HashAlgo: algo})
-	})
 }
 
 func validatePasswordHashForStorage(hash, algo string) error {

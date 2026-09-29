@@ -9,13 +9,10 @@ import (
 	"github.com/open-rails/authkit/internal/errmodel"
 )
 
-// LivenessSource resolves account liveness — and the identity fields that are
-// fresh as of that same lookup — for verified user principals (#267).
-// iam.Client satisfies it, embedded or remote, so wiring is
-// `v.WithLiveness(client)`; verify declares the port rather than importing the
-// engine, exactly as it does for PermissionChecker.
+// LivenessSource reads accounts for the liveness gate: *authkit.Auth, or a
+// host's own implementation. Unknown ids are absent.
 type LivenessSource interface {
-	UserLivenessByIDs(ctx context.Context, ids []string) (map[string]iam.UserLiveness, error)
+	Users(ctx context.Context, ids []string) (map[string]iam.User, error)
 }
 
 // ErrLivenessUnconfigured is returned by VerifyRequestLive when no
@@ -26,8 +23,8 @@ type LivenessSource interface {
 // an out-of-band caller.
 var ErrLivenessUnconfigured = errors.New("verify: liveness gate used without a LivenessSource (call Verifier.WithLiveness)")
 
-// WithLiveness wires the account-liveness backend used by VerifyRequestLive and
-// the RequiredLive and OptionalLive middleware. Pass the iam.Client the host already holds.
+// WithLiveness wires the account source used by VerifyRequestLive and the
+// RequiredLive and OptionalLive middleware.
 func (v *Verifier) WithLiveness(src LivenessSource) *Verifier {
 	v.mu.Lock()
 	v.liveness = src
@@ -77,7 +74,7 @@ func (v *Verifier) HasLiveness() bool { return v.livenessSource() != nil }
 //     ListEntitlements) and a second copy would be the duplication this issue
 //     is removing, not another one of it.
 //
-// CACHING CONTRACT: none. Exactly one UserLivenessByIDs call per gated request,
+// CACHING CONTRACT: none. Exactly one Users call per gated request,
 // no memoization, no negative cache. That is not a regression — the hosts this
 // replaces each did one lookup per request — and it is the only version of the
 // contract that can be stated honestly, because any cache reintroduces exactly
@@ -119,31 +116,30 @@ func (v *Verifier) VerifyRequestLive(r *http.Request) (Claims, error) {
 	return cl, nil
 }
 
-// IsLive reports whether cl's principal is a live account, and returns the
-// fresh identity fields alongside the verdict. It is the programmatic predicate
-// behind VerifyRequestLive, for gates that already hold verified Claims and are
-// not driving an HTTP pipeline.
+// IsLive reports whether cl's principal is a live account, with the account
+// as read. It is the predicate behind VerifyRequestLive, for gates that hold
+// verified Claims outside an HTTP pipeline.
 //
-// Non-user principals (no UserID) are live by definition here — their liveness
-// lives on their own credential — and come back with a zero UserLiveness.
-// Fail-closed: an error, or an id the directory does not return, is false.
-func (v *Verifier) IsLive(ctx context.Context, cl Claims) (bool, iam.UserLiveness, error) {
+// Non-user principals (no UserID) are live by definition here: their liveness
+// lives on their own credential. Fail-closed: an error, or an id the source
+// does not return, is false.
+func (v *Verifier) IsLive(ctx context.Context, cl Claims) (bool, iam.User, error) {
 	src := v.livenessSource()
 	if src == nil {
-		return false, iam.UserLiveness{}, ErrLivenessUnconfigured
+		return false, iam.User{}, ErrLivenessUnconfigured
 	}
 	if cl.UserID == "" {
-		return true, iam.UserLiveness{}, nil
+		return true, iam.User{}, nil
 	}
-	live, err := src.UserLivenessByIDs(ctx, []string{cl.UserID})
+	users, err := src.Users(ctx, []string{cl.UserID})
 	if err != nil {
-		return false, iam.UserLiveness{}, err
+		return false, iam.User{}, err
 	}
-	l, ok := live[cl.UserID]
-	if !ok || !l.Allowed {
-		return false, iam.UserLiveness{}, nil
+	u, ok := users[cl.UserID]
+	if !ok || !u.Live {
+		return false, iam.User{}, nil
 	}
-	return true, l, nil
+	return true, u, nil
 }
 
 // RequiredLive is Required with the per-request account-liveness gate: a banned

@@ -16,3 +16,12 @@ type Session struct {
 	UserAgent           *string
 	IPAddr              *string
 }
+
+// UserDirectoryDetail is what the admin user views add to an iam.User: root
+// roles (RemovedRoles are stored roles no longer in the catalog) and
+// entitlements.
+type UserDirectoryDetail struct {
+	Roles        []string
+	RemovedRoles []string
+	Entitlements []string
+}

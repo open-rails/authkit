@@ -42,7 +42,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 	n := 0
 	user := func() string {
 		n++
-		u, err := svc.CreateUser(ctx, fmt.Sprintf("u%d@owners.test", n), fmt.Sprintf("owneruser%d", n))
+		u, err := svc.createUser(ctx, fmt.Sprintf("u%d@owners.test", n), fmt.Sprintf("owneruser%d", n))
 		require.NoError(t, err)
 		return u.ID
 	}
@@ -168,27 +168,32 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 	t.Run("account_lifecycle_and_import", func(t *testing.T) {
 		sole := user()
 		g, _ := group("account-life", sole)
-		require.ErrorIs(t, svc.BanUser(ctx, sole, nil, nil, owner), iam.ErrCannotRemoveLastAdminRole)
-		require.ErrorIs(t, svc.SoftDeleteUser(ctx, sole), iam.ErrCannotRemoveLastAdminRole)
-		require.ErrorIs(t, svc.SoftDeleteUserAs(ctx, sole, sole), iam.ErrCannotRemoveLastAdminRole)
-		require.ErrorIs(t, svc.patchUserMetadata(ctx, sole, map[string]any{"reserved": true}), iam.ErrCannotRemoveLastAdminRole)
-		require.ErrorIs(t, svc.patchUserMetadata(ctx, sole, map[string]any{"reserved": json.RawMessage(`true`)}), iam.ErrCannotRemoveLastAdminRole)
-		_, err := svc.UpdateImportedUser(ctx, sole, newAccount{Username: "reservedowner", Metadata: map[string]any{"reserved": json.RawMessage(`true`)}})
+		require.ErrorIs(t, svc.Ban(ctx, iam.OperatorActor(), sole, iam.Ban{}), iam.ErrCannotRemoveLastAdminRole)
+		require.ErrorIs(t, svc.softDelete(ctx, sole), iam.ErrCannotRemoveLastAdminRole)
+		require.ErrorIs(t, itemErr(svc.DeleteUsers(ctx, iam.UserActor(sole), []string{sole})), iam.ErrCannotRemoveLastAdminRole)
+		require.ErrorIs(t, svc.PatchUserMetadata(ctx, iam.OperatorActor(), sole, map[string]any{"reserved": true}), errmodel.E(errmodel.CodeInvalidRequest), "reserved is AuthKit's key")
+		_, err := svc.updateImportedUser(ctx, sole, newAccount{Username: "reservedowner", Metadata: map[string]any{"reserved": json.RawMessage(`true`)}})
 		require.ErrorIs(t, err, iam.ErrCannotRemoveLastAdminRole)
 		now := time.Now()
-		_, err = svc.UpdateImportedUser(ctx, sole, newAccount{Username: "importedowner", BannedAt: &now})
+		_, err = svc.updateImportedUser(ctx, sole, newAccount{Username: "importedowner", BannedAt: &now})
 		require.ErrorIs(t, err, iam.ErrCannotRemoveLastAdminRole)
 		alternate := user()
 		require.NoError(t, assignRole(ctx, svc, iam.UserActor(sole), g, iam.UserSubject(alternate), iam.OwnerRole))
-		require.NoError(t, svc.BanUser(ctx, alternate, nil, nil, owner))
-		require.ErrorIs(t, svc.SoftDeleteUser(ctx, sole), iam.ErrCannotRemoveLastAdminRole)
-		require.NoError(t, svc.UnbanUser(ctx, alternate))
-		require.NoError(t, svc.patchUserMetadata(ctx, alternate, map[string]any{"reserved": true}))
-		require.ErrorIs(t, svc.SoftDeleteUser(ctx, sole), iam.ErrCannotRemoveLastAdminRole)
-		require.NoError(t, svc.patchUserMetadata(ctx, alternate, map[string]any{"reserved": false}))
-		require.NoError(t, svc.SoftDeleteUser(ctx, sole))
-		require.NoError(t, svc.SoftDeleteUser(ctx, sole), "repeated deletion is idempotent")
-		require.ErrorIs(t, svc.SoftDeleteUser(ctx, alternate), iam.ErrCannotRemoveLastAdminRole)
+		require.NoError(t, svc.Ban(ctx, iam.OperatorActor(), alternate, iam.Ban{}))
+		require.ErrorIs(t, svc.softDelete(ctx, sole), iam.ErrCannotRemoveLastAdminRole)
+		require.NoError(t, svc.Unban(ctx, iam.OperatorActor(), alternate))
+		alternateRow, err := svc.getUserByID(ctx, alternate)
+		require.NoError(t, err)
+		reserve := func(reserved bool) error {
+			_, err := svc.updateImportedUser(ctx, alternate, newAccount{Username: *alternateRow.Username, Metadata: map[string]any{"reserved": reserved}})
+			return err
+		}
+		require.NoError(t, reserve(true))
+		require.ErrorIs(t, svc.softDelete(ctx, sole), iam.ErrCannotRemoveLastAdminRole)
+		require.NoError(t, reserve(false))
+		require.NoError(t, svc.softDelete(ctx, sole))
+		require.NoError(t, svc.softDelete(ctx, sole), "repeated deletion is idempotent")
+		require.ErrorIs(t, svc.softDelete(ctx, alternate), iam.ErrCannotRemoveLastAdminRole)
 	})
 	t.Run("custom_role_is_not_recovery_owner", func(t *testing.T) {
 		human := user()
@@ -240,9 +245,9 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 					case "replace":
 						return assignRole(ctx, svc, iam.UserActor(uid), g, iam.UserSubject(uid), "reader")
 					case "ban":
-						return svc.BanUser(ctx, uid, nil, nil, uid)
+						return svc.Ban(ctx, iam.OperatorActor(), uid, iam.Ban{})
 					case "soft-delete":
-						return svc.SoftDeleteUser(ctx, uid)
+						return svc.softDelete(ctx, uid)
 					case "mfa-factor":
 						_, err := raceSvc.Disable2FAFactorWithRemovedRoles(ctx, uid, factors[uid])
 						return err

@@ -131,7 +131,7 @@ test("wallet sign-in creates and restores the wallet account", async ({
   const first = await userId(page)
   expect(first).toBeTruthy()
   const me = await page.evaluate(() => (window as unknown as Win).auth.getMe())
-  expect(me).toMatchObject({ id: first, solana_address: a.address })
+  expect(me).toMatchObject({ id: first, solana_linked_account: { address: a.address } })
 
   // The wallet is the only login method.
   expect(await call(page, "unlink")).toEqual({

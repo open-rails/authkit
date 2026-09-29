@@ -211,12 +211,12 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	h, err := httpapi.NewMount(srv, httpapi.MountOptions{})
 	require.NoError(t, err)
 
-	user, err := fixtureBackend(srv.Backend()).CreateUser(ctx, "delegated-"+suffix+"@test.example", "delegated"+suffix)
+	user, err := fixtureBackend(srv.Backend()).createUser(ctx, "delegated-"+suffix+"@test.example", "delegated"+suffix)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, user.ID)
 	})
-	userToken, _, err := srv.Backend().MintAccessToken(ctx, user.ID, nil)
+	userToken, _, err := fixtureBackend(srv.Backend()).mintTestAccessToken(ctx, user.ID, nil)
 	require.NoError(t, err)
 
 	// Unauthenticated mint is refused before the authorizer runs.
@@ -474,7 +474,7 @@ func TestDelegatedTokenRoute_KIDRotationReconciliation(t *testing.T) {
 	h, err := httpapi.NewMount(srv, httpapi.MountOptions{})
 	require.NoError(t, err)
 
-	user, err := fixtureBackend(srv.Backend()).CreateUser(ctx, "rotate-"+suffix+"@test.example", "rotate"+suffix)
+	user, err := fixtureBackend(srv.Backend()).createUser(ctx, "rotate-"+suffix+"@test.example", "rotate"+suffix)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, user.ID)
@@ -492,7 +492,7 @@ func TestDelegatedTokenRoute_KIDRotationReconciliation(t *testing.T) {
 	require.Equal(t, "rotate-kid-1", storedKID())
 
 	// Mint before rotation: artifact already matches the token key.
-	userToken, _, err := srv.Backend().MintAccessToken(ctx, user.ID, nil)
+	userToken, _, err := fixtureBackend(srv.Backend()).mintTestAccessToken(ctx, user.ID, nil)
 	require.NoError(t, err)
 	mintOK(t, h, mintBody(delegate, ""), userToken)
 

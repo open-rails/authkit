@@ -3,7 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/base64"
-	"net"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -14,11 +14,10 @@ import (
 	"github.com/open-rails/authkit/internal/siws"
 )
 
-// siwsDomainFromConfig derives the SIWS message domain (bare host, no scheme or
-// port) from AuthKit config — the frontend BaseURL host if set, else the issuer
-// host. Returns "" when neither yields a host, leaving the request-based fallback
-// (Origin header, then r.Host) to supply the domain.
-func siwsDomainFromConfig(baseURL, issuer string) string {
+// siwsDomain is the domain bound into the SIWS message the wallet signs, the
+// protocol's anti-phishing anchor: the frontend BaseURL host, else the issuer
+// host. It comes from configuration only, never from a request header.
+func siwsDomain(baseURL, issuer string) string {
 	for _, raw := range []string{baseURL, issuer} {
 		raw = strings.TrimSpace(raw)
 		if raw == "" {
@@ -29,43 +28,6 @@ func siwsDomainFromConfig(baseURL, issuer string) string {
 		}
 	}
 	return ""
-}
-
-// siwsRequestDomain resolves the domain bound into the SIWS message the wallet
-// signs — the protocol's anti-phishing anchor. The configured domain (#143:
-// frontend BaseURL host, else issuer host) always wins and is what production
-// runs on; the request-derived fallbacks exist for local/dev where neither is
-// set.
-//
-// Both fallbacks parse with net/url and net rather than slicing, because the
-// hand-rolled TrimPrefix+Index version got three shapes wrong on a
-// security-relevant field: "https://user@host" yielded "user@host", and a
-// bracketed IPv6 literal like "http://[::1]:3000" cut at the first colon and
-// yielded "[". A wrong domain here either breaks a legitimate sign-in or, worse,
-// anchors the signed message to something the user never saw.
-func siwsRequestDomain(configured string, r *http.Request) string {
-	if d := strings.TrimSpace(configured); d != "" {
-		return d
-	}
-	if r == nil {
-		return ""
-	}
-	if origin := strings.TrimSpace(r.Header.Get("Origin")); origin != "" {
-		if u, err := url.Parse(origin); err == nil {
-			if h := u.Hostname(); h != "" {
-				return h
-			}
-		}
-	}
-	host := strings.TrimSpace(r.Host)
-	if host == "" {
-		return ""
-	}
-	// r.Host may carry a port, and an IPv6 host is bracketed; strip both safely.
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		return h
-	}
-	return strings.Trim(host, "[]")
 }
 
 func (s *Service) handleSolanaChallengePOST(w http.ResponseWriter, r *http.Request) {
@@ -96,9 +58,11 @@ func (s *Service) handleSolanaChallengePOST(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	// #143: the SIWS domain is derived from config (frontend BaseURL host, else
-	// issuer host), with request-based fallback. There is no WithSolanaDomain option.
-	domain := siwsRequestDomain(siwsDomainFromConfig(s.settings.FrontendBaseURL, s.settings.Issuer), r)
+	domain := siwsDomain(s.settings.FrontendBaseURL, s.settings.Issuer)
+	if domain == "" {
+		serverErr(w, "challenge_failed", errors.New("authkit: no SIWS domain: set Frontend.BaseURL or a URL Token.Issuer"))
+		return
+	}
 
 	input, err := s.svc.GenerateSIWSChallenge(r.Context(), domain, address, req.Username)
 	if err != nil {

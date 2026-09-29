@@ -308,14 +308,14 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 	require.Empty(t, noSignup.email.verifyCode)
 	// Generated usernames avoid an existing account's claim.
 	username := "collision" + uniqueSuffix()
-	_, err := fixtureBackend(f.service.Backend()).CreateUser(ctx, uniqueEmail("collision"), username)
+	_, err := fixtureBackend(f.service.Backend()).createUser(ctx, uniqueEmail("collision"), username)
 	require.NoError(t, err)
 	collisionEmail := username + "@example.com"
 	invite, err := f.service.Backend().CreateAccountInvite(ctx, iam.UserActor(inviter), iam.NewAccountInvite{Email: collisionEmail})
 	require.NoError(t, err)
 	f.expect(202, f.post("/passwordless/start", map[string]any{"identifier": collisionEmail, "mode": "code", "account_invite_token": invite.Code}))
 	f.expect(200, f.post("/passwordless/confirm", map[string]any{"identifier": collisionEmail, "code": f.email.verificationCode(t)}))
-	created, err := f.service.Backend().GetUserByEmail(ctx, collisionEmail)
+	created, err := fixtureBackend(f.service.Backend()).getUserByEmail(ctx, collisionEmail)
 	require.NoError(t, err)
 	require.NotEqual(t, username, *created.Username)
 
@@ -414,7 +414,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 			f.expect(401, f.post("/2fa/verify", wrong))
 			f.expect(202, f.post("/passwordless/start", map[string]any{"identifier": email, "mode": "both"}))
 			pending := f.expect(403, f.post("/passwordless/confirm", map[string]any{"token": f.email.verificationToken(t)}))
-			require.NoError(t, fixtureBackend(f.service.Backend()).AdminSetPassword(ctx, pending.Error.Metadata.UserID, "Replacement-password-12345"))
+			require.NoError(t, fixtureBackend(f.service.Backend()).adminSetPassword(ctx, pending.Error.Metadata.UserID, "Replacement-password-12345"))
 			f.expect(401, f.post("/2fa/verify", map[string]any{"user_id": pending.Error.Metadata.UserID, "challenge": pending.Error.Metadata.Challenge, "code": enabled.BackupCodes[1], "backup_code": true}))
 		})
 	}
@@ -434,15 +434,15 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	// Email-first plus email-only MFA offers a recovery key, never another code
 	// to the same mailbox. A password first factor may use that email factor.
 	email := uniqueEmail("same-channel")
-	user, err := fixtureBackend(f.service.Backend()).CreateUser(ctx, email, "samechannel"+uniqueSuffix())
+	user, err := fixtureBackend(f.service.Backend()).createUser(ctx, email, "samechannel"+uniqueSuffix())
 	require.NoError(t, err)
-	require.NoError(t, fixtureBackend(f.service.Backend()).AdminSetPassword(ctx, user.ID, "Correct-horse-battery-1"))
+	require.NoError(t, fixtureBackend(f.service.Backend()).adminSetPassword(ctx, user.ID, "Correct-horse-battery-1"))
 	previousCode := f.email.verificationCode(t)
 	f.expect(401, f.post("/password/login", map[string]any{"identifier": email, "password": "wrong"}))
 	require.Equal(t, previousCode, f.email.verificationCode(t))
 	verify := f.expect(403, f.post("/password/login", map[string]any{"identifier": email, "password": "Correct-horse-battery-1"}))
 	require.Equal(t, "verification_required", verify.Error.Code)
-	require.NoError(t, fixtureBackend(f.service.Backend()).MarkEmailVerified(ctx, user.ID))
+	require.NoError(t, fixtureBackend(f.service.Backend()).markEmailVerified(ctx, user.ID))
 	backups, err := fixtureBackend(f.service.Backend()).enableFactor(ctx, user.ID, "email", nil, authflow.AllowAdditionalFactors)
 	require.NoError(t, err)
 	f.expect(202, f.post("/passwordless/start", map[string]any{"identifier": email}))
@@ -463,9 +463,9 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	bootstrap := newServerClient(t, bootstrapCfg, pg.Pool)
 	_, err = bootstrap.ensureRootGroup(ctx)
 	require.NoError(t, err)
-	passkeyUser, err := bootstrap.CreateUser(ctx, uniqueEmail("uv-role"), "uv"+uniqueSuffix())
+	passkeyUser, err := bootstrap.createUser(ctx, uniqueEmail("uv-role"), "uv"+uniqueSuffix())
 	require.NoError(t, err)
-	require.NoError(t, bootstrap.MarkEmailVerified(ctx, passkeyUser.ID))
+	require.NoError(t, bootstrap.markEmailVerified(ctx, passkeyUser.ID))
 	grantRole(t, bootstrap, iam.RootGroup(), iam.UserSubject(passkeyUser.ID), "admin")
 	authn := passkeytest.New(t, "https://app.example")
 	creation, err := f.service.Backend().BeginPasskeyRegistration(ctx, passkeyUser.ID)
@@ -492,10 +492,10 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	optionalCfg := cfg
 	optionalCfg.TwoFactor.Mode = iam.TwoFactorOptional
 	old := newAccountFlow(t, pg.Pool, optionalCfg)
-	refreshUser, err := fixtureBackend(old.service.Backend()).CreateUser(ctx, uniqueEmail("revoke-all"), "revall"+uniqueSuffix())
+	refreshUser, err := fixtureBackend(old.service.Backend()).createUser(ctx, uniqueEmail("revoke-all"), "revall"+uniqueSuffix())
 	require.NoError(t, err)
-	require.NoError(t, fixtureBackend(old.service.Backend()).AdminSetPassword(ctx, refreshUser.ID, "Correct-horse-battery-1"))
-	require.NoError(t, fixtureBackend(old.service.Backend()).MarkEmailVerified(ctx, refreshUser.ID))
+	require.NoError(t, fixtureBackend(old.service.Backend()).adminSetPassword(ctx, refreshUser.ID, "Correct-horse-battery-1"))
+	require.NoError(t, fixtureBackend(old.service.Backend()).markEmailVerified(ctx, refreshUser.ID))
 	initial := old.expect(200, old.post("/password/login", map[string]any{"identifier": *refreshUser.Email, "password": "Correct-horse-battery-1"}))
 	_, err = fixtureBackend(f.service.Backend()).enableFactor(ctx, refreshUser.ID, "email", nil, authflow.AllowAdditionalFactors)
 	require.NoError(t, err)
@@ -601,7 +601,7 @@ func TestProviderAuthenticationWorkflow(t *testing.T) {
 			require.Equal(t, next.Error.Metadata.UserID, uid)
 			// Hold completion after source validation, then unlink concurrently.
 			// The source row must remain locked until the session is committed.
-			require.NoError(t, fixtureBackend(f.service.Backend()).AdminSetPassword(t.Context(), uid, "Provider-backup-password-123"))
+			require.NoError(t, fixtureBackend(f.service.Backend()).adminSetPassword(t.Context(), uid, "Provider-backup-password-123"))
 			next, _ = f.providerLogin(provider, identity, "", false)
 			f.expect(403, next)
 			body := map[string]any{"user_id": uid, "challenge": next.Error.Metadata.Challenge, "code": f.sms.lastLoginCode()}
@@ -684,7 +684,7 @@ func testProofLifecycle(f *accountFlow) {
 	for _, phone := range []bool{false, true} {
 		for _, passwordless := range []bool{false, true} {
 			identifier := uniqueEmail("lifecycle")
-			user, err := fixtureBackend(f.service.Backend()).CreateUser(ctx, identifier, "life"+uniqueSuffix())
+			user, err := fixtureBackend(f.service.Backend()).createUser(ctx, identifier, "life"+uniqueSuffix())
 			require.NoError(t, err)
 			if phone {
 				identifier = uniquePhone()
@@ -753,9 +753,9 @@ func testProofLifecycle(f *accountFlow) {
 	}
 	// Completion paused on the account lock must not delete a newer issuance.
 	email := uniqueEmail("reissue")
-	user, err := fixtureBackend(f.service.Backend()).CreateUser(ctx, email, "reissue"+uniqueSuffix())
+	user, err := fixtureBackend(f.service.Backend()).createUser(ctx, email, "reissue"+uniqueSuffix())
 	require.NoError(t, err)
-	require.NoError(t, fixtureBackend(f.service.Backend()).MarkEmailVerified(ctx, user.ID))
+	require.NoError(t, fixtureBackend(f.service.Backend()).markEmailVerified(ctx, user.ID))
 	begin := func() {
 		f.expect(202, f.post("/passwordless/start", map[string]any{"identifier": email, "mode": "both"}))
 	}
@@ -782,10 +782,10 @@ func testProofLifecycle(f *accountFlow) {
 
 func testPausedPasswordRecovery(f *accountFlow) {
 	t, pool, ctx := f.t, fixtureBackend(f.service.Backend()).pg, f.t.Context()
-	user, err := fixtureBackend(f.service.Backend()).CreateUser(ctx, uniqueEmail("paused-password"), "paused"+uniqueSuffix())
+	user, err := fixtureBackend(f.service.Backend()).createUser(ctx, uniqueEmail("paused-password"), "paused"+uniqueSuffix())
 	require.NoError(t, err)
-	require.NoError(t, fixtureBackend(f.service.Backend()).AdminSetPassword(ctx, user.ID, "Original-password-12345"))
-	require.NoError(t, fixtureBackend(f.service.Backend()).MarkEmailVerified(ctx, user.ID))
+	require.NoError(t, fixtureBackend(f.service.Backend()).adminSetPassword(ctx, user.ID, "Original-password-12345"))
+	require.NoError(t, fixtureBackend(f.service.Backend()).markEmailVerified(ctx, user.ID))
 	lock, err := pool.Begin(ctx)
 	require.NoError(t, err)
 	defer lock.Rollback(ctx)
@@ -793,7 +793,7 @@ func testPausedPasswordRecovery(f *accountFlow) {
 	require.NoError(t, err)
 	changed := make(chan error, 1)
 	go func() {
-		changed <- fixtureBackend(f.service.Backend()).AdminSetPassword(ctx, user.ID, "Replacement-password-12345")
+		changed <- fixtureBackend(f.service.Backend()).adminSetPassword(ctx, user.ID, "Replacement-password-12345")
 	}()
 	waitLocks := func(want int) {
 		require.Eventually(t, func() bool {

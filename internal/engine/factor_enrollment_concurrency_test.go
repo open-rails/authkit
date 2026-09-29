@@ -20,7 +20,7 @@ func TestFactorEnrollmentConcurrentFirstFactor(t *testing.T) {
 	for _, sameMethod := range []bool{false, true} {
 		t.Run(fmt.Sprintf("same_method_%v", sameMethod), func(t *testing.T) {
 			username := fmt.Sprintf("firstfactor%d", time.Now().UnixNano())
-			user, err := svc.CreateUser(ctx, username+"@test.example", username)
+			user, err := svc.createUser(ctx, username+"@test.example", username)
 			require.NoError(t, err)
 			t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id=$1`, user.ID) })
 			start := make(chan struct{})

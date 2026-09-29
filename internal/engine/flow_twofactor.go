@@ -9,7 +9,6 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
@@ -374,7 +373,7 @@ func (s *Engine) send2FACodeForFactor(ctx context.Context, userID, sessionID str
 	return s.send2FACodeForUser(ctx, user, sessionID, factor)
 }
 
-func (s *Engine) send2FACodeForUser(ctx context.Context, user *iam.User, sessionID string, factor authflow.TwoFactorFactor) (string, error) {
+func (s *Engine) send2FACodeForUser(ctx context.Context, user *userRecord, sessionID string, factor authflow.TwoFactorFactor) (string, error) {
 	userID := user.ID
 	language := ""
 	if user.PreferredLanguage != nil {

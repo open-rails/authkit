@@ -17,7 +17,7 @@ func TestRuntimeConstructorOwnsTopologyWithoutRestoringRoles(t *testing.T) {
 	client := first
 	_, err = client.Group(t.Context(), iam.RootGroup())
 	require.NoError(t, err, "construction installs the root without application provisioning")
-	user, err := client.CreateUser(t.Context(), "constructor@example.test", "constructor")
+	user, err := client.createUser(t.Context(), "constructor@example.test", "constructor")
 	require.NoError(t, err)
 	grantRole(t, client, iam.RootGroup(), iam.UserSubject(user.ID), "editor")
 	revokeRole(t, client, iam.RootGroup(), iam.UserSubject(user.ID), "editor")
@@ -43,7 +43,7 @@ func TestRuntimeConstructorWithoutRolesPreservesRoleAuthority(t *testing.T) {
 	owner, err := newWithKeys(Config{TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled}, Roles: editorRoles()}, keyset{}, Deps{Postgres: pg.Pool, River: RiverFromHost()})
 	require.NoError(t, err)
 	t.Cleanup(owner.Close)
-	user, err := owner.CreateUser(t.Context(), "shared-topology@example.test", "shared-topology")
+	user, err := owner.createUser(t.Context(), "shared-topology@example.test", "shared-topology")
 	require.NoError(t, err)
 	grantRole(t, owner, iam.RootGroup(), iam.UserSubject(user.ID), "editor")
 	issuer, err := newWithKeys(Config{}, keyset{}, Deps{Postgres: pg.Pool, River: RiverFromHost()})

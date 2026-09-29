@@ -95,15 +95,12 @@ type UserProfile struct {
 	EmailVerified       bool                 `json:"email_verified"`
 	PhoneVerified       bool                 `json:"phone_verified"`
 	HasPassword         bool                 `json:"has_password"`
-	DiscordUsername     *string              `json:"discord_username,omitempty"`
-	SolanaAddress       *string              `json:"solana_address,omitempty"`
 	SolanaLinkedAccount *SolanaLinkedAccount `json:"solana_linked_account,omitempty"`
 	LinkedProviders     []string             `json:"linked_providers,omitempty"`
 	EnabledProviders    []string             `json:"enabled_providers,omitempty"`
 	Roles               []string             `json:"roles"`
 	Entitlements        []string             `json:"entitlements"`
 	AvatarURL           *string              `json:"avatar_url,omitempty"`
-	UserAliases         []string             `json:"user_aliases,omitempty"`
 	PreferredLanguage   *string              `json:"preferred_language,omitempty"`
 	CreatedAt           *string              `json:"created_at,omitempty"`
 	Naming              iam.NamingState      `json:"naming"`

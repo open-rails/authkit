@@ -59,7 +59,7 @@ func newCredentialFixture(t *testing.T) *credentialFixture {
 
 func (f *credentialFixture) user(prefix string) iam.Subject {
 	f.n++
-	u, err := f.e.CreateUser(f.t.Context(), fmt.Sprintf("%s%d@credentials.test", prefix, f.n), fmt.Sprintf("%s%d", prefix, f.n))
+	u, err := f.e.createUser(f.t.Context(), fmt.Sprintf("%s%d@credentials.test", prefix, f.n), fmt.Sprintf("%s%d", prefix, f.n))
 	require.NoError(f.t, err)
 	return iam.UserSubject(u.ID)
 }

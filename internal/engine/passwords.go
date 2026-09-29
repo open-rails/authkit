@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/password"
@@ -16,7 +15,7 @@ import (
 // bcrypt import rehash to Argon2id), with its credential version captured before
 // checking the hash. It mints
 // nothing — PasswordLogin issues the session from its outcome.
-func (s *Engine) authenticatePassword(ctx context.Context, u *iam.User, pass string) (int64, error) {
+func (s *Engine) authenticatePassword(ctx context.Context, u *userRecord, pass string) (int64, error) {
 	if s.pg == nil {
 		return 0, jwt.ErrTokenUnverifiable
 	}

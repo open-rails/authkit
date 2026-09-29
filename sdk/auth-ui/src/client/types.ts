@@ -143,15 +143,12 @@ export type UserProfile = {
   email_verified: boolean
   phone_verified: boolean
   has_password: boolean
-  discord_username?: string
-  solana_address?: string
   solana_linked_account?: SolanaLinkedAccount
   linked_providers?: string[]
   enabled_providers?: string[]
   roles: string[]
   entitlements: string[]
   avatar_url?: string
-  user_aliases?: string[]
   preferred_language?: string
   created_at?: string
   naming: NamingState

@@ -14,7 +14,7 @@ import (
 // immediate-delete operation or configurable shortened recovery period.
 func prepareExpiredDeletion(t *testing.T, s *Engine, userID string) string {
 	t.Helper()
-	require.NoError(t, s.SoftDeleteUser(t.Context(), userID))
+	require.NoError(t, s.softDelete(t.Context(), userID))
 	_, err := s.pg.Exec(t.Context(), "UPDATE users SET deleted_at=statement_timestamp()-interval '31 days' WHERE id=$1::uuid", userID)
 	require.NoError(t, err)
 	var generation string
@@ -43,7 +43,7 @@ func TestAccountFinalizationPreservesForeignKeysAndCascadesMemberships(t *testin
 	require.NoError(t, err)
 	t.Cleanup(runtime.Close)
 	client := runtime
-	user, err := client.CreateUser(t.Context(), "finalize-fk@example.test", "finalizefk")
+	user, err := client.createUser(t.Context(), "finalize-fk@example.test", "finalizefk")
 	require.NoError(t, err)
 	grantRole(t, client, iam.RootGroup(), iam.UserSubject(user.ID), "member")
 	_, err = pg.Pool.Exec(t.Context(), "CREATE TABLE public.host_reference(user_id uuid REFERENCES profiles.users(id))")

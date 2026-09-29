@@ -312,13 +312,13 @@ func (s *Service) emitBrowserLogin(w http.ResponseWriter, r *http.Request, userI
 	if wantsJSONResponse(r) {
 		// Provider email is descriptive metadata; return the account's own
 		// nullable address, including on an explicit provider-link callback.
-		user, err := s.svc.AdminGetUser(r.Context(), userID)
-		if err != nil || user == nil {
+		user, err := s.svc.User(r.Context(), iam.UserByID(userID))
+		if err != nil {
 			s.failBrowserFlow(w, r, &sd, providerName, errmodel.Internal("user_lookup_failed", err))
 			return
 		}
 		s.writeTokenSetWith(w, r, http.StatusOK, iam.NewTokenSet(token, rt, exp), map[string]any{
-			"user": map[string]any{"id": userID, "email": user.Email},
+			"user": map[string]any{"id": userID, "email": nullableString(user.Email)},
 		})
 		return
 	}

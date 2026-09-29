@@ -178,7 +178,7 @@ func testDeviceKeyLifecycle(t *testing.T) {
 	require.NotEmpty(t, claims["sub"])
 	require.NotContains(t, claims, "sid")
 
-	user, err := srv.Backend().GetUserByEmail(ctx, email)
+	user, err := fixtureBackend(srv.Backend()).getUserByEmail(ctx, email)
 	require.NoError(t, err)
 	require.True(t, user.EmailVerified)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id=$1`, user.ID) })

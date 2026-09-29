@@ -38,7 +38,9 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 
 	var authMeta map[string]any
 	if !verify.SensitiveClaims(claims) {
-		if body.CurrentPassword == "" {
+		// MFA-if-enrolled: the current password alone never clears the gate
+		// for an account with a second factor (M5).
+		if body.CurrentPassword == "" || s.hasUsableMFA(r, claims.UserID) {
 			s.requireStepUp(w, r, claims)
 			return
 		}

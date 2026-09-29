@@ -35,6 +35,11 @@ Add a row and a test for every new attack class.
 | Oversized form_post callback body | `TestSecurityFormPostCallbackIsBounded` |
 | Outbound fetch to reserved ranges, including NAT64/6to4 | `TestSecurityOutboundAddressGuard` |
 | Purged user's username re-registered | `TestSecurityPurgedUsernameStaysReserved` |
+| Account edit, ban, delete, restore or session revoke by an actor lacking the `root:users` permission, or not covering the target's roles in root and every group | `TestSecurityAccountAuthority` |
+| Email change plus reset strips MFA while MFA-required roles remain | `TestSecurityContactChangeKeepsMFARoles` |
+| Host marks a squatter's address verified and the squatter's credentials survive | `TestSecurityVerifiedOnlyByProof` |
+| Inline password clears the fresh-auth gate for an account with a second factor | `TestSecurityInlinePasswordNeedsSecondFactor` |
+| API keys and invite links outlive their issuer's ban or deletion | `TestSecurityAccountLifecycleRevokesCredentials` |
 | A token or code issued on one replica replayed or guessed across replicas; replicas share Redis rate-limit budgets | `TestSecurityMultiReplicaStores` |
 | Stranger locks an account out with wrong passwords; guessing address keeps guessing; IPv6 address rotation within a /64 | `TestSecurityPasswordLimitIsPerAddress` |
 | Forged `X-Forwarded-For`/`CF-Connecting-IP` resets rate limits | `TestSecurityClientAddressSpoofing` |

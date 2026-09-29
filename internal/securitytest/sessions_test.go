@@ -100,17 +100,17 @@ func TestSecuritySessionRevocationEvents(t *testing.T) {
 			require.Less(t, resp.status, 300, resp.String())
 		}, true},
 		{"admin password reset", func(t *testing.T, a account, _ tokens) {
-			require.NoError(t, h.auth.AdminSetPassword(ctx, a.id, password))
+			require.NoError(t, h.setPassword(a.id, password))
 		}, true},
 		{"admin emergency revoke", func(t *testing.T, a account, _ tokens) {
-			_, err := h.auth.AdminRevokeAccountSessions(ctx, a.id)
+			_, err := h.auth.RevokeAccountSessions(ctx, iam.OperatorActor(), a.id)
 			require.NoError(t, err)
 		}, true},
 		{"ban", func(t *testing.T, a account, _ tokens) {
-			require.NoError(t, h.auth.BanUser(ctx, a.id, nil, nil, a.id))
+			require.NoError(t, h.auth.Ban(ctx, iam.OperatorActor(), a.id, iam.Ban{}))
 		}, false},
 		{"soft delete", func(t *testing.T, a account, _ tokens) {
-			results, err := h.auth.SoftDeleteUsers(ctx, []string{a.id})
+			results, err := h.auth.DeleteUsers(ctx, iam.OperatorActor(), []string{a.id})
 			require.NoError(t, err)
 			require.Len(t, results, 1)
 			require.NoError(t, results[0].Err)
@@ -203,10 +203,10 @@ func TestSecurityRevokedSessionCannotChangeCredentials(t *testing.T) {
 			own := h.login(a)
 			resp := h.post("/user/password", map[string]string{"current_password": password, "new_password": password + "x"}, own.AccessToken)
 			require.Less(t, resp.status, 300, resp.String())
-			require.NoError(t, h.auth.AdminSetPassword(ctx, a.id, password))
+			require.NoError(t, h.setPassword(a.id, password))
 		}},
 		{"operator bans the account", func(t *testing.T, a account, _ tokens) {
-			require.NoError(t, h.auth.BanUser(ctx, a.id, nil, nil, a.id))
+			require.NoError(t, h.auth.Ban(ctx, iam.OperatorActor(), a.id, iam.Ban{}))
 		}},
 	}
 	for _, event := range events {
@@ -217,7 +217,7 @@ func TestSecurityRevokedSessionCannotChangeCredentials(t *testing.T) {
 				event.revoke(t, a, stolen)
 				resp := h.do(attack.req(stolen.AccessToken))
 				require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, resp.status, resp.String())
-				u, err := h.auth.AdminGetUser(ctx, a.id)
+				u, err := h.auth.User(ctx, iam.UserByID(a.id), iam.IncludeDeleted())
 				require.NoError(t, err)
 				require.Nil(t, u.DeletedAt)
 				if event.name != "operator bans the account" {
@@ -278,9 +278,9 @@ func TestSecurityDelegationOutlivingRevocation(t *testing.T) {
 		{"after logout", func(_ account, s tokens) {
 			require.Less(t, h.do(request{method: http.MethodDelete, path: "/logout", token: s.AccessToken}).status, 300)
 		}},
-		{"after ban", func(a account, _ tokens) { require.NoError(t, h.auth.BanUser(ctx, a.id, nil, nil, a.id)) }},
+		{"after ban", func(a account, _ tokens) { require.NoError(t, h.auth.Ban(ctx, iam.OperatorActor(), a.id, iam.Ban{})) }},
 		{"after soft delete", func(a account, _ tokens) {
-			_, err := h.auth.SoftDeleteUsers(ctx, []string{a.id})
+			_, err := h.auth.DeleteUsers(ctx, iam.OperatorActor(), []string{a.id})
 			require.NoError(t, err)
 		}},
 	} {

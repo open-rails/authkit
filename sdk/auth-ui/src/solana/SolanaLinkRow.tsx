@@ -51,7 +51,7 @@ export function SolanaLinkRow({
   const [confirm, setConfirm] = useState(false)
 
   const account = user?.solana_linked_account
-  const address = account?.address ?? user?.solana_address ?? null
+  const address = account?.address ?? null
   const unverified = !!account && !account.verified
   const shown = account?.primary_sns_name ?? (address ? shorten(address) : null)
 
