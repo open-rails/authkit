@@ -1,6 +1,12 @@
 package httpapi
 
-// Bucket names used by authkit endpoints.
+import (
+	"time"
+
+	"github.com/open-rails/authkit/internal/ratelimit"
+)
+
+// Bucket names used by authkit endpoints; they key HTTPConfig.RateLimits.
 const (
 	// 2FA-specific rate limit buckets
 	RL2FAStartPhone      = "auth_2fa_start_phone"
@@ -16,6 +22,7 @@ const (
 	RLAuthRegisterAvailability = "auth_register_availability"
 	RLAuthRegisterAbandon      = "auth_register_abandon"
 	RLInviteCreate             = "auth_invite_create"
+	RLInviteRedeem             = "auth_invite_redeem"
 	RLPasswordLogin            = "auth_password_login"
 	RLPasswordStepUp           = "auth_password_step_up"
 	RLPasswordlessStart        = "auth_passwordless_start"
@@ -63,3 +70,82 @@ const (
 	RLSolanaLogin     = "auth_solana_login"
 	RLSolanaLink      = "auth_solana_link"
 )
+
+// bucket is a rate-limit budget: its default per-client limit and what its
+// requests get when the limiter's backend fails. A bucket fails closed: its
+// requests are refused, so an outage never lifts the budget in front of a
+// secret check (a password, one-time or backup code, a link, refresh or invite
+// token, or a signature over a challenge). Only a bucket that guards no secret
+// sets failOpen, and stays up through the outage.
+type bucket struct {
+	limit    ratelimit.Limit
+	failOpen bool
+}
+
+type lim = ratelimit.Limit
+
+var buckets = map[string]bucket{
+	// Secret checks. /register and /passwordless/start check an account
+	// invitation when one is presented.
+	RLPasswordLogin:         {limit: lim{Limit: 20, Window: time.Hour}},
+	RLPasswordStepUp:        {limit: lim{Limit: 20, Window: time.Hour}},
+	RLPasswordResetConfirm:  {limit: lim{Limit: 10, Window: 10 * time.Minute}},
+	RLPasswordlessStart:     {limit: lim{Limit: 6, Window: time.Hour, Cooldown: time.Minute}},
+	RLPasswordlessConfirm:   {limit: lim{Limit: 10, Window: 10 * time.Minute}},
+	RLAuthRegister:          {limit: lim{Limit: 6, Window: time.Hour, Cooldown: time.Minute}},
+	RLAuthRegisterAbandon:   {limit: lim{Limit: 10, Window: time.Hour, Cooldown: time.Minute}},
+	RLVerifyConfirm:         {limit: lim{Limit: 10, Window: 10 * time.Minute}},
+	RLAuthToken:             {limit: lim{Limit: 30, Window: time.Minute}},
+	RL2FAVerify:             {limit: lim{Limit: 10, Window: 10 * time.Minute}},
+	RL2FAEnable:             {limit: lim{Limit: 6, Window: time.Hour}},
+	RLPasskeyLogin:          {limit: lim{Limit: 20, Window: time.Hour}},
+	RLDeviceKeyEnrollFinish: {limit: lim{Limit: 10, Window: 10 * time.Minute}},
+	RLDeviceKeyLoginFinish:  {limit: lim{Limit: 30, Window: 10 * time.Minute}},
+	RLInviteRedeem:          {limit: lim{Limit: 60, Window: time.Hour}},
+	RLOIDCCallback:          {limit: lim{Limit: 60, Window: 10 * time.Minute}},
+	RLSolanaLogin:           {limit: lim{Limit: 20, Window: 10 * time.Minute}},
+	RLSolanaLink:            {limit: lim{Limit: 12, Window: time.Hour}},
+
+	// No secret checked. A password the account routes accept inline is
+	// checked under RLPasswordStepUp.
+	RLAuthRegisterAvailability:   {limit: lim{Limit: 120, Window: time.Minute}, failOpen: true},
+	RLInviteCreate:               {limit: lim{Limit: 20, Window: time.Hour, Cooldown: time.Minute}, failOpen: true},
+	RLPasskeyRegister:            {limit: lim{Limit: 12, Window: time.Hour}, failOpen: true},
+	RLDeviceKeyEnrollBegin:       {limit: lim{Limit: 6, Window: time.Hour, Cooldown: time.Minute}, failOpen: true},
+	RLDeviceKeyLoginBegin:        {limit: lim{Limit: 30, Window: 10 * time.Minute}, failOpen: true},
+	RLDeviceKeysManage:           {limit: lim{Limit: 30, Window: 10 * time.Minute}, failOpen: true},
+	RLAuthLogout:                 {limit: lim{Limit: 60, Window: 10 * time.Minute}, failOpen: true},
+	RLAuthSessionsList:           {limit: lim{Limit: 120, Window: time.Minute}, failOpen: true},
+	RLAuthSessionsRevoke:         {limit: lim{Limit: 60, Window: 10 * time.Minute}, failOpen: true},
+	RLAuthSessionsRevokeAll:      {limit: lim{Limit: 20, Window: time.Hour}, failOpen: true},
+	RLDelegatedTokenMint:         {limit: lim{Limit: 60, Window: time.Minute}, failOpen: true},
+	RLPasswordResetRequest:       {limit: lim{Limit: 6, Window: time.Hour, Cooldown: time.Minute}, failOpen: true},
+	RLVerifyRequest:              {limit: lim{Limit: 6, Window: time.Hour, Cooldown: time.Minute}, failOpen: true},
+	RLContactChangeRequest:       {limit: lim{Limit: 6, Window: time.Hour, Cooldown: time.Minute}, failOpen: true},
+	RLUserPasswordChange:         {limit: lim{Limit: 6, Window: time.Hour}, failOpen: true},
+	RLUserMe:                     {limit: lim{Limit: 120, Window: time.Minute}, failOpen: true},
+	RLUserUpdateUsername:         {limit: lim{Limit: 12, Window: time.Hour}, failOpen: true},
+	RLUserPreferredLanguage:      {limit: lim{Limit: 24, Window: time.Hour}, failOpen: true},
+	RLUserDelete:                 {limit: lim{Limit: 6, Window: time.Hour}, failOpen: true},
+	RLUserUnlinkProvider:         {limit: lim{Limit: 12, Window: time.Hour}, failOpen: true},
+	RLOIDCStart:                  {limit: lim{Limit: 30, Window: 10 * time.Minute}, failOpen: true},
+	RLSolanaChallenge:            {limit: lim{Limit: 30, Window: 10 * time.Minute}, failOpen: true},
+	RL2FAStartPhone:              {limit: lim{Limit: 3, Window: 10 * time.Minute}, failOpen: true},
+	RL2FAStartTOTP:               {limit: lim{Limit: 6, Window: time.Hour}, failOpen: true},
+	RL2FAStartEmail:              {limit: lim{Limit: 3, Window: 10 * time.Minute}, failOpen: true},
+	RL2FADisable:                 {limit: lim{Limit: 6, Window: time.Hour}, failOpen: true},
+	RL2FARegenerateCodes:         {limit: lim{Limit: 3, Window: time.Hour}, failOpen: true},
+	RLAdminUserSessionsList:      {limit: lim{Limit: 600, Window: time.Hour}, failOpen: true},
+	RLAdminUserSessionsRevokeAll: {limit: lim{Limit: 30, Window: time.Hour}, failOpen: true},
+}
+
+// DefaultRateLimits returns AuthKit's built-in per-endpoint rate limits, per
+// client IP; "default" applies to any bucket not listed. Hosts overlay them
+// with HTTPConfig.RateLimits or replace the limiter.
+func DefaultRateLimits() map[string]ratelimit.Limit {
+	out := map[string]ratelimit.Limit{"default": {Limit: 120, Window: time.Minute}}
+	for name, b := range buckets {
+		out[name] = b.limit
+	}
+	return out
+}
