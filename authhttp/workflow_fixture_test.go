@@ -1007,9 +1007,6 @@ func configOf(opts ...Option) Config {
 	if c.ClientIP == nil && !c.DirectPeerIP && len(c.TrustedProxies) == 0 && len(c.CloudflareProxies) == 0 {
 		c.DirectPeerIP = true
 	}
-	if c.Redis == nil && c.Limiter == nil && !c.DisableRateLimiting {
-		c.PerProcessRateLimits = true
-	}
 	return c
 }
 

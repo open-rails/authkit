@@ -108,7 +108,7 @@ func New(client embedded.HTTPBackend, hcfg Config) (*Service, error) {
 	if err := s.validate(cfg); err != nil {
 		return nil, err
 	}
-	// Config.Validate guarantees exactly one limiter choice.
+	// Config.Validate guarantees at most one limiter choice.
 	switch {
 	case hcfg.Limiter != nil:
 		s.rl = hcfg.Limiter
@@ -139,7 +139,7 @@ func New(client embedded.HTTPBackend, hcfg Config) (*Service, error) {
 			ml.StartCleanup(ctx, time.Minute)
 			s.closers = append(s.closers, cancel)
 			s.rl = ml
-			slog.Warn("authkit: rate limits are per-process (PerProcessRateLimits) — every replica multiplies each limit, including password guesses; set authhttp.Config.Redis for multiple replicas")
+			slog.Warn("authkit: Redis is optional but not configured; rate limits are per-process, so each replica counts separately. Set authhttp.Config.Redis when running more than one replica")
 		}
 	}
 	return s, nil

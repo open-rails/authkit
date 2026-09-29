@@ -23,8 +23,8 @@ holds a whole /64.
 ## Where the state lives
 
 Codes, attempt counters and OIDC/SIWS login state live in Postgres and are
-shared by every replica. The rate limiter is a required choice:
-`authhttp.Config.Redis` (Redis or Garnet, keys under `RedisKeyPrefix`) shares
-budgets across replicas; `PerProcessRateLimits` keeps them in each process,
-which multiplies every limit, including password guesses, by the replica
-count and logs a warning. A custom `Limiter` is the third option.
+shared by every replica. Rate limits live in memory by default: each process
+counts separately, so N replicas allow N times every limit, including password
+guesses, and AuthKit logs a warning at startup. Set `authhttp.Config.Redis`
+(Redis or Garnet, keys under `RedisKeyPrefix`) to share budgets across
+replicas, or supply a custom `Limiter`.

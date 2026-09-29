@@ -63,7 +63,7 @@ func TestSecurityProviderIssuerCollisions(t *testing.T) {
 			Keys:     embedded.KeysConfig{Source: jwtkit.StaticKeySource{Active: s, Pubs: map[string]crypto.PublicKey{s.KID(): s.PublicKey()}}},
 			Token:    embedded.TokenConfig{Issuer: issuer, IssuedAudiences: []string{audience}},
 			Identity: embedded.IdentityConfig{Providers: providers},
-			HTTP:     authhttp.Config{DirectPeerIP: true, PerProcessRateLimits: true},
+			HTTP:     authhttp.Config{DirectPeerIP: true},
 		}, embedded.Deps{Postgres: pg.Pool})
 		if runtime != nil {
 			runtime.Close()
