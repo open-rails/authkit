@@ -10,6 +10,47 @@ import (
 	"time"
 )
 
+const accountDeletionPurgeNow = `-- name: AccountDeletionPurgeNow :one
+UPDATE account_deletions SET purge_at = statement_timestamp()
+WHERE user_id = $1 AND state = 'deleted'
+RETURNING id, user_id, deleted_at, purge_at
+`
+
+type AccountDeletionPurgeNowRow struct {
+	ID        string
+	UserID    string
+	DeletedAt time.Time
+	PurgeAt   time.Time
+}
+
+// Closes the recovery window of a deleted account now.
+func (q *Queries) AccountDeletionPurgeNow(ctx context.Context, userID string) (AccountDeletionPurgeNowRow, error) {
+	row := q.db.QueryRow(ctx, accountDeletionPurgeNow, userID)
+	var i AccountDeletionPurgeNowRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.DeletedAt,
+		&i.PurgeAt,
+	)
+	return i, err
+}
+
+const accountDeletionSetDeletedBy = `-- name: AccountDeletionSetDeletedBy :exec
+UPDATE account_deletions SET deleted_by = $1::uuid WHERE user_id = $2 AND state = 'deleted'
+`
+
+type AccountDeletionSetDeletedByParams struct {
+	DeletedBy *string
+	UserID    string
+}
+
+// Records who deleted an account that is already deleted.
+func (q *Queries) AccountDeletionSetDeletedBy(ctx context.Context, arg AccountDeletionSetDeletedByParams) error {
+	_, err := q.db.Exec(ctx, accountDeletionSetDeletedBy, arg.DeletedBy, arg.UserID)
+	return err
+}
+
 const contactState = `-- name: ContactState :one
 SELECT ((email IS NOT NULL OR phone_number IS NOT NULL)
         AND NOT ((email IS NOT NULL AND email_verified) OR (phone_number IS NOT NULL AND phone_verified)))::boolean AS unproven,
@@ -51,6 +92,15 @@ func (q *Queries) ContactStateForUpdate(ctx context.Context, id string) (Contact
 	var i ContactStateForUpdateRow
 	err := row.Scan(&i.Unproven, &i.Identifier, &i.Channel)
 	return i, err
+}
+
+const mFASettingsDelete = `-- name: MFASettingsDelete :exec
+DELETE FROM mfa_settings WHERE user_id = $1
+`
+
+func (q *Queries) MFASettingsDelete(ctx context.Context, userID string) error {
+	_, err := q.db.Exec(ctx, mFASettingsDelete, userID)
+	return err
 }
 
 const userAdvanceCredentialVersion = `-- name: UserAdvanceCredentialVersion :exec
@@ -113,6 +163,18 @@ func (q *Queries) UserBan(ctx context.Context, arg UserBanParams) error {
 		arg.ID,
 	)
 	return err
+}
+
+const userBanInForce = `-- name: UserBanInForce :one
+SELECT (banned_at IS NOT NULL AND (banned_until IS NULL OR banned_until > now()))::boolean AS in_force
+FROM users WHERE id = $1
+`
+
+func (q *Queries) UserBanInForce(ctx context.Context, id string) (bool, error) {
+	row := q.db.QueryRow(ctx, userBanInForce, id)
+	var in_force bool
+	err := row.Scan(&in_force)
+	return in_force, err
 }
 
 const userByEmail = `-- name: UserByEmail :one
@@ -576,6 +638,23 @@ func (q *Queries) UserPasswordUpsert(ctx context.Context, arg UserPasswordUpsert
 	return err
 }
 
+const userPatchMetadata = `-- name: UserPatchMetadata :exec
+UPDATE users SET metadata = (COALESCE(metadata, '{}'::jsonb) || $1::jsonb) - $2::text[], updated_at = now()
+WHERE id = $3
+`
+
+type UserPatchMetadataParams struct {
+	Patch    []byte
+	DropKeys []string
+	ID       string
+}
+
+// Merges patch into the metadata and removes drop_keys.
+func (q *Queries) UserPatchMetadata(ctx context.Context, arg UserPatchMetadataParams) error {
+	_, err := q.db.Exec(ctx, userPatchMetadata, arg.Patch, arg.DropKeys, arg.ID)
+	return err
+}
+
 const userPhoneOrUsernameTaken = `-- name: UserPhoneOrUsernameTaken :one
 SELECT
   EXISTS(SELECT 1 FROM users WHERE phone_number = $1::text)::boolean AS phone_taken,
@@ -629,6 +708,36 @@ func (q *Queries) UserRename(ctx context.Context, arg UserRenameParams) error {
 	return err
 }
 
+const userSetAvatarURL = `-- name: UserSetAvatarURL :exec
+UPDATE users SET avatar_url = $1, updated_at = now() WHERE id = $2
+`
+
+type UserSetAvatarURLParams struct {
+	AvatarURL *string
+	ID        string
+}
+
+func (q *Queries) UserSetAvatarURL(ctx context.Context, arg UserSetAvatarURLParams) error {
+	_, err := q.db.Exec(ctx, userSetAvatarURL, arg.AvatarURL, arg.ID)
+	return err
+}
+
+const userSetEmail = `-- name: UserSetEmail :exec
+UPDATE users SET email = $1, email_verified = false, updated_at = now()
+WHERE id = $2 AND email IS DISTINCT FROM $1::text::public.citext
+`
+
+type UserSetEmailParams struct {
+	Email *string
+	ID    string
+}
+
+// A new address is unverified; setting the current one changes nothing.
+func (q *Queries) UserSetEmail(ctx context.Context, arg UserSetEmailParams) error {
+	_, err := q.db.Exec(ctx, userSetEmail, arg.Email, arg.ID)
+	return err
+}
+
 const userSetEmailVerified = `-- name: UserSetEmailVerified :exec
 UPDATE users SET email_verified = $2, updated_at = NOW() WHERE id = $1
 `
@@ -643,6 +752,25 @@ func (q *Queries) UserSetEmailVerified(ctx context.Context, arg UserSetEmailVeri
 	return err
 }
 
+const userSetEmailVerifiedIfPresent = `-- name: UserSetEmailVerifiedIfPresent :execrows
+UPDATE users SET email_verified = $1, updated_at = now()
+WHERE id = $2 AND (NOT $1::boolean OR email IS NOT NULL)
+`
+
+type UserSetEmailVerifiedIfPresentParams struct {
+	Verified bool
+	ID       string
+}
+
+// Verifying needs an address; no row changes without one.
+func (q *Queries) UserSetEmailVerifiedIfPresent(ctx context.Context, arg UserSetEmailVerifiedIfPresentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, userSetEmailVerifiedIfPresent, arg.Verified, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const userSetLastLogin = `-- name: UserSetLastLogin :exec
 UPDATE users SET last_login = $2, updated_at = NOW() WHERE id = $1
 `
@@ -654,6 +782,21 @@ type UserSetLastLoginParams struct {
 
 func (q *Queries) UserSetLastLogin(ctx context.Context, arg UserSetLastLoginParams) error {
 	_, err := q.db.Exec(ctx, userSetLastLogin, arg.ID, arg.LastLogin)
+	return err
+}
+
+const userSetPhone = `-- name: UserSetPhone :exec
+UPDATE users SET phone_number = $1, phone_verified = false, updated_at = now()
+WHERE id = $2 AND phone_number IS DISTINCT FROM $1
+`
+
+type UserSetPhoneParams struct {
+	PhoneNumber *string
+	ID          string
+}
+
+func (q *Queries) UserSetPhone(ctx context.Context, arg UserSetPhoneParams) error {
+	_, err := q.db.Exec(ctx, userSetPhone, arg.PhoneNumber, arg.ID)
 	return err
 }
 
@@ -671,6 +814,24 @@ type UserSetPhoneVerifiedByIDAndPhoneParams struct {
 func (q *Queries) UserSetPhoneVerifiedByIDAndPhone(ctx context.Context, arg UserSetPhoneVerifiedByIDAndPhoneParams) error {
 	_, err := q.db.Exec(ctx, userSetPhoneVerifiedByIDAndPhone, arg.ID, arg.PhoneNumber)
 	return err
+}
+
+const userSetPhoneVerifiedIfPresent = `-- name: UserSetPhoneVerifiedIfPresent :execrows
+UPDATE users SET phone_verified = $1, updated_at = now()
+WHERE id = $2 AND (NOT $1::boolean OR phone_number IS NOT NULL)
+`
+
+type UserSetPhoneVerifiedIfPresentParams struct {
+	Verified bool
+	ID       string
+}
+
+func (q *Queries) UserSetPhoneVerifiedIfPresent(ctx context.Context, arg UserSetPhoneVerifiedIfPresentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, userSetPhoneVerifiedIfPresent, arg.Verified, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const userSetPreferredLanguage = `-- name: UserSetPreferredLanguage :exec

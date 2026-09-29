@@ -17,8 +17,7 @@ import (
 // authority mutation. A schema-wide boundary also protects root grants and
 // mutable role definitions. Login, verification and session reads do not use it.
 func (s *Engine) lockAuthority(ctx context.Context, q db.DBTX) error {
-	_, err := q.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "authkit.authority."+s.dbSchema())
-	return err
+	return db.New(q).AuthorityLock(ctx, "authkit.authority."+s.dbSchema())
 }
 
 // Authority reads after a queued lock must use a new statement snapshot even
@@ -78,19 +77,19 @@ func (s *Engine) joinHostTransaction(ctx context.Context, host pgx.Tx) (pgx.Tx, 
 	if err != nil {
 		return nil, err
 	}
-	var isolation, hostPath string
-	err = sp.QueryRow(ctx, `SELECT current_setting('transaction_isolation'), current_setting('search_path')`).Scan(&isolation, &hostPath)
-	if err == nil && isolation != "read committed" {
-		err = fmt.Errorf("authkit: InTx needs a READ COMMITTED transaction, not %s", strings.ToUpper(isolation))
+	q := db.New(sp)
+	settings, err := q.TransactionSettings(ctx)
+	if err == nil && settings.Isolation != "read committed" {
+		err = fmt.Errorf("authkit: InTx needs a READ COMMITTED transaction, not %s", strings.ToUpper(settings.Isolation))
 	}
 	if err == nil {
-		_, err = sp.Exec(ctx, `SELECT set_config('search_path', $1, true)`, pgx.Identifier{s.dbSchema()}.Sanitize()+", public")
+		err = q.SetSearchPath(ctx, db.SetSearchPathParams{SearchPath: pgx.Identifier{s.dbSchema()}.Sanitize() + ", public", IsLocal: true})
 	}
 	if err != nil {
 		_ = sp.Rollback(ctx)
 		return nil, err
 	}
-	return hostSavepoint{Tx: sp, hostSearchPath: hostPath}, nil
+	return hostSavepoint{Tx: sp, hostSearchPath: settings.SearchPath}, nil
 }
 
 // hostSavepoint is a savepoint in the host's transaction that restores the
@@ -101,7 +100,7 @@ type hostSavepoint struct {
 }
 
 func (h hostSavepoint) Commit(ctx context.Context) error {
-	if _, err := h.Exec(ctx, `SELECT set_config('search_path', $1, true)`, h.hostSearchPath); err != nil {
+	if err := db.New(h.Tx).SetSearchPath(ctx, db.SetSearchPathParams{SearchPath: h.hostSearchPath, IsLocal: true}); err != nil {
 		return err
 	}
 	return h.Tx.Commit(ctx)
@@ -123,50 +122,16 @@ func (s *Engine) revokeUncoveredCredentials(ctx context.Context, st *permissionG
 			continue
 		}
 		seen[t] = true
-		rows, err := st.q.Query(ctx, `WITH scope AS (
-  SELECT g.id, g.persona FROM permission_groups t JOIN permission_groups g
-    ON g.id=t.id OR (t.persona='root' AND g.deleted_at IS NULL)
-   WHERE t.id=$1::uuid)
-SELECT 'group_invite_links', l.id::text, l.permission_group_id::text, t.persona, l.role, l.invited_by::text, false
-  FROM group_invite_links l JOIN scope t ON t.id=l.permission_group_id
- WHERE l.revoked_at IS NULL AND l.redeemed_at IS NULL AND (l.expires_at IS NULL OR l.expires_at>now())
-   AND l.invited_by IS NOT NULL AND ($2::text='' OR l.invited_by=NULLIF($2::text,'')::uuid)
-UNION ALL
-SELECT 'account_registration_invites', a.id::text, a.permission_group_id::text, t.persona, a.role, a.invited_by::text, false
-  FROM account_registration_invites a JOIN scope t ON t.id=a.permission_group_id
- WHERE a.revoked_at IS NULL AND a.consumed_at IS NULL AND a.expires_at>now()
-   AND a.invited_by IS NOT NULL AND ($2::text='' OR a.invited_by=NULLIF($2::text,'')::uuid)
-UNION ALL
-SELECT 'account_registration_invites', a.id::text, t.id::text, t.persona, '', a.invited_by::text, false
-  FROM account_registration_invites a JOIN scope t ON t.persona='root'
- WHERE a.permission_group_id IS NULL AND a.revoked_at IS NULL AND a.consumed_at IS NULL AND a.expires_at>now()
-   AND a.invited_by IS NOT NULL AND ($2::text='' OR a.invited_by=NULLIF($2::text,'')::uuid)
-UNION ALL
-SELECT 'api_keys', k.id::text, k.permission_group_id::text, t.persona, k.role, COALESCE(k.created_by::text,''), false
-  FROM api_keys k JOIN scope t ON t.id=k.permission_group_id
- WHERE k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>now())
-   AND ($2::text='' OR k.created_by=NULLIF($2::text,'')::uuid)
-UNION ALL
-SELECT 'group_remote_application_roles', a.id::text, r.permission_group_id::text, t.persona, r.role, COALESCE(a.registered_by::text,''), a.trust_root='user'
-  FROM group_remote_application_roles r JOIN scope t ON t.id=r.permission_group_id
-  JOIN remote_applications a ON a.id=r.remote_application_id
- WHERE ($2::text='' OR a.registered_by=NULLIF($2::text,'')::uuid)`, t.groupID, t.userID)
+		rows, err := db.New(st.q).AuthorityUncoveredCredentials(ctx, db.AuthorityUncoveredCredentialsParams{GroupID: t.groupID, UserID: t.userID})
 		if err != nil {
 			return err
 		}
-		for rows.Next() {
-			var c sweptCredential
-			var role string
-			if err := rows.Scan(&c.table, &c.id, &c.group.ID, scanPersona(&c.group.Persona), &role, &c.creator, &c.needsCreator); err != nil {
-				rows.Close()
-				return err
-			}
-			c.role = ident.Role(c.group.Persona, role)
-			creds = append(creds, c)
-		}
-		rows.Close()
-		if err := rows.Err(); err != nil {
-			return err
+		for _, r := range rows {
+			persona := ident.Persona(r.Persona)
+			creds = append(creds, sweptCredential{
+				table: r.Kind, id: r.ID, creator: r.Creator, needsCreator: r.NeedsCreator,
+				group: groupTarget{ID: r.GroupID, Persona: persona}, role: ident.Role(persona, r.Role),
+			})
 		}
 	}
 	revoked := map[string]bool{}
@@ -256,12 +221,16 @@ func (s *Engine) retireCredential(ctx context.Context, st *permissionGroupStore,
 		}
 		return nil
 	}
-	stamp := "revoked_at=now()"
-	if c.table != "api_keys" {
-		stamp += ", updated_at=now()"
+	q := db.New(st.q)
+	switch c.table {
+	case "api_keys":
+		return q.APIKeyRetire(ctx, c.id)
+	case "group_invite_links":
+		return q.InviteLinkRetire(ctx, c.id)
+	case "account_registration_invites":
+		return q.AccountInviteRetire(ctx, c.id)
 	}
-	_, err := st.q.Exec(ctx, "UPDATE "+c.table+" SET "+stamp+" WHERE id=$1::uuid", c.id)
-	return err
+	return fmt.Errorf("authkit: unknown credential kind %q", c.table)
 }
 
 // creatorCovers is rule CRED: the creator is still a live account (not
@@ -298,21 +267,22 @@ func (st *permissionGroupStore) directRole(ctx context.Context, g groupTarget, s
 
 // directRoleName is the name of the subject's role in the group, "" for none.
 func (st *permissionGroupStore) directRoleName(ctx context.Context, gid string, subject iam.Subject) (string, error) {
-	table, column, err := groupRoleTable(subject.Kind)
-	if err != nil {
-		return "", err
-	}
+	q := db.New(st.q)
 	var role string
-	err = st.q.QueryRow(ctx, fmt.Sprintf(`SELECT role FROM %s WHERE permission_group_id=$1::uuid AND %s=$2::uuid`, table, column), gid, subject.ID).Scan(&role)
+	var err error
+	switch subject.Kind {
+	case iam.SubjectKindUser:
+		role, err = q.GroupUserRoleName(ctx, db.GroupUserRoleNameParams{GroupID: gid, UserID: subject.ID})
+	case iam.SubjectKindRemoteApplication:
+		role, err = q.GroupApplicationRoleName(ctx, db.GroupApplicationRoleNameParams{GroupID: gid, ApplicationID: subject.ID})
+	default:
+		return "", fmt.Errorf("invalid group subject kind %q", subject.Kind)
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
 	return role, err
 }
-
-// usableUser is the account half of every live check: not deleted, reserved
-// or banned (an expired temporary ban is no ban).
-const usableUser = `deleted_at IS NULL AND COALESCE(metadata->'reserved','false'::jsonb)<>'true'::jsonb AND ((banned_at IS NULL AND banned_until IS NULL AND ban_reason IS NULL AND banned_by IS NULL) OR banned_until<=statement_timestamp())`
 
 // userLive is the session check (#412), in one query: whether userID is
 // usable, and whether the sign-in r names, when it names one, is still an
@@ -326,27 +296,18 @@ func userLive(ctx context.Context, q db.DBTX, userID string, r iam.SessionRef) (
 	case r.SessionID != "" && !isUUID(r.SessionID), r.DeviceKeyID != "" && !isUUID(r.DeviceKeyID):
 		return true, false, nil
 	}
-	err = q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1::uuid AND `+usableUser+`),
- $2::text='' AND $3::text=''
- OR EXISTS(SELECT 1 FROM refresh_sessions WHERE id=NULLIF($2::text,'')::uuid AND user_id=$1::uuid AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>now()))
- OR EXISTS(SELECT 1 FROM user_device_keys WHERE id=NULLIF($3::text,'')::uuid AND user_id=$1::uuid AND revoked_at IS NULL)`,
-		userID, r.SessionID, r.DeviceKeyID).Scan(&usable, &signedIn)
-	return usable, signedIn, err
+	live, err := db.New(q).UserSessionLive(ctx, db.UserSessionLiveParams{UserID: userID, SessionID: r.SessionID, DeviceKeyID: r.DeviceKeyID})
+	return live.Usable, live.SignedIn, err
 }
 
 func subjectUsable(ctx context.Context, q db.DBTX, subject iam.Subject) (bool, error) {
-	var query string
 	switch subject.Kind {
 	case iam.SubjectKindUser:
-		query = `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1::uuid AND ` + usableUser + `)`
+		return db.New(q).UserUsable(ctx, subject.ID)
 	case iam.SubjectKindRemoteApplication:
-		query = `SELECT EXISTS(SELECT 1 FROM remote_applications a JOIN permission_groups g ON g.id=a.permission_group_id WHERE a.id=$1::uuid AND a.enabled AND g.deleted_at IS NULL AND ` + registrarLive("a") + `)`
-	default:
-		return false, fmt.Errorf("invalid subject kind %q", subject.Kind)
+		return db.New(q).RemoteApplicationUsable(ctx, subject.ID)
 	}
-	var live bool
-	err := q.QueryRow(ctx, query, subject.ID).Scan(&live)
-	return live, err
+	return false, fmt.Errorf("invalid subject kind %q", subject.Kind)
 }
 
 // refuseOwnerLoss checks a specific departing assignment, excluding its subject
@@ -360,9 +321,9 @@ func (s *Engine) refuseOwnerLoss(ctx context.Context, st *permissionGroupStore, 
 	}
 	live, err := subjectUsable(ctx, st.q, subject)
 	if err == nil && live && subject.Kind == iam.SubjectKindRemoteApplication {
-		var persona iam.Persona
-		err = st.q.QueryRow(ctx, `SELECT a.permission_group_id=$2::uuid, g.persona FROM remote_applications a JOIN permission_groups g ON g.id=$2::uuid WHERE a.id=$1::uuid`, subject.ID, gid).Scan(&live, scanPersona(&persona))
-		live = live && !s.ownersNeedMFA(persona)
+		var app db.AuthorityApplicationOwnsGroupRow
+		app, err = db.New(st.q).AuthorityApplicationOwnsGroup(ctx, db.AuthorityApplicationOwnsGroupParams{GroupID: gid, ApplicationID: subject.ID})
+		live = app.Controls && !s.ownersNeedMFA(ident.Persona(app.Persona))
 	}
 	if err != nil || !live {
 		return err
@@ -378,16 +339,17 @@ func (s *Engine) ownersNeedMFA(persona iam.Persona) bool {
 }
 
 func (s *Engine) requireRemainingOwner(ctx context.Context, st *permissionGroupStore, gid string, excluding iam.Subject) error {
-	var persona iam.Persona
-	var inactive bool
-	if err := st.q.QueryRow(ctx, `SELECT persona,deleted_at IS NOT NULL FROM permission_groups WHERE id=$1::uuid`, gid).Scan(scanPersona(&persona), &inactive); err != nil {
+	q := db.New(st.q)
+	g, err := q.AuthorityGroupState(ctx, gid)
+	if err != nil {
 		return err
 	}
-	if inactive {
+	if g.DeletedAt != nil {
 		return nil
 	}
-	var remains bool
-	err := st.q.QueryRow(ctx, `SELECT `+usableOwner("$1::uuid", "$2::text", "$3::uuid", "$4::bool"), gid, string(excluding.Kind), nullable(excluding.ID), s.ownersNeedMFA(persona)).Scan(&remains)
+	remains, err := q.GroupHasOtherUsableOwner(ctx, db.GroupHasOtherUsableOwnerParams{
+		GroupID: gid, ExcludingKind: string(excluding.Kind), ExcludingID: nullable(excluding.ID), NeedsMfa: s.ownersNeedMFA(ident.Persona(g.Persona)),
+	})
 	if err != nil {
 		return err
 	}
@@ -417,25 +379,16 @@ func usableOwner(gid, kind, id, needsMFA string) string {
 }
 
 func (s *Engine) refuseSubjectOwnerLoss(ctx context.Context, st *permissionGroupStore, subject iam.Subject) error {
-	table, column, err := groupRoleTable(subject.Kind)
-	if err != nil {
-		return err
-	}
-	rows, err := st.q.Query(ctx, fmt.Sprintf(`SELECT permission_group_id::text FROM %s WHERE %s=$1::uuid AND role='owner' ORDER BY permission_group_id`, table, column), subject.ID)
-	if err != nil {
-		return err
-	}
 	var groups []string
-	for rows.Next() {
-		var gid string
-		if err := rows.Scan(&gid); err != nil {
-			rows.Close()
-			return err
-		}
-		groups = append(groups, gid)
+	var err error
+	switch subject.Kind {
+	case iam.SubjectKindUser:
+		groups, err = db.New(st.q).GroupsOwnedByUser(ctx, subject.ID)
+	case iam.SubjectKindRemoteApplication:
+		groups, err = db.New(st.q).GroupsOwnedByApplication(ctx, subject.ID)
+	default:
+		return fmt.Errorf("invalid group subject kind %q", subject.Kind)
 	}
-	err = rows.Err()
-	rows.Close()
 	if err != nil {
 		return err
 	}
@@ -485,28 +438,7 @@ func (s *Engine) assignInvitedRole(ctx context.Context, st *permissionGroupStore
 // the surviving groups after all cascades, so departing apps cannot count one
 // another as replacements. Caller already holds the authority transaction lock.
 func outsideApplicationOwnerGroups(ctx context.Context, st *permissionGroupStore, gid string) ([]string, error) {
-	rows, err := st.q.Query(ctx, `SELECT DISTINCT r.permission_group_id::text FROM group_remote_application_roles r
-      JOIN remote_applications a ON a.id=r.remote_application_id
-      WHERE a.permission_group_id=$1::uuid AND a.enabled AND r.role='owner'
-      AND r.permission_group_id<>$1::uuid`, gid)
-	if err != nil {
-		return nil, err
-	}
-	var surviving []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		surviving = append(surviving, id)
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return nil, err
-	}
-	return surviving, nil
+	return db.New(st.q).AuthorityOutsideApplicationOwnerGroups(ctx, gid)
 }
 
 func (s *Engine) deleteGroupTx(ctx context.Context, st *permissionGroupStore, gid string) error {

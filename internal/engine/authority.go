@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/rbac"
 )
@@ -42,12 +43,15 @@ func (s *Engine) resolveGroup(ctx context.Context, st *permissionGroupStore, ref
 	case !isUUID(ref.ID()):
 		return groupTarget{}, iam.ErrGroupNotFound
 	}
-	var g groupTarget
-	err := st.q.QueryRow(ctx, `SELECT id::text, persona FROM permission_groups WHERE id=$1::uuid AND deleted_at IS NULL`, ref.ID()).Scan(&g.ID, scanPersona(&g.Persona))
+	g, err := db.New(st.q).AuthorityGroup(ctx, ref.ID())
 	if errors.Is(err, pgx.ErrNoRows) {
 		return groupTarget{}, iam.ErrGroupNotFound
 	}
-	return g, err
+	return groupTargetOf(g), err
+}
+
+func groupTargetOf(g db.PermissionGroup) groupTarget {
+	return groupTarget{ID: g.ID, Persona: ident.Persona(g.Persona)}
 }
 
 // rootGroup returns the root group id, cached once read. A root created here
@@ -182,9 +186,7 @@ func (s *Engine) applicationAuthority(ctx context.Context, st *permissionGroupSt
 	if !isUUID(appID) {
 		return authority{}, iam.ErrInsufficientAuthority
 	}
-	var control string
-	err := st.q.QueryRow(ctx, `SELECT a.permission_group_id::text FROM remote_applications a JOIN permission_groups g ON g.id=a.permission_group_id
- WHERE a.id=$1::uuid AND a.enabled AND g.deleted_at IS NULL AND `+registrarLive("a"), appID).Scan(&control)
+	control, err := db.New(st.q).AuthorityApplicationGroup(ctx, appID)
 	if errors.Is(err, pgx.ErrNoRows) || err == nil && wantGroup != "" && wantGroup != control {
 		return authority{}, iam.ErrInsufficientAuthority
 	}
@@ -211,17 +213,14 @@ func (s *Engine) apiKeyAuthority(ctx context.Context, st *permissionGroupStore, 
 	if !isUUID(keyID) {
 		return authority{}, iam.ErrInsufficientAuthority
 	}
-	var gid string
-	var role iam.Role
-	err := st.q.QueryRow(ctx, `SELECT k.permission_group_id::text, k.role FROM api_keys k JOIN permission_groups g ON g.id=k.permission_group_id
- WHERE k.id=$1::uuid AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>now()) AND g.deleted_at IS NULL AND `+issuerLive("k.created_by"), keyID).Scan(&gid, scanRole(&role, g.Persona))
+	key, err := db.New(st.q).AuthorityAPIKeyRole(ctx, keyID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return authority{}, iam.ErrInsufficientAuthority
 	}
-	if err != nil || gid != g.ID {
+	if err != nil || key.PermissionGroupID != g.ID {
 		return out, err
 	}
-	out.grants, err = s.roleGrants(ctx, st, g, role)
+	out.grants, err = s.roleGrants(ctx, st, g, ident.Role(g.Persona, key.Role))
 	if errors.Is(err, iam.ErrRoleNotAssignable) {
 		return out, nil
 	}
@@ -292,23 +291,13 @@ func (s *Engine) requireAccount(ctx context.Context, st *permissionGroupStore, a
 	if err := auth.requireCap(p); err != nil {
 		return err
 	}
-	groups := []groupTarget{root}
-	rows, err := st.q.Query(ctx, `SELECT g.id::text, g.persona FROM group_user_roles r JOIN permission_groups g ON g.id=r.permission_group_id
- WHERE r.user_id=$1::uuid AND g.id<>$2::uuid AND g.deleted_at IS NULL ORDER BY g.id`, targetUserID, rootID)
+	held, err := db.New(st.q).AuthorityUserGroups(ctx, db.AuthorityUserGroupsParams{UserID: targetUserID, RootID: rootID})
 	if err != nil {
 		return err
 	}
-	for rows.Next() {
-		var g groupTarget
-		if err := rows.Scan(&g.ID, scanPersona(&g.Persona)); err != nil {
-			rows.Close()
-			return err
-		}
-		groups = append(groups, g)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return err
+	groups := []groupTarget{root}
+	for _, g := range held {
+		groups = append(groups, groupTargetOf(g))
 	}
 	for _, g := range groups {
 		if g.ID != rootID {
@@ -328,19 +317,24 @@ func (s *Engine) requireAccount(ctx context.Context, st *permissionGroupStore, a
 }
 
 // savepoint runs fn so that its failure rolls back only its own writes,
-// leaving the enclosing transaction usable for the next batch item.
+// leaving the enclosing transaction usable for the next batch item. The store
+// must be over a transaction; pgx's nested transaction is the savepoint.
 func (st *permissionGroupStore) savepoint(ctx context.Context, fn func() error) error {
-	if _, err := st.q.Exec(ctx, `SAVEPOINT authkit_item`); err != nil {
+	tx, ok := st.q.(pgx.Tx)
+	if !ok {
+		return errors.New("authkit: savepoint outside a transaction")
+	}
+	sp, err := tx.Begin(ctx)
+	if err != nil {
 		return err
 	}
 	if err := fn(); err != nil {
-		if _, rerr := st.q.Exec(ctx, `ROLLBACK TO SAVEPOINT authkit_item`); rerr != nil {
+		if rerr := sp.Rollback(ctx); rerr != nil {
 			return errors.Join(err, rerr)
 		}
 		return err
 	}
-	_, err := st.q.Exec(ctx, `RELEASE SAVEPOINT authkit_item`)
-	return err
+	return sp.Commit(ctx)
 }
 
 // isUUID reports whether s is a hyphenated uuid (any case), so a malformed id

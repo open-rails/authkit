@@ -159,3 +159,14 @@ FOR UPDATE;
 SELECT ('pwd' = ANY(auth_methods))::boolean AS proved
 FROM refresh_sessions
 WHERE id = sqlc.arg(session_id)::uuid AND user_id = sqlc.arg(user_id)::uuid AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now());
+
+-- name: UserSessionLive :one
+-- The session check (#412): whether the account is usable, and whether the
+-- sign-in it names (session_id or device_key_id; '' = none) is still a live
+-- refresh session or device key of the account.
+SELECT EXISTS(SELECT 1 FROM usable_users WHERE id = sqlc.arg(user_id)::uuid)::boolean AS usable,
+  (sqlc.arg(session_id)::text = '' AND sqlc.arg(device_key_id)::text = ''
+   OR EXISTS(SELECT 1 FROM refresh_sessions WHERE id = NULLIF(sqlc.arg(session_id)::text, '')::uuid AND user_id = sqlc.arg(user_id)::uuid
+     AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()))
+   OR EXISTS(SELECT 1 FROM user_device_keys WHERE id = NULLIF(sqlc.arg(device_key_id)::text, '')::uuid AND user_id = sqlc.arg(user_id)::uuid
+     AND revoked_at IS NULL))::boolean AS signed_in;

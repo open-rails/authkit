@@ -558,3 +558,33 @@ func (q *Queries) SessionsRevokeFamily(ctx context.Context, familyID string) ([]
 	}
 	return items, nil
 }
+
+const userSessionLive = `-- name: UserSessionLive :one
+SELECT EXISTS(SELECT 1 FROM usable_users WHERE id = $1::uuid)::boolean AS usable,
+  ($2::text = '' AND $3::text = ''
+   OR EXISTS(SELECT 1 FROM refresh_sessions WHERE id = NULLIF($2::text, '')::uuid AND user_id = $1::uuid
+     AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()))
+   OR EXISTS(SELECT 1 FROM user_device_keys WHERE id = NULLIF($3::text, '')::uuid AND user_id = $1::uuid
+     AND revoked_at IS NULL))::boolean AS signed_in
+`
+
+type UserSessionLiveParams struct {
+	UserID      string
+	SessionID   string
+	DeviceKeyID string
+}
+
+type UserSessionLiveRow struct {
+	Usable   bool
+	SignedIn bool
+}
+
+// The session check (#412): whether the account is usable, and whether the
+// sign-in it names (session_id or device_key_id; ” = none) is still a live
+// refresh session or device key of the account.
+func (q *Queries) UserSessionLive(ctx context.Context, arg UserSessionLiveParams) (UserSessionLiveRow, error) {
+	row := q.db.QueryRow(ctx, userSessionLive, arg.UserID, arg.SessionID, arg.DeviceKeyID)
+	var i UserSessionLiveRow
+	err := row.Scan(&i.Usable, &i.SignedIn)
+	return i, err
+}

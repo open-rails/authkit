@@ -164,3 +164,46 @@ SELECT ((email IS NOT NULL OR phone_number IS NOT NULL)
        COALESCE(email::text, phone_number, '')::text AS identifier,
        (CASE WHEN email IS NOT NULL THEN 'email' ELSE 'phone' END)::text AS channel
 FROM users WHERE id = $1 FOR UPDATE;
+
+-- name: UserSetEmail :exec
+-- A new address is unverified; setting the current one changes nothing.
+UPDATE users SET email = sqlc.narg(email), email_verified = false, updated_at = now()
+WHERE id = sqlc.arg(id) AND email IS DISTINCT FROM sqlc.narg(email)::text::public.citext;
+
+-- name: UserSetPhone :exec
+UPDATE users SET phone_number = sqlc.narg(phone_number), phone_verified = false, updated_at = now()
+WHERE id = sqlc.arg(id) AND phone_number IS DISTINCT FROM sqlc.narg(phone_number);
+
+-- name: UserSetEmailVerifiedIfPresent :execrows
+-- Verifying needs an address; no row changes without one.
+UPDATE users SET email_verified = sqlc.arg(verified), updated_at = now()
+WHERE id = sqlc.arg(id) AND (NOT sqlc.arg(verified)::boolean OR email IS NOT NULL);
+
+-- name: UserSetPhoneVerifiedIfPresent :execrows
+UPDATE users SET phone_verified = sqlc.arg(verified), updated_at = now()
+WHERE id = sqlc.arg(id) AND (NOT sqlc.arg(verified)::boolean OR phone_number IS NOT NULL);
+
+-- name: UserSetAvatarURL :exec
+UPDATE users SET avatar_url = sqlc.narg(avatar_url), updated_at = now() WHERE id = sqlc.arg(id);
+
+-- name: UserPatchMetadata :exec
+-- Merges patch into the metadata and removes drop_keys.
+UPDATE users SET metadata = (COALESCE(metadata, '{}'::jsonb) || sqlc.arg(patch)::jsonb) - sqlc.arg(drop_keys)::text[], updated_at = now()
+WHERE id = sqlc.arg(id);
+
+-- name: UserBanInForce :one
+SELECT (banned_at IS NOT NULL AND (banned_until IS NULL OR banned_until > now()))::boolean AS in_force
+FROM users WHERE id = $1;
+
+-- name: MFASettingsDelete :exec
+DELETE FROM mfa_settings WHERE user_id = $1;
+
+-- name: AccountDeletionSetDeletedBy :exec
+-- Records who deleted an account that is already deleted.
+UPDATE account_deletions SET deleted_by = sqlc.narg(deleted_by)::uuid WHERE user_id = sqlc.arg(user_id) AND state = 'deleted';
+
+-- name: AccountDeletionPurgeNow :one
+-- Closes the recovery window of a deleted account now.
+UPDATE account_deletions SET purge_at = statement_timestamp()
+WHERE user_id = $1 AND state = 'deleted'
+RETURNING id, user_id, deleted_at, purge_at;
