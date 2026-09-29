@@ -296,7 +296,7 @@ func TestSecurityDemotedCreatorCredentials(t *testing.T) {
 	t.Run("demoted creator redeems their own owner link", func(t *testing.T) {
 		resp := h.post("/invites/redeem", map[string]string{"code": link.Code}, h.login(creator).AccessToken)
 		require.GreaterOrEqual(t, resp.status, 400, resp.String())
-		owner, err := h.auth.Can(ctx, iam.UserSubject(creator.id), group, "org:*")
+		owner, err := h.auth.Can(ctx, iam.UserSubject(creator.id), group, iam.PermSelfDelete(orgPersona))
 		require.NoError(t, err)
 		require.False(t, owner, "the demoted creator regained owner")
 		require.False(t, liveLink(t, h, group, link.ID))
