@@ -84,22 +84,6 @@ func (q *Queries) SessionByHistoricalTokenHash(ctx context.Context, arg SessionB
 	return i, err
 }
 
-const sessionCreateLock = `-- name: SessionCreateLock :exec
-
-SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))
-`
-
-// Refresh-session queries.
-// Transaction-scoped advisory lock that serializes concurrent session creation for
-// the same (user, issuer). Taken before the cap count + evict + insert so those run
-// on a consistent view and the active session count can never exceed
-// SessionMaxPerUser under concurrent logins. Auto-released at transaction end; MUST
-// be called inside a transaction.
-func (q *Queries) SessionCreateLock(ctx context.Context, key string) error {
-	_, err := q.db.Exec(ctx, sessionCreateLock, key)
-	return err
-}
-
 const sessionFreshSince = `-- name: SessionFreshSince :one
 SELECT COALESCE(last_authenticated_at, created_at)::timestamptz AS fresh_since,
        auth_methods, mfa_authenticated_at
@@ -159,6 +143,7 @@ func (q *Queries) SessionFreshSinceForUpdate(ctx context.Context, arg SessionFre
 }
 
 const sessionInsert = `-- name: SessionInsert :one
+
 INSERT INTO refresh_sessions (id, family_id, user_id, issuer, current_token_hash, expires_at, user_agent, ip_addr, last_authenticated_at, auth_methods, mfa_authenticated_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9, CASE WHEN 'mfa' = ANY($9::text[]) THEN now() END)
 RETURNING id::text, family_id::text
@@ -181,6 +166,7 @@ type SessionInsertRow struct {
 	FamilyID string
 }
 
+// Refresh-session queries.
 func (q *Queries) SessionInsert(ctx context.Context, arg SessionInsertParams) (SessionInsertRow, error) {
 	row := q.db.QueryRow(ctx, sessionInsert,
 		arg.ID,

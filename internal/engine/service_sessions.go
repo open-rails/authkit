@@ -42,7 +42,9 @@ func (s *Engine) insertRefreshSessionTx(ctx context.Context, q *db.Queries, user
 	}
 	var evicted []string
 	if s.cfg.Token.SessionMaxPerUser > 0 {
-		if err := q.SessionCreateLock(ctx, userID+"|"+s.cfg.Token.Issuer); err != nil {
+		// Serializes session creation per (user, issuer), so the count, evict and
+		// insert below never exceed SessionMaxPerUser under concurrent logins.
+		if err := q.AdvisoryXactLock(ctx, userID+"|"+s.cfg.Token.Issuer); err != nil {
 			return "", "", nil, nil, err
 		}
 		evicted, err = s.enforceSessionLimitTx(ctx, q, userID, s.cfg.Token.Issuer)

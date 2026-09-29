@@ -6,6 +6,10 @@
 -- savepoint) ends.
 SELECT set_config('search_path', sqlc.arg(search_path)::text, sqlc.arg(is_local)::boolean);
 
+-- name: AdvisoryXactLock :exec
+-- Transaction-scoped advisory lock on key, released when the transaction ends.
+SELECT pg_advisory_xact_lock(hashtextextended(sqlc.arg(key)::text, 0));
+
 -- name: RuntimeIdentity :one
 SELECT current_user::text AS user_name, current_database()::text AS database_name;
 

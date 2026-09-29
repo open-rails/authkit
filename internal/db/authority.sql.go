@@ -118,22 +118,6 @@ func (q *Queries) AuthorityGroupState(ctx context.Context, id string) (Permissio
 	return i, err
 }
 
-const authorityLock = `-- name: AuthorityLock :exec
-
-SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))
-`
-
-// Authority: the lock and transaction settings of authority mutations, group
-// and actor resolution, ownership invariants and the credential sweep. A
-// usable account is a row of usable_users; an application's registrar counts
-// only while usable.
-// Precedes every group, account, MFA and session row lock in an authority
-// mutation; key names the schema.
-func (q *Queries) AuthorityLock(ctx context.Context, key string) error {
-	_, err := q.db.Exec(ctx, authorityLock, key)
-	return err
-}
-
 const authorityOutsideApplicationOwnerGroups = `-- name: AuthorityOutsideApplicationOwnerGroups :many
 SELECT DISTINCT r.permission_group_id FROM group_remote_application_roles r
 JOIN remote_applications a ON a.id = r.remote_application_id
@@ -377,30 +361,6 @@ func (q *Queries) GroupsOwnedByApplication(ctx context.Context, remoteApplicatio
 	return items, nil
 }
 
-const groupsOwnedByUser = `-- name: GroupsOwnedByUser :many
-SELECT permission_group_id FROM group_user_roles WHERE user_id = $1 AND role = 'owner' ORDER BY permission_group_id
-`
-
-func (q *Queries) GroupsOwnedByUser(ctx context.Context, userID string) ([]string, error) {
-	rows, err := q.db.Query(ctx, groupsOwnedByUser, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []string
-	for rows.Next() {
-		var permission_group_id string
-		if err := rows.Scan(&permission_group_id); err != nil {
-			return nil, err
-		}
-		items = append(items, permission_group_id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const inviteLinkRetire = `-- name: InviteLinkRetire :exec
 UPDATE group_invite_links SET revoked_at = now(), updated_at = now() WHERE id = $1
 `
@@ -439,6 +399,7 @@ func (q *Queries) RemoteApplicationUsable(ctx context.Context, id string) (bool,
 }
 
 const transactionSettings = `-- name: TransactionSettings :one
+
 SELECT current_setting('transaction_isolation')::text AS isolation, current_setting('search_path')::text AS search_path
 `
 
@@ -447,6 +408,10 @@ type TransactionSettingsRow struct {
 	SearchPath string
 }
 
+// Authority: the lock and transaction settings of authority mutations, group
+// and actor resolution, ownership invariants and the credential sweep. A
+// usable account is a row of usable_users; an application's registrar counts
+// only while usable.
 func (q *Queries) TransactionSettings(ctx context.Context) (TransactionSettingsRow, error) {
 	row := q.db.QueryRow(ctx, transactionSettings)
 	var i TransactionSettingsRow

@@ -17,7 +17,7 @@ import (
 // authority mutation. A schema-wide boundary also protects root grants and
 // mutable role definitions. Login, verification and session reads do not use it.
 func (s *Engine) lockAuthority(ctx context.Context, q db.DBTX) error {
-	return db.New(q).AuthorityLock(ctx, "authkit.authority."+s.dbSchema())
+	return db.New(q).AdvisoryXactLock(ctx, "authkit.authority."+s.dbSchema())
 }
 
 // Authority reads after a queued lock must use a new statement snapshot even

@@ -3,11 +3,6 @@
 -- usable account is a row of usable_users; an application's registrar counts
 -- only while usable.
 
--- name: AuthorityLock :exec
--- Precedes every group, account, MFA and session row lock in an authority
--- mutation; key names the schema.
-SELECT pg_advisory_xact_lock(hashtextextended(sqlc.arg(key)::text, 0));
-
 -- name: TransactionSettings :one
 SELECT current_setting('transaction_isolation')::text AS isolation, current_setting('search_path')::text AS search_path;
 
@@ -57,9 +52,6 @@ SELECT role FROM group_user_roles WHERE permission_group_id = sqlc.arg(group_id)
 
 -- name: GroupApplicationRoleName :one
 SELECT role FROM group_remote_application_roles WHERE permission_group_id = sqlc.arg(group_id) AND remote_application_id = sqlc.arg(application_id);
-
--- name: GroupsOwnedByUser :many
-SELECT permission_group_id FROM group_user_roles WHERE user_id = $1 AND role = 'owner' ORDER BY permission_group_id;
 
 -- name: GroupsOwnedByApplication :many
 SELECT permission_group_id FROM group_remote_application_roles WHERE remote_application_id = $1 AND role = 'owner' ORDER BY permission_group_id;
