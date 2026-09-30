@@ -223,7 +223,7 @@ type UsernameConfig struct {
 	// MaxLength is at most 64.
 	MinLength int
 	MaxLength int
-	// Renames lets users change their own username.
+	// Renames lets users change their own username; off by default.
 	Renames bool
 	// RenameInterval is the least time between two renames of one account. 0
 	// defaults to 72 hours; a negative value means no wait.
@@ -304,7 +304,8 @@ type APIKeysConfig struct {
 // (Deps.DelegatedAuthorization).
 type DelegatedConfig struct {
 	// AllowDPoP allows binding to a browser key. The authorizer must handle
-	// requests with ConfirmationJWKThumbprintSHA256 set and no certificate.
+	// requests with iam.DelegationRequest.JWKThumbprint set and no
+	// certificate.
 	AllowDPoP bool
 	// Audiences is the allowlist: requested audiences must be a subset, and an
 	// empty request receives the whole list. Empty disables the route.

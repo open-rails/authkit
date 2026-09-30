@@ -66,9 +66,9 @@ func WithHTTPClient(client *http.Client) VerifierOption {
 }
 
 // WithDPoP accepts RFC 9449 DPoP-bound delegated tokens, with WithPublicURL.
-// replay is the proof replay store (*authkit.Client.ClaimDPoPProof, or the
-// host's): it atomically claims key until ttl and returns true only for the
-// first claim; every replica must share it, and its errors fail closed.
+// replay is the proof replay store: it atomically claims key until ttl and
+// returns true only for the first claim; every replica must share it, and
+// its errors fail closed. Client.NewVerifier wires AuthKit's own.
 func WithDPoP(replay func(ctx context.Context, key string, ttl time.Duration) (bool, error)) VerifierOption {
 	return func(c *verifierConfig) { c.dpopReplay = replay }
 }
