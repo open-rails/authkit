@@ -9,14 +9,29 @@ import {
   type AuthClient,
   type AuthClientOptions,
 } from "../client/client.ts"
-import { json } from "../client/testing.ts"
+import { authResult, json } from "../client/testing.ts"
 import { AuthProvider, type AuthProviderProps } from "./provider.tsx"
 
 export const token = (claims: Record<string, unknown>) =>
   `h.${btoa(JSON.stringify({ exp: 9_999_999_999, ...claims })).replace(/=+$/, "")}.s`
 
+// A complete AuthResult for a token carrying claims.
+export const signedIn = (
+  claims: Record<string, unknown>,
+  fields: Parameters<typeof authResult>[1] = {}
+) =>
+  authResult("complete", {
+    token_set: {
+      access_token: token(claims),
+      token_type: "Bearer",
+      expires_in: 900,
+      refresh_token: null,
+    },
+    ...fields,
+  })
+
 export const session = (claims: Record<string, unknown>) =>
-  json(200, { access_token: token(claims), token_type: "Bearer" })
+  json(200, signedIn(claims))
 
 export const noContent = () => new Response(null, { status: 204 })
 

@@ -7,10 +7,11 @@ import type { ReactNode } from "react"
 import { describe, expect, it, vi } from "vitest"
 
 import { createAuthClient } from "../../client/client.ts"
+import type { SignInKey } from "../../client/types.ts"
 import { authError, json, stubFetch } from "../../client/testing.ts"
 import { AuthUiProvider } from "../../provider.tsx"
 import { AuthProvider } from "../../react/provider.tsx"
-import { noContent, session, token } from "../../react/testing.tsx"
+import { noContent, session, signedIn } from "../../react/testing.tsx"
 import {
   AccountSecurity,
   ContactPanel,
@@ -18,6 +19,7 @@ import {
   LinkedProvidersPanel,
   PasswordPanel,
   SessionsPanel,
+  SignInKeysPanel,
   StepUpProvider,
   TwoFactorPanel,
 } from "./index.ts"
@@ -35,15 +37,18 @@ const profile = (extra: Record<string, unknown> = {}) =>
     email_verified: true,
     phone_verified: false,
     has_password: true,
-    roles: [],
+    root_role: null,
     entitlements: [],
-    linked_providers: [],
+    providers: [],
+    solana_wallet: null,
     naming: {},
-    security: { step_up_required_for_sensitive_actions: false },
     ...extra,
   })
 
-const capabilities = (password: Record<string, unknown> = {}) =>
+const capabilities = (
+  password: Record<string, unknown> = {},
+  passkeys = false
+) =>
   json(200, {
     registration: { mode: "open", invite_token_required: false },
     external_login_providers: [
@@ -57,7 +62,7 @@ const capabilities = (password: Record<string, unknown> = {}) =>
     ],
     password: { ...password },
     passwordless: { enabled: false },
-    passkeys: { login: false },
+    passkeys: { login: passkeys },
     solana: { login: false },
     verification: { registration: "required" },
   })
@@ -84,13 +89,35 @@ async function renderSignedIn(ui: ReactNode, routes: Routes) {
 }
 
 const stepUpRequired = (metadata: Record<string, unknown>) =>
-  authError(403, "step_up_required", { max_age_seconds: 900, ...metadata })
+  authError(403, "step_up_required", {
+    max_age_seconds: 900,
+    mfa_required: false,
+    step_up_2fa: null,
+    ...metadata,
+  })
 
 const fresh = () =>
-  json(200, {
-    token_set: { access_token: token({ sub: "u1", sid: "s1", auth_time: 2 }) },
-    fresh_auth: { step_up_required_for_sensitive_actions: false },
-  })
+  json(
+    200,
+    signedIn(
+      { sub: "u1", sid: "s1", auth_time: 2 },
+      {
+        fresh_auth: {
+          last_authenticated_at: null,
+          step_up_required_for_sensitive_actions: false,
+          step_up_required_in_seconds: 900,
+          auth_methods: ["pwd"],
+        },
+      }
+    )
+  )
+
+const factor = (id: string, method: string, isDefault: boolean) => ({
+  id,
+  method,
+  is_default: isDefault,
+  destination: method === "totp" ? null : "a***@x.test",
+})
 
 describe("PasswordPanel", () => {
   it("validates against the advertised policy, steps up and retries", async () => {
@@ -101,11 +128,11 @@ describe("PasswordPanel", () => {
       </StepUpProvider>,
       {
         "GET /api/v1/capabilities": () => capabilities({ min_length: 12 }),
-        "POST /api/v1/user/password": [
+        "PUT /api/v1/me/password": [
           stepUpRequired({ step_up_methods: ["password"] }),
           noContent(),
         ],
-        "POST /api/v1/step-up/password": (init) => {
+        "POST /api/v1/me/step-up/password": (init) => {
           bodies.push(JSON.parse(String(init.body)))
           return bodies.length === 1
             ? authError(401, "invalid_password")
@@ -163,34 +190,34 @@ describe("StepUpDialog", () => {
   it("sends an email code; a wrong code is retryable, an expired one prompts a resend", async () => {
     const sent: unknown[] = []
     const { user } = await renderSignedIn(<TwoFactorPanel />, {
-      "GET /api/v1/user/2fa": () =>
+      "GET /api/v1/me/2fa": () =>
         json(200, {
           enabled: true,
-          method: "email",
-          factors: [{ id: "f1", method: "email", is_default: true }],
+          factors: [factor("f1", "email", true)],
           allowed_methods: ["email", "totp"],
           backup_codes_remaining: 8,
         }),
-      "POST /api/v1/user/2fa/backup-codes": [
+      "POST /api/v1/me/2fa/backup-codes": [
         stepUpRequired({
           step_up_methods: ["2fa"],
           mfa_required: true,
           step_up_2fa: {
             methods: ["email"],
             default_method: "email",
-            options: [{ method: "email", is_default: true }],
+            options: [
+              { method: "email", is_default: true, destination: "a***@x.test" },
+            ],
           },
         }),
         json(200, { backup_codes: ["aaaa-1111", "bbbb-2222"] }),
       ],
-      "POST /api/v1/step-up/2fa": (init) => {
+      "POST /api/v1/me/step-up/2fa/send": (init) => {
+        sent.push({ send: JSON.parse(String(init.body)) })
+        return new Response(null, { status: 202 })
+      },
+      "POST /api/v1/me/step-up/2fa": (init) => {
         const body = JSON.parse(String(init.body))
         sent.push(body)
-        if (!body.code)
-          return authError(403, "2fa_required", {
-            method: "email",
-            verification_id: "a***@x.test",
-          })
         if (body.code === "111111") return authError(401, "invalid_code")
         if (body.code === "333333") return authError(401, "code_expired")
         return fresh()
@@ -237,10 +264,10 @@ describe("StepUpDialog", () => {
         .map((li) => li.textContent)
     ).toEqual(["aaaa-1111", "bbbb-2222"])
     expect(sent).toEqual([
-      { method: "email" },
+      { send: { method: "email" } },
       { code: "111111", method: "email" },
       { code: "333333", method: "email" },
-      { method: "email" },
+      { send: { method: "email" } },
       { code: "222222", method: "email" },
     ])
   })
@@ -250,27 +277,30 @@ describe("TwoFactorPanel", () => {
   it("enrolls TOTP with a QR code and shows the backup codes once", async () => {
     let enabled = false
     const { user } = await renderSignedIn(<TwoFactorPanel />, {
-      "GET /api/v1/user/2fa": () =>
+      "GET /api/v1/me/2fa": () =>
         json(200, {
           enabled,
-          method: enabled ? "totp" : "",
-          factors: enabled
-            ? [{ id: "f1", method: "totp", is_default: true }]
-            : [],
+          factors: enabled ? [factor("f1", "totp", true)] : [],
           allowed_methods: ["email", "sms", "totp"],
+          backup_codes_remaining: 0,
         }),
-      "POST /api/v1/user/2fa": (init) => {
-        const body = JSON.parse(String(init.body))
-        if (!body.code)
-          return json(200, {
-            secret: "JBSWY3DPEHPK3PXP",
-            otpauth_uri: "otpauth://totp/x:a?secret=JBSWY3DPEHPK3PXP",
-          })
-        enabled = true
-        return json(200, {
-          enabled: true,
+      "POST /api/v1/me/2fa/setup": () =>
+        json(200, {
           method: "totp",
+          destination: null,
+          secret: "JBSWY3DPEHPK3PXP",
+          otpauth_uri: "otpauth://totp/x:a?secret=JBSWY3DPEHPK3PXP",
+        }),
+      "POST /api/v1/me/2fa/factors": (init) => {
+        expect(JSON.parse(String(init.body))).toEqual({
+          method: "totp",
+          code: "123456",
+        })
+        enabled = true
+        return json(201, {
+          factor: factor("f1", "totp", true),
           backup_codes: ["c1-c1"],
+          auth: signedIn({ sub: "u1", sid: "s1", auth_time: 3 }),
         })
       },
     })
@@ -295,6 +325,48 @@ describe("TwoFactorPanel", () => {
     expect(screen.queryByText("c1-c1")).not.toBeInTheDocument()
     expect(await screen.findByText("On")).toBeInTheDocument()
   })
+
+  it("makes a factor the default and removes one", async () => {
+    const calls: string[] = []
+    let factors = [factor("f1", "totp", true), factor("f2", "email", false)]
+    const { user } = await renderSignedIn(<TwoFactorPanel />, {
+      "GET /api/v1/me/2fa": () =>
+        json(200, {
+          enabled: true,
+          factors,
+          allowed_methods: ["email", "totp"],
+          backup_codes_remaining: 5,
+        }),
+      "PATCH /api/v1/me/2fa/factors/f2": (init) => {
+        calls.push(`PATCH f2 ${String(init.body)}`)
+        factors = [factor("f1", "totp", false), factor("f2", "email", true)]
+        return json(200, factors[1])
+      },
+      "DELETE /api/v1/me/2fa/factors/f1": () => {
+        calls.push("DELETE f1")
+        factors = [factor("f2", "email", true)]
+        return noContent()
+      },
+    })
+    await user.click(
+      await screen.findByRole("button", { name: "Make default" })
+    )
+    await waitFor(() => expect(calls).toEqual(['PATCH f2 {"default":true}']))
+    await user.click(
+      await screen.findByRole("button", { name: "Remove Authenticator app" })
+    )
+    await user.click(
+      within(screen.getByRole("alertdialog")).getByRole("button", {
+        name: "Remove",
+      })
+    )
+    await waitFor(() => expect(calls).toContain("DELETE f1"))
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Remove Authenticator app" })
+      ).not.toBeInTheDocument()
+    )
+  })
 })
 
 describe("ContactPanel", () => {
@@ -304,14 +376,12 @@ describe("ContactPanel", () => {
     const { user } = await renderSignedIn(
       <ContactPanel channels={["email"]} />,
       {
-        "POST /api/v1/verify/request": (init) => {
+        "PUT /api/v1/me/email": (init) => {
           requested.push(JSON.parse(String(init.body)))
-          return noContent()
+          return new Response(null, { status: 202 })
         },
         "POST /api/v1/verify/confirm": () =>
-          ++confirms <= 2
-            ? authError(401, "invalid_code")
-            : noContent(),
+          ++confirms <= 2 ? authError(401, "invalid_code") : noContent(),
       }
     )
     await user.click(await screen.findByRole("button", { name: "Change" }))
@@ -344,7 +414,58 @@ describe("ContactPanel", () => {
     expect(
       await screen.findByText("Email changed successfully!")
     ).toBeInTheDocument()
-    expect(requested).toEqual([{ identifier: "b@x.test" }])
+    expect(requested).toEqual([{ email: "b@x.test" }])
+  })
+
+  it("verifies an unproven phone, and removes it after a step-up", async () => {
+    let phone: string | null = "+15550100"
+    const calls: string[] = []
+    const { user } = await renderSignedIn(
+      <StepUpProvider>
+        <ContactPanel channels={["phone"]} />
+      </StepUpProvider>,
+      {
+        "GET /api/v1/me": () =>
+          profile({ phone_number: phone, phone_verified: false }),
+        "POST /api/v1/verify/request": (init) => {
+          calls.push(`request ${String(init.body)}`)
+          return new Response(null, { status: 202 })
+        },
+        "POST /api/v1/verify/confirm": () => noContent(),
+        "DELETE /api/v1/me/phone": () => {
+          calls.push("delete")
+          if (calls.filter((c) => c === "delete").length === 1)
+            return stepUpRequired({ step_up_methods: ["password"] })
+          phone = null
+          return noContent()
+        },
+        "POST /api/v1/me/step-up/password": () => fresh(),
+      }
+    )
+    await user.click(await screen.findByRole("button", { name: "Verify" }))
+    await user.type(
+      await screen.findByRole("textbox", { name: "Verification code" }),
+      "123456"
+    )
+    expect(
+      await screen.findByText("Phone number verified!")
+    ).toBeInTheDocument()
+    expect(calls).toEqual(['request {"identifier":"+15550100"}'])
+    calls.length = 0
+    await user.click(screen.getByRole("button", { name: "Close" }))
+
+    await user.click(screen.getByRole("button", { name: "Remove" }))
+    await user.click(
+      within(screen.getByRole("alertdialog")).getByRole("button", {
+        name: "Remove",
+      })
+    )
+    const stepUp = await screen.findByRole("dialog", {
+      name: "Confirm it's you",
+    })
+    await user.type(within(stepUp).getByLabelText("Password"), "pw")
+    await user.click(within(stepUp).getByRole("button", { name: "Confirm" }))
+    expect(await screen.findByText("None set")).toBeInTheDocument()
   })
 })
 
@@ -365,17 +486,17 @@ describe("SessionsPanel", () => {
     const iphone =
       "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
     const { user } = await renderSignedIn(<SessionsPanel />, {
-      "GET /api/v1/user/sessions": () =>
+      "GET /api/v1/me/sessions": () =>
         json(200, {
           data: [row("s2", mac), row("s1", mac), row("s3", iphone)],
           next_cursor: null,
           total: null,
         }),
-      "DELETE /api/v1/user/sessions/s2": (init) => {
+      "DELETE /api/v1/me/sessions/s2": (init) => {
         revoked.push(init.url.split("/").pop()!)
         return noContent()
       },
-      "DELETE /api/v1/user/sessions/s3": (init) => {
+      "DELETE /api/v1/me/sessions/s3": (init) => {
         revoked.push(init.url.split("/").pop()!)
         return noContent()
       },
@@ -403,14 +524,140 @@ describe("SessionsPanel", () => {
       screen.getByText("You're not signed in anywhere else.")
     ).toBeInTheDocument()
   })
+
+  it("signs out every other session in one call, or everywhere", async () => {
+    const calls: string[] = []
+    const row = (id: string) => ({
+      id,
+      created_at: new Date().toISOString(),
+      last_used_at: new Date().toISOString(),
+      expires_at: null,
+      ip: null,
+      user_agent: null,
+      current: id === "s1",
+    })
+    const { user, client } = await renderSignedIn(<SessionsPanel />, {
+      "GET /api/v1/me/sessions": () =>
+        json(200, {
+          data: [row("s1"), row("s2"), row("s3")],
+          next_cursor: null,
+          total: null,
+        }),
+      "DELETE /api/v1/me/sessions": () => {
+        calls.push("others")
+        return noContent()
+      },
+      "DELETE /api/v1/logout": () => {
+        calls.push("logout")
+        return noContent()
+      },
+    })
+    const list = await screen.findByRole("list", { name: "Active sessions" })
+    await user.click(
+      screen.getByRole("button", { name: "Sign out of all other sessions" })
+    )
+    await waitFor(() =>
+      expect(within(list).getAllByRole("listitem")).toHaveLength(1)
+    )
+    expect(calls).toEqual(["others"])
+    expect(client.getSnapshot().status).toBe("authenticated")
+
+    await user.click(
+      screen.getByRole("button", { name: "Sign out everywhere" })
+    )
+    await user.click(
+      within(screen.getByRole("alertdialog")).getByRole("button", {
+        name: "Sign out everywhere",
+      })
+    )
+    await waitFor(() => expect(client.getSnapshot().status).toBe("anonymous"))
+    expect(calls).toEqual(["others", "others", "logout"])
+  })
+})
+
+describe("SignInKeysPanel", () => {
+  it("lists passkeys and device keys, renames and removes after a step-up", async () => {
+    const calls: string[] = []
+    let keys: SignInKey[] = [
+      {
+        id: "k1",
+        kind: "passkey",
+        label: "MacBook",
+        created_at: new Date().toISOString(),
+        last_used_at: null,
+        current: false,
+      },
+      {
+        id: "k2",
+        kind: "device_key",
+        label: null,
+        created_at: new Date().toISOString(),
+        last_used_at: new Date().toISOString(),
+        current: false,
+      },
+    ]
+    const { user } = await renderSignedIn(<SignInKeysPanel />, {
+      "GET /api/v1/me/sign-in-keys": () =>
+        json(200, { data: keys, next_cursor: null, total: null }),
+      "PATCH /api/v1/me/sign-in-keys/k1": [
+        stepUpRequired({ step_up_methods: ["password"] }),
+        json(200, { ...keys[0], label: "Work laptop" }),
+      ],
+      "POST /api/v1/me/step-up/password": () => fresh(),
+      "DELETE /api/v1/me/sign-in-keys/k2": () => {
+        calls.push("delete k2")
+        keys = keys.filter((k) => k.id !== "k2")
+        return noContent()
+      },
+    })
+    expect(await screen.findByText("MacBook")).toBeInTheDocument()
+    expect(screen.getByText("Device key")).toBeInTheDocument()
+    // Passkeys are off in /capabilities: nothing to add.
+    expect(
+      screen.queryByRole("button", { name: "Add a passkey" })
+    ).not.toBeInTheDocument()
+
+    await user.click(screen.getAllByRole("button", { name: "Rename" })[0])
+    const name = screen.getByLabelText("Name")
+    await user.clear(name)
+    await user.type(name, "Work laptop")
+    await user.click(screen.getByRole("button", { name: "Save" }))
+    const stepUp = await screen.findByRole("dialog", {
+      name: "Confirm it's you",
+    })
+    await user.type(within(stepUp).getByLabelText("Password"), "pw")
+    keys = [{ ...keys[0], label: "Work laptop" }, keys[1]]
+    await user.click(within(stepUp).getByRole("button", { name: "Confirm" }))
+    expect(await screen.findByText("Work laptop")).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "Remove: Device key" }))
+    await user.click(
+      within(screen.getByRole("alertdialog")).getByRole("button", {
+        name: "Remove",
+      })
+    )
+    await waitFor(() => expect(calls).toEqual(["delete k2"]))
+    await waitFor(() =>
+      expect(screen.queryByText("Device key")).not.toBeInTheDocument()
+    )
+  })
 })
 
 describe("LinkedProvidersPanel", () => {
   it("confirms unlinking and explains the last sign-in method", async () => {
     const { user } = await renderSignedIn(<LinkedProvidersPanel />, {
       "GET /api/v1/me": () =>
-        profile({ has_password: false, linked_providers: ["github"] }),
-      "DELETE /api/v1/user/providers/github": () =>
+        profile({
+          has_password: false,
+          providers: [
+            {
+              provider: "github",
+              email: null,
+              linked_at: "2026-01-01T00:00:00Z",
+            },
+          ],
+        }),
+      "DELETE /api/v1/me/providers/github": () =>
         authError(400, "cannot_unlink_last_login_method"),
     })
     await user.click(await screen.findByRole("button", { name: "Unlink" }))
@@ -432,7 +679,7 @@ describe("DeleteAccountPanel", () => {
     const onDeleted = vi.fn()
     const { user, client } = await renderSignedIn(
       <DeleteAccountPanel onDeleted={onDeleted} />,
-      { "DELETE /api/v1/user": () => noContent() }
+      { "DELETE /api/v1/me": () => noContent() }
     )
     await user.click(
       await screen.findByRole("button", { name: "Delete account" })
@@ -479,9 +726,9 @@ describe("SolanaLinkRow", () => {
       </StepUpProvider>,
       {
         "POST /api/v1/solana/challenge": () => json(200, { message: "m" }),
-        "POST /api/v1/solana/link": (init) => {
+        "PUT /api/v1/me/solana-wallet": (init) => {
           linked.push(JSON.parse(String(init.body)))
-          return json(200, { solana_address: "W" })
+          return json(200, { provider: "solana", address: "W", verified: true })
         },
       }
     )

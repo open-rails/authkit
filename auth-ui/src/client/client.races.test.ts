@@ -3,16 +3,16 @@ import { expect, it, vi } from "vitest"
 
 import { createAuthClient } from "./client.ts"
 import { AuthSessionChangedError } from "./errors.ts"
-import { deferred, json, jwt, tokens } from "./testing.ts"
+import { complete, deferred, json, tokens } from "./testing.ts"
 
 const signedIn = async (fetch: typeof globalThis.fetch, sub: string) => {
   const client = createAuthClient({ fetch })
-  await client.completeSignIn(async () => ({ access_token: jwt(sub) }))
+  await client.completeSignIn(async () => complete(sub))
   return client
 }
 
 const login = (client: ReturnType<typeof createAuthClient>, sub: string) =>
-  client.completeSignIn(async () => ({ access_token: jwt(sub) }))
+  client.completeSignIn(async () => complete(sub))
 
 const userId = (client: ReturnType<typeof createAuthClient>) => {
   const s = client.getSnapshot()
@@ -72,7 +72,7 @@ it("checks ownership after a delayed JSON body, not only after headers", async (
   const refreshing = client.refresh()
   await vi.waitFor(() => expect(read).toHaveBeenCalled())
   await login(client, "B")
-  body.resolve({ access_token: jwt("A") })
+  body.resolve(complete("A"))
   expect(await refreshing).toBe(false)
   expect(userId(client)).toBe("B")
 })
@@ -126,7 +126,7 @@ it("a sign-in whose session was signed out mid-flight is rejected", async () => 
   const body = deferred<unknown>()
   const signingIn = client.completeSignIn(() => body.promise)
   await client.signOut()
-  body.resolve({ access_token: jwt("A") })
+  body.resolve(complete("A"))
   await expect(signingIn).rejects.toBeInstanceOf(AuthSessionChangedError)
   expect(client.getAccessToken()).toBeNull()
 })

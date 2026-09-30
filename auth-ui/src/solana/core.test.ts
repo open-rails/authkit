@@ -2,7 +2,16 @@ import { describe, expect, it, vi } from "vitest"
 
 import { createAuthClient } from "../client/client.ts"
 import { AuthKitError, AuthSessionChangedError } from "../client/errors.ts"
-import { authError, deferred, json, jwt, stubFetch } from "../client/testing.ts"
+import {
+  authResult,
+  complete,
+  deferred,
+  json,
+  jwt,
+  stubFetch,
+  tokens,
+  authError,
+} from "../client/testing.ts"
 import {
   createSolanaAuth,
   fromBase58,
@@ -51,18 +60,13 @@ describe("signIn", () => {
     } = setup({
       "POST /api/v1/solana/login": (init) => {
         login = init
-        return json(200, {
-          token_set: { access_token: jwt("U"), expires_in: 900 },
-          created: true,
-        })
+        return json(200, complete("U", undefined, { created: true }))
       },
     })
     const sign = vi.fn<(m: Uint8Array) => Promise<Uint8Array>>(async () => SIG)
     await expect(
       solana.signIn(signer(sign), { username: "neo" })
-    ).resolves.toEqual({
-      kind: "session",
-    })
+    ).resolves.toMatchObject({ status: "complete", created: true })
 
     const bytes = new TextEncoder().encode(MESSAGE)
     expect(sign).toHaveBeenCalledWith(bytes)
@@ -83,20 +87,31 @@ describe("signIn", () => {
     })
   })
 
-  it("returns a 2FA continuation like password login", async () => {
+  it("returns a second-factor step like password login", async () => {
+    const totp = {
+      id: "f",
+      method: "totp",
+      is_default: true,
+      destination: null,
+    }
     const { client, solana } = setup({
       "POST /api/v1/solana/login": [
-        authError(403, "2fa_required", {
-          user_id: "U",
-          challenge: "c",
-          method: "totp",
-        }),
+        json(
+          200,
+          authResult("second_factor_required", {
+            second_factor: {
+              user_id: "U",
+              challenge: "c",
+              factor: totp,
+              factors: [totp],
+            },
+          })
+        ),
       ],
     })
     await expect(solana.signIn(signer())).resolves.toMatchObject({
-      kind: "2fa_required",
-      userId: "U",
-      challenge: "c",
+      status: "second_factor_required",
+      second_factor: { user_id: "U", challenge: "c" },
     })
     expect(client.getSnapshot().status).not.toBe("authenticated")
   })
@@ -107,17 +122,16 @@ describe("signIn", () => {
       const signed = deferred<Uint8Array>()
       const fetch = stubFetch({
         "POST /api/v1/solana/challenge": challengeRoute(),
-        "POST /api/v1/solana/login": () =>
-          json(200, { token_set: { access_token: jwt("A") } }),
+        "POST /api/v1/solana/login": () => tokens("A"),
         "DELETE /api/v1/logout": () => new Response(null, { status: 204 }),
       })
       const client = createAuthClient({ fetch })
-      await client.completeSignIn(async () => ({ access_token: jwt("X") }))
+      await client.completeSignIn(async () => complete("X"))
       const sign = vi.fn(() => signed.promise)
       const pending = createSolanaAuth(client).signIn(signer(sign))
       await vi.waitFor(() => expect(sign).toHaveBeenCalled())
       if (change === "logout") await client.signOut()
-      else await client.completeSignIn(async () => ({ access_token: jwt("B") }))
+      else await client.completeSignIn(async () => complete("B"))
       signed.resolve(SIG)
       await expect(pending).rejects.toBeInstanceOf(AuthSessionChangedError)
       expect(client.getAccessToken()).toBe(
@@ -148,32 +162,33 @@ describe("signIn", () => {
   it("refuses a concurrent ceremony", async () => {
     const signed = deferred<Uint8Array>()
     const { solana } = setup({
-      "POST /api/v1/solana/login": () =>
-        json(200, { token_set: { access_token: jwt("U") } }),
+      "POST /api/v1/solana/login": () => tokens("U"),
     })
     const first = solana.signIn(signer(vi.fn(() => signed.promise)))
     await expect(solana.signIn(signer())).rejects.toMatchObject({
       reason: "busy",
     })
     signed.resolve(SIG)
-    await expect(first).resolves.toEqual({ kind: "session" })
-    await expect(solana.signIn(signer())).resolves.toEqual({ kind: "session" })
+    await expect(first).resolves.toMatchObject({ status: "complete" })
+    await expect(solana.signIn(signer())).resolves.toMatchObject({
+      status: "complete",
+    })
   })
 })
 
 describe("link", () => {
   const signedIn = async (routes: Parameters<typeof stubFetch>[0]) => {
     const s = setup(routes)
-    await s.client.completeSignIn(async () => ({ access_token: jwt("A") }))
+    await s.client.completeSignIn(async () => complete("A"))
     return s
   }
 
   it("links with the session bearer", async () => {
     let link!: RequestInit
     const { solana } = await signedIn({
-      "POST /api/v1/solana/link": (init) => {
+      "PUT /api/v1/me/solana-wallet": (init) => {
         link = init
-        return json(200, { solana_address: "W" })
+        return json(200, { provider: "solana", address: "W", verified: true })
       },
     })
     await expect(solana.link(signer())).resolves.toEqual({ address: "W" })
@@ -202,14 +217,16 @@ describe("link", () => {
 
   it("never links to an account that signed in during the signature", async () => {
     const signed = deferred<Uint8Array>()
-    const linkRoute = vi.fn(() => json(200, { solana_address: "W" }))
+    const linkRoute = vi.fn(() =>
+      json(200, { provider: "solana", address: "W", verified: true })
+    )
     const { client, solana } = await signedIn({
-      "POST /api/v1/solana/link": linkRoute,
+      "PUT /api/v1/me/solana-wallet": linkRoute,
     })
     const sign = vi.fn(() => signed.promise)
     const pending = solana.link(signer(sign))
     await vi.waitFor(() => expect(sign).toHaveBeenCalled())
-    await client.completeSignIn(async () => ({ access_token: jwt("B") }))
+    await client.completeSignIn(async () => complete("B"))
     signed.resolve(SIG)
     await expect(pending).rejects.toBeInstanceOf(AuthSessionChangedError)
     expect(linkRoute).not.toHaveBeenCalled()
@@ -217,7 +234,7 @@ describe("link", () => {
 
   it("surfaces AuthKit link conflicts", async () => {
     const { solana } = await signedIn({
-      "POST /api/v1/solana/link": [authError(409, "wallet_already_linked")],
+      "PUT /api/v1/me/solana-wallet": [authError(409, "wallet_already_linked")],
     })
     await expect(solana.link(signer())).rejects.toMatchObject({
       status: 409,
@@ -226,16 +243,16 @@ describe("link", () => {
   })
 })
 
-it("unlink deletes the solana provider", async () => {
+it("unlink deletes the solana provider, without a body", async () => {
   let del!: RequestInit
   const { solana } = setup({
-    "DELETE /api/v1/user/providers/solana": (init) => {
+    "DELETE /api/v1/me/providers/solana": (init) => {
       del = init
       return new Response(null, { status: 204 })
     },
   })
-  await solana.unlink({ password: "pw" })
-  expect(bodyOf(del)).toEqual({ password: "pw" })
+  await solana.unlink()
+  expect(del.body).toBeUndefined()
 })
 
 describe("signerFromWallet", () => {

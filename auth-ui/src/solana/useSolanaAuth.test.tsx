@@ -3,7 +3,7 @@ import { act, renderHook, waitFor } from "@testing-library/react"
 import { expect, it, vi } from "vitest"
 
 import { createAuthClient } from "../client/client.ts"
-import { json, jwt, stubFetch } from "../client/testing.ts"
+import { json, stubFetch, tokens } from "../client/testing.ts"
 import { SolanaWalletError, type WalletAdapterLike } from "./core.ts"
 import { useSolanaAuth, type UseSolanaAuthOptions } from "./useSolanaAuth.ts"
 
@@ -12,8 +12,7 @@ const client = () =>
   createAuthClient({
     fetch: stubFetch({
       "POST /api/v1/solana/challenge": () => json(200, { message: "m" }),
-      "POST /api/v1/solana/login": () =>
-        json(200, { token_set: { access_token: jwt("U") } }),
+      "POST /api/v1/solana/login": () => tokens("U"),
     }),
   })
 const connected = (
@@ -42,7 +41,9 @@ it("asks for a wallet, then resumes sign-in once it connects", async () => {
 
   rerender({ wallet: connected() })
   await waitFor(() =>
-    expect(onSignIn).toHaveBeenCalledWith({ kind: "session" })
+    expect(onSignIn).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "complete" })
+    )
   )
   expect(result.current).toMatchObject({
     busy: null,
@@ -90,9 +91,13 @@ it("acquireSigner: signs in with the acquired signer and ignores a dismissed pic
   expect(result.current).toMatchObject({ busy: null, error: null })
 
   await act(async () => {
-    expect(await result.current.signIn()).toEqual({ kind: "session" })
+    expect(await result.current.signIn()).toMatchObject({
+      status: "complete",
+    })
   })
-  expect(onSignIn).toHaveBeenCalledWith({ kind: "session" })
+  expect(onSignIn).toHaveBeenCalledWith(
+    expect.objectContaining({ status: "complete" })
+  )
   expect(auth.getSnapshot()).toMatchObject({ userId: "U" })
 })
 

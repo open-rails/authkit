@@ -1,6 +1,8 @@
 // Test helpers (not exported from the package).
 import { vi } from "vitest"
 
+import type { AuthResult } from "./types.ts"
+
 export const jwt = (sub: string, exp = 9_999_999_999) =>
   `h.${btoa(JSON.stringify({ sub, exp })).replace(/=+$/, "")}.s`
 
@@ -14,12 +16,41 @@ export const json = (
     headers: { "content-type": "application/json", ...headers },
   })
 
+export const tokenSet = (sub: string, exp?: number) => ({
+  access_token: jwt(sub, exp),
+  token_type: "Bearer",
+  expires_in: 900,
+  refresh_token: null as string | null,
+})
+
+const NO_STEP = {
+  token_set: null,
+  user: null,
+  created: false,
+  return_to: null,
+  fresh_auth: null,
+  device_key: null,
+  second_factor: null,
+  enrollment: null,
+  verification: null,
+  recovery: null,
+}
+
+// An AuthResult with every field present, as AuthKit sends it.
+export const authResult = (
+  status: AuthResult["status"],
+  fields: Partial<AuthResult> = {}
+): AuthResult => ({ ...NO_STEP, status, ...fields })
+
+export const complete = (
+  sub: string,
+  exp?: number,
+  fields: Partial<AuthResult> = {}
+) => authResult("complete", { token_set: tokenSet(sub, exp), ...fields })
+
+// A 200 AuthResult that signs sub in.
 export const tokens = (sub: string, exp?: number) =>
-  json(200, {
-    access_token: jwt(sub, exp),
-    token_type: "Bearer",
-    expires_in: 900,
-  })
+  json(200, complete(sub, exp))
 
 export const authError = (
   status: number,
