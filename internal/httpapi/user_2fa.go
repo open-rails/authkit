@@ -157,7 +157,9 @@ func (s *Service) handleUser2FADELETE(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var q TwoFactorFactorQuery
-	decodeQuery(r, &q)
+	if !readQuery(w, r, &q) {
+		return
+	}
 	factorID := q.FactorID
 	var removed []authflow.RemovedMFARoleAssignment
 	var err error

@@ -11,7 +11,9 @@ import (
 
 func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.Request) {
 	var q AvailabilityQuery
-	decodeQuery(r, &q)
+	if !readQuery(w, r, &q) {
+		return
+	}
 	username, email, phone := q.Username, q.Email, q.PhoneNumber
 	if username == "" && email == "" && phone == "" {
 		fail(w, errmodel.CodeInvalidRequest)

@@ -19,7 +19,9 @@ import (
 // status, sort, order (default desc), entitlement.
 func (s *Service) userQuery(r *http.Request) (iam.UserQuery, error) {
 	var q UserListQuery
-	decodeQuery(r, &q)
+	if err := decodeQuery(r, &q); err != nil {
+		return iam.UserQuery{}, err
+	}
 	page, err := q.Page()
 	if err != nil {
 		return iam.UserQuery{}, err

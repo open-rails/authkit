@@ -102,7 +102,9 @@ func (s *Service) groupMemberRole(w http.ResponseWriter, r *http.Request, g iam.
 // (?cursor=, ?limit=, and ?kind= / ?role= filters, repeatable).
 func (s *Service) groupMembersList(w http.ResponseWriter, r *http.Request, g iam.Group) {
 	var query MemberListQuery
-	decodeQuery(r, &query)
+	if !readQuery(w, r, &query) {
+		return
+	}
 	page, err := query.Page()
 	if err != nil {
 		writeError(w, err)
@@ -176,7 +178,9 @@ func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var q GroupQuery
-	decodeQuery(r, &q)
+	if !readQuery(w, r, &q) {
+		return
+	}
 	id := q.GroupID
 	group := iam.RootGroup()
 	if id != "" {

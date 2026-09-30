@@ -85,35 +85,52 @@ func wireForm(v reflect.Value) reflect.Value {
 }
 
 // decodeQuery reads the query string into dst, a pointer to a struct whose
-// `query` tags name the parameters: a string takes the value, a []string
-// every value. Embedded structs contribute their fields.
-func decodeQuery(r *http.Request, dst any) {
+// `query` tags name the parameters: a string takes the value, a *int the
+// integer (nil when absent), a []string every value. Embedded structs
+// contribute their fields. A malformed integer is 400 invalid_request on its
+// param.
+func decodeQuery(r *http.Request, dst any) error {
 	q := r.URL.Query()
-	var fill func(v reflect.Value)
-	fill = func(v reflect.Value) {
+	var fill func(v reflect.Value) error
+	fill = func(v reflect.Value) error {
 		for i := range v.NumField() {
 			f, field := v.Type().Field(i), v.Field(i)
 			if f.Anonymous {
-				fill(field)
+				if err := fill(field); err != nil {
+					return err
+				}
 				continue
 			}
 			name := f.Tag.Get("query")
 			if name == "" {
 				continue
 			}
-			switch field.Kind() {
-			case reflect.String:
-				field.SetString(strings.TrimSpace(q.Get(name)))
-			case reflect.Slice:
+			value := strings.TrimSpace(q.Get(name))
+			switch field.Interface().(type) {
+			case string:
+				field.SetString(value)
+			case *int:
+				if value == "" {
+					continue
+				}
+				n, err := strconv.Atoi(value)
+				if err != nil {
+					return errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam(name))
+				}
+				field.Set(reflect.ValueOf(&n))
+			case []string:
 				var values []string
 				for _, value := range q[name] {
 					values = append(values, strings.TrimSpace(value))
 				}
 				field.Set(reflect.ValueOf(values))
+			default:
+				panic("httpapi: no query decoding for " + f.Type.String())
 			}
 		}
+		return nil
 	}
-	fill(reflect.ValueOf(dst).Elem())
+	return fill(reflect.ValueOf(dst).Elem())
 }
 
 // Page is the one page parser: an opaque cursor, and a limit of 1 to
@@ -121,22 +138,33 @@ func decodeQuery(r *http.Request, dst any) {
 // invalid_request on param limit.
 func (q PageQuery) Page() (iam.PageRequest, error) {
 	page := iam.PageRequest{Cursor: q.Cursor}
-	if q.Limit == "" {
+	if q.Limit == nil {
 		return page, nil
 	}
-	limit, err := strconv.Atoi(q.Limit)
-	if err != nil || limit < 1 || limit > iam.MaxPageLimit {
+	if *q.Limit < 1 || *q.Limit > iam.MaxPageLimit {
 		return page, errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("limit"))
 	}
-	page.Limit = limit
+	page.Limit = *q.Limit
 	return page, nil
+}
+
+// readQuery decodes a route's query string, answering 400 for a malformed
+// one.
+func readQuery(w http.ResponseWriter, r *http.Request, dst any) bool {
+	if err := decodeQuery(r, dst); err != nil {
+		writeError(w, err)
+		return false
+	}
+	return true
 }
 
 // readPage reads a list route's ?cursor= and ?limit=, answering 400 for a
 // bad limit.
 func readPage(w http.ResponseWriter, r *http.Request) (iam.PageRequest, bool) {
 	var q PageQuery
-	decodeQuery(r, &q)
+	if !readQuery(w, r, &q) {
+		return iam.PageRequest{}, false
+	}
 	page, err := q.Page()
 	if err != nil {
 		writeError(w, err)

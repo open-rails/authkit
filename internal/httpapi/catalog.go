@@ -16,7 +16,7 @@ import (
 type Surface string
 
 const (
-	SurfaceAPI  Surface = "api"  // the JSON API, beneath the API path
+	SurfaceAPI  Surface = ""     // the JSON API, beneath the API path
 	SurfaceOIDC Surface = "oidc" // browser OIDC navigations, beneath OIDCPath
 	SurfaceBase Surface = "base" // the issuer's own paths (JWKS)
 )

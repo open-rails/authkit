@@ -22,7 +22,7 @@ import (
 // limit is 1-500 (default 50).
 type PageQuery struct {
 	Cursor string `query:"cursor"`
-	Limit  string `query:"limit"`
+	Limit  *int   `query:"limit"`
 }
 
 // Requests.
