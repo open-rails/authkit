@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
 import type { AuthKitError } from "../client/errors.ts"
-import type { UserSession } from "../client/types.ts"
+import type { Session } from "../client/types.ts"
 import { useAuthClient, useSession } from "./context.ts"
 import { toAuthKitError, unguarded, useTask, type Guard } from "./task.ts"
 
@@ -117,7 +117,7 @@ export function useDeleteAccount(
   }
 }
 
-export type SessionEntry = UserSession & { current: boolean }
+export type SessionEntry = Session
 
 export function useSessions(options: GuardOptions = {}) {
   const client = useAuthClient()
@@ -130,7 +130,7 @@ export function useSessions(options: GuardOptions = {}) {
   const request = `${sid}|${nonce}`
   const [listed, setListed] = useState<{
     request: string
-    data: UserSession[] | null
+    data: Session[] | null
     error: AuthKitError | null
   } | null>(null)
 
@@ -158,7 +158,7 @@ export function useSessions(options: GuardOptions = {}) {
           l?.data
             ? {
                 ...l,
-                data: l.data.filter((s) => !sessionIds.includes(s.session_id)),
+                data: l.data.filter((s) => !sessionIds.includes(s.id)),
               }
             : l
         )
@@ -175,11 +175,7 @@ export function useSessions(options: GuardOptions = {}) {
   // Keep the previous list while a refetch for the same session runs.
   const usable =
     sid !== null && listed?.request.startsWith(`${sid}|`) ? listed : null
-  const sessions: SessionEntry[] | null =
-    usable?.data?.map((s) => ({
-      ...s,
-      current: !!sid && s.session_id === sid,
-    })) ?? null
+  const sessions: SessionEntry[] | null = usable?.data ?? null
 
   return {
     sessions,

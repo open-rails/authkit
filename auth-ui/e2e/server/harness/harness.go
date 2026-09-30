@@ -1,5 +1,4 @@
-// Package harness builds the AuthKit runtime shared by the e2e server and the
-// contract generator, so the generated contract is exactly what the server mounts.
+// Package harness builds the AuthKit runtime the e2e server serves.
 package harness
 
 import (

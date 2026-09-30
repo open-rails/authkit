@@ -13,9 +13,14 @@ import (
 	"sort"
 )
 
+// repoRoot is the repository, relative to the working directory: go generate
+// runs in internal/httpapi, the tests in internal/cmd/contract.
+var repoRoot = "../.."
+
 func main() {
-	root := flag.String("root", "../..", "repository root")
+	flag.StringVar(&repoRoot, "root", repoRoot, "repository root")
 	flag.Parse()
+	root := &repoRoot
 	out, err := files()
 	if err != nil {
 		log.Fatal(err)

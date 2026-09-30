@@ -9,7 +9,7 @@ import type { IconSvgElement } from "@hugeicons/react"
 import { useId, useState } from "react"
 
 import type {
-  RemovedMfaRole,
+  RemovedRole,
   TwoFactorFactor,
   TwoFactorMethod,
 } from "../../client/types.ts"
@@ -85,7 +85,7 @@ function TwoFactorCard() {
   const tf = useTwoFactorSettings({ guard: useStepUpGuard() })
   const [adding, setAdding] = useState(false)
   const [confirm, setConfirm] = useState<Confirm | null>(null)
-  const [removed, setRemoved] = useState<RemovedMfaRole[]>([])
+  const [removed, setRemoved] = useState<RemovedRole[]>([])
   const { status, enrollment } = tf
   const enabled = !!status?.enabled
   const factors = (status?.factors ?? []).filter(

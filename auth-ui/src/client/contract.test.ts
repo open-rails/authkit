@@ -1,11 +1,11 @@
-// Every AuthKit route the client calls must be in the pinned route catalog.
+// Every AuthKit route the client calls must be in the generated route catalog.
 import { expect, it, vi } from "vitest"
 
 import { createAuthClient } from "./client.ts"
-import contract from "./generated/authkit-contract.json"
+import { AUTHKIT_ROUTES } from "./generated/routes.ts"
 import { jwt } from "./testing.ts"
 
-const routes = contract.routes.map(({ method, path }) => ({
+const routes = AUTHKIT_ROUTES.map(({ method, path }) => ({
   method,
   pattern: new RegExp(`^${path.replace(/\{[^}]+\}/g, "[^/]+")}$`),
 }))

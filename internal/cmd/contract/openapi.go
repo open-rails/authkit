@@ -74,6 +74,9 @@ func marshal(v any) ([]byte, error) {
 func (c *contract) schema(t reflect.Type) *obj {
 	switch classify(t) {
 	case kindString:
+		if values := enumValues(t); values != nil {
+			return newObj("type", "string", "enum", values)
+		}
 		return newObj("type", "string")
 	case kindInteger:
 		return newObj("type", "integer")

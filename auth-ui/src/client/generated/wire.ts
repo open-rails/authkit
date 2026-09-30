@@ -250,7 +250,7 @@ export type NamingAlias = {
 
 export type NamingPolicy = {
   enabled: boolean
-  former_name_retention_mode: string
+  former_name_retention_mode: "finite" | "forever" | "immediate"
   former_name_retention_seconds: number
 }
 
@@ -378,7 +378,7 @@ export type RegistrationCapabilities = {
 }
 
 export type RegistrationResult = {
-  next_action: string
+  next_action: "none" | "verify_email" | "verify_phone"
   user: RegistrationUser
   token_set: TokenSet | null
 }
@@ -420,7 +420,7 @@ export type Session = {
 }
 
 export type SessionEvent = {
-  kind: string
+  kind: "account_sessions_revoked" | "password_changed" | "password_recovery" | "session_created" | "session_failed" | "session_revoked"
   occurred_at: string
   issuer: string
   session_id: string | null
@@ -507,7 +507,7 @@ export type StepUpTwoFactorOptions = {
 
 export type Subject = {
   id: string
-  kind: string
+  kind: "remote_application" | "user"
 }
 
 export type TokenRefreshRequest = {

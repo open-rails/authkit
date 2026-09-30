@@ -41,7 +41,7 @@ function SessionsCard() {
       b.last_used_at.localeCompare(a.last_used_at)
   )
   const others = sessions.filter((x) => !x.current)
-  const chosen = others.filter((x) => selected.has(x.session_id))
+  const chosen = others.filter((x) => selected.has(x.id))
 
   const revoke = async (ids: string[]) => {
     await s.revoke(ids)
@@ -67,19 +67,19 @@ function SessionsCard() {
         <ul aria-label={t("account.sessions.title")} className="divide-y">
           {sessions.map((x) => (
             <SessionRow
-              key={x.session_id}
+              key={x.id}
               session={x}
-              checked={selected.has(x.session_id)}
+              checked={selected.has(x.id)}
               busy={s.busy}
               onCheckedChange={(on) =>
                 setSelected((prev) => {
                   const next = new Set(prev)
-                  if (on) next.add(x.session_id)
-                  else next.delete(x.session_id)
+                  if (on) next.add(x.id)
+                  else next.delete(x.id)
                   return next
                 })
               }
-              onRevoke={() => void revoke([x.session_id])}
+              onRevoke={() => void revoke([x.id])}
             />
           ))}
         </ul>
@@ -100,7 +100,7 @@ function SessionsCard() {
             <Button
               variant="outline"
               disabled={s.busy}
-              onClick={() => void revoke(chosen.map((x) => x.session_id))}
+              onClick={() => void revoke(chosen.map((x) => x.id))}
             >
               {s.busy && <Spinner />}
               {t("account.sessions.revokeSelected", { count: chosen.length })}
@@ -110,7 +110,7 @@ function SessionsCard() {
               <Button
                 variant="outline"
                 disabled={s.busy}
-                onClick={() => void revoke(others.map((x) => x.session_id))}
+                onClick={() => void revoke(others.map((x) => x.id))}
               >
                 {s.busy && <Spinner />}
                 {t("account.sessions.revokeAll")}
@@ -158,7 +158,7 @@ function SessionRow({
   onRevoke: () => void
 }) {
   const { t } = useMessages()
-  const device = parseUserAgent(session.ua)
+  const device = parseUserAgent(session.user_agent ?? undefined)
   const name =
     device.browser && device.os
       ? t("account.sessions.device", { browser: device.browser, os: device.os })

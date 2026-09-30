@@ -4,8 +4,14 @@ import (
 	"encoding"
 	"encoding/json"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
+	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -262,4 +268,42 @@ func fullPath(r httpapi.RouteSpec) string {
 		return httpapi.OIDCPath + r.Path
 	}
 	return r.Path
+}
+
+// enumValues are the string constants declared with an AuthKit string type,
+// sorted: the values its wire field takes. None for any other type.
+func enumValues(t reflect.Type) []string {
+	if t.Kind() != reflect.String || t.Name() == "" || !strings.HasPrefix(t.PkgPath(), module) {
+		return nil
+	}
+	dir := filepath.Join(repoRoot, strings.TrimPrefix(strings.TrimPrefix(t.PkgPath(), module), "/"))
+	pkgs, err := parser.ParseDir(token.NewFileSet(), dir, func(fi fs.FileInfo) bool { return !strings.HasSuffix(fi.Name(), "_test.go") }, 0)
+	if err != nil {
+		panic(fmt.Sprintf("contract: parse %s: %v", dir, err))
+	}
+	var out []string
+	for _, pkg := range pkgs {
+		for _, file := range pkg.Files {
+			for _, decl := range file.Decls {
+				gen, ok := decl.(*ast.GenDecl)
+				if !ok || gen.Tok != token.CONST {
+					continue
+				}
+				for _, spec := range gen.Specs {
+					vs := spec.(*ast.ValueSpec)
+					if id, ok := vs.Type.(*ast.Ident); !ok || id.Name != t.Name() {
+						continue
+					}
+					for _, v := range vs.Values {
+						if lit, ok := v.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+							value, _ := strconv.Unquote(lit.Value)
+							out = append(out, value)
+						}
+					}
+				}
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }

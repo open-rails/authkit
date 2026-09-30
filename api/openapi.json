@@ -4839,7 +4839,12 @@
             "type": "boolean"
           },
           "former_name_retention_mode": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "finite",
+              "forever",
+              "immediate"
+            ]
           },
           "former_name_retention_seconds": {
             "type": "integer"
@@ -5265,7 +5270,12 @@
         "type": "object",
         "properties": {
           "next_action": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "none",
+              "verify_email",
+              "verify_phone"
+            ]
           },
           "user": {
             "$ref": "#/components/schemas/RegistrationUser"
@@ -5451,7 +5461,15 @@
         "type": "object",
         "properties": {
           "kind": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "account_sessions_revoked",
+              "password_changed",
+              "password_recovery",
+              "session_created",
+              "session_failed",
+              "session_revoked"
+            ]
           },
           "occurred_at": {
             "type": "string",
@@ -5796,7 +5814,11 @@
             "type": "string"
           },
           "kind": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "remote_application",
+              "user"
+            ]
           }
         },
         "required": [

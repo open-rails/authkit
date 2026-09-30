@@ -1,4 +1,4 @@
-import type { PasswordPolicy } from "#authui/client/types"
+import type { PasswordCapabilities } from "#authui/client/types"
 import { useMessages } from "#authui/i18n/context"
 import { useCapabilities } from "#authui/react/context"
 
@@ -12,7 +12,10 @@ const CLASSES = [
 ] as const
 
 // Client-side mirror of the advertised policy; AuthKit stays authoritative.
-function passwordIssue(policy: PasswordPolicy | undefined, value: string) {
+function passwordIssue(
+  policy: PasswordCapabilities | undefined,
+  value: string
+) {
   const min = policy?.min_length ?? PASSWORD_MIN
   if (value.length < min) return "password_too_short"
   if (policy && value.length > policy.max_length) return "password_too_long"

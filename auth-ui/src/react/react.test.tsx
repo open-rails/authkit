@@ -403,11 +403,13 @@ describe("useSessions", () => {
   it("marks the current session and revokes in a batch", async () => {
     const revoked: string[] = []
     const row = (id: string) => ({
-      session_id: id,
-      family_id: "f",
+      id,
       created_at: "",
       last_used_at: "",
-      expires_at: "",
+      expires_at: null,
+      ip: null,
+      user_agent: null,
+      current: id === "s1",
     })
     const fetch = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -416,8 +418,9 @@ describe("useSessions", () => {
           return session({ sub: "u1", sid: "s1" })
         if (path === "/api/v1/user/sessions")
           return json(200, {
-            object: "list",
             data: ["s1", "s2", "s3"].map(row),
+            next_cursor: null,
+            total: null,
           })
         if (init?.method === "DELETE") {
           revoked.push(path.split("/").pop()!)
@@ -436,7 +439,7 @@ describe("useSessions", () => {
     )
     await waitFor(() => expect(result.current.sessions.loading).toBe(false))
     expect(
-      result.current.sessions.sessions?.map((s) => [s.session_id, s.current])
+      result.current.sessions.sessions?.map((s) => [s.id, s.current])
     ).toEqual([
       ["s1", true],
       ["s2", false],
@@ -444,9 +447,7 @@ describe("useSessions", () => {
     ])
     await act(() => result.current.sessions.revoke(["s2", "s3"]))
     expect(revoked.sort()).toEqual(["s2", "s3"])
-    expect(result.current.sessions.sessions?.map((s) => s.session_id)).toEqual([
-      "s1",
-    ])
+    expect(result.current.sessions.sessions?.map((s) => s.id)).toEqual(["s1"])
   })
 })
 

@@ -13,6 +13,8 @@ import (
 
 const repo = "../../.."
 
+func init() { repoRoot = repo }
+
 // Every generated file matches the catalogs it is generated from.
 func TestGeneratedContractIsFresh(t *testing.T) {
 	want, err := files()
