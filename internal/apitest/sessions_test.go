@@ -19,6 +19,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/internal/testclock"
@@ -61,17 +62,21 @@ func verifiedClaims(t testing.TB, auth *authkit.Client, token string) map[string
 }
 
 // refreshSession redeems refreshToken at POST /token, reporting failures
-// instead of failing the test, so racing goroutines may call it.
+// instead of failing the test, so racing goroutines may call it. A 200 must
+// be a complete AuthResult.
 func refreshSession(a *api, refreshToken string) (int, iam.TokenSet, error) {
 	res, err := a.send(request{method: http.MethodPost, path: "/token", body: map[string]string{"grant_type": "refresh_token", "refresh_token": refreshToken}})
-	if err != nil {
-		return 0, iam.TokenSet{}, err
+	if err != nil || res.status != http.StatusOK {
+		return res.status, iam.TokenSet{}, err
 	}
-	var tokens iam.TokenSet
-	if res.status == http.StatusOK {
-		err = json.Unmarshal(res.body, &tokens)
+	var out httpapi.AuthResult
+	if err := json.Unmarshal(res.body, &out); err != nil {
+		return res.status, iam.TokenSet{}, err
 	}
-	return res.status, tokens, err
+	if out.Status != httpapi.AuthComplete || out.TokenSet == nil || out.User == nil {
+		return res.status, iam.TokenSet{}, fmt.Errorf("refresh answered %s: %s", out.Status, res)
+	}
+	return res.status, *out.TokenSet, nil
 }
 
 // sessionCounts reports the account's live sessions, and its revoked ones

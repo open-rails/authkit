@@ -1,7 +1,6 @@
 package apitest_test
 
 import (
-	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/passkeytest"
 	"github.com/open-rails/authkit/internal/testidp"
 )
@@ -19,12 +19,12 @@ import (
 // account's credentials: account_recovery_required, carrying no session.
 func recoveryToken(t *testing.T, res response) string {
 	t.Helper()
-	answer := expectAnswer(t, res, http.StatusConflict)
-	require.Equal(t, "account_recovery_required", answer.Error.Code)
-	require.NotEmpty(t, answer.Error.Metadata.Recovery.Token)
+	answer := res.answer(t)
+	token := answer.recovery(t)
 	require.NotContains(t, res.String(), "access_token")
 	require.NotContains(t, res.String(), "refresh_token")
-	return answer.Error.Metadata.Recovery.Token
+	require.Nil(t, answer.User, "a recovery names no account")
+	return token
 }
 
 // A deleted account is recovered only through the ceremonies that sign it in
@@ -61,31 +61,28 @@ func TestAccountRecoveryUsesExistingCredentialAndMFACeremonies(t *testing.T) {
 	// Password and the email second factor.
 	u := authtest.NewUser(t, auth)
 	token := authtest.SignIn(t, auth, u).AccessToken
-	res := a.post("/user/2fa", token, map[string]string{"method": "email"})
-	require.Equal(t, http.StatusAccepted, res.status, res.String())
-	res = a.post("/user/2fa", token, map[string]string{"method": "email", "code": outbox.Last(t, iam.MessageVerification, u.Email).Code})
+	res := a.post("/me/2fa/setup", token, map[string]string{"method": "email"})
 	require.Equal(t, http.StatusOK, res.status, res.String())
+	res = a.post("/me/2fa/factors", token, map[string]string{"method": "email", "code": outbox.Last(t, iam.MessageVerification, u.Email).Code})
+	require.Equal(t, http.StatusCreated, res.status, res.String())
 	var enrolled struct {
 		BackupCodes []string `json:"backup_codes"`
 	}
 	res.decode(t, &enrolled)
 	require.NotEmpty(t, enrolled.BackupCodes)
-	login := func() authAnswer {
+	login := func() httpapi.SecondFactorStep {
 		t.Helper()
-		answer := expectAnswer(t, a.post("/password/login", "", map[string]string{"identifier": u.Email, "password": u.Password}), http.StatusForbidden)
-		require.Equal(t, "2fa_required", answer.Error.Code)
-		return answer
+		return a.post("/password/login", "", map[string]string{"identifier": u.Email, "password": u.Password}).answer(t).secondFactor(t)
 	}
-	verify2FA := func(challenge authAnswer, code string) response {
-		return a.post("/2fa/verify", "", map[string]any{"user_id": u.ID, "challenge": challenge.Error.Metadata.Challenge, "code": code})
+	verify2FA := func(challenge httpapi.SecondFactorStep, code string) response {
+		return a.post("/2fa/verify", "", map[string]any{"user_id": u.ID, "challenge": challenge.Challenge, "code": code})
 	}
 	beforeDelete := login()
 	beforeCode := outbox.Last(t, iam.MessageLoginCode, u.Email).Code
 	remove(u.ID)
 	require.Equal(t, http.StatusUnauthorized, verify2FA(beforeDelete, beforeCode).status, "a challenge issued before the deletion is void")
 	challenge := login()
-	require.NotContains(t, challenge.raw, "recovery")
-	require.Equal(t, http.StatusUnauthorized, confirmRecovery(challenge.Error.Metadata.Challenge).status)
+	require.Equal(t, http.StatusUnauthorized, confirmRecovery(challenge.Challenge).status)
 	require.Equal(t, http.StatusUnauthorized, verify2FA(challenge, "wrong").status)
 	challenge = login()
 	code := outbox.Last(t, iam.MessageLoginCode, u.Email).Code
@@ -103,10 +100,10 @@ func TestAccountRecoveryUsesExistingCredentialAndMFACeremonies(t *testing.T) {
 	remove(u.ID)
 	res = a.post("/passwordless/start", "", map[string]any{"identifier": u.Email, "mode": "code"})
 	require.Equal(t, http.StatusAccepted, res.status, res.String())
-	challenge = expectAnswer(t, a.post("/passwordless/confirm", "", map[string]any{"identifier": u.Email,
-		"code": outbox.Last(t, iam.MessageVerification, u.Email).Code}), http.StatusForbidden)
-	require.Equal(t, "backup_code", challenge.Error.Metadata.Method, "one mailbox cannot supply both factors")
-	confirm(a.post("/2fa/verify", "", map[string]any{"user_id": u.ID, "challenge": challenge.Error.Metadata.Challenge,
+	challenge = a.post("/passwordless/confirm", "", map[string]any{"identifier": u.Email,
+		"code": outbox.Last(t, iam.MessageVerification, u.Email).Code}).answer(t).secondFactor(t)
+	require.Equal(t, "backup_code", challenge.Factor.Method, "one mailbox cannot supply both factors")
+	confirm(a.post("/2fa/verify", "", map[string]any{"user_id": u.ID, "challenge": challenge.Challenge,
 		"code": enrolled.BackupCodes[0], "backup_code": true}))
 
 	// A user-verifying passkey assertion is a complete proof; it too yields
@@ -114,11 +111,11 @@ func TestAccountRecoveryUsesExistingCredentialAndMFACeremonies(t *testing.T) {
 	keyUser := authtest.NewUser(t, auth)
 	keyToken := authtest.SignIn(t, auth, keyUser).AccessToken
 	authn := passkeytest.New(t, "https://app.example")
-	res = a.post("/passkeys/register/begin", keyToken, map[string]any{})
+	res = a.post("/me/passkeys/register/begin", keyToken, nil)
 	require.Equal(t, http.StatusOK, res.status, res.String())
 	var creation protocol.CredentialCreation
 	res.decode(t, &creation)
-	res = a.post("/passkeys/register/finish", keyToken, authn.Register(t, &creation))
+	res = a.post("/me/passkeys/register/finish", keyToken, authn.Register(t, &creation))
 	require.Equal(t, http.StatusCreated, res.status, res.String())
 	remove(keyUser.ID)
 	res = a.post("/passkeys/login/begin", "", map[string]any{})
@@ -131,19 +128,17 @@ func TestAccountRecoveryUsesExistingCredentialAndMFACeremonies(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, res.status, res.String())
 	confirm(confirmed)
 
-	// A provider sign-in lands on the page with a confirmation and no tokens.
+	// A provider sign-in lands on the page with a one-time code that trades
+	// for the confirmation, never a session.
 	for name, idp := range map[string]*testidp.IdP{"oidc": oidc, "oauth2": oauth2} {
 		id := testidp.Identity{Subject: "recovery-" + name, Email: "recover-" + name + "@example.com", EmailVerified: true}
-		first := expectAnswer(t, providerSignIn(t, a, idp, name, id, ""), http.StatusOK)
+		first := providerSignIn(t, a, idp, name, id, "").answer(t)
+		first.signedIn(t)
 		remove(first.User.ID)
 		fragment := providerBrowserSignIn(t, a, idp, name, id)
-		require.Equal(t, "account_recovery_required", fragment.Get("error"))
-		require.Empty(t, fragment.Get("access_token"))
-		var recovery struct {
-			Token string `json:"token"`
-		}
-		require.NoError(t, json.Unmarshal([]byte(fragment.Get("recovery")), &recovery))
-		require.NotEmpty(t, recovery.Token)
-		require.Equal(t, http.StatusNoContent, confirmRecovery(recovery.Token).status)
+		require.Empty(t, fragment.Get("error"))
+		recovery := exchange(t, a, fragment.Get("code"))
+		require.Equal(t, "/checkout", *recovery.ReturnTo)
+		require.Equal(t, http.StatusNoContent, confirmRecovery(recovery.recovery(t)).status)
 	}
 }

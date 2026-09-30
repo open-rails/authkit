@@ -13,11 +13,12 @@ const attacker = process.env.AUTHKIT_BROWSER_ATTACKER_URL;
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ identifier: 'browser-victim@example.test', password: 'Victim-password-12345' }),
       });
-      return { status: response.status, tokens: await response.json() };
+      return { status: response.status, result: await response.json() };
     });
     assert.equal(login.status, 200);
-    assert.ok(login.tokens.access_token);
-    assert.equal(login.tokens.refresh_token, null);
+    assert.equal(login.result.status, 'complete');
+    assert.ok(login.result.token_set.access_token);
+    assert.equal(login.result.token_set.refresh_token, null);
     const cookie = async () => (await context.cookies()).find(c => c.name === '__Host-authkit_rt');
     const original = await cookie();
     assert.ok(original && original.httpOnly && original.secure);
@@ -38,13 +39,15 @@ const attacker = process.env.AUTHKIT_BROWSER_ATTACKER_URL;
     await page.goto(victim);
     const refreshed = await page.evaluate(async () => {
       const response = await fetch('/api/v1/token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ grant_type: 'refresh_token' }) });
-      return { status: response.status, tokens: await response.json() };
+      return { status: response.status, result: await response.json() };
     });
     assert.equal(refreshed.status, 200);
-    assert.ok(refreshed.tokens.access_token);
+    assert.equal(refreshed.result.status, 'complete');
+    assert.ok(refreshed.result.token_set.access_token);
+    assert.equal(refreshed.result.token_set.refresh_token, null);
     const rotated = await cookie();
     assert.notEqual(rotated.value, original.value);
-    const logout = await page.evaluate(async access => (await fetch('/api/v1/logout', { method: 'DELETE', headers: { Authorization: `Bearer ${access}` } })).status, refreshed.tokens.access_token);
+    const logout = await page.evaluate(async access => (await fetch('/api/v1/logout', { method: 'DELETE', headers: { Authorization: `Bearer ${access}` } })).status, refreshed.result.token_set.access_token);
     assert.equal(logout, 204);
     assert.equal(await cookie(), undefined);
     await context.addCookies([rotated]);

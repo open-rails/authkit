@@ -87,30 +87,14 @@ func TestAccountRecoveryPasswordConfirmationBoundary(t *testing.T) {
 	login := func() response {
 		return a.post("/password/login", "", map[string]string{"identifier": user.Email, "password": password})
 	}
-	old := expect(t, http.StatusOK, login()).answer(t).TokenSet
+	old := login().answer(t).signedIn(t)
 	remove := func() {
 		t.Helper()
 		require.NoError(t, opErr(auth.DeleteUsers(ctx, iam.UserActor(user.ID), []string{user.ID})))
 	}
 	proof := func() string {
 		t.Helper()
-		res := expect(t, http.StatusConflict, login())
-		require.NotContains(t, res.String(), "access_token")
-		require.NotContains(t, res.String(), "refresh_token")
-		var body struct {
-			Error struct {
-				Code     string `json:"code"`
-				Metadata struct {
-					Recovery struct {
-						Token string `json:"token"`
-					} `json:"recovery"`
-				} `json:"metadata"`
-			} `json:"error"`
-		}
-		res.decode(t, &body)
-		require.Equal(t, "account_recovery_required", body.Error.Code)
-		require.NotEmpty(t, body.Error.Metadata.Recovery.Token)
-		return body.Error.Metadata.Recovery.Token
+		return recoveryToken(t, login())
 	}
 	confirm := func(token string) response {
 		return a.post("/account/recovery/confirm", "", map[string]string{"token": token})
@@ -192,7 +176,7 @@ func TestStaffAccountRestoreHTTPRequiresCurrentAuthority(t *testing.T) {
 	register := func(name string) (iam.TokenSet, string) {
 		t.Helper()
 		res := expect(t, http.StatusOK, a.post("/register", "", map[string]any{"identifier": name + "@example.test", "username": name, "password": "Correct-horse-account-recovery-1"}))
-		tokens := res.answer(t).Nested
+		tokens := res.answer(t).signedIn(t)
 		claims, err := auth.Verify(ctx, tokens.AccessToken)
 		require.NoError(t, err)
 		return tokens, claims.UserID

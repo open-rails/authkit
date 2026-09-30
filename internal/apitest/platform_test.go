@@ -48,7 +48,8 @@ func TestMountCatalog(t *testing.T) {
 			routes[routeKey{http.MethodGet, "/api/v1/me"}])
 		require.Equal(t, iam.Route{Method: http.MethodGet, Path: "/api/v1/admin/users/{user_id}", Group: iam.RouteAdmin,
 			Auth: iam.AuthPermission, Permission: ident.RootUsersRead.String()}, routes[routeKey{http.MethodGet, "/api/v1/admin/users/{user_id}"}])
-		require.Equal(t, iam.AuthOptional, routes[routeKey{http.MethodPost, "/api/v1/verify/request"}].Auth)
+		require.Equal(t, iam.AuthPublic, routes[routeKey{http.MethodPost, "/api/v1/verify/request"}].Auth)
+		require.Equal(t, iam.AuthOptional, routes[routeKey{http.MethodPost, "/api/v1/verify/confirm"}].Auth)
 		for _, route := range auth.Routes() {
 			if route.Method == http.MethodGet {
 				head := route
@@ -146,8 +147,11 @@ func TestMountCatalog(t *testing.T) {
 		require.Equal(t, "unsupported_media_type", badJSON.code())
 		login := a.post("/password/login", "", credentials)
 		require.Equal(t, http.StatusOK, login.status, login.String())
-		var tokens map[string]any
-		login.decode(t, &tokens)
+		var result struct {
+			TokenSet map[string]any `json:"token_set"`
+		}
+		login.decode(t, &result)
+		tokens := result.TokenSet
 		require.NotEmpty(t, tokens["access_token"])
 		require.Contains(t, tokens, "refresh_token")
 		require.Nil(t, tokens["refresh_token"], "the cookie carries the refresh token")
@@ -165,20 +169,10 @@ func TestMountCatalog(t *testing.T) {
 		}))
 		a := newAPI(t, mfa)
 		u := authtest.NewUser(t, mfa)
-		login := a.post("/password/login", "", map[string]string{"identifier": u.Email, "password": u.Password})
-		require.Equal(t, http.StatusForbidden, login.status, login.String())
-		require.Equal(t, "2fa_enrollment_required", login.code())
-		var continuation struct {
-			Error struct {
-				Metadata struct {
-					TokenSet iam.TokenSet `json:"token_set"`
-				} `json:"metadata"`
-			} `json:"error"`
-		}
-		login.decode(t, &continuation)
-		token := continuation.Error.Metadata.TokenSet.AccessToken
+		login := a.post("/password/login", "", map[string]string{"identifier": u.Email, "password": u.Password}).answer(t)
+		token := login.enrollment(t).TokenSet.AccessToken
 		require.NotEmpty(t, token)
-		for path, status := range map[string]int{"//custom/auth/me": http.StatusForbidden, "//custom/auth/user/2fa": http.StatusOK} {
+		for path, status := range map[string]int{"//custom/auth/me": http.StatusForbidden, "//custom/auth/me/2fa": http.StatusOK} {
 			res := a.get(path, token)
 			require.Equal(t, status, res.status, "%s: %s", path, res)
 		}

@@ -164,7 +164,7 @@ func TestCredentialIssuance(t *testing.T) {
 	require.Nil(t, links.Items[0].RevokedAt)
 	a := newAPI(t, auth)
 	register := func(email, username string) response {
-		return a.post("/register", "", map[string]string{"identifier": email, "username": username, "password": authtest.Password, "account_invite_token": opInvite.Code})
+		return a.post("/register", "", map[string]string{"identifier": email, "username": username, "password": authtest.Password, "invite_code": opInvite.Code})
 	}
 	res := register(*opInvite.Invitation.Email, "systeminvitee")
 	require.Equal(t, http.StatusOK, res.status, "the system's registration invite is live: %s", res)
