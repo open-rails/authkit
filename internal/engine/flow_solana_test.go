@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/httpapi"
@@ -111,4 +112,88 @@ func TestSolanaRecoveryUsesTheWalletCeremony(t *testing.T) {
 	require.NotContains(t, confirmed.raw, "refresh_token")
 	f.expect(204, f.post("/account/recovery/confirm", map[string]any{"token": token}))
 	f.expect(401, f.post("/account/recovery/confirm", map[string]any{"token": token}))
+}
+
+// A wallet-only account steps up with its wallet (A1): a signature over a
+// challenge bound to the session that asked for it, once, before it expires.
+// A sign-in challenge never steps up a session. The account can then delete
+// itself, which it could only do right after signing in before.
+func TestSolanaStepUp(t *testing.T) {
+	pg := testdb.ScratchPostgres(t)
+	cfg := testConfig()
+	cfg.SolanaNetwork = "devnet"
+	f := newAccountFlow(t, pg.Pool, cfg, config.Deps{})
+	f.engine.solanaSNSResolver = noSNSResolver{}
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	_, stranger, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	address := siws.PublicKeyToBase58(pub)
+	var challenge struct {
+		Nonce   string `json:"nonce"`
+		Message string `json:"message"`
+	}
+	read := func(r flowResponse) {
+		t.Helper()
+		require.NoError(t, json.Unmarshal([]byte(r.raw), &challenge))
+		require.NotEmpty(t, challenge.Message)
+	}
+	signed := func(key ed25519.PrivateKey) json.RawMessage {
+		return json.RawMessage(siwsOutput(pub, key, challenge.Message))
+	}
+	// stale is a sign-in by the wallet, older than the fresh-auth window.
+	stale := func() string {
+		t.Helper()
+		read(f.expect(200, f.post("/solana/challenge", map[string]any{"address": address})))
+		claims, err := f.engine.Verify(t.Context(), f.expect(200, f.post("/solana/login", signed(priv))).tokens().AccessToken)
+		require.NoError(t, err)
+		_, err = pg.Pool.Exec(t.Context(), `UPDATE refresh_sessions SET last_authenticated_at = now() - interval '1 day' WHERE id = $1::uuid`, claims.SessionID)
+		require.NoError(t, err)
+		token, err := f.engine.MintAccessToken(t.Context(), claims.UserID, iam.AccessTokenOptions{SessionID: claims.SessionID})
+		require.NoError(t, err)
+		return token.Value
+	}
+	session := stale()
+	begin := func(token string) {
+		t.Helper()
+		read(f.expect(200, f.request(http.MethodPost, "/me/step-up/solana/challenge", token, nil)))
+	}
+	stepUp := func(token string, body json.RawMessage) flowResponse {
+		return f.request(http.MethodPost, "/me/step-up/solana", token, body)
+	}
+	rejected := func(r flowResponse, code errmodel.Code) {
+		t.Helper()
+		f.expect(http.StatusUnauthorized, r)
+		require.Equal(t, string(code), r.Error.Code, r.raw)
+	}
+
+	denied := f.expect(http.StatusForbidden, f.request(http.MethodDelete, "/me", session, nil))
+	var offer struct {
+		Error struct {
+			Metadata authflow.StepUpRequired `json:"metadata"`
+		} `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(denied.raw), &offer))
+	require.Equal(t, []string{"solana"}, offer.Error.Metadata.StepUpMethods, "the wallet is the account's only step-up")
+
+	read(f.expect(200, f.post("/solana/challenge", map[string]any{"address": address})))
+	rejected(stepUp(session, signed(priv)), errmodel.CodeChallengeNotFound)
+	other := stale()
+	begin(session)
+	rejected(stepUp(other, signed(priv)), errmodel.CodeChallengeMismatch)
+	begin(session)
+	rejected(stepUp(session, signed(stranger)), errmodel.CodeInvalidSignature)
+	begin(session)
+	_, err = pg.Pool.Exec(t.Context(), `UPDATE ephemeral_kv SET expires_at = now() - interval '1 second' WHERE key = 'siws:step-up:' || $1`, challenge.Nonce)
+	require.NoError(t, err)
+	rejected(stepUp(session, signed(priv)), errmodel.CodeChallengeNotFound)
+
+	begin(session)
+	proof := signed(priv)
+	fresh := f.expect(200, stepUp(session, proof)).tokens()
+	claims, err := f.engine.Verify(t.Context(), fresh.AccessToken)
+	require.NoError(t, err)
+	require.Contains(t, claims.AMR, "swk")
+	rejected(stepUp(session, proof), errmodel.CodeChallengeNotFound)
+	f.expect(http.StatusNoContent, f.request(http.MethodDelete, "/me", fresh.AccessToken, nil))
 }

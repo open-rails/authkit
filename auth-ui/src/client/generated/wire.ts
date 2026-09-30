@@ -142,6 +142,10 @@ export type CodeOrLinkRequest = {
   token?: string
 }
 
+export type CodeRequest = {
+  code?: string
+}
+
 export type ContactProofRequired = {
   identifier: string
   channel: string
@@ -535,6 +539,10 @@ export type SolanaSignInOutput = {
 
 export type SolanaSignInRequest = {
   output?: SolanaSignInOutput
+}
+
+export type StepUpCodeSendRequest = {
+  channel?: string
 }
 
 export type StepUpRequired = {

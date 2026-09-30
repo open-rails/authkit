@@ -1979,6 +1979,258 @@
         "x-authkit-mounted-when": "two_factor"
       }
     },
+    "/api/v1/me/step-up/code/send": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StepUpCodeSendRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "step_up_code_send"
+      }
+    },
+    "/api/v1/me/step-up/code": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CodeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "step_up_code"
+      }
+    },
+    "/api/v1/me/step-up/solana/challenge": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SolanaChallenge"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "step_up_challenge",
+        "x-authkit-mounted-when": "solana"
+      }
+    },
+    "/api/v1/me/step-up/solana": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SolanaSignInRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "step_up_signature",
+        "x-authkit-mounted-when": "solana"
+      }
+    },
+    "/api/v1/me/step-up/passkey/begin": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Defined outside AuthKit: protocol.CredentialAssertion"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "step_up_challenge",
+        "x-authkit-mounted-when": "passkeys"
+      }
+    },
+    "/api/v1/me/step-up/passkey": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "step_up_signature",
+        "x-authkit-mounted-when": "passkeys"
+      }
+    },
     "/api/v1/oidc/{provider}/link/start": {
       "post": {
         "tags": [
@@ -4807,6 +5059,14 @@
           }
         }
       },
+      "CodeRequest": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          }
+        }
+      },
       "ContactProofRequired": {
         "type": "object",
         "properties": {
@@ -6303,6 +6563,14 @@
         "properties": {
           "output": {
             "$ref": "#/components/schemas/SolanaSignInOutput"
+          }
+        }
+      },
+      "StepUpCodeSendRequest": {
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": "string"
           }
         }
       },

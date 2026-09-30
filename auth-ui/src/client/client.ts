@@ -34,7 +34,7 @@ import type {
   UserProfile,
   UserSecurity,
 } from "./types.ts"
-import { creationOptions, registrationBody } from "./webauthn.ts"
+import { creationOptions, getAssertion, registrationBody } from "./webauthn.ts"
 
 // Durable refresh-token home for mounts without the refresh cookie. Cookie
 // mounts (the browser default) need none: the token never reaches script.
@@ -880,6 +880,20 @@ export function createAuthClient(options: AuthClientOptions = {}) {
         request("POST", "/password/login", { body: input, bearer: null })
       ),
 
+    // Signs in with a passkey the browser offers (call from a click).
+    signInWithPasskey: () =>
+      completeSignIn(async () => {
+        const options = await request<unknown>(
+          "POST",
+          "/passkeys/login/begin",
+          { bearer: null }
+        )
+        return request("POST", "/passkeys/login/finish", {
+          body: await getAssertion(options),
+          bearer: null,
+        })
+      }),
+
     // Null: a code went to the identifier (202); confirmVerification
     // finishes the registration.
     register: async (input: {
@@ -1105,6 +1119,34 @@ export function createAuthClient(options: AuthClientOptions = {}) {
             backup_code: input.backupCode,
           },
         })
+      ).then(freshAuth),
+
+    // Sends a step-up code to the account's proven email or phone.
+    sendContactStepUpCode: (channel: "email" | "sms") =>
+      request<void>("POST", "/me/step-up/code/send", { body: { channel } }),
+
+    stepUpWithContactCode: (code: string) =>
+      sameSession(() =>
+        request("POST", "/me/step-up/code", { body: { code } })
+      ).then(freshAuth),
+
+    // Re-authenticates with one of the account's passkeys (call from a click).
+    stepUpWithPasskey: () =>
+      sameSession(async () => {
+        const options = await request<unknown>(
+          "POST",
+          "/me/step-up/passkey/begin"
+        )
+        return request("POST", "/me/step-up/passkey", {
+          body: await getAssertion(options),
+        })
+      }).then(freshAuth),
+
+    // Re-authenticates with the linked wallet's signed SIWS output over
+    // /me/step-up/solana/challenge (@openrails/auth-ui/solana signs it).
+    stepUpWithSolana: (output: SolanaSignInOutput) =>
+      sameSession(() =>
+        request("POST", "/me/step-up/solana", { body: { output } })
       ).then(freshAuth),
 
     // The provider URL; AuthKit returns to returnTo#code= (completeStepUp).

@@ -28,6 +28,7 @@ export {
 } from "./useRegister.ts"
 export {
   useStepUp,
+  type StepUpChannel,
   type StepUpController,
   type StepUpOptions,
   type StepUpState,

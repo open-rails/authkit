@@ -7,7 +7,7 @@ import {
   type Page,
 } from "@playwright/test"
 
-import { outbox, totp } from "./support/api"
+import { outbox, registerVerified, totp } from "./support/api"
 
 const app = path.resolve(import.meta.dirname, ".react-app/sign-in.js")
 const password = "Correct-horse-battery-9"
@@ -325,6 +325,7 @@ test("keyboard order: fields, submit, then providers", async ({ page }) => {
     d.getByLabel("Password", { exact: true }),
     d.getByRole("button", { name: "Forgot password?" }),
     d.getByRole("button", { name: "Sign in", exact: true }),
+    d.getByRole("button", { name: "Sign in with a passkey" }),
     d.getByRole("button", { name: "Continue with GitHub" }),
     d.getByRole("button", { name: "Continue with Solana" }),
   ]
@@ -346,6 +347,43 @@ test("keyboard order: fields, submit, then providers", async ({ page }) => {
     await page.keyboard.press("Tab")
     await expect(next).toBeFocused()
   }
+})
+
+// A Chromium virtual authenticator stands in for the platform passkey.
+test("passkey: added while signed in, then signs in", async ({
+  page,
+  request,
+  context,
+}) => {
+  await loadApp(page)
+  const cdp = await context.newCDPSession(page)
+  await cdp.send("WebAuthn.enable")
+  await cdp.send("WebAuthn.addVirtualAuthenticator", {
+    options: {
+      protocol: "ctap2",
+      transport: "internal",
+      hasResidentKey: true,
+      hasUserVerification: true,
+      isUserVerified: true,
+      automaticPresenceSimulation: true,
+    },
+  })
+  const { email } = await registerVerified(page, request)
+  await loadApp(page)
+  await expect(page.getByTestId("status")).toHaveText("authenticated")
+  await page.evaluate(async () => {
+    const c = (window as unknown as { authClient: AuthClientLike }).authClient
+    await c.registerPasskey()
+  })
+  await signOut(page)
+
+  await openDialog(page)
+  await panel(page)
+    .getByRole("button", { name: "Sign in with a passkey" })
+    .click()
+  await expect(dialog(page)).toBeHidden()
+  await expect(page.getByTestId("status")).toHaveText("authenticated")
+  await expect(page.getByTestId("email")).toHaveText(email)
 })
 
 test("OIDC callback reports a provider error and a dead code", async ({
@@ -416,5 +454,6 @@ type AuthClientLike = {
     identifier: string
     code: string
   }): Promise<unknown>
+  registerPasskey(): Promise<unknown>
   signOut(): Promise<void>
 }

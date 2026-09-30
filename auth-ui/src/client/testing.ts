@@ -1,5 +1,5 @@
 // Test helpers (not exported from the package).
-import { vi } from "vitest"
+import { onTestFinished, vi } from "vitest"
 
 import type { AuthResult } from "./types.ts"
 
@@ -87,3 +87,64 @@ export function stubFetch(routes: Record<string, Route | Response[]>) {
     return route({ ...init, url })
   })
 }
+
+// A platform authenticator for the current test: PublicKeyCredential exists
+// and navigator.credentials.get answers with one fixed passkey, whose body
+// AuthKit receives as passkeyAssertion.
+export function stubPasskey() {
+  const bytes = (...b: number[]) => new Uint8Array(b).buffer
+  class FakePasskey {
+    id = "cred"
+    rawId = bytes(1, 2)
+    type = "public-key"
+    authenticatorAttachment = "platform"
+    response = {
+      clientDataJSON: bytes(3),
+      authenticatorData: bytes(4),
+      signature: bytes(5),
+      userHandle: bytes(6),
+    }
+    getClientExtensionResults() {
+      return {}
+    }
+  }
+  const get = vi.fn(
+    async (options: CredentialRequestOptions): Promise<unknown> =>
+      options.publicKey ? new FakePasskey() : null
+  )
+  vi.stubGlobal("PublicKeyCredential", FakePasskey)
+  Object.defineProperty(navigator, "credentials", {
+    configurable: true,
+    value: { get },
+  })
+  onTestFinished(() => {
+    vi.unstubAllGlobals()
+    delete (navigator as { credentials?: unknown }).credentials
+  })
+  return get
+}
+
+export const passkeyAssertion = {
+  id: "cred",
+  rawId: "AQI",
+  type: "public-key",
+  authenticatorAttachment: "platform",
+  clientExtensionResults: {},
+  response: {
+    clientDataJSON: "Aw",
+    authenticatorData: "BA",
+    signature: "BQ",
+    userHandle: "Bg",
+  },
+}
+
+// Passkey request options as AuthKit's begin routes answer them.
+export const passkeyOptions = () =>
+  json(200, {
+    publicKey: {
+      challenge: "AQID",
+      rpId: "x.test",
+      allowCredentials: [{ type: "public-key", id: "AQI" }],
+      userVerification: "required",
+    },
+  })

@@ -33,39 +33,33 @@ func (s *Engine) solanaIssuer() string {
 // GenerateSIWSChallenge creates a new SIWS challenge for the given address.
 // The challenge must be verified within 15 minutes.
 func (s *Engine) GenerateSIWSChallenge(ctx context.Context, domain, address, username string) (siws.SignInInput, error) {
-	// Validate the address format
-	if err := siws.ValidateAddress(address); err != nil {
-		return siws.SignInInput{}, fmt.Errorf("invalid solana address: %w", err)
+	data, err := s.newSIWSChallenge(domain, address)
+	if err != nil {
+		return siws.SignInInput{}, err
 	}
+	data.Username = username
+	if err := s.ephemSetJSON(ctx, keySIWSNonce+data.Input.Nonce, data, siwsChallengeTTL); err != nil {
+		return siws.SignInInput{}, fmt.Errorf("failed to store challenge: %w", err)
+	}
+	return data.Input, nil
+}
 
-	// Create the sign-in input with defaults
-	opts := []siws.InputOption{
-		siws.WithChainID(s.solanaChainID()),
+// newSIWSChallenge is a fresh challenge for address on this deployment's
+// network, for the caller to store.
+func (s *Engine) newSIWSChallenge(domain, address string, opts ...siws.InputOption) (siws.ChallengeData, error) {
+	if err := siws.ValidateAddress(address); err != nil {
+		return siws.ChallengeData{}, fmt.Errorf("invalid solana address: %w", err)
 	}
+	opts = append([]siws.InputOption{siws.WithChainID(s.solanaChainID())}, opts...)
 	if s.cfg.Frontend.BaseURL != "" {
 		opts = append(opts, siws.WithURI(s.cfg.Frontend.BaseURL))
 	}
-
 	input, err := siws.NewSignInInput(domain, address, opts...)
 	if err != nil {
-		return siws.SignInInput{}, fmt.Errorf("failed to create sign-in input: %w", err)
+		return siws.ChallengeData{}, fmt.Errorf("failed to create sign-in input: %w", err)
 	}
-
-	// Store challenge data
 	now := time.Now().UTC()
-	challengeData := siws.ChallengeData{
-		Address:   address,
-		Username:  username,
-		IssuedAt:  now,
-		ExpiresAt: now.Add(siwsChallengeTTL),
-		Input:     input,
-	}
-
-	if err := s.ephemSetJSON(ctx, keySIWSNonce+input.Nonce, challengeData, siwsChallengeTTL); err != nil {
-		return siws.SignInInput{}, fmt.Errorf("failed to store challenge: %w", err)
-	}
-
-	return input, nil
+	return siws.ChallengeData{Address: address, IssuedAt: now, ExpiresAt: now.Add(siwsChallengeTTL), Input: input}, nil
 }
 
 const (

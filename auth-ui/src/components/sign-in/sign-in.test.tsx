@@ -12,7 +12,10 @@ import {
   authError,
   authResult,
   json,
+  passkeyAssertion,
+  passkeyOptions,
   stubFetch,
+  stubPasskey,
   tokenSet,
 } from "../../client/testing.ts"
 import { AuthUiProvider } from "../../provider.tsx"
@@ -28,7 +31,8 @@ import { VerifyLink } from "./VerifyLink.tsx"
 // input-otp probes for password-manager overlays.
 document.elementFromPoint ??= () => null
 
-const capabilities = () =>
+// Also a route: stubFetch passes its RequestInit, which turns nothing on.
+const capabilities = (passkeys?: unknown) =>
   json(200, {
     registration: { mode: "open", invite_token_required: false },
     external_login_providers: [
@@ -42,7 +46,7 @@ const capabilities = () =>
     ],
     password: {},
     passwordless: { enabled: false },
-    passkeys: { login: false },
+    passkeys: { login: passkeys === true },
     solana: { login: false },
     verification: { registration: "required" },
   })
@@ -152,6 +156,48 @@ describe("LoginForm", () => {
 
     await user.type(screen.getByLabelText("Verification code"), "222222")
     await waitFor(() => expect(onSignedIn).toHaveBeenCalledOnce())
+  })
+
+  it("signs in with a passkey when passkeys are on", async () => {
+    const user = userEvent.setup()
+    const get = stubPasskey()
+    get.mockRejectedValueOnce(new DOMException("closed", "NotAllowedError"))
+    const onSignedIn = vi.fn()
+    const finished: unknown[] = []
+    const fetch = stubFetch({
+      "GET /api/v1/capabilities": () => capabilities(true),
+      "POST /api/v1/passkeys/login/begin": passkeyOptions,
+      "POST /api/v1/passkeys/login/finish": (init) => {
+        finished.push(JSON.parse(String(init.body)))
+        return session({ sub: "u1", sid: "s1" })
+      },
+    })
+    const { client } = renderUi(<LoginForm onSignedIn={onSignedIn} />, fetch)
+    const passkey = await screen.findByRole("button", {
+      name: "Sign in with a passkey",
+    })
+    await user.click(passkey)
+    await waitFor(() => expect(get).toHaveBeenCalledOnce())
+    expect(screen.queryByRole("alert")).toBeNull()
+
+    await user.click(passkey)
+    await waitFor(() => expect(onSignedIn).toHaveBeenCalledOnce())
+    expect(finished).toEqual([passkeyAssertion])
+    expect(client.getSnapshot()).toMatchObject({
+      status: "authenticated",
+      userId: "u1",
+    })
+  })
+
+  it("offers no passkey when passkeys are off", async () => {
+    const fetch = stubFetch({ "GET /api/v1/capabilities": capabilities })
+    renderUi(<LoginForm />, fetch)
+    expect(
+      await screen.findByRole("button", { name: "Continue with GitHub" })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Sign in with a passkey" })
+    ).toBeNull()
   })
 
   it("points legacy accounts at the reset form, prefilled", async () => {

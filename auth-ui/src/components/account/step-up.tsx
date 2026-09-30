@@ -1,14 +1,24 @@
-import { SecurityCheckIcon } from "@hugeicons/core-free-icons"
+import {
+  FingerPrintIcon,
+  SecurityCheckIcon,
+  Wallet01Icon,
+} from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { useId, useState, type ReactNode } from "react"
 
 import type { StepUpChallenge } from "../../client/stepUp.ts"
 import type { TwoFactorFactor } from "../../client/types.ts"
+import { webAuthnAvailable } from "../../client/webauthn.ts"
 import { useMessages } from "../../i18n/context.ts"
 import type { MessageKey } from "../../i18n/messages.ts"
-import { useCapabilities } from "../../react/context.ts"
+import { useCapabilities, useUser } from "../../react/context.ts"
 import { useStepUpReturn } from "../../react/providers.ts"
-import { useStepUp, type StepUpController } from "../../react/useStepUp.ts"
+import {
+  useStepUp,
+  type StepUpChannel,
+  type StepUpController,
+} from "../../react/useStepUp.ts"
+import type { SolanaSigner } from "../../solana/core.ts"
 import { Button } from "../../ui/button.tsx"
 import {
   Dialog,
@@ -31,6 +41,11 @@ export interface StepUpProviderProps {
   navigate?: (url: string) => void
   /** Where OIDC step-up returns. Default the current URL. */
   returnTo?: string
+  /**
+   * Resolves the linked Solana wallet's signer (e.g. once wallet-adapter
+   * connects), for a wallet step-up. Without it the dialog offers no wallet.
+   */
+  acquireSolanaSigner?: () => Promise<SolanaSigner>
 }
 
 /**
@@ -41,12 +56,17 @@ export function StepUpProvider({
   children,
   navigate,
   returnTo,
+  acquireSolanaSigner,
 }: StepUpProviderProps) {
   const controller = useStepUp({ navigate })
   return (
     <StepUpContext.Provider value={controller}>
       {children}
-      <StepUpDialog controller={controller} returnTo={returnTo} />
+      <StepUpDialog
+        controller={controller}
+        returnTo={returnTo}
+        acquireSolanaSigner={acquireSolanaSigner}
+      />
       <StepUpReturn />
     </StepUpContext.Provider>
   )
@@ -77,7 +97,19 @@ export interface StepUpDialogProps {
   /** `useStepUp()`; `StepUpProvider` renders one for you. */
   controller: StepUpController
   returnTo?: string
+  acquireSolanaSigner?: () => Promise<SolanaSigner>
 }
+
+const CHANNELS: readonly string[] = ["email", "sms"]
+const isChannel = (m: string): m is StepUpChannel => CHANNELS.includes(m)
+// The step-up methods this dialog runs itself; any other is a provider.
+const OWN_METHODS = new Set([
+  "password",
+  "2fa",
+  "passkey",
+  "solana",
+  ...CHANNELS,
+])
 
 // The second factors a "2fa" step-up can use, the default first.
 function codeFactors(challenge: StepUpChallenge): TwoFactorFactor[] {
@@ -88,7 +120,11 @@ function codeFactors(challenge: StepUpChallenge): TwoFactorFactor[] {
 }
 
 /** Re-authentication for a pending sensitive action; open while one waits. */
-export function StepUpDialog({ controller, returnTo }: StepUpDialogProps) {
+export function StepUpDialog({
+  controller,
+  returnTo,
+  acquireSolanaSigner,
+}: StepUpDialogProps) {
   const { t } = useMessages()
   const { state, busy } = controller
   const challenge = state.step === "idle" ? null : state.challenge
@@ -121,6 +157,7 @@ export function StepUpDialog({ controller, returnTo }: StepUpDialogProps) {
             controller={controller}
             challenge={shown}
             returnTo={returnTo}
+            acquireSolanaSigner={acquireSolanaSigner}
           />
         )}
       </DialogContent>
@@ -138,21 +175,26 @@ function StepUpBody({
   controller,
   challenge,
   returnTo,
+  acquireSolanaSigner,
 }: {
   controller: StepUpController
   challenge: StepUpChallenge
   returnTo?: string
+  acquireSolanaSigner?: () => Promise<SolanaSigner>
 }) {
   const { t } = useMessages()
   const { capabilities } = useCapabilities()
   const factors = codeFactors(challenge)
+  const channels = challenge.methods.filter(isChannel)
   const tabs: string[] = [
     ...(challenge.methods.includes("password") ? ["password"] : []),
+    ...channels,
     ...factors.map((f) => f.id),
   ]
-  const providers = challenge.methods.filter(
-    (m) => m !== "password" && m !== "2fa"
-  )
+  const passkey = challenge.methods.includes("passkey") && webAuthnAvailable()
+  const wallet = challenge.methods.includes("solana") && acquireSolanaSigner
+  const providers = challenge.methods.filter((m) => !OWN_METHODS.has(m))
+  const others = passkey || !!wallet || providers.length > 0
   const [tab, setTab] = useState(tabs[0] ?? "")
   const factor = factors.find((f) => f.id === tab)
   const { busy } = controller
@@ -172,15 +214,16 @@ function StepUpBody({
               <TabsTrigger key={id} value={id} disabled={busy}>
                 {id === "password"
                   ? t("stepUp.methodPassword")
-                  : methodLabel(
-                      factors.find((f) => f.id === id)?.method ?? ""
-                    )}
+                  : methodLabel(factors.find((f) => f.id === id)?.method ?? id)}
               </TabsTrigger>
             ))}
           </TabsList>
         </Tabs>
       )}
       {tab === "password" && <PasswordStepUp controller={controller} />}
+      {isChannel(tab) && (
+        <ContactStepUp key={tab} controller={controller} channel={tab} />
+      )}
       {factor && (
         <CodeStepUp
           key={factor.id}
@@ -189,7 +232,7 @@ function StepUpBody({
           label={methodLabel(factor.method)}
         />
       )}
-      {providers.length > 0 && (
+      {others && (
         <div className="grid gap-2">
           {tabs.length > 0 && (
             <div className="flex items-center gap-3 text-xs text-muted-foreground uppercase">
@@ -197,6 +240,26 @@ function StepUpBody({
               {t("common.or")}
               <span className="h-px flex-1 bg-border" />
             </div>
+          )}
+          {passkey && (
+            <Button
+              variant="outline"
+              disabled={busy}
+              onClick={() => void controller.withPasskey()}
+            >
+              <HugeiconsIcon icon={FingerPrintIcon} strokeWidth={2} />
+              {t("stepUp.withPasskey")}
+            </Button>
+          )}
+          {wallet && (
+            <Button
+              variant="outline"
+              disabled={busy}
+              onClick={() => void controller.withSolana(wallet)}
+            >
+              <HugeiconsIcon icon={Wallet01Icon} strokeWidth={2} />
+              {t("stepUp.withWallet")}
+            </Button>
           )}
           {providers.map((p) => (
             <Button
@@ -218,7 +281,7 @@ function StepUpBody({
           {tabs.length === 0 && <ErrorNotice error={controller.error} />}
         </div>
       )}
-      {tabs.length === 0 && providers.length === 0 && (
+      {tabs.length === 0 && !others && (
         <p className="text-sm text-muted-foreground">{t("stepUp.noMethods")}</p>
       )}
     </div>
@@ -370,5 +433,51 @@ function CodeStepUp({
       />
       {toggle}
     </div>
+  )
+}
+
+// A code sent to the account's own proven email or phone.
+function ContactStepUp({
+  controller,
+  channel,
+}: {
+  controller: StepUpController
+  channel: StepUpChannel
+}) {
+  const { t } = useMessages()
+  const { user } = useUser()
+  const { state, busy, error } = controller
+  const sent = state.step === "contact_code_sent" && state.channel === channel
+  const destination =
+    channel === "email"
+      ? (user?.email ?? t("account.twoFactor.yourEmail"))
+      : (user?.phone_number ?? t("stepUp.yourPhone"))
+
+  if (!sent)
+    return (
+      <div className="grid gap-4">
+        <p className="text-sm text-muted-foreground">
+          {t("stepUp.sendTo", { destination })}
+        </p>
+        <ErrorNotice error={error} />
+        <Button
+          disabled={busy}
+          onClick={() => void controller.sendContactCode(channel)}
+        >
+          {busy && <Spinner />}
+          {busy ? t("common.sending") : t("common.sendCode")}
+        </Button>
+      </div>
+    )
+  return (
+    <CodeStep
+      key={`sent:${channel}`}
+      prompt={t("stepUp.codeSentTo", { destination })}
+      busy={busy}
+      error={error}
+      submitLabel={t("stepUp.submit")}
+      onSubmit={(code) => controller.withContactCode(code)}
+      onResend={() => controller.sendContactCode(channel)}
+    />
   )
 }

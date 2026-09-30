@@ -64,11 +64,6 @@ func (s *Engine) UserProfile(ctx context.Context, in authflow.ProfileInput) (aut
 // freshness, the step-up methods and the second factors, from one
 // 2FA-settings read.
 func (s *Engine) UserSecurity(ctx context.Context, in authflow.ProfileInput) (authflow.UserSecurity, error) {
-	hasPassword, err := s.HasPassword(ctx, in.UserID)
-	if err != nil {
-		return authflow.UserSecurity{}, stageErr("load_password", err)
-	}
-	providerSlugs, _ := s.ProviderSlugs(ctx, in.UserID)
 	fresh := authflow.FreshAuth{StepUpRequiredForSensitiveActions: !in.StepUpSatisfied, AuthMethods: in.AuthMethods}
 	if !in.AuthTime.IsZero() {
 		at := in.AuthTime
@@ -86,9 +81,13 @@ func (s *Engine) UserSecurity(ctx context.Context, in authflow.ProfileInput) (au
 	if err != nil {
 		return authflow.UserSecurity{}, stageErr("load_2fa", err)
 	}
+	methods, err := s.stepUpMethods(ctx, in.UserID, settings)
+	if err != nil {
+		return authflow.UserSecurity{}, stageErr("load_step_up_methods", err)
+	}
 	return authflow.UserSecurity{
 		FreshAuth:     fresh,
-		StepUpMethods: authflow.StepUpMethods(hasPassword, authflow.StepUpFactors(settings), providerSlugs, in.ProviderSupportsStepUp),
+		StepUpMethods: methods,
 		TwoFactor:     authflow.NewTwoFactorStatus(settings, s.TwoFactorMethods()),
 	}, nil
 }

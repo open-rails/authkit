@@ -317,7 +317,7 @@ test("TOTP and email 2FA keep the session; wrong email codes retry", async ({
 })
 
 // A Chromium virtual authenticator stands in for the platform passkey.
-test("sign-in keys: add a passkey, rename it, remove it", async ({
+test("sign-in keys: add a passkey, step up with it to rename it, remove it", async ({
   page,
   request,
   context,
@@ -350,9 +350,18 @@ test("sign-in keys: add a passkey, rename it, remove it", async ({
   await keys.getByRole("button", { name: "Add a passkey" }).click()
   await expect(keys.getByRole("button", { name: "Rename" })).toHaveCount(1)
 
+  // Renaming on a stale session: the passkey itself steps up.
+  await request.post(
+    `/__test/stale-sessions?email=${encodeURIComponent(email)}`
+  )
+  await loadApp(page)
+  await expect(page.getByTestId("status")).toHaveText("authenticated")
   await keys.getByRole("button", { name: "Rename" }).click()
   await keys.getByLabel("Name").fill("Test key")
   await keys.getByRole("button", { name: "Save" }).click()
+  const stepUp = page.getByRole("dialog", { name: "Confirm it's you" })
+  await stepUp.getByRole("button", { name: "Use a passkey" }).click()
+  await expect(stepUp).toBeHidden()
   await expect(keys.getByText("Test key", { exact: true })).toBeVisible()
 
   await keys.getByRole("button", { name: "Remove: Test key" }).click()

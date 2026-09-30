@@ -7,7 +7,7 @@ import { sessionIdentity, useAuthClient, useSession } from "./context.ts"
 import { toAuthKitError, unguarded, useTask } from "./task.ts"
 
 // The caller's passkeys and device keys: list, rename, revoke, and add a
-// passkey. Renaming and revoking need a recent sign-in (pass guard).
+// passkey. Each change needs a recent sign-in (pass guard).
 export function useSignInKeys(options: GuardOptions = {}) {
   const client = useAuthClient()
   const guard = options.guard ?? unguarded
@@ -37,14 +37,15 @@ export function useSignInKeys(options: GuardOptions = {}) {
 
   const refetch = useCallback(() => setNonce((n) => n + 1), [])
 
-  // Asks the browser for a new passkey; call from a click.
+  // Asks the browser for a new passkey; call from a click. It needs a
+  // recent sign-in (pass guard).
   const addPasskey = useCallback(
     () =>
       run(async () => {
-        await client.registerPasskey()
+        await guard(() => client.registerPasskey())
         refetch()
       }),
-    [client, run, refetch]
+    [client, guard, run, refetch]
   )
 
   const rename = useCallback(

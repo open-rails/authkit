@@ -47,6 +47,11 @@ it("calls only routes AuthKit mounts", async () => {
     () => client.stepUpWithPassword("p"),
     () => client.sendStepUpCode(),
     () => client.stepUpWithTwoFactor({ code: "1" }),
+    () => client.sendContactStepUpCode("email"),
+    () => client.stepUpWithContactCode("1"),
+    () => client.stepUpWithPasskey(),
+    () => client.stepUpWithSolana({}),
+    () => client.signInWithPasskey(),
     () => client.startOidcStepUp("google", "/"),
     () => client.startProviderLink("google"),
     () => client.unlinkProvider("google"),
@@ -81,5 +86,5 @@ it("calls only routes AuthKit mounts", async () => {
     return !inCatalog(method, path)
   })
   expect(missing).toEqual([])
-  expect(called.size).toBeGreaterThanOrEqual(50)
+  expect(called.size).toBeGreaterThanOrEqual(55)
 })

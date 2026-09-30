@@ -29,6 +29,7 @@ const passkeyCeremonyTTL = 10 * time.Minute
 const (
 	passkeyPurposeRegister = "register"
 	passkeyPurposeLogin    = "login"
+	passkeyPurposeStepUp   = "step_up"
 )
 
 // PasskeysEnabled reports whether passkey (WebAuthn) support is configured.
@@ -116,7 +117,7 @@ func (s *Engine) beginPasskeyCreation(ctx context.Context, u passkeyUser, purpos
 	if err != nil {
 		return nil, err
 	}
-	return creation, s.storePasskeySession(ctx, session, purpose, u.id)
+	return creation, s.storePasskeySession(ctx, session, purpose, u.id, "")
 }
 
 func (s *Engine) FinishPasskeyRegistration(ctx context.Context, userID string, response []byte) (iam.Passkey, error) {
@@ -196,7 +197,7 @@ func (s *Engine) beginDiscoverableAssertion(ctx context.Context, purpose string,
 	if err != nil {
 		return nil, err
 	}
-	return assertion, s.storePasskeySession(ctx, session, purpose, "")
+	return assertion, s.storePasskeySession(ctx, session, purpose, "", "")
 }
 
 func (s *Engine) finishDiscoverableAssertion(ctx context.Context, purpose string, response []byte) (verifiedPasskey, error) {
@@ -222,15 +223,7 @@ func (s *Engine) finishDiscoverableAssertion(ctx context.Context, purpose string
 		return verifiedPasskey{}, err
 	}
 	user := webUser.(passkeyUser)
-	// cred.Flags.UserVerified is the latched uvInitialized record, not this
-	// assertion's flag; the requirement is per ceremony.
-	if !parsed.Response.AuthenticatorData.Flags.UserVerified() {
-		return verifiedPasskey{}, errmodel.ErrPasskeyUserVerificationRequired
-	}
-	if cred.Authenticator.CloneWarning && cred.Authenticator.SignCount > 0 {
-		return verifiedPasskey{}, errmodel.ErrPasskeyCloneDetected
-	}
-	id, err := s.updatePasskeyAfterUse(ctx, user.id, cred)
+	id, err := s.acceptAssertion(ctx, user.id, parsed, cred)
 	if err != nil {
 		return verifiedPasskey{}, err
 	}
@@ -242,6 +235,21 @@ func (s *Engine) finishDiscoverableAssertion(ctx context.Context, purpose string
 		BackupEligible:    cred.Flags.BackupEligible,
 		BackupState:       cred.Flags.BackupState,
 	}, nil
+}
+
+// acceptAssertion finishes a validated assertion by userID's cred: the
+// ceremony verified the user, the credential shows no clone, and its use is
+// recorded. It returns the passkey's id.
+func (s *Engine) acceptAssertion(ctx context.Context, userID string, parsed *protocol.ParsedCredentialAssertionData, cred *webauthn.Credential) (string, error) {
+	// cred.Flags.UserVerified is the latched uvInitialized record, not this
+	// assertion's flag; the requirement is per ceremony.
+	if !parsed.Response.AuthenticatorData.Flags.UserVerified() {
+		return "", errmodel.ErrPasskeyUserVerificationRequired
+	}
+	if cred.Authenticator.CloneWarning && cred.Authenticator.SignCount > 0 {
+		return "", errmodel.ErrPasskeyCloneDetected
+	}
+	return s.updatePasskeyAfterUse(ctx, userID, cred)
 }
 
 func (s *Engine) ListPasskeys(ctx context.Context, userID string) ([]iam.Passkey, error) {
@@ -288,12 +296,14 @@ func (s *Engine) DeletePasskey(ctx context.Context, userID, id string) error {
 	return nil
 }
 
-func (s *Engine) storePasskeySession(ctx context.Context, session *webauthn.SessionData, purpose, userID string) error {
+// storePasskeySession stores a ceremony begun for purpose, by userID and, for
+// a step-up, the session it re-authenticates.
+func (s *Engine) storePasskeySession(ctx context.Context, session *webauthn.SessionData, purpose, userID, sessionID string) error {
 	b, err := json.Marshal(session)
 	if err != nil {
 		return err
 	}
-	return s.storePasskeyCeremony(ctx, session.Challenge, passkeyCeremonyData{Purpose: purpose, UserID: strings.TrimSpace(userID), Session: b}, passkeyCeremonyTTL)
+	return s.storePasskeyCeremony(ctx, session.Challenge, passkeyCeremonyData{Purpose: purpose, UserID: strings.TrimSpace(userID), SessionID: sessionID, Session: b}, passkeyCeremonyTTL)
 }
 
 func (s *Engine) consumePasskeySession(ctx context.Context, challenge string) (passkeyCeremonyData, webauthn.SessionData, error) {

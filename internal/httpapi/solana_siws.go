@@ -65,6 +65,11 @@ func (s *Service) handleSolanaChallengePOST(w http.ResponseWriter, r *http.Reque
 		serverErr(w, "challenge_failed", err)
 		return
 	}
+	writeSolanaChallenge(w, input)
+}
+
+// writeSolanaChallenge answers input as the message a wallet signs.
+func writeSolanaChallenge(w http.ResponseWriter, input siws.SignInInput) {
 	issuedAt, err := time.Parse(time.RFC3339Nano, input.IssuedAt)
 	if err != nil {
 		serverErr(w, "challenge_failed", err)

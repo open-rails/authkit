@@ -222,7 +222,7 @@ func run(ctx context.Context) error {
 }
 ```
 
-Mounting gives your users all of this: 65 routes under `/api/v1`, plus the public keys that let anyone verify AuthKit's tokens. Every request and response shape is in [`api/openapi.json`](api/openapi.json), generated from the route catalog.
+Mounting gives your users all of this: 68 routes under `/api/v1`, plus the public keys that let anyone verify AuthKit's tokens. Every request and response shape is in [`api/openapi.json`](api/openapi.json), generated from the route catalog.
 
 **Signing up and signing in** (every sign-in answers an `AuthResult`: signed in, or the one next step, such as a second factor)
 
@@ -248,8 +248,10 @@ Mounting gives your users all of this: 65 routes under `/api/v1`, plus the publi
 |---|---|
 | `POST /api/v1/token` | trade a refresh token for fresh tokens |
 | `DELETE /api/v1/logout` | sign out |
-| `POST /api/v1/me/step-up/password`, `/2fa` | prove it's really you before a sensitive change |
+| `POST /api/v1/me/step-up/password`, `/2fa`, `/code`, `/passkey` | prove it's really you before a sensitive change: your password, second factor, a code to your email or phone, or a passkey |
 | `POST /api/v1/me/step-up/2fa/send` | send that second-factor code |
+| `POST /api/v1/me/step-up/code/send` | send a code to your proven email or phone |
+| `POST /api/v1/me/step-up/passkey/begin` | start a passkey step-up |
 | `GET /api/v1/me/sessions` | your signed-in devices |
 | `DELETE /api/v1/me/sessions` | sign out everywhere else |
 | `DELETE /api/v1/me/sessions/{id}` | sign out one device |

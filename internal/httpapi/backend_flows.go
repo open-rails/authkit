@@ -22,6 +22,8 @@ type flowsBackend interface {
 	BeginDeviceKeyLogin(ctx context.Context, deviceKeyID string) (authflow.DeviceKeyChallenge, error)
 	BeginPasskeyLogin(ctx context.Context) (*protocol.CredentialAssertion, error)
 	BeginPasskeyRegistration(ctx context.Context, userID string) (*protocol.CredentialCreation, error)
+	BeginPasskeyStepUp(ctx context.Context, userID, sessionID string) (*protocol.CredentialAssertion, error)
+	BeginSolanaStepUp(ctx context.Context, userID, sessionID, domain string) (siws.SignInInput, error)
 	BeginTwoFactorEnrollment(ctx context.Context, userID string, enrollmentToken bool, sessionID string) (authflow.TwoFactorEnrollmentScope, error)
 	CheckPendingRegistrationConflict(ctx context.Context, email, username string) (bool, bool, error)
 	CheckPhoneRegistrationConflict(ctx context.Context, phone, username string) (bool, bool, error)
@@ -79,11 +81,15 @@ type flowsBackend interface {
 	ResendLoginChallenge(ctx context.Context, userID, nonce, factorID string) (*authflow.TwoFactorChallenge, error)
 	SMSAvailable() bool
 	Send2FAStepUpCode(ctx context.Context, userID, sessionID, factorID string) error
+	SendStepUpCode(ctx context.Context, userID, sessionID, channel string) error
 	SendWelcome(ctx context.Context, userID string)
 	SessionFreshness(ctx context.Context, userID, sessionID string, now time.Time) (authflow.SessionFreshness, error)
 	SetDefault2FAFactor(ctx context.Context, userID, factorID string) (authflow.MFAFactor, error)
 	SetPasswordAfterFreshAuth(ctx context.Context, userID, new string, keepSessionID *string) error
 	StartPasswordless(ctx context.Context, req authflow.PasswordlessStartRequest) (authflow.PasswordlessStartResult, error)
+	StepUpWithCode(ctx context.Context, userID, sessionID, code string) error
+	StepUpWithPasskey(ctx context.Context, userID, sessionID string, response []byte) error
+	StepUpWithSolana(ctx context.Context, userID, sessionID string, output siws.SignInOutput) error
 	TwoFactorEnabled() bool
 	TwoFactorMethods() []iam.TwoFactorMethod
 	UnlinkProviderUnlessLast(ctx context.Context, userID, provider string) (bool, error)

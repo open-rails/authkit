@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 
 import type { SignInResult } from "../client/authResult.ts"
 import { AuthKitError } from "../client/errors.ts"
+import { passkeyDismissed } from "../client/webauthn.ts"
 import type {
   AccountRecoveryConfirmation,
   EnrollmentStep,
@@ -44,7 +45,7 @@ export type LoginOptions = {
   onSignedIn?: (result: { returnTo?: string }) => void
 }
 
-// Password sign-in plus every step an AuthResult can name next.
+// Password or passkey sign-in plus every step an AuthResult can name next.
 export function useLogin(options: LoginOptions = {}) {
   const client = useAuthClient()
   const { busy, error, run, clearError } = useTask()
@@ -108,6 +109,25 @@ export function useLogin(options: LoginOptions = {}) {
         credentials.current = input
         pendingCodes.current = []
         apply(await client.signInWithPassword(input))
+      }),
+    [client, run, apply]
+  )
+
+  // Passkey sign-in with one the browser offers; call from a click. Closing
+  // the browser's prompt leaves the form as it was.
+  const signInWithPasskey = useCallback(
+    () =>
+      run(async () => {
+        credentials.current = null
+        pendingCodes.current = []
+        let result: SignInResult
+        try {
+          result = await client.signInWithPasskey()
+        } catch (err) {
+          if (passkeyDismissed(err)) return
+          throw err
+        }
+        apply(result)
       }),
     [client, run, apply]
   )
@@ -281,6 +301,7 @@ export function useLogin(options: LoginOptions = {}) {
     busy,
     error,
     signIn,
+    signInWithPasskey,
     signInWithPopup,
     resume,
     verifyTwoFactor,
