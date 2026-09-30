@@ -5905,6 +5905,17 @@
           "invite_token_required"
         ]
       },
+      "RetryAfter": {
+        "type": "object",
+        "properties": {
+          "retry_after_seconds": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "retry_after_seconds"
+        ]
+      },
       "ReturnToRequest": {
         "type": "object",
         "properties": {
@@ -8202,7 +8213,10 @@
     },
     "server_busy": {
       "status": 503,
-      "message": "The server is busy. Try again in a moment."
+      "message": "The server is busy. Try again in a moment.",
+      "metadata": {
+        "$ref": "#/components/schemas/RetryAfter"
+      }
     },
     "service_jwt_lifetime_exceeded": {
       "status": 401,

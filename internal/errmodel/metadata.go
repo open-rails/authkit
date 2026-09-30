@@ -39,6 +39,12 @@ type ActionAvailability struct {
 	CooldownSeconds   *int64     `json:"cooldown_seconds"`
 }
 
+// RetryAfter is server_busy's metadata: when to try again (also the
+// Retry-After header).
+type RetryAfter struct {
+	RetryAfterSeconds int64 `json:"retry_after_seconds"`
+}
+
 // LengthBounds is a length rule a value broke: the metadata of
 // username_too_short/long and password_too_short/long.
 type LengthBounds struct {

@@ -444,6 +444,10 @@ export type RegistrationCapabilities = {
   invite_token_required: boolean
 }
 
+export type RetryAfter = {
+  retry_after_seconds: number
+}
+
 export type ReturnToRequest = {
   return_to?: string
 }
