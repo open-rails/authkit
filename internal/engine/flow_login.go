@@ -79,6 +79,9 @@ func (s *Engine) PasswordLogin(ctx context.Context, in authflow.PasswordLoginInp
 	}
 
 	version, err := s.authenticatePassword(ctx, u, in.Password)
+	if errors.Is(err, password.ErrBusy) {
+		return authflow.LoginOutcome{}, err
+	}
 	if err != nil {
 		return s.rejectLogin(ctx, in, u.ID, loginRejection(err)), nil
 	}
@@ -119,7 +122,10 @@ func (s *Engine) recoverPendingLogin(ctx context.Context, in authflow.PasswordLo
 	if !ok {
 		return s.rejectLogin(ctx, in, "", errmodel.ErrInvalidCredentials), nil
 	}
-	valid, err := password.VerifyArgon2id(pending.PasswordHash, in.Password)
+	valid, err := password.VerifyArgon2id(ctx, pending.PasswordHash, in.Password)
+	if errors.Is(err, password.ErrBusy) {
+		return authflow.LoginOutcome{}, err
+	}
 	if err != nil || !valid {
 		return s.rejectLogin(ctx, in, "", errmodel.ErrInvalidCredentials), nil
 	}
@@ -142,7 +148,9 @@ func (s *Engine) verificationGate(ctx context.Context, in authflow.PasswordLogin
 	if !needsEmail && !needsPhone {
 		return authflow.LoginOutcome{}, false, nil
 	}
-	if err := s.CheckUserPassword(ctx, u.ID, in.Password); err != nil {
+	if err := s.CheckUserPassword(ctx, u.ID, in.Password); errors.Is(err, password.ErrBusy) {
+		return authflow.LoginOutcome{}, true, err
+	} else if err != nil {
 		return s.rejectLogin(ctx, in, u.ID, loginRejection(err)), true, nil
 	}
 	if needsEmail && s.HasEmailSender() {

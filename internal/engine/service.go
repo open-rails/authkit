@@ -151,7 +151,7 @@ func (s *Engine) VerifyPendingPassword(ctx context.Context, email, pass string) 
 	}
 
 	// Pending registrations always use argon2id (from CreatePendingRegistration)
-	ok, err := password.VerifyArgon2id(pr.PasswordHash, pass)
+	ok, err := password.VerifyArgon2id(ctx, pr.PasswordHash, pass)
 	return err == nil && ok
 }
 
@@ -162,7 +162,7 @@ func (s *Engine) VerifyPendingPhonePassword(ctx context.Context, phone, pass str
 	if err != nil || pr == nil {
 		return false
 	}
-	ok, err := password.VerifyArgon2id(pr.PasswordHash, pass)
+	ok, err := password.VerifyArgon2id(ctx, pr.PasswordHash, pass)
 	return err == nil && ok
 }
 

@@ -53,7 +53,7 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 	if isPhone == isEmail {
 		return authflow.RegisterOutcome{}, errmodel.ErrInvalidIdentifier
 	}
-	phc, err := password.HashArgon2id(in.Password)
+	phc, err := password.HashArgon2id(ctx, in.Password)
 	if err != nil {
 		return authflow.RegisterOutcome{}, stageErr("hash_password", err)
 	}

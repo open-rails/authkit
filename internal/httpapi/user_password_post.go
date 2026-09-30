@@ -39,11 +39,7 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, body.CurrentPassword); verr != nil {
-			if errors.Is(verr, errmodel.ErrPasswordResetRequired) {
-				fail(w, errmodel.CodePasswordResetRequired)
-				return
-			}
-			fail(w, errmodel.CodeInvalidPassword)
+			passwordRejected(w, verr)
 			return
 		}
 		if err := s.svc.MarkSessionAuthenticated(r.Context(), claims.UserID, claims.SessionID); err != nil {

@@ -30,7 +30,7 @@ func (s *Engine) authenticatePassword(ctx context.Context, u *db.User, pass stri
 	if err != nil {
 		return 0, errOrUnauthorized(err)
 	}
-	if err := verifyPasswordHash(hash, algo, pass); err != nil {
+	if err := verifyPasswordHash(ctx, hash, algo, pass); err != nil {
 		return 0, err
 	}
 	s.rehashPassword(ctx, u.ID, hash, algo, pass)
@@ -57,7 +57,7 @@ func (s *Engine) CheckUserPassword(ctx context.Context, userID, pass string) err
 	if err != nil {
 		return errOrUnauthorized(err)
 	}
-	if err := verifyPasswordHash(hash, algo, pass); err != nil {
+	if err := verifyPasswordHash(ctx, hash, algo, pass); err != nil {
 		return err
 	}
 	s.rehashPassword(ctx, userID, hash, algo, pass)
@@ -69,7 +69,7 @@ func (s *Engine) rehashPassword(ctx context.Context, userID, hash, algo, pass st
 	if algo != "bcrypt" {
 		return
 	}
-	if phc, err := password.HashArgon2id(pass); err == nil {
+	if phc, err := password.HashArgon2id(ctx, pass); err == nil {
 		_ = s.q.UserPasswordRehash(ctx, db.UserPasswordRehashParams{UserID: userID, OldHash: hash, NewHash: phc})
 	}
 }

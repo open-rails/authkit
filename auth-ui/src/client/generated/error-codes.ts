@@ -139,6 +139,7 @@ export type AuthErrorCode =
   | "role_assignment_escalation"
   | "role_not_assignable"
   | "sender_proof_required"
+  | "server_busy"
   | "service_jwt_lifetime_exceeded"
   | "session_revoked"
   | "sms_delivery_failed"
@@ -308,6 +309,7 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   role_assignment_escalation: 403,
   role_not_assignable: 400,
   sender_proof_required: 401,
+  server_busy: 503,
   service_jwt_lifetime_exceeded: 401,
   session_revoked: 401,
   sms_delivery_failed: 502,
@@ -478,6 +480,7 @@ export const AUTH_ERROR_MESSAGES = {
   role_assignment_escalation: "That role confers authority you do not hold.",
   role_not_assignable: "The role cannot be assigned in this group.",
   sender_proof_required: "The token requires sender proof.",
+  server_busy: "The server is busy. Try again in a moment.",
   service_jwt_lifetime_exceeded: "The service token lifetime is too long.",
   session_revoked: "Your session has ended. Please sign in again.",
   sms_delivery_failed: "We couldn't deliver the text message. Please try again, or contact support.",

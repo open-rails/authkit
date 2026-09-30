@@ -1,6 +1,7 @@
 package password
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
@@ -24,24 +25,34 @@ func DefaultParams() Params {
 	return Params{Time: 1, Memory: 64 * 1024, Threads: 1, SaltLen: 16, KeyLen: 32}
 }
 
-// HashArgon2id returns a PHC-encoded string.
-func HashArgon2id(password string) (string, error) {
+// maxMemoryKiB is the costliest Argon2id memory a stored hash may name.
+const maxMemoryKiB = 256 * 1024
+
+// HashArgon2id returns a PHC-encoded string, or ErrBusy (see work.go).
+func HashArgon2id(ctx context.Context, password string) (string, error) {
 	p := DefaultParams()
 	salt := make([]byte, p.SaltLen)
 	if _, err := rand.Read(salt); err != nil {
 		return "", err
 	}
-	dk := argon2.IDKey([]byte(password), salt, p.Time, p.Memory, p.Threads, p.KeyLen)
+	var dk []byte
+	if err := work.run(ctx, p.Memory, func() { dk = argon2.IDKey([]byte(password), salt, p.Time, p.Memory, p.Threads, p.KeyLen) }); err != nil {
+		return "", err
+	}
 	return phcEncode(p, salt, dk), nil
 }
 
-// VerifyArgon2id checks a password against a PHC-encoded hash.
-func VerifyArgon2id(encoded, password string) (bool, error) {
+// VerifyArgon2id checks a password against a PHC-encoded hash, or fails with
+// ErrBusy (see work.go).
+func VerifyArgon2id(ctx context.Context, encoded, password string) (bool, error) {
 	p, salt, sum, err := phcDecode(encoded)
 	if err != nil {
 		return false, err
 	}
-	dk := argon2.IDKey([]byte(password), salt, p.Time, p.Memory, p.Threads, uint32(len(sum)))
+	var dk []byte
+	if err := work.run(ctx, p.Memory, func() { dk = argon2.IDKey([]byte(password), salt, p.Time, p.Memory, p.Threads, uint32(len(sum))) }); err != nil {
+		return false, err
+	}
 	return subtle.ConstantTimeCompare(dk, sum) == 1, nil
 }
 
@@ -81,7 +92,7 @@ func phcDecode(s string) (Params, []byte, []byte, error) {
 	var m, t, threads uint32
 	n, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &m, &t, &threads)
 	if err != nil || n != 3 || fmt.Sprintf("m=%d,t=%d,p=%d", m, t, threads) != parts[3] ||
-		threads < 1 || threads > 16 || m < 8*threads || m > 256*1024 || t < 1 || t > 10 || uint64(m)*uint64(t) > 1024*1024 {
+		threads < 1 || threads > 16 || m < 8*threads || m > maxMemoryKiB || t < 1 || t > 10 || uint64(m)*uint64(t) > 1024*1024 {
 		return p, nil, nil, ErrInvalidHash
 	}
 	salt, err := base64.RawStdEncoding.Strict().DecodeString(parts[4])

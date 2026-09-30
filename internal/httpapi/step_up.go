@@ -36,13 +36,9 @@ func (s *Service) handlePasswordStepUpPOST(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, body.Password); verr != nil {
-		if errors.Is(verr, errmodel.ErrPasswordResetRequired) {
-			// The stored hash can never verify (legacy reset-required); the user
-			// cannot step up with a password and must reset it first.
-			fail(w, errmodel.CodePasswordResetRequired)
-			return
-		}
-		fail(w, errmodel.CodeInvalidPassword)
+		// A legacy reset-required hash can never verify: the user must reset
+		// it before stepping up with a password.
+		passwordRejected(w, verr)
 		return
 	}
 	if err := s.svc.MarkSessionAuthenticated(r.Context(), claims.UserID, claims.SessionID); err != nil {
@@ -237,11 +233,7 @@ func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Requ
 		return false, nil
 	}
 	if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, password); verr != nil {
-		if errors.Is(verr, errmodel.ErrPasswordResetRequired) {
-			fail(w, errmodel.CodePasswordResetRequired)
-			return false, nil
-		}
-		fail(w, errmodel.CodeInvalidPassword)
+		passwordRejected(w, verr)
 		return false, nil
 	}
 	if err := s.svc.MarkSessionAuthenticated(r.Context(), claims.UserID, claims.SessionID); err != nil {
@@ -342,6 +334,19 @@ func (s *Service) requireSession(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// passwordRejected answers a failed CheckUserPassword: password_reset_required
+// and server_busy as themselves, anything else invalid_password.
+func passwordRejected(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, errmodel.ErrPasswordResetRequired):
+		fail(w, errmodel.CodePasswordResetRequired)
+	case errmodel.CodeOf(err) == errmodel.CodeServerBusy:
+		writeError(w, err)
+	default:
+		fail(w, errmodel.CodeInvalidPassword)
+	}
 }
 
 // requireProvenContact answers 403 verification_required (metadata identifier,
