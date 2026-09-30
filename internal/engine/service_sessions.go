@@ -504,9 +504,10 @@ func (s *Engine) MarkSessionAuthenticatedWithMethods(ctx context.Context, userID
 	return nil
 }
 
-// RevokeSessionByIDForUser revokes a session by id ensuring it belongs to the user.
+// RevokeSessionByIDForUser revokes a session by id ensuring it belongs to the
+// user; an unknown or revoked session is left as it is.
 func (s *Engine) RevokeSessionByIDForUser(ctx context.Context, userID, sessionID string) error {
-	if s.pg == nil {
+	if s.pg == nil || !isUUID(sessionID) {
 		return nil
 	}
 	reason := authflow.SessionRevokeReasonFrom(ctx)

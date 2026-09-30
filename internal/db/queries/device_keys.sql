@@ -32,6 +32,11 @@ SELECT EXISTS(SELECT 1 FROM user_device_keys WHERE id = $1 AND user_id = $2 AND 
 -- name: DeviceKeysByUser :many
 SELECT * FROM user_device_keys WHERE user_id = $1 ORDER BY created_at, id;
 
+-- name: DeviceKeyRelabel :one
+UPDATE user_device_keys SET label = sqlc.narg(label)
+WHERE id = sqlc.arg(id) AND user_id = sqlc.arg(user_id) AND revoked_at IS NULL
+RETURNING *;
+
 -- name: DeviceKeyRevoke :execrows
 UPDATE user_device_keys SET revoked_at = COALESCE(revoked_at, now()) WHERE id = $1 AND user_id = $2;
 

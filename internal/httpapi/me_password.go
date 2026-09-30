@@ -3,13 +3,15 @@ package httpapi
 import (
 	"errors"
 	"net/http"
-	"time"
 
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
 )
 
+// handleMePasswordPUT sets or changes the caller's password; other sessions
+// end. 204, or 200 with the session's fresh AuthResult when the current
+// password re-authenticated it.
 func (s *Service) handleMePasswordPUT(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
@@ -30,11 +32,13 @@ func (s *Service) handleMePasswordPUT(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var stepUp *StepUpResult
+	// A stale session may re-authenticate with the current password on the
+	// way; the answer is then its fresh AuthResult.
+	reauthenticated := false
 	if err := s.svc.CheckRecentSignIn(r.Context(), claims); err != nil {
 		// MFA-if-enrolled: the current password alone never clears the gate
 		// for an account with a second factor (M5).
-		if errmodel.CodeOf(err) != errmodel.CodeStepUpRequired || body.CurrentPassword == "" || s.hasUsableMFA(r, claims.UserID) {
+		if errmodel.CodeOf(err) != errmodel.CodeStepUpRequired || body.CurrentPassword == "" || claims.SessionID == "" || s.hasUsableMFA(r, claims.UserID) {
 			writeError(w, err)
 			return
 		}
@@ -46,13 +50,7 @@ func (s *Service) handleMePasswordPUT(w http.ResponseWriter, r *http.Request) {
 			serverErr(w, "step_up_failed", err)
 			return
 		}
-		freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
-		fresh, err := s.freshAccessTokenResponse(r, claims.UserID, claims.SessionID, freshness)
-		if err != nil {
-			serverErr(w, "token_issue_failed", err)
-			return
-		}
-		stepUp = &fresh
+		reauthenticated = true
 	}
 
 	keep := keepCredential(claims)
@@ -82,11 +80,9 @@ func (s *Service) handleMePasswordPUT(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A password step-up on the way in earned a fresh token set; otherwise
-	// there is nothing to return.
-	if stepUp == nil {
+	if !reauthenticated {
 		noContent(w)
 		return
 	}
-	writeJSON(w, http.StatusOK, stepUp)
+	s.writeFreshAuthResult(w, r, claims.UserID, claims.SessionID)
 }

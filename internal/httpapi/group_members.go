@@ -169,12 +169,9 @@ func (s *Service) handleMeGroupsGET(w http.ResponseWriter, r *http.Request) {
 	list(w, page)
 }
 
-// handleMePermissionsGET is the permission-introspection endpoint (#421): the
-// caller's effective grant patterns in one group (?group_id=; default the
-// root group; none in an unknown group), so a client can gate UI on
-// permission strings (glob-matching with iam.Perm.Matches, the matcher the
-// server enforces with) instead of re-deriving authority from role names.
-// Globs like `root:*` (held by an owner) are returned verbatim.
+// handleMePermissionsGET is the caller's role and permissions in one group
+// (?group_id=; root by default), the permissions expanded over the persona's
+// catalog so a client gates UI by set membership. An unknown group has none.
 func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request) {
 	actor, ok := verify.ActorFromContext(r.Context())
 	if !ok {
@@ -185,19 +182,39 @@ func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request)
 	if !readQuery(w, r, &q) {
 		return
 	}
-	id := q.GroupID
-	group := iam.RootGroup()
-	if id != "" {
-		group = iam.GroupByID(id)
+	ref := iam.RootGroup()
+	if q.GroupID != "" {
+		ref = iam.GroupByID(q.GroupID)
 	}
-	byGroup, err := s.svc.EffectivePermissions(r.Context(), actor, []iam.GroupRef{group})
+	out := PermissionSet{GroupID: q.GroupID, Permissions: []iam.Perm{}}
+	g, err := s.svc.Group(r.Context(), ref)
+	if errmodel.CodeOf(err) == errmodel.CodeGroupNotFound || err == nil && g.DeletedAt != nil {
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	perms := []iam.Perm{}
-	for gid, p := range byGroup {
-		id, perms = gid, p
+	out.GroupID = g.ID
+	byGroup, err := s.svc.EffectivePermissions(r.Context(), actor, []iam.GroupRef{iam.GroupByID(g.ID)})
+	if err != nil {
+		writeError(w, err)
+		return
 	}
-	writeJSON(w, http.StatusOK, PermissionSet{GroupID: id, Permissions: perms})
+	if persona, ok := s.svc.PermissionGroupSchema().Persona(g.Persona); ok {
+		out.Permissions = expandGrants(persona.Permissions, byGroup[g.ID])
+	}
+	if actor.Kind() == iam.ActorUser {
+		subject := iam.UserSubject(actor.ID())
+		held, err := s.svc.GroupRoles(r.Context(), iam.GroupByID(g.ID), []iam.Subject{subject})
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if role, ok := held[subject]; ok && !role.IsZero() {
+			out.Role = &role
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }

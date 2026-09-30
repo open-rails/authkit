@@ -145,38 +145,6 @@ func deviceKeyCaller(r *http.Request) (verify.Claims, bool) {
 	return claims, ok && claims.UserID != "" && claims.DeviceKeyID != "" && claims.HasAMR("device_key")
 }
 
-func (s *Service) handleDeviceKeysGET(w http.ResponseWriter, r *http.Request) {
-	claims, ok := deviceKeyCaller(r)
-	if !ok {
-		fail(w, errmodel.CodeUnauthenticated)
-		return
-	}
-	keys, err := s.svc.ListDeviceKeys(r.Context(), claims.UserID, claims.DeviceKeyID)
-	if err != nil {
-		fail(w, errmodel.CodeUnauthenticated)
-		return
-	}
-	all(w, keys)
-}
-
-func (s *Service) handleDeviceKeyDELETE(w http.ResponseWriter, r *http.Request) {
-	claims, ok := deviceKeyCaller(r)
-	if !ok {
-		fail(w, errmodel.CodeUnauthenticated)
-		return
-	}
-	target := strings.TrimSpace(r.PathValue("id"))
-	if len(target) != 36 {
-		fail(w, errmodel.CodeInvalidRequest)
-		return
-	}
-	if err := s.svc.RevokeDeviceKey(r.Context(), claims.UserID, claims.DeviceKeyID, target); err != nil {
-		fail(w, errmodel.CodeUnauthenticated)
-		return
-	}
-	noContent(w)
-}
-
 // handleDeviceKeysDELETE revokes the caller's other device keys. Only an
 // enrollment's token may: it proves both the key and the account's email.
 func (s *Service) handleDeviceKeysDELETE(w http.ResponseWriter, r *http.Request) {

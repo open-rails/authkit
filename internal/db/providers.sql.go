@@ -442,3 +442,39 @@ func (q *Queries) UserProvidersDeleteByUser(ctx context.Context, userID string) 
 	_, err := q.db.Exec(ctx, userProvidersDeleteByUser, userID)
 	return err
 }
+
+const userProvidersLinked = `-- name: UserProvidersLinked :many
+SELECT provider_slug::text AS provider_slug, email_at_provider, created_at
+FROM user_providers
+WHERE user_id = $1::uuid
+  AND provider_slug IS NOT NULL
+  AND verified_at IS NOT NULL
+ORDER BY provider_slug, created_at
+`
+
+type UserProvidersLinkedRow struct {
+	ProviderSlug    string
+	EmailAtProvider *string
+	CreatedAt       time.Time
+}
+
+// The account's verified provider links, with the email each provider reported.
+func (q *Queries) UserProvidersLinked(ctx context.Context, userID string) ([]UserProvidersLinkedRow, error) {
+	rows, err := q.db.Query(ctx, userProvidersLinked, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []UserProvidersLinkedRow
+	for rows.Next() {
+		var i UserProvidersLinkedRow
+		if err := rows.Scan(&i.ProviderSlug, &i.EmailAtProvider, &i.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

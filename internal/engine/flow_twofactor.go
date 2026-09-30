@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -36,66 +37,67 @@ type factorEnable struct {
 	ProvenSessionID string
 }
 
-// enable2FA returns the new plaintext backup codes (if any) and whether
-// ProvenSessionID was marked 2FA-verified.
-func (s *Engine) enable2FA(ctx context.Context, in factorEnable) ([]string, bool, error) {
+// enable2FA adds the factor: the outcome carries it, the new plaintext backup
+// codes (the first factor's only) and whether ProvenSessionID was marked
+// 2FA-verified.
+func (s *Engine) enable2FA(ctx context.Context, in factorEnable) (authflow.TwoFactorEnrollOutcome, error) {
 	userID, method, phoneNumber, totpSecret, lastTOTPStep, makeDefault, mode := in.UserID, in.Method, in.Phone, in.TOTPSecret, in.LastTOTPStep, in.MakeDefault, in.Mode
 	if s.pg == nil {
-		return nil, false, fmt.Errorf("postgres not configured")
+		return authflow.TwoFactorEnrollOutcome{}, fmt.Errorf("postgres not configured")
 	}
 
 	if mode != authflow.FirstFactorOnly && mode != authflow.AllowAdditionalFactors {
-		return nil, false, fmt.Errorf("invalid factor enrollment mode")
+		return authflow.TwoFactorEnrollOutcome{}, fmt.Errorf("invalid factor enrollment mode")
 	}
 	method = strings.ToLower(strings.TrimSpace(method))
 	if method != "email" && method != "sms" && method != "totp" {
-		return nil, false, fmt.Errorf("invalid 2FA method: must be 'email', 'sms', or 'totp'")
+		return authflow.TwoFactorEnrollOutcome{}, fmt.Errorf("invalid 2FA method: must be 'email', 'sms', or 'totp'")
 	}
 	if method == "sms" && (phoneNumber == nil || *phoneNumber == "") {
-		return nil, false, fmt.Errorf("phone number required for SMS 2FA")
+		return authflow.TwoFactorEnrollOutcome{}, fmt.Errorf("phone number required for SMS 2FA")
 	}
 	if method == "totp" && len(totpSecret) == 0 {
-		return nil, false, fmt.Errorf("totp secret required for TOTP 2FA")
+		return authflow.TwoFactorEnrollOutcome{}, fmt.Errorf("totp secret required for TOTP 2FA")
 	}
 
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
-		return nil, false, err
+		return authflow.TwoFactorEnrollOutcome{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.qtx(tx)
 	if proof, ok := ctx.Value(loginEnrollmentKey{}).(loginProof); ok {
 		if _, err := s.lockLoginAccount(ctx, qtx, userID, proof.Version); err != nil {
-			return nil, false, err
+			return authflow.TwoFactorEnrollOutcome{}, err
 		}
 		if _, err := s.loadLoginProof(ctx, userID, proof.nonce); err != nil {
-			return nil, false, err
+			return authflow.TwoFactorEnrollOutcome{}, err
 		}
 		if err := s.validateLoginProofSource(ctx, tx, proof); err != nil {
-			return nil, false, err
+			return authflow.TwoFactorEnrollOutcome{}, err
 		}
 	} else if _, err := qtx.MFALockUser(ctx, userID); err != nil {
-		return nil, false, err
+		return authflow.TwoFactorEnrollOutcome{}, err
 	}
 
 	var currentBackupCodes []string
 	if settings, err := qtx.MFASettingsByUser(ctx, userID); err == nil && settings.Enabled {
 		currentBackupCodes = settings.BackupCodes
 	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return nil, false, err
+		return authflow.TwoFactorEnrollOutcome{}, err
 	}
 
 	factors, err := qtx.MFAListFactorsByUser(ctx, userID)
 	if err != nil {
-		return nil, false, err
+		return authflow.TwoFactorEnrollOutcome{}, err
 	}
 	firstFactor := len(factors) == 0
 	if mode == authflow.FirstFactorOnly && !firstFactor {
-		return nil, false, errmodel.ErrTwoFAFactorExists
+		return authflow.TwoFactorEnrollOutcome{}, errmodel.ErrTwoFAFactorExists
 	}
 	for _, factor := range factors {
 		if factor.Method == method {
-			return nil, false, errmodel.ErrTwoFAFactorExists
+			return authflow.TwoFactorEnrollOutcome{}, errmodel.ErrTwoFAFactorExists
 		}
 	}
 	makeDefault = makeDefault || firstFactor
@@ -107,14 +109,14 @@ func (s *Engine) enable2FA(ctx context.Context, in factorEnable) ([]string, bool
 
 	if makeDefault {
 		if err := qtx.MFAClearDefaultFactors(ctx, userID); err != nil {
-			return nil, false, err
+			return authflow.TwoFactorEnrollOutcome{}, err
 		}
 	}
 	var email *string
 	if method == "email" {
 		email = in.Email
 	}
-	_, err = qtx.MFAInsertFactor(ctx, db.MFAInsertFactorParams{
+	factor, err := qtx.MFAInsertFactor(ctx, db.MFAInsertFactorParams{
 		UserID:       userID,
 		Method:       method,
 		PhoneNumber:  phoneNumber,
@@ -124,7 +126,7 @@ func (s *Engine) enable2FA(ctx context.Context, in factorEnable) ([]string, bool
 		Email:        email,
 	})
 	if err != nil {
-		return nil, false, err
+		return authflow.TwoFactorEnrollOutcome{}, err
 	}
 
 	// Settings holds only the account-level gate + backup codes (#125).
@@ -132,16 +134,17 @@ func (s *Engine) enable2FA(ctx context.Context, in factorEnable) ([]string, bool
 		UserID:      userID,
 		BackupCodes: currentBackupCodes,
 	}); err != nil {
-		return nil, false, err
+		return authflow.TwoFactorEnrollOutcome{}, err
 	}
 	verified, err := s.markEnrollingSessionTx(ctx, qtx, userID, in.ProvenSessionID, method)
 	if err != nil {
-		return nil, false, err
+		return authflow.TwoFactorEnrollOutcome{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return nil, false, err
+		return authflow.TwoFactorEnrollOutcome{}, err
 	}
-	return plaintextCodes, verified, nil
+	return authflow.TwoFactorEnrollOutcome{Kind: authflow.TwoFactorEnrollEnabled, Method: method, Factor: twoFactorFactorFromFields(factor),
+		BackupCodes: plaintextCodes, SessionVerified: verified}, nil
 }
 
 // markEnrollingSessionTx records the enrollment code as the session's second
@@ -168,95 +171,111 @@ func (s *Engine) markEnrollingSessionTx(ctx context.Context, q *db.Queries, user
 	return n > 0, err
 }
 
-// Disable2FAWithRemovedRoles disables account MFA and removes active user role
-// assignments whose catalog role requires MFA.
-func (s *Engine) Disable2FAWithRemovedRoles(ctx context.Context, userID string) ([]authflow.RemovedMFARoleAssignment, error) {
+// Disable2FA removes every second factor of the account, and the roles that
+// require MFA it held.
+func (s *Engine) Disable2FA(ctx context.Context, userID string) error {
 	if s.pg == nil {
-		return nil, fmt.Errorf("postgres not configured")
+		return fmt.Errorf("postgres not configured")
 	}
-
 	tx, err := s.beginAuthorityTransaction(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := tx
-	if err := s.lockAuthority(ctx, q); err != nil {
-		return nil, err
+	if err := s.lockAuthority(ctx, tx); err != nil {
+		return err
 	}
 	qtx := s.qtx(tx)
 	if _, err := qtx.MFALockUser(ctx, userID); err != nil {
-		return nil, err
+		return err
 	}
-	removed, err := s.removeMFARequiredUserRoles(ctx, q, strings.TrimSpace(userID))
-	if err != nil {
-		return nil, err
+	if _, err := s.removeMFARequiredUserRoles(ctx, tx, strings.TrimSpace(userID)); err != nil {
+		return err
 	}
 	if err := qtx.MFADeleteAllFactors(ctx, userID); err != nil {
-		return nil, err
+		return err
 	}
 	if err := qtx.MFADisable(ctx, userID); err != nil {
-		return nil, err
+		return err
 	}
-	return removed, tx.Commit(ctx)
+	return tx.Commit(ctx)
 }
 
-func (s *Engine) Disable2FAFactorWithRemovedRoles(ctx context.Context, userID, factorID string) ([]authflow.RemovedMFARoleAssignment, error) {
+// Disable2FAFactor removes one second factor; the last one disables MFA as
+// Disable2FA does, and a removed default passes to another factor. A factor
+// the account does not hold is not_found.
+func (s *Engine) Disable2FAFactor(ctx context.Context, userID, factorID string) error {
 	if s.pg == nil {
-		return nil, fmt.Errorf("postgres not configured")
+		return fmt.Errorf("postgres not configured")
 	}
-	if strings.TrimSpace(factorID) == "" {
-		return nil, fmt.Errorf("factor id required")
+	if !isUUID(factorID) {
+		return errFactorNotFound
 	}
 	tx, err := s.beginAuthorityTransaction(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := tx
-	if err := s.lockAuthority(ctx, q); err != nil {
-		return nil, err
+	if err := s.lockAuthority(ctx, tx); err != nil {
+		return err
 	}
 	qtx := s.qtx(tx)
 	if _, err := qtx.MFALockUser(ctx, userID); err != nil {
-		return nil, err
+		return err
 	}
 	rows, err := qtx.MFADeleteFactor(ctx, db.MFADeleteFactorParams{UserID: userID, ID: factorID})
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if rows == 0 {
-		return nil, pgx.ErrNoRows
+		return errFactorNotFound
 	}
 	factors, err := qtx.MFAListFactorsByUser(ctx, userID)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	removed := []authflow.RemovedMFARoleAssignment(nil)
 	if len(factors) == 0 {
-		removed, err = s.removeMFARequiredUserRoles(ctx, q, strings.TrimSpace(userID))
-		if err != nil {
-			return nil, err
+		if _, err := s.removeMFARequiredUserRoles(ctx, tx, strings.TrimSpace(userID)); err != nil {
+			return err
 		}
 		if err := qtx.MFADisable(ctx, userID); err != nil {
-			return nil, err
+			return err
 		}
-		return removed, tx.Commit(ctx)
+		return tx.Commit(ctx)
 	}
-	// Promote a new default if the deleted factor was the default.
-	hasDefault := false
-	for _, f := range factors {
-		if f.IsDefault {
-			hasDefault = true
-			break
-		}
-	}
-	if !hasDefault {
+	if !slices.ContainsFunc(factors, func(f db.MfaFactor) bool { return f.IsDefault }) {
 		if _, err := qtx.MFASetDefaultFactor(ctx, db.MFASetDefaultFactorParams{UserID: userID, ID: factors[0].ID}); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	return removed, tx.Commit(ctx)
+	return tx.Commit(ctx)
+}
+
+// errFactorNotFound: the account holds no such second factor.
+var errFactorNotFound = errmodel.E(errmodel.CodeNotFound)
+
+// SetDefault2FAFactor makes the account's factor factorID its default and
+// returns it; not_found when the account holds no such factor.
+func (s *Engine) SetDefault2FAFactor(ctx context.Context, userID, factorID string) (authflow.TwoFactorFactor, error) {
+	if !isUUID(factorID) {
+		return authflow.TwoFactorFactor{}, errFactorNotFound
+	}
+	if err := s.setDefault2FAFactor(ctx, userID, factorID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return authflow.TwoFactorFactor{}, errFactorNotFound
+		}
+		return authflow.TwoFactorFactor{}, err
+	}
+	factors, err := s.listUser2FAFactors(ctx, userID)
+	if err != nil {
+		return authflow.TwoFactorFactor{}, err
+	}
+	for _, f := range factors {
+		if f.ID == factorID {
+			return f, nil
+		}
+	}
+	return authflow.TwoFactorFactor{}, errFactorNotFound
 }
 
 func (s *Engine) setDefault2FAFactor(ctx context.Context, userID, factorID string) error {
@@ -577,25 +596,19 @@ func (s *Engine) twoFactorFactorByMethod(ctx context.Context, userID, method str
 		return s.twoFactorFactor(ctx, userID, "")
 	}
 	if method != "email" && method != "sms" && method != "totp" {
-		return authflow.TwoFactorFactor{}, fmt.Errorf("invalid 2FA method: must be 'email', 'sms', or 'totp'")
+		return authflow.TwoFactorFactor{}, errmodel.ErrInvalidTwoFAMethod
 	}
 	factors, err := s.listUser2FAFactors(ctx, userID)
 	if err != nil {
 		return authflow.TwoFactorFactor{}, err
-	}
-	if len(factors) == 0 {
-		settings, err := s.Get2FASettings(ctx, userID)
-		if err != nil || !settings.Enabled || len(settings.Factors) == 0 {
-			return authflow.TwoFactorFactor{}, fmt.Errorf("2FA not enabled")
-		}
-		factors = settings.Factors
 	}
 	for _, factor := range factors {
 		if factor.Enabled && strings.EqualFold(factor.Method, method) {
 			return factor, nil
 		}
 	}
-	return authflow.TwoFactorFactor{}, pgx.ErrNoRows
+	// The account holds no factor of that method.
+	return authflow.TwoFactorFactor{}, errmodel.ErrInvalidTwoFAMethod
 }
 
 func twoFactorFactorFromFields(row db.MfaFactor) authflow.TwoFactorFactor {

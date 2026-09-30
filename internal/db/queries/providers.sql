@@ -62,6 +62,15 @@ WHERE user_id = sqlc.arg(user_id)::uuid
   AND verified_at IS NOT NULL
 ORDER BY provider_slug;
 
+-- name: UserProvidersLinked :many
+-- The account's verified provider links, with the email each provider reported.
+SELECT provider_slug::text AS provider_slug, email_at_provider, created_at
+FROM user_providers
+WHERE user_id = sqlc.arg(user_id)::uuid
+  AND provider_slug IS NOT NULL
+  AND verified_at IS NOT NULL
+ORDER BY provider_slug, created_at;
+
 -- name: UserProviderUnverifiedForUpdate :one
 SELECT id
 FROM user_providers

@@ -33,7 +33,10 @@ const (
 	keyDeviceKeyLogin             = "device-key:login:"
 )
 
-var errDeviceKeyInvalid = jwt.ErrTokenUnverifiable
+var (
+	errDeviceKeyInvalid  = jwt.ErrTokenUnverifiable
+	errDeviceKeyNotFound = errmodel.E(errmodel.CodeNotFound)
+)
 
 func (s *Engine) deviceKeysEnabled() error {
 	if s == nil || !s.cfg.DeviceKeys.Enabled {
@@ -523,20 +526,6 @@ func (s *Engine) FinishDeviceKeyLogin(ctx context.Context, challengeID, signatur
 	return authflow.DeviceKeyAuthResult{UserID: record.UserID, AccessToken: accessToken, ExpiresAt: expiresAt, DeviceKey: deviceKey}, nil
 }
 
-// ListDeviceKeys returns the user's machine credentials after proving that the
-// device which minted the caller's token is still active.
-func (s *Engine) ListDeviceKeys(ctx context.Context, userID, currentID string) ([]iam.DeviceKey, error) {
-	active, err := s.q.DeviceKeyIsActive(ctx, db.DeviceKeyIsActiveParams{ID: currentID, UserID: userID})
-	if err != nil || !active {
-		return nil, errDeviceKeyInvalid
-	}
-	keys, err := s.deviceKeys(ctx, userID)
-	for i := range keys {
-		keys[i].Current = keys[i].ID == currentID
-	}
-	return keys, err
-}
-
 // DeviceKeys returns the account's device keys in enrollment order, revoked
 // ones included. ErrDeviceKeysDisabled without Config.DeviceKeys.Enabled.
 func (s *Engine) DeviceKeys(ctx context.Context, userID string) ([]iam.DeviceKey, error) {
@@ -561,35 +550,64 @@ func (s *Engine) deviceKeys(ctx context.Context, userID string) ([]iam.DeviceKey
 	return keys, nil
 }
 
-// RevokeDeviceKey idempotently revokes one key owned by the caller. The
-// token's own key is checked live in the same transaction first, so a revoked
-// machine cannot use the remainder of its access-token lifetime to revoke a
-// replacement machine.
+// RevokeDeviceKey revokes the account's key targetID; a revoked key stays
+// revoked, and a key the account does not hold is not_found.
+// currentID is the key behind the caller's token ("" for a browser session):
+// it is checked live in the same transaction, so a revoked machine cannot use
+// the rest of its access token to revoke a replacement.
 func (s *Engine) RevokeDeviceKey(ctx context.Context, userID, currentID, targetID string) error {
+	if err := s.deviceKeysEnabled(); err != nil {
+		return err
+	}
+	if !isUUID(targetID) {
+		return errDeviceKeyNotFound
+	}
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := s.qtx(tx)
-	if targetID == currentID {
-		n, err := q.DeviceKeyRevoke(ctx, db.DeviceKeyRevokeParams{ID: currentID, UserID: userID})
+	if currentID != "" && currentID != targetID {
+		active, err := q.DeviceKeyIsActiveForUpdate(ctx, db.DeviceKeyIsActiveForUpdateParams{ID: currentID, UserID: userID})
 		if err != nil {
 			return err
 		}
-		if n != 1 {
-			return errDeviceKeyInvalid
+		if !active {
+			return iam.ErrSessionRevoked
 		}
-		return tx.Commit(ctx)
 	}
-	active, err := q.DeviceKeyIsActiveForUpdate(ctx, db.DeviceKeyIsActiveForUpdateParams{ID: currentID, UserID: userID})
-	if err != nil || !active {
-		return errDeviceKeyInvalid
-	}
-	if _, err := q.DeviceKeyRevoke(ctx, db.DeviceKeyRevokeParams{ID: targetID, UserID: userID}); err != nil {
+	n, err := q.DeviceKeyRevoke(ctx, db.DeviceKeyRevokeParams{ID: targetID, UserID: userID})
+	if err != nil {
 		return err
 	}
+	if n == 0 {
+		return errDeviceKeyNotFound
+	}
 	return tx.Commit(ctx)
+}
+
+// RelabelDeviceKey sets the label of the account's live key id (empty clears
+// it); not_found when the account holds no such live key.
+func (s *Engine) RelabelDeviceKey(ctx context.Context, userID, id, label string) (iam.DeviceKey, error) {
+	if err := s.deviceKeysEnabled(); err != nil {
+		return iam.DeviceKey{}, err
+	}
+	if !isUUID(id) {
+		return iam.DeviceKey{}, errDeviceKeyNotFound
+	}
+	label = strings.TrimSpace(label)
+	if len(label) > deviceKeyLabelMaxLength {
+		return iam.DeviceKey{}, errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("label"))
+	}
+	row, err := s.q.DeviceKeyRelabel(ctx, db.DeviceKeyRelabelParams{Label: nullable(label), ID: id, UserID: userID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return iam.DeviceKey{}, errDeviceKeyNotFound
+	}
+	if err != nil {
+		return iam.DeviceKey{}, err
+	}
+	return publicDeviceKey(row), nil
 }
 
 // revokeAllDeviceKeys revokes every live key of userID on q and returns the
@@ -608,8 +626,11 @@ func (s *Engine) RevokeOtherDeviceKeys(ctx context.Context, userID, currentID st
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := s.qtx(tx)
 	active, err := q.DeviceKeyIsActiveForUpdate(ctx, db.DeviceKeyIsActiveForUpdateParams{ID: currentID, UserID: userID})
-	if err != nil || !active {
-		return errDeviceKeyInvalid
+	if err != nil {
+		return err
+	}
+	if !active {
+		return iam.ErrSessionRevoked
 	}
 	if _, err := q.DeviceKeysRevokeAllExcept(ctx, db.DeviceKeysRevokeAllExceptParams{UserID: userID, KeepID: &currentID}); err != nil {
 		return err

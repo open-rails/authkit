@@ -14,7 +14,8 @@ import (
 )
 
 // UserProfile builds the caller's profile. Errors: the user row is missing
-// (stage "load_user"), or a store failure (stage "load_password").
+// (stage "load_user"), or a store failure (stage "load_password",
+// "load_providers").
 func (s *Engine) UserProfile(ctx context.Context, in authflow.ProfileInput) (authflow.UserProfile, error) {
 	u, err := s.getUserByID(ctx, in.UserID)
 	if err != nil || u == nil {
@@ -34,13 +35,13 @@ func (s *Engine) UserProfile(ctx context.Context, in authflow.ProfileInput) (aut
 		return authflow.UserProfile{}, stageErr("load_password", err)
 	}
 	solanaWallet, _ := s.getSolanaLinkedAccount(ctx, u.ID)
-	providers := []authflow.LinkedProvider{}
-	if slugs, err := s.ProviderSlugs(ctx, u.ID); err == nil {
-		for _, provider := range slugs {
-			if provider = strings.TrimSpace(provider); provider != "" {
-				providers = append(providers, authflow.LinkedProvider{Provider: provider})
-			}
-		}
+	links, err := s.q.UserProvidersLinked(ctx, u.ID)
+	if err != nil {
+		return authflow.UserProfile{}, stageErr("load_providers", err)
+	}
+	providers := make([]authflow.LinkedProvider, 0, len(links))
+	for _, link := range links {
+		providers = append(providers, authflow.LinkedProvider{Provider: link.ProviderSlug, Email: link.EmailAtProvider, LinkedAt: link.CreatedAt})
 	}
 	// A naming lookup failure leaves the zero state rather than failing the
 	// profile.

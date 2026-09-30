@@ -17,7 +17,7 @@ type sessionsBackend interface {
 	AddMFAEnrollmentExemptRoutes(paths []string)
 	StepUpRequired(ctx context.Context, userID string) error
 	MintSessionAccessToken(ctx context.Context, userID, sessionID string) (string, time.Time, error)
-	ListDeviceKeys(ctx context.Context, userID, currentID string) ([]iam.DeviceKey, error)
+	RelabelDeviceKey(ctx context.Context, userID, id, label string) (iam.DeviceKey, error)
 	RevokeDeviceKey(ctx context.Context, userID, currentID, targetID string) error
 	RevokeIssuerSessions(ctx context.Context, userID string, keepSessionID *string) error
 	RevokeOtherDeviceKeys(ctx context.Context, userID, currentID string) error

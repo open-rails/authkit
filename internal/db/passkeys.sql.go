@@ -10,7 +10,7 @@ import (
 )
 
 const passkeyDelete = `-- name: PasskeyDelete :execrows
-UPDATE user_passkeys SET deleted_at = now() WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+UPDATE user_passkeys SET deleted_at = COALESCE(deleted_at, now()) WHERE id = $1 AND user_id = $2
 `
 
 type PasskeyDeleteParams struct {
@@ -18,6 +18,7 @@ type PasskeyDeleteParams struct {
 	UserID string
 }
 
+// A deleted passkey stays deleted; no row changes only for another account's or no passkey.
 func (q *Queries) PasskeyDelete(ctx context.Context, arg PasskeyDeleteParams) (int64, error) {
 	result, err := q.db.Exec(ctx, passkeyDelete, arg.ID, arg.UserID)
 	if err != nil {
