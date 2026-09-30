@@ -552,6 +552,33 @@ func TestSecurityStaffDeleteOverridesSelfDelete(t *testing.T) {
 	})
 }
 
+// TestSecurityAdminDeleteIsNotSelfDelete (ak#417): the staff delete route
+// never deletes the caller's own account, so a stolen session that is no
+// longer fresh cannot skip the recent sign-in DELETE /user demands.
+func TestSecurityAdminDeleteIsNotSelfDelete(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withAccountRoles))
+	ctx := context.Background()
+	victim := h.newAccount("selfdelete")
+	stale := authtest.StaleSession(t, h.auth, h.login(victim).AccessToken)
+	resp := h.do(request{method: http.MethodDelete, path: "/user", token: stale})
+	require.Equal(t, "step_up_required", resp.errorCode(), resp.String())
+	for _, id := range []string{victim.id, strings.ToUpper(victim.id)} {
+		resp := h.do(request{method: http.MethodDelete, path: "/admin/users/" + id, token: stale})
+		require.Equal(t, http.StatusForbidden, resp.status, resp.String())
+		require.Equal(t, "cannot_target_self", resp.errorCode())
+	}
+	u, err := h.auth.User(ctx, iam.UserByID(victim.id), authkit.IncludeDeleted())
+	require.NoError(t, err)
+	require.Nil(t, u.DeletedAt, "a stale session deleted its own account")
+
+	t.Run("control: staff delete another account", func(t *testing.T) {
+		moderator := h.newAccount("selfdeletemod")
+		h.grant(iam.RootGroup(), moderator, "moderator")
+		resp := h.do(request{method: http.MethodDelete, path: "/admin/users/" + victim.id, token: h.login(moderator).AccessToken})
+		require.Equal(t, http.StatusNoContent, resp.status, resp.String())
+	})
+}
+
 // TestSecurityUserManagementNeedsMFA (owner decision c): root:users:manage
 // edits other people's accounts, so it needs MFA like root:members:manage.
 // Only the system sets another account's password; staff send a reset.

@@ -134,6 +134,12 @@ func (s *Service) handleAdminUserDeleteDELETE(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
+	// One's own account is deleted through DELETE /user, behind its recent
+	// sign-in and second factor (ak#417).
+	if strings.EqualFold(target, actor.ID()) {
+		writeError(w, iam.ErrCannotTargetSelf)
+		return
+	}
 	res, err := s.svc.DeleteUsers(r.Context(), actor, []string{target})
 	if err := opErr(res, err); err != nil {
 		writeError(w, err)
