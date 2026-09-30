@@ -221,25 +221,25 @@ func run(ctx context.Context) error {
 }
 ```
 
-Mounting gives your users all of this: 59 routes under `/api/v1`, plus the public keys that let anyone check AuthKit's tokens. Every request and response shape is in [`api/openapi.json`](api/openapi.json), generated from the route catalog.
+Mounting gives your users all of this: 65 routes under `/api/v1`, plus the public keys that let anyone check AuthKit's tokens. Every request and response shape is in [`api/openapi.json`](api/openapi.json), generated from the route catalog.
 
-**Signing up and signing in**
+**Signing up and signing in** (every sign-in answers an `AuthResult`: signed in, or the one next step, such as a second factor)
 
 | Route | What it does |
 |---|---|
 | `POST /api/v1/register` | create an account |
 | `GET /api/v1/register/availability` | is this username free? |
 | `POST /api/v1/register/abandon` | cancel a sign-up that was never confirmed |
-| `POST /api/v1/verify/request` | send a code or link to an email or phone |
-| `POST /api/v1/verify/confirm` | prove the code or link |
+| `POST /api/v1/verify/request` | send a code or link to prove an email or phone |
+| `POST /api/v1/verify/confirm` | prove it |
 | `POST /api/v1/password/login` | sign in with a password |
 | `POST /api/v1/password/reset/request` | send a "forgot password" link |
 | `POST /api/v1/password/reset/confirm` | set a new password with that link |
 | `POST /api/v1/passkeys/login/begin`, `/finish` | sign in with a passkey |
-| `POST /api/v1/2fa/challenge` | send the second-factor code during sign-in |
+| `POST /api/v1/2fa/challenge` | send the second-factor code to another of your factors |
 | `POST /api/v1/2fa/verify` | finish signing in with it |
 | `POST /api/v1/account/recovery/confirm` | undo deleting your own account, within 30 days |
-| `POST /api/v1/invites/redeem` | accept an invitation |
+| `POST /api/v1/invitations/redeem` | accept an invitation |
 
 **Sessions and tokens**
 
@@ -247,10 +247,12 @@ Mounting gives your users all of this: 59 routes under `/api/v1`, plus the publi
 |---|---|
 | `POST /api/v1/token` | trade a refresh token for fresh tokens |
 | `DELETE /api/v1/logout` | sign out |
-| `POST /api/v1/step-up/password`, `/2fa` | prove it's really you before a sensitive change |
-| `GET /api/v1/user/sessions` | your signed-in devices |
-| `DELETE /api/v1/user/sessions` | sign out everywhere else |
-| `DELETE /api/v1/user/sessions/{id}` | sign out one device |
+| `POST /api/v1/me/step-up/password`, `/2fa` | prove it's really you before a sensitive change |
+| `POST /api/v1/me/step-up/2fa/send` | send that second-factor code |
+| `GET /api/v1/me/sessions` | your signed-in devices |
+| `DELETE /api/v1/me/sessions` | sign out everywhere else |
+| `DELETE /api/v1/me/sessions/{id}` | sign out one device |
+| `GET /api/v1/me/session-events` | your sign-in history |
 | `GET /.well-known/jwks.json` | public keys for checking AuthKit's tokens |
 
 **Your own account**
@@ -258,55 +260,61 @@ Mounting gives your users all of this: 59 routes under `/api/v1`, plus the publi
 | Route | What it does |
 |---|---|
 | `GET /api/v1/me` | who you are |
+| `PATCH /api/v1/me` | change your username, language or avatar |
+| `DELETE /api/v1/me` | delete your account (30 days to change your mind) |
+| `GET /api/v1/me/security` | whether you need to step up, and how |
+| `PUT /api/v1/me/password` | change your password |
+| `PUT /api/v1/me/email` | change your email (a code goes to the new one) |
+| `PUT /api/v1/me/phone` | change your phone number |
+| `DELETE /api/v1/me/phone` | remove it |
+| `DELETE /api/v1/me/providers/{provider}` | unlink a sign-in provider |
 | `GET /api/v1/me/groups` | the groups you hold a role in |
-| `GET /api/v1/me/permissions` | your permissions in one group (`?group_id=`) |
-| `PATCH /api/v1/user/username` | change your username |
-| `PATCH /api/v1/user/preferred-language` | change your language |
-| `POST /api/v1/user/password` | change your password |
-| `DELETE /api/v1/user/providers/{provider}` | unlink a sign-in provider |
-| `DELETE /api/v1/user` | delete your account (30 days to change your mind) |
+| `GET /api/v1/me/permissions` | your role and permissions in one group (`?group_id=`) |
+| `GET /api/v1/users` | other people's public profiles (`?ids=` or `?username=`) |
 | `GET /api/v1/capabilities` | what this server offers, for your UI |
 
-**Two-factor and passkeys**
+**Two-factor, passkeys and device keys**
 
 | Route | What it does |
 |---|---|
-| `GET /api/v1/user/2fa` | your two-factor settings |
-| `POST /api/v1/user/2fa` | turn on two-factor, or add a factor |
-| `DELETE /api/v1/user/2fa` | turn it off |
-| `POST /api/v1/user/2fa/backup-codes` | new backup codes |
-| `GET /api/v1/passkeys` | your passkeys |
-| `POST /api/v1/passkeys/register/begin`, `/finish` | add a passkey |
-| `PATCH /api/v1/passkeys/{id}` | rename one |
-| `DELETE /api/v1/passkeys/{id}` | remove one |
+| `GET /api/v1/me/2fa` | your second factors |
+| `POST /api/v1/me/2fa/setup` | start adding one: a code to your email or phone, or an authenticator app's secret |
+| `POST /api/v1/me/2fa/factors` | add it with that code |
+| `PATCH /api/v1/me/2fa/factors/{id}` | make it your default |
+| `DELETE /api/v1/me/2fa/factors/{id}` | remove it |
+| `DELETE /api/v1/me/2fa` | turn two-factor off |
+| `POST /api/v1/me/2fa/backup-codes` | new backup codes |
+| `GET /api/v1/me/sign-in-keys` | your passkeys and device keys |
+| `PATCH /api/v1/me/sign-in-keys/{id}` | rename one |
+| `DELETE /api/v1/me/sign-in-keys/{id}` | revoke one |
+| `POST /api/v1/me/passkeys/register/begin`, `/finish` | add a passkey |
 
-**Groups** (each channel's permission group)
+**Groups** (each channel's permission group; `root` is the site-wide group, where roles like `root:admin` live)
 
 | Route | What it does |
 |---|---|
-| `GET /api/v1/groups/{group_id}/members` | who holds which role |
-| `POST /api/v1/groups/{group_id}/members` | add someone (by email, it sends an invitation) |
-| `PUT /api/v1/groups/{group_id}/members/{user}/roles/{role}` | give someone a role, or change it |
-| `DELETE /api/v1/groups/{group_id}/members/{user}` | take their role away |
+| `GET /api/v1/groups/{group_id}/members` | who holds which role (`?expand=user` adds their public profiles) |
+| `PUT /api/v1/groups/{group_id}/members/{kind}/{id}` | give someone a role, or change it (`{kind}` is `users`) |
+| `DELETE /api/v1/groups/{group_id}/members/{kind}/{id}` | take their role away |
 | `GET /api/v1/groups/{group_id}/roles` | the roles this group has |
-| `GET /api/v1/groups/{group_id}/invites/links` | its invite links |
-| `POST /api/v1/groups/{group_id}/invites/links` | make an invite link that grants a role |
-| `DELETE /api/v1/groups/{group_id}/invites/links/{link}` | revoke one |
+| `GET /api/v1/groups/{group_id}/invitations` | its invitations |
+| `POST /api/v1/groups/{group_id}/invitations` | invite someone with a link, or by email |
+| `DELETE /api/v1/groups/{group_id}/invitations/{id}` | revoke one |
 
-**Site admins** (need the matching `root:` permission)
+**Site admins** (need the matching `root:` permission, and a recent sign-in for changes)
 
 | Route | What it does |
 |---|---|
 | `GET /api/v1/admin/users` | look through users |
 | `GET /api/v1/admin/users/{user_id}` | one user |
-| `GET /api/v1/admin/users/{user_id}/signins` | their sign-in history |
-| `POST /api/v1/admin/users/{user_id}/ban`, `/unban` | ban or unban |
+| `PATCH /api/v1/admin/users/{user_id}` | edit their account |
+| `PUT /api/v1/admin/users/{user_id}/ban` | ban them, until a time or for good |
+| `DELETE /api/v1/admin/users/{user_id}/ban` | lift the ban |
 | `DELETE /api/v1/admin/users/{user_id}` | delete an account |
 | `POST /api/v1/admin/users/{user_id}/restore` | restore it within 30 days |
-| `POST /api/v1/admin/users/{user_id}/sessions/revoke` | sign them out everywhere |
-| `GET /api/v1/admin/roles` | who holds site-wide roles |
-| `PUT /api/v1/admin/users/{user_id}/roles/{role}` | give a site-wide role, like `root:admin` |
-| `DELETE /api/v1/admin/users/{user_id}/roles/{role}` | take it away |
+| `GET /api/v1/admin/users/{user_id}/sessions` | their signed-in devices |
+| `DELETE /api/v1/admin/users/{user_id}/sessions` | sign them out everywhere |
+| `GET /api/v1/admin/users/{user_id}/session-events` | their sign-in history |
 
 Switch on social logins (Google, Apple, GitHub, Discord) or API keys, and AuthKit mounts their routes too.
 
