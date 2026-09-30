@@ -685,20 +685,34 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     })
 
   // Starts a provider sign-in by POST, binding the invitation to the flow's
-  // server-side state, and resolves the provider URL to navigate to.
-  const oidcLoginStart = (
+  // server-side state, and resolves the provider URL to navigate to. The
+  // answer sets the flow's state cookie, so it is credentialed.
+  async function oidcLoginStart(
     provider: string,
     opts: { returnTo?: string; inviteCode?: string; popupNonce?: string } = {}
-  ): Promise<string> =>
-    request<OIDCStart>("POST", `/oidc/${segment(provider)}/login/start`, {
-      bearer: null,
-      body: {
-        return_to: safeReturnTo(opts.returnTo) ?? undefined,
-        invite_code: opts.inviteCode,
-        ui: opts.popupNonce ? "popup" : undefined,
-        popup_nonce: opts.popupNonce,
-      },
-    }).then((r) => r.auth_url)
+  ): Promise<string> {
+    const res = await cookieFetch(
+      url(baseUrl, `/oidc/${segment(provider)}/login/start`),
+      {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          return_to: safeReturnTo(opts.returnTo) ?? undefined,
+          invite_code: opts.inviteCode,
+          ui: opts.popupNonce ? "popup" : undefined,
+          popup_nonce: opts.popupNonce,
+        }),
+      }
+    )
+    if (!res.ok) throw await readAuthKitError(res)
+    const start = (await res.json()) as Partial<OIDCStart>
+    if (!start.auth_url) throw new Error("AuthKit returned no auth_url")
+    return start.auth_url
+  }
 
   // Trades a browser OIDC result's one-time code for its AuthResult.
   const exchangeCode = (code: string) =>
