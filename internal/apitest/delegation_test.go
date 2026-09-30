@@ -113,7 +113,7 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 	}})
 	require.Equal(t, http.StatusOK, res.status, res.String())
 	var minted struct {
-		Token     string `json:"token"`
+		Token     string `json:"access_token"`
 		TokenType string `json:"token_type"`
 	}
 	res.decode(t, &minted)
@@ -271,8 +271,8 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	userToken := authtest.SignIn(t, auth, u).AccessToken
 	mint := func(body, token string) response { return a.post("/delegated/token", token, body) }
 	type minted struct {
-		Token     string    `json:"token"`
-		ExpiresAt time.Time `json:"expires_at"`
+		Token     string `json:"access_token"`
+		ExpiresIn int64  `json:"expires_in"`
 	}
 	mintOK := func(body string) minted {
 		t.Helper()
@@ -295,7 +295,9 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	require.Equal(t, http.StatusOK, res.status, res.String())
 	var responseFields map[string]json.RawMessage
 	res.decode(t, &responseFields)
-	require.Len(t, responseFields, 2, "response is token + expires_at only: %s", res)
+	require.ElementsMatch(t, []string{"access_token", "token_type", "expires_in", "refresh_token"}, slices.Collect(maps.Keys(responseFields)), "the response is a TokenSet: %s", res)
+	require.JSONEq(t, `"Bearer"`, string(responseFields["token_type"]), "a certificate-bound token is a Bearer token")
+	require.JSONEq(t, `null`, string(responseFields["refresh_token"]))
 	var resp minted
 	res.decode(t, &resp)
 
@@ -321,7 +323,7 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	require.Equal(t, "pro", attributes["entitlement"])
 	iat, exp := int64(claims["iat"].(float64)), int64(claims["exp"].(float64))
 	require.Equal(t, int64(delegatedTTLDefault/time.Second), exp-iat, "default TTL")
-	require.WithinDuration(t, time.Unix(exp, 0), resp.ExpiresAt, time.Second)
+	require.InDelta(t, time.Until(time.Unix(exp, 0)).Seconds(), float64(resp.ExpiresIn), 2)
 
 	// ak#270: revocable by id, fresh per mint.
 	firstJTI, _ := claims["jti"].(string)

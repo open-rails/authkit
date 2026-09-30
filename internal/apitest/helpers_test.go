@@ -123,7 +123,11 @@ func (a *api) send(r request) (response, error) {
 	res := w.Result()
 	defer res.Body.Close()
 	raw, err := io.ReadAll(res.Body)
-	return response{status: res.StatusCode, body: raw, header: res.Header, cookies: res.Cookies()}, err
+	out := response{status: res.StatusCode, body: raw, header: res.Header, cookies: res.Cookies()}
+	if err == nil && !strings.HasPrefix(r.path, "//") {
+		a.conform(r.method, req.URL.Path, out)
+	}
+	return out, err
 }
 
 func (a *api) do(r request) response {
