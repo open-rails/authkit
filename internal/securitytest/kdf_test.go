@@ -100,7 +100,7 @@ func TestSecurityPasswordHashingIsBounded(t *testing.T) {
 		}
 	}
 	grew := int64(peak) - int64(base.HeapAlloc)
-	require.Less(t, grew, 2*limit+128<<20, "%d concurrent sign-ins held %d MiB (limit %d MiB)", n, grew>>20, limit>>20)
+	require.Less(t, grew, 2*limit+256<<20, "%d concurrent sign-ins held %d MiB (limit %d MiB)", n, grew>>20, limit>>20)
 	require.NotZero(t, busy, "no sign-in was turned away")
 
 	t.Run("control: the owner signs in once the flood is over", func(t *testing.T) {

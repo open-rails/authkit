@@ -382,7 +382,8 @@ func TestSecurityAPIKeyResolvesOnlyAtItsApp(t *testing.T) {
 		r := authkit.NewRoles()
 		org := r.Persona("org", authkit.APIKeys)
 		perm := org.Permission("catalog", action)
-		org.Role("member", perm)
+		member := org.Role("member", perm)
+		org.Role("manager", member, org.Credentials.All())
 		return r, perm.String()
 	}
 	rolesA, readPerm := catalog("read")
@@ -395,10 +396,11 @@ func TestSecurityAPIKeyResolvesOnlyAtItsApp(t *testing.T) {
 		c.Token.Issuer = peerIssuer
 		c.Roles = rolesB
 	}))
-	founder := a.newAccount("keyfounder")
+	founder, minter := a.newAccount("keyfounder"), a.newAccount("keyminter")
 	group, _ := a.newOrg(founder)
+	grantRole(t, a.auth, group, iam.UserSubject(minter.id), "manager")
 	mint := func(h *host) string {
-		_, secret, err := createKey(h.auth, ctx, iam.UserActor(founder.id), group, iam.NewAPIKey{Name: unique("key"), Role: roleIn(t, h.auth, group, "member")})
+		_, secret, err := createKey(h.auth, ctx, iam.UserActor(minter.id), group, iam.NewAPIKey{Name: unique("key"), Role: roleIn(t, h.auth, group, "member")})
 		require.NoError(t, err)
 		return secret
 	}
