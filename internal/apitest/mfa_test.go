@@ -448,8 +448,10 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	require.Len(t, outbox.Messages(authtest.Verification, ""), sent, "a wrong password sends no code")
 	verify := f.expect(http.StatusForbidden, f.post("/password/login", credentials))
 	require.Equal(t, "verification_required", verify.Error.Code)
-	verified := true
-	_, err = auth.UpdateUser(ctx, iam.SystemActor(), u.ID, iam.UserUpdate{EmailVerified: &verified})
+	// Proving the address retires the password set before the proof; the
+	// owner sets it again.
+	verified, password := true, pass
+	_, err = auth.UpdateUser(ctx, iam.SystemActor(), u.ID, iam.UserUpdate{EmailVerified: &verified, Password: &password})
 	require.NoError(t, err)
 	grant := f.expect(http.StatusForbidden, f.post("/password/login", credentials))
 	require.Equal(t, "2fa_enrollment_required", grant.Error.Code)
