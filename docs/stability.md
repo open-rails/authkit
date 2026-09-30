@@ -3,9 +3,9 @@
 AuthKit has two contracts, versioned apart:
 
 - **The Go module** `github.com/open-rails/authkit`, by semantic version. v1 starts at v1.0.2; v1.0.0 and v1.0.1 are retracted.
-- **The HTTP API**, by its path version, `/api/v1/`. A breaking change would mount `/api/v2/` beside it.
+- **The HTTP API**, by its path version, `/api/v1/`, released with the module: auth-ui and the host update together.
 
-In v1.x, everything this page covers changes only additively; the rest waits for v2. A security fix may change behavior when that behavior was the vulnerability.
+A patch release (v1.x.y) never breaks what this page covers. A minor release (v1.x) may, while AuthKit's consumers are its own apps: its release notes list every break under **Breaking**, with what a host changes. A security fix may change behavior when that behavior was the vulnerability.
 
 ## Go module
 
@@ -25,14 +25,14 @@ The covered API is every exported identifier of the packages below, with its doc
 
 `internal/…`, `cmd/…` and `examples/…` are not covered. Some internal types are re-exported by alias (`authkit.Config`, `authkit.Deps`, `verify.IssuerKeyStatus`, …): the aliases and their members are covered, and `TestGoAPISurface` fails when the covered API reaches an internal type any other way.
 
-Allowed in v1.x:
+Additive, in any release:
 
 - new packages, and new exported identifiers in covered ones;
 - new struct fields whose zero value keeps the old behavior (write keyed struct literals);
 - new `Option`s, enum values (`iam.EventKind`, `iam.MessageKind`, …) and `Err*` sentinels;
 - new methods on interfaces only AuthKit implements (`iam.Error`, `provider.Provider`).
 
-Breaking:
+Breaking, only in a minor release and listed in its notes:
 
 - removing or renaming anything in `api/go.txt`, or changing a signature, a field's type or tag, or a constant's value;
 - adding a method to an interface a host implements: `EmailSender`, `SMSSender`, `keys.Source`, `keys.Signer`, `provider.Secret`, the `verify` interfaces, the adapters' `Surface`;
@@ -52,7 +52,7 @@ Breaking:
 - **Errors.** `{error: {type, code, message, param, metadata}}`. The `code` is stable; the `message` is not contract. Every 5xx is `internal_error`, and 429 is `rate_limited` with `Retry-After`.
 - **Credentials.** `Authorization: Bearer` carries a JWT or an API key (`<prefix>_st_<lookup id>_<secret>`), and `DPoP` a sender-bound delegated token's proof. The refresh cookie is `__Host-authkit_rt` (`authkit_rt` over plain HTTP); cookie mounts refuse cross-site requests with 403 `origin_not_allowed`.
 
-Allowed in v1.x: new routes, optional request members, response members, error codes and enum values, and new kinds in `/groups/{group_id}/members/{kind}/{id}` (only `users` today). Breaking: removing or renaming a route, member, code or value; making a request member required; changing a type, status or meaning.
+Additive: new routes, optional request members, response members, error codes and enum values, and new kinds in `/groups/{group_id}/members/{kind}/{id}` (only `users` today). Breaking (minor releases only): removing or renaming a route, member, code or value; making a request member required; changing a type, status or meaning.
 
 ## Tokens
 
