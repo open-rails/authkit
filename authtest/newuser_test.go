@@ -25,9 +25,17 @@ const sharedSchemaEnv = "AUTHTEST_SHARED_SCHEMA"
 var generatedName = regexp.MustCompile(`^user[0-9a-f]{16}$`)
 
 // Two test processes sharing one schema create accounts with NewUser side by
-// side: this test, then a child run of this test binary on the same schema.
-// Names are random, so neither process collides with the other's.
+// side: this test, then a child run of this test on the same schema. Names
+// are random, so neither process collides with the other's.
 func TestNewUserAcrossProcessesSharingASchema(t *testing.T) {
+	if schema := os.Getenv(sharedSchemaEnv); schema != "" {
+		// The child: print the usernames NewUser gives it in the parent's schema.
+		auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) { c.Schema = schema }))
+		for range 3 {
+			fmt.Println(authtest.NewUser(t, auth).Username)
+		}
+		return
+	}
 	ctx := t.Context()
 	pool, err := pgxpool.New(ctx, testdb.URL(t))
 	require.NoError(t, err)
@@ -49,7 +57,7 @@ func TestNewUserAcrossProcessesSharingASchema(t *testing.T) {
 		names[u.Username] = true
 	}
 
-	child := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestNewUserInSharedSchema$", "-test.count=1")
+	child := exec.CommandContext(ctx, os.Args[0], "-test.run=^"+t.Name()+"$", "-test.count=1")
 	child.Env = append(os.Environ(), sharedSchemaEnv+"="+schema)
 	out, err := child.CombinedOutput()
 	require.NoError(t, err, "the child process: %s", out)
@@ -65,19 +73,5 @@ func TestNewUserAcrossProcessesSharingASchema(t *testing.T) {
 		names[name] = true
 		_, err := auth.User(ctx, iam.UserByUsername(name))
 		require.NoError(t, err, "the child created %s in the shared schema", name)
-	}
-}
-
-// TestNewUserInSharedSchema is the child process of
-// TestNewUserAcrossProcessesSharingASchema: it prints the usernames NewUser
-// gives it in the parent's schema.
-func TestNewUserInSharedSchema(t *testing.T) {
-	schema := os.Getenv(sharedSchemaEnv)
-	if schema == "" {
-		t.Skip("run by TestNewUserAcrossProcessesSharingASchema")
-	}
-	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) { c.Schema = schema }))
-	for range 3 {
-		fmt.Println(authtest.NewUser(t, auth).Username)
 	}
 }
