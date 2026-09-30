@@ -1,11 +1,15 @@
 package authkit_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"log"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -72,11 +76,23 @@ func TestSMSHealthProbeRearmsPhoneFlows(t *testing.T) {
 	}
 }
 
-// A SendGrid key that is invalid, can't send mail, or sends from an unproven
-// address disables only email flows (503); a key that can't read its senders
-// can't tell, which stays healthy. The next passing probe re-arms them.
+// A SendGrid key that is rejected or can't send mail disables only email flows
+// (503), and the next passing probe re-arms them. Anything else stays healthy:
+// an unauthenticated sender, since not every SendGrid account enforces sender
+// identity, only warns once per change; a key that can't read its senders, or
+// an outage, can't tell.
 func TestEmailHealthProbeRearmsEmailFlows(t *testing.T) {
-	var mode atomic.Value // "", "badkey", "noscope", "unverified", "cant_tell"
+	logs := &lockedBuffer{}
+	previous, logOut, logFlags := slog.Default(), log.Writer(), log.Flags()
+	slog.SetDefault(slog.New(slog.NewTextHandler(logs, nil)))
+	t.Cleanup(func() {
+		slog.SetDefault(previous)
+		log.SetOutput(logOut)
+		log.SetFlags(logFlags)
+	})
+	warnings := func() int { return strings.Count(logs.String(), "SendGrid sender is unauthenticated") }
+
+	var mode atomic.Value // "", "badkey", "noscope", "unauthenticated", "unverified", "cant_tell", "outage"
 	mode.Store("")
 	email, err := twilio.NewEmail(twilio.EmailConfig{APIKey: "SG.key", FromEmail: "hello@acme.test",
 		Client: standIn(t, func(w http.ResponseWriter, r *http.Request) {
@@ -92,6 +108,8 @@ func TestEmailHealthProbeRearmsEmailFlows(t *testing.T) {
 					http.Error(w, `{"errors":[{"message":"authorization required"}]}`, http.StatusUnauthorized)
 				case "noscope":
 					_, _ = w.Write([]byte(`{"scopes":["alerts.read"]}`))
+				case "outage":
+					http.Error(w, `{"errors":[{"message":"internal error"}]}`, http.StatusServiceUnavailable)
 				default:
 					_, _ = w.Write([]byte(`{"scopes":["alerts.read","mail.send"]}`))
 				}
@@ -99,7 +117,7 @@ func TestEmailHealthProbeRearmsEmailFlows(t *testing.T) {
 				switch m {
 				case "cant_tell":
 					http.Error(w, `{"errors":[{"message":"access forbidden"}]}`, http.StatusForbidden)
-				case "unverified":
+				case "unauthenticated", "unverified":
 					_, _ = w.Write([]byte(`[{"domain":"acme.test","valid":false}]`))
 				default:
 					if r.URL.Query().Get("domain") != "acme.test" {
@@ -133,7 +151,7 @@ func TestEmailHealthProbeRearmsEmailFlows(t *testing.T) {
 	require.True(t, auth.EmailAvailable(), "optimistic before the first probe")
 	require.NoError(t, auth.Start(t.Context()))
 	require.NoError(t, probed(t, auth.EmailHealth, time.Time{}), "Start probes at once")
-	for _, failure := range []string{"badkey", "noscope", "unverified"} {
+	for _, failure := range []string{"badkey", "noscope"} {
 		mode.Store(failure)
 		require.Error(t, probed(t, auth.EmailHealth, time.Now()), failure)
 		require.False(t, capabilitiesOf(t, auth).Channels.Email, failure)
@@ -147,9 +165,28 @@ func TestEmailHealthProbeRearmsEmailFlows(t *testing.T) {
 		require.True(t, capabilitiesOf(t, auth).Channels.Email, failure)
 		require.Contains(t, auth.TwoFactorMethods(), iam.TwoFactorEmail, failure)
 	}
-	mode.Store("cant_tell")
-	require.NoError(t, probed(t, auth.EmailHealth, time.Now()), "a key without read access can't tell")
-	require.True(t, auth.EmailAvailable())
+	require.Zero(t, warnings(), "a valid authenticated domain warns nothing")
+
+	// Each step's warning count is cumulative. The order keeps a probe that
+	// straddles a mode change from reaching a third state.
+	for i, step := range []struct {
+		mode     string
+		warnings int
+	}{{"unverified", 1}, {"unverified", 1}, {"unauthenticated", 2}, {"", 2}, {"unauthenticated", 3}} {
+		mode.Store(step.mode)
+		require.NoError(t, probed(t, auth.EmailHealth, time.Now()), "step %d", i)
+		require.True(t, capabilitiesOf(t, auth).Channels.Email, "step %d", i)
+		require.Equal(t, step.warnings, warnings(), "step %d", i)
+	}
+	require.Contains(t, logs.String(), `from=hello@acme.test reason="single sender not verified yet"`)
+	require.Contains(t, logs.String(), `from=hello@acme.test reason="no valid authenticated domain and no verified single sender"`)
+
+	for _, m := range []string{"cant_tell", "outage"} {
+		mode.Store(m)
+		require.NoError(t, probed(t, auth.EmailHealth, time.Now()), m)
+		require.True(t, auth.EmailAvailable(), m)
+	}
+	require.Equal(t, 3, warnings(), "can't tell warns nothing")
 }
 
 // A host's own sender reports its health the same way: while its
@@ -262,6 +299,23 @@ func standIn(t *testing.T, handler http.HandlerFunc) *http.Client {
 		r.URL.Scheme, r.URL.Host = "http", api.Listener.Addr().String()
 		return http.DefaultTransport.RoundTrip(r)
 	})}
+}
+
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

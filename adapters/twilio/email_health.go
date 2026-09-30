@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
@@ -22,34 +23,66 @@ const (
 // lack read access to it.
 var errCantTell = errors.New("sendgrid listing unavailable")
 
-// CheckHealth verifies, without sending an email, that this sender can
-// deliver: the API key is valid and has the mail.send scope, and FromEmail is
-// on a valid authenticated domain or is a verified sender. A key that can't
-// read its domains and senders can't tell the second part, which counts as
-// healthy.
+// CheckHealth reports, without sending an email, whether SendGrid will refuse
+// this sender: it fails only when the API key is rejected (401) or lacks the
+// mail.send scope, and anything it can't tell counts as healthy. SendGrid
+// enforces sender identity only on some accounts, so a FromEmail on no valid
+// authenticated domain and no verified sender only logs a warning on
+// slog.Default, once per change.
 func (e *Email) CheckHealth(ctx context.Context) error {
 	var key struct {
 		Scopes []string `json:"scopes"`
 	}
 	if err := e.apiGet(ctx, sendGridAPI+"/scopes", &key); err != nil {
-		return fmt.Errorf("sendgrid API key check failed: %w", err)
+		var apiErr *apiError
+		if errors.As(err, &apiErr) && apiErr.status == http.StatusUnauthorized {
+			return fmt.Errorf("sendgrid API key rejected: %w", err)
+		}
+		return nil
 	}
 	if !slices.Contains(key.Scopes, "mail.send") {
 		return errors.New("sendgrid API key lacks the mail.send scope")
 	}
+	if problem, ok := e.senderIdentity(ctx); ok {
+		e.recordSenderProblem(ctx, problem)
+	}
+	return nil
+}
 
-	domainOK, domainErr := e.onAuthenticatedDomain(ctx)
-	if domainOK {
-		return nil
+// recordSenderProblem keeps the latest sender-identity verdict and warns when
+// it becomes a new problem.
+func (e *Email) recordSenderProblem(ctx context.Context, problem string) {
+	e.senderMu.Lock()
+	changed := problem != e.senderProblem
+	e.senderProblem = problem
+	e.senderMu.Unlock()
+	if changed && problem != "" {
+		slog.WarnContext(ctx, "authkit: SendGrid sender is unauthenticated; deliverability may suffer",
+			"from", e.fromEmail, "reason", problem)
 	}
-	senderOK, senderErr := e.isVerifiedSender(ctx)
-	if senderOK || domainErr != nil || errors.Is(senderErr, errCantTell) {
-		return nil
+}
+
+// senderIdentity names what leaves FromEmail unauthenticated, "" when it is on
+// a valid authenticated domain or is a verified sender. ok is false when the
+// key can't read its domains or senders.
+func (e *Email) senderIdentity(ctx context.Context) (problem string, ok bool) {
+	onDomain, err := e.onAuthenticatedDomain(ctx)
+	if err != nil {
+		return "", false
 	}
-	if senderErr != nil {
-		return senderErr
+	if onDomain {
+		return "", true
 	}
-	return fmt.Errorf("sendgrid sender %s is neither on an authenticated domain nor a verified sender", e.fromEmail)
+	listed, verified, err := e.singleSender(ctx)
+	switch {
+	case err != nil:
+		return "", false
+	case verified:
+		return "", true
+	case listed:
+		return "single sender not verified yet", true
+	}
+	return "no valid authenticated domain and no verified single sender", true
 }
 
 // onAuthenticatedDomain reports whether FromEmail's domain is a valid
@@ -75,9 +108,9 @@ func (e *Email) onAuthenticatedDomain(ctx context.Context) (bool, error) {
 	return false, nil
 }
 
-// isVerifiedSender reports whether FromEmail is a verified single sender; a
-// listed but unverified one is an error.
-func (e *Email) isVerifiedSender(ctx context.Context) (bool, error) {
+// singleSender reports whether FromEmail is listed as a single sender and
+// whether that sender is verified.
+func (e *Email) singleSender(ctx context.Context) (listed, verified bool, err error) {
 	lastSeen := 0
 	for range maxSenderPages {
 		q := url.Values{}
@@ -92,27 +125,36 @@ func (e *Email) isVerifiedSender(ctx context.Context) (bool, error) {
 			} `json:"results"`
 		}
 		if err := e.apiGet(ctx, sendGridAPI+"/verified_senders?"+q.Encode(), &page); err != nil {
-			return false, errCantTell
+			return false, false, errCantTell
 		}
 		if len(page.Results) == 0 {
-			return false, nil
+			return false, false, nil
 		}
 		for _, r := range page.Results {
-			if !strings.EqualFold(r.FromEmail, e.fromEmail) {
-				continue
+			if strings.EqualFold(r.FromEmail, e.fromEmail) {
+				return true, r.Verified, nil
 			}
-			if !r.Verified {
-				return false, fmt.Errorf("sendgrid sender %s is not verified yet", e.fromEmail)
-			}
-			return true, nil
 		}
 		next := page.Results[len(page.Results)-1].ID
 		if next <= lastSeen {
-			return false, errCantTell
+			return false, false, errCantTell
 		}
 		lastSeen = next
 	}
-	return false, errCantTell
+	return false, false, errCantTell
+}
+
+// apiError is a non-2xx SendGrid API answer.
+type apiError struct {
+	status  int
+	message string
+}
+
+func (e *apiError) Error() string {
+	if e.message != "" {
+		return fmt.Sprintf("sendgrid API %d: %s", e.status, e.message)
+	}
+	return fmt.Sprintf("sendgrid API status %d", e.status)
 }
 
 // apiGet performs an authenticated GET and decodes a 2xx JSON body into out.
@@ -128,15 +170,16 @@ func (e *Email) apiGet(ctx context.Context, apiURL string, out any) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		apiErr := &apiError{status: resp.StatusCode}
 		var body struct {
 			Errors []struct {
 				Message string `json:"message"`
 			} `json:"errors"`
 		}
-		if json.NewDecoder(resp.Body).Decode(&body) == nil && len(body.Errors) > 0 && body.Errors[0].Message != "" {
-			return fmt.Errorf("sendgrid API %d: %s", resp.StatusCode, body.Errors[0].Message)
+		if json.NewDecoder(resp.Body).Decode(&body) == nil && len(body.Errors) > 0 {
+			apiErr.message = body.Errors[0].Message
 		}
-		return fmt.Errorf("sendgrid API status %d", resp.StatusCode)
+		return apiErr
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/open-rails/authkit/iam"
 )
@@ -53,6 +54,11 @@ type Email struct {
 	categories []string
 	customArgs map[string]string
 	render     func(context.Context, iam.EmailMessage) (EmailContent, bool)
+
+	// senderProblem is CheckHealth's latest sender-identity problem, so it
+	// warns once per change.
+	senderMu      sync.Mutex
+	senderProblem string
 }
 
 // NewEmail validates cfg and returns an Email.
