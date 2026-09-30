@@ -98,6 +98,7 @@ Fingerprints and sweeps are per app. Each app judges only the API keys, invitati
 
 - **`verify.Claims.RootRole`** is the user's root role when the token was minted. It is for display only, can be stale for the token's lifetime, and must never authorize anything.
 - **`Client.RolePermissions(role)`** returns a role's grants, with includes flattened. `Client.EffectivePermissions` and `GET /api/v1/me/permissions` return what an actor holds, for UIs.
+- **`PersonaDef.Permissions()`** lists a persona's catalog, built-ins included. **`PersonaDef.Expand(grants)`** lists the catalog permissions some grant covers, as `GET /api/v1/me/permissions` does, with no database read: `Roles.Root.Expand(grants)` over a token's `RootRole` and `Client.RolePermissions` shows a user's permissions.
 - **Members over HTTP:**
   - `PUT /api/v1/groups/{group_id}/members/users/{id}` with `{"role": "channel:moderator"}` gives a role.
   - `DELETE` on the same path takes it away.

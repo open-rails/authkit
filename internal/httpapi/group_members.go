@@ -11,6 +11,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
+	"github.com/open-rails/authkit/internal/rbac"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -134,24 +135,9 @@ func (s *Service) groupRolesList(w http.ResponseWriter, g iam.Group) {
 		for _, g := range rd.Permissions {
 			grants = append(grants, ident.Perm(g))
 		}
-		out = append(out, RoleInfo{Name: rd.Name, Permissions: expandGrants(persona.Permissions, grants)})
+		out = append(out, RoleInfo{Name: rd.Name, Permissions: rbac.Expand(persona.Permissions, grants)})
 	}
 	all(w, out)
-}
-
-// expandGrants is every permission of catalog some grant pattern covers:
-// what a client checks by set membership.
-func expandGrants(catalog, grants []iam.Perm) []iam.Perm {
-	out := []iam.Perm{}
-	for _, p := range catalog {
-		for _, g := range grants {
-			if p.Matches(g) {
-				out = append(out, p)
-				break
-			}
-		}
-	}
-	return out
 }
 
 // handleMeGroupsGET is the cross-persona discovery endpoint: the caller's group
@@ -209,7 +195,7 @@ func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if persona, ok := s.svc.PermissionGroupSchema().Persona(g.Persona); ok {
-		out.Permissions = expandGrants(persona.Permissions, byGroup[g.ID])
+		out.Permissions = rbac.Expand(persona.Permissions, byGroup[g.ID])
 	}
 	if actor.Kind() == iam.ActorUser {
 		subject := iam.UserSubject(actor.ID())

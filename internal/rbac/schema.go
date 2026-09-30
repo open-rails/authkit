@@ -103,21 +103,15 @@ func (s *Schema) compilePersona(name iam.Persona, spec PersonaSpec) (Persona, er
 		Name:    name,
 		APIKeys: spec.APIKeys,
 	}
-	catalog := map[iam.Perm]struct{}{}
 	for _, perm := range spec.Permissions {
 		if perm.Persona() != name {
 			return Persona{}, fmt.Errorf("permission %q must start with %q", perm, name.String()+":")
 		}
-		catalog[perm] = struct{}{}
 	}
-	for _, perm := range Builtins(name, spec.APIKeys || spec.RemoteApplications) {
-		catalog[perm] = struct{}{}
-	}
-	for perm := range catalog {
-		p.Permissions = append(p.Permissions, perm)
+	p.Permissions = Catalog(spec)
+	for _, perm := range p.Permissions {
 		s.known[perm] = struct{}{}
 	}
-	slices.SortFunc(p.Permissions, comparePerm)
 	mfa := spec.RequireMFA
 	if name == iam.RootPersona() {
 		// Handing out site-wide roles and editing other people's accounts
@@ -142,6 +136,31 @@ func (s *Schema) compilePersona(name iam.Persona, spec PersonaSpec) (Persona, er
 		}
 	}
 	return p, nil
+}
+
+// Catalog is a persona's complete catalog: its declared permissions and the
+// built-ins AuthKit registers, sorted.
+func Catalog(spec PersonaSpec) []iam.Perm {
+	set := map[iam.Perm]struct{}{}
+	for _, perm := range spec.Permissions {
+		set[perm] = struct{}{}
+	}
+	for _, perm := range Builtins(spec.Name, spec.APIKeys || spec.RemoteApplications) {
+		set[perm] = struct{}{}
+	}
+	return slices.SortedFunc(maps.Keys(set), comparePerm)
+}
+
+// Expand lists every permission of catalog some grant pattern covers, in
+// catalog order: what a client checks by set membership.
+func Expand(catalog, grants []iam.Perm) []iam.Perm {
+	out := []iam.Perm{}
+	for _, p := range catalog {
+		if slices.ContainsFunc(grants, p.Matches) {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // Builtins returns the permissions AuthKit registers for a persona: members

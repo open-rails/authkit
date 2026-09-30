@@ -6,37 +6,77 @@ import (
 	"net/http"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/helpers/auth"
 )
 
-// AuthenticateRequest verifies r and returns its helpers/auth principal,
-// identity only: a Verifier checks no permissions.
+// AuthenticateRequest is r's helpers/auth principal, identity only: a
+// Verifier checks no permissions.
 func (v *Verifier) AuthenticateRequest(ctx context.Context, r *http.Request) (auth.Principal, error) {
 	return AuthenticateRequest(ctx, v, r)
 }
 
-// AuthenticateRequest verifies r through a and returns its helpers/auth
-// principal, for code written against helpers/auth providers. When a is a
-// PermissionChecker (*authkit.Client), the principal's Can checks the
-// credential's permissions live, the session included; otherwise it is
-// identity only.
+// AuthenticateRequest is r's helpers/auth principal, for code written against
+// helpers/auth providers. Behind a gate over a (Required, Optional,
+// RequireSession, RequirePermission or Sensitive, in any adapter) it reuses
+// the gate's verification, since verifying again would spend a DPoP proof
+// twice; otherwise it verifies r through a. When a is a PermissionChecker
+// (*authkit.Client), the principal's Can checks the credential's permissions
+// live, the session included; otherwise it is identity only.
 func AuthenticateRequest(ctx context.Context, a Authenticator, r *http.Request) (auth.Principal, error) {
+	cl, err := authenticate(ctx, a, r)
+	if err != nil {
+		return nil, err
+	}
+	return principalOf(a, cl)
+}
+
+// AuthenticateSession is AuthenticateRequest plus RequireSession's session
+// check, for identity-only code that must stop the moment a sign-in is
+// revoked (billing, say): a credential minted from a sign-in (a user's token,
+// or a delegated token AuthKit minted from one) is auth.ErrRevoked once it is
+// revoked, and so is a delegated token AuthKit minted without one. Unlike
+// RequireSession, a credential that carries no sign-in (an API key, a remote
+// application's token or delegation) passes: verification already refuses it
+// once revoked, and Can checks its authority live. Admitting only some kinds
+// is the caller's policy (Principal.Identity().Kind).
+func AuthenticateSession(ctx context.Context, a Authority, r *http.Request) (auth.Principal, error) {
+	cl, err := authenticate(ctx, a, r)
+	if err != nil {
+		return nil, err
+	}
+	switch err := a.CheckSession(ctx, cl); {
+	case err == nil, errmodel.CodeOf(err) == errmodel.CodeForbidden:
+	case errors.Is(err, iam.ErrSessionRevoked):
+		return nil, errors.Join(auth.ErrUnauthenticated, auth.ErrRevoked, err)
+	default:
+		return nil, errors.Join(auth.ErrUnavailable, err)
+	}
+	return principalOf(a, cl)
+}
+
+// authenticate is the claims a gate over a stored for r's credential, in ctx
+// or r's context, else r verified through a.
+func authenticate(ctx context.Context, a Authenticator, r *http.Request) (Claims, error) {
 	if a == nil || r == nil {
-		return nil, auth.ErrUnauthenticated
+		return Claims{}, auth.ErrUnauthenticated
+	}
+	for _, c := range []context.Context{ctx, r.Context()} {
+		if cl, ok := verifiedBy(c, r, a); ok {
+			return cl, nil
+		}
 	}
 	cl, err := a.VerifyRequest(r.WithContext(ctx))
 	if err != nil {
-		return nil, classify(err)
+		return Claims{}, classify(err)
 	}
-	return PrincipalFromClaims(a, cl)
+	return cl, nil
 }
 
-// PrincipalFromClaims hands claims a trusted middleware verified for this
-// same request to helpers/auth code without verifying again, which would
-// spend a single-use sender proof twice. Never pass claims from anywhere
-// else. See AuthenticateRequest for Can.
-func PrincipalFromClaims(a Authenticator, cl Claims) (auth.Principal, error) {
+// principalOf is verified claims' helpers/auth principal (see
+// AuthenticateRequest for Can).
+func principalOf(a Authenticator, cl Claims) (auth.Principal, error) {
 	i, ok := cl.Identity()
 	if !ok {
 		return nil, auth.ErrUnauthenticated

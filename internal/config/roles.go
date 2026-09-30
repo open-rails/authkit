@@ -154,6 +154,19 @@ func (p *PersonaDef) Resource(name string) Resource {
 // All is `<persona>:*`: every permission of the persona.
 func (p *PersonaDef) All() iam.Perm { return p.Persona.OwnerGrant() }
 
+// Permissions is the persona's catalog: the permissions declared with
+// Permission and the built-ins AuthKit registers, sorted.
+func (p *PersonaDef) Permissions() []iam.Perm { return rbac.Catalog(p.spec) }
+
+// Expand lists every catalog permission some grant covers, in catalog order,
+// such as a role's grants (Client.RolePermissions) or an actor's
+// (Client.EffectivePermissions): the owner's `<persona>:*` lists each
+// permission. GET /me/permissions answers the same expansion. It reads no
+// database.
+func (p *PersonaDef) Expand(grants []iam.Perm) []iam.Perm {
+	return rbac.Expand(p.Permissions(), grants)
+}
+
 // Role declares a role held in the persona's groups and returns it. Each grant
 // is a permission or pattern (Resource.All, All), or a role of this persona
 // whose permissions the new role includes. A persona role holds only its own
