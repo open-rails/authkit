@@ -109,9 +109,9 @@ func TestSecurityUnprovenContactCannotAddLoginMethods(t *testing.T) {
 		req  request
 	}{
 		{"link an identity provider", request{method: http.MethodPost, path: "/oidc/linkidp/link/start", body: map[string]any{}}},
-		{"register a passkey", request{method: http.MethodPost, path: "/passkeys/register/begin", body: map[string]any{}}},
-		{"enroll an authenticator app", request{method: http.MethodPost, path: "/user/2fa", body: map[string]string{"method": "totp"}}},
-		{"link a Solana wallet", request{method: http.MethodPost, path: "/solana/link", body: map[string]any{}}},
+		{"register a passkey", request{method: http.MethodPost, path: "/me/passkeys/register/begin"}},
+		{"enroll an authenticator app", request{method: http.MethodPost, path: "/me/2fa/setup", body: map[string]string{"method": "totp"}}},
+		{"link a Solana wallet", request{method: http.MethodPut, path: "/me/solana-wallet", body: map[string]any{}}},
 	}
 	for _, a := range attempts {
 		t.Run(a.name, func(t *testing.T) {

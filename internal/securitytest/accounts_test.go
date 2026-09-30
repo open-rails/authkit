@@ -226,8 +226,9 @@ func TestSecurityVerifiedOnlyByProof(t *testing.T) {
 }
 
 // TestSecurityInlinePasswordNeedsSecondFactor (M5): for an account with a
-// second factor, a password typed into a sensitive request never stands in
-// for a fresh step-up with that factor.
+// second factor, a password typed into a sensitive request (PUT /me/password's
+// current password) never stands in for a fresh step-up with that factor, and
+// the other sensitive routes take no password at all.
 func TestSecurityInlinePasswordNeedsSecondFactor(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits))
 	ctx := context.Background()
@@ -240,8 +241,9 @@ func TestSecurityInlinePasswordNeedsSecondFactor(t *testing.T) {
 	// the fresh-auth gate is the only way through.
 	token := authtest.StaleSession(t, h.auth, session(t, resp).AccessToken)
 	for _, req := range []request{
-		{method: http.MethodPost, path: "/user/password", body: map[string]string{"current_password": password, "new_password": password + "x"}},
-		{method: http.MethodDelete, path: "/user", body: map[string]string{"password": password}},
+		{method: http.MethodPut, path: "/me/email", body: map[string]string{"email": unique("evil") + "@security.test"}},
+		{method: http.MethodPut, path: "/me/password", body: map[string]string{"current_password": password, "new_password": password + "x"}},
+		{method: http.MethodDelete, path: "/me"},
 	} {
 		req.token = token
 		resp := h.do(req)
@@ -254,7 +256,9 @@ func TestSecurityInlinePasswordNeedsSecondFactor(t *testing.T) {
 
 	t.Run("control: a password clears the gate without a second factor", func(t *testing.T) {
 		b := h.newAccount("pwdstep")
-		resp := h.do(request{method: http.MethodDelete, path: "/user", body: map[string]string{"password": password}, token: authtest.StaleSession(t, h.auth, h.login(b).AccessToken)})
+		resp := h.post("/me/step-up/password", map[string]string{"password": password}, authtest.StaleSession(t, h.auth, h.login(b).AccessToken))
+		require.Equal(t, http.StatusOK, resp.status, resp.String())
+		resp = h.do(request{method: http.MethodDelete, path: "/me", token: session(t, resp).AccessToken})
 		require.Equal(t, http.StatusNoContent, resp.status, resp.String())
 	})
 }
@@ -322,7 +326,7 @@ func TestSecurityDeletionRecoveryIsSelfOnly(t *testing.T) {
 
 	t.Run("control: a self-deletion is recovered by signing in", func(t *testing.T) {
 		self := h.newAccount("n5self")
-		resp := h.do(request{method: http.MethodDelete, path: "/user", body: map[string]string{"password": password}, token: h.login(self).AccessToken})
+		resp := h.do(request{method: http.MethodDelete, path: "/me", token: h.login(self).AccessToken})
 		require.Equal(t, http.StatusNoContent, resp.status, resp.String())
 		login := authResult(t, h.post("/password/login", map[string]string{"identifier": self.email, "password": password}, ""))
 		require.Equal(t, httpapi.AuthAccountRecoveryRequired, login.Status)
@@ -523,7 +527,7 @@ func TestSecurityStaffDeleteOverridesSelfDelete(t *testing.T) {
 	moderator, target := h.newAccount("p6moderator"), h.newAccount("p6target")
 	h.grant(iam.RootGroup(), moderator, "moderator")
 	// The target deletes itself ahead of moderation.
-	resp := h.do(request{method: http.MethodDelete, path: "/user", body: map[string]string{"password": password}, token: h.login(target).AccessToken})
+	resp := h.do(request{method: http.MethodDelete, path: "/me", token: h.login(target).AccessToken})
 	require.Equal(t, http.StatusNoContent, resp.status, resp.String())
 	resp = h.do(request{method: http.MethodDelete, path: "/admin/users/" + target.id, token: h.login(moderator).AccessToken})
 	require.Less(t, resp.status, 300, resp.String())
@@ -615,22 +619,22 @@ func TestSecurityEmailFactorFollowsOwnChange(t *testing.T) {
 		return email
 	}
 	listed := func() string {
-		resp := h.get("/user/2fa", token)
+		resp := h.get("/me/2fa", token)
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
 		var out struct {
 			Factors []struct {
-				Method string `json:"method"`
-				Email  string `json:"email"`
+				Method      string `json:"method"`
+				Destination string `json:"destination"`
 			} `json:"factors"`
 		}
 		resp.json(t, &out)
 		require.Len(t, out.Factors, 1)
-		return out.Factors[0].Email
+		return out.Factors[0].Destination
 	}
 	require.Equal(t, "r***@security.test", listed())
 
 	moved := unique("moved") + "@elsewhere.test"
-	resp := h.post("/verify/request", map[string]string{"identifier": moved}, token)
+	resp := h.do(request{method: http.MethodPut, path: "/me/email", body: map[string]string{"email": moved}, token: token})
 	require.Equal(t, http.StatusAccepted, resp.status, resp.String())
 	resp = h.post("/verify/confirm", map[string]string{"identifier": moved, "code": h.verificationCode(moved)}, token)
 	require.Equal(t, http.StatusNoContent, resp.status, resp.String())

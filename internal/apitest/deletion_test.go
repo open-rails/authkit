@@ -244,7 +244,7 @@ func TestUserDeleteWithUnboundAccountIssuerLogsCause(t *testing.T) {
 	require.Contains(t, logs.String(), peer)
 
 	token := authtest.SignIn(t, auth, authtest.NewUser(t, auth)).AccessToken
-	res := expect(t, http.StatusInternalServerError, newAPI(t, auth).do(request{method: http.MethodDelete, path: "/user", token: token}))
+	res := expect(t, http.StatusInternalServerError, newAPI(t, auth).do(request{method: http.MethodDelete, path: "/me", token: token}))
 	require.Equal(t, "internal_error", res.code())
 	require.NotContains(t, res.String(), peer, "deployment topology stays off the wire")
 	require.Contains(t, logs.String(), `failed_to_delete: authkit: account issuer \"`+peer+`\" must compose its River fleet before account deletion`)

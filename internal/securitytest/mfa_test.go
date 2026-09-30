@@ -42,8 +42,9 @@ func (h *host) enrollEmail2FA(a account) []string {
 }
 
 // enrollTOTP adds an authenticator-app factor with token and returns its
-// secret and the confirming response. The enrollment spends the current code;
-// the next one is authtest.TOTPCode(t, secret, time.Now().Add(30*time.Second)).
+// secret and the confirming response (TwoFactorFactorCreated). The enrollment
+// spends the current code; the next one is authtest.TOTPCode(t, secret,
+// time.Now().Add(30*time.Second)).
 func (h *host) enrollTOTP(token string) (string, response) {
 	h.t.Helper()
 	resp := h.post("/me/2fa/setup", map[string]string{"method": "totp"}, token)

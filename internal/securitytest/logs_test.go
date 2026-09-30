@@ -289,7 +289,7 @@ func TestSecuritySecretsStayOutOfLogs(t *testing.T) {
 	var regenerated struct {
 		BackupCodes []string `json:"backup_codes"`
 	}
-	ok(h.post("/user/2fa/backup-codes", nil, fresh.AccessToken)).json(t, &regenerated)
+	ok(h.post("/me/2fa/backup-codes", nil, fresh.AccessToken)).json(t, &regenerated)
 	require.NotEmpty(t, regenerated.BackupCodes)
 	ch = h.passwordStep(mfa, "198.51.100.60")
 	ok(h.post("/2fa/verify", map[string]any{"user_id": mfa.id, "challenge": ch.Challenge, "code": regenerated.BackupCodes[0], "backup_code": true}, ""))

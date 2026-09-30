@@ -56,8 +56,11 @@ func TestSecurityLimiterOutageFailsClosed(t *testing.T) {
 	post := func(path string, body any) request {
 		return request{method: http.MethodPost, path: path, body: body, token: token}
 	}
-	del := func(path string, body any) request {
-		return request{method: http.MethodDelete, path: path, body: body, token: token}
+	put := func(path string, body any) request {
+		return request{method: http.MethodPut, path: path, body: body, token: token}
+	}
+	patch := func(path string, body any) request {
+		return request{method: http.MethodPatch, path: path, body: body, token: token}
 	}
 	callback := func(method, path string) request {
 		return request{method: method, path: "//oidc/idp" + path + "?state=state&code=code"}
@@ -82,22 +85,25 @@ func TestSecurityLimiterOutageFailsClosed(t *testing.T) {
 		{"POST /token", "checks a refresh token", post("/token", map[string]string{"grant_type": "refresh_token", "refresh_token": "refresh-token"})},
 		{"POST /2fa/challenge", "checks a challenge and sends a code", post("/2fa/challenge", map[string]string{"user_id": a.id, "challenge": "challenge", "factor_id": "factor"})},
 		{"POST /2fa/verify", "checks a code", post("/2fa/verify", map[string]string{"user_id": a.id, "challenge": "challenge", "code": "123456"})},
-		{"POST /step-up/password", "checks a password", post("/step-up/password", map[string]string{"password": password})},
-		{"POST /step-up/2fa", "checks a code", post("/step-up/2fa", map[string]string{"code": "123456"})},
-		{"POST /user/password", "checks a password", post("/user/password", map[string]string{"current_password": password, "new_password": "Outage-new-passphrase-1"})},
-		{"POST /user/2fa", "checks a code", post("/user/2fa", map[string]string{"method": "email", "code": "123456"})},
-		{"POST /user/2fa", "sends an email code", post("/user/2fa", map[string]string{"method": "email"})},
-		{"POST /user/2fa", "sends an SMS code", post("/user/2fa", map[string]string{"method": "sms", "phone": "+14155550143"})},
-		{"POST /user/2fa", "issues a TOTP secret", post("/user/2fa", map[string]string{"method": "totp"})},
-		{"POST /user/2fa/backup-codes", "issues backup codes", post("/user/2fa/backup-codes", nil)},
-		{"DELETE /user", "checks a password", del("/user", map[string]string{"password": password})},
-		{"DELETE /user/providers/{provider}", "checks a password", del("/user/providers/idp", map[string]string{"password": password})},
+		{"POST /me/step-up/password", "checks a password", post("/me/step-up/password", map[string]string{"password": password})},
+		{"POST /me/step-up/2fa/send", "sends a code", post("/me/step-up/2fa/send", map[string]any{})},
+		{"POST /me/step-up/2fa", "checks a code", post("/me/step-up/2fa", map[string]string{"code": "123456"})},
+		{"PUT /me/password", "checks a password", put("/me/password", map[string]string{"current_password": password, "new_password": "Outage-new-passphrase-1"})},
+		{"PUT /me/email", "sends a code", put("/me/email", map[string]string{"email": newEmail()})},
+		{"PUT /me/phone", "sends an SMS code", put("/me/phone", map[string]string{"phone_number": "+14155550143"})},
+		{"POST /me/2fa/setup", "sends an email code", post("/me/2fa/setup", map[string]string{"method": "email"})},
+		{"POST /me/2fa/setup", "sends an SMS code", post("/me/2fa/setup", map[string]string{"method": "sms", "phone_number": "+14155550143"})},
+		{"POST /me/2fa/setup", "issues a TOTP secret", post("/me/2fa/setup", map[string]string{"method": "totp"})},
+		{"POST /me/2fa/factors", "checks a code", post("/me/2fa/factors", map[string]string{"method": "email", "code": "123456"})},
+		// It shares the enrollment budget.
+		{"PATCH /me/2fa/factors/{id}", "changes the default factor", patch("/me/2fa/factors/"+a.id, map[string]bool{"default": true})},
+		{"POST /me/2fa/backup-codes", "issues backup codes", post("/me/2fa/backup-codes", nil)},
 		{"POST /passkeys/login/finish", "checks a signature", post("/passkeys/login/finish", map[string]string{"id": "credential"})},
 		{"POST /device-keys/enroll/begin", "sends a code", post("/device-keys/enroll/begin", map[string]string{"email": a.email, "public_key": newDeviceKey(t).public})},
 		{"POST /device-keys/enroll/finish", "checks a code and a signature", post("/device-keys/enroll/finish", map[string]string{"enrollment_id": "enrollment", "code": "123456", "signature": "signature"})},
 		{"POST /device-keys/login/finish", "checks a signature", post("/device-keys/login/finish", map[string]string{"challenge_id": "challenge", "signature": "signature"})},
 		{"POST /solana/login", "checks a signature", post("/solana/login", map[string]string{"message": "message", "signature": "signature"})},
-		{"POST /solana/link", "checks a signature", post("/solana/link", map[string]string{"message": "message", "signature": "signature"})},
+		{"PUT /me/solana-wallet", "checks a signature", put("/me/solana-wallet", map[string]string{"message": "message", "signature": "signature"})},
 		{"POST /invitations/redeem", "checks an invite code", post("/invitations/redeem", map[string]string{"code": "invite-code"})},
 		{"POST /groups/{group_id}/invitations", "sends an invitation", post(base+"/invitations", map[string]string{"email": newEmail(), "role": "org:member"})},
 		{"POST /groups/{group_id}/invitations", "issues an invite code", post(base+"/invitations", map[string]string{"role": "org:member"})},
@@ -118,11 +124,11 @@ func TestSecurityLimiterOutageFailsClosed(t *testing.T) {
 	staysUp := []string{
 		"GET //.well-known/jwks.json", "GET /capabilities", "DELETE /logout", "GET /me", "GET /me/groups", "GET /me/permissions",
 		"GET /register/availability",
-		"GET /user/sessions", "DELETE /user/sessions", "DELETE /user/sessions/{id}",
-		"PATCH /user/username", "PATCH /user/preferred-language",
-		"GET /user/2fa", "DELETE /user/2fa",
-		"POST /passkeys/login/begin", "POST /passkeys/register/begin", "POST /passkeys/register/finish",
-		"GET /passkeys", "PATCH /passkeys/{id}", "DELETE /passkeys/{id}",
+		"PATCH /me", "DELETE /me", "GET /me/security", "DELETE /me/phone", "DELETE /me/providers/{provider}",
+		"GET /me/sessions", "DELETE /me/sessions", "DELETE /me/sessions/{id}", "GET /me/session-events",
+		"GET /me/2fa", "DELETE /me/2fa", "DELETE /me/2fa/factors/{id}",
+		"GET /me/sign-in-keys", "PATCH /me/sign-in-keys/{id}", "DELETE /me/sign-in-keys/{id}",
+		"POST /passkeys/login/begin", "POST /me/passkeys/register/begin", "POST /me/passkeys/register/finish",
 		"POST /device-keys/login/begin", "DELETE /device-keys",
 		"POST /solana/challenge",
 		"GET /users",
@@ -186,11 +192,11 @@ func TestSecurityLimiterOutageFailsClosed(t *testing.T) {
 
 	t.Run("reads and plain changes stay up", func(t *testing.T) {
 		require.Equal(t, http.StatusOK, down.get("/capabilities", "").status)
-		for _, path := range []string{"/me", "/user/sessions", base + "/members"} {
+		for _, path := range []string{"/me", "/me/sessions", "/me/sign-in-keys", base + "/members"} {
 			resp := down.get(path, token)
 			require.Equal(t, http.StatusOK, resp.status, "%s: %s", path, resp)
 		}
-		resp := down.do(request{method: http.MethodPatch, path: "/user/preferred-language", body: map[string]string{"preferred_language": "en"}, token: token})
+		resp := down.do(request{method: http.MethodPatch, path: "/me", body: map[string]string{"preferred_language": "en"}, token: token})
 		require.Less(t, resp.status, 300, resp.String())
 	})
 }

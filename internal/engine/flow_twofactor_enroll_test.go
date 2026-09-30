@@ -32,14 +32,9 @@ func TestMFAEnrollmentBackendFailures(t *testing.T) {
 				if method == "sms" {
 					body["phone_number"] = uniquePhone()
 				}
-				start := f.request("POST", "/user/2fa", session, body)
-				if method == "totp" {
-					f.expect(200, start)
-				} else {
-					f.expect(202, start)
-				}
+				start := f.expect(200, f.request("POST", "/me/2fa/setup", session, body))
 				body["code"] = "not-a-code"
-				invalid := f.expect(401, f.request("POST", "/user/2fa", session, body))
+				invalid := f.expect(401, f.request("POST", "/me/2fa/factors", session, body))
 				require.Equal(t, "invalid_code", invalid.Error.Code)
 				proof := func() {
 					if method == "totp" {
@@ -66,7 +61,7 @@ func TestMFAEnrollmentBackendFailures(t *testing.T) {
 					}
 				}
 				defer func() { restore() }()
-				failed := f.expect(500, f.request("POST", "/user/2fa", session, body))
+				failed := f.expect(500, f.request("POST", "/me/2fa/factors", session, body))
 				require.Equal(t, "internal_error", failed.Error.Code)
 				factors, err := f.engine.listUser2FAFactors(ctx, user.ID)
 				require.NoError(t, err)
@@ -76,15 +71,10 @@ func TestMFAEnrollmentBackendFailures(t *testing.T) {
 				if failure == "persistence" {
 					// A successful claim stays single-use even when the SQL transaction fails.
 					delete(body, "code")
-					start = f.request("POST", "/user/2fa", session, body)
-					if method == "totp" {
-						f.expect(200, start)
-					} else {
-						f.expect(202, start)
-					}
+					start = f.expect(200, f.request("POST", "/me/2fa/setup", session, body))
 				}
 				proof()
-				f.expect(200, f.request("POST", "/user/2fa", session, body))
+				f.expect(201, f.request("POST", "/me/2fa/factors", session, body))
 				factors, err = f.engine.listUser2FAFactors(ctx, user.ID)
 				require.NoError(t, err)
 				require.Len(t, factors, 1, fmt.Sprint(method, " must recover after ", failure))

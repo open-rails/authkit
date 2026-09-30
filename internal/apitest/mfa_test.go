@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/open-rails/authkit"
@@ -20,16 +21,16 @@ import (
 	"github.com/open-rails/authkit/internal/passkeytest"
 )
 
-// factorStepUpOptions is the step_up_2fa object of GET /me and of a
+// factorStepUpOptions is the step_up_2fa object of GET /me/security and of a
 // step_up_required refusal.
 type factorStepUpOptions struct {
 	Methods       []string `json:"methods"`
 	DefaultMethod string   `json:"default_method"`
 	Options       []struct {
-		ID             string `json:"id"`
-		Method         string `json:"method"`
-		IsDefault      bool   `json:"is_default"`
-		VerificationID string `json:"verification_id"`
+		ID          string `json:"id"`
+		Method      string `json:"method"`
+		IsDefault   bool   `json:"is_default"`
+		Destination string `json:"destination"`
 	} `json:"options"`
 }
 
@@ -48,7 +49,7 @@ func (o factorStepUpOptions) require(t *testing.T, methods []string, defaultMeth
 			require.True(t, option.IsDefault)
 		}
 		if option.Method == "email" || option.Method == "sms" {
-			require.NotEmpty(t, option.VerificationID)
+			require.NotEmpty(t, option.Destination)
 		}
 	}
 	for _, method := range methods {
@@ -541,13 +542,20 @@ func TestFactorManagementWorkflow(t *testing.T) {
 	u := authtest.NewUser(t, auth)
 	stale := authtest.StaleSession(t, auth, authtest.SignIn(t, auth, u).AccessToken)
 	require.NotContains(t, accessClaims(f.t, stale), "mfa_enrolled")
-	for _, body := range []any{
-		map[string]any{"method": "totp"}, map[string]any{"method": "totp", "code": "123456"},
-		map[string]any{"method": "email"}, map[string]any{"method": "sms", "phone_number": "+15551234567"},
-		map[string]any{"default": true, "factor_id": "anything"},
+	for _, call := range []struct {
+		method, path string
+		body         any
+	}{
+		{http.MethodPost, "/me/2fa/setup", map[string]any{"method": "totp"}},
+		{http.MethodPost, "/me/2fa/factors", map[string]any{"method": "totp", "code": "123456"}},
+		{http.MethodPost, "/me/2fa/setup", map[string]any{"method": "email"}},
+		{http.MethodPost, "/me/2fa/setup", map[string]any{"method": "sms", "phone_number": "+15551234567"}},
+		{http.MethodPatch, "/me/2fa/factors/" + uuid.NewString(), map[string]any{"default": true}},
+		{http.MethodDelete, "/me/2fa/factors/" + uuid.NewString(), nil},
+		{http.MethodDelete, "/me/2fa", nil},
 	} {
-		denied := f.expect(http.StatusForbidden, f.request(http.MethodPost, "/user/2fa", stale, body))
-		require.Equal(t, "step_up_required", denied.Error.Code)
+		denied := f.expect(http.StatusForbidden, f.request(call.method, call.path, stale, call.body))
+		require.Equal(t, "step_up_required", denied.Error.Code, call.path)
 	}
 	steppedUp := f.expect(http.StatusOK, f.request(http.MethodPost, "/step-up/password", stale, map[string]any{"password": u.Password}))
 	stepped := steppedUp.tokens()
@@ -560,7 +568,7 @@ func TestFactorManagementWorkflow(t *testing.T) {
 	require.Equal(t, iam.AssuranceLevelPassword, claims["acr"])
 	var before, after freshAuth
 	require.NoError(t, json.Unmarshal([]byte(steppedUp.raw), &before))
-	pending := f.expect(http.StatusOK, f.request(http.MethodPost, "/user/2fa", stepped.AccessToken, map[string]any{"method": "totp"}))
+	pending := f.expect(http.StatusOK, f.request(http.MethodPost, "/me/2fa/setup", stepped.AccessToken, map[string]any{"method": "totp"}))
 	require.NotEmpty(t, pending.Secret)
 	require.Contains(t, pending.raw, "otpauth://totp/")
 	// fresh_auth has whole seconds: enroll in a later second than the step-up.
@@ -573,14 +581,14 @@ func TestFactorManagementWorkflow(t *testing.T) {
 	// counter may retry with a fresh code if this request crosses the window.
 	enrolledStep := time.Now().Unix()/30 - 1
 	enroll := func(counter int64) authAnswer {
-		return f.request(http.MethodPost, "/user/2fa", stepped.AccessToken, map[string]any{"method": "totp", "code": totpAt(pending.Secret, counter), "default": true})
+		return f.request(http.MethodPost, "/me/2fa/factors", stepped.AccessToken, map[string]any{"method": "totp", "code": totpAt(pending.Secret, counter), "default": true})
 	}
 	enabled := enroll(enrolledStep)
 	if enabled.status == http.StatusUnauthorized && enabled.Error.Code == "invalid_code" && time.Now().Unix()/30 > enrolledStep+1 {
 		enrolledStep = time.Now().Unix() / 30
 		enabled = enroll(enrolledStep)
 	}
-	f.expect(http.StatusOK, enabled)
+	f.expect(http.StatusCreated, enabled)
 	nextCode := func(after int64) (int64, string) {
 		t.Helper()
 		counter := max(time.Now().Unix()/30, after+1)
@@ -594,52 +602,56 @@ func TestFactorManagementWorkflow(t *testing.T) {
 		return counter, totpAt(pending.Secret, counter)
 	}
 	require.Len(t, enabled.BackupCodes, 10)
-	require.NoError(t, json.Unmarshal([]byte(enabled.raw), &after))
+	fresh := enabled.createdAuth(t)
+	require.NoError(t, json.Unmarshal([]byte(fresh.raw), &after))
 	require.True(t, after.FreshAuth.LastAuthenticatedAt.After(before.FreshAuth.LastAuthenticatedAt), "the enrollment code is a fresh second-factor proof (#389)")
 	require.ElementsMatch(t, slices.Concat(before.FreshAuth.AuthMethods, []string{"totp", "otp", "mfa"}), after.FreshAuth.AuthMethods)
 	require.ElementsMatch(t, []any{"pwd", "totp", "otp", "mfa"}, accessClaims(f.t, enabled.tokens().AccessToken)["amr"])
 	// Age the enrolling session so the step-up gates below apply again.
 	current := authtest.StaleSession(t, auth, enabled.tokens().AccessToken)
 	require.Equal(t, true, accessClaims(f.t, current)["mfa_enrolled"])
-	denied := f.expect(http.StatusForbidden, f.request(http.MethodPost, "/user/2fa/backup-codes", current, map[string]any{}))
+	denied := f.expect(http.StatusForbidden, f.request(http.MethodPost, "/me/2fa/backup-codes", current, nil))
 	require.Equal(t, "step_up_required", denied.Error.Code)
-	f.expect(http.StatusForbidden, f.request(http.MethodPost, "/user/2fa", stepped.AccessToken, map[string]any{"method": "totp"}))
+	f.expect(http.StatusForbidden, f.request(http.MethodPost, "/me/2fa/setup", stepped.AccessToken, map[string]any{"method": "totp"}))
 
 	var status struct {
-		Method               string `json:"method"`
-		BackupCodesRemaining int    `json:"backup_codes_remaining"`
+		Enabled              bool `json:"enabled"`
+		BackupCodesRemaining int  `json:"backup_codes_remaining"`
 		Factors              []struct {
-			ID        string `json:"id"`
-			Method    string `json:"method"`
-			IsDefault bool   `json:"is_default"`
+			ID          string  `json:"id"`
+			Method      string  `json:"method"`
+			IsDefault   bool    `json:"is_default"`
+			Destination *string `json:"destination"`
 		} `json:"factors"`
 	}
-	listed := f.expect(http.StatusOK, f.request(http.MethodGet, "/user/2fa", current, nil))
+	listed := f.expect(http.StatusOK, f.request(http.MethodGet, "/me/2fa", current, nil))
 	require.NoError(t, json.Unmarshal([]byte(listed.raw), &status))
-	require.Equal(t, "totp", status.Method)
+	require.True(t, status.Enabled)
 	require.Equal(t, 10, status.BackupCodesRemaining)
 	require.Len(t, status.Factors, 1)
 	factor := status.Factors[0]
-	require.NotEmpty(t, factor.ID)
+	require.Equal(t, enabled.createdFactorID(t), factor.ID)
 	require.Equal(t, "totp", factor.Method)
 	require.True(t, factor.IsDefault)
-	var me struct {
-		Security struct {
-			StepUpMethods []string            `json:"step_up_methods"`
-			StepUp2FA     factorStepUpOptions `json:"step_up_2fa"`
-		} `json:"security"`
+	require.Nil(t, factor.Destination, "an authenticator app has no destination")
+	var security struct {
+		StepUpMethods []string            `json:"step_up_methods"`
+		StepUp2FA     factorStepUpOptions `json:"step_up_2fa"`
+		MFAEnabled    bool                `json:"mfa_enabled"`
 	}
-	profile := f.expect(http.StatusOK, f.request(http.MethodGet, "/me", current, nil))
-	require.NoError(t, json.Unmarshal([]byte(profile.raw), &me))
-	require.Contains(t, me.Security.StepUpMethods, "2fa")
-	me.Security.StepUp2FA.require(t, []string{"totp"}, "totp")
+	profile := f.expect(http.StatusOK, f.request(http.MethodGet, "/me/security", current, nil))
+	require.NoError(t, json.Unmarshal([]byte(profile.raw), &security))
+	require.True(t, security.MFAEnabled)
+	require.Contains(t, security.StepUpMethods, "2fa")
+	security.StepUp2FA.require(t, []string{"totp"}, "totp")
 	for _, body := range []any{map[string]any{}, map[string]any{"method": "totp"}} {
-		challenge := f.expect(http.StatusForbidden, f.request(http.MethodPost, "/step-up/2fa", current, body))
-		require.Equal(t, "totp", challenge.Error.Metadata.Method)
-		require.NotContains(t, challenge.raw, `"factor"`)
+		// An authenticator app needs no code sent.
+		f.expect(http.StatusAccepted, f.request(http.MethodPost, "/me/step-up/2fa/send", current, body))
 	}
-	for _, body := range []any{map[string]any{"method": "bad"}, map[string]any{"factor_id": factor.ID}} {
-		f.expect(http.StatusBadRequest, f.request(http.MethodPost, "/step-up/2fa", current, body))
+	f.expect(http.StatusBadRequest, f.request(http.MethodPost, "/me/step-up/2fa/send", current, map[string]any{"method": "bad"}))
+	f.expect(http.StatusBadRequest, f.request(http.MethodPost, "/me/step-up/2fa/send", current, map[string]any{"method": "sms"}))
+	for _, body := range []any{map[string]any{"method": "bad", "code": "123456"}, map[string]any{"factor_id": factor.ID, "code": "123456"}, map[string]any{}} {
+		f.expect(http.StatusBadRequest, f.request(http.MethodPost, "/me/step-up/2fa", current, body))
 	}
 	stepUpCounter, stepUpCode := nextCode(enrolledStep)
 	mfa := f.expect(http.StatusOK, f.request(http.MethodPost, "/step-up/2fa", current, map[string]any{"code": stepUpCode})).tokens()
@@ -647,25 +659,25 @@ func TestFactorManagementWorkflow(t *testing.T) {
 	require.NotEmpty(t, claims["auth_time"])
 	require.ElementsMatch(t, []any{"pwd", "totp", "otp", "mfa"}, claims["amr"])
 	require.Equal(t, iam.AssuranceLevelMFA, claims["acr"])
-	passwordAgain := f.expect(http.StatusForbidden, f.request(http.MethodPost, "/step-up/password", mfa.AccessToken, map[string]any{"password": u.Password}))
+	passwordAgain := f.expect(http.StatusForbidden, f.request(http.MethodPost, "/me/step-up/password", mfa.AccessToken, map[string]any{"password": u.Password}))
 	require.Equal(t, "step_up_required", passwordAgain.Error.Code, "a password never re-proves an account with a second factor")
 
 	// A fresh factor proof permits management but cannot replace the factor:
 	// the same factor and all its backup codes remain, and its app still
 	// signs in below.
-	replacement := f.expect(http.StatusOK, f.request(http.MethodPost, "/user/2fa", mfa.AccessToken, map[string]any{"method": "totp"}))
-	conflict := f.expect(http.StatusConflict, f.request(http.MethodPost, "/user/2fa", mfa.AccessToken,
+	replacement := f.expect(http.StatusOK, f.request(http.MethodPost, "/me/2fa/setup", mfa.AccessToken, map[string]any{"method": "totp"}))
+	conflict := f.expect(http.StatusConflict, f.request(http.MethodPost, "/me/2fa/factors", mfa.AccessToken,
 		map[string]any{"method": "totp", "code": authtest.TOTPCode(t, replacement.Secret, time.Now())}))
 	require.Equal(t, "2fa_factor_exists", conflict.Error.Code)
-	listed = f.expect(http.StatusOK, f.request(http.MethodGet, "/user/2fa", current, nil))
+	listed = f.expect(http.StatusOK, f.request(http.MethodGet, "/me/2fa", current, nil))
 	require.NoError(t, json.Unmarshal([]byte(listed.raw), &status))
 	require.Len(t, status.Factors, 1)
 	require.Equal(t, factor.ID, status.Factors[0].ID)
 	require.Equal(t, 10, status.BackupCodesRemaining)
-	f.expect(http.StatusNoContent, f.request(http.MethodPost, "/user/2fa", mfa.AccessToken, map[string]any{"factor_id": factor.ID, "default": true}))
-	listed = f.expect(http.StatusOK, f.request(http.MethodGet, "/user/2fa", current, nil))
-	require.NoError(t, json.Unmarshal([]byte(listed.raw), &status))
-	require.Equal(t, "totp", status.Method)
+	updated := f.expect(http.StatusOK, f.request(http.MethodPatch, "/me/2fa/factors/"+factor.ID, mfa.AccessToken, map[string]any{"default": true}))
+	require.Contains(t, updated.raw, `"is_default":true`)
+	f.expect(http.StatusBadRequest, f.request(http.MethodPatch, "/me/2fa/factors/"+factor.ID, mfa.AccessToken, map[string]any{"default": false}))
+	f.expect(http.StatusNotFound, f.request(http.MethodPatch, "/me/2fa/factors/"+uuid.NewString(), mfa.AccessToken, map[string]any{"default": true}))
 
 	challenge := f.post("/password/login", map[string]any{"identifier": u.Email, "password": u.Password}).secondFactor(t)
 	require.Equal(t, u.ID, challenge.UserID)
@@ -694,7 +706,7 @@ func TestFactorManagementWorkflow(t *testing.T) {
 
 	// Only age the real MFA session; never inject proof or reset TOTP replay state.
 	staleMFA := authtest.StaleSession(t, auth, tokens.AccessToken)
-	denied = f.expect(http.StatusForbidden, f.request(http.MethodPost, "/user/2fa/backup-codes", staleMFA, map[string]any{}))
+	denied = f.expect(http.StatusForbidden, f.request(http.MethodPost, "/me/2fa/backup-codes", staleMFA, nil))
 	var staleResponse struct {
 		Error struct {
 			Metadata struct {
@@ -710,6 +722,15 @@ func TestFactorManagementWorkflow(t *testing.T) {
 	freshMFA := f.expect(http.StatusOK, f.request(http.MethodPost, "/step-up/2fa", staleMFA, map[string]any{"code": enabled.BackupCodes[1], "backup_code": true})).tokens()
 	regenerated := f.expect(http.StatusOK, f.request(http.MethodPost, "/user/2fa/backup-codes", freshMFA.AccessToken, map[string]any{}))
 	require.Len(t, regenerated.BackupCodes, 10)
+
+	// Removing the only factor turns MFA off; an absent factor is already
+	// removed.
+	f.expect(http.StatusNoContent, f.request(http.MethodDelete, "/me/2fa/factors/"+factor.ID, freshMFA.AccessToken, nil))
+	f.expect(http.StatusNoContent, f.request(http.MethodDelete, "/me/2fa/factors/"+factor.ID, freshMFA.AccessToken, nil))
+	listed = f.expect(http.StatusOK, f.request(http.MethodGet, "/me/2fa", freshMFA.AccessToken, nil))
+	require.NoError(t, json.Unmarshal([]byte(listed.raw), &status))
+	require.False(t, status.Enabled)
+	require.Empty(t, status.Factors)
 }
 
 // The sole root owner cannot turn off their second factor: the refusal keeps
@@ -730,12 +751,12 @@ func TestSoleRootOwnerCannotDisable2FA(t *testing.T) {
 	first.TOTP = authtest.EnrollTOTP(t, auth, first)
 	authtest.GrantRole(t, auth, iam.RootGroup(), iam.UserSubject(first.ID), owner)
 	token := authtest.SignIn(t, auth, first).AccessToken
-	refused := f.expect(http.StatusConflict, f.request(http.MethodDelete, "/user/2fa", token, nil))
+	refused := f.expect(http.StatusConflict, f.request(http.MethodDelete, "/me/2fa", token, nil))
 	require.Equal(t, "last_owner", refused.Error.Code)
 	var status struct {
 		Enabled bool `json:"enabled"`
 	}
-	settings := f.expect(http.StatusOK, f.request(http.MethodGet, "/user/2fa", token, nil))
+	settings := f.expect(http.StatusOK, f.request(http.MethodGet, "/me/2fa", token, nil))
 	require.NoError(t, json.Unmarshal([]byte(settings.raw), &status))
 	require.True(t, status.Enabled, "the sole owner's 2FA stays on after a refused disable")
 	require.True(t, can(first), "the sole owner keeps root:* after a refused disable")
@@ -743,17 +764,9 @@ func TestSoleRootOwnerCannotDisable2FA(t *testing.T) {
 	second := authtest.NewUser(t, auth)
 	second.TOTP = authtest.EnrollTOTP(t, auth, second)
 	authtest.GrantRole(t, auth, iam.RootGroup(), iam.UserSubject(second.ID), owner)
-	disabled := f.expect(http.StatusOK, f.request(http.MethodDelete, "/user/2fa", token, nil))
-	var removed struct {
-		RemovedRoles []struct {
-			Persona string `json:"persona"`
-			Role    string `json:"role"`
-		} `json:"removed_roles"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(disabled.raw), &removed))
-	require.Len(t, removed.RemovedRoles, 1, "only the owner role goes")
-	require.Equal(t, iam.RootPersona.String(), removed.RemovedRoles[0].Persona)
-	require.Equal(t, owner.String(), removed.RemovedRoles[0].Role)
+	f.expect(http.StatusNoContent, f.request(http.MethodDelete, "/me/2fa", token, nil))
+	require.True(t, roleOfIn(t, auth, iam.RootGroup(), iam.UserSubject(first.ID)).IsZero(), "the owner role goes with the 2FA")
+	require.Equal(t, owner, roleOfIn(t, auth, iam.RootGroup(), iam.UserSubject(second.ID)))
 	require.False(t, can(first), "the first owner lost root:* with its 2FA")
 	require.True(t, can(second), "the second owner is unaffected")
 }

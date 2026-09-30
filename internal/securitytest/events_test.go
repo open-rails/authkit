@@ -156,7 +156,7 @@ func TestSecurityEventsRecordOnlyCommittedChanges(t *testing.T) {
 
 	aliceToken := h.login(alice).AccessToken
 	newEmail := unique("alicenew") + "@security.test"
-	resp = h.post("/verify/request", map[string]string{"identifier": newEmail, "password": password}, aliceToken)
+	resp = h.do(request{method: http.MethodPut, path: "/me/email", body: map[string]string{"email": newEmail}, token: aliceToken})
 	require.Equal(t, http.StatusAccepted, resp.status, resp.String())
 	resp = h.post("/verify/confirm", map[string]string{"identifier": newEmail, "code": h.verificationCode(newEmail)}, aliceToken)
 	require.Equal(t, http.StatusNoContent, resp.status, resp.String())
@@ -289,7 +289,7 @@ func TestSecurityEventsCarryNoSecrets(t *testing.T) {
 	secrets = append(secrets, session.AccessToken, session.RefreshToken)
 
 	newEmail := unique("secretnew") + "@security.test"
-	resp := h.post("/verify/request", map[string]string{"identifier": newEmail, "password": password}, session.AccessToken)
+	resp := h.do(request{method: http.MethodPut, path: "/me/email", body: map[string]string{"email": newEmail}, token: session.AccessToken})
 	require.Equal(t, http.StatusAccepted, resp.status, resp.String())
 	code := h.verificationCode(newEmail)
 	secrets = append(secrets, code)

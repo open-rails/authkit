@@ -129,7 +129,7 @@ func TestSecurityDeviceKeyMFAGate(t *testing.T) {
 	})
 
 	t.Run("a password change ends every device key", func(t *testing.T) {
-		resp := h.post("/user/password", map[string]string{"current_password": password, "new_password": password + "x"}, h.mfaSession(victim))
+		resp := h.do(request{method: http.MethodPut, path: "/me/password", body: map[string]string{"current_password": password, "new_password": password + "x"}, token: h.mfaSession(victim)})
 		require.Less(t, resp.status, 300, resp.String())
 		var live int
 		require.NoError(t, h.pool.QueryRow(ctx, `SELECT count(*) FROM profiles.user_device_keys WHERE user_id=$1::uuid AND revoked_at IS NULL`, victim.id).Scan(&live))

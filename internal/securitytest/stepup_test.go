@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
+	"github.com/google/uuid"
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
@@ -32,8 +33,9 @@ func (h *host) mfaSession(a account) string {
 // TestSecurityPasswordStepUpNeedsSecondFactor (N1): for an account with a
 // second factor, a fresh authentication means that factor within the window. A
 // stolen session plus the phished password never yields a token that
-// regenerates backup codes, registers a passkey, adds a factor, links a
-// provider or wallet or changes the address, on AuthKit's routes or a host's;
+// regenerates backup codes, registers a passkey, adds or removes a factor,
+// links or unlinks a provider or wallet, manages a sign-in key, changes or
+// removes an address or deletes the account, on AuthKit's routes or a host's;
 // each refusal says only the second factor clears it.
 func TestSecurityPasswordStepUpNeedsSecondFactor(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withProviders(testidp.New(t).OAuth2("idp")), authtest.WithConfig(func(c *authkit.Config) {
@@ -64,7 +66,7 @@ func TestSecurityPasswordStepUpNeedsSecondFactor(t *testing.T) {
 		resp.json(t, &meta)
 		require.True(t, meta.Error.Metadata.MFARequired, "a password never clears the gate: %s", resp)
 	}
-	requireMFAStepUp(h.post("/step-up/password", map[string]string{"password": password}, stolen), "a password re-proved an account with a second factor")
+	requireMFAStepUp(h.post("/me/step-up/password", map[string]string{"password": password}, stolen), "a password re-proved an account with a second factor")
 
 	// What a password re-auth wrote before: the session is fresh, its second
 	// factor is not. The token must still fail the MFA-if-enrolled gate.
@@ -84,14 +86,23 @@ func TestSecurityPasswordStepUpNeedsSecondFactor(t *testing.T) {
 		sensitive.ServeHTTP(w, r)
 		return w.Code
 	}
+	someKey := uuid.NewString()
 	attacks := []request{
-		{method: http.MethodPost, path: "/user/2fa/backup-codes", body: map[string]any{}},
-		{method: http.MethodPost, path: "/passkeys/register/begin", body: map[string]any{}},
-		{method: http.MethodPost, path: "/user/2fa", body: map[string]string{"method": "totp"}},
-		{method: http.MethodDelete, path: "/user/2fa", body: map[string]any{}},
-		{method: http.MethodPost, path: "/verify/request", body: map[string]string{"identifier": unique("evil") + "@security.test"}},
+		{method: http.MethodPost, path: "/me/2fa/backup-codes"},
+		{method: http.MethodPost, path: "/me/passkeys/register/begin"},
+		{method: http.MethodPost, path: "/me/2fa/setup", body: map[string]string{"method": "totp"}},
+		{method: http.MethodPost, path: "/me/2fa/factors", body: map[string]string{"method": "totp", "code": "123456"}},
+		{method: http.MethodDelete, path: "/me/2fa"},
+		{method: http.MethodDelete, path: "/me/2fa/factors/" + someKey},
+		{method: http.MethodPut, path: "/me/email", body: map[string]string{"email": unique("evil") + "@security.test"}},
+		{method: http.MethodPut, path: "/me/phone", body: map[string]string{"phone_number": "+15550009999"}},
+		{method: http.MethodDelete, path: "/me/phone"},
+		{method: http.MethodPatch, path: "/me/sign-in-keys/" + someKey, body: map[string]string{"label": "evil"}},
+		{method: http.MethodDelete, path: "/me/sign-in-keys/" + someKey},
+		{method: http.MethodDelete, path: "/me/providers/idp"},
+		{method: http.MethodDelete, path: "/me"},
 		{method: http.MethodPost, path: "/oidc/idp/link/start", body: map[string]any{}},
-		{method: http.MethodPost, path: "/solana/link", body: map[string]any{}},
+		{method: http.MethodPut, path: "/me/solana-wallet", body: map[string]any{}},
 	}
 	for name, token := range map[string]string{"stolen": stolen, "password re-proved": reproved} {
 		for _, req := range attacks {
@@ -105,14 +116,13 @@ func TestSecurityPasswordStepUpNeedsSecondFactor(t *testing.T) {
 	require.Equal(t, victim.email, *u.Email)
 
 	t.Run("control: a second-factor step-up clears every gate", func(t *testing.T) {
-		resp := h.post("/step-up/2fa", map[string]any{}, reproved)
-		require.Equal(t, http.StatusForbidden, resp.status, resp.String())
-		require.Equal(t, "2fa_required", resp.errorCode())
-		resp = h.post("/step-up/2fa", map[string]string{"code": h.mail.Last(t, iam.MessageLoginCode, victim.email).Code}, reproved)
+		resp := h.post("/me/step-up/2fa/send", map[string]any{}, reproved)
+		require.Equal(t, http.StatusAccepted, resp.status, resp.String())
+		resp = h.post("/me/step-up/2fa", map[string]string{"code": h.mail.Last(t, iam.MessageLoginCode, victim.email).Code}, reproved)
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
 		fresh := session(t, resp).AccessToken
 		require.Equal(t, http.StatusNoContent, hostRoute(fresh))
-		resp = h.post("/user/2fa/backup-codes", map[string]any{}, fresh)
+		resp = h.post("/me/2fa/backup-codes", nil, fresh)
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
 		resp = h.post("/oidc/idp/link/start", map[string]any{}, fresh)
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
@@ -140,7 +150,7 @@ func TestSecurityEnrollmentTokenOutsideMiddleware(t *testing.T) {
 	_, err = h.auth.Verify(ctx, enrollment)
 	require.Error(t, err, "Verify accepted an enrollment-only token")
 	// The token is genuine: the exempt enrollment route reads its claims.
-	r := httptest.NewRequest(http.MethodGet, apiPrefix+"/user/2fa", nil)
+	r := httptest.NewRequest(http.MethodGet, apiPrefix+"/me/2fa", nil)
 	r.Header.Set("Authorization", "Bearer "+enrollment)
 	cl, err := h.auth.VerifyRequest(r)
 	require.NoError(t, err)
@@ -170,11 +180,11 @@ func withPasskeys(c *authkit.Config) {
 func (h *host) registerPasskey(token string) *passkeytest.Authenticator {
 	h.t.Helper()
 	authn := passkeytest.New(h.t, "http://localhost")
-	resp := h.post("/passkeys/register/begin", map[string]any{}, token)
+	resp := h.post("/me/passkeys/register/begin", nil, token)
 	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
 	var creation protocol.CredentialCreation
 	resp.json(h.t, &creation)
-	resp = h.post("/passkeys/register/finish", authn.Register(h.t, &creation), token)
+	resp = h.post("/me/passkeys/register/finish", authn.Register(h.t, &creation), token)
 	require.Equal(h.t, http.StatusCreated, resp.status, resp.String())
 	return authn
 }
@@ -201,7 +211,7 @@ func TestSecurityPasswordStepUpOnPasskeySession(t *testing.T) {
 	_, claims := splitToken(t, session(t, resp).AccessToken)
 	require.Equal(t, iam.AssuranceLevelMFA, claims["acr"], "control: a passkey sign-in is MFA")
 	// The attacker's copy of the session is older than the fresh-auth window.
-	resp = h.post("/step-up/password", map[string]string{"password": password}, authtest.StaleSession(t, h.auth, session(t, resp).AccessToken))
+	resp = h.post("/me/step-up/password", map[string]string{"password": password}, authtest.StaleSession(t, h.auth, session(t, resp).AccessToken))
 	require.Equal(t, http.StatusOK, resp.status, resp.String())
 	stepped := session(t, resp).AccessToken
 	_, claims = splitToken(t, stepped)

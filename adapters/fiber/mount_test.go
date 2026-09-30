@@ -142,7 +142,7 @@ func TestMountPreservesParametersContextAndJSONCookieGuards(t *testing.T) {
 	cfg.APIPath, cfg.RefreshCookie = "/identity", true
 	auth := testhttp.Client(t, cfg, authtest.WithDeps(func(d *authkit.Deps) {
 		d.Wrap = func(route iam.Route, handler http.Handler) http.Handler {
-			if route.Path != "/identity/user/providers/{provider}" {
+			if route.Path != "/identity/me/providers/{provider}" {
 				return handler
 			}
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -169,7 +169,7 @@ func TestMountPreservesParametersContextAndJSONCookieGuards(t *testing.T) {
 		{"cross origin", "application/json", "http://attacker.example", "{}", http.StatusForbidden},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			r := httptest.NewRequest(http.MethodDelete, "https://example.com/identity/user/providers/google", strings.NewReader(tc.body))
+			r := httptest.NewRequest(http.MethodDelete, "https://example.com/identity/me/providers/google", strings.NewReader(tc.body))
 			r.Header.Set("Content-Type", tc.contentType)
 			r.Header.Set("Origin", tc.origin)
 			res, err := app.Test(r)

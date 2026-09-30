@@ -185,13 +185,7 @@ func testPasskeyCeremonyAndAssurance(t *testing.T, auth *authkit.Client, outbox 
 			} `json:"allowCredentials"`
 		} `json:"publicKey"`
 	}
-	type passkey struct {
-		ID             string     `json:"id"`
-		Label          *string    `json:"label"`
-		BackupEligible bool       `json:"backup_eligible"`
-		BackupState    bool       `json:"backup_state"`
-		LastUsedAt     *time.Time `json:"last_used_at"`
-	}
+	type passkey = signInKey
 	f := newFactorFlow(t, auth, outbox)
 	u := authtest.NewUser(t, auth)
 	setupToken := authtest.SignIn(t, auth, u).AccessToken
@@ -212,27 +206,23 @@ func testPasskeyCeremonyAndAssurance(t *testing.T, auth *authkit.Client, outbox 
 	}
 	list := func() []passkey {
 		t.Helper()
-		var listed struct {
-			Data []passkey `json:"data"`
-		}
-		decode(f.expect(http.StatusOK, f.request(http.MethodGet, "/passkeys", setupToken, nil)), &listed)
-		return listed.Data
+		return f.signInKeys(setupToken, "passkey")
 	}
 
 	var creation creationOptions
-	decode(f.expect(http.StatusOK, f.request(http.MethodPost, "/passkeys/register/begin", setupToken, map[string]any{})), &creation)
+	decode(f.expect(http.StatusOK, f.request(http.MethodPost, "/me/passkeys/register/begin", setupToken, map[string]any{})), &creation)
 	require.Equal(t, "Example", creation.PublicKey.RP.Name)
 	require.Equal(t, "example.com", creation.PublicKey.RP.ID)
 	require.Equal(t, "required", creation.PublicKey.AuthenticatorSelection.ResidentKey)
 	require.Empty(t, creation.PublicKey.ExcludeCredentials)
 	attestation := authn.Attestation(t, creation.PublicKey.RP.ID, passkeytest.UserHandle(t, creation.PublicKey.User.ID), creation.PublicKey.Challenge)
 	var created passkey
-	decode(f.expect(http.StatusCreated, f.request(http.MethodPost, "/passkeys/register/finish", setupToken, attestation)), &created)
+	decode(f.expect(http.StatusCreated, f.request(http.MethodPost, "/me/passkeys/register/finish", setupToken, attestation)), &created)
 	require.NotEmpty(t, created.ID)
-	require.True(t, created.BackupEligible)
-	require.True(t, created.BackupState)
+	require.Equal(t, "passkey", created.Kind)
+	require.False(t, created.Current)
 
-	decode(f.expect(http.StatusOK, f.request(http.MethodPost, "/passkeys/register/begin", setupToken, map[string]any{})), &creation)
+	decode(f.expect(http.StatusOK, f.request(http.MethodPost, "/me/passkeys/register/begin", setupToken, map[string]any{})), &creation)
 	require.Len(t, creation.PublicKey.ExcludeCredentials, 1)
 	require.Equal(t, base64.RawURLEncoding.EncodeToString(authn.CredentialID), creation.PublicKey.ExcludeCredentials[0].ID)
 
@@ -265,15 +255,16 @@ func testPasskeyCeremonyAndAssurance(t *testing.T, auth *authkit.Client, outbox 
 	// Management uses the credential established by the actual ceremony.
 	for _, label := range []string{"old", "new"} {
 		var renamed passkey
-		decode(f.expect(http.StatusOK, f.request(http.MethodPatch, "/passkeys/"+created.ID, setupToken, map[string]any{"label": label})), &renamed)
+		decode(f.expect(http.StatusOK, f.request(http.MethodPatch, "/me/sign-in-keys/"+created.ID, setupToken, map[string]any{"label": label})), &renamed)
 		require.Equal(t, label, *renamed.Label)
 		listed = list()
 		require.NotNil(t, listed[0].Label)
 		require.Equal(t, label, *listed[0].Label)
 	}
-	f.expect(http.StatusNoContent, f.request(http.MethodDelete, "/passkeys/"+created.ID, setupToken, nil))
+	f.expect(http.StatusNoContent, f.request(http.MethodDelete, "/me/sign-in-keys/"+created.ID, setupToken, nil))
 	require.Empty(t, list())
-	f.expect(http.StatusNoContent, f.request(http.MethodDelete, "/passkeys/"+created.ID, setupToken, nil)) // idempotent
+	f.expect(http.StatusNoContent, f.request(http.MethodDelete, "/me/sign-in-keys/"+created.ID, setupToken, nil)) // idempotent
+	f.expect(http.StatusNotFound, f.request(http.MethodPatch, "/me/sign-in-keys/"+created.ID, setupToken, map[string]any{"label": "gone"}))
 	assertion = requestOptions{}
 	decode(f.expect(http.StatusOK, f.post("/passkeys/login/begin", map[string]any{})), &assertion)
 	deleted := finish(assertion, 3)

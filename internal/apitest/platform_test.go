@@ -124,7 +124,7 @@ func TestMountCatalog(t *testing.T) {
 			{http.MethodPost, "/api/v1/device-keys/login/begin"},
 			{http.MethodPost, "/api/v1/passwordless/start"},
 			{http.MethodPost, "/api/v1/2fa/challenge"},
-			{http.MethodGet, "/api/v1/user/2fa"},
+			{http.MethodGet, "/api/v1/me/2fa"},
 			{http.MethodPost, "/api/v1/solana/challenge"},
 			{http.MethodPost, "/api/v1/delegated/token"},
 			{http.MethodGet, "/oidc/example/login"},
@@ -306,7 +306,7 @@ func testWorkflowRateLimits(t *testing.T, rdb *redis.Client) {
 		return from(a, address, "/password/login", "", map[string]string{"identifier": u.Email, "password": password})
 	}
 	stepUp := func(a *api, token, password, address string) response {
-		return from(a, address, "/step-up/password", token, map[string]string{"password": password})
+		return from(a, address, "/me/step-up/password", token, map[string]string{"password": password})
 	}
 	sessions := func(u authtest.User) int {
 		list, err := auth.Sessions(t.Context(), u.ID)
@@ -345,7 +345,8 @@ func testWorkflowRateLimits(t *testing.T, rdb *redis.Client) {
 	res = stepUp(a, stale, stepper.Password, "198.51.100.5")
 	require.Equal(t, http.StatusTooManyRequests, res.status, res.String())
 	require.Equal(t, "rate_limited", res.code())
-	res = from(a, "198.51.100.5", "/user/password", stale, map[string]string{"current_password": stepper.Password, "new_password": "Another-password-12345"})
+	res = a.do(request{method: http.MethodPut, path: "/me/password", token: stale, header: http.Header{"X-Forwarded-For": {"198.51.100.5"}},
+		body: map[string]string{"current_password": stepper.Password, "new_password": "Another-password-12345"}})
 	require.Equal(t, http.StatusTooManyRequests, res.status, "the password change shares the step-up budget: %s", res)
 	res = stepUp(a, stale, stepper.Password, "198.51.100.7")
 	require.Equal(t, http.StatusOK, res.status, res.String())

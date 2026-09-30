@@ -228,9 +228,9 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		a := newAPI(t, auth)
 		require.Equal(t, http.StatusOK, a.get("/me", victimA.AccessToken).status)
 		for _, tc := range []request{
-			{method: http.MethodPatch, path: "/user/preferred-language", body: `{"preferred_language":"en"}`},
-			{method: http.MethodDelete, path: "/user/sessions"},
-			{method: http.MethodPost, path: "/step-up/password", body: map[string]string{"password": victim.Password}},
+			{method: http.MethodPatch, path: "/me", body: `{"preferred_language":"en"}`},
+			{method: http.MethodDelete, path: "/me/sessions"},
+			{method: http.MethodPost, path: "/me/step-up/password", body: map[string]string{"password": victim.Password}},
 		} {
 			tc.token = victimA.AccessToken
 			res := a.do(tc)
@@ -259,15 +259,18 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		require.Equal(t, http.StatusOK, refresh(t, siteA, bystanderA))
 		require.Equal(t, http.StatusOK, refresh(t, siteB, bystanderB))
 
-		res = siteB.api.do(request{method: http.MethodDelete, path: "/user/sessions", token: bystanderB.AccessToken})
+		// Signing out the other sessions keeps the caller's.
+		other := login(t, siteB, bystander)
+		res = siteB.api.do(request{method: http.MethodDelete, path: "/me/sessions", token: bystanderB.AccessToken})
 		require.Equal(t, http.StatusNoContent, res.status, res.String())
-		require.Equal(t, http.StatusUnauthorized, refresh(t, siteB, bystanderB))
+		require.Equal(t, http.StatusUnauthorized, refresh(t, siteB, other))
+		require.Equal(t, http.StatusOK, refresh(t, siteB, bystanderB))
 		require.Equal(t, http.StatusOK, refresh(t, siteA, bystanderA))
 	})
 
 	t.Run("password change keeps the current session and revokes the sibling issuer", func(t *testing.T) {
 		current := login(t, siteB, bystander)
-		res := siteB.api.post("/user/password", current.AccessToken, map[string]string{"current_password": bystander.Password, "new_password": "Another-horse-battery-98"})
+		res := siteB.api.do(request{method: http.MethodPut, path: "/me/password", token: current.AccessToken, body: map[string]string{"current_password": bystander.Password, "new_password": "Another-horse-battery-98"}})
 		require.Contains(t, []int{http.StatusOK, http.StatusNoContent}, res.status, res.String())
 		require.Equal(t, http.StatusOK, refresh(t, siteB, current))
 		require.Equal(t, http.StatusUnauthorized, refresh(t, siteA, bystanderA))

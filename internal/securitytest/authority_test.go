@@ -614,7 +614,7 @@ func TestSecurityOwnApplicationIsNoReplacementOwner(t *testing.T) {
 	token := h.login(founder).AccessToken
 	app := h.registerApp(group, founder, "r1-app", "owner")
 
-	resp := h.do(request{method: http.MethodDelete, path: "/user", body: map[string]string{"password": password}, token: token})
+	resp := h.do(request{method: http.MethodDelete, path: "/me", token: token})
 	require.Equal(t, http.StatusConflict, resp.status, "the last human owner deleted itself: %s", resp)
 	require.Equal(t, "last_owner", resp.errorCode())
 	require.ErrorIs(t, opErr(h.auth.DeleteUsers(ctx, iam.SystemActor(), []string{founder.id})), iam.ErrLastOwner)
@@ -636,7 +636,7 @@ func TestSecurityOwnApplicationIsNoReplacementOwner(t *testing.T) {
 	})
 	t.Run("control: with a second owner the founder leaves and its application's role goes", func(t *testing.T) {
 		h.grant(group, h.newAccount("r1second"), "owner")
-		resp := h.do(request{method: http.MethodDelete, path: "/user", body: map[string]string{"password": password}, token: token})
+		resp := h.do(request{method: http.MethodDelete, path: "/me", token: token})
 		require.Equal(t, http.StatusNoContent, resp.status, resp.String())
 		require.Empty(t, h.roleOf(group, iam.RemoteApplicationSubject(app.ID)))
 		require.NotContains(t, h.ownerlessGroups(), g.ID)

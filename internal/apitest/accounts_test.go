@@ -372,7 +372,7 @@ func TestPasswordChangeOnLegacyHashRequiresReset(t *testing.T) {
 	token := res.answer(t).signedIn(t).AccessToken
 	require.NotEmpty(t, token)
 
-	res = a.post("/user/password", token, map[string]any{"current_password": "Correct-horse-battery-7", "new_password": "Another-horse-battery-8"})
+	res = a.do(request{method: http.MethodPut, path: "/me/password", token: token, body: map[string]any{"current_password": "Correct-horse-battery-7", "new_password": "Another-horse-battery-8"}})
 	require.Equal(t, http.StatusUnauthorized, res.status, res.String())
 	require.Equal(t, "password_reset_required", res.code())
 }
@@ -432,9 +432,9 @@ func TestUsernameCaseWorkflow(t *testing.T) {
 	availability.decode(t, &answer)
 	require.False(t, answer.Username.Available)
 
-	evicted := expect(t, http.StatusUnauthorized, a.do(request{method: http.MethodPatch, path: "/user/username", token: confirmed.AccessToken, body: map[string]any{"username": lower}}))
+	evicted := expect(t, http.StatusUnauthorized, a.do(request{method: http.MethodPatch, path: "/me", token: confirmed.AccessToken, body: map[string]any{"username": lower}}))
 	require.Equal(t, "session_revoked", evicted.code(), "an evicted session changes nothing")
-	renamed := expect(t, http.StatusOK, a.do(request{method: http.MethodPatch, path: "/user/username", token: live, body: map[string]any{"username": lower}}))
+	renamed := expect(t, http.StatusOK, a.do(request{method: http.MethodPatch, path: "/me", token: live, body: map[string]any{"username": lower}}))
 	require.Contains(t, renamed.String(), `"username":"`+lower+`"`)
 	me := a.me(t, live)
 	require.Equal(t, lower, me.Username)
@@ -445,7 +445,7 @@ func TestUsernameCaseWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, iam.NameResolution{ID: userID, CanonicalName: lower}, resolved)
 	expect(t, http.StatusOK, a.post("/password/login", "", map[string]any{"identifier": name, "password": pass}))
-	expect(t, http.StatusOK, a.do(request{method: http.MethodPatch, path: "/user/username", token: live, body: map[string]any{"username": unique("renamed")}}))
+	expect(t, http.StatusOK, a.do(request{method: http.MethodPatch, path: "/me", token: live, body: map[string]any{"username": unique("renamed")}}))
 }
 
 // policyError checks res is the 400 a policy refusal is, on param, and returns
@@ -498,7 +498,7 @@ func TestAccountPolicies(t *testing.T) {
 		return token
 	}
 	change := func(a *api, token, current, next string) response {
-		return a.post("/user/password", token, map[string]any{"current_password": current, "new_password": next})
+		return a.do(request{method: http.MethodPut, path: "/me/password", token: token, body: map[string]any{"current_password": current, "new_password": next}})
 	}
 
 	t.Run("configured length", func(t *testing.T) {
@@ -556,7 +556,7 @@ func TestAccountPolicies(t *testing.T) {
 		require.Equal(t, bounds, policyError(t, register(a, "compose@example.test", "composer_long", "abc-12345"), "username_too_long", "username"))
 		policyError(t, register(a, "compose@example.test", "1composer", "abc-12345"), "username_must_start_with_letter", "username")
 		token := registered(t, register(a, "compose@example.test", "composer", "password1!"))
-		rename := a.do(request{method: http.MethodPatch, path: "/user/username", token: token, body: map[string]any{"username": "abc"}})
+		rename := a.do(request{method: http.MethodPatch, path: "/me", token: token, body: map[string]any{"username": "abc"}})
 		require.Equal(t, bounds, policyError(t, rename, "username_too_short", "username"))
 	})
 
@@ -610,7 +610,7 @@ func TestCredentialTransactionsResetGrantsExpireOnCredentialChanges(t *testing.T
 			switch change {
 			case "password_change":
 				token := authtest.SignIn(t, auth, u).AccessToken
-				expect(t, http.StatusNoContent, a.post("/user/password", token, map[string]any{"current_password": u.Password, "new_password": "Defender-password-12345"}))
+				expect(t, http.StatusNoContent, a.do(request{method: http.MethodPut, path: "/me/password", token: token, body: map[string]any{"current_password": u.Password, "new_password": "Defender-password-12345"}}))
 			case "contact_change":
 				token := authtest.SignIn(t, auth, u).AccessToken
 				next := uniqueEmail("audit-new-email")
