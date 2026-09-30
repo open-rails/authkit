@@ -16,7 +16,7 @@ import (
 // catalog: a success is a status the route declares with the body it
 // declares, member for member (nulls only where the contract has them, lists
 // never null, times in UTC); a failure is the error envelope with a catalog
-// code at that code's status. An unmatched path answers the JSON not_found
+// code at that code's status, its metadata the code's shape or null. An unmatched path answers the JSON not_found
 // or method_not_allowed.
 
 type catalogRoute struct {
@@ -118,4 +118,16 @@ func conformError(res response, fail func(string, ...any)) {
 	if want := errmodel.Status(errmodel.Code(code)); want != res.status {
 		fail("%s is %d in the catalog", code, want)
 	}
+	// Metadata is the code's one shape, or null.
+	meta, typed := errorMetadata[errmodel.Code(code)]
+	switch {
+	case !typed && obj["metadata"] != nil:
+		fail("%s carries metadata; the contract has none for it", code)
+	case typed && obj["metadata"] != nil:
+		if diffs := httpapi.Conform(reflect.TypeOf(meta), obj["metadata"]); len(diffs) > 0 {
+			fail("%s metadata differs from %T:\n  %s", code, meta, strings.Join(diffs, "\n  "))
+		}
+	}
 }
+
+var errorMetadata = httpapi.ErrorMetadata()

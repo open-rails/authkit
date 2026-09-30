@@ -41,7 +41,7 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 				return
 			}
 			cooldown := int64(naming.Cooldown(s.cfg.Username) / time.Second)
-			fail(w, errmodel.CodeRenameRateLimited, withDetails(authflow.ActionAvailability{
+			fail(w, errmodel.CodeRenameRateLimited, errmodel.WithDetails(authflow.ActionAvailability{
 				Action: authflow.ActionUpdateUsername, Allowed: state.Allowed, Reason: "cooldown",
 				RetryAfterSeconds: state.RetryAfterSeconds, NextAllowedAt: state.NextRenameAt, CooldownSeconds: &cooldown,
 			}))

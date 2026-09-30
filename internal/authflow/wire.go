@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/naming"
 )
 
@@ -16,17 +17,7 @@ const (
 	ActionRequestVerification  = "request_verification"
 )
 
-type ActionAvailability struct {
-	Action            string     `json:"action"`
-	Allowed           bool       `json:"allowed"`
-	Reason            string     `json:"reason"`
-	RetryAfterSeconds int64      `json:"retry_after_seconds"`
-	NextAllowedAt     *time.Time `json:"next_allowed_at"`
-	Limit             *int       `json:"limit"`
-	Remaining         *int       `json:"remaining"`
-	WindowSeconds     *int64     `json:"window_seconds"`
-	CooldownSeconds   *int64     `json:"cooldown_seconds"`
-}
+type ActionAvailability = errmodel.ActionAvailability
 
 // SolanaLinkedAccount is the AuthKit-owned normalized metadata for a
 // SIWS-linked wallet.
@@ -56,6 +47,16 @@ type StepUpTwoFactorOption struct {
 	Method      string  `json:"method"`
 	IsDefault   bool    `json:"is_default"`
 	Destination *string `json:"destination"`
+}
+
+// StepUpRequired is step_up_required's metadata: how the account can step
+// up, the freshness window, and its second factors (MFARequired: a password
+// alone never clears the gate).
+type StepUpRequired struct {
+	StepUpMethods []string                `json:"step_up_methods"`
+	MaxAgeSeconds int64                   `json:"max_age_seconds"`
+	StepUp2FA     *StepUpTwoFactorOptions `json:"step_up_2fa"`
+	MFARequired   bool                    `json:"mfa_required"`
 }
 
 // FreshAuth is a session's step-up state: when it last proved its user, and

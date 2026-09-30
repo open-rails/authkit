@@ -4247,6 +4247,86 @@
           "purge_at"
         ]
       },
+      "ActionAvailability": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "allowed": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "retry_after_seconds": {
+            "type": "integer"
+          },
+          "next_allowed_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "limit": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "remaining": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "window_seconds": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cooldown_seconds": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "action",
+          "allowed",
+          "reason",
+          "retry_after_seconds",
+          "next_allowed_at",
+          "limit",
+          "remaining",
+          "window_seconds",
+          "cooldown_seconds"
+        ]
+      },
       "AdminUserUpdateRequest": {
         "type": "object",
         "properties": {
@@ -4757,6 +4837,25 @@
             "type": "string"
           }
         }
+      },
+      "ContactProofRequired": {
+        "type": "object",
+        "properties": {
+          "identifier": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "identifier",
+          "channel",
+          "reason"
+        ]
       },
       "DelegatedTokenRequest": {
         "type": "object",
@@ -5291,6 +5390,21 @@
           }
         }
       },
+      "LengthBounds": {
+        "type": "object",
+        "properties": {
+          "min_length": {
+            "type": "integer"
+          },
+          "max_length": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "min_length",
+          "max_length"
+        ]
+      },
       "LinkedProvider": {
         "type": "object",
         "properties": {
@@ -5578,6 +5692,20 @@
           }
         }
       },
+      "PasswordRequirements": {
+        "type": "object",
+        "properties": {
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "missing"
+        ]
+      },
       "PasswordResetConfirmRequest": {
         "type": "object",
         "properties": {
@@ -5698,6 +5826,17 @@
             ]
           }
         }
+      },
+      "ProviderError": {
+        "type": "object",
+        "properties": {
+          "provider_error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider_error"
+        ]
       },
       "PublicUser": {
         "type": "object",
@@ -6172,6 +6311,39 @@
           }
         }
       },
+      "StepUpRequired": {
+        "type": "object",
+        "properties": {
+          "step_up_methods": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "max_age_seconds": {
+            "type": "integer"
+          },
+          "step_up_2fa": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StepUpTwoFactorOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mfa_required": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "step_up_methods",
+          "max_age_seconds",
+          "step_up_2fa",
+          "mfa_required"
+        ]
+      },
       "StepUpTwoFactorOption": {
         "type": "object",
         "properties": {
@@ -6423,6 +6595,17 @@
             "type": "boolean"
           }
         }
+      },
+      "TwoFactorRequired": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "method"
+        ]
       },
       "TwoFactorSendRequest": {
         "type": "object",
@@ -7429,7 +7612,7 @@
           "param",
           "metadata"
         ],
-        "description": "type follows the status; code is stable (clients tolerate new ones); message is not contract."
+        "description": "type follows the status; code is stable (clients tolerate new ones); message is not contract. metadata is null, or the shape x-authkit-error-codes gives the code."
       }
     },
     "securitySchemes": {
@@ -7455,7 +7638,10 @@
     },
     "2fa_required": {
       "status": 403,
-      "message": "Two-factor authentication is required."
+      "message": "Two-factor authentication is required.",
+      "metadata": {
+        "$ref": "#/components/schemas/TwoFactorRequired"
+      }
     },
     "access_token_has_sub": {
       "status": 401,
@@ -7567,7 +7753,10 @@
     },
     "contact_not_verified": {
       "status": 409,
-      "message": "The email address or phone number is not verified."
+      "message": "The email address or phone number is not verified.",
+      "metadata": {
+        "$ref": "#/components/schemas/ContactProofRequired"
+      }
     },
     "delegated_access_wrong_typ": {
       "status": 401,
@@ -7887,7 +8076,10 @@
     },
     "password_requirements_unmet": {
       "status": 400,
-      "message": "Password doesn't meet the requirements."
+      "message": "Password doesn't meet the requirements.",
+      "metadata": {
+        "$ref": "#/components/schemas/PasswordRequirements"
+      }
     },
     "password_reset_required": {
       "status": 401,
@@ -7899,11 +8091,17 @@
     },
     "password_too_long": {
       "status": 400,
-      "message": "Password is too long."
+      "message": "Password is too long.",
+      "metadata": {
+        "$ref": "#/components/schemas/LengthBounds"
+      }
     },
     "password_too_short": {
       "status": 400,
-      "message": "Password is too short."
+      "message": "Password is too short.",
+      "metadata": {
+        "$ref": "#/components/schemas/LengthBounds"
+      }
     },
     "passwordless_disabled": {
       "status": 403,
@@ -7939,7 +8137,10 @@
     },
     "provider_error": {
       "status": 400,
-      "message": "The provider returned an error. Please try again."
+      "message": "The provider returned an error. Please try again.",
+      "metadata": {
+        "$ref": "#/components/schemas/ProviderError"
+      }
     },
     "provider_not_linked": {
       "status": 400,
@@ -7951,7 +8152,10 @@
     },
     "rate_limited": {
       "status": 429,
-      "message": "Too many attempts. Please try again later."
+      "message": "Too many attempts. Please try again later.",
+      "metadata": {
+        "$ref": "#/components/schemas/ActionAvailability"
+      }
     },
     "registration_disabled": {
       "status": 403,
@@ -7971,7 +8175,10 @@
     },
     "rename_rate_limited": {
       "status": 429,
-      "message": "Too many username changes. Please try again later."
+      "message": "Too many username changes. Please try again later.",
+      "metadata": {
+        "$ref": "#/components/schemas/ActionAvailability"
+      }
     },
     "renames_disabled": {
       "status": 403,
@@ -8015,7 +8222,10 @@
     },
     "step_up_required": {
       "status": 403,
-      "message": "Please confirm it's you to continue."
+      "message": "Please confirm it's you to continue.",
+      "metadata": {
+        "$ref": "#/components/schemas/StepUpRequired"
+      }
     },
     "subject_mfa_required": {
       "status": 409,
@@ -8095,15 +8305,24 @@
     },
     "username_too_long": {
       "status": 400,
-      "message": "Username is too long."
+      "message": "Username is too long.",
+      "metadata": {
+        "$ref": "#/components/schemas/LengthBounds"
+      }
     },
     "username_too_short": {
       "status": 400,
-      "message": "Username is too short."
+      "message": "Username is too short.",
+      "metadata": {
+        "$ref": "#/components/schemas/LengthBounds"
+      }
     },
     "verification_required": {
       "status": 403,
-      "message": "Verify your contact details to continue."
+      "message": "Verify your contact details to continue.",
+      "metadata": {
+        "$ref": "#/components/schemas/ContactProofRequired"
+      }
     },
     "wallet_already_linked": {
       "status": 409,

@@ -80,8 +80,8 @@ func (s *Engine) EnsureUserRole(ctx context.Context, ref iam.GroupRef, u iam.Use
 		}
 		if !held {
 			if !created && !bound {
-				return errmodel.E(errmodel.CodeContactNotVerified, errmodel.WithMetadata(map[string]any{
-					"identifier": value, "channel": string(key), "reason": "contact_unproven",
+				return errmodel.E(errmodel.CodeContactNotVerified, errmodel.WithDetails(errmodel.ContactProofRequired{
+					Identifier: value, Channel: string(key), Reason: "contact_unproven",
 				}))
 			}
 			if !current.IsZero() {

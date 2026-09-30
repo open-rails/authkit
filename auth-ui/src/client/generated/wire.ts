@@ -39,6 +39,18 @@ export type AccountRecoveryConfirmation = {
   purge_at: string
 }
 
+export type ActionAvailability = {
+  action: string
+  allowed: boolean
+  reason: string
+  retry_after_seconds: number
+  next_allowed_at: string | null
+  limit: number | null
+  remaining: number | null
+  window_seconds: number | null
+  cooldown_seconds: number | null
+}
+
 export type AdminUserUpdateRequest = {
   email?: string | null
   phone_number?: string | null
@@ -128,6 +140,12 @@ export type CodeOrLinkRequest = {
   identifier?: string
   code?: string
   token?: string
+}
+
+export type ContactProofRequired = {
+  identifier: string
+  channel: string
+  reason: string
 }
 
 export type DelegatedTokenRequest = {
@@ -275,6 +293,11 @@ export type LabelRequest = {
   label?: string
 }
 
+export type LengthBounds = {
+  min_length: number
+  max_length: number
+}
+
 export type LinkedProvider = {
   provider: string
   email: string | null
@@ -359,6 +382,10 @@ export type PasswordRequest = {
   password?: string
 }
 
+export type PasswordRequirements = {
+  missing: string[]
+}
+
 export type PasswordResetConfirmRequest = {
   token?: string
   new_password?: string
@@ -391,6 +418,10 @@ export type ProfileUpdateRequest = {
   username?: string | null
   preferred_language?: string | null
   avatar_url?: string | null
+}
+
+export type ProviderError = {
+  provider_error: string
 }
 
 export type PublicUser = {
@@ -502,6 +533,13 @@ export type SolanaSignInRequest = {
   output?: SolanaSignInOutput
 }
 
+export type StepUpRequired = {
+  step_up_methods: string[]
+  max_age_seconds: number
+  step_up_2fa: StepUpTwoFactorOptions | null
+  mfa_required: boolean
+}
+
 export type StepUpTwoFactorOption = {
   method: string
   is_default: boolean
@@ -568,6 +606,10 @@ export type TwoFactorFactorCreated = {
 
 export type TwoFactorFactorUpdateRequest = {
   default?: boolean
+}
+
+export type TwoFactorRequired = {
+  method: string
 }
 
 export type TwoFactorSendRequest = {

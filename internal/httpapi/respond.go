@@ -6,10 +6,10 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/wireform"
 )
 
 // writeJSON is the one success writer. The body goes out in wire form: every
@@ -17,64 +17,7 @@ import (
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(wireForm(reflect.ValueOf(v)).Interface())
-}
-
-// wireForm copies v with its times in UTC and its nil lists and maps empty.
-// A value that marshals itself as text or raw JSON is left as it is.
-func wireForm(v reflect.Value) reflect.Value {
-	if !v.IsValid() {
-		return v
-	}
-	t := v.Type()
-	switch {
-	case t == timeType:
-		return reflect.ValueOf(v.Interface().(time.Time).UTC())
-	case t.Kind() != reflect.Struct && t.Kind() != reflect.Pointer && t.Kind() != reflect.Interface &&
-		(t.Implements(jsonMarshalerType) || t.Implements(textMarshalerType)):
-		return v
-	}
-	switch t.Kind() {
-	case reflect.Pointer:
-		if v.IsNil() {
-			return v
-		}
-		out := reflect.New(t.Elem())
-		out.Elem().Set(wireForm(v.Elem()))
-		return out
-	case reflect.Interface:
-		if v.IsNil() {
-			return v
-		}
-		out := reflect.New(t).Elem()
-		out.Set(wireForm(v.Elem()))
-		return out
-	case reflect.Struct:
-		out := reflect.New(t).Elem()
-		out.Set(v)
-		for i := range t.NumField() {
-			if t.Field(i).IsExported() {
-				out.Field(i).Set(wireForm(v.Field(i)))
-			}
-		}
-		return out
-	case reflect.Slice:
-		if t.Elem().Kind() == reflect.Uint8 {
-			return v
-		}
-		out := reflect.MakeSlice(t, v.Len(), v.Len())
-		for i := range v.Len() {
-			out.Index(i).Set(wireForm(v.Index(i)))
-		}
-		return out
-	case reflect.Map:
-		out := reflect.MakeMapWithSize(t, v.Len())
-		for it := v.MapRange(); it.Next(); {
-			out.SetMapIndex(it.Key(), wireForm(it.Value()))
-		}
-		return out
-	}
-	return v
+	_ = json.NewEncoder(w).Encode(wireform.Of(v))
 }
 
 // decodeQuery reads the query string into dst, a pointer to a struct whose

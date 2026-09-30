@@ -445,15 +445,13 @@ func (s *Engine) StepUpRequired(ctx context.Context, userID string) error {
 	}
 	settings, _ := s.Get2FASettings(ctx, userID)
 	providerSlugs, _ := s.ProviderSlugs(ctx, userID)
-	meta := map[string]any{
-		"step_up_methods": authflow.StepUpMethods(hasPassword, settings, providerSlugs, s.providerSupportsStepUp),
-		"max_age_seconds": int64(authflow.SensitiveActionFreshAuthWindow.Seconds()),
-	}
-	if twoFA := authflow.NewStepUpTwoFactorOptions(settings); twoFA != nil {
-		meta["step_up_2fa"] = twoFA
-		meta["mfa_required"] = true
-	}
-	return errmodel.E(errmodel.CodeStepUpRequired, errmodel.WithMetadata(meta))
+	twoFA := authflow.NewStepUpTwoFactorOptions(settings)
+	return errmodel.E(errmodel.CodeStepUpRequired, errmodel.WithDetails(authflow.StepUpRequired{
+		StepUpMethods: authflow.StepUpMethods(hasPassword, settings, providerSlugs, s.providerSupportsStepUp),
+		MaxAgeSeconds: int64(authflow.SensitiveActionFreshAuthWindow.Seconds()),
+		StepUp2FA:     twoFA,
+		MFARequired:   twoFA != nil,
+	}))
 }
 
 // providerSupportsStepUp reports whether the configured provider name can

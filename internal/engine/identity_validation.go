@@ -38,7 +38,7 @@ func validatePassword(p config.PasswordPolicy, value string, identifiers ...stri
 	case err == nil:
 		return nil
 	case errors.As(err, &unmet):
-		return errmodel.E(errmodel.CodePasswordRequirementsUnmet, errmodel.WithMeta("missing", unmet.Missing))
+		return errmodel.E(errmodel.CodePasswordRequirementsUnmet, errmodel.WithDetails(errmodel.PasswordRequirements{Missing: unmet.Missing}))
 	case errors.Is(err, password.ErrTooCommon):
 		return errmodel.E(errmodel.CodePasswordTooCommon)
 	case errors.Is(err, password.ErrContainsIdentifier):
@@ -48,7 +48,7 @@ func validatePassword(p config.PasswordPolicy, value string, identifiers ...stri
 	if errors.Is(err, password.ErrTooLong) {
 		code = errmodel.CodePasswordTooLong
 	}
-	return errmodel.E(code, errmodel.WithMetadata(map[string]any{"min_length": p.MinLength, "max_length": p.MaxLength}))
+	return errmodel.E(code, errmodel.WithDetails(errmodel.LengthBounds{MinLength: p.MinLength, MaxLength: p.MaxLength}))
 }
 
 // passwordIdentifiers loads the account identifiers a new password may not contain.

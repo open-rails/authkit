@@ -153,7 +153,7 @@ func providerCallbackError(raw string) error {
 	}) >= 0 {
 		code = string(errmodel.CodeProviderError)
 	}
-	return errmodel.E(errmodel.CodeProviderError, errmodel.WithMeta("provider_error", code))
+	return errmodel.E(errmodel.CodeProviderError, errmodel.WithDetails(ProviderError{ProviderError: code}))
 }
 
 // browserErrorCode is the code a browser flow hands the SPA: the wire code, or
