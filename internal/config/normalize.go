@@ -522,9 +522,6 @@ func normalizeHTTP(h *HTTPConfig, c Config, d Deps) error {
 	if d.ClientIP == nil && !h.DirectPeerIP && len(h.TrustedProxies) == 0 && len(h.CloudflareProxies) == 0 {
 		return errors.New("authkit: a client-IP posture is required — set HTTPConfig.TrustedProxies/CloudflareProxies for the proxies in front, DirectPeerIP to assert there are none, or Deps.ClientIP; behind an undeclared proxy every client shares one rate-limit bucket")
 	}
-	if d.Redis != nil && d.Limiter != nil {
-		return errors.New("authkit: conflicting rate limiting: set at most one of Deps.Redis and Deps.Limiter")
-	}
 	if err := ratelimit.ValidateLimits(h.RateLimits); err != nil {
 		return err
 	}

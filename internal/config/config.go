@@ -392,7 +392,7 @@ type HTTPConfig struct {
 
 	// RateLimits overlays bucket limits onto authkit.DefaultRateLimits;
 	// unknown buckets are refused. Limits are in memory and per process unless
-	// Deps.Redis shares them; they do not apply to Deps.Limiter.
+	// Deps.Redis shares them.
 	RateLimits map[string]RateLimit
 	// RedisKeyPrefix namespaces the rate-limit keys in Deps.Redis so
 	// deployments can share one Redis. Empty derives "authkit:<schema>:".

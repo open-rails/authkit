@@ -1,203 +1,183 @@
 package securitytest
 
 import (
-	"context"
-	"errors"
+	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
-	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/internal/testidp"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
 
-// limiterDown is a replica of h whose rate limiter's Redis is unreachable.
-func (h *host) limiterDown() *host {
-	h.t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(h.t, err)
-	addr := ln.Addr().String()
-	require.NoError(h.t, ln.Close())
-	rdb := redis.NewClient(&redis.Options{Addr: addr, MaxRetries: -1, DialTimeout: time.Second})
-	h.t.Cleanup(func() { _ = rdb.Close() })
-	return h.replica(authtest.WithDeps(func(d *authkit.Deps) { d.Redis = rdb }))
+// TestSecurityLimiterOutageStaysLimited: a Redis outage never lifts a budget.
+// While the limiter's Redis stops answering or refuses connections, each
+// replica keeps every budget on its own with the same limits, a request waits
+// on Redis only a moment whatever the client's timeouts, and a 429 still says
+// when to retry. Once Redis answers again, the budgets are shared again.
+func TestSecurityLimiterOutageStaysLimited(t *testing.T) {
+	link, rdb := newRedisLink(t)
+	h := newHost(t, withHTTP(func(c *authkit.HTTPConfig) {
+		c.RateLimits = map[string]authkit.RateLimit{
+			"password_login":        {Limit: 3, Window: time.Hour},
+			"register_availability": {Limit: 3, Window: time.Hour},
+		}
+	}), authtest.WithDeps(func(d *authkit.Deps) {
+		d.Redis = rdb
+		d.ClientIP = func(r *http.Request) string { return r.Header.Get("X-Client") }
+	}))
+	b := h.replica()
+	a := h.newAccount("outage")
+	login := func(on *host, address string) response {
+		return on.do(request{method: http.MethodPost, path: "/password/login", header: http.Header{"X-Client": {address}},
+			body: map[string]string{"identifier": a.email, "password": "wrong-" + password}})
+	}
+	availability := func(on *host, address string) response {
+		return on.do(request{method: http.MethodGet, path: "/register/availability?username=" + unique("free"), header: http.Header{"X-Client": {address}}})
+	}
+	// spend sends three requests through the given replicas in turn, each
+	// answered with status, and requires the fourth refused.
+	spend := func(t *testing.T, send func(*host) response, status int, replicas ...*host) {
+		t.Helper()
+		for i := range 3 {
+			resp := send(replicas[i%len(replicas)])
+			require.Equal(t, status, resp.status, "request %d: %s", i+1, resp)
+		}
+		resp := send(replicas[3%len(replicas)])
+		require.Equal(t, http.StatusTooManyRequests, resp.status, "the budget was lifted: %s", resp)
+		require.Equal(t, "rate_limited", resp.errorCode())
+		retry, err := strconv.Atoi(resp.header.Get("Retry-After"))
+		require.NoError(t, err, "a 429 without Retry-After")
+		require.Positive(t, retry)
+		require.Equal(t, "3", resp.header.Get("RateLimit-Limit"))
+		require.Equal(t, "0", resp.header.Get("RateLimit-Remaining"))
+	}
+	loginFrom := func(address string) func(*host) response {
+		return func(on *host) response { return login(on, address) }
+	}
+
+	t.Run("replicas share budgets through Redis", func(t *testing.T) {
+		spend(t, loginFrom("203.0.113.1"), http.StatusUnauthorized, h, b)
+	})
+
+	t.Run("a Redis that stops answering costs a moment, and each replica limits on its own", func(t *testing.T) {
+		link.set(linkStalled)
+		started := time.Now()
+		spend(t, loginFrom("203.0.113.2"), http.StatusUnauthorized, h)
+		spend(t, loginFrom("203.0.113.2"), http.StatusUnauthorized, b)
+		require.Less(t, time.Since(started), 5*time.Second, "requests waited on the stalled Redis")
+		spend(t, func(on *host) response { return availability(on, "203.0.113.2") }, http.StatusOK, h)
+	})
+
+	t.Run("a Redis that refuses connections leaves every budget in place", func(t *testing.T) {
+		link.set(linkCut)
+		spend(t, loginFrom("203.0.113.3"), http.StatusUnauthorized, h)
+		spend(t, loginFrom("203.0.113.3"), http.StatusUnauthorized, b)
+		spend(t, func(on *host) response { return availability(on, "203.0.113.3") }, http.StatusOK, b)
+	})
+
+	t.Run("budgets are shared again once Redis answers", func(t *testing.T) {
+		link.set(linkUp)
+		for _, on := range []*host{h, b} {
+			require.Eventually(t, func() bool {
+				address := unique("probe")
+				login(on, address)
+				keys, err := rdb.Keys(t.Context(), "*:ip:"+address+":*").Result()
+				return err == nil && len(keys) == 1
+			}, 45*time.Second, 100*time.Millisecond, "a replica never went back to Redis")
+		}
+		spend(t, loginFrom("203.0.113.4"), http.StatusUnauthorized, h, b)
+	})
 }
 
-// TestSecurityLimiterOutageFailsClosed: when the rate limiter's backend fails,
-// every route that checks or issues a secret (a password, one-time or backup
-// code, a link, refresh, invite or OIDC state token, an API key, or a
-// signature over a challenge) or sends an email or SMS is refused, so an
-// outage never lifts a guessing or sending budget. Reads and changes that do
-// none of that stay up. Every mounted route is classified here, so a new one
-// cannot ship unproven.
-func TestSecurityLimiterOutageFailsClosed(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(withDeviceKeys), authtest.WithConfig(withPasskeys),
-		withProviders(testidp.New(t).OAuth2("idp")), authtest.WithConfig(func(c *authkit.Config) {
-			c.Registration.PasswordlessLogin = true
-			c.SolanaNetwork = "devnet"
-			c.Delegated = authkit.DelegatedConfig{Audiences: []string{audience}}
-		}), authtest.WithDeps(func(d *authkit.Deps) {
-			d.DelegatedAuthorization = func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
-				return iam.DelegationGrant{}, nil
+type linkMode int
+
+const (
+	linkUp linkMode = iota
+	linkStalled
+	linkCut
+)
+
+// redisLink is the network between AuthKit and a real Redis. Stalled, it
+// accepts connections and never answers; cut, it closes them as a stopped
+// server does.
+type redisLink struct {
+	ln     net.Listener
+	target string
+	mu     sync.Mutex
+	mode   linkMode
+	conns  []net.Conn
+}
+
+// newRedisLink returns a client of a scratch Redis whose connections all pass
+// through the link. The client's own timeouts are long, so only AuthKit's
+// bound keeps an outage from stalling requests.
+func newRedisLink(t *testing.T) (*redisLink, *redis.Client) {
+	t.Helper()
+	direct := testdb.ScratchRedis(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	l := &redisLink{ln: ln, target: direct.Options().Addr}
+	go l.serve()
+	opts := *direct.Options()
+	opts.Addr, opts.ReadTimeout, opts.WriteTimeout = ln.Addr().String(), 30*time.Second, 30*time.Second
+	client := redis.NewClient(&opts)
+	t.Cleanup(func() {
+		_ = ln.Close()
+		l.set(linkCut)
+		_ = client.Close()
+	})
+	return l, client
+}
+
+func (l *redisLink) serve() {
+	for {
+		c, err := l.ln.Accept()
+		if err != nil {
+			return
+		}
+		l.mu.Lock()
+		switch l.mode {
+		case linkCut:
+			_ = c.Close()
+		case linkStalled:
+			l.conns = append(l.conns, c)
+		default:
+			up, err := net.Dial("tcp", l.target)
+			if err != nil {
+				_ = c.Close()
+				break
 			}
-		}))
-	down := h.limiterDown()
-	a := h.newAccount("outage")
-	_, base := h.newOrg(a)
-	// Past the fresh-auth window, the account routes ask for the password.
-	token := authtest.StaleSession(t, h.auth, h.login(a).AccessToken)
+			l.conns = append(l.conns, c, up)
+			go pipe(c, up)
+			go pipe(up, c)
+		}
+		l.mu.Unlock()
+	}
+}
 
-	post := func(path string, body any) request {
-		return request{method: http.MethodPost, path: path, body: body, token: token}
-	}
-	put := func(path string, body any) request {
-		return request{method: http.MethodPut, path: path, body: body, token: token}
-	}
-	callback := func(method, path string) request {
-		return request{method: method, path: "//oidc/idp" + path + "?state=state&code=code"}
-	}
-	code := map[string]string{"identifier": a.email, "code": "123456"}
-	newEmail := func() string { return unique("outagenew") + "@security.test" }
-	refused := []struct {
-		pattern, what string
-		req           request
-	}{
-		{"POST /password/login", "checks a password", post("/password/login", map[string]string{"identifier": a.email, "password": password})},
-		{"POST /account/recovery/confirm", "checks a token", post("/account/recovery/confirm", map[string]string{"token": "recovery-token"})},
-		{"POST /register", "sends a code", post("/register", map[string]string{"identifier": newEmail(), "username": unique("outage"), "password": password})},
-		{"POST /register", "checks an invitation", post("/register", map[string]string{"identifier": newEmail(), "username": unique("outage"), "password": password, "invite_code": "invite-token"})},
-		{"POST /register/abandon", "checks a password", post("/register/abandon", map[string]string{"identifier": a.email, "password": password})},
-		{"POST /passwordless/start", "sends a code", post("/passwordless/start", map[string]string{"identifier": a.email})},
-		{"POST /passwordless/confirm", "checks a code", post("/passwordless/confirm", code)},
-		{"POST /verify/request", "sends a code", post("/verify/request", map[string]string{"identifier": a.email})},
-		{"POST /verify/confirm", "checks a code", post("/verify/confirm", code)},
-		{"POST /password/reset/request", "sends a link", post("/password/reset/request", map[string]string{"identifier": a.email})},
-		{"POST /password/reset/confirm", "checks a token", post("/password/reset/confirm", map[string]string{"token": "reset-token", "new_password": "Outage-new-passphrase-1"})},
-		{"POST /token", "checks a refresh token", post("/token", map[string]string{"grant_type": "refresh_token", "refresh_token": "refresh-token"})},
-		{"POST /2fa/challenge", "checks a challenge and sends a code", post("/2fa/challenge", map[string]string{"user_id": a.id, "challenge": "challenge", "factor_id": "factor"})},
-		{"POST /2fa/verify", "checks a code", post("/2fa/verify", map[string]string{"user_id": a.id, "challenge": "challenge", "code": "123456"})},
-		{"POST /me/step-up/password", "checks a password", post("/me/step-up/password", map[string]string{"password": password})},
-		{"POST /me/step-up/2fa/send", "sends a code", post("/me/step-up/2fa/send", map[string]any{})},
-		{"POST /me/step-up/2fa", "checks a code", post("/me/step-up/2fa", map[string]string{"code": "123456"})},
-		{"POST /me/step-up/code/send", "sends a code", post("/me/step-up/code/send", map[string]string{"channel": "email"})},
-		{"POST /me/step-up/code", "checks a code", post("/me/step-up/code", map[string]string{"code": "123456"})},
-		{"POST /me/step-up/solana", "checks a signature", post("/me/step-up/solana", map[string]string{"message": "message", "signature": "signature"})},
-		{"POST /me/step-up/passkey", "checks a signature", post("/me/step-up/passkey", map[string]string{"id": "credential"})},
-		{"PUT /me/email", "sends a code", put("/me/email", map[string]string{"email": newEmail()})},
-		{"PUT /me/phone", "sends an SMS code", put("/me/phone", map[string]string{"phone_number": "+14155550143"})},
-		{"POST /me/2fa/setup", "sends an email code", post("/me/2fa/setup", map[string]string{"method": "email"})},
-		{"POST /me/2fa/setup", "sends an SMS code", post("/me/2fa/setup", map[string]string{"method": "sms", "phone_number": "+14155550143"})},
-		{"POST /me/2fa/setup", "issues a TOTP secret", post("/me/2fa/setup", map[string]string{"method": "totp"})},
-		{"POST /me/2fa/factors", "checks a code", post("/me/2fa/factors", map[string]string{"method": "email", "code": "123456"})},
-		// It shares the enrollment budget.
-		{"POST /me/2fa/backup-codes", "issues backup codes", post("/me/2fa/backup-codes", nil)},
-		{"POST /passkeys/login/finish", "checks a signature", post("/passkeys/login/finish", map[string]string{"id": "credential"})},
-		{"POST /device-keys/enroll/begin", "sends a code", post("/device-keys/enroll/begin", map[string]string{"email": a.email, "public_key": newDeviceKey(t).public})},
-		{"POST /device-keys/enroll/finish", "checks a code and a signature", post("/device-keys/enroll/finish", map[string]string{"enrollment_id": "enrollment", "code": "123456", "signature": "signature"})},
-		{"POST /device-keys/login/finish", "checks a signature", post("/device-keys/login/finish", map[string]string{"challenge_id": "challenge", "signature": "signature"})},
-		{"POST /solana/login", "checks a signature", post("/solana/login", map[string]string{"message": "message", "signature": "signature"})},
-		{"PUT /me/solana-wallet", "checks a signature", put("/me/solana-wallet", map[string]string{"message": "message", "signature": "signature"})},
-		{"POST /invitations/redeem", "checks an invite code", post("/invitations/redeem", map[string]string{"code": "invite-code"})},
-		{"POST /groups/{group_id}/invitations", "sends an invitation", post(base+"/invitations", map[string]string{"email": newEmail(), "role": "org:member"})},
-		{"POST /groups/{group_id}/invitations", "issues an invite code", post(base+"/invitations", map[string]string{"role": "org:member"})},
-		{"POST /groups/{group_id}/api-keys", "issues an API key", post(base+"/api-keys", map[string]string{"name": "ci", "role": "org:member"})},
-		{"POST /delegated/token", "issues a token", post("/delegated/token", map[string]any{})},
-		{"GET //oidc/{provider}/login", "issues a state", request{method: http.MethodGet, path: "//oidc/idp/login"}},
-		{"POST /oidc/{provider}/login/start", "issues a state", post("/oidc/idp/login/start", map[string]any{})},
-		{"POST /oidc/exchange", "checks a code", post("/oidc/exchange", map[string]string{"code": "code"})},
-		{"POST /oidc/{provider}/link/start", "issues a state", post("/oidc/idp/link/start", map[string]any{})},
-		{"POST /oidc/{provider}/step-up/start", "issues a state", post("/oidc/idp/step-up/start", map[string]any{})},
-		{"GET //oidc/{provider}/callback", "checks a state and a code", callback(http.MethodGet, "/callback")},
-		{"POST //oidc/{provider}/callback", "checks a state and a code", callback(http.MethodPost, "/callback")},
-		{"GET //oidc/{provider}/step-up/callback", "checks a state and a code", callback(http.MethodGet, "/step-up/callback")},
-		{"POST //oidc/{provider}/step-up/callback", "checks a state and a code", callback(http.MethodPost, "/step-up/callback")},
-	}
-	// Reads, and changes that check, issue and send nothing. A challenge the
-	// caller must sign is not a secret.
-	staysUp := []string{
-		"GET //.well-known/jwks.json", "GET /capabilities", "DELETE /logout", "GET /me", "GET /me/groups", "GET /me/permissions",
-		"GET /register/availability",
-		"PATCH /me", "DELETE /me", "GET /me/security", "PUT /me/password", "DELETE /me/phone", "DELETE /me/providers/{provider}",
-		"GET /me/sessions", "DELETE /me/sessions", "DELETE /me/sessions/{id}", "GET /me/session-events",
-		"DELETE /me/2fa", "PATCH /me/2fa/factors/{id}", "DELETE /me/2fa/factors/{id}",
-		"GET /me/sign-in-keys", "PATCH /me/sign-in-keys/{id}", "DELETE /me/sign-in-keys/{id}",
-		"POST /passkeys/login/begin", "POST /me/passkeys/register/begin", "POST /me/passkeys/register/finish",
-		"POST /device-keys/login/begin", "DELETE /device-keys",
-		"POST /solana/challenge", "POST /me/step-up/solana/challenge", "POST /me/step-up/passkey/begin",
-		"GET /users",
-		"GET /admin/users", "GET /admin/users/{user_id}", "PATCH /admin/users/{user_id}", "DELETE /admin/users/{user_id}",
-		"POST /admin/users/{user_id}/restore", "PUT /admin/users/{user_id}/ban", "DELETE /admin/users/{user_id}/ban",
-		"GET /admin/users/{user_id}/sessions", "DELETE /admin/users/{user_id}/sessions", "GET /admin/users/{user_id}/session-events",
-		"GET /groups/{group_id}/members", "PUT /groups/{group_id}/members/{kind}/{id}", "DELETE /groups/{group_id}/members/{kind}/{id}",
-		"GET /groups/{group_id}/roles", "GET /groups/{group_id}/api-keys", "DELETE /groups/{group_id}/api-keys/{id}",
-		"GET /groups/{group_id}/invitations", "DELETE /groups/{group_id}/invitations/{id}",
-	}
-	full := func(pattern string) string {
-		method, path, _ := strings.Cut(pattern, " ")
-		if strings.HasPrefix(path, "//") {
-			return method + " " + path[1:]
-		}
-		return method + " " + apiPrefix + path
-	}
+func pipe(dst, src net.Conn) {
+	_, _ = io.Copy(dst, src)
+	_ = dst.Close()
+	_ = src.Close()
+}
 
-	t.Run("every mounted route is classified", func(t *testing.T) {
-		mounted, classified := map[string]bool{}, map[string]bool{}
-		for _, c := range refused {
-			classified[full(c.pattern)] = true
-		}
-		for _, pattern := range staysUp {
-			classified[full(pattern)] = true
-		}
-		for _, r := range down.auth.Routes() {
-			pattern := r.Method + " " + r.Path
-			mounted[pattern] = true
-			if r.Method != http.MethodHead {
-				require.True(t, classified[pattern], "%s is unclassified: add it to this test's refused or staysUp list", pattern)
-			}
-		}
-		for pattern := range classified {
-			require.True(t, mounted[pattern], "%s is not mounted", pattern)
-		}
-	})
-
-	for _, c := range refused {
-		t.Run(c.pattern+" "+c.what, func(t *testing.T) {
-			resp := down.do(c.req)
-			require.Equal(t, http.StatusTooManyRequests, resp.status, "it ran with the limiter down: %s", resp)
-			require.Equal(t, "rate_limited", resp.errorCode())
-		})
+// set switches the link's mode and drops every connection it carries.
+func (l *redisLink) set(mode linkMode) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.mode = mode
+	for _, c := range l.conns {
+		_ = c.Close()
 	}
-
-	// Deps.Limiter's error is AuthKit's verdict whatever the limiter says: a
-	// host limiter that errs while allowing is refused the same way.
-	t.Run("a host limiter's error is refused the same way", func(t *testing.T) {
-		failing := h.replica(authtest.WithDeps(func(d *authkit.Deps) {
-			d.Redis = nil
-			d.Limiter = func(string, string) (bool, error) { return true, errors.New("limiter backend down") }
-		}))
-		for _, c := range refused {
-			resp := failing.do(c.req)
-			require.Equal(t, http.StatusTooManyRequests, resp.status, "%s ran with the host limiter failing: %s", c.pattern, resp)
-		}
-		require.Equal(t, http.StatusOK, failing.get("/capabilities", "").status)
-		require.Equal(t, http.StatusOK, failing.get("/me", token).status)
-	})
-
-	t.Run("reads and plain changes stay up", func(t *testing.T) {
-		require.Equal(t, http.StatusOK, down.get("/capabilities", "").status)
-		for _, path := range []string{"/me", "/me/sessions", "/me/sign-in-keys", base + "/members"} {
-			resp := down.get(path, token)
-			require.Equal(t, http.StatusOK, resp.status, "%s: %s", path, resp)
-		}
-		resp := down.do(request{method: http.MethodPatch, path: "/me", body: map[string]string{"preferred_language": "en"}, token: token})
-		require.Less(t, resp.status, 300, resp.String())
-	})
+	l.conns = nil
 }
 
 // TestSecurityUnknownClientAddressIsLimited: a request whose client address

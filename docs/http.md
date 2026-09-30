@@ -40,5 +40,6 @@ Every route lives beneath `HTTPConfig.BasePath`:
 - `New` requires you to declare what sits in front of AuthKit: `HTTPConfig.TrustedProxies`, `CloudflareProxies` or `DirectPeerIP`, or `Deps.ClientIP`. Forwarded-address headers count only from the declared proxies.
 - Each route has a rate-limit bucket (`x-authkit-rate-limit` in the OpenAPI). Budgets are per client address; an IPv6 address counts per /64. Emailed and texted codes also have per-account and per-destination budgets.
 - `DefaultRateLimits()` holds the defaults. `HTTPConfig.RateLimits` overrides buckets by name; an unknown name is an error.
-- Counters live in each process's memory. Set `Deps.Redis` when you run more than one replica, or `Deps.Limiter` to supply your own limiter.
-- If the limiter's backend fails, the rate-limited routes refuse requests, and the rest stay up.
+- Counters live in each process's memory. Set `Deps.Redis` when you run more than one replica, to share them.
+- If Redis fails, each process counts on its own with the same limits until Redis answers again, so no budget is ever lifted. A request waits on Redis for at most 250ms, and AuthKit logs the fallback and the recovery once each.
+- A 429 is `rate_limited` with `Retry-After`, the `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset` headers, and the budget in `metadata`.

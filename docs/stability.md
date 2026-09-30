@@ -83,7 +83,7 @@ One thing in the schema is contract: host tables may reference `<schema>.users(i
 ## Events and hooks
 
 - `Deps.OnEvent` receives `iam.Event`. The kinds, the members and the delivery guarantees in `OnEvent`'s doc (recorded with the change, delivered after commit at least once, in order per subject, idempotent on `Event.ID`) are covered. New kinds and members may be added; ignore kinds you don't know.
-- The other hooks in `Deps` (`OnPurge`, `NameAdmission`, `DelegatedAuthorization`, `Entitlements`, `EntitlementHolders`, `Limiter`, `ClientIP`, `Wrap`) and the senders keep their signatures and documented call semantics. Senders may receive new `iam.MessageKind` values.
+- The other hooks in `Deps` (`OnPurge`, `NameAdmission`, `DelegatedAuthorization`, `Entitlements`, `EntitlementHolders`, `ClientIP`, `Wrap`) and the senders keep their signatures and documented call semantics. Senders may receive new `iam.MessageKind` values.
 
 ## Roles
 

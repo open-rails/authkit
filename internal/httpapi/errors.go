@@ -3,10 +3,8 @@ package httpapi
 import (
 	"errors"
 	"log/slog"
-	"math"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
@@ -79,21 +77,9 @@ func codeRejection(err error) errmodel.Code {
 // every public user-creation path when NativeUserRegistrationMode is set.
 func registrationDisabled(w http.ResponseWriter) { fail(w, errmodel.CodeRegistrationDisabled) }
 
-func tooMany(w http.ResponseWriter, retryAfter ...time.Duration) {
-	if len(retryAfter) == 0 || retryAfter[0] <= 0 {
-		fail(w, errmodel.CodeRateLimited)
-		return
-	}
-	seconds := int(math.Ceil(retryAfter[0].Seconds()))
-	if seconds < 1 {
-		seconds = 1
-	}
-	w.Header().Set("Retry-After", strconv.Itoa(seconds))
-	next := time.Now().Add(time.Duration(seconds) * time.Second).UTC()
-	fail(w, errmodel.CodeRateLimited, errmodel.WithDetails(authflow.ActionAvailability{Reason: "rate_limited", RetryAfterSeconds: int64(seconds), NextAllowedAt: &next}))
-}
-
-func tooManyAvailability(w http.ResponseWriter, availability authflow.ActionAvailability) {
+// tooMany is the rate_limited refusal: Retry-After, the RateLimit-* headers,
+// and the budget as metadata.
+func tooMany(w http.ResponseWriter, availability authflow.ActionAvailability) {
 	if availability.RetryAfterSeconds > 0 {
 		seconds := int(availability.RetryAfterSeconds)
 		w.Header().Set("Retry-After", strconv.Itoa(seconds))

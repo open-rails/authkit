@@ -230,36 +230,21 @@ func TestMountCatalogOIDC(t *testing.T) {
 // New builds the HTTP surface a Config describes, or refuses it whole.
 func TestHTTPConfigValidation(t *testing.T) {
 	cfg, deps := bareConfig(t)
-	unlimited := func(string, string) (bool, error) { return true, nil }
-	for name, limiter := range map[string]func(string, string) (bool, error){
-		"memory limiter by default": nil,
-		"a host limiter":            unlimited,
-	} {
-		cfg.HTTP = &authkit.HTTPConfig{DirectPeerIP: true}
-		d := deps
-		d.Limiter = limiter
-		_, err := newClient(t, cfg, d)
-		require.NoError(t, err, name)
-	}
+	cfg.HTTP = &authkit.HTTPConfig{DirectPeerIP: true}
+	_, err := newClient(t, cfg, deps)
+	require.NoError(t, err)
 	for _, tc := range []struct {
 		http authkit.HTTPConfig
-		deps func(*authkit.Deps)
 		err  string
 	}{
 		{http: authkit.HTTPConfig{}, err: "Deps.ClientIP"},
 		{http: authkit.HTTPConfig{DirectPeerIP: true, APIPath: "auth"}, err: "APIPath"},
 		{http: authkit.HTTPConfig{DirectPeerIP: true, Exclude: []string{"/api/v1/me"}}, err: "Exclude"},
 		{http: authkit.HTTPConfig{DirectPeerIP: true, Exclude: []string{"GET /api/v1/nowhere"}}, err: "matches no mounted route"},
-		{http: authkit.HTTPConfig{DirectPeerIP: true}, deps: func(d *authkit.Deps) { d.Redis, d.Limiter = redis.NewClient(&redis.Options{}), unlimited },
-			err: "at most one of Deps.Redis and Deps.Limiter"},
 		{http: authkit.HTTPConfig{DirectPeerIP: true, RateLimits: map[string]authkit.RateLimit{"no_such_bucket": {Limit: 1, Window: time.Minute}}}, err: "unknown bucket"},
 	} {
 		cfg.HTTP = &tc.http
-		d := deps
-		if tc.deps != nil {
-			tc.deps(&d)
-		}
-		auth, err := newClient(t, cfg, d)
+		auth, err := newClient(t, cfg, deps)
 		require.ErrorContains(t, err, tc.err)
 		require.Nil(t, auth)
 	}
@@ -274,8 +259,9 @@ func forEachLimiter(t *testing.T, fn func(t *testing.T, rdb *redis.Client)) {
 
 // Password checks are limited per client address only, with each production
 // limiter: an exhausted address cannot sign in even with the correct password,
-// while the owner elsewhere is never locked out. A Redis failure is an outage,
-// never a successful sign-in.
+// while the owner elsewhere is never locked out. While Redis fails, each
+// process keeps the same budgets on its own: never unlimited, and never
+// refusing everyone.
 func TestWorkflowRateLimits(t *testing.T) {
 	forEachLimiter(t, testWorkflowRateLimits)
 }
@@ -294,7 +280,7 @@ func testWorkflowRateLimits(t *testing.T, rdb *redis.Client) {
 	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
 		c.HTTP = &authkit.HTTPConfig{RateLimits: limits(2)}
 	}), authtest.WithDeps(func(d *authkit.Deps) {
-		d.ClientIP, d.Limiter = forwarded, nil
+		d.ClientIP = forwarded
 		if rdb != nil {
 			d.Redis = rdb
 		}
@@ -350,16 +336,26 @@ func testWorkflowRateLimits(t *testing.T, rdb *redis.Client) {
 	}
 	outageToken := staleSession(authtest.NewUser(t, auth), "198.51.100.8")
 	broken := redis.NewClient(rdb.Options())
-	outage := authtest.Replica(t, auth, authtest.WithConfig(func(c *authkit.Config) {
-		c.HTTP.RateLimits = limits(10000)
-	}), authtest.WithDeps(func(d *authkit.Deps) { d.Redis = broken }))
-	// Closing only this client keeps the Redis server and other tests' state,
-	// and forces the limiter's backend-error path.
+	// Closing only this client keeps the Redis server and other tests' state.
 	require.NoError(t, broken.Close())
-	down := newAPI(t, outage)
+	down := newAPI(t, authtest.Replica(t, auth, authtest.WithDeps(func(d *authkit.Deps) { d.Redis = broken })))
+	for range 2 {
+		res = signIn(down, owner, "wrong-password", "198.51.100.4")
+		require.Equal(t, http.StatusUnauthorized, res.status, res.String())
+	}
 	res = signIn(down, owner, owner.Password, "198.51.100.4")
-	require.Equal(t, http.StatusTooManyRequests, res.status, res.String())
-	require.Equal(t, 1, sessions(owner), "an outage signs nobody in")
+	require.Equal(t, http.StatusTooManyRequests, res.status, "an outage lifted the budget: %s", res)
+	require.Equal(t, "rate_limited", res.code())
+	require.NotEmpty(t, res.header.Get("Retry-After"))
+	require.Equal(t, "2", res.header.Get("RateLimit-Limit"))
+	require.Equal(t, 1, sessions(owner))
+	res = signIn(down, owner, owner.Password, "198.51.100.1")
+	require.Equal(t, http.StatusOK, res.status, "the process keeps its own budget for an address Redis saw exhausted: %s", res)
+	require.Equal(t, 2, sessions(owner))
+	for range 2 {
+		res = stepUp(down, outageToken, "wrong-password", "198.51.100.9")
+		require.Equal(t, http.StatusUnauthorized, res.status, res.String())
+	}
 	res = stepUp(down, outageToken, authtest.Password, "198.51.100.9")
 	require.Equal(t, http.StatusTooManyRequests, res.status, res.String())
 }
