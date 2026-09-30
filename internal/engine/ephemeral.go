@@ -13,6 +13,7 @@ import (
 
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/oidcstate"
+	"github.com/open-rails/authkit/internal/secret"
 )
 
 // ephemeralKV is AuthKit's short-lived auth state in Postgres (ephemeral_kv):
@@ -214,8 +215,10 @@ func (s *Engine) ClaimDPoPProof(ctx context.Context, key string, ttl time.Durati
 }
 
 const (
-	keyOIDCState = "oidc:state:"
-	oidcStateTTL = 15 * time.Minute
+	keyOIDCState  = "oidc:state:"
+	oidcStateTTL  = 15 * time.Minute
+	keyOIDCResult = "oidc:result:" // +hash of the one-time code
+	oidcResultTTL = 2 * time.Minute
 )
 
 // PutOIDCState records a pending browser login for the provider callback.
@@ -229,4 +232,17 @@ func (s *Engine) ConsumeOIDCState(ctx context.Context, state string) (oidcstate.
 	var d oidcstate.StateData
 	ok, err := s.ephemConsumeJSON(ctx, keyOIDCState+state, &d)
 	return d, ok, err
+}
+
+// PutOIDCResult keeps a browser OIDC result for its one-time code; the key is
+// the code's hash, so the store never holds a usable code.
+func (s *Engine) PutOIDCResult(ctx context.Context, code string, result json.RawMessage) error {
+	return s.ephemSetJSON(ctx, keyOIDCResult+secret.Hash(code), result, oidcResultTTL)
+}
+
+// ConsumeOIDCResult trades a one-time code for its result, once.
+func (s *Engine) ConsumeOIDCResult(ctx context.Context, code string) (json.RawMessage, bool, error) {
+	var result json.RawMessage
+	ok, err := s.ephemConsumeJSON(ctx, keyOIDCResult+secret.Hash(code), &result)
+	return result, ok, err
 }

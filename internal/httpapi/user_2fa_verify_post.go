@@ -38,10 +38,7 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 		fail(w, codeRejection(err))
 		return
 	}
-	if s.writeLoginContinuation(w, r, out, nil) {
-		return
-	}
-	s.writeTokenSet(w, r, http.StatusOK, out.Session.TokenSet())
+	s.writeAuthResult(w, r, out, authExtras{})
 }
 
 func (s *Service) handleUser2FAChallengePOST(w http.ResponseWriter, r *http.Request) {
@@ -60,12 +57,13 @@ func (s *Service) handleUser2FAChallengePOST(w http.ResponseWriter, r *http.Requ
 	if s.rateLimitedByIdentifier(w, r, RL2FAVerify, loginProofKey(userID, challenge)) {
 		return
 	}
-	out, err := s.svc.ResendLoginChallenge(r.Context(), userID, challenge, factorID)
+	// The sign-in stays where it was, its code now at the chosen factor.
+	ch, err := s.svc.ResendLoginChallenge(r.Context(), userID, challenge, factorID)
 	if err != nil {
 		fail(w, errmodel.CodeInvalidChallenge)
 		return
 	}
-	fail(w, errmodel.CodeTwoFARequired, errmodel.WithMetadata(loginChallengeMetadata(userID, out)))
+	writeAuthResult(w, AuthResult{Status: AuthSecondFactorRequired, SecondFactor: secondFactorStep(userID, ch)})
 }
 
 func loginProofKey(userID, challenge string) string {

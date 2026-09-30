@@ -181,11 +181,11 @@ test("account panels: password, TOTP, backup codes, email, sessions, delete", as
     const first = await request.post("/api/v1/password/login", {
       data: { identifier: newEmail, password: newPassword },
     })
-    const { metadata } = (await first.json()).error
+    const step = (await first.json()).second_factor
     const second = await request.post("/api/v1/2fa/verify", {
       data: {
-        user_id: metadata.user_id,
-        challenge: metadata.challenge,
+        user_id: step.user_id,
+        challenge: step.challenge,
         code,
         backup_code: true,
       },
@@ -314,6 +314,53 @@ test("TOTP and email 2FA keep the session; wrong email codes retry", async ({
     tf.getByRole("list", { name: "Backup codes" }).getByRole("listitem")
   ).not.toHaveCount(0)
   expect((await outbox(request, email)).length).toBe(sentBefore + 1)
+})
+
+// A Chromium virtual authenticator stands in for the platform passkey.
+test("sign-in keys: add a passkey, rename it, remove it", async ({
+  page,
+  request,
+  context,
+}) => {
+  test.setTimeout(60_000)
+  await route(page)
+  await page.goto("/")
+  const { email, password } = await registerVerified(page, request)
+  await context.clearCookies()
+  await loadApp(page)
+  await signIn(page, email, password)
+
+  const cdp = await context.newCDPSession(page)
+  await cdp.send("WebAuthn.enable")
+  await cdp.send("WebAuthn.addVirtualAuthenticator", {
+    options: {
+      protocol: "ctap2",
+      transport: "internal",
+      hasResidentKey: true,
+      hasUserVerification: true,
+      isUserVerified: true,
+      automaticPresenceSimulation: true,
+    },
+  })
+
+  const keys = page.locator('[data-slot="card"]', {
+    hasText: "Passkeys and device keys",
+  })
+  await expect(keys).toContainText("No passkeys or device keys yet.")
+  await keys.getByRole("button", { name: "Add a passkey" }).click()
+  await expect(keys.getByRole("button", { name: "Rename" })).toHaveCount(1)
+
+  await keys.getByRole("button", { name: "Rename" }).click()
+  await keys.getByLabel("Name").fill("Test key")
+  await keys.getByRole("button", { name: "Save" }).click()
+  await expect(keys.getByText("Test key", { exact: true })).toBeVisible()
+
+  await keys.getByRole("button", { name: "Remove: Test key" }).click()
+  await page
+    .getByRole("alertdialog")
+    .getByRole("button", { name: "Remove" })
+    .click()
+  await expect(keys).toContainText("No passkeys or device keys yet.")
 })
 
 for (const theme of ["light", "dark"] as const) {

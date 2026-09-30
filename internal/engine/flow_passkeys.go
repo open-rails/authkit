@@ -256,7 +256,12 @@ func (s *Engine) ListPasskeys(ctx context.Context, userID string) ([]iam.Passkey
 	return out, nil
 }
 
+// RenamePasskey sets the label of the account's live passkey id (empty clears
+// it); ErrPasskeyNotFound when the account holds no such passkey.
 func (s *Engine) RenamePasskey(ctx context.Context, userID, id, label string) error {
+	if !isUUID(strings.TrimSpace(id)) {
+		return errmodel.ErrPasskeyNotFound
+	}
 	n, err := s.q.PasskeyRename(ctx, db.PasskeyRenameParams{Label: nullable(strings.TrimSpace(label)), ID: strings.TrimSpace(id), UserID: strings.TrimSpace(userID)})
 	if err != nil {
 		return err
@@ -267,7 +272,12 @@ func (s *Engine) RenamePasskey(ctx context.Context, userID, id, label string) er
 	return nil
 }
 
+// DeletePasskey deletes the account's passkey id; a deleted one stays
+// deleted, and ErrPasskeyNotFound when the account never held it.
 func (s *Engine) DeletePasskey(ctx context.Context, userID, id string) error {
+	if !isUUID(strings.TrimSpace(id)) {
+		return errmodel.ErrPasskeyNotFound
+	}
 	n, err := s.q.PasskeyDelete(ctx, db.PasskeyDeleteParams{ID: strings.TrimSpace(id), UserID: strings.TrimSpace(userID)})
 	if err != nil {
 		return err

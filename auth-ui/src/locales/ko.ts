@@ -285,6 +285,10 @@ export const ko: AuthUiMessageBundle = {
     },
     phone: {
       title: "전화번호",
+      remove: "삭제",
+      removeTitle: "전화번호를 삭제할까요?",
+      removeDescription:
+        "{value}(으)로 더 이상 로그인하거나 코드를 받거나 이 계정을 복구할 수 없습니다.",
       none: "전화번호 없음",
       add: "전화번호 추가",
       change: "전화번호 변경",
@@ -379,7 +383,6 @@ export const ko: AuthUiMessageBundle = {
       disableTitle: "2단계 인증을 끌까요?",
       disableDescription:
         "모든 인증 방법과 백업 코드가 삭제되며, 계정은 비밀번호로만 보호됩니다.",
-      removedRoles: "2단계 인증이 필요한 역할이 제거되었습니다: {roles}",
       backupTitle: "백업 코드",
       backupRemaining: "사용하지 않은 코드 {count}개 남음",
       regenerate: "새 코드 생성",
@@ -404,6 +407,22 @@ export const ko: AuthUiMessageBundle = {
       device: "{os}의 {browser}",
       signedIn: "로그인: {time}",
       noOthers: "다른 곳에서는 로그인되어 있지 않습니다.",
+    },
+    signInKeys: {
+      title: "패스키 및 기기 키",
+      description: "비밀번호 없이 로그인하는 키입니다.",
+      addPasskey: "패스키 추가",
+      none: "아직 패스키나 기기 키가 없습니다.",
+      passkey: "패스키",
+      deviceKey: "기기 키",
+      current: "이 기기",
+      added: "추가됨 {time}",
+      lastUsed: "마지막 사용 {time}",
+      rename: "이름 변경",
+      label: "이름",
+      remove: "삭제",
+      removeTitle: "{name}을(를) 삭제할까요?",
+      removeDescription: "이 키로 더 이상 로그인할 수 없습니다.",
     },
     delete: {
       title: "계정 삭제",
@@ -509,6 +528,8 @@ export const ko: AuthUiMessageBundle = {
     account_recovery_required: "로그인하기 전에 계정 복구를 확인하세요.",
     auth_required_for_link: "제공자를 연결하기 전에 로그인하세요.",
     authentication_failed: "인증에 실패했습니다.",
+    cannot_remove_last_contact:
+      "전화번호를 삭제하기 전에 이메일 주소를 인증하세요.",
     cannot_unlink_last_login_method:
       "마지막 로그인 방법은 연결 해제할 수 없습니다.",
     challenge_expired: "인증 세션이 만료되었습니다. 다시 시작하세요.",

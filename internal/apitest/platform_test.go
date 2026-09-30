@@ -48,7 +48,8 @@ func TestMountCatalog(t *testing.T) {
 			routes[routeKey{http.MethodGet, "/api/v1/me"}])
 		require.Equal(t, iam.Route{Method: http.MethodGet, Path: "/api/v1/admin/users/{user_id}", Group: iam.RouteAdmin,
 			Auth: iam.AuthPermission, Permission: ident.RootUsersRead.String()}, routes[routeKey{http.MethodGet, "/api/v1/admin/users/{user_id}"}])
-		require.Equal(t, iam.AuthOptional, routes[routeKey{http.MethodPost, "/api/v1/verify/request"}].Auth)
+		require.Equal(t, iam.AuthPublic, routes[routeKey{http.MethodPost, "/api/v1/verify/request"}].Auth)
+		require.Equal(t, iam.AuthOptional, routes[routeKey{http.MethodPost, "/api/v1/verify/confirm"}].Auth)
 		for _, route := range auth.Routes() {
 			if route.Method == http.MethodGet {
 				head := route
@@ -123,7 +124,7 @@ func TestMountCatalog(t *testing.T) {
 			{http.MethodPost, "/api/v1/device-keys/login/begin"},
 			{http.MethodPost, "/api/v1/passwordless/start"},
 			{http.MethodPost, "/api/v1/2fa/challenge"},
-			{http.MethodGet, "/api/v1/user/2fa"},
+			{http.MethodGet, "/api/v1/me/2fa"},
 			{http.MethodPost, "/api/v1/solana/challenge"},
 			{http.MethodPost, "/api/v1/delegated/token"},
 			{http.MethodGet, "/oidc/example/login"},
@@ -146,8 +147,11 @@ func TestMountCatalog(t *testing.T) {
 		require.Equal(t, "unsupported_media_type", badJSON.code())
 		login := a.post("/password/login", "", credentials)
 		require.Equal(t, http.StatusOK, login.status, login.String())
-		var tokens map[string]any
-		login.decode(t, &tokens)
+		var result struct {
+			TokenSet map[string]any `json:"token_set"`
+		}
+		login.decode(t, &result)
+		tokens := result.TokenSet
 		require.NotEmpty(t, tokens["access_token"])
 		require.Contains(t, tokens, "refresh_token")
 		require.Nil(t, tokens["refresh_token"], "the cookie carries the refresh token")
@@ -165,20 +169,10 @@ func TestMountCatalog(t *testing.T) {
 		}))
 		a := newAPI(t, mfa)
 		u := authtest.NewUser(t, mfa)
-		login := a.post("/password/login", "", map[string]string{"identifier": u.Email, "password": u.Password})
-		require.Equal(t, http.StatusForbidden, login.status, login.String())
-		require.Equal(t, "2fa_enrollment_required", login.code())
-		var continuation struct {
-			Error struct {
-				Metadata struct {
-					TokenSet iam.TokenSet `json:"token_set"`
-				} `json:"metadata"`
-			} `json:"error"`
-		}
-		login.decode(t, &continuation)
-		token := continuation.Error.Metadata.TokenSet.AccessToken
+		login := a.post("/password/login", "", map[string]string{"identifier": u.Email, "password": u.Password}).answer(t)
+		token := login.enrollment(t).TokenSet.AccessToken
 		require.NotEmpty(t, token)
-		for path, status := range map[string]int{"//custom/auth/me": http.StatusForbidden, "//custom/auth/user/2fa": http.StatusOK} {
+		for path, status := range map[string]int{"//custom/auth/me": http.StatusForbidden, "//custom/auth/me/2fa": http.StatusOK} {
 			res := a.get(path, token)
 			require.Equal(t, status, res.status, "%s: %s", path, res)
 		}
@@ -205,6 +199,11 @@ func TestMountCatalogOIDC(t *testing.T) {
 	for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPost} {
 		require.Contains(t, routes, routeKey{method, "/oidc/{provider}/callback"})
 	}
+	// The JSON start and the code exchange are API routes beneath its prefix.
+	for _, path := range []string{"/auth/custom/oidc/{provider}/login/start", "/auth/custom/oidc/exchange"} {
+		require.Equal(t, iam.Route{Method: http.MethodPost, Path: path, Group: iam.RouteBrowserOIDC, Auth: iam.AuthPublic}, routes[routeKey{http.MethodPost, path}])
+	}
+	require.NotContains(t, routes, routeKey{http.MethodPost, "/oidc/{provider}/login"})
 	login := newAPI(t, auth).get("//oidc/catalog/login", "")
 	require.Equal(t, http.StatusFound, login.status, login.String())
 	require.Contains(t, login.header.Get("Location"), idp+"/")
@@ -212,7 +211,7 @@ func TestMountCatalogOIDC(t *testing.T) {
 	for _, fn := range []func(*authkit.HTTPConfig){
 		func(h *authkit.HTTPConfig) { h.Groups = []iam.RouteGroup{iam.RouteRegistration} },
 		func(h *authkit.HTTPConfig) {
-			h.Exclude = []string{"GET /oidc/{provider}/login", "POST /oidc/{provider}/login"}
+			h.Exclude = []string{"GET /oidc/{provider}/login", "POST /api/v1/oidc/{provider}/login/start"}
 		},
 	} {
 		filtered := authtest.Replica(t, auth, authtest.WithConfig(func(c *authkit.Config) {
@@ -307,7 +306,7 @@ func testWorkflowRateLimits(t *testing.T, rdb *redis.Client) {
 		return from(a, address, "/password/login", "", map[string]string{"identifier": u.Email, "password": password})
 	}
 	stepUp := func(a *api, token, password, address string) response {
-		return from(a, address, "/step-up/password", token, map[string]string{"password": password})
+		return from(a, address, "/me/step-up/password", token, map[string]string{"password": password})
 	}
 	sessions := func(u authtest.User) int {
 		list, err := auth.Sessions(t.Context(), u.ID)
@@ -317,11 +316,7 @@ func testWorkflowRateLimits(t *testing.T, rdb *redis.Client) {
 	// staleSession signs u in from address and ages the session, so a
 	// sensitive change asks for the password again.
 	staleSession := func(u authtest.User, address string) string {
-		res := signIn(a, u, u.Password, address)
-		require.Equal(t, http.StatusOK, res.status, res.String())
-		var tokens iam.TokenSet
-		res.decode(t, &tokens)
-		return authtest.StaleSession(t, auth, tokens.AccessToken)
+		return authtest.StaleSession(t, auth, signIn(a, u, u.Password, address).answer(t).signedIn(t).AccessToken)
 	}
 
 	owner := authtest.NewUser(t, auth)
@@ -346,7 +341,8 @@ func testWorkflowRateLimits(t *testing.T, rdb *redis.Client) {
 	res = stepUp(a, stale, stepper.Password, "198.51.100.5")
 	require.Equal(t, http.StatusTooManyRequests, res.status, res.String())
 	require.Equal(t, "rate_limited", res.code())
-	res = from(a, "198.51.100.5", "/user/password", stale, map[string]string{"current_password": stepper.Password, "new_password": "Another-password-12345"})
+	res = a.do(request{method: http.MethodPut, path: "/me/password", token: stale, header: http.Header{"X-Forwarded-For": {"198.51.100.5"}},
+		body: map[string]string{"current_password": stepper.Password, "new_password": "Another-password-12345"}})
 	require.Equal(t, http.StatusTooManyRequests, res.status, "the password change shares the step-up budget: %s", res)
 	res = stepUp(a, stale, stepper.Password, "198.51.100.7")
 	require.Equal(t, http.StatusOK, res.status, res.String())

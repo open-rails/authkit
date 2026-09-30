@@ -10,6 +10,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/stretchr/testify/require"
 )
 
@@ -22,30 +23,17 @@ func behindProxy(c *authkit.HTTPConfig) {
 
 func from(ip string) http.Header { return http.Header{"X-Forwarded-For": {ip}} }
 
-type challenge struct {
-	Error struct {
-		Code     string `json:"code"`
-		Metadata struct {
-			UserID           string `json:"user_id"`
-			Challenge        string `json:"challenge"`
-			AvailableFactors []struct {
-				ID string `json:"id"`
-			} `json:"available_factors"`
-		} `json:"metadata"`
-	} `json:"error"`
-}
-
 // enrollEmail2FA turns on the email second factor through the public routes
 // and returns the backup codes it issued.
 func (h *host) enrollEmail2FA(a account) []string {
 	h.t.Helper()
 	h.verifyEmail(a.id)
 	token := h.login(a).AccessToken
-	resp := h.post("/user/2fa", map[string]string{"method": "email"}, token)
-	require.Equal(h.t, http.StatusAccepted, resp.status, resp.String())
-	code := h.mail.Last(h.t, iam.MessageVerification, a.email).Code
-	resp = h.post("/user/2fa", map[string]string{"method": "email", "code": code}, token)
+	resp := h.post("/me/2fa/setup", map[string]string{"method": "email"}, token)
 	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
+	code := h.mail.Last(h.t, iam.MessageVerification, a.email).Code
+	resp = h.post("/me/2fa/factors", map[string]string{"method": "email", "code": code}, token)
+	require.Equal(h.t, http.StatusCreated, resp.status, resp.String())
 	var out struct {
 		BackupCodes []string `json:"backup_codes"`
 	}
@@ -54,47 +42,44 @@ func (h *host) enrollEmail2FA(a account) []string {
 }
 
 // enrollTOTP adds an authenticator-app factor with token and returns its
-// secret and the confirming response. The enrollment spends the current code;
-// the next one is authtest.TOTPCode(t, secret, time.Now().Add(30*time.Second)).
+// secret and the confirming response (TwoFactorFactorCreated). The enrollment
+// spends the current code; the next one is authtest.TOTPCode(t, secret,
+// time.Now().Add(30*time.Second)).
 func (h *host) enrollTOTP(token string) (string, response) {
 	h.t.Helper()
-	resp := h.post("/user/2fa", map[string]string{"method": "totp"}, token)
+	resp := h.post("/me/2fa/setup", map[string]string{"method": "totp"}, token)
 	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
 	var start struct {
 		Secret string `json:"secret"`
 	}
 	resp.json(h.t, &start)
 	require.NotEmpty(h.t, start.Secret)
-	resp = h.post("/user/2fa", map[string]string{"method": "totp", "code": authtest.TOTPCode(h.t, start.Secret, time.Now())}, token)
-	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
+	resp = h.post("/me/2fa/factors", map[string]string{"method": "totp", "code": authtest.TOTPCode(h.t, start.Secret, time.Now())}, token)
+	require.Equal(h.t, http.StatusCreated, resp.status, resp.String())
 	return start.Secret, resp
 }
 
 // enrollSMS adds an SMS factor for phone with token.
 func (h *host) enrollSMS(token, phone string) {
 	h.t.Helper()
-	resp := h.post("/user/2fa", map[string]string{"method": "sms", "phone_number": phone}, token)
-	require.Equal(h.t, http.StatusAccepted, resp.status, resp.String())
-	code := h.mail.Last(h.t, iam.MessageVerification, phone).Code
-	resp = h.post("/user/2fa", map[string]string{"method": "sms", "phone_number": phone, "code": code}, token)
+	resp := h.post("/me/2fa/setup", map[string]string{"method": "sms", "phone_number": phone}, token)
 	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
+	code := h.mail.Last(h.t, iam.MessageVerification, phone).Code
+	resp = h.post("/me/2fa/factors", map[string]string{"method": "sms", "phone_number": phone, "code": code}, token)
+	require.Equal(h.t, http.StatusCreated, resp.status, resp.String())
 }
 
 func (h *host) passwordStep(a account, ip string) challenge {
 	h.t.Helper()
 	resp := h.do(request{method: http.MethodPost, path: "/password/login", header: from(ip),
 		body: map[string]string{"identifier": a.email, "password": password}})
-	require.Equal(h.t, http.StatusForbidden, resp.status, resp.String())
-	var ch challenge
-	resp.json(h.t, &ch)
-	require.Equal(h.t, "2fa_required", ch.Error.Code)
-	return ch
+	return secondFactor(h.t, resp)
 }
 
 func (h *host) secondStep(a account, ch challenge, code, ip string) response {
 	h.t.Helper()
 	return h.do(request{method: http.MethodPost, path: "/2fa/verify", header: from(ip),
-		body: map[string]string{"user_id": a.id, "challenge": ch.Error.Metadata.Challenge, "code": code}})
+		body: map[string]string{"user_id": a.id, "challenge": ch.Challenge, "code": code}})
 }
 
 func wrongCode(code string) string {
@@ -115,12 +100,11 @@ func TestSecuritySecondFactorLockout(t *testing.T) {
 	ch := h.passwordStep(victim, "198.51.100.7")
 	code := h.mail.Last(t, iam.MessageLoginCode, victim.email).Code
 	for i := range 12 {
-		junk := challenge{}
-		junk.Error.Metadata.Challenge = fmt.Sprintf("forged-challenge-%d", i)
+		junk := challenge{Challenge: fmt.Sprintf("forged-challenge-%d", i)}
 		resp := h.secondStep(victim, junk, "000000", fmt.Sprintf("203.0.113.%d", i+1))
 		require.GreaterOrEqual(t, resp.status, 400)
 		resp = h.do(request{method: http.MethodPost, path: "/2fa/challenge", header: from(fmt.Sprintf("192.0.2.%d", i+1)),
-			body: map[string]string{"user_id": victim.id, "challenge": junk.Error.Metadata.Challenge, "factor_id": "x"}})
+			body: map[string]string{"user_id": victim.id, "challenge": junk.Challenge, "factor_id": "x"}})
 		require.GreaterOrEqual(t, resp.status, 400)
 	}
 	resp := h.secondStep(victim, ch, code, "198.51.100.7")
@@ -134,11 +118,9 @@ func TestSecuritySecondFactorGuessBudget(t *testing.T) {
 	a := h.newAccount("mfabudget")
 	h.enrollEmail2FA(a)
 	ch := h.passwordStep(a, "198.51.100.20")
-	var factor string
-	if len(ch.Error.Metadata.AvailableFactors) > 0 {
-		factor = ch.Error.Metadata.AvailableFactors[0].ID
-	}
+	factor := ch.Factor.ID
 	require.NotEmpty(t, factor)
+	require.Equal(t, "email", ch.Factor.Method)
 	ip := 0
 	next := func() string { ip++; return fmt.Sprintf("203.0.113.%d", ip) }
 	for round := range 3 {
@@ -148,9 +130,12 @@ func TestSecuritySecondFactorGuessBudget(t *testing.T) {
 			require.Equal(t, http.StatusUnauthorized, resp.status, resp.String())
 		}
 		resp := h.do(request{method: http.MethodPost, path: "/2fa/challenge", header: from(next()),
-			body: map[string]string{"user_id": a.id, "challenge": ch.Error.Metadata.Challenge, "factor_id": factor}})
+			body: map[string]string{"user_id": a.id, "challenge": ch.Challenge, "factor_id": factor}})
 		if round < 2 {
-			require.Equal(t, http.StatusForbidden, resp.status, resp.String())
+			// A resend is the sign-in's next step again, not an error.
+			resent := secondFactor(t, resp)
+			require.Equal(t, ch.Challenge, resent.Challenge)
+			require.Equal(t, factor, resent.Factor.ID)
 		}
 	}
 	code := h.mail.Last(t, iam.MessageLoginCode, a.email).Code
@@ -160,4 +145,31 @@ func TestSecuritySecondFactorGuessBudget(t *testing.T) {
 	ch = h.passwordStep(a, "198.51.100.20")
 	code = h.mail.Last(t, iam.MessageLoginCode, a.email).Code
 	require.Equal(t, http.StatusOK, h.secondStep(a, ch, code, next()).status)
+}
+
+// TestSecuritySecondFactorResendIsAStep: switching factor at POST
+// /2fa/challenge is the sign-in's next step, not an error: 200 and the same
+// second_factor_required AuthResult, with no token or account and only a
+// masked destination. A forged challenge is refused.
+func TestSecuritySecondFactorResendIsAStep(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits))
+	a := h.newAccount("mfaresend")
+	h.enrollEmail2FA(a)
+	ch := h.passwordStep(a, "198.51.100.30")
+	resp := h.post("/2fa/challenge", map[string]string{"user_id": a.id, "challenge": ch.Challenge, "factor_id": ch.Factor.ID}, "")
+	res := authResult(t, resp)
+	require.Equal(t, httpapi.AuthSecondFactorRequired, res.Status)
+	require.Nil(t, res.TokenSet)
+	require.Nil(t, res.User)
+	require.Equal(t, ch.Challenge, res.SecondFactor.Challenge)
+	require.Equal(t, ch.Factor.ID, res.SecondFactor.Factor.ID)
+	require.NotNil(t, res.SecondFactor.Factor.Destination)
+	require.NotContains(t, resp.String(), a.email, "the destination is masked")
+	require.NotContains(t, resp.String(), "access_token")
+
+	forged := h.post("/2fa/challenge", map[string]string{"user_id": a.id, "challenge": "forged-challenge", "factor_id": ch.Factor.ID}, "")
+	require.Equal(t, http.StatusUnauthorized, forged.status, forged.String())
+	require.Equal(t, "invalid_challenge", forged.errorCode())
+
+	session(t, h.secondStep(a, ch, h.mail.Last(t, iam.MessageLoginCode, a.email).Code, "198.51.100.30"))
 }

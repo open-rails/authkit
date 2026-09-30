@@ -21,9 +21,8 @@ func TestRevokeAllCoversRefreshDerivedMFASession(t *testing.T) {
 	initial := f.expect(200, f.post("/password/login", map[string]any{"identifier": *user.Email, "password": testPassword}))
 	_, err := f.engine.enableFactor(ctx, user.ID, "email", nil, authflow.AllowAdditionalFactors)
 	require.NoError(t, err)
-	needed := f.expect(403, f.post("/token", map[string]any{"grant_type": "refresh_token", "refresh_token": initial.RefreshToken}))
-	require.Equal(t, "2fa_required", needed.Error.Code)
-	completion := map[string]any{"user_id": user.ID, "challenge": needed.Error.Metadata.Challenge, "code": sentCode(t, f.email, iam.MessageLoginCode)}
+	needed := f.expect(200, f.post("/token", map[string]any{"grant_type": "refresh_token", "refresh_token": initial.tokens().RefreshToken}))
+	completion := map[string]any{"user_id": user.ID, "challenge": needed.challenge(t), "code": sentCode(t, f.email, iam.MessageLoginCode)}
 	completed := f.completeWhileRevoking(user.ID, func() flowResponse { return f.post("/2fa/verify", completion) }, func(ctx context.Context) error {
 		return f.engine.RevokeIssuerSessions(ctx, user.ID, nil)
 	})

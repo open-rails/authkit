@@ -3,7 +3,6 @@ package apitest_test
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"net/http"
 	"net/url"
 	"testing"
@@ -14,6 +13,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/testidp"
 	"github.com/open-rails/authkit/provider"
 )
@@ -118,8 +118,9 @@ func TestOIDCCallbackStateIsBoundAndSingleUse(t *testing.T) {
 		res := f.callback(a, "custom", q)
 		fragment := callbackFragment(t, res)
 		require.Empty(t, fragment.Get("error"), res.header.Get("Location"))
-		require.NotEmpty(t, fragment.Get("access_token"))
-		require.NotContains(t, res.header.Get("Location"), "error=")
+		requireNoTokens(t, res.header.Get("Location"))
+		require.Equal(t, idp.Authorize(t, f.authURL).State, fragment.Get("state"))
+		exchange(t, a, fragment.Get("code")).signedIn(t)
 		// The replay presents the flow's own state cookie, so only the state
 		// store can refuse it: the state is gone.
 		rejected(t, f.callback(a, "custom", q), "invalid_state")
@@ -131,7 +132,8 @@ func TestOIDCCallbackStateIsBoundAndSingleUse(t *testing.T) {
 		f := start(t, a)
 		q := idp.Redirect(t, f.authURL, id)
 		res := f.callback(newAPI(t, replica), "custom", q)
-		require.Contains(t, res.header.Get("Location"), "access_token", res.header.Get("Location"))
+		// The code is traded on the first replica: the result store is shared.
+		exchange(t, a, callbackFragment(t, res).Get("code")).signedIn(t)
 		rejected(t, f.callback(a, "custom", q), "invalid_state")
 	})
 }
@@ -188,11 +190,11 @@ func TestOIDCProviderOutageIsServiceUnavailable(t *testing.T) {
 
 	f = startProviderFlow(t, a.get("//oidc/custom/login", ""))
 	require.NotEmpty(t, idp.Authorize(t, f.authURL).CodeChallenge)
-	require.NotEmpty(t, callbackFragment(t, f.callback(a, "custom", idp.Redirect(t, f.authURL, id))).Get("access_token"))
+	exchange(t, a, callbackFragment(t, f.callback(a, "custom", idp.Redirect(t, f.authURL, id))).Get("code")).signedIn(t)
 }
 
 // A browser sign-in returns to the page it started from only when return_to
-// is a path on this site; the redirect's fragment omits anything else.
+// is a path on this site; the AuthResult omits anything else.
 func TestProviderLoginReturnTo(t *testing.T) {
 	idp := testidp.New(t)
 	auth, _ := authtest.New(t, withProviders(idp.OAuth2("returns")))
@@ -200,7 +202,7 @@ func TestProviderLoginReturnTo(t *testing.T) {
 	for _, tt := range []struct {
 		name string
 		in   string
-		want string // "" when the fragment carries no return_to
+		want string // "" when the AuthResult carries no return_to
 	}{
 		{name: "empty", in: "", want: ""},
 		{name: "normal path", in: "/subscribe", want: "/subscribe"},
@@ -215,9 +217,14 @@ func TestProviderLoginReturnTo(t *testing.T) {
 			a := newAPI(t, auth)
 			f := startProviderFlow(t, a.get("//oidc/returns/login?"+url.Values{"return_to": {tt.in}}.Encode(), ""))
 			fragment := callbackFragment(t, f.callback(a, "returns", idp.Redirect(t, f.authURL, id)))
-			require.NotEmpty(t, fragment.Get("access_token"))
-			require.Equal(t, tt.want != "", fragment.Has("return_to"))
-			require.Equal(t, tt.want, fragment.Get("return_to"))
+			require.False(t, fragment.Has("return_to"), "return_to rides the AuthResult")
+			res := exchange(t, a, fragment.Get("code"))
+			res.signedIn(t)
+			if tt.want == "" {
+				require.Nil(t, res.ReturnTo)
+			} else {
+				require.Equal(t, tt.want, *res.ReturnTo)
+			}
 		})
 	}
 }
@@ -236,33 +243,37 @@ func TestProviderAuthenticationWorkflow(t *testing.T) {
 		id := testidp.Identity{Subject: "provider-flow", Email: "provider-flow@example.com", EmailVerified: true}
 		const phone = "+15550100001"
 
+		// The browser sign-in's continuation rides the one-time code too.
 		fragment := providerBrowserSignIn(t, a, idp, "idp", id)
-		require.Equal(t, "2fa_enrollment_required", fragment.Get("error"))
-		require.Equal(t, "/checkout", fragment.Get("return_to"))
-		require.Equal(t, "idp", fragment.Get("provider"))
-		grant := fragment.Get("enrollment_token")
+		require.Empty(t, fragment.Get("error"))
+		continuation := exchange(t, a, fragment.Get("code"))
+		enrollment := continuation.enrollment(t)
+		require.Equal(t, "/checkout", *continuation.ReturnTo)
+		grant := enrollment.TokenSet.AccessToken
 		require.NotEmpty(t, grant)
-		require.Empty(t, fragment.Get("access_token"))
-		require.Empty(t, fragment.Get("refresh_token"))
+		require.Nil(t, enrollment.TokenSet.RefreshToken)
 		require.ElementsMatch(t, []any{"oauth"}, accessClaims(t, grant)["amr"])
-		var methods []string
-		require.NoError(t, json.Unmarshal([]byte(fragment.Get("allowed_methods")), &methods))
-		require.Contains(t, methods, "sms")
-		res := a.post("/user/2fa", grant, map[string]any{"method": "sms", "phone_number": phone})
-		require.Equal(t, http.StatusAccepted, res.status, res.String())
-		enrolled := expectAnswer(t, a.post("/user/2fa", grant, map[string]any{"method": "sms", "phone_number": phone,
-			"code": outbox.Last(t, iam.MessageVerification, phone).Code}), http.StatusOK)
+		require.Contains(t, enrollment.AllowedMethods, iam.TwoFactorSMS)
+		res := a.post("/me/2fa/setup", grant, map[string]any{"method": "sms", "phone_number": phone})
+		require.Equal(t, http.StatusOK, res.status, res.String())
+		enrolled := expectAnswer(t, a.post("/me/2fa/factors", grant, map[string]any{"method": "sms", "phone_number": phone,
+			"code": outbox.Last(t, iam.MessageVerification, phone).Code}), http.StatusCreated)
 		owner := requireSessionWith(t, a, auth, enrolled.tokens(), "oauth", "sms", "otp", "mfa").UserID
+		require.True(t, enrolled.Auth.Created, "the provider sign-in created the account")
+		require.Equal(t, "/checkout", *enrolled.Auth.ReturnTo, "the finished sign-in keeps where the flow began")
 
-		next := expectAnswer(t, providerSignIn(t, a, idp, "idp", id, ""), http.StatusForbidden)
-		require.Equal(t, "2fa_required", next.Error.Code)
-		require.Equal(t, "sms", next.Error.Metadata.Method)
-		require.Equal(t, owner, next.Error.Metadata.UserID, "a known provider identity never creates a second account or re-enrolls")
-		verify2FA := func(challenge authAnswer, code string) response {
-			return a.post("/2fa/verify", "", map[string]any{"user_id": owner, "challenge": challenge.Error.Metadata.Challenge, "code": code})
+		next := providerSignIn(t, a, idp, "idp", id, "").answer(t).secondFactor(t)
+		require.Equal(t, "sms", next.Factor.Method)
+		require.NotNil(t, next.Factor.Destination)
+		require.NotContains(t, *next.Factor.Destination, phone[2:], "the destination is masked")
+		require.Equal(t, owner, next.UserID, "a known provider identity never creates a second account or re-enrolls")
+		verify2FA := func(challenge httpapi.SecondFactorStep, code string) response {
+			return a.post("/2fa/verify", "", map[string]any{"user_id": owner, "challenge": challenge.Challenge, "code": code})
 		}
-		finished := expectAnswer(t, verify2FA(next, outbox.Last(t, iam.MessageLoginCode, phone).Code), http.StatusOK)
-		requireSessionWith(t, a, auth, finished.tokens(), "oauth", "sms", "otp", "mfa")
+		finished := verify2FA(next, outbox.Last(t, iam.MessageLoginCode, phone).Code).answer(t)
+		requireSessionWith(t, a, auth, finished.signedIn(t), "oauth", "sms", "otp", "mfa")
+		require.False(t, finished.Created)
+		require.Equal(t, "/checkout", *finished.ReturnTo)
 		require.Equal(t, "idp", accessClaims(t, finished.tokens().AccessToken)["provider"])
 
 		// Deleting and recreating the same issuer and subject cannot revive a
@@ -271,11 +282,11 @@ func TestProviderAuthenticationWorkflow(t *testing.T) {
 		backup := "Provider-backup-password-123"
 		_, err := auth.UpdateUser(ctx, iam.SystemActor(), owner, iam.UserUpdate{Password: &backup})
 		require.NoError(t, err)
-		fresh := expectAnswer(t, providerSignIn(t, a, idp, "idp", id, ""), http.StatusForbidden)
-		session := expectAnswer(t, verify2FA(fresh, outbox.Last(t, iam.MessageLoginCode, phone).Code), http.StatusOK).tokens()
-		stale := expectAnswer(t, providerSignIn(t, a, idp, "idp", id, ""), http.StatusForbidden)
+		fresh := providerSignIn(t, a, idp, "idp", id, "").answer(t).secondFactor(t)
+		session := verify2FA(fresh, outbox.Last(t, iam.MessageLoginCode, phone).Code).answer(t).signedIn(t)
+		stale := providerSignIn(t, a, idp, "idp", id, "").answer(t).secondFactor(t)
 		code := outbox.Last(t, iam.MessageLoginCode, phone).Code
-		res = a.do(request{method: http.MethodDelete, path: "/user/providers/idp", token: session.AccessToken})
+		res = a.do(request{method: http.MethodDelete, path: "/me/providers/idp", token: session.AccessToken})
 		require.Equal(t, http.StatusNoContent, res.status, res.String())
 		require.NoError(t, auth.LinkProvider(ctx, owner, iam.ProviderLink{Issuer: provider.Issuer(), Provider: "idp", Subject: id.Subject}))
 		res = verify2FA(stale, code)
@@ -295,10 +306,10 @@ func TestProviderLinkRequiresFreshAuthAndExplicitUnlink(t *testing.T) {
 		require.Equal(t, http.StatusForbidden, denied.status, denied.String())
 		require.Equal(t, "step_up_required", denied.code())
 		require.Empty(t, denied.cookies)
-		denied = a.post("/solana/link", stale, map[string]any{})
+		denied = a.do(request{method: http.MethodPut, path: "/me/solana-wallet", token: stale, body: map[string]any{}})
 		require.Equal(t, http.StatusForbidden, denied.status, denied.String())
 		require.Equal(t, "step_up_required", denied.code())
-		fresh := expectAnswer(t, a.post("/step-up/password", stale, map[string]string{"password": u.Password}), http.StatusOK).tokens().AccessToken
+		fresh := expectAnswer(t, a.post("/me/step-up/password", stale, map[string]string{"password": u.Password}), http.StatusOK).tokens().AccessToken
 		require.NotEmpty(t, fresh)
 
 		original := testidp.Identity{Subject: "original"}
@@ -307,9 +318,10 @@ func TestProviderLinkRequiresFreshAuthAndExplicitUnlink(t *testing.T) {
 		res = providerLink(t, a, idp, "idp", fresh, testidp.Identity{Subject: "replacement"})
 		require.Equal(t, http.StatusConflict, res.status, res.String())
 		require.Equal(t, "provider_change_requires_unlink", res.code())
-		signedIn := expectAnswer(t, providerSignIn(t, a, idp, "idp", original, ""), http.StatusOK)
+		signedIn := providerSignIn(t, a, idp, "idp", original, "").answer(t)
+		signedIn.signedIn(t)
 		require.Equal(t, u.ID, signedIn.User.ID, "the original identity still signs in to the account")
-		res = a.do(request{method: http.MethodDelete, path: "/user/providers/idp", token: fresh})
+		res = a.do(request{method: http.MethodDelete, path: "/me/providers/idp", token: fresh})
 		require.Equal(t, http.StatusNoContent, res.status, res.String())
 		res = providerLink(t, a, idp, "idp", fresh, testidp.Identity{Subject: "replacement"})
 		require.Equal(t, http.StatusNoContent, res.status, res.String())
@@ -326,18 +338,23 @@ func TestFederatedUnverifiedEmailDoesNotReserveAccountAddress(t *testing.T) {
 		ctx := t.Context()
 		const email = "unverified-provider@example.com"
 		attacker := testidp.Identity{Subject: "attacker", Email: email}
-		first := expectAnswer(t, providerSignIn(t, a, idp, "idp", attacker, ""), http.StatusOK)
+		first := providerSignIn(t, a, idp, "idp", attacker, "").answer(t)
+		first.signedIn(t)
+		require.True(t, first.Created)
 		require.Nil(t, first.User.Email)
 		u, err := auth.User(ctx, iam.UserByID(first.User.ID))
 		require.NoError(t, err)
 		require.Empty(t, u.Email)
-		again := expectAnswer(t, providerSignIn(t, a, idp, "idp", attacker, ""), http.StatusOK)
+		again := providerSignIn(t, a, idp, "idp", attacker, "").answer(t)
+		again.signedIn(t)
+		require.False(t, again.Created)
 		require.Equal(t, first.User.ID, again.User.ID, "the link belongs to the account it created")
 		res := a.post("/password/reset/request", "", map[string]string{"identifier": email})
 		require.Equal(t, http.StatusAccepted, res.status, res.String())
 		require.Empty(t, outbox.Messages(iam.MessagePasswordReset, email))
 
-		second := expectAnswer(t, providerSignIn(t, a, idp, "idp", testidp.Identity{Subject: "owner", Email: email, EmailVerified: true}, ""), http.StatusOK)
+		second := providerSignIn(t, a, idp, "idp", testidp.Identity{Subject: "owner", Email: email, EmailVerified: true}, "").answer(t)
+		second.signedIn(t)
 		require.NotEqual(t, first.User.ID, second.User.ID)
 		require.NotNil(t, second.User.Email)
 		require.Equal(t, email, *second.User.Email)
@@ -360,7 +377,8 @@ func TestFederatedEmailLessRegistrationRequiresAndConsumesInvite(t *testing.T) {
 		require.Equal(t, http.StatusForbidden, res.status, res.String())
 		invite, err := auth.CreateInvitation(t.Context(), iam.SystemActor(), iam.RootGroup(), iam.NewInvitation{Email: "invite-destination@example.com"})
 		require.NoError(t, err)
-		allowed := expectAnswer(t, providerSignIn(t, a, idp, "idp", id, invite.Code), http.StatusOK)
+		allowed := providerSignIn(t, a, idp, "idp", id, invite.Code).answer(t)
+		allowed.signedIn(t)
 		require.NotEmpty(t, allowed.User.ID)
 		require.Nil(t, allowed.User.Email)
 		// A second use finds no invitation: the first consumed it.
@@ -384,7 +402,8 @@ func TestCredentialTransactionsProviderLinkGrantDoesNotOutliveSessionRevocation(
 		q.Set("format", "json")
 		res := f.callback(a, "idp", q)
 		require.NotEqual(t, http.StatusNoContent, res.status, "a revoked session linked a provider: %s", res)
-		other := expectAnswer(t, providerSignIn(t, a, idp, "idp", id, ""), http.StatusOK)
+		other := providerSignIn(t, a, idp, "idp", id, "").answer(t)
+		other.signedIn(t)
 		require.NotEqual(t, u.ID, other.User.ID, "the identity was linked to the revoked session's account")
 	})
 }
@@ -404,8 +423,8 @@ func TestCredentialTransactionsProviderLinkBrowserRetainsSession(t *testing.T) {
 		fragment := callbackFragment(t, res)
 		require.Equal(t, "link", fragment.Get("flow"))
 		require.Equal(t, "success", fragment.Get("result"))
-		require.Empty(t, fragment.Get("access_token"))
-		require.Empty(t, fragment.Get("refresh_token"))
+		require.False(t, fragment.Has("code"), "a link hands the page nothing to trade")
+		requireNoTokens(t, res.header.Get("Location"))
 		for _, cookie := range res.cookies {
 			require.Negative(t, cookie.MaxAge, "callback may only clear consumed state cookies")
 		}
@@ -414,4 +433,20 @@ func TestCredentialTransactionsProviderLinkBrowserRetainsSession(t *testing.T) {
 		require.Len(t, sessions, 1)
 		require.Equal(t, claims.SessionID, sessions[0].ID)
 	})
+}
+
+// The provider redirect_uri is where clients reach AuthKit
+// (HTTPConfig.PublicURL), never the frontend's origin or the request's
+// forwarded headers.
+func TestProviderRedirectURIIsThePublicURL(t *testing.T) {
+	idp := testidp.New(t)
+	auth, _ := authtest.New(t, withProviders(idp.OIDC("idp")), authtest.WithConfig(func(c *authkit.Config) {
+		c.Frontend.BaseURL = "https://app.example"
+		c.HTTP.PublicURL = "https://auth.example"
+	}))
+	a := newAPI(t, auth)
+	start := a.do(request{method: http.MethodGet, path: "//oidc/idp/login", header: http.Header{"X-Forwarded-Host": {"evil.example"}, "X-Forwarded-Proto": {"https"}}})
+	require.Equal(t, "https://auth.example/oidc/idp/callback", idp.Authorize(t, startProviderFlow(t, start).authURL).RedirectURI)
+	page := startProviderFlow(t, a.post("/oidc/idp/login/start", "", map[string]any{}))
+	require.Equal(t, "https://auth.example/oidc/idp/callback", idp.Authorize(t, page.authURL).RedirectURI)
 }

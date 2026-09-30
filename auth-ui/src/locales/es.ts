@@ -300,6 +300,10 @@ export const es: AuthUiMessageBundle = {
     },
     phone: {
       title: "Número de teléfono",
+      remove: "Quitar",
+      removeTitle: "¿Quitar el número de teléfono?",
+      removeDescription:
+        "{value} ya no podrá iniciar sesión, recibir códigos ni recuperar esta cuenta.",
       none: "Sin número de teléfono",
       add: "Agregar número de teléfono",
       change: "Cambiar teléfono",
@@ -399,8 +403,6 @@ export const es: AuthUiMessageBundle = {
       disableTitle: "¿Desactivar la autenticación en dos pasos?",
       disableDescription:
         "Se quitarán todos los métodos de verificación y códigos de respaldo. Solo tu contraseña protegerá tu cuenta.",
-      removedRoles:
-        "Se quitaron los roles que requieren autenticación en dos pasos: {roles}.",
       backupTitle: "Códigos de respaldo",
       backupRemaining: "Quedan {count} códigos sin usar",
       regenerate: "Generar códigos nuevos",
@@ -426,6 +428,22 @@ export const es: AuthUiMessageBundle = {
       device: "{browser} en {os}",
       signedIn: "Sesión iniciada {time}",
       noOthers: "No has iniciado sesión en ningún otro lugar.",
+    },
+    signInKeys: {
+      title: "Llaves de acceso y claves de dispositivo",
+      description: "Claves con las que inicias sesión sin contraseña.",
+      addPasskey: "Agregar llave de acceso",
+      none: "Aún no hay llaves de acceso ni claves de dispositivo.",
+      passkey: "Llave de acceso",
+      deviceKey: "Clave de dispositivo",
+      current: "Este dispositivo",
+      added: "Agregada {time}",
+      lastUsed: "Último uso {time}",
+      rename: "Cambiar nombre",
+      label: "Nombre",
+      remove: "Quitar",
+      removeTitle: "¿Quitar {name}?",
+      removeDescription: "Ya no podrás iniciar sesión con ella.",
     },
     delete: {
       title: "Eliminar cuenta",
@@ -538,6 +556,8 @@ export const es: AuthUiMessageBundle = {
       "Confirma la recuperación de la cuenta antes de iniciar sesión.",
     auth_required_for_link: "Inicia sesión antes de vincular un proveedor.",
     authentication_failed: "La autenticación falló.",
+    cannot_remove_last_contact:
+      "Verifica una dirección de correo electrónico antes de eliminar tu número de teléfono.",
     cannot_unlink_last_login_method:
       "No puedes desvincular tu último método de inicio de sesión.",
     challenge_expired: "Tu sesión de verificación expiró. Empieza de nuevo.",

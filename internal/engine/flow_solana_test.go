@@ -13,9 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/siws"
 	"github.com/open-rails/authkit/internal/testdb"
 )
@@ -102,19 +102,10 @@ func TestSolanaRecoveryUsesTheWalletCeremony(t *testing.T) {
 	require.NoError(t, results[0].Err)
 
 	wallet := walletProof()
-	confirmed := f.expect(409, f.post("/solana/login", wallet))
+	confirmed := f.expect(200, f.post("/solana/login", wallet))
 	f.expect(401, f.post("/solana/login", wallet))
-	var answer struct {
-		Error struct {
-			Code     string `json:"code"`
-			Metadata struct {
-				Recovery authflow.AccountRecoveryConfirmation `json:"recovery"`
-			} `json:"metadata"`
-		} `json:"error"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(confirmed.raw), &answer))
-	require.Equal(t, string(errmodel.CodeAccountRecoveryRequired), answer.Error.Code)
-	token := answer.Error.Metadata.Recovery.Token
+	require.Equal(t, httpapi.AuthAccountRecoveryRequired, confirmed.Status)
+	token := confirmed.Recovery.Token
 	require.NotEmpty(t, token)
 	require.NotContains(t, confirmed.raw, "access_token")
 	require.NotContains(t, confirmed.raw, "refresh_token")

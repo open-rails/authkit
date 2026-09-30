@@ -19,6 +19,7 @@ import (
 // inviters send registration invites.
 type credentialOrg struct {
 	auth                   *authkit.Client
+	outbox                 *authtest.Outbox
 	acme                   iam.GroupRef
 	acmeID                 string
 	founder                authtest.User
@@ -49,7 +50,7 @@ func newCredentialOrg(t *testing.T) credentialOrg {
 	t.Helper()
 	catalog, o := credentialRoles(false)
 	o.changedCatalog, _ = credentialRoles(true)
-	o.auth, _ = authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
+	o.auth, o.outbox = authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
 		c.Roles = catalog
 		c.TwoFactor.Mode = iam.TwoFactorDisabled
 	}))
@@ -164,7 +165,7 @@ func TestCredentialIssuance(t *testing.T) {
 	require.Nil(t, links.Items[0].RevokedAt)
 	a := newAPI(t, auth)
 	register := func(email, username string) response {
-		return a.post("/register", "", map[string]string{"identifier": email, "username": username, "password": authtest.Password, "account_invite_token": opInvite.Code})
+		return a.post("/register", "", map[string]string{"identifier": email, "username": username, "password": authtest.Password, "invite_code": opInvite.Code})
 	}
 	res := register(*opInvite.Invitation.Email, "systeminvitee")
 	require.Equal(t, http.StatusOK, res.status, "the system's registration invite is live: %s", res)

@@ -92,13 +92,13 @@ test("register, verify, then TOTP and backup-code sign-in", async ({
   const now = Date.now()
   const secret = await page.evaluate(async () => {
     const c = (window as unknown as { authClient: AuthClientLike }).authClient
-    const out = await c.enableTwoFactor({ method: "totp" })
-    return out.secret!
+    const setup = await c.setupTwoFactor({ method: "totp" })
+    return setup.secret!
   })
   const backupCodes = await page.evaluate(
     async (code) => {
       const c = (window as unknown as { authClient: AuthClientLike }).authClient
-      return (await c.enableTwoFactor({ method: "totp", code })).backupCodes!
+      return (await c.addTwoFactorFactor({ method: "totp", code })).backup_codes
     },
     totp(secret, now)
   )
@@ -176,22 +176,23 @@ test("email 2FA: enroll with a setup code, then a wrong login code retries", asy
   await expect(dialog(page)).toBeHidden()
   await expect(page.getByTestId("status")).toHaveText("authenticated")
 
-  // Email enrollment: start sends a setup code (202), confirm enables it and
-  // keeps this session signed in.
+  // Email enrollment: setup sends a code to the account's address, adding
+  // the factor with it keeps this session signed in.
   const seen = (await outbox(request, email)).length
-  const started = await page.evaluate(async () => {
+  const setup = await page.evaluate(async () => {
     const c = (window as unknown as { authClient: AuthClientLike }).authClient
-    return (await c.enableTwoFactor({ method: "email" })).kind
+    return c.setupTwoFactor({ method: "email" })
   })
-  expect(started).toBe("code_sent")
-  const enabled = await page.evaluate(
+  expect(setup).toMatchObject({ method: "email", secret: null })
+  expect(setup.destination).toBeTruthy()
+  const created = await page.evaluate(
     async (code) => {
       const c = (window as unknown as { authClient: AuthClientLike }).authClient
-      return c.enableTwoFactor({ method: "email", code })
+      return c.addTwoFactorFactor({ method: "email", code })
     },
     await nextCode(request, email, seen)
   )
-  expect(enabled).toMatchObject({ kind: "enabled", signedIn: true })
+  expect(created).toMatchObject({ factor: { method: "email" } })
   await loadApp(page)
   await expect(page.getByTestId("status")).toHaveText("authenticated")
   await signOut(page)
@@ -347,12 +348,25 @@ test("keyboard order: fields, submit, then providers", async ({ page }) => {
   }
 })
 
-test("OIDC callback reports a provider error", async ({ page }) => {
-  await loadApp(page, "/?page=callback#error=access_denied&flow=login")
+test("OIDC callback reports a provider error and a dead code", async ({
+  page,
+}) => {
+  await loadApp(page, "/?page=callback#error=access_denied&flow=login&state=")
   await expect(
     page.getByRole("heading", { name: "Sign-in failed" })
   ).toBeVisible()
   await expect(page.getByText("Sign-in was cancelled.")).toBeVisible()
+  // The one-time code is traded at POST /oidc/exchange; an unknown one fails.
+  const exchange = page.waitForResponse((r) =>
+    r.url().endsWith("/api/v1/oidc/exchange")
+  )
+  // A new query: a fragment-only change would not reload the page.
+  await loadApp(page, "/?page=callback&exchange=1#code=not-a-code&state=s")
+  expect((await exchange).status()).toBeGreaterThanOrEqual(400)
+  await expect(
+    page.getByRole("heading", { name: "Sign-in failed" })
+  ).toBeVisible()
+  expect(new URL(page.url()).hash).toBe("")
   await loadApp(page, "/?page=callback")
   await expect(page.getByTestId("navigated")).toHaveText("/")
 })
@@ -384,12 +398,15 @@ for (const theme of ["light", "dark"] as const) {
 }
 
 type AuthClientLike = {
-  enableTwoFactor(input: { method: string; code?: string }): Promise<{
-    kind: string
-    secret?: string
-    backupCodes?: string[]
-    signedIn?: boolean
+  setupTwoFactor(input: { method: "totp" | "email" }): Promise<{
+    method: string
+    destination: string | null
+    secret: string | null
   }>
+  addTwoFactorFactor(input: {
+    method: "totp" | "email"
+    code: string
+  }): Promise<{ factor: { method: string }; backup_codes: string[] }>
   register(input: {
     identifier: string
     username: string

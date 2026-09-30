@@ -40,7 +40,7 @@ func (s *Engine) mfaStatusWith(settings *authflow.TwoFactorSettings, settingsErr
 	return authflow.MFAStatus{
 		Enabled:        settings.Enabled,
 		Satisfied:      settings.Enabled && len(settings.Factors) > 0,
-		AllowedMethods: s.TwoFactorAllowedMethods(),
+		AllowedMethods: s.TwoFactorMethods(),
 	}, nil
 }
 

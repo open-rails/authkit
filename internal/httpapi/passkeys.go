@@ -2,58 +2,11 @@ package httpapi
 
 import (
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 
 	"github.com/open-rails/authkit/internal/errmodel"
-	"github.com/open-rails/authkit/verify"
 )
-
-func (s *Service) handlePasskeyRegisterBeginPOST(w http.ResponseWriter, r *http.Request) {
-	claims, ok := verify.ClaimsFromContext(r.Context())
-	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthenticated)
-		return
-	}
-	if !s.requireProvenContact(w, r, claims.UserID) {
-		return
-	}
-	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, ""); !ok {
-		return
-	}
-	creation, err := s.svc.BeginPasskeyRegistration(r.Context(), claims.UserID)
-	if err != nil {
-		serverErr(w, "passkey_failed", err)
-		return
-	}
-	writeJSON(w, http.StatusOK, creation)
-}
-
-func (s *Service) handlePasskeyRegisterFinishPOST(w http.ResponseWriter, r *http.Request) {
-	claims, ok := verify.ClaimsFromContext(r.Context())
-	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthenticated)
-		return
-	}
-	if !s.requireProvenContact(w, r, claims.UserID) {
-		return
-	}
-	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, ""); !ok {
-		return
-	}
-	body, err := readSmallBody(r)
-	if err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
-		return
-	}
-	passkey, err := s.svc.FinishPasskeyRegistration(r.Context(), claims.UserID, body)
-	if err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
-		return
-	}
-	writeJSON(w, http.StatusCreated, passkey)
-}
 
 func (s *Service) handlePasskeyLoginBeginPOST(w http.ResponseWriter, r *http.Request) {
 	if r.Body != nil && r.Body != http.NoBody && r.ContentLength != 0 {
@@ -83,73 +36,7 @@ func (s *Service) handlePasskeyLoginFinishPOST(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if s.writeLoginContinuation(w, r, result, nil) {
-		return
-	}
-	s.writeTokenSet(w, r, http.StatusOK, result.Session.TokenSet())
-}
-
-func (s *Service) handlePasskeysGET(w http.ResponseWriter, r *http.Request) {
-	claims, ok := verify.ClaimsFromContext(r.Context())
-	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthenticated)
-		return
-	}
-	passkeys, err := s.svc.ListPasskeys(r.Context(), claims.UserID)
-	if err != nil {
-		serverErr(w, "passkey_failed", err)
-		return
-	}
-	all(w, passkeys)
-}
-
-func (s *Service) handlePasskeyPATCH(w http.ResponseWriter, r *http.Request) {
-	claims, ok := verify.ClaimsFromContext(r.Context())
-	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthenticated)
-		return
-	}
-	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, ""); !ok {
-		return
-	}
-	var req LabelRequest
-	if err := decodeJSON(r, &req); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
-		return
-	}
-	id := r.PathValue("id")
-	if err := s.svc.RenamePasskey(r.Context(), claims.UserID, id, req.Label); err != nil {
-		writeError(w, err)
-		return
-	}
-	passkeys, err := s.svc.ListPasskeys(r.Context(), claims.UserID)
-	if err != nil {
-		serverErr(w, "passkey_failed", err)
-		return
-	}
-	for _, p := range passkeys {
-		if p.ID == id {
-			writeJSON(w, http.StatusOK, p)
-			return
-		}
-	}
-	fail(w, errmodel.CodePasskeyNotFound)
-}
-
-func (s *Service) handlePasskeyDELETE(w http.ResponseWriter, r *http.Request) {
-	claims, ok := verify.ClaimsFromContext(r.Context())
-	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthenticated)
-		return
-	}
-	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, ""); !ok {
-		return
-	}
-	if err := s.svc.DeletePasskey(r.Context(), claims.UserID, r.PathValue("id")); err != nil && !errors.Is(err, errmodel.ErrPasskeyNotFound) {
-		writeError(w, err)
-		return
-	}
-	noContent(w)
+	s.writeAuthResult(w, r, result, authExtras{})
 }
 
 func readSmallBody(r *http.Request) ([]byte, error) {

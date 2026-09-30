@@ -257,11 +257,9 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 					case "soft-delete":
 						return svc.softDelete(ctx, uid)
 					case "mfa-factor":
-						_, err := raceSvc.Disable2FAFactorWithRemovedRoles(ctx, uid, factors[uid])
-						return err
+						return raceSvc.Disable2FAFactor(ctx, uid, factors[uid])
 					default:
-						_, err := raceSvc.Disable2FAWithRemovedRoles(ctx, uid)
-						return err
+						return raceSvc.Disable2FA(ctx, uid)
 					}
 				}
 				start := make(chan struct{})

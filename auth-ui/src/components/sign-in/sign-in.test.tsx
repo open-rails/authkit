@@ -7,11 +7,18 @@ import type { ReactNode } from "react"
 import { describe, expect, it, vi } from "vitest"
 
 import { createAuthClient } from "../../client/client.ts"
-import { continuationFrom } from "../../client/continuation.ts"
-import { authError, json, stubFetch } from "../../client/testing.ts"
+import { toSignInResult, type PendingSignIn } from "../../client/authResult.ts"
+import {
+  authError,
+  authResult,
+  json,
+  stubFetch,
+  tokenSet,
+} from "../../client/testing.ts"
 import { AuthUiProvider } from "../../provider.tsx"
 import { AuthProvider } from "../../react/provider.tsx"
-import { session, token } from "../../react/testing.tsx"
+import { session, signedIn } from "../../react/testing.tsx"
+import { AuthCallback } from "./AuthCallback.tsx"
 import { normalizeIdentifier } from "./identifier.ts"
 import { LoginForm } from "./LoginForm.tsx"
 import { RegisterForm } from "./RegisterForm.tsx"
@@ -40,15 +47,25 @@ const capabilities = () =>
     verification: { registration: "required" },
   })
 
+const emailFactor = {
+  id: "f-email",
+  method: "email",
+  is_default: true,
+  destination: "a***@x.test",
+}
+
 const emailChallenge = (challenge = "ch-1") =>
-  authError(403, "2fa_required", {
-    user_id: "u1",
-    challenge,
-    method: "email",
-    verification_id: "a***@x.test",
-    default_factor: { id: "f-email", method: "email", is_default: true },
-    available_factors: [{ id: "f-email", method: "email" }],
-  })
+  json(
+    200,
+    authResult("second_factor_required", {
+      second_factor: {
+        user_id: "u1",
+        challenge,
+        factor: emailFactor,
+        factors: [emailFactor],
+      },
+    })
+  )
 
 function renderUi(ui: ReactNode, fetch: typeof globalThis.fetch) {
   const client = createAuthClient({ fetch })
@@ -167,26 +184,29 @@ describe("SignInDialog", () => {
     const fetch = stubFetch({
       "GET /api/v1/capabilities": capabilities,
       "POST /api/v1/password/login": [
-        authError(403, "2fa_enrollment_required", {
-          user_id: "u1",
-          allowed_methods: ["totp", "email"],
-          enrollment_token: "enroll-tok",
-          enrollment_expires_in: 600,
-        }),
+        json(
+          200,
+          authResult("enrollment_required", {
+            enrollment: {
+              token_set: tokenSet("enroll"),
+              allowed_methods: ["totp", "email"],
+            },
+          })
+        ),
       ],
-      "POST /api/v1/user/2fa": ({ body }) =>
-        JSON.parse(String(body)).code
-          ? json(200, {
-              enabled: true,
-              method: "totp",
-              backup_codes: ["AAAA1111", "BBBB2222"],
-              access_token: token({ sub: "u1", sid: "s1" }),
-            })
-          : json(200, {
-              method: "totp",
-              secret: "S3CR3T",
-              otpauth_uri: "otpauth://totp/x?secret=S3CR3T",
-            }),
+      "POST /api/v1/me/2fa/setup": () =>
+        json(200, {
+          method: "totp",
+          destination: null,
+          secret: "S3CR3T",
+          otpauth_uri: "otpauth://totp/x?secret=S3CR3T",
+        }),
+      "POST /api/v1/me/2fa/factors": () =>
+        json(201, {
+          factor: { ...emailFactor, id: "f-totp", method: "totp" },
+          backup_codes: ["AAAA1111", "BBBB2222"],
+          auth: signedIn({ sub: "u1", sid: "s1" }),
+        }),
     })
     const { client } = renderUi(
       <SignInDialog open onOpenChange={onOpenChange} onSignedIn={onSignedIn} />,
@@ -234,12 +254,22 @@ describe("SignInDialog continuation", () => {
       "GET /api/v1/capabilities": capabilities,
       "POST /api/v1/2fa/verify": [session({ sub: "u1", sid: "s2" })],
     })
-    const continuation = continuationFrom("2fa_required", {
-      user_id: "u1",
-      challenge: "ch-refresh",
+    const totp = {
+      id: "f-totp",
       method: "totp",
-      default_factor: { id: "f-totp", method: "totp", is_default: true },
-    })
+      is_default: true,
+      destination: null,
+    }
+    const continuation = toSignInResult(
+      authResult("second_factor_required", {
+        second_factor: {
+          user_id: "u1",
+          challenge: "ch-refresh",
+          factor: totp,
+          factors: [totp],
+        },
+      })
+    ) as PendingSignIn
     const { client } = renderUi(
       <SignInDialog
         open
@@ -386,6 +416,88 @@ describe("RegisterForm", () => {
   })
 })
 
+describe("AuthCallback", () => {
+  const at = (hash: string) =>
+    window.history.replaceState(null, "", `/login/callback${hash}`)
+
+  it("trades the fragment code once, even across a remount", async () => {
+    at("#code=one-time&state=s&provider=github")
+    const exchange = vi.fn(({ body }: { body?: BodyInit | null }) => {
+      expect(JSON.parse(String(body))).toEqual({ code: "one-time" })
+      return json(
+        200,
+        signedIn({ sub: "u1", sid: "s1" }, { return_to: "/library" })
+      )
+    })
+    const client = createAuthClient({
+      fetch: stubFetch({ "POST /api/v1/oidc/exchange": exchange }),
+    })
+    const navigate = vi.fn()
+    const onSignedIn = vi.fn()
+    const page = (key: string) => (
+      <AuthProvider client={client} autoStart={false}>
+        <AuthUiProvider>
+          <AuthCallback key={key} navigate={navigate} onSignedIn={onSignedIn} />
+        </AuthUiProvider>
+      </AuthProvider>
+    )
+    const view = render(page("a"))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/library"))
+    expect(onSignedIn).toHaveBeenCalledWith({
+      returnTo: "/library",
+      provider: "github",
+    })
+    expect(window.location.hash).toBe("")
+    expect(client.getSnapshot()).toMatchObject({ userId: "u1" })
+    view.rerender(page("b"))
+    await waitFor(() => expect(navigate).toHaveBeenCalledTimes(2))
+    expect(navigate).toHaveBeenLastCalledWith("/library")
+    expect(exchange).toHaveBeenCalledOnce()
+  })
+
+  it("finishes a second factor in place", async () => {
+    at("#code=one-time&state=s")
+    const user = userEvent.setup()
+    const factor = {
+      id: "f-totp",
+      method: "totp",
+      is_default: true,
+      destination: null,
+    }
+    const fetch = stubFetch({
+      "POST /api/v1/oidc/exchange": [
+        json(
+          200,
+          authResult("second_factor_required", {
+            return_to: "/after",
+            second_factor: {
+              user_id: "u1",
+              challenge: "ch",
+              factor,
+              factors: [factor],
+            },
+          })
+        ),
+      ],
+      "POST /api/v1/2fa/verify": [session({ sub: "u1", sid: "s1" })],
+    })
+    const navigate = vi.fn()
+    renderUi(<AuthCallback navigate={navigate} />, fetch)
+    await screen.findByRole("heading", { name: "Verify it's you" })
+    await user.type(screen.getByLabelText("Verification code"), "123456")
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/after"))
+  })
+
+  it("shows a failed exchange", async () => {
+    at("#code=spent&state=s")
+    const fetch = stubFetch({
+      "POST /api/v1/oidc/exchange": [authError(400, "invalid_code")],
+    })
+    renderUi(<AuthCallback navigate={vi.fn()} />, fetch)
+    await screen.findByRole("heading", { name: "Sign-in failed" })
+  })
+})
+
 describe("VerifyLink", () => {
   it("confirms the link token once and reports the new session", async () => {
     const user = userEvent.setup()
@@ -432,8 +544,7 @@ describe("VerifyLink", () => {
 
   it("explains a dead or missing link", async () => {
     const fetch = stubFetch({
-      "POST /api/v1/verify/confirm": () =>
-        authError(400, "invalid_link"),
+      "POST /api/v1/verify/confirm": () => authError(400, "invalid_link"),
     })
     const { unmount } = renderUi(
       <VerifyLink token="stale" navigate={vi.fn()} />,

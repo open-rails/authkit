@@ -14,6 +14,9 @@ import (
 // in its gate, rate limit and language middleware.
 func (s *Service) APIRoutes(groups ...iam.RouteGroup) []RouteSpec {
 	return s.routes(SurfaceAPI, groups, func(route RouteSpec, h http.Handler) http.Handler {
+		if route.StepUp {
+			h = s.requireRecentSignIn(h)
+		}
 		return s.rateLimitedRoute(route.Bucket, s.authenticate(route.Auth, h))
 	})
 }
@@ -99,6 +102,23 @@ func (s *Service) authenticate(tier iam.RouteAuthTier, h http.Handler) http.Hand
 		return verify.Required(s.svc)(s.requireSession(h))
 	}
 	return h
+}
+
+// requireRecentSignIn is RouteSpec.StepUp: the caller signed in recently
+// (CheckRecentSignIn, MFA-fresh when enrolled), else step_up_required with how
+// to step up. It runs after the route's tier.
+func (s *Service) requireRecentSignIn(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		claims, err := callerClaims(r)
+		if err == nil {
+			err = s.svc.CheckRecentSignIn(r.Context(), claims)
+		}
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // rateLimitedRoute applies the route's per-IP bucket in front of next (#328):

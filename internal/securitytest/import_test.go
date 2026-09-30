@@ -119,7 +119,7 @@ func TestSecurityBootstrapNeverAdoptsSquatters(t *testing.T) {
 		alias = unique("opsalias")
 		s := h.registerAs(unique("alias")+"@security.test", alias)
 		squatter = h.userIDByName(alias)
-		resp := h.do(request{method: http.MethodPatch, path: "/user/username", body: map[string]string{"username": unique("renamed")}, token: s.AccessToken})
+		resp := h.do(request{method: http.MethodPatch, path: "/me", body: map[string]string{"username": unique("renamed")}, token: s.AccessToken})
 		require.Less(t, resp.status, 300, resp.String())
 		return alias, squatter
 	}

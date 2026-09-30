@@ -1,7 +1,7 @@
 import type { ReactNode } from "react"
 import { useCallback, useEffect, useRef } from "react"
 
-import type { AuthOutcome } from "#authui/client/client"
+import type { SignInResult } from "#authui/client/authResult"
 import type { ExternalLoginProvider } from "#authui/client/types"
 
 export type SignInMode = "login" | "register"
@@ -20,8 +20,8 @@ export type ProvidersOption =
 // Lets hosts add wallet sign-in without the root entry importing ./solana.
 export type SolanaSlot = (ctx: {
   mode: SignInMode
-  // Feed the wallet outcome back so 2FA and other continuations run here.
-  onOutcome: (outcome: AuthOutcome) => void
+  // Feed the wallet's result back so 2FA and other steps run here.
+  onOutcome: (result: SignInResult) => void
   disabled: boolean
 }) => ReactNode
 
@@ -38,7 +38,8 @@ export type SignInHostProps = {
   defaultPhoneCountry?: string
   providers?: ProvidersOption
   renderSolana?: SolanaSlot
-  accountInviteToken?: string
+  // An invitation code for registration (and provider sign-up).
+  inviteCode?: string
 }
 
 export function resolveProviders(

@@ -138,7 +138,7 @@ func TestRemoteApplicationTokens(t *testing.T) {
 
 	// A Client-built Verifier serves another audience, which the Client
 	// itself refuses; it verifies the application's service JWTs too.
-	partner, err := auth.NewVerifier([]string{"partner-api"}, verify.WithRequestOrigin("https://partner.example"))
+	partner, err := auth.NewVerifier([]string{"partner-api"}, verify.WithPublicURL("https://partner.example"))
 	require.NoError(t, err)
 	forPartner := sign(signer, jose.RemoteApplicationAccessTokenType, "partner-api", nil)
 	_, err = auth.Verify(ctx, forPartner)

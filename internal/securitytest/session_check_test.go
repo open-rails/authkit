@@ -48,13 +48,12 @@ func mutating(route iam.Route) bool {
 // route's declared tier, not a call each handler must remember. Every route
 // that changes state for a signed-in caller declares AuthSession, or
 // AuthPermission, whose check runs through the actor's session binding. Only
-// the two routes that end the caller's own sign-in stay AuthRequired: they
-// must also work, idempotently, with an already revoked one.
+// logout, which ends the caller's own sign-in, stays AuthRequired: it must
+// also work, idempotently, with an already revoked one.
 func TestSecurityMutatingRoutesCheckTheSession(t *testing.T) {
 	h := newHost(t, append(withEveryRoute(t), withHTTP(generousLimits), authtest.WithConfig(withRBAC))...)
 	signOut := map[string]bool{
-		"DELETE " + apiPrefix + "/logout":           true,
-		"DELETE " + apiPrefix + "/device-keys/{id}": true,
+		"DELETE " + apiPrefix + "/logout": true,
 	}
 	declared := map[string]iam.RouteAuthTier{}
 	for _, route := range h.auth.Routes() {
@@ -68,9 +67,15 @@ func TestSecurityMutatingRoutesCheckTheSession(t *testing.T) {
 		require.Equal(t, iam.AuthRequired, declared[key], key)
 	}
 	for _, key := range []string{
-		"POST /user/password", "DELETE /user/sessions", "DELETE /user/sessions/{id}", "PATCH /user/username",
-		"PATCH /user/preferred-language", "DELETE /user", "POST /device-keys/revoke-others", "POST /delegated/token",
-		"POST /invites/redeem", "POST /admin/users/{user_id}/ban",
+		"PUT /me/password", "DELETE /me/sessions", "DELETE /me/sessions/{id}", "PATCH /me", "DELETE /me",
+		"PUT /me/email", "PUT /me/phone", "DELETE /me/phone", "DELETE /me/providers/{provider}",
+		"PATCH /me/sign-in-keys/{id}", "DELETE /me/sign-in-keys/{id}", "POST /me/passkeys/register/begin",
+		"POST /me/passkeys/register/finish", "POST /me/step-up/password", "POST /me/step-up/2fa", "POST /me/step-up/2fa/send",
+		"POST /me/2fa/setup", "POST /me/2fa/factors", "PATCH /me/2fa/factors/{id}", "DELETE /me/2fa/factors/{id}",
+		"DELETE /me/2fa", "POST /me/2fa/backup-codes", "PUT /me/solana-wallet",
+		"DELETE /device-keys", "POST /delegated/token",
+		"POST /invitations/redeem", "PATCH /admin/users/{user_id}", "PUT /admin/users/{user_id}/ban", "DELETE /admin/users/{user_id}/ban",
+		"DELETE /admin/users/{user_id}/sessions",
 	} {
 		method, path, _ := strings.Cut(key, " ")
 		require.Equal(t, iam.AuthSession, declared[method+" "+apiPrefix+path], key)
@@ -248,15 +253,15 @@ func TestSecurityRevokedSessionAtLiveGates(t *testing.T) {
 			_, claims := splitToken(t, stolen.AccessToken)
 			sid, _ := claims["sid"].(string)
 			require.NotEmpty(t, sid)
-			resp := h.do(request{method: http.MethodDelete, path: "/user/sessions/" + sid, token: h.login(a).AccessToken})
+			resp := h.do(request{method: http.MethodDelete, path: "/me/sessions/" + sid, token: h.login(a).AccessToken})
 			require.Equal(t, http.StatusNoContent, resp.status, resp.String())
 		}, true},
-		{"revoke all own sessions", func(t *testing.T, a account, _ tokens) {
-			resp := h.do(request{method: http.MethodDelete, path: "/user/sessions", token: h.login(a).AccessToken})
+		{"sign out every other session", func(t *testing.T, a account, _ tokens) {
+			resp := h.do(request{method: http.MethodDelete, path: "/me/sessions", token: h.login(a).AccessToken})
 			require.Equal(t, http.StatusNoContent, resp.status, resp.String())
 		}, true},
 		{"password change", func(t *testing.T, a account, _ tokens) {
-			resp := h.post("/user/password", map[string]string{"current_password": password, "new_password": "Another-long-passphrase-7"}, h.login(a).AccessToken)
+			resp := h.do(request{method: http.MethodPut, path: "/me/password", body: map[string]string{"current_password": password, "new_password": "Another-long-passphrase-7"}, token: h.login(a).AccessToken})
 			require.Less(t, resp.status, 300, resp.String())
 		}, true},
 		{"account-wide revocation", func(t *testing.T, a account, _ tokens) {
@@ -293,12 +298,23 @@ func TestSecurityRevokedSessionAtLiveGates(t *testing.T) {
 		}{
 			{"signed out", func(t *testing.T, _ account, token string) {
 				_, claims := splitToken(t, token)
+				require.NotEmpty(t, claims["device_key_id"])
+				require.Equal(t, http.StatusNoContent, h.do(request{method: http.MethodDelete, path: "/logout", token: token}).status)
+			}},
+			{"revoked by its own token", func(t *testing.T, _ account, token string) {
+				_, claims := splitToken(t, token)
 				id, _ := claims["device_key_id"].(string)
 				require.NotEmpty(t, id)
-				require.Equal(t, http.StatusNoContent, h.do(request{method: http.MethodDelete, path: "/device-keys/" + id, token: token}).status)
+				require.Equal(t, http.StatusNoContent, h.do(request{method: http.MethodDelete, path: "/me/sign-in-keys/" + id, token: token}).status)
+			}},
+			{"revoked from a browser session", func(t *testing.T, a account, token string) {
+				_, claims := splitToken(t, token)
+				id, _ := claims["device_key_id"].(string)
+				require.NotEmpty(t, id)
+				require.Equal(t, http.StatusNoContent, h.do(request{method: http.MethodDelete, path: "/me/sign-in-keys/" + id, token: h.login(a).AccessToken}).status)
 			}},
 			{"password change", func(t *testing.T, a account, _ string) {
-				resp := h.post("/user/password", map[string]string{"current_password": password, "new_password": "Another-long-passphrase-7"}, h.login(a).AccessToken)
+				resp := h.do(request{method: http.MethodPut, path: "/me/password", body: map[string]string{"current_password": password, "new_password": "Another-long-passphrase-7"}, token: h.login(a).AccessToken})
 				require.Less(t, resp.status, 300, resp.String())
 			}},
 		} {
@@ -406,7 +422,7 @@ func TestSecurityDelegatedTokenSessionCheck(t *testing.T) {
 
 	// AuthKit's account routes are the user's own.
 	own := mint(t, actor, iam.DelegatedAccess{Audiences: []string{audience}})
-	resp = h.do(request{method: http.MethodPatch, path: "/user/preferred-language", body: map[string]string{"preferred_language": "fr"}, token: own})
+	resp = h.do(request{method: http.MethodPatch, path: "/me", body: map[string]string{"preferred_language": "fr"}, token: own})
 	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
 	require.Equal(t, "forbidden", resp.errorCode())
 

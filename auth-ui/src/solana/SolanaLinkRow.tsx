@@ -50,7 +50,7 @@ export function SolanaLinkRow({
   const [awaiting, setAwaiting] = useState(false)
   const [confirm, setConfirm] = useState(false)
 
-  const account = user?.solana_linked_account
+  const account = user?.solana_wallet
   const address = account?.address ?? null
   const unverified = !!account && !account.verified
   const shown = account?.primary_sns_name ?? (address ? shorten(address) : null)

@@ -5,6 +5,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -87,30 +88,14 @@ func TestAccountRecoveryPasswordConfirmationBoundary(t *testing.T) {
 	login := func() response {
 		return a.post("/password/login", "", map[string]string{"identifier": user.Email, "password": password})
 	}
-	old := expect(t, http.StatusOK, login()).answer(t).TokenSet
+	old := login().answer(t).signedIn(t)
 	remove := func() {
 		t.Helper()
 		require.NoError(t, opErr(auth.DeleteUsers(ctx, iam.UserActor(user.ID), []string{user.ID})))
 	}
 	proof := func() string {
 		t.Helper()
-		res := expect(t, http.StatusConflict, login())
-		require.NotContains(t, res.String(), "access_token")
-		require.NotContains(t, res.String(), "refresh_token")
-		var body struct {
-			Error struct {
-				Code     string `json:"code"`
-				Metadata struct {
-					Recovery struct {
-						Token string `json:"token"`
-					} `json:"recovery"`
-				} `json:"metadata"`
-			} `json:"error"`
-		}
-		res.decode(t, &body)
-		require.Equal(t, "account_recovery_required", body.Error.Code)
-		require.NotEmpty(t, body.Error.Metadata.Recovery.Token)
-		return body.Error.Metadata.Recovery.Token
+		return recoveryToken(t, login())
 	}
 	confirm := func(token string) response {
 		return a.post("/account/recovery/confirm", "", map[string]string{"token": token})
@@ -192,7 +177,7 @@ func TestStaffAccountRestoreHTTPRequiresCurrentAuthority(t *testing.T) {
 	register := func(name string) (iam.TokenSet, string) {
 		t.Helper()
 		res := expect(t, http.StatusOK, a.post("/register", "", map[string]any{"identifier": name + "@example.test", "username": name, "password": "Correct-horse-account-recovery-1"}))
-		tokens := res.answer(t).Nested
+		tokens := res.answer(t).signedIn(t)
 		claims, err := auth.Verify(ctx, tokens.AccessToken)
 		require.NoError(t, err)
 		return tokens, claims.UserID
@@ -207,6 +192,9 @@ func TestStaffAccountRestoreHTTPRequiresCurrentAuthority(t *testing.T) {
 	target, targetID := register("restoretarget")
 	authtest.GrantRole(t, auth, iam.RootGroup(), iam.UserSubject(staffID), staffRole)
 	path := "/admin/users/" + targetID
+	self := expect(t, http.StatusForbidden, a.do(request{method: http.MethodDelete, path: "/admin/users/" + strings.ToUpper(staffID), token: staff.AccessToken}))
+	require.Equal(t, "cannot_target_self", self.code(), "staff delete their own account at DELETE /me")
+	require.Nil(t, deletedAt(staffID))
 	expect(t, http.StatusNoContent, a.do(request{method: http.MethodDelete, path: path, token: staff.AccessToken}))
 	expect(t, http.StatusUnauthorized, a.post(path+"/restore", "", nil))
 	refused := expect(t, http.StatusUnauthorized, a.post(path+"/restore", target.AccessToken, nil))
@@ -256,7 +244,7 @@ func TestUserDeleteWithUnboundAccountIssuerLogsCause(t *testing.T) {
 	require.Contains(t, logs.String(), peer)
 
 	token := authtest.SignIn(t, auth, authtest.NewUser(t, auth)).AccessToken
-	res := expect(t, http.StatusInternalServerError, newAPI(t, auth).do(request{method: http.MethodDelete, path: "/user", token: token}))
+	res := expect(t, http.StatusInternalServerError, newAPI(t, auth).do(request{method: http.MethodDelete, path: "/me", token: token}))
 	require.Equal(t, "internal_error", res.code())
 	require.NotContains(t, res.String(), peer, "deployment topology stays off the wire")
 	require.Contains(t, logs.String(), `failed_to_delete: authkit: account issuer \"`+peer+`\" must compose its River fleet before account deletion`)

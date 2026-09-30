@@ -19,6 +19,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/internal/testclock"
@@ -61,17 +62,21 @@ func verifiedClaims(t testing.TB, auth *authkit.Client, token string) map[string
 }
 
 // refreshSession redeems refreshToken at POST /token, reporting failures
-// instead of failing the test, so racing goroutines may call it.
+// instead of failing the test, so racing goroutines may call it. A 200 must
+// be a complete AuthResult.
 func refreshSession(a *api, refreshToken string) (int, iam.TokenSet, error) {
 	res, err := a.send(request{method: http.MethodPost, path: "/token", body: map[string]string{"grant_type": "refresh_token", "refresh_token": refreshToken}})
-	if err != nil {
-		return 0, iam.TokenSet{}, err
+	if err != nil || res.status != http.StatusOK {
+		return res.status, iam.TokenSet{}, err
 	}
-	var tokens iam.TokenSet
-	if res.status == http.StatusOK {
-		err = json.Unmarshal(res.body, &tokens)
+	var out httpapi.AuthResult
+	if err := json.Unmarshal(res.body, &out); err != nil {
+		return res.status, iam.TokenSet{}, err
 	}
-	return res.status, tokens, err
+	if out.Status != httpapi.AuthComplete || out.TokenSet == nil || out.User == nil {
+		return res.status, iam.TokenSet{}, fmt.Errorf("refresh answered %s: %s", out.Status, res)
+	}
+	return res.status, *out.TokenSet, nil
 }
 
 // sessionCounts reports the account's live sessions, and its revoked ones
@@ -172,9 +177,22 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 	staffA := login(t, siteA, staff)
 	// Site A's short access TTL starts here; its expiry is asserted below.
 	victimA := login(t, siteA, victim)
+	// Staff see the account's sessions on this issuer; none is theirs.
+	listed := func() []iam.Session {
+		t.Helper()
+		res := siteA.api.get("/admin/users/"+victim.ID+"/sessions", staffA.AccessToken)
+		require.Equal(t, http.StatusOK, res.status, res.String())
+		var page iam.ListPage[iam.Session]
+		res.decode(t, &page)
+		return page.Items
+	}
+	before := listed()
+	require.Len(t, before, 1)
+	require.False(t, before[0].Current)
 	// The counts stay in Go (Client.RevokeAccountSessions); the wire says done.
-	res := siteA.api.post("/admin/users/"+victim.ID+"/sessions/revoke", staffA.AccessToken, nil)
+	res := siteA.api.do(request{method: http.MethodDelete, path: "/admin/users/" + victim.ID + "/sessions", token: staffA.AccessToken})
 	require.Equal(t, http.StatusNoContent, res.status, res.String())
+	require.Empty(t, listed())
 	keys, err := auth.DeviceKeys(ctx, victim.ID)
 	require.NoError(t, err)
 	require.Len(t, keys, 1)
@@ -210,9 +228,9 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		a := newAPI(t, auth)
 		require.Equal(t, http.StatusOK, a.get("/me", victimA.AccessToken).status)
 		for _, tc := range []request{
-			{method: http.MethodPatch, path: "/user/preferred-language", body: `{"preferred_language":"en"}`},
-			{method: http.MethodDelete, path: "/user/sessions"},
-			{method: http.MethodPost, path: "/step-up/password", body: map[string]string{"password": victim.Password}},
+			{method: http.MethodPatch, path: "/me", body: `{"preferred_language":"en"}`},
+			{method: http.MethodDelete, path: "/me/sessions"},
+			{method: http.MethodPost, path: "/me/step-up/password", body: map[string]string{"password": victim.Password}},
 		} {
 			tc.token = victimA.AccessToken
 			res := a.do(tc)
@@ -241,15 +259,18 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		require.Equal(t, http.StatusOK, refresh(t, siteA, bystanderA))
 		require.Equal(t, http.StatusOK, refresh(t, siteB, bystanderB))
 
-		res = siteB.api.do(request{method: http.MethodDelete, path: "/user/sessions", token: bystanderB.AccessToken})
+		// Signing out the other sessions keeps the caller's.
+		other := login(t, siteB, bystander)
+		res = siteB.api.do(request{method: http.MethodDelete, path: "/me/sessions", token: bystanderB.AccessToken})
 		require.Equal(t, http.StatusNoContent, res.status, res.String())
-		require.Equal(t, http.StatusUnauthorized, refresh(t, siteB, bystanderB))
+		require.Equal(t, http.StatusUnauthorized, refresh(t, siteB, other))
+		require.Equal(t, http.StatusOK, refresh(t, siteB, bystanderB))
 		require.Equal(t, http.StatusOK, refresh(t, siteA, bystanderA))
 	})
 
 	t.Run("password change keeps the current session and revokes the sibling issuer", func(t *testing.T) {
 		current := login(t, siteB, bystander)
-		res := siteB.api.post("/user/password", current.AccessToken, map[string]string{"current_password": bystander.Password, "new_password": "Another-horse-battery-98"})
+		res := siteB.api.do(request{method: http.MethodPut, path: "/me/password", token: current.AccessToken, body: map[string]string{"current_password": bystander.Password, "new_password": "Another-horse-battery-98"}})
 		require.Contains(t, []int{http.StatusOK, http.StatusNoContent}, res.status, res.String())
 		require.Equal(t, http.StatusOK, refresh(t, siteB, current))
 		require.Equal(t, http.StatusUnauthorized, refresh(t, siteA, bystanderA))
@@ -287,7 +308,7 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		require.NoError(t, auth.Ban(ctx, iam.SystemActor(), staff.ID, iam.Ban{}))
 		res := directory(elevated)
 		require.Equal(t, http.StatusUnauthorized, res.status, "a ban ends the sibling issuer's session at once: %s", res)
-		res = b.post("/admin/users/"+target.ID+"/ban", elevated.AccessToken, `{"until":"infinite"}`)
+		res = b.do(request{method: http.MethodPut, path: "/admin/users/" + target.ID + "/ban", body: `{"reason":null,"until":null}`, token: elevated.AccessToken})
 		require.Equal(t, http.StatusUnauthorized, res.status, res.String())
 		u, err := siteB.auth.User(ctx, iam.UserByID(target.ID))
 		require.NoError(t, err)

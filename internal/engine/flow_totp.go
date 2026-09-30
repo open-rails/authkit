@@ -86,32 +86,32 @@ type totpEnrollment struct {
 }
 
 // enableTOTP2FA also marks provenSessionID 2FA-verified (see enable2FA).
-func (s *Engine) enableTOTP2FA(ctx context.Context, in totpEnrollment, provenSessionID string) ([]string, bool, error) {
+func (s *Engine) enableTOTP2FA(ctx context.Context, in totpEnrollment, provenSessionID string) (authflow.TwoFactorEnrollOutcome, error) {
 	userID := in.UserID
 	if !s.twoFactorMethodAvailable(string(iam.TwoFactorTOTP)) {
-		return nil, false, errmodel.ErrTwoFAMethodUnavailable
+		return authflow.TwoFactorEnrollOutcome{}, errmodel.ErrTwoFAMethodUnavailable
 	}
 	var pending totpEnrollmentData
 	raw, ok, err := s.ephemReadJSON(ctx, keyTOTPEnrollment+userID, &pending)
 	if err != nil {
-		return nil, false, err
+		return authflow.TwoFactorEnrollOutcome{}, err
 	}
 	if !ok || len(pending.SealedSecret) == 0 {
-		return nil, false, jwt.ErrTokenUnverifiable
+		return authflow.TwoFactorEnrollOutcome{}, jwt.ErrTokenUnverifiable
 	}
 	secret, err := s.decryptTOTPSecret(pending.SealedSecret)
 	if err != nil {
-		return nil, false, err
+		return authflow.TwoFactorEnrollOutcome{}, err
 	}
 	step, validStep, err := matchingTOTPStep(secret, in.Code, time.Now())
 	if err != nil {
-		return nil, false, err
+		return authflow.TwoFactorEnrollOutcome{}, err
 	}
 	if !validStep {
-		return nil, false, jwt.ErrTokenUnverifiable
+		return authflow.TwoFactorEnrollOutcome{}, jwt.ErrTokenUnverifiable
 	}
 	if err := s.claimProof(ctx, keyTOTPEnrollment+userID, raw); err != nil {
-		return nil, false, err
+		return authflow.TwoFactorEnrollOutcome{}, err
 	}
 	return s.enable2FA(ctx, factorEnable{
 		UserID: userID, Method: "totp", TOTPSecret: pending.SealedSecret, LastTOTPStep: &step,
@@ -284,27 +284,27 @@ type email2FASetupData struct {
 }
 
 // sendEmail2FASetupCode proves the account mailbox before it becomes a factor.
-func (s *Engine) sendEmail2FASetupCode(ctx context.Context, userID string) error {
+func (s *Engine) sendEmail2FASetupCode(ctx context.Context, userID string) (string, error) {
 	if !s.useEphemeralStore() {
-		return fmt.Errorf("ephemeral store not configured")
+		return "", fmt.Errorf("ephemeral store not configured")
 	}
 	user, err := s.getUserByID(ctx, userID)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if user == nil || user.Email == nil || strings.TrimSpace(*user.Email) == "" {
-		return errmodel.ErrInvalidTwoFAMethod
+		return "", errmodel.ErrInvalidTwoFAMethod
 	}
 	code := secret.Digits(6)
 	email := contact.NormalizeEmail(*user.Email)
 	if err := s.ephemSetJSON(ctx, keyEmail2FASetup+userID, email2FASetupData{Email: email, CodeHash: secret.Hash(code)}, email2FASetupTTL); err != nil {
-		return err
+		return "", err
 	}
 	_ = s.ephemDel(ctx, keyEmail2FASetupAttempts+userID)
 	if s.email == nil {
-		return fmt.Errorf("email sender not configured")
+		return "", fmt.Errorf("email sender not configured")
 	}
-	return s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessageVerification, To: email, Username: deref(user.Username),
+	return email, s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessageVerification, To: email, Username: deref(user.Username),
 		Language: s.userLanguage(ctx, userID), Code: code, Purpose: iam.PurposeTwoFactorSetup})
 }
 

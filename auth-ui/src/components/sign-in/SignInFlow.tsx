@@ -3,7 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { useEffect, useRef, useState, type ReactNode } from "react"
 
 import { useMessages } from "#authui/i18n/context"
-import type { LoginContinuation } from "#authui/client/continuation"
+import type { PendingSignIn } from "#authui/client/authResult"
 import type { LoginState } from "#authui/react/useLogin"
 import { useLogin } from "#authui/react/useLogin"
 import { useRegister } from "#authui/react/useRegister"
@@ -29,8 +29,8 @@ export type SignInFlowProps = SignInHostProps & {
   privacyUrl?: string
   // Current screen; "backup_codes" means signed in but not yet acknowledged.
   onStepChange?: (step: SignInStep) => void
-  // Opens on this continuation, e.g. session.continuation from a refresh.
-  continuation?: LoginContinuation | null
+  // Opens on this pending step, e.g. session.continuation from a refresh.
+  continuation?: PendingSignIn | null
 }
 
 function DefaultLegal({ termsUrl, privacyUrl }: SignInFlowProps) {
@@ -64,7 +64,7 @@ export function SignInFlow(props: SignInFlowProps) {
   }, [continuation, resume])
   const register = useRegister({
     onSignedIn: signedIn,
-    accountInviteToken: props.accountInviteToken,
+    inviteCode: props.inviteCode,
   })
   const [tab, setTab] = useState<SignInMode>(props.initialTab ?? "login")
   const [forgot, setForgot] = useState<string | null>(null)
@@ -88,7 +88,7 @@ export function SignInFlow(props: SignInFlowProps) {
     defaultPhoneCountry: props.defaultPhoneCountry,
     providers: props.providers,
     renderSolana: props.renderSolana,
-    accountInviteToken: props.accountInviteToken,
+    inviteCode: props.inviteCode,
   }
 
   if (forgot !== null)

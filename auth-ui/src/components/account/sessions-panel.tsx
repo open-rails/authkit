@@ -110,7 +110,10 @@ function SessionsCard() {
               <Button
                 variant="outline"
                 disabled={s.busy}
-                onClick={() => void revoke(others.map((x) => x.id))}
+                onClick={() => {
+                  setSelected(new Set())
+                  void s.revokeOthers()
+                }}
               >
                 {s.busy && <Spinner />}
                 {t("account.sessions.revokeAll")}
@@ -137,7 +140,7 @@ function SessionsCard() {
         destructive
         onConfirm={() => {
           setEverywhere(false)
-          void s.revokeAll()
+          void s.signOutEverywhere()
         }}
       />
     </PanelCard>

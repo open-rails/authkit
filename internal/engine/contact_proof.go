@@ -37,10 +37,8 @@ func contactStateForUpdate(ctx context.Context, q db.DBTX, userID string) (db.Co
 }
 
 func contactVerificationRequired(identifier, channel string) error {
-	return errmodel.E(errmodel.CodeVerificationRequired, errmodel.WithMetadata(map[string]any{
-		"identifier": identifier,
-		"channel":    channel,
-		"reason":     "contact_unproven",
+	return errmodel.E(errmodel.CodeVerificationRequired, errmodel.WithDetails(errmodel.ContactProofRequired{
+		Identifier: identifier, Channel: channel, Reason: "contact_unproven",
 	}))
 }
 

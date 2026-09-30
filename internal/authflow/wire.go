@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/naming"
 )
 
@@ -16,17 +17,7 @@ const (
 	ActionRequestVerification  = "request_verification"
 )
 
-type ActionAvailability struct {
-	Action            string     `json:"action"`
-	Allowed           bool       `json:"allowed"`
-	Reason            string     `json:"reason"`
-	RetryAfterSeconds int64      `json:"retry_after_seconds"`
-	NextAllowedAt     *time.Time `json:"next_allowed_at"`
-	Limit             *int       `json:"limit"`
-	Remaining         *int       `json:"remaining"`
-	WindowSeconds     *int64     `json:"window_seconds"`
-	CooldownSeconds   *int64     `json:"cooldown_seconds"`
-}
+type ActionAvailability = errmodel.ActionAvailability
 
 // SolanaLinkedAccount is the AuthKit-owned normalized metadata for a
 // SIWS-linked wallet.
@@ -50,36 +41,62 @@ type StepUpTwoFactorOptions struct {
 	Options       []StepUpTwoFactorOption `json:"options"`
 }
 
-// StepUpTwoFactorOption is one second factor; VerificationID is the masked
+// StepUpTwoFactorOption is one second factor; Destination is the masked
 // address its codes go to (null for an authenticator app).
 type StepUpTwoFactorOption struct {
-	Method         string  `json:"method"`
-	IsDefault      bool    `json:"is_default"`
-	VerificationID *string `json:"verification_id"`
+	Method      string  `json:"method"`
+	IsDefault   bool    `json:"is_default"`
+	Destination *string `json:"destination"`
 }
 
-// UserSecurity is the session/step-up/MFA view of the caller's own account,
-// nested under UserProfile.Security.
+// StepUpRequired is step_up_required's metadata: how the account can step
+// up, the freshness window, and its second factors (MFARequired: a password
+// alone never clears the gate).
+type StepUpRequired struct {
+	StepUpMethods []string                `json:"step_up_methods"`
+	MaxAgeSeconds int64                   `json:"max_age_seconds"`
+	StepUp2FA     *StepUpTwoFactorOptions `json:"step_up_2fa"`
+	MFARequired   bool                    `json:"mfa_required"`
+}
+
+// FreshAuth is a session's step-up state: when it last proved its user, and
+// how long sensitive actions stay open without a step-up (0 once one is
+// required).
+type FreshAuth struct {
+	LastAuthenticatedAt               *time.Time `json:"last_authenticated_at"`
+	StepUpRequiredForSensitiveActions bool       `json:"step_up_required_for_sensitive_actions"`
+	StepUpRequiredInSeconds           int64      `json:"step_up_required_in_seconds"`
+	AuthMethods                       []string   `json:"auth_methods"`
+}
+
+// UserSecurity is GET /me/security: the session's freshness, how the account
+// can step up, and its MFA state.
 type UserSecurity struct {
-	LastAuthenticatedAt               *time.Time              `json:"last_authenticated_at"`
-	TimeUntilStepUpRequired           *int64                  `json:"time_until_step_up_required"`
-	StepUpRequiredForSensitiveActions bool                    `json:"step_up_required_for_sensitive_actions"`
-	StepUpMethods                     []string                `json:"step_up_methods"`
-	StepUp2FA                         *StepUpTwoFactorOptions `json:"step_up_2fa"`
-	MFAEnabled                        bool                    `json:"mfa_enabled"`
-	MFASatisfied                      bool                    `json:"mfa_satisfied"`
-	MFAAllowedMethods                 []string                `json:"mfa_allowed_methods"`
+	FreshAuth
+	StepUpMethods     []string                `json:"step_up_methods"`
+	StepUp2FA         *StepUpTwoFactorOptions `json:"step_up_2fa"`
+	MFAEnabled        bool                    `json:"mfa_enabled"`
+	MFASatisfied      bool                    `json:"mfa_satisfied"`
+	MFAAllowedMethods []iam.TwoFactorMethod   `json:"mfa_allowed_methods"`
 }
 
-// UserProfile is the caller's own account as GET /me returns it: the account
-// (iam.User) and its sign-in, security and naming state.
+// LinkedProvider is a sign-in provider linked to the account, with the email
+// the provider reported.
+type LinkedProvider struct {
+	Provider string    `json:"provider"`
+	Email    *string   `json:"email"`
+	LinkedAt time.Time `json:"linked_at"`
+}
+
+// UserProfile is the caller's own account as GET /me and PATCH /me answer it:
+// the account (iam.User), its root role, entitlements, sign-in methods, Solana
+// wallet and rename state.
 type UserProfile struct {
 	iam.User
-	HasPassword         bool                 `json:"has_password"`
-	SolanaLinkedAccount *SolanaLinkedAccount `json:"solana_linked_account"`
-	LinkedProviders     []string             `json:"linked_providers"`
-	Roles               []string             `json:"roles"`
-	Entitlements        []string             `json:"entitlements"`
-	Naming              naming.State         `json:"naming"`
-	Security            UserSecurity         `json:"security"`
+	RootRole     *iam.Role            `json:"root_role"`
+	Entitlements []string             `json:"entitlements"`
+	HasPassword  bool                 `json:"has_password"`
+	Providers    []LinkedProvider     `json:"providers"`
+	SolanaWallet *SolanaLinkedAccount `json:"solana_wallet"`
+	Naming       naming.State         `json:"naming"`
 }

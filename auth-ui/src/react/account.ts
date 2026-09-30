@@ -97,12 +97,12 @@ export function useDeleteAccount(
     onDeleted.current = options.onDeleted
   })
 
-  // Soft delete; the session ends (often unmounting the caller, hence
-  // onDeleted). Signing in later offers recovery.
+  // Soft delete after a step-up; the session ends (often unmounting the
+  // caller, hence onDeleted). Signing in later offers recovery.
   const deleteAccount = useCallback(
-    (input: { password?: string } = {}) =>
+    () =>
       run(async () => {
-        await guard(() => client.deleteAccount(input))
+        await guard(() => client.deleteAccount())
         setDeleted(true)
         onDeleted.current?.()
       }),
@@ -166,9 +166,25 @@ export function useSessions(options: GuardOptions = {}) {
     [client, guard, run]
   )
 
-  // Every session including this one: the user is signed out.
-  const revokeAll = useCallback(
-    () => run(() => guard(() => client.revokeAllSessions())),
+  // Every session but this one.
+  const revokeOthers = useCallback(
+    () =>
+      run(async () => {
+        await guard(() => client.revokeOtherSessions())
+        setListed((l) =>
+          l?.data ? { ...l, data: l.data.filter((s) => s.current) } : l
+        )
+      }),
+    [client, guard, run]
+  )
+
+  // Every other session, then this one: the user is signed out.
+  const signOutEverywhere = useCallback(
+    () =>
+      run(async () => {
+        await guard(() => client.revokeOtherSessions())
+        await client.signOut()
+      }),
     [client, guard, run]
   )
 
@@ -185,6 +201,7 @@ export function useSessions(options: GuardOptions = {}) {
     error: error ?? usable?.error ?? null,
     refetch,
     revoke,
-    revokeAll,
+    revokeOthers,
+    signOutEverywhere,
   }
 }

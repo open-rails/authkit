@@ -287,6 +287,10 @@ export const ja: AuthUiMessageBundle = {
     },
     phone: {
       title: "電話番号",
+      remove: "削除",
+      removeTitle: "電話番号を削除しますか？",
+      removeDescription:
+        "{value} ではサインイン、コードの受信、このアカウントの復旧ができなくなります。",
       none: "電話番号が設定されていません",
       add: "電話番号を追加",
       change: "電話番号を変更",
@@ -383,7 +387,6 @@ export const ja: AuthUiMessageBundle = {
       disableTitle: "二要素認証をオフにしますか？",
       disableDescription:
         "すべての確認方法とバックアップコードが削除され、アカウントはパスワードのみで保護されます。",
-      removedRoles: "二要素認証が必要なロールが削除されました: {roles}",
       backupTitle: "バックアップコード",
       backupRemaining: "未使用のコード: 残り{count}個",
       regenerate: "新しいコードを生成",
@@ -409,6 +412,22 @@ export const ja: AuthUiMessageBundle = {
       device: "{os} の {browser}",
       signedIn: "ログイン: {time}",
       noOthers: "他の端末ではログインしていません。",
+    },
+    signInKeys: {
+      title: "パスキーとデバイスキー",
+      description: "パスワードなしでサインインできるキーです。",
+      addPasskey: "パスキーを追加",
+      none: "パスキーやデバイスキーはまだありません。",
+      passkey: "パスキー",
+      deviceKey: "デバイスキー",
+      current: "このデバイス",
+      added: "追加: {time}",
+      lastUsed: "最終使用: {time}",
+      rename: "名前を変更",
+      label: "名前",
+      remove: "削除",
+      removeTitle: "{name} を削除しますか？",
+      removeDescription: "このキーではサインインできなくなります。",
     },
     delete: {
       title: "アカウントを削除",
@@ -518,6 +537,8 @@ export const ja: AuthUiMessageBundle = {
       "ログインする前にアカウントの復旧を確認してください。",
     auth_required_for_link: "プロバイダーを連携する前にログインしてください。",
     authentication_failed: "認証に失敗しました。",
+    cannot_remove_last_contact:
+      "電話番号を削除する前に、メールアドレスを確認してください。",
     cannot_unlink_last_login_method: "最後のログイン方法は連携解除できません。",
     challenge_expired:
       "認証セッションの有効期限が切れました。最初からやり直してください。",

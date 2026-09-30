@@ -156,7 +156,7 @@ func (s *Engine) ListGroupMembers(ctx context.Context, ref iam.GroupRef, q iam.M
 				ids = append(ids, m.Subject.ID)
 			}
 		}
-		users, err := s.Users(ctx, ids)
+		users, err := s.PublicUsers(ctx, ids)
 		if err != nil {
 			return out, err
 		}

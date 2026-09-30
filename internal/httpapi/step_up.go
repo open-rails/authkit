@@ -7,9 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
-	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
 
@@ -18,10 +16,11 @@ import (
 
 const oidcStepUpClockSkew = 2 * time.Minute
 
+// handlePasswordStepUpPOST re-authenticates the session with the account's
+// password, for an account without a second factor.
 func (s *Service) handlePasswordStepUpPOST(w http.ResponseWriter, r *http.Request) {
-	claims, ok := verify.ClaimsFromContext(r.Context())
-	if !ok || strings.TrimSpace(claims.UserID) == "" || strings.TrimSpace(claims.SessionID) == "" {
-		fail(w, errmodel.CodeUnauthenticated)
+	claims, ok := stepUpCaller(w, r)
+	if !ok {
 		return
 	}
 	var body PasswordRequest
@@ -45,80 +44,122 @@ func (s *Service) handlePasswordStepUpPOST(w http.ResponseWriter, r *http.Reques
 		serverErr(w, "step_up_failed", err)
 		return
 	}
-	freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
-	resp, err := s.freshAccessTokenResponse(r, claims.UserID, claims.SessionID, freshness)
-	if err != nil {
-		serverErr(w, "token_issue_failed", err)
-		return
-	}
-	writeJSON(w, http.StatusOK, resp)
+	s.writeFresh(w, r, claims.UserID, claims.SessionID)
 }
 
+// handleTwoFactorStepUpSendPOST sends a step-up code to a second factor (the
+// default one when no method is named); an authenticator app needs none.
+func (s *Service) handleTwoFactorStepUpSendPOST(w http.ResponseWriter, r *http.Request) {
+	claims, ok := stepUpCaller(w, r)
+	if !ok {
+		return
+	}
+	var body TwoFactorSendRequest
+	if err := decodeOptionalJSON(r, &body); err != nil {
+		fail(w, errmodel.CodeInvalidRequest)
+		return
+	}
+	method, ok := stepUpMethod(w, body.Method)
+	if !ok || !s.requireSecondFactor(w, r, claims.UserID) {
+		return
+	}
+	if s.rateLimitedByIdentifier(w, r, RLStepUp2FASend, claims.UserID) {
+		return
+	}
+	if _, _, _, err := s.svc.Require2FAForStepUpMethod(r.Context(), claims.UserID, claims.SessionID, method); err != nil {
+		writeError(w, err)
+		return
+	}
+	accepted(w)
+}
+
+// handleTwoFactorStepUpPOST re-authenticates the session with a second-factor
+// code (sent by /me/step-up/2fa/send, or an authenticator app's) or a backup
+// code.
 func (s *Service) handleTwoFactorStepUpPOST(w http.ResponseWriter, r *http.Request) {
-	claims, ok := verify.ClaimsFromContext(r.Context())
-	if !ok || strings.TrimSpace(claims.UserID) == "" || strings.TrimSpace(claims.SessionID) == "" {
-		fail(w, errmodel.CodeUnauthenticated)
+	claims, ok := stepUpCaller(w, r)
+	if !ok {
 		return
 	}
 	if s.rateLimitedByIdentifier(w, r, RL2FAVerify, claims.UserID) {
 		return
 	}
-
 	var body TwoFactorStepUpRequest
 	if err := decodeJSON(r, &body); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	if strings.TrimSpace(body.FactorID) != "" {
-		fail(w, errmodel.CodeInvalidRequest)
+	code := strings.TrimSpace(body.Code)
+	if code == "" {
+		fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("code"))
 		return
 	}
-	method := strings.ToLower(strings.TrimSpace(body.Method))
-	if method != "" && !authflow.ValidTwoFactorStepUpMethod(method) {
-		fail(w, errmodel.CodeInvalidTwoFAMethod)
+	method, ok := stepUpMethod(w, body.Method)
+	if !ok || !s.requireSecondFactor(w, r, claims.UserID) {
 		return
 	}
-
-	if strings.TrimSpace(body.Code) == "" {
-		destination, method, _, err := s.svc.Require2FAForStepUpMethod(r.Context(), claims.UserID, claims.SessionID, method)
-		if err != nil {
-			if method != "" {
-				fail(w, errmodel.CodeInvalidTwoFAMethod)
-				return
-			}
-			writeError(w, err)
-			return
-		}
-		fail(w, errmodel.CodeTwoFARequired, errmodel.WithMetadata(map[string]any{
-			"method":          method,
-			"verification_id": contact.MaskDestination(destination),
-		}))
-		return
-	}
-
 	var valid bool
 	var err error
 	if body.BackupCode {
-		valid, err = s.svc.VerifyBackupCode(r.Context(), claims.UserID, strings.TrimSpace(body.Code))
+		valid, err = s.svc.VerifyBackupCode(r.Context(), claims.UserID, code)
 	} else {
-		valid, err = s.svc.Verify2FAStepUpMethodCode(r.Context(), claims.UserID, claims.SessionID, method, strings.TrimSpace(body.Code))
+		valid, err = s.svc.Verify2FAStepUpMethodCode(r.Context(), claims.UserID, claims.SessionID, method, code)
 	}
 	if err != nil || !valid {
 		fail(w, codeRejection(err))
 		return
 	}
-
 	if err := s.svc.MarkSessionAuthenticatedWithMethods(r.Context(), claims.UserID, claims.SessionID, []string{"otp", "mfa"}); err != nil {
 		serverErr(w, "step_up_failed", err)
 		return
 	}
-	freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
-	resp, err := s.freshAccessTokenResponse(r, claims.UserID, claims.SessionID, freshness)
+	s.writeFresh(w, r, claims.UserID, claims.SessionID)
+}
+
+// stepUpCaller is the signed-in caller of a step-up route: a step-up
+// re-authenticates a refresh session.
+func stepUpCaller(w http.ResponseWriter, r *http.Request) (verify.Claims, bool) {
+	claims, ok := verify.ClaimsFromContext(r.Context())
+	if !ok || strings.TrimSpace(claims.UserID) == "" || strings.TrimSpace(claims.SessionID) == "" {
+		fail(w, errmodel.CodeUnauthenticated)
+		return verify.Claims{}, false
+	}
+	return claims, true
+}
+
+// stepUpMethod reads a step-up's second-factor method ("" = the default).
+func stepUpMethod(w http.ResponseWriter, method string) (string, bool) {
+	method = strings.ToLower(strings.TrimSpace(method))
+	if method != "" && !authflow.ValidTwoFactorStepUpMethod(method) {
+		fail(w, errmodel.CodeInvalidTwoFAMethod)
+		return "", false
+	}
+	return method, true
+}
+
+// requireSecondFactor refuses a second-factor step-up for an account without
+// one.
+func (s *Service) requireSecondFactor(w http.ResponseWriter, r *http.Request, userID string) bool {
+	enrolled, err := s.svc.HasUsableMFA(r.Context(), userID)
+	if err != nil {
+		serverErr(w, "load_2fa", err)
+		return false
+	}
+	if !enrolled {
+		fail(w, errmodel.CodeInvalidTwoFAMethod)
+		return false
+	}
+	return true
+}
+
+// writeFresh answers a re-authenticated session's fresh AuthResult.
+func (s *Service) writeFresh(w http.ResponseWriter, r *http.Request, userID, sessionID string) {
+	res, err := s.freshAuthResult(w, r, userID, sessionID)
 	if err != nil {
 		serverErr(w, "token_issue_failed", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, resp)
+	writeAuthResult(w, res)
 }
 
 func (s *Service) handleOIDCStepUpStartPOST(w http.ResponseWriter, r *http.Request) {
@@ -168,41 +209,33 @@ func (s *Service) userHasLinkedIssuerProvider(r *http.Request, userID, issuer, p
 	return err == nil && exists
 }
 
+// completeOIDCStepUp finishes a step-up callback: the provider identity must
+// be the session's own, freshly authenticated, on an account without a second
+// factor. The result is the session's fresh AuthResult. It reports whether sd
+// was a step-up.
 func (s *Service) completeOIDCStepUp(w http.ResponseWriter, r *http.Request, sd oidcstate.StateData, provider, issuer, subject string, authTime time.Time) bool {
 	if strings.TrimSpace(sd.StepUpUserID) == "" {
 		return false
 	}
 	userID, _, err := s.svc.GetProviderLinkByIssuer(r.Context(), issuer, subject)
 	if err != nil || userID != sd.StepUpUserID {
-		redirectStepUpResult(w, r, sd.StepUpReturnTo, "failed")
+		s.failBrowserFlow(w, r, &sd, provider, errmodel.E(errmodel.CodeProviderNotLinked))
 		return true
 	}
 	if !validOIDCStepUpTime(sd.StepUpStartedAt, authTime, time.Now().UTC()) || s.hasUsableMFA(r, sd.StepUpUserID) {
-		redirectStepUpResult(w, r, sd.StepUpReturnTo, "failed")
+		s.failBrowserFlow(w, r, &sd, provider, s.svc.StepUpRequired(r.Context(), sd.StepUpUserID))
 		return true
 	}
 	if err := s.svc.MarkSessionAuthenticated(r.Context(), sd.StepUpUserID, sd.StepUpSessionID); err != nil {
-		redirectStepUpResult(w, r, sd.StepUpReturnTo, "failed")
+		s.failBrowserFlow(w, r, &sd, provider, errmodel.Internal("step_up_failed", err))
 		return true
 	}
-	return s.emitStepUpResult(w, r, sd, provider)
-}
-
-// emitStepUpResult writes the success result shared by the OIDC and OAuth2 step-up
-// completers: a fresh-token JSON body (tagged with the provider name) when JSON is
-// requested, else a success redirect. Always returns true (request handled).
-func (s *Service) emitStepUpResult(w http.ResponseWriter, r *http.Request, sd oidcstate.StateData, providerName string) bool {
-	if strings.EqualFold(r.URL.Query().Get("format"), "json") || strings.Contains(r.Header.Get("Accept"), "application/json") {
-		freshness, _ := s.svc.SessionFreshness(r.Context(), sd.StepUpUserID, sd.StepUpSessionID, time.Now())
-		fresh, err := s.freshAccessTokenResponse(r, sd.StepUpUserID, sd.StepUpSessionID, freshness)
-		if err != nil {
-			redirectStepUpResult(w, r, sd.StepUpReturnTo, "failed")
-			return true
-		}
-		writeJSON(w, http.StatusOK, OIDCStepUpResult{TokenSet: fresh.TokenSet, FreshAuth: fresh.FreshAuth, Provider: providerName})
+	res, err := s.freshAuthResult(w, r, sd.StepUpUserID, sd.StepUpSessionID)
+	if err != nil {
+		s.failBrowserFlow(w, r, &sd, provider, err)
 		return true
 	}
-	redirectStepUpResult(w, r, sd.StepUpReturnTo, "success")
+	s.emitBrowserResult(w, r, &sd, provider, res)
 	return true
 }
 
@@ -213,54 +246,9 @@ func validOIDCStepUpTime(startedAt, authTime, now time.Time) bool {
 	return !authTime.Before(startedAt.Add(-oidcStepUpClockSkew))
 }
 
-// requireFreshAuthOrPassword is the sensitive-action gate of AuthKit's own
-// credential routes: the engine's CheckRecentSignIn (the gate
-// verify.Sensitive applies to host routes), or, for an account without a
-// second factor, a correct password in the request, which re-authenticates
-// the session and returns a fresh token set.
-func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Request, claims verify.Claims, password string) (bool, *StepUpResult) {
-	err := s.svc.CheckRecentSignIn(r.Context(), claims)
-	if err == nil {
-		return true, nil
-	}
-	// MFA-if-enrolled: a password never clears the gate for an account with a
-	// second factor (M5).
-	if password == "" || errmodel.CodeOf(err) != errmodel.CodeStepUpRequired || s.hasUsableMFA(r, claims.UserID) {
-		writeError(w, err)
-		return false, nil
-	}
-	if s.rateLimited(w, r, RLPasswordStepUp) {
-		return false, nil
-	}
-	if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, password); verr != nil {
-		passwordRejected(w, verr)
-		return false, nil
-	}
-	if err := s.svc.MarkSessionAuthenticated(r.Context(), claims.UserID, claims.SessionID); err != nil {
-		serverErr(w, "step_up_failed", err)
-		return false, nil
-	}
-	freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
-	fresh, err := s.freshAccessTokenResponse(r, claims.UserID, claims.SessionID, freshness)
-	if err != nil {
-		serverErr(w, "token_issue_failed", err)
-		return false, nil
-	}
-	return true, &fresh
-}
-
 // requireStepUp answers step_up_required with how userID can step up.
 func (s *Service) requireStepUp(w http.ResponseWriter, r *http.Request, userID string) {
 	writeError(w, s.svc.StepUpRequired(r.Context(), userID))
-}
-
-// freshAccessTokenResponse mints the re-authenticated session's access token.
-func (s *Service) freshAccessTokenResponse(r *http.Request, userID, sessionID string, freshness authflow.SessionFreshness) (StepUpResult, error) {
-	token, exp, err := s.svc.MintSessionAccessToken(r.Context(), userID, sessionID)
-	if err != nil {
-		return StepUpResult{}, err
-	}
-	return StepUpResult{TokenSet: iam.NewTokenSet(token, "", exp), FreshAuth: freshAuth(freshness)}, nil
 }
 
 // hasUsableMFA reports whether the account has an enabled second factor. A
@@ -273,8 +261,11 @@ func (s *Service) hasUsableMFA(r *http.Request, userID string) bool {
 func freshAuth(f authflow.SessionFreshness) FreshAuth {
 	out := FreshAuth{
 		StepUpRequiredForSensitiveActions: f.StepUpRequiredForSensitiveOps,
-		TimeUntilStepUpRequired:           int64((f.TimeUntilStepUpRequired + time.Second - time.Nanosecond) / time.Second),
+		StepUpRequiredInSeconds:           int64((max(f.TimeUntilStepUpRequired, 0) + time.Second - time.Nanosecond) / time.Second),
 		AuthMethods:                       f.AuthMethods,
+	}
+	if out.AuthMethods == nil {
+		out.AuthMethods = []string{}
 	}
 	if !f.LastAuthenticatedAt.IsZero() {
 		out.LastAuthenticatedAt = &f.LastAuthenticatedAt
@@ -296,18 +287,6 @@ func SanitizeReturnTo(value string) string {
 		return "/"
 	}
 	return value
-}
-
-func redirectStepUpResult(w http.ResponseWriter, r *http.Request, returnTo, status string) {
-	target := SanitizeReturnTo(returnTo)
-	u, err := url.Parse(target)
-	if err != nil || u == nil {
-		u = &url.URL{Path: "/"}
-	}
-	q := u.Query()
-	q.Set("step_up", status)
-	u.RawQuery = q.Encode()
-	http.Redirect(w, r, u.String(), http.StatusFound)
 }
 
 // requireSession is the AuthSession route tier (#412): the session or device

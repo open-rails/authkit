@@ -21,11 +21,13 @@ var groupScopeCodes = map[error]errmodel.Code{iam.ErrGroupNotFound: errmodel.Cod
 
 // GroupHandler returns the handler for one group route. It:
 //  1. derives the caller's actor (401 if none; 403 for a delegation);
-//  2. resolves :group_id to a live group;
+//  2. resolves :group_id (`root` is the root group) to a live group;
 //  3. refuses a group whose persona lacks the route, like an unknown group;
 //  4. authorizes the route's permission on the group with the engine's live
 //     Can, for every actor kind (403 on deny);
-//  5. performs the operation, whose engine call applies its own rules.
+//  5. for a change to the root group, requires a user who signed in
+//     recently (M7): step_up_required otherwise, 403 for any other actor;
+//  6. performs the operation, whose engine call applies its own rules.
 func (s *Service) GroupHandler(op GroupOp) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		actor, ok := verify.ActorFromContext(r.Context())
@@ -38,7 +40,7 @@ func (s *Service) GroupHandler(op GroupOp) http.HandlerFunc {
 			fail(w, errmodel.CodeForbidden)
 			return
 		}
-		g, err := s.svc.Group(r.Context(), iam.GroupByID(r.PathValue("group_id")))
+		g, err := s.svc.Group(r.Context(), groupRef(r.PathValue("group_id")))
 		if err == nil && g.DeletedAt != nil {
 			err = iam.ErrGroupNotFound
 		}
@@ -70,16 +72,17 @@ func (s *Service) GroupHandler(op GroupOp) http.HandlerFunc {
 			fail(w, errmodel.CodeForbidden)
 			return
 		}
+		if op.Mutates() && g.Persona == iam.RootPersona && !s.recentUserSignIn(w, r, actor) {
+			return
+		}
 
 		switch op {
 		case OpMembersList:
 			s.groupMembersList(w, r, g)
-		case OpMemberAdd:
-			s.groupMemberAdd(w, r, g, actor)
+		case OpMemberSet:
+			s.groupMemberSet(w, r, g, actor)
 		case OpMemberRemove:
-			s.groupMemberRemove(w, r, g, actor, r.PathValue("user"))
-		case OpMemberRoleAssign:
-			s.groupMemberRole(w, r, g, actor, r.PathValue("user"), r.PathValue("role"))
+			s.groupMemberRemove(w, r, g, actor)
 		case OpRolesList:
 			s.groupRolesList(w, g)
 		case OpAPIKeysList:
@@ -88,16 +91,47 @@ func (s *Service) GroupHandler(op GroupOp) http.HandlerFunc {
 			s.groupAPIKeyMint(w, r, g, actor)
 		case OpAPIKeyRevoke:
 			s.groupAPIKeyRevoke(w, r, g, actor, r.PathValue("key"))
-		case OpInviteLinkList:
-			s.groupInviteLinkList(w, r, g)
-		case OpInviteLinkMint:
-			s.groupInviteLinkMint(w, r, g, actor)
-		case OpInviteLinkRevoke:
-			s.groupInviteLinkRevoke(w, r, g, actor, r.PathValue("link"))
+		case OpInvitationsList:
+			s.groupInvitationsList(w, r, g)
+		case OpInvitationCreate:
+			s.groupInvitationCreate(w, r, g, actor)
+		case OpInvitationRevoke:
+			s.groupInvitationRevoke(w, r, g, actor, r.PathValue("id"))
 		default:
 			fail(w, errmodel.CodeNotImplemented)
 		}
 	}
+}
+
+// rootGroupID is the {group_id} that addresses the root group.
+const rootGroupID = "root"
+
+// groupRef resolves a {group_id} path value.
+func groupRef(id string) iam.GroupRef {
+	if id == rootGroupID {
+		return iam.RootGroup()
+	}
+	return iam.GroupByID(id)
+}
+
+// recentUserSignIn admits a change to the root group only from a user who
+// signed in recently (CheckRecentSignIn, MFA-fresh when enrolled): API keys
+// and applications never change root, and a stale session is asked to step
+// up. It answers the refusal itself.
+func (s *Service) recentUserSignIn(w http.ResponseWriter, r *http.Request, actor iam.Actor) bool {
+	if actor.Kind() != iam.ActorUser {
+		fail(w, errmodel.CodeForbidden)
+		return false
+	}
+	claims, err := callerClaims(r)
+	if err == nil {
+		err = s.svc.CheckRecentSignIn(r.Context(), claims)
+	}
+	if err != nil {
+		writeError(w, err)
+		return false
+	}
+	return true
 }
 
 // userActorID is the user behind actor, for operations only a user may

@@ -1,12 +1,12 @@
-import type { AnyAuthErrorCode } from "./codes.ts"
+import type { AnyAuthErrorCode, AuthErrorMetadata } from "./codes.ts"
 
-// Mirrors authkit.WriteError: {"error":{"type","code","message","param?","metadata?"}}.
+// AuthKit's error envelope: {"error":{"type","code","message","param","metadata"}}.
 export type AuthKitErrorBody = {
   type: string
   code: AnyAuthErrorCode
   message: string
-  param?: string
-  metadata?: Record<string, unknown>
+  param?: string | null
+  metadata?: Record<string, unknown> | null
 }
 
 export class AuthKitError extends Error {
@@ -14,6 +14,7 @@ export class AuthKitError extends Error {
   readonly type: string
   readonly code: AnyAuthErrorCode
   readonly param?: string
+  // {} when the code carries none; errorMetadata() reads it typed.
   readonly metadata: Record<string, unknown>
 
   constructor(status: number, body: AuthKitErrorBody) {
@@ -22,7 +23,7 @@ export class AuthKitError extends Error {
     this.status = status
     this.type = body.type
     this.code = body.code
-    this.param = body.param
+    this.param = body.param ?? undefined
     this.metadata = body.metadata ?? {}
   }
 
@@ -78,6 +79,17 @@ export function retryAfterSeconds(header: string | null): number | undefined {
 
 export const isAuthKitError = (value: unknown): value is AuthKitError =>
   value instanceof AuthKitError
+
+// The metadata of an AuthKit error with this code, typed per the contract;
+// null for any other error.
+export function errorMetadata<C extends keyof AuthErrorMetadata>(
+  error: unknown,
+  code: C
+): AuthErrorMetadata[C] | null {
+  return error instanceof AuthKitError && error.code === code
+    ? (error.metadata as AuthErrorMetadata[C])
+    : null
+}
 
 // A flow finished after the session it started under was replaced or ended.
 export class AuthSessionChangedError extends Error {

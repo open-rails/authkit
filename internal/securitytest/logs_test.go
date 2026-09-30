@@ -74,8 +74,8 @@ type secretJar struct {
 }
 
 var (
-	requestSecrets  = map[string]bool{"password": true, "new_password": true, "current_password": true, "code": true, "code_2fa": true, "token": true, "refresh_token": true, "signature": true, "challenge": true, "account_invite_token": true}
-	responseSecrets = map[string]bool{"access_token": true, "refresh_token": true, "secret": true, "otpauth_uri": true, "backup_codes": true, "code": true, "token": true}
+	requestSecrets  = map[string]bool{"password": true, "new_password": true, "current_password": true, "code": true, "code_2fa": true, "token": true, "refresh_token": true, "signature": true, "challenge": true, "invite_code": true}
+	responseSecrets = map[string]bool{"access_token": true, "refresh_token": true, "secret": true, "otpauth_uri": true, "backup_codes": true, "code": true, "token": true, "challenge": true}
 )
 
 func (j *secretJar) add(where string, v any) {
@@ -183,7 +183,7 @@ func (j *secretJar) addOutbox(mail *authtest.Outbox) {
 		j.add(where+" token", m.Token)
 		if u, err := url.Parse(m.Link); err == nil {
 			if q, err := url.ParseQuery(u.Fragment); err == nil {
-				j.add(where+" invite", q.Get("account_invite_token"))
+				j.add(where+" invite", q.Get("invite_code"))
 			}
 		}
 	}
@@ -289,10 +289,10 @@ func TestSecuritySecretsStayOutOfLogs(t *testing.T) {
 	var regenerated struct {
 		BackupCodes []string `json:"backup_codes"`
 	}
-	ok(h.post("/user/2fa/backup-codes", nil, fresh.AccessToken)).json(t, &regenerated)
+	ok(h.post("/me/2fa/backup-codes", nil, fresh.AccessToken)).json(t, &regenerated)
 	require.NotEmpty(t, regenerated.BackupCodes)
 	ch = h.passwordStep(mfa, "198.51.100.60")
-	ok(h.post("/2fa/verify", map[string]any{"user_id": mfa.id, "challenge": ch.Error.Metadata.Challenge, "code": regenerated.BackupCodes[0], "backup_code": true}, ""))
+	ok(h.post("/2fa/verify", map[string]any{"user_id": mfa.id, "challenge": ch.Challenge, "code": regenerated.BackupCodes[0], "backup_code": true}, ""))
 
 	// Device keys: enroll with an emailed code, sign in with the key.
 	device := h.newAccount("logsdevice")
@@ -307,15 +307,12 @@ func TestSecuritySecretsStayOutOfLogs(t *testing.T) {
 	key := h.issue(base+"/api-keys", ownerToken, map[string]any{"name": "ci", "role": "org:manager"})
 	ok(h.get(base+"/members", key.Secret))
 	h.get(base+"/members", key.Secret+"x")
-	link := h.issue(base+"/invites/links", ownerToken, map[string]any{"role": "org:member"})
-	ok(h.post("/invites/redeem", map[string]string{"code": link.Code}, h.login(h.newAccount("logsmember")).AccessToken))
+	link := h.issue(base+"/invitations", ownerToken, map[string]any{"role": "org:member"})
+	ok(h.post("/invitations/redeem", map[string]string{"code": link.Code}, h.login(h.newAccount("logsmember")).AccessToken))
 	invited := unique("logsinvited") + "@security.test"
-	var invitation struct {
-		Code string `json:"code"`
-	}
-	ok(h.post(base+"/members", map[string]string{"email": invited, "role": "org:member"}, ownerToken)).json(t, &invitation)
+	ok(h.post(base+"/invitations", map[string]string{"email": invited, "role": "org:member"}, ownerToken))
 	ok(h.post("/register", map[string]string{"identifier": invited, "username": unique("logsinv"), "password": password,
-		"account_invite_token": invitation.Code}, ""))
+		"invite_code": h.inviteCode(invited)}, ""))
 
 	// The mail provider fails after AuthKit hands it each message.
 	before := len(logs.String())
@@ -326,7 +323,7 @@ func TestSecuritySecretsStayOutOfLogs(t *testing.T) {
 	h.post("/password/reset/request", map[string]string{"identifier": email}, "")
 	h.post("/passwordless/start", map[string]string{"identifier": email}, "")
 	h.post("/password/login", map[string]string{"identifier": mfa.email, "password": password}, "")
-	h.post(base+"/members", map[string]string{"email": unique("logsinvited") + "@security.test", "role": "org:member"}, ownerToken)
+	h.post(base+"/invitations", map[string]string{"email": unique("logsinvited") + "@security.test", "role": "org:member"}, ownerToken)
 	h.post("/device-keys/enroll/begin", map[string]string{"email": device.email, "public_key": newDeviceKey(t).public, "label": "phone"}, "")
 	mailDown.Store(false)
 	require.Greater(t, len(logs.String()), before, "the mail failures logged nothing")

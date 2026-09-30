@@ -1,13 +1,10 @@
-import {
-  continuationFrom,
-  continuationFromParams,
-  readContinuation,
-} from "./continuation.ts"
+import { toSignInResult } from "./authResult.ts"
+import type { PendingSignIn, SignInResult } from "./authResult.ts"
 import type { AuthErrorCode } from "./codes.ts"
-import type { LoginContinuation } from "./continuation.ts"
 import {
   AuthKitError,
   AuthSessionChangedError,
+  errorMetadata,
   readAuthKitError,
 } from "./errors.ts"
 import { decodeAccessClaims, principalOf } from "./jwt.ts"
@@ -16,20 +13,28 @@ import { randomNonce, waitForPopup } from "./popup.ts"
 import { safeReturnTo } from "./returnTo.ts"
 import type {
   Availability,
+  BackupCodes,
   Capabilities,
   FreshAuth,
   ListPage,
-  NamingState,
+  Membership,
+  OIDCStart,
   PermissionSet,
-  RegistrationResult,
-  RegistrationUser,
-  RemovedRoles,
-  SessionTokens,
+  Session,
+  SessionEvent,
+  SignInKey,
+  SolanaLinkedAccount,
+  SolanaSignInOutput,
+  TokenSet,
+  TwoFactorFactor,
+  TwoFactorFactorCreated,
   TwoFactorMethod,
+  TwoFactorSetup,
   TwoFactorStatus,
   UserProfile,
-  Session,
+  UserSecurity,
 } from "./types.ts"
+import { creationOptions, registrationBody } from "./webauthn.ts"
 
 // Durable refresh-token home for mounts without the refresh cookie. Cookie
 // mounts (the browser default) need none: the token never reaches script.
@@ -92,8 +97,8 @@ export type AuthSession =
   | {
       status: "anonymous"
       reason: "initial" | "signed_out" | "expired"
-      // A refresh that now needs a second factor or enrollment.
-      continuation: LoginContinuation | null
+      // A refresh that now needs another step (a second factor, enrollment).
+      continuation: PendingSignIn | null
     }
   | {
       status: "authenticated"
@@ -104,17 +109,14 @@ export type AuthSession =
       expiresAt: number | null
     }
 
-export type AuthOutcome =
-  { kind: "session"; returnTo?: string } | LoginContinuation
-
+// A browser OIDC redirect result, read from the page's fragment.
 export type RedirectResult =
-  | { kind: "session"; provider?: string; returnTo?: string }
+  | { kind: "sign_in"; result: SignInResult; provider?: string }
   | { kind: "linked"; provider?: string }
   | { kind: "error"; code: string; flow: string; provider?: string }
-  | LoginContinuation
 
 export type PopupResult =
-  | { ok: true; outcome: AuthOutcome; provider?: string }
+  | { ok: true; result: SignInResult; provider?: string }
   | { ok: false; reason: "blocked" | "closed" | "timeout" | "session_changed" }
   | { ok: false; reason: "provider_error"; code: string; provider?: string }
 
@@ -126,31 +128,10 @@ export type RequestOptions = {
   bearer?: string | null
 }
 
-// A registration: signed in, or waiting on the code sent to the identifier.
-export type Registration = {
-  next_action: "none" | "verify_email" | "verify_phone"
-  user: RegistrationUser
-  signedIn: boolean
+// A factor enrollment's answer; auth is the sign-in it finished, if any.
+export type TwoFactorEnrolled = Omit<TwoFactorFactorCreated, "auth"> & {
+  auth: SignInResult | null
 }
-
-export type TwoFactorEnrollResult =
-  | { kind: "default_set" }
-  | { kind: "code_sent" }
-  | { kind: "totp_started"; secret: string; otpauthUri: string }
-  | {
-      kind: "enabled"
-      method: string
-      backupCodes: string[]
-      // AuthKit returned a session token: the enrolling session is (still)
-      // signed in and now 2FA-verified.
-      signedIn: boolean
-      freshAuth?: FreshAuth
-    }
-  | LoginContinuation
-
-export type TwoFactorStepUpResult =
-  | { kind: "code_sent"; method: string; verificationId: string }
-  | { kind: "stepped_up"; freshAuth: FreshAuth }
 
 export type LinkFragment = {
   status: string
@@ -178,20 +159,8 @@ const rec = (v: unknown): Rec =>
 const str = (v: unknown): string | undefined =>
   typeof v === "string" && v ? v : undefined
 
-function tokenSetIn(body: unknown): SessionTokens | null {
-  const b = rec(body)
-  const t = b.access_token ? b : rec(b.token_set)
-  const access = str(t.access_token)
-  if (!access) return null
-  return {
-    access_token: access,
-    token_type: str(t.token_type) ?? "Bearer",
-    expires_in: typeof t.expires_in === "number" ? t.expires_in : undefined,
-    refresh_token: str(t.refresh_token),
-  }
-}
-
 const trimSlash = (s: string) => s.replace(/\/+$/, "")
+const segment = encodeURIComponent
 
 export type AuthClient = ReturnType<typeof createAuthClient>
 
@@ -284,7 +253,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
 
   // mode "login" starts a new session; "refresh" continues the current one.
   const commit = (
-    tokens: SessionTokens,
+    tokens: TokenSet,
     expected: number,
     mode: "login" | "refresh"
   ) => {
@@ -303,7 +272,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     const expiresAt =
       typeof claims.exp === "number"
         ? claims.exp * 1000
-        : tokens.expires_in !== undefined
+        : typeof tokens.expires_in === "number"
           ? Date.now() + tokens.expires_in * 1000
           : null
     retries = 0
@@ -336,7 +305,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
   // keepHint: another tab already rewrote the hint.
   const clear = (
     reason: "initial" | "signed_out" | "expired",
-    continuation: LoginContinuation | null = null,
+    continuation: PendingSignIn | null = null,
     keepHint = false
   ) => {
     generation++
@@ -363,6 +332,23 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     return doFetch(...args)
   }
 
+  // The session ends: a refresh was refused, or now needs another step.
+  const endRefresh = (
+    current: AuthSession | null,
+    continuation: PendingSignIn | null
+  ) => {
+    // Only a live session can expire; an anonymous cold boot just settles.
+    if (current) return clear("expired", continuation)
+    // A cold boot's hint was stale; a tab adopting another tab's sign-in
+    // leaves the hint to that tab.
+    if (session.status === "loading") writeHint(null)
+    emit({
+      status: "anonymous",
+      reason: session.status === "anonymous" ? session.reason : "initial",
+      continuation,
+    })
+  }
+
   const refreshOnce = async (gen: number): Promise<boolean> => {
     const current = session.status === "authenticated" ? session : null
     const body: Rec = { grant_type: "refresh_token" }
@@ -387,36 +373,23 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     if (!res.ok) {
       const err = await readAuthKitError(res)
       if (gen !== generation) return false
-      if (TERMINAL_REFRESH.has(res.status)) {
-        const continuation = continuationFrom(err.code, err.metadata)
-        // Only a live session can expire; an anonymous cold boot just settles.
-        if (current) clear("expired", continuation)
-        else {
-          // A cold boot's hint was stale; a tab adopting another tab's
-          // sign-in leaves the hint to that tab.
-          if (session.status === "loading") writeHint(null)
-          emit({
-            status: "anonymous",
-            reason: session.status === "anonymous" ? session.reason : "initial",
-            continuation,
-          })
-        }
-      } else {
-        backoff(gen, err.retryAfterSeconds)
-      }
+      if (TERMINAL_REFRESH.has(res.status)) endRefresh(current, null)
+      else backoff(gen, err.retryAfterSeconds)
       return false
     }
-    let data: unknown
+    let result: SignInResult
     try {
-      data = await res.json()
+      result = toSignInResult(await res.json())
     } catch {
       return false
     }
     if (gen !== generation) return false
-    const tokens = tokenSetIn(data)
-    if (!tokens) return false
+    if (result.status !== "complete") {
+      endRefresh(current, result)
+      return false
+    }
     try {
-      commit(tokens, gen, "refresh")
+      commit(result.token_set, gen, "refresh")
     } catch {
       return false
     }
@@ -559,14 +532,9 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     const handler = proveContact
     if (res.status !== 403 || !handler) return false
     const err = await readAuthKitError(res.clone()).catch(() => null)
-    const meta = err?.metadata ?? {}
-    const identifier = str(meta.identifier)
-    if (
-      err?.code !== "verification_required" ||
-      meta.reason !== "contact_unproven" ||
-      !identifier
-    )
-      return false
+    const meta = errorMetadata(err, "verification_required")
+    const identifier = str(meta?.identifier)
+    if (meta?.reason !== "contact_unproven" || !identifier) return false
     return handler({ identifier, channel: str(meta.channel) ?? "email" })
   }
 
@@ -652,34 +620,37 @@ export function createAuthClient(options: AuthClientOptions = {}) {
 
   // --- generation-guarded flows ----------------------------------------------
 
-  // Runs a first-factor call and commits the session it yields. Continuations
-  // (2FA, enrollment, recovery, verification) are returned, not thrown.
+  // Runs a sign-in call and commits the session a complete AuthResult
+  // carries. Every other status is returned for the caller's next step.
   async function completeSignIn(
     call: () => Promise<unknown>
-  ): Promise<AuthOutcome> {
+  ): Promise<SignInResult> {
     const gen = generation
-    let body: unknown
-    try {
-      body = await call()
-    } catch (err) {
-      const continuation = readContinuation(err)
-      if (!continuation) throw err
-      if (gen !== generation) throw new AuthSessionChangedError()
-      return continuation
-    }
-    const tokens = tokenSetIn(body)
-    if (!tokens) throw new Error("AuthKit returned no session")
-    commit(tokens, gen, "login")
-    return { kind: "session", returnTo: str(rec(body).return_to) }
+    return signedIn(await call(), gen)
   }
 
-  // Adopts a fresh token set returned beside a same-session mutation (step-up).
-  async function sameSession<T>(call: () => Promise<T>): Promise<T> {
+  function signedIn(body: unknown, gen: number): SignInResult {
+    const result = toSignInResult(body)
+    if (result.status !== "complete") {
+      if (gen !== generation) throw new AuthSessionChangedError()
+      return result
+    }
+    commit(result.token_set, gen, "login")
+    if (result.user) rememberUsername(result.user.id, result.user.username)
+    return result
+  }
+
+  // Adopts the fresh token a same-session re-authentication answers with
+  // (step-up, password change, factor enrollment).
+  async function sameSession(
+    call: () => Promise<unknown>
+  ): Promise<SignInResult | null> {
     const gen = generation
     const body = await call()
-    const tokens = tokenSetIn(body)
-    if (tokens) commit(tokens, gen, "refresh")
-    return body
+    if (body === undefined) return null
+    const result = toSignInResult(body)
+    if (result.status === "complete") commit(result.token_set, gen, "refresh")
+    return result
   }
 
   const signOut = async (): Promise<void> => {
@@ -701,29 +672,27 @@ export function createAuthClient(options: AuthClientOptions = {}) {
 
   // --- OIDC ------------------------------------------------------------------
 
-  // A login URL never carries an invitation (see oidcLoginStart).
+  // A GET navigation that starts a provider sign-in (no invitation: that is
+  // bound by oidcLoginStart, never put in a URL).
   const oidcLoginUrl = (
     provider: string,
     opts: { returnTo?: string; popupNonce?: string } = {}
   ) =>
-    url(oidcBaseUrl, `/${encodeURIComponent(provider)}/login`, {
+    url(oidcBaseUrl, `/${segment(provider)}/login`, {
       return_to: safeReturnTo(opts.returnTo),
       ui: opts.popupNonce ? "popup" : undefined,
       popup_nonce: opts.popupNonce,
     })
 
-  // Starts a login by POST, binding an invitation to the flow's server-side
-  // state instead of a URL, and resolves the provider URL to navigate to.
+  // Starts a provider sign-in by POST, binding the invitation to the flow's
+  // server-side state, and resolves the provider URL to navigate to. The
+  // answer sets the flow's state cookie, so it is credentialed.
   async function oidcLoginStart(
     provider: string,
-    opts: {
-      returnTo?: string
-      accountInviteToken?: string
-      popupNonce?: string
-    } = {}
+    opts: { returnTo?: string; inviteCode?: string; popupNonce?: string } = {}
   ): Promise<string> {
     const res = await cookieFetch(
-      url(oidcBaseUrl, `/${encodeURIComponent(provider)}/login`),
+      url(baseUrl, `/oidc/${segment(provider)}/login/start`),
       {
         method: "POST",
         credentials: "include",
@@ -733,25 +702,30 @@ export function createAuthClient(options: AuthClientOptions = {}) {
         },
         body: JSON.stringify({
           return_to: safeReturnTo(opts.returnTo) ?? undefined,
-          account_invite_token: opts.accountInviteToken,
+          invite_code: opts.inviteCode,
           ui: opts.popupNonce ? "popup" : undefined,
           popup_nonce: opts.popupNonce,
         }),
       }
     )
     if (!res.ok) throw await readAuthKitError(res)
-    const authUrl = str(rec(await res.json()).auth_url)
-    if (!authUrl) throw new Error("AuthKit returned no auth_url")
-    return authUrl
+    const start = (await res.json()) as Partial<OIDCStart>
+    if (!start.auth_url) throw new Error("AuthKit returned no auth_url")
+    return start.auth_url
   }
 
-  // Full-page provider sign-in.
+  // Trades a browser OIDC result's one-time code for its AuthResult.
+  const exchangeCode = (code: string) =>
+    request<unknown>("POST", "/oidc/exchange", { body: { code }, bearer: null })
+
+  // Full-page provider sign-in; the result lands on the OIDC return path
+  // (completeRedirect).
   async function signInWithRedirect(
     provider: string,
-    opts: { returnTo?: string; accountInviteToken?: string } = {}
+    opts: { returnTo?: string; inviteCode?: string } = {}
   ): Promise<void> {
     window.location.assign(
-      opts.accountInviteToken
+      opts.inviteCode
         ? await oidcLoginStart(provider, opts)
         : oidcLoginUrl(provider, opts)
     )
@@ -760,11 +734,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
   // Must be called from a user gesture: the window opens synchronously.
   async function signInWithPopup(
     provider: string,
-    opts: {
-      returnTo?: string
-      accountInviteToken?: string
-      timeoutMs?: number
-    } = {}
+    opts: { returnTo?: string; inviteCode?: string; timeoutMs?: number } = {}
   ): Promise<PopupResult> {
     const gen = generation
     const nonce = randomNonce()
@@ -772,7 +742,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       window.location.origin,
       new URL(oidcBaseUrl, window.location.href).origin,
     ])
-    const target = opts.accountInviteToken
+    const target = opts.inviteCode
       ? () => oidcLoginStart(provider, { ...opts, popupNonce: nonce })
       : oidcLoginUrl(provider, { returnTo: opts.returnTo, popupNonce: nonce })
     const waited = await waitForPopup(target, {
@@ -793,82 +763,110 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     const msg = waited.message
     const from = str(msg.provider)
     if (gen !== generation) return { ok: false, reason: "session_changed" }
-    if (msg.type === "AUTHKIT_OIDC_ERROR") {
-      const code = str(msg.error) ?? "unknown_error"
-      const continuation = continuationFrom(code, msg)
-      return continuation
-        ? { ok: true, outcome: continuation, provider: from }
-        : { ok: false, reason: "provider_error", code, provider: from }
-    }
-    const tokens = tokenSetIn(msg)
-    if (!tokens)
+    const code = str(msg.code)
+    if (!code)
       return {
         ok: false,
         reason: "provider_error",
-        code: "oidc_exchange_failed",
+        code: str(msg.error) ?? "unknown_error",
         provider: from,
       }
-    commit(tokens, gen, "login")
-    return {
-      ok: true,
-      outcome: {
-        kind: "session",
-        returnTo: safeReturnTo(opts.returnTo) ?? undefined,
-      },
-      provider: from,
+    try {
+      const result = await completeSignIn(() => exchangeCode(code))
+      return { ok: true, result, provider: from }
+    } catch (err) {
+      if (err instanceof AuthSessionChangedError)
+        return { ok: false, reason: "session_changed" }
+      if (err instanceof AuthKitError)
+        return {
+          ok: false,
+          reason: "provider_error",
+          code: err.code,
+          provider: from,
+        }
+      throw err
     }
   }
 
-  // Consumes AuthKit's redirect fragment (#access_token=… / #error=… / link result).
-  // Without an argument it reads and scrubs window.location.hash.
-  function completeRedirect(hash?: string): RedirectResult | null {
+  // Reads (and, without an argument, scrubs) the page fragment when pick
+  // accepts it.
+  const takeFragment = (
+    hash: string | undefined,
+    pick: (params: URLSearchParams) => boolean
+  ): URLSearchParams | null => {
     const own = hash === undefined
     const raw = own ? (globalThis.location?.hash ?? "") : hash
     const params = new URLSearchParams(raw.replace(/^#/, ""))
-    const provider = params.get("provider") ?? undefined
-    let result: RedirectResult | null = null
-    if (params.get("access_token")) {
-      const expires = Number(params.get("expires_in"))
-      commit(
-        {
-          access_token: params.get("access_token") ?? "",
-          expires_in:
-            Number.isFinite(expires) && params.get("expires_in")
-              ? expires
-              : undefined,
-          refresh_token: params.get("refresh_token") ?? undefined,
-        },
-        generation,
-        "login"
-      )
-      result = {
-        kind: "session",
-        provider,
-        returnTo: safeReturnTo(params.get("return_to")) ?? undefined,
-      }
-    } else if (
-      params.get("flow") === "link" &&
-      params.get("result") === "success"
-    ) {
-      result = { kind: "linked", provider }
-    } else if (params.get("error")) {
-      const code = params.get("error") ?? ""
-      const flow = params.get("flow") ?? "login"
-      result = (flow === "login" && continuationFromParams(params)) || {
-        kind: "error",
-        code,
-        flow,
-        provider,
-      }
-    }
-    if (own && result && typeof history !== "undefined") {
+    if (!pick(params)) return null
+    if (own && typeof history !== "undefined")
       history.replaceState(
         history.state,
         "",
         `${location.pathname}${location.search}`
       )
+    return params
+  }
+
+  // A sign-in or link result carries state (or the flow); a step-up
+  // return carries neither.
+  const isLoginFragment = (p: URLSearchParams) =>
+    (p.get("flow") === "link" && p.get("result") === "success") ||
+    ((p.has("code") || p.has("error")) && (p.has("state") || p.has("flow")))
+  const isStepUpFragment = (p: URLSearchParams) =>
+    (p.has("code") || p.has("error")) && !p.has("state") && !p.has("flow")
+
+  // Finishes a provider sign-in or link on the OIDC return path: trades the
+  // fragment's one-time code for the AuthResult. Null when the fragment holds
+  // none. Without an argument it reads and scrubs window.location.hash.
+  async function completeRedirect(
+    hash?: string
+  ): Promise<RedirectResult | null> {
+    const params = takeFragment(hash, isLoginFragment)
+    if (!params) return null
+    const provider = params.get("provider") ?? undefined
+    if (params.get("result") === "success") return { kind: "linked", provider }
+    const code = params.get("code")
+    if (!code)
+      return {
+        kind: "error",
+        code: params.get("error") ?? "unknown_error",
+        flow: params.get("flow") ?? "login",
+        provider,
+      }
+    return {
+      kind: "sign_in",
+      result: await completeSignIn(() => exchangeCode(code)),
+      provider,
     }
-    return result
+  }
+
+  // Finishes an OIDC step-up on its return page (`#code=` or `#error=`):
+  // adopts the re-authenticated session. Null when the fragment holds none;
+  // throws AuthKitError when the step-up failed.
+  async function completeStepUp(hash?: string): Promise<FreshAuth | null> {
+    const params = takeFragment(hash, isStepUpFragment)
+    if (!params) return null
+    const code = params.get("code")
+    if (!code) {
+      const failed = params.get("error") ?? "unknown_error"
+      throw new AuthKitError(0, { type: "", code: failed, message: failed })
+    }
+    const gen = generation
+    const result = toSignInResult(await exchangeCode(code))
+    if (result.status !== "complete")
+      throw new Error("AuthKit returned no step-up session")
+    commit(
+      result.token_set,
+      gen,
+      session.status === "authenticated" ? "refresh" : "login"
+    )
+    return result.fresh_auth
+  }
+
+  // Same-session re-authentication's freshness.
+  const freshAuth = (result: SignInResult | null): FreshAuth => {
+    if (!result?.fresh_auth) throw new Error("AuthKit returned no fresh_auth")
+    return result.fresh_auth
   }
 
   // --- AuthKit routes ----------------------------------------------------------
@@ -882,39 +880,25 @@ export function createAuthClient(options: AuthClientOptions = {}) {
         request("POST", "/password/login", { body: input, bearer: null })
       ),
 
+    // Null: a code went to the identifier (202); confirmVerification
+    // finishes the registration.
     register: async (input: {
       identifier: string
       username: string
       password: string
-      accountInviteToken?: string
-    }): Promise<Registration> => {
+      inviteCode?: string
+    }): Promise<SignInResult | null> => {
       const gen = generation
-      // 202: a code went to the identifier; 200: registered and signed in.
       const { status, body } = await exchange("POST", "/register", {
         bearer: null,
         body: {
           identifier: input.identifier,
           username: input.username,
           password: input.password,
-          account_invite_token: input.accountInviteToken,
+          invite_code: input.inviteCode,
         },
       })
-      if (status === 200) {
-        const out = body as RegistrationResult
-        const tokens = tokenSetIn(out.token_set)
-        if (tokens) commit(tokens, gen, "login")
-        return { next_action: "none", user: out.user, signedIn: !!tokens }
-      }
-      const email = input.identifier.includes("@")
-      return {
-        next_action: email ? "verify_email" : "verify_phone",
-        user: {
-          username: input.username,
-          email: email ? input.identifier.trim() : null,
-          phone_number: email ? null : input.identifier.trim(),
-        },
-        signedIn: false,
-      }
+      return status === 200 ? signedIn(body, gen) : null
     },
 
     checkAvailability: (
@@ -935,32 +919,37 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     abandonRegistration: (input: { identifier: string; password: string }) =>
       request<void>("POST", "/register/abandon", { body: input, bearer: null }),
 
-    // Anonymous: resend a verification. Signed in: start a contact change.
-    requestVerification: (input: { identifier: string; password?: string }) =>
-      sameSession(() =>
-        request<unknown>("POST", "/verify/request", { body: input })
-      ).then(() => undefined),
+    // Sends a code (or link) proving an address; never changes a contact.
+    requestVerification: (input: { identifier: string }) =>
+      request<void>("POST", "/verify/request", {
+        body: { identifier: input.identifier },
+        bearer: null,
+      }),
 
+    // Null (204): a signed-in proof, the session unchanged. Otherwise the
+    // sign-in the proof finished (or its next step).
     confirmVerification: async (
       input:
         | { identifier: string; code: string }
         | { token: string; identifier?: string }
-    ): Promise<AuthOutcome | { kind: "contact_changed" }> => {
-      // 204 = a signed-in contact change; otherwise a session or continuation.
-      let changed = false
-      try {
-        return await completeSignIn(async () => {
-          const body = await request<unknown>("POST", "/verify/confirm", {
-            body: input,
-          })
-          changed = body === undefined
-          return body
-        })
-      } catch (err) {
-        if (changed) return { kind: "contact_changed" }
-        throw err
-      }
+    ): Promise<SignInResult | null> => {
+      const gen = generation
+      const { status, body } = await exchange("POST", "/verify/confirm", {
+        body: input,
+      })
+      return status === 204 ? null : signedIn(body, gen)
     },
+
+    // Sends a code to the new address; confirmVerification switches it.
+    changeEmail: (email: string) =>
+      request<void>("PUT", "/me/email", { body: { email } }),
+
+    changePhone: (phoneNumber: string) =>
+      request<void>("PUT", "/me/phone", {
+        body: { phone_number: phoneNumber },
+      }),
+
+    removePhone: () => request<void>("DELETE", "/me/phone"),
 
     requestPasswordReset: (identifier: string) =>
       request<void>("POST", "/password/reset/request", {
@@ -974,12 +963,13 @@ export function createAuthClient(options: AuthClientOptions = {}) {
         bearer: null,
       }),
 
+    // A current password re-authenticates the session on the way.
     changePassword: (input: {
       currentPassword?: string
       newPassword: string
     }) =>
       sameSession(() =>
-        request<unknown>("POST", "/user/password", {
+        request<unknown>("PUT", "/me/password", {
           body: {
             current_password: input.currentPassword ?? "",
             new_password: input.newPassword,
@@ -1007,13 +997,13 @@ export function createAuthClient(options: AuthClientOptions = {}) {
         })
       ),
 
-    // Resends or switches the factor of a pending 2FA login.
+    // Resends the pending sign-in's code, or switches it to another factor.
     sendTwoFactorChallenge: async (input: {
       userId: string
       challenge: string
       factorId?: string
     }) => {
-      const outcome = await completeSignIn(() =>
+      const result = await completeSignIn(() =>
         request("POST", "/2fa/challenge", {
           bearer: null,
           body: {
@@ -1023,158 +1013,182 @@ export function createAuthClient(options: AuthClientOptions = {}) {
           },
         })
       )
-      if (outcome.kind !== "2fa_required")
-        throw new Error("AuthKit returned no 2FA challenge")
-      return outcome
+      if (result.status !== "second_factor_required")
+        throw new Error("AuthKit returned no second-factor step")
+      return result
     },
 
     getTwoFactor: (signal?: AbortSignal) =>
-      request<TwoFactorStatus>("GET", "/user/2fa", { signal }),
+      request<TwoFactorStatus>("GET", "/me/2fa", { signal }),
 
-    // Pass the continuation's enrollmentToken to finish a forced enrollment.
-    enableTwoFactor: async (
+    // Starts a factor: TOTP answers its secret, email and SMS send a code.
+    // An enrollment token (AuthResult enrollment_required) finishes a forced
+    // enrollment.
+    setupTwoFactor: (
+      input: { method: TwoFactorMethod; phoneNumber?: string },
+      opts: { enrollmentToken?: TokenSet } = {}
+    ) =>
+      request<TwoFactorSetup>("POST", "/me/2fa/setup", {
+        bearer: opts.enrollmentToken?.access_token,
+        body: { method: input.method, phone_number: input.phoneNumber },
+      }),
+
+    // Confirms a started factor. Its auth, adopted here, is the session the
+    // enrollment finished (enrollment token) or re-verified.
+    addTwoFactorFactor: async (
       input: {
         method: TwoFactorMethod
-        code?: string
+        code: string
         phoneNumber?: string
         makeDefault?: boolean
-        factorId?: string
       },
-      opts: { enrollmentToken?: SessionTokens } = {}
-    ): Promise<TwoFactorEnrollResult> => {
+      opts: { enrollmentToken?: TokenSet } = {}
+    ): Promise<TwoFactorEnrolled> => {
       const gen = generation
-      let res: { status: number; body: unknown }
-      try {
-        res = await exchange("POST", "/user/2fa", {
-          bearer: opts.enrollmentToken
-            ? opts.enrollmentToken.access_token
-            : undefined,
+      const created = await request<TwoFactorFactorCreated>(
+        "POST",
+        "/me/2fa/factors",
+        {
+          bearer: opts.enrollmentToken?.access_token,
           body: {
             method: input.method,
             code: input.code,
             phone_number: input.phoneNumber,
             default: input.makeDefault,
-            factor_id: input.factorId,
           },
-        })
-      } catch (err) {
-        const continuation = readContinuation(err)
-        if (continuation) return continuation
-        throw err
-      }
-      if (res.status === 204) return { kind: "default_set" }
-      if (res.status === 202) return { kind: "code_sent" }
-      const body = rec(res.body)
-      if (typeof body.secret === "string") {
-        return {
-          kind: "totp_started",
-          secret: body.secret,
-          otpauthUri: String(body.otpauth_uri ?? ""),
         }
+      )
+      const auth = created.auth ? toSignInResult(created.auth) : null
+      if (auth?.status === "complete") {
+        commit(auth.token_set, gen, opts.enrollmentToken ? "login" : "refresh")
+      } else if (auth && gen !== generation) {
+        throw new AuthSessionChangedError()
       }
-      const tokens = tokenSetIn(body)
-      if (tokens)
-        commit(tokens, gen, opts.enrollmentToken ? "login" : "refresh")
-      return {
-        kind: "enabled",
-        method: String(body.method ?? input.method),
-        backupCodes: Array.isArray(body.backup_codes)
-          ? (body.backup_codes as string[])
-          : [],
-        signedIn: !!tokens,
-        freshAuth: body.fresh_auth ? (body.fresh_auth as FreshAuth) : undefined,
-      }
+      return { ...created, auth }
     },
 
-    disableTwoFactor: (input: { factorId?: string } = {}) =>
-      request<RemovedRoles>("DELETE", "/user/2fa", {
-        query: { factor_id: input.factorId },
-      }).then((r) => r.removed_roles),
-
-    regenerateBackupCodes: () =>
-      request<{ backup_codes: string[] }>(
-        "POST",
-        "/user/2fa/backup-codes"
-      ).then((r) => r.backup_codes),
-
-    stepUpWithPassword: (password: string) =>
-      sameSession(() =>
-        request<{ fresh_auth: FreshAuth }>("POST", "/step-up/password", {
-          body: { password },
-        })
-      ).then((r) => r.fresh_auth),
-
-    // Without a code AuthKit sends one; with it the session is stepped up.
-    stepUpWithTwoFactor: async (
-      input: { code?: string; method?: string; backupCode?: boolean } = {}
-    ): Promise<TwoFactorStepUpResult> => {
-      try {
-        const r = await sameSession(() =>
-          request<{ fresh_auth: FreshAuth }>("POST", "/step-up/2fa", {
-            body: {
-              code: input.code,
-              method: input.method,
-              backup_code: input.backupCode,
-            },
-          })
-        )
-        return { kind: "stepped_up", freshAuth: r.fresh_auth }
-      } catch (err) {
-        if (err instanceof AuthKitError && err.code === "2fa_required") {
-          return {
-            kind: "code_sent",
-            method: String(err.metadata.method ?? ""),
-            verificationId: String(err.metadata.verification_id ?? ""),
-          }
-        }
-        throw err
-      }
-    },
-
-    // Returns the provider URL; AuthKit redirects back to returnTo?step_up=success|failed.
-    startOidcStepUp: (provider: string, returnTo: string) =>
-      request<{ auth_url: string }>(
-        "POST",
-        `/oidc/${encodeURIComponent(provider)}/step-up/start`,
+    setDefaultTwoFactorFactor: (factorId: string) =>
+      request<TwoFactorFactor>(
+        "PATCH",
+        `/me/2fa/factors/${segment(factorId)}`,
         {
-          body: { return_to: safeReturnTo(returnTo) ?? "/" },
-        }
-      ).then((r) => r.auth_url),
-
-    // Returns the provider URL; completion lands as #flow=link&result=success.
-    startProviderLink: (provider: string) =>
-      request<{ auth_url: string }>(
-        "POST",
-        `/oidc/${encodeURIComponent(provider)}/link/start`,
-        { body: {} }
-      ).then((r) => r.auth_url),
-
-    unlinkProvider: (provider: string, input: { password?: string } = {}) =>
-      request<void>(
-        "DELETE",
-        `/user/providers/${encodeURIComponent(provider)}`,
-        {
-          body: input.password ? { password: input.password } : undefined,
+          body: { default: true },
         }
       ),
 
+    removeTwoFactorFactor: (factorId: string) =>
+      request<void>("DELETE", `/me/2fa/factors/${segment(factorId)}`),
+
+    // Removes every factor and backup code.
+    disableTwoFactor: () => request<void>("DELETE", "/me/2fa"),
+
+    regenerateBackupCodes: () =>
+      request<BackupCodes>("POST", "/me/2fa/backup-codes").then(
+        (r) => r.backup_codes
+      ),
+
+    // Freshness, MFA state and the step-up methods on offer.
+    getSecurity: (signal?: AbortSignal) =>
+      request<UserSecurity>("GET", "/me/security", { signal }),
+
+    stepUpWithPassword: (password: string) =>
+      sameSession(() =>
+        request("POST", "/me/step-up/password", { body: { password } })
+      ).then(freshAuth),
+
+    // Sends an email or SMS step-up code (TOTP needs none).
+    sendStepUpCode: (input: { method?: string } = {}) =>
+      request<void>("POST", "/me/step-up/2fa/send", {
+        body: { method: input.method },
+      }),
+
+    stepUpWithTwoFactor: (input: {
+      code: string
+      method?: string
+      backupCode?: boolean
+    }) =>
+      sameSession(() =>
+        request("POST", "/me/step-up/2fa", {
+          body: {
+            code: input.code,
+            method: input.method,
+            backup_code: input.backupCode,
+          },
+        })
+      ).then(freshAuth),
+
+    // The provider URL; AuthKit returns to returnTo#code= (completeStepUp).
+    startOidcStepUp: (provider: string, returnTo: string) =>
+      request<OIDCStart>("POST", `/oidc/${segment(provider)}/step-up/start`, {
+        body: { return_to: safeReturnTo(returnTo) ?? "/" },
+      }).then((r) => r.auth_url),
+
+    // The provider URL; completion lands as #flow=link&result=success.
+    startProviderLink: (provider: string) =>
+      request<OIDCStart>("POST", `/oidc/${segment(provider)}/link/start`, {
+        body: {},
+      }).then((r) => r.auth_url),
+
+    unlinkProvider: (provider: string) =>
+      request<void>("DELETE", `/me/providers/${segment(provider)}`),
+
     listSessions: (signal?: AbortSignal) =>
-      request<ListPage<Session>>("GET", "/user/sessions", { signal }).then(
+      request<ListPage<Session>>("GET", "/me/sessions", { signal }).then(
         (r) => r.data
       ),
 
     revokeSessions: async (sessionIds: readonly string[]) => {
       await Promise.all(
         sessionIds.map((id) =>
-          request<void>("DELETE", `/user/sessions/${encodeURIComponent(id)}`)
+          request<void>("DELETE", `/me/sessions/${segment(id)}`)
         )
       )
     },
 
-    // Every session of the account, this one included.
-    revokeAllSessions: async () => {
-      await request<void>("DELETE", "/user/sessions")
-      clear("signed_out")
+    // Every session but this one.
+    revokeOtherSessions: () => request<void>("DELETE", "/me/sessions"),
+
+    listSessionEvents: (
+      input: { kind?: string[]; cursor?: string; limit?: number } = {},
+      signal?: AbortSignal
+    ) =>
+      request<ListPage<SessionEvent>>("GET", "/me/session-events", {
+        signal,
+        query: {
+          kind: input.kind?.join(","),
+          cursor: input.cursor,
+          limit: input.limit,
+        },
+      }),
+
+    // Passkeys and device keys.
+    listSignInKeys: (signal?: AbortSignal) =>
+      request<ListPage<SignInKey>>("GET", "/me/sign-in-keys", {
+        signal,
+      }).then((r) => r.data),
+
+    renameSignInKey: (id: string, label: string) =>
+      request<SignInKey>("PATCH", `/me/sign-in-keys/${segment(id)}`, {
+        body: { label },
+      }),
+
+    revokeSignInKey: (id: string) =>
+      request<void>("DELETE", `/me/sign-in-keys/${segment(id)}`),
+
+    // Creates a passkey with the browser's authenticator (call from a click).
+    registerPasskey: async (): Promise<SignInKey> => {
+      const options = await request<unknown>(
+        "POST",
+        "/me/passkeys/register/begin"
+      )
+      const credential = await navigator.credentials.create({
+        publicKey: creationOptions(options),
+      })
+      if (!(credential instanceof PublicKeyCredential))
+        throw new Error("the browser created no passkey")
+      return request<SignInKey>("POST", "/me/passkeys/register/finish", {
+        body: registrationBody(credential),
+      })
     },
 
     // null when the session changed while the profile was in flight.
@@ -1190,33 +1204,36 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       return profile
     },
 
-    // The caller's permissions in one group; the root group by default.
+    updateProfile: async (input: {
+      username?: string
+      preferredLanguage?: string
+      avatarUrl?: string | null
+    }) => {
+      const profile = await request<UserProfile>("PATCH", "/me", {
+        body: {
+          username: input.username,
+          preferred_language: input.preferredLanguage,
+          avatar_url: input.avatarUrl,
+        },
+      })
+      rememberUsername(profile.id, profile.username)
+      return profile
+    },
+
+    // The caller's role and concrete permissions in one group; the root
+    // group by default.
     getPermissions: (input: { groupId?: string } = {}, signal?: AbortSignal) =>
       request<PermissionSet>("GET", "/me/permissions", {
         signal,
         query: { group_id: input.groupId },
-      }).then((r) => r.permissions),
+      }),
 
-    updateUsername: (username: string) =>
-      request<{ username: string; naming: NamingState }>(
-        "PATCH",
-        "/user/username",
-        { body: { username } }
-      ),
+    redeemInvitation: (code: string) =>
+      request<Membership>("POST", "/invitations/redeem", { body: { code } }),
 
-    updatePreferredLanguage: (language: string) =>
-      request<{ preferred_language: string }>(
-        "PATCH",
-        "/user/preferred-language",
-        {
-          body: { preferred_language: language },
-        }
-      ).then((r) => r.preferred_language),
-
-    deleteAccount: async (input: { password?: string } = {}) => {
-      await request<void>("DELETE", "/user", {
-        body: input.password ? { password: input.password } : undefined,
-      })
+    // Needs a recent sign-in (step_up_required otherwise); the session ends.
+    deleteAccount: async () => {
+      await request<void>("DELETE", "/me")
       clear("signed_out")
     },
 
@@ -1232,7 +1249,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       mode?: string
       returnTo?: string
       preferredLanguage?: string
-      accountInviteToken?: string
+      inviteCode?: string
     }) =>
       request<void>("POST", "/passwordless/start", {
         bearer: null,
@@ -1241,7 +1258,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
           mode: input.mode,
           return_to: safeReturnTo(input.returnTo) ?? undefined,
           preferred_language: input.preferredLanguage,
-          account_invite_token: input.accountInviteToken,
+          invite_code: input.inviteCode,
         },
       }),
 
@@ -1253,6 +1270,12 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       completeSignIn(() =>
         request("POST", "/passwordless/confirm", { body: input, bearer: null })
       ),
+
+    // Links a Solana wallet from its signed SIWS output.
+    linkSolanaWallet: (output: SolanaSignInOutput) =>
+      request<SolanaLinkedAccount>("PUT", "/me/solana-wallet", {
+        body: { output },
+      }),
   }
 
   return {
@@ -1278,6 +1301,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     signInWithRedirect,
     signInWithPopup,
     completeRedirect,
+    completeStepUp,
   }
 }
 
@@ -1292,10 +1316,4 @@ export function readLinkFragment(hash: string): LinkFragment | null {
     token,
     returnTo: safeReturnTo(params.get("return_to")) ?? undefined,
   }
-}
-
-// ?step_up=success|failed after an OIDC step-up round trip.
-export function readStepUpReturn(search: string): "success" | "failed" | null {
-  const v = new URLSearchParams(search).get("step_up")
-  return v === "success" || v === "failed" ? v : null
 }

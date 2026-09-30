@@ -89,7 +89,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TokenSet"
+                  "$ref": "#/components/schemas/AuthResult"
                 }
               }
             }
@@ -160,7 +160,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TokenSet"
+                  "$ref": "#/components/schemas/AuthResult"
                 }
               }
             }
@@ -179,6 +179,94 @@
         "security": [],
         "x-authkit-auth": "public",
         "x-authkit-rate-limit": "auth_password_login"
+      }
+    },
+    "/api/v1/2fa/challenge": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TwoFactorChallengeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_2fa_verify",
+        "x-authkit-mounted-when": "two_factor",
+        "x-authkit-mfa-enrollment-exempt": true
+      }
+    },
+    "/api/v1/2fa/verify": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TwoFactorVerifyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_2fa_verify",
+        "x-authkit-mounted-when": "two_factor",
+        "x-authkit-mfa-enrollment-exempt": true
       }
     },
     "/api/v1/account/recovery/confirm": {
@@ -273,7 +361,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PasswordlessResult"
+                  "$ref": "#/components/schemas/AuthResult"
                 }
               }
             }
@@ -348,7 +436,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TokenSet"
+                  "$ref": "#/components/schemas/AuthResult"
                 }
               }
             }
@@ -368,6 +456,258 @@
         "x-authkit-auth": "public",
         "x-authkit-rate-limit": "auth_passkey_login",
         "x-authkit-mounted-when": "passkeys"
+      }
+    },
+    "/api/v1/password/reset/request": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdentifierRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_pwd_reset_request"
+      }
+    },
+    "/api/v1/password/reset/confirm": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordResetConfirmRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_pwd_reset_confirm"
+      }
+    },
+    "/api/v1/solana/challenge": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SolanaChallengeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SolanaChallenge"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_solana_challenge",
+        "x-authkit-mounted-when": "solana"
+      }
+    },
+    "/api/v1/solana/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SolanaSignInRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_solana_login",
+        "x-authkit-mounted-when": "solana"
+      }
+    },
+    "/api/v1/oidc/{provider}/login/start": {
+      "post": {
+        "tags": [
+          "browser_oidc"
+        ],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OIDCLoginStartRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OIDCStart"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_oidc_start",
+        "x-authkit-mounted-when": "oidc"
+      }
+    },
+    "/api/v1/oidc/exchange": {
+      "post": {
+        "tags": [
+          "browser_oidc"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OIDCExchangeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_oidc_callback",
+        "x-authkit-mounted-when": "oidc"
       }
     },
     "/api/v1/device-keys/enroll/begin": {
@@ -434,7 +774,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DeviceKeySession"
+                  "$ref": "#/components/schemas/AuthResult"
                 }
               }
             }
@@ -520,7 +860,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DeviceKeySession"
+                  "$ref": "#/components/schemas/AuthResult"
                 }
               }
             }
@@ -543,84 +883,7 @@
       }
     },
     "/api/v1/device-keys": {
-      "get": {
-        "tags": [
-          "device_keys"
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeviceKeyPage"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "An error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "x-authkit-auth": "required",
-        "x-authkit-rate-limit": "auth_device_keys_manage",
-        "x-authkit-mounted-when": "device_keys"
-      }
-    },
-    "/api/v1/device-keys/{id}": {
       "delete": {
-        "tags": [
-          "device_keys"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "No Content"
-          },
-          "default": {
-            "description": "An error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "x-authkit-auth": "required",
-        "x-authkit-rate-limit": "auth_device_keys_manage",
-        "x-authkit-mounted-when": "device_keys"
-      }
-    },
-    "/api/v1/device-keys/revoke-others": {
-      "post": {
         "tags": [
           "device_keys"
         ],
@@ -649,76 +912,6 @@
         "x-authkit-mounted-when": "device_keys"
       }
     },
-    "/api/v1/password/reset/request": {
-      "post": {
-        "tags": [
-          "auth"
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/IdentifierRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "202": {
-            "description": "Accepted"
-          },
-          "default": {
-            "description": "An error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [],
-        "x-authkit-auth": "public",
-        "x-authkit-rate-limit": "auth_pwd_reset_request"
-      }
-    },
-    "/api/v1/password/reset/confirm": {
-      "post": {
-        "tags": [
-          "auth"
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PasswordResetConfirmRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "204": {
-            "description": "No Content"
-          },
-          "default": {
-            "description": "An error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [],
-        "x-authkit-auth": "public",
-        "x-authkit-rate-limit": "auth_pwd_reset_confirm"
-      }
-    },
     "/api/v1/register": {
       "post": {
         "tags": [
@@ -740,7 +933,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RegistrationResult"
+                  "$ref": "#/components/schemas/AuthResult"
                 }
               }
             }
@@ -866,7 +1059,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/IdentifierPasswordRequest"
+                "$ref": "#/components/schemas/IdentifierRequest"
               }
             }
           }
@@ -874,16 +1067,6 @@
         "responses": {
           "202": {
             "description": "Accepted"
-          },
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StepUpResult"
-                }
-              }
-            }
           },
           "default": {
             "description": "An error",
@@ -896,12 +1079,8 @@
             }
           }
         },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "x-authkit-auth": "optional",
+        "security": [],
+        "x-authkit-auth": "public",
         "x-authkit-rate-limit": "auth_verify_request"
       }
     },
@@ -926,7 +1105,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TokenSet"
+                  "$ref": "#/components/schemas/AuthResult"
                 }
               }
             }
@@ -954,8 +1133,42 @@
         "x-authkit-rate-limit": "auth_verify_confirm"
       }
     },
-    "/api/v1/user/password": {
-      "post": {
+    "/api/v1/me": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserProfile"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "required",
+        "x-authkit-rate-limit": "auth_user_me"
+      },
+      "patch": {
         "tags": [
           "account"
         ],
@@ -964,21 +1177,18 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PasswordChangeRequest"
+                "$ref": "#/components/schemas/ProfileUpdateRequest"
               }
             }
           }
         },
         "responses": {
-          "204": {
-            "description": "No Content"
-          },
           "200": {
             "description": "OK",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/StepUpResult"
+                  "$ref": "#/components/schemas/UserProfile"
                 }
               }
             }
@@ -1000,10 +1210,231 @@
           }
         ],
         "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_user_update"
+      },
+      "delete": {
+        "tags": [
+          "account"
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_user_delete",
+        "x-authkit-step-up": true
+      }
+    },
+    "/api/v1/me/security": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserSecurity"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "required",
+        "x-authkit-rate-limit": "auth_user_me"
+      }
+    },
+    "/api/v1/me/password": {
+      "put": {
+        "tags": [
+          "account"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordChangeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResult"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
         "x-authkit-rate-limit": "auth_user_password_change"
       }
     },
-    "/api/v1/user/sessions": {
+    "/api/v1/me/email": {
+      "put": {
+        "tags": [
+          "account"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailChangeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_contact_change_request",
+        "x-authkit-step-up": true
+      }
+    },
+    "/api/v1/me/phone": {
+      "put": {
+        "tags": [
+          "account"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PhoneChangeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_contact_change_request",
+        "x-authkit-step-up": true
+      },
+      "delete": {
+        "tags": [
+          "account"
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_user_update",
+        "x-authkit-step-up": true
+      }
+    },
+    "/api/v1/me/sessions": {
       "get": {
         "tags": [
           "account"
@@ -1066,7 +1497,7 @@
         "x-authkit-rate-limit": "auth_sessions_revoke_all"
       }
     },
-    "/api/v1/user/sessions/{id}": {
+    "/api/v1/me/sessions/{id}": {
       "delete": {
         "tags": [
           "account"
@@ -1105,10 +1536,37 @@
         "x-authkit-rate-limit": "auth_sessions_revoke"
       }
     },
-    "/api/v1/me": {
+    "/api/v1/me/session-events": {
       "get": {
         "tags": [
           "account"
+        ],
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "explode": true
+          }
         ],
         "responses": {
           "200": {
@@ -1116,7 +1574,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UserProfile"
+                  "$ref": "#/components/schemas/SessionEventPage"
                 }
               }
             }
@@ -1138,141 +1596,10 @@
           }
         ],
         "x-authkit-auth": "required",
-        "x-authkit-rate-limit": "auth_user_me"
+        "x-authkit-rate-limit": "auth_sessions_list"
       }
     },
-    "/api/v1/user/username": {
-      "patch": {
-        "tags": [
-          "account"
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UsernameRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UsernameChange"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "An error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "x-authkit-auth": "session",
-        "x-authkit-rate-limit": "auth_user_update_username"
-      }
-    },
-    "/api/v1/user/preferred-language": {
-      "patch": {
-        "tags": [
-          "account"
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PreferredLanguageRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PreferredLanguage"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "An error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "x-authkit-auth": "session",
-        "x-authkit-rate-limit": "auth_user_preferred_language"
-      }
-    },
-    "/api/v1/user": {
-      "delete": {
-        "tags": [
-          "account"
-        ],
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PasswordRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "204": {
-            "description": "No Content"
-          },
-          "default": {
-            "description": "An error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "x-authkit-auth": "session",
-        "x-authkit-rate-limit": "auth_user_delete"
-      }
-    },
-    "/api/v1/user/providers/{provider}": {
+    "/api/v1/me/providers/{provider}": {
       "delete": {
         "tags": [
           "account"
@@ -1287,16 +1614,6 @@
             }
           }
         ],
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PasswordRequest"
-              }
-            }
-          }
-        },
         "responses": {
           "204": {
             "description": "No Content"
@@ -1318,93 +1635,11 @@
           }
         ],
         "x-authkit-auth": "session",
-        "x-authkit-rate-limit": "auth_user_unlink_provider"
+        "x-authkit-rate-limit": "auth_user_unlink_provider",
+        "x-authkit-step-up": true
       }
     },
-    "/api/v1/passkeys/register/begin": {
-      "post": {
-        "tags": [
-          "account"
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Defined outside AuthKit: protocol.CredentialCreation"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "An error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "x-authkit-auth": "session",
-        "x-authkit-rate-limit": "auth_passkey_register",
-        "x-authkit-mounted-when": "passkeys"
-      }
-    },
-    "/api/v1/passkeys/register/finish": {
-      "post": {
-        "tags": [
-          "account"
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {}
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Passkey"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "An error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "x-authkit-auth": "session",
-        "x-authkit-rate-limit": "auth_passkey_register",
-        "x-authkit-mounted-when": "passkeys"
-      }
-    },
-    "/api/v1/passkeys": {
+    "/api/v1/me/sign-in-keys": {
       "get": {
         "tags": [
           "account"
@@ -1415,7 +1650,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PasskeyPage"
+                  "$ref": "#/components/schemas/SignInKeyPage"
                 }
               }
             }
@@ -1437,10 +1672,10 @@
           }
         ],
         "x-authkit-auth": "required",
-        "x-authkit-mounted-when": "passkeys"
+        "x-authkit-rate-limit": "auth_sessions_list"
       }
     },
-    "/api/v1/passkeys/{id}": {
+    "/api/v1/me/sign-in-keys/{id}": {
       "patch": {
         "tags": [
           "account"
@@ -1471,7 +1706,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Passkey"
+                  "$ref": "#/components/schemas/SignInKey"
                 }
               }
             }
@@ -1493,7 +1728,8 @@
           }
         ],
         "x-authkit-auth": "session",
-        "x-authkit-mounted-when": "passkeys"
+        "x-authkit-rate-limit": "auth_device_keys_manage",
+        "x-authkit-step-up": true
       },
       "delete": {
         "tags": [
@@ -1530,10 +1766,96 @@
           }
         ],
         "x-authkit-auth": "session",
-        "x-authkit-mounted-when": "passkeys"
+        "x-authkit-rate-limit": "auth_device_keys_manage",
+        "x-authkit-step-up": true
       }
     },
-    "/api/v1/step-up/password": {
+    "/api/v1/me/passkeys/register/begin": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Defined outside AuthKit: protocol.CredentialCreation"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_passkey_register",
+        "x-authkit-mounted-when": "passkeys",
+        "x-authkit-step-up": true
+      }
+    },
+    "/api/v1/me/passkeys/register/finish": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInKey"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_passkey_register",
+        "x-authkit-mounted-when": "passkeys",
+        "x-authkit-step-up": true
+      }
+    },
+    "/api/v1/me/step-up/password": {
       "post": {
         "tags": [
           "account"
@@ -1554,7 +1876,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/StepUpResult"
+                  "$ref": "#/components/schemas/AuthResult"
                 }
               }
             }
@@ -1579,7 +1901,47 @@
         "x-authkit-rate-limit": "auth_password_step_up"
       }
     },
-    "/api/v1/step-up/2fa": {
+    "/api/v1/me/step-up/2fa/send": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TwoFactorSendRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_step_up_2fa_send",
+        "x-authkit-mounted-when": "two_factor"
+      }
+    },
+    "/api/v1/me/step-up/2fa": {
       "post": {
         "tags": [
           "account"
@@ -1600,7 +1962,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/StepUpResult"
+                  "$ref": "#/components/schemas/AuthResult"
                 }
               }
             }
@@ -1670,7 +2032,8 @@
         ],
         "x-authkit-auth": "session",
         "x-authkit-rate-limit": "auth_oidc_start",
-        "x-authkit-mounted-when": "oidc"
+        "x-authkit-mounted-when": "oidc",
+        "x-authkit-step-up": true
       }
     },
     "/api/v1/oidc/{provider}/step-up/start": {
@@ -1730,7 +2093,7 @@
         "x-authkit-mounted-when": "oidc"
       }
     },
-    "/api/v1/user/2fa": {
+    "/api/v1/me/2fa": {
       "get": {
         "tags": [
           "account"
@@ -1767,6 +2130,37 @@
         "x-authkit-mounted-when": "two_factor",
         "x-authkit-mfa-enrollment-exempt": true
       },
+      "delete": {
+        "tags": [
+          "account"
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_2fa_disable",
+        "x-authkit-mounted-when": "two_factor",
+        "x-authkit-step-up": true
+      }
+    },
+    "/api/v1/me/2fa/setup": {
       "post": {
         "tags": [
           "account"
@@ -1776,7 +2170,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/TwoFactorEnrollRequest"
+                "$ref": "#/components/schemas/TwoFactorSetupRequest"
               }
             }
           }
@@ -1787,16 +2181,10 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TwoFactorEnrollResult"
+                  "$ref": "#/components/schemas/TwoFactorSetup"
                 }
               }
             }
-          },
-          "202": {
-            "description": "Accepted"
-          },
-          "204": {
-            "description": "No Content"
           },
           "default": {
             "description": "An error",
@@ -1818,27 +2206,30 @@
         "x-authkit-rate-limit": "auth_2fa_enable",
         "x-authkit-mounted-when": "two_factor",
         "x-authkit-mfa-enrollment-exempt": true
-      },
-      "delete": {
+      }
+    },
+    "/api/v1/me/2fa/factors": {
+      "post": {
         "tags": [
           "account"
         ],
-        "parameters": [
-          {
-            "name": "factor_id",
-            "in": "query",
-            "schema": {
-              "type": "string"
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TwoFactorFactorCreateRequest"
+              }
             }
           }
-        ],
+        },
         "responses": {
-          "200": {
-            "description": "OK",
+          "201": {
+            "description": "Created",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RemovedRoles"
+                  "$ref": "#/components/schemas/TwoFactorFactorCreated"
                 }
               }
             }
@@ -1860,12 +2251,109 @@
           }
         ],
         "x-authkit-auth": "session",
-        "x-authkit-rate-limit": "auth_2fa_disable",
+        "x-authkit-rate-limit": "auth_2fa_enable",
         "x-authkit-mounted-when": "two_factor",
         "x-authkit-mfa-enrollment-exempt": true
       }
     },
-    "/api/v1/user/2fa/backup-codes": {
+    "/api/v1/me/2fa/factors/{id}": {
+      "patch": {
+        "tags": [
+          "account"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TwoFactorFactorUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TwoFactorFactor"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_user_update",
+        "x-authkit-mounted-when": "two_factor",
+        "x-authkit-step-up": true
+      },
+      "delete": {
+        "tags": [
+          "account"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_2fa_disable",
+        "x-authkit-mounted-when": "two_factor",
+        "x-authkit-step-up": true
+      }
+    },
+    "/api/v1/me/2fa/backup-codes": {
       "post": {
         "tags": [
           "account"
@@ -1900,175 +2388,11 @@
         "x-authkit-auth": "session",
         "x-authkit-rate-limit": "auth_2fa_regenerate_codes",
         "x-authkit-mounted-when": "two_factor",
-        "x-authkit-mfa-enrollment-exempt": true
+        "x-authkit-step-up": true
       }
     },
-    "/api/v1/2fa/challenge": {
-      "post": {
-        "tags": [
-          "auth"
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TwoFactorChallengeRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "default": {
-            "description": "An error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [],
-        "x-authkit-auth": "public",
-        "x-authkit-rate-limit": "auth_2fa_verify",
-        "x-authkit-mounted-when": "two_factor",
-        "x-authkit-mfa-enrollment-exempt": true
-      }
-    },
-    "/api/v1/2fa/verify": {
-      "post": {
-        "tags": [
-          "auth"
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TwoFactorVerifyRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TokenSet"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "An error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [],
-        "x-authkit-auth": "public",
-        "x-authkit-rate-limit": "auth_2fa_verify",
-        "x-authkit-mounted-when": "two_factor",
-        "x-authkit-mfa-enrollment-exempt": true
-      }
-    },
-    "/api/v1/solana/challenge": {
-      "post": {
-        "tags": [
-          "auth"
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SolanaChallengeRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SolanaChallenge"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "An error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [],
-        "x-authkit-auth": "public",
-        "x-authkit-rate-limit": "auth_solana_challenge",
-        "x-authkit-mounted-when": "solana"
-      }
-    },
-    "/api/v1/solana/login": {
-      "post": {
-        "tags": [
-          "auth"
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SolanaSignInRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SolanaLoginResult"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "An error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [],
-        "x-authkit-auth": "public",
-        "x-authkit-rate-limit": "auth_solana_login",
-        "x-authkit-mounted-when": "solana"
-      }
-    },
-    "/api/v1/solana/link": {
-      "post": {
+    "/api/v1/me/solana-wallet": {
+      "put": {
         "tags": [
           "account"
         ],
@@ -2088,7 +2412,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SolanaLink"
+                  "$ref": "#/components/schemas/SolanaLinkedAccount"
                 }
               }
             }
@@ -2111,7 +2435,155 @@
         ],
         "x-authkit-auth": "session",
         "x-authkit-rate-limit": "auth_solana_link",
-        "x-authkit-mounted-when": "solana"
+        "x-authkit-mounted-when": "solana",
+        "x-authkit-step-up": true
+      }
+    },
+    "/api/v1/me/groups": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MembershipPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "required"
+      }
+    },
+    "/api/v1/me/permissions": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionSet"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "required"
+      }
+    },
+    "/api/v1/users": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "parameters": [
+          {
+            "name": "ids",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "username",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicUserPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "required",
+        "x-authkit-rate-limit": "auth_user_me"
       }
     },
     "/api/v1/admin/users": {
@@ -2206,7 +2678,7 @@
         ],
         "x-authkit-auth": "permission",
         "x-authkit-permission": "root:users:read",
-        "x-authkit-rate-limit": "auth_admin_user_sessions_list"
+        "x-authkit-rate-limit": "auth_admin_read"
       }
     },
     "/api/v1/admin/users/{user_id}": {
@@ -2252,7 +2724,64 @@
           }
         ],
         "x-authkit-auth": "permission",
-        "x-authkit-permission": "root:users:read"
+        "x-authkit-permission": "root:users:read",
+        "x-authkit-rate-limit": "auth_admin_read"
+      },
+      "patch": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminUserUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserEntry"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-permission": "root:users:manage",
+        "x-authkit-rate-limit": "auth_admin_write",
+        "x-authkit-step-up": true
       },
       "delete": {
         "tags": [
@@ -2290,11 +2819,12 @@
         ],
         "x-authkit-auth": "session",
         "x-authkit-permission": "root:users:delete",
-        "x-authkit-rate-limit": "auth_admin_user_sessions_revoke_all"
+        "x-authkit-rate-limit": "auth_admin_write",
+        "x-authkit-step-up": true
       }
     },
-    "/api/v1/admin/users/{user_id}/signins": {
-      "get": {
+    "/api/v1/admin/users/{user_id}/restore": {
+      "post": {
         "tags": [
           "admin"
         ],
@@ -2306,32 +2836,11 @@
             "schema": {
               "type": "string"
             }
-          },
-          {
-            "name": "cursor",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "schema": {
-              "type": "integer"
-            }
           }
         ],
         "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SessionEventPage"
-                }
-              }
-            }
+          "204": {
+            "description": "No Content"
           },
           "default": {
             "description": "An error",
@@ -2349,12 +2858,14 @@
             "bearer": []
           }
         ],
-        "x-authkit-auth": "permission",
-        "x-authkit-permission": "root:users:read"
+        "x-authkit-auth": "session",
+        "x-authkit-permission": "root:users:delete",
+        "x-authkit-rate-limit": "auth_admin_write",
+        "x-authkit-step-up": true
       }
     },
     "/api/v1/admin/users/{user_id}/ban": {
-      "post": {
+      "put": {
         "tags": [
           "admin"
         ],
@@ -2400,11 +2911,10 @@
         ],
         "x-authkit-auth": "session",
         "x-authkit-permission": "root:users:ban",
-        "x-authkit-rate-limit": "auth_admin_user_sessions_revoke_all"
-      }
-    },
-    "/api/v1/admin/users/{user_id}/unban": {
-      "post": {
+        "x-authkit-rate-limit": "auth_admin_write",
+        "x-authkit-step-up": true
+      },
+      "delete": {
         "tags": [
           "admin"
         ],
@@ -2440,11 +2950,57 @@
         ],
         "x-authkit-auth": "session",
         "x-authkit-permission": "root:users:ban",
-        "x-authkit-rate-limit": "auth_admin_user_sessions_revoke_all"
+        "x-authkit-rate-limit": "auth_admin_write",
+        "x-authkit-step-up": true
       }
     },
-    "/api/v1/admin/users/{user_id}/sessions/revoke": {
-      "post": {
+    "/api/v1/admin/users/{user_id}/sessions": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "root:users:read",
+        "x-authkit-rate-limit": "auth_admin_read"
+      },
+      "delete": {
         "tags": [
           "admin"
         ],
@@ -2480,11 +3036,12 @@
         ],
         "x-authkit-auth": "session",
         "x-authkit-permission": "root:users:manage",
-        "x-authkit-rate-limit": "auth_admin_user_sessions_revoke_all"
+        "x-authkit-rate-limit": "auth_admin_write",
+        "x-authkit-step-up": true
       }
     },
-    "/api/v1/admin/users/{user_id}/restore": {
-      "post": {
+    "/api/v1/admin/users/{user_id}/session-events": {
+      "get": {
         "tags": [
           "admin"
         ],
@@ -2496,37 +3053,32 @@
             "schema": {
               "type": "string"
             }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "No Content"
           },
-          "default": {
-            "description": "An error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [
           {
-            "bearer": []
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "explode": true
           }
-        ],
-        "x-authkit-auth": "session",
-        "x-authkit-permission": "root:users:delete",
-        "x-authkit-rate-limit": "auth_admin_user_sessions_revoke_all"
-      }
-    },
-    "/api/v1/admin/roles": {
-      "get": {
-        "tags": [
-          "admin"
         ],
         "responses": {
           "200": {
@@ -2534,7 +3086,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RoleInfoPage"
+                  "$ref": "#/components/schemas/SessionEventPage"
                 }
               }
             }
@@ -2556,108 +3108,8 @@
           }
         ],
         "x-authkit-auth": "permission",
-        "x-authkit-permission": "root:members:read"
-      }
-    },
-    "/api/v1/admin/users/{user_id}/roles/{role}": {
-      "put": {
-        "tags": [
-          "admin"
-        ],
-        "parameters": [
-          {
-            "name": "user_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "role",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GroupMember"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "An error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "x-authkit-auth": "session",
-        "x-authkit-permission": "root:members:manage",
-        "x-authkit-rate-limit": "auth_admin_user_sessions_revoke_all"
-      },
-      "delete": {
-        "tags": [
-          "admin"
-        ],
-        "parameters": [
-          {
-            "name": "user_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "role",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "No Content"
-          },
-          "default": {
-            "description": "An error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "x-authkit-auth": "session",
-        "x-authkit-permission": "root:members:manage",
-        "x-authkit-rate-limit": "auth_admin_user_sessions_revoke_all"
+        "x-authkit-permission": "root:users:read",
+        "x-authkit-rate-limit": "auth_admin_read"
       }
     },
     "/api/v1/delegated/token": {
@@ -2756,6 +3208,17 @@
               }
             },
             "explode": true
+          },
+          {
+            "name": "expand",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "explode": true
           }
         ],
         "responses": {
@@ -2786,16 +3249,33 @@
           }
         ],
         "x-authkit-auth": "permission",
-        "x-authkit-permission": "<persona>:members:read",
-        "x-authkit-mounted-when": "groups"
-      },
-      "post": {
+        "x-authkit-permission": "<persona>:members:read"
+      }
+    },
+    "/api/v1/groups/{group_id}/members/{kind}/{id}": {
+      "put": {
         "tags": [
           "permission_groups"
         ],
         "parameters": [
           {
             "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
             "in": "path",
             "required": true,
             "schema": {
@@ -2808,7 +3288,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/MemberAddRequest"
+                "$ref": "#/components/schemas/MemberRoleRequest"
               }
             }
           }
@@ -2820,16 +3300,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/GroupMember"
-                }
-              }
-            }
-          },
-          "201": {
-            "description": "Created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/InvitationCreated"
                 }
               }
             }
@@ -2851,11 +3321,8 @@
           }
         ],
         "x-authkit-auth": "permission",
-        "x-authkit-permission": "<persona>:members:manage",
-        "x-authkit-mounted-when": "groups"
-      }
-    },
-    "/api/v1/groups/{group_id}/members/{user}": {
+        "x-authkit-permission": "<persona>:members:manage"
+      },
       "delete": {
         "tags": [
           "permission_groups"
@@ -2870,7 +3337,15 @@
             }
           },
           {
-            "name": "user",
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
             "in": "path",
             "required": true,
             "schema": {
@@ -2899,71 +3374,7 @@
           }
         ],
         "x-authkit-auth": "permission",
-        "x-authkit-permission": "<persona>:members:manage",
-        "x-authkit-mounted-when": "groups"
-      }
-    },
-    "/api/v1/groups/{group_id}/members/{user}/roles/{role}": {
-      "put": {
-        "tags": [
-          "permission_groups"
-        ],
-        "parameters": [
-          {
-            "name": "group_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "user",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "role",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GroupMember"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "An error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "x-authkit-auth": "permission",
-        "x-authkit-permission": "<persona>:members:manage",
-        "x-authkit-mounted-when": "groups"
+        "x-authkit-permission": "<persona>:members:manage"
       }
     },
     "/api/v1/groups/{group_id}/roles": {
@@ -3009,8 +3420,172 @@
           }
         ],
         "x-authkit-auth": "permission",
-        "x-authkit-permission": "<persona>:members:read",
-        "x-authkit-mounted-when": "groups"
+        "x-authkit-permission": "<persona>:members:read"
+      }
+    },
+    "/api/v1/groups/{group_id}/invitations": {
+      "get": {
+        "tags": [
+          "permission_groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:members:read"
+      },
+      "post": {
+        "tags": [
+          "permission_groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvitationCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationCreated"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Accepted"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:members:manage",
+        "x-authkit-rate-limit": "auth_invite_create"
+      }
+    },
+    "/api/v1/groups/{group_id}/invitations/{id}": {
+      "delete": {
+        "tags": [
+          "permission_groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:members:manage"
       }
     },
     "/api/v1/groups/{group_id}/api-keys": {
@@ -3177,266 +3752,7 @@
         "x-authkit-mounted-when": "api_keys"
       }
     },
-    "/api/v1/groups/{group_id}/invites/links": {
-      "get": {
-        "tags": [
-          "permission_groups"
-        ],
-        "parameters": [
-          {
-            "name": "group_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "cursor",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/InvitationPage"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "An error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "x-authkit-auth": "permission",
-        "x-authkit-permission": "<persona>:members:read",
-        "x-authkit-mounted-when": "groups"
-      },
-      "post": {
-        "tags": [
-          "permission_groups"
-        ],
-        "parameters": [
-          {
-            "name": "group_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/InvitationCreateRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/InvitationCreated"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "An error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "x-authkit-auth": "permission",
-        "x-authkit-permission": "<persona>:members:manage",
-        "x-authkit-mounted-when": "groups"
-      }
-    },
-    "/api/v1/groups/{group_id}/invites/links/{link}": {
-      "delete": {
-        "tags": [
-          "permission_groups"
-        ],
-        "parameters": [
-          {
-            "name": "group_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "link",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "No Content"
-          },
-          "default": {
-            "description": "An error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "x-authkit-auth": "permission",
-        "x-authkit-permission": "<persona>:members:manage",
-        "x-authkit-mounted-when": "groups"
-      }
-    },
-    "/api/v1/me/groups": {
-      "get": {
-        "tags": [
-          "account"
-        ],
-        "parameters": [
-          {
-            "name": "cursor",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MembershipPage"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "An error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "x-authkit-auth": "required"
-      }
-    },
-    "/api/v1/me/permissions": {
-      "get": {
-        "tags": [
-          "account"
-        ],
-        "parameters": [
-          {
-            "name": "group_id",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PermissionSet"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "An error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "x-authkit-auth": "required"
-      }
-    },
-    "/api/v1/invites/redeem": {
+    "/api/v1/invitations/redeem": {
       "post": {
         "tags": [
           "permission_groups"
@@ -3446,7 +3762,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/InviteRedeemRequest"
+                "$ref": "#/components/schemas/InvitationRedeemRequest"
               }
             }
           }
@@ -3479,8 +3795,7 @@
           }
         ],
         "x-authkit-auth": "session",
-        "x-authkit-rate-limit": "auth_invite_redeem",
-        "x-authkit-mounted-when": "groups"
+        "x-authkit-rate-limit": "auth_invite_redeem"
       }
     },
     "/oidc/{provider}/login": {
@@ -3522,57 +3837,6 @@
         "responses": {
           "302": {
             "description": "Found"
-          },
-          "default": {
-            "description": "An error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [],
-        "x-authkit-auth": "public",
-        "x-authkit-rate-limit": "auth_oidc_start",
-        "x-authkit-mounted-when": "oidc"
-      },
-      "post": {
-        "tags": [
-          "browser_oidc"
-        ],
-        "parameters": [
-          {
-            "name": "provider",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/OIDCLoginRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OIDCStart"
-                }
-              }
-            }
           },
           "default": {
             "description": "An error",
@@ -3643,7 +3907,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OIDCLoginResult"
+                  "$ref": "#/components/schemas/AuthResult"
                 }
               }
             }
@@ -3690,7 +3954,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OIDCLoginResult"
+                  "$ref": "#/components/schemas/AuthResult"
                 }
               }
             }
@@ -3767,7 +4031,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OIDCStepUpResult"
+                  "$ref": "#/components/schemas/AuthResult"
                 }
               }
             }
@@ -3811,7 +4075,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OIDCStepUpResult"
+                  "$ref": "#/components/schemas/AuthResult"
                 }
               }
             }
@@ -3964,6 +4228,164 @@
           "secret"
         ]
       },
+      "AccountRecoveryConfirmation": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "purge_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          }
+        },
+        "required": [
+          "token",
+          "expires_at",
+          "purge_at"
+        ]
+      },
+      "ActionAvailability": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "allowed": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "retry_after_seconds": {
+            "type": "integer"
+          },
+          "next_allowed_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "limit": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "remaining": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "window_seconds": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cooldown_seconds": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "action",
+          "allowed",
+          "reason",
+          "retry_after_seconds",
+          "next_allowed_at",
+          "limit",
+          "remaining",
+          "window_seconds",
+          "cooldown_seconds"
+        ]
+      },
+      "AdminUserUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "phone_number": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "username": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "avatar_url": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "preferred_language": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
       "AuthKitEvent": {
         "type": "object",
         "properties": {
@@ -4058,6 +4480,127 @@
           "until"
         ]
       },
+      "AuthResult": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "account_recovery_required",
+              "complete",
+              "enrollment_required",
+              "second_factor_required",
+              "verification_required"
+            ]
+          },
+          "token_set": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TokenSet"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "user": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/User"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "return_to": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fresh_auth": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FreshAuth"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "device_key": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DeviceKey"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "second_factor": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SecondFactorStep"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "enrollment": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EnrollmentStep"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "verification": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/VerificationStep"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "recovery": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AccountRecoveryConfirmation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "token_set",
+          "user",
+          "created",
+          "return_to",
+          "fresh_auth",
+          "device_key",
+          "second_factor",
+          "enrollment",
+          "verification",
+          "recovery"
+        ]
+      },
       "Availability": {
         "type": "object",
         "properties": {
@@ -4138,9 +4681,6 @@
         "type": "object",
         "properties": {
           "reason": {
-            "type": "string"
-          },
-          "until": {
             "oneOf": [
               {
                 "type": "string"
@@ -4150,8 +4690,17 @@
               }
             ]
           },
-          "keep_existing": {
-            "type": "boolean"
+          "until": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -4292,6 +4841,25 @@
             "type": "string"
           }
         }
+      },
+      "ContactProofRequired": {
+        "type": "object",
+        "properties": {
+          "identifier": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "identifier",
+          "channel",
+          "reason"
+        ]
       },
       "DelegatedTokenRequest": {
         "type": "object",
@@ -4466,19 +5034,35 @@
           }
         }
       },
-      "DeviceKeySession": {
+      "EmailChangeRequest": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          }
+        }
+      },
+      "EnrollmentStep": {
         "type": "object",
         "properties": {
           "token_set": {
             "$ref": "#/components/schemas/TokenSet"
           },
-          "device_key": {
-            "$ref": "#/components/schemas/DeviceKey"
+          "allowed_methods": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "email",
+                "sms",
+                "totp"
+              ]
+            }
           }
         },
         "required": [
           "token_set",
-          "device_key"
+          "allowed_methods"
         ]
       },
       "ExternalLoginProvider": {
@@ -4511,12 +5095,6 @@
       "FreshAuth": {
         "type": "object",
         "properties": {
-          "step_up_required_for_sensitive_actions": {
-            "type": "boolean"
-          },
-          "time_until_step_up_required": {
-            "type": "integer"
-          },
           "last_authenticated_at": {
             "oneOf": [
               {
@@ -4529,6 +5107,12 @@
               }
             ]
           },
+          "step_up_required_for_sensitive_actions": {
+            "type": "boolean"
+          },
+          "step_up_required_in_seconds": {
+            "type": "integer"
+          },
           "auth_methods": {
             "type": "array",
             "items": {
@@ -4537,9 +5121,9 @@
           }
         },
         "required": [
-          "step_up_required_for_sensitive_actions",
-          "time_until_step_up_required",
           "last_authenticated_at",
+          "step_up_required_for_sensitive_actions",
+          "step_up_required_in_seconds",
           "auth_methods"
         ]
       },
@@ -4589,7 +5173,7 @@
           "user": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/User"
+                "$ref": "#/components/schemas/PublicUser"
               },
               {
                 "type": "null"
@@ -4714,6 +5298,9 @@
           "role": {
             "type": "string"
           },
+          "email": {
+            "type": "string"
+          },
           "expires_at": {
             "oneOf": [
               {
@@ -4747,7 +5334,7 @@
           "url"
         ]
       },
-      "InviteRedeemRequest": {
+      "InvitationRedeemRequest": {
         "type": "object",
         "properties": {
           "code": {
@@ -4812,15 +5399,52 @@
           }
         }
       },
-      "MemberAddRequest": {
+      "LengthBounds": {
         "type": "object",
         "properties": {
-          "user_id": {
+          "min_length": {
+            "type": "integer"
+          },
+          "max_length": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "min_length",
+          "max_length"
+        ]
+      },
+      "LinkedProvider": {
+        "type": "object",
+        "properties": {
+          "provider": {
             "type": "string"
           },
           "email": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
+          "linked_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          }
+        },
+        "required": [
+          "provider",
+          "email",
+          "linked_at"
+        ]
+      },
+      "MemberRoleRequest": {
+        "type": "object",
+        "properties": {
           "role": {
             "type": "string"
           }
@@ -4961,13 +5585,21 @@
           "retry_after_seconds"
         ]
       },
-      "OIDCLoginRequest": {
+      "OIDCExchangeRequest": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          }
+        }
+      },
+      "OIDCLoginStartRequest": {
         "type": "object",
         "properties": {
           "return_to": {
             "type": "string"
           },
-          "account_invite_token": {
+          "invite_code": {
             "type": "string"
           },
           "ui": {
@@ -4977,21 +5609,6 @@
             "type": "string"
           }
         }
-      },
-      "OIDCLoginResult": {
-        "type": "object",
-        "properties": {
-          "token_set": {
-            "$ref": "#/components/schemas/TokenSet"
-          },
-          "user": {
-            "$ref": "#/components/schemas/OIDCUser"
-          }
-        },
-        "required": [
-          "token_set",
-          "user"
-        ]
       },
       "OIDCStart": {
         "type": "object",
@@ -5006,114 +5623,6 @@
         "required": [
           "auth_url",
           "state"
-        ]
-      },
-      "OIDCStepUpResult": {
-        "type": "object",
-        "properties": {
-          "token_set": {
-            "$ref": "#/components/schemas/TokenSet"
-          },
-          "fresh_auth": {
-            "$ref": "#/components/schemas/FreshAuth"
-          },
-          "provider": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "token_set",
-          "fresh_auth",
-          "provider"
-        ]
-      },
-      "OIDCUser": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "email": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "required": [
-          "id",
-          "email"
-        ]
-      },
-      "Passkey": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "label": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "transports": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "authenticator_attachment": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "backup_eligible": {
-            "type": "boolean"
-          },
-          "backup_state": {
-            "type": "boolean"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "description": "RFC 3339, UTC"
-          },
-          "last_used_at": {
-            "oneOf": [
-              {
-                "type": "string",
-                "format": "date-time",
-                "description": "RFC 3339, UTC"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "required": [
-          "id",
-          "label",
-          "transports",
-          "authenticator_attachment",
-          "backup_eligible",
-          "backup_state",
-          "created_at",
-          "last_used_at"
         ]
       },
       "PasskeyCapabilities": {
@@ -5192,6 +5701,20 @@
           }
         }
       },
+      "PasswordRequirements": {
+        "type": "object",
+        "properties": {
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "missing"
+        ]
+      },
       "PasswordResetConfirmRequest": {
         "type": "object",
         "properties": {
@@ -5221,28 +5744,6 @@
           "channels"
         ]
       },
-      "PasswordlessResult": {
-        "type": "object",
-        "properties": {
-          "token_set": {
-            "$ref": "#/components/schemas/TokenSet"
-          },
-          "return_to": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "required": [
-          "token_set",
-          "return_to"
-        ]
-      },
       "PasswordlessStartRequest": {
         "type": "object",
         "properties": {
@@ -5258,7 +5759,7 @@
           "preferred_language": {
             "type": "string"
           },
-          "account_invite_token": {
+          "invite_code": {
             "type": "string"
           }
         }
@@ -5269,6 +5770,16 @@
           "group_id": {
             "type": "string"
           },
+          "role": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "permissions": {
             "type": "array",
             "items": {
@@ -5278,27 +5789,98 @@
         },
         "required": [
           "group_id",
+          "role",
           "permissions"
         ]
       },
-      "PreferredLanguage": {
+      "PhoneChangeRequest": {
         "type": "object",
         "properties": {
+          "phone_number": {
+            "type": "string"
+          }
+        }
+      },
+      "ProfileUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "preferred_language": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "avatar_url": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "ProviderError": {
+        "type": "object",
+        "properties": {
+          "provider_error": {
             "type": "string"
           }
         },
         "required": [
-          "preferred_language"
+          "provider_error"
         ]
       },
-      "PreferredLanguageRequest": {
+      "PublicUser": {
         "type": "object",
         "properties": {
-          "preferred_language": {
+          "id": {
             "type": "string"
+          },
+          "username": {
+            "type": "string"
+          },
+          "avatar_url": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deleted": {
+            "type": "boolean"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": {}
           }
-        }
+        },
+        "required": [
+          "id",
+          "username",
+          "avatar_url",
+          "deleted",
+          "metadata"
+        ]
       },
       "RegisterRequest": {
         "type": "object",
@@ -5312,7 +5894,7 @@
           "password": {
             "type": "string"
           },
-          "account_invite_token": {
+          "invite_code": {
             "type": "string"
           }
         }
@@ -5332,91 +5914,15 @@
           "invite_token_required"
         ]
       },
-      "RegistrationResult": {
+      "RetryAfter": {
         "type": "object",
         "properties": {
-          "user": {
-            "$ref": "#/components/schemas/RegistrationUser"
-          },
-          "token_set": {
-            "$ref": "#/components/schemas/TokenSet"
+          "retry_after_seconds": {
+            "type": "integer"
           }
         },
         "required": [
-          "user",
-          "token_set"
-        ]
-      },
-      "RegistrationUser": {
-        "type": "object",
-        "properties": {
-          "username": {
-            "type": "string"
-          },
-          "email": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "phone_number": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "required": [
-          "username",
-          "email",
-          "phone_number"
-        ]
-      },
-      "RemovedRole": {
-        "type": "object",
-        "properties": {
-          "group_id": {
-            "type": "string"
-          },
-          "persona": {
-            "type": "string"
-          },
-          "role": {
-            "type": "string"
-          },
-          "removed_at": {
-            "type": "string",
-            "format": "date-time",
-            "description": "RFC 3339, UTC"
-          }
-        },
-        "required": [
-          "group_id",
-          "persona",
-          "role",
-          "removed_at"
-        ]
-      },
-      "RemovedRoles": {
-        "type": "object",
-        "properties": {
-          "removed_roles": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/RemovedRole"
-            }
-          }
-        },
-        "required": [
-          "removed_roles"
+          "retry_after_seconds"
         ]
       },
       "ReturnToRequest": {
@@ -5443,6 +5949,32 @@
         "required": [
           "name",
           "permissions"
+        ]
+      },
+      "SecondFactorStep": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string"
+          },
+          "challenge": {
+            "type": "string"
+          },
+          "factor": {
+            "$ref": "#/components/schemas/TwoFactorFactor"
+          },
+          "factors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TwoFactorFactor"
+            }
+          }
+        },
+        "required": [
+          "user_id",
+          "challenge",
+          "factor",
+          "factors"
         ]
       },
       "Session": {
@@ -5591,6 +6123,59 @@
           "user_agent"
         ]
       },
+      "SignInKey": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "device_key",
+              "passkey"
+            ]
+          },
+          "label": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "last_used_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "current": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "label",
+          "created_at",
+          "last_used_at",
+          "current"
+        ]
+      },
       "SolanaAccount": {
         "type": "object",
         "properties": {
@@ -5644,17 +6229,6 @@
             "type": "string"
           }
         }
-      },
-      "SolanaLink": {
-        "type": "object",
-        "properties": {
-          "solana_address": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "solana_address"
-        ]
       },
       "SolanaLinkedAccount": {
         "type": "object",
@@ -5735,25 +6309,6 @@
           "sns_error"
         ]
       },
-      "SolanaLoginResult": {
-        "type": "object",
-        "properties": {
-          "token_set": {
-            "$ref": "#/components/schemas/TokenSet"
-          },
-          "created": {
-            "type": "boolean"
-          },
-          "user": {
-            "$ref": "#/components/schemas/SolanaUser"
-          }
-        },
-        "required": [
-          "token_set",
-          "created",
-          "user"
-        ]
-      },
       "SolanaSignInOutput": {
         "type": "object",
         "properties": {
@@ -5776,34 +6331,37 @@
           }
         }
       },
-      "SolanaUser": {
+      "StepUpRequired": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "string"
+          "step_up_methods": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
-          "solana_address": {
-            "type": "string"
+          "max_age_seconds": {
+            "type": "integer"
+          },
+          "step_up_2fa": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StepUpTwoFactorOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mfa_required": {
+            "type": "boolean"
           }
         },
         "required": [
-          "id",
-          "solana_address"
-        ]
-      },
-      "StepUpResult": {
-        "type": "object",
-        "properties": {
-          "token_set": {
-            "$ref": "#/components/schemas/TokenSet"
-          },
-          "fresh_auth": {
-            "$ref": "#/components/schemas/FreshAuth"
-          }
-        },
-        "required": [
-          "token_set",
-          "fresh_auth"
+          "step_up_methods",
+          "max_age_seconds",
+          "step_up_2fa",
+          "mfa_required"
         ]
       },
       "StepUpTwoFactorOption": {
@@ -5815,7 +6373,7 @@
           "is_default": {
             "type": "boolean"
           },
-          "verification_id": {
+          "destination": {
             "oneOf": [
               {
                 "type": "string"
@@ -5829,7 +6387,7 @@
         "required": [
           "method",
           "is_default",
-          "verification_id"
+          "destination"
         ]
       },
       "StepUpTwoFactorOptions": {
@@ -5967,7 +6525,37 @@
           }
         }
       },
-      "TwoFactorEnrollRequest": {
+      "TwoFactorFactor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "destination": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "method",
+          "is_default",
+          "destination"
+        ]
+      },
+      "TwoFactorFactorCreateRequest": {
         "type": "object",
         "properties": {
           "method": {
@@ -5988,20 +6576,80 @@
           },
           "default": {
             "type": "boolean"
+          }
+        }
+      },
+      "TwoFactorFactorCreated": {
+        "type": "object",
+        "properties": {
+          "factor": {
+            "$ref": "#/components/schemas/TwoFactorFactor"
           },
-          "factor_id": {
+          "backup_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "auth": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AuthResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "factor",
+          "backup_codes",
+          "auth"
+        ]
+      },
+      "TwoFactorFactorUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "default": {
+            "type": "boolean"
+          }
+        }
+      },
+      "TwoFactorRequired": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "method"
+        ]
+      },
+      "TwoFactorSendRequest": {
+        "type": "object",
+        "properties": {
+          "method": {
             "type": "string"
           }
         }
       },
-      "TwoFactorEnrollResult": {
+      "TwoFactorSetup": {
         "type": "object",
         "properties": {
           "method": {
             "type": "string"
           },
-          "enabled": {
-            "type": "boolean"
+          "destination": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "secret": {
             "oneOf": [
@@ -6022,55 +6670,20 @@
                 "type": "null"
               }
             ]
-          },
-          "backup_codes": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "token_set": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/TokenSet"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "fresh_auth": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/FreshAuth"
-              },
-              {
-                "type": "null"
-              }
-            ]
           }
         },
         "required": [
           "method",
-          "enabled",
+          "destination",
           "secret",
-          "otpauth_uri",
-          "backup_codes",
-          "token_set",
-          "fresh_auth"
+          "otpauth_uri"
         ]
       },
-      "TwoFactorFactor": {
+      "TwoFactorSetupRequest": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "string"
-          },
           "method": {
             "type": "string"
-          },
-          "is_default": {
-            "type": "boolean"
           },
           "phone_number": {
             "oneOf": [
@@ -6081,54 +6694,14 @@
                 "type": "null"
               }
             ]
-          },
-          "email": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
           }
-        },
-        "required": [
-          "id",
-          "method",
-          "is_default",
-          "phone_number",
-          "email"
-        ]
+        }
       },
       "TwoFactorStatus": {
         "type": "object",
         "properties": {
           "enabled": {
             "type": "boolean"
-          },
-          "method": {
-            "type": "string"
-          },
-          "phone_number": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "default_factor": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/TwoFactorFactor"
-              },
-              {
-                "type": "null"
-              }
-            ]
           },
           "factors": {
             "type": "array",
@@ -6139,7 +6712,12 @@
           "allowed_methods": {
             "type": "array",
             "items": {
-              "type": "string"
+              "type": "string",
+              "enum": [
+                "email",
+                "sms",
+                "totp"
+              ]
             }
           },
           "backup_codes_remaining": {
@@ -6148,9 +6726,6 @@
         },
         "required": [
           "enabled",
-          "method",
-          "phone_number",
-          "default_factor",
           "factors",
           "allowed_methods",
           "backup_codes_remaining"
@@ -6163,9 +6738,6 @@
             "type": "string"
           },
           "method": {
-            "type": "string"
-          },
-          "factor_id": {
             "type": "string"
           },
           "backup_code": {
@@ -6542,10 +7114,32 @@
               }
             ]
           },
+          "root_role": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "entitlements": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "has_password": {
             "type": "boolean"
           },
-          "solana_linked_account": {
+          "providers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LinkedProvider"
+            }
+          },
+          "solana_wallet": {
             "oneOf": [
               {
                 "$ref": "#/components/schemas/SolanaLinkedAccount"
@@ -6555,29 +7149,8 @@
               }
             ]
           },
-          "linked_providers": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "roles": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "entitlements": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
           "naming": {
             "$ref": "#/components/schemas/NamingState"
-          },
-          "security": {
-            "$ref": "#/components/schemas/UserSecurity"
           }
         },
         "required": [
@@ -6594,13 +7167,12 @@
           "last_login",
           "deleted_at",
           "ban",
-          "has_password",
-          "solana_linked_account",
-          "linked_providers",
-          "roles",
+          "root_role",
           "entitlements",
-          "naming",
-          "security"
+          "has_password",
+          "providers",
+          "solana_wallet",
+          "naming"
         ]
       },
       "UserSecurity": {
@@ -6618,18 +7190,17 @@
               }
             ]
           },
-          "time_until_step_up_required": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "step_up_required_for_sensitive_actions": {
             "type": "boolean"
+          },
+          "step_up_required_in_seconds": {
+            "type": "integer"
+          },
+          "auth_methods": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "step_up_methods": {
             "type": "array",
@@ -6656,14 +7227,20 @@
           "mfa_allowed_methods": {
             "type": "array",
             "items": {
-              "type": "string"
+              "type": "string",
+              "enum": [
+                "email",
+                "sms",
+                "totp"
+              ]
             }
           }
         },
         "required": [
           "last_authenticated_at",
-          "time_until_step_up_required",
           "step_up_required_for_sensitive_actions",
+          "step_up_required_in_seconds",
+          "auth_methods",
           "step_up_methods",
           "step_up_2fa",
           "mfa_enabled",
@@ -6702,29 +7279,6 @@
           "former_names"
         ]
       },
-      "UsernameChange": {
-        "type": "object",
-        "properties": {
-          "username": {
-            "type": "string"
-          },
-          "naming": {
-            "$ref": "#/components/schemas/NamingState"
-          }
-        },
-        "required": [
-          "username",
-          "naming"
-        ]
-      },
-      "UsernameRequest": {
-        "type": "object",
-        "properties": {
-          "username": {
-            "type": "string"
-          }
-        }
-      },
       "VerificationCapabilities": {
         "type": "object",
         "properties": {
@@ -6736,6 +7290,21 @@
           "registration"
         ]
       },
+      "VerificationStep": {
+        "type": "object",
+        "properties": {
+          "identifier": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "identifier",
+          "channel"
+        ]
+      },
       "APIKeyPage": {
         "type": "object",
         "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
@@ -6744,35 +7313,6 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/APIKey"
-            }
-          },
-          "next_cursor": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "total": {
-            "type": [
-              "integer",
-              "null"
-            ]
-          }
-        },
-        "required": [
-          "data",
-          "next_cursor",
-          "total"
-        ]
-      },
-      "DeviceKeyPage": {
-        "type": "object",
-        "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
-        "properties": {
-          "data": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/DeviceKey"
             }
           },
           "next_cursor": {
@@ -6881,14 +7421,14 @@
           "total"
         ]
       },
-      "PasskeyPage": {
+      "PublicUserPage": {
         "type": "object",
         "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
         "properties": {
           "data": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/Passkey"
+              "$ref": "#/components/schemas/PublicUser"
             }
           },
           "next_cursor": {
@@ -6997,6 +7537,35 @@
           "total"
         ]
       },
+      "SignInKeyPage": {
+        "type": "object",
+        "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SignInKey"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor",
+          "total"
+        ]
+      },
       "UserEntryPage": {
         "type": "object",
         "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
@@ -7073,7 +7642,7 @@
           "param",
           "metadata"
         ],
-        "description": "type follows the status; code is stable (clients tolerate new ones); message is not contract."
+        "description": "type follows the status; code is stable (clients tolerate new ones); message is not contract. metadata is null, or the shape x-authkit-error-codes gives the code."
       }
     },
     "securitySchemes": {
@@ -7099,7 +7668,10 @@
     },
     "2fa_required": {
       "status": 403,
-      "message": "Two-factor authentication is required."
+      "message": "Two-factor authentication is required.",
+      "metadata": {
+        "$ref": "#/components/schemas/TwoFactorRequired"
+      }
     },
     "access_token_has_sub": {
       "status": 401,
@@ -7177,6 +7749,10 @@
       "status": 409,
       "message": "The database is not empty; bootstrap refused."
     },
+    "cannot_remove_last_contact": {
+      "status": 409,
+      "message": "Verify an email address before removing your phone number."
+    },
     "cannot_target_self": {
       "status": 403,
       "message": "You cannot perform this action on yourself."
@@ -7211,7 +7787,10 @@
     },
     "contact_not_verified": {
       "status": 409,
-      "message": "The email address or phone number is not verified."
+      "message": "The email address or phone number is not verified.",
+      "metadata": {
+        "$ref": "#/components/schemas/ContactProofRequired"
+      }
     },
     "delegated_access_wrong_typ": {
       "status": 401,
@@ -7531,7 +8110,10 @@
     },
     "password_requirements_unmet": {
       "status": 400,
-      "message": "Password doesn't meet the requirements."
+      "message": "Password doesn't meet the requirements.",
+      "metadata": {
+        "$ref": "#/components/schemas/PasswordRequirements"
+      }
     },
     "password_reset_required": {
       "status": 401,
@@ -7543,11 +8125,17 @@
     },
     "password_too_long": {
       "status": 400,
-      "message": "Password is too long."
+      "message": "Password is too long.",
+      "metadata": {
+        "$ref": "#/components/schemas/LengthBounds"
+      }
     },
     "password_too_short": {
       "status": 400,
-      "message": "Password is too short."
+      "message": "Password is too short.",
+      "metadata": {
+        "$ref": "#/components/schemas/LengthBounds"
+      }
     },
     "passwordless_disabled": {
       "status": 403,
@@ -7583,7 +8171,10 @@
     },
     "provider_error": {
       "status": 400,
-      "message": "The provider returned an error. Please try again."
+      "message": "The provider returned an error. Please try again.",
+      "metadata": {
+        "$ref": "#/components/schemas/ProviderError"
+      }
     },
     "provider_not_linked": {
       "status": 400,
@@ -7595,7 +8186,10 @@
     },
     "rate_limited": {
       "status": 429,
-      "message": "Too many attempts. Please try again later."
+      "message": "Too many attempts. Please try again later.",
+      "metadata": {
+        "$ref": "#/components/schemas/ActionAvailability"
+      }
     },
     "registration_disabled": {
       "status": 403,
@@ -7615,7 +8209,10 @@
     },
     "rename_rate_limited": {
       "status": 429,
-      "message": "Too many username changes. Please try again later."
+      "message": "Too many username changes. Please try again later.",
+      "metadata": {
+        "$ref": "#/components/schemas/ActionAvailability"
+      }
     },
     "renames_disabled": {
       "status": 403,
@@ -7639,7 +8236,10 @@
     },
     "server_busy": {
       "status": 503,
-      "message": "The server is busy. Try again in a moment."
+      "message": "The server is busy. Try again in a moment.",
+      "metadata": {
+        "$ref": "#/components/schemas/RetryAfter"
+      }
     },
     "service_jwt_lifetime_exceeded": {
       "status": 401,
@@ -7659,7 +8259,10 @@
     },
     "step_up_required": {
       "status": 403,
-      "message": "Please confirm it's you to continue."
+      "message": "Please confirm it's you to continue.",
+      "metadata": {
+        "$ref": "#/components/schemas/StepUpRequired"
+      }
     },
     "subject_mfa_required": {
       "status": 409,
@@ -7739,15 +8342,24 @@
     },
     "username_too_long": {
       "status": 400,
-      "message": "Username is too long."
+      "message": "Username is too long.",
+      "metadata": {
+        "$ref": "#/components/schemas/LengthBounds"
+      }
     },
     "username_too_short": {
       "status": 400,
-      "message": "Username is too short."
+      "message": "Username is too short.",
+      "metadata": {
+        "$ref": "#/components/schemas/LengthBounds"
+      }
     },
     "verification_required": {
       "status": 403,
-      "message": "Verify your contact details to continue."
+      "message": "Verify your contact details to continue.",
+      "metadata": {
+        "$ref": "#/components/schemas/ContactProofRequired"
+      }
     },
     "wallet_already_linked": {
       "status": 409,

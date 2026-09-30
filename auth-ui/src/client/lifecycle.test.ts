@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createAuthClient } from "./client.ts"
 import { AuthKitError } from "./errors.ts"
-import { authError, json, jwt, stubFetch, tokens } from "./testing.ts"
+import { authError, complete, json, jwt, stubFetch, tokens } from "./testing.ts"
 import { memoryStorage } from "./testing-storage.ts"
 
 const KEY = "authkit:session:/api/v1"
@@ -72,7 +72,7 @@ describe("session hint", () => {
       "POST /api/v1/token": [tokens("u2")],
     })
     const client = createAuthClient({ fetch, sessionHint: { storage } })
-    await client.completeSignIn(async () => ({ access_token: jwt("u1") }))
+    await client.completeSignIn(async () => complete("u1"))
     const stop = client.start()
 
     otherTab(storage, { userId: "u1", expiresAt: Date.now() + 60_000 })
@@ -102,7 +102,7 @@ describe("session hint", () => {
       fetch: vi.fn().mockResolvedValue(new Response(null, { status: 204 })),
       sessionHint: { storage },
     })
-    await client.completeSignIn(async () => ({ access_token: jwt("u1") }))
+    await client.completeSignIn(async () => complete("u1"))
     expect(storage.getItem(KEY)).not.toBeNull()
     await client.signOut()
     expect(storage.getItem(KEY)).toBeNull()
@@ -119,16 +119,18 @@ describe("contact proof", () => {
 
   it("asks the handler, then retries the refused request once", async () => {
     const fetch = stubFetch({
-      "POST /api/v1/user/2fa": [unproven(), json(200, { ok: true })],
+      "POST /api/v1/me/2fa/setup": [unproven(), json(200, { ok: true })],
       "POST /host/thing": [unproven(), json(200, { host: true })],
     })
     const client = createAuthClient({ fetch, sessionHint: false })
-    await client.completeSignIn(async () => ({ access_token: jwt("u1") }))
+    await client.completeSignIn(async () => complete("u1"))
     const prove = vi.fn().mockResolvedValue(true)
     const off = client.onContactProofRequired(prove)
 
     expect(
-      await client.request("POST", "/user/2fa", { body: { method: "totp" } })
+      await client.request("POST", "/me/2fa/setup", {
+        body: { method: "totp" },
+      })
     ).toEqual({ ok: true })
     expect(prove).toHaveBeenCalledWith({
       identifier: "a@x.test",
@@ -142,18 +144,20 @@ describe("contact proof", () => {
 
   it("surfaces the refusal when the user declines or no handler is set", async () => {
     const fetch = stubFetch({
-      "POST /api/v1/user/2fa": [unproven(), unproven()],
+      "POST /api/v1/me/2fa/setup": [unproven(), unproven()],
     })
     const client = createAuthClient({ fetch, sessionHint: false })
-    await client.completeSignIn(async () => ({ access_token: jwt("u1") }))
+    await client.completeSignIn(async () => complete("u1"))
     const off = client.onContactProofRequired(async () => false)
-    await expect(client.request("POST", "/user/2fa")).rejects.toBeInstanceOf(
-      AuthKitError
-    )
+    await expect(
+      client.request("POST", "/me/2fa/setup")
+    ).rejects.toBeInstanceOf(AuthKitError)
     off()
-    await expect(client.request("POST", "/user/2fa")).rejects.toMatchObject({
-      code: "verification_required",
-    })
+    await expect(client.request("POST", "/me/2fa/setup")).rejects.toMatchObject(
+      {
+        code: "verification_required",
+      }
+    )
   })
 })
 

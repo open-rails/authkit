@@ -1,19 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
+import type { PendingSignIn } from "../client/authResult.ts"
 import type { AuthClient, RedirectResult } from "../client/client.ts"
-import type { LoginContinuation } from "../client/continuation.ts"
 import { AuthKitError } from "../client/errors.ts"
+import type { FreshAuth } from "../client/types.ts"
 import type { GuardOptions } from "./account.ts"
 import { useAuthClient, useCapabilities, useUser } from "./context.ts"
 import { toAuthKitError, unguarded, useTask } from "./task.ts"
 
 export type ContactVerificationState =
   | { step: "idle" }
-  | { step: "code_sent"; identifier: string }
+  // change: the code confirms a new address for the account.
+  | { step: "code_sent"; identifier: string; change?: "email" | "phone" }
   | { step: "done"; identifier: string }
 
-// Change (or re-verify) the signed-in user's email or phone: a code goes to
-// the new address, confirming it switches the contact.
+// Proves an address with a one-time code: one already on the account
+// (request), or a new email or phone for it (change, which needs a recent
+// sign-in).
 export function useContactVerification(options: GuardOptions = {}) {
   const client = useAuthClient()
   const guard = options.guard ?? unguarded
@@ -23,30 +26,48 @@ export function useContactVerification(options: GuardOptions = {}) {
     step: "idle",
   })
 
-  // `password` satisfies the fresh-auth gate without a separate step-up.
   const request = useCallback(
-    (identifier: string, opts: { password?: string } = {}) =>
+    (identifier: string) =>
       run(async () => {
         const id = identifier.trim()
-        await guard(() =>
-          client.requestVerification({
-            identifier: id,
-            password: opts.password,
-          })
-        )
+        await client.requestVerification({ identifier: id })
         setState({ step: "code_sent", identifier: id })
       }),
-    [client, guard, run]
+    [client, run]
+  )
+
+  const sendChange = useCallback(
+    (change: "email" | "phone", identifier: string) =>
+      guard(() =>
+        change === "email"
+          ? client.changeEmail(identifier)
+          : client.changePhone(identifier)
+      ),
+    [client, guard]
+  )
+
+  const change = useCallback(
+    (input: { email: string } | { phoneNumber: string }) =>
+      run(async () => {
+        const [kind, value] =
+          "email" in input
+            ? (["email", input.email.trim()] as const)
+            : (["phone", input.phoneNumber.trim()] as const)
+        await sendChange(kind, value)
+        setState({ step: "code_sent", identifier: value, change: kind })
+      }),
+    [run, sendChange]
   )
 
   const resend = useCallback(
     () =>
       run(async () => {
         if (state.step !== "code_sent") return
-        const { identifier } = state
-        await guard(() => client.requestVerification({ identifier }))
+        const { identifier, change } = state
+        if (change) await sendChange(change, identifier)
+        else await client.requestVerification({ identifier })
       }),
-    [client, guard, run, state]
+    [client, run, sendChange, state]
   )
 
   const confirm = useCallback(
@@ -63,12 +84,31 @@ export function useContactVerification(options: GuardOptions = {}) {
     [client, run, state, refetch]
   )
 
+  const removePhone = useCallback(
+    () =>
+      run(async () => {
+        await guard(() => client.removePhone())
+        void refetch()
+      }),
+    [client, guard, run, refetch]
+  )
+
   const reset = useCallback(() => {
     clearError()
     setState({ step: "idle" })
   }, [clearError])
 
-  return { state, busy, error, request, resend, confirm, reset }
+  return {
+    state,
+    busy,
+    error,
+    request,
+    change,
+    resend,
+    confirm,
+    removePhone,
+    reset,
+  }
 }
 
 export type LinkedProvider = {
@@ -97,7 +137,7 @@ export function useLinkedProviders(options: LinkedProvidersOptions = {}) {
   })
 
   const providers: LinkedProvider[] = useMemo(() => {
-    const linked = new Set(user?.linked_providers ?? [])
+    const linked = new Set(user?.providers.map((p) => p.provider) ?? [])
     return (capabilities?.external_login_providers ?? []).map((p) => ({
       id: p.id,
       name: p.name,
@@ -118,9 +158,9 @@ export function useLinkedProviders(options: LinkedProvidersOptions = {}) {
   )
 
   const unlink = useCallback(
-    (provider: string, opts: { password?: string } = {}) =>
+    (provider: string) =>
       run(async () => {
-        await guard(() => client.unlinkProvider(provider, opts))
+        await guard(() => client.unlinkProvider(provider))
         await refetch()
       }),
     [client, guard, run, refetch]
@@ -136,41 +176,98 @@ export function useLinkedProviders(options: LinkedProvidersOptions = {}) {
   }
 }
 
-// Callback route: consumes AuthKit's redirect fragment once (StrictMode-safe).
+type Settled<T> = { result: T | null; error: AuthKitError | null }
+
+// A page load's OIDC result, consumed once per client: the exchange changes
+// the session, and a host that remounts per session must not consume the
+// (scrubbed) fragment again.
+function once<T>(
+  memo: WeakMap<AuthClient, Promise<Settled<T>>>,
+  client: AuthClient,
+  consume: () => Promise<T | null>
+): Promise<Settled<T>> {
+  let settled = memo.get(client)
+  if (!settled) {
+    settled = consume().then(
+      (result) => ({ result, error: null }),
+      (err: unknown) => ({ result: null, error: toAuthKitError(err) })
+    )
+    memo.set(client, settled)
+  }
+  return settled
+}
+
+// Subscribes the live mount to a once() result.
+function useSettled<T>(
+  load: () => Promise<Settled<T>>,
+  onSettled?: (settled: Settled<T>) => void
+) {
+  const [state, setState] = useState<Settled<T> | null>(null)
+  const latest = useRef(onSettled)
+  useEffect(() => {
+    latest.current = onSettled
+  })
+  useEffect(() => {
+    let live = true
+    void load().then((settled) => {
+      if (!live) return
+      setState(settled)
+      latest.current?.(settled)
+    })
+    return () => {
+      live = false
+    }
+  }, [load])
+  return state
+}
+
+const redirects = new WeakMap<AuthClient, Promise<Settled<RedirectResult>>>()
+
+// Callback route: trades AuthKit's redirect fragment for its result once.
 // result is undefined while pending, null when the URL carried none.
 export function useOidcCallback(
   options: { onResult?: (result: RedirectResult | null) => void } = {}
 ) {
   const client = useAuthClient()
-  const [state, setState] = useState<{
-    result?: RedirectResult | null
-    error: AuthKitError | null
-  }>({ error: null })
-  const consumed = useRef<typeof state | null>(null)
-  const onResult = useRef(options.onResult)
-  useEffect(() => {
-    onResult.current = options.onResult
+  const onResult = options.onResult
+  const load = useCallback(
+    () => once(redirects, client, () => client.completeRedirect()),
+    [client]
+  )
+  const state = useSettled(load, (s) => {
+    if (!s.error) onResult?.(s.result)
   })
-
-  useEffect(() => {
-    if (!consumed.current) {
-      try {
-        consumed.current = { result: client.completeRedirect(), error: null }
-        onResult.current?.(consumed.current.result ?? null)
-      } catch (err) {
-        consumed.current = { result: null, error: toAuthKitError(err) }
-      }
-    }
-    setState(consumed.current)
-  }, [client])
-
   return state
+    ? { result: state.result, error: state.error }
+    : { result: undefined, error: null }
+}
+
+const stepUps = new WeakMap<AuthClient, Promise<Settled<FreshAuth>>>()
+
+// A page an OIDC step-up returned to (`#code=` / `#error=`): adopts the
+// re-authenticated session once. freshAuth is null when there was none.
+export function useStepUpReturn(): {
+  pending: boolean
+  freshAuth: FreshAuth | null
+  error: AuthKitError | null
+} {
+  const client = useAuthClient()
+  const load = useCallback(
+    () => once(stepUps, client, () => client.completeStepUp()),
+    [client]
+  )
+  const state = useSettled(load)
+  return {
+    pending: !state,
+    freshAuth: state?.result ?? null,
+    error: state?.error ?? null,
+  }
 }
 
 export type VerifyLinkState =
   | { status: "pending" }
   | { status: "verified"; signedIn: boolean; returnTo?: string }
-  | { status: "continuation"; continuation: LoginContinuation }
+  | { status: "continuation"; continuation: PendingSignIn }
   | { status: "error"; error: AuthKitError }
 
 // One confirmation per client and token. The confirm itself changes the
@@ -188,10 +285,14 @@ function confirmLink(client: AuthClient, token: string) {
   if (!result) {
     result = client.confirmVerification({ token }).then(
       (out): VerifyLinkState =>
-        out.kind === "session"
-          ? { status: "verified", signedIn: true, returnTo: out.returnTo }
-          : out.kind === "contact_changed"
-            ? { status: "verified", signedIn: false }
+        !out
+          ? { status: "verified", signedIn: false }
+          : out.status === "complete"
+            ? {
+                status: "verified",
+                signedIn: true,
+                returnTo: out.return_to ?? undefined,
+              }
             : { status: "continuation", continuation: out },
       (err: unknown): VerifyLinkState => ({
         status: "error",

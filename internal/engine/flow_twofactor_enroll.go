@@ -2,7 +2,8 @@ package engine
 
 // Second-factor enrollment as ONE engine decision (ak#318): which factor slot
 // the caller may fill, the method/phone/code validation, the email/SMS setup code,
-// the TOTP secret hand-out and the final enable.
+// the TOTP secret hand-out and the final enable. POST /me/2fa/setup starts it
+// (no code); POST /me/2fa/factors finishes it (the code).
 
 import (
 	"context"
@@ -54,13 +55,6 @@ func (s *Engine) EnrollTwoFactor(ctx context.Context, in authflow.TwoFactorEnrol
 		}
 	}
 	method := strings.ToLower(strings.TrimSpace(in.Method))
-	factorID := strings.TrimSpace(in.FactorID)
-	if method == "" && in.MakeDefault && factorID != "" {
-		if err := s.setDefault2FAFactor(ctx, in.UserID, factorID); err != nil {
-			return authflow.TwoFactorEnrollOutcome{}, stageErr("set_default_factor", fmt.Errorf("%w: %w", errmodel.ErrTwoFAEnableFailed, err))
-		}
-		return authflow.TwoFactorEnrollOutcome{Kind: authflow.TwoFactorEnrollDefaultSet}, nil
-	}
 	if method != "email" && method != "sms" && method != "totp" || !s.twoFactorMethodAvailable(method) {
 		return authflow.TwoFactorEnrollOutcome{}, errmodel.ErrInvalidTwoFAMethod
 	}
@@ -73,13 +67,14 @@ func (s *Engine) EnrollTwoFactor(ctx context.Context, in authflow.TwoFactorEnrol
 	switch method {
 	case "email":
 		if code == "" {
-			if err := s.sendEmail2FASetupCode(ctx, in.UserID); err != nil {
+			destination, err := s.sendEmail2FASetupCode(ctx, in.UserID)
+			if err != nil {
 				if errors.Is(err, errmodel.ErrInvalidTwoFAMethod) {
 					return authflow.TwoFactorEnrollOutcome{}, err
 				}
 				return authflow.TwoFactorEnrollOutcome{}, stageErr("send_email_2fa_setup", fmt.Errorf("%w: %w", errmodel.ErrTwoFASetupCodeSendFailed, err))
 			}
-			return authflow.TwoFactorEnrollOutcome{Kind: authflow.TwoFactorEnrollCodeSent, Method: method}, nil
+			return authflow.TwoFactorEnrollOutcome{Kind: authflow.TwoFactorEnrollCodeSent, Method: method, Destination: destination}, nil
 		}
 		proven, err := s.verifyEmail2FASetupCode(ctx, in.UserID, code)
 		if err != nil {
@@ -116,13 +111,13 @@ func (s *Engine) EnrollTwoFactor(ctx context.Context, in authflow.TwoFactorEnrol
 			}
 			return authflow.TwoFactorEnrollOutcome{Kind: authflow.TwoFactorEnrollTOTPStarted, Method: method, Secret: secret, OTPAuthURI: uri}, nil
 		}
-		backupCodes, verified, err := s.enableTOTP2FA(ctx, totpEnrollment{UserID: in.UserID, Code: code, MakeDefault: in.MakeDefault, Mode: in.Mode}, sessionID)
+		enabled, err := s.enableTOTP2FA(ctx, totpEnrollment{UserID: in.UserID, Code: code, MakeDefault: in.MakeDefault, Mode: in.Mode}, sessionID)
 		if err != nil {
 			return authflow.TwoFactorEnrollOutcome{}, enrollmentProofError("enable_totp", err)
 		}
-		return s.completeFactorEnrollment(ctx, in, authflow.TwoFactorEnrollOutcome{Kind: authflow.TwoFactorEnrollEnabled, Method: method, BackupCodes: backupCodes, SessionVerified: verified})
+		return s.completeFactorEnrollment(ctx, in, enabled)
 	}
-	backupCodes, verified, err := s.enable2FA(ctx, factorEnable{
+	enabled, err := s.enable2FA(ctx, factorEnable{
 		UserID: in.UserID, Method: method, Phone: phone, Email: email, MakeDefault: in.MakeDefault, Mode: in.Mode, ProvenSessionID: sessionID,
 	})
 	if err != nil {
@@ -131,7 +126,7 @@ func (s *Engine) EnrollTwoFactor(ctx context.Context, in authflow.TwoFactorEnrol
 		}
 		return authflow.TwoFactorEnrollOutcome{}, stageErr("enable_factor", fmt.Errorf("%w: %w", errmodel.ErrTwoFAEnableFailed, err))
 	}
-	return s.completeFactorEnrollment(ctx, in, authflow.TwoFactorEnrollOutcome{Kind: authflow.TwoFactorEnrollEnabled, Method: method, BackupCodes: backupCodes, SessionVerified: verified})
+	return s.completeFactorEnrollment(ctx, in, enabled)
 }
 
 // startPhoneTwoFactorSetup sends the six-digit SMS setup code. Deliverability
@@ -144,7 +139,7 @@ func (s *Engine) startPhoneTwoFactorSetup(ctx context.Context, userID, phone str
 	if err := s.sendPhone2FASetupCode(ctx, userID, phone, code); err != nil {
 		return authflow.TwoFactorEnrollOutcome{}, stageErr("send_phone_2fa_setup", fmt.Errorf("%w: %w", errmodel.ErrTwoFASetupCodeSendFailed, err))
 	}
-	return authflow.TwoFactorEnrollOutcome{Kind: authflow.TwoFactorEnrollCodeSent, Method: "sms"}, nil
+	return authflow.TwoFactorEnrollOutcome{Kind: authflow.TwoFactorEnrollCodeSent, Method: "sms", Destination: phone}, nil
 }
 
 // Only a rejected proof is an invalid code. Store and persistence failures must

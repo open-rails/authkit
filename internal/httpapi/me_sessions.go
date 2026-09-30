@@ -8,7 +8,9 @@ import (
 	"github.com/open-rails/authkit/internal/errmodel"
 )
 
-func (s *Service) handleUserSessionsGET(w http.ResponseWriter, r *http.Request) {
+// The caller's sessions on this issuer and its session history.
+
+func (s *Service) handleMeSessionsGET(w http.ResponseWriter, r *http.Request) {
 	cl, err := callerClaims(r)
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
 		fail(w, errmodel.CodeUnauthenticated)
@@ -25,7 +27,9 @@ func (s *Service) handleUserSessionsGET(w http.ResponseWriter, r *http.Request) 
 	all(w, sessions)
 }
 
-func (s *Service) handleUserSessionDELETE(w http.ResponseWriter, r *http.Request) {
+// handleMeSessionDELETE signs out one session; an unknown or ended session is
+// already signed out.
+func (s *Service) handleMeSessionDELETE(w http.ResponseWriter, r *http.Request) {
 	cl, err := callerClaims(r)
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
 		fail(w, errmodel.CodeUnauthenticated)
@@ -44,16 +48,42 @@ func (s *Service) handleUserSessionDELETE(w http.ResponseWriter, r *http.Request
 	noContent(w)
 }
 
-func (s *Service) handleUserSessionsDELETE(w http.ResponseWriter, r *http.Request) {
+// handleMeSessionsDELETE signs out every other session and keeps the
+// caller's; device keys stay (DELETE /logout ends the caller's own sign-in).
+func (s *Service) handleMeSessionsDELETE(w http.ResponseWriter, r *http.Request) {
 	cl, err := callerClaims(r)
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
 		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
+	var keep *string
+	if cl.SessionID != "" {
+		keep = &cl.SessionID
+	}
 	ctx := authflow.WithSessionRevokeReason(r.Context(), authflow.SessionRevokeReasonUserRevokeAll)
-	if err := s.svc.RevokeIssuerSessions(ctx, cl.UserID, nil); err != nil {
+	if err := s.svc.RevokeIssuerSessions(ctx, cl.UserID, keep); err != nil {
 		serverErr(w, "failed_to_revoke_all", err)
 		return
 	}
 	noContent(w)
+}
+
+// handleMeSessionEventsGET pages the caller's session history, newest first
+// (?kind= repeats; every kind when absent).
+func (s *Service) handleMeSessionEventsGET(w http.ResponseWriter, r *http.Request) {
+	cl, err := callerClaims(r)
+	if err != nil || strings.TrimSpace(cl.UserID) == "" {
+		fail(w, errmodel.CodeUnauthenticated)
+		return
+	}
+	q, ok := readSessionEventQuery(w, r)
+	if !ok {
+		return
+	}
+	page, err := s.svc.ListSessionEvents(r.Context(), cl.UserID, q)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	list(w, page)
 }

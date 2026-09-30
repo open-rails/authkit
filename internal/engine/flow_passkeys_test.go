@@ -47,5 +47,5 @@ func TestPasskeyLoginCompletesWhileItsPasskeyIsDeleted(t *testing.T) {
 		return f.engine.DeletePasskey(ctx, user.ID, created.ID)
 	})
 	f.expect(200, completed)
-	f.session(completed.TokenSet, "swk", "mfa")
+	f.session(completed.tokens(), "swk", "mfa")
 }

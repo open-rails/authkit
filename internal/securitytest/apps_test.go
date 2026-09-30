@@ -267,7 +267,7 @@ func TestSecurityApplicationRegistrar(t *testing.T) {
 		end  func(a account)
 	}{
 		{"the registrar is removed from the group", removedApp, func(a account) {
-			resp := h.do(request{method: http.MethodDelete, path: base + "/members/" + a.id, token: ownerToken})
+			resp := h.do(request{method: http.MethodDelete, path: base + "/members/users/" + a.id, token: ownerToken})
 			require.Less(t, resp.status, 300, resp.String())
 		}},
 		{"the registrar is banned", bannedApp, func(a account) {
@@ -283,7 +283,7 @@ func TestSecurityApplicationRegistrar(t *testing.T) {
 		})
 	}
 	t.Run("control: another registrar's application survives a manager's removal", func(t *testing.T) {
-		resp := h.do(request{method: http.MethodDelete, path: base + "/members/" + bystander.id, token: ownerToken})
+		resp := h.do(request{method: http.MethodDelete, path: base + "/members/users/" + bystander.id, token: ownerToken})
 		require.Less(t, resp.status, 300, resp.String())
 		require.Equal(t, http.StatusNoContent, hostRoute(ownerApp))
 	})
@@ -524,10 +524,11 @@ func TestSecurityServiceJWTPermissionsOnly(t *testing.T) {
 }
 
 // TestSecurityRemovedRoutesAreGone: v1 serves no signed-document,
-// application self-registration, remote-application or custom-role route, even
-// with every capability on. The catalog lists none, and a signed-in owner gets
-// 404 (405 where the path serves another method). The Go operations on
-// applications remain.
+// application self-registration, remote-application or custom-role route, nor
+// the member, invite-link and root-role routes the member and invitation
+// resources replaced, even with every capability on. The catalog lists none,
+// and a signed-in owner gets 404 (405 where the path serves another method).
+// The Go operations on applications remain.
 func TestSecurityRemovedRoutesAreGone(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withApps))
 	ctx := context.Background()
@@ -558,6 +559,16 @@ func TestSecurityRemovedRoutesAreGone(t *testing.T) {
 		{request{method: http.MethodPost, path: base + "/roles", token: token,
 			body: map[string]any{"role": "curator", "permissions": []string{"org:catalog:read"}}}, http.StatusMethodNotAllowed},
 		{request{method: http.MethodDelete, path: base + "/roles/org:member", token: token}, http.StatusNotFound},
+		{request{method: http.MethodPost, path: base + "/members", token: token, body: map[string]string{"user_id": owner.id, "role": "org:member"}}, http.StatusMethodNotAllowed},
+		{request{method: http.MethodPut, path: base + "/members/" + owner.id + "/roles/org:member", token: token}, http.StatusNotFound},
+		{request{method: http.MethodPost, path: base + "/invites/links", token: token, body: map[string]string{"role": "org:member"}}, http.StatusNotFound},
+		{request{method: http.MethodPost, path: "/invites/redeem", token: token, body: map[string]string{"code": "x"}}, http.StatusNotFound},
+		{request{method: http.MethodGet, path: "/admin/roles", token: token}, http.StatusNotFound},
+		{request{method: http.MethodPut, path: "/admin/users/" + owner.id + "/roles/root:owner", token: token}, http.StatusNotFound},
+		{request{method: http.MethodGet, path: "/admin/users/" + owner.id + "/signins", token: token}, http.StatusNotFound},
+		{request{method: http.MethodPost, path: "/admin/users/" + owner.id + "/ban", token: token, body: map[string]string{"until": "infinite"}}, http.StatusMethodNotAllowed},
+		{request{method: http.MethodPost, path: "/admin/users/" + owner.id + "/unban", token: token}, http.StatusNotFound},
+		{request{method: http.MethodPost, path: "/admin/users/" + owner.id + "/sessions/revoke", token: token}, http.StatusNotFound},
 	} {
 		resp := h.do(tc.req)
 		require.Equal(t, tc.status, resp.status, "%s %s: %s", tc.req.method, tc.req.path, resp)

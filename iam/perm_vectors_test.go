@@ -6,8 +6,7 @@ import (
 	"testing"
 )
 
-// permVector is one case of testdata/perm_vectors.json. The auth-ui
-// TypeScript matcher runs the same file (auth-ui/src/client/permissions.test.ts).
+// permVector is one case of testdata/perm_vectors.json.
 type permVector struct {
 	Grant      string `json:"grant"`
 	Permission string `json:"permission"`

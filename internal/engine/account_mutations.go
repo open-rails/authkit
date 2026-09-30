@@ -218,8 +218,8 @@ func selfEditable(u iam.UserUpdate) bool {
 }
 
 // UpdateUser changes an account under ACCT(root:users:manage). An account may
-// change its own Username, AvatarURL and PreferredLanguage (rename policy
-// applies); Password, PasswordHash and the verified flags are system-only
+// change its own Username, AvatarURL and PreferredLanguage (the rename policy
+// applies to itself, not to staff renaming it); Password, PasswordHash and the verified flags are system-only
 // (staff send a reset to the proven address instead). Setting a verified flag
 // is the proof transition: on an account with no proven contact it first
 // retires every pre-proof credential. A contact change never leaves an
@@ -280,8 +280,11 @@ func (s *Engine) applyUserUpdate(ctx context.Context, at accountTx, userID strin
 	}
 	if u.Username != nil {
 		authority := normalRename
-		if at.system {
+		switch {
+		case at.system:
 			authority = importRename
+		case !at.self:
+			authority = staffRename
 		}
 		if err := s.renameUsernameTx(ctx, at.tx, userID, strings.TrimSpace(*u.Username), authority); err != nil {
 			return revoked, err

@@ -87,7 +87,28 @@ func accountActor(w http.ResponseWriter, r *http.Request) (iam.Actor, string, bo
 	return actor, target, true
 }
 
-func (s *Service) handleAdminUsersBanPOST(w http.ResponseWriter, r *http.Request) {
+// handleAdminUserPATCH edits an account: an absent field is unchanged, an
+// empty one clears it. The verified flags stay system-only.
+func (s *Service) handleAdminUserPATCH(w http.ResponseWriter, r *http.Request) {
+	var req AdminUserUpdateRequest
+	if err := decodeJSON(r, &req); err != nil {
+		fail(w, errmodel.CodeInvalidRequest)
+		return
+	}
+	actor, target, ok := accountActor(w, r)
+	if !ok {
+		return
+	}
+	update := iam.UserUpdate{Email: req.Email, Phone: req.PhoneNumber, Username: req.Username, AvatarURL: req.AvatarURL, PreferredLanguage: req.PreferredLanguage}
+	if _, err := s.svc.UpdateUser(r.Context(), actor, target, update); err != nil {
+		writeError(w, err)
+		return
+	}
+	s.handleAdminUserGET(w, r)
+}
+
+// handleAdminUserBanPUT puts a ban in force, replacing any in force.
+func (s *Service) handleAdminUserBanPUT(w http.ResponseWriter, r *http.Request) {
 	var req BanRequest
 	if err := decodeOptionalJSON(r, &req); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
@@ -97,18 +118,13 @@ func (s *Service) handleAdminUsersBanPOST(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	if req.Until == nil || strings.TrimSpace(*req.Until) == "" {
+	if req.Until != nil && !req.Until.After(time.Now()) {
 		fail(w, errmodel.CodeInvalidUntil)
 		return
 	}
-	ban := iam.Ban{Reason: req.Reason, KeepExisting: req.KeepExisting}
-	if until := strings.TrimSpace(*req.Until); !strings.EqualFold(until, "infinite") {
-		parsed, err := time.Parse(time.RFC3339, until)
-		if err != nil {
-			fail(w, errmodel.CodeInvalidUntil)
-			return
-		}
-		ban.Until = &parsed
+	ban := iam.Ban{Until: req.Until}
+	if req.Reason != nil {
+		ban.Reason = *req.Reason
 	}
 	if err := s.svc.Ban(r.Context(), actor, target, ban); err != nil {
 		writeError(w, err)
@@ -117,7 +133,7 @@ func (s *Service) handleAdminUsersBanPOST(w http.ResponseWriter, r *http.Request
 	noContent(w)
 }
 
-func (s *Service) handleAdminUsersUnbanPOST(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleAdminUserBanDELETE(w http.ResponseWriter, r *http.Request) {
 	actor, target, ok := accountActor(w, r)
 	if !ok {
 		return
@@ -134,7 +150,7 @@ func (s *Service) handleAdminUserDeleteDELETE(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
-	// One's own account is deleted through DELETE /user, behind its recent
+	// One's own account is deleted through DELETE /me, behind its recent
 	// sign-in and second factor (ak#417).
 	if strings.EqualFold(target, actor.ID()) {
 		writeError(w, iam.ErrCannotTargetSelf)
@@ -148,7 +164,20 @@ func (s *Service) handleAdminUserDeleteDELETE(w http.ResponseWriter, r *http.Req
 	noContent(w)
 }
 
-func (s *Service) handleAdminUserSessionsRevokePOST(w http.ResponseWriter, r *http.Request) {
+// handleAdminUserSessionsGET lists the account's live sessions on this
+// issuer; none is the caller's current one.
+func (s *Service) handleAdminUserSessionsGET(w http.ResponseWriter, r *http.Request) {
+	sessions, err := s.svc.Sessions(r.Context(), r.PathValue("user_id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	all(w, sessions)
+}
+
+// handleAdminUserSessionsDELETE revokes every session and device key of the
+// account.
+func (s *Service) handleAdminUserSessionsDELETE(w http.ResponseWriter, r *http.Request) {
 	actor, target, ok := accountActor(w, r)
 	if !ok {
 		return

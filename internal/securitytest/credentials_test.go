@@ -40,7 +40,7 @@ func TestSecurityDeadCreatorCredentials(t *testing.T) {
 		req  func(id string) request
 	}{
 		{"ban", func(id string) request {
-			return request{method: http.MethodPost, path: "/admin/users/" + id + "/ban", body: map[string]any{"until": "infinite", "reason": "spam"}, token: staffToken}
+			return request{method: http.MethodPut, path: "/admin/users/" + id + "/ban", body: map[string]any{"until": nil, "reason": "spam"}, token: staffToken}
 		}},
 		{"delete", func(id string) request {
 			return request{method: http.MethodDelete, path: "/admin/users/" + id, token: staffToken}
@@ -51,14 +51,14 @@ func TestSecurityDeadCreatorCredentials(t *testing.T) {
 			h.grant(group, creator, "manager")
 			token := h.login(creator).AccessToken
 			key := h.issue(base+"/api-keys", token, map[string]any{"name": "ci", "role": "org:member"})
-			link := h.issue(base+"/invites/links", token, map[string]any{"role": "org:member"})
+			link := h.issue(base+"/invitations", token, map[string]any{"role": "org:member"})
 			require.Equal(t, http.StatusNoContent, hostRoute(key.Secret), "control: the key works while its creator is live")
 
 			resp := h.do(end.req(creator.id))
 			require.Less(t, resp.status, 300, resp.String())
 			require.Equal(t, http.StatusUnauthorized, hostRoute(key.Secret))
 			stranger := h.newAccount("stranger")
-			resp = h.post("/invites/redeem", map[string]string{"code": link.Code}, h.login(stranger).AccessToken)
+			resp = h.post("/invitations/redeem", map[string]string{"code": link.Code}, h.login(stranger).AccessToken)
 			require.GreaterOrEqual(t, resp.status, 400, resp.String())
 			roles, err := h.auth.GroupRoles(context.Background(), group, []iam.Subject{iam.UserSubject(stranger.id)})
 			require.NoError(t, err)
@@ -80,9 +80,9 @@ func TestSecurityFirstProofRevokesSquatterInvitations(t *testing.T) {
 	squatter := h.register(victim)
 	squatterID := h.userID(victim)
 	h.grant(group, account{id: squatterID}, "manager")
-	link := h.issue(base+"/invites/links", squatter.AccessToken, map[string]any{"role": "org:member"})
-	resp := h.post(base+"/members", map[string]string{"email": unique("sockpuppet") + "@security.test", "role": "org:member"}, squatter.AccessToken)
-	require.Equal(t, http.StatusCreated, resp.status, resp.String())
+	link := h.issue(base+"/invitations", squatter.AccessToken, map[string]any{"role": "org:member"})
+	resp := h.post(base+"/invitations", map[string]string{"email": unique("sockpuppet") + "@security.test", "role": "org:member"}, squatter.AccessToken)
+	require.Equal(t, http.StatusAccepted, resp.status, resp.String())
 	require.True(t, liveLink(t, h, group, link.ID), "control: the squatter's link is live before the proof")
 
 	h.proveEmail(victim, "Owner-proves-the-address-1")
@@ -91,7 +91,7 @@ func TestSecurityFirstProofRevokesSquatterInvitations(t *testing.T) {
 	require.NoError(t, h.pool.QueryRow(ctx, `SELECT count(*) FROM profiles.account_registration_invites WHERE invited_by=$1::uuid AND revoked_at IS NULL`, squatterID).Scan(&live))
 	require.Zero(t, live, "the squatter's account invitation survived the owner's proof")
 	sockpuppet := h.newAccount("sockpuppet")
-	resp = h.post("/invites/redeem", map[string]string{"code": link.Code}, h.login(sockpuppet).AccessToken)
+	resp = h.post("/invitations/redeem", map[string]string{"code": link.Code}, h.login(sockpuppet).AccessToken)
 	require.Equal(t, http.StatusBadRequest, resp.status, resp.String())
 	roles, err := h.auth.GroupRoles(ctx, group, []iam.Subject{iam.UserSubject(sockpuppet.id)})
 	require.NoError(t, err)
@@ -269,7 +269,7 @@ func TestSecurityCredentialSweepNeverBlocksBoot(t *testing.T) {
 		group, base := h.newOrg(owner)
 		token := h.login(owner).AccessToken
 		h.registerApp(group, owner, "p2e-app", "owner")
-		resp := h.do(request{method: http.MethodDelete, path: base + "/members/" + owner.id, token: token})
+		resp := h.do(request{method: http.MethodDelete, path: base + "/members/users/" + owner.id, token: token})
 		require.Equal(t, http.StatusConflict, resp.status, resp.String())
 		require.Equal(t, "last_owner", resp.errorCode())
 	})

@@ -182,7 +182,7 @@ func (p Perm) Persona() Persona {
 // literal, so a bare `*` matches nothing. When p is itself a pattern, Matches
 // reports whether grant covers all of it. Malformed text on either side
 // matches nothing, and nothing is trimmed. testdata/perm_vectors.json pins
-// this rule for Go and the auth-ui TypeScript matcher.
+// this rule.
 func (p Perm) Matches(grant Perm) bool {
 	g, ok := permSegments(grant.s)
 	if !ok {

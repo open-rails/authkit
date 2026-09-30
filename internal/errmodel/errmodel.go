@@ -155,23 +155,6 @@ func Internal(op string, cause error) *Error {
 
 func WithParam(param string) Option { return func(e *Error) { e.param = param } }
 func WithCause(cause error) Option  { return func(e *Error) { e.cause = cause } }
-func WithMeta(key string, value any) Option {
-	return func(e *Error) {
-		if e.meta == nil {
-			e.meta = map[string]any{}
-		}
-		e.meta[key] = value
-	}
-}
-
-// WithMetadata merges a whole map into the metadata.
-func WithMetadata(m map[string]any) Option {
-	return func(e *Error) {
-		for k, v := range m {
-			WithMeta(k, v)(e)
-		}
-	}
-}
 
 // As returns the *Error in err's chain, or nil.
 func As(err error) *Error {

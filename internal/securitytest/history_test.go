@@ -17,8 +17,8 @@ import (
 
 // TestSecuritySessionEventHistory: an account's session history holds only
 // its own events, pages newest first without repeats or skips (timestamp ties
-// included), refuses forged cursors, and the admin sign-in route needs
-// root:users:read.
+// included), refuses forged cursors, and the admin session-events route
+// filters by kind and needs root:users:read.
 func TestSecuritySessionEventHistory(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(func(c *authkit.Config) {
 		r := authkit.NewRoles()
@@ -99,32 +99,44 @@ func TestSecuritySessionEventHistory(t *testing.T) {
 		require.ErrorIs(t, err, iam.ErrUserNotFound)
 	})
 
-	t.Run("admin sign-in route", func(t *testing.T) {
+	t.Run("admin session-events route", func(t *testing.T) {
 		auditor := h.newAccount("auditor")
 		h.grant(iam.RootGroup(), auditor, "auditor")
 		token := h.login(auditor).AccessToken
-		var seen []iam.SessionEvent
-		cursor := ""
-		for {
-			resp := h.get("/admin/users/"+a.id+"/signins?limit=2&cursor="+url.QueryEscape(cursor), token)
-			require.Equal(t, http.StatusOK, resp.status, resp.String())
-			var page struct {
-				Data []iam.SessionEvent `json:"data"`
-				Next string             `json:"next_cursor"`
+		events := func(query string) []iam.SessionEvent {
+			t.Helper()
+			var seen []iam.SessionEvent
+			cursor := ""
+			for {
+				resp := h.get("/admin/users/"+a.id+"/session-events?limit=2&cursor="+url.QueryEscape(cursor)+query, token)
+				require.Equal(t, http.StatusOK, resp.status, resp.String())
+				var page struct {
+					Data []iam.SessionEvent `json:"data"`
+					Next *string            `json:"next_cursor"`
+				}
+				resp.json(t, &page)
+				require.LessOrEqual(t, len(page.Data), 2)
+				seen = append(seen, page.Data...)
+				if page.Next == nil {
+					return seen
+				}
+				cursor = *page.Next
 			}
-			resp.json(t, &page)
-			require.LessOrEqual(t, len(page.Data), 2)
-			seen = append(seen, page.Data...)
-			if page.Next == "" {
-				break
-			}
-			cursor = page.Next
 		}
-		require.Len(t, seen, 6, "two sign-ins, one failure and three tied sign-ins")
-		for _, e := range seen {
+		signIns := events("&kind=session_created&kind=session_failed")
+		require.Len(t, signIns, 6, "two sign-ins, one failure and three tied sign-ins")
+		for _, e := range signIns {
 			require.Contains(t, []iam.SessionEventKind{iam.SessionEventCreated, iam.SessionEventFailed}, e.Kind)
 		}
-		resp := h.get("/admin/users/"+a.id+"/signins", h.login(other).AccessToken)
+		failed := events("&kind=session_failed")
+		require.Len(t, failed, 1)
+		require.Equal(t, iam.SessionEventFailed, failed[0].Kind)
+		require.Len(t, events(""), 7, "every kind when none is named")
+		resp := h.get("/admin/users/"+a.id+"/session-events?kind=session_created&kind=bogus", token)
+		require.Equal(t, http.StatusBadRequest, resp.status, resp.String())
+		require.Equal(t, "invalid_request", resp.errorCode())
+		require.Contains(t, resp.String(), `"param":"kind"`)
+		resp = h.get("/admin/users/"+a.id+"/session-events", h.login(other).AccessToken)
 		require.Equal(t, http.StatusForbidden, resp.status, resp.String())
 	})
 }

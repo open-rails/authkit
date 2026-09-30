@@ -107,13 +107,17 @@ func TestHTTPConventions(t *testing.T) {
 			res := a.do(request{method: http.MethodDelete, path: base + "/api-keys/" + id, token: token})
 			require.Equal(t, http.StatusNoContent, res.status, res.String())
 		}
-		res = a.post(base+"/invites/links", token, map[string]any{"role": reader.String()})
+		res = a.post(base+"/invitations", token, map[string]any{"role": reader.String()})
 		require.Equal(t, http.StatusCreated, res.status, res.String())
 		var link iam.InvitationCreated
 		res.decode(t, &link)
 		require.NotEmpty(t, link.Code)
 		for _, id := range []string{link.Invitation.ID, link.Invitation.ID, uuid.NewString()} {
-			res := a.do(request{method: http.MethodDelete, path: base + "/invites/links/" + id, token: token})
+			res := a.do(request{method: http.MethodDelete, path: base + "/invitations/" + id, token: token})
+			require.Equal(t, http.StatusNoContent, res.status, res.String())
+		}
+		for range 2 {
+			res := a.do(request{method: http.MethodDelete, path: base + "/members/users/" + uuid.NewString(), token: token})
 			require.Equal(t, http.StatusNoContent, res.status, res.String())
 		}
 	})
@@ -125,7 +129,7 @@ func TestHTTPConventions(t *testing.T) {
 		require.Equal(t, "forbidden", res.code())
 		// Authorized in the group, the operation's own refusal reaches the wire.
 		put := func(bearer, subject, role string) response {
-			return a.do(request{method: http.MethodPut, path: base + "/members/" + subject + "/roles/" + role, token: bearer})
+			return a.do(request{method: http.MethodPut, path: base + "/members/users/" + subject, body: map[string]string{"role": role}, token: bearer})
 		}
 		res = put(token, member.ID, "root:owner")
 		require.Equal(t, http.StatusBadRequest, res.status, res.String())
@@ -149,6 +153,7 @@ func TestHTTPConventions(t *testing.T) {
 		require.True(t, strings.HasSuffix(me["created_at"].(string), "Z"), me["created_at"])
 		require.Contains(t, me, "avatar_url")
 		require.Nil(t, me["avatar_url"])
-		require.Equal(t, []any{}, me["linked_providers"])
+		require.Equal(t, []any{}, me["providers"])
+		require.Nil(t, me["solana_wallet"])
 	})
 }

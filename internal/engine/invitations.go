@@ -96,10 +96,7 @@ func (s *Engine) createEmailInvitation(ctx context.Context, a iam.Actor, ref iam
 		return iam.InvitationCreated{}, err
 	}
 	role := n.Role
-	switch {
-	case role.IsZero() && !ref.IsRoot():
-		return iam.InvitationCreated{}, errmodel.ErrInvalidInvite
-	case !role.IsZero() && !s.externalInvitesEnabled():
+	if !role.IsZero() && !s.externalInvitesEnabled() {
 		return iam.InvitationCreated{}, iam.ErrExternalInvitesDisabled
 	}
 	expiresAt := now.Add(defaultAccountRegistrationInviteTTL)
@@ -110,6 +107,9 @@ func (s *Engine) createEmailInvitation(ctx context.Context, a iam.Actor, ref iam
 	err := s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
 		var groupID, roleText *string
 		if role.IsZero() {
+			if g.Persona != iam.RootPersona {
+				return errmodel.ErrInvalidInvite
+			}
 			auth, err := s.actorAuthority(ctx, st, a, g)
 			if err != nil {
 				return err

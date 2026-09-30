@@ -10,6 +10,7 @@ import (
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/stretchr/testify/require"
 )
 
@@ -119,7 +120,7 @@ func TestSecurityAccountAuthority(t *testing.T) {
 		for name, op := range ops {
 			require.ErrorIs(t, op(iam.UserActor(moderator.id), orgOwner.id), iam.ErrAccountAuthorityEscalation, name)
 		}
-		resp := h.post("/admin/users/"+orgOwner.id+"/ban", map[string]string{"until": "infinite"}, h.login(moderator).AccessToken)
+		resp := h.do(request{method: http.MethodPut, path: "/admin/users/" + orgOwner.id + "/ban", body: map[string]any{"until": nil}, token: h.login(moderator).AccessToken})
 		require.Equal(t, http.StatusForbidden, resp.status, resp.String())
 		require.Equal(t, "account_authority_escalation", resp.errorCode())
 	})
@@ -225,8 +226,9 @@ func TestSecurityVerifiedOnlyByProof(t *testing.T) {
 }
 
 // TestSecurityInlinePasswordNeedsSecondFactor (M5): for an account with a
-// second factor, a password typed into a sensitive request never stands in
-// for a fresh step-up with that factor.
+// second factor, a password typed into a sensitive request (PUT /me/password's
+// current password) never stands in for a fresh step-up with that factor, and
+// the other sensitive routes take no password at all.
 func TestSecurityInlinePasswordNeedsSecondFactor(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits))
 	ctx := context.Background()
@@ -239,9 +241,9 @@ func TestSecurityInlinePasswordNeedsSecondFactor(t *testing.T) {
 	// the fresh-auth gate is the only way through.
 	token := authtest.StaleSession(t, h.auth, session(t, resp).AccessToken)
 	for _, req := range []request{
-		{method: http.MethodPost, path: "/verify/request", body: map[string]string{"identifier": unique("evil") + "@security.test", "password": password}},
-		{method: http.MethodPost, path: "/user/password", body: map[string]string{"current_password": password, "new_password": password + "x"}},
-		{method: http.MethodDelete, path: "/user", body: map[string]string{"password": password}},
+		{method: http.MethodPut, path: "/me/email", body: map[string]string{"email": unique("evil") + "@security.test"}},
+		{method: http.MethodPut, path: "/me/password", body: map[string]string{"current_password": password, "new_password": password + "x"}},
+		{method: http.MethodDelete, path: "/me"},
 	} {
 		req.token = token
 		resp := h.do(req)
@@ -254,7 +256,9 @@ func TestSecurityInlinePasswordNeedsSecondFactor(t *testing.T) {
 
 	t.Run("control: a password clears the gate without a second factor", func(t *testing.T) {
 		b := h.newAccount("pwdstep")
-		resp := h.do(request{method: http.MethodDelete, path: "/user", body: map[string]string{"password": password}, token: authtest.StaleSession(t, h.auth, h.login(b).AccessToken)})
+		resp := h.post("/me/step-up/password", map[string]string{"password": password}, authtest.StaleSession(t, h.auth, h.login(b).AccessToken))
+		require.Equal(t, http.StatusOK, resp.status, resp.String())
+		resp = h.do(request{method: http.MethodDelete, path: "/me", token: session(t, resp).AccessToken})
 		require.Equal(t, http.StatusNoContent, resp.status, resp.String())
 	})
 }
@@ -284,13 +288,13 @@ func TestSecurityAccountLifecycleRevokesCredentials(t *testing.T) {
 			creator := h.newAccount("h1creator")
 			h.grant(group, creator, "owner")
 			token := h.login(creator).AccessToken
-			link := h.issue(base+"/invites/links", token, map[string]any{"role": "org:owner"})
+			link := h.issue(base+"/invitations", token, map[string]any{"role": "org:owner"})
 			key := h.issue(base+"/api-keys", token, map[string]any{"name": unique("key"), "role": "org:owner"})
 			tc.end(creator)
 			require.False(t, liveKey(t, h, group, key.ID))
 			require.False(t, liveLink(t, h, group, link.ID))
 			fresh := h.newAccount("h1fresh")
-			resp := h.post("/invites/redeem", map[string]string{"code": link.Code}, h.login(fresh).AccessToken)
+			resp := h.post("/invitations/redeem", map[string]string{"code": link.Code}, h.login(fresh).AccessToken)
 			require.GreaterOrEqual(t, resp.status, 400, resp.String())
 			can, err := h.auth.Can(ctx, iam.UserActor(fresh.id), group, ownerOnly)
 			require.NoError(t, err)
@@ -322,22 +326,13 @@ func TestSecurityDeletionRecoveryIsSelfOnly(t *testing.T) {
 
 	t.Run("control: a self-deletion is recovered by signing in", func(t *testing.T) {
 		self := h.newAccount("n5self")
-		resp := h.do(request{method: http.MethodDelete, path: "/user", body: map[string]string{"password": password}, token: h.login(self).AccessToken})
+		resp := h.do(request{method: http.MethodDelete, path: "/me", token: h.login(self).AccessToken})
 		require.Equal(t, http.StatusNoContent, resp.status, resp.String())
-		login := h.post("/password/login", map[string]string{"identifier": self.email, "password": password}, "")
-		require.Equal(t, http.StatusConflict, login.status, login.String())
-		var body struct {
-			Error struct {
-				Metadata struct {
-					Recovery struct {
-						Token string `json:"token"`
-					} `json:"recovery"`
-				} `json:"metadata"`
-			} `json:"error"`
-		}
-		login.json(t, &body)
-		require.NotEmpty(t, body.Error.Metadata.Recovery.Token)
-		resp = h.post("/account/recovery/confirm", map[string]string{"token": body.Error.Metadata.Recovery.Token}, "")
+		login := authResult(t, h.post("/password/login", map[string]string{"identifier": self.email, "password": password}, ""))
+		require.Equal(t, httpapi.AuthAccountRecoveryRequired, login.Status)
+		require.Nil(t, login.TokenSet)
+		require.NotEmpty(t, login.Recovery.Token)
+		resp = h.post("/account/recovery/confirm", map[string]string{"token": login.Recovery.Token}, "")
 		require.Equal(t, http.StatusNoContent, resp.status, resp.String())
 		h.login(self)
 	})
@@ -509,8 +504,7 @@ func TestSecurityEmailFactorIsPinned(t *testing.T) {
 	require.Less(t, resp.status, 300, resp.String())
 
 	resp = h.post("/password/login", map[string]string{"identifier": evil, "password": chosen}, "")
-	require.Equal(t, http.StatusForbidden, resp.status, "the reset alone signed in an account with a second factor: %s", resp)
-	require.Equal(t, "2fa_required", resp.errorCode())
+	require.Equal(t, httpapi.AuthSecondFactorRequired, authResult(t, resp).Status, "the reset alone signed in an account with a second factor: %s", resp)
 	require.Empty(t, h.mail.Messages(iam.MessageLoginCode, evil), "a second-factor code went to the address staff set")
 	var pinned *string
 	require.NoError(t, h.pool.QueryRow(ctx, `SELECT email FROM profiles.mfa_factors WHERE user_id=$1::uuid AND method='email'`, target.id).Scan(&pinned))
@@ -518,9 +512,8 @@ func TestSecurityEmailFactorIsPinned(t *testing.T) {
 	require.Equal(t, target.email, *pinned)
 
 	t.Run("control: the code at the proven address completes the sign-in", func(t *testing.T) {
-		var ch challenge
-		resp.json(t, &ch)
-		resp := h.post("/2fa/verify", map[string]string{"user_id": target.id, "challenge": ch.Error.Metadata.Challenge,
+		ch := secondFactor(t, resp)
+		resp := h.post("/2fa/verify", map[string]string{"user_id": target.id, "challenge": ch.Challenge,
 			"code": h.mail.Last(t, iam.MessageLoginCode, target.email).Code}, "")
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
 	})
@@ -534,7 +527,7 @@ func TestSecurityStaffDeleteOverridesSelfDelete(t *testing.T) {
 	moderator, target := h.newAccount("p6moderator"), h.newAccount("p6target")
 	h.grant(iam.RootGroup(), moderator, "moderator")
 	// The target deletes itself ahead of moderation.
-	resp := h.do(request{method: http.MethodDelete, path: "/user", body: map[string]string{"password": password}, token: h.login(target).AccessToken})
+	resp := h.do(request{method: http.MethodDelete, path: "/me", token: h.login(target).AccessToken})
 	require.Equal(t, http.StatusNoContent, resp.status, resp.String())
 	resp = h.do(request{method: http.MethodDelete, path: "/admin/users/" + target.id, token: h.login(moderator).AccessToken})
 	require.Less(t, resp.status, 300, resp.String())
@@ -547,25 +540,28 @@ func TestSecurityStaffDeleteOverridesSelfDelete(t *testing.T) {
 		self := h.newAccount("p6self")
 		require.NoError(t, opErr(h.auth.DeleteUsers(context.Background(), iam.UserActor(self.id), []string{self.id})))
 		login := h.post("/password/login", map[string]string{"identifier": self.email, "password": password}, "")
-		require.Equal(t, http.StatusConflict, login.status, login.String())
-		require.Equal(t, "account_recovery_required", login.errorCode())
+		require.Equal(t, httpapi.AuthAccountRecoveryRequired, authResult(t, login).Status, login.String())
 	})
 }
 
 // TestSecurityAdminDeleteIsNotSelfDelete (ak#417): the staff delete route
-// never deletes the caller's own account, so a stolen session that is no
-// longer fresh cannot skip the recent sign-in DELETE /user demands.
+// never deletes the caller's own account, so a stolen session cannot skip the
+// recent sign-in and second factor DELETE /me demands.
 func TestSecurityAdminDeleteIsNotSelfDelete(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withAccountRoles))
 	ctx := context.Background()
 	victim := h.newAccount("selfdelete")
+	fresh := h.login(victim).AccessToken
 	stale := authtest.StaleSession(t, h.auth, h.login(victim).AccessToken)
-	resp := h.do(request{method: http.MethodDelete, path: "/user", token: stale})
+	resp := h.do(request{method: http.MethodDelete, path: "/me", token: stale})
 	require.Equal(t, "step_up_required", resp.errorCode(), resp.String())
 	for _, id := range []string{victim.id, strings.ToUpper(victim.id)} {
 		resp := h.do(request{method: http.MethodDelete, path: "/admin/users/" + id, token: stale})
 		require.Equal(t, http.StatusForbidden, resp.status, resp.String())
-		require.Equal(t, "cannot_target_self", resp.errorCode())
+		require.Equal(t, "step_up_required", resp.errorCode())
+		resp = h.do(request{method: http.MethodDelete, path: "/admin/users/" + id, token: fresh})
+		require.Equal(t, http.StatusForbidden, resp.status, resp.String())
+		require.Equal(t, "cannot_target_self", resp.errorCode(), "a recent sign-in deletes its own account at DELETE /me only")
 	}
 	u, err := h.auth.User(ctx, iam.UserByID(victim.id), authkit.IncludeDeleted())
 	require.NoError(t, err)
@@ -591,8 +587,7 @@ func TestSecurityUserManagementNeedsMFA(t *testing.T) {
 	_, err := h.pool.Exec(ctx, `INSERT INTO profiles.group_user_roles(permission_group_id,user_id,role) VALUES($1::uuid,$2::uuid,'root:staff')`, h.rootGroupID(), staff.id)
 	require.NoError(t, err)
 	resp := h.post("/password/login", map[string]string{"identifier": staff.email, "password": password}, "")
-	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
-	require.Equal(t, "2fa_enrollment_required", resp.errorCode())
+	require.Equal(t, httpapi.AuthEnrollmentRequired, authResult(t, resp).Status, resp.String())
 
 	admin := h.newAccount("cadmin")
 	h.grant(iam.RootGroup(), admin, "siteadmin")
@@ -624,22 +619,22 @@ func TestSecurityEmailFactorFollowsOwnChange(t *testing.T) {
 		return email
 	}
 	listed := func() string {
-		resp := h.get("/user/2fa", token)
+		resp := h.get("/me/2fa", token)
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
 		var out struct {
 			Factors []struct {
-				Method string `json:"method"`
-				Email  string `json:"email"`
+				Method      string `json:"method"`
+				Destination string `json:"destination"`
 			} `json:"factors"`
 		}
 		resp.json(t, &out)
 		require.Len(t, out.Factors, 1)
-		return out.Factors[0].Email
+		return out.Factors[0].Destination
 	}
 	require.Equal(t, "r***@security.test", listed())
 
 	moved := unique("moved") + "@elsewhere.test"
-	resp := h.post("/verify/request", map[string]string{"identifier": moved}, token)
+	resp := h.do(request{method: http.MethodPut, path: "/me/email", body: map[string]string{"email": moved}, token: token})
 	require.Equal(t, http.StatusAccepted, resp.status, resp.String())
 	resp = h.post("/verify/confirm", map[string]string{"identifier": moved, "code": h.verificationCode(moved)}, token)
 	require.Equal(t, http.StatusNoContent, resp.status, resp.String())
@@ -648,10 +643,8 @@ func TestSecurityEmailFactorFollowsOwnChange(t *testing.T) {
 
 	sent := len(h.mail.Messages(iam.MessageLoginCode, a.email))
 	resp = h.post("/password/login", map[string]string{"identifier": moved, "password": password}, "")
-	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
-	var ch challenge
-	resp.json(t, &ch)
-	resp = h.post("/2fa/verify", map[string]string{"user_id": a.id, "challenge": ch.Error.Metadata.Challenge,
+	ch := secondFactor(t, resp)
+	resp = h.post("/2fa/verify", map[string]string{"user_id": a.id, "challenge": ch.Challenge,
 		"code": h.mail.Last(t, iam.MessageLoginCode, moved).Code}, "")
 	require.Equal(t, http.StatusOK, resp.status, resp.String())
 	require.Equal(t, sent, len(h.mail.Messages(iam.MessageLoginCode, a.email)), "a login code went to the old mailbox")

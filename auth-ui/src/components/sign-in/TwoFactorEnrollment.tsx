@@ -46,7 +46,7 @@ export function TwoFactorEnrollment({
   const { state, busy, error } = controller
   const allowed =
     state.step === "enrollment"
-      ? METHODS.filter((m) => state.challenge.allowedMethods.includes(m))
+      ? METHODS.filter((m) => state.enrollment.allowed_methods.includes(m))
       : []
   const [choice, setChoice] = useState<TwoFactorMethod | undefined>(allowed[0])
   const [phone, setPhone] = useState("")
@@ -55,8 +55,9 @@ export function TwoFactorEnrollment({
   const spentCode = useSpentCode(error)
   if (state.step !== "enrollment") return null
 
-  const started = !!state.totp || !!state.codeSent
-  const spent = !!state.codeSent && spentCode.spent
+  const sent = state.codeSentTo !== undefined
+  const started = !!state.totp || sent
+  const spent = sent && spentCode.spent
   const confirm = (value = code) => {
     if (!value.trim() || busy) return
     setCode("")
@@ -94,7 +95,7 @@ export function TwoFactorEnrollment({
           description={
             state.totp
               ? t("enrollment.totpPrompt")
-              : state.codeSent
+              : sent
                 ? t("enrollment.codeSentPrompt")
                 : t("twoFactor.enrollmentRequired")
           }
@@ -182,7 +183,7 @@ export function TwoFactorEnrollment({
             <SubmitButton busy={busy} disabled={!code.trim()}>
               {t("common.verify")}
             </SubmitButton>
-            {state.codeSent && !spent && (
+            {sent && !spent && (
               <TextButton
                 className="self-center"
                 disabled={busy || cooldown.left > 0}

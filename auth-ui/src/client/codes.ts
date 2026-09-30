@@ -1,6 +1,9 @@
-import type { AuthErrorCode } from "./generated/error-codes.ts"
+import type {
+  AuthErrorCode,
+  AuthErrorMetadata,
+} from "./generated/error-codes.ts"
 
-export type { AuthErrorCode }
+export type { AuthErrorCode, AuthErrorMetadata }
 export { AUTH_ERROR_STATUS } from "./generated/error-codes.ts"
 
 // Unknown codes must still be tolerated (SEMVER §5.2).

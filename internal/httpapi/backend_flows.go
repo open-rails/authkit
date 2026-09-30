@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"time"
 
@@ -34,10 +35,10 @@ type flowsBackend interface {
 	DeletePasskey(ctx context.Context, userID, id string) error
 	DeletePendingPhoneRegistrationByPhone(ctx context.Context, phone string) error
 	DeletePendingRegistrationByEmail(ctx context.Context, email string) error
-	Disable2FAFactorWithRemovedRoles(ctx context.Context, userID, factorID string) ([]authflow.RemovedMFARoleAssignment, error)
-	Disable2FAWithRemovedRoles(ctx context.Context, userID string) ([]authflow.RemovedMFARoleAssignment, error)
+	Disable2FA(ctx context.Context, userID string) error
+	Disable2FAFactor(ctx context.Context, userID, factorID string) error
 	EnrollTwoFactor(ctx context.Context, in authflow.TwoFactorEnrollInput) (authflow.TwoFactorEnrollOutcome, error)
-	ExchangeRefreshToken(ctx context.Context, refreshToken string, ua string, ip net.IP) (idToken string, expiresAt time.Time, newRefresh string, err error)
+	ExchangeRefreshToken(ctx context.Context, refreshToken string, ua string, ip net.IP) (userID string, session authflow.IssuedSession, err error)
 	FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, code, signature, secondFactor string) (authflow.DeviceKeyAuthResult, error)
 	FinishDeviceKeyLogin(ctx context.Context, challengeID, signature string) (authflow.DeviceKeyAuthResult, error)
 	FinishPasskeyLogin(ctx context.Context, response []byte, userAgent string, ip net.IP) (authflow.LoginOutcome, error)
@@ -50,7 +51,7 @@ type flowsBackend interface {
 	HasPassword(ctx context.Context, userID string) (bool, error)
 	HasProviderLink(ctx context.Context, userID, issuer, providerSlug string) (bool, error)
 	JWKS() keys.JWKS
-	LinkSolanaWallet(ctx context.Context, userID string, output siws.SignInOutput) error
+	LinkSolanaWallet(ctx context.Context, userID string, output siws.SignInOutput) (authflow.SolanaLinkedAccount, error)
 	ListPasskeys(ctx context.Context, userID string) ([]iam.Passkey, error)
 	LogSessionFailed(ctx context.Context, userID string, sessionID string, reason *string, ip *string, ua *string)
 	MarkSessionAuthenticated(ctx context.Context, userID, sessionID string) error
@@ -63,7 +64,10 @@ type flowsBackend interface {
 	RecordFailedDeviceKeyEnrollment(ctx context.Context, enrollmentID string)
 	PutOIDCState(ctx context.Context, state string, data oidcstate.StateData) error
 	ConsumeOIDCState(ctx context.Context, state string) (oidcstate.StateData, bool, error)
+	PutOIDCResult(ctx context.Context, code string, result json.RawMessage) error
+	ConsumeOIDCResult(ctx context.Context, code string) (json.RawMessage, bool, error)
 	RegenerateBackupCodes(ctx context.Context, userID string) ([]string, error)
+	RemovePhone(ctx context.Context, actor iam.Actor, userID string) error
 	Register(ctx context.Context, in authflow.RegisterInput) (authflow.RegisterOutcome, error)
 	RegistrationVerificationEnabled() bool
 	RenamePasskey(ctx context.Context, userID, id, label string) error
@@ -78,9 +82,9 @@ type flowsBackend interface {
 	SMSAvailable() bool
 	SendWelcome(ctx context.Context, userID string)
 	SessionFreshness(ctx context.Context, userID, sessionID string, now time.Time) (authflow.SessionFreshness, error)
+	SetDefault2FAFactor(ctx context.Context, userID, factorID string) (authflow.TwoFactorFactor, error)
 	SetPasswordAfterFreshAuth(ctx context.Context, userID, new string, keepSessionID *string) error
 	StartPasswordless(ctx context.Context, req authflow.PasswordlessStartRequest) (authflow.PasswordlessStartResult, error)
-	TwoFactorAllowedMethods() []string
 	TwoFactorEnabled() bool
 	TwoFactorMethods() []iam.TwoFactorMethod
 	UnlinkProviderUnlessLast(ctx context.Context, userID, provider string) (bool, error)

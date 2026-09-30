@@ -86,10 +86,10 @@ func TestReadmeRolesBlock(t *testing.T) {
 	require.NoError(t, authkitgin.Mount(gin.New(), auth))
 	for _, route := range []string{
 		"GET /.well-known/jwks.json",
-		"PUT /api/v1/groups/{group_id}/members/{user}/roles/{role}",
+		"PUT /api/v1/groups/{group_id}/members/{kind}/{id}",
 		"GET /api/v1/admin/users",
-		"POST /api/v1/admin/users/{user_id}/ban",
-		"POST /api/v1/admin/users/{user_id}/unban",
+		"PUT /api/v1/admin/users/{user_id}/ban",
+		"DELETE /api/v1/admin/users/{user_id}/ban",
 	} {
 		require.Contains(t, patterns(auth), route)
 	}

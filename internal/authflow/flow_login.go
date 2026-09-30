@@ -62,7 +62,7 @@ type TwoFactorChallenge struct {
 type LoginOutcome struct {
 	Recovery       *AccountRecoveryConfirmation
 	Enrollment     *iam.TokenSet
-	AllowedMethods []string
+	AllowedMethods []iam.TwoFactorMethod
 	ReturnTo       string
 	Created        bool
 	Kind           LoginOutcomeKind

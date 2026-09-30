@@ -22,7 +22,7 @@ const busyWait = time.Second
 
 // ErrBusy is 503 server_busy with Retry-After: the password-hashing budget
 // stayed full for busyWait.
-var ErrBusy = errmodel.E(errmodel.CodeServerBusy, errmodel.WithMeta("retry_after_seconds", int(busyWait/time.Second)))
+var ErrBusy = errmodel.E(errmodel.CodeServerBusy, errmodel.WithDetails(errmodel.RetryAfter{RetryAfterSeconds: int64(busyWait / time.Second)}))
 
 var work = newBudget(runtime.GOMAXPROCS(0))
 

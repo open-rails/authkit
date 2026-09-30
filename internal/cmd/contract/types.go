@@ -97,6 +97,12 @@ func newContract() (*contract, error) {
 	if err := c.reach(reflect.TypeFor[iam.Event](), false); err != nil {
 		return nil, err
 	}
+	// Each error code's metadata shape.
+	for _, meta := range httpapi.ErrorMetadata() {
+		if err := c.reach(reflect.TypeOf(meta), false); err != nil {
+			return nil, err
+		}
+	}
 	for _, r := range c.routes {
 		if r.Request != nil {
 			if err := c.reach(reflect.TypeOf(r.Request), true); err != nil {

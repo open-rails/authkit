@@ -74,7 +74,7 @@ function call(
   page: Page,
   op: "signIn" | "link" | "unlink",
   address = "",
-  opts: { tamper?: boolean; password?: string } = {}
+  opts: { tamper?: boolean } = {}
 ): Promise<Result> {
   return page.evaluate(
     async ({ op, address, opts }) => {
@@ -96,7 +96,7 @@ function call(
             ? await w.solana.signIn(signer)
             : op === "link"
               ? await w.solana.link(signer)
-              : await w.solana.unlink({ password: opts.password })
+              : await w.solana.unlink()
         return { ok: true as const, value }
       } catch (err) {
         const e = err as { code?: string; reason?: string; name?: string }
@@ -124,14 +124,17 @@ test("wallet sign-in creates and restores the wallet account", async ({
   await loadSolana(page)
   const a: Wallet = wallet()
 
-  expect(await call(page, "signIn", a.address)).toEqual({
+  expect(await call(page, "signIn", a.address)).toMatchObject({
     ok: true,
-    value: { kind: "session" },
+    value: { status: "complete", created: true },
   })
   const first = await userId(page)
   expect(first).toBeTruthy()
   const me = await page.evaluate(() => (window as unknown as Win).auth.getMe())
-  expect(me).toMatchObject({ id: first, solana_linked_account: { address: a.address } })
+  expect(me).toMatchObject({
+    id: first,
+    solana_wallet: { address: a.address },
+  })
 
   // The wallet is the only login method.
   expect(await call(page, "unlink")).toEqual({
@@ -166,7 +169,7 @@ test("link, conflict, unlink and relink a wallet", async ({
       (input) => (window as unknown as Win).auth.signInWithPassword(input),
       { identifier: email, password }
     )
-  ).toEqual({ kind: "session" })
+  ).toMatchObject({ status: "complete" })
   const owner = await userId(page)
 
   const b = wallet()
@@ -184,7 +187,7 @@ test("link, conflict, unlink and relink a wallet", async ({
     code: "wallet_change_requires_unlink",
   })
 
-  expect(await call(page, "unlink", "", { password })).toEqual({
+  expect(await call(page, "unlink")).toEqual({
     ok: true,
     value: undefined,
   })
@@ -218,9 +221,11 @@ test("SignInDialog: wallet sign-in continues to the TOTP prompt", async ({
     await dialog.getByRole("button", { name: "Continue with Solana" }).click()
   }
   type Client = {
-    enableTwoFactor(input: { method: string; code?: string }): Promise<{
-      secret?: string
-    }>
+    setupTwoFactor(input: { method: "totp" }): Promise<{ secret: string }>
+    addTwoFactorFactor(input: {
+      method: "totp"
+      code: string
+    }): Promise<unknown>
     getSnapshot(): { status: string; userId?: string }
   }
   const owned = () =>
@@ -229,16 +234,21 @@ test("SignInDialog: wallet sign-in continues to the TOTP prompt", async ({
         (window as unknown as { authClient: Client }).authClient.getSnapshot()
           .userId
     )
-  const enroll = (code?: string) =>
+  const setupTotp = () =>
     page.evaluate(
-      async (code) =>
+      async () =>
         (
           await (
             window as unknown as { authClient: Client }
-          ).authClient.enableTwoFactor({ method: "totp", code })
-        ).secret ?? "",
-      code
+          ).authClient.setupTwoFactor({ method: "totp" })
+        ).secret
     )
+  const addTotp = (code: string) =>
+    page.evaluate(async (code) => {
+      await (
+        window as unknown as { authClient: Client }
+      ).authClient.addTwoFactorFactor({ method: "totp", code })
+    }, code)
 
   // First wallet sign-in creates the account.
   await walletSignIn()
@@ -250,12 +260,13 @@ test("SignInDialog: wallet sign-in continues to the TOTP prompt", async ({
   const into = Date.now() % 30_000
   if (into > 20_000) await page.waitForTimeout(30_500 - into)
   const now = Date.now()
-  const secret = await enroll()
-  await enroll(totp(secret, now))
+  const secret = await setupTotp()
+  await addTotp(totp(secret, now))
   await page.getByRole("button", { name: "sign out" }).click()
   await expect(status).toHaveText("anonymous")
 
-  // Wallet sign-in → AuthKit 2fa_required → the dialog's TOTP prompt.
+  // Wallet sign-in → AuthResult second_factor_required → the dialog's TOTP
+  // prompt.
   await walletSignIn()
   await expect(
     dialog.getByRole("heading", { name: "Verify it's you" })

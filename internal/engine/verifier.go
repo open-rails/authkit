@@ -39,7 +39,7 @@ type Authenticator struct {
 }
 
 // newAuthenticator trusts this deployment's issuer for audiences; opts come
-// after the defaults (WithRequestOrigin overrides the issuer's origin).
+// after the defaults (WithPublicURL overrides the issuer's origin).
 func (s *Engine) newAuthenticator(audiences []string, own bool, opts ...verify.VerifierOption) (*Authenticator, error) {
 	cfg := s.cfg
 	base := []verify.VerifierOption{
@@ -48,7 +48,7 @@ func (s *Engine) newAuthenticator(audiences []string, own bool, opts ...verify.V
 		// deployment federates on a private network (#257).
 		verify.WithHTTPClient(netguard.Client(netguard.DefaultTimeout, cfg.Token.AllowPrivateNetworkJWKS)),
 		verify.WithDPoP(s.ClaimDPoPProof),
-		verify.WithRequestOrigin(issuerOrigin(cfg.Token.Issuer)),
+		verify.WithPublicURL(issuerOrigin(cfg.Token.Issuer)),
 	}
 	a := &Authenticator{s: s, v: verify.NewVerifier(append(base, opts...)...), audiences: audiences, own: own}
 	if cfg.Token.Issuer != "" {
@@ -63,7 +63,7 @@ func (s *Engine) newAuthenticator(audiences []string, own bool, opts ...verify.V
 // process: this deployment's API keys and tokens and its remote
 // applications' tokens, for audiences. DPoP proofs are spent in this
 // deployment's replay store and checked against the issuer's origin unless
-// opts say otherwise (verify.WithRequestOrigin). It applies no 2FA policy.
+// opts say otherwise (verify.WithPublicURL). It applies no 2FA policy.
 func (s *Engine) NewAuthenticator(audiences []string, opts ...verify.VerifierOption) (*Authenticator, error) {
 	return s.newAuthenticator(audiences, false, opts...)
 }

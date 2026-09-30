@@ -1,6 +1,7 @@
 package httpapi
 
-// Invite-link handlers of the group surface.
+// Invitation handlers of the group surface: invite links and emailed
+// invitations are one resource.
 
 import (
 	"errors"
@@ -8,36 +9,63 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
 )
 
-// groupInviteLinkMint mints a link issued by the caller; the code is returned once.
-func (s *Service) groupInviteLinkMint(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor) {
-	if s.rateLimited(w, r, RLInviteCreate) {
-		return
-	}
+// groupInvitationCreate makes an invite link (no email), whose code is
+// answered once (201), or emails an invitation (202). The 202 is the same for
+// every address, so it never reveals whether an account holds it; the role
+// lands only when the recipient registers with it, or redeems it signed in to
+// the account that proved the address. On root, an email with no role
+// invites someone to register (root:users:invite).
+func (s *Service) groupInvitationCreate(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor) {
 	var body InvitationCreateRequest
-	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Role) == "" {
+	if err := decodeJSON(r, &body); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	role, err := s.groupRole(g.Persona, body.Role)
-	if err != nil {
+	n := iam.NewInvitation{ExpiresAt: body.ExpiresAt}
+	if text := strings.TrimSpace(body.Role); text != "" {
+		role, err := s.groupRole(g.Persona, text)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		n.Role = role
+	}
+	if strings.TrimSpace(body.Email) == "" {
+		if n.Role.IsZero() {
+			fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("role"))
+			return
+		}
+		created, err := s.svc.CreateInvitation(r.Context(), actor, iam.GroupByID(g.ID), n)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, created)
+		return
+	}
+	n.Email = contact.NormalizeEmail(body.Email)
+	if err := contact.ValidateEmail(n.Email); err != nil {
 		writeError(w, err)
 		return
 	}
-	created, err := s.svc.CreateInvitation(r.Context(), actor, iam.GroupByID(g.ID), iam.NewInvitation{Role: role, ExpiresAt: body.ExpiresAt})
-	if err != nil {
+	if s.rateLimitedByIdentifier(w, r, RLInviteCreate, n.Email) {
+		return
+	}
+	if _, err := s.svc.CreateInvitation(r.Context(), actor, iam.GroupByID(g.ID), n); err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, created) // the code is shown once
+	accepted(w)
 }
 
-// groupInviteLinkList lists the group's links, newest first (?cursor=,
-// ?limit=), never their codes.
-func (s *Service) groupInviteLinkList(w http.ResponseWriter, r *http.Request, g iam.Group) {
+// groupInvitationsList lists the group's links and email invitations,
+// newest first (?cursor=, ?limit=), never their codes.
+func (s *Service) groupInvitationsList(w http.ResponseWriter, r *http.Request, g iam.Group) {
 	p, ok := readPage(w, r)
 	if !ok {
 		return
@@ -47,40 +75,29 @@ func (s *Service) groupInviteLinkList(w http.ResponseWriter, r *http.Request, g 
 		writeError(w, err)
 		return
 	}
-	links := page.Items[:0:0]
-	for _, inv := range page.Items {
-		if inv.Email == nil { // an email invitation is not a link
-			links = append(links, inv)
-		}
-	}
-	page.Items = links
 	list(w, page)
 }
 
-// groupInviteLinkRevoke revokes the group's link {link}; a revoked or unknown
-// link answers 204 too.
-func (s *Service) groupInviteLinkRevoke(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor, linkID string) {
-	if linkID == "" {
-		fail(w, errmodel.CodeInvalidRequest)
-		return
-	}
-	if err := s.svc.RevokeInvitation(r.Context(), actor, iam.GroupByID(g.ID), linkID); err != nil && !errors.Is(err, iam.ErrInvitationNotFound) {
+// groupInvitationRevoke revokes the group's invitation {id}; a revoked,
+// redeemed or unknown one answers 204 too.
+func (s *Service) groupInvitationRevoke(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor, id string) {
+	if err := s.svc.RevokeInvitation(r.Context(), actor, iam.GroupByID(g.ID), id); err != nil && !errors.Is(err, iam.ErrInvitationNotFound) {
 		writeError(w, err)
 		return
 	}
 	noContent(w)
 }
 
-// handleInviteRedeemPOST redeems an invite-link code for the signed-in user,
-// assigning the link's role. Persona-agnostic: the code resolves to its own
-// group, so one endpoint serves every persona.
-func (s *Service) handleInviteRedeemPOST(w http.ResponseWriter, r *http.Request) {
+// handleInvitationRedeemPOST redeems an invitation's code for the signed-in
+// user, assigning its role (an emailed one only to the account that proved
+// its address). Persona-agnostic: the code resolves to its own group.
+func (s *Service) handleInvitationRedeemPOST(w http.ResponseWriter, r *http.Request) {
 	actor, ok := verify.ActorFromContext(r.Context())
 	if !ok || actor.Kind() != iam.ActorUser {
 		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
-	var body InviteRedeemRequest
+	var body InvitationRedeemRequest
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Code) == "" {
 		fail(w, errmodel.CodeInvalidRequest)
 		return

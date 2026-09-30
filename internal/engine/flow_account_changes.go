@@ -8,7 +8,9 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/contact"
+	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/secret"
 )
 
@@ -145,4 +147,39 @@ func (s *Engine) RequestEmailChange(ctx context.Context, userID, newEmail string
 	return s.sendContactChangeVerification(s.email != nil,
 		func() error { return s.sendEmail(ctx, msg) },
 		fmt.Errorf("email change verification unavailable: email sender not configured"))
+}
+
+// RemovePhone clears the account's phone number under ACCT(root:users:manage),
+// the account's own included. It is refused (ErrCannotRemoveLastContact)
+// unless a proven email remains, so the account keeps an address to sign in
+// and recover with, and an MFA holder keeps a proven contact. An account
+// without a phone is unchanged.
+func (s *Engine) RemovePhone(ctx context.Context, a iam.Actor, userID string) error {
+	return s.withAccountMutation(ctx, a, userID, ident.RootUsersManage, selfAllowed, func(at accountTx) error {
+		if _, err := contactStateForUpdate(ctx, at.tx, at.userID); err != nil {
+			return err
+		}
+		u, err := at.q.UserByID(ctx, at.userID)
+		if err != nil {
+			return err
+		}
+		if u.PhoneNumber == nil {
+			return nil
+		}
+		if u.Email == nil || !u.EmailVerified {
+			return errmodel.ErrCannotRemoveLastContact
+		}
+		before, err := readAccountIdentity(ctx, at.tx, at.userID)
+		if err != nil {
+			return err
+		}
+		if err := at.q.UserSetPhone(ctx, db.UserSetPhoneParams{ID: at.userID}); err != nil {
+			return err
+		}
+		changes, err := identityChanges(ctx, at.tx, at.userID, before)
+		if err != nil {
+			return err
+		}
+		return at.st.record(ctx, changes...)
+	})
 }

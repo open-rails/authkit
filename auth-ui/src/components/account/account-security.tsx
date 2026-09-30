@@ -6,18 +6,26 @@ import { DeleteAccountPanel } from "./delete-account-panel.tsx"
 import { LinkedProvidersPanel } from "./linked-providers-panel.tsx"
 import { PasswordPanel } from "./password-panel.tsx"
 import { SessionsPanel } from "./sessions-panel.tsx"
+import { SignInKeysPanel } from "./sign-in-keys-panel.tsx"
 import { StepUpProvider } from "./step-up.tsx"
 import { useStepUpController } from "./step-up-context.ts"
 import { TwoFactorPanel } from "./two-factor-panel.tsx"
 
 export type AccountSecuritySection =
-  "contact" | "password" | "providers" | "twoFactor" | "sessions" | "delete"
+  | "contact"
+  | "password"
+  | "providers"
+  | "twoFactor"
+  | "signInKeys"
+  | "sessions"
+  | "delete"
 
 const ALL: AccountSecuritySection[] = [
   "contact",
   "password",
   "providers",
   "twoFactor",
+  "signInKeys",
   "sessions",
   "delete",
 ]
@@ -63,6 +71,8 @@ export function AccountSecurity({
         )
       case "twoFactor":
         return <TwoFactorPanel key={section} />
+      case "signInKeys":
+        return <SignInKeysPanel key={section} />
       case "sessions":
         return <SessionsPanel key={section} />
       case "delete":

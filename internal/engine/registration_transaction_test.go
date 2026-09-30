@@ -42,7 +42,7 @@ func TestRegistrationRollsBackWhenInviteConsumeFails(t *testing.T) {
 			failed = f.providerSignIn(idp, flow, testidp.Identity{Subject: "rollback-" + uniqueSuffix(), Email: email, EmailVerified: true}, invite.Code)
 		} else {
 			path := "/register"
-			body := map[string]any{"identifier": identifier, "account_invite_token": invite.Code}
+			body := map[string]any{"identifier": identifier, "invite_code": invite.Code}
 			if flow == "passwordless" {
 				path = "/passwordless/start"
 				body["mode"] = "both"

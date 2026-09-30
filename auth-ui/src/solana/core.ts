@@ -1,4 +1,5 @@
-import type { AuthClient, AuthOutcome } from "../client/client.ts"
+import type { SignInResult } from "../client/authResult.ts"
+import type { AuthClient } from "../client/client.ts"
 import { AuthKitError, AuthSessionChangedError } from "../client/errors.ts"
 
 // Any wallet reduces to this: wallet-adapter, wallet-standard, Phantom, a test key.
@@ -147,12 +148,13 @@ export function createSolanaAuth(client: AuthClient) {
   }
 
   return {
-    // Signs in or creates the wallet's account. Continuations (2FA, recovery…)
-    // are returned like password login; a session change mid-signature throws.
+    // Signs in or creates the wallet's account. The AuthResult's next step
+    // (2FA, recovery…) is returned like password login; a session change
+    // mid-signature throws.
     signIn: (
       signer: SolanaSigner,
       input: { username?: string } = {}
-    ): Promise<AuthOutcome> =>
+    ): Promise<SignInResult> =>
       exclusive(() =>
         client.completeSignIn(async () => {
           const { body } = await prove(signer, input.username, true)
@@ -185,14 +187,10 @@ export function createSolanaAuth(client: AuthClient) {
           })
         const { address, body } = await prove(signer, undefined, false)
         if (userId() !== owner) throw new AuthSessionChangedError()
-        const out = await client.request<Rec>("POST", "/solana/link", {
-          body,
-        })
-        const linked = out?.solana_address
-        return { address: typeof linked === "string" ? linked : address }
+        const linked = await client.linkSolanaWallet(body.output)
+        return { address: linked.address || address }
       }),
 
-    unlink: (input: { password?: string } = {}) =>
-      client.unlinkProvider("solana", input),
+    unlink: () => client.unlinkProvider("solana"),
   }
 }

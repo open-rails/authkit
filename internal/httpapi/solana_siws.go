@@ -9,8 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/open-rails/authkit/verify"
-
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/siws"
 )
@@ -86,43 +85,29 @@ func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if s.writeLoginContinuation(w, r, out, nil) {
-		return
-	}
-	if out.Created {
+	if out.Created && out.Kind == authflow.LoginSessionIssued {
 		go s.svc.SendWelcome(context.Background(), out.UserID)
 	}
-
-	writeJSON(w, http.StatusOK, SolanaLoginResult{
-		TokenSet: s.deliverRefreshToken(w, r, out.Session.TokenSet()),
-		Created:  out.Created,
-		User:     SolanaUser{ID: out.UserID, SolanaAddress: output.Account.Address},
-	})
+	s.writeAuthResult(w, r, out, authExtras{})
 }
 
-func (s *Service) handleSolanaLinkPOST(w http.ResponseWriter, r *http.Request) {
-	claims, ok := verify.ClaimsFromContext(r.Context())
-	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthenticated)
-		return
-	}
-	if !s.requireProvenContact(w, r, claims.UserID) {
-		return
-	}
-	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, ""); !ok {
+// handleMeSolanaWalletPUT links the wallet a SIWS output proves, a new way to
+// sign in, and answers the account's linked wallet.
+func (s *Service) handleMeSolanaWalletPUT(w http.ResponseWriter, r *http.Request) {
+	claims, ok := s.newSignInMethodCaller(w, r)
+	if !ok {
 		return
 	}
 	output, ok := decodeSIWSOutput(w, r)
 	if !ok {
 		return
 	}
-
-	if err := s.svc.LinkSolanaWallet(r.Context(), claims.UserID, output); err != nil {
+	linked, err := s.svc.LinkSolanaWallet(r.Context(), claims.UserID, output)
+	if err != nil {
 		writeError(w, err)
 		return
 	}
-
-	writeJSON(w, http.StatusOK, SolanaLink{SolanaAddress: output.Account.Address})
+	writeJSON(w, http.StatusOK, linked)
 }
 
 // decodeSIWSB64 decodes a base64 string, trying StdEncoding then RawURLEncoding —

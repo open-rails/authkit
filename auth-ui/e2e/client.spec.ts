@@ -43,11 +43,12 @@ test("built client: register, TOTP login, refresh, restore, logout", async ({
   const email = `client-${id}@example.test`
   const password = "Correct-horse-battery-9"
 
+  // 202: a code went to the address, no session yet.
   const reg = await page.evaluate(
     (input) => (window as unknown as Win).auth.register(input),
     { identifier: email, username: `c${id}`, password }
   )
-  expect(reg).toMatchObject({ next_action: "verify_email", signedIn: false })
+  expect(reg).toBeNull()
 
   const code = (await outbox(request, email)).find(
     (m) => m.kind === "verification"
@@ -57,24 +58,29 @@ test("built client: register, TOTP login, refresh, restore, logout", async ({
       (input) => (window as unknown as Win).auth.confirmVerification(input),
       { identifier: email, code: code! }
     )
-  ).toEqual({ kind: "session" })
+  ).toMatchObject({ status: "complete", user: { email } })
   expect(await snapshot(page)).toMatchObject({ status: "authenticated" })
 
   // TOTP codes must come from increasing steps; start early in a step.
   const into = Date.now() % 30_000
   if (into > 20_000) await page.waitForTimeout(30_500 - into)
   const now = Date.now()
-  const started = await page.evaluate(() =>
-    (window as unknown as Win).auth.enableTwoFactor({ method: "totp" })
+  const setup = await page.evaluate(() =>
+    (window as unknown as Win).auth.setupTwoFactor({ method: "totp" })
   )
-  expect(started.kind).toBe("totp_started")
-  const secret = (started as { secret: string }).secret
-  const enabled = await page.evaluate(
+  expect(setup).toMatchObject({ method: "totp" })
+  const secret = setup.secret!
+  const created = await page.evaluate(
     (code) =>
-      (window as unknown as Win).auth.enableTwoFactor({ method: "totp", code }),
+      (window as unknown as Win).auth.addTwoFactorFactor({
+        method: "totp",
+        code,
+      }),
     totp(secret, now)
   )
-  expect(enabled).toMatchObject({ kind: "enabled", method: "totp" })
+  expect(created).toMatchObject({ factor: { method: "totp" } })
+  expect(created.backup_codes.length).toBeGreaterThan(0)
+  expect(await snapshot(page)).toMatchObject({ status: "authenticated" })
 
   await page.evaluate(() => (window as unknown as Win).auth.signOut())
   expect(await snapshot(page)).toEqual({
@@ -86,22 +92,27 @@ test("built client: register, TOTP login, refresh, restore, logout", async ({
     (await context.cookies()).find((c) => c.name === "authkit_rt")
   ).toBeUndefined()
 
-  const challenge = await page.evaluate(
+  const pending = await page.evaluate(
     (input) => (window as unknown as Win).auth.signInWithPassword(input),
     { identifier: email, password }
   )
-  expect(challenge).toMatchObject({ kind: "2fa_required", method: "totp" })
+  expect(pending).toMatchObject({
+    status: "second_factor_required",
+    second_factor: { factor: { method: "totp" } },
+  })
+  expect(await snapshot(page)).toMatchObject({ status: "anonymous" })
+  const step = pending.second_factor!
   expect(
     await page.evaluate(
-      ([c, code]) =>
+      ([userId, challenge, code]) =>
         (window as unknown as Win).auth.verifyTwoFactor({
-          userId: (c as { userId: string }).userId,
-          challenge: (c as { challenge: string }).challenge,
-          code: code as string,
+          userId,
+          challenge,
+          code,
         }),
-      [challenge, totp(secret, now + 30_000)] as const
+      [step.user_id, step.challenge, totp(secret, now + 30_000)] as const
     )
-  ).toEqual({ kind: "session" })
+  ).toMatchObject({ status: "complete" })
   const signedIn = await snapshot(page)
   expect(signedIn.status).toBe("authenticated")
 

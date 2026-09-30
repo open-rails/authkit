@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"errors"
 	"net/http"
 	"strings"
 
@@ -41,33 +40,19 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 
 	out, err := s.svc.Register(r.Context(), authflow.RegisterInput{
 		Identifier: identifier, Username: req.Username, Password: req.Password,
-		PreferredLanguage: preferredLanguageFromRequest(r), AccountInviteToken: req.AccountInviteToken,
+		PreferredLanguage: preferredLanguageFromRequest(r), AccountInviteToken: req.InviteCode,
 		UserAgent: r.UserAgent(), IP: s.requestIP(r),
 	})
 	if err != nil {
-		s.writeRegisterError(w, err)
+		writeError(w, err)
 		return
 	}
-	switch out.Kind {
-	case authflow.RegisterLoginRequired:
-		s.writeLoginContinuation(w, r, *out.Login, nil)
-	case authflow.RegisterVerifyEmail, authflow.RegisterVerifyPhone:
+	if out.Kind != authflow.RegisterSignedIn {
 		// The code is sent to the identifier; confirming it signs in.
 		accepted(w)
-	default:
-		writeJSON(w, http.StatusOK, RegistrationResult{
-			User:     RegistrationUser{Username: out.Username, Email: out.Email, PhoneNumber: out.Phone},
-			TokenSet: s.deliverRefreshToken(w, r, out.Session.TokenSet()),
-		})
-	}
-}
-
-func (s *Service) writeRegisterError(w http.ResponseWriter, err error) {
-	if errors.Is(err, iam.ErrTwoFAEnrollmentRequired) {
-		s.send2FAEnrollmentRequiredError(w)
 		return
 	}
-	writeError(w, err)
+	s.writeAuthResult(w, r, *out.Login, authExtras{})
 }
 
 // handlePendingRegistrationAbandonPOST lets a user cancel/abandon a pending

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/builtwith"
 	"github.com/open-rails/authkit/internal/engine"
 	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/ops"
@@ -32,6 +33,19 @@ type Client struct {
 	engine *engine.Engine
 	http   *httpapi.Service
 	mount  *httpapi.Mount
+	// cfg and deps are what New was given (internal/builtwith).
+	cfg  Config
+	deps Deps
+}
+
+func init() {
+	builtwith.Of = func(client any) (Config, Deps, bool) {
+		a, ok := client.(*Client)
+		if !ok || a == nil {
+			return Config{}, Deps{}, false
+		}
+		return a.cfg, a.deps, true
+	}
 }
 
 var _ verify.Authority = (*Client)(nil)
@@ -43,7 +57,7 @@ func New(ctx context.Context, cfg Config, deps Deps) (_ *Client, err error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &Client{ops: e, engine: e}
+	a := &Client{ops: e, engine: e, cfg: cfg, deps: deps}
 	defer func() {
 		if err != nil {
 			a.Close()

@@ -1,5 +1,56 @@
 # Changelog
 
+## Unreleased
+
+Speaks AuthKit's v1 routes (#407); breaking for every host.
+
+- One sign-in result. Every sign-in call (password, 2FA, passwordless,
+  verification, registration, wallet, OIDC, refresh) returns the wire
+  `AuthResult`, narrowed by `status` as `SignInResult`: `complete` (the client
+  has committed `token_set`), `second_factor_required`, `enrollment_required`,
+  `verification_required` or `account_recovery_required`, each with its step
+  (`second_factor`, `enrollment`, `verification`, `recovery`). Nothing is read
+  from a 403/409 envelope any more. `LoginContinuation`, `AuthOutcome`,
+  `continuationFrom`, `continuationFromParams` and `readContinuation` are
+  gone; `session.continuation` and `SignInDialog`'s `continuation` are a
+  `PendingSignIn`.
+- `register` answers `null` when a code went to the identifier;
+  `confirmVerification` answers `null` for a signed-in proof (204).
+- OIDC results carry a one-time code, never a token: `signInWithPopup`,
+  `completeRedirect()` (now async, `{ kind: "sign_in", result }`) and the new
+  `completeStepUp()` trade it at `POST /oidc/exchange`. The step-up return is
+  `#code=` on its page (`readStepUpReturn` is gone; `StepUpProvider` handles it).
+  `oidcLoginStart` posts to `{api}/oidc/{provider}/login/start`.
+- `accountInviteToken` is `inviteCode` everywhere (client, `useRegister`,
+  `SignInDialog`/`SignInPanel`/forms).
+- Self routes live under `/me`. Client changes: `updateProfile` replaces
+  `updateUsername`/`updatePreferredLanguage`; `changeEmail`, `changePhone`,
+  `removePhone` do contact changes (`requestVerification` only proves an
+  address); `revokeOtherSessions` replaces `revokeAllSessions` (this session
+  stays); `deleteAccount()` and `unlinkProvider(p)` take no password (step up
+  first); `getSecurity`, `listSessionEvents` and `redeemInvitation` are new.
+- 2FA is a factor resource: `setupTwoFactor` + `addTwoFactorFactor` (its
+  `auth` is the finished sign-in with an enrollment token),
+  `setDefaultTwoFactorFactor`, `removeTwoFactorFactor`, `disableTwoFactor()`.
+  `enableTwoFactor`, `TwoFactorEnrollResult` and the removed-roles answer are
+  gone. `useTwoFactorSettings` has `remove(id)`, `setDefault(id)`, `disable()`.
+- Step-up: `sendStepUpCode` sends the email/SMS code; `stepUpWithPassword` and
+  `stepUpWithTwoFactor({ code })` return `FreshAuth`. `useStepUp`'s
+  `code_sent` state carries `destination`.
+- Sign-in keys: `listSignInKeys`, `renameSignInKey`, `revokeSignInKey`,
+  `registerPasskey`, `useSignInKeys` and `SignInKeysPanel` (in
+  `AccountSecurity`, section `signInKeys`) manage passkeys and device keys.
+- `useSessions` has `revokeOthers()` and `signOutEverywhere()` for `revokeAll()`.
+  `ContactPanel` removes a phone number.
+- `/me` is reshaped (`providers`, `solana_wallet`, `root_role`; no `security`:
+  see `getSecurity`). Solana links with `PUT /me/solana-wallet`.
+- `getPermissions` answers the `PermissionSet` (`role`, expanded
+  `permissions`); `hasPermission` is set membership and `permMatches` is gone.
+  `usePermissions` adds `role`.
+- Error metadata is typed per code: `errorMetadata(err, code)`,
+  `AuthErrorMetadata`. `SessionTokens`, `AccountRecovery` and the client's
+  `ActionAvailability` copy are replaced by the generated wire types.
+
 ## 0.133.0
 
 - Moved into the AuthKit repo (`sdk/auth-ui`). Versions now follow AuthKit

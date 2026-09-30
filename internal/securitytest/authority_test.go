@@ -89,7 +89,7 @@ func TestSecurityUnbanRequiresAuthority(t *testing.T) {
 	moderatorToken := h.login(moderator).AccessToken
 	peerToken := h.login(peer).AccessToken
 	unban := func(target account, token string) response {
-		return h.post("/admin/users/"+target.id+"/unban", nil, token)
+		return h.do(request{method: http.MethodDelete, path: "/admin/users/" + target.id + "/ban", token: token})
 	}
 	require.NoError(t, h.auth.Ban(ctx, iam.SystemActor(), moderator.id, iam.Ban{}))
 	require.NoError(t, h.auth.Ban(ctx, iam.SystemActor(), admin.id, iam.Ban{}))
@@ -190,23 +190,29 @@ func TestSecurityRoleEscalation(t *testing.T) {
 	memberToken := h.login(member).AccessToken
 	base := "/groups/" + group.ID()
 
+	put := func(path, id, role, token string) request {
+		return request{method: http.MethodPut, path: path + "/members/users/" + id, body: map[string]string{"role": role}, token: token}
+	}
 	for _, tc := range []struct {
 		name  string
 		req   request
 		allow bool
 	}{
-		{"manager grants themself owner", request{method: http.MethodPut, path: base + "/members/" + manager.id + "/roles/org:owner", token: managerToken}, false},
-		{"manager grants a member owner", request{method: http.MethodPut, path: base + "/members/" + member.id + "/roles/org:owner", token: managerToken}, false},
-		{"manager demotes the owner", request{method: http.MethodPut, path: base + "/members/" + owner.id + "/roles/org:member", token: managerToken}, false},
-		{"manager removes the owner", request{method: http.MethodDelete, path: base + "/members/" + owner.id, token: managerToken}, false},
-		{"manager mints an owner invite link", request{method: http.MethodPost, path: base + "/invites/links", token: managerToken,
+		{"manager grants themself owner", put(base, manager.id, "org:owner", managerToken), false},
+		{"manager grants a member owner", put(base, member.id, "org:owner", managerToken), false},
+		{"manager demotes the owner", put(base, owner.id, "org:member", managerToken), false},
+		{"manager removes the owner", request{method: http.MethodDelete, path: base + "/members/users/" + owner.id, token: managerToken}, false},
+		{"manager mints an owner invite link", request{method: http.MethodPost, path: base + "/invitations", token: managerToken,
 			body: map[string]any{"role": "org:owner"}}, false},
 		{"manager mints an owner API key", request{method: http.MethodPost, path: base + "/api-keys", token: managerToken,
 			body: map[string]any{"name": "k", "role": "org:owner"}}, false},
-		{"member grants themself manager", request{method: http.MethodPut, path: base + "/members/" + member.id + "/roles/org:manager", token: memberToken}, false},
-		{"manager acts on a group they do not belong to", request{method: http.MethodPut, path: "/groups/" + other.ID() + "/members/" + member.id + "/roles/org:member", token: managerToken}, false},
+		{"member grants themself manager", put(base, member.id, "org:manager", memberToken), false},
+		{"manager acts on a group they do not belong to", put("/groups/"+other.ID(), member.id, "org:member", managerToken), false},
 		{"root admin surface with a group role", request{method: http.MethodGet, path: "/admin/users", token: managerToken}, false},
-		{"control: manager assigns member", request{method: http.MethodPut, path: base + "/members/" + member.id + "/roles/org:member", token: managerToken}, true},
+		{"manager grants a root role", put("/groups/root", member.id, "root:moderator", managerToken), false},
+		{"manager invites a registration", request{method: http.MethodPost, path: "/groups/root/invitations", token: managerToken,
+			body: map[string]any{"email": unique("escinvite") + "@security.test"}}, false},
+		{"control: manager assigns member", put(base, member.id, "org:member", managerToken), true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			resp := h.do(tc.req)
@@ -303,15 +309,15 @@ func TestSecurityDemotedCreatorCredentials(t *testing.T) {
 	group, base := h.newOrg(founder)
 	h.grant(group, creator, "owner")
 	creatorToken, founderToken := h.login(creator).AccessToken, h.login(founder).AccessToken
-	link := h.issue(base+"/invites/links", creatorToken, map[string]any{"role": "org:owner"})
+	link := h.issue(base+"/invitations", creatorToken, map[string]any{"role": "org:owner"})
 	key := h.issue(base+"/api-keys", creatorToken, map[string]any{"name": "creator-key", "role": "org:owner"})
 	founderKey := h.issue(base+"/api-keys", founderToken, map[string]any{"name": "founder-key", "role": "org:owner"})
 	memberKey := h.issue(base+"/api-keys", creatorToken, map[string]any{"name": "member-key", "role": "org:member"})
-	resp := h.do(request{method: http.MethodPut, path: base + "/members/" + creator.id + "/roles/org:manager", token: founderToken})
+	resp := h.do(request{method: http.MethodPut, path: base + "/members/users/" + creator.id, body: map[string]string{"role": "org:manager"}, token: founderToken})
 	require.Less(t, resp.status, 300, resp.String())
 
 	t.Run("demoted creator redeems their own owner link", func(t *testing.T) {
-		resp := h.post("/invites/redeem", map[string]string{"code": link.Code}, h.login(creator).AccessToken)
+		resp := h.post("/invitations/redeem", map[string]string{"code": link.Code}, h.login(creator).AccessToken)
 		require.GreaterOrEqual(t, resp.status, 400, resp.String())
 		owner, err := h.auth.Can(ctx, iam.UserActor(creator.id), group, ownerOnly)
 		require.NoError(t, err)
@@ -336,22 +342,22 @@ func TestSecurityRevokeAboveOwnRole(t *testing.T) {
 	h.grant(group, manager, "manager")
 	ownerToken, managerToken := h.login(owner).AccessToken, h.login(manager).AccessToken
 	ownerKey := h.issue(base+"/api-keys", ownerToken, map[string]any{"name": "owner-key", "role": "org:owner"})
-	ownerLink := h.issue(base+"/invites/links", ownerToken, map[string]any{"role": "org:owner"})
+	ownerLink := h.issue(base+"/invitations", ownerToken, map[string]any{"role": "org:owner"})
 	remove := func(path string) response {
 		return h.do(request{method: http.MethodDelete, path: path, token: managerToken})
 	}
 	resp := remove(base + "/api-keys/" + ownerKey.ID)
 	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
 	require.True(t, liveKey(t, h, group, ownerKey.ID))
-	resp = remove(base + "/invites/links/" + ownerLink.ID)
+	resp = remove(base + "/invitations/" + ownerLink.ID)
 	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
 	require.True(t, liveLink(t, h, group, ownerLink.ID))
 
 	t.Run("control: manager revokes what they could issue", func(t *testing.T) {
 		key := h.issue(base+"/api-keys", managerToken, map[string]any{"name": "member-key", "role": "org:member"})
-		link := h.issue(base+"/invites/links", managerToken, map[string]any{"role": "org:member"})
+		link := h.issue(base+"/invitations", managerToken, map[string]any{"role": "org:member"})
 		require.Equal(t, http.StatusNoContent, remove(base+"/api-keys/"+key.ID).status)
-		require.Equal(t, http.StatusNoContent, remove(base+"/invites/links/"+link.ID).status)
+		require.Equal(t, http.StatusNoContent, remove(base+"/invitations/"+link.ID).status)
 		require.False(t, liveKey(t, h, group, key.ID))
 		require.False(t, liveLink(t, h, group, link.ID))
 	})
@@ -559,11 +565,11 @@ func TestSecurityGroupRoleIDsAreCanonical(t *testing.T) {
 	h.grant(group, manager, "manager")
 	token := h.login(manager).AccessToken
 	key := h.issue(base+"/api-keys", token, map[string]any{"name": "ci", "role": "org:member"})
-	link := h.issue(base+"/invites/links", token, map[string]any{"role": "org:member"})
+	link := h.issue(base+"/invitations", token, map[string]any{"role": "org:member"})
 	app := h.registerApp(group, manager, "p4-app", "member")
 	founderKey := h.issue(base+"/api-keys", h.login(founder).AccessToken, map[string]any{"name": "founder", "role": "org:member"})
 
-	resp := h.do(request{method: http.MethodDelete, path: base + "/members/" + strings.ToUpper(manager.id), token: token})
+	resp := h.do(request{method: http.MethodDelete, path: base + "/members/users/" + strings.ToUpper(manager.id), token: token})
 	require.Less(t, resp.status, 300, resp.String())
 	require.Empty(t, h.roleOf(group, iam.UserSubject(manager.id)), "control: the membership is gone")
 	require.False(t, liveKey(t, h, group, key.ID), "the API key outlived its issuer's membership")
@@ -608,7 +614,7 @@ func TestSecurityOwnApplicationIsNoReplacementOwner(t *testing.T) {
 	token := h.login(founder).AccessToken
 	app := h.registerApp(group, founder, "r1-app", "owner")
 
-	resp := h.do(request{method: http.MethodDelete, path: "/user", body: map[string]string{"password": password}, token: token})
+	resp := h.do(request{method: http.MethodDelete, path: "/me", token: token})
 	require.Equal(t, http.StatusConflict, resp.status, "the last human owner deleted itself: %s", resp)
 	require.Equal(t, "last_owner", resp.errorCode())
 	require.ErrorIs(t, opErr(h.auth.DeleteUsers(ctx, iam.SystemActor(), []string{founder.id})), iam.ErrLastOwner)
@@ -630,7 +636,7 @@ func TestSecurityOwnApplicationIsNoReplacementOwner(t *testing.T) {
 	})
 	t.Run("control: with a second owner the founder leaves and its application's role goes", func(t *testing.T) {
 		h.grant(group, h.newAccount("r1second"), "owner")
-		resp := h.do(request{method: http.MethodDelete, path: "/user", body: map[string]string{"password": password}, token: token})
+		resp := h.do(request{method: http.MethodDelete, path: "/me", token: token})
 		require.Equal(t, http.StatusNoContent, resp.status, resp.String())
 		require.Empty(t, h.roleOf(group, iam.RemoteApplicationSubject(app.ID)))
 		require.NotContains(t, h.ownerlessGroups(), g.ID)

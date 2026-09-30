@@ -4,9 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
-	"maps"
 	"net/http"
-	"slices"
 	"strings"
 	"testing"
 
@@ -14,6 +12,7 @@ import (
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/testidp"
 	"github.com/open-rails/authkit/provider"
 	"github.com/stretchr/testify/require"
@@ -34,19 +33,28 @@ func (h *host) providerCallback(idp *testidp.IdP, name string, id testidp.Identi
 	return h.do(request{method: http.MethodGet, path: "//oidc/" + name + "/callback?" + q.Encode(), cookies: start.cookies})
 }
 
-// session reads a token set from either the flat or the nested response shape.
+// session is a complete sign-in's tokens: an AuthResult's, or the one a
+// factor's creation carries (TwoFactorFactorCreated.auth).
 func session(t *testing.T, r response) tokens {
 	t.Helper()
-	var flat struct {
-		tokens
-		TokenSet *tokens `json:"token_set"`
+	require.Less(t, r.status, 300, r.String())
+	var body struct {
+		httpapi.AuthResult
+		Auth *httpapi.AuthResult `json:"auth"`
 	}
-	r.json(t, &flat)
-	if flat.TokenSet != nil && flat.TokenSet.AccessToken != "" {
-		return *flat.TokenSet
+	r.json(t, &body)
+	res := body.AuthResult
+	if res.Status == "" && body.Auth != nil {
+		res = *body.Auth
 	}
-	require.NotEmpty(t, flat.AccessToken, r.String())
-	return flat.tokens
+	require.Equal(t, httpapi.AuthComplete, res.Status, r.String())
+	require.NotNil(t, res.TokenSet, r.String())
+	out := tokens{AccessToken: res.TokenSet.AccessToken}
+	if res.TokenSet.RefreshToken != nil {
+		out.RefreshToken = *res.TokenSet.RefreshToken
+	}
+	require.NotEmpty(t, out.AccessToken, r.String())
+	return out
 }
 
 func (h *host) register(email string) tokens {
@@ -101,9 +109,9 @@ func TestSecurityUnprovenContactCannotAddLoginMethods(t *testing.T) {
 		req  request
 	}{
 		{"link an identity provider", request{method: http.MethodPost, path: "/oidc/linkidp/link/start", body: map[string]any{}}},
-		{"register a passkey", request{method: http.MethodPost, path: "/passkeys/register/begin", body: map[string]any{}}},
-		{"enroll an authenticator app", request{method: http.MethodPost, path: "/user/2fa", body: map[string]string{"method": "totp"}}},
-		{"link a Solana wallet", request{method: http.MethodPost, path: "/solana/link", body: map[string]any{}}},
+		{"register a passkey", request{method: http.MethodPost, path: "/me/passkeys/register/begin"}},
+		{"enroll an authenticator app", request{method: http.MethodPost, path: "/me/2fa/setup", body: map[string]string{"method": "totp"}}},
+		{"link a Solana wallet", request{method: http.MethodPut, path: "/me/solana-wallet", body: map[string]any{}}},
 	}
 	for _, a := range attempts {
 		t.Run(a.name, func(t *testing.T) {
@@ -237,13 +245,13 @@ func TestSecurityPreRegistrationContactChange(t *testing.T) {
 	squatter := h.register(victim)
 	userID := h.userID(victim)
 
-	resp := h.post("/verify/request", map[string]string{"identifier": attackerPhone}, squatter.AccessToken)
+	resp := h.do(request{method: http.MethodPut, path: "/me/phone", body: map[string]string{"phone_number": attackerPhone}, token: squatter.AccessToken})
 	require.Equal(t, http.StatusForbidden, resp.status, "an unproven account started proving a second address: %s", resp)
 	identifier, channel := contactOf(t, resp)
 	require.Equal(t, victim, identifier)
 	require.Equal(t, "email", channel)
 	require.Empty(t, h.mail.Messages(iam.MessageVerification, attackerPhone), "a code went to the squatter's phone")
-	require.Equal(t, "verification_required", h.post("/user/2fa", map[string]string{"method": "totp"}, squatter.AccessToken).errorCode())
+	require.Equal(t, "verification_required", h.post("/me/2fa/setup", map[string]string{"method": "totp"}, squatter.AccessToken).errorCode())
 
 	require.Less(t, h.post("/password/reset/request", map[string]string{"identifier": victim}, "").status, 300)
 	token := h.mail.Last(t, iam.MessagePasswordReset, victim).Token
@@ -261,7 +269,7 @@ func TestSecurityPreRegistrationContactChange(t *testing.T) {
 		a := h.newAccount("ccproven")
 		access := h.login(a).AccessToken
 		phone := "+1555" + uniqueDigits(7)
-		resp := h.post("/verify/request", map[string]string{"identifier": phone}, access)
+		resp := h.do(request{method: http.MethodPut, path: "/me/phone", body: map[string]string{"phone_number": phone}, token: access})
 		require.Equal(t, http.StatusAccepted, resp.status, resp.String())
 		unproven := unique("ccunproven") + "@security.test"
 		_, err := h.auth.UpdateUser(ctx, iam.SystemActor(), a.id, iam.UserUpdate{Email: &unproven})
@@ -277,7 +285,7 @@ func TestSecurityPreRegistrationContactChange(t *testing.T) {
 		typo := unique("cctypo") + "@security.test"
 		own := h.register(typo)
 		fixed := unique("ccfixed") + "@security.test"
-		resp := h.post("/verify/request", map[string]string{"identifier": fixed}, own.AccessToken)
+		resp := h.do(request{method: http.MethodPut, path: "/me/email", body: map[string]string{"email": fixed}, token: own.AccessToken})
 		require.Equal(t, http.StatusAccepted, resp.status, resp.String())
 		resp = h.post("/verify/confirm", map[string]string{"identifier": fixed, "code": h.verificationCode(fixed)}, own.AccessToken)
 		require.Equal(t, http.StatusNoContent, resp.status, resp.String())
@@ -343,12 +351,12 @@ func TestSecurityProviderEmailTrust(t *testing.T) {
 	})
 }
 
-// TestSecurityMemberEmailIsAnInvitation (N9): adding a member by email never
-// reveals whether an account holds the address, and never adds the account
-// without its consent: every address gets the same invitation, which only the
-// account that proved the address accepts, whatever the address's case; a
-// deleted account gets nothing. A failed verification link says nothing about
-// the address either.
+// TestSecurityMemberEmailIsAnInvitation (N9): inviting a member by email
+// never reveals whether an account holds the address, and never adds the
+// account without its consent: every address gets the same 202, and only the
+// emailed code, which only the account that proved the address accepts,
+// whatever the address's case; a deleted account gets nothing. A failed
+// verification link says nothing about the address either.
 func TestSecurityMemberEmailIsAnInvitation(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
 	ctx := context.Background()
@@ -360,30 +368,15 @@ func TestSecurityMemberEmailIsAnInvitation(t *testing.T) {
 	h.register(unverified)
 	nobody := unique("n9nobody") + "@security.test"
 
-	shape := func(r response) map[string]any {
-		var body map[string]any
-		r.json(t, &body)
-		invite, _ := body["invitation"].(map[string]any)
-		out := map[string]any{"status": r.status, "keys": slices.Sorted(maps.Keys(body)), "invitation": slices.Sorted(maps.Keys(invite))}
-		return out
-	}
-	var shapes []map[string]any
-	var code string
+	var answers []string
 	for _, email := range []string{verified.email, unverified, nobody} {
-		resp := h.post(base+"/members", map[string]string{"email": email, "role": "org:member"}, ownerToken)
-		require.Equal(t, http.StatusCreated, resp.status, resp.String())
-		require.NotContains(t, resp.String(), `"user_id"`)
-		shapes = append(shapes, shape(resp))
-		if email == verified.email {
-			var body struct {
-				Code string `json:"code"`
-			}
-			resp.json(t, &body)
-			code = body.Code
-		}
+		resp := h.post(base+"/invitations", map[string]string{"email": email, "role": "org:member"}, ownerToken)
+		require.Equal(t, http.StatusAccepted, resp.status, resp.String())
+		answers = append(answers, fmt.Sprintf("%d %q", resp.status, resp.body))
 	}
-	require.Equal(t, shapes[0], shapes[1])
-	require.Equal(t, shapes[0], shapes[2])
+	require.Equal(t, answers[0], answers[1])
+	require.Equal(t, answers[0], answers[2])
+	code := h.inviteCode(verified.email)
 	roleOf := func(id string) iam.Role {
 		roles, err := h.auth.GroupRoles(ctx, group, []iam.Subject{iam.UserSubject(id)})
 		require.NoError(t, err)
@@ -392,33 +385,30 @@ func TestSecurityMemberEmailIsAnInvitation(t *testing.T) {
 	require.Empty(t, roleOf(verified.id), "a verified address was added without consent")
 
 	stranger := h.newAccount("n9stranger")
-	resp := h.post("/invites/redeem", map[string]string{"code": code}, h.login(stranger).AccessToken)
+	resp := h.post("/invitations/redeem", map[string]string{"code": code}, h.login(stranger).AccessToken)
 	require.Equal(t, http.StatusNotFound, resp.status, "another account accepted the invitation: %s", resp)
 	require.Empty(t, roleOf(stranger.id))
-	resp = h.post("/invites/redeem", map[string]string{"code": code}, h.login(verified).AccessToken)
+	resp = h.post("/invitations/redeem", map[string]string{"code": code}, h.login(verified).AccessToken)
 	require.Equal(t, http.StatusOK, resp.status, resp.String())
 	require.Equal(t, h.role(orgPersona, "member"), roleOf(verified.id), "control: the invited account accepts")
 
 	t.Run("an upper-cased address invites only its proven owner", func(t *testing.T) {
 		proven := h.newAccount("n9upper")
-		resp := h.post(base+"/members", map[string]string{"email": strings.ToUpper(proven.email), "role": "org:member"}, ownerToken)
-		require.Equal(t, http.StatusCreated, resp.status, resp.String())
+		resp := h.post(base+"/invitations", map[string]string{"email": strings.ToUpper(proven.email), "role": "org:member"}, ownerToken)
+		require.Equal(t, http.StatusAccepted, resp.status, resp.String())
 		require.Empty(t, roleOf(proven.id), "a verified address is invited, never added")
-		var body struct {
-			Code string `json:"code"`
-		}
-		resp.json(t, &body)
-		resp = h.post("/invites/redeem", map[string]string{"code": body.Code}, h.login(stranger).AccessToken)
+		code := h.inviteCode(proven.email)
+		resp = h.post("/invitations/redeem", map[string]string{"code": code}, h.login(stranger).AccessToken)
 		require.Equal(t, http.StatusNotFound, resp.status, "another account accepted the invitation: %s", resp)
-		resp = h.post("/invites/redeem", map[string]string{"code": body.Code}, h.login(proven).AccessToken)
+		resp = h.post("/invitations/redeem", map[string]string{"code": code}, h.login(proven).AccessToken)
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
 		require.Equal(t, h.role(orgPersona, "member"), roleOf(proven.id))
 	})
 	t.Run("a deleted account's address gets no role", func(t *testing.T) {
 		gone := h.newAccount("n9gone")
 		require.NoError(t, opErr(h.auth.DeleteUsers(ctx, iam.SystemActor(), []string{gone.id})))
-		resp := h.post(base+"/members", map[string]string{"email": gone.email, "role": "org:member"}, ownerToken)
-		require.Equal(t, http.StatusCreated, resp.status, resp.String())
+		resp := h.post(base+"/invitations", map[string]string{"email": gone.email, "role": "org:member"}, ownerToken)
+		require.Equal(t, http.StatusAccepted, resp.status, resp.String())
 		require.Empty(t, roleOf(gone.id), "a deleted account received a role")
 	})
 

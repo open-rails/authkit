@@ -36,7 +36,7 @@ func accountRegistrationInviteTokenFromContext(ctx context.Context) string {
 
 func (s *Engine) accountRegistrationInviteURL(code string) string {
 	q := url.Values{}
-	q.Set("account_invite_token", code)
+	q.Set("invite_code", code)
 	return s.authkitURL(s.cfg.Frontend.InvitePath, q)
 }
 

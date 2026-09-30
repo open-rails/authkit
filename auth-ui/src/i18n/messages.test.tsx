@@ -163,15 +163,13 @@ describe("locale bundles", () => {
   it("has English copy for the codes the flows branch on", () => {
     const codes = [
       "invalid_credentials",
-      "2fa_required",
-      "2fa_enrollment_required",
       "verification_required",
-      "account_recovery_required",
       "password_reset_required",
       "step_up_required",
       "rate_limited",
       "user_banned",
       "code_expired",
+      "cannot_unlink_last_login_method",
     ]
     for (const code of codes) expect(en.errors).toHaveProperty([code])
   })

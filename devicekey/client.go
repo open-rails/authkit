@@ -95,7 +95,7 @@ func (c *Client) FinishEnrollment(ctx context.Context, e Enrollment, key crypto.
 	started := time.Now()
 	var out tokenAnswer
 	if err := c.do(ctx, http.MethodPost, "/device-keys/enroll/finish", "", req, &out); err != nil {
-		if ae, ok := iam.AsError(err); ok && ae.Code() == "step_up_required" {
+		if ae, ok := iam.AsError(err); ok && ae.Code() == "2fa_required" && ae.Param() == "code_2fa" {
 			method, _ := ae.Metadata()["method"].(string)
 			return Session{}, &SecondFactorRequired{Method: method, err: err}
 		}
@@ -132,28 +132,60 @@ func (c *Client) Login(ctx context.Context, id string, key crypto.Signer) (Sessi
 	return s, err
 }
 
-// List returns the account's device keys, revoked ones included, with a
-// device-key access token.
+// List returns the account's live device keys with a device-key access token:
+// the device keys of GET /me/sign-in-keys. That view has no public key or
+// revocation time, so PublicKey and RevokedAt are unset.
 func (c *Client) List(ctx context.Context, token string) ([]iam.DeviceKey, error) {
-	var out struct {
-		Data []iam.DeviceKey `json:"data"`
+	var keys []iam.DeviceKey
+	cursor := ""
+	for {
+		path := "/me/sign-in-keys"
+		if cursor != "" {
+			path += "?cursor=" + url.QueryEscape(cursor)
+		}
+		var page struct {
+			Data []struct {
+				ID         string     `json:"id"`
+				Kind       string     `json:"kind"`
+				Label      *string    `json:"label"`
+				CreatedAt  time.Time  `json:"created_at"`
+				LastUsedAt *time.Time `json:"last_used_at"`
+				Current    bool       `json:"current"`
+			} `json:"data"`
+			NextCursor *string `json:"next_cursor"`
+		}
+		if err := c.do(ctx, http.MethodGet, path, token, nil, &page); err != nil {
+			return nil, err
+		}
+		for _, k := range page.Data {
+			if k.Kind == "device_key" {
+				keys = append(keys, iam.DeviceKey{ID: k.ID, Label: k.Label, CreatedAt: k.CreatedAt, LastUsedAt: k.LastUsedAt, Current: k.Current})
+			}
+		}
+		if page.NextCursor == nil || *page.NextCursor == "" || *page.NextCursor == cursor {
+			return keys, nil
+		}
+		cursor = *page.NextCursor
 	}
-	if err := c.do(ctx, http.MethodGet, "/device-keys", token, nil, &out); err != nil {
-		return nil, err
-	}
-	return out.Data, nil
 }
 
-// Revoke revokes the account's key id with a device-key access token.
-// Revoking the token's own key signs the machine out, and is retry-safe.
+// Revoke revokes the account's key id with a device-key access token of a
+// recent sign-in (DELETE /me/sign-in-keys/{id}). Logout revokes the token's
+// own key.
 func (c *Client) Revoke(ctx context.Context, token, id string) error {
-	return c.do(ctx, http.MethodDelete, "/device-keys/"+url.PathEscape(id), token, nil, nil)
+	return c.do(ctx, http.MethodDelete, "/me/sign-in-keys/"+url.PathEscape(id), token, nil, nil)
 }
 
 // RevokeOthers revokes every key of the account but the token's own. The
 // token must come from FinishEnrollment; a Login token is refused (forbidden).
 func (c *Client) RevokeOthers(ctx context.Context, token string) error {
-	return c.do(ctx, http.MethodPost, "/device-keys/revoke-others", token, struct{}{}, nil)
+	return c.do(ctx, http.MethodDelete, "/device-keys", token, nil, nil)
+}
+
+// Logout signs the machine out: it revokes the token's own key. It is
+// retry-safe.
+func (c *Client) Logout(ctx context.Context, token string) error {
+	return c.do(ctx, http.MethodDelete, "/logout", token, nil, nil)
 }
 
 func (c *Client) do(ctx context.Context, method, path, token string, body, out any) error {
@@ -196,19 +228,21 @@ func (c *Client) do(ctx context.Context, method, path, token string, body, out a
 	return nil
 }
 
+// tokenAnswer is a device-key sign-in's AuthResult, as far as it is read.
 type tokenAnswer struct {
-	TokenSet  iam.TokenSet  `json:"token_set"`
-	DeviceKey iam.DeviceKey `json:"device_key"`
+	Status    string         `json:"status"`
+	TokenSet  *iam.TokenSet  `json:"token_set"`
+	DeviceKey *iam.DeviceKey `json:"device_key"`
 }
 
 // session dates the expiry from before the request, so latency never extends
 // the server's lifetime.
 func (a tokenAnswer) session(path string, started time.Time) (Session, error) {
 	t := a.TokenSet
-	if t.AccessToken == "" || !strings.EqualFold(t.TokenType, "Bearer") || t.ExpiresIn <= 0 || t.ExpiresIn > math.MaxInt64/int64(time.Second) || a.DeviceKey.ID == "" {
+	if a.Status != "complete" || t == nil || a.DeviceKey == nil || t.AccessToken == "" || !strings.EqualFold(t.TokenType, "Bearer") || t.ExpiresIn <= 0 || t.ExpiresIn > math.MaxInt64/int64(time.Second) || a.DeviceKey.ID == "" {
 		return Session{}, malformed(path)
 	}
-	return Session{AccessToken: t.AccessToken, ExpiresAt: started.Add(time.Duration(t.ExpiresIn) * time.Second), DeviceKey: a.DeviceKey}, nil
+	return Session{AccessToken: t.AccessToken, ExpiresAt: started.Add(time.Duration(t.ExpiresIn) * time.Second), DeviceKey: *a.DeviceKey}, nil
 }
 
 func validChallenge(challenge string) bool {

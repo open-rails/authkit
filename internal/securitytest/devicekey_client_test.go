@@ -94,8 +94,8 @@ func TestSecurityDeviceKeyClient(t *testing.T) {
 		_, err = c.Login(ctx, enrolled.DeviceKey.ID, other)
 		requireRefusal(t, err, http.StatusUnauthorized, "invalid_credentials")
 
-		require.NoError(t, c.Revoke(ctx, s.AccessToken, s.DeviceKey.ID))
-		require.NoError(t, c.Revoke(ctx, s.AccessToken, s.DeviceKey.ID), "signing out is retry-safe")
+		require.NoError(t, c.Logout(ctx, s.AccessToken))
+		require.NoError(t, c.Logout(ctx, s.AccessToken), "signing out is retry-safe")
 		_, err = c.Login(ctx, enrolled.DeviceKey.ID, priv)
 		requireRefusal(t, err, http.StatusUnauthorized, "invalid_credentials")
 		e, err = c.BeginEnrollment(ctx, email, pub, "")
@@ -145,7 +145,9 @@ func TestSecurityDeviceKeyClient(t *testing.T) {
 		var sf *devicekey.SecondFactorRequired
 		require.ErrorAs(t, err, &sf)
 		require.Equal(t, "backup_code", sf.Method, "the enrollment mailbox was offered as the second factor")
-		requireRefusal(t, err, http.StatusForbidden, "step_up_required")
+		requireRefusal(t, err, http.StatusForbidden, "2fa_required")
+		refusal, _ := iam.AsError(err)
+		require.Equal(t, "code_2fa", refusal.Param())
 
 		h.passwordStep(a, "198.51.100.61")
 		_, err = c.FinishEnrollment(ctx, e, priv, code, h.mail.Last(t, iam.MessageLoginCode, a.email).Code)
@@ -219,10 +221,9 @@ func TestSecurityDeviceKeyClient(t *testing.T) {
 		requireRefusal(t, err, http.StatusUnauthorized, "invalid_credentials")
 		keys, err := c.List(ctx, proof.AccessToken)
 		require.NoError(t, err)
-		require.Len(t, keys, 2)
-		for _, k := range keys {
-			require.Equal(t, k.ID == kept.DeviceKey.ID, k.RevokedAt == nil, "%+v", k)
-		}
+		require.Len(t, keys, 1, "the other machine's key is gone from the account's sign-in keys")
+		require.Equal(t, kept.DeviceKey.ID, keys[0].ID)
+		require.True(t, keys[0].Current)
 
 		// A key bound to one account never enrolls on another.
 		stranger := h.newAccount("dkstranger")

@@ -1,12 +1,10 @@
 package httpapi
 
 import (
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"math"
 	"net/http"
-	"reflect"
 	"strconv"
 	"time"
 
@@ -24,8 +22,8 @@ func writeError(w http.ResponseWriter, err error) {
 	if e.Status() >= 500 && e.Code() != string(errmodel.CodeServerBusy) {
 		slog.Default().Error("authkit: request failed", slog.Int("status", e.Status()), slog.String("error", errorString(err)))
 	}
-	if seconds, ok := e.Metadata()["retry_after_seconds"].(int); ok && seconds > 0 && w.Header().Get("Retry-After") == "" {
-		w.Header().Set("Retry-After", strconv.Itoa(seconds))
+	if seconds, ok := e.Metadata()["retry_after_seconds"].(int64); ok && seconds > 0 && w.Header().Get("Retry-After") == "" {
+		w.Header().Set("Retry-After", strconv.FormatInt(seconds, 10))
 	}
 	iam.WriteError(w, err)
 }
@@ -91,7 +89,8 @@ func tooMany(w http.ResponseWriter, retryAfter ...time.Duration) {
 		seconds = 1
 	}
 	w.Header().Set("Retry-After", strconv.Itoa(seconds))
-	fail(w, errmodel.CodeRateLimited, errmodel.WithMetadata(map[string]any{"retry_after_seconds": seconds}))
+	next := time.Now().Add(time.Duration(seconds) * time.Second).UTC()
+	fail(w, errmodel.CodeRateLimited, errmodel.WithDetails(authflow.ActionAvailability{Reason: "rate_limited", RetryAfterSeconds: int64(seconds), NextAllowedAt: &next}))
 }
 
 func tooManyAvailability(w http.ResponseWriter, availability authflow.ActionAvailability) {
@@ -106,20 +105,7 @@ func tooManyAvailability(w http.ResponseWriter, availability authflow.ActionAvai
 	if availability.Remaining != nil {
 		w.Header().Set("RateLimit-Remaining", strconv.Itoa(*availability.Remaining))
 	}
-	fail(w, errmodel.CodeRateLimited, withDetails(availability))
-}
-
-// withDetails is an error's metadata from a typed value: its JSON object.
-func withDetails(v any) errmodel.Option {
-	raw, err := json.Marshal(wireForm(reflect.ValueOf(v)).Interface())
-	var meta map[string]any
-	if err == nil {
-		err = json.Unmarshal(raw, &meta)
-	}
-	if err != nil {
-		panic("httpapi: error details must marshal to a JSON object: " + err.Error())
-	}
-	return errmodel.WithMetadata(meta)
+	fail(w, errmodel.CodeRateLimited, errmodel.WithDetails(availability))
 }
 
 // noContent is the ack for a mutation with nothing to return (#313).

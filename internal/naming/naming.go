@@ -36,7 +36,7 @@ func validate(minLen, maxLen int, username string, hyphens bool) error {
 		if n > maxLen {
 			code = errmodel.CodeUsernameTooLong
 		}
-		return errmodel.E(code, errmodel.WithMetadata(map[string]any{"min_length": minLen, "max_length": maxLen}))
+		return errmodel.E(code, errmodel.WithDetails(errmodel.LengthBounds{MinLength: minLen, MaxLength: maxLen}))
 	}
 	if !asciiLetter(username[0]) {
 		return errmodel.E(errmodel.CodeUsernameMustStartWithLetter)
@@ -94,7 +94,12 @@ func CheckRename(c config.UsernameConfig, lastRenamedAt *time.Time, now time.Tim
 		return iam.ErrRenamesDisabled
 	}
 	if next, ok := nextRename(c, lastRenamedAt); ok && now.Before(next) {
-		return errmodel.E(errmodel.CodeRenameRateLimited, errmodel.WithMeta("next_rename_at", next))
+		next = next.UTC()
+		retry := int64((next.Sub(now) + time.Second - time.Nanosecond) / time.Second)
+		cooldown := int64(Cooldown(c) / time.Second)
+		return errmodel.E(errmodel.CodeRenameRateLimited, errmodel.WithDetails(errmodel.ActionAvailability{
+			Action: "update_username", Reason: "cooldown", RetryAfterSeconds: retry, NextAllowedAt: &next, CooldownSeconds: &cooldown,
+		}))
 	}
 	return nil
 }

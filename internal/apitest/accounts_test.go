@@ -18,6 +18,7 @@ import (
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/naming"
 	"github.com/open-rails/authkit/internal/testidp"
 )
@@ -111,12 +112,12 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 				}
 				expect(t, http.StatusForbidden, a.post(start, "", body))
 				invitation := invite(t, inviter, uniqueEmail("invite"))
-				body["account_invite_token"] = invitation.Code
+				body["invite_code"] = invitation.Code
 				expect(t, http.StatusAccepted, a.post(start, "", body))
 				if !passwordless {
 					expect(t, http.StatusUnauthorized, a.post("/password/login", "", map[string]any{"identifier": identifier, "password": "wrong"}))
-					recovery := expect(t, http.StatusForbidden, a.post("/password/login", "", map[string]any{"identifier": identifier, "password": password}))
-					require.Equal(t, "verification_required", recovery.code())
+					pending := a.post("/password/login", "", map[string]any{"identifier": identifier, "password": password}).answer(t).step(t, httpapi.AuthVerificationRequired)
+					require.Equal(t, httpapi.VerificationStep{Identifier: identifier, Channel: channel}, *pending.Verification)
 				}
 
 				sent := outbox.Last(t, iam.MessageVerification, identifier)
@@ -149,10 +150,10 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 					if reply.status == http.StatusOK {
 						winners++
 						session := reply.answer(t)
-						tokens = session.TokenSet
+						tokens = session.signedIn(t)
+						require.True(t, session.Created, "the proof created the account")
 						if passwordless {
-							tokens = session.Nested
-							require.Equal(t, "/checkout?plan=pro", session.ReturnTo)
+							require.Equal(t, "/checkout?plan=pro", *session.ReturnTo)
 						}
 					} else {
 						require.Equal(t, [2]int{http.StatusUnauthorized, http.StatusBadRequest}[i], reply.status, reply.String()) // spent code, spent link
@@ -202,7 +203,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 	for _, start := range []string{"/register", "/passwordless/start"} {
 		email := uniqueEmail("revoked")
 		issuer := newInviter(t)
-		payload := map[string]any{"identifier": email, "account_invite_token": invite(t, issuer, email).Code}
+		payload := map[string]any{"identifier": email, "invite_code": invite(t, issuer, email).Code}
 		confirm := "/verify/confirm"
 		if start == "/register" {
 			payload["username"] = unique("revoked")
@@ -244,7 +245,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 	_, err := auth.CreateUser(ctx, iam.NewUser{Email: uniqueEmail("collision"), Username: username})
 	require.NoError(t, err)
 	collisionEmail := username + "@example.com"
-	expect(t, http.StatusAccepted, a.post("/passwordless/start", "", map[string]any{"identifier": collisionEmail, "mode": "code", "account_invite_token": invite(t, inviter, collisionEmail).Code}))
+	expect(t, http.StatusAccepted, a.post("/passwordless/start", "", map[string]any{"identifier": collisionEmail, "mode": "code", "invite_code": invite(t, inviter, collisionEmail).Code}))
 	expect(t, http.StatusOK, a.post("/passwordless/confirm", "", map[string]any{"identifier": collisionEmail, "code": outbox.Last(t, iam.MessageVerification, collisionEmail).Code}))
 	created, err := auth.User(ctx, iam.UserByEmail(collisionEmail))
 	require.NoError(t, err)
@@ -309,12 +310,9 @@ func testProofLifecycle(t *testing.T, auth *authkit.Client, a *api, outbox *auth
 			sent := begin()
 			link = deliveredLink(t, sent.Link, path, channel)
 			done := expect(t, http.StatusOK, a.post(confirm, "", map[string]any{"identifier": identifier, "code": sent.Code})).answer(t)
-			tokens := done.TokenSet
-			if passwordless {
-				tokens = done.Nested
-				require.Empty(t, done.ReturnTo)
-			}
-			requireSessionWith(t, a, auth, tokens, amr)
+			require.Nil(t, done.ReturnTo, "an off-site return_to is dropped")
+			require.False(t, done.Created)
+			requireSessionWith(t, a, auth, done.signedIn(t), amr)
 			expect(t, http.StatusBadRequest, a.post(confirm, "", map[string]any{"token": link}))
 			// The reverse order (link then code) has the same canonical winner. Existing
 			// accounts remain available in InviteOnly mode without spending another invite.
@@ -322,7 +320,7 @@ func testProofLifecycle(t *testing.T, auth *authkit.Client, a *api, outbox *auth
 				sent = begin()
 				link = deliveredLink(t, sent.Link, path, channel)
 				done = expect(t, http.StatusOK, a.post(confirm, "", map[string]any{"token": link})).answer(t)
-				requireSessionWith(t, a, auth, done.Nested, amr)
+				requireSessionWith(t, a, auth, done.signedIn(t), amr)
 				expect(t, http.StatusUnauthorized, a.post(confirm, "", map[string]any{"identifier": identifier, "code": sent.Code}))
 			}
 		}
@@ -371,10 +369,10 @@ func TestPasswordChangeOnLegacyHashRequiresReset(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, res.status, res.String())
 	res = a.post("/passwordless/confirm", "", map[string]any{"identifier": email, "code": outbox.Last(t, iam.MessageVerification, email).Code})
 	require.Equal(t, http.StatusOK, res.status, res.String())
-	token := res.answer(t).Nested.AccessToken
+	token := res.answer(t).signedIn(t).AccessToken
 	require.NotEmpty(t, token)
 
-	res = a.post("/user/password", token, map[string]any{"current_password": "Correct-horse-battery-7", "new_password": "Another-horse-battery-8"})
+	res = a.do(request{method: http.MethodPut, path: "/me/password", token: token, body: map[string]any{"current_password": "Correct-horse-battery-7", "new_password": "Another-horse-battery-8"}})
 	require.Equal(t, http.StatusUnauthorized, res.status, res.String())
 	require.Equal(t, "password_reset_required", res.code())
 }
@@ -399,7 +397,7 @@ func TestUsernameCaseWorkflow(t *testing.T) {
 	held := expect(t, http.StatusBadRequest, a.post("/register", "", map[string]any{"identifier": uniqueEmail("case-pending"), "username": lower, "password": pass}))
 	require.Equal(t, "username_in_use", held.code(), "a pending signup holds every spelling of its name")
 
-	confirmed := expect(t, http.StatusOK, a.post("/verify/confirm", "", map[string]any{"identifier": owner, "code": outbox.Last(t, iam.MessageVerification, owner).Code})).answer(t)
+	confirmed := expect(t, http.StatusOK, a.post("/verify/confirm", "", map[string]any{"identifier": owner, "code": outbox.Last(t, iam.MessageVerification, owner).Code})).answer(t).signedIn(t)
 	claims, err := auth.Verify(ctx, confirmed.AccessToken)
 	require.NoError(t, err)
 	userID := claims.UserID
@@ -409,7 +407,7 @@ func TestUsernameCaseWorkflow(t *testing.T) {
 	// the last one's token is live.
 	var live string
 	for _, spelling := range []string{name, lower, upper} {
-		login := expect(t, http.StatusOK, a.post("/password/login", "", map[string]any{"identifier": spelling, "password": pass})).answer(t)
+		login := expect(t, http.StatusOK, a.post("/password/login", "", map[string]any{"identifier": spelling, "password": pass})).answer(t).signedIn(t)
 		got, err := auth.Verify(ctx, login.AccessToken)
 		require.NoError(t, err)
 		require.Equal(t, userID, got.UserID, "login as %s", spelling)
@@ -434,9 +432,9 @@ func TestUsernameCaseWorkflow(t *testing.T) {
 	availability.decode(t, &answer)
 	require.False(t, answer.Username.Available)
 
-	evicted := expect(t, http.StatusUnauthorized, a.do(request{method: http.MethodPatch, path: "/user/username", token: confirmed.AccessToken, body: map[string]any{"username": lower}}))
+	evicted := expect(t, http.StatusUnauthorized, a.do(request{method: http.MethodPatch, path: "/me", token: confirmed.AccessToken, body: map[string]any{"username": lower}}))
 	require.Equal(t, "session_revoked", evicted.code(), "an evicted session changes nothing")
-	renamed := expect(t, http.StatusOK, a.do(request{method: http.MethodPatch, path: "/user/username", token: live, body: map[string]any{"username": lower}}))
+	renamed := expect(t, http.StatusOK, a.do(request{method: http.MethodPatch, path: "/me", token: live, body: map[string]any{"username": lower}}))
 	require.Contains(t, renamed.String(), `"username":"`+lower+`"`)
 	me := a.me(t, live)
 	require.Equal(t, lower, me.Username)
@@ -447,7 +445,7 @@ func TestUsernameCaseWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, iam.NameResolution{ID: userID, CanonicalName: lower}, resolved)
 	expect(t, http.StatusOK, a.post("/password/login", "", map[string]any{"identifier": name, "password": pass}))
-	expect(t, http.StatusOK, a.do(request{method: http.MethodPatch, path: "/user/username", token: live, body: map[string]any{"username": unique("renamed")}}))
+	expect(t, http.StatusOK, a.do(request{method: http.MethodPatch, path: "/me", token: live, body: map[string]any{"username": unique("renamed")}}))
 }
 
 // policyError checks res is the 400 a policy refusal is, on param, and returns
@@ -495,12 +493,12 @@ func TestAccountPolicies(t *testing.T) {
 	registered := func(t *testing.T, res response) string {
 		t.Helper()
 		require.Equal(t, http.StatusOK, res.status, res.String())
-		token := res.answer(t).Nested.AccessToken
+		token := res.answer(t).signedIn(t).AccessToken
 		require.NotEmpty(t, token)
 		return token
 	}
 	change := func(a *api, token, current, next string) response {
-		return a.post("/user/password", token, map[string]any{"current_password": current, "new_password": next})
+		return a.do(request{method: http.MethodPut, path: "/me/password", token: token, body: map[string]any{"current_password": current, "new_password": next}})
 	}
 
 	t.Run("configured length", func(t *testing.T) {
@@ -558,7 +556,7 @@ func TestAccountPolicies(t *testing.T) {
 		require.Equal(t, bounds, policyError(t, register(a, "compose@example.test", "composer_long", "abc-12345"), "username_too_long", "username"))
 		policyError(t, register(a, "compose@example.test", "1composer", "abc-12345"), "username_must_start_with_letter", "username")
 		token := registered(t, register(a, "compose@example.test", "composer", "password1!"))
-		rename := a.do(request{method: http.MethodPatch, path: "/user/username", token: token, body: map[string]any{"username": "abc"}})
+		rename := a.do(request{method: http.MethodPatch, path: "/me", token: token, body: map[string]any{"username": "abc"}})
 		require.Equal(t, bounds, policyError(t, rename, "username_too_short", "username"))
 	})
 
@@ -612,11 +610,11 @@ func TestCredentialTransactionsResetGrantsExpireOnCredentialChanges(t *testing.T
 			switch change {
 			case "password_change":
 				token := authtest.SignIn(t, auth, u).AccessToken
-				expect(t, http.StatusNoContent, a.post("/user/password", token, map[string]any{"current_password": u.Password, "new_password": "Defender-password-12345"}))
+				expect(t, http.StatusNoContent, a.do(request{method: http.MethodPut, path: "/me/password", token: token, body: map[string]any{"current_password": u.Password, "new_password": "Defender-password-12345"}}))
 			case "contact_change":
 				token := authtest.SignIn(t, auth, u).AccessToken
 				next := uniqueEmail("audit-new-email")
-				expect(t, http.StatusAccepted, a.post("/verify/request", token, map[string]any{"identifier": next}))
+				expect(t, http.StatusAccepted, a.do(request{method: http.MethodPut, path: "/me/email", token: token, body: map[string]any{"email": next}}))
 				expect(t, http.StatusNoContent, a.post("/verify/confirm", token, map[string]any{"identifier": next, "code": outbox.Last(t, iam.MessageVerification, next).Code}))
 			case "other_reset":
 				current := requestReset()
@@ -646,8 +644,8 @@ func TestBootstrapWorkflow(t *testing.T) {
 		switch {
 		case res.status == http.StatusUnauthorized:
 			return false
-		case res.status == http.StatusOK, res.status == http.StatusForbidden && res.code() == "2fa_enrollment_required":
-			return true
+		case res.status == http.StatusOK:
+			return true // signed in, or the owner role's MFA enrollment next
 		}
 		require.FailNow(t, "unexpected sign-in answer", "%s: %s", username, res)
 		return false

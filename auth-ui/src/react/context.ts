@@ -10,7 +10,11 @@ import {
 import type { AuthClient, AuthSession } from "../client/client.ts"
 import type { AuthKitError } from "../client/errors.ts"
 import { hasPermission } from "../client/permissions.ts"
-import type { Capabilities, UserProfile } from "../client/types.ts"
+import type {
+  Capabilities,
+  PermissionSet,
+  UserProfile,
+} from "../client/types.ts"
 import { createResource, type Resource } from "./resource.ts"
 import { toAuthKitError } from "./task.ts"
 
@@ -113,10 +117,12 @@ export function useCapabilities(): CapabilitiesState {
 }
 
 export type PermissionsState = {
+  // The caller's role in the group (qualified, e.g. "root:admin"), if any.
+  role: string | null
+  // The concrete permissions the role expands to.
   permissions: string[] | null
   loading: boolean
   error: AuthKitError | null
-  // Glob-aware (`root:*`), same semantics as AuthKit.
   has: (permission: string) => boolean
   refetch: () => void
 }
@@ -134,7 +140,7 @@ export function usePermissions(
   const request = `${key}|${groupId ?? ""}|${nonce}`
   const [state, setState] = useState<{
     request: string
-    permissions: string[] | null
+    set: PermissionSet | null
     error: AuthKitError | null
   } | null>(null)
 
@@ -142,22 +148,23 @@ export function usePermissions(
     if (!authed) return
     const ctl = new AbortController()
     client.getPermissions({ groupId }, ctl.signal).then(
-      (permissions) => setState({ request, permissions, error: null }),
+      (set) => setState({ request, set, error: null }),
       (err: unknown) => {
         if (!ctl.signal.aborted)
-          setState({ request, permissions: null, error: toAuthKitError(err) })
+          setState({ request, set: null, error: toAuthKitError(err) })
       }
     )
     return () => ctl.abort()
   }, [client, authed, groupId, request])
 
   const current = authed && state?.request === request ? state : null
-  const permissions = current?.permissions ?? null
+  const permissions = current?.set?.permissions ?? null
   const has = useCallback(
-    (permission: string) => hasPermission(permissions ?? undefined, permission),
+    (permission: string) => hasPermission(permissions, permission),
     [permissions]
   )
   return {
+    role: current?.set?.role ?? null,
     permissions,
     loading: authed && !current,
     error: current?.error ?? null,

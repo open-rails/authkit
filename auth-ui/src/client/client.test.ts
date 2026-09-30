@@ -2,7 +2,16 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createAuthClient } from "./client.ts"
 import { AuthKitError } from "./errors.ts"
-import { authError, json, jwt, stubFetch, tokens } from "./testing.ts"
+import {
+  authError,
+  authResult,
+  complete,
+  json,
+  jwt,
+  stubFetch,
+  tokenSet,
+  tokens,
+} from "./testing.ts"
 
 afterEach(() => {
   vi.useRealTimers()
@@ -13,7 +22,34 @@ const signIn = (
   client: ReturnType<typeof createAuthClient>,
   sub = "u1",
   exp?: number
-) => client.completeSignIn(async () => ({ access_token: jwt(sub, exp) }))
+) => client.completeSignIn(async () => complete(sub, exp))
+
+const noContent = () => new Response(null, { status: 204 })
+const accepted = () => new Response(null, { status: 202 })
+
+const factor = {
+  id: "f1",
+  method: "sms",
+  is_default: true,
+  destination: "+1***99",
+}
+const secondFactor = authResult("second_factor_required", {
+  second_factor: {
+    user_id: "u",
+    challenge: "c",
+    factor,
+    factors: [factor],
+  },
+})
+const enrollment = authResult("enrollment_required", {
+  enrollment: { token_set: tokenSet("e"), allowed_methods: ["totp"] },
+})
+const fresh = {
+  last_authenticated_at: "2026-09-29T00:00:00Z",
+  step_up_required_for_sensitive_actions: false,
+  step_up_required_in_seconds: 300,
+  auth_methods: ["pwd"],
+}
 
 describe("refresh", () => {
   it("rotates through the refresh cookie without sending token material", async () => {
@@ -47,9 +83,14 @@ describe("refresh", () => {
           grant_type: "refresh_token",
           refresh_token: "rt-1",
         })
-        return json(200, { access_token: jwt("u1"), refresh_token: "rt-2" })
+        return json(
+          200,
+          complete("u1", undefined, {
+            token_set: { ...tokenSet("u1"), refresh_token: "rt-2" },
+          })
+        )
       },
-      "DELETE /auth/logout": () => new Response(null, { status: 204 }),
+      "DELETE /auth/logout": noContent,
     })
     const client = createAuthClient({ fetch, storage, baseUrl: "/auth/" })
     expect(await client.refresh()).toBe(true)
@@ -92,22 +133,15 @@ describe("refresh", () => {
     }
   )
 
-  it("surfaces an MFA continuation demanded by refresh", async () => {
-    const fetch = vi.fn().mockResolvedValue(
-      authError(403, "2fa_required", {
-        user_id: "u1",
-        challenge: "c",
-        method: "totp",
-        verification_id: "",
-      })
-    )
+  it("ends the session on the next step a refresh answers", async () => {
+    const fetch = vi.fn().mockResolvedValue(json(200, enrollment))
     const client = createAuthClient({ fetch })
     await signIn(client)
-    await client.refresh()
+    expect(await client.refresh()).toBe(false)
     expect(client.getSnapshot()).toMatchObject({
       status: "anonymous",
       reason: "expired",
-      continuation: { kind: "2fa_required", userId: "u1", challenge: "c" },
+      continuation: { status: "enrollment_required" },
     })
   })
 
@@ -187,7 +221,7 @@ describe("requests", () => {
   it("refreshes and retries once when the bearer is stale", async () => {
     const seen: (string | null)[] = []
     const fetch = stubFetch({
-      "GET /api/v1/user/sessions": ({ headers }) => {
+      "GET /api/v1/me/sessions": ({ headers }) => {
         seen.push(new Headers(headers).get("Authorization"))
         return seen.length === 1
           ? authError(401, "invalid_token")
@@ -203,7 +237,7 @@ describe("requests", () => {
 
   it("does not refresh on a semantic 401", async () => {
     const fetch = stubFetch({
-      "POST /api/v1/step-up/password": [authError(401, "invalid_password")],
+      "POST /api/v1/me/step-up/password": [authError(401, "invalid_password")],
     })
     const client = createAuthClient({ fetch })
     await signIn(client)
@@ -247,13 +281,13 @@ describe("requests", () => {
 })
 
 describe("flows", () => {
-  it("password login commits the session", async () => {
+  it("password login commits a complete AuthResult", async () => {
     const client = createAuthClient({
       fetch: stubFetch({ "POST /api/v1/password/login": [tokens("u1")] }),
     })
     expect(
       await client.signInWithPassword({ identifier: "a", password: "b" })
-    ).toEqual({ kind: "session" })
+    ).toMatchObject({ status: "complete", token_set: { token_type: "Bearer" } })
     expect(client.getSnapshot()).toMatchObject({
       status: "authenticated",
       userId: "u1",
@@ -261,50 +295,38 @@ describe("flows", () => {
   })
 
   it.each([
-    [
-      403,
-      "2fa_required",
-      { user_id: "u", challenge: "c", method: "sms", verification_id: "+1***" },
-      "2fa_required",
-    ],
-    [
-      403,
-      "2fa_enrollment_required",
-      {
-        user_id: "u",
-        allowed_methods: ["totp"],
-        token_set: { access_token: "e" },
-      },
-      "2fa_enrollment_required",
-    ],
-    [
-      403,
-      "verification_required",
-      { identifier: "a@b.c", channel: "email" },
-      "verification_required",
-    ],
-    [
-      409,
-      "account_recovery_required",
-      { recovery: { token: "r", expires_at: "x", purge_at: "y" } },
-      "account_recovery_required",
-    ],
-  ])(
-    "password login returns %i %s as a continuation, not a session",
-    async (status, code, metadata, kind) => {
-      const client = createAuthClient({
-        fetch: stubFetch({
-          "POST /api/v1/password/login": [authError(status, code, metadata)],
-        }),
-      })
-      expect(
-        await client.signInWithPassword({ identifier: "a", password: "b" })
-      ).toMatchObject({ kind })
-      expect(client.getAccessToken()).toBeNull()
-    }
-  )
+    secondFactor,
+    enrollment,
+    authResult("verification_required", {
+      verification: { identifier: "a@b.c", channel: "email" },
+    }),
+    authResult("account_recovery_required", {
+      recovery: { token: "r", expires_at: "x", purge_at: "y" },
+    }),
+  ])("password login returns $status without a session", async (step) => {
+    const client = createAuthClient({
+      fetch: stubFetch({ "POST /api/v1/password/login": [json(200, step)] }),
+    })
+    expect(
+      await client.signInWithPassword({ identifier: "a", password: "b" })
+    ).toEqual(step)
+    expect(client.getAccessToken()).toBeNull()
+  })
 
-  it("rethrows ordinary login failures", async () => {
+  it("refuses an AuthResult whose status lacks its step", async () => {
+    const client = createAuthClient({
+      fetch: stubFetch({
+        "POST /api/v1/password/login": [
+          json(200, authResult("second_factor_required")),
+        ],
+      }),
+    })
+    await expect(
+      client.signInWithPassword({ identifier: "a", password: "b" })
+    ).rejects.toThrow("no AuthResult")
+  })
+
+  it("rethrows sign-in failures", async () => {
     const client = createAuthClient({
       fetch: stubFetch({
         "POST /api/v1/password/login": [authError(401, "invalid_credentials")],
@@ -315,150 +337,212 @@ describe("flows", () => {
     ).rejects.toBeInstanceOf(AuthKitError)
   })
 
-  it("register signs in only when no verification is pending", async () => {
-    const user = { username: "u", email: "a@b.c", phone_number: null }
+  it("register sends invite_code and signs in only on 200", async () => {
+    const bodies: unknown[] = []
+    const answers = [accepted(), tokens("u2")]
     const client = createAuthClient({
       fetch: stubFetch({
-        "POST /api/v1/register": [
-          new Response(null, { status: 202 }),
-          json(200, {
-            user,
-            token_set: {
-              access_token: jwt("u2"),
-              token_type: "Bearer",
-              expires_in: 900,
-              refresh_token: null,
-            },
-          }),
-        ],
+        "POST /api/v1/register": ({ body }) => {
+          bodies.push(JSON.parse(String(body)))
+          return answers.shift()!
+        },
       }),
     })
-    const input = { identifier: "a@b.c", username: "u", password: "p" }
-    expect(await client.register(input)).toEqual({
-      next_action: "verify_email",
-      user,
-      signedIn: false,
-    })
-    expect(await client.register(input)).toMatchObject({ signedIn: true })
+    const input = {
+      identifier: "a@b.c",
+      username: "u",
+      password: "p",
+      inviteCode: "inv",
+    }
+    expect(await client.register(input)).toBeNull()
+    expect(client.getAccessToken()).toBeNull()
+    expect(await client.register(input)).toMatchObject({ status: "complete" })
     expect(client.getSnapshot()).toMatchObject({ userId: "u2" })
+    expect(bodies[0]).toEqual({
+      identifier: "a@b.c",
+      username: "u",
+      password: "p",
+      invite_code: "inv",
+    })
   })
 
-  it("confirmVerification distinguishes a contact change from a sign-in", async () => {
+  it("confirmVerification tells a signed-in proof from a sign-in", async () => {
     const client = createAuthClient({
       fetch: stubFetch({
-        "POST /api/v1/verify/confirm": [
-          new Response(null, { status: 204 }),
-          tokens("u3"),
-        ],
+        "POST /api/v1/verify/confirm": [noContent(), tokens("u3")],
       }),
     })
     expect(
       await client.confirmVerification({ identifier: "a@b.c", code: "X" })
-    ).toEqual({ kind: "contact_changed" })
-    expect(await client.confirmVerification({ token: "t" })).toEqual({
-      kind: "session",
+    ).toBeNull()
+    expect(await client.confirmVerification({ token: "t" })).toMatchObject({
+      status: "complete",
     })
+    expect(client.getSnapshot()).toMatchObject({ userId: "u3" })
   })
 
-  it("enableTwoFactor maps every AuthKit answer", async () => {
+  it("a contact change is PUT /me/email|phone, then a signed-in proof", async () => {
     const fetch = stubFetch({
-      "POST /api/v1/user/2fa": [
-        new Response(null, { status: 202 }),
-        new Response(null, { status: 204 }),
-        json(200, { method: "totp", secret: "S", otpauth_uri: "otpauth://x" }),
+      "PUT /api/v1/me/email": [accepted()],
+      "PUT /api/v1/me/phone": [accepted()],
+      "DELETE /api/v1/me/phone": [noContent()],
+    })
+    const client = createAuthClient({ fetch })
+    await signIn(client)
+    await client.changeEmail("new@b.c")
+    await client.changePhone("+15550100")
+    await client.removePhone()
+    expect(
+      fetch.mock.calls.map((c) => JSON.parse(String(c[1]?.body ?? "null")))
+    ).toEqual([{ email: "new@b.c" }, { phone_number: "+15550100" }, null])
+  })
+
+  it("a forced enrollment sets up and adds a factor with its token, then signs in", async () => {
+    const fetch = stubFetch({
+      "POST /api/v1/me/2fa/setup": [
         json(200, {
-          enabled: true,
           method: "totp",
+          destination: null,
+          secret: "S",
+          otpauth_uri: "otpauth://x",
+        }),
+      ],
+      "POST /api/v1/me/2fa/factors": [
+        json(201, {
+          factor: { ...factor, method: "totp", destination: null },
           backup_codes: ["b1"],
-          access_token: jwt("u1"),
+          auth: complete("u1"),
         }),
       ],
     })
     const client = createAuthClient({ fetch })
-    const enrollmentToken = { access_token: "enroll" }
+    const enrollmentToken = tokenSet("enroll")
     expect(
-      await client.enableTwoFactor(
-        { method: "sms", phoneNumber: "+1" },
-        { enrollmentToken }
-      )
-    ).toEqual({ kind: "code_sent" })
-    expect(
-      new Headers(fetch.mock.calls[0][1]?.headers).get("Authorization")
-    ).toBe("Bearer enroll")
-    expect(
-      await client.enableTwoFactor({
-        method: "sms",
-        factorId: "f",
-        makeDefault: true,
-      })
-    ).toEqual({ kind: "default_set" })
-    expect(await client.enableTwoFactor({ method: "totp" })).toEqual({
-      kind: "totp_started",
-      secret: "S",
-      otpauthUri: "otpauth://x",
+      await client.setupTwoFactor({ method: "totp" }, { enrollmentToken })
+    ).toMatchObject({ secret: "S", otpauth_uri: "otpauth://x" })
+    const created = await client.addTwoFactorFactor(
+      { method: "totp", code: "123456" },
+      { enrollmentToken }
+    )
+    expect(created).toMatchObject({
+      backup_codes: ["b1"],
+      auth: { status: "complete" },
     })
-    expect(
-      await client.enableTwoFactor(
-        { method: "totp", code: "1" },
-        { enrollmentToken }
+    for (const call of fetch.mock.calls)
+      expect(new Headers(call[1]?.headers).get("Authorization")).toBe(
+        `Bearer ${enrollmentToken.access_token}`
       )
-    ).toEqual({
-      kind: "enabled",
+    expect(JSON.parse(String(fetch.mock.calls[1][1]?.body))).toEqual({
       method: "totp",
-      backupCodes: ["b1"],
-      signedIn: true,
+      code: "123456",
     })
-    expect(client.getSnapshot().status).toBe("authenticated")
+    expect(client.getSnapshot()).toMatchObject({ userId: "u1" })
   })
 
-  it("stepUpWithTwoFactor sends a code, then adopts the fresh token", async () => {
-    const fresh = {
-      step_up_required_for_sensitive_actions: false,
-      time_until_step_up_required: 300,
-    }
+  it("adding a factor while signed in adopts the re-verified token", async () => {
     const client = createAuthClient({
       fetch: stubFetch({
-        "POST /api/v1/step-up/2fa": [
-          authError(403, "2fa_required", {
-            method: "email",
-            verification_id: "a***@b.c",
+        "POST /api/v1/me/2fa/factors": [
+          json(201, {
+            factor,
+            backup_codes: [],
+            auth: complete("u1", 5000, { fresh_auth: fresh }),
           }),
-          json(200, {
-            token_set: { access_token: jwt("u1", 5000) },
-            fresh_auth: fresh,
-          }),
+        ],
+        "PATCH /api/v1/me/2fa/factors/f1": [json(200, factor)],
+        "DELETE /api/v1/me/2fa/factors/f1": [noContent()],
+        "DELETE /api/v1/me/2fa": [noContent()],
+      }),
+    })
+    await signIn(client)
+    await client.addTwoFactorFactor({
+      method: "sms",
+      code: "1",
+      phoneNumber: "+1",
+    })
+    expect(client.getAccessToken()).toBe(jwt("u1", 5000))
+    expect(await client.setDefaultTwoFactorFactor("f1")).toEqual(factor)
+    await client.removeTwoFactorFactor("f1")
+    await client.disableTwoFactor()
+  })
+
+  it("steps up with a sent code and adopts the fresh token", async () => {
+    const fetch = stubFetch({
+      "POST /api/v1/me/step-up/2fa/send": [accepted()],
+      "POST /api/v1/me/step-up/2fa": [
+        json(200, complete("u1", 5000, { fresh_auth: fresh })),
+      ],
+    })
+    const client = createAuthClient({ fetch })
+    await signIn(client)
+    await client.sendStepUpCode({ method: "email" })
+    expect(await client.stepUpWithTwoFactor({ code: "123" })).toEqual(fresh)
+    expect(client.getAccessToken()).toBe(jwt("u1", 5000))
+    expect(JSON.parse(String(fetch.mock.calls[0][1]?.body))).toEqual({
+      method: "email",
+    })
+  })
+
+  it("a password change that re-authenticated keeps the session fresh", async () => {
+    const client = createAuthClient({
+      fetch: stubFetch({
+        "PUT /api/v1/me/password": [
+          noContent(),
+          json(200, complete("u1", 7000, { fresh_auth: fresh })),
         ],
       }),
     })
     await signIn(client)
-    expect(await client.stepUpWithTwoFactor()).toEqual({
-      kind: "code_sent",
-      method: "email",
-      verificationId: "a***@b.c",
-    })
-    expect(await client.stepUpWithTwoFactor({ code: "123" })).toEqual({
-      kind: "stepped_up",
-      freshAuth: fresh,
-    })
-    expect(client.getAccessToken()).toBe(jwt("u1", 5000))
+    await client.changePassword({ newPassword: "n" })
+    expect(client.getAccessToken()).toBe(jwt("u1"))
+    await client.changePassword({ currentPassword: "o", newPassword: "n" })
+    expect(client.getAccessToken()).toBe(jwt("u1", 7000))
   })
 
-  it("deleteAccount and revokeAllSessions end the local session", async () => {
-    const client = createAuthClient({
-      fetch: stubFetch({
-        "DELETE /api/v1/user": [new Response(null, { status: 204 })],
-      }),
+  it("DELETE /me/sessions keeps this session; DELETE /me ends it", async () => {
+    const fetch = stubFetch({
+      "DELETE /api/v1/me/sessions": [noContent()],
+      "DELETE /api/v1/me": [noContent()],
     })
+    const client = createAuthClient({ fetch })
     await signIn(client)
-    await client.deleteAccount({ password: "p" })
+    await client.revokeOtherSessions()
+    expect(client.getSnapshot().status).toBe("authenticated")
+    await client.deleteAccount()
+    expect(fetch.mock.calls[1][1]?.body).toBeUndefined()
     expect(client.getSnapshot()).toMatchObject({
       status: "anonymous",
       reason: "signed_out",
     })
   })
+
+  it("updateProfile patches /me", async () => {
+    const fetch = stubFetch({
+      "PATCH /api/v1/me": ({ body }) => {
+        expect(JSON.parse(String(body))).toEqual({
+          username: "neo",
+          preferred_language: "de",
+        })
+        return json(200, { id: "u1", username: "neo" })
+      },
+    })
+    const client = createAuthClient({ fetch })
+    await signIn(client)
+    expect(
+      await client.updateProfile({ username: "neo", preferredLanguage: "de" })
+    ).toMatchObject({ username: "neo" })
+  })
 })
 
 describe("OIDC redirect", () => {
+  const exchanging = (result: unknown) =>
+    stubFetch({
+      "POST /api/v1/oidc/exchange": ({ body }) => {
+        expect(JSON.parse(String(body))).toEqual({ code: "one-time" })
+        return json(200, result)
+      },
+    })
+
   it("builds the login URL outside the API prefix", () => {
     const client = createAuthClient({ language: () => "de" })
     expect(
@@ -469,47 +553,59 @@ describe("OIDC redirect", () => {
     ).toBe("/oidc/google/login?lang=de")
   })
 
-  it("commits a token fragment", () => {
-    const client = createAuthClient()
-    const result = client.completeRedirect(
-      `#access_token=${jwt("u1")}&expires_in=900&provider=google&return_to=%2Fa`
+  it("starts with an invitation by POST under the API", async () => {
+    const client = createAuthClient({
+      fetch: stubFetch({
+        "POST /api/v1/oidc/google/login/start": ({ body }) => {
+          expect(JSON.parse(String(body))).toEqual({
+            return_to: "/a",
+            invite_code: "inv",
+          })
+          return json(200, { auth_url: "https://idp/x", state: "s" })
+        },
+      }),
+    })
+    expect(
+      await client.oidcLoginStart("google", {
+        returnTo: "/a",
+        inviteCode: "inv",
+      })
+    ).toBe("https://idp/x")
+  })
+
+  it("trades the fragment's one-time code for the session", async () => {
+    const client = createAuthClient({
+      fetch: exchanging(complete("u1", undefined, { return_to: "/a" })),
+    })
+    const redirect = await client.completeRedirect(
+      "#code=one-time&state=s&provider=google"
     )
-    expect(result).toEqual({
-      kind: "session",
+    expect(redirect).toMatchObject({
+      kind: "sign_in",
       provider: "google",
-      returnTo: "/a",
+      result: { status: "complete", return_to: "/a" },
     })
     expect(client.getSnapshot()).toMatchObject({ userId: "u1" })
   })
 
-  it("parses JSON-encoded continuation params and link results", () => {
+  it("returns a pending step without a session", async () => {
+    const client = createAuthClient({ fetch: exchanging(secondFactor) })
+    expect(await client.completeRedirect("#code=one-time&state=s")).toEqual({
+      kind: "sign_in",
+      result: secondFactor,
+      provider: undefined,
+    })
+    expect(client.getAccessToken()).toBeNull()
+  })
+
+  it("reads link results and errors, and leaves other fragments", async () => {
     const client = createAuthClient()
-    const factor = encodeURIComponent(
-      JSON.stringify({ id: "f1", method: "totp" })
-    )
     expect(
-      client.completeRedirect(
-        `#error=2fa_required&flow=login&provider=google&user_id=u&challenge=c&method=totp&default_factor=${factor}`
-      )
-    ).toMatchObject({
-      kind: "2fa_required",
-      defaultFactor: { id: "f1", method: "totp" },
-    })
-    expect(
-      client.completeRedirect(
-        `#error=2fa_enrollment_required&flow=login&user_id=u&enrollment_token=e&enrollment_expires_in=600&allowed_methods=${encodeURIComponent('["totp"]')}`
-      )
-    ).toMatchObject({
-      kind: "2fa_enrollment_required",
-      enrollmentToken: { access_token: "e", expires_in: 600 },
-      allowedMethods: ["totp"],
-    })
-    expect(
-      client.completeRedirect("#flow=link&result=success&provider=apple")
+      await client.completeRedirect("#flow=link&result=success&provider=apple")
     ).toEqual({ kind: "linked", provider: "apple" })
     expect(
-      client.completeRedirect(
-        "#error=provider_already_linked&flow=link&provider=apple"
+      await client.completeRedirect(
+        "#error=provider_already_linked&flow=link&provider=apple&state="
       )
     ).toEqual({
       kind: "error",
@@ -517,7 +613,21 @@ describe("OIDC redirect", () => {
       flow: "link",
       provider: "apple",
     })
-    expect(client.completeRedirect("#nothing=here")).toBeNull()
+    expect(await client.completeRedirect("#code=step-up")).toBeNull()
+    expect(await client.completeRedirect("#nothing=here")).toBeNull()
+  })
+
+  it("finishes a step-up return on the same session", async () => {
+    const client = createAuthClient({
+      fetch: exchanging(complete("u1", 6000, { fresh_auth: fresh })),
+    })
+    await signIn(client)
+    expect(await client.completeStepUp("#code=one-time")).toEqual(fresh)
+    expect(client.getAccessToken()).toBe(jwt("u1", 6000))
+    await expect(
+      client.completeStepUp("#error=step_up_failed")
+    ).rejects.toMatchObject({ code: "step_up_failed" })
+    expect(await client.completeStepUp("#code=x&state=s")).toBeNull()
   })
 })
 
@@ -545,59 +655,77 @@ describe("OIDC popup", () => {
     return { popup, win, deliver, nonce }
   }
 
-  it("ignores foreign windows, origins and nonces, then commits the result", async () => {
+  it("ignores foreign windows, origins and nonces, then trades the code", async () => {
     const { deliver, nonce } = setup()
-    const client = createAuthClient()
+    const fetch = stubFetch({
+      "POST /api/v1/oidc/exchange": ({ body }) => {
+        expect(JSON.parse(String(body))).toEqual({ code: "one-time" })
+        return tokens("u1")
+      },
+    })
+    const client = createAuthClient({ fetch })
     const pending = client.signInWithPopup("google")
     const ok = {
       type: "AUTHKIT_OIDC_RESULT",
       nonce: nonce(),
-      access_token: jwt("u1"),
+      code: "one-time",
       provider: "google",
     }
     deliver(ok, {})
     deliver(ok, undefined, "https://evil.example")
     deliver({ ...ok, nonce: "wrong" })
-    expect(client.getAccessToken()).toBeNull()
+    expect(fetch).not.toHaveBeenCalled()
     deliver(ok)
-    expect(await pending).toEqual({
+    expect(await pending).toMatchObject({
       ok: true,
-      outcome: { kind: "session" },
+      result: { status: "complete" },
       provider: "google",
     })
     expect(client.getAccessToken()).toBe(jwt("u1"))
   })
 
-  it("maps AUTHKIT_OIDC_ERROR to a continuation or a provider error", async () => {
-    const { deliver, nonce } = setup()
-    const client = createAuthClient()
-    const first = client.signInWithPopup("google")
-    deliver({
-      type: "AUTHKIT_OIDC_ERROR",
-      nonce: nonce(),
-      error: "2fa_required",
-      user_id: "u",
-      challenge: "c",
-      method: "totp",
+  it("returns a pending step, or the error the popup reported", async () => {
+    const { deliver, nonce, win } = setup()
+    const client = createAuthClient({
+      fetch: stubFetch({
+        "POST /api/v1/oidc/exchange": [json(200, enrollment)],
+      }),
     })
+    const first = client.signInWithPopup("google")
+    deliver({ type: "AUTHKIT_OIDC_RESULT", nonce: nonce(), code: "c" })
     expect(await first).toMatchObject({
       ok: true,
-      outcome: { kind: "2fa_required", userId: "u" },
+      result: { status: "enrollment_required" },
+    })
+    expect(client.getAccessToken()).toBeNull()
+
+    const second = client.signInWithPopup("google")
+    const secondNonce = new URL(
+      win.open.mock.calls[1][0],
+      origin
+    ).searchParams.get("popup_nonce")
+    deliver({
+      type: "AUTHKIT_OIDC_ERROR",
+      nonce: secondNonce,
+      error: "access_denied",
+      provider: "google",
+    })
+    expect(await second).toEqual({
+      ok: false,
+      reason: "provider_error",
+      code: "access_denied",
+      provider: "google",
     })
   })
 
   it("rejects a result after the session changed", async () => {
     const { deliver, nonce } = setup()
     const client = createAuthClient({
-      fetch: vi.fn().mockResolvedValue(new Response(null, { status: 204 })),
+      fetch: vi.fn().mockResolvedValue(tokens("A")),
     })
     const pending = client.signInWithPopup("google")
     await signIn(client, "B")
-    deliver({
-      type: "AUTHKIT_OIDC_RESULT",
-      nonce: nonce(),
-      access_token: jwt("A"),
-    })
+    deliver({ type: "AUTHKIT_OIDC_RESULT", nonce: nonce(), code: "c" })
     expect(await pending).toEqual({ ok: false, reason: "session_changed" })
     expect(client.getSnapshot()).toMatchObject({ userId: "B" })
   })

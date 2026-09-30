@@ -1,12 +1,12 @@
 import { SecurityCheckIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { useEffect, useId, useState, type ReactNode } from "react"
+import { useId, useState, type ReactNode } from "react"
 
-import { readStepUpReturn } from "../../client/client.ts"
-import type { StepUpChallenge } from "../../client/continuation.ts"
+import type { StepUpChallenge } from "../../client/stepUp.ts"
 import { useMessages } from "../../i18n/context.ts"
 import type { MessageKey } from "../../i18n/messages.ts"
-import { useAuthClient, useCapabilities } from "../../react/context.ts"
+import { useCapabilities } from "../../react/context.ts"
+import { useStepUpReturn } from "../../react/providers.ts"
 import { useStepUp, type StepUpController } from "../../react/useStepUp.ts"
 import { Button } from "../../ui/button.tsx"
 import {
@@ -51,26 +51,14 @@ export function StepUpProvider({
   )
 }
 
-// Finishes an OIDC step-up redirect (?step_up=success|failed).
+// Finishes an OIDC step-up redirect (#code= or #error= on its return page).
 function StepUpReturn() {
-  const client = useAuthClient()
   const { t } = useMessages()
-  const [result] = useState(() =>
-    typeof window === "undefined"
-      ? null
-      : readStepUpReturn(window.location.search)
-  )
+  const { error } = useStepUpReturn()
   const [dismissed, setDismissed] = useState(false)
-  useEffect(() => {
-    if (!result) return
-    const url = new URL(window.location.href)
-    url.searchParams.delete("step_up")
-    window.history.replaceState(window.history.state, "", url)
-    if (result === "success") void client.refresh()
-  }, [client, result])
   return (
     <Dialog
-      open={result === "failed" && !dismissed}
+      open={!!error && !dismissed}
       onOpenChange={(open) => !open && setDismissed(true)}
     >
       <DialogContent>
@@ -359,10 +347,16 @@ function CodeStepUp({
   return (
     <div className="grid gap-3">
       <CodeStep
-        key={sent ? state.verificationId : method}
+        key={sent ? `sent:${method}` : method}
         prompt={
           sent
-            ? t("stepUp.codeSentTo", { destination: state.verificationId })
+            ? t("stepUp.codeSentTo", {
+                destination:
+                  state.destination ??
+                  (method === "email"
+                    ? t("account.twoFactor.yourEmail")
+                    : t(METHOD_LABEL[method]).toLowerCase()),
+              })
             : t("stepUp.totpPrompt")
         }
         busy={busy}

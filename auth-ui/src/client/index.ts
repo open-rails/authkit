@@ -1,12 +1,7 @@
-export {
-  createAuthClient,
-  readLinkFragment,
-  readStepUpReturn,
-} from "./client.ts"
+export { createAuthClient, readLinkFragment } from "./client.ts"
 export type {
   AuthClient,
   AuthClientOptions,
-  AuthOutcome,
   AuthSession,
   ContactProofHandler,
   ContactProofRequest,
@@ -14,29 +9,23 @@ export type {
   PopupResult,
   RedirectResult,
   RefreshTokenStorage,
-  Registration,
   RequestOptions,
   SessionHint,
   SessionHintOptions,
-  TwoFactorEnrollResult,
-  TwoFactorStepUpResult,
+  TwoFactorEnrolled,
 } from "./client.ts"
+export { toSignInResult } from "./authResult.ts"
+export type { PendingSignIn, SignInResult } from "./authResult.ts"
 export { AUTH_ERROR_STATUS } from "./codes.ts"
-export type { AnyAuthErrorCode, AuthErrorCode } from "./codes.ts"
-export {
-  continuationFrom,
-  continuationFromParams,
-  readContinuation,
-  readStepUpRequired,
-} from "./continuation.ts"
 export type {
-  ContinuationKind,
-  LoginContinuation,
-  StepUpChallenge,
-} from "./continuation.ts"
+  AnyAuthErrorCode,
+  AuthErrorCode,
+  AuthErrorMetadata,
+} from "./codes.ts"
 export {
   AuthKitError,
   AuthSessionChangedError,
+  errorMetadata,
   isAuthKitError,
   readAuthKitError,
   retryAfterSeconds,
@@ -44,6 +33,8 @@ export {
 export type { AuthKitErrorBody } from "./errors.ts"
 export { decodeAccessClaims } from "./jwt.ts"
 export type { AccessClaims } from "./jwt.ts"
-export { hasPermission, permMatches } from "./permissions.ts"
+export { hasPermission } from "./permissions.ts"
 export { safeReturnTo } from "./returnTo.ts"
+export { readStepUpRequired, stepUpDestination } from "./stepUp.ts"
+export type { StepUpChallenge } from "./stepUp.ts"
 export type * from "./types.ts"

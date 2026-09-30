@@ -18,37 +18,51 @@ type GroupOp int
 
 const (
 	OpMembersList GroupOp = iota + 1
-	OpMemberAdd
+	OpMemberSet
 	OpMemberRemove
-	OpMemberRoleAssign
 	OpRolesList
 	OpAPIKeysList
 	OpAPIKeyMint
 	OpAPIKeyRevoke
-	OpInviteLinkList
-	OpInviteLinkMint
-	OpInviteLinkRevoke
+	OpInvitationsList
+	OpInvitationCreate
+	OpInvitationRevoke
 )
 
-// Available reports whether groups of persona p have the operation. Root's
-// members are managed through the admin routes.
+// Available reports whether groups of persona p have the operation. Every
+// group, root included, has members, roles and invitations.
 func (op GroupOp) Available(p rbac.Persona) bool {
 	switch op {
-	case OpMembersList, OpMemberAdd, OpMemberRemove, OpMemberRoleAssign, OpRolesList, OpInviteLinkList, OpInviteLinkMint, OpInviteLinkRevoke:
-		return p.Name != iam.RootPersona
+	case OpMembersList, OpMemberSet, OpMemberRemove, OpRolesList, OpInvitationsList, OpInvitationCreate, OpInvitationRevoke:
+		return true
 	case OpAPIKeysList, OpAPIKeyMint, OpAPIKeyRevoke:
 		return p.APIKeys
 	}
 	return false
 }
 
+// Mutates reports whether the operation changes the group.
+func (op GroupOp) Mutates() bool {
+	switch op {
+	case OpMemberSet, OpMemberRemove, OpAPIKeyMint, OpAPIKeyRevoke, OpInvitationCreate, OpInvitationRevoke:
+		return true
+	}
+	return false
+}
+
 // Perms returns the permissions of persona p that admit the operation: any
-// one of them suffices.
+// one of them suffices. A root invitation without a role invites someone to
+// register (root:users:invite); the engine tells the two apart.
 func (op GroupOp) Perms(p rbac.Persona) []iam.Perm {
 	switch op {
-	case OpMembersList, OpRolesList, OpInviteLinkList:
+	case OpMembersList, OpRolesList, OpInvitationsList:
 		return []iam.Perm{ident.MembersRead(p.Name)}
-	case OpMemberAdd, OpMemberRemove, OpMemberRoleAssign, OpInviteLinkMint, OpInviteLinkRevoke:
+	case OpMemberSet, OpMemberRemove:
+		return []iam.Perm{ident.MembersManage(p.Name)}
+	case OpInvitationCreate, OpInvitationRevoke:
+		if p.Name == iam.RootPersona {
+			return []iam.Perm{ident.MembersManage(p.Name), ident.RootUsersInvite}
+		}
 		return []iam.Perm{ident.MembersManage(p.Name)}
 	case OpAPIKeysList:
 		return []iam.Perm{ident.CredentialsRead(p.Name)}

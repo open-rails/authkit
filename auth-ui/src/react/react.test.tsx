@@ -3,7 +3,7 @@ import { act, waitFor } from "@testing-library/react"
 import { useEffect } from "react"
 import { describe, expect, it, vi } from "vitest"
 
-import { authError, json, stubFetch } from "../client/testing.ts"
+import { authError, authResult, json, stubFetch } from "../client/testing.ts"
 import { memoryStorage } from "../client/testing-storage.ts"
 import { useChangePassword, useSessions } from "./account.ts"
 import {
@@ -12,27 +12,48 @@ import {
   useSession,
   useUser,
 } from "./context.ts"
-import { noContent, renderWithAuth, session, token } from "./testing.tsx"
+import {
+  noContent,
+  renderWithAuth,
+  session,
+  signedIn,
+  token,
+} from "./testing.tsx"
 import { useLogin } from "./useLogin.ts"
 import { useRegister } from "./useRegister.ts"
 import { useAuth } from "./useAuth.ts"
 import { useStepUp } from "./useStepUp.ts"
 
-const me = (id: string) => json(200, { id, username: id, security: {} })
+const me = (id: string) => json(200, { id, username: id, providers: [] })
 
-const twoFactorRequired = (extra: Record<string, unknown> = {}) =>
-  authError(403, "2fa_required", {
-    user_id: "u1",
-    challenge: "ch-1",
-    method: "email",
-    verification_id: "a***@x.test",
-    default_factor: { id: "f-email", method: "email", is_default: true },
-    available_factors: [
-      { id: "f-email", method: "email" },
-      { id: "f-totp", method: "totp" },
-    ],
-    ...extra,
-  })
+const emailFactor = {
+  id: "f-email",
+  method: "email",
+  is_default: true,
+  destination: "a***@x.test",
+}
+const totpFactor = {
+  id: "f-totp",
+  method: "totp",
+  is_default: false,
+  destination: null,
+}
+
+const secondFactor = (
+  factor: typeof emailFactor | typeof totpFactor = emailFactor,
+  challenge = "ch-1"
+) =>
+  json(
+    200,
+    authResult("second_factor_required", {
+      second_factor: {
+        user_id: "u1",
+        challenge,
+        factor,
+        factors: [emailFactor, totpFactor],
+      },
+    })
+  )
 
 describe("AuthProvider", () => {
   it("restores, shares /me per session and reports session boundaries", async () => {
@@ -83,14 +104,15 @@ describe("AuthProvider", () => {
     )
   })
 
-  it("checks permissions with AuthKit glob semantics", async () => {
+  it("reads the role and its expanded permissions", async () => {
     const fetch = stubFetch({
       "POST /api/v1/password/login": () => session({ sub: "u1", sid: "s1" }),
       "GET /api/v1/me/permissions": ({ url }) => {
         expect(url).toContain("group_id=g1")
         return json(200, {
           group_id: "g1",
-          permissions: ["root:tags:*"],
+          role: "channel:moderator",
+          permissions: ["root:tags:read", "root:tags:update"],
         })
       },
     })
@@ -103,6 +125,7 @@ describe("AuthProvider", () => {
       client.signInWithPassword({ identifier: "a", password: "b" })
     )
     await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.role).toBe("channel:moderator")
     expect(result.current.has("root:tags:update")).toBe(true)
     expect(result.current.has("root:users:update")).toBe(false)
   })
@@ -112,10 +135,10 @@ describe("useLogin", () => {
   it("password → 2FA challenge → switch factor → verify", async () => {
     const onSignedIn = vi.fn()
     const fetch = stubFetch({
-      "POST /api/v1/password/login": [twoFactorRequired()],
+      "POST /api/v1/password/login": [secondFactor()],
       "POST /api/v1/2fa/challenge": ({ body }) => {
         expect(JSON.parse(String(body))).toMatchObject({ factor_id: "f-totp" })
-        return twoFactorRequired({ method: "totp", challenge: "ch-2" })
+        return secondFactor(totpFactor, "ch-2")
       },
       "POST /api/v1/2fa/verify": [
         authError(401, "invalid_2fa_code"),
@@ -127,15 +150,13 @@ describe("useLogin", () => {
     await act(() => result.current.signIn({ identifier: "a", password: "pw" }))
     expect(result.current.state).toMatchObject({
       step: "two_factor",
-      factorId: "f-email",
-      challenge: { method: "email", verificationId: "a***@x.test" },
+      challenge: { challenge: "ch-1", factor: emailFactor },
     })
 
     await act(() => result.current.sendTwoFactorCode("f-totp"))
     expect(result.current.state).toMatchObject({
       step: "two_factor",
-      factorId: "f-totp",
-      challenge: { challenge: "ch-2", method: "totp" },
+      challenge: { challenge: "ch-2", factor: totpFactor },
     })
 
     await act(() => result.current.verifyTwoFactor("000000"))
@@ -157,26 +178,45 @@ describe("useLogin", () => {
   it("forced enrollment uses the enrollment token and shows backup codes", async () => {
     const onSignedIn = vi.fn()
     const auths: (string | null)[] = []
+    const enrollmentToken = token({ sub: "u1", typ: "enroll" })
     const fetch = stubFetch({
       "POST /api/v1/password/login": [
-        authError(403, "2fa_enrollment_required", {
-          user_id: "u1",
-          allowed_methods: ["totp", "email"],
-          enrollment_token: "enroll-tok",
-          enrollment_expires_in: 600,
-          return_to: "/settings",
-        }),
+        json(
+          200,
+          authResult("enrollment_required", {
+            return_to: "/settings",
+            enrollment: {
+              token_set: {
+                access_token: enrollmentToken,
+                token_type: "Bearer",
+                expires_in: 600,
+                refresh_token: null,
+              },
+              allowed_methods: ["totp", "email"],
+            },
+          })
+        ),
       ],
-      "POST /api/v1/user/2fa": ({ headers, body }) => {
+      "POST /api/v1/me/2fa/setup": ({ headers }) => {
         auths.push(new Headers(headers).get("Authorization"))
-        return JSON.parse(String(body)).code
-          ? json(200, {
-              enabled: true,
-              method: "totp",
-              backup_codes: ["b1", "b2"],
-              access_token: token({ sub: "u1", sid: "s1" }),
-            })
-          : json(200, { method: "totp", secret: "S3CR3T", otpauth_uri: "otp" })
+        return json(200, {
+          method: "totp",
+          destination: null,
+          secret: "S3CR3T",
+          otpauth_uri: "otp",
+        })
+      },
+      "POST /api/v1/me/2fa/factors": ({ headers, body }) => {
+        auths.push(new Headers(headers).get("Authorization"))
+        expect(JSON.parse(String(body))).toEqual({
+          method: "totp",
+          code: "123456",
+        })
+        return json(201, {
+          factor: totpFactor,
+          backup_codes: ["b1", "b2"],
+          auth: signedIn({ sub: "u1", sid: "s1" }),
+        })
       },
     })
     const { result, client } = renderWithAuth(
@@ -194,7 +234,10 @@ describe("useLogin", () => {
     })
 
     await act(() => result.current.confirmEnrollment("123456"))
-    expect(auths).toEqual(["Bearer enroll-tok", "Bearer enroll-tok"])
+    expect(auths).toEqual([
+      `Bearer ${enrollmentToken}`,
+      `Bearer ${enrollmentToken}`,
+    ])
     expect(result.current.state).toEqual({
       step: "backup_codes",
       codes: ["b1", "b2"],
@@ -219,7 +262,7 @@ describe("useLogin", () => {
     }
     const fetch = stubFetch({
       "POST /api/v1/password/login": [
-        authError(409, "account_recovery_required", { recovery }),
+        json(200, authResult("account_recovery_required", { recovery })),
         session({ sub: "u1", sid: "s1" }),
       ],
       "POST /api/v1/account/recovery/confirm": ({ body }) => {
@@ -235,12 +278,10 @@ describe("useLogin", () => {
   })
 
   it("verification_required → confirm code signs in", async () => {
+    const verification = { identifier: "a@x.test", channel: "email" }
     const fetch = stubFetch({
       "POST /api/v1/password/login": [
-        authError(403, "verification_required", {
-          identifier: "a@x.test",
-          channel: "email",
-        }),
+        json(200, authResult("verification_required", { verification })),
       ],
       "POST /api/v1/verify/request": () => new Response(null, { status: 202 }),
       "POST /api/v1/verify/confirm": () => session({ sub: "u1", sid: "s1" }),
@@ -249,8 +290,7 @@ describe("useLogin", () => {
     await act(() => result.current.signIn({ identifier: "a", password: "pw" }))
     expect(result.current.state).toEqual({
       step: "verification",
-      identifier: "a@x.test",
-      channel: "email",
+      verification,
     })
     await act(() => result.current.resendVerification())
     await act(() => result.current.confirmVerification("abc123"))
@@ -261,15 +301,22 @@ describe("useLogin", () => {
 describe("useRegister", () => {
   it("registers, verifies (which signs in) and can abandon", async () => {
     const onSignedIn = vi.fn()
+    const bodies: unknown[] = []
     const fetch = stubFetch({
       "GET /api/v1/register/availability": () =>
         json(200, { username: { available: false, error: "taken" } }),
-      "POST /api/v1/register": () => new Response(null, { status: 202 }),
+      "POST /api/v1/register": ({ body }) => {
+        bodies.push(JSON.parse(String(body)))
+        return new Response(null, { status: 202 })
+      },
       "POST /api/v1/verify/request": () => new Response(null, { status: 202 }),
       "POST /api/v1/register/abandon": noContent,
       "POST /api/v1/verify/confirm": () => session({ sub: "u1", sid: "s1" }),
     })
-    const { result } = renderWithAuth(() => useRegister({ onSignedIn }), fetch)
+    const { result } = renderWithAuth(
+      () => useRegister({ onSignedIn, inviteCode: "inv-1" }),
+      fetch
+    )
     await act(async () => {
       await result.current.checkAvailability({ username: "neo" })
     })
@@ -290,6 +337,7 @@ describe("useRegister", () => {
     await act(() => result.current.verify("CODE"))
     expect(result.current.state).toEqual({ step: "done", signedIn: true })
     expect(onSignedIn).toHaveBeenCalledOnce()
+    expect(bodies[0]).toMatchObject({ invite_code: "inv-1" })
   })
 })
 
@@ -298,20 +346,30 @@ describe("useStepUp", () => {
     authError(403, "step_up_required", {
       step_up_methods: ["password", "2fa"],
       max_age_seconds: 900,
+      step_up_2fa: null,
+      mfa_required: false,
     })
 
   it("guards a sensitive action: step up, then retry", async () => {
     const fetch = stubFetch({
       "POST /api/v1/password/login": () => session({ sub: "u1", sid: "s1" }),
-      "POST /api/v1/user/password": [stepUpRequired(), json(200, {})],
-      "POST /api/v1/step-up/password": [
+      "PUT /api/v1/me/password": [stepUpRequired(), noContent()],
+      "POST /api/v1/me/step-up/password": [
         authError(401, "invalid_password"),
-        json(200, {
-          token_set: {
-            access_token: token({ sub: "u1", sid: "s1", auth_time: 2 }),
-          },
-          fresh_auth: { step_up_required_for_sensitive_actions: false },
-        }),
+        json(
+          200,
+          signedIn(
+            { sub: "u1", sid: "s1", auth_time: 2 },
+            {
+              fresh_auth: {
+                last_authenticated_at: null,
+                step_up_required_for_sensitive_actions: false,
+                step_up_required_in_seconds: 900,
+                auth_methods: ["pwd"],
+              },
+            }
+          )
+        ),
       ],
     })
     const { result, client } = renderWithAuth(() => {
@@ -348,18 +406,24 @@ describe("useStepUp", () => {
   it("2FA step-up sends a code first; cancel rejects quietly", async () => {
     const fetch = stubFetch({
       "POST /api/v1/password/login": () => session({ sub: "u1", sid: "s1" }),
-      "POST /api/v1/user/password": [
+      "PUT /api/v1/me/password": [
         authError(403, "step_up_required", {
           step_up_methods: ["password", "2fa"],
+          max_age_seconds: 900,
           mfa_required: true,
+          step_up_2fa: {
+            methods: ["email"],
+            default_method: "email",
+            options: [
+              { method: "email", is_default: true, destination: "a***@x.test" },
+            ],
+          },
         }),
       ],
-      "POST /api/v1/step-up/2fa": [
-        authError(403, "2fa_required", {
-          method: "email",
-          verification_id: "a***@x.test",
-        }),
-      ],
+      "POST /api/v1/me/step-up/2fa/send": ({ body }) => {
+        expect(JSON.parse(String(body))).toEqual({ method: "email" })
+        return new Response(null, { status: 202 })
+      },
     })
     const { result, client } = renderWithAuth(() => {
       const stepUp = useStepUp()
@@ -382,7 +446,7 @@ describe("useStepUp", () => {
     expect(result.current.stepUp.state).toMatchObject({
       step: "code_sent",
       method: "email",
-      verificationId: "a***@x.test",
+      destination: "a***@x.test",
     })
     act(() => result.current.stepUp.cancel())
     await act(() => pending)
@@ -396,7 +460,7 @@ describe("useStepUp", () => {
 })
 
 describe("useSessions", () => {
-  it("marks the current session and revokes in a batch", async () => {
+  it("marks the current session, revokes one, then every other", async () => {
     const revoked: string[] = []
     const row = (id: string) => ({
       id,
@@ -412,14 +476,14 @@ describe("useSessions", () => {
         const path = String(input)
         if (path === "/api/v1/password/login")
           return session({ sub: "u1", sid: "s1" })
-        if (path === "/api/v1/user/sessions")
+        if (path === "/api/v1/me/sessions" && init?.method === "GET")
           return json(200, {
             data: ["s1", "s2", "s3"].map(row),
             next_cursor: null,
             total: null,
           })
         if (init?.method === "DELETE") {
-          revoked.push(path.split("/").pop()!)
+          revoked.push(path.replace("/api/v1/me/sessions", "") || "others")
           return noContent()
         }
         throw new Error(`unexpected ${path}`)
@@ -441,9 +505,16 @@ describe("useSessions", () => {
       ["s2", false],
       ["s3", false],
     ])
-    await act(() => result.current.sessions.revoke(["s2", "s3"]))
-    expect(revoked.sort()).toEqual(["s2", "s3"])
+    await act(() => result.current.sessions.revoke(["s2"]))
+    expect(revoked).toEqual(["/s2"])
+    expect(result.current.sessions.sessions?.map((s) => s.id)).toEqual([
+      "s1",
+      "s3",
+    ])
+    await act(() => result.current.sessions.revokeOthers())
+    expect(revoked).toEqual(["/s2", "others"])
     expect(result.current.sessions.sessions?.map((s) => s.id)).toEqual(["s1"])
+    expect(client.getSnapshot().status).toBe("authenticated")
   })
 })
 
@@ -487,9 +558,7 @@ describe("useAuth", () => {
 
     // A same-user session rotation, e.g. after proving an address.
     await act(() =>
-      client.completeSignIn(async () => ({
-        access_token: token({ sub: "u1", sid: "s2" }),
-      }))
+      client.completeSignIn(async () => signedIn({ sub: "u1", sid: "s2" }))
     )
     expect(onSessionChange).toHaveBeenCalled()
     expect(onUserChange).not.toHaveBeenCalled()

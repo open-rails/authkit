@@ -170,7 +170,8 @@ func (c *contract) openAPI() ([]byte, error) {
 	errObj := &object{name: "ErrorObject", t: env.Field(0).Type, fields: fieldsOf(env.Field(0).Type), output: true}
 	errSchema := c.objectSchema(errObj)
 	errSchema.vals["properties"].(*obj).set("metadata", newObj("type", []string{"object", "null"}))
-	errSchema.set("description", "type follows the status; code is stable (clients tolerate new ones); message is not contract.")
+	errSchema.set("description", "type follows the status; code is stable (clients tolerate new ones); message is not contract. "+
+		"metadata is null, or the shape x-authkit-error-codes gives the code.")
 	schemas.set("ErrorObject", errSchema)
 
 	paths := newObj()
@@ -185,8 +186,13 @@ func (c *contract) openAPI() ([]byte, error) {
 	}
 
 	codes := newObj()
+	metadata := httpapi.ErrorMetadata()
 	for _, code := range errmodel.Codes() {
-		codes.set(string(code), newObj("status", errmodel.Status(code), "message", errmodel.Message(code)))
+		entry := newObj("status", errmodel.Status(code), "message", errmodel.Message(code))
+		if meta, ok := metadata[code]; ok {
+			entry.set("metadata", c.schema(reflect.TypeOf(meta)))
+		}
+		codes.set(string(code), entry)
 	}
 	doc := newObj(
 		"openapi", "3.1.0",
@@ -274,6 +280,9 @@ func (c *contract) operation(r httpapi.RouteSpec) *obj {
 	}
 	if r.MountedWhen != httpapi.Always {
 		op.set("x-authkit-mounted-when", string(r.MountedWhen))
+	}
+	if r.StepUp {
+		op.set("x-authkit-step-up", true)
 	}
 	if r.MFAEnrollmentExempt {
 		op.set("x-authkit-mfa-enrollment-exempt", true)

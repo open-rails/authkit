@@ -1,14 +1,12 @@
 {
-  "error": {
-    "type": "authorization_error",
-    "code": "2fa_required",
-    "metadata": {
-      "user_id": "$string",
-      "challenge": "$string",
-      "method": "totp",
-      "verification_id": "$text",
-      "default_factor": { "id": "$string", "method": "totp" },
-      "available_factors": [{ "id": "$string", "method": "$string" }]
-    }
-  }
+  "status": "second_factor_required",
+  "token_set": null,
+  "user": null,
+  "second_factor": {
+    "user_id": "$string",
+    "challenge": "$string",
+    "factor": { "id": "$string", "method": "totp", "is_default": true, "destination": null },
+    "factors": [{ "id": "$string", "method": "$string" }]
+  },
+  "enrollment": null
 }

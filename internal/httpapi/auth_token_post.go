@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
 )
@@ -27,10 +26,9 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	ua := r.UserAgent()
-	ip := parseIP(s.requestIP(r))
-	accessToken, exp, newRT, err := s.svc.ExchangeRefreshToken(r.Context(), refreshToken, ua, ip)
+	userID, session, err := s.svc.ExchangeRefreshToken(r.Context(), refreshToken, r.UserAgent(), parseIP(s.requestIP(r)))
 	if err != nil {
+		// A session that must finish MFA first continues as a sign-in does.
 		var continuation *authflow.MFAContinuationRequiredError
 		if errors.As(err, &continuation) {
 			out, continueErr := s.svc.ContinueRefreshMFA(r.Context(), continuation.UserID, continuation.SessionID)
@@ -38,7 +36,7 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 				writeError(w, continueErr)
 				return
 			}
-			s.writeLoginContinuation(w, r, out, nil)
+			s.writeAuthResult(w, r, out, authExtras{})
 			return
 		}
 		if errors.Is(err, errmodel.ErrUserBanned) {
@@ -54,17 +52,5 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 		fail(w, errmodel.CodeInvalidToken)
 		return
 	}
-
-	// #180: the /token refresh response now emits the full §6.3 token-pair envelope
-	// (previously omitted token_type) — an additive, contract-conforming change.
-	s.writeTokenSet(w, r, http.StatusOK, iam.NewTokenSet(accessToken, newRT, exp))
-}
-
-// send2FAEnrollmentRequiredError is the tokenless form for callers without a
-// user id (or a request).
-func (s *Service) send2FAEnrollmentRequiredError(w http.ResponseWriter) {
-	fail(w, errmodel.CodeTwoFAEnrollmentRequired, errmodel.WithMetadata(map[string]any{
-		"requires_2fa_enrollment": true,
-		"allowed_methods":         s.svc.TwoFactorAllowedMethods(),
-	}))
+	s.writeAuthResult(w, r, authflow.LoginOutcome{Kind: authflow.LoginSessionIssued, UserID: userID, Session: &session}, authExtras{})
 }

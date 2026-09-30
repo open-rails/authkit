@@ -11,7 +11,8 @@ SELECT * FROM user_passkeys WHERE user_id = $1 AND rpid = $2 AND deleted_at IS N
 UPDATE user_passkeys SET label = sqlc.narg(label) WHERE id = sqlc.arg(id) AND user_id = sqlc.arg(user_id) AND deleted_at IS NULL;
 
 -- name: PasskeyDelete :execrows
-UPDATE user_passkeys SET deleted_at = now() WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL;
+-- A deleted passkey stays deleted; no row changes only for another account's or no passkey.
+UPDATE user_passkeys SET deleted_at = COALESCE(deleted_at, now()) WHERE id = $1 AND user_id = $2;
 
 -- name: PasskeyHandleUser :one
 SELECT user_id FROM user_passkey_handles WHERE user_handle = $1;

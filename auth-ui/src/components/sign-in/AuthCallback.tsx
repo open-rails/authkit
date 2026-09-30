@@ -14,18 +14,18 @@ import { StepHeader } from "./parts.tsx"
 export type AuthCallbackProps = {
   // Leaves the callback route; use the router's replace navigation.
   navigate: (to: string) => void
-  // Where to go without a returnTo, or after an abandoned continuation.
+  // Where to go without a returnTo, or after an abandoned step.
   fallbackPath?: string
   onSignedIn?: (result: { returnTo?: string; provider?: string }) => void
   onLinked?: (result: { provider?: string }) => void
   defaultPhoneCountry?: string
-  // Wraps the pending/continuation/error UI, e.g. in the app's page shell.
+  // Wraps the pending/step/error UI, e.g. in the app's page shell.
   layout?: (children: ReactNode) => ReactNode
   className?: string
 }
 
-// The OIDC redirect route: consumes AuthKit's fragment once, finishes 2FA and
-// other continuations in place, then navigates on.
+// The OIDC redirect route: trades AuthKit's fragment code for the sign-in
+// once, finishes 2FA and other steps in place, then navigates on.
 export function AuthCallback({
   navigate,
   fallbackPath = "/",
@@ -48,25 +48,28 @@ export function AuthCallback({
     },
   })
   const { resume } = login
-  const handle = (result: RedirectResult | null) => {
+  const handle = (redirect: RedirectResult | null) => {
     const h = host.current
-    if (!result) return h.navigate(h.fallbackPath)
-    switch (result.kind) {
-      case "session":
-        h.onSignedIn?.({ returnTo: result.returnTo, provider: result.provider })
-        return h.navigate(result.returnTo ?? h.fallbackPath)
+    if (!redirect) return h.navigate(h.fallbackPath)
+    switch (redirect.kind) {
+      case "sign_in": {
+        const { result } = redirect
+        provider.current = redirect.provider
+        if (result.status !== "complete") return resume(result)
+        const returnTo = result.return_to ?? undefined
+        h.onSignedIn?.({ returnTo, provider: redirect.provider })
+        return h.navigate(returnTo ?? h.fallbackPath)
+      }
       case "linked":
-        h.onLinked?.({ provider: result.provider })
+        h.onLinked?.({ provider: redirect.provider })
         return h.navigate(h.fallbackPath)
       case "error":
         return
-      default:
-        resume(result)
     }
   }
   const { result, error } = useOidcCallback({ onResult: handle })
 
-  // Backing out of a continuation leaves the route.
+  // Backing out of a step leaves the route.
   const entered = useRef(false)
   const step = login.state.step
   useEffect(() => {

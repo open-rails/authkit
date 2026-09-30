@@ -17,6 +17,7 @@ import (
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/devicekey"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/passkeytest"
 )
 
@@ -74,13 +75,16 @@ func (f *factorFlow) finishDeviceEnrollment(email string, challenge deviceKeyCha
 	return f.deviceKeySession(res)
 }
 
-// deviceKeySession decodes a finish answer after checking it is exactly a
-// token set without a refresh token, plus the current device key.
+// deviceKeySession decodes a finish answer after checking it is a complete
+// AuthResult: a token set without a refresh token, the account, and the
+// current device key.
 func (f *factorFlow) deviceKeySession(res authAnswer) deviceKeySession {
 	f.t.Helper()
+	res.signedIn(f.t)
+	require.NotNil(f.t, res.DeviceKey, res.raw)
+	require.Nil(f.t, res.ReturnTo)
 	var body map[string]json.RawMessage
 	require.NoError(f.t, json.Unmarshal([]byte(res.raw), &body))
-	require.ElementsMatch(f.t, []string{"token_set", "device_key"}, slices.Collect(maps.Keys(body)))
 	var tokenSet map[string]json.RawMessage
 	require.NoError(f.t, json.Unmarshal(body["token_set"], &tokenSet))
 	require.ElementsMatch(f.t, []string{"access_token", "token_type", "expires_in", "refresh_token"}, slices.Collect(maps.Keys(tokenSet)))
@@ -112,10 +116,7 @@ func (f *factorFlow) finishDeviceLogin(challenge deviceKeyChallenge, key ed25519
 
 func (f *factorFlow) loginDeviceKey(id string, key ed25519.PrivateKey) deviceKeySession {
 	f.t.Helper()
-	res := f.expect(http.StatusOK, f.finishDeviceLogin(f.beginDeviceLogin(id), key, devicekey.LoginDomain))
-	var s deviceKeySession
-	require.NoError(f.t, json.Unmarshal([]byte(res.raw), &s))
-	return s
+	return f.deviceKeySession(f.expect(http.StatusOK, f.finishDeviceLogin(f.beginDeviceLogin(id), key, devicekey.LoginDomain)))
 }
 
 // requireActiveDeviceKeys asserts the account's active keys, oldest first.
@@ -184,13 +185,7 @@ func testPasskeyCeremonyAndAssurance(t *testing.T, auth *authkit.Client, outbox 
 			} `json:"allowCredentials"`
 		} `json:"publicKey"`
 	}
-	type passkey struct {
-		ID             string     `json:"id"`
-		Label          *string    `json:"label"`
-		BackupEligible bool       `json:"backup_eligible"`
-		BackupState    bool       `json:"backup_state"`
-		LastUsedAt     *time.Time `json:"last_used_at"`
-	}
+	type passkey = httpapi.SignInKey
 	f := newFactorFlow(t, auth, outbox)
 	u := authtest.NewUser(t, auth)
 	setupToken := authtest.SignIn(t, auth, u).AccessToken
@@ -211,27 +206,23 @@ func testPasskeyCeremonyAndAssurance(t *testing.T, auth *authkit.Client, outbox 
 	}
 	list := func() []passkey {
 		t.Helper()
-		var listed struct {
-			Data []passkey `json:"data"`
-		}
-		decode(f.expect(http.StatusOK, f.request(http.MethodGet, "/passkeys", setupToken, nil)), &listed)
-		return listed.Data
+		return f.signInKeys(setupToken, httpapi.SignInKeyPasskey)
 	}
 
 	var creation creationOptions
-	decode(f.expect(http.StatusOK, f.request(http.MethodPost, "/passkeys/register/begin", setupToken, map[string]any{})), &creation)
+	decode(f.expect(http.StatusOK, f.request(http.MethodPost, "/me/passkeys/register/begin", setupToken, map[string]any{})), &creation)
 	require.Equal(t, "Example", creation.PublicKey.RP.Name)
 	require.Equal(t, "example.com", creation.PublicKey.RP.ID)
 	require.Equal(t, "required", creation.PublicKey.AuthenticatorSelection.ResidentKey)
 	require.Empty(t, creation.PublicKey.ExcludeCredentials)
 	attestation := authn.Attestation(t, creation.PublicKey.RP.ID, passkeytest.UserHandle(t, creation.PublicKey.User.ID), creation.PublicKey.Challenge)
 	var created passkey
-	decode(f.expect(http.StatusCreated, f.request(http.MethodPost, "/passkeys/register/finish", setupToken, attestation)), &created)
+	decode(f.expect(http.StatusCreated, f.request(http.MethodPost, "/me/passkeys/register/finish", setupToken, attestation)), &created)
 	require.NotEmpty(t, created.ID)
-	require.True(t, created.BackupEligible)
-	require.True(t, created.BackupState)
+	require.Equal(t, httpapi.SignInKeyPasskey, created.Kind)
+	require.False(t, created.Current)
 
-	decode(f.expect(http.StatusOK, f.request(http.MethodPost, "/passkeys/register/begin", setupToken, map[string]any{})), &creation)
+	decode(f.expect(http.StatusOK, f.request(http.MethodPost, "/me/passkeys/register/begin", setupToken, map[string]any{})), &creation)
 	require.Len(t, creation.PublicKey.ExcludeCredentials, 1)
 	require.Equal(t, base64.RawURLEncoding.EncodeToString(authn.CredentialID), creation.PublicKey.ExcludeCredentials[0].ID)
 
@@ -242,7 +233,7 @@ func testPasskeyCeremonyAndAssurance(t *testing.T, auth *authkit.Client, outbox 
 	decode(f.expect(http.StatusOK, f.post("/passkeys/login/begin", "")), &assertion)
 	require.Empty(t, assertion.PublicKey.AllowCredentials)
 	first := authn.Assertion(t, assertion.PublicKey.RPID, assertion.PublicKey.Challenge, 1)
-	signedIn := f.expect(http.StatusOK, f.post("/passkeys/login/finish", first))
+	signedIn := f.post("/passkeys/login/finish", first).signedIn(t)
 	require.NotEmpty(t, signedIn.RefreshToken)
 	claims := accessClaims(f.t, signedIn.AccessToken)
 	require.Equal(t, iam.AssuranceLevelMFA, claims["acr"])
@@ -264,15 +255,16 @@ func testPasskeyCeremonyAndAssurance(t *testing.T, auth *authkit.Client, outbox 
 	// Management uses the credential established by the actual ceremony.
 	for _, label := range []string{"old", "new"} {
 		var renamed passkey
-		decode(f.expect(http.StatusOK, f.request(http.MethodPatch, "/passkeys/"+created.ID, setupToken, map[string]any{"label": label})), &renamed)
+		decode(f.expect(http.StatusOK, f.request(http.MethodPatch, "/me/sign-in-keys/"+created.ID, setupToken, map[string]any{"label": label})), &renamed)
 		require.Equal(t, label, *renamed.Label)
 		listed = list()
 		require.NotNil(t, listed[0].Label)
 		require.Equal(t, label, *listed[0].Label)
 	}
-	f.expect(http.StatusNoContent, f.request(http.MethodDelete, "/passkeys/"+created.ID, setupToken, nil))
+	f.expect(http.StatusNoContent, f.request(http.MethodDelete, "/me/sign-in-keys/"+created.ID, setupToken, nil))
 	require.Empty(t, list())
-	f.expect(http.StatusNoContent, f.request(http.MethodDelete, "/passkeys/"+created.ID, setupToken, nil)) // idempotent
+	f.expect(http.StatusNoContent, f.request(http.MethodDelete, "/me/sign-in-keys/"+created.ID, setupToken, nil)) // idempotent
+	f.expect(http.StatusNotFound, f.request(http.MethodPatch, "/me/sign-in-keys/"+created.ID, setupToken, map[string]any{"label": "gone"}))
 	assertion = requestOptions{}
 	decode(f.expect(http.StatusOK, f.post("/passkeys/login/begin", map[string]any{})), &assertion)
 	deleted := finish(assertion, 3)
@@ -355,13 +347,16 @@ func testDeviceKeyLifecycle(t *testing.T, auth *authkit.Client, outbox *authtest
 	require.NotEqual(t, first.DeviceKey.ID, second.DeviceKey.ID)
 	require.Equal(t, []string{email}, f.deviceKeyNotices(""), "an independent machine notifies the existing owner")
 	f.requireActiveDeviceKeys(user.ID, publicKey, secondPublic)
-	listKeys := func(token string) []iam.DeviceKey {
+	listKeys := func(token string) []httpapi.SignInKey {
 		t.Helper()
 		var list struct {
-			Data []iam.DeviceKey `json:"data"`
+			Data []httpapi.SignInKey `json:"data"`
 		}
-		listed := f.expect(http.StatusOK, f.request(http.MethodGet, "/device-keys", token, nil))
+		listed := f.expect(http.StatusOK, f.request(http.MethodGet, "/me/sign-in-keys", token, nil))
 		require.NoError(t, json.Unmarshal([]byte(listed.raw), &list))
+		for _, key := range list.Data {
+			require.Equal(t, httpapi.SignInKeyDeviceKey, key.Kind)
+		}
 		return list.Data
 	}
 	keys := listKeys(second.TokenSet.AccessToken)
@@ -377,26 +372,27 @@ func testDeviceKeyLifecycle(t *testing.T, auth *authkit.Client, outbox *authtest
 
 	// An ordinary device-key token is not a recovery-root proof.
 	loggedIn = f.loginDeviceKey(second.DeviceKey.ID, secondPrivate)
-	f.expect(http.StatusForbidden, f.request(http.MethodPost, "/device-keys/revoke-others", loggedIn.TokenSet.AccessToken, map[string]any{}))
+	f.expect(http.StatusForbidden, f.request(http.MethodDelete, "/device-keys", loggedIn.TokenSet.AccessToken, nil))
 
 	// Re-enrolling the exact active key is an email proof, not a new machine.
 	proof := f.finishDeviceEnrollment(email, f.beginDeviceEnrollment(email, secondPublic), secondPrivate)
 	require.Equal(t, second.DeviceKey.ID, proof.DeviceKey.ID)
 	require.Len(t, listKeys(proof.TokenSet.AccessToken), 2, "no key was added")
-	f.expect(http.StatusNoContent, f.request(http.MethodPost, "/device-keys/revoke-others", proof.TokenSet.AccessToken, map[string]any{}))
+	f.expect(http.StatusNoContent, f.request(http.MethodDelete, "/device-keys", proof.TokenSet.AccessToken, nil))
 	f.requireActiveDeviceKeys(user.ID, secondPublic)
 
 	// The replaced machine can no longer mint a token; the kept machine can.
 	f.expect(http.StatusUnauthorized, f.finishDeviceLogin(f.beginDeviceLogin(first.DeviceKey.ID), firstPrivate, devicekey.LoginDomain))
 	kept := f.loginDeviceKey(second.DeviceKey.ID, secondPrivate)
 
-	// Sign-out is retry-safe: the revoked key's residual token can only confirm
-	// revocation of itself, never act on another machine.
-	signOut := "/device-keys/" + second.DeviceKey.ID
-	f.expect(http.StatusNoContent, f.request(http.MethodDelete, signOut, kept.TokenSet.AccessToken, nil))
-	f.expect(http.StatusNoContent, f.request(http.MethodDelete, signOut, kept.TokenSet.AccessToken, nil))
+	// Sign-out (DELETE /logout) revokes the token's own key and is retry-safe:
+	// the revoked key's residual token can only confirm its own sign-out,
+	// never act on the account.
+	f.expect(http.StatusNoContent, f.request(http.MethodDelete, "/logout", kept.TokenSet.AccessToken, nil))
+	f.expect(http.StatusNoContent, f.request(http.MethodDelete, "/logout", kept.TokenSet.AccessToken, nil))
 	f.requireActiveDeviceKeys(user.ID)
-	f.expect(http.StatusUnauthorized, f.request(http.MethodDelete, "/device-keys/"+first.DeviceKey.ID, kept.TokenSet.AccessToken, nil))
+	f.expect(http.StatusUnauthorized, f.request(http.MethodDelete, "/me/sign-in-keys/"+first.DeviceKey.ID, kept.TokenSet.AccessToken, nil))
+	f.expect(http.StatusUnauthorized, f.request(http.MethodDelete, "/device-keys", kept.TokenSet.AccessToken, nil))
 
 	// Tombstoned key bytes cannot be reactivated through email recovery.
 	reenroll := f.beginDeviceEnrollment(email, secondPublic)
@@ -426,16 +422,9 @@ func testDeviceKeyLifecycle(t *testing.T, auth *authkit.Client, outbox *authtest
 		return f.post("/device-keys/enroll/finish", body)
 	}
 	refused := f.expect(http.StatusForbidden, gatedFinish(""))
-	var refusal struct {
-		Error struct {
-			Code     string         `json:"code"`
-			Metadata map[string]any `json:"metadata"`
-		} `json:"error"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(refused.raw), &refusal))
-	require.Equal(t, "step_up_required", refusal.Error.Code)
-	require.Equal(t, "totp", refusal.Error.Metadata["method"])
-	require.Equal(t, "code_2fa", refusal.Error.Metadata["param"])
+	require.Equal(t, "2fa_required", refused.Error.Code)
+	require.Equal(t, "code_2fa", refused.Error.Param)
+	require.Equal(t, "totp", refused.Error.Metadata.Method)
 	f.expect(http.StatusUnauthorized, gatedFinish("000000"))
 	withFactor := f.deviceKeySession(f.expect(http.StatusOK, gatedFinish(holder.TOTP.Code(t))))
 	claims = accessClaims(f.t, withFactor.TokenSet.AccessToken)

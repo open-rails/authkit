@@ -35,17 +35,17 @@ type BanState struct {
 	By     *string    `json:"by" yaml:"by"`
 }
 
-// PublicUser is what other people may see of an account. A deleted account
-// is a tombstone: Deleted is set and every other field except ID is zero.
+// PublicUser is what other people may see of an account: never its contacts,
+// ban or sign-in data. A deleted account is a tombstone: Deleted is set and
+// every other field but ID is empty.
 type PublicUser struct {
-	ID        string    `json:"id"`
-	Username  string    `json:"username,omitempty"`
-	AvatarURL string    `json:"avatar_url,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	Deleted   bool      `json:"deleted,omitempty"`
+	ID        string  `json:"id"`
+	Username  string  `json:"username"`
+	AvatarURL *string `json:"avatar_url"`
+	Deleted   bool    `json:"deleted"`
 	// Metadata holds the account's metadata keys the host made public
 	// (Config.PublicUserMetadata), and no others.
-	Metadata map[string]any `json:"metadata,omitempty"`
+	Metadata map[string]any `json:"metadata"`
 }
 
 // DisplayName is the username, or "user-<first 8 of id>" for tombstoned and

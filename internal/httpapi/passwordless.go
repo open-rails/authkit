@@ -31,7 +31,7 @@ func (s *Service) handlePasswordlessStartPOST(w http.ResponseWriter, r *http.Req
 		Mode:               req.Mode,
 		ReturnTo:           req.ReturnTo,
 		PreferredLanguage:  req.PreferredLanguage,
-		AccountInviteToken: req.AccountInviteToken,
+		AccountInviteToken: req.InviteCode,
 	})
 	if err != nil {
 		writeError(w, err)
@@ -71,11 +71,5 @@ func (s *Service) handlePasswordlessConfirmPOST(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	if s.writeLoginContinuation(w, r, result, nil) {
-		return
-	}
-	writeJSON(w, http.StatusOK, PasswordlessResult{
-		TokenSet: s.deliverRefreshToken(w, r, result.Session.TokenSet()),
-		ReturnTo: nullableString(result.ReturnTo),
-	})
+	s.writeAuthResult(w, r, result, authExtras{})
 }

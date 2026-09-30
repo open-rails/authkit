@@ -19,13 +19,7 @@ export {
   type AuthStatus,
 } from "./useAuth.ts"
 export { isStepUpCancelled, toAuthKitError, type Guard } from "./task.ts"
-export {
-  useLogin,
-  type LoginOptions,
-  type LoginState,
-  type TwoFactorChallenge,
-  type TwoFactorEnrollmentChallenge,
-} from "./useLogin.ts"
+export { useLogin, type LoginOptions, type LoginState } from "./useLogin.ts"
 export {
   useRegister,
   type RegisterInput,
@@ -51,10 +45,12 @@ export {
   useTwoFactorSettings,
   type TwoFactorEnrollmentState,
 } from "./twoFactor.ts"
+export { useSignInKeys } from "./signInKeys.ts"
 export {
   useContactVerification,
   useLinkedProviders,
   useOidcCallback,
+  useStepUpReturn,
   useVerifyLink,
   type ContactVerificationState,
   type LinkedProvider,

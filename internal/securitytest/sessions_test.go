@@ -19,6 +19,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/verify"
@@ -55,9 +56,7 @@ func TestSecurityRefreshTokenTheft(t *testing.T) {
 			a := h.newAccount("theft")
 			first := h.login(a)
 			resp := h.refresh(first.RefreshToken)
-			require.Equal(t, http.StatusOK, resp.status, resp.String())
-			var next tokens
-			resp.json(t, &next)
+			next := session(t, resp)
 			require.NotEqual(t, first.RefreshToken, next.RefreshToken)
 			tc.steal(t, first.RefreshToken, next.RefreshToken)
 			// A separate login is a separate family and remains usable.
@@ -112,9 +111,7 @@ func TestSecurityRefreshGraceDoesNotFork(t *testing.T) {
 	require.Empty(t, revoked.Items, "a lost race must revoke nothing")
 
 	resp := h.refresh(converged)
-	require.Equal(t, http.StatusOK, resp.status, resp.String())
-	var next tokens
-	resp.json(t, &next)
+	next := session(t, resp)
 	require.NotEqual(t, converged, next.RefreshToken, "the successor still rotates")
 }
 
@@ -132,7 +129,13 @@ func (h *host) refreshFromGoroutine(refreshToken string) (int, tokens, error) {
 	defer resp.Body.Close()
 	var out tokens
 	if resp.StatusCode == http.StatusOK {
-		err = json.NewDecoder(resp.Body).Decode(&out)
+		var res httpapi.AuthResult
+		if err = json.NewDecoder(resp.Body).Decode(&res); err == nil && res.TokenSet != nil {
+			out.AccessToken = res.TokenSet.AccessToken
+			if res.TokenSet.RefreshToken != nil {
+				out.RefreshToken = *res.TokenSet.RefreshToken
+			}
+		}
 	}
 	return resp.StatusCode, out, err
 }
@@ -153,8 +156,8 @@ func TestSecuritySessionRevocationEvents(t *testing.T) {
 			resp := h.do(request{method: http.MethodDelete, path: "/logout", token: s.AccessToken})
 			require.Less(t, resp.status, 300, resp.String())
 		}, true},
-		{"revoke all sessions", func(t *testing.T, _ account, s tokens) {
-			resp := h.do(request{method: http.MethodDelete, path: "/user/sessions", token: s.AccessToken})
+		{"sign out every other session", func(t *testing.T, a account, _ tokens) {
+			resp := h.do(request{method: http.MethodDelete, path: "/me/sessions", token: h.login(a).AccessToken})
 			require.Less(t, resp.status, 300, resp.String())
 		}, true},
 		{"admin password reset", func(t *testing.T, a account, _ tokens) {
@@ -203,7 +206,7 @@ func TestSecurityPasswordChangeEndsOtherSessions(t *testing.T) {
 	a := h.newAccount("pwchange")
 	attacker := h.login(a)
 	owner := h.login(a)
-	resp := h.post("/user/password", map[string]string{"current_password": password, "new_password": "Another-long-passphrase-7"}, owner.AccessToken)
+	resp := h.do(request{method: http.MethodPut, path: "/me/password", body: map[string]string{"current_password": password, "new_password": "Another-long-passphrase-7"}, token: owner.AccessToken})
 	require.Less(t, resp.status, 300, resp.String())
 	require.Equal(t, http.StatusUnauthorized, h.refresh(attacker.RefreshToken).status)
 	old := h.post("/password/login", map[string]string{"identifier": a.email, "password": password}, "")
@@ -213,7 +216,8 @@ func TestSecurityPasswordChangeEndsOtherSessions(t *testing.T) {
 // TestSecurityRevokedSessionCannotChangeCredentials: a stolen access token is
 // still cryptographically valid after the owner logs out or secures the
 // account. It must not be able to install a credential that outlives the
-// revocation (new password, passkey, second factor) or delete the account.
+// revocation (new password, passkey, second factor, address) or delete the
+// account.
 func TestSecurityRevokedSessionCannotChangeCredentials(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(func(c *authkit.Config) {
 		c.Passkeys = authkit.PasskeyConfig{RPID: "localhost", RPDisplayName: "Security", Origins: []string{"http://localhost"}}
@@ -224,16 +228,19 @@ func TestSecurityRevokedSessionCannotChangeCredentials(t *testing.T) {
 		req  func(token string) request
 	}{
 		{"set password without current password", func(token string) request {
-			return request{method: http.MethodPost, path: "/user/password", token: token, body: map[string]string{"new_password": "Attacker-owned-passphrase-1"}}
+			return request{method: http.MethodPut, path: "/me/password", token: token, body: map[string]string{"new_password": "Attacker-owned-passphrase-1"}}
 		}},
 		{"register a passkey", func(token string) request {
-			return request{method: http.MethodPost, path: "/passkeys/register/begin", token: token, body: map[string]any{}}
+			return request{method: http.MethodPost, path: "/me/passkeys/register/begin", token: token}
 		}},
 		{"enroll a second factor", func(token string) request {
-			return request{method: http.MethodPost, path: "/user/2fa", token: token, body: map[string]string{"method": "email"}}
+			return request{method: http.MethodPost, path: "/me/2fa/setup", token: token, body: map[string]string{"method": "email"}}
 		}},
 		{"delete the account", func(token string) request {
-			return request{method: http.MethodDelete, path: "/user", token: token, body: map[string]any{}}
+			return request{method: http.MethodDelete, path: "/me", token: token}
+		}},
+		{"change the address", func(token string) request {
+			return request{method: http.MethodPut, path: "/me/email", token: token, body: map[string]string{"email": unique("attacker") + "@security.test"}}
 		}},
 	}
 	events := []struct {
@@ -245,11 +252,11 @@ func TestSecurityRevokedSessionCannotChangeCredentials(t *testing.T) {
 		}},
 		{"owner revokes all sessions", func(t *testing.T, a account, _ tokens) {
 			own := h.login(a)
-			require.Less(t, h.do(request{method: http.MethodDelete, path: "/user/sessions", token: own.AccessToken}).status, 300)
+			require.Less(t, h.do(request{method: http.MethodDelete, path: "/me/sessions", token: own.AccessToken}).status, 300)
 		}},
 		{"owner changes password", func(t *testing.T, a account, _ tokens) {
 			own := h.login(a)
-			resp := h.post("/user/password", map[string]string{"current_password": password, "new_password": password + "x"}, own.AccessToken)
+			resp := h.do(request{method: http.MethodPut, path: "/me/password", body: map[string]string{"current_password": password, "new_password": password + "x"}, token: own.AccessToken})
 			require.Less(t, resp.status, 300, resp.String())
 			require.NoError(t, h.setPassword(a.id, password))
 		}},

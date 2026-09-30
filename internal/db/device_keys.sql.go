@@ -144,6 +144,34 @@ func (q *Queries) DeviceKeyMarkMFAProven(ctx context.Context, id string) error {
 	return err
 }
 
+const deviceKeyRelabel = `-- name: DeviceKeyRelabel :one
+UPDATE user_device_keys SET label = $1
+WHERE id = $2 AND user_id = $3 AND revoked_at IS NULL
+RETURNING id, user_id, public_key, label, created_at, last_used_at, revoked_at, mfa_proven_at
+`
+
+type DeviceKeyRelabelParams struct {
+	Label  *string
+	ID     string
+	UserID string
+}
+
+func (q *Queries) DeviceKeyRelabel(ctx context.Context, arg DeviceKeyRelabelParams) (UserDeviceKey, error) {
+	row := q.db.QueryRow(ctx, deviceKeyRelabel, arg.Label, arg.ID, arg.UserID)
+	var i UserDeviceKey
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.PublicKey,
+		&i.Label,
+		&i.CreatedAt,
+		&i.LastUsedAt,
+		&i.RevokedAt,
+		&i.MfaProvenAt,
+	)
+	return i, err
+}
+
 const deviceKeyRevoke = `-- name: DeviceKeyRevoke :execrows
 UPDATE user_device_keys SET revoked_at = COALESCE(revoked_at, now()) WHERE id = $1 AND user_id = $2
 `

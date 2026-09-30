@@ -176,7 +176,7 @@ func TestSenderBoundDelegation(t *testing.T) {
 		}
 		replay[key] = true
 		return true, nil
-	}), WithRequestOrigin("https://resource.example"))
+	}), WithPublicURL("https://resource.example"))
 
 	leaf, other := leafCertificate(t), leafCertificate(t)
 	bound := sign(t, f.peer, jose.DelegatedAccessTokenType, peerIssuer, map[string]any{

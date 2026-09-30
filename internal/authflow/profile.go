@@ -15,7 +15,8 @@ type ProfileInput struct {
 	UserID          string
 	ClaimsUsername  string // fallback when the row carries no username
 	AuthTime        time.Time
-	StepUpSatisfied bool // the presented token is fresh enough for sensitive actions
+	StepUpSatisfied bool     // the presented token is fresh enough for sensitive actions
+	AuthMethods     []string // the presented token's authentication methods (amr)
 	// ProviderSupportsStepUp reports which linked providers can re-authenticate.
 	ProviderSupportsStepUp func(provider string) bool
 }
@@ -73,12 +74,12 @@ func NewStepUpTwoFactorOptions(settings *TwoFactorSettings) *StepUpTwoFactorOpti
 		case "email":
 			if factor.Email != nil {
 				masked := contact.MaskDestination(*factor.Email)
-				option.VerificationID = &masked
+				option.Destination = &masked
 			}
 		case "sms":
 			if factor.PhoneNumber != nil {
 				masked := contact.MaskDestination(*factor.PhoneNumber)
-				option.VerificationID = &masked
+				option.Destination = &masked
 			}
 		}
 		out.Methods = append(out.Methods, method)
