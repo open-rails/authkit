@@ -310,12 +310,9 @@ func TestSecuritySecretsStayOutOfLogs(t *testing.T) {
 	link := h.issue(base+"/invitations", ownerToken, map[string]any{"role": "org:member"})
 	ok(h.post("/invitations/redeem", map[string]string{"code": link.Code}, h.login(h.newAccount("logsmember")).AccessToken))
 	invited := unique("logsinvited") + "@security.test"
-	var invitation struct {
-		Code string `json:"code"`
-	}
-	ok(h.post(base+"/members", map[string]string{"email": invited, "role": "org:member"}, ownerToken)).json(t, &invitation)
+	ok(h.post(base+"/invitations", map[string]string{"email": invited, "role": "org:member"}, ownerToken))
 	ok(h.post("/register", map[string]string{"identifier": invited, "username": unique("logsinv"), "password": password,
-		"invite_code": invitation.Code}, ""))
+		"invite_code": h.inviteCode(invited)}, ""))
 
 	// The mail provider fails after AuthKit hands it each message.
 	before := len(logs.String())
@@ -326,7 +323,7 @@ func TestSecuritySecretsStayOutOfLogs(t *testing.T) {
 	h.post("/password/reset/request", map[string]string{"identifier": email}, "")
 	h.post("/passwordless/start", map[string]string{"identifier": email}, "")
 	h.post("/password/login", map[string]string{"identifier": mfa.email, "password": password}, "")
-	h.post(base+"/members", map[string]string{"email": unique("logsinvited") + "@security.test", "role": "org:member"}, ownerToken)
+	h.post(base+"/invitations", map[string]string{"email": unique("logsinvited") + "@security.test", "role": "org:member"}, ownerToken)
 	h.post("/device-keys/enroll/begin", map[string]string{"email": device.email, "public_key": newDeviceKey(t).public, "label": "phone"}, "")
 	mailDown.Store(false)
 	require.Greater(t, len(logs.String()), before, "the mail failures logged nothing")

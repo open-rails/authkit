@@ -67,7 +67,7 @@ func TestUserLookups(t *testing.T) {
 		require.NotNil(t, users[bob.ID].DeletedAt)
 		public, err := auth.PublicUsers(ctx, []string{alice.ID, bob.ID})
 		require.NoError(t, err)
-		require.Equal(t, iam.PublicUser{ID: bob.ID, Deleted: true}, public[bob.ID])
+		require.Equal(t, iam.PublicUser{ID: bob.ID, Deleted: true, Metadata: map[string]any{}}, public[bob.ID])
 		require.Equal(t, "alice", public[alice.ID].DisplayName())
 		require.Equal(t, "user-"+bob.ID[:8], iam.PublicDisplayName(public, bob.ID))
 		require.NoError(t, itemErr(auth.RestoreUsers(ctx, op, []string{bob.ID})))
@@ -100,8 +100,8 @@ func TestPublicUserMetadataAllowlist(t *testing.T) {
 	public, err := auth.PublicUsers(ctx, []string{alice.ID, bob.ID, carol.ID})
 	require.NoError(t, err)
 	require.Equal(t, map[string]any{"bio": "hi"}, public[alice.ID].Metadata, "only allowlisted keys")
-	require.Equal(t, iam.PublicUser{ID: bob.ID, Deleted: true}, public[bob.ID], "a tombstone carries no metadata")
-	require.Nil(t, public[carol.ID].Metadata, "no public keys set, no metadata")
+	require.Equal(t, iam.PublicUser{ID: bob.ID, Deleted: true, Metadata: map[string]any{}}, public[bob.ID], "a tombstone carries no metadata")
+	require.Equal(t, map[string]any{}, public[carol.ID].Metadata, "no public keys set, no metadata")
 
 	cfg.PublicUserMetadata = []string{"reserved"}
 	_, err = authkit.New(ctx, cfg, testDeps(pg.Pool))

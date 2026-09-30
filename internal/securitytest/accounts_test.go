@@ -120,7 +120,7 @@ func TestSecurityAccountAuthority(t *testing.T) {
 		for name, op := range ops {
 			require.ErrorIs(t, op(iam.UserActor(moderator.id), orgOwner.id), iam.ErrAccountAuthorityEscalation, name)
 		}
-		resp := h.post("/admin/users/"+orgOwner.id+"/ban", map[string]string{"until": "infinite"}, h.login(moderator).AccessToken)
+		resp := h.do(request{method: http.MethodPut, path: "/admin/users/" + orgOwner.id + "/ban", body: map[string]any{"until": nil}, token: h.login(moderator).AccessToken})
 		require.Equal(t, http.StatusForbidden, resp.status, resp.String())
 		require.Equal(t, "account_authority_escalation", resp.errorCode())
 	})

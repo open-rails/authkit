@@ -69,7 +69,8 @@ func TestSecurityMutatingRoutesCheckTheSession(t *testing.T) {
 	for _, key := range []string{
 		"POST /user/password", "DELETE /user/sessions", "DELETE /user/sessions/{id}", "PATCH /user/username",
 		"PATCH /user/preferred-language", "DELETE /user", "DELETE /device-keys", "POST /delegated/token",
-		"POST /invites/redeem", "POST /admin/users/{user_id}/ban",
+		"POST /invitations/redeem", "PATCH /admin/users/{user_id}", "PUT /admin/users/{user_id}/ban", "DELETE /admin/users/{user_id}/ban",
+		"DELETE /admin/users/{user_id}/sessions",
 	} {
 		method, path, _ := strings.Cut(key, " ")
 		require.Equal(t, iam.AuthSession, declared[method+" "+apiPrefix+path], key)

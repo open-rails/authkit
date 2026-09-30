@@ -130,21 +130,26 @@ func TestSecurityEventsRecordOnlyCommittedChanges(t *testing.T) {
 	expect(byUser(alice.id, iam.Event{Kind: iam.EventUserRegistered, UserID: alice.id}))
 	h.proveOwnEmail(aliceEmail, aliceTokens)
 
+	ban := func(target account, body any, token string) response {
+		return h.do(request{method: http.MethodPut, path: "/admin/users/" + target.id + "/ban", body: body, token: token})
+	}
 	t.Run("refused bans record nothing", func(t *testing.T) {
-		resp := h.post("/admin/users/"+staff.id+"/ban", map[string]string{"until": "infinite"}, aliceTokens.AccessToken)
+		resp := ban(staff, map[string]any{"until": nil}, aliceTokens.AccessToken)
 		require.Equal(t, http.StatusForbidden, resp.status, resp.String())
-		resp = h.post("/admin/users/"+staff.id+"/ban", map[string]string{"until": "infinite"}, staffToken)
+		resp = ban(staff, map[string]any{"until": nil}, staffToken)
 		require.GreaterOrEqual(t, resp.status, 400, "nobody bans themselves: %s", resp.String())
 	})
 
 	until := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
-	resp := h.post("/admin/users/"+alice.id+"/ban", map[string]string{"reason": "spam", "until": until.Format(time.RFC3339)}, staffToken)
+	resp := ban(alice, map[string]string{"reason": "spam", "until": until.Format(time.RFC3339)}, staffToken)
 	require.Equal(t, http.StatusNoContent, resp.status, resp.String())
 	expect(byUser(staff.id, iam.Event{Kind: iam.EventUserBanned, UserID: alice.id}))
-	resp = h.post("/admin/users/"+alice.id+"/ban", map[string]any{"until": "infinite", "keep_existing": true}, staffToken)
-	require.Equal(t, http.StatusNoContent, resp.status, "a ban in force is kept: %s", resp.String())
+	later := until.Add(time.Hour)
+	resp = ban(alice, map[string]string{"reason": "spam", "until": later.Format(time.RFC3339)}, staffToken)
+	require.Equal(t, http.StatusNoContent, resp.status, "a new ban replaces the one in force: %s", resp.String())
+	expect(byUser(staff.id, iam.Event{Kind: iam.EventUserBanned, UserID: alice.id}))
 	for range 2 { // the second lift finds no ban
-		resp = h.post("/admin/users/"+alice.id+"/unban", nil, staffToken)
+		resp = h.do(request{method: http.MethodDelete, path: "/admin/users/" + alice.id + "/ban", token: staffToken})
 		require.Equal(t, http.StatusNoContent, resp.status, resp.String())
 	}
 	expect(byUser(staff.id, iam.Event{Kind: iam.EventUserUnbanned, UserID: alice.id}))
@@ -178,7 +183,7 @@ func TestSecurityEventsRecordOnlyCommittedChanges(t *testing.T) {
 	expect(bySystem(iam.Event{Kind: iam.EventGroupCreated, GroupID: group.ID, Persona: orgPersona}))
 	expect(bySystem(iam.Event{Kind: iam.EventRoleGranted, UserID: bob.id, GroupID: group.ID, Persona: orgPersona, Current: "org:owner"}))
 
-	resp = h.do(request{method: http.MethodPut, path: "/groups/" + group.ID + "/members/" + alice.id + "/roles/org:member", token: bobToken})
+	resp = h.do(request{method: http.MethodPut, path: "/groups/" + group.ID + "/members/users/" + alice.id, body: map[string]string{"role": "org:member"}, token: bobToken})
 	require.Less(t, resp.status, 300, resp.String())
 	expect(byUser(bob.id, iam.Event{Kind: iam.EventRoleGranted, UserID: alice.id, GroupID: group.ID, Persona: orgPersona, Current: "org:member"}))
 	for range 2 { // the second assignment changes nothing
@@ -247,6 +252,7 @@ func TestSecurityEventsRecordOnlyCommittedChanges(t *testing.T) {
 	require.Equal(t, aliceWant, aliceGot, "one user's events arrive in commit order, the failed ban first")
 
 	ids := map[string]bool{}
+	var bans []time.Time
 	for _, e := range delivered {
 		require.False(t, ids[e.ID], "event %s delivered twice", e.ID)
 		ids[e.ID] = true
@@ -254,12 +260,15 @@ func TestSecurityEventsRecordOnlyCommittedChanges(t *testing.T) {
 		if e.Kind == iam.EventUserBanned {
 			require.Equal(t, "spam", e.Reason)
 			require.NotNil(t, e.Until)
-			require.True(t, until.Equal(*e.Until), "ban until %v, want %v", e.Until, until)
+			bans = append(bans, *e.Until)
 			events.mu.Lock()
 			require.Equal(t, 2, events.calls[e.ID], "the failed delivery was retried with the same event ID")
 			events.mu.Unlock()
 		}
 	}
+	require.Len(t, bans, 2)
+	require.True(t, until.Equal(bans[0]), "ban until %v, want %v", bans[0], until)
+	require.True(t, later.Equal(bans[1]), "the replacing ban until %v, want %v", bans[1], later)
 }
 
 // TestSecurityEventsCarryNoSecrets: events name what changed, never a

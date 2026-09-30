@@ -269,7 +269,7 @@ func TestSecurityCredentialSweepNeverBlocksBoot(t *testing.T) {
 		group, base := h.newOrg(owner)
 		token := h.login(owner).AccessToken
 		h.registerApp(group, owner, "p2e-app", "owner")
-		resp := h.do(request{method: http.MethodDelete, path: base + "/members/" + owner.id, token: token})
+		resp := h.do(request{method: http.MethodDelete, path: base + "/members/users/" + owner.id, token: token})
 		require.Equal(t, http.StatusConflict, resp.status, resp.String())
 		require.Equal(t, "last_owner", resp.errorCode())
 	})
