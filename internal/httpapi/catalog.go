@@ -201,10 +201,8 @@ func Catalog() []RouteSpec {
 			Responses: replyNoContent, serve: handle((*Service).handleMeDELETE)},
 		{Method: GET, Path: "/me/security", Group: account, Auth: required, Bucket: RLMeRead,
 			Responses: replyOK(UserSecurity{}), serve: handle((*Service).handleMeSecurityGET)},
-		// A current password re-authenticates the session on the way (no
-		// second factor on the account): the answer is then its fresh token.
-		{Method: PUT, Path: "/me/password", Group: account, Auth: session, Bucket: RLMePasswordChange,
-			Request: PasswordChangeRequest{}, Responses: []Reply{{http.StatusOK, AuthResult{}}, {http.StatusNoContent, nil}}, serve: handle((*Service).handleMePasswordPUT)},
+		{Method: PUT, Path: "/me/password", Group: account, Auth: session, StepUp: true, Bucket: RLMePasswordChange,
+			Request: PasswordChangeRequest{}, Responses: replyNoContent, serve: handle((*Service).handleMePasswordPUT)},
 		{Method: PUT, Path: "/me/email", Group: account, Auth: session, StepUp: true, Bucket: RLMeContactChange,
 			Request: EmailChangeRequest{}, Responses: replyAccepted, serve: handle((*Service).handleMeEmailPUT)},
 		{Method: PUT, Path: "/me/phone", Group: account, Auth: session, StepUp: true, Bucket: RLMeContactChange,
@@ -245,10 +243,9 @@ func Catalog() []RouteSpec {
 		{Method: POST, Path: "/oidc/{provider}/step-up/start", Group: account, Auth: session, Bucket: RLOIDCStart, MountedWhen: FeatureOIDC,
 			Request: ReturnToRequest{}, Responses: replyOK(OIDCStart{}), serve: handle((*Service).handleOIDCStepUpStartPOST)},
 
-		// Second factors. An enrollment token (AuthResult enrollment_required)
-		// reaches setup and factors, with no step-up.
-		{Method: GET, Path: "/me/2fa", Group: account, Auth: required, Bucket: RLMeRead, MountedWhen: FeatureTwoFactor, MFAEnrollmentExempt: true,
-			Responses: replyOK(TwoFactorStatus{}), serve: handle((*Service).handleMe2FAGET)},
+		// Second factors, listed by GET /me/security. An enrollment token
+		// (AuthResult enrollment_required) reaches setup and factors, with no
+		// step-up.
 		{Method: POST, Path: "/me/2fa/setup", Group: account, Auth: session, Bucket: RL2FAEnable, MountedWhen: FeatureTwoFactor, MFAEnrollmentExempt: true,
 			Request: TwoFactorSetupRequest{}, Responses: replyOK(TwoFactorSetup{}), serve: handle((*Service).handleMe2FASetupPOST)},
 		{Method: POST, Path: "/me/2fa/factors", Group: account, Auth: session, Bucket: RL2FAEnable, MountedWhen: FeatureTwoFactor, MFAEnrollmentExempt: true,

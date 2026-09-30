@@ -525,7 +525,6 @@ export const zh: AuthUiMessageBundle = {
     oidc_exchange_failed: "无法完成第三方登录。",
     passkey_not_found: "未找到通行密钥。",
     passkey_required: "此账户使用通行密钥登录。请使用您的通行密钥继续。",
-    password_change_failed: "无法更改密码。",
     password_contains_identifier: "密码不能包含您的用户名或邮箱。",
     password_requirements_unmet: "密码不符合要求。",
     password_reset_required:

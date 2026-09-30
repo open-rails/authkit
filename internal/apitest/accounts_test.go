@@ -350,9 +350,10 @@ func TestClientReadsUserMetadata(t *testing.T) {
 	require.ErrorIs(t, err, iam.ErrUserNotFound)
 }
 
-// A password change against an imported legacy reset-required hash answers
-// the catalog's 401 password_reset_required, from a fresh session too.
-func TestPasswordChangeOnLegacyHashRequiresReset(t *testing.T) {
+// An imported legacy reset-required hash never verifies: a password step-up
+// answers 401 password_reset_required, from a fresh session too. A session
+// fresh from another proof (passwordless) replaces it.
+func TestLegacyHashStepUpRequiresReset(t *testing.T) {
 	auth, outbox := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
 		withAppLinks(c)
 		c.TwoFactor.Mode = iam.TwoFactorDisabled
@@ -372,9 +373,12 @@ func TestPasswordChangeOnLegacyHashRequiresReset(t *testing.T) {
 	token := res.answer(t).signedIn(t).AccessToken
 	require.NotEmpty(t, token)
 
-	res = a.do(request{method: http.MethodPut, path: "/me/password", token: token, body: map[string]any{"current_password": "Correct-horse-battery-7", "new_password": "Another-horse-battery-8"}})
+	res = a.post("/me/step-up/password", token, map[string]any{"password": "Correct-horse-battery-7"})
 	require.Equal(t, http.StatusUnauthorized, res.status, res.String())
 	require.Equal(t, "password_reset_required", res.code())
+	res = a.do(request{method: http.MethodPut, path: "/me/password", token: token, body: map[string]any{"new_password": "Another-horse-battery-8"}})
+	require.Equal(t, http.StatusNoContent, res.status, res.String())
+	a.post("/password/login", "", map[string]any{"identifier": email, "password": "Another-horse-battery-8"}).answer(t).signedIn(t)
 }
 
 // A username is one identity in every case: the owner's spelling is kept for
@@ -497,8 +501,8 @@ func TestAccountPolicies(t *testing.T) {
 		require.NotEmpty(t, token)
 		return token
 	}
-	change := func(a *api, token, current, next string) response {
-		return a.do(request{method: http.MethodPut, path: "/me/password", token: token, body: map[string]any{"current_password": current, "new_password": next}})
+	change := func(a *api, token, next string) response {
+		return a.do(request{method: http.MethodPut, path: "/me/password", token: token, body: map[string]any{"new_password": next}})
 	}
 
 	t.Run("configured length", func(t *testing.T) {
@@ -513,10 +517,10 @@ func TestAccountPolicies(t *testing.T) {
 		// Length is counted in characters: 12 two-byte runes pass a 20-character maximum.
 		pass := strings.Repeat("é", 12)
 		token := registered(t, register(a, "policy@example.test", "policyuser", pass))
-		require.Equal(t, bounds, policyError(t, change(a, token, pass, "short-pass"), "password_too_short", "password"))
-		require.Equal(t, bounds, policyError(t, change(a, token, pass, strings.Repeat("y", 21)), "password_too_long", "password"))
+		require.Equal(t, bounds, policyError(t, change(a, token, "short-pass"), "password_too_short", "password"))
+		require.Equal(t, bounds, policyError(t, change(a, token, strings.Repeat("y", 21)), "password_too_long", "password"))
 		require.Equal(t, bounds, policyError(t, a.post("/password/reset/confirm", "", map[string]any{"token": "unused", "new_password": "short-pass"}), "password_too_short", "password"))
-		res := change(a, token, pass, "twelve-chars")
+		res := change(a, token, "twelve-chars")
 		require.Equal(t, http.StatusNoContent, res.status, res.String())
 	})
 
@@ -535,8 +539,8 @@ func TestAccountPolicies(t *testing.T) {
 		policyError(t, register(a, "common@example.test", "commonuser", "my-commonuser-pass"), "password_contains_identifier", "password")
 		policyError(t, register(a, "mailbox.owner@example.test", "someoneelse", "xx-MAILBOX.OWNER-xx"), "password_contains_identifier", "password")
 		token := registered(t, register(a, "common@example.test", "commonuser", "violet-harbor-lantern"))
-		policyError(t, change(a, token, "violet-harbor-lantern", "iloveyou1"), "password_too_common", "password")
-		policyError(t, change(a, token, "violet-harbor-lantern", "renamed-COMMONUSER-1"), "password_contains_identifier", "password")
+		policyError(t, change(a, token, "iloveyou1"), "password_too_common", "password")
+		policyError(t, change(a, token, "renamed-COMMONUSER-1"), "password_contains_identifier", "password")
 	})
 
 	t.Run("host composition and username bounds", func(t *testing.T) {
@@ -610,7 +614,7 @@ func TestCredentialTransactionsResetGrantsExpireOnCredentialChanges(t *testing.T
 			switch change {
 			case "password_change":
 				token := authtest.SignIn(t, auth, u).AccessToken
-				expect(t, http.StatusNoContent, a.do(request{method: http.MethodPut, path: "/me/password", token: token, body: map[string]any{"current_password": u.Password, "new_password": "Defender-password-12345"}}))
+				expect(t, http.StatusNoContent, a.do(request{method: http.MethodPut, path: "/me/password", token: token, body: map[string]any{"new_password": "Defender-password-12345"}}))
 			case "contact_change":
 				token := authtest.SignIn(t, auth, u).AccessToken
 				next := uniqueEmail("audit-new-email")

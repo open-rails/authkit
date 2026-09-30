@@ -12,12 +12,14 @@ type TwoFactorSettings struct {
 	TOTPSecret   []byte
 	LastTOTPStep *int64
 	BackupCodes  []string // Hashed backup codes
-	Factors      []TwoFactorFactor
+	Factors      []MFAFactor
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }
 
-type TwoFactorFactor struct {
+// MFAFactor is a stored second factor; TwoFactorFactor is how the wire shows
+// it.
+type MFAFactor struct {
 	ID          string
 	UserID      string
 	Method      string

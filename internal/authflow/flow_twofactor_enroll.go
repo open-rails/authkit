@@ -44,7 +44,7 @@ type TwoFactorEnrollOutcome struct {
 	Destination     string
 	Secret          string
 	OTPAuthURI      string
-	Factor          TwoFactorFactor
+	Factor          MFAFactor
 	BackupCodes     []string
 	SessionVerified bool
 }

@@ -28,14 +28,7 @@ func TestSecurityPasswordHashingIsBounded(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits))
 	ctx := context.Background()
 	a := h.newAccount("kdfflood")
-	// The costliest Argon2id a stored (imported) hash may name: 256 MiB, 4 passes.
-	const heavyKiB, heavyPasses = 256 * 1024, 4
-	salt := make([]byte, 16)
-	_, _ = rand.Read(salt)
-	sum := argon2.IDKey([]byte(password), salt, heavyPasses, heavyKiB, 1, 32)
-	heavy := fmt.Sprintf("$argon2id$v=19$m=%d,t=%d,p=1$%s$%s", heavyKiB, heavyPasses,
-		base64.RawStdEncoding.EncodeToString(salt), base64.RawStdEncoding.EncodeToString(sum))
-	_, err := h.pool.Exec(ctx, `UPDATE profiles.user_passwords SET password_hash=$1, hash_algo='argon2id' WHERE user_id=$2::uuid`, heavy, a.id)
+	_, err := h.pool.Exec(ctx, `UPDATE profiles.user_passwords SET password_hash=$1, hash_algo='argon2id' WHERE user_id=$2::uuid`, heavyHash(), a.id)
 	require.NoError(t, err)
 
 	type answer struct {
@@ -108,4 +101,57 @@ func TestSecurityPasswordHashingIsBounded(t *testing.T) {
 		require.NoError(t, got.err)
 		require.Equal(t, http.StatusOK, got.status, got.code)
 	})
+}
+
+// A password change the hashing budget can't take in time is 503 server_busy
+// with Retry-After, like a sign-in, never masked as another error.
+func TestSecurityPasswordChangeUnderHashingLoad(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits))
+	a := h.newAccount("kdfchange")
+	token := h.login(a).AccessToken
+	change := func() response {
+		return h.do(request{method: http.MethodPut, path: "/me/password", token: token, body: map[string]string{"new_password": "Flooded-long-passphrase-1"}})
+	}
+
+	// The costliest verifications, one more queued every millisecond, hold
+	// the process-wide budget; each waits at most as long as the change, so
+	// some are always queued ahead of it for its whole wait.
+	heavy := heavyHash()
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		tick := time.NewTicker(time.Millisecond)
+		defer tick.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-tick.C:
+				wg.Go(func() { _, _ = kdf.VerifyArgon2id(context.Background(), heavy, password) })
+			}
+		}
+	})
+	time.Sleep(1100 * time.Millisecond)
+	busy := change()
+	close(stop)
+	wg.Wait()
+	require.Equal(t, http.StatusServiceUnavailable, busy.status, busy.String())
+	require.Equal(t, "server_busy", busy.errorCode())
+	require.Equal(t, "1", busy.header.Get("Retry-After"))
+
+	resp := change()
+	require.Equal(t, http.StatusNoContent, resp.status, "the change goes through once the load is over: %s", resp)
+}
+
+// heavyKiB and heavyPasses are the costliest Argon2id a stored (imported)
+// hash may name: 256 MiB, 4 passes.
+const heavyKiB, heavyPasses = 256 * 1024, 4
+
+// heavyHash is password hashed at that cost.
+func heavyHash() string {
+	salt := make([]byte, 16)
+	_, _ = rand.Read(salt)
+	sum := argon2.IDKey([]byte(password), salt, heavyPasses, heavyKiB, 1, 32)
+	return fmt.Sprintf("$argon2id$v=19$m=%d,t=%d,p=1$%s$%s", heavyKiB, heavyPasses,
+		base64.RawStdEncoding.EncodeToString(salt), base64.RawStdEncoding.EncodeToString(sum))
 }

@@ -374,36 +374,53 @@ func (a *api) meUser(t *testing.T, token string) iam.User {
 	return u
 }
 
-// PUT /me/password: a fresh session changes it (204); a stale one may
-// re-authenticate with the current password on the way (200, its fresh
-// AuthResult), unless the account has a second factor (M5).
+// PUT /me/password is a plain step-up route: a recent sign-in sets the new
+// password (204) and ends the other sessions; a stale one steps up first. A
+// wrong password at the step-up is invalid_password on fresh and stale
+// sessions alike, and a password never re-proves an account with a second
+// factor (M5).
 func TestMePasswordChange(t *testing.T) {
 	auth, _ := authtest.New(t)
 	a := newAPI(t, auth)
-	put := func(token string, current, next string) response {
-		return a.do(request{method: http.MethodPut, path: "/me/password", token: token, body: map[string]any{"current_password": current, "new_password": next}})
+	put := func(token string, body map[string]any) response {
+		return a.do(request{method: http.MethodPut, path: "/me/password", token: token, body: body})
+	}
+	stepUp := func(token, password string) response {
+		return a.post("/me/step-up/password", token, map[string]any{"password": password})
 	}
 	u := authtest.NewUser(t, auth)
-	expect(t, http.StatusNoContent, put(authtest.SignIn(t, auth, u).AccessToken, u.Password, "Second-horse-battery-2"))
+	current, other := authtest.SignIn(t, auth, u), authtest.SignIn(t, auth, u)
+	refused := expect(t, http.StatusBadRequest, put(current.AccessToken, map[string]any{"current_password": u.Password, "new_password": "Second-horse-battery-2"}))
+	require.Equal(t, "invalid_request", refused.code(), "the current password is a step-up's, never the change's")
+	stale := authtest.StaleSession(t, auth, authtest.SignIn(t, auth, u).AccessToken)
+	for _, token := range []string{current.AccessToken, stale} {
+		wrong := expect(t, http.StatusUnauthorized, stepUp(token, "wrong-password"))
+		require.Equal(t, "invalid_password", wrong.code())
+	}
+
+	expect(t, http.StatusNoContent, put(current.AccessToken, map[string]any{"new_password": "Second-horse-battery-2"}))
+	refresh := func(ts iam.TokenSet) response {
+		return a.post("/token", "", map[string]any{"grant_type": "refresh_token", "refresh_token": ts.RefreshToken})
+	}
+	expect(t, http.StatusUnauthorized, refresh(other))
+	expect(t, http.StatusOK, refresh(current))
 	u.Password = "Second-horse-battery-2"
 
-	stale := authtest.StaleSession(t, auth, authtest.SignIn(t, auth, u).AccessToken)
-	expect(t, http.StatusUnauthorized, put(stale, "wrong-password", "Third-horse-battery-3"))
-	answer := expectAnswer(t, put(stale, u.Password, "Third-horse-battery-3"), http.StatusOK)
-	require.Equal(t, httpapi.AuthComplete, answer.Status, answer.raw)
-	require.NotNil(t, answer.FreshAuth, answer.raw)
-	require.Equal(t, u.ID, answer.User.ID)
-	require.Nil(t, answer.tokens().RefreshToken)
-	claims, err := auth.Verify(t.Context(), answer.tokens().AccessToken)
-	require.NoError(t, err)
-	require.NoError(t, auth.CheckRecentSignIn(t.Context(), claims), "the answer's token is a recent sign-in")
+	stale = authtest.StaleSession(t, auth, authtest.SignIn(t, auth, u).AccessToken)
+	required := expect(t, http.StatusForbidden, put(stale, map[string]any{"new_password": "Third-horse-battery-3"}))
+	require.Equal(t, "step_up_required", required.code())
+	fresh := expectAnswer(t, stepUp(stale, u.Password), http.StatusOK).tokens().AccessToken
+	expect(t, http.StatusNoContent, put(fresh, map[string]any{"new_password": "Third-horse-battery-3"}))
 	u.Password = "Third-horse-battery-3"
+	authtest.SignIn(t, auth, u)
 
 	holder := authtest.NewUser(t, auth)
 	holder.TOTP = authtest.EnrollTOTP(t, auth, holder)
 	staleMFA := authtest.StaleSession(t, auth, authtest.SignIn(t, auth, holder).AccessToken)
-	refused := expect(t, http.StatusForbidden, put(staleMFA, holder.Password, "Fourth-horse-battery-4"))
+	refused = expect(t, http.StatusForbidden, stepUp(staleMFA, holder.Password))
 	require.Equal(t, "step_up_required", refused.code(), "a password never re-proves an account with a second factor")
+	refused = expect(t, http.StatusForbidden, put(staleMFA, map[string]any{"new_password": "Fourth-horse-battery-4"}))
+	require.Equal(t, "step_up_required", refused.code())
 }
 
 // GET /me/permissions: the caller's role in a group and the permissions it

@@ -34,29 +34,31 @@ type SolanaLinkedAccount struct {
 	SNSError            *string    `json:"sns_error"`
 }
 
-// StepUpTwoFactorOptions lists the second factors a step-up can use.
-type StepUpTwoFactorOptions struct {
-	Methods       []string                `json:"methods"`
-	DefaultMethod string                  `json:"default_method"`
-	Options       []StepUpTwoFactorOption `json:"options"`
-}
-
-// StepUpTwoFactorOption is one second factor; Destination is the masked
-// address its codes go to (null for an authenticator app).
-type StepUpTwoFactorOption struct {
+// TwoFactorFactor is one second factor, the one shape sign-in, step-up and
+// management share; each addresses it by ID. Destination is the masked address
+// its codes go to (null for an authenticator app).
+type TwoFactorFactor struct {
+	ID          string  `json:"id"`
 	Method      string  `json:"method"`
 	IsDefault   bool    `json:"is_default"`
 	Destination *string `json:"destination"`
 }
 
-// StepUpRequired is step_up_required's metadata: how the account can step
-// up, the freshness window, and its second factors (MFARequired: a password
-// alone never clears the gate).
+// TwoFactorStatus is the account's second factors and the methods it may
+// enroll.
+type TwoFactorStatus struct {
+	Enabled              bool                  `json:"enabled"`
+	Factors              []TwoFactorFactor     `json:"factors"`
+	AllowedMethods       []iam.TwoFactorMethod `json:"allowed_methods"`
+	BackupCodesRemaining int                   `json:"backup_codes_remaining"`
+}
+
+// StepUpRequired is step_up_required's metadata: the methods that clear the
+// gate, the freshness window, and the second factors a "2fa" step-up can use.
 type StepUpRequired struct {
-	StepUpMethods []string                `json:"step_up_methods"`
-	MaxAgeSeconds int64                   `json:"max_age_seconds"`
-	StepUp2FA     *StepUpTwoFactorOptions `json:"step_up_2fa"`
-	MFARequired   bool                    `json:"mfa_required"`
+	StepUpMethods []string          `json:"step_up_methods"`
+	MaxAgeSeconds int64             `json:"max_age_seconds"`
+	Factors       []TwoFactorFactor `json:"factors"`
 }
 
 // FreshAuth is a session's step-up state: when it last proved its user, and
@@ -70,14 +72,11 @@ type FreshAuth struct {
 }
 
 // UserSecurity is GET /me/security: the session's freshness, how the account
-// can step up, and its MFA state.
+// can step up, and its second factors.
 type UserSecurity struct {
 	FreshAuth
-	StepUpMethods     []string                `json:"step_up_methods"`
-	StepUp2FA         *StepUpTwoFactorOptions `json:"step_up_2fa"`
-	MFAEnabled        bool                    `json:"mfa_enabled"`
-	MFASatisfied      bool                    `json:"mfa_satisfied"`
-	MFAAllowedMethods []iam.TwoFactorMethod   `json:"mfa_allowed_methods"`
+	StepUpMethods []string        `json:"step_up_methods"`
+	TwoFactor     TwoFactorStatus `json:"two_factor"`
 }
 
 // LinkedProvider is a sign-in provider linked to the account, with the email

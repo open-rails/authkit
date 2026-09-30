@@ -564,7 +564,6 @@ export const ko: AuthUiMessageBundle = {
     passkey_not_found: "패스키를 찾을 수 없습니다.",
     passkey_required:
       "이 계정은 패스키로 로그인합니다. 계속하려면 패스키를 사용하세요.",
-    password_change_failed: "비밀번호를 변경하지 못했습니다.",
     password_contains_identifier:
       "비밀번호에 사용자 이름이나 이메일을 포함할 수 없습니다.",
     password_requirements_unmet: "비밀번호가 요구 사항을 충족하지 않습니다.",

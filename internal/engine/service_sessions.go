@@ -437,8 +437,7 @@ func (s *Engine) CheckRecentSignIn(ctx context.Context, cl verify.Claims) error 
 }
 
 // StepUpRequired is the step_up_required error for userID, carrying how the
-// account can step up: its methods, the window, and its second factors (with
-// mfa_required, since a password never clears the gate for such an account).
+// account can step up: its methods, the window, and its second factors.
 func (s *Engine) StepUpRequired(ctx context.Context, userID string) error {
 	hasPassword, err := s.HasPassword(ctx, userID)
 	if err != nil {
@@ -446,12 +445,11 @@ func (s *Engine) StepUpRequired(ctx context.Context, userID string) error {
 	}
 	settings, _ := s.Get2FASettings(ctx, userID)
 	providerSlugs, _ := s.ProviderSlugs(ctx, userID)
-	twoFA := authflow.NewStepUpTwoFactorOptions(settings)
+	factors := authflow.StepUpFactors(settings)
 	return errmodel.E(errmodel.CodeStepUpRequired, errmodel.WithDetails(authflow.StepUpRequired{
-		StepUpMethods: authflow.StepUpMethods(hasPassword, settings, providerSlugs, s.providerSupportsStepUp),
+		StepUpMethods: authflow.StepUpMethods(hasPassword, factors, providerSlugs, s.providerSupportsStepUp),
 		MaxAgeSeconds: int64(authflow.SensitiveActionFreshAuthWindow.Seconds()),
-		StepUp2FA:     twoFA,
-		MFARequired:   twoFA != nil,
+		Factors:       factors,
 	}))
 }
 

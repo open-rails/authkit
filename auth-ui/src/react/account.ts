@@ -60,9 +60,9 @@ export function useChangePassword(options: GuardOptions = {}) {
   const { busy, error, run, clearError } = useTask()
   const [done, setDone] = useState(false)
 
-  // Without currentPassword AuthKit demands a fresh session (step-up).
+  // AuthKit demands a fresh session (step-up).
   const changePassword = useCallback(
-    (input: { currentPassword?: string; newPassword: string }) =>
+    (input: { newPassword: string }) =>
       run(async () => {
         setDone(false)
         await guard(() => client.changePassword(input))

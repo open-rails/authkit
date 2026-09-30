@@ -3,6 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { useId, useState, type ReactNode } from "react"
 
 import type { StepUpChallenge } from "../../client/stepUp.ts"
+import type { TwoFactorFactor } from "../../client/types.ts"
 import { useMessages } from "../../i18n/context.ts"
 import type { MessageKey } from "../../i18n/messages.ts"
 import { useCapabilities } from "../../react/context.ts"
@@ -78,23 +79,12 @@ export interface StepUpDialogProps {
   returnTo?: string
 }
 
-const CODE_METHODS = ["totp", "email", "sms"] as const
-type CodeMethod = (typeof CODE_METHODS)[number]
-const isCodeMethod = (m: string): m is CodeMethod =>
-  (CODE_METHODS as readonly string[]).includes(m)
-
-function codeMethods(challenge: StepUpChallenge): CodeMethod[] {
+// The second factors a "2fa" step-up can use, the default first.
+function codeFactors(challenge: StepUpChallenge): TwoFactorFactor[] {
   if (!challenge.methods.includes("2fa")) return []
-  const tf = challenge.twoFactor
-  const listed = [
-    ...(tf?.options?.map((o) => o.method) ?? []),
-    ...(tf?.methods ?? []),
-  ].filter(isCodeMethod)
-  const unique = [...new Set(listed)]
-  const def = tf?.default_method
-  if (def && isCodeMethod(def) && unique.includes(def))
-    unique.sort((a, b) => (a === def ? -1 : b === def ? 1 : 0))
-  return unique.length ? unique : ["totp"]
+  return [...challenge.factors].sort(
+    (a, b) => Number(b.is_default) - Number(a.is_default)
+  )
 }
 
 /** Re-authentication for a pending sensitive action; open while one waits. */
@@ -138,7 +128,7 @@ export function StepUpDialog({ controller, returnTo }: StepUpDialogProps) {
   )
 }
 
-const METHOD_LABEL: Record<CodeMethod, MessageKey> = {
+const METHOD_LABEL: Record<string, MessageKey> = {
   totp: "twoFactor.methods.totp",
   email: "twoFactor.methods.email",
   sms: "twoFactor.methods.sms",
@@ -155,39 +145,49 @@ function StepUpBody({
 }) {
   const { t } = useMessages()
   const { capabilities } = useCapabilities()
-  const methods = codeMethods(challenge)
+  const factors = codeFactors(challenge)
   const tabs: string[] = [
     ...(challenge.methods.includes("password") ? ["password"] : []),
-    ...methods,
+    ...factors.map((f) => f.id),
   ]
   const providers = challenge.methods.filter(
     (m) => m !== "password" && m !== "2fa"
   )
   const [tab, setTab] = useState(tabs[0] ?? "")
+  const factor = factors.find((f) => f.id === tab)
   const { busy } = controller
 
   const providerName = (id: string) =>
     capabilities?.external_login_providers.find((p) => p.id === id)?.name ??
     id.charAt(0).toUpperCase() + id.slice(1)
+  const methodLabel = (method: string) =>
+    METHOD_LABEL[method] ? t(METHOD_LABEL[method]) : method
 
   return (
     <div className="grid gap-5">
       {tabs.length > 1 && (
         <Tabs value={tab} onValueChange={(v) => setTab(String(v))}>
           <TabsList className="w-full" aria-label={t("stepUp.chooseMethod")}>
-            {tabs.map((m) => (
-              <TabsTrigger key={m} value={m} disabled={busy}>
-                {m === "password"
+            {tabs.map((id) => (
+              <TabsTrigger key={id} value={id} disabled={busy}>
+                {id === "password"
                   ? t("stepUp.methodPassword")
-                  : t(METHOD_LABEL[m as CodeMethod])}
+                  : methodLabel(
+                      factors.find((f) => f.id === id)?.method ?? ""
+                    )}
               </TabsTrigger>
             ))}
           </TabsList>
         </Tabs>
       )}
       {tab === "password" && <PasswordStepUp controller={controller} />}
-      {isCodeMethod(tab) && (
-        <CodeStepUp key={tab} controller={controller} method={tab} />
+      {factor && (
+        <CodeStepUp
+          key={factor.id}
+          controller={controller}
+          factor={factor}
+          label={methodLabel(factor.method)}
+        />
       )}
       {providers.length > 0 && (
         <div className="grid gap-2">
@@ -262,17 +262,19 @@ function PasswordStepUp({ controller }: { controller: StepUpController }) {
 
 function CodeStepUp({
   controller,
-  method,
+  factor,
+  label,
 }: {
   controller: StepUpController
-  method: CodeMethod
+  factor: TwoFactorFactor
+  label: string
 }) {
   const { t } = useMessages()
   const [backup, setBackup] = useState(false)
   const [backupCode, setBackupCode] = useState("")
   const backupId = useId()
   const { state, busy, error } = controller
-  const sent = state.step === "code_sent" && state.method === method
+  const sent = state.step === "code_sent" && state.factorId === factor.id
 
   const toggle = (
     <Button
@@ -324,18 +326,16 @@ function CodeStepUp({
       </form>
     )
 
-  if (method !== "totp" && !sent)
+  if (factor.method !== "totp" && !sent)
     return (
       <div className="grid gap-4">
         <p className="text-sm text-muted-foreground">
-          {t("stepUp.sendPrompt", {
-            method: t(METHOD_LABEL[method]).toLowerCase(),
-          })}
+          {t("stepUp.sendPrompt", { method: label.toLowerCase() })}
         </p>
         <ErrorNotice error={error} />
         <Button
           disabled={busy}
-          onClick={() => void controller.sendCode(method)}
+          onClick={() => void controller.sendCode(factor.id)}
         >
           {busy && <Spinner />}
           {busy ? t("common.sending") : t("common.sendCode")}
@@ -347,23 +347,26 @@ function CodeStepUp({
   return (
     <div className="grid gap-3">
       <CodeStep
-        key={sent ? `sent:${method}` : method}
+        key={sent ? `sent:${factor.id}` : factor.id}
         prompt={
           sent
             ? t("stepUp.codeSentTo", {
                 destination:
                   state.destination ??
-                  (method === "email"
+                  factor.destination ??
+                  (factor.method === "email"
                     ? t("account.twoFactor.yourEmail")
-                    : t(METHOD_LABEL[method]).toLowerCase()),
+                    : label.toLowerCase()),
               })
             : t("stepUp.totpPrompt")
         }
         busy={busy}
         error={error}
         submitLabel={t("stepUp.submit")}
-        onSubmit={(code) => controller.withTwoFactor(code, { method })}
-        onResend={sent ? () => controller.sendCode(method) : undefined}
+        onSubmit={(code) =>
+          controller.withTwoFactor(code, { factorId: factor.id })
+        }
+        onResend={sent ? () => controller.sendCode(factor.id) : undefined}
       />
       {toggle}
     </div>

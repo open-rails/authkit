@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
 import { AuthKitError } from "../client/errors.ts"
-import { readStepUpRequired, stepUpDestination } from "../client/stepUp.ts"
+import { readStepUpRequired } from "../client/stepUp.ts"
 import type { StepUpChallenge } from "../client/stepUp.ts"
 import { useAuthClient } from "./context.ts"
 import { useTask, type Guard } from "./task.ts"
@@ -12,8 +12,9 @@ export type StepUpState =
   | {
       step: "code_sent"
       challenge: StepUpChallenge
-      method: string
-      // The masked address the code went to, when AuthKit listed it.
+      // The factor the code went to; "" for the default one.
+      factorId: string
+      // Its masked address, when AuthKit listed it.
       destination: string | null
     }
 
@@ -36,7 +37,7 @@ const cancelled = () =>
   })
 
 const challengeOf = (s: StepUpState): StepUpChallenge =>
-  s.step === "idle" ? { methods: ["2fa"], mfaRequired: false } : s.challenge
+  s.step === "idle" ? { methods: ["2fa"], factors: [] } : s.challenge
 
 export function useStepUp(options: StepUpOptions = {}) {
   const client = useAuthClient()
@@ -93,19 +94,22 @@ export function useStepUp(options: StepUpOptions = {}) {
     [client, run, settle]
   )
 
-  // Sends an email/SMS code (TOTP needs none).
+  // Sends an email/SMS code to a factor, the default one when factorId is
+  // omitted (TOTP needs none).
   const sendCode = useCallback(
-    (method?: string) =>
+    (factorId?: string) =>
       run(async () => {
-        await client.sendStepUpCode({ method })
+        await client.sendStepUpCode({ factorId })
         setState((s) => {
           const challenge = challengeOf(s)
-          const sent = method ?? challenge.twoFactor?.default_method ?? "email"
+          const factor = challenge.factors.find((f) =>
+            factorId ? f.id === factorId : f.is_default
+          )
           return {
             step: "code_sent",
             challenge,
-            method: sent,
-            destination: stepUpDestination(challenge, sent),
+            factorId: factorId ?? "",
+            destination: factor?.destination ?? null,
           }
         })
       }),
@@ -113,14 +117,16 @@ export function useStepUp(options: StepUpOptions = {}) {
   )
 
   const withTwoFactor = useCallback(
-    (code: string, opts: { method?: string; backupCode?: boolean } = {}) =>
+    (code: string, opts: { factorId?: string; backupCode?: boolean } = {}) =>
       run(async () => {
         await client.stepUpWithTwoFactor({
           code,
-          method: opts.backupCode
+          factorId: opts.backupCode
             ? undefined
-            : (opts.method ??
-              (state.step === "code_sent" ? state.method : undefined)),
+            : (opts.factorId ??
+              (state.step === "code_sent" && state.factorId
+                ? state.factorId
+                : undefined)),
           backupCode: opts.backupCode,
         })
         settle(true)

@@ -63,8 +63,8 @@ type TwoFactorChallenge struct {
 	Method      string
 	Destination string // where the code went (email/phone), unmasked
 	Challenge   string
-	Factor      TwoFactorFactor
-	Factors     []TwoFactorFactor
+	Factor      MFAFactor
+	Factors     []MFAFactor
 }
 
 // LoginOutcome is the result of a password login. Exactly one of Session,

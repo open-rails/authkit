@@ -577,7 +577,6 @@ export const ja: AuthUiMessageBundle = {
     passkey_not_found: "パスキーが見つかりません。",
     passkey_required:
       "このアカウントはパスキーでサインインします。続行するにはパスキーを使用してください。",
-    password_change_failed: "パスワードを変更できませんでした。",
     password_contains_identifier:
       "パスワードにユーザー名やメールアドレスを含めることはできません。",
     password_requirements_unmet: "パスワードが要件を満たしていません。",

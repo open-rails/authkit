@@ -12,6 +12,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/passkeytest"
@@ -58,13 +59,12 @@ func TestSecurityPasswordStepUpNeedsSecondFactor(t *testing.T) {
 		require.Equal(t, "step_up_required", resp.errorCode())
 		var meta struct {
 			Error struct {
-				Metadata struct {
-					MFARequired bool `json:"mfa_required"`
-				} `json:"metadata"`
+				Metadata authflow.StepUpRequired `json:"metadata"`
 			} `json:"error"`
 		}
 		resp.json(t, &meta)
-		require.True(t, meta.Error.Metadata.MFARequired, "a password never clears the gate: %s", resp)
+		require.Equal(t, []string{"2fa"}, meta.Error.Metadata.StepUpMethods, "a password never clears the gate: %s", resp)
+		require.Len(t, meta.Error.Metadata.Factors, 1, resp.String())
 	}
 	requireMFAStepUp(h.post("/me/step-up/password", map[string]string{"password": password}, stolen), "a password re-proved an account with a second factor")
 
@@ -101,6 +101,7 @@ func TestSecurityPasswordStepUpNeedsSecondFactor(t *testing.T) {
 		{method: http.MethodDelete, path: "/me/sign-in-keys/" + someKey},
 		{method: http.MethodDelete, path: "/me/providers/idp"},
 		{method: http.MethodDelete, path: "/me"},
+		{method: http.MethodPut, path: "/me/password", body: map[string]string{"new_password": "Attacker-owned-passphrase-1"}},
 		{method: http.MethodPost, path: "/oidc/idp/link/start", body: map[string]any{}},
 		{method: http.MethodPut, path: "/me/solana-wallet", body: map[string]any{}},
 	}
@@ -150,7 +151,7 @@ func TestSecurityEnrollmentTokenOutsideMiddleware(t *testing.T) {
 	_, err = h.auth.Verify(ctx, enrollment)
 	require.Error(t, err, "Verify accepted an enrollment-only token")
 	// The token is genuine: the exempt enrollment route reads its claims.
-	r := httptest.NewRequest(http.MethodGet, apiPrefix+"/me/2fa", nil)
+	r := httptest.NewRequest(http.MethodPost, apiPrefix+"/me/2fa/setup", nil)
 	r.Header.Set("Authorization", "Bearer "+enrollment)
 	cl, err := h.auth.VerifyRequest(r)
 	require.NoError(t, err)

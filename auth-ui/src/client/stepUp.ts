@@ -1,43 +1,29 @@
 import { errorMetadata } from "./errors.ts"
-import type { StepUpTwoFactorOptions } from "./generated/wire.ts"
+import type { TwoFactorFactor } from "./generated/wire.ts"
 
 export type StepUpChallenge = {
-  // "password", "2fa", or a provider id that supports step-up.
+  // "2fa" alone for an account with a second factor; otherwise "password"
+  // and the providers that support step-up.
   methods: string[]
-  mfaRequired: boolean
   maxAgeSeconds?: number
-  twoFactor?: StepUpTwoFactorOptions
+  // The second factors a "2fa" step-up can use, each addressed by its id.
+  factors: TwoFactorFactor[]
 }
 
 // 403 step_up_required: re-authenticate, then retry the sensitive action.
 export function readStepUpRequired(error: unknown): StepUpChallenge | null {
   const m = errorMetadata(error, "step_up_required")
   if (!m) return null
-  const mfaRequired = m.mfa_required === true
-  const methods = [
-    ...new Set(
-      (Array.isArray(m.step_up_methods) ? m.step_up_methods : [])
-        .map((x) => String(x).trim().toLowerCase())
-        .filter(Boolean)
-    ),
-  ]
   return {
-    // A password alone cannot clear an MFA-gated step-up.
-    methods: mfaRequired ? methods.filter((x) => x === "2fa") : methods,
-    mfaRequired,
+    methods: [
+      ...new Set(
+        (Array.isArray(m.step_up_methods) ? m.step_up_methods : [])
+          .map((x) => String(x).trim().toLowerCase())
+          .filter(Boolean)
+      ),
+    ],
     maxAgeSeconds:
       typeof m.max_age_seconds === "number" ? m.max_age_seconds : undefined,
-    twoFactor: m.step_up_2fa ?? undefined,
+    factors: Array.isArray(m.factors) ? m.factors : [],
   }
-}
-
-// The masked address a step-up code for this method goes to, if listed.
-export function stepUpDestination(
-  challenge: StepUpChallenge,
-  method: string
-): string | null {
-  return (
-    challenge.twoFactor?.options?.find((o) => o.method === method)
-      ?.destination ?? null
-  )
 }

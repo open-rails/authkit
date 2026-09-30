@@ -52,12 +52,12 @@ func (s *Engine) loadLoginProof(ctx context.Context, userID, nonce string) (logi
 	return proof, nil
 }
 
-func independentFactor(proof loginProof, factor authflow.TwoFactorFactor) bool {
+func independentFactor(proof loginProof, factor authflow.MFAFactor) bool {
 	return !hasAuthMethod(proof.Input.AuthMethods, factor.Method) || (factor.Method != "email" && factor.Method != "sms")
 }
 
-func (s *Engine) loginFactors(proof loginProof, settings *authflow.TwoFactorSettings) []authflow.TwoFactorFactor {
-	var factors []authflow.TwoFactorFactor
+func (s *Engine) loginFactors(proof loginProof, settings *authflow.TwoFactorSettings) []authflow.MFAFactor {
+	var factors []authflow.MFAFactor
 	if settings == nil || !settings.Enabled {
 		return factors
 	}
@@ -143,7 +143,7 @@ func (s *Engine) finishFirstFactor(ctx context.Context, proof loginProof) (authf
 		} else {
 			out.Kind = authflow.LoginTwoFAEnrollmentRequired
 			for _, method := range s.TwoFactorMethods() {
-				if (method != iam.TwoFactorEmail || user.Email != nil && strings.TrimSpace(*user.Email) != "") && independentFactor(proof, authflow.TwoFactorFactor{Method: string(method)}) {
+				if (method != iam.TwoFactorEmail || user.Email != nil && strings.TrimSpace(*user.Email) != "") && independentFactor(proof, authflow.MFAFactor{Method: string(method)}) {
 					out.AllowedMethods = append(out.AllowedMethods, method)
 				}
 			}
@@ -192,7 +192,7 @@ func (s *Engine) holdsPasskey(ctx context.Context, q db.DBTX, userID string) (bo
 
 func (s *Engine) sendLoginFactor(ctx context.Context, user *db.User, proof loginProof, nonce string, settings *authflow.TwoFactorSettings, factorID string) (*authflow.TwoFactorChallenge, error) {
 	factors := s.loginFactors(proof, settings)
-	var selected *authflow.TwoFactorFactor
+	var selected *authflow.MFAFactor
 	for i := range factors {
 		if factorID != "" {
 			if factors[i].ID == factorID {
@@ -290,7 +290,7 @@ func (s *Engine) CompleteLoginChallenge(ctx context.Context, in authflow.LoginCh
 		valid, err = s.verifyBackupCode(ctx, q, in.UserID, strings.TrimSpace(in.Code))
 	} else {
 		factors := s.loginFactors(proof, settings)
-		var selected *authflow.TwoFactorFactor
+		var selected *authflow.MFAFactor
 		for i := range factors {
 			if in.FactorID != "" {
 				if factors[i].ID == in.FactorID {
@@ -366,7 +366,7 @@ func (s *Engine) authorizeLoginEnrollment(ctx context.Context, in authflow.TwoFa
 	if strings.EqualFold(strings.TrimSpace(in.Method), "email") && (version.Email == nil || strings.TrimSpace(*version.Email) == "") {
 		return ctx, errmodel.ErrInvalidTwoFAMethod
 	}
-	if !independentFactor(proof, authflow.TwoFactorFactor{Method: strings.ToLower(strings.TrimSpace(in.Method))}) {
+	if !independentFactor(proof, authflow.MFAFactor{Method: strings.ToLower(strings.TrimSpace(in.Method))}) {
 		return ctx, errmodel.ErrInvalidTwoFAMethod
 	}
 	return context.WithValue(ctx, loginEnrollmentKey{}, proof), nil

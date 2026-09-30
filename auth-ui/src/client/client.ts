@@ -31,7 +31,6 @@ import type {
   TwoFactorFactorCreated,
   TwoFactorMethod,
   TwoFactorSetup,
-  TwoFactorStatus,
   UserProfile,
   UserSecurity,
 } from "./types.ts"
@@ -964,19 +963,11 @@ export function createAuthClient(options: AuthClientOptions = {}) {
         bearer: null,
       }),
 
-    // A current password re-authenticates the session on the way.
-    changePassword: (input: {
-      currentPassword?: string
-      newPassword: string
-    }) =>
-      sameSession(() =>
-        request<unknown>("PUT", "/me/password", {
-          body: {
-            current_password: input.currentPassword ?? "",
-            new_password: input.newPassword,
-          },
-        })
-      ).then(() => undefined),
+    // Needs a recent sign-in (step-up); ends the other sessions.
+    changePassword: (input: { newPassword: string }) =>
+      request<void>("PUT", "/me/password", {
+        body: { new_password: input.newPassword },
+      }),
 
     verifyTwoFactor: (input: {
       userId: string
@@ -1018,9 +1009,6 @@ export function createAuthClient(options: AuthClientOptions = {}) {
         throw new Error("AuthKit returned no second-factor step")
       return result
     },
-
-    getTwoFactor: (signal?: AbortSignal) =>
-      request<TwoFactorStatus>("GET", "/me/2fa", { signal }),
 
     // Starts a factor: TOTP answers its secret, email and SMS send a code.
     // An enrollment token (AuthResult enrollment_required) finishes a forced
@@ -1088,7 +1076,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
         (r) => r.backup_codes
       ),
 
-    // Freshness, MFA state and the step-up methods on offer.
+    // Freshness, the step-up methods on offer and the second factors.
     getSecurity: (signal?: AbortSignal) =>
       request<UserSecurity>("GET", "/me/security", { signal }),
 
@@ -1097,22 +1085,23 @@ export function createAuthClient(options: AuthClientOptions = {}) {
         request("POST", "/me/step-up/password", { body: { password } })
       ).then(freshAuth),
 
-    // Sends an email or SMS step-up code (TOTP needs none).
-    sendStepUpCode: (input: { method?: string } = {}) =>
+    // Sends an email or SMS step-up code to a factor (the default one when
+    // factorId is omitted); TOTP needs none.
+    sendStepUpCode: (input: { factorId?: string } = {}) =>
       request<void>("POST", "/me/step-up/2fa/send", {
-        body: { method: input.method },
+        body: { factor_id: input.factorId },
       }),
 
     stepUpWithTwoFactor: (input: {
       code: string
-      method?: string
+      factorId?: string
       backupCode?: boolean
     }) =>
       sameSession(() =>
         request("POST", "/me/step-up/2fa", {
           body: {
             code: input.code,
-            method: input.method,
+            factor_id: input.factorId,
             backup_code: input.backupCode,
           },
         })

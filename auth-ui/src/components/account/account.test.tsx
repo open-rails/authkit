@@ -91,8 +91,7 @@ async function renderSignedIn(ui: ReactNode, routes: Routes) {
 const stepUpRequired = (metadata: Record<string, unknown>) =>
   authError(403, "step_up_required", {
     max_age_seconds: 900,
-    mfa_required: false,
-    step_up_2fa: null,
+    factors: [],
     ...metadata,
   })
 
@@ -118,6 +117,22 @@ const factor = (id: string, method: string, isDefault: boolean) => ({
   is_default: isDefault,
   destination: method === "totp" ? null : "a***@x.test",
 })
+
+// GET /me/security with these second factors.
+const security = (twoFactor: {
+  enabled: boolean
+  factors: ReturnType<typeof factor>[]
+  allowed_methods: string[]
+  backup_codes_remaining: number
+}) =>
+  json(200, {
+    last_authenticated_at: null,
+    step_up_required_for_sensitive_actions: false,
+    step_up_required_in_seconds: 900,
+    auth_methods: ["pwd"],
+    step_up_methods: twoFactor.enabled ? ["2fa"] : ["password"],
+    two_factor: twoFactor,
+  })
 
 describe("PasswordPanel", () => {
   it("validates against the advertised policy, steps up and retries", async () => {
@@ -190,8 +205,8 @@ describe("StepUpDialog", () => {
   it("sends an email code; a wrong code is retryable, an expired one prompts a resend", async () => {
     const sent: unknown[] = []
     const { user } = await renderSignedIn(<TwoFactorPanel />, {
-      "GET /api/v1/me/2fa": () =>
-        json(200, {
+      "GET /api/v1/me/security": () =>
+        security({
           enabled: true,
           factors: [factor("f1", "email", true)],
           allowed_methods: ["email", "totp"],
@@ -200,14 +215,7 @@ describe("StepUpDialog", () => {
       "POST /api/v1/me/2fa/backup-codes": [
         stepUpRequired({
           step_up_methods: ["2fa"],
-          mfa_required: true,
-          step_up_2fa: {
-            methods: ["email"],
-            default_method: "email",
-            options: [
-              { method: "email", is_default: true, destination: "a***@x.test" },
-            ],
-          },
+          factors: [factor("f1", "email", true)],
         }),
         json(200, { backup_codes: ["aaaa-1111", "bbbb-2222"] }),
       ],
@@ -264,11 +272,11 @@ describe("StepUpDialog", () => {
         .map((li) => li.textContent)
     ).toEqual(["aaaa-1111", "bbbb-2222"])
     expect(sent).toEqual([
-      { send: { method: "email" } },
-      { code: "111111", method: "email" },
-      { code: "333333", method: "email" },
-      { send: { method: "email" } },
-      { code: "222222", method: "email" },
+      { send: { factor_id: "f1" } },
+      { code: "111111", factor_id: "f1" },
+      { code: "333333", factor_id: "f1" },
+      { send: { factor_id: "f1" } },
+      { code: "222222", factor_id: "f1" },
     ])
   })
 })
@@ -322,8 +330,8 @@ describe("TwoFactorPanel", () => {
   it("enrolls TOTP with a QR code and shows the backup codes once", async () => {
     let enabled = false
     const { user } = await renderSignedIn(<TwoFactorPanel />, {
-      "GET /api/v1/me/2fa": () =>
-        json(200, {
+      "GET /api/v1/me/security": () =>
+        security({
           enabled,
           factors: enabled ? [factor("f1", "totp", true)] : [],
           allowed_methods: ["email", "sms", "totp"],
@@ -375,8 +383,8 @@ describe("TwoFactorPanel", () => {
     const calls: string[] = []
     let factors = [factor("f1", "totp", true), factor("f2", "email", false)]
     const { user } = await renderSignedIn(<TwoFactorPanel />, {
-      "GET /api/v1/me/2fa": () =>
-        json(200, {
+      "GET /api/v1/me/security": () =>
+        security({
           enabled: true,
           factors,
           allowed_methods: ["email", "totp"],

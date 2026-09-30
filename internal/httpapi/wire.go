@@ -106,8 +106,7 @@ type AvailabilityQuery struct {
 }
 
 type PasswordChangeRequest struct {
-	CurrentPassword string `json:"current_password"`
-	NewPassword     string `json:"new_password"`
+	NewPassword string `json:"new_password"`
 }
 
 // PasswordRequest carries a password that re-authenticates the session.
@@ -119,16 +118,18 @@ type LabelRequest struct {
 	Label string `json:"label"`
 }
 
+// TwoFactorStepUpRequest is a code from the factor factor_id (the default
+// when empty), or a backup code.
 type TwoFactorStepUpRequest struct {
 	Code       string `json:"code"`
-	Method     string `json:"method"`
+	FactorID   string `json:"factor_id"`
 	BackupCode bool   `json:"backup_code"`
 }
 
 // TwoFactorSendRequest names the second factor a step-up code goes to (the
 // default when empty).
 type TwoFactorSendRequest struct {
-	Method string `json:"method"`
+	FactorID string `json:"factor_id"`
 }
 
 // ProfileUpdateRequest is PATCH /me: an absent field is unchanged; an empty
@@ -525,22 +526,8 @@ type OIDCStart struct {
 	State   string `json:"state"`
 }
 
-// TwoFactorStatus is the caller's second factors.
-type TwoFactorStatus struct {
-	Enabled              bool                  `json:"enabled"`
-	Factors              []TwoFactorFactor     `json:"factors"`
-	AllowedMethods       []iam.TwoFactorMethod `json:"allowed_methods"`
-	BackupCodesRemaining int                   `json:"backup_codes_remaining"`
-}
-
-// TwoFactorFactor is one second factor. Destination is the masked address its
-// codes go to; null for an authenticator app.
-type TwoFactorFactor struct {
-	ID          string  `json:"id"`
-	Method      string  `json:"method"`
-	IsDefault   bool    `json:"is_default"`
-	Destination *string `json:"destination"`
-}
+// TwoFactorFactor is one second factor.
+type TwoFactorFactor = authflow.TwoFactorFactor
 
 // TwoFactorSetup is a factor's setup under way: where its code went, or the
 // authenticator app's secret.

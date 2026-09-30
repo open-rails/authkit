@@ -237,9 +237,9 @@ func TestSecurityVerifiedOnlyByProof(t *testing.T) {
 }
 
 // TestSecurityInlinePasswordNeedsSecondFactor (M5): for an account with a
-// second factor, a password typed into a sensitive request (PUT /me/password's
-// current password) never stands in for a fresh step-up with that factor, and
-// the other sensitive routes take no password at all.
+// second factor, a password typed into a sensitive request (a current password
+// sent with PUT /me/password) never stands in for a fresh step-up with that
+// factor.
 func TestSecurityInlinePasswordNeedsSecondFactor(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits))
 	ctx := context.Background()
@@ -630,17 +630,19 @@ func TestSecurityEmailFactorFollowsOwnChange(t *testing.T) {
 		return email
 	}
 	listed := func() string {
-		resp := h.get("/me/2fa", token)
+		resp := h.get("/me/security", token)
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
 		var out struct {
-			Factors []struct {
-				Method      string `json:"method"`
-				Destination string `json:"destination"`
-			} `json:"factors"`
+			TwoFactor struct {
+				Factors []struct {
+					Method      string `json:"method"`
+					Destination string `json:"destination"`
+				} `json:"factors"`
+			} `json:"two_factor"`
 		}
 		resp.json(t, &out)
-		require.Len(t, out.Factors, 1)
-		return out.Factors[0].Destination
+		require.Len(t, out.TwoFactor.Factors, 1)
+		return out.TwoFactor.Factors[0].Destination
 	}
 	require.Equal(t, "r***@security.test", listed())
 

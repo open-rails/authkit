@@ -6,8 +6,11 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
@@ -58,8 +61,8 @@ func (s *Engine) UserProfile(ctx context.Context, in authflow.ProfileInput) (aut
 }
 
 // UserSecurity builds the caller's security view: the presented token's
-// freshness, the step-up methods and the MFA state, from one 2FA-settings
-// read.
+// freshness, the step-up methods and the second factors, from one
+// 2FA-settings read.
 func (s *Engine) UserSecurity(ctx context.Context, in authflow.ProfileInput) (authflow.UserSecurity, error) {
 	hasPassword, err := s.HasPassword(ctx, in.UserID)
 	if err != nil {
@@ -76,17 +79,16 @@ func (s *Engine) UserSecurity(ctx context.Context, in authflow.ProfileInput) (au
 	if fresh.AuthMethods == nil {
 		fresh.AuthMethods = []string{}
 	}
-	settings, settingsErr := s.Get2FASettings(ctx, in.UserID)
-	mfa, err := s.mfaStatusWith(settings, settingsErr)
+	settings, err := s.Get2FASettings(ctx, in.UserID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		settings, err = nil, nil
+	}
 	if err != nil {
 		return authflow.UserSecurity{}, stageErr("load_2fa", err)
 	}
 	return authflow.UserSecurity{
-		FreshAuth:         fresh,
-		StepUpMethods:     authflow.StepUpMethods(hasPassword, settings, providerSlugs, in.ProviderSupportsStepUp),
-		StepUp2FA:         authflow.NewStepUpTwoFactorOptions(settings),
-		MFAEnabled:        mfa.Enabled,
-		MFASatisfied:      mfa.Satisfied,
-		MFAAllowedMethods: mfa.AllowedMethods,
+		FreshAuth:     fresh,
+		StepUpMethods: authflow.StepUpMethods(hasPassword, authflow.StepUpFactors(settings), providerSlugs, in.ProviderSupportsStepUp),
+		TwoFactor:     authflow.NewTwoFactorStatus(settings, s.TwoFactorMethods()),
 	}, nil
 }

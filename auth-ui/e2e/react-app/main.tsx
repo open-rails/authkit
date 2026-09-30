@@ -128,6 +128,7 @@ function Login() {
 function Security() {
   const stepUp = useStepUp()
   const tf = useTwoFactorSettings({ guard: stepUp.guard })
+  const challenge = stepUp.state.step === "idle" ? null : stepUp.state.challenge
   const [code, setCode] = useState("")
   const { enrollment } = tf
   return (
@@ -159,17 +160,18 @@ function Security() {
       <button onClick={() => void tf.confirm(code)}>confirm factor</button>
 
       <p data-testid="stepup-step">{stepUp.state.step}</p>
-      {stepUp.state.step !== "idle" && (
+      {challenge && (
         <div role="dialog">
           <p data-testid="stepup-methods">
-            {stepUp.state.challenge.methods.join(",")}
+            {challenge.methods.join(",")}
           </p>
           <p data-testid="stepup-error">{stepUp.error?.code ?? ""}</p>
           <form
             onSubmit={(e) => {
               e.preventDefault()
               void stepUp.withTwoFactor(value(e.currentTarget, "stepup-code"), {
-                method: "totp",
+                factorId: challenge?.factors.find((f) => f.method === "totp")
+                  ?.id,
               })
             }}
           >

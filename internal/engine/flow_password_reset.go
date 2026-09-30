@@ -67,7 +67,7 @@ func (s *Engine) ConfirmPasswordReset(ctx context.Context, token, newPassword st
 	if err != nil {
 		return "", err
 	}
-	if err := s.changePassword(ctx, rt.UserID, newPassword, nil, nil, &rt, authflow.SessionRevokeReasonPasswordChange); err != nil {
+	if err := s.changePassword(ctx, rt.UserID, newPassword, nil, &rt, authflow.SessionRevokeReasonPasswordChange); err != nil {
 		return "", err
 	}
 	return rt.UserID, nil

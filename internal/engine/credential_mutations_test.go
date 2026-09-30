@@ -20,7 +20,7 @@ func TestCredentialTransactionsPasswordMutationRollsBackOnFailure(t *testing.T) 
 		{"version", "users", "credential_version"},
 		{"revocation", "refresh_sessions", "revoked_at"},
 	} {
-		for _, method := range []string{"change", "fresh", "admin", "reset"} {
+		for _, method := range []string{"fresh", "admin", "reset"} {
 			t.Run(stage.name+"/"+method, func(t *testing.T) {
 				ctx := context.Background()
 				// The injected trigger is DDL: give it a database of its own.
@@ -42,8 +42,6 @@ func TestCredentialTransactionsPasswordMutationRollsBackOnFailure(t *testing.T) 
 				})
 				var changeErr error
 				switch method {
-				case "change":
-					changeErr = e.ChangePassword(ctx, uid, testPassword, "Replacement-password-12345", nil)
 				case "fresh":
 					changeErr = e.SetPasswordAfterFreshAuth(ctx, uid, "Replacement-password-12345", nil)
 				case "admin":
@@ -63,51 +61,44 @@ func TestCredentialTransactionsPasswordMutationRollsBackOnFailure(t *testing.T) 
 	}
 }
 
+// Two resets of one account race: the first to commit advances the
+// credential version, so the other's grant no longer holds.
 func TestCredentialChangesHaveOneConcurrentWinner(t *testing.T) {
-	for _, kind := range []string{"reset", "current_password"} {
-		t.Run(kind, func(t *testing.T) {
-			cfg := maintenanceConfig()
-			cfg.TwoFactor.Mode = iam.TwoFactorOptional
-			svc := newTestEngine(t, cfg, config.Deps{Postgres: testdb.Pool(t), Email: (&testoutbox.Outbox{}).Email()})
-			ctx := context.Background()
-			u := newUser(t, svc, "parallel")
-			for _, token := range []string{"reset-a", "reset-b"} {
-				require.NoError(t, svc.storePasswordReset(ctx, secret.Hash(token), u.ID, "email", *u.Email, time.Minute))
-			}
-			lock, err := svc.pg.Begin(ctx)
-			require.NoError(t, err)
-			defer lock.Rollback(ctx)
-			_, err = svc.qtx(lock).UserCredentialVersionForUpdate(ctx, u.ID)
-			require.NoError(t, err)
-			// The fixture lock, blocker and two workers occupy four connections.
-			// Observe through a separate pool so CI's four-connection pool cannot
-			// starve the query that proves both workers reached the database lock.
-			observer := testdb.UnlockedPool(t)
-			result := make(chan error, 2)
-			for i := range 2 {
-				go func() {
-					newPassword := fmt.Sprintf("Replacement-password-%d", i)
-					if kind == "reset" {
-						_, err := svc.ConfirmPasswordReset(ctx, []string{"reset-a", "reset-b"}[i], newPassword)
-						result <- err
-					} else {
-						result <- svc.ChangePassword(ctx, u.ID, testPassword, newPassword, nil)
-					}
-				}()
-			}
-			require.Eventually(t, func() bool {
-				var n int
-				err := observer.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%UserCredentialVersionForUpdate%'`).Scan(&n)
-				return err == nil && n == 2
-			}, 10*time.Second, 10*time.Millisecond)
-			require.NoError(t, lock.Commit(ctx))
-			successes := 0
-			for range 2 {
-				if <-result == nil {
-					successes++
-				}
-			}
-			require.Equal(t, 1, successes)
-		})
+	cfg := maintenanceConfig()
+	cfg.TwoFactor.Mode = iam.TwoFactorOptional
+	svc := newTestEngine(t, cfg, config.Deps{Postgres: testdb.Pool(t), Email: (&testoutbox.Outbox{}).Email()})
+	ctx := context.Background()
+	u := newUser(t, svc, "parallel")
+	for _, token := range []string{"reset-a", "reset-b"} {
+		require.NoError(t, svc.storePasswordReset(ctx, secret.Hash(token), u.ID, "email", *u.Email, time.Minute))
 	}
+	lock, err := svc.pg.Begin(ctx)
+	require.NoError(t, err)
+	defer lock.Rollback(ctx)
+	_, err = svc.qtx(lock).UserCredentialVersionForUpdate(ctx, u.ID)
+	require.NoError(t, err)
+	// The fixture lock, blocker and two workers occupy four connections.
+	// Observe through a separate pool so CI's four-connection pool cannot
+	// starve the query that proves both workers reached the database lock.
+	observer := testdb.UnlockedPool(t)
+	result := make(chan error, 2)
+	for i := range 2 {
+		go func() {
+			_, err := svc.ConfirmPasswordReset(ctx, []string{"reset-a", "reset-b"}[i], fmt.Sprintf("Replacement-password-%d", i))
+			result <- err
+		}()
+	}
+	require.Eventually(t, func() bool {
+		var n int
+		err := observer.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%UserCredentialVersionForUpdate%'`).Scan(&n)
+		return err == nil && n == 2
+	}, 10*time.Second, 10*time.Millisecond)
+	require.NoError(t, lock.Commit(ctx))
+	successes := 0
+	for range 2 {
+		if <-result == nil {
+			successes++
+		}
+	}
+	require.Equal(t, 1, successes)
 }

@@ -74,14 +74,9 @@ func (s *Engine) rehashPassword(ctx context.Context, userID, hash, algo, pass st
 	}
 }
 
-// ChangePassword verifies the current password, replaces it, invalidates recovery
-// grants and revokes other sessions atomically. keepSessionID may preserve one.
-func (s *Engine) ChangePassword(ctx context.Context, userID, current, new string, keepSessionID *string) error {
-	return s.changePassword(ctx, userID, new, &current, keepSessionID, nil, authflow.SessionRevokeReasonPasswordChange)
-}
-
-// SetPasswordAfterFreshAuth performs the same mutation for a host-authorized
-// fresh authentication, without requiring the previous password.
+// SetPasswordAfterFreshAuth sets or replaces the password of an account whose
+// session recently signed in, invalidates recovery grants and revokes its
+// other sessions atomically. keepSessionID may preserve one.
 func (s *Engine) SetPasswordAfterFreshAuth(ctx context.Context, userID, new string, keepSessionID *string) error {
-	return s.changePassword(ctx, userID, new, nil, keepSessionID, nil, authflow.SessionRevokeReasonPasswordChange)
+	return s.changePassword(ctx, userID, new, keepSessionID, nil, authflow.SessionRevokeReasonPasswordChange)
 }

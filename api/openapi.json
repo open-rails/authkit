@@ -1293,16 +1293,6 @@
           }
         },
         "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AuthResult"
-                }
-              }
-            }
-          },
           "204": {
             "description": "No Content"
           },
@@ -1323,7 +1313,8 @@
           }
         ],
         "x-authkit-auth": "session",
-        "x-authkit-rate-limit": "me_password_change"
+        "x-authkit-rate-limit": "me_password_change",
+        "x-authkit-step-up": true
       }
     },
     "/api/v1/me/email": {
@@ -2093,73 +2084,6 @@
         "x-authkit-mounted-when": "oidc"
       }
     },
-    "/api/v1/me/2fa": {
-      "get": {
-        "tags": [
-          "account"
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TwoFactorStatus"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "An error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "x-authkit-auth": "required",
-        "x-authkit-rate-limit": "me_read",
-        "x-authkit-mounted-when": "two_factor",
-        "x-authkit-mfa-enrollment-exempt": true
-      },
-      "delete": {
-        "tags": [
-          "account"
-        ],
-        "responses": {
-          "204": {
-            "description": "No Content"
-          },
-          "default": {
-            "description": "An error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "x-authkit-auth": "session",
-        "x-authkit-rate-limit": "2fa_disable",
-        "x-authkit-mounted-when": "two_factor",
-        "x-authkit-step-up": true
-      }
-    },
     "/api/v1/me/2fa/setup": {
       "post": {
         "tags": [
@@ -2326,6 +2250,37 @@
               "type": "string"
             }
           }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "2fa_disable",
+        "x-authkit-mounted-when": "two_factor",
+        "x-authkit-step-up": true
+      }
+    },
+    "/api/v1/me/2fa": {
+      "delete": {
+        "tags": [
+          "account"
         ],
         "responses": {
           "204": {
@@ -5684,9 +5639,6 @@
       "PasswordChangeRequest": {
         "type": "object",
         "properties": {
-          "current_password": {
-            "type": "string"
-          },
           "new_password": {
             "type": "string"
           }
@@ -6366,76 +6318,17 @@
           "max_age_seconds": {
             "type": "integer"
           },
-          "step_up_2fa": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/StepUpTwoFactorOptions"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "mfa_required": {
-            "type": "boolean"
+          "factors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TwoFactorFactor"
+            }
           }
         },
         "required": [
           "step_up_methods",
           "max_age_seconds",
-          "step_up_2fa",
-          "mfa_required"
-        ]
-      },
-      "StepUpTwoFactorOption": {
-        "type": "object",
-        "properties": {
-          "method": {
-            "type": "string"
-          },
-          "is_default": {
-            "type": "boolean"
-          },
-          "destination": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "required": [
-          "method",
-          "is_default",
-          "destination"
-        ]
-      },
-      "StepUpTwoFactorOptions": {
-        "type": "object",
-        "properties": {
-          "methods": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "default_method": {
-            "type": "string"
-          },
-          "options": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/StepUpTwoFactorOption"
-            }
-          }
-        },
-        "required": [
-          "methods",
-          "default_method",
-          "options"
+          "factors"
         ]
       },
       "Subject": {
@@ -6653,7 +6546,7 @@
       "TwoFactorSendRequest": {
         "type": "object",
         "properties": {
-          "method": {
+          "factor_id": {
             "type": "string"
           }
         }
@@ -6760,7 +6653,7 @@
           "code": {
             "type": "string"
           },
-          "method": {
+          "factor_id": {
             "type": "string"
           },
           "backup_code": {
@@ -7231,32 +7124,8 @@
               "type": "string"
             }
           },
-          "step_up_2fa": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/StepUpTwoFactorOptions"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "mfa_enabled": {
-            "type": "boolean"
-          },
-          "mfa_satisfied": {
-            "type": "boolean"
-          },
-          "mfa_allowed_methods": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "enum": [
-                "email",
-                "sms",
-                "totp"
-              ]
-            }
+          "two_factor": {
+            "$ref": "#/components/schemas/TwoFactorStatus"
           }
         },
         "required": [
@@ -7265,10 +7134,7 @@
           "step_up_required_in_seconds",
           "auth_methods",
           "step_up_methods",
-          "step_up_2fa",
-          "mfa_enabled",
-          "mfa_satisfied",
-          "mfa_allowed_methods"
+          "two_factor"
         ]
       },
       "UsernameCapabilities": {
@@ -8122,10 +7988,6 @@
     "passkey_user_verification_required": {
       "status": 401,
       "message": "The passkey must verify the user."
-    },
-    "password_change_failed": {
-      "status": 400,
-      "message": "The password could not be changed."
     },
     "password_contains_identifier": {
       "status": 400,

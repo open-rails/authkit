@@ -250,7 +250,7 @@ var deviceKeyEnrollmentProof = loginProof{Input: loginSessionInput{AuthMethods: 
 
 // deviceKeySecondFactors are the account's usable factors independent of the
 // emailed enrollment code, default first, and the hashes of its backup codes.
-func (s *Engine) deviceKeySecondFactors(ctx context.Context, userID string) ([]authflow.TwoFactorFactor, []string, error) {
+func (s *Engine) deviceKeySecondFactors(ctx context.Context, userID string) ([]authflow.MFAFactor, []string, error) {
 	settings, err := s.Get2FASettings(ctx, userID)
 	if err != nil {
 		return nil, nil, err
@@ -282,7 +282,7 @@ func publicDeviceKey(k db.UserDeviceKey) iam.DeviceKey {
 // challengeDeviceKeySecondFactor names the proof the retry carries in
 // code_2fa, sending the SMS code first. An account whose only factor is email
 // proves with a backup code, or enrolls an independent factor.
-func (s *Engine) challengeDeviceKeySecondFactor(ctx context.Context, user *db.User, enrollmentID string, factors []authflow.TwoFactorFactor, backupCodes bool) (string, error) {
+func (s *Engine) challengeDeviceKeySecondFactor(ctx context.Context, user *db.User, enrollmentID string, factors []authflow.MFAFactor, backupCodes bool) (string, error) {
 	if len(factors) == 0 {
 		if backupCodes {
 			return "backup_code", nil
@@ -300,7 +300,7 @@ func (s *Engine) challengeDeviceKeySecondFactor(ctx context.Context, user *db.Us
 // verifyDeviceKeySecondFactor accepts a TOTP code or the SMS code sent for
 // this enrollment, spending it, or one of the account's backup codes, which it
 // returns unspent for enrollDeviceKey to spend; never the email factor's.
-func (s *Engine) verifyDeviceKeySecondFactor(ctx context.Context, userID, enrollmentID string, factors []authflow.TwoFactorFactor, backupHashes []string, code string) (backupCode string, ok bool) {
+func (s *Engine) verifyDeviceKeySecondFactor(ctx context.Context, userID, enrollmentID string, factors []authflow.MFAFactor, backupHashes []string, code string) (backupCode string, ok bool) {
 	for _, f := range factors {
 		var ok bool
 		var err error

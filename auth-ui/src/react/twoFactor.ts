@@ -51,8 +51,9 @@ export function useTwoFactorSettings(options: GuardOptions = {}) {
   useEffect(() => {
     if (!authed) return
     const ctl = new AbortController()
-    client.getTwoFactor(ctl.signal).then(
-      (status) => setLoaded({ request, status, error: null }),
+    client.getSecurity(ctl.signal).then(
+      (security) =>
+        setLoaded({ request, status: security.two_factor, error: null }),
       (err: unknown) => {
         if (!ctl.signal.aborted)
           setLoaded({ request, status: null, error: toAuthKitError(err) })

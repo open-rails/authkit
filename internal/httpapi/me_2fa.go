@@ -18,25 +18,6 @@ import (
 // split at its code. An enrollment token (AuthResult enrollment_required)
 // reaches both; adding its first factor finishes that sign-in.
 
-func (s *Service) handleMe2FAGET(w http.ResponseWriter, r *http.Request) {
-	claims, ok := verify.ClaimsFromContext(r.Context())
-	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthenticated)
-		return
-	}
-	settings, err := s.svc.Get2FASettings(r.Context(), claims.UserID)
-	if err != nil {
-		writeJSON(w, http.StatusOK, TwoFactorStatus{Factors: []TwoFactorFactor{}, AllowedMethods: s.svc.TwoFactorMethods()})
-		return
-	}
-	writeJSON(w, http.StatusOK, TwoFactorStatus{
-		Enabled:              settings.Enabled,
-		Factors:              twoFactorFactorResponses(settings.Factors),
-		AllowedMethods:       s.svc.TwoFactorMethods(),
-		BackupCodesRemaining: len(settings.BackupCodes),
-	})
-}
-
 // handleMe2FASetupPOST starts a factor: a code to the account's email or the
 // given phone, or an authenticator app's secret.
 func (s *Service) handleMe2FASetupPOST(w http.ResponseWriter, r *http.Request) {
@@ -104,7 +85,7 @@ func (s *Service) handleMe2FAFactorsPOST(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
-	created := TwoFactorFactorCreated{Factor: twoFactorFactorResponse(out.Factor), BackupCodes: out.BackupCodes}
+	created := TwoFactorFactorCreated{Factor: authflow.WireFactor(out.Factor), BackupCodes: out.BackupCodes}
 	var auth AuthResult
 	var err error
 	switch {
@@ -146,7 +127,7 @@ func (s *Service) handleMe2FAFactorPATCH(w http.ResponseWriter, r *http.Request)
 			writeError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, twoFactorFactorResponse(factor))
+		writeJSON(w, http.StatusOK, authflow.WireFactor(factor))
 		return
 	}
 	settings, err := s.svc.Get2FASettings(r.Context(), claims.UserID)
@@ -162,7 +143,7 @@ func (s *Service) handleMe2FAFactorPATCH(w http.ResponseWriter, r *http.Request)
 			fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("default"))
 			return
 		}
-		writeJSON(w, http.StatusOK, twoFactorFactorResponse(factor))
+		writeJSON(w, http.StatusOK, authflow.WireFactor(factor))
 		return
 	}
 	fail(w, errmodel.CodeNotFound)
@@ -276,25 +257,4 @@ func derefTrim(s *string) string {
 		return ""
 	}
 	return strings.TrimSpace(*s)
-}
-
-func twoFactorFactorResponses(factors []authflow.TwoFactorFactor) []TwoFactorFactor {
-	out := make([]TwoFactorFactor, 0, len(factors))
-	for _, factor := range factors {
-		out = append(out, twoFactorFactorResponse(factor))
-	}
-	return out
-}
-
-func twoFactorFactorResponse(factor authflow.TwoFactorFactor) TwoFactorFactor {
-	out := TwoFactorFactor{ID: factor.ID, Method: factor.Method, IsDefault: factor.IsDefault}
-	destination := factor.Email
-	if factor.Method == "sms" {
-		destination = factor.PhoneNumber
-	}
-	if destination != nil && factor.Method != "totp" {
-		masked := contact.MaskDestination(*destination)
-		out.Destination = &masked
-	}
-	return out
 }

@@ -344,10 +344,9 @@ describe("useRegister", () => {
 describe("useStepUp", () => {
   const stepUpRequired = () =>
     authError(403, "step_up_required", {
-      step_up_methods: ["password", "2fa"],
+      step_up_methods: ["password", "github"],
       max_age_seconds: 900,
-      step_up_2fa: null,
-      mfa_required: false,
+      factors: [],
     })
 
   it("guards a sensitive action: step up, then retry", async () => {
@@ -387,7 +386,7 @@ describe("useStepUp", () => {
     await waitFor(() =>
       expect(result.current.stepUp.state).toMatchObject({
         step: "required",
-        challenge: { methods: ["password", "2fa"], mfaRequired: false },
+        challenge: { methods: ["password", "github"], factors: [] },
       })
     )
     expect(result.current.change.busy).toBe(true)
@@ -408,20 +407,21 @@ describe("useStepUp", () => {
       "POST /api/v1/password/login": () => session({ sub: "u1", sid: "s1" }),
       "PUT /api/v1/me/password": [
         authError(403, "step_up_required", {
-          step_up_methods: ["password", "2fa"],
+          step_up_methods: ["2fa"],
           max_age_seconds: 900,
-          mfa_required: true,
-          step_up_2fa: {
-            methods: ["email"],
-            default_method: "email",
-            options: [
-              { method: "email", is_default: true, destination: "a***@x.test" },
-            ],
-          },
+          factors: [
+            { id: "f1", method: "totp", is_default: true, destination: null },
+            {
+              id: "f2",
+              method: "email",
+              is_default: false,
+              destination: "a***@x.test",
+            },
+          ],
         }),
       ],
       "POST /api/v1/me/step-up/2fa/send": ({ body }) => {
-        expect(JSON.parse(String(body))).toEqual({ method: "email" })
+        expect(JSON.parse(String(body))).toEqual({ factor_id: "f2" })
         return new Response(null, { status: 202 })
       },
     })
@@ -439,13 +439,13 @@ describe("useStepUp", () => {
     await waitFor(() =>
       expect(result.current.stepUp.state).toMatchObject({
         step: "required",
-        challenge: { methods: ["2fa"], mfaRequired: true },
+        challenge: { methods: ["2fa"] },
       })
     )
-    await act(() => result.current.stepUp.sendCode("email"))
+    await act(() => result.current.stepUp.sendCode("f2"))
     expect(result.current.stepUp.state).toMatchObject({
       step: "code_sent",
-      method: "email",
+      factorId: "f2",
       destination: "a***@x.test",
     })
     act(() => result.current.stepUp.cancel())
