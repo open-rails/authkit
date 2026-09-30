@@ -23,9 +23,6 @@ UPDATE user_device_keys SET last_used_at = now()
 WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL
 RETURNING *;
 
--- name: DeviceKeyIsActive :one
-SELECT EXISTS(SELECT 1 FROM user_device_keys WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL);
-
 -- name: DeviceKeyIsActiveForUpdate :one
 SELECT EXISTS(SELECT 1 FROM user_device_keys WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL FOR UPDATE);
 

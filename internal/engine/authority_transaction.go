@@ -240,7 +240,7 @@ func (s *Engine) retireCredential(ctx context.Context, st *permissionGroupStore,
 }
 
 // creatorCovers is rule CRED: the creator is still a live account (not
-// banned, deleted or reserved), holds capability and covers role. A plain
+// banned or deleted), holds capability and covers role. A plain
 // registration invite carries no role, so it needs capability only.
 func (s *Engine) creatorCovers(ctx context.Context, st *permissionGroupStore, creator string, g groupTarget, capability iam.Perm, role iam.Role) error {
 	if role.IsZero() {

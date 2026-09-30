@@ -104,7 +104,7 @@ func (s *Engine) mintAccessToken(ctx context.Context, userID string, extra map[s
 // mintAccessTokenForUser mints an access token for an ALREADY-LOADED, ALREADY-GATED
 // user (#227). It SKIPS the getUserByID + ensureUserAccess "live-user gate" that
 // mintAccessToken performs — the caller has already loaded the row and rejected
-// banned/deleted/reserved users — and reuses a precomputed MFAStatus for the
+// banned or deleted users — and reuses a precomputed MFAStatus for the
 // mfa_enrolled claim instead of recomputing it. Pass mfa == nil to omit mfa_enrolled
 // (matches the swallow-on-error / absent-when-not-satisfied behavior of the ID-only
 // path). u must be non-nil.

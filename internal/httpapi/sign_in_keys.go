@@ -99,7 +99,8 @@ func (s *Service) handleSignInKeyPATCH(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSignInKeyDELETE deletes one of the caller's passkeys or revokes one of
-// its device keys; a revoked key stays revoked, and an unknown one is 404.
+// its device keys; a revoked device key stays revoked, and a deleted passkey or
+// an unknown key is 404.
 func (s *Service) handleSignInKeyDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {

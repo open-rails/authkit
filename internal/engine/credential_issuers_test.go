@@ -207,14 +207,13 @@ func TestNoCredentialOutlivesItsIssuer(t *testing.T) {
 		require.ErrorIs(t, f.e.consumeRegistrationInvite(ctx, "lost@credentials.test", f.user("registrant").ID, plain.Code), iam.ErrInvitationNotFound)
 	})
 
-	// H1: a banned, deleted or reserved creator's credentials fail at use
+	// H1: a banned or deleted creator's credentials fail at use
 	// time, even on a path that changed the account without running the sweep.
 	t.Run("refused before any sweep", func(t *testing.T) {
 		f := newCredentialFixture(t)
 		for _, end := range []struct{ name, sql string }{
 			{"banned", `UPDATE users SET banned_at=now(), ban_reason='spam' WHERE id=$1::uuid`},
 			{"deleted", `UPDATE users SET deleted_at=now() WHERE id=$1::uuid`},
-			{"reserved", `UPDATE users SET metadata=COALESCE(metadata,'{}'::jsonb)||'{"reserved":true}'::jsonb WHERE id=$1::uuid`},
 		} {
 			t.Run(end.name, func(t *testing.T) {
 				creator := f.user(end.name)

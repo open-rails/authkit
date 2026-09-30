@@ -198,9 +198,9 @@ func TestSecurityContactChangeKeepsMFARoles(t *testing.T) {
 		u, err := h.auth.UpdateUser(ctx, iam.SystemActor(), holder.id, iam.UserUpdate{Email: &moved, EmailVerified: &verified})
 		require.NoError(t, err)
 		require.Equal(t, moved, *u.Email)
-		var enabled bool
-		require.NoError(t, h.pool.QueryRow(ctx, `SELECT enabled FROM profiles.mfa_settings WHERE user_id=$1::uuid`, holder.id).Scan(&enabled))
-		require.True(t, enabled)
+		var factors int
+		require.NoError(t, h.pool.QueryRow(ctx, `SELECT count(*) FROM profiles.mfa_factors WHERE user_id=$1::uuid`, holder.id).Scan(&factors))
+		require.Positive(t, factors)
 		roles, err := h.auth.GroupRoles(ctx, iam.RootGroup(), []iam.Subject{iam.UserSubject(holder.id)})
 		require.NoError(t, err)
 		require.Equal(t, h.role(iam.RootPersona(), "security"), roles[iam.UserSubject(holder.id)])
@@ -405,9 +405,9 @@ func TestSecurityContactChangeKeepsEnrolledMFA(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, target.email, *u.Email)
 	require.True(t, u.EmailVerified)
-	var enabled bool
-	require.NoError(t, h.pool.QueryRow(ctx, `SELECT enabled FROM profiles.mfa_settings WHERE user_id=$1::uuid`, target.id).Scan(&enabled))
-	require.True(t, enabled)
+	var factors int
+	require.NoError(t, h.pool.QueryRow(ctx, `SELECT count(*) FROM profiles.mfa_factors WHERE user_id=$1::uuid`, target.id).Scan(&factors))
+	require.Positive(t, factors)
 
 	t.Run("control: an account without a second factor may be moved", func(t *testing.T) {
 		plain := h.newAccount("n10plain")
@@ -421,7 +421,7 @@ func TestSecurityContactChangeKeepsEnrolledMFA(t *testing.T) {
 // TestSecurityGroupLifecycleIsTheHosts: creating and deleting a group are
 // host operations. No HTTP route creates, reads, renames or deletes a group,
 // and a group is never seeded with an owner who cannot act: an unknown,
-// banned, deleted or reserved account, or an application of another group.
+// banned or deleted account, or an application of another group.
 func TestSecurityGroupLifecycleIsTheHosts(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
 	ctx := context.Background()
@@ -443,11 +443,9 @@ func TestSecurityGroupLifecycleIsTheHosts(t *testing.T) {
 	require.Nil(t, g.DeletedAt)
 
 	app := h.registerApp(group, founder, "life-app", "member")
-	banned, deleted, reserved := h.newAccount("lifebanned"), h.newAccount("lifedeleted"), h.newAccount("lifereserved")
+	banned, deleted := h.newAccount("lifebanned"), h.newAccount("lifedeleted")
 	require.NoError(t, h.auth.Ban(ctx, iam.SystemActor(), banned.id, iam.Ban{Reason: "abuse"}))
 	require.NoError(t, opErr(h.auth.DeleteUsers(ctx, iam.SystemActor(), []string{deleted.id})))
-	_, err = h.pool.Exec(ctx, `UPDATE profiles.users SET metadata=COALESCE(metadata,'{}'::jsonb)||'{"reserved":true}'::jsonb WHERE id=$1::uuid`, reserved.id)
-	require.NoError(t, err)
 	groups := func() int {
 		var n int
 		require.NoError(t, h.pool.QueryRow(ctx, `SELECT count(*) FROM profiles.permission_groups WHERE persona=$1`, orgPersona.String()).Scan(&n))
@@ -458,11 +456,10 @@ func TestSecurityGroupLifecycleIsTheHosts(t *testing.T) {
 		owner iam.Subject
 		want  error
 	}{
-		"unknown account":  {iam.UserSubject("0190a0a0-0000-7000-8000-000000000000"), iam.ErrUserNotFound},
-		"banned account":   {iam.UserSubject(banned.id), iam.ErrInsufficientAuthority},
-		"deleted account":  {iam.UserSubject(deleted.id), iam.ErrInsufficientAuthority},
-		"reserved account": {iam.UserSubject(reserved.id), iam.ErrInsufficientAuthority},
-		"application":      {iam.RemoteApplicationSubject(app.ID), iam.ErrInsufficientAuthority},
+		"unknown account": {iam.UserSubject("0190a0a0-0000-7000-8000-000000000000"), iam.ErrUserNotFound},
+		"banned account":  {iam.UserSubject(banned.id), iam.ErrInsufficientAuthority},
+		"deleted account": {iam.UserSubject(deleted.id), iam.ErrInsufficientAuthority},
+		"application":     {iam.RemoteApplicationSubject(app.ID), iam.ErrInsufficientAuthority},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := h.auth.CreateGroup(ctx, iam.NewGroup{Persona: orgPersona, Owner: &tc.owner})

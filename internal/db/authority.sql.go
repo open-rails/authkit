@@ -19,7 +19,7 @@ func (q *Queries) APIKeyRetire(ctx context.Context, id string) error {
 }
 
 const accountInviteRetire = `-- name: AccountInviteRetire :exec
-UPDATE account_registration_invites SET revoked_at = now(), updated_at = now() WHERE id = $1
+UPDATE account_registration_invites SET revoked_at = now() WHERE id = $1
 `
 
 func (q *Queries) AccountInviteRetire(ctx context.Context, id string) error {
@@ -297,8 +297,7 @@ SELECT EXISTS(
   SELECT 1 FROM group_user_roles r JOIN usable_users u ON u.id = r.user_id
   WHERE r.permission_group_id = $1::uuid AND r.role LIKE '%:owner'
     AND NOT ($2::text = 'user' AND u.id = $3::uuid)
-    AND (NOT $4::boolean OR EXISTS(SELECT 1 FROM mfa_settings m WHERE m.user_id = u.id AND m.enabled
-      AND EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id = u.id)))
+    AND (NOT $4::boolean OR EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id = u.id))
   UNION ALL
   SELECT 1 FROM group_remote_application_roles r JOIN remote_applications a ON a.id = r.remote_application_id
   WHERE NOT $4::boolean AND r.permission_group_id = $1::uuid AND r.role LIKE '%:owner'
@@ -375,7 +374,7 @@ func (q *Queries) GroupsOwnedByApplication(ctx context.Context, remoteApplicatio
 }
 
 const inviteLinkRetire = `-- name: InviteLinkRetire :exec
-UPDATE group_invite_links SET revoked_at = now(), updated_at = now() WHERE id = $1
+UPDATE group_invite_links SET revoked_at = now() WHERE id = $1
 `
 
 func (q *Queries) InviteLinkRetire(ctx context.Context, id string) error {

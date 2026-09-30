@@ -24,7 +24,6 @@ const mFAConsumeBackupCode = `-- name: MFAConsumeBackupCode :execrows
 UPDATE mfa_settings
 SET backup_codes = array_remove(backup_codes, $1), updated_at = NOW()
 WHERE user_id = $2
-  AND enabled = true
   AND $1 = ANY(backup_codes)
 `
 
@@ -34,7 +33,7 @@ type MFAConsumeBackupCodeParams struct {
 }
 
 // Atomic single-use consume: removes the hashed code and reports rows affected.
-// 1 = this caller consumed it; 0 = code absent / already used / 2FA disabled. The
+// 1 = this caller consumed it; 0 = code absent or already used. The
 // `= ANY(...)` guard makes the test-and-remove a single statement so concurrent
 // submissions of the same code cannot both succeed.
 func (q *Queries) MFAConsumeBackupCode(ctx context.Context, arg MFAConsumeBackupCodeParams) (int64, error) {
@@ -94,23 +93,6 @@ func (q *Queries) MFADeleteFactor(ctx context.Context, arg MFADeleteFactorParams
 		return 0, err
 	}
 	return result.RowsAffected(), nil
-}
-
-const mFADisable = `-- name: MFADisable :exec
-
-UPDATE mfa_settings
-SET enabled = false, updated_at = NOW()
-WHERE user_id = $1
-`
-
-// Two-factor queries.
-//
-// #125: factors are hard-deleted (no per-factor `enabled` flag). mfa_settings
-// holds only the account-level gate (`enabled`) + `backup_codes`; per-factor data
-// (method/phone/totp_secret/last_totp_step) lives ONLY on mfa_factors.
-func (q *Queries) MFADisable(ctx context.Context, userID string) error {
-	_, err := q.db.Exec(ctx, mFADisable, userID)
-	return err
 }
 
 const mFAInsertFactor = `-- name: MFAInsertFactor :one
@@ -204,16 +186,6 @@ func (q *Queries) MFALockUser(ctx context.Context, id string) (string, error) {
 	return id_2, err
 }
 
-const mFAResetSettings = `-- name: MFAResetSettings :exec
-UPDATE mfa_settings SET enabled = false, backup_codes = NULL, updated_at = now() WHERE user_id = $1::uuid
-`
-
-// Disables 2FA and drops the backup codes.
-func (q *Queries) MFAResetSettings(ctx context.Context, userID string) error {
-	_, err := q.db.Exec(ctx, mFAResetSettings, userID)
-	return err
-}
-
 const mFASetBackupCodes = `-- name: MFASetBackupCodes :exec
 UPDATE mfa_settings
 SET backup_codes = $1, updated_at = NOW()
@@ -265,17 +237,19 @@ func (q *Queries) MFASetEmailFactorAddress(ctx context.Context, arg MFASetEmailF
 }
 
 const mFASettingsByUser = `-- name: MFASettingsByUser :one
-SELECT user_id, enabled, backup_codes, created_at, updated_at
+
+SELECT user_id, backup_codes, created_at, updated_at
 FROM mfa_settings
 WHERE user_id = $1
 `
 
+// Two-factor queries. 2FA is on while the account has a factor; mfa_settings
+// holds its backup codes and goes with its last factor.
 func (q *Queries) MFASettingsByUser(ctx context.Context, userID string) (MfaSetting, error) {
 	row := q.db.QueryRow(ctx, mFASettingsByUser, userID)
 	var i MfaSetting
 	err := row.Scan(
 		&i.UserID,
-		&i.Enabled,
 		&i.BackupCodes,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -284,10 +258,9 @@ func (q *Queries) MFASettingsByUser(ctx context.Context, userID string) (MfaSett
 }
 
 const mFAUpsertSettings = `-- name: MFAUpsertSettings :exec
-INSERT INTO mfa_settings (user_id, enabled, backup_codes, updated_at)
-VALUES ($1, true, $2, NOW())
+INSERT INTO mfa_settings (user_id, backup_codes, updated_at)
+VALUES ($1, $2, NOW())
 ON CONFLICT (user_id) DO UPDATE SET
-  enabled = true,
   backup_codes = EXCLUDED.backup_codes,
   updated_at = NOW()
 `
@@ -303,11 +276,10 @@ func (q *Queries) MFAUpsertSettings(ctx context.Context, arg MFAUpsertSettingsPa
 }
 
 const mFAUsable = `-- name: MFAUsable :one
-SELECT EXISTS(SELECT 1 FROM mfa_settings m WHERE m.user_id = $1::uuid AND m.enabled
-  AND EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id = m.user_id))::boolean AS usable
+SELECT EXISTS(SELECT 1 FROM mfa_factors WHERE user_id = $1::uuid)::boolean AS usable
 `
 
-// 2FA is enabled and has a factor.
+// 2FA is on: the account has a factor.
 func (q *Queries) MFAUsable(ctx context.Context, userID string) (bool, error) {
 	row := q.db.QueryRow(ctx, mFAUsable, userID)
 	var usable bool

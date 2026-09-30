@@ -1,11 +1,11 @@
 -- Group invite links and account registration invites.
 
 -- name: InviteLinksRevokeInvitedBy :exec
-UPDATE group_invite_links SET revoked_at = now(), updated_at = now()
+UPDATE group_invite_links SET revoked_at = now()
 WHERE invited_by = sqlc.arg(user_id)::uuid AND revoked_at IS NULL AND redeemed_at IS NULL;
 
 -- name: AccountInvitesRevokeInvitedBy :exec
-UPDATE account_registration_invites SET revoked_at = now(), updated_at = now()
+UPDATE account_registration_invites SET revoked_at = now()
 WHERE invited_by = sqlc.arg(user_id)::uuid AND revoked_at IS NULL AND consumed_at IS NULL;
 
 -- An issuer is the system (NULL) or a usable account: a credential never
@@ -53,7 +53,7 @@ WHERE l.code_hash = sqlc.arg(code_hash) AND l.permission_group_id = sqlc.arg(gro
 FOR UPDATE OF l;
 
 -- name: InviteLinkRedeem :exec
-UPDATE group_invite_links SET redeemed_at = now(), updated_at = now() WHERE id = sqlc.arg(id);
+UPDATE group_invite_links SET redeemed_at = now() WHERE id = sqlc.arg(id);
 
 -- name: AccountInviteInsert :one
 INSERT INTO account_registration_invites (email, invited_by, code_hash, expires_at, permission_group_id, role, catalog_issuer)
@@ -95,5 +95,5 @@ WHERE i.code_hash = sqlc.arg(code_hash) AND i.permission_group_id = sqlc.arg(gro
 FOR UPDATE OF i;
 
 -- name: AccountInviteConsume :exec
-UPDATE account_registration_invites SET consumed_at = now(), updated_at = now()
+UPDATE account_registration_invites SET consumed_at = now()
 WHERE id = sqlc.arg(id);

@@ -48,9 +48,6 @@ const (
 	defaultVerificationSendTimeout = 15 * time.Second
 )
 
-// ReservedMetadataKeys are the user-metadata keys AuthKit owns.
-var ReservedMetadataKeys = []string{"reserved"}
-
 // Normalize applies every default and checks every rule of c and d, once:
 // authkit.New calls it and hands the result to the engine and the HTTP
 // layer. It returns a normalized copy; normalizing that copy again changes
@@ -113,11 +110,6 @@ func Normalize(c Config, d Deps) (Config, error) {
 	}
 	if c.PublicUserMetadata, err = normalizeKeys("PublicUserMetadata", c.PublicUserMetadata); err != nil {
 		return Config{}, err
-	}
-	for _, k := range ReservedMetadataKeys {
-		if slices.Contains(c.PublicUserMetadata, k) {
-			return Config{}, fmt.Errorf("authkit: PublicUserMetadata names AuthKit's own metadata key %q", k)
-		}
 	}
 	if c.AvatarURLPrefixes, err = normalizeAvatarURLPrefixes(c.AvatarURLPrefixes); err != nil {
 		return Config{}, err

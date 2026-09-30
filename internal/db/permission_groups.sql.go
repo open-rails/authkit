@@ -639,8 +639,7 @@ WHERE g.persona <> 'root' AND ($1::text = '' OR g.persona = $1::text)
   AND (NOT $3::boolean OR NOT EXISTS(
     SELECT 1 FROM group_user_roles r JOIN usable_users u ON u.id = r.user_id
      WHERE r.permission_group_id = g.id AND r.role LIKE '%:owner'
-       AND (NOT (g.persona = ANY($5::text[])) OR EXISTS(SELECT 1 FROM mfa_settings m WHERE m.user_id = u.id AND m.enabled
-         AND EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id = u.id)))
+       AND (NOT (g.persona = ANY($5::text[])) OR EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id = u.id))
     UNION ALL
     SELECT 1 FROM group_remote_application_roles r JOIN remote_applications a ON a.id = r.remote_application_id
      WHERE NOT (g.persona = ANY($5::text[])) AND r.permission_group_id = g.id AND r.role LIKE '%:owner'

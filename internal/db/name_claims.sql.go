@@ -12,7 +12,7 @@ import (
 
 const nameClaimAliasesByUser = `-- name: NameClaimAliasesByUser :many
 SELECT name, expires_at FROM name_claims
-WHERE owner_kind = 'user' AND owner_id = $1 AND NOT canonical
+WHERE owner_id = $1 AND NOT canonical
   AND (expires_at IS NULL OR expires_at > $2::timestamptz)
 ORDER BY name
 `
@@ -48,7 +48,7 @@ func (q *Queries) NameClaimAliasesByUser(ctx context.Context, arg NameClaimAlias
 }
 
 const nameClaimCanonical = `-- name: NameClaimCanonical :exec
-SELECT claim_canonical_name('user', '', $1::text, $2::uuid, $3::timestamptz)
+SELECT claim_canonical_name($1::text, $2::uuid, $3::timestamptz)
 `
 
 type NameClaimCanonicalParams struct {
@@ -64,7 +64,7 @@ func (q *Queries) NameClaimCanonical(ctx context.Context, arg NameClaimCanonical
 
 const nameClaimDeleteOwned = `-- name: NameClaimDeleteOwned :exec
 DELETE FROM name_claims
-WHERE owner_kind = 'user' AND persona = '' AND name = lower($1::text) AND owner_id = $2 AND canonical
+WHERE name = lower($1::text) AND owner_id = $2 AND canonical
 `
 
 type NameClaimDeleteOwnedParams struct {
@@ -79,7 +79,7 @@ func (q *Queries) NameClaimDeleteOwned(ctx context.Context, arg NameClaimDeleteO
 
 const nameClaimRetire = `-- name: NameClaimRetire :exec
 UPDATE name_claims SET canonical = false, expires_at = $1
-WHERE owner_kind = 'user' AND persona = '' AND name = lower($2::text) AND owner_id = $3 AND canonical
+WHERE name = lower($2::text) AND owner_id = $3 AND canonical
 `
 
 type NameClaimRetireParams struct {
@@ -95,7 +95,7 @@ func (q *Queries) NameClaimRetire(ctx context.Context, arg NameClaimRetireParams
 }
 
 const nameClaimTaken = `-- name: NameClaimTaken :one
-SELECT EXISTS(SELECT 1 FROM name_claims WHERE owner_kind = 'user' AND persona = '' AND name = lower($1::text)
+SELECT EXISTS(SELECT 1 FROM name_claims WHERE name = lower($1::text)
   AND (canonical OR expires_at IS NULL OR expires_at > $2::timestamptz))
 `
 
@@ -113,12 +113,12 @@ func (q *Queries) NameClaimTaken(ctx context.Context, arg NameClaimTakenParams) 
 
 const nameClaimsDeleteExpired = `-- name: NameClaimsDeleteExpired :execrows
 WITH expired AS (
- SELECT owner_kind,persona,name FROM name_claims
+ SELECT name FROM name_claims
  WHERE NOT canonical AND expires_at <= $1::timestamptz
  ORDER BY expires_at LIMIT 5000 FOR UPDATE SKIP LOCKED
 )
 DELETE FROM name_claims c USING expired e
-WHERE c.owner_kind=e.owner_kind AND c.persona=e.persona AND c.name=e.name
+WHERE c.name=e.name
  AND NOT c.canonical AND c.expires_at <= $1::timestamptz
 `
 
@@ -131,7 +131,7 @@ func (q *Queries) NameClaimsDeleteExpired(ctx context.Context, atTime time.Time)
 }
 
 const nameClaimsLock = `-- name: NameClaimsLock :exec
-SELECT lock_name_claims('user', '', $1::text[])
+SELECT lock_name_claims($1::text[])
 `
 
 // Takes the names' stripe locks in stripe order, so opposite renames cannot deadlock.
@@ -143,7 +143,7 @@ func (q *Queries) NameClaimsLock(ctx context.Context, names []string) error {
 const resolveUsername = `-- name: ResolveUsername :one
 SELECT u.id::text AS id, u.username::text AS canonical_name, COALESCE(NOT c.canonical,false)::boolean AS is_alias, c.expires_at
 FROM name_claims c JOIN users u ON u.id=c.owner_id
-WHERE c.owner_kind='user' AND c.persona='' AND c.name=lower($1::text)
+WHERE c.name=lower($1::text)
  AND (c.canonical OR c.expires_at IS NULL OR c.expires_at>$2::timestamptz)
  AND u.deleted_at IS NULL
 `

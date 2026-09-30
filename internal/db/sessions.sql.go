@@ -11,7 +11,7 @@ import (
 )
 
 const sessionByCurrentTokenHash = `-- name: SessionByCurrentTokenHash :one
-SELECT id::text, user_id, family_id::text, auth_methods
+SELECT id::text, user_id, auth_methods
 FROM refresh_sessions
 WHERE current_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL
   AND (expires_at IS NULL OR expires_at > now())
@@ -25,24 +25,18 @@ type SessionByCurrentTokenHashParams struct {
 type SessionByCurrentTokenHashRow struct {
 	ID          string
 	UserID      string
-	FamilyID    string
 	AuthMethods []string
 }
 
 func (q *Queries) SessionByCurrentTokenHash(ctx context.Context, arg SessionByCurrentTokenHashParams) (SessionByCurrentTokenHashRow, error) {
 	row := q.db.QueryRow(ctx, sessionByCurrentTokenHash, arg.CurrentTokenHash, arg.Issuer)
 	var i SessionByCurrentTokenHashRow
-	err := row.Scan(
-		&i.ID,
-		&i.UserID,
-		&i.FamilyID,
-		&i.AuthMethods,
-	)
+	err := row.Scan(&i.ID, &i.UserID, &i.AuthMethods)
 	return i, err
 }
 
 const sessionByHistoricalTokenHash = `-- name: SessionByHistoricalTokenHash :one
-SELECT s.id::text AS id, s.user_id, s.family_id::text AS family_id, s.auth_methods, s.expires_at,
+SELECT s.id::text AS id, s.user_id, s.auth_methods, s.expires_at,
        s.current_token_hash, s.previous_successor_sealed, s.previous_rotated_at
 FROM refresh_token_history h
 JOIN refresh_sessions s ON s.id = h.session_id
@@ -57,7 +51,6 @@ type SessionByHistoricalTokenHashParams struct {
 type SessionByHistoricalTokenHashRow struct {
 	ID                      string
 	UserID                  string
-	FamilyID                string
 	AuthMethods             []string
 	ExpiresAt               *time.Time
 	CurrentTokenHash        []byte
@@ -67,14 +60,13 @@ type SessionByHistoricalTokenHashRow struct {
 
 // A consumed token stays attributable for 90 days (SessionRotate). Only the
 // immediate predecessor can open the current grace seal; older hashes still
-// identify the family for reuse detection.
+// identify the session for reuse detection.
 func (q *Queries) SessionByHistoricalTokenHash(ctx context.Context, arg SessionByHistoricalTokenHashParams) (SessionByHistoricalTokenHashRow, error) {
 	row := q.db.QueryRow(ctx, sessionByHistoricalTokenHash, arg.TokenHash, arg.Issuer)
 	var i SessionByHistoricalTokenHashRow
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
-		&i.FamilyID,
 		&i.AuthMethods,
 		&i.ExpiresAt,
 		&i.CurrentTokenHash,
@@ -142,16 +134,14 @@ func (q *Queries) SessionFreshSinceForUpdate(ctx context.Context, arg SessionFre
 	return i, err
 }
 
-const sessionInsert = `-- name: SessionInsert :one
+const sessionInsert = `-- name: SessionInsert :exec
 
-INSERT INTO refresh_sessions (id, family_id, user_id, issuer, current_token_hash, expires_at, user_agent, ip_addr, last_authenticated_at, auth_methods, mfa_authenticated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9, CASE WHEN 'mfa' = ANY($9::text[]) THEN now() END)
-RETURNING id::text, family_id::text
+INSERT INTO refresh_sessions (id, user_id, issuer, current_token_hash, expires_at, user_agent, ip_addr, last_authenticated_at, auth_methods, mfa_authenticated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, CASE WHEN 'mfa' = ANY($8::text[]) THEN now() END)
 `
 
 type SessionInsertParams struct {
 	ID               string
-	FamilyID         string
 	UserID           string
 	Issuer           string
 	CurrentTokenHash []byte
@@ -161,16 +151,10 @@ type SessionInsertParams struct {
 	AuthMethods      []string
 }
 
-type SessionInsertRow struct {
-	ID       string
-	FamilyID string
-}
-
 // Refresh-session queries.
-func (q *Queries) SessionInsert(ctx context.Context, arg SessionInsertParams) (SessionInsertRow, error) {
-	row := q.db.QueryRow(ctx, sessionInsert,
+func (q *Queries) SessionInsert(ctx context.Context, arg SessionInsertParams) error {
+	_, err := q.db.Exec(ctx, sessionInsert,
 		arg.ID,
-		arg.FamilyID,
 		arg.UserID,
 		arg.Issuer,
 		arg.CurrentTokenHash,
@@ -179,9 +163,7 @@ func (q *Queries) SessionInsert(ctx context.Context, arg SessionInsertParams) (S
 		arg.IpAddr,
 		arg.AuthMethods,
 	)
-	var i SessionInsertRow
-	err := row.Scan(&i.ID, &i.FamilyID)
-	return i, err
+	return err
 }
 
 const sessionMarkAuthenticated = `-- name: SessionMarkAuthenticated :execrows
@@ -410,7 +392,7 @@ func (q *Queries) SessionsEvictOldest(ctx context.Context, arg SessionsEvictOlde
 }
 
 const sessionsListByUser = `-- name: SessionsListByUser :many
-SELECT id::text, family_id::text, created_at, last_used_at, expires_at,
+SELECT id::text, created_at, last_used_at, expires_at,
        user_agent, CASE WHEN ip_addr IS NULL THEN NULL ELSE NULLIF(host(ip_addr)::text, '') END AS ip_addr
 FROM refresh_sessions
 WHERE user_id = $1 AND issuer = $2 AND (revoked_at IS NULL)
@@ -423,7 +405,6 @@ type SessionsListByUserParams struct {
 
 type SessionsListByUserRow struct {
 	ID         string
-	FamilyID   string
 	CreatedAt  time.Time
 	LastUsedAt time.Time
 	ExpiresAt  *time.Time
@@ -446,7 +427,6 @@ func (q *Queries) SessionsListByUser(ctx context.Context, arg SessionsListByUser
 		var i SessionsListByUserRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.FamilyID,
 			&i.CreatedAt,
 			&i.LastUsedAt,
 			&i.ExpiresAt,
@@ -494,37 +474,6 @@ func (q *Queries) SessionsRevokeAll(ctx context.Context, arg SessionsRevokeAllPa
 	for rows.Next() {
 		var i SessionsRevokeAllRow
 		if err := rows.Scan(&i.ID, &i.Issuer); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const sessionsRevokeFamily = `-- name: SessionsRevokeFamily :many
-UPDATE refresh_sessions SET revoked_at = now()
-WHERE family_id = $1 AND revoked_at IS NULL
-RETURNING id::text, user_id::text
-`
-
-type SessionsRevokeFamilyRow struct {
-	ID     string
-	UserID string
-}
-
-func (q *Queries) SessionsRevokeFamily(ctx context.Context, familyID string) ([]SessionsRevokeFamilyRow, error) {
-	rows, err := q.db.Query(ctx, sessionsRevokeFamily, familyID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []SessionsRevokeFamilyRow
-	for rows.Next() {
-		var i SessionsRevokeFamilyRow
-		if err := rows.Scan(&i.ID, &i.UserID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

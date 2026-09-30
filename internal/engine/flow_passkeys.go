@@ -280,8 +280,8 @@ func (s *Engine) RenamePasskey(ctx context.Context, userID, id, label string) er
 	return nil
 }
 
-// DeletePasskey deletes the account's passkey id; a deleted one stays
-// deleted, and ErrPasskeyNotFound when the account never held it.
+// DeletePasskey deletes the account's passkey id; ErrPasskeyNotFound when the
+// account holds no such passkey.
 func (s *Engine) DeletePasskey(ctx context.Context, userID, id string) error {
 	if !isUUID(strings.TrimSpace(id)) {
 		return errmodel.ErrPasskeyNotFound

@@ -12,7 +12,7 @@ import (
 const bootstrapAccountByCanonicalNameForUpdate = `-- name: BootstrapAccountByCanonicalNameForUpdate :one
 SELECT u.id::text AS id, (u.deleted_at IS NOT NULL)::boolean AS deleted
 FROM name_claims c JOIN users u ON u.id = c.owner_id
-WHERE c.owner_kind = 'user' AND c.persona = '' AND c.name = lower($1::text) AND c.canonical
+WHERE c.name = lower($1::text) AND c.canonical
 FOR UPDATE OF u
 `
 

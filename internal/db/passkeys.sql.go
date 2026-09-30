@@ -10,7 +10,7 @@ import (
 )
 
 const passkeyDelete = `-- name: PasskeyDelete :execrows
-UPDATE user_passkeys SET deleted_at = COALESCE(deleted_at, now()) WHERE id = $1 AND user_id = $2
+DELETE FROM user_passkeys WHERE id = $1 AND user_id = $2
 `
 
 type PasskeyDeleteParams struct {
@@ -18,7 +18,6 @@ type PasskeyDeleteParams struct {
 	UserID string
 }
 
-// A deleted passkey stays deleted; no row changes only for another account's or no passkey.
 func (q *Queries) PasskeyDelete(ctx context.Context, arg PasskeyDeleteParams) (int64, error) {
 	result, err := q.db.Exec(ctx, passkeyDelete, arg.ID, arg.UserID)
 	if err != nil {
@@ -28,7 +27,7 @@ func (q *Queries) PasskeyDelete(ctx context.Context, arg PasskeyDeleteParams) (i
 }
 
 const passkeyExistsForRP = `-- name: PasskeyExistsForRP :one
-SELECT EXISTS(SELECT 1 FROM user_passkeys WHERE user_id = $1 AND rpid = $2 AND deleted_at IS NULL)
+SELECT EXISTS(SELECT 1 FROM user_passkeys WHERE user_id = $1 AND rpid = $2)
 `
 
 type PasskeyExistsForRPParams struct {
@@ -88,7 +87,7 @@ const passkeyInsert = `-- name: PasskeyInsert :one
 INSERT INTO user_passkeys
   (user_id, rpid, credential_id, public_key, sign_count, clone_warning, aaguid, transports, authenticator_attachment, flags, attestation_type, attestation_fmt, label)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-RETURNING id, user_id, rpid, credential_id, public_key, sign_count, clone_warning, aaguid, transports, authenticator_attachment, flags, attestation_type, attestation_fmt, label, created_at, last_used_at, deleted_at
+RETURNING id, user_id, rpid, credential_id, public_key, sign_count, clone_warning, aaguid, transports, authenticator_attachment, flags, attestation_type, attestation_fmt, label, created_at, last_used_at
 `
 
 type PasskeyInsertParams struct {
@@ -141,13 +140,12 @@ func (q *Queries) PasskeyInsert(ctx context.Context, arg PasskeyInsertParams) (U
 		&i.Label,
 		&i.CreatedAt,
 		&i.LastUsedAt,
-		&i.DeletedAt,
 	)
 	return i, err
 }
 
 const passkeyLiveForUpdate = `-- name: PasskeyLiveForUpdate :one
-SELECT id FROM user_passkeys WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL FOR UPDATE
+SELECT id FROM user_passkeys WHERE id = $1 AND user_id = $2 FOR UPDATE
 `
 
 type PasskeyLiveForUpdateParams struct {
@@ -165,7 +163,7 @@ func (q *Queries) PasskeyLiveForUpdate(ctx context.Context, arg PasskeyLiveForUp
 const passkeyRecordUse = `-- name: PasskeyRecordUse :one
 UPDATE user_passkeys
 SET sign_count = $1, clone_warning = $2, flags = $3, last_used_at = now()
-WHERE user_id = $4 AND rpid = $5 AND credential_id = $6 AND deleted_at IS NULL
+WHERE user_id = $4 AND rpid = $5 AND credential_id = $6
 RETURNING id
 `
 
@@ -193,7 +191,7 @@ func (q *Queries) PasskeyRecordUse(ctx context.Context, arg PasskeyRecordUsePara
 }
 
 const passkeyRename = `-- name: PasskeyRename :execrows
-UPDATE user_passkeys SET label = $1 WHERE id = $2 AND user_id = $3 AND deleted_at IS NULL
+UPDATE user_passkeys SET label = $1 WHERE id = $2 AND user_id = $3
 `
 
 type PasskeyRenameParams struct {
@@ -211,7 +209,7 @@ func (q *Queries) PasskeyRename(ctx context.Context, arg PasskeyRenameParams) (i
 }
 
 const passkeysByUser = `-- name: PasskeysByUser :many
-SELECT id, user_id, rpid, credential_id, public_key, sign_count, clone_warning, aaguid, transports, authenticator_attachment, flags, attestation_type, attestation_fmt, label, created_at, last_used_at, deleted_at FROM user_passkeys WHERE user_id = $1 AND rpid = $2 AND deleted_at IS NULL ORDER BY created_at, id
+SELECT id, user_id, rpid, credential_id, public_key, sign_count, clone_warning, aaguid, transports, authenticator_attachment, flags, attestation_type, attestation_fmt, label, created_at, last_used_at FROM user_passkeys WHERE user_id = $1 AND rpid = $2 ORDER BY created_at, id
 `
 
 type PasskeysByUserParams struct {
@@ -246,7 +244,6 @@ func (q *Queries) PasskeysByUser(ctx context.Context, arg PasskeysByUserParams) 
 			&i.Label,
 			&i.CreatedAt,
 			&i.LastUsedAt,
-			&i.DeletedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -260,7 +257,7 @@ func (q *Queries) PasskeysByUser(ctx context.Context, arg PasskeysByUserParams) 
 
 const passkeysDeleteByUser = `-- name: PasskeysDeleteByUser :exec
 
-UPDATE user_passkeys SET deleted_at = now() WHERE user_id = $1::uuid AND deleted_at IS NULL
+DELETE FROM user_passkeys WHERE user_id = $1::uuid
 `
 
 // Passkey queries.

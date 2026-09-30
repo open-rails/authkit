@@ -61,8 +61,8 @@ type GroupQuery struct {
 }
 
 // MemberQuery filters a group's members; empty filters match everything.
-// LiveOnly keeps members that can act now: users not deleted, banned or
-// reserved, applications enabled in a live group. WithUsers fills
+// LiveOnly keeps members that can act now: users not deleted or banned,
+// applications enabled in a live group. WithUsers fills
 // GroupMember.User, which carries contact details.
 type MemberQuery struct {
 	Kinds     []SubjectKind

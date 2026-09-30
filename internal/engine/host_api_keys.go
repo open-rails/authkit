@@ -167,7 +167,7 @@ func (s *Engine) RevokeAPIKey(ctx context.Context, a iam.Actor, ref iam.GroupRef
 
 // ResolveAPIKey authenticates a presented token: the key must exist with a
 // matching secret, be neither revoked nor expired, belong to a live group, and
-// have a live creator (a banned, deleted or reserved creator's keys are
+// have a live creator (a banned or deleted creator's keys are
 // refused even before any sweep revokes them). Permissions are the role's now.
 // It is verify's API-key resolver.
 func (s *Engine) ResolveAPIKey(ctx context.Context, token string) (iam.APIKeyPrincipal, error) {

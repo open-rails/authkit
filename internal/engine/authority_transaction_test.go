@@ -172,7 +172,6 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		require.ErrorIs(t, svc.Ban(ctx, iam.SystemActor(), sole, iam.Ban{}), iam.ErrLastOwner)
 		require.ErrorIs(t, svc.softDelete(ctx, sole), iam.ErrLastOwner)
 		require.ErrorIs(t, itemErr(svc.DeleteUsers(ctx, iam.UserActor(sole), []string{sole})), iam.ErrLastOwner)
-		require.ErrorIs(t, svc.PatchUserMetadata(ctx, iam.SystemActor(), sole, map[string]any{"reserved": true}), errmodel.E(errmodel.CodeInvalidRequest), "reserved is AuthKit's key")
 		alternate := user()
 		require.NoError(t, assignRole(ctx, svc, iam.UserActor(sole), g, iam.UserSubject(alternate), "owner"))
 		require.NoError(t, svc.Ban(ctx, iam.SystemActor(), alternate, iam.Ban{}))

@@ -24,12 +24,12 @@ WHERE id = $1 AND phone_number = $2;
 -- name: UserEmailOrUsernameTaken :one
 SELECT
   EXISTS(SELECT 1 FROM users WHERE email = lower(sqlc.arg(email)::text)::public.citext)::boolean AS email_taken,
-  EXISTS(SELECT 1 FROM name_claims WHERE owner_kind='user' AND persona='' AND name=lower(sqlc.arg(username)::text) AND (canonical OR expires_at IS NULL OR expires_at>sqlc.arg(at_time)::timestamptz))::boolean AS username_taken;
+  EXISTS(SELECT 1 FROM name_claims WHERE name=lower(sqlc.arg(username)::text) AND (canonical OR expires_at IS NULL OR expires_at>sqlc.arg(at_time)::timestamptz))::boolean AS username_taken;
 
 -- name: UserPhoneOrUsernameTaken :one
 SELECT
   EXISTS(SELECT 1 FROM users WHERE phone_number = sqlc.arg(phone)::text)::boolean AS phone_taken,
-  EXISTS(SELECT 1 FROM name_claims WHERE owner_kind='user' AND persona='' AND name=lower(sqlc.arg(username)::text) AND (canonical OR expires_at IS NULL OR expires_at>sqlc.arg(at_time)::timestamptz))::boolean AS username_taken;
+  EXISTS(SELECT 1 FROM name_claims WHERE name=lower(sqlc.arg(username)::text) AND (canonical OR expires_at IS NULL OR expires_at>sqlc.arg(at_time)::timestamptz))::boolean AS username_taken;
 
 -- name: UserSetPreferredLanguage :exec
 UPDATE users
@@ -44,7 +44,7 @@ WHERE id = sqlc.arg(id)::uuid;
 
 -- name: UserInsert :one
 WITH claim AS MATERIALIZED (
- SELECT claim_canonical_name('user','',sqlc.arg(username)::text,sqlc.arg(id)::uuid,sqlc.arg(at_time)::timestamptz)
+ SELECT claim_canonical_name(sqlc.arg(username)::text,sqlc.arg(id)::uuid,sqlc.arg(at_time)::timestamptz)
 )
 INSERT INTO users (id, email, username)
 SELECT sqlc.arg(id)::uuid, NULLIF(lower(sqlc.arg(email)::text), ''), sqlc.arg(username) FROM claim
@@ -52,7 +52,7 @@ RETURNING *;
 
 -- name: UserImportInsert :exec
 WITH claim AS MATERIALIZED (
- SELECT claim_canonical_name('user','',sqlc.arg(username)::text,sqlc.arg(id)::uuid,sqlc.arg(at_time)::timestamptz)
+ SELECT claim_canonical_name(sqlc.arg(username)::text,sqlc.arg(id)::uuid,sqlc.arg(at_time)::timestamptz)
 )
 INSERT INTO users (
   id, email, phone_number, username, email_verified, phone_verified,
@@ -173,6 +173,10 @@ UPDATE users SET avatar_url = sqlc.narg(avatar_url), updated_at = now() WHERE id
 -- Replaces the metadata document (PatchUserMetadata merges in Go).
 UPDATE users SET metadata = sqlc.arg(metadata)::jsonb, updated_at = now()
 WHERE id = sqlc.arg(id);
+
+-- name: UserMetadata :one
+SELECT COALESCE(metadata, '{}'::jsonb)::jsonb AS metadata
+FROM users WHERE id = sqlc.arg(id)::uuid;
 
 -- name: UserBanInForce :one
 SELECT ban_in_force(banned_at, banned_until)::boolean AS in_force

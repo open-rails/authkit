@@ -58,48 +58,59 @@ func TestMigrateSerializesManagedRiverWithSingleConnectionPool(t *testing.T) {
 }
 
 // A database the whole v0.125–v0.148 chain built (v0.147.0 on) converts in
-// place: the ledger records the baseline, the schema equals a fresh one, every
-// row stays, and sessions and passwords written before the upgrade keep working.
+// place and migrates on: the ledger records the tree, the schema equals a fresh
+// one, every row stays, and sessions and passwords written before the upgrade
+// keep working.
 func TestRetiredChainConvertsInPlace(t *testing.T) {
 	ctx := t.Context()
 	pg := testdb.EmptyScratchPostgres(t)
 	db := sqlDB(t, pg.URL)
 	require.NoError(t, migratekit.NewPostgres(db, "authkit").WithSchema("profiles").ApplyMigrations(ctx, retired.Chain()))
 
-	// The baseline's schema is the chain's, so today's engine serves it as v0.148 did.
-	f := newAccountFlow(t, pg.Pool, testConfig(), config.Deps{})
-	owner, member := newUser(t, f.engine, "retired"), newUser(t, f.engine, "retired")
-	session := f.expect(200, f.post("/password/login", map[string]any{"identifier": *owner.Email, "password": testPassword})).tokens()
+	// Rows as v0.148 wrote them.
+	const issuer = "https://example.com" // testConfig's
+	owner, member, username := uuid.NewString(), uuid.NewString(), "Retired"+uniqueSuffix()
+	hash, err := password.HashArgon2id(ctx, testPassword)
+	require.NoError(t, err)
+	token := secret.Token(32)
+	tokenHash := sha256.Sum256([]byte(token))
 	var group string
 	require.NoError(t, pg.Pool.QueryRow(ctx, `INSERT INTO permission_groups(persona) VALUES ('channel') RETURNING id::text`).Scan(&group))
 	for _, seed := range []struct {
 		sql  string
 		args []any
 	}{
-		{`INSERT INTO group_user_roles(permission_group_id, user_id, role) VALUES ($1::uuid, $2::uuid, 'channel:owner'), ($1::uuid, $3::uuid, 'channel:member')`, []any{group, owner.ID, member.ID}},
-		{`INSERT INTO api_keys(permission_group_id, key_id, secret_hash, name, created_by, role, catalog_issuer) VALUES ($1::uuid, 'ak_retired', '\x01', 'ci', $2::uuid, 'channel:member', 'https://example.com')`, []any{group, owner.ID}},
-		{`INSERT INTO group_invite_links(permission_group_id, role, invited_by, code_hash) VALUES ($1::uuid, 'channel:member', $2::uuid, 'retired-code')`, []any{group, owner.ID}},
-		{`INSERT INTO mfa_factors(user_id, method, totp_secret, is_default) VALUES ($1::uuid, 'totp', '\x02', true)`, []any{member.ID}},
-		{`INSERT INTO user_device_keys(user_id, public_key) VALUES ($1::uuid, decode(repeat('ab', 32), 'hex'))`, []any{member.ID}},
+		{`INSERT INTO users(id, email, username, email_verified) VALUES ($1, $2, $3, true), ($4, $5, $6, true)`,
+			[]any{owner, uniqueEmail("retired"), username, member, uniqueEmail("retired"), "Member" + uniqueSuffix()}},
+		{`INSERT INTO user_passwords(user_id, password_hash) VALUES ($1, $2)`, []any{owner, hash}},
+		{`INSERT INTO refresh_sessions(user_id, issuer, current_token_hash, auth_methods) VALUES ($1, $2, $3, '{pwd}')`, []any{owner, issuer, tokenHash[:]}},
+		{`INSERT INTO group_user_roles(permission_group_id, user_id, role) VALUES ($1::uuid, $2::uuid, 'channel:owner'), ($1::uuid, $3::uuid, 'channel:member')`, []any{group, owner, member}},
+		{`INSERT INTO api_keys(permission_group_id, key_id, secret_hash, name, created_by, role, catalog_issuer) VALUES ($1::uuid, 'ak_retired', '\x01', 'ci', $2::uuid, 'channel:member', $3)`, []any{group, owner, issuer}},
+		{`INSERT INTO group_invite_links(permission_group_id, role, invited_by, code_hash) VALUES ($1::uuid, 'channel:member', $2::uuid, 'retired-code')`, []any{group, owner}},
+		{`INSERT INTO mfa_factors(user_id, method, totp_secret, is_default) VALUES ($1::uuid, 'totp', '\x02', true)`, []any{member}},
+		{`INSERT INTO mfa_settings(user_id, enabled) VALUES ($1::uuid, true)`, []any{member}},
+		{`INSERT INTO user_device_keys(user_id, public_key) VALUES ($1::uuid, decode(repeat('ab', 32), 'hex'))`, []any{member}},
 	} {
 		_, err := pg.Pool.Exec(ctx, seed.sql, seed.args...)
 		require.NoError(t, err)
 	}
-	before := tableRows(t, db, "profiles")
-	for _, table := range []string{"users", "user_passwords", "name_claims", "refresh_sessions", "permission_groups", "group_user_roles", "api_keys", "group_invite_links", "mfa_factors", "user_device_keys"} {
-		require.NotRegexp(t, "^0 ", before[table], table)
+	for _, table := range []string{"users", "user_passwords", "name_claims", "refresh_sessions", "permission_groups", "group_user_roles", "api_keys", "group_invite_links", "mfa_factors", "mfa_settings", "user_device_keys"} {
+		var n int
+		require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM profiles.`+table).Scan(&n))
+		require.Positive(t, n, table)
 	}
+	requireRowsKept := keepRows(t, db, "profiles")
 
 	cfg := config.Config{Schema: "profiles", River: config.RiverConfig{HostOwned: true}}
 	require.NoError(t, Migrate(ctx, pg.Pool, cfg, config.MigrateOptions{}))
 	require.NoError(t, Migrate(ctx, pg.Pool, cfg, config.MigrateOptions{}), "a second boot converts nothing")
-	require.Equal(t, before, tableRows(t, db, "profiles"), "the conversion changes no row")
+	requireRowsKept()
 
 	requireTree(t, pg, db, "profiles", true)
 
-	refreshed := f.expect(200, f.post("/token", map[string]any{"grant_type": "refresh_token", "refresh_token": session.RefreshToken})).tokens()
-	f.session(refreshed, "pwd")
-	f.session(f.expect(200, f.post("/password/login", map[string]any{"identifier": *owner.Username, "password": testPassword})).tokens(), "pwd")
+	f := newAccountFlow(t, pg.Pool, testConfig(), config.Deps{})
+	f.session(f.expect(200, f.post("/token", map[string]any{"grant_type": "refresh_token", "refresh_token": token})).tokens(), "pwd")
+	f.session(f.expect(200, f.post("/password/login", map[string]any{"identifier": username, "password": testPassword})).tokens(), "pwd")
 }
 
 // A schema a release left part-way through the chain (v0.141–v0.146 stopped
@@ -147,7 +158,7 @@ func TestRetiredChainPrefixConvertsInPlace(t *testing.T) {
 		(SELECT role || ' ' || (revoked_at IS NULL) || ' ' || catalog_issuer FROM api_keys WHERE key_id = 'ak_kept'),
 		(SELECT (revoked_at IS NOT NULL)::text FROM api_keys WHERE key_id = 'ak_orphan'),
 		(SELECT (mfa_authenticated_at = created_at)::text FROM refresh_sessions WHERE current_token_hash = $1),
-		(SELECT count(*)::text FROM name_claims WHERE owner_kind = 'group'),
+		(SELECT count(*)::text FROM name_claims WHERE name = 'existing'),
 		(SELECT string_agg(email || ' ' || username, ',') FROM users)`, mfaTokenHash[:]).Scan(&kept, &orphanRevoked, &mfaDated, &groupNames, &accounts))
 	require.Equal(t, []string{"channel:member true " + issuer, "true", "true", "0", email + " " + username},
 		[]string{kept, orphanRevoked, mfaDated, groupNames, accounts})
@@ -242,9 +253,10 @@ func requireTree(t *testing.T, pg *testdb.Postgres, db *sql.DB, schema string, c
 }
 
 // A database v1.0.2 built, or one converted from the retired chain, migrates
-// on with its rows: 0003 drops refresh-token history past 90 days and makes
+// on with its rows. 0003 drops refresh-token history past 90 days and makes
 // banned_at the one mark of a ban, keeping banned what the sign-in gate
-// refused.
+// refused. 0004 turns `reserved` into a permanent ban, keeps backup codes only
+// beside a factor, and drops passkey tombstones.
 func TestUpgradeKeepsAndNormalizesRows(t *testing.T) {
 	tree, err := migratekit.LoadFromFS(pgmigrations.FS)
 	require.NoError(t, err)
@@ -271,6 +283,19 @@ func TestUpgradeKeepsAndNormalizesRows(t *testing.T) {
 			require.NoError(t, pg.Pool.QueryRow(ctx, `INSERT INTO refresh_sessions (user_id, issuer, current_token_hash)
  SELECT id, 'https://example.com', '\x00' FROM users WHERE username = 'lapsed' RETURNING id::text`).Scan(&session))
 			seed(`INSERT INTO refresh_token_history (token_hash, session_id, consumed_at) VALUES ('\x01', $1, now() - interval '91 days'), ('\x02', $1, now())`, session)
+			// State the removed columns carried: the reserved flag (once with a
+			// ban in force), codes a disable left, a factor without its settings
+			// row, a passkey tombstone and the Solana import flag.
+			seed(`INSERT INTO users (username, metadata) VALUES ('reservedowner', '{"reserved": true, "tier": "gold"}'), ('unreserved', '{"reserved": false}')`)
+			seed(`INSERT INTO users (username, metadata, banned_at, banned_until, ban_reason)
+ VALUES ('reservedbanned', '{"reserved": true}', now() - interval '1 hour', now() + interval '1 day', 'spam')`)
+			seed(`INSERT INTO mfa_settings (user_id, enabled, backup_codes) SELECT id, false, '{stale}' FROM users WHERE username = 'lapsed'`)
+			seed(`INSERT INTO mfa_factors (user_id, method, totp_secret) SELECT id, 'totp', '\x01' FROM users WHERE username IN ('handexpired', 'unreserved')`)
+			seed(`INSERT INTO mfa_settings (user_id, enabled, backup_codes) SELECT id, true, '{kept}' FROM users WHERE username = 'unreserved'`)
+			seed(`INSERT INTO user_passkeys (user_id, rpid, credential_id, public_key, deleted_at)
+ SELECT id, 'example.test', decode(k.c, 'hex'), '\x00', k.d FROM users, (VALUES ('01', NULL::timestamptz), ('02', now())) k(c, d) WHERE username = 'unreserved'`)
+			seed(`INSERT INTO user_providers (user_id, issuer, subject, profile, verified_at)
+ SELECT id, 'solana', 'wallet', '{"verification_required": true, "migration_source": "legacy"}', NULL FROM users WHERE username = 'unreserved'`)
 
 			cfg := config.Config{Schema: "profiles", River: config.RiverConfig{HostOwned: true}}
 			require.NoError(t, Migrate(ctx, pg.Pool, cfg, config.MigrateOptions{}))
@@ -282,7 +307,17 @@ func TestUpgradeKeepsAndNormalizesRows(t *testing.T) {
 			require.NoError(t, err)
 			users, err := pgx.CollectRows(rows, pgx.RowTo[string])
 			require.NoError(t, err)
-			require.Equal(t, []string{"handbanned true spam false", "handexpired false - true", "lapsed true - true"}, users)
+			require.Equal(t, []string{"handbanned true spam false", "handexpired false - true", "lapsed true - true",
+				"reservedbanned true spam false", "reservedowner true reserved false", "unreserved false - true"}, users)
+			var state string
+			require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT concat_ws(' | ',
+ (SELECT string_agg(username || ' ' || metadata::text || ' ' || (banned_until IS NULL), ', ' ORDER BY username) FROM users WHERE username LIKE '%reserved%'),
+ (SELECT string_agg(u.username || ' ' || COALESCE(array_to_string(s.backup_codes, ','), '-'), ', ' ORDER BY u.username) FROM mfa_settings s JOIN users u ON u.id = s.user_id),
+ (SELECT string_agg(encode(credential_id, 'hex'), ',') FROM user_passkeys),
+ (SELECT profile::text FROM user_providers),
+ (SELECT count(*) FILTER (WHERE canonical) || '/' || count(*) FROM name_claims))`).Scan(&state))
+			require.Equal(t, `reservedbanned {} true, reservedowner {"tier": "gold"} true, unreserved {} true`+
+				` | handexpired -, unreserved kept | 01 | {"migration_source": "legacy"} | 6/6`, state)
 			var history []byte
 			require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT string_agg(token_hash, '') FROM refresh_token_history`).Scan(&history))
 			require.Equal(t, []byte{2}, history, "history past 90 days is gone")
@@ -310,11 +345,15 @@ func ledger(t *testing.T, db *sql.DB, schema string) []string {
 	return out
 }
 
-// tableRows fingerprints the rows of every table in schema: "<count> <md5>".
-func tableRows(t *testing.T, db *sql.DB, schema string) map[string]string {
+// keepRows copies every table of schema aside and returns a check that each
+// still holds exactly those rows, compared on the columns it kept.
+func keepRows(t *testing.T, db *sql.DB, schema string) func() {
 	t.Helper()
 	ctx := t.Context()
-	rows, err := db.QueryContext(ctx, `SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relkind = 'r'`, schema)
+	snap := schema + "_before"
+	_, err := db.ExecContext(ctx, `CREATE SCHEMA `+pgx.Identifier{snap}.Sanitize())
+	require.NoError(t, err)
+	rows, err := db.QueryContext(ctx, `SELECT c.relname FROM pg_class c WHERE c.relnamespace = $1::regnamespace AND c.relkind = 'r'`, schema)
 	require.NoError(t, err)
 	var tables []string
 	for rows.Next() {
@@ -324,14 +363,25 @@ func tableRows(t *testing.T, db *sql.DB, schema string) map[string]string {
 	}
 	require.NoError(t, rows.Err())
 	rows.Close()
-	out := map[string]string{}
 	for _, table := range tables {
-		var print string
-		require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*)::text || ' ' || md5(COALESCE(string_agg(r::text, E'\n' ORDER BY r::text), '')) FROM `+
-			pgx.Identifier{schema, table}.Sanitize()+` r`).Scan(&print))
-		out[table] = print
+		_, err := db.ExecContext(ctx, `CREATE TABLE `+pgx.Identifier{snap, table}.Sanitize()+` AS TABLE `+pgx.Identifier{schema, table}.Sanitize())
+		require.NoError(t, err)
 	}
-	return out
+	return func() {
+		t.Helper()
+		for _, table := range tables {
+			var cols string
+			require.NoError(t, db.QueryRowContext(ctx, `SELECT string_agg(quote_ident(a.attname), ', ' ORDER BY a.attnum)
+ FROM pg_attribute a JOIN pg_attribute b ON b.attname = a.attname AND b.attrelid = $2::regclass AND b.attnum > 0 AND NOT b.attisdropped
+ WHERE a.attrelid = $1::regclass AND a.attnum > 0 AND NOT a.attisdropped`,
+				pgx.Identifier{snap, table}.Sanitize(), pgx.Identifier{schema, table}.Sanitize()).Scan(&cols))
+			before := `SELECT ` + cols + ` FROM ` + pgx.Identifier{snap, table}.Sanitize()
+			after := `SELECT ` + cols + ` FROM ` + pgx.Identifier{schema, table}.Sanitize()
+			var changed int
+			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM ((`+before+` EXCEPT ALL `+after+`) UNION ALL (`+after+` EXCEPT ALL `+before+`)) d`).Scan(&changed))
+			require.Zero(t, changed, "rows of %s changed", table)
+		}
+	}
 }
 
 func sqlDB(t *testing.T, url string) *sql.DB {

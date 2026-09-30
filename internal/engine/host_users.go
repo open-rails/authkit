@@ -86,20 +86,13 @@ func (s *Engine) getUserByID(ctx context.Context, id string) (*db.User, error) {
 	return &r, nil
 }
 
-// ensureUserAccess is the login and refresh gate: not soft-deleted, not
-// reserved, no ban in force.
-func (s *Engine) ensureUserAccess(ctx context.Context, u *db.User) error {
+// ensureUserAccess is the login and refresh gate: not soft-deleted, no ban in
+// force.
+func (s *Engine) ensureUserAccess(_ context.Context, u *db.User) error {
 	if u == nil {
 		return jwt.ErrTokenInvalidClaims
 	}
 	if u.DeletedAt != nil || banInForce(u.BannedAt, u.BannedUntil, time.Now()) {
-		return errmodel.ErrUserBanned
-	}
-	reserved, err := s.isUserReserved(ctx, strings.TrimSpace(u.ID))
-	if err != nil {
-		return err
-	}
-	if reserved {
 		return errmodel.ErrUserBanned
 	}
 	return nil

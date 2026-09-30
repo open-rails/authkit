@@ -74,8 +74,7 @@ SELECT EXISTS(
   SELECT 1 FROM group_user_roles r JOIN usable_users u ON u.id = r.user_id
   WHERE r.permission_group_id = sqlc.arg(group_id)::uuid AND r.role LIKE '%:owner'
     AND NOT (sqlc.arg(excluding_kind)::text = 'user' AND u.id = sqlc.narg(excluding_id)::uuid)
-    AND (NOT sqlc.arg(needs_mfa)::boolean OR EXISTS(SELECT 1 FROM mfa_settings m WHERE m.user_id = u.id AND m.enabled
-      AND EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id = u.id)))
+    AND (NOT sqlc.arg(needs_mfa)::boolean OR EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id = u.id))
   UNION ALL
   SELECT 1 FROM group_remote_application_roles r JOIN remote_applications a ON a.id = r.remote_application_id
   WHERE NOT sqlc.arg(needs_mfa)::boolean AND r.permission_group_id = sqlc.arg(group_id)::uuid AND r.role LIKE '%:owner'
@@ -138,7 +137,7 @@ SELECT 'group_remote_application_roles', a.id::text, r.permission_group_id::text
 UPDATE api_keys SET revoked_at = now() WHERE id = $1;
 
 -- name: InviteLinkRetire :exec
-UPDATE group_invite_links SET revoked_at = now(), updated_at = now() WHERE id = $1;
+UPDATE group_invite_links SET revoked_at = now() WHERE id = $1;
 
 -- name: AccountInviteRetire :exec
-UPDATE account_registration_invites SET revoked_at = now(), updated_at = now() WHERE id = $1;
+UPDATE account_registration_invites SET revoked_at = now() WHERE id = $1;

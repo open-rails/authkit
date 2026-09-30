@@ -18,7 +18,7 @@ FROM users WHERE phone_number = sqlc.arg(phone)::text FOR UPDATE;
 -- A canonical username only; an alias is never followed.
 SELECT u.id::text AS id, (u.deleted_at IS NOT NULL)::boolean AS deleted
 FROM name_claims c JOIN users u ON u.id = c.owner_id
-WHERE c.owner_kind = 'user' AND c.persona = '' AND c.name = lower(sqlc.arg(username)::text) AND c.canonical
+WHERE c.name = lower(sqlc.arg(username)::text) AND c.canonical
 FOR UPDATE OF u;
 
 -- name: BootstrapApplyState :one

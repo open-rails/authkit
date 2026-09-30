@@ -29,7 +29,7 @@ import (
 func strictRotation(c *authkit.Config) { c.Token.RefreshRotationGrace = -1 }
 
 // TestSecurityRefreshTokenTheft replays a stolen refresh token after its
-// legitimate holder rotated it. Reuse must revoke the whole family, so the
+// legitimate holder rotated it. Reuse must revoke the whole session, so the
 // thief cannot keep a parallel session and the victim is forced to log in.
 func TestSecurityRefreshTokenTheft(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(strictRotation))
@@ -49,7 +49,7 @@ func TestSecurityRefreshTokenTheft(t *testing.T) {
 			resp := h.refresh(stolen)
 			require.Equal(t, http.StatusUnauthorized, resp.status, resp.String())
 			resp = h.refresh(rotated)
-			require.Equal(t, http.StatusUnauthorized, resp.status, "the thief's successor must die with the family: %s", resp)
+			require.Equal(t, http.StatusUnauthorized, resp.status, "the thief's successor must die with the session: %s", resp)
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -59,7 +59,7 @@ func TestSecurityRefreshTokenTheft(t *testing.T) {
 			next := session(t, resp)
 			require.NotEqual(t, first.RefreshToken, next.RefreshToken)
 			tc.steal(t, first.RefreshToken, next.RefreshToken)
-			// A separate login is a separate family and remains usable.
+			// A separate login is a separate session and remains usable.
 			other := h.login(a)
 			require.Equal(t, http.StatusOK, h.refresh(other.RefreshToken).status)
 		})

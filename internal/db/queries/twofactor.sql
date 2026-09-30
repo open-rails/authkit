@@ -1,16 +1,8 @@
--- Two-factor queries.
---
--- #125: factors are hard-deleted (no per-factor `enabled` flag). mfa_settings
--- holds only the account-level gate (`enabled`) + `backup_codes`; per-factor data
--- (method/phone/totp_secret/last_totp_step) lives ONLY on mfa_factors.
-
--- name: MFADisable :exec
-UPDATE mfa_settings
-SET enabled = false, updated_at = NOW()
-WHERE user_id = $1;
+-- Two-factor queries. 2FA is on while the account has a factor; mfa_settings
+-- holds its backup codes and goes with its last factor.
 
 -- name: MFASettingsByUser :one
-SELECT user_id, enabled, backup_codes, created_at, updated_at
+SELECT user_id, backup_codes, created_at, updated_at
 FROM mfa_settings
 WHERE user_id = $1;
 
@@ -21,20 +13,18 @@ WHERE user_id = sqlc.arg(user_id);
 
 -- name: MFAConsumeBackupCode :execrows
 -- Atomic single-use consume: removes the hashed code and reports rows affected.
--- 1 = this caller consumed it; 0 = code absent / already used / 2FA disabled. The
+-- 1 = this caller consumed it; 0 = code absent or already used. The
 -- `= ANY(...)` guard makes the test-and-remove a single statement so concurrent
 -- submissions of the same code cannot both succeed.
 UPDATE mfa_settings
 SET backup_codes = array_remove(backup_codes, sqlc.arg(code_hash)), updated_at = NOW()
 WHERE user_id = sqlc.arg(user_id)
-  AND enabled = true
   AND sqlc.arg(code_hash) = ANY(backup_codes);
 
 -- name: MFAUpsertSettings :exec
-INSERT INTO mfa_settings (user_id, enabled, backup_codes, updated_at)
-VALUES ($1, true, sqlc.arg(backup_codes), NOW())
+INSERT INTO mfa_settings (user_id, backup_codes, updated_at)
+VALUES ($1, sqlc.arg(backup_codes), NOW())
 ON CONFLICT (user_id) DO UPDATE SET
-  enabled = true,
   backup_codes = EXCLUDED.backup_codes,
   updated_at = NOW();
 
@@ -78,14 +68,9 @@ WHERE id = sqlc.arg(id)
 -- name: MFALockUser :one
 SELECT id FROM users WHERE id = $1 FOR UPDATE;
 
--- name: MFAResetSettings :exec
--- Disables 2FA and drops the backup codes.
-UPDATE mfa_settings SET enabled = false, backup_codes = NULL, updated_at = now() WHERE user_id = sqlc.arg(user_id)::uuid;
-
 -- name: MFAUsable :one
--- 2FA is enabled and has a factor.
-SELECT EXISTS(SELECT 1 FROM mfa_settings m WHERE m.user_id = sqlc.arg(user_id)::uuid AND m.enabled
-  AND EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id = m.user_id))::boolean AS usable;
+-- 2FA is on: the account has a factor.
+SELECT EXISTS(SELECT 1 FROM mfa_factors WHERE user_id = sqlc.arg(user_id)::uuid)::boolean AS usable;
 
 -- name: UserGroupRoles :many
 -- Every role the user holds, with its group's persona.

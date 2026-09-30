@@ -135,7 +135,7 @@ const importHitsByName = `-- name: ImportHitsByName :many
 SELECT c.name AS key, c.owner_id::text AS user_id, COALESCE(u.deleted_at IS NOT NULL, false)::boolean AS deleted,
        false AS verified, (u.id IS NULL)::boolean AS missing
 FROM name_claims c LEFT JOIN users u ON u.id = c.owner_id
-WHERE c.owner_kind = 'user' AND c.persona = '' AND c.name = ANY($1::text[])
+WHERE c.name = ANY($1::text[])
   AND (c.canonical OR c.expires_at IS NULL OR c.expires_at > $2::timestamptz)
 `
 
@@ -354,7 +354,7 @@ func (q *Queries) ImportMergeUser(ctx context.Context, arg ImportMergeUserParams
 const importReleaseAliases = `-- name: ImportReleaseAliases :exec
 
 DELETE FROM name_claims
-WHERE owner_kind = 'user' AND persona = '' AND name = ANY($1::text[])
+WHERE name = ANY($1::text[])
   AND NOT canonical AND expires_at <= $2::timestamptz
 `
 

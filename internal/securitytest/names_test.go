@@ -90,7 +90,7 @@ func TestSecurityUsernameChecks(t *testing.T) {
 	})
 
 	t.Run("an expired alias is free and resolves nobody", func(t *testing.T) {
-		_, err := h.pool.Exec(ctx, `UPDATE name_claims SET expires_at=now()-interval '1 minute' WHERE owner_kind='user' AND name=lower($1) AND NOT canonical`, owner.username)
+		_, err := h.pool.Exec(ctx, `UPDATE name_claims SET expires_at=now()-interval '1 minute' WHERE name=lower($1) AND NOT canonical`, owner.username)
 		require.NoError(t, err)
 		require.NoError(t, h.auth.CheckUsername(ctx, owner.username))
 		_, err = h.auth.ResolveUsername(ctx, owner.username)

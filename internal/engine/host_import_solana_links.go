@@ -17,11 +17,10 @@ import (
 )
 
 type importedSolanaLinkProfile struct {
-	MigrationSource      string     `json:"migration_source"`
-	MigrationSourceID    string     `json:"migration_source_id"`
-	MigrationSourceTime  *time.Time `json:"migration_source_created_at,omitempty"`
-	ImportedAt           time.Time  `json:"imported_at"`
-	VerificationRequired bool       `json:"verification_required"`
+	MigrationSource     string     `json:"migration_source"`
+	MigrationSourceID   string     `json:"migration_source_id"`
+	MigrationSourceTime *time.Time `json:"migration_source_created_at,omitempty"`
+	ImportedAt          time.Time  `json:"imported_at"`
 }
 
 // ImportSolanaLinks imports legacy wallet claims as a host operation, one
@@ -92,11 +91,10 @@ func (s *Engine) importUnverifiedSolanaLink(ctx context.Context, in iam.ImportSo
 		createdAt = normalized
 	}
 	profile, err := json.Marshal(importedSolanaLinkProfile{
-		MigrationSource:      source,
-		MigrationSourceID:    sourceID,
-		MigrationSourceTime:  sourceCreatedAt,
-		ImportedAt:           importedAt,
-		VerificationRequired: true,
+		MigrationSource:     source,
+		MigrationSourceID:   sourceID,
+		MigrationSourceTime: sourceCreatedAt,
+		ImportedAt:          importedAt,
 	})
 	if err != nil {
 		return out, err
