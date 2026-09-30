@@ -19,6 +19,7 @@ import (
 // inviters send registration invites.
 type credentialOrg struct {
 	auth                   *authkit.Client
+	outbox                 *authtest.Outbox
 	acme                   iam.GroupRef
 	acmeID                 string
 	founder                authtest.User
@@ -49,7 +50,7 @@ func newCredentialOrg(t *testing.T) credentialOrg {
 	t.Helper()
 	catalog, o := credentialRoles(false)
 	o.changedCatalog, _ = credentialRoles(true)
-	o.auth, _ = authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
+	o.auth, o.outbox = authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
 		c.Roles = catalog
 		c.TwoFactor.Mode = iam.TwoFactorDisabled
 	}))

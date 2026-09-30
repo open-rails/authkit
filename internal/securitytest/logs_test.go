@@ -307,8 +307,8 @@ func TestSecuritySecretsStayOutOfLogs(t *testing.T) {
 	key := h.issue(base+"/api-keys", ownerToken, map[string]any{"name": "ci", "role": "org:manager"})
 	ok(h.get(base+"/members", key.Secret))
 	h.get(base+"/members", key.Secret+"x")
-	link := h.issue(base+"/invites/links", ownerToken, map[string]any{"role": "org:member"})
-	ok(h.post("/invites/redeem", map[string]string{"code": link.Code}, h.login(h.newAccount("logsmember")).AccessToken))
+	link := h.issue(base+"/invitations", ownerToken, map[string]any{"role": "org:member"})
+	ok(h.post("/invitations/redeem", map[string]string{"code": link.Code}, h.login(h.newAccount("logsmember")).AccessToken))
 	invited := unique("logsinvited") + "@security.test"
 	var invitation struct {
 		Code string `json:"code"`

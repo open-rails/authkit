@@ -57,9 +57,9 @@ func (op GroupOp) Perms(p rbac.Persona) []iam.Perm {
 	switch op {
 	case OpMembersList, OpRolesList, OpInvitationsList:
 		return []iam.Perm{ident.MembersRead(p.Name)}
-	case OpMemberSet, OpMemberRemove, OpInvitationRevoke:
+	case OpMemberSet, OpMemberRemove:
 		return []iam.Perm{ident.MembersManage(p.Name)}
-	case OpInvitationCreate:
+	case OpInvitationCreate, OpInvitationRevoke:
 		if p.Name == iam.RootPersona {
 			return []iam.Perm{ident.MembersManage(p.Name), ident.RootUsersInvite}
 		}

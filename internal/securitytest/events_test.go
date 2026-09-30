@@ -289,9 +289,9 @@ func TestSecurityEventsCarryNoSecrets(t *testing.T) {
 
 	owner := h.newAccount("secretowner")
 	org, base := h.newOrg(owner)
-	link := h.issue(base+"/invites/links", h.login(owner).AccessToken, map[string]any{"role": "org:member"})
+	link := h.issue(base+"/invitations", h.login(owner).AccessToken, map[string]any{"role": "org:member"})
 	secrets = append(secrets, link.Code)
-	resp = h.post("/invites/redeem", map[string]string{"code": link.Code}, session.AccessToken)
+	resp = h.post("/invitations/redeem", map[string]string{"code": link.Code}, session.AccessToken)
 	require.Less(t, resp.status, 300, resp.String())
 	roles, err := h.auth.GroupRoles(ctx, org, []iam.Subject{iam.UserSubject(user.id)})
 	require.NoError(t, err)

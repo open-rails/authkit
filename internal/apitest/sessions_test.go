@@ -177,9 +177,22 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 	staffA := login(t, siteA, staff)
 	// Site A's short access TTL starts here; its expiry is asserted below.
 	victimA := login(t, siteA, victim)
+	// Staff see the account's sessions on this issuer; none is theirs.
+	listed := func() []iam.Session {
+		t.Helper()
+		res := siteA.api.get("/admin/users/"+victim.ID+"/sessions", staffA.AccessToken)
+		require.Equal(t, http.StatusOK, res.status, res.String())
+		var page iam.ListPage[iam.Session]
+		res.decode(t, &page)
+		return page.Items
+	}
+	before := listed()
+	require.Len(t, before, 1)
+	require.False(t, before[0].Current)
 	// The counts stay in Go (Client.RevokeAccountSessions); the wire says done.
-	res := siteA.api.post("/admin/users/"+victim.ID+"/sessions/revoke", staffA.AccessToken, nil)
+	res := siteA.api.do(request{method: http.MethodDelete, path: "/admin/users/" + victim.ID + "/sessions", token: staffA.AccessToken})
 	require.Equal(t, http.StatusNoContent, res.status, res.String())
+	require.Empty(t, listed())
 	keys, err := auth.DeviceKeys(ctx, victim.ID)
 	require.NoError(t, err)
 	require.Len(t, keys, 1)
@@ -292,7 +305,7 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		require.NoError(t, auth.Ban(ctx, iam.SystemActor(), staff.ID, iam.Ban{}))
 		res := directory(elevated)
 		require.Equal(t, http.StatusUnauthorized, res.status, "a ban ends the sibling issuer's session at once: %s", res)
-		res = b.post("/admin/users/"+target.ID+"/ban", elevated.AccessToken, `{"until":"infinite"}`)
+		res = b.do(request{method: http.MethodPut, path: "/admin/users/" + target.ID + "/ban", body: `{"reason":null,"until":null}`, token: elevated.AccessToken})
 		require.Equal(t, http.StatusUnauthorized, res.status, res.String())
 		u, err := siteB.auth.User(ctx, iam.UserByID(target.ID))
 		require.NoError(t, err)

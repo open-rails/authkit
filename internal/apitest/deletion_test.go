@@ -5,6 +5,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -191,6 +192,9 @@ func TestStaffAccountRestoreHTTPRequiresCurrentAuthority(t *testing.T) {
 	target, targetID := register("restoretarget")
 	authtest.GrantRole(t, auth, iam.RootGroup(), iam.UserSubject(staffID), staffRole)
 	path := "/admin/users/" + targetID
+	self := expect(t, http.StatusForbidden, a.do(request{method: http.MethodDelete, path: "/admin/users/" + strings.ToUpper(staffID), token: staff.AccessToken}))
+	require.Equal(t, "cannot_target_self", self.code(), "staff delete their own account at DELETE /me")
+	require.Nil(t, deletedAt(staffID))
 	expect(t, http.StatusNoContent, a.do(request{method: http.MethodDelete, path: path, token: staff.AccessToken}))
 	expect(t, http.StatusUnauthorized, a.post(path+"/restore", "", nil))
 	refused := expect(t, http.StatusUnauthorized, a.post(path+"/restore", target.AccessToken, nil))

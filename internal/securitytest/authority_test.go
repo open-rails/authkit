@@ -199,7 +199,7 @@ func TestSecurityRoleEscalation(t *testing.T) {
 		{"manager grants a member owner", request{method: http.MethodPut, path: base + "/members/" + member.id + "/roles/org:owner", token: managerToken}, false},
 		{"manager demotes the owner", request{method: http.MethodPut, path: base + "/members/" + owner.id + "/roles/org:member", token: managerToken}, false},
 		{"manager removes the owner", request{method: http.MethodDelete, path: base + "/members/" + owner.id, token: managerToken}, false},
-		{"manager mints an owner invite link", request{method: http.MethodPost, path: base + "/invites/links", token: managerToken,
+		{"manager mints an owner invite link", request{method: http.MethodPost, path: base + "/invitations", token: managerToken,
 			body: map[string]any{"role": "org:owner"}}, false},
 		{"manager mints an owner API key", request{method: http.MethodPost, path: base + "/api-keys", token: managerToken,
 			body: map[string]any{"name": "k", "role": "org:owner"}}, false},
@@ -303,7 +303,7 @@ func TestSecurityDemotedCreatorCredentials(t *testing.T) {
 	group, base := h.newOrg(founder)
 	h.grant(group, creator, "owner")
 	creatorToken, founderToken := h.login(creator).AccessToken, h.login(founder).AccessToken
-	link := h.issue(base+"/invites/links", creatorToken, map[string]any{"role": "org:owner"})
+	link := h.issue(base+"/invitations", creatorToken, map[string]any{"role": "org:owner"})
 	key := h.issue(base+"/api-keys", creatorToken, map[string]any{"name": "creator-key", "role": "org:owner"})
 	founderKey := h.issue(base+"/api-keys", founderToken, map[string]any{"name": "founder-key", "role": "org:owner"})
 	memberKey := h.issue(base+"/api-keys", creatorToken, map[string]any{"name": "member-key", "role": "org:member"})
@@ -311,7 +311,7 @@ func TestSecurityDemotedCreatorCredentials(t *testing.T) {
 	require.Less(t, resp.status, 300, resp.String())
 
 	t.Run("demoted creator redeems their own owner link", func(t *testing.T) {
-		resp := h.post("/invites/redeem", map[string]string{"code": link.Code}, h.login(creator).AccessToken)
+		resp := h.post("/invitations/redeem", map[string]string{"code": link.Code}, h.login(creator).AccessToken)
 		require.GreaterOrEqual(t, resp.status, 400, resp.String())
 		owner, err := h.auth.Can(ctx, iam.UserActor(creator.id), group, ownerOnly)
 		require.NoError(t, err)
@@ -336,22 +336,22 @@ func TestSecurityRevokeAboveOwnRole(t *testing.T) {
 	h.grant(group, manager, "manager")
 	ownerToken, managerToken := h.login(owner).AccessToken, h.login(manager).AccessToken
 	ownerKey := h.issue(base+"/api-keys", ownerToken, map[string]any{"name": "owner-key", "role": "org:owner"})
-	ownerLink := h.issue(base+"/invites/links", ownerToken, map[string]any{"role": "org:owner"})
+	ownerLink := h.issue(base+"/invitations", ownerToken, map[string]any{"role": "org:owner"})
 	remove := func(path string) response {
 		return h.do(request{method: http.MethodDelete, path: path, token: managerToken})
 	}
 	resp := remove(base + "/api-keys/" + ownerKey.ID)
 	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
 	require.True(t, liveKey(t, h, group, ownerKey.ID))
-	resp = remove(base + "/invites/links/" + ownerLink.ID)
+	resp = remove(base + "/invitations/" + ownerLink.ID)
 	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
 	require.True(t, liveLink(t, h, group, ownerLink.ID))
 
 	t.Run("control: manager revokes what they could issue", func(t *testing.T) {
 		key := h.issue(base+"/api-keys", managerToken, map[string]any{"name": "member-key", "role": "org:member"})
-		link := h.issue(base+"/invites/links", managerToken, map[string]any{"role": "org:member"})
+		link := h.issue(base+"/invitations", managerToken, map[string]any{"role": "org:member"})
 		require.Equal(t, http.StatusNoContent, remove(base+"/api-keys/"+key.ID).status)
-		require.Equal(t, http.StatusNoContent, remove(base+"/invites/links/"+link.ID).status)
+		require.Equal(t, http.StatusNoContent, remove(base+"/invitations/"+link.ID).status)
 		require.False(t, liveKey(t, h, group, key.ID))
 		require.False(t, liveLink(t, h, group, link.ID))
 	})
@@ -559,7 +559,7 @@ func TestSecurityGroupRoleIDsAreCanonical(t *testing.T) {
 	h.grant(group, manager, "manager")
 	token := h.login(manager).AccessToken
 	key := h.issue(base+"/api-keys", token, map[string]any{"name": "ci", "role": "org:member"})
-	link := h.issue(base+"/invites/links", token, map[string]any{"role": "org:member"})
+	link := h.issue(base+"/invitations", token, map[string]any{"role": "org:member"})
 	app := h.registerApp(group, manager, "p4-app", "member")
 	founderKey := h.issue(base+"/api-keys", h.login(founder).AccessToken, map[string]any{"name": "founder", "role": "org:member"})
 

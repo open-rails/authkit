@@ -98,9 +98,9 @@ func TestSecurityLimiterOutageFailsClosed(t *testing.T) {
 		{"POST /device-keys/login/finish", "checks a signature", post("/device-keys/login/finish", map[string]string{"challenge_id": "challenge", "signature": "signature"})},
 		{"POST /solana/login", "checks a signature", post("/solana/login", map[string]string{"message": "message", "signature": "signature"})},
 		{"POST /solana/link", "checks a signature", post("/solana/link", map[string]string{"message": "message", "signature": "signature"})},
-		{"POST /invites/redeem", "checks an invite code", post("/invites/redeem", map[string]string{"code": "invite-code"})},
+		{"POST /invites/redeem", "checks an invite code", post("/invitations/redeem", map[string]string{"code": "invite-code"})},
 		{"POST /groups/{group_id}/members", "sends an invitation", post(base+"/members", map[string]string{"email": newEmail(), "role": "org:member"})},
-		{"POST /groups/{group_id}/invites/links", "issues an invite code", post(base+"/invites/links", map[string]string{"role": "org:member"})},
+		{"POST /groups/{group_id}/invitations", "issues an invite code", post(base+"/invitations", map[string]string{"role": "org:member"})},
 		{"POST /groups/{group_id}/api-keys", "issues an API key", post(base+"/api-keys", map[string]string{"name": "ci", "role": "org:member"})},
 		{"POST /delegated/token", "issues a token", post("/delegated/token", map[string]any{})},
 		{"GET //oidc/{provider}/login", "issues a state", request{method: http.MethodGet, path: "//oidc/idp/login"}},
@@ -131,7 +131,7 @@ func TestSecurityLimiterOutageFailsClosed(t *testing.T) {
 		"PUT /admin/users/{user_id}/roles/{role}", "DELETE /admin/users/{user_id}/roles/{role}",
 		"GET /groups/{group_id}/members", "DELETE /groups/{group_id}/members/{user}", "PUT /groups/{group_id}/members/{user}/roles/{role}",
 		"GET /groups/{group_id}/roles", "GET /groups/{group_id}/api-keys", "DELETE /groups/{group_id}/api-keys/{key}",
-		"GET /groups/{group_id}/invites/links", "DELETE /groups/{group_id}/invites/links/{link}",
+		"GET /groups/{group_id}/invitations", "DELETE /groups/{group_id}/invitations/{link}",
 	}
 	full := func(pattern string) string {
 		method, path, _ := strings.Cut(pattern, " ")
