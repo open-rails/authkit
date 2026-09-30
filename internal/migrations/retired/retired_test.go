@@ -21,9 +21,10 @@ func TestBaselineBuildsTheRetiredChainsSchema(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	baseline, err := migratekit.LoadFromFS(pgmigrations.FS)
+	tree, err := migratekit.LoadFromFS(pgmigrations.FS)
 	require.NoError(t, err)
-	require.Len(t, baseline, 1, "one baseline file")
+	baseline := tree[:1]
+	require.Equal(t, "0001_schema.up.sql", baseline[0].Name)
 	chain := retired.Chain()
 	require.Len(t, chain, 15)
 	require.NoError(t, migratekit.NewPostgres(db, "authkit").WithSchema("ak_retired_chain").ApplyMigrations(ctx, chain))

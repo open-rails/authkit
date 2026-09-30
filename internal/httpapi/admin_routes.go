@@ -16,7 +16,7 @@ import (
 // applications and delegated tokens never reach the account plane.
 
 // userQuery parses the directory query: cursor, limit, search, root_role,
-// status, sort, order (default desc), entitlement.
+// status, sort, order (default desc), entitlement, total.
 func (s *Service) userQuery(r *http.Request) (iam.UserQuery, error) {
 	var q UserListQuery
 	if err := decodeQuery(r, &q); err != nil {
@@ -32,6 +32,7 @@ func (s *Service) userQuery(r *http.Request) (iam.UserQuery, error) {
 		Entitlement: q.Entitlement,
 		Sort:        iam.UserSort(q.Sort),
 		Desc:        !strings.EqualFold(q.Order, "asc"),
+		Total:       q.Total,
 		Page:        page,
 		// The admin views show every account's entitlements.
 		WithEntitlements: true,

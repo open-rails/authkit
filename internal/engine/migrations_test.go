@@ -216,18 +216,23 @@ func TestRetiredChainRefusesWhatItCannotConvert(t *testing.T) {
 	}
 }
 
-// requireBaseline asserts schema was converted to exactly the baseline: its
-// ledger holds the baseline alone, a conversion was audited, and its catalog
-// equals a schema Migrate built from nothing.
+// requireBaseline asserts schema was converted to exactly the baseline, then
+// migrated on: its ledger holds the tree (the baseline and every later
+// migration), a conversion was audited, and its catalog equals a schema
+// Migrate built from nothing.
 func requireBaseline(t *testing.T, pg *testdb.Postgres, db *sql.DB, schema string) {
 	t.Helper()
 	ctx := t.Context()
-	baseline, err := migratekit.LoadFromFS(pgmigrations.FS)
+	tree, err := migratekit.LoadFromFS(pgmigrations.FS)
 	require.NoError(t, err)
+	var want []string
+	for _, m := range tree {
+		want = append(want, m.Name+" "+migratekit.ContentDigest(m.Content))
+	}
 	fresh := schema + "_fresh"
 	require.NoError(t, Migrate(ctx, pg.Pool, config.Config{Schema: fresh, River: config.RiverConfig{HostOwned: true}}, config.MigrateOptions{}))
 	for s, converted := range map[string]bool{schema: true, fresh: false} {
-		require.Equal(t, []string{baseline[0].Name + " " + migratekit.ContentDigest(baseline[0].Content)}, ledger(t, db, s), s)
+		require.Equal(t, want, ledger(t, db, s), s)
 		var audits int
 		require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM public.migration_repairs WHERE app = 'authkit' AND schema = $1 AND verb = 'convert'`, s).Scan(&audits))
 		require.Equal(t, converted, audits > 0, s)

@@ -21,10 +21,10 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 // decodeQuery reads the query string into dst, a pointer to a struct whose
-// `query` tags name the parameters: a string takes the value, a *int the
-// integer (nil when absent), a []string every value. Embedded structs
-// contribute their fields. A malformed integer is 400 invalid_request on its
-// param.
+// `query` tags name the parameters: a string takes the value, a bool true or
+// false (false when absent), a *int the integer (nil when absent), a []string
+// every value. Embedded structs contribute their fields. A malformed bool or
+// integer is 400 invalid_request on its param.
 func decodeQuery(r *http.Request, dst any) error {
 	q := r.URL.Query()
 	var fill func(v reflect.Value) error
@@ -45,6 +45,14 @@ func decodeQuery(r *http.Request, dst any) error {
 			switch field.Interface().(type) {
 			case string:
 				field.SetString(value)
+			case bool:
+				switch value {
+				case "", "false":
+				case "true":
+					field.SetBool(true)
+				default:
+					return errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam(name))
+				}
 			case *int:
 				if value == "" {
 					continue

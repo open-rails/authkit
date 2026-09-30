@@ -2647,6 +2647,13 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "total",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {

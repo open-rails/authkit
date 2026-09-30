@@ -167,11 +167,13 @@ const (
 	UserSortEmail     UserSort = "email"
 )
 
-// UserQuery lists accounts. Search matches username, email and phone;
-// RootRole filters on a role in the root group; Entitlement needs an
-// entitlements provider that can list subjects. Total counts every match into
-// ListPage.Total; WithEntitlements fills UserEntry.Entitlements from the
-// entitlements provider.
+// UserQuery lists accounts. Search matches text within a username, email or
+// phone (at its start, below three characters), an account id, or exactly a
+// linked sign-in's subject (a wallet address, a provider's user id), provider
+// email or provider username. RootRole filters on a role in the root group;
+// Entitlement needs an entitlements provider that can list subjects. Total
+// counts every match into ListPage.Total; WithEntitlements fills
+// UserEntry.Entitlements from the entitlements provider.
 type UserQuery struct {
 	Search           string
 	Status           UserStatus
