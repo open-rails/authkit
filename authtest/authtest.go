@@ -1,7 +1,8 @@
 // Package authtest runs AuthKit in a host's Go tests: a real Client on a
-// scratch PostgreSQL schema, an Outbox that captures every email and SMS, and
-// helpers for the usual setup (a verified user, a signed-in session, a role,
-// an authenticator app, a device key, a replica, a stale session).
+// scratch PostgreSQL schema, an Outbox that captures every email and SMS, an
+// identity provider to sign in with (IdP), and helpers for the usual setup (a
+// verified user, a signed-in session, a role, an authenticator app, a device
+// key, a replica, a stale session).
 //
 //	auth, outbox := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
 //		c.Roles = myapp.Roles()
@@ -16,8 +17,8 @@
 // schemas. Without it the test is skipped, or fails when
 // AUTHKIT_TEST_REQUIRE_DB=1. AUTHKIT_TEST_KEEP_DB=1 keeps each schema.
 //
-// The package is outside AuthKit's compatibility contract: it may change in
-// any minor release.
+// The package is covered by AuthKit's compatibility contract like the rest of
+// the module (docs/stability.md).
 package authtest
 
 import (

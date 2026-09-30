@@ -25,21 +25,14 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	authkitfiber "github.com/open-rails/authkit/adapters/fiber"
-	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
+	"github.com/open-rails/authkit/internal/testissuer"
 	"github.com/open-rails/authkit/internal/testkeys"
 	"github.com/open-rails/authkit/verify"
 )
 
-func newIssuer(t *testing.T) *authtest.TestIssuer {
-	t.Helper()
-	issuer := authtest.NewTestIssuer()
-	t.Cleanup(issuer.Close)
-	return issuer
-}
-
-func newVerifier(t *testing.T, issuer *authtest.TestIssuer, local bool, opts ...verify.VerifierOption) *verify.Verifier {
+func newVerifier(t *testing.T, issuer *testissuer.Issuer, local bool, opts ...verify.VerifierOption) *verify.Verifier {
 	t.Helper()
 	v := verify.NewVerifier(opts...)
 	if err := v.AddIssuer(issuer.URL(), []string{issuer.Audience()}, verify.IssuerOptions{
@@ -72,7 +65,7 @@ func request(t *testing.T, app *fiber.App, method, path, authorization string) (
 // Compare the actual status and error body to the canonical net/http pipeline,
 // including Optional's rejection of present-but-invalid credentials.
 func TestRequiredOptionalParity(t *testing.T) {
-	issuer := newIssuer(t)
+	issuer := testissuer.New(t)
 	v := newVerifier(t, issuer, true)
 	cases := []struct {
 		name                string
@@ -80,12 +73,12 @@ func TestRequiredOptionalParity(t *testing.T) {
 		path, authorization string
 	}{
 		{"missing", v, "/posts", ""},
-		{"valid", v, "/posts", "Bearer " + issuer.CreateToken("user-1", "user@example.com")},
+		{"valid", v, "/posts", "Bearer " + issuer.Token("user-1", "user@example.com", nil)},
 		{"invalid", v, "/posts", "Bearer not-a-token"},
 		{"wrong scheme", v, "/posts", "Basic abc"},
-		{"expired", v, "/posts", "Bearer " + issuer.CreateExpiredToken("user-1", "user@example.com")},
-		{"wrong audience", v, "/posts", "Bearer " + issuer.CreateTokenWithClaims("user-1", "user@example.com", map[string]any{"aud": "other-app"})},
-		{"enrollment token blocked", v, "/posts", "Bearer " + issuer.CreateTokenWithClaims("user-1", "user@example.com", map[string]any{"2fa_enrollment": true})},
+		{"expired", v, "/posts", "Bearer " + issuer.Token("user-1", "user@example.com", map[string]any{"exp": time.Now().Add(-time.Hour).Unix()})},
+		{"wrong audience", v, "/posts", "Bearer " + issuer.Token("user-1", "user@example.com", map[string]any{"aud": "other-app"})},
+		{"enrollment token blocked", v, "/posts", "Bearer " + issuer.Token("user-1", "user@example.com", map[string]any{"2fa_enrollment": true})},
 	}
 	for _, optional := range []bool{false, true} {
 		name := "required"
@@ -125,9 +118,9 @@ func TestRequiredOptionalParity(t *testing.T) {
 }
 
 func TestClaimsAndExternalPrincipal(t *testing.T) {
-	issuer := newIssuer(t)
+	issuer := testissuer.New(t)
 	authTime := time.Now().Add(-time.Minute).Truncate(time.Second)
-	token := issuer.CreateTokenWithClaims("user-1", "user@example.com", map[string]any{
+	token := issuer.Token("user-1", "user@example.com", map[string]any{
 		"email_verified": true, "username": "writer", "sid": "session-1",
 		"entitlements": []string{"blog"}, "amr": []string{"pwd"},
 		"acr": "urn:example:loa:1", "auth_time": authTime.Unix(), "mfa_enrolled": true,
@@ -209,14 +202,14 @@ func TestAccessorsRejectMachineClaimsAsUsers(t *testing.T) {
 }
 
 func TestOptionalDoesNotLeakClaimsAcrossRequests(t *testing.T) {
-	issuer := newIssuer(t)
+	issuer := testissuer.New(t)
 	app := fiber.New()
 	app.Get("/", authkitfiber.Optional(newVerifier(t, issuer, true)), func(c fiber.Ctx) error {
 		cl, _ := verify.ClaimsFromContext(c.Context())
 		return c.SendString(cl.UserID)
 	})
 	for i := 0; i < 10; i++ {
-		status, _, body := request(t, app, http.MethodGet, "/", "Bearer "+issuer.CreateToken("user-1", "user@example.com"))
+		status, _, body := request(t, app, http.MethodGet, "/", "Bearer "+issuer.Token("user-1", "user@example.com", nil))
 		if status != http.StatusOK || body != "user-1" {
 			t.Fatalf("authenticated = %d %q", status, body)
 		}
@@ -228,7 +221,7 @@ func TestOptionalDoesNotLeakClaimsAcrossRequests(t *testing.T) {
 }
 
 func TestConcurrentRequestsKeepClaimsIsolated(t *testing.T) {
-	issuer := newIssuer(t)
+	issuer := testissuer.New(t)
 	app := fiber.New()
 	app.Get("/", authkitfiber.Optional(newVerifier(t, issuer, true)), func(c fiber.Ctx) error {
 		cl, _ := verify.ClaimsFromContext(c.Context())
@@ -238,7 +231,7 @@ func TestConcurrentRequestsKeepClaimsIsolated(t *testing.T) {
 	request(t, app, http.MethodGet, "/", "")
 	for i := 0; i < 24; i++ {
 		userID := fmt.Sprintf("user-%d", i)
-		token := issuer.CreateToken(userID, userID+"@example.com")
+		token := issuer.Token(userID, userID+"@example.com", nil)
 		t.Run(userID, func(t *testing.T) {
 			t.Parallel()
 			for j := 0; j < 3; j++ {
@@ -441,7 +434,7 @@ func (authority) CheckRecentSignIn(context.Context, verify.Claims) error {
 }
 
 func TestRequirePermissionAuthenticatesAndChecksTheResolvedGroup(t *testing.T) {
-	issuer := newIssuer(t)
+	issuer := testissuer.New(t)
 	group := iam.GroupByID("0190e2b6-0000-7000-8000-000000000001")
 	for _, allow := range []bool{true, false} {
 		calls := 0
@@ -471,7 +464,7 @@ func TestRequirePermissionAuthenticatesAndChecksTheResolvedGroup(t *testing.T) {
 		if status != http.StatusUnauthorized || calls != 0 {
 			t.Fatalf("anonymous response = %d %q, calls = %d", status, body, calls)
 		}
-		status, _, body = request(t, app, http.MethodGet, "/blogs/"+group.ID(), "Bearer "+issuer.CreateToken("user-1", "user@example.com"))
+		status, _, body = request(t, app, http.MethodGet, "/blogs/"+group.ID(), "Bearer "+issuer.Token("user-1", "user@example.com", nil))
 		want := http.StatusForbidden
 		if allow {
 			want = http.StatusNoContent
@@ -479,7 +472,7 @@ func TestRequirePermissionAuthenticatesAndChecksTheResolvedGroup(t *testing.T) {
 		if status != want || calls != 1 {
 			t.Fatalf("response = %d %q, calls = %d; want %d and one lookup", status, body, calls, want)
 		}
-		status, _, body = request(t, app, http.MethodGet, "/unloaded/"+group.ID(), "Bearer "+issuer.CreateToken("user-1", "user@example.com"))
+		status, _, body = request(t, app, http.MethodGet, "/unloaded/"+group.ID(), "Bearer "+issuer.Token("user-1", "user@example.com", nil))
 		if status != http.StatusInternalServerError || calls != 1 {
 			t.Fatalf("no group: %d %q, calls = %d; want a closed 500 with no lookup", status, body, calls)
 		}
@@ -639,7 +632,7 @@ func (s surface) Routes() []iam.Route {
 // A Fiber handler behind Required reads the verified caller from c.Context(),
 // the same call net/http and Gin handlers make.
 func TestActorFromContextBehindRequired(t *testing.T) {
-	issuer := newIssuer(t)
+	issuer := testissuer.New(t)
 	app := fiber.New()
 	app.Get("/", authkitfiber.Required(newVerifier(t, issuer, true)), func(c fiber.Ctx) error {
 		actor, ok := verify.ActorFromContext(c.Context())
@@ -648,7 +641,7 @@ func TestActorFromContextBehindRequired(t *testing.T) {
 		}
 		return c.SendString(actor.ID())
 	})
-	status, _, body := request(t, app, http.MethodGet, "/", "Bearer "+issuer.CreateToken("user-1", "user@example.com"))
+	status, _, body := request(t, app, http.MethodGet, "/", "Bearer "+issuer.Token("user-1", "user@example.com", nil))
 	if status != http.StatusOK || body != "user-1" {
 		t.Fatalf("got %d %q", status, body)
 	}
