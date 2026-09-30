@@ -50,7 +50,7 @@ func (s *Service) handleMePATCH(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.PreferredLanguage != nil {
 		language, err := authflow.NormalizePreferredLanguage(strings.TrimSpace(*body.PreferredLanguage))
-		if err != nil || !s.supportsLanguage(language) {
+		if err != nil || !acceptable(s.cfg.Languages, language) {
 			fail(w, errmodel.CodeInvalidPreferredLanguage)
 			return
 		}
@@ -149,9 +149,3 @@ func (s *Service) providerSupportsStepUp(name string) bool {
 	return ok && p.SupportsStepUp()
 }
 
-func (s *Service) supportsLanguage(language string) bool {
-	if len(s.cfg.Languages.Supported) == 0 {
-		return language == s.cfg.Languages.Default
-	}
-	return acceptable(s.cfg.Languages, language)
-}
