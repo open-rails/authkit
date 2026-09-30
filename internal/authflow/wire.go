@@ -77,7 +77,7 @@ type UserSecurity struct {
 	StepUp2FA         *StepUpTwoFactorOptions `json:"step_up_2fa"`
 	MFAEnabled        bool                    `json:"mfa_enabled"`
 	MFASatisfied      bool                    `json:"mfa_satisfied"`
-	MFAAllowedMethods []string                `json:"mfa_allowed_methods"`
+	MFAAllowedMethods []iam.TwoFactorMethod   `json:"mfa_allowed_methods"`
 }
 
 // LinkedProvider is a sign-in provider linked to the account, with the email

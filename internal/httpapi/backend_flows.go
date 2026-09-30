@@ -85,7 +85,6 @@ type flowsBackend interface {
 	SetDefault2FAFactor(ctx context.Context, userID, factorID string) (authflow.TwoFactorFactor, error)
 	SetPasswordAfterFreshAuth(ctx context.Context, userID, new string, keepSessionID *string) error
 	StartPasswordless(ctx context.Context, req authflow.PasswordlessStartRequest) (authflow.PasswordlessStartResult, error)
-	TwoFactorAllowedMethods() []string
 	TwoFactorEnabled() bool
 	TwoFactorMethods() []iam.TwoFactorMethod
 	UnlinkProviderUnlessLast(ctx context.Context, userID, provider string) (bool, error)

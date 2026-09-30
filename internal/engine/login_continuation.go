@@ -142,8 +142,8 @@ func (s *Engine) finishFirstFactor(ctx context.Context, proof loginProof) (authf
 			}
 		} else {
 			out.Kind = authflow.LoginTwoFAEnrollmentRequired
-			for _, method := range s.TwoFactorAllowedMethods() {
-				if (method != "email" || user.Email != nil && strings.TrimSpace(*user.Email) != "") && independentFactor(proof, authflow.TwoFactorFactor{Method: method}) {
+			for _, method := range s.TwoFactorMethods() {
+				if (method != iam.TwoFactorEmail || user.Email != nil && strings.TrimSpace(*user.Email) != "") && independentFactor(proof, authflow.TwoFactorFactor{Method: string(method)}) {
 					out.AllowedMethods = append(out.AllowedMethods, method)
 				}
 			}

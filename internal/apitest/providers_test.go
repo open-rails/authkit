@@ -253,7 +253,7 @@ func TestProviderAuthenticationWorkflow(t *testing.T) {
 		require.NotEmpty(t, grant)
 		require.Nil(t, enrollment.TokenSet.RefreshToken)
 		require.ElementsMatch(t, []any{"oauth"}, accessClaims(t, grant)["amr"])
-		require.Contains(t, enrollment.AllowedMethods, "sms")
+		require.Contains(t, enrollment.AllowedMethods, iam.TwoFactorSMS)
 		res := a.post("/me/2fa/setup", grant, map[string]any{"method": "sms", "phone_number": phone})
 		require.Equal(t, http.StatusOK, res.status, res.String())
 		enrolled := expectAnswer(t, a.post("/me/2fa/factors", grant, map[string]any{"method": "sms", "phone_number": phone,

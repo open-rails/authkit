@@ -205,7 +205,7 @@ export type EmailChangeRequest = {
 
 export type EnrollmentStep = {
   token_set: TokenSet
-  allowed_methods: string[]
+  allowed_methods: ("email" | "sms" | "totp")[]
 }
 
 export type ExternalLoginProvider = {
@@ -635,7 +635,7 @@ export type TwoFactorSetupRequest = {
 export type TwoFactorStatus = {
   enabled: boolean
   factors: TwoFactorFactor[]
-  allowed_methods: string[]
+  allowed_methods: ("email" | "sms" | "totp")[]
   backup_codes_remaining: number
 }
 
@@ -718,7 +718,7 @@ export type UserSecurity = {
   step_up_2fa: StepUpTwoFactorOptions | null
   mfa_enabled: boolean
   mfa_satisfied: boolean
-  mfa_allowed_methods: string[]
+  mfa_allowed_methods: ("email" | "sms" | "totp")[]
 }
 
 export type UsernameCapabilities = {

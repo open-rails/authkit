@@ -70,17 +70,6 @@ func (s *Engine) TwoFactorMethods() []iam.TwoFactorMethod {
 	return out
 }
 
-// TwoFactorAllowedMethods is TwoFactorMethods as the strings the
-// allowed_methods wire fields carry.
-func (s *Engine) TwoFactorAllowedMethods() []string {
-	methods := s.TwoFactorMethods()
-	out := make([]string, len(methods))
-	for i, m := range methods {
-		out[i] = string(m)
-	}
-	return out
-}
-
 // requireEnrollableSecondFactor refuses, at New, a deployment where someone
 // must hold MFA but no second factor can be enrolled: its operators could
 // never enroll one or reach admin. A missing TOTP key is only a warning when

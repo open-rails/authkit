@@ -37,7 +37,7 @@ func (s *Service) authResult(w http.ResponseWriter, r *http.Request, out authflo
 	case authflow.LoginTwoFAEnrollmentRequired:
 		allowed := out.AllowedMethods
 		if allowed == nil {
-			allowed = []string{}
+			allowed = []iam.TwoFactorMethod{}
 		}
 		res.Status = AuthEnrollmentRequired
 		res.Enrollment = &EnrollmentStep{TokenSet: *out.Enrollment, AllowedMethods: allowed}

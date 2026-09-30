@@ -150,7 +150,7 @@ func TestEnrollmentVerifiesEnrollingSession(t *testing.T) {
 		f := newFactorFlow(t, forced, outbox)
 		u := authtest.NewUser(t, forced)
 		grant := f.post("/password/login", map[string]any{"identifier": u.Email, "password": u.Password}).enrollment(t)
-		require.Contains(t, grant.AllowedMethods, "email")
+		require.Contains(t, grant.AllowedMethods, iam.TwoFactorEmail)
 		restricted := grant.TokenSet.AccessToken
 		f.expect(http.StatusOK, f.request(http.MethodPost, "/me/2fa/setup", restricted, map[string]any{"method": "email"}))
 		enabled := f.expect(http.StatusCreated, f.request(http.MethodPost, "/me/2fa/factors", restricted,
@@ -203,8 +203,8 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 			grant := enrollment.TokenSet
 			require.NotEmpty(t, grant.AccessToken)
 			require.Nil(t, grant.RefreshToken)
-			require.NotContains(t, enrollment.AllowedMethods, "email", "two proofs sent to one mailbox are one factor")
-			require.Contains(t, enrollment.AllowedMethods, "totp")
+			require.NotContains(t, enrollment.AllowedMethods, iam.TwoFactorEmail, "two proofs sent to one mailbox are one factor")
+			require.Contains(t, enrollment.AllowedMethods, iam.TwoFactorTOTP)
 			require.ElementsMatch(t, []any{"email"}, accessClaims(f.t, grant.AccessToken)["amr"])
 			denied := f.request(http.MethodGet, "/me", grant.AccessToken, nil)
 			require.GreaterOrEqual(t, denied.status, 400, denied.raw)
@@ -263,7 +263,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	const phone = "+15550100003"
 	f.expect(http.StatusAccepted, f.post("/passwordless/start", map[string]any{"identifier": phone, "mode": "code"}))
 	phoneGrant := f.post("/passwordless/confirm", map[string]any{"identifier": phone, "code": f.code(iam.MessageVerification, phone)}).enrollment(t)
-	require.NotContains(t, phoneGrant.AllowedMethods, "email", "an email-less account cannot enroll a mailbox factor")
+	require.NotContains(t, phoneGrant.AllowedMethods, iam.TwoFactorEmail, "an email-less account cannot enroll a mailbox factor")
 	restricted := phoneGrant.TokenSet.AccessToken
 	f.expect(http.StatusBadRequest, f.request(http.MethodPost, "/me/2fa/setup", restricted, map[string]any{"method": "email"}))
 	phoneTOTP := f.expect(http.StatusOK, f.request(http.MethodPost, "/me/2fa/setup", restricted, map[string]any{"method": "totp"}))

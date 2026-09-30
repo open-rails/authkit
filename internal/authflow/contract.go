@@ -12,7 +12,7 @@ type InviteRedemption struct {
 type MFAStatus struct {
 	Enabled        bool
 	Satisfied      bool
-	AllowedMethods []string
+	AllowedMethods []iam.TwoFactorMethod
 }
 
 type PasswordlessStartRequest struct {

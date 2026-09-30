@@ -5051,7 +5051,12 @@
           "allowed_methods": {
             "type": "array",
             "items": {
-              "type": "string"
+              "type": "string",
+              "enum": [
+                "email",
+                "sms",
+                "totp"
+              ]
             }
           }
         },
@@ -6707,7 +6712,12 @@
           "allowed_methods": {
             "type": "array",
             "items": {
-              "type": "string"
+              "type": "string",
+              "enum": [
+                "email",
+                "sms",
+                "totp"
+              ]
             }
           },
           "backup_codes_remaining": {
@@ -7217,7 +7227,12 @@
           "mfa_allowed_methods": {
             "type": "array",
             "items": {
-              "type": "string"
+              "type": "string",
+              "enum": [
+                "email",
+                "sms",
+                "totp"
+              ]
             }
           }
         },

@@ -473,8 +473,8 @@ type SecondFactorStep struct {
 // EnrollmentStep is a sign-in waiting on a first second factor. TokenSet is
 // a restricted enrollment token, not a session.
 type EnrollmentStep struct {
-	TokenSet       iam.TokenSet `json:"token_set"`
-	AllowedMethods []string     `json:"allowed_methods"`
+	TokenSet       iam.TokenSet          `json:"token_set"`
+	AllowedMethods []iam.TwoFactorMethod `json:"allowed_methods"`
 }
 
 // VerificationStep is a sign-in waiting on a contact proof; the code went to
@@ -524,10 +524,10 @@ type OIDCStart struct {
 
 // TwoFactorStatus is the caller's second factors.
 type TwoFactorStatus struct {
-	Enabled              bool              `json:"enabled"`
-	Factors              []TwoFactorFactor `json:"factors"`
-	AllowedMethods       []string          `json:"allowed_methods"`
-	BackupCodesRemaining int               `json:"backup_codes_remaining"`
+	Enabled              bool                  `json:"enabled"`
+	Factors              []TwoFactorFactor     `json:"factors"`
+	AllowedMethods       []iam.TwoFactorMethod `json:"allowed_methods"`
+	BackupCodesRemaining int                   `json:"backup_codes_remaining"`
 }
 
 // TwoFactorFactor is one second factor. Destination is the masked address its

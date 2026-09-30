@@ -26,13 +26,13 @@ func (s *Service) handleMe2FAGET(w http.ResponseWriter, r *http.Request) {
 	}
 	settings, err := s.svc.Get2FASettings(r.Context(), claims.UserID)
 	if err != nil {
-		writeJSON(w, http.StatusOK, TwoFactorStatus{Factors: []TwoFactorFactor{}, AllowedMethods: s.svc.TwoFactorAllowedMethods()})
+		writeJSON(w, http.StatusOK, TwoFactorStatus{Factors: []TwoFactorFactor{}, AllowedMethods: s.svc.TwoFactorMethods()})
 		return
 	}
 	writeJSON(w, http.StatusOK, TwoFactorStatus{
 		Enabled:              settings.Enabled,
 		Factors:              twoFactorFactorResponses(settings.Factors),
-		AllowedMethods:       s.svc.TwoFactorAllowedMethods(),
+		AllowedMethods:       s.svc.TwoFactorMethods(),
 		BackupCodesRemaining: len(settings.BackupCodes),
 	})
 }
