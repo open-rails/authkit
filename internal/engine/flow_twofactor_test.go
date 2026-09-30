@@ -10,9 +10,13 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/authkit/internal/testoutbox"
 	"github.com/stretchr/testify/require"
 )
 
+// Two first-factor enrollments racing for an account: one wins with ten
+// backup codes, stored only as SHA-256 digests, and a later additional-factor
+// enrollment cannot replace the winner.
 func TestFactorEnrollmentConcurrentFirstFactor(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
@@ -71,4 +75,45 @@ func TestFactorEnrollmentConcurrentFirstFactor(t *testing.T) {
 			require.Equal(t, settings, preserved)
 		})
 	}
+}
+
+// A stored step-up code lapses by the database clock: past its TTL even the
+// right code is code_expired, until a new one is sent.
+func TestTwoFactorCodeExpiresByDatabaseClock(t *testing.T) {
+	ctx := t.Context()
+	f := newAccountFlow(t, testdb.Pool(t), newServerTestConfig())
+	backend := fixtureBackend(f.service.Backend())
+	const pass = "Correct-horse-battery-1"
+	email := uniqueEmail("code-expiry")
+	user, err := backend.createUser(ctx, email, "codeexpiry"+uniqueSuffix())
+	require.NoError(t, err)
+	require.NoError(t, backend.adminSetPassword(ctx, user.ID, pass))
+	require.NoError(t, backend.markEmailVerified(ctx, user.ID))
+	_, err = backend.enableFactor(ctx, user.ID, "email", nil, authflow.AllowAdditionalFactors)
+	require.NoError(t, err)
+	ch := f.expect(403, f.post("/password/login", map[string]any{"identifier": email, "password": pass}))
+	access := f.expect(200, f.post("/2fa/verify", map[string]any{"user_id": user.ID, "challenge": ch.Error.Metadata.Challenge,
+		"code": sentCode(t, f.email, testoutbox.LoginCode)})).AccessToken
+
+	stepUp := func(code string) flowResponse {
+		return f.request("POST", "/step-up/2fa", access, map[string]any{"code": code})
+	}
+	send := func() string {
+		t.Helper()
+		require.Equal(t, "2fa_required", f.expect(403, f.request("POST", "/step-up/2fa", access, map[string]any{})).Error.Code)
+		return sentCode(t, f.email, testoutbox.LoginCode)
+	}
+	code := send()
+	wrong := "0" + code[1:]
+	if code[0] == '0' {
+		wrong = "1" + code[1:]
+	}
+	require.Equal(t, "invalid_code", f.expect(401, stepUp(wrong)).Error.Code)
+	tag, err := backend.pg.Exec(ctx, `UPDATE ephemeral_kv SET expires_at = now() - interval '1 second' WHERE key LIKE $1 AND expires_at > now()`,
+		keyTwoFactorStepUp+user.ID+":%")
+	require.NoError(t, err)
+	require.EqualValues(t, 1, tag.RowsAffected())
+	require.Equal(t, "code_expired", f.expect(401, stepUp(code)).Error.Code)
+	code = send()
+	f.expect(200, stepUp(code))
 }
