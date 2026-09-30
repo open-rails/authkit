@@ -15,8 +15,7 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/password"
 	"github.com/open-rails/authkit/internal/rbac"
-	"github.com/open-rails/authkit/jwtkit"
-	"github.com/open-rails/authkit/verify"
+	"github.com/open-rails/authkit/keys"
 )
 
 // EntitlementsProvider mirrors authkit.EntitlementsProvider.
@@ -44,12 +43,12 @@ type Engine struct {
 	eventProducers sync.Map
 
 	// keys is read per-operation (ActiveSigner/PublicKeys), never snapshotted:
-	// a live jwtkit.KeySource (e.g. the reloadable file source) hot-swaps keys
+	// a live keys.Source (e.g. the reloadable file source) hot-swaps keys
 	// behind an atomic pointer, and the engine must observe every swap (#238).
-	keys jwtkit.KeySource
+	keys keys.Source
 
 	// Only resources allocated by New are closed with the client.
-	ownedKeySource *jwtkit.FileKeySource
+	ownedKeySource *keys.FileSource
 
 	email        EmailSender
 	sms          SMSSender
@@ -76,7 +75,9 @@ type Engine struct {
 
 	smsHealth smsHealth
 
-	verifier *verify.Verifier
+	auth      *Authenticator
+	fed       federation
+	mfaExempt exemptPaths
 }
 
 // SendWelcome triggers the welcome email if an EmailSender is configured.

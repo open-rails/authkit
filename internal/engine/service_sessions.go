@@ -226,7 +226,7 @@ func (s *Engine) issueSessionAccessToken(ctx context.Context, userID, sessionID 
 	if mfaErr == nil {
 		mfaForToken = &mfa
 	}
-	return s.mintAccessTokenForUser(ctx, u, mfaForToken, map[string]any{"sid": sessionID}, s.cfg.Token.AccessTokenDuration)
+	return s.mintAccessTokenForUser(ctx, s.q, u, mfaForToken, map[string]any{"sid": sessionID}, s.cfg.Token.AccessTokenDuration)
 }
 
 // graceSealDomain separates the seal keystream from hashRefresh's bare SHA-256 of
@@ -296,7 +296,7 @@ func (s *Engine) issueLoginSessionTx(ctx context.Context, q *db.Queries, user *d
 	if hasAuthMethod(amr, "swk") && hasAuthMethod(amr, "mfa") {
 		mfa.Satisfied = true
 	}
-	token, accessExp, err := s.mintAccessTokenForUserWithAssurance(ctx, user, &mfa, extra, s.cfg.Token.AccessTokenDuration, &accessTokenAssurance{AuthTime: authTime, AMR: amr, ACR: acr})
+	token, accessExp, err := s.mintAccessTokenForUserWithAssurance(ctx, q, user, &mfa, extra, s.cfg.Token.AccessTokenDuration, &accessTokenAssurance{AuthTime: authTime, AMR: amr, ACR: acr})
 	return authflow.IssuedSession{SessionID: sid, RefreshToken: rt, AccessToken: token, AccessExpiresAt: accessExp}, exp, evicted, err
 }
 

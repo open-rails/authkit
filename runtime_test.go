@@ -3,7 +3,6 @@ package authkit_test
 import (
 	"bytes"
 	"context"
-	"crypto"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -18,7 +17,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/internal/testkeys"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
@@ -41,7 +40,6 @@ func TestRuntimeConfiguredHTTPLoginAndLifecycle(t *testing.T) {
 	t.Cleanup(runtime.Close)
 	_, err := runtime.CreateUser(context.Background(), iam.NewUser{Email: "runtime-boundary@example.test", Username: "runtime-boundary", Password: "Correct-horse-battery-1"})
 	require.NoError(t, err)
-	require.NotNil(t, runtime.Verifier())
 	require.Contains(t, runtime.Patterns(), "GET "+iam.JWKSPath)
 	require.Contains(t, runtime.Patterns(), "POST /auth/password/login")
 
@@ -100,7 +98,13 @@ func TestRuntimeHTTPBuildFailureReleasesEverything(t *testing.T) {
 	t.Cleanup(headless.Close)
 	require.Nil(t, headless.Handler())
 	require.Error(t, headless.Mount(http.NewServeMux()))
-	require.NotNil(t, headless.Verifier(), "a headless runtime still verifies")
+	user, err := headless.CreateUser(context.Background(), iam.NewUser{Email: "headless@example.test", Username: "headless", Password: "Correct-horse-battery-1"})
+	require.NoError(t, err)
+	token, err := headless.MintAccessToken(context.Background(), user.ID, iam.AccessTokenOptions{})
+	require.NoError(t, err)
+	cl, err := headless.Verify(context.Background(), token.Value)
+	require.NoError(t, err, "a headless runtime still verifies")
+	require.Equal(t, user.ID, cl.UserID)
 }
 
 // The Client owns the HTTP layer's background workers: the memory limiter's
@@ -188,10 +192,9 @@ func TestRuntimeConstructorHTTPFailureKeepsBorrowedPool(t *testing.T) {
 
 func testConfig(t *testing.T) authkit.Config {
 	t.Helper()
-	signer, err := jwtkit.NewRSASigner(2048, "runtime-test")
-	require.NoError(t, err)
+	signer := testkeys.RSA("runtime-test")
 	return authkit.Config{
-		Keys:         authkit.KeysConfig{Source: jwtkit.StaticKeySource{Active: signer, Pubs: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()}}},
+		Keys:         authkit.KeysConfig{Source: testkeys.Source(signer)},
 		Token:        authkit.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}},
 		Registration: authkit.RegistrationConfig{Verification: iam.RegistrationVerificationNone},
 	}

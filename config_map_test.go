@@ -7,10 +7,10 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 
-	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/keys"
+	"github.com/open-rails/authkit/provider"
 )
 
 // TestConfigMapping sets every exported field of Config, Deps and
@@ -81,13 +81,13 @@ type (
 	smsStub          struct{ SMSSender }
 	entitlementsStub struct{ EntitlementsProvider }
 	limiterStub      struct{ RateLimiter }
-	identityStub     struct{ authprovider.Provider }
+	identityStub     struct{ provider.Provider }
 	redisStub        struct{ redis.UniversalClient }
 )
 
 // implementations supplies a value for each interface a field can hold.
 var implementations = []any{
-	jwtkit.StaticKeySource{}, emailStub{}, smsStub{}, entitlementsStub{},
+	keys.Static{}, emailStub{}, smsStub{}, entitlementsStub{},
 	limiterStub{}, identityStub{}, redisStub{},
 }
 

@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/rbac"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/keys"
+	"github.com/open-rails/authkit/provider"
 )
 
 // The engine's settings mirror the public authkit configuration; the root
@@ -94,14 +94,14 @@ type RegistrationConfig struct {
 }
 
 type KeysConfig struct {
-	Source                jwtkit.KeySource
+	Source                keys.Source
 	Path                  string
 	AllowEphemeralDevKeys bool
 	VerifyOnly            bool
 }
 
 type IdentityConfig struct {
-	Providers []authprovider.Provider
+	Providers []provider.Provider
 }
 
 type APIKeysConfig struct {

@@ -25,8 +25,8 @@ type RouteSpec struct {
 	// the handler.
 	Bucket string
 	// MFAEnrollmentExempt marks a route as part of the 2FA enroll/challenge/
-	// verify surface a forced-enrollment-gated user (verify.WithRequireMFAEnrollment)
-	// must still be able to reach. httpapi.New derives the verifier's exempt-path
+	// verify surface a forced-enrollment-gated user (TwoFactor.Mode required)
+	// must still be able to reach. NewMount derives the engine's exempt-path
 	// allowlist from routes tagged here (#243) — the route table is the single
 	// source of truth, so a rename/add stays consistent by construction.
 	MFAEnrollmentExempt bool
@@ -35,7 +35,7 @@ type RouteSpec struct {
 // APIRoutes returns AuthKit's enabled JSON API routes. With no groups it
 // returns the default API surface. With groups, it returns only matching routes.
 func (s *Service) APIRoutes(groups ...iam.RouteGroup) []RouteSpec {
-	if s == nil || s.svc == nil || s.verifier == nil {
+	if s == nil || s.svc == nil {
 		return nil
 	}
 	selected := routeGroupSet(groups)
@@ -261,11 +261,11 @@ func (s *Service) OIDCBrowserRoutes(groups ...iam.RouteGroup) []RouteSpec {
 func (s *Service) authenticate(tier iam.RouteAuthTier, h http.Handler) http.Handler {
 	switch tier {
 	case iam.AuthOptional:
-		return verify.Optional(s.verifier)(h)
+		return verify.Optional(s.svc)(h)
 	case iam.AuthRequired, iam.AuthPermission:
-		return verify.Required(s.verifier)(h)
+		return verify.Required(s.svc)(h)
 	case iam.AuthSession:
-		return verify.Required(s.verifier)(s.requireSession(h))
+		return verify.Required(s.svc)(s.requireSession(h))
 	}
 	return h
 }
@@ -287,7 +287,7 @@ func (s *Service) rateLimitedRoute(bucket string, next http.Handler) http.Handle
 // mfaEnrollmentExemptPaths returns the distinct Path values of the routes tagged
 // MFAEnrollmentExempt — the authoritative 2FA enroll/challenge/verify surface a
 // forced-enrollment-gated request must still reach (#243). NewMount anchors these
-// at its prefix and registers them with verify.Verifier.AddMFAEnrollmentExemptRoutes, so the gate's
+// at its prefix and registers them with the engine's AddMFAEnrollmentExemptRoutes, so the gate's
 // allowlist is derived from the route registry rather than a hand-maintained list.
 func mfaEnrollmentExemptPaths(specs []RouteSpec) []string {
 	seen := make(map[string]bool, len(specs))

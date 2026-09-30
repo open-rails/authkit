@@ -3,6 +3,8 @@ package engine
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
@@ -14,18 +16,18 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/keys"
 	"github.com/stretchr/testify/require"
 )
 
 func TestClientOwnedResourceLifecycle(t *testing.T) {
 	dir := t.TempDir()
-	signer, err := jwtkit.NewRSASigner(2048, "lifecycle")
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
 	data, err := json.Marshal(map[string]any{
 		"active_key_id": "lifecycle",
 		"active_private_key_pem": string(pem.EncodeToMemory(&pem.Block{
-			Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(signer.PrivateKey()),
+			Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key),
 		})),
 	})
 	require.NoError(t, err)
@@ -76,11 +78,11 @@ func TestClientOwnedResourceLifecycle(t *testing.T) {
 	})
 
 	t.Run("borrowed", func(t *testing.T) {
-		keys, err := jwtkit.NewFileKeySource(dir, time.Millisecond, nil)
+		watched, err := keys.Watch(dir)
 		require.NoError(t, err)
-		t.Cleanup(keys.Close)
+		t.Cleanup(watched.Close)
 		cfg := config
-		cfg.Keys.Source = keys
+		cfg.Keys.Source = watched
 		client, err := newEngine(cfg, Deps{})
 		require.NoError(t, err)
 		client.Close()
@@ -90,6 +92,7 @@ func TestClientOwnedResourceLifecycle(t *testing.T) {
 			bytes.ReplaceAll(data, []byte(`"lifecycle"`), []byte(`"rotated"`)), 0600))
 		future := time.Now().Add(time.Second)
 		require.NoError(t, os.Chtimes(filepath.Join(dir, "keys.json"), future, future))
-		require.Eventually(t, func() bool { return keys.ActiveSigner().KID() == "rotated" }, time.Second, time.Millisecond)
+		// keys.Watch polls every 10s.
+		require.Eventually(t, func() bool { return watched.ActiveSigner().KID() == "rotated" }, 15*time.Second, 50*time.Millisecond)
 	})
 }

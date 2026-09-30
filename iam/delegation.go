@@ -2,7 +2,6 @@ package iam
 
 import (
 	"context"
-	"crypto/x509"
 	"encoding/json"
 	"time"
 
@@ -14,19 +13,21 @@ import (
 var ErrDelegationRefused Error = errmodel.E(errmodel.CodeDelegationRefused)
 
 // DelegationRequest is what POST /delegated/token asks the host to authorize
-// (ak#277). Audiences and TTL are already clamped; the certificate or DPoP
-// sender proof is validated; RequestedGrant is the client's opaque, host-schema object that
-// AuthKit never copies into the token.
+// (ak#277). Audiences and TTL are already clamped; the sender proof is
+// validated; RequestedGrant is the client's opaque, host-schema object that
+// AuthKit never copies into the token. The token is bound to exactly one of
+// the delegate's certificate and its DPoP key.
 type DelegationRequest struct {
-	UserID                        string
-	Audiences                     []string
-	TTL                           time.Duration
-	ConfirmationCertificateSHA256 [32]byte
-	// ConfirmationJWKThumbprintSHA256 is set only after validating a DPoP proof.
-	// DelegateCertificate is nil on this browser-capable path.
-	ConfirmationJWKThumbprintSHA256 *[32]byte
-	DelegateCertificate             *x509.Certificate
-	RequestedGrant                  json.RawMessage
+	UserID    string
+	Audiences []string
+	TTL       time.Duration
+	// DelegateCertificate is the delegate's X.509 leaf (DER) and
+	// CertificateThumbprint its x5t#S256; both empty on the DPoP path.
+	DelegateCertificate   []byte
+	CertificateThumbprint string
+	// JWKThumbprint is the DPoP key's jkt; empty on the certificate path.
+	JWKThumbprint  string
+	RequestedGrant json.RawMessage
 }
 
 // DelegationGrant is the complete authority AuthKit signs for one request.
@@ -50,18 +51,16 @@ type DelegatedAccess struct {
 	// persona's namespace must be held live by the subject on the root group;
 	// the host's own vocabulary is the host's decision.
 	Permissions []string
-	// Attributes carries app-specific JSON; roles is set by Roles.
+	// Attributes carries app-specific JSON; AuthKit assigns no key a meaning.
 	Attributes map[string]any
-	// Roles become attributes.roles.
-	Roles []string
 	// TTL is clamped to the Config.Delegated bounds (default 15m, at most 1h).
 	TTL time.Duration
 	// JTI becomes jti; empty mints a fresh one.
 	JTI       string
 	NotBefore time.Time
-	// ConfirmationCertificateSHA256 binds the token to an X.509 certificate
-	// (RFC 8705 cnf.x5t#S256), ConfirmationJWKThumbprintSHA256 to a DPoP key
-	// (RFC 9449 cnf.jkt). At most one; neither mints a bearer token.
-	ConfirmationCertificateSHA256   *[32]byte
-	ConfirmationJWKThumbprintSHA256 *[32]byte
+	// CertificateThumbprint binds the token to an X.509 certificate (RFC 8705
+	// cnf.x5t#S256), JWKThumbprint to a DPoP key (RFC 9449 cnf.jkt), each the
+	// unpadded base64url SHA-256. At most one; neither mints a bearer token.
+	CertificateThumbprint string
+	JWKThumbprint         string
 }

@@ -3,11 +3,11 @@ package engine
 import (
 	"testing"
 
-	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/testidp"
 	"github.com/open-rails/authkit/internal/testoutbox"
+	"github.com/open-rails/authkit/provider"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,7 +21,7 @@ func TestRegistrationRollsBackWhenInviteConsumeFails(t *testing.T) {
 	cfg.Registration.Verification = iam.RegistrationVerificationRequired
 	cfg.Registration.NativeUserMode = iam.RegistrationModeInviteOnly
 	idps := map[string]*testidp.IdP{"oidc": testidp.New(t), "oauth2": testidp.New(t)}
-	cfg.Identity.Providers = []authprovider.Provider{idps["oidc"].OIDC("oidc"), idps["oauth2"].OAuth2("oauth2")}
+	cfg.Identity.Providers = []provider.Provider{idps["oidc"].OIDC("oidc"), idps["oauth2"].OAuth2("oauth2")}
 	f := newAccountFlow(t, pg.Pool, cfg, Deps{})
 	pool, ctx := pg.Pool, t.Context()
 	_, err := pool.Exec(ctx, `CREATE FUNCTION registration_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected invite consume failure'; END $$; CREATE TRIGGER registration_failure BEFORE UPDATE OF consumed_at ON account_registration_invites FOR EACH ROW EXECUTE FUNCTION registration_failure()`)

@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/oidcstate"
 	"github.com/open-rails/authkit/internal/secret"
+	"github.com/open-rails/authkit/provider"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -136,10 +136,10 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 	// AK F3: bind state to this browser so a third party can't drive a victim
 	// through the callback with an attacker-issued state+code (login CSRF).
 	s.setStateCookie(w, r, p, state)
-	authURL, err := p.AuthCodeURL(r.Context(), authprovider.AuthRequest{
+	authURL, err := p.AuthCodeURL(r.Context(), provider.AuthRequest{
 		State: state, Nonce: nonce, CodeChallenge: challenge, RedirectURI: redirectURI, Params: start.params,
 	})
-	if errors.Is(err, authprovider.ErrProviderUnavailable) {
+	if errors.Is(err, provider.ErrUnavailable) {
 		reject(errmodel.E(errmodel.CodeProviderUnavailable))
 		return
 	}
@@ -226,10 +226,10 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	identity, err := p.Exchange(r.Context(), authprovider.ExchangeRequest{
+	identity, err := p.Exchange(r.Context(), provider.ExchangeRequest{
 		Code: code, CodeVerifier: sd.Verifier, Nonce: sd.Nonce, RedirectURI: sd.RedirectURI,
 	})
-	if errors.Is(err, authprovider.ErrProviderUnavailable) {
+	if errors.Is(err, provider.ErrUnavailable) {
 		s.failBrowserFlow(w, r, &sd, name, errmodel.E(errmodel.CodeProviderUnavailable))
 		return
 	}

@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/open-rails/authkit/authprovider"
+	"github.com/open-rails/authkit/provider"
 )
 
 // providerRegistry validates the configured identity providers and indexes
@@ -13,28 +13,28 @@ import (
 // configuration error, never a silent override. Provider links are keyed by
 // issuer, so two providers may not share one, and none may claim a reserved
 // issuer (this deployment's own account issuers).
-func providerRegistry(providers []authprovider.Provider, reservedIssuers []string) (map[string]authprovider.Provider, error) {
-	out := make(map[string]authprovider.Provider, len(providers))
+func providerRegistry(providers []provider.Provider, reservedIssuers []string) (map[string]provider.Provider, error) {
+	out := make(map[string]provider.Provider, len(providers))
 	issuers := map[string]string{}
 	for _, iss := range reservedIssuers {
 		issuers[issuerKey(iss)] = ""
 	}
 	for _, p := range providers {
 		if p == nil {
-			return nil, fmt.Errorf("%w: nil provider", authprovider.ErrProviderInvalid)
+			return nil, fmt.Errorf("%w: nil provider", provider.ErrInvalid)
 		}
 		if err := p.Validate(); err != nil {
 			return nil, err
 		}
 		name := p.Name()
 		if _, dup := out[name]; dup {
-			return nil, fmt.Errorf("%w: provider %q listed twice", authprovider.ErrProviderInvalid, name)
+			return nil, fmt.Errorf("%w: provider %q listed twice", provider.ErrInvalid, name)
 		}
 		if other, taken := issuers[issuerKey(p.Issuer())]; taken {
 			if other == "" {
-				return nil, fmt.Errorf("%w: provider %q uses reserved issuer %q", authprovider.ErrProviderInvalid, name, p.Issuer())
+				return nil, fmt.Errorf("%w: provider %q uses reserved issuer %q", provider.ErrInvalid, name, p.Issuer())
 			}
-			return nil, fmt.Errorf("%w: providers %q and %q share issuer %q", authprovider.ErrProviderInvalid, other, name, p.Issuer())
+			return nil, fmt.Errorf("%w: providers %q and %q share issuer %q", provider.ErrInvalid, other, name, p.Issuer())
 		}
 		issuers[issuerKey(p.Issuer())] = name
 		out[name] = p
@@ -51,7 +51,7 @@ func issuerKey(issuer string) string {
 // requireHTTPSForFormPost refuses a response_mode=form_post provider unless the
 // deployment is HTTPS: its state cookie must be SameSite=None; Secure (#295),
 // which browsers only ever send over HTTPS, so the flow could never complete.
-func requireHTTPSForFormPost(providers map[string]authprovider.Provider, baseURL string) error {
+func requireHTTPSForFormPost(providers map[string]provider.Provider, baseURL string) error {
 	origin, ok := originFromBaseURL(baseURL)
 	if ok && strings.HasPrefix(strings.ToLower(origin), "https://") {
 		return nil
@@ -64,7 +64,7 @@ func requireHTTPSForFormPost(providers map[string]authprovider.Provider, baseURL
 	return nil
 }
 
-func (s *Service) provider(name string) (authprovider.Provider, bool) {
+func (s *Service) provider(name string) (provider.Provider, bool) {
 	p, ok := s.providers[strings.ToLower(strings.TrimSpace(name))]
 	return p, ok
 }

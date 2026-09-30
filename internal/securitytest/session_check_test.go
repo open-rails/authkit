@@ -14,11 +14,11 @@ import (
 	"github.com/open-rails/authkit"
 	authkitfiber "github.com/open-rails/authkit/adapters/fiber"
 	authkitgin "github.com/open-rails/authkit/adapters/gin"
-	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/testidp"
+	"github.com/open-rails/authkit/provider"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
 )
@@ -28,7 +28,7 @@ import (
 func withEveryRoute(t *testing.T) []authtest.Option {
 	idp := testidp.New(t)
 	return []authtest.Option{authtest.WithConfig(func(c *authkit.Config) {
-		c.Identity.Providers = []authprovider.Provider{idp.OAuth2("idp")}
+		c.Identity.Providers = []provider.Provider{idp.OAuth2("idp")}
 		withPasskeys(c)
 		withDeviceKeys(c)
 		c.SolanaNetwork = "devnet"
@@ -107,8 +107,8 @@ func serveFiber(app *fiber.App, method string) gateCall {
 // session. Logout, revoke-all, a password change, a ban and deletion each
 // revoke it, and from then on its still-unexpired access token is refused by
 // every live gate: every mutating account, admin and group route, host
-// RequirePermission and Sensitive over net/http, Gin and Fiber, and Client
-// operations taking the actor it names. Plain Required stays stateless and
+// RequireSession, RequirePermission and Sensitive over net/http, Gin and
+// Fiber, and Client operations taking the actor it names. Plain Required stays stateless and
 // admits the token until it expires, and API keys are untouched.
 func TestSecurityRevokedSessionAtLiveGates(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -123,12 +123,19 @@ func TestSecurityRevokedSessionAtLiveGates(t *testing.T) {
 	noContent := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	ginNoContent := func(c *gin.Context) { c.Status(http.StatusNoContent) }
 	fiberNoContent := func(c fiber.Ctx) error { return c.SendStatus(http.StatusNoContent) }
-	ginPermission, ginSensitive := gin.New(), gin.New()
+	ginSession, ginPermission, ginSensitive := gin.New(), gin.New(), gin.New()
+	ginSession.GET("/resource", authkitgin.RequireSession(h.auth), ginNoContent)
 	ginPermission.GET("/resource", authkitgin.RequirePermissionOn(h.auth, group, perm), ginNoContent)
 	ginSensitive.POST("/resource", authkitgin.Sensitive(h.auth), ginNoContent)
-	fiberPermission, fiberSensitive := fiber.New(), fiber.New()
+	fiberSession, fiberPermission, fiberSensitive := fiber.New(), fiber.New(), fiber.New()
+	fiberSession.Get("/resource", authkitfiber.RequireSession(h.auth), fiberNoContent)
 	fiberPermission.Get("/resource", authkitfiber.RequirePermissionOn(h.auth, group, perm), fiberNoContent)
 	fiberSensitive.Post("/resource", authkitfiber.Sensitive(h.auth), fiberNoContent)
+	sessionGates := map[string]gateCall{
+		"net/http RequireSession": serveHTTP(verify.RequireSession(h.auth)(noContent), http.MethodGet),
+		"gin RequireSession":      serveHTTP(ginSession, http.MethodGet),
+		"fiber RequireSession":    serveFiber(fiberSession, http.MethodGet),
+	}
 	permissionGates := map[string]gateCall{
 		"net/http RequirePermission": serveHTTP(verify.RequirePermissionOn(h.auth, group, perm)(noContent), http.MethodGet),
 		"gin RequirePermission":      serveHTTP(ginPermission, http.MethodGet),
@@ -139,7 +146,7 @@ func TestSecurityRevokedSessionAtLiveGates(t *testing.T) {
 		"gin Sensitive":      serveHTTP(ginSensitive, http.MethodPost),
 		"fiber Sensitive":    serveFiber(fiberSensitive, http.MethodPost),
 	}
-	required := serveHTTP(verify.Required(h.auth.Verifier())(noContent), http.MethodGet)
+	required := serveHTTP(verify.Required(h.auth)(noContent), http.MethodGet)
 
 	// Every mutating route of the session and permission tiers, its path
 	// parameters filled in; the gate refuses before any of them is read.
@@ -160,7 +167,7 @@ func TestSecurityRevokedSessionAtLiveGates(t *testing.T) {
 
 	actorOf := func(t *testing.T, token string) iam.Actor {
 		t.Helper()
-		cl, err := h.auth.Verifier().Verify(ctx, token)
+		cl, err := h.auth.Verify(ctx, token)
 		require.NoError(t, err)
 		actor, ok := verify.ActorFromClaims(cl)
 		require.True(t, ok)
@@ -177,6 +184,9 @@ func TestSecurityRevokedSessionAtLiveGates(t *testing.T) {
 	// still admits it.
 	requireRevoked := func(t *testing.T, token string) {
 		t.Helper()
+		for name, call := range sessionGates {
+			refused(t, name, call(t, token))
+		}
 		for name, call := range permissionGates {
 			refused(t, name, call(t, token))
 		}
@@ -197,6 +207,10 @@ func TestSecurityRevokedSessionAtLiveGates(t *testing.T) {
 	// requireLive asserts a live, fresh session passes the same gates.
 	requireLive := func(t *testing.T, token string) {
 		t.Helper()
+		for name, call := range sessionGates {
+			resp := call(t, token)
+			require.Equal(t, http.StatusNoContent, resp.status, "%s: %s", name, resp)
+		}
 		for name, call := range permissionGates {
 			resp := call(t, token)
 			require.Equal(t, http.StatusNoContent, resp.status, "%s: %s", name, resp)
@@ -312,4 +326,14 @@ func TestSecurityRevokedSessionAtLiveGates(t *testing.T) {
 		require.NoError(t, err)
 		require.False(t, allowed, "a banned account has no authority")
 	})
+}
+
+// allow is whether the actor verified claims act as holds perm in ref,
+// checked live.
+func allow(ctx context.Context, auth *authkit.Client, cl verify.Claims, perm iam.Perm, ref iam.GroupRef) (bool, error) {
+	actor, ok := verify.ActorFromClaims(cl)
+	if !ok {
+		return false, nil
+	}
+	return auth.Can(ctx, actor, ref, perm)
 }

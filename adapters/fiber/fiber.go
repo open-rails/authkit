@@ -32,25 +32,12 @@ func httpHandler(h http.Handler) fiber.Handler {
 	}
 }
 
-// Required validates a credential and stores verified claims in c.Context().
-// Like Gin's Required, it accepts every principal the verifier supports.
-// A user-only handler must also check verify.UserClaimsFromContext.
-func Required(src verify.VerifierSource) fiber.Handler {
-	return Use(verify.Required(verifierOf(src)))
-}
+// Required is verify.Required in a Fiber chain: a is the *authkit.Client
+// (or a *verify.Verifier).
+func Required(a verify.Authenticator) fiber.Handler { return Use(verify.Required(a)) }
 
-// Optional passes requests without Authorization through anonymously.
-// A present but invalid credential is rejected, just as in verify.Optional.
-func Optional(src verify.VerifierSource) fiber.Handler {
-	return Use(verify.Optional(verifierOf(src)))
-}
-
-func verifierOf(src verify.VerifierSource) *verify.Verifier {
-	if src == nil {
-		return nil
-	}
-	return src.Verifier()
-}
+// Optional is verify.Optional in a Fiber chain.
+func Optional(a verify.Authenticator) fiber.Handler { return Use(verify.Optional(a)) }
 
 // Use runs synchronous net/http authentication middleware around Fiber's
 // downstream handlers. Context values and cancellation flow in both directions;
@@ -91,27 +78,22 @@ func SetGroup(c fiber.Ctx, ref iam.GroupRef) {
 	c.SetContext(verify.WithGroup(c.Context(), ref))
 }
 
-// RequirePermission authenticates the request (it includes Required) and
-// requires perm, checked live, in the group SetGroup attached. A request with
-// no group fails closed (500). It panics at construction on a perm the
-// authority does not register.
+// RequireSession is verify.RequireSession in a Fiber chain.
+func RequireSession(a verify.Authority) fiber.Handler { return Use(verify.RequireSession(a)) }
+
+// RequirePermission is verify.RequirePermission in a Fiber chain, in the
+// group SetGroup attached.
 func RequirePermission(a verify.Authority, perm iam.Perm) fiber.Handler {
 	return Use(verify.RequirePermission(a, perm))
 }
 
-// RequirePermissionOn is RequirePermission in one fixed group, such as
-// iam.RootGroup().
+// RequirePermissionOn is verify.RequirePermissionOn in a Fiber chain.
 func RequirePermissionOn(a verify.Authority, ref iam.GroupRef, perm iam.Perm) fiber.Handler {
 	return Use(verify.RequirePermissionOn(a, ref, perm))
 }
 
-// Sensitive authenticates the request (it includes Required) and requires a
-// live, recent sign-in: the token's session or device key is still active and
-// signed in within the last 15 minutes, with its second factor when the
-// account has one. See verify.Sensitive.
-func Sensitive(a verify.Authority) fiber.Handler {
-	return Use(verify.Sensitive(a))
-}
+// Sensitive is verify.Sensitive in a Fiber chain.
+func Sensitive(a verify.Authority) fiber.Handler { return Use(verify.Sensitive(a)) }
 
 // responseWriter writes directly into Fiber's response, so a downstream Fiber
 // handler's body and status are never overwritten by a buffered HTTP adapter.

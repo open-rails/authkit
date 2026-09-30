@@ -43,9 +43,10 @@ func TestClientPublicSurface(t *testing.T) {
 		"RemoteApplication", "RemoteApplications", "RemoteApplicationAuthority",
 		// Lifecycle: host wiring at boot and health probes.
 		"SetEntitlements", "Start", "Close", "RiverJobs", "CheckSMSHealth",
-		// HTTP surface and request verification.
-		"Handler", "Routes", "Patterns", "Mount", "Verifier", "NewVerifier",
-		"Require", "Optional", "RequirePermission", "RequirePermissionOn", "CheckRecentSignIn",
+		// HTTP surface and request verification (verify.Authority).
+		"Handler", "Routes", "Patterns", "Mount",
+		"VerifyRequest", "Verify", "VerifyServiceJWT", "AuthenticateRequest", "CheckSession", "CheckRecentSignIn",
+		"CheckIssuerKeys", "IssuerKeyStatuses", "NewVerifier",
 		// Signing that grants no AuthKit authority.
 		"MintServiceJWT",
 	}

@@ -2,7 +2,6 @@ package verify
 
 import (
 	"context"
-	"crypto"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,10 +10,11 @@ import (
 	"testing"
 	"time"
 
-	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/internal/jose"
+	"github.com/open-rails/authkit/internal/testkeys"
+	"github.com/open-rails/authkit/keys"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,22 +24,20 @@ const testAudience = "test-app"
 // testIssuer is an issuer URL and the key its tokens are signed with.
 type testIssuer struct {
 	url    string
-	signer *jwtkit.RSASigner
+	signer keys.Signer
 }
 
 func newTestIssuer(t *testing.T, url string) testIssuer {
 	t.Helper()
-	signer, err := jwtkit.NewRSASigner(2048, url)
-	require.NoError(t, err)
-	return testIssuer{url: url, signer: signer}
+	return testIssuer{url: url, signer: testkeys.RSA(url)}
 }
 
 func (i testIssuer) token(t *testing.T, sub string) string {
 	t.Helper()
 	now := time.Now()
-	token, err := jwtkit.SignWithType(context.Background(), i.signer, jwt.MapClaims{
+	token, err := jose.Sign(context.Background(), i.signer, jose.AccessTokenType, map[string]any{
 		"sub": sub, "iss": i.url, "aud": testAudience, "iat": now.Unix(), "exp": now.Add(time.Hour).Unix(),
-	}, jwtkit.AccessTokenType, true)
+	})
 	require.NoError(t, err)
 	return token
 }
@@ -54,10 +52,10 @@ type jwksProvider struct {
 	hits     atomic.Int32
 }
 
-func newJWKSProvider(t *testing.T, signer jwtkit.Signer) *jwksProvider {
+func newJWKSProvider(t *testing.T, signer keys.Signer) *jwksProvider {
 	p := &jwksProvider{}
 	p.mode.Store("up")
-	jwk := jwtkit.PublicToJWK(signer.(jwtkit.PublicKeySigner).PublicKey(), signer.KID(), signer.Algorithm())
+	jwk := keys.PublicJWK(signer.Public(), signer.KID(), signer.Algorithm())
 	p.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p.hits.Add(1)
 		n := p.inflight.Add(1)
@@ -77,7 +75,7 @@ func newJWKSProvider(t *testing.T, signer jwtkit.Signer) *jwksProvider {
 			conn, _, _ := w.(http.Hijacker).Hijack()
 			_ = conn.Close()
 		default:
-			_ = json.NewEncoder(w).Encode(jwtkit.JWKS{Keys: []jwtkit.JWK{jwk}})
+			_ = json.NewEncoder(w).Encode(keys.JWKS{Keys: []keys.JWK{jwk}})
 		}
 	}))
 	t.Cleanup(p.Close)
@@ -89,9 +87,9 @@ func TestPeerJWKSOutageFailsOnlyPeerTokens(t *testing.T) {
 	provider := newJWKSProvider(t, peer.signer)
 
 	v := NewVerifier()
-	v.jwksAttemptTimeout, v.jwksBackoffBase, v.jwksBackoffMax = 300*time.Millisecond, 20*time.Millisecond, 100*time.Millisecond
+	v.keys.AttemptTimeout, v.keys.BackoffBase, v.keys.BackoffMax = 300*time.Millisecond, 20*time.Millisecond, 100*time.Millisecond
 	require.NoError(t, v.AddIssuer(local.url, []string{testAudience}, IssuerOptions{
-		IsLocal: true, RawKeys: map[string]crypto.PublicKey{local.signer.KID(): local.signer.PublicKey()},
+		IsLocal: true, KeySource: testkeys.Source(local.signer),
 	}))
 	require.NoError(t, v.AddIssuer(peer.url, []string{testAudience}, IssuerOptions{JWKSURI: provider.URL, CacheTTL: 100 * time.Millisecond}))
 
@@ -183,10 +181,10 @@ func TestPeerJWKSStaleKeysCappedAtMaxStale(t *testing.T) {
 
 	var offset atomic.Int64
 	v := NewVerifier()
-	v.now = func() time.Time { return time.Now().Add(time.Duration(offset.Load())) }
-	v.jwksAttemptTimeout, v.jwksBackoffBase, v.jwksBackoffMax = 300*time.Millisecond, 10*time.Millisecond, 50*time.Millisecond
+	v.keys.Now = func() time.Time { return time.Now().Add(time.Duration(offset.Load())) }
+	v.keys.AttemptTimeout, v.keys.BackoffBase, v.keys.BackoffMax = 300*time.Millisecond, 10*time.Millisecond, 50*time.Millisecond
 	require.NoError(t, v.AddIssuer(local.url, []string{testAudience}, IssuerOptions{
-		IsLocal: true, RawKeys: map[string]crypto.PublicKey{local.signer.KID(): local.signer.PublicKey()},
+		IsLocal: true, KeySource: testkeys.Source(local.signer),
 	}))
 	require.NoError(t, v.AddIssuer(peer.url, []string{testAudience}, IssuerOptions{JWKSURI: provider.URL, CacheTTL: time.Minute, MaxStale: time.Hour}))
 

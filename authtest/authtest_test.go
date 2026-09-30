@@ -39,7 +39,7 @@ func TestHostSetup(t *testing.T) {
 	require.True(t, can)
 	tokens := authtest.SignIn(t, auth, alice)
 	require.NotEmpty(t, tokens.RefreshToken)
-	claims, err := auth.Verifier().Verify(ctx, tokens.AccessToken)
+	claims, err := auth.Verify(ctx, tokens.AccessToken)
 	require.NoError(t, err)
 	require.Equal(t, alice.ID, claims.UserID)
 	require.NotContains(t, claims.AMR, "mfa")
@@ -49,7 +49,7 @@ func TestHostSetup(t *testing.T) {
 	bob := authtest.NewUser(t, auth)
 	bob.TOTP = authtest.EnrollTOTP(t, auth, bob)
 	authtest.GrantRole(t, auth, group, iam.UserSubject(bob.ID), admin)
-	claims, err = auth.Verifier().Verify(ctx, authtest.SignIn(t, auth, bob).AccessToken)
+	claims, err = auth.Verify(ctx, authtest.SignIn(t, auth, bob).AccessToken)
 	require.NoError(t, err)
 	require.Contains(t, claims.AMR, "mfa")
 
@@ -100,7 +100,7 @@ func TestEnrollDeviceKey(t *testing.T) {
 	require.NoError(t, err)
 	session, err := c.Login(t.Context(), key.ID, key.Key)
 	require.NoError(t, err)
-	claims, err := auth.Verifier().Verify(t.Context(), session.AccessToken)
+	claims, err := auth.Verify(t.Context(), session.AccessToken)
 	require.NoError(t, err)
 	require.Equal(t, u.ID, claims.UserID)
 }

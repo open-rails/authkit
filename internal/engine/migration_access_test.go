@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"crypto"
 	"testing"
 	"time"
 
@@ -11,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/testdb"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/internal/testkeys"
 	"github.com/stretchr/testify/require"
 )
 
@@ -67,11 +66,10 @@ func TestMigrateProvisionsRuntimePool(t *testing.T) {
 			require.NoError(t, runtimePool.QueryRow(ctx, "SELECT has_schema_privilege(current_user,$1,'CREATE')", schema).Scan(&canCreate))
 			require.False(t, canCreate)
 
-			signer, err := jwtkit.NewRSASigner(2048, "runtime-access-test")
-			require.NoError(t, err)
+			signer := testkeys.RSA("runtime-access-test")
 			cfg := maintenanceConfig()
 			cfg.Schema = schema
-			cfg.Keys = KeysConfig{Source: jwtkit.StaticKeySource{Active: signer, Pubs: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()}}}
+			cfg.Keys = KeysConfig{Source: testkeys.Source(signer)}
 			client, err := newEngine(cfg, Deps{Postgres: runtimePool, River: opts.River})
 			require.NoError(t, err)
 			t.Cleanup(client.Close)

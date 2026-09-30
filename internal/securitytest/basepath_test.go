@@ -3,7 +3,6 @@ package securitytest
 import (
 	"bytes"
 	"context"
-	"crypto"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -13,12 +12,12 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/testhttp"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/internal/testkeys"
+	"github.com/open-rails/authkit/provider"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
 )
@@ -39,11 +38,11 @@ func TestSecurityBasePathConfinesSurface(t *testing.T) {
 	iss := server.URL + base
 	s := signer()
 	cfg := authkit.Config{
-		Keys:         authkit.KeysConfig{Source: jwtkit.StaticKeySource{Active: s, Pubs: map[string]crypto.PublicKey{s.KID(): s.PublicKey()}}},
+		Keys:         authkit.KeysConfig{Source: testkeys.Source(s)},
 		Token:        authkit.TokenConfig{Issuer: iss, IssuedAudiences: []string{audience}, ExpectedAudiences: []string{audience}},
 		Registration: authkit.RegistrationConfig{NativeUserMode: iam.RegistrationModeOpen, Verification: iam.RegistrationVerificationOptional},
 		TwoFactor:    authkit.TwoFactorConfig{Mode: iam.TwoFactorOptional, Methods: []iam.TwoFactorMethod{iam.TwoFactorTOTP}, TOTPSecretKey: bytes.Repeat([]byte{7}, 32)},
-		Identity:     authkit.IdentityConfig{Providers: []authprovider.Provider{authprovider.GitHub("gh-client", "gh-secret")}},
+		Identity:     authkit.IdentityConfig{Providers: []provider.Provider{provider.GitHub("gh-client", "gh-secret")}},
 		HTTP:         testhttp.HTTP(),
 	}
 	withApps(&cfg)

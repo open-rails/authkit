@@ -14,10 +14,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testidp"
+	"github.com/open-rails/authkit/provider"
 )
 
 var seq atomic.Int64
@@ -397,7 +397,7 @@ func TestUsernameCaseWorkflow(t *testing.T) {
 	require.Equal(t, "username_in_use", held.code(), "a pending signup holds every spelling of its name")
 
 	confirmed := expect(t, http.StatusOK, a.post("/verify/confirm", "", map[string]any{"identifier": owner, "code": outbox.Last(t, authtest.Verification, owner).Code})).answer(t)
-	claims, err := auth.Verifier().Verify(ctx, confirmed.AccessToken)
+	claims, err := auth.Verify(ctx, confirmed.AccessToken)
 	require.NoError(t, err)
 	userID := claims.UserID
 	require.Equal(t, name, a.me(t, confirmed.AccessToken).Username, "display keeps the chosen spelling")
@@ -407,7 +407,7 @@ func TestUsernameCaseWorkflow(t *testing.T) {
 	var live string
 	for _, spelling := range []string{name, lower, upper} {
 		login := expect(t, http.StatusOK, a.post("/password/login", "", map[string]any{"identifier": spelling, "password": pass})).answer(t)
-		got, err := auth.Verifier().Verify(ctx, login.AccessToken)
+		got, err := auth.Verify(ctx, login.AccessToken)
 		require.NoError(t, err)
 		require.Equal(t, userID, got.UserID, "login as %s", spelling)
 		live = login.AccessToken
@@ -558,7 +558,7 @@ func TestAccountPolicies(t *testing.T) {
 		idp := testidp.New(t)
 		auth, a, _ := setup(t, func(c *authkit.Config) {
 			c.Username = iam.UsernamePolicy{MinLength: 8, MaxLength: 10}
-			c.Identity.Providers = []authprovider.Provider{idp.OIDC("idp")}
+			c.Identity.Providers = []provider.Provider{idp.OIDC("idp")}
 		})
 		ctx := t.Context()
 		// A provider sign-up derives its username from the email's local part,

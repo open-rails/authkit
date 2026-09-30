@@ -40,3 +40,13 @@ func Proof(t testing.TB, key *ecdsa.PrivateKey, method, target, accessToken stri
 	require.NoError(t, err)
 	return proof
 }
+
+// Thumbprint is key's RFC 7638 thumbprint, the jkt a DPoP-bound token carries.
+func Thumbprint(t testing.TB, key *ecdsa.PrivateKey) string {
+	t.Helper()
+	public, err := key.PublicKey.Bytes()
+	require.NoError(t, err)
+	b64 := base64.RawURLEncoding.EncodeToString
+	sum := sha256.Sum256([]byte(`{"crv":"P-256","kty":"EC","x":"` + b64(public[1:33]) + `","y":"` + b64(public[33:]) + `"}`))
+	return b64(sum[:])
+}

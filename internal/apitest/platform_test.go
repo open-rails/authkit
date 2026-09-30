@@ -11,11 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/testhttp"
+	"github.com/open-rails/authkit/provider"
 )
 
 type routeKey struct{ method, path string }
@@ -187,13 +187,13 @@ func TestMountCatalog(t *testing.T) {
 // Exclude remove it.
 func TestMountCatalogOIDC(t *testing.T) {
 	const idp = "https://idp.example"
-	provider := authprovider.OAuth2("catalog", idp, authprovider.Endpoint{AuthorizeURL: idp + "/authorize", TokenURL: idp + "/token"},
-		"client", "secret", func(context.Context, *http.Client) (authprovider.Identity, error) {
-			return authprovider.Identity{}, errors.New("the catalog test never completes a sign-in")
+	catalogIdP := provider.OAuth2("catalog", idp, provider.Endpoint{AuthorizeURL: idp + "/authorize", TokenURL: idp + "/token"},
+		"client", "secret", func(context.Context, *http.Client) (provider.Identity, error) {
+			return provider.Identity{}, errors.New("the catalog test never completes a sign-in")
 		})
 	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
 		c.TwoFactor.Mode = iam.TwoFactorDisabled
-		c.Identity.Providers = []authprovider.Provider{provider}
+		c.Identity.Providers = []provider.Provider{catalogIdP}
 		c.HTTP.APIPath = "/auth/custom"
 	}))
 	routes := routesOf(t, auth)

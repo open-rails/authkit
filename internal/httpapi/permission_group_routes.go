@@ -24,7 +24,7 @@ var groupScopeCodes = map[error]errmodel.Code{iam.ErrGroupNotFound: errmodel.Cod
 // prefix-neutral RouteSpecs, rate-limited by their bucket, language-wrapped and
 // gated by their tier.
 func (s *Service) PermissionGroupRoutes() []RouteSpec {
-	if s == nil || s.svc == nil || s.verifier == nil {
+	if s == nil || s.svc == nil {
 		return nil
 	}
 	lang := func(h http.Handler) http.Handler { return LanguageMiddleware(s.langCfg)(h) }

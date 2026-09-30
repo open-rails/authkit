@@ -144,26 +144,26 @@ func TestSecurityEnrollmentTokenOutsideMiddleware(t *testing.T) {
 	enrollment := body.Error.Metadata.TokenSet.AccessToken
 	require.NotEmpty(t, enrollment)
 
-	_, err = h.auth.Verifier().Verify(ctx, enrollment)
+	_, err = h.auth.Verify(ctx, enrollment)
 	require.Error(t, err, "Verify accepted an enrollment-only token")
 	// The token is genuine: the exempt enrollment route reads its claims.
 	r := httptest.NewRequest(http.MethodGet, apiPrefix+"/user/2fa", nil)
 	r.Header.Set("Authorization", "Bearer "+enrollment)
-	cl, err := h.auth.Verifier().VerifyRequest(r)
+	cl, err := h.auth.VerifyRequest(r)
 	require.NoError(t, err)
 	require.True(t, cl.TwoFAEnrollment)
 	_, ok := verify.ActorFromClaims(cl)
 	require.False(t, ok, "an enrollment token became an actor")
-	allowed, err := verify.Allow(ctx, h.auth, cl, ident.Perm("root:audit:read"), iam.RootGroup())
+	allowed, err := allow(ctx, h.auth, cl, ident.Perm("root:audit:read"), iam.RootGroup())
 	require.NoError(t, err)
 	require.False(t, allowed, "an enrollment token used the MFA-required role")
 
 	t.Run("control: a full token of a role holder is allowed", func(t *testing.T) {
 		admin := h.newAccount("fulltoken")
 		h.grant(iam.RootGroup(), admin, "moderator")
-		cl, err := h.auth.Verifier().Verify(ctx, h.login(admin).AccessToken)
+		cl, err := h.auth.Verify(ctx, h.login(admin).AccessToken)
 		require.NoError(t, err)
-		allowed, err := verify.Allow(ctx, h.auth, cl, iam.PermRootUsersBan, iam.RootGroup())
+		allowed, err := allow(ctx, h.auth, cl, iam.PermRootUsersBan, iam.RootGroup())
 		require.NoError(t, err)
 		require.True(t, allowed)
 	})

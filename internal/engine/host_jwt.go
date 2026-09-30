@@ -7,13 +7,10 @@ import (
 	"strings"
 	"time"
 
-	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/internal/jose"
+	"github.com/open-rails/authkit/keys"
 )
-
-// serviceJWTType is the JOSE typ header of minted service JWTs.
-const serviceJWTType = "service+jwt"
 
 // MintServiceJWT signs a short-lived service JWT with this deployment's key.
 // It stamps token_use=service and grants nothing AuthKit enforces.
@@ -25,7 +22,7 @@ func (s *Engine) MintServiceJWT(ctx context.Context, opts iam.ServiceJWT) (iam.T
 	return mintServiceJWT(ctx, signer, strings.TrimSpace(s.cfg.Token.Issuer), opts)
 }
 
-func mintServiceJWT(ctx context.Context, signer jwtkit.Signer, issuer string, opts iam.ServiceJWT) (iam.Token, iam.ServiceJWTClaims, error) {
+func mintServiceJWT(ctx context.Context, signer keys.Signer, issuer string, opts iam.ServiceJWT) (iam.Token, iam.ServiceJWTClaims, error) {
 	if signer == nil {
 		return iam.Token{}, iam.ServiceJWTClaims{}, iam.ErrSigningNotConfigured
 	}
@@ -58,7 +55,7 @@ func mintServiceJWT(ctx context.Context, signer jwtkit.Signer, issuer string, op
 	}
 	exp := now.Add(lifetime)
 
-	claims := jwt.MapClaims{
+	claims := map[string]any{
 		"iss":         issuer,
 		"sub":         subject,
 		"aud":         audiences,
@@ -69,7 +66,7 @@ func mintServiceJWT(ctx context.Context, signer jwtkit.Signer, issuer string, op
 		"token_use":   iam.ServiceJWTTokenUse,
 		"permissions": permissions,
 	}
-	token, err := jwtkit.SignWithType(ctx, signer, claims, serviceJWTType, false)
+	token, err := jose.Sign(ctx, signer, jose.ServiceJWTType, claims)
 	if err != nil {
 		return iam.Token{}, iam.ServiceJWTClaims{}, err
 	}

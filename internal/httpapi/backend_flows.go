@@ -10,7 +10,7 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/oidcstate"
 	"github.com/open-rails/authkit/internal/siws"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/keys"
 )
 
 // flowsBackend is the login, registration, 2FA, passkey, SIWS, OIDC,
@@ -50,7 +50,7 @@ type flowsBackend interface {
 	HasEmailSender() bool
 	HasPassword(ctx context.Context, userID string) (bool, error)
 	HasProviderLink(ctx context.Context, userID, issuer, providerSlug string) (bool, error)
-	JWKS() jwtkit.JWKS
+	JWKS() keys.JWKS
 	LinkSolanaWallet(ctx context.Context, userID string, output siws.SignInOutput) error
 	ListPasskeys(ctx context.Context, userID string) ([]authflow.Passkey, error)
 	LogSessionFailed(ctx context.Context, userID string, sessionID string, reason *string, ip *string, ua *string)

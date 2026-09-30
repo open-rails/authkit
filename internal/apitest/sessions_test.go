@@ -19,6 +19,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/internal/testclock"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/verify"
@@ -43,10 +44,20 @@ func (*queryCounter) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEnd
 // claimsEcho is a host's protected resource: it answers 200 when the
 // middleware in front of it handed it claims.
 var claimsEcho = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-	if _, err := verify.GetClaims(r.Context()); err != nil {
+	if _, ok := verify.ClaimsFromContext(r.Context()); !ok {
 		http.Error(w, "no claims", http.StatusInternalServerError)
 	}
 })
+
+// verifiedClaims verifies token with auth and returns its raw claims.
+func verifiedClaims(t testing.TB, auth *authkit.Client, token string) map[string]any {
+	t.Helper()
+	_, err := auth.Verify(t.Context(), token)
+	require.NoError(t, err)
+	_, claims, ok := jose.Unverified(token)
+	require.True(t, ok)
+	return claims
+}
 
 // refreshSession redeems refreshToken at POST /token, reporting failures
 // instead of failing the test, so racing goroutines may call it.
@@ -127,11 +138,9 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 	login := func(t *testing.T, s site, u authtest.User) *session {
 		t.Helper()
 		tokens := authtest.SignIn(t, s.auth, u)
-		claims, err := s.auth.Verifier().VerifyClaims(ctx, tokens.AccessToken)
-		require.NoError(t, err)
-		exp, err := claims.GetExpirationTime()
-		require.NoError(t, err)
-		return &session{TokenSet: tokens, exp: exp.Time}
+		exp, ok := jose.Time(verifiedClaims(t, s.auth, tokens.AccessToken), "exp")
+		require.True(t, ok)
+		return &session{TokenSet: tokens, exp: exp}
 	}
 	// refresh rotates s in place and reports the status.
 	refresh := func(t *testing.T, at site, s *session) int {
@@ -214,8 +223,8 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		}
 		// The sibling site's hour-long token keeps the stateless assertion from
 		// passing merely because the short site-A token expired.
-		ordinary(t, verify.Required(siteB.auth.Verifier()), victimB.AccessToken)
-		ordinary(t, verify.Optional(siteB.auth.Verifier()), victimB.AccessToken)
+		ordinary(t, verify.Required(siteB.auth), victimB.AccessToken)
+		ordinary(t, verify.Optional(siteB.auth), victimB.AccessToken)
 		if time.Now().Before(victimA.exp) {
 			require.Equal(t, http.StatusOK, a.get("/me", victimA.AccessToken).status, "stateless routes still accept it before exp")
 		}
@@ -299,7 +308,7 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		require.Equal(t, http.StatusForbidden, res.status, res.String())
 		authtest.GrantRole(t, auth, iam.RootGroup(), iam.UserSubject(staff.ID), staffRole)
 		// The same credential remains valid on ordinary application routes.
-		ordinary(t, verify.Required(siteB.auth.Verifier()), elevated.AccessToken)
+		ordinary(t, verify.Required(siteB.auth), elevated.AccessToken)
 		deleted, err := auth.DeleteUsers(ctx, iam.SystemActor(), []string{staff.ID})
 		require.NoError(t, err)
 		require.NoError(t, deleted[0].Err)
@@ -474,9 +483,7 @@ func TestTokenEntitlementAllowlist(t *testing.T) {
 	ctx := t.Context()
 	claimsOf := func(t *testing.T, auth *authkit.Client, token string) map[string]any {
 		t.Helper()
-		claims, err := auth.Verifier().VerifyClaims(ctx, token)
-		require.NoError(t, err)
-		return claims
+		return verifiedClaims(t, auth, token)
 	}
 	input := []string{"premium", "lifetime", "premium"}
 	selecting := authtest.Replica(t, auth, authtest.WithConfig(func(c *authkit.Config) { c.Token.EntitlementAllowlist = input }))

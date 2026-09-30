@@ -23,11 +23,13 @@ import (
 
 	"github.com/open-rails/authkit"
 	authkitgin "github.com/open-rails/authkit/adapters/gin"
-	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/internal/testdb"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/internal/testkeys"
+	"github.com/open-rails/authkit/keys"
+	"github.com/open-rails/authkit/provider"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -662,14 +664,14 @@ func publicKeyPEM(t testing.TB, pub crypto.PublicKey) string {
 // remoteApplicationToken is an application's own access token, signed with
 // its key: no subject, the apitest audience. A non-nil perms narrows the
 // application's stored authority.
-func remoteApplicationToken(t testing.TB, signer jwtkit.Signer, issuer string, perms []string) string {
+func remoteApplicationToken(t testing.TB, signer keys.Signer, issuer string, perms []string) string {
 	t.Helper()
 	now := time.Now()
 	claims := jwt.MapClaims{"iss": issuer, "aud": []string{authtest.Audience}, "iat": now.Unix(), "exp": now.Add(time.Minute).Unix()}
 	if perms != nil {
 		claims["permissions"] = perms
 	}
-	token, err := jwtkit.SignWithType(context.Background(), signer, claims, jwtkit.RemoteApplicationAccessTokenType, true)
+	token, err := jose.Sign(context.Background(), signer, jose.RemoteApplicationAccessTokenType, claims)
 	require.NoError(t, err)
 	return token
 }
@@ -685,11 +687,10 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 	ownerToken := authtest.SignIn(t, auth, owner).AccessToken
 	group := newGroup(t, auth, m.org.Persona, owner.ID)
 	other := newGroup(t, auth, m.org.Persona, owner.ID)
-	signer, err := jwtkit.NewRSASigner(2048, "remote-owner")
-	require.NoError(t, err)
+	signer := testkeys.RSA("remote-owner")
 	app, err := auth.UpsertRemoteApplication(ctx, iam.SystemActor(), group, iam.RemoteApplication{
 		Slug: "operable-owner", Issuer: "https://operable-owner.test", Enabled: true,
-		PublicKeys: []iam.RemoteApplicationKey{{KID: signer.KID(), PublicKeyPEM: publicKeyPEM(t, signer.PublicKey())}},
+		PublicKeys: []iam.RemoteApplicationKey{{KID: signer.KID(), PublicKeyPEM: publicKeyPEM(t, signer.Public())}},
 	})
 	require.NoError(t, err)
 	authtest.GrantRole(t, auth, group, iam.RemoteApplicationSubject(app.ID), m.org.Owner)
@@ -700,7 +701,7 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 	token := mint(nil)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
-	verified, err := auth.Verifier().VerifyRequest(req)
+	verified, err := auth.VerifyRequest(req)
 	require.NoError(t, err)
 	// Verification is not a lease on database authority: a change between
 	// verification and mutation must be seen inside the mutation transaction.
@@ -714,7 +715,7 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 	require.ErrorIs(t, assign(auth, actor, other, iam.UserSubject(peer.ID), m.member), iam.ErrInsufficientAuthority)
 	require.ErrorIs(t, assign(auth, actor.Within(m.catalog), group, iam.UserSubject(peer.ID), m.member), iam.ErrInsufficientAuthority)
 	forged := verified
-	forged.TokenType = verify.APIKeyPrincipalType
+	forged.Kind = iam.ActorAPIKey
 	_, ok = verify.ActorFromClaims(forged)
 	require.False(t, ok)
 	_, err = auth.AssignGroupRoles(ctx, iam.Actor{}, group, []iam.Subject{iam.UserSubject(peer.ID)}, m.member)
@@ -743,8 +744,8 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 	call(http.MethodGet, members, nil, token, http.StatusOK)
 	call(http.MethodPost, members, map[string]string{"email": "unregistered@example.test", "role": "member"}, token, http.StatusForbidden)
 	// Sender metadata on a delegated credential is never app-self authority.
-	delegated, err := signer.SignWithHeaders(ctx, jwt.MapClaims{"iss": app.Issuer, "aud": []string{authtest.Audience}, "exp": time.Now().Add(time.Minute).Unix(),
-		"delegated_sub": "external-customer", "permissions": []string{m.org.All().String()}}, map[string]any{"typ": jwtkit.DelegatedAccessTokenType})
+	delegated, err := jose.Sign(ctx, signer, jose.DelegatedAccessTokenType, jwt.MapClaims{"iss": app.Issuer, "aud": []string{authtest.Audience}, "exp": time.Now().Add(time.Minute).Unix(),
+		"delegated_sub": "external-customer", "permissions": []string{m.org.All().String()}})
 	require.NoError(t, err)
 	res := a.do(request{method: http.MethodPut, path: base + owner.ID + "/roles/owner", token: delegated})
 	require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, res.status, res.String())
@@ -791,7 +792,7 @@ func TestSoftDeleteGroupRetainsStateAndReleasesOwner(t *testing.T) {
 	require.NoError(t, err)
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/channel", nil)
 	req.Header.Set("Authorization", "Bearer "+secret)
-	principal, err := slot.Verifier().AuthenticateRequest(ctx, req)
+	principal, err := slot.AuthenticateRequest(ctx, req)
 	require.NoError(t, err)
 	checker := principal.(hostauth.PermissionChecker)
 	scope := hostauth.Scope{Authority: authtest.Issuer, ID: group.ID()}
@@ -815,7 +816,7 @@ func TestSoftDeleteGroupRetainsStateAndReleasesOwner(t *testing.T) {
 	allowed, err = checker.Can(ctx, scope, postsRead.String())
 	require.NoError(t, err)
 	require.False(t, allowed, "captured machine principal must observe retirement without another proof")
-	_, err = slot.Verifier().AuthenticateRequest(ctx, req)
+	_, err = slot.AuthenticateRequest(ctx, req)
 	require.Error(t, err, "retired group's API key is unusable on subsequent requests")
 	require.ErrorIs(t, assign(slot, iam.SystemActor(), group, iam.UserSubject(peer.ID), reader), iam.ErrGroupNotFound)
 	_, _, err = slot.MintAPIKey(ctx, iam.SystemActor(), group, iam.NewAPIKey{Name: "forbidden", Role: reader})
@@ -842,7 +843,7 @@ func TestSoftDeleteGroupRetainsStateAndReleasesOwner(t *testing.T) {
 		group := newGroup(t, auth, channel.Persona, owner.ID)
 		req := httptest.NewRequest(http.MethodGet, "https://example.com/channel/"+group.ID(), nil)
 		req.Header.Set("Authorization", "Bearer "+token)
-		principal, err := auth.Verifier().AuthenticateRequest(ctx, req)
+		principal, err := auth.AuthenticateRequest(ctx, req)
 		require.NoError(t, err)
 		checker := principal.(hostauth.PermissionChecker)
 		scope := hostauth.Scope{Authority: authtest.Issuer, ID: group.ID()}
@@ -908,7 +909,7 @@ func TestRuntimeRequestPrincipalUsesLiveAuthority(t *testing.T) {
 	u := authtest.NewUser(t, auth)
 	req := httptest.NewRequest(http.MethodGet, "https://resource.example/account", nil)
 	req.Header.Set("Authorization", "Bearer "+authtest.SignIn(t, auth, u).AccessToken)
-	principal, err := auth.Verifier().AuthenticateRequest(ctx, req)
+	principal, err := auth.AuthenticateRequest(ctx, req)
 	require.NoError(t, err)
 	require.Equal(t, u.ID, principal.Identity().Subject)
 	checker := principal.(hostauth.PermissionChecker)
@@ -935,7 +936,7 @@ func TestCapabilitiesAndRootMembershipDiscovery(t *testing.T) {
 		c.Roles = rbac
 		c.TwoFactor.Mode = iam.TwoFactorDisabled
 		c.Registration.Verification = iam.RegistrationVerificationNone
-		c.Identity.Providers = []authprovider.Provider{authprovider.Google("google-client", "secret"), authprovider.Discord("discord-client", "secret")}
+		c.Identity.Providers = []provider.Provider{provider.Google("google-client", "secret"), provider.Discord("discord-client", "secret")}
 	}))
 	a := newAPI(t, auth)
 	caps := a.get("/capabilities", "")
@@ -983,7 +984,7 @@ func TestCapabilitiesAndRootMembershipDiscovery(t *testing.T) {
 		return list.Data
 	}
 	require.Empty(t, groups(alice.AccessToken, ""))
-	claims, err := auth.Verifier().Verify(t.Context(), alice.AccessToken)
+	claims, err := auth.Verify(t.Context(), alice.AccessToken)
 	require.NoError(t, err)
 	authtest.GrantRole(t, auth, iam.RootGroup(), iam.UserSubject(claims.UserID), reader)
 	got := groups(alice.AccessToken, "")

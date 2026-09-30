@@ -118,7 +118,7 @@ func TestAccountRecoveryPasswordConfirmationBoundary(t *testing.T) {
 	remove()
 	expect(t, http.StatusUnauthorized, a.post("/password/login", "", map[string]string{"identifier": user.Email, "password": "wrong"}))
 	token := proof()
-	_, err := auth.Verifier().VerifyClaims(ctx, token)
+	_, err := auth.Verify(ctx, token)
 	require.Error(t, err, "recovery proof cannot authenticate as a normal access token")
 	deleted, err := auth.User(ctx, iam.UserByID(user.ID), iam.IncludeDeleted())
 	require.NoError(t, err)
@@ -193,7 +193,7 @@ func TestStaffAccountRestoreHTTPRequiresCurrentAuthority(t *testing.T) {
 		t.Helper()
 		res := expect(t, http.StatusAccepted, a.post("/register", "", map[string]any{"identifier": name + "@example.test", "username": name, "password": "Correct-horse-account-recovery-1"}))
 		tokens := res.answer(t).Nested
-		claims, err := auth.Verifier().Verify(ctx, tokens.AccessToken)
+		claims, err := auth.Verify(ctx, tokens.AccessToken)
 		require.NoError(t, err)
 		return tokens, claims.UserID
 	}

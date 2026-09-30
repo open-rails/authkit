@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"net/http"
 	"time"
 
 	"github.com/open-rails/authkit/iam"
@@ -12,6 +13,9 @@ import (
 // sessionsBackend is session, token and device-key management, and the live
 // session gates.
 type sessionsBackend interface {
+	// VerifyRequest authenticates AuthKit's own routes (verify.Authenticator).
+	VerifyRequest(r *http.Request) (verify.Claims, error)
+	AddMFAEnrollmentExemptRoutes(paths []string)
 	CheckSession(ctx context.Context, cl verify.Claims) error
 	CheckRecentSignIn(ctx context.Context, cl verify.Claims) error
 	StepUpRequired(ctx context.Context, userID string) error

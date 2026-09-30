@@ -6,11 +6,10 @@ import (
 
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
-	"github.com/open-rails/authkit/verify"
 )
 
 func (s *Service) handleUserSessionsGET(w http.ResponseWriter, r *http.Request) {
-	cl, err := verify.GetClaims(r.Context())
+	cl, err := callerClaims(r)
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
 		fail(w, errmodel.CodeUnauthenticated)
 		return
@@ -36,7 +35,7 @@ func (s *Service) handleUserSessionsGET(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Service) handleUserSessionDELETE(w http.ResponseWriter, r *http.Request) {
-	cl, err := verify.GetClaims(r.Context())
+	cl, err := callerClaims(r)
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
 		fail(w, errmodel.CodeUnauthenticated)
 		return
@@ -55,7 +54,7 @@ func (s *Service) handleUserSessionDELETE(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Service) handleUserSessionsDELETE(w http.ResponseWriter, r *http.Request) {
-	cl, err := verify.GetClaims(r.Context())
+	cl, err := callerClaims(r)
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
 		fail(w, errmodel.CodeUnauthenticated)
 		return

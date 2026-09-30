@@ -3,9 +3,9 @@ package authflow
 import (
 	"time"
 
-	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/password"
+	"github.com/open-rails/authkit/provider"
 )
 
 // Settings is the normalized engine configuration the HTTP layer reads,
@@ -23,7 +23,7 @@ type Settings struct {
 	DeviceKeys              bool
 	PasswordlessLogin       bool
 	SolanaNetwork           iam.SolanaNetwork
-	Providers               []authprovider.Provider
+	Providers               []provider.Provider
 
 	FrontendBaseURL string
 	OIDCReturnPath  string

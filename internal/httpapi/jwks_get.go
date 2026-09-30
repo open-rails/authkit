@@ -3,7 +3,7 @@ package httpapi
 import (
 	"net/http"
 
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/internal/jose"
 )
 
 // JWKSHandler returns a handler for GET /.well-known/jwks.json. The key set is
@@ -11,6 +11,6 @@ import (
 // immediately (ak#392).
 func (s *Service) JWKSHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		jwtkit.ServeJWKS(w, r, s.svc.JWKS())
+		jose.ServeJWKS(w, r, s.svc.JWKS())
 	})
 }

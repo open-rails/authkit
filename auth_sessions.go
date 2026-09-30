@@ -41,12 +41,18 @@ func (a *Client) MintAccessToken(ctx context.Context, userID string, o iam.Acces
 	return a.engine.MintAccessToken(ctx, userID, o)
 }
 
-// CheckRecentSignIn is the gate verify.Sensitive applies, for callers holding
+// CheckSession is the gate verify.RequireSession applies, for callers holding
 // verified claims: nil when the session or device key cl was minted from is
-// still active and signed in within the last 15 minutes, with its second
-// factor when the account has one. Otherwise it is iam.ErrSessionRevoked,
-// step_up_required (its metadata lists the account's step-up methods), or
-// forbidden for a credential that is not a user's.
+// still active, else iam.ErrSessionRevoked, or forbidden for a credential
+// that is not a user's.
+func (a *Client) CheckSession(ctx context.Context, cl verify.Claims) error {
+	return a.engine.CheckSession(ctx, cl)
+}
+
+// CheckRecentSignIn is the gate verify.Sensitive applies: CheckSession, and
+// signed in within the last 15 minutes, with the second factor when the
+// account has one; otherwise step_up_required (its metadata lists the
+// account's step-up methods).
 func (a *Client) CheckRecentSignIn(ctx context.Context, cl verify.Claims) error {
 	return a.engine.CheckRecentSignIn(ctx, cl)
 }

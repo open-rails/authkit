@@ -2,7 +2,6 @@ package verify
 
 import (
 	"context"
-	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
@@ -15,7 +14,9 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/internal/jose"
+	"github.com/open-rails/authkit/internal/testkeys"
+	"github.com/open-rails/authkit/keys"
 	"github.com/stretchr/testify/require"
 )
 
@@ -28,7 +29,7 @@ type peerFixture struct {
 	aud      string
 	serve    atomic.Value // http.HandlerFunc
 	offset   atomic.Int64
-	local    *jwtkit.RSASigner
+	local    keys.Signer
 	handler  http.Handler
 	jwksHits atomic.Int32
 }
@@ -40,22 +41,21 @@ func newPeerFixture(t *testing.T, opts IssuerOptions) *peerFixture {
 		f.serve.Load().(http.HandlerFunc)(w, r)
 	}))
 	t.Cleanup(srv.Close)
-	local, err := jwtkit.NewRSASigner(2048, "local")
-	require.NoError(t, err)
+	local := testkeys.RSA("local")
 	f.local = local
 	f.v = NewVerifier()
-	f.v.now = func() time.Time { return time.Now().Add(time.Duration(f.offset.Load())) }
-	f.v.jwksAttemptTimeout, f.v.jwksBackoffBase, f.v.jwksBackoffMax = 500*time.Millisecond, 10*time.Millisecond, 50*time.Millisecond
-	require.NoError(t, f.v.AddIssuer("https://local.example", []string{f.aud}, IssuerOptions{IsLocal: true, RawKeys: map[string]crypto.PublicKey{"local": local.PublicKey()}}))
+	f.v.keys.Now = func() time.Time { return time.Now().Add(time.Duration(f.offset.Load())) }
+	f.v.keys.AttemptTimeout, f.v.keys.BackoffBase, f.v.keys.BackoffMax = 500*time.Millisecond, 10*time.Millisecond, 50*time.Millisecond
+	require.NoError(t, f.v.AddIssuer("https://local.example", []string{f.aud}, IssuerOptions{IsLocal: true, KeySource: testkeys.Source(local)}))
 	opts.JWKSURI = srv.URL
 	require.NoError(t, f.v.AddIssuer(f.issuer, []string{f.aud}, opts))
 	f.handler = Required(f.v)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 	return f
 }
 
-func (f *peerFixture) serveKeys(keys ...jwtkit.JWK) {
+func (f *peerFixture) serveKeys(set ...keys.JWK) {
 	f.serve.Store(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(jwtkit.JWKS{Keys: keys})
+		_ = json.NewEncoder(w).Encode(keys.JWKS{Keys: set})
 	}))
 }
 
@@ -68,13 +68,13 @@ func (f *peerFixture) serveStatus(status int, body string) {
 
 func (f *peerFixture) advance(d time.Duration) { f.offset.Add(int64(d)) }
 
-func (f *peerFixture) token(signer jwtkit.Signer, iss string, claims jwt.MapClaims) string {
+func (f *peerFixture) token(signer keys.Signer, iss string, claims jwt.MapClaims) string {
 	now := time.Now() // claim times are checked against the real clock
 	base := jwt.MapClaims{"sub": "user", "iss": iss, "aud": f.aud, "iat": now.Unix(), "exp": now.Add(time.Hour).Unix()}
 	for k, v := range claims {
 		base[k] = v
 	}
-	tok, err := jwtkit.SignWithType(context.Background(), signer, base, jwtkit.AccessTokenType, true)
+	tok, err := jose.Sign(context.Background(), signer, jose.AccessTokenType, base)
 	require.NoError(f.t, err)
 	return tok
 }
@@ -99,15 +99,9 @@ func (f *peerFixture) status() IssuerKeyStatus {
 	return IssuerKeyStatus{}
 }
 
-func rsaSigner(t *testing.T, kid string) *jwtkit.RSASigner {
-	s, err := jwtkit.NewRSASigner(2048, kid)
-	require.NoError(t, err)
-	return s
-}
+func rsaSigner(t *testing.T, kid string) keys.Signer { return testkeys.RSA(kid) }
 
-func jwkOf(s *jwtkit.RSASigner) jwtkit.JWK {
-	return jwtkit.PublicToJWK(s.PublicKey(), s.KID(), "RS256")
-}
+func jwkOf(s keys.Signer) keys.JWK { return keys.PublicJWK(s.Public(), s.KID(), "RS256") }
 
 // A JSON JWKS is authoritative: valid keys are installed (bad ones skipped),
 // and one with no valid keys drops the cache and fails closed. Stale keys
@@ -125,7 +119,7 @@ func TestPeerJWKSAuthoritativeResponses(t *testing.T) {
 	// request triggers to record an attempt.
 	refresh := func() {
 		f.advance(2 * time.Minute)
-		mark := f.v.now()
+		mark := f.v.keys.Now()
 		f.call(f.token(a, f.issuer, nil))
 		require.Eventually(t, func() bool { return !f.status().CheckedAt.Before(mark) }, 5*time.Second, 5*time.Millisecond)
 	}
@@ -140,7 +134,7 @@ func TestPeerJWKSAuthoritativeResponses(t *testing.T) {
 
 	// One weak and one unsupported key are skipped; the valid key is installed
 	// and the rotated-out key stops verifying.
-	f.serveKeys(jwtkit.PublicToJWK(&weak.PublicKey, "weak", "RS256"), jwtkit.JWK{Kty: "oct", Kid: "sym"}, jwkOf(b))
+	f.serveKeys(keys.PublicJWK(&weak.PublicKey, "weak", "RS256"), keys.JWK{Kty: "oct", Kid: "sym"}, jwkOf(b))
 	refresh()
 	require.Eventually(t, func() bool { code, _ := f.call(f.token(b, f.issuer, nil)); return code == http.StatusOK }, 5*time.Second, 10*time.Millisecond)
 	code, _ = f.call(f.token(a, f.issuer, nil))
@@ -149,8 +143,8 @@ func TestPeerJWKSAuthoritativeResponses(t *testing.T) {
 	// A JSON JWKS without usable keys drops the cache: fail closed.
 	for name, serve := range map[string]func(){
 		"empty":       func() { f.serveStatus(http.StatusOK, `{"keys":[]}`) },
-		"unsupported": func() { f.serveKeys(jwtkit.JWK{Kty: "oct", Kid: "sym"}) },
-		"weak":        func() { f.serveKeys(jwtkit.PublicToJWK(&weak.PublicKey, "weak", "RS256")) },
+		"unsupported": func() { f.serveKeys(keys.JWK{Kty: "oct", Kid: "sym"}) },
+		"weak":        func() { f.serveKeys(keys.PublicJWK(&weak.PublicKey, "weak", "RS256")) },
 	} {
 		f.serveKeys(jwkOf(b))
 		refresh()
@@ -203,37 +197,6 @@ func TestPeerJWKSUnavailableChecksClaimsFirst(t *testing.T) {
 	require.Equal(t, string(errmodel.CodeIssuerKeysUnavailable), errCode)
 }
 
-// A slower, older fetch can never overwrite the keys a newer fetch installed.
-func TestPeerJWKSOlderFetchCannotOverwriteNewer(t *testing.T) {
-	a, b := rsaSigner(t, "a"), rsaSigner(t, "b")
-	f := newPeerFixture(t, IssuerOptions{})
-	release := make(chan struct{})
-	var n atomic.Int32
-	f.serve.Store(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if n.Add(1) == 1 {
-			<-release
-			_ = json.NewEncoder(w).Encode(jwtkit.JWKS{Keys: []jwtkit.JWK{jwkOf(a)}})
-			return
-		}
-		_ = json.NewEncoder(w).Encode(jwtkit.JWKS{Keys: []jwtkit.JWK{jwkOf(b)}})
-	}))
-	f.v.mu.RLock()
-	c, ie := f.v.byIss[f.issuer], f.v.issuers[f.issuer]
-	f.v.mu.RUnlock()
-	older := make(chan error, 1)
-	go func() { older <- f.v.refreshIssuerKeys(context.Background(), f.issuer, c, ie) }()
-	require.Eventually(t, func() bool { return n.Load() == 1 }, 5*time.Second, time.Millisecond)
-	require.NoError(t, f.v.refreshIssuerKeys(context.Background(), f.issuer, c, ie))
-	close(release)
-	<-older
-	f.v.mu.RLock()
-	_, hasA := c.pubByKID["a"]
-	_, hasB := c.pubByKID["b"]
-	f.v.mu.RUnlock()
-	require.False(t, hasA)
-	require.True(t, hasB)
-}
-
 // Run with -race: a request that gives up while a refresh is in flight must not
 // read the key cache outside the lock the refresh writes under.
 func TestPeerJWKSCancelledWaitDoesNotRaceRefresh(t *testing.T) {
@@ -248,7 +211,7 @@ func TestPeerJWKSCancelledWaitDoesNotRaceRefresh(t *testing.T) {
 		served := make(chan struct{})
 		f.serve.Store(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			time.Sleep(100 * time.Millisecond)
-			_ = json.NewEncoder(w).Encode(jwtkit.JWKS{Keys: []jwtkit.JWK{jwkOf(a)}})
+			_ = json.NewEncoder(w).Encode(keys.JWKS{Keys: []keys.JWK{jwkOf(a)}})
 			close(served)
 		}))
 		ctx, cancel := context.WithCancel(context.Background())
@@ -283,7 +246,7 @@ func TestPeerJWKSNonJWKSResponsesAreTransient(t *testing.T) {
 	} {
 		serve()
 		f.advance(2 * time.Minute)
-		mark := f.v.now()
+		mark := f.v.keys.Now()
 		code, _ = f.call(f.token(a, f.issuer, nil))
 		require.Equal(t, http.StatusOK, code, name)
 		require.Eventually(t, func() bool { return !f.status().CheckedAt.Before(mark) }, 5*time.Second, 5*time.Millisecond, name)

@@ -11,6 +11,7 @@ import (
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
+	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
 )
 
@@ -25,7 +26,7 @@ func TestSecurityDeadCreatorCredentials(t *testing.T) {
 	h.grant(iam.RootGroup(), staff, "staff")
 	staffToken := h.login(staff).AccessToken
 	group, base := h.newOrg(founder)
-	gate := h.auth.Require(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	gate := verify.Required(h.auth)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
 	hostRoute := func(token string) int {
 		r := httptest.NewRequest(http.MethodGet, "https://host.security.test/orders", nil)
 		r.Header.Set("Authorization", "Bearer "+token)
@@ -115,7 +116,7 @@ func TestSecurityMFARequirementRevokesMachineCredentials(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, opErr(h.auth.AssignGroupRoles(ctx, iam.UserActor(owner.id), group, []iam.Subject{iam.RemoteApplicationSubject(app.ID)}, roleIn(t, h.auth, group, "member"))))
 	hostRoute := func(auth *authkit.Client, bearer string) int {
-		gate := auth.RequirePermissionOn(group, ident.Perm("org:catalog:read"))(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+		gate := verify.RequirePermissionOn(auth, group, ident.Perm("org:catalog:read"))(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
 		r := httptest.NewRequest(http.MethodGet, "https://host.security.test/catalog", nil)
 		r.Header.Set("Authorization", "Bearer "+bearer)
 		w := httptest.NewRecorder()

@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -39,6 +40,14 @@ func decodeOptionalJSON(r *http.Request, dst any) error {
 		return nil
 	}
 	return decodeJSON(r, dst)
+}
+
+// callerClaims is what the route's authentication stored.
+func callerClaims(r *http.Request) (verify.Claims, error) {
+	if cl, ok := verify.ClaimsFromContext(r.Context()); ok {
+		return cl, nil
+	}
+	return verify.Claims{}, errmodel.E(errmodel.CodeUnauthenticated)
 }
 
 // keepCredential is the session or device key presenting a credential

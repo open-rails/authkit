@@ -9,9 +9,8 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/internal/authflow"
-	"github.com/open-rails/authkit/verify"
 
-	"github.com/open-rails/authkit/authprovider"
+	"github.com/open-rails/authkit/provider"
 )
 
 // Service wraps the internal AuthKit engine with net/http mounting helpers.
@@ -19,17 +18,16 @@ type Service struct {
 	dpopRequestURL      func(*http.Request) string
 	svc                 Backend
 	settings            authflow.Settings
-	verifier            *verify.Verifier
 	rl                  RateLimiter
 	closers             []func() // background work stopped by Close (#305)
 	clientIP            ClientIPFunc
-	clientIPExplicit    bool                             // Config.ClientIP: host owns the strategy; proxy sets are not composed
-	directPeerIP        bool                             // Config.DirectPeerIP: host asserts no proxy in front (ak#299)
-	undeclaredProxyOnce sync.Once                        // one-shot tripwire: private peer carrying forwarded headers
-	unknownAddressOnce  sync.Once                        // one-shot tripwire: no client address at all
-	trustedProxies      []netip.Prefix                   // Config.TrustedProxies: X-Forwarded-For walk
-	cloudflareProxies   []netip.Prefix                   // Config.CloudflareProxies: + CF-Connecting-IP fallback
-	providers           map[string]authprovider.Provider // validated, keyed by Name()
+	clientIPExplicit    bool                         // Config.ClientIP: host owns the strategy; proxy sets are not composed
+	directPeerIP        bool                         // Config.DirectPeerIP: host asserts no proxy in front (ak#299)
+	undeclaredProxyOnce sync.Once                    // one-shot tripwire: private peer carrying forwarded headers
+	unknownAddressOnce  sync.Once                    // one-shot tripwire: no client address at all
+	trustedProxies      []netip.Prefix               // Config.TrustedProxies: X-Forwarded-For walk
+	cloudflareProxies   []netip.Prefix               // Config.CloudflareProxies: + CF-Connecting-IP fallback
+	providers           map[string]provider.Provider // validated, keyed by Name()
 	langCfg             *LanguageConfig
 }
 
@@ -148,10 +146,6 @@ func (s *Service) undeclaredProxyTripwire(r *http.Request, ip string) {
 // SMSAvailable reports whether phone-based flows should be offered (a sender is
 // configured and, if checked, found able to deliver).
 func (s *Service) SMSAvailable() bool { return s.svc.SMSAvailable() }
-
-// Verifier returns the server's token verifier. Required and Optional are
-// stateless; the session tier and permission checks check the session live.
-func (s *Service) Verifier() *verify.Verifier { return s.verifier }
 
 // Backend returns the engine the service drives.
 func (s *Service) Backend() Backend { return s.svc }

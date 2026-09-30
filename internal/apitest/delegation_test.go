@@ -33,8 +33,10 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/internal/testdpop"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/internal/testkeys"
+	"github.com/open-rails/authkit/keys"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -120,9 +122,9 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 	mu.Lock()
 	requestFacts := observed
 	mu.Unlock()
-	require.Equal(t, map[string]any{"jkt": jwtkit.CertificateThumbprint(*requestFacts.ConfirmationJWKThumbprintSHA256)}, claims["cnf"])
+	require.Equal(t, map[string]any{"jkt": requestFacts.JWKThumbprint}, claims["cnf"])
 	require.Nil(t, requestFacts.DelegateCertificate)
-	require.Equal(t, [32]byte{}, requestFacts.ConfirmationCertificateSHA256)
+	require.Empty(t, requestFacts.CertificateThumbprint)
 	require.Equal(t, u.ID, requestFacts.UserID)
 	require.Equal(t, []any{"resource:read"}, claims["permissions"])
 	require.Nil(t, claims["sub"])
@@ -147,16 +149,14 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, post(rewritten, body, session.AccessToken, proofFor(target, session.AccessToken), nil))
 	require.Equal(t, http.StatusOK, post(rewritten, body, session.AccessToken, proofFor(external, session.AccessToken), nil))
 
-	// A receiver owns trusted URLs; NewVerifier shares the Client's replay
+	// A receiver names its own origin; the Client's verifiers share its replay
 	// store, so one proof is spent once across every verifier.
-	var resource *httptest.Server
-	resourceURL := verify.WithDPoPRequestURL(func(r *http.Request) string { return resource.URL + r.URL.EscapedPath() })
-	verifier := auth.NewVerifier(resourceURL)
-	require.NoError(t, verifier.AddIssuer(authtest.Issuer, []string{"platform"}, verify.IssuerOptions{PublicKeys: keys.PublicKeys}))
 	resourceMux := http.NewServeMux()
+	resource := httptest.NewTLSServer(resourceMux)
+	verifier, err := auth.NewVerifier([]string{"platform"}, verify.WithRequestOrigin(resource.URL))
+	require.NoError(t, err)
 	resourceMux.Handle("/", delegatedResource(verifier))
 	resourceMux.Handle("/required", verify.Required(verifier)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })))
-	resource = httptest.NewTLSServer(resourceMux)
 	t.Cleanup(resource.Close)
 	call := func(scheme, token, proof, path string) int {
 		req, err := http.NewRequest(http.MethodGet, resource.URL+path, nil)
@@ -186,17 +186,16 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, call("DPoP", minted.Token, resourceProof(minted.Token), "/other"))
 	require.Equal(t, http.StatusUnauthorized, call("DPoP", minted.Token, testdpop.Proof(t, browserKey, http.MethodPost, resource.URL+"/tasks", minted.Token, nil), "/tasks"))
 	require.Equal(t, http.StatusUnauthorized, call("DPoP", minted.Token, testdpop.Proof(t, testdpop.Key(t), http.MethodGet, resource.URL+"/tasks", minted.Token, nil), "/tasks"))
-	_, err := verifier.Verify(ctx, minted.Token)
+	_, err = verifier.Verify(ctx, minted.Token)
 	require.ErrorIs(t, err, verify.ErrSenderProofRequired)
 	detached, err := auth.MintDelegatedAccessToken(ctx, iam.UserActor(u.ID), iam.DelegatedAccess{Audiences: []string{"platform"}, Permissions: []string{"resource:read"}})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusUnauthorized, call("DPoP", detached.Value, resourceProof(detached.Value), "/tasks"))
-	certHash := [32]byte{1}
-	_, err = auth.MintDelegatedAccessToken(ctx, iam.SystemActor(), iam.DelegatedAccess{Subject: u.ID, ConfirmationCertificateSHA256: &certHash, ConfirmationJWKThumbprintSHA256: requestFacts.ConfirmationJWKThumbprintSHA256})
+	_, err = auth.MintDelegatedAccessToken(ctx, iam.SystemActor(), iam.DelegatedAccess{Subject: u.ID, CertificateThumbprint: jose.CertificateThumbprint([]byte{1}), JWKThumbprint: requestFacts.JWKThumbprint})
 	require.Error(t, err)
 	oneProof := resourceProof(minted.Token)
-	secondVerifier := auth.NewVerifier(resourceURL)
-	require.NoError(t, secondVerifier.AddIssuer(authtest.Issuer, []string{"platform"}, verify.IssuerOptions{PublicKeys: keys.PublicKeys}))
+	secondVerifier, err := auth.NewVerifier([]string{"platform"}, verify.WithRequestOrigin(resource.URL))
+	require.NoError(t, err)
 	replayed := httptest.NewRequest(http.MethodGet, resource.URL+"/tasks", nil)
 	replayed.Header.Set("Authorization", "DPoP "+minted.Token)
 	replayed.Header.Set("DPoP", oneProof)
@@ -255,12 +254,12 @@ func (h *delegationHost) answer(grant iam.DelegationGrant, refuse error) {
 // rotates and beyond.
 func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	ctx := t.Context()
-	keys := newSwappableKeySource(t, "bound-kid-1")
+	keySource := newSwappableKeySource(t, "bound-kid-1")
 	delegate := newDelegateCertificate(t, nil)
 	grant := iam.DelegationGrant{Permissions: []string{"resource:read"}, Attributes: map[string]any{"entitlement": "pro"}}
 	host := &delegationHost{grant: grant}
 	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
-		c.Keys.Source = keys
+		c.Keys.Source = keySource
 		c.Delegated = authkit.DelegatedConfig{Audiences: []string{"tensorhub.net", "other.example"}}
 	}), authtest.WithDeps(func(d *authkit.Deps) { d.DelegatedAuthorization = host.authorize }))
 	a := newAPI(t, auth)
@@ -302,8 +301,8 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	require.Equal(t, u.ID, req.UserID)
 	require.Equal(t, []string{"tensorhub.net", "other.example"}, req.Audiences)
 	require.Equal(t, delegatedTTLDefault, req.TTL)
-	require.Equal(t, jwtkit.CertificateSHA256(delegate.Leaf.Raw), req.ConfirmationCertificateSHA256)
-	require.Equal(t, delegate.Leaf.Raw, req.DelegateCertificate.Raw)
+	require.Equal(t, jose.CertificateThumbprint(delegate.Leaf.Raw), req.CertificateThumbprint)
+	require.Equal(t, delegate.Leaf.Raw, req.DelegateCertificate)
 	require.JSONEq(t, testRequestedGrant, string(req.RequestedGrant))
 
 	claims := delegatedClaims(t, resp.Token)
@@ -311,7 +310,7 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	require.Nil(t, claims["sub"], "a delegated token never carries sub")
 	require.Equal(t, authtest.Issuer, claims["iss"])
 	require.ElementsMatch(t, []any{"tensorhub.net", "other.example"}, claims["aud"])
-	require.Equal(t, map[string]any{"x5t#S256": jwtkit.CertificateThumbprintSHA256(delegate.Leaf.Raw)}, claims["cnf"])
+	require.Equal(t, map[string]any{"x5t#S256": jose.CertificateThumbprint(delegate.Leaf.Raw)}, claims["cnf"])
 	require.Equal(t, []any{"resource:read"}, claims["permissions"])
 	attributes, ok := claims["attributes"].(map[string]any)
 	require.True(t, ok)
@@ -327,7 +326,7 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	require.NotEqual(t, firstJTI, delegatedClaims(t, mintOK(delegationBody(delegate, "")).Token)["jti"])
 
 	// ---- Resource server: real mTLS round trip with the real verifier. ----
-	signer := keys.ActiveSigner().(*jwtkit.RSASigner)
+	signer := keySource.ActiveSigner().(keys.Signer)
 	ver := delegatedVerifier(t, signer, authtest.Issuer, []string{"tensorhub.net"})
 	resource := mtlsResourceServer(t, ver)
 	status, body := callResource(t, resourceClient(t, resource, &delegate.TLS), resource.URL, resp.Token, nil)
@@ -359,7 +358,7 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	// Verification detached from its request fails closed.
 	_, err = ver.Verify(ctx, resp.Token)
 	require.ErrorIs(t, err, verify.ErrSenderProofRequired)
-	_, _, err = ver.VerifyDelegatedAccess(ctx, resp.Token)
+	_, err = ver.VerifyDelegatedAccess(ctx, resp.Token)
 	require.ErrorIs(t, err, verify.ErrSenderProofRequired)
 
 	// Wrong audience and wrong issuer fail closed even with the right leaf.
@@ -448,7 +447,7 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	require.Equal(t, u.ID, c["delegated_sub"])
 	require.Equal(t, authtest.Issuer, c["iss"])
 	require.NotEqual(t, "chosen", c["jti"])
-	require.Equal(t, map[string]any{"x5t#S256": jwtkit.CertificateThumbprintSHA256(delegate.Leaf.Raw)}, c["cnf"])
+	require.Equal(t, map[string]any{"x5t#S256": jose.CertificateThumbprint(delegate.Leaf.Raw)}, c["cnf"])
 	require.Less(t, int64(c["exp"].(float64)), int64(9999999999))
 	topLevel := mint(delegationBody(delegate, `"permissions":["root:*"]`), userToken)
 	require.Equal(t, http.StatusBadRequest, topLevel.status)
@@ -497,44 +496,42 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	// user's token from the old key keeps authenticating, the next mint signs
 	// with the new key and still verifies as a delegated principal over mTLS.
 	host.answer(iam.DelegationGrant{}, nil)
-	keys.rotate(t, "bound-kid-2")
+	keySource.rotate(t, "bound-kid-2")
 	rotated := mintOK(delegationBody(delegate, ""))
 	kid, err := tokenKID(rotated.Token)
 	require.NoError(t, err)
 	require.Equal(t, "bound-kid-2", kid)
-	rotatedResource := mtlsResourceServer(t, delegatedVerifier(t, keys.ActiveSigner().(*jwtkit.RSASigner), authtest.Issuer, []string{"tensorhub.net"}))
+	rotatedResource := mtlsResourceServer(t, delegatedVerifier(t, keySource.ActiveSigner().(keys.Signer), authtest.Issuer, []string{"tensorhub.net"}))
 	status, body = callResource(t, resourceClient(t, rotatedResource, &delegate.TLS), rotatedResource.URL, rotated.Token, nil)
 	require.Equal(t, http.StatusOK, status, body)
 	require.Contains(t, body, u.ID)
 }
 
-// swappableKeySource is a live jwtkit.KeySource whose active signer rotates
+// swappableKeySource is a live keys.Source whose active signer rotates
 // mid-test while every earlier public key stays served, as JWKS does during
 // a rotation.
 type swappableKeySource struct {
 	mu     sync.Mutex
-	active *jwtkit.RSASigner
+	active keys.Signer
 	pubs   map[string]crypto.PublicKey
 }
 
 func newSwappableKeySource(t *testing.T, kid string) *swappableKeySource {
 	t.Helper()
-	signer, err := jwtkit.NewRSASigner(2048, kid)
-	require.NoError(t, err)
-	return &swappableKeySource{active: signer, pubs: map[string]crypto.PublicKey{kid: signer.PublicKey()}}
+	signer := testkeys.RSA(kid)
+	return &swappableKeySource{active: signer, pubs: map[string]crypto.PublicKey{kid: signer.Public()}}
 }
 
 func (s *swappableKeySource) rotate(t *testing.T, kid string) {
 	t.Helper()
-	signer, err := jwtkit.NewRSASigner(2048, kid)
-	require.NoError(t, err)
+	signer := testkeys.RSA(kid)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.active = signer
-	s.pubs[kid] = signer.PublicKey()
+	s.pubs[kid] = signer.Public()
 }
 
-func (s *swappableKeySource) ActiveSigner() jwtkit.Signer {
+func (s *swappableKeySource) ActiveSigner() keys.Signer {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.active
@@ -620,29 +617,31 @@ func tokenKID(token string) (string, error) {
 }
 
 // delegatedVerifier is a resource server's Verifier trusting one issuer key.
-func delegatedVerifier(t *testing.T, signer *jwtkit.RSASigner, iss string, aud []string) *verify.Verifier {
+func delegatedVerifier(t *testing.T, signer keys.Signer, iss string, aud []string) *verify.Verifier {
 	t.Helper()
 	v := verify.NewVerifier()
-	require.NoError(t, v.AddIssuer(iss, aud, verify.IssuerOptions{RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()}}))
+	require.NoError(t, v.AddIssuer(iss, aud, verify.IssuerOptions{KeySource: testkeys.Source(signer)}))
 	return v
 }
 
 // delegatedResource authenticates with ver and echoes the delegated principal.
-func delegatedResource(ver *verify.Verifier) http.Handler {
+func delegatedResource(ver verify.Authenticator) http.Handler {
 	return verify.Required(ver)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cl, _ := verify.ClaimsFromContext(r.Context())
-		principal, _ := cl.DelegatedAccess()
+		if cl.Kind != iam.ActorDelegated {
+			cl = verify.Claims{}
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"delegated_sub": principal.DelegatedSubject,
-			"permissions":   principal.Permissions,
-			"bound":         principal.ConfirmationCertificateSHA256 != nil,
+			"delegated_sub": cl.DelegatedSubject,
+			"permissions":   cl.Permissions,
+			"bound":         cl.CertificateThumbprint != "",
 		})
 	}))
 }
 
 // mtlsResourceServer is a real TLS server that requests client certificates;
 // Go's handshake proves possession of the presented leaf's private key.
-func mtlsResourceServer(t *testing.T, ver *verify.Verifier) *httptest.Server {
+func mtlsResourceServer(t *testing.T, ver verify.Authenticator) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewUnstartedServer(delegatedResource(ver))
 	srv.TLS = &tls.Config{ClientAuth: tls.RequestClientCert}

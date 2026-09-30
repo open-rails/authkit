@@ -7,12 +7,12 @@ import (
 	"strings"
 	"time"
 
-	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/internal/ident"
+	"github.com/open-rails/authkit/internal/jose"
 )
 
 // MintAccessToken mints an access token for a live account outside any login
@@ -48,7 +48,7 @@ func (s *Engine) MintSessionAccessToken(ctx context.Context, userID, sessionID s
 }
 
 // reservedAccessTokenClaims are claims the verifier extracts as authoritative
-// identity / authorization / assurance (see verify/verifier.go extractClaims).
+// identity / authorization / assurance (verify's token profiles).
 // AuthKit sets these itself from authenticated state, or not at all; a
 // caller-supplied `extra` value for any of them is DROPPED, never signed
 // (AK2-AUTH-01). Without this, a host that forwards any request-influenced data
@@ -86,6 +86,7 @@ var reservedAccessTokenClaims = map[string]struct{}{
 	"jti":              {},
 	"mfa_enrolled":     {},
 	"device_key_id":    {},
+	"root_role":        {},
 }
 
 // mintAccessToken is the ID-only entry point: it loads + gates the live-user row
@@ -101,7 +102,7 @@ func (s *Engine) mintAccessToken(ctx context.Context, userID string, extra map[s
 			return "", time.Time{}, uErr
 		}
 		if u == nil {
-			return "", time.Time{}, jwt.ErrTokenInvalidClaims
+			return "", time.Time{}, iam.ErrUserNotFound
 		}
 		if err := s.ensureUserAccess(ctx, u); err != nil {
 			return "", time.Time{}, err
@@ -110,13 +111,13 @@ func (s *Engine) mintAccessToken(ctx context.Context, userID string, extra map[s
 		if status, mfaErr := s.mfaStatus(ctx, userID); mfaErr == nil {
 			mfa = &status
 		}
-		return s.mintAccessTokenForUser(ctx, u, mfa, extra, ttl)
+		return s.mintAccessTokenForUser(ctx, s.q, u, mfa, extra, ttl)
 	}
 	// Verify-only / pg-less engine: no live-user gate, no MFA lookup — mint from
 	// the userID alone (matches the historical s.pg == nil behavior). The synthetic
 	// row carries only the ID; mintAccessTokenForUser reads no other user field and
 	// its sid/freshness + mfa branches are already guarded by s.pg != nil / mfa != nil.
-	return s.mintAccessTokenForUser(ctx, &db.User{ID: userID}, nil, extra, ttl)
+	return s.mintAccessTokenForUser(ctx, s.q, &db.User{ID: userID}, nil, extra, ttl)
 }
 
 // mintAccessTokenForUser mints an access token for an ALREADY-LOADED, ALREADY-GATED
@@ -126,8 +127,8 @@ func (s *Engine) mintAccessToken(ctx context.Context, userID string, extra map[s
 // mfa_enrolled claim instead of recomputing it. Pass mfa == nil to omit mfa_enrolled
 // (matches the swallow-on-error / absent-when-not-satisfied behavior of the ID-only
 // path). u must be non-nil.
-func (s *Engine) mintAccessTokenForUser(ctx context.Context, u *db.User, mfa *authflow.MFAStatus, extra map[string]any, ttl time.Duration) (token string, expiresAt time.Time, err error) {
-	return s.mintAccessTokenForUserWithAssurance(ctx, u, mfa, extra, ttl, nil)
+func (s *Engine) mintAccessTokenForUser(ctx context.Context, q *db.Queries, u *db.User, mfa *authflow.MFAStatus, extra map[string]any, ttl time.Duration) (token string, expiresAt time.Time, err error) {
+	return s.mintAccessTokenForUserWithAssurance(ctx, q, u, mfa, extra, ttl, nil)
 }
 
 type accessTokenAssurance struct {
@@ -138,15 +139,12 @@ type accessTokenAssurance struct {
 	DeviceKeyID string
 }
 
-func (s *Engine) mintAccessTokenForUserWithAssurance(ctx context.Context, u *db.User, mfa *authflow.MFAStatus, extra map[string]any, ttl time.Duration, assurance *accessTokenAssurance) (token string, expiresAt time.Time, err error) {
+func (s *Engine) mintAccessTokenForUserWithAssurance(ctx context.Context, q *db.Queries, u *db.User, mfa *authflow.MFAStatus, extra map[string]any, ttl time.Duration, assurance *accessTokenAssurance) (token string, expiresAt time.Time, err error) {
 	userID := u.ID
-	base := jwtkit.BaseRegisteredClaims(userID, s.cfg.Token.IssuedAudiences, ttl)
-	expiresAt = base.ExpiresAt.Time
-	// Group/role authority is no longer carried as a token claim: the legacy
-	// `global_roles`/`roles` plane was hard-cut in favor of the permission-group
-	// RBAC engine (#111) — group role assignments + `<persona>:<resource>:<action>`
-	// perms resolved at request time from the DB (svc.Can), not snapshotted into
-	// the access token.
+	now := time.Now()
+	expiresAt = now.Add(ttl)
+	// Authority is never a token claim: permissions resolve live (Can). The
+	// root role rides along for display only (Claims.RootRole).
 	var ents []string
 	if provider := s.entitlementsProvider(); len(s.cfg.Token.EntitlementAllowlist) > 0 && provider != nil {
 		m, entErr := provider.ListEntitlements(ctx, []string{userID})
@@ -163,13 +161,16 @@ func (s *Engine) mintAccessTokenForUserWithAssurance(ctx context.Context, u *db.
 
 	claims := map[string]any{
 		"iss": s.cfg.Token.Issuer,
-		"sub": base.Subject,
-		"aud": base.Audience,
-		"iat": base.IssuedAt.Time.Unix(),
-		"exp": base.ExpiresAt.Time.Unix(),
+		"sub": userID,
+		"aud": s.cfg.Token.IssuedAudiences,
+		"iat": now.Unix(),
+		"exp": expiresAt.Unix(),
 	}
 	if len(ents) > 0 {
 		claims["entitlements"] = ents
+	}
+	if role := s.displayRootRole(ctx, q, userID); role != "" {
+		claims["root_role"] = role
 	}
 	if assurance != nil {
 		if assurance.JTI != "" {
@@ -224,8 +225,28 @@ func (s *Engine) mintAccessTokenForUserWithAssurance(ctx context.Context, u *db.
 	if signer == nil {
 		return "", time.Time{}, iam.ErrSigningNotConfigured // #87: a verify-only engine cannot mint
 	}
-	tok, err := jwtkit.SignWithType(ctx, signer, claims, jwtkit.AccessTokenType, true)
+	tok, err := jose.Sign(ctx, signer, jose.AccessTokenType, claims)
 	return tok, expiresAt, err
+}
+
+// displayRootRole is the user's root-group role for the display-only
+// root_role claim, read through q: the caller's transaction when it holds
+// one, so a mint never waits on a second connection. "" without one or when
+// it cannot be read: a token is never refused for want of a display hint.
+func (s *Engine) displayRootRole(ctx context.Context, q *db.Queries, userID string) string {
+	rootID, _ := s.rootGroupID.Load().(string)
+	if q == nil || rootID == "" {
+		return ""
+	}
+	rows, err := q.GroupRolesForSubjects(ctx, db.GroupRolesForSubjectsParams{GroupID: rootID, UserIds: []string{userID}})
+	if err != nil || len(rows) != 1 {
+		return ""
+	}
+	role := ident.Role(iam.RootPersona, rows[0].Role)
+	if _, ok := s.groupSchemaOrDefault().Role(iam.RootPersona, role); !ok {
+		return ""
+	}
+	return role.String()
 }
 
 // mintDeviceKeyAccessToken is AuthKit's refreshless native-client issuer. The
@@ -253,7 +274,7 @@ func (s *Engine) mintDeviceKeyAccessToken(ctx context.Context, userID, deviceKey
 	if hasAuthMethod(amr, "mfa") {
 		acr = iam.AssuranceLevelMFA
 	}
-	return s.mintAccessTokenForUserWithAssurance(ctx, u, mfa, nil, s.cfg.Token.AccessTokenDuration, &accessTokenAssurance{
+	return s.mintAccessTokenForUserWithAssurance(ctx, s.q, u, mfa, nil, s.cfg.Token.AccessTokenDuration, &accessTokenAssurance{
 		AuthTime:    now.Unix(),
 		AMR:         amr,
 		ACR:         acr,

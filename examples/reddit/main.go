@@ -1,7 +1,7 @@
 // Command reddit is the example from the README: a tiny Reddit-like forum where
 // channels live in the app and AuthKit keeps who may do what in each of them.
 //
-// It needs DATABASE_URL, ADMIN_EMAIL, and signing keys at /vault/auth (see jwtkit/KEY_ROTATION.md).
+// It needs DATABASE_URL, ADMIN_EMAIL, and signing keys at /vault/auth (see keys/KEY_ROTATION.md).
 package main
 
 import (

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/internal/secret"
+	"github.com/open-rails/authkit/provider"
 )
 
 // buildRedirectURI computes the OAuth/OIDC redirect_uri for a flow: this
@@ -80,7 +80,7 @@ func stateCookieSuffix(state string) string {
 // A Secure state cookie carries the __Host- prefix (host-only, Path=/), so a
 // sibling subdomain cannot plant or shadow it; plain-HTTP dev keeps the bare
 // name, which browsers require there.
-func (s *Service) stateCookie(r *http.Request, p authprovider.Provider, state, value string, maxAge int) *http.Cookie {
+func (s *Service) stateCookie(r *http.Request, p provider.Provider, state, value string, maxAge int) *http.Cookie {
 	c := &http.Cookie{
 		Name:     s.stateCookieName(r, p, state),
 		Value:    value,
@@ -96,16 +96,16 @@ func (s *Service) stateCookie(r *http.Request, p authprovider.Provider, state, v
 	return c
 }
 
-func (s *Service) stateCookieSecure(r *http.Request, p authprovider.Provider) bool {
+func (s *Service) stateCookieSecure(r *http.Request, p provider.Provider) bool {
 	return p.ResponseModeFormPost() || s.cookieSecure(r)
 }
 
-func (s *Service) stateCookieName(r *http.Request, p authprovider.Provider, state string) string {
+func (s *Service) stateCookieName(r *http.Request, p provider.Provider, state string) string {
 	return CurrentCookie(CookieOIDCState, s.stateCookieSecure(r, p)).Name + stateCookieSuffix(state)
 }
 
 // setStateCookie stores the flow's state in an HttpOnly cookie.
-func (s *Service) setStateCookie(w http.ResponseWriter, r *http.Request, p authprovider.Provider, state string) {
+func (s *Service) setStateCookie(w http.ResponseWriter, r *http.Request, p provider.Provider, state string) {
 	http.SetCookie(w, s.stateCookie(r, p, state, state, int(oauthStateCookieTTL.Seconds())))
 }
 
@@ -131,7 +131,7 @@ func callbackParams(r *http.Request) url.Values {
 
 // clearStateCookie expires this flow's state cookie (single-use); other flows'
 // cookies are untouched.
-func (s *Service) clearStateCookie(w http.ResponseWriter, r *http.Request, p authprovider.Provider, state string) {
+func (s *Service) clearStateCookie(w http.ResponseWriter, r *http.Request, p provider.Provider, state string) {
 	http.SetCookie(w, s.stateCookie(r, p, state, "", -1))
 	// A flow begun under the other scheme left its variant; never read, it is
 	// only removed.
@@ -143,7 +143,7 @@ func (s *Service) clearStateCookie(w http.ResponseWriter, r *http.Request, p aut
 // stateCookieMatches reports whether the request carries the state cookie and it
 // equals state (constant-time). Callbacks MUST reject a missing/mismatched cookie
 // before consuming the server-side state.
-func (s *Service) stateCookieMatches(r *http.Request, p authprovider.Provider, state string) bool {
+func (s *Service) stateCookieMatches(r *http.Request, p provider.Provider, state string) bool {
 	if strings.TrimSpace(state) == "" {
 		return false
 	}

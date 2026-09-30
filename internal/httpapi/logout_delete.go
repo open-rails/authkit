@@ -6,11 +6,10 @@ import (
 
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
-	"github.com/open-rails/authkit/verify"
 )
 
 func (s *Service) handleLogoutDELETE(w http.ResponseWriter, r *http.Request) {
-	cl, err := verify.GetClaims(r.Context())
+	cl, err := callerClaims(r)
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
 		fail(w, errmodel.CodeUnauthenticated)
 		return

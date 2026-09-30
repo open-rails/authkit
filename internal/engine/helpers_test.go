@@ -30,17 +30,15 @@ import (
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/ratelimit"
 	"github.com/open-rails/authkit/internal/testidp"
+	"github.com/open-rails/authkit/internal/testkeys"
 	"github.com/open-rails/authkit/internal/testoutbox"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/keys"
 )
 
 // testSigner is one RSA key for the package's engines: explicit keys, since
 // AllowEphemeralDevKeys persists a keypair under the package directory.
-var testSigner = sync.OnceValue(func() *jwtkit.RSASigner {
-	s, err := jwtkit.NewRSASigner(2048, "test-kid")
-	if err != nil {
-		panic(err)
-	}
+var testSigner = sync.OnceValue(func() keys.Signer {
+	s := testkeys.RSA("test-kid")
 	return s
 })
 
@@ -48,7 +46,7 @@ var testSigner = sync.OnceValue(func() *jwtkit.RSASigner {
 func testConfig() Config {
 	s := testSigner()
 	return Config{
-		Keys:         KeysConfig{Source: jwtkit.StaticKeySource{Active: s, Pubs: map[string]crypto.PublicKey{s.KID(): s.PublicKey()}}},
+		Keys:         KeysConfig{Source: keys.Static{Active: s, Pubs: map[string]crypto.PublicKey{s.KID(): s.Public()}}},
 		Token:        TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}, ExpectedAudiences: []string{"test-app"}},
 		Registration: RegistrationConfig{Verification: iam.RegistrationVerificationNone},
 		// The fake IdPs and JWKS endpoints are loopback servers.
@@ -307,7 +305,7 @@ func newAccountFlow(t *testing.T, pool *pgxpool.Pool, cfg Config, deps Deps) *ac
 	for bucket := range limits {
 		limits[bucket] = ratelimit.Limit{Limit: 10000, Window: time.Minute}
 	}
-	service, err := httpapi.New(f.engine, f.engine.Verifier(), httpapi.Config{DirectPeerIP: true, RateLimits: limits})
+	service, err := httpapi.New(f.engine, httpapi.Config{DirectPeerIP: true, RateLimits: limits})
 	require.NoError(t, err)
 	t.Cleanup(service.Close)
 	mounted, err := httpapi.NewMount(service, httpapi.MountOptions{})
@@ -370,7 +368,7 @@ func (f *accountFlow) session(tokens iam.TokenSet, amr ...string) {
 	f.t.Helper()
 	require.NotEmpty(f.t, tokens.RefreshToken)
 	require.Greater(f.t, tokens.ExpiresIn, int64(0))
-	claims, err := f.engine.Verifier().Verify(context.Background(), tokens.AccessToken)
+	claims, err := f.engine.Verify(context.Background(), tokens.AccessToken)
 	require.NoError(f.t, err)
 	require.NotEmpty(f.t, claims.UserID)
 	require.ElementsMatch(f.t, amr, claims.AMR)

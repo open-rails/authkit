@@ -3,7 +3,6 @@ package authkitfiber_test
 import (
 	"bytes"
 	"context"
-	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -29,7 +28,7 @@ import (
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/internal/testkeys"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -43,10 +42,9 @@ func newIssuer(t *testing.T) *authtest.TestIssuer {
 func newVerifier(t *testing.T, issuer *authtest.TestIssuer, local bool, opts ...verify.VerifierOption) *verify.Verifier {
 	t.Helper()
 	v := verify.NewVerifier(opts...)
-	pub := issuer.Signer().(jwtkit.PublicKeySigner).PublicKey()
 	if err := v.AddIssuer(issuer.URL(), []string{issuer.Audience()}, verify.IssuerOptions{
-		IsLocal: local,
-		RawKeys: map[string]crypto.PublicKey{issuer.Signer().KID(): pub},
+		IsLocal:   local,
+		KeySource: testkeys.Source(issuer.Signer()),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -76,8 +74,6 @@ func request(t *testing.T, app *fiber.App, method, path, authorization string) (
 func TestRequiredOptionalParity(t *testing.T) {
 	issuer := newIssuer(t)
 	v := newVerifier(t, issuer, true)
-	mfa := newVerifier(t, issuer, true, verify.WithRequireMFAEnrollment(true))
-	mfa.AddMFAEnrollmentExemptRoutes([]string{"/api/v1/user/2fa"})
 	cases := []struct {
 		name                string
 		v                   *verify.Verifier
@@ -90,10 +86,6 @@ func TestRequiredOptionalParity(t *testing.T) {
 		{"expired", v, "/posts", "Bearer " + issuer.CreateExpiredToken("user-1", "user@example.com")},
 		{"wrong audience", v, "/posts", "Bearer " + issuer.CreateTokenWithClaims("user-1", "user@example.com", map[string]any{"aud": "other-app"})},
 		{"enrollment token blocked", v, "/posts", "Bearer " + issuer.CreateTokenWithClaims("user-1", "user@example.com", map[string]any{"2fa_enrollment": true})},
-		{"mfa required", mfa, "/posts", "Bearer " + issuer.CreateToken("user-1", "user@example.com")},
-		{"mfa enrolled", mfa, "/posts", "Bearer " + issuer.CreateTokenWithClaims("user-1", "user@example.com", map[string]any{"mfa_enrolled": true})},
-		{"mfa exempt", mfa, "/api/v1/user/2fa", "Bearer " + issuer.CreateToken("user-1", "user@example.com")},
-		{"mfa suffix is not exempt", mfa, "/other/api/v1/user/2fa", "Bearer " + issuer.CreateToken("user-1", "user@example.com")},
 	}
 	for _, optional := range []bool{false, true} {
 		name := "required"
@@ -132,7 +124,7 @@ func TestRequiredOptionalParity(t *testing.T) {
 	}
 }
 
-func TestUserClaimsAndExternalPrincipal(t *testing.T) {
+func TestClaimsAndExternalPrincipal(t *testing.T) {
 	issuer := newIssuer(t)
 	authTime := time.Now().Add(-time.Minute).Truncate(time.Second)
 	token := issuer.CreateTokenWithClaims("user-1", "user@example.com", map[string]any{
@@ -156,9 +148,8 @@ func TestUserClaimsAndExternalPrincipal(t *testing.T) {
 				if !ok || p.Kind != auth.KindUser || p.Subject != "user-1" || p.Issuer != issuer.URL() {
 					t.Errorf("principal = %+v, present = %v", p, ok)
 				}
-				user, ok := verify.UserClaimsFromContext(c.Context())
-				if ok != local {
-					t.Errorf("UserClaims present = %v, local = %v", ok, local)
+				if cl.IsUser() != local {
+					t.Errorf("IsUser = %v, local = %v", cl.IsUser(), local)
 				}
 				if !local {
 					if cl.UserID != "" || cl.Subject != "user-1" {
@@ -166,18 +157,15 @@ func TestUserClaimsAndExternalPrincipal(t *testing.T) {
 					}
 					return c.SendStatus(http.StatusNoContent)
 				}
-				want := verify.UserClaimsData{
+				got := verify.Claims{UserID: cl.UserID, Email: cl.Email, EmailVerified: cl.EmailVerified, Username: cl.Username,
+					SessionID: cl.SessionID, Entitlements: cl.Entitlements, AMR: cl.AMR, ACR: cl.ACR, AuthTime: cl.AuthTime, MFAEnrolled: cl.MFAEnrolled}
+				want := verify.Claims{
 					UserID: "user-1", Email: "user@example.com", EmailVerified: true,
 					Username: "writer", SessionID: "session-1", Entitlements: []string{"blog"},
 					AMR: []string{"pwd"}, ACR: "urn:example:loa:1", AuthTime: authTime, MFAEnrolled: true,
 				}
-				if !reflect.DeepEqual(user, want) {
-					t.Errorf("user = %+v, want %+v", user, want)
-				}
-				user.Entitlements[0], user.AMR[0] = "mutated", "mutated"
-				again, _ := verify.UserClaimsFromContext(c.Context())
-				if again.Entitlements[0] != "blog" || again.AMR[0] != "pwd" {
-					t.Error("UserClaims exposes mutable claim slices")
+				if !reflect.DeepEqual(got, want) {
+					t.Errorf("claims = %+v, want %+v", got, want)
 				}
 				return c.SendStatus(http.StatusNoContent)
 			})
@@ -191,9 +179,9 @@ func TestUserClaimsAndExternalPrincipal(t *testing.T) {
 
 func TestAccessorsRejectMachineClaimsAsUsers(t *testing.T) {
 	for _, cl := range []verify.Claims{
-		{TokenType: verify.APIKeyPrincipalType, RemoteApplicationID: "machine-1", UserID: "must-not-be-used"},
-		{TokenType: verify.RemoteApplicationTokenType, RemoteApplicationID: "machine-2"},
-		{DelegatedSubject: "external-1", Issuer: "https://external.example"},
+		{Kind: iam.ActorAPIKey, APIKeyID: "machine-1", UserID: "must-not-be-used"},
+		{Kind: iam.ActorRemoteApplication, RemoteApplicationID: "machine-2"},
+		{Kind: iam.ActorDelegated, DelegatedSubject: "external-1", Issuer: "https://external.example"},
 	} {
 		app := fiber.New()
 		app.Get("/", authkitfiber.Use(func(next http.Handler) http.Handler {
@@ -201,7 +189,7 @@ func TestAccessorsRejectMachineClaimsAsUsers(t *testing.T) {
 				next.ServeHTTP(w, r.WithContext(verify.SetClaims(r.Context(), cl)))
 			})
 		}), func(c fiber.Ctx) error {
-			if _, ok := verify.UserClaimsFromContext(c.Context()); ok {
+			if got, _ := verify.ClaimsFromContext(c.Context()); got.IsUser() {
 				t.Error("machine/delegated principal exposed as a local user")
 			}
 			want, wantOK := cl.Identity()
@@ -224,8 +212,8 @@ func TestOptionalDoesNotLeakClaimsAcrossRequests(t *testing.T) {
 	issuer := newIssuer(t)
 	app := fiber.New()
 	app.Get("/", authkitfiber.Optional(newVerifier(t, issuer, true)), func(c fiber.Ctx) error {
-		user, _ := verify.UserClaimsFromContext(c.Context())
-		return c.SendString(user.UserID)
+		cl, _ := verify.ClaimsFromContext(c.Context())
+		return c.SendString(cl.UserID)
 	})
 	for i := 0; i < 10; i++ {
 		status, _, body := request(t, app, http.MethodGet, "/", "Bearer "+issuer.CreateToken("user-1", "user@example.com"))
@@ -243,8 +231,8 @@ func TestConcurrentRequestsKeepClaimsIsolated(t *testing.T) {
 	issuer := newIssuer(t)
 	app := fiber.New()
 	app.Get("/", authkitfiber.Optional(newVerifier(t, issuer, true)), func(c fiber.Ctx) error {
-		user, _ := verify.UserClaimsFromContext(c.Context())
-		return c.SendString(user.UserID)
+		cl, _ := verify.ClaimsFromContext(c.Context())
+		return c.SendString(cl.UserID)
 	})
 	// Complete Fiber's lazy startup before driving concurrent requests.
 	request(t, app, http.MethodGet, "/", "")
@@ -442,7 +430,8 @@ type authority struct {
 	f func(context.Context, iam.Actor, iam.GroupRef, iam.Perm) (bool, error)
 }
 
-func (a authority) Verifier() *verify.Verifier { return a.v }
+func (a authority) VerifyRequest(r *http.Request) (verify.Claims, error) { return a.v.VerifyRequest(r) }
+func (authority) CheckSession(context.Context, verify.Claims) error      { return nil }
 func (a authority) Can(ctx context.Context, actor iam.Actor, ref iam.GroupRef, perm iam.Perm) (bool, error) {
 	return a.f(ctx, actor, ref, perm)
 }

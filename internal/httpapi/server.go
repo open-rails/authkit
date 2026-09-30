@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/internal/authflow"
-	"github.com/open-rails/authkit/verify"
 
 	memorylimiter "github.com/open-rails/authkit/internal/ratelimit/memory"
 	redislimiter "github.com/open-rails/authkit/internal/ratelimit/redis"
@@ -28,11 +27,11 @@ func (s *Service) Close() {
 	s.closers = nil
 }
 
-// New assembles the HTTP layer over the engine and its verifier. authkit.New
-// is the only production caller.
-func New(client Backend, verifier *verify.Verifier, hcfg Config) (*Service, error) {
-	if client == nil || verifier == nil {
-		return nil, errors.New("authkit: httpapi.New requires an engine backend and its verifier")
+// New assembles the HTTP layer over the engine, which also authenticates its
+// requests. authkit.New is the only production caller.
+func New(client Backend, hcfg Config) (*Service, error) {
+	if client == nil {
+		return nil, errors.New("authkit: httpapi.New requires an engine backend")
 	}
 	if err := hcfg.Validate(); err != nil {
 		return nil, err
@@ -44,7 +43,6 @@ func New(client Backend, verifier *verify.Verifier, hcfg Config) (*Service, erro
 		dpopRequestURL:   hcfg.DPoPRequestURL,
 		svc:              coreSvc,
 		settings:         cfg,
-		verifier:         verifier,
 		clientIP:         DefaultClientIP(),
 		clientIPExplicit: hcfg.ClientIP != nil,
 		directPeerIP:     hcfg.DirectPeerIP,

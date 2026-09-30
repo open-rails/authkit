@@ -14,6 +14,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -22,10 +23,10 @@ import (
 	"testing"
 	"time"
 
-	jwt "github.com/golang-jwt/jwt/v5"
-
-	"github.com/open-rails/authkit/authprovider"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/internal/jose"
+	"github.com/open-rails/authkit/internal/testkeys"
+	"github.com/open-rails/authkit/keys"
+	"github.com/open-rails/authkit/provider"
 )
 
 // ClientSecret is the client secret every IdP accepts.
@@ -66,18 +67,14 @@ type IdP struct {
 	ClientID string
 
 	server *httptest.Server
-	signer *jwtkit.RSASigner
+	signer keys.Signer
 	outage atomic.Int32
 }
 
 // New starts an IdP with its own signing key.
 func New(t testing.TB) *IdP {
 	t.Helper()
-	signer, err := jwtkit.NewRSASigner(2048, "testidp")
-	if err != nil {
-		t.Fatalf("testidp: signing key: %v", err)
-	}
-	p := &IdP{ClientID: "testidp-client", signer: signer}
+	p := &IdP{ClientID: "testidp-client", signer: testkeys.RSA("testidp")}
 	p.server = httptest.NewTLSServer(http.HandlerFunc(p.serve))
 	t.Cleanup(p.server.Close)
 	p.Issuer = p.server.URL
@@ -86,20 +83,20 @@ func New(t testing.TB) *IdP {
 
 // OIDC is an OpenID Connect provider named name for this IdP, trusted to
 // verify email. opts come after the defaults.
-func (p *IdP) OIDC(name string, opts ...authprovider.Option) authprovider.Provider {
-	return authprovider.OIDC(name, p.Issuer, p.ClientID, ClientSecret, p.options(opts)...)
+func (p *IdP) OIDC(name string, opts ...provider.Option) provider.Provider {
+	return provider.OIDC(name, p.Issuer, p.ClientID, ClientSecret, p.options(opts)...)
 }
 
 // OAuth2 is a plain OAuth2 provider named name for this IdP, reading the
 // identity from its userinfo endpoint, trusted to verify email. opts come
 // after the defaults.
-func (p *IdP) OAuth2(name string, opts ...authprovider.Option) authprovider.Provider {
-	ep := authprovider.Endpoint{AuthorizeURL: p.Issuer + "/authorize", TokenURL: p.Issuer + "/token"}
-	return authprovider.OAuth2(name, p.Issuer, ep, p.ClientID, ClientSecret, p.userInfo, p.options(opts)...)
+func (p *IdP) OAuth2(name string, opts ...provider.Option) provider.Provider {
+	ep := provider.Endpoint{AuthorizeURL: p.Issuer + "/authorize", TokenURL: p.Issuer + "/token"}
+	return provider.OAuth2(name, p.Issuer, ep, p.ClientID, ClientSecret, p.userInfo, p.options(opts)...)
 }
 
-func (p *IdP) options(opts []authprovider.Option) []authprovider.Option {
-	return append([]authprovider.Option{authprovider.WithTrustedEmailVerification(true), authprovider.WithHTTPClient(p.server.Client())}, opts...)
+func (p *IdP) options(opts []provider.Option) []provider.Option {
+	return append([]provider.Option{provider.WithTrustedEmailVerification(true), provider.WithHTTPClient(p.server.Client())}, opts...)
 }
 
 // SetOutage makes every endpoint fail as o says, until the next call.
@@ -185,7 +182,7 @@ func (p *IdP) serve(w http.ResponseWriter, r *http.Request) {
 			"code_challenge_methods_supported":      []string{"S256"},
 		})
 	case "/jwks":
-		jwtkit.ServeJWKS(w, r, jwtkit.JWKS{Keys: []jwtkit.JWK{jwtkit.PublicToJWK(p.signer.PublicKey(), p.signer.KID(), p.signer.Algorithm())}})
+		jose.ServeJWKS(w, r, jose.JWKS(testkeys.Source(p.signer)))
 	case "/token":
 		p.token(w, r)
 	case "/userinfo":
@@ -218,7 +215,7 @@ func (p *IdP) token(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now()
-	claims := jwt.MapClaims{
+	claims := map[string]any{
 		"iss": p.Issuer, "aud": p.ClientID, "sub": g.Subject,
 		"iat": now.Add(-time.Second).Unix(), "exp": now.Add(5 * time.Minute).Unix(), "auth_time": now.Unix(),
 	}
@@ -230,7 +227,7 @@ func (p *IdP) token(w http.ResponseWriter, r *http.Request) {
 	if g.EmailVerified {
 		claims["email_verified"] = true
 	}
-	idToken, err := p.signer.Sign(r.Context(), claims)
+	idToken, err := jose.Sign(r.Context(), p.signer, "", claims)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server_error"})
 		return
@@ -249,12 +246,24 @@ func (p *IdP) userinfo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, g.Identity)
 }
 
-func (p *IdP) userInfo(ctx context.Context, client *http.Client) (authprovider.Identity, error) {
+func (p *IdP) userInfo(ctx context.Context, client *http.Client) (provider.Identity, error) {
 	var id Identity
-	if err := authprovider.GetJSON(ctx, client, p.Issuer+"/userinfo", "", &id); err != nil {
-		return authprovider.Identity{}, err
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.Issuer+"/userinfo", nil)
+	if err != nil {
+		return provider.Identity{}, err
 	}
-	return authprovider.Identity{Subject: id.Subject, Email: id.Email, EmailVerified: id.EmailVerified, PreferredUsername: id.Username, DisplayName: id.Name}, nil
+	resp, err := client.Do(req)
+	if err != nil {
+		return provider.Identity{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return provider.Identity{}, fmt.Errorf("userinfo: status %d", resp.StatusCode)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&id); err != nil {
+		return provider.Identity{}, err
+	}
+	return provider.Identity{Subject: id.Subject, Email: id.Email, EmailVerified: id.EmailVerified, PreferredUsername: id.Username, DisplayName: id.Name}, nil
 }
 
 func s256(verifier string) string {

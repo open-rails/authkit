@@ -227,7 +227,7 @@ func TestDPoPReplayStoreOutageFailsClosed(t *testing.T) {
 	e := newTestEngine(t, cfg, Deps{Postgres: pg.Pool, DelegatedAuthorization: func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
 		return iam.DelegationGrant{Permissions: []string{"resource:read"}}, nil
 	}})
-	srv, err := httpapi.New(e, e.Verifier(), httpapi.Config{DirectPeerIP: true})
+	srv, err := httpapi.New(e, httpapi.Config{DirectPeerIP: true})
 	require.NoError(t, err)
 	t.Cleanup(srv.Close)
 	h, err := httpapi.NewMount(srv, httpapi.MountOptions{})
@@ -255,8 +255,8 @@ func TestDPoPReplayStoreOutageFailsClosed(t *testing.T) {
 	require.NoError(t, json.Unmarshal(res.Body.Bytes(), &minted))
 
 	const resource = "https://resource.example"
-	v := e.NewVerifier(verify.WithDPoPRequestURL(func(r *http.Request) string { return resource + r.URL.EscapedPath() }))
-	require.NoError(t, v.AddIssuer(cfg.Token.Issuer, []string{"platform"}, verify.IssuerOptions{PublicKeys: cfg.Keys.Source.PublicKeys}))
+	v := verify.NewVerifier(verify.WithDPoP(e.ClaimDPoPProof), verify.WithRequestOrigin(resource))
+	require.NoError(t, v.AddIssuer(cfg.Token.Issuer, []string{"platform"}, verify.IssuerOptions{KeySource: cfg.Keys.Source}))
 	req := httptest.NewRequest(http.MethodGet, resource+"/tasks", nil)
 	req.Header.Set("Authorization", "DPoP "+minted.Token)
 	req.Header.Set("DPoP", testdpop.Proof(t, browserKey, http.MethodGet, resource+"/tasks", minted.Token, nil))
@@ -280,5 +280,5 @@ func TestDPoPReplayStoreOutageFailsClosed(t *testing.T) {
 	require.Equal(t, http.StatusOK, res.Code, res.Body.String())
 	cl, err := v.VerifyRequest(req)
 	require.NoError(t, err)
-	require.NotNil(t, cl.ConfirmationJWKThumbprintSHA256)
+	require.NotEmpty(t, cl.JWKThumbprint)
 }

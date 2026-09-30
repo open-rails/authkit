@@ -7,10 +7,10 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/oidcstate"
+	"github.com/open-rails/authkit/provider"
 )
 
 // Browser-flow error propagation.
@@ -192,7 +192,7 @@ func truncateForLog(s string, max int) string {
 // redirects too). The state cookie must match — a mismatched cookie means this
 // browser did not start the flow, and no context may be recovered for it.
 // Consuming here also burns the one-time state on the error path.
-func (s *Service) recoverCallbackState(w http.ResponseWriter, r *http.Request, p authprovider.Provider) *oidcstate.StateData {
+func (s *Service) recoverCallbackState(w http.ResponseWriter, r *http.Request, p provider.Provider) *oidcstate.StateData {
 	state := callbackParams(r).Get("state")
 	if strings.TrimSpace(state) == "" || !s.stateCookieMatches(r, p, state) {
 		return nil
