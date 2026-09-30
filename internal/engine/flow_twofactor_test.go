@@ -89,16 +89,16 @@ func TestTwoFactorCodeExpiresByDatabaseClock(t *testing.T) {
 	user := newUser(t, f.engine, "codeexp")
 	_, err := f.engine.enableFactor(ctx, user.ID, "email", nil, authflow.AllowAdditionalFactors)
 	require.NoError(t, err)
-	ch := f.expect(403, f.post("/password/login", map[string]any{"identifier": *user.Email, "password": testPassword}))
-	access := f.expect(200, f.post("/2fa/verify", map[string]any{"user_id": user.ID, "challenge": ch.Error.Metadata.Challenge,
-		"code": sentCode(t, f.email, iam.MessageLoginCode)})).AccessToken
+	ch := f.expect(200, f.post("/password/login", map[string]any{"identifier": *user.Email, "password": testPassword}))
+	access := f.expect(200, f.post("/2fa/verify", map[string]any{"user_id": user.ID, "challenge": ch.challenge(t),
+		"code": sentCode(t, f.email, iam.MessageLoginCode)})).tokens().AccessToken
 
 	stepUp := func(code string) flowResponse {
-		return f.request("POST", "/step-up/2fa", access, map[string]any{"code": code})
+		return f.request("POST", "/me/step-up/2fa", access, map[string]any{"code": code})
 	}
 	send := func() string {
 		t.Helper()
-		require.Equal(t, "2fa_required", f.expect(403, f.request("POST", "/step-up/2fa", access, map[string]any{})).Error.Code)
+		f.expect(202, f.request("POST", "/me/step-up/2fa/send", access, map[string]any{}))
 		return sentCode(t, f.email, iam.MessageLoginCode)
 	}
 	code := send()

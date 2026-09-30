@@ -315,14 +315,26 @@ type flowResponse struct {
 	raw     string
 	header  http.Header
 	cookies []*http.Cookie
-	iam.TokenSet
+	httpapi.AuthResult
 	Secret string `json:"secret"`
 	Error  struct {
-		Code     string `json:"code"`
-		Metadata struct {
-			Challenge string `json:"challenge"`
-		} `json:"metadata"`
+		Code string `json:"code"`
 	} `json:"error"`
+}
+
+// tokens is the answer's session; empty when it has none.
+func (r flowResponse) tokens() iam.TokenSet {
+	if r.TokenSet == nil {
+		return iam.TokenSet{}
+	}
+	return *r.TokenSet
+}
+
+// challenge is a second_factor_required answer's challenge.
+func (r flowResponse) challenge(t *testing.T) string {
+	t.Helper()
+	require.Equal(t, httpapi.AuthSecondFactorRequired, r.Status, r.raw)
+	return r.SecondFactor.Challenge
 }
 
 // newAccountFlow serves an engine built from cfg and deps (Postgres is pool;
@@ -417,7 +429,7 @@ func (f *accountFlow) session(tokens iam.TokenSet, amr ...string) {
 func (f *accountFlow) providerSignIn(idp *testidp.IdP, name string, id testidp.Identity, invite string) flowResponse {
 	t := f.t
 	t.Helper()
-	start := f.do(http.MethodPost, "//oidc/"+name+"/login", "", map[string]string{"account_invite_token": invite}, nil)
+	start := f.do(http.MethodPost, "/oidc/"+name+"/login/start", "", map[string]string{"invite_code": invite}, nil)
 	f.expect(200, start)
 	var begun struct {
 		AuthURL string `json:"auth_url"`

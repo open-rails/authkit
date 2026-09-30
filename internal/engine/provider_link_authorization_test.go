@@ -40,9 +40,8 @@ func TestProviderLoginHoldsItsLinkUntilTheSessionCommits(t *testing.T) {
 			_, err = f.engine.enableFactor(ctx, uid, "sms", &phone, authflow.AllowAdditionalFactors)
 			require.NoError(t, err)
 
-			next := f.expect(403, f.providerSignIn(idp, idpProvider.Name(), identity, ""))
-			require.Equal(t, "2fa_required", next.Error.Code)
-			body := map[string]any{"user_id": uid, "challenge": next.Error.Metadata.Challenge, "code": sentCode(t, f.sms, iam.MessageLoginCode)}
+			next := f.expect(200, f.providerSignIn(idp, idpProvider.Name(), identity, ""))
+			body := map[string]any{"user_id": uid, "challenge": next.challenge(t), "code": sentCode(t, f.sms, iam.MessageLoginCode)}
 			unlink := func(ctx context.Context) error {
 				removed, err := f.engine.UnlinkProviderUnlessLast(ctx, uid, idpProvider.Name())
 				if err != nil {
@@ -55,7 +54,7 @@ func TestProviderLoginHoldsItsLinkUntilTheSessionCommits(t *testing.T) {
 			}
 			completed := f.completeWhileRevoking(uid, func() flowResponse { return f.post("/2fa/verify", body) }, unlink)
 			f.expect(200, completed)
-			f.session(completed.TokenSet, "oauth", "sms", "otp", "mfa")
+			f.session(completed.tokens(), "oauth", "sms", "otp", "mfa")
 			_, _, err = f.engine.GetProviderLinkByIssuer(ctx, idpProvider.Issuer(), identity.Subject)
 			require.Error(t, err, "the unlink ran after the session committed")
 		})

@@ -27,7 +27,7 @@ func TestMFAEnrollmentBackendFailures(t *testing.T) {
 			t.Run(method+"/"+failure, func(t *testing.T) {
 				f.t = t
 				user := newUser(t, f.engine, "mfaback")
-				session := f.expect(200, f.post("/password/login", map[string]any{"identifier": *user.Email, "password": testPassword})).AccessToken
+				session := f.expect(200, f.post("/password/login", map[string]any{"identifier": *user.Email, "password": testPassword})).tokens().AccessToken
 				body := map[string]any{"method": method}
 				if method == "sms" {
 					body["phone_number"] = uniquePhone()
