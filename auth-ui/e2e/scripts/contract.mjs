@@ -8,7 +8,7 @@ import { startPostgres, stopPostgres } from "../support/postgres.mjs"
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 const generated = path.join(root, "src/client/generated")
 execFileSync("go", ["generate", "./internal/errmodel"], {
-  cwd: path.resolve(root, "../.."),
+  cwd: path.resolve(root, ".."),
   env: { ...process.env, GOWORK: "off" },
   stdio: "inherit",
 })

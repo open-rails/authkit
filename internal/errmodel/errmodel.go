@@ -3,7 +3,7 @@
 // constructors. Hosts see these values only through iam.Error.
 package errmodel
 
-//go:generate go run ../cmd/contract -out ../../sdk/auth-ui/src/client/generated
+//go:generate go run ../cmd/contract -out ../../auth-ui/src/client/generated
 
 import (
 	"errors"

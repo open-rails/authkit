@@ -311,9 +311,9 @@ local deltas, each marked with a `// Local:` comment.
 the `replace` in `e2e/server/go.mod`), starts it on a throwaway `postgres:18`
 Docker container and runs Playwright against it (`pnpm exec playwright install
 chromium` once). Needs Go and Docker. `pnpm contract` regenerates
-`src/client/generated` from the same checkout; CI (`.github/workflows/sdk.yaml`)
+`src/client/generated` from the same checkout; CI (`.github/workflows/auth-ui.yaml`)
 runs `pnpm contract:check`, so an API change that moves the contract must
 regenerate it in the same PR. Captured email/SMS: `GET /__test/outbox`.
 
 `package.json` stays at `0.0.0`; publishing an AuthKit `vX.Y.Z` release stamps
-`X.Y.Z` and attaches `openrails-auth-ui-X.Y.Z.tgz` (`sdk-release.yaml`).
+`X.Y.Z` and attaches `openrails-auth-ui-X.Y.Z.tgz` (`auth-ui-release.yaml`).

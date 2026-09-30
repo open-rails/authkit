@@ -1,4 +1,4 @@
-module github.com/open-rails/authkit/sdk/auth-ui/e2e/server
+module github.com/open-rails/authkit/auth-ui/e2e/server
 
 go 1.26.6
 
@@ -55,4 +55,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/open-rails/authkit => ../../../..
+replace github.com/open-rails/authkit => ../../..

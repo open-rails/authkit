@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/open-rails/authkit/sdk/auth-ui/e2e/server/harness"
+	"github.com/open-rails/authkit/auth-ui/e2e/server/harness"
 )
 
 type route struct {
