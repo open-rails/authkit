@@ -19,8 +19,6 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -116,9 +114,9 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 	}
 	res.decode(t, &minted)
 	require.Equal(t, "DPoP", minted.TokenType)
-	delegationGolden(t, "delegated-dpop-response", json.RawMessage(res.body))
+	wireGolden(t, "delegated-dpop-response", json.RawMessage(res.body))
 	claims := delegatedClaims(t, minted.Token)
-	delegationGolden(t, "delegated-dpop-claims", claims)
+	wireGolden(t, "delegated-dpop-claims", claims)
 	mu.Lock()
 	requestFacts := observed
 	mu.Unlock()
@@ -677,65 +675,4 @@ func callResource(t *testing.T, client *http.Client, url, token string, headers 
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	return resp.StatusCode, string(body)
-}
-
-// delegationGolden requires value to hold every documented field of the
-// golden testdata/wire/<name>.json, with its type, allowing additive keys.
-// Placeholders: $string (non-empty), $text, $number (positive), $strings.
-func delegationGolden(t *testing.T, name string, value any) {
-	t.Helper()
-	fixture, err := os.ReadFile(filepath.Join("testdata", "wire", name+".json"))
-	require.NoError(t, err)
-	var expected, actual any
-	require.NoError(t, json.Unmarshal(fixture, &expected))
-	encoded, err := json.Marshal(value)
-	require.NoError(t, err)
-	require.NoError(t, json.Unmarshal(encoded, &actual))
-	var match func(any, any, string)
-	match = func(want, got any, path string) {
-		switch want := want.(type) {
-		case map[string]any:
-			require.IsType(t, want, got, path)
-			fields := got.(map[string]any)
-			for key, value := range want {
-				require.Contains(t, fields, key, path)
-				match(value, fields[key], path+"."+key)
-			}
-		case string:
-			switch want {
-			case "$string":
-				require.IsType(t, "", got, path)
-				require.NotEmpty(t, got, path)
-			case "$text":
-				require.IsType(t, "", got, path)
-			case "$number":
-				require.IsType(t, float64(0), got, path)
-				require.Greater(t, got.(float64), float64(0), path)
-			case "$strings":
-				require.IsType(t, []any{}, got, path)
-				require.NotEmpty(t, got, path)
-				for _, item := range got.([]any) {
-					match("$string", item, path+"[]")
-				}
-			default:
-				require.Equal(t, want, got, path)
-			}
-		case []any:
-			// A single object is an item schema; scalar arrays pin exact values.
-			if len(want) == 1 {
-				if _, object := want[0].(map[string]any); object {
-					require.IsType(t, []any{}, got, path)
-					require.NotEmpty(t, got, path)
-					for _, item := range got.([]any) {
-						match(want[0], item, path+"[]")
-					}
-					return
-				}
-			}
-			require.Equal(t, want, got, path)
-		default:
-			require.Equal(t, want, got, path)
-		}
-	}
-	match(expected, actual, name)
 }

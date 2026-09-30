@@ -4,16 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
-	"os"
-	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
-	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
 
 	"github.com/open-rails/authkit"
@@ -21,177 +17,6 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/passkeytest"
 )
-
-// factorFlow drives a Client's sign-in, second-factor and credential routes
-// as one browser would, and reads what its outbox delivered.
-type factorFlow struct {
-	t      *testing.T
-	auth   *authkit.Client
-	outbox *authtest.Outbox
-	api    *api
-}
-
-func newFactorFlow(t *testing.T, auth *authkit.Client, outbox *authtest.Outbox) *factorFlow {
-	t.Helper()
-	return &factorFlow{t: t, auth: auth, outbox: outbox, api: newAPI(t, auth)}
-}
-
-// factorReply is an answer of those routes, decoded as far as the tests read
-// it: a token set at the top level or under token_set, an enrollment's secret
-// and backup codes, or an error with its continuation.
-type factorReply struct {
-	status int
-	raw    string
-	iam.TokenSet
-	Tokens      iam.TokenSet `json:"token_set"`
-	Secret      string       `json:"secret"`
-	BackupCodes []string     `json:"backup_codes"`
-	Error       struct {
-		Code     string `json:"code"`
-		Metadata struct {
-			UserID           string       `json:"user_id"`
-			Challenge        string       `json:"challenge"`
-			Method           string       `json:"method"`
-			TokenSet         iam.TokenSet `json:"token_set"`
-			AllowedMethods   []string     `json:"allowed_methods"`
-			AvailableFactors []struct {
-				ID     string `json:"id"`
-				Method string `json:"method"`
-			} `json:"available_factors"`
-		} `json:"metadata"`
-	} `json:"error"`
-}
-
-func (f *factorFlow) request(method, path, token string, body any) factorReply {
-	f.t.Helper()
-	res := f.api.do(request{method: method, path: path, token: token, body: body})
-	out := factorReply{status: res.status, raw: string(res.body)}
-	if len(res.body) > 0 && res.header.Get("Content-Type") == "application/json" {
-		require.NoError(f.t, json.Unmarshal(res.body, &out), out.raw)
-	}
-	return out
-}
-
-func (f *factorFlow) post(path string, body any) factorReply {
-	f.t.Helper()
-	return f.request(http.MethodPost, path, "", body)
-}
-
-func (f *factorFlow) expect(status int, r factorReply) factorReply {
-	f.t.Helper()
-	require.Equal(f.t, status, r.status, r.raw)
-	return r
-}
-
-// code is the code of the newest kind message to to; the test fails without one.
-func (f *factorFlow) code(kind authtest.Kind, to string) string {
-	f.t.Helper()
-	code := f.outbox.Last(f.t, kind, to).Code
-	require.NotEmpty(f.t, code)
-	return code
-}
-
-// session asserts tokens are a whole session: a refresh token, an access token
-// the Client verifies with exactly amr, and a working GET /me.
-func (f *factorFlow) session(tokens iam.TokenSet, amr ...string) {
-	f.t.Helper()
-	require.NotEmpty(f.t, tokens.RefreshToken)
-	require.Greater(f.t, tokens.ExpiresIn, int64(0))
-	claims, err := f.auth.Verifier().Verify(f.t.Context(), tokens.AccessToken)
-	require.NoError(f.t, err)
-	require.NotEmpty(f.t, claims.UserID)
-	require.ElementsMatch(f.t, amr, claims.AMR)
-	f.expect(http.StatusOK, f.request(http.MethodGet, "/me", tokens.AccessToken, nil))
-}
-
-// claims decodes token's claims without verifying it, after matching its
-// header to the access-header golden.
-func (f *factorFlow) claims(token string) jwt.MapClaims {
-	f.t.Helper()
-	claims := jwt.MapClaims{}
-	parsed, _, err := jwt.NewParser().ParseUnverified(token, claims)
-	require.NoError(f.t, err)
-	f.wireGolden("access-header", parsed.Header)
-	return claims
-}
-
-// deliveredLink checks a delivered link lands on the host's frontend path with
-// the ready status, channel and token in its fragment, and returns the token.
-func (f *factorFlow) deliveredLink(raw, path, channel string) string {
-	f.t.Helper()
-	u, err := url.Parse(raw)
-	require.NoError(f.t, err)
-	require.Equal(f.t, "https://app.example"+path, u.Scheme+"://"+u.Host+u.Path)
-	require.Empty(f.t, u.RawQuery)
-	fragment, err := url.ParseQuery(u.Fragment)
-	require.NoError(f.t, err)
-	require.Equal(f.t, "ready", fragment.Get("status"))
-	require.Equal(f.t, channel, fragment.Get("channel"))
-	require.NotEmpty(f.t, fragment.Get("token"))
-	return fragment.Get("token")
-}
-
-// wireGolden matches value's JSON to testdata/wire/<name>.json: documented
-// fields and types are required, additional keys allowed. "$string" is a
-// non-empty string, "$text" any string, "$number" a positive number,
-// "$strings" a non-empty string array, and a one-object array an item schema.
-func (f *factorFlow) wireGolden(name string, value any) {
-	t := f.t
-	t.Helper()
-	fixture, err := os.ReadFile(filepath.Join("testdata", "wire", name+".json"))
-	require.NoError(t, err)
-	var expected, actual any
-	require.NoError(t, json.Unmarshal(fixture, &expected))
-	encoded, err := json.Marshal(value)
-	require.NoError(t, err)
-	require.NoError(t, json.Unmarshal(encoded, &actual))
-	var match func(any, any, string)
-	match = func(want, got any, path string) {
-		switch want := want.(type) {
-		case map[string]any:
-			require.IsType(t, want, got, path)
-			fields := got.(map[string]any)
-			for key, value := range want {
-				require.Contains(t, fields, key, path)
-				match(value, fields[key], path+"."+key)
-			}
-		case string:
-			switch want {
-			case "$string":
-				require.IsType(t, "", got, path)
-				require.NotEmpty(t, got, path)
-			case "$text":
-				require.IsType(t, "", got, path)
-			case "$number":
-				require.IsType(t, float64(0), got, path)
-				require.Greater(t, got.(float64), float64(0), path)
-			case "$strings":
-				require.IsType(t, []any{}, got, path)
-				require.NotEmpty(t, got, path)
-				for _, item := range got.([]any) {
-					match("$string", item, path+"[]")
-				}
-			default:
-				require.Equal(t, want, got, path)
-			}
-		case []any:
-			if len(want) == 1 {
-				if _, object := want[0].(map[string]any); object {
-					require.IsType(t, []any{}, got, path)
-					require.NotEmpty(t, got, path)
-					for _, item := range got.([]any) {
-						match(want[0], item, path+"[]")
-					}
-					return
-				}
-			}
-			require.Equal(t, want, got, path)
-		default:
-			require.Equal(t, want, got, path)
-		}
-	}
-	match(expected, actual, name)
-}
 
 // factorStepUpOptions is the step_up_2fa object of GET /me and of a
 // step_up_required refusal.
@@ -235,27 +60,27 @@ func (o factorStepUpOptions) require(t *testing.T, methods []string, defaultMeth
 // forced enrollment ends in a verified session.
 func TestEnrollmentVerifiesEnrollingSession(t *testing.T) {
 	auth, outbox := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) { c.Registration.PasswordlessLogin = true }))
-	signIn := func(f *factorFlow, u authtest.User) factorReply {
+	signIn := func(f *factorFlow, u authtest.User) authAnswer {
 		f.t.Helper()
 		return f.expect(http.StatusOK, f.post("/password/login", map[string]any{"identifier": u.Email, "password": u.Password}))
 	}
-	refresh := func(f *factorFlow, rt string) factorReply {
+	refresh := func(f *factorFlow, rt string) authAnswer {
 		return f.post("/token", map[string]any{"grant_type": "refresh_token", "refresh_token": rt})
 	}
-	requireVerified := func(f *factorFlow, enabled, enrolling factorReply, method string) {
+	requireVerified := func(f *factorFlow, enabled, enrolling authAnswer, method string) {
 		f.t.Helper()
 		require.NotEmpty(f.t, enabled.BackupCodes)
-		require.Empty(f.t, enabled.Tokens.RefreshToken, "step-up style response never rotates the refresh token")
-		claims := f.claims(enabled.Tokens.AccessToken)
+		require.Empty(f.t, enabled.Nested.RefreshToken, "step-up style response never rotates the refresh token")
+		claims := accessClaims(f.t, enabled.Nested.AccessToken)
 		require.ElementsMatch(f.t, []any{"pwd", method, "otp", "mfa"}, claims["amr"])
 		require.Equal(f.t, iam.AssuranceLevelMFA, claims["acr"])
 		require.Equal(f.t, true, claims["mfa_enrolled"])
 		require.Contains(f.t, enabled.raw, `"fresh_auth"`)
 		refreshed := f.expect(http.StatusOK, refresh(f, enrolling.RefreshToken))
 		f.session(refreshed.TokenSet, "pwd", method, "otp", "mfa")
-		require.Equal(f.t, true, f.claims(refreshed.AccessToken)["mfa_enrolled"])
+		require.Equal(f.t, true, accessClaims(f.t, refreshed.AccessToken)["mfa_enrolled"])
 	}
-	requireChallenged := func(f *factorFlow, other factorReply, method string) {
+	requireChallenged := func(f *factorFlow, other authAnswer, method string) {
 		f.t.Helper()
 		challenged := f.expect(http.StatusForbidden, refresh(f, other.RefreshToken))
 		require.Equal(f.t, "2fa_required", challenged.Error.Code)
@@ -303,13 +128,13 @@ func TestEnrollmentVerifiesEnrollingSession(t *testing.T) {
 		u := authtest.NewUser(t, auth)
 		f.expect(http.StatusAccepted, f.post("/passwordless/start", map[string]any{"identifier": u.Email, "mode": "code"}))
 		session := f.expect(http.StatusOK, f.post("/passwordless/confirm", map[string]any{"identifier": u.Email, "code": f.code(authtest.Verification, u.Email)}))
-		f.session(session.Tokens, "email")
-		f.expect(http.StatusAccepted, f.request(http.MethodPost, "/user/2fa", session.Tokens.AccessToken, map[string]any{"method": "email"}))
-		enabled := f.expect(http.StatusOK, f.request(http.MethodPost, "/user/2fa", session.Tokens.AccessToken,
+		f.session(session.Nested, "email")
+		f.expect(http.StatusAccepted, f.request(http.MethodPost, "/user/2fa", session.Nested.AccessToken, map[string]any{"method": "email"}))
+		enabled := f.expect(http.StatusOK, f.request(http.MethodPost, "/user/2fa", session.Nested.AccessToken,
 			map[string]any{"method": "email", "code": f.code(authtest.Verification, u.Email)}))
 		require.NotEmpty(t, enabled.BackupCodes)
-		require.Empty(t, enabled.Tokens.AccessToken, "the session stays email-only")
-		challenged := f.expect(http.StatusForbidden, refresh(f, session.Tokens.RefreshToken))
+		require.Empty(t, enabled.Nested.AccessToken, "the session stays email-only")
+		challenged := f.expect(http.StatusForbidden, refresh(f, session.Nested.RefreshToken))
 		require.Equal(t, "2fa_required", challenged.Error.Code)
 		require.Equal(t, u.ID, challenged.Error.Metadata.UserID)
 		require.Equal(t, "backup_code", challenged.Error.Metadata.Method)
@@ -327,8 +152,8 @@ func TestEnrollmentVerifiesEnrollingSession(t *testing.T) {
 		enabled := f.expect(http.StatusOK, f.request(http.MethodPost, "/user/2fa", restricted,
 			map[string]any{"method": "email", "code": f.code(authtest.Verification, u.Email)}))
 		require.NotEmpty(t, enabled.BackupCodes)
-		f.session(enabled.Tokens, "pwd", "email", "otp", "mfa")
-		refreshed := f.expect(http.StatusOK, refresh(f, enabled.Tokens.RefreshToken))
+		f.session(enabled.Nested, "pwd", "email", "otp", "mfa")
+		refreshed := f.expect(http.StatusOK, refresh(f, enabled.Nested.RefreshToken))
 		f.session(refreshed.TokenSet, "pwd", "email", "otp", "mfa")
 	})
 }
@@ -348,7 +173,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 		c.TwoFactor.Mode = iam.TwoFactorRequired
 		c.Passkeys = authkit.PasskeyConfig{RPID: "app.example", Origins: []string{"https://app.example"}}
 		c.Roles = rbac
-		c.Frontend = authkit.FrontendConfig{BaseURL: "https://app.example", VerifyPath: "/verify", PasswordlessPath: "/login/link", PasswordResetPath: "/reset"}
+		withAppLinks(c)
 	}))
 	ctx := t.Context()
 	const pass = "Correct-horse-battery-1"
@@ -366,28 +191,28 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 				payload["password"] = pass
 			}
 			f.expect(http.StatusAccepted, f.post(start, payload))
-			link := f.deliveredLink(outbox.Last(t, authtest.Verification, email).Link, path, "email")
+			link := deliveredLink(f.t, outbox.Last(t, authtest.Verification, email).Link, path, "email")
 			first := f.expect(http.StatusForbidden, f.post(confirm, map[string]any{"token": link}))
 			require.Equal(t, "2fa_enrollment_required", first.Error.Code)
-			f.wireGolden("mfa-enrollment", json.RawMessage(first.raw))
+			wireGolden(f.t, "mfa-enrollment", json.RawMessage(first.raw))
 			grant := first.Error.Metadata.TokenSet
 			require.NotEmpty(t, grant.AccessToken)
 			require.Empty(t, grant.RefreshToken)
 			require.NotContains(t, first.Error.Metadata.AllowedMethods, "email", "two proofs sent to one mailbox are one factor")
 			require.Contains(t, first.Error.Metadata.AllowedMethods, "totp")
-			require.ElementsMatch(t, []any{"email"}, f.claims(grant.AccessToken)["amr"])
+			require.ElementsMatch(t, []any{"email"}, accessClaims(f.t, grant.AccessToken)["amr"])
 			denied := f.request(http.MethodGet, "/me", grant.AccessToken, nil)
 			require.GreaterOrEqual(t, denied.status, 400, denied.raw)
 			totp := f.expect(http.StatusOK, f.request(http.MethodPost, "/user/2fa", grant.AccessToken, map[string]any{"method": "totp"}))
 			enabled := f.expect(http.StatusOK, f.request(http.MethodPost, "/user/2fa", grant.AccessToken,
 				map[string]any{"method": "totp", "code": authtest.TOTPCode(t, totp.Secret, time.Now())}))
 			require.NotEmpty(t, enabled.BackupCodes)
-			f.session(enabled.Tokens, "email", "totp", "otp", "mfa")
+			f.session(enabled.Nested, "email", "totp", "otp", "mfa")
 			replay := f.request(http.MethodPost, "/user/2fa", grant.AccessToken, map[string]any{"method": "sms", "phone_number": "+15550100002"})
 			require.GreaterOrEqual(t, replay.status, 400, replay.raw)
 
 			// A fresh first factor now meets the enrolled second factor.
-			var second factorReply
+			var second authAnswer
 			if passwordless {
 				f.expect(http.StatusAccepted, f.post("/passwordless/start", map[string]any{"identifier": email, "mode": "both"}))
 				second = f.expect(http.StatusForbidden, f.post("/passwordless/confirm", map[string]any{"identifier": email, "code": f.code(authtest.Verification, email)}))
@@ -396,7 +221,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 			}
 			require.Equal(t, "2fa_required", second.Error.Code)
 			require.Equal(t, "totp", second.Error.Metadata.Method)
-			f.wireGolden("mfa-challenge", json.RawMessage(second.raw))
+			wireGolden(f.t, "mfa-challenge", json.RawMessage(second.raw))
 			methods := make([]string, 0, len(second.Error.Metadata.AvailableFactors))
 			for _, factor := range second.Error.Metadata.AvailableFactors {
 				methods = append(methods, factor.Method)
@@ -435,7 +260,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	phoneTOTP := f.expect(http.StatusOK, f.request(http.MethodPost, "/user/2fa", restricted, map[string]any{"method": "totp"}))
 	phoneSession := f.expect(http.StatusOK, f.request(http.MethodPost, "/user/2fa", restricted,
 		map[string]any{"method": "totp", "code": authtest.TOTPCode(t, phoneTOTP.Secret, time.Now())}))
-	f.session(phoneSession.Tokens, "sms", "totp", "otp", "mfa")
+	f.session(phoneSession.Nested, "sms", "totp", "otp", "mfa")
 
 	// Email-first plus email-only MFA offers a recovery key, never another code
 	// to the same mailbox. A password first factor may use that email factor.
@@ -489,7 +314,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	require.Empty(t, assertion.Response.AllowedCredentials)
 	uv := f.expect(http.StatusOK, f.post("/passkeys/login/finish", authn.Assert(t, &assertion, 1)))
 	f.session(uv.TokenSet, "swk", "mfa")
-	require.Equal(t, true, f.claims(uv.AccessToken)["mfa_enrolled"])
+	require.Equal(t, true, accessClaims(f.t, uv.AccessToken)["mfa_enrolled"])
 }
 
 // TestTwoFactorCodeLifecycle: an emailed code survives a typo, is spent
@@ -530,7 +355,7 @@ func TestTwoFactorCodeLifecycle(t *testing.T) {
 			}
 			return out
 		}
-		verify := func(body map[string]any, code string) factorReply {
+		verify := func(body map[string]any, code string) authAnswer {
 			return f.post("/2fa/verify", with(body, code))
 		}
 		race := func(n int, path, token string, body map[string]any) (ok, denied int) {
@@ -587,7 +412,7 @@ func TestTwoFactorCodeLifecycle(t *testing.T) {
 
 		// Step-up on the signed-in session: same rules, the code CAS is the only guard.
 		access := latest.TokenSet.AccessToken
-		stepUp := func(code string) factorReply {
+		stepUp := func(code string) authAnswer {
 			return f.request(http.MethodPost, "/step-up/2fa", access, map[string]any{"code": code})
 		}
 		send := func() string {
@@ -618,14 +443,14 @@ func TestTwoFactorCodeLifecycle(t *testing.T) {
 	t.Run("no live code is code_expired", func(t *testing.T) {
 		f := newFactorFlow(t, auth, outbox)
 		u := authtest.NewUser(t, auth)
-		errCode := func(status int, r factorReply) string {
+		errCode := func(status int, r authAnswer) string {
 			t.Helper()
 			return f.expect(status, r).Error.Code
 		}
 
 		// Enrollment (the email setup code): the same contract on POST /user/2fa.
 		access := f.expect(http.StatusOK, f.post("/password/login", credentials(u))).AccessToken
-		enroll := func(code string) factorReply {
+		enroll := func(code string) authAnswer {
 			body := map[string]any{"method": "email"}
 			if code != "" {
 				body["code"] = code
@@ -649,7 +474,7 @@ func TestTwoFactorCodeLifecycle(t *testing.T) {
 		ch := f.expect(http.StatusForbidden, f.post("/password/login", credentials(u)))
 		require.Equal(t, "2fa_required", ch.Error.Code)
 		require.NotEmpty(t, ch.Error.Metadata.AvailableFactors)
-		verify := func(code string) factorReply {
+		verify := func(code string) authAnswer {
 			return f.post("/2fa/verify", map[string]any{"user_id": u.ID, "challenge": ch.Error.Metadata.Challenge, "code": code})
 		}
 		code = f.code(authtest.LoginCode, u.Email)
@@ -666,7 +491,7 @@ func TestTwoFactorCodeLifecycle(t *testing.T) {
 		access = f.expect(http.StatusOK, verify(code)).AccessToken
 
 		// Step-up: never sent, then a resend restores retryable misses, then spent.
-		stepUp := func(code string) factorReply {
+		stepUp := func(code string) authAnswer {
 			return f.request(http.MethodPost, "/step-up/2fa", access, map[string]any{"code": code})
 		}
 		send := func() string {
@@ -703,7 +528,7 @@ func TestFactorManagementWorkflow(t *testing.T) {
 	ctx := t.Context()
 	u := authtest.NewUser(t, auth)
 	stale := authtest.StaleSession(t, auth, authtest.SignIn(t, auth, u).AccessToken)
-	require.NotContains(t, f.claims(stale), "mfa_enrolled")
+	require.NotContains(t, accessClaims(f.t, stale), "mfa_enrolled")
 	for _, body := range []any{
 		map[string]any{"method": "totp"}, map[string]any{"method": "totp", "code": "123456"},
 		map[string]any{"method": "email"}, map[string]any{"method": "sms", "phone_number": "+15551234567"},
@@ -713,11 +538,11 @@ func TestFactorManagementWorkflow(t *testing.T) {
 		require.Equal(t, "step_up_required", denied.Error.Code)
 	}
 	steppedUp := f.expect(http.StatusOK, f.request(http.MethodPost, "/step-up/password", stale, map[string]any{"password": u.Password}))
-	stepped := steppedUp.Tokens
+	stepped := steppedUp.Nested
 	require.NotEmpty(t, stepped.AccessToken)
 	require.Equal(t, "Bearer", stepped.TokenType)
 	require.Positive(t, stepped.ExpiresIn)
-	claims := f.claims(stepped.AccessToken)
+	claims := accessClaims(f.t, stepped.AccessToken)
 	require.NotEmpty(t, claims["auth_time"])
 	require.ElementsMatch(t, []any{"pwd"}, claims["amr"])
 	require.Equal(t, iam.AssuranceLevelPassword, claims["acr"])
@@ -728,12 +553,14 @@ func TestFactorManagementWorkflow(t *testing.T) {
 	require.Contains(t, pending.raw, "otpauth://totp/")
 	// fresh_auth has whole seconds: enroll in a later second than the step-up.
 	time.Sleep(time.Until(before.FreshAuth.LastAuthenticatedAt.Add(time.Second + 100*time.Millisecond)))
-	totpAt := func(secret string, counter int64) string { return authtest.TOTPCode(t, secret, time.Unix(counter*30, 0)) }
+	totpAt := func(secret string, counter int64) string {
+		return authtest.TOTPCode(t, secret, time.Unix(counter*30, 0))
+	}
 	// Start with the previous accepted counter so the real step-up and sign-in
 	// can follow without resetting replay state. Only an actually expired
 	// counter may retry with a fresh code if this request crosses the window.
 	enrolledStep := time.Now().Unix()/30 - 1
-	enroll := func(counter int64) factorReply {
+	enroll := func(counter int64) authAnswer {
 		return f.request(http.MethodPost, "/user/2fa", stepped.AccessToken, map[string]any{"method": "totp", "code": totpAt(pending.Secret, counter), "default": true})
 	}
 	enabled := enroll(enrolledStep)
@@ -758,10 +585,10 @@ func TestFactorManagementWorkflow(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(enabled.raw), &after))
 	require.True(t, after.FreshAuth.LastAuthenticatedAt.After(before.FreshAuth.LastAuthenticatedAt), "the enrollment code is a fresh second-factor proof (#389)")
 	require.ElementsMatch(t, slices.Concat(before.FreshAuth.AuthMethods, []string{"totp", "otp", "mfa"}), after.FreshAuth.AuthMethods)
-	require.ElementsMatch(t, []any{"pwd", "totp", "otp", "mfa"}, f.claims(enabled.Tokens.AccessToken)["amr"])
+	require.ElementsMatch(t, []any{"pwd", "totp", "otp", "mfa"}, accessClaims(f.t, enabled.Nested.AccessToken)["amr"])
 	// Age the enrolling session so the step-up gates below apply again.
-	current := authtest.StaleSession(t, auth, enabled.Tokens.AccessToken)
-	require.Equal(t, true, f.claims(current)["mfa_enrolled"])
+	current := authtest.StaleSession(t, auth, enabled.Nested.AccessToken)
+	require.Equal(t, true, accessClaims(f.t, current)["mfa_enrolled"])
 	denied := f.expect(http.StatusForbidden, f.request(http.MethodPost, "/user/2fa/backup-codes", current, map[string]any{}))
 	require.Equal(t, "step_up_required", denied.Error.Code)
 	f.expect(http.StatusForbidden, f.request(http.MethodPost, "/user/2fa", stepped.AccessToken, map[string]any{"method": "totp"}))
@@ -803,8 +630,8 @@ func TestFactorManagementWorkflow(t *testing.T) {
 		f.expect(http.StatusBadRequest, f.request(http.MethodPost, "/step-up/2fa", current, body))
 	}
 	stepUpCounter, stepUpCode := nextCode(enrolledStep)
-	mfa := f.expect(http.StatusOK, f.request(http.MethodPost, "/step-up/2fa", current, map[string]any{"code": stepUpCode})).Tokens
-	claims = f.claims(mfa.AccessToken)
+	mfa := f.expect(http.StatusOK, f.request(http.MethodPost, "/step-up/2fa", current, map[string]any{"code": stepUpCode})).Nested
+	claims = accessClaims(f.t, mfa.AccessToken)
 	require.NotEmpty(t, claims["auth_time"])
 	require.ElementsMatch(t, []any{"pwd", "totp", "otp", "mfa"}, claims["amr"])
 	require.Equal(t, iam.AssuranceLevelMFA, claims["acr"])
@@ -838,7 +665,7 @@ func TestFactorManagementWorkflow(t *testing.T) {
 	_, proof["code"] = nextCode(stepUpCounter)
 	tokens := f.expect(http.StatusOK, f.post("/2fa/verify", proof)).TokenSet
 	f.session(tokens, "pwd", "totp", "otp", "mfa")
-	loginSID, _ := f.claims(tokens.AccessToken)["sid"].(string)
+	loginSID, _ := accessClaims(f.t, tokens.AccessToken)["sid"].(string)
 	sessions, err := auth.Sessions(ctx, u.ID)
 	require.NoError(t, err)
 	var loginIP string
@@ -868,7 +695,7 @@ func TestFactorManagementWorkflow(t *testing.T) {
 	require.Equal(t, "step_up_required", denied.Error.Code)
 	require.Contains(t, staleResponse.Error.Metadata.StepUpMethods, "2fa")
 	staleResponse.Error.Metadata.StepUp2FA.require(t, []string{"totp"}, "totp")
-	freshMFA := f.expect(http.StatusOK, f.request(http.MethodPost, "/step-up/2fa", staleMFA, map[string]any{"code": enabled.BackupCodes[1], "backup_code": true})).Tokens
+	freshMFA := f.expect(http.StatusOK, f.request(http.MethodPost, "/step-up/2fa", staleMFA, map[string]any{"code": enabled.BackupCodes[1], "backup_code": true})).Nested
 	regenerated := f.expect(http.StatusOK, f.request(http.MethodPost, "/user/2fa/backup-codes", freshMFA.AccessToken, map[string]any{}))
 	require.Len(t, regenerated.BackupCodes, 10)
 }

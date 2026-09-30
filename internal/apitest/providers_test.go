@@ -6,12 +6,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
-	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
 
 	"github.com/open-rails/authkit"
@@ -19,64 +16,7 @@ import (
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testidp"
-	"github.com/open-rails/authkit/verify"
 )
-
-// withProviders configures the Client's identity providers.
-func withProviders(providers ...authprovider.Provider) authtest.Option {
-	return authtest.WithConfig(func(c *authkit.Config) { c.Identity.Providers = providers })
-}
-
-// providerFlow is a provider flow a browser started: the IdP authorization
-// request and the state cookie bound to that browser.
-type providerFlow struct {
-	authURL string
-	cookies []*http.Cookie
-}
-
-// startProviderFlow reads a flow start's answer: a browser redirect, or a
-// page's JSON {"auth_url"}.
-func startProviderFlow(t *testing.T, res response) providerFlow {
-	t.Helper()
-	f := providerFlow{authURL: res.header.Get("Location"), cookies: res.cookies}
-	if res.status == http.StatusOK {
-		var begun struct {
-			AuthURL string `json:"auth_url"`
-		}
-		res.decode(t, &begun)
-		f.authURL = begun.AuthURL
-	} else {
-		require.Equal(t, http.StatusFound, res.status, res.String())
-	}
-	require.NotEmpty(t, f.authURL)
-	return f
-}
-
-// callback replays the IdP's redirect to provider's callback, carrying q, in
-// the browser that started f. No callback response may be cached.
-func (f providerFlow) callback(a *api, provider string, q url.Values) response {
-	a.t.Helper()
-	jar := &http.Request{Header: http.Header{}}
-	for _, c := range f.cookies {
-		jar.AddCookie(c)
-	}
-	res := a.do(request{method: http.MethodGet, path: "//oidc/" + provider + "/callback?" + q.Encode(), header: jar.Header})
-	require.Equal(a.t, "no-store", res.header.Get("Cache-Control"))
-	return res
-}
-
-// callbackFragment is what a browser callback hands the page: the fragment of
-// its redirect, which never carries a query.
-func callbackFragment(t *testing.T, res response) url.Values {
-	t.Helper()
-	require.Equal(t, http.StatusFound, res.status, res.String())
-	target, err := url.Parse(res.header.Get("Location"))
-	require.NoError(t, err)
-	require.Empty(t, target.RawQuery)
-	fragment, err := url.ParseQuery(target.EscapedFragment())
-	require.NoError(t, err)
-	return fragment
-}
 
 // providerKinds builds a provider of each kind AuthKit runs: OpenID Connect
 // and plain OAuth2.
@@ -96,25 +36,6 @@ func forEachProviderKind(t *testing.T, fn func(t *testing.T, idp *testidp.IdP, p
 	}
 }
 
-// providerSignIn signs id in at provider as a page does: a POST start
-// (returning to /checkout, carrying invite), the IdP's redirect back, and the
-// callback answered as JSON.
-func providerSignIn(t *testing.T, a *api, idp *testidp.IdP, provider string, id testidp.Identity, invite string) response {
-	t.Helper()
-	f := startProviderFlow(t, a.post("//oidc/"+provider+"/login", "", map[string]string{"return_to": "/checkout", "account_invite_token": invite}))
-	q := idp.Redirect(t, f.authURL, id)
-	q.Set("format", "json")
-	return f.callback(a, provider, q)
-}
-
-// providerBrowserSignIn is providerSignIn answered as a browser redirect: the
-// fragment it hands the page.
-func providerBrowserSignIn(t *testing.T, a *api, idp *testidp.IdP, provider string, id testidp.Identity) url.Values {
-	t.Helper()
-	f := startProviderFlow(t, a.post("//oidc/"+provider+"/login", "", map[string]string{"return_to": "/checkout"}))
-	return callbackFragment(t, f.callback(a, provider, idp.Redirect(t, f.authURL, id)))
-}
-
 // providerLink links id to the account behind token through provider's link
 // flow, the callback answered as JSON.
 func providerLink(t *testing.T, a *api, idp *testidp.IdP, provider, token string, id testidp.Identity) response {
@@ -123,136 +44,6 @@ func providerLink(t *testing.T, a *api, idp *testidp.IdP, provider, token string
 	q := idp.Redirect(t, f.authURL, id)
 	q.Set("format", "json")
 	return f.callback(a, provider, q)
-}
-
-// authAnswer is a sign-in step's answer: a session (flat, or nested with the
-// signed-in user), or the error that continues the sign-in.
-type authAnswer struct {
-	raw string
-	iam.TokenSet
-	Nested iam.TokenSet `json:"token_set"`
-	User   struct {
-		ID    string  `json:"id"`
-		Email *string `json:"email"`
-	} `json:"user"`
-	Error struct {
-		Code     string `json:"code"`
-		Metadata struct {
-			UserID    string `json:"user_id"`
-			Challenge string `json:"challenge"`
-			Method    string `json:"method"`
-			Recovery  struct {
-				Token string `json:"token"`
-			} `json:"recovery"`
-		} `json:"metadata"`
-	} `json:"error"`
-}
-
-// tokens is the answer's session.
-func (s authAnswer) tokens() iam.TokenSet {
-	if s.Nested.AccessToken != "" {
-		return s.Nested
-	}
-	return s.TokenSet
-}
-
-// expectAnswer requires res to have status and decodes its body.
-func expectAnswer(t *testing.T, res response, status int) authAnswer {
-	t.Helper()
-	require.Equal(t, status, res.status, res.String())
-	out := authAnswer{raw: res.String()}
-	if len(res.body) > 0 {
-		res.decode(t, &out)
-	}
-	return out
-}
-
-// requireSessionWith requires tokens to be a working session whose sign-in
-// used the methods amr.
-func requireSessionWith(t *testing.T, a *api, auth *authkit.Client, tokens iam.TokenSet, amr ...string) verify.Claims {
-	t.Helper()
-	require.NotEmpty(t, tokens.RefreshToken)
-	require.Greater(t, tokens.ExpiresIn, int64(0))
-	claims, err := auth.Verifier().Verify(t.Context(), tokens.AccessToken)
-	require.NoError(t, err)
-	require.NotEmpty(t, claims.UserID)
-	require.ElementsMatch(t, amr, claims.AMR)
-	me := a.get("/me", tokens.AccessToken)
-	require.Equal(t, http.StatusOK, me.status, me.String())
-	return claims
-}
-
-// peekAccessClaims reads an access token's claims without verifying it,
-// requiring its header to match the access-header golden.
-func peekAccessClaims(t *testing.T, token string) jwt.MapClaims {
-	t.Helper()
-	claims := jwt.MapClaims{}
-	parsed, _, err := jwt.NewParser().ParseUnverified(token, claims)
-	require.NoError(t, err)
-	matchWireGolden(t, "access-header", parsed.Header)
-	return claims
-}
-
-// matchWireGolden requires value, as JSON, to have the fields and types of
-// testdata/wire/<name>.json, allowing additive keys: "$string" is a nonempty
-// string, "$text" any string, "$number" a positive number, "$strings" a
-// nonempty list of nonempty strings; a one-object list is an item schema;
-// anything else is exact.
-func matchWireGolden(t *testing.T, name string, value any) {
-	t.Helper()
-	fixture, err := os.ReadFile(filepath.Join("testdata", "wire", name+".json"))
-	require.NoError(t, err)
-	var expected, actual any
-	require.NoError(t, json.Unmarshal(fixture, &expected))
-	encoded, err := json.Marshal(value)
-	require.NoError(t, err)
-	require.NoError(t, json.Unmarshal(encoded, &actual))
-	var match func(want, got any, path string)
-	match = func(want, got any, path string) {
-		switch want := want.(type) {
-		case map[string]any:
-			require.IsType(t, want, got, path)
-			fields := got.(map[string]any)
-			for key, value := range want {
-				require.Contains(t, fields, key, path)
-				match(value, fields[key], path+"."+key)
-			}
-		case string:
-			switch want {
-			case "$string":
-				require.IsType(t, "", got, path)
-				require.NotEmpty(t, got, path)
-			case "$text":
-				require.IsType(t, "", got, path)
-			case "$number":
-				require.IsType(t, float64(0), got, path)
-				require.Greater(t, got.(float64), float64(0), path)
-			case "$strings":
-				require.IsType(t, []any{}, got, path)
-				require.NotEmpty(t, got, path)
-				for _, item := range got.([]any) {
-					match("$string", item, path+"[]")
-				}
-			default:
-				require.Equal(t, want, got, path)
-			}
-		case []any:
-			if len(want) == 1 {
-				if _, object := want[0].(map[string]any); object {
-					require.IsType(t, []any{}, got, path)
-					require.NotEmpty(t, got, path)
-					for _, item := range got.([]any) {
-						match(want[0], item, path+"[]")
-					}
-					return
-				}
-			}
-			require.Equal(t, want, got, path)
-		default:
-			require.Equal(t, want, got, path)
-		}
-	}
-	match(expected, actual, name)
 }
 
 // stateCookieName is the name of the __Host- state cookie an HTTPS
@@ -453,7 +244,7 @@ func TestProviderAuthenticationWorkflow(t *testing.T) {
 		require.NotEmpty(t, grant)
 		require.Empty(t, fragment.Get("access_token"))
 		require.Empty(t, fragment.Get("refresh_token"))
-		require.ElementsMatch(t, []any{"oauth"}, peekAccessClaims(t, grant)["amr"])
+		require.ElementsMatch(t, []any{"oauth"}, accessClaims(t, grant)["amr"])
 		var methods []string
 		require.NoError(t, json.Unmarshal([]byte(fragment.Get("allowed_methods")), &methods))
 		require.Contains(t, methods, "sms")
@@ -472,7 +263,7 @@ func TestProviderAuthenticationWorkflow(t *testing.T) {
 		}
 		finished := expectAnswer(t, verify2FA(next, outbox.Last(t, authtest.LoginCode, phone).Code), http.StatusOK)
 		requireSessionWith(t, a, auth, finished.tokens(), "oauth", "sms", "otp", "mfa")
-		require.Equal(t, "idp", peekAccessClaims(t, finished.tokens().AccessToken)["provider"])
+		require.Equal(t, "idp", accessClaims(t, finished.tokens().AccessToken)["provider"])
 
 		// Deleting and recreating the same issuer and subject cannot revive a
 		// challenge that belonged to the previous provider-link row. A

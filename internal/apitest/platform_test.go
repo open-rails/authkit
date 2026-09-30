@@ -358,14 +358,6 @@ func testWorkflowRateLimits(t *testing.T, rdb *redis.Client) {
 	require.Equal(t, http.StatusTooManyRequests, res.status, res.String())
 }
 
-// restart builds a Client on auth's schema after closing auth, as a new
-// release boots.
-func restart(t *testing.T, auth *authkit.Client, opts ...authtest.Option) *authkit.Client {
-	t.Helper()
-	auth.Close()
-	return authtest.Replica(t, auth, opts...)
-}
-
 // editorRoles declare an application root permission and a root role holding it.
 func editorRoles() (*authkit.Roles, iam.Perm, iam.Role) {
 	rbac := authkit.NewRoles()

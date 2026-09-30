@@ -76,7 +76,7 @@ func (f *factorFlow) finishDeviceEnrollment(email string, challenge deviceKeyCha
 
 // deviceKeySession decodes a finish answer after checking it is exactly a
 // token set without a refresh token, plus the current device key.
-func (f *factorFlow) deviceKeySession(res factorReply) deviceKeySession {
+func (f *factorFlow) deviceKeySession(res authAnswer) deviceKeySession {
 	f.t.Helper()
 	var body map[string]json.RawMessage
 	require.NoError(f.t, json.Unmarshal([]byte(res.raw), &body))
@@ -104,7 +104,7 @@ func (f *factorFlow) beginDeviceLogin(id string) deviceKeyChallenge {
 	return challenge
 }
 
-func (f *factorFlow) finishDeviceLogin(challenge deviceKeyChallenge, key ed25519.PrivateKey, domain string) factorReply {
+func (f *factorFlow) finishDeviceLogin(challenge deviceKeyChallenge, key ed25519.PrivateKey, domain string) authAnswer {
 	f.t.Helper()
 	return f.post("/device-keys/login/finish", map[string]any{"challenge_id": challenge.ChallengeID, "signature": f.signDeviceChallenge(key, domain, challenge.Challenge)})
 }
@@ -192,7 +192,7 @@ func testPasskeyCeremonyAndAssurance(t *testing.T, auth *authkit.Client, outbox 
 	u := authtest.NewUser(t, auth)
 	setupToken := authtest.SignIn(t, auth, u).AccessToken
 	authn := passkeytest.New(t, "https://example.com")
-	decode := func(res factorReply, v any) {
+	decode := func(res authAnswer, v any) {
 		t.Helper()
 		require.NoError(t, json.Unmarshal([]byte(res.raw), v), res.raw)
 	}
@@ -203,7 +203,7 @@ func testPasskeyCeremonyAndAssurance(t *testing.T, auth *authkit.Client, outbox 
 		require.Empty(t, assertion.PublicKey.AllowCredentials)
 		return assertion
 	}
-	finish := func(assertion requestOptions, signCount uint32) factorReply {
+	finish := func(assertion requestOptions, signCount uint32) authAnswer {
 		return f.post("/passkeys/login/finish", authn.Assertion(t, assertion.PublicKey.RPID, assertion.PublicKey.Challenge, signCount))
 	}
 	list := func() []passkey {
@@ -241,7 +241,7 @@ func testPasskeyCeremonyAndAssurance(t *testing.T, auth *authkit.Client, outbox 
 	first := authn.Assertion(t, assertion.PublicKey.RPID, assertion.PublicKey.Challenge, 1)
 	signedIn := f.expect(http.StatusOK, f.post("/passkeys/login/finish", first))
 	require.NotEmpty(t, signedIn.RefreshToken)
-	claims := f.claims(signedIn.AccessToken)
+	claims := accessClaims(f.t, signedIn.AccessToken)
 	require.Equal(t, iam.AssuranceLevelMFA, claims["acr"])
 	require.ElementsMatch(t, []any{"swk", "mfa"}, claims["amr"])
 	require.NotZero(t, claims["auth_time"])
@@ -292,7 +292,7 @@ func testDeviceKeyLifecycle(t *testing.T, auth *authkit.Client, outbox *authtest
 	}))
 
 	enrolled := f.finishDeviceEnrollment(email, enrollment, privateKey)
-	claims := f.claims(enrolled.TokenSet.AccessToken)
+	claims := accessClaims(f.t, enrolled.TokenSet.AccessToken)
 	require.ElementsMatch(t, []any{"device_key", "email"}, claims["amr"])
 	require.Equal(t, iam.AssuranceLevelPassword, claims["acr"])
 	require.Equal(t, enrolled.DeviceKey.ID, claims["device_key_id"])
@@ -328,8 +328,8 @@ func testDeviceKeyLifecycle(t *testing.T, auth *authkit.Client, outbox *authtest
 	f.expect(http.StatusUnauthorized, f.finishDeviceLogin(login, privateKey, devicekey.EnrollmentDomain))
 	loggedIn := f.deviceKeySession(f.expect(http.StatusOK, f.finishDeviceLogin(login, privateKey, devicekey.LoginDomain)))
 	require.Equal(t, enrolled.DeviceKey.ID, loggedIn.DeviceKey.ID)
-	require.ElementsMatch(t, []any{"device_key"}, f.claims(loggedIn.TokenSet.AccessToken)["amr"])
-	require.NotContains(t, f.claims(loggedIn.TokenSet.AccessToken), "sid")
+	require.ElementsMatch(t, []any{"device_key"}, accessClaims(f.t, loggedIn.TokenSet.AccessToken)["amr"])
+	require.NotContains(t, accessClaims(f.t, loggedIn.TokenSet.AccessToken), "sid")
 
 	// The login challenge is single use.
 	f.expect(http.StatusUnauthorized, f.finishDeviceLogin(login, privateKey, devicekey.LoginDomain))
@@ -345,7 +345,7 @@ func testDeviceKeyLifecycle(t *testing.T, auth *authkit.Client, outbox *authtest
 	first, firstPrivate := enrolled, privateKey
 	secondPublic, secondPrivate := f.newDeviceKey()
 	second := f.finishDeviceEnrollment(email, f.beginDeviceEnrollment(email, secondPublic), secondPrivate)
-	require.Equal(t, claims["sub"], f.claims(second.TokenSet.AccessToken)["sub"])
+	require.Equal(t, claims["sub"], accessClaims(f.t, second.TokenSet.AccessToken)["sub"])
 	require.NotEqual(t, first.DeviceKey.ID, second.DeviceKey.ID)
 	require.Equal(t, []string{email}, f.deviceKeyNotices(""), "an independent machine notifies the existing owner")
 	f.requireActiveDeviceKeys(user.ID, publicKey, secondPublic)
@@ -408,7 +408,7 @@ func testDeviceKeyLifecycle(t *testing.T, auth *authkit.Client, outbox *authtest
 	holder.TOTP = authtest.EnrollTOTP(t, auth, holder)
 	holderPublic, holderPrivate := f.newDeviceKey()
 	gated := f.beginDeviceEnrollment(holder.Email, holderPublic)
-	gatedFinish := func(secondFactor string) factorReply {
+	gatedFinish := func(secondFactor string) authAnswer {
 		body := map[string]any{
 			"enrollment_id": gated.EnrollmentID,
 			"code":          f.code(authtest.Verification, holder.Email),
@@ -432,7 +432,7 @@ func testDeviceKeyLifecycle(t *testing.T, auth *authkit.Client, outbox *authtest
 	require.Equal(t, "code_2fa", refusal.Error.Metadata["param"])
 	f.expect(http.StatusUnauthorized, gatedFinish("000000"))
 	withFactor := f.deviceKeySession(f.expect(http.StatusOK, gatedFinish(holder.TOTP.Code(t))))
-	claims = f.claims(withFactor.TokenSet.AccessToken)
+	claims = accessClaims(f.t, withFactor.TokenSet.AccessToken)
 	require.ElementsMatch(t, []any{"device_key", "email", "otp", "mfa"}, claims["amr"])
 	require.Equal(t, iam.AssuranceLevelMFA, claims["acr"])
 	require.Equal(t, holder.ID, claims["sub"])
