@@ -32,7 +32,7 @@ func WithDetails(v any) Option {
 		}
 		meta[name] = rv.Field(i).Interface()
 	}
-	return WithMetadata(meta)
+	return func(e *Error) { e.meta = meta }
 }
 
 // ActionAvailability says whether a limited action is allowed now, and when
