@@ -17,12 +17,9 @@ test("register, verify, login, refresh via cookie, logout", async ({
     username: `u${id}`,
     password,
   })
+  // A code went to the address: 202, no body, no session.
   expect(reg.status, JSON.stringify(reg.body)).toBe(202)
-  expect(reg.body).toMatchObject({
-    next_action: "verify_email",
-    user: { email },
-  })
-  expect(reg.body).not.toHaveProperty("token_set")
+  expect(reg.body).toBeNull()
 
   const code = (await outbox(request, email)).find(
     (m) => m.kind === "verification"
@@ -42,7 +39,7 @@ test("register, verify, login, refresh via cookie, logout", async ({
   })
   expect(login.status, JSON.stringify(login.body)).toBe(200)
   expect(login.body).toMatchObject({ token_type: "Bearer" })
-  expect(login.body).not.toHaveProperty("refresh_token")
+  expect(login.body!.refresh_token).toBeNull()
   const access = login.body!.access_token as string
 
   const cookie = (await context.cookies()).find((c) => c.name === "authkit_rt")
@@ -60,7 +57,7 @@ test("register, verify, login, refresh via cookie, logout", async ({
     grant_type: "refresh_token",
   })
   expect(refreshed.status, JSON.stringify(refreshed.body)).toBe(200)
-  expect(refreshed.body).not.toHaveProperty("refresh_token")
+  expect(refreshed.body!.refresh_token).toBeNull()
   const access2 = refreshed.body!.access_token as string
   expect(access2).toBeTruthy()
   const rotated = (await context.cookies()).find((c) => c.name === "authkit_rt")

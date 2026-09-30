@@ -48,7 +48,7 @@ func policy(t *testing.T, p *config.PasswordPolicy) config.PasswordPolicy {
 }
 
 func TestPolicyValidateCountsCharacters(t *testing.T) {
-	p := policy(t, &config.PasswordPolicy{MinLength: 4, MaxLength: 6})
+	p := policy(t, &config.PasswordPolicy{MinLength: 4, MaxLength: 6, AllowCommon: true})
 	for pw, want := range map[string]error{
 		"abc": ErrTooShort, "abcd": nil, "ééé": ErrTooShort, "éééé": nil,
 		"😀😀😀😀😀😀": nil, "abcdefg": ErrTooLong,

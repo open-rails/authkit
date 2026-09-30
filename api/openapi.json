@@ -745,6 +745,9 @@
               }
             }
           },
+          "202": {
+            "description": "Accepted"
+          },
           "default": {
             "description": "An error",
             "content": {
@@ -2128,14 +2131,7 @@
             "name": "limit",
             "in": "query",
             "schema": {
-              "oneOf": [
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ]
+              "type": "integer"
             }
           },
           {
@@ -2322,14 +2318,7 @@
             "name": "limit",
             "in": "query",
             "schema": {
-              "oneOf": [
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ]
+              "type": "integer"
             }
           }
         ],
@@ -2743,14 +2732,7 @@
             "name": "limit",
             "in": "query",
             "schema": {
-              "oneOf": [
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ]
+              "type": "integer"
             }
           },
           {
@@ -3056,14 +3038,7 @@
             "name": "limit",
             "in": "query",
             "schema": {
-              "oneOf": [
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ]
+              "type": "integer"
             }
           }
         ],
@@ -3227,14 +3202,7 @@
             "name": "limit",
             "in": "query",
             "schema": {
-              "oneOf": [
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ]
+              "type": "integer"
             }
           }
         ],
@@ -3390,14 +3358,7 @@
             "name": "limit",
             "in": "query",
             "schema": {
-              "oneOf": [
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ]
+              "type": "integer"
             }
           }
         ],
@@ -4001,6 +3962,100 @@
         "required": [
           "api_key",
           "secret"
+        ]
+      },
+      "AuthKitEvent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "group.created",
+              "group.deleted",
+              "group.purged",
+              "role.changed",
+              "role.granted",
+              "role.revoked",
+              "user.banned",
+              "user.deleted",
+              "user.email_changed",
+              "user.phone_changed",
+              "user.purged",
+              "user.registered",
+              "user.restored",
+              "user.unbanned",
+              "user.username_changed"
+            ]
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "actor_kind": {
+            "type": "string",
+            "enum": [
+              "api_key",
+              "delegated",
+              "remote_application",
+              "system",
+              "user"
+            ]
+          },
+          "actor_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "group_id": {
+            "type": "string"
+          },
+          "persona": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "previous": {
+            "type": "string"
+          },
+          "current": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "until": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "occurred_at",
+          "actor_kind",
+          "actor_id",
+          "user_id",
+          "group_id",
+          "persona",
+          "application_id",
+          "previous",
+          "current",
+          "reason",
+          "until"
         ]
       },
       "Availability": {
@@ -5276,30 +5331,14 @@
       "RegistrationResult": {
         "type": "object",
         "properties": {
-          "next_action": {
-            "type": "string",
-            "enum": [
-              "none",
-              "verify_email",
-              "verify_phone"
-            ]
-          },
           "user": {
             "$ref": "#/components/schemas/RegistrationUser"
           },
           "token_set": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/TokenSet"
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "$ref": "#/components/schemas/TokenSet"
           }
         },
         "required": [
-          "next_action",
           "user",
           "token_set"
         ]

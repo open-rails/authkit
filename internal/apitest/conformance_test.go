@@ -30,7 +30,15 @@ var apiCatalog = func() []catalogRoute {
 		if r.Surface != httpapi.SurfaceAPI {
 			continue
 		}
-		pattern := regexp.MustCompile("^" + regexp.MustCompile(`\{[^}]+\}`).ReplaceAllString(regexp.QuoteMeta(r.Path), "[^/]+") + "$")
+		segments := strings.Split(r.Path, "/")
+		for i, seg := range segments {
+			if strings.HasPrefix(seg, "{") {
+				segments[i] = "[^/]+"
+			} else {
+				segments[i] = regexp.QuoteMeta(seg)
+			}
+		}
+		pattern := regexp.MustCompile("^" + strings.Join(segments, "/") + "$")
 		out = append(out, catalogRoute{r, pattern})
 	}
 	return out

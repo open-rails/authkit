@@ -33,6 +33,22 @@ export type APIKeyCreated = {
   secret: string
 }
 
+export type AuthKitEvent = {
+  id: string
+  kind: "group.created" | "group.deleted" | "group.purged" | "role.changed" | "role.granted" | "role.revoked" | "user.banned" | "user.deleted" | "user.email_changed" | "user.phone_changed" | "user.purged" | "user.registered" | "user.restored" | "user.unbanned" | "user.username_changed"
+  occurred_at: string
+  actor_kind: "api_key" | "delegated" | "remote_application" | "system" | "user"
+  actor_id: string
+  user_id: string
+  group_id: string
+  persona: string
+  application_id: string
+  previous: string
+  current: string
+  reason: string
+  until: string | null
+}
+
 export type Availability = {
   username: AvailabilityField | null
   email: AvailabilityField | null
@@ -378,9 +394,8 @@ export type RegistrationCapabilities = {
 }
 
 export type RegistrationResult = {
-  next_action: "none" | "verify_email" | "verify_phone"
   user: RegistrationUser
-  token_set: TokenSet | null
+  token_set: TokenSet
 }
 
 export type RegistrationUser = {

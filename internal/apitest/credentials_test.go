@@ -257,7 +257,11 @@ func TestInvitationsAreOneResource(t *testing.T) {
 	require.NoError(t, err)
 	var ids, emails []string
 	for _, i := range list.Items {
-		ids, emails = append(ids, i.ID), append(emails, *i.Email)
+		email := ""
+		if i.Email != nil {
+			email = *i.Email
+		}
+		ids, emails = append(ids, i.ID), append(emails, email)
 	}
 	require.Equal(t, []string{capped.Invitation.ID, emailed.Invitation.ID, link.Invitation.ID}, ids, "newest first, both kinds")
 	require.Equal(t, []string{"", "joiner@example.test", ""}, emails)

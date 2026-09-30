@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/httpapi"
 )
 
@@ -65,6 +66,7 @@ var wireNames = map[string]string{
 	module + "/internal/naming.State":      "NamingState",
 	module + "/internal/naming.Alias":      "NamingAlias",
 	module + "/internal/naming.PolicyInfo": "NamingPolicy",
+	module + "/iam.Event":                  "AuthKitEvent",
 }
 
 // wireName is t's name on the wire.
@@ -92,6 +94,11 @@ type contract struct {
 
 func newContract() (*contract, error) {
 	c := &contract{routes: httpapi.Catalog(), objects: map[string]*object{}}
+	// The committed changes Deps.OnEvent delivers: the payload of the
+	// event vocabulary, kinds included.
+	if err := c.reach(reflect.TypeFor[iam.Event](), false); err != nil {
+		return nil, err
+	}
 	for _, r := range c.routes {
 		if r.Request != nil {
 			if err := c.reach(reflect.TypeOf(r.Request), true); err != nil {

@@ -230,7 +230,11 @@ func (c *contract) operation(r httpapi.RouteSpec) *obj {
 		params = append(params, newObj("name", p, "in", "path", "required", true, "schema", newObj("type", "string")))
 	}
 	for _, q := range queryParams(r.Query) {
-		p := newObj("name", q.name, "in", "query", "schema", c.schema(q.t))
+		t := q.t
+		if t.Kind() == reflect.Pointer { // optional, like every query parameter
+			t = t.Elem()
+		}
+		p := newObj("name", q.name, "in", "query", "schema", c.schema(t))
 		if q.t.Kind() == reflect.Slice {
 			p.set("explode", true)
 		}
