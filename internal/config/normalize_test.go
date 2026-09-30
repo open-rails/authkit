@@ -25,7 +25,7 @@ func TestNormalizeIsIdempotent(t *testing.T) {
 		"minimal": {Token: TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"app"}}},
 		"rich": {
 			Token:              TokenConfig{Issuer: "https://example.com/auth", IssuedAudiences: []string{"app"}, AccountIssuers: []string{"https://peer.example"}},
-			Password:           &PasswordPolicy{MinLength: 12},
+			Password:           PasswordPolicy{MinLength: 12},
 			Username:           UsernameConfig{Renames: true, FormerNames: FormerNamesConfig{Mode: FormerNamesForever}},
 			Languages:          LanguageConfig{Supported: []string{"EN", "es-MX"}, Default: "es"},
 			Delegated:          DelegatedConfig{Audiences: []string{"platform"}, TTLCeiling: 2 * time.Hour},

@@ -38,17 +38,17 @@ func TestArgon2id_RoundTrip(t *testing.T) {
 	}
 }
 
-func policy(t *testing.T, p *config.PasswordPolicy) config.PasswordPolicy {
+func policy(t *testing.T, p config.PasswordPolicy) config.PasswordPolicy {
 	t.Helper()
 	n, err := config.NormalizePassword(p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return *n
+	return n
 }
 
 func TestPolicyValidateCountsCharacters(t *testing.T) {
-	p := policy(t, &config.PasswordPolicy{MinLength: 4, MaxLength: 6, AllowCommon: true})
+	p := policy(t, config.PasswordPolicy{MinLength: 4, MaxLength: 6, AllowCommon: true})
 	for pw, want := range map[string]error{
 		"abc": ErrTooShort, "abcd": nil, "ééé": ErrTooShort, "éééé": nil,
 		"😀😀😀😀😀😀": nil, "abcdefg": ErrTooLong,
@@ -60,21 +60,21 @@ func TestPolicyValidateCountsCharacters(t *testing.T) {
 }
 
 func TestPolicyNormalize(t *testing.T) {
-	if p := policy(t, nil); p != (config.PasswordPolicy{MinLength: config.DefaultPasswordMinLength, MaxLength: config.DefaultPasswordMaxLength}) {
+	if p := policy(t, config.PasswordPolicy{}); p != (config.PasswordPolicy{MinLength: config.DefaultPasswordMinLength, MaxLength: config.DefaultPasswordMaxLength}) {
 		t.Fatalf("default = %+v", p)
 	}
-	if p := policy(t, &config.PasswordPolicy{MinLength: 200}); p.MaxLength != 200 || p.AllowCommon {
+	if p := policy(t, config.PasswordPolicy{MinLength: 200}); p.MaxLength != 200 || p.AllowCommon {
 		t.Fatalf("a set policy is taken as written = %+v", p)
 	}
 	for _, bad := range []config.PasswordPolicy{{MinLength: -1}, {MinLength: 10, MaxLength: 9}, {MaxLength: config.PasswordMaxLengthCeiling + 1}} {
-		if _, err := config.NormalizePassword(&bad); err == nil {
+		if _, err := config.NormalizePassword(bad); err == nil {
 			t.Errorf("NormalizePassword(%+v) accepted", bad)
 		}
 	}
 }
 
 func TestPolicyRejectsCommonIdentifiersAndMissingClasses(t *testing.T) {
-	p := policy(t, nil)
+	p := policy(t, config.PasswordPolicy{})
 	if err := Validate(p, "QwertyUIOP"); err != ErrTooCommon {
 		t.Fatalf("common = %v", err)
 	}
@@ -86,13 +86,13 @@ func TestPolicyRejectsCommonIdentifiersAndMissingClasses(t *testing.T) {
 	}
 	// The zero value keeps the blocklist: a policy set only for its lengths
 	// never admits a common password by omission.
-	if err := Validate(policy(t, &config.PasswordPolicy{MinLength: 10}), "qwertyuiop"); err != ErrTooCommon {
+	if err := Validate(policy(t, config.PasswordPolicy{MinLength: 10}), "qwertyuiop"); err != ErrTooCommon {
 		t.Fatalf("a set policy without AllowCommon = %v", err)
 	}
-	if err := Validate(policy(t, &config.PasswordPolicy{AllowCommon: true}), "qwertyuiop"); err != nil {
+	if err := Validate(policy(t, config.PasswordPolicy{AllowCommon: true}), "qwertyuiop"); err != nil {
 		t.Fatalf("with AllowCommon = %v", err)
 	}
-	strict := policy(t, &config.PasswordPolicy{RequireUppercase: true, RequireLowercase: true, RequireDigit: true, RequireSymbol: true})
+	strict := policy(t, config.PasswordPolicy{RequireUppercase: true, RequireLowercase: true, RequireDigit: true, RequireSymbol: true})
 	var unmet *RequirementsError
 	if err := Validate(strict, "ÉCOLE-DE-NUIT"); !errors.As(err, &unmet) || strings.Join(unmet.Missing, ",") != "lowercase,digit" {
 		t.Fatalf("missing = %v", err)
@@ -103,7 +103,7 @@ func TestPolicyRejectsCommonIdentifiersAndMissingClasses(t *testing.T) {
 }
 
 func TestBlocklistCoversCommonLongPasswords(t *testing.T) {
-	p := policy(t, nil)
+	p := policy(t, config.PasswordPolicy{})
 	for _, pw := range []string{"password123", "Password1!", "qwerty12345", "iloveyou123", "PASSWORD", "qwertyuiop"} {
 		if err := Validate(p, pw); err != ErrTooCommon {
 			t.Errorf("Validate(%q) = %v, want ErrTooCommon", pw, err)

@@ -32,11 +32,10 @@ type Config struct {
 	Frontend FrontendConfig
 	// Registration controls verification policy and public self-registration.
 	Registration RegistrationConfig
-	// Password is the rule every password write enforces. Nil is the default
-	// policy: 8..128 characters, no composition rules, common passwords
-	// rejected. A set policy is taken as written (zero lengths still default).
-	// Published by GET {api}/capabilities.
-	Password *PasswordPolicy
+	// Password is the rule every password write enforces. The zero value is
+	// the default policy: 8..128 characters, no composition rules, common
+	// passwords rejected. Published by GET {api}/capabilities.
+	Password PasswordPolicy
 	// Username is the username rule: length, and whether and how often users
 	// may rename themselves. Published by GET {api}/capabilities.
 	Username UsernameConfig

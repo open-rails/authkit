@@ -21,7 +21,7 @@ func (s *Engine) ValidateUsername(username string) error {
 // the account's username and email address when known. Length failures carry
 // min_length/max_length; requirement failures carry the missing classes.
 func (s *Engine) ValidatePassword(value string, identifiers ...string) error {
-	return validatePassword(*s.cfg.Password, value, identifiers...)
+	return validatePassword(s.cfg.Password, value, identifiers...)
 }
 
 func validatePassword(p config.PasswordPolicy, value string, identifiers ...string) error {

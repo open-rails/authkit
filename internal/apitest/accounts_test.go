@@ -503,7 +503,7 @@ func TestAccountPolicies(t *testing.T) {
 
 	t.Run("configured length", func(t *testing.T) {
 		_, a, wire := setup(t, func(c *authkit.Config) {
-			c.Password = &authkit.PasswordPolicy{MinLength: 12, MaxLength: 20}
+			c.Password = authkit.PasswordPolicy{MinLength: 12, MaxLength: 20}
 		})
 		require.Equal(t, map[string]any{"min_length": float64(12), "max_length": float64(20),
 			"require_uppercase": false, "require_lowercase": false, "require_digit": false, "require_symbol": false, "allow_common": false}, wire.Password)
@@ -541,7 +541,7 @@ func TestAccountPolicies(t *testing.T) {
 
 	t.Run("host composition and username bounds", func(t *testing.T) {
 		_, a, wire := setup(t, func(c *authkit.Config) {
-			c.Password = &authkit.PasswordPolicy{RequireSymbol: true, RequireDigit: true, AllowCommon: true}
+			c.Password = authkit.PasswordPolicy{RequireSymbol: true, RequireDigit: true, AllowCommon: true}
 			c.Username = authkit.UsernameConfig{MinLength: 6, MaxLength: 12, Renames: true}
 		})
 		require.Equal(t, true, wire.Password["require_symbol"])
