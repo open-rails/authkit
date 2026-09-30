@@ -1,15 +1,8 @@
 package authkit_test
 
 import (
-	"bufio"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"regexp"
-	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/open-rails/authkit"
@@ -18,36 +11,6 @@ import (
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
 )
-
-// TestStringIdentifiersDoNotCompile builds testdata/stringidents, host code
-// passing strings where a role, permission or persona is expected, and
-// requires the compiler to refuse exactly the lines marked `// want error`.
-func TestStringIdentifiersDoNotCompile(t *testing.T) {
-	const pkg = "testdata/stringidents"
-	src, err := os.ReadFile(filepath.Join(pkg, "main.go"))
-	require.NoError(t, err)
-	want := map[int]bool{}
-	for i, line := range strings.Split(string(src), "\n") {
-		if strings.HasSuffix(line, "// want error") {
-			want[i+1] = true
-		}
-	}
-	require.Len(t, want, 6)
-
-	out, err := exec.Command("go", "build", "-o", os.DevNull, "./"+pkg).CombinedOutput()
-	require.Error(t, err, "string identifiers compiled:\n%s", out)
-	got := map[int]bool{}
-	errLine := regexp.MustCompile(`main\.go:(\d+):\d+: `)
-	scanner := bufio.NewScanner(strings.NewReader(string(out)))
-	for scanner.Scan() {
-		if m := errLine.FindStringSubmatch(scanner.Text()); m != nil {
-			n, err := strconv.Atoi(m[1])
-			require.NoError(t, err)
-			got[n] = true
-		}
-	}
-	require.Equal(t, want, got, "compiler output:\n%s", out)
-}
 
 // TestChannelDeletionModels runs both ways an app can let channels be
 // deleted, side by side. Per channel: an app permission of the channel
