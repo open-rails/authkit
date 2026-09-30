@@ -561,6 +561,8 @@ export const de: AuthUiMessageBundle = {
     auth_required_for_link:
       "Melden Sie sich an, bevor Sie einen Anbieter verknüpfen.",
     authentication_failed: "Authentifizierung fehlgeschlagen.",
+    cannot_remove_last_contact:
+      "Bestätigen Sie eine E-Mail-Adresse, bevor Sie Ihre Telefonnummer entfernen.",
     cannot_unlink_last_login_method:
       "Sie können Ihre letzte Anmeldemöglichkeit nicht entfernen.",
     challenge_expired:

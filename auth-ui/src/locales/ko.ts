@@ -528,6 +528,8 @@ export const ko: AuthUiMessageBundle = {
     account_recovery_required: "로그인하기 전에 계정 복구를 확인하세요.",
     auth_required_for_link: "제공자를 연결하기 전에 로그인하세요.",
     authentication_failed: "인증에 실패했습니다.",
+    cannot_remove_last_contact:
+      "전화번호를 삭제하기 전에 이메일 주소를 인증하세요.",
     cannot_unlink_last_login_method:
       "마지막 로그인 방법은 연결 해제할 수 없습니다.",
     challenge_expired: "인증 세션이 만료되었습니다. 다시 시작하세요.",

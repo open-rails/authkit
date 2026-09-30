@@ -494,6 +494,7 @@ export const zh: AuthUiMessageBundle = {
     account_recovery_required: "登录前请先确认恢复账户。",
     auth_required_for_link: "关联登录方式前请先登录。",
     authentication_failed: "身份验证失败。",
+    cannot_remove_last_contact: "请先验证一个邮箱地址，再删除您的手机号码。",
     cannot_unlink_last_login_method: "无法取消关联最后一种登录方式。",
     challenge_expired: "验证会话已过期，请重新开始。",
     challenge_mismatch: "身份验证失败。",

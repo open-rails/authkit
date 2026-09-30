@@ -556,6 +556,8 @@ export const es: AuthUiMessageBundle = {
       "Confirma la recuperación de la cuenta antes de iniciar sesión.",
     auth_required_for_link: "Inicia sesión antes de vincular un proveedor.",
     authentication_failed: "La autenticación falló.",
+    cannot_remove_last_contact:
+      "Verifica una dirección de correo electrónico antes de eliminar tu número de teléfono.",
     cannot_unlink_last_login_method:
       "No puedes desvincular tu último método de inicio de sesión.",
     challenge_expired: "Tu sesión de verificación expiró. Empieza de nuevo.",

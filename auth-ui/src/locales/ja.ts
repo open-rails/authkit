@@ -537,6 +537,8 @@ export const ja: AuthUiMessageBundle = {
       "ログインする前にアカウントの復旧を確認してください。",
     auth_required_for_link: "プロバイダーを連携する前にログインしてください。",
     authentication_failed: "認証に失敗しました。",
+    cannot_remove_last_contact:
+      "電話番号を削除する前に、メールアドレスを確認してください。",
     cannot_unlink_last_login_method: "最後のログイン方法は連携解除できません。",
     challenge_expired:
       "認証セッションの有効期限が切れました。最初からやり直してください。",

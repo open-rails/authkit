@@ -1805,7 +1805,8 @@
         ],
         "x-authkit-auth": "session",
         "x-authkit-rate-limit": "auth_passkey_register",
-        "x-authkit-mounted-when": "passkeys"
+        "x-authkit-mounted-when": "passkeys",
+        "x-authkit-step-up": true
       }
     },
     "/api/v1/me/passkeys/register/finish": {
@@ -1850,7 +1851,8 @@
         ],
         "x-authkit-auth": "session",
         "x-authkit-rate-limit": "auth_passkey_register",
-        "x-authkit-mounted-when": "passkeys"
+        "x-authkit-mounted-when": "passkeys",
+        "x-authkit-step-up": true
       }
     },
     "/api/v1/me/step-up/password": {
@@ -2030,7 +2032,8 @@
         ],
         "x-authkit-auth": "session",
         "x-authkit-rate-limit": "auth_oidc_start",
-        "x-authkit-mounted-when": "oidc"
+        "x-authkit-mounted-when": "oidc",
+        "x-authkit-step-up": true
       }
     },
     "/api/v1/oidc/{provider}/step-up/start": {
@@ -2306,7 +2309,7 @@
           }
         ],
         "x-authkit-auth": "session",
-        "x-authkit-rate-limit": "auth_2fa_enable",
+        "x-authkit-rate-limit": "auth_user_update",
         "x-authkit-mounted-when": "two_factor",
         "x-authkit-step-up": true
       },
@@ -2432,7 +2435,8 @@
         ],
         "x-authkit-auth": "session",
         "x-authkit-rate-limit": "auth_solana_link",
-        "x-authkit-mounted-when": "solana"
+        "x-authkit-mounted-when": "solana",
+        "x-authkit-step-up": true
       }
     },
     "/api/v1/me/groups": {

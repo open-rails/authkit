@@ -133,7 +133,7 @@ func (s *Service) handleSignInKeyDELETE(w http.ResponseWriter, r *http.Request) 
 }
 
 // handlePasskeyRegisterBeginPOST starts adding a passkey: a new way to sign
-// in, so the caller needs a proven contact and a recent sign-in.
+// in, so the caller needs a proven contact.
 func (s *Service) handlePasskeyRegisterBeginPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := s.newSignInMethodCaller(w, r)
 	if !ok {
@@ -166,21 +166,15 @@ func (s *Service) handlePasskeyRegisterFinishPOST(w http.ResponseWriter, r *http
 }
 
 // newSignInMethodCaller is the caller of a route that adds a way to sign in:
-// its addresses are not all unproven, and it signed in recently.
+// its account must have a proven contact (ak#393). The route declares the
+// recent sign-in (RouteSpec.StepUp).
 func (s *Service) newSignInMethodCaller(w http.ResponseWriter, r *http.Request) (verify.Claims, bool) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		fail(w, errmodel.CodeUnauthenticated)
 		return claims, false
 	}
-	if !s.requireProvenContact(w, r, claims.UserID) {
-		return claims, false
-	}
-	if err := s.svc.CheckRecentSignIn(r.Context(), claims); err != nil {
-		writeError(w, err)
-		return claims, false
-	}
-	return claims, true
+	return claims, s.requireProvenContact(w, r, claims.UserID)
 }
 
 func (s *Service) writePasskeySignInKey(w http.ResponseWriter, r *http.Request, userID, id string) {

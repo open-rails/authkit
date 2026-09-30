@@ -22,8 +22,8 @@ func writeError(w http.ResponseWriter, err error) {
 	if e.Status() >= 500 && e.Code() != string(errmodel.CodeServerBusy) {
 		slog.Default().Error("authkit: request failed", slog.Int("status", e.Status()), slog.String("error", errorString(err)))
 	}
-	if seconds, ok := e.Metadata()["retry_after_seconds"].(float64); ok && seconds > 0 && w.Header().Get("Retry-After") == "" {
-		w.Header().Set("Retry-After", strconv.Itoa(int(seconds)))
+	if seconds, ok := e.Metadata()["retry_after_seconds"].(int64); ok && seconds > 0 && w.Header().Get("Retry-After") == "" {
+		w.Header().Set("Retry-After", strconv.FormatInt(seconds, 10))
 	}
 	iam.WriteError(w, err)
 }

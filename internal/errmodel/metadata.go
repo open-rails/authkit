@@ -1,7 +1,8 @@
 package errmodel
 
 import (
-	"encoding/json"
+	"reflect"
+	"strings"
 	"time"
 
 	"github.com/open-rails/authkit/internal/wireform"
@@ -11,16 +12,25 @@ import (
 // shape (httpapi.ErrorMetadata lists them for the contract), set with
 // WithDetails. The shapes the lowest layers produce live here.
 
-// WithDetails sets the metadata from v, a struct marshaled in wire form as a
-// JSON object.
+// WithDetails sets the metadata from v, a struct: one member per json-tagged
+// field, in wire form, keeping its Go type for Go callers of Metadata.
 func WithDetails(v any) Option {
-	raw, err := json.Marshal(wireform.Of(v))
-	var meta map[string]any
-	if err == nil {
-		err = json.Unmarshal(raw, &meta)
+	rv := reflect.ValueOf(wireform.Of(v))
+	if rv.Kind() != reflect.Struct {
+		panic("errmodel: details must be a struct, got " + rv.Kind().String())
 	}
-	if err != nil {
-		panic("errmodel: details must marshal to a JSON object: " + err.Error())
+	meta := map[string]any{}
+	t := rv.Type()
+	for i := range t.NumField() {
+		f := t.Field(i)
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if !f.IsExported() || name == "-" {
+			continue
+		}
+		if name == "" {
+			name = f.Name
+		}
+		meta[name] = rv.Field(i).Interface()
 	}
 	return WithMetadata(meta)
 }
