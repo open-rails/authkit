@@ -5,7 +5,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"io/fs"
+	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -21,8 +21,6 @@ import (
 // (OpenAPI and TypeScript) are rendered from it.
 
 const module = "github.com/open-rails/authkit"
-
-type kind = httpapi.WireKind
 
 const (
 	kindString   = httpapi.WireString
@@ -215,28 +213,34 @@ func enumValues(t reflect.Type) []string {
 		return nil
 	}
 	dir := filepath.Join(repoRoot, strings.TrimPrefix(strings.TrimPrefix(t.PkgPath(), module), "/"))
-	pkgs, err := parser.ParseDir(token.NewFileSet(), dir, func(fi fs.FileInfo) bool { return !strings.HasSuffix(fi.Name(), "_test.go") }, 0)
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		panic(fmt.Sprintf("contract: parse %s: %v", dir, err))
+		panic(fmt.Sprintf("contract: read %s: %v", dir, err))
 	}
 	var out []string
-	for _, pkg := range pkgs {
-		for _, file := range pkg.Files {
-			for _, decl := range file.Decls {
-				gen, ok := decl.(*ast.GenDecl)
-				if !ok || gen.Tok != token.CONST {
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, name), nil, 0)
+		if err != nil {
+			panic(fmt.Sprintf("contract: parse %s: %v", name, err))
+		}
+		for _, decl := range file.Decls {
+			gen, ok := decl.(*ast.GenDecl)
+			if !ok || gen.Tok != token.CONST {
+				continue
+			}
+			for _, spec := range gen.Specs {
+				vs := spec.(*ast.ValueSpec)
+				if id, ok := vs.Type.(*ast.Ident); !ok || id.Name != t.Name() {
 					continue
 				}
-				for _, spec := range gen.Specs {
-					vs := spec.(*ast.ValueSpec)
-					if id, ok := vs.Type.(*ast.Ident); !ok || id.Name != t.Name() {
-						continue
-					}
-					for _, v := range vs.Values {
-						if lit, ok := v.(*ast.BasicLit); ok && lit.Kind == token.STRING {
-							value, _ := strconv.Unquote(lit.Value)
-							out = append(out, value)
-						}
+				for _, v := range vs.Values {
+					if lit, ok := v.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+						value, _ := strconv.Unquote(lit.Value)
+						out = append(out, value)
 					}
 				}
 			}
