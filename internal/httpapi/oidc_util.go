@@ -12,24 +12,22 @@ import (
 	"github.com/open-rails/authkit/provider"
 )
 
-// buildRedirectURI is a flow's OAuth/OIDC redirect_uri: this mount's browser
-// callback ("/step-up/callback" for a step-up) where clients reach it,
-// HTTPConfig.PublicURL.
+// buildRedirectURI is a flow's OAuth/OIDC redirect_uri: this mount's one
+// browser callback for the provider, where clients reach it,
+// HTTPConfig.PublicURL. Login, link and step-up share it; the flow's state
+// tells them apart.
 //
 // SECURITY (AK F2): the origin comes from trusted configuration, never from
 // X-Forwarded-Proto / X-Forwarded-Host, which would let an attacker steer the
 // authorization code to a host they control. Without a PublicURL (an issuer
 // that is not a URL, in development) it is the request's own connection
 // scheme and Host header, still never the forwarded headers.
-func (s *Service) buildRedirectURI(r *http.Request, provider string, stepUp bool) (string, bool) {
+func (s *Service) buildRedirectURI(r *http.Request, provider string) (string, bool) {
 	oidc := layoutFrom(r).oidc
 	if oidc == "" {
 		return "", false
 	}
 	p := oidc + "/" + url.PathEscape(provider) + "/callback"
-	if stepUp {
-		p = oidc + "/" + url.PathEscape(provider) + "/step-up/callback"
-	}
 	if s.http.PublicURL != "" {
 		return s.http.PublicURL + strings.TrimPrefix(p, s.http.BasePath), true
 	}

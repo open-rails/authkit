@@ -34,6 +34,7 @@ Every route lives beneath `HTTPConfig.BasePath`:
 - With `HTTPConfig.RefreshCookie`, the refresh token lives only in an `HttpOnly` `__Host-authkit_rt` cookie, and never in a response body.
 - The single-page app and AuthKit must then share an origin. Cookie mounts refuse cross-site requests (by `Origin` and `Sec-Fetch-Site`) and refresh tokens sent in bodies.
 - Links in emails and the OIDC return go to the host's frontend routes (`Config.Frontend`). `BaseURL` defaults to the issuer.
+- Register one redirect URI at each identity provider: `{BasePath}/oidc/{provider}/callback` as clients reach it (under `PublicURL` when set). Sign-in, linking and step-up all return there.
 
 ## Client addresses and rate limits
 

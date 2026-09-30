@@ -92,7 +92,7 @@ type flowsBackend interface {
 	StepUpWithSolana(ctx context.Context, userID, sessionID string, output siws.SignInOutput) error
 	TwoFactorEnabled() bool
 	TwoFactorMethods() []iam.TwoFactorMethod
-	UnlinkProviderUnlessLast(ctx context.Context, userID, provider string) (bool, error)
+	UnlinkProvider(ctx context.Context, userID, provider string) error
 	ValidatePassword(value string, identifiers ...string) error
 	ValidateUsername(username string) error
 	ValidateUsernameForRegistration(ctx context.Context, username string) (string, error)

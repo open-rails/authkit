@@ -4194,124 +4194,6 @@
         "x-authkit-rate-limit": "oidc_callback",
         "x-authkit-mounted-when": "oidc"
       }
-    },
-    "/oidc/{provider}/step-up/callback": {
-      "get": {
-        "tags": [
-          "browser_oidc"
-        ],
-        "parameters": [
-          {
-            "name": "provider",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "state",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "code",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "error",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "format",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "302": {
-            "description": "Found"
-          },
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AuthResult"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "An error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [],
-        "x-authkit-auth": "public",
-        "x-authkit-rate-limit": "oidc_callback",
-        "x-authkit-mounted-when": "oidc"
-      },
-      "post": {
-        "tags": [
-          "browser_oidc"
-        ],
-        "parameters": [
-          {
-            "name": "provider",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "302": {
-            "description": "Found"
-          },
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AuthResult"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "An error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [],
-        "x-authkit-auth": "public",
-        "x-authkit-rate-limit": "oidc_callback",
-        "x-authkit-mounted-when": "oidc"
-      }
     }
   },
   "components": {
@@ -8330,7 +8212,7 @@
       }
     },
     "provider_not_linked": {
-      "status": 400,
+      "status": 404,
       "message": "That provider is not linked."
     },
     "provider_unavailable": {

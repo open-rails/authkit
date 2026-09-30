@@ -345,27 +345,22 @@ func Catalog() []RouteSpec {
 		{Method: POST, Path: "/invitations/redeem", Group: groups, Auth: session, Bucket: RLInviteRedeem,
 			Request: InvitationRedeemRequest{}, Responses: replyOK(iam.Membership{}), serve: handle((*Service).handleInvitationRedeemPOST)},
 
-		// Browser OIDC: navigations and the provider's callbacks. A callback
-		// asked for JSON answers the AuthResult; a redirect or popup carries a
-		// one-time code for POST /oidc/exchange.
+		// Browser OIDC: navigations and the provider's one callback, which
+		// completes a login, link or step-up alike. A callback asked for JSON
+		// answers the AuthResult; a redirect or popup carries a one-time code
+		// for POST /oidc/exchange.
 		{Method: GET, Path: "/{provider}/login", Surface: SurfaceOIDC, Group: oidc, Auth: public, Bucket: RLOIDCStart, MountedWhen: FeatureOIDC,
 			Query: OIDCLoginQuery{}, Responses: []Reply{{Status: http.StatusFound}}, serve: handle((*Service).handleOIDCLoginGET)},
 		{Method: GET, Path: "/{provider}/callback", Surface: SurfaceOIDC, Group: oidc, Auth: public, Bucket: RLOIDCCallback, MountedWhen: FeatureOIDC,
 			Query: OIDCCallbackQuery{}, Responses: oidcCallbackReplies, serve: handle((*Service).handleOIDCCallbackGET)},
-		{Method: GET, Path: "/{provider}/step-up/callback", Surface: SurfaceOIDC, Group: oidc, Auth: public, Bucket: RLOIDCCallback, MountedWhen: FeatureOIDC,
-			Query: OIDCCallbackQuery{}, Responses: oidcStepUpReplies, serve: handle((*Service).handleOIDCCallbackGET)},
 		// response_mode=form_post providers (Apple) deliver the same response
 		// as a cross-site POST body (#295).
 		{Method: POST, Path: "/{provider}/callback", Surface: SurfaceOIDC, Group: oidc, Auth: public, Bucket: RLOIDCCallback, MountedWhen: FeatureOIDC,
 			Responses: oidcCallbackReplies, serve: handle((*Service).handleOIDCCallbackGET)},
-		{Method: POST, Path: "/{provider}/step-up/callback", Surface: SurfaceOIDC, Group: oidc, Auth: public, Bucket: RLOIDCCallback, MountedWhen: FeatureOIDC,
-			Responses: oidcStepUpReplies, serve: handle((*Service).handleOIDCCallbackGET)},
 	}
 }
 
-var (
-	// A callback redirects to the frontend (or answers the popup document);
-	// asked for JSON it answers the AuthResult, or 204 for a linked provider.
-	oidcCallbackReplies = []Reply{{Status: http.StatusFound}, {http.StatusOK, AuthResult{}}, {Status: http.StatusNoContent}}
-	oidcStepUpReplies   = []Reply{{Status: http.StatusFound}, {http.StatusOK, AuthResult{}}}
-)
+// A callback redirects to the frontend, a step-up's return_to or the popup
+// document; asked for JSON it answers the AuthResult, or 204 for a linked
+// provider.
+var oidcCallbackReplies = []Reply{{Status: http.StatusFound}, {http.StatusOK, AuthResult{}}, {Status: http.StatusNoContent}}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -11,6 +12,7 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ops"
+	"github.com/open-rails/authkit/provider"
 )
 
 // Provider links: linking and unlinking external identity providers and
@@ -38,63 +40,83 @@ func (s *Engine) ProviderSlugs(ctx context.Context, userID string) ([]string, er
 	return s.q.UserProviderSlugsDistinct(ctx, strings.TrimSpace(userID))
 }
 
-// UnlinkProviderUnlessLast atomically removes the provider link only if the user
-// retains a login method afterward (a password, or another provider). Returns
-// (false, nil) when removal would strip the last login method. The check and the
-// delete run in one transaction, and UserProviderCountForUpdate locks the user's
-// provider rows so two concurrent unlinks of different providers cannot both pass
-// the "not last" check and leave the user with zero login methods.
-func (s *Engine) UnlinkProviderUnlessLast(ctx context.Context, userID, provider string) (bool, error) {
-	if s.pg == nil {
-		return false, nil
+// UnlinkProvider removes the account's link to provider unless it is the
+// account's last way to sign in: provider_not_linked when nothing is linked
+// under that name, cannot_unlink_last_login_method when no other sign-in
+// method would remain. An imported claim not yet verified signs nobody in, so
+// it always goes. The check and the delete hold the account lock every
+// credential change takes, so two unlinks cannot each leave the other last.
+func (s *Engine) UnlinkProvider(ctx context.Context, userID, provider string) error {
+	if err := s.requirePG(); err != nil {
+		return err
 	}
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
-		return false, err
+		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := s.qtx(tx)
-	_, unverifiedErr := q.UserProviderUnverifiedForUpdate(ctx, db.UserProviderUnverifiedForUpdateParams{
-		UserID:       userID,
-		ProviderSlug: &provider,
-	})
-	if unverifiedErr != nil && !errors.Is(unverifiedErr, pgx.ErrNoRows) {
-		return false, unverifiedErr
-	}
-	// An imported provider claim is visible so the user can verify or remove it,
-	// but it is not a login method. Removing it therefore cannot strip the last
-	// credential and must not be rejected by the credential-count guard below.
-	// Lock only unverified rows here so verified-provider unlinks retain the
-	// established all-provider lock order below.
-	if unverifiedErr == nil {
-		if err := q.UserProviderDeleteBySlug(ctx, db.UserProviderDeleteBySlugParams{UserID: userID, ProviderSlug: &provider}); err != nil {
-			return false, err
-		}
-		if err := tx.Commit(ctx); err != nil {
-			return false, err
-		}
-		return true, nil
-	}
-	links, err := q.UserProviderCountForUpdate(ctx, userID)
+	account, err := q.UserCredentialVersionForUpdate(ctx, userID)
 	if err != nil {
-		return false, err
+		return err
 	}
-	hasPwd, err := q.UserHasPassword(ctx, userID)
-	if err != nil {
-		return false, err
-	}
-	// Mirror the prior guard semantics (no password AND ≤1 provider ⇒ this is the
-	// last login method), now evaluated under the row lock.
-	if !hasPwd && links <= 1 {
-		return false, nil
+	_, err = q.UserProviderUnverifiedForUpdate(ctx, db.UserProviderUnverifiedForUpdateParams{UserID: userID, ProviderSlug: &provider})
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		slugs, err := q.UserProviderSlugsDistinct(ctx, userID)
+		if err != nil {
+			return err
+		}
+		if !slices.Contains(slugs, provider) {
+			return errmodel.ErrProviderNotLinked
+		}
+		others := slices.DeleteFunc(slugs, func(slug string) bool { return slug == provider || !s.signsInWith(slug) })
+		if len(others) == 0 {
+			ok, err := s.hasSignInBesidesProviders(ctx, tx, userID, account)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return errmodel.ErrCannotUnlinkLastLoginMethod
+			}
+		}
+	case err != nil:
+		return err
 	}
 	if err := q.UserProviderDeleteBySlug(ctx, db.UserProviderDeleteBySlugParams{UserID: userID, ProviderSlug: &provider}); err != nil {
-		return false, err
+		return err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return false, err
+	return tx.Commit(ctx)
+}
+
+// signsInWith reports whether a provider link under slug is a way to sign in
+// here: a configured provider, or a wallet while Solana is on.
+func (s *Engine) signsInWith(slug string) bool {
+	if slug == solanaProviderSlug {
+		return s.cfg.SolanaNetwork != ""
 	}
-	return true, nil
+	return slices.ContainsFunc(s.providers, func(p provider.Provider) bool { return p != nil && strings.EqualFold(p.Name(), slug) })
+}
+
+// hasSignInBesidesProviders reports whether the account signs in some way
+// other than a provider: a password, a passkey, a device key, or a
+// passwordless code to its email or phone.
+func (s *Engine) hasSignInBesidesProviders(ctx context.Context, tx pgx.Tx, userID string, account db.UserCredentialVersionForUpdateRow) (bool, error) {
+	q := s.qtx(tx)
+	if s.cfg.Registration.PasswordlessLogin && (account.Email != nil && s.email != nil || account.PhoneNumber != nil && s.sms != nil) {
+		return true, nil
+	}
+	if ok, err := q.UserHasPassword(ctx, userID); ok || err != nil {
+		return ok, err
+	}
+	if ok, err := s.holdsPasskey(ctx, tx, userID); ok || err != nil {
+		return ok, err
+	}
+	if !s.cfg.DeviceKeys.Enabled {
+		return false, nil
+	}
+	keys, err := q.DeviceKeysByUser(ctx, userID)
+	return slices.ContainsFunc(keys, func(k db.UserDeviceKey) bool { return k.RevokedAt == nil }), err
 }
 
 // Issuer-based provider link helpers (preferred)
