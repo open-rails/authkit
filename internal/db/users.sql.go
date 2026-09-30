@@ -638,23 +638,6 @@ func (q *Queries) UserPasswordUpsert(ctx context.Context, arg UserPasswordUpsert
 	return err
 }
 
-const userPatchMetadata = `-- name: UserPatchMetadata :exec
-UPDATE users SET metadata = (COALESCE(metadata, '{}'::jsonb) || $1::jsonb) - $2::text[], updated_at = now()
-WHERE id = $3
-`
-
-type UserPatchMetadataParams struct {
-	Patch    []byte
-	DropKeys []string
-	ID       string
-}
-
-// Merges patch into the metadata and removes drop_keys.
-func (q *Queries) UserPatchMetadata(ctx context.Context, arg UserPatchMetadataParams) error {
-	_, err := q.db.Exec(ctx, userPatchMetadata, arg.Patch, arg.DropKeys, arg.ID)
-	return err
-}
-
 const userPhoneOrUsernameTaken = `-- name: UserPhoneOrUsernameTaken :one
 SELECT
   EXISTS(SELECT 1 FROM users WHERE phone_number = $1::text)::boolean AS phone_taken,
@@ -782,6 +765,22 @@ type UserSetLastLoginParams struct {
 
 func (q *Queries) UserSetLastLogin(ctx context.Context, arg UserSetLastLoginParams) error {
 	_, err := q.db.Exec(ctx, userSetLastLogin, arg.ID, arg.LastLogin)
+	return err
+}
+
+const userSetMetadata = `-- name: UserSetMetadata :exec
+UPDATE users SET metadata = $1::jsonb, updated_at = now()
+WHERE id = $2
+`
+
+type UserSetMetadataParams struct {
+	Metadata []byte
+	ID       string
+}
+
+// Replaces the metadata document (PatchUserMetadata merges in Go).
+func (q *Queries) UserSetMetadata(ctx context.Context, arg UserSetMetadataParams) error {
+	_, err := q.db.Exec(ctx, userSetMetadata, arg.Metadata, arg.ID)
 	return err
 }
 
