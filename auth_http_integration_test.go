@@ -2,7 +2,6 @@ package authkit_test
 
 import (
 	"context"
-	"crypto"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,7 +10,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/internal/testkeys"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,10 +18,9 @@ import (
 // public capabilities route reports the configured policy, served through
 // Mount at the configured prefix.
 func TestNewServesConfiguredCapabilities(t *testing.T) {
-	signer, err := jwtkit.NewRSASigner(2048, "capabilities")
-	require.NoError(t, err)
+	signer := testkeys.RSA("capabilities")
 	auth, err := authkit.New(context.Background(), authkit.Config{
-		Keys:  authkit.KeysConfig{Source: jwtkit.StaticKeySource{Active: signer, Pubs: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()}}},
+		Keys:  authkit.KeysConfig{Source: testkeys.Source(signer)},
 		Token: authkit.TokenConfig{Issuer: "https://capabilities.test", IssuedAudiences: []string{"app"}},
 		Registration: authkit.RegistrationConfig{
 			NativeUserMode:    iam.RegistrationModeInviteOnly,

@@ -15,19 +15,18 @@ import (
 	riverhelpers "github.com/open-rails/helpers/river"
 )
 
-// Client is AuthKit embedded in a host: the engine, its verifier and, unless
-// Config.HTTP is zero, its HTTP surface. Build it with New, wire any
-// entitlements cycle with SetEntitlements, then Start it. Operations are
-// methods, grouped by domain in the auth_*.go files.
+// Client is AuthKit embedded in a host: the engine and, unless Config.HTTP
+// is zero, its HTTP surface. Build it with New, wire any entitlements cycle
+// with SetEntitlements, then Start it. Operations are methods, grouped by
+// domain in the auth_*.go files. It is the authority verify's middleware
+// takes: verify.Required(client), verify.RequirePermission(client, perm).
 type Client struct {
-	engine   *engine.Engine
-	verifier *verify.Verifier
-	http     *httpapi.Service
-	mount    *httpapi.Mount
-	started  atomic.Bool
+	engine  *engine.Engine
+	http    *httpapi.Service
+	mount   *httpapi.Mount
+	started atomic.Bool
 }
 
-// Client is the authority verify's permission and session gates consume.
 var _ verify.Authority = (*Client)(nil)
 
 // New builds AuthKit from host configuration and dependencies. Run Migrate on
@@ -41,7 +40,7 @@ func New(ctx context.Context, cfg Config, deps Deps) (_ *Client, err error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &Client{engine: e, verifier: e.Verifier()}
+	a := &Client{engine: e}
 	defer func() {
 		if err != nil {
 			a.Close()
@@ -51,7 +50,7 @@ func New(ctx context.Context, cfg Config, deps Deps) (_ *Client, err error) {
 		if deps.Postgres == nil {
 			return nil, errors.New("authkit: HTTP requires Deps.Postgres")
 		}
-		if a.http, a.mount, err = newHTTP(e, a.verifier, *settings.http); err != nil {
+		if a.http, a.mount, err = newHTTP(e, *settings.http); err != nil {
 			return nil, err
 		}
 	}
@@ -59,8 +58,8 @@ func New(ctx context.Context, cfg Config, deps Deps) (_ *Client, err error) {
 }
 
 // newHTTP builds the HTTP layer and its one mounted handler.
-func newHTTP(e *engine.Engine, v *verify.Verifier, cfg httpapi.Config) (*httpapi.Service, *httpapi.Mount, error) {
-	svc, err := httpapi.New(e, v, cfg)
+func newHTTP(e *engine.Engine, cfg httpapi.Config) (*httpapi.Service, *httpapi.Mount, error) {
+	svc, err := httpapi.New(e, cfg)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -151,27 +150,3 @@ func (a *Client) Mount(mux *http.ServeMux) (err error) {
 	}
 	return nil
 }
-
-// Verifier verifies requests and tokens against this deployment. It exists
-// from New on, with or without an HTTP surface.
-func (a *Client) Verifier() *verify.Verifier { return a.verifier }
-
-// NewVerifier builds an extra verifier for the host's own resource routes,
-// such as delegated tokens for another audience. It trusts no issuer until the
-// host adds one (AddIssuer, LoadRemoteApplications) and shares this
-// deployment's API-key resolver, stored remote applications, permission
-// checks and DPoP replay store. DPoP proofs are checked
-// against the issuer's origin plus the request path unless
-// verify.WithDPoPRequestURL says otherwise.
-func (a *Client) NewVerifier(opts ...verify.VerifierOption) *verify.Verifier {
-	return a.engine.NewVerifier(opts...)
-}
-
-// Require rejects requests without a valid credential. It is stateless: a
-// token outlives its revoked session until it expires (at most the access
-// token lifetime). verify.RequirePermission and verify.Sensitive check the
-// session live.
-func (a *Client) Require(next http.Handler) http.Handler { return verify.Required(a.verifier)(next) }
-
-// Optional verifies a credential when one is presented.
-func (a *Client) Optional(next http.Handler) http.Handler { return verify.Optional(a.verifier)(next) }

@@ -24,7 +24,7 @@ func TestProofValidationWorkflow(t *testing.T) {
 	guard := func(context.Context, string, time.Duration) (bool, error) { return true, nil }
 	good := testdpop.Proof(t, key, "POST", target, "access-token", nil)
 	request.Header.Set("DPoP", good)
-	thumbprint, err := dpop.VerifyRequest(request, target+"?page=2", "access-token", nil, guard)
+	thumbprint, err := dpop.VerifyRequest(request, target+"?page=2", "access-token", "", guard)
 	require.NoError(t, err)
 	for name, change := range map[string]func(*jwt.Token){
 		"wrong type":           func(t *jwt.Token) { t.Header["typ"] = "JWT" },
@@ -48,33 +48,33 @@ func TestProofValidationWorkflow(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			request.Header.Set("DPoP", testdpop.Proof(t, key, "POST", target, "access-token", change))
-			_, err := dpop.VerifyRequest(request, target, "access-token", &thumbprint, guard)
+			_, err := dpop.VerifyRequest(request, target, "access-token", thumbprint, guard)
 			require.ErrorIs(t, err, dpop.ErrInvalidProof)
 		})
 	}
 	request.Header.Set("DPoP", testdpop.Proof(t, testdpop.Key(t), "POST", target, "access-token", nil))
-	_, err = dpop.VerifyRequest(request, target, "access-token", &thumbprint, guard)
+	_, err = dpop.VerifyRequest(request, target, "access-token", thumbprint, guard)
 	require.ErrorIs(t, err, dpop.ErrInvalidProof)
 	request.Header.Set("DPoP", testdpop.Proof(t, key, "POST", "HTTPS://API.EXAMPLE:443/tasks", "access-token", nil))
-	_, err = dpop.VerifyRequest(request, target, "access-token", &thumbprint, guard)
+	_, err = dpop.VerifyRequest(request, target, "access-token", thumbprint, guard)
 	require.NoError(t, err)
 	request.Header.Set("DPoP", testdpop.Proof(t, key, "POST", target+"/a%2Fb", "access-token", nil))
-	_, err = dpop.VerifyRequest(request, target+"/a/b", "access-token", &thumbprint, guard)
+	_, err = dpop.VerifyRequest(request, target+"/a/b", "access-token", thumbprint, guard)
 	require.ErrorIs(t, err, dpop.ErrInvalidProof)
 	for _, malformed := range []string{"", "a.b.c.d", strings.Repeat("x", 4097), good + ", " + good,
 		base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"dpop+jwt","typ":"dpop+jwt","alg":"ES256","jwk":{}}`)) + ".e30.AA"} {
 		request.Header.Set("DPoP", malformed)
-		_, err = dpop.VerifyRequest(request, target, "access-token", nil, guard)
+		_, err = dpop.VerifyRequest(request, target, "access-token", "", guard)
 		require.ErrorIs(t, err, dpop.ErrInvalidProof)
 	}
 	request.Header.Set("DPoP", good)
 	request.Header.Add("DPoP", good)
-	_, err = dpop.VerifyRequest(request, target, "access-token", nil, guard)
+	_, err = dpop.VerifyRequest(request, target, "access-token", "", guard)
 	require.ErrorIs(t, err, dpop.ErrInvalidProof)
 	request.Header.Set("DPoP", good)
-	_, err = dpop.VerifyRequest(request, target, "access-token", nil, nil)
+	_, err = dpop.VerifyRequest(request, target, "access-token", "", nil)
 	require.ErrorIs(t, err, dpop.ErrReplayUnavailable)
-	_, err = dpop.VerifyRequest(request, target, "access-token", nil, func(context.Context, string, time.Duration) (bool, error) { return false, errors.New("offline") })
+	_, err = dpop.VerifyRequest(request, target, "access-token", "", func(context.Context, string, time.Duration) (bool, error) { return false, errors.New("offline") })
 	require.ErrorIs(t, err, dpop.ErrReplayUnavailable)
 	// Concurrent identical proofs can yield exactly one accepted request.
 	var claimed atomic.Bool
@@ -82,7 +82,7 @@ func TestProofValidationWorkflow(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 16 {
 		wg.Go(func() {
-			_, err := dpop.VerifyRequest(request, target, "access-token", nil, func(_ context.Context, key string, ttl time.Duration) (bool, error) {
+			_, err := dpop.VerifyRequest(request, target, "access-token", "", func(_ context.Context, key string, ttl time.Duration) (bool, error) {
 				if len(key) != 43 || ttl <= 0 || ttl > 121*time.Second {
 					panic("unbounded replay claim")
 				}

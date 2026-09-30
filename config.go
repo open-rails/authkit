@@ -6,10 +6,10 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/httpapi"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/keys"
+	"github.com/open-rails/authkit/provider"
 )
 
 // Config is the host-provided configuration for an AuthKit engine. Fields are
@@ -17,7 +17,7 @@ import (
 // runtime dependencies (Postgres, senders) are Deps.
 type Config struct {
 	// HTTP configures the HTTP surface New builds. The zero value keeps the
-	// runtime headless: operations and Verifier only.
+	// runtime headless: operations and request verification only.
 	HTTP HTTPConfig
 
 	// River configures mandatory PostgreSQL cleanup; in-memory TTL stays local.
@@ -246,7 +246,7 @@ type KeysConfig struct {
 	// to authkit; there is no API that returns a private key or PEM (a future
 	// Vault-Transit backend, authkit future #72, drops in behind the same
 	// Signer seam).
-	Source jwtkit.KeySource
+	Source keys.Source
 	// Path overrides the filesystem DIRECTORY the local key resolver scans for
 	// keys.json (and totp.key, #148) when Source is nil. Empty defaults to
 	// /vault/auth. There is no env fallback (#231; AUTHKIT_KEYS_PATH is read by
@@ -271,10 +271,10 @@ type KeysConfig struct {
 
 // IdentityConfig declares external OAuth2/OIDC identity providers.
 type IdentityConfig struct {
-	// Providers are the external identity providers: authprovider.Google/
-	// Apple/Discord/GitHub for the built-ins, authprovider.OIDC/OAuth2 for any
+	// Providers are the external identity providers: provider.Google/
+	// Apple/Discord/GitHub for the built-ins, provider.OIDC/OAuth2 for any
 	// other IdP. Each provider owns its quirks and carries its own Name.
-	Providers []authprovider.Provider
+	Providers []provider.Provider
 }
 
 // APIKeysConfig configures opaque permission-group-owned machine credentials.

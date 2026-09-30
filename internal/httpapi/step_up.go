@@ -341,7 +341,7 @@ func redirectStepUpResult(w http.ResponseWriter, r *http.Request, returnTo, stat
 // login proof.
 func (s *Service) requireSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		claims, err := verify.GetClaims(r.Context())
+		claims, err := callerClaims(r)
 		if err == nil && !claims.TwoFAEnrollment {
 			err = s.svc.CheckSession(r.Context(), claims)
 		}

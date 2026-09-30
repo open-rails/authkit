@@ -2,7 +2,6 @@ package authkit_test
 
 import (
 	"context"
-	"crypto"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -17,7 +16,7 @@ import (
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/testhttp"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/internal/testkeys"
 	"github.com/stretchr/testify/require"
 )
 
@@ -56,10 +55,9 @@ func TestSMSHealthProbeRearmsPhoneFlows(t *testing.T) {
 	})
 	sender, err := twilio.New(twilio.Config{AccountSID: "AC123", AuthToken: "token", MessagingServiceSID: "MG123", Client: &http.Client{Transport: toStandIn}})
 	require.NoError(t, err)
-	signer, err := jwtkit.NewRSASigner(2048, "sms-health")
-	require.NoError(t, err)
+	signer := testkeys.RSA("sms-health")
 	auth, err := authkit.New(context.Background(), authkit.Config{
-		Keys:  authkit.KeysConfig{Source: jwtkit.StaticKeySource{Active: signer, Pubs: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()}}},
+		Keys:  authkit.KeysConfig{Source: testkeys.Source(signer)},
 		Token: authkit.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}},
 		HTTP:  authkit.HTTPConfig{DirectPeerIP: true, Limiter: testhttp.Unlimited{}},
 	}, authkit.Deps{Postgres: testdb.Pool(t), SMS: sender})

@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/provider"
 )
 
 // Client builds a Client serving httpCfg (zero: headless) with Google and
@@ -24,7 +24,7 @@ func ClientAt(t testing.TB, issuer string, httpCfg authkit.HTTPConfig) *authkit.
 	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
 		c.Token = authkit.TokenConfig{Issuer: issuer, IssuedAudiences: []string{"test"}}
 		c.TwoFactor.Mode = iam.TwoFactorDisabled
-		c.Identity.Providers = []authprovider.Provider{authprovider.Google("google-client", "google-secret"), authprovider.GitHub("github-client", "github-secret")}
+		c.Identity.Providers = []provider.Provider{provider.Google("google-client", "google-secret"), provider.GitHub("github-client", "github-secret")}
 		c.HTTP = httpCfg
 	}), authtest.WithDeps(func(d *authkit.Deps) { d.River = authkit.RiverFromHost() }))
 	return auth

@@ -11,11 +11,10 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/rbac"
-	"github.com/open-rails/authkit/verify"
 
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/password"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/keys"
 )
 
 // Construction and Config validation. Config mirrors the public
@@ -186,26 +185,29 @@ func (s *Engine) finish(ctx context.Context) (_ *Engine, err error) {
 	if err := s.initializeGroups(ctx); err != nil {
 		return nil, err
 	}
+	// Cache the root group's id: token mints read root roles through the
+	// caller's transaction and never resolve it themselves.
+	if s.pg != nil {
+		if _, err := s.rootGroup(ctx, s.groupStore()); err != nil {
+			return nil, err
+		}
+	}
 	if err := s.reconcileRoleCatalog(ctx); err != nil {
 		return nil, err
 	}
-	if s.verifier, err = s.newVerifier(); err != nil {
+	if s.auth, err = s.newAuthenticator(s.cfg.Token.ExpectedAudiences, true); err != nil {
 		return nil, err
 	}
 	return s, nil
 }
 
-// Verifier verifies requests and tokens against this engine.
-func (s *Engine) Verifier() *verify.Verifier { return s.verifier }
-
-// newService assembles an engine from an already-normalized Config. keys is
-// read per-operation via the KeySource interface (never snapshotted) so a
-// live, hot-reloading source (jwtkit.FileKeySource) is observed for as long as
-// the engine exists.
-func newClient(norm Config, keys jwtkit.KeySource, gs *rbac.Schema, deps Deps) (*Engine, error) {
+// newService assembles an engine from an already-normalized Config. src is
+// read per-operation (never snapshotted) so a live, hot-reloading source
+// (keys.Watch) is observed for as long as the engine exists.
+func newClient(norm Config, src keys.Source, gs *rbac.Schema, deps Deps) (*Engine, error) {
 	s := &Engine{
 		cfg:               norm,
-		keys:              keys,
+		keys:              src,
 		schema:            norm.Schema,
 		groupSchema:       gs,
 		solanaSNSResolver: newDefaultSolanaSNSResolver(),
@@ -230,7 +232,7 @@ func newClient(norm Config, keys jwtkit.KeySource, gs *rbac.Schema, deps Deps) (
 // keys are resolved from <Keys.Path>/keys.json — or, ONLY with the explicit
 // Keys.AllowEphemeralDevKeys opt-in, generated for dev.
 func newEngine(cfg Config, deps Deps) (_ *Engine, err error) {
-	var ownedKeySource *jwtkit.FileKeySource
+	var ownedKeySource *keys.FileSource
 	defer func() {
 		if err != nil && ownedKeySource != nil {
 			ownedKeySource.Close()
@@ -248,15 +250,15 @@ func newEngine(cfg Config, deps Deps) (_ *Engine, err error) {
 		// returns ErrSigningNotConfigured; verification, RBAC reads, and the (empty)
 		// JWKS endpoint all work. A pure resource-server / control-plane boots
 		// without any file/dev key.
-		keySource = jwtkit.StaticKeySource{}
+		keySource = keys.Static{}
 	}
 	if keySource == nil {
 		var err error
-		keySource, err = jwtkit.ResolveKeySource(strings.TrimSpace(cfg.Keys.Path), cfg.Keys.AllowEphemeralDevKeys, nil)
+		keySource, err = resolveKeySource(strings.TrimSpace(cfg.Keys.Path), cfg.Keys.AllowEphemeralDevKeys)
 		if err != nil {
 			return nil, fmt.Errorf("authkit: failed to resolve JWT signing keys (set Keys.Path to a directory containing keys.json, provide Keys.Source, or — for development only — set Keys.AllowEphemeralDevKeys): %w", err)
 		}
-		ownedKeySource, _ = keySource.(*jwtkit.FileKeySource)
+		ownedKeySource, _ = keySource.(*keys.FileSource)
 	}
 	// keySource is held live, NOT snapshotted into a Keyset: a reloadable file
 	// source hot-swaps its active signer/public keys behind an atomic pointer

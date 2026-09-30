@@ -3,11 +3,11 @@
 // host's PostgreSQL.
 //
 // Run Migrate, then New with a Config and Deps. New returns *Client, the one
-// host type: its methods are the host operations, Verifier and
-// Require/Optional verify requests (verify.RequirePermission and
-// verify.Sensitive gate them on the live session), and with Config.HTTP set,
-// Handler serves AuthKit's HTTP surface (Mount, Patterns and Routes place it
-// on a router). If the entitlements provider needs the Client first, pass it to
+// host type: its methods are the host operations; it authenticates requests
+// (verify.Required(client), and the live gates verify.RequireSession,
+// RequirePermission and Sensitive, which check the session); and with
+// Config.HTTP set, Handler serves AuthKit's HTTP surface (Mount, Patterns and
+// Routes place it on a router). If the entitlements provider needs the Client first, pass it to
 // SetEntitlements, then call Start.
 //
 // This package is the whole host API: auth*.go hold the operations, config.go

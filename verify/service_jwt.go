@@ -5,30 +5,26 @@ import (
 	"strings"
 	"time"
 
-	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/jose"
 )
 
-type serviceJWTVerifyConfig struct {
-	maxLifetime time.Duration
-}
-
 // ServiceJWTVerifyOption configures VerifyServiceJWT.
-type ServiceJWTVerifyOption func(*serviceJWTVerifyConfig)
+type ServiceJWTVerifyOption func(*serviceJWTConfig)
 
-// WithServiceJWTMaxLifetime caps accepted service-JWT lifetime. Empty defaults
-// to AuthKit's 15-minute service-JWT lifetime.
+type serviceJWTConfig struct{ maxLifetime time.Duration }
+
+// WithServiceJWTMaxLifetime caps the accepted lifetime (default 15m).
 func WithServiceJWTMaxLifetime(d time.Duration) ServiceJWTVerifyOption {
-	return func(c *serviceJWTVerifyConfig) { c.maxLifetime = d }
+	return func(c *serviceJWTConfig) { c.maxLifetime = d }
 }
 
-// VerifyServiceJWT verifies a first-party OIDC service JWT through the
-// verifier's registered issuer/JWKS store and returns the requested
-// permissions. AuthKit does not grant those permissions; the host must
-// intersect them with server-side grants for the issuer/subject/resource.
-func (v *Verifier) VerifyServiceJWT(ctx context.Context, tokenStr string, opts ...ServiceJWTVerifyOption) (iam.ServiceJWTClaims, error) {
-	cfg := serviceJWTVerifyConfig{maxLifetime: iam.DefaultServiceJWTLifetime}
+// VerifyServiceJWT verifies a service JWT (token_use=service) of a trusted
+// issuer and returns its claims. It grants nothing: the host intersects the
+// requested permissions with its own grants for the issuer and subject.
+func (v *Verifier) VerifyServiceJWT(ctx context.Context, token string, opts ...ServiceJWTVerifyOption) (iam.ServiceJWTClaims, error) {
+	cfg := serviceJWTConfig{maxLifetime: iam.DefaultServiceJWTLifetime}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&cfg)
@@ -37,122 +33,60 @@ func (v *Verifier) VerifyServiceJWT(ctx context.Context, tokenStr string, opts .
 	if cfg.maxLifetime <= 0 {
 		cfg.maxLifetime = iam.DefaultServiceJWTLifetime
 	}
-
-	mc, err := v.VerifyClaims(ctx, tokenStr)
+	mc, err := v.VerifyClaims(ctx, token)
 	if err != nil {
 		return iam.ServiceJWTClaims{}, err
 	}
-	claims, err := v.serviceJWTClaimsFromMap(mc, cfg.maxLifetime)
-	if err != nil {
-		return iam.ServiceJWTClaims{}, err
-	}
-	return claims, nil
-}
-
-func (v *Verifier) serviceJWTClaimsFromMap(mc jwt.MapClaims, maxLifetime time.Duration) (iam.ServiceJWTClaims, error) {
-	issuer := strings.TrimSpace(strClaim(mc, "iss"))
-	subject := strings.TrimSpace(strClaim(mc, "sub"))
-	tokenUse := strings.TrimSpace(strClaim(mc, "token_use"))
-	jti := strings.TrimSpace(strClaim(mc, "jti"))
-	if issuer == "" || subject == "" || tokenUse != iam.ServiceJWTTokenUse || jti == "" {
+	issuer := strings.TrimSpace(jose.String(mc, "iss"))
+	subject := strings.TrimSpace(jose.String(mc, "sub"))
+	jti := strings.TrimSpace(jose.String(mc, "jti"))
+	if issuer == "" || subject == "" || jti == "" || jose.String(mc, "token_use") != iam.ServiceJWTTokenUse ||
+		strings.TrimSpace(jose.String(mc, "delegated_sub")) != "" {
 		return iam.ServiceJWTClaims{}, iam.ErrInvalidServiceJWT
 	}
-	if strings.TrimSpace(strClaim(mc, "delegated_sub")) != "" {
-		return iam.ServiceJWTClaims{}, iam.ErrInvalidServiceJWT
-	}
-	iatUnix, ok := toUnix(mc["iat"])
+	iat, ok := jose.Time(mc, "iat")
 	if !ok {
 		return iam.ServiceJWTClaims{}, errmodel.E(errmodel.CodeMissingIAT)
 	}
-	nbfUnix, ok := toUnix(mc["nbf"])
+	nbf, ok := jose.Time(mc, "nbf")
 	if !ok {
 		return iam.ServiceJWTClaims{}, errmodel.E(errmodel.CodeMissingNBF)
 	}
-	expUnix, ok := toUnix(mc["exp"])
-	if !ok {
-		return iam.ServiceJWTClaims{}, errmodel.E(errmodel.CodeMissingExp)
-	}
-	iat := time.Unix(iatUnix, 0).UTC()
-	nbf := time.Unix(nbfUnix, 0).UTC()
-	exp := time.Unix(expUnix, 0).UTC()
-	if exp.Sub(iat) > maxLifetime {
+	exp, _ := jose.Time(mc, "exp") // VerifyClaims required it
+	if exp.Sub(iat) > cfg.maxLifetime {
 		return iam.ServiceJWTClaims{}, errmodel.E(errmodel.CodeServiceJWTLifetimeExceeded)
 	}
-	audiences := audSlice(mc["aud"])
-	if len(audiences) == 0 {
-		return iam.ServiceJWTClaims{}, errmodel.E(errmodel.CodeMissingAudience)
-	}
-	permissions, err := stringArrayClaim(mc, "permissions")
+	permissions, err := permissionsClaim(mc)
 	if err != nil {
 		return iam.ServiceJWTClaims{}, err
 	}
-
-	match := v.matchIssuer(issuer)
-	if match == nil {
-		return iam.ServiceJWTClaims{}, errmodel.E(errmodel.CodeBadIssuer)
-	}
-	claims := iam.ServiceJWTClaims{
-		Issuer: issuer, Subject: subject, Audiences: audiences,
-		IssuedAt: iat, NotBefore: nbf, ExpiresAt: exp, JTI: jti,
-		TokenUse: tokenUse, Permissions: permissions,
-	}
-	return claims, nil
+	return iam.ServiceJWTClaims{
+		Issuer: issuer, Subject: subject, Audiences: jose.Audiences(mc),
+		IssuedAt: iat.UTC(), NotBefore: nbf.UTC(), ExpiresAt: exp.UTC(), JTI: jti,
+		TokenUse: iam.ServiceJWTTokenUse, Permissions: permissions,
+	}, nil
 }
 
-func audSlice(v any) []string {
-	switch a := v.(type) {
-	case string:
-		if strings.TrimSpace(a) == "" {
-			return nil
-		}
-		return []string{strings.TrimSpace(a)}
-	case []any:
-		out := make([]string, 0, len(a))
-		for _, item := range a {
-			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
-				out = append(out, strings.TrimSpace(s))
-			}
-		}
-		return out
-	case []string:
-		out := make([]string, 0, len(a))
-		for _, s := range a {
-			if strings.TrimSpace(s) != "" {
-				out = append(out, strings.TrimSpace(s))
-			}
-		}
-		return out
-	}
-	return nil
-}
-
-func stringArrayClaim(mc jwt.MapClaims, key string) ([]string, error) {
-	raw, exists := mc[key]
-	if !exists || raw == nil {
+// permissionsClaim is a strictly string-array permissions claim, blanks
+// dropped; a non-string element is malformed.
+func permissionsClaim(mc map[string]any) ([]string, error) {
+	raw, ok := mc["permissions"]
+	if !ok || raw == nil {
 		return nil, nil
 	}
-	switch values := raw.(type) {
-	case []any:
-		out := make([]string, 0, len(values))
-		for _, value := range values {
-			s, ok := value.(string)
-			if !ok {
-				return nil, errmodel.E(errmodel.CodeMalformedPermissions)
-			}
-			if strings.TrimSpace(s) != "" {
-				out = append(out, strings.TrimSpace(s))
-			}
-		}
-		return out, nil
-	case []string:
-		out := make([]string, 0, len(values))
-		for _, value := range values {
-			if strings.TrimSpace(value) != "" {
-				out = append(out, strings.TrimSpace(value))
-			}
-		}
-		return out, nil
-	default:
+	values, ok := raw.([]any)
+	if !ok {
 		return nil, errmodel.E(errmodel.CodeMalformedPermissions)
 	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		s, ok := value.(string)
+		if !ok {
+			return nil, errmodel.E(errmodel.CodeMalformedPermissions)
+		}
+		if s = strings.TrimSpace(s); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out, nil
 }

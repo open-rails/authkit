@@ -3,11 +3,9 @@ package authkit
 import (
 	"context"
 	"fmt"
-	"net/http"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/verify"
 )
 
 // Permission groups, roles and permission checks.
@@ -172,18 +170,4 @@ func (a *Client) Permission(text string) (iam.Perm, error) {
 // owner role, else iam.ErrRoleNotAssignable.
 func (a *Client) Role(persona iam.Persona, name string) (iam.Role, error) {
 	return a.engine.PermissionGroupSchema().ParseRole(persona, name)
-}
-
-// RequirePermission authenticates the request (it includes Require) and
-// requires perm, checked live, in the group the route's loader attached with
-// verify.WithGroup (an adapter's SetGroup). A request with no group fails
-// closed (500). It panics at construction on an unregistered perm.
-func (a *Client) RequirePermission(perm iam.Perm) func(http.Handler) http.Handler {
-	return verify.RequirePermission(a, perm)
-}
-
-// RequirePermissionOn is RequirePermission in one fixed group, such as
-// iam.RootGroup().
-func (a *Client) RequirePermissionOn(group iam.GroupRef, perm iam.Perm) func(http.Handler) http.Handler {
-	return verify.RequirePermissionOn(a, group, perm)
 }

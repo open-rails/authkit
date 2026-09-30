@@ -6,15 +6,16 @@ import (
 	"net/http/httptest"
 	"time"
 
-	jwt "github.com/golang-jwt/jwt/v5"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/internal/jose"
+	"github.com/open-rails/authkit/internal/testkeys"
+	"github.com/open-rails/authkit/keys"
 )
 
 // TestIssuer is a stand-in token issuer with a JWKS endpoint, for testing a
 // service that only verifies tokens (verify.Verifier) without running AuthKit.
 type TestIssuer struct {
 	server   *httptest.Server
-	signer   jwtkit.Signer
+	signer   keys.Signer
 	audience string
 }
 
@@ -27,15 +28,11 @@ func NewTestIssuer() *TestIssuer {
 
 // NewTestIssuerWithAudience creates a test issuer with a specific audience claim.
 func NewTestIssuerWithAudience(audience string) *TestIssuer {
-	signer, err := jwtkit.NewRSASigner(2048, "test-key-1")
-	if err != nil {
-		panic("failed to create RSA signer: " + err.Error())
-	}
-	return NewTestIssuerWithSigner(signer, audience)
+	return NewTestIssuerWithSigner(testkeys.RSA("test-key-1"), audience)
 }
 
-// NewTestIssuerWithSigner creates a test issuer using any jwtkit.Signer (RSA, EC, Ed25519).
-func NewTestIssuerWithSigner(signer jwtkit.Signer, audience string) *TestIssuer {
+// NewTestIssuerWithSigner creates a test issuer using any keys.Signer (RSA, EC, Ed25519).
+func NewTestIssuerWithSigner(signer keys.Signer, audience string) *TestIssuer {
 	if signer == nil {
 		panic("signer is required")
 	}
@@ -53,7 +50,7 @@ func (ti *TestIssuer) URL() string { return ti.server.URL }
 
 func (ti *TestIssuer) Audience() string { return ti.audience }
 
-func (ti *TestIssuer) Signer() jwtkit.Signer { return ti.signer }
+func (ti *TestIssuer) Signer() keys.Signer { return ti.signer }
 
 func (ti *TestIssuer) Close() {
 	if ti.server != nil {
@@ -62,14 +59,7 @@ func (ti *TestIssuer) Close() {
 }
 
 func (ti *TestIssuer) handleJWKS(w http.ResponseWriter, r *http.Request) {
-	ps, ok := ti.signer.(jwtkit.PublicKeySigner)
-	if !ok {
-		http.Error(w, "signer does not expose public key", http.StatusInternalServerError)
-		return
-	}
-	jwk := jwtkit.PublicToJWK(ps.PublicKey(), ti.signer.KID(), ti.signer.Algorithm())
-	ks := jwtkit.JWKS{Keys: []jwtkit.JWK{jwk}}
-	jwtkit.ServeJWKS(w, r, ks)
+	jose.ServeJWKS(w, r, jose.JWKS(testkeys.Source(ti.signer)))
 }
 
 func (ti *TestIssuer) CreateToken(userID, email string) string {
@@ -78,7 +68,7 @@ func (ti *TestIssuer) CreateToken(userID, email string) string {
 
 func (ti *TestIssuer) CreateTokenWithClaims(userID, email string, extraClaims map[string]any) string {
 	now := time.Now()
-	claims := jwt.MapClaims{
+	claims := map[string]any{
 		"sub":   userID,
 		"email": email,
 		"iss":   ti.URL(),
@@ -89,7 +79,7 @@ func (ti *TestIssuer) CreateTokenWithClaims(userID, email string, extraClaims ma
 	for k, v := range extraClaims {
 		claims[k] = v
 	}
-	token, err := jwtkit.SignWithType(context.Background(), ti.signer, claims, jwtkit.AccessTokenType, true)
+	token, err := jose.Sign(context.Background(), ti.signer, jose.AccessTokenType, claims)
 	if err != nil {
 		panic("failed to sign token: " + err.Error())
 	}

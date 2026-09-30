@@ -1,5 +1,5 @@
 // Package oidcstate holds the browser-flow state shared by the HTTP layer and the
-// engine: the pending-login record and PKCE generation. Providers themselves live in authprovider.
+// engine: the pending-login record and PKCE generation. Providers themselves live in provider.
 package oidcstate
 
 import (

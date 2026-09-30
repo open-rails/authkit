@@ -74,7 +74,7 @@ func TestChannelDeletionModels(t *testing.T) {
 	require.NoError(t, err, "a root permission asked of a channel is false, not an error")
 	require.False(t, can(sAdmin, golang, channelsDelete), "root:channels:delete counts only on root")
 
-	require.Panics(t, func() { auth.RequirePermissionOn(iam.RootGroup(), rbac.Root.Credentials.Manage) }, "root:credentials:manage needs APIKeys or RemoteApplications")
+	require.Panics(t, func() { verify.RequirePermissionOn(auth, iam.RootGroup(), rbac.Root.Credentials.Manage) }, "root:credentials:manage needs APIKeys or RemoteApplications")
 
 	// Each model gates a route: the per-channel one on the group the route's
 	// loader attaches, the global one on root.
@@ -90,9 +90,9 @@ func TestChannelDeletionModels(t *testing.T) {
 		})
 	}
 	mux := http.NewServeMux()
-	mux.Handle("DELETE /c/golang", load(auth.RequirePermission(selfDelete)(ok)))
-	mux.Handle("DELETE /c/unloaded", auth.RequirePermission(selfDelete)(ok))
-	mux.Handle("DELETE /channels/golang", auth.RequirePermissionOn(iam.RootGroup(), channelsDelete)(ok))
+	mux.Handle("DELETE /c/golang", load(verify.RequirePermission(auth, selfDelete)(ok)))
+	mux.Handle("DELETE /c/unloaded", verify.RequirePermission(auth, selfDelete)(ok))
+	mux.Handle("DELETE /channels/golang", verify.RequirePermissionOn(auth, iam.RootGroup(), channelsDelete)(ok))
 	status := func(path, userID string) int {
 		r := httptest.NewRequest(http.MethodDelete, path, nil)
 		r.Header.Set("Authorization", "Bearer "+token(userID))

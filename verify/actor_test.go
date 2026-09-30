@@ -5,29 +5,28 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
-	"github.com/open-rails/authkit/jwtkit"
 )
 
 func TestActorFromClaims(t *testing.T) {
-	remote := Claims{TokenType: RemoteApplicationTokenType, TokenTyp: jwtkit.RemoteApplicationAccessTokenType, RemoteApplicationID: "app-1", Permissions: []string{"org:members:*"}}
-	delegated := Claims{Issuer: "https://auth.test", TokenTyp: jwtkit.DelegatedAccessTokenType, DelegatedSubject: "user-9", Permissions: []string{"org:posts:read"}, RemoteApplicationID: "app-2", PermissionGroupID: "g-2"}
+	remote := Claims{Kind: iam.ActorRemoteApplication, RemoteApplicationID: "app-1", Permissions: []string{"org:members:*"}}
+	delegated := Claims{Kind: iam.ActorDelegated, Issuer: "https://auth.test", DelegatedSubject: "user-9", Permissions: []string{"org:posts:read"},
+		RemoteApplicationID: "app-2", SessionID: "s-9", Group: &PermissionScope{GroupID: "g-2"}}
 	cases := []struct {
-		name    string
-		cl      Claims
-		kind    iam.ActorKind
-		id      string
-		machine bool
+		name string
+		cl   Claims
+		kind iam.ActorKind
+		id   string
 	}{
-		{name: "native user", cl: Claims{UserID: "user-1"}, kind: iam.ActorUser, id: "user-1"},
-		{name: "device key user", cl: Claims{UserID: "user-1", DeviceKeyID: "dk-1"}, kind: iam.ActorUser, id: "user-1"},
-		{name: "external user", cl: Claims{Subject: "ext-1", Issuer: "https://idp.test"}},
-		{name: "api key", cl: Claims{UserID: "not-a-user", TokenType: APIKeyPrincipalType, APIKeyID: "key-1"}, kind: iam.ActorAPIKey, id: "key-1", machine: true},
-		{name: "api key without id", cl: Claims{TokenType: APIKeyPrincipalType}, machine: true},
-		{name: "remote application", cl: remote, kind: iam.ActorRemoteApplication, id: "app-1", machine: true},
-		{name: "remote application wrong typ", cl: Claims{TokenType: RemoteApplicationTokenType, RemoteApplicationID: "app-1"}, machine: true},
-		{name: "remote application with user", cl: Claims{TokenType: RemoteApplicationTokenType, TokenTyp: jwtkit.RemoteApplicationAccessTokenType, RemoteApplicationID: "app-1", UserID: "u"}, machine: true},
-		{name: "delegated", cl: delegated, kind: iam.ActorDelegated, id: "user-9", machine: true},
-		{name: "delegated without typ", cl: Claims{Issuer: "https://auth.test", DelegatedSubject: "user-9"}, machine: true},
+		{name: "native user", cl: Claims{Kind: iam.ActorUser, UserID: "user-1"}, kind: iam.ActorUser, id: "user-1"},
+		{name: "device key user", cl: Claims{Kind: iam.ActorUser, UserID: "user-1", DeviceKeyID: "dk-1"}, kind: iam.ActorUser, id: "user-1"},
+		{name: "external user", cl: Claims{Kind: iam.ActorUser, Subject: "ext-1", Issuer: "https://idp.test"}},
+		{name: "enrollment-only token", cl: Claims{Kind: iam.ActorUser, UserID: "user-1", TwoFAEnrollment: true}},
+		{name: "api key", cl: Claims{Kind: iam.ActorAPIKey, APIKeyID: "key-1"}, kind: iam.ActorAPIKey, id: "key-1"},
+		{name: "api key without id", cl: Claims{Kind: iam.ActorAPIKey}},
+		{name: "remote application", cl: remote, kind: iam.ActorRemoteApplication, id: "app-1"},
+		{name: "remote application without id", cl: Claims{Kind: iam.ActorRemoteApplication}},
+		{name: "delegated", cl: delegated, kind: iam.ActorDelegated, id: "user-9"},
+		{name: "no kind", cl: Claims{UserID: "user-1"}},
 		{name: "empty", cl: Claims{}},
 	}
 	for _, tc := range cases {
@@ -38,9 +37,6 @@ func TestActorFromClaims(t *testing.T) {
 			}
 			if a.Kind() == iam.ActorSystem {
 				t.Fatal("claims must never yield the system")
-			}
-			if got := tc.cl.IsMachine(); got != tc.machine {
-				t.Fatalf("IsMachine = %v, want %v", got, tc.machine)
 			}
 		})
 	}
@@ -53,5 +49,12 @@ func TestActorFromClaims(t *testing.T) {
 	g, ok := d.Delegation()
 	if !ok || g.Issuer != "https://auth.test" || g.RemoteApplicationID != "app-2" || g.GroupID != "g-2" || !d.CeilingCovers(ident.Perm("org:posts:read")) || d.CeilingCovers(ident.Perm("org:posts:delete")) {
 		t.Fatalf("delegated grant = %+v", g)
+	}
+	if _, bound := d.Session(); bound {
+		t.Fatal("an application's delegation carries no AuthKit session")
+	}
+	native, _ := ActorFromClaims(Claims{Kind: iam.ActorDelegated, Issuer: "https://auth.test", DelegatedSubject: "user-9", SessionID: "s-9"})
+	if s, bound := native.Session(); !bound || s.SessionID != "s-9" {
+		t.Fatal("AuthKit's own delegation is bound to the minting session")
 	}
 }

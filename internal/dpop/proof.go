@@ -35,13 +35,14 @@ var (
 type ReplayGuard func(ctx context.Context, key string, ttl time.Duration) (bool, error)
 
 // VerifyRequest verifies exactly one DPoP header against a trusted public URL,
-// the request method and the presented access token. expected is the access
-// token's cnf.jkt; nil is allowed only when binding a newly issued token to the
+// the request method and the presented access token, and returns the proof
+// key's RFC 7638 thumbprint (unpadded base64url). expected is the access
+// token's cnf.jkt; "" is allowed only when binding a newly issued token to the
 // proof's key. AuthKit requires ath even on authenticated delegation mints.
 // Call only after authenticating the access token. requestURL must come from
 // server configuration or trusted routing, never unvalidated forwarding headers.
-func VerifyRequest(r *http.Request, requestURL, accessToken string, expected *[32]byte, replay ReplayGuard) ([32]byte, error) {
-	var zero [32]byte
+func VerifyRequest(r *http.Request, requestURL, accessToken, expected string, replay ReplayGuard) (string, error) {
+	const zero = ""
 	if r == nil || accessToken == "" || len(accessToken) > 32<<10 || len(r.Header.Values("DPoP")) != 1 {
 		return zero, ErrInvalidProof
 	}
@@ -110,14 +111,15 @@ func VerifyRequest(r *http.Request, requestURL, accessToken string, expected *[3
 	}
 	// RFC 7638: lexicographic member order and only required public members.
 	canonicalKey := `{"crv":"P-256","kty":"EC","x":"` + x + `","y":"` + y + `"}`
-	thumbprint := sha256.Sum256([]byte(canonicalKey))
-	if expected != nil && *expected != thumbprint {
+	sum := sha256.Sum256([]byte(canonicalKey))
+	thumbprint := base64.RawURLEncoding.EncodeToString(sum[:])
+	if expected != "" && expected != thumbprint {
 		return zero, ErrInvalidProof
 	}
 	if replay == nil {
 		return zero, ErrReplayUnavailable
 	}
-	replayKey := sha256.Sum256(append(thumbprint[:], []byte(jti)...))
+	replayKey := sha256.Sum256(append(sum[:], []byte(jti)...))
 	// Round up to whole seconds so millisecond-resolution stores cannot expire
 	// a replay claim just before the last accepted fractional second.
 	ttl := time.Duration(iat+61-now.Unix()) * time.Second

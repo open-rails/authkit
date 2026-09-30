@@ -5,12 +5,9 @@ import (
 	"github.com/open-rails/authkit/verify"
 )
 
-// Compile-time proof the engine drives the HTTP layer and verify's
-// enrichment, permission, session and federation seams.
+// Compile-time proof the engine drives the HTTP layer and is the authority
+// verify's live gates consume.
 var (
-	_ httpapi.Backend                = (*Engine)(nil)
-	_ verify.Enricher                = (*Engine)(nil)
-	_ verify.RemoteApplicationSource = (*Engine)(nil)
-	_ verify.PermissionChecker       = (*Engine)(nil)
-	_ verify.SessionChecker          = (*Engine)(nil)
+	_ httpapi.Backend  = (*Engine)(nil)
+	_ verify.Authority = (*Engine)(nil)
 )

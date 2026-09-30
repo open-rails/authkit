@@ -19,7 +19,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
 )
@@ -397,12 +397,12 @@ func TestSecurityDelegatedGrantClamp(t *testing.T) {
 	})
 	t.Run("a minted token loses authority its user lost", func(t *testing.T) {
 		perm := iam.Perm(iam.PermRootUsersBan)
-		cl := verify.Claims{Issuer: issuer, DelegatedSubject: moderator.id, TokenTyp: jwtkit.DelegatedAccessTokenType, Permissions: []string{perm.String()}}
-		ok, err := verify.Allow(ctx, h.auth, cl, perm, iam.RootGroup())
+		cl := verify.Claims{Kind: iam.ActorDelegated, Issuer: issuer, DelegatedSubject: moderator.id, JOSEType: jose.DelegatedAccessTokenType, Permissions: []string{perm.String()}}
+		ok, err := allow(ctx, h.auth, cl, perm, iam.RootGroup())
 		require.NoError(t, err)
 		require.True(t, ok)
 		revokeRole(t, h.auth, iam.RootGroup(), iam.UserSubject(moderator.id), "moderator")
-		ok, err = verify.Allow(ctx, h.auth, cl, perm, iam.RootGroup())
+		ok, err = allow(ctx, h.auth, cl, perm, iam.RootGroup())
 		require.NoError(t, err)
 		require.False(t, ok, "a delegated token kept root authority its user lost")
 	})

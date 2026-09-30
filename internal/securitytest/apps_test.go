@@ -18,7 +18,9 @@ import (
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/internal/jose"
+	"github.com/open-rails/authkit/internal/testkeys"
+	"github.com/open-rails/authkit/keys"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
 )
@@ -40,23 +42,22 @@ func pemOf(t *testing.T, pub crypto.PublicKey) string {
 	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
 }
 
-func newSigner(t *testing.T, kid string) *jwtkit.RSASigner {
+func newSigner(t *testing.T, kid string) keys.Signer {
 	t.Helper()
-	s, err := jwtkit.NewRSASigner(2048, kid)
-	require.NoError(t, err)
+	s := testkeys.RSA(kid)
 	return s
 }
 
-func staticKeys(t *testing.T, s *jwtkit.RSASigner) []iam.RemoteApplicationKey {
-	return []iam.RemoteApplicationKey{{KID: s.KID(), PublicKeyPEM: pemOf(t, s.PublicKey())}}
+func staticKeys(t *testing.T, s keys.Signer) []iam.RemoteApplicationKey {
+	return []iam.RemoteApplicationKey{{KID: s.KID(), PublicKeyPEM: pemOf(t, s.Public())}}
 }
 
 // appToken is a remote-application access token the application signs with
 // its own key: typ remote-application-access+jwt and no subject.
-func appToken(t *testing.T, s *jwtkit.RSASigner, iss string) string {
+func appToken(t *testing.T, s keys.Signer, iss string) string {
 	t.Helper()
 	now := time.Now()
-	token, err := jwtkit.SignWithType(context.Background(), s, jwt.MapClaims{"iss": iss, "aud": []string{audience}, "iat": now.Unix(), "exp": now.Add(time.Minute).Unix()}, jwtkit.RemoteApplicationAccessTokenType, true)
+	token, err := jose.Sign(context.Background(), s, jose.RemoteApplicationAccessTokenType, jwt.MapClaims{"iss": iss, "aud": []string{audience}, "iat": now.Unix(), "exp": now.Add(time.Minute).Unix()})
 	require.NoError(t, err)
 	return token
 }
@@ -83,7 +84,7 @@ func TestSecuritySystemApplicationRekey(t *testing.T) {
 	require.Equal(t, iam.ApplicationTrustRootManual, app.TrustRoot)
 	grantRole(t, h.auth, iam.RootGroup(), iam.RemoteApplicationSubject(app.ID), "credentials-admin")
 	verifies := func(token string) bool {
-		_, err := h.auth.Verifier().Verify(ctx, token)
+		_, err := h.auth.Verify(ctx, token)
 		return err == nil
 	}
 	require.True(t, verifies(appToken(t, partner, partnerIssuer)), "control: the partner authenticates")
@@ -212,7 +213,7 @@ func TestSecurityApplicationRegistrar(t *testing.T) {
 	type registered struct {
 		registrar account
 		slug      string
-		signer    *jwtkit.RSASigner
+		signer    keys.Signer
 		app       iam.RemoteApplication
 	}
 	// register has registrar (a manager, or the owner) register an application
@@ -240,7 +241,7 @@ func TestSecurityApplicationRegistrar(t *testing.T) {
 	removedApp, bannedApp := register(removedManager), register(bannedManager)
 	ownerApp := register(owner)
 
-	gate := h.auth.RequirePermissionOn(group, ident.Perm("org:catalog:read"))(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	gate := verify.RequirePermissionOn(h.auth, group, ident.Perm("org:catalog:read"))(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
 	hostRoute := func(r registered) int {
 		req := httptest.NewRequest(http.MethodGet, "https://host.security.test/catalog", nil)
 		req.Header.Set("Authorization", "Bearer "+appToken(t, r.signer, r.app.Issuer))
@@ -309,10 +310,10 @@ func TestSecurityDelegatedPrincipalManagementPlane(t *testing.T) {
 	require.Equal(t, http.StatusOK, h.get("/admin/users", h.login(admin).AccessToken).status, "control: the user reads the directory")
 	token, err := h.auth.MintDelegatedAccessToken(ctx, iam.UserActor(admin.id), iam.DelegatedAccess{Audiences: []string{audience}, Permissions: []string{iam.PermRootUsersRead.String()}})
 	require.NoError(t, err)
-	cl, err := h.auth.Verifier().Verify(ctx, token.Value)
+	cl, err := h.auth.Verify(ctx, token.Value)
 	require.NoError(t, err, "overlapping audiences: the delegated token verifies here")
 	perm := iam.Perm(iam.PermRootUsersRead)
-	allowed, err := verify.Allow(ctx, h.auth, cl, perm, iam.RootGroup())
+	allowed, err := allow(ctx, h.auth, cl, perm, iam.RootGroup())
 	require.NoError(t, err)
 	require.True(t, allowed)
 
@@ -324,7 +325,7 @@ func TestSecurityDelegatedPrincipalManagementPlane(t *testing.T) {
 	_, err = h.pool.Exec(ctx, `UPDATE profiles.users SET banned_at=now(), ban_reason='test' WHERE id=$1::uuid`, admin.id)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusForbidden, h.get("/admin/users", token.Value).status)
-	allowed, err = verify.Allow(ctx, h.auth, cl, perm, iam.RootGroup())
+	allowed, err = allow(ctx, h.auth, cl, perm, iam.RootGroup())
 	require.NoError(t, err)
 	require.False(t, allowed, "a banned user's delegated token kept its authority")
 }
@@ -373,8 +374,11 @@ func TestSecurityTokenMatrix(t *testing.T) {
 		Slug: "managed", Issuer: managedIssuer, PublicKeys: staticKeys(t, managed), Enabled: true,
 	})
 	require.NoError(t, err)
-	ver := h.auth.Verifier()
-	require.NoError(t, ver.AddIssuer(foreignIssuer, []string{audience}, verify.IssuerOptions{Keys: []verify.IssuerKey{{KID: foreign.KID(), PublicKeyPEM: pemOf(t, foreign.PublicKey())}}}))
+	// The Client authenticates its own and its applications' tokens; another
+	// issuer's are a host verifier's.
+	foreignVerifier := verify.NewVerifier()
+	require.NoError(t, foreignVerifier.AddIssuer(foreignIssuer, []string{audience}, verify.IssuerOptions{Keys: []iam.RemoteApplicationKey{{KID: foreign.KID(), PublicKeyPEM: pemOf(t, foreign.Public())}}}))
+	authenticators := map[string]verify.Authenticator{"local": h.auth, "managed": h.auth, "foreign": foreignVerifier}
 	leafDER, err := base64.RawURLEncoding.DecodeString(delegateCertificate(t))
 	require.NoError(t, err)
 	leaf, err := x509.ParseCertificate(leafDER)
@@ -382,17 +386,17 @@ func TestSecurityTokenMatrix(t *testing.T) {
 
 	issuers := []struct {
 		name, iss string
-		signer    *jwtkit.RSASigner
+		signer    keys.Signer
 	}{{"local", issuer, signer()}, {"managed", managedIssuer, managed}, {"foreign", foreignIssuer, foreign}}
-	typs := []string{jwtkit.AccessTokenType, jwtkit.DelegatedAccessTokenType, jwtkit.RemoteApplicationAccessTokenType, "service+jwt", ""}
+	typs := []string{jose.AccessTokenType, jose.DelegatedAccessTokenType, jose.RemoteApplicationAccessTokenType, "service+jwt", ""}
 	subjects := []string{"sub", "delegated_sub", "both", "none"}
 	allowed := map[[3]string]bool{
-		{"local", jwtkit.AccessTokenType, "sub"}:                      true,
-		{"local", jwtkit.DelegatedAccessTokenType, "delegated_sub"}:   true,
-		{"managed", jwtkit.DelegatedAccessTokenType, "delegated_sub"}: true,
-		{"managed", jwtkit.RemoteApplicationAccessTokenType, "none"}:  true,
-		{"foreign", jwtkit.AccessTokenType, "sub"}:                    true,
-		{"foreign", jwtkit.DelegatedAccessTokenType, "delegated_sub"}: true,
+		{"local", jose.AccessTokenType, "sub"}:                      true,
+		{"local", jose.DelegatedAccessTokenType, "delegated_sub"}:   true,
+		{"managed", jose.DelegatedAccessTokenType, "delegated_sub"}: true,
+		{"managed", jose.RemoteApplicationAccessTokenType, "none"}:  true,
+		{"foreign", jose.AccessTokenType, "sub"}:                    true,
+		{"foreign", jose.DelegatedAccessTokenType, "delegated_sub"}: true,
 	}
 	for _, is := range issuers {
 		for _, typ := range typs {
@@ -406,17 +410,13 @@ func TestSecurityTokenMatrix(t *testing.T) {
 					if subject == "delegated_sub" || subject == "both" {
 						claims["delegated_sub"] = user.id
 					}
-					if is.name == "local" && typ == jwtkit.DelegatedAccessTokenType {
+					if is.name == "local" && typ == jose.DelegatedAccessTokenType {
 						claims["permissions"] = []string{iam.PermRootUsersRead.String()}
 					}
 					if bound {
-						claims[jwtkit.ConfirmationClaim] = jwtkit.ConfirmationClaimValue(jwtkit.CertificateSHA256(leaf.Raw))
+						claims[jose.ConfirmationClaim] = map[string]any{jose.CertificateThumbprintMember: jose.CertificateThumbprint(leaf.Raw)}
 					}
-					headers := map[string]any{}
-					if typ != "" {
-						headers["typ"] = typ
-					}
-					token, err := is.signer.SignWithHeaders(ctx, claims, headers)
+					token, err := jose.Sign(ctx, is.signer, typ, claims)
 					require.NoError(t, err)
 					req := httptest.NewRequest(http.MethodGet, "https://resource.security.test/", nil)
 					req.Header.Set("Authorization", "Bearer "+token)
@@ -427,8 +427,8 @@ func TestSecurityTokenMatrix(t *testing.T) {
 					if bound {
 						name += "/cnf"
 					}
-					cl, err := ver.VerifyRequest(req)
-					want := allowed[[3]string{is.name, typ, subject}] && (!bound || typ == jwtkit.DelegatedAccessTokenType)
+					cl, err := authenticators[is.name].VerifyRequest(req)
+					want := allowed[[3]string{is.name, typ, subject}] && (!bound || typ == jose.DelegatedAccessTokenType)
 					if !want {
 						require.Error(t, err, name)
 						continue
@@ -437,12 +437,12 @@ func TestSecurityTokenMatrix(t *testing.T) {
 					actor, ok := verify.ActorFromClaims(cl)
 					require.NotEqual(t, iam.ActorSystem, actor.Kind(), name)
 					switch {
-					case typ == jwtkit.AccessTokenType && is.name == "local":
+					case typ == jose.AccessTokenType && is.name == "local":
 						require.True(t, ok, name)
 						require.Equal(t, iam.UserActor(user.id), actor, name)
-					case typ == jwtkit.AccessTokenType:
+					case typ == jose.AccessTokenType:
 						require.False(t, ok, "a foreign user has no AuthKit authority: %s", name)
-					case typ == jwtkit.RemoteApplicationAccessTokenType:
+					case typ == jose.RemoteApplicationAccessTokenType:
 						require.Equal(t, iam.ActorRemoteApplication, actor.Kind(), name)
 						require.Equal(t, app.ID, actor.ID(), name)
 					default:
@@ -454,7 +454,11 @@ func TestSecurityTokenMatrix(t *testing.T) {
 						}
 						if !bound {
 							resp := h.get("/admin/users", token)
-							require.Equal(t, http.StatusForbidden, resp.status, "%s: %s", name, resp)
+							refused := http.StatusForbidden
+							if is.name == "foreign" {
+								refused = http.StatusUnauthorized // the Client trusts no other issuer
+							}
+							require.Equal(t, refused, resp.status, "%s: %s", name, resp)
 							resp = h.get(base+"/members", token)
 							require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, resp.status, "%s: %s", name, resp)
 						}
@@ -504,17 +508,20 @@ func TestSecurityServiceJWTPermissionsOnly(t *testing.T) {
 	token, minted, err := h.auth.MintServiceJWT(ctx, iam.ServiceJWT{Subject: "billing", Audiences: []string{audience}, Permissions: []string{"ledger:write"}})
 	require.NoError(t, err)
 	require.Equal(t, minted.ExpiresAt, token.ExpiresAt)
-	cl, err := h.auth.Verifier().VerifyServiceJWT(ctx, token.Value)
+	// A resource server trusting this deployment verifies its service JWTs.
+	ver := verify.NewVerifier()
+	require.NoError(t, ver.AddIssuer(issuer, []string{audience}, verify.IssuerOptions{KeySource: testkeys.Source(signer())}))
+	cl, err := ver.VerifyServiceJWT(ctx, token.Value)
 	require.NoError(t, err)
 	require.Equal(t, []string{"ledger:write"}, cl.Permissions)
 
 	now := time.Now()
-	scoped, err := signer().SignWithHeaders(ctx, jwt.MapClaims{
+	scoped, err := jose.Sign(ctx, signer(), "service+jwt", jwt.MapClaims{
 		"iss": issuer, "sub": "billing", "aud": []string{audience}, "iat": now.Unix(), "nbf": now.Unix(),
 		"exp": now.Add(time.Minute).Unix(), "jti": unique("svc"), "token_use": iam.ServiceJWTTokenUse, "scope": "ledger:write",
-	}, map[string]any{"typ": "service+jwt"})
+	})
 	require.NoError(t, err)
-	cl, err = h.auth.Verifier().VerifyServiceJWT(ctx, scoped)
+	cl, err = ver.VerifyServiceJWT(ctx, scoped)
 	require.NoError(t, err)
 	require.Empty(t, cl.Permissions, "scope became permissions")
 }

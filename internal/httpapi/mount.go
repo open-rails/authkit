@@ -36,8 +36,8 @@ type MountOptions struct {
 	// Exclude drops routes the host shadows with its own handlers, named as
 	// "METHOD /full/path" patterns (excluding GET also drops HEAD). An entry
 	// that matches no route is an error. Exclusion does NOT alter the
-	// verifier's MFA-enrollment exempt set, so a shadowed enroll route stays
-	// reachable through the host's replacement.
+	// MFA-enrollment exempt set, so a shadowed enroll route stays reachable
+	// through the host's replacement.
 	Exclude []string
 	// Wrap decorates every API and browser-OIDC handler at mount time. JWKS is
 	// not wrapped.
@@ -105,7 +105,7 @@ func layoutFrom(r *http.Request) mountLayout {
 // route keeps the gate its RouteSpec carries; the mount adds no auth and
 // removes none.
 func NewMount(svc *Service, opts MountOptions) (result *Mount, err error) {
-	if svc == nil || svc.svc == nil || svc.verifier == nil {
+	if svc == nil || svc.svc == nil {
 		return nil, errors.New("authkit: NewMount requires a Service constructed by httpapi.New")
 	}
 	base, err := resolveBasePath(opts.BasePath, svc.settings.Issuer)
@@ -168,7 +168,7 @@ func NewMount(svc *Service, opts MountOptions) (result *Mount, err error) {
 	for _, p := range mfaEnrollmentExemptPaths(apiRoutes) {
 		exempt = append(exempt, joinRoutePath(api, p))
 	}
-	svc.verifier.AddMFAEnrollmentExemptRoutes(exempt)
+	svc.svc.AddMFAEnrollmentExemptRoutes(exempt)
 
 	var browserOIDC []RouteSpec
 	if opts.Groups == nil || routeGroupSet(opts.Groups)(iam.RouteBrowserOIDC) {

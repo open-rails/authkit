@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/jwtkit"
 )
 
 // TOTP secret-encryption key as first-class vault key material (#148). The key
@@ -81,7 +80,7 @@ func totpKeysDir(cfg Config) string {
 	if p := strings.TrimSpace(cfg.Keys.Path); p != "" {
 		return p
 	}
-	return jwtkit.DefaultAuthKeysPath
+	return defaultKeysPath
 }
 
 // decodeTOTPKeyBytes accepts the key as base64 (std/url, padded or not), hex, or

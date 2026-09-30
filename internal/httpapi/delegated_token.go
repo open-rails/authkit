@@ -23,15 +23,15 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/dpop"
 	"github.com/open-rails/authkit/internal/errmodel"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/verify"
 )
 
 // Route bounds (#277). Named constants, not deployment knobs.
 const (
-	MaxDelegateCertificateDER = 8 << 10
-	MaxRequestedGrantBytes    = 16 << 10
-	MaxDelegatedTokenBytes    = 16 << 10
+	maxDelegateCertificateDER = 8 << 10
+	maxRequestedGrantBytes    = 16 << 10
+	maxDelegatedTokenBytes    = 16 << 10
 )
 
 type delegatedTokenRequest struct {
@@ -88,8 +88,7 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 	expiresAt := now.Add(ttl)
 
 	var certificate *x509.Certificate
-	var thumbprint, certificateThumbprint [32]byte
-	var certificateBinding, jwkBinding *[32]byte
+	var certificateThumbprint, jwkThumbprint string
 	tokenType := ""
 	if len(r.Header.Values("DPoP")) > 0 {
 		if !cfg.AllowDPoP || req.DelegateCertificateDERB64URL != "" {
@@ -107,7 +106,7 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 		} else if issuer, parseErr := url.Parse(s.settings.Issuer); parseErr == nil && issuer.User == nil {
 			target = issuer.Scheme + "://" + issuer.Host + r.URL.EscapedPath()
 		}
-		thumbprint, err = dpop.VerifyRequest(r, target, parent[1], nil, s.svc.ClaimDPoPProof)
+		jwkThumbprint, err = dpop.VerifyRequest(r, target, parent[1], "", s.svc.ClaimDPoPProof)
 		if err != nil {
 			if errors.Is(err, dpop.ErrReplayUnavailable) {
 				serverErr(w, "dpop_replay", err)
@@ -117,7 +116,7 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 			}
 			return
 		}
-		jwkBinding, tokenType = &thumbprint, "DPoP"
+		tokenType = "DPoP"
 	} else {
 		certificate, err = parseDelegateCertificate(req.DelegateCertificateDERB64URL, now)
 		if err != nil {
@@ -128,23 +127,25 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 			fail(w, errmodel.CodeTTLExceedsDelegateCertificate, errmodel.WithParam("ttl_seconds"))
 			return
 		}
-		certificateThumbprint = jwtkit.CertificateSHA256(certificate.Raw)
-		certificateBinding = &certificateThumbprint
+		certificateThumbprint = jose.CertificateThumbprint(certificate.Raw)
 	}
 	if !validRequestedGrant(req.RequestedGrant) {
 		fail(w, errmodel.CodeInvalidRequestedGrant, errmodel.WithParam("requested_grant"))
 		return
 	}
 
-	grant, err := authorize(r.Context(), iam.DelegationRequest{
-		UserID:                          claims.UserID,
-		Audiences:                       audiences,
-		TTL:                             ttl,
-		ConfirmationCertificateSHA256:   certificateThumbprint,
-		ConfirmationJWKThumbprintSHA256: jwkBinding,
-		DelegateCertificate:             certificate,
-		RequestedGrant:                  req.RequestedGrant,
-	})
+	request := iam.DelegationRequest{
+		UserID:                claims.UserID,
+		Audiences:             audiences,
+		TTL:                   ttl,
+		CertificateThumbprint: certificateThumbprint,
+		JWKThumbprint:         jwkThumbprint,
+		RequestedGrant:        req.RequestedGrant,
+	}
+	if certificate != nil {
+		request.DelegateCertificate = certificate.Raw
+	}
+	grant, err := authorize(r.Context(), request)
 	if err != nil {
 		writeError(w, fallback(err, errmodel.CodeDelegationAuthorizerUnavailable))
 		return
@@ -152,12 +153,12 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 	// The grant is host policy, but never more AuthKit authority than the
 	// user holds (ak#394): the engine's mint checks it.
 	token, err := s.svc.MintDelegatedAccessToken(r.Context(), actor, iam.DelegatedAccess{
-		Audiences:                       audiences,
-		Permissions:                     grant.Permissions,
-		Attributes:                      grant.Attributes,
-		TTL:                             ttl,
-		ConfirmationCertificateSHA256:   certificateBinding,
-		ConfirmationJWKThumbprintSHA256: jwkBinding,
+		Audiences:             audiences,
+		Permissions:           grant.Permissions,
+		Attributes:            grant.Attributes,
+		TTL:                   ttl,
+		CertificateThumbprint: certificateThumbprint,
+		JWKThumbprint:         jwkThumbprint,
 	})
 	if err != nil {
 		if e := errmodel.As(err); e != nil && e.Status() < 500 {
@@ -167,7 +168,7 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 		}
 		return
 	}
-	if len(token.Value) > MaxDelegatedTokenBytes {
+	if len(token.Value) > maxDelegatedTokenBytes {
 		serverErr(w, "delegated_token_too_large", nil)
 		return
 	}
@@ -179,11 +180,11 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 // certificate with an explicit clientAuth extended key usage, as unpadded
 // base64url DER of at most maxDelegateCertificateDER bytes.
 func parseDelegateCertificate(encoded string, now time.Time) (*x509.Certificate, error) {
-	if encoded == "" || len(encoded) > base64.RawURLEncoding.EncodedLen(MaxDelegateCertificateDER) {
+	if encoded == "" || len(encoded) > base64.RawURLEncoding.EncodedLen(maxDelegateCertificateDER) {
 		return nil, errors.New("invalid delegate certificate")
 	}
 	der, err := base64.RawURLEncoding.DecodeString(encoded)
-	if err != nil || len(der) == 0 || len(der) > MaxDelegateCertificateDER {
+	if err != nil || len(der) == 0 || len(der) > maxDelegateCertificateDER {
 		return nil, errors.New("invalid delegate certificate")
 	}
 	certificate, err := x509.ParseCertificate(der)
@@ -202,7 +203,7 @@ func parseDelegateCertificate(encoded string, now time.Time) (*x509.Certificate,
 
 // validRequestedGrant requires one JSON object of at most maxRequestedGrantBytes.
 func validRequestedGrant(raw json.RawMessage) bool {
-	if len(raw) == 0 || len(raw) > MaxRequestedGrantBytes || !json.Valid(raw) {
+	if len(raw) == 0 || len(raw) > maxRequestedGrantBytes || !json.Valid(raw) {
 		return false
 	}
 	return bytes.HasPrefix(bytes.TrimLeft(raw, " \t\r\n"), []byte("{"))

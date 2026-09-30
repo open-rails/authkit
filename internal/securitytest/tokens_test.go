@@ -1,7 +1,6 @@
 package securitytest
 
 import (
-	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -17,6 +16,7 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/open-rails/authkit/internal/testkeys"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
 )
@@ -61,7 +61,7 @@ func TestSecurityAccessTokenForgery(t *testing.T) {
 	victim := h.newAccount("forgery")
 	genuine := h.login(victim).AccessToken
 	header, claims := splitToken(t, genuine)
-	key := signer().PrivateKey()
+	key := signingKey()
 	pubDER, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
 	require.NoError(t, err)
 	pubPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})
@@ -164,7 +164,7 @@ func TestSecurityBearerTransport(t *testing.T) {
 // would accept its tokens for every audience, so registration refuses it.
 func TestSecurityIssuerWithoutAudience(t *testing.T) {
 	s := signer()
-	keys := verify.IssuerOptions{RawKeys: map[string]crypto.PublicKey{s.KID(): s.PublicKey()}}
+	keys := verify.IssuerOptions{KeySource: testkeys.Source(s)}
 	for _, audiences := range [][]string{nil, {}, {""}, {"  "}} {
 		require.Error(t, verify.NewVerifier().AddIssuer("https://no-audience.security.test", audiences, keys), "audiences %q", audiences)
 	}

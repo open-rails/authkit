@@ -22,7 +22,6 @@ package authtest
 
 import (
 	"context"
-	"crypto"
 	"crypto/rand"
 	"fmt"
 	"os"
@@ -38,7 +37,8 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/internal/testkeys"
+	"github.com/open-rails/authkit/keys"
 )
 
 // Issuer and Audience are the token issuer and audience New configures.
@@ -91,7 +91,7 @@ func New(t testing.TB, opts ...Option) (*authkit.Client, *Outbox) {
 	_, _ = rand.Read(key)
 	cfg := authkit.Config{
 		Token:     authkit.TokenConfig{Issuer: Issuer, IssuedAudiences: []string{Audience}},
-		Keys:      authkit.KeysConfig{Source: keys()},
+		Keys:      authkit.KeysConfig{Source: signingKeys()},
 		TwoFactor: authkit.TwoFactorConfig{TOTPSecretKey: key},
 		HTTP:      authkit.HTTPConfig{DirectPeerIP: true, Limiter: unlimited{}},
 	}
@@ -166,7 +166,7 @@ func StaleSession(t testing.TB, auth *authkit.Client, accessToken string) string
 	t.Helper()
 	b := builtWith(t, auth)
 	ctx := context.Background()
-	claims, err := auth.Verifier().Verify(ctx, accessToken)
+	claims, err := auth.Verify(ctx, accessToken)
 	if err != nil || claims.SessionID == "" {
 		t.Fatalf("authtest: stale session: no session behind the token (%v)", err)
 	}
@@ -206,13 +206,7 @@ func builtWith(t testing.TB, auth *authkit.Client) built {
 	return b.(built)
 }
 
-var keys = sync.OnceValue(func() jwtkit.StaticKeySource {
-	s, err := jwtkit.NewRSASigner(2048, "authtest")
-	if err != nil {
-		panic(err)
-	}
-	return jwtkit.StaticKeySource{Active: s, Pubs: map[string]crypto.PublicKey{s.KID(): s.PublicKey()}}
-})
+var signingKeys = sync.OnceValue(func() keys.Static { return testkeys.Source(testkeys.RSA("authtest")) })
 
 var schemas atomic.Int64
 

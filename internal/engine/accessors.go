@@ -2,54 +2,25 @@ package engine
 
 import (
 	"crypto"
-	"sort"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/internal/password"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/keys"
+	"github.com/open-rails/authkit/provider"
 )
 
 // Plain accessors and small setters on engine: keys/JWKS, config, the DB pool
 // and schema, and the verify-time Keyfunc.
 
-// JWKS returns a JWKS built from the CURRENT public keys — read fresh from the
-// KeySource on every call, so a rotation is reflected on the very next request
-// (#238).
-func (s *Engine) JWKS() jwtkit.JWKS {
-	active := s.keys.ActiveSigner()
-	pubs := s.keys.PublicKeys()
-
-	// Build a deterministic, sorted JWKS. For current RSA keysets, include alg
-	// to make verifier policy and key intent explicit.
-	ks := jwtkit.JWKS{Keys: make([]jwtkit.JWK, 0, len(pubs))}
-	activeKID := ""
-	activeAlg := ""
-	if active != nil {
-		activeKID = strings.TrimSpace(active.KID())
-		activeAlg = strings.TrimSpace(active.Algorithm())
-	}
-	kids := make([]string, 0, len(pubs))
-	for kid := range pubs {
-		kids = append(kids, kid)
-	}
-	sort.Strings(kids)
-	for _, kid := range kids {
-		pub := pubs[kid]
-		alg := activeAlg
-		if strings.TrimSpace(kid) != activeKID || strings.TrimSpace(alg) == "" {
-			alg = jwtkit.AlgorithmForPublicKey(pub)
-		}
-		ks.Keys = append(ks.Keys, jwtkit.PublicToJWK(pub, kid, alg))
-	}
-	return ks
-}
+// JWKS publishes the CURRENT public keys, read from the KeySource on every
+// call, so a rotation shows on the very next request (#238).
+func (s *Engine) JWKS() keys.JWKS { return jose.JWKS(s.keys) }
 
 // DelegationAuthorizer returns the host-injected delegated-token authorizer
 // (#277), nil when none was wired.
@@ -144,7 +115,7 @@ func (s *Engine) Settings() authflow.Settings {
 		DeviceKeys:               c.DeviceKeys.Enabled,
 		PasswordlessLogin:        c.Registration.PasswordlessLogin,
 		SolanaNetwork:            c.SolanaNetwork,
-		Providers:                append([]authprovider.Provider(nil), c.Identity.Providers...),
+		Providers:                append([]provider.Provider(nil), c.Identity.Providers...),
 		FrontendBaseURL:          c.Frontend.BaseURL,
 		OIDCReturnPath:           c.Frontend.OIDCReturnPath,
 		RegistrationMode:         c.Registration.NativeUserMode,

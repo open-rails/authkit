@@ -12,10 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/httpapi"
+	"github.com/open-rails/authkit/provider"
 )
 
 // TestCookieRegistry is the cookie compatibility guard.
@@ -49,7 +49,7 @@ func TestCookieRegistry(t *testing.T) {
 				if secure {
 					c.Frontend.BaseURL = "https://app.example.test"
 				}
-				c.Identity.Providers = []authprovider.Provider{authprovider.GitHub("registry-client", "registry-secret")}
+				c.Identity.Providers = []provider.Provider{provider.GitHub("registry-client", "registry-secret")}
 				c.HTTP.RefreshCookie = true
 			}))
 			u := authtest.NewUser(t, auth)

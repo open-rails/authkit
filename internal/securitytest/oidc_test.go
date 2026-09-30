@@ -2,7 +2,6 @@ package securitytest
 
 import (
 	"context"
-	"crypto"
 	"net"
 	"net/http"
 	"net/url"
@@ -10,18 +9,18 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/internal/netguard"
 	"github.com/open-rails/authkit/internal/testdb"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/internal/testkeys"
+	"github.com/open-rails/authkit/provider"
 	"github.com/stretchr/testify/require"
 )
 
 const frontend = "https://app.security.test"
 
 // withHTTPSProviders serves the given providers from an HTTPS deployment.
-func withHTTPSProviders(providers ...authprovider.Provider) authtest.Option {
+func withHTTPSProviders(providers ...provider.Provider) authtest.Option {
 	return authtest.WithConfig(func(c *authkit.Config) {
 		c.Identity.Providers = providers
 		c.Frontend.BaseURL = frontend
@@ -42,7 +41,7 @@ func stateCookies(r response) []*http.Cookie {
 // is __Host- prefixed (Secure, host-only, Path=/), so a sibling subdomain can
 // neither plant nor shadow it.
 func TestSecurityOIDCStateCookieIsHostPrefixed(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withHTTPSProviders(authprovider.GitHub("state-client", "state-secret")))
+	h := newHost(t, withHTTP(generousLimits), withHTTPSProviders(provider.GitHub("state-client", "state-secret")))
 	resp := h.get("//oidc/github/login", "")
 	require.Equal(t, http.StatusFound, resp.status, resp.String())
 	cookies := stateCookies(resp)
@@ -58,9 +57,9 @@ func TestSecurityOIDCStateCookieIsHostPrefixed(t *testing.T) {
 func TestSecurityProviderIssuerCollisions(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	s := signer()
-	build := func(providers ...authprovider.Provider) error {
+	build := func(providers ...provider.Provider) error {
 		runtime, err := authkit.New(context.Background(), authkit.Config{
-			Keys:     authkit.KeysConfig{Source: jwtkit.StaticKeySource{Active: s, Pubs: map[string]crypto.PublicKey{s.KID(): s.PublicKey()}}},
+			Keys:     authkit.KeysConfig{Source: testkeys.Source(s)},
 			Token:    authkit.TokenConfig{Issuer: issuer, IssuedAudiences: []string{audience}},
 			Identity: authkit.IdentityConfig{Providers: providers},
 			HTTP:     authkit.HTTPConfig{DirectPeerIP: true},
@@ -70,18 +69,18 @@ func TestSecurityProviderIssuerCollisions(t *testing.T) {
 		}
 		return err
 	}
-	google := authprovider.Google("google-client", "google-secret")
-	for name, providers := range map[string][]authprovider.Provider{
-		"duplicate issuer":           {google, authprovider.OIDC("google-alt", "https://accounts.google.com/", "alt-client", "alt-secret")},
-		"this deployment's issuer":   {authprovider.OIDC("self", issuer, "self-client", "self-secret")},
-		"deployment issuer spelling": {authprovider.OIDC("self", strings.ToUpper(issuer)+"/", "self-client", "self-secret")},
+	google := provider.Google("google-client", "google-secret")
+	for name, providers := range map[string][]provider.Provider{
+		"duplicate issuer":           {google, provider.OIDC("google-alt", "https://accounts.google.com/", "alt-client", "alt-secret")},
+		"this deployment's issuer":   {provider.OIDC("self", issuer, "self-client", "self-secret")},
+		"deployment issuer spelling": {provider.OIDC("self", strings.ToUpper(issuer)+"/", "self-client", "self-secret")},
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.ErrorContains(t, build(providers...), "issuer")
 		})
 	}
 	t.Run("control: distinct issuers", func(t *testing.T) {
-		require.NoError(t, build(google, authprovider.GitHub("github-client", "github-secret")))
+		require.NoError(t, build(google, provider.GitHub("github-client", "github-secret")))
 	})
 }
 
@@ -89,7 +88,7 @@ func TestSecurityProviderIssuerCollisions(t *testing.T) {
 // so it never rides in a URL (history, logs, Referer). A login start binds it
 // to the flow's server-side state from a same-origin POST instead.
 func TestSecurityInviteTokenNotInURL(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withHTTPSProviders(authprovider.GitHub("invite-client", "invite-secret")))
+	h := newHost(t, withHTTP(generousLimits), withHTTPSProviders(provider.GitHub("invite-client", "invite-secret")))
 	const invite = "invite-secret-token"
 	resp := h.get("//oidc/github/login?account_invite_token="+invite, "")
 	require.Empty(t, stateCookies(resp), "a GET carrying an invitation started a flow")
@@ -118,8 +117,8 @@ func TestSecurityInviteTokenNotInURL(t *testing.T) {
 // sends an S256 challenge.
 func TestSecurityProviderPKCE(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withHTTPSProviders(
-		authprovider.GitHub("github-client", "github-secret"),
-		authprovider.Discord("discord-client", "discord-secret")))
+		provider.GitHub("github-client", "github-secret"),
+		provider.Discord("discord-client", "discord-secret")))
 	for _, name := range []string{"github", "discord"} {
 		t.Run(name, func(t *testing.T) {
 			resp := h.get("//oidc/"+name+"/login", "")
@@ -135,7 +134,7 @@ func TestSecurityProviderPKCE(t *testing.T) {
 // TestSecurityFormPostCallbackIsBounded: the form_post callback is a public,
 // cross-site POST; its body is read under a small bound.
 func TestSecurityFormPostCallbackIsBounded(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withHTTPSProviders(authprovider.GitHub("form-client", "form-secret")))
+	h := newHost(t, withHTTP(generousLimits), withHTTPSProviders(provider.GitHub("form-client", "form-secret")))
 	callback := func(body string) response {
 		return h.do(request{method: http.MethodPost, path: "//oidc/github/callback?format=json", body: body,
 			header: http.Header{"Content-Type": {"application/x-www-form-urlencoded"}}})

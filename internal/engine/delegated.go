@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/internal/jose"
+	"github.com/open-rails/authkit/keys"
 )
 
 // MintDelegatedAccessToken signs a delegated access token as this deployment.
@@ -120,20 +120,17 @@ func (s *Engine) delegatedPermissionHeld(auth authority, perm string) bool {
 
 // mintDelegatedAccessToken signs a canonical delegated access token: typ
 // delegated-access+jwt, delegated_sub and never sub, permissions,
-// attributes (roles ride under attributes.roles), a jti, at most one sender
-// binding, and the minting session (sid or device_key_id) when there is one.
-// The caller has authorized the grant and clamped p.TTL.
-func mintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, issuer string, p iam.DelegatedAccess, session iam.SessionRef, now time.Time) (string, error) {
-	if signer == nil {
-		return "", errors.New("signer required")
-	}
+// attributes, a jti, at most one sender binding, and the minting session (sid
+// or device_key_id) when there is one. The caller has authorized the grant
+// and clamped p.TTL.
+func mintDelegatedAccessToken(ctx context.Context, signer keys.Signer, issuer string, p iam.DelegatedAccess, session iam.SessionRef, now time.Time) (string, error) {
 	if issuer == "" {
 		return "", errors.New("issuer required")
 	}
 	if p.Subject == "" {
 		return "", errors.New("delegated_sub required")
 	}
-	claims := jwt.MapClaims{
+	claims := map[string]any{
 		"iss":           issuer,
 		"iat":           now.Unix(),
 		"exp":           now.Add(p.TTL).Unix(),
@@ -142,49 +139,20 @@ func mintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, issuer 
 	if len(p.Audiences) > 0 {
 		claims["aud"] = p.Audiences
 	}
-	if len(p.Permissions) > 0 {
-		// Copy + drop empties so callers can't smuggle blank permission strings.
-		perms := make([]string, 0, len(p.Permissions))
-		for _, perm := range p.Permissions {
-			if s := strings.TrimSpace(perm); s != "" {
-				perms = append(perms, s)
-			}
-		}
-		if len(perms) > 0 {
-			claims["permissions"] = perms
+	// Drop blanks so callers cannot smuggle empty permission strings.
+	var perms []string
+	for _, perm := range p.Permissions {
+		if perm = strings.TrimSpace(perm); perm != "" {
+			perms = append(perms, perm)
 		}
 	}
-	// Merge the typed Roles convenience into attributes.roles (typed field wins
-	// over any Attributes["roles"] the caller also set). Drop blanks so callers
-	// can't smuggle empty role strings.
-	attributes := p.Attributes
-	if len(p.Roles) > 0 {
-		roles := make([]string, 0, len(p.Roles))
-		for _, r := range p.Roles {
-			if s := strings.TrimSpace(r); s != "" {
-				roles = append(roles, s)
-			}
-		}
-		if len(roles) > 0 {
-			if attributes == nil {
-				attributes = make(map[string]any, 1)
-			} else {
-				// Copy so we don't mutate the caller's map.
-				cp := make(map[string]any, len(attributes)+1)
-				for k, vv := range attributes {
-					cp[k] = vv
-				}
-				attributes = cp
-			}
-			attributes["roles"] = roles
-		}
+	if len(perms) > 0 {
+		claims["permissions"] = perms
 	}
-	if len(attributes) > 0 {
-		claims["attributes"] = attributes
+	if len(p.Attributes) > 0 {
+		claims["attributes"] = p.Attributes
 	}
-	// `jti` is ALWAYS present: a receiver can only gate a revocation deny-list
-	// on the claim if every delegated token authkit signs carries one. An
-	// explicit p.JTI wins; otherwise mint a fresh uuidv7.
+	// jti is always present, so a receiver can keep a revocation deny-list.
 	jti := strings.TrimSpace(p.JTI)
 	if jti == "" {
 		var err error
@@ -196,14 +164,19 @@ func mintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, issuer 
 	if !p.NotBefore.IsZero() {
 		claims["nbf"] = p.NotBefore.Unix()
 	}
-	if p.ConfirmationCertificateSHA256 != nil && p.ConfirmationJWKThumbprintSHA256 != nil {
+	switch {
+	case p.CertificateThumbprint != "" && p.JWKThumbprint != "":
 		return "", errors.New("delegated token must have only one sender binding")
-	}
-	if p.ConfirmationJWKThumbprintSHA256 != nil {
-		claims[jwtkit.ConfirmationClaim] = map[string]any{jwtkit.JWKThumbprintMember: jwtkit.CertificateThumbprint(*p.ConfirmationJWKThumbprintSHA256)}
-	}
-	if p.ConfirmationCertificateSHA256 != nil {
-		claims[jwtkit.ConfirmationClaim] = jwtkit.ConfirmationClaimValue(*p.ConfirmationCertificateSHA256)
+	case p.CertificateThumbprint != "":
+		if !jose.ValidThumbprint(p.CertificateThumbprint) {
+			return "", errors.New("certificate thumbprint must be an unpadded base64url SHA-256")
+		}
+		claims[jose.ConfirmationClaim] = map[string]any{jose.CertificateThumbprintMember: p.CertificateThumbprint}
+	case p.JWKThumbprint != "":
+		if !jose.ValidThumbprint(p.JWKThumbprint) {
+			return "", errors.New("JWK thumbprint must be an unpadded base64url SHA-256")
+		}
+		claims[jose.ConfirmationClaim] = map[string]any{jose.JWKThumbprintMember: p.JWKThumbprint}
 	}
 	if session.SessionID != "" {
 		claims["sid"] = session.SessionID
@@ -211,8 +184,5 @@ func mintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, issuer 
 	if session.DeviceKeyID != "" {
 		claims["device_key_id"] = session.DeviceKeyID
 	}
-	// Invariant: a delegated access token must never carry `sub`.
-	delete(claims, "sub")
-
-	return jwtkit.SignWithType(ctx, signer, claims, jwtkit.DelegatedAccessTokenType, true)
+	return jose.Sign(ctx, signer, jose.DelegatedAccessTokenType, claims)
 }

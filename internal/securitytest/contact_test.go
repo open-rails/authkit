@@ -11,15 +11,15 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/testidp"
+	"github.com/open-rails/authkit/provider"
 	"github.com/stretchr/testify/require"
 )
 
-func withProviders(providers ...authprovider.Provider) authtest.Option {
+func withProviders(providers ...provider.Provider) authtest.Option {
 	return authtest.WithConfig(func(c *authkit.Config) { c.Identity.Providers = providers })
 }
 
@@ -249,7 +249,7 @@ func TestSecurityProviderEmailTrust(t *testing.T) {
 	victim := unique("provvictim") + "@security.test"
 	fresh := unique("provfresh") + "@security.test"
 	untrusted, trusted, trustedFresh := testidp.New(t), testidp.New(t), testidp.New(t)
-	h := newHost(t, withHTTP(generousLimits), withProviders(untrusted.OAuth2("anyidp", authprovider.WithTrustedEmailVerification(false)),
+	h := newHost(t, withHTTP(generousLimits), withProviders(untrusted.OAuth2("anyidp", provider.WithTrustedEmailVerification(false)),
 		trusted.OAuth2("trustedidp"), trustedFresh.OAuth2("trustedfresh")))
 	ctx := context.Background()
 	owner := h.newAccount("provowner")

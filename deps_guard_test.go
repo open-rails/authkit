@@ -15,7 +15,7 @@ import (
 
 // The verification surface and the framework adapters must stay DB-less:
 // hosts that only verify tokens must not link pgx, River or the engine (#291).
-var dblessPackages = []string{"./iam", "./jwtkit", "./verify", "./adapters/gin", "./adapters/fiber"}
+var dblessPackages = []string{"./iam", "./keys", "./verify", "./adapters/gin", "./adapters/fiber"}
 
 const rootPackage = "github.com/open-rails/authkit"
 
@@ -26,14 +26,18 @@ var forbiddenDepPrefixes = []string{
 }
 
 // sharedInternal are engine-free internal packages the verification surface
-// may share with the engine: one outbound/SSRF policy (ak#316), one DPoP
-// proof verifier, the error catalog, the API-key token format and the typed
-// identifiers built from token claims.
+// may share with the engine: one outbound/SSRF policy (ak#316), one key
+// policy, the JWT mechanics, one JWKS cache, one DPoP proof verifier, the
+// 2FA-enrollment route marker, the error catalog and the typed identifiers
+// built from token claims.
 var sharedInternal = map[string]bool{
-	"github.com/open-rails/authkit/internal/netguard": true,
-	"github.com/open-rails/authkit/internal/dpop":     true,
-	"github.com/open-rails/authkit/internal/apikey":   true,
-	"github.com/open-rails/authkit/internal/ident":    true,
+	"github.com/open-rails/authkit/internal/netguard":   true,
+	"github.com/open-rails/authkit/internal/keypolicy":  true,
+	"github.com/open-rails/authkit/internal/jose":       true,
+	"github.com/open-rails/authkit/internal/jwks":       true,
+	"github.com/open-rails/authkit/internal/dpop":       true,
+	"github.com/open-rails/authkit/internal/enrollment": true,
+	"github.com/open-rails/authkit/internal/ident":      true,
 	errmodelPackage: true,
 }
 
@@ -43,12 +47,14 @@ const errmodelPackage = "github.com/open-rails/authkit/internal/errmodel"
 // stdlibOnly packages depend on nothing outside the standard library, except
 // the listed packages. devicekey is linked into CLIs and machines.
 var stdlibOnly = map[string][]string{
-	"./devicekey":         {rootPackage + "/iam", errmodelPackage},
-	"./iam":               {errmodelPackage},
-	"./internal/errmodel": nil,
-	"./internal/netguard": nil,
-	"./internal/apikey":   nil,
-	"./internal/ident":    {rootPackage + "/iam", errmodelPackage},
+	"./devicekey":           {rootPackage + "/iam", errmodelPackage},
+	"./iam":                 {errmodelPackage},
+	"./internal/errmodel":   nil,
+	"./internal/netguard":   nil,
+	"./internal/apikey":     nil,
+	"./internal/enrollment": nil,
+	"./internal/keypolicy":  nil,
+	"./internal/ident":      {rootPackage + "/iam", errmodelPackage},
 }
 
 func listDeps(t *testing.T, pkg string) []string {

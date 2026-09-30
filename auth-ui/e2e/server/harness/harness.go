@@ -5,15 +5,17 @@ package harness
 import (
 	"context"
 	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
 	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/keys"
+	"github.com/open-rails/authkit/provider"
 )
 
 const (
@@ -45,7 +47,11 @@ func Open(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 
 // New builds the runtime for baseURL (the single same-origin SPA+API origin).
 func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
-	signer, err := jwtkit.NewRSASigner(2048, "e2e-1")
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, err
+	}
+	signer, err := keys.SignerFromKey("e2e-1", key)
 	if err != nil {
 		return nil, err
 	}
@@ -61,9 +67,9 @@ func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
 			RefreshCookie: true,
 		},
 		Schema: Schema,
-		Keys: authkit.KeysConfig{Source: jwtkit.StaticKeySource{
+		Keys: authkit.KeysConfig{Source: keys.Static{
 			Active: signer,
-			Pubs:   map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
+			Pubs:   map[string]crypto.PublicKey{signer.KID(): signer.Public()},
 		}},
 		Token: authkit.TokenConfig{
 			Issuer:          baseURL,
@@ -85,7 +91,7 @@ func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
 		},
 		// Dummy credentials: mounts the provider link/login routes for the
 		// contract; the upstream exchange is not exercised.
-		Identity:      authkit.IdentityConfig{Providers: []authprovider.Provider{authprovider.GitHub("e2e", "e2e")}},
+		Identity:      authkit.IdentityConfig{Providers: []provider.Provider{provider.GitHub("e2e", "e2e")}},
 		SolanaNetwork: "devnet",
 	}
 	rt, err := authkit.New(context.Background(), cfg, authkit.Deps{

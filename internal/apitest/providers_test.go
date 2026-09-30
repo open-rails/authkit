@@ -12,22 +12,22 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testidp"
+	"github.com/open-rails/authkit/provider"
 )
 
 // providerKinds builds a provider of each kind AuthKit runs: OpenID Connect
 // and plain OAuth2.
-var providerKinds = map[string]func(*testidp.IdP, string, ...authprovider.Option) authprovider.Provider{
+var providerKinds = map[string]func(*testidp.IdP, string, ...provider.Option) provider.Provider{
 	"oidc":   (*testidp.IdP).OIDC,
 	"oauth2": (*testidp.IdP).OAuth2,
 }
 
 // forEachProviderKind runs fn once per provider kind with a fresh IdP and
 // its provider, named "idp".
-func forEachProviderKind(t *testing.T, fn func(t *testing.T, idp *testidp.IdP, provider authprovider.Provider)) {
+func forEachProviderKind(t *testing.T, fn func(t *testing.T, idp *testidp.IdP, provider provider.Provider)) {
 	for kind, build := range providerKinds {
 		t.Run(kind, func(t *testing.T) {
 			idp := testidp.New(t)
@@ -141,8 +141,8 @@ func TestOIDCCallbackStateIsBoundAndSingleUse(t *testing.T) {
 // recover without a restart once the provider returns.
 func TestOIDCProviderOutageIsServiceUnavailable(t *testing.T) {
 	idp := testidp.New(t)
-	provider := idp.OIDC("custom")
-	auth, _ := authtest.New(t, withProviders(provider))
+	custom := idp.OIDC("custom")
+	auth, _ := authtest.New(t, withProviders(custom))
 	a := newAPI(t, auth)
 	ctx := t.Context()
 	id := testidp.Identity{Subject: "outage-subject", Email: "oidc-outage@example.com", EmailVerified: true}
@@ -155,12 +155,12 @@ func TestOIDCProviderOutageIsServiceUnavailable(t *testing.T) {
 		require.Equal(t, http.StatusServiceUnavailable, res.status, res.String())
 		require.Equal(t, "provider_unavailable", res.code())
 	}
-	health := provider.(authprovider.HealthChecker)
+	health := custom.(provider.HealthChecker)
 
 	// Discovery unavailable on first use: 503, not 400.
 	idp.SetOutage(testidp.Unavailable)
 	unavailable(start())
-	require.ErrorIs(t, health.CheckHealth(ctx), authprovider.ErrProviderUnavailable)
+	require.ErrorIs(t, health.CheckHealth(ctx), provider.ErrUnavailable)
 
 	// Recovery is background; the next login after it simply works.
 	idp.SetOutage(testidp.Up)
@@ -226,7 +226,7 @@ func TestProviderLoginReturnTo(t *testing.T) {
 // endpoint, browser state cookie, new-account transaction and MFA finish. A
 // second-factor challenge is bound to the provider link it started from.
 func TestProviderAuthenticationWorkflow(t *testing.T) {
-	forEachProviderKind(t, func(t *testing.T, idp *testidp.IdP, provider authprovider.Provider) {
+	forEachProviderKind(t, func(t *testing.T, idp *testidp.IdP, provider provider.Provider) {
 		auth, outbox := authtest.New(t, withProviders(provider), authtest.WithConfig(func(c *authkit.Config) {
 			c.Registration.PasswordlessLogin, c.Registration.PasswordlessAutoRegistration = true, true
 			c.TwoFactor.Mode = iam.TwoFactorRequired
@@ -286,7 +286,7 @@ func TestProviderAuthenticationWorkflow(t *testing.T) {
 // Linking needs a recent sign-in, and a linked provider is replaced only by
 // an explicit unlink.
 func TestProviderLinkRequiresFreshAuthAndExplicitUnlink(t *testing.T) {
-	forEachProviderKind(t, func(t *testing.T, idp *testidp.IdP, provider authprovider.Provider) {
+	forEachProviderKind(t, func(t *testing.T, idp *testidp.IdP, provider provider.Provider) {
 		auth, _ := authtest.New(t, withProviders(provider), authtest.WithConfig(func(c *authkit.Config) { c.SolanaNetwork = iam.SolanaDevnet }))
 		a := newAPI(t, auth)
 		u := authtest.NewUser(t, auth)
@@ -320,7 +320,7 @@ func TestProviderLinkRequiresFreshAuthAndExplicitUnlink(t *testing.T) {
 // absent) never reserves the address: the account it creates has no email and
 // no reset reaches it, and the address's proven owner gets its own account.
 func TestFederatedUnverifiedEmailDoesNotReserveAccountAddress(t *testing.T) {
-	forEachProviderKind(t, func(t *testing.T, idp *testidp.IdP, provider authprovider.Provider) {
+	forEachProviderKind(t, func(t *testing.T, idp *testidp.IdP, provider provider.Provider) {
 		auth, outbox := authtest.New(t, withProviders(provider))
 		a := newAPI(t, auth)
 		ctx := t.Context()
@@ -350,7 +350,7 @@ func TestFederatedUnverifiedEmailDoesNotReserveAccountAddress(t *testing.T) {
 // On an invite-only deployment a provider sign-in without a proven email
 // registers only with an invitation, which it consumes.
 func TestFederatedEmailLessRegistrationRequiresAndConsumesInvite(t *testing.T) {
-	forEachProviderKind(t, func(t *testing.T, idp *testidp.IdP, provider authprovider.Provider) {
+	forEachProviderKind(t, func(t *testing.T, idp *testidp.IdP, provider provider.Provider) {
 		auth, _ := authtest.New(t, withProviders(provider), authtest.WithConfig(func(c *authkit.Config) {
 			c.Registration.NativeUserMode = iam.RegistrationModeInviteOnly
 		}))
@@ -372,7 +372,7 @@ func TestFederatedEmailLessRegistrationRequiresAndConsumesInvite(t *testing.T) {
 // A link started by a session that is revoked before the IdP answers never
 // adds the provider.
 func TestCredentialTransactionsProviderLinkGrantDoesNotOutliveSessionRevocation(t *testing.T) {
-	forEachProviderKind(t, func(t *testing.T, idp *testidp.IdP, provider authprovider.Provider) {
+	forEachProviderKind(t, func(t *testing.T, idp *testidp.IdP, provider provider.Provider) {
 		auth, _ := authtest.New(t, withProviders(provider))
 		a := newAPI(t, auth)
 		u := authtest.NewUser(t, auth)
@@ -392,12 +392,12 @@ func TestCredentialTransactionsProviderLinkGrantDoesNotOutliveSessionRevocation(
 // A browser link keeps the session that started it and hands the page no
 // tokens; the callback only clears the consumed state cookie.
 func TestCredentialTransactionsProviderLinkBrowserRetainsSession(t *testing.T) {
-	forEachProviderKind(t, func(t *testing.T, idp *testidp.IdP, provider authprovider.Provider) {
+	forEachProviderKind(t, func(t *testing.T, idp *testidp.IdP, provider provider.Provider) {
 		auth, _ := authtest.New(t, withProviders(provider))
 		a := newAPI(t, auth)
 		u := authtest.NewUser(t, auth)
 		token := authtest.SignIn(t, auth, u).AccessToken
-		claims, err := auth.Verifier().Verify(t.Context(), token)
+		claims, err := auth.Verify(t.Context(), token)
 		require.NoError(t, err)
 		f := startProviderFlow(t, a.post("/oidc/idp/link/start", token, map[string]any{}))
 		res := f.callback(a, "idp", idp.Redirect(t, f.authURL, testidp.Identity{Subject: "browser-link"}))

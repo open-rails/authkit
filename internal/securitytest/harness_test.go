@@ -6,7 +6,8 @@ package securitytest
 import (
 	"bytes"
 	"context"
-	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -22,7 +23,8 @@ import (
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/internal/testkeys"
+	"github.com/open-rails/authkit/keys"
 	"github.com/stretchr/testify/require"
 )
 
@@ -33,8 +35,17 @@ const (
 	password  = "Correct-horse-battery-9"
 )
 
-var signer = sync.OnceValue(func() *jwtkit.RSASigner {
-	s, err := jwtkit.NewRSASigner(2048, "security-kid")
+// signingKey is the deployment's RSA key; forgery tests sign with it directly.
+var signingKey = sync.OnceValue(func() *rsa.PrivateKey {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		panic(err)
+	}
+	return key
+})
+
+var signer = sync.OnceValue(func() keys.Signer {
+	s, err := keys.SignerFromKey("security-kid", signingKey())
 	if err != nil {
 		panic(err)
 	}
@@ -84,7 +95,7 @@ func newHost(t *testing.T, opts ...authtest.Option) *host {
 	opts = append([]authtest.Option{
 		authtest.WithConfig(func(c *authkit.Config) {
 			c.Schema, c.River.Schema = "profiles", "public"
-			c.Keys = authkit.KeysConfig{Source: jwtkit.StaticKeySource{Active: s, Pubs: map[string]crypto.PublicKey{s.KID(): s.PublicKey()}}}
+			c.Keys = authkit.KeysConfig{Source: testkeys.Source(s)}
 			c.Token = authkit.TokenConfig{Issuer: issuer, IssuedAudiences: []string{audience}, ExpectedAudiences: []string{audience}}
 			c.Registration = authkit.RegistrationConfig{NativeUserMode: iam.RegistrationModeOpen, Verification: iam.RegistrationVerificationOptional}
 			c.TwoFactor = authkit.TwoFactorConfig{

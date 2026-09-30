@@ -54,6 +54,9 @@ var (
 	// (Actor.InSession) that was revoked or expired, as logout, revoke-all, a
 	// password change, a ban and deletion all do.
 	ErrSessionRevoked Error = errmodel.E(errmodel.CodeSessionRevoked)
+	// ErrTokenExpired refuses a token past its exp (beyond the verifier's
+	// clock skew).
+	ErrTokenExpired Error = errmodel.E(errmodel.CodeTokenExpired)
 )
 
 // Groups and naming.

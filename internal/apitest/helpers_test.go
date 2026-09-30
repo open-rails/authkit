@@ -3,7 +3,6 @@ package apitest_test
 import (
 	"bytes"
 	"context"
-	"crypto"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -19,12 +18,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/testidp"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/internal/testkeys"
+	"github.com/open-rails/authkit/keys"
+	"github.com/open-rails/authkit/provider"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -143,11 +143,8 @@ func (a *api) get(path, token string) response {
 	return a.do(request{method: http.MethodGet, path: path, token: token})
 }
 
-var bareSigner = sync.OnceValue(func() *jwtkit.RSASigner {
-	s, err := jwtkit.NewRSASigner(2048, "apitest")
-	if err != nil {
-		panic(err)
-	}
+var bareSigner = sync.OnceValue(func() keys.Signer {
+	s := testkeys.RSA("apitest")
 	return s
 })
 
@@ -158,7 +155,7 @@ func bareConfig(t testing.TB) (authkit.Config, authkit.Deps) {
 	pg := testdb.ScratchPostgres(t)
 	s := bareSigner()
 	return authkit.Config{
-		Keys:  authkit.KeysConfig{Source: jwtkit.StaticKeySource{Active: s, Pubs: map[string]crypto.PublicKey{s.KID(): s.PublicKey()}}},
+		Keys:  authkit.KeysConfig{Source: testkeys.Source(s)},
 		Token: authkit.TokenConfig{Issuer: authtest.Issuer, IssuedAudiences: []string{authtest.Audience}},
 	}, authkit.Deps{Postgres: pg.Pool}
 }
@@ -254,7 +251,7 @@ func requireSessionWith(t *testing.T, a *api, auth *authkit.Client, tokens iam.T
 	t.Helper()
 	require.NotEmpty(t, tokens.RefreshToken)
 	require.Greater(t, tokens.ExpiresIn, int64(0))
-	claims, err := auth.Verifier().Verify(t.Context(), tokens.AccessToken)
+	claims, err := auth.Verify(t.Context(), tokens.AccessToken)
 	require.NoError(t, err)
 	require.NotEmpty(t, claims.UserID)
 	require.ElementsMatch(t, amr, claims.AMR)
@@ -453,7 +450,7 @@ func (f *factorFlow) session(tokens iam.TokenSet, amr ...string) {
 }
 
 // withProviders configures the Client's identity providers.
-func withProviders(providers ...authprovider.Provider) authtest.Option {
+func withProviders(providers ...provider.Provider) authtest.Option {
 	return authtest.WithConfig(func(c *authkit.Config) { c.Identity.Providers = providers })
 }
 

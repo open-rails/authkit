@@ -15,7 +15,8 @@ import (
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
-	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/internal/testkeys"
+	"github.com/open-rails/authkit/keys"
 	"github.com/stretchr/testify/require"
 )
 
@@ -122,10 +123,10 @@ func TestSecurityClientAddressSpoofing(t *testing.T) {
 }
 
 type rotatingKeys struct {
-	current atomic.Pointer[jwtkit.StaticKeySource]
+	current atomic.Pointer[keys.Static]
 }
 
-func (r *rotatingKeys) ActiveSigner() jwtkit.Signer { return r.current.Load().ActiveSigner() }
+func (r *rotatingKeys) ActiveSigner() keys.Signer { return r.current.Load().ActiveSigner() }
 func (r *rotatingKeys) PublicKeys() map[string]crypto.PublicKey {
 	return r.current.Load().PublicKeys()
 }
@@ -135,17 +136,17 @@ func (r *rotatingKeys) PublicKeys() map[string]crypto.PublicKey {
 // key must be published without a restart.
 func TestSecurityKeyRotationIsPublished(t *testing.T) {
 	old := signer()
-	next, err := jwtkit.NewRSASigner(2048, "security-kid-2")
-	require.NoError(t, err)
-	keys := &rotatingKeys{}
-	keys.current.Store(&jwtkit.StaticKeySource{Active: old, Pubs: map[string]crypto.PublicKey{old.KID(): old.PublicKey()}})
-	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(func(c *authkit.Config) { c.Keys = authkit.KeysConfig{Source: keys} }))
+	next := testkeys.RSA("security-kid-2")
+	rotating := &rotatingKeys{}
+	oldKeys, nextKeys := testkeys.Source(old), testkeys.Source(next)
+	rotating.current.Store(&oldKeys)
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(func(c *authkit.Config) { c.Keys = authkit.KeysConfig{Source: rotating} }))
 	a := h.newAccount("rotation")
 	compromised := h.login(a).AccessToken
 	kids := func() []string {
 		resp := h.get("//.well-known/jwks.json", "")
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
-		var doc jwtkit.JWKS
+		var doc keys.JWKS
 		resp.json(t, &doc)
 		var out []string
 		for _, k := range doc.Keys {
@@ -154,7 +155,7 @@ func TestSecurityKeyRotationIsPublished(t *testing.T) {
 		return out
 	}
 	require.Equal(t, []string{old.KID()}, kids())
-	keys.current.Store(&jwtkit.StaticKeySource{Active: next, Pubs: map[string]crypto.PublicKey{next.KID(): next.PublicKey()}})
+	rotating.current.Store(&nextKeys)
 	require.Equal(t, []string{next.KID()}, kids(), "JWKS still publishes the removed key")
 	require.Equal(t, http.StatusUnauthorized, h.get("/me", compromised).status)
 	require.Equal(t, http.StatusOK, h.get("/me", h.login(a).AccessToken).status)
