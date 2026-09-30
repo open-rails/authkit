@@ -29,14 +29,16 @@ type PermissionChecker interface {
 
 // SessionChecker checks the sign-in behind verified claims live;
 // *authkit.Client is one. Both return nil or the error to answer:
-// iam.ErrSessionRevoked, forbidden for a credential that is not a user's, or
-// (CheckRecentSignIn) step_up_required carrying the step-up methods.
+// iam.ErrSessionRevoked, forbidden for a credential that carries no sign-in,
+// or (CheckRecentSignIn) step_up_required carrying the step-up methods.
 type SessionChecker interface {
 	// CheckSession: the session or device key the token was minted from is
-	// still active.
+	// still active. A user's token carries one, and so does a delegated
+	// token AuthKit minted from it.
 	CheckSession(ctx context.Context, cl Claims) error
-	// CheckRecentSignIn: CheckSession, and signed in recently enough for a
-	// sensitive action, with the second factor when the account has one.
+	// CheckRecentSignIn: CheckSession, and the user's own token, signed in
+	// recently enough for a sensitive action, with the second factor when
+	// the account has one.
 	CheckRecentSignIn(ctx context.Context, cl Claims) error
 }
 
@@ -48,20 +50,28 @@ type Authority interface {
 	SessionChecker
 }
 
-// Required authenticates every request through a, storing its claims in the
-// request context, and answers 401 otherwise. It is stateless: a token
-// outlives its revoked session until it expires. The live gates
+// Required authenticates every request through a, storing its claims and
+// actor in the request context, and answers 401 otherwise. It is stateless:
+// a token outlives its revoked session until it expires. The live gates
 // (RequireSession, RequirePermission, Sensitive) include it.
+//
+// Stacked gates over the same a verify a request once: the first stores the
+// claims and the later ones reuse them, so a DPoP proof is spent and an API
+// key looked up once. Claims another authenticator verified, or verified for
+// another credential, or stored by SetClaims are verified again.
 func Required(a Authenticator) func(http.Handler) http.Handler {
 	mustAuthenticator(a)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			cl, err := a.VerifyRequest(r)
-			if err != nil {
-				writeAuthError(w, r, err)
-				return
+			if !verifiedBy(r, a) {
+				cl, err := a.VerifyRequest(r)
+				if err != nil {
+					writeAuthError(w, r, err)
+					return
+				}
+				r = setVerified(r, a, cl)
 			}
-			next.ServeHTTP(w, r.WithContext(SetClaims(r.Context(), cl)))
+			next.ServeHTTP(w, r)
 		})
 	}
 }
@@ -85,17 +95,20 @@ func Optional(a Authenticator) func(http.Handler) http.Handler {
 
 // RequireSession is Required plus the session check: the session or device
 // key the token was minted from is still active (not logged out, revoked,
-// banned or deleted), or the request is 401 session_revoked. Only user
-// credentials pass.
+// banned or deleted), or the request is 401 session_revoked. A user's token
+// passes, and so does a delegated token AuthKit minted from a sign-in, while
+// that sign-in stands; any other credential is 403 forbidden.
 func RequireSession(a Authority) func(http.Handler) http.Handler {
 	mustAuthenticator(a)
 	return liveGate(a, a.CheckSession)
 }
 
-// Sensitive is RequireSession plus a recent sign-in: within the last 15
-// minutes, with the second factor when the account has one. A stale sign-in
-// answers 403 step_up_required with the account's step-up methods, which
-// auth-ui handles. Stack it after RequirePermission when a route needs both.
+// Sensitive is RequireSession plus a recent sign-in of the user's own token:
+// within the last 15 minutes, with the second factor when the account has
+// one. A stale sign-in answers 403 step_up_required with the account's
+// step-up methods, which auth-ui handles; a delegated token, which carries no
+// sign-in of its own, is 403 forbidden. Stack it after RequirePermission when
+// a route needs both.
 func Sensitive(a Authority) func(http.Handler) http.Handler {
 	mustAuthenticator(a)
 	return liveGate(a, a.CheckRecentSignIn)
@@ -157,8 +170,7 @@ func requirePermission(a Authority, perm iam.Perm, fixed iam.GroupRef) func(http
 				iam.WriteError(w, errmodel.E(errmodel.CodeInternalError))
 				return
 			}
-			cl, _ := ClaimsFromContext(r.Context())
-			actor, ok := ActorFromClaims(cl)
+			actor, ok := ActorFromContext(r.Context())
 			if !ok {
 				iam.WriteError(w, errmodel.E(errmodel.CodeForbidden))
 				return

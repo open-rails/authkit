@@ -85,8 +85,11 @@ func (a *Client) UpdateUser(ctx context.Context, actor iam.Actor, userID string,
 	return a.ops.UpdateUser(ctx, actor, userID, u, opts...)
 }
 
-// PatchUserMetadata merges patch into the account's metadata under
-// ACCT(root:users:manage); a nil value deletes its key.
+// PatchUserMetadata applies patch to the account's metadata as an RFC 7396
+// JSON Merge Patch under ACCT(root:users:manage): objects merge recursively,
+// a nil value deletes its key, and any other value (arrays included)
+// replaces the one it names. {"prefs": {"theme": "dark", "beta": nil}} sets
+// prefs.theme, deletes prefs.beta and keeps prefs' other keys.
 func (a *Client) PatchUserMetadata(ctx context.Context, actor iam.Actor, userID string, patch map[string]any, opts ...Option) error {
 	return a.ops.PatchUserMetadata(ctx, actor, userID, patch, opts...)
 }

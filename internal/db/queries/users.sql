@@ -186,9 +186,9 @@ WHERE id = sqlc.arg(id) AND (NOT sqlc.arg(verified)::boolean OR phone_number IS 
 -- name: UserSetAvatarURL :exec
 UPDATE users SET avatar_url = sqlc.narg(avatar_url), updated_at = now() WHERE id = sqlc.arg(id);
 
--- name: UserPatchMetadata :exec
--- Merges patch into the metadata and removes drop_keys.
-UPDATE users SET metadata = (COALESCE(metadata, '{}'::jsonb) || sqlc.arg(patch)::jsonb) - sqlc.arg(drop_keys)::text[], updated_at = now()
+-- name: UserSetMetadata :exec
+-- Replaces the metadata document (PatchUserMetadata merges in Go).
+UPDATE users SET metadata = sqlc.arg(metadata)::jsonb, updated_at = now()
 WHERE id = sqlc.arg(id);
 
 -- name: UserBanInForce :one

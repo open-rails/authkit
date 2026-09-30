@@ -53,9 +53,10 @@ func (a *Client) LinkProvider(ctx context.Context, userID string, l iam.Provider
 	return a.ops.LinkProvider(ctx, userID, l, opts...)
 }
 
-// ParseBootstrapManifestYAML parses a bootstrap manifest, rejecting unknown
-// fields, empty manifests, structurally invalid entries and a root_role that
-// is not a root role of Config.Roles.
+// ParseBootstrapManifestYAML parses a bootstrap manifest, rejecting empty
+// manifests, structurally invalid entries and a root_role that is not a root
+// role of Config.Roles. An unknown key is logged as a warning, with its path
+// (users[0].nickname), and ignored.
 func (a *Client) ParseBootstrapManifestYAML(raw []byte) (iam.BootstrapManifest, error) {
 	return a.ops.ParseBootstrapManifestYAML(raw)
 }

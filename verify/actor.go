@@ -49,14 +49,11 @@ func ActorFromClaims(c Claims) (iam.Actor, bool) {
 	return a, !a.IsZero()
 }
 
-// ActorFromContext is ActorFromClaims over the claims the middleware stored
-// in ctx.
+// ActorFromContext is the actor the claims the middleware stored in ctx act
+// as (ActorFromClaims), resolved once when they were stored.
 func ActorFromContext(ctx context.Context) (iam.Actor, bool) {
-	c, ok := ClaimsFromContext(ctx)
-	if !ok {
-		return iam.Actor{}, false
-	}
-	return ActorFromClaims(c)
+	v, ok := ctx.Value(claimsKey{}).(verified)
+	return v.actor, ok && !v.actor.IsZero()
 }
 
 // session is the sign-in the token names: sid or device_key_id.

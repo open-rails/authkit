@@ -1,10 +1,12 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	stdlog "log"
+	"slices"
 	"strings"
 	"time"
 
@@ -430,28 +432,26 @@ func normalizeAvatarURL(v string) (*string, error) {
 	return &v, nil
 }
 
-// PatchUserMetadata merges patch into the account's application-owned
-// metadata under ACCT(root:users:manage); a nil value deletes its key. Keys
-// AuthKit owns are refused.
+// PatchUserMetadata applies patch to the account's application-owned
+// metadata as an RFC 7396 JSON Merge Patch under ACCT(root:users:manage):
+// objects merge recursively, a nil value deletes its key, and any other
+// value (arrays included) replaces the one it names. Keys AuthKit owns are
+// refused.
 func (s *Engine) PatchUserMetadata(ctx context.Context, a iam.Actor, userID string, patch map[string]any, opts ...ops.Option) error {
 	host, err := hostTx("PatchUserMetadata", opts)
 	if err != nil {
 		return err
 	}
-	set, drop := map[string]any{}, []string{}
-	for k, v := range patch {
-		for _, reserved := range config.ReservedMetadataKeys {
-			if k == reserved {
-				return errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam(k))
-			}
+	for k := range patch {
+		if slices.Contains(config.ReservedMetadataKeys, k) {
+			return errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam(k))
 		}
-		if v == nil {
-			drop = append(drop, k)
-			continue
-		}
-		set[k] = v
 	}
-	raw, err := json.Marshal(set)
+	raw, err := json.Marshal(patch)
+	if err != nil {
+		return err
+	}
+	doc, err := decodeJSONValue(raw)
 	if err != nil {
 		return err
 	}
@@ -459,8 +459,49 @@ func (s *Engine) PatchUserMetadata(ctx context.Context, a iam.Actor, userID stri
 		if len(patch) == 0 {
 			return nil
 		}
-		return at.q.UserPatchMetadata(ctx, db.UserPatchMetadataParams{ID: userID, Patch: raw, DropKeys: drop})
+		current, err := at.q.UserMetadata(ctx, at.userID)
+		if err != nil {
+			return err
+		}
+		target, err := decodeJSONValue(current)
+		if err != nil {
+			return err
+		}
+		merged, err := json.Marshal(mergePatch(target, doc))
+		if err != nil {
+			return err
+		}
+		return at.q.UserSetMetadata(ctx, db.UserSetMetadataParams{ID: at.userID, Metadata: merged})
 	})
+}
+
+// mergePatch is RFC 7396's MergePatch over decoded JSON.
+func mergePatch(target, patch any) any {
+	p, ok := patch.(map[string]any)
+	if !ok {
+		return patch
+	}
+	t, ok := target.(map[string]any)
+	if !ok {
+		t = map[string]any{}
+	}
+	for k, v := range p {
+		if v == nil {
+			delete(t, k)
+		} else {
+			t[k] = mergePatch(t[k], v)
+		}
+	}
+	return t
+}
+
+// decodeJSONValue decodes a JSON value, keeping numbers exact.
+func decodeJSONValue(raw []byte) (any, error) {
+	d := json.NewDecoder(bytes.NewReader(raw))
+	d.UseNumber()
+	var v any
+	err := d.Decode(&v)
+	return v, err
 }
 
 // Ban bans an account under ACCT(root:users:ban) and revokes its sessions,

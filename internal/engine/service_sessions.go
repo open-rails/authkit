@@ -363,14 +363,18 @@ func (s *Engine) SessionFreshness(ctx context.Context, userID, sessionID string,
 	return out, nil
 }
 
-// CheckSession is the session check (#412) for verified user claims: the
-// refresh session or device key the token was minted from is still active and
-// its account usable. A token that names neither is refused too, since
-// nothing proves it still stands. Every refusal is ErrSessionRevoked; a
-// credential that is not a user's (or a 2FA-enrollment token) is forbidden.
-// Permission checks run the same query through the actor's session binding.
+// CheckSession is the session check (#412) for verified claims: the refresh
+// session or device key the token was minted from is still active and its
+// account usable. A user's token names one, and so does a delegated token
+// this deployment minted from a sign-in (#412 binds it to its minting
+// session). A token that names none, such as one the host minted, is refused
+// too, since nothing proves it still stands. Every refusal is
+// ErrSessionRevoked; any other credential (an API key, an application's, a
+// 2FA-enrollment token) is forbidden. Permission checks run the same query
+// through the actor's session binding.
 func (s *Engine) CheckSession(ctx context.Context, cl verify.Claims) error {
-	if cl.TwoFAEnrollment || !cl.IsUser() {
+	userID, ok := s.signedInUser(cl)
+	if !ok {
 		return errmodel.E(errmodel.CodeForbidden)
 	}
 	if err := s.requirePG(); err != nil {
@@ -380,7 +384,7 @@ func (s *Engine) CheckSession(ctx context.Context, cl verify.Claims) error {
 	if ref.IsZero() {
 		return iam.ErrSessionRevoked
 	}
-	usable, signedIn, err := userLive(ctx, s.pg, cl.UserID, ref)
+	usable, signedIn, err := userLive(ctx, s.pg, userID, ref)
 	switch {
 	case err != nil:
 		return err
@@ -390,14 +394,35 @@ func (s *Engine) CheckSession(ctx context.Context, cl verify.Claims) error {
 	return nil
 }
 
+// signedInUser is the account whose sign-in cl stands on: a user's own
+// token, or a delegated token this deployment minted, whose delegated_sub is
+// the user it was minted for (as actorAuthority reads it).
+func (s *Engine) signedInUser(cl verify.Claims) (string, bool) {
+	switch {
+	case cl.TwoFAEnrollment:
+		return "", false
+	case cl.IsUser():
+		return cl.UserID, true
+	case cl.Kind == iam.ActorDelegated && cl.RemoteApplicationID == "" && cl.DelegatedSubject != "" &&
+		cl.Issuer != "" && cl.Issuer == strings.TrimSpace(s.cfg.Token.Issuer):
+		return cl.DelegatedSubject, true
+	}
+	return "", false
+}
+
 // CheckRecentSignIn is the sensitive-action gate, for AuthKit's own
 // credential routes and verify.Sensitive alike: CheckSession, then a sign-in
-// within authflow.SensitiveActionFreshAuthWindow, with a second factor when
-// the account has one (checked live, so a token minted before enrollment
-// cannot hide it). A stale sign-in is StepUpRequired.
+// of the user's own token within authflow.SensitiveActionFreshAuthWindow,
+// with a second factor when the account has one (checked live, so a token
+// minted before enrollment cannot hide it). A stale sign-in is
+// StepUpRequired; a delegated token, which carries no sign-in of its own, is
+// forbidden.
 func (s *Engine) CheckRecentSignIn(ctx context.Context, cl verify.Claims) error {
 	if err := s.CheckSession(ctx, cl); err != nil {
 		return err
+	}
+	if !cl.IsUser() {
+		return errmodel.E(errmodel.CodeForbidden)
 	}
 	mfa := cl.MFAEnrolled
 	if !mfa {
