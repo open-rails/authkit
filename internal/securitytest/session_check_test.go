@@ -337,3 +337,95 @@ func allow(ctx context.Context, auth *authkit.Client, cl verify.Claims, perm iam
 	}
 	return auth.Can(ctx, actor, ref, perm)
 }
+
+// TestSecurityDelegatedTokenSessionCheck (#418): a delegated token minted
+// from a sign-in carries that session (#412), so RequireSession and
+// CheckSession admit it while the session stands and refuse it, 401
+// session_revoked, once it is revoked, over net/http, Gin and Fiber. One
+// minted without a session (by the host, or for an unbound actor) is always
+// refused. It never reaches AuthKit's own account routes, and never passes
+// Sensitive, which wants the user's own recent sign-in.
+func TestSecurityDelegatedTokenSessionCheck(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const resource = "resource.security.test"
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
+	ctx := context.Background()
+	verifier, err := h.auth.NewVerifier([]string{resource})
+	require.NoError(t, err)
+	noContent := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	ginSession, fiberSession := gin.New(), fiber.New()
+	ginSession.GET("/resource", authkitgin.RequireSession(verifier), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	fiberSession.Get("/resource", authkitfiber.RequireSession(verifier), func(c fiber.Ctx) error { return c.SendStatus(http.StatusNoContent) })
+	gates := map[string]gateCall{
+		"net/http RequireSession": serveHTTP(verify.RequireSession(verifier)(noContent), http.MethodGet),
+		"gin RequireSession":      serveHTTP(ginSession, http.MethodGet),
+		"fiber RequireSession":    serveFiber(fiberSession, http.MethodGet),
+	}
+	sensitive := serveHTTP(verify.Sensitive(verifier)(noContent), http.MethodPost)
+	requireGates := func(t *testing.T, token string, status int, code string) {
+		t.Helper()
+		for name, call := range gates {
+			resp := call(t, token)
+			require.Equal(t, status, resp.status, "%s: %s", name, resp)
+			if code != "" {
+				require.Equal(t, code, resp.errorCode(), name)
+			}
+		}
+		cl, err := verifier.Verify(ctx, token)
+		require.NoError(t, err)
+		if status == http.StatusNoContent {
+			require.NoError(t, h.auth.CheckSession(ctx, cl))
+		} else {
+			require.ErrorIs(t, h.auth.CheckSession(ctx, cl), iam.ErrSessionRevoked)
+		}
+	}
+	mint := func(t *testing.T, actor iam.Actor, d iam.DelegatedAccess) string {
+		t.Helper()
+		if len(d.Audiences) == 0 {
+			d.Audiences = []string{resource}
+		}
+		token, err := h.auth.MintDelegatedAccessToken(ctx, actor, d)
+		require.NoError(t, err)
+		return token.Value
+	}
+
+	a := h.newAccount("delegsession")
+	signIn := h.login(a)
+	cl, err := h.auth.Verify(ctx, signIn.AccessToken)
+	require.NoError(t, err)
+	actor, ok := verify.ActorFromClaims(cl)
+	require.True(t, ok)
+	delegated := mint(t, actor, iam.DelegatedAccess{})
+	_, claims := splitToken(t, delegated)
+	require.Equal(t, cl.SessionID, claims["sid"], "the token carries its minting session")
+
+	requireGates(t, delegated, http.StatusNoContent, "")
+	resp := sensitive(t, delegated)
+	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
+	require.Equal(t, "forbidden", resp.errorCode())
+
+	// AuthKit's account routes are the user's own.
+	own := mint(t, actor, iam.DelegatedAccess{Audiences: []string{audience}})
+	resp = h.do(request{method: http.MethodPatch, path: "/user/preferred-language", body: map[string]string{"preferred_language": "fr"}, token: own})
+	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
+	require.Equal(t, "forbidden", resp.errorCode())
+
+	// No minting session, nothing to check: refused by design.
+	requireGates(t, mint(t, iam.SystemActor(), iam.DelegatedAccess{Subject: a.id}), http.StatusUnauthorized, "session_revoked")
+	requireGates(t, mint(t, iam.UserActor(a.id), iam.DelegatedAccess{}), http.StatusUnauthorized, "session_revoked")
+
+	// The user's own token behaves as before; another session's logout
+	// leaves this one standing.
+	other := h.login(a)
+	resp = serveHTTP(verify.RequireSession(h.auth)(noContent), http.MethodGet)(t, h.login(a).AccessToken)
+	require.Equal(t, http.StatusNoContent, resp.status, resp.String())
+	require.Equal(t, http.StatusNoContent, h.do(request{method: http.MethodDelete, path: "/logout", token: other.AccessToken}).status)
+	requireGates(t, delegated, http.StatusNoContent, "")
+
+	require.Equal(t, http.StatusNoContent, h.do(request{method: http.MethodDelete, path: "/logout", token: signIn.AccessToken}).status)
+	requireGates(t, delegated, http.StatusUnauthorized, "session_revoked")
+	dcl, err := verifier.Verify(ctx, delegated)
+	require.NoError(t, err, "stateless verification admits it until it expires")
+	_, err = allow(ctx, h.auth, dcl, ident.RootUsersRead, iam.RootGroup())
+	require.ErrorIs(t, err, iam.ErrSessionRevoked, "its permission checks end with the session too")
+}

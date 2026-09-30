@@ -3,6 +3,8 @@ package verify
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"reflect"
 	"strings"
 	"time"
 
@@ -30,11 +32,13 @@ type Claims struct {
 	// Subject is another issuer's user. It is meaningful only with Issuer and
 	// never names a local user.
 	Subject string
-	// DelegatedSubject is a delegated token's delegated_sub: an external actor
-	// whose authority is Permissions, never a local user.
+	// DelegatedSubject is a delegated token's delegated_sub, whose authority
+	// is Permissions: the user who minted a token of this deployment, else an
+	// external actor. It never sets UserID.
 	DelegatedSubject string
-	// SessionID (sid) or DeviceKeyID names the sign-in a native token was
-	// minted from; the session check refuses the token once it is revoked.
+	// SessionID (sid) or DeviceKeyID names the sign-in a native token, or a
+	// delegated token AuthKit minted from one, was minted from; the session
+	// check refuses the token once it is revoked.
 	SessionID   string
 	DeviceKeyID string
 	// APIKeyID is the key an API-key credential resolved to.
@@ -159,15 +163,45 @@ func (c Claims) Identity() (auth.Identity, bool) {
 
 type claimsKey struct{}
 
-// SetClaims stores cl in ctx, as the middleware does.
+// verified is what the middleware stores in a request context: the claims,
+// the actor they act as, and, when a gate verified them, its authenticator
+// and the request credential (Authorization and DPoP headers) it verified.
+type verified struct {
+	claims     Claims
+	actor      iam.Actor
+	by         Authenticator
+	credential [2]string
+}
+
+// SetClaims stores cl in ctx for the handlers. The gates never trust claims
+// stored this way: they verify the request themselves.
 func SetClaims(ctx context.Context, cl Claims) context.Context {
-	return context.WithValue(ctx, claimsKey{}, cl)
+	actor, _ := ActorFromClaims(cl)
+	return context.WithValue(ctx, claimsKey{}, verified{claims: cl, actor: actor})
+}
+
+// setVerified stores the claims a verified r to carry.
+func setVerified(r *http.Request, a Authenticator, cl Claims) *http.Request {
+	actor, _ := ActorFromClaims(cl)
+	return r.WithContext(context.WithValue(r.Context(), claimsKey{}, verified{claims: cl, actor: actor, by: a, credential: credential(r)}))
+}
+
+// verifiedBy reports whether a already verified r's credential, so its
+// claims stand for r. Only a pointer authenticator is recognized: comparing
+// any other could panic.
+func verifiedBy(r *http.Request, a Authenticator) bool {
+	v, ok := r.Context().Value(claimsKey{}).(verified)
+	return ok && v.by != nil && reflect.ValueOf(v.by).Kind() == reflect.Pointer && v.by == a && v.credential == credential(r)
+}
+
+func credential(r *http.Request) [2]string {
+	return [2]string{r.Header.Get("Authorization"), r.Header.Get("DPoP")}
 }
 
 // ClaimsFromContext is the claims the middleware stored in ctx.
 func ClaimsFromContext(ctx context.Context) (Claims, bool) {
-	cl, ok := ctx.Value(claimsKey{}).(Claims)
-	return cl, ok
+	v, ok := ctx.Value(claimsKey{}).(verified)
+	return v.claims, ok
 }
 
 // IdentityFromContext is the verified caller's provider-neutral identity.

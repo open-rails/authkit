@@ -324,11 +324,16 @@ func redirectStepUpResult(w http.ResponseWriter, r *http.Request, returnTo, stat
 // token stops changing the account the moment any of them happens, instead of
 // installing a credential that outlives them. A 2FA-enrollment token has no
 // session; it reaches only the enrollment routes, where the engine checks its
-// login proof.
+// login proof. These routes are a user's own: a delegated token passes the
+// session check but not this tier.
 func (s *Service) requireSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims, err := callerClaims(r)
-		if err == nil && !claims.TwoFAEnrollment {
+		switch {
+		case err != nil, claims.TwoFAEnrollment:
+		case !claims.IsUser():
+			err = errmodel.E(errmodel.CodeForbidden)
+		default:
 			err = s.svc.CheckSession(r.Context(), claims)
 		}
 		if err != nil {
