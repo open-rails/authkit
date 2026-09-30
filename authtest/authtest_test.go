@@ -1,6 +1,7 @@
 package authtest_test
 
 import (
+	"crypto/rand"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -117,9 +118,12 @@ func TestReplicaAndStaleSession(t *testing.T) {
 // from New.
 func TestReplicaAndStaleSessionOfAHostClient(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
+	totpKey := make([]byte, 32)
+	_, _ = rand.Read(totpKey)
 	auth, err := authkit.New(t.Context(), authkit.Config{
-		Token: authkit.TokenConfig{Issuer: "https://host.example", IssuedAudiences: []string{"host"}},
-		HTTP:  &authkit.HTTPConfig{DirectPeerIP: true},
+		Token:     authkit.TokenConfig{Issuer: "https://host.example", IssuedAudiences: []string{"host"}},
+		TwoFactor: authkit.TwoFactorConfig{TOTPSecretKey: totpKey}, // the root owner's MFA must be enrollable
+		HTTP:      &authkit.HTTPConfig{DirectPeerIP: true},
 	}, authkit.Deps{Postgres: pg.Pool, KeySource: testkeys.Source(testkeys.RSA("host-built"))})
 	require.NoError(t, err)
 	t.Cleanup(auth.Close)

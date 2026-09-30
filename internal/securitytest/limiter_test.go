@@ -59,9 +59,6 @@ func TestSecurityLimiterOutageFailsClosed(t *testing.T) {
 	put := func(path string, body any) request {
 		return request{method: http.MethodPut, path: path, body: body, token: token}
 	}
-	patch := func(path string, body any) request {
-		return request{method: http.MethodPatch, path: path, body: body, token: token}
-	}
 	callback := func(method, path string) request {
 		return request{method: method, path: "//oidc/idp" + path + "?state=state&code=code"}
 	}
@@ -96,7 +93,6 @@ func TestSecurityLimiterOutageFailsClosed(t *testing.T) {
 		{"POST /me/2fa/setup", "issues a TOTP secret", post("/me/2fa/setup", map[string]string{"method": "totp"})},
 		{"POST /me/2fa/factors", "checks a code", post("/me/2fa/factors", map[string]string{"method": "email", "code": "123456"})},
 		// It shares the enrollment budget.
-		{"PATCH /me/2fa/factors/{id}", "changes the default factor", patch("/me/2fa/factors/"+a.id, map[string]bool{"default": true})},
 		{"POST /me/2fa/backup-codes", "issues backup codes", post("/me/2fa/backup-codes", nil)},
 		{"POST /passkeys/login/finish", "checks a signature", post("/passkeys/login/finish", map[string]string{"id": "credential"})},
 		{"POST /device-keys/enroll/begin", "sends a code", post("/device-keys/enroll/begin", map[string]string{"email": a.email, "public_key": newDeviceKey(t).public})},
@@ -126,7 +122,7 @@ func TestSecurityLimiterOutageFailsClosed(t *testing.T) {
 		"GET /register/availability",
 		"PATCH /me", "DELETE /me", "GET /me/security", "DELETE /me/phone", "DELETE /me/providers/{provider}",
 		"GET /me/sessions", "DELETE /me/sessions", "DELETE /me/sessions/{id}", "GET /me/session-events",
-		"GET /me/2fa", "DELETE /me/2fa", "DELETE /me/2fa/factors/{id}",
+		"GET /me/2fa", "DELETE /me/2fa", "PATCH /me/2fa/factors/{id}", "DELETE /me/2fa/factors/{id}",
 		"GET /me/sign-in-keys", "PATCH /me/sign-in-keys/{id}", "DELETE /me/sign-in-keys/{id}",
 		"POST /passkeys/login/begin", "POST /me/passkeys/register/begin", "POST /me/passkeys/register/finish",
 		"POST /device-keys/login/begin", "DELETE /device-keys",
