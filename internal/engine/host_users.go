@@ -360,12 +360,15 @@ func (s *Engine) revokeCredentialsTx(ctx context.Context, tx pgx.Tx, userID stri
 	return revoked, nil
 }
 
-// RenameAuthority is internal: ordinary account changes obey the site policy;
-// trusted import updates can bypass only the enabled/cooldown checks.
+// renameAuthority is who renames: an account itself obeys the site's rename
+// policy; staff renaming another account (root:users:manage) and trusted
+// imports bypass only the enabled/cooldown checks, and imports also the
+// interactive username rule.
 type renameAuthority uint8
 
 const (
 	normalRename renameAuthority = iota
+	staffRename
 	importRename
 )
 
@@ -380,13 +383,13 @@ func (s *Engine) renameUsernameTx(ctx context.Context, tx pgx.Tx, id, username s
 	}
 	oldName := deref(current.Username)
 	if strings.EqualFold(oldName, username) {
-		if oldName == username || authority != normalRename {
+		if oldName == username || authority == importRename {
 			return nil
 		}
 		// Same identity, new display spelling: no name claim, alias or cooldown.
 		return q.UserSetUsernameSpelling(ctx, db.UserSetUsernameSpellingParams{ID: id, Username: &username, AtTime: s.namingNow()})
 	}
-	if authority == normalRename {
+	if authority != importRename {
 		if err := s.ValidateUsername(username); err != nil {
 			return err
 		}

@@ -21,7 +21,7 @@ func TestAdminAccountRoutes(t *testing.T) {
 		c.Roles = rbac
 		// root:users:manage needs MFA while 2FA is on; this test is about the routes.
 		c.TwoFactor.Mode = iam.TwoFactorDisabled
-		c.Username.Renames = true
+		// Self-renames stay off: staff rename others regardless.
 	}))
 	a := newAPI(t, auth)
 	staff, target, plain := authtest.NewUser(t, auth), authtest.NewUser(t, auth), authtest.NewUser(t, auth)
