@@ -351,15 +351,7 @@ type oidcPopupMessage struct {
 
 // frontendCallbackURL is the app's OIDC return page with fragment.
 func (s *Service) frontendCallbackURL(fragment string) string {
-	base := strings.TrimRight(s.cfg.Frontend.BaseURL, "/")
-	path := s.cfg.Frontend.OIDCReturnPath
-	if path == "" {
-		path = "/login/callback"
-	}
-	if base == "" && !strings.HasPrefix(path, "/") {
-		path = "/" + path
-	}
-	return base + path + fragment
+	return strings.TrimRight(s.cfg.Frontend.BaseURL, "/") + s.cfg.Frontend.OIDCReturnPath + fragment
 }
 
 // stepUpReturnURL is a step-up's return_to (same-origin) with its result in
