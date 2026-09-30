@@ -15,9 +15,9 @@ import (
 
 // TestChannelDeletionModels runs both ways an app can let channels be
 // deleted, side by side. Per channel: an app permission of the channel
-// persona, checked in the channel's own group, which its owner holds, and a
-// root role holding every channel permission. Global: an app root permission,
-// checked on root, which only root roles hold.
+// persona, checked in the channel's own group, which its owner holds, as do
+// the root owner and a root role holding every channel permission. Global: an
+// app root permission, checked on root, which only root roles hold.
 func TestChannelDeletionModels(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	ctx := t.Context()
@@ -31,6 +31,7 @@ func TestChannelDeletionModels(t *testing.T) {
 	siteAdmin := rbac.Root.Role("site-admin", channelsDelete)
 	cfg := testConfig(t)
 	cfg.Roles = rbac
+	cfg.TwoFactor.Mode = iam.TwoFactorDisabled // root:owner needs MFA; this test is about reach
 	auth := newPublicRuntime(t, cfg, pg.Pool)
 	t.Cleanup(auth.Close)
 
@@ -39,7 +40,7 @@ func TestChannelDeletionModels(t *testing.T) {
 		require.NoError(t, err)
 		return u.ID
 	}
-	owner, mod, chAdmin, sAdmin := user("owner"), user("moderator"), user("channeladmin"), user("siteadmin")
+	owner, mod, chAdmin, sAdmin, siteOwner := user("owner"), user("moderator"), user("channeladmin"), user("siteadmin"), user("siteowner")
 	founder := iam.UserSubject(owner)
 	g, err := auth.CreateGroup(ctx, iam.NewGroup{Persona: channel.Persona, Owner: &founder})
 	require.NoError(t, err)
@@ -51,6 +52,7 @@ func TestChannelDeletionModels(t *testing.T) {
 	grant(golang, mod, moderator)
 	grant(iam.RootGroup(), chAdmin, channelAdmin)
 	grant(iam.RootGroup(), sAdmin, siteAdmin)
+	grant(iam.RootGroup(), siteOwner, rbac.Root.Owner)
 
 	can := func(userID string, ref iam.GroupRef, perm iam.Perm) bool {
 		ok, err := auth.Can(ctx, iam.UserActor(userID), ref, perm)
@@ -65,6 +67,7 @@ func TestChannelDeletionModels(t *testing.T) {
 		{"the channel's owner", owner, true, false},
 		{"its moderator", mod, false, false},
 		{"a root role holding channel:*", chAdmin, true, false},
+		{"the root owner", siteOwner, true, true},
 		{"a root role holding only root:channels:delete", sAdmin, false, true},
 	} {
 		require.Equal(t, tc.perChannel, can(tc.id, golang, selfDelete), "%s, per channel", tc.who)
@@ -103,10 +106,12 @@ func TestChannelDeletionModels(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, status("/c/golang", owner))
 	require.Equal(t, http.StatusForbidden, status("/c/golang", mod))
 	require.Equal(t, http.StatusNoContent, status("/c/golang", chAdmin))
-	require.Equal(t, http.StatusForbidden, status("/c/golang", sAdmin))
+	require.Equal(t, http.StatusNoContent, status("/c/golang", siteOwner), "the root owner reaches every channel")
+	require.Equal(t, http.StatusForbidden, status("/c/golang", sAdmin), "a root role without channel:* does not")
 	require.Equal(t, http.StatusInternalServerError, status("/c/unloaded", owner), "no group attached fails closed")
 	require.Equal(t, http.StatusForbidden, status("/channels/golang", owner))
 	require.Equal(t, http.StatusNoContent, status("/channels/golang", sAdmin))
+	require.Equal(t, http.StatusNoContent, status("/channels/golang", siteOwner))
 }
 
 // RolePermissions reads a role's grants from the running catalog, includes
@@ -133,7 +138,7 @@ func TestRolePermissions(t *testing.T) {
 	}
 	require.Equal(t, []iam.Perm{postsEdit, channel.Members.Read, postsRead}, grants(moderator), "own grants, then includes")
 	require.Equal(t, []iam.Perm{channel.All()}, grants(channel.Owner))
-	require.Equal(t, []iam.Perm{rbac.Root.All()}, grants(rbac.Root.Owner))
+	require.Equal(t, []iam.Perm{rbac.Root.All(), channel.All()}, grants(rbac.Root.Owner), "the root owner holds every persona")
 	parsed, err := auth.Role("channel:reader")
 	require.NoError(t, err)
 	require.Equal(t, []iam.Perm{postsRead}, grants(parsed))

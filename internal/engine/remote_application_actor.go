@@ -187,7 +187,7 @@ func (s *Engine) authorizeApplicationControl(ctx context.Context, st *permission
 				return err
 			}
 		}
-		if err := s.requireRoleCover(ctx, st, in, group, ident.RoleText(h.Role)); err != nil && !errors.Is(err, iam.ErrRoleNotAssignable) {
+		if err := s.requireHeldRoleCover(ctx, st, in, group, ident.RoleText(h.Role)); err != nil {
 			return err
 		}
 	}

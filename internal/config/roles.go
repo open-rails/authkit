@@ -107,8 +107,9 @@ func (r *Roles) errorf(format string, args ...any) {
 // not registered fails New.
 type PersonaDef struct {
 	Persona iam.Persona
-	// Owner is the role every persona has: it holds All(). A group's creator
-	// can be seeded with it (iam.NewGroup.Owner).
+	// Owner is the role every persona has: it holds All(). Root's also holds
+	// every other persona's All(). A group's creator can be seeded with it
+	// (iam.NewGroup.Owner).
 	Owner       iam.Role
 	Members     MemberPerms
 	Credentials CredentialPerms
@@ -150,7 +151,7 @@ func (p *PersonaDef) Resource(name string) Resource {
 	return Resource{persona: p.Persona, name: name}
 }
 
-// All is `<persona>:*`: every permission of the persona, what Owner holds.
+// All is `<persona>:*`: every permission of the persona.
 func (p *PersonaDef) All() iam.Perm { return p.Persona.OwnerGrant() }
 
 // Role declares a role held in the persona's groups and returns it. Each grant

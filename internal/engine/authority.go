@@ -263,6 +263,16 @@ func (s *Engine) requireRoleCover(ctx context.Context, st *permissionGroupStore,
 	return a.requireCover(grants)
 }
 
+// requireHeldRoleCover is rule COVER for the role of a credential being taken
+// back. A role this app's catalog no longer declares confers nothing, so it
+// needs no cover. A member's role: requireMemberRoleCover.
+func (s *Engine) requireHeldRoleCover(ctx context.Context, st *permissionGroupStore, a authority, g groupTarget, role iam.Role) error {
+	if err := s.requireRoleCover(ctx, st, a, g, role); err != nil && !errors.Is(err, iam.ErrRoleNotAssignable) {
+		return err
+	}
+	return nil
+}
+
 // requireRoleGrant is CAP(capability) plus COVER(role) in g: what assigning,
 // revoking or issuing a credential for role through capability requires.
 func (s *Engine) requireRoleGrant(ctx context.Context, st *permissionGroupStore, a iam.Actor, g groupTarget, capability iam.Perm, role iam.Role) error {
