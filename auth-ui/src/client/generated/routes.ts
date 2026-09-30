@@ -96,7 +96,7 @@ export const AUTHKIT_ROUTES: readonly AuthKitRoute[] = [
   { method: "DELETE", path: "/api/v1/groups/{group_id}/invitations/{id}", group: "permission_groups", auth: "permission", permission: "<persona>:members:manage", stepUp: false, mountedWhen: null },
   { method: "GET", path: "/api/v1/groups/{group_id}/api-keys", group: "permission_groups", auth: "permission", permission: "<persona>:credentials:read", stepUp: false, mountedWhen: "api_keys" },
   { method: "POST", path: "/api/v1/groups/{group_id}/api-keys", group: "permission_groups", auth: "permission", permission: "<persona>:credentials:manage", stepUp: false, mountedWhen: "api_keys" },
-  { method: "DELETE", path: "/api/v1/groups/{group_id}/api-keys/{key}", group: "permission_groups", auth: "permission", permission: "<persona>:credentials:manage", stepUp: false, mountedWhen: "api_keys" },
+  { method: "DELETE", path: "/api/v1/groups/{group_id}/api-keys/{id}", group: "permission_groups", auth: "permission", permission: "<persona>:credentials:manage", stepUp: false, mountedWhen: "api_keys" },
   { method: "POST", path: "/api/v1/invitations/redeem", group: "permission_groups", auth: "session", permission: null, stepUp: false, mountedWhen: null },
   { method: "GET", path: "/oidc/{provider}/login", group: "browser_oidc", auth: "public", permission: null, stepUp: false, mountedWhen: "oidc" },
   { method: "GET", path: "/oidc/{provider}/callback", group: "browser_oidc", auth: "public", permission: null, stepUp: false, mountedWhen: "oidc" },

@@ -328,7 +328,7 @@ func Catalog() []RouteSpec {
 			Query: PageQuery{}, Responses: replyOK(iam.ListPage[iam.APIKey]{}), serve: groupOp(OpAPIKeysList)},
 		{Method: POST, Path: "/groups/{group_id}/api-keys", Group: groups, Auth: permission, Perm: OpAPIKeyMint.catalogPermission(), MountedWhen: FeatureAPIKeys,
 			Request: APIKeyCreateRequest{}, Responses: replyCreated(iam.APIKeyCreated{}), serve: groupOp(OpAPIKeyMint)},
-		{Method: DELETE, Path: "/groups/{group_id}/api-keys/{key}", Group: groups, Auth: permission, Perm: OpAPIKeyRevoke.catalogPermission(), MountedWhen: FeatureAPIKeys,
+		{Method: DELETE, Path: "/groups/{group_id}/api-keys/{id}", Group: groups, Auth: permission, Perm: OpAPIKeyRevoke.catalogPermission(), MountedWhen: FeatureAPIKeys,
 			Responses: replyNoContent, serve: groupOp(OpAPIKeyRevoke)},
 		{Method: POST, Path: "/invitations/redeem", Group: groups, Auth: session, Bucket: RLInviteRedeem,
 			Request: InvitationRedeemRequest{}, Responses: replyOK(iam.Membership{}), serve: handle((*Service).handleInvitationRedeemPOST)},

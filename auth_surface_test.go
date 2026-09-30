@@ -2,15 +2,49 @@ package authkit_test
 
 import (
 	"context"
+	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/apisurface"
 	"github.com/open-rails/authkit/internal/ops"
 	"github.com/stretchr/testify/require"
 )
+
+// TestGoAPISurface keeps api/go.txt, the Go API that v1 covers
+// (docs/stability.md), equal to the exports of the covered packages. A
+// removed or changed line breaks v1 and waits for v2; an added line is fine.
+// Either way the change is deliberate: regenerate with go generate
+// ./internal/httpapi and review the diff. The covered API may reach an
+// internal type only through an alias a covered package declares.
+func TestGoAPISurface(t *testing.T) {
+	s, err := apisurface.Load()
+	require.NoError(t, err)
+	require.Empty(t, s.Leaks, "the covered API exposes internal types no covered package aliases")
+	file, err := os.ReadFile(apisurface.File)
+	require.NoError(t, err)
+	listed := strings.Split(strings.TrimSuffix(string(file), "\n"), "\n")
+	missing := func(from, in []string) []string {
+		var out []string
+		for _, line := range from {
+			if !slices.Contains(in, line) {
+				out = append(out, line)
+			}
+		}
+		return out
+	}
+	if gone := missing(listed, s.Features); len(gone) > 0 {
+		t.Errorf("removed or changed, which breaks v1 (%v):\n%s", apisurface.ErrStale, strings.Join(gone, "\n"))
+	}
+	if added := missing(s.Features, listed); len(added) > 0 {
+		t.Errorf("added (%v):\n%s", apisurface.ErrStale, strings.Join(added, "\n"))
+	}
+	require.Equal(t, string(s.Text()), string(file), apisurface.ErrStale.Error())
+}
 
 // TestClientPublicSurface keeps Auth's surface a deliberate choice: every method
 // is in exactly one of two lists. Methods whose rules depend on who acts take

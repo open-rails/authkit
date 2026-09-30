@@ -3704,7 +3704,7 @@
         "x-authkit-mounted-when": "api_keys"
       }
     },
-    "/api/v1/groups/{group_id}/api-keys/{key}": {
+    "/api/v1/groups/{group_id}/api-keys/{id}": {
       "delete": {
         "tags": [
           "permission_groups"
@@ -3719,7 +3719,7 @@
             }
           },
           {
-            "name": "key",
+            "name": "id",
             "in": "path",
             "required": true,
             "schema": {

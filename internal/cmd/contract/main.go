@@ -1,8 +1,9 @@
-// Command contract generates AuthKit's HTTP contract from the route catalog
-// (httpapi.Catalog) and the error catalog: api/openapi.json, and auth-ui's
-// generated wire types, route table and error codes and messages. Run it with
-// go generate ./internal/httpapi; TestGeneratedContractIsFresh fails when a
-// generated file is stale.
+// Command contract generates AuthKit's v1 contract files: from the route
+// catalog (httpapi.Catalog) and the error catalog, api/openapi.json and
+// auth-ui's generated wire types, route table and error codes and messages;
+// from the covered packages, the Go API list api/go.txt. Run it with go
+// generate ./internal/httpapi; TestGeneratedContractIsFresh and
+// TestGoAPISurface fail when a generated file is stale.
 package main
 
 import (
@@ -11,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/open-rails/authkit/internal/apisurface"
 )
 
 // repoRoot is the repository, relative to the working directory: go generate
@@ -25,6 +28,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	surface, err := apisurface.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
+	out[apisurface.File] = surface.Text()
 	for _, name := range sortedKeys(out) {
 		path := filepath.Join(*root, name)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

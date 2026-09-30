@@ -20,17 +20,17 @@ var (
 	// ErrSenderProofRequired refuses a bound token presented without its
 	// proof: no TLS peer or another leaf, no or an invalid DPoP proof, or a
 	// token verified detached from its request.
-	ErrSenderProofRequired = errmodel.E(errmodel.CodeSenderProofRequired)
-	errDPoPProofRequired   = fmt.Errorf("DPoP: %w", ErrSenderProofRequired)
+	ErrSenderProofRequired iam.Error = errmodel.E(errmodel.CodeSenderProofRequired)
+	errDPoPProofRequired             = fmt.Errorf("DPoP: %w", ErrSenderProofRequired)
 	// ErrSenderProofUnavailable is a DPoP replay store failure: the request
 	// is refused, not proven invalid.
 	ErrSenderProofUnavailable = errors.New("sender proof replay protection unavailable")
 	// ErrInvalidConfirmation refuses a cnf claim that is not exactly one
 	// x5t#S256 or jkt thumbprint.
-	ErrInvalidConfirmation = errmodel.E(errmodel.CodeInvalidConfirmation)
+	ErrInvalidConfirmation iam.Error = errmodel.E(errmodel.CodeInvalidConfirmation)
 	// ErrConfirmationWrongTokenType refuses cnf on a token type AuthKit does
 	// not bind: an unenforced binding would be a silent downgrade.
-	ErrConfirmationWrongTokenType = errmodel.E(errmodel.CodeConfirmationWrongTokenType)
+	ErrConfirmationWrongTokenType iam.Error = errmodel.E(errmodel.CodeConfirmationWrongTokenType)
 )
 
 // Verify verifies an access token or a delegated access token detached from
