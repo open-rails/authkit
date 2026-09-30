@@ -50,6 +50,8 @@ Speaks AuthKit's v1 routes (#407); breaking for every host.
 - Error metadata is typed per code: `errorMetadata(err, code)`,
   `AuthErrorMetadata`. `SessionTokens`, `AccountRecovery` and the client's
   `ActionAvailability` copy are replaced by the generated wire types.
+- `getUsers(ids)` and `getUserByUsername(name)` read public profiles
+  (`GET /users`, no sign-in needed); `PublicUser` carries `created_at`.
 
 ## 0.133.0
 

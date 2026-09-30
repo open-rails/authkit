@@ -270,8 +270,9 @@ func Catalog() []RouteSpec {
 		// default), expanded.
 		{Method: GET, Path: "/me/permissions", Group: account, Auth: required,
 			Query: GroupQuery{}, Responses: replyOK(PermissionSet{}), serve: handle((*Service).handleMePermissionsGET)},
-		// Other people, as they may be seen (Config.PublicUserMetadata).
-		{Method: GET, Path: "/users", Group: account, Auth: required, Bucket: RLMeRead,
+		// Other people, as anyone may see them (Config.PublicUserMetadata):
+		// public profile pages need no sign-in.
+		{Method: GET, Path: "/users", Group: account, Auth: public, Bucket: RLUsersRead,
 			Query: UsersQuery{}, Responses: replyOK(iam.ListPage[iam.PublicUser]{}), serve: handle((*Service).handleUsersGET)},
 
 		// The user directory: reads are gated here; mutations are for signed-in

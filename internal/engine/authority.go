@@ -6,7 +6,8 @@ package engine
 //	ACTOR  the actor is valid and live (every kind, every call)
 //	CAP    the actor covers a capability permission in the target group
 //	COVER  the actor covers every permission a role confers (no escalation)
-//	ACCT   CAP on the root group plus coverage of the target account's root grants
+//	ACCT   CAP on the root group, outranking the target account on root and
+//	       covering its grants in each of its groups
 //
 // The system skips every rule and never an invariant (last owner, MFA).
 // Root is the widest scope: an actor's roles on root count in every group, but
@@ -290,8 +291,11 @@ func (s *Engine) requireRoleGrant(ctx context.Context, st *permissionGroupStore,
 // and, in root and in every group where the target holds a role, coverage of
 // the target's effective grants there (else ErrAccountAuthorityEscalation), so
 // site moderation never outranks a group role the actor does not itself hold.
-// Callers apply their self-targeting rule first.
-func (s *Engine) requireAccount(ctx context.Context, st *permissionGroupStore, a iam.Actor, targetUserID string, p iam.Perm) error {
+// On root the actor must also outrank a target holding root grants: a peer,
+// whose grants cover the actor's, is refused unless peers is set, so staff
+// never ban, delete or edit each other; demoting comes first. Callers apply
+// their self-targeting rule first.
+func (s *Engine) requireAccount(ctx context.Context, st *permissionGroupStore, a iam.Actor, targetUserID string, p iam.Perm, peers bool) error {
 	if err := requireActor(a); err != nil || a.Kind() == iam.ActorSystem {
 		return err
 	}
@@ -327,6 +331,9 @@ func (s *Engine) requireAccount(ctx context.Context, st *permissionGroupStore, a
 		}
 		if !auth.coversAll(target) {
 			return iam.ErrAccountAuthorityEscalation
+		}
+		if g.ID == rootID && !peers && len(target) > 0 && rbac.CoversAll(target, auth.grants) {
+			return iam.ErrAccountAuthorityEscalation // a peer
 		}
 	}
 	return nil

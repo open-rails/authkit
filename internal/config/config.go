@@ -64,6 +64,14 @@ type Config struct {
 	// PublicUserMetadata lists the user-metadata keys (Client.PatchUserMetadata)
 	// that other people may see: PublicUsers returns these and no others.
 	PublicUserMetadata []string
+	// AvatarURLPrefixes, when set, are where avatars may point: an avatar a
+	// user or staff member sets (PATCH /me, UpdateUser) must start with one of
+	// them, so it can only name the host's own images, never a tracking pixel
+	// every viewer's browser would fetch. Each is an http(s) URL or a
+	// root-relative path ending in "/", such as
+	// "https://media.example.com/avatars/". The system actor is not bound.
+	// Empty accepts any avatar.
+	AvatarURLPrefixes []string
 
 	// SolanaNetwork turns on Sign In With Solana for one chain; the zero value
 	// leaves it off. Solana Name Service resolution is built in.

@@ -352,7 +352,7 @@ export const AUTH_ERROR_MESSAGES = {
   "2fa_required": "Two-factor authentication is required.",
   access_token_has_sub: "An access token must not carry a subject.",
   access_token_wrong_typ: "The token type is wrong for an access token.",
-  account_authority_escalation: "That account holds authority you do not.",
+  account_authority_escalation: "You do not outrank that account.",
   account_disabled: "This account is disabled.",
   account_exists_link_required: "An account with this email already exists. Sign in, then link the provider from your account page.",
   account_recovery_expired: "The account recovery window has ended.",

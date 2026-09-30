@@ -92,7 +92,8 @@ func accountOps(h *host) map[string]func(actor iam.Actor, target string) error {
 // permission it names AND coverage of the target's grants in root and in every
 // group the target holds a role in. A narrow root:users staffer can neither
 // edit a more privileged account nor act on a group owner it does not outrank,
-// and a banned actor has no account authority, whatever roles it holds.
+// staff never ban, delete or edit a root peer (they may sign one out), and a
+// banned actor has no account authority, whatever roles it holds.
 func TestSecurityAccountAuthority(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withAccountRoles))
 	ctx := context.Background()
@@ -153,10 +154,20 @@ func TestSecurityAccountAuthority(t *testing.T) {
 		_, err := h.auth.UpdateUser(ctx, iam.UserActor(siteadmin.id), plain.id, iam.UserUpdate{EmailVerified: &verified})
 		require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 	})
-	t.Run("control: an actor covering the target", func(t *testing.T) {
+	t.Run("a root peer is signed out, never banned, deleted or edited", func(t *testing.T) {
 		admin := iam.UserActor(siteadmin.id)
-		// The target's role needs MFA, so its email stays put (N10).
-		require.NoError(t, ops["PatchUserMetadata"](admin, target.id))
+		for _, name := range []string{"UpdateUser", "PatchUserMetadata", "Ban", "Unban", "DeleteUsers", "RestoreUsers"} {
+			require.ErrorIs(t, ops[name](admin, target.id), iam.ErrAccountAuthorityEscalation, name)
+		}
+		resp := h.do(request{method: http.MethodPut, path: "/admin/users/" + target.id + "/ban", body: map[string]any{"until": nil}, token: h.login(siteadmin).AccessToken})
+		require.Equal(t, http.StatusForbidden, resp.status, resp.String())
+		require.Equal(t, "account_authority_escalation", resp.errorCode())
+		require.NoError(t, ops["RevokeAccountSessions"](admin, target.id), "containing a compromised peer")
+		require.NoError(t, ops["RevokeSession"](admin, target.id))
+	})
+	t.Run("control: an actor outranking the target", func(t *testing.T) {
+		admin := iam.UserActor(siteadmin.id)
+		require.NoError(t, ops["PatchUserMetadata"](admin, staff.id))
 		require.NoError(t, ops["Ban"](admin, coOwner.id))
 		require.NoError(t, ops["Unban"](admin, coOwner.id))
 		require.NoError(t, ops["UpdateUser"](iam.UserActor(staff.id), plain.id))

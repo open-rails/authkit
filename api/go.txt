@@ -122,6 +122,7 @@ pkg authkit, type Client struct
 pkg authkit, type Config = config.Config
 pkg authkit, type Config struct
 pkg authkit, type Config struct, APIKeys config.APIKeysConfig
+pkg authkit, type Config struct, AvatarURLPrefixes []string
 pkg authkit, type Config struct, Delegated config.DelegatedConfig
 pkg authkit, type Config struct, DeviceKeys config.DeviceKeysConfig
 pkg authkit, type Config struct, Frontend config.FrontendConfig
@@ -487,6 +488,7 @@ pkg authkit/iam, const EventUserPhoneChanged EventKind = "user.phone_changed"
 pkg authkit/iam, const EventUserPurged EventKind = "user.purged"
 pkg authkit/iam, const EventUserRegistered EventKind = "user.registered"
 pkg authkit/iam, const EventUserRestored EventKind = "user.restored"
+pkg authkit/iam, const EventUserSessionsRevoked EventKind = "user.sessions_revoked"
 pkg authkit/iam, const EventUserUnbanned EventKind = "user.unbanned"
 pkg authkit/iam, const EventUserUsernameChanged EventKind = "user.username_changed"
 pkg authkit/iam, const HashArgon2id HashAlgo = "argon2id"
@@ -987,6 +989,7 @@ pkg authkit/iam, type ProviderLink struct, Provider string
 pkg authkit/iam, type ProviderLink struct, Subject string
 pkg authkit/iam, type PublicUser struct
 pkg authkit/iam, type PublicUser struct, AvatarURL *string `json:"avatar_url"`
+pkg authkit/iam, type PublicUser struct, CreatedAt *time.Time `json:"created_at"`
 pkg authkit/iam, type PublicUser struct, Deleted bool `json:"deleted"`
 pkg authkit/iam, type PublicUser struct, ID string `json:"id"`
 pkg authkit/iam, type PublicUser struct, Metadata map[string]any `json:"metadata"`

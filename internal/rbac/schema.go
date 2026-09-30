@@ -294,6 +294,17 @@ func Covers(grants []string, perm iam.Perm) bool {
 	return false
 }
 
+// CoversAll reports whether grants cover every grant in perms, patterns
+// included.
+func CoversAll(grants, perms []string) bool {
+	for _, p := range perms {
+		if !Covers(grants, ident.Perm(p)) {
+			return false
+		}
+	}
+	return true
+}
+
 // MFAPermissions lists, sorted, the catalog permissions that need MFA.
 func (s *Schema) MFAPermissions() []iam.Perm {
 	return slices.SortedFunc(slices.Values(s.mfa), comparePerm)

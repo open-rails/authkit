@@ -10,9 +10,9 @@ import (
 // operations (CreateUser, PurgeUsers, ResetAccountMFA) take none either: your
 // code decides. Every other mutation takes the actor right after ctx;
 // iam.SystemActor() is trusted host authority, and any other actor needs rule
-// ACCT: the named root:users:*
-// permission and coverage of the target account's grants in root and in every
-// group it holds a role in.
+// ACCT: the named root:users:* permission, outranking the target account on
+// root (a peer or superior is iam.ErrAccountAuthorityEscalation: demote it
+// first) and covering its grants in every group it holds a role in.
 
 // User returns one account by iam.UserByID, UserByEmail, UserByPhone or
 // UserByUsername. Soft-deleted accounts need IncludeDeleted(). A miss is

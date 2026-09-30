@@ -75,7 +75,7 @@ export const AUTHKIT_ROUTES: readonly AuthKitRoute[] = [
   { method: "PUT", path: "/api/v1/me/solana-wallet", group: "account", auth: "session", permission: null, stepUp: true, mountedWhen: "solana" },
   { method: "GET", path: "/api/v1/me/groups", group: "account", auth: "required", permission: null, stepUp: false, mountedWhen: null },
   { method: "GET", path: "/api/v1/me/permissions", group: "account", auth: "required", permission: null, stepUp: false, mountedWhen: null },
-  { method: "GET", path: "/api/v1/users", group: "account", auth: "required", permission: null, stepUp: false, mountedWhen: null },
+  { method: "GET", path: "/api/v1/users", group: "account", auth: "public", permission: null, stepUp: false, mountedWhen: null },
   { method: "GET", path: "/api/v1/admin/users", group: "admin", auth: "permission", permission: "root:users:read", stepUp: false, mountedWhen: null },
   { method: "GET", path: "/api/v1/admin/users/{user_id}", group: "admin", auth: "permission", permission: "root:users:read", stepUp: false, mountedWhen: null },
   { method: "PATCH", path: "/api/v1/admin/users/{user_id}", group: "admin", auth: "session", permission: "root:users:manage", stepUp: true, mountedWhen: null },

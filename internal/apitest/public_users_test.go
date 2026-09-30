@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -15,10 +16,10 @@ import (
 	"github.com/open-rails/authkit/iam"
 )
 
-// GET /users shows signed-in callers other people as anyone may see them: by
-// ids in request order (unknown ids absent, deleted accounts tombstones), or
-// by username (a former name resolves), with only the public metadata keys
-// and never a contact, ban or sign-in data.
+// GET /users shows anyone, signed in or not, other people as anyone may see
+// them: by ids in request order (unknown ids absent, deleted accounts
+// tombstones), or by username (a former name resolves), with the join date and
+// only the public metadata keys, never a contact, ban or sign-in data.
 func TestPublicUsersRoute(t *testing.T) {
 	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) { c.PublicUserMetadata = []string{"bio"} }))
 	ctx, op := t.Context(), iam.SystemActor()
@@ -40,8 +41,19 @@ func TestPublicUsersRoute(t *testing.T) {
 		require.Empty(t, page.Next)
 		return res, page.Items
 	}
+	joined := func(id string) *time.Time {
+		t.Helper()
+		u, err := auth.User(ctx, iam.UserByID(id))
+		require.NoError(t, err)
+		return &u.CreatedAt
+	}
 	ids := url.QueryEscape(strings.Join([]string{bob.ID, uuid.NewString(), " " + strings.ToUpper(alice.ID), gone.ID, bob.ID, "not-a-uuid"}, ","))
 	res, got := users("ids=" + ids)
+	require.Len(t, got, 3)
+	for i, id := range []string{bob.ID, alice.ID} {
+		require.True(t, got[i].CreatedAt != nil && got[i].CreatedAt.Equal(*joined(id)), "member since")
+		got[i].CreatedAt = nil
+	}
 	require.Equal(t, []iam.PublicUser{
 		{ID: bob.ID, Username: bob.Username, Metadata: map[string]any{}},
 		{ID: alice.ID, Username: alice.Username, AvatarURL: &avatar, Metadata: map[string]any{"bio": "hello"}},
@@ -51,8 +63,8 @@ func TestPublicUsersRoute(t *testing.T) {
 		Data []json.RawMessage `json:"data"`
 	}
 	res.decode(t, &raw)
-	require.JSONEq(t, `{"id":"`+gone.ID+`","username":"","avatar_url":null,"deleted":true,"metadata":{}}`, string(raw.Data[2]))
-	for _, leak := range []string{alice.Email, bob.Email, gone.Email, "gold", "spam", "email", "phone", "ban", "last_login", "created_at"} {
+	require.JSONEq(t, `{"id":"`+gone.ID+`","username":"","avatar_url":null,"created_at":null,"deleted":true,"metadata":{}}`, string(raw.Data[2]))
+	for _, leak := range []string{alice.Email, bob.Email, gone.Email, "gold", "spam", "email", "phone", "ban", "last_login", "updated_at"} {
 		require.NotContains(t, res.String(), leak)
 	}
 
@@ -85,5 +97,12 @@ func TestPublicUsersRoute(t *testing.T) {
 	_, got = users("ids=" + strings.Join(many[:100], ","))
 	require.Empty(t, got)
 
-	expect(t, http.StatusUnauthorized, a.get("/users?ids="+alice.ID, ""))
+	// Public profile pages need no sign-in, and a stale bearer changes nothing.
+	for _, bearer := range []string{"", "not-a-token"} {
+		res := expect(t, http.StatusOK, a.get("/users?username="+renamed, bearer))
+		var page iam.ListPage[iam.PublicUser]
+		res.decode(t, &page)
+		require.Len(t, page.Items, 1)
+		require.Equal(t, alice.ID, page.Items[0].ID)
+	}
 }

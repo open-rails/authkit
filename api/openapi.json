@@ -2577,13 +2577,9 @@
             }
           }
         },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "x-authkit-auth": "required",
-        "x-authkit-rate-limit": "me_read"
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "users_read"
       }
     },
     "/api/v1/admin/users": {
@@ -4421,6 +4417,7 @@
               "user.purged",
               "user.registered",
               "user.restored",
+              "user.sessions_revoked",
               "user.unbanned",
               "user.username_changed"
             ]
@@ -5879,6 +5876,18 @@
               }
             ]
           },
+          "created_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "deleted": {
             "type": "boolean"
           },
@@ -5891,6 +5900,7 @@
           "id",
           "username",
           "avatar_url",
+          "created_at",
           "deleted",
           "metadata"
         ]
@@ -7696,7 +7706,7 @@
     },
     "account_authority_escalation": {
       "status": 403,
-      "message": "That account holds authority you do not."
+      "message": "You do not outrank that account."
     },
     "account_disabled": {
       "status": 401,

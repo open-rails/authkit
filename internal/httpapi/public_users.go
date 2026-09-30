@@ -14,8 +14,8 @@ import (
 // maxPublicUserIDs bounds GET /users?ids=.
 const maxPublicUserIDs = 100
 
-// handleUsersGET shows signed-in callers other people as anyone may see them
-// (iam.PublicUser: never a contact, ban or sign-in data), by ?ids= (comma
+// handleUsersGET shows anyone, signed in or not, other people as anyone may
+// see them (iam.PublicUser: never a contact, ban or sign-in data), by ?ids= (comma
 // separated, at most 100; answered in request order, unknown ids absent,
 // deleted accounts as tombstones) or by ?username= (a former name resolves
 // too; no one is an empty page). Exactly one of the two.

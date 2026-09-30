@@ -11,7 +11,7 @@ var (
 	CodeTwoFARequired                     = def("2fa_required", 403, "Two-factor authentication is required.")
 	CodeAccessTokenHasSub                 = def("access_token_has_sub", 401, "An access token must not carry a subject.")
 	CodeAccessTokenWrongTyp               = def("access_token_wrong_typ", 401, "The token type is wrong for an access token.")
-	CodeAccountAuthorityEscalation        = def("account_authority_escalation", 403, "That account holds authority you do not.")
+	CodeAccountAuthorityEscalation        = def("account_authority_escalation", 403, "You do not outrank that account.")
 	CodeAccountDisabled                   = def("account_disabled", 401, "This account is disabled.")
 	CodeAccountExistsLinkRequired         = def("account_exists_link_required", 409, "An account with this email already exists. Sign in, then link the provider from your account page.")
 	CodeAccountRecoveryExpired            = def("account_recovery_expired", 409, "The account recovery window has ended.")

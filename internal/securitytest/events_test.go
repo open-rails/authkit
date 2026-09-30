@@ -153,6 +153,9 @@ func TestSecurityEventsRecordOnlyCommittedChanges(t *testing.T) {
 		require.Equal(t, http.StatusNoContent, resp.status, resp.String())
 	}
 	expect(byUser(staff.id, iam.Event{Kind: iam.EventUserUnbanned, UserID: alice.id}))
+	resp = h.do(request{method: http.MethodDelete, path: "/admin/users/" + alice.id + "/sessions", token: staffToken})
+	require.Equal(t, http.StatusNoContent, resp.status, resp.String())
+	expect(byUser(staff.id, iam.Event{Kind: iam.EventUserSessionsRevoked, UserID: alice.id}))
 
 	aliceToken := h.login(alice).AccessToken
 	newEmail := unique("alicenew") + "@security.test"
