@@ -541,19 +541,23 @@ func TestSecurityStaffDeleteOverridesSelfDelete(t *testing.T) {
 }
 
 // TestSecurityAdminDeleteIsNotSelfDelete (ak#417): the staff delete route
-// never deletes the caller's own account, so a stolen session that is no
-// longer fresh cannot skip the recent sign-in DELETE /user demands.
+// never deletes the caller's own account, so a stolen session cannot skip the
+// recent sign-in and second factor DELETE /me demands.
 func TestSecurityAdminDeleteIsNotSelfDelete(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withAccountRoles))
 	ctx := context.Background()
 	victim := h.newAccount("selfdelete")
+	fresh := h.login(victim).AccessToken
 	stale := authtest.StaleSession(t, h.auth, h.login(victim).AccessToken)
-	resp := h.do(request{method: http.MethodDelete, path: "/user", token: stale})
+	resp := h.do(request{method: http.MethodDelete, path: "/me", token: stale})
 	require.Equal(t, "step_up_required", resp.errorCode(), resp.String())
 	for _, id := range []string{victim.id, strings.ToUpper(victim.id)} {
 		resp := h.do(request{method: http.MethodDelete, path: "/admin/users/" + id, token: stale})
 		require.Equal(t, http.StatusForbidden, resp.status, resp.String())
-		require.Equal(t, "cannot_target_self", resp.errorCode())
+		require.Equal(t, "step_up_required", resp.errorCode())
+		resp = h.do(request{method: http.MethodDelete, path: "/admin/users/" + id, token: fresh})
+		require.Equal(t, http.StatusForbidden, resp.status, resp.String())
+		require.Equal(t, "cannot_target_self", resp.errorCode(), "a recent sign-in deletes its own account at DELETE /me only")
 	}
 	u, err := h.auth.User(ctx, iam.UserByID(victim.id), authkit.IncludeDeleted())
 	require.NoError(t, err)

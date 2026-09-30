@@ -14,8 +14,8 @@ import (
 )
 
 // memberSubject is the member a {kind}/{id} path names. The one kind is
-// `users`; any other is 404.
-func memberSubject(w http.ResponseWriter, r *http.Request) (iam.Subject, bool) {
+// `users`; any other is 404. Nobody changes their own root role (ak#417).
+func memberSubject(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor) (iam.Subject, bool) {
 	if r.PathValue("kind") != "users" {
 		fail(w, errmodel.CodeNotFound)
 		return iam.Subject{}, false
@@ -25,13 +25,17 @@ func memberSubject(w http.ResponseWriter, r *http.Request) (iam.Subject, bool) {
 		fail(w, errmodel.CodeNotFound)
 		return iam.Subject{}, false
 	}
+	if g.Persona == iam.RootPersona && actor.Kind() == iam.ActorUser && strings.EqualFold(id, actor.ID()) {
+		writeError(w, iam.ErrCannotTargetSelf)
+		return iam.Subject{}, false
+	}
 	return iam.UserSubject(id), true
 }
 
 // groupMemberSet makes the member hold the body's role in the group,
 // replacing the one it holds.
 func (s *Service) groupMemberSet(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor) {
-	subject, ok := memberSubject(w, r)
+	subject, ok := memberSubject(w, r, g, actor)
 	if !ok {
 		return
 	}
@@ -60,7 +64,7 @@ func (s *Service) groupMemberSet(w http.ResponseWriter, r *http.Request, g iam.G
 // groupMemberRemove takes the member's role in the group; a non-member
 // answers 204 too.
 func (s *Service) groupMemberRemove(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor) {
-	subject, ok := memberSubject(w, r)
+	subject, ok := memberSubject(w, r, g, actor)
 	if !ok {
 		return
 	}

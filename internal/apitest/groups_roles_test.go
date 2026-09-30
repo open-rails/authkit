@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -656,6 +657,14 @@ func TestRootGroupHTTPWorkflow(t *testing.T) {
 	call(http.MethodDelete, target.ID, "", adminToken, http.StatusNoContent)
 	require.Empty(t, rootRole(target.ID))
 	call(http.MethodDelete, target.ID, "", adminToken, http.StatusNoContent)
+	// Nobody changes their own root role, whatever the case of the id.
+	for _, id := range []string{owner.ID, strings.ToUpper(owner.ID)} {
+		res = call(http.MethodDelete, id, "", ownerToken, http.StatusForbidden)
+		require.Equal(t, "cannot_target_self", res.code())
+	}
+	res = call(http.MethodPut, admin.ID, "root:site-admin", adminToken, http.StatusForbidden)
+	require.Equal(t, "cannot_target_self", res.code())
+	require.Equal(t, adminRole, rootRole(admin.ID))
 	// The last owner stays, whoever covers it.
 	res = call(http.MethodDelete, owner.ID, "", superToken, http.StatusConflict)
 	require.Equal(t, "last_owner", res.code())
