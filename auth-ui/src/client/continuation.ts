@@ -2,7 +2,7 @@ import { AuthKitError } from "./errors.ts"
 import type {
   AccountRecovery,
   StepUpTwoFactorOptions,
-  TokenSet,
+  SessionTokens,
   TwoFactorFactor,
 } from "./types.ts"
 
@@ -26,7 +26,7 @@ export type LoginContinuation =
       userId: string
       allowedMethods: string[]
       // Restricted bearer: only valid for POST /user/2fa, never a session.
-      enrollmentToken: TokenSet
+      enrollmentToken: SessionTokens
       returnTo?: string
     }
   | { kind: "account_recovery_required"; recovery: AccountRecovery }
@@ -52,14 +52,15 @@ function factor(v: unknown): TwoFactorFactor | undefined {
   const method = str(f.method)
   if (!method) return undefined
   return {
-    id: opt(f.id),
+    id: str(f.id),
     method,
     is_default: f.is_default === true,
     phone_number: opt(f.phone_number) ?? null,
+    email: opt(f.email) ?? null,
   }
 }
 
-function tokenSet(v: unknown): TokenSet | undefined {
+function tokenSet(v: unknown): SessionTokens | undefined {
   const t = rec(v)
   const access = str(t.access_token)
   if (!access) return undefined

@@ -20,9 +20,7 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
-	var body struct {
-		Username string `json:"username"`
-	}
+	var body UsernameRequest
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Username) == "" {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
@@ -42,7 +40,11 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 				serverErr(w, "database_error", stateErr)
 				return
 			}
-			fail(w, errmodel.CodeRenameRateLimited, errmodel.WithMetadata(map[string]any{"time_until_rename_available": state.RetryAfterSeconds, "naming": state, "next_allowed_at": state.NextRenameAt, "retry_after_seconds": state.RetryAfterSeconds, "cooldown_seconds": int64(naming.Cooldown(s.cfg.Username) / time.Second), "allowed": state.Allowed, "reason": "cooldown", "action": authflow.ActionUpdateUsername}))
+			cooldown := int64(naming.Cooldown(s.cfg.Username) / time.Second)
+			fail(w, errmodel.CodeRenameRateLimited, withDetails(authflow.ActionAvailability{
+				Action: authflow.ActionUpdateUsername, Allowed: state.Allowed, Reason: "cooldown",
+				RetryAfterSeconds: state.RetryAfterSeconds, NextAllowedAt: state.NextRenameAt, CooldownSeconds: &cooldown,
+			}))
 			return
 		}
 		writeError(w, err)
@@ -53,7 +55,7 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 		serverErr(w, "database_error", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"username": updated.Username, "naming": state})
+	writeJSON(w, http.StatusOK, UsernameChange{Username: updated.Username, Naming: state})
 }
 
 func (s *Service) handleUserPreferredLanguagePATCH(w http.ResponseWriter, r *http.Request) {
@@ -62,9 +64,7 @@ func (s *Service) handleUserPreferredLanguagePATCH(w http.ResponseWriter, r *htt
 		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
-	var body struct {
-		PreferredLanguage string `json:"preferred_language"`
-	}
+	var body PreferredLanguageRequest
 	if err := decodeJSON(r, &body); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
@@ -84,12 +84,11 @@ func (s *Service) handleUserPreferredLanguagePATCH(w http.ResponseWriter, r *htt
 		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
-	updated, err := s.svc.UpdateUser(r.Context(), actor, claims.UserID, iam.UserUpdate{PreferredLanguage: &normalized})
-	if err != nil {
+	if _, err := s.svc.UpdateUser(r.Context(), actor, claims.UserID, iam.UserUpdate{PreferredLanguage: &normalized}); err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"preferred_language": updated.PreferredLanguage})
+	writeJSON(w, http.StatusOK, PreferredLanguage{PreferredLanguage: normalized})
 }
 
 func (s *Service) supportsLanguage(language string) bool {
@@ -105,9 +104,7 @@ func (s *Service) handleUserDeleteDELETE(w http.ResponseWriter, r *http.Request)
 		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
-	var body struct {
-		Password string `json:"password"`
-	}
+	var body PasswordRequest
 	if err := decodeOptionalJSON(r, &body); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
@@ -138,9 +135,7 @@ func (s *Service) handleUserUnlinkProviderDELETE(w http.ResponseWriter, r *http.
 		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
-	var body struct {
-		Password string `json:"password"`
-	}
+	var body PasswordRequest
 	if err := decodeOptionalJSON(r, &body); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return

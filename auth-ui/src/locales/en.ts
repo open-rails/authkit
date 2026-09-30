@@ -1,3 +1,5 @@
+import { AUTH_ERROR_MESSAGES } from "../client/generated/error-codes.ts"
+
 // Source of truth: every other locale is a partial of this tree.
 export const en = {
   contactProof: {
@@ -502,6 +504,7 @@ export const en = {
     },
   },
   errors: {
+    ...AUTH_ERROR_MESSAGES,
     generic: "Something went wrong. Please try again.",
     network: "Network error. Please check your connection.",
     network_error: "Network error. Please check your connection.",
@@ -510,104 +513,6 @@ export const en = {
     popup_closed: "The sign-in window was closed.",
     popup_timeout: "The sign-in window timed out. Try again.",
     session_changed: "Your session changed in another tab. Please try again.",
-    "2fa_enrollment_required":
-      "Two-factor authentication setup is required to finish signing in.",
-    "2fa_factor_exists":
-      "A two-factor method is already enrolled. Remove it before adding another.",
-    "2fa_method_unavailable": "That two-factor method is unavailable.",
-    "2fa_required": "Two-factor authentication is required.",
     access_denied: "Sign-in was cancelled.",
-    account_disabled: "This account is disabled.",
-    account_exists_link_required:
-      "An account with this email already exists. Sign in, then link the provider from your account page.",
-    account_recovery_expired: "The account recovery window has ended.",
-    account_recovery_required: "Confirm account recovery before signing in.",
-    auth_required_for_link: "Sign in before linking a provider.",
-    authentication_failed: "Authentication failed.",
-    cannot_unlink_last_login_method:
-      "You can't unlink your last way to sign in.",
-    challenge_expired: "Your verification session has expired. Start again.",
-    challenge_mismatch: "Authentication failed.",
-    challenge_not_found: "Your verification session has expired. Start again.",
-    code_expired:
-      "This code has expired or can't be used again. Send a new code.",
-    email_already_verified: "Your email address is already verified.",
-    email_delivery_failed:
-      "We couldn't deliver the verification email. Please try again, or contact support.",
-    email_in_use: "This email is already in use.",
-    email_unavailable: "Email is unavailable right now.",
-    forbidden: "You don't have permission to do that.",
-    internal_error: "Something went wrong on our side. Please try again.",
-    invalid_challenge: "Your 2FA session is invalid or expired.",
-    invalid_code: "Invalid verification code.",
-    invalid_credentials: "Wrong email or password.",
-    invalid_domain: "Authentication failed.",
-    invalid_email: "Please enter a valid email address.",
-    invalid_identifier: "Please enter a valid email address or phone number.",
-    invalid_link: "This link is invalid or has expired.",
-    invalid_password: "Incorrect password. Please try again.",
-    invalid_phone_number: "Please enter a valid phone number.",
-    invalid_provider: "That sign-in provider is not supported.",
-    invalid_request: "Invalid request. Please check your input and try again.",
-    invalid_signature: "The wallet signature is invalid.",
-    invalid_state: "The sign-in session is invalid. Please try again.",
-    invalid_timestamp: "Your verification session has expired. Start again.",
-    missing_fields: "Please fill in all required fields.",
-    oidc_begin_failed: "The provider sign-in could not be started.",
-    oidc_exchange_failed: "The provider sign-in could not be completed.",
-    passkey_not_found: "The passkey was not found.",
-    passkey_required:
-      "This account signs in with a passkey. Use your passkey to continue.",
-    password_change_failed: "The password could not be changed.",
-    password_contains_identifier:
-      "Password can't contain your username or email.",
-    password_requirements_unmet: "Password doesn't meet the requirements.",
-    password_reset_required:
-      "Your account predates our new login system. Please reset your password to continue.",
-    password_too_common:
-      "This password is too common. Choose a less predictable one.",
-    password_too_long: "Password is too long.",
-    password_too_short: "Password must be at least 8 characters.",
-    passwordless_disabled: "Passwordless sign-in is disabled.",
-    phone_already_verified: "Your phone number is already verified.",
-    phone_in_use: "This phone number is already in use.",
-    phone_number_must_be_e164:
-      "Enter the phone number in international format, e.g. +1234567890.",
-    phone_number_required: "A phone number is required.",
-    provider_already_linked:
-      "This provider account is already linked to a different user.",
-    provider_change_requires_unlink:
-      "Unlink the current account before linking another.",
-    provider_error: "The provider returned an error. Please try again.",
-    provider_not_linked: "That provider is not linked.",
-    provider_unavailable:
-      "The sign-in provider is temporarily unavailable. Try again shortly.",
-    rate_limited: "Too many attempts. Please try again later.",
-    registration_disabled: "Registration is currently disabled.",
-    rename_rate_limited: "Too many username changes. Please try again later.",
-    renames_disabled: "Username changes are disabled.",
-    session_revoked: "Your session has ended. Please sign in again.",
-    sms_delivery_failed:
-      "We couldn't deliver the verification text message. Please try email instead, or contact support.",
-    sms_unavailable: "SMS is currently unavailable. Please use email instead.",
-    step_up_required: "Please confirm it's you to continue.",
-    token_expired: "Your session has expired. Please sign in again.",
-    unauthenticated: "Please sign in to continue.",
-    unknown_provider: "Unknown sign-in provider.",
-    user_banned: "Your account is disabled.",
-    user_not_found: "User not found.",
-    username_cannot_contain_at: "Username cannot contain @.",
-    username_cannot_start_with_plus: "Username cannot start with +.",
-    username_in_use: "This username is already in use.",
-    username_invalid_characters:
-      "Username can only contain letters, numbers, and underscores (_).",
-    username_must_start_with_letter: "Username must start with a letter.",
-    username_not_allowed: "This username is not allowed.",
-    username_too_long: "Username must be at most 30 characters.",
-    username_too_short: "Username must be at least 4 characters.",
-    verification_required: "Verify your contact details to continue.",
-    wallet_already_linked: "That wallet is already linked to another account.",
-    wallet_change_requires_unlink:
-      "Unlink your current wallet before connecting another.",
   },
 }

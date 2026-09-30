@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 
 import type { AuthKitError } from "../client/errors.ts"
 import type {
-  RemovedMfaRole,
+  RemovedRole,
   TwoFactorMethod,
   TwoFactorStatus,
 } from "../client/types.ts"
@@ -149,7 +149,7 @@ export function useTwoFactorSettings(options: GuardOptions = {}) {
   const disable = useCallback(
     (input: { factorId?: string } = {}) =>
       run(async () => {
-        const removed: RemovedMfaRole[] = await guard(() =>
+        const removed: RemovedRole[] = await guard(() =>
           client.disableTwoFactor(input)
         )
         refetch()

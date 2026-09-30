@@ -98,10 +98,7 @@ func (s *Service) requireContactChannel(w http.ResponseWriter, identifier string
 // pending registration, so the answer never reveals either. Authenticated:
 // start a fresh-auth-gated contact change to identifier.
 func (s *Service) handleVerifyRequestPOST(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Identifier string `json:"identifier"`
-		Password   string `json:"password"`
-	}
+	var req IdentifierPasswordRequest
 	if err := decodeJSON(r, &req); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
@@ -122,7 +119,7 @@ func (s *Service) handleVerifyRequestPOST(w http.ResponseWriter, r *http.Request
 		if s.rateLimited(w, r, RLContactChangeRequest) {
 			return
 		}
-		ok, authMeta := s.requireFreshAuthOrPassword(w, r, claims, req.Password)
+		ok, stepUp := s.requireFreshAuthOrPassword(w, r, claims, req.Password)
 		if !ok {
 			return
 		}
@@ -130,11 +127,13 @@ func (s *Service) handleVerifyRequestPOST(w http.ResponseWriter, r *http.Request
 			writeError(w, err)
 			return
 		}
-		if len(authMeta) == 0 {
+		// A password in the body re-authenticated the session: the code is
+		// sent, and the fresh token is the result.
+		if stepUp == nil {
 			accepted(w)
 			return
 		}
-		writeJSON(w, http.StatusAccepted, authMeta)
+		writeJSON(w, http.StatusOK, stepUp)
 		return
 	}
 	if err := ch.requestVerification(r.Context(), id); err != nil {
@@ -146,11 +145,7 @@ func (s *Service) handleVerifyRequestPOST(w http.ResponseWriter, r *http.Request
 
 // POST /verify/confirm — {identifier, code} or {token, identifier?}.
 func (s *Service) handleVerifyConfirmPOST(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Identifier string `json:"identifier"`
-		Code       string `json:"code"`
-		Token      string `json:"token"`
-	}
+	var req CodeOrLinkRequest
 	if err := decodeJSON(r, &req); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
@@ -200,9 +195,7 @@ func (s *Service) handleVerifyConfirmPOST(w http.ResponseWriter, r *http.Request
 // POST /password/reset/request — {identifier}; always 202 for a well-formed
 // identifier (anti-enumeration: existence is never revealed).
 func (s *Service) handlePasswordResetRequestPOST(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Identifier string `json:"identifier"`
-	}
+	var req IdentifierRequest
 	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Identifier) == "" {
 		accepted(w)
 		return
@@ -229,10 +222,7 @@ func (s *Service) handlePasswordResetRequestPOST(w http.ResponseWriter, r *http.
 
 // POST /password/reset/confirm — {token, new_password}.
 func (s *Service) handlePasswordResetConfirmPOST(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Token       string `json:"token"`
-		NewPassword string `json:"new_password"`
-	}
+	var req PasswordResetConfirmRequest
 	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Token) == "" || req.NewPassword == "" {
 		fail(w, errmodel.CodeInvalidRequest)
 		return

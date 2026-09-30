@@ -11,14 +11,15 @@ import (
 )
 
 // ErrorObject is the error detail under the envelope's "error" key: a stable
-// code, its type category, a human-readable message, and optional param and
-// metadata. The shape matches openrails' pkg/api.ErrorResponse.
+// code, its type category (derived from the status), a human-readable
+// message, the offending request field (null for none) and machine-readable
+// metadata (null for none).
 type ErrorObject struct {
 	Type     string         `json:"type"`
 	Code     string         `json:"code"`
 	Message  string         `json:"message"`
-	Param    *string        `json:"param,omitempty"`
-	Metadata map[string]any `json:"metadata,omitempty"`
+	Param    *string        `json:"param"`
+	Metadata map[string]any `json:"metadata"`
 }
 
 // ErrorEnvelope is every AuthKit error response: {"error": {...}}.

@@ -34,9 +34,8 @@ type Config struct {
 	Registration RegistrationConfig
 	// Password is the rule every password write enforces. Nil is the default
 	// policy: 8..128 characters, no composition rules, common passwords
-	// rejected. A set policy is taken as written (zero lengths still default),
-	// so set RejectCommon to keep the blocklist. Published by
-	// GET {api}/capabilities.
+	// rejected. A set policy is taken as written (zero lengths still default).
+	// Published by GET {api}/capabilities.
 	Password *PasswordPolicy
 	// Username is the username rule: length, and whether and how often users
 	// may rename themselves. Published by GET {api}/capabilities.
@@ -212,9 +211,9 @@ type PasswordPolicy struct {
 	RequireLowercase bool
 	RequireDigit     bool
 	RequireSymbol    bool
-	// RejectCommon refuses passwords on AuthKit's embedded common-password
-	// blocklist.
-	RejectCommon bool
+	// AllowCommon admits passwords on AuthKit's embedded common-password
+	// blocklist, which the zero value refuses.
+	AllowCommon bool
 }
 
 // UsernameConfig is the username rule. The characters are fixed: a letter,

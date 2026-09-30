@@ -14,24 +14,14 @@ import (
 	"github.com/open-rails/authkit/verify"
 )
 
-// deviceKeyTokenResponse is a device key's sign-in; the key is the token's own.
-type deviceKeyTokenResponse struct {
-	TokenSet  iam.TokenSet  `json:"token_set"`
-	DeviceKey iam.DeviceKey `json:"device_key"`
-}
-
-func deviceKeyTokenHTTPResponse(result authflow.DeviceKeyAuthResult) deviceKeyTokenResponse {
+func deviceKeySession(result authflow.DeviceKeyAuthResult) DeviceKeySession {
 	key := result.DeviceKey
 	key.Current = true
-	return deviceKeyTokenResponse{TokenSet: iam.NewTokenSet(result.AccessToken, "", result.ExpiresAt), DeviceKey: key}
+	return DeviceKeySession{TokenSet: iam.NewTokenSet(result.AccessToken, "", result.ExpiresAt), DeviceKey: key}
 }
 
 func (s *Service) handleDeviceKeyEnrollBeginPOST(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Email     string `json:"email"`
-		PublicKey string `json:"public_key"`
-		Label     string `json:"label,omitempty"`
-	}
+	var req DeviceKeyEnrollBeginRequest
 	if err := decodeJSON(r, &req); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
@@ -54,20 +44,11 @@ func (s *Service) handleDeviceKeyEnrollBeginPOST(w http.ResponseWriter, r *http.
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{
-		"enrollment_id": result.ID,
-		"challenge":     result.Challenge,
-		"expires_at":    result.ExpiresAt,
-	})
+	writeJSON(w, http.StatusOK, DeviceKeyEnrollment{EnrollmentID: result.ID, Challenge: result.Challenge, ExpiresAt: result.ExpiresAt})
 }
 
 func (s *Service) handleDeviceKeyEnrollFinishPOST(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		EnrollmentID string `json:"enrollment_id"`
-		Code         string `json:"code"`
-		Signature    string `json:"signature"`
-		SecondFactor string `json:"code_2fa"`
-	}
+	var req DeviceKeyEnrollFinishRequest
 	if err := decodeJSON(r, &req); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
@@ -95,13 +76,11 @@ func (s *Service) handleDeviceKeyEnrollFinishPOST(w http.ResponseWriter, r *http
 		}
 		return
 	}
-	writeJSON(w, http.StatusOK, deviceKeyTokenHTTPResponse(result))
+	writeJSON(w, http.StatusOK, deviceKeySession(result))
 }
 
 func (s *Service) handleDeviceKeyLoginBeginPOST(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		DeviceKeyID string `json:"device_key_id"`
-	}
+	var req DeviceKeyLoginBeginRequest
 	if err := decodeJSON(r, &req); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
@@ -122,18 +101,11 @@ func (s *Service) handleDeviceKeyLoginBeginPOST(w http.ResponseWriter, r *http.R
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{
-		"challenge_id": result.ID,
-		"challenge":    result.Challenge,
-		"expires_at":   result.ExpiresAt,
-	})
+	writeJSON(w, http.StatusOK, DeviceKeyLoginChallenge{ChallengeID: result.ID, Challenge: result.Challenge, ExpiresAt: result.ExpiresAt})
 }
 
 func (s *Service) handleDeviceKeyLoginFinishPOST(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ChallengeID string `json:"challenge_id"`
-		Signature   string `json:"signature"`
-	}
+	var req DeviceKeyLoginFinishRequest
 	if err := decodeJSON(r, &req); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
@@ -163,7 +135,7 @@ func (s *Service) handleDeviceKeyLoginFinishPOST(w http.ResponseWriter, r *http.
 		fail(w, errmodel.CodeInvalidCredentials)
 		return
 	}
-	writeJSON(w, http.StatusOK, deviceKeyTokenHTTPResponse(result))
+	writeJSON(w, http.StatusOK, deviceKeySession(result))
 }
 
 func deviceKeyCaller(r *http.Request) (verify.Claims, bool) {
@@ -182,7 +154,7 @@ func (s *Service) handleDeviceKeysGET(w http.ResponseWriter, r *http.Request) {
 		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
-	writeList(w, keys, "")
+	all(w, keys)
 }
 
 func (s *Service) handleDeviceKeyDELETE(w http.ResponseWriter, r *http.Request) {

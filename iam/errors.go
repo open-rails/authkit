@@ -49,6 +49,9 @@ var (
 	ErrLastOwner                  Error = errmodel.E(errmodel.CodeLastOwner)
 	ErrCannotTargetSelf           Error = errmodel.E(errmodel.CodeCannotTargetSelf)
 	ErrTwoFAEnrollmentRequired    Error = errmodel.E(errmodel.CodeTwoFAEnrollmentRequired)
+	// ErrSubjectMFARequired refuses a role that needs MFA for an account with
+	// no usable second factor.
+	ErrSubjectMFARequired Error = errmodel.E(errmodel.CodeSubjectMFARequired)
 	// ErrSessionRevoked refuses an actor bound to a session or device key
 	// (Actor.InSession) that was revoked or expired, as logout, revoke-all, a
 	// password change, a ban and deletion all do.

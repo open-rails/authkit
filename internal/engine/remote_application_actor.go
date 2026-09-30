@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
-	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/ops"
 )
@@ -207,14 +205,9 @@ func (s *Engine) ListRemoteApplications(ctx context.Context, ref iam.GroupRef, p
 	if err := s.requirePG(); err != nil {
 		return out, err
 	}
-	var after *string
-	if page.Cursor != "" {
-		raw, err := base64.RawURLEncoding.DecodeString(page.Cursor)
-		id := string(raw)
-		if err != nil || !isUUID(id) {
-			return out, fmt.Errorf("%w: invalid cursor", errmodel.E(errmodel.CodeInvalidRequest))
-		}
-		after = &id
+	after, err := idCursor(page)
+	if err != nil {
+		return out, err
 	}
 	st := s.groupStore()
 	g, err := s.resolveGroup(ctx, st, ref)
@@ -232,7 +225,7 @@ func (s *Engine) ListRemoteApplications(ctx context.Context, ref iam.GroupRef, p
 	}
 	if len(out.Items) > limit {
 		out.Items = out.Items[:limit]
-		out.Next = base64.RawURLEncoding.EncodeToString([]byte(out.Items[limit-1].ID))
+		out.Next = pageCursor(out.Items[limit-1].ID)
 	}
 	return out, s.loadApplicationRoles(ctx, s.pg, g.ID, out.Items)
 }

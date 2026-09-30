@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"net/http"
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
@@ -9,17 +8,10 @@ import (
 	"github.com/open-rails/authkit/internal/rbac"
 )
 
-// Group-management routes live under /groups/:group_id and are gated by a
+// Group-management routes live under /groups/{group_id} and are gated by a
 // built-in permission of the addressed group's persona (`<persona>:members:
 // manage`, ...). A route whose capability no persona enables is not mounted
 // (404); a group whose persona lacks it is refused like an unknown group.
-
-// GroupRoute is one group-management endpoint.
-type GroupRoute struct {
-	Method string
-	Path   string // e.g. /groups/:group_id/members
-	Op     GroupOp
-}
 
 // GroupOp is the operation a group route performs.
 type GroupOp int
@@ -37,21 +29,6 @@ const (
 	OpInviteLinkMint
 	OpInviteLinkRevoke
 )
-
-// GroupRoutes is the whole group-management surface.
-var GroupRoutes = []GroupRoute{
-	{http.MethodGet, "/groups/:group_id/members", OpMembersList},
-	{http.MethodPost, "/groups/:group_id/members", OpMemberAdd},
-	{http.MethodDelete, "/groups/:group_id/members/:user", OpMemberRemove},
-	{http.MethodPut, "/groups/:group_id/members/:user/roles/:role", OpMemberRoleAssign},
-	{http.MethodGet, "/groups/:group_id/roles", OpRolesList},
-	{http.MethodGet, "/groups/:group_id/api-keys", OpAPIKeysList},
-	{http.MethodPost, "/groups/:group_id/api-keys", OpAPIKeyMint},
-	{http.MethodDelete, "/groups/:group_id/api-keys/:key", OpAPIKeyRevoke},
-	{http.MethodGet, "/groups/:group_id/invites/links", OpInviteLinkList},
-	{http.MethodPost, "/groups/:group_id/invites/links", OpInviteLinkMint},
-	{http.MethodDelete, "/groups/:group_id/invites/links/:link", OpInviteLinkRevoke},
-}
 
 // Available reports whether groups of persona p have the operation. Root's
 // members are managed through the admin routes.
@@ -87,18 +64,4 @@ func (op GroupOp) catalogPermission() string {
 	const placeholder = "persona"
 	perm := op.Perms(rbac.Persona{Name: ident.Persona(placeholder)})[0].String()
 	return "<persona>" + strings.TrimPrefix(perm, placeholder)
-}
-
-// MountedGroupRoutes returns the group routes some persona of s has.
-func MountedGroupRoutes(s *rbac.Schema) []GroupRoute {
-	var out []GroupRoute
-	for _, gr := range GroupRoutes {
-		for _, name := range s.Personas() {
-			if p, _ := s.Persona(name); gr.Op.Available(p) {
-				out = append(out, gr)
-				break
-			}
-		}
-	}
-	return out
 }

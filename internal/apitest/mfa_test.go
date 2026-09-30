@@ -77,13 +77,13 @@ func TestEnrollmentVerifiesEnrollingSession(t *testing.T) {
 		require.Equal(f.t, iam.AssuranceLevelMFA, claims["acr"])
 		require.Equal(f.t, true, claims["mfa_enrolled"])
 		require.Contains(f.t, enabled.raw, `"fresh_auth"`)
-		refreshed := f.expect(http.StatusOK, refresh(f, enrolling.RefreshToken))
+		refreshed := f.expect(http.StatusOK, refresh(f, *enrolling.RefreshToken))
 		f.session(refreshed.TokenSet, "pwd", method, "otp", "mfa")
 		require.Equal(f.t, true, accessClaims(f.t, refreshed.AccessToken)["mfa_enrolled"])
 	}
 	requireChallenged := func(f *factorFlow, other authAnswer, method string) {
 		f.t.Helper()
-		challenged := f.expect(http.StatusForbidden, refresh(f, other.RefreshToken))
+		challenged := f.expect(http.StatusForbidden, refresh(f, *other.RefreshToken))
 		require.Equal(f.t, "2fa_required", challenged.Error.Code)
 		require.Equal(f.t, method, challenged.Error.Metadata.Method)
 	}
@@ -135,7 +135,7 @@ func TestEnrollmentVerifiesEnrollingSession(t *testing.T) {
 			map[string]any{"method": "email", "code": f.code(iam.MessageVerification, u.Email)}))
 		require.NotEmpty(t, enabled.BackupCodes)
 		require.Empty(t, enabled.Nested.AccessToken, "the session stays email-only")
-		challenged := f.expect(http.StatusForbidden, refresh(f, session.Nested.RefreshToken))
+		challenged := f.expect(http.StatusForbidden, refresh(f, *session.Nested.RefreshToken))
 		require.Equal(t, "2fa_required", challenged.Error.Code)
 		require.Equal(t, u.ID, challenged.Error.Metadata.UserID)
 		require.Equal(t, "backup_code", challenged.Error.Metadata.Method)
@@ -154,7 +154,7 @@ func TestEnrollmentVerifiesEnrollingSession(t *testing.T) {
 			map[string]any{"method": "email", "code": f.code(iam.MessageVerification, u.Email)}))
 		require.NotEmpty(t, enabled.BackupCodes)
 		f.session(enabled.Nested, "pwd", "email", "otp", "mfa")
-		refreshed := f.expect(http.StatusOK, refresh(f, enabled.Nested.RefreshToken))
+		refreshed := f.expect(http.StatusOK, refresh(f, *enabled.Nested.RefreshToken))
 		f.session(refreshed.TokenSet, "pwd", "email", "otp", "mfa")
 	})
 }
@@ -308,7 +308,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	var creation protocol.CredentialCreation
 	require.NoError(t, json.Unmarshal([]byte(begun.raw), &creation))
 	authn := passkeytest.New(t, "https://app.example")
-	b.expect(http.StatusOK, b.request(http.MethodPost, "/passkeys/register/finish", setup, authn.Register(t, &creation)))
+	b.expect(http.StatusCreated, b.request(http.MethodPost, "/passkeys/register/finish", setup, authn.Register(t, &creation)))
 	started := f.expect(http.StatusOK, f.post("/passkeys/login/begin", map[string]any{}))
 	var assertion protocol.CredentialAssertion
 	require.NoError(t, json.Unmarshal([]byte(started.raw), &assertion))
@@ -672,7 +672,7 @@ func TestFactorManagementWorkflow(t *testing.T) {
 	var loginIP string
 	for _, s := range sessions {
 		if s.ID == loginSID {
-			loginIP = s.IP
+			loginIP = *s.IP
 		}
 	}
 	require.Equal(t, "192.0.2.1", loginIP, "MFA completion records the actual HTTP client IP")

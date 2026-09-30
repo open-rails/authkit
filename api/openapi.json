@@ -1,0 +1,7725 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "AuthKit",
+    "version": "v1",
+    "description": "AuthKit's HTTP API on a default mount: the JSON API beneath /api/v1, browser OIDC beneath /oidc, JWKS at the issuer's path. Generated from the route catalog (internal/httpapi/catalog.go) by go generate ./internal/httpapi; do not edit."
+  },
+  "paths": {
+    "/.well-known/jwks.json": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JWKS"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public"
+      }
+    },
+    "/api/v1/capabilities": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Capabilities"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public"
+      }
+    },
+    "/api/v1/token": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRefreshRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenSet"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_token"
+      }
+    },
+    "/api/v1/logout": {
+      "delete": {
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "required",
+        "x-authkit-rate-limit": "auth_logout"
+      }
+    },
+    "/api/v1/password/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordLoginRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenSet"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_password_login"
+      }
+    },
+    "/api/v1/account/recovery/confirm": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_password_login"
+      }
+    },
+    "/api/v1/passwordless/start": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordlessStartRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_passwordless_start",
+        "x-authkit-mounted-when": "passwordless"
+      }
+    },
+    "/api/v1/passwordless/confirm": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CodeOrLinkRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasswordlessResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_passwordless_confirm",
+        "x-authkit-mounted-when": "passwordless"
+      }
+    },
+    "/api/v1/passkeys/login/begin": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Defined outside AuthKit: protocol.CredentialAssertion"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_passkey_login",
+        "x-authkit-mounted-when": "passkeys"
+      }
+    },
+    "/api/v1/passkeys/login/finish": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenSet"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_passkey_login",
+        "x-authkit-mounted-when": "passkeys"
+      }
+    },
+    "/api/v1/device-keys/enroll/begin": {
+      "post": {
+        "tags": [
+          "device_keys"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceKeyEnrollBeginRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceKeyEnrollment"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_device_key_enroll_begin",
+        "x-authkit-mounted-when": "device_keys"
+      }
+    },
+    "/api/v1/device-keys/enroll/finish": {
+      "post": {
+        "tags": [
+          "device_keys"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceKeyEnrollFinishRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceKeySession"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_device_key_enroll_finish",
+        "x-authkit-mounted-when": "device_keys"
+      }
+    },
+    "/api/v1/device-keys/login/begin": {
+      "post": {
+        "tags": [
+          "device_keys"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceKeyLoginBeginRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceKeyLoginChallenge"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_device_key_login_begin",
+        "x-authkit-mounted-when": "device_keys"
+      }
+    },
+    "/api/v1/device-keys/login/finish": {
+      "post": {
+        "tags": [
+          "device_keys"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceKeyLoginFinishRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceKeySession"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_device_key_login_finish",
+        "x-authkit-mounted-when": "device_keys"
+      }
+    },
+    "/api/v1/device-keys": {
+      "get": {
+        "tags": [
+          "device_keys"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceKeyPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "required",
+        "x-authkit-rate-limit": "auth_device_keys_manage",
+        "x-authkit-mounted-when": "device_keys"
+      }
+    },
+    "/api/v1/device-keys/{id}": {
+      "delete": {
+        "tags": [
+          "device_keys"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "required",
+        "x-authkit-rate-limit": "auth_device_keys_manage",
+        "x-authkit-mounted-when": "device_keys"
+      }
+    },
+    "/api/v1/device-keys/revoke-others": {
+      "post": {
+        "tags": [
+          "device_keys"
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_device_keys_manage",
+        "x-authkit-mounted-when": "device_keys"
+      }
+    },
+    "/api/v1/password/reset/request": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdentifierRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_pwd_reset_request"
+      }
+    },
+    "/api/v1/password/reset/confirm": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordResetConfirmRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_pwd_reset_confirm"
+      }
+    },
+    "/api/v1/register": {
+      "post": {
+        "tags": [
+          "registration"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistrationResult"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Accepted"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_register",
+        "x-authkit-mounted-when": "registration"
+      }
+    },
+    "/api/v1/register/availability": {
+      "get": {
+        "tags": [
+          "registration"
+        ],
+        "parameters": [
+          {
+            "name": "username",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "email",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "phone_number",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Availability"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_register_availability"
+      }
+    },
+    "/api/v1/register/abandon": {
+      "post": {
+        "tags": [
+          "registration"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdentifierPasswordRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_register_abandon",
+        "x-authkit-mounted-when": "registration"
+      }
+    },
+    "/api/v1/verify/request": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdentifierPasswordRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StepUpResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "optional",
+        "x-authkit-rate-limit": "auth_verify_request"
+      }
+    },
+    "/api/v1/verify/confirm": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CodeOrLinkRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenSet"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "optional",
+        "x-authkit-rate-limit": "auth_verify_confirm"
+      }
+    },
+    "/api/v1/user/password": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordChangeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StepUpResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_user_password_change"
+      }
+    },
+    "/api/v1/user/sessions": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "required",
+        "x-authkit-rate-limit": "auth_sessions_list"
+      },
+      "delete": {
+        "tags": [
+          "account"
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_sessions_revoke_all"
+      }
+    },
+    "/api/v1/user/sessions/{id}": {
+      "delete": {
+        "tags": [
+          "account"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_sessions_revoke"
+      }
+    },
+    "/api/v1/me": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserProfile"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "required",
+        "x-authkit-rate-limit": "auth_user_me"
+      }
+    },
+    "/api/v1/user/username": {
+      "patch": {
+        "tags": [
+          "account"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UsernameRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsernameChange"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_user_update_username"
+      }
+    },
+    "/api/v1/user/preferred-language": {
+      "patch": {
+        "tags": [
+          "account"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreferredLanguageRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreferredLanguage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_user_preferred_language"
+      }
+    },
+    "/api/v1/user": {
+      "delete": {
+        "tags": [
+          "account"
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_user_delete"
+      }
+    },
+    "/api/v1/user/providers/{provider}": {
+      "delete": {
+        "tags": [
+          "account"
+        ],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_user_unlink_provider"
+      }
+    },
+    "/api/v1/passkeys/register/begin": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Defined outside AuthKit: protocol.CredentialCreation"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_passkey_register",
+        "x-authkit-mounted-when": "passkeys"
+      }
+    },
+    "/api/v1/passkeys/register/finish": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Passkey"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_passkey_register",
+        "x-authkit-mounted-when": "passkeys"
+      }
+    },
+    "/api/v1/passkeys": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasskeyPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "required",
+        "x-authkit-mounted-when": "passkeys"
+      }
+    },
+    "/api/v1/passkeys/{id}": {
+      "patch": {
+        "tags": [
+          "account"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LabelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Passkey"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-mounted-when": "passkeys"
+      },
+      "delete": {
+        "tags": [
+          "account"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-mounted-when": "passkeys"
+      }
+    },
+    "/api/v1/step-up/password": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StepUpResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_password_step_up"
+      }
+    },
+    "/api/v1/step-up/2fa": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TwoFactorStepUpRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StepUpResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_2fa_verify",
+        "x-authkit-mounted-when": "two_factor"
+      }
+    },
+    "/api/v1/oidc/{provider}/link/start": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OIDCStart"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_oidc_start",
+        "x-authkit-mounted-when": "oidc"
+      }
+    },
+    "/api/v1/oidc/{provider}/step-up/start": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReturnToRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OIDCStart"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_oidc_start",
+        "x-authkit-mounted-when": "oidc"
+      }
+    },
+    "/api/v1/user/2fa": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TwoFactorStatus"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "required",
+        "x-authkit-rate-limit": "auth_user_me",
+        "x-authkit-mounted-when": "two_factor",
+        "x-authkit-mfa-enrollment-exempt": true
+      },
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TwoFactorEnrollRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TwoFactorEnrollResult"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Accepted"
+          },
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_2fa_enable",
+        "x-authkit-mounted-when": "two_factor",
+        "x-authkit-mfa-enrollment-exempt": true
+      },
+      "delete": {
+        "tags": [
+          "account"
+        ],
+        "parameters": [
+          {
+            "name": "factor_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemovedRoles"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_2fa_disable",
+        "x-authkit-mounted-when": "two_factor",
+        "x-authkit-mfa-enrollment-exempt": true
+      }
+    },
+    "/api/v1/user/2fa/backup-codes": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupCodes"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_2fa_regenerate_codes",
+        "x-authkit-mounted-when": "two_factor",
+        "x-authkit-mfa-enrollment-exempt": true
+      }
+    },
+    "/api/v1/2fa/challenge": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TwoFactorChallengeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_2fa_verify",
+        "x-authkit-mounted-when": "two_factor",
+        "x-authkit-mfa-enrollment-exempt": true
+      }
+    },
+    "/api/v1/2fa/verify": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TwoFactorVerifyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenSet"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_2fa_verify",
+        "x-authkit-mounted-when": "two_factor",
+        "x-authkit-mfa-enrollment-exempt": true
+      }
+    },
+    "/api/v1/solana/challenge": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SolanaChallengeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SolanaChallenge"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_solana_challenge",
+        "x-authkit-mounted-when": "solana"
+      }
+    },
+    "/api/v1/solana/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SolanaSignInRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SolanaLoginResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_solana_login",
+        "x-authkit-mounted-when": "solana"
+      }
+    },
+    "/api/v1/solana/link": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SolanaSignInRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SolanaLink"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_solana_link",
+        "x-authkit-mounted-when": "solana"
+      }
+    },
+    "/api/v1/admin/users": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "root_role",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "entitlement",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserEntryPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "root:users:read",
+        "x-authkit-rate-limit": "auth_admin_user_sessions_list"
+      }
+    },
+    "/api/v1/admin/users/{user_id}": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserEntry"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "root:users:read"
+      },
+      "delete": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-permission": "root:users:delete",
+        "x-authkit-rate-limit": "auth_admin_user_sessions_revoke_all"
+      }
+    },
+    "/api/v1/admin/users/{user_id}/signins": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionEventPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "root:users:read"
+      }
+    },
+    "/api/v1/admin/users/{user_id}/ban": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BanRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-permission": "root:users:ban",
+        "x-authkit-rate-limit": "auth_admin_user_sessions_revoke_all"
+      }
+    },
+    "/api/v1/admin/users/{user_id}/unban": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-permission": "root:users:ban",
+        "x-authkit-rate-limit": "auth_admin_user_sessions_revoke_all"
+      }
+    },
+    "/api/v1/admin/users/{user_id}/sessions/revoke": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-permission": "root:users:manage",
+        "x-authkit-rate-limit": "auth_admin_user_sessions_revoke_all"
+      }
+    },
+    "/api/v1/admin/users/{user_id}/restore": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-permission": "root:users:delete",
+        "x-authkit-rate-limit": "auth_admin_user_sessions_revoke_all"
+      }
+    },
+    "/api/v1/admin/roles": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleInfoPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "root:members:read"
+      }
+    },
+    "/api/v1/admin/users/{user_id}/roles/{role}": {
+      "put": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "role",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupMember"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-permission": "root:members:manage",
+        "x-authkit-rate-limit": "auth_admin_user_sessions_revoke_all"
+      },
+      "delete": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "role",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-permission": "root:members:manage",
+        "x-authkit-rate-limit": "auth_admin_user_sessions_revoke_all"
+      }
+    },
+    "/api/v1/delegated/token": {
+      "post": {
+        "tags": [
+          "delegated"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DelegatedTokenRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenSet"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "delegated_token_mint",
+        "x-authkit-mounted-when": "delegated"
+      }
+    },
+    "/api/v1/groups/{group_id}/members": {
+      "get": {
+        "tags": [
+          "permission_groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "explode": true
+          },
+          {
+            "name": "role",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "explode": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupMemberPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:members:read",
+        "x-authkit-mounted-when": "groups"
+      },
+      "post": {
+        "tags": [
+          "permission_groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemberAddRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupMember"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationCreated"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:members:manage",
+        "x-authkit-mounted-when": "groups"
+      }
+    },
+    "/api/v1/groups/{group_id}/members/{user}": {
+      "delete": {
+        "tags": [
+          "permission_groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "user",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:members:manage",
+        "x-authkit-mounted-when": "groups"
+      }
+    },
+    "/api/v1/groups/{group_id}/members/{user}/roles/{role}": {
+      "put": {
+        "tags": [
+          "permission_groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "user",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "role",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupMember"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:members:manage",
+        "x-authkit-mounted-when": "groups"
+      }
+    },
+    "/api/v1/groups/{group_id}/roles": {
+      "get": {
+        "tags": [
+          "permission_groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleInfoPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:members:read",
+        "x-authkit-mounted-when": "groups"
+      }
+    },
+    "/api/v1/groups/{group_id}/api-keys": {
+      "get": {
+        "tags": [
+          "permission_groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIKeyPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:credentials:read",
+        "x-authkit-mounted-when": "api_keys"
+      },
+      "post": {
+        "tags": [
+          "permission_groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/APIKeyCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIKeyCreated"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:credentials:manage",
+        "x-authkit-mounted-when": "api_keys"
+      }
+    },
+    "/api/v1/groups/{group_id}/api-keys/{key}": {
+      "delete": {
+        "tags": [
+          "permission_groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:credentials:manage",
+        "x-authkit-mounted-when": "api_keys"
+      }
+    },
+    "/api/v1/groups/{group_id}/invites/links": {
+      "get": {
+        "tags": [
+          "permission_groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:members:read",
+        "x-authkit-mounted-when": "groups"
+      },
+      "post": {
+        "tags": [
+          "permission_groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvitationCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationCreated"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:members:manage",
+        "x-authkit-mounted-when": "groups"
+      }
+    },
+    "/api/v1/groups/{group_id}/invites/links/{link}": {
+      "delete": {
+        "tags": [
+          "permission_groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "link",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:members:manage",
+        "x-authkit-mounted-when": "groups"
+      }
+    },
+    "/api/v1/me/groups": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MembershipPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "required"
+      }
+    },
+    "/api/v1/me/permissions": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionSet"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "required"
+      }
+    },
+    "/api/v1/invites/redeem": {
+      "post": {
+        "tags": [
+          "permission_groups"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteRedeemRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Membership"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "auth_invite_redeem",
+        "x-authkit-mounted-when": "groups"
+      }
+    },
+    "/oidc/{provider}/login": {
+      "get": {
+        "tags": [
+          "browser_oidc"
+        ],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ui",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "popup_nonce",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "return_to",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Found"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_oidc_start",
+        "x-authkit-mounted-when": "oidc"
+      },
+      "post": {
+        "tags": [
+          "browser_oidc"
+        ],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OIDCLoginRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OIDCStart"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_oidc_start",
+        "x-authkit-mounted-when": "oidc"
+      }
+    },
+    "/oidc/{provider}/callback": {
+      "get": {
+        "tags": [
+          "browser_oidc"
+        ],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "error",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Found"
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OIDCLoginResult"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_oidc_callback",
+        "x-authkit-mounted-when": "oidc"
+      },
+      "post": {
+        "tags": [
+          "browser_oidc"
+        ],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Found"
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OIDCLoginResult"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_oidc_callback",
+        "x-authkit-mounted-when": "oidc"
+      }
+    },
+    "/oidc/{provider}/step-up/callback": {
+      "get": {
+        "tags": [
+          "browser_oidc"
+        ],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "error",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Found"
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OIDCStepUpResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_oidc_callback",
+        "x-authkit-mounted-when": "oidc"
+      },
+      "post": {
+        "tags": [
+          "browser_oidc"
+        ],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Found"
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OIDCStepUpResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "auth_oidc_callback",
+        "x-authkit-mounted-when": "oidc"
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "APIKey": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "lookup_id": {
+            "type": "string"
+          },
+          "group_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "created_by": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "last_used_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expires_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revoked_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "lookup_id",
+          "group_id",
+          "name",
+          "role",
+          "permissions",
+          "created_by",
+          "created_at",
+          "last_used_at",
+          "expires_at",
+          "revoked_at"
+        ]
+      },
+      "APIKeyCreateRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "expires_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "APIKeyCreated": {
+        "type": "object",
+        "properties": {
+          "api_key": {
+            "$ref": "#/components/schemas/APIKey"
+          },
+          "secret": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "api_key",
+          "secret"
+        ]
+      },
+      "AuthKitEvent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "group.created",
+              "group.deleted",
+              "group.purged",
+              "role.changed",
+              "role.granted",
+              "role.revoked",
+              "user.banned",
+              "user.deleted",
+              "user.email_changed",
+              "user.phone_changed",
+              "user.purged",
+              "user.registered",
+              "user.restored",
+              "user.unbanned",
+              "user.username_changed"
+            ]
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "actor_kind": {
+            "type": "string",
+            "enum": [
+              "api_key",
+              "delegated",
+              "remote_application",
+              "system",
+              "user"
+            ]
+          },
+          "actor_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "group_id": {
+            "type": "string"
+          },
+          "persona": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "previous": {
+            "type": "string"
+          },
+          "current": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "until": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "occurred_at",
+          "actor_kind",
+          "actor_id",
+          "user_id",
+          "group_id",
+          "persona",
+          "application_id",
+          "previous",
+          "current",
+          "reason",
+          "until"
+        ]
+      },
+      "Availability": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AvailabilityField"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "email": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AvailabilityField"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "phone_number": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AvailabilityField"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "username",
+          "email",
+          "phone_number"
+        ]
+      },
+      "AvailabilityField": {
+        "type": "object",
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "available",
+          "error"
+        ]
+      },
+      "BackupCodes": {
+        "type": "object",
+        "properties": {
+          "backup_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "backup_codes"
+        ]
+      },
+      "BanRequest": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string"
+          },
+          "until": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "keep_existing": {
+            "type": "boolean"
+          }
+        }
+      },
+      "BanState": {
+        "type": "object",
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "until": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "by": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "at",
+          "until",
+          "reason",
+          "by"
+        ]
+      },
+      "Capabilities": {
+        "type": "object",
+        "properties": {
+          "registration": {
+            "$ref": "#/components/schemas/RegistrationCapabilities"
+          },
+          "external_login_providers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExternalLoginProvider"
+            }
+          },
+          "username": {
+            "$ref": "#/components/schemas/UsernameCapabilities"
+          },
+          "password": {
+            "$ref": "#/components/schemas/PasswordCapabilities"
+          },
+          "passwordless": {
+            "$ref": "#/components/schemas/PasswordlessCapabilities"
+          },
+          "passkeys": {
+            "$ref": "#/components/schemas/PasskeyCapabilities"
+          },
+          "solana": {
+            "$ref": "#/components/schemas/SolanaCapabilities"
+          },
+          "verification": {
+            "$ref": "#/components/schemas/VerificationCapabilities"
+          },
+          "channels": {
+            "$ref": "#/components/schemas/ChannelCapabilities"
+          },
+          "languages": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "paths": {
+            "$ref": "#/components/schemas/MountPaths"
+          }
+        },
+        "required": [
+          "registration",
+          "external_login_providers",
+          "username",
+          "password",
+          "passwordless",
+          "passkeys",
+          "solana",
+          "verification",
+          "channels",
+          "languages",
+          "paths"
+        ]
+      },
+      "ChannelCapabilities": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "boolean"
+          },
+          "sms": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "email",
+          "sms"
+        ]
+      },
+      "CodeOrLinkRequest": {
+        "type": "object",
+        "properties": {
+          "identifier": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "DelegatedTokenRequest": {
+        "type": "object",
+        "properties": {
+          "ttl_seconds": {
+            "type": "integer"
+          },
+          "audiences": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "delegate_certificate_der_b64url": {
+            "type": "string"
+          },
+          "requested_grant": {}
+        }
+      },
+      "DeviceKey": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "public_key": {
+            "type": "string",
+            "contentEncoding": "base64"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "last_used_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revoked_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "current": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "public_key",
+          "created_at",
+          "last_used_at",
+          "revoked_at",
+          "current"
+        ]
+      },
+      "DeviceKeyEnrollBeginRequest": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "public_key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        }
+      },
+      "DeviceKeyEnrollFinishRequest": {
+        "type": "object",
+        "properties": {
+          "enrollment_id": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "signature": {
+            "type": "string"
+          },
+          "code_2fa": {
+            "type": "string"
+          }
+        }
+      },
+      "DeviceKeyEnrollment": {
+        "type": "object",
+        "properties": {
+          "enrollment_id": {
+            "type": "string"
+          },
+          "challenge": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          }
+        },
+        "required": [
+          "enrollment_id",
+          "challenge",
+          "expires_at"
+        ]
+      },
+      "DeviceKeyLoginBeginRequest": {
+        "type": "object",
+        "properties": {
+          "device_key_id": {
+            "type": "string"
+          }
+        }
+      },
+      "DeviceKeyLoginChallenge": {
+        "type": "object",
+        "properties": {
+          "challenge_id": {
+            "type": "string"
+          },
+          "challenge": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          }
+        },
+        "required": [
+          "challenge_id",
+          "challenge",
+          "expires_at"
+        ]
+      },
+      "DeviceKeyLoginFinishRequest": {
+        "type": "object",
+        "properties": {
+          "challenge_id": {
+            "type": "string"
+          },
+          "signature": {
+            "type": "string"
+          }
+        }
+      },
+      "DeviceKeySession": {
+        "type": "object",
+        "properties": {
+          "token_set": {
+            "$ref": "#/components/schemas/TokenSet"
+          },
+          "device_key": {
+            "$ref": "#/components/schemas/DeviceKey"
+          }
+        },
+        "required": [
+          "token_set",
+          "device_key"
+        ]
+      },
+      "ExternalLoginProvider": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "supports_login": {
+            "type": "boolean"
+          },
+          "supports_registration": {
+            "type": "boolean"
+          },
+          "supports_link": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "supports_login",
+          "supports_registration",
+          "supports_link"
+        ]
+      },
+      "FreshAuth": {
+        "type": "object",
+        "properties": {
+          "step_up_required_for_sensitive_actions": {
+            "type": "boolean"
+          },
+          "time_until_step_up_required": {
+            "type": "integer"
+          },
+          "last_authenticated_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "auth_methods": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "step_up_required_for_sensitive_actions",
+          "time_until_step_up_required",
+          "last_authenticated_at",
+          "auth_methods"
+        ]
+      },
+      "Group": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "persona": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "deleted_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "persona",
+          "created_at",
+          "deleted_at"
+        ]
+      },
+      "GroupMember": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "$ref": "#/components/schemas/Subject"
+          },
+          "role": {
+            "type": "string"
+          },
+          "user": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/User"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "subject",
+          "role",
+          "user"
+        ]
+      },
+      "IdentifierPasswordRequest": {
+        "type": "object",
+        "properties": {
+          "identifier": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          }
+        }
+      },
+      "IdentifierRequest": {
+        "type": "object",
+        "properties": {
+          "identifier": {
+            "type": "string"
+          }
+        }
+      },
+      "Invitation": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "group_id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "email": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_by": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "expires_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "redeemed_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revoked_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "group_id",
+          "role",
+          "email",
+          "created_by",
+          "created_at",
+          "expires_at",
+          "redeemed_at",
+          "revoked_at"
+        ]
+      },
+      "InvitationCreateRequest": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string"
+          },
+          "expires_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "InvitationCreated": {
+        "type": "object",
+        "properties": {
+          "invitation": {
+            "$ref": "#/components/schemas/Invitation"
+          },
+          "code": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "invitation",
+          "code",
+          "url"
+        ]
+      },
+      "InviteRedeemRequest": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          }
+        }
+      },
+      "JWK": {
+        "type": "object",
+        "properties": {
+          "kty": {
+            "type": "string"
+          },
+          "use": {
+            "type": "string"
+          },
+          "kid": {
+            "type": "string"
+          },
+          "alg": {
+            "type": "string"
+          },
+          "n": {
+            "type": "string"
+          },
+          "e": {
+            "type": "string"
+          },
+          "crv": {
+            "type": "string"
+          },
+          "x": {
+            "type": "string"
+          },
+          "y": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kty"
+        ]
+      },
+      "JWKS": {
+        "type": "object",
+        "properties": {
+          "keys": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JWK"
+            }
+          }
+        },
+        "required": [
+          "keys"
+        ]
+      },
+      "LabelRequest": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          }
+        }
+      },
+      "MemberAddRequest": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          }
+        }
+      },
+      "Membership": {
+        "type": "object",
+        "properties": {
+          "group": {
+            "$ref": "#/components/schemas/Group"
+          },
+          "role": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "group",
+          "role"
+        ]
+      },
+      "MountPaths": {
+        "type": "object",
+        "properties": {
+          "api": {
+            "type": "string"
+          },
+          "oidc": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "jwks": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "api",
+          "oidc",
+          "jwks"
+        ]
+      },
+      "NamingAlias": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "expires_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "expires_at"
+        ]
+      },
+      "NamingPolicy": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "former_name_retention_mode": {
+            "type": "string",
+            "enum": [
+              "finite",
+              "forever",
+              "immediate"
+            ]
+          },
+          "former_name_retention_seconds": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "enabled",
+          "former_name_retention_mode",
+          "former_name_retention_seconds"
+        ]
+      },
+      "NamingState": {
+        "type": "object",
+        "properties": {
+          "aliases": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NamingAlias"
+            }
+          },
+          "policy": {
+            "$ref": "#/components/schemas/NamingPolicy"
+          },
+          "allowed": {
+            "type": "boolean"
+          },
+          "next_rename_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "retry_after_seconds": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "aliases",
+          "policy",
+          "allowed",
+          "next_rename_at",
+          "retry_after_seconds"
+        ]
+      },
+      "OIDCLoginRequest": {
+        "type": "object",
+        "properties": {
+          "return_to": {
+            "type": "string"
+          },
+          "account_invite_token": {
+            "type": "string"
+          },
+          "ui": {
+            "type": "string"
+          },
+          "popup_nonce": {
+            "type": "string"
+          }
+        }
+      },
+      "OIDCLoginResult": {
+        "type": "object",
+        "properties": {
+          "token_set": {
+            "$ref": "#/components/schemas/TokenSet"
+          },
+          "user": {
+            "$ref": "#/components/schemas/OIDCUser"
+          }
+        },
+        "required": [
+          "token_set",
+          "user"
+        ]
+      },
+      "OIDCStart": {
+        "type": "object",
+        "properties": {
+          "auth_url": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "auth_url",
+          "state"
+        ]
+      },
+      "OIDCStepUpResult": {
+        "type": "object",
+        "properties": {
+          "token_set": {
+            "$ref": "#/components/schemas/TokenSet"
+          },
+          "fresh_auth": {
+            "$ref": "#/components/schemas/FreshAuth"
+          },
+          "provider": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "token_set",
+          "fresh_auth",
+          "provider"
+        ]
+      },
+      "OIDCUser": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "email": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "email"
+        ]
+      },
+      "Passkey": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "transports": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "authenticator_attachment": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "backup_eligible": {
+            "type": "boolean"
+          },
+          "backup_state": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "last_used_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "transports",
+          "authenticator_attachment",
+          "backup_eligible",
+          "backup_state",
+          "created_at",
+          "last_used_at"
+        ]
+      },
+      "PasskeyCapabilities": {
+        "type": "object",
+        "properties": {
+          "login": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "login"
+        ]
+      },
+      "PasswordCapabilities": {
+        "type": "object",
+        "properties": {
+          "min_length": {
+            "type": "integer"
+          },
+          "max_length": {
+            "type": "integer"
+          },
+          "require_uppercase": {
+            "type": "boolean"
+          },
+          "require_lowercase": {
+            "type": "boolean"
+          },
+          "require_digit": {
+            "type": "boolean"
+          },
+          "require_symbol": {
+            "type": "boolean"
+          },
+          "allow_common": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "min_length",
+          "max_length",
+          "require_uppercase",
+          "require_lowercase",
+          "require_digit",
+          "require_symbol",
+          "allow_common"
+        ]
+      },
+      "PasswordChangeRequest": {
+        "type": "object",
+        "properties": {
+          "current_password": {
+            "type": "string"
+          },
+          "new_password": {
+            "type": "string"
+          }
+        }
+      },
+      "PasswordLoginRequest": {
+        "type": "object",
+        "properties": {
+          "identifier": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          }
+        }
+      },
+      "PasswordRequest": {
+        "type": "object",
+        "properties": {
+          "password": {
+            "type": "string"
+          }
+        }
+      },
+      "PasswordResetConfirmRequest": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "new_password": {
+            "type": "string"
+          }
+        }
+      },
+      "PasswordlessCapabilities": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "enabled",
+          "channels"
+        ]
+      },
+      "PasswordlessResult": {
+        "type": "object",
+        "properties": {
+          "token_set": {
+            "$ref": "#/components/schemas/TokenSet"
+          },
+          "return_to": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "token_set",
+          "return_to"
+        ]
+      },
+      "PasswordlessStartRequest": {
+        "type": "object",
+        "properties": {
+          "identifier": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "return_to": {
+            "type": "string"
+          },
+          "preferred_language": {
+            "type": "string"
+          },
+          "account_invite_token": {
+            "type": "string"
+          }
+        }
+      },
+      "PermissionSet": {
+        "type": "object",
+        "properties": {
+          "group_id": {
+            "type": "string"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "group_id",
+          "permissions"
+        ]
+      },
+      "PreferredLanguage": {
+        "type": "object",
+        "properties": {
+          "preferred_language": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "preferred_language"
+        ]
+      },
+      "PreferredLanguageRequest": {
+        "type": "object",
+        "properties": {
+          "preferred_language": {
+            "type": "string"
+          }
+        }
+      },
+      "RegisterRequest": {
+        "type": "object",
+        "properties": {
+          "identifier": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "account_invite_token": {
+            "type": "string"
+          }
+        }
+      },
+      "RegistrationCapabilities": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string"
+          },
+          "invite_token_required": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "mode",
+          "invite_token_required"
+        ]
+      },
+      "RegistrationResult": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/RegistrationUser"
+          },
+          "token_set": {
+            "$ref": "#/components/schemas/TokenSet"
+          }
+        },
+        "required": [
+          "user",
+          "token_set"
+        ]
+      },
+      "RegistrationUser": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string"
+          },
+          "email": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "phone_number": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "username",
+          "email",
+          "phone_number"
+        ]
+      },
+      "RemovedRole": {
+        "type": "object",
+        "properties": {
+          "group_id": {
+            "type": "string"
+          },
+          "persona": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "removed_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          }
+        },
+        "required": [
+          "group_id",
+          "persona",
+          "role",
+          "removed_at"
+        ]
+      },
+      "RemovedRoles": {
+        "type": "object",
+        "properties": {
+          "removed_roles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RemovedRole"
+            }
+          }
+        },
+        "required": [
+          "removed_roles"
+        ]
+      },
+      "ReturnToRequest": {
+        "type": "object",
+        "properties": {
+          "return_to": {
+            "type": "string"
+          }
+        }
+      },
+      "RoleInfo": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "permissions"
+        ]
+      },
+      "Session": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "last_used_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "expires_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "user_agent": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ip": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "current": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "last_used_at",
+          "expires_at",
+          "user_agent",
+          "ip",
+          "current"
+        ]
+      },
+      "SessionEvent": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "account_sessions_revoked",
+              "password_changed",
+              "password_recovery",
+              "session_created",
+              "session_failed",
+              "session_revoked"
+            ]
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "issuer": {
+            "type": "string"
+          },
+          "session_id": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "method": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ip": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "user_agent": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "occurred_at",
+          "issuer",
+          "session_id",
+          "method",
+          "reason",
+          "ip",
+          "user_agent"
+        ]
+      },
+      "SolanaAccount": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "publicKey": {
+            "type": "string"
+          }
+        }
+      },
+      "SolanaCapabilities": {
+        "type": "object",
+        "properties": {
+          "login": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "login"
+        ]
+      },
+      "SolanaChallenge": {
+        "type": "object",
+        "properties": {
+          "nonce": {
+            "type": "string"
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "nonce",
+          "issued_at",
+          "message"
+        ]
+      },
+      "SolanaChallengeRequest": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "SolanaLink": {
+        "type": "object",
+        "properties": {
+          "solana_address": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "solana_address"
+        ]
+      },
+      "SolanaLinkedAccount": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "issuer": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "verified": {
+            "type": "boolean"
+          },
+          "verified_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "primary_sns_name": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sns_resolution_status": {
+            "type": "string"
+          },
+          "sns_resolved_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sns_stale": {
+            "type": "boolean"
+          },
+          "sns_error": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "provider",
+          "issuer",
+          "address",
+          "verified",
+          "verified_at",
+          "primary_sns_name",
+          "sns_resolution_status",
+          "sns_resolved_at",
+          "sns_stale",
+          "sns_error"
+        ]
+      },
+      "SolanaLoginResult": {
+        "type": "object",
+        "properties": {
+          "token_set": {
+            "$ref": "#/components/schemas/TokenSet"
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "user": {
+            "$ref": "#/components/schemas/SolanaUser"
+          }
+        },
+        "required": [
+          "token_set",
+          "created",
+          "user"
+        ]
+      },
+      "SolanaSignInOutput": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "$ref": "#/components/schemas/SolanaAccount"
+          },
+          "signature": {
+            "type": "string"
+          },
+          "signedMessage": {
+            "type": "string"
+          }
+        }
+      },
+      "SolanaSignInRequest": {
+        "type": "object",
+        "properties": {
+          "output": {
+            "$ref": "#/components/schemas/SolanaSignInOutput"
+          }
+        }
+      },
+      "SolanaUser": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "solana_address": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "solana_address"
+        ]
+      },
+      "StepUpResult": {
+        "type": "object",
+        "properties": {
+          "token_set": {
+            "$ref": "#/components/schemas/TokenSet"
+          },
+          "fresh_auth": {
+            "$ref": "#/components/schemas/FreshAuth"
+          }
+        },
+        "required": [
+          "token_set",
+          "fresh_auth"
+        ]
+      },
+      "StepUpTwoFactorOption": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string"
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "verification_id": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "method",
+          "is_default",
+          "verification_id"
+        ]
+      },
+      "StepUpTwoFactorOptions": {
+        "type": "object",
+        "properties": {
+          "methods": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "default_method": {
+            "type": "string"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StepUpTwoFactorOption"
+            }
+          }
+        },
+        "required": [
+          "methods",
+          "default_method",
+          "options"
+        ]
+      },
+      "Subject": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "remote_application",
+              "user"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "kind"
+        ]
+      },
+      "TokenRefreshRequest": {
+        "type": "object",
+        "properties": {
+          "grant_type": {
+            "type": "string"
+          },
+          "refresh_token": {
+            "type": "string"
+          }
+        }
+      },
+      "TokenRequest": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "TokenSet": {
+        "type": "object",
+        "properties": {
+          "access_token": {
+            "type": "string"
+          },
+          "token_type": {
+            "type": "string"
+          },
+          "expires_in": {
+            "type": "integer"
+          },
+          "refresh_token": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "access_token",
+          "token_type",
+          "expires_in",
+          "refresh_token"
+        ]
+      },
+      "TwoFactorChallengeRequest": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string"
+          },
+          "challenge": {
+            "type": "string"
+          },
+          "factor_id": {
+            "type": "string"
+          }
+        }
+      },
+      "TwoFactorEnrollRequest": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "phone_number": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "default": {
+            "type": "boolean"
+          },
+          "factor_id": {
+            "type": "string"
+          }
+        }
+      },
+      "TwoFactorEnrollResult": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "secret": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "otpauth_uri": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "backup_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "token_set": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TokenSet"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fresh_auth": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FreshAuth"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "method",
+          "enabled",
+          "secret",
+          "otpauth_uri",
+          "backup_codes",
+          "token_set",
+          "fresh_auth"
+        ]
+      },
+      "TwoFactorFactor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "phone_number": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "email": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "method",
+          "is_default",
+          "phone_number",
+          "email"
+        ]
+      },
+      "TwoFactorStatus": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "method": {
+            "type": "string"
+          },
+          "phone_number": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "default_factor": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TwoFactorFactor"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "factors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TwoFactorFactor"
+            }
+          },
+          "allowed_methods": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "backup_codes_remaining": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "enabled",
+          "method",
+          "phone_number",
+          "default_factor",
+          "factors",
+          "allowed_methods",
+          "backup_codes_remaining"
+        ]
+      },
+      "TwoFactorStepUpRequest": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "factor_id": {
+            "type": "string"
+          },
+          "backup_code": {
+            "type": "boolean"
+          }
+        }
+      },
+      "TwoFactorVerifyRequest": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "challenge": {
+            "type": "string"
+          },
+          "factor_id": {
+            "type": "string"
+          },
+          "backup_code": {
+            "type": "boolean"
+          }
+        }
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "email": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "phone_number": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "username": {
+            "type": "string"
+          },
+          "email_verified": {
+            "type": "boolean"
+          },
+          "phone_verified": {
+            "type": "boolean"
+          },
+          "preferred_language": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "avatar_url": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "last_login": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deleted_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ban": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BanState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "phone_number",
+          "username",
+          "email_verified",
+          "phone_verified",
+          "preferred_language",
+          "avatar_url",
+          "created_at",
+          "updated_at",
+          "last_login",
+          "deleted_at",
+          "ban"
+        ]
+      },
+      "UserEntry": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "email": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "phone_number": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "username": {
+            "type": "string"
+          },
+          "email_verified": {
+            "type": "boolean"
+          },
+          "phone_verified": {
+            "type": "boolean"
+          },
+          "preferred_language": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "avatar_url": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "last_login": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deleted_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ban": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BanState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "root_role": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "entitlements": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "phone_number",
+          "username",
+          "email_verified",
+          "phone_verified",
+          "preferred_language",
+          "avatar_url",
+          "created_at",
+          "updated_at",
+          "last_login",
+          "deleted_at",
+          "ban",
+          "root_role",
+          "entitlements"
+        ]
+      },
+      "UserProfile": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "email": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "phone_number": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "username": {
+            "type": "string"
+          },
+          "email_verified": {
+            "type": "boolean"
+          },
+          "phone_verified": {
+            "type": "boolean"
+          },
+          "preferred_language": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "avatar_url": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "last_login": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deleted_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ban": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BanState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "has_password": {
+            "type": "boolean"
+          },
+          "solana_linked_account": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SolanaLinkedAccount"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "linked_providers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "entitlements": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "naming": {
+            "$ref": "#/components/schemas/NamingState"
+          },
+          "security": {
+            "$ref": "#/components/schemas/UserSecurity"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "phone_number",
+          "username",
+          "email_verified",
+          "phone_verified",
+          "preferred_language",
+          "avatar_url",
+          "created_at",
+          "updated_at",
+          "last_login",
+          "deleted_at",
+          "ban",
+          "has_password",
+          "solana_linked_account",
+          "linked_providers",
+          "roles",
+          "entitlements",
+          "naming",
+          "security"
+        ]
+      },
+      "UserSecurity": {
+        "type": "object",
+        "properties": {
+          "last_authenticated_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "time_until_step_up_required": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "step_up_required_for_sensitive_actions": {
+            "type": "boolean"
+          },
+          "step_up_methods": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "step_up_2fa": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StepUpTwoFactorOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mfa_enabled": {
+            "type": "boolean"
+          },
+          "mfa_satisfied": {
+            "type": "boolean"
+          },
+          "mfa_allowed_methods": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "last_authenticated_at",
+          "time_until_step_up_required",
+          "step_up_required_for_sensitive_actions",
+          "step_up_methods",
+          "step_up_2fa",
+          "mfa_enabled",
+          "mfa_satisfied",
+          "mfa_allowed_methods"
+        ]
+      },
+      "UsernameCapabilities": {
+        "type": "object",
+        "properties": {
+          "min_length": {
+            "type": "integer"
+          },
+          "max_length": {
+            "type": "integer"
+          },
+          "pattern": {
+            "type": "string"
+          },
+          "renames": {
+            "type": "boolean"
+          },
+          "rename_interval_seconds": {
+            "type": "integer"
+          },
+          "former_names": {
+            "$ref": "#/components/schemas/NamingPolicy"
+          }
+        },
+        "required": [
+          "min_length",
+          "max_length",
+          "pattern",
+          "renames",
+          "rename_interval_seconds",
+          "former_names"
+        ]
+      },
+      "UsernameChange": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string"
+          },
+          "naming": {
+            "$ref": "#/components/schemas/NamingState"
+          }
+        },
+        "required": [
+          "username",
+          "naming"
+        ]
+      },
+      "UsernameRequest": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "VerificationCapabilities": {
+        "type": "object",
+        "properties": {
+          "registration": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "registration"
+        ]
+      },
+      "APIKeyPage": {
+        "type": "object",
+        "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/APIKey"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor",
+          "total"
+        ]
+      },
+      "DeviceKeyPage": {
+        "type": "object",
+        "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeviceKey"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor",
+          "total"
+        ]
+      },
+      "GroupMemberPage": {
+        "type": "object",
+        "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GroupMember"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor",
+          "total"
+        ]
+      },
+      "InvitationPage": {
+        "type": "object",
+        "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Invitation"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor",
+          "total"
+        ]
+      },
+      "MembershipPage": {
+        "type": "object",
+        "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Membership"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor",
+          "total"
+        ]
+      },
+      "PasskeyPage": {
+        "type": "object",
+        "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Passkey"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor",
+          "total"
+        ]
+      },
+      "RoleInfoPage": {
+        "type": "object",
+        "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RoleInfo"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor",
+          "total"
+        ]
+      },
+      "SessionEventPage": {
+        "type": "object",
+        "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SessionEvent"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor",
+          "total"
+        ]
+      },
+      "SessionPage": {
+        "type": "object",
+        "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Session"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor",
+          "total"
+        ]
+      },
+      "UserEntryPage": {
+        "type": "object",
+        "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UserEntry"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor",
+          "total"
+        ]
+      },
+      "ErrorEnvelope": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorObject"
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "ErrorObject": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "param": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "metadata": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "code",
+          "message",
+          "param",
+          "metadata"
+        ],
+        "description": "type follows the status; code is stable (clients tolerate new ones); message is not contract."
+      }
+    },
+    "securitySchemes": {
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "An access token (JWT) or an API key."
+      }
+    }
+  },
+  "x-authkit-error-codes": {
+    "2fa_enrollment_required": {
+      "status": 403,
+      "message": "Two-factor authentication setup is required to finish signing in."
+    },
+    "2fa_factor_exists": {
+      "status": 409,
+      "message": "A two-factor method is already enrolled. Remove it before adding another."
+    },
+    "2fa_method_unavailable": {
+      "status": 400,
+      "message": "That two-factor method is unavailable."
+    },
+    "2fa_required": {
+      "status": 403,
+      "message": "Two-factor authentication is required."
+    },
+    "access_token_has_sub": {
+      "status": 401,
+      "message": "An access token must not carry a subject."
+    },
+    "access_token_wrong_typ": {
+      "status": 401,
+      "message": "The token type is wrong for an access token."
+    },
+    "account_authority_escalation": {
+      "status": 403,
+      "message": "That account holds authority you do not."
+    },
+    "account_disabled": {
+      "status": 401,
+      "message": "This account is disabled."
+    },
+    "account_exists_link_required": {
+      "status": 409,
+      "message": "An account with this email already exists. Sign in, then link the provider from your account page."
+    },
+    "account_recovery_expired": {
+      "status": 409,
+      "message": "The account recovery window has ended."
+    },
+    "account_recovery_required": {
+      "status": 409,
+      "message": "Confirm account recovery before signing in."
+    },
+    "address_mismatch": {
+      "status": 400,
+      "message": "The address does not match."
+    },
+    "address_required": {
+      "status": 400,
+      "message": "An address is required."
+    },
+    "api_key_expired": {
+      "status": 401,
+      "message": "The API key has expired."
+    },
+    "api_key_invalid": {
+      "status": 401,
+      "message": "The API key is invalid."
+    },
+    "api_key_not_found": {
+      "status": 404,
+      "message": "The API key was not found."
+    },
+    "api_key_revoked": {
+      "status": 401,
+      "message": "The API key has been revoked."
+    },
+    "auth_required_for_link": {
+      "status": 401,
+      "message": "Sign in before linking a provider."
+    },
+    "authentication_failed": {
+      "status": 401,
+      "message": "Authentication failed."
+    },
+    "avatar_url_invalid": {
+      "status": 400,
+      "message": "The avatar URL is invalid."
+    },
+    "bad_audience": {
+      "status": 401,
+      "message": "The token audience is not accepted."
+    },
+    "bad_issuer": {
+      "status": 401,
+      "message": "The token issuer is not trusted."
+    },
+    "bootstrap_database_not_empty": {
+      "status": 409,
+      "message": "The database is not empty; bootstrap refused."
+    },
+    "cannot_target_self": {
+      "status": 403,
+      "message": "You cannot perform this action on yourself."
+    },
+    "cannot_unlink_last_login_method": {
+      "status": 400,
+      "message": "You can't unlink your last way to sign in."
+    },
+    "challenge_expired": {
+      "status": 401,
+      "message": "Your verification session has expired. Start again."
+    },
+    "challenge_mismatch": {
+      "status": 401,
+      "message": "Authentication failed."
+    },
+    "challenge_not_found": {
+      "status": 401,
+      "message": "Your verification session has expired. Start again."
+    },
+    "code_expired": {
+      "status": 401,
+      "message": "This code has expired or can't be used again. Send a new code."
+    },
+    "confirmation_wrong_token_type": {
+      "status": 401,
+      "message": "This token type does not accept a confirmation claim."
+    },
+    "conflicting_subject": {
+      "status": 401,
+      "message": "The token carries conflicting subjects."
+    },
+    "contact_not_verified": {
+      "status": 409,
+      "message": "The email address or phone number is not verified."
+    },
+    "delegated_access_wrong_typ": {
+      "status": 401,
+      "message": "The token type is wrong for delegated access."
+    },
+    "delegation_authorizer_unavailable": {
+      "status": 503,
+      "message": "Delegation is unavailable."
+    },
+    "delegation_refused": {
+      "status": 403,
+      "message": "The delegation was refused."
+    },
+    "device_keys_disabled": {
+      "status": 403,
+      "message": "Device keys are disabled."
+    },
+    "email_already_verified": {
+      "status": 409,
+      "message": "Your email address is already verified."
+    },
+    "email_delivery_failed": {
+      "status": 502,
+      "message": "We couldn't deliver the email. Please try again, or contact support."
+    },
+    "email_in_use": {
+      "status": 400,
+      "message": "This email is already in use."
+    },
+    "email_unavailable": {
+      "status": 503,
+      "message": "Email is unavailable right now."
+    },
+    "entitlement_filter_unavailable": {
+      "status": 400,
+      "message": "Entitlement filtering is unavailable."
+    },
+    "external_invites_disabled": {
+      "status": 403,
+      "message": "Invite links are disabled."
+    },
+    "forbidden": {
+      "status": 403,
+      "message": "You don't have permission to do that."
+    },
+    "group_conflict": {
+      "status": 409,
+      "message": "The group id is taken by a deleted group or a group of another persona."
+    },
+    "group_not_found": {
+      "status": 404,
+      "message": "The group was not found."
+    },
+    "insufficient_authority": {
+      "status": 403,
+      "message": "You do not have the authority for this operation."
+    },
+    "internal_error": {
+      "status": 500,
+      "message": "Something went wrong on our side. Please try again."
+    },
+    "invalid_2fa_method": {
+      "status": 400,
+      "message": "The two-factor method is invalid."
+    },
+    "invalid_address": {
+      "status": 400,
+      "message": "The address is invalid."
+    },
+    "invalid_audiences": {
+      "status": 400,
+      "message": "The audiences are invalid."
+    },
+    "invalid_bootstrap_manifest": {
+      "status": 400,
+      "message": "The bootstrap manifest is invalid."
+    },
+    "invalid_challenge": {
+      "status": 401,
+      "message": "Your 2FA session is invalid or expired."
+    },
+    "invalid_code": {
+      "status": 401,
+      "message": "Invalid verification code."
+    },
+    "invalid_confirmation": {
+      "status": 401,
+      "message": "The confirmation claim is invalid."
+    },
+    "invalid_credentials": {
+      "status": 401,
+      "message": "Wrong email or password."
+    },
+    "invalid_delegate_certificate": {
+      "status": 400,
+      "message": "The delegate certificate is invalid."
+    },
+    "invalid_domain": {
+      "status": 401,
+      "message": "Authentication failed."
+    },
+    "invalid_email": {
+      "status": 400,
+      "message": "Please enter a valid email address."
+    },
+    "invalid_expiry": {
+      "status": 400,
+      "message": "The expiry is invalid."
+    },
+    "invalid_identifier": {
+      "status": 400,
+      "message": "Please enter a valid email address or phone number."
+    },
+    "invalid_invite": {
+      "status": 400,
+      "message": "The invite is invalid."
+    },
+    "invalid_link": {
+      "status": 400,
+      "message": "This link is invalid or has expired."
+    },
+    "invalid_message_encoding": {
+      "status": 400,
+      "message": "The message encoding is invalid."
+    },
+    "invalid_password": {
+      "status": 401,
+      "message": "Incorrect password. Please try again."
+    },
+    "invalid_phone_number": {
+      "status": 400,
+      "message": "Please enter a valid phone number."
+    },
+    "invalid_preferred_language": {
+      "status": 400,
+      "message": "The preferred language is invalid."
+    },
+    "invalid_provider": {
+      "status": 400,
+      "message": "That sign-in provider is not supported."
+    },
+    "invalid_remote_application": {
+      "status": 400,
+      "message": "The remote application is invalid."
+    },
+    "invalid_request": {
+      "status": 400,
+      "message": "Invalid request. Please check your input and try again."
+    },
+    "invalid_requested_grant": {
+      "status": 400,
+      "message": "The requested grant is invalid."
+    },
+    "invalid_service_jwt": {
+      "status": 401,
+      "message": "The service token is invalid."
+    },
+    "invalid_signature": {
+      "status": 401,
+      "message": "The wallet signature is invalid."
+    },
+    "invalid_signature_encoding": {
+      "status": 400,
+      "message": "The signature encoding is invalid."
+    },
+    "invalid_state": {
+      "status": 400,
+      "message": "The sign-in session is invalid. Please try again."
+    },
+    "invalid_timestamp": {
+      "status": 401,
+      "message": "Your verification session has expired. Start again."
+    },
+    "invalid_token": {
+      "status": 401,
+      "message": "The authentication token is invalid."
+    },
+    "invalid_ui": {
+      "status": 400,
+      "message": "The ui parameter is invalid."
+    },
+    "invalid_until": {
+      "status": 400,
+      "message": "The until value is invalid."
+    },
+    "invitation_expired": {
+      "status": 400,
+      "message": "The invitation has expired."
+    },
+    "invitation_not_found": {
+      "status": 404,
+      "message": "The invitation was not found."
+    },
+    "invitation_revoked": {
+      "status": 400,
+      "message": "The invitation was revoked."
+    },
+    "issuer_keys_unavailable": {
+      "status": 503,
+      "message": "The token issuer's signing keys are temporarily unavailable."
+    },
+    "last_owner": {
+      "status": 409,
+      "message": "The last owner cannot be removed."
+    },
+    "malformed_permissions": {
+      "status": 401,
+      "message": "The permissions claim is malformed."
+    },
+    "method_not_allowed": {
+      "status": 405,
+      "message": "That method is not allowed on this path."
+    },
+    "missing_audience": {
+      "status": 401,
+      "message": "The token carries no audience."
+    },
+    "missing_delegated_sub": {
+      "status": 401,
+      "message": "The delegated token carries no subject."
+    },
+    "missing_exp": {
+      "status": 401,
+      "message": "The token carries no expiry."
+    },
+    "missing_fields": {
+      "status": 400,
+      "message": "Please fill in all required fields."
+    },
+    "missing_iat": {
+      "status": 401,
+      "message": "The token carries no issued-at."
+    },
+    "missing_kid": {
+      "status": 401,
+      "message": "The token names no key."
+    },
+    "missing_name": {
+      "status": 400,
+      "message": "A name is required."
+    },
+    "missing_nbf": {
+      "status": 401,
+      "message": "The token carries no not-before."
+    },
+    "missing_session_id": {
+      "status": 400,
+      "message": "A session id is required."
+    },
+    "missing_sid_claim": {
+      "status": 400,
+      "message": "The token carries no session."
+    },
+    "missing_sub": {
+      "status": 401,
+      "message": "The token carries no subject."
+    },
+    "missing_token_typ": {
+      "status": 401,
+      "message": "The token carries no type."
+    },
+    "name_admission_refused": {
+      "status": 403,
+      "message": "That name was refused."
+    },
+    "no_session": {
+      "status": 401,
+      "message": "No session is signed in."
+    },
+    "not_delegated_access_token": {
+      "status": 401,
+      "message": "The token is not a delegated access token."
+    },
+    "not_found": {
+      "status": 404,
+      "message": "The requested resource was not found."
+    },
+    "not_implemented": {
+      "status": 501,
+      "message": "Not implemented."
+    },
+    "oidc_begin_failed": {
+      "status": 400,
+      "message": "The provider sign-in could not be started."
+    },
+    "oidc_exchange_failed": {
+      "status": 401,
+      "message": "The provider sign-in could not be completed."
+    },
+    "origin_not_allowed": {
+      "status": 403,
+      "message": "The request origin is not allowed."
+    },
+    "passkey_clone_detected": {
+      "status": 401,
+      "message": "The passkey appears to have been cloned."
+    },
+    "passkey_not_found": {
+      "status": 404,
+      "message": "The passkey was not found."
+    },
+    "passkey_required": {
+      "status": 403,
+      "message": "This account signs in with a passkey. Use your passkey to continue."
+    },
+    "passkey_user_verification_required": {
+      "status": 401,
+      "message": "The passkey must verify the user."
+    },
+    "password_change_failed": {
+      "status": 400,
+      "message": "The password could not be changed."
+    },
+    "password_contains_identifier": {
+      "status": 400,
+      "message": "Password can't contain your username or email."
+    },
+    "password_requirements_unmet": {
+      "status": 400,
+      "message": "Password doesn't meet the requirements."
+    },
+    "password_reset_required": {
+      "status": 401,
+      "message": "A password reset is required before you can sign in."
+    },
+    "password_too_common": {
+      "status": 400,
+      "message": "This password is too common. Choose a less predictable one."
+    },
+    "password_too_long": {
+      "status": 400,
+      "message": "Password is too long."
+    },
+    "password_too_short": {
+      "status": 400,
+      "message": "Password is too short."
+    },
+    "passwordless_disabled": {
+      "status": 403,
+      "message": "Passwordless sign-in is disabled."
+    },
+    "permission_not_granted": {
+      "status": 403,
+      "message": "The token claims a permission it was not granted."
+    },
+    "phone_already_verified": {
+      "status": 409,
+      "message": "Your phone number is already verified."
+    },
+    "phone_in_use": {
+      "status": 400,
+      "message": "This phone number is already in use."
+    },
+    "phone_number_must_be_e164": {
+      "status": 400,
+      "message": "Enter the phone number in international format, e.g. +1234567890."
+    },
+    "phone_number_required": {
+      "status": 400,
+      "message": "A phone number is required."
+    },
+    "provider_already_linked": {
+      "status": 409,
+      "message": "This provider account is already linked to a different user."
+    },
+    "provider_change_requires_unlink": {
+      "status": 409,
+      "message": "Unlink the current account before linking another."
+    },
+    "provider_error": {
+      "status": 400,
+      "message": "The provider returned an error. Please try again."
+    },
+    "provider_not_linked": {
+      "status": 400,
+      "message": "That provider is not linked."
+    },
+    "provider_unavailable": {
+      "status": 503,
+      "message": "The sign-in provider is temporarily unavailable. Try again shortly."
+    },
+    "rate_limited": {
+      "status": 429,
+      "message": "Too many attempts. Please try again later."
+    },
+    "registration_disabled": {
+      "status": 403,
+      "message": "Registration is currently disabled."
+    },
+    "remote_application_access_has_subject": {
+      "status": 401,
+      "message": "A remote-application token must not carry a subject."
+    },
+    "remote_application_issuer_conflict": {
+      "status": 409,
+      "message": "That issuer already belongs to another remote application."
+    },
+    "remote_application_not_found": {
+      "status": 404,
+      "message": "The remote application was not found."
+    },
+    "rename_rate_limited": {
+      "status": 429,
+      "message": "Too many username changes. Please try again later."
+    },
+    "renames_disabled": {
+      "status": 403,
+      "message": "Username changes are disabled."
+    },
+    "reserved_issuer": {
+      "status": 400,
+      "message": "That issuer is reserved."
+    },
+    "role_assignment_escalation": {
+      "status": 403,
+      "message": "That role confers authority you do not hold."
+    },
+    "role_not_assignable": {
+      "status": 400,
+      "message": "The role cannot be assigned in this group."
+    },
+    "sender_proof_required": {
+      "status": 401,
+      "message": "The token requires sender proof."
+    },
+    "service_jwt_lifetime_exceeded": {
+      "status": 401,
+      "message": "The service token lifetime is too long."
+    },
+    "session_revoked": {
+      "status": 401,
+      "message": "Your session has ended. Please sign in again."
+    },
+    "sms_delivery_failed": {
+      "status": 502,
+      "message": "We couldn't deliver the text message. Please try again, or contact support."
+    },
+    "sms_unavailable": {
+      "status": 503,
+      "message": "SMS is currently unavailable. Please use email instead."
+    },
+    "step_up_required": {
+      "status": 403,
+      "message": "Please confirm it's you to continue."
+    },
+    "subject_mfa_required": {
+      "status": 409,
+      "message": "The account must enroll two-factor authentication before it can hold this role."
+    },
+    "token_expired": {
+      "status": 401,
+      "message": "Your session has expired. Please sign in again."
+    },
+    "token_not_yet_valid": {
+      "status": 401,
+      "message": "The token is not yet valid."
+    },
+    "ttl_exceeds_delegate_certificate": {
+      "status": 400,
+      "message": "The TTL exceeds the delegate certificate."
+    },
+    "unauthenticated": {
+      "status": 401,
+      "message": "Please sign in to continue."
+    },
+    "unknown_group_persona": {
+      "status": 400,
+      "message": "Unknown group persona."
+    },
+    "unknown_kid": {
+      "status": 401,
+      "message": "The token names an unknown key."
+    },
+    "unknown_provider": {
+      "status": 400,
+      "message": "Unknown sign-in provider."
+    },
+    "unsupported_media_type": {
+      "status": 415,
+      "message": "Request bodies must be JSON (Content-Type: application/json)."
+    },
+    "unsupported_token_typ": {
+      "status": 401,
+      "message": "The token type is not supported."
+    },
+    "user_banned": {
+      "status": 401,
+      "message": "Your account is disabled."
+    },
+    "user_not_found": {
+      "status": 404,
+      "message": "User not found."
+    },
+    "user_referenced": {
+      "status": 409,
+      "message": "The user is still referenced."
+    },
+    "username_cannot_contain_at": {
+      "status": 400,
+      "message": "Username cannot contain @."
+    },
+    "username_cannot_start_with_plus": {
+      "status": 400,
+      "message": "Username cannot start with +."
+    },
+    "username_in_use": {
+      "status": 400,
+      "message": "This username is already in use."
+    },
+    "username_invalid_characters": {
+      "status": 400,
+      "message": "Username can only contain letters, numbers, and underscores (_)."
+    },
+    "username_must_start_with_letter": {
+      "status": 400,
+      "message": "Username must start with a letter."
+    },
+    "username_not_allowed": {
+      "status": 400,
+      "message": "This username is not allowed."
+    },
+    "username_too_long": {
+      "status": 400,
+      "message": "Username is too long."
+    },
+    "username_too_short": {
+      "status": 400,
+      "message": "Username is too short."
+    },
+    "verification_required": {
+      "status": 403,
+      "message": "Verify your contact details to continue."
+    },
+    "wallet_already_linked": {
+      "status": 409,
+      "message": "That wallet is already linked to another account."
+    },
+    "wallet_change_requires_unlink": {
+      "status": 409,
+      "message": "Unlink your current wallet before connecting another."
+    }
+  }
+}

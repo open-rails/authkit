@@ -63,9 +63,7 @@ describe("refresh", () => {
     "ends a live session when refresh is rejected with %i",
     async (status) => {
       const client = createAuthClient({
-        fetch: vi
-          .fn()
-          .mockResolvedValue(authError(status, "invalid_token")),
+        fetch: vi.fn().mockResolvedValue(authError(status, "invalid_token")),
       })
       await signIn(client)
       expect(await client.refresh()).toBe(false)
@@ -193,7 +191,7 @@ describe("requests", () => {
         seen.push(new Headers(headers).get("Authorization"))
         return seen.length === 1
           ? authError(401, "invalid_token")
-          : json(200, { object: "list", data: [] })
+          : json(200, { data: [], next_cursor: null, total: null })
       },
       "POST /api/v1/token": () => tokens("u1"),
     })
@@ -322,11 +320,15 @@ describe("flows", () => {
     const client = createAuthClient({
       fetch: stubFetch({
         "POST /api/v1/register": [
-          json(202, { next_action: "verify_email", user }),
-          json(202, {
-            next_action: "none",
+          new Response(null, { status: 202 }),
+          json(200, {
             user,
-            token_set: { access_token: jwt("u2") },
+            token_set: {
+              access_token: jwt("u2"),
+              token_type: "Bearer",
+              expires_in: 900,
+              refresh_token: null,
+            },
           }),
         ],
       }),

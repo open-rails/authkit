@@ -21,13 +21,14 @@ import type {
   ListPage,
   NamingState,
   PermissionSet,
-  Registration,
-  RemovedMfaRole,
-  TokenSet,
+  RegistrationResult,
+  RegistrationUser,
+  RemovedRoles,
+  SessionTokens,
   TwoFactorMethod,
   TwoFactorStatus,
   UserProfile,
-  UserSession,
+  Session,
 } from "./types.ts"
 
 // Durable refresh-token home for mounts without the refresh cookie. Cookie
@@ -125,6 +126,13 @@ export type RequestOptions = {
   bearer?: string | null
 }
 
+// A registration: signed in, or waiting on the code sent to the identifier.
+export type Registration = {
+  next_action: "none" | "verify_email" | "verify_phone"
+  user: RegistrationUser
+  signedIn: boolean
+}
+
 export type TwoFactorEnrollResult =
   | { kind: "default_set" }
   | { kind: "code_sent" }
@@ -170,7 +178,7 @@ const rec = (v: unknown): Rec =>
 const str = (v: unknown): string | undefined =>
   typeof v === "string" && v ? v : undefined
 
-function tokenSetIn(body: unknown): TokenSet | null {
+function tokenSetIn(body: unknown): SessionTokens | null {
   const b = rec(body)
   const t = b.access_token ? b : rec(b.token_set)
   const access = str(t.access_token)
@@ -276,7 +284,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
 
   // mode "login" starts a new session; "refresh" continues the current one.
   const commit = (
-    tokens: TokenSet,
+    tokens: SessionTokens,
     expected: number,
     mode: "login" | "refresh"
   ) => {
@@ -879,9 +887,10 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       username: string
       password: string
       accountInviteToken?: string
-    }): Promise<Omit<Registration, "token_set"> & { signedIn: boolean }> => {
+    }): Promise<Registration> => {
       const gen = generation
-      const out = await request<Registration>("POST", "/register", {
+      // 202: a code went to the identifier; 200: registered and signed in.
+      const { status, body } = await exchange("POST", "/register", {
         bearer: null,
         body: {
           identifier: input.identifier,
@@ -890,12 +899,21 @@ export function createAuthClient(options: AuthClientOptions = {}) {
           account_invite_token: input.accountInviteToken,
         },
       })
-      const tokens = out.token_set ? tokenSetIn(out.token_set) : null
-      if (tokens) commit(tokens, gen, "login")
+      if (status === 200) {
+        const out = body as RegistrationResult
+        const tokens = tokenSetIn(out.token_set)
+        if (tokens) commit(tokens, gen, "login")
+        return { next_action: "none", user: out.user, signedIn: !!tokens }
+      }
+      const email = input.identifier.includes("@")
       return {
-        next_action: out.next_action,
-        user: out.user,
-        signedIn: !!tokens,
+        next_action: email ? "verify_email" : "verify_phone",
+        user: {
+          username: input.username,
+          email: email ? input.identifier.trim() : null,
+          phone_number: email ? null : input.identifier.trim(),
+        },
+        signedIn: false,
       }
     },
 
@@ -1022,7 +1040,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
         makeDefault?: boolean
         factorId?: string
       },
-      opts: { enrollmentToken?: TokenSet } = {}
+      opts: { enrollmentToken?: SessionTokens } = {}
     ): Promise<TwoFactorEnrollResult> => {
       const gen = generation
       let res: { status: number; body: unknown }
@@ -1069,7 +1087,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     },
 
     disableTwoFactor: (input: { factorId?: string } = {}) =>
-      request<{ removed_roles: RemovedMfaRole[] }>("DELETE", "/user/2fa", {
+      request<RemovedRoles>("DELETE", "/user/2fa", {
         query: { factor_id: input.factorId },
       }).then((r) => r.removed_roles),
 
@@ -1141,7 +1159,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       ),
 
     listSessions: (signal?: AbortSignal) =>
-      request<ListPage<UserSession>>("GET", "/user/sessions", { signal }).then(
+      request<ListPage<Session>>("GET", "/user/sessions", { signal }).then(
         (r) => r.data
       ),
 

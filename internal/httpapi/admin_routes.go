@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -19,19 +18,25 @@ import (
 // userQuery parses the directory query: cursor, limit, search, root_role,
 // status, sort, order (default desc), entitlement.
 func (s *Service) userQuery(r *http.Request) (iam.UserQuery, error) {
-	q := r.URL.Query()
-	limit, _ := strconv.Atoi(q.Get("limit"))
+	var q UserListQuery
+	if err := decodeQuery(r, &q); err != nil {
+		return iam.UserQuery{}, err
+	}
+	page, err := q.Page()
+	if err != nil {
+		return iam.UserQuery{}, err
+	}
 	out := iam.UserQuery{
-		Search:      strings.TrimSpace(q.Get("search")),
-		Status:      iam.UserStatus(strings.TrimSpace(q.Get("status"))),
-		Entitlement: strings.TrimSpace(q.Get("entitlement")),
-		Sort:        iam.UserSort(strings.TrimSpace(q.Get("sort"))),
-		Desc:        !strings.EqualFold(strings.TrimSpace(q.Get("order")), "asc"),
-		Page:        iam.PageRequest{Cursor: strings.TrimSpace(q.Get("cursor")), Limit: limit},
+		Search:      q.Search,
+		Status:      iam.UserStatus(q.Status),
+		Entitlement: q.Entitlement,
+		Sort:        iam.UserSort(q.Sort),
+		Desc:        !strings.EqualFold(q.Order, "asc"),
+		Page:        page,
 		// The admin views show every account's entitlements.
 		WithEntitlements: true,
 	}
-	if text := strings.TrimSpace(q.Get("root_role")); text != "" {
+	if text := q.RootRole; text != "" {
 		role, err := s.groupRole(iam.RootPersona, text)
 		if err != nil {
 			return iam.UserQuery{}, err
@@ -44,7 +49,7 @@ func (s *Service) userQuery(r *http.Request) (iam.UserQuery, error) {
 func (s *Service) handleAdminUsersListGET(w http.ResponseWriter, r *http.Request) {
 	q, err := s.userQuery(r)
 	if err != nil {
-		writeError(w, remap(err, notFoundCodes, groupOpCodes))
+		writeError(w, err)
 		return
 	}
 	page, err := s.svc.ListUsers(r.Context(), q)
@@ -52,7 +57,7 @@ func (s *Service) handleAdminUsersListGET(w http.ResponseWriter, r *http.Request
 		writeError(w, err)
 		return
 	}
-	writeList(w, page.Items, page.Next)
+	list(w, page)
 }
 
 func (s *Service) handleAdminUserGET(w http.ResponseWriter, r *http.Request) {
@@ -83,11 +88,7 @@ func accountActor(w http.ResponseWriter, r *http.Request) (iam.Actor, string, bo
 }
 
 func (s *Service) handleAdminUsersBanPOST(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Reason       string  `json:"reason"`
-		Until        *string `json:"until"`
-		KeepExisting bool    `json:"keep_existing"`
-	}
+	var req BanRequest
 	if err := decodeOptionalJSON(r, &req); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
@@ -146,12 +147,11 @@ func (s *Service) handleAdminUserSessionsRevokePOST(w http.ResponseWriter, r *ht
 	if !ok {
 		return
 	}
-	result, err := s.svc.RevokeAccountSessions(r.Context(), actor, target)
-	if err != nil {
+	if _, err := s.svc.RevokeAccountSessions(r.Context(), actor, target); err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	noContent(w)
 }
 
 func (s *Service) handleAdminUserRestorePOST(w http.ResponseWriter, r *http.Request) {

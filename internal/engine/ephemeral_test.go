@@ -254,15 +254,16 @@ func TestDPoPReplayStoreOutageFailsClosed(t *testing.T) {
 	}
 	res := mint(testdpop.Proof(t, browserKey, http.MethodPost, target, session, nil))
 	require.Equal(t, http.StatusOK, res.Code, res.Body.String())
-	var minted httpapi.DelegatedTokenResponse
+	var minted iam.TokenSet
 	require.NoError(t, json.Unmarshal(res.Body.Bytes(), &minted))
+	require.Equal(t, "DPoP", minted.TokenType)
 
 	const resource = "https://resource.example"
 	v := verify.NewVerifier(verify.WithDPoP(e.ClaimDPoPProof), verify.WithRequestOrigin(resource))
 	require.NoError(t, v.AddIssuer(cfg.Token.Issuer, []string{"platform"}, verify.IssuerOptions{KeySource: deps.KeySource}))
 	req := httptest.NewRequest(http.MethodGet, resource+"/tasks", nil)
-	req.Header.Set("Authorization", "DPoP "+minted.Token)
-	req.Header.Set("DPoP", testdpop.Proof(t, browserKey, http.MethodGet, resource+"/tasks", minted.Token, nil))
+	req.Header.Set("Authorization", "DPoP "+minted.AccessToken)
+	req.Header.Set("DPoP", testdpop.Proof(t, browserKey, http.MethodGet, resource+"/tasks", minted.AccessToken, nil))
 
 	restore := failEphemeral(t, pg.Pool, "INSERT OR UPDATE", "NEW", "dpop:proof:")
 	mintProof := testdpop.Proof(t, browserKey, http.MethodPost, target, session, nil)

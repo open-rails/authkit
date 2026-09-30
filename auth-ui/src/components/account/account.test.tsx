@@ -352,13 +352,13 @@ describe("SessionsPanel", () => {
   it("marks this device and signs out the selected sessions in one batch", async () => {
     const revoked: string[] = []
     const row = (id: string, ua: string) => ({
-      session_id: id,
-      family_id: "f",
+      id,
       created_at: new Date().toISOString(),
       last_used_at: new Date().toISOString(),
-      expires_at: "",
+      expires_at: null,
       ip: "10.0.0.1",
-      ua,
+      user_agent: ua,
+      current: id === "s1",
     })
     const mac =
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
@@ -367,8 +367,9 @@ describe("SessionsPanel", () => {
     const { user } = await renderSignedIn(<SessionsPanel />, {
       "GET /api/v1/user/sessions": () =>
         json(200, {
-          object: "list",
           data: [row("s2", mac), row("s1", mac), row("s3", iphone)],
+          next_cursor: null,
+          total: null,
         }),
       "DELETE /api/v1/user/sessions/s2": (init) => {
         revoked.push(init.url.split("/").pop()!)

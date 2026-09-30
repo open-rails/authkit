@@ -62,7 +62,7 @@ func TestNewServesConfiguredCapabilities(t *testing.T) {
 			MinLength    int  `json:"min_length"`
 			MaxLength    int  `json:"max_length"`
 			RequireDigit bool `json:"require_digit"`
-			RejectCommon bool `json:"reject_common"`
+			AllowCommon  bool `json:"allow_common"`
 		} `json:"password"`
 		Passwordless struct {
 			Enabled bool `json:"enabled"`
@@ -73,9 +73,9 @@ func TestNewServesConfiguredCapabilities(t *testing.T) {
 		Verification struct {
 			Registration string `json:"registration"`
 		} `json:"verification"`
-		Channels  map[string]bool   `json:"channels"`
-		Languages []string          `json:"languages"`
-		Paths     map[string]string `json:"paths"`
+		Channels  map[string]bool `json:"channels"`
+		Languages []string        `json:"languages"`
+		Paths     map[string]any  `json:"paths"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &caps))
 	require.Equal(t, "invite_only", caps.Registration.Mode)
@@ -88,13 +88,13 @@ func TestNewServesConfiguredCapabilities(t *testing.T) {
 	require.Equal(t, 12, caps.Password.MinLength)
 	require.Equal(t, 128, caps.Password.MaxLength)
 	require.True(t, caps.Password.RequireDigit)
-	require.False(t, caps.Password.RejectCommon)
+	require.False(t, caps.Password.AllowCommon, "a policy set for its lengths keeps the common-password blocklist")
 	require.True(t, caps.Passwordless.Enabled)
 	require.True(t, caps.Solana.Login)
 	require.Equal(t, "optional", caps.Verification.Registration)
 	require.Equal(t, []string{"en", "es"}, caps.Languages)
 	require.Equal(t, map[string]bool{"email": false, "sms": false}, caps.Channels, "no senders, no channels")
-	require.Equal(t, map[string]string{"api": "/auth", "jwks": iam.JWKSPath}, caps.Paths, "a root issuer keeps root anchors; no providers, no OIDC")
+	require.Equal(t, map[string]any{"api": "/auth", "jwks": iam.JWKSPath, "oidc": nil}, caps.Paths, "a root issuer keeps root anchors; no providers, no OIDC")
 
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/capabilities", nil))

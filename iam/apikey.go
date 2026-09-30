@@ -30,7 +30,7 @@ type APIKey struct {
 	Name        string     `json:"name"`
 	Role        Role       `json:"role"`
 	Permissions []Perm     `json:"permissions"`
-	CreatedBy   string     `json:"created_by"` // "" = issued by the system
+	CreatedBy   *string    `json:"created_by"` // nil = issued by the system
 	CreatedAt   time.Time  `json:"created_at"`
 	LastUsedAt  *time.Time `json:"last_used_at"`
 	ExpiresAt   *time.Time `json:"expires_at"`

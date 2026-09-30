@@ -9,21 +9,12 @@ import (
 	"github.com/open-rails/authkit/internal/errmodel"
 )
 
-type registrationAvailabilityField struct {
-	Available bool   `json:"available"`
-	Error     string `json:"error,omitempty"`
-}
-
-type registrationAvailabilityResponse struct {
-	Username    *registrationAvailabilityField `json:"username,omitempty"`
-	Email       *registrationAvailabilityField `json:"email,omitempty"`
-	PhoneNumber *registrationAvailabilityField `json:"phone_number,omitempty"`
-}
-
 func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.Request) {
-	username := strings.TrimSpace(r.URL.Query().Get("username"))
-	email := strings.TrimSpace(r.URL.Query().Get("email"))
-	phone := strings.TrimSpace(r.URL.Query().Get("phone_number"))
+	var q AvailabilityQuery
+	if !readQuery(w, r, &q) {
+		return
+	}
+	username, email, phone := q.Username, q.Email, q.PhoneNumber
 	if username == "" && email == "" && phone == "" {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
@@ -32,21 +23,21 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 	// When public registration is disabled, never report a name or email as
 	// usable: every requested field is unavailable with a stable reason.
 	if s.publicRegistrationDisabled() {
-		resp := registrationAvailabilityResponse{}
+		resp := Availability{}
 		if username != "" {
-			resp.Username = &registrationAvailabilityField{Available: false, Error: errmodel.CodeRegistrationDisabled.String()}
+			resp.Username = unavailable(errmodel.CodeRegistrationDisabled.String())
 		}
 		if email != "" {
-			resp.Email = &registrationAvailabilityField{Available: false, Error: errmodel.CodeRegistrationDisabled.String()}
+			resp.Email = unavailable(errmodel.CodeRegistrationDisabled.String())
 		}
 		if phone != "" {
-			resp.PhoneNumber = &registrationAvailabilityField{Available: false, Error: errmodel.CodeRegistrationDisabled.String()}
+			resp.PhoneNumber = unavailable(errmodel.CodeRegistrationDisabled.String())
 		}
 		writeJSON(w, http.StatusOK, resp)
 		return
 	}
 
-	resp := registrationAvailabilityResponse{}
+	resp := Availability{}
 
 	// Username and email conflicts are answered by ONE combined query:
 	// CheckPendingRegistrationConflict → UserEmailOrUsernameTaken returns BOTH
@@ -66,7 +57,7 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 				serverErr(w, "database_error", nil)
 				return
 			}
-			resp.Username = &registrationAvailabilityField{Available: false, Error: code.String()}
+			resp.Username = unavailable(code.String())
 		} else {
 			checkUsername = strings.TrimSpace(username)
 			usernameNeedsConflictCheck = true
@@ -74,7 +65,7 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 	}
 	if email != "" {
 		if err := contact.ValidateEmail(email); err != nil {
-			resp.Email = &registrationAvailabilityField{Available: false, Error: authflow.ValidationErrorCode(err).String()}
+			resp.Email = unavailable(authflow.ValidationErrorCode(err).String())
 		} else {
 			checkEmail = contact.NormalizeEmail(email)
 			emailNeedsConflictCheck = true
@@ -90,16 +81,16 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 		}
 		if usernameNeedsConflictCheck {
 			if usernameTaken {
-				resp.Username = &registrationAvailabilityField{Available: false, Error: "username_in_use"}
+				resp.Username = unavailable("username_in_use")
 			} else {
-				resp.Username = &registrationAvailabilityField{Available: true}
+				resp.Username = &AvailabilityField{Available: true}
 			}
 		}
 		if emailNeedsConflictCheck {
 			if emailTaken {
-				resp.Email = &registrationAvailabilityField{Available: false, Error: "email_in_use"}
+				resp.Email = unavailable("email_in_use")
 			} else {
-				resp.Email = &registrationAvailabilityField{Available: true}
+				resp.Email = &AvailabilityField{Available: true}
 			}
 		}
 	}
@@ -117,9 +108,9 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func (s *Service) registrationPhoneAvailability(r *http.Request, phone string) (*registrationAvailabilityField, error) {
+func (s *Service) registrationPhoneAvailability(r *http.Request, phone string) (*AvailabilityField, error) {
 	if err := contact.ValidatePhone(phone); err != nil {
-		return &registrationAvailabilityField{Available: false, Error: authflow.ValidationErrorCode(err).String()}, nil
+		return unavailable(authflow.ValidationErrorCode(err).String()), nil
 	}
 	phone = contact.NormalizePhone(phone)
 
@@ -128,8 +119,12 @@ func (s *Service) registrationPhoneAvailability(r *http.Request, phone string) (
 		return nil, err
 	}
 	if phoneTaken {
-		return &registrationAvailabilityField{Available: false, Error: "phone_in_use"}, nil
+		return unavailable("phone_in_use"), nil
 	}
 
-	return &registrationAvailabilityField{Available: true}, nil
+	return &AvailabilityField{Available: true}, nil
+}
+
+func unavailable(code string) *AvailabilityField {
+	return &AvailabilityField{Error: &code}
 }

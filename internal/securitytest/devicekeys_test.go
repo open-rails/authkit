@@ -43,7 +43,7 @@ func (k *deviceKey) sign(t *testing.T, domain, challenge string) string {
 func (h *host) deviceEnroll(k *deviceKey, email string, secondFactor func() string) response {
 	h.t.Helper()
 	resp := h.post("/device-keys/enroll/begin", map[string]string{"email": email, "public_key": k.public, "label": "laptop"}, "")
-	require.Equal(h.t, http.StatusAccepted, resp.status, resp.String())
+	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
 	var begin struct {
 		EnrollmentID string `json:"enrollment_id"`
 		Challenge    string `json:"challenge"`
@@ -78,7 +78,7 @@ func (h *host) keepDeviceKey(k *deviceKey, resp response) response {
 func (h *host) deviceLogin(k *deviceKey) response {
 	h.t.Helper()
 	resp := h.post("/device-keys/login/begin", map[string]string{"device_key_id": k.id}, "")
-	require.Equal(h.t, http.StatusAccepted, resp.status, resp.String())
+	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
 	var begin struct {
 		ChallengeID string `json:"challenge_id"`
 		Challenge   string `json:"challenge"`

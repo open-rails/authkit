@@ -11,10 +11,7 @@ import (
 )
 
 func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		GrantType    string `json:"grant_type"`
-		RefreshToken string `json:"refresh_token"`
-	}
+	var body TokenRefreshRequest
 	if err := decodeJSON(r, &body); err != nil || !strings.EqualFold(body.GrantType, "refresh_token") {
 		fail(w, errmodel.CodeInvalidRequest)
 		return

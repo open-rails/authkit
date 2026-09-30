@@ -104,7 +104,7 @@ func TestOperationsJoinTheHostTransaction(t *testing.T) {
 		require.Equal(t, iam.GroupMember{Subject: iam.UserSubject(mod.ID), Role: member}, seated)
 		invited, err := auth.EnsureUserRole(ctx, iam.GroupByID(g.ID), iam.UserByEmail(n+"-invited@example.test"), member, authkit.InTx(tx))
 		require.NoError(t, err)
-		require.Equal(t, n+"-invited@example.test", invited.Email, "read inside the transaction")
+		require.Equal(t, n+"-invited@example.test", *invited.Email, "read inside the transaction")
 		return g, mod, invited
 	}
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/cursor"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 )
@@ -33,7 +34,7 @@ func (s *Engine) ListSessionEvents(ctx context.Context, userID string, q iam.Ses
 	if err := s.requirePG(); err != nil {
 		return out, err
 	}
-	after, err := decodePageCursor(q.Page.Cursor, 2)
+	after, err := cursor.Keys(q.Page.Cursor, 2)
 	if err != nil {
 		return out, err
 	}
@@ -58,13 +59,13 @@ func (s *Engine) ListSessionEvents(ctx context.Context, userID string, q iam.Ses
 	}
 	for _, r := range rows[:min(len(rows), limit)] {
 		out.Items = append(out.Items, iam.SessionEvent{
-			Kind: iam.SessionEventKind(r.Event), OccurredAt: r.OccurredAt, Issuer: r.Issuer, SessionID: r.SessionID,
-			Method: deref(r.Method), Reason: deref(r.Reason), IP: deref(r.IpAddr), UserAgent: deref(r.UserAgent),
+			Kind: iam.SessionEventKind(r.Event), OccurredAt: r.OccurredAt, Issuer: r.Issuer, SessionID: nullable(r.SessionID),
+			Method: nullable(deref(r.Method)), Reason: nullable(deref(r.Reason)), IP: nullable(deref(r.IpAddr)), UserAgent: nullable(deref(r.UserAgent)),
 		})
 	}
 	if len(rows) > limit {
 		last := rows[limit-1]
-		out.Next = encodePageCursor(last.OccurredAt.UTC().Format(time.RFC3339Nano), strconv.FormatInt(last.ID, 10))
+		out.Next = pageCursor(last.OccurredAt.UTC().Format(time.RFC3339Nano), strconv.FormatInt(last.ID, 10))
 	}
 	return out, nil
 }

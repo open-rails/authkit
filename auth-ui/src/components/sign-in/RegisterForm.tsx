@@ -11,7 +11,11 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import { useEffect, useState, type ReactNode } from "react"
 
-import type { Availability, UsernamePolicy } from "#authui/client/types"
+import type {
+  Availability,
+  AvailabilityField,
+  UsernameCapabilities,
+} from "#authui/client/types"
 import { useMessages } from "#authui/i18n/context"
 import { useCapabilities } from "#authui/react/context"
 import { useLogin } from "#authui/react/useLogin"
@@ -70,7 +74,10 @@ const fieldOf = (code: string) =>
         ? "password"
         : null
 
-function usernameIssue(policy: UsernamePolicy | undefined, value: string) {
+function usernameIssue(
+  policy: UsernameCapabilities | undefined,
+  value: string
+) {
   if (!policy || !value) return null
   if (value.length < policy.min_length) return "username_too_short"
   if (value.length > policy.max_length) return "username_too_long"
@@ -168,7 +175,7 @@ function useAvailability(
   const current = check?.key === key ? check.out : null
   const status = (
     asked: boolean,
-    field: { available: boolean; error?: string } | undefined,
+    field: AvailabilityField | null | undefined,
     fallback: string
   ): Status => {
     if (!asked) return null
@@ -290,9 +297,17 @@ function RegisterFields({
     unavailable(availability.username) ??
     (touched && !username.trim()
       ? t("validation.usernameRequired")
-      : touched && localUsername
-        ? describe(localUsername)
-        : null)
+      : touched && localUsername === "username_too_short"
+        ? t("validation.usernameTooShort", {
+            min: usernamePolicy?.min_length ?? 0,
+          })
+        : touched && localUsername === "username_too_long"
+          ? t("validation.usernameTooLong", {
+              max: usernamePolicy?.max_length ?? 0,
+            })
+          : touched && localUsername
+            ? describe(localUsername)
+            : null)
   const passwordError = server("password") ?? (touched ? localPassword : null)
 
   return (

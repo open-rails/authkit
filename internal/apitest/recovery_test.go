@@ -119,7 +119,7 @@ func TestAccountRecoveryUsesExistingCredentialAndMFACeremonies(t *testing.T) {
 	var creation protocol.CredentialCreation
 	res.decode(t, &creation)
 	res = a.post("/passkeys/register/finish", keyToken, authn.Register(t, &creation))
-	require.Equal(t, http.StatusOK, res.status, res.String())
+	require.Equal(t, http.StatusCreated, res.status, res.String())
 	remove(keyUser.ID)
 	res = a.post("/passkeys/login/begin", "", map[string]any{})
 	require.Equal(t, http.StatusOK, res.status, res.String())

@@ -17,10 +17,7 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	var body struct {
-		CurrentPassword string `json:"current_password"`
-		NewPassword     string `json:"new_password"`
-	}
+	var body PasswordChangeRequest
 	if err := decodeJSON(r, &body); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
@@ -33,7 +30,7 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	var authMeta map[string]any
+	var stepUp *StepUpResult
 	if err := s.svc.CheckRecentSignIn(r.Context(), claims); err != nil {
 		// MFA-if-enrolled: the current password alone never clears the gate
 		// for an account with a second factor (M5).
@@ -54,13 +51,12 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
-		var err error
-		authMeta, err = s.freshAccessTokenResponse(r, claims.UserID, claims.SessionID, freshness)
+		fresh, err := s.freshAccessTokenResponse(r, claims.UserID, claims.SessionID, freshness)
 		if err != nil {
 			serverErr(w, "token_issue_failed", err)
 			return
 		}
-		delete(authMeta, "ok")
+		stepUp = &fresh
 	}
 
 	keep := keepCredential(claims)
@@ -92,9 +88,9 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 
 	// A password step-up on the way in earned a fresh token set; otherwise
 	// there is nothing to return.
-	if len(authMeta) == 0 {
+	if stepUp == nil {
 		noContent(w)
 		return
 	}
-	writeJSON(w, http.StatusOK, authMeta)
+	writeJSON(w, http.StatusOK, stepUp)
 }

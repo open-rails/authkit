@@ -11,16 +11,24 @@ import (
 	"github.com/open-rails/authkit/internal/errmodel"
 )
 
-const authUI = "../../../auth-ui/src"
+const repo = "../../.."
 
-// auth-ui's generated codes are exactly the catalog's.
-func TestGeneratedErrorCodesMatchCatalog(t *testing.T) {
-	got, err := os.ReadFile(filepath.Join(authUI, "client/generated/error-codes.ts"))
+func init() { repoRoot = repo }
+
+// Every generated file matches the catalogs it is generated from.
+func TestGeneratedContractIsFresh(t *testing.T) {
+	want, err := files()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(got) != string(errorCodesTS()) {
-		t.Fatal("auth-ui/src/client/generated/error-codes.ts is stale: run go generate ./internal/errmodel")
+	for _, name := range sortedKeys(want) {
+		got, err := os.ReadFile(filepath.Join(repo, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != string(want[name]) {
+			t.Errorf("%s is stale: run go generate ./internal/httpapi", name)
+		}
 	}
 }
 
@@ -33,8 +41,9 @@ var (
 	errorKey    = regexp.MustCompile(`(?m)^    "?([A-Za-z0-9_]+)"?:`)
 )
 
-// Every locale translates the same error keys, and each key is a wire code or
-// one of the client's own: no missing translation, no stale code.
+// English error messages come from the Go catalog (generated
+// AUTH_ERROR_MESSAGES); en.ts adds only the client's own keys. Every other
+// locale translates the same set of keys, each a wire code or a client key.
 func TestLocalesTranslateCatalogCodes(t *testing.T) {
 	known := map[string]bool{}
 	for _, c := range errmodel.Codes() {
@@ -43,9 +52,8 @@ func TestLocalesTranslateCatalogCodes(t *testing.T) {
 	for _, c := range clientCodes {
 		known[c] = true
 	}
-	var want []string
-	for _, locale := range []string{"en", "de", "es", "ja", "ko", "zh"} {
-		src, err := os.ReadFile(filepath.Join(authUI, "locales", locale+".ts"))
+	keysOf := func(locale string) []string {
+		src, err := os.ReadFile(filepath.Join(repo, "auth-ui/src/locales", locale+".ts"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -58,6 +66,16 @@ func TestLocalesTranslateCatalogCodes(t *testing.T) {
 			keys = append(keys, string(m[1]))
 		}
 		sort.Strings(keys)
+		return keys
+	}
+	en := keysOf("en")
+	wantEN := slices.Sorted(slices.Values(clientCodes))
+	if !slices.Equal(en, wantEN) {
+		t.Errorf("en.ts error keys = %v, want only the client's own %v (English wire messages are generated)", en, wantEN)
+	}
+	var want []string
+	for _, locale := range []string{"de", "es", "ja", "ko", "zh"} {
+		keys := keysOf(locale)
 		for _, k := range keys {
 			if !known[k] {
 				t.Errorf("%s: errors.%s is not an AuthKit wire code", locale, k)
@@ -66,7 +84,7 @@ func TestLocalesTranslateCatalogCodes(t *testing.T) {
 		if want == nil {
 			want = keys
 		} else if !slices.Equal(keys, want) {
-			t.Errorf("%s error keys differ from en:\n got %v\nwant %v", locale, keys, want)
+			t.Errorf("%s error keys differ from de:\n got %v\nwant %v", locale, keys, want)
 		}
 	}
 }

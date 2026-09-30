@@ -221,7 +221,7 @@ func run(ctx context.Context) error {
 }
 ```
 
-Mounting gives your users all of this: 59 routes under `/api/v1`, plus the public keys that let anyone check AuthKit's tokens.
+Mounting gives your users all of this: 59 routes under `/api/v1`, plus the public keys that let anyone check AuthKit's tokens. Every request and response shape is in [`api/openapi.json`](api/openapi.json), generated from the route catalog.
 
 **Signing up and signing in**
 

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"reflect"
 	"strconv"
 	"time"
 
@@ -13,12 +14,6 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
 )
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
 
 // writeError writes err as the error envelope, status and code from the
 // catalog. A server failure is logged with its op and cause; the wire only
@@ -69,15 +64,6 @@ func fallback(err error, code errmodel.Code) error {
 	return errmodel.Recode(err, code)
 }
 
-// notFoundCodes: the resource-not-found family answers one generic not_found.
-var notFoundCodes = map[error]errmodel.Code{
-	iam.ErrGroupNotFound:             errmodel.CodeNotFound,
-	iam.ErrRemoteApplicationNotFound: errmodel.CodeNotFound,
-	iam.ErrInvitationNotFound:        errmodel.CodeNotFound,
-	iam.ErrAPIKeyNotFound:            errmodel.CodeNotFound,
-	errmodel.ErrPasskeyNotFound:      errmodel.CodeNotFound,
-}
-
 // codeRejection distinguishes a retryable wrong code from one with no live code.
 func codeRejection(err error) errmodel.Code {
 	if errors.Is(err, errmodel.ErrCodeExpired) {
@@ -115,36 +101,20 @@ func tooManyAvailability(w http.ResponseWriter, availability authflow.ActionAvai
 	if availability.Remaining != nil {
 		w.Header().Set("RateLimit-Remaining", strconv.Itoa(*availability.Remaining))
 	}
-	fail(w, errmodel.CodeRateLimited, errmodel.WithMetadata(availabilityMap(availability)))
+	fail(w, errmodel.CodeRateLimited, withDetails(availability))
 }
 
-func availabilityMap(a authflow.ActionAvailability) map[string]any {
-	out := map[string]any{
-		"action":  a.Action,
-		"allowed": a.Allowed,
+// withDetails is an error's metadata from a typed value: its JSON object.
+func withDetails(v any) errmodel.Option {
+	raw, err := json.Marshal(wireForm(reflect.ValueOf(v)).Interface())
+	var meta map[string]any
+	if err == nil {
+		err = json.Unmarshal(raw, &meta)
 	}
-	if a.Reason != "" {
-		out["reason"] = a.Reason
+	if err != nil {
+		panic("httpapi: error details must marshal to a JSON object: " + err.Error())
 	}
-	if a.RetryAfterSeconds > 0 {
-		out["retry_after_seconds"] = a.RetryAfterSeconds
-	}
-	if a.NextAllowedAt != nil {
-		out["next_allowed_at"] = a.NextAllowedAt.Format(time.RFC3339)
-	}
-	if a.Limit != nil {
-		out["limit"] = *a.Limit
-	}
-	if a.Remaining != nil {
-		out["remaining"] = *a.Remaining
-	}
-	if a.WindowSeconds != nil {
-		out["window_seconds"] = *a.WindowSeconds
-	}
-	if a.CooldownSeconds != nil {
-		out["cooldown_seconds"] = *a.CooldownSeconds
-	}
-	return out
+	return errmodel.WithMetadata(meta)
 }
 
 // noContent is the ack for a mutation with nothing to return (#313).
@@ -153,8 +123,3 @@ func noContent(w http.ResponseWriter) { w.WriteHeader(http.StatusNoContent) }
 // accepted is the empty-bodied ack for anti-enumeration sends and other
 // deferred work (#313).
 func accepted(w http.ResponseWriter) { w.WriteHeader(http.StatusAccepted) }
-
-// writeList answers the one list envelope: {object:"list", data, next_cursor?}.
-func writeList[T any](w http.ResponseWriter, items []T, nextCursor string) {
-	writeJSON(w, http.StatusOK, authflow.NewListPage(items, nextCursor))
-}

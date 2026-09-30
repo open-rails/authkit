@@ -147,7 +147,7 @@ func TestAccountRecoveryPasswordConfirmationBoundary(t *testing.T) {
 	}
 	require.Equal(t, 1, winners)
 	expect(t, http.StatusUnauthorized, confirm(token))
-	expect(t, http.StatusUnauthorized, a.post("/token", "", map[string]string{"grant_type": "refresh_token", "refresh_token": old.RefreshToken}))
+	expect(t, http.StatusUnauthorized, a.post("/token", "", map[string]string{"grant_type": "refresh_token", "refresh_token": *old.RefreshToken}))
 	expect(t, http.StatusOK, login())
 
 	remove()
@@ -191,7 +191,7 @@ func TestStaffAccountRestoreHTTPRequiresCurrentAuthority(t *testing.T) {
 	ctx := t.Context()
 	register := func(name string) (iam.TokenSet, string) {
 		t.Helper()
-		res := expect(t, http.StatusAccepted, a.post("/register", "", map[string]any{"identifier": name + "@example.test", "username": name, "password": "Correct-horse-account-recovery-1"}))
+		res := expect(t, http.StatusOK, a.post("/register", "", map[string]any{"identifier": name + "@example.test", "username": name, "password": "Correct-horse-account-recovery-1"}))
 		tokens := res.answer(t).Nested
 		claims, err := auth.Verify(ctx, tokens.AccessToken)
 		require.NoError(t, err)

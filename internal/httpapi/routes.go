@@ -9,250 +9,80 @@ import (
 	"github.com/open-rails/authkit/verify"
 )
 
-// RouteSpec is a concrete, prefix-neutral route with its AuthKit handler
-// attached. Path parameters use net/http ServeMux syntax, e.g.
-// "/namespaces/{slug}".
-type RouteSpec struct {
-	Method  string
-	Path    string
-	Group   iam.RouteGroup
-	Handler http.Handler
-	// Auth is the tier the handler wrapper enforces before the handler runs;
-	// Permission names the root/group permission for AuthPermission (#328).
-	Auth       iam.RouteAuthTier
-	Permission string
-	// Bucket is the per-IP rate-limit bucket APIRoutes applies in front of the
-	// handler ("" = none). Per-identifier and branch-specific buckets stay in
-	// the handler.
-	Bucket string
-	// MFAEnrollmentExempt marks a route as part of the 2FA enroll/challenge/
-	// verify surface a forced-enrollment-gated user (TwoFactor.Mode required)
-	// must still be able to reach. NewMount derives the engine's exempt-path
-	// allowlist from routes tagged here (#243) — the route table is the single
-	// source of truth, so a rename/add stays consistent by construction.
-	MFAEnrollmentExempt bool
+// APIRoutes returns this Service's JSON API routes: the catalog's API routes
+// its configuration mounts, in the given groups (all when none), each wrapped
+// in its gate, rate limit and language middleware.
+func (s *Service) APIRoutes(groups ...iam.RouteGroup) []RouteSpec {
+	return s.routes(SurfaceAPI, groups, func(route RouteSpec, h http.Handler) http.Handler {
+		return s.rateLimitedRoute(route.Bucket, s.authenticate(route.Auth, h))
+	})
 }
 
-// APIRoutes returns AuthKit's enabled JSON API routes. With no groups it
-// returns the default API surface. With groups, it returns only matching routes.
-func (s *Service) APIRoutes(groups ...iam.RouteGroup) []RouteSpec {
+// OIDCBrowserRoutes returns the browser OIDC routes, prefix-neutral.
+func (s *Service) OIDCBrowserRoutes(groups ...iam.RouteGroup) []RouteSpec {
+	return s.routes(SurfaceOIDC, groups, func(route RouteSpec, h http.Handler) http.Handler {
+		return s.rateLimitedRoute(route.Bucket, h)
+	})
+}
+
+func (s *Service) routes(surface Surface, groups []iam.RouteGroup, wrap func(RouteSpec, http.Handler) http.Handler) []RouteSpec {
 	if s == nil || s.svc == nil {
 		return nil
 	}
 	selected := routeGroupSet(groups)
-	// rootPermission gates an intrinsic, root-scoped route on a `root:*`
-	// permission through the granular permission system (the engine's live
-	// Can for every actor kind, the token's session included — see
-	// requirePermission). There is no bespoke "admin" auth tier; these are
-	// plain root-group perms.
-	rootPermission := func(perm iam.Perm, h http.HandlerFunc) http.Handler {
-		return s.requirePermission(iam.RootGroup(), perm, h)
-	}
-	lang := s.languageMiddleware
-	routes := []RouteSpec{
-		// #265: prefix-neutral like every sibling — this spec shipped as
-		// "/auth/capabilities", which doubled to /auth/auth/capabilities (404)
-		// on hosts anchoring the API at an /auth-style prefix.
-		{Method: http.MethodGet, Path: "/capabilities", Group: iam.RouteAuth, Auth: iam.AuthPublic, Handler: http.HandlerFunc(s.handleCapabilitiesGET)},
-
-		{Method: http.MethodPost, Path: "/token", Group: iam.RouteAuth, Auth: iam.AuthPublic, Bucket: RLAuthToken, Handler: http.HandlerFunc(s.handleAuthTokenPOST)},
-		{Method: http.MethodDelete, Path: "/logout", Group: iam.RouteAuth, Auth: iam.AuthRequired, Bucket: RLAuthLogout, Handler: http.HandlerFunc(s.handleLogoutDELETE)},
-		{Method: http.MethodPost, Path: "/password/login", Group: iam.RouteAuth, Auth: iam.AuthPublic, Bucket: RLPasswordLogin, Handler: http.HandlerFunc(s.handlePasswordLoginPOST)},
-		{Method: http.MethodPost, Path: "/account/recovery/confirm", Group: iam.RouteAuth, Auth: iam.AuthPublic, Bucket: RLPasswordLogin, Handler: http.HandlerFunc(s.handleAccountRecoveryConfirmPOST)},
-		{Method: http.MethodPost, Path: "/passwordless/start", Group: iam.RouteAuth, Auth: iam.AuthPublic, Bucket: RLPasswordlessStart, Handler: http.HandlerFunc(s.handlePasswordlessStartPOST)},
-		{Method: http.MethodPost, Path: "/passwordless/confirm", Group: iam.RouteAuth, Auth: iam.AuthPublic, Bucket: RLPasswordlessConfirm, Handler: http.HandlerFunc(s.handlePasswordlessConfirmPOST)},
-		{Method: http.MethodPost, Path: "/passkeys/login/begin", Group: iam.RouteAuth, Auth: iam.AuthPublic, Bucket: RLPasskeyLogin, Handler: http.HandlerFunc(s.handlePasskeyLoginBeginPOST)},
-		{Method: http.MethodPost, Path: "/passkeys/login/finish", Group: iam.RouteAuth, Auth: iam.AuthPublic, Bucket: RLPasskeyLogin, Handler: http.HandlerFunc(s.handlePasskeyLoginFinishPOST)},
-
-		{Method: http.MethodPost, Path: "/device-keys/enroll/begin", Group: iam.RouteDeviceKeys, Auth: iam.AuthPublic, Bucket: RLDeviceKeyEnrollBegin, Handler: http.HandlerFunc(s.handleDeviceKeyEnrollBeginPOST)},
-		{Method: http.MethodPost, Path: "/device-keys/enroll/finish", Group: iam.RouteDeviceKeys, Auth: iam.AuthPublic, Bucket: RLDeviceKeyEnrollFinish, Handler: http.HandlerFunc(s.handleDeviceKeyEnrollFinishPOST)},
-		{Method: http.MethodPost, Path: "/device-keys/login/begin", Group: iam.RouteDeviceKeys, Auth: iam.AuthPublic, Bucket: RLDeviceKeyLoginBegin, Handler: http.HandlerFunc(s.handleDeviceKeyLoginBeginPOST)},
-		{Method: http.MethodPost, Path: "/device-keys/login/finish", Group: iam.RouteDeviceKeys, Auth: iam.AuthPublic, Bucket: RLDeviceKeyLoginFinish, Handler: http.HandlerFunc(s.handleDeviceKeyLoginFinishPOST)},
-		{Method: http.MethodGet, Path: "/device-keys", Group: iam.RouteDeviceKeys, Auth: iam.AuthRequired, Bucket: RLDeviceKeysManage, Handler: http.HandlerFunc(s.handleDeviceKeysGET)},
-		{Method: http.MethodDelete, Path: "/device-keys/{id}", Group: iam.RouteDeviceKeys, Auth: iam.AuthRequired, Bucket: RLDeviceKeysManage, Handler: http.HandlerFunc(s.handleDeviceKeyDELETE)},
-		{Method: http.MethodPost, Path: "/device-keys/revoke-others", Group: iam.RouteDeviceKeys, Auth: iam.AuthSession, Bucket: RLDeviceKeysManage, Handler: http.HandlerFunc(s.handleDeviceKeysRevokeOthersPOST)},
-		{Method: http.MethodPost, Path: "/password/reset/request", Group: iam.RouteAuth, Auth: iam.AuthPublic, Bucket: RLPasswordResetRequest, Handler: http.HandlerFunc(s.handlePasswordResetRequestPOST)},
-		{Method: http.MethodPost, Path: "/password/reset/confirm", Group: iam.RouteAuth, Auth: iam.AuthPublic, Bucket: RLPasswordResetConfirm, Handler: http.HandlerFunc(s.handlePasswordResetConfirmPOST)},
-
-		{Method: http.MethodPost, Path: "/register", Group: iam.RouteRegistration, Auth: iam.AuthPublic, Bucket: RLAuthRegister, Handler: http.HandlerFunc(s.handleRegisterUnifiedPOST)},
-		{Method: http.MethodGet, Path: "/register/availability", Group: iam.RouteRegistration, Auth: iam.AuthPublic, Bucket: RLAuthRegisterAvailability, Handler: http.HandlerFunc(s.handleRegisterAvailabilityGET)},
-		{Method: http.MethodPost, Path: "/register/abandon", Group: iam.RouteRegistration, Auth: iam.AuthPublic, Bucket: RLAuthRegisterAbandon, Handler: http.HandlerFunc(s.handlePendingRegistrationAbandonPOST)},
-
-		// #312: one route per contact flow; the channel comes from the identifier.
-		{Method: http.MethodPost, Path: "/verify/request", Group: iam.RouteAccount, Auth: iam.AuthOptional, Bucket: RLVerifyRequest, Handler: http.HandlerFunc(s.handleVerifyRequestPOST)},
-		{Method: http.MethodPost, Path: "/verify/confirm", Group: iam.RouteAccount, Auth: iam.AuthOptional, Bucket: RLVerifyConfirm, Handler: http.HandlerFunc(s.handleVerifyConfirmPOST)},
-
-		{Method: http.MethodPost, Path: "/user/password", Group: iam.RouteAccount, Auth: iam.AuthSession, Bucket: RLUserPasswordChange, Handler: http.HandlerFunc(s.handleUserPasswordPOST)},
-		{Method: http.MethodGet, Path: "/user/sessions", Group: iam.RouteAccount, Auth: iam.AuthRequired, Bucket: RLAuthSessionsList, Handler: http.HandlerFunc(s.handleUserSessionsGET)},
-		{Method: http.MethodDelete, Path: "/user/sessions/{id}", Group: iam.RouteAccount, Auth: iam.AuthSession, Bucket: RLAuthSessionsRevoke, Handler: http.HandlerFunc(s.handleUserSessionDELETE)},
-		{Method: http.MethodDelete, Path: "/user/sessions", Group: iam.RouteAccount, Auth: iam.AuthSession, Bucket: RLAuthSessionsRevokeAll, Handler: http.HandlerFunc(s.handleUserSessionsDELETE)},
-		{Method: http.MethodGet, Path: "/me", Group: iam.RouteAccount, Auth: iam.AuthRequired, Bucket: RLUserMe, Handler: http.HandlerFunc(s.handleUserMeGET)},
-		// #193 self-service leave: a user removes themself from a group with their own auth.
-		// #262 user-metadata surface (host-namespaced keys; authkit-internal
-		// flags are filtered from reads and rejected on writes).
-		{Method: http.MethodPatch, Path: "/user/username", Group: iam.RouteAccount, Auth: iam.AuthSession, Bucket: RLUserUpdateUsername, Handler: http.HandlerFunc(s.handleUserUsernamePATCH)},
-		{Method: http.MethodPatch, Path: "/user/preferred-language", Group: iam.RouteAccount, Auth: iam.AuthSession, Bucket: RLUserPreferredLanguage, Handler: http.HandlerFunc(s.handleUserPreferredLanguagePATCH)},
-		{Method: http.MethodDelete, Path: "/user", Group: iam.RouteAccount, Auth: iam.AuthSession, Bucket: RLUserDelete, Handler: http.HandlerFunc(s.handleUserDeleteDELETE)},
-		{Method: http.MethodDelete, Path: "/user/providers/{provider}", Group: iam.RouteAccount, Auth: iam.AuthSession, Bucket: RLUserUnlinkProvider, Handler: http.HandlerFunc(s.handleUserUnlinkProviderDELETE)},
-		{Method: http.MethodPost, Path: "/passkeys/register/begin", Group: iam.RouteAccount, Auth: iam.AuthSession, Bucket: RLPasskeyRegister, Handler: http.HandlerFunc(s.handlePasskeyRegisterBeginPOST)},
-		{Method: http.MethodPost, Path: "/passkeys/register/finish", Group: iam.RouteAccount, Auth: iam.AuthSession, Bucket: RLPasskeyRegister, Handler: http.HandlerFunc(s.handlePasskeyRegisterFinishPOST)},
-		{Method: http.MethodGet, Path: "/passkeys", Group: iam.RouteAccount, Auth: iam.AuthRequired, Handler: http.HandlerFunc(s.handlePasskeysGET)},
-		{Method: http.MethodPatch, Path: "/passkeys/{id}", Group: iam.RouteAccount, Auth: iam.AuthSession, Handler: http.HandlerFunc(s.handlePasskeyPATCH)},
-		{Method: http.MethodDelete, Path: "/passkeys/{id}", Group: iam.RouteAccount, Auth: iam.AuthSession, Handler: http.HandlerFunc(s.handlePasskeyDELETE)},
-
-		{Method: http.MethodPost, Path: "/step-up/password", Group: iam.RouteAccount, Auth: iam.AuthSession, Bucket: RLPasswordStepUp, Handler: http.HandlerFunc(s.handlePasswordStepUpPOST)},
-		{Method: http.MethodPost, Path: "/step-up/2fa", Group: iam.RouteAccount, Auth: iam.AuthSession, Bucket: RL2FAVerify, Handler: http.HandlerFunc(s.handleTwoFactorStepUpPOST)},
-
-		{Method: http.MethodPost, Path: "/oidc/{provider}/link/start", Group: iam.RouteAccount, Auth: iam.AuthSession, Bucket: RLOIDCStart, Handler: http.HandlerFunc(s.handleOIDCLinkStartPOST)},
-		{Method: http.MethodPost, Path: "/oidc/{provider}/step-up/start", Group: iam.RouteAccount, Auth: iam.AuthSession, Bucket: RLOIDCStart, Handler: http.HandlerFunc(s.handleOIDCStepUpStartPOST)},
-
-		{Method: http.MethodGet, Path: "/user/2fa", Group: iam.RouteAccount, Auth: iam.AuthRequired, Bucket: RLUserMe, Handler: http.HandlerFunc(s.handleUser2FAStatusGET), MFAEnrollmentExempt: true},
-		{Method: http.MethodPost, Path: "/user/2fa", Group: iam.RouteAccount, Auth: iam.AuthSession, Bucket: RL2FAEnable, Handler: http.HandlerFunc(s.handleUser2FAPOST), MFAEnrollmentExempt: true},
-		{Method: http.MethodDelete, Path: "/user/2fa", Group: iam.RouteAccount, Auth: iam.AuthSession, Bucket: RL2FADisable, Handler: http.HandlerFunc(s.handleUser2FADELETE), MFAEnrollmentExempt: true},
-		{Method: http.MethodPost, Path: "/user/2fa/backup-codes", Group: iam.RouteAccount, Auth: iam.AuthSession, Bucket: RL2FARegenerateCodes, Handler: http.HandlerFunc(s.handleUser2FABackupCodesPOST), MFAEnrollmentExempt: true},
-		{Method: http.MethodPost, Path: "/2fa/challenge", Group: iam.RouteAuth, Auth: iam.AuthPublic, Bucket: RL2FAVerify, Handler: http.HandlerFunc(s.handleUser2FAChallengePOST), MFAEnrollmentExempt: true},
-		{Method: http.MethodPost, Path: "/2fa/verify", Group: iam.RouteAuth, Auth: iam.AuthPublic, Bucket: RL2FAVerify, Handler: http.HandlerFunc(s.handleUser2FAVerifyPOST), MFAEnrollmentExempt: true},
-
-		{Method: http.MethodPost, Path: "/solana/challenge", Group: iam.RouteAuth, Auth: iam.AuthPublic, Bucket: RLSolanaChallenge, Handler: http.HandlerFunc(s.handleSolanaChallengePOST)},
-		{Method: http.MethodPost, Path: "/solana/login", Group: iam.RouteAuth, Auth: iam.AuthPublic, Bucket: RLSolanaLogin, Handler: http.HandlerFunc(s.handleSolanaLoginPOST)},
-		{Method: http.MethodPost, Path: "/solana/link", Group: iam.RouteAccount, Auth: iam.AuthSession, Bucket: RLSolanaLink, Handler: http.HandlerFunc(s.handleSolanaLinkPOST)},
-
-		// Intrinsic user-admin directory. Auth is permission-based: human users
-		// authorize through the root permission-group, programmatic principals via
-		// their verified permission ceiling.
-		{Method: http.MethodGet, Path: "/admin/users", Group: iam.RouteAdmin, Auth: iam.AuthPermission, Permission: ident.RootUsersRead.String(), Bucket: RLAdminUserSessionsList, Handler: rootPermission(ident.RootUsersRead, s.handleAdminUsersListGET)},
-		{Method: http.MethodGet, Path: "/admin/users/{user_id}", Group: iam.RouteAdmin, Auth: iam.AuthPermission, Permission: ident.RootUsersRead.String(), Handler: rootPermission(ident.RootUsersRead, s.handleAdminUserGET)},
-		{Method: http.MethodGet, Path: "/admin/users/{user_id}/signins", Group: iam.RouteAdmin, Auth: iam.AuthPermission, Permission: ident.RootUsersRead.String(), Handler: rootPermission(ident.RootUsersRead, s.handleAdminUserSigninsGET)},
-		{Method: http.MethodPost, Path: "/admin/users/{user_id}/ban", Group: iam.RouteAdmin, Auth: iam.AuthSession, Bucket: RLAdminUserSessionsRevokeAll, Handler: http.HandlerFunc(s.handleAdminUsersBanPOST)},
-		{Method: http.MethodPost, Path: "/admin/users/{user_id}/unban", Group: iam.RouteAdmin, Auth: iam.AuthSession, Bucket: RLAdminUserSessionsRevokeAll, Handler: http.HandlerFunc(s.handleAdminUsersUnbanPOST)},
-		{Method: http.MethodPost, Path: "/admin/users/{user_id}/sessions/revoke", Group: iam.RouteAdmin, Auth: iam.AuthSession, Bucket: RLAdminUserSessionsRevokeAll, Handler: http.HandlerFunc(s.handleAdminUserSessionsRevokePOST)},
-		{Method: http.MethodDelete, Path: "/admin/users/{user_id}", Group: iam.RouteAdmin, Auth: iam.AuthSession, Bucket: RLAdminUserSessionsRevokeAll, Handler: http.HandlerFunc(s.handleAdminUserDeleteDELETE)},
-		{Method: http.MethodPost, Path: "/admin/users/{user_id}/restore", Group: iam.RouteAdmin, Auth: iam.AuthSession, Bucket: RLAdminUserSessionsRevokeAll, Handler: http.HandlerFunc(s.handleAdminUserRestorePOST)},
-		// Root-role administration: the engine enforces root:members:manage,
-		// role coverage, the last owner and MFA.
-		{Method: http.MethodGet, Path: "/admin/roles", Group: iam.RouteAdmin, Auth: iam.AuthPermission, Permission: ident.MembersRead(iam.RootPersona).String(), Handler: rootPermission(ident.MembersRead(iam.RootPersona), s.handleAdminRolesGET)},
-		{Method: http.MethodPut, Path: "/admin/users/{user_id}/roles/{role}", Group: iam.RouteAdmin, Auth: iam.AuthSession, Bucket: RLAdminUserSessionsRevokeAll, Handler: http.HandlerFunc(s.handleAdminUserRolePUT)},
-		{Method: http.MethodDelete, Path: "/admin/users/{user_id}/roles/{role}", Group: iam.RouteAdmin, Auth: iam.AuthSession, Bucket: RLAdminUserSessionsRevokeAll, Handler: http.HandlerFunc(s.handleAdminUserRoleDELETE)},
-
-		// #261 delegated-token mint: authenticated users exchange their session
-		// for a short-lived delegated token aimed at the configured audiences.
-		// Mounted only when Config.Delegated is enabled (see filter below).
-		{Method: http.MethodPost, Path: "/delegated/token", Group: iam.RouteDelegated, Auth: iam.AuthSession, Bucket: RLDelegatedTokenMint, Handler: http.HandlerFunc(s.handleDelegatedTokenPOST)},
-	}
-
-	// Passkey routes are mounted only when passkeys are configured. Without a
-	// Relying Party ID the WebAuthn ceremonies fail closed, so exposing the
-	// /passkeys/* endpoints would just serve guaranteed errors. Embedders that
-	// set PasskeyConfig.RPID get the routes; everyone else doesn't advertise a
-	// feature they can't fulfil.
-	passkeysEnabled := s.svc.PasskeysEnabled()
-	cfg := s.cfg
-	passwordlessEnabled := cfg.Registration.PasswordlessLogin
-	registrationEnabled := cfg.Registration.NativeUserMode != iam.RegistrationModeClosed
-	twoFactorEnabled := s.svc.TwoFactorEnabled()
-	solanaEnabled := cfg.SolanaNetwork != ""
-	oidcEnabled := len(s.providers) > 0
-	delegatedEnabled := len(cfg.Delegated.Audiences) > 0
-	deviceKeysEnabled := cfg.DeviceKeys.Enabled
-	out := make([]RouteSpec, 0, len(routes))
-	for _, route := range routes {
-		if !selected(route.Group) {
+	var out []RouteSpec
+	for _, route := range Catalog() {
+		if route.Surface != surface || !selected(route.Group) || !s.mounts(route.MountedWhen) {
 			continue
 		}
-		if route.Group == iam.RouteDelegated && !delegatedEnabled {
-			continue
+		h := route.serve(s)
+		// A root permission is checked here; a group route checks its own
+		// (GroupHandler), since it first resolves the group.
+		if route.Auth == iam.AuthPermission && strings.HasPrefix(route.Perm, iam.RootPersona.String()+":") {
+			h = s.requirePermission(iam.RootGroup(), ident.Perm(route.Perm), h)
 		}
-		if route.Group == iam.RouteDeviceKeys && !deviceKeysEnabled {
-			continue
-		}
-		if isPasskeyPath(route.Path) && !passkeysEnabled {
-			continue
-		}
-		if isPasswordlessPath(route.Path) && !passwordlessEnabled {
-			continue
-		}
-		if isRegistrationMutationPath(route.Path) && !registrationEnabled {
-			continue
-		}
-		if isTwoFactorPath(route.Path) && !twoFactorEnabled {
-			continue
-		}
-		if isSolanaPath(route.Path) && !solanaEnabled {
-			continue
-		}
-		if isOIDCPath(route.Path) && !oidcEnabled {
-			continue
-		}
-		route.Handler = lang(s.rateLimitedRoute(route.Bucket, s.authenticate(route.Auth, route.Handler)))
-		out = append(out, route)
-	}
-
-	// #111: the auto-generated per-persona group-management surface is
-	// schema-DERIVED (not a static table), so it is appended here rather than
-	// listed above. Its handlers already carry the required + language middleware
-	// (PermissionGroupRoutes wraps them), so they are not re-wrapped with lang.
-	for _, route := range s.PermissionGroupRoutes() {
-		if !selected(route.Group) {
-			continue
-		}
+		route.Handler = s.languageMiddleware(wrap(route, h))
 		out = append(out, route)
 	}
 	return out
 }
 
-func isPasskeyPath(path string) bool {
-	return path == "/passkeys" || strings.HasPrefix(path, "/passkeys/")
-}
-
-func isPasswordlessPath(path string) bool {
-	return path == "/passwordless/start" || path == "/passwordless/confirm"
-}
-
-func isRegistrationMutationPath(path string) bool {
-	return path == "/register" || path == "/register/abandon"
-}
-
-func isTwoFactorPath(path string) bool {
-	return path == "/step-up/2fa" || path == "/user/2fa" || strings.HasPrefix(path, "/user/2fa/") || strings.HasPrefix(path, "/2fa/")
-}
-
-func isSolanaPath(path string) bool {
-	return strings.HasPrefix(path, "/solana/")
+// mounts reports whether this Service's configuration mounts routes that need f.
+func (s *Service) mounts(f Feature) bool {
+	cfg := s.cfg
+	switch f {
+	case Always:
+		return true
+	case FeaturePasskeys:
+		return s.svc.PasskeysEnabled()
+	case FeaturePasswordless:
+		return cfg.Registration.PasswordlessLogin
+	case FeatureRegistration:
+		return cfg.Registration.NativeUserMode != iam.RegistrationModeClosed
+	case FeatureTwoFactor:
+		return s.svc.TwoFactorEnabled()
+	case FeatureSolana:
+		return cfg.SolanaNetwork != ""
+	case FeatureOIDC:
+		return len(s.providers) > 0
+	case FeatureDelegated:
+		return len(cfg.Delegated.Audiences) > 0
+	case FeatureDeviceKeys:
+		return cfg.DeviceKeys.Enabled
+	case FeatureGroups, FeatureAPIKeys:
+		schema := s.svc.PermissionGroupSchema()
+		for _, name := range schema.Personas() {
+			p, _ := schema.Persona(name)
+			if f == FeatureGroups && name != iam.RootPersona || f == FeatureAPIKeys && p.APIKeys {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func isOIDCPath(path string) bool {
 	return strings.HasPrefix(path, "/oidc/")
-}
-
-// OIDCBrowserRoutes returns browser redirect routes with no mount prefix.
-func (s *Service) OIDCBrowserRoutes(groups ...iam.RouteGroup) []RouteSpec {
-	if s == nil || s.svc == nil {
-		return nil
-	}
-	if len(s.providers) == 0 {
-		return nil
-	}
-	selected := routeGroupSet(groups)
-	lang := s.languageMiddleware
-	routes := []RouteSpec{
-		{Method: http.MethodGet, Path: "/{provider}/login", Group: iam.RouteBrowserOIDC, Auth: iam.AuthPublic, Bucket: RLOIDCStart, Handler: http.HandlerFunc(s.handleOIDCLoginGET)},
-		{Method: http.MethodPost, Path: "/{provider}/login", Group: iam.RouteBrowserOIDC, Auth: iam.AuthPublic, Bucket: RLOIDCStart, Handler: http.HandlerFunc(s.handleOIDCLoginPOST)},
-		{Method: http.MethodGet, Path: "/{provider}/callback", Group: iam.RouteBrowserOIDC, Auth: iam.AuthPublic, Bucket: RLOIDCCallback, Handler: http.HandlerFunc(s.handleOIDCCallbackGET)},
-		{Method: http.MethodGet, Path: "/{provider}/step-up/callback", Group: iam.RouteBrowserOIDC, Auth: iam.AuthPublic, Bucket: RLOIDCCallback, Handler: http.HandlerFunc(s.handleOIDCCallbackGET)},
-		// response_mode=form_post providers (Apple) deliver the same response as a
-		// cross-site POST body (#295).
-		{Method: http.MethodPost, Path: "/{provider}/callback", Group: iam.RouteBrowserOIDC, Auth: iam.AuthPublic, Bucket: RLOIDCCallback, Handler: http.HandlerFunc(s.handleOIDCCallbackGET)},
-		{Method: http.MethodPost, Path: "/{provider}/step-up/callback", Group: iam.RouteBrowserOIDC, Auth: iam.AuthPublic, Bucket: RLOIDCCallback, Handler: http.HandlerFunc(s.handleOIDCCallbackGET)},
-	}
-	out := make([]RouteSpec, 0, len(routes))
-	for _, route := range routes {
-		if !selected(route.Group) {
-			continue
-		}
-		route.Handler = lang(s.rateLimitedRoute(route.Bucket, route.Handler))
-		out = append(out, route)
-	}
-	return out
 }
 
 // authenticate applies a route's declared tier (#412), so the catalog entry

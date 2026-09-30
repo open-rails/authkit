@@ -336,33 +336,6 @@ func (s *Engine) lockAuthenticationAccount(ctx context.Context, q *db.Queries, u
 
 // Logout via refresh token was removed; use DELETE /auth/logout with sid claim instead.
 
-// ListUserSessions lists active sessions for a user and issuer.
-func (s *Engine) ListUserSessions(ctx context.Context, userID string) ([]authflow.Session, error) {
-	if s.pg == nil {
-		return nil, nil
-	}
-	rows, err := s.q.SessionsListByUser(ctx, db.SessionsListByUserParams{UserID: userID, Issuer: s.cfg.Token.Issuer})
-	if err != nil {
-		return nil, err
-	}
-	var out []authflow.Session
-	for _, r := range rows {
-		// LastAuthenticatedAt and RevokedAt are left at their zero value: the
-		// session-list query no longer selects them (#230 — the handler never
-		// renders them, and revoked_at is always NULL for the rows it returns).
-		out = append(out, authflow.Session{
-			ID:         r.ID,
-			FamilyID:   r.FamilyID,
-			CreatedAt:  r.CreatedAt,
-			LastUsedAt: r.LastUsedAt,
-			ExpiresAt:  r.ExpiresAt,
-			UserAgent:  r.UserAgent,
-			IPAddr:     r.IpAddr,
-		})
-	}
-	return out, nil
-}
-
 func (s *Engine) SessionFreshness(ctx context.Context, userID, sessionID string, now time.Time) (authflow.SessionFreshness, error) {
 	if s.pg == nil {
 		return authflow.SessionFreshness{}, errors.New("postgres not configured")

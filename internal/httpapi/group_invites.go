@@ -3,106 +3,72 @@ package httpapi
 // Invite-link handlers of the group surface.
 
 import (
+	"errors"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
 )
 
-// inviteLinkCreateRequest is the body for POST /groups/{group_id}/invites/links.
-// role is required; expires_in_seconds overrides the default lifetime.
-type inviteLinkCreateRequest struct {
-	Role             string `json:"role"`
-	ExpiresInSeconds *int64 `json:"expires_in_seconds,omitempty"`
-}
-
 // groupInviteLinkMint mints a link issued by the caller; the code is returned once.
 func (s *Service) groupInviteLinkMint(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor) {
 	if s.rateLimited(w, r, RLInviteCreate) {
 		return
 	}
-	var body inviteLinkCreateRequest
+	var body InvitationCreateRequest
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Role) == "" {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	role, err := s.groupRole(g.Persona, body.Role)
 	if err != nil {
-		s.writeGroupOpError(w, err)
+		writeError(w, err)
 		return
 	}
-	n := iam.NewInvitation{Role: role}
-	if body.ExpiresInSeconds != nil && *body.ExpiresInSeconds > 0 {
-		at := time.Now().Add(time.Duration(*body.ExpiresInSeconds) * time.Second)
-		n.ExpiresAt = &at
-	}
-	created, err := s.svc.CreateInvitation(r.Context(), actor, iam.GroupByID(g.ID), n)
+	created, err := s.svc.CreateInvitation(r.Context(), actor, iam.GroupByID(g.ID), iam.NewInvitation{Role: role, ExpiresAt: body.ExpiresAt})
 	if err != nil {
-		s.writeGroupOpError(w, err)
+		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"id":         created.Invitation.ID,
-		"code":       created.Code, // shown once
-		"url":        created.URL,
-		"expires_at": created.Invitation.ExpiresAt,
-	})
+	writeJSON(w, http.StatusCreated, created) // the code is shown once
 }
 
 // groupInviteLinkList lists the group's links, newest first (?cursor=,
 // ?limit=), never their codes.
 func (s *Service) groupInviteLinkList(w http.ResponseWriter, r *http.Request, g iam.Group) {
-	page, err := s.svc.ListInvitations(r.Context(), iam.GroupByID(g.ID), pageQuery(r))
-	if err != nil {
-		s.writeGroupOpError(w, err)
+	p, ok := readPage(w, r)
+	if !ok {
 		return
 	}
-	data := make([]map[string]any, 0, len(page.Items))
-	for _, l := range page.Items {
-		if l.Email != "" {
-			continue // an email invitation, not a link
-		}
-		m := map[string]any{
-			"id":         l.ID,
-			"role":       l.Role.String(),
-			"created_at": l.CreatedAt,
-		}
-		if l.CreatedBy != "" {
-			m["invited_by"] = l.CreatedBy
-		}
-		if l.RedeemedAt != nil {
-			m["redeemed_at"] = l.RedeemedAt
-		}
-		if l.ExpiresAt != nil {
-			m["expires_at"] = l.ExpiresAt
-		}
-		if l.RevokedAt != nil {
-			m["revoked_at"] = l.RevokedAt
-		}
-		data = append(data, m)
+	page, err := s.svc.ListInvitations(r.Context(), iam.GroupByID(g.ID), p)
+	if err != nil {
+		writeError(w, err)
+		return
 	}
-	writeList(w, data, page.Next)
+	links := page.Items[:0:0]
+	for _, inv := range page.Items {
+		if inv.Email == nil { // an email invitation is not a link
+			links = append(links, inv)
+		}
+	}
+	page.Items = links
+	list(w, page)
 }
 
-// groupInviteLinkRevoke revokes a link by id (the :link path param), scoped to this group.
+// groupInviteLinkRevoke revokes the group's link {link}; a revoked or unknown
+// link answers 204 too.
 func (s *Service) groupInviteLinkRevoke(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor, linkID string) {
 	if linkID == "" {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	if err := s.svc.RevokeInvitation(r.Context(), actor, iam.GroupByID(g.ID), linkID); err != nil {
-		s.writeGroupOpError(w, err)
+	if err := s.svc.RevokeInvitation(r.Context(), actor, iam.GroupByID(g.ID), linkID); err != nil && !errors.Is(err, iam.ErrInvitationNotFound) {
+		writeError(w, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// inviteRedeemRequest is the body for POST /invites/redeem.
-type inviteRedeemRequest struct {
-	Code string `json:"code"`
+	noContent(w)
 }
 
 // handleInviteRedeemPOST redeems an invite-link code for the signed-in user,
@@ -114,19 +80,20 @@ func (s *Service) handleInviteRedeemPOST(w http.ResponseWriter, r *http.Request)
 		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
-	var body inviteRedeemRequest
+	var body InviteRedeemRequest
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Code) == "" {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	res, err := s.svc.RedeemInvitation(r.Context(), actor, strings.TrimSpace(body.Code))
 	if err != nil {
-		s.writeGroupOpError(w, err)
+		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"group_id": res.GroupID,
-		"persona":  res.Persona,
-		"role":     res.Role.String(),
-	})
+	g, err := s.svc.Group(r.Context(), iam.GroupByID(res.GroupID))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, iam.Membership{Group: g, Role: res.Role})
 }

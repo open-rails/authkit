@@ -101,7 +101,7 @@ func TestSecurityPasswordStepUpNeedsSecondFactor(t *testing.T) {
 	}
 	u, err := h.auth.User(ctx, iam.UserByID(victim.id))
 	require.NoError(t, err)
-	require.Equal(t, victim.email, u.Email)
+	require.Equal(t, victim.email, *u.Email)
 
 	t.Run("control: a second-factor step-up clears every gate", func(t *testing.T) {
 		resp := h.post("/step-up/2fa", map[string]any{}, reproved)
@@ -182,7 +182,7 @@ func (h *host) registerPasskey(token string) *passkeytest.Authenticator {
 	var creation protocol.CredentialCreation
 	resp.json(h.t, &creation)
 	resp = h.post("/passkeys/register/finish", authn.Register(h.t, &creation), token)
-	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
+	require.Equal(h.t, http.StatusCreated, resp.status, resp.String())
 	return authn
 }
 

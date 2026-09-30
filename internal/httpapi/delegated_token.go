@@ -33,27 +33,6 @@ const (
 	maxDelegatedTokenBytes    = 16 << 10
 )
 
-type delegatedTokenRequest struct {
-	// TTLSeconds is an optional override, clamped into the configured
-	// floor/ceiling; absent or <= 0 mints the configured default.
-	TTLSeconds int `json:"ttl_seconds,omitempty"`
-	// Audiences is an optional narrowing; every requested audience must be in
-	// the configured allowlist. Absent mints the full configured list.
-	Audiences []string `json:"audiences,omitempty"`
-	// DelegateCertificateDERB64URL is the delegate's public X.509 leaf as
-	// unpadded base64url DER. The token is bound to exactly this certificate.
-	DelegateCertificateDERB64URL string `json:"delegate_certificate_der_b64url"`
-	// RequestedGrant is one host-schema JSON object passed to the authorizer
-	// verbatim and never copied into the token.
-	RequestedGrant json.RawMessage `json:"requested_grant"`
-}
-
-type DelegatedTokenResponse struct {
-	Token     string    `json:"token"`
-	ExpiresAt time.Time `json:"expires_at"`
-	TokenType string    `json:"token_type,omitempty"`
-}
-
 func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	actor, isActor := verify.ActorFromClaims(claims)
@@ -70,7 +49,7 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	var req delegatedTokenRequest
+	var req DelegatedTokenRequest
 	if err := decodeJSON(r, &req); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
@@ -88,7 +67,7 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 
 	var certificate *x509.Certificate
 	var certificateThumbprint, jwkThumbprint string
-	tokenType := ""
+	tokenType := "Bearer"
 	if len(r.Header.Values("DPoP")) > 0 {
 		if !cfg.AllowDPoP || req.DelegateCertificateDERB64URL != "" {
 			fail(w, errmodel.CodeInvalidRequest)
@@ -113,6 +92,14 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		tokenType = "DPoP"
+	} else if strings.TrimSpace(req.DelegateCertificateDERB64URL) == "" {
+		// Neither a DPoP proof nor a certificate: the token would bind to
+		// nothing.
+		if cfg.AllowDPoP {
+			w.Header().Set("WWW-Authenticate", `DPoP algs="ES256"`)
+		}
+		fail(w, errmodel.CodeSenderProofRequired)
+		return
 	} else {
 		certificate, err = parseDelegateCertificate(req.DelegateCertificateDERB64URL, now)
 		if err != nil {
@@ -169,7 +156,9 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	writeJSON(w, http.StatusOK, DelegatedTokenResponse{Token: token.Value, ExpiresAt: token.ExpiresAt, TokenType: tokenType})
+	tokens := iam.NewTokenSet(token.Value, "", token.ExpiresAt)
+	tokens.TokenType = tokenType
+	writeJSON(w, http.StatusOK, tokens)
 }
 
 // parseDelegateCertificate accepts exactly one currently valid, non-CA X.509

@@ -273,7 +273,7 @@ func deviceKeyEnrollable(ctx context.Context, q *db.Queries, publicKey []byte, o
 
 // publicDeviceKey is the one mapping from a device key row.
 func publicDeviceKey(k db.UserDeviceKey) iam.DeviceKey {
-	return iam.DeviceKey{ID: k.ID, Label: deref(k.Label), PublicKey: k.PublicKey, CreatedAt: k.CreatedAt, LastUsedAt: k.LastUsedAt, RevokedAt: k.RevokedAt}
+	return iam.DeviceKey{ID: k.ID, Label: nullable(deref(k.Label)), PublicKey: k.PublicKey, CreatedAt: k.CreatedAt, LastUsedAt: k.LastUsedAt, RevokedAt: k.RevokedAt}
 }
 
 // challengeDeviceKeySecondFactor names the proof the retry carries in
@@ -327,7 +327,7 @@ func (s *Engine) notifyDeviceKeyEnrolled(ctx context.Context, u *db.User, key ia
 		return
 	}
 	if err := s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessageDeviceKeyEnrolled, To: *u.Email, Username: deref(u.Username),
-		Language: s.userLanguage(ctx, u.ID), DeviceKey: &iam.DeviceKeyNotice{Label: key.Label, CreatedAt: key.CreatedAt}}); err != nil {
+		Language: s.userLanguage(ctx, u.ID), DeviceKey: &iam.DeviceKeyNotice{Label: deref(key.Label), CreatedAt: key.CreatedAt}}); err != nil {
 		stdlog.Printf("[authkit/security] device-key enrollment notice failed for user %s: %v", u.ID, err)
 	}
 }

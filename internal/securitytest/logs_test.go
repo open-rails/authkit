@@ -311,13 +311,11 @@ func TestSecuritySecretsStayOutOfLogs(t *testing.T) {
 	ok(h.post("/invites/redeem", map[string]string{"code": link.Code}, h.login(h.newAccount("logsmember")).AccessToken))
 	invited := unique("logsinvited") + "@security.test"
 	var invitation struct {
-		Invite struct {
-			Code string `json:"code"`
-		} `json:"invite"`
+		Code string `json:"code"`
 	}
 	ok(h.post(base+"/members", map[string]string{"email": invited, "role": "org:member"}, ownerToken)).json(t, &invitation)
 	ok(h.post("/register", map[string]string{"identifier": invited, "username": unique("logsinv"), "password": password,
-		"account_invite_token": invitation.Invite.Code}, ""))
+		"account_invite_token": invitation.Code}, ""))
 
 	// The mail provider fails after AuthKit hands it each message.
 	before := len(logs.String())

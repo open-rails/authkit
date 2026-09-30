@@ -11,13 +11,7 @@ import (
 )
 
 func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		UserID     string `json:"user_id"`
-		Code       string `json:"code"`
-		Challenge  string `json:"challenge"`
-		FactorID   string `json:"factor_id"`
-		BackupCode bool   `json:"backup_code"`
-	}
+	var req TwoFactorVerifyRequest
 	if err := decodeJSON(r, &req); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
@@ -51,11 +45,7 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Service) handleUser2FAChallengePOST(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		UserID    string `json:"user_id"`
-		Challenge string `json:"challenge"`
-		FactorID  string `json:"factor_id"`
-	}
+	var req TwoFactorChallengeRequest
 	if err := decodeJSON(r, &req); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return

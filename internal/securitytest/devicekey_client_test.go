@@ -71,7 +71,7 @@ func TestSecurityDeviceKeyClient(t *testing.T) {
 
 		enrolled, err := c.FinishEnrollment(ctx, e, priv, h.verificationCode(email), "")
 		require.NoError(t, err)
-		require.Equal(t, "laptop", enrolled.DeviceKey.Label)
+		require.Equal(t, "laptop", *enrolled.DeviceKey.Label)
 		require.True(t, enrolled.DeviceKey.Current)
 		require.True(t, enrolled.ExpiresAt.After(time.Now()))
 		_, claims := splitToken(t, enrolled.AccessToken)
@@ -118,7 +118,7 @@ func TestSecurityDeviceKeyClient(t *testing.T) {
 		require.NoError(t, err, "a refused signature burned the ceremony")
 
 		resp = h.post("/device-keys/login/begin", map[string]string{"device_key_id": s.DeviceKey.ID}, "")
-		require.Equal(t, http.StatusAccepted, resp.status, resp.String())
+		require.Equal(t, http.StatusOK, resp.status, resp.String())
 		var begun struct {
 			ID        string `json:"challenge_id"`
 			Challenge string `json:"challenge"`
@@ -247,12 +247,12 @@ func TestSecurityDeviceKeyClient(t *testing.T) {
 		require.Positive(t, e.Metadata()["retry_after_seconds"], "%v", e.Metadata())
 	})
 
-	t.Run("a host without device keys mounts none and answers 404 with no code", func(t *testing.T) {
+	t.Run("a host without device keys mounts none and answers 404 not_found", func(t *testing.T) {
 		offHost := newHost(t)
 		off := offHost.deviceKeyClient()
 		pub, _ := ed25519Key(t)
 		_, err := off.BeginEnrollment(ctx, unique("dkoff")+"@security.test", pub, "")
-		requireRefusal(t, err, http.StatusNotFound, "")
+		requireRefusal(t, err, http.StatusNotFound, "not_found")
 		require.False(t, errors.Is(err, iam.ErrDeviceKeysDisabled))
 		for _, route := range offHost.auth.Routes() {
 			require.NotEqual(t, iam.RouteDeviceKeys, route.Group, "%s %s", route.Method, route.Path)

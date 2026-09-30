@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/contact"
+	"github.com/open-rails/authkit/internal/cursor"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ops"
@@ -185,13 +185,16 @@ func (s *Engine) Sessions(ctx context.Context, userID string) ([]iam.Session, er
 	if !isUUID(strings.TrimSpace(userID)) {
 		return nil, iam.ErrUserNotFound
 	}
-	rows, err := s.ListUserSessions(ctx, strings.TrimSpace(userID))
+	if s.pg == nil {
+		return nil, nil
+	}
+	rows, err := s.q.SessionsListByUser(ctx, db.SessionsListByUserParams{UserID: strings.TrimSpace(userID), Issuer: s.cfg.Token.Issuer})
 	if err != nil {
 		return nil, err
 	}
 	out := make([]iam.Session, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, iam.Session{ID: r.ID, CreatedAt: r.CreatedAt, LastUsedAt: r.LastUsedAt, ExpiresAt: r.ExpiresAt, UserAgent: deref(r.UserAgent), IP: deref(r.IPAddr)})
+		out = append(out, iam.Session{ID: r.ID, CreatedAt: r.CreatedAt, LastUsedAt: r.LastUsedAt, ExpiresAt: r.ExpiresAt, UserAgent: r.UserAgent, IP: r.IpAddr})
 	}
 	return out, nil
 }
@@ -211,10 +214,6 @@ type userCursor struct {
 	Desc  bool         `json:"d"`
 	Value *string      `json:"v,omitempty"`
 	ID    string       `json:"i"`
-}
-
-func errInvalidCursor() error {
-	return errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("cursor"))
 }
 
 // userSortColumn maps a sort to its column and the cast its cursor value takes.
@@ -294,9 +293,9 @@ func (s *Engine) ListUsers(ctx context.Context, q iam.UserQuery) (iam.ListPage[i
 		cmp, dir = "<", "DESC"
 	}
 	if q.Page.Cursor != "" {
-		c, err := decodeUserCursor(q.Page.Cursor)
-		if err != nil || c.Sort != q.Sort || c.Desc != q.Desc || !isUUID(c.ID) {
-			return page, errInvalidCursor()
+		var c userCursor
+		if err := cursor.Decode(q.Page.Cursor, &c); err != nil || c.Sort != q.Sort || c.Desc != q.Desc || !isUUID(c.ID) {
+			return page, cursor.Invalid()
 		}
 		id := arg(c.ID) + "::uuid"
 		if c.Value == nil {
@@ -338,7 +337,7 @@ func (s *Engine) ListUsers(ctx context.Context, q iam.UserQuery) (iam.ListPage[i
 	}
 	if len(keys) > limit {
 		keys = keys[:limit]
-		page.Next = encodeUserCursor(keys[limit-1])
+		page.Next = cursor.Encode(keys[limit-1])
 	}
 	if len(keys) == 0 {
 		return page, nil
@@ -398,7 +397,10 @@ func (s *Engine) userEntries(ctx context.Context, users []iam.User, withEntitlem
 	}
 	out := make([]iam.UserEntry, len(users))
 	for i, u := range users {
-		out[i] = iam.UserEntry{User: u, RootRole: roles[u.ID], Entitlements: ents[u.ID]}
+		out[i] = iam.UserEntry{User: u, Entitlements: ents[u.ID]}
+		if role := roles[u.ID]; !role.IsZero() {
+			out[i].RootRole = &role
+		}
 		if withEntitlements && out[i].Entitlements == nil {
 			out[i].Entitlements = []string{}
 		}
@@ -423,19 +425,4 @@ func (s *Engine) entitlementsOf(ctx context.Context, ids []string) (map[string][
 		return nil, fmt.Errorf("authkit: entitlements provider: %w", err)
 	}
 	return ents, nil
-}
-
-func encodeUserCursor(c userCursor) string {
-	raw, _ := json.Marshal(c)
-	return base64.RawURLEncoding.EncodeToString(raw)
-}
-
-func decodeUserCursor(s string) (userCursor, error) {
-	var c userCursor
-	raw, err := base64.RawURLEncoding.DecodeString(s)
-	if err != nil {
-		return c, err
-	}
-	err = json.Unmarshal(raw, &c)
-	return c, err
 }

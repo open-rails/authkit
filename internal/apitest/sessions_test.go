@@ -84,7 +84,7 @@ func sessionCounts(t *testing.T, auth *authkit.Client, userID string) (live int,
 	require.NoError(t, err)
 	revoked = map[string]int{}
 	for _, e := range events.Items {
-		revoked[e.Reason]++
+		revoked[*e.Reason]++
 	}
 	return len(sessions), revoked
 }
@@ -146,7 +146,7 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 	// refresh rotates s in place and reports the status.
 	refresh := func(t *testing.T, at site, s *session) int {
 		t.Helper()
-		status, tokens, err := refreshSession(at.api, s.RefreshToken)
+		status, tokens, err := refreshSession(at.api, *s.RefreshToken)
 		require.NoError(t, err)
 		if status == http.StatusOK {
 			s.TokenSet = tokens
@@ -172,16 +172,13 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 	staffA := login(t, siteA, staff)
 	// Site A's short access TTL starts here; its expiry is asserted below.
 	victimA := login(t, siteA, victim)
+	// The counts stay in Go (Client.RevokeAccountSessions); the wire says done.
 	res := siteA.api.post("/admin/users/"+victim.ID+"/sessions/revoke", staffA.AccessToken, nil)
-	require.Equal(t, http.StatusOK, res.status, res.String())
-	var result iam.AccountSessionRevocation
-	res.decode(t, &result)
-	require.Equal(t, iam.AccountSessionRevocation{
-		Issuers:                []string{issuerA, issuerB},
-		RevokedSessions:        map[string]int{issuerA: 1, issuerB: 1},
-		RevokedDeviceKeys:      1,
-		UnlistedIssuerSessions: 1,
-	}, result)
+	require.Equal(t, http.StatusNoContent, res.status, res.String())
+	keys, err := auth.DeviceKeys(ctx, victim.ID)
+	require.NoError(t, err)
+	require.Len(t, keys, 1)
+	require.NotNil(t, keys[0].RevokedAt, "the device key is revoked with the sessions")
 
 	t.Run("refresh stops on both account issuers", func(t *testing.T) {
 		require.Equal(t, http.StatusUnauthorized, refresh(t, siteA, victimA))
@@ -199,8 +196,8 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		require.NoError(t, err)
 		var got []string
 		for _, e := range events.Items {
-			require.Equal(t, reasonAdminRevokeAll, e.Reason)
-			require.Equal(t, e.Kind == iam.SessionEventAccountSessionsRevoked, e.SessionID == "")
+			require.Equal(t, reasonAdminRevokeAll, *e.Reason)
+			require.Equal(t, e.Kind == iam.SessionEventAccountSessionsRevoked, e.SessionID == nil)
 			got = append(got, e.Issuer+" "+string(e.Kind))
 		}
 		require.ElementsMatch(t, []string{issuerA + " session_revoked", issuerB + " session_revoked", issuerA + " account_sessions_revoked"}, got)
@@ -341,10 +338,10 @@ func TestRefreshFamilyHistory_OldReplayRevokesHTTP(t *testing.T) {
 	current := original
 	var predecessor string
 	for range 3 {
-		status, tokens, err := refreshSession(a, current)
+		status, tokens, err := refreshSession(a, *current)
 		require.NoError(t, err)
 		require.Equal(t, http.StatusOK, status)
-		predecessor, current = current, tokens.RefreshToken
+		predecessor, current = *current, tokens.RefreshToken
 	}
 	// Only the immediate predecessor can re-deliver the current token.
 	status, tokens, err := refreshSession(a, predecessor)
@@ -352,16 +349,16 @@ func TestRefreshFamilyHistory_OldReplayRevokesHTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 	require.Equal(t, current, tokens.RefreshToken)
 
-	status, _, err = refreshSession(a, original)
+	status, _, err = refreshSession(a, *original)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusUnauthorized, status)
 	live, revoked := sessionCounts(t, auth, u.ID)
 	require.Equal(t, 1, live, "old replay must kill the stolen family, preserving the other sign-in")
 	require.Equal(t, map[string]int{reasonRefreshReuse: 1}, revoked)
-	status, _, err = refreshSession(a, current)
+	status, _, err = refreshSession(a, *current)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusUnauthorized, status)
-	status, _, err = refreshSession(a, other)
+	status, _, err = refreshSession(a, *other)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, status)
 }
@@ -374,7 +371,7 @@ func TestRefreshFamilyHistory_ReplayRacingRotationHTTP(t *testing.T) {
 	original := authtest.SignIn(t, auth, u).RefreshToken
 	current := original
 	for range 2 {
-		status, tokens, err := refreshSession(a, current)
+		status, tokens, err := refreshSession(a, *current)
 		require.NoError(t, err)
 		require.Equal(t, http.StatusOK, status)
 		current = tokens.RefreshToken
@@ -386,7 +383,7 @@ func TestRefreshFamilyHistory_ReplayRacingRotationHTTP(t *testing.T) {
 	}
 	start := make(chan struct{})
 	replay, rotation := make(chan result, 1), make(chan result, 1)
-	for token, out := range map[string]chan result{original: replay, current: rotation} {
+	for token, out := range map[string]chan result{*original: replay, *current: rotation} {
 		go func() {
 			<-start
 			status, tokens, err := refreshSession(a, token)
@@ -403,7 +400,7 @@ func TestRefreshFamilyHistory_ReplayRacingRotationHTTP(t *testing.T) {
 	require.Zero(t, live)
 	require.Equal(t, map[string]int{reasonRefreshReuse: 1}, revoked)
 	if rotated.status == http.StatusOK {
-		status, _, err := refreshSession(a, rotated.tokens.RefreshToken)
+		status, _, err := refreshSession(a, *rotated.tokens.RefreshToken)
 		require.NoError(t, err)
 		require.Equal(t, http.StatusUnauthorized, status)
 	}
@@ -428,11 +425,11 @@ func expiredReplayRevokes(t *testing.T, auth *authkit.Client, a *api, elapse fun
 	t.Helper()
 	u := authtest.NewUser(t, auth)
 	token := authtest.SignIn(t, auth, u).RefreshToken
-	status, _, err := refreshSession(a, token)
+	status, _, err := refreshSession(a, *token)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, status)
 	elapse()
-	status, _, err = refreshSession(a, token)
+	status, _, err = refreshSession(a, *token)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusUnauthorized, status)
 	live, revoked := sessionCounts(t, auth, u.ID)
@@ -512,7 +509,7 @@ func TestTokenEntitlementAllowlist(t *testing.T) {
 	t.Run("registration, sign-in and refresh", func(t *testing.T) {
 		a := newAPI(t, auth)
 		res := a.post("/register", "", map[string]any{"identifier": "entitlement-policy@example.test", "username": "entpolicy", "password": "Correct-horse-policy-password-1"})
-		registered := expectAnswer(t, res, http.StatusAccepted)
+		registered := expectAnswer(t, res, http.StatusOK)
 		require.NotContains(t, claimsOf(t, auth, registered.tokens().AccessToken), "entitlements")
 		require.Zero(t, provider.callCount(), "an empty allowlist must not query billing during registration")
 
@@ -525,12 +522,12 @@ func TestTokenEntitlementAllowlist(t *testing.T) {
 		}
 		wireGolden(t, "access-claims", claims)
 		provider.set([]string{"lifetime", "product-b"}, nil)
-		status, refreshed, err := refreshSession(s, login.RefreshToken)
+		status, refreshed, err := refreshSession(s, *login.RefreshToken)
 		require.NoError(t, err)
 		require.Equal(t, http.StatusOK, status)
 		require.Equal(t, []any{"lifetime"}, claimsOf(t, selecting, refreshed.AccessToken)["entitlements"])
 		provider.set(nil, errors.New("test billing unavailable"))
-		status, failed, err := refreshSession(s, refreshed.RefreshToken)
+		status, failed, err := refreshSession(s, *refreshed.RefreshToken)
 		require.NoError(t, err)
 		require.Equal(t, http.StatusOK, status)
 		require.NotContains(t, claimsOf(t, selecting, failed.AccessToken), "entitlements", "provider failure does not become a grant or prevent a session")

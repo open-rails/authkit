@@ -79,7 +79,7 @@ func (s *Engine) CreateAPIKey(ctx context.Context, a iam.Actor, ref iam.GroupRef
 			if err != nil {
 				return err
 			}
-			out.APIKey = iam.APIKey{LookupID: minted.LookupID, GroupID: g.ID, Name: name, Role: role, Permissions: ident.Perms(grants), CreatedBy: creator, ExpiresAt: expiresAt}
+			out.APIKey = iam.APIKey{LookupID: minted.LookupID, GroupID: g.ID, Name: name, Role: role, Permissions: ident.Perms(grants), CreatedBy: nullable(creator), ExpiresAt: expiresAt}
 			row, err := db.New(st.q).APIKeyInsert(ctx, db.APIKeyInsertParams{
 				GroupID: g.ID, KeyID: minted.LookupID, SecretHash: minted.SecretHash, Name: name,
 				Role: role.String(), CreatedBy: nullable(creator), ExpiresAt: expiresAt, CatalogIssuer: s.cfg.Token.Issuer,
@@ -123,7 +123,7 @@ func (s *Engine) ListAPIKeys(ctx context.Context, ref iam.GroupRef, p iam.PageRe
 	keys := make([]iam.APIKey, len(rows))
 	for i, r := range rows {
 		keys[i] = iam.APIKey{
-			ID: r.ID, LookupID: r.KeyID, GroupID: r.PermissionGroupID, Name: r.Name, Role: ident.RoleText(r.Role), CreatedBy: r.CreatedBy,
+			ID: r.ID, LookupID: r.KeyID, GroupID: r.PermissionGroupID, Name: r.Name, Role: ident.RoleText(r.Role), CreatedBy: nullable(r.CreatedBy),
 			CreatedAt: r.CreatedAt, LastUsedAt: r.LastUsedAt, ExpiresAt: r.ExpiresAt, RevokedAt: r.RevokedAt,
 		}
 	}

@@ -7,9 +7,7 @@ import (
 )
 
 func (s *Service) handleAccountRecoveryConfirmPOST(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Token string `json:"token"`
-	}
+	var body TokenRequest
 	if err := decodeJSON(r, &body); err != nil || body.Token == "" {
 		fail(w, errmodel.CodeInvalidRequest)
 		return

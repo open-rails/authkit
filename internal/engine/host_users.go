@@ -26,13 +26,13 @@ import (
 // publicUser projects r. An expired temporary ban is no ban.
 func publicUser(r *db.User, now time.Time) iam.User {
 	u := iam.User{
-		ID: r.ID, Email: deref(r.Email), Phone: deref(r.PhoneNumber), Username: deref(r.Username),
+		ID: r.ID, Email: nullable(deref(r.Email)), Phone: nullable(deref(r.PhoneNumber)), Username: deref(r.Username),
 		EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified,
-		PreferredLanguage: deref(r.PreferredLanguage), AvatarURL: deref(r.AvatarURL),
+		PreferredLanguage: nullable(deref(r.PreferredLanguage)), AvatarURL: nullable(deref(r.AvatarURL)),
 		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin, DeletedAt: r.DeletedAt,
 	}
 	if banInForce(r, now) {
-		u.Ban = &iam.BanState{Until: r.BannedUntil, Reason: deref(r.BanReason), By: deref(r.BannedBy)}
+		u.Ban = &iam.BanState{Until: r.BannedUntil, Reason: nullable(deref(r.BanReason)), By: nullable(deref(r.BannedBy))}
 		if r.BannedAt != nil {
 			u.Ban.At = *r.BannedAt
 		}

@@ -61,7 +61,7 @@ func TestSecuritySessionEventHistory(t *testing.T) {
 	}
 	require.Equal(t, map[iam.SessionEventKind]int{iam.SessionEventCreated: 2, iam.SessionEventFailed: 1, iam.SessionEventRevoked: 1}, kinds)
 	require.Equal(t, iam.SessionEventRevoked, all[0].Kind)
-	require.Equal(t, sessions[0].ID, all[0].SessionID)
+	require.Equal(t, sessions[0].ID, *all[0].SessionID)
 	failed := history(iam.SessionEventQuery{Kinds: []iam.SessionEventKind{iam.SessionEventFailed}})
 	require.Len(t, failed, 1)
 	require.NotEmpty(t, failed[0].Reason)
