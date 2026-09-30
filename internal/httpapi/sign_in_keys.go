@@ -165,28 +165,6 @@ func (s *Service) handlePasskeyRegisterFinishPOST(w http.ResponseWriter, r *http
 	writeJSON(w, http.StatusCreated, passkeySignInKey(passkey))
 }
 
-// handleDeviceKeysDELETE revokes every device key of the caller but the one
-// behind its token: the recovery a new key's email-proven enrollment token
-// may run.
-func (s *Service) handleDeviceKeysDELETE(w http.ResponseWriter, r *http.Request) {
-	claims, ok := verify.ClaimsFromContext(r.Context())
-	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthenticated)
-		return
-	}
-	// The enrollment finish token is the bounded recovery-root proof: it
-	// carries both the device-key and verified-email authentication methods.
-	if claims.DeviceKeyID == "" || !claims.HasAMR("device_key") || !claims.HasAMR("email") {
-		fail(w, errmodel.CodeForbidden)
-		return
-	}
-	if err := s.svc.RevokeOtherDeviceKeys(r.Context(), claims.UserID, claims.DeviceKeyID); err != nil {
-		writeError(w, err)
-		return
-	}
-	noContent(w)
-}
-
 // newSignInMethodCaller is the caller of a route that adds a way to sign in:
 // its addresses are not all unproven, and it signed in recently.
 func (s *Service) newSignInMethodCaller(w http.ResponseWriter, r *http.Request) (verify.Claims, bool) {

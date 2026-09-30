@@ -72,7 +72,7 @@ func TestFactorEnrollmentConcurrentFirstFactor(t *testing.T) {
 
 			// Authenticated management may add another method, but cannot replace the winner.
 			phone := "+15559876543"
-			_, _, err = svc.enable2FA(ctx, factorEnable{UserID: user.ID, Method: settings.Factors[0].Method, Phone: &phone, Email: user.Email, MakeDefault: true, Mode: authflow.AllowAdditionalFactors})
+			_, err = svc.enable2FA(ctx, factorEnable{UserID: user.ID, Method: settings.Factors[0].Method, Phone: &phone, Email: user.Email, MakeDefault: true, Mode: authflow.AllowAdditionalFactors})
 			require.ErrorIs(t, err, errmodel.ErrTwoFAFactorExists)
 			preserved, err := svc.Get2FASettings(ctx, user.ID)
 			require.NoError(t, err)

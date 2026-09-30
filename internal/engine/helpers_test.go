@@ -131,8 +131,8 @@ func (s *Engine) softDelete(ctx context.Context, id string) error {
 func (s *Engine) enableFactor(ctx context.Context, userID, method string, phone *string, mode authflow.FactorEnrollmentMode) ([]string, error) {
 	var email *string
 	_ = s.pg.QueryRow(ctx, `SELECT email::text FROM users WHERE id=$1::uuid`, userID).Scan(&email)
-	codes, _, err := s.enable2FA(ctx, factorEnable{UserID: userID, Method: method, Phone: phone, Email: email, Mode: mode})
-	return codes, err
+	enabled, err := s.enable2FA(ctx, factorEnable{UserID: userID, Method: method, Phone: phone, Email: email, Mode: mode})
+	return enabled.BackupCodes, err
 }
 
 // issueRefreshSession creates a password session and returns its refresh token.

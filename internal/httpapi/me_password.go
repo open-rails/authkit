@@ -84,5 +84,5 @@ func (s *Service) handleMePasswordPUT(w http.ResponseWriter, r *http.Request) {
 		noContent(w)
 		return
 	}
-	s.writeFreshAuthResult(w, r, claims.UserID, claims.SessionID)
+	s.writeFresh(w, r, claims.UserID, claims.SessionID)
 }

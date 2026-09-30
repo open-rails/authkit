@@ -7,7 +7,6 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/errmodel"
@@ -105,20 +104,22 @@ func (s *Service) handleMe2FAFactorsPOST(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	created := TwoFactorFactorCreated{Factor: twoFactorFactorResponse(out.Factor), BackupCodes: out.BackupCodes}
+	var auth AuthResult
+	var err error
 	switch {
 	case out.Login != nil:
-		if created.Auth, ok = s.enrollmentSignIn(w, r, *out.Login); !ok {
-			return
-		}
+		auth, err = s.authResult(w, r, *out.Login, authExtras{})
 	case out.SessionVerified:
 		// The code verified this session: hand back a token whose assurance
 		// claims match what its next refresh will carry (#389).
-		fresh, err := s.freshAuthResult(r, claims.UserID, claims.SessionID)
-		if err != nil {
-			serverErr(w, "token_issue_failed", err)
-			return
-		}
-		created.Auth = &fresh
+		auth, err = s.freshAuthResult(w, r, claims.UserID, claims.SessionID)
+	}
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if auth.Status != "" {
+		created.Auth = &auth
 	}
 	writeJSON(w, http.StatusCreated, created)
 }
@@ -265,27 +266,6 @@ func (s *Service) enrollTwoFactor(w http.ResponseWriter, r *http.Request, in aut
 		return out, false
 	}
 	return out, true
-}
-
-// enrollmentSignIn is the sign-in an enrollment token finished by adding the
-// account's first factor. Any outcome but a session keeps the continuation
-// presentation until the shared AuthResult builder lands.
-func (s *Service) enrollmentSignIn(w http.ResponseWriter, r *http.Request, out authflow.LoginOutcome) (*AuthResult, bool) {
-	if out.Kind != authflow.LoginSessionIssued {
-		s.writeLoginContinuation(w, r, out, nil)
-		return nil, false
-	}
-	user, err := s.svc.User(r.Context(), iam.UserByID(out.UserID))
-	if err != nil {
-		serverErr(w, "load_user", err)
-		return nil, false
-	}
-	tokens := s.deliverRefreshToken(w, r, out.Session.TokenSet())
-	result := &AuthResult{Status: AuthComplete, TokenSet: &tokens, User: &user, Created: out.Created}
-	if out.ReturnTo != "" {
-		result.ReturnTo = &out.ReturnTo
-	}
-	return result, true
 }
 
 func derefTrim(s *string) string {

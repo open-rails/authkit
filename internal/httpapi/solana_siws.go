@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/siws"

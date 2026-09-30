@@ -45,7 +45,7 @@ func (s *Service) handlePasswordStepUpPOST(w http.ResponseWriter, r *http.Reques
 		serverErr(w, "step_up_failed", err)
 		return
 	}
-	s.writeFreshAuthResult(w, r, claims.UserID, claims.SessionID)
+	s.writeFresh(w, r, claims.UserID, claims.SessionID)
 }
 
 // handleTwoFactorStepUpSendPOST sends a step-up code to a second factor (the
@@ -114,7 +114,7 @@ func (s *Service) handleTwoFactorStepUpPOST(w http.ResponseWriter, r *http.Reque
 		serverErr(w, "step_up_failed", err)
 		return
 	}
-	s.writeFreshAuthResult(w, r, claims.UserID, claims.SessionID)
+	s.writeFresh(w, r, claims.UserID, claims.SessionID)
 }
 
 // stepUpCaller is the signed-in caller of a step-up route: a step-up
@@ -153,33 +153,14 @@ func (s *Service) requireSecondFactor(w http.ResponseWriter, r *http.Request, us
 	return true
 }
 
-// freshAuthResult is a re-authenticated session's answer: a fresh access
-// token whose assurance claims match the session, the account, and the
-// session's step-up state.
-func (s *Service) freshAuthResult(r *http.Request, userID, sessionID string) (AuthResult, error) {
-	freshness, err := s.svc.SessionFreshness(r.Context(), userID, sessionID, time.Now())
-	if err != nil {
-		return AuthResult{}, err
-	}
-	token, exp, err := s.svc.MintSessionAccessToken(r.Context(), userID, sessionID)
-	if err != nil {
-		return AuthResult{}, err
-	}
-	user, err := s.svc.User(r.Context(), iam.UserByID(userID))
-	if err != nil {
-		return AuthResult{}, err
-	}
-	tokens, fresh := iam.NewTokenSet(token, "", exp), freshAuth(freshness)
-	return AuthResult{Status: AuthComplete, TokenSet: &tokens, User: &user, FreshAuth: &fresh}, nil
-}
-
-func (s *Service) writeFreshAuthResult(w http.ResponseWriter, r *http.Request, userID, sessionID string) {
-	result, err := s.freshAuthResult(r, userID, sessionID)
+// writeFresh answers a re-authenticated session's fresh AuthResult.
+func (s *Service) writeFresh(w http.ResponseWriter, r *http.Request, userID, sessionID string) {
+	res, err := s.freshAuthResult(w, r, userID, sessionID)
 	if err != nil {
 		serverErr(w, "token_issue_failed", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	writeAuthResult(w, res)
 }
 
 func (s *Service) handleOIDCStepUpStartPOST(w http.ResponseWriter, r *http.Request) {

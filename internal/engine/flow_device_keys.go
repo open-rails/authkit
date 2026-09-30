@@ -626,11 +626,8 @@ func (s *Engine) RevokeOtherDeviceKeys(ctx context.Context, userID, currentID st
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := s.qtx(tx)
 	active, err := q.DeviceKeyIsActiveForUpdate(ctx, db.DeviceKeyIsActiveForUpdateParams{ID: currentID, UserID: userID})
-	if err != nil {
-		return err
-	}
-	if !active {
-		return iam.ErrSessionRevoked
+	if err != nil || !active {
+		return errDeviceKeyInvalid
 	}
 	if _, err := q.DeviceKeysRevokeAllExcept(ctx, db.DeviceKeysRevokeAllExceptParams{UserID: userID, KeepID: &currentID}); err != nil {
 		return err
