@@ -1143,6 +1143,7 @@ pkg authkit/iam, var ErrContactNotVerified Error
 pkg authkit/iam, var ErrDelegationRefused Error
 pkg authkit/iam, var ErrDeviceKeysDisabled Error
 pkg authkit/iam, var ErrEmailInUse Error
+pkg authkit/iam, var ErrEntitlementFilterUnavailable Error
 pkg authkit/iam, var ErrExternalInvitesDisabled Error
 pkg authkit/iam, var ErrGroupConflict Error
 pkg authkit/iam, var ErrGroupNotFound Error
