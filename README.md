@@ -92,6 +92,7 @@ First we need moderators; these are the unpaid neckbeards who enforce their arbi
 
 ```go
 var (
+	// This is a mutable object that we'll attach all of our personas, permissions, and roles onto.
 	rbac = authkit.NewRoles()
 
 	// Persona's are types of permission groups. root (the whole site) exists by default.
@@ -115,9 +116,9 @@ var (
 )
 ```
 
-Permissions have 3 parts: `<persona>:<resource>:<action>` and they support wildcards like `channel:*` too.
+Permissions have 3 parts: `<persona>:<resource>:<action>` and they support wildcards like `channel:*` too. However, we use enums in code rather than strings, for type-safety.
 
-AuthKit gives every persona these permissions for free, so you never list them yourself:
+AuthKit gives every persona these permissions for free, so you never define them yourself:
 
 | Permission | Lets you |
 |---|---|
@@ -221,7 +222,7 @@ func run(ctx context.Context) error {
 }
 ```
 
-Mounting gives your users all of this: 65 routes under `/api/v1`, plus the public keys that let anyone check AuthKit's tokens. Every request and response shape is in [`api/openapi.json`](api/openapi.json), generated from the route catalog.
+Mounting gives your users all of this: 65 routes under `/api/v1`, plus the public keys that let anyone verify AuthKit's tokens. Every request and response shape is in [`api/openapi.json`](api/openapi.json), generated from the route catalog.
 
 **Signing up and signing in** (every sign-in answers an `AuthResult`: signed in, or the one next step, such as a second factor)
 

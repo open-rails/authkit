@@ -77,6 +77,7 @@ func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {
 }
 
 var (
+	// This is a mutable object that we'll attach all of our personas, permissions, and roles onto.
 	rbac = authkit.NewRoles()
 
 	// Persona's are types of permission groups. root (the whole site) exists by default.
