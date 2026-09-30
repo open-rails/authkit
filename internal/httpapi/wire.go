@@ -43,9 +43,9 @@ type TokenRequest struct {
 }
 
 type PasswordlessStartRequest struct {
-	Identifier         string `json:"identifier"`
-	Mode               string `json:"mode"`
-	ReturnTo           string `json:"return_to"`
+	Identifier        string `json:"identifier"`
+	Mode              string `json:"mode"`
+	ReturnTo          string `json:"return_to"`
 	PreferredLanguage string `json:"preferred_language"`
 	InviteCode        string `json:"invite_code"`
 }
