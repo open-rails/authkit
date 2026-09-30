@@ -343,8 +343,8 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 func newGraceClient(t *testing.T, grace time.Duration) (*authkit.Client, *api, *testclock.Clock) {
 	t.Helper()
 	clock := testclock.Wall()
-	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) { c.Token.RefreshRotationGrace = grace }),
-		authtest.WithDeps(func(d *authkit.Deps) { d.Clock = clock.Now }))
+	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) { c.Token.RefreshRotationGrace = grace }))
+	testclock.Use(auth, clock.Now)
 	return auth, newAPI(t, auth), clock
 }
 

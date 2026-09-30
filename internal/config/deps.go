@@ -3,7 +3,6 @@ package config
 import (
 	"context"
 	"net/http"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
@@ -85,11 +84,6 @@ type Deps struct {
 	ClientIP func(*http.Request) string
 	// Wrap decorates every API and browser-OIDC handler at mount time.
 	Wrap func(iam.Route, http.Handler) http.Handler
-
-	// Clock replaces the engine clock for TTL and grace-window decisions. It
-	// never governs ephemeral state (codes, claims, counters), which always
-	// expires by the database clock so replicas agree.
-	Clock func() time.Time
 }
 
 // EmailSender delivers email; adapters/twilio.NewEmail returns one.

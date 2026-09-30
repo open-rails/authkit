@@ -20,7 +20,7 @@ import (
 // codes, tokens, ceremonies, OIDC/SIWS state and attempt counters. Every
 // replica sees the same rows, and each operation is a single statement, so
 // single-use claims and counters are atomic across the fleet. Expiry always
-// uses the database clock (never Deps.Clock), so skewed replicas agree on
+// uses the database clock (never the engine clock), so skewed replicas agree on
 // what is live. Expired rows are invisible to reads and purged by the
 // maintenance job.
 type ephemeralKV struct {

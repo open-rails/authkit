@@ -12,6 +12,7 @@ import (
 	"github.com/open-rails/authkit/internal/engine"
 	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/ops"
+	"github.com/open-rails/authkit/internal/testclock"
 	"github.com/open-rails/authkit/verify"
 	riverhelpers "github.com/open-rails/helpers/river"
 )
@@ -47,6 +48,7 @@ func init() {
 		}
 		return a.cfg, a.deps, true
 	}
+	testclock.Use = func(client any, now func() time.Time) { client.(*Client).engine.SetClock(now) }
 }
 
 var _ verify.Authority = (*Client)(nil)

@@ -7,6 +7,11 @@ import (
 	"time"
 )
 
+// Use makes an *authkit.Client decide TTLs and grace windows by now; call it
+// before the Client serves. Ephemeral state keeps the database clock. The root
+// package sets it: hosts have no way to change the clock.
+var Use func(client any, now func() time.Time)
+
 // Clock is the wall clock shifted by every Advance so far.
 type Clock struct {
 	mu     sync.Mutex
