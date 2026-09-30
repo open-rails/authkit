@@ -263,9 +263,9 @@ func (s *Engine) ListUsers(ctx context.Context, q iam.UserQuery) (iam.ListPage[i
 	case iam.UserStatusLive:
 		where = append(where, "u.deleted_at IS NULL")
 	case iam.UserStatusActive:
-		where = append(where, "u.deleted_at IS NULL", "u.banned_at IS NULL")
+		where = append(where, "u.deleted_at IS NULL", "NOT ban_in_force(u.banned_at, u.banned_until)")
 	case iam.UserStatusBanned:
-		where = append(where, "u.deleted_at IS NULL", "u.banned_at IS NOT NULL")
+		where = append(where, "u.deleted_at IS NULL", "ban_in_force(u.banned_at, u.banned_until)")
 	case iam.UserStatusDeleted:
 		where = append(where, "u.deleted_at IS NOT NULL")
 	case iam.UserStatusAny:

@@ -40,6 +40,7 @@ if bad:
     raise SystemExit(f'Unqualified workflows: {bad}')
 # Required by name, so a test can move between packages without an edit here.
 required = ('TestSecurityAccessTokenForgery', 'TestSecurityBearerTransport', 'TestSecurityRefreshTokenTheft',
+            'TestSecurityRefreshHistoryIsBounded',
             'TestSecurityRefreshGraceDoesNotFork', 'TestSecuritySessionRevocationEvents',
             'TestSecurityPasswordChangeEndsOtherSessions', 'TestSecurityRevokedSessionCannotChangeCredentials',
             'TestSecurityDelegationOutlivingRevocation', 'TestSecuritySecondFactorLockout',

@@ -80,7 +80,7 @@ func (s *Engine) changePassword(ctx context.Context, userID, new string, keepSes
 	var proven []revokedSession
 	err = s.mutateCredentials(ctx, userID, keepSessionID, reason, func(tx pgx.Tx, q *db.Queries, account db.UserCredentialVersionForUpdateRow) error {
 		if grant != nil {
-			if account.DeletedAt != nil || account.BannedAt != nil && (account.BannedUntil == nil || account.BannedUntil.After(time.Now())) {
+			if account.DeletedAt != nil || banInForce(account.BannedAt, account.BannedUntil, time.Now()) {
 				return errmodel.ErrUserBanned
 			}
 			reserved, err := q.UserIsReserved(ctx, userID)

@@ -63,23 +63,6 @@ SELECT
   sqlc.narg(banned_at), sqlc.narg(banned_until), sqlc.narg(ban_reason), sqlc.narg(banned_by)::uuid, sqlc.arg(metadata)::jsonb, sqlc.arg(created_at), sqlc.arg(updated_at)
 FROM claim;
 
--- name: UserImportUpdate :one
-UPDATE users
-SET email = COALESCE(sqlc.narg(email), email),
-    phone_number = COALESCE(sqlc.narg(phone_number), phone_number),
-    username = sqlc.arg(username),
-    email_verified = sqlc.arg(email_verified),
-    phone_verified = sqlc.arg(phone_verified),
-    banned_at = sqlc.narg(banned_at),
-    banned_until = sqlc.narg(banned_until),
-    ban_reason = sqlc.narg(ban_reason),
-    banned_by = sqlc.narg(banned_by)::uuid,
-    metadata = COALESCE(metadata, '{}'::jsonb) || sqlc.arg(metadata)::jsonb,
-    created_at = CASE WHEN sqlc.arg(created_at) < created_at THEN sqlc.arg(created_at) ELSE created_at END,
-    updated_at = sqlc.arg(updated_at)
-WHERE id = sqlc.arg(id)::uuid
-RETURNING id::text;
-
 -- name: UserSetEmailVerified :exec
 UPDATE users SET email_verified = $2, updated_at = NOW() WHERE id = $1;
 
@@ -192,7 +175,7 @@ UPDATE users SET metadata = sqlc.arg(metadata)::jsonb, updated_at = now()
 WHERE id = sqlc.arg(id);
 
 -- name: UserBanInForce :one
-SELECT (banned_at IS NOT NULL AND (banned_until IS NULL OR banned_until > now()))::boolean AS in_force
+SELECT ban_in_force(banned_at, banned_until)::boolean AS in_force
 FROM users WHERE id = $1;
 
 -- name: MFASettingsDelete :exec

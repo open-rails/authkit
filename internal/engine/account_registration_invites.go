@@ -109,7 +109,7 @@ func (s *Engine) applyRegistrationInvite(ctx context.Context, tx pgx.Tx, invite 
 	if invite == nil {
 		return nil
 	}
-	if err := db.New(tx).AccountInviteConsume(ctx, db.AccountInviteConsumeParams{ID: invite.ID, UserID: userID}); err != nil {
+	if err := db.New(tx).AccountInviteConsume(ctx, invite.ID); err != nil {
 		return err
 	}
 	if invite.PermissionGroupID != nil && invite.Role != nil {

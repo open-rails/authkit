@@ -315,7 +315,7 @@ func (s *Engine) lockAuthenticationAccount(ctx context.Context, q *db.Queries, u
 		return nil, err
 	}
 
-	if (!allowDeleted && account.DeletedAt != nil) || account.BannedAt != nil && (account.BannedUntil == nil || account.BannedUntil.After(time.Now())) {
+	if (!allowDeleted && account.DeletedAt != nil) || banInForce(account.BannedAt, account.BannedUntil, time.Now()) {
 		return nil, errmodel.ErrUserBanned
 	}
 	if expectedVersion > 0 && account.CredentialVersion != expectedVersion {

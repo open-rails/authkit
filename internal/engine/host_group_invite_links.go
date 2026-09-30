@@ -175,7 +175,7 @@ func (s *Engine) acceptAccountInvite(ctx context.Context, st *permissionGroupSto
 	if err := s.assignInvitedRole(ctx, st, groupID, out.Persona, redeemer.ID, out.Role); err != nil {
 		return err
 	}
-	return q.AccountInviteConsume(ctx, db.AccountInviteConsumeParams{ID: invite.ID, UserID: redeemer.ID})
+	return q.AccountInviteConsume(ctx, invite.ID)
 }
 
 // subjectHasRole reports whether the user already holds role in the group.

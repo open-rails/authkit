@@ -57,17 +57,12 @@ func (q *Queries) AccountInviteByCodeForUpdate(ctx context.Context, arg AccountI
 }
 
 const accountInviteConsume = `-- name: AccountInviteConsume :exec
-UPDATE account_registration_invites SET consumed_at = now(), consumed_by = $1::uuid, updated_at = now()
-WHERE id = $2
+UPDATE account_registration_invites SET consumed_at = now(), updated_at = now()
+WHERE id = $1
 `
 
-type AccountInviteConsumeParams struct {
-	UserID string
-	ID     string
-}
-
-func (q *Queries) AccountInviteConsume(ctx context.Context, arg AccountInviteConsumeParams) error {
-	_, err := q.db.Exec(ctx, accountInviteConsume, arg.UserID, arg.ID)
+func (q *Queries) AccountInviteConsume(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, accountInviteConsume, id)
 	return err
 }
 
