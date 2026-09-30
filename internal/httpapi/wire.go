@@ -132,6 +132,16 @@ type TwoFactorSendRequest struct {
 	FactorID string `json:"factor_id"`
 }
 
+// StepUpCodeSendRequest names the proven address a step-up code goes to:
+// "email" or "sms".
+type StepUpCodeSendRequest struct {
+	Channel string `json:"channel"`
+}
+
+type CodeRequest struct {
+	Code string `json:"code"`
+}
+
 // ProfileUpdateRequest is PATCH /me: an absent field is unchanged; an empty
 // avatar_url clears it.
 type ProfileUpdateRequest struct {

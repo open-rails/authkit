@@ -59,6 +59,11 @@ const (
 	RLMeRead           = "me_read"
 	RLMeUpdate         = "me_update"
 	RLStepUp2FASend    = "step_up_2fa_send"
+	// Step-up by a code to a proven address, a wallet or a passkey.
+	RLStepUpCodeSend  = "step_up_code_send"
+	RLStepUpCode      = "step_up_code"
+	RLStepUpChallenge = "step_up_challenge"
+	RLStepUpSignature = "step_up_signature"
 
 	RLMeDelete         = "me_delete"
 	RLMeProviderUnlink = "me_provider_unlink"
@@ -106,6 +111,8 @@ var buckets = map[string]bucket{
 	RLOIDCCallback:          {limit: lim{Limit: 60, Window: 10 * time.Minute}},
 	RLSolanaLogin:           {limit: lim{Limit: 20, Window: 10 * time.Minute}},
 	RLSolanaLink:            {limit: lim{Limit: 12, Window: time.Hour}},
+	RLStepUpCode:            {limit: lim{Limit: 10, Window: 10 * time.Minute}},
+	RLStepUpSignature:       {limit: lim{Limit: 20, Window: 10 * time.Minute}},
 
 	// They send an email or SMS. /register and /passwordless/start also check
 	// an account invitation when one is presented.
@@ -119,6 +126,7 @@ var buckets = map[string]bucket{
 	RL2FASetupEmail:        {limit: lim{Limit: 3, Window: 10 * time.Minute}},
 	RLInviteCreate:         {limit: lim{Limit: 20, Window: time.Hour, Cooldown: time.Minute}},
 	RLStepUp2FASend:        {limit: lim{Limit: 6, Window: 10 * time.Minute}},
+	RLStepUpCodeSend:       {limit: lim{Limit: 6, Window: 10 * time.Minute}},
 
 	// They issue a secret. An OIDC start issues the flow's state.
 	RL2FASetupTOTP:       {limit: lim{Limit: 6, Window: time.Hour}},
@@ -145,6 +153,7 @@ var buckets = map[string]bucket{
 	RLMeDelete:             {limit: lim{Limit: 6, Window: time.Hour}, failOpen: true},
 	RLMeProviderUnlink:     {limit: lim{Limit: 12, Window: time.Hour}, failOpen: true},
 	RLSolanaChallenge:      {limit: lim{Limit: 30, Window: 10 * time.Minute}, failOpen: true},
+	RLStepUpChallenge:      {limit: lim{Limit: 30, Window: 10 * time.Minute}, failOpen: true},
 	RL2FADisable:           {limit: lim{Limit: 6, Window: time.Hour}, failOpen: true},
 	RLAdminRead:            {limit: lim{Limit: 600, Window: time.Hour}, failOpen: true},
 	RLAdminWrite:           {limit: lim{Limit: 30, Window: time.Hour}, failOpen: true},

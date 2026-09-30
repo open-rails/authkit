@@ -135,16 +135,10 @@ func (s *Service) writeProfile(w http.ResponseWriter, r *http.Request, claims ve
 
 func (s *Service) profileInput(claims verify.Claims) authflow.ProfileInput {
 	return authflow.ProfileInput{
-		UserID:                 claims.UserID,
-		ClaimsUsername:         claims.Username,
-		AuthTime:               claims.AuthTime,
-		StepUpSatisfied:        authflow.RecentSignIn(claims.AuthTime, claims.AMR, claims.MFAEnrolled, time.Now()),
-		AuthMethods:            claims.AMR,
-		ProviderSupportsStepUp: s.providerSupportsStepUp,
+		UserID:          claims.UserID,
+		ClaimsUsername:  claims.Username,
+		AuthTime:        claims.AuthTime,
+		StepUpSatisfied: authflow.RecentSignIn(claims.AuthTime, claims.AMR, claims.MFAEnrolled, time.Now()),
+		AuthMethods:     claims.AMR,
 	}
-}
-
-func (s *Service) providerSupportsStepUp(name string) bool {
-	p, ok := s.provider(name)
-	return ok && p.SupportsStepUp()
 }

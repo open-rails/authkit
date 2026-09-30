@@ -218,6 +218,7 @@ var (
 	ErrPhoneVerificationSendFailed     = Internal("phone_verification_failed", nil)
 	ErrProviderAlreadyLinked           = E(CodeProviderAlreadyLinked)
 	ErrProviderChangeRequiresUnlink    = E(CodeProviderChangeRequiresUnlink)
+	ErrProviderNotLinked               = E(CodeProviderNotLinked)
 	ErrRegistrationDisabled            = E(CodeRegistrationDisabled)
 	ErrSMSDeliveryFailed               = E(CodeSMSDeliveryFailed)
 	ErrSMSUnavailable                  = E(CodeSMSUnavailable)

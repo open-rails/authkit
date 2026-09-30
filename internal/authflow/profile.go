@@ -1,6 +1,7 @@
 package authflow
 
 import (
+	"slices"
 	"sort"
 	"time"
 
@@ -9,44 +10,50 @@ import (
 )
 
 // ProfileInput is what the transport knows that the engine does not: the
-// verified claims' username/auth-time/sensitivity and the deployment's
-// provider registry.
+// verified claims' username, auth time and sensitivity.
 type ProfileInput struct {
 	UserID          string
 	ClaimsUsername  string // fallback when the row carries no username
 	AuthTime        time.Time
 	StepUpSatisfied bool     // the presented token is fresh enough for sensitive actions
 	AuthMethods     []string // the presented token's authentication methods (amr)
-	// ProviderSupportsStepUp reports which linked providers can re-authenticate.
-	ProviderSupportsStepUp func(provider string) bool
 }
 
-// StepUpMethods lists how the user can re-authenticate for a sensitive
-// action. An account with a second factor re-proves itself only with one
-// ("2fa"); any other with its password and every linked provider that
-// supports step-up (de-duplicated, sorted). Pure over already-loaded inputs.
-func StepUpMethods(hasPassword bool, factors []TwoFactorFactor, providerSlugs []string, supportsStepUp func(string) bool) []string {
-	if len(factors) > 0 {
-		return []string{"2fa"}
-	}
+// StepUpCredentials is what an account can re-authenticate with.
+type StepUpCredentials struct {
+	Password     bool
+	SecondFactor bool // an enabled second factor
+	Passkey      bool
+	Email, SMS   bool // a proven address a code can reach now
+	Solana       bool // a linked wallet
+	// Providers are the linked providers that prove a fresh sign-in.
+	Providers []string
+}
+
+// Methods lists the step-up methods that clear the sensitive-action gate. An
+// account with a second factor steps up with it or a passkey, which is
+// multi-factor itself; any other steps up with each way it signs in.
+func (c StepUpCredentials) Methods() []string {
 	methods := []string{}
-	if hasPassword {
-		methods = append(methods, "password")
-	}
-	seen := make(map[string]struct{}, len(providerSlugs))
-	distinct := make([]string, 0, len(providerSlugs))
-	for _, provider := range providerSlugs {
-		if _, dup := seen[provider]; dup {
-			continue
+	add := func(ok bool, method string) {
+		if ok && !slices.Contains(methods, method) {
+			methods = append(methods, method)
 		}
-		seen[provider] = struct{}{}
-		distinct = append(distinct, provider)
 	}
-	sort.Strings(distinct)
-	for _, provider := range distinct {
-		if supportsStepUp != nil && supportsStepUp(provider) {
-			methods = append(methods, provider)
-		}
+	if c.SecondFactor {
+		add(true, "2fa")
+		add(c.Passkey, "passkey")
+		return methods
+	}
+	add(c.Password, "password")
+	add(c.Passkey, "passkey")
+	add(c.Email, "email")
+	add(c.SMS, "sms")
+	add(c.Solana, "solana")
+	providers := slices.Clone(c.Providers)
+	sort.Strings(providers)
+	for _, provider := range providers {
+		add(true, provider)
 	}
 	return methods
 }
