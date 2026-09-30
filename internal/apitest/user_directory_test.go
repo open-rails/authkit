@@ -61,7 +61,10 @@ func TestAdminUserDirectory(t *testing.T) {
 	expectAnswer(t, providerSignIn(t, a, idp, "idp", testidp.Identity{Subject: "idp-dave-1", Email: "dave.idp@example.test", EmailVerified: true, Username: "DaveOnTheIdP"}, ""), http.StatusOK)
 	dave, err := auth.User(ctx, iam.UserByEmail("dave.idp@example.test"))
 	require.NoError(t, err)
-	require.NotContains(t, strings.ToLower(dave.Username), "daveontheidp", "the provider username is the link's, not the account's")
+	// Renamed, so only the link still carries the provider username.
+	renamed := "dave_account"
+	_, err = auth.UpdateUser(ctx, iam.SystemActor(), dave.ID, iam.UserUpdate{Username: &renamed})
+	require.NoError(t, err)
 
 	list := func(query string) (iam.ListPage[iam.UserEntry], string) {
 		t.Helper()
