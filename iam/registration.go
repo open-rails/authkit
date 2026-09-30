@@ -12,18 +12,9 @@ const (
 	RegistrationVerificationRequired RegistrationVerificationPolicy = "required"
 )
 
-// RegistrationMode is the public native-user self-registration policy (#147).
-// It governs ONLY public self-registration; the system can always create users
-// through privileged APIs, bootstrap, or manual DB operations regardless of mode.
-//
-//	Open       — anyone may self-register.
-//	InviteOnly — self-registration requires a valid unbound account-registration
-//	             invite code.
-//	Closed      — no public self-registration at all.
-//
-// The former AdminOnly / AdminBootstrapOnly / ManifestOnly modes were removed
-// (#147): they described host-side creation, not a public self-registration
-// policy, and are subsumed by "use the privileged APIs" under any mode.
+// RegistrationMode is the public self-registration policy: open (anyone),
+// invite_only (with an account invitation) or closed. Host operations
+// (CreateUser, bootstrap, import) create users in every mode.
 type RegistrationMode string
 
 const (

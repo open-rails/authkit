@@ -72,7 +72,7 @@ New claims may be added, so verifiers ignore claims they don't know; `verify` al
 - `Config` and `Deps` are Go values without serialization tags, and AuthKit reads no config file or environment variable. Their field names, types and documented defaults are part of the Go API.
 - Rate-limit bucket names, the keys of `HTTPConfig.RateLimits` and `DefaultRateLimits()`, are covered. Their default values are not.
 - The bootstrap manifest's YAML and JSON keys (`iam.BootstrapManifest`, `ParseBootstrapManifestYAML`) are covered. An unknown key is a warning, never an error.
-- The key directory, `KeysConfig.Path`, holds `keys.json` (`active_key_id`, `active_private_key_pem`, `public_keys`) and `totp.key`. Both formats are covered; see [key rotation](../keys/KEY_ROTATION.md).
+- The key directory, `KeysConfig.Path`, holds `keys.json` (`active_key_id`, `active_private_key_pem`, `public_keys`) and `totp.key`. Both formats are covered; see [keys](keys.md).
 
 ## Database
 

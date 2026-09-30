@@ -350,4 +350,4 @@ func mountForum(r *gin.Engine, auth *authkit.Client, db *pgxpool.Pool) {
 
 The rest is ordinary app code (our channel and post handlers), not AuthKit. The whole program is one file: [examples/reddit/main.go](examples/reddit/main.go).
 
-More: [keys.json](keys/KEY_ROTATION.md), [RBAC](docs/rbac.md), [security](SECURITY.md), [v1 stability](docs/stability.md)
+More: [keys](docs/keys.md), [tokens](docs/tokens.md), [HTTP](docs/http.md), [RBAC](docs/rbac.md), [security](SECURITY.md), [v1 stability](docs/stability.md)
