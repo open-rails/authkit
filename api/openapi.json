@@ -7730,6 +7730,10 @@
       "status": 409,
       "message": "The database is not empty; bootstrap refused."
     },
+    "cannot_remove_last_contact": {
+      "status": 409,
+      "message": "Verify an email address before removing your phone number."
+    },
     "cannot_target_self": {
       "status": 403,
       "message": "You cannot perform this action on yourself."

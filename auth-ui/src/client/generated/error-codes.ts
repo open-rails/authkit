@@ -26,6 +26,7 @@ export type AuthErrorCode =
   | "bad_audience"
   | "bad_issuer"
   | "bootstrap_database_not_empty"
+  | "cannot_remove_last_contact"
   | "cannot_target_self"
   | "cannot_unlink_last_login_method"
   | "challenge_expired"
@@ -196,6 +197,7 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   bad_audience: 401,
   bad_issuer: 401,
   bootstrap_database_not_empty: 409,
+  cannot_remove_last_contact: 409,
   cannot_target_self: 403,
   cannot_unlink_last_login_method: 400,
   challenge_expired: 401,
@@ -367,6 +369,7 @@ export const AUTH_ERROR_MESSAGES = {
   bad_audience: "The token audience is not accepted.",
   bad_issuer: "The token issuer is not trusted.",
   bootstrap_database_not_empty: "The database is not empty; bootstrap refused.",
+  cannot_remove_last_contact: "Verify an email address before removing your phone number.",
   cannot_target_self: "You cannot perform this action on yourself.",
   cannot_unlink_last_login_method: "You can't unlink your last way to sign in.",
   challenge_expired: "Your verification session has expired. Start again.",
