@@ -99,7 +99,8 @@ func (s *Service) handleMeDELETE(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleMeProviderDELETE unlinks a provider unless it is the caller's last way
-// to sign in; the route requires a recent sign-in.
+// to sign in (every sign-in method counts); the route requires a recent
+// sign-in. A provider not linked is 404 provider_not_linked.
 func (s *Service) handleMeProviderDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
@@ -111,13 +112,8 @@ func (s *Service) handleMeProviderDELETE(w http.ResponseWriter, r *http.Request)
 		fail(w, errmodel.CodeInvalidProvider)
 		return
 	}
-	removed, err := s.svc.UnlinkProviderUnlessLast(r.Context(), claims.UserID, provider)
-	if err != nil {
-		serverErr(w, "failed_to_unlink", err)
-		return
-	}
-	if !removed {
-		fail(w, errmodel.CodeCannotUnlinkLastLoginMethod)
+	if err := s.svc.UnlinkProvider(r.Context(), claims.UserID, provider); err != nil {
+		writeError(w, err)
 		return
 	}
 	noContent(w)

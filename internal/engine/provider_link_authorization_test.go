@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -42,16 +41,7 @@ func TestProviderLoginHoldsItsLinkUntilTheSessionCommits(t *testing.T) {
 
 			next := f.expect(200, f.providerSignIn(idp, idpProvider.Name(), identity, ""))
 			body := map[string]any{"user_id": uid, "challenge": next.challenge(t), "code": sentCode(t, f.sms, iam.MessageLoginCode)}
-			unlink := func(ctx context.Context) error {
-				removed, err := f.engine.UnlinkProviderUnlessLast(ctx, uid, idpProvider.Name())
-				if err != nil {
-					return err
-				}
-				if !removed {
-					return fmt.Errorf("provider unlink refused")
-				}
-				return nil
-			}
+			unlink := func(ctx context.Context) error { return f.engine.UnlinkProvider(ctx, uid, idpProvider.Name()) }
 			completed := f.completeWhileRevoking(uid, func() flowResponse { return f.post("/2fa/verify", body) }, unlink)
 			f.expect(200, completed)
 			f.session(completed.tokens(), "oauth", "sms", "otp", "mfa")

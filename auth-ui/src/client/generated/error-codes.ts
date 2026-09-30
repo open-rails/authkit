@@ -298,7 +298,7 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   provider_already_linked: 409,
   provider_change_requires_unlink: 409,
   provider_error: 400,
-  provider_not_linked: 400,
+  provider_not_linked: 404,
   provider_unavailable: 503,
   rate_limited: 429,
   registration_disabled: 403,

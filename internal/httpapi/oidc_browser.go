@@ -113,7 +113,7 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 			return
 		}
 	}
-	redirectURI, ok := s.buildRedirectURI(r, p.Name(), start.stepUp != nil)
+	redirectURI, ok := s.buildRedirectURI(r, p.Name())
 	if !ok {
 		reject(errmodel.Internal("oidc_callback_unmounted", errors.New("no browser OIDC callback on this mount")))
 		return
@@ -169,8 +169,9 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 	writeJSON(w, http.StatusOK, OIDCStart{AuthURL: authURL, State: state})
 }
 
-// handleOIDCCallbackGET completes the browser flow for the IdP's GET redirect
-// and, for response_mode=form_post providers, the equivalent POST (#295).
+// handleOIDCCallbackGET completes a login, link or step-up (its state says
+// which) for the IdP's GET redirect and, for response_mode=form_post
+// providers, the equivalent POST (#295).
 func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) {
 	// Every callback response carries the flow result (tokens, error, popup
 	// document); none may be cached.

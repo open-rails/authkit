@@ -179,20 +179,27 @@ func TestSecurityOutboundAddressGuard(t *testing.T) {
 // (plus extra) to the callback at path, carrying the start's state cookie.
 func (h *host) oidcCallback(idp *testidp.IdP, start response, id testidp.Identity, path string, extra url.Values) response {
 	h.t.Helper()
+	q := idp.Redirect(h.t, authURLOf(h.t, start), id)
+	for k, vs := range extra {
+		q[k] = vs
+	}
+	return h.do(request{method: http.MethodGet, path: "//oidc/idp/" + path + "?" + q.Encode(), cookies: start.cookies})
+}
+
+// authURLOf is where a flow start sends the browser: its redirect, or the
+// auth_url it answers.
+func authURLOf(t *testing.T, start response) string {
+	t.Helper()
 	authURL := start.header.Get("Location")
 	if start.status == http.StatusOK {
 		var begun struct {
 			AuthURL string `json:"auth_url"`
 		}
-		start.json(h.t, &begun)
+		start.json(t, &begun)
 		authURL = begun.AuthURL
 	}
-	require.NotEmpty(h.t, authURL, start.String())
-	q := idp.Redirect(h.t, authURL, id)
-	for k, vs := range extra {
-		q[k] = vs
-	}
-	return h.do(request{method: http.MethodGet, path: "//oidc/idp/" + path + "?" + q.Encode(), cookies: start.cookies})
+	require.NotEmpty(t, authURL, start.String())
+	return authURL
 }
 
 func (h *host) exchange(code string) response {
@@ -380,18 +387,24 @@ func TestSecurityOIDCExchangeCodeIsOneTime(t *testing.T) {
 	})
 }
 
-// TestSecurityOIDCStepUpResultIsACode: a provider step-up returns to the
-// page's return_to with a one-time code in the fragment (no token, no query
-// flag); the code trades for the session's fresh AuthResult. An identity not
-// linked to the session's account fails back to return_to with #error=.
+// TestSecurityOIDCStepUpResultIsACode: a provider step-up completes at the
+// provider's one callback, the redirect URI its login and link use, so a host
+// registers one per provider. It returns to the page's return_to with a
+// one-time code in the fragment (no token, no query flag); the code trades
+// for the session's fresh AuthResult. An identity not linked to the session's
+// account fails back to return_to with #error=.
 func TestSecurityOIDCStepUpResultIsACode(t *testing.T) {
 	idp := testidp.New(t)
 	h := newHost(t, withHTTP(generousLimits), httpsFrontend, withProviders(idp.OIDC("idp")))
 	a := h.newAccount("oidcstepup")
 	id := testidp.Identity{Subject: unique("stepup")}
 	token := h.login(a).AccessToken
+	login := h.do(request{method: http.MethodGet, path: "//oidc/idp/login"})
+	registered := idp.Authorize(t, authURLOf(t, login)).RedirectURI
+	require.True(t, strings.HasSuffix(registered, "/oidc/idp/callback"), registered)
 	link := h.post("/oidc/idp/link/start", map[string]any{}, token)
 	require.Equal(t, http.StatusOK, link.status, link.String())
+	require.Equal(t, registered, idp.Authorize(t, authURLOf(t, link)).RedirectURI)
 	linked := h.oidcCallback(idp, link, id, "callback", url.Values{"format": {"json"}})
 	require.Equal(t, http.StatusNoContent, linked.status, linked.String())
 
@@ -400,8 +413,10 @@ func TestSecurityOIDCStepUpResultIsACode(t *testing.T) {
 		t.Helper()
 		start := h.post("/oidc/idp/step-up/start", map[string]string{"return_to": "/settings?tab=security"}, stale)
 		require.Equal(t, http.StatusOK, start.status, start.String())
-		return h.oidcCallback(idp, start, who, "step-up/callback", nil)
+		require.Equal(t, registered, idp.Authorize(t, authURLOf(t, start)).RedirectURI, "a step-up needs no second redirect URI")
+		return h.oidcCallback(idp, start, who, "callback", nil)
 	}
+	require.Equal(t, http.StatusNotFound, h.get("//oidc/idp/step-up/callback", "").status)
 
 	location, fragment := fragmentOf(t, stepUp(testidp.Identity{Subject: unique("stranger")}))
 	require.True(t, strings.HasPrefix(location, "/settings?tab=security#"), location)

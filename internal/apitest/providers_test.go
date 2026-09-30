@@ -14,6 +14,7 @@ import (
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/httpapi"
+	"github.com/open-rails/authkit/internal/passkeytest"
 	"github.com/open-rails/authkit/internal/testidp"
 	"github.com/open-rails/authkit/provider"
 )
@@ -291,6 +292,85 @@ func TestProviderAuthenticationWorkflow(t *testing.T) {
 		require.NoError(t, auth.LinkProvider(ctx, owner, iam.ProviderLink{Issuer: provider.Issuer(), Provider: "idp", Subject: id.Subject}))
 		res = verify2FA(stale, code)
 		require.Equal(t, http.StatusUnauthorized, res.status, res.String())
+	})
+}
+
+// Unlinking a provider counts every way the account still signs in, not only
+// a password and other providers: a passwordless email, a wallet, a passkey.
+// Only the last one stays, and a provider that isn't linked is 404.
+func TestProviderUnlinkCountsEverySignInMethod(t *testing.T) {
+	idp := testidp.New(t)
+	auth, _ := authtest.New(t, withProviders(idp.OIDC("idp")), authtest.WithConfig(func(c *authkit.Config) {
+		c.Registration.PasswordlessLogin = true
+		c.SolanaNetwork = iam.SolanaDevnet
+		c.Passkeys = authkit.PasskeyConfig{RPID: "example.com", RPDisplayName: "Example", Origins: []string{"https://example.com"}}
+	}))
+	a := newAPI(t, auth)
+	ctx := t.Context()
+	signIn := func(id testidp.Identity) (userID, token string) {
+		t.Helper()
+		res := providerSignIn(t, a, idp, "idp", id, "").answer(t)
+		return res.User.ID, res.signedIn(t).AccessToken
+	}
+	// signUp is a provider sign-up with no password, and no address unless
+	// email is set.
+	signUp := func(email string) (userID, token string) {
+		t.Helper()
+		return signIn(testidp.Identity{Subject: unique("unlink"), Email: email, EmailVerified: email != ""})
+	}
+	unlink := func(token, provider string) response {
+		return a.do(request{method: http.MethodDelete, path: "/me/providers/" + provider, token: token})
+	}
+	unlinked := func(token string) {
+		t.Helper()
+		expect(t, http.StatusNoContent, unlink(token, "idp"))
+		require.Equal(t, "provider_not_linked", expect(t, http.StatusNotFound, unlink(token, "idp")).code())
+	}
+
+	t.Run("the last way to sign in stays", func(t *testing.T) {
+		_, token := signUp("")
+		require.Equal(t, "provider_not_linked", expect(t, http.StatusNotFound, unlink(token, "github")).code())
+		require.Equal(t, "cannot_unlink_last_login_method", expect(t, http.StatusBadRequest, unlink(token, "idp")).code())
+	})
+	t.Run("a passwordless email", func(t *testing.T) {
+		_, token := signUp(uniqueEmail("unlink-passwordless"))
+		unlinked(token)
+	})
+	t.Run("a wallet", func(t *testing.T) {
+		userID, token := signUp("")
+		// An issuer of its own keeps the link from resolving an SNS name.
+		require.NoError(t, auth.LinkProvider(ctx, userID, iam.ProviderLink{Issuer: "solana:unlink-test", Provider: "solana", Subject: unique("wallet")}))
+		unlinked(token)
+		require.Equal(t, "cannot_unlink_last_login_method", expect(t, http.StatusBadRequest, unlink(token, "solana")).code())
+	})
+	t.Run("a passkey", func(t *testing.T) {
+		_, token := signUp("")
+		var creation struct {
+			PublicKey struct {
+				Challenge string `json:"challenge"`
+				RP        struct {
+					ID string `json:"id"`
+				} `json:"rp"`
+				User struct {
+					ID string `json:"id"`
+				} `json:"user"`
+			} `json:"publicKey"`
+		}
+		expect(t, http.StatusOK, a.post("/me/passkeys/register/begin", token, map[string]any{})).decode(t, &creation)
+		authn := passkeytest.New(t, "https://example.com")
+		attestation := authn.Attestation(t, creation.PublicKey.RP.ID, passkeytest.UserHandle(t, creation.PublicKey.User.ID), creation.PublicKey.Challenge)
+		expect(t, http.StatusCreated, a.post("/me/passkeys/register/finish", token, attestation))
+		unlinked(token)
+	})
+	t.Run("a password", func(t *testing.T) {
+		id := testidp.Identity{Subject: unique("unlink")}
+		userID, _ := signIn(id)
+		pw := "Unlink-backup-password-1"
+		_, err := auth.UpdateUser(ctx, iam.SystemActor(), userID, iam.UserUpdate{Password: &pw})
+		require.NoError(t, err)
+		// The new password ended the sessions: sign in again.
+		_, token := signIn(id)
+		unlinked(token)
 	})
 }
 
