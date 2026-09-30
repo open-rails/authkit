@@ -27,8 +27,3 @@ func (s *Service) handleMe2FASetupPOST(w http.ResponseWriter, r *http.Request)  
 func (s *Service) handleMe2FAFactorsPOST(w http.ResponseWriter, r *http.Request)  { notYet(w) }
 func (s *Service) handleMe2FAFactorPATCH(w http.ResponseWriter, r *http.Request)  { notYet(w) }
 func (s *Service) handleMe2FAFactorDELETE(w http.ResponseWriter, r *http.Request) { notYet(w) }
-
-func (s *Service) handleUsersGET(w http.ResponseWriter, r *http.Request)             { notYet(w) }
-func (s *Service) handleAdminUserPATCH(w http.ResponseWriter, r *http.Request)       { notYet(w) }
-func (s *Service) handleAdminUserSessionsGET(w http.ResponseWriter, r *http.Request) { notYet(w) }
-func (s *Service) groupMemberSet(w http.ResponseWriter, r *http.Request)             { notYet(w) }

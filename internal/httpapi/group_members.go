@@ -8,33 +8,40 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/verify"
 )
 
-// groupMemberAdd assigns a user a role in the group by user_id. An email is an
-// invitation, whoever holds the address: a role-carrying account invitation
-// is emailed there, and the role lands only when its recipient accepts it (by
-// registering with it, or by redeeming it signed in to the account that has
-// verified the address). The answer is the same for every address, so it
-// never reveals whether an account holds it.
-func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor) {
-	group := iam.GroupByID(g.ID)
-	var body MemberAddRequest
+// memberSubject is the member a {kind}/{id} path names. The one kind is
+// `users`; any other is 404.
+func memberSubject(w http.ResponseWriter, r *http.Request) (iam.Subject, bool) {
+	if r.PathValue("kind") != "users" {
+		fail(w, errmodel.CodeNotFound)
+		return iam.Subject{}, false
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		fail(w, errmodel.CodeNotFound)
+		return iam.Subject{}, false
+	}
+	return iam.UserSubject(id), true
+}
+
+// groupMemberSet makes the member hold the body's role in the group,
+// replacing the one it holds.
+func (s *Service) groupMemberSet(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor) {
+	subject, ok := memberSubject(w, r)
+	if !ok {
+		return
+	}
+	var body MemberRoleRequest
 	if err := decodeJSON(r, &body); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	userID := strings.TrimSpace(body.UserID)
-	email := contact.NormalizeEmail(body.Email)
-	if (userID == "") == (email == "") {
-		fail(w, errmodel.CodeInvalidRequest)
-		return
-	}
 	if strings.TrimSpace(body.Role) == "" {
-		fail(w, errmodel.CodeInvalidRequest)
+		fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("role"))
 		return
 	}
 	role, err := s.groupRole(g.Persona, body.Role)
@@ -42,25 +49,7 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, g iam.G
 		writeError(w, err)
 		return
 	}
-	if email != "" {
-		if err := contact.ValidateEmail(email); err != nil {
-			writeError(w, err)
-			return
-		}
-		if s.rateLimited(w, r, RLInviteCreate) || s.rateLimitedByIdentifier(w, r, RLInviteCreate, email) {
-			return
-		}
-		// Authorized by THIS group's members:manage plus COVER(role), not
-		// root:users:invite. Machine actors cannot issue invitations.
-		invite, err := s.svc.CreateInvitation(r.Context(), actor, group, iam.NewInvitation{Email: email, Role: role})
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		writeJSON(w, http.StatusCreated, invite) // the code is shown once
-		return
-	}
-	member, err := s.svc.SetGroupRole(r.Context(), actor, group, iam.UserSubject(userID), role)
+	member, err := s.svc.SetGroupRole(r.Context(), actor, iam.GroupByID(g.ID), subject, role)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -68,40 +57,23 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, g iam.G
 	writeJSON(w, http.StatusOK, member)
 }
 
-// groupMemberRemove revokes the user's role in the group.
-func (s *Service) groupMemberRemove(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor, userID string) {
-	if userID == "" {
-		fail(w, errmodel.CodeInvalidRequest)
+// groupMemberRemove takes the member's role in the group; a non-member
+// answers 204 too.
+func (s *Service) groupMemberRemove(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor) {
+	subject, ok := memberSubject(w, r)
+	if !ok {
 		return
 	}
-	if err := s.svc.RemoveGroupMember(r.Context(), actor, iam.GroupByID(g.ID), iam.UserSubject(userID)); err != nil {
+	if err := s.svc.RemoveGroupMember(r.Context(), actor, iam.GroupByID(g.ID), subject); err != nil {
 		writeError(w, err)
 		return
 	}
 	noContent(w)
 }
 
-// groupMemberRole assigns or replaces the user's single role in the group.
-func (s *Service) groupMemberRole(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor, userID, text string) {
-	if userID == "" || strings.TrimSpace(text) == "" {
-		fail(w, errmodel.CodeInvalidRequest)
-		return
-	}
-	role, err := s.groupRole(g.Persona, text)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	member, err := s.svc.SetGroupRole(r.Context(), actor, iam.GroupByID(g.ID), iam.UserSubject(userID), role)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, member)
-}
-
 // groupMembersList lists the role assignments in a group, a page at a time
 // (?cursor=, ?limit=, and ?kind= / ?role= filters, repeatable).
+// ?expand=user adds each user member's PublicUser: what anyone may see.
 func (s *Service) groupMembersList(w http.ResponseWriter, r *http.Request, g iam.Group) {
 	var query MemberListQuery
 	if !readQuery(w, r, &query) {
@@ -113,6 +85,13 @@ func (s *Service) groupMembersList(w http.ResponseWriter, r *http.Request, g iam
 		return
 	}
 	q := iam.MemberQuery{Page: page}
+	for _, e := range query.Expand {
+		if e != "user" {
+			fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("expand"))
+			return
+		}
+		q.WithUsers = true
+	}
 	for _, k := range query.Kind {
 		q.Kinds = append(q.Kinds, iam.SubjectKind(k))
 	}

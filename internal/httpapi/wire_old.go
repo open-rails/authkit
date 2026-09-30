@@ -75,9 +75,3 @@ type TwoFactorEnrollRequest struct {
 type TwoFactorFactorQuery struct {
 	FactorID string `query:"factor_id"`
 }
-
-type MemberAddRequest struct {
-	UserID string `json:"user_id"`
-	Email  string `json:"email"`
-	Role   string `json:"role"`
-}

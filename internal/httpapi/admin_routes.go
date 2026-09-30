@@ -87,6 +87,27 @@ func accountActor(w http.ResponseWriter, r *http.Request) (iam.Actor, string, bo
 	return actor, target, true
 }
 
+// handleAdminUserPATCH edits an account: an absent field is unchanged, an
+// empty one clears it. The verified flags stay system-only.
+func (s *Service) handleAdminUserPATCH(w http.ResponseWriter, r *http.Request) {
+	var req AdminUserUpdateRequest
+	if err := decodeJSON(r, &req); err != nil {
+		fail(w, errmodel.CodeInvalidRequest)
+		return
+	}
+	actor, target, ok := accountActor(w, r)
+	if !ok {
+		return
+	}
+	update := iam.UserUpdate{Email: req.Email, Phone: req.PhoneNumber, Username: req.Username, AvatarURL: req.AvatarURL, PreferredLanguage: req.PreferredLanguage}
+	if _, err := s.svc.UpdateUser(r.Context(), actor, target, update); err != nil {
+		writeError(w, err)
+		return
+	}
+	s.handleAdminUserGET(w, r)
+}
+
+// handleAdminUserBanPUT puts a ban in force, replacing any in force.
 func (s *Service) handleAdminUserBanPUT(w http.ResponseWriter, r *http.Request) {
 	var req BanRequest
 	if err := decodeOptionalJSON(r, &req); err != nil {
@@ -129,7 +150,7 @@ func (s *Service) handleAdminUserDeleteDELETE(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
-	// One's own account is deleted through DELETE /user, behind its recent
+	// One's own account is deleted through DELETE /me, behind its recent
 	// sign-in and second factor (ak#417).
 	if strings.EqualFold(target, actor.ID()) {
 		writeError(w, iam.ErrCannotTargetSelf)
@@ -143,6 +164,19 @@ func (s *Service) handleAdminUserDeleteDELETE(w http.ResponseWriter, r *http.Req
 	noContent(w)
 }
 
+// handleAdminUserSessionsGET lists the account's live sessions on this
+// issuer; none is the caller's current one.
+func (s *Service) handleAdminUserSessionsGET(w http.ResponseWriter, r *http.Request) {
+	sessions, err := s.svc.Sessions(r.Context(), r.PathValue("user_id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	all(w, sessions)
+}
+
+// handleAdminUserSessionsDELETE revokes every session and device key of the
+// account.
 func (s *Service) handleAdminUserSessionsDELETE(w http.ResponseWriter, r *http.Request) {
 	actor, target, ok := accountActor(w, r)
 	if !ok {
