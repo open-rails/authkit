@@ -154,7 +154,10 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 		sd.LinkAuthenticatedAt = start.link.AuthenticatedAt
 	}
 	if start.login != nil {
-		sd.ReturnTo = SanitizeReturnTo(login.returnTo)
+		// Anything but a same-site path is no return_to at all.
+		if rt := SanitizeReturnTo(login.returnTo); rt != "/" {
+			sd.ReturnTo = rt
+		}
 		sd.AccountInviteToken = strings.TrimSpace(login.accountInviteToken)
 	}
 	if start.stepUp != nil {
