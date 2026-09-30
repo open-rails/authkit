@@ -235,7 +235,7 @@ func (s *Engine) decryptTOTPSecret(data []byte) (string, error) {
 
 // sendPhone2FASetupCode generates and sends a 6-digit code for 2FA setup to the user's phone.
 func (s *Engine) sendPhone2FASetupCode(ctx context.Context, userID, phone, code string) error {
-	hash := sha256Hex(code)
+	hash := secret.Hash(code)
 	// Store code in ephemeral store for 10 minutes, purpose: "2fa_setup"
 	if s.useEphemeralStore() {
 		if err := s.storePhoneVerification(ctx, "2fa_setup", phone, userID, hash, "", 10*time.Minute); err != nil {
@@ -259,7 +259,7 @@ func (s *Engine) sendPhone2FASetupCode(ctx context.Context, userID, phone, code 
 
 // verifyPhone2FASetupCode checks the code for 2FA phone setup.
 func (s *Engine) verifyPhone2FASetupCode(ctx context.Context, userID, phone, code string) (bool, error) {
-	hash := sha256Hex(code)
+	hash := secret.Hash(code)
 	if s.useEphemeralStore() {
 		uid, err := s.consumePhoneVerification(ctx, "2fa_setup", phone, hash)
 		if err != nil {
@@ -297,9 +297,9 @@ func (s *Engine) sendEmail2FASetupCode(ctx context.Context, userID string) error
 	if user == nil || user.Email == nil || strings.TrimSpace(*user.Email) == "" {
 		return errmodel.ErrInvalidTwoFAMethod
 	}
-	code := randAlphanumeric(6)
+	code := secret.Digits(6)
 	email := contact.NormalizeEmail(*user.Email)
-	if err := s.ephemSetJSON(ctx, keyEmail2FASetup+userID, email2FASetupData{Email: email, CodeHash: sha256Hex(code)}, email2FASetupTTL); err != nil {
+	if err := s.ephemSetJSON(ctx, keyEmail2FASetup+userID, email2FASetupData{Email: email, CodeHash: secret.Hash(code)}, email2FASetupTTL); err != nil {
 		return err
 	}
 	_ = s.ephemDel(ctx, keyEmail2FASetupAttempts+userID)
@@ -339,7 +339,7 @@ func (s *Engine) verifyEmail2FASetupCode(ctx context.Context, userID, code strin
 		_ = s.ephemDel(ctx, key)
 		return "", errmodel.ErrCodeExpired
 	}
-	if !secret.Equal(data.CodeHash, sha256Hex(strings.TrimSpace(code))) {
+	if !secret.Equal(data.CodeHash, secret.Hash(strings.TrimSpace(code))) {
 		if s.recordFailedAttempt(ctx, keyEmail2FASetupAttempts+userID, email2FASetupTTL, maxEmail2FASetupAttempts) {
 			_ = s.ephemDel(ctx, key)
 			return "", errmodel.ErrCodeExpired

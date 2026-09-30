@@ -29,45 +29,49 @@ func (s *Service) groupInviteLinkMint(w http.ResponseWriter, r *http.Request, g 
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	role, err := s.svc.PermissionGroupSchema().ParseRole(g.Persona, body.Role)
+	role, err := s.groupRole(g.Persona, body.Role)
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
-	l := iam.NewInviteLink{Role: role}
+	n := iam.NewInvitation{Role: role}
 	if body.ExpiresInSeconds != nil && *body.ExpiresInSeconds > 0 {
-		l.ExpiresIn = time.Duration(*body.ExpiresInSeconds) * time.Second
+		at := time.Now().Add(time.Duration(*body.ExpiresInSeconds) * time.Second)
+		n.ExpiresAt = &at
 	}
-	created, err := s.svc.CreateInviteLink(r.Context(), actor, iam.GroupByID(g.ID), l)
+	created, err := s.svc.CreateInvitation(r.Context(), actor, iam.GroupByID(g.ID), n)
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"id":         created.ID,
+		"id":         created.Invitation.ID,
 		"code":       created.Code, // shown once
 		"url":        created.URL,
-		"expires_at": created.ExpiresAt,
+		"expires_at": created.Invitation.ExpiresAt,
 	})
 }
 
 // groupInviteLinkList lists the group's links, newest first (?cursor=,
 // ?limit=), never their codes.
 func (s *Service) groupInviteLinkList(w http.ResponseWriter, r *http.Request, g iam.Group) {
-	page, err := s.svc.InviteLinks(r.Context(), iam.GroupByID(g.ID), pageQuery(r))
+	page, err := s.svc.ListInvitations(r.Context(), iam.GroupByID(g.ID), pageQuery(r))
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
 	data := make([]map[string]any, 0, len(page.Items))
 	for _, l := range page.Items {
+		if l.Email != "" {
+			continue // an email invitation, not a link
+		}
 		m := map[string]any{
 			"id":         l.ID,
-			"role":       l.Role.Name(),
+			"role":       l.Role.String(),
 			"created_at": l.CreatedAt,
 		}
-		if l.InvitedBy != "" {
-			m["invited_by"] = l.InvitedBy
+		if l.CreatedBy != "" {
+			m["invited_by"] = l.CreatedBy
 		}
 		if l.RedeemedAt != nil {
 			m["redeemed_at"] = l.RedeemedAt
@@ -89,7 +93,7 @@ func (s *Service) groupInviteLinkRevoke(w http.ResponseWriter, r *http.Request, 
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	if err := s.svc.RevokeInviteLink(r.Context(), actor, iam.GroupByID(g.ID), linkID); err != nil {
+	if err := s.svc.RevokeInvitation(r.Context(), actor, iam.GroupByID(g.ID), linkID); err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
@@ -115,7 +119,7 @@ func (s *Service) handleInviteRedeemPOST(w http.ResponseWriter, r *http.Request)
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	res, err := s.svc.RedeemInviteLink(r.Context(), actor, strings.TrimSpace(body.Code))
+	res, err := s.svc.RedeemInvitation(r.Context(), actor, strings.TrimSpace(body.Code))
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return
@@ -123,6 +127,6 @@ func (s *Service) handleInviteRedeemPOST(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"group_id": res.GroupID,
 		"persona":  res.Persona,
-		"role":     res.Role.Name(),
+		"role":     res.Role.String(),
 	})
 }

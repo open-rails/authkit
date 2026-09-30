@@ -86,7 +86,7 @@ func (f *factorFlow) deviceKeySession(res authAnswer) deviceKeySession {
 	require.ElementsMatch(f.t, []string{"access_token", "token_type", "expires_in"}, slices.Collect(maps.Keys(tokenSet)))
 	var device map[string]json.RawMessage
 	require.NoError(f.t, json.Unmarshal(body["device_key"], &device))
-	require.Subset(f.t, []string{"id", "label", "created_at", "last_used_at", "current"}, slices.Collect(maps.Keys(device)))
+	require.ElementsMatch(f.t, []string{"id", "label", "public_key", "created_at", "last_used_at", "revoked_at", "current"}, slices.Collect(maps.Keys(device)), "the device key is iam.DeviceKey")
 	require.JSONEq(f.t, "true", string(device["current"]))
 	var s deviceKeySession
 	require.NoError(f.t, json.Unmarshal([]byte(res.raw), &s))
@@ -120,11 +120,13 @@ func (f *factorFlow) loginDeviceKey(id string, key ed25519.PrivateKey) deviceKey
 // requireActiveDeviceKeys asserts the account's active keys, oldest first.
 func (f *factorFlow) requireActiveDeviceKeys(userID string, want ...string) {
 	f.t.Helper()
-	keys, err := f.auth.ActiveDeviceKeys(f.t.Context(), userID)
+	keys, err := f.auth.DeviceKeys(f.t.Context(), userID)
 	require.NoError(f.t, err)
 	var got []string
 	for _, key := range keys {
-		got = append(got, base64.RawURLEncoding.EncodeToString(key))
+		if key.RevokedAt == nil {
+			got = append(got, base64.RawURLEncoding.EncodeToString(key.PublicKey))
+		}
 	}
 	require.Equal(f.t, want, got)
 }
@@ -349,10 +351,10 @@ func testDeviceKeyLifecycle(t *testing.T, auth *authkit.Client, outbox *authtest
 	require.NotEqual(t, first.DeviceKey.ID, second.DeviceKey.ID)
 	require.Equal(t, []string{email}, f.deviceKeyNotices(""), "an independent machine notifies the existing owner")
 	f.requireActiveDeviceKeys(user.ID, publicKey, secondPublic)
-	listKeys := func(token string) []devicekey.Key {
+	listKeys := func(token string) []iam.DeviceKey {
 		t.Helper()
 		var list struct {
-			Data []devicekey.Key `json:"data"`
+			Data []iam.DeviceKey `json:"data"`
 		}
 		listed := f.expect(http.StatusOK, f.request(http.MethodGet, "/device-keys", token, nil))
 		require.NoError(t, json.Unmarshal([]byte(listed.raw), &list))

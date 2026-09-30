@@ -120,12 +120,12 @@ func (s *Engine) StartPasswordless(ctx context.Context, req authflow.Passwordles
 	code := ""
 	linkToken := ""
 	if mode == passwordlessModeCode || mode == passwordlessModeBoth {
-		code = randAlphanumeric(6)
-		rec.CodeHash = sha256Hex(code)
+		code = secret.Digits(6)
+		rec.CodeHash = secret.Hash(code)
 	}
 	if mode == passwordlessModeLink || mode == passwordlessModeBoth {
-		linkToken = secret.RandB64(32)
-		rec.LinkHash = sha256Hex(linkToken)
+		linkToken = secret.Token(32)
+		rec.LinkHash = secret.Hash(linkToken)
 	}
 	if err := s.storePasswordlessChallenge(ctx, rec); err != nil {
 		return authflow.PasswordlessStartResult{}, err
@@ -149,7 +149,7 @@ func (s *Engine) PasswordlessLogin(ctx context.Context, in authflow.Passwordless
 	var ok bool
 	var err error
 	if in.Token != "" && in.Code == "" {
-		hash := sha256Hex(in.Token)
+		hash := secret.Hash(in.Token)
 		key, found, lookupErr := s.ephemGetString(ctx, keyPasswordlessLink+hash)
 		if lookupErr != nil {
 			return authflow.LoginOutcome{}, lookupErr
@@ -180,7 +180,7 @@ func (s *Engine) PasswordlessLogin(ctx context.Context, in authflow.Passwordless
 		if err != nil {
 			return authflow.LoginOutcome{}, err
 		}
-		if !ok || rec.CodeHash == "" || !secret.Equal(rec.CodeHash, sha256Hex(in.Code)) {
+		if !ok || rec.CodeHash == "" || !secret.Equal(rec.CodeHash, secret.Hash(in.Code)) {
 			s.recordFailedPasswordlessCode(ctx, identifier)
 			return authflow.LoginOutcome{}, jwt.ErrTokenUnverifiable
 		}
@@ -204,7 +204,7 @@ func (s *Engine) PasswordlessLogin(ctx context.Context, in authflow.Passwordless
 // superseding any outstanding one. The code hash stays inside the record; only
 // the 256-bit link token gets a global pointer (#301).
 func (s *Engine) storePasswordlessChallenge(ctx context.Context, rec passwordlessChallenge) error {
-	rec.ID = secret.RandB64(16)
+	rec.ID = secret.Token(16)
 	key := passwordlessKey(rec.Channel, rec.Identifier)
 	s.deletePasswordlessChallenge(ctx, key)
 	if err := s.ephemSetJSON(ctx, key, rec, defaultPasswordlessTTL); err != nil {

@@ -139,7 +139,7 @@ func verifyPasswordHash(hash, algo, pass string) error {
 	var ok bool
 	var err error
 	switch algo {
-	case iam.HashAlgoLegacyResetRequired:
+	case string(iam.HashLegacyResetRequired):
 		return errmodel.ErrPasswordResetRequired
 	case "argon2id":
 		ok, err = password.VerifyArgon2id(hash, pass)

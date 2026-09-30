@@ -10,6 +10,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/secret"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/testoutbox"
 	"github.com/stretchr/testify/require"
@@ -66,7 +67,7 @@ func TestFactorEnrollmentConcurrentFirstFactor(t *testing.T) {
 			require.Len(t, settings.Factors, 1)
 			require.True(t, settings.Factors[0].IsDefault)
 			for i, code := range issuedCodes {
-				require.Equal(t, sha256Hex(code), settings.BackupCodes[i])
+				require.Equal(t, secret.Hash(code), settings.BackupCodes[i])
 			}
 
 			// Authenticated management may add another method, but cannot replace the winner.

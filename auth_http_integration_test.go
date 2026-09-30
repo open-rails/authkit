@@ -37,7 +37,7 @@ func TestNewServesConfiguredCapabilities(t *testing.T) {
 
 	mux := http.NewServeMux()
 	require.NoError(t, auth.Mount(mux))
-	require.Contains(t, auth.Patterns(), "GET /auth/capabilities")
+	require.Contains(t, patterns(auth), "GET /auth/capabilities")
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/auth/capabilities", nil))
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())

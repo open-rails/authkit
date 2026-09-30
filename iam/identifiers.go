@@ -39,7 +39,7 @@ func (p Persona) MarshalText() ([]byte, error) { return []byte(p.name), nil }
 // UnmarshalText reads a persona name; empty is the zero Persona.
 func (p *Persona) UnmarshalText(b []byte) error {
 	s := string(b)
-	if s != "" && !ValidPermissionSegment(s) {
+	if s != "" && !validSegment(s) {
 		return fmt.Errorf("iam: persona %q must match [a-z][a-z0-9-]*", s)
 	}
 	*p = Persona{s}
@@ -86,7 +86,7 @@ func (r *Role) UnmarshalText(b []byte) error {
 		return nil
 	}
 	persona, name, ok := strings.Cut(s, ":")
-	if !ok || !ValidPermissionSegment(persona) || !ValidPermissionSegment(name) {
+	if !ok || !validSegment(persona) || !validSegment(name) {
 		return fmt.Errorf("iam: role %q must be <persona>:<name>, each [a-z][a-z0-9-]*", s)
 	}
 	*r = Role{persona: Persona{persona}, name: name}
@@ -126,11 +126,11 @@ func validPermText(s string) bool {
 // or more segments, each a name or `*`.
 func permSegments(s string) ([]string, bool) {
 	segs := strings.Split(s, ":")
-	if len(segs) < 2 || !ValidPermissionSegment(segs[0]) {
+	if len(segs) < 2 || !validSegment(segs[0]) {
 		return nil, false
 	}
 	for _, seg := range segs[1:] {
-		if seg != PermWildcard && !ValidPermissionSegment(seg) {
+		if seg != PermWildcard && !validSegment(seg) {
 			return nil, false
 		}
 	}
@@ -154,8 +154,8 @@ const (
 
 // Subject is a principal that can hold roles in a permission group.
 type Subject struct {
-	ID   string
-	Kind SubjectKind
+	ID   string      `json:"id"`
+	Kind SubjectKind `json:"kind"`
 }
 
 func UserSubject(id string) Subject { return Subject{ID: id, Kind: SubjectKindUser} }

@@ -5,11 +5,6 @@ import "time"
 // Bulk import of accounts and legacy identities, for migrations. Every import
 // is a host operation: your code decides.
 
-// HashAlgoLegacyResetRequired marks a migrated password that can never verify
-// (DES crypt, md5-crypt, corrupted values). The raw hash is kept for forensics
-// only; the account must reset its password.
-const HashAlgoLegacyResetRequired = "legacy-reset-required"
-
 // ImportUser is one account to import. It finds an existing account by ID,
 // Email, Phone or Username (canonical or a live alias); ImportOptions decides
 // what happens then.
@@ -22,18 +17,16 @@ type ImportUser struct {
 	Username      string
 	EmailVerified bool
 	PhoneVerified bool
-	// PasswordHash is an argon2id or bcrypt hash named by HashAlgo, validated
-	// before it is stored. HashAlgoLegacyResetRequired keeps any value and makes
-	// the account reset its password.
-	PasswordHash string
-	HashAlgo     string
-	BannedAt     *time.Time
-	BannedUntil  *time.Time
-	BanReason    string
-	Metadata     map[string]any
-	CreatedAt    *time.Time
-	UpdatedAt    *time.Time
-	LastLogin    *time.Time
+	// PasswordHash is validated before it is stored; HashLegacyResetRequired
+	// keeps any value and makes the account reset its password.
+	PasswordHash *PasswordHash
+	// Ban imports a ban as it stood: At is required, By (the banning
+	// account) is optional.
+	Ban       *BanState
+	Metadata  map[string]any
+	CreatedAt *time.Time
+	UpdatedAt *time.Time
+	LastLogin *time.Time
 	// PreferredLanguage and AvatarURL are validated as UpdateUser validates them.
 	PreferredLanguage string
 	AvatarURL         string
@@ -64,7 +57,7 @@ const (
 	// verified on both sides links Providers, and stores PasswordHash when the
 	// account has no password. It never changes identity, contacts,
 	// verification, bans or deletion. A row that is not bound is skipped with
-	// Reason "unbound_match".
+	// ImportUnboundMatch.
 	ImportMerge ImportConflict = "merge"
 )
 
@@ -94,27 +87,57 @@ const (
 	ImportMatchUsername ImportMatch = "username"
 )
 
+// ImportReason explains a skipped or rejected import row: one of the
+// constants below, or the validation code of the rejected field (such as
+// "invalid_email").
+type ImportReason string
+
+const (
+	ImportAlreadyExists                ImportReason = "already_exists"
+	ImportDuplicateInBatch             ImportReason = "duplicate_in_batch"
+	ImportUnboundMatch                 ImportReason = "unbound_match"
+	ImportDeleted                      ImportReason = "deleted"
+	ImportIdentifierConflict           ImportReason = "identifier_conflict"
+	ImportUsernameUnavailable          ImportReason = "username_unavailable"
+	ImportProviderAlreadyLinked        ImportReason = "provider_already_linked"
+	ImportProviderChangeRequiresUnlink ImportReason = "provider_change_requires_unlink"
+	ImportInvalidID                    ImportReason = "invalid_id"
+	ImportInvalidText                  ImportReason = "invalid_text"
+	ImportInvalidPasswordHash          ImportReason = "invalid_password_hash"
+	ImportInvalidBan                   ImportReason = "invalid_ban"
+	ImportInvalidProvider              ImportReason = "invalid_provider"
+	ImportInvalidDeletedAt             ImportReason = "invalid_deleted_at"
+	// Solana link rows.
+	ImportInvalidUserID           ImportReason = "invalid_user_id"
+	ImportInvalidAddress          ImportReason = "invalid_address"
+	ImportMissingSource           ImportReason = "missing_source"
+	ImportMissingSourceID         ImportReason = "missing_source_id"
+	ImportMissingUser             ImportReason = "missing_user"
+	ImportAddressOwnedByOtherUser ImportReason = "address_owned_by_other_user"
+	ImportAlreadyVerified         ImportReason = "already_verified"
+	ImportAlreadyImported         ImportReason = "already_imported"
+	ImportUserHasDifferentAddress ImportReason = "user_has_different_address"
+	ImportProviderLinkConflict    ImportReason = "provider_link_conflict"
+)
+
 // ImportRow is one row's outcome. Every row but a rejected one has UserID;
-// skipped and merged rows say which identifier found the account. Reason
-// explains skipped and rejected rows: "already_exists", "duplicate_in_batch",
-// "unbound_match", "deleted", "identifier_conflict", "username_unavailable",
-// "provider_already_linked", "provider_change_requires_unlink", or a
-// validation code such as "invalid_provider" or "invalid_deleted_at".
+// skipped and merged rows say which identifier found the account, and
+// Reason explains skipped and rejected rows.
 type ImportRow struct {
-	Index     int
-	UserID    string
-	MatchedBy ImportMatch
-	Status    ImportStatus
-	Reason    string
+	Index     int          `json:"index"`
+	UserID    string       `json:"user_id"`
+	MatchedBy ImportMatch  `json:"matched_by"`
+	Status    ImportStatus `json:"status"`
+	Reason    ImportReason `json:"reason"`
 }
 
 // ImportResult reports every row, in input order.
 type ImportResult struct {
-	Rows     []ImportRow
-	Inserted int
-	Skipped  int
-	Merged   int
-	Rejected int
+	Rows     []ImportRow `json:"rows"`
+	Inserted int         `json:"inserted"`
+	Skipped  int         `json:"skipped"`
+	Merged   int         `json:"merged"`
+	Rejected int         `json:"rejected"`
 }
 
 // ImportSolanaLink reserves a legacy wallet address for an account. It is not
@@ -130,19 +153,19 @@ type ImportSolanaLink struct {
 // ImportSolanaLinkRow is one wallet row's outcome: inserted, skipped or
 // rejected.
 type ImportSolanaLinkRow struct {
-	Index   int
-	UserID  string
-	Address string
-	Status  ImportStatus
-	Reason  string
+	Index   int          `json:"index"`
+	UserID  string       `json:"user_id"`
+	Address string       `json:"address"`
+	Status  ImportStatus `json:"status"`
+	Reason  ImportReason `json:"reason"`
 }
 
 // ImportSolanaLinksResult reports every wallet row, in input order.
 type ImportSolanaLinksResult struct {
-	Rows     []ImportSolanaLinkRow
-	Inserted int
-	Skipped  int
-	Rejected int
+	Rows     []ImportSolanaLinkRow `json:"rows"`
+	Inserted int                   `json:"inserted"`
+	Skipped  int                   `json:"skipped"`
+	Rejected int                   `json:"rejected"`
 }
 
 // ProviderLink is an external identity to sign in with: the provider's issuer

@@ -19,6 +19,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
@@ -106,7 +107,7 @@ func TestSecurityRefreshGraceDoesNotFork(t *testing.T) {
 	sessions, err := h.auth.Sessions(ctx, a.id)
 	require.NoError(t, err)
 	require.Len(t, sessions, 1, "the session must survive the race")
-	revoked, err := h.auth.SessionEvents(ctx, a.id, iam.SessionEventQuery{Kinds: []iam.SessionEventKind{iam.SessionEventRevoked}})
+	revoked, err := h.auth.ListSessionEvents(ctx, a.id, iam.SessionEventQuery{Kinds: []iam.SessionEventKind{iam.SessionEventRevoked}})
 	require.NoError(t, err)
 	require.Empty(t, revoked.Items, "a lost race must revoke nothing")
 
@@ -264,7 +265,7 @@ func TestSecurityRevokedSessionCannotChangeCredentials(t *testing.T) {
 				event.revoke(t, a, stolen)
 				resp := h.do(attack.req(stolen.AccessToken))
 				require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, resp.status, resp.String())
-				u, err := h.auth.User(ctx, iam.UserByID(a.id), iam.IncludeDeleted())
+				u, err := h.auth.User(ctx, iam.UserByID(a.id), authkit.IncludeDeleted())
 				require.NoError(t, err)
 				require.Nil(t, u.DeletedAt)
 				if event.name != "the system bans the account" {
@@ -380,7 +381,7 @@ func TestSecurityDelegatedGrantClamp(t *testing.T) {
 		perms []string
 	}{
 		{"group role as scope-free authority", manager, []string{"org:members:manage"}},
-		{"root authority the user lacks", manager, []string{iam.PermRootUsersBan.String()}},
+		{"root authority the user lacks", manager, []string{ident.RootUsersBan.String()}},
 		{"wildcard", moderator, []string{"*"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -392,11 +393,11 @@ func TestSecurityDelegatedGrantClamp(t *testing.T) {
 	t.Run("control: host vocabulary and held root authority", func(t *testing.T) {
 		resp := mint(manager, "resource:read")
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
-		resp = mint(moderator, iam.PermRootUsersBan.String(), "resource:read")
+		resp = mint(moderator, ident.RootUsersBan.String(), "resource:read")
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
 	})
 	t.Run("a minted token loses authority its user lost", func(t *testing.T) {
-		perm := iam.Perm(iam.PermRootUsersBan)
+		perm := iam.Perm(ident.RootUsersBan)
 		cl := verify.Claims{Kind: iam.ActorDelegated, Issuer: issuer, DelegatedSubject: moderator.id, JOSEType: jose.DelegatedAccessTokenType, Permissions: []string{perm.String()}}
 		ok, err := allow(ctx, h.auth, cl, perm, iam.RootGroup())
 		require.NoError(t, err)

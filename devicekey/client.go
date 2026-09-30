@@ -134,9 +134,9 @@ func (c *Client) Login(ctx context.Context, id string, key crypto.Signer) (Sessi
 
 // List returns the account's device keys, revoked ones included, with a
 // device-key access token.
-func (c *Client) List(ctx context.Context, token string) ([]Key, error) {
+func (c *Client) List(ctx context.Context, token string) ([]iam.DeviceKey, error) {
 	var out struct {
-		Data []Key `json:"data"`
+		Data []iam.DeviceKey `json:"data"`
 	}
 	if err := c.do(ctx, http.MethodGet, "/device-keys", token, nil, &out); err != nil {
 		return nil, err
@@ -197,8 +197,8 @@ func (c *Client) do(ctx context.Context, method, path, token string, body, out a
 }
 
 type tokenAnswer struct {
-	TokenSet  iam.TokenSet `json:"token_set"`
-	DeviceKey Key          `json:"device_key"`
+	TokenSet  iam.TokenSet  `json:"token_set"`
+	DeviceKey iam.DeviceKey `json:"device_key"`
 }
 
 // session dates the expiry from before the request, so latency never extends

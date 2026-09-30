@@ -376,15 +376,16 @@ func opErr(res []iam.OpResult, err error) error {
 }
 
 func assign(auth *authkit.Client, actor iam.Actor, ref iam.GroupRef, subject iam.Subject, role iam.Role) error {
-	return opErr(auth.AssignGroupRoles(context.Background(), actor, ref, []iam.Subject{subject}, role))
+	_, err := auth.SetGroupRole(context.Background(), actor, ref, subject, role)
+	return err
 }
 
 func unassign(auth *authkit.Client, actor iam.Actor, ref iam.GroupRef, subject iam.Subject, role iam.Role) error {
-	return opErr(auth.UnassignGroupRoles(context.Background(), actor, ref, []iam.Subject{subject}, role))
+	return auth.RemoveGroupMember(context.Background(), actor, ref, subject, authkit.IfRole(role))
 }
 
 func removeMember(auth *authkit.Client, actor iam.Actor, ref iam.GroupRef, subject iam.Subject) error {
-	return opErr(auth.RemoveGroupMembers(context.Background(), actor, ref, []iam.Subject{subject}))
+	return auth.RemoveGroupMember(context.Background(), actor, ref, subject)
 }
 
 // wire reads a persona, permission or role as it arrives off the wire: its
@@ -522,4 +523,18 @@ func providerBrowserSignIn(t *testing.T, a *api, idp *testidp.IdP, provider stri
 	t.Helper()
 	f := startProviderFlow(t, a.post("//oidc/"+provider+"/login", "", map[string]string{"return_to": "/checkout"}))
 	return callbackFragment(t, f.callback(a, provider, idp.Redirect(t, f.authURL, id)))
+}
+
+// createKey is CreateAPIKey's key and its token.
+func createKey(auth *authkit.Client, ctx context.Context, actor iam.Actor, ref iam.GroupRef, k iam.NewAPIKey) (iam.APIKey, string, error) {
+	created, err := auth.CreateAPIKey(ctx, actor, ref, k)
+	return created.APIKey, created.Secret, err
+}
+
+// roleOfIn is subject's role in ref, the zero Role for none.
+func roleOfIn(t testing.TB, auth *authkit.Client, ref iam.GroupRef, subject iam.Subject) iam.Role {
+	t.Helper()
+	held, err := auth.GroupRoles(t.Context(), ref, []iam.Subject{subject})
+	require.NoError(t, err)
+	return held[subject]
 }

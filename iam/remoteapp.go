@@ -1,37 +1,11 @@
 package iam
 
 import (
-	"net/url"
+	"strings"
 	"time"
 
 	"github.com/open-rails/authkit/internal/errmodel"
 )
-
-// MaxRemoteApplicationIssuerLen bounds a remote-application issuer identifier.
-// Registration refuses longer values and the verifier never consults the store
-// for them (ak#297).
-const MaxRemoteApplicationIssuerLen = 512
-
-// ValidRemoteApplicationIssuer reports whether iss has the shape every
-// registered remote-application issuer has: an absolute http(s) URL with a
-// host, at most MaxRemoteApplicationIssuerLen bytes, no whitespace or control
-// characters. Registration enforces it; the verifier applies the same rule to a
-// token's self-asserted `iss` before any store lookup.
-func ValidRemoteApplicationIssuer(iss string) bool {
-	if iss == "" || len(iss) > MaxRemoteApplicationIssuerLen {
-		return false
-	}
-	for _, r := range iss {
-		if r <= ' ' || r == 0x7f {
-			return false
-		}
-	}
-	u, err := url.Parse(iss)
-	if err != nil {
-		return false
-	}
-	return (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
-}
 
 // ErrInvalidRemoteApplication indicates a malformed remote_application
 // registration payload.
@@ -56,36 +30,31 @@ type RemoteApplicationKey struct {
 	PublicKeyPEM string `json:"public_key_pem" yaml:"public_key_pem"`
 }
 
-// RemoteApplicationAuthority is a remote application's stored authority: its
-// effective permissions and the group they are bound to.
-type RemoteApplicationAuthority struct {
-	PermissionGroupID string
-	AuthorityIssuer   string
-	Permissions       []Perm
-	Persona           Persona
-}
-
 // RemoteApplication is a registered federation principal: an external issuer
-// AuthKit trusts to mint delegated and remote-application tokens.
+// AuthKit trusts to mint delegated and remote-application tokens. Role and
+// Permissions are read, never written: its role in its controlling group and
+// the permissions that role confers now (none when it needs MFA, which an
+// application cannot present).
 type RemoteApplication struct {
-	ID   string
-	Slug string
-	// PermissionGroupID is the controlling group. Registration takes it from
-	// the group the application is registered in, never from this field.
-	PermissionGroupID string
-	Issuer            string // OIDC iss
-	JWKSURI           string // OIDC jwks_uri (jwks mode only)
+	ID string `json:"id"`
+	// GroupID is the controlling group. Registration takes it from the group
+	// the application is registered in, never from this field.
+	GroupID string `json:"group_id"`
+	Issuer  string `json:"issuer"`   // OIDC iss
+	JWKSURI string `json:"jwks_uri"` // OIDC jwks_uri (jwks mode only)
 	// Mode is the trust source; empty infers static from PublicKeys, else jwks.
-	Mode RemoteApplicationMode
+	Mode RemoteApplicationMode `json:"mode"`
 	// PublicKeys is the static-mode key list (empty in jwks mode).
-	PublicKeys []RemoteApplicationKey
-	Enabled    bool
+	PublicKeys []RemoteApplicationKey `json:"public_keys"`
+	Enabled    bool                   `json:"enabled"`
 	// TrustRoot is what may change the application's keys: the system
 	// (manual) or a credentials manager of its controlling group (user).
 	// Never the keypair alone.
-	TrustRoot ApplicationTrustRoot
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	TrustRoot   ApplicationTrustRoot `json:"trust_root"`
+	Role        Role                 `json:"role"`
+	Permissions []Perm               `json:"permissions"`
+	CreatedAt   time.Time            `json:"created_at"`
+	UpdatedAt   time.Time            `json:"updated_at"`
 }
 
 // ApplicationTrustRoot is the authority that changes an application's keys.
@@ -95,3 +64,38 @@ const (
 	ApplicationTrustRootManual ApplicationTrustRoot = "manual"
 	ApplicationTrustRootUser   ApplicationTrustRoot = "user"
 )
+
+// AppRef addresses one remote application: by id or by issuer. Build it with
+// AppByID or AppByIssuer; the zero AppRef finds nothing.
+type AppRef struct {
+	issuer bool
+	value  string
+}
+
+func AppByID(id string) AppRef         { return AppRef{value: strings.TrimSpace(id)} }
+func AppByIssuer(issuer string) AppRef { return AppRef{issuer: true, value: strings.TrimSpace(issuer)} }
+
+// ID is the id of a by-id reference, "" otherwise.
+func (r AppRef) ID() string {
+	if r.issuer {
+		return ""
+	}
+	return r.value
+}
+
+// Issuer is the issuer of a by-issuer reference, "" otherwise.
+func (r AppRef) Issuer() string {
+	if r.issuer {
+		return r.value
+	}
+	return ""
+}
+
+func (r AppRef) IsZero() bool { return r.value == "" }
+
+func (r AppRef) String() string {
+	if r.issuer {
+		return "issuer:" + r.value
+	}
+	return "id:" + r.value
+}

@@ -369,3 +369,22 @@ func (q *Queries) ImportReleaseAliases(ctx context.Context, arg ImportReleaseAli
 	_, err := q.db.Exec(ctx, importReleaseAliases, arg.Names, arg.Now)
 	return err
 }
+
+const importSetBannedBy = `-- name: ImportSetBannedBy :exec
+UPDATE users u SET banned_by = k.banned_by
+FROM unnest($1::uuid[], $2::uuid[]) AS k(user_id, banned_by)
+WHERE u.id = k.user_id AND u.banned_at IS NOT NULL AND u.banned_by IS NULL
+  AND EXISTS(SELECT 1 FROM users b WHERE b.id = k.banned_by)
+`
+
+type ImportSetBannedByParams struct {
+	UserIds  []string
+	BannedBy []string
+}
+
+// Records who banned imported accounts; a banner that is no account leaves
+// banned_by NULL.
+func (q *Queries) ImportSetBannedBy(ctx context.Context, arg ImportSetBannedByParams) error {
+	_, err := q.db.Exec(ctx, importSetBannedBy, arg.UserIds, arg.BannedBy)
+	return err
+}

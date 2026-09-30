@@ -7,6 +7,7 @@ package httpapi
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -209,17 +210,6 @@ func userActorID(w http.ResponseWriter, actor iam.Actor) (string, bool) {
 }
 
 // writeOpResult answers a single-item batch operation: its item error or ok.
-func (s *Service) writeOpResult(w http.ResponseWriter, results []iam.OpResult, err error) bool {
-	if err == nil && len(results) == 1 {
-		err = results[0].Err
-	}
-	if err != nil {
-		s.writeGroupOpError(w, err)
-		return false
-	}
-	return true
-}
-
 // writeGroupOpError answers a group-operation failure: the 2FA-enrollment
 // refusal carries the enrollment metadata, everything else is the catalog's
 // status and code through notFoundCodes/groupOpCodes.
@@ -239,11 +229,24 @@ var groupOpCodes = map[error]errmodel.Code{
 	iam.ErrRoleAssignmentEscalation: errmodel.CodeForbidden,
 	iam.ErrInvalidRemoteApplication: errmodel.CodeInvalidRequest,
 	iam.ErrReservedIssuer:           errmodel.CodeInvalidRequest,
-	errmodel.ErrInviteLinkExpired:   errmodel.CodeInvalidRequest,
-	errmodel.ErrInviteLinkRevoked:   errmodel.CodeInvalidRequest,
+	errmodel.ErrInvitationExpired:   errmodel.CodeInvalidRequest,
+	errmodel.ErrInvitationRevoked:   errmodel.CodeInvalidRequest,
 	iam.ErrRoleNotAssignable:        errmodel.CodeInvalidRequest,
 	errmodel.ErrMissingName:         errmodel.CodeInvalidRequest,
 	errmodel.ErrInvalidInvite:       errmodel.CodeInvalidRequest,
 	errmodel.ErrInvalidExpiry:       errmodel.CodeInvalidRequest,
 	iam.ErrUnknownGroupPersona:      errmodel.CodeInvalidRequest,
+}
+
+// groupRole resolves role text `<persona>:<name>` for a group of persona. The
+// wire carries roles only in this qualified form.
+func (s *Service) groupRole(persona iam.Persona, text string) (iam.Role, error) {
+	role, err := s.svc.Role(text)
+	if err != nil {
+		return iam.Role{}, err
+	}
+	if role.Persona() != persona {
+		return iam.Role{}, fmt.Errorf("%q is not a role of a %q group: %w", text, persona, iam.ErrRoleNotAssignable)
+	}
+	return role, nil
 }

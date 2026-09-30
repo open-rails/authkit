@@ -11,14 +11,14 @@ RETURNING id, created_at;
 
 -- APIKeysByGroup lists a group's keys newest first, never the secret hash.
 -- name: APIKeysByGroup :many
-SELECT id, key_id, name, role, COALESCE(created_by::text, '')::text AS created_by, created_at, last_used_at, expires_at, revoked_at
+SELECT id, permission_group_id, key_id, name, role, COALESCE(created_by::text, '')::text AS created_by, created_at, last_used_at, expires_at, revoked_at
 FROM api_keys
 WHERE permission_group_id = sqlc.arg(group_id) AND (sqlc.narg(after)::uuid IS NULL OR id < sqlc.narg(after)::uuid)
 ORDER BY id DESC
 LIMIT sqlc.arg(page_limit)::bigint;
 
--- name: APIKeyRoleForUpdate :one
-SELECT role FROM api_keys WHERE id = sqlc.arg(id) AND permission_group_id = sqlc.arg(group_id) AND revoked_at IS NULL FOR UPDATE;
+-- name: APIKeyForRevoke :one
+SELECT role, revoked_at FROM api_keys WHERE id = sqlc.arg(id) AND permission_group_id = sqlc.arg(group_id) FOR UPDATE;
 
 -- APIKeyByLookupID reads a key of a live group. creator_live: the key's
 -- creator is the system (NULL) or a usable account.

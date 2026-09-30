@@ -15,6 +15,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/passkeytest"
 )
 
@@ -709,7 +710,7 @@ func TestSoleRootOwnerCannotDisable2FA(t *testing.T) {
 	ctx := t.Context()
 	owner := iam.RootPersona.OwnerRole()
 	can := func(u authtest.User) bool {
-		ok, err := auth.Can(ctx, iam.UserActor(u.ID), iam.RootGroup(), iam.PermRootUsersRead)
+		ok, err := auth.Can(ctx, iam.UserActor(u.ID), iam.RootGroup(), ident.RootUsersRead)
 		require.NoError(t, err)
 		return ok
 	}
@@ -741,7 +742,7 @@ func TestSoleRootOwnerCannotDisable2FA(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(disabled.raw), &removed))
 	require.Len(t, removed.RemovedRoles, 1, "only the owner role goes")
 	require.Equal(t, iam.RootPersona.String(), removed.RemovedRoles[0].Persona)
-	require.Equal(t, owner.Name(), removed.RemovedRoles[0].Role)
+	require.Equal(t, owner.String(), removed.RemovedRoles[0].Role)
 	require.False(t, can(first), "the first owner lost root:* with its 2FA")
 	require.True(t, can(second), "the second owner is unaffected")
 }

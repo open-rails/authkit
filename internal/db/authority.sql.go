@@ -121,7 +121,7 @@ func (q *Queries) AuthorityGroupState(ctx context.Context, id string) (Permissio
 const authorityOutsideApplicationOwnerGroups = `-- name: AuthorityOutsideApplicationOwnerGroups :many
 SELECT DISTINCT r.permission_group_id FROM group_remote_application_roles r
 JOIN remote_applications a ON a.id = r.remote_application_id
-WHERE a.permission_group_id = $1::uuid AND a.enabled AND r.role = 'owner'
+WHERE a.permission_group_id = $1::uuid AND a.enabled AND r.role LIKE '%:owner'
   AND r.permission_group_id <> $1::uuid
 `
 
@@ -282,13 +282,13 @@ func (q *Queries) GroupApplicationRoleName(ctx context.Context, arg GroupApplica
 const groupHasOtherUsableOwner = `-- name: GroupHasOtherUsableOwner :one
 SELECT EXISTS(
   SELECT 1 FROM group_user_roles r JOIN usable_users u ON u.id = r.user_id
-  WHERE r.permission_group_id = $1::uuid AND r.role = 'owner'
+  WHERE r.permission_group_id = $1::uuid AND r.role LIKE '%:owner'
     AND NOT ($2::text = 'user' AND u.id = $3::uuid)
     AND (NOT $4::boolean OR EXISTS(SELECT 1 FROM mfa_settings m WHERE m.user_id = u.id AND m.enabled
       AND EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id = u.id)))
   UNION ALL
   SELECT 1 FROM group_remote_application_roles r JOIN remote_applications a ON a.id = r.remote_application_id
-  WHERE NOT $4::boolean AND r.permission_group_id = $1::uuid AND r.role = 'owner'
+  WHERE NOT $4::boolean AND r.permission_group_id = $1::uuid AND r.role LIKE '%:owner'
     AND NOT ($2::text = 'remote_application' AND a.id = $3::uuid)
     AND NOT ($2::text = 'user' AND a.registered_by IS NOT DISTINCT FROM $3::uuid)
     AND a.enabled AND a.permission_group_id = r.permission_group_id
@@ -338,7 +338,7 @@ func (q *Queries) GroupUserRoleName(ctx context.Context, arg GroupUserRoleNamePa
 }
 
 const groupsOwnedByApplication = `-- name: GroupsOwnedByApplication :many
-SELECT permission_group_id FROM group_remote_application_roles WHERE remote_application_id = $1 AND role = 'owner' ORDER BY permission_group_id
+SELECT permission_group_id FROM group_remote_application_roles WHERE remote_application_id = $1 AND role LIKE '%:owner' ORDER BY permission_group_id
 `
 
 func (q *Queries) GroupsOwnedByApplication(ctx context.Context, remoteApplicationID string) ([]string, error) {

@@ -16,13 +16,9 @@ type sessionsBackend interface {
 	// VerifyRequest authenticates AuthKit's own routes (verify.Authenticator).
 	VerifyRequest(r *http.Request) (verify.Claims, error)
 	AddMFAEnrollmentExemptRoutes(paths []string)
-	CheckSession(ctx context.Context, cl verify.Claims) error
-	CheckRecentSignIn(ctx context.Context, cl verify.Claims) error
 	StepUpRequired(ctx context.Context, userID string) error
 	MintSessionAccessToken(ctx context.Context, userID, sessionID string) (string, time.Time, error)
-	RevokeAccountSessions(ctx context.Context, a iam.Actor, userID string) (iam.AccountSessionRevocation, error)
-	ListDeviceKeys(ctx context.Context, userID, currentID string) ([]authflow.DeviceKey, error)
-	SessionEvents(ctx context.Context, userID string, q iam.SessionEventQuery) (iam.ListPage[iam.SessionEvent], error)
+	ListDeviceKeys(ctx context.Context, userID, currentID string) ([]iam.DeviceKey, error)
 	ListUserSessions(ctx context.Context, userID string) ([]authflow.Session, error)
 	RevokeDeviceKey(ctx context.Context, userID, currentID, targetID string) error
 	RevokeIssuerSessions(ctx context.Context, userID string, keepSessionID *string) error

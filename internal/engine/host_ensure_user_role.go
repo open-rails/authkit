@@ -11,10 +11,12 @@ import (
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/ops"
 )
 
 // EnsureUserRole makes the account u names hold role in ref, under the
-// system, and is idempotent on every boot.
+// system, and is idempotent on every boot. ops.InTx runs it in the host's
+// transaction.
 //
 // u is an id, an email or a phone; a username proves nothing and is refused.
 // With no account for the contact, one is created without credentials and
@@ -25,17 +27,21 @@ import (
 // the unverified account an earlier call created). Any other account is
 // refused with ErrContactNotVerified: a pre-registered account is never
 // adopted, and nothing here marks a contact verified.
-func (s *Engine) EnsureUserRole(ctx context.Context, u iam.UserRef, ref iam.GroupRef, role iam.Role) (iam.User, error) {
+func (s *Engine) EnsureUserRole(ctx context.Context, ref iam.GroupRef, u iam.UserRef, role iam.Role, opts ...ops.Option) (iam.User, error) {
+	host, err := hostTx("EnsureUserRole", opts)
+	if err != nil {
+		return iam.User{}, err
+	}
 	key, value, err := ensureUserKey(u)
 	if err != nil {
 		return iam.User{}, err
 	}
-	var outID string
-	err = s.withGroupMutation(ctx, iam.SystemActor(), ref, func(st *permissionGroupStore, g groupTarget) error {
+	var out iam.User
+	err = s.withGroupMutationIn(ctx, iam.SystemActor(), host, ref, func(st *permissionGroupStore, g groupTarget) error {
 		if !s.validRoleForPersona(s.groupSchemaOrDefault(), g.Persona, role) {
 			return fmt.Errorf("role %q is not assignable in a %q group: %w", role, g.Persona, iam.ErrRoleNotAssignable)
 		}
-		if err := s.requireDefinedGroupRole(ctx, st, g.ID, g.Persona, role); err != nil {
+		if err := s.requireDefinedGroupRole(g.Persona, role); err != nil {
 			return err
 		}
 		q := db.New(st.q)
@@ -94,13 +100,13 @@ func (s *Engine) EnsureUserRole(ctx context.Context, u iam.UserRef, ref iam.Grou
 				return err
 			}
 		}
-		outID = id
-		return nil
+		out, err = userIn(ctx, st.q, id)
+		return err
 	})
 	if err != nil {
 		return iam.User{}, err
 	}
-	return s.User(ctx, iam.UserByID(outID), iam.IncludeDeleted())
+	return out, nil
 }
 
 // ensureUserKey validates and normalizes u for EnsureUserRole.
@@ -179,14 +185,14 @@ func (s *Engine) roleHeld(ctx context.Context, st *permissionGroupStore, g group
 	case current == role, current.IsOwner():
 		return true, nil
 	}
-	have, err := s.roleGrants(ctx, st, g, current)
+	have, err := s.roleGrants(g.Persona, current)
 	if errors.Is(err, iam.ErrRoleNotAssignable) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	want, err := s.roleGrants(ctx, st, g, role)
+	want, err := s.roleGrants(g.Persona, role)
 	if err != nil {
 		return false, err
 	}

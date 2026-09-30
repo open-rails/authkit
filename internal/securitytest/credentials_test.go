@@ -49,8 +49,8 @@ func TestSecurityDeadCreatorCredentials(t *testing.T) {
 			creator := h.newAccount("creator")
 			h.grant(group, creator, "manager")
 			token := h.login(creator).AccessToken
-			key := h.issue(base+"/api-keys", token, map[string]any{"name": "ci", "role": "member"})
-			link := h.issue(base+"/invites/links", token, map[string]any{"role": "member"})
+			key := h.issue(base+"/api-keys", token, map[string]any{"name": "ci", "role": "org:member"})
+			link := h.issue(base+"/invites/links", token, map[string]any{"role": "org:member"})
 			require.Equal(t, http.StatusNoContent, hostRoute(key.Secret), "control: the key works while its creator is live")
 
 			resp := h.do(end.req(creator.id))
@@ -79,8 +79,8 @@ func TestSecurityFirstProofRevokesSquatterInvitations(t *testing.T) {
 	squatter := h.register(victim)
 	squatterID := h.userID(victim)
 	h.grant(group, account{id: squatterID}, "manager")
-	link := h.issue(base+"/invites/links", squatter.AccessToken, map[string]any{"role": "member"})
-	resp := h.post(base+"/members", map[string]string{"email": unique("sockpuppet") + "@security.test", "role": "member"}, squatter.AccessToken)
+	link := h.issue(base+"/invites/links", squatter.AccessToken, map[string]any{"role": "org:member"})
+	resp := h.post(base+"/members", map[string]string{"email": unique("sockpuppet") + "@security.test", "role": "org:member"}, squatter.AccessToken)
 	require.Equal(t, http.StatusAccepted, resp.status, resp.String())
 	require.True(t, liveLink(t, h, group, link.ID), "control: the squatter's link is live before the proof")
 
@@ -107,14 +107,14 @@ func TestSecurityMFARequirementRevokesMachineCredentials(t *testing.T) {
 	owner := h.newAccount("n8owner")
 	group, base := h.newOrg(owner)
 	token := h.login(owner).AccessToken
-	key := h.issue(base+"/api-keys", token, map[string]any{"name": "ci", "role": "member"})
+	key := h.issue(base+"/api-keys", token, map[string]any{"name": "ci", "role": "org:member"})
 	s := newSigner(t, "n8-app")
 	const appIssuer = "https://n8-app.security.test"
 	app, err := h.auth.UpsertRemoteApplication(ctx, iam.UserActor(owner.id), group, iam.RemoteApplication{
-		Slug: "n8-app", Issuer: appIssuer, PublicKeys: staticKeys(t, s), Enabled: true,
+		Issuer: appIssuer, PublicKeys: staticKeys(t, s), Enabled: true,
 	})
 	require.NoError(t, err)
-	require.NoError(t, opErr(h.auth.AssignGroupRoles(ctx, iam.UserActor(owner.id), group, []iam.Subject{iam.RemoteApplicationSubject(app.ID)}, roleIn(t, h.auth, group, "member"))))
+	require.NoError(t, setRole(h.auth, ctx, iam.UserActor(owner.id), group, iam.RemoteApplicationSubject(app.ID), roleIn(t, h.auth, group, "member")))
 	hostRoute := func(auth *authkit.Client, bearer string) int {
 		gate := verify.RequirePermissionOn(auth, group, ident.Perm("org:catalog:read"))(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
 		r := httptest.NewRequest(http.MethodGet, "https://host.security.test/catalog", nil)
@@ -147,10 +147,10 @@ func TestSecurityAPIKeysNeedPersonaOptIn(t *testing.T) {
 	owner := h.newAccount("nokeysowner")
 	group, _ := h.newOrg(owner)
 	for _, a := range []iam.Actor{iam.UserActor(owner.id), iam.SystemActor()} {
-		_, _, err := h.auth.MintAPIKey(ctx, a, group, iam.NewAPIKey{Name: "ci", Role: orgPersona.OwnerRole()})
+		_, _, err := createKey(h.auth, ctx, a, group, iam.NewAPIKey{Name: "ci", Role: orgPersona.OwnerRole()})
 		require.ErrorIs(t, err, iam.ErrInsufficientAuthority, a.String())
 	}
-	keys, err := h.auth.APIKeys(ctx, group, iam.PageRequest{})
+	keys, err := h.auth.ListAPIKeys(ctx, group, iam.PageRequest{})
 	require.NoError(t, err)
 	require.Empty(t, keys.Items)
 }
@@ -159,16 +159,16 @@ func TestSecurityAPIKeysNeedPersonaOptIn(t *testing.T) {
 func (h *host) registerApp(group iam.GroupRef, registrar account, slug, role string) iam.RemoteApplication {
 	h.t.Helper()
 	actor := iam.UserActor(registrar.id)
-	app, err := h.upsertGroupApp(actor, group, slug, "https://"+slug+".security.test", publicKeyPEM(h.t), true)
+	app, err := h.upsertGroupApp(actor, group, "https://"+slug+".security.test", publicKeyPEM(h.t), true)
 	require.NoError(h.t, err)
-	require.NoError(h.t, opErr(h.auth.AssignGroupRoles(h.t.Context(), actor, group, []iam.Subject{iam.RemoteApplicationSubject(app.ID)}, roleIn(h.t, h.auth, group, role))))
+	require.NoError(h.t, setRole(h.auth, h.t.Context(), actor, group, iam.RemoteApplicationSubject(app.ID), roleIn(h.t, h.auth, group, role)))
 	return app
 }
 
 // upsertGroupApp registers or updates a static-key application in group.
-func (h *host) upsertGroupApp(actor iam.Actor, group iam.GroupRef, slug, iss, keyPEM string, enabled bool) (iam.RemoteApplication, error) {
+func (h *host) upsertGroupApp(actor iam.Actor, group iam.GroupRef, iss, keyPEM string, enabled bool) (iam.RemoteApplication, error) {
 	return h.auth.UpsertRemoteApplication(h.t.Context(), actor, group, iam.RemoteApplication{
-		Slug: slug, Issuer: iss, PublicKeys: []iam.RemoteApplicationKey{{PublicKeyPEM: keyPEM}}, Enabled: enabled,
+		Issuer: iss, PublicKeys: []iam.RemoteApplicationKey{{PublicKeyPEM: keyPEM}}, Enabled: enabled,
 	})
 }
 
@@ -206,7 +206,7 @@ func TestSecurityCredentialSweepNeverBlocksBoot(t *testing.T) {
 		h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withApps), authtest.WithConfig(func(c *authkit.Config) { c.TwoFactor.Mode = iam.TwoFactorDisabled }))
 		s := newSigner(t, "p2b-kid")
 		app, err := h.auth.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.RootGroup(), iam.RemoteApplication{
-			Slug: "p2b-app", Issuer: "https://p2b-app.security.test", PublicKeys: staticKeys(t, s), Enabled: true,
+			Issuer: "https://p2b-app.security.test", PublicKeys: staticKeys(t, s), Enabled: true,
 		})
 		require.NoError(t, err)
 		grantRole(t, h.auth, iam.RootGroup(), iam.RemoteApplicationSubject(app.ID), "owner")
@@ -243,10 +243,10 @@ func TestSecurityCredentialSweepNeverBlocksBoot(t *testing.T) {
 		group, err := h.createOrg(ctx, account{id: u.ID})
 		require.NoError(t, err)
 		app, err := h.auth.UpsertRemoteApplication(ctx, iam.UserActor(u.ID), group, iam.RemoteApplication{
-			Slug: "p2d-app", Issuer: "https://p2d-app.security.test", PublicKeys: staticKeys(t, newSigner(t, "p2d-kid")), Enabled: true,
+			Issuer: "https://p2d-app.security.test", PublicKeys: staticKeys(t, newSigner(t, "p2d-kid")), Enabled: true,
 		})
 		require.NoError(t, err)
-		require.NoError(t, opErr(h.auth.AssignGroupRoles(ctx, iam.UserActor(u.ID), group, []iam.Subject{iam.RemoteApplicationSubject(app.ID)}, orgPersona.OwnerRole())))
+		require.NoError(t, setRole(h.auth, ctx, iam.UserActor(u.ID), group, iam.RemoteApplicationSubject(app.ID), orgPersona.OwnerRole()))
 		require.Less(t, h.post("/password/reset/request", map[string]string{"identifier": email}, "").status, 300)
 		token := h.mail.Last(t, authtest.PasswordReset, email).Token
 		resp := h.post("/password/reset/confirm", map[string]string{"token": token, "new_password": "Founder-proves-the-address-4"}, "")

@@ -82,8 +82,13 @@ func newPermissionGroupStore(q db.DBTX) *permissionGroupStore {
 }
 
 // CreateGroup inserts a non-root permission group and returns its id.
-func (st *permissionGroupStore) CreateGroup(ctx context.Context, persona iam.Persona) (string, error) {
-	id, err := db.New(st.q).PermissionGroupInsert(ctx, persona.String())
+func (st *permissionGroupStore) CreateGroup(ctx context.Context, id string, persona iam.Persona) (string, error) {
+	var err error
+	if id == "" {
+		id, err = db.New(st.q).PermissionGroupInsert(ctx, persona.String())
+	} else {
+		err = db.New(st.q).PermissionGroupInsertWithID(ctx, db.PermissionGroupInsertWithIDParams{ID: id, Persona: persona.String()})
+	}
 	if err != nil {
 		return "", fmt.Errorf("create %q group: %w", persona, err)
 	}
@@ -170,7 +175,7 @@ func (st *permissionGroupStore) readAssignmentsForGroups(ctx context.Context, gr
 	}
 	for _, r := range rows {
 		persona := ident.Persona(r.Persona)
-		out[r.Target] = append(out[r.Target], rbac.Assignment{PermissionGroupID: r.GroupID, Persona: persona, Role: ident.Role(persona, r.Role)})
+		out[r.Target] = append(out[r.Target], rbac.Assignment{PermissionGroupID: r.GroupID, Persona: persona, Role: ident.RoleText(r.Role)})
 	}
 	return out, nil
 }
@@ -187,24 +192,6 @@ func groupBatchIDs(ids []string) []string {
 		out = append(out, id)
 	}
 	return out
-}
-
-// RootRolesForUsers returns, for each user id, the role slugs directly assigned on
-// the root group (rootGID), batching a whole page's lookups into one query (the
-// admin-directory enrichment path; avoids a per-row N+1).
-func (st *permissionGroupStore) RootRolesForUsers(ctx context.Context, rootGID string, userIDs []string) (map[string][]string, error) {
-	out := make(map[string][]string, len(userIDs))
-	if len(userIDs) == 0 {
-		return out, nil
-	}
-	rows, err := db.New(st.q).GroupUserRolesForUsers(ctx, db.GroupUserRolesForUsersParams{GroupID: rootGID, UserIds: userIDs})
-	if err != nil {
-		return nil, err
-	}
-	for _, r := range rows {
-		out[r.UserID] = append(out[r.UserID], r.Role)
-	}
-	return out, nil
 }
 
 // AssignRole replaces the current role for a group and subject. The composite
@@ -240,9 +227,9 @@ func (st *permissionGroupStore) AssignRole(ctx context.Context, groupID string, 
 		return err
 	}
 	if subject.Kind == iam.SubjectKindUser {
-		err = q.GroupUserRoleUpsert(ctx, db.GroupUserRoleUpsertParams{GroupID: groupID, UserID: subject.ID, Role: role.Name()})
+		err = q.GroupUserRoleUpsert(ctx, db.GroupUserRoleUpsertParams{GroupID: groupID, UserID: subject.ID, Role: role.String()})
 	} else {
-		err = q.GroupApplicationRoleUpsert(ctx, db.GroupApplicationRoleUpsertParams{GroupID: groupID, ApplicationID: subject.ID, Role: role.Name()})
+		err = q.GroupApplicationRoleUpsert(ctx, db.GroupApplicationRoleUpsertParams{GroupID: groupID, ApplicationID: subject.ID, Role: role.String()})
 	}
 	if err != nil {
 		return err
@@ -253,7 +240,7 @@ func (st *permissionGroupStore) AssignRole(ctx context.Context, groupID string, 
 
 // UnassignRole deletes the matching current assignment.
 func (st *permissionGroupStore) UnassignRole(ctx context.Context, groupID string, subject iam.Subject, role iam.Role) error {
-	name := role.Name()
+	name := role.String()
 	return st.unassign(ctx, groupID, subject, &name)
 }
 
@@ -286,7 +273,7 @@ func (st *permissionGroupStore) unassign(ctx context.Context, groupID string, su
 		return err
 	}
 	persona := ident.Persona(deleted.Persona)
-	return st.record(ctx, roleEvent(groupID, persona, subject, ident.Role(persona, deleted.Role), iam.Role{}))
+	return st.record(ctx, roleEvent(groupID, persona, subject, ident.RoleText(deleted.Role), iam.Role{}))
 }
 
 // OwnerCount returns the count of live, unbanned, unreserved user owners and

@@ -39,8 +39,8 @@ func credentialRoles() RoleConfig {
 			{Persona: "org", Name: "member", Permissions: []string{"org:catalog:read"}},
 			{Persona: "org", Name: "manager", Permissions: []string{"org:members:manage", "org:credentials:manage", "org:catalog:read"}},
 			{Persona: "root", Name: "org-admin", Permissions: []string{"org:*"}},
-			{Persona: "root", Name: "inviter", Permissions: []string{iam.PermRootUsersInvite.String()}},
-			{Persona: "root", Name: "moderator", Permissions: []string{iam.PermRootUsersBan.String()}},
+			{Persona: "root", Name: "inviter", Permissions: []string{ident.RootUsersInvite.String()}},
+			{Persona: "root", Name: "moderator", Permissions: []string{ident.RootUsersBan.String()}},
 		},
 	}
 }
@@ -74,8 +74,7 @@ func (f *credentialFixture) user(prefix string) iam.Subject {
 type issued struct {
 	key                     iam.APIKey
 	token                   string
-	link                    iam.InviteLinkCreated
-	invite, plain           iam.AccountInviteCreated
+	link, invite, plain     iam.InvitationCreated
 	inviteEmail, plainEmail string
 }
 
@@ -84,18 +83,18 @@ func (f *credentialFixture) issue(t *testing.T, creator iam.Subject, keyRole str
 	ctx := t.Context()
 	a := iam.UserActor(creator.ID)
 	var out issued
-	var err error
-	out.key, out.token, err = f.e.MintAPIKey(ctx, a, f.acme, iam.NewAPIKey{Name: "key", Role: f.role(keyRole)})
+	key, err := f.e.CreateAPIKey(ctx, a, f.acme, iam.NewAPIKey{Name: "key", Role: f.role(keyRole)})
 	require.NoError(t, err)
-	out.link, err = f.e.CreateInviteLink(ctx, a, f.acme, iam.NewInviteLink{Role: f.role("member")})
+	out.key, out.token = key.APIKey, key.Secret
+	out.link, err = f.e.CreateInvitation(ctx, a, f.acme, iam.NewInvitation{Role: f.role("member")})
 	require.NoError(t, err)
 	f.n++
 	out.inviteEmail = fmt.Sprintf("invitee%d@credentials.test", f.n)
-	out.invite, err = f.e.CreateAccountInvite(ctx, a, iam.NewAccountInvite{Email: out.inviteEmail, Group: f.acme, Role: f.role("member")})
+	out.invite, err = f.e.CreateInvitation(ctx, a, f.acme, iam.NewInvitation{Email: out.inviteEmail, Role: f.role("member")})
 	require.NoError(t, err)
 	if plain {
 		out.plainEmail = fmt.Sprintf("plain%d@credentials.test", f.n)
-		out.plain, err = f.e.CreateAccountInvite(ctx, a, iam.NewAccountInvite{Email: out.plainEmail})
+		out.plain, err = f.e.CreateInvitation(ctx, a, iam.RootGroup(), iam.NewInvitation{Email: out.plainEmail})
 		require.NoError(t, err)
 	}
 	return out
@@ -107,11 +106,11 @@ func (f *credentialFixture) requireDead(t *testing.T, c issued) {
 	ctx := t.Context()
 	_, err := f.e.ResolveAPIKey(ctx, c.token)
 	require.ErrorIs(t, err, iam.ErrAPIKeyRevoked, "API key")
-	_, err = f.e.RedeemInviteLink(ctx, iam.UserActor(f.user("redeemer").ID), c.link.Code)
-	require.ErrorIs(t, err, errmodel.ErrInviteLinkRevoked, "invite link")
-	require.ErrorIs(t, f.e.consumeRegistrationInvite(ctx, c.inviteEmail, f.user("registrant").ID, c.invite.Code), errmodel.ErrAccountRegistrationInviteNotFound, "registration invite")
+	_, err = f.e.RedeemInvitation(ctx, iam.UserActor(f.user("redeemer").ID), c.link.Code)
+	require.ErrorIs(t, err, errmodel.ErrInvitationRevoked, "invite link")
+	require.ErrorIs(t, f.e.consumeRegistrationInvite(ctx, c.inviteEmail, f.user("registrant").ID, c.invite.Code), iam.ErrInvitationNotFound, "registration invite")
 	if c.plain.Code != "" {
-		require.ErrorIs(t, f.e.consumeRegistrationInvite(ctx, c.plainEmail, f.user("registrant").ID, c.plain.Code), errmodel.ErrAccountRegistrationInviteNotFound, "plain registration invite")
+		require.ErrorIs(t, f.e.consumeRegistrationInvite(ctx, c.plainEmail, f.user("registrant").ID, c.plain.Code), iam.ErrInvitationNotFound, "plain registration invite")
 	}
 }
 
@@ -144,17 +143,17 @@ SELECT 'account_registration_invites', a.id::text, g.id::text, g.persona, COALES
 		var persona, role string
 		require.NoError(t, rows.Scan(&c.table, &c.id, &c.g.ID, &persona, &role, &c.creator))
 		c.g.Persona = ident.Persona(persona)
-		c.role = ident.Role(c.g.Persona, role)
+		c.role = ident.RoleText(role)
 		creds = append(creds, c)
 	}
 	require.NoError(t, rows.Err())
 	for _, c := range creds {
-		capability := iam.PermMembersManage(c.g.Persona)
+		capability := ident.MembersManage(c.g.Persona)
 		switch {
 		case c.table == "api_keys":
-			capability = iam.PermCredentialsManage(c.g.Persona)
+			capability = ident.CredentialsManage(c.g.Persona)
 		case c.role.IsZero():
-			capability = iam.PermRootUsersInvite
+			capability = ident.RootUsersInvite
 		}
 		require.NoError(t, e.creatorCovers(ctx, st, c.creator, c.g, capability, c.role), "%s %s outlived its issuer %s", c.table, c.id, c.creator)
 	}
@@ -196,11 +195,11 @@ func TestNoCredentialOutlivesItsIssuer(t *testing.T) {
 	t.Run("root invite permission lost", func(t *testing.T) {
 		creator := f.user("inviter")
 		grantRole(t, f.e, iam.RootGroup(), creator, "inviter")
-		plain, err := f.e.CreateAccountInvite(ctx, iam.UserActor(creator.ID), iam.NewAccountInvite{Email: "lost@credentials.test"})
+		plain, err := f.e.CreateInvitation(ctx, iam.UserActor(creator.ID), iam.RootGroup(), iam.NewInvitation{Email: "lost@credentials.test"})
 		require.NoError(t, err)
 		require.NoError(t, unassignRole(ctx, f.e, iam.SystemActor(), iam.RootGroup(), creator, "inviter"))
 		requireCredentialsCovered(t, f.e)
-		require.ErrorIs(t, f.e.consumeRegistrationInvite(ctx, "lost@credentials.test", f.user("registrant").ID, plain.Code), errmodel.ErrAccountRegistrationInviteNotFound)
+		require.ErrorIs(t, f.e.consumeRegistrationInvite(ctx, "lost@credentials.test", f.user("registrant").ID, plain.Code), iam.ErrInvitationNotFound)
 	})
 
 	// H1: a banned, deleted or reserved creator's credentials fail at use
@@ -234,13 +233,14 @@ func TestNoCredentialOutlivesItsIssuer(t *testing.T) {
 		creator := f.user("purged")
 		grantRole(t, f.e, f.acme, creator, "manager")
 		c := f.issue(t, creator, "member", false)
-		_, opToken, err := f.e.MintAPIKey(ctx, iam.SystemActor(), f.acme, iam.NewAPIKey{Name: "system", Role: f.role("member")})
+		opKey, err := f.e.CreateAPIKey(ctx, iam.SystemActor(), f.acme, iam.NewAPIKey{Name: "system", Role: f.role("member")})
 		require.NoError(t, err)
+		opToken := opKey.Secret
 		generation := prepareExpiredDeletion(t, f.e, creator.ID)
 		f.requireDead(t, c)
 		require.NoError(t, f.e.finalizeAccountDeletion(ctx, generation, true))
 		var rows int
-		require.NoError(t, f.e.pg.QueryRow(ctx, `SELECT (SELECT count(*) FROM api_keys WHERE id=$1::uuid)+(SELECT count(*) FROM group_invite_links WHERE id=$2::uuid)`, c.key.ID, c.link.ID).Scan(&rows))
+		require.NoError(t, f.e.pg.QueryRow(ctx, `SELECT (SELECT count(*) FROM api_keys WHERE id=$1::uuid)+(SELECT count(*) FROM group_invite_links WHERE id=$2::uuid)`, c.key.ID, c.link.Invitation.ID).Scan(&rows))
 		require.Zero(t, rows, "the purged creator's credentials remain")
 		_, err = f.e.ResolveAPIKey(ctx, c.token)
 		require.ErrorIs(t, err, iam.ErrAPIKeyInvalid)
@@ -270,7 +270,7 @@ func TestNoCredentialOutlivesItsIssuer(t *testing.T) {
 		apply("moderator")
 		requireCredentialsCovered(t, f.e)
 		f.requireDead(t, c)
-		keys, err := f.e.APIKeys(ctx, f.acme, iam.PageRequest{})
+		keys, err := f.e.ListAPIKeys(ctx, f.acme, iam.PageRequest{})
 		require.NoError(t, err)
 		require.NotNil(t, keys.Items[0].RevokedAt, "revoked in storage, not only refused")
 	})

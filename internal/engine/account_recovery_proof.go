@@ -71,9 +71,9 @@ func (s *Engine) finishRecoveryProof(ctx context.Context, tx pgx.Tx, proof login
 	if purgeAt.Before(expires) {
 		expires = purgeAt
 	}
-	token := secret.RandB64(32)
+	token := secret.Token(32)
 	record := accountRecoveryProof{UserID: proof.Input.UserID, Generation: proof.DeletionID, Issuer: s.cfg.Token.Issuer, Version: proof.Version, ExpiresAt: expires, AuthMethods: proof.Input.AuthMethods}
-	if err := s.ephemSetJSON(ctx, "account-recovery:"+sha256Hex(token), record, expires.Sub(now)); err != nil {
+	if err := s.ephemSetJSON(ctx, "account-recovery:"+secret.Hash(token), record, expires.Sub(now)); err != nil {
 		return authflow.LoginOutcome{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -86,7 +86,7 @@ func (s *Engine) ConfirmAccountRecovery(ctx context.Context, token string) error
 	if len(token) < 32 || len(token) > 256 || strings.TrimSpace(token) != token {
 		return jwt.ErrTokenUnverifiable
 	}
-	key := "account-recovery:" + sha256Hex(token)
+	key := "account-recovery:" + secret.Hash(token)
 	var proof accountRecoveryProof
 	raw, ok, err := s.ephemReadJSON(ctx, key, &proof)
 	if err != nil {

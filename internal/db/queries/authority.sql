@@ -54,7 +54,7 @@ SELECT role FROM group_user_roles WHERE permission_group_id = sqlc.arg(group_id)
 SELECT role FROM group_remote_application_roles WHERE permission_group_id = sqlc.arg(group_id) AND remote_application_id = sqlc.arg(application_id);
 
 -- name: GroupsOwnedByApplication :many
-SELECT permission_group_id FROM group_remote_application_roles WHERE remote_application_id = $1 AND role = 'owner' ORDER BY permission_group_id;
+SELECT permission_group_id FROM group_remote_application_roles WHERE remote_application_id = $1 AND role LIKE '%:owner' ORDER BY permission_group_id;
 
 -- name: AuthorityApplicationOwnsGroup :one
 -- Whether group_id controls the application, and the group's persona.
@@ -70,13 +70,13 @@ WHERE a.id = sqlc.arg(application_id)::uuid;
 -- never stands in for that user: its authority ends with theirs (R1).
 SELECT EXISTS(
   SELECT 1 FROM group_user_roles r JOIN usable_users u ON u.id = r.user_id
-  WHERE r.permission_group_id = sqlc.arg(group_id)::uuid AND r.role = 'owner'
+  WHERE r.permission_group_id = sqlc.arg(group_id)::uuid AND r.role LIKE '%:owner'
     AND NOT (sqlc.arg(excluding_kind)::text = 'user' AND u.id = sqlc.narg(excluding_id)::uuid)
     AND (NOT sqlc.arg(needs_mfa)::boolean OR EXISTS(SELECT 1 FROM mfa_settings m WHERE m.user_id = u.id AND m.enabled
       AND EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id = u.id)))
   UNION ALL
   SELECT 1 FROM group_remote_application_roles r JOIN remote_applications a ON a.id = r.remote_application_id
-  WHERE NOT sqlc.arg(needs_mfa)::boolean AND r.permission_group_id = sqlc.arg(group_id)::uuid AND r.role = 'owner'
+  WHERE NOT sqlc.arg(needs_mfa)::boolean AND r.permission_group_id = sqlc.arg(group_id)::uuid AND r.role LIKE '%:owner'
     AND NOT (sqlc.arg(excluding_kind)::text = 'remote_application' AND a.id = sqlc.narg(excluding_id)::uuid)
     AND NOT (sqlc.arg(excluding_kind)::text = 'user' AND a.registered_by IS NOT DISTINCT FROM sqlc.narg(excluding_id)::uuid)
     AND a.enabled AND a.permission_group_id = r.permission_group_id
@@ -88,7 +88,7 @@ SELECT EXISTS(
 -- The other groups owned by enabled applications that group_id controls.
 SELECT DISTINCT r.permission_group_id FROM group_remote_application_roles r
 JOIN remote_applications a ON a.id = r.remote_application_id
-WHERE a.permission_group_id = sqlc.arg(group_id)::uuid AND a.enabled AND r.role = 'owner'
+WHERE a.permission_group_id = sqlc.arg(group_id)::uuid AND a.enabled AND r.role LIKE '%:owner'
   AND r.permission_group_id <> sqlc.arg(group_id)::uuid;
 
 -- name: AuthorityUncoveredCredentials :many

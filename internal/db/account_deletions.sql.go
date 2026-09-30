@@ -409,7 +409,7 @@ func (q *Queries) AccountDeliveryFleetsUnbound(ctx context.Context, issuers []st
 }
 
 const groupsOwnedByUser = `-- name: GroupsOwnedByUser :many
-SELECT permission_group_id FROM group_user_roles WHERE user_id = $1 AND role = 'owner' ORDER BY permission_group_id
+SELECT permission_group_id FROM group_user_roles WHERE user_id = $1 AND role LIKE '%:owner' ORDER BY permission_group_id
 `
 
 func (q *Queries) GroupsOwnedByUser(ctx context.Context, userID string) ([]string, error) {

@@ -16,26 +16,35 @@ var (
 	ErrAPIKeyRevoked Error = errmodel.E(errmodel.CodeAPIKeyRevoked)
 	// ErrAPIKeyExpired indicates the API key is past its expires_at.
 	ErrAPIKeyExpired Error = errmodel.E(errmodel.CodeAPIKeyExpired)
+	// ErrAPIKeyNotFound indicates no key with the id exists in the group.
+	ErrAPIKeyNotFound Error = errmodel.E(errmodel.CodeAPIKeyNotFound)
 )
 
-// APIKey is an API key's metadata. The secret is returned only by MintAPIKey.
+// APIKey is an API key's metadata; the secret is shown only by CreateAPIKey.
 // A key holds one role of its group; Permissions is that role resolved now,
 // so editing the role changes every key holding it.
 type APIKey struct {
-	ID          string // the key's identity: APIKeyActor(ID), verify Claims.APIKeyID
-	LookupID    string // the public lookup id embedded in the token
-	Name        string
-	Role        Role
-	Permissions []Perm
-	CreatedBy   string // "" = issued by the system
-	CreatedAt   time.Time
-	LastUsedAt  *time.Time
-	ExpiresAt   *time.Time
-	RevokedAt   *time.Time
+	ID          string     `json:"id"`        // the key's identity: APIKeyActor(ID), verify Claims.APIKeyID
+	LookupID    string     `json:"lookup_id"` // the public lookup id embedded in the token
+	GroupID     string     `json:"group_id"`
+	Name        string     `json:"name"`
+	Role        Role       `json:"role"`
+	Permissions []Perm     `json:"permissions"`
+	CreatedBy   string     `json:"created_by"` // "" = issued by the system
+	CreatedAt   time.Time  `json:"created_at"`
+	LastUsedAt  *time.Time `json:"last_used_at"`
+	ExpiresAt   *time.Time `json:"expires_at"`
+	RevokedAt   *time.Time `json:"revoked_at"`
 }
 
-// NewAPIKey is the input of MintAPIKey. ExpiresAt nil means no expiry, capped
-// by Config.APIKeys.MaxTTL when set.
+// APIKeyCreated is a new key and its token, shown this once.
+type APIKeyCreated struct {
+	APIKey APIKey `json:"api_key"`
+	Secret string `json:"secret"`
+}
+
+// NewAPIKey is the input of CreateAPIKey. ExpiresAt nil means no expiry,
+// capped by Config.APIKeys.MaxTTL when set.
 type NewAPIKey struct {
 	Name      string
 	Role      Role
@@ -45,11 +54,11 @@ type NewAPIKey struct {
 // APIKeyPrincipal is a resolved, live API key: the group it acts in and the
 // permissions of its role at resolution time.
 type APIKeyPrincipal struct {
-	ID          string
-	LookupID    string
-	Group       Group
-	Issuer      string // the issuer of the AuthKit deployment holding the key
-	Role        Role
-	Permissions []Perm
-	ExpiresAt   *time.Time
+	ID          string     `json:"id"`
+	LookupID    string     `json:"lookup_id"`
+	Group       Group      `json:"group"`
+	Issuer      string     `json:"issuer"` // the issuer of the AuthKit deployment holding the key
+	Role        Role       `json:"role"`
+	Permissions []Perm     `json:"permissions"`
+	ExpiresAt   *time.Time `json:"expires_at"`
 }

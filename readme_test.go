@@ -3,6 +3,7 @@ package authkit_test
 import (
 	"context"
 	"errors"
+	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -90,7 +91,7 @@ func TestReadmeRolesBlock(t *testing.T) {
 		"POST /api/v1/admin/users/{user_id}/ban",
 		"POST /api/v1/admin/users/{user_id}/unban",
 	} {
-		require.Contains(t, auth.Patterns(), route)
+		require.Contains(t, patterns(auth), route)
 	}
 	for _, perm := range []iam.Perm{PostsEdit, PostsDelete, PostsApprove, ChannelEdit, ChannelDelete, Channel.Members.Read, Channel.Members.Manage, rbac.Root.Users.Ban} {
 		require.True(t, auth.KnownPermission(perm), perm)
@@ -100,15 +101,22 @@ func TestReadmeRolesBlock(t *testing.T) {
 	perm, err := auth.Permission("channel:self:delete")
 	require.NoError(t, err)
 	require.Equal(t, ChannelDelete, perm)
-	role, err := auth.Role(iam.RootPersona, "admin")
+	role, err := auth.Role("root:admin")
 	require.NoError(t, err)
 	require.Equal(t, Admin, role)
+	for text, want := range map[string]error{"admin": iam.ErrRoleNotAssignable, "channel:admin": iam.ErrRoleNotAssignable, "guild:owner": iam.ErrUnknownGroupPersona} {
+		_, err := auth.Role(text)
+		require.ErrorIs(t, err, want, "a role is <persona>:<name> of a declared persona: %s", text)
+	}
+	owner, err := auth.Role("channel:owner")
+	require.NoError(t, err)
+	require.Equal(t, Channel.Owner, owner)
 
 	var adminID string
 	for boot := 1; boot <= 2; boot++ {
 		_, err := pg.Pool.Exec(ctx, channelsTable)
 		require.NoError(t, err)
-		admin, err := auth.EnsureUserRole(ctx, iam.UserByEmail("admin@readme.test"), iam.RootGroup(), Admin) // seed
+		admin, err := auth.EnsureUserRole(ctx, iam.RootGroup(), iam.UserByEmail("admin@readme.test"), Admin) // seed
 		require.NoError(t, err, "README seed, boot %d", boot)
 		adminID = admin.ID
 		err = readmeCreateChannel(ctx, pg.Pool, auth, "announcements", admin.ID)
@@ -139,9 +147,8 @@ func TestReadmeRolesBlock(t *testing.T) {
 	require.NoError(t, readmeCreateChannel(ctx, pg.Pool, auth, "golang", ownerID))
 	var golang string
 	require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT group_id::text FROM channels WHERE name = 'golang'`).Scan(&golang))
-	res, err := auth.AssignGroupRoles(ctx, iam.UserActor(ownerID), iam.GroupByID(golang), []iam.Subject{iam.UserSubject(bobID)}, Moderator)
-	require.NoError(t, err)
-	require.NoError(t, res[0].Err, "the owner pins the badge on Bob")
+	_, err = auth.SetGroupRole(ctx, iam.UserActor(ownerID), iam.GroupByID(golang), iam.UserSubject(bobID), Moderator)
+	require.NoError(t, err, "the owner pins the badge on Bob")
 	can := func(userID, groupID string, perm iam.Perm) bool {
 		ok, err := auth.Can(ctx, iam.UserActor(userID), iam.GroupByID(groupID), perm)
 		require.NoError(t, err)
@@ -210,5 +217,16 @@ func TestReadmeRoutesTable(t *testing.T) {
 		}
 	}
 	require.NotEmpty(t, listed)
-	require.ElementsMatch(t, auth.Patterns(), listed, "README.md's route tables must list exactly the mounted routes")
+	require.ElementsMatch(t, patterns(auth), listed, "README.md's route tables must list exactly the mounted routes")
+}
+
+// patterns is the client's mounted routes as ServeMux patterns, HEAD aside.
+func patterns(auth *authkit.Client) []string {
+	var out []string
+	for _, r := range auth.Routes() {
+		if r.Method != http.MethodHead {
+			out = append(out, r.Pattern())
+		}
+	}
+	return out
 }

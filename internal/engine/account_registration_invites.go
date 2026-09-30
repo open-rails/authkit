@@ -11,7 +11,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
@@ -41,72 +40,6 @@ func (s *Engine) accountRegistrationInviteURL(code string) string {
 	return s.authkitURL(s.cfg.Frontend.InvitePath, q)
 }
 
-// CreateAccountInvite invites i.Email to register. A plain invite needs
-// CAP(root:users:invite) on root. With i.Group and i.Role set, registering also
-// grants that role, and the invite needs that group's CAP(<p>:members:manage)
-// plus COVER(role) instead (the invite-link rule), not root:users:invite. Only
-// a user or the system issues credentials. The code is returned once and
-// emailed to i.Email.
-func (s *Engine) CreateAccountInvite(ctx context.Context, a iam.Actor, i iam.NewAccountInvite) (iam.AccountInviteCreated, error) {
-	creator, err := credentialIssuer(a)
-	if err != nil {
-		return iam.AccountInviteCreated{}, err
-	}
-	email := contact.NormalizeEmail(i.Email)
-	if err := contact.ValidateEmail(email); err != nil {
-		return iam.AccountInviteCreated{}, err
-	}
-	role := i.Role
-	carriesRole := !i.Group.IsZero()
-	if carriesRole != !role.IsZero() {
-		return iam.AccountInviteCreated{}, errmodel.ErrInvalidInvite
-	}
-	if carriesRole && !s.externalInvitesEnabled() {
-		return iam.AccountInviteCreated{}, iam.ErrExternalInvitesDisabled
-	}
-	ref := iam.RootGroup()
-	if carriesRole {
-		ref = i.Group
-	}
-	ttl := i.ExpiresIn
-	if ttl <= 0 {
-		ttl = defaultAccountRegistrationInviteTTL
-	}
-	out := iam.AccountInviteCreated{Code: secret.RandB64(32), Email: email, ExpiresAt: time.Now().UTC().Add(ttl)}
-	err = s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
-		var groupID, roleParam *string
-		if carriesRole {
-			if _, err := s.requireIssuableRole(ctx, st, g, role); err != nil {
-				return err
-			}
-			if err := s.requireRoleGrant(ctx, st, a, g, iam.PermMembersManage(g.Persona), role); err != nil {
-				return err
-			}
-			name := role.Name()
-			groupID, roleParam = &g.ID, &name
-		} else {
-			auth, err := s.actorAuthority(ctx, st, a, g)
-			if err != nil {
-				return err
-			}
-			if err := auth.requireCap(iam.PermRootUsersInvite); err != nil {
-				return err
-			}
-		}
-		id, err := db.New(st.q).AccountInviteInsert(ctx, db.AccountInviteInsertParams{
-			Email: email, InvitedBy: nullable(creator), CodeHash: sha256Hex(out.Code), ExpiresAt: out.ExpiresAt, GroupID: groupID, Role: roleParam,
-		})
-		out.ID = id
-		return err
-	})
-	if err != nil {
-		return iam.AccountInviteCreated{}, err
-	}
-	out.URL = s.accountRegistrationInviteURL(out.Code)
-	s.sendAccountRegistrationInviteEmail(ctx, email, out.URL)
-	return out, nil
-}
-
 func (s *Engine) sendAccountRegistrationInviteEmail(ctx context.Context, email, inviteURL string) {
 	if s.email == nil {
 		return
@@ -132,7 +65,7 @@ func (s *Engine) hasValidAccountRegistrationInvite(ctx context.Context, email st
 		return false, nil
 	}
 	_ = email
-	return s.q.AccountInviteValid(ctx, sha256Hex(token))
+	return s.q.AccountInviteValid(ctx, secret.Hash(token))
 }
 
 func (s *Engine) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token string) (*db.AccountInviteForUpdateRow, error) {
@@ -151,10 +84,10 @@ func (s *Engine) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token st
 		return nil, err
 	}
 	q := db.New(tx)
-	codeHash := sha256Hex(token)
+	codeHash := secret.Hash(token)
 	groupID, err := q.AccountInviteGroupLive(ctx, codeHash)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, errmodel.ErrAccountRegistrationInviteNotFound
+		return nil, iam.ErrInvitationNotFound
 	}
 	if err != nil {
 		return nil, err
@@ -166,7 +99,7 @@ func (s *Engine) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token st
 	}
 	invite, err := q.AccountInviteForUpdate(ctx, db.AccountInviteForUpdateParams{CodeHash: codeHash, GroupID: groupID})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, errmodel.ErrAccountRegistrationInviteNotFound
+		return nil, iam.ErrInvitationNotFound
 	}
 	if err != nil {
 		return nil, err
@@ -188,7 +121,7 @@ func (s *Engine) applyRegistrationInvite(ctx context.Context, tx pgx.Tx, invite 
 		}
 		st := s.groupStoreFor(tx)
 		st.actor = iam.UserActor(userID)
-		return s.assignInvitedRole(ctx, st, *invite.PermissionGroupID, persona, userID, ident.Role(persona, *invite.Role))
+		return s.assignInvitedRole(ctx, st, *invite.PermissionGroupID, persona, userID, ident.RoleText(*invite.Role))
 	}
 	return nil
 }

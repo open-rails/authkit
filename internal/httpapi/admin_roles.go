@@ -7,6 +7,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/ops"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -26,16 +27,19 @@ func (s *Service) handleAdminRolesGET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleAdminUserRolePUT(w http.ResponseWriter, r *http.Request) {
-	s.adminUserRole(w, r, s.svc.AssignGroupRoles)
+	s.adminUserRole(w, r, func(ctx context.Context, a iam.Actor, subject iam.Subject, role iam.Role) error {
+		_, err := s.svc.SetGroupRole(ctx, a, iam.RootGroup(), subject, role)
+		return err
+	})
 }
 
 func (s *Service) handleAdminUserRoleDELETE(w http.ResponseWriter, r *http.Request) {
-	s.adminUserRole(w, r, s.svc.UnassignGroupRoles)
+	s.adminUserRole(w, r, func(ctx context.Context, a iam.Actor, subject iam.Subject, role iam.Role) error {
+		return s.svc.RemoveGroupMember(ctx, a, iam.RootGroup(), subject, ops.IfRole(role))
+	})
 }
 
-type rootRoleOp func(ctx context.Context, a iam.Actor, ref iam.GroupRef, subjects []iam.Subject, role iam.Role) ([]iam.OpResult, error)
-
-func (s *Service) adminUserRole(w http.ResponseWriter, r *http.Request, op rootRoleOp) {
+func (s *Service) adminUserRole(w http.ResponseWriter, r *http.Request, op func(ctx context.Context, a iam.Actor, subject iam.Subject, role iam.Role) error) {
 	actor, ok := verify.ActorFromContext(r.Context())
 	if !ok {
 		fail(w, errmodel.CodeUnauthenticated)
@@ -45,18 +49,18 @@ func (s *Service) adminUserRole(w http.ResponseWriter, r *http.Request, op rootR
 		return
 	}
 	userID := strings.TrimSpace(r.PathValue("user_id"))
-	name := strings.TrimSpace(r.PathValue("role"))
-	if userID == "" || name == "" {
+	text := strings.TrimSpace(r.PathValue("role"))
+	if userID == "" || text == "" {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	role, err := s.svc.PermissionGroupSchema().ParseRole(iam.RootPersona, name)
+	role, err := s.groupRole(iam.RootPersona, text)
 	if err != nil {
 		writeError(w, remap(err, notFoundCodes, groupOpCodes))
 		return
 	}
-	res, err := op(r.Context(), actor, iam.RootGroup(), []iam.Subject{iam.UserSubject(userID)}, role)
-	if !s.writeOpResult(w, res, err) {
+	if err := op(r.Context(), actor, iam.UserSubject(userID), role); err != nil {
+		s.writeGroupOpError(w, err)
 		return
 	}
 	noContent(w)

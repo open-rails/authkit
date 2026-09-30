@@ -18,7 +18,17 @@ import (
 type fakeSurface []string
 
 func (fakeSurface) Handler() http.Handler { return http.NotFoundHandler() }
-func (s fakeSurface) Patterns() []string  { return s }
+func (s fakeSurface) Routes() []iam.Route { return routesOf(s) }
+
+// routesOf reads "METHOD /path" patterns as routes.
+func routesOf(patterns []string) []iam.Route {
+	out := make([]iam.Route, 0, len(patterns))
+	for _, p := range patterns {
+		method, path, _ := strings.Cut(p, " ")
+		out = append(out, iam.Route{Method: method, Path: path})
+	}
+	return out
+}
 
 func TestMountValidatesConfiguration(t *testing.T) {
 	gin.SetMode(gin.TestMode)

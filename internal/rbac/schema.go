@@ -39,10 +39,9 @@ type RoleSpec struct {
 type Persona struct {
 	Name iam.Persona
 	// Permissions is the complete catalog: app-declared plus built-ins, sorted.
-	Permissions        []iam.Perm
-	Roles              []Role // declared roles (includes flattened) plus owner
-	APIKeys            bool
-	RemoteApplications bool
+	Permissions []iam.Perm
+	Roles       []Role // declared roles (includes flattened) plus owner
+	APIKeys     bool
 }
 
 // Role is a compiled role: its grant patterns with includes flattened.
@@ -88,7 +87,7 @@ func New(personas map[string]PersonaSpec, roles []RoleSpec) (*Schema, error) {
 	}
 	names := slices.Sorted(maps.Keys(specs))
 	for _, raw := range names {
-		if !iam.ValidPermissionSegment(raw) {
+		if !ident.ValidSegment(raw) {
 			return nil, fmt.Errorf("persona %q: name must match [a-z][a-z0-9-]*", raw)
 		}
 		name := ident.Persona(raw)
@@ -107,14 +106,13 @@ func New(personas map[string]PersonaSpec, roles []RoleSpec) (*Schema, error) {
 
 func (s *Schema) compilePersona(name iam.Persona, spec PersonaSpec) (Persona, error) {
 	p := Persona{
-		Name:               name,
-		APIKeys:            spec.APIKeys,
-		RemoteApplications: spec.RemoteApplications,
+		Name:    name,
+		APIKeys: spec.APIKeys,
 	}
 	catalog := map[iam.Perm]struct{}{}
 	for _, raw := range spec.Permissions {
 		raw = strings.TrimSpace(raw)
-		if err := iam.ValidatePermission(raw); err != nil {
+		if err := ident.ValidatePermission(raw); err != nil {
 			return Persona{}, err
 		}
 		perm := ident.Perm(raw)
@@ -135,11 +133,11 @@ func (s *Schema) compilePersona(name iam.Persona, spec PersonaSpec) (Persona, er
 	if name == iam.RootPersona {
 		// Handing out site-wide roles and editing other people's accounts
 		// always need MFA, so the root owner does.
-		mfa = append([]string{iam.PermMembersManage(name).String(), iam.PermRootUsersManage.String()}, mfa...)
+		mfa = append([]string{ident.MembersManage(name).String(), ident.RootUsersManage.String()}, mfa...)
 	}
 	for _, raw := range mfa {
 		raw = strings.TrimSpace(raw)
-		if err := iam.ValidateGrantPattern(raw); err != nil {
+		if err := ident.ValidateGrantPattern(raw); err != nil {
 			return Persona{}, fmt.Errorf("RequireMFA: %w", err)
 		}
 		pattern := ident.Perm(raw)
@@ -166,12 +164,12 @@ func (s *Schema) compilePersona(name iam.Persona, spec PersonaSpec) (Persona, er
 // always, credentials with APIKeys or RemoteApplications, and on root its
 // intrinsic account permissions.
 func builtins(name iam.Persona, spec PersonaSpec) []iam.Perm {
-	out := []iam.Perm{iam.PermMembersRead(name), iam.PermMembersManage(name)}
+	out := []iam.Perm{ident.MembersRead(name), ident.MembersManage(name)}
 	if spec.APIKeys || spec.RemoteApplications {
-		out = append(out, iam.PermCredentialsRead(name), iam.PermCredentialsManage(name))
+		out = append(out, ident.CredentialsRead(name), ident.CredentialsManage(name))
 	}
 	if name == iam.RootPersona {
-		out = append(out, iam.IntrinsicRootPermissions()...)
+		out = append(out, ident.IntrinsicRootPermissions()...)
 	}
 	return out
 }
@@ -187,7 +185,7 @@ func (s *Schema) compileRoles(specs []RoleSpec) error {
 		if _, ok := s.personas[persona]; !ok {
 			return fmt.Errorf("role %q: unknown persona %q", r.Name, r.Persona)
 		}
-		if !iam.ValidPermissionSegment(r.Name) {
+		if !ident.ValidSegment(r.Name) {
 			return fmt.Errorf("persona %q role %q: name must match [a-z][a-z0-9-]*", persona, r.Name)
 		}
 		if _, dup := declared[persona][r.Name]; dup {
@@ -263,7 +261,7 @@ func flatten(roles map[string]RoleSpec, role string, path []string) ([]string, e
 // role may hold the grant's persona, and the grant names at least one
 // registered permission.
 func (s *Schema) validRoleGrant(persona iam.Persona, grant string) error {
-	if err := iam.ValidateGrantPattern(grant); err != nil {
+	if err := ident.ValidateGrantPattern(grant); err != nil {
 		return err
 	}
 	pattern := ident.Perm(grant)
@@ -361,18 +359,6 @@ func (s *Schema) Role(persona iam.Persona, role iam.Role) (Role, bool) {
 		}
 	}
 	return Role{}, false
-}
-
-// ParseRole resolves a catalog role name of persona read at run time.
-func (s *Schema) ParseRole(persona iam.Persona, name string) (iam.Role, error) {
-	name = strings.ToLower(strings.TrimSpace(name))
-	if _, ok := s.personas[persona]; !ok || persona.IsZero() {
-		return iam.Role{}, fmt.Errorf("unknown persona %q: %w", persona, iam.ErrUnknownGroupPersona)
-	}
-	if r, ok := s.RoleNamed(persona, name); ok {
-		return r.Name, nil
-	}
-	return iam.Role{}, fmt.Errorf("%q is not a role of %q: %w", name, persona, iam.ErrRoleNotAssignable)
 }
 
 // RoleNamed returns persona's catalog role name.

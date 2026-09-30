@@ -9,12 +9,16 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/jose"
+	"github.com/open-rails/authkit/internal/ops"
 	"github.com/open-rails/authkit/keys"
 )
 
 // MintServiceJWT signs a short-lived service JWT with this deployment's key.
 // It stamps token_use=service and grants nothing AuthKit enforces.
-func (s *Engine) MintServiceJWT(ctx context.Context, opts iam.ServiceJWT) (iam.Token, iam.ServiceJWTClaims, error) {
+func (s *Engine) MintServiceJWT(ctx context.Context, opts iam.ServiceJWT, options ...ops.Option) (iam.Token, iam.ServiceJWTClaims, error) {
+	if err := noOptions("MintServiceJWT", options); err != nil {
+		return iam.Token{}, iam.ServiceJWTClaims{}, err
+	}
 	signer := s.keys.ActiveSigner()
 	if signer == nil {
 		return iam.Token{}, iam.ServiceJWTClaims{}, iam.ErrSigningNotConfigured

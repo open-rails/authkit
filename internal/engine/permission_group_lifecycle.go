@@ -9,7 +9,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
+	"github.com/open-rails/authkit/internal/ops"
 )
 
 // lockPermissionGroup is the shared lifecycle lock. The caller supplies a
@@ -24,7 +26,7 @@ func lockPermissionGroup(ctx context.Context, q db.DBTX, groupID string) error {
 }
 
 // requireDefinedGroupRole: a durable reference names a catalog role.
-func (s *Engine) requireDefinedGroupRole(_ context.Context, _ *permissionGroupStore, _ string, persona iam.Persona, role iam.Role) error {
+func (s *Engine) requireDefinedGroupRole(persona iam.Persona, role iam.Role) error {
 	if _, ok := s.groupSchemaOrDefault().Role(persona, role); !ok {
 		return fmt.Errorf("role %q is not a role of a %q group: %w", role, persona, iam.ErrRoleNotAssignable)
 	}
@@ -32,15 +34,28 @@ func (s *Engine) requireDefinedGroupRole(_ context.Context, _ *permissionGroupSt
 }
 
 // Group lifecycle: host operations. The host app owns the entity a group
-// guards (a channel), so it decides who may make or remove one. host, when
-// set, is the host's own transaction (withAuthorityMutationIn).
+// guards (a channel), so it decides who may make or remove one. ops.InTx
+// runs them in the host's own transaction (withAuthorityMutationIn).
 
 // CreateGroup creates a group of a declared persona. ng.Owner, when set, must
-// be a live account; it is seeded with the owner role.
-func (s *Engine) CreateGroup(ctx context.Context, ng iam.NewGroup, host pgx.Tx) (iam.Group, error) {
+// be a live account; it is seeded with the owner role. With ng.ID, creating
+// an existing live group of the same persona returns it unchanged; a deleted
+// group or another persona under that id is iam.ErrGroupConflict.
+func (s *Engine) CreateGroup(ctx context.Context, ng iam.NewGroup, opts ...ops.Option) (iam.Group, error) {
+	host, err := hostTx("CreateGroup", opts)
+	if err != nil {
+		return iam.Group{}, err
+	}
 	persona := ng.Persona
 	if _, ok := s.groupSchemaOrDefault().Persona(persona); !ok || persona == iam.RootPersona {
 		return iam.Group{}, fmt.Errorf("unknown group persona %q: %w", persona, iam.ErrUnknownGroupPersona)
+	}
+	id := strings.TrimSpace(ng.ID)
+	if id != "" {
+		var ok bool
+		if id, ok = canonicalUUID(id); !ok {
+			return iam.Group{}, errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("id"))
+		}
 	}
 	var owner *iam.Subject
 	if ng.Owner != nil {
@@ -52,25 +67,37 @@ func (s *Engine) CreateGroup(ctx context.Context, ng iam.NewGroup, host pgx.Tx) 
 		owner = &o
 	}
 	var out iam.Group
-	err := s.withAuthorityMutationIn(ctx, iam.SystemActor(), host, func(st *permissionGroupStore) error {
+	err = s.withAuthorityMutationIn(ctx, iam.SystemActor(), host, func(st *permissionGroupStore) error {
+		if id != "" {
+			existing, err := db.New(st.q).AuthorityGroupState(ctx, id)
+			switch {
+			case err == nil && existing.DeletedAt == nil && existing.Persona == persona.String():
+				out = publicGroup(existing)
+				return nil
+			case err == nil:
+				return iam.ErrGroupConflict
+			case !errors.Is(err, pgx.ErrNoRows):
+				return err
+			}
+		}
 		if owner != nil {
 			if err := s.requireLiveOwner(ctx, st, *owner); err != nil {
 				return err
 			}
 		}
-		id, err := st.CreateGroup(ctx, persona)
+		gid, err := st.CreateGroup(ctx, id, persona)
 		if err != nil {
 			return err
 		}
 		if owner != nil {
-			if err := s.requireMFAForRoleAssignment(ctx, st.q, id, persona, *owner, persona.OwnerRole()); err != nil {
+			if err := s.requireMFAForRoleAssignment(ctx, st.q, gid, persona, *owner, persona.OwnerRole()); err != nil {
 				return err
 			}
-			if err := st.AssignRole(ctx, id, *owner, persona.OwnerRole()); err != nil {
+			if err := st.AssignRole(ctx, gid, *owner, persona.OwnerRole()); err != nil {
 				return err
 			}
 		}
-		out, err = st.groupByID(ctx, id)
+		out, err = st.groupByID(ctx, gid)
 		return err
 	})
 	return out, err
@@ -98,7 +125,11 @@ func (s *Engine) requireLiveOwner(ctx context.Context, st *permissionGroupStore,
 // DeleteGroup soft-deletes a group: it stops resolving and granting, while
 // its rows stay until PurgeGroup. Deleting a deleted group is a no-op; the
 // root group cannot be deleted.
-func (s *Engine) DeleteGroup(ctx context.Context, ref iam.GroupRef, host pgx.Tx) error {
+func (s *Engine) DeleteGroup(ctx context.Context, ref iam.GroupRef, opts ...ops.Option) error {
+	host, err := hostTx("DeleteGroup", opts)
+	if err != nil {
+		return err
+	}
 	return s.withAuthorityMutationIn(ctx, iam.SystemActor(), host, func(st *permissionGroupStore) error {
 		if ref.IsRoot() {
 			return fmt.Errorf("the root group cannot be deleted: %w", iam.ErrUnknownGroupPersona)
@@ -140,8 +171,12 @@ func (s *Engine) DeleteGroup(ctx context.Context, ref iam.GroupRef, host pgx.Tx)
 
 // PurgeGroup permanently deletes a group, live or soft-deleted, with every
 // role, key and link in it. Purging an unknown group is a no-op.
-func (s *Engine) PurgeGroup(ctx context.Context, ref iam.GroupRef, host pgx.Tx) error {
-	err := s.withAuthorityMutationIn(ctx, iam.SystemActor(), host, func(st *permissionGroupStore) error {
+func (s *Engine) PurgeGroup(ctx context.Context, ref iam.GroupRef, opts ...ops.Option) error {
+	host, err := hostTx("PurgeGroup", opts)
+	if err != nil {
+		return err
+	}
+	err = s.withAuthorityMutationIn(ctx, iam.SystemActor(), host, func(st *permissionGroupStore) error {
 		if ref.IsRoot() {
 			return fmt.Errorf("the root group cannot be deleted: %w", iam.ErrUnknownGroupPersona)
 		}

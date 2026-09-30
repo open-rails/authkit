@@ -40,13 +40,13 @@ func TestRuntimeConfiguredHTTPLoginAndLifecycle(t *testing.T) {
 	t.Cleanup(runtime.Close)
 	_, err := runtime.CreateUser(context.Background(), iam.NewUser{Email: "runtime-boundary@example.test", Username: "runtime-boundary", Password: "Correct-horse-battery-1"})
 	require.NoError(t, err)
-	require.Contains(t, runtime.Patterns(), "GET "+iam.JWKSPath)
-	require.Contains(t, runtime.Patterns(), "POST /auth/password/login")
+	require.Contains(t, patterns(runtime), "GET "+iam.JWKSPath)
+	require.Contains(t, patterns(runtime), "POST /auth/password/login")
 
 	handler := http.NewServeMux()
 	require.NoError(t, runtime.Mount(handler))
 	chiRouter := chi.NewRouter()
-	for _, pattern := range runtime.Patterns() {
+	for _, pattern := range patterns(runtime) {
 		method, path, _ := strings.Cut(pattern, " ")
 		chiRouter.Method(method, path, runtime.Handler())
 	}

@@ -36,8 +36,8 @@ func TestPermMatchesVectors(t *testing.T) {
 		covered[v.Permission] = covered[v.Permission] || v.Matches
 	}
 	for perm, gs := range grants {
-		if got := AnyGrantCovers(gs, Perm{perm}); got != covered[perm] {
-			t.Errorf("AnyGrantCovers(%q, %q) = %v, want %v", gs, perm, got, covered[perm])
+		if got := UserActor("u").Within(gs...).CeilingCovers(Perm{perm}); got != covered[perm] {
+			t.Errorf("a ceiling of %q covers %q = %v, want %v", gs, perm, got, covered[perm])
 		}
 	}
 }

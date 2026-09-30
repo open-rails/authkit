@@ -25,7 +25,7 @@ func apiKeyJSON(k iam.APIKey) map[string]any {
 		"id":          k.ID,
 		"lookup_id":   k.LookupID,
 		"name":        k.Name,
-		"role":        k.Role.Name(),
+		"role":        k.Role.String(),
 		"permissions": k.Permissions,
 		"created_at":  k.CreatedAt,
 	}
@@ -55,12 +55,12 @@ func (s *Service) groupAPIKeyMint(w http.ResponseWriter, r *http.Request, g iam.
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	role, err := s.svc.PermissionGroupSchema().ParseRole(g.Persona, body.Role)
+	role, err := s.groupRole(g.Persona, body.Role)
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
-	key, token, err := s.svc.MintAPIKey(r.Context(), actor, iam.GroupByID(g.ID), iam.NewAPIKey{
+	created, err := s.svc.CreateAPIKey(r.Context(), actor, iam.GroupByID(g.ID), iam.NewAPIKey{
 		Name:      strings.TrimSpace(body.Name),
 		Role:      role,
 		ExpiresAt: body.ExpiresAt,
@@ -69,14 +69,14 @@ func (s *Service) groupAPIKeyMint(w http.ResponseWriter, r *http.Request, g iam.
 		s.writeGroupOpError(w, err)
 		return
 	}
-	out := apiKeyJSON(key)
-	out["secret"] = token // shown once
+	out := apiKeyJSON(created.APIKey)
+	out["secret"] = created.Secret // shown once
 	writeJSON(w, http.StatusCreated, out)
 }
 
 // groupAPIKeyList lists the group's keys, newest first (?cursor=, ?limit=).
 func (s *Service) groupAPIKeyList(w http.ResponseWriter, r *http.Request, g iam.Group) {
-	page, err := s.svc.APIKeys(r.Context(), iam.GroupByID(g.ID), pageQuery(r))
+	page, err := s.svc.ListAPIKeys(r.Context(), iam.GroupByID(g.ID), pageQuery(r))
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return
@@ -88,20 +88,15 @@ func (s *Service) groupAPIKeyList(w http.ResponseWriter, r *http.Request, g iam.
 	writeList(w, data, page.Next)
 }
 
-// groupAPIKeyRevoke revokes the group's key (the :key path param). 404 when no
-// live key matches in this group.
+// groupAPIKeyRevoke revokes the group's key (the :key path param). Revoking a
+// revoked key succeeds; 404 when no key has the id in this group.
 func (s *Service) groupAPIKeyRevoke(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor, id string) {
 	if id == "" {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	ok, err := s.svc.RevokeAPIKey(r.Context(), actor, iam.GroupByID(g.ID), id)
-	if err != nil {
+	if err := s.svc.RevokeAPIKey(r.Context(), actor, iam.GroupByID(g.ID), id); err != nil {
 		s.writeGroupOpError(w, err)
-		return
-	}
-	if !ok {
-		fail(w, errmodel.CodeNotFound)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

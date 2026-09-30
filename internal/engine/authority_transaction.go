@@ -130,7 +130,7 @@ func (s *Engine) revokeUncoveredCredentials(ctx context.Context, st *permissionG
 			persona := ident.Persona(r.Persona)
 			creds = append(creds, sweptCredential{
 				table: r.Kind, id: r.ID, creator: r.Creator, needsCreator: r.NeedsCreator,
-				group: groupTarget{ID: r.GroupID, Persona: persona}, role: ident.Role(persona, r.Role),
+				group: groupTarget{ID: r.GroupID, Persona: persona}, role: ident.RoleText(r.Role),
 			})
 		}
 	}
@@ -169,20 +169,19 @@ type sweptCredential struct {
 func (s *Engine) credentialStands(ctx context.Context, st *permissionGroupStore, c sweptCredential) (bool, error) {
 	machine := c.table == "api_keys" || c.table == "group_remote_application_roles"
 	if machine && s.TwoFactorEnabled() {
-		needsMFA, err := s.roleRequiresMFA(ctx, st.q, c.group.ID, c.group.Persona, c.role)
-		if err != nil || needsMFA {
-			return false, err
+		if s.roleRequiresMFA(c.group.Persona, c.role) {
+			return false, nil
 		}
 	}
 	if c.creator == "" {
 		return !c.needsCreator, nil
 	}
-	capability := iam.PermMembersManage(c.group.Persona)
+	capability := ident.MembersManage(c.group.Persona)
 	switch {
 	case machine:
-		capability = iam.PermCredentialsManage(c.group.Persona)
+		capability = ident.CredentialsManage(c.group.Persona)
 	case c.role.IsZero():
-		capability = iam.PermRootUsersInvite
+		capability = ident.RootUsersInvite
 	}
 	err := s.creatorCovers(ctx, st, c.creator, c.group, capability, c.role)
 	if errors.Is(err, iam.ErrInsufficientAuthority) || errors.Is(err, iam.ErrRoleAssignmentEscalation) || errors.Is(err, iam.ErrRoleNotAssignable) {
@@ -260,28 +259,23 @@ func (s *Engine) revokeCredentialsOf(ctx context.Context, st *permissionGroupSto
 	return s.revokeUncoveredCredentials(ctx, st, authorityTouch{groupID: rootID, userID: userID})
 }
 
+// directRole is the subject's role in the group, the zero Role for none.
 func (st *permissionGroupStore) directRole(ctx context.Context, g groupTarget, subject iam.Subject) (iam.Role, error) {
-	name, err := st.directRoleName(ctx, g.ID, subject)
-	return ident.Role(g.Persona, name), err
-}
-
-// directRoleName is the name of the subject's role in the group, "" for none.
-func (st *permissionGroupStore) directRoleName(ctx context.Context, gid string, subject iam.Subject) (string, error) {
 	q := db.New(st.q)
 	var role string
 	var err error
 	switch subject.Kind {
 	case iam.SubjectKindUser:
-		role, err = q.GroupUserRoleName(ctx, db.GroupUserRoleNameParams{GroupID: gid, UserID: subject.ID})
+		role, err = q.GroupUserRoleName(ctx, db.GroupUserRoleNameParams{GroupID: g.ID, UserID: subject.ID})
 	case iam.SubjectKindRemoteApplication:
-		role, err = q.GroupApplicationRoleName(ctx, db.GroupApplicationRoleNameParams{GroupID: gid, ApplicationID: subject.ID})
+		role, err = q.GroupApplicationRoleName(ctx, db.GroupApplicationRoleNameParams{GroupID: g.ID, ApplicationID: subject.ID})
 	default:
-		return "", invalidSubjectKind(subject.Kind)
+		return iam.Role{}, invalidSubjectKind(subject.Kind)
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", nil
+		return iam.Role{}, nil
 	}
-	return role, err
+	return ident.RoleText(role), err
 }
 
 // userLive is the session check (#412), in one query: whether userID is
@@ -315,8 +309,8 @@ func subjectUsable(ctx context.Context, q db.DBTX, subject iam.Subject) (bool, e
 // an owner (unusable, or an application where owners need MFA) creates no
 // ownership loss; empty bootstrap groups also remain possible.
 func (s *Engine) refuseOwnerLoss(ctx context.Context, st *permissionGroupStore, gid string, subject iam.Subject) error {
-	role, err := st.directRoleName(ctx, gid, subject)
-	if err != nil || role != ownerRoleName {
+	role, err := st.directRole(ctx, groupTarget{ID: gid}, subject)
+	if err != nil || !role.IsOwner() {
 		return err
 	}
 	live, err := subjectUsable(ctx, st.q, subject)
@@ -391,11 +385,11 @@ func (s *Engine) assignInvitedRole(ctx context.Context, st *permissionGroupStore
 		return err
 	}
 	if !old.IsZero() && old != role {
-		oldGrants, err := s.roleGrants(ctx, st, g, old)
+		oldGrants, err := s.roleGrants(g.Persona, old)
 		if err != nil {
 			return err
 		}
-		offered, err := s.roleGrants(ctx, st, g, role)
+		offered, err := s.roleGrants(g.Persona, role)
 		if err != nil {
 			return err
 		}
@@ -406,7 +400,7 @@ func (s *Engine) assignInvitedRole(ctx context.Context, st *permissionGroupStore
 			return err
 		}
 	}
-	if err := s.requireDefinedGroupRole(ctx, st, gid, persona, role); err != nil {
+	if err := s.requireDefinedGroupRole(persona, role); err != nil {
 		return err
 	}
 	if err := s.requireMFAForRoleAssignment(ctx, st.q, gid, persona, subject, role); err != nil {

@@ -2,77 +2,35 @@ package engine
 
 import (
 	"context"
-	"sort"
-	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/ident"
 )
 
-// Root permission-group role helpers. "Root roles" are a user's assignments in
-// the RootPersona group; the catalog itself lives in Config.Roles,
-// not the DB, so upsert is validation-only.
-
-func (s *Engine) splitConfiguredRootRoles(roles []string) (live []string, removed []string) {
-	if len(roles) == 0 {
-		return nil, nil
-	}
-	valid := map[string]struct{}{}
-	if s.groupSchema != nil {
-		if root, ok := s.groupSchema.Persona(iam.RootPersona); ok {
-			for _, r := range root.Roles {
-				valid[r.Name.Name()] = struct{}{}
-			}
-		}
-	}
-	if len(valid) == 0 {
-		live = append([]string(nil), roles...)
-		sort.Strings(live)
-		return live, nil
-	}
-	liveSeen := map[string]struct{}{}
-	removedSeen := map[string]struct{}{}
-	for _, raw := range roles {
-		role := strings.ToLower(strings.TrimSpace(raw))
-		if role == "" {
-			continue
-		}
-		if _, ok := valid[role]; ok {
-			liveSeen[role] = struct{}{}
-			continue
-		}
-		removedSeen[role] = struct{}{}
-	}
-	for role := range liveSeen {
-		live = append(live, role)
-	}
-	for role := range removedSeen {
-		removed = append(removed, role)
-	}
-	sort.Strings(live)
-	sort.Strings(removed)
-	return live, removed
-}
-
-// rootRoleSlugsByUser returns a user's configured root permission-group roles
-// and any stored roles removed from the current schema.
-func (s *Engine) rootRoleSlugsByUser(ctx context.Context, userID string) ([]string, []string) {
-	if s.pg == nil {
-		return nil, nil
+// rootRoles returns the root role of each account among ids that holds one.
+// A stored role no longer in Config.Roles confers nothing and is absent.
+func (s *Engine) rootRoles(ctx context.Context, ids []string) (map[string]iam.Role, error) {
+	out := make(map[string]iam.Role, len(ids))
+	ids = uuidsOnly(ids)
+	if len(ids) == 0 || s.pg == nil {
+		return out, nil
 	}
 	st := s.groupStore()
-	gid, err := st.RootGroupID(ctx)
+	gid, err := s.rootGroup(ctx, st)
 	if err != nil {
-		return nil, nil
+		return nil, err
 	}
-	asg, err := st.WalkAssignments(ctx, gid, iam.UserSubject(strings.TrimSpace(userID)))
+	rows, err := db.New(st.q).GroupUserRolesForUsers(ctx, db.GroupUserRolesForUsersParams{GroupID: gid, UserIds: ids})
 	if err != nil {
-		return nil, nil
+		return nil, err
 	}
-	var roles []string
-	for _, a := range asg {
-		if !a.Role.IsZero() {
-			roles = append(roles, a.Role.Name())
+	sch := s.groupSchemaOrDefault()
+	for _, r := range rows {
+		role := ident.RoleText(r.Role)
+		if _, ok := sch.Role(iam.RootPersona, role); ok {
+			out[r.UserID] = role
 		}
 	}
-	return s.splitConfiguredRootRoles(roles)
+	return out, nil
 }

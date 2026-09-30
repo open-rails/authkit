@@ -6,16 +6,15 @@ package engine
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"fmt"
-	"math/big"
 	"strings"
 
 	jwt "github.com/golang-jwt/jwt/v5"
 
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/secret"
 )
 
 // BeginTwoFactorEnrollment decides the enrollment scope for a caller. An
@@ -141,11 +140,7 @@ func (s *Engine) startPhoneTwoFactorSetup(ctx context.Context, userID, phone str
 	if !s.SMSAvailable() {
 		return authflow.TwoFactorEnrollOutcome{}, errmodel.ErrSMSUnavailable
 	}
-	n, err := rand.Int(rand.Reader, big.NewInt(900000))
-	if err != nil {
-		return authflow.TwoFactorEnrollOutcome{}, stageErr("generate_code", fmt.Errorf("%w: %w", errmodel.ErrTwoFASetupCodeSendFailed, err))
-	}
-	code := fmt.Sprintf("%06d", 100000+int(n.Int64()))
+	code := secret.Digits(6)
 	if err := s.sendPhone2FASetupCode(ctx, userID, phone, code); err != nil {
 		return authflow.TwoFactorEnrollOutcome{}, stageErr("send_phone_2fa_setup", fmt.Errorf("%w: %w", errmodel.ErrTwoFASetupCodeSendFailed, err))
 	}

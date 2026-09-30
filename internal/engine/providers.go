@@ -10,6 +10,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/ops"
 )
 
 // Provider links: linking and unlinking external identity providers and
@@ -104,7 +105,10 @@ func (s *Engine) GetProviderLinkByIssuer(ctx context.Context, issuer, subject st
 // LinkProvider links an external identity to a live account as a login
 // method, as a host operation. Browser flows use ExternalLoginInput.Link, whose
 // initiating session is checked at commit.
-func (s *Engine) LinkProvider(ctx context.Context, userID string, l iam.ProviderLink) error {
+func (s *Engine) LinkProvider(ctx context.Context, userID string, l iam.ProviderLink, opts ...ops.Option) error {
+	if err := noOptions("LinkProvider", opts); err != nil {
+		return err
+	}
 	if err := s.requirePG(); err != nil {
 		return err
 	}

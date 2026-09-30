@@ -32,7 +32,7 @@ func (q *Queries) RemoteApplicationAuthority(ctx context.Context, id string) (Re
 }
 
 const remoteApplicationByID = `-- name: RemoteApplicationByID :one
-SELECT id, slug, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by FROM remote_applications WHERE id = $1
+SELECT id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by FROM remote_applications WHERE id = $1
 `
 
 func (q *Queries) RemoteApplicationByID(ctx context.Context, id string) (RemoteApplication, error) {
@@ -40,7 +40,29 @@ func (q *Queries) RemoteApplicationByID(ctx context.Context, id string) (RemoteA
 	var i RemoteApplication
 	err := row.Scan(
 		&i.ID,
-		&i.Slug,
+		&i.Issuer,
+		&i.JwksUri,
+		&i.Mode,
+		&i.PublicKeys,
+		&i.Enabled,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.PermissionGroupID,
+		&i.TrustRoot,
+		&i.RegisteredBy,
+	)
+	return i, err
+}
+
+const remoteApplicationByIDForUpdate = `-- name: RemoteApplicationByIDForUpdate :one
+SELECT id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by FROM remote_applications WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) RemoteApplicationByIDForUpdate(ctx context.Context, id string) (RemoteApplication, error) {
+	row := q.db.QueryRow(ctx, remoteApplicationByIDForUpdate, id)
+	var i RemoteApplication
+	err := row.Scan(
+		&i.ID,
 		&i.Issuer,
 		&i.JwksUri,
 		&i.Mode,
@@ -56,7 +78,7 @@ func (q *Queries) RemoteApplicationByID(ctx context.Context, id string) (RemoteA
 }
 
 const remoteApplicationByIssuer = `-- name: RemoteApplicationByIssuer :one
-SELECT id, slug, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by FROM remote_applications WHERE issuer = $1
+SELECT id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by FROM remote_applications WHERE issuer = $1
 `
 
 func (q *Queries) RemoteApplicationByIssuer(ctx context.Context, issuer string) (RemoteApplication, error) {
@@ -64,31 +86,6 @@ func (q *Queries) RemoteApplicationByIssuer(ctx context.Context, issuer string) 
 	var i RemoteApplication
 	err := row.Scan(
 		&i.ID,
-		&i.Slug,
-		&i.Issuer,
-		&i.JwksUri,
-		&i.Mode,
-		&i.PublicKeys,
-		&i.Enabled,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.PermissionGroupID,
-		&i.TrustRoot,
-		&i.RegisteredBy,
-	)
-	return i, err
-}
-
-const remoteApplicationBySlugForUpdate = `-- name: RemoteApplicationBySlugForUpdate :one
-SELECT id, slug, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by FROM remote_applications WHERE slug = $1 FOR UPDATE
-`
-
-func (q *Queries) RemoteApplicationBySlugForUpdate(ctx context.Context, slug string) (RemoteApplication, error) {
-	row := q.db.QueryRow(ctx, remoteApplicationBySlugForUpdate, slug)
-	var i RemoteApplication
-	err := row.Scan(
-		&i.ID,
-		&i.Slug,
 		&i.Issuer,
 		&i.JwksUri,
 		&i.Mode,
@@ -180,21 +177,19 @@ func (q *Queries) RemoteApplicationSetTrustRoot(ctx context.Context, arg RemoteA
 
 const remoteApplicationUpsert = `-- name: RemoteApplicationUpsert :one
 
-INSERT INTO remote_applications (slug, permission_group_id, issuer, jwks_uri, mode, public_keys, enabled)
-VALUES ($1, $2::uuid, $3, $4, $5, $6, $7)
+INSERT INTO remote_applications (permission_group_id, issuer, jwks_uri, mode, public_keys, enabled)
+VALUES ($1::uuid, $2, $3, $4, $5, $6)
 ON CONFLICT (issuer) DO UPDATE
-  SET slug          = EXCLUDED.slug,
-      jwks_uri      = EXCLUDED.jwks_uri,
+  SET jwks_uri      = EXCLUDED.jwks_uri,
       mode          = EXCLUDED.mode,
       public_keys   = EXCLUDED.public_keys,
       enabled       = EXCLUDED.enabled,
       updated_at    = now()
 WHERE remote_applications.permission_group_id = EXCLUDED.permission_group_id
-RETURNING id, slug, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by
+RETURNING id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by
 `
 
 type RemoteApplicationUpsertParams struct {
-	Slug              string
 	PermissionGroupID string
 	Issuer            string
 	JwksUri           string
@@ -211,7 +206,6 @@ type RemoteApplicationUpsertParams struct {
 // read returns the whole row: db.RemoteApplication.
 func (q *Queries) RemoteApplicationUpsert(ctx context.Context, arg RemoteApplicationUpsertParams) (RemoteApplication, error) {
 	row := q.db.QueryRow(ctx, remoteApplicationUpsert,
-		arg.Slug,
 		arg.PermissionGroupID,
 		arg.Issuer,
 		arg.JwksUri,
@@ -222,7 +216,6 @@ func (q *Queries) RemoteApplicationUpsert(ctx context.Context, arg RemoteApplica
 	var i RemoteApplication
 	err := row.Scan(
 		&i.ID,
-		&i.Slug,
 		&i.Issuer,
 		&i.JwksUri,
 		&i.Mode,
@@ -238,7 +231,7 @@ func (q *Queries) RemoteApplicationUpsert(ctx context.Context, arg RemoteApplica
 }
 
 const remoteApplicationsByGroup = `-- name: RemoteApplicationsByGroup :many
-SELECT id, slug, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by FROM remote_applications
+SELECT id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by FROM remote_applications
 WHERE permission_group_id = $1::uuid
   AND ($2::uuid IS NULL OR id < $2::uuid)
 ORDER BY id DESC
@@ -263,7 +256,6 @@ func (q *Queries) RemoteApplicationsByGroup(ctx context.Context, arg RemoteAppli
 		var i RemoteApplication
 		if err := rows.Scan(
 			&i.ID,
-			&i.Slug,
 			&i.Issuer,
 			&i.JwksUri,
 			&i.Mode,
@@ -295,7 +287,7 @@ func (q *Queries) RemoteApplicationsClearRegistrar(ctx context.Context, userID s
 }
 
 const remoteApplicationsEnabled = `-- name: RemoteApplicationsEnabled :many
-SELECT id, slug, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by FROM remote_applications WHERE enabled = true ORDER BY slug ASC
+SELECT id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by FROM remote_applications WHERE enabled = true ORDER BY issuer
 `
 
 func (q *Queries) RemoteApplicationsEnabled(ctx context.Context) ([]RemoteApplication, error) {
@@ -309,7 +301,6 @@ func (q *Queries) RemoteApplicationsEnabled(ctx context.Context) ([]RemoteApplic
 		var i RemoteApplication
 		if err := rows.Scan(
 			&i.ID,
-			&i.Slug,
 			&i.Issuer,
 			&i.JwksUri,
 			&i.Mode,

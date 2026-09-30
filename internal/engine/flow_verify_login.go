@@ -33,10 +33,10 @@ func (s *Engine) ConfirmVerification(ctx context.Context, in authflow.Verificati
 			continue
 		}
 		if in.Token != "" {
-			if !secret.Equal(rec.LinkHash, sha256Hex(in.Token)) {
+			if !secret.Equal(rec.LinkHash, secret.Hash(in.Token)) {
 				continue
 			}
-		} else if !secret.Equal(rec.CodeHash, sha256Hex(in.Code)) {
+		} else if !secret.Equal(rec.CodeHash, secret.Hash(in.Code)) {
 			continue
 		}
 		if err := s.claimPendingChange(ctx, rec); err != nil {
@@ -106,7 +106,7 @@ func (s *Engine) verificationRecord(ctx context.Context, kind pendingChangeKind,
 	if in.Token != "" {
 		var ok bool
 		var err error
-		key, ok, err = s.ephemGetString(ctx, pendingChangeLinkKey(kind, sha256Hex(in.Token)))
+		key, ok, err = s.ephemGetString(ctx, pendingChangeLinkKey(kind, secret.Hash(in.Token)))
 		if err != nil || !ok {
 			return pendingChange{}, false, err
 		}
@@ -132,7 +132,7 @@ func (s *Engine) existingVerificationRecord(ctx context.Context, kind pendingCha
 		if kind == kindVerifyPhone {
 			prefix = keyPhoneVerifyLink
 		}
-		linkKey = prefix + sha256Hex(in.Token)
+		linkKey = prefix + secret.Hash(in.Token)
 		var ok bool
 		var err error
 		key, ok, err = s.ephemGetString(ctx, linkKey)

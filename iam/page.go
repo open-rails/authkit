@@ -25,8 +25,10 @@ func (p PageRequest) PageLimit() int {
 }
 
 // ListPage is one page of a list. Next is the opaque cursor of the following
-// page; "" marks the last page.
+// page; "" marks the last page. Total, when the query asked for it, counts
+// every item of the whole list.
 type ListPage[T any] struct {
-	Items []T
-	Next  string
+	Items []T    `json:"data"`
+	Next  string `json:"next_cursor"`
+	Total *int   `json:"total,omitempty"`
 }

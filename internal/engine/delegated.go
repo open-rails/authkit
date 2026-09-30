@@ -10,6 +10,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/jose"
+	"github.com/open-rails/authkit/internal/ops"
 	"github.com/open-rails/authkit/keys"
 )
 
@@ -20,7 +21,10 @@ import (
 // bound to a session (verify.ActorFromClaims) mints only while that session
 // stands, and the token carries it (sid or device_key_id), so revoking the
 // session cuts the delegated token off at every AuthKit permission check.
-func (s *Engine) MintDelegatedAccessToken(ctx context.Context, actor iam.Actor, d iam.DelegatedAccess) (iam.Token, error) {
+func (s *Engine) MintDelegatedAccessToken(ctx context.Context, actor iam.Actor, d iam.DelegatedAccess, opts ...ops.Option) (iam.Token, error) {
+	if err := noOptions("MintDelegatedAccessToken", opts); err != nil {
+		return iam.Token{}, err
+	}
 	if err := requireActor(actor); err != nil {
 		return iam.Token{}, err
 	}

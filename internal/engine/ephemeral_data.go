@@ -125,7 +125,7 @@ func (s *Engine) storePhoneVerification(ctx context.Context, purpose, phone, use
 	if err != nil {
 		return err
 	}
-	data := phoneVerificationData{ID: secret.RandB64(16), Version: version.CredentialVersion, UserID: userID, Phone: phone, Purpose: purpose, CodeHash: codeHash, LinkHash: linkHash}
+	data := phoneVerificationData{ID: secret.Token(16), Version: version.CredentialVersion, UserID: userID, Phone: phone, Purpose: purpose, CodeHash: codeHash, LinkHash: linkHash}
 	if err := s.ephemSetJSON(ctx, key, data, ttl); err != nil {
 		return err
 	}
@@ -180,7 +180,7 @@ func (s *Engine) storeEmailVerification(ctx context.Context, userID string, emai
 	if err != nil {
 		return err
 	}
-	data := emailVerifyData{ID: secret.RandB64(16), Version: version.CredentialVersion, UserID: userID, Email: email, CodeHash: codeHash, LinkHash: linkHash}
+	data := emailVerifyData{ID: secret.Token(16), Version: version.CredentialVersion, UserID: userID, Email: email, CodeHash: codeHash, LinkHash: linkHash}
 	if err := s.ephemSetJSON(ctx, key, data, ttl); err != nil {
 		return err
 	}

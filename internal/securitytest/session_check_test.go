@@ -196,7 +196,7 @@ func TestSecurityRevokedSessionAtLiveGates(t *testing.T) {
 		actor := actorOf(t, token)
 		_, err := h.auth.Can(ctx, actor, group, perm)
 		require.ErrorIs(t, err, iam.ErrSessionRevoked, "Client.Can")
-		err = opErr(h.auth.AssignGroupRoles(ctx, actor, group, []iam.Subject{iam.UserSubject(other.id)}, member))
+		err = setRole(h.auth, ctx, actor, group, iam.UserSubject(other.id), member)
 		require.ErrorIs(t, err, iam.ErrSessionRevoked, "an actor-authorized Client mutation")
 		for _, req := range routes {
 			req.token = token
@@ -230,7 +230,7 @@ func TestSecurityRevokedSessionAtLiveGates(t *testing.T) {
 		t.Helper()
 		a := h.newAccount("scmanager")
 		h.grant(group, a, "manager")
-		key := h.issue(base+"/api-keys", h.login(a).AccessToken, map[string]any{"name": "ci", "role": "member"})
+		key := h.issue(base+"/api-keys", h.login(a).AccessToken, map[string]any{"name": "ci", "role": "org:member"})
 		return a, key
 	}
 

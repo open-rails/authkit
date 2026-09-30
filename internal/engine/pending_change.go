@@ -120,7 +120,7 @@ func (s *Engine) storePendingChange(ctx context.Context, rec pendingChange, ttl 
 	if rec.CodeHash == "" && rec.LinkHash == "" {
 		return fmt.Errorf("pending change without verification secret")
 	}
-	rec.ID = secret.RandB64(16)
+	rec.ID = secret.Token(16)
 	if rec.Kind.isRegister() {
 		rec.AccountInviteToken = accountRegistrationInviteTokenFromContext(ctx)
 	} else {

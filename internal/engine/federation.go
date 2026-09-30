@@ -40,7 +40,7 @@ type federation struct {
 func (a *Authenticator) federated(ctx context.Context, iss string) (iam.RemoteApplication, bool, error) {
 	s := a.s
 	iss = strings.TrimSpace(iss)
-	if s.pg == nil || iss == s.cfg.Token.Issuer || !iam.ValidRemoteApplicationIssuer(iss) || !s.fed.isEnabled(ctx, iss, s.ListEnabledRemoteApplications) {
+	if s.pg == nil || iss == s.cfg.Token.Issuer || !ident.ValidIssuer(iss) || !s.fed.isEnabled(ctx, iss, s.ListEnabledRemoteApplications) {
 		return iam.RemoteApplication{}, false, nil
 	}
 	app, err := s.GetRemoteApplication(ctx, iss)
@@ -195,18 +195,18 @@ func (a *Authenticator) applicationClaims(ctx context.Context, app iam.RemoteApp
 // the group that authority is held in (#248). requested nil is the whole
 // ceiling; a permission outside it refuses the token.
 func (s *Engine) withinApplication(ctx context.Context, app iam.RemoteApplication, cl verify.Claims, requested []string) (verify.Claims, error) {
-	authority, err := s.ResolveRemoteApplicationAuthority(ctx, app.ID)
+	scope, granted, err := s.storedApplicationAuthority(ctx, app.ID)
 	if err != nil {
 		return verify.Claims{}, errmodel.E(errmodel.CodeInvalidToken)
 	}
-	perms := ident.Strings(authority.Permissions)
+	perms := ident.Strings(granted)
 	if requested != nil {
 		perms = make([]string, 0, len(requested))
 		for _, p := range requested {
 			if p = strings.TrimSpace(p); p == "" || slices.Contains(perms, p) {
 				continue
 			}
-			if !slices.ContainsFunc(authority.Permissions, ident.Perm(p).Matches) {
+			if !slices.ContainsFunc(granted, ident.Perm(p).Matches) {
 				return verify.Claims{}, errmodel.E(errmodel.CodePermissionNotGranted)
 			}
 			perms = append(perms, p)
@@ -214,6 +214,6 @@ func (s *Engine) withinApplication(ctx context.Context, app iam.RemoteApplicatio
 	}
 	cl.Permissions = perms
 	cl.RemoteApplicationID = app.ID
-	cl.Group = &verify.PermissionScope{GroupID: authority.PermissionGroupID, AuthorityIssuer: authority.AuthorityIssuer, Persona: authority.Persona}
+	cl.Group = &scope
 	return cl, nil
 }

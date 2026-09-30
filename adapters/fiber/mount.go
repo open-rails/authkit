@@ -9,6 +9,7 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	utilsstrings "github.com/gofiber/utils/v2/strings"
+	"github.com/open-rails/authkit/iam"
 )
 
 // RouteNamePrefix identifies routes registered by Mount in app.GetRoutes().
@@ -17,7 +18,7 @@ const RouteNamePrefix = "authkit."
 // Surface is AuthKit's HTTP surface; *authkit.Client implements it.
 type Surface interface {
 	Handler() http.Handler
-	Patterns() []string
+	Routes() []iam.Route
 }
 
 // Mount registers every AuthKit route natively on app, each visible through
@@ -38,12 +39,12 @@ func Mount(app *fiber.App, s Surface) error {
 	}
 	type route struct{ method, path string }
 	var routes []route
-	for _, pattern := range s.Patterns() {
-		method, p, ok := strings.Cut(pattern, " ")
-		if !ok {
-			return fmt.Errorf("authkitfiber: unsupported HTTP route pattern %q", pattern)
+	for _, r := range s.Routes() {
+		if r.Method == http.MethodHead {
+			continue // registered beside its GET
 		}
-		converted, err := fiberRoutePath(p)
+		method := r.Method
+		converted, err := fiberRoutePath(r.Path)
 		if err != nil {
 			return err
 		}

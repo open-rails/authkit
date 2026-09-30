@@ -70,13 +70,13 @@ func (op GroupOp) Available(p rbac.Persona) bool {
 func (op GroupOp) Perms(p rbac.Persona) []iam.Perm {
 	switch op {
 	case OpMembersList, OpRolesList, OpInviteLinkList:
-		return []iam.Perm{iam.PermMembersRead(p.Name)}
+		return []iam.Perm{ident.MembersRead(p.Name)}
 	case OpMemberAdd, OpMemberRemove, OpMemberRoleAssign, OpInviteLinkMint, OpInviteLinkRevoke:
-		return []iam.Perm{iam.PermMembersManage(p.Name)}
+		return []iam.Perm{ident.MembersManage(p.Name)}
 	case OpAPIKeysList:
-		return []iam.Perm{iam.PermCredentialsRead(p.Name)}
+		return []iam.Perm{ident.CredentialsRead(p.Name)}
 	case OpAPIKeyMint, OpAPIKeyRevoke:
-		return []iam.Perm{iam.PermCredentialsManage(p.Name)}
+		return []iam.Perm{ident.CredentialsManage(p.Name)}
 	}
 	return nil
 }

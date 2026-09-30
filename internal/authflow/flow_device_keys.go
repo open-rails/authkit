@@ -2,6 +2,8 @@ package authflow
 
 import (
 	"time"
+
+	"github.com/open-rails/authkit/iam"
 )
 
 // DeviceKeySecondFactorRequired is returned by FinishDeviceKeyEnrollment when
@@ -16,14 +18,6 @@ func (e *DeviceKeySecondFactorRequired) Error() string {
 }
 
 // DeviceKey is the public projection of one native-client credential.
-type DeviceKey struct {
-	ID         string     `json:"id"`
-	Label      string     `json:"label,omitempty"`
-	CreatedAt  time.Time  `json:"created_at"`
-	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
-	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
-}
-
 type DeviceKeyChallenge struct {
 	ID        string
 	Challenge string
@@ -33,5 +27,5 @@ type DeviceKeyChallenge struct {
 type DeviceKeyAuthResult struct {
 	AccessToken string
 	ExpiresAt   time.Time
-	DeviceKey   DeviceKey
+	DeviceKey   iam.DeviceKey
 }

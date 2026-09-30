@@ -12,6 +12,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/ops"
 	"github.com/open-rails/authkit/internal/siws"
 )
 
@@ -26,7 +27,10 @@ type importedSolanaLinkProfile struct {
 // ImportSolanaLinks imports legacy wallet claims as a host operation, one
 // outcome per row. It never verifies a wallet: only a successful SIWS proof
 // promotes an imported claim.
-func (s *Engine) ImportSolanaLinks(ctx context.Context, rows []iam.ImportSolanaLink) (iam.ImportSolanaLinksResult, error) {
+func (s *Engine) ImportSolanaLinks(ctx context.Context, rows []iam.ImportSolanaLink, opts ...ops.Option) (iam.ImportSolanaLinksResult, error) {
+	if err := noOptions("ImportSolanaLinks", opts); err != nil {
+		return iam.ImportSolanaLinksResult{}, err
+	}
 	out := iam.ImportSolanaLinksResult{Rows: make([]iam.ImportSolanaLinkRow, len(rows))}
 	for i, in := range rows {
 		row, err := s.importUnverifiedSolanaLink(ctx, in)
@@ -61,20 +65,20 @@ func (s *Engine) importUnverifiedSolanaLink(ctx context.Context, in iam.ImportSo
 	source := strings.TrimSpace(in.Source)
 	sourceID := strings.TrimSpace(in.SourceID)
 	if _, err := uuid.Parse(userID); err != nil {
-		return iam.ImportSolanaLinkRow{Status: iam.ImportRejected, Reason: "invalid_user_id"}, nil
+		return iam.ImportSolanaLinkRow{Status: iam.ImportRejected, Reason: iam.ImportInvalidUserID}, nil
 	}
 	if err := siws.ValidateAddress(address); err != nil {
-		return iam.ImportSolanaLinkRow{Status: iam.ImportRejected, Reason: "invalid_address"}, nil
+		return iam.ImportSolanaLinkRow{Status: iam.ImportRejected, Reason: iam.ImportInvalidAddress}, nil
 	}
 	if source == "" {
-		return iam.ImportSolanaLinkRow{Status: iam.ImportRejected, Reason: "missing_source"}, nil
+		return iam.ImportSolanaLinkRow{Status: iam.ImportRejected, Reason: iam.ImportMissingSource}, nil
 	}
 	if sourceID == "" {
-		return iam.ImportSolanaLinkRow{Status: iam.ImportRejected, Reason: "missing_source_id"}, nil
+		return iam.ImportSolanaLinkRow{Status: iam.ImportRejected, Reason: iam.ImportMissingSourceID}, nil
 	}
 	if _, err := s.q.UserByID(ctx, userID); err != nil {
 		if err == pgx.ErrNoRows {
-			return iam.ImportSolanaLinkRow{Status: iam.ImportRejected, Reason: "missing_user"}, nil
+			return iam.ImportSolanaLinkRow{Status: iam.ImportRejected, Reason: iam.ImportMissingUser}, nil
 		}
 		return out, err
 	}
@@ -124,12 +128,12 @@ func (s *Engine) importUnverifiedSolanaLink(ctx context.Context, in iam.ImportSo
 	})
 	if addressErr == nil {
 		if byAddress.UserID != userID {
-			return iam.ImportSolanaLinkRow{Status: iam.ImportRejected, Reason: "address_owned_by_other_user"}, nil
+			return iam.ImportSolanaLinkRow{Status: iam.ImportRejected, Reason: iam.ImportAddressOwnedByOtherUser}, nil
 		}
 		if byAddress.VerifiedAt != nil {
-			return iam.ImportSolanaLinkRow{Status: iam.ImportSkipped, Reason: "already_verified"}, nil
+			return iam.ImportSolanaLinkRow{Status: iam.ImportSkipped, Reason: iam.ImportAlreadyVerified}, nil
 		}
-		return iam.ImportSolanaLinkRow{Status: iam.ImportSkipped, Reason: "already_imported"}, nil
+		return iam.ImportSolanaLinkRow{Status: iam.ImportSkipped, Reason: iam.ImportAlreadyImported}, nil
 	}
 	if addressErr != pgx.ErrNoRows {
 		return out, addressErr
@@ -140,12 +144,12 @@ func (s *Engine) importUnverifiedSolanaLink(ctx context.Context, in iam.ImportSo
 		Issuer: s.solanaIssuer(),
 	})
 	if userErr == nil && byUser.Subject != address {
-		return iam.ImportSolanaLinkRow{Status: iam.ImportRejected, Reason: "user_has_different_address"}, nil
+		return iam.ImportSolanaLinkRow{Status: iam.ImportRejected, Reason: iam.ImportUserHasDifferentAddress}, nil
 	}
 	if userErr != nil && userErr != pgx.ErrNoRows {
 		return out, userErr
 	}
-	return iam.ImportSolanaLinkRow{Status: iam.ImportRejected, Reason: "provider_link_conflict"}, nil
+	return iam.ImportSolanaLinkRow{Status: iam.ImportRejected, Reason: iam.ImportProviderLinkConflict}, nil
 }
 
 // verifyImportedSolanaLink promotes only the exact mapped user/address pair.

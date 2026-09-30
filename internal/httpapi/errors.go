@@ -73,7 +73,8 @@ func fallback(err error, code errmodel.Code) error {
 var notFoundCodes = map[error]errmodel.Code{
 	iam.ErrGroupNotFound:             errmodel.CodeNotFound,
 	iam.ErrRemoteApplicationNotFound: errmodel.CodeNotFound,
-	iam.ErrInviteLinkNotFound:        errmodel.CodeNotFound,
+	iam.ErrInvitationNotFound:        errmodel.CodeNotFound,
+	iam.ErrAPIKeyNotFound:            errmodel.CodeNotFound,
 	errmodel.ErrPasskeyNotFound:      errmodel.CodeNotFound,
 }
 

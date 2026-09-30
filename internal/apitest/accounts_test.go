@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
@@ -76,9 +77,9 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 		authtest.GrantRole(t, auth, iam.RootGroup(), iam.UserSubject(u.ID), inviterRole)
 		return u.ID
 	}
-	invite := func(t *testing.T, inviter, email string) iam.AccountInviteCreated {
+	invite := func(t *testing.T, inviter, email string) iam.InvitationCreated {
 		t.Helper()
-		created, err := auth.CreateAccountInvite(ctx, iam.UserActor(inviter), iam.NewAccountInvite{Email: email})
+		created, err := auth.CreateInvitation(ctx, iam.UserActor(inviter), iam.RootGroup(), iam.NewInvitation{Email: email})
 		require.NoError(t, err)
 		require.Equal(t, created.URL, outbox.Last(t, authtest.AccountInvite, email).Link)
 		return created
@@ -215,7 +216,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 		require.NoError(t, auth.Ban(ctx, iam.SystemActor(), issuer, iam.Ban{}))
 		reply := a.post(confirm, "", map[string]any{"identifier": email, "code": code})
 		require.GreaterOrEqual(t, reply.status, 400, reply.String())
-		_, err := auth.User(ctx, iam.UserByEmail(email), iam.IncludeDeleted())
+		_, err := auth.User(ctx, iam.UserByEmail(email), authkit.IncludeDeleted())
 		require.ErrorIs(t, err, iam.ErrUserNotFound)
 	}
 	for _, body := range []map[string]any{
@@ -361,7 +362,7 @@ func TestPasswordChangeOnLegacyHashRequiresReset(t *testing.T) {
 	a := newAPI(t, auth)
 	const email = "legacy@example.test"
 	imported, err := auth.ImportUsers(t.Context(), []iam.ImportUser{{Email: email, EmailVerified: true, Username: "legacyuser",
-		PasswordHash: "legacy-digest", HashAlgo: iam.HashAlgoLegacyResetRequired}}, iam.ImportOptions{})
+		PasswordHash: &iam.PasswordHash{Hash: "legacy-digest", Algo: iam.HashLegacyResetRequired}}}, iam.ImportOptions{})
 	require.NoError(t, err)
 	require.Equal(t, 1, imported.Inserted, "%+v", imported.Rows)
 	// A passwordless sign-in: a fresh session without the password.
@@ -649,11 +650,26 @@ func TestBootstrapWorkflow(t *testing.T) {
  - username: bootstrap-admin
    email: admin@example.test
    email_verified: true
-   root_role: owner
+   root_role: root:owner
    metadata: {source: bootstrap-test}
    password: {plaintext: bootstrap-password-1}
 `))
 	require.NoError(t, err)
+	// A role reads only as <persona>:<name>, and a manifest's fields are the
+	// iam types' own.
+	_, err = auth.ParseBootstrapManifestYAML([]byte("users:\n - {username: bare, root_role: owner}\n"))
+	require.Error(t, err, "a bare role name is refused")
+	hash, err := bcrypt.GenerateFromPassword([]byte("seeded-password-1"), bcrypt.MinCost)
+	require.NoError(t, err)
+	parsed, err := auth.ParseBootstrapManifestYAML([]byte(`users:
+ - username: banned-seed
+   ban: {reason: seeded, until: 2099-01-02T03:04:05Z}
+   password: {hash: "` + string(hash) + `", algo: bcrypt}
+`))
+	require.NoError(t, err)
+	until := time.Date(2099, 1, 2, 3, 4, 5, 0, time.UTC)
+	require.Equal(t, &iam.BanState{Reason: "seeded", Until: &until}, parsed.Users[0].Ban)
+	require.Equal(t, iam.HashBcrypt, parsed.Users[0].Password.Algo)
 	dry, err := auth.ApplyBootstrapManifest(ctx, manifest, iam.BootstrapOptions{DryRun: true})
 	require.NoError(t, err)
 	require.Equal(t, iam.BootstrapResult{DryRun: true, UsersCreated: 1, PasswordsSet: 1, RootRoleAssignments: 1}, dry)
@@ -717,13 +733,15 @@ func TestBootstrapWorkflow(t *testing.T) {
 	require.ErrorIs(t, unassign(auth, iam.SystemActor(), iam.RootGroup(), iam.UserSubject(user.ID), owner), iam.ErrLastOwner)
 
 	enabled := true
-	app := iam.BootstrapManifestRemoteApplication{Slug: "bootstrap-app", Issuer: "https://app.test", JWKSURI: "https://app.test/keys", Enabled: &enabled}
+	app := iam.BootstrapManifestRemoteApplication{Issuer: "https://app.test", JWKSURI: "https://app.test/keys", Enabled: &enabled}
 	result, err = auth.ApplyBootstrapManifest(ctx, iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{app}}, iam.BootstrapOptions{})
 	require.NoError(t, err)
 	require.Equal(t, iam.BootstrapResult{RemoteApplications: 1}, result)
-	stored, err := auth.RemoteApplication(ctx, app.Issuer)
+	stored, err := auth.RemoteApplication(ctx, iam.AppByIssuer(app.Issuer))
 	require.NoError(t, err)
-	require.Equal(t, app.Slug, stored.Slug)
+	byID, err := auth.RemoteApplication(ctx, iam.AppByID(stored.ID))
+	require.NoError(t, err)
+	require.Equal(t, stored, byID, "an application reads the same by id and by issuer")
 	require.Equal(t, app.JWKSURI, stored.JWKSURI)
 	require.Equal(t, iam.RemoteApplicationModeJWKS, stored.Mode)
 	require.True(t, stored.Enabled)

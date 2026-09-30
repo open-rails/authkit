@@ -13,12 +13,16 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/jose"
+	"github.com/open-rails/authkit/internal/ops"
 )
 
 // MintAccessToken mints an access token for a live account outside any login
 // flow; a host operation. Reserved claims in o.Claims are dropped; o.SessionID
 // becomes sid.
-func (s *Engine) MintAccessToken(ctx context.Context, userID string, o iam.AccessTokenOptions) (iam.Token, error) {
+func (s *Engine) MintAccessToken(ctx context.Context, userID string, o iam.AccessTokenOptions, opts ...ops.Option) (iam.Token, error) {
+	if err := noOptions("MintAccessToken", opts); err != nil {
+		return iam.Token{}, err
+	}
 	userID = strings.TrimSpace(userID)
 	if !isUUID(userID) {
 		return iam.Token{}, iam.ErrUserNotFound
@@ -242,7 +246,7 @@ func (s *Engine) displayRootRole(ctx context.Context, q *db.Queries, userID stri
 	if err != nil || len(rows) != 1 {
 		return ""
 	}
-	role := ident.Role(iam.RootPersona, rows[0].Role)
+	role := ident.RoleText(rows[0].Role)
 	if _, ok := s.groupSchemaOrDefault().Role(iam.RootPersona, role); !ok {
 		return ""
 	}

@@ -155,7 +155,7 @@ func seed(ctx context.Context, auth *authkit.Client) (iam.User, error) {
 		return iam.User{}, errors.New("set ADMIN_EMAIL to the first admin's address")
 	}
 	// Creates the user if they don't exist, and grants them the admin role defined above
-	return auth.EnsureUserRole(ctx, iam.UserByEmail(email), iam.RootGroup(), Admin)
+	return auth.EnsureUserRole(ctx, iam.RootGroup(), iam.UserByEmail(email), Admin)
 }
 
 // Our application-specific table
@@ -311,7 +311,7 @@ Mounting gives your users all of this: 59 routes under `/api/v1`, plus the publi
 | `POST /api/v1/admin/users/{user_id}/restore` | restore it within 30 days |
 | `POST /api/v1/admin/users/{user_id}/sessions/revoke` | sign them out everywhere |
 | `GET /api/v1/admin/roles` | who holds site-wide roles |
-| `PUT /api/v1/admin/users/{user_id}/roles/{role}` | give a site-wide role, like `admin` |
+| `PUT /api/v1/admin/users/{user_id}/roles/{role}` | give a site-wide role, like `root:admin` |
 | `DELETE /api/v1/admin/users/{user_id}/roles/{role}` | take it away |
 
 Switch on social logins (Google, Apple, GitHub, Discord) or API keys, and AuthKit mounts their routes too.

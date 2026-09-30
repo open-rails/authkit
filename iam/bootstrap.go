@@ -1,13 +1,12 @@
 package iam
 
-import "time"
-
 // BootstrapManifest is genesis seed data: accounts, their root roles and
 // remote applications. ApplyBootstrapManifest applies it as a host operation;
-// Client.ParseBootstrapManifestYAML reads one from its YAML file format.
+// Client.ParseBootstrapManifestYAML reads one from its YAML file format, whose
+// keys are the yaml tags below.
 type BootstrapManifest struct {
-	Users              []BootstrapManifestUser
-	RemoteApplications []BootstrapManifestRemoteApplication
+	Users              []BootstrapManifestUser              `json:"users" yaml:"users"`
+	RemoteApplications []BootstrapManifestRemoteApplication `json:"remote_applications" yaml:"remote_applications"`
 }
 
 // BootstrapManifestUser seeds one account. A new account is created as
@@ -17,38 +16,37 @@ type BootstrapManifest struct {
 // contact, or username when no contact is named) is refused unless the apply
 // would change nothing on it.
 type BootstrapManifestUser struct {
-	Username      string
-	Email         string
-	Phone         string
-	EmailVerified bool
-	PhoneVerified bool
-	Banned        bool
-	BannedUntil   *time.Time
-	BanReason     string
-	Metadata      map[string]any
-	Password      *BootstrapUserPassword
-	// RootRole is the account's root role. The root owner role is seeded only
-	// while the root group has no usable owner.
-	RootRole Role
+	Username      string `json:"username" yaml:"username"`
+	Email         string `json:"email" yaml:"email"`
+	Phone         string `json:"phone" yaml:"phone"`
+	EmailVerified bool   `json:"email_verified" yaml:"email_verified"`
+	PhoneVerified bool   `json:"phone_verified" yaml:"phone_verified"`
+	// Ban bans a new account from now: only Until and Reason may be set.
+	Ban      *BanState              `json:"ban" yaml:"ban"`
+	Metadata map[string]any         `json:"metadata" yaml:"metadata"`
+	Password *BootstrapUserPassword `json:"password" yaml:"password"`
+	// RootRole is the account's root role (`root:admin`). The root owner role
+	// is seeded only while the root group has no usable owner.
+	RootRole Role `json:"root_role" yaml:"root_role"`
 }
 
 // BootstrapManifestRemoteApplication seeds one application controlled by root.
 type BootstrapManifestRemoteApplication struct {
-	Slug       string
-	Issuer     string
-	JWKSURI    string
-	PublicKeys []RemoteApplicationKey
-	Enabled    *bool
-	RootRole   Role
+	Issuer     string                 `json:"issuer" yaml:"issuer"`
+	JWKSURI    string                 `json:"jwks_uri" yaml:"jwks_uri"`
+	PublicKeys []RemoteApplicationKey `json:"public_keys" yaml:"public_keys"`
+	Enabled    *bool                  `json:"enabled" yaml:"enabled"`
+	RootRole   Role                   `json:"root_role" yaml:"root_role"`
 }
 
-// BootstrapUserPassword is exactly one of Plaintext, Hash with HashAlgo, or
+// BootstrapUserPassword is exactly one of Plaintext, a PasswordHash, or
 // ResetRequired.
 type BootstrapUserPassword struct {
-	Plaintext     string `json:"plaintext" yaml:"plaintext"`
-	Hash          string `json:"hash" yaml:"hash"`
-	HashAlgo      string `json:"hash_algo" yaml:"hash_algo"`
-	ResetRequired bool   `json:"reset_required" yaml:"reset_required"`
+	Plaintext    string `json:"plaintext" yaml:"plaintext"`
+	PasswordHash `yaml:",inline"`
+	// ResetRequired stores a password that never verifies: the account must
+	// reset it.
+	ResetRequired bool `json:"reset_required" yaml:"reset_required"`
 	// Enforce re-asserts the password on every apply. Without it the password
 	// is set only when the account is created, so a rotated password is never
 	// reverted. It cannot be combined with ResetRequired.

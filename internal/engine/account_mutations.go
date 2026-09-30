@@ -16,6 +16,8 @@ import (
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/ident"
+	"github.com/open-rails/authkit/internal/ops"
 	"github.com/open-rails/authkit/internal/password"
 )
 
@@ -45,6 +47,12 @@ type accountTx struct {
 }
 
 func (s *Engine) withAccountMutation(ctx context.Context, a iam.Actor, userID string, p iam.Perm, self selfRule, apply func(at accountTx) error) error {
+	return s.withAccountMutationIn(ctx, a, nil, userID, p, self, apply)
+}
+
+// withAccountMutationIn is withAccountMutation inside host, the host's own
+// transaction, when set (see withAuthorityMutationIn).
+func (s *Engine) withAccountMutationIn(ctx context.Context, a iam.Actor, host pgx.Tx, userID string, p iam.Perm, self selfRule, apply func(at accountTx) error) error {
 	if err := requireActor(a); err != nil {
 		return err
 	}
@@ -55,7 +63,13 @@ func (s *Engine) withAccountMutation(ctx context.Context, a iam.Actor, userID st
 	if !ok {
 		return iam.ErrUserNotFound
 	}
-	tx, err := s.beginAuthorityTransaction(ctx)
+	var tx pgx.Tx
+	var err error
+	if host == nil {
+		tx, err = s.beginAuthorityTransaction(ctx)
+	} else {
+		tx, err = s.joinHostTransaction(ctx, host)
+	}
 	if err != nil {
 		return err
 	}
@@ -114,7 +128,11 @@ func actorUserID(a iam.Actor) *string {
 }
 
 // CreateUser creates a native account: a host operation.
-func (s *Engine) CreateUser(ctx context.Context, n iam.NewUser) (iam.User, error) {
+func (s *Engine) CreateUser(ctx context.Context, n iam.NewUser, opts ...ops.Option) (iam.User, error) {
+	host, err := hostTx("CreateUser", opts)
+	if err != nil {
+		return iam.User{}, err
+	}
 	if err := s.requirePG(); err != nil {
 		return iam.User{}, err
 	}
@@ -157,7 +175,12 @@ func (s *Engine) CreateUser(ctx context.Context, n iam.NewUser) (iam.User, error
 	if err := s.admitName(ctx, iam.NameAdmissionRequest{UserID: userID, RequestedName: username, Operation: iam.NameCreate}); err != nil {
 		return iam.User{}, err
 	}
-	tx, err := s.pg.Begin(ctx)
+	var tx pgx.Tx
+	if host == nil {
+		tx, err = s.pg.Begin(ctx)
+	} else {
+		tx, err = s.joinHostTransaction(ctx, host)
+	}
 	if err != nil {
 		return iam.User{}, err
 	}
@@ -178,10 +201,11 @@ func (s *Engine) CreateUser(ctx context.Context, n iam.NewUser) (iam.User, error
 	if err := s.emitEvents(ctx, tx, iam.SystemActor(), userEvent(iam.EventUserRegistered, userID)); err != nil {
 		return iam.User{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	out, err := userIn(ctx, tx, userID)
+	if err != nil {
 		return iam.User{}, err
 	}
-	return s.User(ctx, iam.UserByID(userID))
+	return out, tx.Commit(ctx)
 }
 
 // selfEditable are the UserUpdate fields an account may change on itself.
@@ -199,7 +223,10 @@ func selfEditable(u iam.UserUpdate) bool {
 // contact, since the next proof would retire its MFA, and never moves its
 // email factor, which stays bound to the address it was proven for. Nothing
 // is sent to the new address.
-func (s *Engine) UpdateUser(ctx context.Context, a iam.Actor, userID string, u iam.UserUpdate) (iam.User, error) {
+func (s *Engine) UpdateUser(ctx context.Context, a iam.Actor, userID string, u iam.UserUpdate, opts ...ops.Option) (iam.User, error) {
+	if err := noOptions("UpdateUser", opts); err != nil {
+		return iam.User{}, err
+	}
 	if a.Kind() != iam.ActorSystem && (u.EmailVerified != nil || u.PhoneVerified != nil || u.Password != nil || u.PasswordHash != nil) {
 		return iam.User{}, iam.ErrInsufficientAuthority
 	}
@@ -211,7 +238,7 @@ func (s *Engine) UpdateUser(ctx context.Context, a iam.Actor, userID string, u i
 		self = selfAllowed
 	}
 	var revoked userUpdateRevocations
-	err := s.withAccountMutation(ctx, a, userID, iam.PermRootUsersManage, self, func(at accountTx) error {
+	err := s.withAccountMutation(ctx, a, userID, ident.RootUsersManage, self, func(at accountTx) error {
 		before, err := readAccountIdentity(ctx, at.tx, at.userID)
 		if err != nil {
 			return err
@@ -230,7 +257,7 @@ func (s *Engine) UpdateUser(ctx context.Context, a iam.Actor, userID string, u i
 	}
 	s.logRevokedSessions(ctx, userID, revoked.proven, string(authflow.SessionRevokeReasonContactProven))
 	s.logRevokedSessions(ctx, userID, revoked.password, string(authflow.SessionRevokeReasonAdminSetPassword))
-	return s.User(ctx, iam.UserByID(userID), iam.IncludeDeleted())
+	return s.User(ctx, iam.UserByID(userID), ops.IncludeDeleted())
 }
 
 // userUpdateRevocations are the sessions an update revoked, by cause.
@@ -372,7 +399,7 @@ func (s *Engine) keepMFAHolderProven(ctx context.Context, tx pgx.Tx, userID stri
 // account's current identifiers, or an imported hash, and returns what to store.
 func (s *Engine) passwordForUpdate(ctx context.Context, q *db.Queries, userID string, u iam.UserUpdate) (hash, algo string, err error) {
 	if u.PasswordHash != nil {
-		hash, algo = strings.TrimSpace(u.PasswordHash.Hash), strings.TrimSpace(u.PasswordHash.Algo)
+		hash, algo = strings.TrimSpace(u.PasswordHash.Hash), string(u.PasswordHash.Algo)
 		return hash, algo, validatePasswordHashForStorage(hash, algo)
 	}
 	user, err := q.UserByID(ctx, userID)
@@ -407,7 +434,11 @@ var reservedMetadataKeys = []string{"reserved"}
 // PatchUserMetadata merges patch into the account's application-owned
 // metadata under ACCT(root:users:manage); a nil value deletes its key. Keys
 // AuthKit owns are refused.
-func (s *Engine) PatchUserMetadata(ctx context.Context, a iam.Actor, userID string, patch map[string]any) error {
+func (s *Engine) PatchUserMetadata(ctx context.Context, a iam.Actor, userID string, patch map[string]any, opts ...ops.Option) error {
+	host, err := hostTx("PatchUserMetadata", opts)
+	if err != nil {
+		return err
+	}
 	set, drop := map[string]any{}, []string{}
 	for k, v := range patch {
 		for _, reserved := range reservedMetadataKeys {
@@ -425,7 +456,7 @@ func (s *Engine) PatchUserMetadata(ctx context.Context, a iam.Actor, userID stri
 	if err != nil {
 		return err
 	}
-	return s.withAccountMutation(ctx, a, userID, iam.PermRootUsersManage, selfRefused, func(at accountTx) error {
+	return s.withAccountMutationIn(ctx, a, host, userID, ident.RootUsersManage, selfRefused, func(at accountTx) error {
 		if len(patch) == 0 {
 			return nil
 		}
@@ -436,7 +467,10 @@ func (s *Engine) PatchUserMetadata(ctx context.Context, a iam.Actor, userID stri
 // Ban bans an account under ACCT(root:users:ban) and revokes its sessions,
 // device keys and every credential it issued, in one transaction. Nobody bans
 // themselves, and the last usable owner of a group cannot be banned.
-func (s *Engine) Ban(ctx context.Context, a iam.Actor, userID string, b iam.Ban) error {
+func (s *Engine) Ban(ctx context.Context, a iam.Actor, userID string, b iam.Ban, opts ...ops.Option) error {
+	if err := noOptions("Ban", opts); err != nil {
+		return err
+	}
 	now := time.Now().UTC()
 	var until *time.Time
 	if b.Until != nil {
@@ -451,7 +485,7 @@ func (s *Engine) Ban(ctx context.Context, a iam.Actor, userID string, b iam.Ban)
 		reason = &r
 	}
 	var revoked []revokedSession
-	err := s.withAccountMutation(ctx, a, userID, iam.PermRootUsersBan, selfRefused, func(at accountTx) error {
+	err := s.withAccountMutation(ctx, a, userID, ident.RootUsersBan, selfRefused, func(at accountTx) error {
 		if b.KeepExisting {
 			inForce, err := at.q.UserBanInForce(ctx, userID)
 			if err != nil {
@@ -485,8 +519,12 @@ func (s *Engine) Ban(ctx context.Context, a iam.Actor, userID string, b iam.Ban)
 // Unban lifts a ban under ACCT(root:users:ban). Lifting a ban restores the
 // account's authority, so it needs the same coverage as imposing one; nobody
 // lifts their own ban.
-func (s *Engine) Unban(ctx context.Context, a iam.Actor, userID string) error {
-	return s.withAccountMutation(ctx, a, userID, iam.PermRootUsersBan, selfRefused, func(at accountTx) error {
+func (s *Engine) Unban(ctx context.Context, a iam.Actor, userID string, opts ...ops.Option) error {
+	host, err := hostTx("Unban", opts)
+	if err != nil {
+		return err
+	}
+	return s.withAccountMutationIn(ctx, a, host, userID, ident.RootUsersBan, selfRefused, func(at accountTx) error {
 		inForce, err := at.q.UserBanInForce(ctx, at.userID)
 		if err != nil {
 			return err
@@ -504,7 +542,10 @@ func (s *Engine) Unban(ctx context.Context, a iam.Actor, userID string) error {
 // issued are revoked. A repeat call
 // keeps the original window. Per-item results; the error is a whole-call
 // failure.
-func (s *Engine) DeleteUsers(ctx context.Context, a iam.Actor, ids []string) ([]iam.OpResult, error) {
+func (s *Engine) DeleteUsers(ctx context.Context, a iam.Actor, ids []string, opts ...ops.Option) ([]iam.OpResult, error) {
+	if err := noOptions("DeleteUsers", opts); err != nil {
+		return nil, err
+	}
 	out := make([]iam.OpResult, 0, len(ids))
 	for _, id := range ids {
 		out = append(out, iam.OpResult{ID: id, Err: s.deleteUser(ctx, a, id)})
@@ -518,7 +559,7 @@ func (s *Engine) deleteUser(ctx context.Context, a iam.Actor, userID string) err
 		return err
 	}
 	var revoked []revokedSession
-	err = s.withAccountMutation(ctx, a, userID, iam.PermRootUsersDelete, selfAllowed, func(at accountTx) error {
+	err = s.withAccountMutation(ctx, a, userID, ident.RootUsersDelete, selfAllowed, func(at accountTx) error {
 		var err error
 		revoked, err = s.softDeleteTx(ctx, at, client, userID)
 		return err
@@ -564,10 +605,13 @@ func (s *Engine) softDeleteTx(ctx context.Context, at accountTx, client *river.C
 // RestoreUsers restores soft-deleted accounts within their recovery window
 // under ACCT(root:users:delete), re-checked against every group role the
 // account resumes. Old sessions, device keys and credentials stay revoked.
-func (s *Engine) RestoreUsers(ctx context.Context, a iam.Actor, ids []string) ([]iam.OpResult, error) {
+func (s *Engine) RestoreUsers(ctx context.Context, a iam.Actor, ids []string, opts ...ops.Option) ([]iam.OpResult, error) {
+	if err := noOptions("RestoreUsers", opts); err != nil {
+		return nil, err
+	}
 	out := make([]iam.OpResult, 0, len(ids))
 	for _, id := range ids {
-		err := s.withAccountMutation(ctx, a, id, iam.PermRootUsersDelete, selfRefused, func(at accountTx) error {
+		err := s.withAccountMutation(ctx, a, id, ident.RootUsersDelete, selfRefused, func(at accountTx) error {
 			return s.restoreAccountDeletionOn(ctx, at.tx, a, at.userID, "")
 		})
 		out = append(out, iam.OpResult{ID: id, Err: err})
@@ -578,7 +622,10 @@ func (s *Engine) RestoreUsers(ctx context.Context, a iam.Actor, ids []string) ([
 // PurgeUsers closes the recovery window of accounts now, soft-deleting live
 // ones first: a host operation. The account row goes once the host deletion
 // callbacks complete, exactly as at the end of the window.
-func (s *Engine) PurgeUsers(ctx context.Context, ids []string) ([]iam.OpResult, error) {
+func (s *Engine) PurgeUsers(ctx context.Context, ids []string, opts ...ops.Option) ([]iam.OpResult, error) {
+	if err := noOptions("PurgeUsers", opts); err != nil {
+		return nil, err
+	}
 	client, err := s.deletionRiver()
 	if err != nil {
 		return nil, err
@@ -587,7 +634,7 @@ func (s *Engine) PurgeUsers(ctx context.Context, ids []string) ([]iam.OpResult, 
 	for _, id := range ids {
 		id := strings.TrimSpace(id)
 		var revoked []revokedSession
-		err := s.withAccountMutation(ctx, iam.SystemActor(), id, iam.PermRootUsersDelete, selfRefused, func(at accountTx) error {
+		err := s.withAccountMutation(ctx, iam.SystemActor(), id, ident.RootUsersDelete, selfRefused, func(at accountTx) error {
 			var err error
 			if revoked, err = s.softDeleteTx(ctx, at, client, id); err != nil {
 				return err
@@ -612,7 +659,10 @@ func (s *Engine) PurgeUsers(ctx context.Context, ids []string) ([]iam.OpResult, 
 // RevokeAccountSessions revokes the account's refresh sessions on every
 // account issuer and all its device keys, under ACCT(root:users:manage); an
 // account may revoke its own. Issued access tokens expire on their TTL.
-func (s *Engine) RevokeAccountSessions(ctx context.Context, a iam.Actor, userID string) (iam.AccountSessionRevocation, error) {
+func (s *Engine) RevokeAccountSessions(ctx context.Context, a iam.Actor, userID string, opts ...ops.Option) (iam.AccountSessionRevocation, error) {
+	if err := noOptions("RevokeAccountSessions", opts); err != nil {
+		return iam.AccountSessionRevocation{}, err
+	}
 	issuers := s.accountIssuers()
 	out := iam.AccountSessionRevocation{Issuers: issuers, RevokedSessions: make(map[string]int, len(issuers))}
 	for _, issuer := range issuers {
@@ -623,7 +673,7 @@ func (s *Engine) RevokeAccountSessions(ctx context.Context, a iam.Actor, userID 
 		reason = *r
 	}
 	var revoked []revokedSession
-	err := s.withAccountMutation(ctx, a, userID, iam.PermRootUsersManage, selfAllowed, func(at accountTx) error {
+	err := s.withAccountMutation(ctx, a, userID, ident.RootUsersManage, selfAllowed, func(at accountTx) error {
 		var err error
 		if revoked, err = revokeSessionsTx(ctx, at.q, userID, issuers, nil); err != nil {
 			return err
@@ -656,13 +706,16 @@ func (s *Engine) RevokeAccountSessions(ctx context.Context, a iam.Actor, userID 
 // and its sessions on every account issuer, and tells its address. Roles
 // stay: when one needs MFA, or 2FA is Required, the next sign-in enrolls a
 // factor: a host operation.
-func (s *Engine) ResetAccountMFA(ctx context.Context, userID string) error {
+func (s *Engine) ResetAccountMFA(ctx context.Context, userID string, opts ...ops.Option) error {
+	if err := noOptions("ResetAccountMFA", opts); err != nil {
+		return err
+	}
 	userID, ok := canonicalUUID(userID)
 	if !ok {
 		return iam.ErrUserNotFound
 	}
 	var revoked []revokedSession
-	err := s.withAccountMutation(ctx, iam.SystemActor(), userID, iam.PermRootUsersManage, selfRefused, func(at accountTx) error {
+	err := s.withAccountMutation(ctx, iam.SystemActor(), userID, ident.RootUsersManage, selfRefused, func(at accountTx) error {
 		var err error
 		revoked, err = s.mutateCredentialsTx(ctx, at.q, userID, nil, func(q *db.Queries, _ db.UserCredentialVersionForUpdateRow) error {
 			if err := q.PasskeysDeleteByUser(ctx, userID); err != nil {
@@ -704,7 +757,10 @@ func (s *Engine) notifyMFAReset(ctx context.Context, userID string) {
 // RevokeSession revokes one refresh session of the account on this issuer,
 // under ACCT(root:users:manage); an account may revoke its own. An unknown
 // or already revoked session is a no-op.
-func (s *Engine) RevokeSession(ctx context.Context, a iam.Actor, userID, sessionID string) error {
+func (s *Engine) RevokeSession(ctx context.Context, a iam.Actor, userID, sessionID string, opts ...ops.Option) error {
+	if err := noOptions("RevokeSession", opts); err != nil {
+		return err
+	}
 	if err := requireActor(a); err != nil || !isUUID(strings.TrimSpace(sessionID)) {
 		return err
 	}
@@ -713,7 +769,7 @@ func (s *Engine) RevokeSession(ctx context.Context, a iam.Actor, userID, session
 		reason = string(authflow.SessionRevokeReasonUserRevoke)
 	}
 	var sid string
-	err := s.withAccountMutation(ctx, a, userID, iam.PermRootUsersManage, selfAllowed, func(at accountTx) error {
+	err := s.withAccountMutation(ctx, a, userID, ident.RootUsersManage, selfAllowed, func(at accountTx) error {
 		var err error
 		sid, err = at.q.SessionRevokeByIDForUser(ctx, db.SessionRevokeByIDForUserParams{ID: strings.TrimSpace(sessionID), UserID: strings.TrimSpace(userID), Issuer: s.cfg.Token.Issuer})
 		if errors.Is(err, pgx.ErrNoRows) {

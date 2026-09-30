@@ -144,30 +144,6 @@ func (q *Queries) DeviceKeyMarkMFAProven(ctx context.Context, id string) error {
 	return err
 }
 
-const deviceKeyPublicKeysActive = `-- name: DeviceKeyPublicKeysActive :many
-SELECT public_key FROM user_device_keys WHERE user_id = $1 AND revoked_at IS NULL ORDER BY created_at, id
-`
-
-func (q *Queries) DeviceKeyPublicKeysActive(ctx context.Context, userID string) ([][]byte, error) {
-	rows, err := q.db.Query(ctx, deviceKeyPublicKeysActive, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items [][]byte
-	for rows.Next() {
-		var public_key []byte
-		if err := rows.Scan(&public_key); err != nil {
-			return nil, err
-		}
-		items = append(items, public_key)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const deviceKeyRevoke = `-- name: DeviceKeyRevoke :execrows
 UPDATE user_device_keys SET revoked_at = COALESCE(revoked_at, now()) WHERE id = $1 AND user_id = $2
 `

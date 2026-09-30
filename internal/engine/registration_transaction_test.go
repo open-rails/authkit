@@ -36,7 +36,7 @@ func TestRegistrationRollsBackWhenInviteConsumeFails(t *testing.T) {
 		if flow == "sms" {
 			identifier = uniquePhone()
 		}
-		invite, err := f.engine.CreateAccountInvite(ctx, iam.SystemActor(), iam.NewAccountInvite{Email: email})
+		invite, err := f.engine.CreateInvitation(ctx, iam.SystemActor(), iam.RootGroup(), iam.NewInvitation{Email: email})
 		require.NoError(t, err)
 		var failed flowResponse
 		if idp, ok := idps[flow]; ok {
@@ -64,7 +64,7 @@ func TestRegistrationRollsBackWhenInviteConsumeFails(t *testing.T) {
 		}
 		require.GreaterOrEqual(t, failed.status, 400, flow+failed.raw)
 		var exists, consumed bool
-		require.NoError(t, pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE email=$1 OR phone_number=$2),(SELECT consumed_at IS NOT NULL FROM account_registration_invites WHERE id=$3::uuid)`, email, identifier, invite.ID).Scan(&exists, &consumed))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE email=$1 OR phone_number=$2),(SELECT consumed_at IS NOT NULL FROM account_registration_invites WHERE id=$3::uuid)`, email, identifier, invite.Invitation.ID).Scan(&exists, &consumed))
 		require.False(t, exists, flow)
 		require.False(t, consumed, flow)
 	}

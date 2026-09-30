@@ -20,9 +20,9 @@ func (s *Engine) UserProfile(ctx context.Context, in authflow.ProfileInput) (aut
 	if err != nil || u == nil {
 		return authflow.UserProfile{}, stageErr("load_user", errOrUnauthorized(err))
 	}
-	roles, _ := s.rootRoleSlugsByUser(ctx, u.ID)
-	if roles == nil {
-		roles = []string{}
+	roles := []string{}
+	if held, err := s.rootRoles(ctx, []string{u.ID}); err == nil && !held[u.ID].IsZero() {
+		roles = append(roles, held[u.ID].String())
 	}
 	username := ""
 	if u.Username != nil {

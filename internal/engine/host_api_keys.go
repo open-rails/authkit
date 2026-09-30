@@ -14,6 +14,7 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
+	"github.com/open-rails/authkit/internal/ops"
 )
 
 // API keys (#111): long-lived, revocable bearer credentials owned by a
@@ -23,36 +24,30 @@ import (
 // (credential_issuers.go): the creator is recorded and the key dies with the
 // creator's authority. The system issues keys with no creator.
 
-// effectiveGroupRolePermissions resolves a catalog role of persona to its
-// permissions. The role — not any snapshot — is the source of truth, so
-// resolution repeats at use time.
-func (s *Engine) effectiveGroupRolePermissions(_ context.Context, _ *permissionGroupStore, _ string, persona iam.Persona, role iam.Role) ([]string, error) {
-	if def, ok := s.groupSchemaOrDefault().Role(persona, role); ok {
-		return append([]string(nil), def.Permissions...), nil
-	}
-	return []string{}, nil
-}
-
-// MintAPIKey issues a key holding role in ref: CAP(<p>:credentials:manage)
+// CreateAPIKey issues a key holding role in ref: CAP(<p>:credentials:manage)
 // plus COVER(role). Only a user or the system issues credentials. The token
 // is returned once.
-func (s *Engine) MintAPIKey(ctx context.Context, a iam.Actor, ref iam.GroupRef, k iam.NewAPIKey) (iam.APIKey, string, error) {
+func (s *Engine) CreateAPIKey(ctx context.Context, a iam.Actor, ref iam.GroupRef, k iam.NewAPIKey, opts ...ops.Option) (iam.APIKeyCreated, error) {
+	host, err := hostTx("CreateAPIKey", opts)
+	if err != nil {
+		return iam.APIKeyCreated{}, err
+	}
 	creator, err := credentialIssuer(a)
 	if err != nil {
-		return iam.APIKey{}, "", err
+		return iam.APIKeyCreated{}, err
 	}
 	name := strings.TrimSpace(k.Name)
 	if name == "" {
-		return iam.APIKey{}, "", errmodel.ErrMissingName
+		return iam.APIKeyCreated{}, errmodel.ErrMissingName
 	}
 	role := k.Role
 	if role.IsZero() {
-		return iam.APIKey{}, "", iam.ErrRoleNotAssignable
+		return iam.APIKeyCreated{}, iam.ErrRoleNotAssignable
 	}
 	now := time.Now().UTC()
 	expiresAt := k.ExpiresAt
 	if expiresAt != nil && !expiresAt.After(now) {
-		return iam.APIKey{}, "", errmodel.ErrInvalidExpiry
+		return iam.APIKeyCreated{}, errmodel.ErrInvalidExpiry
 	}
 	if maxTTL := s.cfg.APIKeys.MaxTTL; maxTTL > 0 {
 		capAt := now.Add(maxTTL)
@@ -60,24 +55,23 @@ func (s *Engine) MintAPIKey(ctx context.Context, a iam.Actor, ref iam.GroupRef, 
 			expiresAt = &capAt
 		}
 	}
-	var out iam.APIKey
-	var token string
-	err = s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
+	var out iam.APIKeyCreated
+	err = s.withGroupMutationIn(ctx, a, host, ref, func(st *permissionGroupStore, g groupTarget) error {
 		// A persona without API keys has none, whoever asks (the system too).
 		if p, ok := s.groupSchemaOrDefault().Persona(g.Persona); !ok || !p.APIKeys {
 			return fmt.Errorf("persona %q does not enable API keys: %w", g.Persona, iam.ErrInsufficientAuthority)
 		}
-		if err := s.requireDefinedGroupRole(ctx, st, g.ID, g.Persona, role); err != nil {
+		if err := s.requireDefinedGroupRole(g.Persona, role); err != nil {
 			return err
 		}
-		grants, err := s.roleGrants(ctx, st, g, role)
+		grants, err := s.roleGrants(g.Persona, role)
 		if err != nil {
 			return err
 		}
 		if err := s.refuseMFACredential(role, grants); err != nil {
 			return err
 		}
-		if err := s.requireRoleGrant(ctx, st, a, g, iam.PermCredentialsManage(g.Persona), role); err != nil {
+		if err := s.requireRoleGrant(ctx, st, a, g, ident.CredentialsManage(g.Persona), role); err != nil {
 			return err
 		}
 		for range 5 {
@@ -85,10 +79,10 @@ func (s *Engine) MintAPIKey(ctx context.Context, a iam.Actor, ref iam.GroupRef, 
 			if err != nil {
 				return err
 			}
-			out = iam.APIKey{LookupID: minted.LookupID, Name: name, Role: role, Permissions: ident.Perms(grants), CreatedBy: creator, ExpiresAt: expiresAt}
+			out.APIKey = iam.APIKey{LookupID: minted.LookupID, GroupID: g.ID, Name: name, Role: role, Permissions: ident.Perms(grants), CreatedBy: creator, ExpiresAt: expiresAt}
 			row, err := db.New(st.q).APIKeyInsert(ctx, db.APIKeyInsertParams{
 				GroupID: g.ID, KeyID: minted.LookupID, SecretHash: minted.SecretHash, Name: name,
-				Role: role.Name(), CreatedBy: nullable(creator), ExpiresAt: expiresAt,
+				Role: role.String(), CreatedBy: nullable(creator), ExpiresAt: expiresAt,
 			})
 			if errors.Is(err, pgx.ErrNoRows) {
 				continue // lookup id collision
@@ -96,20 +90,20 @@ func (s *Engine) MintAPIKey(ctx context.Context, a iam.Actor, ref iam.GroupRef, 
 			if err != nil {
 				return err
 			}
-			out.ID, out.CreatedAt, token = row.ID, row.CreatedAt, minted.Token
+			out.APIKey.ID, out.APIKey.CreatedAt, out.Secret = row.ID, row.CreatedAt, minted.Token
 			return nil
 		}
 		return errors.New("authkit: api key lookup id generation failed")
 	})
 	if err != nil {
-		return iam.APIKey{}, "", err
+		return iam.APIKeyCreated{}, err
 	}
-	return out, token, nil
+	return out, nil
 }
 
-// APIKeys lists the group's keys, newest first, including revoked and
+// ListAPIKeys lists the group's keys, newest first, including revoked and
 // expired ones (terminal keys are purged after 90 days). Never the secret.
-func (s *Engine) APIKeys(ctx context.Context, ref iam.GroupRef, p iam.PageRequest) (iam.ListPage[iam.APIKey], error) {
+func (s *Engine) ListAPIKeys(ctx context.Context, ref iam.GroupRef, p iam.PageRequest) (iam.ListPage[iam.APIKey], error) {
 	if err := s.requirePG(); err != nil {
 		return iam.ListPage[iam.APIKey]{}, err
 	}
@@ -129,7 +123,7 @@ func (s *Engine) APIKeys(ctx context.Context, ref iam.GroupRef, p iam.PageReques
 	keys := make([]iam.APIKey, len(rows))
 	for i, r := range rows {
 		keys[i] = iam.APIKey{
-			ID: r.ID, LookupID: r.KeyID, Name: r.Name, Role: ident.Role(g.Persona, r.Role), CreatedBy: r.CreatedBy,
+			ID: r.ID, LookupID: r.KeyID, GroupID: r.PermissionGroupID, Name: r.Name, Role: ident.RoleText(r.Role), CreatedBy: r.CreatedBy,
 			CreatedAt: r.CreatedAt, LastUsedAt: r.LastUsedAt, ExpiresAt: r.ExpiresAt, RevokedAt: r.RevokedAt,
 		}
 	}
@@ -140,37 +134,35 @@ func (s *Engine) APIKeys(ctx context.Context, ref iam.GroupRef, p iam.PageReques
 	return page, nil
 }
 
-// RevokeAPIKey revokes the group's live key id. It needs the authority to
-// issue the key's role: CAP(<p>:credentials:manage) plus COVER(role). False
-// means no live key matched in the group.
-func (s *Engine) RevokeAPIKey(ctx context.Context, a iam.Actor, ref iam.GroupRef, id string) (bool, error) {
+// RevokeAPIKey revokes the group's key id. It needs the authority to issue
+// the key's role: CAP(<p>:credentials:manage) plus COVER(role). A revoked key
+// is a no-op; an id unknown in the group is iam.ErrAPIKeyNotFound.
+func (s *Engine) RevokeAPIKey(ctx context.Context, a iam.Actor, ref iam.GroupRef, id string, opts ...ops.Option) error {
+	host, err := hostTx("RevokeAPIKey", opts)
+	if err != nil {
+		return err
+	}
 	if err := requireActor(a); err != nil {
-		return false, err
+		return err
 	}
 	id = strings.TrimSpace(id)
-	revoked := false
-	err := s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
+	return s.withGroupMutationIn(ctx, a, host, ref, func(st *permissionGroupStore, g groupTarget) error {
 		if !isUUID(id) {
-			return nil
+			return iam.ErrAPIKeyNotFound
 		}
 		q := db.New(st.q)
-		name, err := q.APIKeyRoleForUpdate(ctx, db.APIKeyRoleForUpdateParams{ID: id, GroupID: g.ID})
+		key, err := q.APIKeyForRevoke(ctx, db.APIKeyForRevokeParams{ID: id, GroupID: g.ID})
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
+			return iam.ErrAPIKeyNotFound
 		}
-		if err != nil {
+		if err != nil || key.RevokedAt != nil {
 			return err
 		}
-		if err := s.requireCredentialRevoke(ctx, st, a, g, iam.PermCredentialsManage(g.Persona), ident.Role(g.Persona, name)); err != nil {
+		if err := s.requireCredentialRevoke(ctx, st, a, g, ident.CredentialsManage(g.Persona), ident.RoleText(key.Role)); err != nil {
 			return err
 		}
-		if err := q.APIKeyRetire(ctx, id); err != nil {
-			return err
-		}
-		revoked = true
-		return nil
+		return q.APIKeyRetire(ctx, id)
 	})
-	return revoked, err
 }
 
 // ResolveAPIKey authenticates a presented token: the key must exist with a
@@ -204,7 +196,7 @@ func (s *Engine) ResolveAPIKey(ctx context.Context, token string) (iam.APIKeyPri
 	}
 	s.touchAccessTokenAsync(k.ID)
 	p := iam.APIKeyPrincipal{ID: k.ID, ExpiresAt: k.ExpiresAt, Group: iam.Group{ID: k.GroupID, Persona: ident.Persona(k.Persona), CreatedAt: k.GroupCreatedAt}}
-	p.Role = ident.Role(p.Group.Persona, k.Role)
+	p.Role = ident.RoleText(k.Role)
 	sch := s.groupSchemaOrDefault()
 	grants := []string{}
 	if def, ok := sch.Role(p.Group.Persona, p.Role); ok {
@@ -241,12 +233,11 @@ func (s *Engine) loadAPIKeyPermissions(ctx context.Context, st *permissionGroupS
 	for i := range keys {
 		perms, ok := byRole[keys[i].Role]
 		if !ok {
-			var err error
-			grants, err := s.effectiveGroupRolePermissions(ctx, st, g.ID, g.Persona, keys[i].Role)
-			if err != nil {
-				return err
-			}
+			grants, _ := s.roleGrants(g.Persona, keys[i].Role)
 			perms = ident.Perms(grants)
+			if perms == nil {
+				perms = []iam.Perm{}
+			}
 			byRole[keys[i].Role] = perms
 		}
 		keys[i].Permissions = perms

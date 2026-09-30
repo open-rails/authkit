@@ -192,7 +192,7 @@ func TestSecurityDeviceKeyClient(t *testing.T) {
 
 	t.Run("an MFA-required role holder without a factor enrolls no key", func(t *testing.T) {
 		holder := h.newAccount("dkrole")
-		_, err := h.pool.Exec(ctx, `INSERT INTO profiles.group_user_roles(permission_group_id,user_id,role) VALUES($1::uuid,$2::uuid,'security')`, h.rootGroupID(), holder.id)
+		_, err := h.pool.Exec(ctx, `INSERT INTO profiles.group_user_roles(permission_group_id,user_id,role) VALUES($1::uuid,$2::uuid,'root:security')`, h.rootGroupID(), holder.id)
 		require.NoError(t, err)
 		pub, priv := ed25519Key(t)
 		e, err := c.BeginEnrollment(ctx, holder.email, pub, "")
@@ -257,7 +257,7 @@ func TestSecurityDeviceKeyClient(t *testing.T) {
 		for _, route := range offHost.auth.Routes() {
 			require.NotEqual(t, iam.RouteDeviceKeys, route.Group, "%s %s", route.Method, route.Path)
 		}
-		_, err = offHost.auth.ActiveDeviceKeys(ctx, "00000000-0000-0000-0000-000000000000")
+		_, err = offHost.auth.DeviceKeys(ctx, "00000000-0000-0000-0000-000000000000")
 		require.ErrorIs(t, err, iam.ErrDeviceKeysDisabled, "the Client refuses device keys without the opt-in")
 	})
 }

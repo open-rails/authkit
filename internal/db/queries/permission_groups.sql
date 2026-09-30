@@ -6,6 +6,9 @@
 -- name: PermissionGroupInsert :one
 INSERT INTO permission_groups (persona) VALUES (sqlc.arg(persona)) RETURNING id;
 
+-- name: PermissionGroupInsertWithID :exec
+INSERT INTO permission_groups (id, persona) VALUES (sqlc.arg(id)::uuid, sqlc.arg(persona));
+
 -- name: PermissionGroupsByIDs :many
 SELECT * FROM permission_groups WHERE id = ANY(sqlc.arg(ids)::uuid[]);
 
@@ -36,12 +39,12 @@ WHERE g.persona <> 'root' AND (sqlc.arg(persona)::text = '' OR g.persona = sqlc.
   AND (sqlc.arg(after)::text = '' OR g.id > sqlc.arg(after)::text::uuid)
   AND (NOT sqlc.arg(ownerless)::boolean OR NOT EXISTS(
     SELECT 1 FROM group_user_roles r JOIN usable_users u ON u.id = r.user_id
-     WHERE r.permission_group_id = g.id AND r.role = 'owner'
+     WHERE r.permission_group_id = g.id AND r.role LIKE '%:owner'
        AND (NOT (g.persona = ANY(sqlc.arg(mfa_personas)::text[])) OR EXISTS(SELECT 1 FROM mfa_settings m WHERE m.user_id = u.id AND m.enabled
          AND EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id = u.id)))
     UNION ALL
     SELECT 1 FROM group_remote_application_roles r JOIN remote_applications a ON a.id = r.remote_application_id
-     WHERE NOT (g.persona = ANY(sqlc.arg(mfa_personas)::text[])) AND r.permission_group_id = g.id AND r.role = 'owner'
+     WHERE NOT (g.persona = ANY(sqlc.arg(mfa_personas)::text[])) AND r.permission_group_id = g.id AND r.role LIKE '%:owner'
        AND a.enabled AND a.permission_group_id = r.permission_group_id
        AND (a.trust_root <> 'user' OR EXISTS(SELECT 1 FROM usable_users WHERE id = a.registered_by))
        AND EXISTS(SELECT 1 FROM permission_groups control WHERE control.id = a.permission_group_id AND control.deleted_at IS NULL)))
@@ -150,9 +153,9 @@ RETURNING g.persona, r.role;
 -- owners of the group itself.
 -- name: PermissionGroupOwnerCount :one
 SELECT ((SELECT count(*) FROM group_user_roles r JOIN usable_users u ON u.id = r.user_id
-          WHERE r.permission_group_id = sqlc.arg(group_id)::uuid AND r.role = 'owner')
+          WHERE r.permission_group_id = sqlc.arg(group_id)::uuid AND r.role LIKE '%:owner')
       + (SELECT count(*) FROM group_remote_application_roles r JOIN remote_applications a ON a.id = r.remote_application_id
-          WHERE r.permission_group_id = sqlc.arg(group_id)::uuid AND r.role = 'owner' AND a.enabled AND a.permission_group_id = r.permission_group_id))::bigint;
+          WHERE r.permission_group_id = sqlc.arg(group_id)::uuid AND r.role LIKE '%:owner' AND a.enabled AND a.permission_group_id = r.permission_group_id))::bigint;
 
 -- name: GroupUserRoleCounts :many
 SELECT pg.persona, r.role, count(*)::bigint AS n

@@ -30,10 +30,10 @@ func (s *Engine) issuePendingEmailRegistration(ctx context.Context, email, usern
 	if ttl <= 0 {
 		ttl = defaultEmailVerificationTTL
 	}
-	code := randAlphanumeric(6)
-	codeHash := sha256Hex(code)
-	linkToken := secret.RandB64(32)
-	linkHash := sha256Hex(linkToken)
+	code := secret.Digits(6)
+	codeHash := secret.Hash(code)
+	linkToken := secret.Token(32)
+	linkHash := secret.Hash(linkToken)
 
 	if err := s.storePendingChange(ctx, pendingChange{
 		Kind:              kindRegisterEmail,
@@ -105,10 +105,10 @@ func (s *Engine) issuePendingPhoneRegistration(ctx context.Context, phone, usern
 		return "", err
 	}
 	sendCtx := contextWithPreferredLanguage(ctx, language)
-	code := randAlphanumeric(6)
-	codeHash := sha256Hex(code)
-	linkToken := secret.RandB64(32)
-	linkHash := sha256Hex(linkToken)
+	code := secret.Digits(6)
+	codeHash := secret.Hash(code)
+	linkToken := secret.Token(32)
+	linkHash := secret.Hash(linkToken)
 	if err := s.storePendingChange(ctx, pendingChange{
 		Kind:              kindRegisterPhone,
 		Target:            phone,

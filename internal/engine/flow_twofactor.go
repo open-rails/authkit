@@ -12,6 +12,7 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/secret"
 )
 
 // Two-factor authentication: enrolment (factors + backup codes), the account
@@ -386,8 +387,8 @@ func (s *Engine) send2FACodeForUser(ctx context.Context, user *db.User, scope st
 	if strings.TrimSpace(scope) == "" {
 		return "", fmt.Errorf("2FA code scope required")
 	}
-	code := randAlphanumeric(6)
-	hash := sha256Hex(code)
+	code := secret.Digits(6)
+	hash := secret.Hash(code)
 
 	var destination string
 	if factor.Method == "email" {
@@ -477,7 +478,7 @@ func (s *Engine) verifyStepUpForFactor(ctx context.Context, userID, sessionID, c
 	if !s.useEphemeralStore() {
 		return false, fmt.Errorf("ephemeral store not configured")
 	}
-	return s.consumeMFAStepUpCode(ctx, userID, sessionID, sha256Hex(code), factor.Method)
+	return s.consumeMFAStepUpCode(ctx, userID, sessionID, secret.Hash(code), factor.Method)
 }
 
 func (s *Engine) verifyTOTPFactorCode(ctx context.Context, factor authflow.TwoFactorFactor, code string) (bool, error) {
@@ -517,7 +518,7 @@ func (s *Engine) verifyBackupCode(ctx context.Context, q *db.Queries, userID, ba
 	// code both succeed. The query's `enabled = true` predicate also subsumes the
 	// old "2FA not enabled" check (callers treat (false, nil) and that error
 	// identically — both reject the code).
-	hash := sha256Hex(backupCode)
+	hash := secret.Hash(backupCode)
 	rows, err := q.MFAConsumeBackupCode(ctx, db.MFAConsumeBackupCodeParams{CodeHash: hash, UserID: userID})
 	if err != nil {
 		return false, err
@@ -620,13 +621,17 @@ func twoFactorFactorFromFields(row db.MfaFactor) authflow.TwoFactorFactor {
 	}
 }
 
+// backupCodeAlphabet is uppercase alphanumerics without the ambiguous 0, 1,
+// I and O.
+const backupCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
 func generateBackupCodes() (plaintextCodes, hashedCodes []string) {
 	plaintextCodes = make([]string, 10)
 	hashedCodes = make([]string, 10)
 	for i := 0; i < 10; i++ {
-		code := randAlphanumericUppercase(8)
+		code := secret.Code(8, backupCodeAlphabet)
 		plaintextCodes[i] = code
-		hashedCodes[i] = sha256Hex(code)
+		hashedCodes[i] = secret.Hash(code)
 	}
 	return plaintextCodes, hashedCodes
 }

@@ -121,7 +121,7 @@ func TestSecurityEventsRecordOnlyCommittedChanges(t *testing.T) {
 	staff := h.newAccount("staff")
 	expect(bySystem(iam.Event{Kind: iam.EventUserRegistered, UserID: staff.id}))
 	h.grant(root, staff, "superadmin")
-	expect(bySystem(iam.Event{Kind: iam.EventRoleGranted, UserID: staff.id, GroupID: rootGroup.ID, Persona: iam.RootPersona, Current: "superadmin"}))
+	expect(bySystem(iam.Event{Kind: iam.EventRoleGranted, UserID: staff.id, GroupID: rootGroup.ID, Persona: iam.RootPersona, Current: "root:superadmin"}))
 	staffToken := h.login(staff).AccessToken
 
 	aliceEmail := unique("alice") + "@security.test"
@@ -176,35 +176,27 @@ func TestSecurityEventsRecordOnlyCommittedChanges(t *testing.T) {
 	require.NoError(t, err)
 	org := iam.GroupByID(group.ID)
 	expect(bySystem(iam.Event{Kind: iam.EventGroupCreated, GroupID: group.ID, Persona: orgPersona}))
-	expect(bySystem(iam.Event{Kind: iam.EventRoleGranted, UserID: bob.id, GroupID: group.ID, Persona: orgPersona, Current: "owner"}))
+	expect(bySystem(iam.Event{Kind: iam.EventRoleGranted, UserID: bob.id, GroupID: group.ID, Persona: orgPersona, Current: "org:owner"}))
 
-	resp = h.do(request{method: http.MethodPut, path: "/groups/" + group.ID + "/members/" + alice.id + "/roles/member", token: bobToken})
+	resp = h.do(request{method: http.MethodPut, path: "/groups/" + group.ID + "/members/" + alice.id + "/roles/org:member", token: bobToken})
 	require.Less(t, resp.status, 300, resp.String())
-	expect(byUser(bob.id, iam.Event{Kind: iam.EventRoleGranted, UserID: alice.id, GroupID: group.ID, Persona: orgPersona, Current: "member"}))
+	expect(byUser(bob.id, iam.Event{Kind: iam.EventRoleGranted, UserID: alice.id, GroupID: group.ID, Persona: orgPersona, Current: "org:member"}))
 	for range 2 { // the second assignment changes nothing
-		res, err := h.auth.AssignGroupRoles(ctx, iam.UserActor(bob.id), org, []iam.Subject{iam.UserSubject(alice.id)}, h.role(orgPersona, "manager"))
-		require.NoError(t, err)
-		require.NoError(t, res[0].Err)
+		require.NoError(t, setRole(h.auth, ctx, iam.UserActor(bob.id), org, iam.UserSubject(alice.id), h.role(orgPersona, "manager")))
 	}
-	expect(byUser(bob.id, iam.Event{Kind: iam.EventRoleChanged, UserID: alice.id, GroupID: group.ID, Persona: orgPersona, Previous: "member", Current: "manager"}))
+	expect(byUser(bob.id, iam.Event{Kind: iam.EventRoleChanged, UserID: alice.id, GroupID: group.ID, Persona: orgPersona, Previous: "org:member", Current: "org:manager"}))
 	t.Run("refused assignments record nothing", func(t *testing.T) {
-		res, err := h.auth.AssignGroupRoles(ctx, iam.UserActor(alice.id), org, []iam.Subject{iam.UserSubject(alice.id), iam.UserSubject(staff.id)}, orgPersona.OwnerRole())
-		require.NoError(t, err)
-		require.Error(t, res[0].Err, "a manager cannot make itself owner")
-		require.Error(t, res[1].Err, "nor anyone else")
-		res, err = h.auth.AssignGroupRoles(ctx, iam.UserActor(bob.id), org, []iam.Subject{iam.UserSubject("0198a0f0-0000-7000-8000-000000000000")}, h.role(orgPersona, "member"))
-		require.NoError(t, err)
-		require.ErrorIs(t, res[0].Err, iam.ErrUserNotFound)
+		require.Error(t, setRole(h.auth, ctx, iam.UserActor(alice.id), org, iam.UserSubject(alice.id), orgPersona.OwnerRole()), "a manager cannot make itself owner")
+		require.Error(t, setRole(h.auth, ctx, iam.UserActor(alice.id), org, iam.UserSubject(staff.id), orgPersona.OwnerRole()), "nor anyone else")
+		require.ErrorIs(t, setRole(h.auth, ctx, iam.UserActor(bob.id), org, iam.UserSubject("0198a0f0-0000-7000-8000-000000000000"), h.role(orgPersona, "member")), iam.ErrUserNotFound)
 	})
-	res, err := h.auth.UnassignGroupRoles(ctx, iam.UserActor(bob.id), org, []iam.Subject{iam.UserSubject(alice.id)}, h.role(orgPersona, "manager"))
-	require.NoError(t, err)
-	require.NoError(t, res[0].Err)
-	expect(byUser(bob.id, iam.Event{Kind: iam.EventRoleRevoked, UserID: alice.id, GroupID: group.ID, Persona: orgPersona, Previous: "manager"}))
+	require.NoError(t, h.auth.RemoveGroupMember(ctx, iam.UserActor(bob.id), org, iam.UserSubject(alice.id), authkit.IfRole(h.role(orgPersona, "manager"))))
+	expect(byUser(bob.id, iam.Event{Kind: iam.EventRoleRevoked, UserID: alice.id, GroupID: group.ID, Persona: orgPersona, Previous: "org:manager"}))
 
 	grantRole(t, h.auth, root, iam.UserSubject(alice.id), "moderator")
 	revokeRole(t, h.auth, root, iam.UserSubject(alice.id), "moderator")
-	expect(bySystem(iam.Event{Kind: iam.EventRoleGranted, UserID: alice.id, GroupID: rootGroup.ID, Persona: iam.RootPersona, Current: "moderator"}))
-	expect(bySystem(iam.Event{Kind: iam.EventRoleRevoked, UserID: alice.id, GroupID: rootGroup.ID, Persona: iam.RootPersona, Previous: "moderator"}))
+	expect(bySystem(iam.Event{Kind: iam.EventRoleGranted, UserID: alice.id, GroupID: rootGroup.ID, Persona: iam.RootPersona, Current: "root:moderator"}))
+	expect(bySystem(iam.Event{Kind: iam.EventRoleRevoked, UserID: alice.id, GroupID: rootGroup.ID, Persona: iam.RootPersona, Previous: "root:moderator"}))
 
 	require.NoError(t, h.auth.DeleteGroup(ctx, org))
 	require.NoError(t, h.auth.DeleteGroup(ctx, org), "deleting again records nothing")
@@ -297,7 +289,7 @@ func TestSecurityEventsCarryNoSecrets(t *testing.T) {
 
 	owner := h.newAccount("secretowner")
 	org, base := h.newOrg(owner)
-	link := h.issue(base+"/invites/links", h.login(owner).AccessToken, map[string]any{"role": "member"})
+	link := h.issue(base+"/invites/links", h.login(owner).AccessToken, map[string]any{"role": "org:member"})
 	secrets = append(secrets, link.Code)
 	resp = h.post("/invites/redeem", map[string]string{"code": link.Code}, session.AccessToken)
 	require.Less(t, resp.status, 300, resp.String())

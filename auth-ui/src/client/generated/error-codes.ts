@@ -12,11 +12,11 @@ export type AuthErrorCode =
   | "account_exists_link_required"
   | "account_recovery_expired"
   | "account_recovery_required"
-  | "account_registration_invite_not_found"
   | "address_mismatch"
   | "address_required"
   | "api_key_expired"
   | "api_key_invalid"
+  | "api_key_not_found"
   | "api_key_revoked"
   | "auth_required_for_link"
   | "authentication_failed"
@@ -46,6 +46,7 @@ export type AuthErrorCode =
   | "entitlement_filter_unavailable"
   | "external_invites_disabled"
   | "forbidden"
+  | "group_conflict"
   | "group_not_found"
   | "insufficient_authority"
   | "internal_error"
@@ -80,9 +81,9 @@ export type AuthErrorCode =
   | "invalid_token"
   | "invalid_ui"
   | "invalid_until"
-  | "invite_link_expired"
-  | "invite_link_not_found"
-  | "invite_link_revoked"
+  | "invitation_expired"
+  | "invitation_not_found"
+  | "invitation_revoked"
   | "issuer_keys_unavailable"
   | "last_owner"
   | "malformed_permissions"
@@ -178,11 +179,11 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   "account_exists_link_required": 409,
   "account_recovery_expired": 409,
   "account_recovery_required": 409,
-  "account_registration_invite_not_found": 404,
   "address_mismatch": 400,
   "address_required": 400,
   "api_key_expired": 401,
   "api_key_invalid": 401,
+  "api_key_not_found": 404,
   "api_key_revoked": 401,
   "auth_required_for_link": 401,
   "authentication_failed": 401,
@@ -212,6 +213,7 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   "entitlement_filter_unavailable": 400,
   "external_invites_disabled": 403,
   "forbidden": 403,
+  "group_conflict": 409,
   "group_not_found": 404,
   "insufficient_authority": 403,
   "internal_error": 500,
@@ -246,9 +248,9 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   "invalid_token": 401,
   "invalid_ui": 400,
   "invalid_until": 400,
-  "invite_link_expired": 400,
-  "invite_link_not_found": 404,
-  "invite_link_revoked": 400,
+  "invitation_expired": 400,
+  "invitation_not_found": 404,
+  "invitation_revoked": 400,
   "issuer_keys_unavailable": 503,
   "last_owner": 409,
   "malformed_permissions": 401,

@@ -44,9 +44,8 @@ func TestChannelDeletionModels(t *testing.T) {
 	require.NoError(t, err)
 	golang := iam.GroupByID(g.ID)
 	grant := func(ref iam.GroupRef, userID string, role iam.Role) {
-		res, err := auth.AssignGroupRoles(ctx, iam.SystemActor(), ref, []iam.Subject{iam.UserSubject(userID)}, role)
+		_, err := auth.SetGroupRole(ctx, iam.SystemActor(), ref, iam.UserSubject(userID), role)
 		require.NoError(t, err)
-		require.NoError(t, res[0].Err)
 	}
 	grant(golang, mod, moderator)
 	grant(iam.RootGroup(), chAdmin, channelAdmin)

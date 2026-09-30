@@ -32,9 +32,6 @@ SELECT EXISTS(SELECT 1 FROM user_device_keys WHERE id = $1 AND user_id = $2 AND 
 -- name: DeviceKeysByUser :many
 SELECT * FROM user_device_keys WHERE user_id = $1 ORDER BY created_at, id;
 
--- name: DeviceKeyPublicKeysActive :many
-SELECT public_key FROM user_device_keys WHERE user_id = $1 AND revoked_at IS NULL ORDER BY created_at, id;
-
 -- name: DeviceKeyRevoke :execrows
 UPDATE user_device_keys SET revoked_at = COALESCE(revoked_at, now()) WHERE id = $1 AND user_id = $2;
 

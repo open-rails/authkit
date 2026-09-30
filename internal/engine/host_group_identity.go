@@ -128,7 +128,7 @@ func (s *Engine) ListGroupMembers(ctx context.Context, ref iam.GroupRef, q iam.M
 	roles := make([]string, 0, len(q.Roles))
 	for _, r := range q.Roles {
 		if r.Persona() == g.Persona {
-			roles = append(roles, r.Name())
+			roles = append(roles, r.String())
 		}
 	}
 	if len(q.Roles) > 0 && len(roles) == 0 {
@@ -144,7 +144,7 @@ func (s *Engine) ListGroupMembers(ctx context.Context, ref iam.GroupRef, q iam.M
 	}
 	for _, r := range rows {
 		out.Items = append(out.Items, iam.GroupMember{
-			Subject: iam.Subject{Kind: iam.SubjectKind(r.Kind), ID: r.ID}, Role: ident.Role(g.Persona, r.Role),
+			Subject: iam.Subject{Kind: iam.SubjectKind(r.Kind), ID: r.ID}, Role: ident.RoleText(r.Role),
 		})
 	}
 	if len(out.Items) > limit {
@@ -172,9 +172,9 @@ func (s *Engine) ListGroupMembers(ctx context.Context, ref iam.GroupRef, q iam.M
 	return out, nil
 }
 
-// ListSubjectGroups lists the live groups a subject holds a role in, ordered
+// ListMemberships lists the live groups a subject holds a role in, ordered
 // by persona, then id.
-func (s *Engine) ListSubjectGroups(ctx context.Context, subject iam.Subject, p iam.PageRequest) (iam.ListPage[iam.Membership], error) {
+func (s *Engine) ListMemberships(ctx context.Context, subject iam.Subject, p iam.PageRequest) (iam.ListPage[iam.Membership], error) {
 	var out iam.ListPage[iam.Membership]
 	if err := s.requirePG(); err != nil {
 		return out, err
@@ -204,7 +204,7 @@ func (s *Engine) ListSubjectGroups(ctx context.Context, subject iam.Subject, p i
 	}
 	for _, r := range rows {
 		g := publicGroup(r.PermissionGroup)
-		out.Items = append(out.Items, iam.Membership{Group: g, Role: ident.Role(g.Persona, r.Role)})
+		out.Items = append(out.Items, iam.Membership{Group: g, Role: ident.RoleText(r.Role)})
 	}
 	if len(out.Items) > limit {
 		out.Items = out.Items[:limit]

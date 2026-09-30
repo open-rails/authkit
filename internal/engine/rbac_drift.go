@@ -42,7 +42,7 @@ func (s *Engine) driftReport(ctx context.Context) (rbacDriftReport, error) {
 // undefinedRoleCount is n when the persona's role is no longer defined, else 0.
 func (s *Engine) undefinedRoleCount(persona, role string, n int64) int {
 	p := ident.Persona(persona)
-	if _, ok := s.groupSchemaOrDefault().Role(p, ident.Role(p, role)); ok {
+	if _, ok := s.groupSchemaOrDefault().Role(p, ident.RoleText(role)); ok {
 		return 0
 	}
 	return int(n)

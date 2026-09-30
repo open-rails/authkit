@@ -10,6 +10,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/secret"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -38,7 +39,7 @@ func TestRecoveryProofCannotCrossGenerationOrRaceFinalPurge(t *testing.T) {
 	require.Equal(t, authflow.LoginRecoveryRequired, first.Kind)
 	token := first.Recovery.Token
 	var saved accountRecoveryProof
-	_, ok, err := s.ephemReadJSON(t.Context(), "account-recovery:"+sha256Hex(token), &saved)
+	_, ok, err := s.ephemReadJSON(t.Context(), "account-recovery:"+secret.Hash(token), &saved)
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.NoError(t, s.ConfirmAccountRecovery(t.Context(), token))
@@ -48,14 +49,14 @@ func TestRecoveryProofCannotCrossGenerationOrRaceFinalPurge(t *testing.T) {
 	// Deliberately keep an old generation with a current CV in server-side test
 	// state, so the generation fence is tested independently of the CV fence.
 	saved.Version = version.CredentialVersion
-	key := "account-recovery:" + sha256Hex(token)
+	key := "account-recovery:" + secret.Hash(token)
 	require.NoError(t, s.ephemSetJSON(t.Context(), key, saved, time.Minute))
 	require.Error(t, s.ConfirmAccountRecovery(t.Context(), token))
 
 	current, err := s.PasswordLogin(t.Context(), authflow.PasswordLoginInput{Identifier: *user.Email, Password: "Correct-race-password-1"})
 	require.NoError(t, err)
 	token = current.Recovery.Token
-	key = "account-recovery:" + sha256Hex(token)
+	key = "account-recovery:" + secret.Hash(token)
 	_, ok, err = s.ephemReadJSON(t.Context(), key, &saved)
 	require.NoError(t, err)
 	require.True(t, ok)

@@ -33,6 +33,14 @@ func Role(persona iam.Persona, name string) iam.Role {
 	return r
 }
 
+// RoleText reads a role's text form `<persona>:<name>`, as rows store it;
+// the zero Role when it is malformed.
+func RoleText(s string) iam.Role {
+	var r iam.Role
+	_ = r.UnmarshalText([]byte(s))
+	return r
+}
+
 // Perms converts each string with Perm.
 func Perms(ss []string) []iam.Perm {
 	if ss == nil {

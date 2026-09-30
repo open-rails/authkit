@@ -41,8 +41,8 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	}
 	t.Run("purge", func(t *testing.T) {
 		group := create()
-		require.NoError(t, svc.PurgeGroup(ctx, iam.GroupByID(group), nil))
-		require.NoError(t, svc.PurgeGroup(ctx, iam.GroupByID(group), nil)) // captured-ID replay
+		require.NoError(t, svc.PurgeGroup(ctx, iam.GroupByID(group)))
+		require.NoError(t, svc.PurgeGroup(ctx, iam.GroupByID(group))) // captured-ID replay
 		var remaining int
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM permission_groups WHERE id=$1::uuid`, group).Scan(&remaining))
 		require.Zero(t, remaining)
@@ -54,7 +54,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		_, err := pool.Exec(ctx, fmt.Sprintf(`CREATE FUNCTION lifecycle_delete_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected lifecycle failure'; END $$;
   CREATE TRIGGER lifecycle_delete_failure BEFORE DELETE ON permission_groups FOR EACH ROW WHEN (OLD.id='%s'::uuid) EXECUTE FUNCTION lifecycle_delete_failure()`, group))
 		require.NoError(t, err)
-		require.ErrorContains(t, svc.PurgeGroup(ctx, iam.GroupByID(group), nil), "injected lifecycle failure")
+		require.ErrorContains(t, svc.PurgeGroup(ctx, iam.GroupByID(group)), "injected lifecycle failure")
 		var owners int
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM group_user_roles WHERE permission_group_id=$1::uuid`, group).Scan(&owners))
 		require.Equal(t, 1, owners, "the group rolls back with the failed delete")
@@ -67,7 +67,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		require.NoError(t, err)
 		deleted := make(chan error, 1)
 		go func() {
-			deleted <- svc.PurgeGroup(ctx, iam.GroupByID(group), nil)
+			deleted <- svc.PurgeGroup(ctx, iam.GroupByID(group))
 		}()
 		require.Eventually(t, func() bool {
 			var n int
@@ -93,28 +93,28 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		survivorID, err := seedGroup(ctx, svc, ident.Persona("org"), "")
 		require.NoError(t, err)
 		survivor := iam.GroupByID(survivorID)
-		application, err := svc.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(controller), iam.RemoteApplication{Slug: "retained-app", Issuer: "https://retained-app.example", JWKSURI: "https://retained-app.example/jwks", Mode: iam.RemoteApplicationModeJWKS, Enabled: true})
+		application, err := svc.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(controller), iam.RemoteApplication{Issuer: "https://retained-app.example", JWKSURI: "https://retained-app.example/jwks", Mode: iam.RemoteApplicationModeJWKS, Enabled: true})
 		require.NoError(t, err)
 		// A historical cross-control assignment that the assignment APIs
 		// refuse: deleting its controller must not count the departing
 		// application as the survivor's owner.
-		_, err = pool.Exec(ctx, `INSERT INTO group_remote_application_roles(permission_group_id,remote_application_id,role) VALUES($1::uuid,$2::uuid,'owner')`, survivorID, application.ID)
+		_, err = pool.Exec(ctx, `INSERT INTO group_remote_application_roles(permission_group_id,remote_application_id,role) VALUES($1::uuid,$2::uuid,'org:owner')`, survivorID, application.ID)
 		require.NoError(t, err)
-		require.ErrorIs(t, svc.DeleteGroup(ctx, iam.GroupByID(controller), nil), iam.ErrLastOwner)
+		require.ErrorIs(t, svc.DeleteGroup(ctx, iam.GroupByID(controller)), iam.ErrLastOwner)
 		unchanged, err := svc.Group(ctx, iam.GroupByID(controller))
 		require.NoError(t, err)
 		require.Nil(t, unchanged.DeletedAt, "a refused delete is atomic")
 		grantRole(t, svc, survivor, iam.UserSubject(owner.ID), "owner")
-		require.NoError(t, svc.DeleteGroup(ctx, iam.GroupByID(controller), nil))
+		require.NoError(t, svc.DeleteGroup(ctx, iam.GroupByID(controller)))
 		_, err = svc.GetRemoteApplication(ctx, application.Issuer)
 		require.Error(t, err)
-		_, err = svc.ResolveRemoteApplicationAuthority(ctx, application.ID)
+		_, _, err = svc.storedApplicationAuthority(ctx, application.ID)
 		require.Error(t, err)
 		allowed, err := svc.Can(ctx, iam.RemoteApplicationActor(application.ID), survivor, ident.Perm("org:billing:read"))
 		require.NoError(t, err)
 		require.False(t, allowed)
 		application.Enabled = false
-		_, err = svc.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(application.PermissionGroupID), *application)
+		_, err = svc.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(application.GroupID), application)
 		require.ErrorIs(t, err, iam.ErrGroupNotFound, "retained application state cannot be rewritten")
 	})
 }
