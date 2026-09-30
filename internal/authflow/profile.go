@@ -2,9 +2,9 @@ package authflow
 
 import (
 	"sort"
-	"strings"
 	"time"
 
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/contact"
 )
 
@@ -22,15 +22,16 @@ type ProfileInput struct {
 }
 
 // StepUpMethods lists how the user can re-authenticate for a sensitive
-// action: password, an enabled second factor, and every linked provider that
+// action. An account with a second factor re-proves itself only with one
+// ("2fa"); any other with its password and every linked provider that
 // supports step-up (de-duplicated, sorted). Pure over already-loaded inputs.
-func StepUpMethods(hasPassword bool, settings *TwoFactorSettings, providerSlugs []string, supportsStepUp func(string) bool) []string {
+func StepUpMethods(hasPassword bool, factors []TwoFactorFactor, providerSlugs []string, supportsStepUp func(string) bool) []string {
+	if len(factors) > 0 {
+		return []string{"2fa"}
+	}
 	methods := []string{}
 	if hasPassword {
 		methods = append(methods, "password")
-	}
-	if settings != nil && settings.Enabled {
-		methods = append(methods, "2fa")
 	}
 	seen := make(map[string]struct{}, len(providerSlugs))
 	distinct := make([]string, 0, len(providerSlugs))
@@ -50,60 +51,51 @@ func StepUpMethods(hasPassword bool, settings *TwoFactorSettings, providerSlugs 
 	return methods
 }
 
-// NewStepUpTwoFactorOptions lists the second factors a step-up can use, with the
-// code destination masked. Nil when 2FA is not enabled.
-func NewStepUpTwoFactorOptions(settings *TwoFactorSettings) *StepUpTwoFactorOptions {
+// StepUpFactors lists the second factors a step-up can use: none unless 2FA
+// is enabled.
+func StepUpFactors(settings *TwoFactorSettings) []TwoFactorFactor {
 	if settings == nil || !settings.Enabled {
-		return nil
+		return []TwoFactorFactor{}
 	}
-	factors := settings.Factors
-	if len(factors) == 0 && strings.TrimSpace(settings.Method) != "" {
-		factors = []TwoFactorFactor{{Method: strings.TrimSpace(settings.Method), PhoneNumber: settings.PhoneNumber, IsDefault: true, Enabled: true}}
+	return WireFactors(settings.Factors)
+}
+
+// NewTwoFactorStatus is the account's second-factor state; nil settings is
+// an account that never enrolled.
+func NewTwoFactorStatus(settings *TwoFactorSettings, allowed []iam.TwoFactorMethod) TwoFactorStatus {
+	if allowed == nil {
+		allowed = []iam.TwoFactorMethod{}
 	}
-	if len(factors) == 0 {
-		return nil
+	if settings == nil {
+		return TwoFactorStatus{Factors: []TwoFactorFactor{}, AllowedMethods: allowed}
 	}
-	out := &StepUpTwoFactorOptions{}
-	for _, factor := range factors {
-		method := strings.ToLower(strings.TrimSpace(factor.Method))
-		if !factor.Enabled || !ValidTwoFactorStepUpMethod(method) {
-			continue
-		}
-		option := StepUpTwoFactorOption{Method: method, IsDefault: factor.IsDefault}
-		switch method {
-		case "email":
-			if factor.Email != nil {
-				masked := contact.MaskDestination(*factor.Email)
-				option.Destination = &masked
-			}
-		case "sms":
-			if factor.PhoneNumber != nil {
-				masked := contact.MaskDestination(*factor.PhoneNumber)
-				option.Destination = &masked
-			}
-		}
-		out.Methods = append(out.Methods, method)
-		out.Options = append(out.Options, option)
-		if factor.IsDefault {
-			out.DefaultMethod = method
-		}
+	return TwoFactorStatus{
+		Enabled:              settings.Enabled,
+		Factors:              WireFactors(settings.Factors),
+		AllowedMethods:       allowed,
+		BackupCodesRemaining: len(settings.BackupCodes),
 	}
-	if len(out.Methods) == 0 {
-		return nil
+}
+
+// WireFactor is f as the wire shows it, its code destination masked.
+func WireFactor(f MFAFactor) TwoFactorFactor {
+	out := TwoFactorFactor{ID: f.ID, Method: f.Method, IsDefault: f.IsDefault}
+	destination := f.Email
+	if f.Method == "sms" {
+		destination = f.PhoneNumber
 	}
-	if out.DefaultMethod == "" {
-		out.DefaultMethod = out.Methods[0]
-		out.Options[0].IsDefault = true
+	if destination != nil && f.Method != "totp" {
+		masked := contact.MaskDestination(*destination)
+		out.Destination = &masked
 	}
 	return out
 }
 
-// ValidTwoFactorStepUpMethod reports whether method can satisfy a step-up.
-func ValidTwoFactorStepUpMethod(method string) bool {
-	switch strings.ToLower(strings.TrimSpace(method)) {
-	case "email", "sms", "totp":
-		return true
-	default:
-		return false
+// WireFactors is WireFactor over factors, never nil.
+func WireFactors(factors []MFAFactor) []TwoFactorFactor {
+	out := make([]TwoFactorFactor, 0, len(factors))
+	for _, f := range factors {
+		out = append(out, WireFactor(f))
 	}
+	return out
 }

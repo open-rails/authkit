@@ -270,8 +270,8 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 
 	t.Run("password change keeps the current session and revokes the sibling issuer", func(t *testing.T) {
 		current := login(t, siteB, bystander)
-		res := siteB.api.do(request{method: http.MethodPut, path: "/me/password", token: current.AccessToken, body: map[string]string{"current_password": bystander.Password, "new_password": "Another-horse-battery-98"}})
-		require.Contains(t, []int{http.StatusOK, http.StatusNoContent}, res.status, res.String())
+		res := siteB.api.do(request{method: http.MethodPut, path: "/me/password", token: current.AccessToken, body: map[string]string{"new_password": "Another-horse-battery-98"}})
+		require.Equal(t, http.StatusNoContent, res.status, res.String())
 		require.Equal(t, http.StatusOK, refresh(t, siteB, current))
 		require.Equal(t, http.StatusUnauthorized, refresh(t, siteA, bystanderA))
 	})

@@ -105,8 +105,6 @@ func (s *Engine) listEntitlements(ctx context.Context, userID string) []string {
 	return m[userID]
 }
 
-// (legacy ChangePassword removed in favor of unified ChangePassword with session revocation)
-
 // --- Pending Registration Helpers ---
 
 // GetPendingRegistrationByEmail looks up a pending registration by email.

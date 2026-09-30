@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- A second factor is one `TwoFactorFactor` everywhere, addressed by its `id`.
+  `StepUpChallenge` is `{ methods, maxAgeSeconds, factors }`; `mfaRequired`,
+  `twoFactor` and `stepUpDestination` are gone (with a second factor,
+  `methods` is `["2fa"]`). `sendStepUpCode`, `stepUpWithTwoFactor` and
+  `useStepUp`'s `sendCode`/`withTwoFactor` take a `factorId`, and `code_sent`
+  carries it.
+- `getTwoFactor` is gone: `getSecurity()` lists the factors in `two_factor`,
+  which `useTwoFactorSettings` reads.
+- `changePassword({ newPassword })` sends only the new password; the guard
+  steps up first.
+
+## 1.0.2
+
 Speaks AuthKit's v1 routes (#407); breaking for every host.
 
 - One sign-in result. Every sign-in call (password, 2FA, passwordless,

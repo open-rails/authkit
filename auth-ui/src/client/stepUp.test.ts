@@ -3,51 +3,39 @@ import { expect, it } from "vitest"
 import { toSignInResult } from "./authResult.ts"
 import { AuthKitError, errorMetadata } from "./errors.ts"
 import { safeReturnTo } from "./returnTo.ts"
-import { readStepUpRequired, stepUpDestination } from "./stepUp.ts"
+import { readStepUpRequired } from "./stepUp.ts"
 import { authResult, complete } from "./testing.ts"
 
 const err = (status: number, code: string, metadata: Record<string, unknown>) =>
   new AuthKitError(status, { type: "", code, message: code, metadata })
 
-it("reads step_up_required and narrows MFA-gated methods to 2fa", () => {
+it("reads step_up_required with its second factors", () => {
   expect(
     readStepUpRequired(
       err(403, "step_up_required", {
         step_up_methods: ["password", "Google"],
         max_age_seconds: 300,
-        step_up_2fa: null,
-        mfa_required: false,
+        factors: [],
       })
     )
   ).toEqual({
     methods: ["password", "google"],
-    mfaRequired: false,
     maxAgeSeconds: 300,
-    twoFactor: undefined,
+    factors: [],
   })
-  const twoFactor = {
-    methods: ["totp", "email"],
-    default_method: "totp",
-    options: [
-      { method: "totp", is_default: true, destination: null },
-      { method: "email", is_default: false, destination: "a***@b.c" },
-    ],
-  }
-  const challenge = readStepUpRequired(
-    err(403, "step_up_required", {
-      step_up_methods: ["password", "2fa"],
-      max_age_seconds: 300,
-      mfa_required: true,
-      step_up_2fa: twoFactor,
-    })
-  )
-  expect(challenge).toMatchObject({
-    methods: ["2fa"],
-    mfaRequired: true,
-    twoFactor,
-  })
-  expect(stepUpDestination(challenge!, "email")).toBe("a***@b.c")
-  expect(stepUpDestination(challenge!, "sms")).toBeNull()
+  const factors = [
+    { id: "f1", method: "totp", is_default: true, destination: null },
+    { id: "f2", method: "email", is_default: false, destination: "a***@b.c" },
+  ]
+  expect(
+    readStepUpRequired(
+      err(403, "step_up_required", {
+        step_up_methods: ["2fa"],
+        max_age_seconds: 300,
+        factors,
+      })
+    )
+  ).toEqual({ methods: ["2fa"], maxAgeSeconds: 300, factors })
   expect(readStepUpRequired(err(401, "invalid_credentials", {}))).toBeNull()
 })
 

@@ -70,7 +70,10 @@ test("TOTP 2FA, step-up, delete and recover", async ({ page, request }) => {
   expect(stepUp.status).toBe(403)
   const stepUpError = (stepUp.body as ErrorBody).error
   expect(stepUpError.code).toBe("step_up_required")
-  expect(stepUpError.metadata).toMatchObject({ mfa_required: true })
+  expect(stepUpError.metadata).toMatchObject({
+    step_up_methods: ["2fa"],
+    factors: [{ method: "totp", is_default: true, destination: null }],
+  })
 
   // A fresh 2FA sign-in may delete the account.
   expect((await api(page, "DELETE", "/me", undefined, access2)).status).toBe(

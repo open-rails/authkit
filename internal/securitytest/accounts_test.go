@@ -237,9 +237,9 @@ func TestSecurityVerifiedOnlyByProof(t *testing.T) {
 }
 
 // TestSecurityInlinePasswordNeedsSecondFactor (M5): for an account with a
-// second factor, a password typed into a sensitive request (PUT /me/password's
-// current password) never stands in for a fresh step-up with that factor, and
-// the other sensitive routes take no password at all.
+// second factor, only a fresh step-up with that factor opens a sensitive
+// route. None takes a password inline: PUT /me/password refuses a current
+// password member.
 func TestSecurityInlinePasswordNeedsSecondFactor(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits))
 	ctx := context.Background()
@@ -253,7 +253,7 @@ func TestSecurityInlinePasswordNeedsSecondFactor(t *testing.T) {
 	token := authtest.StaleSession(t, h.auth, session(t, resp).AccessToken)
 	for _, req := range []request{
 		{method: http.MethodPut, path: "/me/email", body: map[string]string{"email": unique("evil") + "@security.test"}},
-		{method: http.MethodPut, path: "/me/password", body: map[string]string{"current_password": password, "new_password": password + "x"}},
+		{method: http.MethodPut, path: "/me/password", body: map[string]string{"new_password": password + "x"}},
 		{method: http.MethodDelete, path: "/me"},
 	} {
 		req.token = token
@@ -261,6 +261,9 @@ func TestSecurityInlinePasswordNeedsSecondFactor(t *testing.T) {
 		require.Equal(t, http.StatusForbidden, resp.status, "%s %s: %s", req.method, req.path, resp)
 		require.Equal(t, "step_up_required", resp.errorCode())
 	}
+	resp = h.do(request{method: http.MethodPut, path: "/me/password", token: token, body: map[string]string{"current_password": password, "new_password": password + "x"}})
+	require.Equal(t, http.StatusBadRequest, resp.status, resp.String())
+	require.Equal(t, "invalid_request", resp.errorCode())
 	u, err := h.auth.User(ctx, iam.UserByID(a.id))
 	require.NoError(t, err)
 	require.Equal(t, a.email, *u.Email)
@@ -630,17 +633,19 @@ func TestSecurityEmailFactorFollowsOwnChange(t *testing.T) {
 		return email
 	}
 	listed := func() string {
-		resp := h.get("/me/2fa", token)
+		resp := h.get("/me/security", token)
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
 		var out struct {
-			Factors []struct {
-				Method      string `json:"method"`
-				Destination string `json:"destination"`
-			} `json:"factors"`
+			TwoFactor struct {
+				Factors []struct {
+					Method      string `json:"method"`
+					Destination string `json:"destination"`
+				} `json:"factors"`
+			} `json:"two_factor"`
 		}
 		resp.json(t, &out)
-		require.Len(t, out.Factors, 1)
-		return out.Factors[0].Destination
+		require.Len(t, out.TwoFactor.Factors, 1)
+		return out.TwoFactor.Factors[0].Destination
 	}
 	require.Equal(t, "r***@security.test", listed())
 

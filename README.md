@@ -263,7 +263,7 @@ Mounting gives your users all of this: 65 routes under `/api/v1`, plus the publi
 | `GET /api/v1/me` | who you are |
 | `PATCH /api/v1/me` | change your username, language or avatar |
 | `DELETE /api/v1/me` | delete your account (30 days to change your mind) |
-| `GET /api/v1/me/security` | whether you need to step up, and how |
+| `GET /api/v1/me/security` | whether you need to step up and how, and your second factors |
 | `PUT /api/v1/me/password` | change your password |
 | `PUT /api/v1/me/email` | change your email (a code goes to the new one) |
 | `PUT /api/v1/me/phone` | change your phone number |
@@ -278,7 +278,6 @@ Mounting gives your users all of this: 65 routes under `/api/v1`, plus the publi
 
 | Route | What it does |
 |---|---|
-| `GET /api/v1/me/2fa` | your second factors |
 | `POST /api/v1/me/2fa/setup` | start adding one: a code to your email or phone, or an authenticator app's secret |
 | `POST /api/v1/me/2fa/factors` | add it with that code |
 | `PATCH /api/v1/me/2fa/factors/{id}` | make it your default |

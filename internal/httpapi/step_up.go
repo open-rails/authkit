@@ -48,7 +48,7 @@ func (s *Service) handlePasswordStepUpPOST(w http.ResponseWriter, r *http.Reques
 }
 
 // handleTwoFactorStepUpSendPOST sends a step-up code to a second factor (the
-// default one when no method is named); an authenticator app needs none.
+// default one when no factor_id is named); an authenticator app needs none.
 func (s *Service) handleTwoFactorStepUpSendPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := stepUpCaller(w, r)
 	if !ok {
@@ -59,14 +59,10 @@ func (s *Service) handleTwoFactorStepUpSendPOST(w http.ResponseWriter, r *http.R
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	method, ok := stepUpMethod(w, body.Method)
-	if !ok || !s.requireSecondFactor(w, r, claims.UserID) {
+	if !s.requireSecondFactor(w, r, claims.UserID) || s.rateLimitedByIdentifier(w, r, RLStepUp2FASend, claims.UserID) {
 		return
 	}
-	if s.rateLimitedByIdentifier(w, r, RLStepUp2FASend, claims.UserID) {
-		return
-	}
-	if _, _, _, err := s.svc.Require2FAForStepUpMethod(r.Context(), claims.UserID, claims.SessionID, method); err != nil {
+	if err := s.svc.Send2FAStepUpCode(r.Context(), claims.UserID, claims.SessionID, body.FactorID); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -94,8 +90,7 @@ func (s *Service) handleTwoFactorStepUpPOST(w http.ResponseWriter, r *http.Reque
 		fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("code"))
 		return
 	}
-	method, ok := stepUpMethod(w, body.Method)
-	if !ok || !s.requireSecondFactor(w, r, claims.UserID) {
+	if !s.requireSecondFactor(w, r, claims.UserID) {
 		return
 	}
 	var valid bool
@@ -103,7 +98,11 @@ func (s *Service) handleTwoFactorStepUpPOST(w http.ResponseWriter, r *http.Reque
 	if body.BackupCode {
 		valid, err = s.svc.VerifyBackupCode(r.Context(), claims.UserID, code)
 	} else {
-		valid, err = s.svc.Verify2FAStepUpMethodCode(r.Context(), claims.UserID, claims.SessionID, method, code)
+		valid, err = s.svc.Verify2FAStepUpCode(r.Context(), claims.UserID, claims.SessionID, body.FactorID, code)
+	}
+	if errmodel.CodeOf(err) == errmodel.CodeNotFound {
+		writeError(w, err)
+		return
 	}
 	if err != nil || !valid {
 		fail(w, codeRejection(err))
@@ -125,16 +124,6 @@ func stepUpCaller(w http.ResponseWriter, r *http.Request) (verify.Claims, bool) 
 		return verify.Claims{}, false
 	}
 	return claims, true
-}
-
-// stepUpMethod reads a step-up's second-factor method ("" = the default).
-func stepUpMethod(w http.ResponseWriter, method string) (string, bool) {
-	method = strings.ToLower(strings.TrimSpace(method))
-	if method != "" && !authflow.ValidTwoFactorStepUpMethod(method) {
-		fail(w, errmodel.CodeInvalidTwoFAMethod)
-		return "", false
-	}
-	return method, true
 }
 
 // requireSecondFactor refuses a second-factor step-up for an account without

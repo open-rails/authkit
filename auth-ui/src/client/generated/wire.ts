@@ -369,7 +369,6 @@ export type PasswordCapabilities = {
 }
 
 export type PasswordChangeRequest = {
-  current_password?: string
   new_password?: string
 }
 
@@ -541,20 +540,7 @@ export type SolanaSignInRequest = {
 export type StepUpRequired = {
   step_up_methods: string[]
   max_age_seconds: number
-  step_up_2fa: StepUpTwoFactorOptions | null
-  mfa_required: boolean
-}
-
-export type StepUpTwoFactorOption = {
-  method: string
-  is_default: boolean
-  destination: string | null
-}
-
-export type StepUpTwoFactorOptions = {
-  methods: string[]
-  default_method: string
-  options: StepUpTwoFactorOption[]
+  factors: TwoFactorFactor[]
 }
 
 export type Subject = {
@@ -618,7 +604,7 @@ export type TwoFactorRequired = {
 }
 
 export type TwoFactorSendRequest = {
-  method?: string
+  factor_id?: string
 }
 
 export type TwoFactorSetup = {
@@ -642,7 +628,7 @@ export type TwoFactorStatus = {
 
 export type TwoFactorStepUpRequest = {
   code?: string
-  method?: string
+  factor_id?: string
   backup_code?: boolean
 }
 
@@ -716,10 +702,7 @@ export type UserSecurity = {
   step_up_required_in_seconds: number
   auth_methods: string[]
   step_up_methods: string[]
-  step_up_2fa: StepUpTwoFactorOptions | null
-  mfa_enabled: boolean
-  mfa_satisfied: boolean
-  mfa_allowed_methods: ("email" | "sms" | "totp")[]
+  two_factor: TwoFactorStatus
 }
 
 export type UsernameCapabilities = {

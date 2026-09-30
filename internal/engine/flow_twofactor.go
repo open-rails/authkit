@@ -161,7 +161,7 @@ func (s *Engine) markEnrollingSessionTx(ctx context.Context, q *db.Queries, user
 	if err != nil {
 		return false, err
 	}
-	if !independentFactor(loginProof{Input: loginSessionInput{AuthMethods: fresh.AuthMethods}}, authflow.TwoFactorFactor{Method: method}) {
+	if !independentFactor(loginProof{Input: loginSessionInput{AuthMethods: fresh.AuthMethods}}, authflow.MFAFactor{Method: method}) {
 		return false, nil
 	}
 	n, err := q.SessionMarkAuthenticated(ctx, db.SessionMarkAuthenticatedParams{
@@ -256,26 +256,26 @@ var errFactorNotFound = errmodel.E(errmodel.CodeNotFound)
 
 // SetDefault2FAFactor makes the account's factor factorID its default and
 // returns it; not_found when the account holds no such factor.
-func (s *Engine) SetDefault2FAFactor(ctx context.Context, userID, factorID string) (authflow.TwoFactorFactor, error) {
+func (s *Engine) SetDefault2FAFactor(ctx context.Context, userID, factorID string) (authflow.MFAFactor, error) {
 	if !isUUID(factorID) {
-		return authflow.TwoFactorFactor{}, errFactorNotFound
+		return authflow.MFAFactor{}, errFactorNotFound
 	}
 	if err := s.setDefault2FAFactor(ctx, userID, factorID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return authflow.TwoFactorFactor{}, errFactorNotFound
+			return authflow.MFAFactor{}, errFactorNotFound
 		}
-		return authflow.TwoFactorFactor{}, err
+		return authflow.MFAFactor{}, err
 	}
 	factors, err := s.listUser2FAFactors(ctx, userID)
 	if err != nil {
-		return authflow.TwoFactorFactor{}, err
+		return authflow.MFAFactor{}, err
 	}
 	for _, f := range factors {
 		if f.ID == factorID {
 			return f, nil
 		}
 	}
-	return authflow.TwoFactorFactor{}, errFactorNotFound
+	return authflow.MFAFactor{}, errFactorNotFound
 }
 
 func (s *Engine) setDefault2FAFactor(ctx context.Context, userID, factorID string) error {
@@ -358,26 +358,26 @@ func (s *Engine) get2FASettings(ctx context.Context, q *db.Queries, userID strin
 	return settings, nil
 }
 
-func (s *Engine) listUser2FAFactors(ctx context.Context, userID string) ([]authflow.TwoFactorFactor, error) {
+func (s *Engine) listUser2FAFactors(ctx context.Context, userID string) ([]authflow.MFAFactor, error) {
 	if s.pg == nil {
 		return nil, fmt.Errorf("postgres not configured")
 	}
 	return s.list2FAFactors(ctx, s.q, userID)
 }
 
-func (s *Engine) list2FAFactors(ctx context.Context, q *db.Queries, userID string) ([]authflow.TwoFactorFactor, error) {
+func (s *Engine) list2FAFactors(ctx context.Context, q *db.Queries, userID string) ([]authflow.MFAFactor, error) {
 	rows, err := q.MFAListFactorsByUser(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]authflow.TwoFactorFactor, 0, len(rows))
+	out := make([]authflow.MFAFactor, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, twoFactorFactorFromFields(row))
 	}
 	return out, nil
 }
 
-func (s *Engine) send2FACodeForFactor(ctx context.Context, userID, sessionID string, factor authflow.TwoFactorFactor) (string, error) {
+func (s *Engine) send2FACodeForFactor(ctx context.Context, userID, sessionID string, factor authflow.MFAFactor) (string, error) {
 	if !factor.Enabled {
 		return "", fmt.Errorf("2FA not enabled")
 	}
@@ -395,7 +395,7 @@ func (s *Engine) send2FACodeForFactor(ctx context.Context, userID, sessionID str
 // send2FACodeForUser sends a code for factor to the destination pinned at its
 // enrollment (never the account's current address), stored under scope: the
 // login proof, step-up session or device-key ceremony it answers.
-func (s *Engine) send2FACodeForUser(ctx context.Context, user *db.User, scope string, factor authflow.TwoFactorFactor) (string, error) {
+func (s *Engine) send2FACodeForUser(ctx context.Context, user *db.User, scope string, factor authflow.MFAFactor) (string, error) {
 	userID := user.ID
 	language := ""
 	if user.PreferredLanguage != nil {
@@ -457,23 +457,27 @@ func (s *Engine) send2FACodeForUser(ctx context.Context, user *db.User, scope st
 	return destination, nil
 }
 
-func (s *Engine) Require2FAForStepUpMethod(ctx context.Context, userID, sessionID, method string) (destination, selectedMethod string, factor authflow.TwoFactorFactor, err error) {
+// Send2FAStepUpCode sends a step-up code to the account's factor factorID
+// (its default factor when empty); an authenticator app needs none.
+func (s *Engine) Send2FAStepUpCode(ctx context.Context, userID, sessionID, factorID string) error {
 	if strings.TrimSpace(sessionID) == "" {
-		return "", "", authflow.TwoFactorFactor{}, jwt.ErrTokenInvalidClaims
+		return jwt.ErrTokenInvalidClaims
 	}
-	factor, err = s.twoFactorFactorByMethod(ctx, userID, method)
+	factor, err := s.stepUpFactor(ctx, userID, factorID)
 	if err != nil {
-		return "", "", authflow.TwoFactorFactor{}, err
+		return err
 	}
-	destination, err = s.send2FACodeForFactor(ctx, userID, sessionID, factor)
-	return destination, factor.Method, factor, err
+	_, err = s.send2FACodeForFactor(ctx, userID, sessionID, factor)
+	return err
 }
 
-func (s *Engine) Verify2FAStepUpMethodCode(ctx context.Context, userID, sessionID, method, code string) (bool, error) {
+// Verify2FAStepUpCode checks a step-up code from the account's factor
+// factorID (its default factor when empty).
+func (s *Engine) Verify2FAStepUpCode(ctx context.Context, userID, sessionID, factorID, code string) (bool, error) {
 	if strings.TrimSpace(sessionID) == "" {
 		return false, jwt.ErrTokenInvalidClaims
 	}
-	factor, err := s.twoFactorFactorByMethod(ctx, userID, method)
+	factor, err := s.stepUpFactor(ctx, userID, factorID)
 	if err != nil {
 		return false, err
 	}
@@ -481,9 +485,9 @@ func (s *Engine) Verify2FAStepUpMethodCode(ctx context.Context, userID, sessionI
 }
 
 // verifyStepUpForFactor is the shared step-up verify tail once the factor is
-// resolved (by id or by method): TOTP verifies inline, everything else consumes
+// resolved: TOTP verifies inline, everything else consumes
 // the session-scoped code from the ephemeral store.
-func (s *Engine) verifyStepUpForFactor(ctx context.Context, userID, sessionID, code string, factor authflow.TwoFactorFactor) (bool, error) {
+func (s *Engine) verifyStepUpForFactor(ctx context.Context, userID, sessionID, code string, factor authflow.MFAFactor) (bool, error) {
 	if factor.Method == "totp" {
 		return s.verifyTOTPFactorCode(ctx, factor, code)
 	}
@@ -493,11 +497,11 @@ func (s *Engine) verifyStepUpForFactor(ctx context.Context, userID, sessionID, c
 	return s.consumeMFAStepUpCode(ctx, userID, sessionID, secret.Hash(code), factor.Method)
 }
 
-func (s *Engine) verifyTOTPFactorCode(ctx context.Context, factor authflow.TwoFactorFactor, code string) (bool, error) {
+func (s *Engine) verifyTOTPFactorCode(ctx context.Context, factor authflow.MFAFactor, code string) (bool, error) {
 	return s.verifyTOTPFactorCodeOn(ctx, s.q, factor, code)
 }
 
-func (s *Engine) verifyTOTPFactorCodeOn(ctx context.Context, q *db.Queries, factor authflow.TwoFactorFactor, code string) (bool, error) {
+func (s *Engine) verifyTOTPFactorCodeOn(ctx context.Context, q *db.Queries, factor authflow.MFAFactor, code string) (bool, error) {
 	secret, err := s.decryptTOTPSecret(factor.TOTPSecret)
 	if err != nil {
 		return false, err
@@ -559,60 +563,27 @@ func (s *Engine) RegenerateBackupCodes(ctx context.Context, userID string) ([]st
 	return plaintextCodes, nil
 }
 
-func (s *Engine) twoFactorFactor(ctx context.Context, userID, factorID string) (authflow.TwoFactorFactor, error) {
-	if s.pg == nil {
-		return authflow.TwoFactorFactor{}, fmt.Errorf("postgres not configured")
-	}
+// stepUpFactor is the account's factor factorID, or its default factor when
+// factorID is empty; not_found when it holds no such factor.
+func (s *Engine) stepUpFactor(ctx context.Context, userID, factorID string) (authflow.MFAFactor, error) {
 	factors, err := s.listUser2FAFactors(ctx, userID)
 	if err != nil {
-		return authflow.TwoFactorFactor{}, err
+		return authflow.MFAFactor{}, err
 	}
-	if len(factors) == 0 {
-		settings, err := s.Get2FASettings(ctx, userID)
-		if err != nil || !settings.Enabled || len(settings.Factors) == 0 {
-			return authflow.TwoFactorFactor{}, fmt.Errorf("2FA not enabled")
-		}
-		factors = settings.Factors
-	}
-	if strings.TrimSpace(factorID) != "" {
-		for _, factor := range factors {
-			if factor.ID == factorID {
-				return factor, nil
-			}
-		}
-		return authflow.TwoFactorFactor{}, pgx.ErrNoRows
-	}
-	for _, factor := range factors {
-		if factor.IsDefault {
-			return factor, nil
+	factorID = strings.TrimSpace(factorID)
+	for _, f := range factors {
+		if factorID == f.ID || factorID == "" && f.IsDefault {
+			return f, nil
 		}
 	}
-	return factors[0], nil
+	if factorID == "" && len(factors) > 0 {
+		return factors[0], nil
+	}
+	return authflow.MFAFactor{}, errFactorNotFound
 }
 
-func (s *Engine) twoFactorFactorByMethod(ctx context.Context, userID, method string) (authflow.TwoFactorFactor, error) {
-	method = strings.ToLower(strings.TrimSpace(method))
-	if method == "" {
-		return s.twoFactorFactor(ctx, userID, "")
-	}
-	if method != "email" && method != "sms" && method != "totp" {
-		return authflow.TwoFactorFactor{}, errmodel.ErrInvalidTwoFAMethod
-	}
-	factors, err := s.listUser2FAFactors(ctx, userID)
-	if err != nil {
-		return authflow.TwoFactorFactor{}, err
-	}
-	for _, factor := range factors {
-		if factor.Enabled && strings.EqualFold(factor.Method, method) {
-			return factor, nil
-		}
-	}
-	// The account holds no factor of that method.
-	return authflow.TwoFactorFactor{}, errmodel.ErrInvalidTwoFAMethod
-}
-
-func twoFactorFactorFromFields(row db.MfaFactor) authflow.TwoFactorFactor {
-	return authflow.TwoFactorFactor{
+func twoFactorFactorFromFields(row db.MfaFactor) authflow.MFAFactor {
+	return authflow.MFAFactor{
 		ID:           row.ID,
 		UserID:       row.UserID,
 		Method:       row.Method,

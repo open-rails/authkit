@@ -62,7 +62,7 @@ func (s *Engine) mutateCredentialsTx(ctx context.Context, q *db.Queries, userID 
 	return revokeSessionsTx(ctx, q, userID, s.accountIssuers(), keepID)
 }
 
-func (s *Engine) changePassword(ctx context.Context, userID, new string, current *string, keepSessionID *string, grant *passwordResetData, reason authflow.SessionRevokeReason) error {
+func (s *Engine) changePassword(ctx context.Context, userID, new string, keepSessionID *string, grant *passwordResetData, reason authflow.SessionRevokeReason) error {
 	if strings.TrimSpace(userID) == "" {
 		return jwt.ErrTokenInvalidClaims
 	}
@@ -108,17 +108,6 @@ func (s *Engine) changePassword(ctx context.Context, userID, new string, current
 			}
 			if err != nil {
 				return err
-			}
-		}
-		if current != nil {
-			row, err := q.UserPasswordRow(ctx, userID)
-			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-				return err
-			}
-			if err == nil {
-				if err := verifyPasswordHash(ctx, row.PasswordHash, row.HashAlgo, *current); err != nil {
-					return err
-				}
 			}
 		}
 		return q.UserPasswordUpsert(ctx, db.UserPasswordUpsertParams{UserID: userID, PasswordHash: phc, HashAlgo: "argon2id"})

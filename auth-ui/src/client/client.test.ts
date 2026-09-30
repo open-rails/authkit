@@ -504,28 +504,29 @@ describe("flows", () => {
     })
     const client = createAuthClient({ fetch })
     await signIn(client)
-    await client.sendStepUpCode({ method: "email" })
-    expect(await client.stepUpWithTwoFactor({ code: "123" })).toEqual(fresh)
+    await client.sendStepUpCode({ factorId: "f2" })
+    expect(
+      await client.stepUpWithTwoFactor({ code: "123", factorId: "f2" })
+    ).toEqual(fresh)
     expect(client.getAccessToken()).toBe(jwt("u1", 5000))
     expect(JSON.parse(String(fetch.mock.calls[0][1]?.body))).toEqual({
-      method: "email",
+      factor_id: "f2",
+    })
+    expect(JSON.parse(String(fetch.mock.calls[1][1]?.body))).toEqual({
+      code: "123",
+      factor_id: "f2",
     })
   })
 
-  it("a password change that re-authenticated keeps the session fresh", async () => {
-    const client = createAuthClient({
-      fetch: stubFetch({
-        "PUT /api/v1/me/password": [
-          noContent(),
-          json(200, complete("u1", 7000, { fresh_auth: fresh })),
-        ],
-      }),
-    })
+  it("a password change sends only the new password", async () => {
+    const fetch = stubFetch({ "PUT /api/v1/me/password": [noContent()] })
+    const client = createAuthClient({ fetch })
     await signIn(client)
     await client.changePassword({ newPassword: "n" })
     expect(client.getAccessToken()).toBe(jwt("u1"))
-    await client.changePassword({ currentPassword: "o", newPassword: "n" })
-    expect(client.getAccessToken()).toBe(jwt("u1", 7000))
+    expect(JSON.parse(String(fetch.mock.calls[0][1]?.body))).toEqual({
+      new_password: "n",
+    })
   })
 
   it("DELETE /me/sessions keeps this session; DELETE /me ends it", async () => {

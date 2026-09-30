@@ -206,7 +206,7 @@ func TestSecurityPasswordChangeEndsOtherSessions(t *testing.T) {
 	a := h.newAccount("pwchange")
 	attacker := h.login(a)
 	owner := h.login(a)
-	resp := h.do(request{method: http.MethodPut, path: "/me/password", body: map[string]string{"current_password": password, "new_password": "Another-long-passphrase-7"}, token: owner.AccessToken})
+	resp := h.do(request{method: http.MethodPut, path: "/me/password", body: map[string]string{"new_password": "Another-long-passphrase-7"}, token: owner.AccessToken})
 	require.Less(t, resp.status, 300, resp.String())
 	require.Equal(t, http.StatusUnauthorized, h.refresh(attacker.RefreshToken).status)
 	old := h.post("/password/login", map[string]string{"identifier": a.email, "password": password}, "")
@@ -227,7 +227,7 @@ func TestSecurityRevokedSessionCannotChangeCredentials(t *testing.T) {
 		name string
 		req  func(token string) request
 	}{
-		{"set password without current password", func(token string) request {
+		{"set a password", func(token string) request {
 			return request{method: http.MethodPut, path: "/me/password", token: token, body: map[string]string{"new_password": "Attacker-owned-passphrase-1"}}
 		}},
 		{"register a passkey", func(token string) request {
@@ -256,7 +256,7 @@ func TestSecurityRevokedSessionCannotChangeCredentials(t *testing.T) {
 		}},
 		{"owner changes password", func(t *testing.T, a account, _ tokens) {
 			own := h.login(a)
-			resp := h.do(request{method: http.MethodPut, path: "/me/password", body: map[string]string{"current_password": password, "new_password": password + "x"}, token: own.AccessToken})
+			resp := h.do(request{method: http.MethodPut, path: "/me/password", body: map[string]string{"new_password": password + "x"}, token: own.AccessToken})
 			require.Less(t, resp.status, 300, resp.String())
 			require.NoError(t, h.setPassword(a.id, password))
 		}},

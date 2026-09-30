@@ -88,7 +88,7 @@ func (s *Service) freshAuthResult(w http.ResponseWriter, r *http.Request, userID
 // secondFactorStep is a challenge on the wire: the factor its code went to,
 // with that destination masked, and the factors to switch to.
 func secondFactorStep(userID string, ch *authflow.TwoFactorChallenge) *SecondFactorStep {
-	factor := twoFactorFactorResponse(ch.Factor)
+	factor := authflow.WireFactor(ch.Factor)
 	if factor.Method == "" {
 		factor.Method = ch.Method // backup codes only: no factor was sent a code
 	}
@@ -96,7 +96,7 @@ func secondFactorStep(userID string, ch *authflow.TwoFactorChallenge) *SecondFac
 		masked := contact.MaskDestination(ch.Destination)
 		factor.Destination = &masked
 	}
-	return &SecondFactorStep{UserID: userID, Challenge: ch.Challenge, Factor: factor, Factors: twoFactorFactorResponses(ch.Factors)}
+	return &SecondFactorStep{UserID: userID, Challenge: ch.Challenge, Factor: factor, Factors: authflow.WireFactors(ch.Factors)}
 }
 
 func loginRejectionCode(reason error) errmodel.Code {

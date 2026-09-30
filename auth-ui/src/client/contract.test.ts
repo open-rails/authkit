@@ -37,7 +37,6 @@ it("calls only routes AuthKit mounts", async () => {
     () => client.changePassword({ newPassword: "p" }),
     () => client.verifyTwoFactor({ userId: "u", challenge: "c", code: "1" }),
     () => client.sendTwoFactorChallenge({ userId: "u", challenge: "c" }),
-    () => client.getTwoFactor(),
     () => client.setupTwoFactor({ method: "totp" }),
     () => client.addTwoFactorFactor({ method: "totp", code: "1" }),
     () => client.setDefaultTwoFactorFactor("f"),

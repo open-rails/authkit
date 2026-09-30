@@ -261,7 +261,7 @@ func TestSecurityRevokedSessionAtLiveGates(t *testing.T) {
 			require.Equal(t, http.StatusNoContent, resp.status, resp.String())
 		}, true},
 		{"password change", func(t *testing.T, a account, _ tokens) {
-			resp := h.do(request{method: http.MethodPut, path: "/me/password", body: map[string]string{"current_password": password, "new_password": "Another-long-passphrase-7"}, token: h.login(a).AccessToken})
+			resp := h.do(request{method: http.MethodPut, path: "/me/password", body: map[string]string{"new_password": "Another-long-passphrase-7"}, token: h.login(a).AccessToken})
 			require.Less(t, resp.status, 300, resp.String())
 		}, true},
 		{"account-wide revocation", func(t *testing.T, a account, _ tokens) {
@@ -314,7 +314,7 @@ func TestSecurityRevokedSessionAtLiveGates(t *testing.T) {
 				require.Equal(t, http.StatusNoContent, h.do(request{method: http.MethodDelete, path: "/me/sign-in-keys/" + id, token: h.login(a).AccessToken}).status)
 			}},
 			{"password change", func(t *testing.T, a account, _ string) {
-				resp := h.do(request{method: http.MethodPut, path: "/me/password", body: map[string]string{"current_password": password, "new_password": "Another-long-passphrase-7"}, token: h.login(a).AccessToken})
+				resp := h.do(request{method: http.MethodPut, path: "/me/password", body: map[string]string{"new_password": "Another-long-passphrase-7"}, token: h.login(a).AccessToken})
 				require.Less(t, resp.status, 300, resp.String())
 			}},
 		} {

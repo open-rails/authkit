@@ -23,7 +23,6 @@ type flowsBackend interface {
 	BeginPasskeyLogin(ctx context.Context) (*protocol.CredentialAssertion, error)
 	BeginPasskeyRegistration(ctx context.Context, userID string) (*protocol.CredentialCreation, error)
 	BeginTwoFactorEnrollment(ctx context.Context, userID string, enrollmentToken bool, sessionID string) (authflow.TwoFactorEnrollmentScope, error)
-	ChangePassword(ctx context.Context, userID, current, new string, keepSessionID *string) error
 	CheckPendingRegistrationConflict(ctx context.Context, email, username string) (bool, bool, error)
 	CheckPhoneRegistrationConflict(ctx context.Context, phone, username string) (bool, bool, error)
 	CheckUserPassword(ctx context.Context, userID, pass string) error
@@ -77,12 +76,12 @@ type flowsBackend interface {
 	RequestPhoneChange(ctx context.Context, userID, newPhone string) error
 	RequestPhonePasswordReset(ctx context.Context, phone string, ttl time.Duration, ip *string, ua *string) error
 	RequestPhoneVerification(ctx context.Context, phone string, ttl time.Duration) error
-	Require2FAForStepUpMethod(ctx context.Context, userID, sessionID, method string) (destination, selectedMethod string, factor authflow.TwoFactorFactor, err error)
 	ResendLoginChallenge(ctx context.Context, userID, nonce, factorID string) (*authflow.TwoFactorChallenge, error)
 	SMSAvailable() bool
+	Send2FAStepUpCode(ctx context.Context, userID, sessionID, factorID string) error
 	SendWelcome(ctx context.Context, userID string)
 	SessionFreshness(ctx context.Context, userID, sessionID string, now time.Time) (authflow.SessionFreshness, error)
-	SetDefault2FAFactor(ctx context.Context, userID, factorID string) (authflow.TwoFactorFactor, error)
+	SetDefault2FAFactor(ctx context.Context, userID, factorID string) (authflow.MFAFactor, error)
 	SetPasswordAfterFreshAuth(ctx context.Context, userID, new string, keepSessionID *string) error
 	StartPasswordless(ctx context.Context, req authflow.PasswordlessStartRequest) (authflow.PasswordlessStartResult, error)
 	TwoFactorEnabled() bool
@@ -91,7 +90,7 @@ type flowsBackend interface {
 	ValidatePassword(value string, identifiers ...string) error
 	ValidateUsername(username string) error
 	ValidateUsernameForRegistration(ctx context.Context, username string) (string, error)
-	Verify2FAStepUpMethodCode(ctx context.Context, userID, sessionID, method, code string) (bool, error)
+	Verify2FAStepUpCode(ctx context.Context, userID, sessionID, factorID, code string) (bool, error)
 	VerifyBackupCode(ctx context.Context, userID, backupCode string) (bool, error)
 	VerifyPendingPassword(ctx context.Context, email, pass string) bool
 	VerifyPendingPhonePassword(ctx context.Context, phone, pass string) bool

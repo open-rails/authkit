@@ -125,7 +125,7 @@ func TestMountCatalog(t *testing.T) {
 			{http.MethodPost, "/api/v1/device-keys/login/begin"},
 			{http.MethodPost, "/api/v1/passwordless/start"},
 			{http.MethodPost, "/api/v1/2fa/challenge"},
-			{http.MethodGet, "/api/v1/me/2fa"},
+			{http.MethodPost, "/api/v1/me/2fa/backup-codes"},
 			{http.MethodPost, "/api/v1/solana/challenge"},
 			{http.MethodPost, "/api/v1/delegated/token"},
 			{http.MethodGet, "/oidc/example/login"},
@@ -173,10 +173,10 @@ func TestMountCatalog(t *testing.T) {
 		login := a.post("/password/login", "", map[string]string{"identifier": u.Email, "password": u.Password}).answer(t)
 		token := login.enrollment(t).TokenSet.AccessToken
 		require.NotEmpty(t, token)
-		for path, status := range map[string]int{"//custom/auth/v1/me": http.StatusForbidden, "//custom/auth/v1/me/2fa": http.StatusOK} {
-			res := a.get(path, token)
-			require.Equal(t, status, res.status, "%s: %s", path, res)
-		}
+		res := a.get("//custom/auth/v1/me", token)
+		require.Equal(t, http.StatusForbidden, res.status, res.String())
+		res = a.post("//custom/auth/v1/me/2fa/setup", token, map[string]string{"method": "totp"})
+		require.Equal(t, http.StatusOK, res.status, res.String())
 	})
 }
 
@@ -342,9 +342,6 @@ func testWorkflowRateLimits(t *testing.T, rdb *redis.Client) {
 	res = stepUp(a, stale, stepper.Password, "198.51.100.5")
 	require.Equal(t, http.StatusTooManyRequests, res.status, res.String())
 	require.Equal(t, "rate_limited", res.code())
-	res = a.do(request{method: http.MethodPut, path: "/me/password", token: stale, header: http.Header{"X-Forwarded-For": {"198.51.100.5"}},
-		body: map[string]string{"current_password": stepper.Password, "new_password": "Another-password-12345"}})
-	require.Equal(t, http.StatusTooManyRequests, res.status, "the password change shares the step-up budget: %s", res)
 	res = stepUp(a, stale, stepper.Password, "198.51.100.7")
 	require.Equal(t, http.StatusOK, res.status, res.String())
 

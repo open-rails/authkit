@@ -20,7 +20,7 @@ func TestCredentialTransactionsPasswordMutationRollsBackOnFailure(t *testing.T) 
 		{"version", "users", "credential_version"},
 		{"revocation", "refresh_sessions", "revoked_at"},
 	} {
-		for _, method := range []string{"change", "fresh", "admin", "reset"} {
+		for _, method := range []string{"fresh", "admin", "reset"} {
 			t.Run(stage.name+"/"+method, func(t *testing.T) {
 				ctx := context.Background()
 				// The injected trigger is DDL: give it a database of its own.
@@ -42,8 +42,6 @@ func TestCredentialTransactionsPasswordMutationRollsBackOnFailure(t *testing.T) 
 				})
 				var changeErr error
 				switch method {
-				case "change":
-					changeErr = e.ChangePassword(ctx, uid, testPassword, "Replacement-password-12345", nil)
 				case "fresh":
 					changeErr = e.SetPasswordAfterFreshAuth(ctx, uid, "Replacement-password-12345", nil)
 				case "admin":
@@ -64,7 +62,7 @@ func TestCredentialTransactionsPasswordMutationRollsBackOnFailure(t *testing.T) 
 }
 
 func TestCredentialChangesHaveOneConcurrentWinner(t *testing.T) {
-	for _, kind := range []string{"reset", "current_password"} {
+	for _, kind := range []string{"reset", "fresh"} {
 		t.Run(kind, func(t *testing.T) {
 			cfg := maintenanceConfig()
 			cfg.TwoFactor.Mode = iam.TwoFactorOptional
@@ -91,7 +89,7 @@ func TestCredentialChangesHaveOneConcurrentWinner(t *testing.T) {
 						_, err := svc.ConfirmPasswordReset(ctx, []string{"reset-a", "reset-b"}[i], newPassword)
 						result <- err
 					} else {
-						result <- svc.ChangePassword(ctx, u.ID, testPassword, newPassword, nil)
+						result <- svc.SetPasswordAfterFreshAuth(ctx, u.ID, newPassword, nil)
 					}
 				}()
 			}

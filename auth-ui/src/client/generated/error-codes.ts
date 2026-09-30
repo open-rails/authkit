@@ -113,7 +113,6 @@ export type AuthErrorCode =
   | "passkey_not_found"
   | "passkey_required"
   | "passkey_user_verification_required"
-  | "password_change_failed"
   | "password_contains_identifier"
   | "password_requirements_unmet"
   | "password_reset_required"
@@ -284,7 +283,6 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   passkey_not_found: 404,
   passkey_required: 403,
   passkey_user_verification_required: 401,
-  password_change_failed: 400,
   password_contains_identifier: 400,
   password_requirements_unmet: 400,
   password_reset_required: 401,
@@ -456,7 +454,6 @@ export const AUTH_ERROR_MESSAGES = {
   passkey_not_found: "The passkey was not found.",
   passkey_required: "This account signs in with a passkey. Use your passkey to continue.",
   passkey_user_verification_required: "The passkey must verify the user.",
-  password_change_failed: "The password could not be changed.",
   password_contains_identifier: "Password can't contain your username or email.",
   password_requirements_unmet: "Password doesn't meet the requirements.",
   password_reset_required: "A password reset is required before you can sign in.",
