@@ -409,8 +409,11 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	require.Contains(t, tooLong.String(), "ttl_exceeds_delegate_certificate")
 	mintOK(delegationBody(shortLived, `"ttl_seconds":60`))
 
+	// Neither a certificate nor a DPoP proof binds the token to a sender.
+	noProof := mint(`{"requested_grant":{}}`, userToken)
+	require.Equal(t, http.StatusUnauthorized, noProof.status, noProof.String())
+	require.Equal(t, "sender_proof_required", noProof.code())
 	badCertificate := map[string]string{
-		"missing":       `{"requested_grant":{}}`,
 		"malformed":     `{"delegate_certificate_der_b64url":"!!!","requested_grant":{}}`,
 		"CA":            delegationBody(newDelegateCertificate(t, func(c *x509.Certificate) { c.IsCA = true }), ""),
 		"expired":       delegationBody(newDelegateCertificate(t, func(c *x509.Certificate) { c.NotAfter = time.Now().Add(-time.Minute) }), ""),

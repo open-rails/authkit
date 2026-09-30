@@ -92,6 +92,14 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		tokenType = "DPoP"
+	} else if strings.TrimSpace(req.DelegateCertificateDERB64URL) == "" {
+		// Neither a DPoP proof nor a certificate: the token would bind to
+		// nothing.
+		if cfg.AllowDPoP {
+			w.Header().Set("WWW-Authenticate", `DPoP algs="ES256"`)
+		}
+		fail(w, errmodel.CodeSenderProofRequired)
+		return
 	} else {
 		certificate, err = parseDelegateCertificate(req.DelegateCertificateDERB64URL, now)
 		if err != nil {
