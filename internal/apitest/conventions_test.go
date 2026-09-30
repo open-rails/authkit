@@ -153,6 +153,7 @@ func TestHTTPConventions(t *testing.T) {
 		require.True(t, strings.HasSuffix(me["created_at"].(string), "Z"), me["created_at"])
 		require.Contains(t, me, "avatar_url")
 		require.Nil(t, me["avatar_url"])
-		require.Equal(t, []any{}, me["linked_providers"])
+		require.Equal(t, []any{}, me["providers"])
+		require.Nil(t, me["solana_wallet"])
 	})
 }
