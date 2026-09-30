@@ -153,8 +153,8 @@ type UserStatus string
 
 const (
 	UserStatusLive    UserStatus = ""        // not deleted (default)
-	UserStatusActive  UserStatus = "active"  // not deleted, not banned
-	UserStatusBanned  UserStatus = "banned"  // not deleted, banned
+	UserStatusActive  UserStatus = "active"  // not deleted, no ban in force
+	UserStatusBanned  UserStatus = "banned"  // not deleted, a ban in force
 	UserStatusDeleted UserStatus = "deleted" // soft-deleted
 	UserStatusAny     UserStatus = "any"
 )

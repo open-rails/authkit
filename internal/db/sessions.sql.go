@@ -65,7 +65,7 @@ type SessionByHistoricalTokenHashRow struct {
 	PreviousRotatedAt       *time.Time
 }
 
-// Every consumed token stays attributable for the session lifetime. Only the
+// A consumed token stays attributable for 90 days (SessionRotate). Only the
 // immediate predecessor can open the current grace seal; older hashes still
 // identify the family for reuse detection.
 func (q *Queries) SessionByHistoricalTokenHash(ctx context.Context, arg SessionByHistoricalTokenHashParams) (SessionByHistoricalTokenHashRow, error) {
@@ -268,6 +268,9 @@ WITH rotated AS (
   WHERE id = $6 AND current_token_hash = $1
     AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())
   RETURNING id
+), pruned AS (
+  DELETE FROM refresh_token_history
+  WHERE session_id = (SELECT id FROM rotated) AND consumed_at < now() - interval '90 days'
 )
 INSERT INTO refresh_token_history (session_id, token_hash)
 SELECT id, $1 FROM rotated
@@ -286,6 +289,11 @@ type SessionRotateParams struct {
 // writer; an insertion failure rolls back the rotation, and a lost CAS inserts
 // no history. The row's latest seal still re-delivers the same successor to
 // concurrent holders of the immediate predecessor.
+//
+// The session's history older than 90 days goes. A copied token is caught when
+// its second holder presents it; a thief who refreshes first is caught when the
+// victim's client next refreshes, so a victim away longer than 90 days no
+// longer exposes it. Past the bound, a retired token is refused as unknown.
 func (q *Queries) SessionRotate(ctx context.Context, arg SessionRotateParams) (int64, error) {
 	result, err := q.db.Exec(ctx, sessionRotate,
 		arg.ExpectedCurrentTokenHash,

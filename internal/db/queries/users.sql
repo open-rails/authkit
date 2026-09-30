@@ -192,7 +192,7 @@ UPDATE users SET metadata = sqlc.arg(metadata)::jsonb, updated_at = now()
 WHERE id = sqlc.arg(id);
 
 -- name: UserBanInForce :one
-SELECT (banned_at IS NOT NULL AND (banned_until IS NULL OR banned_until > now()))::boolean AS in_force
+SELECT ban_in_force(banned_at, banned_until)::boolean AS in_force
 FROM users WHERE id = $1;
 
 -- name: MFASettingsDelete :exec

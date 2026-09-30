@@ -95,5 +95,5 @@ WHERE i.code_hash = sqlc.arg(code_hash) AND i.permission_group_id = sqlc.arg(gro
 FOR UPDATE OF i;
 
 -- name: AccountInviteConsume :exec
-UPDATE account_registration_invites SET consumed_at = now(), consumed_by = sqlc.arg(user_id)::uuid, updated_at = now()
+UPDATE account_registration_invites SET consumed_at = now(), updated_at = now()
 WHERE id = sqlc.arg(id);

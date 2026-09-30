@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -155,6 +156,31 @@ func TestAdminUserDirectory(t *testing.T) {
 		res.decode(t, &env)
 		require.Equal(t, "invalid_request", env.Error.Code)
 		require.Equal(t, "total", env.Error.Param)
+	})
+
+	t.Run("an expired ban is no ban", func(t *testing.T) {
+		lapsed := create(iam.NewUser{Username: "lapsedban", Email: "lapsedban@example.test"})
+		until := time.Now().Add(time.Hour)
+		require.NoError(t, auth.Ban(ctx, iam.SystemActor(), lapsed, iam.Ban{Reason: "cooling off", Until: &until}))
+		traced.take()
+		page, _ := list("status=banned&search=lapsedban")
+		require.Len(t, page.Items, 1)
+		banned := traced.take()[0]
+		// The ban's end passes, and nothing signs the account in.
+		tx, err := pool.Begin(ctx)
+		require.NoError(t, err)
+		_, err = tx.Exec(ctx, `SELECT set_config('search_path', $1, true)`, banned.searchPath)
+		require.NoError(t, err)
+		_, err = tx.Exec(ctx, `UPDATE users SET banned_until = now() - interval '1 minute' WHERE id = $1`, lapsed)
+		require.NoError(t, err)
+		require.NoError(t, tx.Commit(ctx))
+
+		page, _ = list("status=banned&search=lapsedban")
+		require.Empty(t, page.Items)
+		page, _ = list("status=active&search=lapsedban")
+		require.Len(t, page.Items, 1)
+		require.Nil(t, page.Items[0].Ban)
+		require.NotContains(t, explain(t, pool, banned), "ban_in_force", "the predicate inlines, so the ban index can serve it")
 	})
 
 	// Sequential and plain index scans are off, so a search branch no index

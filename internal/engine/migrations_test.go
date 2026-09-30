@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/open-rails/authkit/internal/config"
@@ -94,7 +95,7 @@ func TestRetiredChainConvertsInPlace(t *testing.T) {
 	require.NoError(t, Migrate(ctx, pg.Pool, cfg, config.MigrateOptions{}), "a second boot converts nothing")
 	require.Equal(t, before, tableRows(t, db, "profiles"), "the conversion changes no row")
 
-	requireBaseline(t, pg, db, "profiles")
+	requireTree(t, pg, db, "profiles", true)
 
 	refreshed := f.expect(200, f.post("/token", map[string]any{"grant_type": "refresh_token", "refresh_token": session.RefreshToken})).tokens()
 	f.session(refreshed, "pwd")
@@ -136,7 +137,7 @@ func TestRetiredChainPrefixConvertsInPlace(t *testing.T) {
 	cfg := config.Config{Schema: "profiles", River: config.RiverConfig{HostOwned: true}}
 	require.NoError(t, Migrate(ctx, pg.Pool, cfg, config.MigrateOptions{}))
 	require.NoError(t, Migrate(ctx, pg.Pool, cfg, config.MigrateOptions{}), "a second boot converts nothing")
-	requireBaseline(t, pg, db, "profiles")
+	requireTree(t, pg, db, "profiles", true)
 
 	// 0006 revoked the creator-less key, 0008 dated the MFA session's proof,
 	// 0011 released the group's name, 0014 qualified roles, 0015 bound the kept
@@ -168,7 +169,7 @@ func TestRetiredChainReleasePointsConvert(t *testing.T) {
 			db := sqlDB(t, pg.URL)
 			require.NoError(t, migratekit.NewPostgres(db, "authkit").WithSchema("profiles").ApplyMigrations(t.Context(), retired.Chain()[:n]))
 			require.NoError(t, Migrate(t.Context(), pg.Pool, config.Config{Schema: "profiles", River: config.RiverConfig{HostOwned: true}}, config.MigrateOptions{}))
-			requireBaseline(t, pg, db, "profiles")
+			requireTree(t, pg, db, "profiles", true)
 		})
 	}
 }
@@ -216,11 +217,11 @@ func TestRetiredChainRefusesWhatItCannotConvert(t *testing.T) {
 	}
 }
 
-// requireBaseline asserts schema was converted to exactly the baseline, then
-// migrated on: its ledger holds the tree (the baseline and every later
-// migration), a conversion was audited, and its catalog equals a schema
-// Migrate built from nothing.
-func requireBaseline(t *testing.T, pg *testdb.Postgres, db *sql.DB, schema string) {
+// requireTree asserts schema was migrated to the tree, converted to its
+// baseline first if converted: its ledger holds the tree (the baseline and
+// every later migration), a conversion was audited exactly when converted, and
+// its catalog equals a schema Migrate built from nothing.
+func requireTree(t *testing.T, pg *testdb.Postgres, db *sql.DB, schema string, converted bool) {
 	t.Helper()
 	ctx := t.Context()
 	tree, err := migratekit.LoadFromFS(pgmigrations.FS)
@@ -231,13 +232,66 @@ func requireBaseline(t *testing.T, pg *testdb.Postgres, db *sql.DB, schema strin
 	}
 	fresh := schema + "_fresh"
 	require.NoError(t, Migrate(ctx, pg.Pool, config.Config{Schema: fresh, River: config.RiverConfig{HostOwned: true}}, config.MigrateOptions{}))
-	for s, converted := range map[string]bool{schema: true, fresh: false} {
+	for s, converted := range map[string]bool{schema: converted, fresh: false} {
 		require.Equal(t, want, ledger(t, db, s), s)
 		var audits int
 		require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM public.migration_repairs WHERE app = 'authkit' AND schema = $1 AND verb = 'convert'`, s).Scan(&audits))
 		require.Equal(t, converted, audits > 0, s)
 	}
 	require.Empty(t, testdb.CatalogDiff(testdb.SchemaCatalog(t, db, schema), testdb.SchemaCatalog(t, db, fresh)))
+}
+
+// A database v1.0.2 built, or one converted from the retired chain, migrates
+// on with its rows: 0003 drops refresh-token history past 90 days and makes
+// banned_at the one mark of a ban, keeping banned what the sign-in gate
+// refused.
+func TestUpgradeKeepsAndNormalizesRows(t *testing.T) {
+	tree, err := migratekit.LoadFromFS(pgmigrations.FS)
+	require.NoError(t, err)
+	for name, prior := range map[string][]migratekit.Migration{
+		"v1.0.2":        tree[:2],
+		"retired chain": retired.Chain(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
+			pg := testdb.EmptyScratchPostgres(t)
+			db := sqlDB(t, pg.URL)
+			require.NoError(t, migratekit.NewPostgres(db, "authkit").WithSchema("profiles").ApplyMigrations(ctx, prior))
+			seed := func(query string, args ...any) {
+				t.Helper()
+				_, err := pg.Pool.Exec(ctx, query, args...)
+				require.NoError(t, err)
+			}
+			// Bans written by hand: a reason without banned_at, the same
+			// expired, and an expired ban nobody has signed in past.
+			seed(`INSERT INTO users (username, ban_reason) VALUES ('handbanned', 'spam')`)
+			seed(`INSERT INTO users (username, ban_reason, banned_until) VALUES ('handexpired', 'spam', now() - interval '1 day')`)
+			seed(`INSERT INTO users (username, banned_at, banned_until) VALUES ('lapsed', now() - interval '2 days', now() - interval '1 day')`)
+			var session string
+			require.NoError(t, pg.Pool.QueryRow(ctx, `INSERT INTO refresh_sessions (user_id, issuer, current_token_hash)
+ SELECT id, 'https://example.com', '\x00' FROM users WHERE username = 'lapsed' RETURNING id::text`).Scan(&session))
+			seed(`INSERT INTO refresh_token_history (token_hash, session_id, consumed_at) VALUES ('\x01', $1, now() - interval '91 days'), ('\x02', $1, now())`, session)
+
+			cfg := config.Config{Schema: "profiles", River: config.RiverConfig{HostOwned: true}}
+			require.NoError(t, Migrate(ctx, pg.Pool, cfg, config.MigrateOptions{}))
+			require.NoError(t, Migrate(ctx, pg.Pool, cfg, config.MigrateOptions{}), "a second boot changes nothing")
+			requireTree(t, pg, db, "profiles", name == "retired chain")
+
+			rows, err := pg.Pool.Query(ctx, `SELECT username || ' ' || (banned_at IS NOT NULL) || ' ' || COALESCE(ban_reason, '-') || ' ' ||
+ EXISTS(SELECT 1 FROM usable_users v WHERE v.id = u.id) FROM users u ORDER BY username`)
+			require.NoError(t, err)
+			users, err := pgx.CollectRows(rows, pgx.RowTo[string])
+			require.NoError(t, err)
+			require.Equal(t, []string{"handbanned true spam false", "handexpired false - true", "lapsed true - true"}, users)
+			var history []byte
+			require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT string_agg(token_hash, '') FROM refresh_token_history`).Scan(&history))
+			require.Equal(t, []byte{2}, history, "history past 90 days is gone")
+			_, err = pg.Pool.Exec(ctx, `UPDATE users SET banned_at = NULL WHERE username = 'handbanned'`)
+			var refusal *pgconn.PgError
+			require.ErrorAs(t, err, &refusal)
+			require.Equal(t, "users_ban_chk", refusal.ConstraintName, "a ban's other columns need banned_at")
+		})
+	}
 }
 
 // ledger lists schema's AuthKit ledger rows as "filename digest", in order.

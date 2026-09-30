@@ -12,7 +12,7 @@ WHERE current_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL
   AND (expires_at IS NULL OR expires_at > now());
 
 -- name: SessionByHistoricalTokenHash :one
--- Every consumed token stays attributable for the session lifetime. Only the
+-- A consumed token stays attributable for 90 days (SessionRotate). Only the
 -- immediate predecessor can open the current grace seal; older hashes still
 -- identify the family for reuse detection.
 SELECT s.id::text AS id, s.user_id, s.family_id::text AS family_id, s.auth_methods, s.expires_at,
@@ -26,6 +26,11 @@ WHERE h.token_hash = $1 AND s.issuer = $2 AND s.revoked_at IS NULL;
 -- writer; an insertion failure rolls back the rotation, and a lost CAS inserts
 -- no history. The row's latest seal still re-delivers the same successor to
 -- concurrent holders of the immediate predecessor.
+--
+-- The session's history older than 90 days goes. A copied token is caught when
+-- its second holder presents it; a thief who refreshes first is caught when the
+-- victim's client next refreshes, so a victim away longer than 90 days no
+-- longer exposes it. Past the bound, a retired token is refused as unknown.
 WITH rotated AS (
   UPDATE refresh_sessions
   SET current_token_hash = sqlc.arg(new_token_hash), last_used_at = now(),
@@ -34,6 +39,9 @@ WITH rotated AS (
   WHERE id = sqlc.arg(id) AND current_token_hash = sqlc.arg(expected_current_token_hash)
     AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())
   RETURNING id
+), pruned AS (
+  DELETE FROM refresh_token_history
+  WHERE session_id = (SELECT id FROM rotated) AND consumed_at < now() - interval '90 days'
 )
 INSERT INTO refresh_token_history (session_id, token_hash)
 SELECT id, sqlc.arg(expected_current_token_hash) FROM rotated;

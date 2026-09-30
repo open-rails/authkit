@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -40,10 +39,10 @@ func publicUser(r *db.User, now time.Time) iam.User {
 	return u
 }
 
-// banInForce is isUserBanned without the lazy unban: a ban whose Until has
-// passed is over.
+// banInForce is the schema's ban_in_force on a row already read: a ban exists
+// while banned_at is set (users_ban_chk), and an expired temporary ban is none.
 func banInForce(r *db.User, now time.Time) bool {
-	return isUserBanned(r) && (r.BannedUntil == nil || r.BannedUntil.After(now))
+	return r.BannedAt != nil && (r.BannedUntil == nil || r.BannedUntil.After(now))
 }
 
 func deref(p *string) string {
@@ -86,18 +85,13 @@ func (s *Engine) getUserByID(ctx context.Context, id string) (*db.User, error) {
 	return &r, nil
 }
 
-// accessAllowed is the login and refresh gate: not soft-deleted, not
-// reserved, not banned. autoUnbanIfExpired must already have run on u, since
-// an expired temporary ban is allowed.
-func accessAllowed(u *db.User, reserved bool) bool {
-	return u != nil && u.DeletedAt == nil && !reserved && !isUserBanned(u)
-}
-
+// ensureUserAccess is the login and refresh gate: not soft-deleted, not
+// reserved, no ban in force.
 func (s *Engine) ensureUserAccess(ctx context.Context, u *db.User) error {
 	if u == nil {
 		return jwt.ErrTokenInvalidClaims
 	}
-	if u.DeletedAt != nil {
+	if u.DeletedAt != nil || banInForce(u, time.Now()) {
 		return errmodel.ErrUserBanned
 	}
 	reserved, err := s.isUserReserved(ctx, strings.TrimSpace(u.ID))
@@ -107,37 +101,7 @@ func (s *Engine) ensureUserAccess(ctx context.Context, u *db.User) error {
 	if reserved {
 		return errmodel.ErrUserBanned
 	}
-	if err := s.autoUnbanIfExpired(ctx, u); err != nil {
-		return err
-	}
-	if !accessAllowed(u, reserved) {
-		return errmodel.ErrUserBanned
-	}
 	return nil
-}
-
-func (s *Engine) autoUnbanIfExpired(ctx context.Context, u *db.User) error {
-	if u == nil || u.BannedUntil == nil {
-		return nil
-	}
-	now := time.Now().UTC()
-	if !u.BannedUntil.After(now) {
-		if err := s.clearUserBan(ctx, u.ID); err != nil {
-			return err
-		}
-		u.BannedAt = nil
-		u.BannedUntil = nil
-		u.BanReason = nil
-		u.BannedBy = nil
-	}
-	return nil
-}
-
-func isUserBanned(u *db.User) bool {
-	if u == nil {
-		return false
-	}
-	return u.BannedAt != nil || u.BannedUntil != nil || u.BanReason != nil || u.BannedBy != nil
 }
 
 // mapUserUniqueViolation turns a users-table unique violation into the typed
@@ -335,16 +299,6 @@ func (s *Engine) updateImportedUserTx(ctx context.Context, tx pgx.Tx, userID str
 		return nil, err
 	}
 	return &row, nil
-}
-
-func (s *Engine) clearUserBan(ctx context.Context, userID string) error {
-	if s.pg == nil {
-		return fmt.Errorf("postgres not configured")
-	}
-	if strings.TrimSpace(userID) == "" {
-		return fmt.Errorf("invalid_user")
-	}
-	return s.q.UserClearBan(ctx, userID)
 }
 
 // revokeCredentialsTx revokes every refresh session (all account issuers) and

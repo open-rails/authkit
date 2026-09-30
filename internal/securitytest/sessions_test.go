@@ -66,6 +66,30 @@ func TestSecurityRefreshTokenTheft(t *testing.T) {
 	}
 }
 
+// TestSecurityRefreshHistoryIsBounded: rotation keeps a session's retired
+// tokens for 90 days. An older one is refused as unknown and leaves the session
+// alone; a newer one still ends it.
+func TestSecurityRefreshHistoryIsBounded(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(strictRotation))
+	ctx := context.Background()
+	a := h.newAccount("history")
+	first := h.login(a)
+	second := session(t, h.refresh(first.RefreshToken))
+	_, err := h.pool.Exec(ctx, `UPDATE profiles.refresh_token_history h SET consumed_at = now() - interval '91 days'
+ FROM profiles.refresh_sessions s WHERE s.id = h.session_id AND s.user_id = $1`, a.id)
+	require.NoError(t, err)
+	third := session(t, h.refresh(second.RefreshToken)) // prunes the first
+	var kept int
+	require.NoError(t, h.pool.QueryRow(ctx, `SELECT count(*) FROM profiles.refresh_token_history h
+ JOIN profiles.refresh_sessions s ON s.id = h.session_id WHERE s.user_id = $1`, a.id).Scan(&kept))
+	require.Equal(t, 1, kept, "only the second token's retirement is kept")
+
+	require.Equal(t, http.StatusUnauthorized, h.refresh(first.RefreshToken).status)
+	fourth := session(t, h.refresh(third.RefreshToken))
+	require.Equal(t, http.StatusUnauthorized, h.refresh(second.RefreshToken).status)
+	require.Equal(t, http.StatusUnauthorized, h.refresh(fourth.RefreshToken).status, "reuse within 90 days ends the session")
+}
+
 // TestSecurityRefreshGraceDoesNotFork proves the rotation grace window only
 // re-delivers the one successor: five holders of one token refreshing at once
 // (agent processes sharing a credential file) converge on one live credential

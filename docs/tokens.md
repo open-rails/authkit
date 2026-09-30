@@ -18,7 +18,7 @@ This page covers the credentials AuthKit issues, how long each lasts, and when a
 
 - Each sign-in opens a session and returns a refresh token: in the body, or in the `__Host-authkit_rt` cookie with `HTTPConfig.RefreshCookie`.
 - `POST /api/v1/token` rotates it: each use returns a new refresh token and retires the old one.
-- Presenting a retired token ends the session, since it means the token was copied. For 30 seconds after a rotation (`TokenConfig.RefreshRotationGrace`), the retired token instead gets the same successor again, which covers two holders refreshing at once.
+- Presenting a token retired within the last 90 days ends the session, since it means the token was copied; an older one is refused. For 30 seconds after a rotation (`TokenConfig.RefreshRotationGrace`), the retired token instead gets the same successor again, which covers two holders refreshing at once.
 - A user keeps at most 3 sessions (`TokenConfig.SessionMaxPerUser`); the oldest is evicted.
 - These end sessions:
   - signing out ends that session;
