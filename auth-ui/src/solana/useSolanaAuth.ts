@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
-import type { AuthClient, AuthOutcome } from "../client/client.ts"
+import type { SignInResult } from "../client/authResult.ts"
+import type { AuthClient } from "../client/client.ts"
 import {
   createSolanaAuth,
   isSolanaWalletError,
@@ -19,7 +20,7 @@ export type UseSolanaAuthOptions = {
   // signer per action, used instead of `wallet`. Rejecting with
   // SolanaWalletError("rejected") (picker dismissed) ends the action quietly.
   acquireSigner?: () => Promise<SolanaSigner>
-  onSignIn?: (outcome: AuthOutcome) => void
+  onSignIn?: (result: SignInResult) => void
   onLink?: (address: string) => void
   // Refuses a different wallet before prompting for a signature.
   linkedAddress?: string | null
@@ -130,20 +131,17 @@ export function useSolanaAuth(
     [run, solana]
   )
 
-  const unlink = useCallback(
-    async (input: { password?: string } = {}) => {
-      update({ busy: "unlink", error: null })
-      try {
-        await solana.unlink(input)
-        update({ busy: null })
-        return true
-      } catch (err) {
-        update({ busy: null, error: err })
-        return false
-      }
-    },
-    [solana, update]
-  )
+  const unlink = useCallback(async () => {
+    update({ busy: "unlink", error: null })
+    try {
+      await solana.unlink()
+      update({ busy: null })
+      return true
+    } catch (err) {
+      update({ busy: null, error: err })
+      return false
+    }
+  }, [solana, update])
 
   const cancel = useCallback(() => update({ awaitingWallet: null }), [update])
 

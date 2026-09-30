@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
-import type { LoginContinuation } from "../client/continuation.ts"
+import type { PendingSignIn } from "../client/authResult.ts"
 import type { Availability } from "../client/types.ts"
 import { useAuthClient } from "./context.ts"
 import { useTask } from "./task.ts"
@@ -8,9 +8,9 @@ import { useTask } from "./task.ts"
 export type RegisterState =
   | { step: "form" }
   | { step: "verify"; identifier: string; channel: "email" | "phone" }
-  // Verification signed in but needs more (e.g. forced 2FA enrollment):
-  // hand it to useLogin().resume.
-  | { step: "continuation"; continuation: LoginContinuation }
+  // Signed in but needs another step (e.g. forced 2FA enrollment): hand it
+  // to useLogin().resume.
+  | { step: "continuation"; continuation: PendingSignIn }
   | { step: "done"; signedIn: boolean; returnTo?: string }
 
 export type RegisterInput = {
@@ -20,7 +20,7 @@ export type RegisterInput = {
 }
 
 export type RegisterOptions = {
-  accountInviteToken?: string
+  inviteCode?: string
   onSignedIn?: (result: { returnTo?: string }) => void
 }
 
@@ -69,17 +69,22 @@ export function useRegister(options: RegisterOptions = {}) {
   const register = useCallback(
     (input: RegisterInput) =>
       run(async () => {
-        const out = await client.register({
+        const result = await client.register({
           ...input,
-          accountInviteToken: opts.current.accountInviteToken,
+          inviteCode: opts.current.inviteCode,
         })
-        if (out.signedIn || out.next_action === "none")
-          return done(out.signedIn)
+        if (result?.status === "complete")
+          return done(true, result.return_to ?? undefined)
+        if (result) {
+          pending.current = null
+          return setState({ step: "continuation", continuation: result })
+        }
+        // A code went to the identifier.
         pending.current = input
         setState({
           step: "verify",
           identifier: input.identifier,
-          channel: out.next_action === "verify_phone" ? "phone" : "email",
+          channel: input.identifier.includes("@") ? "email" : "phone",
         })
       }),
     [client, run, done]
@@ -90,15 +95,15 @@ export function useRegister(options: RegisterOptions = {}) {
     (code: string) =>
       run(async () => {
         if (state.step !== "verify") return
-        const out = await client.confirmVerification({
+        const result = await client.confirmVerification({
           identifier: state.identifier,
           code: code.trim(),
         })
-        if (out.kind === "session") return done(true, out.returnTo)
-        if (out.kind !== "contact_changed") {
-          pending.current = null
-          setState({ step: "continuation", continuation: out })
-        }
+        if (!result) return done(false)
+        if (result.status === "complete")
+          return done(true, result.return_to ?? undefined)
+        pending.current = null
+        setState({ step: "continuation", continuation: result })
       }),
     [client, run, done, state]
   )

@@ -35,17 +35,19 @@ export function TwoFactorChallenge({
   const [code, setCode] = useState("")
   const [backup, setBackup] = useState(false)
   const [resent, setResent] = useState(false)
-  const method = state.step === "two_factor" ? state.challenge.method : ""
+  const method =
+    state.step === "two_factor" ? state.challenge.factor.method : ""
   const cooldown = useCooldown(RESEND_SECONDS, sendsCode(method))
   const spentCode = useSpentCode(error)
   if (state.step !== "two_factor") return null
 
-  const { challenge, factorId } = state
+  const { challenge } = state
+  const { factor } = challenge
   const canResend = sendsCode(method) && !backup
   // A wrong code stays retryable; only a spent one needs a new code.
   const burned = canResend && spentCode.spent
-  const others = challenge.availableFactors.filter(
-    (f) => f.id && f.id !== factorId && f.method !== method
+  const others = challenge.factors.filter(
+    (f) => f.id && f.id !== factor.id && f.method !== method
   )
 
   const submit = (value = code) => {
@@ -72,8 +74,8 @@ export function TwoFactorChallenge({
     ? t("twoFactor.backupPrompt")
     : method === "totp"
       ? t("twoFactor.codePromptTotp")
-      : challenge.verificationId
-        ? t("challenge.codeSentTo", { destination: challenge.verificationId })
+      : factor.destination
+        ? t("challenge.codeSentTo", { destination: factor.destination })
         : t("twoFactor.codePrompt", { method: methodLabel(t, method) })
 
   return (
@@ -163,7 +165,7 @@ export function TwoFactorChallenge({
             <TextButton
               key={f.id}
               disabled={busy}
-              onClick={() => switchTo(f.id!)}
+              onClick={() => switchTo(f.id)}
             >
               {t("challenge.useFactor", { method: methodLabel(t, f.method) })}
             </TextButton>

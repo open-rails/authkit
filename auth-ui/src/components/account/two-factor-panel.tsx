@@ -8,11 +8,7 @@ import {
 import type { IconSvgElement } from "@hugeicons/react"
 import { useId, useState } from "react"
 
-import type {
-  RemovedRole,
-  TwoFactorFactor,
-  TwoFactorMethod,
-} from "../../client/types.ts"
+import type { TwoFactorFactor, TwoFactorMethod } from "../../client/types.ts"
 import { useMessages } from "../../i18n/context.ts"
 import type { MessageKey } from "../../i18n/messages.ts"
 import { useUser } from "../../react/context.ts"
@@ -30,7 +26,6 @@ import {
   CodeStep,
   ConfirmDialog,
   ErrorNotice,
-  Notice,
   PanelCard,
   SettingRow,
   StatusBadge,
@@ -85,7 +80,6 @@ function TwoFactorCard() {
   const tf = useTwoFactorSettings({ guard: useStepUpGuard() })
   const [adding, setAdding] = useState(false)
   const [confirm, setConfirm] = useState<Confirm | null>(null)
-  const [removed, setRemoved] = useState<RemovedRole[]>([])
   const { status, enrollment } = tf
   const enabled = !!status?.enabled
   const factors = (status?.factors ?? []).filter(
@@ -99,22 +93,12 @@ function TwoFactorCard() {
   const enrolling = enrollment.step !== "idle"
   const label = (m: TwoFactorMethod) => t(LABEL[m])
 
-  const destination = (f: TwoFactorFactor) =>
-    f.method === "sms"
-      ? (f.phone_number ?? undefined)
-      : f.method === "email"
-        ? f.email
-        : undefined
-
-  const onConfirm = async () => {
+  const onConfirm = () => {
     const c = confirm
     setConfirm(null)
-    if (!c) return
-    if (c.kind === "regenerate") return tf.regenerateBackupCodes()
-    const roles = await tf.disable(
-      c.kind === "remove" ? { factorId: c.factor.id } : {}
-    )
-    if (roles) setRemoved(roles)
+    if (c?.kind === "regenerate") void tf.regenerateBackupCodes()
+    else if (c?.kind === "remove") void tf.remove(c.factor.id)
+    else if (c?.kind === "disable") void tf.disable()
   }
 
   return (
@@ -181,9 +165,10 @@ function TwoFactorCard() {
           <CodeStep
             prompt={t("account.twoFactor.codeSentTo", {
               destination:
-                enrollment.method === "sms"
+                enrollment.destination ??
+                (enrollment.method === "sms"
                   ? (enrollment.phoneNumber ?? "")
-                  : (user?.email ?? t("account.twoFactor.yourEmail")),
+                  : (user?.email ?? t("account.twoFactor.yourEmail"))),
             })}
             busy={tf.busy}
             error={tf.error}
@@ -218,7 +203,7 @@ function TwoFactorCard() {
 
       {factors.map((f) => (
         <SettingRow
-          key={f.id ?? f.method}
+          key={f.id}
           icon={ICON[f.method]}
           title={label(f.method)}
           badge={
@@ -228,17 +213,15 @@ function TwoFactorCard() {
               </Badge>
             ) : null
           }
-          description={destination(f)}
+          description={f.destination ?? undefined}
           actions={
             <>
-              {!f.is_default && f.id && (
+              {!f.is_default && (
                 <Button
                   variant="ghost"
                   size="sm"
                   disabled={tf.busy}
-                  onClick={() =>
-                    void tf.setDefault({ factorId: f.id!, method: f.method })
-                  }
+                  onClick={() => void tf.setDefault(f.id)}
                 >
                   {t("account.twoFactor.makeDefault")}
                 </Button>
@@ -281,16 +264,9 @@ function TwoFactorCard() {
         />
       )}
 
-      {(removed.length > 0 || (tf.error && !enrolling && !adding)) && (
+      {tf.error && !enrolling && !adding && (
         <div className="grid gap-3 px-5 py-4 sm:px-6">
-          {removed.length > 0 && (
-            <Notice tone="warning">
-              {t("account.twoFactor.removedRoles", {
-                roles: removed.map((r) => r.role).join(", "),
-              })}
-            </Notice>
-          )}
-          {!enrolling && !adding && <ErrorNotice error={tf.error} />}
+          <ErrorNotice error={tf.error} />
         </div>
       )}
 
@@ -350,7 +326,7 @@ function TwoFactorCard() {
               : t("account.twoFactor.disable")
         }
         destructive={confirm?.kind !== "regenerate"}
-        onConfirm={() => void onConfirm()}
+        onConfirm={onConfirm}
       />
     </PanelCard>
   )

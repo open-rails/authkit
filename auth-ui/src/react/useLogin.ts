@@ -1,43 +1,36 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
-import type { AuthOutcome } from "../client/client.ts"
-import type { LoginContinuation } from "../client/continuation.ts"
+import type { SignInResult } from "../client/authResult.ts"
 import { AuthKitError } from "../client/errors.ts"
-import type { AccountRecovery, TwoFactorMethod } from "../client/types.ts"
+import type {
+  AccountRecoveryConfirmation,
+  EnrollmentStep,
+  SecondFactorStep,
+  TwoFactorMethod,
+  VerificationStep,
+} from "../client/types.ts"
 import { useAuthClient } from "./context.ts"
 import { useTask } from "./task.ts"
 
-type Continuation<K extends LoginContinuation["kind"]> = Extract<
-  LoginContinuation,
-  { kind: K }
->
-export type TwoFactorChallenge = Continuation<"2fa_required">
-export type TwoFactorEnrollmentChallenge =
-  Continuation<"2fa_enrollment_required">
-
+// returnTo: where the flow began, handed back after sign-in.
 export type LoginState =
   | { step: "credentials"; recovered?: boolean }
-  | {
-      step: "two_factor"
-      challenge: TwoFactorChallenge
-      // Factor codes are checked against; sendTwoFactorCode(id) switches it.
-      factorId?: string
-    }
+  // challenge.factor is the factor codes are checked against;
+  // sendTwoFactorCode(id) switches it.
+  | { step: "two_factor"; challenge: SecondFactorStep; returnTo?: string }
   | {
       step: "enrollment"
-      challenge: TwoFactorEnrollmentChallenge
+      enrollment: EnrollmentStep
+      returnTo?: string
       // Set once startEnrollment picked a method.
       method?: TwoFactorMethod
       phoneNumber?: string
       totp?: { secret: string; otpauthUri: string }
-      codeSent?: boolean
+      // The masked address an email/SMS setup code went to.
+      codeSentTo?: string
     }
-  | { step: "recovery"; recovery: AccountRecovery }
-  | {
-      step: "verification"
-      identifier: string
-      channel: "email" | "phone" | null
-    }
+  | { step: "recovery"; recovery: AccountRecoveryConfirmation }
+  | { step: "verification"; verification: VerificationStep }
   // Signed in, but newly issued backup codes must be shown first.
   | { step: "backup_codes"; codes: string[]; returnTo?: string }
   | { step: "done"; returnTo?: string }
@@ -47,7 +40,7 @@ export type LoginOptions = {
   onSignedIn?: (result: { returnTo?: string }) => void
 }
 
-// Password sign-in plus every continuation AuthKit can answer with.
+// Password sign-in plus every step an AuthResult can name next.
 export function useLogin(options: LoginOptions = {}) {
   const client = useAuthClient()
   const { busy, error, run, clearError } = useTask()
@@ -56,14 +49,15 @@ export function useLogin(options: LoginOptions = {}) {
   const credentials = useRef<{ identifier: string; password: string } | null>(
     null
   )
-  // Backup codes that arrived with a 2FA challenge.
+  // Backup codes a forced enrollment issued, shown once signed in.
   const pendingCodes = useRef<string[]>([])
   const onSignedIn = useRef(options.onSignedIn)
   useEffect(() => {
     onSignedIn.current = options.onSignedIn
   })
 
-  const finish = useCallback((codes: string[], returnTo?: string) => {
+  const finish = useCallback((returnTo?: string) => {
+    const codes = pendingCodes.current
     credentials.current = null
     pendingCodes.current = []
     if (codes.length) {
@@ -75,27 +69,28 @@ export function useLogin(options: LoginOptions = {}) {
   }, [])
 
   const apply = useCallback(
-    (outcome: AuthOutcome) => {
-      switch (outcome.kind) {
-        case "session":
-          return finish(pendingCodes.current, outcome.returnTo)
-        case "2fa_required":
-          if (outcome.backupCodes.length)
-            pendingCodes.current = outcome.backupCodes
+    (result: SignInResult, returnTo = result.return_to ?? undefined) => {
+      switch (result.status) {
+        case "complete":
+          return finish(returnTo)
+        case "second_factor_required":
           return setState({
             step: "two_factor",
-            challenge: outcome,
-            factorId: outcome.defaultFactor?.id,
+            challenge: result.second_factor,
+            returnTo,
           })
-        case "2fa_enrollment_required":
-          return setState({ step: "enrollment", challenge: outcome })
+        case "enrollment_required":
+          return setState({
+            step: "enrollment",
+            enrollment: result.enrollment,
+            returnTo,
+          })
         case "account_recovery_required":
-          return setState({ step: "recovery", recovery: outcome.recovery })
+          return setState({ step: "recovery", recovery: result.recovery })
         case "verification_required":
           return setState({
             step: "verification",
-            identifier: outcome.identifier,
-            channel: outcome.channel,
+            verification: result.verification,
           })
       }
     },
@@ -116,15 +111,12 @@ export function useLogin(options: LoginOptions = {}) {
   // Popup failures surface as error codes popup_blocked/popup_closed/
   // popup_timeout/session_changed or the provider's code.
   const signInWithPopup = useCallback(
-    (
-      provider: string,
-      opts: { returnTo?: string; accountInviteToken?: string } = {}
-    ) =>
+    (provider: string, opts: { returnTo?: string; inviteCode?: string } = {}) =>
       run(async () => {
         credentials.current = null
         pendingCodes.current = []
         const out = await client.signInWithPopup(provider, opts)
-        if (out.ok) return apply(out.outcome)
+        if (out.ok) return apply(out.result)
         const code =
           out.reason === "provider_error"
             ? out.code
@@ -136,12 +128,12 @@ export function useLogin(options: LoginOptions = {}) {
     [client, run, apply]
   )
 
-  // Enter the flow from an outcome produced elsewhere (OIDC popup/redirect,
-  // registration, a refresh that returned a continuation).
+  // Enter the flow from a result produced elsewhere (OIDC popup/redirect,
+  // registration, a refresh that needs another step).
   const resume = useCallback(
-    (outcome: AuthOutcome) => {
+    (result: SignInResult) => {
       clearError()
-      apply(outcome)
+      apply(result)
     },
     [apply, clearError]
   )
@@ -150,13 +142,13 @@ export function useLogin(options: LoginOptions = {}) {
     (code: string, opts: { backupCode?: boolean } = {}) =>
       run(async () => {
         if (state.step !== "two_factor") return
-        const { challenge, factorId } = state
+        const { challenge } = state
         apply(
           await client.verifyTwoFactor({
-            userId: challenge.userId,
+            userId: challenge.user_id,
             challenge: challenge.challenge,
             code: code.trim(),
-            factorId: opts.backupCode ? undefined : factorId,
+            factorId: opts.backupCode ? undefined : challenge.factor.id,
             backupCode: opts.backupCode || undefined,
           })
         )
@@ -169,75 +161,65 @@ export function useLogin(options: LoginOptions = {}) {
     (factorId?: string) =>
       run(async () => {
         if (state.step !== "two_factor") return
-        const target = factorId ?? state.factorId
+        const { challenge, returnTo } = state
         const next = await client.sendTwoFactorChallenge({
-          userId: state.challenge.userId,
-          challenge: state.challenge.challenge,
-          factorId: target,
+          userId: challenge.user_id,
+          challenge: challenge.challenge,
+          factorId: factorId ?? challenge.factor.id,
         })
-        setState({ step: "two_factor", challenge: next, factorId: target })
+        setState({
+          step: "two_factor",
+          challenge: next.second_factor,
+          returnTo,
+        })
       }),
     [client, run, state]
-  )
-
-  const enroll = useCallback(
-    async (
-      s: Extract<LoginState, { step: "enrollment" }>,
-      input: { method: TwoFactorMethod; phoneNumber?: string; code?: string }
-    ) => {
-      const out = await client.enableTwoFactor(
-        {
-          method: input.method,
-          phoneNumber: input.phoneNumber,
-          code: input.code,
-        },
-        { enrollmentToken: s.challenge.enrollmentToken }
-      )
-      const base = {
-        step: "enrollment" as const,
-        challenge: s.challenge,
-        method: input.method,
-        phoneNumber: input.phoneNumber,
-      }
-      switch (out.kind) {
-        case "totp_started":
-          return setState({
-            ...base,
-            totp: { secret: out.secret, otpauthUri: out.otpauthUri },
-          })
-        case "code_sent":
-          return setState({ ...base, codeSent: true })
-        case "default_set":
-          return setState(base)
-        case "enabled":
-          return finish(out.backupCodes, s.challenge.returnTo)
-        default:
-          return apply(out)
-      }
-    },
-    [client, apply, finish]
   )
 
   // TOTP answers with a secret; SMS/email send a code.
   const startEnrollment = useCallback(
     (input: { method: TwoFactorMethod; phoneNumber?: string }) =>
       run(async () => {
-        if (state.step === "enrollment") await enroll(state, input)
+        if (state.step !== "enrollment") return
+        const setup = await client.setupTwoFactor(input, {
+          enrollmentToken: state.enrollment.token_set,
+        })
+        setState({
+          step: "enrollment",
+          enrollment: state.enrollment,
+          returnTo: state.returnTo,
+          method: input.method,
+          phoneNumber: input.phoneNumber,
+          totp:
+            setup.secret && setup.otpauth_uri
+              ? { secret: setup.secret, otpauthUri: setup.otpauth_uri }
+              : undefined,
+          codeSentTo:
+            input.method === "totp"
+              ? undefined
+              : (setup.destination ?? input.phoneNumber ?? ""),
+        })
       }),
-    [run, enroll, state]
+    [client, run, state]
   )
 
   const confirmEnrollment = useCallback(
     (code: string) =>
       run(async () => {
         if (state.step !== "enrollment" || !state.method) return
-        await enroll(state, {
-          method: state.method,
-          phoneNumber: state.phoneNumber,
-          code: code.trim(),
-        })
+        const created = await client.addTwoFactorFactor(
+          {
+            method: state.method,
+            phoneNumber: state.phoneNumber,
+            code: code.trim(),
+          },
+          { enrollmentToken: state.enrollment.token_set }
+        )
+        if (!created.auth) throw new Error("AuthKit returned no sign-in")
+        pendingCodes.current = created.backup_codes
+        apply(created.auth, created.auth.return_to ?? state.returnTo)
       }),
-    [run, enroll, state]
+    [client, run, apply, state]
   )
 
   // Restores a soft-deleted account, then signs in again if we can.
@@ -257,7 +239,9 @@ export function useLogin(options: LoginOptions = {}) {
     () =>
       run(async () => {
         if (state.step !== "verification") return
-        await client.requestVerification({ identifier: state.identifier })
+        await client.requestVerification({
+          identifier: state.verification.identifier,
+        })
       }),
     [client, run, state]
   )
@@ -266,11 +250,11 @@ export function useLogin(options: LoginOptions = {}) {
     (code: string) =>
       run(async () => {
         if (state.step !== "verification") return
-        const out = await client.confirmVerification({
-          identifier: state.identifier,
+        const result = await client.confirmVerification({
+          identifier: state.verification.identifier,
           code: code.trim(),
         })
-        if (out.kind !== "contact_changed") apply(out)
+        if (result) apply(result)
       }),
     [client, run, apply, state]
   )

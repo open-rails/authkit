@@ -19,6 +19,10 @@ export {
 export { PasswordPanel, type PasswordPanelProps } from "./password-panel.tsx"
 export { SessionsPanel, type SessionsPanelProps } from "./sessions-panel.tsx"
 export {
+  SignInKeysPanel,
+  type SignInKeysPanelProps,
+} from "./sign-in-keys-panel.tsx"
+export {
   StepUpDialog,
   StepUpProvider,
   type StepUpDialogProps,

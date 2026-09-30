@@ -9,7 +9,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import { useState } from "react"
 
-import type { AuthOutcome } from "#authui/client/client"
+import type { SignInResult } from "#authui/client/authResult"
 import { AuthKitError } from "#authui/client/errors"
 import { useMessages } from "#authui/i18n/context"
 import { useAuthClient, useCapabilities } from "#authui/react/context"
@@ -38,15 +38,15 @@ export function ProviderButtons({
   renderSolana,
   onOutcome,
   returnTo,
-  accountInviteToken,
+  inviteCode,
   disabled,
 }: {
   mode: SignInMode
   providers?: ProvidersOption
   renderSolana?: SolanaSlot
-  onOutcome: (outcome: AuthOutcome) => void
+  onOutcome: (result: SignInResult) => void
   returnTo?: string
-  accountInviteToken?: string
+  inviteCode?: string
   disabled?: boolean
 }) {
   const { t, error: describe } = useMessages()
@@ -71,9 +71,9 @@ export function ProviderButtons({
     setError(null)
     setPending(id)
     try {
-      const opts = { returnTo, accountInviteToken }
+      const opts = { returnTo, inviteCode }
       const out = await client.signInWithPopup(id, opts)
-      if (out.ok) return onOutcome(out.outcome)
+      if (out.ok) return onOutcome(out.result)
       if (out.reason === "blocked") {
         await client.signInWithRedirect(id, opts)
         return

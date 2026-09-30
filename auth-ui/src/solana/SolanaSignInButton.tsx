@@ -1,7 +1,7 @@
 import { cn } from "cn"
 import { useId } from "react"
 
-import type { AuthOutcome } from "../client/client.ts"
+import type { SignInResult } from "../client/authResult.ts"
 import { useMessages } from "../i18n/context.ts"
 import type { Translator } from "../i18n/messages.ts"
 import { useAuthClient } from "../react/context.ts"
@@ -24,7 +24,7 @@ export type SolanaSignInButtonProps = {
   // SolanaWalletError("rejected") when the picker is dismissed.
   acquireSigner?: () => Promise<SolanaSigner>
   // Pass the renderSolana slot's onOutcome so 2FA etc. continue in the form.
-  onOutcome: (outcome: AuthOutcome) => void
+  onOutcome: (result: SignInResult) => void
   mode?: "login" | "register"
   // Username for an account created by this sign-in.
   username?: string

@@ -21,6 +21,7 @@ import { Spinner } from "../../ui/spinner.tsx"
 import { PanelRoot } from "./panel-root.tsx"
 import {
   CodeStep,
+  ConfirmDialog,
   ErrorNotice,
   Notice,
   PanelCard,
@@ -36,7 +37,7 @@ export interface ContactPanelProps {
   className?: string
 }
 
-/** Change or verify email and phone with a one-time code. */
+/** Change or verify email and phone with a one-time code; remove a phone. */
 export function ContactPanel({
   channels = ["email", "phone"],
   className,
@@ -72,6 +73,7 @@ function ContactRow({ channel }: { channel: ContactChannel }) {
   const { user } = useUser()
   const flow = useContactVerification({ guard: useStepUpGuard() })
   const [editing, setEditing] = useState(false)
+  const [removing, setRemoving] = useState(false)
   const email = channel === "email"
   const value = (email ? user?.email : user?.phone_number) ?? ""
   const verified = email ? !!user?.email_verified : !!user?.phone_verified
@@ -84,92 +86,126 @@ function ContactRow({ channel }: { channel: ContactChannel }) {
   const active = editing || state.step !== "idle"
 
   return (
-    <SettingRow
-      icon={email ? Mail01Icon : SmartPhone01Icon}
-      title={email ? t("account.email.title") : t("account.phone.title")}
-      badge={
-        value ? (
-          <Badge variant={verified ? "secondary" : "destructive"}>
-            {verified ? t("common.verified") : t("common.unverified")}
-          </Badge>
-        ) : null
-      }
-      description={
-        value ? (
-          <span className="font-medium text-foreground/80">{value}</span>
-        ) : (
-          t("account.contact.noneSet")
-        )
-      }
-      actions={
-        !active && user ? (
-          <>
-            {value && !verified && (
+    <>
+      <SettingRow
+        icon={email ? Mail01Icon : SmartPhone01Icon}
+        title={email ? t("account.email.title") : t("account.phone.title")}
+        badge={
+          value ? (
+            <Badge variant={verified ? "secondary" : "destructive"}>
+              {verified ? t("common.verified") : t("common.unverified")}
+            </Badge>
+          ) : null
+        }
+        description={
+          value ? (
+            <span className="font-medium text-foreground/80">{value}</span>
+          ) : (
+            t("account.contact.noneSet")
+          )
+        }
+        actions={
+          !active && user ? (
+            <>
+              {value && !verified && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={flow.busy}
+                  onClick={() => void flow.request(value)}
+                >
+                  {flow.busy && <Spinner />}
+                  {t("account.contact.verify")}
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"
-                disabled={flow.busy}
-                onClick={() => void flow.request(value)}
+                onClick={() => {
+                  flow.reset()
+                  setEditing(true)
+                }}
               >
-                {flow.busy && <Spinner />}
-                {t("account.contact.verify")}
+                {value ? t("account.contact.change") : t("account.contact.add")}
               </Button>
-            )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                flow.reset()
-                setEditing(true)
-              }}
-            >
-              {value ? t("account.contact.change") : t("account.contact.add")}
-            </Button>
-          </>
-        ) : null
-      }
-    >
-      {state.step === "code_sent" ? (
-        <CodeStep
-          prompt={t("account.contact.codeSentTo", { value: state.identifier })}
-          busy={flow.busy}
-          error={flow.error}
-          submitLabel={
-            email ? t("account.email.confirmChange") : t("account.phone.verify")
-          }
-          onSubmit={(code) => flow.confirm(code)}
-          onResend={() => flow.resend()}
-          onCancel={close}
-        />
-      ) : state.step === "done" ? (
-        <Notice
-          tone="success"
-          action={
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-fit"
-              onClick={close}
-            >
-              {t("common.close")}
-            </Button>
-          }
-        >
-          {email ? t("account.email.changed") : t("account.phone.verified")}
-        </Notice>
-      ) : editing ? (
-        <ContactForm
-          channel={channel}
-          current={value}
-          busy={flow.busy}
-          error={flow.error}
-          onSubmit={(next) => flow.request(next)}
-          onCancel={close}
-        />
-      ) : flow.error ? (
-        <ErrorNotice error={flow.error} />
-      ) : null}
-    </SettingRow>
+              {!email && value && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive hover:text-destructive"
+                  disabled={flow.busy}
+                  onClick={() => {
+                    flow.reset()
+                    setRemoving(true)
+                  }}
+                >
+                  {t("account.phone.remove")}
+                </Button>
+              )}
+            </>
+          ) : null
+        }
+      >
+        {state.step === "code_sent" ? (
+          <CodeStep
+            prompt={t("account.contact.codeSentTo", {
+              value: state.identifier,
+            })}
+            busy={flow.busy}
+            error={flow.error}
+            submitLabel={
+              email
+                ? t("account.email.confirmChange")
+                : t("account.phone.verify")
+            }
+            onSubmit={(code) => flow.confirm(code)}
+            onResend={() => flow.resend()}
+            onCancel={close}
+          />
+        ) : state.step === "done" ? (
+          <Notice
+            tone="success"
+            action={
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-fit"
+                onClick={close}
+              >
+                {t("common.close")}
+              </Button>
+            }
+          >
+            {email ? t("account.email.changed") : t("account.phone.verified")}
+          </Notice>
+        ) : editing ? (
+          <ContactForm
+            channel={channel}
+            current={value}
+            busy={flow.busy}
+            error={flow.error}
+            onSubmit={(next) =>
+              flow.change(email ? { email: next } : { phoneNumber: next })
+            }
+            onCancel={close}
+          />
+        ) : flow.error ? (
+          <ErrorNotice error={flow.error} />
+        ) : null}
+      </SettingRow>
+      <ConfirmDialog
+        open={removing}
+        onOpenChange={setRemoving}
+        title={t("account.phone.removeTitle")}
+        description={t("account.phone.removeDescription", { value })}
+        confirmLabel={t("account.phone.remove")}
+        destructive
+        onConfirm={() => {
+          setRemoving(false)
+          void flow.removePhone()
+        }}
+      />
+    </>
   )
 }
 

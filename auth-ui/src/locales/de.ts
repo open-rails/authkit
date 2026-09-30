@@ -303,6 +303,10 @@ export const de: AuthUiMessageBundle = {
     },
     phone: {
       title: "Telefonnummer",
+      remove: "Entfernen",
+      removeTitle: "Telefonnummer entfernen?",
+      removeDescription:
+        "{value} kann sich danach nicht mehr anmelden, keine Codes mehr empfangen und dieses Konto nicht mehr wiederherstellen.",
       none: "Keine Telefonnummer hinterlegt",
       add: "Telefonnummer hinzufügen",
       change: "Telefonnummer ändern",
@@ -402,8 +406,6 @@ export const de: AuthUiMessageBundle = {
       disableTitle: "Zwei-Faktor-Authentifizierung deaktivieren?",
       disableDescription:
         "Alle Bestätigungsmethoden und Backup-Codes werden entfernt. Dein Konto ist dann nur noch durch dein Passwort geschützt.",
-      removedRoles:
-        "Rollen, die Zwei-Faktor-Authentifizierung erfordern, wurden entfernt: {roles}.",
       backupTitle: "Backup-Codes",
       backupRemaining: "{count} unbenutzte Codes übrig",
       regenerate: "Neue Codes erzeugen",
@@ -429,6 +431,22 @@ export const de: AuthUiMessageBundle = {
       device: "{browser} auf {os}",
       signedIn: "Angemeldet {time}",
       noOthers: "Du bist nirgendwo sonst angemeldet.",
+    },
+    signInKeys: {
+      title: "Passkeys und Geräteschlüssel",
+      description: "Schlüssel, mit denen Sie sich ohne Passwort anmelden.",
+      addPasskey: "Passkey hinzufügen",
+      none: "Noch keine Passkeys oder Geräteschlüssel.",
+      passkey: "Passkey",
+      deviceKey: "Geräteschlüssel",
+      current: "Dieses Gerät",
+      added: "Hinzugefügt {time}",
+      lastUsed: "Zuletzt verwendet {time}",
+      rename: "Umbenennen",
+      label: "Name",
+      remove: "Entfernen",
+      removeTitle: "{name} entfernen?",
+      removeDescription: "Damit können Sie sich nicht mehr anmelden.",
     },
     delete: {
       title: "Konto löschen",

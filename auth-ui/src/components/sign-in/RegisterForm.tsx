@@ -20,7 +20,7 @@ import { useMessages } from "#authui/i18n/context"
 import { useCapabilities } from "#authui/react/context"
 import { useLogin } from "#authui/react/useLogin"
 import { useRegister, type RegisterInput } from "#authui/react/useRegister"
-import type { LoginContinuation } from "#authui/client/continuation"
+import type { PendingSignIn } from "#authui/client/authResult"
 import { AuthUiRoot } from "#authui/scope"
 import { Button } from "#authui/ui/button"
 import { InputGroupButton } from "#authui/ui/input-group"
@@ -95,9 +95,9 @@ function usernameIssue(
 export type RegisterFormProps = SignInHostProps & {
   // A useRegister() owned by a parent; its onSignedIn is then the parent's.
   controller?: RegisterController
-  // Verification signed in but AuthKit wants more (e.g. forced 2FA). Default:
-  // this form runs the login steps itself.
-  onContinuation?: (continuation: LoginContinuation) => void
+  // Registration signed in but AuthKit wants another step (e.g. forced 2FA).
+  // Default: this form runs the login steps itself.
+  onContinuation?: (continuation: PendingSignIn) => void
   // Shared with a sibling LoginForm so provider/wallet sign-up continue there.
   loginController?: LoginController
   // Offered when registration finished without a session.
@@ -111,7 +111,7 @@ export function RegisterForm(props: RegisterFormProps) {
   const signedIn = useSignedIn(props)
   const own = useRegister({
     onSignedIn: signedIn,
-    accountInviteToken: props.accountInviteToken,
+    inviteCode: props.inviteCode,
   })
   const register = props.controller ?? own
   const ownLogin = useLogin({ onSignedIn: signedIn })
@@ -243,7 +243,7 @@ function RegisterFields({
   providers,
   renderSolana,
   returnTo,
-  accountInviteToken,
+  inviteCode,
 }: RegisterFormProps & {
   register: RegisterController
   login: LoginController
@@ -402,7 +402,7 @@ function RegisterFields({
           renderSolana={renderSolana}
           onOutcome={login.resume}
           returnTo={returnTo}
-          accountInviteToken={accountInviteToken}
+          inviteCode={inviteCode}
           disabled={busy}
         />
       )}

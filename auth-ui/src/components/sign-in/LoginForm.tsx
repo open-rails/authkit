@@ -72,7 +72,7 @@ function Credentials({
   providers,
   renderSolana,
   returnTo,
-  accountInviteToken,
+  inviteCode,
 }: LoginFormProps & {
   login: LoginController
   onForgotPassword: (identifier: string) => void
@@ -164,7 +164,7 @@ function Credentials({
           renderSolana={renderSolana}
           onOutcome={login.resume}
           returnTo={returnTo}
-          accountInviteToken={accountInviteToken}
+          inviteCode={inviteCode}
           disabled={busy}
         />
       )}

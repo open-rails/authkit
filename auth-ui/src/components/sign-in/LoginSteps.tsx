@@ -63,6 +63,7 @@ function VerificationRequired({ controller }: { controller: LoginController }) {
   const [sent, setSent] = useState(false)
   const cooldown = useCooldown(30)
   if (state.step !== "verification") return null
+  const { identifier, channel } = state.verification
   const verify = (value = code) => {
     if (!value.trim() || busy) return
     setCode("")
@@ -85,13 +86,13 @@ function VerificationRequired({ controller }: { controller: LoginController }) {
       <StepHeader
         icon={MailSend01Icon}
         title={
-          state.channel === "phone"
+          channel === "phone" || channel === "sms"
             ? t("verify.titlePhone")
-            : state.channel === "email"
+            : channel === "email"
               ? t("verify.titleEmail")
               : t("verify.title")
         }
-        description={`${t("verify.pleaseVerify")} ${t("verify.codeSentTo", { destination: state.identifier })}`}
+        description={`${t("verify.pleaseVerify")} ${t("verify.codeSentTo", { destination: identifier })}`}
       />
       {error && <FormAlert>{describe(error)}</FormAlert>}
       {sent && !error && !busy && (

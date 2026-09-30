@@ -1,5 +1,11 @@
-export type PopupMessage = Record<string, unknown> & {
+// AuthKit's popup result: a one-time `code` for POST /oidc/exchange, or an
+// `error` code. It never carries a token.
+export type PopupMessage = {
   type: "AUTHKIT_OIDC_RESULT" | "AUTHKIT_OIDC_ERROR"
+  nonce: string
+  provider?: string
+  code?: string
+  error?: string
 }
 
 export type PopupWait =
@@ -64,7 +70,7 @@ export function waitForPopup(
       )
         return
       if (data.nonce !== opts.nonce) return
-      finish({ ok: true, message: data as PopupMessage })
+      finish({ ok: true, message: data as unknown as PopupMessage })
     }
     const timer = setTimeout(
       () => finish({ ok: false, reason: "timeout" }),

@@ -295,6 +295,10 @@ export const en = {
     },
     phone: {
       title: "Phone number",
+      remove: "Remove",
+      removeTitle: "Remove phone number?",
+      removeDescription:
+        "{value} will no longer sign in, receive codes or recover this account.",
       none: "No phone number set",
       add: "Add phone number",
       change: "Change phone",
@@ -392,8 +396,6 @@ export const en = {
       disableTitle: "Turn off two-factor authentication?",
       disableDescription:
         "All verification methods and backup codes will be removed. Your password alone will protect your account.",
-      removedRoles:
-        "Roles that require two-factor authentication were removed: {roles}.",
       backupTitle: "Backup codes",
       backupRemaining: "{count} unused codes left",
       regenerate: "Generate new codes",
@@ -419,6 +421,22 @@ export const en = {
       device: "{browser} on {os}",
       signedIn: "Signed in {time}",
       noOthers: "You're not signed in anywhere else.",
+    },
+    signInKeys: {
+      title: "Passkeys and device keys",
+      description: "Keys that sign you in without a password.",
+      addPasskey: "Add a passkey",
+      none: "No passkeys or device keys yet.",
+      passkey: "Passkey",
+      deviceKey: "Device key",
+      current: "This device",
+      added: "Added {time}",
+      lastUsed: "Last used {time}",
+      rename: "Rename",
+      label: "Name",
+      remove: "Remove",
+      removeTitle: "Remove {name}?",
+      removeDescription: "It will no longer sign you in.",
     },
     delete: {
       title: "Delete account",

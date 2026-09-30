@@ -1,11 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 
 import type { AuthKitError } from "../client/errors.ts"
-import type {
-  RemovedRole,
-  TwoFactorMethod,
-  TwoFactorStatus,
-} from "../client/types.ts"
+import type { TwoFactorMethod, TwoFactorStatus } from "../client/types.ts"
 import type { GuardOptions } from "./account.ts"
 import {
   sessionIdentity,
@@ -28,6 +24,8 @@ export type TwoFactorEnrollmentState =
       method: "email" | "sms"
       phoneNumber?: string
       makeDefault?: boolean
+      // The masked address the setup code went to.
+      destination: string | null
     }
   // Show once; they are not retrievable later.
   | { step: "backup_codes"; codes: string[] }
@@ -68,6 +66,7 @@ export function useTwoFactorSettings(options: GuardOptions = {}) {
     void refetchUser()
   }, [refetchUser])
 
+  // TOTP answers its secret; email and SMS send a setup code.
   const start = useCallback(
     (input: {
       method: TwoFactorMethod
@@ -75,42 +74,36 @@ export function useTwoFactorSettings(options: GuardOptions = {}) {
       makeDefault?: boolean
     }) =>
       run(async () => {
-        const out = await guard(() => client.enableTwoFactor(input))
-        if (out.kind === "totp_started")
+        const setup = await guard(() => client.setupTwoFactor(input))
+        if (input.method === "totp")
           setEnrollment({
             step: "totp",
-            secret: out.secret,
-            otpauthUri: out.otpauthUri,
+            secret: setup.secret ?? "",
+            otpauthUri: setup.otpauth_uri ?? "",
             makeDefault: input.makeDefault,
           })
-        else if (out.kind === "code_sent" && input.method !== "totp")
+        else
           setEnrollment({
             step: "code_sent",
             method: input.method,
             phoneNumber: input.phoneNumber,
             makeDefault: input.makeDefault,
+            destination: setup.destination,
           })
-        else if (out.kind === "enabled") {
-          setEnrollment(
-            out.backupCodes.length
-              ? { step: "backup_codes", codes: out.backupCodes }
-              : { step: "idle" }
-          )
-          refetch()
-        }
       }),
-    [client, guard, run, refetch]
+    [client, guard, run]
   )
 
+  // Confirms the started factor with its code; backup codes follow the
+  // first factor.
   const confirm = useCallback(
     (code: string) =>
       run(async () => {
         if (enrollment.step !== "totp" && enrollment.step !== "code_sent")
           return
-        const method = enrollment.step === "totp" ? "totp" : enrollment.method
-        const out = await guard(() =>
-          client.enableTwoFactor({
-            method,
+        const created = await guard(() =>
+          client.addTwoFactorFactor({
+            method: enrollment.step === "totp" ? "totp" : enrollment.method,
             code: code.trim(),
             phoneNumber:
               enrollment.step === "code_sent"
@@ -119,10 +112,9 @@ export function useTwoFactorSettings(options: GuardOptions = {}) {
             makeDefault: enrollment.makeDefault,
           })
         )
-        if (out.kind !== "enabled") return
         setEnrollment(
-          out.backupCodes.length
-            ? { step: "backup_codes", codes: out.backupCodes }
+          created.backup_codes.length
+            ? { step: "backup_codes", codes: created.backup_codes }
             : { step: "idle" }
         )
         refetch()
@@ -131,29 +123,30 @@ export function useTwoFactorSettings(options: GuardOptions = {}) {
   )
 
   const setDefault = useCallback(
-    (factor: { factorId: string; method: TwoFactorMethod }) =>
+    (factorId: string) =>
       run(async () => {
-        await guard(() =>
-          client.enableTwoFactor({
-            method: factor.method,
-            factorId: factor.factorId,
-            makeDefault: true,
-          })
-        )
+        await guard(() => client.setDefaultTwoFactorFactor(factorId))
         refetch()
       }),
     [client, guard, run, refetch]
   )
 
-  // Without factorId every factor goes. Returns roles lost for lacking MFA.
-  const disable = useCallback(
-    (input: { factorId?: string } = {}) =>
+  // Removing the last factor turns 2FA off.
+  const remove = useCallback(
+    (factorId: string) =>
       run(async () => {
-        const removed: RemovedRole[] = await guard(() =>
-          client.disableTwoFactor(input)
-        )
+        await guard(() => client.removeTwoFactorFactor(factorId))
         refetch()
-        return removed
+      }),
+    [client, guard, run, refetch]
+  )
+
+  // Removes every factor and backup code.
+  const disable = useCallback(
+    () =>
+      run(async () => {
+        await guard(() => client.disableTwoFactor())
+        refetch()
       }),
     [client, guard, run, refetch]
   )
@@ -186,6 +179,7 @@ export function useTwoFactorSettings(options: GuardOptions = {}) {
     start,
     confirm,
     setDefault,
+    remove,
     disable,
     regenerateBackupCodes,
     dismiss,

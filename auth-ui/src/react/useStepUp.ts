@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
-import { readStepUpRequired } from "../client/continuation.ts"
-import type { StepUpChallenge } from "../client/continuation.ts"
 import { AuthKitError } from "../client/errors.ts"
+import { readStepUpRequired, stepUpDestination } from "../client/stepUp.ts"
+import type { StepUpChallenge } from "../client/stepUp.ts"
 import { useAuthClient } from "./context.ts"
 import { useTask, type Guard } from "./task.ts"
 
@@ -13,8 +13,8 @@ export type StepUpState =
       step: "code_sent"
       challenge: StepUpChallenge
       method: string
-      // Masked destination the code went to.
-      verificationId: string
+      // The masked address the code went to, when AuthKit listed it.
+      destination: string | null
     }
 
 export type StepUpOptions = {
@@ -93,26 +93,29 @@ export function useStepUp(options: StepUpOptions = {}) {
     [client, run, settle]
   )
 
-  // Sends an email/SMS code (TOTP needs none). Some methods step up at once.
+  // Sends an email/SMS code (TOTP needs none).
   const sendCode = useCallback(
     (method?: string) =>
       run(async () => {
-        const out = await client.stepUpWithTwoFactor({ method })
-        if (out.kind === "stepped_up") return settle(true)
-        setState((s) => ({
-          step: "code_sent",
-          challenge: challengeOf(s),
-          method: out.method,
-          verificationId: out.verificationId,
-        }))
+        await client.sendStepUpCode({ method })
+        setState((s) => {
+          const challenge = challengeOf(s)
+          const sent = method ?? challenge.twoFactor?.default_method ?? "email"
+          return {
+            step: "code_sent",
+            challenge,
+            method: sent,
+            destination: stepUpDestination(challenge, sent),
+          }
+        })
       }),
-    [client, run, settle]
+    [client, run]
   )
 
   const withTwoFactor = useCallback(
     (code: string, opts: { method?: string; backupCode?: boolean } = {}) =>
       run(async () => {
-        const out = await client.stepUpWithTwoFactor({
+        await client.stepUpWithTwoFactor({
           code,
           method: opts.backupCode
             ? undefined
@@ -120,19 +123,14 @@ export function useStepUp(options: StepUpOptions = {}) {
               (state.step === "code_sent" ? state.method : undefined)),
           backupCode: opts.backupCode,
         })
-        if (out.kind === "stepped_up") return settle(true)
-        setState((s) => ({
-          step: "code_sent",
-          challenge: challengeOf(s),
-          method: out.method,
-          verificationId: out.verificationId,
-        }))
+        settle(true)
       }),
     [client, run, settle, state]
   )
 
-  // Leaves the page; AuthKit returns to returnTo?step_up=success|failed
-  // (readStepUpReturn). Pending actions are not retried across the redirect.
+  // Leaves the page; AuthKit returns to returnTo#code= (the StepUpProvider
+  // finishes it with client.completeStepUp). Pending actions are not
+  // retried across the redirect.
   const withProvider = useCallback(
     (provider: string, returnTo: string) =>
       run(async () => {
