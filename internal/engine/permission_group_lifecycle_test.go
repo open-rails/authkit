@@ -13,7 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// One real-store workflow covers purge, its rollback and a grant waiting on it.
+// One real-store workflow covers purge, its rollback, a grant waiting on it,
+// and a delete that would strand another group without an owner.
 func TestGroupLifecycleWorkflow(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -85,5 +86,34 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		require.NoError(t, blocker.Commit(ctx))
 		require.NoError(t, <-deleted)
 		require.ErrorIs(t, <-granted, iam.ErrGroupNotFound, "a grant that waited on the delete finds no group")
+	})
+	t.Run("delete_rolls_back_external_owner_loss", func(t *testing.T) {
+		controller := create()
+		survivorID, err := seedGroup(ctx, svc, ident.Persona("org"), "")
+		require.NoError(t, err)
+		survivor := iam.GroupByID(survivorID)
+		application, err := svc.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(controller), iam.RemoteApplication{Slug: "retained-app", Issuer: "https://retained-app.example", JWKSURI: "https://retained-app.example/jwks", Mode: iam.RemoteApplicationModeJWKS, Enabled: true})
+		require.NoError(t, err)
+		// A historical cross-control assignment that the assignment APIs
+		// refuse: deleting its controller must not count the departing
+		// application as the survivor's owner.
+		_, err = pool.Exec(ctx, `INSERT INTO group_remote_application_roles(permission_group_id,remote_application_id,role) VALUES($1::uuid,$2::uuid,'owner')`, survivorID, application.ID)
+		require.NoError(t, err)
+		require.ErrorIs(t, svc.DeleteGroup(ctx, iam.GroupByID(controller), nil), iam.ErrLastOwner)
+		unchanged, err := svc.Group(ctx, iam.GroupByID(controller))
+		require.NoError(t, err)
+		require.Nil(t, unchanged.DeletedAt, "a refused delete is atomic")
+		grantRole(t, svc, survivor, iam.UserSubject(owner.ID), "owner")
+		require.NoError(t, svc.DeleteGroup(ctx, iam.GroupByID(controller), nil))
+		_, err = svc.GetRemoteApplication(ctx, application.Issuer)
+		require.Error(t, err)
+		_, err = svc.ResolveRemoteApplicationAuthority(ctx, application.ID)
+		require.Error(t, err)
+		allowed, err := svc.Can(ctx, iam.RemoteApplicationActor(application.ID), survivor, ident.Perm("org:billing:read"))
+		require.NoError(t, err)
+		require.False(t, allowed)
+		application.Enabled = false
+		_, err = svc.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(application.PermissionGroupID), *application)
+		require.ErrorIs(t, err, iam.ErrGroupNotFound, "retained application state cannot be rewritten")
 	})
 }

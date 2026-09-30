@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/open-rails/authkit"
@@ -305,8 +306,9 @@ func TestSecurityProviderEmailTrust(t *testing.T) {
 // TestSecurityMemberEmailIsAnInvitation (N9): adding a member by email never
 // reveals whether an account holds the address, and never adds the account
 // without its consent: every address gets the same invitation, which only the
-// account that proved the address accepts. A failed verification link says
-// nothing about the address either.
+// account that proved the address accepts, whatever the address's case; a
+// deleted account gets nothing. A failed verification link says nothing about
+// the address either.
 func TestSecurityMemberEmailIsAnInvitation(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
 	ctx := context.Background()
@@ -358,6 +360,31 @@ func TestSecurityMemberEmailIsAnInvitation(t *testing.T) {
 	resp = h.post("/invites/redeem", map[string]string{"code": code}, h.login(verified).AccessToken)
 	require.Equal(t, http.StatusOK, resp.status, resp.String())
 	require.Equal(t, h.role(orgPersona, "member"), roleOf(verified.id), "control: the invited account accepts")
+
+	t.Run("an upper-cased address invites only its proven owner", func(t *testing.T) {
+		proven := h.newAccount("n9upper")
+		resp := h.post(base+"/members", map[string]string{"email": strings.ToUpper(proven.email), "role": "member"}, ownerToken)
+		require.Equal(t, http.StatusAccepted, resp.status, resp.String())
+		require.Empty(t, roleOf(proven.id), "a verified address is invited, never added")
+		var body struct {
+			Invite struct {
+				Code string `json:"code"`
+			} `json:"invite"`
+		}
+		resp.json(t, &body)
+		resp = h.post("/invites/redeem", map[string]string{"code": body.Invite.Code}, h.login(stranger).AccessToken)
+		require.Equal(t, http.StatusNotFound, resp.status, "another account accepted the invitation: %s", resp)
+		resp = h.post("/invites/redeem", map[string]string{"code": body.Invite.Code}, h.login(proven).AccessToken)
+		require.Equal(t, http.StatusOK, resp.status, resp.String())
+		require.Equal(t, h.role(orgPersona, "member"), roleOf(proven.id))
+	})
+	t.Run("a deleted account's address gets no role", func(t *testing.T) {
+		gone := h.newAccount("n9gone")
+		require.NoError(t, opErr(h.auth.DeleteUsers(ctx, iam.SystemActor(), []string{gone.id})))
+		resp := h.post(base+"/members", map[string]string{"email": gone.email, "role": "member"}, ownerToken)
+		require.Equal(t, http.StatusAccepted, resp.status, resp.String())
+		require.Empty(t, roleOf(gone.id), "a deleted account received a role")
+	})
 
 	t.Run("a failed verification link is one answer", func(t *testing.T) {
 		var answers []string
