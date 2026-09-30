@@ -263,7 +263,7 @@ func (s *Engine) ListUsers(ctx context.Context, q iam.UserQuery) (iam.ListPage[i
 		return page, errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("status"))
 	}
 	if role := q.RootRole; !role.IsZero() {
-		if role.Persona() != iam.RootPersona {
+		if role.Persona() != iam.RootPersona() {
 			return page, fmt.Errorf("root role filter %q is not a root role: %w", role, iam.ErrRoleNotAssignable)
 		}
 		where = append(where, `EXISTS (SELECT 1 FROM group_user_roles r JOIN permission_groups g ON g.id=r.permission_group_id

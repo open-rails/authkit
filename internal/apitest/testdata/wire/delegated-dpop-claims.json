@@ -7,6 +7,6 @@
   "sid": "$string",
   "aud": ["platform"],
   "permissions": ["resource:read"],
-  "attributes": {"tenant": "cozy"},
+  "attributes": {"tenant": "acme"},
   "cnf": {"jkt": "$string"}
 }

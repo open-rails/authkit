@@ -164,7 +164,7 @@ func TestSecurityApplicationMFARoles(t *testing.T) {
 		Issuer: "https://root-app.security.test", PublicKeys: staticKeys(t, newSigner(t, "root-app")), Enabled: true,
 	})
 	require.NoError(t, err)
-	require.ErrorIs(t, setRole(h.auth, ctx, iam.SystemActor(), iam.RootGroup(), iam.RemoteApplicationSubject(app.ID), iam.RootPersona.OwnerRole()), iam.ErrRoleNotAssignable)
+	require.ErrorIs(t, setRole(h.auth, ctx, iam.SystemActor(), iam.RootGroup(), iam.RemoteApplicationSubject(app.ID), iam.RootPersona().OwnerRole()), iam.ErrRoleNotAssignable)
 	grantRole(t, h.auth, iam.RootGroup(), iam.RemoteApplicationSubject(app.ID), "credentials-admin")
 
 	owner := h.newAccount("mfaowner")
@@ -173,14 +173,14 @@ func TestSecurityApplicationMFARoles(t *testing.T) {
 	// An owner row for the application from before this rule.
 	_, err = h.pool.Exec(ctx, `UPDATE profiles.group_remote_application_roles SET role='root:owner' WHERE remote_application_id=$1::uuid`, app.ID)
 	require.NoError(t, err)
-	require.ErrorIs(t, h.auth.RemoveGroupMember(ctx, iam.SystemActor(), iam.RootGroup(), iam.UserSubject(owner.id), authkit.IfRole(iam.RootPersona.OwnerRole())), iam.ErrLastOwner, "the application counted as the MFA owner")
+	require.ErrorIs(t, h.auth.RemoveGroupMember(ctx, iam.SystemActor(), iam.RootGroup(), iam.UserSubject(owner.id), authkit.IfRole(iam.RootPersona().OwnerRole())), iam.ErrLastOwner, "the application counted as the MFA owner")
 	roles, err := h.auth.GroupRoles(ctx, iam.RootGroup(), []iam.Subject{iam.UserSubject(owner.id)})
 	require.NoError(t, err)
-	require.Equal(t, iam.RootPersona.OwnerRole(), roles[iam.UserSubject(owner.id)])
+	require.Equal(t, iam.RootPersona().OwnerRole(), roles[iam.UserSubject(owner.id)])
 	// Whatever path left the row, the role confers nothing on the application.
 	stored, err := h.auth.RemoteApplication(ctx, iam.AppByID(app.ID))
 	require.NoError(t, err)
-	require.Equal(t, iam.RootPersona.OwnerRole(), stored.Role)
+	require.Equal(t, iam.RootPersona().OwnerRole(), stored.Role)
 	require.Empty(t, stored.Permissions)
 	can, err := h.auth.Can(ctx, iam.RemoteApplicationActor(app.ID), iam.RootGroup(), ident.RootUsersRead)
 	require.NoError(t, err)
@@ -189,7 +189,7 @@ func TestSecurityApplicationMFARoles(t *testing.T) {
 	t.Run("bootstrap hands an application no MFA-required root role", func(t *testing.T) {
 		enabled := true
 		_, err := h.auth.ApplyBootstrapManifest(ctx, iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{{
-			Issuer: "https://boot-app.security.test", PublicKeys: staticKeys(t, newSigner(t, "boot-app")), Enabled: &enabled, RootRole: iam.RootPersona.OwnerRole(),
+			Issuer: "https://boot-app.security.test", PublicKeys: staticKeys(t, newSigner(t, "boot-app")), Enabled: &enabled, RootRole: iam.RootPersona().OwnerRole(),
 		}}}, iam.BootstrapOptions{})
 		require.ErrorIs(t, err, iam.ErrRoleNotAssignable)
 		_, err = h.auth.RemoteApplication(ctx, iam.AppByIssuer("https://boot-app.security.test"))

@@ -556,16 +556,19 @@ func TestTokenEntitlementAllowlist(t *testing.T) {
 
 	t.Run("host mints", func(t *testing.T) {
 		u := authtest.NewUser(t, auth)
-		forged := map[string]any{"entitlements": []string{"forged"}, "root_permissions": map[string]any{"grants": []string{"root:*"}},
-			"roles": []string{"owner"}, "permissions": []string{"root:*"}}
+		for _, name := range []string{"entitlements", "permissions", "sub", "sid", "nbf", "amr", "root_role", "2fa_enrollment", "email"} {
+			_, err := auth.MintAccessToken(ctx, u.ID, iam.AccessTokenOptions{Claims: map[string]any{name: "forged"}})
+			e, ok := iam.AsError(err)
+			require.True(t, ok, "%s: %v", name, err)
+			require.Equal(t, "invalid_request", e.Code(), name)
+			require.Equal(t, "claims."+name, e.Param(), name)
+		}
 		mint := func(t *testing.T, auth *authkit.Client) map[string]any {
 			t.Helper()
-			token, err := auth.MintAccessToken(ctx, u.ID, iam.AccessTokenOptions{Claims: forged})
+			token, err := auth.MintAccessToken(ctx, u.ID, iam.AccessTokenOptions{Claims: map[string]any{"roles": []string{"owner"}}})
 			require.NoError(t, err)
 			claims := claimsOf(t, auth, token.Value)
-			for _, key := range []string{"root_permissions", "roles", "permissions"} {
-				require.NotContains(t, claims, key)
-			}
+			require.Equal(t, []any{"owner"}, claims["roles"], "the host's own claim rides along and grants nothing")
 			return claims
 		}
 		grants := []string{"premium", "product-1", "premium", "unselected"}

@@ -26,12 +26,14 @@ type Source interface {
 
 // Static is a fixed Source.
 type Static struct {
+	// Active signs.
 	Active Signer
-	Pubs   map[string]crypto.PublicKey
+	// Public is every key JWKS publishes, the active one included, by kid.
+	Public map[string]crypto.PublicKey
 }
 
 func (s Static) ActiveSigner() Signer                    { return s.Active }
-func (s Static) PublicKeys() map[string]crypto.PublicKey { return clonePublicKeyMap(s.Pubs) }
+func (s Static) PublicKeys() map[string]crypto.PublicKey { return clonePublicKeyMap(s.Public) }
 
 // FileSource is the Source Watch returns: keys.json, reloaded when it changes
 // on disk (re-rendered by Vault Agent), so a signing-key rotation needs no
@@ -198,7 +200,7 @@ func StaticFromPEM(activeKeyID, activePrivateKeyPEM string, publicKeysPEM map[st
 		publicKeys[kid] = pub
 	}
 
-	return Static{Active: signer, Pubs: publicKeys}, nil
+	return Static{Active: signer, Public: publicKeys}, nil
 }
 
 // readFileUnderDir reads a single path segment under baseDir, rejecting traversal.

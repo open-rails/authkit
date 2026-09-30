@@ -11,17 +11,23 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/internal/ops"
 )
 
 // MintAccessToken mints an access token for a live account outside any login
-// flow; a host operation. Reserved claims in o.Claims are dropped; o.SessionID
-// becomes sid.
+// flow; a host operation. o.Claims naming one of AuthKit's own claims is
+// invalid_request (param claims.<name>); o.SessionID becomes sid.
 func (s *Engine) MintAccessToken(ctx context.Context, userID string, o iam.AccessTokenOptions, opts ...ops.Option) (iam.Token, error) {
 	if err := noOptions("MintAccessToken", opts); err != nil {
 		return iam.Token{}, err
+	}
+	for k := range o.Claims {
+		if authkitClaims[k] {
+			return iam.Token{}, errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("claims."+k))
+		}
 	}
 	userID = strings.TrimSpace(userID)
 	if !isUUID(userID) {
@@ -51,46 +57,17 @@ func (s *Engine) MintSessionAccessToken(ctx context.Context, userID, sessionID s
 	return s.mintAccessToken(ctx, userID, map[string]any{"sid": sessionID}, s.cfg.Token.AccessTokenDuration)
 }
 
-// reservedAccessTokenClaims are claims the verifier extracts as authoritative
-// identity / authorization / assurance (verify's token profiles).
-// AuthKit sets these itself from authenticated state, or not at all; a
-// caller-supplied `extra` value for any of them is DROPPED, never signed
-// (AK2-AUTH-01). Without this, a host that forwards any request-influenced data
-// into MintAccessToken / PasswordLogin(...extra) could mint a validly-signed
-// token with attacker-chosen roles/permissions/identity. Older verification
-// paths trusted such native role claims; current native verification ignores
-// token role/permission authority and application permission checks stay live.
-//
-// Intentionally NOT reserved: `sid`, `provider`, `2fa_enrollment`, and arbitrary
-// host/custom claims are deliberate, caller-settable protocol/app claims set by
-// AuthKit's own flows (login/OIDC/passkey/enrollment) and carry no authority the
-// verifier trusts as identity. AuthKit-owned claims (iss/sub/aud/iat/exp,
-// and entitlements/auth_time/amr/acr/mfa_enrolled when AuthKit sets them) are
-// already protected by the owned-claim check below; they appear here too so a
-// host can never inject the assurance variants AuthKit did not set.
-var reservedAccessTokenClaims = map[string]struct{}{
-	"entitlements":     {},
-	"root_permissions": {}, // retired native permission snapshot; never caller-owned
-	"roles":            {},
-	"permissions":      {},
-	"global_roles":     {},
-	"org_roles":        {},
-	"groups":           {},
-	"email":            {},
-	"email_verified":   {},
-	"username":         {},
-	"discord_username": {},
-	"user_tier":        {},
-	"plan":             {},
-	"delegated_sub":    {},
-	"attributes":       {},
-	"amr":              {},
-	"acr":              {},
-	"auth_time":        {},
-	"jti":              {},
-	"mfa_enrolled":     {},
-	"device_key_id":    {},
-	"root_role":        {},
+// authkitClaims are the claim names AuthKit's tokens use (docs/stability.md
+// lists them per typ), plus the profile claims verify reads from an access
+// token. A host's MintAccessToken claims may not name one: AuthKit sets these
+// from authenticated state or not at all, so a host forwarding
+// request-influenced data can never forge identity, session or assurance.
+var authkitClaims = map[string]bool{
+	"iss": true, "sub": true, "aud": true, "iat": true, "nbf": true, "exp": true, "jti": true,
+	"sid": true, "device_key_id": true, "auth_time": true, "amr": true, "acr": true, "mfa_enrolled": true,
+	"root_role": true, "entitlements": true, "2fa_enrollment": true, "provider": true,
+	"delegated_sub": true, "permissions": true, "attributes": true, "cnf": true, "token_use": true,
+	"email": true, "email_verified": true, "username": true,
 }
 
 // mintAccessToken is the ID-only entry point: it loads + gates the live-user row
@@ -204,26 +181,13 @@ func (s *Engine) mintAccessTokenForUserWithAssurance(ctx context.Context, q *db.
 	if mfa != nil && mfa.Satisfied || hasAuthMethod(amr, "swk") && hasAuthMethod(amr, "mfa") {
 		claims["mfa_enrolled"] = true
 	}
-	// Caller-supplied claims fill gaps but never override an AuthKit-owned claim
-	// (sub/iss/aud/iat/exp always; entitlements/auth_time/amr/acr/mfa_enrolled when
-	// set) and never populate a reserved authority/identity/assurance claim the
-	// verifier trusts (AK2-AUTH-01). This prevents a host from forging identity,
-	// authorization, expiry, or assurance via extra, while still allowing custom
-	// claims and the deliberate protocol claims (sid/provider/2fa_enrollment).
+	// extra fills gaps and never overrides a claim set above. AuthKit's flows
+	// put only their protocol claims (sid, provider, 2fa_enrollment) in it,
+	// and MintAccessToken refuses host claims named like AuthKit's.
 	for k, v := range extra {
-		if _, owned := claims[k]; owned {
-			continue
+		if _, owned := claims[k]; !owned {
+			claims[k] = v
 		}
-		if _, reserved := reservedAccessTokenClaims[k]; reserved {
-			// Surface the misuse (key only — values may be PII): AuthKit's own
-			// flows never put these in extra, so a hit means a host is trying to
-			// set authority/identity it does not control.
-			safeUserID := strings.ReplaceAll(userID, "\n", "")
-			safeUserID = strings.ReplaceAll(safeUserID, "\r", "")
-			stdlog.Printf("authkit: warning: dropping reserved claim %q from caller-supplied extra during access-token issuance for user %s", k, safeUserID)
-			continue
-		}
-		claims[k] = v
 	}
 	signer := s.keys.ActiveSigner()
 	if signer == nil {
@@ -247,7 +211,7 @@ func (s *Engine) displayRootRole(ctx context.Context, q *db.Queries, userID stri
 		return ""
 	}
 	role := ident.RoleText(rows[0].Role)
-	if _, ok := s.groupSchemaOrDefault().Role(iam.RootPersona, role); !ok {
+	if _, ok := s.groupSchemaOrDefault().Role(iam.RootPersona(), role); !ok {
 		return ""
 	}
 	return role.String()

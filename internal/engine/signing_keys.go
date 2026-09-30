@@ -50,7 +50,7 @@ func resolveKeySource(path string, allowDevKeys bool) (keys.Source, error) {
 		if err != nil {
 			return nil, err
 		}
-		return keys.Static{Active: signer, Pubs: map[string]crypto.PublicKey{kid: signer.Public()}}, nil
+		return keys.Static{Active: signer, Public: map[string]crypto.PublicKey{kid: signer.Public()}}, nil
 	}
 	data, err := json.Marshal(map[string]any{
 		"active_key_id":          kid,

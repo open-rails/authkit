@@ -75,7 +75,7 @@
   }
 }
 
-/* Defaults match the doujins/hentai0 contract: neutral hue 258.36, brand 26.79. */
+/* Defaults: neutral hue 258.36, brand 26.79. */
 .authui {
   --authui-background: oklch(0.9795 0.0025 258.36);
   --authui-foreground: oklch(0.1975 0.0165 258.36);

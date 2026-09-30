@@ -19,7 +19,7 @@ func TestBootstrapRepairsAnEmptyOwnerSet(t *testing.T) {
 	cfg := maintenanceConfig()
 	cfg.TwoFactor.Mode = iam.TwoFactorOptional
 	svc := newTestEngine(t, cfg, config.Deps{Postgres: pg.Pool})
-	owner := iam.RootPersona.OwnerRole()
+	owner := iam.RootPersona().OwnerRole()
 	_, err := svc.ApplyBootstrapManifest(ctx, iam.BootstrapManifest{Users: []iam.BootstrapManifestUser{
 		{Username: "bootstrap-admin", Email: "admin@example.test", EmailVerified: true, RootRole: owner}}}, iam.BootstrapOptions{})
 	require.NoError(t, err)

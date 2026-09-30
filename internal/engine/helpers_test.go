@@ -371,7 +371,7 @@ func (f *accountFlow) do(method, path, token string, body any, header http.Heade
 	f.t.Helper()
 	data, err := json.Marshal(body)
 	require.NoError(f.t, err)
-	target := f.server.URL + config.DefaultAPIPath + path
+	target := f.server.URL + config.DefaultAPIPath + config.APIVersion + path
 	if rooted, ok := strings.CutPrefix(path, "//"); ok {
 		target = f.server.URL + "/" + rooted
 	}

@@ -270,8 +270,8 @@ type AccountSessionRevocation struct {
 	UnlistedIssuerSessions int `json:"unlisted_issuer_sessions"`
 }
 
-// AccessTokenOptions shapes a host-minted access token. Claims AuthKit
-// reserves are dropped.
+// AccessTokenOptions shapes a host-minted access token. Claims are the host's
+// own: one named like an AuthKit claim is refused.
 type AccessTokenOptions struct {
 	SessionID string
 	TTL       time.Duration // 0 = the configured access-token lifetime

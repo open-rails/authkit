@@ -737,7 +737,7 @@ func TestSoleRootOwnerCannotDisable2FA(t *testing.T) {
 	auth, outbox := authtest.New(t)
 	f := newFactorFlow(t, auth, outbox)
 	ctx := t.Context()
-	owner := iam.RootPersona.OwnerRole()
+	owner := iam.RootPersona().OwnerRole()
 	can := func(u authtest.User) bool {
 		ok, err := auth.Can(ctx, iam.UserActor(u.ID), iam.RootGroup(), ident.RootUsersRead)
 		require.NoError(t, err)

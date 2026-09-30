@@ -686,7 +686,7 @@ func TestBootstrapWorkflow(t *testing.T) {
 	user, err := auth.User(ctx, iam.UserByUsername("bootstrap-admin"))
 	require.NoError(t, err)
 	require.True(t, passwordIs("bootstrap-admin", seeded))
-	owner := iam.RootPersona.OwnerRole()
+	owner := iam.RootPersona().OwnerRole()
 	roleOf := func(subject iam.Subject) iam.Role {
 		t.Helper()
 		roles, err := auth.GroupRoles(ctx, iam.RootGroup(), []iam.Subject{subject})

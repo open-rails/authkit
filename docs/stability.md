@@ -43,7 +43,7 @@ Breaking:
 
 [`api/openapi.json`](../api/openapi.json) is the contract: every route's method, path, auth tier and permission, its request and response schemas and success statuses, and the error codes with their statuses and typed `metadata` (`x-authkit-error-codes`). It is generated from the route catalog, and CI fails when it is stale. These conventions hold on every route, and the route-catalog tests enforce them:
 
-- **Paths.** The JSON API is `{BasePath}{APIPath}/…`, `/api/v1` by default. Browser OIDC (`/oidc/{provider}/…`) and JWKS (`/.well-known/jwks.json`) are unversioned protocol paths. A group is `/groups/{group_id}`, with `root` for the site.
+- **Paths.** The JSON API is `{BasePath}{APIPath}/v1/…`, `/api/v1/…` by default: `APIPath` is the host's prefix, and AuthKit owns the version segment. Browser OIDC (`/oidc/{provider}/…`) and JWKS (`/.well-known/jwks.json`) are unversioned protocol paths. A group is `/groups/{group_id}`, with `root` for the site.
 - **JSON.** snake_case members and lower snake_case enum values. Ids are opaque strings: a resource's own is `id`, a reference is `<thing>_id`. Roles and permissions are qualified text (`channel:moderator`, `channel:posts:edit`).
 - **Values.** Times are RFC 3339 in UTC. Durations are integer `*_seconds`; `TokenSet.expires_in` follows OAuth 2.0. Every documented member is always present: `null` when unset, `[]` when empty. Clients ignore members and enum values they don't know.
 - **Requests.** A body is `application/json` (415 otherwise) of at most 1 MiB, and unknown members are refused (400). GET and DELETE take no body.
@@ -60,12 +60,12 @@ Other services verify AuthKit's JWTs, so these are covered: each token's `typ` h
 
 | `typ` | Minted by | Claims |
 |---|---|---|
-| `access+jwt` | AuthKit, for a user | `iss sub aud iat exp`; `sid` or `device_key_id`; `jti auth_time amr acr mfa_enrolled`; `root_role` (display only); `entitlements`; `2fa_enrollment` on an enrollment-only token; the host's claims (`iam.AccessTokenOptions.Claims`) |
+| `access+jwt` | AuthKit, for a user | `iss sub aud iat exp`; `sid` or `device_key_id`; `jti auth_time amr acr mfa_enrolled`; `provider` after an identity-provider sign-in; `root_role` (display only); `entitlements`; `2fa_enrollment` on an enrollment-only token; the host's claims (`iam.AccessTokenOptions.Claims`), which may not reuse a name on this page |
 | `delegated-access+jwt` | AuthKit, or a remote application | `iss aud iat nbf exp jti delegated_sub permissions attributes`; `cnf` (`x5t#S256` or `jkt`) when sender-bound; `sid` or `device_key_id` when AuthKit minted it from a sign-in |
 | `remote-application-access+jwt` | a remote application, as itself | `iss aud iat exp`, and `permissions` to narrow its grants; never `sub` |
 | `service+jwt` | `Client.MintServiceJWT` | `iss sub aud iat nbf exp jti permissions`, and `token_use` `"service"` |
 
-New claims may be added, so verifiers ignore claims they don't know. Refresh tokens and API-key secrets are opaque.
+New claims may be added, so verifiers ignore claims they don't know; `verify` also reads `email`, `email_verified` and `username` when an issuer sets them. Refresh tokens and API-key secrets are opaque.
 
 ## Configuration and files
 

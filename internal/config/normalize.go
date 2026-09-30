@@ -21,7 +21,11 @@ import (
 
 // Defaults Normalize applies.
 const (
-	DefaultAPIPath                 = "/api/v1"
+	DefaultAPIPath = "/api"
+	// APIVersion is the version segment AuthKit owns beneath APIPath: the
+	// JSON API is {BasePath}{APIPath}/v1. A breaking change mounts /v2 beside
+	// it.
+	APIVersion                     = "/v1"
 	DefaultPasswordMinLength       = 8
 	DefaultPasswordMaxLength       = 128
 	PasswordMaxLengthCeiling       = 1024
@@ -504,7 +508,7 @@ func normalizeHTTP(h *HTTPConfig, c Config, d Deps) error {
 		return err
 	}
 	if h.APIPath == "" {
-		h.APIPath = "/" // BasePath itself
+		h.APIPath = "/" // the version segment sits right beneath BasePath
 	}
 	if h.PublicURL, err = publicURL(h.PublicURL, c.Token.Issuer, h.BasePath); err != nil {
 		return err

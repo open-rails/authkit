@@ -72,7 +72,7 @@ func (s *Service) GroupHandler(op GroupOp) http.HandlerFunc {
 			fail(w, errmodel.CodeForbidden)
 			return
 		}
-		if op.Mutates() && g.Persona == iam.RootPersona && !s.recentUserSignIn(w, r, actor) {
+		if op.Mutates() && g.Persona == iam.RootPersona() && !s.recentUserSignIn(w, r, actor) {
 			return
 		}
 

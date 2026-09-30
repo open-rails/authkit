@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/dpop"
 	"github.com/open-rails/authkit/internal/errmodel"
@@ -156,7 +157,7 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	tokens := iam.NewTokenSet(token.Value, "", token.ExpiresAt)
+	tokens := authflow.NewTokenSet(token.Value, "", token.ExpiresAt)
 	tokens.TokenType = tokenType
 	writeJSON(w, http.StatusOK, tokens)
 }

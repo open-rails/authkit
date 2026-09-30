@@ -40,9 +40,9 @@ func TestNewServesConfiguredCapabilities(t *testing.T) {
 
 	mux := http.NewServeMux()
 	require.NoError(t, auth.Mount(mux))
-	require.Contains(t, patterns(auth), "GET /auth/capabilities")
+	require.Contains(t, patterns(auth), "GET /auth/v1/capabilities")
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/auth/capabilities", nil))
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/auth/v1/capabilities", nil))
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var caps struct {
@@ -101,7 +101,7 @@ func TestNewServesConfiguredCapabilities(t *testing.T) {
 	require.Equal(t, map[string]bool{"email": false, "sms": false}, caps.Channels, "no senders, no channels")
 	require.Equal(t, iam.TwoFactorRequired, caps.TwoFactor.Mode)
 	require.Equal(t, []iam.TwoFactorMethod{iam.TwoFactorTOTP}, caps.TwoFactor.Methods)
-	require.Equal(t, map[string]any{"api": "/auth", "jwks": iam.JWKSPath, "oidc": nil}, caps.Paths, "a root issuer keeps root anchors; no providers, no OIDC")
+	require.Equal(t, map[string]any{"api": "/auth/v1", "jwks": iam.JWKSPath, "oidc": nil}, caps.Paths, "a root issuer keeps root anchors; no providers, no OIDC")
 
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/capabilities", nil))

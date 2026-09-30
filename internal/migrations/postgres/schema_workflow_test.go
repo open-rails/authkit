@@ -20,7 +20,7 @@ func TestSchemaQualifiedWritesKeepAuthKitTriggerScope(t *testing.T) {
 	db, err := sql.Open("pgx", pg.URL)
 	require.NoError(t, err)
 	defer db.Close()
-	_, err = db.ExecContext(ctx, `CREATE SCHEMA openrails`)
+	_, err = db.ExecContext(ctx, `CREATE SCHEMA hostapp`)
 	require.NoError(t, err)
 
 	for _, schema := range []string{"profiles", "custom_identity"} {
@@ -30,7 +30,7 @@ func TestSchemaQualifiedWritesKeepAuthKitTriggerScope(t *testing.T) {
 			require.NoError(t, err)
 			defer conn.Close()
 			s := pgx.Identifier{schema}.Sanitize() + "."
-			_, err = conn.ExecContext(ctx, `SET search_path = openrails, public`)
+			_, err = conn.ExecContext(ctx, `SET search_path = hostapp, public`)
 			require.NoError(t, err)
 			_, err = conn.ExecContext(ctx, `CREATE TEMP TABLE name_claims (LIKE `+s+`name_claims INCLUDING ALL)`)
 			require.NoError(t, err)
@@ -68,7 +68,7 @@ func TestSchemaQualifiedWritesKeepAuthKitTriggerScope(t *testing.T) {
 			require.Zero(t, shadowClaims)
 			var path string
 			require.NoError(t, conn.QueryRowContext(ctx, `SHOW search_path`).Scan(&path))
-			require.Equal(t, "openrails, public", path)
+			require.Equal(t, "hostapp, public", path)
 		})
 	}
 }

@@ -33,7 +33,7 @@ func TestCompileRoles(t *testing.T) {
 	owner, ok := s.RoleNamed(ident.Persona("channel"), "owner")
 	require.True(t, ok)
 	require.Equal(t, []string{"channel:*"}, owner.Permissions)
-	rootOwner, ok := s.Role(iam.RootPersona, iam.RootPersona.OwnerRole())
+	rootOwner, ok := s.Role(iam.RootPersona(), iam.RootPersona().OwnerRole())
 	require.True(t, ok)
 	require.True(t, rootOwner.RequiresMFA)
 	require.Equal(t, []string{"root:*", "channel:*"}, rootOwner.Permissions, "the root owner holds every persona")
@@ -72,7 +72,7 @@ func TestCompileRoles(t *testing.T) {
 	t.Run("nil is root-only", func(t *testing.T) {
 		s, err := CompileRoles(nil)
 		require.NoError(t, err)
-		require.Equal(t, []iam.Persona{iam.RootPersona}, s.Personas())
+		require.Equal(t, []iam.Persona{iam.RootPersona()}, s.Personas())
 	})
 
 	t.Run("capability built-ins", func(t *testing.T) {
@@ -104,7 +104,7 @@ func TestCompileRoles(t *testing.T) {
 			require.True(t, ok)
 			require.Equal(t, want, r.RequiresMFA, role)
 		}
-		rootOwner, ok := s.Role(iam.RootPersona, iam.RootPersona.OwnerRole())
+		rootOwner, ok := s.Role(iam.RootPersona(), iam.RootPersona().OwnerRole())
 		require.True(t, ok)
 		require.True(t, rootOwner.RequiresMFA, "root:members:manage always needs MFA")
 	})
@@ -162,11 +162,11 @@ func TestCompileRolesRejects(t *testing.T) {
 		"include of another persona": {withChannel(func(r *Roles, c *PersonaDef) { c.Role("mod", r.Root.Role("admin")) }), "a role of another persona"},
 		"include cycle": {func() *Roles {
 			r := NewRoles()
-			a := r.Root.Role("a", ident.Role(iam.RootPersona, "b"))
+			a := r.Root.Role("a", ident.Role(iam.RootPersona(), "b"))
 			r.Root.Role("b", a)
 			return r
 		}, "includes cycle"},
-		"self include": {func() *Roles { r := NewRoles(); r.Root.Role("a", ident.Role(iam.RootPersona, "a")); return r }, "includes cycle"},
+		"self include": {func() *Roles { r := NewRoles(); r.Root.Role("a", ident.Role(iam.RootPersona(), "a")); return r }, "includes cycle"},
 		"MFA outside the catalog": {withChannel(func(_ *Roles, c *PersonaDef) {
 			c.Permission("posts", "edit")
 			c.RequireMFA(ident.Perm("channel:posts:pin"))
@@ -182,7 +182,7 @@ func TestCompileRolesRejects(t *testing.T) {
 }
 
 // A declared permission no role bundles is legal: the owner holds it through
-// `<persona>:*` (doujins gates billing on an owner-only root permission).
+// `<persona>:*` (a host may gate billing on an owner-only root permission).
 func TestCompileRolesKeepsOwnerOnlyPermissions(t *testing.T) {
 	r := NewRoles()
 	billing := r.Root.Permission("billing", "manage")

@@ -24,7 +24,7 @@ func (s *Service) handleMePasswordPUT(w http.ResponseWriter, r *http.Request) {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	if body.CurrentPassword != "" && s.rateLimited(w, r, RLPasswordStepUp) {
+	if body.CurrentPassword != "" && s.rateLimited(w, r, RLStepUpPassword) {
 		return
 	}
 	if err := s.svc.ValidatePassword(body.NewPassword); err != nil {

@@ -301,7 +301,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 			{"target_promotion", func() error {
 				return assignRole(ctx, svc, iam.UserActor(manager), iam.RootGroup(), iam.UserSubject(target), "reader")
 			}, func(st *permissionGroupStore) error {
-				return st.AssignRole(ctx, root, iam.UserSubject(target), iam.RootPersona.OwnerRole())
+				return st.AssignRole(ctx, root, iam.UserSubject(target), iam.RootPersona().OwnerRole())
 			}, iam.ErrRoleAssignmentEscalation},
 			{"ban_while_queued_revokes_authority", func() error {
 				return assignRole(ctx, svc, iam.UserActor(expiringActor), iam.RootGroup(), iam.UserSubject(peer), "reader")

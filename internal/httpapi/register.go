@@ -34,7 +34,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 	}
 	// Per-identifier check: prevents spamming verification emails to the same
 	// address from many IPs, each spending their own per-IP budget.
-	if s.rateLimitedByIdentifier(w, r, RLAuthRegister, identifier) {
+	if s.rateLimitedByIdentifier(w, r, RLRegisterCreate, identifier) {
 		return
 	}
 
@@ -76,7 +76,7 @@ func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r 
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	if s.rateLimitedByIdentifier(w, r, RLAuthRegisterAbandon, identifier) {
+	if s.rateLimitedByIdentifier(w, r, RLRegisterAbandon, identifier) {
 		return
 	}
 

@@ -43,12 +43,12 @@ func ParseBootstrapManifestYAML(raw []byte) (iam.BootstrapManifest, error) {
 		return iam.BootstrapManifest{}, errmodel.ErrInvalidBootstrapManifest
 	}
 	for _, u := range manifest.Users {
-		if !u.RootRole.IsZero() && u.RootRole.Persona() != iam.RootPersona {
+		if !u.RootRole.IsZero() && u.RootRole.Persona() != iam.RootPersona() {
 			return iam.BootstrapManifest{}, fmt.Errorf("bootstrap user %q root_role %q is not a root role: %w", u.Username, u.RootRole, iam.ErrRoleNotAssignable)
 		}
 	}
 	for _, a := range manifest.RemoteApplications {
-		if !a.RootRole.IsZero() && a.RootRole.Persona() != iam.RootPersona {
+		if !a.RootRole.IsZero() && a.RootRole.Persona() != iam.RootPersona() {
 			return iam.BootstrapManifest{}, fmt.Errorf("bootstrap remote application %q root_role %q is not a root role: %w", a.Issuer, a.RootRole, iam.ErrRoleNotAssignable)
 		}
 	}
@@ -274,7 +274,7 @@ func (s *Engine) applyBootstrapUser(ctx context.Context, st *permissionGroupStor
 			return "", nil, err
 		}
 	} else {
-		if current, err = st.directRole(ctx, groupTarget{ID: rootID, Persona: iam.RootPersona}, iam.UserSubject(m.id)); err != nil {
+		if current, err = st.directRole(ctx, groupTarget{ID: rootID, Persona: iam.RootPersona()}, iam.UserSubject(m.id)); err != nil {
 			return "", nil, err
 		}
 		enforce := user.Password != nil && user.Password.Enforce
@@ -301,7 +301,7 @@ func (s *Engine) applyBootstrapUser(ctx context.Context, st *permissionGroupStor
 	if !seedsRole || current == role {
 		return m.id, revoked, nil
 	}
-	if err := s.requireDefinedGroupRole(iam.RootPersona, role); err != nil {
+	if err := s.requireDefinedGroupRole(iam.RootPersona(), role); err != nil {
 		return "", nil, err
 	}
 	if !current.IsZero() {
@@ -310,7 +310,7 @@ func (s *Engine) applyBootstrapUser(ctx context.Context, st *permissionGroupStor
 		}
 	}
 	if !created {
-		if err := s.requireMFAForRoleAssignment(ctx, st.q, rootID, iam.RootPersona, subject, role); err != nil {
+		if err := s.requireMFAForRoleAssignment(ctx, st.q, rootID, iam.RootPersona(), subject, role); err != nil {
 			return "", nil, err
 		}
 	}
@@ -348,7 +348,7 @@ func (s *Engine) claimBootstrapApply(ctx context.Context, q *db.Queries, name st
 // requireRootRole refuses a role that is set but is not a root role of
 // Config.Roles.
 func (s *Engine) requireRootRole(role iam.Role) error {
-	if !role.IsZero() && !s.validRoleForPersona(s.groupSchemaOrDefault(), iam.RootPersona, role) {
+	if !role.IsZero() && !s.validRoleForPersona(s.groupSchemaOrDefault(), iam.RootPersona(), role) {
 		return fmt.Errorf("%q is not a root role: %w", role, iam.ErrRoleNotAssignable)
 	}
 	return nil
@@ -397,7 +397,7 @@ func (s *Engine) applyBootstrapRemoteApplication(ctx context.Context, st *permis
 	subject := iam.RemoteApplicationSubject(ra.ID)
 	// An application can present no second factor, so no path hands it a
 	// role that needs one.
-	if err := s.requireMFAForRoleAssignment(ctx, st.q, rootID, iam.RootPersona, subject, role); err != nil {
+	if err := s.requireMFAForRoleAssignment(ctx, st.q, rootID, iam.RootPersona(), subject, role); err != nil {
 		return err
 	}
 	if !role.IsOwner() {

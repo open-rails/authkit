@@ -22,7 +22,7 @@ SELECT current_user::text AS user_name, current_database()::text AS database_nam
 SELECT current_database()::text;
 
 -- name: RuntimeAccessLock :exec
--- Shared with OpenRails: ACL writes can touch the same public objects.
+-- Shared with every open-rails migrator: ACL writes can touch the same public objects.
 SELECT pg_advisory_xact_lock(hashtextextended('open-rails:runtime-access', 0));
 
 -- name: MigrationSchemaHasUsers :one

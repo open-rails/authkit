@@ -93,7 +93,7 @@ func wrongCode(code string) string {
 // be able to exhaust that user's second-factor budget from other addresses.
 func TestSecuritySecondFactorLockout(t *testing.T) {
 	h := newHost(t, withHTTP(behindProxy), withHTTP(func(c *authkit.HTTPConfig) {
-		c.RateLimits = map[string]authkit.RateLimit{"auth_2fa_verify": {Limit: 3, Window: 10 * time.Minute}}
+		c.RateLimits = map[string]authkit.RateLimit{"2fa_verify": {Limit: 3, Window: 10 * time.Minute}}
 	}))
 	victim := h.newAccount("mfalock")
 	h.enrollEmail2FA(victim)

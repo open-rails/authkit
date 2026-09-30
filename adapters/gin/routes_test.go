@@ -16,7 +16,7 @@ import (
 )
 
 func TestMountNativeAnchorsAndOriginalRequest(t *testing.T) {
-	const path = "/identity/password/login?proof=original%2Fbytes"
+	const path = "/identity/v1/password/login?proof=original%2Fbytes"
 	const body = "{ \"identifier\" : \"unknown@example.test\", \"password\":\"wrong\" }\n"
 	var seenURI, seenBody string
 	cfg := testhttp.HTTP()
@@ -45,7 +45,7 @@ func TestMountNativeAnchorsAndOriginalRequest(t *testing.T) {
 		{http.MethodGet, "/.well-known/jwks.json", http.StatusOK},
 		{http.MethodHead, "/.well-known/jwks.json", http.StatusOK},
 		{http.MethodGet, "/identity/.well-known/jwks.json", 418},
-		{http.MethodGet, "/identity/me", http.StatusUnauthorized},
+		{http.MethodGet, "/identity/v1/me", http.StatusUnauthorized},
 		{http.MethodGet, "/host", 418},
 		{http.MethodPost, path, http.StatusUnauthorized},
 	} {

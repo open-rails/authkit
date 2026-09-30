@@ -128,11 +128,11 @@ func Catalog() []RouteSpec {
 		// an AuthResult.
 		{Method: GET, Path: "/capabilities", Group: auth, Auth: public,
 			Responses: replyOK(Capabilities{}), serve: handle((*Service).handleCapabilitiesGET)},
-		{Method: POST, Path: "/token", Group: auth, Auth: public, Bucket: RLAuthToken,
+		{Method: POST, Path: "/token", Group: auth, Auth: public, Bucket: RLTokenRefresh,
 			Request: TokenRefreshRequest{}, Responses: signedIn, serve: handle((*Service).handleAuthTokenPOST)},
 		// Ends the caller's sign-in: its refresh session, or a device-key
 		// token's key. Idempotent, so it stays AuthRequired.
-		{Method: DELETE, Path: "/logout", Group: auth, Auth: required, Bucket: RLAuthLogout,
+		{Method: DELETE, Path: "/logout", Group: auth, Auth: required, Bucket: RLSessionLogout,
 			Responses: replyNoContent, serve: handle((*Service).handleLogoutDELETE)},
 		{Method: POST, Path: "/password/login", Group: auth, Auth: public, Bucket: RLPasswordLogin,
 			Request: PasswordLoginRequest{}, Responses: signedIn, serve: handle((*Service).handlePasswordLoginPOST)},
@@ -175,14 +175,14 @@ func Catalog() []RouteSpec {
 			Request: DeviceKeyLoginFinishRequest{}, Responses: signedIn, serve: handle((*Service).handleDeviceKeyLoginFinishPOST)},
 		// Revokes the caller's other device keys: the recovery a new key's
 		// email-proven enrollment token may run.
-		{Method: DELETE, Path: "/device-keys", Group: deviceKeys, Auth: session, Bucket: RLDeviceKeysManage, MountedWhen: FeatureDeviceKeys,
+		{Method: DELETE, Path: "/device-keys", Group: deviceKeys, Auth: session, Bucket: RLDeviceKeyManage, MountedWhen: FeatureDeviceKeys,
 			Responses: replyNoContent, serve: handle((*Service).handleDeviceKeysDELETE)},
 
-		{Method: POST, Path: "/register", Group: registration, Auth: public, Bucket: RLAuthRegister, MountedWhen: FeatureRegistration,
+		{Method: POST, Path: "/register", Group: registration, Auth: public, Bucket: RLRegisterCreate, MountedWhen: FeatureRegistration,
 			Request: RegisterRequest{}, Responses: []Reply{{http.StatusOK, AuthResult{}}, {http.StatusAccepted, nil}}, serve: handle((*Service).handleRegisterUnifiedPOST)},
-		{Method: GET, Path: "/register/availability", Group: registration, Auth: public, Bucket: RLAuthRegisterAvailability,
+		{Method: GET, Path: "/register/availability", Group: registration, Auth: public, Bucket: RLRegisterAvailability,
 			Query: AvailabilityQuery{}, Responses: replyOK(Availability{}), serve: handle((*Service).handleRegisterAvailabilityGET)},
-		{Method: POST, Path: "/register/abandon", Group: registration, Auth: public, Bucket: RLAuthRegisterAbandon, MountedWhen: FeatureRegistration,
+		{Method: POST, Path: "/register/abandon", Group: registration, Auth: public, Bucket: RLRegisterAbandon, MountedWhen: FeatureRegistration,
 			Request: IdentifierPasswordRequest{}, Responses: replyNoContent, serve: handle((*Service).handlePendingRegistrationAbandonPOST)},
 
 		// Proving an address. Changing the caller's own is PUT /me/email and
@@ -193,48 +193,48 @@ func Catalog() []RouteSpec {
 			Request: CodeOrLinkRequest{}, Responses: []Reply{{http.StatusOK, AuthResult{}}, {http.StatusNoContent, nil}}, serve: handle((*Service).handleVerifyConfirmPOST)},
 
 		// The caller's own account.
-		{Method: GET, Path: "/me", Group: account, Auth: required, Bucket: RLUserMe,
+		{Method: GET, Path: "/me", Group: account, Auth: required, Bucket: RLMeRead,
 			Responses: replyOK(UserProfile{}), serve: handle((*Service).handleMeGET)},
-		{Method: PATCH, Path: "/me", Group: account, Auth: session, Bucket: RLUserUpdate,
+		{Method: PATCH, Path: "/me", Group: account, Auth: session, Bucket: RLMeUpdate,
 			Request: ProfileUpdateRequest{}, Responses: replyOK(UserProfile{}), serve: handle((*Service).handleMePATCH)},
-		{Method: DELETE, Path: "/me", Group: account, Auth: session, StepUp: true, Bucket: RLUserDelete,
+		{Method: DELETE, Path: "/me", Group: account, Auth: session, StepUp: true, Bucket: RLMeDelete,
 			Responses: replyNoContent, serve: handle((*Service).handleMeDELETE)},
-		{Method: GET, Path: "/me/security", Group: account, Auth: required, Bucket: RLUserMe,
+		{Method: GET, Path: "/me/security", Group: account, Auth: required, Bucket: RLMeRead,
 			Responses: replyOK(UserSecurity{}), serve: handle((*Service).handleMeSecurityGET)},
 		// A current password re-authenticates the session on the way (no
 		// second factor on the account): the answer is then its fresh token.
-		{Method: PUT, Path: "/me/password", Group: account, Auth: session, Bucket: RLUserPasswordChange,
+		{Method: PUT, Path: "/me/password", Group: account, Auth: session, Bucket: RLMePasswordChange,
 			Request: PasswordChangeRequest{}, Responses: []Reply{{http.StatusOK, AuthResult{}}, {http.StatusNoContent, nil}}, serve: handle((*Service).handleMePasswordPUT)},
-		{Method: PUT, Path: "/me/email", Group: account, Auth: session, StepUp: true, Bucket: RLContactChangeRequest,
+		{Method: PUT, Path: "/me/email", Group: account, Auth: session, StepUp: true, Bucket: RLMeContactChange,
 			Request: EmailChangeRequest{}, Responses: replyAccepted, serve: handle((*Service).handleMeEmailPUT)},
-		{Method: PUT, Path: "/me/phone", Group: account, Auth: session, StepUp: true, Bucket: RLContactChangeRequest,
+		{Method: PUT, Path: "/me/phone", Group: account, Auth: session, StepUp: true, Bucket: RLMeContactChange,
 			Request: PhoneChangeRequest{}, Responses: replyAccepted, serve: handle((*Service).handleMePhonePUT)},
-		{Method: DELETE, Path: "/me/phone", Group: account, Auth: session, StepUp: true, Bucket: RLUserUpdate,
+		{Method: DELETE, Path: "/me/phone", Group: account, Auth: session, StepUp: true, Bucket: RLMeUpdate,
 			Responses: replyNoContent, serve: handle((*Service).handleMePhoneDELETE)},
-		{Method: GET, Path: "/me/sessions", Group: account, Auth: required, Bucket: RLAuthSessionsList,
+		{Method: GET, Path: "/me/sessions", Group: account, Auth: required, Bucket: RLSessionList,
 			Responses: replyOK(iam.ListPage[iam.Session]{}), serve: handle((*Service).handleMeSessionsGET)},
 		// Signs out every other session; the caller's stays (logout ends it).
-		{Method: DELETE, Path: "/me/sessions", Group: account, Auth: session, Bucket: RLAuthSessionsRevokeAll,
+		{Method: DELETE, Path: "/me/sessions", Group: account, Auth: session, Bucket: RLSessionRevokeAll,
 			Responses: replyNoContent, serve: handle((*Service).handleMeSessionsDELETE)},
-		{Method: DELETE, Path: "/me/sessions/{id}", Group: account, Auth: session, Bucket: RLAuthSessionsRevoke,
+		{Method: DELETE, Path: "/me/sessions/{id}", Group: account, Auth: session, Bucket: RLSessionRevoke,
 			Responses: replyNoContent, serve: handle((*Service).handleMeSessionDELETE)},
-		{Method: GET, Path: "/me/session-events", Group: account, Auth: required, Bucket: RLAuthSessionsList,
+		{Method: GET, Path: "/me/session-events", Group: account, Auth: required, Bucket: RLSessionList,
 			Query: SessionEventQuery{}, Responses: replyOK(iam.ListPage[iam.SessionEvent]{}), serve: handle((*Service).handleMeSessionEventsGET)},
-		{Method: DELETE, Path: "/me/providers/{provider}", Group: account, Auth: session, StepUp: true, Bucket: RLUserUnlinkProvider,
+		{Method: DELETE, Path: "/me/providers/{provider}", Group: account, Auth: session, StepUp: true, Bucket: RLMeProviderUnlink,
 			Responses: replyNoContent, serve: handle((*Service).handleMeProviderDELETE)},
 		// Passkeys and device keys in one view; each protocol keeps its own
 		// sign-in and enrollment.
-		{Method: GET, Path: "/me/sign-in-keys", Group: account, Auth: required, Bucket: RLAuthSessionsList,
+		{Method: GET, Path: "/me/sign-in-keys", Group: account, Auth: required, Bucket: RLSessionList,
 			Responses: replyOK(iam.ListPage[SignInKey]{}), serve: handle((*Service).handleSignInKeysGET)},
-		{Method: PATCH, Path: "/me/sign-in-keys/{id}", Group: account, Auth: session, StepUp: true, Bucket: RLDeviceKeysManage,
+		{Method: PATCH, Path: "/me/sign-in-keys/{id}", Group: account, Auth: session, StepUp: true, Bucket: RLDeviceKeyManage,
 			Request: LabelRequest{}, Responses: replyOK(SignInKey{}), serve: handle((*Service).handleSignInKeyPATCH)},
-		{Method: DELETE, Path: "/me/sign-in-keys/{id}", Group: account, Auth: session, StepUp: true, Bucket: RLDeviceKeysManage,
+		{Method: DELETE, Path: "/me/sign-in-keys/{id}", Group: account, Auth: session, StepUp: true, Bucket: RLDeviceKeyManage,
 			Responses: replyNoContent, serve: handle((*Service).handleSignInKeyDELETE)},
 		{Method: POST, Path: "/me/passkeys/register/begin", Group: account, Auth: session, StepUp: true, Bucket: RLPasskeyRegister, MountedWhen: FeaturePasskeys,
 			Responses: replyOK(creation{}), serve: handle((*Service).handlePasskeyRegisterBeginPOST)},
 		{Method: POST, Path: "/me/passkeys/register/finish", Group: account, Auth: session, StepUp: true, Bucket: RLPasskeyRegister, MountedWhen: FeaturePasskeys,
 			Request: WebAuthnCredential{}, Responses: replyCreated(SignInKey{}), serve: handle((*Service).handlePasskeyRegisterFinishPOST)},
-		{Method: POST, Path: "/me/step-up/password", Group: account, Auth: session, Bucket: RLPasswordStepUp,
+		{Method: POST, Path: "/me/step-up/password", Group: account, Auth: session, Bucket: RLStepUpPassword,
 			Request: PasswordRequest{}, Responses: signedIn, serve: handle((*Service).handlePasswordStepUpPOST)},
 		{Method: POST, Path: "/me/step-up/2fa/send", Group: account, Auth: session, Bucket: RLStepUp2FASend, MountedWhen: FeatureTwoFactor,
 			Request: TwoFactorSendRequest{}, Responses: replyAccepted, serve: handle((*Service).handleTwoFactorStepUpSendPOST)},
@@ -247,13 +247,13 @@ func Catalog() []RouteSpec {
 
 		// Second factors. An enrollment token (AuthResult enrollment_required)
 		// reaches setup and factors, with no step-up.
-		{Method: GET, Path: "/me/2fa", Group: account, Auth: required, Bucket: RLUserMe, MountedWhen: FeatureTwoFactor, MFAEnrollmentExempt: true,
+		{Method: GET, Path: "/me/2fa", Group: account, Auth: required, Bucket: RLMeRead, MountedWhen: FeatureTwoFactor, MFAEnrollmentExempt: true,
 			Responses: replyOK(TwoFactorStatus{}), serve: handle((*Service).handleMe2FAGET)},
 		{Method: POST, Path: "/me/2fa/setup", Group: account, Auth: session, Bucket: RL2FAEnable, MountedWhen: FeatureTwoFactor, MFAEnrollmentExempt: true,
 			Request: TwoFactorSetupRequest{}, Responses: replyOK(TwoFactorSetup{}), serve: handle((*Service).handleMe2FASetupPOST)},
 		{Method: POST, Path: "/me/2fa/factors", Group: account, Auth: session, Bucket: RL2FAEnable, MountedWhen: FeatureTwoFactor, MFAEnrollmentExempt: true,
 			Request: TwoFactorFactorCreateRequest{}, Responses: replyCreated(TwoFactorFactorCreated{}), serve: handle((*Service).handleMe2FAFactorsPOST)},
-		{Method: PATCH, Path: "/me/2fa/factors/{id}", Group: account, Auth: session, StepUp: true, Bucket: RLUserUpdate, MountedWhen: FeatureTwoFactor,
+		{Method: PATCH, Path: "/me/2fa/factors/{id}", Group: account, Auth: session, StepUp: true, Bucket: RLMeUpdate, MountedWhen: FeatureTwoFactor,
 			Request: TwoFactorFactorUpdateRequest{}, Responses: replyOK(TwoFactorFactor{}), serve: handle((*Service).handleMe2FAFactorPATCH)},
 		{Method: DELETE, Path: "/me/2fa/factors/{id}", Group: account, Auth: session, StepUp: true, Bucket: RL2FADisable, MountedWhen: FeatureTwoFactor,
 			Responses: replyNoContent, serve: handle((*Service).handleMe2FAFactorDELETE)},
@@ -271,7 +271,7 @@ func Catalog() []RouteSpec {
 		{Method: GET, Path: "/me/permissions", Group: account, Auth: required,
 			Query: GroupQuery{}, Responses: replyOK(PermissionSet{}), serve: handle((*Service).handleMePermissionsGET)},
 		// Other people, as they may be seen (Config.PublicUserMetadata).
-		{Method: GET, Path: "/users", Group: account, Auth: required, Bucket: RLUserMe,
+		{Method: GET, Path: "/users", Group: account, Auth: required, Bucket: RLMeRead,
 			Query: UsersQuery{}, Responses: replyOK(iam.ListPage[iam.PublicUser]{}), serve: handle((*Service).handleUsersGET)},
 
 		// The user directory: reads are gated here; mutations are for signed-in

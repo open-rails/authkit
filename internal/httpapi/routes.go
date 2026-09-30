@@ -41,7 +41,7 @@ func (s *Service) routes(surface Surface, groups []iam.RouteGroup, wrap func(Rou
 		h := route.serve(s)
 		// A root permission is checked here; a group route checks its own
 		// (GroupHandler), since it first resolves the group.
-		if route.Auth == iam.AuthPermission && strings.HasPrefix(route.Perm, iam.RootPersona.String()+":") {
+		if route.Auth == iam.AuthPermission && strings.HasPrefix(route.Perm, iam.RootPersona().String()+":") {
 			h = s.requirePermission(iam.RootGroup(), ident.Perm(route.Perm), h)
 		}
 		route.Handler = s.languageMiddleware(wrap(route, h))
@@ -76,7 +76,7 @@ func (s *Service) mounts(f Feature) bool {
 		schema := s.svc.PermissionGroupSchema()
 		for _, name := range schema.Personas() {
 			p, _ := schema.Persona(name)
-			if f == FeatureGroups && name != iam.RootPersona || f == FeatureAPIKeys && p.APIKeys {
+			if f == FeatureGroups && name != iam.RootPersona() || f == FeatureAPIKeys && p.APIKeys {
 				return true
 			}
 		}

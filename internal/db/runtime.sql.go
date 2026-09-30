@@ -58,7 +58,7 @@ const runtimeAccessLock = `-- name: RuntimeAccessLock :exec
 SELECT pg_advisory_xact_lock(hashtextextended('open-rails:runtime-access', 0))
 `
 
-// Shared with OpenRails: ACL writes can touch the same public objects.
+// Shared with every open-rails migrator: ACL writes can touch the same public objects.
 func (q *Queries) RuntimeAccessLock(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, runtimeAccessLock)
 	return err

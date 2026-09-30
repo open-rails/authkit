@@ -72,7 +72,7 @@ func (s *Engine) ListGroups(ctx context.Context, q iam.GroupQuery) (iam.ListPage
 		return out, err
 	}
 	persona := q.Persona
-	if _, ok := s.groupSchemaOrDefault().Persona(persona); !persona.IsZero() && (!ok || persona == iam.RootPersona) {
+	if _, ok := s.groupSchemaOrDefault().Persona(persona); !persona.IsZero() && (!ok || persona == iam.RootPersona()) {
 		return out, fmt.Errorf("unknown group persona %q: %w", persona, iam.ErrUnknownGroupPersona)
 	}
 	after, err := cursor.Keys(q.Page.Cursor, 1)

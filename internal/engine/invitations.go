@@ -107,7 +107,7 @@ func (s *Engine) createEmailInvitation(ctx context.Context, a iam.Actor, ref iam
 	err := s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
 		var groupID, roleText *string
 		if role.IsZero() {
-			if g.Persona != iam.RootPersona {
+			if g.Persona != iam.RootPersona() {
 				return errmodel.ErrInvalidInvite
 			}
 			auth, err := s.actorAuthority(ctx, st, a, g)
@@ -159,7 +159,7 @@ func (s *Engine) ListInvitations(ctx context.Context, ref iam.GroupRef, p iam.Pa
 		return iam.ListPage[iam.Invitation]{}, err
 	}
 	rows, err := db.New(st.q).InvitationsByGroup(ctx, db.InvitationsByGroupParams{
-		GroupID: g.ID, Root: g.Persona == iam.RootPersona, After: after, PageLimit: int64(p.PageLimit() + 1),
+		GroupID: g.ID, Root: g.Persona == iam.RootPersona(), After: after, PageLimit: int64(p.PageLimit() + 1),
 	})
 	if err != nil {
 		return iam.ListPage[iam.Invitation]{}, err
@@ -206,7 +206,7 @@ func (s *Engine) RevokeInvitation(ctx context.Context, a iam.Actor, ref iam.Grou
 		case !errors.Is(err, pgx.ErrNoRows):
 			return err
 		}
-		invite, err := q.AccountInviteForRevoke(ctx, db.AccountInviteForRevokeParams{ID: id, GroupID: g.ID, Root: g.Persona == iam.RootPersona})
+		invite, err := q.AccountInviteForRevoke(ctx, db.AccountInviteForRevokeParams{ID: id, GroupID: g.ID, Root: g.Persona == iam.RootPersona()})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return iam.ErrInvitationNotFound
 		}

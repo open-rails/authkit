@@ -69,7 +69,7 @@ func TestMountRegistersNativeRoutesWithCanonicalGuards(t *testing.T) {
 	}{
 		{name: "default", cfg: func(*authkit.HTTPConfig) {}},
 		{name: "selected groups and prefix", cfg: func(c *authkit.HTTPConfig) {
-			c.APIPath, c.Groups, c.Exclude = "/identity", []iam.RouteGroup{iam.RouteAccount, iam.RouteAuth}, []string{"GET /identity/me"}
+			c.APIPath, c.Groups, c.Exclude = "/identity", []iam.RouteGroup{iam.RouteAccount, iam.RouteAuth}, []string{"GET /identity/v1/me"}
 		}},
 		{name: "root prefix", cfg: func(c *authkit.HTTPConfig) { c.APIPath = "/" }},
 	} {
@@ -142,7 +142,7 @@ func TestMountPreservesParametersContextAndJSONCookieGuards(t *testing.T) {
 	cfg.APIPath, cfg.RefreshCookie = "/identity", true
 	auth := testhttp.Client(t, cfg, authtest.WithDeps(func(d *authkit.Deps) {
 		d.Wrap = func(route iam.Route, handler http.Handler) http.Handler {
-			if route.Path != "/identity/me/providers/{provider}" {
+			if route.Path != "/identity/v1/me/providers/{provider}" {
 				return handler
 			}
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -169,7 +169,7 @@ func TestMountPreservesParametersContextAndJSONCookieGuards(t *testing.T) {
 		{"cross origin", "application/json", "http://attacker.example", "{}", http.StatusForbidden},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			r := httptest.NewRequest(http.MethodDelete, "https://example.com/identity/me/providers/google", strings.NewReader(tc.body))
+			r := httptest.NewRequest(http.MethodDelete, "https://example.com/identity/v1/me/providers/google", strings.NewReader(tc.body))
 			r.Header.Set("Content-Type", tc.contentType)
 			r.Header.Set("Origin", tc.origin)
 			res, err := app.Test(r)

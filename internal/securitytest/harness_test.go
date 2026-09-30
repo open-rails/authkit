@@ -30,7 +30,7 @@ import (
 )
 
 const (
-	apiPrefix = "/auth/v1"
+	apiPrefix = "/auth/v1" // HTTPConfig.APIPath "/auth", plus the version segment
 	issuer    = "https://auth.security.test"
 	audience  = "security-app"
 	password  = "Correct-horse-battery-9"
@@ -103,7 +103,7 @@ func newHost(t *testing.T, opts ...authtest.Option) *host {
 				Methods:       []iam.TwoFactorMethod{iam.TwoFactorTOTP, iam.TwoFactorEmail},
 				TOTPSecretKey: bytes.Repeat([]byte{7}, 32),
 			}
-			c.HTTP = &authkit.HTTPConfig{DirectPeerIP: true, APIPath: apiPrefix}
+			c.HTTP = &authkit.HTTPConfig{DirectPeerIP: true, APIPath: "/auth"}
 		}),
 		authtest.WithDeps(func(d *authkit.Deps) {
 			d.Postgres = pg.Pool

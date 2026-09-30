@@ -1,4 +1,4 @@
-// Session-generation races ported from the doujins AuthSDK suite.
+// Session-generation races.
 import { expect, it, vi } from "vitest"
 
 import { createAuthClient } from "./client.ts"

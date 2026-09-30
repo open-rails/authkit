@@ -43,7 +43,7 @@ func TestRuntimeConfiguredHTTPLoginAndLifecycle(t *testing.T) {
 	_, err := runtime.CreateUser(context.Background(), iam.NewUser{Email: "runtime-boundary@example.test", Username: "runtime-boundary", Password: "Correct-horse-battery-1"})
 	require.NoError(t, err)
 	require.Contains(t, patterns(runtime), "GET "+iam.JWKSPath)
-	require.Contains(t, patterns(runtime), "POST /auth/password/login")
+	require.Contains(t, patterns(runtime), "POST /auth/v1/password/login")
 
 	handler := http.NewServeMux()
 	require.NoError(t, runtime.Mount(handler))
@@ -68,8 +68,8 @@ func TestRuntimeConfiguredHTTPLoginAndLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, call(http.MethodGet, iam.JWKSPath, "", "").Code)
 	require.Equal(t, http.StatusOK, call(http.MethodHead, iam.JWKSPath, "", "").Code)
 	require.Equal(t, http.StatusNotFound, call(http.MethodGet, "/auth"+iam.JWKSPath, "", "").Code)
-	require.Equal(t, http.StatusUnauthorized, call(http.MethodGet, "/auth/me", "", "").Code)
-	login := call(http.MethodPost, "/auth/password/login", `{"identifier":"runtime-boundary@example.test","password":"Correct-horse-battery-1"}`, "")
+	require.Equal(t, http.StatusUnauthorized, call(http.MethodGet, "/auth/v1/me", "", "").Code)
+	login := call(http.MethodPost, "/auth/v1/password/login", `{"identifier":"runtime-boundary@example.test","password":"Correct-horse-battery-1"}`, "")
 	require.Equal(t, http.StatusOK, login.Code, login.Body.String())
 	var signedIn struct {
 		Status   string `json:"status"`
@@ -82,9 +82,9 @@ func TestRuntimeConfiguredHTTPLoginAndLifecycle(t *testing.T) {
 	require.Equal(t, "complete", signedIn.Status)
 	tokens := signedIn.TokenSet
 	require.NotEmpty(t, tokens.AccessToken)
-	require.Equal(t, http.StatusOK, call(http.MethodGet, "/auth/me", "", tokens.AccessToken).Code)
-	require.Equal(t, http.StatusForbidden, call(http.MethodGet, "/auth/admin/users", "", tokens.AccessToken).Code)
-	require.Equal(t, http.StatusOK, call(http.MethodGet, "/auth/me/sessions", "", tokens.AccessToken).Code)
+	require.Equal(t, http.StatusOK, call(http.MethodGet, "/auth/v1/me", "", tokens.AccessToken).Code)
+	require.Equal(t, http.StatusForbidden, call(http.MethodGet, "/auth/v1/admin/users", "", tokens.AccessToken).Code)
+	require.Equal(t, http.StatusOK, call(http.MethodGet, "/auth/v1/me/sessions", "", tokens.AccessToken).Code)
 	runtime.Close()
 	runtime.Close()
 	require.NoError(t, pg.Pool.Ping(context.Background()), "runtime closed host-owned pool")

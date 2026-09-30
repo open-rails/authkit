@@ -93,7 +93,7 @@ func (s *Engine) withAccountMutationIn(ctx context.Context, a iam.Actor, host pg
 		if err != nil {
 			return err
 		}
-		if _, err := s.actorAuthority(ctx, st, a, groupTarget{ID: rootID, Persona: iam.RootPersona}); err != nil {
+		if _, err := s.actorAuthority(ctx, st, a, groupTarget{ID: rootID, Persona: iam.RootPersona()}); err != nil {
 			return err
 		}
 	default:
