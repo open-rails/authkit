@@ -52,6 +52,11 @@ func TestHostSetup(t *testing.T) {
 	claims, err = auth.Verifier().Verify(ctx, authtest.SignIn(t, auth, bob).AccessToken)
 	require.NoError(t, err)
 	require.Contains(t, claims.AMR, "mfa")
+
+	authtest.RevokeRole(t, auth, group, iam.UserSubject(alice.ID), moderator)
+	can, err = auth.Can(ctx, iam.UserActor(alice.ID), group, edit)
+	require.NoError(t, err)
+	require.False(t, can)
 }
 
 // A sign-up completed with the code the Outbox captured.

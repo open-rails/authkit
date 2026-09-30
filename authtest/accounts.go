@@ -110,6 +110,18 @@ func GrantRole(t testing.TB, auth *authkit.Client, group iam.GroupRef, subject i
 	}
 }
 
+// RevokeRole takes role in group from subject with system authority.
+func RevokeRole(t testing.TB, auth *authkit.Client, group iam.GroupRef, subject iam.Subject, role iam.Role) {
+	t.Helper()
+	res, err := auth.UnassignGroupRoles(context.Background(), iam.SystemActor(), group, []iam.Subject{subject}, role)
+	if err == nil {
+		err = res[0].Err
+	}
+	if err != nil {
+		t.Fatalf("authtest: revoke %v from %s: %v", role, subject.ID, err)
+	}
+}
+
 // TOTP is an authenticator app enrolled on an account.
 type TOTP struct {
 	Secret string
