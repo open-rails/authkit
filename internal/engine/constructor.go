@@ -218,7 +218,7 @@ func newClient(norm Config, keys jwtkit.KeySource, gs *rbac.Schema, deps Deps) (
 		s.Close()
 		return nil, err
 	}
-	if err := s.initRiver(deps.River); err != nil {
+	if err := s.initRiver(deps.Postgres, deps.River); err != nil {
 		s.Close()
 		return nil, err
 	}
