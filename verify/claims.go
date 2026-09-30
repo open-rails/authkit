@@ -173,8 +173,9 @@ type verified struct {
 	credential [2]string
 }
 
-// SetClaims stores cl in ctx for the handlers. The gates never trust claims
-// stored this way: they verify the request themselves.
+// SetClaims stores cl in ctx for the handlers. The gates and
+// AuthenticateRequest never trust claims stored this way: they verify the
+// request themselves.
 func SetClaims(ctx context.Context, cl Claims) context.Context {
 	actor, _ := ActorFromClaims(cl)
 	return context.WithValue(ctx, claimsKey{}, verified{claims: cl, actor: actor})
@@ -186,12 +187,15 @@ func setVerified(r *http.Request, a Authenticator, cl Claims) *http.Request {
 	return r.WithContext(context.WithValue(r.Context(), claimsKey{}, verified{claims: cl, actor: actor, by: a, credential: credential(r)}))
 }
 
-// verifiedBy reports whether a already verified r's credential, so its
-// claims stand for r. Only a pointer authenticator is recognized: comparing
-// any other could panic.
-func verifiedBy(r *http.Request, a Authenticator) bool {
-	v, ok := r.Context().Value(claimsKey{}).(verified)
-	return ok && v.by != nil && reflect.ValueOf(v.by).Kind() == reflect.Pointer && v.by == a && v.credential == credential(r)
+// verifiedBy is the claims a gate over a stored in ctx for r's credential:
+// verifying r again would spend its sender proof twice. Only a pointer
+// authenticator is recognized: comparing any other could panic.
+func verifiedBy(ctx context.Context, r *http.Request, a Authenticator) (Claims, bool) {
+	v, ok := ctx.Value(claimsKey{}).(verified)
+	if !ok || v.by == nil || reflect.ValueOf(v.by).Kind() != reflect.Pointer || v.by != a || v.credential != credential(r) {
+		return Claims{}, false
+	}
+	return v.claims, true
 }
 
 func credential(r *http.Request) [2]string {

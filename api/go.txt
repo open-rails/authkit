@@ -90,7 +90,9 @@ pkg authkit, method (*Client) Verify(context.Context, string) (verify.Claims, er
 pkg authkit, method (*Client) VerifyRequest(*http.Request) (verify.Claims, error)
 pkg authkit, method (*Client) VerifyServiceJWT(context.Context, string, ...verify.ServiceJWTVerifyOption) (iam.ServiceJWTClaims, error)
 pkg authkit, method (*PersonaDef) All() iam.Perm
+pkg authkit, method (*PersonaDef) Expand([]iam.Perm) []iam.Perm
 pkg authkit, method (*PersonaDef) Permission(string, string) iam.Perm
+pkg authkit, method (*PersonaDef) Permissions() []iam.Perm
 pkg authkit, method (*PersonaDef) RequireMFA(...iam.Perm)
 pkg authkit, method (*PersonaDef) Resource(string) config.Resource
 pkg authkit, method (*PersonaDef) Role(string, ...iam.Grant) iam.Role
@@ -109,7 +111,9 @@ pkg authkit, method (CredentialPerms) All() iam.Perm
 pkg authkit, method (MemberPerms) All() iam.Perm
 pkg authkit, method (Resource) All() iam.Perm
 pkg authkit, method (RootDef) All() iam.Perm
+pkg authkit, method (RootDef) Expand([]iam.Perm) []iam.Perm
 pkg authkit, method (RootDef) Permission(string, string) iam.Perm
+pkg authkit, method (RootDef) Permissions() []iam.Perm
 pkg authkit, method (RootDef) RequireMFA(...iam.Perm)
 pkg authkit, method (RootDef) Resource(string) config.Resource
 pkg authkit, method (RootDef) Role(string, ...iam.Grant) iam.Role
@@ -1278,11 +1282,11 @@ pkg authkit/provider, var ErrUnavailable error
 pkg authkit/verify, func ActorFromClaims(Claims) (iam.Actor, bool)
 pkg authkit/verify, func ActorFromContext(context.Context) (iam.Actor, bool)
 pkg authkit/verify, func AuthenticateRequest(context.Context, Authenticator, *http.Request) (auth.Principal, error)
+pkg authkit/verify, func AuthenticateSession(context.Context, Authority, *http.Request) (auth.Principal, error)
 pkg authkit/verify, func ClaimsFromContext(context.Context) (Claims, bool)
 pkg authkit/verify, func IdentityFromContext(context.Context) (auth.Identity, bool)
 pkg authkit/verify, func NewVerifier(...VerifierOption) *Verifier
 pkg authkit/verify, func Optional(Authenticator) func(http.Handler) http.Handler
-pkg authkit/verify, func PrincipalFromClaims(Authenticator, Claims) (auth.Principal, error)
 pkg authkit/verify, func RequirePermission(Authority, iam.Perm) func(http.Handler) http.Handler
 pkg authkit/verify, func RequirePermissionOn(Authority, iam.GroupRef, iam.Perm) func(http.Handler) http.Handler
 pkg authkit/verify, func RequireSession(Authority) func(http.Handler) http.Handler

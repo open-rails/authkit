@@ -38,6 +38,7 @@ An access token is a signed JWT, so it outlives its session unless something che
 
   A revoked session's token fails there at once, with 401 `session_revoked`.
 - `verify.Required` is stateless. It accepts a token until it expires, which can be up to 15 minutes after sign-out. Use it only where that is acceptable.
+- Code behind a gate that wants a helpers/auth principal calls `verify.AuthenticateRequest`, which reuses the gate's verification, since a DPoP proof is single-use. `verify.AuthenticateSession` adds the session check; unlike `RequireSession`, it passes a credential with no sign-in, such as an API key.
 - Roles are read live at every permission check. The `root_role` and `entitlements` claims are snapshots taken at mint: fine for display or content tiers, never for authorization.
 
 ## Verifying AuthKit tokens in another service

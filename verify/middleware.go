@@ -56,14 +56,15 @@ type Authority interface {
 // (RequireSession, RequirePermission, Sensitive) include it.
 //
 // Stacked gates over the same a verify a request once: the first stores the
-// claims and the later ones reuse them, so a DPoP proof is spent and an API
-// key looked up once. Claims another authenticator verified, or verified for
-// another credential, or stored by SetClaims are verified again.
+// claims and the later ones, and AuthenticateRequest and AuthenticateSession
+// behind them, reuse them, so a DPoP proof is spent and an API key looked up
+// once. Claims another authenticator verified, or verified for another
+// credential, or stored by SetClaims are verified again.
 func Required(a Authenticator) func(http.Handler) http.Handler {
 	mustAuthenticator(a)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !verifiedBy(r, a) {
+			if _, ok := verifiedBy(r.Context(), r, a); !ok {
 				cl, err := a.VerifyRequest(r)
 				if err != nil {
 					writeAuthError(w, r, err)
