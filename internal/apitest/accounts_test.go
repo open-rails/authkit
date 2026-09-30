@@ -76,21 +76,6 @@ func (a *api) me(t *testing.T, token string) profile {
 	return p
 }
 
-// requireSession checks tokens are a live session signed in with amr, and
-// returns its account.
-func requireSession(t *testing.T, auth *authkit.Client, a *api, tokens iam.TokenSet, amr ...string) profile {
-	t.Helper()
-	require.NotEmpty(t, tokens.RefreshToken)
-	require.Greater(t, tokens.ExpiresIn, int64(0))
-	claims, err := auth.Verifier().Verify(t.Context(), tokens.AccessToken)
-	require.NoError(t, err)
-	require.NotEmpty(t, claims.UserID)
-	require.ElementsMatch(t, amr, claims.AMR)
-	p := a.me(t, tokens.AccessToken)
-	require.Equal(t, claims.UserID, p.ID)
-	return p
-}
-
 // deliveredLink checks a delivered link opens path in the app with its
 // status and channel, and returns its token.
 func deliveredLink(t *testing.T, raw, path, channel string) string {
@@ -112,13 +97,6 @@ func expect(t *testing.T, status int, res response) response {
 	t.Helper()
 	require.Equal(t, status, res.status, res.String())
 	return res
-}
-
-func itemErr(res []iam.OpResult, err error) error {
-	if err != nil {
-		return err
-	}
-	return res[0].Err
 }
 
 // Invite-only admission by email and phone, registration and passwordless:
@@ -226,7 +204,9 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 					}
 				}
 				require.Equal(t, 1, winners)
-				account := requireSession(t, auth, a, tokens, method)
+				claims := requireSessionWith(t, a, auth, tokens, method)
+				account := a.me(t, tokens.AccessToken)
+				require.Equal(t, claims.UserID, account.ID)
 				ref := iam.UserByEmail(identifier)
 				if phone {
 					ref = iam.UserByPhone(identifier)
@@ -379,7 +359,7 @@ func testProofLifecycle(t *testing.T, auth *authkit.Client, a *api, outbox *auth
 				tokens = done.Nested
 				require.Empty(t, done.ReturnTo)
 			}
-			requireSession(t, auth, a, tokens, amr)
+			requireSessionWith(t, a, auth, tokens, amr)
 			expect(t, http.StatusBadRequest, a.post(confirm, "", map[string]any{"token": link}))
 			// The reverse order (link then code) has the same canonical winner. Existing
 			// accounts remain available in InviteOnly mode without spending another invite.
@@ -387,7 +367,7 @@ func testProofLifecycle(t *testing.T, auth *authkit.Client, a *api, outbox *auth
 				sent = begin()
 				link = deliveredLink(t, sent.Link, path, channel)
 				done = tokensOf(t, expect(t, http.StatusOK, a.post(confirm, "", map[string]any{"token": link})))
-				requireSession(t, auth, a, done.Nested, amr)
+				requireSessionWith(t, a, auth, done.Nested, amr)
 				expect(t, http.StatusUnauthorized, a.post(confirm, "", map[string]any{"identifier": identifier, "code": sent.Code}))
 			}
 		}
@@ -783,7 +763,7 @@ func TestBootstrapWorkflow(t *testing.T) {
 	recoveryUser, err := auth.User(ctx, iam.UserByUsername("recovery-owner"))
 	require.NoError(t, err)
 	require.NotEqual(t, owner, roleOf(iam.UserSubject(recoveryUser.ID)))
-	require.ErrorIs(t, itemErr(auth.UnassignGroupRoles(ctx, iam.SystemActor(), iam.RootGroup(), []iam.Subject{iam.UserSubject(user.ID)}, owner)), iam.ErrLastOwner)
+	require.ErrorIs(t, unassign(auth, iam.SystemActor(), iam.RootGroup(), iam.UserSubject(user.ID), owner), iam.ErrLastOwner)
 
 	enabled := true
 	app := iam.BootstrapManifestRemoteApplication{Slug: "bootstrap-app", Issuer: "https://app.test", JWKSURI: "https://app.test/keys", Enabled: &enabled}

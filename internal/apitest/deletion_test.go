@@ -39,14 +39,14 @@ func TestAccountPurgeKeepsTheRealDeletionTime(t *testing.T) {
 	}
 
 	earlier := authtest.NewUser(t, auth)
-	require.NoError(t, itemErr(auth.DeleteUsers(ctx, iam.SystemActor(), []string{earlier.ID})))
+	require.NoError(t, opErr(auth.DeleteUsers(ctx, iam.SystemActor(), []string{earlier.ID})))
 	softDeleted := deletedAt(earlier.ID)
-	require.NoError(t, itemErr(auth.PurgeUsers(ctx, []string{earlier.ID})))
+	require.NoError(t, opErr(auth.PurgeUsers(ctx, []string{earlier.ID})))
 	require.True(t, deletedAt(earlier.ID).Equal(softDeleted), "deleted_at keeps the soft-delete time")
 
 	live := authtest.NewUser(t, auth)
 	before := time.Now()
-	require.NoError(t, itemErr(auth.PurgeUsers(ctx, []string{live.ID})))
+	require.NoError(t, opErr(auth.PurgeUsers(ctx, []string{live.ID})))
 	liveDeleted := deletedAt(live.ID)
 	require.WithinDuration(t, before, liveDeleted, time.Minute, "a purged live account is deleted now")
 	for _, id := range []string{earlier.ID, live.ID} {
@@ -90,7 +90,7 @@ func TestAccountRecoveryPasswordConfirmationBoundary(t *testing.T) {
 	old := tokensOf(t, expect(t, http.StatusOK, login())).TokenSet
 	remove := func() {
 		t.Helper()
-		require.NoError(t, itemErr(auth.DeleteUsers(ctx, iam.UserActor(user.ID), []string{user.ID})))
+		require.NoError(t, opErr(auth.DeleteUsers(ctx, iam.UserActor(user.ID), []string{user.ID})))
 	}
 	proof := func() string {
 		t.Helper()
@@ -155,14 +155,14 @@ func TestAccountRecoveryPasswordConfirmationBoundary(t *testing.T) {
 	require.NoError(t, auth.Ban(ctx, iam.SystemActor(), user.ID, iam.Ban{}))
 	expect(t, http.StatusUnauthorized, confirm(bannedProof))
 	expect(t, http.StatusUnauthorized, login())
-	require.NoError(t, itemErr(auth.RestoreUsers(ctx, iam.SystemActor(), []string{user.ID})))
+	require.NoError(t, opErr(auth.RestoreUsers(ctx, iam.SystemActor(), []string{user.ID})))
 	require.Equal(t, http.StatusUnauthorized, login().status, "restoring an account never removes a ban")
 	require.NoError(t, auth.Unban(ctx, iam.SystemActor(), user.ID))
 
 	// A system restore and a later deletion cannot reuse an earlier proof.
 	remove()
 	stale := proof()
-	require.NoError(t, itemErr(auth.RestoreUsers(ctx, iam.SystemActor(), []string{user.ID})))
+	require.NoError(t, opErr(auth.RestoreUsers(ctx, iam.SystemActor(), []string{user.ID})))
 	remove()
 	require.NotEqual(t, http.StatusNoContent, confirm(stale).status)
 	// A credential change voids the proof.
@@ -173,7 +173,7 @@ func TestAccountRecoveryPasswordConfirmationBoundary(t *testing.T) {
 	expect(t, http.StatusUnauthorized, confirm(current))
 	// So does the end of the recovery window.
 	current = proof()
-	require.NoError(t, itemErr(auth.PurgeUsers(ctx, []string{user.ID})))
+	require.NoError(t, opErr(auth.PurgeUsers(ctx, []string{user.ID})))
 	require.Equal(t, "account_recovery_expired", expect(t, http.StatusConflict, confirm(current)).code())
 	require.Equal(t, "account_recovery_expired", expect(t, http.StatusConflict, login()).code())
 }
@@ -215,7 +215,7 @@ func TestStaffAccountRestoreHTTPRequiresCurrentAuthority(t *testing.T) {
 	require.Nil(t, deletedAt(targetID))
 	expect(t, http.StatusUnauthorized, a.post("/token", "", map[string]any{"grant_type": "refresh_token", "refresh_token": target.RefreshToken}))
 	expect(t, http.StatusNoContent, a.do(request{method: http.MethodDelete, path: path, token: staff.AccessToken}))
-	require.NoError(t, itemErr(auth.UnassignGroupRoles(ctx, iam.SystemActor(), iam.RootGroup(), []iam.Subject{iam.UserSubject(staffID)}, staffRole)))
+	revokeRole(t, auth, iam.RootGroup(), iam.UserSubject(staffID), staffRole)
 	expect(t, http.StatusForbidden, a.post(path+"/restore", staff.AccessToken, nil))
 	require.NotNil(t, deletedAt(targetID), "revocation is immediate even for a previously accepted staff token")
 	expect(t, http.StatusNotFound, a.get("/admin/erasure/backlog", staff.AccessToken))
