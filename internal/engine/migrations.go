@@ -74,7 +74,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, opts MigrateOptions) error
 		defer cancel()
 		_ = lockConn.Close(cleanupCtx) // Closing the session releases its advisory lock.
 	}()
-	if err := db.New(lockConn).MigrationLock(ctx, "river-migrations:"+riverCfg.Schema); err != nil {
+	if err := db.New(lockConn).AdvisoryLock(ctx, "river-migrations:"+riverCfg.Schema); err != nil {
 		return fmt.Errorf("authkit: lock River migrations: %w", err)
 	}
 

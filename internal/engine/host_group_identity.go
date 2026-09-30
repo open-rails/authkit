@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
 )
@@ -88,24 +89,15 @@ func (s *Engine) ListGroups(ctx context.Context, q iam.GroupQuery) (iam.ListPage
 		}
 	}
 	limit := q.Page.PageLimit()
-	rows, err := s.pg.Query(ctx, `SELECT `+groupColumns+` FROM permission_groups g
- WHERE g.persona<>'root' AND ($1='' OR g.persona=$1) AND (($2 AND NOT $5) OR g.deleted_at IS NULL)
- AND ($3='' OR g.id>$3::uuid)
- AND (NOT $5 OR NOT `+usableOwner("g.id", "''", "NULL::uuid", "(g.persona=ANY($6::text[]))")+`)
- ORDER BY g.id LIMIT $4`, persona.String(), q.IncludeDeleted, after[0], limit+1, q.Ownerless, mfaPersonas)
+	rows, err := s.q.PermissionGroupsPage(ctx, db.PermissionGroupsPageParams{
+		Persona: persona.String(), IncludeDeleted: q.IncludeDeleted, Ownerless: q.Ownerless,
+		After: after[0], MfaPersonas: mfaPersonas, PageLimit: int64(limit + 1),
+	})
 	if err != nil {
 		return out, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		g, err := scanGroup(rows)
-		if err != nil {
-			return out, err
-		}
-		out.Items = append(out.Items, g)
-	}
-	if err := rows.Err(); err != nil {
-		return out, err
+	for _, r := range rows {
+		out.Items = append(out.Items, publicGroup(r))
 	}
 	if len(out.Items) > limit {
 		out.Items = out.Items[:limit]
@@ -143,30 +135,17 @@ func (s *Engine) ListGroupMembers(ctx context.Context, ref iam.GroupRef, q iam.M
 		return out, nil // no role of this group's persona: nobody holds one
 	}
 	limit := q.Page.PageLimit()
-	rows, err := s.pg.Query(ctx, `SELECT kind, id, role FROM (
- SELECT 'user' AS kind, r.user_id::text AS id, r.role, (u.deleted_at IS NULL AND COALESCE(u.metadata->'reserved','false'::jsonb)<>'true'::jsonb
-   AND ((u.banned_at IS NULL AND u.banned_until IS NULL AND u.ban_reason IS NULL AND u.banned_by IS NULL) OR u.banned_until<=statement_timestamp())) AS live
-  FROM group_user_roles r JOIN users u ON u.id=r.user_id WHERE r.permission_group_id=$1::uuid
- UNION ALL
- SELECT 'remote_application', r.remote_application_id::text, r.role, (a.enabled AND c.deleted_at IS NULL)
-  FROM group_remote_application_roles r JOIN remote_applications a ON a.id=r.remote_application_id
-  JOIN permission_groups c ON c.id=a.permission_group_id WHERE r.permission_group_id=$1::uuid) m
- WHERE (cardinality($2::text[])=0 OR kind=ANY($2::text[])) AND (cardinality($3::text[])=0 OR role=ANY($3::text[]))
- AND ($4='' OR (kind,id)>($4,$5)) AND (NOT $7 OR live)
- ORDER BY kind,id LIMIT $6`, g.ID, kinds, roles, after[0], after[1], limit+1, q.LiveOnly)
+	rows, err := s.q.GroupMembersPage(ctx, db.GroupMembersPageParams{
+		GroupID: g.ID, Kinds: kinds, Roles: roles, AfterKind: after[0], AfterID: after[1],
+		LiveOnly: q.LiveOnly, PageLimit: int64(limit + 1),
+	})
 	if err != nil {
 		return out, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var m iam.GroupMember
-		if err := rows.Scan(&m.Subject.Kind, &m.Subject.ID, scanRole(&m.Role, g.Persona)); err != nil {
-			return out, err
-		}
-		out.Items = append(out.Items, m)
-	}
-	if err := rows.Err(); err != nil {
-		return out, err
+	for _, r := range rows {
+		out.Items = append(out.Items, iam.GroupMember{
+			Subject: iam.Subject{Kind: iam.SubjectKind(r.Kind), ID: r.ID}, Role: ident.Role(g.Persona, r.Role),
+		})
 	}
 	if len(out.Items) > limit {
 		out.Items = out.Items[:limit]
@@ -204,35 +183,28 @@ func (s *Engine) ListSubjectGroups(ctx context.Context, subject iam.Subject, p i
 	if validSubject(subject) != nil {
 		return out, nil
 	}
-	table, column, err := groupRoleTable(subject.Kind)
-	if err != nil {
-		return out, err
-	}
 	after, err := decodePageCursor(p.Cursor, 2)
 	if err != nil {
 		return out, err
 	}
 	limit := p.PageLimit()
-	rows, err := s.pg.Query(ctx, fmt.Sprintf(`SELECT g.id::text, g.persona, g.created_at, g.deleted_at, a.role
- FROM %s a JOIN permission_groups g ON g.id=a.permission_group_id
- WHERE a.%s=$1::uuid AND g.deleted_at IS NULL
- AND ($2='' OR (g.persona,g.id)>($2,NULLIF($3,'')::uuid))
- ORDER BY g.persona,g.id LIMIT $4`, table, column), subject.ID, after[0], after[1], limit+1)
+	arg := db.GroupsOfUserPageParams{SubjectID: subject.ID, AfterPersona: after[0], AfterID: after[1], PageLimit: int64(limit + 1)}
+	var rows []db.GroupsOfUserPageRow
+	if subject.Kind == iam.SubjectKindUser {
+		rows, err = s.q.GroupsOfUserPage(ctx, arg)
+	} else {
+		var apps []db.GroupsOfApplicationPageRow
+		apps, err = s.q.GroupsOfApplicationPage(ctx, db.GroupsOfApplicationPageParams(arg))
+		for _, r := range apps {
+			rows = append(rows, db.GroupsOfUserPageRow(r))
+		}
+	}
 	if err != nil {
 		return out, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var m iam.Membership
-		var role string
-		if err := rows.Scan(&m.Group.ID, scanPersona(&m.Group.Persona), &m.Group.CreatedAt, &m.Group.DeletedAt, &role); err != nil {
-			return out, err
-		}
-		m.Role = ident.Role(m.Group.Persona, role)
-		out.Items = append(out.Items, m)
-	}
-	if err := rows.Err(); err != nil {
-		return out, err
+	for _, r := range rows {
+		g := publicGroup(r.PermissionGroup)
+		out.Items = append(out.Items, iam.Membership{Group: g, Role: ident.Role(g.Persona, r.Role)})
 	}
 	if len(out.Items) > limit {
 		out.Items = out.Items[:limit]

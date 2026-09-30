@@ -9,14 +9,14 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/ident"
 )
 
 // lockPermissionGroup is the shared lifecycle lock. The caller supplies a
 // transaction and takes this lock before role definitions, grants or invite
 // rows; subsequent statements then observe the state after any waited writer.
 func lockPermissionGroup(ctx context.Context, q db.DBTX, groupID string) error {
-	var id string
-	err := q.QueryRow(ctx, `SELECT id::text FROM permission_groups WHERE id=$1::uuid AND deleted_at IS NULL FOR UPDATE`, groupID).Scan(&id)
+	_, err := db.New(q).PermissionGroupLiveForUpdate(ctx, groupID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return iam.ErrGroupNotFound
 	}
@@ -80,8 +80,8 @@ func (s *Engine) CreateGroup(ctx context.Context, ng iam.NewGroup, host pgx.Tx) 
 // account, or a banned, deleted or reserved one.
 func (s *Engine) requireLiveOwner(ctx context.Context, st *permissionGroupStore, owner iam.Subject) error {
 	if owner.Kind == iam.SubjectKindUser {
-		var exists bool
-		if err := st.q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1::uuid)`, owner.ID).Scan(&exists); err != nil {
+		exists, err := db.New(st.q).UserExists(ctx, owner.ID)
+		if err != nil {
 			return err
 		}
 		if !exists {
@@ -106,15 +106,15 @@ func (s *Engine) DeleteGroup(ctx context.Context, ref iam.GroupRef, host pgx.Tx)
 		if !isUUID(ref.ID()) {
 			return iam.ErrGroupNotFound
 		}
-		var persona iam.Persona
-		var deleted bool
-		err := st.q.QueryRow(ctx, `SELECT persona, deleted_at IS NOT NULL FROM permission_groups WHERE id=$1::uuid FOR UPDATE`, ref.ID()).Scan(scanPersona(&persona), &deleted)
+		q := db.New(st.q)
+		group, err := q.PermissionGroupForUpdate(ctx, ref.ID())
 		if errors.Is(err, pgx.ErrNoRows) {
 			return iam.ErrGroupNotFound
 		}
-		if err != nil || deleted {
+		if err != nil || group.DeletedAt != nil {
 			return err
 		}
+		persona := ident.Persona(group.Persona)
 		if persona == iam.RootPersona {
 			return fmt.Errorf("the root group cannot be deleted: %w", iam.ErrUnknownGroupPersona)
 		}
@@ -123,7 +123,7 @@ func (s *Engine) DeleteGroup(ctx context.Context, ref iam.GroupRef, host pgx.Tx)
 		if err != nil {
 			return err
 		}
-		if _, err := st.q.Exec(ctx, `UPDATE permission_groups SET deleted_at=$2 WHERE id=$1::uuid`, gid, st.now()); err != nil {
+		if err := q.PermissionGroupSoftDelete(ctx, db.PermissionGroupSoftDeleteParams{ID: gid, DeletedAt: st.now()}); err != nil {
 			return err
 		}
 		if err := st.record(ctx, groupEvent(iam.EventGroupDeleted, gid, persona)); err != nil {

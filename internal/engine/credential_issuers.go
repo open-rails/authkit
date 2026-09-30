@@ -9,7 +9,7 @@ package engine
 //   - the sweep (revokeUncoveredCredentials) revokes what a creator no longer
 //     covers after any authority change, including a changed role catalog at
 //     boot (reconcileRoleCatalog);
-//   - every use re-checks the creator is live (issuerLive, registrarLive), so
+//   - every use re-checks the creator is usable (the usable_users view), so
 //     a banned or deleted creator's credentials fail even where no sweep ran;
 //   - a purge deletes the creator's keys and links with the account.
 // An API key or application can present no second factor, so neither ever
@@ -27,6 +27,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/rbac"
 )
@@ -41,21 +42,6 @@ func credentialIssuer(a iam.Actor) (string, error) {
 		return a.ID(), nil
 	}
 	return "", iam.ErrInsufficientAuthority
-}
-
-// issuerLive is a SQL predicate: the issuer in column col is the system
-// (NULL) or an account that is not deleted, reserved or banned.
-func issuerLive(col string) string {
-	return `(` + col + ` IS NULL OR EXISTS(SELECT 1 FROM users issuer WHERE issuer.id=` + col + ` AND issuer.deleted_at IS NULL
- AND COALESCE(issuer.metadata->'reserved','false'::jsonb)<>'true'::jsonb
- AND ((issuer.banned_at IS NULL AND issuer.banned_until IS NULL AND issuer.ban_reason IS NULL AND issuer.banned_by IS NULL) OR issuer.banned_until<=statement_timestamp())))`
-}
-
-// registrarLive is a SQL predicate on the remote_applications alias app: a
-// group registration confers authority only while its registrar is live.
-// System and domain registrations have no registrar.
-func registrarLive(app string) string {
-	return `(` + app + `.trust_root<>'user' OR ` + app + `.registered_by IS NOT NULL AND ` + issuerLive(app+".registered_by") + `)`
 }
 
 // requireCredentialRevoke is the authority to take back a credential of role:
@@ -87,8 +73,8 @@ func (s *Engine) reconcileRoleCatalog(ctx context.Context) error {
 	fingerprint := s.roleCatalogFingerprint()
 	return s.withAuthorityMutation(ctx, iam.Actor{}, func(st *permissionGroupStore) error {
 		st.reconcile = true
-		var stored string
-		err := st.q.QueryRow(ctx, `SELECT fingerprint FROM role_catalog_state`).Scan(&stored)
+		q := db.New(st.q)
+		stored, err := q.RoleCatalogFingerprint(ctx)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
@@ -100,9 +86,7 @@ func (s *Engine) reconcileRoleCatalog(ctx context.Context) error {
 			return err
 		}
 		st.touched = append(st.touched, authorityTouch{groupID: rootID})
-		_, err = st.q.Exec(ctx, `INSERT INTO role_catalog_state(fingerprint) VALUES($1)
- ON CONFLICT (singleton) DO UPDATE SET fingerprint=EXCLUDED.fingerprint, swept_at=now()`, fingerprint)
-		return err
+		return q.RoleCatalogSetFingerprint(ctx, fingerprint)
 	})
 }
 

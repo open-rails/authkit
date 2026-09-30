@@ -142,8 +142,9 @@ SELECT 'account_registration_invites', a.id::text, g.id::text, g.persona, COALES
 	var creds []credential
 	for rows.Next() {
 		var c credential
-		var role string
-		require.NoError(t, rows.Scan(&c.table, &c.id, &c.g.ID, scanPersona(&c.g.Persona), &role, &c.creator))
+		var persona, role string
+		require.NoError(t, rows.Scan(&c.table, &c.id, &c.g.ID, &persona, &role, &c.creator))
+		c.g.Persona = ident.Persona(persona)
 		c.role = ident.Role(c.g.Persona, role)
 		creds = append(creds, c)
 	}
@@ -364,7 +365,7 @@ func TestPurgeDeletesTheCreatorsCredentials(t *testing.T) {
 	_, err = f.e.ResolveAPIKey(ctx, opToken)
 	require.NoError(t, err)
 	var creatorless, deadCreator int
-	require.NoError(t, f.e.pg.QueryRow(ctx, `SELECT count(*) FILTER (WHERE created_by IS NULL), count(*) FILTER (WHERE NOT `+issuerLive("k.created_by")+`)
+	require.NoError(t, f.e.pg.QueryRow(ctx, `SELECT count(*) FILTER (WHERE created_by IS NULL), count(*) FILTER (WHERE NOT (k.created_by IS NULL OR EXISTS(SELECT 1 FROM usable_users WHERE id=k.created_by)))
  FROM api_keys k WHERE revoked_at IS NULL`).Scan(&creatorless, &deadCreator))
 	require.Equal(t, 1, creatorless, "only the system's key has no creator")
 	require.Zero(t, deadCreator)

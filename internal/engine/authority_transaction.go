@@ -276,7 +276,7 @@ func (st *permissionGroupStore) directRoleName(ctx context.Context, gid string, 
 	case iam.SubjectKindRemoteApplication:
 		role, err = q.GroupApplicationRoleName(ctx, db.GroupApplicationRoleNameParams{GroupID: gid, ApplicationID: subject.ID})
 	default:
-		return "", fmt.Errorf("invalid group subject kind %q", subject.Kind)
+		return "", invalidSubjectKind(subject.Kind)
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
@@ -359,25 +359,6 @@ func (s *Engine) requireRemainingOwner(ctx context.Context, st *permissionGroupS
 	return nil
 }
 
-// usableOwner is a SQL predicate: group gid has an owner that counts, other
-// than the subject (kind, id): a live user, MFA-enrolled when needsMFA, or,
-// when owners need no MFA, an enabled application of the group itself whose
-// registrar is live. An application a departing user registered never stands
-// in for that user: its authority ends with theirs (R1).
-func usableOwner(gid, kind, id, needsMFA string) string {
-	return `EXISTS(
- SELECT 1 FROM group_user_roles r JOIN users u ON u.id=r.user_id
- WHERE r.permission_group_id=` + gid + ` AND r.role='owner' AND NOT (` + kind + `='user' AND u.id=` + id + `)
- AND u.deleted_at IS NULL AND COALESCE(u.metadata->'reserved','false'::jsonb)<>'true'::jsonb AND ((u.banned_at IS NULL AND u.banned_until IS NULL AND u.ban_reason IS NULL AND u.banned_by IS NULL) OR u.banned_until<=statement_timestamp())
- AND (NOT ` + needsMFA + ` OR EXISTS(SELECT 1 FROM mfa_settings m WHERE m.user_id=u.id AND m.enabled
- AND EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id=u.id)))
- UNION ALL
- SELECT 1 FROM group_remote_application_roles r JOIN remote_applications a ON a.id=r.remote_application_id
- WHERE NOT ` + needsMFA + ` AND r.permission_group_id=` + gid + ` AND r.role='owner' AND NOT (` + kind + `='remote_application' AND a.id=` + id + `)
- AND NOT (` + kind + `='user' AND a.registered_by IS NOT DISTINCT FROM ` + id + `)
- AND a.enabled AND a.permission_group_id=r.permission_group_id AND ` + registrarLive("a") + ` AND EXISTS(SELECT 1 FROM permission_groups control WHERE control.id=a.permission_group_id AND control.deleted_at IS NULL))`
-}
-
 func (s *Engine) refuseSubjectOwnerLoss(ctx context.Context, st *permissionGroupStore, subject iam.Subject) error {
 	var groups []string
 	var err error
@@ -387,7 +368,7 @@ func (s *Engine) refuseSubjectOwnerLoss(ctx context.Context, st *permissionGroup
 	case iam.SubjectKindRemoteApplication:
 		groups, err = db.New(st.q).GroupsOwnedByApplication(ctx, subject.ID)
 	default:
-		return fmt.Errorf("invalid group subject kind %q", subject.Kind)
+		return invalidSubjectKind(subject.Kind)
 	}
 	if err != nil {
 		return err

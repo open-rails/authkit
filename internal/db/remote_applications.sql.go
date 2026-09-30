@@ -31,6 +31,30 @@ func (q *Queries) RemoteApplicationAuthority(ctx context.Context, id string) (Re
 	return i, err
 }
 
+const remoteApplicationByID = `-- name: RemoteApplicationByID :one
+SELECT id, slug, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by FROM remote_applications WHERE id = $1
+`
+
+func (q *Queries) RemoteApplicationByID(ctx context.Context, id string) (RemoteApplication, error) {
+	row := q.db.QueryRow(ctx, remoteApplicationByID, id)
+	var i RemoteApplication
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.Issuer,
+		&i.JwksUri,
+		&i.Mode,
+		&i.PublicKeys,
+		&i.Enabled,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.PermissionGroupID,
+		&i.TrustRoot,
+		&i.RegisteredBy,
+	)
+	return i, err
+}
+
 const remoteApplicationByIssuer = `-- name: RemoteApplicationByIssuer :one
 SELECT id, slug, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by FROM remote_applications WHERE issuer = $1
 `

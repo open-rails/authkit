@@ -11,6 +11,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/apikey"
+	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
 )
@@ -85,14 +86,18 @@ func (s *Engine) MintAPIKey(ctx context.Context, a iam.Actor, ref iam.GroupRef, 
 				return err
 			}
 			out = iam.APIKey{LookupID: minted.LookupID, Name: name, Role: role, Permissions: ident.Perms(grants), CreatedBy: creator, ExpiresAt: expiresAt}
-			err = st.q.QueryRow(ctx, `INSERT INTO api_keys(permission_group_id,key_id,secret_hash,name,role,created_by,expires_at)
- VALUES($1::uuid,$2,$3,$4,$5,$6,$7) ON CONFLICT (key_id) DO NOTHING RETURNING id::text,created_at`,
-				g.ID, minted.LookupID, minted.SecretHash, name, role.Name(), nullable(creator), expiresAt).Scan(&out.ID, &out.CreatedAt)
+			row, err := db.New(st.q).APIKeyInsert(ctx, db.APIKeyInsertParams{
+				GroupID: g.ID, KeyID: minted.LookupID, SecretHash: minted.SecretHash, Name: name,
+				Role: role.Name(), CreatedBy: nullable(creator), ExpiresAt: expiresAt,
+			})
 			if errors.Is(err, pgx.ErrNoRows) {
 				continue // lookup id collision
 			}
-			token = minted.Token
-			return err
+			if err != nil {
+				return err
+			}
+			out.ID, out.CreatedAt, token = row.ID, row.CreatedAt, minted.Token
+			return nil
 		}
 		return errors.New("authkit: api key lookup id generation failed")
 	})
@@ -117,19 +122,16 @@ func (s *Engine) APIKeys(ctx context.Context, ref iam.GroupRef, p iam.PageReques
 	if err != nil {
 		return iam.ListPage[iam.APIKey]{}, err
 	}
-	rows, err := st.q.Query(ctx, `SELECT id::text, key_id, name, role, COALESCE(created_by::text,''), created_at, last_used_at, expires_at, revoked_at
- FROM api_keys WHERE permission_group_id=$1::uuid AND ($2::uuid IS NULL OR id<$2::uuid)
- ORDER BY id DESC LIMIT $3`, g.ID, after, p.PageLimit()+1)
+	rows, err := db.New(st.q).APIKeysByGroup(ctx, db.APIKeysByGroupParams{GroupID: g.ID, After: after, PageLimit: int64(p.PageLimit() + 1)})
 	if err != nil {
 		return iam.ListPage[iam.APIKey]{}, err
 	}
-	keys, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (iam.APIKey, error) {
-		var k iam.APIKey
-		err := row.Scan(&k.ID, &k.LookupID, &k.Name, scanRole(&k.Role, g.Persona), &k.CreatedBy, &k.CreatedAt, &k.LastUsedAt, &k.ExpiresAt, &k.RevokedAt)
-		return k, err
-	})
-	if err != nil {
-		return iam.ListPage[iam.APIKey]{}, err
+	keys := make([]iam.APIKey, len(rows))
+	for i, r := range rows {
+		keys[i] = iam.APIKey{
+			ID: r.ID, LookupID: r.KeyID, Name: r.Name, Role: ident.Role(g.Persona, r.Role), CreatedBy: r.CreatedBy,
+			CreatedAt: r.CreatedAt, LastUsedAt: r.LastUsedAt, ExpiresAt: r.ExpiresAt, RevokedAt: r.RevokedAt,
+		}
 	}
 	page := idPage(keys, p.PageLimit(), func(k iam.APIKey) string { return k.ID })
 	if err := s.loadAPIKeyPermissions(ctx, st, g, page.Items); err != nil {
@@ -151,18 +153,18 @@ func (s *Engine) RevokeAPIKey(ctx context.Context, a iam.Actor, ref iam.GroupRef
 		if !isUUID(id) {
 			return nil
 		}
-		var role iam.Role
-		err := st.q.QueryRow(ctx, `SELECT role FROM api_keys WHERE id=$1::uuid AND permission_group_id=$2::uuid AND revoked_at IS NULL FOR UPDATE`, id, g.ID).Scan(scanRole(&role, g.Persona))
+		q := db.New(st.q)
+		name, err := q.APIKeyRoleForUpdate(ctx, db.APIKeyRoleForUpdateParams{ID: id, GroupID: g.ID})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
 		if err != nil {
 			return err
 		}
-		if err := s.requireCredentialRevoke(ctx, st, a, g, iam.PermCredentialsManage(g.Persona), role); err != nil {
+		if err := s.requireCredentialRevoke(ctx, st, a, g, iam.PermCredentialsManage(g.Persona), ident.Role(g.Persona, name)); err != nil {
 			return err
 		}
-		if _, err := st.q.Exec(ctx, `UPDATE api_keys SET revoked_at=now() WHERE id=$1::uuid`, id); err != nil {
+		if err := q.APIKeyRetire(ctx, id); err != nil {
 			return err
 		}
 		revoked = true
@@ -184,37 +186,25 @@ func (s *Engine) ResolveAPIKey(ctx context.Context, token string) (iam.APIKeyPri
 	if !ok {
 		return iam.APIKeyPrincipal{}, iam.ErrAPIKeyInvalid
 	}
-	var (
-		p           iam.APIKeyPrincipal
-		secretHash  []byte
-		revokedAt   *time.Time
-		creatorLive bool
-		role        string
-	)
-	err := s.pg.QueryRow(ctx, `SELECT k.id::text, k.secret_hash, k.role, k.expires_at, k.revoked_at, `+issuerLive("k.created_by")+`,
-        g.id::text, g.persona, g.created_at
- FROM api_keys k
- JOIN permission_groups g ON g.id=k.permission_group_id
- WHERE k.key_id=$1 AND g.deleted_at IS NULL`, lookupID).
-		Scan(&p.ID, &secretHash, &role, &p.ExpiresAt, &revokedAt, &creatorLive,
-			&p.Group.ID, scanPersona(&p.Group.Persona), &p.Group.CreatedAt)
+	k, err := s.q.APIKeyByLookupID(ctx, lookupID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return iam.APIKeyPrincipal{}, iam.ErrAPIKeyInvalid
 	}
 	if err != nil {
 		return iam.APIKeyPrincipal{}, err
 	}
-	if !apikey.Matches(secretHash, secret) {
+	if !apikey.Matches(k.SecretHash, secret) {
 		return iam.APIKeyPrincipal{}, iam.ErrAPIKeyInvalid
 	}
-	if revokedAt != nil || !creatorLive {
+	if k.RevokedAt != nil || !k.CreatorLive {
 		return iam.APIKeyPrincipal{}, iam.ErrAPIKeyRevoked
 	}
-	if p.ExpiresAt != nil && !p.ExpiresAt.After(time.Now().UTC()) {
+	if k.ExpiresAt != nil && !k.ExpiresAt.After(time.Now().UTC()) {
 		return iam.APIKeyPrincipal{}, iam.ErrAPIKeyExpired
 	}
-	s.touchAccessTokenAsync(p.ID)
-	p.Role = ident.Role(p.Group.Persona, role)
+	s.touchAccessTokenAsync(k.ID)
+	p := iam.APIKeyPrincipal{ID: k.ID, ExpiresAt: k.ExpiresAt, Group: iam.Group{ID: k.GroupID, Persona: ident.Persona(k.Persona), CreatedAt: k.GroupCreatedAt}}
+	p.Role = ident.Role(p.Group.Persona, k.Role)
 	sch := s.groupSchemaOrDefault()
 	grants := []string{}
 	if def, ok := sch.Role(p.Group.Persona, p.Role); ok {
@@ -240,8 +230,7 @@ func (s *Engine) touchAccessTokenAsync(id string) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		q := s.pg
-		_, _ = q.Exec(ctx, `UPDATE api_keys SET last_used_at = now() WHERE id = $1::uuid AND (last_used_at IS NULL OR last_used_at < now() - interval '5 minutes')`, id)
+		_ = s.q.APIKeyTouch(ctx, id)
 	}()
 }
 

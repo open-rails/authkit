@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/rbac"
 )
@@ -80,12 +81,11 @@ func (s *Engine) requireRegistrarCover(ctx context.Context, st *permissionGroupS
 	if subject.Kind != iam.SubjectKindRemoteApplication {
 		return nil
 	}
-	var userRooted bool
-	var registrar string
-	if err := st.q.QueryRow(ctx, `SELECT trust_root='user', COALESCE(registered_by::text,'') FROM remote_applications WHERE id=$1::uuid`, subject.ID).Scan(&userRooted, &registrar); err != nil {
+	app, err := db.New(st.q).RemoteApplicationByID(ctx, subject.ID)
+	if err != nil {
 		return err
 	}
-	stands, err := s.credentialStands(ctx, st, sweptCredential{table: "group_remote_application_roles", id: subject.ID, creator: registrar, group: g, role: role, needsCreator: userRooted})
+	stands, err := s.credentialStands(ctx, st, sweptCredential{table: "group_remote_application_roles", id: subject.ID, creator: deref(app.RegisteredBy), group: g, role: role, needsCreator: app.TrustRoot == "user"})
 	if err != nil || stands {
 		return err
 	}
@@ -213,7 +213,7 @@ func validSubject(subject iam.Subject) error {
 			return iam.ErrRemoteApplicationNotFound
 		}
 	default:
-		return fmt.Errorf("invalid group subject kind %q", subject.Kind)
+		return invalidSubjectKind(subject.Kind)
 	}
 	return nil
 }
@@ -221,9 +221,10 @@ func validSubject(subject iam.Subject) error {
 // requireAssignableSubject: a user must exist; an application must be
 // controlled by g, since roles elsewhere never take effect.
 func (s *Engine) requireAssignableSubject(ctx context.Context, st *permissionGroupStore, g groupTarget, subject iam.Subject) error {
+	q := db.New(st.q)
 	if subject.Kind == iam.SubjectKindUser {
-		var exists bool
-		if err := st.q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1::uuid)`, subject.ID).Scan(&exists); err != nil {
+		exists, err := q.UserExists(ctx, subject.ID)
+		if err != nil {
 			return err
 		}
 		if !exists {
@@ -231,9 +232,8 @@ func (s *Engine) requireAssignableSubject(ctx context.Context, st *permissionGro
 		}
 		return nil
 	}
-	var control string
-	err := st.q.QueryRow(ctx, `SELECT permission_group_id::text FROM remote_applications WHERE id=$1::uuid`, subject.ID).Scan(&control)
-	if errors.Is(err, pgx.ErrNoRows) || err == nil && control != g.ID {
+	app, err := q.RemoteApplicationByID(ctx, subject.ID)
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && app.PermissionGroupID != g.ID {
 		return iam.ErrRemoteApplicationNotFound
 	}
 	return err
@@ -269,25 +269,14 @@ func (s *Engine) GroupRoles(ctx context.Context, ref iam.GroupRef, subjects []ia
 	if len(users)+len(apps) == 0 {
 		return out, nil
 	}
-	rows, err := st.q.Query(ctx, `SELECT 'user', user_id::text, role FROM group_user_roles WHERE permission_group_id=$1::uuid AND user_id=ANY($2::uuid[])
- UNION ALL SELECT 'remote_application', remote_application_id::text, role FROM group_remote_application_roles WHERE permission_group_id=$1::uuid AND remote_application_id=ANY($3::uuid[])`, g.ID, users, apps)
+	rows, err := db.New(st.q).GroupRolesForSubjects(ctx, db.GroupRolesForSubjectsParams{GroupID: g.ID, UserIds: users, ApplicationIds: apps})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	held := map[iam.Subject]iam.Role{}
-	for rows.Next() {
-		var subject iam.Subject
-		var role iam.Role
-		if err := rows.Scan(&subject.Kind, &subject.ID, scanRole(&role, g.Persona)); err != nil {
-			return nil, err
-		}
-		held[subject] = role
+	for _, r := range rows {
+		held[iam.Subject{Kind: iam.SubjectKind(r.Kind), ID: r.SubjectID}] = ident.Role(g.Persona, r.Role)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	rows.Close()
 	sch := s.groupSchemaOrDefault()
 	for _, subject := range subjects {
 		subject.ID = strings.TrimSpace(subject.ID)
