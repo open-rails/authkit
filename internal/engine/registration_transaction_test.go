@@ -1,10 +1,15 @@
 package engine
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
+	"net/http"
 	"testing"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/authkit/internal/testidp"
 	"github.com/stretchr/testify/require"
 )
 
@@ -36,10 +41,14 @@ func TestRegistrationRollsBackWhenInviteConsumeFails(t *testing.T) {
 		require.NoError(t, err)
 		var failed flowResponse
 		if flow == "oidc" || flow == "oauth2" {
-			provider := newSecurityTestProvider(t, f.service, flow == "oidc")
+			idp := testidp.New(t)
+			provider := idp.OAuth2("idp")
+			if flow == "oidc" {
+				provider = idp.OIDC("idp")
+			}
+			f.service.SetProviders(provider)
 			f.mount()
-			verified := true
-			failed, _ = f.providerLogin(provider, providerTestIdentity{Subject: "rollback-" + uniqueSuffix(), Email: email, Verified: &verified}, invite.Code, false)
+			failed = providerSignUp(f, idp, testidp.Identity{Subject: "rollback-" + uniqueSuffix(), Email: email, EmailVerified: true}, invite.Code)
 		} else {
 			path := "/register"
 			body := map[string]any{"identifier": identifier, "account_invite_token": invite.Code}
@@ -63,4 +72,34 @@ func TestRegistrationRollsBackWhenInviteConsumeFails(t *testing.T) {
 		require.False(t, exists, flow)
 		require.False(t, consumed, flow)
 	}
+}
+
+// providerSignUp signs id in at f's provider "idp" as a page does, carrying
+// invite: a JSON start, the IdP's redirect back, and the JSON callback.
+func providerSignUp(f *accountFlow, idp *testidp.IdP, id testidp.Identity, invite string) flowResponse {
+	t := f.t
+	t.Helper()
+	begin, err := json.Marshal(map[string]string{"account_invite_token": invite})
+	require.NoError(t, err)
+	start, err := f.server.Client().Post(f.server.URL+"/oidc/idp/login", "application/json", bytes.NewReader(begin))
+	require.NoError(t, err)
+	defer start.Body.Close()
+	require.Equal(t, http.StatusOK, start.StatusCode)
+	var begun struct {
+		AuthURL string `json:"auth_url"`
+	}
+	require.NoError(t, json.NewDecoder(start.Body).Decode(&begun))
+	query := idp.Redirect(t, begun.AuthURL, id)
+	query.Set("format", "json")
+	req, err := http.NewRequest(http.MethodGet, f.server.URL+"/oidc/idp/callback?"+query.Encode(), nil)
+	require.NoError(t, err)
+	for _, cookie := range start.Cookies() {
+		req.AddCookie(cookie)
+	}
+	callback, err := f.server.Client().Do(req)
+	require.NoError(t, err)
+	defer callback.Body.Close()
+	raw, err := io.ReadAll(callback.Body)
+	require.NoError(t, err)
+	return flowResponse{status: callback.StatusCode, raw: string(raw)}
 }

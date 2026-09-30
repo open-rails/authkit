@@ -14,8 +14,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/testidp"
 )
 
 const appURL = "https://app.example"
@@ -619,9 +621,28 @@ func TestAccountPolicies(t *testing.T) {
 		require.Equal(t, bounds, policyError(t, rename, "username_too_short", "username"))
 	})
 
-	t.Run("username policy bounds imports and New", func(t *testing.T) {
-		auth, _, _ := setup(t, func(c *authkit.Config) { c.Username = iam.UsernamePolicy{MinLength: 8, MaxLength: 10} })
-		_, err := auth.CreateUser(t.Context(), iam.NewUser{Email: "short@example.test", Username: "shorty"})
+	t.Run("username policy bounds derived and imported names and New", func(t *testing.T) {
+		idp := testidp.New(t)
+		auth, a, _ := setup(t, func(c *authkit.Config) {
+			c.Username = iam.UsernamePolicy{MinLength: 8, MaxLength: 10}
+			c.Identity.Providers = []authprovider.Provider{idp.OIDC("idp")}
+		})
+		ctx := t.Context()
+		// A provider sign-up derives its username from the email's local part,
+		// padded to the policy's minimum.
+		derived := func(subject, email string) string {
+			t.Helper()
+			expectAnswer(t, providerSignIn(t, a, idp, "idp", testidp.Identity{Subject: subject, Email: email, EmailVerified: true}, ""), http.StatusOK)
+			u, err := auth.User(ctx, iam.UserByEmail(email))
+			require.NoError(t, err)
+			return u.Username
+		}
+		require.Equal(t, "ab_user_us", derived("first", "ab@example.test"))
+		second := derived("second", "ab@example.org")
+		require.Equal(t, "ab_user_u1", second, "a taken name is suffixed within the maximum")
+		require.ErrorIs(t, auth.CheckUsername(ctx, second), iam.ErrUsernameInUse, "the suffixed name passes the policy; only its owner holds it")
+
+		_, err := auth.CreateUser(ctx, iam.NewUser{Email: "short@example.test", Username: "shorty"})
 		e, ok := iam.AsError(err)
 		require.True(t, ok, "%v", err)
 		require.Equal(t, "username_too_short", e.Code())
