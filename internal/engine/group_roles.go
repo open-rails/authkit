@@ -4,13 +4,15 @@ package engine
 // subject needs CAP(<persona>:members:manage), an application subject
 // CAP(<persona>:credentials:manage); both need COVER of every role they grant
 // or take away, so nobody hands out or strips authority above their own (only
-// an owner can mint or remove an owner). The last usable owner and
-// MFA-required roles are invariants that bind the system too.
+// an owner can mint or remove an owner). A removed role confers nothing and
+// needs no cover. The last usable owner and MFA-required roles are invariants
+// that bind the system too.
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -32,9 +34,9 @@ func grantsCoverAll(actorGrants, targetGrants []string) bool {
 }
 
 // SetGroupRole makes subject hold role in ref, replacing the role it holds:
-// CAP by subject kind, COVER(role), and when replacing, COVER(old) and the
-// last-owner check. An application subject must be controlled by the group.
-// Holding role already changes nothing.
+// CAP by subject kind, COVER(role), and when replacing, COVER(old) (none for a
+// removed role) and the last-owner check. An application subject must be
+// controlled by the group. Holding role already changes nothing.
 func (s *Engine) SetGroupRole(ctx context.Context, a iam.Actor, ref iam.GroupRef, subject iam.Subject, role iam.Role, opts ...ops.Option) (iam.GroupMember, error) {
 	tx, err := hostTx("SetGroupRole", opts)
 	if err != nil {
@@ -66,7 +68,7 @@ func (s *Engine) SetGroupRole(ctx context.Context, a iam.Actor, ref iam.GroupRef
 			return err
 		}
 		if !old.IsZero() {
-			if err := s.requireRoleCover(ctx, st, auth, g, old); err != nil {
+			if err := s.requireMemberRoleCover(ctx, st, auth, g, old); err != nil {
 				return err
 			}
 			if err := s.refuseOwnerLoss(ctx, st, g.ID, subject); err != nil {
@@ -88,8 +90,9 @@ func (s *Engine) SetGroupRole(ctx context.Context, a iam.Actor, ref iam.GroupRef
 }
 
 // RemoveGroupMember strips subject's role in ref: CAP by subject kind, COVER
-// of the role it holds, then the last-owner check. A non-member is a no-op, as
-// is a subject holding another role than ops.IfRole names.
+// of the role it holds (none for a removed role), then the last-owner check. A
+// non-member is a no-op, as is a subject holding another role than ops.IfRole
+// names.
 func (s *Engine) RemoveGroupMember(ctx context.Context, a iam.Actor, ref iam.GroupRef, subject iam.Subject, opts ...ops.Option) error {
 	o, err := ops.Resolve("RemoveGroupMember", opts, ops.KindTx, ops.KindIfRole)
 	if err != nil {
@@ -111,7 +114,7 @@ func (s *Engine) RemoveGroupMember(ctx context.Context, a iam.Actor, ref iam.Gro
 		if err != nil || current.IsZero() || !o.IfRole.IsZero() && current != o.IfRole {
 			return err
 		}
-		if err := s.requireRoleCover(ctx, st, auth, g, current); err != nil {
+		if err := s.requireMemberRoleCover(ctx, st, auth, g, current); err != nil {
 			return err
 		}
 		if err := s.refuseOwnerLoss(ctx, st, g.ID, subject); err != nil {
@@ -119,6 +122,25 @@ func (s *Engine) RemoveGroupMember(ctx context.Context, a iam.Actor, ref iam.Gro
 		}
 		return st.UnassignRole(ctx, g.ID, subject, current)
 	})
+}
+
+// requireMemberRoleCover is COVER of the role a member holds, before it is
+// replaced or taken away. A role no app sharing the account store declares
+// confers nothing, so it needs none. One only a peer app declares is live
+// there and this app cannot judge it: that stays ErrRoleNotAssignable.
+func (s *Engine) requireMemberRoleCover(ctx context.Context, st *permissionGroupStore, auth authority, g groupTarget, role iam.Role) error {
+	err := s.requireRoleCover(ctx, st, auth, g, role)
+	if !errors.Is(err, iam.ErrRoleNotAssignable) {
+		return err
+	}
+	peers, perr := db.New(st.q).RoleCatalogsDeclaredRoles(ctx, s.accountIssuers()[1:])
+	if perr != nil {
+		return perr
+	}
+	if slices.Contains(peers, role.String()) {
+		return err
+	}
+	return nil
 }
 
 // groupSubject validates the actor and subject of a role change. Ids are

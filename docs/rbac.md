@@ -15,7 +15,7 @@ How AuthKit decides who may do what. The [README](../README.md) shows the setup;
 
 Every persona has an `owner` role (`channel:owner`) that holds `<persona>:*`. `iam.NewGroup.Owner` seeds a new group's owner. AuthKit refuses to remove or demote a group's last owner (`409 last_owner`).
 
-`root:owner` holds `root:*`: every `root:` permission, on root. It doesn't reach channel groups. For that, declare a root role that holds channel permissions (below).
+`root:owner` holds `root:*` and every other persona's `<persona>:*`, so the site owner can act in every group, like a root role holding `Channel.All()` (below).
 
 ### Root roles reach every group
 
@@ -37,7 +37,7 @@ AuthKit registers these itself; you never declare them. `<persona>` means every 
 | `root:users:manage` | always | edit someone else's account and sign them out everywhere |
 | `root:users:invite` | always | invite someone to create an account |
 
-Handing out a role takes `members:manage` in that group, and the grantor's own grants must cover every permission of the role being given and of the role it replaces. Account actions (`root:users:*`) also require covering every role the target holds, on root and in each of their groups.
+Handing out a role takes `members:manage` in that group, and the grantor's own grants must cover every permission of the role being given and of the role it replaces. A removed role grants nothing, so taking it away or replacing it needs no cover. Account actions (`root:users:*`) also require covering every role the target holds, on root and in each of their groups.
 
 ### Roles that need MFA
 
@@ -83,14 +83,14 @@ A check (`Client.Can`, or `RequirePermission` in `verify` and the adapters) comb
 | Add a permission or role | code | It's available as soon as it ships. |
 | Rename or remove a permission | code; the compiler finds every use | No stored data names a permission, so there's nothing to migrate. Delegated tokens carry permission text as a ceiling, so those minted earlier lack the new name until they're re-minted. |
 | Change what a role grants | code | Every holder gets the new grants. No migration. |
-| Remove a role | code | Its assignments stay in Postgres but grant nothing. At startup AuthKit logs `authkit: rbac drift detected` with counts. The credential sweep revokes API keys and invitations users issued for it. |
+| Remove a role | code | Its assignments stay in Postgres but grant nothing. At startup AuthKit logs `authkit: rbac drift detected` with counts. The credential sweep revokes API keys and invitations users issued for it. Anyone with `members:manage` in a group can remove its holders there or give them another role. |
 | Rename a role or persona | code, plus a data fix | Stored rows keep the old text. Until they're fixed, the old name's holders hold nothing, as if the role were removed. AuthKit has no rename operation. |
 
 **The credential sweep.** AuthKit fingerprints the compiled catalog: every role's grants, the permissions that need MFA, and whether 2FA is on. Each app's fingerprint is stored. When `New` sees a different one, it re-checks every API key, invitation and application role that this app issued, against the creator's authority under the new catalog. It revokes what the creator no longer covers, plus any machine credential whose role now needs MFA, and logs each one. The sweep never fails startup. It is why renaming a permission or changing a role can revoke credentials.
 
 ## Apps sharing an account store
 
-Apps that share one account store (the same schema, listed in `TokenConfig.AccountIssuers`) share membership, root included: who holds which role. Each app declares its own `Roles`, so a role means what that app's catalog says. A role only a peer declares grants nothing in this app, and doesn't count as drift here.
+Apps that share one account store (the same schema, listed in `TokenConfig.AccountIssuers`) share membership, root included: who holds which role. Each app declares its own `Roles`, so a role means what that app's catalog says. A role only a peer declares grants nothing in this app, and doesn't count as drift here. This app can't take it away or replace it either, since it can't tell what it grants; do that through the peer.
 
 Fingerprints and sweeps are per app. Each app judges only the API keys, invitations and applications issued through it, and an API key works only at the app that minted it. When a change through one app demotes a user, every other app sweeps its own credentials from that user.
 

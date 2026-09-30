@@ -28,7 +28,7 @@ func (p Persona) String() string { return p.name }
 func (p Persona) IsZero() bool { return p.name == "" }
 
 // OwnerRole is the role every persona has: it holds the whole namespace,
-// OwnerGrant, and nothing else.
+// OwnerGrant. The root owner also holds every other persona's OwnerGrant.
 func (p Persona) OwnerRole() Role { return Role{persona: p, name: ownerRoleName} }
 
 // OwnerGrant is the owner's grant `<persona>:*`.

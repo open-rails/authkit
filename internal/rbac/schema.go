@@ -192,7 +192,7 @@ func (s *Schema) compileRoles(specs []RoleSpec) error {
 		if _, ok := roles[owner]; ok {
 			return fmt.Errorf("persona %q: the %q role is built in", name, owner.Name())
 		}
-		roles[owner] = RoleSpec{Name: owner, Grants: []iam.Perm{name.OwnerGrant()}}
+		roles[owner] = RoleSpec{Name: owner, Grants: s.ownerGrants(name)}
 		order[name] = append(order[name], owner)
 		p := s.personas[name]
 		for _, role := range order[name] {
@@ -205,6 +205,20 @@ func (s *Schema) compileRoles(specs []RoleSpec) error {
 		s.personas[name] = p
 	}
 	return nil
+}
+
+// ownerGrants is what persona's owner holds: `<persona>:*`. The root owner
+// also holds every other persona's, so the site owner acts in every group.
+func (s *Schema) ownerGrants(persona iam.Persona) []iam.Perm {
+	out := []iam.Perm{persona.OwnerGrant()}
+	if persona == iam.RootPersona {
+		for _, p := range s.order {
+			if p != iam.RootPersona {
+				out = append(out, p.OwnerGrant())
+			}
+		}
+	}
+	return out
 }
 
 // flatten returns role's grants unioned with every included role's, in

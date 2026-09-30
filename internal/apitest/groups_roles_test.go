@@ -510,7 +510,8 @@ func TestGroupRoleOperations(t *testing.T) {
 
 // Root is the widest scope: a root role's persona permissions apply in every
 // group of that persona, for checks and for CAP/COVER alike, while root:
-// permissions count only on root and never stand in for persona ones.
+// permissions count only on root and never stand in for persona ones. The
+// root owner holds every persona's, so it acts in every group.
 func TestRootRolesApplyInEveryGroup(t *testing.T) {
 	rbac := authkit.NewRoles()
 	org := rbac.Persona("org")
@@ -541,8 +542,64 @@ func TestRootRolesApplyInEveryGroup(t *testing.T) {
 	require.NoError(t, assign(auth, iam.UserActor(orgAdmin.ID), acme, memberUser, org.Owner), "org:* on root covers the org owner role")
 	require.True(t, can(banner, root, ident.RootUsersBan))
 	require.False(t, can(banner, acme, ident.RootUsersBan), "root permissions count only on root")
-	require.False(t, can(siteOwner, acme, org.Members.Manage), "root:* never stands in for a persona permission")
-	require.ErrorIs(t, assign(auth, iam.UserActor(siteOwner.ID), acme, memberUser, member), iam.ErrInsufficientAuthority)
+	require.True(t, can(siteOwner, acme, org.Members.Manage), "the root owner reaches every group")
+	require.NoError(t, assign(auth, iam.UserActor(siteOwner.ID), acme, memberUser, member), "and covers the org owner it replaces")
+	require.False(t, can(banner, acme, org.Members.Manage), "a root role without org:* does not")
+	require.ErrorIs(t, assign(auth, iam.UserActor(banner.ID), acme, memberUser, org.Owner), iam.ErrInsufficientAuthority)
+}
+
+// A role no catalog declares any more grants nothing, so members:manage alone
+// takes it away or replaces it; the new role still needs cover. A role a peer
+// app sharing the account store still declares is live there, and this app
+// cannot judge it.
+func TestRemovedRoleHolders(t *testing.T) {
+	const peer = "https://peer.example"
+	declare := func(retired bool) *authkit.Roles {
+		rbac := authkit.NewRoles()
+		org := rbac.Persona("org")
+		catalog, settings := org.Permission("catalog", "read"), org.Permission("settings", "edit")
+		org.Role("member", catalog)
+		org.Role("manager", org.Members.Manage, catalog)
+		if retired {
+			org.Role("retired", settings)
+		}
+		return rbac
+	}
+	old, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
+		c.Roles = declare(true)
+		c.TwoFactor.Mode = iam.TwoFactorDisabled
+	}))
+	deploy := func(issuer string, retired bool) *authkit.Client {
+		return authtest.Replica(t, old, authtest.WithConfig(func(c *authkit.Config) {
+			c.Token.Issuer, c.Roles = issuer, declare(retired)
+			c.Token.AccountIssuers = []string{authtest.Issuer, peer}
+		}))
+	}
+	role := func(text string) iam.Role { return wire[iam.Role](t, text) }
+	member, manager, retired, owner := role("org:member"), role("org:manager"), role("org:retired"), role("org:owner")
+	user := func() iam.Subject { return iam.UserSubject(authtest.NewUser(t, old).ID) }
+	mgr, plain, removed, replaced := user(), user(), user(), user()
+	group := newGroup(t, old, wire[iam.Persona](t, "org"), user().ID)
+	authtest.GrantRole(t, old, group, mgr, manager)
+	authtest.GrantRole(t, old, group, plain, member)
+	authtest.GrantRole(t, old, group, removed, retired)
+	authtest.GrantRole(t, old, group, replaced, retired)
+	require.ErrorIs(t, removeMember(old, iam.UserActor(mgr.ID), group, removed), iam.ErrRoleAssignmentEscalation, "a declared role needs cover")
+
+	// The next deploy drops the role while a peer app still declares it.
+	deploy(peer, true)
+	auth := deploy(authtest.Issuer, false)
+	require.ErrorIs(t, removeMember(auth, iam.UserActor(mgr.ID), group, removed), iam.ErrRoleNotAssignable, "the role is live at the peer")
+
+	// Once no app declares it, members:manage alone takes it away.
+	deploy(peer, false)
+	require.ErrorIs(t, removeMember(auth, iam.UserActor(plain.ID), group, removed), iam.ErrInsufficientAuthority)
+	require.ErrorIs(t, assign(auth, iam.UserActor(plain.ID), group, replaced, member), iam.ErrInsufficientAuthority)
+	require.NoError(t, removeMember(auth, iam.UserActor(mgr.ID), group, removed))
+	require.ErrorIs(t, assign(auth, iam.UserActor(mgr.ID), group, replaced, owner), iam.ErrRoleAssignmentEscalation, "the new role still needs cover")
+	require.NoError(t, assign(auth, iam.UserActor(mgr.ID), group, replaced, member))
+	require.Empty(t, roleOfIn(t, old, group, removed))
+	require.Equal(t, member, roleOfIn(t, old, group, replaced))
 }
 
 // An owner manages its group over HTTP; the last owner never leaves it
@@ -608,7 +665,7 @@ func TestRoleOwnerHTTPWorkflow(t *testing.T) {
 func TestRootGroupHTTPWorkflow(t *testing.T) {
 	m := newOrgModel(authkit.APIKeys)
 	adminRole := m.rbac.Root.Role("admin", m.rbac.Root.Members.All(), m.rbac.Root.Users.Read)
-	superRole := m.rbac.Root.Role("super", m.rbac.Root.All())
+	superRole := m.rbac.Root.Role("super", m.rbac.Root.All(), m.org.All())
 	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
 		m.config(c)
 		// root:members:manage needs MFA; this test is about actor kinds, not MFA.

@@ -37,7 +37,7 @@ func (s *Engine) driftReport(ctx context.Context) (rbacDriftReport, error) {
 	}
 	var report rbacDriftReport
 	for _, r := range userRoles {
-		if !slices.Contains(peerRoles, catalogRoleName(r.Persona, r.Role)) {
+		if !slices.Contains(peerRoles, r.Role) {
 			report.GroupUserRoles += s.undefinedRoleCount(r.Persona, r.Role, r.N)
 		}
 	}

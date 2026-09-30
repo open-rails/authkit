@@ -49,8 +49,7 @@ func credentialIssuer(a iam.Actor) (string, error) {
 }
 
 // requireCredentialRevoke is the authority to take back a credential of role:
-// CAP(capability) plus COVER(role). A role that no longer exists confers
-// nothing, so it needs only CAP.
+// CAP(capability) plus COVER(role), which a removed role does not need.
 func (s *Engine) requireCredentialRevoke(ctx context.Context, st *permissionGroupStore, a iam.Actor, g groupTarget, capability iam.Perm, role iam.Role) error {
 	auth, err := s.actorAuthority(ctx, st, a, g)
 	if err != nil {
@@ -59,10 +58,7 @@ func (s *Engine) requireCredentialRevoke(ctx context.Context, st *permissionGrou
 	if err := auth.requireCap(capability); err != nil {
 		return err
 	}
-	if err := s.requireRoleCover(ctx, st, auth, g, role); err != nil && !errors.Is(err, iam.ErrRoleNotAssignable) {
-		return err
-	}
-	return nil
+	return s.requireHeldRoleCover(ctx, st, auth, g, role)
 }
 
 // reconcileRoleCatalog runs at New under the authority lock. When this app's

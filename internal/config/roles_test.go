@@ -36,6 +36,7 @@ func TestCompileRoles(t *testing.T) {
 	rootOwner, ok := s.Role(iam.RootPersona, iam.RootPersona.OwnerRole())
 	require.True(t, ok)
 	require.True(t, rootOwner.RequiresMFA)
+	require.Equal(t, []string{"root:*", "channel:*"}, rootOwner.Permissions, "the root owner holds every persona")
 	for perm, known := range map[iam.Perm]bool{
 		ident.Perm("channel:posts:edit"):       true,
 		ident.Perm("channel:members:manage"):   true,
