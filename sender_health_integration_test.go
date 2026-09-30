@@ -162,7 +162,7 @@ func TestHostSenderHealthGatesItsChannel(t *testing.T) {
 		c.Registration.PasswordlessLogin = true
 	}))
 	mail, phone := "ana@example.test", "+15551234567"
-	_, err := auth.CreateUser(t.Context(), iam.NewUser{Email: mail, Phone: phone, Username: "ana", EmailVerified: true, PhoneVerified: true})
+	_, err := auth.CreateUser(t.Context(), iam.NewUser{Email: mail, Phone: phone, Username: "anaberry", EmailVerified: true, PhoneVerified: true})
 	require.NoError(t, err)
 	require.NoError(t, auth.Start(t.Context()))
 	require.NoError(t, probed(t, auth.EmailHealth, time.Time{}))
