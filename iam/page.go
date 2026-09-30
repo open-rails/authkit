@@ -1,6 +1,9 @@
 package iam
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"iter"
+)
 
 // DefaultPageLimit and MaxPageLimit bound PageRequest.Limit.
 const (
@@ -36,6 +39,36 @@ type ListPage[T any] struct {
 	Items []T
 	Next  string
 	Total *int
+}
+
+// All yields every item of a paged list, reading MaxPageLimit at a time:
+// list reads the page it is given. The first error ends it, yielded with a
+// zero item.
+//
+//	for m, err := range iam.All(func(p iam.PageRequest) (iam.ListPage[iam.Membership], error) {
+//		return client.ListMemberships(ctx, subject, p)
+//	}) {
+func All[T any](list func(PageRequest) (ListPage[T], error)) iter.Seq2[T, error] {
+	return func(yield func(T, error) bool) {
+		p := PageRequest{Limit: MaxPageLimit}
+		for {
+			page, err := list(p)
+			if err != nil {
+				var zero T
+				yield(zero, err)
+				return
+			}
+			for _, item := range page.Items {
+				if !yield(item, nil) {
+					return
+				}
+			}
+			if page.Next == "" {
+				return
+			}
+			p.Cursor = page.Next
+		}
+	}
 }
 
 type listPageJSON[T any] struct {

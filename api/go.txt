@@ -11,6 +11,7 @@ pkg authkit, func Migrate(context.Context, *pgxpool.Pool, Config, MigrateOptions
 pkg authkit, func New(context.Context, Config, Deps) (*Client, error)
 pkg authkit, func NewRoles(...PersonaOption) *Roles
 pkg authkit, func ParseBootstrapManifestYAML([]byte) (iam.BootstrapManifest, error)
+pkg authkit, method (*Client) APIBase() string
 pkg authkit, method (*Client) ApplyBootstrapManifest(context.Context, iam.BootstrapManifest, iam.BootstrapOptions, ...Option) (iam.BootstrapResult, error)
 pkg authkit, method (*Client) AuthenticateRequest(context.Context, *http.Request) (auth.Principal, error)
 pkg authkit, method (*Client) Ban(context.Context, iam.Actor, string, iam.Ban, ...Option) error
@@ -134,7 +135,7 @@ pkg authkit, type Config struct, HTTP *config.HTTPConfig
 pkg authkit, type Config struct, Keys config.KeysConfig
 pkg authkit, type Config struct, Languages config.LanguageConfig
 pkg authkit, type Config struct, Passkeys config.PasskeyConfig
-pkg authkit, type Config struct, Password *config.PasswordPolicy
+pkg authkit, type Config struct, Password config.PasswordPolicy
 pkg authkit, type Config struct, PublicUserMetadata []string
 pkg authkit, type Config struct, Registration config.RegistrationConfig
 pkg authkit, type Config struct, River config.RiverConfig
@@ -161,7 +162,6 @@ pkg authkit, type DelegatedConfig struct, TTLFloor time.Duration
 pkg authkit, type Deps = config.Deps
 pkg authkit, type Deps struct
 pkg authkit, type Deps struct, ClientIP func(*http.Request) string
-pkg authkit, type Deps struct, Clock func() time.Time
 pkg authkit, type Deps struct, DelegatedAuthorization iam.DelegationAuthorizer
 pkg authkit, type Deps struct, Email config.EmailSender
 pkg authkit, type Deps struct, EntitlementHolders func(context.Context, string) ([]string, error)
@@ -379,9 +379,7 @@ pkg authkit/authtest, func EnrollDeviceKey(testing.TB, *authkit.Client, *Outbox,
 pkg authkit/authtest, func EnrollTOTP(testing.TB, *authkit.Client, User) *TOTP
 pkg authkit/authtest, func GrantRole(testing.TB, *authkit.Client, iam.GroupRef, iam.Subject, iam.Role)
 pkg authkit/authtest, func New(testing.TB, ...Option) (*authkit.Client, *Outbox)
-pkg authkit/authtest, func NewTestIssuer() *TestIssuer
-pkg authkit/authtest, func NewTestIssuerWithAudience(string) *TestIssuer
-pkg authkit/authtest, func NewTestIssuerWithSigner(keys.Signer, string) *TestIssuer
+pkg authkit/authtest, func NewIdP(testing.TB) *IdP
 pkg authkit/authtest, func NewUser(testing.TB, *authkit.Client) User
 pkg authkit/authtest, func Replica(testing.TB, *authkit.Client, ...Option) *authkit.Client
 pkg authkit/authtest, func RevokeRole(testing.TB, *authkit.Client, iam.GroupRef, iam.Subject, iam.Role)
@@ -391,6 +389,8 @@ pkg authkit/authtest, func TOTPCode(testing.TB, string, time.Time) string
 pkg authkit/authtest, func TOTPOf(string) *TOTP
 pkg authkit/authtest, func WithConfig(func(*authkit.Config)) Option
 pkg authkit/authtest, func WithDeps(func(*authkit.Deps)) Option
+pkg authkit/authtest, method (*IdP) Provider(string, ...provider.Option) provider.Provider
+pkg authkit/authtest, method (*IdP) SignIn(testing.TB, string, provider.Identity) url.Values
 pkg authkit/authtest, method (*Outbox) Email() config.EmailSender
 pkg authkit/authtest, method (*Outbox) Last(testing.TB, iam.MessageKind, string) testoutbox.Message
 pkg authkit/authtest, method (*Outbox) Messages(iam.MessageKind, string) []testoutbox.Message
@@ -398,18 +398,11 @@ pkg authkit/authtest, method (*Outbox) SMS() config.SMSSender
 pkg authkit/authtest, method (*Outbox) SetEmailHealth(error)
 pkg authkit/authtest, method (*Outbox) SetSMSHealth(error)
 pkg authkit/authtest, method (*TOTP) Code(testing.TB) string
-pkg authkit/authtest, method (*TestIssuer) Audience() string
-pkg authkit/authtest, method (*TestIssuer) Close()
-pkg authkit/authtest, method (*TestIssuer) CreateExpiredToken(string, string) string
-pkg authkit/authtest, method (*TestIssuer) CreateToken(string, string) string
-pkg authkit/authtest, method (*TestIssuer) CreateTokenWithClaims(string, string, map[string]any) string
-pkg authkit/authtest, method (*TestIssuer) CreateTokenWithExpiry(string, string, time.Time) string
-pkg authkit/authtest, method (*TestIssuer) Signer() keys.Signer
-pkg authkit/authtest, method (*TestIssuer) URL() string
 pkg authkit/authtest, type DeviceKey struct
 pkg authkit/authtest, type DeviceKey struct, AccessToken string
 pkg authkit/authtest, type DeviceKey struct, ID string
 pkg authkit/authtest, type DeviceKey struct, Key ed25519.PrivateKey
+pkg authkit/authtest, type IdP struct
 pkg authkit/authtest, type Message = testoutbox.Message
 pkg authkit/authtest, type Message struct
 pkg authkit/authtest, type Message struct, At time.Time `json:"at"`
@@ -428,7 +421,6 @@ pkg authkit/authtest, type Outbox = testoutbox.Outbox
 pkg authkit/authtest, type Outbox struct
 pkg authkit/authtest, type TOTP struct
 pkg authkit/authtest, type TOTP struct, Secret string
-pkg authkit/authtest, type TestIssuer struct
 pkg authkit/authtest, type User struct
 pkg authkit/authtest, type User struct, Email string
 pkg authkit/authtest, type User struct, Password string
@@ -603,6 +595,7 @@ pkg authkit/iam, const UserStatusBanned UserStatus = "banned"
 pkg authkit/iam, const UserStatusDeleted UserStatus = "deleted"
 pkg authkit/iam, const UserStatusLive UserStatus = ""
 pkg authkit/iam, func APIKeyActor(string) Actor
+pkg authkit/iam, func All[T any](func(PageRequest) (ListPage[T], error)) iter.Seq2[T, error]
 pkg authkit/iam, func AppByID(string) AppRef
 pkg authkit/iam, func AppByIssuer(string) AppRef
 pkg authkit/iam, func AsError(error) (Error, bool)
@@ -921,6 +914,16 @@ pkg authkit/iam, type InvitationCreated struct
 pkg authkit/iam, type InvitationCreated struct, Code string `json:"code"`
 pkg authkit/iam, type InvitationCreated struct, Invitation Invitation `json:"invitation"`
 pkg authkit/iam, type InvitationCreated struct, URL string `json:"url"`
+pkg authkit/iam, type JWK struct
+pkg authkit/iam, type JWK struct, Alg string `json:"alg,omitempty"`
+pkg authkit/iam, type JWK struct, Crv string `json:"crv,omitempty"`
+pkg authkit/iam, type JWK struct, E string `json:"e,omitempty"`
+pkg authkit/iam, type JWK struct, Kid string `json:"kid,omitempty"`
+pkg authkit/iam, type JWK struct, Kty string `json:"kty"`
+pkg authkit/iam, type JWK struct, N string `json:"n,omitempty"`
+pkg authkit/iam, type JWK struct, Use string `json:"use,omitempty"`
+pkg authkit/iam, type JWK struct, X string `json:"x,omitempty"`
+pkg authkit/iam, type JWK struct, Y string `json:"y,omitempty"`
 pkg authkit/iam, type ListPage struct, Items []T
 pkg authkit/iam, type ListPage struct, Next string
 pkg authkit/iam, type ListPage struct, Total *int
@@ -1014,6 +1017,7 @@ pkg authkit/iam, type RemoteApplication struct, Role Role `json:"role"`
 pkg authkit/iam, type RemoteApplication struct, TrustRoot ApplicationTrustRoot `json:"trust_root"`
 pkg authkit/iam, type RemoteApplication struct, UpdatedAt time.Time `json:"updated_at"`
 pkg authkit/iam, type RemoteApplicationKey struct
+pkg authkit/iam, type RemoteApplicationKey struct, JWK *JWK `json:"jwk,omitempty" yaml:"jwk,omitempty"`
 pkg authkit/iam, type RemoteApplicationKey struct, KID string `json:"kid,omitempty" yaml:"kid,omitempty"`
 pkg authkit/iam, type RemoteApplicationKey struct, PublicKeyPEM string `json:"public_key_pem" yaml:"public_key_pem"`
 pkg authkit/iam, type RemoteApplicationMode string
@@ -1177,6 +1181,7 @@ pkg authkit/iam, var ErrUnknownGroupPersona Error
 pkg authkit/iam, var ErrUnknownPermission error
 pkg authkit/iam, var ErrUserNotFound Error
 pkg authkit/iam, var ErrUsernameInUse Error
+pkg authkit/keys, func ParsePublicJWK(JWK) (crypto.PublicKey, error)
 pkg authkit/keys, func ParsePublicPEM([]byte) (crypto.PublicKey, error)
 pkg authkit/keys, func PublicJWK(crypto.PublicKey, string, string) JWK
 pkg authkit/keys, func PublicKeys(JWKS) (map[string]crypto.PublicKey, error)
@@ -1191,16 +1196,7 @@ pkg authkit/keys, method (*FileSource) Reload() error
 pkg authkit/keys, method (Static) ActiveSigner() Signer
 pkg authkit/keys, method (Static) PublicKeys() map[string]crypto.PublicKey
 pkg authkit/keys, type FileSource struct
-pkg authkit/keys, type JWK struct
-pkg authkit/keys, type JWK struct, Alg string `json:"alg,omitempty"`
-pkg authkit/keys, type JWK struct, Crv string `json:"crv,omitempty"`
-pkg authkit/keys, type JWK struct, E string `json:"e,omitempty"`
-pkg authkit/keys, type JWK struct, Kid string `json:"kid,omitempty"`
-pkg authkit/keys, type JWK struct, Kty string `json:"kty"`
-pkg authkit/keys, type JWK struct, N string `json:"n,omitempty"`
-pkg authkit/keys, type JWK struct, Use string `json:"use,omitempty"`
-pkg authkit/keys, type JWK struct, X string `json:"x,omitempty"`
-pkg authkit/keys, type JWK struct, Y string `json:"y,omitempty"`
+pkg authkit/keys, type JWK = iam.JWK
 pkg authkit/keys, type JWKS struct
 pkg authkit/keys, type JWKS struct, Keys []JWK `json:"keys"`
 pkg authkit/keys, type Signer interface
@@ -1306,8 +1302,6 @@ pkg authkit/verify, method (*Verifier) IssuerKeyStatuses() []IssuerKeyStatus
 pkg authkit/verify, method (*Verifier) RemoveIssuer(string)
 pkg authkit/verify, method (*Verifier) Verify(context.Context, string) (Claims, error)
 pkg authkit/verify, method (*Verifier) VerifyClaims(context.Context, string) (map[string]any, error)
-pkg authkit/verify, method (*Verifier) VerifyDelegatedAccess(context.Context, string) (Claims, error)
-pkg authkit/verify, method (*Verifier) VerifyDelegatedAccessRequest(*http.Request) (Claims, error)
 pkg authkit/verify, method (*Verifier) VerifyRequest(*http.Request) (Claims, error)
 pkg authkit/verify, method (*Verifier) VerifyServiceJWT(context.Context, string, ...ServiceJWTVerifyOption) (iam.ServiceJWTClaims, error)
 pkg authkit/verify, method (Claims) HasAMR(string) bool

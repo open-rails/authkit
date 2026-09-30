@@ -52,27 +52,6 @@ func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 	return v.verify(r.Context(), token, r)
 }
 
-// VerifyDelegatedAccess is Verify accepting only a delegated access token.
-func (v *Verifier) VerifyDelegatedAccess(ctx context.Context, token string) (Claims, error) {
-	return delegatedOnly(v.Verify(ctx, token))
-}
-
-// VerifyDelegatedAccessRequest is VerifyRequest accepting only a delegated
-// access token.
-func (v *Verifier) VerifyDelegatedAccessRequest(r *http.Request) (Claims, error) {
-	return delegatedOnly(v.VerifyRequest(r))
-}
-
-func delegatedOnly(cl Claims, err error) (Claims, error) {
-	if err != nil {
-		return Claims{}, err
-	}
-	if cl.Kind != iam.ActorDelegated {
-		return Claims{}, errmodel.E(errmodel.CodeNotDelegatedAccessToken)
-	}
-	return cl, nil
-}
-
 // verify runs one token through the AuthKit token profiles; r, when set, is
 // the request that carries it and its sender proof.
 func (v *Verifier) verify(ctx context.Context, token string, r *http.Request) (Claims, error) {

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/testkeys"
+	"github.com/open-rails/authkit/provider"
 )
 
 // The helpers a host's test starts from: users, roles, sessions and an
@@ -168,4 +170,38 @@ func requireCode(t *testing.T, err error, code string) {
 	e, ok := iam.AsError(err)
 	require.True(t, ok, "not an AuthKit error: %v", err)
 	require.Equal(t, code, e.Code())
+}
+
+// A host's test signs in with an identity provider through the IdP, as a
+// browser would: the start redirects to the IdP, its answer to the callback,
+// and the page trades the fragment's code for the session.
+func TestIdPSignIn(t *testing.T) {
+	idp := authtest.NewIdP(t)
+	auth, _ := authtest.New(t, authtest.WithDeps(func(d *authkit.Deps) { d.Providers = []provider.Provider{idp.Provider("acme")} }))
+	serve := func(r *http.Request) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		auth.Handler().ServeHTTP(w, r)
+		return w
+	}
+	start := serve(httptest.NewRequest(http.MethodGet, "/oidc/acme/login", nil))
+	require.Equal(t, http.StatusFound, start.Code, start.Body.String())
+	q := idp.SignIn(t, start.Header().Get("Location"), provider.Identity{Subject: "acme-1", Email: "acme@example.test", EmailVerified: true})
+	callback := httptest.NewRequest(http.MethodGet, "/oidc/acme/callback?"+q.Encode(), nil)
+	for _, c := range start.Result().Cookies() {
+		callback.AddCookie(c)
+	}
+	done := serve(callback)
+	require.Equal(t, http.StatusFound, done.Code, done.Body.String())
+	target, err := url.Parse(done.Header().Get("Location"))
+	require.NoError(t, err)
+	fragment, err := url.ParseQuery(target.EscapedFragment())
+	require.NoError(t, err)
+	exchange := httptest.NewRequest(http.MethodPost, auth.APIBase()+"/oidc/exchange", strings.NewReader(`{"code":"`+fragment.Get("code")+`"}`))
+	exchange.Header.Set("Content-Type", "application/json")
+	signedIn := serve(exchange)
+	require.Equal(t, http.StatusOK, signedIn.Code, signedIn.Body.String())
+	require.Contains(t, signedIn.Body.String(), "access_token")
+	u, err := auth.User(t.Context(), iam.UserByEmail("acme@example.test"))
+	require.NoError(t, err)
+	require.True(t, u.EmailVerified)
 }

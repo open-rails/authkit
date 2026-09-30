@@ -41,9 +41,6 @@ func (s *Engine) applyDeps(d config.Deps) error {
 	s.onEvent, s.onPurge = d.OnEvent, d.OnPurge
 	s.delegationAuthorizer = d.DelegatedAuthorization
 	s.nameAdmission = d.NameAdmission
-	if d.Clock != nil {
-		s.now = d.Clock
-	}
 	return nil
 }
 

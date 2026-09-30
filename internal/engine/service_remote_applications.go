@@ -2,9 +2,7 @@ package engine
 
 import (
 	"context"
-	"crypto/x509"
 	"encoding/json"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"net"
@@ -16,6 +14,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/ident"
+	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/internal/netguard"
 )
 
@@ -64,7 +63,7 @@ func normalizeRemoteAppTrustSource(jwksURI string, mode iam.RemoteApplicationMod
 			return "", fmt.Errorf("%w: jwks_uri and public_keys are mutually exclusive — register one trust source, never both", iam.ErrInvalidRemoteApplication)
 		}
 		for i, k := range keys {
-			if err := validatePublicKeyPEM(k.PublicKeyPEM); err != nil {
+			if _, _, err := jose.StaticKey(k); err != nil {
 				return "", fmt.Errorf("%w: public_keys[%d]: %v", iam.ErrInvalidRemoteApplication, i, err)
 			}
 		}
@@ -111,28 +110,6 @@ func validateJWKSURI(raw string, allowInsecure bool) error {
 	}
 	if ip := net.ParseIP(host); ip != nil && netguard.IsPrivateIP(ip) {
 		return fmt.Errorf("jwks_uri %q resolves to a private/reserved IP — not allowed", host)
-	}
-	return nil
-}
-
-// validatePublicKeyPEM accepts PKIX ("PUBLIC KEY") and PKCS1 ("RSA PUBLIC
-// KEY") blocks — same shapes the verifier's static-key path parses.
-func validatePublicKeyPEM(raw string) error {
-	block, _ := pem.Decode([]byte(strings.TrimSpace(raw)))
-	if block == nil {
-		return errors.New("not a PEM block")
-	}
-	switch block.Type {
-	case "PUBLIC KEY":
-		if _, err := x509.ParsePKIXPublicKey(block.Bytes); err != nil {
-			return fmt.Errorf("invalid PKIX public key: %v", err)
-		}
-	case "RSA PUBLIC KEY":
-		if _, err := x509.ParsePKCS1PublicKey(block.Bytes); err != nil {
-			return fmt.Errorf("invalid PKCS1 public key: %v", err)
-		}
-	default:
-		return fmt.Errorf("unsupported PEM block %q", block.Type)
 	}
 	return nil
 }

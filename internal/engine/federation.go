@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"slices"
@@ -113,7 +114,7 @@ func (f *federation) isEnabled(ctx context.Context, iss string, list func(contex
 
 // register trusts app's current key source on a's verifier, replacing the
 // earlier one when it changed: JWKS mode fetches from its URI, static mode
-// uses its PEM list.
+// uses its key list.
 func (a *Authenticator) register(app iam.RemoteApplication) error {
 	var opts verify.IssuerOptions
 	source := string(app.Mode)
@@ -125,9 +126,8 @@ func (a *Authenticator) register(app iam.RemoteApplication) error {
 		source += " " + opts.JWKSURI
 	case iam.RemoteApplicationModeStatic:
 		opts.Keys = app.PublicKeys
-		for _, k := range app.PublicKeys {
-			source += " " + k.KID + "=" + k.PublicKeyPEM
-		}
+		keys, _ := json.Marshal(app.PublicKeys)
+		source += " " + string(keys)
 	default:
 		return errors.New("unknown application trust mode")
 	}
@@ -195,9 +195,12 @@ func (a *Authenticator) applicationClaims(ctx context.Context, app iam.RemoteApp
 		var cl verify.Claims
 		var err error
 		if r != nil {
-			cl, err = a.v.VerifyDelegatedAccessRequest(r)
+			cl, err = a.v.VerifyRequest(r)
 		} else {
-			cl, err = a.v.VerifyDelegatedAccess(ctx, token)
+			cl, err = a.v.Verify(ctx, token)
+		}
+		if err == nil && cl.Kind != iam.ActorDelegated {
+			err = errmodel.E(errmodel.CodeNotDelegatedAccessToken)
 		}
 		if err != nil {
 			return verify.Claims{}, err

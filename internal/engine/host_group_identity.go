@@ -35,32 +35,13 @@ func (s *Engine) Group(ctx context.Context, ref iam.GroupRef) (iam.Group, error)
 	return st.groupByID(ctx, u.String())
 }
 
-// Groups reads many groups by id in one query, soft-deleted ones included.
-// Unknown ids are absent. At most iam.MaxBatch distinct ids.
+// Groups reads many groups by id, soft-deleted ones included. Unknown ids
+// are absent.
 func (s *Engine) Groups(ctx context.Context, ids []string) (map[string]iam.Group, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
-	batch, err := groupBatch(ids)
-	if err != nil {
-		return nil, err
-	}
-	return s.groupStore().groupsByID(ctx, batch)
-}
-
-func groupBatch(groupIDs []string) ([]string, error) {
-	ids := make([]string, 0, len(groupIDs))
-	seen := make(map[string]bool, len(groupIDs))
-	for _, id := range groupIDs {
-		if !seen[id] {
-			seen[id] = true
-			ids = append(ids, id)
-		}
-	}
-	if len(ids) > iam.MaxBatch {
-		return nil, fmt.Errorf("group batch has %d ids; at most %d", len(ids), iam.MaxBatch)
-	}
-	return ids, nil
+	return s.groupStore().groupsByID(ctx, ids)
 }
 
 // ListGroups lists groups oldest first. The root group is never listed.

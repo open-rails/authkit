@@ -32,11 +32,10 @@ type Config struct {
 	Frontend FrontendConfig
 	// Registration controls verification policy and public self-registration.
 	Registration RegistrationConfig
-	// Password is the rule every password write enforces. Nil is the default
-	// policy: 8..128 characters, no composition rules, common passwords
-	// rejected. A set policy is taken as written (zero lengths still default).
-	// Published by GET {api}/capabilities.
-	Password *PasswordPolicy
+	// Password is the rule every password write enforces. The zero value is
+	// the default policy: 8..128 characters, no composition rules, common
+	// passwords rejected. Published by GET {api}/capabilities.
+	Password PasswordPolicy
 	// Username is the username rule: length, and whether and how often users
 	// may rename themselves. Published by GET {api}/capabilities.
 	Username UsernameConfig
@@ -149,8 +148,8 @@ type KeysConfig struct {
 	// unless AllowEphemeralDevKeys or VerifyOnly is set.
 	Path string
 	// AllowEphemeralDevKeys generates an RSA signing key when Path holds no
-	// keys.json: in memory, or written to <Path>/keys.json when Path is set so
-	// restarts reuse it. Development only.
+	// keys.json, and a TOTP key when it holds no totp.key: in memory, or
+	// written to Path when it is set so restarts reuse them. Development only.
 	AllowEphemeralDevKeys bool
 	// VerifyOnly builds AuthKit with no signer: minting returns
 	// iam.ErrSigningNotConfigured, verification and permission reads work, and

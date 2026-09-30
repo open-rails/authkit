@@ -228,42 +228,45 @@ func (s *Engine) requireAssignableSubject(ctx context.Context, st *permissionGro
 }
 
 // GroupRoles returns the direct role of each subject that holds one in the
-// group, for at most iam.MaxBatch subjects. Roles no longer defined (catalog
-// or custom) confer nothing and are omitted.
+// group. Roles no longer defined (catalog or custom) confer nothing and are
+// omitted.
 func (s *Engine) GroupRoles(ctx context.Context, ref iam.GroupRef, subjects []iam.Subject) (map[iam.Subject]iam.Role, error) {
 	out := map[iam.Subject]iam.Role{}
 	if err := s.requirePG(); err != nil {
 		return nil, err
-	}
-	if len(subjects) > iam.MaxBatch {
-		return nil, fmt.Errorf("batch has %d subjects; at most %d", len(subjects), iam.MaxBatch)
 	}
 	st := s.groupStore()
 	g, err := s.resolveGroup(ctx, st, ref)
 	if err != nil {
 		return nil, err
 	}
-	var users, apps []string
+	valid := make([]iam.Subject, 0, len(subjects))
 	for _, subject := range subjects {
-		if validSubject(subject) != nil {
-			continue
+		if validSubject(subject) == nil {
+			valid = append(valid, subject)
 		}
-		if subject.Kind == iam.SubjectKindUser {
-			users = append(users, subject.ID)
-		} else {
-			apps = append(apps, subject.ID)
-		}
-	}
-	if len(users)+len(apps) == 0 {
-		return out, nil
-	}
-	rows, err := db.New(st.q).GroupRolesForSubjects(ctx, db.GroupRolesForSubjectsParams{GroupID: g.ID, UserIds: users, ApplicationIds: apps})
-	if err != nil {
-		return nil, err
 	}
 	held := map[iam.Subject]iam.Role{}
-	for _, r := range rows {
-		held[iam.Subject{Kind: iam.SubjectKind(r.Kind), ID: r.SubjectID}] = ident.RoleText(r.Role)
+	err = inBatches(valid, func(batch []iam.Subject) error {
+		var users, apps []string
+		for _, subject := range batch {
+			if subject.Kind == iam.SubjectKindUser {
+				users = append(users, subject.ID)
+			} else {
+				apps = append(apps, subject.ID)
+			}
+		}
+		rows, err := db.New(st.q).GroupRolesForSubjects(ctx, db.GroupRolesForSubjectsParams{GroupID: g.ID, UserIds: users, ApplicationIds: apps})
+		if err != nil {
+			return err
+		}
+		for _, r := range rows {
+			held[iam.Subject{Kind: iam.SubjectKind(r.Kind), ID: r.SubjectID}] = ident.RoleText(r.Role)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	sch := s.groupSchemaOrDefault()
 	for _, subject := range subjects {

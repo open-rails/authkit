@@ -1,7 +1,8 @@
 // Package authtest runs AuthKit in a host's Go tests: a real Client on a
-// scratch PostgreSQL schema, an Outbox that captures every email and SMS, and
-// helpers for the usual setup (a verified user, a signed-in session, a role,
-// an authenticator app, a device key, a replica, a stale session).
+// scratch PostgreSQL schema, an Outbox that captures every email and SMS, an
+// identity provider to sign in with (IdP), and helpers for the usual setup (a
+// verified user, a signed-in session, a role, an authenticator app, a device
+// key, a replica, a stale session).
 //
 //	auth, outbox := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
 //		c.Roles = myapp.Roles()
@@ -16,8 +17,8 @@
 // schemas. Without it the test is skipped, or fails when
 // AUTHKIT_TEST_REQUIRE_DB=1. AUTHKIT_TEST_KEEP_DB=1 keeps each schema.
 //
-// The package is outside AuthKit's compatibility contract: it may change in
-// any minor release.
+// The package is covered by AuthKit's compatibility contract like the rest of
+// the module (docs/stability.md).
 package authtest
 
 import (
@@ -134,8 +135,8 @@ func New(t testing.TB, opts ...Option) (*authkit.Client, *Outbox) {
 // (its Outbox included, when New built it), then opts. auth may be any
 // Client authkit.New built, a host's own included. A different Token.Issuer
 // makes a sibling deployment sharing the account store; different HTTPConfig
-// serves the same accounts another way. HTTP and Password are copied, so opts
-// may set their fields; replace, never mutate, the maps and slices opts
+// serves the same accounts another way. HTTP is copied, so opts may set its
+// fields; replace, never mutate, the maps and slices opts
 // change: the replica shares auth's.
 func Replica(t testing.TB, auth *authkit.Client, opts ...Option) *authkit.Client {
 	t.Helper()
@@ -147,10 +148,6 @@ func Replica(t testing.TB, auth *authkit.Client, opts ...Option) *authkit.Client
 	if cfg.HTTP != nil {
 		h := *cfg.HTTP
 		cfg.HTTP = &h
-	}
-	if cfg.Password != nil {
-		p := *cfg.Password
-		cfg.Password = &p
 	}
 	for _, fn := range s.config {
 		fn(&cfg)

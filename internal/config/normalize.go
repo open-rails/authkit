@@ -286,13 +286,8 @@ func normalizeRegistration(r *RegistrationConfig) error {
 	return nil
 }
 
-// NormalizePassword returns the policy with defaults: nil is the default
-// policy.
-func NormalizePassword(p *PasswordPolicy) (*PasswordPolicy, error) {
-	var out PasswordPolicy
-	if p != nil {
-		out = *p
-	}
+// NormalizePassword returns the policy with its zero lengths defaulted.
+func NormalizePassword(out PasswordPolicy) (PasswordPolicy, error) {
 	if out.MinLength == 0 {
 		out.MinLength = DefaultPasswordMinLength
 	}
@@ -300,9 +295,9 @@ func NormalizePassword(p *PasswordPolicy) (*PasswordPolicy, error) {
 		out.MaxLength = max(DefaultPasswordMaxLength, out.MinLength)
 	}
 	if out.MinLength < 1 || out.MaxLength < out.MinLength || out.MaxLength > PasswordMaxLengthCeiling {
-		return nil, fmt.Errorf("authkit: invalid password policy min_length=%d max_length=%d (want 1 <= min <= max <= %d)", out.MinLength, out.MaxLength, PasswordMaxLengthCeiling)
+		return PasswordPolicy{}, fmt.Errorf("authkit: invalid password policy min_length=%d max_length=%d (want 1 <= min <= max <= %d)", out.MinLength, out.MaxLength, PasswordMaxLengthCeiling)
 	}
-	return &out, nil
+	return out, nil
 }
 
 // NormalizeUsername applies the username defaults and rules.

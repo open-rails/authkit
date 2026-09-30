@@ -153,9 +153,10 @@ func TestEphemeralExpiry(t *testing.T) {
 func TestEphemeralIgnoresHostClock(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	skewed := func() time.Time { return time.Now().Add(24 * time.Hour) }
-	core, err := New(t.Context(), maintenanceConfig(), config.Deps{Postgres: pg.Pool, Clock: skewed})
+	core, err := New(t.Context(), maintenanceConfig(), config.Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	t.Cleanup(core.Close)
+	core.SetClock(skewed)
 	ctx := t.Context()
 	require.NoError(t, core.ephemeral.Set(ctx, "proof", []byte("v"), time.Minute))
 	_, ok, err := core.ephemeral.Get(ctx, "proof")

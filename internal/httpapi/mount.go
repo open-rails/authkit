@@ -25,6 +25,7 @@ const OIDCPath = "/oidc"
 type Mount struct {
 	handler http.Handler
 	routes  []iam.Route
+	api     string
 }
 
 func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -39,6 +40,14 @@ func (m *Mount) Routes() []iam.Route {
 		return nil
 	}
 	return append([]iam.Route(nil), m.routes...)
+}
+
+// APIBase is the path the JSON API is served at.
+func (m *Mount) APIBase() string {
+	if m == nil {
+		return ""
+	}
+	return m.api
 }
 
 // mountLayout is where one mount serves its anchors, as full paths. It rides
@@ -103,7 +112,7 @@ func NewMount(svc *Service) (result *Mount, err error) {
 	}()
 
 	mux := http.NewServeMux()
-	result = &Mount{}
+	result = &Mount{api: api}
 	layout := mountLayout{api: api}
 	register := func(pattern string, handler http.Handler, route iam.Route) {
 		mux.Handle(pattern, handler)

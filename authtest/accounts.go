@@ -282,16 +282,14 @@ func call(t testing.TB, auth *authkit.Client, method, path, token string, body a
 	return resp.StatusCode, out
 }
 
-// apiPath is the JSON API's mount path, found from the password sign-in route.
+// apiPath is the JSON API's mount path.
 func apiPath(t testing.TB, auth *authkit.Client) string {
 	t.Helper()
-	for _, route := range auth.Routes() {
-		if api, ok := strings.CutSuffix(route.Path, "/password/login"); ok && route.Method == http.MethodPost {
-			return api
-		}
+	api := auth.APIBase()
+	if api == "" {
+		t.Fatal("authtest: the Client serves no HTTP (Config.HTTP)")
 	}
-	t.Fatal("authtest: the Client serves no password sign-in route (Config.HTTP)")
-	return ""
+	return api
 }
 
 // handlerTransport serves requests with an http.Handler in process, from one

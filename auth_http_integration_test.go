@@ -29,7 +29,7 @@ func TestNewServesConfiguredCapabilities(t *testing.T) {
 		},
 		Username: authkit.UsernameConfig{MinLength: 6, MaxLength: 20, Renames: true, RenameInterval: time.Hour,
 			FormerNames: authkit.FormerNamesConfig{Mode: authkit.FormerNamesForever}},
-		Password:      &authkit.PasswordPolicy{MinLength: 12, RequireDigit: true},
+		Password:      authkit.PasswordPolicy{MinLength: 12, RequireDigit: true},
 		SolanaNetwork: "devnet",
 		TwoFactor:     authkit.TwoFactorConfig{Mode: iam.TwoFactorRequired, Methods: []iam.TwoFactorMethod{iam.TwoFactorTOTP}, TOTPSecretKey: testTOTPKey},
 		Languages:     authkit.LanguageConfig{Supported: []string{"en", "es"}},

@@ -27,8 +27,8 @@ func (a *Client) RemoveGroupMember(ctx context.Context, actor iam.Actor, ref iam
 	return a.ops.RemoveGroupMember(ctx, actor, ref, subject, opts...)
 }
 
-// GroupRoles returns the direct role of each subject holding one in the group
-// (at most iam.MaxBatch subjects). Subjects without a role are absent.
+// GroupRoles returns the direct role of each subject holding one in the group,
+// for any number of subjects. Subjects without a role are absent.
 func (a *Client) GroupRoles(ctx context.Context, ref iam.GroupRef, subjects []iam.Subject) (map[iam.Subject]iam.Role, error) {
 	return a.ops.GroupRoles(ctx, ref, subjects)
 }
@@ -44,8 +44,8 @@ func (a *Client) Group(ctx context.Context, ref iam.GroupRef) (iam.Group, error)
 	return a.ops.Group(ctx, ref)
 }
 
-// Groups reads many groups by id in one query, soft-deleted ones included.
-// Unknown ids are absent. At most iam.MaxBatch ids.
+// Groups reads any number of groups by id, soft-deleted ones included.
+// Unknown ids are absent.
 func (a *Client) Groups(ctx context.Context, ids []string) (map[string]iam.Group, error) {
 	return a.ops.Groups(ctx, ids)
 }
@@ -107,8 +107,8 @@ func (a *Client) Can(ctx context.Context, actor iam.Actor, ref iam.GroupRef, per
 }
 
 // EffectivePermissions returns actor's effective grant patterns per group id
-// (globs verbatim, glob-match with iam.Perm.Matches). Groups granting nothing
-// are absent. At most iam.MaxBatch groups.
+// (globs verbatim, glob-match with iam.Perm.Matches), for any number of groups.
+// Groups granting nothing are absent.
 func (a *Client) EffectivePermissions(ctx context.Context, actor iam.Actor, refs []iam.GroupRef) (map[string][]iam.Perm, error) {
 	return a.ops.EffectivePermissions(ctx, actor, refs)
 }

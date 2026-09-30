@@ -12,6 +12,7 @@ import (
 	"github.com/open-rails/authkit/internal/engine"
 	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/ops"
+	"github.com/open-rails/authkit/internal/testclock"
 	"github.com/open-rails/authkit/verify"
 	riverhelpers "github.com/open-rails/helpers/river"
 )
@@ -23,7 +24,7 @@ import (
 // verify.RequirePermission(client, perm).
 //
 // Start, Close, RiverJobs, EmailAvailable, EmailHealth, SMSAvailable,
-// SMSHealth, TwoFactorMethods, Handler, Routes, Mount and the request
+// SMSHealth, TwoFactorMethods, Handler, APIBase, Routes, Mount and the request
 // verification methods
 // (auth_verify.go) are embedding-only:
 // they wire the in-process deployment, and a Client of a remote deployment
@@ -47,6 +48,7 @@ func init() {
 		}
 		return a.cfg, a.deps, true
 	}
+	testclock.Use = func(client any, now func() time.Time) { client.(*Client).engine.SetClock(now) }
 }
 
 var _ verify.Authority = (*Client)(nil)
@@ -133,6 +135,10 @@ func (a *Client) Handler() http.Handler {
 	}
 	return a.mount
 }
+
+// APIBase is the path the JSON API is served at: {BasePath}{APIPath}/v1,
+// "/api/v1" by default. It is "" without Config.HTTP.
+func (a *Client) APIBase() string { return a.mount.APIBase() }
 
 // Routes returns the mounted route catalog, with a HEAD entry per GET route;
 // Route.Pattern is its net/http ServeMux pattern.

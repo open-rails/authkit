@@ -31,7 +31,12 @@ func (s *Engine) PublicKeysByKID() map[string]crypto.PublicKey {
 	return s.keys.PublicKeys()
 }
 
-// nowTime is the engine clock (time.Now unless WithClock replaced it).
+// SetClock replaces the engine clock of TTL and grace-window decisions, for
+// AuthKit's own tests (internal/testclock); call it before the engine serves.
+// Ephemeral state (codes, claims, counters) keeps the database clock.
+func (s *Engine) SetClock(now func() time.Time) { s.now = now }
+
+// nowTime is the engine clock (time.Now unless SetClock replaced it).
 func (s *Engine) nowTime() time.Time {
 	if s == nil || s.now == nil {
 		return time.Now()

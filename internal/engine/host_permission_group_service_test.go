@@ -35,7 +35,8 @@ func (c *groupQueryCounter) during(t *testing.T, fn func()) int64 {
 }
 
 // A listing resolves many groups and one subject's permissions on them in two
-// calls and two queries, identical to the single-group reads.
+// calls and two queries, identical to the single-group reads; past
+// iam.MaxBatch groups, in a query per batch.
 func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	ctx := t.Context()
@@ -155,16 +156,27 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 	empty, err := client.EffectivePermissions(ctx, actor, nil)
 	require.NoError(t, err)
 	require.Empty(t, empty)
-	tooMany := make([]string, iam.MaxBatch+1)
-	tooManyRefs := make([]iam.GroupRef, iam.MaxBatch+1)
-	for i := range tooMany {
-		tooMany[i] = uuid.NewString()
-		tooManyRefs[i] = iam.GroupByID(tooMany[i])
+
+	// Past iam.MaxBatch ids, the reads take a query per batch.
+	many := make([]string, iam.MaxBatch, iam.MaxBatch+len(ids))
+	for i := range many {
+		many[i] = uuid.NewString()
 	}
-	_, err = client.Groups(ctx, tooMany)
-	require.Error(t, err)
-	_, err = client.EffectivePermissions(ctx, actor, tooManyRefs)
-	require.Error(t, err)
+	many = append(many, ids...)
+	manyRefs := make([]iam.GroupRef, len(many))
+	for i, id := range many {
+		manyRefs[i] = iam.GroupByID(id)
+	}
+	require.EqualValues(t, 2, counter.during(t, func() {
+		batched, err := client.Groups(ctx, many)
+		require.NoError(t, err)
+		require.Equal(t, instances, batched)
+	}))
+	require.EqualValues(t, 2, counter.during(t, func() {
+		batched, err := client.EffectivePermissions(ctx, actor, manyRefs)
+		require.NoError(t, err)
+		require.Equal(t, perms, batched)
+	}))
 }
 
 // effectivePermissions is the actor's effective grants in one group.

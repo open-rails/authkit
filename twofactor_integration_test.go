@@ -115,6 +115,22 @@ func TestNewRequiresAnEnrollableSecondFactor(t *testing.T) {
 		require.Equal(t, []iam.TwoFactorMethod{iam.TwoFactorTOTP}, methods)
 	})
 
+	t.Run("dev keys generate the key, once", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "keys")
+		dev := config(func(c *authkit.Config) { c.Keys = authkit.KeysConfig{Path: dir, AllowEphemeralDevKeys: true} })
+		_, methods := offered(t, boot(t, dev, testDeps(pg.Pool)))
+		require.Equal(t, []iam.TwoFactorMethod{iam.TwoFactorTOTP}, methods)
+		info, err := os.Stat(filepath.Join(dir, "totp.key"))
+		require.NoError(t, err)
+		require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+		key, err := os.ReadFile(filepath.Join(dir, "totp.key"))
+		require.NoError(t, err)
+		boot(t, dev, testDeps(pg.Pool))
+		again, err := os.ReadFile(filepath.Join(dir, "totp.key"))
+		require.NoError(t, err)
+		require.Equal(t, key, again, "a restart reuses it")
+	})
+
 	t.Run("another method leaves a missing key a warning", func(t *testing.T) {
 		deps := testDeps(pg.Pool)
 		outbox := &authtest.Outbox{}

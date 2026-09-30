@@ -56,7 +56,7 @@ type Engine struct {
 	delegationAuthorizer iam.DelegationAuthorizer
 	solanaSNSResolver    SolanaSNSResolver
 	sns                  solanaSNS
-	// now is the engine clock for TTL/grace decisions; Deps.Clock overrides it.
+	// now is the engine clock for TTL/grace decisions (SetClock).
 	now           func() time.Time
 	ephemeral     *ephemeralKV // nil without Postgres
 	nameAdmission func(context.Context, iam.NameAdmissionRequest) error

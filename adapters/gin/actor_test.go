@@ -7,8 +7,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	authkitgin "github.com/open-rails/authkit/adapters/gin"
-	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/testissuer"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
 )
@@ -16,8 +16,7 @@ import (
 // A gin handler behind Required reads the verified caller from the request
 // context, the same call net/http and Fiber handlers make.
 func TestActorFromContextBehindRequired(t *testing.T) {
-	issuer := authtest.NewTestIssuer()
-	defer issuer.Close()
+	issuer := testissuer.New(t)
 	verifier := verify.NewVerifier()
 	require.NoError(t, verifier.AddIssuer(issuer.URL(), []string{issuer.Audience()}, verify.IssuerOptions{JWKSURI: issuer.URL() + "/.well-known/jwks.json", IsLocal: true}))
 	router := gin.New()
@@ -29,7 +28,7 @@ func TestActorFromContextBehindRequired(t *testing.T) {
 	})
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	r.Header.Set("Authorization", "Bearer "+issuer.CreateToken("user-1", "user@example.com"))
+	r.Header.Set("Authorization", "Bearer "+issuer.Token("user-1", "user@example.com", nil))
 	router.ServeHTTP(w, r)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Equal(t, "user-1", w.Body.String())
