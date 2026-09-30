@@ -26,9 +26,12 @@
 package twilio
 
 import (
+	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -51,4 +54,28 @@ func validateVerification(code, link string) error {
 		return errors.New("verification message must contain a code or a link")
 	}
 	return nil
+}
+
+// changeWarner logs a health warning once per change of its state.
+type changeWarner struct {
+	mu   sync.Mutex
+	last string
+}
+
+// warn records state and logs msg when state is new and not "".
+func (w *changeWarner) warn(ctx context.Context, state, msg string, args ...any) {
+	w.mu.Lock()
+	changed := state != w.last
+	w.last = state
+	w.mu.Unlock()
+	if changed && state != "" {
+		slog.WarnContext(ctx, msg, args...)
+	}
+}
+
+// reset forgets the state, so its next warning logs again.
+func (w *changeWarner) reset() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.last = ""
 }

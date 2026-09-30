@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
@@ -44,22 +43,10 @@ func (e *Email) CheckHealth(ctx context.Context) error {
 		return errors.New("sendgrid API key lacks the mail.send scope")
 	}
 	if problem, ok := e.senderIdentity(ctx); ok {
-		e.recordSenderProblem(ctx, problem)
-	}
-	return nil
-}
-
-// recordSenderProblem keeps the latest sender-identity verdict and warns when
-// it becomes a new problem.
-func (e *Email) recordSenderProblem(ctx context.Context, problem string) {
-	e.senderMu.Lock()
-	changed := problem != e.senderProblem
-	e.senderProblem = problem
-	e.senderMu.Unlock()
-	if changed && problem != "" {
-		slog.WarnContext(ctx, "authkit: SendGrid sender is unauthenticated; deliverability may suffer",
+		e.senderWarning.warn(ctx, problem, "authkit: SendGrid sender is unauthenticated; deliverability may suffer",
 			"from", e.fromEmail, "reason", problem)
 	}
+	return nil
 }
 
 // senderIdentity names what leaves FromEmail unauthenticated, "" when it is on
