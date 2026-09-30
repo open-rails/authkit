@@ -233,7 +233,7 @@ func TestSecurityInlinePasswordNeedsSecondFactor(t *testing.T) {
 	a := h.newAccount("mfastep")
 	h.enrollEmail2FA(a)
 	ch := h.passwordStep(a, "198.51.100.9")
-	resp := h.secondStep(a, ch, h.mail.Last(t, authtest.LoginCode, a.email).Code, "198.51.100.9")
+	resp := h.secondStep(a, ch, h.mail.Last(t, iam.MessageLoginCode, a.email).Code, "198.51.100.9")
 	require.Equal(t, http.StatusOK, resp.status, resp.String())
 	// A stolen session whose authentication is old: the password branch of
 	// the fresh-auth gate is the only way through.
@@ -503,7 +503,7 @@ func TestSecurityEmailFactorIsPinned(t *testing.T) {
 	_, err = h.auth.UpdateUser(ctx, iam.UserActor(support.id), target.id, iam.UserUpdate{Email: &evil})
 	require.NoError(t, err, "control: the verified phone keeps the account proven")
 	require.Less(t, h.post("/password/reset/request", map[string]string{"identifier": evil}, "").status, 300)
-	token := h.mail.Last(t, authtest.PasswordReset, evil).Token
+	token := h.mail.Last(t, iam.MessagePasswordReset, evil).Token
 	const chosen = "Attacker-chosen-passphrase-3"
 	resp := h.post("/password/reset/confirm", map[string]string{"token": token, "new_password": chosen}, "")
 	require.Less(t, resp.status, 300, resp.String())
@@ -511,7 +511,7 @@ func TestSecurityEmailFactorIsPinned(t *testing.T) {
 	resp = h.post("/password/login", map[string]string{"identifier": evil, "password": chosen}, "")
 	require.Equal(t, http.StatusForbidden, resp.status, "the reset alone signed in an account with a second factor: %s", resp)
 	require.Equal(t, "2fa_required", resp.errorCode())
-	require.Empty(t, h.mail.Messages(authtest.LoginCode, evil), "a second-factor code went to the address staff set")
+	require.Empty(t, h.mail.Messages(iam.MessageLoginCode, evil), "a second-factor code went to the address staff set")
 	var pinned *string
 	require.NoError(t, h.pool.QueryRow(ctx, `SELECT email FROM profiles.mfa_factors WHERE user_id=$1::uuid AND method='email'`, target.id).Scan(&pinned))
 	require.NotNil(t, pinned)
@@ -521,7 +521,7 @@ func TestSecurityEmailFactorIsPinned(t *testing.T) {
 		var ch challenge
 		resp.json(t, &ch)
 		resp := h.post("/2fa/verify", map[string]string{"user_id": target.id, "challenge": ch.Error.Metadata.Challenge,
-			"code": h.mail.Last(t, authtest.LoginCode, target.email).Code}, "")
+			"code": h.mail.Last(t, iam.MessageLoginCode, target.email).Code}, "")
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
 	})
 }
@@ -619,15 +619,15 @@ func TestSecurityEmailFactorFollowsOwnChange(t *testing.T) {
 	require.Equal(t, moved, pinned(), "the account's own verified change left its codes at the old mailbox")
 	require.Equal(t, "m***@elsewhere.test", listed())
 
-	sent := len(h.mail.Messages(authtest.LoginCode, a.email))
+	sent := len(h.mail.Messages(iam.MessageLoginCode, a.email))
 	resp = h.post("/password/login", map[string]string{"identifier": moved, "password": password}, "")
 	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
 	var ch challenge
 	resp.json(t, &ch)
 	resp = h.post("/2fa/verify", map[string]string{"user_id": a.id, "challenge": ch.Error.Metadata.Challenge,
-		"code": h.mail.Last(t, authtest.LoginCode, moved).Code}, "")
+		"code": h.mail.Last(t, iam.MessageLoginCode, moved).Code}, "")
 	require.Equal(t, http.StatusOK, resp.status, resp.String())
-	require.Equal(t, sent, len(h.mail.Messages(authtest.LoginCode, a.email)), "a login code went to the old mailbox")
+	require.Equal(t, sent, len(h.mail.Messages(iam.MessageLoginCode, a.email)), "a login code went to the old mailbox")
 
 	t.Run("control: the system change leaves the factor where it was proven", func(t *testing.T) {
 		third, verified := unique("third")+"@security.test", true

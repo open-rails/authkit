@@ -74,16 +74,16 @@ func TestOutboxCompletesSignUp(t *testing.T) {
 	}
 	const email = "carol@example.com"
 	require.Equal(t, http.StatusAccepted, post("/register", `{"identifier":"`+email+`","username":"carol","password":"`+authtest.Password+`"}`))
-	sent := outbox.Last(t, authtest.Verification, email)
+	sent := outbox.Last(t, iam.MessageVerification, email)
 	require.Equal(t, "email", sent.Channel)
-	require.Equal(t, "signup", sent.Purpose)
+	require.Equal(t, iam.PurposeSignup, sent.Purpose)
 	require.NotEmpty(t, sent.Code)
 	require.NotEmpty(t, sent.Token)
 	require.Equal(t, http.StatusOK, post("/verify/confirm", `{"identifier":"`+email+`","code":"`+sent.Code+`"}`))
 
 	tokens := authtest.SignIn(t, auth, authtest.User{User: iam.User{Email: email}, Password: authtest.Password})
 	require.NotEmpty(t, tokens.AccessToken)
-	require.Empty(t, outbox.Messages(authtest.LoginCode, email))
+	require.Empty(t, outbox.Messages(iam.MessageLoginCode, email))
 }
 
 // A device key enrolled with the emailed code signs in on its own.
@@ -92,7 +92,7 @@ func TestEnrollDeviceKey(t *testing.T) {
 	u := authtest.NewUser(t, auth)
 	key := authtest.EnrollDeviceKey(t, auth, outbox, u)
 	require.NotEmpty(t, key.ID)
-	require.Len(t, outbox.Messages(authtest.DeviceKeyEnrolled, u.Email), 1, "the existing owner hears of the new key")
+	require.Len(t, outbox.Messages(iam.MessageDeviceKeyEnrolled, u.Email), 1, "the existing owner hears of the new key")
 
 	api := httptest.NewServer(auth.Handler())
 	t.Cleanup(api.Close)

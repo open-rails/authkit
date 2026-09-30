@@ -44,17 +44,12 @@ func (s *Engine) newPendingContactChange(ctx context.Context, kind pendingChange
 	return code, linkToken, nil
 }
 
-// sendContactChangeVerification delivers a contact-change verification message
-// through the channel's sender, enriching the context with the user's preferred
-// language and bounding it with the send timeout. When no sender is configured
-// it is a no-op in development and returns unavailable otherwise.
-func (s *Engine) sendContactChangeVerification(ctx context.Context, userID string, senderConfigured bool, send func(context.Context) error, wrapErr func(error) error, unavailable error) error {
+// sendContactChangeVerification delivers a contact-change verification
+// message through the channel's sender. When no sender is configured it is a
+// no-op in development and returns unavailable otherwise.
+func (s *Engine) sendContactChangeVerification(senderConfigured bool, send func() error, unavailable error) error {
 	if senderConfigured {
-		sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
-		if err := s.withSendTimeout(sendCtx, send); err != nil {
-			return wrapErr(err)
-		}
-		return nil
+		return send()
 	}
 	if !s.cfg.Registration.AllowMissingSenders {
 		return unavailable
@@ -96,11 +91,10 @@ func (s *Engine) RequestPhoneChange(ctx context.Context, userID, newPhone string
 	if err != nil {
 		return err
 	}
-	msg := iam.VerificationMessage{Code: code, LinkURL: s.phoneVerificationURL(linkToken), Purpose: "contact_change"}
-	// Optionally: notify old phone (not implemented).
-	return s.sendContactChangeVerification(ctx, userID, s.sms != nil,
-		func(c context.Context) error { return s.sms.SendVerification(c, trimmed, msg) },
-		smsDeliveryError,
+	msg := iam.SMSMessage{Kind: iam.MessageVerification, To: trimmed, Language: s.userLanguage(ctx, userID),
+		Code: code, Link: s.phoneVerificationURL(linkToken), Purpose: iam.PurposeContactChange}
+	return s.sendContactChangeVerification(s.sms != nil,
+		func() error { return s.sendSMS(ctx, msg) },
 		fmt.Errorf("phone change verification unavailable: SMS sender not configured"))
 }
 
@@ -140,16 +134,9 @@ func (s *Engine) RequestEmailChange(ctx context.Context, userID, newEmail string
 	if err != nil {
 		return err
 	}
-	username := ""
-	if u.Username != nil {
-		username = *u.Username
-	}
-	msg := iam.VerificationMessage{Code: code, LinkURL: s.emailVerificationURL(linkToken), Purpose: "contact_change"}
-	if err := s.sendContactChangeVerification(ctx, userID, s.email != nil,
-		func(c context.Context) error { return s.email.SendVerification(c, trimmed, username, msg) },
-		emailDeliveryError,
-		fmt.Errorf("email change verification unavailable: email sender not configured")); err != nil {
-		return err
-	}
-	return nil
+	msg := iam.EmailMessage{Kind: iam.MessageVerification, To: trimmed, Username: deref(u.Username), Language: s.userLanguage(ctx, userID),
+		Code: code, Link: s.emailVerificationURL(linkToken), Purpose: iam.PurposeContactChange}
+	return s.sendContactChangeVerification(s.email != nil,
+		func() error { return s.sendEmail(ctx, msg) },
+		fmt.Errorf("email change verification unavailable: email sender not configured"))
 }

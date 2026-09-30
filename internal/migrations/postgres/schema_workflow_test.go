@@ -25,7 +25,7 @@ func TestSchemaQualifiedWritesKeepAuthKitTriggerScope(t *testing.T) {
 
 	for _, schema := range []string{"profiles", "custom_identity"} {
 		t.Run(schema, func(t *testing.T) {
-			require.NoError(t, authkit.Migrate(ctx, pg.Pool, authkit.MigrateOptions{Schema: schema}))
+			require.NoError(t, authkit.Migrate(ctx, pg.Pool, authkit.Config{Schema: schema}, authkit.MigrateOptions{}))
 			conn, err := db.Conn(ctx)
 			require.NoError(t, err)
 			defer conn.Close()

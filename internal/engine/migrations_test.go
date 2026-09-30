@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/ident"
 	pgmigrations "github.com/open-rails/authkit/internal/migrations/postgres"
 	"github.com/open-rails/authkit/internal/testdb"
@@ -35,7 +36,7 @@ func TestMigrateSerializesManagedRiverWithSingleConnectionPool(t *testing.T) {
 			for range 6 {
 				go func() {
 					<-start
-					results <- Migrate(ctx, pool, MigrateOptions{Schema: "profiles", RiverSchema: schema, RuntimePool: runtimePool})
+					results <- Migrate(ctx, pool, config.Config{Schema: "profiles", River: config.RiverConfig{Schema: schema}}, config.MigrateOptions{RuntimePool: runtimePool})
 				}()
 			}
 			close(start)
@@ -45,7 +46,7 @@ func TestMigrateSerializesManagedRiverWithSingleConnectionPool(t *testing.T) {
 			var exists bool
 			require.NoError(t, pool.QueryRow(ctx, "SELECT to_regclass($1) IS NOT NULL", schema+".river_job").Scan(&exists))
 			require.True(t, exists)
-			require.NoError(t, Migrate(ctx, pool, MigrateOptions{Schema: "profiles", RiverSchema: schema, RuntimePool: runtimePool}))
+			require.NoError(t, Migrate(ctx, pool, config.Config{Schema: "profiles", River: config.RiverConfig{Schema: schema}}, config.MigrateOptions{RuntimePool: runtimePool}))
 			assertMigrationRuntimeUser(t, runtimePool)
 		})
 	}
@@ -67,8 +68,8 @@ func TestGroupSoftDeleteMigrationUpgradesPublishedBaseline(t *testing.T) {
 	_, err = pg.Pool.Exec(ctx, "INSERT INTO profiles.group_persona_parents(persona,parent_persona) VALUES('channel','root')")
 	require.NoError(t, err)
 	require.NoError(t, pg.Pool.QueryRow(ctx, "INSERT INTO profiles.permission_groups(persona,parent_id,instance_slug,display_name) VALUES('channel',$1::uuid,'existing','Existing group') RETURNING id::text", root).Scan(&group))
-	require.NoError(t, Migrate(ctx, pg.Pool, MigrateOptions{Schema: "profiles"}))
-	require.NoError(t, Migrate(ctx, pg.Pool, MigrateOptions{Schema: "profiles"}))
+	require.NoError(t, Migrate(ctx, pg.Pool, config.Config{Schema: "profiles"}, config.MigrateOptions{}))
+	require.NoError(t, Migrate(ctx, pg.Pool, config.Config{Schema: "profiles"}, config.MigrateOptions{}))
 	descriptor, err := newPermissionGroupStore(pg.Pool).groupByID(ctx, group)
 	require.NoError(t, err)
 	require.Equal(t, ident.Persona("channel"), descriptor.Persona)

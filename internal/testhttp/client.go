@@ -10,32 +10,28 @@ import (
 	"github.com/open-rails/authkit/provider"
 )
 
-// Client builds a Client serving httpCfg (zero: headless) with Google and
-// GitHub providers, so provider routes exist.
-func Client(t testing.TB, httpCfg authkit.HTTPConfig) *authkit.Client {
+// Client builds a Client serving httpCfg (nil: headless) with Google and
+// GitHub providers, so provider routes exist; opts adjust the rest.
+func Client(t testing.TB, httpCfg *authkit.HTTPConfig, opts ...authtest.Option) *authkit.Client {
 	t.Helper()
-	return ClientAt(t, authtest.Issuer, httpCfg)
+	return ClientAt(t, authtest.Issuer, httpCfg, opts...)
 }
 
 // ClientAt is Client with its issuer, whose path is the surface's base path.
 // GitHub's static endpoints let a login start without network access.
-func ClientAt(t testing.TB, issuer string, httpCfg authkit.HTTPConfig) *authkit.Client {
+func ClientAt(t testing.TB, issuer string, httpCfg *authkit.HTTPConfig, opts ...authtest.Option) *authkit.Client {
 	t.Helper()
-	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
+	auth, _ := authtest.New(t, append([]authtest.Option{authtest.WithConfig(func(c *authkit.Config) {
 		c.Token = authkit.TokenConfig{Issuer: issuer, IssuedAudiences: []string{"test"}}
 		c.TwoFactor.Mode = iam.TwoFactorDisabled
-		c.Identity.Providers = []provider.Provider{provider.Google("google-client", "google-secret"), provider.GitHub("github-client", "github-secret")}
+		c.River.HostOwned = true
 		c.HTTP = httpCfg
-	}), authtest.WithDeps(func(d *authkit.Deps) { d.River = authkit.RiverFromHost() }))
+	}), authtest.WithDeps(func(d *authkit.Deps) {
+		d.Providers = []provider.Provider{provider.Google("google-client", "google-secret"), provider.GitHub("github-client", "github-secret")}
+	})}, opts...)...)
 	return auth
 }
 
-// HTTP is a rate-limit-free, direct-peer HTTP configuration for tests.
-func HTTP() authkit.HTTPConfig {
-	return authkit.HTTPConfig{DirectPeerIP: true, Limiter: Unlimited{}}
-}
-
-// Unlimited is a rate limiter that allows every request.
-type Unlimited struct{}
-
-func (Unlimited) AllowNamed(string, string) (bool, error) { return true, nil }
+// HTTP is a direct-peer HTTP configuration for tests; authtest's Deps have
+// no rate limits.
+func HTTP() *authkit.HTTPConfig { return &authkit.HTTPConfig{DirectPeerIP: true} }

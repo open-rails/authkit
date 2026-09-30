@@ -14,7 +14,7 @@ import (
 	"github.com/riverqueue/river"
 )
 
-// userDeletion is the lifecycle hooks' view of a deletion.
+// userDeletion is Deps.OnPurge's view of a deletion.
 func userDeletion(d db.AccountDeletion) iam.UserDeletion {
 	return iam.UserDeletion{ID: d.ID, UserID: d.UserID, DeletedAt: d.DeletedAt, PurgeAt: d.PurgeAt}
 }
@@ -33,18 +33,21 @@ func (s *Engine) createAccountDeletion(ctx context.Context, tx pgx.Tx, client *r
 	if len(issuers) == 0 {
 		return errors.New("authkit: account deletion requires Token.Issuer")
 	}
+	// Every recipient's OnPurge runs before the purge: refuse now, not 30
+	// days later, while an account issuer has never bound its fleet.
+	for _, issuer := range issuers[1:] {
+		if _, err := s.qtx(tx).AccountDeliveryFleetSchemaForShare(ctx, issuer); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("authkit: account issuer %q must compose its River fleet before account deletion", issuer)
+			}
+			return err
+		}
+	}
 	deletion, err := s.qtx(tx).AccountDeletionInsert(ctx, db.AccountDeletionInsertParams{UserID: userID, Recipients: issuers, DeletedBy: deletedBy})
 	if err != nil {
 		return err
 	}
-	return s.scheduleAccountDeletion(ctx, tx, client, userDeletion(deletion), issuers)
-}
-
-func (s *Engine) scheduleAccountDeletion(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], deletion iam.UserDeletion, issuers []string) error {
-	if err := s.enqueueAccountDeliveries(ctx, tx, client, deletion, issuers, "soft"); err != nil {
-		return err
-	}
-	return s.enqueueAccountFinalizer(ctx, tx, client, deletion, false)
+	return s.enqueueAccountFinalizer(ctx, tx, client, userDeletion(deletion), false)
 }
 
 func (s *Engine) finalizeAccountDeletion(ctx context.Context, id string, purge bool) error {

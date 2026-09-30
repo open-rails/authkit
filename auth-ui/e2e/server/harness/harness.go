@@ -38,7 +38,7 @@ func Open(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := authkit.Migrate(ctx, pool, authkit.MigrateOptions{Schema: Schema}); err != nil {
+	if err := authkit.Migrate(ctx, pool, authkit.Config{Schema: Schema}, authkit.MigrateOptions{}); err != nil {
 		pool.Close()
 		return nil, err
 	}
@@ -61,16 +61,12 @@ func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
 	}
 	outbox := &authtest.Outbox{}
 	cfg := authkit.Config{
-		HTTP: authkit.HTTPConfig{
+		HTTP: &authkit.HTTPConfig{
 			DirectPeerIP:  true,
 			RateLimits:    limits,
 			RefreshCookie: true,
 		},
 		Schema: Schema,
-		Keys: authkit.KeysConfig{Source: keys.Static{
-			Active: signer,
-			Pubs:   map[string]crypto.PublicKey{signer.KID(): signer.Public()},
-		}},
 		Token: authkit.TokenConfig{
 			Issuer:          baseURL,
 			IssuedAudiences: []string{Audience},
@@ -89,15 +85,19 @@ func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
 			RPDisplayName: "auth-ui e2e",
 			Origins:       []string{baseURL},
 		},
-		// Dummy credentials: mounts the provider link/login routes for the
-		// contract; the upstream exchange is not exercised.
-		Identity:      authkit.IdentityConfig{Providers: []provider.Provider{provider.GitHub("e2e", "e2e")}},
 		SolanaNetwork: "devnet",
 	}
 	rt, err := authkit.New(context.Background(), cfg, authkit.Deps{
 		Postgres: pool,
-		Email:    outbox.Email(),
-		SMS:      outbox.SMS(),
+		KeySource: keys.Static{
+			Active: signer,
+			Pubs:   map[string]crypto.PublicKey{signer.KID(): signer.Public()},
+		},
+		// Dummy credentials: mounts the provider link/login routes for the
+		// contract; the upstream exchange is not exercised.
+		Providers: []provider.Provider{provider.GitHub("e2e", "e2e")},
+		Email:     outbox.Email,
+		SMS:       outbox.SMS,
 	})
 	if err != nil {
 		return nil, err

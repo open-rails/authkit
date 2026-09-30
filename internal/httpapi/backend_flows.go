@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/oidcstate"
 	"github.com/open-rails/authkit/internal/siws"
@@ -28,7 +27,6 @@ type flowsBackend interface {
 	CheckUserPassword(ctx context.Context, userID, pass string) error
 	CompleteExternalLogin(ctx context.Context, in authflow.ExternalLoginInput) (authflow.LoginOutcome, error)
 	CompleteLoginChallenge(ctx context.Context, in authflow.LoginChallengeInput) (authflow.LoginOutcome, error)
-	Settings() authflow.Settings
 	ConfirmPasswordReset(ctx context.Context, token, newPassword string) (string, error)
 	ConfirmVerification(ctx context.Context, in authflow.VerificationInput) (authflow.LoginOutcome, error)
 	ContinueRefreshMFA(ctx context.Context, userID, sessionID string) (authflow.LoginOutcome, error)
@@ -56,7 +54,6 @@ type flowsBackend interface {
 	LogSessionFailed(ctx context.Context, userID string, sessionID string, reason *string, ip *string, ua *string)
 	MarkSessionAuthenticated(ctx context.Context, userID, sessionID string) error
 	MarkSessionAuthenticatedWithMethods(ctx context.Context, userID, sessionID string, authMethods []string) error
-	NamingPolicy() iam.NamingPolicy
 	PasskeysEnabled() bool
 	PasswordLogin(ctx context.Context, in authflow.PasswordLoginInput) (authflow.LoginOutcome, error)
 	PasswordlessLogin(ctx context.Context, in authflow.PasswordlessLoginInput) (authflow.LoginOutcome, error)
@@ -88,7 +85,6 @@ type flowsBackend interface {
 	ValidatePassword(value string, identifiers ...string) error
 	ValidateUsername(username string) error
 	ValidateUsernameForRegistration(ctx context.Context, username string) (string, error)
-	ValidateVerificationConfiguration() error
 	Verify2FAStepUpMethodCode(ctx context.Context, userID, sessionID, method, code string) (bool, error)
 	VerifyBackupCode(ctx context.Context, userID, backupCode string) (bool, error)
 	VerifyPendingPassword(ctx context.Context, email, pass string) bool

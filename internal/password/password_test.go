@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/open-rails/authkit/internal/config"
 )
 
 func TestArgon2id_RoundTrip(t *testing.T) {
@@ -36,63 +38,69 @@ func TestArgon2id_RoundTrip(t *testing.T) {
 	}
 }
 
-func TestPolicyValidateCountsCharacters(t *testing.T) {
-	p, err := Policy{MinLength: 4, MaxLength: 6, AllowCommon: true}.Normalize()
+func policy(t *testing.T, p *config.PasswordPolicy) config.PasswordPolicy {
+	t.Helper()
+	n, err := config.NormalizePassword(p)
 	if err != nil {
 		t.Fatal(err)
 	}
+	return *n
+}
+
+func TestPolicyValidateCountsCharacters(t *testing.T) {
+	p := policy(t, &config.PasswordPolicy{MinLength: 4, MaxLength: 6})
 	for pw, want := range map[string]error{
 		"abc": ErrTooShort, "abcd": nil, "ééé": ErrTooShort, "éééé": nil,
 		"😀😀😀😀😀😀": nil, "abcdefg": ErrTooLong,
 	} {
-		if got := p.Validate(pw); got != want {
+		if got := Validate(p, pw); got != want {
 			t.Errorf("Validate(%q) = %v, want %v", pw, got, want)
 		}
 	}
 }
 
 func TestPolicyNormalize(t *testing.T) {
-	if p, err := (Policy{}).Normalize(); err != nil || p != (Policy{MinLength: DefaultMinLength, MaxLength: DefaultMaxLength}) {
-		t.Fatalf("default = %+v, %v", p, err)
+	if p := policy(t, nil); p != (config.PasswordPolicy{MinLength: config.DefaultPasswordMinLength, MaxLength: config.DefaultPasswordMaxLength, RejectCommon: true}) {
+		t.Fatalf("default = %+v", p)
 	}
-	if p, err := (Policy{MinLength: 200}).Normalize(); err != nil || p.MaxLength != 200 {
-		t.Fatalf("min above default max = %+v, %v", p, err)
+	if p := policy(t, &config.PasswordPolicy{MinLength: 200}); p.MaxLength != 200 || p.RejectCommon {
+		t.Fatalf("a set policy is taken as written = %+v", p)
 	}
-	for _, bad := range []Policy{{MinLength: -1}, {MinLength: 10, MaxLength: 9}, {MaxLength: MaxLengthCeiling + 1}} {
-		if _, err := bad.Normalize(); err == nil {
-			t.Errorf("Normalize(%+v) accepted", bad)
+	for _, bad := range []config.PasswordPolicy{{MinLength: -1}, {MinLength: 10, MaxLength: 9}, {MaxLength: config.PasswordMaxLengthCeiling + 1}} {
+		if _, err := config.NormalizePassword(&bad); err == nil {
+			t.Errorf("NormalizePassword(%+v) accepted", bad)
 		}
 	}
 }
 
 func TestPolicyRejectsCommonIdentifiersAndMissingClasses(t *testing.T) {
-	p, _ := Policy{}.Normalize()
-	if err := p.Validate("QwertyUIOP"); err != ErrTooCommon {
+	p := policy(t, nil)
+	if err := Validate(p, "QwertyUIOP"); err != ErrTooCommon {
 		t.Fatalf("common = %v", err)
 	}
-	if err := p.Validate("xx-Alice-xx", "alice"); err != ErrContainsIdentifier {
+	if err := Validate(p, "xx-Alice-xx", "alice"); err != ErrContainsIdentifier {
 		t.Fatalf("identifier = %v", err)
 	}
-	if err := p.Validate("abc-12345", "abc"); err != nil {
+	if err := Validate(p, "abc-12345", "abc"); err != nil {
 		t.Fatalf("short identifiers are ignored: %v", err)
 	}
-	if err := (Policy{AllowCommon: true, MinLength: 8, MaxLength: 128}).Validate("qwertyuiop"); err != nil {
-		t.Fatalf("AllowCommon = %v", err)
+	if err := Validate(policy(t, &config.PasswordPolicy{}), "qwertyuiop"); err != nil {
+		t.Fatalf("without RejectCommon = %v", err)
 	}
-	strict, _ := Policy{RequireUppercase: true, RequireLowercase: true, RequireDigit: true, RequireSymbol: true}.Normalize()
+	strict := policy(t, &config.PasswordPolicy{RequireUppercase: true, RequireLowercase: true, RequireDigit: true, RequireSymbol: true})
 	var unmet *RequirementsError
-	if err := strict.Validate("ÉCOLE-DE-NUIT"); !errors.As(err, &unmet) || strings.Join(unmet.Missing, ",") != "lowercase,digit" {
+	if err := Validate(strict, "ÉCOLE-DE-NUIT"); !errors.As(err, &unmet) || strings.Join(unmet.Missing, ",") != "lowercase,digit" {
 		t.Fatalf("missing = %v", err)
 	}
-	if err := strict.Validate("Écoledenuit7 "); err != nil {
+	if err := Validate(strict, "Écoledenuit7 "); err != nil {
 		t.Fatalf("a space is a symbol: %v", err)
 	}
 }
 
 func TestBlocklistCoversCommonLongPasswords(t *testing.T) {
-	p, _ := Policy{}.Normalize()
+	p := policy(t, nil)
 	for _, pw := range []string{"password123", "Password1!", "qwerty12345", "iloveyou123", "PASSWORD", "qwertyuiop"} {
-		if err := p.Validate(pw); err != ErrTooCommon {
+		if err := Validate(p, pw); err != ErrTooCommon {
 			t.Errorf("Validate(%q) = %v, want ErrTooCommon", pw, err)
 		}
 	}

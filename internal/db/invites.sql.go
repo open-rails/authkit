@@ -155,18 +155,19 @@ func (q *Queries) AccountInviteGroupLive(ctx context.Context, codeHash string) (
 }
 
 const accountInviteInsert = `-- name: AccountInviteInsert :one
-INSERT INTO account_registration_invites (email, invited_by, code_hash, expires_at, permission_group_id, role)
-VALUES ($1, $2::uuid, $3, $4, $5::uuid, $6::text)
+INSERT INTO account_registration_invites (email, invited_by, code_hash, expires_at, permission_group_id, role, catalog_issuer)
+VALUES ($1, $2::uuid, $3, $4, $5::uuid, $6::text, $7::text)
 RETURNING id, created_at
 `
 
 type AccountInviteInsertParams struct {
-	Email     string
-	InvitedBy *string
-	CodeHash  string
-	ExpiresAt time.Time
-	GroupID   *string
-	Role      *string
+	Email         string
+	InvitedBy     *string
+	CodeHash      string
+	ExpiresAt     time.Time
+	GroupID       *string
+	Role          *string
+	CatalogIssuer string
 }
 
 type AccountInviteInsertRow struct {
@@ -182,6 +183,7 @@ func (q *Queries) AccountInviteInsert(ctx context.Context, arg AccountInviteInse
 		arg.ExpiresAt,
 		arg.GroupID,
 		arg.Role,
+		arg.CatalogIssuer,
 	)
 	var i AccountInviteInsertRow
 	err := row.Scan(&i.ID, &i.CreatedAt)
@@ -359,17 +361,18 @@ func (q *Queries) InviteLinkGroupByCode(ctx context.Context, codeHash string) (s
 
 const inviteLinkInsert = `-- name: InviteLinkInsert :one
 
-INSERT INTO group_invite_links (permission_group_id, role, invited_by, code_hash, expires_at)
-VALUES ($1, $2, $3::uuid, $4, $5::timestamptz)
+INSERT INTO group_invite_links (permission_group_id, role, invited_by, code_hash, expires_at, catalog_issuer)
+VALUES ($1, $2, $3::uuid, $4, $5::timestamptz, $6::text)
 RETURNING id, created_at
 `
 
 type InviteLinkInsertParams struct {
-	GroupID   string
-	Role      string
-	InvitedBy *string
-	CodeHash  string
-	ExpiresAt time.Time
+	GroupID       string
+	Role          string
+	InvitedBy     *string
+	CodeHash      string
+	ExpiresAt     time.Time
+	CatalogIssuer string
 }
 
 type InviteLinkInsertRow struct {
@@ -386,6 +389,7 @@ func (q *Queries) InviteLinkInsert(ctx context.Context, arg InviteLinkInsertPara
 		arg.InvitedBy,
 		arg.CodeHash,
 		arg.ExpiresAt,
+		arg.CatalogIssuer,
 	)
 	var i InviteLinkInsertRow
 	err := row.Scan(&i.ID, &i.CreatedAt)

@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testhttp"
 	"github.com/stretchr/testify/require"
@@ -19,7 +21,7 @@ func TestMountNativeAnchorsAndOriginalRequest(t *testing.T) {
 	var seenURI, seenBody string
 	cfg := testhttp.HTTP()
 	cfg.APIPath = "/identity"
-	cfg.Wrap = func(_ iam.Route, next http.Handler) http.Handler {
+	wrap := func(_ iam.Route, next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method == http.MethodPost {
 				seenURI = r.RequestURI
@@ -31,7 +33,7 @@ func TestMountNativeAnchorsAndOriginalRequest(t *testing.T) {
 			next.ServeHTTP(w, r)
 		})
 	}
-	auth := testhttp.Client(t, cfg)
+	auth := testhttp.Client(t, cfg, authtest.WithDeps(func(d *authkit.Deps) { d.Wrap = wrap }))
 	engine := gin.New()
 	require.NoError(t, Mount(engine, auth))
 	engine.NoRoute(func(c *gin.Context) { c.Status(418) })

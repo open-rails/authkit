@@ -9,25 +9,89 @@ import (
 	"context"
 )
 
-const roleCatalogFingerprint = `-- name: RoleCatalogFingerprint :one
-
-SELECT fingerprint FROM role_catalog_state
+const credentialSweepFleetsForShare = `-- name: CredentialSweepFleetsForShare :many
+SELECT issuer, river_schema FROM account_delivery_fleets
+WHERE issuer = ANY($1::text[])
+ORDER BY issuer FOR KEY SHARE
 `
 
-// The role catalog the credential sweep last reconciled.
-func (q *Queries) RoleCatalogFingerprint(ctx context.Context) (string, error) {
-	row := q.db.QueryRow(ctx, roleCatalogFingerprint)
+type CredentialSweepFleetsForShareRow struct {
+	Issuer      string
+	RiverSchema string
+}
+
+// The fleets of issuers, key-share locked until the change commits.
+func (q *Queries) CredentialSweepFleetsForShare(ctx context.Context, issuers []string) ([]CredentialSweepFleetsForShareRow, error) {
+	rows, err := q.db.Query(ctx, credentialSweepFleetsForShare, issuers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CredentialSweepFleetsForShareRow
+	for rows.Next() {
+		var i CredentialSweepFleetsForShareRow
+		if err := rows.Scan(&i.Issuer, &i.RiverSchema); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const roleCatalogFingerprint = `-- name: RoleCatalogFingerprint :one
+
+SELECT fingerprint FROM role_catalogs WHERE issuer = $1
+`
+
+// Each app's role catalog as its credential sweep last reconciled it, and the
+// fleets that sweep the credentials of the other apps sharing the accounts.
+func (q *Queries) RoleCatalogFingerprint(ctx context.Context, issuer string) (string, error) {
+	row := q.db.QueryRow(ctx, roleCatalogFingerprint, issuer)
 	var fingerprint string
 	err := row.Scan(&fingerprint)
 	return fingerprint, err
 }
 
-const roleCatalogSetFingerprint = `-- name: RoleCatalogSetFingerprint :exec
-INSERT INTO role_catalog_state (fingerprint) VALUES ($1)
-ON CONFLICT (singleton) DO UPDATE SET fingerprint = EXCLUDED.fingerprint, swept_at = now()
+const roleCatalogSet = `-- name: RoleCatalogSet :exec
+INSERT INTO role_catalogs (issuer, fingerprint, roles) VALUES ($1, $2, $3::text[])
+ON CONFLICT (issuer) DO UPDATE SET fingerprint = EXCLUDED.fingerprint, roles = EXCLUDED.roles, swept_at = now()
 `
 
-func (q *Queries) RoleCatalogSetFingerprint(ctx context.Context, fingerprint string) error {
-	_, err := q.db.Exec(ctx, roleCatalogSetFingerprint, fingerprint)
+type RoleCatalogSetParams struct {
+	Issuer      string
+	Fingerprint string
+	Roles       []string
+}
+
+func (q *Queries) RoleCatalogSet(ctx context.Context, arg RoleCatalogSetParams) error {
+	_, err := q.db.Exec(ctx, roleCatalogSet, arg.Issuer, arg.Fingerprint, arg.Roles)
 	return err
+}
+
+const roleCatalogsDeclaredRoles = `-- name: RoleCatalogsDeclaredRoles :many
+SELECT DISTINCT unnest(roles)::text AS role FROM role_catalogs WHERE issuer = ANY($1::text[])
+`
+
+// The persona:role names the catalogs of issuers declare.
+func (q *Queries) RoleCatalogsDeclaredRoles(ctx context.Context, issuers []string) ([]string, error) {
+	rows, err := q.db.Query(ctx, roleCatalogsDeclaredRoles, issuers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var role string
+		if err := rows.Scan(&role); err != nil {
+			return nil, err
+		}
+		items = append(items, role)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

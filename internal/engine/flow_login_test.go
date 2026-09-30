@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -13,7 +14,7 @@ import (
 // credential version and finds it changed.
 func TestPasswordLoginRacingRecoveryMintsNoSession(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	f := newAccountFlow(t, pg.Pool, testConfig(), Deps{})
+	f := newAccountFlow(t, pg.Pool, testConfig(), config.Deps{})
 	ctx := t.Context()
 	user := newUser(t, f.engine, "paused")
 	lock, err := pg.Pool.Begin(ctx)

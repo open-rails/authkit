@@ -23,7 +23,7 @@ import (
 func (h *host) mfaSession(a account) string {
 	h.t.Helper()
 	ch := h.passwordStep(a, "198.51.100.30")
-	resp := h.secondStep(a, ch, h.mail.Last(h.t, authtest.LoginCode, a.email).Code, "198.51.100.30")
+	resp := h.secondStep(a, ch, h.mail.Last(h.t, iam.MessageLoginCode, a.email).Code, "198.51.100.30")
 	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
 	return session(h.t, resp).AccessToken
 }
@@ -107,7 +107,7 @@ func TestSecurityPasswordStepUpNeedsSecondFactor(t *testing.T) {
 		resp := h.post("/step-up/2fa", map[string]any{}, reproved)
 		require.Equal(t, http.StatusForbidden, resp.status, resp.String())
 		require.Equal(t, "2fa_required", resp.errorCode())
-		resp = h.post("/step-up/2fa", map[string]string{"code": h.mail.Last(t, authtest.LoginCode, victim.email).Code}, reproved)
+		resp = h.post("/step-up/2fa", map[string]string{"code": h.mail.Last(t, iam.MessageLoginCode, victim.email).Code}, reproved)
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
 		fresh := session(t, resp).AccessToken
 		require.Equal(t, http.StatusNoContent, hostRoute(fresh))
@@ -277,7 +277,7 @@ func TestSecurityResetAccountMFA(t *testing.T) {
 	passkeySession := session(t, resp)
 
 	require.NoError(t, h.auth.ResetAccountMFA(ctx, holder.id))
-	require.Len(t, h.mail.Messages(authtest.MFAReset, holder.email), 1)
+	require.Len(t, h.mail.Messages(iam.MessageMFAReset, holder.email), 1)
 	require.Equal(t, http.StatusUnauthorized, h.refresh(passkeySession.RefreshToken).status, "a session outlived the reset")
 	require.NotEqual(t, http.StatusOK, h.passkeyLogin(authn, 2).status, "the passkey outlived the reset")
 	keys, err := h.auth.DeviceKeys(ctx, holder.id)

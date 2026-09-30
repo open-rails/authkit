@@ -82,7 +82,7 @@ func (s *Engine) CreateAPIKey(ctx context.Context, a iam.Actor, ref iam.GroupRef
 			out.APIKey = iam.APIKey{LookupID: minted.LookupID, GroupID: g.ID, Name: name, Role: role, Permissions: ident.Perms(grants), CreatedBy: creator, ExpiresAt: expiresAt}
 			row, err := db.New(st.q).APIKeyInsert(ctx, db.APIKeyInsertParams{
 				GroupID: g.ID, KeyID: minted.LookupID, SecretHash: minted.SecretHash, Name: name,
-				Role: role.String(), CreatedBy: nullable(creator), ExpiresAt: expiresAt,
+				Role: role.String(), CreatedBy: nullable(creator), ExpiresAt: expiresAt, CatalogIssuer: s.cfg.Token.Issuer,
 			})
 			if errors.Is(err, pgx.ErrNoRows) {
 				continue // lookup id collision

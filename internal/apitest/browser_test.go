@@ -34,7 +34,7 @@ func TestCookieLoginBrowserTwoSites(t *testing.T) {
 	victimURL := strings.Replace(victim.URL, "127.0.0.1", "localhost", 1)
 	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
 		c.Frontend.BaseURL = victimURL
-		c.HTTP = authkit.HTTPConfig{DirectPeerIP: true, RefreshCookie: true}
+		c.HTTP = &authkit.HTTPConfig{DirectPeerIP: true, RefreshCookie: true}
 	}))
 	accounts := map[string]string{"browser-victim@example.test": "Victim-password-12345", "browser-attacker@example.test": "=Attack-password-12345"}
 	var attackerID string

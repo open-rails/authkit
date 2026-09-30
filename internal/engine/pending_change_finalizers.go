@@ -42,13 +42,8 @@ func (s *Engine) finalizeChangeEmail(ctx context.Context, rec pendingChange, kee
 		return "", err
 	}
 	if u.Email != nil && s.email != nil {
-		old, username := *u.Email, ""
-		if u.Username != nil {
-			username = *u.Username
-		}
-		s.notifyContactChanged(ctx, rec.UserID, func(c context.Context) error {
-			return s.email.SendContactChanged(c, old, username, iam.ContactChange{Field: iam.ContactEmail, NewValue: rec.Target})
-		})
+		s.notifyContactChanged(rec.UserID, s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessageContactChanged, To: *u.Email, Username: deref(u.Username),
+			Language: s.userLanguage(ctx, rec.UserID), ContactChange: &iam.ContactChange{Field: iam.ContactEmail, NewValue: rec.Target}}))
 	}
 	return rec.UserID, nil
 }
@@ -75,10 +70,8 @@ func (s *Engine) finalizeChangePhone(ctx context.Context, rec pendingChange, kee
 		return "", err
 	}
 	if u.PhoneNumber != nil && s.sms != nil {
-		old := *u.PhoneNumber
-		s.notifyContactChanged(ctx, rec.UserID, func(c context.Context) error {
-			return s.sms.SendContactChanged(c, old, iam.ContactChange{Field: iam.ContactPhone, NewValue: rec.Target})
-		})
+		s.notifyContactChanged(rec.UserID, s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessageContactChanged, To: *u.PhoneNumber,
+			Language: s.userLanguage(ctx, rec.UserID), ContactChange: &iam.ContactChange{Field: iam.ContactPhone, NewValue: rec.Target}}))
 	}
 	return rec.UserID, nil
 }
@@ -125,9 +118,8 @@ func (s *Engine) applyContactChange(ctx context.Context, rec pendingChange, keep
 // notifyContactChanged tells the previous address it was replaced. Best-effort:
 // the change is already committed, so a delivery failure is logged (without the
 // address) rather than reported as a failed confirmation.
-func (s *Engine) notifyContactChanged(ctx context.Context, userID string, send func(context.Context) error) {
-	sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
-	if err := s.withSendTimeout(sendCtx, send); err != nil {
+func (s *Engine) notifyContactChanged(userID string, err error) {
+	if err != nil {
 		stdlog.Printf("[authkit/security] contact-change notice to the previous address failed for user %s: %v", userID, err)
 	}
 }

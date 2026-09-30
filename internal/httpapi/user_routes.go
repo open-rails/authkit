@@ -10,6 +10,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/naming"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -41,7 +42,7 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 				serverErr(w, "database_error", stateErr)
 				return
 			}
-			fail(w, errmodel.CodeRenameRateLimited, errmodel.WithMetadata(map[string]any{"time_until_rename_available": state.RetryAfterSeconds, "naming": state, "next_allowed_at": state.NextRenameAt, "retry_after_seconds": state.RetryAfterSeconds, "cooldown_seconds": int64(s.svc.NamingPolicy().RenameInterval / time.Second), "allowed": state.Allowed, "reason": "cooldown", "action": authflow.ActionUpdateUsername}))
+			fail(w, errmodel.CodeRenameRateLimited, errmodel.WithMetadata(map[string]any{"time_until_rename_available": state.RetryAfterSeconds, "naming": state, "next_allowed_at": state.NextRenameAt, "retry_after_seconds": state.RetryAfterSeconds, "cooldown_seconds": int64(naming.Cooldown(s.cfg.Username) / time.Second), "allowed": state.Allowed, "reason": "cooldown", "action": authflow.ActionUpdateUsername}))
 			return
 		}
 		writeError(w, err)
@@ -92,13 +93,10 @@ func (s *Service) handleUserPreferredLanguagePATCH(w http.ResponseWriter, r *htt
 }
 
 func (s *Service) supportsLanguage(language string) bool {
-	cfg := s.langCfg.defaulted()
-	supported := supportedSet(cfg.Supported)
-	if supported == nil {
-		return language == normalizeLangCode(cfg.Default)
+	if len(s.cfg.Languages.Supported) == 0 {
+		return language == s.cfg.Languages.Default
 	}
-	_, ok := supported[language]
-	return ok
+	return acceptable(s.cfg.Languages, language)
 }
 
 func (s *Service) handleUserDeleteDELETE(w http.ResponseWriter, r *http.Request) {

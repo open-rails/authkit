@@ -48,7 +48,7 @@ func (s *Service) APIRoutes(groups ...iam.RouteGroup) []RouteSpec {
 	rootPermission := func(perm iam.Perm, h http.HandlerFunc) http.Handler {
 		return s.requirePermission(iam.RootGroup(), perm, h)
 	}
-	lang := func(h http.Handler) http.Handler { return LanguageMiddleware(s.langCfg)(h) }
+	lang := s.languageMiddleware
 	routes := []RouteSpec{
 		// #265: prefix-neutral like every sibling — this spec shipped as
 		// "/auth/capabilities", which doubled to /auth/auth/capabilities (404)
@@ -146,14 +146,14 @@ func (s *Service) APIRoutes(groups ...iam.RouteGroup) []RouteSpec {
 	// set PasskeyConfig.RPID get the routes; everyone else doesn't advertise a
 	// feature they can't fulfil.
 	passkeysEnabled := s.svc.PasskeysEnabled()
-	cfg := s.settings
-	passwordlessEnabled := cfg.PasswordlessLogin
-	registrationEnabled := cfg.RegistrationMode != iam.RegistrationModeClosed
+	cfg := s.cfg
+	passwordlessEnabled := cfg.Registration.PasswordlessLogin
+	registrationEnabled := cfg.Registration.NativeUserMode != iam.RegistrationModeClosed
 	twoFactorEnabled := s.svc.TwoFactorEnabled()
 	solanaEnabled := cfg.SolanaNetwork != ""
 	oidcEnabled := len(s.providers) > 0
 	delegatedEnabled := len(cfg.Delegated.Audiences) > 0
-	deviceKeysEnabled := cfg.DeviceKeys
+	deviceKeysEnabled := cfg.DeviceKeys.Enabled
 	out := make([]RouteSpec, 0, len(routes))
 	for _, route := range routes {
 		if !selected(route.Group) {
@@ -233,7 +233,7 @@ func (s *Service) OIDCBrowserRoutes(groups ...iam.RouteGroup) []RouteSpec {
 		return nil
 	}
 	selected := routeGroupSet(groups)
-	lang := func(h http.Handler) http.Handler { return LanguageMiddleware(s.langCfg)(h) }
+	lang := s.languageMiddleware
 	routes := []RouteSpec{
 		{Method: http.MethodGet, Path: "/{provider}/login", Group: iam.RouteBrowserOIDC, Auth: iam.AuthPublic, Bucket: RLOIDCStart, Handler: http.HandlerFunc(s.handleOIDCLoginGET)},
 		{Method: http.MethodPost, Path: "/{provider}/login", Group: iam.RouteBrowserOIDC, Auth: iam.AuthPublic, Bucket: RLOIDCStart, Handler: http.HandlerFunc(s.handleOIDCLoginPOST)},

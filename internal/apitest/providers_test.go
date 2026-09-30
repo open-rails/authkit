@@ -251,7 +251,7 @@ func TestProviderAuthenticationWorkflow(t *testing.T) {
 		res := a.post("/user/2fa", grant, map[string]any{"method": "sms", "phone_number": phone})
 		require.Equal(t, http.StatusAccepted, res.status, res.String())
 		enrolled := expectAnswer(t, a.post("/user/2fa", grant, map[string]any{"method": "sms", "phone_number": phone,
-			"code": outbox.Last(t, authtest.Verification, phone).Code}), http.StatusOK)
+			"code": outbox.Last(t, iam.MessageVerification, phone).Code}), http.StatusOK)
 		owner := requireSessionWith(t, a, auth, enrolled.tokens(), "oauth", "sms", "otp", "mfa").UserID
 
 		next := expectAnswer(t, providerSignIn(t, a, idp, "idp", id, ""), http.StatusForbidden)
@@ -261,7 +261,7 @@ func TestProviderAuthenticationWorkflow(t *testing.T) {
 		verify2FA := func(challenge authAnswer, code string) response {
 			return a.post("/2fa/verify", "", map[string]any{"user_id": owner, "challenge": challenge.Error.Metadata.Challenge, "code": code})
 		}
-		finished := expectAnswer(t, verify2FA(next, outbox.Last(t, authtest.LoginCode, phone).Code), http.StatusOK)
+		finished := expectAnswer(t, verify2FA(next, outbox.Last(t, iam.MessageLoginCode, phone).Code), http.StatusOK)
 		requireSessionWith(t, a, auth, finished.tokens(), "oauth", "sms", "otp", "mfa")
 		require.Equal(t, "idp", accessClaims(t, finished.tokens().AccessToken)["provider"])
 
@@ -272,9 +272,9 @@ func TestProviderAuthenticationWorkflow(t *testing.T) {
 		_, err := auth.UpdateUser(ctx, iam.SystemActor(), owner, iam.UserUpdate{Password: &backup})
 		require.NoError(t, err)
 		fresh := expectAnswer(t, providerSignIn(t, a, idp, "idp", id, ""), http.StatusForbidden)
-		session := expectAnswer(t, verify2FA(fresh, outbox.Last(t, authtest.LoginCode, phone).Code), http.StatusOK).tokens()
+		session := expectAnswer(t, verify2FA(fresh, outbox.Last(t, iam.MessageLoginCode, phone).Code), http.StatusOK).tokens()
 		stale := expectAnswer(t, providerSignIn(t, a, idp, "idp", id, ""), http.StatusForbidden)
-		code := outbox.Last(t, authtest.LoginCode, phone).Code
+		code := outbox.Last(t, iam.MessageLoginCode, phone).Code
 		res = a.do(request{method: http.MethodDelete, path: "/user/providers/idp", token: session.AccessToken})
 		require.Equal(t, http.StatusNoContent, res.status, res.String())
 		require.NoError(t, auth.LinkProvider(ctx, owner, iam.ProviderLink{Issuer: provider.Issuer(), Provider: "idp", Subject: id.Subject}))
@@ -335,7 +335,7 @@ func TestFederatedUnverifiedEmailDoesNotReserveAccountAddress(t *testing.T) {
 		require.Equal(t, first.User.ID, again.User.ID, "the link belongs to the account it created")
 		res := a.post("/password/reset/request", "", map[string]string{"identifier": email})
 		require.Equal(t, http.StatusAccepted, res.status, res.String())
-		require.Empty(t, outbox.Messages(authtest.PasswordReset, email))
+		require.Empty(t, outbox.Messages(iam.MessagePasswordReset, email))
 
 		second := expectAnswer(t, providerSignIn(t, a, idp, "idp", testidp.Identity{Subject: "owner", Email: email, EmailVerified: true}, ""), http.StatusOK)
 		require.NotEqual(t, first.User.ID, second.User.ID)

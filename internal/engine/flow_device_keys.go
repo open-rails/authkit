@@ -123,16 +123,10 @@ func (s *Engine) BeginDeviceKeyEnrollment(ctx context.Context, email, publicKey,
 	if err := s.ephemSetJSON(ctx, keyDeviceKeyEnrollment+result.ID, record, deviceKeyChallengeTTL); err != nil {
 		return authflow.DeviceKeyChallenge{}, err
 	}
-	message := iam.VerificationMessage{Code: code, Purpose: "device_key_enrollment"}
-	if err := message.Validate(); err != nil {
+	if err := s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessageVerification, To: email, Language: s.messageLanguage(ctx, ""),
+		Code: code, Purpose: iam.PurposeDeviceKeyEnrollment}); err != nil {
 		_ = s.ephemDel(ctx, keyDeviceKeyEnrollment+result.ID)
 		return authflow.DeviceKeyChallenge{}, err
-	}
-	if err := s.withSendTimeout(ctx, func(sendCtx context.Context) error {
-		return s.email.SendVerification(sendCtx, email, "", message)
-	}); err != nil {
-		_ = s.ephemDel(ctx, keyDeviceKeyEnrollment+result.ID)
-		return authflow.DeviceKeyChallenge{}, emailDeliveryError(err)
 	}
 	return result, nil
 }
@@ -332,14 +326,8 @@ func (s *Engine) notifyDeviceKeyEnrolled(ctx context.Context, u *db.User, key ia
 	if s.email == nil || u.Email == nil {
 		return
 	}
-	username := ""
-	if u.Username != nil {
-		username = *u.Username
-	}
-	sendCtx := s.contextWithUserPreferredLanguage(ctx, u.ID)
-	if err := s.withSendTimeout(sendCtx, func(c context.Context) error {
-		return s.email.SendDeviceKeyEnrolled(c, *u.Email, username, iam.DeviceKeyNotice{Label: key.Label, CreatedAt: key.CreatedAt})
-	}); err != nil {
+	if err := s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessageDeviceKeyEnrolled, To: *u.Email, Username: deref(u.Username),
+		Language: s.userLanguage(ctx, u.ID), DeviceKey: &iam.DeviceKeyNotice{Label: key.Label, CreatedAt: key.CreatedAt}}); err != nil {
 		stdlog.Printf("[authkit/security] device-key enrollment notice failed for user %s: %v", u.ID, err)
 	}
 }

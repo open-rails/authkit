@@ -68,7 +68,7 @@ func (f *factorFlow) finishDeviceEnrollment(email string, challenge deviceKeyCha
 	f.t.Helper()
 	res := f.expect(http.StatusOK, f.post("/device-keys/enroll/finish", map[string]any{
 		"enrollment_id": challenge.EnrollmentID,
-		"code":          f.code(authtest.Verification, email),
+		"code":          f.code(iam.MessageVerification, email),
 		"signature":     f.signDeviceChallenge(key, devicekey.EnrollmentDomain, challenge.Challenge),
 	}))
 	return f.deviceKeySession(res)
@@ -135,7 +135,7 @@ func (f *factorFlow) requireActiveDeviceKeys(userID string, want ...string) {
 // to ("" = anyone).
 func (f *factorFlow) deviceKeyNotices(to string) []string {
 	var out []string
-	for _, m := range f.outbox.Messages(authtest.DeviceKeyEnrolled, to) {
+	for _, m := range f.outbox.Messages(iam.MessageDeviceKeyEnrolled, to) {
 		out = append(out, m.To)
 	}
 	return out
@@ -284,7 +284,7 @@ func testDeviceKeyLifecycle(t *testing.T, auth *authkit.Client, outbox *authtest
 	enrollment := f.beginDeviceEnrollment(email, publicKey)
 	// One typo does not burn the ceremony; the bounded attempt counter does.
 	wrongCode := "000000"
-	if f.code(authtest.Verification, email) == wrongCode {
+	if f.code(iam.MessageVerification, email) == wrongCode {
 		wrongCode = "000001"
 	}
 	f.expect(http.StatusUnauthorized, f.post("/device-keys/enroll/finish", map[string]any{
@@ -321,7 +321,7 @@ func testDeviceKeyLifecycle(t *testing.T, auth *authkit.Client, outbox *authtest
 	// Enrollment is single use.
 	f.expect(http.StatusUnauthorized, f.post("/device-keys/enroll/finish", map[string]any{
 		"enrollment_id": enrollment.EnrollmentID,
-		"code":          f.code(authtest.Verification, email),
+		"code":          f.code(iam.MessageVerification, email),
 		"signature":     f.signDeviceChallenge(privateKey, devicekey.EnrollmentDomain, enrollment.Challenge),
 	}))
 
@@ -398,7 +398,7 @@ func testDeviceKeyLifecycle(t *testing.T, auth *authkit.Client, outbox *authtest
 	reenroll := f.beginDeviceEnrollment(email, secondPublic)
 	f.expect(http.StatusUnauthorized, f.post("/device-keys/enroll/finish", map[string]any{
 		"enrollment_id": reenroll.EnrollmentID,
-		"code":          f.code(authtest.Verification, email),
+		"code":          f.code(iam.MessageVerification, email),
 		"signature":     f.signDeviceChallenge(secondPrivate, devicekey.EnrollmentDomain, reenroll.Challenge),
 	}))
 
@@ -413,7 +413,7 @@ func testDeviceKeyLifecycle(t *testing.T, auth *authkit.Client, outbox *authtest
 	gatedFinish := func(secondFactor string) authAnswer {
 		body := map[string]any{
 			"enrollment_id": gated.EnrollmentID,
-			"code":          f.code(authtest.Verification, holder.Email),
+			"code":          f.code(iam.MessageVerification, holder.Email),
 			"signature":     f.signDeviceChallenge(holderPrivate, devicekey.EnrollmentDomain, gated.Challenge),
 		}
 		if secondFactor != "" {

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/siws"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
@@ -42,7 +43,8 @@ func TestSolanaLoginDoesNotWaitOnSNS(t *testing.T) {
 	cfg := testConfig()
 	cfg.SolanaNetwork = "devnet"
 	sns := &stalledSNSResolver{release: make(chan struct{})}
-	f := newAccountFlow(t, pool, cfg, Deps{SolanaSNSResolver: sns})
+	f := newAccountFlow(t, pool, cfg, config.Deps{})
+	f.engine.solanaSNSResolver = sns
 
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)

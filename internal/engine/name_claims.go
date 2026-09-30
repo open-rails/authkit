@@ -10,8 +10,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/naming"
 )
 
 func (s *Engine) namingNow() time.Time {
@@ -39,17 +41,17 @@ func claimCanonicalName(ctx context.Context, q db.DBTX, name, id string, now tim
 // renameNameClaim requires the account row locked by its caller. Name locks
 // are sorted by stripe before either claim changes, so opposite renames do not
 // deadlock.
-func renameNameClaim(ctx context.Context, q db.DBTX, id, oldName, newName string, now time.Time, policy iam.NamingPolicy) error {
+func renameNameClaim(ctx context.Context, q db.DBTX, id, oldName, newName string, now time.Time, policy config.UsernameConfig) error {
 	if err := lockNameClaims(ctx, q, oldName, newName); err != nil {
 		return err
 	}
 	if oldName != "" {
 		queries := db.New(q)
 		var err error
-		if policy.FormerNameRetentionMode == iam.FormerNamesImmediate {
+		if policy.FormerNames.Mode == config.FormerNamesImmediate {
 			err = queries.NameClaimDeleteOwned(ctx, db.NameClaimDeleteOwnedParams{Name: oldName, OwnerID: id})
 		} else {
-			err = queries.NameClaimRetire(ctx, db.NameClaimRetireParams{Name: oldName, OwnerID: id, ExpiresAt: policy.FormerNameExpiresAt(now)})
+			err = queries.NameClaimRetire(ctx, db.NameClaimRetireParams{Name: oldName, OwnerID: id, ExpiresAt: naming.FormerNameExpiresAt(policy, now)})
 		}
 		if err != nil {
 			return err
@@ -82,7 +84,7 @@ func (s *Engine) ResolveUsername(ctx context.Context, name string) (iam.NameReso
 // answers ErrUsernameInUse and nothing about its owner.
 func (s *Engine) CheckUsername(ctx context.Context, name string) error {
 	name = strings.TrimSpace(name)
-	if err := s.cfg.Username.Validate(name); err != nil {
+	if err := naming.Validate(s.cfg.Username, name); err != nil {
 		return err
 	}
 	if err := s.requirePG(); err != nil {
@@ -113,22 +115,22 @@ func (s *Engine) admitName(ctx context.Context, request iam.NameAdmissionRequest
 	}
 	return nil
 }
-func (s *Engine) UserNamingState(ctx context.Context, id string) (iam.NamingState, error) {
+func (s *Engine) UserNamingState(ctx context.Context, id string) (naming.State, error) {
 	if err := s.requirePG(); err != nil {
-		return iam.NamingState{}, err
+		return naming.State{}, err
 	}
 	last, err := s.q.UserLastRenamedAt(ctx, id)
 	if err != nil {
-		return iam.NamingState{}, err
+		return naming.State{}, err
 	}
 	now := s.namingNow()
-	state := s.NamingPolicy().State(last, now)
+	state := naming.NewState(s.cfg.Username, last, now)
 	aliases, err := s.q.NameClaimAliasesByUser(ctx, db.NameClaimAliasesByUserParams{OwnerID: id, AtTime: now})
 	if err != nil {
 		return state, err
 	}
 	for _, a := range aliases {
-		state.Aliases = append(state.Aliases, iam.NameAlias{Name: a.Name, ExpiresAt: a.ExpiresAt})
+		state.Aliases = append(state.Aliases, naming.Alias{Name: a.Name, ExpiresAt: a.ExpiresAt})
 	}
 	return state, nil
 }

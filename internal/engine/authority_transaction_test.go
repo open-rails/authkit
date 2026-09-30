@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
@@ -25,24 +26,23 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	config := pg.Pool.Config()
-	config.ConnConfig.RuntimeParams["default_transaction_isolation"] = "repeatable read"
-	hostPool, err := pgxpool.NewWithConfig(ctx, config)
+	poolCfg := pg.Pool.Config()
+	poolCfg.ConnConfig.RuntimeParams["default_transaction_isolation"] = "repeatable read"
+	hostPool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	require.NoError(t, err)
 	t.Cleanup(hostPool.Close)
 	cfg := maintenanceConfig()
 	cfg.Registration.NativeUserMode = iam.RegistrationModeInviteOnly
-	cfg.Roles = RoleConfig{
-		Personas: map[string]Persona{"org": {Permissions: []string{"org:records:read", "org:records:write"}, RemoteApplications: true}},
-		Roles: []Role{
-			{Persona: "root", Name: "manager", Permissions: []string{"root:members:manage", "root:users:ban"}},
-			{Persona: "root", Name: "reader", Permissions: []string{"root:users:ban"}},
-			{Persona: "org", Name: "reader", Permissions: []string{"org:records:read"}},
-			{Persona: "org", Name: "editor", Permissions: []string{"org:records:read", "org:records:write"}},
-			{Persona: "org", Name: "manager", Permissions: []string{"org:members:manage", "org:credentials:manage", "org:records:read"}},
-		},
-	}
-	svc := newTestEngine(t, cfg, Deps{Postgres: hostPool})
+	roles := config.NewRoles()
+	roles.Root.Role("manager", roles.Root.Members.Manage, roles.Root.Users.Ban)
+	roles.Root.Role("reader", roles.Root.Users.Ban)
+	org := roles.Persona("org", config.RemoteApplications)
+	read, write := org.Permission("records", "read"), org.Permission("records", "write")
+	org.Role("reader", read)
+	org.Role("editor", read, write)
+	org.Role("manager", org.Members.Manage, org.Credentials.Manage, read)
+	cfg.Roles = roles
+	svc := newTestEngine(t, cfg, config.Deps{Postgres: hostPool})
 	root, err := svc.ensureRootGroup(ctx)
 	require.NoError(t, err)
 	n := 0
@@ -217,14 +217,17 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 				if strings.HasPrefix(op, "mfa") {
 					cfg := svc.cfg
 					cfg.TwoFactor.Mode = iam.TwoFactorOptional
-					cfg.Roles = RoleConfig{
-						Personas: map[string]Persona{"org": {RequireMFA: []string{"org:members:manage"}}},
-						Roles:    []Role{{Persona: "org", Name: "owner", Permissions: []string{"org:*"}}},
-					}
-					// newEngine, not New: booting this catalog would sweep the
-					// credentials the shared workflow still holds.
+					mfaRoles := config.NewRoles()
+					mfaOrg := mfaRoles.Persona("org")
+					mfaOrg.RequireMFA(mfaOrg.Members.Manage)
+					cfg.Roles = mfaRoles
+					// A second app on the shared store: booting its catalog
+					// sweeps only credentials it issued, never those the shared
+					// workflow still holds.
+					cfg.Token.Issuer = "https://mfa-race.test"
+					cfg.Token.AccountIssuers = nil
 					var err error
-					raceSvc, err = newEngine(cfg, Deps{Postgres: hostPool})
+					raceSvc, err = New(ctx, cfg, config.Deps{Postgres: hostPool})
 					require.NoError(t, err)
 					t.Cleanup(raceSvc.Close)
 					_, err = raceSvc.enableFactor(ctx, one, "email", nil, authflow.AllowAdditionalFactors)

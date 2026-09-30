@@ -29,7 +29,7 @@ func TestSecurityMultiReplicaStores(t *testing.T) {
 		two := one.replica()
 		a := one.newAccount("replica-reset")
 		require.Less(t, one.post("/password/reset/request", map[string]string{"identifier": a.email}, "").status, 300)
-		token := one.mail.Last(t, authtest.PasswordReset, a.email).Token
+		token := one.mail.Last(t, iam.MessagePasswordReset, a.email).Token
 		body := map[string]string{"token": token, "new_password": "Replica-reset-passphrase-4"}
 		resp := two.post("/password/reset/confirm", body, "")
 		require.Less(t, resp.status, 300, resp.String())
@@ -43,7 +43,7 @@ func TestSecurityMultiReplicaStores(t *testing.T) {
 		a := one.newAccount("replica-mfa")
 		one.enrollEmail2FA(a)
 		ch := one.passwordStep(a, "198.51.100.30")
-		code := one.mail.Last(t, authtest.LoginCode, a.email).Code
+		code := one.mail.Last(t, iam.MessageLoginCode, a.email).Code
 		for i := range 5 {
 			h := []*host{one, two}[i%2]
 			resp := h.secondStep(a, ch, wrongCode(code), fmt.Sprintf("203.0.113.%d", 100+i))
@@ -56,9 +56,8 @@ func TestSecurityMultiReplicaStores(t *testing.T) {
 	t.Run("Redis budgets are shared by every replica", func(t *testing.T) {
 		rdb := testdb.ScratchRedis(t)
 		one := newHost(t, withHTTP(func(c *authkit.HTTPConfig) {
-			c.Redis = rdb
 			c.RateLimits = map[string]authkit.RateLimit{"auth_password_login": {Limit: 3, Window: time.Hour}}
-		}))
+		}), authtest.WithDeps(func(d *authkit.Deps) { d.Redis = rdb }))
 		two := one.replica()
 		a := one.newAccount("replicas")
 		for i, h := range []*host{one, two, one} {
@@ -140,7 +139,7 @@ func TestSecurityKeyRotationIsPublished(t *testing.T) {
 	rotating := &rotatingKeys{}
 	oldKeys, nextKeys := testkeys.Source(old), testkeys.Source(next)
 	rotating.current.Store(&oldKeys)
-	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(func(c *authkit.Config) { c.Keys = authkit.KeysConfig{Source: rotating} }))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithDeps(func(d *authkit.Deps) { d.KeySource = rotating }))
 	a := h.newAccount("rotation")
 	compromised := h.login(a).AccessToken
 	kids := func() []string {
@@ -373,7 +372,7 @@ func TestSecurityVerifyRequestRevealsNothing(t *testing.T) {
 	unverified := unique("aunverified") + "@security.test"
 	h.register(unverified)
 	unknown := unique("aunknown") + "@security.test"
-	sent := func(email string) int { return len(h.mail.Messages(authtest.Verification, email)) }
+	sent := func(email string) int { return len(h.mail.Messages(iam.MessageVerification, email)) }
 	before := map[string]int{verified: sent(verified), unverified: sent(unverified), unknown: sent(unknown)}
 	var bodies []string
 	for _, email := range []string{verified, unverified, unknown} {
@@ -401,7 +400,7 @@ func TestSecurityVerifyRequestByPhoneRevealsNothing(t *testing.T) {
 		return phone
 	}
 	verified, unverified, unknown := phoneAccount(true), phoneAccount(false), "+1555"+uniqueDigits(7)
-	sent := func(phone string) int { return len(h.mail.Messages(authtest.Verification, phone)) }
+	sent := func(phone string) int { return len(h.mail.Messages(iam.MessageVerification, phone)) }
 	before := map[string]int{verified: sent(verified), unverified: sent(unverified), unknown: sent(unknown)}
 	var bodies []string
 	for _, phone := range []string{verified, unverified, unknown} {
@@ -430,7 +429,7 @@ func TestSecurityRegistrationResendRevealsNothing(t *testing.T) {
 	registered, unknown := h.newAccount("r5registered").email, unique("r5unknown")+"@security.test"
 	require.Equal(t, http.StatusNotFound, h.post("/register/resend", map[string]string{"identifier": registered}, "").status)
 
-	sent := func(email string) int { return len(h.mail.Messages(authtest.Verification, email)) }
+	sent := func(email string) int { return len(h.mail.Messages(iam.MessageVerification, email)) }
 	before := map[string]int{pending: sent(pending), registered: sent(registered), unknown: sent(unknown)}
 	var bodies []string
 	for _, email := range []string{pending, registered, unknown} {

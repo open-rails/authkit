@@ -3,7 +3,7 @@ package authflow
 import (
 	"time"
 
-	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/naming"
 )
 
 // ListPage is the one list envelope: {object:"list", data:[...], next_cursor?}.
@@ -102,6 +102,6 @@ type UserProfile struct {
 	AvatarURL           *string              `json:"avatar_url,omitempty"`
 	PreferredLanguage   *string              `json:"preferred_language,omitempty"`
 	CreatedAt           *string              `json:"created_at,omitempty"`
-	Naming              iam.NamingState      `json:"naming"`
+	Naming              naming.State         `json:"naming"`
 	Security            UserSecurity         `json:"security"`
 }

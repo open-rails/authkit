@@ -150,8 +150,8 @@ func (s *Engine) mintAccessTokenForUserWithAssurance(ctx context.Context, q *db.
 	// Authority is never a token claim: permissions resolve live (Can). The
 	// root role rides along for display only (Claims.RootRole).
 	var ents []string
-	if provider := s.entitlementsProvider(); len(s.cfg.Token.EntitlementAllowlist) > 0 && provider != nil {
-		m, entErr := provider.ListEntitlements(ctx, []string{userID})
+	if len(s.cfg.Token.EntitlementAllowlist) > 0 && s.entitlements != nil {
+		m, entErr := s.entitlements(ctx, []string{userID})
 		if entErr != nil {
 			// Deliberate availability-over-consistency: a failing entitlements
 			// provider must not block login, but it must be LOUD — the user is

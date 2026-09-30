@@ -2,39 +2,18 @@ package engine
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
 )
 
-// Deps mirrors authkit.Deps; the root package maps it (config_map.go).
-type Deps struct {
-	River                  *RiverOwnership
-	Postgres               *pgxpool.Pool
-	Email                  EmailSender
-	SMS                    SMSSender
-	Entitlements           EntitlementsProvider
-	OnSoftDelete           func(context.Context, iam.UserDeletion) error
-	OnHardDelete           func(context.Context, iam.UserDeletion) error
-	OnRestore              func(context.Context, iam.UserDeletion) error
-	OnEvent                func(context.Context, iam.Event) error
-	DelegatedAuthorization iam.DelegationAuthorizer
-	NameAdmission          func(context.Context, iam.NameAdmissionRequest) error
-	Clock                  func() time.Time
-	// SolanaSNSResolver replaces the SNS resolver in AuthKit's own tests.
-	SolanaSNSResolver SolanaSNSResolver
-}
-
-func (s *Engine) applyDeps(d Deps) error {
-	if d.OnEvent != nil && d.Postgres == nil {
-		return errors.New("authkit: OnEvent requires Deps.Postgres")
-	}
+func (s *Engine) applyDeps(d config.Deps) error {
 	if d.Postgres != nil {
 		pool, err := schemaPool(d.Postgres, s.dbSchema())
 		if err != nil {
@@ -56,16 +35,12 @@ func (s *Engine) applyDeps(d Deps) error {
 		}
 		s.ephemeral = &ephemeralKV{pool: ephemeralPool, q: db.New(ephemeralPool)}
 	}
-	s.email = d.Email
-	s.sms = d.SMS
-	s.SetEntitlements(d.Entitlements)
-	s.onSoftDelete, s.onHardDelete, s.onRestore = d.OnSoftDelete, d.OnHardDelete, d.OnRestore
-	s.onEvent = d.OnEvent
+	s.providers = slices.Clone(d.Providers)
+	s.email, s.sms, s.smsCheck = d.Email, d.SMS, d.SMSHealth
+	s.entitlements, s.entitlementHolders = d.Entitlements, d.EntitlementHolders
+	s.onEvent, s.onPurge = d.OnEvent, d.OnPurge
 	s.delegationAuthorizer = d.DelegatedAuthorization
 	s.nameAdmission = d.NameAdmission
-	if d.SolanaSNSResolver != nil {
-		s.solanaSNSResolver = d.SolanaSNSResolver
-	}
 	if d.Clock != nil {
 		s.now = d.Clock
 	}

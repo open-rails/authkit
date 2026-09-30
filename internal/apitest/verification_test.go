@@ -38,8 +38,7 @@ func TestRootRoleClaimIsDisplayOnly(t *testing.T) {
 	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
 		c.Roles = rbac
 		c.TwoFactor.Mode = iam.TwoFactorDisabled
-		c.Keys.Source = testkeys.Source(signer)
-	}))
+	}), authtest.WithDeps(func(d *authkit.Deps) { d.KeySource = testkeys.Source(signer) }))
 	ctx := t.Context()
 	boss, plain := authtest.NewUser(t, auth), authtest.NewUser(t, auth)
 	authtest.GrantRole(t, auth, iam.RootGroup(), iam.UserSubject(boss.ID), admin)
@@ -83,7 +82,7 @@ func TestRemoteApplicationTokens(t *testing.T) {
 	m := newOrgModel()
 	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
 		m.config(c)
-		c.Applications.AllowPrivateNetworkJWKS = true
+		c.Token.AllowPrivateNetworkJWKS = true
 	}))
 	ctx := t.Context()
 	owner := authtest.NewUser(t, auth)

@@ -9,6 +9,7 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/lang"
 )
 
 type registrationNextAction string
@@ -41,23 +42,14 @@ func newRegistrationResponse(username string, email, phone *string, nextAction r
 	}
 }
 
-func preferredLanguageFromRequest(r *http.Request) string {
-	if r == nil {
-		return ""
-	}
-	language, ok := iam.LanguageFromContext(r.Context())
-	if !ok {
-		return ""
-	}
-	return language
-}
+func preferredLanguageFromRequest(r *http.Request) string { return lang.Request(r.Context()) }
 
 // handleRegisterUnifiedPOST: decode, rate-limit, one engine call, one switch.
 // The registration policy (identifier classification, validation, verification
 // mode, conflicts, the pending write + code send, the session) is
 // authkit.Register (ak#318).
 func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Request) {
-	if s.settings.RegistrationMode == iam.RegistrationModeClosed {
+	if s.cfg.Registration.NativeUserMode == iam.RegistrationModeClosed {
 		registrationDisabled(w)
 		return
 	}

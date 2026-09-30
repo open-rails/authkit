@@ -114,15 +114,19 @@ func (h hostSavepoint) Commit(ctx context.Context) error {
 // demoted creator could redeem their own link, or keep using their own key or
 // application, to regain the role. System-issued credentials (no creator)
 // are swept only for MFA: no key or application holds a role that needs it.
+// It sweeps what this app issued, under its own catalog, and has every other
+// account issuer sweep what it issued (enqueuePeerCredentialSweeps).
 func (s *Engine) revokeUncoveredCredentials(ctx context.Context, st *permissionGroupStore, touched ...authorityTouch) error {
 	seen := map[authorityTouch]bool{}
+	var unique []authorityTouch
 	var creds []sweptCredential
 	for _, t := range touched {
 		if seen[t] {
 			continue
 		}
 		seen[t] = true
-		rows, err := db.New(st.q).AuthorityUncoveredCredentials(ctx, db.AuthorityUncoveredCredentialsParams{GroupID: t.groupID, UserID: t.userID})
+		unique = append(unique, t)
+		rows, err := db.New(st.q).AuthorityUncoveredCredentials(ctx, db.AuthorityUncoveredCredentialsParams{GroupID: t.groupID, UserID: t.userID, Issuer: s.cfg.Token.Issuer})
 		if err != nil {
 			return err
 		}
@@ -152,7 +156,10 @@ func (s *Engine) revokeUncoveredCredentials(ctx context.Context, st *permissionG
 		}
 		revoked[key] = true
 	}
-	return nil
+	if st.reconcile {
+		return nil
+	}
+	return s.enqueuePeerCredentialSweeps(ctx, st.q, unique)
 }
 
 // sweptCredential is one credential the sweep re-checks. For an application
@@ -194,11 +201,11 @@ func (s *Engine) credentialStands(ctx context.Context, st *permissionGroupStore,
 // that strips the owner role of an application still counting as an owner
 // (its live registrar lost cover) is refused like any other last-owner
 // removal; a role that already conferred nothing (it needs MFA, or its
-// registrar is gone) is no loss. The boot sweep never refuses: it retires and
-// logs a group it leaves without a usable owner.
+// registrar is gone) is no loss. A reconciling sweep never refuses: it retires
+// and logs a group it leaves without a usable owner.
 func (s *Engine) retireCredential(ctx context.Context, st *permissionGroupStore, c sweptCredential) error {
 	if st.reconcile {
-		slog.InfoContext(ctx, "authkit: role catalog changed; credential retired", "kind", c.table, "id", c.id, "group_id", c.group.ID, "role", c.role)
+		slog.InfoContext(ctx, "authkit: credential sweep retired a credential", "kind", c.table, "id", c.id, "group_id", c.group.ID, "role", c.role)
 	}
 	if c.table == "group_remote_application_roles" {
 		app := iam.RemoteApplicationSubject(c.id)

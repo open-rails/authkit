@@ -18,11 +18,7 @@ import (
 //	             CODE is presented on ctx (#147 FINAL: the stranger invite is UNBOUND;
 //	             the single-use code is the credential, not the email).
 func (s *Engine) registrationAllowedForEmail(ctx context.Context, email string) (bool, error) {
-	mode, err := normalizeRegistrationMode(s.cfg.Registration.NativeUserMode)
-	if err != nil {
-		return false, nil
-	}
-	switch mode {
+	switch s.cfg.Registration.NativeUserMode {
 	case iam.RegistrationModeOpen:
 		return true, nil
 	case iam.RegistrationModeInviteOnly:

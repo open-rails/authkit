@@ -8,27 +8,28 @@ import (
 	"sync"
 	"time"
 
-	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 
 	"github.com/open-rails/authkit/provider"
 )
 
 // Service wraps the internal AuthKit engine with net/http mounting helpers.
 type Service struct {
-	dpopRequestURL      func(*http.Request) string
 	svc                 Backend
-	settings            authflow.Settings
+	cfg                 config.Config     // normalized
+	http                config.HTTPConfig // *cfg.HTTP
+	wrap                func(iam.Route, http.Handler) http.Handler
 	rl                  RateLimiter
 	closers             []func() // background work stopped by Close (#305)
 	clientIP            ClientIPFunc
-	clientIPExplicit    bool                         // Config.ClientIP: host owns the strategy; proxy sets are not composed
+	clientIPExplicit    bool                         // Deps.ClientIP: host owns the strategy; proxy sets are not composed
 	directPeerIP        bool                         // Config.DirectPeerIP: host asserts no proxy in front (ak#299)
 	undeclaredProxyOnce sync.Once                    // one-shot tripwire: private peer carrying forwarded headers
 	unknownAddressOnce  sync.Once                    // one-shot tripwire: no client address at all
 	trustedProxies      []netip.Prefix               // Config.TrustedProxies: X-Forwarded-For walk
 	cloudflareProxies   []netip.Prefix               // Config.CloudflareProxies: + CF-Connecting-IP fallback
 	providers           map[string]provider.Provider // validated, keyed by Name()
-	langCfg             *LanguageConfig
 }
 
 // limiterErrorResult is the verdict when the limiter's backend fails: refused,

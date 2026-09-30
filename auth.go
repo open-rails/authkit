@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sync/atomic"
+	"time"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/engine"
@@ -15,23 +15,22 @@ import (
 	riverhelpers "github.com/open-rails/helpers/river"
 )
 
-// Client is AuthKit embedded in a host: the engine and, unless Config.HTTP
-// is zero, its HTTP surface. Build it with New, wire any entitlements cycle
-// with SetEntitlements, then Start it. Operations are methods, grouped by
-// domain in the auth_*.go files. It is the authority verify's middleware
-// takes: verify.Required(client), verify.RequirePermission(client, perm).
+// Client is AuthKit embedded in a host: the engine and, when Config.HTTP is
+// set, its HTTP surface. Build it with New, then Start it. Operations are
+// methods, grouped by domain in the auth_*.go files. It is the authority
+// verify's middleware takes: verify.Required(client),
+// verify.RequirePermission(client, perm).
 //
-// Start, Close, RiverJobs, SetEntitlements, CheckSMSHealth, Handler, Routes,
-// Mount and the request verification methods (auth_verify.go) are
-// embedding-only: they wire the in-process deployment, and a Client of a
-// remote deployment would not have them. Every other method is an operation
-// a remote deployment could serve.
+// Start, Close, RiverJobs, SMSAvailable, SMSHealth, Handler, Routes, Mount
+// and the request verification methods (auth_verify.go) are embedding-only:
+// they wire the in-process deployment, and a Client of a remote deployment
+// would not have them. Every other method is an operation a remote
+// deployment could serve.
 type Client struct {
-	ops     ops.Operations
-	engine  *engine.Engine
-	http    *httpapi.Service
-	mount   *httpapi.Mount
-	started atomic.Bool
+	ops    ops.Operations
+	engine *engine.Engine
+	http   *httpapi.Service
+	mount  *httpapi.Mount
 }
 
 var _ verify.Authority = (*Client)(nil)
@@ -39,11 +38,7 @@ var _ verify.Authority = (*Client)(nil)
 // New builds AuthKit from host configuration and dependencies. Run Migrate on
 // the pool first. ctx bounds the boot-time database work.
 func New(ctx context.Context, cfg Config, deps Deps) (_ *Client, err error) {
-	if err := cfg.Roles.err(); err != nil {
-		return nil, fmt.Errorf("authkit: Config.Roles: %w", err)
-	}
-	settings := cfg.settings()
-	e, err := engine.New(ctx, settings.engine, deps.engine())
+	e, err := engine.New(ctx, cfg, deps)
 	if err != nil {
 		return nil, err
 	}
@@ -53,11 +48,8 @@ func New(ctx context.Context, cfg Config, deps Deps) (_ *Client, err error) {
 			a.Close()
 		}
 	}()
-	if settings.http != nil {
-		if deps.Postgres == nil {
-			return nil, errors.New("authkit: HTTP requires Deps.Postgres")
-		}
-		if a.http, a.mount, err = newHTTP(e, *settings.http); err != nil {
+	if e.Config().HTTP != nil {
+		if a.http, a.mount, err = newHTTP(e, deps); err != nil {
 			return nil, err
 		}
 	}
@@ -65,12 +57,12 @@ func New(ctx context.Context, cfg Config, deps Deps) (_ *Client, err error) {
 }
 
 // newHTTP builds the HTTP layer and its one mounted handler.
-func newHTTP(e *engine.Engine, cfg httpapi.Config) (*httpapi.Service, *httpapi.Mount, error) {
-	svc, err := httpapi.New(e, cfg)
+func newHTTP(e *engine.Engine, deps Deps) (*httpapi.Service, *httpapi.Mount, error) {
+	svc, err := httpapi.New(e, e.Config(), deps)
 	if err != nil {
 		return nil, nil, err
 	}
-	mount, err := httpapi.NewMount(svc, cfg.Mount)
+	mount, err := httpapi.NewMount(svc)
 	if err != nil {
 		svc.Close()
 		return nil, nil, err
@@ -78,27 +70,13 @@ func newHTTP(e *engine.Engine, cfg httpapi.Config) (*httpapi.Service, *httpapi.M
 	return svc, mount, nil
 }
 
-// SetEntitlements installs the entitlements provider after New, for a host
-// whose provider needs this Client first (a billing engine that authenticates
-// through it). Hosts without that cycle set Deps.Entitlements. It must precede
-// Start.
-func (a *Client) SetEntitlements(provider EntitlementsProvider) error {
-	if a.started.Load() {
-		return errors.New("authkit: SetEntitlements after Start")
-	}
-	a.engine.SetEntitlements(provider)
-	return nil
-}
-
-// Start starts AuthKit's background work (account lifecycle, auth-state
-// cleanup). Call it once, after wiring and before serving.
-func (a *Client) Start(ctx context.Context) error {
-	a.started.Store(true)
-	return a.engine.Start(ctx)
-}
+// Start starts AuthKit's background work: River (account lifecycle, events,
+// auth-state cleanup) and the Deps.SMSHealth checks. Call it once, before
+// serving.
+func (a *Client) Start(ctx context.Context) error { return a.engine.Start(ctx) }
 
 // RiverJobs contributes AuthKit's jobs to a host-owned River fleet
-// (Deps.River = RiverFromHost()).
+// (Config.River.HostOwned).
 func (a *Client) RiverJobs() riverhelpers.Contribution { return a.engine.RiverJobs() }
 
 // Close releases AuthKit-owned resources. Host-owned dependencies stay open.
@@ -110,10 +88,13 @@ func (a *Client) Close() {
 	a.engine.Close()
 }
 
-// CheckSMSHealth probes, without sending, whether the SMS sender can deliver
-// and records the verdict that gates phone flows. Register it as a recurring
-// dependency probe; every call re-records.
-func (a *Client) CheckSMSHealth(ctx context.Context) error { return a.engine.CheckSMSHealth(ctx) }
+// SMSAvailable reports whether phone flows are offered: Deps.SMS is set and
+// the latest Deps.SMSHealth check, if any, passed.
+func (a *Client) SMSAvailable() bool { return a.engine.SMSAvailable() }
+
+// SMSHealth is the latest Deps.SMSHealth verdict and when it ran (Start runs
+// it every Config.SMSHealthInterval); a zero time means no check has run.
+func (a *Client) SMSHealth() (checkedAt time.Time, err error) { return a.engine.SMSHealth() }
 
 // Handler serves AuthKit's whole HTTP surface; nil when Config.HTTP is zero.
 // Mount it at the host root: its paths already include HTTPConfig.BasePath.

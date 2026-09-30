@@ -22,7 +22,7 @@ func TestAccountPurgeKeepsTheRealDeletionTime(t *testing.T) {
 	var mu sync.Mutex
 	purged := map[string]iam.UserDeletion{}
 	auth, _ := authtest.New(t, authtest.WithDeps(func(d *authkit.Deps) {
-		d.OnHardDelete = func(_ context.Context, deletion iam.UserDeletion) error {
+		d.OnPurge = func(_ context.Context, deletion iam.UserDeletion) error {
 			mu.Lock()
 			defer mu.Unlock()
 			purged[deletion.UserID] = deletion

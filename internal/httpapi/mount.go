@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
-	"regexp"
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
@@ -16,45 +14,7 @@ import (
 // the issuer, so verifiers find JWKS at the issuer plus iam.JWKSPath.
 // Beneath it, browser OIDC
 // sits at OIDCPath and the JSON API at APIPath. The surface is ONE handler.
-const (
-	DefaultAPIPath = "/api/v1"
-	OIDCPath       = "/oidc"
-)
-
-// MountOptions configures the combined AuthKit surface.
-type MountOptions struct {
-	// Groups selects the mounted route groups. Nil mounts the default API
-	// surface plus browser OIDC. Non-nil mounts exactly the named groups —
-	// include RouteBrowserOIDC to keep the browser redirect flows.
-	Groups []iam.RouteGroup
-	// BasePath roots every route. "" derives it from the issuer's path; when
-	// the issuer is a URL a set value must equal that path.
-	BasePath string
-	// APIPath anchors the JSON API beneath BasePath. "" means DefaultAPIPath;
-	// "/" is BasePath itself.
-	APIPath string
-	// Exclude drops routes the host shadows with its own handlers, named as
-	// "METHOD /full/path" patterns (excluding GET also drops HEAD). An entry
-	// that matches no route is an error. Exclusion does NOT alter the
-	// MFA-enrollment exempt set, so a shadowed enroll route stays reachable
-	// through the host's replacement.
-	Exclude []string
-	// Wrap decorates every API and browser-OIDC handler at mount time. JWKS is
-	// not wrapped.
-	Wrap func(iam.Route, http.Handler) http.Handler
-	// RefreshCookie (ak#271) delivers the rotating refresh token as an
-	// HttpOnly+Secure+SameSite=Lax cookie (iam.RefreshCookieName) instead of a
-	// JSON body field, so an injected script cannot read the durable credential.
-	//
-	// When on, every session-establishing response sets the cookie and omits
-	// refresh_token from its body/fragment/postMessage payload; POST /token
-	// requires the cookie and rejects body refresh tokens; DELETE /logout clears
-	// the cookie. Native mounts use body tokens and never consume cookies.
-	//
-	// Browser-facing by construction: the host must serve the SPA and this
-	// mount on the SAME origin, or the cookie never reaches the refresh call.
-	RefreshCookie bool
-}
+const OIDCPath = "/oidc"
 
 // Mount is the canonical HTTP handler and its route catalog. Framework adapters
 // use the catalog to register native routes, delegating requests to ServeHTTP
@@ -101,24 +61,18 @@ func layoutFrom(r *http.Request) mountLayout {
 }
 
 // NewMount builds the full AuthKit surface — JSON API, browser OIDC and JWKS
-// — as ONE net/http handler plus its route catalog. Every
-// route keeps the gate its RouteSpec carries; the mount adds no auth and
-// removes none.
-func NewMount(svc *Service, opts MountOptions) (result *Mount, err error) {
+// — as ONE net/http handler plus its route catalog, as Config.HTTP declares
+// it. Every route keeps the gate its RouteSpec carries; the mount adds no
+// auth and removes none. Excluding a route does not alter the MFA-enrollment
+// exempt set, so a shadowed enroll route stays reachable through the host's
+// replacement.
+func NewMount(svc *Service) (result *Mount, err error) {
 	if svc == nil || svc.svc == nil {
 		return nil, errors.New("authkit: NewMount requires a Service constructed by httpapi.New")
 	}
-	base, err := resolveBasePath(opts.BasePath, svc.settings.Issuer)
-	if err != nil {
-		return nil, err
-	}
-	api := DefaultAPIPath
-	if strings.TrimSpace(opts.APIPath) != "" {
-		if api, err = mountPath("APIPath", opts.APIPath); err != nil {
-			return nil, err
-		}
-	}
-	api = joinRoutePath(base, api)
+	opts := svc.http
+	base := opts.BasePath
+	api := joinRoutePath(base, opts.APIPath)
 	excluded := make(map[string]bool, len(opts.Exclude))
 	for _, raw := range opts.Exclude {
 		method, path, ok := strings.Cut(strings.TrimSpace(raw), " ")
@@ -192,8 +146,8 @@ func NewMount(svc *Service, opts MountOptions) (result *Mount, err error) {
 				continue
 			}
 			handler := spec.Handler
-			if opts.Wrap != nil {
-				handler = opts.Wrap(route, handler)
+			if svc.wrap != nil {
+				handler = svc.wrap(route, handler)
 			}
 			if jsonAPI {
 				handler = svc.guardJSONAPI(handler)
@@ -214,45 +168,6 @@ func NewMount(svc *Service, opts MountOptions) (result *Mount, err error) {
 		result.handler = withRefreshCookiePolicy(result.handler, refreshCookiePolicy{})
 	}
 	return result, nil
-}
-
-// resolveBasePath derives the base from the issuer's path, or checks a set
-// one against it: JWKS is only found where the issuer says.
-// A non-URL issuer has no path, so any base goes.
-func resolveBasePath(configured, issuer string) (string, error) {
-	u, err := url.Parse(strings.TrimSpace(issuer))
-	isURL := err == nil && u.Scheme != "" && u.Host != ""
-	derived := ""
-	if isURL {
-		if derived, err = mountPath("Token.Issuer path", u.EscapedPath()); err != nil {
-			return "", err
-		}
-	}
-	if strings.TrimSpace(configured) == "" {
-		return derived, nil
-	}
-	base, err := mountPath("BasePath", configured)
-	if err != nil {
-		return "", err
-	}
-	if isURL && base != derived {
-		return "", fmt.Errorf("authkit: BasePath %q must equal the path of Token.Issuer %q, where verifiers look for JWKS", configured, issuer)
-	}
-	return base, nil
-}
-
-// Plain segments only: framework routers read them literally, and escaped
-// and unescaped forms are the same string.
-var mountPathRE = regexp.MustCompile(`^(/[A-Za-z0-9_~-][A-Za-z0-9._~-]*)+$`)
-
-// mountPath normalizes a configured path: surrounding space and trailing
-// slashes are dropped, so "/" is "" (root).
-func mountPath(field, p string) (string, error) {
-	p = strings.TrimRight(strings.TrimSpace(p), "/")
-	if p != "" && !mountPathRE.MatchString(p) {
-		return "", fmt.Errorf("authkit: %s %q must be an absolute path of plain segments", field, p)
-	}
-	return p, nil
 }
 
 func joinRoutePath(prefix, path string) string {

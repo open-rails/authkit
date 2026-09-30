@@ -14,43 +14,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	riverhelpers "github.com/open-rails/helpers/river"
 	"github.com/riverqueue/river"
-
-	"github.com/open-rails/authkit/internal/db"
 )
 
 // riverConfig configures a River client AuthKit owns. It logs through the
 // slog default, like the rest of AuthKit, instead of River's stdout logger.
 func riverConfig(schema string) *river.Config {
 	return &river.Config{Schema: schema, Logger: slog.Default()}
-}
-
-// RiverOwnership mirrors authkit.RiverOwnership.
-type RiverOwnership struct{ fromHost bool }
-
-// RiverFromHost selects a host-owned River fleet.
-func RiverFromHost() *RiverOwnership { return &RiverOwnership{fromHost: true} }
-
-// RiverConfig mirrors authkit.RiverConfig.
-type RiverConfig struct {
-	Schema          string
-	CleanupInterval time.Duration
-}
-
-func normalizeRiverConfig(cfg RiverConfig) (RiverConfig, error) {
-	cfg.Schema = strings.TrimSpace(cfg.Schema)
-	if cfg.Schema == "" {
-		cfg.Schema = "public"
-	}
-	if !db.ValidSchemaName(cfg.Schema) {
-		return cfg, fmt.Errorf("authkit: invalid River.Schema %q", cfg.Schema)
-	}
-	if cfg.CleanupInterval == 0 {
-		cfg.CleanupInterval = time.Hour
-	}
-	if cfg.CleanupInterval < time.Second {
-		return cfg, fmt.Errorf("authkit: River.CleanupInterval must be at least one second")
-	}
-	return cfg, nil
 }
 
 // maintenanceQueue preserves existing readable names where River accepts them.
@@ -77,17 +46,17 @@ type riverMaintenance struct {
 }
 
 // riverPoolConns sizes the managed River client's own pool: a fetcher per
-// queue (four, one worker each), the leader elector, the periodic enqueuer
+// queue (five, one worker each), the leader elector, the periodic enqueuer
 // and the completer. River's deadlines (5s to keep leadership, 10s to fetch)
 // include waiting for a connection, so on the request pool a small or busy
 // host pool made the leader resign and stopped every periodic job.
-const riverPoolConns = 4
+const riverPoolConns = 5
 
-func (s *Engine) initRiver(host *pgxpool.Pool, ownership *RiverOwnership) error {
+func (s *Engine) initRiver(host *pgxpool.Pool) error {
 	if s.pg == nil {
 		return nil
 	}
-	s.maintenance = &riverMaintenance{fromHost: ownership != nil && ownership.fromHost}
+	s.maintenance = &riverMaintenance{fromHost: s.cfg.River.HostOwned}
 	if s.maintenance.fromHost {
 		return nil
 	}
@@ -179,6 +148,9 @@ func (s *Engine) registerRiver(cfg *river.Config) error {
 	if err := river.AddWorkerSafely(workers, &accountEventWorker{engine: s}); err != nil {
 		return err
 	}
+	if err := river.AddWorkerSafely(workers, &credentialSweepWorker{engine: s}); err != nil {
+		return err
+	}
 	cfg.Workers = workers
 	if cfg.Queues == nil {
 		cfg.Queues = make(map[string]river.QueueConfig)
@@ -199,6 +171,13 @@ func (s *Engine) registerRiver(cfg *river.Config) error {
 	}
 	if _, ok := cfg.Queues[eventQueue]; !ok {
 		cfg.Queues[eventQueue] = river.QueueConfig{MaxWorkers: 1}
+	}
+	sweepQueue := credentialSweepQueue(s.dbSchema(), s.cfg.Token.Issuer)
+	if existing, ok := cfg.Queues[sweepQueue]; ok && existing.MaxWorkers < 1 {
+		return fmt.Errorf("authkit: credential sweep queue %q requires workers", sweepQueue)
+	}
+	if _, ok := cfg.Queues[sweepQueue]; !ok {
+		cfg.Queues[sweepQueue] = river.QueueConfig{MaxWorkers: 1}
 	}
 	finalizerQueue := accountFinalizerQueue(s.dbSchema())
 	if existing, ok := cfg.Queues[finalizerQueue]; ok && existing.MaxWorkers < 1 {
@@ -226,7 +205,8 @@ func (s *Engine) registerRiver(cfg *river.Config) error {
 // starts its shared client after composing every library's worker registry.
 // A client without PostgreSQL (for example verify-only tests) has no jobs.
 func (s *Engine) Start(ctx context.Context) error {
-	if s == nil || s.maintenance == nil {
+	s.startSMSHealth()
+	if s.maintenance == nil {
 		return nil
 	}
 	m := s.maintenance

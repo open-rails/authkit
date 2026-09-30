@@ -26,7 +26,6 @@ func (s *Engine) issuePendingEmailRegistration(ctx context.Context, email, usern
 	if err != nil {
 		return "", err
 	}
-	sendCtx := contextWithPreferredLanguage(ctx, language)
 	if ttl <= 0 {
 		ttl = defaultEmailVerificationTTL
 	}
@@ -47,15 +46,13 @@ func (s *Engine) issuePendingEmailRegistration(ctx context.Context, email, usern
 		return "", err
 	}
 
-	msg := iam.VerificationMessage{Code: code, LinkURL: s.emailVerificationURL(linkToken), Purpose: "signup"}
-	if err := msg.Validate(); err == nil {
-		if s.email != nil {
-			if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.email.SendVerification(sendCtx, email, username, msg) }); err != nil {
-				return "", emailDeliveryError(err)
-			}
-		} else if !s.cfg.Registration.AllowMissingSenders {
-			return "", fmt.Errorf("registration verification unavailable: email sender not configured")
+	if s.email != nil {
+		if err := s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessageVerification, To: email, Username: username, Language: s.messageLanguage(ctx, language),
+			Code: code, Link: s.emailVerificationURL(linkToken), Purpose: iam.PurposeSignup}); err != nil {
+			return "", err
 		}
+	} else if !s.cfg.Registration.AllowMissingSenders {
+		return "", fmt.Errorf("registration verification unavailable: email sender not configured")
 	}
 
 	return code, nil
@@ -104,7 +101,6 @@ func (s *Engine) issuePendingPhoneRegistration(ctx context.Context, phone, usern
 	if err != nil {
 		return "", err
 	}
-	sendCtx := contextWithPreferredLanguage(ctx, language)
 	code := secret.Digits(6)
 	codeHash := secret.Hash(code)
 	linkToken := secret.Token(32)
@@ -121,17 +117,13 @@ func (s *Engine) issuePendingPhoneRegistration(ctx context.Context, phone, usern
 		return "", err
 	}
 
-	msg := iam.VerificationMessage{Code: code, LinkURL: s.phoneVerificationURL(linkToken), Purpose: "signup"}
-	if err := msg.Validate(); err == nil {
-		if s.sms != nil {
-			if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, phone, msg) }); err != nil {
-				return "", smsDeliveryError(err)
-			}
-		} else {
-			if !s.cfg.Registration.AllowMissingSenders {
-				return "", fmt.Errorf("SMS verification unavailable: SMS sender not configured (phone registration requires SMS in production)")
-			}
+	if s.sms != nil {
+		if err := s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessageVerification, To: phone, Language: s.messageLanguage(ctx, language),
+			Code: code, Link: s.phoneVerificationURL(linkToken), Purpose: iam.PurposeSignup}); err != nil {
+			return "", err
 		}
+	} else if !s.cfg.Registration.AllowMissingSenders {
+		return "", fmt.Errorf("SMS verification unavailable: SMS sender not configured (phone registration requires SMS in production)")
 	}
 
 	return code, nil

@@ -14,6 +14,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/provider"
 )
@@ -49,8 +50,9 @@ func TestCookieRegistry(t *testing.T) {
 				if secure {
 					c.Frontend.BaseURL = "https://app.example.test"
 				}
-				c.Identity.Providers = []provider.Provider{provider.GitHub("registry-client", "registry-secret")}
 				c.HTTP.RefreshCookie = true
+			}), authtest.WithDeps(func(d *authkit.Deps) {
+				d.Providers = []provider.Provider{provider.GitHub("registry-client", "registry-secret")}
 			}))
 			u := authtest.NewUser(t, auth)
 			serve := func(method, path, body string) *http.Response {
@@ -61,7 +63,7 @@ func TestCookieRegistry(t *testing.T) {
 				return w.Result()
 			}
 
-			login := serve(http.MethodPost, httpapi.DefaultAPIPath+"/password/login", `{"identifier":"`+u.Email+`","password":"`+u.Password+`"}`)
+			login := serve(http.MethodPost, config.DefaultAPIPath+"/password/login", `{"identifier":"`+u.Email+`","password":"`+u.Password+`"}`)
 			require.Equal(t, http.StatusOK, login.StatusCode)
 			requireIssued(t, login.Cookies(), httpapi.CurrentCookie(httpapi.CookieRefresh, secure), secure, func(name string) bool {
 				return strings.HasSuffix(name, "authkit_rt")

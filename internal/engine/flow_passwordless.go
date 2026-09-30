@@ -358,26 +358,20 @@ func (s *Engine) createPasswordlessUser(ctx context.Context, rec passwordlessCha
 }
 
 func (s *Engine) sendPasswordlessChallenge(ctx context.Context, rec passwordlessChallenge, code, linkURL string) error {
-	msg := iam.VerificationMessage{Code: code, LinkURL: linkURL, Purpose: "passwordless_login"}
-	if err := msg.Validate(); err != nil {
-		return err
-	}
-	sendCtx := contextWithPreferredLanguage(ctx, rec.PreferredLanguage)
+	language := s.messageLanguage(ctx, rec.PreferredLanguage)
 	switch rec.Channel {
 	case passwordlessChannelEmail:
 		if s.email == nil {
 			return errmodel.ErrEmailUnavailable
 		}
-		return emailDeliveryError(s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
-			return s.email.SendVerification(sendCtx, rec.Identifier, rec.GeneratedUsername, msg)
-		}))
+		return s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessageVerification, To: rec.Identifier, Username: rec.GeneratedUsername,
+			Language: language, Code: code, Link: linkURL, Purpose: iam.PurposePasswordlessLogin})
 	case passwordlessChannelSMS:
-		if s.sms == nil || !s.SMSAvailable() {
+		if !s.SMSAvailable() {
 			return errmodel.ErrSMSUnavailable
 		}
-		return smsDeliveryError(s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
-			return s.sms.SendVerification(sendCtx, rec.Identifier, msg)
-		}))
+		return s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessageVerification, To: rec.Identifier,
+			Language: language, Code: code, Link: linkURL, Purpose: iam.PurposePasswordlessLogin})
 	default:
 		return jwt.ErrTokenInvalidClaims
 	}
@@ -387,8 +381,7 @@ func (s *Engine) passwordlessAutoRegistrationAllowed() bool {
 	if s == nil || !s.cfg.Registration.PasswordlessAutoRegistration {
 		return false
 	}
-	mode, err := normalizeRegistrationMode(s.cfg.Registration.NativeUserMode)
-	return err == nil && mode != iam.RegistrationModeClosed
+	return s.cfg.Registration.NativeUserMode != iam.RegistrationModeClosed
 }
 
 func (s *Engine) derivePasswordlessUsername(ctx context.Context, channel, identifier string) string {

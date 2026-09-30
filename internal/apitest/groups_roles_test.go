@@ -956,8 +956,7 @@ func TestCapabilitiesAndRootMembershipDiscovery(t *testing.T) {
 		c.Roles = rbac
 		c.TwoFactor.Mode = iam.TwoFactorDisabled
 		c.Registration.Verification = iam.RegistrationVerificationNone
-		c.Identity.Providers = []provider.Provider{provider.Google("google-client", "secret"), provider.Discord("discord-client", "secret")}
-	}))
+	}), withProviders(provider.Google("google-client", "secret"), provider.Discord("discord-client", "secret")))
 	a := newAPI(t, auth)
 	caps := a.get("/capabilities", "")
 	require.Equal(t, http.StatusOK, caps.status, caps.String())

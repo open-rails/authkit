@@ -28,7 +28,7 @@ func (s *Service) PermissionGroupRoutes() []RouteSpec {
 	if s == nil || s.svc == nil {
 		return nil
 	}
-	lang := func(h http.Handler) http.Handler { return LanguageMiddleware(s.langCfg)(h) }
+	lang := s.languageMiddleware
 
 	specs := s.permissionGroupRouteSpecs()
 	specs = append(specs, RouteSpec{

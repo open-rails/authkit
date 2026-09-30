@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/internal/ops"
@@ -63,12 +64,11 @@ func (s *Engine) MintDelegatedAccessToken(ctx context.Context, actor iam.Actor, 
 	return iam.Token{Value: token, ExpiresAt: now.Add(d.TTL)}, nil
 }
 
-// delegatedTTL clamps a requested lifetime into the Config.Delegated bounds,
-// or the default bounds when the mint route is off.
+// delegatedTTL clamps a requested lifetime into the Config.Delegated bounds.
 func (s *Engine) delegatedTTL(ttl time.Duration) time.Duration {
 	c := s.cfg.Delegated
-	if c.TTLDefault == 0 {
-		c.TTLFloor, c.TTLDefault, c.TTLCeiling = defaultDelegatedTTLFloor, defaultDelegatedTTLDefault, defaultDelegatedTTLCeiling
+	if len(c.Audiences) == 0 {
+		c.TTLFloor, c.TTLDefault, c.TTLCeiling = config.DefaultDelegatedTTLFloor, config.DefaultDelegatedTTLDefault, config.DefaultDelegatedTTLCeiling
 	}
 	switch {
 	case ttl <= 0:

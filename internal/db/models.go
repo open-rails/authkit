@@ -91,6 +91,8 @@ type RemoteApplication struct {
 	TrustRoot string
 	// The user who supplied the keys of a group registration; NULL = the operator.
 	RegisteredBy *string
+	// The Token.Issuer of the app its registrar registered it through; only its role catalog judges the application's roles. NULL = every app does.
+	CatalogIssuer *string
 }
 
 type SessionEvent struct {

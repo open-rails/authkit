@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/riverqueue/river"
@@ -18,7 +19,7 @@ import (
 
 func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
-	require.NoError(t, Migrate(t.Context(), pg.Pool, MigrateOptions{}))
+	require.NoError(t, Migrate(t.Context(), pg.Pool, config.Config{}, config.MigrateOptions{}))
 	cfgPool := pg.Pool.Config().Copy()
 	cfgPool.MaxConns = 1
 	pool, err := pgxpool.NewWithConfig(t.Context(), cfgPool)
@@ -28,24 +29,35 @@ func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 	var runtime *Engine
 	var mu sync.Mutex
 	var events []string
-	hook := func(stage string) func(context.Context, iam.UserDeletion) error {
-		return func(ctx context.Context, deletion iam.UserDeletion) error {
-			// A callback may reenter the same one-slot AuthKit pool. It must
-			// execute outside the mutation/delivery receipt transaction.
-			user, err := runtime.getUserByID(ctx, deletion.UserID)
-			if err != nil {
-				return err
-			}
-			if user == nil {
-				return errors.New("identity purged before finalization callback")
-			}
-			mu.Lock()
-			events = append(events, stage+":"+deletion.ID)
-			mu.Unlock()
-			return nil
-		}
+	record := func(entry string) {
+		mu.Lock()
+		defer mu.Unlock()
+		events = append(events, entry)
 	}
-	runtime, err = New(context.Background(), cfg, Deps{Postgres: pool, OnSoftDelete: hook("soft"), OnRestore: hook("restore"), OnHardDelete: hook("hard")})
+	// A hook may reenter the same one-slot AuthKit pool. It must execute
+	// outside the mutation and delivery transactions.
+	observe := func(ctx context.Context, entry, userID string) error {
+		user, err := runtime.getUserByID(ctx, userID)
+		if err != nil {
+			return err
+		}
+		if user == nil {
+			return errors.New("identity purged before its callback")
+		}
+		record(entry)
+		return nil
+	}
+	runtime, err = New(context.Background(), cfg, config.Deps{
+		Postgres: pool,
+		OnEvent: func(ctx context.Context, e iam.Event) error {
+			if e.Kind == iam.EventUserPurged {
+				record(string(e.Kind))
+				return nil
+			}
+			return observe(ctx, string(e.Kind), e.UserID)
+		},
+		OnPurge: func(ctx context.Context, d iam.UserDeletion) error { return observe(ctx, "purge:"+d.ID, d.UserID) },
+	})
 	require.NoError(t, err)
 	t.Cleanup(runtime.Close)
 	client := runtime
@@ -81,21 +93,24 @@ func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 	err = runtime.finalizeAccountDeletion(t.Context(), second.ID, false)
 	var snooze *river.JobSnoozeError
 	require.ErrorAs(t, err, &snooze, "the private finalizer also enforces the deadline")
-	var deliveries []int64
-	rows, err := pg.Pool.Query(t.Context(), "SELECT id FROM profiles.account_deletion_deliveries WHERE user_id=$1::uuid ORDER BY id", user.ID)
+	var deliveries int
+	require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT count(*) FROM profiles.account_deletion_deliveries WHERE user_id=$1::uuid", user.ID).Scan(&deliveries))
+	require.Zero(t, deliveries, "deletion and recovery are events; only the purge has a callback receipt")
+	rows, err := pg.Pool.Query(t.Context(), "SELECT id FROM profiles.account_events WHERE user_id=$1::uuid ORDER BY id", user.ID)
 	require.NoError(t, err)
-	deliveries, err = pgx.CollectRows(rows, pgx.RowTo[int64])
+	pending, err := pgx.CollectRows(rows, pgx.RowTo[int64])
 	require.NoError(t, err)
-	require.Len(t, deliveries, 3)
-	require.ErrorAs(t, runtime.deliverAccountEvent(t.Context(), deliveries[1]), &snooze, "restore waits for earlier soft callback")
-	for _, id := range deliveries {
-		require.NoError(t, runtime.deliverAccountEvent(t.Context(), id))
+	require.Len(t, pending, 4, "registered, deleted, restored, deleted")
+	require.ErrorAs(t, runtime.deliverEvent(t.Context(), pending[2]), &snooze, "restore waits for the earlier deletion")
+	for _, id := range pending {
+		require.NoError(t, runtime.deliverEvent(t.Context(), id))
 	}
-	require.NoError(t, runtime.deliverAccountEvent(t.Context(), deliveries[0]), "a completed old soft callback is never replayed after restore")
+	require.NoError(t, runtime.deliverEvent(t.Context(), pending[1]), "a delivered deletion is never replayed after restore")
 	mu.Lock()
 	recorded := append([]string(nil), events...)
 	mu.Unlock()
-	require.Equal(t, []string{"soft:" + first.ID, "restore:" + first.ID, "soft:" + second.ID}, recorded)
+	lifecycle := []string{string(iam.EventUserRegistered), string(iam.EventUserDeleted), string(iam.EventUserRestored), string(iam.EventUserDeleted)}
+	require.Equal(t, lifecycle, recorded)
 	// Advance the stored deadline in this disposable fixture. No production
 	// API permits shortening the recovery window.
 	tx, err := pg.Pool.Begin(t.Context())
@@ -109,26 +124,35 @@ func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 	results, err = client.RestoreUsers(t.Context(), iam.SystemActor(), []string{user.ID})
 	require.NoError(t, err)
 	require.Error(t, results[0].Err, "finalization cannot be restored after deadline")
-	// Run the real River client. Prior callbacks are receipt-idempotent, then
-	// hard cleanup commits and schedules the private purge job.
+	// Run the real River client. Delivered events are receipt-idempotent, then
+	// the purge callback commits and schedules the private purge job, whose
+	// user.purged event follows.
 	require.NoError(t, runtime.Start(t.Context()))
 	require.Eventually(t, func() bool {
 		var exists bool
 		err := pg.Pool.QueryRow(context.Background(), "SELECT EXISTS(SELECT 1 FROM profiles.users WHERE id=$1::uuid)", user.ID).Scan(&exists)
 		return err == nil && !exists
 	}, 15*time.Second, 25*time.Millisecond)
+	want := append(lifecycle, "purge:"+second.ID, string(iam.EventUserPurged))
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(events) >= len(want)
+	}, 15*time.Second, 25*time.Millisecond)
 	mu.Lock()
 	recorded = append([]string(nil), events...)
 	mu.Unlock()
-	require.Equal(t, []string{"soft:" + first.ID, "restore:" + first.ID, "soft:" + second.ID, "hard:" + second.ID}, recorded)
+	require.Equal(t, want, recorded)
 	require.NoError(t, pool.Ping(t.Context()), "host pool remains owned by the caller")
 }
 
 func TestAccountFinalizationPreservesForeignKeysAndCascadesMemberships(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := maintenanceConfig()
-	cfg.Roles = RoleConfig{Roles: []Role{{Persona: "root", Name: "member"}}}
-	runtime, err := New(context.Background(), cfg, Deps{Postgres: pg.Pool})
+	roles := config.NewRoles()
+	roles.Root.Role("member")
+	cfg.Roles = roles
+	runtime, err := New(context.Background(), cfg, config.Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	t.Cleanup(runtime.Close)
 	client := runtime
@@ -158,8 +182,8 @@ func TestAccountFinalizationPreservesForeignKeysAndCascadesMemberships(t *testin
 // key the account issued is live, including one no earlier sweep saw.
 func TestAccountPurgeSweepsCredentialsBeforeTheRowGoes(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
-	require.NoError(t, Migrate(t.Context(), pg.Pool, MigrateOptions{}))
-	runtime, err := New(context.Background(), maintenanceConfig(), Deps{Postgres: pg.Pool})
+	require.NoError(t, Migrate(t.Context(), pg.Pool, config.Config{}, config.MigrateOptions{}))
+	runtime, err := New(context.Background(), maintenanceConfig(), config.Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	t.Cleanup(runtime.Close)
 	ctx := t.Context()
@@ -213,7 +237,7 @@ func TestAccountRecoveryAndFinalizerSerializeAtDeadline(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			pg := testdb.ScratchPostgres(t)
-			runtime, err := New(context.Background(), maintenanceConfig(), Deps{Postgres: pg.Pool})
+			runtime, err := New(context.Background(), maintenanceConfig(), config.Deps{Postgres: pg.Pool})
 			require.NoError(t, err)
 			t.Cleanup(runtime.Close)
 			user, err := runtime.createUser(t.Context(), name+"@example.test", name)

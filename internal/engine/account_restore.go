@@ -14,8 +14,7 @@ import (
 // pass an empty generation to select the current deletion. Callers retain
 // responsibility for authenticating a, their actor, before invoking this helper.
 func (s *Engine) restoreAccountDeletionOn(ctx context.Context, tx pgx.Tx, a iam.Actor, userID, generation string) error {
-	client, err := s.deletionRiver()
-	if err != nil {
+	if _, err := s.deletionRiver(); err != nil {
 		return err
 	}
 	q := s.qtx(tx)
@@ -62,9 +61,6 @@ func (s *Engine) restoreAccountDeletionOn(ctx context.Context, tx pgx.Tx, a iam.
 		return err
 	}
 	if err := q.AccountDeletionSetRestored(ctx, id); err != nil {
-		return err
-	}
-	if err := s.enqueueAccountDeliveries(ctx, tx, client, userDeletion(record), record.Recipients, "restore"); err != nil {
 		return err
 	}
 	return s.emitEvents(ctx, tx, a, userEvent(iam.EventUserRestored, userID))

@@ -9,6 +9,7 @@ import (
 
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
+	"github.com/open-rails/authkit/iam"
 	"github.com/stretchr/testify/require"
 )
 
@@ -42,7 +43,7 @@ func (h *host) enrollEmail2FA(a account) []string {
 	token := h.login(a).AccessToken
 	resp := h.post("/user/2fa", map[string]string{"method": "email"}, token)
 	require.Equal(h.t, http.StatusAccepted, resp.status, resp.String())
-	code := h.mail.Last(h.t, authtest.Verification, a.email).Code
+	code := h.mail.Last(h.t, iam.MessageVerification, a.email).Code
 	resp = h.post("/user/2fa", map[string]string{"method": "email", "code": code}, token)
 	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
 	var out struct {
@@ -74,7 +75,7 @@ func (h *host) enrollSMS(token, phone string) {
 	h.t.Helper()
 	resp := h.post("/user/2fa", map[string]string{"method": "sms", "phone_number": phone}, token)
 	require.Equal(h.t, http.StatusAccepted, resp.status, resp.String())
-	code := h.mail.Last(h.t, authtest.Verification, phone).Code
+	code := h.mail.Last(h.t, iam.MessageVerification, phone).Code
 	resp = h.post("/user/2fa", map[string]string{"method": "sms", "phone_number": phone, "code": code}, token)
 	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
 }
@@ -112,7 +113,7 @@ func TestSecuritySecondFactorLockout(t *testing.T) {
 	victim := h.newAccount("mfalock")
 	h.enrollEmail2FA(victim)
 	ch := h.passwordStep(victim, "198.51.100.7")
-	code := h.mail.Last(t, authtest.LoginCode, victim.email).Code
+	code := h.mail.Last(t, iam.MessageLoginCode, victim.email).Code
 	for i := range 12 {
 		junk := challenge{}
 		junk.Error.Metadata.Challenge = fmt.Sprintf("forged-challenge-%d", i)
@@ -141,7 +142,7 @@ func TestSecuritySecondFactorGuessBudget(t *testing.T) {
 	ip := 0
 	next := func() string { ip++; return fmt.Sprintf("203.0.113.%d", ip) }
 	for round := range 3 {
-		code := h.mail.Last(t, authtest.LoginCode, a.email).Code
+		code := h.mail.Last(t, iam.MessageLoginCode, a.email).Code
 		for range 4 {
 			resp := h.secondStep(a, ch, wrongCode(code), next())
 			require.Equal(t, http.StatusUnauthorized, resp.status, resp.String())
@@ -152,11 +153,11 @@ func TestSecuritySecondFactorGuessBudget(t *testing.T) {
 			require.Equal(t, http.StatusForbidden, resp.status, resp.String())
 		}
 	}
-	code := h.mail.Last(t, authtest.LoginCode, a.email).Code
+	code := h.mail.Last(t, iam.MessageLoginCode, a.email).Code
 	resp := h.secondStep(a, ch, code, next())
 	require.Equal(t, http.StatusUnauthorized, resp.status, "12 guesses did not exhaust the proof: %s", resp)
 	// A new first factor starts a new proof.
 	ch = h.passwordStep(a, "198.51.100.20")
-	code = h.mail.Last(t, authtest.LoginCode, a.email).Code
+	code = h.mail.Last(t, iam.MessageLoginCode, a.email).Code
 	require.Equal(t, http.StatusOK, h.secondStep(a, ch, code, next()).status)
 }

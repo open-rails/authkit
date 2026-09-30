@@ -76,7 +76,7 @@ func (s *Engine) UpsertRemoteApplication(ctx context.Context, actor iam.Actor, r
 			return err
 		}
 		if rekey {
-			if err := db.New(st.q).RemoteApplicationSetRegistrar(ctx, db.RemoteApplicationSetRegistrarParams{ID: out.ID, RegisteredBy: actor.ID()}); err != nil {
+			if err := db.New(st.q).RemoteApplicationSetRegistrar(ctx, db.RemoteApplicationSetRegistrarParams{ID: out.ID, RegisteredBy: actor.ID(), CatalogIssuer: s.cfg.Token.Issuer}); err != nil {
 				return err
 			}
 		}

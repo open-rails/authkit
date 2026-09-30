@@ -353,8 +353,8 @@ func TestSecurityRevokeAboveOwnRole(t *testing.T) {
 // deployment's own or its identity providers' issuers, nor an issuer another
 // group already holds.
 func TestSecurityRemoteApplicationIssuerSquat(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(func(c *authkit.Config) {
-		c.Identity.Providers = []provider.Provider{provider.GitHub("squat-client", "squat-secret")}
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithDeps(func(d *authkit.Deps) {
+		d.Providers = []provider.Provider{provider.GitHub("squat-client", "squat-secret")}
 	}))
 	squatter := h.newAccount("squatter")
 	group, _ := h.newOrg(squatter)
@@ -383,7 +383,8 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 	const peerIssuer = "https://peer.security.test"
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(func(c *authkit.Config) {
 		c.Token.AccountIssuers = []string{issuer, peerIssuer}
-		c.Identity.Providers = []provider.Provider{provider.GitHub("peer-client", "peer-secret")}
+	}), authtest.WithDeps(func(d *authkit.Deps) {
+		d.Providers = []provider.Provider{provider.GitHub("peer-client", "peer-secret")}
 	}))
 	ctx := context.Background()
 	peerKey, err := rsa.GenerateKey(rand.Reader, 2048)

@@ -7,12 +7,9 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/jose"
-	"github.com/open-rails/authkit/internal/password"
 	"github.com/open-rails/authkit/keys"
-	"github.com/open-rails/authkit/provider"
 )
 
 // Plain accessors and small setters on engine: keys/JWKS, config, the DB pool
@@ -52,6 +49,7 @@ func (s *Engine) Close() {
 }
 
 func (s *Engine) close() {
+	s.stopSMSHealth()
 	s.closeRiver()
 	if s.ownedKeySource != nil {
 		s.ownedKeySource.Close()
@@ -82,52 +80,4 @@ func (s *Engine) dbSchema() string {
 // namespace through that connection's search_path.
 func (s *Engine) qtx(tx pgx.Tx) *db.Queries {
 	return db.New(tx)
-}
-
-// entitlementsBox lets a nil provider be stored atomically.
-type entitlementsBox struct{ provider EntitlementsProvider }
-
-func (s *Engine) SetEntitlements(p EntitlementsProvider) {
-	s.entitlements.Store(&entitlementsBox{provider: p})
-}
-
-// entitlementsProvider is read on request paths, concurrently with
-// Client.SetEntitlements during wiring.
-func (s *Engine) entitlementsProvider() EntitlementsProvider {
-	if b := s.entitlements.Load(); b != nil {
-		return b.provider
-	}
-	return nil
-}
-
-// Settings derives the configuration the HTTP layer reads.
-func (s *Engine) Settings() authflow.Settings {
-	c := s.cfg
-	return authflow.Settings{
-		Issuer:                   c.Token.Issuer,
-		AccountIssuers:           append([]string(nil), c.Token.AccountIssuers...),
-		ExpectedAudiences:        append([]string(nil), c.Token.ExpectedAudiences...),
-		RefreshTokenDuration:     c.Token.RefreshTokenDuration,
-		APIKeyPrefix:             c.APIKeys.Prefix,
-		Schema:                   s.dbSchema(),
-		RequireMFAEnrollment:     c.TwoFactor.Mode == iam.TwoFactorRequired,
-		AllowPrivateNetworkJWKS:  c.Applications.AllowPrivateNetworkJWKS,
-		DeviceKeys:               c.DeviceKeys.Enabled,
-		PasswordlessLogin:        c.Registration.PasswordlessLogin,
-		SolanaNetwork:            c.SolanaNetwork,
-		Providers:                append([]provider.Provider(nil), c.Identity.Providers...),
-		FrontendBaseURL:          c.Frontend.BaseURL,
-		OIDCReturnPath:           c.Frontend.OIDCReturnPath,
-		RegistrationMode:         c.Registration.NativeUserMode,
-		RegistrationVerification: c.Registration.Verification,
-		Username:                 c.Username,
-		Password:                 password.Policy(c.Password),
-		Delegated: authflow.DelegatedSettings{
-			Audiences:  append([]string(nil), c.Delegated.Audiences...),
-			AllowDPoP:  c.Delegated.AllowDPoP,
-			TTLFloor:   c.Delegated.TTLFloor,
-			TTLDefault: c.Delegated.TTLDefault,
-			TTLCeiling: c.Delegated.TTLCeiling,
-		},
-	}
 }

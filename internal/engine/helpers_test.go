@@ -7,7 +7,6 @@ package engine
 import (
 	"bytes"
 	"context"
-	"crypto"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,6 +24,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/ident"
@@ -43,31 +43,39 @@ var testSigner = sync.OnceValue(func() keys.Signer {
 	return s
 })
 
-// testConfig is an engine that signs tokens and serves HTTP.
-func testConfig() Config {
-	s := testSigner()
-	return Config{
-		Keys:         KeysConfig{Source: keys.Static{Active: s, Pubs: map[string]crypto.PublicKey{s.KID(): s.Public()}}},
-		Token:        TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}, ExpectedAudiences: []string{"test-app"}},
-		Registration: RegistrationConfig{Verification: iam.RegistrationVerificationNone},
-		// The fake IdPs and JWKS endpoints are loopback servers.
-		Applications: ApplicationsConfig{AllowPrivateNetworkJWKS: true},
+// testKeys signs with testSigner.
+func testKeys() keys.Source { return testkeys.Source(testSigner()) }
+
+// testConfig is an engine that signs tokens (newTestEngine supplies testKeys)
+// and serves HTTP.
+func testConfig() config.Config {
+	return config.Config{
+		Token: config.TokenConfig{
+			Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}, ExpectedAudiences: []string{"test-app"},
+			// The fake IdPs and JWKS endpoints are loopback servers.
+			AllowPrivateNetworkJWKS: true,
+		},
+		Registration: config.RegistrationConfig{Verification: iam.RegistrationVerificationNone},
 	}
 }
 
 // maintenanceConfig is a verify-only engine without 2FA, for store, River and
 // lifecycle tests.
-func maintenanceConfig() Config {
-	return Config{
-		Keys:      KeysConfig{VerifyOnly: true},
-		Token:     TokenConfig{Issuer: "https://maintenance.test", IssuedAudiences: []string{"test"}},
-		TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled},
+func maintenanceConfig() config.Config {
+	return config.Config{
+		Keys:      config.KeysConfig{VerifyOnly: true},
+		Token:     config.TokenConfig{Issuer: "https://maintenance.test", IssuedAudiences: []string{"test"}},
+		TwoFactor: config.TwoFactorConfig{Mode: iam.TwoFactorDisabled},
 	}
 }
 
-// newTestEngine is New on cfg and deps, closed at cleanup.
-func newTestEngine(t testing.TB, cfg Config, deps Deps) *Engine {
+// newTestEngine is New on cfg and deps, closed at cleanup. A signing engine
+// without a KeySource signs with testKeys.
+func newTestEngine(t testing.TB, cfg config.Config, deps config.Deps) *Engine {
 	t.Helper()
+	if deps.KeySource == nil && !cfg.Keys.VerifyOnly {
+		deps.KeySource = testKeys()
+	}
 	e, err := New(context.Background(), cfg, deps)
 	require.NoError(t, err)
 	t.Cleanup(e.Close)
@@ -151,10 +159,10 @@ func (s *Engine) issueRefreshSession(ctx context.Context, userID string) (sessio
 	return sid, rt, nil
 }
 
-// prepareExpiredDeletion deletes the account past its recovery window and
-// delivers its callbacks, returning the deletion's generation. Nothing public
-// shortens the window, so the test moves the stored times.
-func prepareExpiredDeletion(t *testing.T, s *Engine, userID string) string {
+// expireDeletion deletes the account and moves its recovery window into the
+// past, returning the deletion's generation. Nothing public shortens the
+// window, so the test moves the stored times.
+func expireDeletion(t *testing.T, s *Engine, userID string) string {
 	t.Helper()
 	require.NoError(t, s.softDelete(t.Context(), userID))
 	_, err := s.pg.Exec(t.Context(), "UPDATE users SET deleted_at=statement_timestamp()-interval '31 days' WHERE id=$1::uuid", userID)
@@ -162,19 +170,41 @@ func prepareExpiredDeletion(t *testing.T, s *Engine, userID string) string {
 	var generation string
 	require.NoError(t, s.pg.QueryRow(t.Context(), `UPDATE account_deletions d SET deleted_at=u.deleted_at,purge_at=u.deleted_at+interval '720 hours'
  FROM users u WHERE d.user_id=$1::uuid AND d.state='deleted' AND u.id=d.user_id RETURNING d.id::text`, userID).Scan(&generation))
-	deliver := func() {
-		rows, err := s.pg.Query(t.Context(), "SELECT id FROM account_deletion_deliveries WHERE deletion_id=$1::uuid AND completed_at IS NULL ORDER BY id", generation)
-		require.NoError(t, err)
-		ids, err := pgx.CollectRows(rows, pgx.RowTo[int64])
-		require.NoError(t, err)
-		for _, id := range ids {
-			require.NoError(t, s.deliverAccountEvent(t.Context(), id))
-		}
-	}
-	deliver()
-	require.NoError(t, s.finalizeAccountDeletion(t.Context(), generation, false))
-	deliver()
 	return generation
+}
+
+// prepareExpiredDeletion expires the account's deletion, finalizes it and
+// delivers its purge callbacks, returning the deletion's generation.
+func prepareExpiredDeletion(t *testing.T, s *Engine, userID string) string {
+	t.Helper()
+	generation := expireDeletion(t, s, userID)
+	require.NoError(t, s.finalizeAccountDeletion(t.Context(), generation, false))
+	rows, err := s.pg.Query(t.Context(), "SELECT id FROM account_deletion_deliveries WHERE deletion_id=$1::uuid AND completed_at IS NULL ORDER BY id", generation)
+	require.NoError(t, err)
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[int64])
+	require.NoError(t, err)
+	for _, id := range ids {
+		require.NoError(t, s.deliverAccountEvent(t.Context(), id))
+	}
+	return generation
+}
+
+// deliverEvents delivers the pending events of s's issuer through its OnEvent,
+// oldest first, and returns their kinds.
+func deliverEvents(t *testing.T, s *Engine) []iam.EventKind {
+	t.Helper()
+	rows, err := s.pg.Query(t.Context(), "SELECT id FROM account_events WHERE issuer=$1 ORDER BY id", s.cfg.Token.Issuer)
+	require.NoError(t, err)
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[int64])
+	require.NoError(t, err)
+	var kinds []iam.EventKind
+	for _, id := range ids {
+		rec, err := s.q.AccountEventByID(t.Context(), id)
+		require.NoError(t, err)
+		kinds = append(kinds, iam.EventKind(rec.Kind))
+		require.NoError(t, s.deliverEvent(t.Context(), id))
+	}
+	return kinds
 }
 
 // seedGroup creates a group as the host does, owned by the user ownerID ("" =
@@ -259,7 +289,7 @@ CREATE TRIGGER %[1]s BEFORE %[2]s ON ephemeral_kv FOR EACH ROW WHEN (%[3]s.key L
 }
 
 // sentCode is the code of o's newest kind message; the test fails without one.
-func sentCode(t *testing.T, o *testoutbox.Outbox, kind testoutbox.Kind) string {
+func sentCode(t *testing.T, o *testoutbox.Outbox, kind iam.MessageKind) string {
 	t.Helper()
 	code := o.Last(t, kind, "").Code
 	require.NotEmpty(t, code)
@@ -293,24 +323,25 @@ type flowResponse struct {
 
 // newAccountFlow serves an engine built from cfg and deps (Postgres is pool;
 // Email and SMS are the flow's outboxes) with app links and TOTP enabled.
-func newAccountFlow(t *testing.T, pool *pgxpool.Pool, cfg Config, deps Deps) *accountFlow {
+func newAccountFlow(t *testing.T, pool *pgxpool.Pool, cfg config.Config, deps config.Deps) *accountFlow {
 	t.Helper()
 	f := &accountFlow{t: t, email: &testoutbox.Outbox{}, sms: &testoutbox.Outbox{}}
 	cfg.Frontend.BaseURL = "https://app.example"
 	cfg.Frontend.VerifyPath, cfg.Frontend.PasswordlessPath, cfg.Frontend.PasswordResetPath = "/verify", "/login/link", "/reset"
 	cfg.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef0123456789abcdef")
-	deps.Postgres, deps.Email, deps.SMS = pool, f.email.Email(), f.sms.SMS()
-	f.engine = newTestEngine(t, cfg, deps)
 	// The real limiter stays installed, loose enough for long setups;
 	// apitest's TestWorkflowRateLimits proves its boundaries.
 	limits := httpapi.DefaultRateLimits()
 	for bucket := range limits {
 		limits[bucket] = ratelimit.Limit{Limit: 10000, Window: time.Minute}
 	}
-	service, err := httpapi.New(f.engine, httpapi.Config{DirectPeerIP: true, RateLimits: limits})
+	cfg.HTTP = &config.HTTPConfig{DirectPeerIP: true, RateLimits: limits}
+	deps.Postgres, deps.Email, deps.SMS = pool, f.email.Email, f.sms.SMS
+	f.engine = newTestEngine(t, cfg, deps)
+	service, err := httpapi.New(f.engine, f.engine.Config(), deps)
 	require.NoError(t, err)
 	t.Cleanup(service.Close)
-	mounted, err := httpapi.NewMount(service, httpapi.MountOptions{})
+	mounted, err := httpapi.NewMount(service)
 	require.NoError(t, err)
 	f.server = httptest.NewServer(mounted)
 	f.server.Client().CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
@@ -324,7 +355,7 @@ func (f *accountFlow) do(method, path, token string, body any, header http.Heade
 	f.t.Helper()
 	data, err := json.Marshal(body)
 	require.NoError(f.t, err)
-	target := f.server.URL + httpapi.DefaultAPIPath + path
+	target := f.server.URL + config.DefaultAPIPath + path
 	if rooted, ok := strings.CutPrefix(path, "//"); ok {
 		target = f.server.URL + "/" + rooted
 	}

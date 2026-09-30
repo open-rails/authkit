@@ -89,7 +89,7 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 		if err != nil {
 			return authflow.RegisterOutcome{}, err
 		}
-		if s.registrationVerificationPolicy() == iam.RegistrationVerificationOptional && s.SMSAvailable() {
+		if s.cfg.Registration.Verification == iam.RegistrationVerificationOptional && s.SMSAvailable() {
 			if err := s.sendPhoneVerificationToUser(ctx, phone, account.ID, 0); err != nil {
 				slog.Warn("optional registration verification unavailable", "user_id", account.ID, "error", err)
 			}
@@ -123,7 +123,7 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 	if err != nil {
 		return authflow.RegisterOutcome{}, err
 	}
-	if s.registrationVerificationPolicy() == iam.RegistrationVerificationOptional && s.HasEmailSender() {
+	if s.cfg.Registration.Verification == iam.RegistrationVerificationOptional && s.HasEmailSender() {
 		if err := s.RequestEmailVerification(ctx, email, 0); err != nil {
 			slog.Warn("optional registration verification unavailable", "user_id", account.ID, "error", err)
 		}

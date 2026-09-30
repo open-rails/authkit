@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/testdb"
@@ -25,30 +26,34 @@ type credentialFixture struct {
 	n       int
 }
 
-func credentialConfig(roles RoleConfig) Config {
+func credentialConfig(roles *config.Roles) config.Config {
 	cfg := maintenanceConfig()
-	cfg.Registration = RegistrationConfig{NativeUserMode: iam.RegistrationModeOpen}
+	cfg.Registration = config.RegistrationConfig{NativeUserMode: iam.RegistrationModeOpen}
 	cfg.Roles = roles
 	return cfg
 }
 
-func credentialRoles() RoleConfig {
-	return RoleConfig{
-		Personas: map[string]Persona{"org": {Permissions: []string{"org:catalog:read"}, APIKeys: true}},
-		Roles: []Role{
-			{Persona: "org", Name: "member", Permissions: []string{"org:catalog:read"}},
-			{Persona: "org", Name: "manager", Permissions: []string{"org:members:manage", "org:credentials:manage", "org:catalog:read"}},
-			{Persona: "root", Name: "org-admin", Permissions: []string{"org:*"}},
-			{Persona: "root", Name: "inviter", Permissions: []string{ident.RootUsersInvite.String()}},
-			{Persona: "root", Name: "moderator", Permissions: []string{ident.RootUsersBan.String()}},
-		},
+// credentialRoles is the fixture's model; narrowed, the manager issues nothing.
+func credentialRoles(narrowed bool) *config.Roles {
+	r := config.NewRoles()
+	org := r.Persona("org", config.APIKeys)
+	read := org.Permission("catalog", "read")
+	org.Role("member", read)
+	if narrowed {
+		org.Role("manager", read)
+	} else {
+		org.Role("manager", org.Members.Manage, org.Credentials.Manage, read)
 	}
+	r.Root.Role("org-admin", org.All())
+	r.Root.Role("inviter", r.Root.Users.Invite)
+	r.Root.Role("moderator", r.Root.Users.Ban)
+	return r
 }
 
 func newCredentialFixture(t *testing.T) *credentialFixture {
 	t.Helper()
 	pg := testdb.ScratchPostgres(t)
-	e, err := New(context.Background(), credentialConfig(credentialRoles()), Deps{Postgres: pg.Pool})
+	e, err := New(context.Background(), credentialConfig(credentialRoles(false)), config.Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	t.Cleanup(e.Close)
 	f := &credentialFixture{t: t, e: e, pool: pg.Pool}
@@ -284,27 +289,25 @@ func TestRoleCatalogChangesAtBoot(t *testing.T) {
 	grantRole(t, f.e, f.acme, manager, "manager")
 	c := f.issue(t, manager, "member", false)
 	control := f.issue(t, f.founder, "manager", false)
-	boot := func(roles RoleConfig) (*Engine, error) {
-		e, err := New(context.Background(), credentialConfig(roles), Deps{Postgres: f.pool})
+	boot := func(roles *config.Roles) (*Engine, error) {
+		e, err := New(context.Background(), credentialConfig(roles), config.Deps{Postgres: f.pool})
 		if err == nil {
 			t.Cleanup(e.Close)
 		}
 		return e, err
 	}
 	fingerprint := func() (fp string, swept string) {
-		require.NoError(t, f.e.pg.QueryRow(ctx, `SELECT fingerprint, swept_at::text FROM role_catalog_state`).Scan(&fp, &swept))
+		require.NoError(t, f.e.pg.QueryRow(ctx, `SELECT fingerprint, swept_at::text FROM role_catalogs WHERE issuer = $1`, f.e.cfg.Token.Issuer).Scan(&fp, &swept))
 		return fp, swept
 	}
 	fp, swept := fingerprint()
 	require.Equal(t, f.e.roleCatalogFingerprint(), fp)
-	_, err := boot(credentialRoles())
+	_, err := boot(credentialRoles(false))
 	require.NoError(t, err)
 	_, again := fingerprint()
 	require.Equal(t, swept, again, "an unchanged catalog is not re-swept")
 
-	narrowed := credentialRoles()
-	narrowed.Roles[1].Permissions = []string{"org:catalog:read"} // manager issues nothing any more
-	e, err := boot(narrowed)
+	e, err := boot(credentialRoles(true))
 	require.NoError(t, err)
 	fp, _ = fingerprint()
 	require.Equal(t, e.roleCatalogFingerprint(), fp)

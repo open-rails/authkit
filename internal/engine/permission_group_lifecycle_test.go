@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
@@ -19,15 +20,19 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	config := pg.Pool.Config()
-	config.MaxConns = 6
-	pool, err := pgxpool.NewWithConfig(ctx, config)
+	poolCfg := pg.Pool.Config()
+	poolCfg.MaxConns = 6
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 	cfg := maintenanceConfig()
 	cfg.Registration.NativeUserMode = iam.RegistrationModeInviteOnly
-	cfg.Roles = RoleConfig{Personas: map[string]Persona{"org": {Permissions: []string{"org:billing:read", "org:billing:write"}, APIKeys: true}}}
-	svc := newTestEngine(t, cfg, Deps{Postgres: pool})
+	roles := config.NewRoles()
+	org := roles.Persona("org", config.APIKeys)
+	org.Permission("billing", "read")
+	org.Permission("billing", "write")
+	cfg.Roles = roles
+	svc := newTestEngine(t, cfg, config.Deps{Postgres: pool})
 	_, err = svc.ensureRootGroup(ctx)
 	require.NoError(t, err)
 	owner, err := svc.createUser(ctx, "owner@lifecycle.test", "lifecycleowner")

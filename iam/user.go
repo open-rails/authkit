@@ -43,6 +43,9 @@ type PublicUser struct {
 	AvatarURL string    `json:"avatar_url,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	Deleted   bool      `json:"deleted,omitempty"`
+	// Metadata holds the account's metadata keys the host made public
+	// (Config.PublicUserMetadata), and no others.
+	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
 // DisplayName is the username, or "user-<first 8 of id>" for tombstoned and

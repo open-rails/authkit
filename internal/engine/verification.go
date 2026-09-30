@@ -73,19 +73,9 @@ func (s *Engine) sendEmailVerificationToUser(ctx context.Context, u *db.User, tt
 	if err := s.storeEmailVerification(ctx, u.ID, u.Email, codeHash, linkTokenHash, ttl); err != nil {
 		return err
 	}
-	username := ""
-	if u.Username != nil {
-		username = *u.Username
-	}
-	msg := iam.VerificationMessage{Code: code, LinkURL: s.emailVerificationURL(linkToken), Purpose: "contact_verify"}
-	if err := msg.Validate(); err != nil {
-		return nil
-	}
 	if s.email != nil {
-		sendCtx := s.contextWithUserPreferredLanguage(ctx, u.ID)
-		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.email.SendVerification(sendCtx, *u.Email, username, msg) }); err != nil {
-			return emailDeliveryError(err)
-		}
+		return s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessageVerification, To: *u.Email, Username: deref(u.Username), Language: s.userLanguage(ctx, u.ID),
+			Code: code, Link: s.emailVerificationURL(linkToken), Purpose: iam.PurposeContactVerify})
 	} else if !s.cfg.Registration.AllowMissingSenders {
 		return fmt.Errorf("email verification unavailable: email sender not configured")
 	}
@@ -136,17 +126,9 @@ func (s *Engine) sendPhoneVerificationToUser(ctx context.Context, phone, userID 
 		return err
 	}
 
-	msg := iam.VerificationMessage{Code: code, LinkURL: s.phoneVerificationURL(linkToken), Purpose: "contact_verify"}
-	if err := msg.Validate(); err != nil {
-		return nil
-	}
-
-	// Send SMS
 	if s.sms != nil {
-		sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
-		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, phone, msg) }); err != nil {
-			return smsDeliveryError(err)
-		}
+		return s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessageVerification, To: phone, Language: s.userLanguage(ctx, userID),
+			Code: code, Link: s.phoneVerificationURL(linkToken), Purpose: iam.PurposeContactVerify})
 	} else {
 		// In production, require SMS to be configured
 		if !s.cfg.Registration.AllowMissingSenders {

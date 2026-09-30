@@ -118,9 +118,32 @@ func (s *Engine) PublicUsers(ctx context.Context, ids []string) (map[string]iam.
 			out[r.ID] = iam.PublicUser{ID: r.ID, Deleted: true}
 			continue
 		}
-		out[r.ID] = iam.PublicUser{ID: r.ID, Username: deref(r.Username), AvatarURL: deref(r.AvatarURL), CreatedAt: r.CreatedAt}
+		out[r.ID] = iam.PublicUser{ID: r.ID, Username: deref(r.Username), AvatarURL: deref(r.AvatarURL), CreatedAt: r.CreatedAt,
+			Metadata: s.publicMetadata(r.Metadata)}
 	}
 	return out, nil
+}
+
+// publicMetadata keeps the Config.PublicUserMetadata keys of raw; nil when
+// none are set.
+func (s *Engine) publicMetadata(raw []byte) map[string]any {
+	if len(s.cfg.PublicUserMetadata) == 0 || len(raw) == 0 {
+		return nil
+	}
+	var all map[string]any
+	if json.Unmarshal(raw, &all) != nil {
+		return nil
+	}
+	var out map[string]any
+	for _, k := range s.cfg.PublicUserMetadata {
+		if v, ok := all[k]; ok {
+			if out == nil {
+				out = map[string]any{}
+			}
+			out[k] = v
+		}
+	}
+	return out
 }
 
 func uuidsOnly(ids []string) []string {
@@ -256,11 +279,10 @@ func (s *Engine) ListUsers(ctx context.Context, q iam.UserQuery) (iam.ListPage[i
 		where = append(where, "(u.username ILIKE "+p+" OR u.email ILIKE "+p+" OR u.phone_number ILIKE "+p+")")
 	}
 	if ent := strings.TrimSpace(q.Entitlement); ent != "" {
-		fp, ok := s.entitlementsProvider().(entitlementFilterProvider)
-		if !ok {
+		if s.entitlementHolders == nil {
 			return page, errmodel.ErrEntitlementFilterUnavailable
 		}
-		subjects, err := fp.ListSubjectsWithEntitlement(ctx, ent)
+		subjects, err := s.entitlementHolders(ctx, ent)
 		if err != nil {
 			return page, fmt.Errorf("authkit: entitlement filter provider failed: %w", err)
 		}
@@ -393,11 +415,10 @@ func (s *Engine) countUsers(ctx context.Context, where []string, args []any) (in
 
 // entitlementsOf asks the entitlements provider for ids' entitlements.
 func (s *Engine) entitlementsOf(ctx context.Context, ids []string) (map[string][]string, error) {
-	provider := s.entitlementsProvider()
-	if provider == nil {
+	if s.entitlements == nil {
 		return nil, nil
 	}
-	ents, err := provider.ListEntitlements(ctx, ids)
+	ents, err := s.entitlements(ctx, ids)
 	if err != nil {
 		return nil, fmt.Errorf("authkit: entitlements provider: %w", err)
 	}

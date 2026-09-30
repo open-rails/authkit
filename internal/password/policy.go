@@ -5,23 +5,17 @@ import (
 	"compress/gzip"
 	_ "embed"
 	"errors"
-	"fmt"
 	"io"
 	"strings"
 	"sync"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/open-rails/authkit/internal/config"
 )
 
-// Default password length bounds, in characters (Unicode code points).
-const (
-	DefaultMinLength = 8
-	DefaultMaxLength = 128
-	// MaxLengthCeiling bounds MaxLength so request bodies and KDF input stay small.
-	MaxLengthCeiling = 1024
-	// MinIdentifierLength is the shortest identifier a password may not contain.
-	MinIdentifierLength = 4
-)
+// MinIdentifierLength is the shortest identifier a password may not contain.
+const MinIdentifierLength = 4
 
 // Character classes named by RequirementsError.Missing.
 const (
@@ -43,23 +37,6 @@ type RequirementsError struct{ Missing []string }
 
 func (e *RequirementsError) Error() string {
 	return "password_requirements_unmet: " + strings.Join(e.Missing, ",")
-}
-
-// Policy is the host-configured password rule. The zero value is the
-// NIST SP 800-63B-style default: 8..128 characters, no composition rules,
-// common passwords rejected. Composition rules are opt-in.
-type Policy struct {
-	MinLength int
-	MaxLength int
-	// Uppercase/lowercase/digit use Unicode categories (unicode.IsUpper,
-	// IsLower, IsDigit); a symbol is any rune that is neither a letter nor a
-	// digit, including spaces and punctuation.
-	RequireUppercase bool
-	RequireLowercase bool
-	RequireDigit     bool
-	RequireSymbol    bool
-	// AllowCommon disables the embedded common-password blocklist.
-	AllowCommon bool
 }
 
 //go:generate go run ./internal/commongen
@@ -101,24 +78,10 @@ func IsCommon(pw string) bool {
 	return false
 }
 
-// Normalize fills defaults and rejects an inconsistent policy.
-func (p Policy) Normalize() (Policy, error) {
-	if p.MinLength == 0 {
-		p.MinLength = DefaultMinLength
-	}
-	if p.MaxLength == 0 {
-		p.MaxLength = max(DefaultMaxLength, p.MinLength)
-	}
-	if p.MinLength < 1 || p.MaxLength < p.MinLength || p.MaxLength > MaxLengthCeiling {
-		return Policy{}, fmt.Errorf("authkit: invalid password policy min_length=%d max_length=%d (want 1 <= min <= max <= %d)", p.MinLength, p.MaxLength, MaxLengthCeiling)
-	}
-	return p, nil
-}
-
 // Validate checks pw against a normalized policy. identifiers are the
 // account's username and email local-part; pw may not contain any of at
 // least MinIdentifierLength characters, compared case-insensitively.
-func (p Policy) Validate(pw string, identifiers ...string) error {
+func Validate(p config.PasswordPolicy, pw string, identifiers ...string) error {
 	n := utf8.RuneCountInString(pw)
 	if n < p.MinLength {
 		return ErrTooShort
@@ -126,7 +89,7 @@ func (p Policy) Validate(pw string, identifiers ...string) error {
 	if n > p.MaxLength {
 		return ErrTooLong
 	}
-	if missing := p.missingClasses(pw); len(missing) > 0 {
+	if missing := missingClasses(p, pw); len(missing) > 0 {
 		return &RequirementsError{Missing: missing}
 	}
 	lower := strings.ToLower(pw)
@@ -136,15 +99,13 @@ func (p Policy) Validate(pw string, identifiers ...string) error {
 			return ErrContainsIdentifier
 		}
 	}
-	if !p.AllowCommon {
-		if IsCommon(lower) {
-			return ErrTooCommon
-		}
+	if p.RejectCommon && IsCommon(lower) {
+		return ErrTooCommon
 	}
 	return nil
 }
 
-func (p Policy) missingClasses(pw string) []string {
+func missingClasses(p config.PasswordPolicy, pw string) []string {
 	var upper, lower, digit, symbol bool
 	for _, r := range pw {
 		switch {

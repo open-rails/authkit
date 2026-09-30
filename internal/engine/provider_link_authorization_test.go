@@ -7,10 +7,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/testidp"
-	"github.com/open-rails/authkit/internal/testoutbox"
 	"github.com/open-rails/authkit/provider"
 )
 
@@ -28,8 +29,7 @@ func TestProviderLoginHoldsItsLinkUntilTheSessionCommits(t *testing.T) {
 			idp := testidp.New(t)
 			idpProvider := build(idp, "race-provider")
 			cfg := testConfig()
-			cfg.Identity.Providers = []provider.Provider{idpProvider}
-			f := newAccountFlow(t, pg.Pool, cfg, Deps{})
+			f := newAccountFlow(t, pg.Pool, cfg, config.Deps{Providers: []provider.Provider{idpProvider}})
 			identity := testidp.Identity{Subject: "race-" + uniqueSuffix(), Email: uniqueEmail("provider-race"), EmailVerified: true}
 			f.expect(200, f.providerSignIn(idp, idpProvider.Name(), identity, ""))
 			uid, _, err := f.engine.GetProviderLinkByIssuer(ctx, idpProvider.Issuer(), identity.Subject)
@@ -42,7 +42,7 @@ func TestProviderLoginHoldsItsLinkUntilTheSessionCommits(t *testing.T) {
 
 			next := f.expect(403, f.providerSignIn(idp, idpProvider.Name(), identity, ""))
 			require.Equal(t, "2fa_required", next.Error.Code)
-			body := map[string]any{"user_id": uid, "challenge": next.Error.Metadata.Challenge, "code": sentCode(t, f.sms, testoutbox.LoginCode)}
+			body := map[string]any{"user_id": uid, "challenge": next.Error.Metadata.Challenge, "code": sentCode(t, f.sms, iam.MessageLoginCode)}
 			unlink := func(ctx context.Context) error {
 				removed, err := f.engine.UnlinkProviderUnlessLast(ctx, uid, idpProvider.Name())
 				if err != nil {

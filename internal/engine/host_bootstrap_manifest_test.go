@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -17,7 +18,7 @@ func TestBootstrapRepairsAnEmptyOwnerSet(t *testing.T) {
 	ctx := t.Context()
 	cfg := maintenanceConfig()
 	cfg.TwoFactor.Mode = iam.TwoFactorOptional
-	svc := newTestEngine(t, cfg, Deps{Postgres: pg.Pool})
+	svc := newTestEngine(t, cfg, config.Deps{Postgres: pg.Pool})
 	owner := iam.RootPersona.OwnerRole()
 	_, err := svc.ApplyBootstrapManifest(ctx, iam.BootstrapManifest{Users: []iam.BootstrapManifestUser{
 		{Username: "bootstrap-admin", Email: "admin@example.test", EmailVerified: true, RootRole: owner}}}, iam.BootstrapOptions{})

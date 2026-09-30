@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
@@ -225,7 +226,7 @@ func TestSecurityCredentialSweepNeverBlocksBoot(t *testing.T) {
 		_, err = h.pool.Exec(ctx, `DELETE FROM profiles.group_user_roles WHERE user_id=$1::uuid`, owner.id)
 		require.NoError(t, err)
 		// The first boot after the upgrade sweeps: the fingerprint changed.
-		_, err = h.pool.Exec(ctx, `DELETE FROM profiles.role_catalog_state`)
+		_, err = h.pool.Exec(ctx, `DELETE FROM profiles.role_catalogs`)
 		require.NoError(t, err)
 		h.replica()
 		require.Empty(t, h.roleOf(group, iam.RemoteApplicationSubject(app.ID)))
@@ -248,7 +249,7 @@ func TestSecurityCredentialSweepNeverBlocksBoot(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, setRole(h.auth, ctx, iam.UserActor(u.ID), group, iam.RemoteApplicationSubject(app.ID), orgPersona.OwnerRole()))
 		require.Less(t, h.post("/password/reset/request", map[string]string{"identifier": email}, "").status, 300)
-		token := h.mail.Last(t, authtest.PasswordReset, email).Token
+		token := h.mail.Last(t, iam.MessagePasswordReset, email).Token
 		resp := h.post("/password/reset/confirm", map[string]string{"token": token, "new_password": "Founder-proves-the-address-4"}, "")
 		require.Less(t, resp.status, 300, resp.String())
 		var orphaned bool
@@ -272,4 +273,99 @@ func TestSecurityCredentialSweepNeverBlocksBoot(t *testing.T) {
 		require.Equal(t, http.StatusConflict, resp.status, resp.String())
 		require.Equal(t, "last_owner", resp.errorCode())
 	})
+}
+
+// TestSecurityPerAppRoleCatalogs: apps on one account store share membership
+// but each declares its own role catalog, and judges only the credentials
+// issued through it. Neither app's boot sweeps the other's credentials, and a
+// demotion made through one app retires what the demoted user issued through
+// the other, by that app's own sweep under its own catalog.
+func TestSecurityPerAppRoleCatalogs(t *testing.T) {
+	const peerIssuer = "https://peer-app.security.test"
+	ctx := context.Background()
+	// The same role names in both apps: the issuing role manages members and
+	// credentials, the other only reads.
+	catalog := func(issuing string) *authkit.Roles {
+		r := authkit.NewRoles()
+		org := r.Persona("org", authkit.RemoteApplications, authkit.APIKeys)
+		member := org.Role("member", org.Permission("catalog", "read"))
+		for _, name := range []string{"manager", "curator"} {
+			if name == issuing {
+				org.Role(name, member, org.Members.Manage, org.Members.Read, org.Credentials.All())
+			} else {
+				org.Role(name, member)
+			}
+		}
+		return r
+	}
+	a := newHost(t, authtest.WithConfig(func(c *authkit.Config) {
+		c.Roles = catalog("manager")
+		c.Token.AccountIssuers = []string{issuer, peerIssuer}
+	}))
+	onB := authtest.WithConfig(func(c *authkit.Config) {
+		c.Token.Issuer = peerIssuer
+		c.Roles = catalog("curator")
+	})
+	founder, alice, bob := a.newAccount("pacfounder"), a.newAccount("pacalice"), a.newAccount("pacbob")
+	group, _ := a.newOrg(founder)
+	grantRole(t, a.auth, group, iam.UserSubject(alice.id), "manager")
+	grantRole(t, a.auth, group, iam.UserSubject(bob.id), "curator")
+	member := roleIn(t, a.auth, group, "member")
+	keyA, _, err := createKey(a.auth, ctx, iam.UserActor(alice.id), group, iam.NewAPIKey{Name: "a", Role: member})
+	require.NoError(t, err)
+	created, err := a.auth.CreateInvitation(ctx, iam.UserActor(alice.id), group, iam.NewInvitation{Role: member})
+	require.NoError(t, err)
+	linkA := created.Invitation
+
+	// B's first boot sweeps under B's catalog, where a manager issues nothing.
+	b := a.replica(onB)
+	require.True(t, liveKey(t, b, group, keyA.ID), "B's boot swept an A-issued key")
+	require.True(t, liveLink(t, b, group, linkA.ID), "B's boot swept an A-issued link")
+	require.Equal(t, "manager", b.roleOf(group, iam.UserSubject(alice.id)).Name(), "a role granted through A shows through B")
+	_, _, err = createKey(b.auth, ctx, iam.UserActor(alice.id), group, iam.NewAPIKey{Name: "refused", Role: member})
+	requireRefused(t, err)
+	keyB, _, err := createKey(b.auth, ctx, iam.UserActor(bob.id), group, iam.NewAPIKey{Name: "b", Role: member})
+	require.NoError(t, err)
+	stamp := func(id string) (catalogIssuer string) {
+		require.NoError(t, a.pool.QueryRow(ctx, `SELECT catalog_issuer FROM profiles.api_keys WHERE id = $1::uuid`, id).Scan(&catalogIssuer))
+		return catalogIssuer
+	}
+	require.Equal(t, issuer, stamp(keyA.ID))
+	require.Equal(t, peerIssuer, stamp(keyB.ID))
+
+	// Both restart; A sweeps as on its first boot, under A's catalog, where a
+	// curator issues nothing.
+	_, err = a.pool.Exec(ctx, `DELETE FROM profiles.role_catalogs WHERE issuer = $1`, issuer)
+	require.NoError(t, err)
+	a, b = a.replica(), b.replica()
+	require.True(t, liveKey(t, a, group, keyB.ID), "A's boot swept a B-issued key")
+	require.True(t, liveKey(t, a, group, keyA.ID))
+	require.True(t, liveLink(t, a, group, linkA.ID))
+	var issuers, fingerprints []string
+	require.NoError(t, a.pool.QueryRow(ctx, `SELECT array_agg(issuer ORDER BY issuer), array_agg(fingerprint ORDER BY issuer) FROM profiles.role_catalogs`).Scan(&issuers, &fingerprints))
+	require.Equal(t, []string{issuer, peerIssuer}, issuers, "one catalog row per app")
+	require.NotEqual(t, fingerprints[0], fingerprints[1])
+
+	// A demotion through A leaves bob's B-issued key to B, whose sweep job
+	// retires it once B's River runs.
+	require.NoError(t, a.auth.Start(ctx))
+	revokeRole(t, a.auth, group, iam.UserSubject(bob.id), "curator")
+	require.True(t, liveKey(t, a, group, keyB.ID), "A swept a B-issued key")
+	var pending int
+	require.NoError(t, a.pool.QueryRow(ctx, `SELECT count(*) FROM public.river_job WHERE kind = 'authkit_credential_sweep' AND args->>'issuer' = $1 AND state = 'available'`, peerIssuer).Scan(&pending))
+	require.Equal(t, 1, pending, "the demotion enqueued B's sweep")
+	require.NoError(t, b.auth.Start(ctx))
+	require.Eventually(t, func() bool {
+		keys, err := b.auth.ListAPIKeys(ctx, group, iam.PageRequest{Limit: iam.MaxPageLimit})
+		if err != nil {
+			return false
+		}
+		for _, k := range keys.Items {
+			if k.ID == keyB.ID {
+				return k.RevokedAt != nil
+			}
+		}
+		return false
+	}, time.Minute, 50*time.Millisecond, "B kept a key its demoted creator no longer covers")
+	require.True(t, liveKey(t, b, group, keyA.ID), "alice's authority is unchanged")
 }

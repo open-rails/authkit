@@ -71,20 +71,21 @@ func (q *Queries) APIKeyForRevoke(ctx context.Context, arg APIKeyForRevokeParams
 }
 
 const aPIKeyInsert = `-- name: APIKeyInsert :one
-INSERT INTO api_keys (permission_group_id, key_id, secret_hash, name, role, created_by, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6::uuid, $7::timestamptz)
+INSERT INTO api_keys (permission_group_id, key_id, secret_hash, name, role, created_by, expires_at, catalog_issuer)
+VALUES ($1, $2, $3, $4, $5, $6::uuid, $7::timestamptz, $8::text)
 ON CONFLICT (key_id) DO NOTHING
 RETURNING id, created_at
 `
 
 type APIKeyInsertParams struct {
-	GroupID    string
-	KeyID      string
-	SecretHash []byte
-	Name       string
-	Role       string
-	CreatedBy  *string
-	ExpiresAt  *time.Time
+	GroupID       string
+	KeyID         string
+	SecretHash    []byte
+	Name          string
+	Role          string
+	CreatedBy     *string
+	ExpiresAt     *time.Time
+	CatalogIssuer string
 }
 
 type APIKeyInsertRow struct {
@@ -101,6 +102,7 @@ func (q *Queries) APIKeyInsert(ctx context.Context, arg APIKeyInsertParams) (API
 		arg.Role,
 		arg.CreatedBy,
 		arg.ExpiresAt,
+		arg.CatalogIssuer,
 	)
 	var i APIKeyInsertRow
 	err := row.Scan(&i.ID, &i.CreatedAt)
@@ -110,7 +112,7 @@ func (q *Queries) APIKeyInsert(ctx context.Context, arg APIKeyInsertParams) (API
 const aPIKeyRoleCounts = `-- name: APIKeyRoleCounts :many
 SELECT pg.persona, r.role, count(*)::bigint AS n
 FROM api_keys r JOIN permission_groups pg ON pg.id = r.permission_group_id
-WHERE r.revoked_at IS NULL
+WHERE r.revoked_at IS NULL AND (r.catalog_issuer IS NULL OR r.catalog_issuer = $1::text)
 GROUP BY pg.persona, r.role
 `
 
@@ -120,8 +122,9 @@ type APIKeyRoleCountsRow struct {
 	N       int64
 }
 
-func (q *Queries) APIKeyRoleCounts(ctx context.Context) ([]APIKeyRoleCountsRow, error) {
-	rows, err := q.db.Query(ctx, aPIKeyRoleCounts)
+// The live keys issued through issuer's app, or before per-app catalogs.
+func (q *Queries) APIKeyRoleCounts(ctx context.Context, issuer string) ([]APIKeyRoleCountsRow, error) {
+	rows, err := q.db.Query(ctx, aPIKeyRoleCounts, issuer)
 	if err != nil {
 		return nil, err
 	}

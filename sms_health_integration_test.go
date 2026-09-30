@@ -1,27 +1,24 @@
 package authkit_test
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/open-rails/authkit"
-	twilio "github.com/open-rails/authkit/adapters/twilio/sms"
+	"github.com/open-rails/authkit/adapters/twilio"
+	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
-	"github.com/open-rails/authkit/internal/testdb"
-	"github.com/open-rails/authkit/internal/testhttp"
-	"github.com/open-rails/authkit/internal/testkeys"
 	"github.com/stretchr/testify/require"
 )
 
 // A Twilio outage or misconfiguration disables only phone flows (503), and the
-// next passing probe re-arms them without a restart.
+// next passing probe, scheduled by Start, re-arms them without a restart.
 func TestSMSHealthProbeRearmsPhoneFlows(t *testing.T) {
 	var mode atomic.Value // "", "reset", "nosender"
 	twilioAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -53,16 +50,11 @@ func TestSMSHealthProbeRearmsPhoneFlows(t *testing.T) {
 		r.URL.Scheme, r.URL.Host = "http", twilioAPI.Listener.Addr().String()
 		return http.DefaultTransport.RoundTrip(r)
 	})
-	sender, err := twilio.New(twilio.Config{AccountSID: "AC123", AuthToken: "token", MessagingServiceSID: "MG123", Client: &http.Client{Transport: toStandIn}})
+	sms, err := twilio.NewSMS(twilio.SMSConfig{AccountSID: "AC123", AuthToken: "token", MessagingServiceSID: "MG123", Client: &http.Client{Transport: toStandIn}})
 	require.NoError(t, err)
-	signer := testkeys.RSA("sms-health")
-	auth, err := authkit.New(context.Background(), authkit.Config{
-		Keys:  authkit.KeysConfig{Source: testkeys.Source(signer)},
-		Token: authkit.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}},
-		HTTP:  authkit.HTTPConfig{DirectPeerIP: true, Limiter: testhttp.Unlimited{}},
-	}, authkit.Deps{Postgres: testdb.Pool(t), SMS: sender})
-	require.NoError(t, err)
-	t.Cleanup(auth.Close)
+	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
+		c.SMSHealthInterval = 50 * time.Millisecond
+	}), authtest.WithDeps(func(d *authkit.Deps) { d.SMS, d.SMSHealth = sms.Send, sms.CheckHealth }))
 
 	serve := func(method, path, body string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -73,29 +65,44 @@ func TestSMSHealthProbeRearmsPhoneFlows(t *testing.T) {
 	}
 	phoneFlows := func() (bool, int, string) {
 		var caps struct {
-			Passwordless struct {
-				Channels []string `json:"channels"`
-			} `json:"passwordless"`
+			Channels struct {
+				SMS bool `json:"sms"`
+			} `json:"channels"`
 		}
 		require.NoError(t, json.Unmarshal(serve(http.MethodGet, "/api/v1/capabilities", "").Body.Bytes(), &caps))
 		w := serve(http.MethodPost, "/api/v1/verify/request", `{"identifier":"+15551230000"}`)
 		var env iam.ErrorEnvelope
 		_ = json.Unmarshal(w.Body.Bytes(), &env)
-		return slices.Contains(caps.Passwordless.Channels, "sms"), w.Code, env.Error.Code
+		return caps.Channels.SMS, w.Code, env.Error.Code
+	}
+	probed := func(since time.Time) error {
+		var err error
+		require.Eventually(t, func() bool {
+			var at time.Time
+			at, err = auth.SMSHealth()
+			return at.After(since)
+		}, 5*time.Second, 10*time.Millisecond)
+		return err
 	}
 
+	at, _ := auth.SMSHealth()
+	require.True(t, at.IsZero(), "no probe before Start")
 	offered, _, _ := phoneFlows()
 	require.True(t, offered, "optimistic before the first probe")
+	require.True(t, auth.SMSAvailable())
+	require.NoError(t, auth.Start(t.Context()))
+	require.NoError(t, probed(time.Time{}), "Start probes at once")
 	for _, failure := range []string{"reset", "nosender"} {
 		mode.Store(failure)
-		require.Error(t, auth.CheckSMSHealth(t.Context()))
+		require.Error(t, probed(time.Now()), failure)
 		offered, status, code := phoneFlows()
 		require.False(t, offered, failure)
+		require.False(t, auth.SMSAvailable(), failure)
 		require.Equal(t, http.StatusServiceUnavailable, status, failure)
 		require.Equal(t, string(errmodel.CodeSMSUnavailable), code, failure)
 
 		mode.Store("")
-		require.NoError(t, auth.CheckSMSHealth(t.Context()))
+		require.NoError(t, probed(time.Now()), failure)
 		offered, _, _ = phoneFlows()
 		require.True(t, offered, failure)
 	}

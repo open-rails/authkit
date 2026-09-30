@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
@@ -45,21 +46,16 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 	cfg := maintenanceConfig()
-	cfg.Keys = KeysConfig{AllowEphemeralDevKeys: true}
+	cfg.Keys = config.KeysConfig{AllowEphemeralDevKeys: true}
 	cfg.Token.ExpectedAudiences = []string{"test"}
-	cfg.Roles = RoleConfig{
-		Personas: map[string]Persona{
-			"channel": {Permissions: []string{"channel:posts:read", "channel:posts:write"}},
-			"section": {Permissions: []string{"section:pages:write"}},
-		},
-		Roles: []Role{
-			{Persona: "channel", Name: "reader", Permissions: []string{"channel:posts:read"}},
-			{Persona: "channel", Name: "moderator", Permissions: []string{"channel:posts:write"}, Includes: []string{"reader"}},
-			{Persona: "channel", Name: "curator", Permissions: []string{"channel:posts:write"}},
-			{Persona: "section", Name: "editor", Permissions: []string{"section:pages:write"}},
-		},
-	}
-	rt, err := New(context.Background(), cfg, Deps{Postgres: pool})
+	roles := config.NewRoles()
+	channelDef, sectionDef := roles.Persona("channel"), roles.Persona("section")
+	postsRead, postsWrite := channelDef.Permission("posts", "read"), channelDef.Permission("posts", "write")
+	channelDef.Role("moderator", postsWrite, channelDef.Role("reader", postsRead))
+	channelDef.Role("curator", postsWrite)
+	sectionDef.Role("editor", sectionDef.Permission("pages", "write"))
+	cfg.Roles = roles
+	rt, err := New(context.Background(), cfg, config.Deps{Postgres: pool})
 	require.NoError(t, err)
 	t.Cleanup(rt.Close)
 	client := rt

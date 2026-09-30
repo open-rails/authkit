@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"math/rand"
 	"strings"
+
+	"github.com/open-rails/authkit/internal/naming"
 )
 
 // generateAvailableUsername tries base, then minimal numeric suffixes, then a short fallback.
 func (s *Engine) generateAvailableUsername(ctx context.Context, base string) string {
-	base = s.cfg.Username.Derive(base)
+	base = naming.Derive(s.cfg.Username, base)
 	if base == "" {
 		base = "user"
 	}
@@ -19,19 +21,19 @@ func (s *Engine) generateAvailableUsername(ctx context.Context, base string) str
 	}
 	// Try numbered suffixes
 	for i := 1; i <= 999; i++ {
-		candidate := s.cfg.Username.WithSuffix(base, fmt.Sprintf("%d", i))
+		candidate := naming.WithSuffix(s.cfg.Username, base, fmt.Sprintf("%d", i))
 		if s.usernameAvailable(ctx, candidate) {
 			return candidate
 		}
 	}
 	// Fallback: base + random 4 digits (global rand is auto-seeded since Go 1.20)
 	for tries := 0; tries < 100; tries++ {
-		candidate := s.cfg.Username.WithSuffix(base, fmt.Sprintf("%04d", rand.Intn(10000)))
+		candidate := naming.WithSuffix(s.cfg.Username, base, fmt.Sprintf("%04d", rand.Intn(10000)))
 		if s.usernameAvailable(ctx, candidate) {
 			return candidate
 		}
 	}
-	return s.cfg.Username.WithSuffix(base, "_user")
+	return naming.WithSuffix(s.cfg.Username, base, "_user")
 }
 
 // usernameAvailable reports whether username is free; a failed read is not.

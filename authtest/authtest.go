@@ -72,9 +72,9 @@ func WithDeps(fn func(*authkit.Deps)) Option {
 // differ from a zero Config only where a test needs them to:
 //
 //   - Token: Issuer and Audience.
-//   - Keys: an RSA key generated once per test binary.
 //   - TwoFactor.TOTPSecretKey: random, so authenticator apps can enroll.
-//   - HTTP: served (DirectPeerIP), without rate limits.
+//   - HTTP: served (DirectPeerIP), without rate limits (Deps.Limiter).
+//   - Deps.KeySource: an RSA key generated once per test binary.
 //   - Schema and River.Schema: the scratch schema, unless set.
 //
 // The Client is not started: call Start when a test needs River's work, such
@@ -91,11 +91,10 @@ func New(t testing.TB, opts ...Option) (*authkit.Client, *Outbox) {
 	_, _ = rand.Read(key)
 	cfg := authkit.Config{
 		Token:     authkit.TokenConfig{Issuer: Issuer, IssuedAudiences: []string{Audience}},
-		Keys:      authkit.KeysConfig{Source: signingKeys()},
 		TwoFactor: authkit.TwoFactorConfig{TOTPSecretKey: key},
-		HTTP:      authkit.HTTPConfig{DirectPeerIP: true, Limiter: unlimited{}},
+		HTTP:      &authkit.HTTPConfig{DirectPeerIP: true},
 	}
-	deps := authkit.Deps{Email: outbox.Email(), SMS: outbox.SMS()}
+	deps := authkit.Deps{KeySource: signingKeys(), Email: outbox.Email, SMS: outbox.SMS, Limiter: unlimited}
 	for _, fn := range s.config {
 		fn(&cfg)
 	}
@@ -117,7 +116,7 @@ func New(t testing.TB, opts ...Option) (*authkit.Client, *Outbox) {
 	if cfg.River.Schema == "" {
 		cfg.River.Schema = cfg.Schema
 	}
-	if err := authkit.Migrate(ctx, deps.Postgres, authkit.MigrateOptions{Schema: cfg.Schema, River: deps.River, RiverSchema: cfg.River.Schema}); err != nil {
+	if err := authkit.Migrate(ctx, deps.Postgres, cfg, authkit.MigrateOptions{}); err != nil {
 		t.Fatalf("authtest: migrate: %v", err)
 	}
 	auth, err := authkit.New(ctx, cfg, deps)
@@ -133,8 +132,9 @@ func New(t testing.TB, opts ...Option) (*authkit.Client, *Outbox) {
 // replica of the deployment runs: the Config and Deps auth was built with
 // (its Outbox included), then opts. A different Token.Issuer makes a sibling
 // deployment sharing the account store; different HTTPConfig serves the same
-// accounts another way. Replace, never mutate, the maps and slices opts
-// change: the replica shares auth's. auth must come from New or Replica.
+// accounts another way. HTTP and Password are copied, so opts may set their
+// fields; replace, never mutate, the maps and slices opts change: the replica
+// shares auth's. auth must come from New or Replica.
 func Replica(t testing.TB, auth *authkit.Client, opts ...Option) *authkit.Client {
 	t.Helper()
 	b := builtWith(t, auth)
@@ -143,6 +143,14 @@ func Replica(t testing.TB, auth *authkit.Client, opts ...Option) *authkit.Client
 		opt(&s)
 	}
 	cfg, deps := b.cfg, b.deps
+	if cfg.HTTP != nil {
+		h := *cfg.HTTP
+		cfg.HTTP = &h
+	}
+	if cfg.Password != nil {
+		p := *cfg.Password
+		cfg.Password = &p
+	}
 	for _, fn := range s.config {
 		fn(&cfg)
 	}
@@ -230,6 +238,4 @@ func scratchSchema(t testing.TB, pool *pgxpool.Pool) string {
 }
 
 // unlimited is a rate limiter that allows every request.
-type unlimited struct{}
-
-func (unlimited) AllowNamed(string, string) (bool, error) { return true, nil }
+func unlimited(string, string) (bool, error) { return true, nil }

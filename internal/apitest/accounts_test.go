@@ -17,8 +17,9 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
+	"github.com/open-rails/authkit/internal/naming"
 	"github.com/open-rails/authkit/internal/testidp"
-	"github.com/open-rails/authkit/provider"
 )
 
 var seq atomic.Int64
@@ -38,9 +39,9 @@ type profile struct {
 	PhoneVerified bool   `json:"phone_verified"`
 	HasPassword   bool   `json:"has_password"`
 	Naming        struct {
-		Aliases      []iam.NameAlias `json:"aliases"`
-		Allowed      bool            `json:"allowed"`
-		NextRenameAt *time.Time      `json:"next_rename_at"`
+		Aliases      []naming.Alias `json:"aliases"`
+		Allowed      bool           `json:"allowed"`
+		NextRenameAt *time.Time     `json:"next_rename_at"`
 	} `json:"naming"`
 }
 
@@ -81,7 +82,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 		t.Helper()
 		created, err := auth.CreateInvitation(ctx, iam.UserActor(inviter), iam.RootGroup(), iam.NewInvitation{Email: email})
 		require.NoError(t, err)
-		require.Equal(t, created.URL, outbox.Last(t, authtest.AccountInvite, email).Link)
+		require.Equal(t, created.URL, outbox.Last(t, iam.MessageInvite, email).Link)
 		return created
 	}
 	inviter := newInviter(t)
@@ -118,7 +119,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 					require.Equal(t, "verification_required", recovery.code())
 				}
 
-				sent := outbox.Last(t, authtest.Verification, identifier)
+				sent := outbox.Last(t, iam.MessageVerification, identifier)
 				path := "/verify"
 				if passwordless {
 					path = "/login/link"
@@ -211,7 +212,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 			confirm = "/passwordless/confirm"
 		}
 		expect(t, http.StatusAccepted, a.post(start, "", payload))
-		code := outbox.Last(t, authtest.Verification, email).Code
+		code := outbox.Last(t, iam.MessageVerification, email).Code
 		require.NotEmpty(t, code)
 		require.NoError(t, auth.Ban(ctx, iam.SystemActor(), issuer, iam.Ban{}))
 		reply := a.post(confirm, "", map[string]any{"identifier": email, "code": code})
@@ -234,7 +235,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 	}))
 	unknown := uniqueEmail("unknown")
 	expect(t, http.StatusAccepted, newAPI(t, noSignup).post("/passwordless/start", "", map[string]any{"identifier": unknown}))
-	for _, m := range outbox.Messages(authtest.Verification, unknown) {
+	for _, m := range outbox.Messages(iam.MessageVerification, unknown) {
 		require.Empty(t, m.Code)
 	}
 
@@ -244,7 +245,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	collisionEmail := username + "@example.com"
 	expect(t, http.StatusAccepted, a.post("/passwordless/start", "", map[string]any{"identifier": collisionEmail, "mode": "code", "account_invite_token": invite(t, inviter, collisionEmail).Code}))
-	expect(t, http.StatusOK, a.post("/passwordless/confirm", "", map[string]any{"identifier": collisionEmail, "code": outbox.Last(t, authtest.Verification, collisionEmail).Code}))
+	expect(t, http.StatusOK, a.post("/passwordless/confirm", "", map[string]any{"identifier": collisionEmail, "code": outbox.Last(t, iam.MessageVerification, collisionEmail).Code}))
 	created, err := auth.User(ctx, iam.UserByEmail(collisionEmail))
 	require.NoError(t, err)
 	require.NotEqual(t, username, created.Username)
@@ -283,7 +284,7 @@ func testProofLifecycle(t *testing.T, auth *authkit.Client, a *api, outbox *auth
 					body["return_to"] = "https://evil.example/steal"
 				}
 				expect(t, http.StatusAccepted, a.post(start, "", body))
-				return outbox.Last(t, authtest.Verification, identifier)
+				return outbox.Last(t, iam.MessageVerification, identifier)
 			}
 			first := begin()
 			stale := first.Code
@@ -368,7 +369,7 @@ func TestPasswordChangeOnLegacyHashRequiresReset(t *testing.T) {
 	// A passwordless sign-in: a fresh session without the password.
 	res := a.post("/passwordless/start", "", map[string]any{"identifier": email, "mode": "code"})
 	require.Equal(t, http.StatusAccepted, res.status, res.String())
-	res = a.post("/passwordless/confirm", "", map[string]any{"identifier": email, "code": outbox.Last(t, authtest.Verification, email).Code})
+	res = a.post("/passwordless/confirm", "", map[string]any{"identifier": email, "code": outbox.Last(t, iam.MessageVerification, email).Code})
 	require.Equal(t, http.StatusOK, res.status, res.String())
 	token := res.answer(t).Nested.AccessToken
 	require.NotEmpty(t, token)
@@ -385,6 +386,7 @@ func TestUsernameCaseWorkflow(t *testing.T) {
 	auth, outbox := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
 		withAppLinks(c)
 		c.Registration.Verification = iam.RegistrationVerificationRequired
+		c.Username.Renames = true
 	}))
 	a := newAPI(t, auth)
 	ctx := t.Context()
@@ -397,7 +399,7 @@ func TestUsernameCaseWorkflow(t *testing.T) {
 	held := expect(t, http.StatusBadRequest, a.post("/register", "", map[string]any{"identifier": uniqueEmail("case-pending"), "username": lower, "password": pass}))
 	require.Equal(t, "username_in_use", held.code(), "a pending signup holds every spelling of its name")
 
-	confirmed := expect(t, http.StatusOK, a.post("/verify/confirm", "", map[string]any{"identifier": owner, "code": outbox.Last(t, authtest.Verification, owner).Code})).answer(t)
+	confirmed := expect(t, http.StatusOK, a.post("/verify/confirm", "", map[string]any{"identifier": owner, "code": outbox.Last(t, iam.MessageVerification, owner).Code})).answer(t)
 	claims, err := auth.Verify(ctx, confirmed.AccessToken)
 	require.NoError(t, err)
 	userID := claims.UserID
@@ -474,12 +476,12 @@ func TestAccountPolicies(t *testing.T) {
 		Password map[string]any `json:"password"`
 		Username map[string]any `json:"username"`
 	}
-	setup := func(t *testing.T, fn func(*authkit.Config)) (*authkit.Client, *api, policies) {
-		auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
+	setup := func(t *testing.T, fn func(*authkit.Config), opts ...authtest.Option) (*authkit.Client, *api, policies) {
+		auth, _ := authtest.New(t, append([]authtest.Option{authtest.WithConfig(func(c *authkit.Config) {
 			withAppLinks(c)
 			c.TwoFactor.Mode = iam.TwoFactorDisabled
 			fn(c)
-		}))
+		})}, opts...)...)
 		a := newAPI(t, auth)
 		caps := a.get("/capabilities", "")
 		require.Equal(t, http.StatusOK, caps.status, caps.String())
@@ -502,7 +504,9 @@ func TestAccountPolicies(t *testing.T) {
 	}
 
 	t.Run("configured length", func(t *testing.T) {
-		_, a, wire := setup(t, func(c *authkit.Config) { c.Password = authkit.PasswordPolicy{MinLength: 12, MaxLength: 20} })
+		_, a, wire := setup(t, func(c *authkit.Config) {
+			c.Password = &authkit.PasswordPolicy{MinLength: 12, MaxLength: 20, RejectCommon: true}
+		})
 		require.Equal(t, map[string]any{"min_length": float64(12), "max_length": float64(20),
 			"require_uppercase": false, "require_lowercase": false, "require_digit": false, "require_symbol": false, "reject_common": true}, wire.Password)
 		bounds := map[string]any{"min_length": float64(12), "max_length": float64(20)}
@@ -522,7 +526,10 @@ func TestAccountPolicies(t *testing.T) {
 		_, a, wire := setup(t, func(*authkit.Config) {})
 		require.Equal(t, map[string]any{"min_length": float64(8), "max_length": float64(128),
 			"require_uppercase": false, "require_lowercase": false, "require_digit": false, "require_symbol": false, "reject_common": true}, wire.Password)
-		require.Equal(t, map[string]any{"min_length": float64(4), "max_length": float64(30), "pattern": iam.UsernamePattern}, wire.Username)
+		require.Equal(t, map[string]any{"min_length": float64(4), "max_length": float64(30), "pattern": naming.UsernamePattern,
+			"renames": false, "rename_interval_seconds": config.DefaultRenameInterval.Seconds(),
+			"former_names": map[string]any{"enabled": false, "former_name_retention_mode": string(config.FormerNamesFinite),
+				"former_name_retention_seconds": config.DefaultFormerNameRetention.Seconds()}}, wire.Username)
 		require.Nil(t, policyError(t, register(a, "common@example.test", "commonuser", "QwertyUIOP"), "password_too_common", "password"))
 		for _, common := range []string{"password123", "Password1!", "qwerty12345", "iloveyou123"} {
 			policyError(t, register(a, "common@example.test", "commonuser", common), "password_too_common", "password")
@@ -536,8 +543,8 @@ func TestAccountPolicies(t *testing.T) {
 
 	t.Run("host composition and username bounds", func(t *testing.T) {
 		_, a, wire := setup(t, func(c *authkit.Config) {
-			c.Password = authkit.PasswordPolicy{RequireSymbol: true, RequireDigit: true, AllowCommon: true}
-			c.Username = iam.UsernamePolicy{MinLength: 6, MaxLength: 12}
+			c.Password = &authkit.PasswordPolicy{RequireSymbol: true, RequireDigit: true}
+			c.Username = authkit.UsernameConfig{MinLength: 6, MaxLength: 12, Renames: true}
 		})
 		require.Equal(t, true, wire.Password["require_symbol"])
 		require.Equal(t, true, wire.Password["require_digit"])
@@ -558,9 +565,8 @@ func TestAccountPolicies(t *testing.T) {
 	t.Run("username policy bounds derived and imported names and New", func(t *testing.T) {
 		idp := testidp.New(t)
 		auth, a, _ := setup(t, func(c *authkit.Config) {
-			c.Username = iam.UsernamePolicy{MinLength: 8, MaxLength: 10}
-			c.Identity.Providers = []provider.Provider{idp.OIDC("idp")}
-		})
+			c.Username = authkit.UsernameConfig{MinLength: 8, MaxLength: 10}
+		}, withProviders(idp.OIDC("idp")))
 		ctx := t.Context()
 		// A provider sign-up derives its username from the email's local part,
 		// padded to the policy's minimum.
@@ -581,7 +587,7 @@ func TestAccountPolicies(t *testing.T) {
 		require.Equal(t, map[string]any{"min_length": 8, "max_length": 64}, e.Metadata(), "imports keep the 64-character import ceiling")
 
 		cfg, deps := bareConfig(t)
-		cfg.Username = iam.UsernamePolicy{MinLength: 9, MaxLength: 8}
+		cfg.Username = authkit.UsernameConfig{MinLength: 9, MaxLength: 8}
 		_, err = newClient(t, cfg, deps)
 		require.ErrorContains(t, err, "invalid username policy")
 	})
@@ -598,7 +604,7 @@ func TestCredentialTransactionsResetGrantsExpireOnCredentialChanges(t *testing.T
 			requestReset := func() string {
 				t.Helper()
 				expect(t, http.StatusAccepted, a.post("/password/reset/request", "", map[string]any{"identifier": u.Email}))
-				token := outbox.Last(t, authtest.PasswordReset, u.Email).Token
+				token := outbox.Last(t, iam.MessagePasswordReset, u.Email).Token
 				require.NotEmpty(t, token)
 				return token
 			}
@@ -611,7 +617,7 @@ func TestCredentialTransactionsResetGrantsExpireOnCredentialChanges(t *testing.T
 				token := authtest.SignIn(t, auth, u).AccessToken
 				next := uniqueEmail("audit-new-email")
 				expect(t, http.StatusAccepted, a.post("/verify/request", token, map[string]any{"identifier": next}))
-				expect(t, http.StatusNoContent, a.post("/verify/confirm", token, map[string]any{"identifier": next, "code": outbox.Last(t, authtest.Verification, next).Code}))
+				expect(t, http.StatusNoContent, a.post("/verify/confirm", token, map[string]any{"identifier": next, "code": outbox.Last(t, iam.MessageVerification, next).Code}))
 			case "other_reset":
 				current := requestReset()
 				require.NotEqual(t, stale, current)
