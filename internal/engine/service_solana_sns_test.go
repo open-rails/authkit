@@ -4,9 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"sync/atomic"
 	"testing"
@@ -61,10 +59,7 @@ func TestSolanaLoginDoesNotWaitOnSNS(t *testing.T) {
 			Message string `json:"message"`
 		}
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &challenge))
-		b64 := base64.StdEncoding.EncodeToString
-		body := fmt.Sprintf(`{"output":{"account":{"address":%q,"publicKey":%q},"signature":%q,"signedMessage":%q}}`,
-			address, b64(pub), b64(ed25519.Sign(priv, []byte(challenge.Message))), b64([]byte(challenge.Message)))
-		w = serveJSON(srv, http.MethodPost, "/solana/login", body)
+		w = serveJSON(srv, http.MethodPost, "/solana/login", siwsOutput(pub, priv, challenge.Message))
 		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 		require.Zero(t, sns.exited.Load(), "login must not wait for the SNS lookup")
 	}
