@@ -74,12 +74,8 @@ func (s *Service) GroupHandler(op GroupOp) http.HandlerFunc {
 		switch op {
 		case OpMembersList:
 			s.groupMembersList(w, r, g)
-		case OpMemberAdd:
-			s.groupMemberAdd(w, r, g, actor)
 		case OpMemberRemove:
-			s.groupMemberRemove(w, r, g, actor, r.PathValue("user"))
-		case OpMemberRoleAssign:
-			s.groupMemberRole(w, r, g, actor, r.PathValue("user"), r.PathValue("role"))
+			s.groupMemberRemove(w, r, g, actor, r.PathValue("id"))
 		case OpRolesList:
 			s.groupRolesList(w, g)
 		case OpAPIKeysList:
@@ -88,12 +84,12 @@ func (s *Service) GroupHandler(op GroupOp) http.HandlerFunc {
 			s.groupAPIKeyMint(w, r, g, actor)
 		case OpAPIKeyRevoke:
 			s.groupAPIKeyRevoke(w, r, g, actor, r.PathValue("key"))
-		case OpInviteLinkList:
+		case OpInvitationsList:
 			s.groupInviteLinkList(w, r, g)
-		case OpInviteLinkMint:
+		case OpInvitationCreate:
 			s.groupInviteLinkMint(w, r, g, actor)
-		case OpInviteLinkRevoke:
-			s.groupInviteLinkRevoke(w, r, g, actor, r.PathValue("link"))
+		case OpInvitationRevoke:
+			s.groupInviteLinkRevoke(w, r, g, actor, r.PathValue("id"))
 		default:
 			fail(w, errmodel.CodeNotImplemented)
 		}

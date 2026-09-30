@@ -71,16 +71,16 @@ func (s *Service) groupInviteLinkRevoke(w http.ResponseWriter, r *http.Request, 
 	noContent(w)
 }
 
-// handleInviteRedeemPOST redeems an invite-link code for the signed-in user,
+// handleInvitationRedeemPOST redeems an invite-link code for the signed-in user,
 // assigning the link's role. Persona-agnostic: the code resolves to its own
 // group, so one endpoint serves every persona.
-func (s *Service) handleInviteRedeemPOST(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleInvitationRedeemPOST(w http.ResponseWriter, r *http.Request) {
 	actor, ok := verify.ActorFromContext(r.Context())
 	if !ok || actor.Kind() != iam.ActorUser {
 		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
-	var body InviteRedeemRequest
+	var body InvitationRedeemRequest
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Code) == "" {
 		fail(w, errmodel.CodeInvalidRequest)
 		return

@@ -41,7 +41,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 
 	out, err := s.svc.Register(r.Context(), authflow.RegisterInput{
 		Identifier: identifier, Username: req.Username, Password: req.Password,
-		PreferredLanguage: preferredLanguageFromRequest(r), AccountInviteToken: req.AccountInviteToken,
+		PreferredLanguage: preferredLanguageFromRequest(r), AccountInviteToken: req.InviteCode,
 		UserAgent: r.UserAgent(), IP: s.requestIP(r),
 	})
 	if err != nil {

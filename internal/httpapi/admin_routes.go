@@ -87,7 +87,7 @@ func accountActor(w http.ResponseWriter, r *http.Request) (iam.Actor, string, bo
 	return actor, target, true
 }
 
-func (s *Service) handleAdminUsersBanPOST(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleAdminUserBanPUT(w http.ResponseWriter, r *http.Request) {
 	var req BanRequest
 	if err := decodeOptionalJSON(r, &req); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
@@ -97,18 +97,13 @@ func (s *Service) handleAdminUsersBanPOST(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	if req.Until == nil || strings.TrimSpace(*req.Until) == "" {
+	if req.Until != nil && !req.Until.After(time.Now()) {
 		fail(w, errmodel.CodeInvalidUntil)
 		return
 	}
-	ban := iam.Ban{Reason: req.Reason, KeepExisting: req.KeepExisting}
-	if until := strings.TrimSpace(*req.Until); !strings.EqualFold(until, "infinite") {
-		parsed, err := time.Parse(time.RFC3339, until)
-		if err != nil {
-			fail(w, errmodel.CodeInvalidUntil)
-			return
-		}
-		ban.Until = &parsed
+	ban := iam.Ban{Until: req.Until}
+	if req.Reason != nil {
+		ban.Reason = *req.Reason
 	}
 	if err := s.svc.Ban(r.Context(), actor, target, ban); err != nil {
 		writeError(w, err)
@@ -117,7 +112,7 @@ func (s *Service) handleAdminUsersBanPOST(w http.ResponseWriter, r *http.Request
 	noContent(w)
 }
 
-func (s *Service) handleAdminUsersUnbanPOST(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleAdminUserBanDELETE(w http.ResponseWriter, r *http.Request) {
 	actor, target, ok := accountActor(w, r)
 	if !ok {
 		return
@@ -148,7 +143,7 @@ func (s *Service) handleAdminUserDeleteDELETE(w http.ResponseWriter, r *http.Req
 	noContent(w)
 }
 
-func (s *Service) handleAdminUserSessionsRevokePOST(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleAdminUserSessionsDELETE(w http.ResponseWriter, r *http.Request) {
 	actor, target, ok := accountActor(w, r)
 	if !ok {
 		return

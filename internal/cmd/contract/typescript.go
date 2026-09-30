@@ -107,6 +107,8 @@ export type AuthKitRoute = {
   group: string
   auth: "public" | "optional" | "required" | "session" | "permission"
   permission: string | null
+  // The caller must have signed in recently (step_up_required otherwise).
+  stepUp: boolean
   // The configuration the route needs; null when always mounted.
   mountedWhen: string | null
 }
@@ -121,8 +123,8 @@ export const AUTHKIT_ROUTES: readonly AuthKitRoute[] = [
 		if r.MountedWhen != "" {
 			when = fmt.Sprintf("%q", r.MountedWhen)
 		}
-		fmt.Fprintf(&b, "  { method: %q, path: %q, group: %q, auth: %q, permission: %s, mountedWhen: %s },\n",
-			r.Method, fullPath(r), r.Group, r.Auth, perm, when)
+		fmt.Fprintf(&b, "  { method: %q, path: %q, group: %q, auth: %q, permission: %s, stepUp: %t, mountedWhen: %s },\n",
+			r.Method, fullPath(r), r.Group, r.Auth, perm, r.StepUp, when)
 	}
 	b.WriteString("]\n")
 	return b.Bytes()

@@ -275,6 +275,9 @@ func (c *contract) operation(r httpapi.RouteSpec) *obj {
 	if r.MountedWhen != httpapi.Always {
 		op.set("x-authkit-mounted-when", string(r.MountedWhen))
 	}
+	if r.StepUp {
+		op.set("x-authkit-step-up", true)
+	}
 	if r.MFAEnrollmentExempt {
 		op.set("x-authkit-mfa-enrollment-exempt", true)
 	}

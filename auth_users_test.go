@@ -286,13 +286,14 @@ func TestListGroupMembersLiveOnlyWithUsers(t *testing.T) {
 	require.Len(t, live.Items, 1)
 	require.Equal(t, ids["liveone"], live.Items[0].Subject.ID)
 	require.NotNil(t, live.Items[0].User)
-	require.Equal(t, "liveone@example.test", *live.Items[0].User.Email)
+	require.Equal(t, "liveone", live.Items[0].User.Username)
+	// Members expand to what others may see: a deleted member is a
+	// tombstone, and a ban is not visible.
 	withUsers, err := auth.ListGroupMembers(ctx, ref, iam.MemberQuery{WithUsers: true})
 	require.NoError(t, err)
 	for _, m := range withUsers.Items {
 		require.NotNil(t, m.User)
-		live := m.User.DeletedAt == nil && m.User.Ban == nil
-		require.Equal(t, m.Subject.ID == ids["liveone"], live)
+		require.Equal(t, m.Subject.ID == ids["deleted"], m.User.Deleted)
 	}
 }
 

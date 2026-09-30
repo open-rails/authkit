@@ -10,7 +10,7 @@ import (
 	"github.com/open-rails/authkit/verify"
 )
 
-func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleMePasswordPUT(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		fail(w, errmodel.CodeUnauthenticated)

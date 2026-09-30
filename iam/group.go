@@ -25,9 +25,9 @@ type Group struct {
 // GroupMember is a subject holding a role in a group. User is the account
 // of a user member when MemberQuery.WithUsers asked for it.
 type GroupMember struct {
-	Subject Subject `json:"subject"`
-	Role    Role    `json:"role"`
-	User    *User   `json:"user"`
+	Subject Subject     `json:"subject"`
+	Role    Role        `json:"role"`
+	User    *PublicUser `json:"user"`
 }
 
 // Membership is a group a subject holds a role in.

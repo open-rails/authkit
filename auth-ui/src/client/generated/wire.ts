@@ -33,6 +33,20 @@ export type APIKeyCreated = {
   secret: string
 }
 
+export type AccountRecoveryConfirmation = {
+  token: string
+  expires_at: string
+  purge_at: string
+}
+
+export type AdminUserUpdateRequest = {
+  email?: string | null
+  phone_number?: string | null
+  username?: string | null
+  avatar_url?: string | null
+  preferred_language?: string | null
+}
+
 export type AuthKitEvent = {
   id: string
   kind: "group.created" | "group.deleted" | "group.purged" | "role.changed" | "role.granted" | "role.revoked" | "user.banned" | "user.deleted" | "user.email_changed" | "user.phone_changed" | "user.purged" | "user.registered" | "user.restored" | "user.unbanned" | "user.username_changed"
@@ -47,6 +61,20 @@ export type AuthKitEvent = {
   current: string
   reason: string
   until: string | null
+}
+
+export type AuthResult = {
+  status: "account_recovery_required" | "complete" | "enrollment_required" | "second_factor_required" | "verification_required"
+  token_set: TokenSet | null
+  user: User | null
+  created: boolean
+  return_to: string | null
+  fresh_auth: FreshAuth | null
+  device_key: DeviceKey | null
+  second_factor: SecondFactorStep | null
+  enrollment: EnrollmentStep | null
+  verification: VerificationStep | null
+  recovery: AccountRecoveryConfirmation | null
 }
 
 export type Availability = {
@@ -65,9 +93,8 @@ export type BackupCodes = {
 }
 
 export type BanRequest = {
-  reason?: string
+  reason?: string | null
   until?: string | null
-  keep_existing?: boolean
 }
 
 export type BanState = {
@@ -154,9 +181,13 @@ export type DeviceKeyLoginFinishRequest = {
   signature?: string
 }
 
-export type DeviceKeySession = {
+export type EmailChangeRequest = {
+  email?: string
+}
+
+export type EnrollmentStep = {
   token_set: TokenSet
-  device_key: DeviceKey
+  allowed_methods: string[]
 }
 
 export type ExternalLoginProvider = {
@@ -168,9 +199,9 @@ export type ExternalLoginProvider = {
 }
 
 export type FreshAuth = {
-  step_up_required_for_sensitive_actions: boolean
-  time_until_step_up_required: number
   last_authenticated_at: string | null
+  step_up_required_for_sensitive_actions: boolean
+  step_up_required_in_seconds: number
   auth_methods: string[]
 }
 
@@ -184,7 +215,7 @@ export type Group = {
 export type GroupMember = {
   subject: Subject
   role: string
-  user: User | null
+  user: PublicUser | null
 }
 
 export type IdentifierPasswordRequest = {
@@ -210,6 +241,7 @@ export type Invitation = {
 
 export type InvitationCreateRequest = {
   role?: string
+  email?: string
   expires_at?: string | null
 }
 
@@ -219,7 +251,7 @@ export type InvitationCreated = {
   url: string
 }
 
-export type InviteRedeemRequest = {
+export type InvitationRedeemRequest = {
   code?: string
 }
 
@@ -243,9 +275,13 @@ export type LabelRequest = {
   label?: string
 }
 
-export type MemberAddRequest = {
-  user_id?: string
-  email?: string
+export type LinkedProvider = {
+  provider: string
+  email: string | null
+  linked_at: string
+}
+
+export type MemberRoleRequest = {
   role?: string
 }
 
@@ -279,43 +315,20 @@ export type NamingState = {
   retry_after_seconds: number
 }
 
-export type OIDCLoginRequest = {
-  return_to?: string
-  account_invite_token?: string
-  ui?: string
-  popup_nonce?: string
+export type OIDCExchangeRequest = {
+  code?: string
 }
 
-export type OIDCLoginResult = {
-  token_set: TokenSet
-  user: OIDCUser
+export type OIDCLoginStartRequest = {
+  return_to?: string
+  invite_code?: string
+  ui?: string
+  popup_nonce?: string
 }
 
 export type OIDCStart = {
   auth_url: string
   state: string
-}
-
-export type OIDCStepUpResult = {
-  token_set: TokenSet
-  fresh_auth: FreshAuth
-  provider: string
-}
-
-export type OIDCUser = {
-  id: string
-  email: string | null
-}
-
-export type Passkey = {
-  id: string
-  label: string | null
-  transports: string[]
-  authenticator_attachment: string | null
-  backup_eligible: boolean
-  backup_state: boolean
-  created_at: string
-  last_used_at: string | null
 }
 
 export type PasskeyCapabilities = {
@@ -356,64 +369,48 @@ export type PasswordlessCapabilities = {
   channels: string[]
 }
 
-export type PasswordlessResult = {
-  token_set: TokenSet
-  return_to: string | null
-}
-
 export type PasswordlessStartRequest = {
   identifier?: string
   mode?: string
   return_to?: string
   preferred_language?: string
-  account_invite_token?: string
+  invite_code?: string
 }
 
 export type PermissionSet = {
   group_id: string
+  role: string | null
   permissions: string[]
 }
 
-export type PreferredLanguage = {
-  preferred_language: string
+export type PhoneChangeRequest = {
+  phone_number?: string
 }
 
-export type PreferredLanguageRequest = {
-  preferred_language?: string
+export type ProfileUpdateRequest = {
+  username?: string | null
+  preferred_language?: string | null
+  avatar_url?: string | null
+}
+
+export type PublicUser = {
+  id: string
+  username: string
+  avatar_url: string | null
+  deleted: boolean
+  metadata: Record<string, unknown>
 }
 
 export type RegisterRequest = {
   identifier?: string
   username?: string
   password?: string
-  account_invite_token?: string
+  invite_code?: string
 }
 
 export type RegistrationCapabilities = {
   mode: string
   invite_token_required: boolean
-}
-
-export type RegistrationResult = {
-  user: RegistrationUser
-  token_set: TokenSet
-}
-
-export type RegistrationUser = {
-  username: string
-  email: string | null
-  phone_number: string | null
-}
-
-export type RemovedRole = {
-  group_id: string
-  persona: string
-  role: string
-  removed_at: string
-}
-
-export type RemovedRoles = {
-  removed_roles: RemovedRole[]
 }
 
 export type ReturnToRequest = {
@@ -423,6 +420,13 @@ export type ReturnToRequest = {
 export type RoleInfo = {
   name: string
   permissions: string[]
+}
+
+export type SecondFactorStep = {
+  user_id: string
+  challenge: string
+  factor: TwoFactorFactor
+  factors: TwoFactorFactor[]
 }
 
 export type Session = {
@@ -446,6 +450,15 @@ export type SessionEvent = {
   user_agent: string | null
 }
 
+export type SignInKey = {
+  id: string
+  kind: "device_key" | "passkey"
+  label: string | null
+  created_at: string
+  last_used_at: string | null
+  current: boolean
+}
+
 export type SolanaAccount = {
   address?: string
   publicKey?: string
@@ -466,10 +479,6 @@ export type SolanaChallengeRequest = {
   username?: string
 }
 
-export type SolanaLink = {
-  solana_address: string
-}
-
 export type SolanaLinkedAccount = {
   provider: string
   issuer: string
@@ -483,12 +492,6 @@ export type SolanaLinkedAccount = {
   sns_error: string | null
 }
 
-export type SolanaLoginResult = {
-  token_set: TokenSet
-  created: boolean
-  user: SolanaUser
-}
-
 export type SolanaSignInOutput = {
   account?: SolanaAccount
   signature?: string
@@ -499,20 +502,10 @@ export type SolanaSignInRequest = {
   output?: SolanaSignInOutput
 }
 
-export type SolanaUser = {
-  id: string
-  solana_address: string
-}
-
-export type StepUpResult = {
-  token_set: TokenSet
-  fresh_auth: FreshAuth
-}
-
 export type StepUpTwoFactorOption = {
   method: string
   is_default: boolean
-  verification_id: string | null
+  destination: string | null
 }
 
 export type StepUpTwoFactorOptions = {
@@ -553,37 +546,48 @@ export type TwoFactorChallengeRequest = {
   factor_id?: string
 }
 
-export type TwoFactorEnrollRequest = {
-  method?: string
-  code?: string
-  phone_number?: string | null
-  default?: boolean
-  factor_id?: string
-}
-
-export type TwoFactorEnrollResult = {
-  method: string
-  enabled: boolean
-  secret: string | null
-  otpauth_uri: string | null
-  backup_codes: string[]
-  token_set: TokenSet | null
-  fresh_auth: FreshAuth | null
-}
-
 export type TwoFactorFactor = {
   id: string
   method: string
   is_default: boolean
-  phone_number: string | null
-  email: string | null
+  destination: string | null
+}
+
+export type TwoFactorFactorCreateRequest = {
+  method?: string
+  code?: string
+  phone_number?: string | null
+  default?: boolean
+}
+
+export type TwoFactorFactorCreated = {
+  factor: TwoFactorFactor
+  backup_codes: string[]
+  auth: AuthResult | null
+}
+
+export type TwoFactorFactorUpdateRequest = {
+  default?: boolean
+}
+
+export type TwoFactorSendRequest = {
+  method?: string
+}
+
+export type TwoFactorSetup = {
+  method: string
+  destination: string | null
+  secret: string | null
+  otpauth_uri: string | null
+}
+
+export type TwoFactorSetupRequest = {
+  method?: string
+  phone_number?: string | null
 }
 
 export type TwoFactorStatus = {
   enabled: boolean
-  method: string
-  phone_number: string | null
-  default_factor: TwoFactorFactor | null
   factors: TwoFactorFactor[]
   allowed_methods: string[]
   backup_codes_remaining: number
@@ -592,7 +596,6 @@ export type TwoFactorStatus = {
 export type TwoFactorStepUpRequest = {
   code?: string
   method?: string
-  factor_id?: string
   backup_code?: boolean
 }
 
@@ -652,19 +655,19 @@ export type UserProfile = {
   last_login: string | null
   deleted_at: string | null
   ban: BanState | null
-  has_password: boolean
-  solana_linked_account: SolanaLinkedAccount | null
-  linked_providers: string[]
-  roles: string[]
+  root_role: string | null
   entitlements: string[]
+  has_password: boolean
+  providers: LinkedProvider[]
+  solana_wallet: SolanaLinkedAccount | null
   naming: NamingState
-  security: UserSecurity
 }
 
 export type UserSecurity = {
   last_authenticated_at: string | null
-  time_until_step_up_required: number | null
   step_up_required_for_sensitive_actions: boolean
+  step_up_required_in_seconds: number
+  auth_methods: string[]
   step_up_methods: string[]
   step_up_2fa: StepUpTwoFactorOptions | null
   mfa_enabled: boolean
@@ -681,15 +684,11 @@ export type UsernameCapabilities = {
   former_names: NamingPolicy
 }
 
-export type UsernameChange = {
-  username: string
-  naming: NamingState
-}
-
-export type UsernameRequest = {
-  username?: string
-}
-
 export type VerificationCapabilities = {
   registration: string
+}
+
+export type VerificationStep = {
+  identifier: string
+  channel: string
 }

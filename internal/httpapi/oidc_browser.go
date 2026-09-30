@@ -45,11 +45,11 @@ func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
 	s.startProviderFlow(w, r, provider, flowStart{login: &loginStart{ui: q.Get("ui"), popupNonce: q.Get("popup_nonce"), returnTo: q.Get("return_to")}})
 }
 
-// handleOIDCLoginPOST starts a login from the page's own origin and answers
+// handleOIDCLoginStartPOST starts a login from the page's own origin and answers
 // {"auth_url","state"}; the page then navigates (or its popup does) to
 // auth_url. It is the only start that accepts an account invitation.
-func (s *Service) handleOIDCLoginPOST(w http.ResponseWriter, r *http.Request) {
-	var req OIDCLoginRequest
+func (s *Service) handleOIDCLoginStartPOST(w http.ResponseWriter, r *http.Request) {
+	var req OIDCLoginStartRequest
 	if err := decodeJSON(r, &req); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
@@ -61,7 +61,7 @@ func (s *Service) handleOIDCLoginPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.startProviderFlow(w, r, r.PathValue("provider"), flowStart{login: &loginStart{
-		ui: req.UI, popupNonce: req.PopupNonce, returnTo: req.ReturnTo, accountInviteToken: req.AccountInviteToken,
+		ui: req.UI, popupNonce: req.PopupNonce, returnTo: req.ReturnTo, accountInviteToken: req.InviteCode,
 	}})
 }
 

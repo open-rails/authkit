@@ -115,31 +115,26 @@ func (s *Engine) PublicUsers(ctx context.Context, ids []string) (map[string]iam.
 	}
 	for _, r := range rows {
 		if r.DeletedAt != nil {
-			out[r.ID] = iam.PublicUser{ID: r.ID, Deleted: true}
+			out[r.ID] = iam.PublicUser{ID: r.ID, Deleted: true, Metadata: map[string]any{}}
 			continue
 		}
-		out[r.ID] = iam.PublicUser{ID: r.ID, Username: deref(r.Username), AvatarURL: deref(r.AvatarURL), CreatedAt: r.CreatedAt,
-			Metadata: s.publicMetadata(r.Metadata)}
+		out[r.ID] = iam.PublicUser{ID: r.ID, Username: deref(r.Username), AvatarURL: r.AvatarURL, Metadata: s.publicMetadata(r.Metadata)}
 	}
 	return out, nil
 }
 
-// publicMetadata keeps the Config.PublicUserMetadata keys of raw; nil when
-// none are set.
+// publicMetadata keeps the Config.PublicUserMetadata keys of raw.
 func (s *Engine) publicMetadata(raw []byte) map[string]any {
+	out := map[string]any{}
 	if len(s.cfg.PublicUserMetadata) == 0 || len(raw) == 0 {
-		return nil
+		return out
 	}
 	var all map[string]any
 	if json.Unmarshal(raw, &all) != nil {
-		return nil
+		return out
 	}
-	var out map[string]any
 	for _, k := range s.cfg.PublicUserMetadata {
 		if v, ok := all[k]; ok {
-			if out == nil {
-				out = map[string]any{}
-			}
 			out[k] = v
 		}
 	}

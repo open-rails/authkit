@@ -37,16 +37,9 @@ func apiRoutes() []httpapi.RouteSpec {
 // 202 accepted or sent, 204 done; 202 and 204 carry no body. A GET answers
 // 200, an idempotent DELETE 204.
 func TestCatalogStatusTable(t *testing.T) {
-	// Answers with the roles the removal took away (#407 replaces it with a
-	// factor resource).
-	deleteWithBody := "DELETE /user/2fa"
-	// Answers only a continuation until #407's sign-in result.
-	noSuccess := "POST /2fa/challenge"
 	for _, r := range apiRoutes() {
 		route := r.Method + " " + r.Path
-		if route != noSuccess {
-			require.NotEmpty(t, r.Responses, "%s declares no success", route)
-		}
+		require.NotEmpty(t, r.Responses, "%s declares no success", route)
 		seen := map[int]bool{}
 		for _, reply := range r.Responses {
 			require.False(t, seen[reply.Status], "%s declares %d twice", route, reply.Status)
@@ -64,9 +57,7 @@ func TestCatalogStatusTable(t *testing.T) {
 		case http.MethodGet:
 			require.Equal(t, []int{http.StatusOK}, statuses(r), route)
 		case http.MethodDelete:
-			if route != deleteWithBody {
-				require.Equal(t, []int{http.StatusNoContent}, statuses(r), route)
-			}
+			require.Equal(t, []int{http.StatusNoContent}, statuses(r), route)
 		}
 		if seen[http.StatusCreated] {
 			require.Contains(t, []string{http.MethodPost}, r.Method, "%s: only a POST creates", route)
@@ -148,6 +139,15 @@ func TestCatalogDeclaresGates(t *testing.T) {
 			require.True(t, slices.Contains(append(ident.IntrinsicRootPermissions(), ident.MembersRead(iam.RootPersona), ident.MembersManage(iam.RootPersona)), ident.Perm(r.Perm)), "%s: %s", key, r.Perm)
 		}
 		require.Contains(t, append(httpapi.Features, httpapi.Always), r.MountedWhen, key)
+		// A signed-in change checks the session (AuthSession) or runs through
+		// the actor's session binding (AuthPermission); only logout, which
+		// must end an already revoked session too, is AuthRequired.
+		if r.Method != http.MethodGet && r.Auth == iam.AuthRequired {
+			require.Equal(t, "DELETE /logout", r.Method+" "+r.Path, "%s changes state: declare AuthSession or AuthPermission", key)
+		}
+		if r.StepUp {
+			require.Contains(t, []iam.RouteAuthTier{iam.AuthSession, iam.AuthPermission}, r.Auth, "%s: a step-up follows the session check", key)
+		}
 	}
 }
 

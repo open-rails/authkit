@@ -14,4 +14,5 @@ type usersBackend interface {
 	UserNamingState(ctx context.Context, id string) (naming.State, error)
 	HasUsableMFA(ctx context.Context, userID string) (bool, error)
 	UserProfile(ctx context.Context, in authflow.ProfileInput) (authflow.UserProfile, error)
+	UserSecurity(ctx context.Context, in authflow.ProfileInput) (authflow.UserSecurity, error)
 }

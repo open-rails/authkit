@@ -53,18 +53,16 @@ const (
 	RLOIDCStart    = "auth_oidc_start"
 	RLOIDCCallback = "auth_oidc_callback"
 
-	RLUserPasswordChange    = "auth_user_password_change"
-	RLUserMe                = "auth_user_me"
-	RLUserUpdateUsername    = "auth_user_update_username"
-	RLUserPreferredLanguage = "auth_user_preferred_language"
+	RLUserPasswordChange = "auth_user_password_change"
+	RLUserMe             = "auth_user_me"
+	RLUserUpdate         = "auth_user_update"
+	RLStepUp2FASend      = "auth_step_up_2fa_send"
 
 	RLUserDelete         = "auth_user_delete"
 	RLUserUnlinkProvider = "auth_user_unlink_provider"
 
-	RLAdminUserSessionsList = "auth_admin_user_sessions_list"
-	// The admin session route revokes ALL of a user's sessions; there is no
-	// single-session admin revoke, so no RLAdminUserSessionsRevoke bucket.
-	RLAdminUserSessionsRevokeAll = "auth_admin_user_sessions_revoke_all"
+	RLAdminRead  = "auth_admin_read"
+	RLAdminWrite = "auth_admin_write"
 
 	// Solana SIWS authentication
 	RLSolanaChallenge = "auth_solana_challenge"
@@ -116,6 +114,7 @@ var buckets = map[string]bucket{
 	RL2FAStartPhone:        {limit: lim{Limit: 3, Window: 10 * time.Minute}},
 	RL2FAStartEmail:        {limit: lim{Limit: 3, Window: 10 * time.Minute}},
 	RLInviteCreate:         {limit: lim{Limit: 20, Window: time.Hour, Cooldown: time.Minute}},
+	RLStepUp2FASend:        {limit: lim{Limit: 6, Window: 10 * time.Minute}},
 
 	// They issue a secret. An OIDC start issues the flow's state.
 	RL2FAStartTOTP:       {limit: lim{Limit: 6, Window: time.Hour}},
@@ -137,14 +136,13 @@ var buckets = map[string]bucket{
 	RLAuthSessionsRevokeAll:      {limit: lim{Limit: 20, Window: time.Hour}, failOpen: true},
 	RLUserPasswordChange:         {limit: lim{Limit: 6, Window: time.Hour}, failOpen: true},
 	RLUserMe:                     {limit: lim{Limit: 120, Window: time.Minute}, failOpen: true},
-	RLUserUpdateUsername:         {limit: lim{Limit: 12, Window: time.Hour}, failOpen: true},
-	RLUserPreferredLanguage:      {limit: lim{Limit: 24, Window: time.Hour}, failOpen: true},
+	RLUserUpdate:                 {limit: lim{Limit: 24, Window: time.Hour}, failOpen: true},
 	RLUserDelete:                 {limit: lim{Limit: 6, Window: time.Hour}, failOpen: true},
 	RLUserUnlinkProvider:         {limit: lim{Limit: 12, Window: time.Hour}, failOpen: true},
 	RLSolanaChallenge:            {limit: lim{Limit: 30, Window: 10 * time.Minute}, failOpen: true},
 	RL2FADisable:                 {limit: lim{Limit: 6, Window: time.Hour}, failOpen: true},
-	RLAdminUserSessionsList:      {limit: lim{Limit: 600, Window: time.Hour}, failOpen: true},
-	RLAdminUserSessionsRevokeAll: {limit: lim{Limit: 30, Window: time.Hour}, failOpen: true},
+	RLAdminRead:                  {limit: lim{Limit: 600, Window: time.Hour}, failOpen: true},
+	RLAdminWrite:                 {limit: lim{Limit: 30, Window: time.Hour}, failOpen: true},
 }
 
 // DefaultRateLimits returns AuthKit's built-in per-endpoint rate limits, per

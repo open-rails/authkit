@@ -8,7 +8,7 @@ import (
 	"github.com/open-rails/authkit/internal/errmodel"
 )
 
-func (s *Service) handleUserSessionsGET(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleMeSessionsGET(w http.ResponseWriter, r *http.Request) {
 	cl, err := callerClaims(r)
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
 		fail(w, errmodel.CodeUnauthenticated)
@@ -25,7 +25,7 @@ func (s *Service) handleUserSessionsGET(w http.ResponseWriter, r *http.Request) 
 	all(w, sessions)
 }
 
-func (s *Service) handleUserSessionDELETE(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleMeSessionDELETE(w http.ResponseWriter, r *http.Request) {
 	cl, err := callerClaims(r)
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
 		fail(w, errmodel.CodeUnauthenticated)
@@ -44,7 +44,7 @@ func (s *Service) handleUserSessionDELETE(w http.ResponseWriter, r *http.Request
 	noContent(w)
 }
 
-func (s *Service) handleUserSessionsDELETE(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleMeSessionsDELETE(w http.ResponseWriter, r *http.Request) {
 	cl, err := callerClaims(r)
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
 		fail(w, errmodel.CodeUnauthenticated)

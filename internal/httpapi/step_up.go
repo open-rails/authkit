@@ -69,10 +69,6 @@ func (s *Service) handleTwoFactorStepUpPOST(w http.ResponseWriter, r *http.Reque
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	if strings.TrimSpace(body.FactorID) != "" {
-		fail(w, errmodel.CodeInvalidRequest)
-		return
-	}
 	method := strings.ToLower(strings.TrimSpace(body.Method))
 	if method != "" && !authflow.ValidTwoFactorStepUpMethod(method) {
 		fail(w, errmodel.CodeInvalidTwoFAMethod)
@@ -273,8 +269,11 @@ func (s *Service) hasUsableMFA(r *http.Request, userID string) bool {
 func freshAuth(f authflow.SessionFreshness) FreshAuth {
 	out := FreshAuth{
 		StepUpRequiredForSensitiveActions: f.StepUpRequiredForSensitiveOps,
-		TimeUntilStepUpRequired:           int64((f.TimeUntilStepUpRequired + time.Second - time.Nanosecond) / time.Second),
+		StepUpRequiredInSeconds:           int64((max(f.TimeUntilStepUpRequired, 0) + time.Second - time.Nanosecond) / time.Second),
 		AuthMethods:                       f.AuthMethods,
+	}
+	if out.AuthMethods == nil {
+		out.AuthMethods = []string{}
 	}
 	if !f.LastAuthenticatedAt.IsZero() {
 		out.LastAuthenticatedAt = &f.LastAuthenticatedAt

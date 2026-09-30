@@ -100,7 +100,7 @@ func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-func (s *Service) handleSolanaLinkPOST(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleMeSolanaWalletPUT(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		fail(w, errmodel.CodeUnauthenticated)

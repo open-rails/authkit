@@ -14,7 +14,7 @@ import (
 	"github.com/open-rails/authkit/verify"
 )
 
-func (s *Service) handleUser2FAStatusGET(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleMe2FAGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		fail(w, errmodel.CodeUnauthenticated)
@@ -23,17 +23,13 @@ func (s *Service) handleUser2FAStatusGET(w http.ResponseWriter, r *http.Request)
 
 	settings, err := s.svc.Get2FASettings(r.Context(), claims.UserID)
 	if err != nil {
-		writeJSON(w, http.StatusOK, TwoFactorStatus{Enabled: false, Method: "email", AllowedMethods: s.svc.TwoFactorAllowedMethods()})
+		writeJSON(w, http.StatusOK, TwoFactorStatus{Factors: []TwoFactorFactor{}, AllowedMethods: s.svc.TwoFactorAllowedMethods()})
 		return
 	}
 
-	factors := twoFactorFactorResponses(settings.Factors)
 	writeJSON(w, http.StatusOK, TwoFactorStatus{
 		Enabled:              settings.Enabled,
-		Method:               settings.Method,
-		PhoneNumber:          settings.PhoneNumber,
-		DefaultFactor:        defaultTwoFactorFactorResponse(factors),
-		Factors:              factors,
+		Factors:              twoFactorFactorResponses(settings.Factors),
 		AllowedMethods:       s.svc.TwoFactorAllowedMethods(),
 		BackupCodesRemaining: len(settings.BackupCodes),
 	})
@@ -146,7 +142,7 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Service) handleUser2FADELETE(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleMe2FADELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		fail(w, errmodel.CodeUnauthenticated)
@@ -190,7 +186,7 @@ func enabledMeta(out authflow.TwoFactorEnrollOutcome) map[string]any {
 	return meta
 }
 
-func (s *Service) handleUser2FABackupCodesPOST(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleMe2FABackupCodesPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		fail(w, errmodel.CodeUnauthenticated)
@@ -217,23 +213,14 @@ func twoFactorFactorResponses(factors []authflow.TwoFactorFactor) []TwoFactorFac
 }
 
 func twoFactorFactorResponse(factor authflow.TwoFactorFactor) TwoFactorFactor {
-	out := TwoFactorFactor{ID: factor.ID, Method: factor.Method, IsDefault: factor.IsDefault, PhoneNumber: factor.PhoneNumber}
-	if factor.Email != nil {
-		masked := contact.MaskDestination(*factor.Email)
-		out.Email = &masked
+	out := TwoFactorFactor{ID: factor.ID, Method: factor.Method, IsDefault: factor.IsDefault}
+	destination := factor.Email
+	if factor.Method == "sms" {
+		destination = factor.PhoneNumber
+	}
+	if destination != nil && factor.Method != "totp" {
+		masked := contact.MaskDestination(*destination)
+		out.Destination = &masked
 	}
 	return out
-}
-
-func defaultTwoFactorFactorResponse(factors []TwoFactorFactor) *TwoFactorFactor {
-	for _, factor := range factors {
-		if factor.IsDefault {
-			f := factor
-			return &f
-		}
-	}
-	if len(factors) == 0 {
-		return nil
-	}
-	return &factors[0]
 }

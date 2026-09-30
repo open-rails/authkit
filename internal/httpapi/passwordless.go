@@ -31,7 +31,7 @@ func (s *Service) handlePasswordlessStartPOST(w http.ResponseWriter, r *http.Req
 		Mode:               req.Mode,
 		ReturnTo:           req.ReturnTo,
 		PreferredLanguage:  req.PreferredLanguage,
-		AccountInviteToken: req.AccountInviteToken,
+		AccountInviteToken: req.InviteCode,
 	})
 	if err != nil {
 		writeError(w, err)

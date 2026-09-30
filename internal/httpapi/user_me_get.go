@@ -9,10 +9,10 @@ import (
 	"github.com/open-rails/authkit/verify"
 )
 
-// handleUserMeGET: the profile projection is authflow.UserProfile (ak#318);
+// handleMeGET: the profile projection is authflow.UserProfile (ak#318);
 // the transport contributes only what the verified claims and the provider
 // registry know.
-func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleMeGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		fail(w, errmodel.CodeUnauthenticated)

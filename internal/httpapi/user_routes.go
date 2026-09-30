@@ -98,7 +98,7 @@ func (s *Service) supportsLanguage(language string) bool {
 	return acceptable(s.cfg.Languages, language)
 }
 
-func (s *Service) handleUserDeleteDELETE(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleMeDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		fail(w, errmodel.CodeUnauthenticated)
@@ -129,7 +129,7 @@ func (s *Service) handleUserDeleteDELETE(w http.ResponseWriter, r *http.Request)
 	noContent(w)
 }
 
-func (s *Service) handleUserUnlinkProviderDELETE(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleMeProviderDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		fail(w, errmodel.CodeUnauthenticated)
