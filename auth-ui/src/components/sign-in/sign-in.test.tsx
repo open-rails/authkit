@@ -343,7 +343,7 @@ describe("RegisterForm", () => {
 
   it("validates against the advertised username and password policy", async () => {
     const user = userEvent.setup()
-    const register = vi.fn(() => json(202, { next_action: "verify_email" }))
+    const register = vi.fn(() => new Response(null, { status: 202 }))
     const fetch = stubFetch({
       "GET /api/v1/capabilities": () =>
         json(200, {

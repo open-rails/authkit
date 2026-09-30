@@ -142,13 +142,15 @@ func TestMountCatalog(t *testing.T) {
 		u := authtest.NewUser(t, auth)
 		credentials := `{"identifier":"` + u.Email + `","password":"` + u.Password + `"}`
 		badJSON := a.do(request{method: http.MethodPost, path: "/password/login", body: credentials, header: http.Header{"Content-Type": {"text/plain"}}})
-		require.Equal(t, http.StatusBadRequest, badJSON.status, badJSON.String())
+		require.Equal(t, http.StatusUnsupportedMediaType, badJSON.status, badJSON.String())
+		require.Equal(t, "unsupported_media_type", badJSON.code())
 		login := a.post("/password/login", "", credentials)
 		require.Equal(t, http.StatusOK, login.status, login.String())
 		var tokens map[string]any
 		login.decode(t, &tokens)
 		require.NotEmpty(t, tokens["access_token"])
-		require.NotContains(t, tokens, "refresh_token")
+		require.Contains(t, tokens, "refresh_token")
+		require.Nil(t, tokens["refresh_token"], "the cookie carries the refresh token")
 		require.Len(t, login.cookies, 1)
 		require.Equal(t, iam.RefreshCookieName, login.cookies[0].Name)
 		require.Equal(t, "/", login.cookies[0].Path)

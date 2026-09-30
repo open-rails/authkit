@@ -182,7 +182,7 @@ func (h *host) registerPasskey(token string) *passkeytest.Authenticator {
 	var creation protocol.CredentialCreation
 	resp.json(h.t, &creation)
 	resp = h.post("/passkeys/register/finish", authn.Register(h.t, &creation), token)
-	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
+	require.Equal(h.t, http.StatusCreated, resp.status, resp.String())
 	return authn
 }
 

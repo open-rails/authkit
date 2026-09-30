@@ -53,7 +53,7 @@ func (f *factorFlow) signDeviceChallenge(key ed25519.PrivateKey, domain, encoded
 
 func (f *factorFlow) beginDeviceEnrollment(email, publicKey string) deviceKeyChallenge {
 	f.t.Helper()
-	res := f.expect(http.StatusAccepted, f.post("/device-keys/enroll/begin", map[string]any{"email": email, "public_key": publicKey, "label": "test machine"}))
+	res := f.expect(http.StatusOK, f.post("/device-keys/enroll/begin", map[string]any{"email": email, "public_key": publicKey, "label": "test machine"}))
 	var challenge deviceKeyChallenge
 	require.NoError(f.t, json.Unmarshal([]byte(res.raw), &challenge))
 	require.NotEmpty(f.t, challenge.EnrollmentID)
@@ -98,7 +98,7 @@ func (f *factorFlow) deviceKeySession(res authAnswer) deviceKeySession {
 
 func (f *factorFlow) beginDeviceLogin(id string) deviceKeyChallenge {
 	f.t.Helper()
-	res := f.expect(http.StatusAccepted, f.post("/device-keys/login/begin", map[string]any{"device_key_id": id}))
+	res := f.expect(http.StatusOK, f.post("/device-keys/login/begin", map[string]any{"device_key_id": id}))
 	var challenge deviceKeyChallenge
 	require.NoError(f.t, json.Unmarshal([]byte(res.raw), &challenge))
 	return challenge
@@ -225,7 +225,7 @@ func testPasskeyCeremonyAndAssurance(t *testing.T, auth *authkit.Client, outbox 
 	require.Empty(t, creation.PublicKey.ExcludeCredentials)
 	attestation := authn.Attestation(t, creation.PublicKey.RP.ID, passkeytest.UserHandle(t, creation.PublicKey.User.ID), creation.PublicKey.Challenge)
 	var created passkey
-	decode(f.expect(http.StatusOK, f.request(http.MethodPost, "/passkeys/register/finish", setupToken, attestation)), &created)
+	decode(f.expect(http.StatusCreated, f.request(http.MethodPost, "/passkeys/register/finish", setupToken, attestation)), &created)
 	require.NotEmpty(t, created.ID)
 	require.True(t, created.BackupEligible)
 	require.True(t, created.BackupState)
@@ -262,13 +262,16 @@ func testPasskeyCeremonyAndAssurance(t *testing.T, auth *authkit.Client, outbox 
 	require.Equal(t, created.ID, listed[0].ID)
 	// Management uses the credential established by the actual ceremony.
 	for _, label := range []string{"old", "new"} {
-		f.expect(http.StatusNoContent, f.request(http.MethodPatch, "/passkeys/"+created.ID, setupToken, map[string]any{"label": label}))
+		var renamed passkey
+		decode(f.expect(http.StatusOK, f.request(http.MethodPatch, "/passkeys/"+created.ID, setupToken, map[string]any{"label": label})), &renamed)
+		require.Equal(t, label, *renamed.Label)
 		listed = list()
 		require.NotNil(t, listed[0].Label)
 		require.Equal(t, label, *listed[0].Label)
 	}
 	f.expect(http.StatusNoContent, f.request(http.MethodDelete, "/passkeys/"+created.ID, setupToken, nil))
 	require.Empty(t, list())
+	f.expect(http.StatusNoContent, f.request(http.MethodDelete, "/passkeys/"+created.ID, setupToken, nil)) // idempotent
 	assertion = requestOptions{}
 	decode(f.expect(http.StatusOK, f.post("/passkeys/login/begin", map[string]any{})), &assertion)
 	deleted := finish(assertion, 3)

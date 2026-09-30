@@ -160,7 +160,7 @@ func Catalog() []RouteSpec {
 			Request: PasswordResetConfirmRequest{}, Responses: replyNoContent, serve: handle((*Service).handlePasswordResetConfirmPOST)},
 
 		{Method: POST, Path: "/register", Group: registration, Auth: public, Bucket: RLAuthRegister, MountedWhen: FeatureRegistration,
-			Request: RegisterRequest{}, Responses: replyOK(RegistrationResult{}), serve: handle((*Service).handleRegisterUnifiedPOST)},
+			Request: RegisterRequest{}, Responses: []Reply{{http.StatusOK, RegistrationResult{}}, {http.StatusAccepted, nil}}, serve: handle((*Service).handleRegisterUnifiedPOST)},
 		{Method: GET, Path: "/register/availability", Group: registration, Auth: public, Bucket: RLAuthRegisterAvailability,
 			Query: AvailabilityQuery{}, Responses: replyOK(Availability{}), serve: handle((*Service).handleRegisterAvailabilityGET)},
 		{Method: POST, Path: "/register/abandon", Group: registration, Auth: public, Bucket: RLAuthRegisterAbandon, MountedWhen: FeatureRegistration,

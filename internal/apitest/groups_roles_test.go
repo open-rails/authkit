@@ -280,12 +280,12 @@ func TestMFAFollowsPermissions(t *testing.T) {
 	keeper.TOTP = authtest.EnrollTOTP(t, auth, keeper)
 	ref := newGroup(t, auth, channel.Persona, keeper.ID)
 	_, err := createGroup(auth, channel.Persona, plain.ID)
-	require.ErrorIs(t, err, iam.ErrTwoFAEnrollmentRequired, "the owner role reaches the MFA permission")
+	require.ErrorIs(t, err, iam.ErrSubjectMFARequired, "the owner role reaches the MFA permission")
 
 	op := iam.SystemActor()
-	require.ErrorIs(t, assign(auth, op, ref, iam.UserSubject(plain.ID), moderator), iam.ErrTwoFAEnrollmentRequired)
-	require.ErrorIs(t, assign(auth, op, ref, iam.UserSubject(plain.ID), senior), iam.ErrTwoFAEnrollmentRequired, "an include carries MFA")
-	require.ErrorIs(t, assign(auth, op, iam.RootGroup(), iam.UserSubject(plain.ID), staff), iam.ErrTwoFAEnrollmentRequired, "a root role covering the owner's permissions needs MFA")
+	require.ErrorIs(t, assign(auth, op, ref, iam.UserSubject(plain.ID), moderator), iam.ErrSubjectMFARequired)
+	require.ErrorIs(t, assign(auth, op, ref, iam.UserSubject(plain.ID), senior), iam.ErrSubjectMFARequired, "an include carries MFA")
+	require.ErrorIs(t, assign(auth, op, iam.RootGroup(), iam.UserSubject(plain.ID), staff), iam.ErrSubjectMFARequired, "a root role covering the owner's permissions needs MFA")
 	require.NoError(t, assign(auth, op, ref, iam.UserSubject(plain.ID), editor))
 
 	_, _, err = createKey(auth, ctx, iam.UserActor(keeper.ID), ref, iam.NewAPIKey{Name: "mod-key", Role: moderator})
@@ -311,8 +311,8 @@ func TestMFAFollowsPermissions(t *testing.T) {
 		subject := authtest.NewUser(t, auth)
 		path := "/groups/" + ref.ID() + "/members/" + subject.ID + "/roles/channel:moderator"
 		res := a.do(request{method: http.MethodPut, path: path, token: token})
-		require.Equal(t, http.StatusForbidden, res.status, res.String())
-		require.Equal(t, "2fa_enrollment_required", res.code())
+		require.Equal(t, http.StatusConflict, res.status, res.String())
+		require.Equal(t, "subject_mfa_required", res.code(), "the subject, not the caller, must enroll")
 		authtest.EnrollTOTP(t, auth, subject)
 		res = a.do(request{method: http.MethodPut, path: path, token: token})
 		require.Equal(t, http.StatusOK, res.status, "the same assignment once enrolled: %s", res)
@@ -374,18 +374,10 @@ func TestGroupRoutesAddressGroupsByID(t *testing.T) {
 
 	res := a.get("/groups/"+gid+"/members", ownerToken)
 	require.Equal(t, http.StatusOK, res.status, res.String())
-	var list struct {
-		GroupID string `json:"group_id"`
-		Persona string `json:"persona"`
-		Data    []struct {
-			SubjectID string `json:"subject_id"`
-			Role      string `json:"role"`
-		} `json:"data"`
-	}
+	var list iam.ListPage[iam.GroupMember]
 	res.decode(t, &list)
-	require.Equal(t, gid, list.GroupID)
-	require.Equal(t, "org", list.Persona)
-	require.Len(t, list.Data, 2)
+	require.Len(t, list.Items, 2)
+	require.Empty(t, list.Next)
 	res = a.get("/groups/"+gid+"/members", memberToken)
 	require.Equal(t, http.StatusForbidden, res.status, "member lacks org:members:read: %s", res)
 	res = a.get("/groups/"+uuid.NewString()+"/members", ownerToken)
@@ -398,7 +390,7 @@ func TestGroupRoutesAddressGroupsByID(t *testing.T) {
 	require.JSONEq(t, `{"group_id":"`+gid+`","permissions":["org:catalog:read"]}`, res.String())
 	res = a.get("/me/groups", memberToken)
 	require.Equal(t, http.StatusOK, res.status, res.String())
-	require.Contains(t, res.String(), `"group_id":"`+gid+`"`)
+	require.Contains(t, res.String(), `"id":"`+gid+`"`)
 	require.NotContains(t, res.String(), "instance_slug")
 
 	require.NoError(t, auth.DeleteGroup(t.Context(), group))
@@ -627,7 +619,7 @@ func TestAdminRootRoleHTTPWorkflow(t *testing.T) {
 	}
 
 	// A bounded admin promotes to roles it covers, never to or over an owner.
-	call(http.MethodPut, target.ID, "root:site-admin", adminToken, http.StatusNoContent)
+	call(http.MethodPut, target.ID, "root:site-admin", adminToken, http.StatusOK)
 	require.Equal(t, m.siteAdmin, rootRole(target.ID))
 	call(http.MethodPut, target.ID, "root:owner", adminToken, http.StatusForbidden)
 	call(http.MethodPut, owner.ID, "root:site-admin", adminToken, http.StatusForbidden)
@@ -978,7 +970,7 @@ func TestCapabilitiesAndRootMembershipDiscovery(t *testing.T) {
 	register := func(name string) iam.TokenSet {
 		t.Helper()
 		res := a.post("/register", "", map[string]any{"identifier": name + "@example.test", "username": name, "password": "Correct-horse-membership-password-1"})
-		require.Equal(t, http.StatusAccepted, res.status, res.String())
+		require.Equal(t, http.StatusOK, res.status, res.String())
 		var registered struct {
 			Tokens iam.TokenSet `json:"token_set"`
 		}
@@ -987,9 +979,11 @@ func TestCapabilitiesAndRootMembershipDiscovery(t *testing.T) {
 	}
 	alice, bob := register("membersalice"), register("membersbob")
 	type membership struct {
-		GroupID string `json:"group_id"`
-		Persona string `json:"persona"`
-		Role    string `json:"role"`
+		Group struct {
+			ID      string `json:"id"`
+			Persona string `json:"persona"`
+		} `json:"group"`
+		Role string `json:"role"`
 	}
 	groups := func(token, query string) []membership {
 		t.Helper()
@@ -1008,8 +1002,8 @@ func TestCapabilitiesAndRootMembershipDiscovery(t *testing.T) {
 	authtest.GrantRole(t, auth, iam.RootGroup(), iam.UserSubject(claims.UserID), reader)
 	got := groups(alice.AccessToken, "")
 	require.Len(t, got, 1)
-	require.NotEmpty(t, got[0].GroupID)
-	require.Equal(t, "root", got[0].Persona)
+	require.NotEmpty(t, got[0].Group.ID)
+	require.Equal(t, "root", got[0].Group.Persona)
 	require.Equal(t, "root:reader", got[0].Role)
 	require.Empty(t, groups(bob.AccessToken, "?user_id="+claims.UserID), "caller cannot select another user's memberships")
 	authtest.RevokeRole(t, auth, iam.RootGroup(), iam.UserSubject(claims.UserID), reader)

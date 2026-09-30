@@ -118,7 +118,7 @@ func TestSecurityDeviceKeyClient(t *testing.T) {
 		require.NoError(t, err, "a refused signature burned the ceremony")
 
 		resp = h.post("/device-keys/login/begin", map[string]string{"device_key_id": s.DeviceKey.ID}, "")
-		require.Equal(t, http.StatusAccepted, resp.status, resp.String())
+		require.Equal(t, http.StatusOK, resp.status, resp.String())
 		var begun struct {
 			ID        string `json:"challenge_id"`
 			Challenge string `json:"challenge"`

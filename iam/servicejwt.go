@@ -30,16 +30,17 @@ type ServiceJWT struct {
 	JTI       string
 }
 
-// ServiceJWTClaims is the claim shape of a service JWT. Permissions are
-// requested capabilities; receivers intersect them with their own grants.
+// ServiceJWTClaims is the claim shape of a service JWT (iss, sub, aud, iat,
+// nbf, exp, jti, token_use, permissions). Permissions are requested
+// capabilities; receivers intersect them with their own grants.
 type ServiceJWTClaims struct {
-	Issuer      string
-	Subject     string
-	Audiences   []string
-	IssuedAt    time.Time
-	NotBefore   time.Time
-	ExpiresAt   time.Time
-	JTI         string
-	TokenUse    string
-	Permissions []string
+	Issuer      string    `json:"issuer"`
+	Subject     string    `json:"subject"`
+	Audiences   []string  `json:"audiences"`
+	IssuedAt    time.Time `json:"issued_at"`
+	NotBefore   time.Time `json:"not_before"`
+	ExpiresAt   time.Time `json:"expires_at"`
+	JTI         string    `json:"jti"`
+	TokenUse    string    `json:"token_use"`
+	Permissions []string  `json:"permissions"`
 }

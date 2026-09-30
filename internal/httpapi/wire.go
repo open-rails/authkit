@@ -360,21 +360,11 @@ type VerificationCapabilities struct {
 	Registration string `json:"registration"`
 }
 
-// RegistrationNextAction says what completes a registration.
-type RegistrationNextAction string
-
-const (
-	RegistrationNextActionNone        RegistrationNextAction = "none"
-	RegistrationNextActionVerifyEmail RegistrationNextAction = "verify_email"
-	RegistrationNextActionVerifyPhone RegistrationNextAction = "verify_phone"
-)
-
-// RegistrationResult is what happens next, who registered, and, when no
-// verification is pending, the session.
+// RegistrationResult is a registration that signed in: who registered, and
+// the session. A registration waiting on a verification code answers 202.
 type RegistrationResult struct {
-	NextAction RegistrationNextAction `json:"next_action"`
-	User       RegistrationUser       `json:"user"`
-	TokenSet   *iam.TokenSet          `json:"token_set"`
+	User     RegistrationUser `json:"user"`
+	TokenSet iam.TokenSet     `json:"token_set"`
 }
 
 type RegistrationUser struct {

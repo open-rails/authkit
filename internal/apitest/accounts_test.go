@@ -494,7 +494,7 @@ func TestAccountPolicies(t *testing.T) {
 	}
 	registered := func(t *testing.T, res response) string {
 		t.Helper()
-		require.Equal(t, http.StatusAccepted, res.status, res.String())
+		require.Equal(t, http.StatusOK, res.status, res.String())
 		token := res.answer(t).Nested.AccessToken
 		require.NotEmpty(t, token)
 		return token

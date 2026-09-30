@@ -22,6 +22,7 @@ import type {
   NamingState,
   PermissionSet,
   RegistrationResult,
+  RegistrationUser,
   RemovedRoles,
   SessionTokens,
   TwoFactorMethod,
@@ -123,6 +124,13 @@ export type RequestOptions = {
   signal?: AbortSignal
   // Override the session bearer (e.g. an enrollment token); null sends none.
   bearer?: string | null
+}
+
+// A registration: signed in, or waiting on the code sent to the identifier.
+export type Registration = {
+  next_action: "none" | "verify_email" | "verify_phone"
+  user: RegistrationUser
+  signedIn: boolean
 }
 
 export type TwoFactorEnrollResult =
@@ -879,11 +887,10 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       username: string
       password: string
       accountInviteToken?: string
-    }): Promise<
-      Omit<RegistrationResult, "token_set"> & { signedIn: boolean }
-    > => {
+    }): Promise<Registration> => {
       const gen = generation
-      const out = await request<RegistrationResult>("POST", "/register", {
+      // 202: a code went to the identifier; 200: registered and signed in.
+      const { status, body } = await exchange("POST", "/register", {
         bearer: null,
         body: {
           identifier: input.identifier,
@@ -892,12 +899,21 @@ export function createAuthClient(options: AuthClientOptions = {}) {
           account_invite_token: input.accountInviteToken,
         },
       })
-      const tokens = out.token_set ? tokenSetIn(out.token_set) : null
-      if (tokens) commit(tokens, gen, "login")
+      if (status === 200) {
+        const out = body as RegistrationResult
+        const tokens = tokenSetIn(out.token_set)
+        if (tokens) commit(tokens, gen, "login")
+        return { next_action: "none", user: out.user, signedIn: !!tokens }
+      }
+      const email = input.identifier.includes("@")
       return {
-        next_action: out.next_action,
-        user: out.user,
-        signedIn: !!tokens,
+        next_action: email ? "verify_email" : "verify_phone",
+        user: {
+          username: input.username,
+          email: email ? input.identifier.trim() : null,
+          phone_number: email ? null : input.identifier.trim(),
+        },
+        signedIn: false,
       }
     },
 

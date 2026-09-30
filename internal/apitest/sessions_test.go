@@ -172,16 +172,13 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 	staffA := login(t, siteA, staff)
 	// Site A's short access TTL starts here; its expiry is asserted below.
 	victimA := login(t, siteA, victim)
+	// The counts stay in Go (Client.RevokeAccountSessions); the wire says done.
 	res := siteA.api.post("/admin/users/"+victim.ID+"/sessions/revoke", staffA.AccessToken, nil)
-	require.Equal(t, http.StatusOK, res.status, res.String())
-	var result iam.AccountSessionRevocation
-	res.decode(t, &result)
-	require.Equal(t, iam.AccountSessionRevocation{
-		Issuers:                []string{issuerA, issuerB},
-		RevokedSessions:        map[string]int{issuerA: 1, issuerB: 1},
-		RevokedDeviceKeys:      1,
-		UnlistedIssuerSessions: 1,
-	}, result)
+	require.Equal(t, http.StatusNoContent, res.status, res.String())
+	keys, err := auth.DeviceKeys(ctx, victim.ID)
+	require.NoError(t, err)
+	require.Len(t, keys, 1)
+	require.NotNil(t, keys[0].RevokedAt, "the device key is revoked with the sessions")
 
 	t.Run("refresh stops on both account issuers", func(t *testing.T) {
 		require.Equal(t, http.StatusUnauthorized, refresh(t, siteA, victimA))
@@ -512,7 +509,7 @@ func TestTokenEntitlementAllowlist(t *testing.T) {
 	t.Run("registration, sign-in and refresh", func(t *testing.T) {
 		a := newAPI(t, auth)
 		res := a.post("/register", "", map[string]any{"identifier": "entitlement-policy@example.test", "username": "entpolicy", "password": "Correct-horse-policy-password-1"})
-		registered := expectAnswer(t, res, http.StatusAccepted)
+		registered := expectAnswer(t, res, http.StatusOK)
 		require.NotContains(t, claimsOf(t, auth, registered.tokens().AccessToken), "entitlements")
 		require.Zero(t, provider.callCount(), "an empty allowlist must not query billing during registration")
 

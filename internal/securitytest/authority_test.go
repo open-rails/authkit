@@ -55,7 +55,7 @@ func withRBAC(c *authkit.Config) { c.Roles = newSecurityModel().Roles }
 func (h *host) grant(group iam.GroupRef, a account, name string) {
 	h.t.Helper()
 	err := setRole(h.auth, h.t.Context(), iam.SystemActor(), group, iam.UserSubject(a.id), roleIn(h.t, h.auth, group, name))
-	if errors.Is(err, iam.ErrTwoFAEnrollmentRequired) {
+	if errors.Is(err, iam.ErrSubjectMFARequired) {
 		h.enrollEmail2FA(a)
 		grantRole(h.t, h.auth, group, iam.UserSubject(a.id), name)
 		return
@@ -243,18 +243,26 @@ func (h *host) newOrg(founder account) (iam.GroupRef, string) {
 	return group, "/groups/" + group.ID()
 }
 
+// issued is a created API key or invitation: its id, and its secret or code
+// shown once.
 type issued struct {
-	ID     string `json:"id"`
-	Code   string `json:"code"`
-	Secret string `json:"secret"`
+	ID     string
+	Code   string
+	Secret string
 }
 
 func (h *host) issue(path, token string, body map[string]any) issued {
 	h.t.Helper()
 	resp := h.post(path, body, token)
 	require.Equal(h.t, http.StatusCreated, resp.status, resp.String())
-	var out issued
-	resp.json(h.t, &out)
+	var created struct {
+		APIKey     struct{ ID string } `json:"api_key"`
+		Invitation struct{ ID string } `json:"invitation"`
+		Code       string              `json:"code"`
+		Secret     string              `json:"secret"`
+	}
+	resp.json(h.t, &created)
+	out := issued{ID: created.APIKey.ID + created.Invitation.ID, Code: created.Code, Secret: created.Secret}
 	require.NotEmpty(h.t, out.ID)
 	return out
 }

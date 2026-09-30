@@ -320,11 +320,15 @@ describe("flows", () => {
     const client = createAuthClient({
       fetch: stubFetch({
         "POST /api/v1/register": [
-          json(202, { next_action: "verify_email", user }),
-          json(202, {
-            next_action: "none",
+          new Response(null, { status: 202 }),
+          json(200, {
             user,
-            token_set: { access_token: jwt("u2") },
+            token_set: {
+              access_token: jwt("u2"),
+              token_type: "Bearer",
+              expires_in: 900,
+              refresh_token: null,
+            },
           }),
         ],
       }),

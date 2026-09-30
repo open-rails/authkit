@@ -32,7 +32,7 @@ func TestBootstrapRepairsAnEmptyOwnerSet(t *testing.T) {
 	_, err = pg.Pool.Exec(ctx, `DELETE FROM group_user_roles WHERE user_id=$1::uuid`, user.ID)
 	require.NoError(t, err)
 	_, err = svc.ApplyBootstrapManifest(ctx, recovery, iam.BootstrapOptions{})
-	require.ErrorIs(t, err, iam.ErrTwoFAEnrollmentRequired)
+	require.ErrorIs(t, err, iam.ErrSubjectMFARequired)
 	recovery.Users[0] = iam.BootstrapManifestUser{Username: "recovery-owner-2", Email: "recovery2@example.test", EmailVerified: true, RootRole: owner}
 	result, err := svc.ApplyBootstrapManifest(ctx, recovery, iam.BootstrapOptions{})
 	require.NoError(t, err)

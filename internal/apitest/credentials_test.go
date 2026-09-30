@@ -167,7 +167,7 @@ func TestCredentialIssuance(t *testing.T) {
 		return a.post("/register", "", map[string]string{"identifier": email, "username": username, "password": authtest.Password, "account_invite_token": opInvite.Code})
 	}
 	res := register(*opInvite.Invitation.Email, "systeminvitee")
-	require.Equal(t, http.StatusAccepted, res.status, "the system's registration invite is live: %s", res)
+	require.Equal(t, http.StatusOK, res.status, "the system's registration invite is live: %s", res)
 	res = register("again@credentials.test", "systemagain")
 	require.Equal(t, "invitation_not_found", res.code(), "and single-use: %s", res)
 

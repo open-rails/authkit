@@ -299,25 +299,23 @@ func TestSecurityMemberEmailIsAnInvitation(t *testing.T) {
 	shape := func(r response) map[string]any {
 		var body map[string]any
 		r.json(t, &body)
-		invite, _ := body["invite"].(map[string]any)
-		out := map[string]any{"status": r.status, "keys": slices.Sorted(maps.Keys(body)), "invite": slices.Sorted(maps.Keys(invite))}
+		invite, _ := body["invitation"].(map[string]any)
+		out := map[string]any{"status": r.status, "keys": slices.Sorted(maps.Keys(body)), "invitation": slices.Sorted(maps.Keys(invite))}
 		return out
 	}
 	var shapes []map[string]any
 	var code string
 	for _, email := range []string{verified.email, unverified, nobody} {
 		resp := h.post(base+"/members", map[string]string{"email": email, "role": "org:member"}, ownerToken)
-		require.Equal(t, http.StatusAccepted, resp.status, resp.String())
+		require.Equal(t, http.StatusCreated, resp.status, resp.String())
 		require.NotContains(t, resp.String(), `"user_id"`)
 		shapes = append(shapes, shape(resp))
 		if email == verified.email {
 			var body struct {
-				Invite struct {
-					Code string `json:"code"`
-				} `json:"invite"`
+				Code string `json:"code"`
 			}
 			resp.json(t, &body)
-			code = body.Invite.Code
+			code = body.Code
 		}
 	}
 	require.Equal(t, shapes[0], shapes[1])
@@ -340,17 +338,15 @@ func TestSecurityMemberEmailIsAnInvitation(t *testing.T) {
 	t.Run("an upper-cased address invites only its proven owner", func(t *testing.T) {
 		proven := h.newAccount("n9upper")
 		resp := h.post(base+"/members", map[string]string{"email": strings.ToUpper(proven.email), "role": "org:member"}, ownerToken)
-		require.Equal(t, http.StatusAccepted, resp.status, resp.String())
+		require.Equal(t, http.StatusCreated, resp.status, resp.String())
 		require.Empty(t, roleOf(proven.id), "a verified address is invited, never added")
 		var body struct {
-			Invite struct {
-				Code string `json:"code"`
-			} `json:"invite"`
+			Code string `json:"code"`
 		}
 		resp.json(t, &body)
-		resp = h.post("/invites/redeem", map[string]string{"code": body.Invite.Code}, h.login(stranger).AccessToken)
+		resp = h.post("/invites/redeem", map[string]string{"code": body.Code}, h.login(stranger).AccessToken)
 		require.Equal(t, http.StatusNotFound, resp.status, "another account accepted the invitation: %s", resp)
-		resp = h.post("/invites/redeem", map[string]string{"code": body.Invite.Code}, h.login(proven).AccessToken)
+		resp = h.post("/invites/redeem", map[string]string{"code": body.Code}, h.login(proven).AccessToken)
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
 		require.Equal(t, h.role(orgPersona, "member"), roleOf(proven.id))
 	})
@@ -358,7 +354,7 @@ func TestSecurityMemberEmailIsAnInvitation(t *testing.T) {
 		gone := h.newAccount("n9gone")
 		require.NoError(t, opErr(h.auth.DeleteUsers(ctx, iam.SystemActor(), []string{gone.id})))
 		resp := h.post(base+"/members", map[string]string{"email": gone.email, "role": "org:member"}, ownerToken)
-		require.Equal(t, http.StatusAccepted, resp.status, resp.String())
+		require.Equal(t, http.StatusCreated, resp.status, resp.String())
 		require.Empty(t, roleOf(gone.id), "a deleted account received a role")
 	})
 

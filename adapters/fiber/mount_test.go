@@ -165,8 +165,8 @@ func TestMountPreservesParametersContextAndJSONCookieGuards(t *testing.T) {
 		status                          int
 	}{
 		{"valid", "application/json", "https://example.com", "{}", http.StatusOK},
-		{"non JSON", "text/plain", "https://example.com", "{}", http.StatusBadRequest},
-		{"cross origin", "application/json", "http://attacker.example", "{}", http.StatusBadRequest},
+		{"non JSON", "text/plain", "https://example.com", "{}", http.StatusUnsupportedMediaType},
+		{"cross origin", "application/json", "http://attacker.example", "{}", http.StatusForbidden},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := httptest.NewRequest(http.MethodDelete, "https://example.com/identity/user/providers/google", strings.NewReader(tc.body))

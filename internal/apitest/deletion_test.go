@@ -191,7 +191,7 @@ func TestStaffAccountRestoreHTTPRequiresCurrentAuthority(t *testing.T) {
 	ctx := t.Context()
 	register := func(name string) (iam.TokenSet, string) {
 		t.Helper()
-		res := expect(t, http.StatusAccepted, a.post("/register", "", map[string]any{"identifier": name + "@example.test", "username": name, "password": "Correct-horse-account-recovery-1"}))
+		res := expect(t, http.StatusOK, a.post("/register", "", map[string]any{"identifier": name + "@example.test", "username": name, "password": "Correct-horse-account-recovery-1"}))
 		tokens := res.answer(t).Nested
 		claims, err := auth.Verify(ctx, tokens.AccessToken)
 		require.NoError(t, err)

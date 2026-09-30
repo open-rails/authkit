@@ -48,20 +48,18 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		s.writeRegisterError(w, err)
 		return
 	}
-	result := RegistrationResult{NextAction: RegistrationNextActionNone, User: RegistrationUser{Username: out.Username, Email: out.Email, PhoneNumber: out.Phone}}
 	switch out.Kind {
 	case authflow.RegisterLoginRequired:
 		s.writeLoginContinuation(w, r, *out.Login, nil)
-		return
-	case authflow.RegisterVerifyEmail:
-		result.NextAction = RegistrationNextActionVerifyEmail
-	case authflow.RegisterVerifyPhone:
-		result.NextAction = RegistrationNextActionVerifyPhone
+	case authflow.RegisterVerifyEmail, authflow.RegisterVerifyPhone:
+		// The code is sent to the identifier; confirming it signs in.
+		accepted(w)
 	default:
-		tokens := s.deliverRefreshToken(w, r, out.Session.TokenSet())
-		result.TokenSet = &tokens
+		writeJSON(w, http.StatusOK, RegistrationResult{
+			User:     RegistrationUser{Username: out.Username, Email: out.Email, PhoneNumber: out.Phone},
+			TokenSet: s.deliverRefreshToken(w, r, out.Session.TokenSet()),
+		})
 	}
-	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Service) writeRegisterError(w http.ResponseWriter, err error) {

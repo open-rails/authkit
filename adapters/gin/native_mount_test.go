@@ -126,8 +126,8 @@ func TestMountPreservesHostMiddlewareParametersAndCookieGuards(t *testing.T) {
 		status                          int
 	}{
 		{name: "valid", contentType: "application/json", origin: "https://example.com", status: http.StatusOK},
-		{name: "non JSON", contentType: "text/plain", origin: "https://example.com", status: http.StatusBadRequest},
-		{name: "cross origin", contentType: "application/json", origin: "https://attacker.example", status: http.StatusBadRequest},
+		{name: "non JSON", contentType: "text/plain", origin: "https://example.com", status: http.StatusUnsupportedMediaType},
+		{name: "cross origin", contentType: "application/json", origin: "https://attacker.example", status: http.StatusForbidden},
 		{name: "host middleware abort", contentType: "application/json", origin: "https://example.com", deny: "yes", status: http.StatusForbidden},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

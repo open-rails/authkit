@@ -308,7 +308,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	var creation protocol.CredentialCreation
 	require.NoError(t, json.Unmarshal([]byte(begun.raw), &creation))
 	authn := passkeytest.New(t, "https://app.example")
-	b.expect(http.StatusOK, b.request(http.MethodPost, "/passkeys/register/finish", setup, authn.Register(t, &creation)))
+	b.expect(http.StatusCreated, b.request(http.MethodPost, "/passkeys/register/finish", setup, authn.Register(t, &creation)))
 	started := f.expect(http.StatusOK, f.post("/passkeys/login/begin", map[string]any{}))
 	var assertion protocol.CredentialAssertion
 	require.NoError(t, json.Unmarshal([]byte(started.raw), &assertion))

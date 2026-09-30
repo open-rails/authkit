@@ -82,7 +82,7 @@ func TestSecurityFirstProofRevokesSquatterInvitations(t *testing.T) {
 	h.grant(group, account{id: squatterID}, "manager")
 	link := h.issue(base+"/invites/links", squatter.AccessToken, map[string]any{"role": "org:member"})
 	resp := h.post(base+"/members", map[string]string{"email": unique("sockpuppet") + "@security.test", "role": "org:member"}, squatter.AccessToken)
-	require.Equal(t, http.StatusAccepted, resp.status, resp.String())
+	require.Equal(t, http.StatusCreated, resp.status, resp.String())
 	require.True(t, liveLink(t, h, group, link.ID), "control: the squatter's link is live before the proof")
 
 	h.proveEmail(victim, "Owner-proves-the-address-1")

@@ -297,9 +297,17 @@ function RegisterFields({
     unavailable(availability.username) ??
     (touched && !username.trim()
       ? t("validation.usernameRequired")
-      : touched && localUsername
-        ? describe(localUsername)
-        : null)
+      : touched && localUsername === "username_too_short"
+        ? t("validation.usernameTooShort", {
+            min: usernamePolicy?.min_length ?? 0,
+          })
+        : touched && localUsername === "username_too_long"
+          ? t("validation.usernameTooLong", {
+              max: usernamePolicy?.max_length ?? 0,
+            })
+          : touched && localUsername
+            ? describe(localUsername)
+            : null)
   const passwordError = server("password") ?? (touched ? localPassword : null)
 
   return (
