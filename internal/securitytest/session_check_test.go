@@ -53,8 +53,7 @@ func mutating(route iam.Route) bool {
 func TestSecurityMutatingRoutesCheckTheSession(t *testing.T) {
 	h := newHost(t, append(withEveryRoute(t), withHTTP(generousLimits), authtest.WithConfig(withRBAC))...)
 	signOut := map[string]bool{
-		"DELETE " + apiPrefix + "/logout":           true,
-		"DELETE " + apiPrefix + "/device-keys/{id}": true,
+		"DELETE " + apiPrefix + "/logout": true,
 	}
 	declared := map[string]iam.RouteAuthTier{}
 	for _, route := range h.auth.Routes() {
@@ -69,7 +68,7 @@ func TestSecurityMutatingRoutesCheckTheSession(t *testing.T) {
 	}
 	for _, key := range []string{
 		"POST /user/password", "DELETE /user/sessions", "DELETE /user/sessions/{id}", "PATCH /user/username",
-		"PATCH /user/preferred-language", "DELETE /user", "POST /device-keys/revoke-others", "POST /delegated/token",
+		"PATCH /user/preferred-language", "DELETE /user", "DELETE /device-keys", "POST /delegated/token",
 		"POST /invites/redeem", "POST /admin/users/{user_id}/ban",
 	} {
 		method, path, _ := strings.Cut(key, " ")
@@ -293,9 +292,8 @@ func TestSecurityRevokedSessionAtLiveGates(t *testing.T) {
 		}{
 			{"signed out", func(t *testing.T, _ account, token string) {
 				_, claims := splitToken(t, token)
-				id, _ := claims["device_key_id"].(string)
-				require.NotEmpty(t, id)
-				require.Equal(t, http.StatusNoContent, h.do(request{method: http.MethodDelete, path: "/device-keys/" + id, token: token}).status)
+				require.NotEmpty(t, claims["device_key_id"])
+				require.Equal(t, http.StatusNoContent, h.do(request{method: http.MethodDelete, path: "/logout", token: token}).status)
 			}},
 			{"password change", func(t *testing.T, a account, _ string) {
 				resp := h.post("/user/password", map[string]string{"current_password": password, "new_password": "Another-long-passphrase-7"}, h.login(a).AccessToken)

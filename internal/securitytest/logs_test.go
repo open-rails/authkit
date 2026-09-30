@@ -74,8 +74,8 @@ type secretJar struct {
 }
 
 var (
-	requestSecrets  = map[string]bool{"password": true, "new_password": true, "current_password": true, "code": true, "code_2fa": true, "token": true, "refresh_token": true, "signature": true, "challenge": true, "account_invite_token": true}
-	responseSecrets = map[string]bool{"access_token": true, "refresh_token": true, "secret": true, "otpauth_uri": true, "backup_codes": true, "code": true, "token": true}
+	requestSecrets  = map[string]bool{"password": true, "new_password": true, "current_password": true, "code": true, "code_2fa": true, "token": true, "refresh_token": true, "signature": true, "challenge": true, "invite_code": true}
+	responseSecrets = map[string]bool{"access_token": true, "refresh_token": true, "secret": true, "otpauth_uri": true, "backup_codes": true, "code": true, "token": true, "challenge": true}
 )
 
 func (j *secretJar) add(where string, v any) {
@@ -315,7 +315,7 @@ func TestSecuritySecretsStayOutOfLogs(t *testing.T) {
 	}
 	ok(h.post(base+"/members", map[string]string{"email": invited, "role": "org:member"}, ownerToken)).json(t, &invitation)
 	ok(h.post("/register", map[string]string{"identifier": invited, "username": unique("logsinv"), "password": password,
-		"account_invite_token": invitation.Code}, ""))
+		"invite_code": invitation.Code}, ""))
 
 	// The mail provider fails after AuthKit hands it each message.
 	before := len(logs.String())

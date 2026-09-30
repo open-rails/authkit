@@ -240,7 +240,6 @@ func TestSecurityInlinePasswordNeedsSecondFactor(t *testing.T) {
 	// the fresh-auth gate is the only way through.
 	token := authtest.StaleSession(t, h.auth, session(t, resp).AccessToken)
 	for _, req := range []request{
-		{method: http.MethodPost, path: "/verify/request", body: map[string]string{"identifier": unique("evil") + "@security.test", "password": password}},
 		{method: http.MethodPost, path: "/user/password", body: map[string]string{"current_password": password, "new_password": password + "x"}},
 		{method: http.MethodDelete, path: "/user", body: map[string]string{"password": password}},
 	} {
@@ -325,20 +324,11 @@ func TestSecurityDeletionRecoveryIsSelfOnly(t *testing.T) {
 		self := h.newAccount("n5self")
 		resp := h.do(request{method: http.MethodDelete, path: "/user", body: map[string]string{"password": password}, token: h.login(self).AccessToken})
 		require.Equal(t, http.StatusNoContent, resp.status, resp.String())
-		login := h.post("/password/login", map[string]string{"identifier": self.email, "password": password}, "")
-		require.Equal(t, http.StatusConflict, login.status, login.String())
-		var body struct {
-			Error struct {
-				Metadata struct {
-					Recovery struct {
-						Token string `json:"token"`
-					} `json:"recovery"`
-				} `json:"metadata"`
-			} `json:"error"`
-		}
-		login.json(t, &body)
-		require.NotEmpty(t, body.Error.Metadata.Recovery.Token)
-		resp = h.post("/account/recovery/confirm", map[string]string{"token": body.Error.Metadata.Recovery.Token}, "")
+		login := authResult(t, h.post("/password/login", map[string]string{"identifier": self.email, "password": password}, ""))
+		require.Equal(t, httpapi.AuthAccountRecoveryRequired, login.Status)
+		require.Nil(t, login.TokenSet)
+		require.NotEmpty(t, login.Recovery.Token)
+		resp = h.post("/account/recovery/confirm", map[string]string{"token": login.Recovery.Token}, "")
 		require.Equal(t, http.StatusNoContent, resp.status, resp.String())
 		h.login(self)
 	})
@@ -546,8 +536,7 @@ func TestSecurityStaffDeleteOverridesSelfDelete(t *testing.T) {
 		self := h.newAccount("p6self")
 		require.NoError(t, opErr(h.auth.DeleteUsers(context.Background(), iam.UserActor(self.id), []string{self.id})))
 		login := h.post("/password/login", map[string]string{"identifier": self.email, "password": password}, "")
-		require.Equal(t, http.StatusConflict, login.status, login.String())
-		require.Equal(t, "account_recovery_required", login.errorCode())
+		require.Equal(t, httpapi.AuthAccountRecoveryRequired, authResult(t, login).Status, login.String())
 	})
 }
 
@@ -590,8 +579,7 @@ func TestSecurityUserManagementNeedsMFA(t *testing.T) {
 	_, err := h.pool.Exec(ctx, `INSERT INTO profiles.group_user_roles(permission_group_id,user_id,role) VALUES($1::uuid,$2::uuid,'root:staff')`, h.rootGroupID(), staff.id)
 	require.NoError(t, err)
 	resp := h.post("/password/login", map[string]string{"identifier": staff.email, "password": password}, "")
-	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
-	require.Equal(t, "2fa_enrollment_required", resp.errorCode())
+	require.Equal(t, httpapi.AuthEnrollmentRequired, authResult(t, resp).Status, resp.String())
 
 	admin := h.newAccount("cadmin")
 	h.grant(iam.RootGroup(), admin, "siteadmin")

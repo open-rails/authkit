@@ -19,6 +19,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/verify"
@@ -55,9 +56,7 @@ func TestSecurityRefreshTokenTheft(t *testing.T) {
 			a := h.newAccount("theft")
 			first := h.login(a)
 			resp := h.refresh(first.RefreshToken)
-			require.Equal(t, http.StatusOK, resp.status, resp.String())
-			var next tokens
-			resp.json(t, &next)
+			next := session(t, resp)
 			require.NotEqual(t, first.RefreshToken, next.RefreshToken)
 			tc.steal(t, first.RefreshToken, next.RefreshToken)
 			// A separate login is a separate family and remains usable.
@@ -112,9 +111,7 @@ func TestSecurityRefreshGraceDoesNotFork(t *testing.T) {
 	require.Empty(t, revoked.Items, "a lost race must revoke nothing")
 
 	resp := h.refresh(converged)
-	require.Equal(t, http.StatusOK, resp.status, resp.String())
-	var next tokens
-	resp.json(t, &next)
+	next := session(t, resp)
 	require.NotEqual(t, converged, next.RefreshToken, "the successor still rotates")
 }
 
@@ -132,7 +129,13 @@ func (h *host) refreshFromGoroutine(refreshToken string) (int, tokens, error) {
 	defer resp.Body.Close()
 	var out tokens
 	if resp.StatusCode == http.StatusOK {
-		err = json.NewDecoder(resp.Body).Decode(&out)
+		var res httpapi.AuthResult
+		if err = json.NewDecoder(resp.Body).Decode(&res); err == nil && res.TokenSet != nil {
+			out.AccessToken = res.TokenSet.AccessToken
+			if res.TokenSet.RefreshToken != nil {
+				out.RefreshToken = *res.TokenSet.RefreshToken
+			}
+		}
 	}
 	return resp.StatusCode, out, err
 }

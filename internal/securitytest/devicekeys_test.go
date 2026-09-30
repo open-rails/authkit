@@ -55,7 +55,7 @@ func (h *host) deviceEnroll(k *deviceKey, email string, secondFactor func() stri
 		"signature":     k.sign(h.t, devicekey.EnrollmentDomain, begin.Challenge),
 	}
 	resp = h.post("/device-keys/enroll/finish", finish, "")
-	if secondFactor == nil || resp.status != http.StatusForbidden || resp.errorCode() != "step_up_required" {
+	if secondFactor == nil || resp.status != http.StatusForbidden || resp.errorCode() != "2fa_required" {
 		return h.keepDeviceKey(k, resp)
 	}
 	finish["code_2fa"] = secondFactor()
@@ -117,7 +117,7 @@ func TestSecurityDeviceKeyMFAGate(t *testing.T) {
 	t.Run("re-enrolling with an independent factor re-proves a key", func(t *testing.T) {
 		resp := h.deviceEnroll(laptop, victim.email, nil)
 		require.Equal(t, http.StatusForbidden, resp.status, "the emailed code alone re-proved the key: %s", resp)
-		require.Equal(t, "step_up_required", resp.errorCode())
+		require.Equal(t, "2fa_required", resp.errorCode())
 		// The email factor reads the enrollment mailbox (P1); a backup code does not.
 		resp = h.deviceEnroll(laptop, victim.email, func() string { return backup[0] })
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
@@ -172,17 +172,7 @@ func TestSecurityDeviceKeyNeedsIndependentFactor(t *testing.T) {
 
 	stolen := newDeviceKey(t)
 	resp := h.deviceEnroll(stolen, victim.email, nil)
-	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
-	require.Equal(t, "step_up_required", resp.errorCode())
-	var meta struct {
-		Error struct {
-			Metadata struct {
-				Method string `json:"method"`
-			} `json:"metadata"`
-		} `json:"error"`
-	}
-	resp.json(t, &meta)
-	require.Equal(t, "backup_code", meta.Error.Metadata.Method, "the enrollment mailbox was offered as the second factor")
+	require.Equal(t, "backup_code", secondFactorMethod(t, resp), "the enrollment mailbox was offered as the second factor")
 	require.Equal(t, sent, len(h.mail.Messages(iam.MessageLoginCode, victim.email)), "enrollment mailed a second-factor code to the enrollment mailbox")
 
 	resp = h.deviceEnroll(stolen, victim.email, mailbox)
@@ -203,20 +193,24 @@ func TestSecurityDeviceKeyNeedsIndependentFactor(t *testing.T) {
 	})
 }
 
-// stepUpMethod is the second factor a step_up_required answer asks for.
-func stepUpMethod(t *testing.T, resp response) string {
+// secondFactorMethod is the second factor a device-key enrollment's
+// 2fa_required refusal asks for in code_2fa.
+func secondFactorMethod(t *testing.T, resp response) string {
 	t.Helper()
 	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
-	require.Equal(t, "step_up_required", resp.errorCode())
-	var meta struct {
+	var env struct {
 		Error struct {
+			Code     string `json:"code"`
+			Param    string `json:"param"`
 			Metadata struct {
 				Method string `json:"method"`
 			} `json:"metadata"`
 		} `json:"error"`
 	}
-	resp.json(t, &meta)
-	return meta.Error.Metadata.Method
+	resp.json(t, &env)
+	require.Equal(t, "2fa_required", env.Error.Code)
+	require.Equal(t, "code_2fa", env.Error.Param)
+	return env.Error.Metadata.Method
 }
 
 // TestSecurityDeviceKeyIndependentFactors (P1, I8): an authenticator-app code,
@@ -241,7 +235,7 @@ func TestSecurityDeviceKeyIndependentFactors(t *testing.T) {
 			a := h.newAccount("p1" + tc.method)
 			next := tc.enroll(a)
 			key := newDeviceKey(t)
-			require.Equal(t, tc.method, stepUpMethod(t, h.deviceEnroll(key, a.email, nil)))
+			require.Equal(t, tc.method, secondFactorMethod(t, h.deviceEnroll(key, a.email, nil)))
 			resp := h.deviceEnroll(key, a.email, next)
 			require.Equal(t, http.StatusOK, resp.status, resp.String())
 			resp = h.deviceLogin(key)

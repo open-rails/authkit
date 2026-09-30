@@ -35,10 +35,20 @@ func (h *host) providerCallback(idp *testidp.IdP, name string, id testidp.Identi
 	return h.do(request{method: http.MethodGet, path: "//oidc/" + name + "/callback?" + q.Encode(), cookies: start.cookies})
 }
 
-// session is a complete sign-in's tokens.
+// session is a complete sign-in's tokens: an AuthResult's, or the one a
+// factor's creation carries (TwoFactorFactorCreated.auth).
 func session(t *testing.T, r response) tokens {
 	t.Helper()
-	res := authResult(t, r)
+	require.Less(t, r.status, 300, r.String())
+	var body struct {
+		httpapi.AuthResult
+		Auth *httpapi.AuthResult `json:"auth"`
+	}
+	r.json(t, &body)
+	res := body.AuthResult
+	if res.Status == "" && body.Auth != nil {
+		res = *body.Auth
+	}
 	require.Equal(t, httpapi.AuthComplete, res.Status, r.String())
 	require.NotNil(t, res.TokenSet, r.String())
 	out := tokens{AccessToken: res.TokenSet.AccessToken}

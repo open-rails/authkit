@@ -107,10 +107,13 @@ func TestSecurityBasePathConfinesSurface(t *testing.T) {
 	require.NoError(t, err)
 	login := call(http.MethodPost, base+"/api/v1/password/login", "", map[string]string{"identifier": "basepath@security.test", "password": password})
 	require.Equal(t, http.StatusOK, login.StatusCode)
-	var session struct {
-		AccessToken string `json:"access_token"`
+	var signedIn struct {
+		TokenSet struct {
+			AccessToken string `json:"access_token"`
+		} `json:"token_set"`
 	}
-	decode(login, &session)
+	decode(login, &signedIn)
+	session := signedIn.TokenSet
 
 	t.Run("a verifier finds JWKS from the issuer", func(t *testing.T) {
 		v := verify.NewVerifier()

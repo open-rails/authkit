@@ -257,10 +257,8 @@ func TestSecurityRefreshCookieUpgrade(t *testing.T) {
 			require.NotNil(t, plain, "the plain cookie was not expired")
 			require.Less(t, plain.MaxAge, 0)
 
-			access := struct {
-				AccessToken string `json:"access_token"`
-			}{}
-			resp.json(t, &access)
+			access := session(t, resp)
+			require.Empty(t, access.RefreshToken, "the cookie carries the refresh token")
 			out := h.do(request{method: http.MethodDelete, path: "/logout", token: access.AccessToken, cookies: []*http.Cookie{next}})
 			require.Less(t, out.status, 300, out.String())
 			for _, name := range []string{"authkit_rt", "__Host-authkit_rt"} {

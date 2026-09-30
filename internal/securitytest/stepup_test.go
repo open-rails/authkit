@@ -11,6 +11,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/passkeytest"
 	"github.com/open-rails/authkit/internal/testidp"
@@ -131,17 +132,9 @@ func TestSecurityEnrollmentTokenOutsideMiddleware(t *testing.T) {
 	_, err := h.pool.Exec(ctx, `INSERT INTO profiles.group_user_roles(permission_group_id,user_id,role) VALUES($1::uuid,$2::uuid,'root:security')`, h.rootGroupID(), holder.id)
 	require.NoError(t, err)
 	resp := h.post("/password/login", map[string]string{"identifier": holder.email, "password": password}, "")
-	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
-	require.Equal(t, "2fa_enrollment_required", resp.errorCode())
-	var body struct {
-		Error struct {
-			Metadata struct {
-				TokenSet tokens `json:"token_set"`
-			} `json:"metadata"`
-		} `json:"error"`
-	}
-	resp.json(t, &body)
-	enrollment := body.Error.Metadata.TokenSet.AccessToken
+	login := authResult(t, resp)
+	require.Equal(t, httpapi.AuthEnrollmentRequired, login.Status, resp.String())
+	enrollment := login.Enrollment.TokenSet.AccessToken
 	require.NotEmpty(t, enrollment)
 
 	_, err = h.auth.Verify(ctx, enrollment)
@@ -287,17 +280,9 @@ func TestSecurityResetAccountMFA(t *testing.T) {
 	}
 
 	resp = signIn(holder)
-	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
-	require.Equal(t, "2fa_enrollment_required", resp.errorCode())
-	var body struct {
-		Error struct {
-			Metadata struct {
-				TokenSet tokens `json:"token_set"`
-			} `json:"metadata"`
-		} `json:"error"`
-	}
-	resp.json(t, &body)
-	_, resp = h.enrollTOTP(body.Error.Metadata.TokenSet.AccessToken)
+	login := authResult(t, resp)
+	require.Equal(t, httpapi.AuthEnrollmentRequired, login.Status, resp.String())
+	_, resp = h.enrollTOTP(login.Enrollment.TokenSet.AccessToken)
 	_, claims := splitToken(t, session(t, resp).AccessToken)
 	require.Equal(t, iam.AssuranceLevelMFA, claims["acr"], "control: the enrolled factor signs in")
 
@@ -307,6 +292,6 @@ func TestSecurityResetAccountMFA(t *testing.T) {
 		require.NoError(t, h.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM profiles.mfa_factors WHERE user_id=$1::uuid), (SELECT count(*) FROM profiles.mfa_settings WHERE user_id=$1::uuid)`, lost.id).Scan(&factors, &settings))
 		require.Zero(t, factors)
 		require.Zero(t, settings)
-		require.Equal(t, "2fa_enrollment_required", signIn(lost).errorCode())
+		require.Equal(t, httpapi.AuthEnrollmentRequired, authResult(t, signIn(lost)).Status)
 	})
 }
