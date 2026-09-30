@@ -414,6 +414,35 @@ describe("RegisterForm", () => {
     expect(screen.getByText("Username must start with a letter.")).toBeVisible()
     expect(register).not.toHaveBeenCalled()
   })
+
+  it("rejects a password containing the username or email without calling the API", async () => {
+    const user = userEvent.setup()
+    const register = vi.fn(() => new Response(null, { status: 202 }))
+    const fetch = stubFetch({
+      "GET /api/v1/capabilities": capabilities,
+      "GET /api/v1/register/availability": () => json(200, {}),
+      "POST /api/v1/register": register,
+    })
+    renderUi(<RegisterForm />, fetch)
+    const contains = "Password can't contain your username or email."
+    await user.type(
+      screen.getByLabelText("Email or phone number"),
+      "Alice.Smith@x.test"
+    )
+    await user.type(screen.getByLabelText("Username"), "lovely")
+    await user.type(screen.getByLabelText("Password"), "my-ALICE.smith-pw1")
+    await user.click(screen.getByRole("button", { name: "Register" }))
+    expect(screen.getByText(contains)).toBeVisible()
+
+    await user.clear(screen.getByLabelText("Password"))
+    await user.type(screen.getByLabelText("Password"), "the-LOVELY-one-1")
+    expect(screen.getByText(contains)).toBeVisible()
+    expect(register).not.toHaveBeenCalled()
+
+    await user.clear(screen.getByLabelText("Password"))
+    await user.type(screen.getByLabelText("Password"), "unrelated-pw-1")
+    expect(screen.queryByText(contains)).toBeNull()
+  })
 })
 
 describe("AuthCallback", () => {

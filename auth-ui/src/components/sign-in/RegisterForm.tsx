@@ -291,7 +291,11 @@ function RegisterFields({
         ? t("validation.emailInvalid")
         : null)
   const localUsername = usernameIssue(usernamePolicy, username.trim())
-  const localPassword = passwordPolicy.issue(password)
+  const localPassword = passwordPolicy.issue(
+    password,
+    username.trim(),
+    normalized
+  )
   const usernameError =
     server("username") ??
     unavailable(availability.username) ??
