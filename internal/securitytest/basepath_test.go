@@ -101,6 +101,7 @@ func TestSecurityBasePathConfinesSurface(t *testing.T) {
 		}
 		decode(resp, &caps)
 		require.Equal(t, map[string]string{"api": base + "/api/v1", "oidc": base + "/oidc", "jwks": base + iam.JWKSPath}, caps.Paths)
+		require.Equal(t, caps.Paths["api"], auth.APIBase())
 	})
 
 	user, err := auth.CreateUser(ctx, iam.NewUser{Email: "basepath@security.test", Username: "basepath", Password: password, EmailVerified: true})

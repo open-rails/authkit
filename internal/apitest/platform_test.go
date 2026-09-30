@@ -41,6 +41,7 @@ func TestMountCatalog(t *testing.T) {
 	}
 
 	t.Run("default surface and authentication metadata", func(t *testing.T) {
+		require.Equal(t, "/api/v1", auth.APIBase())
 		routes := routesOf(t, auth)
 		require.Equal(t, iam.Route{Method: http.MethodPost, Path: "/api/v1/register", Group: iam.RouteRegistration, Auth: iam.AuthPublic},
 			routes[routeKey{http.MethodPost, "/api/v1/register"}])
