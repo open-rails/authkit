@@ -61,10 +61,8 @@ func originFromBaseURL(baseURL string) (origin string, ok bool) {
 // Its names are in the cookie registry (cookies.go).
 const oauthStateCookieTTL = 15 * time.Minute
 
-// stateCookieName keys the cookie by the flow's state so two flows started in
-// one browser never clobber each other's cookie (#323).
-func StateCookieName(state string) string { return OIDCStatePrefix + stateCookieSuffix(state) }
-
+// stateCookieSuffix keys the cookie by the flow's state so two flows started
+// in one browser never clobber each other's cookie (#323).
 func stateCookieSuffix(state string) string {
 	sum := sha256.Sum256([]byte(state))
 	return hex.EncodeToString(sum[:4])

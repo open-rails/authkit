@@ -22,9 +22,8 @@ import (
 // authkit.Config field for field (the root maps it and a reflection test
 // guards the mapping), so a knob cannot exist internally without being
 // settable by hosts. ONE normalization pass (normalizeConfig) runs at
-// construction. New is THE host construction path (key/TOTP resolution +
-// required-field checks); newWithKeys is the low-level seam (explicit keyset,
-// sparse configs) used by tests.
+// construction. New is THE construction path (key/TOTP resolution +
+// required-field checks).
 
 const (
 	defaultOIDCReturnPath            = "/login/callback"
@@ -37,8 +36,7 @@ const (
 // normalizeConfig is the single defaulting/validation pass every the engine's
 // Config goes through, exactly once, at construction. It returns a normalized
 // COPY: trimmed strings, defaulted paths/TTLs/limits, canonical enum values.
-// Required-field presence (Issuer, audiences) is New's job — sparse
-// test configs stay constructible through newWithKeys.
+// Required-field presence (Issuer, audiences) is New's job.
 func normalizeConfig(cfg Config) (Config, error) {
 	cfg.Token.Issuer = strings.TrimSpace(cfg.Token.Issuer)
 	switch cfg.SolanaNetwork {
@@ -152,9 +150,8 @@ func normalizeConfig(cfg Config) (Config, error) {
 	cfg.TwoFactor.Methods = append([]iam.TwoFactorMethod(nil), cfg.TwoFactor.Methods...)
 
 	// Passkey RP identity derives from the BaseURL origin. A non-empty BaseURL
-	// must be a valid origin (fail loud, as before); an empty one is only
-	// reachable via the low-level newWithKeys path — passkeys stay unconfigured
-	// there unless RPID is set explicitly.
+	// must be a valid origin (fail loud); without one passkeys stay
+	// unconfigured unless RPID is set explicitly.
 	if cfg.Frontend.BaseURL != "" {
 		rpid, name, origins, uv, err := normalizePasskeyConfig(cfg.Passkeys, cfg.Frontend.BaseURL, cfg.Token.Issuer)
 		if err != nil {
@@ -176,16 +173,6 @@ func New(ctx context.Context, cfg Config, deps Deps) (*Engine, error) {
 		return nil, err
 	}
 	return e.finish(ctx)
-}
-
-// newWithKeys builds from a fixed keyset, skipping key resolution and the
-// required-field checks: sparse test configurations.
-func newWithKeys(cfg Config, keys keyset, deps Deps) (*Engine, error) {
-	e, err := newEngineWithKeys(cfg, keys, deps)
-	if err != nil {
-		return nil, err
-	}
-	return e.finish(context.Background())
 }
 
 // finish initializes the permission groups, reconciles credentials with the
@@ -210,23 +197,6 @@ func (s *Engine) finish(ctx context.Context) (_ *Engine, err error) {
 
 // Verifier verifies requests and tokens against this engine.
 func (s *Engine) Verifier() *verify.Verifier { return s.verifier }
-
-// newEngineWithKeys is the low-level constructor: explicit Keyset, no key/TOTP
-// resolution, no required-field checks. The Keyset
-// is fixed for the lifetime of the engine — hosts that need hot-reloaded
-// signing keys construct via New with a live jwtkit.KeySource (#238).
-func newEngineWithKeys(cfg Config, keys keyset, deps Deps) (*Engine, error) {
-	norm, err := normalizeConfig(cfg)
-	if err != nil {
-		return nil, err
-	}
-	gs, err := norm.Roles.schema()
-	if err != nil {
-		return nil, err
-	}
-	src := jwtkit.StaticKeySource{Active: keys.Active, Pubs: keys.PublicKeys}
-	return newClient(norm, src, gs, deps)
-}
 
 // newService assembles an engine from an already-normalized Config. keys is
 // read per-operation via the KeySource interface (never snapshotted) so a
