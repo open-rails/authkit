@@ -1,6 +1,6 @@
 // Package securitytest attacks AuthKit the way an embedding host exposes it:
-// authkit.New with its HTTP surface mounted under /auth/v1, a real
-// PostgreSQL database and real ephemeral stores.
+// a Client from authtest.New with its HTTP surface mounted under /auth/v1, a
+// real PostgreSQL database and real ephemeral stores.
 package securitytest
 
 import (
@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -22,7 +23,6 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
-	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
 
@@ -43,39 +43,22 @@ var signer = sync.OnceValue(func() *jwtkit.RSASigner {
 
 type host struct {
 	t      *testing.T
-	cfg    hostConfig
 	auth   *authkit.Client
 	pool   *pgxpool.Pool
 	server *httptest.Server
 	mail   *authtest.Outbox
 }
 
-type hostConfig struct {
-	engine authkit.Config
-	deps   authkit.Deps
-	http   authkit.HTTPConfig
-	sms    bool
+// withHTTP edits the host's HTTPConfig.
+func withHTTP(fn func(*authkit.HTTPConfig)) authtest.Option {
+	return authtest.WithConfig(func(c *authkit.Config) { fn(&c.HTTP) })
 }
 
-type hostOption func(*hostConfig)
-
-func withRedis(rdb *redis.Client) hostOption {
-	return func(c *hostConfig) { c.http.Redis = rdb }
-}
-
-func withEngine(fn func(*authkit.Config)) hostOption {
-	return func(c *hostConfig) { fn(&c.engine) }
-}
-
-func withHTTP(fn func(*authkit.HTTPConfig)) hostOption {
-	return func(c *hostConfig) { fn(&c.http) }
-}
-
-// withSMS delivers SMS to the host's outbox and offers SMS as a second factor.
-func withSMS(c *hostConfig) {
-	c.sms = true
-	c.engine.TwoFactor.Methods = append(c.engine.TwoFactor.Methods, iam.TwoFactorSMS)
-}
+// withSMS offers SMS as a second factor; a host delivers SMS to its outbox
+// only then.
+var withSMS = authtest.WithConfig(func(c *authkit.Config) {
+	c.TwoFactor.Methods = append(slices.Clone(c.TwoFactor.Methods), iam.TwoFactorSMS)
+})
 
 // generousLimits keeps the ordinary per-IP buckets out of the way of tests
 // that exercise something other than rate limiting.
@@ -89,44 +72,46 @@ func generousLimits(c *authkit.HTTPConfig) {
 	c.RateLimits = limits
 }
 
-func newHost(t *testing.T, opts ...hostOption) *host {
+// newHost is authtest.New on a scratch database of the test's own (schema
+// profiles, River in public) with the host's issuer, keys, policy and HTTP
+// surface, then opts. The HTTPConfig replaces authtest's unlimited one, so
+// rate limits are real.
+func newHost(t *testing.T, opts ...authtest.Option) *host {
 	t.Helper()
-	pg := testdb.ScratchPostgres(t)
-	mail := &authtest.Outbox{}
+	pg := testdb.EmptyScratchPostgres(t)
 	s := signer()
-	cfg := hostConfig{
-		engine: authkit.Config{
-			Keys: authkit.KeysConfig{Source: jwtkit.StaticKeySource{Active: s, Pubs: map[string]crypto.PublicKey{s.KID(): s.PublicKey()}}},
-			Token: authkit.TokenConfig{
-				Issuer:            issuer,
-				IssuedAudiences:   []string{audience},
-				ExpectedAudiences: []string{audience},
-			},
-			Registration: authkit.RegistrationConfig{
-				NativeUserMode: iam.RegistrationModeOpen,
-				Verification:   iam.RegistrationVerificationOptional,
-			},
-			TwoFactor: authkit.TwoFactorConfig{
+	var sms bool
+	opts = append([]authtest.Option{
+		authtest.WithConfig(func(c *authkit.Config) {
+			c.Schema, c.River.Schema = "profiles", "public"
+			c.Keys = authkit.KeysConfig{Source: jwtkit.StaticKeySource{Active: s, Pubs: map[string]crypto.PublicKey{s.KID(): s.PublicKey()}}}
+			c.Token = authkit.TokenConfig{Issuer: issuer, IssuedAudiences: []string{audience}, ExpectedAudiences: []string{audience}}
+			c.Registration = authkit.RegistrationConfig{NativeUserMode: iam.RegistrationModeOpen, Verification: iam.RegistrationVerificationOptional}
+			c.TwoFactor = authkit.TwoFactorConfig{
 				Mode:          iam.TwoFactorOptional,
 				Methods:       []iam.TwoFactorMethod{iam.TwoFactorTOTP, iam.TwoFactorEmail},
 				TOTPSecretKey: bytes.Repeat([]byte{7}, 32),
-			},
-		},
-		deps: authkit.Deps{Postgres: pg.Pool, Email: mail.Email()},
-		http: authkit.HTTPConfig{DirectPeerIP: true, APIPath: apiPrefix},
-	}
-	for _, opt := range opts {
-		opt(&cfg)
-	}
-	if cfg.sms {
-		cfg.deps.SMS = mail.SMS()
-	}
-	cfg.engine.HTTP = cfg.http
-	runtime, err := authkit.New(context.Background(), cfg.engine, cfg.deps)
-	require.NoError(t, err)
-	t.Cleanup(runtime.Close)
-	h := &host{t: t, cfg: cfg, pool: pg.Pool, mail: mail}
-	return h.fork(runtime)
+			}
+			c.HTTP = authkit.HTTPConfig{DirectPeerIP: true, APIPath: apiPrefix}
+		}),
+		authtest.WithDeps(func(d *authkit.Deps) { d.Postgres = pg.Pool }),
+	}, opts...)
+	opts = append(opts,
+		authtest.WithConfig(func(c *authkit.Config) { sms = slices.Contains(c.TwoFactor.Methods, iam.TwoFactorSMS) }),
+		authtest.WithDeps(func(d *authkit.Deps) {
+			if !sms {
+				d.SMS = nil
+			}
+		}))
+	auth, mail := authtest.New(t, opts...)
+	return (&host{t: t, pool: pg.Pool, mail: mail}).fork(auth)
+}
+
+// replica is another replica of h's deployment (authtest.Replica), opts
+// applied to its Config and Deps.
+func (h *host) replica(opts ...authtest.Option) *host {
+	h.t.Helper()
+	return h.fork(authtest.Replica(h.t, h.auth, opts...))
 }
 
 // fork serves runtime's configured routes; every route shares the one
@@ -309,20 +294,14 @@ func (h *host) role(persona iam.Persona, name string) iam.Role {
 	return r
 }
 
-// grantRole assigns the role name of ref's persona with system authority; the
-// test fails otherwise.
+// grantRole assigns the role name of ref's persona with system authority.
 func grantRole(t testing.TB, auth *authkit.Client, ref iam.GroupRef, subject iam.Subject, name string) {
 	t.Helper()
-	res, err := auth.AssignGroupRoles(t.Context(), iam.SystemActor(), ref, []iam.Subject{subject}, roleIn(t, auth, ref, name))
-	require.NoError(t, err)
-	require.NoError(t, res[0].Err)
+	authtest.GrantRole(t, auth, ref, subject, roleIn(t, auth, ref, name))
 }
 
-// revokeRole unassigns the role name with system authority; the test fails
-// otherwise.
+// revokeRole unassigns the role name of ref's persona with system authority.
 func revokeRole(t testing.TB, auth *authkit.Client, ref iam.GroupRef, subject iam.Subject, name string) {
 	t.Helper()
-	res, err := auth.UnassignGroupRoles(t.Context(), iam.SystemActor(), ref, []iam.Subject{subject}, roleIn(t, auth, ref, name))
-	require.NoError(t, err)
-	require.NoError(t, res[0].Err)
+	authtest.RevokeRole(t, auth, ref, subject, roleIn(t, auth, ref, name))
 }

@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/testidp"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
@@ -23,12 +25,7 @@ func (h *host) limiterDown() *host {
 	require.NoError(h.t, ln.Close())
 	rdb := redis.NewClient(&redis.Options{Addr: addr, MaxRetries: -1, DialTimeout: time.Second})
 	h.t.Cleanup(func() { _ = rdb.Close() })
-	cfg := h.cfg.engine
-	cfg.HTTP.Redis = rdb
-	r, err := authkit.New(context.Background(), cfg, h.cfg.deps)
-	require.NoError(h.t, err)
-	h.t.Cleanup(r.Close)
-	return h.fork(r)
+	return h.replica(withHTTP(func(c *authkit.HTTPConfig) { c.Redis = rdb }))
 }
 
 // TestSecurityLimiterOutageFailsClosed: when the rate limiter's backend fails,
@@ -39,12 +36,12 @@ func (h *host) limiterDown() *host {
 // none of that stay up. Every mounted route is classified here, so a new one
 // cannot ship unproven.
 func TestSecurityLimiterOutageFailsClosed(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC), withEngine(withDeviceKeys), withEngine(withPasskeys),
-		withProviders(&stubProvider{name: "stub"}), withEngine(func(c *authkit.Config) {
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(withDeviceKeys), authtest.WithConfig(withPasskeys),
+		withProviders(testidp.New(t).OAuth2("idp")), authtest.WithConfig(func(c *authkit.Config) {
 			c.Registration.PasswordlessLogin = true
 			c.SolanaNetwork = "devnet"
 			c.Delegated = authkit.DelegatedConfig{Audiences: []string{audience}}
-		}), withDeps(func(d *authkit.Deps) {
+		}), authtest.WithDeps(func(d *authkit.Deps) {
 			d.DelegatedAuthorization = func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
 				return iam.DelegationGrant{}, nil
 			}
@@ -52,13 +49,8 @@ func TestSecurityLimiterOutageFailsClosed(t *testing.T) {
 	down := h.limiterDown()
 	a := h.newAccount("outage")
 	_, base := h.newOrg(a)
-	_, claims := splitToken(t, h.login(a).AccessToken)
-	sid, _ := claims["sid"].(string)
-	require.NotEmpty(t, sid)
 	// Past the fresh-auth window, the account routes ask for the password.
-	_, err := h.pool.Exec(context.Background(), `UPDATE profiles.refresh_sessions SET last_authenticated_at=now()-interval '20 minutes', mfa_authenticated_at=now()-interval '20 minutes' WHERE id=$1::uuid`, sid)
-	require.NoError(t, err)
-	token := h.sessionToken(a.id, sid)
+	token := authtest.StaleSession(t, h.auth, h.login(a).AccessToken)
 
 	post := func(path string, body any) request {
 		return request{method: http.MethodPost, path: path, body: body, token: token}
@@ -67,7 +59,7 @@ func TestSecurityLimiterOutageFailsClosed(t *testing.T) {
 		return request{method: http.MethodDelete, path: path, body: body, token: token}
 	}
 	callback := func(method, path string) request {
-		return request{method: method, path: "//oidc/stub" + path + "?state=state&code=code"}
+		return request{method: method, path: "//oidc/idp" + path + "?state=state&code=code"}
 	}
 	code := map[string]string{"identifier": a.email, "code": "123456"}
 	newEmail := func() string { return unique("outagenew") + "@security.test" }
@@ -99,7 +91,7 @@ func TestSecurityLimiterOutageFailsClosed(t *testing.T) {
 		{"POST /user/2fa", "issues a TOTP secret", post("/user/2fa", map[string]string{"method": "totp"})},
 		{"POST /user/2fa/backup-codes", "issues backup codes", post("/user/2fa/backup-codes", nil)},
 		{"DELETE /user", "checks a password", del("/user", map[string]string{"password": password})},
-		{"DELETE /user/providers/{provider}", "checks a password", del("/user/providers/stub", map[string]string{"password": password})},
+		{"DELETE /user/providers/{provider}", "checks a password", del("/user/providers/idp", map[string]string{"password": password})},
 		{"POST /passkeys/login/finish", "checks a signature", post("/passkeys/login/finish", map[string]string{"id": "credential"})},
 		{"POST /device-keys/enroll/begin", "sends a code", post("/device-keys/enroll/begin", map[string]string{"email": a.email, "public_key": newDeviceKey(t).public})},
 		{"POST /device-keys/enroll/finish", "checks a code and a signature", post("/device-keys/enroll/finish", map[string]string{"enrollment_id": "enrollment", "code": "123456", "signature": "signature"})},
@@ -111,10 +103,10 @@ func TestSecurityLimiterOutageFailsClosed(t *testing.T) {
 		{"POST /groups/{group_id}/invites/links", "issues an invite code", post(base+"/invites/links", map[string]string{"role": "member"})},
 		{"POST /groups/{group_id}/api-keys", "issues an API key", post(base+"/api-keys", map[string]string{"name": "ci", "role": "member"})},
 		{"POST /delegated/token", "issues a token", post("/delegated/token", map[string]any{})},
-		{"GET //oidc/{provider}/login", "issues a state", request{method: http.MethodGet, path: "//oidc/stub/login"}},
-		{"POST //oidc/{provider}/login", "issues a state", request{method: http.MethodPost, path: "//oidc/stub/login", body: map[string]any{}}},
-		{"POST /oidc/{provider}/link/start", "issues a state", post("/oidc/stub/link/start", map[string]any{})},
-		{"POST /oidc/{provider}/step-up/start", "issues a state", post("/oidc/stub/step-up/start", map[string]any{})},
+		{"GET //oidc/{provider}/login", "issues a state", request{method: http.MethodGet, path: "//oidc/idp/login"}},
+		{"POST //oidc/{provider}/login", "issues a state", request{method: http.MethodPost, path: "//oidc/idp/login", body: map[string]any{}}},
+		{"POST /oidc/{provider}/link/start", "issues a state", post("/oidc/idp/link/start", map[string]any{})},
+		{"POST /oidc/{provider}/step-up/start", "issues a state", post("/oidc/idp/step-up/start", map[string]any{})},
 		{"GET //oidc/{provider}/callback", "checks a state and a code", callback(http.MethodGet, "/callback")},
 		{"POST //oidc/{provider}/callback", "checks a state and a code", callback(http.MethodPost, "/callback")},
 		{"GET //oidc/{provider}/step-up/callback", "checks a state and a code", callback(http.MethodGet, "/step-up/callback")},

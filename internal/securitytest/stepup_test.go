@@ -13,29 +13,19 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/passkeytest"
+	"github.com/open-rails/authkit/internal/testidp"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
 )
 
 // mfaSession signs a in with password and its email second factor and returns
-// the session id.
+// the session's access token.
 func (h *host) mfaSession(a account) string {
 	h.t.Helper()
 	ch := h.passwordStep(a, "198.51.100.30")
 	resp := h.secondStep(a, ch, h.mail.Last(h.t, authtest.LoginCode, a.email).Code, "198.51.100.30")
 	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
-	_, claims := splitToken(h.t, session(h.t, resp).AccessToken)
-	sid, _ := claims["sid"].(string)
-	require.NotEmpty(h.t, sid)
-	return sid
-}
-
-// sessionToken mints a fresh access token for an existing session.
-func (h *host) sessionToken(userID, sid string) string {
-	h.t.Helper()
-	tok, err := h.auth.MintAccessToken(context.Background(), userID, iam.AccessTokenOptions{SessionID: sid})
-	require.NoError(h.t, err)
-	return tok.Value
+	return session(h.t, resp).AccessToken
 }
 
 // TestSecurityPasswordStepUpNeedsSecondFactor (N1): for an account with a
@@ -45,18 +35,18 @@ func (h *host) sessionToken(userID, sid string) string {
 // provider or wallet or changes the address, on AuthKit's routes or a host's;
 // each refusal says only the second factor clears it.
 func TestSecurityPasswordStepUpNeedsSecondFactor(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withProviders(&stubProvider{name: "stub"}), withEngine(func(c *authkit.Config) {
+	h := newHost(t, withHTTP(generousLimits), withProviders(testidp.New(t).OAuth2("idp")), authtest.WithConfig(func(c *authkit.Config) {
 		c.Passkeys = authkit.PasskeyConfig{RPID: "localhost", RPDisplayName: "Security", Origins: []string{"http://localhost"}}
 		c.SolanaNetwork = iam.SolanaDevnet
 	}))
 	ctx := context.Background()
 	victim := h.newAccount("stepup")
 	h.enrollEmail2FA(victim)
-	sid := h.mfaSession(victim)
 	// The attacker's copy of the session is older than the fresh-auth window.
-	_, err := h.pool.Exec(ctx, `UPDATE profiles.refresh_sessions SET last_authenticated_at=now()-interval '20 minutes', mfa_authenticated_at=now()-interval '20 minutes' WHERE id=$1::uuid`, sid)
-	require.NoError(t, err)
-	stolen := h.sessionToken(victim.id, sid)
+	stolen := authtest.StaleSession(t, h.auth, h.mfaSession(victim))
+	_, claims := splitToken(t, stolen)
+	sid, _ := claims["sid"].(string)
+	require.NotEmpty(t, sid)
 
 	// Every refusal says the account's second factor, not a password, clears it.
 	requireMFAStepUp := func(resp response, msg string, args ...any) {
@@ -77,10 +67,12 @@ func TestSecurityPasswordStepUpNeedsSecondFactor(t *testing.T) {
 
 	// What a password re-auth wrote before: the session is fresh, its second
 	// factor is not. The token must still fail the MFA-if-enrolled gate.
-	_, err = h.pool.Exec(ctx, `UPDATE profiles.refresh_sessions SET last_authenticated_at=now() WHERE id=$1::uuid`, sid)
+	_, err := h.pool.Exec(ctx, `UPDATE profiles.refresh_sessions SET last_authenticated_at=now() WHERE id=$1::uuid`, sid)
 	require.NoError(t, err)
-	reproved := h.sessionToken(victim.id, sid)
-	_, claims := splitToken(t, reproved)
+	minted, err := h.auth.MintAccessToken(ctx, victim.id, iam.AccessTokenOptions{SessionID: sid})
+	require.NoError(t, err)
+	reproved := minted.Value
+	_, claims = splitToken(t, reproved)
 	require.Less(t, claims["auth_time"].(float64), float64(time.Now().Add(-15*time.Minute).Unix()), "auth_time follows the second factor")
 
 	sensitive := verify.Sensitive(h.auth)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
@@ -97,7 +89,7 @@ func TestSecurityPasswordStepUpNeedsSecondFactor(t *testing.T) {
 		{method: http.MethodPost, path: "/user/2fa", body: map[string]string{"method": "totp"}},
 		{method: http.MethodDelete, path: "/user/2fa", body: map[string]any{}},
 		{method: http.MethodPost, path: "/verify/request", body: map[string]string{"identifier": unique("evil") + "@security.test"}},
-		{method: http.MethodPost, path: "/oidc/stub/link/start", body: map[string]any{}},
+		{method: http.MethodPost, path: "/oidc/idp/link/start", body: map[string]any{}},
 		{method: http.MethodPost, path: "/solana/link", body: map[string]any{}},
 	}
 	for name, token := range map[string]string{"stolen": stolen, "password re-proved": reproved} {
@@ -121,7 +113,7 @@ func TestSecurityPasswordStepUpNeedsSecondFactor(t *testing.T) {
 		require.Equal(t, http.StatusNoContent, hostRoute(fresh))
 		resp = h.post("/user/2fa/backup-codes", map[string]any{}, fresh)
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
-		resp = h.post("/oidc/stub/link/start", map[string]any{}, fresh)
+		resp = h.post("/oidc/idp/link/start", map[string]any{}, fresh)
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
 	})
 }
@@ -131,7 +123,7 @@ func TestSecurityPasswordStepUpNeedsSecondFactor(t *testing.T) {
 // AuthKit's enrollment routes. A host that authenticates out of band (Verify,
 // then Allow) never gets a full actor from it.
 func TestSecurityEnrollmentTokenOutsideMiddleware(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withAccountRoles))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withAccountRoles))
 	ctx := context.Background()
 	holder := h.newAccount("enrolling")
 	// An MFA-required role held without a factor (e.g. granted while 2FA was
@@ -208,20 +200,15 @@ func (h *host) passkeyLogin(authn *passkeytest.Authenticator, signCount uint32) 
 // of its session's last MFA proof. A password step-up on a stolen passkey
 // session of an account with no enrolled factor is fresh, but never acr=mfa.
 func TestSecurityPasswordStepUpOnPasskeySession(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withPasskeys))
-	ctx := context.Background()
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withPasskeys))
 	victim := h.newAccount("p5victim")
 	authn := h.registerPasskey(h.login(victim).AccessToken)
 	resp := h.passkeyLogin(authn, 1)
 	require.Equal(t, http.StatusOK, resp.status, resp.String())
 	_, claims := splitToken(t, session(t, resp).AccessToken)
 	require.Equal(t, iam.AssuranceLevelMFA, claims["acr"], "control: a passkey sign-in is MFA")
-	sid, _ := claims["sid"].(string)
-	require.NotEmpty(t, sid)
 	// The attacker's copy of the session is older than the fresh-auth window.
-	_, err := h.pool.Exec(ctx, `UPDATE profiles.refresh_sessions SET last_authenticated_at=now()-interval '20 minutes', mfa_authenticated_at=now()-interval '20 minutes' WHERE id=$1::uuid`, sid)
-	require.NoError(t, err)
-	resp = h.post("/step-up/password", map[string]string{"password": password}, h.sessionToken(victim.id, sid))
+	resp = h.post("/step-up/password", map[string]string{"password": password}, authtest.StaleSession(t, h.auth, session(t, resp).AccessToken))
 	require.Equal(t, http.StatusOK, resp.status, resp.String())
 	stepped := session(t, resp).AccessToken
 	_, claims = splitToken(t, stepped)
@@ -242,7 +229,7 @@ func TestSecurityPasswordStepUpOnPasskeySession(t *testing.T) {
 // yields an enrollment token that would let whoever typed it enroll a factor
 // of their own.
 func TestSecurityPasskeyHolderNeedsPasskey(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withAccountRoles), withEngine(withPasskeys))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withAccountRoles), authtest.WithConfig(withPasskeys))
 	ctx := context.Background()
 	holder := h.newAccount("p7holder")
 	authn := h.registerPasskey(h.login(holder).AccessToken)
@@ -268,7 +255,7 @@ func TestSecurityPasskeyHolderNeedsPasskey(t *testing.T) {
 // backup codes, device keys and sessions and tells its address; the next
 // password sign-in enrolls a factor. No other actor may reset an account.
 func TestSecurityResetAccountMFA(t *testing.T) {
-	optional := newHost(t, withHTTP(generousLimits), withEngine(withAccountRoles), withEngine(withPasskeys), withEngine(withDeviceKeys))
+	optional := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withAccountRoles), authtest.WithConfig(withPasskeys), authtest.WithConfig(withDeviceKeys))
 	ctx := context.Background()
 	holder, lost, admin := optional.newAccount("r2holder"), optional.newAccount("r2lost"), optional.newAccount("r2admin")
 	authn := optional.registerPasskey(optional.login(holder).AccessToken)
@@ -277,12 +264,7 @@ func TestSecurityResetAccountMFA(t *testing.T) {
 	optional.enrollEmail2FA(lost)
 	optional.grant(iam.RootGroup(), admin, "siteadmin")
 	// The deployment then requires 2FA.
-	cfg := optional.cfg.engine
-	cfg.TwoFactor.Mode = iam.TwoFactorRequired
-	runtime, err := authkit.New(ctx, cfg, optional.cfg.deps)
-	require.NoError(t, err)
-	t.Cleanup(runtime.Close)
-	h := optional.fork(runtime)
+	h := optional.replica(authtest.WithConfig(func(c *authkit.Config) { c.TwoFactor.Mode = iam.TwoFactorRequired }))
 
 	signIn := func(a account) response {
 		return h.post("/password/login", map[string]string{"identifier": a.email, "password": password}, "")

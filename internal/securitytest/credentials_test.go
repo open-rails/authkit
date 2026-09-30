@@ -18,7 +18,7 @@ import (
 // its API keys on the host's own routes and its invite links at once; the
 // credentials never outlive the account that issued them.
 func TestSecurityDeadCreatorCredentials(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC), withEngine(func(c *authkit.Config) {
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(func(c *authkit.Config) {
 		c.Roles.Root.Role("staff", c.Roles.Root.Users.All(), orgPersona.OwnerGrant())
 	}))
 	staff, founder := h.newAccount("staff"), h.newAccount("founder")
@@ -70,7 +70,7 @@ func TestSecurityDeadCreatorCredentials(t *testing.T) {
 // proves the address, the invite links and account invitations the squatter
 // minted with that role die with the squatter's other credentials.
 func TestSecurityFirstProofRevokesSquatterInvitations(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
 	ctx := context.Background()
 	founder := h.newAccount("n4founder")
 	group, base := h.newOrg(founder)
@@ -101,7 +101,7 @@ func TestSecurityFirstProofRevokesSquatterInvitations(t *testing.T) {
 // need MFA, the keys and application roles reaching it are revoked at the next
 // boot and confer nothing even before.
 func TestSecurityMFARequirementRevokesMachineCredentials(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
 	ctx := context.Background()
 	owner := h.newAccount("n8owner")
 	group, base := h.newOrg(owner)
@@ -126,13 +126,9 @@ func TestSecurityMFARequirementRevokesMachineCredentials(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, hostRoute(h.auth, appToken(t, s, appIssuer)), "control: the application works")
 
 	// The host redeploys with org:catalog:read needing MFA.
-	cfg := h.cfg.engine
 	m := newSecurityModel()
 	m.org.RequireMFA(m.catalogRead)
-	cfg.Roles = m.Roles
-	rebooted, err := authkit.New(ctx, cfg, h.cfg.deps)
-	require.NoError(t, err)
-	t.Cleanup(rebooted.Close)
+	rebooted := authtest.Replica(t, h.auth, authtest.WithConfig(func(c *authkit.Config) { c.Roles = m.Roles }))
 
 	require.Equal(t, http.StatusUnauthorized, hostRoute(rebooted, key.Secret))
 	require.False(t, liveKey(t, h, group, key.ID), "the boot sweep kept an API key whose role needs MFA")
@@ -145,7 +141,7 @@ func TestSecurityMFARequirementRevokesMachineCredentials(t *testing.T) {
 // TestSecurityAPIKeysNeedPersonaOptIn: a persona without APIKeys has no keys,
 // minted by a user or the system.
 func TestSecurityAPIKeysNeedPersonaOptIn(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withAccountRoles))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withAccountRoles))
 	ctx := context.Background()
 	owner := h.newAccount("nokeysowner")
 	group, _ := h.newOrg(owner)
@@ -188,14 +184,6 @@ func (h *host) roleOf(group iam.GroupRef, subject iam.Subject) iam.Role {
 	return roles[subject]
 }
 
-// reboot starts AuthKit again on the host's database with cfg.
-func (h *host) reboot(cfg authkit.Config) {
-	h.t.Helper()
-	runtime, err := authkit.New(context.Background(), cfg, h.cfg.deps)
-	require.NoError(h.t, err, "a credential sweep refused the boot")
-	h.t.Cleanup(runtime.Close)
-}
-
 // TestSecurityCredentialSweepNeverBlocksBoot (P2): an application owner role
 // that already confers nothing (it needs MFA, or its registrar is gone) is
 // retired without the last-owner refusal, and the boot sweep never refuses:
@@ -203,33 +191,29 @@ func (h *host) reboot(cfg authkit.Config) {
 func TestSecurityCredentialSweepNeverBlocksBoot(t *testing.T) {
 	ctx := context.Background()
 	t.Run("RequireMFA added to a permission an application owner holds", func(t *testing.T) {
-		h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+		h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
 		owner := h.newAccount("p2aowner")
 		group, _ := h.newOrg(owner)
 		app := h.registerApp(group, owner, "p2a-app", "owner")
-		cfg := h.cfg.engine
 		m := newSecurityModel()
 		m.org.RequireMFA(m.catalogRead)
-		cfg.Roles = m.Roles
-		h.reboot(cfg)
+		h.replica(authtest.WithConfig(func(c *authkit.Config) { c.Roles = m.Roles }))
 		require.Empty(t, h.roleOf(group, iam.RemoteApplicationSubject(app.ID)), "the application kept an owner role that needs MFA")
 		require.Equal(t, orgPersona.OwnerRole(), h.roleOf(group, iam.UserSubject(owner.id)))
 	})
 	t.Run("2FA turned on with an application holding root owner", func(t *testing.T) {
-		h := newHost(t, withHTTP(generousLimits), withEngine(withApps), withEngine(func(c *authkit.Config) { c.TwoFactor.Mode = iam.TwoFactorDisabled }))
+		h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withApps), authtest.WithConfig(func(c *authkit.Config) { c.TwoFactor.Mode = iam.TwoFactorDisabled }))
 		s := newSigner(t, "p2b-kid")
 		app, err := h.auth.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.RootGroup(), iam.RemoteApplication{
 			Slug: "p2b-app", Issuer: "https://p2b-app.security.test", PublicKeys: staticKeys(t, s), Enabled: true,
 		})
 		require.NoError(t, err)
 		grantRole(t, h.auth, iam.RootGroup(), iam.RemoteApplicationSubject(app.ID), "owner")
-		cfg := h.cfg.engine
-		cfg.TwoFactor.Mode = iam.TwoFactorOptional
-		h.reboot(cfg)
+		h.replica(authtest.WithConfig(func(c *authkit.Config) { c.TwoFactor.Mode = iam.TwoFactorOptional }))
 		require.Empty(t, h.roleOf(iam.RootGroup(), iam.RemoteApplicationSubject(app.ID)))
 	})
 	t.Run("a pre-0008 group registration as its group's only owner", func(t *testing.T) {
-		h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+		h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
 		owner := h.newAccount("p2cowner")
 		group, _ := h.newOrg(owner)
 		app := h.registerApp(group, owner, "p2c-app", "owner")
@@ -242,11 +226,11 @@ func TestSecurityCredentialSweepNeverBlocksBoot(t *testing.T) {
 		// The first boot after the upgrade sweeps: the fingerprint changed.
 		_, err = h.pool.Exec(ctx, `DELETE FROM profiles.role_catalog_state`)
 		require.NoError(t, err)
-		h.reboot(h.cfg.engine)
+		h.replica()
 		require.Empty(t, h.roleOf(group, iam.RemoteApplicationSubject(app.ID)))
 	})
 	t.Run("Required 2FA: an application orphaned by its registrar's first proof", func(t *testing.T) {
-		h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC), withEngine(func(c *authkit.Config) {
+		h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(func(c *authkit.Config) {
 			c.TwoFactor.Mode = iam.TwoFactorRequired
 		}))
 		// An account whose address nobody proved founds a group and makes its
@@ -271,16 +255,14 @@ func TestSecurityCredentialSweepNeverBlocksBoot(t *testing.T) {
 		require.True(t, orphaned, "control: the first proof orphans the application")
 
 		// A catalog change at boot sweeps the whole site.
-		cfg := h.cfg.engine
 		m := newSecurityModel()
 		m.Root.Role("auditor", m.Root.Users.Read)
-		cfg.Roles = m.Roles
-		h.reboot(cfg)
+		h.replica(authtest.WithConfig(func(c *authkit.Config) { c.Roles = m.Roles }))
 		require.Empty(t, h.roleOf(group, iam.RemoteApplicationSubject(app.ID)))
 		require.Equal(t, orgPersona.OwnerRole(), h.roleOf(group, iam.UserSubject(u.ID)))
 	})
 	t.Run("control: a live registrar's chosen change still keeps the last owner", func(t *testing.T) {
-		h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+		h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
 		owner := h.newAccount("p2eowner")
 		group, base := h.newOrg(owner)
 		token := h.login(owner).AccessToken

@@ -15,6 +15,7 @@ import (
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/testidp"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -65,7 +66,7 @@ func (h *host) proveEmail(email, newPassword string) tokens {
 // or username someone pre-registered is refused and leaves that account
 // without the role and without proven contacts.
 func TestSecurityBootstrapNeverAdoptsSquatters(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
 	ctx := context.Background()
 	apply := func(users ...iam.BootstrapManifestUser) (iam.BootstrapResult, error) {
 		return h.auth.ApplyBootstrapManifest(ctx, iam.BootstrapManifest{Users: users}, iam.BootstrapOptions{})
@@ -165,7 +166,7 @@ func TestSecurityBootstrapNeverAdoptsSquatters(t *testing.T) {
 // every boot, never adopts a pre-registered account, and the account it
 // creates can only be entered by proving its address.
 func TestSecurityEnsureUserRole(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
 	ctx := context.Background()
 	root := iam.RootGroup()
 
@@ -337,7 +338,7 @@ func TestSecurityImportUsers(t *testing.T) {
 // TestSecurityImportSolanaLinks: imported wallets are reservations, never
 // login methods, and never move between accounts.
 func TestSecurityImportSolanaLinks(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(func(c *authkit.Config) { c.SolanaNetwork = "devnet" }))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(func(c *authkit.Config) { c.SolanaNetwork = "devnet" }))
 	ctx := context.Background()
 	one, two := h.newAccount("walletone"), h.newAccount("wallettwo")
 	key := make([]byte, 32)
@@ -365,17 +366,17 @@ func TestSecurityImportSolanaLinks(t *testing.T) {
 // TestSecurityLinkProvider: a host-linked identity signs in to exactly the
 // account it names, and never moves to another.
 func TestSecurityLinkProvider(t *testing.T) {
-	provider := &stubProvider{name: "opidp"}
-	provider.identity.Subject = unique("opsub")
+	idp := testidp.New(t)
+	provider := idp.OAuth2("opidp")
 	h := newHost(t, withHTTP(generousLimits), withProviders(provider))
 	ctx := context.Background()
 	owner := h.newAccount("linked")
-	l := iam.ProviderLink{Issuer: provider.Issuer(), Provider: provider.Name(), Subject: provider.identity.Subject}
+	l := iam.ProviderLink{Issuer: provider.Issuer(), Provider: provider.Name(), Subject: unique("opsub")}
 	require.ErrorIs(t, h.auth.LinkProvider(ctx, uuid.NewString(), l), iam.ErrUserNotFound)
 	require.NoError(t, h.auth.LinkProvider(ctx, owner.id, l))
 	var users int
 	require.NoError(t, h.pool.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&users))
-	resp := h.providerCallback(provider.name)
+	resp := h.providerCallback(idp, provider.Name(), testidp.Identity{Subject: l.Subject})
 	require.Equal(t, http.StatusOK, resp.status, resp.String())
 	var linkedTo string
 	require.NoError(t, h.pool.QueryRow(ctx, `SELECT user_id::text FROM user_providers WHERE subject=$1`, l.Subject).Scan(&linkedTo))
@@ -392,7 +393,8 @@ func TestSecurityLinkProvider(t *testing.T) {
 // account holds, or one another row of the batch names. A merge links
 // identities only for a row bound by id or a contact verified on both sides.
 func TestSecurityImportProviders(t *testing.T) {
-	provider := &stubProvider{name: "impidp"}
+	idp := testidp.New(t)
+	provider := idp.OAuth2("impidp")
 	h := newHost(t, withHTTP(generousLimits), withProviders(provider))
 	ctx := context.Background()
 	link := func(prefix string) iam.ProviderLink {
@@ -428,8 +430,7 @@ func TestSecurityImportProviders(t *testing.T) {
 	require.Empty(t, h.providerOwner(skipped.Subject), "a skipped row linked an identity")
 	require.Equal(t, res.Rows[0].UserID, h.providerOwner(fresh.Subject))
 
-	provider.identity.Subject = fresh.Subject
-	resp := h.providerCallback(provider.name)
+	resp := h.providerCallback(idp, provider.Name(), testidp.Identity{Subject: fresh.Subject})
 	require.Equal(t, http.StatusOK, resp.status, resp.String())
 	require.Equal(t, res.Rows[0].UserID, h.meID(session(t, resp).AccessToken))
 
@@ -483,7 +484,7 @@ func TestSecurityImportedDeletionLifecycle(t *testing.T) {
 		defer mu.Unlock()
 		return slices.Clone(stages[id])
 	}
-	h := newHost(t, withHTTP(generousLimits), withDeps(func(d *authkit.Deps) {
+	h := newHost(t, withHTTP(generousLimits), authtest.WithDeps(func(d *authkit.Deps) {
 		d.OnSoftDelete, d.OnHardDelete, d.OnRestore = hook("soft"), hook("hard"), hook("restore")
 	}))
 	ctx := context.Background()
@@ -527,7 +528,7 @@ func TestSecurityImportedDeletionLifecycle(t *testing.T) {
 	h.login(account{id: recentID, email: recent.Email})
 
 	t.Run("without River", func(t *testing.T) {
-		bare := newHost(t, withHTTP(generousLimits), withDeps(func(d *authkit.Deps) { d.River = authkit.RiverFromHost() }))
+		bare := newHost(t, withHTTP(generousLimits), authtest.WithDeps(func(d *authkit.Deps) { d.River = authkit.RiverFromHost() }))
 		row := deletedRow("impnoriver", &recentAt)
 		_, err := bare.auth.ImportUsers(ctx, []iam.ImportUser{row, deletedRow("impnoriverlive", nil)}, iam.ImportOptions{})
 		require.Error(t, err)
