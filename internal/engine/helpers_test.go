@@ -28,6 +28,7 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/ident"
+	"github.com/open-rails/authkit/internal/ops"
 	"github.com/open-rails/authkit/internal/ratelimit"
 	"github.com/open-rails/authkit/internal/testidp"
 	"github.com/open-rails/authkit/internal/testkeys"
@@ -184,7 +185,7 @@ func seedGroup(ctx context.Context, e *Engine, persona iam.Persona, ownerID stri
 		owner := iam.UserSubject(ownerID)
 		ng.Owner = &owner
 	}
-	g, err := e.CreateGroup(ctx, ng, nil)
+	g, err := e.CreateGroup(ctx, ng)
 	return g.ID, err
 }
 
@@ -216,7 +217,8 @@ func assignRole(ctx context.Context, e *Engine, a iam.Actor, ref iam.GroupRef, s
 	if err != nil {
 		return err
 	}
-	return itemErr(e.AssignGroupRoles(ctx, a, ref, []iam.Subject{subject}, role))
+	_, err = e.SetGroupRole(ctx, a, ref, subject, role)
+	return err
 }
 
 func unassignRole(ctx context.Context, e *Engine, a iam.Actor, ref iam.GroupRef, subject iam.Subject, name string) error {
@@ -224,11 +226,11 @@ func unassignRole(ctx context.Context, e *Engine, a iam.Actor, ref iam.GroupRef,
 	if err != nil {
 		return err
 	}
-	return itemErr(e.UnassignGroupRoles(ctx, a, ref, []iam.Subject{subject}, role))
+	return e.RemoveGroupMember(ctx, a, ref, subject, ops.IfRole(role))
 }
 
 func removeMember(ctx context.Context, e *Engine, a iam.Actor, ref iam.GroupRef, subject iam.Subject) error {
-	return itemErr(e.RemoveGroupMembers(ctx, a, ref, []iam.Subject{subject}))
+	return e.RemoveGroupMember(ctx, a, ref, subject)
 }
 
 // grantRole assigns the role name of ref's persona with system authority.

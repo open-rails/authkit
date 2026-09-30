@@ -306,7 +306,7 @@ func TestSecurityMemberEmailIsAnInvitation(t *testing.T) {
 	var shapes []map[string]any
 	var code string
 	for _, email := range []string{verified.email, unverified, nobody} {
-		resp := h.post(base+"/members", map[string]string{"email": email, "role": "member"}, ownerToken)
+		resp := h.post(base+"/members", map[string]string{"email": email, "role": "org:member"}, ownerToken)
 		require.Equal(t, http.StatusAccepted, resp.status, resp.String())
 		require.NotContains(t, resp.String(), `"user_id"`)
 		shapes = append(shapes, shape(resp))
@@ -339,7 +339,7 @@ func TestSecurityMemberEmailIsAnInvitation(t *testing.T) {
 
 	t.Run("an upper-cased address invites only its proven owner", func(t *testing.T) {
 		proven := h.newAccount("n9upper")
-		resp := h.post(base+"/members", map[string]string{"email": strings.ToUpper(proven.email), "role": "member"}, ownerToken)
+		resp := h.post(base+"/members", map[string]string{"email": strings.ToUpper(proven.email), "role": "org:member"}, ownerToken)
 		require.Equal(t, http.StatusAccepted, resp.status, resp.String())
 		require.Empty(t, roleOf(proven.id), "a verified address is invited, never added")
 		var body struct {
@@ -357,7 +357,7 @@ func TestSecurityMemberEmailIsAnInvitation(t *testing.T) {
 	t.Run("a deleted account's address gets no role", func(t *testing.T) {
 		gone := h.newAccount("n9gone")
 		require.NoError(t, opErr(h.auth.DeleteUsers(ctx, iam.SystemActor(), []string{gone.id})))
-		resp := h.post(base+"/members", map[string]string{"email": gone.email, "role": "member"}, ownerToken)
+		resp := h.post(base+"/members", map[string]string{"email": gone.email, "role": "org:member"}, ownerToken)
 		require.Equal(t, http.StatusAccepted, resp.status, resp.String())
 		require.Empty(t, roleOf(gone.id), "a deleted account received a role")
 	})

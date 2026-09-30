@@ -41,7 +41,7 @@ func TestSecuritySessionEventHistory(t *testing.T) {
 		t.Helper()
 		var out []iam.SessionEvent
 		for {
-			page, err := h.auth.SessionEvents(ctx, a.id, q)
+			page, err := h.auth.ListSessionEvents(ctx, a.id, q)
 			require.NoError(t, err)
 			out = append(out, page.Items...)
 			if page.Next == "" {
@@ -67,7 +67,7 @@ func TestSecuritySessionEventHistory(t *testing.T) {
 	require.NotEmpty(t, failed[0].Reason)
 	require.NotEmpty(t, failed[0].IP)
 
-	theirs, err := h.auth.SessionEvents(ctx, other.id, iam.SessionEventQuery{})
+	theirs, err := h.auth.ListSessionEvents(ctx, other.id, iam.SessionEventQuery{})
 	require.NoError(t, err)
 	require.Len(t, theirs.Items, 1)
 	for _, e := range all {
@@ -90,12 +90,12 @@ func TestSecuritySessionEventHistory(t *testing.T) {
 
 	t.Run("forged cursors and ids", func(t *testing.T) {
 		for _, cursor := range []string{"garbage", base64.RawURLEncoding.EncodeToString([]byte(`["yesterday","1"]`)), base64.RawURLEncoding.EncodeToString([]byte(`["2026-01-01T00:00:00Z"]`))} {
-			_, err := h.auth.SessionEvents(ctx, a.id, iam.SessionEventQuery{Page: iam.PageRequest{Cursor: cursor}})
+			_, err := h.auth.ListSessionEvents(ctx, a.id, iam.SessionEventQuery{Page: iam.PageRequest{Cursor: cursor}})
 			e, ok := iam.AsError(err)
 			require.True(t, ok, "cursor %q: %v", cursor, err)
 			require.Equal(t, "invalid_request", e.Code())
 		}
-		_, err := h.auth.SessionEvents(ctx, "not-a-uuid", iam.SessionEventQuery{})
+		_, err := h.auth.ListSessionEvents(ctx, "not-a-uuid", iam.SessionEventQuery{})
 		require.ErrorIs(t, err, iam.ErrUserNotFound)
 	})
 

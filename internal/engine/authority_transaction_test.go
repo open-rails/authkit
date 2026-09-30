@@ -56,9 +56,9 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 	grantRole(t, svc, iam.RootGroup(), iam.UserSubject(owner), "owner")
 	require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner), iam.RootGroup(), iam.UserSubject(manager), "manager"))
 	role := func(gid, uid string) string {
-		r, err := svc.groupStore().directRoleName(ctx, gid, iam.UserSubject(uid))
+		r, err := svc.groupStore().directRole(ctx, groupTarget{ID: gid}, iam.UserSubject(uid))
 		require.NoError(t, err)
-		return r
+		return r.Name()
 	}
 	t.Run("replacement_and_noop", func(t *testing.T) {
 		require.ErrorIs(t, assignRole(ctx, svc, iam.UserActor(manager), iam.RootGroup(), iam.UserSubject(owner), "reader"), iam.ErrRoleAssignmentEscalation)
@@ -74,25 +74,25 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		require.Equal(t, "owner", role(root, owner))
 	})
 	t.Run("bounded_invite_is_not_a_demotion", func(t *testing.T) {
-		invite, err := svc.CreateInviteLink(ctx, iam.UserActor(manager), iam.RootGroup(), iam.NewInviteLink{Role: mustRole("root:reader")})
+		invite, err := svc.CreateInvitation(ctx, iam.UserActor(manager), iam.RootGroup(), iam.NewInvitation{Role: mustRole("root:reader")})
 		require.NoError(t, err)
-		_, err = svc.RedeemInviteLink(ctx, iam.UserActor(owner), invite.Code)
+		_, err = svc.RedeemInvitation(ctx, iam.UserActor(owner), invite.Code)
 		require.ErrorIs(t, err, iam.ErrRoleAssignmentEscalation)
 		recipient := user()
-		_, err = svc.RedeemInviteLink(ctx, iam.UserActor(recipient), invite.Code)
+		_, err = svc.RedeemInvitation(ctx, iam.UserActor(recipient), invite.Code)
 		require.NoError(t, err)
 		require.Equal(t, "reader", role(root, recipient))
-		_, err = svc.RedeemInviteLink(ctx, iam.UserActor(recipient), invite.Code)
+		_, err = svc.RedeemInvitation(ctx, iam.UserActor(recipient), invite.Code)
 		require.NoError(t, err, "same recipient is idempotent")
-		_, err = svc.RedeemInviteLink(ctx, iam.UserActor(user()), invite.Code)
-		require.ErrorIs(t, err, iam.ErrInviteLinkNotFound)
+		_, err = svc.RedeemInvitation(ctx, iam.UserActor(user()), invite.Code)
+		require.ErrorIs(t, err, iam.ErrInvitationNotFound)
 		// A link never outlives its creator's authority (ak#394).
-		pending, err := svc.CreateInviteLink(ctx, iam.UserActor(manager), iam.RootGroup(), iam.NewInviteLink{Role: mustRole("root:reader")})
+		pending, err := svc.CreateInvitation(ctx, iam.UserActor(manager), iam.RootGroup(), iam.NewInvitation{Role: mustRole("root:reader")})
 		require.NoError(t, err)
 		require.NoError(t, unassignRole(ctx, svc, iam.UserActor(owner), iam.RootGroup(), iam.UserSubject(manager), "manager"))
 		require.Empty(t, role(root, manager))
-		_, err = svc.RedeemInviteLink(ctx, iam.UserActor(user()), pending.Code)
-		require.ErrorIs(t, err, errmodel.ErrInviteLinkRevoked)
+		_, err = svc.RedeemInvitation(ctx, iam.UserActor(user()), pending.Code)
+		require.ErrorIs(t, err, errmodel.ErrInvitationRevoked)
 		require.NoError(t, assignRole(ctx, svc, iam.UserActor(owner), iam.RootGroup(), iam.UserSubject(manager), "manager"))
 	})
 	group := func(uid string) (iam.GroupRef, string) {
@@ -102,9 +102,9 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 	}
 	app := func(gid string) *iam.RemoteApplication {
 		n++
-		a, err := svc.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(gid), iam.RemoteApplication{Slug: fmt.Sprintf("app%d", n), Issuer: fmt.Sprintf("https://app%d.owners.test", n), JWKSURI: "https://keys.owners.test/jwks", Mode: iam.RemoteApplicationModeJWKS, Enabled: true})
+		a, err := svc.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(gid), iam.RemoteApplication{Issuer: fmt.Sprintf("https://app%d.owners.test", n), JWKSURI: "https://keys.owners.test/jwks", Mode: iam.RemoteApplicationModeJWKS, Enabled: true})
 		require.NoError(t, err)
-		return a
+		return &a
 	}
 	t.Run("remote_application_replacement_and_lifecycle", func(t *testing.T) {
 		human := user()
@@ -116,19 +116,19 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		require.ErrorIs(t, assignRole(ctx, svc, iam.UserActor(bounded), g, iam.RemoteApplicationSubject(a.ID), "reader"), iam.ErrRoleAssignmentEscalation)
 		require.NoError(t, removeMember(ctx, svc, iam.UserActor(human), g, iam.UserSubject(human)))
 		a.Enabled = false
-		_, err := svc.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(a.PermissionGroupID), *a)
+		_, err := svc.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(a.GroupID), *a)
 		require.ErrorIs(t, err, iam.ErrLastOwner)
-		require.ErrorIs(t, svc.DeleteRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(a.PermissionGroupID), a.Slug), iam.ErrLastOwner)
+		require.ErrorIs(t, svc.DeleteRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(a.GroupID), a.ID), iam.ErrLastOwner)
 		grantRole(t, svc, g, iam.UserSubject(human), "owner")
-		_, err = svc.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(a.PermissionGroupID), *a)
+		_, err = svc.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(a.GroupID), *a)
 		require.NoError(t, err)
 		require.ErrorIs(t, removeMember(ctx, svc, iam.UserActor(human), g, iam.UserSubject(human)), iam.ErrLastOwner, "disabled app is not a recovery owner")
 		a.Enabled = true
-		_, err = svc.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(a.PermissionGroupID), *a)
+		_, err = svc.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(a.GroupID), *a)
 		require.NoError(t, err)
 		require.NoError(t, removeMember(ctx, svc, iam.UserActor(human), g, iam.UserSubject(human)))
 		grantRole(t, svc, g, iam.UserSubject(human), "owner")
-		require.NoError(t, svc.DeleteRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(a.PermissionGroupID), a.Slug))
+		require.NoError(t, svc.DeleteRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(a.GroupID), a.ID))
 	})
 	t.Run("subtree_cascade_cannot_count_cross_control_owners", func(t *testing.T) {
 		human := user()
@@ -139,7 +139,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 			require.ErrorIs(t, assignRole(ctx, svc, iam.UserActor(human), survivor, iam.RemoteApplicationSubject(a.ID), "owner"), iam.ErrRemoteApplicationNotFound)
 			// Historical invalid assignments are not operational owners. Even if
 			// present, neither removal nor a concurrent subtree cascade may count them.
-			_, err := svc.pg.Exec(ctx, `INSERT INTO group_remote_application_roles(permission_group_id,remote_application_id,role) VALUES($1,$2,'owner')`, survivorID, a.ID)
+			_, err := svc.pg.Exec(ctx, `INSERT INTO group_remote_application_roles(permission_group_id,remote_application_id,role) VALUES($1,$2,'org:owner')`, survivorID, a.ID)
 			require.NoError(t, err)
 		}
 		require.ErrorIs(t, removeMember(ctx, svc, iam.UserActor(human), survivor, iam.UserSubject(human)), iam.ErrLastOwner)
@@ -147,7 +147,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		done := make(chan error, 2)
 		go func() {
 			<-start
-			done <- svc.PurgeGroup(ctx, iam.GroupByID(controllerID), nil)
+			done <- svc.PurgeGroup(ctx, iam.GroupByID(controllerID))
 		}()
 		go func() {
 			<-start

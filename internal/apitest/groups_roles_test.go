@@ -25,6 +25,7 @@ import (
 	authkitgin "github.com/open-rails/authkit/adapters/gin"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/testkeys"
@@ -116,7 +117,7 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 	require.ErrorIs(t, err, iam.ErrUserNotFound)
 	rust, python := newGroup(t, auth, channel.Persona, "").ID(), newGroup(t, auth, channel.Persona, "").ID()
 	golangRef := iam.GroupByID(golang.ID)
-	key, _, err := auth.MintAPIKey(ctx, iam.UserActor(bob.ID), golangRef, iam.NewAPIKey{Name: "bot", Role: moderator})
+	key, _, err := createKey(auth, ctx, iam.UserActor(bob.ID), golangRef, iam.NewAPIKey{Name: "bot", Role: moderator})
 	require.NoError(t, err)
 
 	// Reads.
@@ -182,10 +183,10 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 	require.Equal(t, map[string]iam.Role{bob.ID: channel.Owner, carol.ID: moderator, dave.ID: moderator, erin.ID: editor}, members(iam.MemberQuery{Page: iam.PageRequest{Limit: 3}}))
 	require.Equal(t, map[string]iam.Role{carol.ID: moderator, dave.ID: moderator}, members(iam.MemberQuery{Roles: []iam.Role{moderator}, Page: iam.PageRequest{Limit: 1}}))
 	require.Empty(t, members(iam.MemberQuery{Kinds: []iam.SubjectKind{iam.SubjectKindRemoteApplication}}))
-	first, err := auth.ListSubjectGroups(ctx, iam.UserSubject(admin.ID), iam.PageRequest{Limit: 1})
+	first, err := auth.ListMemberships(ctx, iam.UserSubject(admin.ID), iam.PageRequest{Limit: 1})
 	require.NoError(t, err)
 	require.Equal(t, []iam.Membership{{Group: announcements, Role: channel.Owner}}, first.Items)
-	second, err := auth.ListSubjectGroups(ctx, iam.UserSubject(admin.ID), iam.PageRequest{Cursor: first.Next, Limit: 1})
+	second, err := auth.ListMemberships(ctx, iam.UserSubject(admin.ID), iam.PageRequest{Cursor: first.Next, Limit: 1})
 	require.NoError(t, err)
 	require.Equal(t, []iam.Membership{{Group: root, Role: adminRole}}, second.Items)
 	require.Empty(t, second.Next)
@@ -287,9 +288,9 @@ func TestMFAFollowsPermissions(t *testing.T) {
 	require.ErrorIs(t, assign(auth, op, iam.RootGroup(), iam.UserSubject(plain.ID), staff), iam.ErrTwoFAEnrollmentRequired, "a root role covering the owner's permissions needs MFA")
 	require.NoError(t, assign(auth, op, ref, iam.UserSubject(plain.ID), editor))
 
-	_, _, err = auth.MintAPIKey(ctx, iam.UserActor(keeper.ID), ref, iam.NewAPIKey{Name: "mod-key", Role: moderator})
+	_, _, err = createKey(auth, ctx, iam.UserActor(keeper.ID), ref, iam.NewAPIKey{Name: "mod-key", Role: moderator})
 	require.ErrorIs(t, err, iam.ErrRoleNotAssignable, "an API key cannot present MFA")
-	_, _, err = auth.MintAPIKey(ctx, iam.UserActor(keeper.ID), ref, iam.NewAPIKey{Name: "editor-key", Role: editor})
+	_, _, err = createKey(auth, ctx, iam.UserActor(keeper.ID), ref, iam.NewAPIKey{Name: "editor-key", Role: editor})
 	require.NoError(t, err)
 
 	// With MFA the same roles are held; dropping MFA drops them.
@@ -299,7 +300,7 @@ func TestMFAFollowsPermissions(t *testing.T) {
 	require.True(t, ok)
 	res := newAPI(t, auth).do(request{method: http.MethodDelete, path: "/user/2fa", token: authtest.SignIn(t, auth, secure).AccessToken})
 	require.Equal(t, http.StatusOK, res.status, res.String())
-	require.Contains(t, res.String(), `"role":"staff"`)
+	require.Contains(t, res.String(), `"role":"root:staff"`)
 	ok, err = auth.Can(ctx, iam.UserActor(secure.ID), ref, postsDelete)
 	require.NoError(t, err)
 	require.False(t, ok, "no subject without MFA keeps an MFA permission")
@@ -308,7 +309,7 @@ func TestMFAFollowsPermissions(t *testing.T) {
 		a := newAPI(t, auth)
 		token := authtest.SignIn(t, auth, keeper).AccessToken
 		subject := authtest.NewUser(t, auth)
-		path := "/groups/" + ref.ID() + "/members/" + subject.ID + "/roles/moderator"
+		path := "/groups/" + ref.ID() + "/members/" + subject.ID + "/roles/channel:moderator"
 		res := a.do(request{method: http.MethodPut, path: path, token: token})
 		require.Equal(t, http.StatusForbidden, res.status, res.String())
 		require.Equal(t, "2fa_enrollment_required", res.code())
@@ -338,7 +339,7 @@ func TestRequirePermissionGatesTheRequestGroup(t *testing.T) {
 	org := r.Group("/orgs/:org", func(c *gin.Context) { authkitgin.SetGroup(c, iam.GroupByID(c.Param("org"))) })
 	org.GET("", authkitgin.RequirePermission(auth, m.catalog), func(c *gin.Context) { c.Status(http.StatusNoContent) })
 	r.GET("/unloaded/:org", authkitgin.RequirePermission(auth, m.catalog), func(c *gin.Context) { c.Status(http.StatusNoContent) })
-	r.GET("/admin", authkitgin.RequirePermissionOn(auth, iam.RootGroup(), iam.PermRootUsersRead), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	r.GET("/admin", authkitgin.RequirePermissionOn(auth, iam.RootGroup(), ident.RootUsersRead), func(c *gin.Context) { c.Status(http.StatusNoContent) })
 	get := func(path, token string) int {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		if token != "" {
@@ -390,7 +391,7 @@ func TestGroupRoutesAddressGroupsByID(t *testing.T) {
 	res = a.get("/groups/"+uuid.NewString()+"/members", ownerToken)
 	require.Equal(t, http.StatusForbidden, res.status, "an unknown group is refused, not revealed: %s", res)
 
-	res = a.do(request{method: http.MethodPut, path: "/groups/" + gid + "/members/" + member.ID + "/roles/member", token: ownerToken})
+	res = a.do(request{method: http.MethodPut, path: "/groups/" + gid + "/members/" + member.ID + "/roles/org:member", token: ownerToken})
 	require.Equal(t, http.StatusOK, res.status, res.String())
 	res = a.get("/me/permissions?group_id="+gid, memberToken)
 	require.Equal(t, http.StatusOK, res.status, res.String())
@@ -434,18 +435,16 @@ func TestGroupRoleOperations(t *testing.T) {
 		require.ErrorIs(t, unassign(auth, iam.SystemActor(), root, owner, rbac.Root.Owner), iam.ErrLastOwner)
 		require.ErrorIs(t, assign(auth, iam.SystemActor(), root, owner, editor), iam.ErrLastOwner)
 		require.ErrorIs(t, assign(auth, iam.SystemActor(), root, stranger, editor), iam.ErrUserNotFound)
-		_, err := auth.AssignGroupRoles(ctx, iam.SystemActor(), root, []iam.Subject{editorUser}, wire[iam.Role](t, "root:unknown"))
-		require.ErrorIs(t, err, iam.ErrRoleNotAssignable)
-		_, err = auth.AssignGroupRoles(ctx, iam.Actor{}, root, []iam.Subject{editorUser}, editor)
-		require.ErrorIs(t, err, iam.ErrInsufficientAuthority, "the zero actor is refused")
+		require.ErrorIs(t, assign(auth, iam.SystemActor(), root, editorUser, wire[iam.Role](t, "root:unknown")), iam.ErrRoleNotAssignable)
+		require.ErrorIs(t, assign(auth, iam.Actor{}, root, editorUser, editor), iam.ErrInsufficientAuthority, "the zero actor is refused")
 
 		// root:members:manage lets a bounded admin grant what it covers, never more.
 		authtest.GrantRole(t, auth, root, adminUser, admin)
-		res, err := auth.AssignGroupRoles(ctx, iam.UserActor(adminUser.ID), root, []iam.Subject{editorUser, other, stranger}, editor)
+		member, err := auth.SetGroupRole(ctx, iam.UserActor(adminUser.ID), root, editorUser, editor)
 		require.NoError(t, err)
-		require.NoError(t, res[0].Err)
-		require.NoError(t, res[1].Err)
-		require.ErrorIs(t, res[2].Err, iam.ErrUserNotFound, "items fail independently")
+		require.Equal(t, iam.GroupMember{Subject: editorUser, Role: editor}, member)
+		require.NoError(t, assign(auth, iam.UserActor(adminUser.ID), root, other, editor))
+		require.ErrorIs(t, assign(auth, iam.UserActor(adminUser.ID), root, stranger, editor), iam.ErrUserNotFound)
 		require.ErrorIs(t, assign(auth, iam.UserActor(adminUser.ID), root, other, rbac.Root.Owner), iam.ErrRoleAssignmentEscalation)
 		require.ErrorIs(t, removeMember(auth, iam.UserActor(adminUser.ID), root, owner), iam.ErrRoleAssignmentEscalation)
 		require.ErrorIs(t, unassign(auth, iam.UserActor(editorUser.ID), root, other, editor), iam.ErrInsufficientAuthority)
@@ -455,16 +454,15 @@ func TestGroupRoleOperations(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, map[iam.Subject]iam.Role{owner: rbac.Root.Owner, adminUser: admin, editorUser: editor, other: editor}, held)
 
-		res, err = auth.RemoveGroupMembers(ctx, iam.UserActor(adminUser.ID), root, []iam.Subject{editorUser, stranger})
-		require.NoError(t, err)
-		require.NoError(t, res[0].Err)
-		require.NoError(t, res[1].Err, "removing a non-member is a no-op")
-		require.NoError(t, unassign(auth, iam.UserActor(adminUser.ID), root, other, admin), "unassigning a role not held is a no-op")
+		require.NoError(t, removeMember(auth, iam.UserActor(adminUser.ID), root, editorUser))
+		require.NoError(t, removeMember(auth, iam.UserActor(adminUser.ID), root, stranger), "removing a non-member is a no-op")
+		require.NoError(t, unassign(auth, iam.UserActor(adminUser.ID), root, other, admin), "IfRole with a role not held is a no-op")
+		require.Equal(t, editor, roleOfIn(t, auth, root, other), "IfRole leaves another role in place")
+		require.ErrorIs(t, unassign(auth, iam.UserActor(adminUser.ID), root, other, wire[iam.Role](t, "org:member")), iam.ErrRoleNotAssignable, "IfRole names a role of the group's persona")
 
 		// A banned actor is not live, whatever roles it still holds.
 		require.NoError(t, auth.Ban(ctx, iam.SystemActor(), adminUser.ID, iam.Ban{}))
-		_, err = auth.AssignGroupRoles(ctx, iam.UserActor(adminUser.ID), root, []iam.Subject{editorUser}, editor)
-		require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
+		require.ErrorIs(t, assign(auth, iam.UserActor(adminUser.ID), root, editorUser, editor), iam.ErrInsufficientAuthority)
 	})
 
 	// Every actor below holds the bounded manager role in acme; founder owns
@@ -473,10 +471,10 @@ func TestGroupRoleOperations(t *testing.T) {
 	acme := newGroup(t, auth, org.Persona, founder.ID)
 	other := newGroup(t, auth, org.Persona, founder.ID)
 	authtest.GrantRole(t, auth, acme, mgr, manager)
-	app, err := auth.UpsertRemoteApplication(ctx, iam.SystemActor(), acme, iam.RemoteApplication{Slug: "acme-app", Issuer: "https://acme-app.escalation.test", JWKSURI: "https://acme-app.escalation.test/jwks", Enabled: true})
+	app, err := auth.UpsertRemoteApplication(ctx, iam.SystemActor(), acme, iam.RemoteApplication{Issuer: "https://acme-app.escalation.test", JWKSURI: "https://acme-app.escalation.test/jwks", Enabled: true})
 	require.NoError(t, err)
 	authtest.GrantRole(t, auth, acme, iam.RemoteApplicationSubject(app.ID), manager)
-	key, _, err := auth.MintAPIKey(ctx, iam.UserActor(founder.ID), acme, iam.NewAPIKey{Name: "manager-key", Role: manager})
+	key, _, err := createKey(auth, ctx, iam.UserActor(founder.ID), acme, iam.NewAPIKey{Name: "manager-key", Role: manager})
 	require.NoError(t, err)
 	for name, actor := range map[string]iam.Actor{
 		"user":                  iam.UserActor(mgr.ID),
@@ -547,8 +545,8 @@ func TestRootRolesApplyInEveryGroup(t *testing.T) {
 	require.True(t, can(orgAdmin, acme, org.Members.Manage))
 	require.NoError(t, assign(auth, iam.UserActor(orgAdmin.ID), acme, memberUser, member))
 	require.NoError(t, assign(auth, iam.UserActor(orgAdmin.ID), acme, memberUser, org.Owner), "org:* on root covers the org owner role")
-	require.True(t, can(banner, root, iam.PermRootUsersBan))
-	require.False(t, can(banner, acme, iam.PermRootUsersBan), "root permissions count only on root")
+	require.True(t, can(banner, root, ident.RootUsersBan))
+	require.False(t, can(banner, acme, ident.RootUsersBan), "root permissions count only on root")
 	require.False(t, can(siteOwner, acme, org.Members.Manage), "root:* never stands in for a persona permission")
 	require.ErrorIs(t, assign(auth, iam.UserActor(siteOwner.ID), acme, memberUser, member), iam.ErrInsufficientAuthority)
 }
@@ -569,23 +567,29 @@ func TestRoleOwnerHTTPWorkflow(t *testing.T) {
 	put := func(token, id, role string) response {
 		return a.do(request{method: http.MethodPut, path: base + "/members/" + id + "/roles/" + role, token: token})
 	}
-	require.Equal(t, http.StatusForbidden, put(managerToken, owner.ID, "member").status)
-	require.Equal(t, http.StatusConflict, put(token, owner.ID, "member").status)
-	res := put(token, owner.ID, "%20owner%20")
+	require.Equal(t, http.StatusForbidden, put(managerToken, owner.ID, "org:member").status)
+	require.Equal(t, http.StatusConflict, put(token, owner.ID, "org:member").status)
+	res := put(token, owner.ID, "%20org:owner%20")
 	require.Equal(t, http.StatusOK, res.status, res.String())
-	require.Contains(t, res.String(), `"role":"owner"`)
+	require.Contains(t, res.String(), `"role":"org:owner"`)
+	// A role travels only as <persona>:<name>, of the group's own persona.
+	for _, text := range []string{"owner", "member", "root:owner"} {
+		res := put(token, peer.ID, text)
+		require.Equal(t, http.StatusBadRequest, res.status, "%s: %s", text, res)
+	}
 	res = a.do(request{method: http.MethodDelete, path: base + "/members/" + owner.ID, token: token})
 	require.Equal(t, http.StatusConflict, res.status, res.String())
 	require.Equal(t, "last_owner", res.code())
-	app, err := auth.UpsertRemoteApplication(ctx, iam.SystemActor(), group, iam.RemoteApplication{Slug: "owner-app", Issuer: "https://owner-app.test", JWKSURI: "https://owner-app.test/jwks", Enabled: true})
+	app, err := auth.UpsertRemoteApplication(ctx, iam.SystemActor(), group, iam.RemoteApplication{Issuer: "https://owner-app.test", JWKSURI: "https://owner-app.test/jwks", Enabled: true})
 	require.NoError(t, err)
 	require.NoError(t, assign(auth, iam.UserActor(owner.ID), group, iam.RemoteApplicationSubject(app.ID), m.org.Owner))
 	err = assign(auth, iam.UserActor(mgr.ID), group, iam.RemoteApplicationSubject(app.ID), m.member)
 	require.True(t, errors.Is(err, iam.ErrInsufficientAuthority) || errors.Is(err, iam.ErrRoleAssignmentEscalation), "a manager cannot demote an owner application: %v", err)
-	require.NoError(t, auth.DeleteRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(app.PermissionGroupID), app.Slug))
-	require.Equal(t, http.StatusOK, put(token, peer.ID, "owner").status)
-	require.Equal(t, http.StatusOK, put(token, peer.ID, "member").status)
-	require.Equal(t, http.StatusOK, put(token, peer.ID, "owner").status)
+	require.NoError(t, auth.DeleteRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(app.GroupID), app.ID))
+	require.ErrorIs(t, auth.DeleteRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(app.GroupID), app.ID), iam.ErrRemoteApplicationNotFound)
+	require.Equal(t, http.StatusOK, put(token, peer.ID, "org:owner").status)
+	require.Equal(t, http.StatusOK, put(token, peer.ID, "org:member").status)
+	require.Equal(t, http.StatusOK, put(token, peer.ID, "org:owner").status)
 	res = a.do(request{method: http.MethodDelete, path: base + "/members/" + owner.ID, token: token})
 	require.Equal(t, http.StatusNoContent, res.status, res.String())
 	allowed, err := auth.Can(ctx, iam.UserActor(peer.ID), group, m.org.Members.Manage)
@@ -623,35 +627,52 @@ func TestAdminRootRoleHTTPWorkflow(t *testing.T) {
 	}
 
 	// A bounded admin promotes to roles it covers, never to or over an owner.
-	call(http.MethodPut, target.ID, "site-admin", adminToken, http.StatusNoContent)
+	call(http.MethodPut, target.ID, "root:site-admin", adminToken, http.StatusNoContent)
 	require.Equal(t, m.siteAdmin, rootRole(target.ID))
-	call(http.MethodPut, target.ID, "owner", adminToken, http.StatusForbidden)
-	call(http.MethodPut, owner.ID, "site-admin", adminToken, http.StatusForbidden)
-	call(http.MethodPut, admin.ID, "site-admin", targetToken, http.StatusForbidden)
-	call(http.MethodPut, target.ID, "no-such-role", ownerToken, http.StatusBadRequest)
-	call(http.MethodPut, target.ID, "site-admin", "", http.StatusUnauthorized)
-	call(http.MethodDelete, target.ID, "site-admin", adminToken, http.StatusNoContent)
+	call(http.MethodPut, target.ID, "root:owner", adminToken, http.StatusForbidden)
+	call(http.MethodPut, owner.ID, "root:site-admin", adminToken, http.StatusForbidden)
+	call(http.MethodPut, admin.ID, "root:site-admin", targetToken, http.StatusForbidden)
+	call(http.MethodPut, target.ID, "root:no-such-role", ownerToken, http.StatusBadRequest)
+	call(http.MethodPut, target.ID, "site-admin", ownerToken, http.StatusBadRequest)
+	call(http.MethodPut, target.ID, "root:site-admin", "", http.StatusUnauthorized)
+	call(http.MethodDelete, target.ID, "root:site-admin", adminToken, http.StatusNoContent)
 	require.Empty(t, rootRole(target.ID))
-	call(http.MethodDelete, owner.ID, "owner", ownerToken, http.StatusConflict)
+	call(http.MethodDelete, owner.ID, "root:owner", ownerToken, http.StatusConflict)
 
 	// Machine and delegated actors never reach the management plane, even
 	// with the authority to act.
-	_, keyToken, err := auth.MintAPIKey(ctx, iam.UserActor(owner.ID), iam.RootGroup(), iam.NewAPIKey{Name: "root-admin-key", Role: adminRole})
+	_, keyToken, err := createKey(auth, ctx, iam.UserActor(owner.ID), iam.RootGroup(), iam.NewAPIKey{Name: "root-admin-key", Role: adminRole})
 	require.NoError(t, err)
 	delegated, err := auth.MintDelegatedAccessToken(ctx, iam.SystemActor(), iam.DelegatedAccess{Audiences: []string{authtest.Audience}, Subject: admin.ID,
-		Permissions: []string{m.rbac.Root.Members.All().String(), iam.PermRootUsersRead.String()}})
+		Permissions: []string{m.rbac.Root.Members.All().String(), ident.RootUsersRead.String()}})
 	require.NoError(t, err)
 	for _, token := range []string{keyToken, delegated.Value} {
-		res := a.do(request{method: http.MethodPut, path: "/admin/users/" + target.ID + "/roles/site-admin", token: token})
+		res := a.do(request{method: http.MethodPut, path: "/admin/users/" + target.ID + "/roles/root:site-admin", token: token})
 		require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, res.status, res.String())
 	}
 	require.Empty(t, rootRole(target.ID))
 
 	res := a.get("/admin/roles", adminToken)
 	require.Equal(t, http.StatusOK, res.status, res.String())
-	require.Contains(t, res.String(), `"site-admin"`)
-	require.Contains(t, res.String(), `"owner"`)
+	require.Contains(t, res.String(), `"root:site-admin"`)
+	require.Contains(t, res.String(), `"root:owner"`)
 	require.Equal(t, http.StatusForbidden, a.get("/admin/roles", targetToken).status)
+
+	// The admin views carry each account's root role; an unknown id is 404.
+	res = a.get("/admin/users/"+admin.ID, adminToken)
+	require.Equal(t, http.StatusOK, res.status, res.String())
+	var entry iam.UserEntry
+	res.decode(t, &entry)
+	require.Equal(t, admin.ID, entry.ID)
+	require.Equal(t, adminRole, entry.RootRole)
+	require.Equal(t, []string{}, entry.Entitlements)
+	res = a.get("/admin/users/"+uuid.NewString(), adminToken)
+	require.Equal(t, http.StatusNotFound, res.status, res.String())
+	require.Equal(t, "user_not_found", res.code())
+	res = a.get("/admin/users?root_role=root:owner", adminToken)
+	require.Equal(t, http.StatusOK, res.status, res.String())
+	require.Contains(t, res.String(), `"root_role":"root:owner"`)
+	require.Equal(t, http.StatusBadRequest, a.get("/admin/users?root_role=owner", adminToken).status, "a bare role name is refused")
 }
 
 func publicKeyPEM(t testing.TB, pub crypto.PublicKey) string {
@@ -689,7 +710,7 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 	other := newGroup(t, auth, m.org.Persona, owner.ID)
 	signer := testkeys.RSA("remote-owner")
 	app, err := auth.UpsertRemoteApplication(ctx, iam.SystemActor(), group, iam.RemoteApplication{
-		Slug: "operable-owner", Issuer: "https://operable-owner.test", Enabled: true,
+		Issuer: "https://operable-owner.test", Enabled: true,
 		PublicKeys: []iam.RemoteApplicationKey{{KID: signer.KID(), PublicKeyPEM: publicKeyPEM(t, signer.Public())}},
 	})
 	require.NoError(t, err)
@@ -718,8 +739,7 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 	forged.Kind = iam.ActorAPIKey
 	_, ok = verify.ActorFromClaims(forged)
 	require.False(t, ok)
-	_, err = auth.AssignGroupRoles(ctx, iam.Actor{}, group, []iam.Subject{iam.UserSubject(peer.ID)}, m.member)
-	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
+	require.ErrorIs(t, assign(auth, iam.Actor{}, group, iam.UserSubject(peer.ID), m.member), iam.ErrInsufficientAuthority)
 	call := func(method, path string, body any, bearer string, status int) {
 		t.Helper()
 		res := a.do(request{method: method, path: path, body: body, token: bearer})
@@ -728,32 +748,32 @@ func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
 	members := "/groups/" + group.ID() + "/members"
 	base := members + "/"
 	// A signed app-self credential can manage existing users on its own group.
-	call(http.MethodPost, members, map[string]string{"user_id": peer.ID, "role": "member"}, token, http.StatusOK)
-	call(http.MethodPut, base+peer.ID+"/roles/owner", nil, mint([]string{m.org.Members.Manage.String()}), http.StatusForbidden)
-	call(http.MethodPut, base+peer.ID+"/roles/member", nil, mint([]string{}), http.StatusForbidden)
-	call(http.MethodPut, "/groups/"+other.ID()+"/members/"+peer.ID+"/roles/member", nil, token, http.StatusForbidden)
+	call(http.MethodPost, members, map[string]string{"user_id": peer.ID, "role": "org:member"}, token, http.StatusOK)
+	call(http.MethodPut, base+peer.ID+"/roles/org:owner", nil, mint([]string{m.org.Members.Manage.String()}), http.StatusForbidden)
+	call(http.MethodPut, base+peer.ID+"/roles/org:member", nil, mint([]string{}), http.StatusForbidden)
+	call(http.MethodPut, "/groups/"+other.ID()+"/members/"+peer.ID+"/roles/org:member", nil, token, http.StatusForbidden)
 	// Full live authority cannot widen a downscoped credential when replacing
 	// an existing owner, even if the requested replacement is a lesser role.
-	call(http.MethodPut, base+peer.ID+"/roles/owner", nil, token, http.StatusOK)
-	call(http.MethodPut, base+peer.ID+"/roles/member", nil, mint([]string{m.org.Members.Manage.String(), m.catalog.String()}), http.StatusForbidden)
+	call(http.MethodPut, base+peer.ID+"/roles/org:owner", nil, token, http.StatusOK)
+	call(http.MethodPut, base+peer.ID+"/roles/org:member", nil, mint([]string{m.org.Members.Manage.String(), m.catalog.String()}), http.StatusForbidden)
 	call(http.MethodDelete, base+peer.ID, nil, token, http.StatusNoContent)
 	call(http.MethodDelete, base+owner.ID, nil, ownerToken, http.StatusNoContent)
 	// The last native owner may leave: the remaining remote owner can restore
 	// native ownership through exactly the supported signed HTTP interface.
-	call(http.MethodPut, base+peer.ID+"/roles/owner", nil, token, http.StatusOK)
+	call(http.MethodPut, base+peer.ID+"/roles/org:owner", nil, token, http.StatusOK)
 	call(http.MethodGet, members, nil, token, http.StatusOK)
-	call(http.MethodPost, members, map[string]string{"email": "unregistered@example.test", "role": "member"}, token, http.StatusForbidden)
+	call(http.MethodPost, members, map[string]string{"email": "unregistered@example.test", "role": "org:member"}, token, http.StatusForbidden)
 	// Sender metadata on a delegated credential is never app-self authority.
 	delegated, err := jose.Sign(ctx, signer, jose.DelegatedAccessTokenType, jwt.MapClaims{"iss": app.Issuer, "aud": []string{authtest.Audience}, "exp": time.Now().Add(time.Minute).Unix(),
 		"delegated_sub": "external-customer", "permissions": []string{m.org.All().String()}})
 	require.NoError(t, err)
-	res := a.do(request{method: http.MethodPut, path: base + owner.ID + "/roles/owner", token: delegated})
+	res := a.do(request{method: http.MethodPut, path: base + owner.ID + "/roles/org:owner", token: delegated})
 	require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, res.status, res.String())
 	// A cached signature/issuer never preserves disabled application authority.
 	app.Enabled = false
-	_, err = auth.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(app.PermissionGroupID), app)
+	_, err = auth.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(app.GroupID), app)
 	require.NoError(t, err)
-	res = a.do(request{method: http.MethodPut, path: base + owner.ID + "/roles/owner", token: token})
+	res = a.do(request{method: http.MethodPut, path: base + owner.ID + "/roles/org:owner", token: token})
 	require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, res.status, res.String())
 }
 
@@ -788,7 +808,7 @@ func TestSoftDeleteGroupRetainsStateAndReleasesOwner(t *testing.T) {
 	owner, peer := authtest.NewUser(t, slot), authtest.NewUser(t, slot)
 	group := newGroup(t, slot, channel.Persona, owner.ID)
 	active := newGroup(t, slot, channel.Persona, peer.ID)
-	_, secret, err := slot.MintAPIKey(ctx, iam.UserActor(owner.ID), group, iam.NewAPIKey{Name: "retained-key", Role: reader})
+	_, secret, err := createKey(slot, ctx, iam.UserActor(owner.ID), group, iam.NewAPIKey{Name: "retained-key", Role: reader})
 	require.NoError(t, err)
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/channel", nil)
 	req.Header.Set("Authorization", "Bearer "+secret)
@@ -819,7 +839,7 @@ func TestSoftDeleteGroupRetainsStateAndReleasesOwner(t *testing.T) {
 	_, err = slot.AuthenticateRequest(ctx, req)
 	require.Error(t, err, "retired group's API key is unusable on subsequent requests")
 	require.ErrorIs(t, assign(slot, iam.SystemActor(), group, iam.UserSubject(peer.ID), reader), iam.ErrGroupNotFound)
-	_, _, err = slot.MintAPIKey(ctx, iam.SystemActor(), group, iam.NewAPIKey{Name: "forbidden", Role: reader})
+	_, _, err = createKey(slot, ctx, iam.SystemActor(), group, iam.NewAPIKey{Name: "forbidden", Role: reader})
 	require.ErrorIs(t, err, iam.ErrGroupNotFound)
 	result, err = slot.DeleteUsers(ctx, iam.SystemActor(), []string{owner.ID, peer.ID})
 	require.NoError(t, err)
@@ -914,15 +934,15 @@ func TestRuntimeRequestPrincipalUsesLiveAuthority(t *testing.T) {
 	require.Equal(t, u.ID, principal.Identity().Subject)
 	checker := principal.(hostauth.PermissionChecker)
 	scope := hostauth.Scope{Authority: authtest.Issuer, ID: root.ID}
-	allowed, err := checker.Can(ctx, scope, iam.PermRootUsersRead.String())
+	allowed, err := checker.Can(ctx, scope, ident.RootUsersRead.String())
 	require.NoError(t, err)
 	require.False(t, allowed)
 	authtest.GrantRole(t, auth, iam.RootGroup(), iam.UserSubject(u.ID), m.siteAdmin)
-	allowed, err = checker.Can(ctx, scope, iam.PermRootUsersRead.String())
+	allowed, err = checker.Can(ctx, scope, ident.RootUsersRead.String())
 	require.NoError(t, err)
 	require.True(t, allowed, "runtime must wire live authority without host glue")
 	authtest.RevokeRole(t, auth, iam.RootGroup(), iam.UserSubject(u.ID), m.siteAdmin)
-	allowed, err = checker.Can(ctx, scope, iam.PermRootUsersRead.String())
+	allowed, err = checker.Can(ctx, scope, ident.RootUsersRead.String())
 	require.NoError(t, err)
 	require.False(t, allowed, "same principal observes removal without reauthenticating")
 }
@@ -991,7 +1011,7 @@ func TestCapabilitiesAndRootMembershipDiscovery(t *testing.T) {
 	require.Len(t, got, 1)
 	require.NotEmpty(t, got[0].GroupID)
 	require.Equal(t, "root", got[0].Persona)
-	require.Equal(t, "reader", got[0].Role)
+	require.Equal(t, "root:reader", got[0].Role)
 	require.Empty(t, groups(bob.AccessToken, "?user_id="+claims.UserID), "caller cannot select another user's memberships")
 	authtest.RevokeRole(t, auth, iam.RootGroup(), iam.UserSubject(claims.UserID), reader)
 	require.Empty(t, groups(alice.AccessToken, ""), "membership discovery reads current assignments")

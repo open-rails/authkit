@@ -49,6 +49,27 @@ func (q *Queries) APIKeyByLookupID(ctx context.Context, keyID string) (APIKeyByL
 	return i, err
 }
 
+const aPIKeyForRevoke = `-- name: APIKeyForRevoke :one
+SELECT role, revoked_at FROM api_keys WHERE id = $1 AND permission_group_id = $2 FOR UPDATE
+`
+
+type APIKeyForRevokeParams struct {
+	ID      string
+	GroupID string
+}
+
+type APIKeyForRevokeRow struct {
+	Role      string
+	RevokedAt *time.Time
+}
+
+func (q *Queries) APIKeyForRevoke(ctx context.Context, arg APIKeyForRevokeParams) (APIKeyForRevokeRow, error) {
+	row := q.db.QueryRow(ctx, aPIKeyForRevoke, arg.ID, arg.GroupID)
+	var i APIKeyForRevokeRow
+	err := row.Scan(&i.Role, &i.RevokedAt)
+	return i, err
+}
+
 const aPIKeyInsert = `-- name: APIKeyInsert :one
 INSERT INTO api_keys (permission_group_id, key_id, secret_hash, name, role, created_by, expires_at)
 VALUES ($1, $2, $3, $4, $5, $6::uuid, $7::timestamptz)
@@ -119,22 +140,6 @@ func (q *Queries) APIKeyRoleCounts(ctx context.Context) ([]APIKeyRoleCountsRow, 
 	return items, nil
 }
 
-const aPIKeyRoleForUpdate = `-- name: APIKeyRoleForUpdate :one
-SELECT role FROM api_keys WHERE id = $1 AND permission_group_id = $2 AND revoked_at IS NULL FOR UPDATE
-`
-
-type APIKeyRoleForUpdateParams struct {
-	ID      string
-	GroupID string
-}
-
-func (q *Queries) APIKeyRoleForUpdate(ctx context.Context, arg APIKeyRoleForUpdateParams) (string, error) {
-	row := q.db.QueryRow(ctx, aPIKeyRoleForUpdate, arg.ID, arg.GroupID)
-	var role string
-	err := row.Scan(&role)
-	return role, err
-}
-
 const aPIKeyTouch = `-- name: APIKeyTouch :exec
 UPDATE api_keys SET last_used_at = now()
 WHERE id = $1 AND (last_used_at IS NULL OR last_used_at < now() - interval '5 minutes')
@@ -147,7 +152,7 @@ func (q *Queries) APIKeyTouch(ctx context.Context, id string) error {
 }
 
 const aPIKeysByGroup = `-- name: APIKeysByGroup :many
-SELECT id, key_id, name, role, COALESCE(created_by::text, '')::text AS created_by, created_at, last_used_at, expires_at, revoked_at
+SELECT id, permission_group_id, key_id, name, role, COALESCE(created_by::text, '')::text AS created_by, created_at, last_used_at, expires_at, revoked_at
 FROM api_keys
 WHERE permission_group_id = $1 AND ($2::uuid IS NULL OR id < $2::uuid)
 ORDER BY id DESC
@@ -161,15 +166,16 @@ type APIKeysByGroupParams struct {
 }
 
 type APIKeysByGroupRow struct {
-	ID         string
-	KeyID      string
-	Name       string
-	Role       string
-	CreatedBy  string
-	CreatedAt  time.Time
-	LastUsedAt *time.Time
-	ExpiresAt  *time.Time
-	RevokedAt  *time.Time
+	ID                string
+	PermissionGroupID string
+	KeyID             string
+	Name              string
+	Role              string
+	CreatedBy         string
+	CreatedAt         time.Time
+	LastUsedAt        *time.Time
+	ExpiresAt         *time.Time
+	RevokedAt         *time.Time
 }
 
 // APIKeysByGroup lists a group's keys newest first, never the secret hash.
@@ -184,6 +190,7 @@ func (q *Queries) APIKeysByGroup(ctx context.Context, arg APIKeysByGroupParams) 
 		var i APIKeysByGroupRow
 		if err := rows.Scan(
 			&i.ID,
+			&i.PermissionGroupID,
 			&i.KeyID,
 			&i.Name,
 			&i.Role,

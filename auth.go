@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sort"
 	"sync/atomic"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/engine"
 	"github.com/open-rails/authkit/internal/httpapi"
+	"github.com/open-rails/authkit/internal/ops"
 	"github.com/open-rails/authkit/verify"
 	riverhelpers "github.com/open-rails/helpers/river"
 )
@@ -20,7 +20,14 @@ import (
 // with SetEntitlements, then Start it. Operations are methods, grouped by
 // domain in the auth_*.go files. It is the authority verify's middleware
 // takes: verify.Required(client), verify.RequirePermission(client, perm).
+//
+// Start, Close, RiverJobs, SetEntitlements, CheckSMSHealth, Handler, Routes,
+// Mount and the request verification methods (auth_verify.go) are
+// embedding-only: they wire the in-process deployment, and a Client of a
+// remote deployment would not have them. Every other method is an operation
+// a remote deployment could serve.
 type Client struct {
+	ops     ops.Operations
 	engine  *engine.Engine
 	http    *httpapi.Service
 	mount   *httpapi.Mount
@@ -40,7 +47,7 @@ func New(ctx context.Context, cfg Config, deps Deps) (_ *Client, err error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &Client{engine: e}
+	a := &Client{ops: e, engine: e}
 	defer func() {
 		if err != nil {
 			a.Close()
@@ -117,25 +124,12 @@ func (a *Client) Handler() http.Handler {
 	return a.mount
 }
 
-// Routes returns the mounted route catalog, with a HEAD entry per GET route.
+// Routes returns the mounted route catalog, with a HEAD entry per GET route;
+// Route.Pattern is its net/http ServeMux pattern.
 func (a *Client) Routes() []iam.Route { return a.mount.Routes() }
 
-// Patterns returns the mounted routes as net/http ServeMux patterns
-// ("GET /api/v1/me"), full paths beneath HTTPConfig.BasePath, sorted. A GET
-// pattern also serves HEAD.
-func (a *Client) Patterns() []string {
-	var out []string
-	for _, route := range a.mount.Routes() {
-		if route.Method == http.MethodHead {
-			continue
-		}
-		out = append(out, route.Method+" "+route.Path)
-	}
-	sort.Strings(out)
-	return out
-}
-
-// Mount registers every pattern on mux, all served by Handler.
+// Mount registers every route's pattern on mux (a GET pattern also serves
+// HEAD), all served by Handler.
 func (a *Client) Mount(mux *http.ServeMux) (err error) {
 	if a.mount == nil {
 		return errors.New("authkit: HTTP is not configured; set Config.HTTP")
@@ -145,8 +139,10 @@ func (a *Client) Mount(mux *http.ServeMux) (err error) {
 			err = fmt.Errorf("authkit: mount: %v", p)
 		}
 	}()
-	for _, pattern := range a.Patterns() {
-		mux.Handle(pattern, a.mount)
+	for _, route := range a.mount.Routes() {
+		if route.Method != http.MethodHead {
+			mux.Handle(route.Pattern(), a.mount)
+		}
 	}
 	return nil
 }

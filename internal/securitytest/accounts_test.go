@@ -267,7 +267,7 @@ func TestSecurityAccountLifecycleRevokesCredentials(t *testing.T) {
 	ctx := context.Background()
 	founder := h.newAccount("h1founder")
 	group, base := h.newOrg(founder)
-	founderKey := h.issue(base+"/api-keys", h.login(founder).AccessToken, map[string]any{"name": "founder-key", "role": "owner"})
+	founderKey := h.issue(base+"/api-keys", h.login(founder).AccessToken, map[string]any{"name": "founder-key", "role": "org:owner"})
 	for _, tc := range []struct {
 		name string
 		end  func(a account)
@@ -284,8 +284,8 @@ func TestSecurityAccountLifecycleRevokesCredentials(t *testing.T) {
 			creator := h.newAccount("h1creator")
 			h.grant(group, creator, "owner")
 			token := h.login(creator).AccessToken
-			link := h.issue(base+"/invites/links", token, map[string]any{"role": "owner"})
-			key := h.issue(base+"/api-keys", token, map[string]any{"name": unique("key"), "role": "owner"})
+			link := h.issue(base+"/invites/links", token, map[string]any{"role": "org:owner"})
+			key := h.issue(base+"/api-keys", token, map[string]any{"name": unique("key"), "role": "org:owner"})
 			tc.end(creator)
 			require.False(t, liveKey(t, h, group, key.ID))
 			require.False(t, liveLink(t, h, group, link.ID))
@@ -316,7 +316,7 @@ func TestSecurityDeletionRecoveryIsSelfOnly(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, login.status, "an admin-deleted account started its own recovery: %s", login)
 	require.Equal(t, "account_disabled", login.errorCode())
 	require.NotContains(t, login.String(), "recovery")
-	u, err := h.auth.User(ctx, iam.UserByID(target.id), iam.IncludeDeleted())
+	u, err := h.auth.User(ctx, iam.UserByID(target.id), authkit.IncludeDeleted())
 	require.NoError(t, err)
 	require.NotNil(t, u.DeletedAt)
 
@@ -559,11 +559,9 @@ func TestSecurityUserManagementNeedsMFA(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withAccountRoles))
 	ctx := context.Background()
 	staff, target := h.newAccount("cstaff"), h.newAccount("ctarget")
-	res, err := h.auth.AssignGroupRoles(ctx, iam.SystemActor(), iam.RootGroup(), []iam.Subject{iam.UserSubject(staff.id)}, h.role(iam.RootPersona, "staff"))
-	require.NoError(t, err)
-	require.ErrorIs(t, res[0].Err, iam.ErrTwoFAEnrollmentRequired, "a root:users:manage role went to an account without MFA")
+	require.ErrorIs(t, setRole(h.auth, ctx, iam.SystemActor(), iam.RootGroup(), iam.UserSubject(staff.id), h.role(iam.RootPersona, "staff")), iam.ErrTwoFAEnrollmentRequired, "a root:users:manage role went to an account without MFA")
 	// A role granted while 2FA was off: signing in yields only an enrollment token.
-	_, err = h.pool.Exec(ctx, `INSERT INTO profiles.group_user_roles(permission_group_id,user_id,role) VALUES($1::uuid,$2::uuid,'staff')`, h.rootGroupID(), staff.id)
+	_, err := h.pool.Exec(ctx, `INSERT INTO profiles.group_user_roles(permission_group_id,user_id,role) VALUES($1::uuid,$2::uuid,'root:staff')`, h.rootGroupID(), staff.id)
 	require.NoError(t, err)
 	resp := h.post("/password/login", map[string]string{"identifier": staff.email, "password": password}, "")
 	require.Equal(t, http.StatusForbidden, resp.status, resp.String())

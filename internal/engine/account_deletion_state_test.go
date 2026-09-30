@@ -174,7 +174,7 @@ func TestAccountPurgeSweepsCredentialsBeforeTheRowGoes(t *testing.T) {
 		t.Helper()
 		var id string
 		require.NoError(t, pg.Pool.QueryRow(ctx, `INSERT INTO profiles.api_keys (permission_group_id,key_id,secret_hash,name,created_by,role)
- VALUES ($1::uuid,$2,'\x00'::bytea,$2,$3::uuid,'owner') RETURNING id::text`, rootID, name+"-"+user.ID[:8], user.ID).Scan(&id))
+ VALUES ($1::uuid,$2,'\x00'::bytea,$2,$3::uuid,'root:owner') RETURNING id::text`, rootID, name+"-"+user.ID[:8], user.ID).Scan(&id))
 		return id
 	}
 	revoked := func(id string) bool {

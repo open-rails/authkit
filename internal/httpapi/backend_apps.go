@@ -11,5 +11,4 @@ import (
 type appsBackend interface {
 	ClaimDPoPProof(ctx context.Context, key string, ttl time.Duration) (bool, error)
 	DelegationAuthorizer() iam.DelegationAuthorizer
-	MintDelegatedAccessToken(ctx context.Context, a iam.Actor, d iam.DelegatedAccess) (iam.Token, error)
 }

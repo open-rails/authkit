@@ -278,8 +278,8 @@ func deviceKeyEnrollable(ctx context.Context, q *db.Queries, publicKey []byte, o
 }
 
 // publicDeviceKey is the one mapping from a device key row.
-func publicDeviceKey(k db.UserDeviceKey) authflow.DeviceKey {
-	return authflow.DeviceKey{ID: k.ID, Label: deref(k.Label), CreatedAt: k.CreatedAt, LastUsedAt: k.LastUsedAt, RevokedAt: k.RevokedAt}
+func publicDeviceKey(k db.UserDeviceKey) iam.DeviceKey {
+	return iam.DeviceKey{ID: k.ID, Label: deref(k.Label), PublicKey: k.PublicKey, CreatedAt: k.CreatedAt, LastUsedAt: k.LastUsedAt, RevokedAt: k.RevokedAt}
 }
 
 // challengeDeviceKeySecondFactor names the proof the retry carries in
@@ -328,7 +328,7 @@ func deviceKeyCodeScope(enrollmentID string) string { return "device-key:" + sec
 
 // notifyDeviceKeyEnrolled is best-effort: the key is already enrolled, so a
 // delivery failure is logged rather than reported as a failed enrollment.
-func (s *Engine) notifyDeviceKeyEnrolled(ctx context.Context, u *db.User, key authflow.DeviceKey) {
+func (s *Engine) notifyDeviceKeyEnrolled(ctx context.Context, u *db.User, key iam.DeviceKey) {
 	if s.email == nil || u.Email == nil {
 		return
 	}
@@ -349,85 +349,85 @@ func (s *Engine) notifyDeviceKeyEnrolled(ctx context.Context, u *db.User, key au
 // binds the key to it (mfa_proven_at), including a re-enrollment of a key
 // enrolled before the account had one. A backupCode proof is spent in the same
 // transaction.
-func (s *Engine) enrollDeviceKey(ctx context.Context, record deviceKeyEnrollment, publicKey []byte, mfaProof bool, backupCode string) (authflow.DeviceKey, string, bool, error) {
+func (s *Engine) enrollDeviceKey(ctx context.Context, record deviceKeyEnrollment, publicKey []byte, mfaProof bool, backupCode string) (iam.DeviceKey, string, bool, error) {
 	user, err := s.getUserByEmail(ctx, record.Email)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return authflow.DeviceKey{}, "", false, err
+		return iam.DeviceKey{}, "", false, err
 	}
 	if user != nil {
 		if err := s.ensureUserAccess(ctx, user); err != nil {
-			return authflow.DeviceKey{}, "", false, err
+			return iam.DeviceKey{}, "", false, err
 		}
 	} else {
 		allowed, err := s.registrationAllowedForEmail(ctx, record.Email)
 		if err != nil {
-			return authflow.DeviceKey{}, "", false, err
+			return iam.DeviceKey{}, "", false, err
 		}
 		if !allowed {
-			return authflow.DeviceKey{}, "", false, errmodel.ErrRegistrationDisabled
+			return iam.DeviceKey{}, "", false, errmodel.ErrRegistrationDisabled
 		}
 	}
 
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
-		return authflow.DeviceKey{}, "", false, err
+		return iam.DeviceKey{}, "", false, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := s.qtx(tx)
 	if user == nil {
 		userID, err := newUUIDV7String()
 		if err != nil {
-			return authflow.DeviceKey{}, "", false, err
+			return iam.DeviceKey{}, "", false, err
 		}
 		inserted, err := q.DeviceKeyEnrollUserInsert(ctx, db.DeviceKeyEnrollUserInsertParams{ID: userID, Email: record.Email})
 		if err != nil {
-			return authflow.DeviceKey{}, "", false, err
+			return iam.DeviceKey{}, "", false, err
 		}
 		if inserted == 1 {
 			if err := s.emitEvents(ctx, tx, iam.UserActor(userID), userEvent(iam.EventUserRegistered, userID)); err != nil {
-				return authflow.DeviceKey{}, "", false, err
+				return iam.DeviceKey{}, "", false, err
 			}
 		}
 	}
 	account, err := q.UserByEmail(ctx, record.Email)
 	if err != nil {
-		return authflow.DeviceKey{}, "", false, err
+		return iam.DeviceKey{}, "", false, err
 	}
 	userID := account.ID
 	// The emailed enrollment code proves the address (ak#393).
 	proven, err := s.retirePreProofCredentials(ctx, tx, userID, nil)
 	if err != nil {
-		return authflow.DeviceKey{}, "", false, err
+		return iam.DeviceKey{}, "", false, err
 	}
 	if err := q.UserSetEmailVerified(ctx, db.UserSetEmailVerifiedParams{ID: userID, EmailVerified: true}); err != nil {
-		return authflow.DeviceKey{}, "", false, err
+		return iam.DeviceKey{}, "", false, err
 	}
 
 	existing, err := q.DeviceKeyByPublicKey(ctx, publicKey)
 	found := err == nil
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return authflow.DeviceKey{}, "", false, err
+		return iam.DeviceKey{}, "", false, err
 	}
 	if found && (existing.UserID != userID || existing.RevokedAt != nil) {
-		return authflow.DeviceKey{}, "", false, errDeviceKeyInvalid
+		return iam.DeviceKey{}, "", false, errDeviceKeyInvalid
 	}
 	if backupCode != "" {
 		spent, err := s.verifyBackupCode(ctx, q, userID, backupCode)
 		if err != nil {
-			return authflow.DeviceKey{}, "", false, err
+			return iam.DeviceKey{}, "", false, err
 		}
 		if !spent {
-			return authflow.DeviceKey{}, "", false, errDeviceKeyInvalid
+			return iam.DeviceKey{}, "", false, errDeviceKeyInvalid
 		}
 	}
 	if found {
 		if mfaProof {
 			if err := q.DeviceKeyMarkMFAProven(ctx, existing.ID); err != nil {
-				return authflow.DeviceKey{}, "", false, err
+				return iam.DeviceKey{}, "", false, err
 			}
 		}
 		if err := tx.Commit(ctx); err != nil {
-			return authflow.DeviceKey{}, "", false, err
+			return iam.DeviceKey{}, "", false, err
 		}
 		s.logRevokedSessions(ctx, userID, proven, string(authflow.SessionRevokeReasonContactProven))
 		return publicDeviceKey(existing), userID, false, nil
@@ -437,12 +437,12 @@ func (s *Engine) enrollDeviceKey(ctx context.Context, record deviceKeyEnrollment
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return authflow.DeviceKey{}, "", false, errDeviceKeyInvalid
+			return iam.DeviceKey{}, "", false, errDeviceKeyInvalid
 		}
-		return authflow.DeviceKey{}, "", false, err
+		return iam.DeviceKey{}, "", false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return authflow.DeviceKey{}, "", false, err
+		return iam.DeviceKey{}, "", false, err
 	}
 	s.logRevokedSessions(ctx, userID, proven, string(authflow.SessionRevokeReasonContactProven))
 	return publicDeviceKey(inserted), userID, true, nil
@@ -537,35 +537,38 @@ func (s *Engine) FinishDeviceKeyLogin(ctx context.Context, challengeID, signatur
 
 // ListDeviceKeys returns the user's machine credentials after proving that the
 // device which minted the caller's token is still active.
-func (s *Engine) ListDeviceKeys(ctx context.Context, userID, currentID string) ([]authflow.DeviceKey, error) {
+func (s *Engine) ListDeviceKeys(ctx context.Context, userID, currentID string) ([]iam.DeviceKey, error) {
 	active, err := s.q.DeviceKeyIsActive(ctx, db.DeviceKeyIsActiveParams{ID: currentID, UserID: userID})
 	if err != nil || !active {
 		return nil, errDeviceKeyInvalid
 	}
+	keys, err := s.deviceKeys(ctx, userID)
+	for i := range keys {
+		keys[i].Current = keys[i].ID == currentID
+	}
+	return keys, err
+}
+
+// DeviceKeys returns the account's device keys in enrollment order, revoked
+// ones included. ErrDeviceKeysDisabled without Config.DeviceKeys.Enabled.
+func (s *Engine) DeviceKeys(ctx context.Context, userID string) ([]iam.DeviceKey, error) {
+	if err := s.deviceKeysEnabled(); err != nil {
+		return nil, err
+	}
+	if !isUUID(strings.TrimSpace(userID)) {
+		return []iam.DeviceKey{}, nil
+	}
+	return s.deviceKeys(ctx, strings.TrimSpace(userID))
+}
+
+func (s *Engine) deviceKeys(ctx context.Context, userID string) ([]iam.DeviceKey, error) {
 	rows, err := s.q.DeviceKeysByUser(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	keys := make([]authflow.DeviceKey, 0, len(rows))
+	keys := make([]iam.DeviceKey, 0, len(rows))
 	for _, k := range rows {
 		keys = append(keys, publicDeviceKey(k))
-	}
-	return keys, nil
-}
-
-// ActiveDeviceKeys returns the user's unrevoked device public keys in
-// enrollment order.
-func (s *Engine) ActiveDeviceKeys(ctx context.Context, userID string) ([]ed25519.PublicKey, error) {
-	if err := s.deviceKeysEnabled(); err != nil {
-		return nil, err
-	}
-	rows, err := s.q.DeviceKeyPublicKeysActive(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	keys := make([]ed25519.PublicKey, 0, len(rows))
-	for _, k := range rows {
-		keys = append(keys, k)
 	}
 	return keys, nil
 }

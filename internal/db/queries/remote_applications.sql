@@ -6,11 +6,10 @@
 -- read returns the whole row: db.RemoteApplication.
 
 -- name: RemoteApplicationUpsert :one
-INSERT INTO remote_applications (slug, permission_group_id, issuer, jwks_uri, mode, public_keys, enabled)
-VALUES (sqlc.arg(slug), sqlc.arg(permission_group_id)::uuid, sqlc.arg(issuer), sqlc.arg(jwks_uri), sqlc.arg(mode), sqlc.arg(public_keys), sqlc.arg(enabled))
+INSERT INTO remote_applications (permission_group_id, issuer, jwks_uri, mode, public_keys, enabled)
+VALUES (sqlc.arg(permission_group_id)::uuid, sqlc.arg(issuer), sqlc.arg(jwks_uri), sqlc.arg(mode), sqlc.arg(public_keys), sqlc.arg(enabled))
 ON CONFLICT (issuer) DO UPDATE
-  SET slug          = EXCLUDED.slug,
-      jwks_uri      = EXCLUDED.jwks_uri,
+  SET jwks_uri      = EXCLUDED.jwks_uri,
       mode          = EXCLUDED.mode,
       public_keys   = EXCLUDED.public_keys,
       enabled       = EXCLUDED.enabled,
@@ -25,7 +24,7 @@ SELECT * FROM remote_applications WHERE id = $1;
 SELECT * FROM remote_applications WHERE issuer = $1;
 
 -- name: RemoteApplicationsEnabled :many
-SELECT * FROM remote_applications WHERE enabled = true ORDER BY slug ASC;
+SELECT * FROM remote_applications WHERE enabled = true ORDER BY issuer;
 
 -- name: RemoteApplicationsByGroup :many
 -- Newest first, keyset-paged by id.
@@ -38,8 +37,8 @@ LIMIT sqlc.arg(max_rows);
 -- name: RemoteApplicationDelete :execrows
 DELETE FROM remote_applications WHERE issuer = $1;
 
--- name: RemoteApplicationBySlugForUpdate :one
-SELECT * FROM remote_applications WHERE slug = $1 FOR UPDATE;
+-- name: RemoteApplicationByIDForUpdate :one
+SELECT * FROM remote_applications WHERE id = $1 FOR UPDATE;
 
 -- name: RemoteApplicationSetTrustRoot :exec
 UPDATE remote_applications SET trust_root = sqlc.arg(trust_root) WHERE id = sqlc.arg(id)::uuid;

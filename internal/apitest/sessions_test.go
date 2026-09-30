@@ -19,6 +19,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/internal/testclock"
 	"github.com/open-rails/authkit/internal/testdb"
@@ -79,7 +80,7 @@ func sessionCounts(t *testing.T, auth *authkit.Client, userID string) (live int,
 	t.Helper()
 	sessions, err := auth.Sessions(t.Context(), userID)
 	require.NoError(t, err)
-	events, err := auth.SessionEvents(t.Context(), userID, iam.SessionEventQuery{Kinds: []iam.SessionEventKind{iam.SessionEventRevoked}})
+	events, err := auth.ListSessionEvents(t.Context(), userID, iam.SessionEventQuery{Kinds: []iam.SessionEventKind{iam.SessionEventRevoked}})
 	require.NoError(t, err)
 	revoked = map[string]int{}
 	for _, e := range events.Items {
@@ -102,7 +103,7 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 	)
 	rbac := authkit.NewRoles()
 	var intrinsic []iam.Grant
-	for _, perm := range iam.IntrinsicRootPermissions() {
+	for _, perm := range ident.IntrinsicRootPermissions() {
 		intrinsic = append(intrinsic, perm)
 	}
 	staffRole := rbac.Root.Role("staff", intrinsic...)
@@ -194,7 +195,7 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 	})
 
 	t.Run("audit records each session under its issuer", func(t *testing.T) {
-		events, err := auth.SessionEvents(ctx, victim.ID, iam.SessionEventQuery{Kinds: []iam.SessionEventKind{iam.SessionEventRevoked, iam.SessionEventAccountSessionsRevoked}})
+		events, err := auth.ListSessionEvents(ctx, victim.ID, iam.SessionEventQuery{Kinds: []iam.SessionEventKind{iam.SessionEventRevoked, iam.SessionEventAccountSessionsRevoked}})
 		require.NoError(t, err)
 		var got []string
 		for _, e := range events.Items {
@@ -301,9 +302,7 @@ func TestAccountSessionRevocationAcrossIssuers(t *testing.T) {
 		require.Equal(t, http.StatusUnauthorized, directory(elevated).status, "unban never revives a revoked session")
 		elevated = login(t, siteB, staff)
 		require.Equal(t, http.StatusOK, directory(elevated).status)
-		unassigned, err := auth.UnassignGroupRoles(ctx, iam.SystemActor(), iam.RootGroup(), []iam.Subject{iam.UserSubject(staff.ID)}, staffRole)
-		require.NoError(t, err)
-		require.NoError(t, unassigned[0].Err)
+		authtest.RevokeRole(t, auth, iam.RootGroup(), iam.UserSubject(staff.ID), staffRole)
 		res = directory(elevated)
 		require.Equal(t, http.StatusForbidden, res.status, res.String())
 		authtest.GrantRole(t, auth, iam.RootGroup(), iam.UserSubject(staff.ID), staffRole)

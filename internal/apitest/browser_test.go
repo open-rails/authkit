@@ -70,7 +70,7 @@ func TestCookieLoginBrowserTwoSites(t *testing.T) {
 	sessions, err := auth.Sessions(ctx, attackerID)
 	require.NoError(t, err)
 	require.Empty(t, sessions, "cross-site submissions cannot create even an unused attacker session")
-	events, err := auth.SessionEvents(ctx, attackerID, iam.SessionEventQuery{})
+	events, err := auth.ListSessionEvents(ctx, attackerID, iam.SessionEventQuery{})
 	require.NoError(t, err)
 	require.Empty(t, events.Items, "no attacker session ever existed")
 }

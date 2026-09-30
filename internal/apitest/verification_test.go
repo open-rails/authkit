@@ -65,8 +65,7 @@ func TestRootRoleClaimIsDisplayOnly(t *testing.T) {
 	require.Equal(t, admin.String(), cl.RootRole, "the claim is surfaced for display")
 	require.Equal(t, http.StatusForbidden, gateStatus(t, gate, forged), "a claimed role grants nothing")
 
-	_, err = auth.RemoveGroupMembers(ctx, iam.SystemActor(), iam.RootGroup(), []iam.Subject{iam.UserSubject(boss.ID)})
-	require.NoError(t, err)
+	require.NoError(t, auth.RemoveGroupMember(ctx, iam.SystemActor(), iam.RootGroup(), iam.UserSubject(boss.ID)))
 	require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, gateStatus(t, gate, bossToken), "a stale role grants nothing")
 
 	minted, err := auth.MintAccessToken(ctx, plain.ID, iam.AccessTokenOptions{Claims: map[string]any{"root_role": admin.String()}})
@@ -91,7 +90,7 @@ func TestRemoteApplicationTokens(t *testing.T) {
 	group := newGroup(t, auth, m.org.Persona, owner.ID)
 	signer := testkeys.RSA("app-1")
 	app, err := auth.UpsertRemoteApplication(ctx, iam.SystemActor(), group, iam.RemoteApplication{
-		Slug: "verification-app", Issuer: "https://verification-app.test", Enabled: true,
+		Issuer: "https://verification-app.test", Enabled: true,
 		PublicKeys: []iam.RemoteApplicationKey{{KID: signer.KID(), PublicKeyPEM: publicKeyPEM(t, signer.Public())}},
 	})
 	require.NoError(t, err)

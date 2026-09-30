@@ -5,43 +5,40 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
-
-	"github.com/jackc/pgx/v5"
+	"github.com/open-rails/authkit/verify"
 )
 
-// ResolveRemoteApplicationAuthority resolves a remote_application's effective
-// permissions — the union of its roles on its controlling permission-group and
-// on root (#111) — plus the owning group
-// instance the authority is bound to (#248). Permissions is an empty slice
-// (no error) when the app holds no roles.
-func (s *Engine) ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (iam.RemoteApplicationAuthority, error) {
-	var out iam.RemoteApplicationAuthority
+// storedApplicationAuthority is the verifier's view of an enabled application's
+// stored authority: the controlling group it is bound to (#248)
+// and its effective permissions there, the union of its roles on that group
+// and on root (#111). No permissions is an empty slice, not an error.
+func (s *Engine) storedApplicationAuthority(ctx context.Context, appID string) (verify.PermissionScope, []iam.Perm, error) {
 	if err := s.requirePG(); err != nil {
-		return out, err
+		return verify.PermissionScope{}, nil, err
 	}
 	appID = strings.TrimSpace(appID)
 	if appID == "" {
-		return out, iam.ErrInvalidRemoteApplication
+		return verify.PermissionScope{}, nil, iam.ErrInvalidRemoteApplication
 	}
 	row, err := s.q.RemoteApplicationAuthority(ctx, appID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return iam.RemoteApplicationAuthority{}, iam.ErrRemoteApplicationNotFound
+		return verify.PermissionScope{}, nil, iam.ErrRemoteApplicationNotFound
 	}
 	if err != nil {
-		return iam.RemoteApplicationAuthority{}, err
+		return verify.PermissionScope{}, nil, err
 	}
-	out.PermissionGroupID, out.Persona = row.PermissionGroupID, ident.Persona(row.Persona)
-	out.AuthorityIssuer = s.cfg.Token.Issuer
-	grants, err := s.groupStore().GrantsOnGroup(ctx, s.groupSchemaOrDefault(), iam.RemoteApplicationSubject(appID), out.PermissionGroupID)
+	scope := verify.PermissionScope{GroupID: row.PermissionGroupID, AuthorityIssuer: s.cfg.Token.Issuer, Persona: ident.Persona(row.Persona)}
+	grants, err := s.groupStore().GrantsOnGroup(ctx, s.groupSchemaOrDefault(), iam.RemoteApplicationSubject(appID), scope.GroupID)
 	if err != nil {
-		return iam.RemoteApplicationAuthority{}, err
+		return verify.PermissionScope{}, nil, err
 	}
 	// An application can present no second factor (see withoutMFAGrants).
 	if s.TwoFactorEnabled() && s.groupSchemaOrDefault().RequiresMFA(grants) {
 		grants = []string{}
 	}
-	out.Permissions = ident.Perms(grants)
-	return out, nil
+	return scope, ident.Perms(grants), nil
 }

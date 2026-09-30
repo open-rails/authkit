@@ -78,7 +78,6 @@ type PermissionGroup struct {
 // Federation principals: external systems that authenticate by signing JWTs verified against configured keys.
 type RemoteApplication struct {
 	ID         string
-	Slug       string
 	Issuer     string
 	JwksUri    string
 	Mode       string

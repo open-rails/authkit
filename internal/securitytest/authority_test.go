@@ -55,14 +55,13 @@ func withRBAC(c *authkit.Config) { c.Roles = newSecurityModel().Roles }
 // holder of an MFA-required role enrolls the email second factor first.
 func (h *host) grant(group iam.GroupRef, a account, name string) {
 	h.t.Helper()
-	res, err := h.auth.AssignGroupRoles(h.t.Context(), iam.SystemActor(), group, []iam.Subject{iam.UserSubject(a.id)}, roleIn(h.t, h.auth, group, name))
-	require.NoError(h.t, err)
-	if errors.Is(res[0].Err, iam.ErrTwoFAEnrollmentRequired) {
+	err := setRole(h.auth, h.t.Context(), iam.SystemActor(), group, iam.UserSubject(a.id), roleIn(h.t, h.auth, group, name))
+	if errors.Is(err, iam.ErrTwoFAEnrollmentRequired) {
 		h.enrollEmail2FA(a)
 		grantRole(h.t, h.auth, group, iam.UserSubject(a.id), name)
 		return
 	}
-	require.NoError(h.t, res[0].Err)
+	require.NoError(h.t, err)
 }
 
 func publicKeyPEM(t *testing.T) string {
@@ -108,7 +107,7 @@ func TestSecurityUnbanRequiresAuthority(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			resp := unban(tc.target, tc.token)
 			require.Equal(t, tc.status, resp.status, resp.String())
-			u, err := h.auth.User(ctx, iam.UserByID(tc.target.id), iam.IncludeDeleted())
+			u, err := h.auth.User(ctx, iam.UserByID(tc.target.id), authkit.IncludeDeleted())
 			require.NoError(t, err)
 			require.NotNil(t, u.Ban, "ban was lifted")
 		})
@@ -137,7 +136,7 @@ func TestSecurityRemoteApplicationTakeover(t *testing.T) {
 	}
 	ownedKey := publicKeyPEM(t)
 	require.NoError(t, register(ownerActor, "owner-app", "https://owner-app.security.test", ownedKey, true))
-	ownerApp, err := h.auth.RemoteApplication(ctx, "https://owner-app.security.test")
+	ownerApp, err := h.auth.RemoteApplication(ctx, iam.AppByIssuer("https://owner-app.security.test"))
 	require.NoError(t, err)
 	grantRole(t, h.auth, group, iam.RemoteApplicationSubject(ownerApp.ID), "owner")
 
@@ -157,7 +156,7 @@ func TestSecurityRemoteApplicationTakeover(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			requireRefused(t, tc.attack())
-			app, err := h.auth.RemoteApplication(ctx, "https://owner-app.security.test")
+			app, err := h.auth.RemoteApplication(ctx, iam.AppByIssuer("https://owner-app.security.test"))
 			require.NoError(t, err)
 			require.True(t, app.Enabled)
 			require.Len(t, app.PublicKeys, 1)
@@ -195,18 +194,18 @@ func TestSecurityRoleEscalation(t *testing.T) {
 		req   request
 		allow bool
 	}{
-		{"manager grants themself owner", request{method: http.MethodPut, path: base + "/members/" + manager.id + "/roles/owner", token: managerToken}, false},
-		{"manager grants a member owner", request{method: http.MethodPut, path: base + "/members/" + member.id + "/roles/owner", token: managerToken}, false},
-		{"manager demotes the owner", request{method: http.MethodPut, path: base + "/members/" + owner.id + "/roles/member", token: managerToken}, false},
+		{"manager grants themself owner", request{method: http.MethodPut, path: base + "/members/" + manager.id + "/roles/org:owner", token: managerToken}, false},
+		{"manager grants a member owner", request{method: http.MethodPut, path: base + "/members/" + member.id + "/roles/org:owner", token: managerToken}, false},
+		{"manager demotes the owner", request{method: http.MethodPut, path: base + "/members/" + owner.id + "/roles/org:member", token: managerToken}, false},
 		{"manager removes the owner", request{method: http.MethodDelete, path: base + "/members/" + owner.id, token: managerToken}, false},
 		{"manager mints an owner invite link", request{method: http.MethodPost, path: base + "/invites/links", token: managerToken,
-			body: map[string]any{"role": "owner"}}, false},
+			body: map[string]any{"role": "org:owner"}}, false},
 		{"manager mints an owner API key", request{method: http.MethodPost, path: base + "/api-keys", token: managerToken,
-			body: map[string]any{"name": "k", "role": "owner"}}, false},
-		{"member grants themself manager", request{method: http.MethodPut, path: base + "/members/" + member.id + "/roles/manager", token: memberToken}, false},
-		{"manager acts on a group they do not belong to", request{method: http.MethodPut, path: "/groups/" + other.ID() + "/members/" + member.id + "/roles/member", token: managerToken}, false},
+			body: map[string]any{"name": "k", "role": "org:owner"}}, false},
+		{"member grants themself manager", request{method: http.MethodPut, path: base + "/members/" + member.id + "/roles/org:manager", token: memberToken}, false},
+		{"manager acts on a group they do not belong to", request{method: http.MethodPut, path: "/groups/" + other.ID() + "/members/" + member.id + "/roles/org:member", token: managerToken}, false},
 		{"root admin surface with a group role", request{method: http.MethodGet, path: "/admin/users", token: managerToken}, false},
-		{"control: manager assigns member", request{method: http.MethodPut, path: base + "/members/" + member.id + "/roles/member", token: managerToken}, true},
+		{"control: manager assigns member", request{method: http.MethodPut, path: base + "/members/" + member.id + "/roles/org:member", token: managerToken}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			resp := h.do(tc.req)
@@ -261,7 +260,7 @@ func (h *host) issue(path, token string, body map[string]any) issued {
 
 func liveKey(t *testing.T, h *host, group iam.GroupRef, id string) bool {
 	t.Helper()
-	keys, err := h.auth.APIKeys(context.Background(), group, iam.PageRequest{Limit: iam.MaxPageLimit})
+	keys, err := h.auth.ListAPIKeys(context.Background(), group, iam.PageRequest{Limit: iam.MaxPageLimit})
 	require.NoError(t, err)
 	for _, k := range keys.Items {
 		if k.ID == id {
@@ -274,7 +273,7 @@ func liveKey(t *testing.T, h *host, group iam.GroupRef, id string) bool {
 
 func liveLink(t *testing.T, h *host, group iam.GroupRef, id string) bool {
 	t.Helper()
-	links, err := h.auth.InviteLinks(context.Background(), group, iam.PageRequest{Limit: iam.MaxPageLimit})
+	links, err := h.auth.ListInvitations(context.Background(), group, iam.PageRequest{Limit: iam.MaxPageLimit})
 	require.NoError(t, err)
 	for _, l := range links.Items {
 		if l.ID == id {
@@ -295,11 +294,11 @@ func TestSecurityDemotedCreatorCredentials(t *testing.T) {
 	group, base := h.newOrg(founder)
 	h.grant(group, creator, "owner")
 	creatorToken, founderToken := h.login(creator).AccessToken, h.login(founder).AccessToken
-	link := h.issue(base+"/invites/links", creatorToken, map[string]any{"role": "owner"})
-	key := h.issue(base+"/api-keys", creatorToken, map[string]any{"name": "creator-key", "role": "owner"})
-	founderKey := h.issue(base+"/api-keys", founderToken, map[string]any{"name": "founder-key", "role": "owner"})
-	memberKey := h.issue(base+"/api-keys", creatorToken, map[string]any{"name": "member-key", "role": "member"})
-	resp := h.do(request{method: http.MethodPut, path: base + "/members/" + creator.id + "/roles/manager", token: founderToken})
+	link := h.issue(base+"/invites/links", creatorToken, map[string]any{"role": "org:owner"})
+	key := h.issue(base+"/api-keys", creatorToken, map[string]any{"name": "creator-key", "role": "org:owner"})
+	founderKey := h.issue(base+"/api-keys", founderToken, map[string]any{"name": "founder-key", "role": "org:owner"})
+	memberKey := h.issue(base+"/api-keys", creatorToken, map[string]any{"name": "member-key", "role": "org:member"})
+	resp := h.do(request{method: http.MethodPut, path: base + "/members/" + creator.id + "/roles/org:manager", token: founderToken})
 	require.Less(t, resp.status, 300, resp.String())
 
 	t.Run("demoted creator redeems their own owner link", func(t *testing.T) {
@@ -327,8 +326,8 @@ func TestSecurityRevokeAboveOwnRole(t *testing.T) {
 	group, base := h.newOrg(owner)
 	h.grant(group, manager, "manager")
 	ownerToken, managerToken := h.login(owner).AccessToken, h.login(manager).AccessToken
-	ownerKey := h.issue(base+"/api-keys", ownerToken, map[string]any{"name": "owner-key", "role": "owner"})
-	ownerLink := h.issue(base+"/invites/links", ownerToken, map[string]any{"role": "owner"})
+	ownerKey := h.issue(base+"/api-keys", ownerToken, map[string]any{"name": "owner-key", "role": "org:owner"})
+	ownerLink := h.issue(base+"/invites/links", ownerToken, map[string]any{"role": "org:owner"})
 	remove := func(path string) response {
 		return h.do(request{method: http.MethodDelete, path: path, token: managerToken})
 	}
@@ -340,8 +339,8 @@ func TestSecurityRevokeAboveOwnRole(t *testing.T) {
 	require.True(t, liveLink(t, h, group, ownerLink.ID))
 
 	t.Run("control: manager revokes what they could issue", func(t *testing.T) {
-		key := h.issue(base+"/api-keys", managerToken, map[string]any{"name": "member-key", "role": "member"})
-		link := h.issue(base+"/invites/links", managerToken, map[string]any{"role": "member"})
+		key := h.issue(base+"/api-keys", managerToken, map[string]any{"name": "member-key", "role": "org:member"})
+		link := h.issue(base+"/invites/links", managerToken, map[string]any{"role": "org:member"})
 		require.Equal(t, http.StatusNoContent, remove(base+"/api-keys/"+key.ID).status)
 		require.Equal(t, http.StatusNoContent, remove(base+"/invites/links/"+link.ID).status)
 		require.False(t, liveKey(t, h, group, key.ID))
@@ -400,7 +399,7 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 			_, err := h.upsertGroupApp(iam.UserActor(squatter.id), group, unique("peer"), iss, publicKeyPEM(t), true)
 			require.ErrorIs(t, err, iam.ErrReservedIssuer, iss)
 		}
-		_, err = h.auth.RemoteApplication(ctx, peerIssuer)
+		_, err = h.auth.RemoteApplication(ctx, iam.AppByIssuer(peerIssuer))
 		require.ErrorIs(t, err, iam.ErrRemoteApplicationNotFound)
 	})
 
@@ -408,7 +407,7 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 		for _, iss := range []string{issuer, "https://github.com/login/oauth"} {
 			enabled := true
 			_, err := h.auth.ApplyBootstrapManifest(ctx, iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{
-				{Slug: unique("reserved"), Issuer: iss, PublicKeys: []iam.RemoteApplicationKey{{PublicKeyPEM: publicKeyPEM(t)}}, Enabled: &enabled},
+				{Issuer: iss, PublicKeys: []iam.RemoteApplicationKey{{PublicKeyPEM: publicKeyPEM(t)}}, Enabled: &enabled},
 			}}, iam.BootstrapOptions{})
 			require.ErrorIs(t, err, iam.ErrReservedIssuer, iss)
 		}
@@ -416,7 +415,7 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 
 	enabled := true
 	_, err = h.auth.ApplyBootstrapManifest(ctx, iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{
-		{Slug: "peer", Issuer: peerIssuer, PublicKeys: keys, Enabled: &enabled},
+		{Issuer: peerIssuer, PublicKeys: keys, Enabled: &enabled},
 	}}, iam.BootstrapOptions{})
 	require.NoError(t, err)
 
@@ -456,7 +455,7 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 	})
 
 	t.Run("the system disables the peer", func(t *testing.T) {
-		app, err := h.auth.RemoteApplication(ctx, peerIssuer)
+		app, err := h.auth.RemoteApplication(ctx, iam.AppByIssuer(peerIssuer))
 		require.NoError(t, err)
 		app.Enabled = false
 		_, err = h.auth.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.RootGroup(), app)
@@ -476,10 +475,10 @@ func TestSecurityGroupRoleIDsAreCanonical(t *testing.T) {
 	group, base := h.newOrg(founder)
 	h.grant(group, manager, "manager")
 	token := h.login(manager).AccessToken
-	key := h.issue(base+"/api-keys", token, map[string]any{"name": "ci", "role": "member"})
-	link := h.issue(base+"/invites/links", token, map[string]any{"role": "member"})
+	key := h.issue(base+"/api-keys", token, map[string]any{"name": "ci", "role": "org:member"})
+	link := h.issue(base+"/invites/links", token, map[string]any{"role": "org:member"})
 	app := h.registerApp(group, manager, "p4-app", "member")
-	founderKey := h.issue(base+"/api-keys", h.login(founder).AccessToken, map[string]any{"name": "founder", "role": "member"})
+	founderKey := h.issue(base+"/api-keys", h.login(founder).AccessToken, map[string]any{"name": "founder", "role": "org:member"})
 
 	resp := h.do(request{method: http.MethodDelete, path: base + "/members/" + strings.ToUpper(manager.id), token: token})
 	require.Less(t, resp.status, 300, resp.String())

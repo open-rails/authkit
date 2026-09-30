@@ -22,7 +22,7 @@ func (s *Engine) getPasswordHash(ctx context.Context, userID string) (hash, algo
 }
 
 func validatePasswordHashForStorage(hash, algo string) error {
-	if algo == iam.HashAlgoLegacyResetRequired {
+	if algo == string(iam.HashLegacyResetRequired) {
 		return nil
 	}
 	return password.ValidateHash(hash, algo)

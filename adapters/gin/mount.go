@@ -9,12 +9,13 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/open-rails/authkit/iam"
 )
 
 // Surface is AuthKit's HTTP surface; *authkit.Client implements it.
 type Surface interface {
 	Handler() http.Handler
-	Patterns() []string
+	Routes() []iam.Route
 }
 
 type route struct{ method, path string }
@@ -33,12 +34,12 @@ func Mount(router *gin.Engine, s Surface) error {
 		return errors.New("authkitgin: Mount requires a configured AuthKit HTTP surface")
 	}
 	var routes []route
-	for _, pattern := range s.Patterns() {
-		method, p, ok := strings.Cut(pattern, " ")
-		if !ok {
-			return fmt.Errorf("authkitgin: unsupported HTTP route pattern %q", pattern)
+	for _, r := range s.Routes() {
+		if r.Method == http.MethodHead {
+			continue // registered beside its GET
 		}
-		converted, err := ginRoutePath(p)
+		method := r.Method
+		converted, err := ginRoutePath(r.Path)
 		if err != nil {
 			return err
 		}

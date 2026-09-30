@@ -352,7 +352,7 @@ type HTTPConfig struct {
 	// APIPath anchors the JSON API beneath BasePath. "" means "/api/v1"; "/"
 	// is BasePath itself.
 	APIPath string
-	// Exclude drops routes the host serves itself, named as Patterns reports
+	// Exclude drops routes the host serves itself, named as Route.Pattern names
 	// them ("GET /.well-known/jwks.json"). An entry matching no route is an
 	// error.
 	Exclude []string

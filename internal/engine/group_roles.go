@@ -17,6 +17,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/ident"
+	"github.com/open-rails/authkit/internal/ops"
 	"github.com/open-rails/authkit/internal/rbac"
 )
 
@@ -30,18 +31,26 @@ func grantsCoverAll(actorGrants, targetGrants []string) bool {
 	return true
 }
 
-// AssignGroupRoles assigns role to each subject, replacing a different role
-// it holds. Per item: CAP by subject kind, COVER(role), and when replacing,
-// COVER(old) and the last-owner check. An application subject must be
-// controlled by the group. An already-held role is a no-op.
-func (s *Engine) AssignGroupRoles(ctx context.Context, a iam.Actor, ref iam.GroupRef, subjects []iam.Subject, role iam.Role) ([]iam.OpResult, error) {
-	prepare := func(st *permissionGroupStore, g groupTarget) error {
+// SetGroupRole makes subject hold role in ref, replacing the role it holds:
+// CAP by subject kind, COVER(role), and when replacing, COVER(old) and the
+// last-owner check. An application subject must be controlled by the group.
+// Holding role already changes nothing.
+func (s *Engine) SetGroupRole(ctx context.Context, a iam.Actor, ref iam.GroupRef, subject iam.Subject, role iam.Role, opts ...ops.Option) (iam.GroupMember, error) {
+	tx, err := hostTx("SetGroupRole", opts)
+	if err != nil {
+		return iam.GroupMember{}, err
+	}
+	subject, err = groupSubject(a, subject)
+	if err != nil {
+		return iam.GroupMember{}, err
+	}
+	err = s.withGroupMutationIn(ctx, a, tx, ref, func(st *permissionGroupStore, g groupTarget) error {
 		if !s.validRoleForPersona(s.groupSchemaOrDefault(), g.Persona, role) {
 			return fmt.Errorf("role %q is not assignable in a %q group: %w", role, g.Persona, iam.ErrRoleNotAssignable)
 		}
-		return s.requireDefinedGroupRole(ctx, st, g.ID, g.Persona, role)
-	}
-	return s.groupRoleBatch(ctx, a, ref, subjects, prepare, func(st *permissionGroupStore, g groupTarget, subject iam.Subject) error {
+		if err := s.requireDefinedGroupRole(g.Persona, role); err != nil {
+			return err
+		}
 		auth, err := s.subjectCap(ctx, st, a, g, subject)
 		if err != nil {
 			return err
@@ -72,6 +81,59 @@ func (s *Engine) AssignGroupRoles(ctx context.Context, a iam.Actor, ref iam.Grou
 		}
 		return st.AssignRole(ctx, g.ID, subject, role)
 	})
+	if err != nil {
+		return iam.GroupMember{}, err
+	}
+	return iam.GroupMember{Subject: subject, Role: role}, nil
+}
+
+// RemoveGroupMember strips subject's role in ref: CAP by subject kind, COVER
+// of the role it holds, then the last-owner check. A non-member is a no-op, as
+// is a subject holding another role than ops.IfRole names.
+func (s *Engine) RemoveGroupMember(ctx context.Context, a iam.Actor, ref iam.GroupRef, subject iam.Subject, opts ...ops.Option) error {
+	o, err := ops.Resolve("RemoveGroupMember", opts, ops.KindTx, ops.KindIfRole)
+	if err != nil {
+		return err
+	}
+	subject, err = groupSubject(a, subject)
+	if err != nil {
+		return err
+	}
+	return s.withGroupMutationIn(ctx, a, o.Tx, ref, func(st *permissionGroupStore, g groupTarget) error {
+		if !o.IfRole.IsZero() && o.IfRole.Persona() != g.Persona {
+			return fmt.Errorf("role %q is not a role of a %q group: %w", o.IfRole, g.Persona, iam.ErrRoleNotAssignable)
+		}
+		auth, err := s.subjectCap(ctx, st, a, g, subject)
+		if err != nil {
+			return err
+		}
+		current, err := st.directRole(ctx, g, subject)
+		if err != nil || current.IsZero() || !o.IfRole.IsZero() && current != o.IfRole {
+			return err
+		}
+		if err := s.requireRoleCover(ctx, st, auth, g, current); err != nil {
+			return err
+		}
+		if err := s.refuseOwnerLoss(ctx, st, g.ID, subject); err != nil {
+			return err
+		}
+		return st.UnassignRole(ctx, g.ID, subject, current)
+	})
+}
+
+// groupSubject validates the actor and subject of a role change. Ids are
+// compared as text downstream (self rules, the sweep's issuer filter): only
+// the canonical form may travel (P4).
+func groupSubject(a iam.Actor, subject iam.Subject) (iam.Subject, error) {
+	if err := requireActor(a); err != nil {
+		return subject, err
+	}
+	subject.ID = strings.TrimSpace(subject.ID)
+	if err := validSubject(subject); err != nil {
+		return subject, err
+	}
+	subject.ID, _ = canonicalUUID(subject.ID)
+	return subject, nil
 }
 
 // requireRegistrarCover: a group-registered application acts with the
@@ -92,112 +154,16 @@ func (s *Engine) requireRegistrarCover(ctx context.Context, st *permissionGroupS
 	return fmt.Errorf("the application's registrar cannot issue role %q: %w", role, iam.ErrRoleAssignmentEscalation)
 }
 
-// UnassignGroupRoles revokes role from each subject that holds it: CAP by
-// subject kind and COVER(role), then the last-owner check. A subject not
-// holding role is a no-op.
-func (s *Engine) UnassignGroupRoles(ctx context.Context, a iam.Actor, ref iam.GroupRef, subjects []iam.Subject, role iam.Role) ([]iam.OpResult, error) {
-	prepare := func(_ *permissionGroupStore, g groupTarget) error {
-		if role.IsZero() || role.Persona() != g.Persona {
-			return fmt.Errorf("role %q is not a role of a %q group: %w", role, g.Persona, iam.ErrRoleNotAssignable)
-		}
-		return nil
-	}
-	return s.groupRoleBatch(ctx, a, ref, subjects, prepare, func(st *permissionGroupStore, g groupTarget, subject iam.Subject) error {
-		auth, err := s.subjectCap(ctx, st, a, g, subject)
-		if err != nil {
-			return err
-		}
-		if err := s.requireRoleCover(ctx, st, auth, g, role); err != nil {
-			return err
-		}
-		current, err := st.directRole(ctx, g, subject)
-		if err != nil || current != role {
-			return err
-		}
-		if err := s.refuseOwnerLoss(ctx, st, g.ID, subject); err != nil {
-			return err
-		}
-		return st.UnassignRole(ctx, g.ID, subject, role)
-	})
-}
-
-// RemoveGroupMembers strips each subject's role: CAP by subject kind and COVER
-// of the role it holds, then the last-owner check. A non-member is a no-op.
-func (s *Engine) RemoveGroupMembers(ctx context.Context, a iam.Actor, ref iam.GroupRef, subjects []iam.Subject) ([]iam.OpResult, error) {
-	return s.groupRoleBatch(ctx, a, ref, subjects, nil, func(st *permissionGroupStore, g groupTarget, subject iam.Subject) error {
-		auth, err := s.subjectCap(ctx, st, a, g, subject)
-		if err != nil {
-			return err
-		}
-		current, err := st.directRole(ctx, g, subject)
-		if err != nil || current.IsZero() {
-			return err
-		}
-		if err := s.requireRoleCover(ctx, st, auth, g, current); err != nil {
-			return err
-		}
-		if err := s.refuseOwnerLoss(ctx, st, g.ID, subject); err != nil {
-			return err
-		}
-		return st.UnassignSubject(ctx, g.ID, subject)
-	})
-}
-
-// groupRoleBatch runs item once per subject in one authority transaction, each
-// under a savepoint so a failed item rolls back alone. The zero actor, an
-// unknown group, a failing prepare, a dead actor or an oversized batch fail
-// the whole call.
-func (s *Engine) groupRoleBatch(ctx context.Context, a iam.Actor, ref iam.GroupRef, subjects []iam.Subject, prepare func(*permissionGroupStore, groupTarget) error, item func(*permissionGroupStore, groupTarget, iam.Subject) error) ([]iam.OpResult, error) {
-	if err := requireActor(a); err != nil {
-		return nil, err
-	}
-	if len(subjects) > iam.MaxBatch {
-		return nil, fmt.Errorf("batch has %d subjects; at most %d", len(subjects), iam.MaxBatch)
-	}
-	out := make([]iam.OpResult, len(subjects))
-	if len(subjects) == 0 {
-		return out, nil
-	}
-	err := s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
-		if prepare != nil {
-			if err := prepare(st, g); err != nil {
-				return err
-			}
-		}
-		if _, err := s.actorAuthority(ctx, st, a, g); err != nil {
-			return err
-		}
-		for i, subject := range subjects {
-			subject.ID = strings.TrimSpace(subject.ID)
-			out[i].ID = subject.ID
-			out[i].Err = st.savepoint(ctx, func() error {
-				if err := validSubject(subject); err != nil {
-					return err
-				}
-				// Ids are compared as text downstream (self rules, the sweep's
-				// issuer filter): only the canonical form may travel (P4).
-				subject.ID, _ = canonicalUUID(subject.ID)
-				return item(st, g, subject)
-			})
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-// subjectCap resolves the actor's authority in g (re-read per item, so an
-// earlier item's change applies) and checks the subject kind's capability.
+// subjectCap resolves the actor's authority in g and checks the subject
+// kind's capability.
 func (s *Engine) subjectCap(ctx context.Context, st *permissionGroupStore, a iam.Actor, g groupTarget, subject iam.Subject) (authority, error) {
 	auth, err := s.actorAuthority(ctx, st, a, g)
 	if err != nil {
 		return authority{}, err
 	}
-	capability := iam.PermMembersManage(g.Persona)
+	capability := ident.MembersManage(g.Persona)
 	if subject.Kind == iam.SubjectKindRemoteApplication {
-		capability = iam.PermCredentialsManage(g.Persona)
+		capability = ident.CredentialsManage(g.Persona)
 	}
 	return auth, auth.requireCap(capability)
 }
@@ -275,7 +241,7 @@ func (s *Engine) GroupRoles(ctx context.Context, ref iam.GroupRef, subjects []ia
 	}
 	held := map[iam.Subject]iam.Role{}
 	for _, r := range rows {
-		held[iam.Subject{Kind: iam.SubjectKind(r.Kind), ID: r.SubjectID}] = ident.Role(g.Persona, r.Role)
+		held[iam.Subject{Kind: iam.SubjectKind(r.Kind), ID: r.SubjectID}] = ident.RoleText(r.Role)
 	}
 	sch := s.groupSchemaOrDefault()
 	for _, subject := range subjects {

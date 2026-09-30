@@ -30,11 +30,18 @@ func (m VerificationMessage) Validate() error {
 // identifier (email or phone) was replaced, so a hijacked change is visible to
 // the account's real owner.
 type ContactChange struct {
-	// Field is "email" or "phone".
-	Field string
+	Field ContactField
 	// NewValue is the replacement address as stored.
 	NewValue string
 }
+
+// ContactField names a recovery identifier.
+type ContactField string
+
+const (
+	ContactEmail ContactField = "email"
+	ContactPhone ContactField = "phone"
+)
 
 // DeviceKeyNotice describes a native-client device key just enrolled on an
 // EXISTING account, so a key added through a compromised mailbox is visible to

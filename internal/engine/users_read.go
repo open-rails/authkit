@@ -6,25 +6,28 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	stdlog "log"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/ops"
 )
 
 // Account reads. They take no actor: the host is the trust boundary, and
 // httpapi gates its read routes with root:users:read.
 
 // User returns one account. Soft-deleted accounts are excluded unless opts
-// include iam.IncludeDeleted(); a miss is iam.ErrUserNotFound.
-func (s *Engine) User(ctx context.Context, ref iam.UserRef, opts ...iam.ReadOption) (iam.User, error) {
+// include ops.IncludeDeleted(); a miss is iam.ErrUserNotFound.
+func (s *Engine) User(ctx context.Context, ref iam.UserRef, opts ...ops.Option) (iam.User, error) {
+	o, err := ops.Resolve("User", opts, ops.KindIncludeDeleted)
+	if err != nil {
+		return iam.User{}, err
+	}
 	if err := s.requirePG(); err != nil {
 		return iam.User{}, err
 	}
@@ -33,7 +36,6 @@ func (s *Engine) User(ctx context.Context, ref iam.UserRef, opts ...iam.ReadOpti
 		return iam.User{}, iam.ErrUserNotFound
 	}
 	var r db.User
-	var err error
 	switch ref.Key() {
 	case iam.UserKeyID:
 		if !isUUID(value) {
@@ -61,7 +63,7 @@ func (s *Engine) User(ctx context.Context, ref iam.UserRef, opts ...iam.ReadOpti
 	if err != nil {
 		return iam.User{}, err
 	}
-	if r.DeletedAt != nil && !iam.IncludesDeleted(opts) {
+	if r.DeletedAt != nil && !o.IncludeDeleted {
 		return iam.User{}, iam.ErrUserNotFound
 	}
 	return publicUser(&r, time.Now()), nil
@@ -208,9 +210,11 @@ func userSortColumn(sort iam.UserSort) (col, cast string, ok bool) {
 }
 
 // ListUsers is the user directory: search, status, root-role and entitlement
-// filters, keyset-paged. NULL sort values come last in either direction.
-func (s *Engine) ListUsers(ctx context.Context, q iam.UserQuery) (iam.ListPage[iam.User], error) {
-	page := iam.ListPage[iam.User]{Items: []iam.User{}}
+// filters, keyset-paged. NULL sort values come last in either direction. Each
+// entry carries its root role and, with q.WithEntitlements, its entitlements;
+// q.Total counts every match.
+func (s *Engine) ListUsers(ctx context.Context, q iam.UserQuery) (iam.ListPage[iam.UserEntry], error) {
+	page := iam.ListPage[iam.UserEntry]{Items: []iam.UserEntry{}}
 	if err := s.requirePG(); err != nil {
 		return page, err
 	}
@@ -245,7 +249,7 @@ func (s *Engine) ListUsers(ctx context.Context, q iam.UserQuery) (iam.ListPage[i
 			return page, fmt.Errorf("root role filter %q is not a root role: %w", role, iam.ErrRoleNotAssignable)
 		}
 		where = append(where, `EXISTS (SELECT 1 FROM group_user_roles r JOIN permission_groups g ON g.id=r.permission_group_id
- WHERE r.user_id=u.id AND g.persona='root' AND r.role=`+arg(role.Name())+`)`)
+ WHERE r.user_id=u.id AND g.persona='root' AND r.role=`+arg(role.String())+`)`)
 	}
 	if search := strings.TrimSpace(q.Search); search != "" {
 		p := arg("%" + search + "%")
@@ -262,6 +266,7 @@ func (s *Engine) ListUsers(ctx context.Context, q iam.UserQuery) (iam.ListPage[i
 		}
 		where = append(where, "u.id::text = ANY("+arg(subjects)+"::text[])")
 	}
+	filters, filterArgs := len(where), len(args)
 	cmp, dir := ">", "ASC"
 	if q.Desc {
 		cmp, dir = "<", "DESC"
@@ -279,13 +284,18 @@ func (s *Engine) ListUsers(ctx context.Context, q iam.UserQuery) (iam.ListPage[i
 			where = append(where, "("+col+" "+cmp+" "+v+" OR ("+col+" = "+v+" AND u.id "+cmp+" "+id+") OR "+col+" IS NULL)")
 		}
 	}
-	if len(where) == 0 {
-		where = append(where, "TRUE")
+	if q.Total {
+		// The count ignores the keyset: it is taken before the cursor filter.
+		n, err := s.countUsers(ctx, where[:filters], args[:filterArgs])
+		if err != nil {
+			return page, err
+		}
+		page.Total = &n
 	}
 	limit := q.Page.PageLimit()
 	// The filters, sort column and keyset are built at runtime, so this query
 	// only pages ids; the rows come from UsersByIDs, the one user projection.
-	sql := `SELECT u.id::text, ` + col + `::text FROM users u WHERE ` + strings.Join(where, " AND ") +
+	sql := `SELECT u.id::text, ` + col + `::text FROM users u WHERE ` + strings.Join(append([]string{"TRUE"}, where...), " AND ") +
 		` ORDER BY ` + col + ` ` + dir + ` NULLS LAST, u.id ` + dir + ` LIMIT ` + arg(limit+1)
 	rows, err := s.pg.Query(ctx, sql, args...)
 	if err != nil {
@@ -315,21 +325,83 @@ func (s *Engine) ListUsers(ctx context.Context, q iam.UserQuery) (iam.ListPage[i
 	for i, k := range keys {
 		ids[i] = k.ID
 	}
-	users, err := s.q.UsersByIDs(ctx, ids)
+	found, err := s.q.UsersByIDs(ctx, ids)
 	if err != nil {
 		return page, err
 	}
-	byID := make(map[string]*db.User, len(users))
-	for i := range users {
-		byID[users[i].ID] = &users[i]
+	byID := make(map[string]*db.User, len(found))
+	for i := range found {
+		byID[found[i].ID] = &found[i]
 	}
 	now := time.Now()
+	users := make([]iam.User, 0, len(keys))
 	for _, k := range keys {
 		if u := byID[k.ID]; u != nil { // absent when purged between the two reads
-			page.Items = append(page.Items, publicUser(u, now))
+			users = append(users, publicUser(u, now))
 		}
 	}
-	return page, nil
+	page.Items, err = s.userEntries(ctx, users, q.WithEntitlements)
+	return page, err
+}
+
+// UserEntry is one account, deleted ones included, as the user directory
+// lists it, entitlements included.
+func (s *Engine) UserEntry(ctx context.Context, userID string) (iam.UserEntry, error) {
+	u, err := s.User(ctx, iam.UserByID(userID), ops.IncludeDeleted())
+	if err != nil {
+		return iam.UserEntry{}, err
+	}
+	out, err := s.userEntries(ctx, []iam.User{u}, true)
+	if err != nil {
+		return iam.UserEntry{}, err
+	}
+	return out[0], nil
+}
+
+// userEntries adds each account's root role and, when asked, entitlements.
+func (s *Engine) userEntries(ctx context.Context, users []iam.User, withEntitlements bool) ([]iam.UserEntry, error) {
+	ids := make([]string, len(users))
+	for i, u := range users {
+		ids[i] = u.ID
+	}
+	roles, err := s.rootRoles(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	var ents map[string][]string
+	if withEntitlements {
+		if ents, err = s.entitlementsOf(ctx, ids); err != nil {
+			return nil, err
+		}
+	}
+	out := make([]iam.UserEntry, len(users))
+	for i, u := range users {
+		out[i] = iam.UserEntry{User: u, RootRole: roles[u.ID], Entitlements: ents[u.ID]}
+		if withEntitlements && out[i].Entitlements == nil {
+			out[i].Entitlements = []string{}
+		}
+	}
+	return out, nil
+}
+
+// countUsers counts the accounts matching where, a conjunction over args.
+func (s *Engine) countUsers(ctx context.Context, where []string, args []any) (int, error) {
+	var n int
+	err := s.pg.QueryRow(ctx, `SELECT count(*) FROM users u WHERE `+strings.Join(append([]string{"TRUE"}, where...), " AND "), args...).Scan(&n)
+	return n, err
+}
+
+// entitlementsOf asks the entitlements provider for ids' entitlements.
+func (s *Engine) entitlementsOf(ctx context.Context, ids []string) (map[string][]string, error) {
+	provider := s.entitlementsProvider()
+	if provider == nil {
+		return nil, nil
+	}
+	ents, err := provider.ListEntitlements(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("authkit: entitlements provider: %w", err)
+	}
+	return ents, nil
 }
 
 func encodeUserCursor(c userCursor) string {
@@ -345,36 +417,4 @@ func decodeUserCursor(s string) (userCursor, error) {
 	}
 	err = json.Unmarshal(raw, &c)
 	return c, err
-}
-
-// UserDirectoryDetails adds, for httpapi's admin views, each user's root
-// roles and entitlements. Lookup failures degrade to empty details.
-func (s *Engine) UserDirectoryDetails(ctx context.Context, ids []string) map[string]authflow.UserDirectoryDetail {
-	out := make(map[string]authflow.UserDirectoryDetail, len(ids))
-	ids = uuidsOnly(ids)
-	if len(ids) == 0 || s.pg == nil {
-		return out
-	}
-	st := s.groupStore()
-	if gid, err := st.RootGroupID(ctx); err == nil {
-		if roles, err := st.RootRolesForUsers(ctx, gid, ids); err == nil {
-			for _, id := range ids {
-				d := out[id]
-				d.Roles, d.RemovedRoles = s.splitConfiguredRootRoles(roles[id])
-				out[id] = d
-			}
-		}
-	}
-	if provider := s.entitlementsProvider(); provider != nil {
-		ents, err := provider.ListEntitlements(ctx, ids)
-		if err != nil {
-			stdlog.Printf("authkit: error: batch entitlements provider failed for %d users; reporting no entitlements: %v", len(ids), err)
-		}
-		for _, id := range ids {
-			d := out[id]
-			d.Entitlements = ents[id]
-			out[id] = d
-		}
-	}
-	return out
 }

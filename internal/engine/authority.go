@@ -75,7 +75,13 @@ func (s *Engine) rootGroup(ctx context.Context, st *permissionGroupStore) (strin
 // ReadCommitted, credential re-check before commit) with ref resolved and its
 // row locked.
 func (s *Engine) withGroupMutation(ctx context.Context, a iam.Actor, ref iam.GroupRef, apply func(st *permissionGroupStore, g groupTarget) error) error {
-	return s.withAuthorityMutation(ctx, a, func(st *permissionGroupStore) error {
+	return s.withGroupMutationIn(ctx, a, nil, ref, apply)
+}
+
+// withGroupMutationIn is withGroupMutation inside host, the host's own
+// transaction, when set (withAuthorityMutationIn).
+func (s *Engine) withGroupMutationIn(ctx context.Context, a iam.Actor, host pgx.Tx, ref iam.GroupRef, apply func(st *permissionGroupStore, g groupTarget) error) error {
+	return s.withAuthorityMutationIn(ctx, a, host, func(st *permissionGroupStore) error {
 		g, err := s.resolveGroup(ctx, st, ref)
 		if err != nil {
 			return err
@@ -220,7 +226,7 @@ func (s *Engine) apiKeyAuthority(ctx context.Context, st *permissionGroupStore, 
 	if err != nil || key.PermissionGroupID != g.ID {
 		return out, err
 	}
-	out.grants, err = s.roleGrants(ctx, st, g, ident.Role(g.Persona, key.Role))
+	out.grants, err = s.roleGrants(g.Persona, ident.RoleText(key.Role))
 	if errors.Is(err, iam.ErrRoleNotAssignable) {
 		return out, nil
 	}
@@ -236,13 +242,13 @@ func (s *Engine) subjectGrants(ctx context.Context, st *permissionGroupStore, su
 	return s.groupSchemaOrDefault().ResolveGrants(gid, asg), nil
 }
 
-// roleGrants returns what a catalog role confers in g, else
+// roleGrants returns what a catalog role of persona confers, else
 // ErrRoleNotAssignable.
-func (s *Engine) roleGrants(_ context.Context, _ *permissionGroupStore, g groupTarget, role iam.Role) ([]string, error) {
-	if r, ok := s.groupSchemaOrDefault().Role(g.Persona, role); ok {
+func (s *Engine) roleGrants(persona iam.Persona, role iam.Role) ([]string, error) {
+	if r, ok := s.groupSchemaOrDefault().Role(persona, role); ok {
 		return r.Permissions, nil
 	}
-	return nil, fmt.Errorf("role %q is not assignable in a %q group: %w", role, g.Persona, iam.ErrRoleNotAssignable)
+	return nil, fmt.Errorf("role %q is not assignable in a %q group: %w", role, persona, iam.ErrRoleNotAssignable)
 }
 
 // requireRoleCover is rule COVER for a role in g.
@@ -250,7 +256,7 @@ func (s *Engine) requireRoleCover(ctx context.Context, st *permissionGroupStore,
 	if a.system {
 		return nil
 	}
-	grants, err := s.roleGrants(ctx, st, g, role)
+	grants, err := s.roleGrants(g.Persona, role)
 	if err != nil {
 		return err
 	}

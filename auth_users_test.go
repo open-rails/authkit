@@ -1,6 +1,7 @@
 package authkit_test
 
 import (
+	"context"
 	"sort"
 	"strings"
 	"testing"
@@ -56,7 +57,7 @@ func TestUserLookups(t *testing.T) {
 		require.NoError(t, itemErr(auth.DeleteUsers(ctx, op, []string{bob.ID})))
 		_, err = auth.User(ctx, iam.UserByUsername("bobby"))
 		require.ErrorIs(t, err, iam.ErrUserNotFound)
-		deleted, err := auth.User(ctx, iam.UserByID(bob.ID), iam.IncludeDeleted())
+		deleted, err := auth.User(ctx, iam.UserByID(bob.ID), authkit.IncludeDeleted())
 		require.NoError(t, err)
 		require.NotNil(t, deleted.DeletedAt)
 		users, err := auth.Users(ctx, []string{alice.ID, bob.ID, "0190a0a0-0000-7000-8000-000000000000", "junk"})
@@ -238,10 +239,9 @@ func TestListGroupMembersLiveOnlyWithUsers(t *testing.T) {
 		ids[name] = u.ID
 		subjects = append(subjects, iam.UserSubject(u.ID))
 	}
-	res, err := auth.AssignGroupRoles(ctx, op, ref, subjects, member)
-	require.NoError(t, err)
-	for _, r := range res {
-		require.NoError(t, r.Err)
+	for _, s := range subjects {
+		_, err := auth.SetGroupRole(ctx, op, ref, s, member)
+		require.NoError(t, err)
 	}
 	require.NoError(t, auth.Ban(ctx, op, ids["banned"], iam.Ban{}))
 	require.NoError(t, itemErr(auth.DeleteUsers(ctx, op, []string{ids["deleted"]})))
@@ -263,4 +263,103 @@ func TestListGroupMembersLiveOnlyWithUsers(t *testing.T) {
 		live := m.User.DeletedAt == nil && m.User.Ban == nil
 		require.Equal(t, m.Subject.ID == ids["liveone"], live)
 	}
+}
+
+// entitlements is the host's billing view of accounts.
+type entitlements map[string][]string
+
+func (e entitlements) ListEntitlements(_ context.Context, ids []string) (map[string][]string, error) {
+	out := map[string][]string{}
+	for _, id := range ids {
+		if ents, ok := e[id]; ok {
+			out[id] = ents
+		}
+	}
+	return out, nil
+}
+
+// The user directory pages by number when asked for a total, and each entry
+// carries its root role and, when asked, its entitlements.
+func TestUserDirectoryEntries(t *testing.T) {
+	pg := testdb.ScratchPostgres(t)
+	rbac := authkit.NewRoles()
+	staff := rbac.Root.Role("staff", rbac.Root.Users.Read)
+	cfg := testConfig(t)
+	cfg.Roles = rbac
+	billing := entitlements{}
+	auth, err := authkit.New(t.Context(), cfg, authkit.Deps{Postgres: pg.Pool, Entitlements: billing})
+	require.NoError(t, err)
+	t.Cleanup(auth.Close)
+	ctx := t.Context()
+	var ids []string
+	for _, name := range []string{"dira", "dirb", "dirc"} {
+		u, err := auth.CreateUser(ctx, iam.NewUser{Email: name + "@example.test", Username: name})
+		require.NoError(t, err)
+		ids = append(ids, u.ID)
+	}
+	_, err = auth.SetGroupRole(ctx, iam.SystemActor(), iam.RootGroup(), iam.UserSubject(ids[1]), staff)
+	require.NoError(t, err)
+	billing[ids[1]] = []string{"premium"}
+
+	page, err := auth.ListUsers(ctx, iam.UserQuery{Total: true, Sort: iam.UserSortUsername, Page: iam.PageRequest{Limit: 2}})
+	require.NoError(t, err)
+	require.NotNil(t, page.Total)
+	require.Equal(t, 3, *page.Total, "the total counts every match, not the page")
+	require.Len(t, page.Items, 2)
+	require.Equal(t, iam.UserEntry{User: page.Items[1].User, RootRole: staff}, page.Items[1], "dirb holds staff; no entitlements unless asked")
+	require.True(t, page.Items[0].RootRole.IsZero())
+	rest, err := auth.ListUsers(ctx, iam.UserQuery{Total: true, Sort: iam.UserSortUsername, WithEntitlements: true, Page: iam.PageRequest{Limit: 2, Cursor: page.Next}})
+	require.NoError(t, err)
+	require.Equal(t, 3, *rest.Total, "the total ignores the cursor")
+	require.Len(t, rest.Items, 1)
+	require.Equal(t, []string{}, rest.Items[0].Entitlements)
+	staffOnly, err := auth.ListUsers(ctx, iam.UserQuery{Total: true, RootRole: staff, WithEntitlements: true})
+	require.NoError(t, err)
+	require.Equal(t, 1, *staffOnly.Total)
+	require.Equal(t, ids[1], staffOnly.Items[0].ID)
+	require.Equal(t, []string{"premium"}, staffOnly.Items[0].Entitlements)
+	plain, err := auth.ListUsers(ctx, iam.UserQuery{})
+	require.NoError(t, err)
+	require.Nil(t, plain.Total, "no count unless asked")
+}
+
+// <schema>.users(id) is the one AuthKit column a host table may reference:
+// the row stays through the recovery window and is deleted at purge, once the
+// deletion callbacks succeed, taking the host's cascading rows with it.
+func TestUsersIDIsAHostForeignKeyTarget(t *testing.T) {
+	pg := testdb.ScratchPostgres(t)
+	ctx := t.Context()
+	purged := make(chan string, 1)
+	auth, err := authkit.New(ctx, testConfig(t), authkit.Deps{Postgres: pg.Pool,
+		OnHardDelete: func(_ context.Context, d iam.UserDeletion) error { purged <- d.UserID; return nil }})
+	require.NoError(t, err)
+	t.Cleanup(auth.Close)
+	_, err = pg.Pool.Exec(ctx, `CREATE TABLE public.host_notes (
+		id serial PRIMARY KEY,
+		user_id uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
+		body text NOT NULL)`)
+	require.NoError(t, err)
+	u, err := auth.CreateUser(ctx, iam.NewUser{Email: "fk@example.test", Username: "fkuser"})
+	require.NoError(t, err)
+	_, err = pg.Pool.Exec(ctx, `INSERT INTO public.host_notes (user_id, body) VALUES ($1, 'hello')`, u.ID)
+	require.NoError(t, err)
+	notes := func() int {
+		var n int
+		require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT count(*) FROM public.host_notes WHERE user_id = $1`, u.ID).Scan(&n))
+		return n
+	}
+
+	require.NoError(t, itemErr(auth.DeleteUsers(ctx, iam.SystemActor(), []string{u.ID})))
+	require.Equal(t, 1, notes(), "a soft-deleted account keeps its row")
+	require.NoError(t, itemErr(auth.PurgeUsers(ctx, []string{u.ID})))
+	require.NoError(t, auth.Start(ctx))
+	select {
+	case id := <-purged:
+		require.Equal(t, u.ID, id)
+	case <-time.After(15 * time.Second):
+		t.Fatal("the purge never ran")
+	}
+	require.Eventually(t, func() bool { return notes() == 0 }, 15*time.Second, 25*time.Millisecond, "the purge deletes users(id) and cascades")
+	_, err = auth.User(ctx, iam.UserByID(u.ID), authkit.IncludeDeleted())
+	require.ErrorIs(t, err, iam.ErrUserNotFound)
 }

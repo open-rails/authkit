@@ -111,7 +111,7 @@ func seed(ctx context.Context, auth *authkit.Client) (iam.User, error) {
 		return iam.User{}, errors.New("set ADMIN_EMAIL to the first admin's address")
 	}
 	// Creates the user if they don't exist, and grants them the admin role defined above
-	return auth.EnsureUserRole(ctx, iam.UserByEmail(email), iam.RootGroup(), Admin)
+	return auth.EnsureUserRole(ctx, iam.RootGroup(), iam.UserByEmail(email), Admin)
 }
 
 // Our application-specific table
@@ -397,14 +397,12 @@ func (f *forum) withPost(c *gin.Context, change func(*Post)) {
 // AuthKit decides whether the caller may: this channel's owner or an admin, yes; Bob, no.
 func (f *forum) appoint(c *gin.Context) {
 	actor, _ := verify.ActorFromContext(c.Request.Context()) // no actor? AuthKit refuses the empty one
-	change := f.auth.AssignGroupRoles
+	ctx, channel, who := c.Request.Context(), iam.GroupByID(c.GetString("channel")), iam.UserSubject(c.Param("user_id"))
+	var err error
 	if c.Request.Method == http.MethodDelete {
-		change = f.auth.UnassignGroupRoles
-	}
-	who := []iam.Subject{iam.UserSubject(c.Param("user_id"))}
-	res, err := change(c.Request.Context(), actor, iam.GroupByID(c.GetString("channel")), who, Moderator)
-	if err == nil {
-		err = res[0].Err
+		err = f.auth.RemoveGroupMember(ctx, actor, channel, who, authkit.IfRole(Moderator)) // a moderator only
+	} else {
+		_, err = f.auth.SetGroupRole(ctx, actor, channel, who, Moderator)
 	}
 	if err != nil {
 		c.JSON(iam.ErrorResponse(err))

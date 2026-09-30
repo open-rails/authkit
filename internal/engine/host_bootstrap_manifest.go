@@ -14,28 +14,34 @@ import (
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/ops"
 	"github.com/open-rails/authkit/internal/password"
-	"github.com/open-rails/authkit/internal/rbac"
 	"gopkg.in/yaml.v3"
 )
 
 const defaultBootstrapApplyName = "default"
 
 // ParseBootstrapManifestYAML parses and structurally validates a manifest,
-// resolving each root_role through the role schema.
+// checking each root_role (`root:admin`) against the role schema.
 func (s *Engine) ParseBootstrapManifestYAML(raw []byte) (iam.BootstrapManifest, error) {
-	var wire bootstrapManifestYAML
+	var manifest iam.BootstrapManifest
 	dec := yaml.NewDecoder(bytes.NewReader(raw))
 	dec.KnownFields(true)
-	if err := dec.Decode(&wire); err != nil {
+	if err := dec.Decode(&manifest); err != nil {
 		return iam.BootstrapManifest{}, err
 	}
-	if len(wire.Users) == 0 && len(wire.RemoteApplications) == 0 {
+	if len(manifest.Users) == 0 && len(manifest.RemoteApplications) == 0 {
 		return iam.BootstrapManifest{}, errmodel.ErrInvalidBootstrapManifest
 	}
-	manifest, err := wire.manifest(s.groupSchemaOrDefault())
-	if err != nil {
-		return iam.BootstrapManifest{}, err
+	for _, u := range manifest.Users {
+		if err := s.requireRootRole(u.RootRole); err != nil {
+			return iam.BootstrapManifest{}, fmt.Errorf("bootstrap user %q root_role: %w", u.Username, err)
+		}
+	}
+	for _, a := range manifest.RemoteApplications {
+		if err := s.requireRootRole(a.RootRole); err != nil {
+			return iam.BootstrapManifest{}, fmt.Errorf("bootstrap remote application %q root_role: %w", a.Issuer, err)
+		}
 	}
 	// Parse is env-less and structural-only; the https/private jwks_uri policy
 	// is enforced at apply time against the target service's environment (#257).
@@ -50,17 +56,19 @@ func (s *Engine) ParseBootstrapManifestYAML(raw []byte) (iam.BootstrapManifest, 
 // through a username, an alias or an unverified contact, and never changes an
 // existing account's identity or marks its contacts verified (see
 // iam.BootstrapManifestUser). Role changes run the credential sweep.
-func (s *Engine) ApplyBootstrapManifest(ctx context.Context, manifest iam.BootstrapManifest, opts iam.BootstrapOptions) (iam.BootstrapResult, error) {
+func (s *Engine) ApplyBootstrapManifest(ctx context.Context, manifest iam.BootstrapManifest, opts iam.BootstrapOptions, options ...ops.Option) (iam.BootstrapResult, error) {
+	if err := noOptions("ApplyBootstrapManifest", options); err != nil {
+		return iam.BootstrapResult{}, err
+	}
 	if err := s.requirePG(); err != nil {
 		return iam.BootstrapResult{}, err
 	}
 	if err := validateBootstrapManifest(manifest, s.cfg.Applications.AllowPrivateNetworkJWKS); err != nil {
 		return iam.BootstrapResult{}, err
 	}
-	schema := s.groupSchemaOrDefault()
 	checkRole := func(role iam.Role) error {
-		if !role.IsZero() && !s.validRoleForPersona(schema, iam.RootPersona, role) {
-			return fmt.Errorf("bootstrap root role %q: %w", role, iam.ErrRoleNotAssignable)
+		if err := s.requireRootRole(role); err != nil {
+			return fmt.Errorf("bootstrap root role %q: %w", role, err)
 		}
 		return nil
 	}
@@ -284,7 +292,7 @@ func (s *Engine) applyBootstrapUser(ctx context.Context, st *permissionGroupStor
 	if !seedsRole || current == role {
 		return m.id, revoked, nil
 	}
-	if err := s.requireDefinedGroupRole(ctx, st, rootID, iam.RootPersona, role); err != nil {
+	if err := s.requireDefinedGroupRole(iam.RootPersona, role); err != nil {
 		return "", nil, err
 	}
 	if !current.IsZero() {
@@ -328,12 +336,21 @@ func (s *Engine) claimBootstrapApply(ctx context.Context, q *db.Queries, name st
 	return state.AnyClaimed, q.BootstrapApplyInsert(ctx, name)
 }
 
+// requireRootRole refuses a role that is set but is not a root role of
+// Config.Roles.
+func (s *Engine) requireRootRole(role iam.Role) error {
+	if !role.IsZero() && !s.validRoleForPersona(s.groupSchemaOrDefault(), iam.RootPersona, role) {
+		return fmt.Errorf("%q is not a root role: %w", role, iam.ErrRoleNotAssignable)
+	}
+	return nil
+}
+
 func validateBootstrapManifest(manifest iam.BootstrapManifest, allowInsecureJWKS bool) error {
 	for _, user := range manifest.Users {
 		if strings.TrimSpace(user.Username) == "" {
 			return errmodel.ErrInvalidBootstrapManifest
 		}
-		if !user.Banned && (user.BannedUntil != nil || strings.TrimSpace(user.BanReason) != "") {
+		if b := user.Ban; b != nil && (!b.At.IsZero() || b.By != "") {
 			return errmodel.ErrInvalidBootstrapManifest
 		}
 		if user.Password != nil {
@@ -343,7 +360,7 @@ func validateBootstrapManifest(manifest iam.BootstrapManifest, allowInsecureJWKS
 		}
 	}
 	for _, app := range manifest.RemoteApplications {
-		if strings.TrimSpace(app.Slug) == "" || strings.TrimSpace(app.Issuer) == "" || app.Enabled == nil {
+		if strings.TrimSpace(app.Issuer) == "" || app.Enabled == nil {
 			return errmodel.ErrInvalidBootstrapManifest
 		}
 		if _, err := normalizeRemoteAppTrustSource(app.JWKSURI, "", app.PublicKeys, trustSourcePolicy{AllowPrivateNetworkJWKS: allowInsecureJWKS}); err != nil {
@@ -355,12 +372,11 @@ func validateBootstrapManifest(manifest iam.BootstrapManifest, allowInsecureJWKS
 
 func (s *Engine) applyBootstrapRemoteApplication(ctx context.Context, st *permissionGroupStore, rootID string, app iam.BootstrapManifestRemoteApplication) error {
 	ra, err := s.upsertRemoteApplication(ctx, st, iam.RemoteApplication{
-		Slug:              strings.TrimSpace(app.Slug),
-		PermissionGroupID: rootID,
-		Issuer:            strings.TrimSpace(app.Issuer),
-		JWKSURI:           strings.TrimSpace(app.JWKSURI),
-		PublicKeys:        app.PublicKeys,
-		Enabled:           *app.Enabled,
+		GroupID:    rootID,
+		Issuer:     strings.TrimSpace(app.Issuer),
+		JWKSURI:    strings.TrimSpace(app.JWKSURI),
+		PublicKeys: app.PublicKeys,
+		Enabled:    *app.Enabled,
 	})
 	if err != nil {
 		return err
@@ -388,12 +404,12 @@ func validateBootstrapUserPassword(p iam.BootstrapUserPassword) error {
 	if strings.TrimSpace(p.Plaintext) != "" {
 		modes++
 	}
-	if strings.TrimSpace(p.Hash) != "" || strings.TrimSpace(p.HashAlgo) != "" {
+	if strings.TrimSpace(p.Hash) != "" || p.Algo != "" {
 		modes++
-		if strings.TrimSpace(p.Hash) == "" || strings.TrimSpace(p.HashAlgo) == "" {
+		if strings.TrimSpace(p.Hash) == "" || p.Algo == "" {
 			return errmodel.ErrInvalidBootstrapManifest
 		}
-		if err := validatePasswordHashForStorage(strings.TrimSpace(p.Hash), strings.TrimSpace(p.HashAlgo)); err != nil {
+		if err := validatePasswordHashForStorage(strings.TrimSpace(p.Hash), string(p.Algo)); err != nil {
 			return fmt.Errorf("%w: %w", errmodel.ErrInvalidBootstrapManifest, err)
 		}
 	}
@@ -405,7 +421,7 @@ func validateBootstrapUserPassword(p iam.BootstrapUserPassword) error {
 	}
 	// enforce-as-desired-state is incompatible with reset_required (#89): a
 	// reset sentinel re-applied every reconcile would force a reset on every run.
-	if p.Enforce && (p.ResetRequired || strings.TrimSpace(p.HashAlgo) == iam.HashAlgoLegacyResetRequired) {
+	if p.Enforce && (p.ResetRequired || p.Algo == iam.HashLegacyResetRequired) {
 		return errmodel.ErrInvalidBootstrapManifest
 	}
 	return nil
@@ -421,9 +437,9 @@ func bootstrapAccount(user iam.BootstrapManifestUser) newAccount {
 		PhoneVerified: user.PhoneVerified,
 		Metadata:      user.Metadata,
 	}
-	if user.Banned {
+	if b := user.Ban; b != nil {
 		now := time.Now().UTC()
-		acct.BannedAt, acct.BannedUntil, acct.BanReason = &now, user.BannedUntil, nullable(strings.TrimSpace(user.BanReason))
+		acct.BannedAt, acct.BannedUntil, acct.BanReason = &now, b.Until, nullable(strings.TrimSpace(b.Reason))
 	}
 	return acct
 }
@@ -433,9 +449,9 @@ func prepareBootstrapPassword(p iam.BootstrapUserPassword) (out db.UserPasswordU
 		out.PasswordHash, err = password.HashArgon2id(plaintext)
 		out.HashAlgo = "argon2id"
 	} else if p.ResetRequired {
-		out.PasswordHash, out.HashAlgo = "reset-required", iam.HashAlgoLegacyResetRequired
+		out.PasswordHash, out.HashAlgo = "reset-required", string(iam.HashLegacyResetRequired)
 	} else {
-		out.PasswordHash, out.HashAlgo = strings.TrimSpace(p.Hash), strings.TrimSpace(p.HashAlgo)
+		out.PasswordHash, out.HashAlgo = strings.TrimSpace(p.Hash), string(p.Algo)
 	}
 	return out, err
 }
@@ -467,66 +483,4 @@ func boolToInt(v bool) int {
 		return 1
 	}
 	return 0
-}
-
-// bootstrapManifestYAML is the manifest file format; root_role names a root
-// role.
-type bootstrapManifestYAML struct {
-	Users              []bootstrapUserYAML `yaml:"users"`
-	RemoteApplications []bootstrapAppYAML  `yaml:"remote_applications"`
-}
-
-type bootstrapUserYAML struct {
-	Username      string                     `yaml:"username"`
-	Email         string                     `yaml:"email"`
-	Phone         string                     `yaml:"phone"`
-	EmailVerified bool                       `yaml:"email_verified"`
-	PhoneVerified bool                       `yaml:"phone_verified"`
-	Banned        bool                       `yaml:"banned"`
-	BannedUntil   *time.Time                 `yaml:"banned_until"`
-	BanReason     string                     `yaml:"ban_reason"`
-	Metadata      map[string]any             `yaml:"metadata"`
-	Password      *iam.BootstrapUserPassword `yaml:"password"`
-	RootRole      string                     `yaml:"root_role"`
-}
-
-type bootstrapAppYAML struct {
-	Slug       string                     `yaml:"slug"`
-	Issuer     string                     `yaml:"issuer"`
-	JWKSURI    string                     `yaml:"jwks_uri"`
-	PublicKeys []iam.RemoteApplicationKey `yaml:"public_keys"`
-	Enabled    *bool                      `yaml:"enabled"`
-	RootRole   string                     `yaml:"root_role"`
-}
-
-func (w bootstrapManifestYAML) manifest(sch *rbac.Schema) (iam.BootstrapManifest, error) {
-	rootRole := func(name string) (iam.Role, error) {
-		if strings.TrimSpace(name) == "" {
-			return iam.Role{}, nil
-		}
-		return sch.ParseRole(iam.RootPersona, name)
-	}
-	var out iam.BootstrapManifest
-	for _, u := range w.Users {
-		role, err := rootRole(u.RootRole)
-		if err != nil {
-			return iam.BootstrapManifest{}, fmt.Errorf("bootstrap user %q root_role: %w", u.Username, err)
-		}
-		out.Users = append(out.Users, iam.BootstrapManifestUser{
-			Username: u.Username, Email: u.Email, Phone: u.Phone,
-			EmailVerified: u.EmailVerified, PhoneVerified: u.PhoneVerified,
-			Banned: u.Banned, BannedUntil: u.BannedUntil, BanReason: u.BanReason,
-			Metadata: u.Metadata, Password: u.Password, RootRole: role,
-		})
-	}
-	for _, a := range w.RemoteApplications {
-		role, err := rootRole(a.RootRole)
-		if err != nil {
-			return iam.BootstrapManifest{}, fmt.Errorf("bootstrap remote application %q root_role: %w", a.Slug, err)
-		}
-		out.RemoteApplications = append(out.RemoteApplications, iam.BootstrapManifestRemoteApplication{
-			Slug: a.Slug, Issuer: a.Issuer, JWKSURI: a.JWKSURI, PublicKeys: a.PublicKeys, Enabled: a.Enabled, RootRole: role,
-		})
-	}
-	return out, nil
 }

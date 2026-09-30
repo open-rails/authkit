@@ -80,3 +80,11 @@ FROM unnest(sqlc.arg(user_ids)::uuid[], sqlc.arg(issuers)::text[], sqlc.arg(prov
             sqlc.arg(subjects)::text[], sqlc.arg(emails_at_provider)::text[])
   AS k(user_id, issuer, provider_slug, subject, email_at_provider)
 ON CONFLICT DO NOTHING;
+
+-- name: ImportSetBannedBy :exec
+-- Records who banned imported accounts; a banner that is no account leaves
+-- banned_by NULL.
+UPDATE users u SET banned_by = k.banned_by
+FROM unnest(sqlc.arg(user_ids)::uuid[], sqlc.arg(banned_by)::uuid[]) AS k(user_id, banned_by)
+WHERE u.id = k.user_id AND u.banned_at IS NOT NULL AND u.banned_by IS NULL
+  AND EXISTS(SELECT 1 FROM users b WHERE b.id = k.banned_by);

@@ -1,36 +1,49 @@
 package iam
 
-import "time"
+import (
+	"time"
+
+	"github.com/open-rails/authkit/internal/errmodel"
+)
+
+// ErrGroupConflict refuses to create a group whose id is taken by a deleted
+// group or a group of another persona.
+var ErrGroupConflict Error = errmodel.E(errmodel.CodeGroupConflict)
 
 // Group is one permission group: an instance of a persona, or the root
 // group, the whole site. A group has no name: it only holds roles. The entity
 // it guards (a channel, /c/golang) lives in the host app, which stores the
 // group's ID.
 type Group struct {
-	ID        string
-	Persona   Persona
-	CreatedAt time.Time
+	ID        string    `json:"id"`
+	Persona   Persona   `json:"persona"`
+	CreatedAt time.Time `json:"created_at"`
 	// DeletedAt is set on a soft-deleted group.
-	DeletedAt *time.Time
+	DeletedAt *time.Time `json:"deleted_at"`
 }
 
 // GroupMember is a subject holding a role in a group. User is the account
 // of a user member when MemberQuery.WithUsers asked for it.
 type GroupMember struct {
-	Subject Subject
-	Role    Role
-	User    *User
+	Subject Subject `json:"subject"`
+	Role    Role    `json:"role"`
+	User    *User   `json:"user"`
 }
 
 // Membership is a group a subject holds a role in.
 type Membership struct {
-	Group Group
-	Role  Role
+	Group Group `json:"group"`
+	Role  Role  `json:"role"`
 }
 
-// NewGroup describes a group to create. Owner, when set, is seeded with the
-// owner role: a live account, or an enabled remote application.
+// NewGroup describes a group to create. ID, when set, is the group's id: any
+// uuid the host keys the group by, such as its own row's id or a user's id.
+// Creating an id that exists returns that group unchanged when it is a live
+// group of Persona, and is iam.ErrGroupConflict otherwise. Owner, when set, is
+// seeded with the owner role of a new group: a live account, or an enabled
+// remote application.
 type NewGroup struct {
+	ID      string
 	Persona Persona
 	Owner   *Subject
 }

@@ -66,7 +66,7 @@ func groupEvent(kind iam.EventKind, groupID string, persona iam.Persona) iam.Eve
 
 // roleEvent is subject's role in the group going from previous to current.
 func roleEvent(groupID string, persona iam.Persona, subject iam.Subject, previous, current iam.Role) iam.Event {
-	e := iam.Event{Kind: iam.EventRoleChanged, GroupID: groupID, Persona: persona, Previous: previous.Name(), Current: current.Name()}
+	e := iam.Event{Kind: iam.EventRoleChanged, GroupID: groupID, Persona: persona, Previous: previous.String(), Current: current.String()}
 	switch {
 	case previous.IsZero():
 		e.Kind = iam.EventRoleGranted

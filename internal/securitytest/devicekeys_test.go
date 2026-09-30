@@ -144,7 +144,7 @@ func TestSecurityDeviceKeyMFAGate(t *testing.T) {
 		early := newDeviceKey(t)
 		require.Equal(t, http.StatusOK, h.deviceEnroll(early, holder.email, nil).status)
 		// The role is granted while 2FA was off (the gate never ran).
-		_, err := h.pool.Exec(ctx, `INSERT INTO profiles.group_user_roles(permission_group_id,user_id,role) VALUES($1::uuid,$2::uuid,'security')`, h.rootGroupID(), holder.id)
+		_, err := h.pool.Exec(ctx, `INSERT INTO profiles.group_user_roles(permission_group_id,user_id,role) VALUES($1::uuid,$2::uuid,'root:security')`, h.rootGroupID(), holder.id)
 		require.NoError(t, err)
 		resp := h.deviceEnroll(newDeviceKey(t), holder.email, nil)
 		require.Equal(t, http.StatusForbidden, resp.status, resp.String())

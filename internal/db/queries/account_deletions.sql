@@ -47,7 +47,7 @@ UPDATE account_deletions SET state = 'restored', restored_at = statement_timesta
 UPDATE users SET deleted_at = NULL, updated_at = statement_timestamp() WHERE id = $1;
 
 -- name: GroupsOwnedByUser :many
-SELECT permission_group_id FROM group_user_roles WHERE user_id = $1 AND role = 'owner' ORDER BY permission_group_id;
+SELECT permission_group_id FROM group_user_roles WHERE user_id = $1 AND role LIKE '%:owner' ORDER BY permission_group_id;
 
 -- name: AccountDeletionsDeleteTerminalBatch :execrows
 -- One bounded batch of restored/purged deletions past cutoff with no pending

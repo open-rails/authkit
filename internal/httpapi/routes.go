@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -119,9 +120,9 @@ func (s *Service) APIRoutes(groups ...iam.RouteGroup) []RouteSpec {
 		// Intrinsic user-admin directory. Auth is permission-based: human users
 		// authorize through the root permission-group, programmatic principals via
 		// their verified permission ceiling.
-		{Method: http.MethodGet, Path: "/admin/users", Group: iam.RouteAdmin, Auth: iam.AuthPermission, Permission: iam.PermRootUsersRead.String(), Bucket: RLAdminUserSessionsList, Handler: rootPermission(iam.PermRootUsersRead, s.handleAdminUsersListGET)},
-		{Method: http.MethodGet, Path: "/admin/users/{user_id}", Group: iam.RouteAdmin, Auth: iam.AuthPermission, Permission: iam.PermRootUsersRead.String(), Handler: rootPermission(iam.PermRootUsersRead, s.handleAdminUserGET)},
-		{Method: http.MethodGet, Path: "/admin/users/{user_id}/signins", Group: iam.RouteAdmin, Auth: iam.AuthPermission, Permission: iam.PermRootUsersRead.String(), Handler: rootPermission(iam.PermRootUsersRead, s.handleAdminUserSigninsGET)},
+		{Method: http.MethodGet, Path: "/admin/users", Group: iam.RouteAdmin, Auth: iam.AuthPermission, Permission: ident.RootUsersRead.String(), Bucket: RLAdminUserSessionsList, Handler: rootPermission(ident.RootUsersRead, s.handleAdminUsersListGET)},
+		{Method: http.MethodGet, Path: "/admin/users/{user_id}", Group: iam.RouteAdmin, Auth: iam.AuthPermission, Permission: ident.RootUsersRead.String(), Handler: rootPermission(ident.RootUsersRead, s.handleAdminUserGET)},
+		{Method: http.MethodGet, Path: "/admin/users/{user_id}/signins", Group: iam.RouteAdmin, Auth: iam.AuthPermission, Permission: ident.RootUsersRead.String(), Handler: rootPermission(ident.RootUsersRead, s.handleAdminUserSigninsGET)},
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/ban", Group: iam.RouteAdmin, Auth: iam.AuthSession, Bucket: RLAdminUserSessionsRevokeAll, Handler: http.HandlerFunc(s.handleAdminUsersBanPOST)},
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/unban", Group: iam.RouteAdmin, Auth: iam.AuthSession, Bucket: RLAdminUserSessionsRevokeAll, Handler: http.HandlerFunc(s.handleAdminUsersUnbanPOST)},
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/sessions/revoke", Group: iam.RouteAdmin, Auth: iam.AuthSession, Bucket: RLAdminUserSessionsRevokeAll, Handler: http.HandlerFunc(s.handleAdminUserSessionsRevokePOST)},
@@ -129,7 +130,7 @@ func (s *Service) APIRoutes(groups ...iam.RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/restore", Group: iam.RouteAdmin, Auth: iam.AuthSession, Bucket: RLAdminUserSessionsRevokeAll, Handler: http.HandlerFunc(s.handleAdminUserRestorePOST)},
 		// Root-role administration: the engine enforces root:members:manage,
 		// role coverage, the last owner and MFA.
-		{Method: http.MethodGet, Path: "/admin/roles", Group: iam.RouteAdmin, Auth: iam.AuthPermission, Permission: iam.PermMembersRead(iam.RootPersona).String(), Handler: rootPermission(iam.PermMembersRead(iam.RootPersona), s.handleAdminRolesGET)},
+		{Method: http.MethodGet, Path: "/admin/roles", Group: iam.RouteAdmin, Auth: iam.AuthPermission, Permission: ident.MembersRead(iam.RootPersona).String(), Handler: rootPermission(ident.MembersRead(iam.RootPersona), s.handleAdminRolesGET)},
 		{Method: http.MethodPut, Path: "/admin/users/{user_id}/roles/{role}", Group: iam.RouteAdmin, Auth: iam.AuthSession, Bucket: RLAdminUserSessionsRevokeAll, Handler: http.HandlerFunc(s.handleAdminUserRolePUT)},
 		{Method: http.MethodDelete, Path: "/admin/users/{user_id}/roles/{role}", Group: iam.RouteAdmin, Auth: iam.AuthSession, Bucket: RLAdminUserSessionsRevokeAll, Handler: http.HandlerFunc(s.handleAdminUserRoleDELETE)},
 

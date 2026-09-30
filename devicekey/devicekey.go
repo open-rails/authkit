@@ -18,6 +18,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/open-rails/authkit/iam"
 )
 
 // Signing domains. AuthKit verifies with these same constants.
@@ -74,17 +76,6 @@ func isEd25519(key crypto.Signer) bool {
 	return ok && len(pub) == ed25519.PublicKeySize
 }
 
-// Key is one device key as AuthKit reports it.
-type Key struct {
-	ID         string     `json:"id"`
-	Label      string     `json:"label,omitempty"`
-	CreatedAt  time.Time  `json:"created_at"`
-	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
-	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
-	// Current marks the key behind the access token of the request.
-	Current bool `json:"current"`
-}
-
 // Enrollment is a pending enrollment: BeginEnrollment's answer, finished with
 // the emailed code before ExpiresAt. It holds no secret and may be persisted
 // between the two calls.
@@ -100,7 +91,7 @@ type Enrollment struct {
 type Session struct {
 	AccessToken string
 	ExpiresAt   time.Time
-	DeviceKey   Key
+	DeviceKey   iam.DeviceKey
 }
 
 // SecondFactorRequired is FinishEnrollment's answer when the account has a

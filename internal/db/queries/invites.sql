@@ -14,17 +14,33 @@ WHERE invited_by = sqlc.arg(user_id)::uuid AND revoked_at IS NULL AND consumed_a
 -- name: InviteLinkInsert :one
 INSERT INTO group_invite_links (permission_group_id, role, invited_by, code_hash, expires_at)
 VALUES (sqlc.arg(group_id), sqlc.arg(role), sqlc.narg(invited_by)::uuid, sqlc.arg(code_hash), sqlc.arg(expires_at)::timestamptz)
-RETURNING id;
+RETURNING id, created_at;
 
--- name: InviteLinksByGroup :many
-SELECT id, role, COALESCE(invited_by::text, '')::text AS invited_by, created_at, expires_at, redeemed_at, revoked_at
-FROM group_invite_links
-WHERE permission_group_id = sqlc.arg(group_id) AND (sqlc.narg(after)::uuid IS NULL OR id < sqlc.narg(after)::uuid)
-ORDER BY id DESC
+-- InvitationsByGroup lists a group's invite links and email invitations,
+-- newest first, never a code hash. In the root group (root) it includes the
+-- plain registration invites, which have no group.
+-- name: InvitationsByGroup :many
+SELECT i.id, i.role, i.email, i.created_by, i.created_at, i.expires_at, i.redeemed_at, i.revoked_at FROM (
+  SELECT l.id, l.role, ''::text AS email, COALESCE(l.invited_by::text, '')::text AS created_by,
+    l.created_at, l.expires_at, l.redeemed_at, l.revoked_at
+  FROM group_invite_links l WHERE l.permission_group_id = sqlc.arg(group_id)::uuid
+  UNION ALL
+  SELECT a.id, COALESCE(a.role, '')::text, a.email::text, COALESCE(a.invited_by::text, '')::text,
+    a.created_at, a.expires_at, a.consumed_at, a.revoked_at
+  FROM account_registration_invites a
+  WHERE a.permission_group_id = sqlc.arg(group_id)::uuid OR (sqlc.arg(root)::boolean AND a.permission_group_id IS NULL)) i
+WHERE sqlc.narg(after)::uuid IS NULL OR i.id < sqlc.narg(after)::uuid
+ORDER BY i.id DESC
 LIMIT sqlc.arg(page_limit)::bigint;
 
--- name: InviteLinkRoleForUpdate :one
-SELECT role FROM group_invite_links WHERE id = sqlc.arg(id) AND permission_group_id = sqlc.arg(group_id) AND revoked_at IS NULL FOR UPDATE;
+-- name: InviteLinkForRevoke :one
+SELECT role, revoked_at, redeemed_at FROM group_invite_links
+WHERE id = sqlc.arg(id) AND permission_group_id = sqlc.arg(group_id) FOR UPDATE;
+
+-- name: AccountInviteForRevoke :one
+SELECT COALESCE(role, '')::text AS role, revoked_at, consumed_at FROM account_registration_invites
+WHERE id = sqlc.arg(id) AND (permission_group_id = sqlc.arg(group_id)::uuid OR (sqlc.arg(root)::boolean AND permission_group_id IS NULL))
+FOR UPDATE;
 
 -- name: InviteLinkGroupByCode :one
 SELECT permission_group_id FROM group_invite_links WHERE code_hash = sqlc.arg(code_hash);
@@ -42,7 +58,7 @@ UPDATE group_invite_links SET redeemed_at = now(), updated_at = now() WHERE id =
 -- name: AccountInviteInsert :one
 INSERT INTO account_registration_invites (email, invited_by, code_hash, expires_at, permission_group_id, role)
 VALUES (sqlc.arg(email), sqlc.narg(invited_by)::uuid, sqlc.arg(code_hash), sqlc.arg(expires_at), sqlc.narg(group_id)::uuid, sqlc.narg(role)::text)
-RETURNING id;
+RETURNING id, created_at;
 
 -- AccountInviteValid: code_hash names a live registration invite.
 -- name: AccountInviteValid :one

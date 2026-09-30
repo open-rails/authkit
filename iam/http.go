@@ -44,6 +44,9 @@ type Route struct {
 	Permission string // `<persona>` stands for the group's persona
 }
 
+// Pattern is the route's net/http ServeMux pattern: "GET /api/v1/me".
+func (r Route) Pattern() string { return r.Method + " " + r.Path }
+
 // JWKSPath serves the issuer's public signing keys beneath the issuer's path
 // (the mount's BasePath), so verifiers derive it: issuer + JWKSPath.
 const JWKSPath = "/.well-known/jwks.json"

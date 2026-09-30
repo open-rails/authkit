@@ -13,6 +13,7 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
+	"github.com/open-rails/authkit/internal/ops"
 )
 
 // Controlling an application's keys is acting as it, so every non-system
@@ -29,27 +30,31 @@ import (
 // ref, or updates it there. The system may set Mode and TrustRoot (new
 // applications default to manual); a user registers at trust root user.
 // Machine actors cannot register.
-func (s *Engine) UpsertRemoteApplication(ctx context.Context, actor iam.Actor, ref iam.GroupRef, in iam.RemoteApplication) (*iam.RemoteApplication, error) {
+func (s *Engine) UpsertRemoteApplication(ctx context.Context, actor iam.Actor, ref iam.GroupRef, in iam.RemoteApplication, opts ...ops.Option) (iam.RemoteApplication, error) {
+	host, err := hostTx("UpsertRemoteApplication", opts)
+	if err != nil {
+		return iam.RemoteApplication{}, err
+	}
 	if err := requireActor(actor); err != nil {
-		return nil, err
+		return iam.RemoteApplication{}, err
 	}
 	if err := s.requirePG(); err != nil {
-		return nil, err
+		return iam.RemoteApplication{}, err
 	}
 	system := actor.Kind() == iam.ActorSystem
 	if _, err := credentialIssuer(actor); err != nil {
-		return nil, err
+		return iam.RemoteApplication{}, err
 	}
 	in.Issuer = strings.TrimSpace(in.Issuer)
 	if s.reservedIssuer(in.Issuer) || !system && s.accountPeerIssuer(in.Issuer) {
-		return nil, iam.ErrReservedIssuer
+		return iam.RemoteApplication{}, iam.ErrReservedIssuer
 	}
 	if !validTrustRoot(in.TrustRoot) {
-		return nil, fmt.Errorf("%w: unknown trust root", iam.ErrInvalidRemoteApplication)
+		return iam.RemoteApplication{}, fmt.Errorf("%w: unknown trust root", iam.ErrInvalidRemoteApplication)
 	}
 	var out *iam.RemoteApplication
-	err := s.withGroupMutation(ctx, actor, ref, func(st *permissionGroupStore, g groupTarget) error {
-		in.PermissionGroupID = g.ID
+	err = s.withGroupMutationIn(ctx, actor, host, ref, func(st *permissionGroupStore, g groupTarget) error {
+		in.GroupID = g.ID
 		row, err := db.New(st.q).RemoteApplicationByIssuer(ctx, in.Issuer)
 		var existing *iam.RemoteApplication
 		switch {
@@ -67,12 +72,25 @@ func (s *Engine) UpsertRemoteApplication(ctx context.Context, actor iam.Actor, r
 				return err
 			}
 		}
-		if out, err = s.upsertRemoteApplication(ctx, st, in); err != nil || !rekey {
+		if out, err = s.upsertRemoteApplication(ctx, st, in); err != nil {
 			return err
 		}
-		return db.New(st.q).RemoteApplicationSetRegistrar(ctx, db.RemoteApplicationSetRegistrarParams{ID: out.ID, RegisteredBy: actor.ID()})
+		if rekey {
+			if err := db.New(st.q).RemoteApplicationSetRegistrar(ctx, db.RemoteApplicationSetRegistrarParams{ID: out.ID, RegisteredBy: actor.ID()}); err != nil {
+				return err
+			}
+		}
+		apps := []iam.RemoteApplication{*out}
+		if err := s.loadApplicationRoles(ctx, st.q, g.ID, apps); err != nil {
+			return err
+		}
+		*out = apps[0]
+		return nil
 	})
-	return out, err
+	if err != nil {
+		return iam.RemoteApplication{}, err
+	}
+	return *out, nil
 }
 
 // groupApplicationChange authorizes a non-system upsert and sets its trust
@@ -104,23 +122,28 @@ func rekeys(existing *iam.RemoteApplication, in *iam.RemoteApplication) bool {
 	return string(a) != string(b)
 }
 
-// DeleteRemoteApplication deletes the application named by slug that group ref
-// controls. Any actor but the system needs the same authority as re-keying it, and never
-// deletes a system-registered application.
-func (s *Engine) DeleteRemoteApplication(ctx context.Context, actor iam.Actor, ref iam.GroupRef, slug string) error {
+// DeleteRemoteApplication deletes the application id that group ref
+// controls; an id unknown in the group is iam.ErrRemoteApplicationNotFound.
+// Any actor but the system needs the same authority as re-keying it, and
+// never deletes a system-registered application.
+func (s *Engine) DeleteRemoteApplication(ctx context.Context, actor iam.Actor, ref iam.GroupRef, id string, opts ...ops.Option) error {
+	host, err := hostTx("DeleteRemoteApplication", opts)
+	if err != nil {
+		return err
+	}
 	if err := requireActor(actor); err != nil {
 		return err
 	}
 	if err := s.requirePG(); err != nil {
 		return err
 	}
-	slug = strings.ToLower(strings.TrimSpace(slug))
-	if slug == "" {
-		return iam.ErrInvalidRemoteApplication
-	}
-	return s.withGroupMutation(ctx, actor, ref, func(st *permissionGroupStore, g groupTarget) error {
+	id = strings.TrimSpace(id)
+	return s.withGroupMutationIn(ctx, actor, host, ref, func(st *permissionGroupStore, g groupTarget) error {
+		if !isUUID(id) {
+			return iam.ErrRemoteApplicationNotFound
+		}
 		q := db.New(st.q)
-		app, err := q.RemoteApplicationBySlugForUpdate(ctx, slug)
+		app, err := q.RemoteApplicationByIDForUpdate(ctx, id)
 		if errors.Is(err, pgx.ErrNoRows) || err == nil && app.PermissionGroupID != g.ID {
 			return iam.ErrRemoteApplicationNotFound
 		}
@@ -151,7 +174,7 @@ func (s *Engine) authorizeApplicationControl(ctx context.Context, st *permission
 	if err != nil {
 		return err
 	}
-	if err := auth.requireCap(iam.PermCredentialsManage(g.Persona)); err != nil || appID == "" {
+	if err := auth.requireCap(ident.CredentialsManage(g.Persona)); err != nil || appID == "" {
 		return err
 	}
 	held, err := db.New(st.q).RemoteApplicationControlRoles(ctx, appID)
@@ -166,7 +189,7 @@ func (s *Engine) authorizeApplicationControl(ctx context.Context, st *permission
 				return err
 			}
 		}
-		if err := s.requireRoleCover(ctx, st, in, group, ident.Role(group.Persona, h.Role)); err != nil && !errors.Is(err, iam.ErrRoleNotAssignable) {
+		if err := s.requireRoleCover(ctx, st, in, group, ident.RoleText(h.Role)); err != nil && !errors.Is(err, iam.ErrRoleNotAssignable) {
 			return err
 		}
 	}
@@ -177,8 +200,9 @@ func validTrustRoot(t iam.ApplicationTrustRoot) bool {
 	return t == "" || t == iam.ApplicationTrustRootManual || t == iam.ApplicationTrustRootUser
 }
 
-// RemoteApplications lists the applications group ref controls, newest first.
-func (s *Engine) RemoteApplications(ctx context.Context, ref iam.GroupRef, page iam.PageRequest) (iam.ListPage[iam.RemoteApplication], error) {
+// ListRemoteApplications lists the applications group ref controls, newest
+// first, with their roles.
+func (s *Engine) ListRemoteApplications(ctx context.Context, ref iam.GroupRef, page iam.PageRequest) (iam.ListPage[iam.RemoteApplication], error) {
 	var out iam.ListPage[iam.RemoteApplication]
 	if err := s.requirePG(); err != nil {
 		return out, err
@@ -210,5 +234,5 @@ func (s *Engine) RemoteApplications(ctx context.Context, ref iam.GroupRef, page 
 		out.Items = out.Items[:limit]
 		out.Next = base64.RawURLEncoding.EncodeToString([]byte(out.Items[limit-1].ID))
 	}
-	return out, nil
+	return out, s.loadApplicationRoles(ctx, s.pg, g.ID, out.Items)
 }

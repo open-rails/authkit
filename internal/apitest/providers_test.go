@@ -358,7 +358,7 @@ func TestFederatedEmailLessRegistrationRequiresAndConsumesInvite(t *testing.T) {
 		id := testidp.Identity{Subject: "invite-user", Email: "unverified-invite@example.com"}
 		res := providerSignIn(t, a, idp, "idp", id, "")
 		require.Equal(t, http.StatusForbidden, res.status, res.String())
-		invite, err := auth.CreateAccountInvite(t.Context(), iam.SystemActor(), iam.NewAccountInvite{Email: "invite-destination@example.com"})
+		invite, err := auth.CreateInvitation(t.Context(), iam.SystemActor(), iam.RootGroup(), iam.NewInvitation{Email: "invite-destination@example.com"})
 		require.NoError(t, err)
 		allowed := expectAnswer(t, providerSignIn(t, a, idp, "idp", id, invite.Code), http.StatusOK)
 		require.NotEmpty(t, allowed.User.ID)

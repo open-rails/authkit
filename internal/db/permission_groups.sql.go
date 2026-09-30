@@ -530,6 +530,20 @@ func (q *Queries) PermissionGroupInsert(ctx context.Context, persona string) (st
 	return id, err
 }
 
+const permissionGroupInsertWithID = `-- name: PermissionGroupInsertWithID :exec
+INSERT INTO permission_groups (id, persona) VALUES ($1::uuid, $2)
+`
+
+type PermissionGroupInsertWithIDParams struct {
+	ID      string
+	Persona string
+}
+
+func (q *Queries) PermissionGroupInsertWithID(ctx context.Context, arg PermissionGroupInsertWithIDParams) error {
+	_, err := q.db.Exec(ctx, permissionGroupInsertWithID, arg.ID, arg.Persona)
+	return err
+}
+
 const permissionGroupLiveForUpdate = `-- name: PermissionGroupLiveForUpdate :one
 SELECT id, persona, created_at, deleted_at FROM permission_groups WHERE id = $1 AND deleted_at IS NULL FOR UPDATE
 `
@@ -549,9 +563,9 @@ func (q *Queries) PermissionGroupLiveForUpdate(ctx context.Context, id string) (
 
 const permissionGroupOwnerCount = `-- name: PermissionGroupOwnerCount :one
 SELECT ((SELECT count(*) FROM group_user_roles r JOIN usable_users u ON u.id = r.user_id
-          WHERE r.permission_group_id = $1::uuid AND r.role = 'owner')
+          WHERE r.permission_group_id = $1::uuid AND r.role LIKE '%:owner')
       + (SELECT count(*) FROM group_remote_application_roles r JOIN remote_applications a ON a.id = r.remote_application_id
-          WHERE r.permission_group_id = $1::uuid AND r.role = 'owner' AND a.enabled AND a.permission_group_id = r.permission_group_id))::bigint
+          WHERE r.permission_group_id = $1::uuid AND r.role LIKE '%:owner' AND a.enabled AND a.permission_group_id = r.permission_group_id))::bigint
 `
 
 // PermissionGroupOwnerCount counts usable user owners and enabled application
@@ -624,12 +638,12 @@ WHERE g.persona <> 'root' AND ($1::text = '' OR g.persona = $1::text)
   AND ($4::text = '' OR g.id > $4::text::uuid)
   AND (NOT $3::boolean OR NOT EXISTS(
     SELECT 1 FROM group_user_roles r JOIN usable_users u ON u.id = r.user_id
-     WHERE r.permission_group_id = g.id AND r.role = 'owner'
+     WHERE r.permission_group_id = g.id AND r.role LIKE '%:owner'
        AND (NOT (g.persona = ANY($5::text[])) OR EXISTS(SELECT 1 FROM mfa_settings m WHERE m.user_id = u.id AND m.enabled
          AND EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id = u.id)))
     UNION ALL
     SELECT 1 FROM group_remote_application_roles r JOIN remote_applications a ON a.id = r.remote_application_id
-     WHERE NOT (g.persona = ANY($5::text[])) AND r.permission_group_id = g.id AND r.role = 'owner'
+     WHERE NOT (g.persona = ANY($5::text[])) AND r.permission_group_id = g.id AND r.role LIKE '%:owner'
        AND a.enabled AND a.permission_group_id = r.permission_group_id
        AND (a.trust_root <> 'user' OR EXISTS(SELECT 1 FROM usable_users WHERE id = a.registered_by))
        AND EXISTS(SELECT 1 FROM permission_groups control WHERE control.id = a.permission_group_id AND control.deleted_at IS NULL)))

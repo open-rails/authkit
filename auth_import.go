@@ -2,8 +2,6 @@ package authkit
 
 import (
 	"context"
-	"os"
-	"strings"
 
 	"github.com/open-rails/authkit/iam"
 )
@@ -17,8 +15,8 @@ import (
 // ApplyBootstrapManifest seeds accounts, their root roles and remote
 // applications. See iam.BootstrapManifestUser for how existing accounts are
 // found; nothing runs it implicitly.
-func (a *Client) ApplyBootstrapManifest(ctx context.Context, m iam.BootstrapManifest, o iam.BootstrapOptions) (iam.BootstrapResult, error) {
-	return a.engine.ApplyBootstrapManifest(ctx, m, o)
+func (a *Client) ApplyBootstrapManifest(ctx context.Context, m iam.BootstrapManifest, o iam.BootstrapOptions, opts ...Option) (iam.BootstrapResult, error) {
+	return a.ops.ApplyBootstrapManifest(ctx, m, o, opts...)
 }
 
 // EnsureUserRole makes the account u names hold role in group, and is safe
@@ -30,52 +28,34 @@ func (a *Client) ApplyBootstrapManifest(ctx context.Context, m iam.BootstrapMani
 // owner role, or a role covering role (a re-run, including on the account an
 // earlier call created). Any other account gets iam.ErrContactNotVerified,
 // so a pre-registered account is never adopted. A username never finds one.
-func (a *Client) EnsureUserRole(ctx context.Context, u iam.UserRef, group iam.GroupRef, role iam.Role) (iam.User, error) {
-	return a.engine.EnsureUserRole(ctx, u, group, role)
+func (a *Client) EnsureUserRole(ctx context.Context, group iam.GroupRef, u iam.UserRef, role iam.Role, opts ...Option) (iam.User, error) {
+	return a.ops.EnsureUserRole(ctx, group, u, role, opts...)
 }
 
 // ImportUsers imports accounts in bulk (hundreds of thousands per call), in
 // chunks that commit independently. Every row is reported: see iam.ImportRow
 // and iam.ImportConflict. Invalid rows are rejected alone; a database error
 // stops the import and the rows of committed chunks are still reported.
-func (a *Client) ImportUsers(ctx context.Context, rows []iam.ImportUser, o iam.ImportOptions) (iam.ImportResult, error) {
-	return a.engine.ImportUsers(ctx, rows, o)
+func (a *Client) ImportUsers(ctx context.Context, rows []iam.ImportUser, o iam.ImportOptions, opts ...Option) (iam.ImportResult, error) {
+	return a.ops.ImportUsers(ctx, rows, o, opts...)
 }
 
 // ImportSolanaLinks reserves legacy wallet addresses for their accounts
 // without making them login methods; only a later Sign-In with Solana proof
 // verifies one.
-func (a *Client) ImportSolanaLinks(ctx context.Context, rows []iam.ImportSolanaLink) (iam.ImportSolanaLinksResult, error) {
-	return a.engine.ImportSolanaLinks(ctx, rows)
+func (a *Client) ImportSolanaLinks(ctx context.Context, rows []iam.ImportSolanaLink, opts ...Option) (iam.ImportSolanaLinksResult, error) {
+	return a.ops.ImportSolanaLinks(ctx, rows, opts...)
 }
 
 // LinkProvider links an external identity to an account as a login method.
 // Browser flows link through the provider login instead.
-func (a *Client) LinkProvider(ctx context.Context, userID string, l iam.ProviderLink) error {
-	return a.engine.LinkProvider(ctx, userID, l)
+func (a *Client) LinkProvider(ctx context.Context, userID string, l iam.ProviderLink, opts ...Option) error {
+	return a.ops.LinkProvider(ctx, userID, l, opts...)
 }
-
-// DefaultBootstrapManifestPath is where LoadBootstrapManifestFile reads when
-// given no path.
-const DefaultBootstrapManifestPath = "/etc/authkit/bootstrap.yaml"
 
 // ParseBootstrapManifestYAML parses a bootstrap manifest, rejecting unknown
 // fields, empty manifests, structurally invalid entries and a root_role that
 // is not a root role of Config.Roles.
 func (a *Client) ParseBootstrapManifestYAML(raw []byte) (iam.BootstrapManifest, error) {
-	return a.engine.ParseBootstrapManifestYAML(raw)
-}
-
-// LoadBootstrapManifestFile reads and parses a bootstrap manifest; an empty
-// path reads DefaultBootstrapManifestPath.
-func (a *Client) LoadBootstrapManifestFile(path string) (iam.BootstrapManifest, error) {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		path = DefaultBootstrapManifestPath
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return iam.BootstrapManifest{}, err
-	}
-	return a.ParseBootstrapManifestYAML(raw)
+	return a.ops.ParseBootstrapManifestYAML(raw)
 }

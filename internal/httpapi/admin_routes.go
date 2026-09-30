@@ -16,34 +16,6 @@ import (
 // for signed-in users only, like root-role administration: API keys,
 // applications and delegated tokens never reach the account plane.
 
-// adminUser is an account as the admin views return it.
-type adminUser struct {
-	iam.User
-	Roles        []string `json:"roles"`
-	RemovedRoles []string `json:"removed_roles,omitempty"`
-	Entitlements []string `json:"entitlements"`
-}
-
-func (s *Service) adminUsers(r *http.Request, users []iam.User) []adminUser {
-	ids := make([]string, len(users))
-	for i, u := range users {
-		ids[i] = u.ID
-	}
-	details := s.svc.UserDirectoryDetails(r.Context(), ids)
-	out := make([]adminUser, len(users))
-	for i, u := range users {
-		d := details[u.ID]
-		out[i] = adminUser{User: u, Roles: d.Roles, RemovedRoles: d.RemovedRoles, Entitlements: d.Entitlements}
-		if out[i].Roles == nil {
-			out[i].Roles = []string{}
-		}
-		if out[i].Entitlements == nil {
-			out[i].Entitlements = []string{}
-		}
-	}
-	return out
-}
-
 // userQuery parses the directory query: cursor, limit, search, root_role,
 // status, sort, order (default desc), entitlement.
 func (s *Service) userQuery(r *http.Request) (iam.UserQuery, error) {
@@ -56,9 +28,11 @@ func (s *Service) userQuery(r *http.Request) (iam.UserQuery, error) {
 		Sort:        iam.UserSort(strings.TrimSpace(q.Get("sort"))),
 		Desc:        !strings.EqualFold(strings.TrimSpace(q.Get("order")), "asc"),
 		Page:        iam.PageRequest{Cursor: strings.TrimSpace(q.Get("cursor")), Limit: limit},
+		// The admin views show every account's entitlements.
+		WithEntitlements: true,
 	}
-	if name := strings.TrimSpace(q.Get("root_role")); name != "" {
-		role, err := s.svc.PermissionGroupSchema().ParseRole(iam.RootPersona, name)
+	if text := strings.TrimSpace(q.Get("root_role")); text != "" {
+		role, err := s.groupRole(iam.RootPersona, text)
 		if err != nil {
 			return iam.UserQuery{}, err
 		}
@@ -78,16 +52,16 @@ func (s *Service) handleAdminUsersListGET(w http.ResponseWriter, r *http.Request
 		writeError(w, err)
 		return
 	}
-	writeList(w, s.adminUsers(r, page.Items), page.Next)
+	writeList(w, page.Items, page.Next)
 }
 
 func (s *Service) handleAdminUserGET(w http.ResponseWriter, r *http.Request) {
-	u, err := s.svc.User(r.Context(), iam.UserByID(r.PathValue("user_id")), iam.IncludeDeleted())
+	u, err := s.svc.UserEntry(r.Context(), r.PathValue("user_id"))
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.adminUsers(r, []iam.User{u})[0])
+	writeJSON(w, http.StatusOK, u)
 }
 
 // accountActor is the signed-in user acting on an account route.

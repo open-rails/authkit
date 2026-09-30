@@ -32,7 +32,7 @@ func TestAccountPurgeKeepsTheRealDeletionTime(t *testing.T) {
 	ctx := t.Context()
 	deletedAt := func(id string) time.Time {
 		t.Helper()
-		u, err := auth.User(ctx, iam.UserByID(id), iam.IncludeDeleted())
+		u, err := auth.User(ctx, iam.UserByID(id), authkit.IncludeDeleted())
 		require.NoError(t, err)
 		require.NotNil(t, u.DeletedAt)
 		return *u.DeletedAt
@@ -120,7 +120,7 @@ func TestAccountRecoveryPasswordConfirmationBoundary(t *testing.T) {
 	token := proof()
 	_, err := auth.Verify(ctx, token)
 	require.Error(t, err, "recovery proof cannot authenticate as a normal access token")
-	deleted, err := auth.User(ctx, iam.UserByID(user.ID), iam.IncludeDeleted())
+	deleted, err := auth.User(ctx, iam.UserByID(user.ID), authkit.IncludeDeleted())
 	require.NoError(t, err)
 	require.NotNil(t, deleted.DeletedAt, "ordinary login never restores an account")
 	// Concurrent confirmations have one winner, even with the same valid proof.
@@ -199,7 +199,7 @@ func TestStaffAccountRestoreHTTPRequiresCurrentAuthority(t *testing.T) {
 	}
 	deletedAt := func(id string) *time.Time {
 		t.Helper()
-		u, err := auth.User(ctx, iam.UserByID(id), iam.IncludeDeleted())
+		u, err := auth.User(ctx, iam.UserByID(id), authkit.IncludeDeleted())
 		require.NoError(t, err)
 		return u.DeletedAt
 	}
@@ -260,4 +260,22 @@ func TestUserDeleteWithUnboundAccountIssuerLogsCause(t *testing.T) {
 	require.Equal(t, "internal_error", res.code())
 	require.NotContains(t, res.String(), peer, "deployment topology stays off the wire")
 	require.Contains(t, logs.String(), `failed_to_delete: authkit: account issuer \"`+peer+`\" must compose its River fleet before account deletion`)
+}
+
+// A Client from authtest.New soft-deletes and restores with nothing but its
+// defaults: its managed River carries the account lifecycle.
+func TestDeleteUsersOnAPlainTestClient(t *testing.T) {
+	auth, _ := authtest.New(t)
+	ctx := t.Context()
+	u := authtest.NewUser(t, auth)
+	require.NoError(t, opErr(auth.DeleteUsers(ctx, iam.SystemActor(), []string{u.ID})))
+	deleted, err := auth.User(ctx, iam.UserByID(u.ID), authkit.IncludeDeleted())
+	require.NoError(t, err)
+	require.NotNil(t, deleted.DeletedAt)
+	_, err = auth.User(ctx, iam.UserByID(u.ID))
+	require.ErrorIs(t, err, iam.ErrUserNotFound)
+	require.NoError(t, opErr(auth.RestoreUsers(ctx, iam.SystemActor(), []string{u.ID})))
+	restored, err := auth.User(ctx, iam.UserByID(u.ID))
+	require.NoError(t, err)
+	require.Nil(t, restored.DeletedAt)
 }

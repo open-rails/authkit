@@ -71,6 +71,31 @@ func (q *Queries) AccountInviteConsume(ctx context.Context, arg AccountInviteCon
 	return err
 }
 
+const accountInviteForRevoke = `-- name: AccountInviteForRevoke :one
+SELECT COALESCE(role, '')::text AS role, revoked_at, consumed_at FROM account_registration_invites
+WHERE id = $1 AND (permission_group_id = $2::uuid OR ($3::boolean AND permission_group_id IS NULL))
+FOR UPDATE
+`
+
+type AccountInviteForRevokeParams struct {
+	ID      string
+	GroupID string
+	Root    bool
+}
+
+type AccountInviteForRevokeRow struct {
+	Role       string
+	RevokedAt  *time.Time
+	ConsumedAt *time.Time
+}
+
+func (q *Queries) AccountInviteForRevoke(ctx context.Context, arg AccountInviteForRevokeParams) (AccountInviteForRevokeRow, error) {
+	row := q.db.QueryRow(ctx, accountInviteForRevoke, arg.ID, arg.GroupID, arg.Root)
+	var i AccountInviteForRevokeRow
+	err := row.Scan(&i.Role, &i.RevokedAt, &i.ConsumedAt)
+	return i, err
+}
+
 const accountInviteForUpdate = `-- name: AccountInviteForUpdate :one
 SELECT i.id, i.permission_group_id, i.role, g.persona
 FROM account_registration_invites i LEFT JOIN permission_groups g ON g.id = i.permission_group_id
@@ -132,7 +157,7 @@ func (q *Queries) AccountInviteGroupLive(ctx context.Context, codeHash string) (
 const accountInviteInsert = `-- name: AccountInviteInsert :one
 INSERT INTO account_registration_invites (email, invited_by, code_hash, expires_at, permission_group_id, role)
 VALUES ($1, $2::uuid, $3, $4, $5::uuid, $6::text)
-RETURNING id
+RETURNING id, created_at
 `
 
 type AccountInviteInsertParams struct {
@@ -144,7 +169,12 @@ type AccountInviteInsertParams struct {
 	Role      *string
 }
 
-func (q *Queries) AccountInviteInsert(ctx context.Context, arg AccountInviteInsertParams) (string, error) {
+type AccountInviteInsertRow struct {
+	ID        string
+	CreatedAt time.Time
+}
+
+func (q *Queries) AccountInviteInsert(ctx context.Context, arg AccountInviteInsertParams) (AccountInviteInsertRow, error) {
 	row := q.db.QueryRow(ctx, accountInviteInsert,
 		arg.Email,
 		arg.InvitedBy,
@@ -153,9 +183,9 @@ func (q *Queries) AccountInviteInsert(ctx context.Context, arg AccountInviteInse
 		arg.GroupID,
 		arg.Role,
 	)
-	var id string
-	err := row.Scan(&id)
-	return id, err
+	var i AccountInviteInsertRow
+	err := row.Scan(&i.ID, &i.CreatedAt)
+	return i, err
 }
 
 const accountInviteValid = `-- name: AccountInviteValid :one
@@ -181,6 +211,76 @@ WHERE invited_by = $1::uuid AND revoked_at IS NULL AND consumed_at IS NULL
 func (q *Queries) AccountInvitesRevokeInvitedBy(ctx context.Context, userID string) error {
 	_, err := q.db.Exec(ctx, accountInvitesRevokeInvitedBy, userID)
 	return err
+}
+
+const invitationsByGroup = `-- name: InvitationsByGroup :many
+SELECT i.id, i.role, i.email, i.created_by, i.created_at, i.expires_at, i.redeemed_at, i.revoked_at FROM (
+  SELECT l.id, l.role, ''::text AS email, COALESCE(l.invited_by::text, '')::text AS created_by,
+    l.created_at, l.expires_at, l.redeemed_at, l.revoked_at
+  FROM group_invite_links l WHERE l.permission_group_id = $1::uuid
+  UNION ALL
+  SELECT a.id, COALESCE(a.role, '')::text, a.email::text, COALESCE(a.invited_by::text, '')::text,
+    a.created_at, a.expires_at, a.consumed_at, a.revoked_at
+  FROM account_registration_invites a
+  WHERE a.permission_group_id = $1::uuid OR ($2::boolean AND a.permission_group_id IS NULL)) i
+WHERE $3::uuid IS NULL OR i.id < $3::uuid
+ORDER BY i.id DESC
+LIMIT $4::bigint
+`
+
+type InvitationsByGroupParams struct {
+	GroupID   string
+	Root      bool
+	After     *string
+	PageLimit int64
+}
+
+type InvitationsByGroupRow struct {
+	ID         string
+	Role       string
+	Email      string
+	CreatedBy  string
+	CreatedAt  time.Time
+	ExpiresAt  *time.Time
+	RedeemedAt *time.Time
+	RevokedAt  *time.Time
+}
+
+// InvitationsByGroup lists a group's invite links and email invitations,
+// newest first, never a code hash. In the root group (root) it includes the
+// plain registration invites, which have no group.
+func (q *Queries) InvitationsByGroup(ctx context.Context, arg InvitationsByGroupParams) ([]InvitationsByGroupRow, error) {
+	rows, err := q.db.Query(ctx, invitationsByGroup,
+		arg.GroupID,
+		arg.Root,
+		arg.After,
+		arg.PageLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []InvitationsByGroupRow
+	for rows.Next() {
+		var i InvitationsByGroupRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Role,
+			&i.Email,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.ExpiresAt,
+			&i.RedeemedAt,
+			&i.RevokedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const inviteLinkByCodeForUpdate = `-- name: InviteLinkByCodeForUpdate :one
@@ -223,6 +323,29 @@ func (q *Queries) InviteLinkByCodeForUpdate(ctx context.Context, arg InviteLinkB
 	return i, err
 }
 
+const inviteLinkForRevoke = `-- name: InviteLinkForRevoke :one
+SELECT role, revoked_at, redeemed_at FROM group_invite_links
+WHERE id = $1 AND permission_group_id = $2 FOR UPDATE
+`
+
+type InviteLinkForRevokeParams struct {
+	ID      string
+	GroupID string
+}
+
+type InviteLinkForRevokeRow struct {
+	Role       string
+	RevokedAt  *time.Time
+	RedeemedAt *time.Time
+}
+
+func (q *Queries) InviteLinkForRevoke(ctx context.Context, arg InviteLinkForRevokeParams) (InviteLinkForRevokeRow, error) {
+	row := q.db.QueryRow(ctx, inviteLinkForRevoke, arg.ID, arg.GroupID)
+	var i InviteLinkForRevokeRow
+	err := row.Scan(&i.Role, &i.RevokedAt, &i.RedeemedAt)
+	return i, err
+}
+
 const inviteLinkGroupByCode = `-- name: InviteLinkGroupByCode :one
 SELECT permission_group_id FROM group_invite_links WHERE code_hash = $1
 `
@@ -238,7 +361,7 @@ const inviteLinkInsert = `-- name: InviteLinkInsert :one
 
 INSERT INTO group_invite_links (permission_group_id, role, invited_by, code_hash, expires_at)
 VALUES ($1, $2, $3::uuid, $4, $5::timestamptz)
-RETURNING id
+RETURNING id, created_at
 `
 
 type InviteLinkInsertParams struct {
@@ -249,9 +372,14 @@ type InviteLinkInsertParams struct {
 	ExpiresAt time.Time
 }
 
+type InviteLinkInsertRow struct {
+	ID        string
+	CreatedAt time.Time
+}
+
 // An issuer is the system (NULL) or a usable account: a credential never
 // outlives its issuer's authority.
-func (q *Queries) InviteLinkInsert(ctx context.Context, arg InviteLinkInsertParams) (string, error) {
+func (q *Queries) InviteLinkInsert(ctx context.Context, arg InviteLinkInsertParams) (InviteLinkInsertRow, error) {
 	row := q.db.QueryRow(ctx, inviteLinkInsert,
 		arg.GroupID,
 		arg.Role,
@@ -259,9 +387,9 @@ func (q *Queries) InviteLinkInsert(ctx context.Context, arg InviteLinkInsertPara
 		arg.CodeHash,
 		arg.ExpiresAt,
 	)
-	var id string
-	err := row.Scan(&id)
-	return id, err
+	var i InviteLinkInsertRow
+	err := row.Scan(&i.ID, &i.CreatedAt)
+	return i, err
 }
 
 const inviteLinkRedeem = `-- name: InviteLinkRedeem :exec
@@ -271,74 +399,6 @@ UPDATE group_invite_links SET redeemed_at = now(), updated_at = now() WHERE id =
 func (q *Queries) InviteLinkRedeem(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, inviteLinkRedeem, id)
 	return err
-}
-
-const inviteLinkRoleForUpdate = `-- name: InviteLinkRoleForUpdate :one
-SELECT role FROM group_invite_links WHERE id = $1 AND permission_group_id = $2 AND revoked_at IS NULL FOR UPDATE
-`
-
-type InviteLinkRoleForUpdateParams struct {
-	ID      string
-	GroupID string
-}
-
-func (q *Queries) InviteLinkRoleForUpdate(ctx context.Context, arg InviteLinkRoleForUpdateParams) (string, error) {
-	row := q.db.QueryRow(ctx, inviteLinkRoleForUpdate, arg.ID, arg.GroupID)
-	var role string
-	err := row.Scan(&role)
-	return role, err
-}
-
-const inviteLinksByGroup = `-- name: InviteLinksByGroup :many
-SELECT id, role, COALESCE(invited_by::text, '')::text AS invited_by, created_at, expires_at, redeemed_at, revoked_at
-FROM group_invite_links
-WHERE permission_group_id = $1 AND ($2::uuid IS NULL OR id < $2::uuid)
-ORDER BY id DESC
-LIMIT $3::bigint
-`
-
-type InviteLinksByGroupParams struct {
-	GroupID   string
-	After     *string
-	PageLimit int64
-}
-
-type InviteLinksByGroupRow struct {
-	ID         string
-	Role       string
-	InvitedBy  string
-	CreatedAt  time.Time
-	ExpiresAt  *time.Time
-	RedeemedAt *time.Time
-	RevokedAt  *time.Time
-}
-
-func (q *Queries) InviteLinksByGroup(ctx context.Context, arg InviteLinksByGroupParams) ([]InviteLinksByGroupRow, error) {
-	rows, err := q.db.Query(ctx, inviteLinksByGroup, arg.GroupID, arg.After, arg.PageLimit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []InviteLinksByGroupRow
-	for rows.Next() {
-		var i InviteLinksByGroupRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.Role,
-			&i.InvitedBy,
-			&i.CreatedAt,
-			&i.ExpiresAt,
-			&i.RedeemedAt,
-			&i.RevokedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const inviteLinksRevokeInvitedBy = `-- name: InviteLinksRevokeInvitedBy :exec

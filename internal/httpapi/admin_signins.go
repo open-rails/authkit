@@ -9,7 +9,7 @@ import (
 // handleAdminUserSigninsGET pages an account's sign-ins and failed sign-ins,
 // newest first (?cursor=, ?limit=).
 func (s *Service) handleAdminUserSigninsGET(w http.ResponseWriter, r *http.Request) {
-	page, err := s.svc.SessionEvents(r.Context(), r.PathValue("user_id"), iam.SessionEventQuery{
+	page, err := s.svc.ListSessionEvents(r.Context(), r.PathValue("user_id"), iam.SessionEventQuery{
 		Kinds: []iam.SessionEventKind{iam.SessionEventCreated, iam.SessionEventFailed},
 		Page:  pageQuery(r),
 	})

@@ -1,6 +1,9 @@
 package iam
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // ActorKind is the class of authority an Actor carries.
 type ActorKind string
@@ -144,7 +147,7 @@ func (a Actor) Bounded() bool { return a.ceilings != nil }
 // CeilingCovers reports whether every ceiling permits perm (true when unbounded).
 func (a Actor) CeilingCovers(perm Perm) bool {
 	for _, c := range a.ceilings {
-		if !AnyGrantCovers(c, perm) {
+		if !slices.ContainsFunc(c, perm.Matches) {
 			return false
 		}
 	}

@@ -6,31 +6,28 @@ import (
 	"github.com/open-rails/authkit/iam"
 )
 
-// Invitations: single-use invite links into a group, and registration invites.
-// Each dies with its creator's authority.
+// Invitations into a group: single-use links, and invitations emailed to an
+// address that let it register. Each dies with its creator's authority.
 
-// CreateInviteLink mints a single-use link granting l.Role in ref. The actor
-// needs <persona>:members:manage and must cover the role; only a user or the
-// system issues credentials. The code is returned once.
-func (a *Client) CreateInviteLink(ctx context.Context, actor iam.Actor, ref iam.GroupRef, l iam.NewInviteLink) (iam.InviteLinkCreated, error) {
-	return a.engine.CreateInviteLink(ctx, actor, ref, l)
+// CreateInvitation creates an invite link (n.Email empty) that grants n.Role
+// to the signed-in account redeeming it, or emails an invitation to n.Email.
+// A link, and an email invitation carrying a role, need the group's
+// <persona>:members:manage and coverage of the role; a plain email invitation
+// (no role) is created in iam.RootGroup() and needs root:users:invite. Only a
+// user or the system issues credentials. The code is returned once.
+func (a *Client) CreateInvitation(ctx context.Context, actor iam.Actor, ref iam.GroupRef, n iam.NewInvitation, opts ...Option) (iam.InvitationCreated, error) {
+	return a.ops.CreateInvitation(ctx, actor, ref, n, opts...)
 }
 
-// InviteLinks lists the group's links, newest first (never their codes).
-func (a *Client) InviteLinks(ctx context.Context, ref iam.GroupRef, p iam.PageRequest) (iam.ListPage[iam.InviteLink], error) {
-	return a.engine.InviteLinks(ctx, ref, p)
+// ListInvitations lists the group's invitations, newest first, active or not
+// (never their codes). Root's include the plain email invitations.
+func (a *Client) ListInvitations(ctx context.Context, ref iam.GroupRef, p iam.PageRequest) (iam.ListPage[iam.Invitation], error) {
+	return a.ops.ListInvitations(ctx, ref, p)
 }
 
-// RevokeInviteLink revokes the group's link; it needs the authority to issue
-// the link's role. iam.ErrInviteLinkNotFound when no live link matched.
-func (a *Client) RevokeInviteLink(ctx context.Context, actor iam.Actor, ref iam.GroupRef, linkID string) error {
-	return a.engine.RevokeInviteLink(ctx, actor, ref, linkID)
-}
-
-// CreateAccountInvite invites i.Email to register and emails the link. A plain
-// invite needs root:users:invite; with i.Group and i.Role, registering also
-// grants the role, and the invite needs that group's members:manage and
-// coverage of the role instead.
-func (a *Client) CreateAccountInvite(ctx context.Context, actor iam.Actor, i iam.NewAccountInvite) (iam.AccountInviteCreated, error) {
-	return a.engine.CreateAccountInvite(ctx, actor, i)
+// RevokeInvitation revokes the group's invitation id; it needs the authority
+// to issue it. Revoking a revoked or redeemed invitation is a no-op; an id
+// unknown in the group is iam.ErrInvitationNotFound.
+func (a *Client) RevokeInvitation(ctx context.Context, actor iam.Actor, ref iam.GroupRef, id string, opts ...Option) error {
+	return a.ops.RevokeInvitation(ctx, actor, ref, id, opts...)
 }

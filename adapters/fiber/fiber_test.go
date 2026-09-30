@@ -627,7 +627,14 @@ type surface struct {
 }
 
 func (s surface) Handler() http.Handler { return s.handler }
-func (s surface) Patterns() []string    { return s.patterns }
+func (s surface) Routes() []iam.Route {
+	out := make([]iam.Route, 0, len(s.patterns))
+	for _, p := range s.patterns {
+		method, path, _ := strings.Cut(p, " ")
+		out = append(out, iam.Route{Method: method, Path: path})
+	}
+	return out
+}
 
 // A Fiber handler behind Required reads the verified caller from c.Context(),
 // the same call net/http and Gin handlers make.

@@ -39,11 +39,11 @@ func NewRoles(opts ...PersonaOption) *Roles {
 	r.Root = &RootDef{PersonaDef: r.persona(iam.RootPersona, opts)}
 	r.Root.Users = UserPerms{
 		Resource: r.Root.Resource("users"),
-		Read:     iam.PermRootUsersRead,
-		Ban:      iam.PermRootUsersBan,
-		Delete:   iam.PermRootUsersDelete,
-		Manage:   iam.PermRootUsersManage,
-		Invite:   iam.PermRootUsersInvite,
+		Read:     ident.RootUsersRead,
+		Ban:      ident.RootUsersBan,
+		Delete:   ident.RootUsersDelete,
+		Manage:   ident.RootUsersManage,
+		Invite:   ident.RootUsersInvite,
 	}
 	return r
 }
@@ -90,8 +90,8 @@ func (r *Roles) persona(p iam.Persona, opts []PersonaOption) *PersonaDef {
 			r.errorf("persona %q: unknown option %d", p, o)
 		}
 	}
-	d.Members = MemberPerms{Resource: d.Resource("members"), Read: iam.PermMembersRead(p), Manage: iam.PermMembersManage(p)}
-	d.Credentials = CredentialPerms{Resource: d.Resource("credentials"), Read: iam.PermCredentialsRead(p), Manage: iam.PermCredentialsManage(p)}
+	d.Members = MemberPerms{Resource: d.Resource("members"), Read: ident.MembersRead(p), Manage: ident.MembersManage(p)}
+	d.Credentials = CredentialPerms{Resource: d.Resource("credentials"), Read: ident.CredentialsRead(p), Manage: ident.CredentialsManage(p)}
 	r.personas = append(r.personas, d)
 	return d
 }
@@ -123,7 +123,7 @@ type PersonaDef struct {
 func (p *PersonaDef) Permission(resource, action string) iam.Perm {
 	perm := ident.Perm(p.Persona.String() + ":" + resource + ":" + action)
 	switch {
-	case !iam.ValidPermissionSegment(resource) || !iam.ValidPermissionSegment(action):
+	case !ident.ValidSegment(resource) || !ident.ValidSegment(action):
 		p.roles.errorf("persona %q permission %q:%q: each segment must match [a-z][a-z0-9-]*", p.Persona, resource, action)
 		return iam.Perm{}
 	case p.builtIn(perm):
@@ -140,7 +140,7 @@ func (p *PersonaDef) Permission(resource, action string) iam.Perm {
 func (p *PersonaDef) builtIn(perm iam.Perm) bool {
 	builtIns := []iam.Perm{p.Members.Read, p.Members.Manage, p.Credentials.Read, p.Credentials.Manage}
 	if p.Persona == iam.RootPersona {
-		builtIns = append(builtIns, iam.IntrinsicRootPermissions()...)
+		builtIns = append(builtIns, ident.IntrinsicRootPermissions()...)
 	}
 	return slices.Contains(builtIns, perm)
 }
@@ -148,7 +148,7 @@ func (p *PersonaDef) builtIn(perm iam.Perm) bool {
 // Resource is one resource of the persona, for the pattern over all its
 // actions.
 func (p *PersonaDef) Resource(name string) Resource {
-	if !iam.ValidPermissionSegment(name) {
+	if !ident.ValidSegment(name) {
 		p.roles.errorf("persona %q resource %q: name must match [a-z][a-z0-9-]*", p.Persona, name)
 	}
 	return Resource{persona: p.Persona, name: name}

@@ -24,7 +24,7 @@ import (
 const sessionEventsPruneBatchSize = 5000
 
 // SessionEvents pages an account's session history, newest first.
-func (s *Engine) SessionEvents(ctx context.Context, userID string, q iam.SessionEventQuery) (iam.ListPage[iam.SessionEvent], error) {
+func (s *Engine) ListSessionEvents(ctx context.Context, userID string, q iam.SessionEventQuery) (iam.ListPage[iam.SessionEvent], error) {
 	out := iam.ListPage[iam.SessionEvent]{Items: []iam.SessionEvent{}}
 	userID, ok := canonicalUUID(userID)
 	if !ok {

@@ -128,7 +128,7 @@ func TestSecurityEnrollmentTokenOutsideMiddleware(t *testing.T) {
 	holder := h.newAccount("enrolling")
 	// An MFA-required role held without a factor (e.g. granted while 2FA was
 	// off): signing in yields only an enrollment token.
-	_, err := h.pool.Exec(ctx, `INSERT INTO profiles.group_user_roles(permission_group_id,user_id,role) VALUES($1::uuid,$2::uuid,'security')`, h.rootGroupID(), holder.id)
+	_, err := h.pool.Exec(ctx, `INSERT INTO profiles.group_user_roles(permission_group_id,user_id,role) VALUES($1::uuid,$2::uuid,'root:security')`, h.rootGroupID(), holder.id)
 	require.NoError(t, err)
 	resp := h.post("/password/login", map[string]string{"identifier": holder.email, "password": password}, "")
 	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
@@ -163,7 +163,7 @@ func TestSecurityEnrollmentTokenOutsideMiddleware(t *testing.T) {
 		h.grant(iam.RootGroup(), admin, "moderator")
 		cl, err := h.auth.Verify(ctx, h.login(admin).AccessToken)
 		require.NoError(t, err)
-		allowed, err := allow(ctx, h.auth, cl, iam.PermRootUsersBan, iam.RootGroup())
+		allowed, err := allow(ctx, h.auth, cl, ident.RootUsersBan, iam.RootGroup())
 		require.NoError(t, err)
 		require.True(t, allowed)
 	})
@@ -234,7 +234,7 @@ func TestSecurityPasskeyHolderNeedsPasskey(t *testing.T) {
 	holder := h.newAccount("p7holder")
 	authn := h.registerPasskey(h.login(holder).AccessToken)
 	// The role came while 2FA was off, or was made MFA-required later.
-	_, err := h.pool.Exec(ctx, `INSERT INTO profiles.group_user_roles(permission_group_id,user_id,role) VALUES($1::uuid,$2::uuid,'security')`, h.rootGroupID(), holder.id)
+	_, err := h.pool.Exec(ctx, `INSERT INTO profiles.group_user_roles(permission_group_id,user_id,role) VALUES($1::uuid,$2::uuid,'root:security')`, h.rootGroupID(), holder.id)
 	require.NoError(t, err)
 	resp := h.post("/password/login", map[string]string{"identifier": holder.email, "password": password}, "")
 	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
@@ -280,9 +280,11 @@ func TestSecurityResetAccountMFA(t *testing.T) {
 	require.Len(t, h.mail.Messages(authtest.MFAReset, holder.email), 1)
 	require.Equal(t, http.StatusUnauthorized, h.refresh(passkeySession.RefreshToken).status, "a session outlived the reset")
 	require.NotEqual(t, http.StatusOK, h.passkeyLogin(authn, 2).status, "the passkey outlived the reset")
-	keys, err := h.auth.ActiveDeviceKeys(ctx, holder.id)
+	keys, err := h.auth.DeviceKeys(ctx, holder.id)
 	require.NoError(t, err)
-	require.Empty(t, keys, "a device key outlived the reset")
+	for _, key := range keys {
+		require.NotNil(t, key.RevokedAt, "a device key outlived the reset")
+	}
 
 	resp = signIn(holder)
 	require.Equal(t, http.StatusForbidden, resp.status, resp.String())

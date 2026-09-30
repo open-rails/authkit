@@ -89,7 +89,7 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 	assign(curatedRef, "curator")
 	retired, retiredRef := create(ident.Persona("channel"))
 	assign(retiredRef, "reader")
-	require.NoError(t, client.DeleteGroup(ctx, iam.GroupByID(retired), nil))
+	require.NoError(t, client.DeleteGroup(ctx, iam.GroupByID(retired)))
 	unassigned, unassignedRef := create(ident.Persona("channel"))
 	unknown := uuid.NewString()
 

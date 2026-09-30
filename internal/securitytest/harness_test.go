@@ -292,7 +292,7 @@ func roleIn(t testing.TB, auth *authkit.Client, ref iam.GroupRef, name string) i
 	t.Helper()
 	g, err := auth.Group(t.Context(), ref)
 	require.NoError(t, err)
-	role, err := auth.Role(g.Persona, name)
+	role, err := auth.Role(g.Persona.String() + ":" + name)
 	require.NoError(t, err)
 	return role
 }
@@ -300,7 +300,7 @@ func roleIn(t testing.TB, auth *authkit.Client, ref iam.GroupRef, name string) i
 // role resolves a role name of persona through the schema.
 func (h *host) role(persona iam.Persona, name string) iam.Role {
 	h.t.Helper()
-	r, err := h.auth.Role(persona, name)
+	r, err := h.auth.Role(persona.String() + ":" + name)
 	require.NoError(h.t, err)
 	return r
 }
@@ -315,4 +315,27 @@ func grantRole(t testing.TB, auth *authkit.Client, ref iam.GroupRef, subject iam
 func revokeRole(t testing.TB, auth *authkit.Client, ref iam.GroupRef, subject iam.Subject, name string) {
 	t.Helper()
 	authtest.RevokeRole(t, auth, ref, subject, roleIn(t, auth, ref, name))
+}
+
+// createKey is CreateAPIKey's key and its token.
+func createKey(auth *authkit.Client, ctx context.Context, actor iam.Actor, ref iam.GroupRef, k iam.NewAPIKey) (iam.APIKey, string, error) {
+	created, err := auth.CreateAPIKey(ctx, actor, ref, k)
+	return created.APIKey, created.Secret, err
+}
+
+// setRole is SetGroupRole's error.
+func setRole(auth *authkit.Client, ctx context.Context, actor iam.Actor, ref iam.GroupRef, subject iam.Subject, role iam.Role) error {
+	_, err := auth.SetGroupRole(ctx, actor, ref, subject, role)
+	return err
+}
+
+// patterns is auth's mounted routes as ServeMux patterns, HEAD aside.
+func patterns(auth *authkit.Client) []string {
+	var out []string
+	for _, r := range auth.Routes() {
+		if r.Method != http.MethodHead {
+			out = append(out, r.Pattern())
+		}
+	}
+	return out
 }

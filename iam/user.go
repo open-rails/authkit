@@ -1,6 +1,7 @@
 package iam
 
 import (
+	"crypto/ed25519"
 	"strings"
 	"time"
 )
@@ -24,12 +25,14 @@ type User struct {
 	Ban *BanState `json:"ban,omitempty"`
 }
 
-// BanState is a ban in force. By is "" when the system or a machine banned.
+// BanState is a ban in force: when it began, until when (nil =
+// indefinitely), why, and the account that banned (By, "" for the system or a
+// machine).
 type BanState struct {
-	At     time.Time  `json:"at"`
-	Until  *time.Time `json:"until,omitempty"`
-	Reason string     `json:"reason,omitempty"`
-	By     string     `json:"by,omitempty"`
+	At     time.Time  `json:"at" yaml:"at"`
+	Until  *time.Time `json:"until,omitempty" yaml:"until"`
+	Reason string     `json:"reason,omitempty" yaml:"reason"`
+	By     string     `json:"by,omitempty" yaml:"by"`
 }
 
 // PublicUser is what other people may see of an account. A deleted account
@@ -97,22 +100,6 @@ func (r UserRef) Value() string  { return r.value }
 func (r UserRef) IsZero() bool   { return r.key == "" || r.value == "" }
 func (r UserRef) String() string { return string(r.key) + ":" + r.value }
 
-// ReadOption adjusts a read.
-type ReadOption struct{ includeDeleted bool }
-
-// IncludeDeleted makes a read return soft-deleted accounts too.
-func IncludeDeleted() ReadOption { return ReadOption{includeDeleted: true} }
-
-// IncludesDeleted reports whether opts ask for deleted accounts.
-func IncludesDeleted(opts []ReadOption) bool {
-	for _, o := range opts {
-		if o.includeDeleted {
-			return true
-		}
-	}
-	return false
-}
-
 // NewUser creates a native account. Verified flags are the system's
 // assertion that the address was proven elsewhere.
 type NewUser struct {
@@ -129,9 +116,24 @@ type UserUpdate struct {
 	PasswordHash                                                   *PasswordHash
 }
 
-// PasswordHash is an imported password hash: Algo is argon2id or bcrypt,
-// validated at write.
-type PasswordHash struct{ Hash, Algo string }
+// PasswordHash is a password hash made elsewhere (an import, a bootstrap
+// manifest, UpdateUser), validated before it is stored.
+type PasswordHash struct {
+	Hash string   `json:"hash" yaml:"hash"`
+	Algo HashAlgo `json:"algo" yaml:"algo"`
+}
+
+// HashAlgo names a password hash algorithm.
+type HashAlgo string
+
+const (
+	HashArgon2id HashAlgo = "argon2id"
+	HashBcrypt   HashAlgo = "bcrypt"
+	// HashLegacyResetRequired marks a migrated password that can never verify
+	// (DES crypt, md5-crypt, a corrupted value). The raw hash is kept for
+	// forensics only; the account must reset its password.
+	HashLegacyResetRequired HashAlgo = "legacy-reset-required"
+)
 
 // Ban bans an account. Until nil bans indefinitely. KeepExisting leaves a ban
 // already in force unchanged, so a repeat call is a no-op.
@@ -164,15 +166,39 @@ const (
 
 // UserQuery lists accounts. Search matches username, email and phone;
 // RootRole filters on a role in the root group; Entitlement needs an
-// entitlements provider that can list subjects.
+// entitlements provider that can list subjects. Total counts every match into
+// ListPage.Total; WithEntitlements fills UserEntry.Entitlements from the
+// entitlements provider.
 type UserQuery struct {
-	Search      string
-	Status      UserStatus
-	RootRole    Role
-	Entitlement string
-	Sort        UserSort
-	Desc        bool
-	Page        PageRequest
+	Search           string
+	Status           UserStatus
+	RootRole         Role
+	Entitlement      string
+	Sort             UserSort
+	Desc             bool
+	Total            bool
+	WithEntitlements bool
+	Page             PageRequest
+}
+
+// UserEntry is one row of the user directory: the account and its root
+// role (zero when it holds none), and, when the query asks, its entitlements.
+type UserEntry struct {
+	User
+	RootRole     Role     `json:"root_role"`
+	Entitlements []string `json:"entitlements"`
+}
+
+// DeviceKey is an Ed25519 key a native client signs in with. Current marks
+// the key behind the access token of the request that listed it.
+type DeviceKey struct {
+	ID         string            `json:"id"`
+	Label      string            `json:"label"`
+	PublicKey  ed25519.PublicKey `json:"public_key"`
+	CreatedAt  time.Time         `json:"created_at"`
+	LastUsedAt *time.Time        `json:"last_used_at"`
+	RevokedAt  *time.Time        `json:"revoked_at"`
+	Current    bool              `json:"current"`
 }
 
 // Session is one refresh session on this deployment's issuer.

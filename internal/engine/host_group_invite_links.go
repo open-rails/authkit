@@ -54,115 +54,20 @@ func (s *Engine) inviteURL(code string) string {
 }
 
 // requireIssuableRole refuses a role that is not in the group's catalog.
-func (s *Engine) requireIssuableRole(ctx context.Context, st *permissionGroupStore, g groupTarget, role iam.Role) ([]string, error) {
-	if err := s.requireDefinedGroupRole(ctx, st, g.ID, g.Persona, role); err != nil {
+func (s *Engine) requireIssuableRole(g groupTarget, role iam.Role) ([]string, error) {
+	if err := s.requireDefinedGroupRole(g.Persona, role); err != nil {
 		return nil, err
 	}
-	return s.roleGrants(ctx, st, g, role)
+	return s.roleGrants(g.Persona, role)
 }
 
-// CreateInviteLink mints a single-use link granting l.Role in ref:
-// CAP(<p>:members:manage) plus COVER(role). Only a user or the system issues
-// credentials. The code is returned once.
-func (s *Engine) CreateInviteLink(ctx context.Context, a iam.Actor, ref iam.GroupRef, l iam.NewInviteLink) (iam.InviteLinkCreated, error) {
-	creator, err := credentialIssuer(a)
-	if err != nil {
-		return iam.InviteLinkCreated{}, err
-	}
-	if !s.externalInvitesEnabled() {
-		return iam.InviteLinkCreated{}, iam.ErrExternalInvitesDisabled
-	}
-	role := l.Role
-	if role.IsZero() {
-		return iam.InviteLinkCreated{}, errmodel.ErrInvalidInvite
-	}
-	ttl := l.ExpiresIn
-	if ttl <= 0 {
-		ttl = defaultGroupInviteTTL
-	}
-	out := iam.InviteLinkCreated{Code: secret.Token(32), ExpiresAt: time.Now().UTC().Add(min(ttl, maxGroupInviteTTL))}
-	err = s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
-		if _, err := s.requireIssuableRole(ctx, st, g, role); err != nil {
-			return err
-		}
-		if err := s.requireRoleGrant(ctx, st, a, g, iam.PermMembersManage(g.Persona), role); err != nil {
-			return err
-		}
-		id, err := db.New(st.q).InviteLinkInsert(ctx, db.InviteLinkInsertParams{
-			GroupID: g.ID, Role: role.Name(), InvitedBy: nullable(creator), CodeHash: secret.Hash(out.Code), ExpiresAt: out.ExpiresAt,
-		})
-		out.ID = id
-		return err
-	})
-	if err != nil {
-		return iam.InviteLinkCreated{}, err
-	}
-	out.URL = s.inviteURL(out.Code)
-	return out, nil
-}
-
-// InviteLinks lists the group's links, newest first, active or not. Never the
-// code or its hash.
-func (s *Engine) InviteLinks(ctx context.Context, ref iam.GroupRef, p iam.PageRequest) (iam.ListPage[iam.InviteLink], error) {
-	if err := s.requirePG(); err != nil {
-		return iam.ListPage[iam.InviteLink]{}, err
-	}
-	after, err := idCursor(p)
-	if err != nil {
-		return iam.ListPage[iam.InviteLink]{}, err
-	}
-	st := s.groupStore()
-	g, err := s.resolveGroup(ctx, st, ref)
-	if err != nil {
-		return iam.ListPage[iam.InviteLink]{}, err
-	}
-	rows, err := db.New(st.q).InviteLinksByGroup(ctx, db.InviteLinksByGroupParams{GroupID: g.ID, After: after, PageLimit: int64(p.PageLimit() + 1)})
-	if err != nil {
-		return iam.ListPage[iam.InviteLink]{}, err
-	}
-	links := make([]iam.InviteLink, len(rows))
-	for i, r := range rows {
-		links[i] = iam.InviteLink{
-			ID: r.ID, Role: ident.Role(g.Persona, r.Role), InvitedBy: r.InvitedBy, CreatedAt: r.CreatedAt,
-			ExpiresAt: r.ExpiresAt, RedeemedAt: r.RedeemedAt, RevokedAt: r.RevokedAt,
-		}
-	}
-	return idPage(links, p.PageLimit(), func(l iam.InviteLink) string { return l.ID }), nil
-}
-
-// RevokeInviteLink revokes the group's live link: CAP(<p>:members:manage) plus
-// COVER of the link's role. ErrInviteLinkNotFound when none matches.
-func (s *Engine) RevokeInviteLink(ctx context.Context, a iam.Actor, ref iam.GroupRef, linkID string) error {
-	if err := requireActor(a); err != nil {
-		return err
-	}
-	linkID = strings.TrimSpace(linkID)
-	return s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
-		if !isUUID(linkID) {
-			return iam.ErrInviteLinkNotFound
-		}
-		q := db.New(st.q)
-		name, err := q.InviteLinkRoleForUpdate(ctx, db.InviteLinkRoleForUpdateParams{ID: linkID, GroupID: g.ID})
-		if errors.Is(err, pgx.ErrNoRows) {
-			return iam.ErrInviteLinkNotFound
-		}
-		if err != nil {
-			return err
-		}
-		if err := s.requireCredentialRevoke(ctx, st, a, g, iam.PermMembersManage(g.Persona), ident.Role(g.Persona, name)); err != nil {
-			return err
-		}
-		return q.InviteLinkRetire(ctx, linkID)
-	})
-}
-
-// RedeemInviteLink redeems code for the signed-in user a: the link must be
+// RedeemInvitation redeems code for the signed-in user a: a link must be
 // live (not revoked, expired or used) and its issuer live, and the redeemer
 // live. The role is assigned in the same transaction and the link consumed.
 // Idempotent: a redeemer already holding the role succeeds without using it.
 // code may also be a role-carrying account invitation (an add by email): only
 // the account that has verified the invited address accepts it.
-func (s *Engine) RedeemInviteLink(ctx context.Context, a iam.Actor, code string) (authflow.InviteRedemption, error) {
+func (s *Engine) RedeemInvitation(ctx context.Context, a iam.Actor, code string) (authflow.InviteRedemption, error) {
 	var out authflow.InviteRedemption
 	code = strings.TrimSpace(code)
 	if a.Kind() != iam.ActorUser || !isUUID(a.ID()) {
@@ -187,18 +92,18 @@ func (s *Engine) RedeemInviteLink(ctx context.Context, a iam.Actor, code string)
 		}
 		link, err := q.InviteLinkByCodeForUpdate(ctx, db.InviteLinkByCodeForUpdateParams{CodeHash: codeHash, GroupID: groupID})
 		if errors.Is(err, pgx.ErrNoRows) {
-			return iam.ErrInviteLinkNotFound
+			return iam.ErrInvitationNotFound
 		}
 		if err != nil {
 			return err
 		}
 		out.GroupID, out.Persona = link.GroupID, ident.Persona(link.Persona)
-		out.Role = ident.Role(out.Persona, link.Role)
+		out.Role = ident.RoleText(link.Role)
 		if link.RevokedAt != nil || !link.IssuerLive {
-			return errmodel.ErrInviteLinkRevoked
+			return errmodel.ErrInvitationRevoked
 		}
 		if link.ExpiresAt != nil && !link.ExpiresAt.After(time.Now().UTC()) {
-			return errmodel.ErrInviteLinkExpired
+			return errmodel.ErrInvitationExpired
 		}
 		live, err := subjectUsable(ctx, st.q, redeemer)
 		if err != nil {
@@ -212,7 +117,7 @@ func (s *Engine) RedeemInviteLink(ctx context.Context, a iam.Actor, code string)
 			return err
 		}
 		if link.RedeemedAt != nil {
-			return iam.ErrInviteLinkNotFound
+			return iam.ErrInvitationNotFound
 		}
 		if err := s.assignInvitedRole(ctx, st, groupID, out.Persona, redeemer.ID, out.Role); err != nil {
 			return err
@@ -228,12 +133,12 @@ func (s *Engine) RedeemInviteLink(ctx context.Context, a iam.Actor, code string)
 // acceptAccountInvite accepts a role-carrying account invitation for an
 // existing account: the redeemer's verified email must be the invited address,
 // so the role lands only with the consent of whoever proved it. Anything else
-// is ErrInviteLinkNotFound, never a hint about the invitation.
+// is ErrInvitationNotFound, never a hint about the invitation.
 func (s *Engine) acceptAccountInvite(ctx context.Context, st *permissionGroupStore, redeemer iam.Subject, codeHash string, out *authflow.InviteRedemption) error {
 	q := db.New(st.q)
 	groupID, err := q.AccountInviteGroupByCode(ctx, codeHash)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return iam.ErrInviteLinkNotFound
+		return iam.ErrInvitationNotFound
 	}
 	if err != nil {
 		return err
@@ -243,18 +148,18 @@ func (s *Engine) acceptAccountInvite(ctx context.Context, st *permissionGroupSto
 	}
 	invite, err := q.AccountInviteByCodeForUpdate(ctx, db.AccountInviteByCodeForUpdateParams{CodeHash: codeHash, GroupID: groupID, UserID: redeemer.ID})
 	if errors.Is(err, pgx.ErrNoRows) || err == nil && !invite.Addressed {
-		return iam.ErrInviteLinkNotFound
+		return iam.ErrInvitationNotFound
 	}
 	if err != nil {
 		return err
 	}
 	out.GroupID, out.Persona = invite.GroupID, ident.Persona(invite.Persona)
-	out.Role = ident.Role(out.Persona, invite.Role)
+	out.Role = ident.RoleText(invite.Role)
 	if invite.RevokedAt != nil || !invite.IssuerLive {
-		return errmodel.ErrInviteLinkRevoked
+		return errmodel.ErrInvitationRevoked
 	}
 	if !invite.ExpiresAt.After(time.Now().UTC()) {
-		return errmodel.ErrInviteLinkExpired
+		return errmodel.ErrInvitationExpired
 	}
 	live, err := subjectUsable(ctx, st.q, redeemer)
 	if err != nil {
@@ -268,7 +173,7 @@ func (s *Engine) acceptAccountInvite(ctx context.Context, st *permissionGroupSto
 		return err
 	}
 	if invite.ConsumedAt != nil {
-		return iam.ErrInviteLinkNotFound
+		return iam.ErrInvitationNotFound
 	}
 	if err := s.assignInvitedRole(ctx, st, groupID, out.Persona, redeemer.ID, out.Role); err != nil {
 		return err
@@ -278,5 +183,5 @@ func (s *Engine) acceptAccountInvite(ctx context.Context, st *permissionGroupSto
 
 // subjectHasRole reports whether the user already holds role in the group.
 func subjectHasRole(ctx context.Context, q db.DBTX, groupID, userID string, role iam.Role) (bool, error) {
-	return db.New(q).GroupUserHasRole(ctx, db.GroupUserHasRoleParams{GroupID: groupID, UserID: userID, Role: role.Name()})
+	return db.New(q).GroupUserHasRole(ctx, db.GroupUserHasRoleParams{GroupID: groupID, UserID: userID, Role: role.String()})
 }

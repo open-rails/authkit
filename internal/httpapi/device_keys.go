@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	"github.com/open-rails/authkit/devicekey"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
@@ -18,18 +17,13 @@ import (
 // deviceKeyTokenResponse is a device key's sign-in; the key is the token's own.
 type deviceKeyTokenResponse struct {
 	TokenSet  iam.TokenSet  `json:"token_set"`
-	DeviceKey devicekey.Key `json:"device_key"`
-}
-
-func deviceKeyWire(key authflow.DeviceKey, current bool) devicekey.Key {
-	return devicekey.Key{ID: key.ID, Label: key.Label, CreatedAt: key.CreatedAt, LastUsedAt: key.LastUsedAt, RevokedAt: key.RevokedAt, Current: current}
+	DeviceKey iam.DeviceKey `json:"device_key"`
 }
 
 func deviceKeyTokenHTTPResponse(result authflow.DeviceKeyAuthResult) deviceKeyTokenResponse {
-	return deviceKeyTokenResponse{
-		TokenSet:  iam.NewTokenSet(result.AccessToken, "", result.ExpiresAt),
-		DeviceKey: deviceKeyWire(result.DeviceKey, true),
-	}
+	key := result.DeviceKey
+	key.Current = true
+	return deviceKeyTokenResponse{TokenSet: iam.NewTokenSet(result.AccessToken, "", result.ExpiresAt), DeviceKey: key}
 }
 
 func (s *Service) handleDeviceKeyEnrollBeginPOST(w http.ResponseWriter, r *http.Request) {
@@ -188,11 +182,7 @@ func (s *Service) handleDeviceKeysGET(w http.ResponseWriter, r *http.Request) {
 		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
-	answer := make([]devicekey.Key, 0, len(keys))
-	for _, key := range keys {
-		answer = append(answer, deviceKeyWire(key, key.ID == claims.DeviceKeyID))
-	}
-	writeList(w, answer, "")
+	writeList(w, keys, "")
 }
 
 func (s *Service) handleDeviceKeyDELETE(w http.ResponseWriter, r *http.Request) {

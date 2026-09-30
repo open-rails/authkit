@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
@@ -15,6 +16,7 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/ops"
 )
 
 // newAccount is one account row to create: a registration, an import row or a
@@ -43,11 +45,18 @@ const importUsersChunkSize = 1000
 // a concurrent writer; each retry sees the winner and rejects that row.
 const importChunkAttempts = 3
 
+// importRejection rejects one import row with its reason.
+type importRejection iam.ImportReason
+
+func (r importRejection) Error() string { return string(r) }
+
 var (
-	errImportInvalidID           = errors.New("invalid_id")
-	errImportInvalidPasswordHash = errors.New("invalid_password_hash")
-	errImportInvalidProvider     = errors.New("invalid_provider")
-	errImportInvalidDeletedAt    = errors.New("invalid_deleted_at")
+	errImportInvalidID           = importRejection(iam.ImportInvalidID)
+	errImportInvalidText         = importRejection(iam.ImportInvalidText)
+	errImportInvalidPasswordHash = importRejection(iam.ImportInvalidPasswordHash)
+	errImportInvalidBan          = importRejection(iam.ImportInvalidBan)
+	errImportInvalidProvider     = importRejection(iam.ImportInvalidProvider)
+	errImportInvalidDeletedAt    = importRejection(iam.ImportInvalidDeletedAt)
 	errImportProviderRaced       = errors.New("authkit: import lost a provider link to a concurrent writer")
 )
 
@@ -96,7 +105,7 @@ func (p *importRow) keys() []importKey {
 	return append(out, importKey{iam.ImportMatchUsername, p.name})
 }
 
-func importRejected(idx int, reason string) iam.ImportRow {
+func importRejected(idx int, reason iam.ImportReason) iam.ImportRow {
 	return iam.ImportRow{Index: idx, Status: iam.ImportRejected, Reason: reason}
 }
 
@@ -107,7 +116,10 @@ func importRejected(idx int, reason string) iam.ImportRow {
 // with an earlier row of the batch is that row's account. A row whose
 // identifiers name two accounts is rejected. Matching is never proof: only an
 // id, or a contact verified on the account, binds a row for a merge.
-func (s *Engine) ImportUsers(ctx context.Context, rows []iam.ImportUser, opts iam.ImportOptions) (iam.ImportResult, error) {
+func (s *Engine) ImportUsers(ctx context.Context, rows []iam.ImportUser, opts iam.ImportOptions, options ...ops.Option) (iam.ImportResult, error) {
+	if err := noOptions("ImportUsers", options); err != nil {
+		return iam.ImportResult{}, err
+	}
 	merge := false
 	switch opts.OnConflict {
 	case "", iam.ImportSkip:
@@ -158,11 +170,11 @@ func (s *Engine) ImportUsers(ctx context.Context, rows []iam.ImportUser, opts ia
 		}
 		switch {
 		case conflict:
-			res.Rows[i] = importRejected(i, "identifier_conflict")
+			res.Rows[i] = importRejected(i, iam.ImportIdentifierConflict)
 		case of != nil:
 			dups = append(dups, duplicate{i, of, by})
 		case held:
-			res.Rows[i] = importRejected(i, errmodel.CodeProviderAlreadyLinked.String())
+			res.Rows[i] = importRejected(i, iam.ImportProviderAlreadyLinked)
 		default:
 			for _, k := range p.keys() {
 				first[k] = p
@@ -191,6 +203,9 @@ func (s *Engine) ImportUsers(ctx context.Context, rows []iam.ImportUser, opts ia
 			}
 		}
 	}
+	if err == nil {
+		err = s.importBannedBy(ctx, prepared)
+	}
 	for _, p := range prepared {
 		res.Rows[p.idx] = p.out
 	}
@@ -198,9 +213,9 @@ func (s *Engine) ImportUsers(ctx context.Context, rows []iam.ImportUser, opts ia
 		switch {
 		case d.of.out.Status == "":
 		case d.of.out.UserID == "":
-			res.Rows[d.idx] = importRejected(d.idx, "duplicate_in_batch")
+			res.Rows[d.idx] = importRejected(d.idx, iam.ImportDuplicateInBatch)
 		default:
-			res.Rows[d.idx] = iam.ImportRow{Index: d.idx, UserID: d.of.out.UserID, MatchedBy: d.by, Status: iam.ImportSkipped, Reason: "duplicate_in_batch"}
+			res.Rows[d.idx] = iam.ImportRow{Index: d.idx, UserID: d.of.out.UserID, MatchedBy: d.by, Status: iam.ImportSkipped, Reason: iam.ImportDuplicateInBatch}
 		}
 	}
 	for _, r := range res.Rows {
@@ -219,15 +234,29 @@ func (s *Engine) ImportUsers(ctx context.Context, rows []iam.ImportUser, opts ia
 }
 
 func (s *Engine) prepareImportRow(idx int, in iam.ImportUser) (*importRow, error) {
+	if !validImportText(in) {
+		return nil, errImportInvalidText
+	}
 	acct := newAccount{
 		Email: in.Email, PhoneNumber: in.Phone, Username: in.Username,
 		EmailVerified: in.EmailVerified, PhoneVerified: in.PhoneVerified,
-		BannedAt: in.BannedAt, BannedUntil: in.BannedUntil, BanReason: nullable(strings.TrimSpace(in.BanReason)),
 		Metadata: in.Metadata, CreatedAt: in.CreatedAt, UpdatedAt: in.UpdatedAt,
-		PasswordHash: strings.TrimSpace(in.PasswordHash), HashAlgo: strings.TrimSpace(in.HashAlgo),
 	}
-	if acct.PasswordHash != "" || acct.HashAlgo != "" {
-		if acct.HashAlgo == "" || acct.PasswordHash == "" && acct.HashAlgo != iam.HashAlgoLegacyResetRequired ||
+	if b := in.Ban; b != nil {
+		by := strings.TrimSpace(b.By)
+		if b.At.IsZero() || by != "" && !isUUID(by) {
+			return nil, errImportInvalidBan
+		}
+		at := b.At
+		acct.BannedAt, acct.BannedUntil, acct.BanReason = &at, b.Until, nullable(strings.TrimSpace(b.Reason))
+		if by != "" {
+			by = strings.ToLower(by)
+			acct.BannedBy = &by
+		}
+	}
+	if h := in.PasswordHash; h != nil {
+		acct.PasswordHash, acct.HashAlgo = strings.TrimSpace(h.Hash), string(h.Algo)
+		if acct.HashAlgo == "" || acct.PasswordHash == "" && h.Algo != iam.HashLegacyResetRequired ||
 			validatePasswordHashForStorage(acct.PasswordHash, acct.HashAlgo) != nil {
 			return nil, errImportInvalidPasswordHash
 		}
@@ -341,7 +370,7 @@ func (s *Engine) importChunk(ctx context.Context, chunk []*importRow, merge bool
 			return err
 		}
 		for _, p := range left {
-			p.out = importRejected(p.idx, "identifier_conflict")
+			p.out = importRejected(p.idx, iam.ImportIdentifierConflict)
 		}
 	}
 	if err = insertImportPasswords(ctx, q, passwords); err != nil {
@@ -403,19 +432,19 @@ func (s *Engine) resolveImportRows(ctx context.Context, st *permissionGroupStore
 				credentialBound = credentialBound || h.match == iam.ImportMatchEmail && p.in.EmailVerified || h.match == iam.ImportMatchPhone && p.in.PhoneVerified
 			}
 		}
-		skipped := iam.ImportRow{Index: p.idx, UserID: top.userID, MatchedBy: top.match, Status: iam.ImportSkipped, Reason: "already_exists"}
+		skipped := iam.ImportRow{Index: p.idx, UserID: top.userID, MatchedBy: top.match, Status: iam.ImportSkipped, Reason: iam.ImportAlreadyExists}
 		switch {
 		case top.missing:
-			p.out = importRejected(p.idx, "username_unavailable")
+			p.out = importRejected(p.idx, iam.ImportUsernameUnavailable)
 		case conflict:
-			p.out = importRejected(p.idx, "identifier_conflict")
+			p.out = importRejected(p.idx, iam.ImportIdentifierConflict)
 		case top.deleted:
-			skipped.Reason = "deleted"
+			skipped.Reason = iam.ImportDeleted
 			p.out = skipped
 		case !merge:
 			p.out = skipped
 		case !bound:
-			skipped.Reason = "unbound_match"
+			skipped.Reason = iam.ImportUnboundMatch
 			p.out = skipped
 		default:
 			err := st.savepoint(ctx, func() error { return s.mergeImportRow(ctx, st, p, top.userID, credentialBound) })
@@ -542,6 +571,21 @@ type importUserColumns struct {
 	DeletedAt         *time.Time      `json:"deleted_at"`
 }
 
+// importBannedBy records who banned the inserted rows, once every chunk has
+// committed, so a banner imported later in the batch counts too.
+func (s *Engine) importBannedBy(ctx context.Context, rows []*importRow) error {
+	var arg db.ImportSetBannedByParams
+	for _, p := range rows {
+		if p.out.Status == iam.ImportInserted && p.in.BannedBy != nil {
+			arg.UserIds, arg.BannedBy = append(arg.UserIds, p.id), append(arg.BannedBy, *p.in.BannedBy)
+		}
+	}
+	if len(arg.UserIds) == 0 {
+		return nil
+	}
+	return s.q.ImportSetBannedBy(ctx, arg)
+}
+
 // insertImportRows inserts rows in one statement and returns the ids that
 // landed; a row losing a uniqueness race to another writer does not.
 func insertImportRows(ctx context.Context, q *db.Queries, rows []*importRow) (map[string]bool, error) {
@@ -616,7 +660,7 @@ func rejectHeldProviders(ctx context.Context, q *db.Queries, rows []*importRow) 
 		if ok {
 			out = append(out, p)
 		} else {
-			p.out = importRejected(p.idx, errmodel.CodeProviderAlreadyLinked.String())
+			p.out = importRejected(p.idx, iam.ImportProviderAlreadyLinked)
 		}
 	}
 	return out, nil
@@ -664,11 +708,58 @@ func pgTime(t *time.Time) *time.Time {
 	return &u
 }
 
-// importRejectReason is a row's reject reason: its validation code, or the
-// error text.
-func importRejectReason(err error) string {
-	if code := errmodel.CodeOf(err); code != "" {
-		return string(code)
+// importRejectReason is a row's reject reason: its import rejection or
+// validation code, else the error text.
+func importRejectReason(err error) iam.ImportReason {
+	var r importRejection
+	if errors.As(err, &r) {
+		return iam.ImportReason(r)
 	}
-	return err.Error()
+	if code := errmodel.CodeOf(err); code != "" {
+		return iam.ImportReason(code)
+	}
+	return iam.ImportReason(err.Error())
+}
+
+// validImportText reports whether every text field of in, metadata included,
+// is valid UTF-8. The JSON bulk insert would store invalid bytes as U+FFFD.
+func validImportText(in iam.ImportUser) bool {
+	texts := []string{in.ID, in.Email, in.Phone, in.Username, in.PreferredLanguage, in.AvatarURL}
+	if in.PasswordHash != nil {
+		texts = append(texts, in.PasswordHash.Hash, string(in.PasswordHash.Algo))
+	}
+	if in.Ban != nil {
+		texts = append(texts, in.Ban.Reason, in.Ban.By)
+	}
+	for _, l := range in.Providers {
+		texts = append(texts, l.Issuer, l.Subject, l.Provider, l.Email)
+	}
+	for _, t := range texts {
+		if !utf8.ValidString(t) {
+			return false
+		}
+	}
+	return validUTF8Value(in.Metadata)
+}
+
+// validUTF8Value reports whether every string in v, a JSON-shaped value,
+// and every map key is valid UTF-8.
+func validUTF8Value(v any) bool {
+	switch v := v.(type) {
+	case string:
+		return utf8.ValidString(v)
+	case map[string]any:
+		for k, e := range v {
+			if !utf8.ValidString(k) || !validUTF8Value(e) {
+				return false
+			}
+		}
+	case []any:
+		for _, e := range v {
+			if !validUTF8Value(e) {
+				return false
+			}
+		}
+	}
+	return true
 }

@@ -83,7 +83,7 @@ func TestSecurityBasePathConfinesSurface(t *testing.T) {
 		}
 		for _, want := range []string{"GET " + base + iam.JWKSPath,
 			"GET " + base + "/oidc/{provider}/callback", "POST " + base + "/api/v1/oidc/{provider}/link/start", "GET " + base + "/api/v1/me"} {
-			require.Contains(t, auth.Patterns(), want)
+			require.Contains(t, patterns(auth), want)
 		}
 		for _, path := range []string{iam.JWKSPath, "/api/v1/capabilities",
 			"/oidc/github/login", "/auth" + iam.JWKSPath, "/tenant" + iam.JWKSPath} {
@@ -149,6 +149,6 @@ func TestSecurityBasePathConfinesSurface(t *testing.T) {
 			require.ErrorContains(t, err, "BasePath", "BasePath %q", path)
 		}
 		again := authtest.Replica(t, auth, authtest.WithConfig(func(c *authkit.Config) { c.HTTP.BasePath = base + "/" }))
-		require.Equal(t, auth.Patterns(), again.Patterns())
+		require.Equal(t, patterns(auth), patterns(again))
 	})
 }

@@ -38,7 +38,6 @@ func AsError(err error) (Error, bool) {
 var (
 	ErrUserNotFound              Error = errmodel.E(errmodel.CodeUserNotFound)
 	ErrGroupNotFound             Error = errmodel.E(errmodel.CodeGroupNotFound)
-	ErrInviteLinkNotFound        Error = errmodel.E(errmodel.CodeInviteLinkNotFound)
 	ErrRemoteApplicationNotFound Error = errmodel.E(errmodel.CodeRemoteApplicationNotFound)
 )
 

@@ -15,15 +15,9 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/netguard"
 )
-
-func validateRemoteAppSlug(slug string) error {
-	if !iam.ValidSlug(slug) {
-		return iam.ErrInvalidRemoteApplication
-	}
-	return nil
-}
 
 // trustSourcePolicy relaxes remote-application trust-source validation.
 // AllowPrivateNetworkJWKS admits loopback/private-network JWKS URLs (local
@@ -156,7 +150,7 @@ func decodeRemoteAppKeys(raw []byte) []iam.RemoteApplicationKey {
 
 func remoteAppFromRow(row db.RemoteApplication) *iam.RemoteApplication {
 	ra := &iam.RemoteApplication{
-		ID: row.ID, Slug: row.Slug, PermissionGroupID: row.PermissionGroupID,
+		ID: row.ID, GroupID: row.PermissionGroupID,
 		Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: iam.RemoteApplicationMode(row.Mode),
 		PublicKeys: decodeRemoteAppKeys(row.PublicKeys), Enabled: row.Enabled,
 		TrustRoot: iam.ApplicationTrustRoot(row.TrustRoot),
@@ -166,19 +160,18 @@ func remoteAppFromRow(row db.RemoteApplication) *iam.RemoteApplication {
 }
 
 // upsertRemoteApplication writes in under the authority transaction st, keyed
-// by issuer, in the group in.PermissionGroupID. A set TrustRoot is stored;
+// by issuer, in the group in.GroupID. A set TrustRoot is stored;
 // unset, a new row is manual and an existing one keeps its own. Callers
 // authorize.
 func (s *Engine) upsertRemoteApplication(ctx context.Context, st *permissionGroupStore, in iam.RemoteApplication) (*iam.RemoteApplication, error) {
 	q := db.New(st.q)
-	slug := strings.ToLower(strings.TrimSpace(in.Slug))
 	issuer := strings.TrimSpace(in.Issuer)
 	jwksURI := strings.TrimSpace(in.JWKSURI)
-	if slug == "" || issuer == "" {
+	if issuer == "" {
 		return nil, iam.ErrInvalidRemoteApplication
 	}
-	if !iam.ValidRemoteApplicationIssuer(issuer) {
-		return nil, fmt.Errorf("%w: issuer must be an absolute http(s) URL of at most %d bytes", iam.ErrInvalidRemoteApplication, iam.MaxRemoteApplicationIssuerLen)
+	if !ident.ValidIssuer(issuer) {
+		return nil, fmt.Errorf("%w: issuer must be an absolute http(s) URL of at most %d bytes", iam.ErrInvalidRemoteApplication, ident.MaxIssuerLen)
 	}
 	// AK-AUTH-01: a remote_application must never claim the platform's own
 	// issuer or a provider's. The verifier keys issuers by string and upserts by issuer, so a
@@ -188,9 +181,6 @@ func (s *Engine) upsertRemoteApplication(ctx context.Context, st *permissionGrou
 	// including bootstrap.
 	if s.reservedIssuer(issuer) {
 		return nil, iam.ErrReservedIssuer
-	}
-	if err := validateRemoteAppSlug(slug); err != nil {
-		return nil, iam.ErrInvalidRemoteApplication
 	}
 	mode, err := normalizeRemoteAppTrustSource(jwksURI, in.Mode, in.PublicKeys, s.trustSourcePolicy())
 	if err != nil {
@@ -205,9 +195,9 @@ func (s *Engine) upsertRemoteApplication(ctx context.Context, st *permissionGrou
 	}
 	// Remote applications are group-nested: every issuer maps to one controlling
 	// permission group.
-	t := strings.TrimSpace(in.PermissionGroupID)
+	t := strings.TrimSpace(in.GroupID)
 	if t == "" {
-		return nil, fmt.Errorf("%w: permission_group_id is required (remote-applications are group-nested)", iam.ErrInvalidRemoteApplication)
+		return nil, fmt.Errorf("%w: group_id is required (remote applications are group-nested)", iam.ErrInvalidRemoteApplication)
 	}
 	if err := lockPermissionGroup(ctx, st.q, t); err != nil {
 		return nil, err
@@ -227,7 +217,6 @@ func (s *Engine) upsertRemoteApplication(ctx context.Context, st *permissionGrou
 		}
 	}
 	row, err := q.RemoteApplicationUpsert(ctx, db.RemoteApplicationUpsertParams{
-		Slug:              slug,
 		PermissionGroupID: t,
 		Issuer:            issuer,
 		JwksUri:           jwksURI,
@@ -307,7 +296,7 @@ func (s *Engine) GetRemoteApplication(ctx context.Context, issuer string) (*iam.
 	}
 	// Issuer lookups are verification-facing: a disabled application must fail
 	// closed on the next request, not at the next reconcile (#323). Admin reads
-	// use RemoteApplicationByIssuer / RemoteApplications.
+	// use RemoteApplication / ListRemoteApplications.
 	if !row.Enabled {
 		return nil, iam.ErrRemoteApplicationNotFound
 	}
@@ -321,20 +310,76 @@ func (s *Engine) GetRemoteApplication(ctx context.Context, issuer string) (*iam.
 	return remoteAppFromRow(row), nil
 }
 
-// RemoteApplicationByIssuer is the management read of the application
-// registered for issuer, disabled or in a retired group included.
-func (s *Engine) RemoteApplicationByIssuer(ctx context.Context, issuer string) (*iam.RemoteApplication, error) {
+// RemoteApplication is the management read of an application, by id or by
+// issuer, disabled or in a retired group included, with its role and the
+// permissions it confers now.
+func (s *Engine) RemoteApplication(ctx context.Context, ref iam.AppRef) (iam.RemoteApplication, error) {
 	if err := s.requirePG(); err != nil {
-		return nil, err
+		return iam.RemoteApplication{}, err
 	}
-	row, err := s.q.RemoteApplicationByIssuer(ctx, strings.TrimSpace(issuer))
+	var row db.RemoteApplication
+	var err error
+	switch {
+	case ref.ID() != "":
+		if !isUUID(ref.ID()) {
+			return iam.RemoteApplication{}, iam.ErrRemoteApplicationNotFound
+		}
+		row, err = s.q.RemoteApplicationByID(ctx, ref.ID())
+	case ref.Issuer() != "":
+		row, err = s.q.RemoteApplicationByIssuer(ctx, ref.Issuer())
+	default:
+		return iam.RemoteApplication{}, iam.ErrRemoteApplicationNotFound
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, iam.ErrRemoteApplicationNotFound
+		return iam.RemoteApplication{}, iam.ErrRemoteApplicationNotFound
 	}
 	if err != nil {
-		return nil, err
+		return iam.RemoteApplication{}, err
 	}
-	return remoteAppFromRow(row), nil
+	apps := []iam.RemoteApplication{*remoteAppFromRow(row)}
+	if err := s.loadApplicationRoles(ctx, s.pg, row.PermissionGroupID, apps); err != nil {
+		return iam.RemoteApplication{}, err
+	}
+	return apps[0], nil
+}
+
+// loadApplicationRoles fills the Role and Permissions of apps, all controlled
+// by groupID. An application confers nothing while it is disabled or its
+// group is deleted, and never a role that needs MFA.
+func (s *Engine) loadApplicationRoles(ctx context.Context, q db.DBTX, groupID string, apps []iam.RemoteApplication) error {
+	if len(apps) == 0 {
+		return nil
+	}
+	ids := make([]string, len(apps))
+	for i, a := range apps {
+		ids[i] = a.ID
+	}
+	queries := db.New(q)
+	group, err := queries.AuthorityGroupState(ctx, groupID)
+	if err != nil {
+		return err
+	}
+	rows, err := queries.GroupRolesForSubjects(ctx, db.GroupRolesForSubjectsParams{GroupID: groupID, UserIds: []string{}, ApplicationIds: ids})
+	if err != nil {
+		return err
+	}
+	roles := make(map[string]iam.Role, len(rows))
+	for _, r := range rows {
+		roles[r.SubjectID] = ident.RoleText(r.Role)
+	}
+	for i := range apps {
+		apps[i].Role = roles[apps[i].ID]
+		apps[i].Permissions = []iam.Perm{}
+		if !apps[i].Enabled || group.DeletedAt != nil || apps[i].Role.IsZero() {
+			continue
+		}
+		if s.TwoFactorEnabled() && s.roleRequiresMFA(apps[i].Role.Persona(), apps[i].Role) {
+			continue
+		}
+		grants, _ := s.roleGrants(apps[i].Role.Persona(), apps[i].Role)
+		apps[i].Permissions = ident.Perms(grants)
+	}
+	return nil
 }
 
 // ListEnabledRemoteApplications returns only the enabled remote_applications:

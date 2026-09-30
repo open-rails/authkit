@@ -13,6 +13,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/testhttp"
 	"github.com/open-rails/authkit/provider"
@@ -47,7 +48,7 @@ func TestMountCatalog(t *testing.T) {
 		require.Equal(t, iam.Route{Method: http.MethodGet, Path: "/api/v1/me", Group: iam.RouteAccount, Auth: iam.AuthRequired},
 			routes[routeKey{http.MethodGet, "/api/v1/me"}])
 		require.Equal(t, iam.Route{Method: http.MethodGet, Path: "/api/v1/admin/users/{user_id}", Group: iam.RouteAdmin,
-			Auth: iam.AuthPermission, Permission: iam.PermRootUsersRead.String()}, routes[routeKey{http.MethodGet, "/api/v1/admin/users/{user_id}"}])
+			Auth: iam.AuthPermission, Permission: ident.RootUsersRead.String()}, routes[routeKey{http.MethodGet, "/api/v1/admin/users/{user_id}"}])
 		require.Equal(t, iam.AuthOptional, routes[routeKey{http.MethodPost, "/api/v1/verify/request"}].Auth)
 		for _, route := range auth.Routes() {
 			if route.Method == http.MethodGet {
@@ -384,9 +385,7 @@ func TestBootNeverRestoresRoles(t *testing.T) {
 
 	revoked := authtest.NewUser(t, auth)
 	authtest.GrantRole(t, auth, iam.RootGroup(), iam.UserSubject(revoked.ID), editor)
-	res, err := auth.UnassignGroupRoles(ctx, iam.SystemActor(), iam.RootGroup(), []iam.Subject{iam.UserSubject(revoked.ID)}, editor)
-	require.NoError(t, err)
-	require.NoError(t, res[0].Err)
+	authtest.RevokeRole(t, auth, iam.RootGroup(), iam.UserSubject(revoked.ID), editor)
 	kept := authtest.NewUser(t, auth)
 	authtest.GrantRole(t, auth, iam.RootGroup(), iam.UserSubject(kept.ID), editor)
 
