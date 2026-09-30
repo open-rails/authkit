@@ -147,7 +147,7 @@ func TestAccountRecoveryPasswordConfirmationBoundary(t *testing.T) {
 	}
 	require.Equal(t, 1, winners)
 	expect(t, http.StatusUnauthorized, confirm(token))
-	expect(t, http.StatusUnauthorized, a.post("/token", "", map[string]string{"grant_type": "refresh_token", "refresh_token": old.RefreshToken}))
+	expect(t, http.StatusUnauthorized, a.post("/token", "", map[string]string{"grant_type": "refresh_token", "refresh_token": *old.RefreshToken}))
 	expect(t, http.StatusOK, login())
 
 	remove()

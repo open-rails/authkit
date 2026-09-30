@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"encoding"
 	"encoding/json"
 	"net/http"
 	"reflect"
@@ -20,12 +19,6 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(wireForm(reflect.ValueOf(v)).Interface())
 }
-
-var (
-	timeType          = reflect.TypeFor[time.Time]()
-	jsonMarshalerType = reflect.TypeFor[json.Marshaler]()
-	textMarshalerType = reflect.TypeFor[encoding.TextMarshaler]()
-)
 
 // wireForm copies v with its times in UTC and its nil lists and maps empty.
 // A value that marshals itself as text or raw JSON is left as it is.

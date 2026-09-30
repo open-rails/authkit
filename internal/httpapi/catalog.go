@@ -106,9 +106,9 @@ var (
 // and the TypeScript wire types from it.
 func Catalog() []RouteSpec {
 	const (
-		GET, POST, PUT, PATCH, DELETE = http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete
+		GET, POST, PUT, PATCH, DELETE                                           = http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete
 		auth, deviceKeys, registration, account, admin, groups, oidc, delegated = iam.RouteAuth, iam.RouteDeviceKeys, iam.RouteRegistration, iam.RouteAccount, iam.RouteAdmin, iam.RoutePermissionGroups, iam.RouteBrowserOIDC, iam.RouteDelegated
-		public, optional, required, session, permission = iam.AuthPublic, iam.AuthOptional, iam.AuthRequired, iam.AuthSession, iam.AuthPermission
+		public, optional, required, session, permission                         = iam.AuthPublic, iam.AuthOptional, iam.AuthRequired, iam.AuthSession, iam.AuthPermission
 	)
 	type (
 		tokens    = iam.TokenSet
@@ -274,7 +274,7 @@ func Catalog() []RouteSpec {
 		{Method: GET, Path: "/groups/{group_id}/members", Group: groups, Auth: permission, Perm: OpMembersList.catalogPermission(), MountedWhen: FeatureGroups,
 			Query: MemberListQuery{}, Responses: replyOK(iam.ListPage[iam.GroupMember]{}), serve: groupOp(OpMembersList)},
 		{Method: POST, Path: "/groups/{group_id}/members", Group: groups, Auth: permission, Perm: OpMemberAdd.catalogPermission(), MountedWhen: FeatureGroups,
-			Request: MemberAddRequest{}, Responses: []Reply{{http.StatusOK, iam.GroupMember{}}, {http.StatusAccepted, nil}}, serve: groupOp(OpMemberAdd)},
+			Request: MemberAddRequest{}, Responses: []Reply{{http.StatusOK, iam.GroupMember{}}, {http.StatusCreated, iam.InvitationCreated{}}}, serve: groupOp(OpMemberAdd)},
 		{Method: DELETE, Path: "/groups/{group_id}/members/{user}", Group: groups, Auth: permission, Perm: OpMemberRemove.catalogPermission(), MountedWhen: FeatureGroups,
 			Responses: replyNoContent, serve: groupOp(OpMemberRemove)},
 		{Method: PUT, Path: "/groups/{group_id}/members/{user}/roles/{role}", Group: groups, Auth: permission, Perm: OpMemberRoleAssign.catalogPermission(), MountedWhen: FeatureGroups,

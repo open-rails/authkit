@@ -664,7 +664,7 @@ func TestAdminRootRoleHTTPWorkflow(t *testing.T) {
 	var entry iam.UserEntry
 	res.decode(t, &entry)
 	require.Equal(t, admin.ID, entry.ID)
-	require.Equal(t, adminRole, entry.RootRole)
+	require.Equal(t, adminRole, *entry.RootRole)
 	require.Equal(t, []string{}, entry.Entitlements)
 	res = a.get("/admin/users/"+uuid.NewString(), adminToken)
 	require.Equal(t, http.StatusNotFound, res.status, res.String())

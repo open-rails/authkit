@@ -101,7 +101,7 @@ func TestSecurityPasswordStepUpNeedsSecondFactor(t *testing.T) {
 	}
 	u, err := h.auth.User(ctx, iam.UserByID(victim.id))
 	require.NoError(t, err)
-	require.Equal(t, victim.email, u.Email)
+	require.Equal(t, victim.email, *u.Email)
 
 	t.Run("control: a second-factor step-up clears every gate", func(t *testing.T) {
 		resp := h.post("/step-up/2fa", map[string]any{}, reproved)

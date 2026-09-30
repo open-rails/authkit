@@ -113,7 +113,7 @@ func TestSecurityAccountAuthority(t *testing.T) {
 		}
 		u, err := h.auth.User(ctx, iam.UserByID(target.id))
 		require.NoError(t, err)
-		require.Equal(t, target.email, u.Email)
+		require.Equal(t, target.email, *u.Email)
 	})
 	t.Run("M1: site moderation against a group owner with no root role", func(t *testing.T) {
 		for name, op := range ops {
@@ -177,7 +177,7 @@ func TestSecurityContactChangeKeepsMFARoles(t *testing.T) {
 	require.ErrorIs(t, err, errmodel.E(errmodel.CodeVerificationRequired))
 	u, err := h.auth.User(ctx, iam.UserByID(holder.id))
 	require.NoError(t, err)
-	require.Equal(t, holder.email, u.Email)
+	require.Equal(t, holder.email, *u.Email)
 	require.True(t, u.EmailVerified)
 
 	t.Run("control: the system vouching for the new address keeps MFA and roles", func(t *testing.T) {
@@ -185,7 +185,7 @@ func TestSecurityContactChangeKeepsMFARoles(t *testing.T) {
 		verified := true
 		u, err := h.auth.UpdateUser(ctx, iam.SystemActor(), holder.id, iam.UserUpdate{Email: &moved, EmailVerified: &verified})
 		require.NoError(t, err)
-		require.Equal(t, moved, u.Email)
+		require.Equal(t, moved, *u.Email)
 		var enabled bool
 		require.NoError(t, h.pool.QueryRow(ctx, `SELECT enabled FROM profiles.mfa_settings WHERE user_id=$1::uuid`, holder.id).Scan(&enabled))
 		require.True(t, enabled)
@@ -250,7 +250,7 @@ func TestSecurityInlinePasswordNeedsSecondFactor(t *testing.T) {
 	}
 	u, err := h.auth.User(ctx, iam.UserByID(a.id))
 	require.NoError(t, err)
-	require.Equal(t, a.email, u.Email)
+	require.Equal(t, a.email, *u.Email)
 
 	t.Run("control: a password clears the gate without a second factor", func(t *testing.T) {
 		b := h.newAccount("pwdstep")
@@ -373,7 +373,7 @@ func TestSecuritySelfRulesUseCanonicalIDs(t *testing.T) {
 	require.NotContains(t, meta, "plan")
 	u, err := h.auth.User(ctx, iam.UserByID(staff.id))
 	require.NoError(t, err)
-	require.Equal(t, staff.email, u.Email)
+	require.Equal(t, staff.email, *u.Email)
 
 	t.Run("control: an upper-case id names another account", func(t *testing.T) {
 		require.NoError(t, selfOps["PatchUserMetadata"](iam.UserActor(staff.id), strings.ToUpper(other.id)))
@@ -397,7 +397,7 @@ func TestSecurityContactChangeKeepsEnrolledMFA(t *testing.T) {
 	require.ErrorIs(t, err, errmodel.E(errmodel.CodeVerificationRequired))
 	u, err := h.auth.User(ctx, iam.UserByID(target.id))
 	require.NoError(t, err)
-	require.Equal(t, target.email, u.Email)
+	require.Equal(t, target.email, *u.Email)
 	require.True(t, u.EmailVerified)
 	var enabled bool
 	require.NoError(t, h.pool.QueryRow(ctx, `SELECT enabled FROM profiles.mfa_settings WHERE user_id=$1::uuid`, target.id).Scan(&enabled))
@@ -408,7 +408,7 @@ func TestSecurityContactChangeKeepsEnrolledMFA(t *testing.T) {
 		moved := unique("n10moved") + "@security.test"
 		u, err := h.auth.UpdateUser(ctx, iam.UserActor(support.id), plain.id, iam.UserUpdate{Email: &moved})
 		require.NoError(t, err)
-		require.Equal(t, moved, u.Email)
+		require.Equal(t, moved, *u.Email)
 	})
 }
 

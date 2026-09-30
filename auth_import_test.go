@@ -27,8 +27,8 @@ func TestImportUserProfileFields(t *testing.T) {
 	require.Equal(t, iam.ImportRow{Index: 2, Status: iam.ImportRejected, Reason: "avatar_url_invalid"}, res.Rows[2])
 	u, err := auth.User(ctx, iam.UserByID(res.Rows[0].UserID))
 	require.NoError(t, err)
-	require.Equal(t, "fr", u.PreferredLanguage)
-	require.Equal(t, "https://cdn.example.test/p.png", u.AvatarURL)
+	require.Equal(t, "fr", *u.PreferredLanguage)
+	require.Equal(t, "https://cdn.example.test/p.png", *u.AvatarURL)
 	require.True(t, lastLogin.Equal(*u.LastLogin))
 
 	bare, err := auth.CreateUser(ctx, iam.NewUser{Email: "bare@example.test", Username: "bare"})
@@ -42,13 +42,13 @@ func TestImportUserProfileFields(t *testing.T) {
 	require.Equal(t, 2, merged.Merged)
 	kept, err := auth.User(ctx, iam.UserByID(u.ID))
 	require.NoError(t, err)
-	require.Equal(t, "fr", kept.PreferredLanguage)
-	require.Equal(t, "https://cdn.example.test/p.png", kept.AvatarURL)
+	require.Equal(t, "fr", *kept.PreferredLanguage)
+	require.Equal(t, "https://cdn.example.test/p.png", *kept.AvatarURL)
 	require.True(t, lastLogin.Equal(*kept.LastLogin), "a merge moved the last sign-in back")
 	filled, err := auth.User(ctx, iam.UserByID(bare.ID))
 	require.NoError(t, err)
-	require.Equal(t, "de", filled.PreferredLanguage)
-	require.Equal(t, "https://cdn.example.test/bare.png", filled.AvatarURL)
+	require.Equal(t, "de", *filled.PreferredLanguage)
+	require.Equal(t, "https://cdn.example.test/bare.png", *filled.AvatarURL)
 	require.True(t, later.Equal(*filled.LastLogin))
 }
 

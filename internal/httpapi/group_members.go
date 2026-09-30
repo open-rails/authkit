@@ -51,11 +51,12 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, g iam.G
 		}
 		// Authorized by THIS group's members:manage plus COVER(role), not
 		// root:users:invite. Machine actors cannot issue invitations.
-		if _, err := s.svc.CreateInvitation(r.Context(), actor, group, iam.NewInvitation{Email: email, Role: role}); err != nil {
+		invite, err := s.svc.CreateInvitation(r.Context(), actor, group, iam.NewInvitation{Email: email, Role: role})
+		if err != nil {
 			writeError(w, err)
 			return
 		}
-		accepted(w)
+		writeJSON(w, http.StatusCreated, invite) // the code is shown once
 		return
 	}
 	member, err := s.svc.SetGroupRole(r.Context(), actor, group, iam.UserSubject(userID), role)

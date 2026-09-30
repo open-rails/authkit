@@ -73,7 +73,7 @@ func TestCredentialIssuance(t *testing.T) {
 	// A user issues what it covers and is recorded as the creator.
 	key, token, err := createKey(auth, ctx, mgr, o.acme, iam.NewAPIKey{Name: " ci ", Role: o.member})
 	require.NoError(t, err)
-	require.Equal(t, iam.APIKey{ID: key.ID, LookupID: key.LookupID, GroupID: o.acmeID, Name: "ci", Role: o.member, Permissions: []iam.Perm{o.read}, CreatedBy: manager.ID, CreatedAt: key.CreatedAt}, key)
+	require.Equal(t, iam.APIKey{ID: key.ID, LookupID: key.LookupID, GroupID: o.acmeID, Name: "ci", Role: o.member, Permissions: []iam.Perm{o.read}, CreatedBy: &manager.ID, CreatedAt: key.CreatedAt}, key)
 	principal, err := auth.ResolveAPIKey(ctx, token)
 	require.NoError(t, err)
 	require.Equal(t, key.ID, principal.ID)
@@ -166,7 +166,7 @@ func TestCredentialIssuance(t *testing.T) {
 	register := func(email, username string) response {
 		return a.post("/register", "", map[string]string{"identifier": email, "username": username, "password": authtest.Password, "account_invite_token": opInvite.Code})
 	}
-	res := register(opInvite.Invitation.Email, "systeminvitee")
+	res := register(*opInvite.Invitation.Email, "systeminvitee")
 	require.Equal(t, http.StatusAccepted, res.status, "the system's registration invite is live: %s", res)
 	res = register("again@credentials.test", "systemagain")
 	require.Equal(t, "invitation_not_found", res.code(), "and single-use: %s", res)
@@ -236,12 +236,12 @@ func TestInvitationsAreOneResource(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, link.Code)
 	require.Contains(t, link.URL, link.Code)
-	require.Equal(t, iam.Invitation{ID: link.Invitation.ID, GroupID: o.acmeID, Role: o.member, CreatedBy: o.founder.ID,
+	require.Equal(t, iam.Invitation{ID: link.Invitation.ID, GroupID: o.acmeID, Role: o.member, CreatedBy: &o.founder.ID,
 		CreatedAt: link.Invitation.CreatedAt, ExpiresAt: link.Invitation.ExpiresAt}, link.Invitation)
 	require.True(t, expires.Equal(*link.Invitation.ExpiresAt))
 	emailed, err := auth.CreateInvitation(ctx, founder, o.acme, iam.NewInvitation{Email: "Joiner@Example.test", Role: o.member})
 	require.NoError(t, err)
-	require.Equal(t, "joiner@example.test", emailed.Invitation.Email)
+	require.Equal(t, "joiner@example.test", *emailed.Invitation.Email)
 	require.WithinDuration(t, time.Now().Add(7*24*time.Hour), *emailed.Invitation.ExpiresAt, time.Minute, "an email invitation lives 7 days by default")
 	far := time.Now().Add(90 * 24 * time.Hour)
 	capped, err := auth.CreateInvitation(ctx, founder, o.acme, iam.NewInvitation{Role: o.member, ExpiresAt: &far})
@@ -257,7 +257,7 @@ func TestInvitationsAreOneResource(t *testing.T) {
 	require.NoError(t, err)
 	var ids, emails []string
 	for _, i := range list.Items {
-		ids, emails = append(ids, i.ID), append(emails, i.Email)
+		ids, emails = append(ids, i.ID), append(emails, *i.Email)
 	}
 	require.Equal(t, []string{capped.Invitation.ID, emailed.Invitation.ID, link.Invitation.ID}, ids, "newest first, both kinds")
 	require.Equal(t, []string{"", "joiner@example.test", ""}, emails)

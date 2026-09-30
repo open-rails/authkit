@@ -1,8 +1,6 @@
 package main
 
 import (
-	"encoding"
-	"encoding/json"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -13,7 +11,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/open-rails/authkit/internal/httpapi"
 )
@@ -24,84 +21,42 @@ import (
 
 const module = "github.com/open-rails/authkit"
 
-type kind int
+type kind = httpapi.WireKind
 
 const (
-	kindString kind = iota
-	kindInteger
-	kindNumber
-	kindBoolean
-	kindTime
-	kindBytes
-	kindAny    // arbitrary JSON
-	kindOpaque // a JSON object defined outside AuthKit (WebAuthn options)
-	kindArray
-	kindMap
-	kindNullable
-	kindObject // a named AuthKit struct: a component
-	kindPage   // iam.ListPage[T]
+	kindString   = httpapi.WireString
+	kindInteger  = httpapi.WireInteger
+	kindNumber   = httpapi.WireNumber
+	kindBoolean  = httpapi.WireBoolean
+	kindTime     = httpapi.WireTime
+	kindBytes    = httpapi.WireBytes
+	kindAny      = httpapi.WireAny
+	kindOpaque   = httpapi.WireOpaque
+	kindArray    = httpapi.WireArray
+	kindMap      = httpapi.WireMap
+	kindNullable = httpapi.WireNullable
+	kindObject   = httpapi.WireObject
+	kindPage     = httpapi.WirePage
 )
 
 var (
-	timeType          = reflect.TypeFor[time.Time]()
-	rawMessageType    = reflect.TypeFor[json.RawMessage]()
-	textMarshalerType = reflect.TypeFor[encoding.TextMarshaler]()
+	classify = httpapi.KindOf
+	pageItem = httpapi.PageItem
 )
-
-func classify(t reflect.Type) kind {
-	switch {
-	case t == timeType:
-		return kindTime
-	case t == rawMessageType:
-		return kindAny
-	case isPage(t):
-		return kindPage
-	case t.Kind() == reflect.Pointer:
-		return kindNullable
-	case t.Implements(textMarshalerType):
-		return kindString
-	}
-	switch t.Kind() {
-	case reflect.String:
-		return kindString
-	case reflect.Bool:
-		return kindBoolean
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return kindInteger
-	case reflect.Float32, reflect.Float64:
-		return kindNumber
-	case reflect.Slice, reflect.Array:
-		if t.Elem().Kind() == reflect.Uint8 {
-			return kindBytes
-		}
-		return kindArray
-	case reflect.Map:
-		return kindMap
-	case reflect.Interface:
-		return kindAny
-	case reflect.Struct:
-		if !strings.HasPrefix(t.PkgPath(), module) {
-			return kindOpaque
-		}
-		return kindObject
-	}
-	panic(fmt.Sprintf("contract: no wire form for %s", t))
-}
-
-// isPage reports whether t is iam.ListPage[T].
-func isPage(t reflect.Type) bool {
-	return t.Kind() == reflect.Struct && t.PkgPath() == module+"/iam" && strings.HasPrefix(t.Name(), "ListPage[")
-}
-
-// pageItem is T of iam.ListPage[T].
-func pageItem(t reflect.Type) reflect.Type { return t.Field(0).Type.Elem() }
 
 // field is one JSON member of an object.
 type field struct {
 	name     string
 	t        reflect.Type
 	optional bool // omitempty: absent when zero
+}
+
+func fieldsOf(t reflect.Type) []field {
+	var out []field
+	for _, f := range httpapi.Fields(t) {
+		out = append(out, field{name: f.Name, t: f.Type, optional: f.Optional})
+	}
+	return out
 }
 
 // wireNames names the wire types whose Go name only reads well qualified by
@@ -127,30 +82,6 @@ type object struct {
 	fields []field
 	input  bool // reached from a request body
 	output bool // reached from a response body
-}
-
-// fieldsOf lists t's JSON members; embedded structs contribute theirs.
-func fieldsOf(t reflect.Type) []field {
-	var out []field
-	for i := range t.NumField() {
-		f := t.Field(i)
-		if !f.IsExported() {
-			continue
-		}
-		name, opts, _ := strings.Cut(f.Tag.Get("json"), ",")
-		if name == "-" {
-			continue
-		}
-		if f.Anonymous && name == "" && f.Type.Kind() == reflect.Struct {
-			out = append(out, fieldsOf(f.Type)...)
-			continue
-		}
-		if name == "" {
-			name = f.Name
-		}
-		out = append(out, field{name: name, t: f.Type, optional: strings.Contains(","+opts+",", ",omitempty,")})
-	}
-	return out
 }
 
 // contract is the catalog with every object its routes reach.

@@ -505,10 +505,10 @@ func TestAccountPolicies(t *testing.T) {
 
 	t.Run("configured length", func(t *testing.T) {
 		_, a, wire := setup(t, func(c *authkit.Config) {
-			c.Password = &authkit.PasswordPolicy{MinLength: 12, MaxLength: 20, RejectCommon: true}
+			c.Password = &authkit.PasswordPolicy{MinLength: 12, MaxLength: 20}
 		})
 		require.Equal(t, map[string]any{"min_length": float64(12), "max_length": float64(20),
-			"require_uppercase": false, "require_lowercase": false, "require_digit": false, "require_symbol": false, "reject_common": true}, wire.Password)
+			"require_uppercase": false, "require_lowercase": false, "require_digit": false, "require_symbol": false, "allow_common": false}, wire.Password)
 		bounds := map[string]any{"min_length": float64(12), "max_length": float64(20)}
 		require.Equal(t, bounds, policyError(t, register(a, "policy@example.test", "policyuser", "elevenchars"), "password_too_short", "password"))
 		require.Equal(t, bounds, policyError(t, register(a, "policy@example.test", "policyuser", strings.Repeat("x", 21)), "password_too_long", "password"))
@@ -525,7 +525,7 @@ func TestAccountPolicies(t *testing.T) {
 	t.Run("default rejects common and identifier passwords", func(t *testing.T) {
 		_, a, wire := setup(t, func(*authkit.Config) {})
 		require.Equal(t, map[string]any{"min_length": float64(8), "max_length": float64(128),
-			"require_uppercase": false, "require_lowercase": false, "require_digit": false, "require_symbol": false, "reject_common": true}, wire.Password)
+			"require_uppercase": false, "require_lowercase": false, "require_digit": false, "require_symbol": false, "allow_common": false}, wire.Password)
 		require.Equal(t, map[string]any{"min_length": float64(4), "max_length": float64(30), "pattern": naming.UsernamePattern,
 			"renames": false, "rename_interval_seconds": config.DefaultRenameInterval.Seconds(),
 			"former_names": map[string]any{"enabled": false, "former_name_retention_mode": string(config.FormerNamesFinite),
@@ -543,12 +543,12 @@ func TestAccountPolicies(t *testing.T) {
 
 	t.Run("host composition and username bounds", func(t *testing.T) {
 		_, a, wire := setup(t, func(c *authkit.Config) {
-			c.Password = &authkit.PasswordPolicy{RequireSymbol: true, RequireDigit: true}
+			c.Password = &authkit.PasswordPolicy{RequireSymbol: true, RequireDigit: true, AllowCommon: true}
 			c.Username = authkit.UsernameConfig{MinLength: 6, MaxLength: 12, Renames: true}
 		})
 		require.Equal(t, true, wire.Password["require_symbol"])
 		require.Equal(t, true, wire.Password["require_digit"])
-		require.Equal(t, false, wire.Password["reject_common"])
+		require.Equal(t, true, wire.Password["allow_common"])
 		require.Equal(t, float64(6), wire.Username["min_length"])
 		require.Equal(t, float64(12), wire.Username["max_length"])
 		bounds := map[string]any{"min_length": float64(6), "max_length": float64(12)}
