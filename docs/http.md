@@ -15,7 +15,7 @@ Every route lives beneath `HTTPConfig.BasePath`:
 
 | Path | Serves |
 |---|---|
-| `{BasePath}/api/v1/…` | the JSON API; `HTTPConfig.APIPath` changes the prefix ([paths](stability.md#http-api)) |
+| `{BasePath}{APIPath}/v1/…` | the JSON API; `APIPath` defaults to `/api`, and AuthKit owns `/v1` |
 | `{BasePath}/oidc/{provider}/…` | browser sign-in with an identity provider |
 | `{BasePath}/.well-known/jwks.json` | the public signing keys |
 
