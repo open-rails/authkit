@@ -28,8 +28,8 @@ var forbiddenDepPrefixes = []string{
 // sharedInternal are engine-free internal packages the verification surface
 // may share with the engine: one outbound/SSRF policy (ak#316), one key
 // policy, the JWT mechanics, one JWKS cache, one DPoP proof verifier, the
-// 2FA-enrollment route marker, the error catalog and the typed identifiers
-// built from token claims.
+// 2FA-enrollment route marker, the error catalog (with its wire-form
+// normalizer) and the typed identifiers built from token claims.
 var sharedInternal = map[string]bool{
 	"github.com/open-rails/authkit/internal/netguard":   true,
 	"github.com/open-rails/authkit/internal/keypolicy":  true,
@@ -39,22 +39,28 @@ var sharedInternal = map[string]bool{
 	"github.com/open-rails/authkit/internal/enrollment": true,
 	"github.com/open-rails/authkit/internal/ident":      true,
 	errmodelPackage: true,
+	wireformPackage: true,
 }
 
-// errmodelPackage is the error catalog behind iam.Error.
-const errmodelPackage = "github.com/open-rails/authkit/internal/errmodel"
+// errmodelPackage is the error catalog behind iam.Error; wireformPackage the
+// stdlib-only normalizer its typed metadata goes through.
+const (
+	errmodelPackage = "github.com/open-rails/authkit/internal/errmodel"
+	wireformPackage = "github.com/open-rails/authkit/internal/wireform"
+)
 
 // stdlibOnly packages depend on nothing outside the standard library, except
 // the listed packages. devicekey is linked into CLIs and machines.
 var stdlibOnly = map[string][]string{
-	"./devicekey":           {rootPackage + "/iam", errmodelPackage},
-	"./iam":                 {errmodelPackage},
-	"./internal/errmodel":   nil,
+	"./devicekey":           {rootPackage + "/iam", errmodelPackage, wireformPackage},
+	"./iam":                 {errmodelPackage, wireformPackage},
+	"./internal/errmodel":   {wireformPackage},
+	"./internal/wireform":   nil,
 	"./internal/netguard":   nil,
 	"./internal/apikey":     nil,
 	"./internal/enrollment": nil,
 	"./internal/keypolicy":  nil,
-	"./internal/ident":      {rootPackage + "/iam", errmodelPackage},
+	"./internal/ident":      {rootPackage + "/iam", errmodelPackage, wireformPackage},
 }
 
 func listDeps(t *testing.T, pkg string) []string {
