@@ -48,7 +48,7 @@ func (s *Engine) twoFactorMethodAvailable(method string) bool {
 	case iam.TwoFactorSMS:
 		return s.SMSAvailable()
 	case iam.TwoFactorEmail:
-		return s.email != nil
+		return s.EmailAvailable()
 	case iam.TwoFactorTOTP:
 		return len(s.cfg.TwoFactor.TOTPSecretKey) > 0
 	default:
@@ -58,7 +58,7 @@ func (s *Engine) twoFactorMethodAvailable(method string) bool {
 
 // TwoFactorMethods are the second factors a user can enroll now, in stable
 // order: enabled by TwoFactor.Mode and Methods, with their dependency present
-// (Deps.Email, Deps.SMS and its latest health check, the TOTP key). Empty when
+// (Deps.Email and Deps.SMS while healthy, the TOTP key). Empty when
 // 2FA is disabled.
 func (s *Engine) TwoFactorMethods() []iam.TwoFactorMethod {
 	out := []iam.TwoFactorMethod{}

@@ -43,7 +43,8 @@ type SMSConfig struct {
 }
 
 // SMS delivers AuthKit's text messages through the Twilio Messaging API and
-// confirms delivery before Send returns.
+// confirms delivery before Send returns. It is an authkit.SMSSender: wire it
+// as authkit.Deps.SMS.
 type SMS struct {
 	accountSID          string
 	authToken           string
@@ -85,7 +86,7 @@ func NewSMS(cfg SMSConfig) (*SMS, error) {
 
 // Send renders msg (Render, else the built-in template for msg.Kind), sends it
 // and waits up to 12s for a delivery verdict: a definite failure is an error, a
-// message still in flight is not. Wire it as authkit.Deps.SMS.
+// message still in flight is not.
 func (s *SMS) Send(ctx context.Context, msg iam.SMSMessage) error {
 	to := strings.TrimSpace(msg.To)
 	if to == "" {

@@ -144,10 +144,6 @@ func (s *Service) undeclaredProxyTripwire(r *http.Request, ip string) {
 	})
 }
 
-// SMSAvailable reports whether phone-based flows should be offered (a sender is
-// configured and, if checked, found able to deliver).
-func (s *Service) SMSAvailable() bool { return s.svc.SMSAvailable() }
-
 // Backend returns the engine the service drives.
 func (s *Service) Backend() Backend { return s.svc }
 

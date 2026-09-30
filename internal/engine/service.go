@@ -39,10 +39,12 @@ type Engine struct {
 	ownedKeySource *keys.FileSource
 
 	providers          []provider.Provider
-	email              func(context.Context, iam.EmailMessage) error
-	sms                func(context.Context, iam.SMSMessage) error
-	smsCheck           func(context.Context) error
-	smsHealth          smsHealth
+	email              config.EmailSender
+	sms                config.SMSSender
+	emailHealth        senderHealth
+	smsHealth          senderHealth
+	healthMu           sync.Mutex
+	stopHealth         context.CancelFunc
 	entitlements       func(context.Context, []string) (map[string][]string, error)
 	entitlementHolders func(context.Context, string) ([]string, error)
 	pg                 *pgxpool.Pool

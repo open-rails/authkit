@@ -207,20 +207,23 @@ func leakedIn(logs, secret string) string {
 	return ""
 }
 
-// flakyEmail delivers through send, then fails code and link messages while
-// down is set, as a mail provider outage does after AuthKit handed it the
-// message.
-func flakyEmail(send func(context.Context, iam.EmailMessage) error, down *atomic.Bool) func(context.Context, iam.EmailMessage) error {
-	return func(ctx context.Context, m iam.EmailMessage) error {
-		err := send(ctx, m)
-		switch m.Kind {
-		case iam.MessageVerification, iam.MessagePasswordReset, iam.MessageInvite, iam.MessageLoginCode:
-			if err == nil && down.Load() {
-				return errors.New("smtp: 451 4.3.0 mail server temporarily unavailable")
-			}
+// flakyEmail delivers through its EmailSender, then fails code and link
+// messages while down is set, as a mail provider outage does after AuthKit
+// handed it the message.
+type flakyEmail struct {
+	authkit.EmailSender
+	down *atomic.Bool
+}
+
+func (f flakyEmail) Send(ctx context.Context, m iam.EmailMessage) error {
+	err := f.EmailSender.Send(ctx, m)
+	switch m.Kind {
+	case iam.MessageVerification, iam.MessagePasswordReset, iam.MessageInvite, iam.MessageLoginCode:
+		if err == nil && f.down.Load() {
+			return errors.New("smtp: 451 4.3.0 mail server temporarily unavailable")
 		}
-		return err
 	}
+	return err
 }
 
 // TestSecuritySecretsStayOutOfLogs: AuthKit's log output (the slog default,
@@ -236,7 +239,7 @@ func TestSecuritySecretsStayOutOfLogs(t *testing.T) {
 	jar := &secretJar{}
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(withDeviceKeys), authtest.WithConfig(strictRotation),
 		authtest.WithConfig(func(c *authkit.Config) { c.Registration.PasswordlessLogin = true }),
-		authtest.WithDeps(func(d *authkit.Deps) { d.Email = flakyEmail(d.Email, &mailDown) }))
+		authtest.WithDeps(func(d *authkit.Deps) { d.Email = flakyEmail{d.Email, &mailDown} }))
 	h = h.observed(jar)
 	// AuthKit's River runs through every flow below and logs to the same place.
 	require.NoError(t, h.auth.Start(context.Background()))

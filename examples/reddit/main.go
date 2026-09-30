@@ -69,10 +69,10 @@ func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {
 
 	// 3. Build the auth engine.
 	return authkit.New(ctx, cfg, authkit.Deps{
-		Postgres:  db,              // required: users, sessions and short-lived auth state
-		Email:     email.Send,      // sends verification codes, login codes and password resets
-		SMS:       sms.Send,        // same, for phone numbers
-		SMSHealth: sms.CheckHealth, // phone sign-in pauses while Twilio can't deliver
+		Postgres: db,    // required: users, sessions and short-lived auth state
+		Email:    email, // sends verification codes, login codes and password resets
+		SMS:      sms,   // same, for phone numbers
+		// Both also report when Twilio can't deliver, pausing that channel's sign-in until it can.
 	})
 }
 

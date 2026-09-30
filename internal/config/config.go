@@ -69,9 +69,9 @@ type Config struct {
 	// leaves it off. Solana Name Service resolution is built in.
 	SolanaNetwork iam.SolanaNetwork
 
-	// SMSHealthInterval is how often Start re-runs Deps.SMSHealth; 0 defaults
-	// to five minutes.
-	SMSHealthInterval time.Duration
+	// SenderHealthInterval is how often Start re-runs the senders'
+	// CheckHealth; 0 defaults to five minutes.
+	SenderHealthInterval time.Duration
 
 	// SessionEventRetention is how long session-event history rows
 	// (sign-ins and revocations, with IP and user agent: personal data) are

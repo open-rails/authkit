@@ -1,6 +1,6 @@
 // Package testoutbox defines the capturing email and SMS senders that
-// authtest publishes as authtest.Outbox. It depends only on iam, so AuthKit's
-// engine tests use it too.
+// authtest publishes as authtest.Outbox. It depends only on iam and config,
+// so AuthKit's engine tests use it too.
 package testoutbox
 
 import (
@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 )
 
 // Message is one email or SMS AuthKit asked the host to deliver.
@@ -31,22 +32,60 @@ type Message struct {
 }
 
 // Outbox records every message in order; it is safe for concurrent use. The
-// zero value is ready: wire Email and SMS as Deps.Email and Deps.SMS.
+// zero value is ready: wire Email() and SMS() as Deps.Email and Deps.SMS.
 type Outbox struct {
-	mu   sync.Mutex
-	msgs []Message
+	mu        sync.Mutex
+	msgs      []Message
+	emailDown error
+	smsDown   error
 }
 
-// Email delivers into o: wire it as Deps.Email.
-func (o *Outbox) Email(_ context.Context, m iam.EmailMessage) error {
-	return o.add(Message{Channel: "email", Kind: m.Kind, To: m.To, Language: m.Language, Purpose: m.Purpose,
+// Email is o as Deps.Email: it delivers into o, and its CheckHealth returns
+// what SetEmailHealth set.
+func (o *Outbox) Email() config.EmailSender { return emailSender{o} }
+
+// SMS is Email for Deps.SMS and SetSMSHealth.
+func (o *Outbox) SMS() config.SMSSender { return smsSender{o} }
+
+// SetEmailHealth sets what the email sender's CheckHealth returns; nil, the
+// default, is healthy.
+func (o *Outbox) SetEmailHealth(err error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.emailDown = err
+}
+
+// SetSMSHealth is SetEmailHealth for the SMS sender.
+func (o *Outbox) SetSMSHealth(err error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.smsDown = err
+}
+
+type emailSender struct{ o *Outbox }
+
+func (s emailSender) Send(_ context.Context, m iam.EmailMessage) error {
+	return s.o.add(Message{Channel: "email", Kind: m.Kind, To: m.To, Language: m.Language, Purpose: m.Purpose,
 		Code: m.Code, Link: m.Link, ContactChange: m.ContactChange, DeviceKey: m.DeviceKey})
 }
 
-// SMS delivers into o: wire it as Deps.SMS.
-func (o *Outbox) SMS(_ context.Context, m iam.SMSMessage) error {
-	return o.add(Message{Channel: "sms", Kind: m.Kind, To: m.To, Language: m.Language, Purpose: m.Purpose,
+func (s emailSender) CheckHealth(context.Context) error {
+	s.o.mu.Lock()
+	defer s.o.mu.Unlock()
+	return s.o.emailDown
+}
+
+type smsSender struct{ o *Outbox }
+
+func (s smsSender) Send(_ context.Context, m iam.SMSMessage) error {
+	return s.o.add(Message{Channel: "sms", Kind: m.Kind, To: m.To, Language: m.Language, Purpose: m.Purpose,
 		Code: m.Code, Link: m.Link, ContactChange: m.ContactChange})
+}
+
+func (s smsSender) CheckHealth(context.Context) error {
+	s.o.mu.Lock()
+	defer s.o.mu.Unlock()
+	return s.o.smsDown
 }
 
 // Messages returns the messages of kind sent to to, oldest first; an empty

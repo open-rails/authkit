@@ -18,7 +18,7 @@
 //	if err != nil {
 //		return err
 //	}
-//	deps := authkit.Deps{Postgres: db, Email: email.Send, SMS: sms.Send, SMSHealth: sms.CheckHealth}
+//	deps := authkit.Deps{Postgres: db, Email: email, SMS: sms}
 //
 // Each sender renders every message kind from a built-in template in the
 // message's Language (Spanish for "es", else English). Set Render to supply your

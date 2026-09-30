@@ -37,6 +37,7 @@ type flowsBackend interface {
 	DeletePendingRegistrationByEmail(ctx context.Context, email string) error
 	Disable2FA(ctx context.Context, userID string) error
 	Disable2FAFactor(ctx context.Context, userID, factorID string) error
+	EmailAvailable() bool
 	EnrollTwoFactor(ctx context.Context, in authflow.TwoFactorEnrollInput) (authflow.TwoFactorEnrollOutcome, error)
 	ExchangeRefreshToken(ctx context.Context, refreshToken string, ua string, ip net.IP) (userID string, session authflow.IssuedSession, err error)
 	FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, code, signature, secondFactor string) (authflow.DeviceKeyAuthResult, error)
@@ -47,7 +48,6 @@ type flowsBackend interface {
 	GenerateSIWSChallenge(ctx context.Context, domain, address, username string) (siws.SignInInput, error)
 	Get2FASettings(ctx context.Context, userID string) (*authflow.TwoFactorSettings, error)
 	GetProviderLinkByIssuer(ctx context.Context, issuer, subject string) (string, *string, error)
-	HasEmailSender() bool
 	HasPassword(ctx context.Context, userID string) (bool, error)
 	HasProviderLink(ctx context.Context, userID, issuer, providerSlug string) (bool, error)
 	JWKS() keys.JWKS

@@ -22,8 +22,9 @@ import (
 // verify's middleware takes: verify.Required(client),
 // verify.RequirePermission(client, perm).
 //
-// Start, Close, RiverJobs, SMSAvailable, SMSHealth, TwoFactorMethods,
-// Handler, Routes, Mount and the request verification methods
+// Start, Close, RiverJobs, EmailAvailable, EmailHealth, SMSAvailable,
+// SMSHealth, TwoFactorMethods, Handler, Routes, Mount and the request
+// verification methods
 // (auth_verify.go) are embedding-only:
 // they wire the in-process deployment, and a Client of a remote deployment
 // would not have them. Every other method is an operation a remote
@@ -86,7 +87,7 @@ func newHTTP(e *engine.Engine, deps Deps) (*httpapi.Service, *httpapi.Mount, err
 }
 
 // Start starts AuthKit's background work: River (account lifecycle, events,
-// auth-state cleanup) and the Deps.SMSHealth checks. Call it once, before
+// auth-state cleanup) and the senders' health checks. Call it once, before
 // serving.
 func (a *Client) Start(ctx context.Context) error { return a.engine.Start(ctx) }
 
@@ -103,17 +104,24 @@ func (a *Client) Close() {
 	a.engine.Close()
 }
 
-// SMSAvailable reports whether phone flows are offered: Deps.SMS is set and
-// the latest Deps.SMSHealth check, if any, passed.
+// EmailAvailable reports whether email flows are offered: Deps.Email is set
+// and its latest health check, if any, passed.
+func (a *Client) EmailAvailable() bool { return a.engine.EmailAvailable() }
+
+// EmailHealth is the latest Deps.Email.CheckHealth verdict and when it ran
+// (Start runs it every Config.SenderHealthInterval); a zero time means no
+// check has run.
+func (a *Client) EmailHealth() (checkedAt time.Time, err error) { return a.engine.EmailHealth() }
+
+// SMSAvailable is EmailAvailable for Deps.SMS and phone flows.
 func (a *Client) SMSAvailable() bool { return a.engine.SMSAvailable() }
 
-// SMSHealth is the latest Deps.SMSHealth verdict and when it ran (Start runs
-// it every Config.SMSHealthInterval); a zero time means no check has run.
+// SMSHealth is EmailHealth for Deps.SMS.
 func (a *Client) SMSHealth() (checkedAt time.Time, err error) { return a.engine.SMSHealth() }
 
 // TwoFactorMethods are the second factors a user can enroll now, as GET
 // /capabilities lists them: enabled by Config.TwoFactor, with their
-// dependency present (Deps.Email, Deps.SMS while healthy, the TOTP key).
+// dependency present (Deps.Email and Deps.SMS while healthy, the TOTP key).
 // Empty when 2FA is disabled.
 func (a *Client) TwoFactorMethods() []iam.TwoFactorMethod { return a.engine.TwoFactorMethods() }
 

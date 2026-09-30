@@ -118,7 +118,7 @@ func TestNewRequiresAnEnrollableSecondFactor(t *testing.T) {
 	t.Run("another method leaves a missing key a warning", func(t *testing.T) {
 		deps := testDeps(pg.Pool)
 		outbox := &authtest.Outbox{}
-		deps.Email, deps.SMS = outbox.Email, outbox.SMS
+		deps.Email, deps.SMS = outbox.Email(), outbox.SMS()
 		auth := boot(t, config(nil), deps)
 		_, methods := offered(t, auth)
 		require.Equal(t, []iam.TwoFactorMethod{iam.TwoFactorEmail, iam.TwoFactorSMS}, methods)

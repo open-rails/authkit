@@ -64,6 +64,14 @@ func (s *Engine) StartPasswordless(ctx context.Context, req authflow.Passwordles
 	if err != nil {
 		return authflow.PasswordlessStartResult{}, err
 	}
+	// Before the account lookup, so an unavailable channel answers every
+	// identifier alike.
+	switch {
+	case channel == passwordlessChannelEmail && !s.EmailAvailable():
+		return authflow.PasswordlessStartResult{}, errmodel.ErrEmailUnavailable
+	case channel == passwordlessChannelSMS && !s.SMSAvailable():
+		return authflow.PasswordlessStartResult{}, errmodel.ErrSMSUnavailable
+	}
 	ctx = contextWithAccountRegistrationInviteToken(ctx, req.AccountInviteToken)
 	mode := normalizePasswordlessMode(req.Mode)
 	language, err := authflow.NormalizePreferredLanguage(req.PreferredLanguage)
@@ -360,15 +368,9 @@ func (s *Engine) sendPasswordlessChallenge(ctx context.Context, rec passwordless
 	language := s.messageLanguage(ctx, rec.PreferredLanguage)
 	switch rec.Channel {
 	case passwordlessChannelEmail:
-		if s.email == nil {
-			return errmodel.ErrEmailUnavailable
-		}
 		return s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessageVerification, To: rec.Identifier, Username: rec.GeneratedUsername,
 			Language: language, Code: code, Link: linkURL, Purpose: iam.PurposePasswordlessLogin})
 	case passwordlessChannelSMS:
-		if !s.SMSAvailable() {
-			return errmodel.ErrSMSUnavailable
-		}
 		return s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessageVerification, To: rec.Identifier,
 			Language: language, Code: code, Link: linkURL, Purpose: iam.PurposePasswordlessLogin})
 	default:

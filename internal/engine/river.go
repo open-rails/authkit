@@ -205,7 +205,7 @@ func (s *Engine) registerRiver(cfg *river.Config) error {
 // starts its shared client after composing every library's worker registry.
 // A client without PostgreSQL (for example verify-only tests) has no jobs.
 func (s *Engine) Start(ctx context.Context) error {
-	s.startSMSHealth()
+	s.startSenderHealth()
 	if s.maintenance == nil {
 		return nil
 	}

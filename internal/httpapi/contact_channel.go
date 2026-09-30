@@ -36,7 +36,7 @@ func (s *Service) emailChannel() contactChannel {
 	return contactChannel{
 		validate:        contact.ValidateEmail,
 		normalize:       contact.NormalizeEmail,
-		senderAvailable: s.svc.HasEmailSender,
+		senderAvailable: s.svc.EmailAvailable,
 		requestVerification: func(ctx context.Context, id string) error {
 			return s.svc.RequestEmailVerification(ctx, id, 0)
 		},
