@@ -9,7 +9,7 @@ type Vector = { grant: string; permission: string; matches: boolean }
 // The vectors Go's iam.Perm.Matches runs (iam/perm_vectors_test.go).
 const vectors: Vector[] = JSON.parse(
   readFileSync(
-    new URL("../../../../iam/testdata/perm_vectors.json", import.meta.url),
+    new URL("../../../iam/testdata/perm_vectors.json", import.meta.url),
     "utf8"
   )
 )

@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/open-rails/authkit/sdk/auth-ui/e2e/server/harness"
+	"github.com/open-rails/authkit/auth-ui/e2e/server/harness"
 )
 
 func main() {

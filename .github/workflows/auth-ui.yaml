@@ -1,11 +1,11 @@
-name: SDK
+name: auth-ui
 
-# The browser SDKs track the Go API surface they speak, so API changes rerun them.
+# auth-ui tracks the Go API surface it speaks, so API changes rerun it.
 on:
   pull_request:
     branches: [master]
     paths:
-      - 'sdk/auth-ui/**'
+      - 'auth-ui/**'
       - '*.go'
       - 'iam/**'
       - 'internal/**'
@@ -14,14 +14,14 @@ on:
       - 'jwtkit/**'
       - 'go.mod'
       - 'go.sum'
-      - '.github/workflows/sdk.yaml'
+      - '.github/workflows/auth-ui.yaml'
   workflow_dispatch: {}
 
 permissions:
   contents: read
 
 concurrency:
-  group: sdk-${{ github.ref }}
+  group: auth-ui-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -31,25 +31,25 @@ jobs:
     timeout-minutes: 25
     defaults:
       run:
-        working-directory: sdk/auth-ui
+        working-directory: auth-ui
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
-          package_json_file: sdk/auth-ui/package.json
+          package_json_file: auth-ui/package.json
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
           cache: pnpm
-          cache-dependency-path: sdk/auth-ui/pnpm-lock.yaml
+          cache-dependency-path: auth-ui/pnpm-lock.yaml
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: sdk/auth-ui/e2e/server/go.mod
+          go-version-file: auth-ui/e2e/server/go.mod
           cache-dependency-path: |
             go.sum
-            sdk/auth-ui/e2e/server/go.sum
+            auth-ui/e2e/server/go.sum
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm check
       - run: pnpm contract:check
@@ -59,5 +59,5 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: auth-ui-playwright
-          path: sdk/auth-ui/test-results/
+          path: auth-ui/test-results/
           retention-days: 7

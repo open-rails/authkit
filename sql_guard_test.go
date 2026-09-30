@@ -21,7 +21,7 @@ var sqlCallArgs = map[string]int{"Exec": 1, "Query": 1, "QueryRow": 1, "Queue": 
 // tables), the browser e2e harness, and test-support packages.
 func skipSQLGuardDir(path string) bool {
 	switch path {
-	case "internal/db", "examples", "sdk":
+	case "internal/db", "examples", "auth-ui":
 		return true
 	}
 	base := filepath.Base(path)

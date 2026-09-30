@@ -1,5 +1,5 @@
 // Command contract writes AuthKit's wire error codes, with their catalog
-// statuses, to sdk/auth-ui's src/client/generated/error-codes.ts. Run it with
+// statuses, to auth-ui's src/client/generated/error-codes.ts. Run it with
 // go generate ./internal/errmodel.
 package main
 
@@ -15,7 +15,7 @@ import (
 )
 
 func main() {
-	out := flag.String("out", "sdk/auth-ui/src/client/generated", "output directory")
+	out := flag.String("out", "auth-ui/src/client/generated", "output directory")
 	flag.Parse()
 	if err := os.WriteFile(filepath.Join(*out, "error-codes.ts"), errorCodesTS(), 0o644); err != nil {
 		log.Fatal(err)

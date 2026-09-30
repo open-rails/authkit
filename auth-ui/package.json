@@ -7,9 +7,9 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/open-rails/authkit.git",
-    "directory": "sdk/auth-ui"
+    "directory": "auth-ui"
   },
-  "homepage": "https://github.com/open-rails/authkit/tree/master/sdk/auth-ui#readme",
+  "homepage": "https://github.com/open-rails/authkit/tree/master/auth-ui#readme",
   "bugs": {
     "url": "https://github.com/open-rails/authkit/issues"
   },

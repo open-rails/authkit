@@ -11,20 +11,20 @@ import (
 	"github.com/open-rails/authkit/internal/errmodel"
 )
 
-const sdk = "../../../sdk/auth-ui/src"
+const authUI = "../../../auth-ui/src"
 
-// The SDK's generated codes are exactly the catalog's.
+// auth-ui's generated codes are exactly the catalog's.
 func TestGeneratedErrorCodesMatchCatalog(t *testing.T) {
-	got, err := os.ReadFile(filepath.Join(sdk, "client/generated/error-codes.ts"))
+	got, err := os.ReadFile(filepath.Join(authUI, "client/generated/error-codes.ts"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(got) != string(errorCodesTS()) {
-		t.Fatal("sdk/auth-ui/src/client/generated/error-codes.ts is stale: run go generate ./internal/errmodel")
+		t.Fatal("auth-ui/src/client/generated/error-codes.ts is stale: run go generate ./internal/errmodel")
 	}
 }
 
-// clientCodes are the SDK's own error keys: local fallbacks, the OIDC
+// clientCodes are auth-ui's own error keys: local fallbacks, the OIDC
 // redirect's access_denied, and the client's popup and session errors.
 var clientCodes = []string{"generic", "network", "network_error", "access_denied", "popup_blocked", "popup_closed", "popup_timeout", "session_changed"}
 
@@ -45,7 +45,7 @@ func TestLocalesTranslateCatalogCodes(t *testing.T) {
 	}
 	var want []string
 	for _, locale := range []string{"en", "de", "es", "ja", "ko", "zh"} {
-		src, err := os.ReadFile(filepath.Join(sdk, "locales", locale+".ts"))
+		src, err := os.ReadFile(filepath.Join(authUI, "locales", locale+".ts"))
 		if err != nil {
 			t.Fatal(err)
 		}
