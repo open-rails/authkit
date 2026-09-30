@@ -17,7 +17,7 @@ import (
 
 // TestGoAPISurface keeps api/go.txt, the Go API that v1 covers
 // (docs/stability.md), equal to the exports of the covered packages. A
-// removed or changed line breaks v1 and waits for v2; an added line is fine.
+// removed or changed line is a break: only a minor release may ship it, listed in its notes; an added line is fine.
 // Either way the change is deliberate: regenerate with go generate
 // ./internal/httpapi and review the diff. The covered API may reach an
 // internal type only through an alias a covered package declares.
@@ -38,7 +38,7 @@ func TestGoAPISurface(t *testing.T) {
 		return out
 	}
 	if gone := missing(listed, s.Features); len(gone) > 0 {
-		t.Errorf("removed or changed, which breaks v1 (%v):\n%s", apisurface.ErrStale, strings.Join(gone, "\n"))
+		t.Errorf("removed or changed, a break for the release notes (%v):\n%s", apisurface.ErrStale, strings.Join(gone, "\n"))
 	}
 	if added := missing(s.Features, listed); len(added) > 0 {
 		t.Errorf("added (%v):\n%s", apisurface.ErrStale, strings.Join(added, "\n"))
