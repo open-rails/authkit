@@ -195,9 +195,12 @@ func (a *Authenticator) applicationClaims(ctx context.Context, app iam.RemoteApp
 		var cl verify.Claims
 		var err error
 		if r != nil {
-			cl, err = a.v.VerifyDelegatedAccessRequest(r)
+			cl, err = a.v.VerifyRequest(r)
 		} else {
-			cl, err = a.v.VerifyDelegatedAccess(ctx, token)
+			cl, err = a.v.Verify(ctx, token)
+		}
+		if err == nil && cl.Kind != iam.ActorDelegated {
+			err = errmodel.E(errmodel.CodeNotDelegatedAccessToken)
 		}
 		if err != nil {
 			return verify.Claims{}, err

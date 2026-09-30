@@ -149,7 +149,7 @@ func TestDelegatedTokens(t *testing.T) {
 	token := sign(t, f.peer, jose.DelegatedAccessTokenType, peerIssuer, map[string]any{
 		"delegated_sub": "agent-7", "permissions": []string{"repo:read"}, "jti": "t-1", "attributes": map[string]any{"tier": "gold"},
 	})
-	cl, err := f.v.VerifyDelegatedAccess(ctx, token)
+	cl, err := f.v.Verify(ctx, token)
 	require.NoError(t, err)
 	require.Equal(t, iam.ActorDelegated, cl.Kind)
 	require.Equal(t, "agent-7", cl.DelegatedSubject)
@@ -160,9 +160,6 @@ func TestDelegatedTokens(t *testing.T) {
 	require.True(t, ok)
 	require.True(t, a.CeilingCovers(ident.Perm("repo:read")))
 	require.False(t, a.CeilingCovers(ident.Perm("repo:write")))
-
-	_, err = f.v.VerifyDelegatedAccess(ctx, sign(t, f.local, jose.AccessTokenType, localIssuer, map[string]any{"sub": "u"}))
-	require.Equal(t, errmodel.CodeNotDelegatedAccessToken, codeOf(err))
 }
 
 // A certificate-bound token verifies only on a request whose TLS peer is its

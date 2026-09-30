@@ -366,8 +366,6 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	// Verification detached from its request fails closed.
 	_, err = ver.Verify(ctx, resp.Token)
 	require.ErrorIs(t, err, verify.ErrSenderProofRequired)
-	_, err = ver.VerifyDelegatedAccess(ctx, resp.Token)
-	require.ErrorIs(t, err, verify.ErrSenderProofRequired)
 
 	// Wrong audience and wrong issuer fail closed even with the right leaf.
 	narrow := mintOK(delegationBody(delegate, `"audiences":["tensorhub.net"]`))
