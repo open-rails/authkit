@@ -13,7 +13,6 @@ import (
 	"github.com/open-rails/authkit/internal/oidcstate"
 	"github.com/open-rails/authkit/internal/secret"
 	"github.com/open-rails/authkit/provider"
-	"github.com/open-rails/authkit/verify"
 )
 
 // flowStart is what a browser flow start records beyond the state machine's
@@ -64,15 +63,8 @@ func (s *Service) handleOIDCLoginStartPOST(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Service) handleOIDCLinkStartPOST(w http.ResponseWriter, r *http.Request) {
-	claims, ok := verify.ClaimsFromContext(r.Context())
-	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		fail(w, errmodel.CodeUnauthenticated)
-		return
-	}
-	if !s.requireProvenContact(w, r, claims.UserID) {
-		return
-	}
-	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, ""); !ok {
+	claims, ok := s.newSignInMethodCaller(w, r)
+	if !ok {
 		return
 	}
 	freshness, err := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())

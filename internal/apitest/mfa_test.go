@@ -522,14 +522,6 @@ func TestTwoFactorCodeLifecycle(t *testing.T) {
 	})
 }
 
-// freshAuth is the session state a step-up or enrollment answer reports.
-type freshAuth struct {
-	FreshAuth struct {
-		LastAuthenticatedAt time.Time `json:"last_authenticated_at"`
-		AuthMethods         []string  `json:"auth_methods"`
-	} `json:"fresh_auth"`
-}
-
 // TestFactorManagementWorkflow: managing second factors needs a recent
 // sign-in. A password step-up gives one until the account has a factor; from
 // then on only the factor (or a backup code) re-proves the session. The
@@ -557,7 +549,9 @@ func TestFactorManagementWorkflow(t *testing.T) {
 		denied := f.expect(http.StatusForbidden, f.request(call.method, call.path, stale, call.body))
 		require.Equal(t, "step_up_required", denied.Error.Code, call.path)
 	}
-	steppedUp := f.expect(http.StatusOK, f.request(http.MethodPost, "/step-up/password", stale, map[string]any{"password": u.Password}))
+	steppedUp := f.expect(http.StatusOK, f.request(http.MethodPost, "/me/step-up/password", stale, map[string]any{"password": u.Password}))
+	require.Equal(t, httpapi.AuthComplete, steppedUp.Status, steppedUp.raw)
+	require.Equal(t, u.ID, steppedUp.User.ID)
 	stepped := steppedUp.tokens()
 	require.NotEmpty(t, stepped.AccessToken)
 	require.Equal(t, "Bearer", stepped.TokenType)
@@ -566,13 +560,13 @@ func TestFactorManagementWorkflow(t *testing.T) {
 	require.NotEmpty(t, claims["auth_time"])
 	require.ElementsMatch(t, []any{"pwd"}, claims["amr"])
 	require.Equal(t, iam.AssuranceLevelPassword, claims["acr"])
-	var before, after freshAuth
-	require.NoError(t, json.Unmarshal([]byte(steppedUp.raw), &before))
+	require.NotNil(t, steppedUp.FreshAuth, steppedUp.raw)
+	before := *steppedUp.FreshAuth
 	pending := f.expect(http.StatusOK, f.request(http.MethodPost, "/me/2fa/setup", stepped.AccessToken, map[string]any{"method": "totp"}))
 	require.NotEmpty(t, pending.Secret)
 	require.Contains(t, pending.raw, "otpauth://totp/")
 	// fresh_auth has whole seconds: enroll in a later second than the step-up.
-	time.Sleep(time.Until(before.FreshAuth.LastAuthenticatedAt.Add(time.Second + 100*time.Millisecond)))
+	time.Sleep(time.Until(before.LastAuthenticatedAt.Add(time.Second + 100*time.Millisecond)))
 	totpAt := func(secret string, counter int64) string {
 		return authtest.TOTPCode(t, secret, time.Unix(counter*30, 0))
 	}
@@ -602,10 +596,11 @@ func TestFactorManagementWorkflow(t *testing.T) {
 		return counter, totpAt(pending.Secret, counter)
 	}
 	require.Len(t, enabled.BackupCodes, 10)
-	fresh := enabled.createdAuth(t)
-	require.NoError(t, json.Unmarshal([]byte(fresh.raw), &after))
-	require.True(t, after.FreshAuth.LastAuthenticatedAt.After(before.FreshAuth.LastAuthenticatedAt), "the enrollment code is a fresh second-factor proof (#389)")
-	require.ElementsMatch(t, slices.Concat(before.FreshAuth.AuthMethods, []string{"totp", "otp", "mfa"}), after.FreshAuth.AuthMethods)
+	require.NotNil(t, enabled.Auth, enabled.raw)
+	require.NotNil(t, enabled.Auth.FreshAuth, enabled.raw)
+	after := *enabled.Auth.FreshAuth
+	require.True(t, after.LastAuthenticatedAt.After(*before.LastAuthenticatedAt), "the enrollment code is a fresh second-factor proof (#389)")
+	require.ElementsMatch(t, slices.Concat(before.AuthMethods, []string{"totp", "otp", "mfa"}), after.AuthMethods)
 	require.ElementsMatch(t, []any{"pwd", "totp", "otp", "mfa"}, accessClaims(f.t, enabled.tokens().AccessToken)["amr"])
 	// Age the enrolling session so the step-up gates below apply again.
 	current := authtest.StaleSession(t, auth, enabled.tokens().AccessToken)
@@ -654,7 +649,9 @@ func TestFactorManagementWorkflow(t *testing.T) {
 		f.expect(http.StatusBadRequest, f.request(http.MethodPost, "/me/step-up/2fa", current, body))
 	}
 	stepUpCounter, stepUpCode := nextCode(enrolledStep)
-	mfa := f.expect(http.StatusOK, f.request(http.MethodPost, "/step-up/2fa", current, map[string]any{"code": stepUpCode})).tokens()
+	steppedMFA := f.expect(http.StatusOK, f.request(http.MethodPost, "/me/step-up/2fa", current, map[string]any{"code": stepUpCode}))
+	require.NotNil(t, steppedMFA.FreshAuth, steppedMFA.raw)
+	mfa := steppedMFA.tokens()
 	claims = accessClaims(f.t, mfa.AccessToken)
 	require.NotEmpty(t, claims["auth_time"])
 	require.ElementsMatch(t, []any{"pwd", "totp", "otp", "mfa"}, claims["amr"])
@@ -719,8 +716,8 @@ func TestFactorManagementWorkflow(t *testing.T) {
 	require.Equal(t, "step_up_required", denied.Error.Code)
 	require.Contains(t, staleResponse.Error.Metadata.StepUpMethods, "2fa")
 	staleResponse.Error.Metadata.StepUp2FA.require(t, []string{"totp"}, "totp")
-	freshMFA := f.expect(http.StatusOK, f.request(http.MethodPost, "/step-up/2fa", staleMFA, map[string]any{"code": enabled.BackupCodes[1], "backup_code": true})).tokens()
-	regenerated := f.expect(http.StatusOK, f.request(http.MethodPost, "/user/2fa/backup-codes", freshMFA.AccessToken, map[string]any{}))
+	freshMFA := f.expect(http.StatusOK, f.request(http.MethodPost, "/me/step-up/2fa", staleMFA, map[string]any{"code": enabled.BackupCodes[1], "backup_code": true})).tokens()
+	regenerated := f.expect(http.StatusOK, f.request(http.MethodPost, "/me/2fa/backup-codes", freshMFA.AccessToken, nil))
 	require.Len(t, regenerated.BackupCodes, 10)
 
 	// Removing the only factor turns MFA off; an absent factor is already

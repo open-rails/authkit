@@ -14,6 +14,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/passkeytest"
 )
 
@@ -167,30 +168,30 @@ func TestSignInKeysView(t *testing.T) {
 	begun := f.expect(http.StatusOK, f.request(http.MethodPost, "/me/passkeys/register/begin", browser, nil))
 	var creation protocol.CredentialCreation
 	require.NoError(t, json.Unmarshal([]byte(begun.raw), &creation))
-	var passkey signInKey
+	var passkey httpapi.SignInKey
 	created := f.expect(http.StatusCreated, f.request(http.MethodPost, "/me/passkeys/register/finish", browser, passkeytest.New(t, "https://example.com").Register(t, &creation)))
 	require.NoError(t, json.Unmarshal([]byte(created.raw), &passkey))
-	require.Equal(t, "passkey", passkey.Kind)
+	require.Equal(t, httpapi.SignInKeyPasskey, passkey.Kind)
 	device := authtest.EnrollDeviceKey(t, auth, outbox, u)
 
 	keys := f.signInKeys(browser, "")
 	require.Len(t, keys, 2)
-	kinds := map[string]signInKey{}
+	kinds := map[httpapi.SignInKeyKind]httpapi.SignInKey{}
 	for _, k := range keys {
 		kinds[k.Kind] = k
 		require.False(t, k.Current, "a browser session holds no key")
 	}
-	require.Equal(t, passkey.ID, kinds["passkey"].ID)
-	require.Equal(t, device.ID, kinds["device_key"].ID)
+	require.Equal(t, passkey.ID, kinds[httpapi.SignInKeyPasskey].ID)
+	require.Equal(t, device.ID, kinds[httpapi.SignInKeyDeviceKey].ID)
 	for _, k := range f.signInKeys(device.AccessToken, "") {
-		require.Equal(t, k.Kind == "device_key", k.Current, "the device key behind the token is current")
+		require.Equal(t, k.Kind == httpapi.SignInKeyDeviceKey, k.Current, "the device key behind the token is current")
 	}
 
 	relabel := func(token, id, label string) authAnswer {
 		return f.request(http.MethodPatch, "/me/sign-in-keys/"+id, token, map[string]any{"label": label})
 	}
 	for _, id := range []string{passkey.ID, device.ID} {
-		var renamed signInKey
+		var renamed httpapi.SignInKey
 		require.NoError(t, json.Unmarshal([]byte(f.expect(http.StatusOK, relabel(browser, id, "work")).raw), &renamed))
 		require.Equal(t, id, renamed.ID)
 		require.Equal(t, "work", *renamed.Label)
@@ -225,7 +226,7 @@ func TestSignInKeysView(t *testing.T) {
 	require.Empty(t, f.signInKeys(browser, ""))
 }
 
-func keyIDs(keys []signInKey) []string {
+func keyIDs(keys []httpapi.SignInKey) []string {
 	out := []string{}
 	for _, k := range keys {
 		out = append(out, k.ID)
@@ -346,11 +347,11 @@ func TestMePasswordChange(t *testing.T) {
 	stale := authtest.StaleSession(t, auth, authtest.SignIn(t, auth, u).AccessToken)
 	expect(t, http.StatusUnauthorized, put(stale, "wrong-password", "Third-horse-battery-3"))
 	answer := expectAnswer(t, put(stale, u.Password, "Third-horse-battery-3"), http.StatusOK)
-	require.Contains(t, answer.raw, `"status":"complete"`)
-	require.Contains(t, answer.raw, `"fresh_auth":{`)
+	require.Equal(t, httpapi.AuthComplete, answer.Status, answer.raw)
+	require.NotNil(t, answer.FreshAuth, answer.raw)
 	require.Equal(t, u.ID, answer.User.ID)
-	require.Nil(t, answer.Nested.RefreshToken)
-	claims, err := auth.Verify(t.Context(), answer.Nested.AccessToken)
+	require.Nil(t, answer.tokens().RefreshToken)
+	claims, err := auth.Verify(t.Context(), answer.tokens().AccessToken)
 	require.NoError(t, err)
 	require.NoError(t, auth.CheckRecentSignIn(t.Context(), claims), "the answer's token is a recent sign-in")
 	u.Password = "Third-horse-battery-3"

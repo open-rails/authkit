@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
@@ -247,54 +246,9 @@ func validOIDCStepUpTime(startedAt, authTime, now time.Time) bool {
 	return !authTime.Before(startedAt.Add(-oidcStepUpClockSkew))
 }
 
-// requireFreshAuthOrPassword is the sensitive-action gate of AuthKit's own
-// credential routes: the engine's CheckRecentSignIn (the gate
-// verify.Sensitive applies to host routes), or, for an account without a
-// second factor, a correct password in the request, which re-authenticates
-// the session and returns a fresh token set.
-func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Request, claims verify.Claims, password string) (bool, *StepUpResult) {
-	err := s.svc.CheckRecentSignIn(r.Context(), claims)
-	if err == nil {
-		return true, nil
-	}
-	// MFA-if-enrolled: a password never clears the gate for an account with a
-	// second factor (M5).
-	if password == "" || errmodel.CodeOf(err) != errmodel.CodeStepUpRequired || s.hasUsableMFA(r, claims.UserID) {
-		writeError(w, err)
-		return false, nil
-	}
-	if s.rateLimited(w, r, RLPasswordStepUp) {
-		return false, nil
-	}
-	if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, password); verr != nil {
-		passwordRejected(w, verr)
-		return false, nil
-	}
-	if err := s.svc.MarkSessionAuthenticated(r.Context(), claims.UserID, claims.SessionID); err != nil {
-		serverErr(w, "step_up_failed", err)
-		return false, nil
-	}
-	freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
-	fresh, err := s.freshAccessTokenResponse(r, claims.UserID, claims.SessionID, freshness)
-	if err != nil {
-		serverErr(w, "token_issue_failed", err)
-		return false, nil
-	}
-	return true, &fresh
-}
-
 // requireStepUp answers step_up_required with how userID can step up.
 func (s *Service) requireStepUp(w http.ResponseWriter, r *http.Request, userID string) {
 	writeError(w, s.svc.StepUpRequired(r.Context(), userID))
-}
-
-// freshAccessTokenResponse mints the re-authenticated session's access token.
-func (s *Service) freshAccessTokenResponse(r *http.Request, userID, sessionID string, freshness authflow.SessionFreshness) (StepUpResult, error) {
-	token, exp, err := s.svc.MintSessionAccessToken(r.Context(), userID, sessionID)
-	if err != nil {
-		return StepUpResult{}, err
-	}
-	return StepUpResult{TokenSet: iam.NewTokenSet(token, "", exp), FreshAuth: freshAuth(freshness)}, nil
 }
 
 // hasUsableMFA reports whether the account has an enabled second factor. A

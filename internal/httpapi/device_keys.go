@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -157,37 +156,6 @@ func (s *Service) handleDeviceKeysDELETE(w http.ResponseWriter, r *http.Request)
 	if !claims.HasAMR("email") {
 		fail(w, errmodel.CodeForbidden)
 		return
-	}
-	if err := s.svc.RevokeOtherDeviceKeys(r.Context(), claims.UserID, claims.DeviceKeyID); err != nil {
-		fail(w, errmodel.CodeUnauthenticated)
-		return
-	}
-	noContent(w)
-}
-
-func deviceKeyCaller(r *http.Request) (verify.Claims, bool) {
-	claims, ok := verify.ClaimsFromContext(r.Context())
-	return claims, ok && claims.UserID != "" && claims.DeviceKeyID != "" && claims.HasAMR("device_key")
-}
-
-func (s *Service) handleDeviceKeysRevokeOthersPOST(w http.ResponseWriter, r *http.Request) {
-	claims, ok := deviceKeyCaller(r)
-	if !ok {
-		fail(w, errmodel.CodeUnauthenticated)
-		return
-	}
-	// The enrollment finish token is the bounded recovery-root proof: it
-	// carries both the device-key and verified-email authentication methods.
-	if !claims.HasAMR("email") {
-		fail(w, errmodel.CodeForbidden)
-		return
-	}
-	if r.Body != nil && r.Body != http.NoBody && r.ContentLength != 0 {
-		var empty map[string]json.RawMessage
-		if err := decodeJSON(r, &empty); err != nil || len(empty) != 0 {
-			fail(w, errmodel.CodeInvalidRequest)
-			return
-		}
 	}
 	if err := s.svc.RevokeOtherDeviceKeys(r.Context(), claims.UserID, claims.DeviceKeyID); err != nil {
 		fail(w, errmodel.CodeUnauthenticated)

@@ -245,13 +245,13 @@ func TestSecurityPreRegistrationContactChange(t *testing.T) {
 	squatter := h.register(victim)
 	userID := h.userID(victim)
 
-	resp := h.post("/verify/request", map[string]string{"identifier": attackerPhone}, squatter.AccessToken)
+	resp := h.do(request{method: http.MethodPut, path: "/me/phone", body: map[string]string{"phone_number": attackerPhone}, token: squatter.AccessToken})
 	require.Equal(t, http.StatusForbidden, resp.status, "an unproven account started proving a second address: %s", resp)
 	identifier, channel := contactOf(t, resp)
 	require.Equal(t, victim, identifier)
 	require.Equal(t, "email", channel)
 	require.Empty(t, h.mail.Messages(iam.MessageVerification, attackerPhone), "a code went to the squatter's phone")
-	require.Equal(t, "verification_required", h.post("/user/2fa", map[string]string{"method": "totp"}, squatter.AccessToken).errorCode())
+	require.Equal(t, "verification_required", h.post("/me/2fa/setup", map[string]string{"method": "totp"}, squatter.AccessToken).errorCode())
 
 	require.Less(t, h.post("/password/reset/request", map[string]string{"identifier": victim}, "").status, 300)
 	token := h.mail.Last(t, iam.MessagePasswordReset, victim).Token
@@ -269,7 +269,7 @@ func TestSecurityPreRegistrationContactChange(t *testing.T) {
 		a := h.newAccount("ccproven")
 		access := h.login(a).AccessToken
 		phone := "+1555" + uniqueDigits(7)
-		resp := h.post("/verify/request", map[string]string{"identifier": phone}, access)
+		resp := h.do(request{method: http.MethodPut, path: "/me/phone", body: map[string]string{"phone_number": phone}, token: access})
 		require.Equal(t, http.StatusAccepted, resp.status, resp.String())
 		unproven := unique("ccunproven") + "@security.test"
 		_, err := h.auth.UpdateUser(ctx, iam.SystemActor(), a.id, iam.UserUpdate{Email: &unproven})
@@ -285,7 +285,7 @@ func TestSecurityPreRegistrationContactChange(t *testing.T) {
 		typo := unique("cctypo") + "@security.test"
 		own := h.register(typo)
 		fixed := unique("ccfixed") + "@security.test"
-		resp := h.post("/verify/request", map[string]string{"identifier": fixed}, own.AccessToken)
+		resp := h.do(request{method: http.MethodPut, path: "/me/email", body: map[string]string{"email": fixed}, token: own.AccessToken})
 		require.Equal(t, http.StatusAccepted, resp.status, resp.String())
 		resp = h.post("/verify/confirm", map[string]string{"identifier": fixed, "code": h.verificationCode(fixed)}, own.AccessToken)
 		require.Equal(t, http.StatusNoContent, resp.status, resp.String())

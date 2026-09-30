@@ -185,7 +185,7 @@ func testPasskeyCeremonyAndAssurance(t *testing.T, auth *authkit.Client, outbox 
 			} `json:"allowCredentials"`
 		} `json:"publicKey"`
 	}
-	type passkey = signInKey
+	type passkey = httpapi.SignInKey
 	f := newFactorFlow(t, auth, outbox)
 	u := authtest.NewUser(t, auth)
 	setupToken := authtest.SignIn(t, auth, u).AccessToken
@@ -206,7 +206,7 @@ func testPasskeyCeremonyAndAssurance(t *testing.T, auth *authkit.Client, outbox 
 	}
 	list := func() []passkey {
 		t.Helper()
-		return f.signInKeys(setupToken, "passkey")
+		return f.signInKeys(setupToken, httpapi.SignInKeyPasskey)
 	}
 
 	var creation creationOptions
@@ -219,7 +219,7 @@ func testPasskeyCeremonyAndAssurance(t *testing.T, auth *authkit.Client, outbox 
 	var created passkey
 	decode(f.expect(http.StatusCreated, f.request(http.MethodPost, "/me/passkeys/register/finish", setupToken, attestation)), &created)
 	require.NotEmpty(t, created.ID)
-	require.Equal(t, "passkey", created.Kind)
+	require.Equal(t, httpapi.SignInKeyPasskey, created.Kind)
 	require.False(t, created.Current)
 
 	decode(f.expect(http.StatusOK, f.request(http.MethodPost, "/me/passkeys/register/begin", setupToken, map[string]any{})), &creation)
