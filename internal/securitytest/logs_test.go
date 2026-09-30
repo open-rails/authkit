@@ -183,7 +183,7 @@ func (j *secretJar) addOutbox(mail *authtest.Outbox) {
 		j.add(where+" token", m.Token)
 		if u, err := url.Parse(m.Link); err == nil {
 			if q, err := url.ParseQuery(u.Fragment); err == nil {
-				j.add(where+" invite", q.Get("account_invite_token"))
+				j.add(where+" invite", q.Get("invite_code"))
 			}
 		}
 	}
