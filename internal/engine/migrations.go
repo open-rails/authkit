@@ -45,12 +45,14 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, cfg config.Config, opts co
 	}
 	defer migrator.Close()
 	// Strict integrity: an edited applied migration refuses unless the schema
-	// is unchanged. A schema the retired v0.148 chain completed is converted;
-	// one it left part-way, or an older chain built, is refused.
-	migrator = migrator.WithSchema(normalized).WithStrictIntegrity().WithConversions(retired.Conversion())
-	if err := retired.Check(ctx, migrator, migrations); err != nil {
+	// is unchanged. A schema the v0.125–v0.148 chain built, whole or part-way,
+	// is converted; one an older chain built is refused.
+	migrator = migrator.WithSchema(normalized).WithStrictIntegrity()
+	conversions, err := retired.Conversions(ctx, migrator, migrations)
+	if err != nil {
 		return fmt.Errorf("authkit: schema %q: %w", normalized, err)
 	}
+	migrator = migrator.WithConversions(conversions...)
 	if err := migrator.ApplyMigrations(ctx, migrations); err != nil {
 		return fmt.Errorf("authkit: apply PostgreSQL migrations to schema %q: %w", normalized, err)
 	}
