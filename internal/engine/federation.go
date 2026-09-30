@@ -21,7 +21,9 @@ import (
 // its keys, takes effect on the next request, and its authority is resolved
 // live. Which issuers are applications at all is answered from a snapshot of
 // the enabled set, refreshed at most once per federationSnapshotTTL, so a
-// made-up iss costs no database read of its own (ak#297).
+// made-up iss costs no database read of its own (ak#297). An application
+// that leaves the enabled set is removed from the verifier the first time its
+// issuer is seen again, and that token is refused (ak#417).
 
 const federationSnapshotTTL = 5 * time.Second
 
@@ -36,15 +38,23 @@ type federation struct {
 
 // federated is the enabled application whose issuer is iss, registered on
 // a's verifier; found is false when iss is this deployment's or no
-// application's.
+// application's. The issuer of an application registered here that is no
+// longer enabled is de-registered and its token refused.
 func (a *Authenticator) federated(ctx context.Context, iss string) (iam.RemoteApplication, bool, error) {
 	s := a.s
 	iss = strings.TrimSpace(iss)
-	if s.pg == nil || iss == s.cfg.Token.Issuer || !ident.ValidIssuer(iss) || !s.fed.isEnabled(ctx, iss, s.ListEnabledRemoteApplications) {
+	if s.pg == nil || iss == s.cfg.Token.Issuer || !ident.ValidIssuer(iss) {
+		return iam.RemoteApplication{}, false, nil
+	}
+	if !s.fed.isEnabled(ctx, iss, s.ListEnabledRemoteApplications) {
+		if a.unregister(iss) {
+			return iam.RemoteApplication{}, false, errmodel.E(errmodel.CodeBadIssuer)
+		}
 		return iam.RemoteApplication{}, false, nil
 	}
 	app, err := s.GetRemoteApplication(ctx, iss)
 	if err != nil || app == nil || app.Issuer != iss {
+		a.unregister(iss)
 		return iam.RemoteApplication{}, false, errmodel.E(errmodel.CodeBadIssuer)
 	}
 	if err := a.register(*app); err != nil {
@@ -134,6 +144,19 @@ func (a *Authenticator) register(app iam.RemoteApplication) error {
 	}
 	a.registered[app.Issuer] = source
 	return nil
+}
+
+// unregister removes iss from a's verifier, reporting whether it was an
+// application registered there.
+func (a *Authenticator) unregister(iss string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if _, ok := a.registered[iss]; !ok {
+		return false
+	}
+	a.v.RemoveIssuer(iss)
+	delete(a.registered, iss)
+	return true
 }
 
 // applicationClaims verifies a token app issued: the application acting as

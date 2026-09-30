@@ -475,6 +475,79 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 	})
 }
 
+// TestSecurityDisabledApplicationTokens (ak#417): disabling or deleting a
+// remote application refuses its tokens from the next request on, for as
+// long as the process runs. The verifier's registration from while it was
+// enabled never admits them through another path, whatever they claim.
+func TestSecurityDisabledApplicationTokens(t *testing.T) {
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
+	ctx := context.Background()
+	type app struct {
+		issuer, kid string
+		key         *rsa.PrivateKey
+	}
+	disabled, deleted := &app{issuer: "https://disabled-app.security.test", kid: "disabled-kid"}, &app{issuer: "https://deleted-app.security.test", kid: "deleted-kid"}
+	apps := map[string]*app{"disabled": disabled, "deleted": deleted}
+	enabled := true
+	var manifest iam.BootstrapManifest
+	for _, a := range apps {
+		key, err := rsa.GenerateKey(rand.Reader, 2048)
+		require.NoError(t, err)
+		der, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+		require.NoError(t, err)
+		a.key = key
+		manifest.RemoteApplications = append(manifest.RemoteApplications, iam.BootstrapManifestRemoteApplication{Issuer: a.issuer, Enabled: &enabled,
+			PublicKeys: []iam.RemoteApplicationKey{{KID: a.kid, PublicKeyPEM: string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))}}})
+	}
+	_, err := h.auth.ApplyBootstrapManifest(ctx, manifest, iam.BootstrapOptions{})
+	require.NoError(t, err)
+	token := func(a *app, typ string, claims jwt.MapClaims) string {
+		now := time.Now()
+		claims["iss"], claims["aud"], claims["iat"], claims["nbf"], claims["exp"] = a.issuer, []string{audience}, now.Unix(), now.Unix(), now.Add(5*time.Minute).Unix()
+		return sign(t, jwt.SigningMethodRS256, a.key, map[string]any{"kid": a.kid, "typ": typ}, claims)
+	}
+	delegated := func(a *app, permissions ...string) string {
+		claims := jwt.MapClaims{"delegated_sub": unique("sub")}
+		if permissions != nil {
+			claims["permissions"] = permissions
+		}
+		return token(a, jose.DelegatedAccessTokenType, claims)
+	}
+	service := func(a *app) string {
+		return token(a, "service+jwt", jwt.MapClaims{"sub": "billing", "jti": unique("svc"), "token_use": iam.ServiceJWTTokenUse, "permissions": []string{"orders:write"}})
+	}
+	for name, a := range apps {
+		_, err := h.auth.Verify(ctx, delegated(a))
+		require.NoError(t, err, "control: %s verifies while enabled", name)
+		_, err = h.auth.VerifyServiceJWT(ctx, service(a))
+		require.NoError(t, err, "control: %s's service JWT verifies while enabled", name)
+		_, err = h.auth.Verify(ctx, delegated(a, "billing:refund"))
+		require.Error(t, err, "control: %s's stored authority bounds its delegations", name)
+	}
+
+	stored, err := h.auth.RemoteApplication(ctx, iam.AppByIssuer(disabled.issuer))
+	require.NoError(t, err)
+	stored.Enabled = false
+	_, err = h.auth.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.RootGroup(), stored)
+	require.NoError(t, err)
+	stored, err = h.auth.RemoteApplication(ctx, iam.AppByIssuer(deleted.issuer))
+	require.NoError(t, err)
+	require.NoError(t, h.auth.DeleteRemoteApplication(ctx, iam.SystemActor(), iam.RootGroup(), stored.ID))
+	// Outlive the enabled-set snapshot, then refresh it with an issuer no
+	// application has.
+	time.Sleep(6 * time.Second)
+	_, err = h.auth.Verify(ctx, token(&app{issuer: "https://nobody.security.test", kid: disabled.kid, key: disabled.key}, jose.DelegatedAccessTokenType, jwt.MapClaims{"delegated_sub": "x"}))
+	require.Error(t, err)
+	for name, a := range apps {
+		for range 2 {
+			_, err := h.auth.Verify(ctx, delegated(a, "billing:refund"))
+			require.Error(t, err, "%s: its delegated token verified", name)
+			_, err = h.auth.VerifyServiceJWT(ctx, service(a))
+			require.Error(t, err, "%s: its service JWT verified", name)
+		}
+	}
+}
+
 // TestSecurityGroupRoleIDsAreCanonical (P4): an upper-case subject id names
 // the same account in group role operations. A manager who leaves a group
 // under an upper-case id takes the API keys, invite links and application
