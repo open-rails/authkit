@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"fmt"
-	stdlog "log"
 	"time"
 
 	"github.com/open-rails/authkit/iam"
@@ -24,13 +23,10 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 		return nil, err
 	}
 	// #232: the TOTP key is the explicit override or <Keys.Path>/totp.key;
-	// without either, TOTP enrollment fails closed. The engine reads Config,
-	// so the resolved key is written back into it.
+	// without either, TOTP is unavailable. The engine reads Config, so the
+	// resolved key is written back into it.
 	if norm.TwoFactor.TOTPSecretKey, err = resolveTOTPSecretKey(norm); err != nil {
 		return nil, err
-	}
-	if norm.TwoFactor.TOTPSecretKey == nil && norm.TwoFactor.Mode != iam.TwoFactorDisabled && twoFactorMethodListed(norm.TwoFactor.Methods, iam.TwoFactorTOTP) {
-		stdlog.Printf("authkit: warning: TOTP is offered by 2FA policy but no key material is configured (no %s/%s, no TwoFactor.TOTPSecretKey) — TOTP will be reported unavailable and enrollment will fail closed", totpKeysDir(norm), totpKeyFilename)
 	}
 	src, owned, err := engineKeySource(norm.Keys, deps.KeySource)
 	if err != nil {
@@ -51,6 +47,9 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 		}
 	}()
 	if err := s.applyDeps(deps); err != nil {
+		return nil, err
+	}
+	if err := s.requireEnrollableSecondFactor(deps.KeySource != nil || !norm.Keys.VerifyOnly); err != nil {
 		return nil, err
 	}
 	if err := s.probeMigrations(); err != nil {

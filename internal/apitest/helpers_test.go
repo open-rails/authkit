@@ -158,7 +158,10 @@ func bareConfig(t testing.TB) (authkit.Config, authkit.Deps) {
 	t.Helper()
 	pg := testdb.ScratchPostgres(t)
 	s := bareSigner()
-	cfg := authkit.Config{Token: authkit.TokenConfig{Issuer: authtest.Issuer, IssuedAudiences: []string{authtest.Audience}}}
+	cfg := authkit.Config{
+		Token:     authkit.TokenConfig{Issuer: authtest.Issuer, IssuedAudiences: []string{authtest.Audience}},
+		TwoFactor: authkit.TwoFactorConfig{TOTPSecretKey: bytes.Repeat([]byte{7}, 32)},
+	}
 	return cfg, authkit.Deps{Postgres: pg.Pool, KeySource: testkeys.Source(s)}
 }
 

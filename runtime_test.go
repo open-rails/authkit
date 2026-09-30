@@ -200,8 +200,12 @@ func testConfig(t *testing.T) authkit.Config {
 	return authkit.Config{
 		Token:        authkit.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}},
 		Registration: authkit.RegistrationConfig{Verification: iam.RegistrationVerificationNone},
+		TwoFactor:    authkit.TwoFactorConfig{TOTPSecretKey: testTOTPKey},
 	}
 }
+
+// testTOTPKey lets the root owner enroll an authenticator app.
+var testTOTPKey = bytes.Repeat([]byte{7}, 32)
 
 // testDeps are the Deps of the root tests' runtimes: pool and one signing key.
 func testDeps(pool *pgxpool.Pool) authkit.Deps {

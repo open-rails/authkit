@@ -4236,6 +4236,9 @@
           "channels": {
             "$ref": "#/components/schemas/ChannelCapabilities"
           },
+          "two_factor": {
+            "$ref": "#/components/schemas/TwoFactorCapabilities"
+          },
           "languages": {
             "type": "array",
             "items": {
@@ -4256,6 +4259,7 @@
           "solana",
           "verification",
           "channels",
+          "two_factor",
           "languages",
           "paths"
         ]
@@ -5919,6 +5923,34 @@
           "token_type",
           "expires_in",
           "refresh_token"
+        ]
+      },
+      "TwoFactorCapabilities": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "disabled",
+              "optional",
+              "required"
+            ]
+          },
+          "methods": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "email",
+                "sms",
+                "totp"
+              ]
+            }
+          }
+        },
+        "required": [
+          "mode",
+          "methods"
         ]
       },
       "TwoFactorChallengeRequest": {

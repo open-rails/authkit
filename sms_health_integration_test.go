@@ -90,6 +90,7 @@ func TestSMSHealthProbeRearmsPhoneFlows(t *testing.T) {
 	offered, _, _ := phoneFlows()
 	require.True(t, offered, "optimistic before the first probe")
 	require.True(t, auth.SMSAvailable())
+	require.Equal(t, []iam.TwoFactorMethod{iam.TwoFactorEmail, iam.TwoFactorSMS, iam.TwoFactorTOTP}, auth.TwoFactorMethods())
 	require.NoError(t, auth.Start(t.Context()))
 	require.NoError(t, probed(time.Time{}), "Start probes at once")
 	for _, failure := range []string{"reset", "nosender"} {
@@ -98,6 +99,7 @@ func TestSMSHealthProbeRearmsPhoneFlows(t *testing.T) {
 		offered, status, code := phoneFlows()
 		require.False(t, offered, failure)
 		require.False(t, auth.SMSAvailable(), failure)
+		require.Equal(t, []iam.TwoFactorMethod{iam.TwoFactorEmail, iam.TwoFactorTOTP}, auth.TwoFactorMethods(), "an unhealthy sender enrolls no SMS factor")
 		require.Equal(t, http.StatusServiceUnavailable, status, failure)
 		require.Equal(t, string(errmodel.CodeSMSUnavailable), code, failure)
 
@@ -105,6 +107,7 @@ func TestSMSHealthProbeRearmsPhoneFlows(t *testing.T) {
 		require.NoError(t, probed(time.Now()), failure)
 		offered, _, _ = phoneFlows()
 		require.True(t, offered, failure)
+		require.Contains(t, auth.TwoFactorMethods(), iam.TwoFactorSMS, failure)
 	}
 }
 

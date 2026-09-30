@@ -287,6 +287,7 @@ type Capabilities struct {
 	Solana                 SolanaCapabilities       `json:"solana"`
 	Verification           VerificationCapabilities `json:"verification"`
 	Channels               ChannelCapabilities      `json:"channels"`
+	TwoFactor              TwoFactorCapabilities    `json:"two_factor"`
 	Languages              []string                 `json:"languages"`
 	Paths                  MountPaths               `json:"paths"`
 }
@@ -329,6 +330,13 @@ type UsernameCapabilities struct {
 type ChannelCapabilities struct {
 	Email bool `json:"email"`
 	SMS   bool `json:"sms"`
+}
+
+// TwoFactorCapabilities is the 2FA policy and the second factors a user can
+// enroll now (Client.TwoFactorMethods).
+type TwoFactorCapabilities struct {
+	Mode    iam.TwoFactorMode     `json:"mode"`
+	Methods []iam.TwoFactorMethod `json:"methods"`
 }
 
 // PasswordCapabilities is everything a browser needs to pre-validate a new
