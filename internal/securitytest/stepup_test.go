@@ -42,10 +42,12 @@ func (h *host) sessionToken(userID, sid string) string {
 // second factor, a fresh authentication means that factor within the window. A
 // stolen session plus the phished password never yields a token that
 // regenerates backup codes, registers a passkey, adds a factor, links a
-// provider or changes the address, on AuthKit's routes or a host's.
+// provider or wallet or changes the address, on AuthKit's routes or a host's;
+// each refusal says only the second factor clears it.
 func TestSecurityPasswordStepUpNeedsSecondFactor(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withProviders(&stubProvider{name: "stub"}), withEngine(func(c *authkit.Config) {
 		c.Passkeys = authkit.PasskeyConfig{RPID: "localhost", RPDisplayName: "Security", Origins: []string{"http://localhost"}}
+		c.SolanaNetwork = iam.SolanaDevnet
 	}))
 	ctx := context.Background()
 	victim := h.newAccount("stepup")
@@ -56,18 +58,22 @@ func TestSecurityPasswordStepUpNeedsSecondFactor(t *testing.T) {
 	require.NoError(t, err)
 	stolen := h.sessionToken(victim.id, sid)
 
-	resp := h.post("/step-up/password", map[string]string{"password": password}, stolen)
-	require.Equal(t, http.StatusForbidden, resp.status, "a password re-proved an account with a second factor: %s", resp)
-	require.Equal(t, "step_up_required", resp.errorCode())
-	var meta struct {
-		Error struct {
-			Metadata struct {
-				MFARequired bool `json:"mfa_required"`
-			} `json:"metadata"`
-		} `json:"error"`
+	// Every refusal says the account's second factor, not a password, clears it.
+	requireMFAStepUp := func(resp response, msg string, args ...any) {
+		t.Helper()
+		require.Equal(t, http.StatusForbidden, resp.status, append([]any{msg + ": %s"}, append(args, resp)...)...)
+		require.Equal(t, "step_up_required", resp.errorCode())
+		var meta struct {
+			Error struct {
+				Metadata struct {
+					MFARequired bool `json:"mfa_required"`
+				} `json:"metadata"`
+			} `json:"error"`
+		}
+		resp.json(t, &meta)
+		require.True(t, meta.Error.Metadata.MFARequired, "a password never clears the gate: %s", resp)
 	}
-	resp.json(t, &meta)
-	require.True(t, meta.Error.Metadata.MFARequired)
+	requireMFAStepUp(h.post("/step-up/password", map[string]string{"password": password}, stolen), "a password re-proved an account with a second factor")
 
 	// What a password re-auth wrote before: the session is fresh, its second
 	// factor is not. The token must still fail the MFA-if-enrolled gate.
@@ -92,13 +98,12 @@ func TestSecurityPasswordStepUpNeedsSecondFactor(t *testing.T) {
 		{method: http.MethodDelete, path: "/user/2fa", body: map[string]any{}},
 		{method: http.MethodPost, path: "/verify/request", body: map[string]string{"identifier": unique("evil") + "@security.test"}},
 		{method: http.MethodPost, path: "/oidc/stub/link/start", body: map[string]any{}},
+		{method: http.MethodPost, path: "/solana/link", body: map[string]any{}},
 	}
 	for name, token := range map[string]string{"stolen": stolen, "password re-proved": reproved} {
 		for _, req := range attacks {
 			req.token = token
-			resp := h.do(req)
-			require.Equal(t, http.StatusForbidden, resp.status, "%s token %s %s: %s", name, req.method, req.path, resp)
-			require.Equal(t, "step_up_required", resp.errorCode())
+			requireMFAStepUp(h.do(req), "%s token %s %s", name, req.method, req.path)
 		}
 		require.Equal(t, http.StatusForbidden, hostRoute(token), "%s token on a host Sensitive route", name)
 	}
@@ -115,6 +120,8 @@ func TestSecurityPasswordStepUpNeedsSecondFactor(t *testing.T) {
 		fresh := session(t, resp).AccessToken
 		require.Equal(t, http.StatusNoContent, hostRoute(fresh))
 		resp = h.post("/user/2fa/backup-codes", map[string]any{}, fresh)
+		require.Equal(t, http.StatusOK, resp.status, resp.String())
+		resp = h.post("/oidc/stub/link/start", map[string]any{}, fresh)
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
 	})
 }

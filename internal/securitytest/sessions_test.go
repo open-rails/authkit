@@ -1,6 +1,7 @@
 package securitytest
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -8,6 +9,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/json"
 	"math/big"
 	"net/http"
 	"sync"
@@ -64,19 +66,73 @@ func TestSecurityRefreshTokenTheft(t *testing.T) {
 }
 
 // TestSecurityRefreshGraceDoesNotFork proves the rotation grace window only
-// re-delivers the one successor: concurrent holders converge instead of each
-// obtaining an independent credential chain.
+// re-delivers the one successor: five holders of one token refreshing at once
+// (agent processes sharing a credential file) converge on one live credential
+// instead of each obtaining an independent chain, and nothing is revoked.
+// Two racers could be survived by minting the loser a new token; five cannot,
+// since the session remembers one predecessor.
 func TestSecurityRefreshGraceDoesNotFork(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits))
+	ctx := context.Background()
 	a := h.newAccount("grace")
 	first := h.login(a)
-	var got [2]tokens
-	for i := range got {
-		resp := h.refresh(first.RefreshToken)
-		require.Equal(t, http.StatusOK, resp.status, resp.String())
-		resp.json(t, &got[i])
+	type outcome struct {
+		status int
+		tokens tokens
+		err    error
 	}
-	require.Equal(t, got[0].RefreshToken, got[1].RefreshToken, "a replay inside the grace window forked the session")
+	results := make([]outcome, 5)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range results {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			results[i].status, results[i].tokens, results[i].err = h.refreshFromGoroutine(first.RefreshToken)
+		}()
+	}
+	close(start)
+	wg.Wait()
+	converged := results[0].tokens.RefreshToken
+	for i, r := range results {
+		require.NoErrorf(t, r.err, "racer %d", i)
+		require.Equalf(t, http.StatusOK, r.status, "racer %d was refused", i)
+		require.NotEmptyf(t, r.tokens.AccessToken, "racer %d got no access token", i)
+		require.NotEqualf(t, first.RefreshToken, r.tokens.RefreshToken, "racer %d was handed back the consumed token", i)
+		require.Equalf(t, converged, r.tokens.RefreshToken, "racer %d was forked onto a second credential chain", i)
+	}
+	sessions, err := h.auth.Sessions(ctx, a.id)
+	require.NoError(t, err)
+	require.Len(t, sessions, 1, "the session must survive the race")
+	revoked, err := h.auth.SessionEvents(ctx, a.id, iam.SessionEventQuery{Kinds: []iam.SessionEventKind{iam.SessionEventRevoked}})
+	require.NoError(t, err)
+	require.Empty(t, revoked.Items, "a lost race must revoke nothing")
+
+	resp := h.refresh(converged)
+	require.Equal(t, http.StatusOK, resp.status, resp.String())
+	var next tokens
+	resp.json(t, &next)
+	require.NotEqual(t, converged, next.RefreshToken, "the successor still rotates")
+}
+
+// refreshFromGoroutine is refresh reporting failures instead of failing the
+// test, for racing goroutines.
+func (h *host) refreshFromGoroutine(refreshToken string) (int, tokens, error) {
+	body, err := json.Marshal(map[string]string{"grant_type": "refresh_token", "refresh_token": refreshToken})
+	if err != nil {
+		return 0, tokens{}, err
+	}
+	resp, err := http.Post(h.server.URL+apiPrefix+"/token", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return 0, tokens{}, err
+	}
+	defer resp.Body.Close()
+	var out tokens
+	if resp.StatusCode == http.StatusOK {
+		err = json.NewDecoder(resp.Body).Decode(&out)
+	}
+	return resp.StatusCode, out, err
 }
 
 // TestSecuritySessionRevocationEvents proves every account-securing event ends
