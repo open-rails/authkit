@@ -148,8 +148,8 @@ type KeysConfig struct {
 	// unless AllowEphemeralDevKeys or VerifyOnly is set.
 	Path string
 	// AllowEphemeralDevKeys generates an RSA signing key when Path holds no
-	// keys.json: in memory, or written to <Path>/keys.json when Path is set so
-	// restarts reuse it. Development only.
+	// keys.json, and a TOTP key when it holds no totp.key: in memory, or
+	// written to Path when it is set so restarts reuse them. Development only.
 	AllowEphemeralDevKeys bool
 	// VerifyOnly builds AuthKit with no signer: minting returns
 	// iam.ErrSigningNotConfigured, verification and permission reads work, and

@@ -1,9 +1,12 @@
 package engine
 
 import (
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io/fs"
 	stdlog "log"
 	"os"
 	"path/filepath"
@@ -25,11 +28,12 @@ const totpKeyFilename = "totp.key"
 func validTOTPKeyLen(n int) bool { return n == 16 || n == 24 || n == 32 }
 
 // resolveTOTPSecretKey returns the TOTP encryption key. The explicit override
-// wins (validated). Otherwise it loads <Keys.Path>/totp.key. A missing file
-// returns (nil, nil): TOTP is then unavailable, which New refuses when no
-// other second factor can be enrolled. Invalid material (wrong length, bad
-// encoding, unsafe permissions) is a hard construction error, the same rigor
-// as JWT signing keys.
+// wins (validated). Otherwise it loads <Keys.Path>/totp.key, generated first
+// under Keys.AllowEphemeralDevKeys. Without either it returns (nil, nil):
+// TOTP is then unavailable, which New refuses when no other second factor can
+// be enrolled. Invalid material (wrong length, bad encoding, unsafe
+// permissions) is a hard construction error, the same rigor as JWT signing
+// keys.
 func resolveTOTPSecretKey(cfg config.Config) ([]byte, error) {
 	if len(cfg.TwoFactor.TOTPSecretKey) > 0 {
 		if !validTOTPKeyLen(len(cfg.TwoFactor.TOTPSecretKey)) {
@@ -37,10 +41,45 @@ func resolveTOTPSecretKey(cfg config.Config) ([]byte, error) {
 		}
 		return append([]byte(nil), cfg.TwoFactor.TOTPSecretKey...), nil
 	}
-	path := filepath.Join(totpKeysDir(cfg), totpKeyFilename)
+	key, err := loadTOTPKey(filepath.Join(totpKeysDir(cfg), totpKeyFilename))
+	if key == nil && err == nil && cfg.Keys.AllowEphemeralDevKeys {
+		return ephemeralTOTPKey(cfg.Keys.Path)
+	}
+	return key, err
+}
+
+// ephemeralTOTPKey generates the TOTP key of a development deployment: in
+// memory, or written to <dir>/totp.key when Keys.Path is set, so restarts keep
+// authenticator enrollments.
+func ephemeralTOTPKey(dir string) ([]byte, error) {
+	key := make([]byte, 32)
+	_, _ = rand.Read(key)
+	if dir = strings.TrimSpace(dir); dir == "" {
+		return key, nil
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("authkit: persist dev TOTP key under %s: %w", dir, err)
+	}
+	path := filepath.Join(dir, totpKeyFilename)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, fs.ErrExist) {
+		return loadTOTPKey(path) // another replica wrote it first
+	}
+	if err == nil {
+		_, err = f.WriteString(base64.StdEncoding.EncodeToString(key))
+		err = errors.Join(err, f.Close())
+	}
+	if err != nil {
+		return nil, fmt.Errorf("authkit: persist dev TOTP key %s: %w", path, err)
+	}
+	return key, nil
+}
+
+// loadTOTPKey reads a totp.key file; a missing one is (nil, nil).
+func loadTOTPKey(path string) ([]byte, error) {
 	info, err := os.Stat(path)
 	if os.IsNotExist(err) {
-		return nil, nil // no key configured — TOTP fails closed at enrollment.
+		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("authkit: stat TOTP key %s: %w", path, err)
