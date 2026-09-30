@@ -30,7 +30,7 @@ func publicUser(r *db.User, now time.Time) iam.User {
 		PreferredLanguage: nullable(deref(r.PreferredLanguage)), AvatarURL: nullable(deref(r.AvatarURL)),
 		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin, DeletedAt: r.DeletedAt,
 	}
-	if banInForce(r, now) {
+	if banInForce(r.BannedAt, r.BannedUntil, now) {
 		u.Ban = &iam.BanState{Until: r.BannedUntil, Reason: nullable(deref(r.BanReason)), By: nullable(deref(r.BannedBy))}
 		if r.BannedAt != nil {
 			u.Ban.At = *r.BannedAt
@@ -39,10 +39,11 @@ func publicUser(r *db.User, now time.Time) iam.User {
 	return u
 }
 
-// banInForce is the schema's ban_in_force on a row already read: a ban exists
-// while banned_at is set (users_ban_chk), and an expired temporary ban is none.
-func banInForce(r *db.User, now time.Time) bool {
-	return r.BannedAt != nil && (r.BannedUntil == nil || r.BannedUntil.After(now))
+// banInForce is the schema's ban_in_force on columns already read: a ban
+// exists while banned_at is set (users_ban_chk), and an expired temporary ban
+// is none.
+func banInForce(bannedAt, bannedUntil *time.Time, now time.Time) bool {
+	return bannedAt != nil && (bannedUntil == nil || bannedUntil.After(now))
 }
 
 func deref(p *string) string {
@@ -91,7 +92,7 @@ func (s *Engine) ensureUserAccess(ctx context.Context, u *db.User) error {
 	if u == nil {
 		return jwt.ErrTokenInvalidClaims
 	}
-	if u.DeletedAt != nil || banInForce(u, time.Now()) {
+	if u.DeletedAt != nil || banInForce(u.BannedAt, u.BannedUntil, time.Now()) {
 		return errmodel.ErrUserBanned
 	}
 	reserved, err := s.isUserReserved(ctx, strings.TrimSpace(u.ID))
@@ -227,74 +228,6 @@ func (s *Engine) importUser(ctx context.Context, q *db.Queries, input newAccount
 		return nil, err
 	}
 	row, err := q.UserByID(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	return &row, nil
-}
-
-func (s *Engine) updateImportedUserTx(ctx context.Context, tx pgx.Tx, userID string, input newAccount) (*db.User, error) {
-	email, phone, username, bannedBy, metadata, createdAt, updatedAt, err := s.normalizeImportUserInput(input)
-	if err != nil {
-		return nil, err
-	}
-	banned := input.BannedAt != nil || input.BannedUntil != nil || input.BanReason != nil || bannedBy != nil
-	if input.BannedUntil != nil && !input.BannedUntil.After(time.Now()) {
-		banned = false
-	}
-	reserved := metadataMarksReserved([]byte(metadata))
-	st := s.groupStoreFor(tx)
-	if banned || reserved {
-		if err := s.refuseSubjectOwnerLoss(ctx, st, iam.UserSubject(userID)); err != nil {
-			return nil, err
-		}
-	}
-	before, err := contactStateForUpdate(ctx, tx, userID)
-	if err != nil {
-		return nil, err
-	}
-	// Marking a contact verified is a proof transition (L8).
-	if input.EmailVerified || input.PhoneVerified {
-		if _, err := s.retirePreProofCredentials(ctx, tx, userID, nil); err != nil {
-			return nil, err
-		}
-	}
-	if err := s.renameUsernameTx(ctx, tx, userID, username, importRename); err != nil {
-		return nil, err
-	}
-	updatedID, err := s.qtx(tx).UserImportUpdate(ctx, db.UserImportUpdateParams{
-		ID:            userID,
-		Email:         email,
-		PhoneNumber:   phone,
-		Username:      &username,
-		EmailVerified: input.EmailVerified,
-		PhoneVerified: input.PhoneVerified,
-		BannedAt:      input.BannedAt,
-		BannedUntil:   input.BannedUntil,
-		BanReason:     input.BanReason,
-		BannedBy:      bannedBy,
-		Metadata:      []byte(metadata),
-		CreatedAt:     createdAt,
-		UpdatedAt:     updatedAt,
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, iam.ErrUserNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	if err := s.keepMFAHolderProven(ctx, tx, userID, before); err != nil {
-		return nil, err
-	}
-	if banned || reserved {
-		if _, err := s.revokeCredentialsTx(ctx, tx, userID); err != nil {
-			return nil, err
-		}
-		if err := s.revokeCredentialsOf(ctx, st, userID); err != nil {
-			return nil, err
-		}
-	}
-	row, err := s.qtx(tx).UserByID(ctx, updatedID)
 	if err != nil {
 		return nil, err
 	}

@@ -27,7 +27,7 @@ func (s *Engine) completeProviderLink(ctx context.Context, link authflow.Externa
 	if err != nil {
 		return err
 	}
-	if account.DeletedAt != nil || account.BannedAt != nil && (account.BannedUntil == nil || account.BannedUntil.After(time.Now())) {
+	if account.DeletedAt != nil || banInForce(account.BannedAt, account.BannedUntil, time.Now()) {
 		return errmodel.ErrUserBanned
 	}
 	if err := requireProvenContactOn(ctx, tx, link.UserID); err != nil {

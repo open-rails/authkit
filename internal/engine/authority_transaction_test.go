@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -13,7 +12,6 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/config"
-	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/testdb"
@@ -168,32 +166,18 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		require.NoError(t, err)
 		require.Positive(t, count)
 	})
-	t.Run("account_lifecycle_and_import", func(t *testing.T) {
+	t.Run("account_lifecycle", func(t *testing.T) {
 		sole := user()
 		g, _ := group(sole)
 		require.ErrorIs(t, svc.Ban(ctx, iam.SystemActor(), sole, iam.Ban{}), iam.ErrLastOwner)
 		require.ErrorIs(t, svc.softDelete(ctx, sole), iam.ErrLastOwner)
 		require.ErrorIs(t, itemErr(svc.DeleteUsers(ctx, iam.UserActor(sole), []string{sole})), iam.ErrLastOwner)
 		require.ErrorIs(t, svc.PatchUserMetadata(ctx, iam.SystemActor(), sole, map[string]any{"reserved": true}), errmodel.E(errmodel.CodeInvalidRequest), "reserved is AuthKit's key")
-		_, err := svc.updateImportedUser(ctx, sole, newAccount{Username: "reservedowner", Metadata: map[string]any{"reserved": json.RawMessage(`true`)}})
-		require.ErrorIs(t, err, iam.ErrLastOwner)
-		now := time.Now()
-		_, err = svc.updateImportedUser(ctx, sole, newAccount{Username: "importedowner", BannedAt: &now})
-		require.ErrorIs(t, err, iam.ErrLastOwner)
 		alternate := user()
 		require.NoError(t, assignRole(ctx, svc, iam.UserActor(sole), g, iam.UserSubject(alternate), "owner"))
 		require.NoError(t, svc.Ban(ctx, iam.SystemActor(), alternate, iam.Ban{}))
 		require.ErrorIs(t, svc.softDelete(ctx, sole), iam.ErrLastOwner)
 		require.NoError(t, svc.Unban(ctx, iam.SystemActor(), alternate))
-		alternateRow, err := svc.getUserByID(ctx, alternate)
-		require.NoError(t, err)
-		reserve := func(reserved bool) error {
-			_, err := svc.updateImportedUser(ctx, alternate, newAccount{Username: *alternateRow.Username, Metadata: map[string]any{"reserved": reserved}})
-			return err
-		}
-		require.NoError(t, reserve(true))
-		require.ErrorIs(t, svc.softDelete(ctx, sole), iam.ErrLastOwner)
-		require.NoError(t, reserve(false))
 		require.NoError(t, svc.softDelete(ctx, sole))
 		require.NoError(t, svc.softDelete(ctx, sole), "repeated deletion is idempotent")
 		require.ErrorIs(t, svc.softDelete(ctx, alternate), iam.ErrLastOwner)
@@ -349,22 +333,4 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 			})
 		}
 	})
-}
-
-// updateImportedUser applies an import row to an existing account, as
-// bootstrap does.
-func (s *Engine) updateImportedUser(ctx context.Context, id string, input newAccount) (*db.User, error) {
-	tx, err := s.beginAuthorityTransaction(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(ctx)
-	if err := s.lockAuthority(ctx, tx); err != nil {
-		return nil, err
-	}
-	u, err := s.updateImportedUserTx(ctx, tx, id, input)
-	if err != nil {
-		return nil, err
-	}
-	return u, tx.Commit(ctx)
 }

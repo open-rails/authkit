@@ -444,61 +444,6 @@ func (q *Queries) UserImportInsert(ctx context.Context, arg UserImportInsertPara
 	return err
 }
 
-const userImportUpdate = `-- name: UserImportUpdate :one
-UPDATE users
-SET email = COALESCE($1, email),
-    phone_number = COALESCE($2, phone_number),
-    username = $3,
-    email_verified = $4,
-    phone_verified = $5,
-    banned_at = $6,
-    banned_until = $7,
-    ban_reason = $8,
-    banned_by = $9::uuid,
-    metadata = COALESCE(metadata, '{}'::jsonb) || $10::jsonb,
-    created_at = CASE WHEN $11 < created_at THEN $11 ELSE created_at END,
-    updated_at = $12
-WHERE id = $13::uuid
-RETURNING id::text
-`
-
-type UserImportUpdateParams struct {
-	Email         *string
-	PhoneNumber   *string
-	Username      *string
-	EmailVerified bool
-	PhoneVerified bool
-	BannedAt      *time.Time
-	BannedUntil   *time.Time
-	BanReason     *string
-	BannedBy      *string
-	Metadata      []byte
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	ID            string
-}
-
-func (q *Queries) UserImportUpdate(ctx context.Context, arg UserImportUpdateParams) (string, error) {
-	row := q.db.QueryRow(ctx, userImportUpdate,
-		arg.Email,
-		arg.PhoneNumber,
-		arg.Username,
-		arg.EmailVerified,
-		arg.PhoneVerified,
-		arg.BannedAt,
-		arg.BannedUntil,
-		arg.BanReason,
-		arg.BannedBy,
-		arg.Metadata,
-		arg.CreatedAt,
-		arg.UpdatedAt,
-		arg.ID,
-	)
-	var id string
-	err := row.Scan(&id)
-	return id, err
-}
-
 const userInsert = `-- name: UserInsert :one
 WITH claim AS MATERIALIZED (
  SELECT claim_canonical_name('user','',$3::text,$1::uuid,$4::timestamptz)
