@@ -30,7 +30,11 @@ export type LoginState =
       codeSentTo?: string
     }
   | { step: "recovery"; recovery: AccountRecoveryConfirmation }
-  | { step: "verification"; verification: VerificationStep }
+  | {
+      step: "verification"
+      verification: VerificationStep
+      returnTo?: string
+    }
   // Signed in, but newly issued backup codes must be shown first.
   | { step: "backup_codes"; codes: string[]; returnTo?: string }
   | { step: "done"; returnTo?: string }
@@ -91,6 +95,7 @@ export function useLogin(options: LoginOptions = {}) {
           return setState({
             step: "verification",
             verification: result.verification,
+            returnTo,
           })
       }
     },
@@ -142,16 +147,15 @@ export function useLogin(options: LoginOptions = {}) {
     (code: string, opts: { backupCode?: boolean } = {}) =>
       run(async () => {
         if (state.step !== "two_factor") return
-        const { challenge } = state
-        apply(
-          await client.verifyTwoFactor({
-            userId: challenge.user_id,
-            challenge: challenge.challenge,
-            code: code.trim(),
-            factorId: opts.backupCode ? undefined : challenge.factor.id,
-            backupCode: opts.backupCode || undefined,
-          })
-        )
+        const { challenge, returnTo } = state
+        const result = await client.verifyTwoFactor({
+          userId: challenge.user_id,
+          challenge: challenge.challenge,
+          code: code.trim(),
+          factorId: opts.backupCode ? undefined : challenge.factor.id,
+          backupCode: opts.backupCode || undefined,
+        })
+        apply(result, result.return_to ?? returnTo)
       }),
     [client, run, apply, state]
   )
@@ -254,7 +258,7 @@ export function useLogin(options: LoginOptions = {}) {
           identifier: state.verification.identifier,
           code: code.trim(),
         })
-        if (result) apply(result)
+        if (result) apply(result, result.return_to ?? state.returnTo)
       }),
     [client, run, apply, state]
   )
