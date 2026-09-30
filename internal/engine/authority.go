@@ -219,7 +219,7 @@ func (s *Engine) apiKeyAuthority(ctx context.Context, st *permissionGroupStore, 
 	if !isUUID(keyID) {
 		return authority{}, iam.ErrInsufficientAuthority
 	}
-	key, err := db.New(st.q).AuthorityAPIKeyRole(ctx, keyID)
+	key, err := db.New(st.q).AuthorityAPIKeyRole(ctx, db.AuthorityAPIKeyRoleParams{ID: keyID, Issuer: s.cfg.Token.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return authority{}, iam.ErrInsufficientAuthority
 	}

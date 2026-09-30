@@ -1,17 +1,22 @@
 package password
 
 import (
+	"context"
 	"strings"
 
 	"golang.org/x/crypto/bcrypt"
 )
 
-// VerifyBcrypt compares a bcrypt hash with a plaintext password.
-func VerifyBcrypt(hash, password string) (bool, error) {
+// VerifyBcrypt compares a bcrypt hash with a plaintext password, or fails with
+// ErrBusy (see work.go).
+func VerifyBcrypt(ctx context.Context, hash, password string) (bool, error) {
 	if err := validateBcrypt(hash); err != nil {
 		return false, err
 	}
-	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	var err error
+	if werr := work.run(ctx, DefaultParams().Memory, func() { err = bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) }); werr != nil {
+		return false, werr
+	}
 	if err == bcrypt.ErrMismatchedHashAndPassword {
 		return false, nil
 	}

@@ -7605,6 +7605,10 @@
       "status": 401,
       "message": "The token requires sender proof."
     },
+    "server_busy": {
+      "status": 503,
+      "message": "The server is busy. Try again in a moment."
+    },
     "service_jwt_lifetime_exceeded": {
       "status": 401,
       "message": "The service token lifetime is too long."

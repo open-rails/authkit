@@ -25,7 +25,7 @@ func TestPHCMalformedNeverAuthenticatesOrPanics(t *testing.T) {
 			var panicValue any
 			func() {
 				defer func() { panicValue = recover() }()
-				accepted, err = VerifyArgon2id(encoded, "arbitrary-password")
+				accepted, err = VerifyArgon2id(t.Context(), encoded, "arbitrary-password")
 			}()
 			t.Logf("accepted=%v err=%v panic=%v", accepted, err, panicValue)
 			require.Nil(t, panicValue, fmt.Sprint(panicValue))
@@ -78,7 +78,7 @@ func TestSupportedLegacyHashesRemainUsable(t *testing.T) {
 		require.False(t, IsBcryptHash(other))
 	}
 	require.NoError(t, ValidateHash(encoded, "argon2id"))
-	ok, err := VerifyArgon2id(encoded, pass)
+	ok, err := VerifyArgon2id(t.Context(), encoded, pass)
 	require.NoError(t, err)
 	require.True(t, ok)
 	hash, err := bcrypt.GenerateFromPassword([]byte(pass), bcrypt.MinCost)
@@ -88,10 +88,10 @@ func TestSupportedLegacyHashesRemainUsable(t *testing.T) {
 		require.True(t, IsBcryptHash(encoded))
 		require.NoError(t, ValidateHash(encoded, "bcrypt"))
 		require.ErrorIs(t, ValidateHash(encoded, ""), ErrInvalidHash)
-		ok, err := VerifyBcrypt(encoded, pass)
+		ok, err := VerifyBcrypt(t.Context(), encoded, pass)
 		require.NoError(t, err)
 		require.True(t, ok)
-		ok, err = VerifyBcrypt(encoded, "wrong-password")
+		ok, err = VerifyBcrypt(t.Context(), encoded, "wrong-password")
 		require.NoError(t, err)
 		require.False(t, ok)
 	}

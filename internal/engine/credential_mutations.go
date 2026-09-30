@@ -73,7 +73,7 @@ func (s *Engine) changePassword(ctx context.Context, userID, new string, current
 	if err := s.ValidatePassword(new, identifiers...); err != nil {
 		return err
 	}
-	phc, err := password.HashArgon2id(new)
+	phc, err := password.HashArgon2id(ctx, new)
 	if err != nil {
 		return err
 	}
@@ -116,7 +116,7 @@ func (s *Engine) changePassword(ctx context.Context, userID, new string, current
 				return err
 			}
 			if err == nil {
-				if err := verifyPasswordHash(row.PasswordHash, row.HashAlgo, *current); err != nil {
+				if err := verifyPasswordHash(ctx, row.PasswordHash, row.HashAlgo, *current); err != nil {
 					return err
 				}
 			}
@@ -135,21 +135,26 @@ func (s *Engine) changePassword(ctx context.Context, userID, new string, current
 	return nil
 }
 
-func verifyPasswordHash(hash, algo, pass string) error {
+// verifyPasswordHash checks pass against a stored hash: nil,
+// ErrPasswordResetRequired, password.ErrBusy, or a generic mismatch.
+func verifyPasswordHash(ctx context.Context, hash, algo, pass string) error {
 	var ok bool
 	var err error
 	switch algo {
 	case string(iam.HashLegacyResetRequired):
 		return errmodel.ErrPasswordResetRequired
 	case "argon2id":
-		ok, err = password.VerifyArgon2id(hash, pass)
+		ok, err = password.VerifyArgon2id(ctx, hash, pass)
 	case "bcrypt":
-		ok, err = password.VerifyBcrypt(hash, pass)
+		ok, err = password.VerifyBcrypt(ctx, hash, pass)
 	default:
 		return errmodel.ErrPasswordResetRequired
 	}
-	if errors.Is(err, password.ErrInvalidHash) {
+	switch {
+	case errors.Is(err, password.ErrInvalidHash):
 		return errmodel.ErrPasswordResetRequired
+	case errors.Is(err, password.ErrBusy):
+		return err
 	}
 	if err != nil || !ok {
 		return jwt.ErrTokenInvalidClaims

@@ -30,7 +30,7 @@ func (s *Engine) finalizeChangeEmail(ctx context.Context, rec pendingChange, kee
 		return "", iam.ErrEmailInUse
 	}
 
-	if err := s.applyContactChange(ctx, rec, keepSessionID, func(q *db.Queries) error {
+	if err := s.applyContactChange(ctx, rec, passwordlessChannelEmail, keepSessionID, func(q *db.Queries) error {
 		if err := mapUserUniqueViolation(q.UserApplyEmailChange(ctx, db.UserApplyEmailChangeParams{ID: rec.UserID, Email: rec.Target})); err != nil {
 			return err
 		}
@@ -64,7 +64,7 @@ func (s *Engine) finalizeChangePhone(ctx context.Context, rec pendingChange, kee
 		return "", iam.ErrPhoneInUse
 	}
 
-	if err := s.applyContactChange(ctx, rec, keepSessionID, func(q *db.Queries) error {
+	if err := s.applyContactChange(ctx, rec, passwordlessChannelSMS, keepSessionID, func(q *db.Queries) error {
 		return mapUserUniqueViolation(q.UserApplyPhoneChange(ctx, db.UserApplyPhoneChangeParams{ID: rec.UserID, PhoneNumber: &rec.Target}))
 	}); err != nil {
 		return "", err
@@ -79,17 +79,29 @@ func (s *Engine) finalizeChangePhone(ctx context.Context, rec pendingChange, kee
 // applyContactChange commits a recovery-identifier change and the revocation of
 // every other session in ONE transaction (as finishPasswordReset does, #199): a
 // hijacked contact must never go live while the sessions that hijacked it survive.
-func (s *Engine) applyContactChange(ctx context.Context, rec pendingChange, keepSessionID *string, apply func(*db.Queries) error) error {
+// It is a proof like any other (ak#417): re-checked against the account's
+// unproven addresses under the account lock (the version-bound record already
+// dies with any contact change), and when it replaces the account's only
+// unproven address it first retires the pre-proof credentials.
+func (s *Engine) applyContactChange(ctx context.Context, rec pendingChange, channel string, keepSessionID *string, apply func(*db.Queries) error) error {
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := db.New(tx)
-	if _, err := s.lockLoginAccount(ctx, q, rec.UserID, rec.Version); err != nil {
+	locked, err := s.lockLoginAccount(ctx, q, rec.UserID, rec.Version)
+	if err != nil {
+		return err
+	}
+	if err := refuseProofBesideUnproven(locked, channel); err != nil {
 		return err
 	}
 	userID := rec.UserID
+	proven, err := s.retirePreProofCredentials(ctx, tx, userID, keepSessionID)
+	if err != nil {
+		return err
+	}
 	before, err := readAccountIdentity(ctx, tx, userID)
 	if err != nil {
 		return err
@@ -111,6 +123,7 @@ func (s *Engine) applyContactChange(ctx context.Context, rec pendingChange, keep
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
+	s.logRevokedSessions(ctx, userID, proven, string(authflow.SessionRevokeReasonContactProven))
 	s.logRevokedSessions(ctx, userID, revoked, string(authflow.SessionRevokeReasonContactChange))
 	return nil
 }

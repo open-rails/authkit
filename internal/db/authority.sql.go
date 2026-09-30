@@ -31,7 +31,13 @@ const authorityAPIKeyRole = `-- name: AuthorityAPIKeyRole :one
 SELECT k.permission_group_id, k.role FROM api_keys k JOIN permission_groups g ON g.id = k.permission_group_id
 WHERE k.id = $1 AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at > now()) AND g.deleted_at IS NULL
   AND (k.created_by IS NULL OR EXISTS(SELECT 1 FROM usable_users WHERE id = k.created_by))
+  AND (k.catalog_issuer IS NULL OR k.catalog_issuer = $2::text)
 `
+
+type AuthorityAPIKeyRoleParams struct {
+	ID     string
+	Issuer string
+}
 
 type AuthorityAPIKeyRoleRow struct {
 	PermissionGroupID string
@@ -39,9 +45,10 @@ type AuthorityAPIKeyRoleRow struct {
 }
 
 // The group and role of a live key in a live group whose creator is the
-// system (NULL) or usable.
-func (q *Queries) AuthorityAPIKeyRole(ctx context.Context, id string) (AuthorityAPIKeyRoleRow, error) {
-	row := q.db.QueryRow(ctx, authorityAPIKeyRole, id)
+// system (NULL) or usable, issued through issuer's app or before per-app
+// catalogs.
+func (q *Queries) AuthorityAPIKeyRole(ctx context.Context, arg AuthorityAPIKeyRoleParams) (AuthorityAPIKeyRoleRow, error) {
+	row := q.db.QueryRow(ctx, authorityAPIKeyRole, arg.ID, arg.Issuer)
 	var i AuthorityAPIKeyRoleRow
 	err := row.Scan(&i.PermissionGroupID, &i.Role)
 	return i, err

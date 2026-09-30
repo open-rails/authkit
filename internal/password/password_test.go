@@ -11,7 +11,7 @@ import (
 func TestArgon2id_RoundTrip(t *testing.T) {
 	const pass = "correct horse battery staple"
 
-	h, err := HashArgon2id(pass)
+	h, err := HashArgon2id(t.Context(), pass)
 	if err != nil {
 		t.Fatalf("HashArgon2id failed: %v", err)
 	}
@@ -27,7 +27,7 @@ func TestArgon2id_RoundTrip(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			match, err := VerifyArgon2id(h, tt.password)
+			match, err := VerifyArgon2id(t.Context(), h, tt.password)
 			if err != nil {
 				t.Fatalf("VerifyArgon2id returned error: %v", err)
 			}

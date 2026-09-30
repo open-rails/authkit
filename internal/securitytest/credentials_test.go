@@ -369,3 +369,59 @@ func TestSecurityPerAppRoleCatalogs(t *testing.T) {
 	}, time.Minute, 50*time.Millisecond, "B kept a key its demoted creator no longer covers")
 	require.True(t, liveKey(t, b, group, keyA.ID), "alice's authority is unchanged")
 }
+
+// TestSecurityAPIKeyResolvesOnlyAtItsApp (ak#417): apps sharing one store
+// keep per-app role catalogs, so an API key resolves only at the app it was
+// issued through. Presented at another app it is an invalid key, never its
+// role name read under that app's catalog.
+func TestSecurityAPIKeyResolvesOnlyAtItsApp(t *testing.T) {
+	const peerIssuer = "https://peer-keys.security.test"
+	ctx := context.Background()
+	// The same role name reads at A and writes at B.
+	catalog := func(action string) (*authkit.Roles, string) {
+		r := authkit.NewRoles()
+		org := r.Persona("org", authkit.APIKeys)
+		perm := org.Permission("catalog", action)
+		member := org.Role("member", perm)
+		org.Role("manager", member, org.Credentials.All())
+		return r, perm.String()
+	}
+	rolesA, readPerm := catalog("read")
+	rolesB, writePerm := catalog("write")
+	a := newHost(t, authtest.WithConfig(func(c *authkit.Config) {
+		c.Roles = rolesA
+		c.Token.AccountIssuers = []string{issuer, peerIssuer}
+	}))
+	b := a.replica(authtest.WithConfig(func(c *authkit.Config) {
+		c.Token.Issuer = peerIssuer
+		c.Roles = rolesB
+	}))
+	founder, minter := a.newAccount("keyfounder"), a.newAccount("keyminter")
+	group, _ := a.newOrg(founder)
+	grantRole(t, a.auth, group, iam.UserSubject(minter.id), "manager")
+	mint := func(h *host) string {
+		_, secret, err := createKey(h.auth, ctx, iam.UserActor(minter.id), group, iam.NewAPIKey{Name: unique("key"), Role: roleIn(t, h.auth, group, "member")})
+		require.NoError(t, err)
+		return secret
+	}
+	for _, tc := range []struct {
+		name           string
+		issuing, other *host
+		perm, foreign  string
+	}{
+		{"issued through B", b, a, writePerm, readPerm},
+		{"issued through A", a, b, readPerm, writePerm},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			secret := mint(tc.issuing)
+			_, err := tc.other.auth.ResolveAPIKey(ctx, secret)
+			require.ErrorIs(t, err, iam.ErrAPIKeyInvalid, "a key resolved at an app it was not issued through")
+			_, err = tc.other.auth.Verify(ctx, secret)
+			require.ErrorIs(t, err, iam.ErrAPIKeyInvalid)
+			cl, err := tc.issuing.auth.Verify(ctx, secret)
+			require.NoError(t, err, "control: the issuing app resolves it")
+			require.Contains(t, cl.Permissions, tc.perm)
+			require.NotContains(t, cl.Permissions, tc.foreign)
+		})
+	}
+}

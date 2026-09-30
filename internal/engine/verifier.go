@@ -126,12 +126,27 @@ func (a *Authenticator) Verify(ctx context.Context, token string) (verify.Claims
 // VerifyServiceJWT verifies a service JWT (verify.Verifier.VerifyServiceJWT)
 // of this deployment or of a stored application.
 func (a *Authenticator) VerifyServiceJWT(ctx context.Context, token string, opts ...verify.ServiceJWTVerifyOption) (iam.ServiceJWTClaims, error) {
+	found := false
 	if _, claims, ok := jose.Unverified(strings.TrimSpace(token)); ok {
-		if _, _, err := a.federated(ctx, jose.String(claims, "iss")); err != nil {
+		var err error
+		if _, found, err = a.federated(ctx, jose.String(claims, "iss")); err != nil {
 			return iam.ServiceJWTClaims{}, err
 		}
 	}
-	return a.v.VerifyServiceJWT(ctx, token, opts...)
+	cl, err := a.v.VerifyServiceJWT(ctx, token, opts...)
+	if err != nil {
+		return iam.ServiceJWTClaims{}, err
+	}
+	if !found && !a.local(cl.Issuer) {
+		return iam.ServiceJWTClaims{}, errmodel.E(errmodel.CodeBadIssuer)
+	}
+	return cl, nil
+}
+
+// local reports whether iss is this deployment's issuer: the only one a
+// token not federated through an enabled application may carry (ak#417).
+func (a *Authenticator) local(iss string) bool {
+	return a.s.cfg.Token.Issuer != "" && strings.TrimSpace(iss) == a.s.cfg.Token.Issuer
 }
 
 // CheckIssuerKeys is the no-I/O health probe of the applications' JWKS keys.
@@ -169,10 +184,17 @@ func (a *Authenticator) credential(ctx context.Context, token string, r *http.Re
 			return a.applicationClaims(ctx, app, token, typ, r, dpop)
 		}
 	}
+	var cl verify.Claims
+	var err error
 	if r != nil {
-		return a.v.VerifyRequest(r)
+		cl, err = a.v.VerifyRequest(r)
+	} else {
+		cl, err = a.v.Verify(ctx, token)
 	}
-	return a.v.Verify(ctx, token)
+	if err == nil && !a.local(cl.Issuer) {
+		return verify.Claims{}, errmodel.E(errmodel.CodeBadIssuer)
+	}
+	return cl, err
 }
 
 // apiKeyClaims resolves an API key: its live role's permissions, bound to the

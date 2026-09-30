@@ -168,7 +168,7 @@ func (s *Engine) CreateUser(ctx context.Context, n iam.NewUser, opts ...ops.Opti
 			return iam.User{}, err
 		}
 		var err error
-		if hash, err = password.HashArgon2id(n.Password); err != nil {
+		if hash, err = password.HashArgon2id(ctx, n.Password); err != nil {
 			return iam.User{}, err
 		}
 	}
@@ -396,7 +396,7 @@ func (s *Engine) keepMFAHolderProven(ctx context.Context, tx pgx.Tx, userID stri
 			return err
 		}
 	}
-	return contactVerificationRequired(after)
+	return contactVerificationRequired(after.Identifier, after.Channel)
 }
 
 // passwordForUpdate validates a new password against the policy and the
@@ -413,7 +413,7 @@ func (s *Engine) passwordForUpdate(ctx context.Context, q *db.Queries, userID st
 	if err := s.ValidatePassword(*u.Password, deref(user.Username), deref(user.Email)); err != nil {
 		return "", "", err
 	}
-	hash, err = password.HashArgon2id(*u.Password)
+	hash, err = password.HashArgon2id(ctx, *u.Password)
 	return hash, "argon2id", err
 }
 

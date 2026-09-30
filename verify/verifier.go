@@ -173,6 +173,15 @@ func (v *Verifier) AddIssuer(issuerID string, audiences []string, opts IssuerOpt
 	return nil
 }
 
+// RemoveIssuer stops trusting issuerID's tokens and drops its cached keys.
+func (v *Verifier) RemoveIssuer(issuerID string) {
+	issuerID = strings.TrimSpace(issuerID)
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	delete(v.issuers, issuerID)
+	v.keys.Drop(issuerID)
+}
+
 // staticKeys parses and validates a complete static key set.
 func staticKeys(set []iam.RemoteApplicationKey) (map[string]crypto.PublicKey, error) {
 	out := make(map[string]crypto.PublicKey, len(set))

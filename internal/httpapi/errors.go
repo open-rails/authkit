@@ -16,11 +16,16 @@ import (
 )
 
 // writeError writes err as the error envelope, status and code from the
-// catalog. A server failure is logged with its op and cause; the wire only
-// ever says internal_error.
+// catalog, with Retry-After when it carries retry_after_seconds. A server
+// failure is logged with its op and cause; the wire only ever says
+// internal_error. server_busy is load shedding, not a failure (ak#417).
 func writeError(w http.ResponseWriter, err error) {
-	if e := errmodel.Wire(err); e.Status() >= 500 {
+	e := errmodel.Wire(err)
+	if e.Status() >= 500 && e.Code() != string(errmodel.CodeServerBusy) {
 		slog.Default().Error("authkit: request failed", slog.Int("status", e.Status()), slog.String("error", errorString(err)))
+	}
+	if seconds, ok := e.Metadata()["retry_after_seconds"].(int); ok && seconds > 0 && w.Header().Get("Retry-After") == "" {
+		w.Header().Set("Retry-After", strconv.Itoa(seconds))
 	}
 	iam.WriteError(w, err)
 }

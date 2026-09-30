@@ -117,7 +117,7 @@ func (s *Engine) ApplyBootstrapManifest(ctx context.Context, manifest iam.Bootst
 	for i, user := range manifest.Users {
 		if user.Password != nil {
 			var err error
-			if passwords[i], err = prepareBootstrapPassword(*user.Password); err != nil {
+			if passwords[i], err = prepareBootstrapPassword(ctx, *user.Password); err != nil {
 				return iam.BootstrapResult{}, err
 			}
 		}
@@ -452,9 +452,9 @@ func bootstrapAccount(user iam.BootstrapManifestUser) newAccount {
 	return acct
 }
 
-func prepareBootstrapPassword(p iam.BootstrapUserPassword) (out db.UserPasswordUpsertParams, err error) {
+func prepareBootstrapPassword(ctx context.Context, p iam.BootstrapUserPassword) (out db.UserPasswordUpsertParams, err error) {
 	if plaintext := strings.TrimSpace(p.Plaintext); plaintext != "" {
-		out.PasswordHash, err = password.HashArgon2id(plaintext)
+		out.PasswordHash, err = password.HashArgon2id(ctx, plaintext)
 		out.HashAlgo = "argon2id"
 	} else if p.ResetRequired {
 		out.PasswordHash, out.HashAlgo = "reset-required", string(iam.HashLegacyResetRequired)
@@ -475,8 +475,13 @@ func (s *Engine) applyBootstrapUserPassword(ctx context.Context, q *db.Queries, 
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return false, nil, err
 		}
-		if err == nil && verifyPasswordHash(row.PasswordHash, row.HashAlgo, plaintext) == nil {
-			return false, nil, nil
+		if err == nil {
+			switch verr := verifyPasswordHash(ctx, row.PasswordHash, row.HashAlgo, plaintext); {
+			case verr == nil:
+				return false, nil, nil
+			case errors.Is(verr, password.ErrBusy):
+				return false, nil, verr
+			}
 		}
 	}
 	prepared.UserID = userID

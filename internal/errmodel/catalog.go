@@ -143,6 +143,7 @@ var (
 	CodeRoleAssignmentEscalation          = def("role_assignment_escalation", 403, "That role confers authority you do not hold.")
 	CodeRoleNotAssignable                 = def("role_not_assignable", 400, "The role cannot be assigned in this group.")
 	CodeSenderProofRequired               = def("sender_proof_required", 401, "The token requires sender proof.")
+	CodeServerBusy                        = def("server_busy", 503, "The server is busy. Try again in a moment.")
 	CodeServiceJWTLifetimeExceeded        = def("service_jwt_lifetime_exceeded", 401, "The service token lifetime is too long.")
 	CodeSessionRevoked                    = def("session_revoked", 401, "Your session has ended. Please sign in again.")
 	CodeSMSDeliveryFailed                 = def("sms_delivery_failed", 502, "We couldn't deliver the text message. Please try again, or contact support.")
