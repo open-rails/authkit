@@ -98,7 +98,7 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 	}
 
 	email := contact.NormalizeEmail(identifier)
-	if requiresVerification && !s.HasEmailSender() {
+	if requiresVerification && !s.EmailAvailable() {
 		return authflow.RegisterOutcome{}, errmodel.ErrEmailUnavailable
 	}
 	emailTaken, usernameTaken, err := s.CheckPendingRegistrationConflict(ctx, email, username)
@@ -123,7 +123,7 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 	if err != nil {
 		return authflow.RegisterOutcome{}, err
 	}
-	if s.cfg.Registration.Verification == iam.RegistrationVerificationOptional && s.HasEmailSender() {
+	if s.cfg.Registration.Verification == iam.RegistrationVerificationOptional && s.EmailAvailable() {
 		if err := s.RequestEmailVerification(ctx, email, 0); err != nil {
 			slog.Warn("optional registration verification unavailable", "user_id", account.ID, "error", err)
 		}

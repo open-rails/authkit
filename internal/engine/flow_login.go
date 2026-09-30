@@ -153,7 +153,7 @@ func (s *Engine) verificationGate(ctx context.Context, in authflow.PasswordLogin
 	} else if err != nil {
 		return s.rejectLogin(ctx, in, u.ID, loginRejection(err)), true, nil
 	}
-	if needsEmail && s.HasEmailSender() {
+	if needsEmail && s.EmailAvailable() {
 		if err := s.RequestEmailVerification(ctx, *u.Email, 0); err != nil {
 			return authflow.LoginOutcome{}, true, stageErr("send_email_verification", fmt.Errorf("%w: %w", errmodel.ErrEmailVerificationSendFailed, err))
 		}

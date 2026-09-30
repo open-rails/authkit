@@ -352,7 +352,7 @@ func newAccountFlow(t *testing.T, pool *pgxpool.Pool, cfg config.Config, deps co
 		limits[bucket] = ratelimit.Limit{Limit: 10000, Window: time.Minute}
 	}
 	cfg.HTTP = &config.HTTPConfig{DirectPeerIP: true, RateLimits: limits}
-	deps.Postgres, deps.Email, deps.SMS = pool, f.email.Email, f.sms.SMS
+	deps.Postgres, deps.Email, deps.SMS = pool, f.email.Email(), f.sms.SMS()
 	f.engine = newTestEngine(t, cfg, deps)
 	service, err := httpapi.New(f.engine, f.engine.Config(), deps)
 	require.NoError(t, err)

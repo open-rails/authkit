@@ -14,8 +14,9 @@ import (
 )
 
 // Deps is everything AuthKit reaches outside the process through: the store,
-// keys, identity providers, senders and the host's hooks. Every hook is a
-// func; bind one late with a closure when it needs the Client first.
+// keys, identity providers, senders and the host's hooks. Senders are
+// provider objects; every hook is a func, so bind one late with a closure
+// when it needs the Client first.
 type Deps struct {
 	// Postgres is the durable store, required by every host-facing
 	// constructor. It also holds AuthKit's short-lived auth state (codes,
@@ -30,15 +31,13 @@ type Deps struct {
 	// Apple, Discord and GitHub, or provider.OIDC and OAuth2 for any other.
 	Providers []provider.Provider
 
-	// Email delivers one email. Nil means no email: flows that need one fail
-	// unless Config.Registration.AllowMissingSenders is set.
-	Email func(context.Context, iam.EmailMessage) error
-	// SMS delivers one text message, like Email.
-	SMS func(context.Context, iam.SMSMessage) error
-	// SMSHealth checks, without sending, that SMS can be delivered. Start runs
-	// it now and every Config.SMSHealthInterval; while it fails, phone flows
-	// are unavailable (Client.SMSAvailable).
-	SMSHealth func(context.Context) error
+	// Email delivers email. Nil means no email: flows that need one fail
+	// unless Config.Registration.AllowMissingSenders is set. Start runs its
+	// CheckHealth now and every Config.SenderHealthInterval; while it fails,
+	// email flows are unavailable (Client.EmailAvailable).
+	Email EmailSender
+	// SMS delivers text messages, like Email (Client.SMSAvailable).
+	SMS SMSSender
 
 	// Entitlements returns the names of users' active entitlements (billing
 	// tiers), keyed by user id; ids without any are absent. Admin views show
@@ -91,6 +90,22 @@ type Deps struct {
 	// never governs ephemeral state (codes, claims, counters), which always
 	// expires by the database clock so replicas agree.
 	Clock func() time.Time
+}
+
+// EmailSender delivers email; adapters/twilio.NewEmail returns one.
+type EmailSender interface {
+	Send(ctx context.Context, msg iam.EmailMessage) error
+	// CheckHealth reports, without sending, whether email can be delivered
+	// now: nil when healthy, or when the provider can't tell.
+	CheckHealth(ctx context.Context) error
+}
+
+// SMSSender delivers text messages; adapters/twilio.NewSMS returns one.
+type SMSSender interface {
+	Send(ctx context.Context, msg iam.SMSMessage) error
+	// CheckHealth reports, without sending, whether messages can be delivered
+	// now: nil when healthy, or when the provider can't tell.
+	CheckHealth(ctx context.Context) error
 }
 
 // MigrateOptions configures authkit.Migrate beyond what Config declares.

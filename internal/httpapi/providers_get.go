@@ -24,8 +24,12 @@ func (s *Service) handleCapabilitiesGET(w http.ResponseWriter, r *http.Request) 
 
 func (s *Service) Capabilities() Capabilities {
 	cfg := s.cfg
-	channels := []string{"email"}
-	if s.SMSAvailable() {
+	email, sms := s.svc.EmailAvailable(), s.svc.SMSAvailable()
+	channels := []string{}
+	if email {
+		channels = append(channels, "email")
+	}
+	if sms {
 		channels = append(channels, "sms")
 	}
 	return Capabilities{
@@ -64,7 +68,7 @@ func (s *Service) Capabilities() Capabilities {
 		Verification: VerificationCapabilities{
 			Registration: string(cfg.Registration.Verification),
 		},
-		Channels:  ChannelCapabilities{Email: s.svc.HasEmailSender(), SMS: s.SMSAvailable()},
+		Channels:  ChannelCapabilities{Email: email, SMS: sms},
 		TwoFactor: TwoFactorCapabilities{Mode: cfg.TwoFactor.Mode, Methods: s.svc.TwoFactorMethods()},
 		Languages: cfg.Languages.Supported,
 	}

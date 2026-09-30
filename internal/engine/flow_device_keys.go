@@ -112,7 +112,7 @@ func (s *Engine) BeginDeviceKeyEnrollment(ctx context.Context, email, publicKey,
 	if len(label) > deviceKeyLabelMaxLength {
 		return authflow.DeviceKeyChallenge{}, errDeviceKeyInvalid
 	}
-	if s.email == nil {
+	if !s.EmailAvailable() {
 		return authflow.DeviceKeyChallenge{}, errmodel.ErrEmailUnavailable
 	}
 

@@ -12,7 +12,7 @@ import (
 // CheckHealth verifies, without sending an SMS, that this sender can deliver:
 // the credentials work, the Messaging Service exists and has an attached
 // sender, and any toll-free sender has completed Twilio toll-free verification
-// (the silent failure behind error 30032). Wire it as authkit.Deps.SMSHealth.
+// (the silent failure behind error 30032).
 func (s *SMS) CheckHealth(ctx context.Context) error {
 	// 1) Credentials valid and account usable.
 	var account struct {

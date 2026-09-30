@@ -62,8 +62,8 @@ func WithConfig(fn func(*authkit.Config)) Option {
 	return func(s *setup) { s.config = append(s.config, fn) }
 }
 
-// WithDeps edits the Deps New passes to authkit.New. The Outbox is already
-// Email and SMS; set Postgres to use a pool of your own instead of
+// WithDeps edits the Deps New passes to authkit.New. The Outbox's senders
+// are already Email and SMS; set Postgres to use a pool of your own instead of
 // AUTHKIT_TEST_DATABASE_URL.
 func WithDeps(fn func(*authkit.Deps)) Option {
 	return func(s *setup) { s.deps = append(s.deps, fn) }
@@ -96,7 +96,7 @@ func New(t testing.TB, opts ...Option) (*authkit.Client, *Outbox) {
 		TwoFactor: authkit.TwoFactorConfig{TOTPSecretKey: key},
 		HTTP:      &authkit.HTTPConfig{DirectPeerIP: true},
 	}
-	deps := authkit.Deps{KeySource: signingKeys(), Email: outbox.Email, SMS: outbox.SMS, Limiter: unlimited}
+	deps := authkit.Deps{KeySource: signingKeys(), Email: outbox.Email(), SMS: outbox.SMS(), Limiter: unlimited}
 	for _, fn := range s.config {
 		fn(&cfg)
 	}

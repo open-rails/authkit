@@ -49,7 +49,7 @@ func (s *Engine) Close() {
 }
 
 func (s *Engine) close() {
-	s.stopSMSHealth()
+	s.stopSenderHealth()
 	s.closeRiver()
 	if s.ownedKeySource != nil {
 		s.ownedKeySource.Close()

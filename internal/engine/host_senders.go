@@ -12,17 +12,21 @@ import (
 	"github.com/open-rails/authkit/internal/lang"
 )
 
-// HasEmailSender reports whether Deps.Email is set.
-func (s *Engine) HasEmailSender() bool { return s.email != nil }
-
-// sendEmail delivers msg under the per-send timeout.
+// sendEmail delivers msg under the per-send timeout. While the sender's
+// health check fails it refuses at once with ErrEmailUnavailable.
 func (s *Engine) sendEmail(ctx context.Context, msg iam.EmailMessage) error {
-	return emailDeliveryError(s.withSendTimeout(ctx, func(ctx context.Context) error { return s.email(ctx, msg) }))
+	if !s.EmailAvailable() {
+		return errmodel.ErrEmailUnavailable
+	}
+	return emailDeliveryError(s.withSendTimeout(ctx, func(ctx context.Context) error { return s.email.Send(ctx, msg) }))
 }
 
-// sendSMS delivers msg under the per-send timeout.
+// sendSMS is sendEmail for text messages.
 func (s *Engine) sendSMS(ctx context.Context, msg iam.SMSMessage) error {
-	return smsDeliveryError(s.withSendTimeout(ctx, func(ctx context.Context) error { return s.sms(ctx, msg) }))
+	if !s.SMSAvailable() {
+		return errmodel.ErrSMSUnavailable
+	}
+	return smsDeliveryError(s.withSendTimeout(ctx, func(ctx context.Context) error { return s.sms.Send(ctx, msg) }))
 }
 
 // messageLanguage is a message's language: preferred (the account's), else
@@ -49,76 +53,91 @@ func (s *Engine) userLanguage(ctx context.Context, userID string) string {
 	return s.messageLanguage(ctx, preferred)
 }
 
-// smsHealth is the latest Deps.SMSHealth verdict. SMS counts as available
-// until a check has failed, so startup never waits on the provider.
-type smsHealth struct {
+// senderHealth is a sender's latest CheckHealth verdict. A sender counts as
+// healthy until a check fails, so startup never waits on the provider.
+type senderHealth struct {
 	mu        sync.Mutex
 	checkedAt time.Time
 	err       error
-	stop      context.CancelFunc
 }
 
-// checkSMSHealth runs Deps.SMSHealth and records its verdict, which gates
-// phone flows: a failure disables them and the next pass re-arms them.
-func (s *Engine) checkSMSHealth(ctx context.Context) error {
-	if s.smsCheck == nil {
-		return nil
-	}
-	started := time.Now()
-	err := s.smsCheck(ctx)
-	s.smsHealth.mu.Lock()
-	s.smsHealth.checkedAt, s.smsHealth.err = started, err
-	s.smsHealth.mu.Unlock()
-	if err != nil {
-		slog.WarnContext(ctx, "authkit: SMS health check failed; phone flows are unavailable until it passes", "error", err)
-	}
-	return err
+func (h *senderHealth) get() (time.Time, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.checkedAt, h.err
 }
 
-// SMSHealth is the latest Deps.SMSHealth verdict and when that check started;
-// a zero time means no check has run.
-func (s *Engine) SMSHealth() (time.Time, error) {
-	s.smsHealth.mu.Lock()
-	defer s.smsHealth.mu.Unlock()
-	return s.smsHealth.checkedAt, s.smsHealth.err
+func (h *senderHealth) set(checkedAt time.Time, err error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.checkedAt, h.err = checkedAt, err
 }
 
-// SMSAvailable reports whether phone flows are offered: Deps.SMS is set and
-// the latest health check, if any, passed.
+// EmailHealth is the latest Deps.Email health verdict and when that check
+// started; a zero time means no check has run.
+func (s *Engine) EmailHealth() (time.Time, error) { return s.emailHealth.get() }
+
+// SMSHealth is EmailHealth for Deps.SMS.
+func (s *Engine) SMSHealth() (time.Time, error) { return s.smsHealth.get() }
+
+// EmailAvailable reports whether email flows are offered: Deps.Email is set
+// and its latest health check, if any, passed.
+func (s *Engine) EmailAvailable() bool {
+	_, err := s.EmailHealth()
+	return s.email != nil && err == nil
+}
+
+// SMSAvailable is EmailAvailable for Deps.SMS and phone flows.
 func (s *Engine) SMSAvailable() bool {
 	_, err := s.SMSHealth()
 	return s.sms != nil && err == nil
 }
 
-// startSMSHealth runs Deps.SMSHealth now and every Config.SMSHealthInterval
-// until Close.
-func (s *Engine) startSMSHealth() {
-	s.smsHealth.mu.Lock()
-	defer s.smsHealth.mu.Unlock()
-	if s.smsCheck == nil || s.smsHealth.stop != nil {
+// startSenderHealth runs each sender's CheckHealth now and every
+// Config.SenderHealthInterval until Close. A failing check makes its channel
+// unavailable; the next passing one re-arms it.
+func (s *Engine) startSenderHealth() {
+	s.healthMu.Lock()
+	defer s.healthMu.Unlock()
+	if s.stopHealth != nil {
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s.smsHealth.stop = cancel
-	go func() {
-		for {
-			check, done := context.WithTimeout(ctx, time.Minute)
-			_ = s.checkSMSHealth(check)
-			done()
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(s.cfg.SMSHealthInterval):
-			}
-		}
-	}()
+	s.stopHealth = cancel
+	if s.email != nil {
+		go s.watchSender(ctx, "email", s.email.CheckHealth, &s.emailHealth)
+	}
+	if s.sms != nil {
+		go s.watchSender(ctx, "SMS", s.sms.CheckHealth, &s.smsHealth)
+	}
 }
 
-func (s *Engine) stopSMSHealth() {
-	s.smsHealth.mu.Lock()
-	defer s.smsHealth.mu.Unlock()
-	if s.smsHealth.stop != nil {
-		s.smsHealth.stop()
+func (s *Engine) watchSender(ctx context.Context, channel string, check func(context.Context) error, h *senderHealth) {
+	for {
+		started := time.Now()
+		checkCtx, done := context.WithTimeout(ctx, time.Minute)
+		err := check(checkCtx)
+		done()
+		if ctx.Err() != nil {
+			return
+		}
+		h.set(started, err)
+		if err != nil {
+			slog.WarnContext(ctx, "authkit: "+channel+" health check failed; its flows are unavailable until it passes", "error", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(s.cfg.SenderHealthInterval):
+		}
+	}
+}
+
+func (s *Engine) stopSenderHealth() {
+	s.healthMu.Lock()
+	defer s.healthMu.Unlock()
+	if s.stopHealth != nil {
+		s.stopHealth()
 	}
 }
 

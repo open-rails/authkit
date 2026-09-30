@@ -95,8 +95,8 @@ func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
 		// Dummy credentials: mounts the provider link/login routes for the
 		// contract; the upstream exchange is not exercised.
 		Providers: []provider.Provider{provider.GitHub("e2e", "e2e")},
-		Email:     outbox.Email,
-		SMS:       outbox.SMS,
+		Email:     outbox.Email(),
+		SMS:       outbox.SMS(),
 	})
 	if err != nil {
 		return nil, err

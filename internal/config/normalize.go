@@ -115,8 +115,8 @@ func Normalize(c Config, d Deps) (Config, error) {
 			return Config{}, fmt.Errorf("authkit: PublicUserMetadata names AuthKit's own metadata key %q", k)
 		}
 	}
-	if c.SMSHealthInterval <= 0 {
-		c.SMSHealthInterval = 5 * time.Minute
+	if c.SenderHealthInterval <= 0 {
+		c.SenderHealthInterval = 5 * time.Minute
 	}
 	if c.SessionEventRetention == 0 {
 		c.SessionEventRetention = 365 * 24 * time.Hour

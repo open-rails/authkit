@@ -16,7 +16,7 @@ import (
 func TestNormalizeIsIdempotent(t *testing.T) {
 	deps := Deps{
 		Postgres: &pgxpool.Pool{},
-		Email:    func(context.Context, iam.EmailMessage) error { return nil },
+		Email:    nopEmail{},
 		DelegatedAuthorization: func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
 			return iam.DelegationGrant{}, nil
 		},
@@ -49,3 +49,8 @@ func TestNormalizeRefusesDeadDelegatedConfig(t *testing.T) {
 	_, err := Normalize(c, Deps{})
 	require.ErrorContains(t, err, "Delegated.Audiences is empty")
 }
+
+type nopEmail struct{}
+
+func (nopEmail) Send(context.Context, iam.EmailMessage) error { return nil }
+func (nopEmail) CheckHealth(context.Context) error            { return nil }

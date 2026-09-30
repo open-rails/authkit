@@ -43,6 +43,7 @@ type EmailConfig struct {
 }
 
 // Email delivers AuthKit's emails through the Twilio SendGrid Mail Send API.
+// It is an authkit.EmailSender: wire it as authkit.Deps.Email.
 type Email struct {
 	apiKey     string
 	fromEmail  string
@@ -77,7 +78,7 @@ func NewEmail(cfg EmailConfig) (*Email, error) {
 }
 
 // Send renders msg (Render, else the built-in template for msg.Kind) and
-// delivers it. Wire it as authkit.Deps.Email.
+// delivers it.
 func (e *Email) Send(ctx context.Context, msg iam.EmailMessage) error {
 	to := strings.TrimSpace(msg.To)
 	if to == "" {

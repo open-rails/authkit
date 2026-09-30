@@ -26,7 +26,7 @@ func TestCredentialTransactionsPasswordMutationRollsBackOnFailure(t *testing.T) 
 				// The injected trigger is DDL: give it a database of its own.
 				sender := &testoutbox.Outbox{}
 				pool := testdb.ScratchPostgres(t).Pool
-				e := newTestEngine(t, testConfig(), config.Deps{Postgres: pool, Email: sender.Email})
+				e := newTestEngine(t, testConfig(), config.Deps{Postgres: pool, Email: sender.Email()})
 				user := newUser(t, e, "atomic")
 				uid := user.ID
 				require.NoError(t, e.RequestPasswordReset(ctx, *user.Email, time.Hour, nil, nil))
@@ -68,7 +68,7 @@ func TestCredentialChangesHaveOneConcurrentWinner(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			cfg := maintenanceConfig()
 			cfg.TwoFactor.Mode = iam.TwoFactorOptional
-			svc := newTestEngine(t, cfg, config.Deps{Postgres: testdb.Pool(t), Email: (&testoutbox.Outbox{}).Email})
+			svc := newTestEngine(t, cfg, config.Deps{Postgres: testdb.Pool(t), Email: (&testoutbox.Outbox{}).Email()})
 			ctx := context.Background()
 			u := newUser(t, svc, "parallel")
 			for _, token := range []string{"reset-a", "reset-b"} {
