@@ -1,10 +1,12 @@
 package engine
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"maps"
+	"reflect"
 	"strings"
 	"time"
 
@@ -22,13 +24,19 @@ import (
 const defaultBootstrapApplyName = "default"
 
 // ParseBootstrapManifestYAML parses and structurally validates a manifest,
-// checking each root_role (`root:admin`) against the role schema.
+// checking each root_role (`root:admin`) against the role schema. An unknown
+// key is logged as a warning, with its path, and ignored.
 func (s *Engine) ParseBootstrapManifestYAML(raw []byte) (iam.BootstrapManifest, error) {
-	var manifest iam.BootstrapManifest
-	dec := yaml.NewDecoder(bytes.NewReader(raw))
-	dec.KnownFields(true)
-	if err := dec.Decode(&manifest); err != nil {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
 		return iam.BootstrapManifest{}, err
+	}
+	var manifest iam.BootstrapManifest
+	if err := doc.Decode(&manifest); err != nil {
+		return iam.BootstrapManifest{}, err
+	}
+	for _, path := range unknownYAMLKeys(&doc, reflect.TypeFor[iam.BootstrapManifest](), "") {
+		slog.Warn("authkit: bootstrap manifest: ignoring unknown key", "path", path)
 	}
 	if len(manifest.Users) == 0 && len(manifest.RemoteApplications) == 0 {
 		return iam.BootstrapManifest{}, errmodel.ErrInvalidBootstrapManifest
@@ -483,4 +491,72 @@ func boolToInt(v bool) int {
 		return 1
 	}
 	return 0
+}
+
+// unknownYAMLKeys lists the paths (users[0].pasword) of n's mapping keys
+// that t, as yaml.v3 decodes it, has no field for.
+func unknownYAMLKeys(n *yaml.Node, t reflect.Type, path string) []string {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if n.Kind == yaml.AliasNode && n.Alias != nil {
+		n = n.Alias
+	}
+	var out []string
+	switch {
+	case n.Kind == yaml.DocumentNode:
+		for _, c := range n.Content {
+			out = append(out, unknownYAMLKeys(c, t, path)...)
+		}
+	case n.Kind == yaml.SequenceNode && (t.Kind() == reflect.Slice || t.Kind() == reflect.Array):
+		for i, c := range n.Content {
+			out = append(out, unknownYAMLKeys(c, t.Elem(), fmt.Sprintf("%s[%d]", path, i))...)
+		}
+	case n.Kind == yaml.MappingNode && t.Kind() == reflect.Struct:
+		fields := yamlFields(t)
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			key, value := n.Content[i].Value, n.Content[i+1]
+			if key == "<<" {
+				out = append(out, unknownYAMLKeys(value, t, path)...)
+				continue
+			}
+			sub := key
+			if path != "" {
+				sub = path + "." + key
+			}
+			if ft, ok := fields[key]; ok {
+				out = append(out, unknownYAMLKeys(value, ft, sub)...)
+			} else {
+				out = append(out, sub)
+			}
+		}
+	}
+	return out
+}
+
+// yamlFields maps a struct's yaml keys to their types, as yaml.v3 names
+// them: the tag, else the lowercased field name, with ",inline" structs'
+// keys promoted.
+func yamlFields(t reflect.Type) map[string]reflect.Type {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	out := map[string]reflect.Type{}
+	if t.Kind() != reflect.Struct {
+		return out
+	}
+	for i := range t.NumField() {
+		f := t.Field(i)
+		name, opts, _ := strings.Cut(f.Tag.Get("yaml"), ",")
+		switch {
+		case !f.IsExported() && !f.Anonymous, name == "-":
+		case strings.Contains(opts, "inline"):
+			maps.Copy(out, yamlFields(f.Type))
+		case name == "":
+			out[strings.ToLower(f.Name)] = f.Type
+		default:
+			out[name] = f.Type
+		}
+	}
+	return out
 }
