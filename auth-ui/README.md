@@ -33,9 +33,10 @@ const stop = auth.start() // restore from the refresh cookie, keep it fresh
 
 auth.subscribe(() => console.log(auth.getSnapshot())) // useSyncExternalStore-ready
 
-const outcome = await auth.signInWithPassword({ identifier, password })
-if (outcome.kind === "2fa_required") {
-  await auth.verifyTwoFactor({ ...outcome, code })
+const result = await auth.signInWithPassword({ identifier, password })
+if (result.status === "second_factor_required") {
+  const { user_id, challenge } = result.second_factor
+  await auth.verifyTwoFactor({ userId: user_id, challenge, code })
 }
 
 const res = await auth.authFetch("/api/v1/things") // Bearer + one refresh retry
@@ -45,23 +46,29 @@ const res = await auth.authFetch("/api/v1/things") // Bearer + one refresh retry
   `authkit_rt` cookie; pass `storage` for mounts without the cookie.
 - Each session boundary (login, sign-out, expiry) bumps a generation. Late
   refreshes, profiles, popups and sign-ins from an older generation are dropped.
-- Continuations (`2fa_required`, `2fa_enrollment_required`,
-  `account_recovery_required`, `verification_required`) are returned, not
-  thrown. Other failures throw `AuthKitError` with the AuthKit `code`.
-- `enableTwoFactor`: TOTP starts with a secret, email and SMS with a sent code
-  (`code_sent`); resend the same call with `code` to confirm. Confirming
-  re-issues the session token, so the session stays signed in and
-  2FA-verified (`enabled` carries `freshAuth`).
+- Every sign-in answers AuthKit's `AuthResult` (`SignInResult`, narrowed by
+  `status`). `complete` is committed as the session; `second_factor_required`,
+  `enrollment_required`, `verification_required` and
+  `account_recovery_required` carry their next step and are returned, not
+  thrown. Failures throw `AuthKitError` with the AuthKit `code`
+  (`errorMetadata(err, code)` reads its typed metadata).
+- 2FA factors: `setupTwoFactor` starts one (TOTP answers its secret, email and
+  SMS send a code), `addTwoFactorFactor` confirms it and adopts the
+  re-verified session. A forced enrollment passes the step's
+  `enrollment.token_set` as `enrollmentToken` to both; the factor's `auth` is
+  then the finished sign-in.
 - A wrong email/SMS 2FA code is `invalid_code` and can be retried. Once no
   code is live (the 5th miss, expiry, already used) AuthKit answers
   `code_expired`; resend to get a fresh code.
 - `readStepUpRequired(err)` turns a `403 step_up_required` into the methods to
-  offer; retry the action after `stepUpWithPassword` / `stepUpWithTwoFactor` /
-  `startOidcStepUp`.
+  offer; retry the action after `stepUpWithPassword`, `sendStepUpCode` +
+  `stepUpWithTwoFactor`, or `startOidcStepUp`.
 - OIDC: `signInWithPopup` (call from a click), `signInWithRedirect` and
-  `completeRedirect()` on the callback route. With `accountInviteToken` both
-  start the flow by POST (`oidcLoginStart`), so the invitation never enters a
-  URL; `oidcLoginUrl` builds invitation-free login URLs.
+  `completeRedirect()` on the callback route; the OIDC step-up returns with
+  `#code=` to its page (`completeStepUp()`, run by `StepUpProvider`). Results
+  carry a one-time code the client trades at `POST /oidc/exchange`, so no
+  token enters a URL or a message. With `inviteCode` a sign-in starts by POST
+  (`oidcLoginStart`), so the invitation never enters a URL either.
 
 ## Session lifecycle
 
@@ -234,7 +241,8 @@ import { SolanaSignInButton } from "@openrails/auth-ui/solana"
   dismissed on that screen.
 - `providers` replaces (array) or edits (function) the `/capabilities` list.
 - `continuation` opens on a pending step: pass `session.continuation` (set
-  when a refresh answered with one) so the user finishes signing in there.
+  when a refresh answered with a next step) so the user finishes signing in
+  there. `inviteCode` carries an invitation into registration.
 - `modal={false}` while a host overlay (e.g. a wallet picker) is open above
   the dialog, so it stays clickable and does not dismiss the dialog.
 - A host that loads its wallet stack lazily passes `SolanaSignInButton`
@@ -264,8 +272,9 @@ A host that loads its wallet stack lazily passes
 `wallet`.
 
 `AccountSecurity` stacks `ContactPanel`, `PasswordPanel`,
-`LinkedProvidersPanel`, `TwoFactorPanel`, `SessionsPanel` and
-`DeleteAccountPanel` (pick with `sections`); each also works alone. Every
+`LinkedProvidersPanel`, `TwoFactorPanel`, `SignInKeysPanel` (passkeys and
+device keys), `SessionsPanel` and `DeleteAccountPanel` (pick with
+`sections`); each also works alone. Every
 sensitive action runs through one `StepUpProvider`, whose `StepUpDialog` offers
 password, TOTP/email/SMS code, backup code or OIDC re-authentication and then
 retries the action. Wrap a page in your own `StepUpProvider` to share it, and
@@ -279,9 +288,9 @@ import { createSolanaAuth, signerFromWallet } from "@openrails/auth-ui/solana"
 
 const solana = createSolanaAuth(auth)
 // Any { publicKey: base58, signMessage(bytes) } works; signerFromWallet adapts useWallet().
-const outcome = await solana.signIn(signerFromWallet(wallet)) // same outcomes as password login
-await solana.link(signer, { linkedAddress }) // needs a fresh session
-await solana.unlink({ password })
+const result = await solana.signIn(signerFromWallet(wallet)) // an AuthResult, like password login
+await solana.link(signer, { linkedAddress }) // PUT /me/solana-wallet
+await solana.unlink() // needs a recent sign-in (step up first)
 ```
 
 React: `useSolanaAuth(auth, useWallet(), { onConnectRequest: () => setVisible(true) })`
