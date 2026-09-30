@@ -11,6 +11,7 @@ import (
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
 	internalmigrations "github.com/open-rails/authkit/internal/migrations/postgres"
+	"github.com/open-rails/authkit/internal/migrations/retired"
 	"github.com/open-rails/migratekit"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivermigrate"
@@ -44,8 +45,12 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, cfg config.Config, opts co
 	}
 	defer migrator.Close()
 	// Strict integrity: an edited applied migration refuses unless the schema
-	// is unchanged.
-	migrator = migrator.WithSchema(normalized).WithStrictIntegrity()
+	// is unchanged. A schema the retired v0.148 chain completed is converted;
+	// one it left part-way, or an older chain built, is refused.
+	migrator = migrator.WithSchema(normalized).WithStrictIntegrity().WithConversions(retired.Conversion())
+	if err := retired.Check(ctx, migrator, migrations); err != nil {
+		return fmt.Errorf("authkit: schema %q: %w", normalized, err)
+	}
 	if err := migrator.ApplyMigrations(ctx, migrations); err != nil {
 		return fmt.Errorf("authkit: apply PostgreSQL migrations to schema %q: %w", normalized, err)
 	}
