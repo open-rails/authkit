@@ -155,7 +155,7 @@ func TestSecurityPreRegistrationTakeover(t *testing.T) {
 			{`INSERT INTO user_providers (user_id, issuer, provider_slug, subject) VALUES ($1::uuid, 'https://github.com/login/oauth', 'github', $2)`, []any{userID, unique("attacker")}},
 			{`INSERT INTO user_device_keys (user_id, public_key) VALUES ($1::uuid, $2)`, []any{userID, key}},
 			{`INSERT INTO mfa_factors (user_id, method, totp_secret, is_default) VALUES ($1::uuid, 'totp', $2, true)`, []any{userID, key}},
-			{`INSERT INTO mfa_settings (user_id, enabled) VALUES ($1::uuid, true) ON CONFLICT (user_id) DO UPDATE SET enabled = true`, []any{userID}},
+			{`INSERT INTO mfa_settings (user_id) VALUES ($1::uuid) ON CONFLICT (user_id) DO NOTHING`, []any{userID}},
 		} {
 			_, err := h.pool.Exec(ctx, stmt.sql, stmt.args...)
 			require.NoError(t, err)

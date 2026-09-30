@@ -33,13 +33,6 @@ func (s *Engine) completeProviderLink(ctx context.Context, link authflow.Externa
 	if err := requireProvenContactOn(ctx, tx, link.UserID); err != nil {
 		return err
 	}
-	reserved, err := q.UserIsReserved(ctx, link.UserID)
-	if err != nil {
-		return err
-	}
-	if reserved {
-		return errmodel.ErrUserBanned
-	}
 	session, err := q.SessionFreshSinceForUpdate(ctx, db.SessionFreshSinceForUpdateParams{UserID: link.UserID, SessionID: link.SessionID, Issuer: s.cfg.Token.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errmodel.E(errmodel.CodeAuthRequiredForLink)
@@ -53,13 +46,13 @@ func (s *Engine) completeProviderLink(ctx context.Context, link authflow.Externa
 	}
 	// MFA mutations take the same account lock, so a factor newly enabled while
 	// the browser was at its provider cannot be skipped at completion.
-	settings, err := q.MFASettingsByUser(ctx, link.UserID)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	enrolled, err := q.MFAUsable(ctx, link.UserID)
+	if err != nil {
 		return err
 	}
 	// The second factor must be fresh too: a password re-auth refreshes the
 	// session but never its MFA.
-	if s.TwoFactorEnabled() && settings.Enabled && (session.MfaAuthenticatedAt == nil || now.Sub(*session.MfaAuthenticatedAt) >= authflow.SensitiveActionFreshAuthWindow) {
+	if s.TwoFactorEnabled() && enrolled && (session.MfaAuthenticatedAt == nil || now.Sub(*session.MfaAuthenticatedAt) >= authflow.SensitiveActionFreshAuthWindow) {
 		return errmodel.ErrStepUpRequired
 	}
 	if _, err := linkProviderByIssuer(ctx, q, link.UserID, id.Issuer, id.Provider, id.Subject, email); err != nil {

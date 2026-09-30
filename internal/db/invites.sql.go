@@ -57,7 +57,7 @@ func (q *Queries) AccountInviteByCodeForUpdate(ctx context.Context, arg AccountI
 }
 
 const accountInviteConsume = `-- name: AccountInviteConsume :exec
-UPDATE account_registration_invites SET consumed_at = now(), updated_at = now()
+UPDATE account_registration_invites SET consumed_at = now()
 WHERE id = $1
 `
 
@@ -201,7 +201,7 @@ func (q *Queries) AccountInviteValid(ctx context.Context, codeHash string) (bool
 }
 
 const accountInvitesRevokeInvitedBy = `-- name: AccountInvitesRevokeInvitedBy :exec
-UPDATE account_registration_invites SET revoked_at = now(), updated_at = now()
+UPDATE account_registration_invites SET revoked_at = now()
 WHERE invited_by = $1::uuid AND revoked_at IS NULL AND consumed_at IS NULL
 `
 
@@ -392,7 +392,7 @@ func (q *Queries) InviteLinkInsert(ctx context.Context, arg InviteLinkInsertPara
 }
 
 const inviteLinkRedeem = `-- name: InviteLinkRedeem :exec
-UPDATE group_invite_links SET redeemed_at = now(), updated_at = now() WHERE id = $1
+UPDATE group_invite_links SET redeemed_at = now() WHERE id = $1
 `
 
 func (q *Queries) InviteLinkRedeem(ctx context.Context, id string) error {
@@ -402,7 +402,7 @@ func (q *Queries) InviteLinkRedeem(ctx context.Context, id string) error {
 
 const inviteLinksRevokeInvitedBy = `-- name: InviteLinksRevokeInvitedBy :exec
 
-UPDATE group_invite_links SET revoked_at = now(), updated_at = now()
+UPDATE group_invite_links SET revoked_at = now()
 WHERE invited_by = $1::uuid AND revoked_at IS NULL AND redeemed_at IS NULL
 `
 

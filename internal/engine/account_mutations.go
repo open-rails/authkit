@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	stdlog "log"
-	"slices"
 	"strings"
 	"time"
 
@@ -15,7 +14,6 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
-	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
@@ -465,17 +463,11 @@ func (s *Engine) avatarAllowed(v string) bool {
 // PatchUserMetadata applies patch to the account's application-owned
 // metadata as an RFC 7396 JSON Merge Patch under ACCT(root:users:manage):
 // objects merge recursively, a nil value deletes its key, and any other
-// value (arrays included) replaces the one it names. Keys AuthKit owns are
-// refused.
+// value (arrays included) replaces the one it names.
 func (s *Engine) PatchUserMetadata(ctx context.Context, a iam.Actor, userID string, patch map[string]any, opts ...ops.Option) error {
 	host, err := hostTx("PatchUserMetadata", opts)
 	if err != nil {
 		return err
-	}
-	for k := range patch {
-		if slices.Contains(config.ReservedMetadataKeys, k) {
-			return errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam(k))
-		}
 	}
 	raw, err := json.Marshal(patch)
 	if err != nil {

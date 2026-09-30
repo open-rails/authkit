@@ -349,12 +349,12 @@ func newGraceClient(t *testing.T, grace time.Duration) (*authkit.Client, *api, *
 }
 
 // Replaying a refresh token older than the current one's predecessor revokes
-// its family, and only that family.
-func TestRefreshFamilyHistory_OldReplayRevokesHTTP(t *testing.T) {
+// its session, and only that session.
+func TestRefreshHistory_OldReplayRevokesHTTP(t *testing.T) {
 	auth, a, _ := newGraceClient(t, 30*time.Second)
 	u := authtest.NewUser(t, auth)
 	original := authtest.SignIn(t, auth, u).RefreshToken
-	// A different sign-in's family must remain valid for the same user.
+	// A different sign-in's session must remain valid for the same user.
 	other := authtest.SignIn(t, auth, u).RefreshToken
 	current := original
 	var predecessor string
@@ -374,7 +374,7 @@ func TestRefreshFamilyHistory_OldReplayRevokesHTTP(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusUnauthorized, status)
 	live, revoked := sessionCounts(t, auth, u.ID)
-	require.Equal(t, 1, live, "old replay must kill the stolen family, preserving the other sign-in")
+	require.Equal(t, 1, live, "old replay must kill the stolen session, preserving the other sign-in")
 	require.Equal(t, map[string]int{reasonRefreshReuse: 1}, revoked)
 	status, _, err = refreshSession(a, *current)
 	require.NoError(t, err)
@@ -384,9 +384,9 @@ func TestRefreshFamilyHistory_OldReplayRevokesHTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 }
 
-// A stale replay racing the current token's rotation revokes the family
+// A stale replay racing the current token's rotation revokes the session
 // whichever wins.
-func TestRefreshFamilyHistory_ReplayRacingRotationHTTP(t *testing.T) {
+func TestRefreshHistory_ReplayRacingRotationHTTP(t *testing.T) {
 	auth, a, _ := newGraceClient(t, 30*time.Second)
 	u := authtest.NewUser(t, auth)
 	original := authtest.SignIn(t, auth, u).RefreshToken
@@ -428,7 +428,7 @@ func TestRefreshFamilyHistory_ReplayRacingRotationHTTP(t *testing.T) {
 }
 
 // The rotation grace window delays reuse detection; it never exempts a
-// replay: past the window the replay revokes the family.
+// replay: past the window the replay revokes the session.
 func TestRefreshRotationGrace_ExpiredReplayStillRevokes(t *testing.T) {
 	t.Run("clock advance", func(t *testing.T) {
 		auth, a, clock := newGraceClient(t, 150*time.Millisecond)
@@ -454,7 +454,7 @@ func expiredReplayRevokes(t *testing.T, auth *authkit.Client, a *api, elapse fun
 	require.NoError(t, err)
 	require.Equal(t, http.StatusUnauthorized, status)
 	live, revoked := sessionCounts(t, auth, u.ID)
-	require.Zero(t, live, "a replay past the window must still revoke the family")
+	require.Zero(t, live, "a replay past the window must still revoke the session")
 	require.Equal(t, map[string]int{reasonRefreshReuse: 1}, revoked)
 }
 

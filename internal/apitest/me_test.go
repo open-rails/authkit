@@ -264,7 +264,7 @@ func TestSignInKeysView(t *testing.T) {
 	require.Equal(t, []string{passkey.ID}, keyIDs(f.signInKeys(browser, "")))
 
 	f.expect(http.StatusNoContent, f.request(http.MethodDelete, "/me/sign-in-keys/"+passkey.ID, browser, nil))
-	f.expect(http.StatusNoContent, f.request(http.MethodDelete, "/me/sign-in-keys/"+passkey.ID, browser, nil))
+	f.expect(http.StatusNotFound, f.request(http.MethodDelete, "/me/sign-in-keys/"+passkey.ID, browser, nil)) // a deleted passkey is gone
 	f.expect(http.StatusNotFound, f.request(http.MethodDelete, "/me/sign-in-keys/"+uuid.NewString(), browser, nil))
 	require.Empty(t, f.signInKeys(browser, ""))
 }

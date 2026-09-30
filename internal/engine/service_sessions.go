@@ -36,10 +36,6 @@ func (s *Engine) insertRefreshSessionTx(ctx context.Context, q *db.Queries, user
 	if err != nil {
 		return "", "", nil, nil, err
 	}
-	family, err := newUUIDV7String()
-	if err != nil {
-		return "", "", nil, nil, err
-	}
 	var evicted []string
 	if s.cfg.Token.SessionMaxPerUser > 0 {
 		// Serializes session creation per (user, issuer), so the count, evict and
@@ -52,7 +48,7 @@ func (s *Engine) insertRefreshSessionTx(ctx context.Context, q *db.Queries, user
 			return "", "", nil, nil, err
 		}
 	}
-	_, err = q.SessionInsert(ctx, db.SessionInsertParams{ID: sid, FamilyID: family, UserID: userID, Issuer: s.cfg.Token.Issuer, CurrentTokenHash: s.hashRefresh(rt), ExpiresAt: exp, UserAgent: nullable(userAgent), IpAddr: ipText(ip), AuthMethods: authflow.NormalizeAuthMethods(authMethods)})
+	err = q.SessionInsert(ctx, db.SessionInsertParams{ID: sid, UserID: userID, Issuer: s.cfg.Token.Issuer, CurrentTokenHash: s.hashRefresh(rt), ExpiresAt: exp, UserAgent: nullable(userAgent), IpAddr: ipText(ip), AuthMethods: authflow.NormalizeAuthMethods(authMethods)})
 	return sid, rt, exp, evicted, err
 }
 
@@ -78,7 +74,7 @@ func (s *Engine) ExchangeRefreshToken(ctx context.Context, refreshToken string, 
 	cur, err := s.q.SessionByCurrentTokenHash(ctx, db.SessionByCurrentTokenHashParams{CurrentTokenHash: h, Issuer: s.cfg.Token.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
 		// No longer current: either a concurrent refresh demoted it a moment ago
-		// (grace re-delivery) or it is genuine reuse (family revoke).
+		// (grace re-delivery) or it is genuine reuse (session revoke).
 		return s.exchangeDemotedRefreshToken(ctx, refreshToken, h, ua, ip)
 	}
 	if err != nil {
@@ -105,7 +101,7 @@ func (s *Engine) ExchangeRefreshToken(ctx context.Context, refreshToken string, 
 	// conditioned on the current hash we just read (h). If 0 rows change, another
 	// concurrent refresh already rotated this session (benign double-submit) or it
 	// was revoked; the already-minted token is discarded and the caller is answered
-	// from the grace path below — never from family revoke (losing the race is not
+	// from the grace path below — never from session revoke (losing the race is not
 	// token reuse).
 	//
 	// The rotation also seals the successor under the token it replaces (ak#274), so
@@ -140,13 +136,13 @@ func (s *Engine) ExchangeRefreshToken(ctx context.Context, refreshToken string, 
 //     hash, which proves this exact token rotated into it. Handing that successor
 //     back is re-delivery of ONE credential, not a fork: every racer converges on
 //     the same token, which is why a five-way race no longer leaves four dead
-//     credentials and a revoked family behind it.
-//   - Anything else is reuse, and the family is revoked exactly as before. A
+//     credentials and a revoked session behind it.
+//   - Anything else is reuse, and the session is revoked. A
 //     stolen token replayed after the window is still caught, so the window is a
 //     bounded delay in detection, never an exemption from it.
 //
 // Re-delivery never rotates again: every holder of one predecessor converges on
-// the same successor. Older consumed hashes identify the family but cannot open
+// the same successor. Older consumed hashes identify the session but cannot open
 // the seal for the current successor, so advancing twice does not hide reuse.
 func (s *Engine) exchangeDemotedRefreshToken(ctx context.Context, refreshToken string, h []byte, ua string, ip net.IP) (string, authflow.IssuedSession, error) {
 	prev, err := s.q.SessionByHistoricalTokenHash(ctx, db.SessionByHistoricalTokenHashParams{TokenHash: h, Issuer: s.cfg.Token.Issuer})
@@ -160,7 +156,7 @@ func (s *Engine) exchangeDemotedRefreshToken(ctx context.Context, refreshToken s
 	}
 	successor, ok := s.graceSuccessorFor(refreshToken, prev)
 	if !ok {
-		s.revokeFamilyEnsured(ctx, prev.FamilyID, prev.UserID)
+		s.revokeReusedSessionEnsured(ctx, prev.ID, prev.UserID)
 		return "", authflow.IssuedSession{}, errors.New("refresh token reuse detected")
 	}
 	accessToken, exp, err := s.issueSessionAccessToken(ctx, prev.UserID, prev.ID, prev.AuthMethods)
@@ -206,7 +202,7 @@ func (s *Engine) graceSuccessorFor(presented string, prev db.SessionByHistorical
 // recheck is deliberately gone — it applied identical allow/deny logic to a SECOND
 // read and could only diverge on a ban landing mid-refresh (Ban already revokes
 // the sessions) or on a transient DB error, where it would have wrongly revoked
-// everything. ensureUserAccess still rejects banned/deleted/reserved users with
+// everything. ensureUserAccess still rejects banned or deleted users with
 // ErrUserBanned at exactly this point.
 func (s *Engine) issueSessionAccessToken(ctx context.Context, userID, sessionID string, authMethods []string) (string, time.Time, error) {
 	u, err := s.getUserByID(ctx, userID)
@@ -320,13 +316,6 @@ func (s *Engine) lockAuthenticationAccount(ctx context.Context, q *db.Queries, u
 	}
 	if expectedVersion > 0 && account.CredentialVersion != expectedVersion {
 		return nil, jwt.ErrTokenUnverifiable
-	}
-	reserved, err := q.UserIsReserved(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	if reserved {
-		return nil, errmodel.ErrUserBanned
 	}
 	row, err := q.UserByID(ctx, userID)
 	if err != nil {
@@ -619,35 +608,33 @@ func (s *Engine) enforceSessionLimitTx(ctx context.Context, q *db.Queries, userI
 	return ids, nil
 }
 
-func (s *Engine) revokeFamily(ctx context.Context, familyID string) error {
-	if s.pg == nil {
-		return nil
+func (s *Engine) revokeReusedSession(ctx context.Context, sessionID, userID string) error {
+	_, err := s.q.SessionRevokeByIDForUser(ctx, db.SessionRevokeByIDForUserParams{ID: sessionID, UserID: userID, Issuer: s.cfg.Token.Issuer})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil // already revoked
 	}
-	rows, err := s.q.SessionsRevokeFamily(ctx, familyID)
 	if err != nil {
 		return err
 	}
 	reason := string(authflow.SessionRevokeReasonRefreshReuseDetected)
-	for _, r := range rows {
-		s.logSessionRevoked(ctx, r.UserID, r.ID, &reason)
-	}
+	s.logSessionRevoked(ctx, userID, sessionID, &reason)
 	return nil
 }
 
-// revokeFamilyEnsured revokes a session family on refresh-token-reuse detection,
-// retrying once before logging a CRITICAL, page-able security event. The family
-// revoke IS the refresh-token-theft defense (it kills every session descended
-// from a reused refresh token), so a silently-swallowed failure would leave the
-// attacker's stolen-but-rotated tokens valid. The reuse attempt itself is always
-// rejected by the caller; this only ensures the rest of the family dies too.
-func (s *Engine) revokeFamilyEnsured(ctx context.Context, familyID, userID string) {
-	if err := s.revokeFamily(ctx, familyID); err == nil {
+// revokeReusedSessionEnsured revokes a session on refresh-token-reuse
+// detection, retrying once before logging a CRITICAL, page-able security event.
+// The revoke IS the refresh-token-theft defense (it ends the session a reused
+// refresh token belongs to), so a silently-swallowed failure would leave the
+// attacker's stolen-but-rotated token valid. The reuse attempt itself is always
+// rejected by the caller; this only ensures the session dies too.
+func (s *Engine) revokeReusedSessionEnsured(ctx context.Context, sessionID, userID string) {
+	if err := s.revokeReusedSession(ctx, sessionID, userID); err == nil {
 		return
 	} else {
-		stdlog.Printf("[authkit/security] error: session family revoke failed after refresh-token reuse (family=%s user=%s); retrying: %v", familyID, userID, err)
+		stdlog.Printf("[authkit/security] error: session revoke failed after refresh-token reuse (session=%s user=%s); retrying: %v", sessionID, userID, err)
 	}
-	if err := s.revokeFamily(ctx, familyID); err != nil {
-		stdlog.Printf("[authkit/security] CRITICAL: session family revoke failed after retry (family=%s user=%s); stolen refresh tokens may remain valid — investigate immediately: %v", familyID, userID, err)
+	if err := s.revokeReusedSession(ctx, sessionID, userID); err != nil {
+		stdlog.Printf("[authkit/security] CRITICAL: session revoke failed after retry (session=%s user=%s); stolen refresh tokens may remain valid — investigate immediately: %v", sessionID, userID, err)
 	}
 }
 

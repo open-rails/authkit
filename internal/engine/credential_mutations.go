@@ -83,13 +83,6 @@ func (s *Engine) changePassword(ctx context.Context, userID, new string, keepSes
 			if account.DeletedAt != nil || banInForce(account.BannedAt, account.BannedUntil, time.Now()) {
 				return errmodel.ErrUserBanned
 			}
-			reserved, err := q.UserIsReserved(ctx, userID)
-			if err != nil {
-				return err
-			}
-			if reserved {
-				return errmodel.ErrUserBanned
-			}
 			contact := account.Email
 			if grant.Channel == "sms" {
 				contact = account.PhoneNumber

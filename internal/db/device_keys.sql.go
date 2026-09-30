@@ -103,22 +103,6 @@ func (q *Queries) DeviceKeyInsert(ctx context.Context, arg DeviceKeyInsertParams
 	return i, err
 }
 
-const deviceKeyIsActive = `-- name: DeviceKeyIsActive :one
-SELECT EXISTS(SELECT 1 FROM user_device_keys WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL)
-`
-
-type DeviceKeyIsActiveParams struct {
-	ID     string
-	UserID string
-}
-
-func (q *Queries) DeviceKeyIsActive(ctx context.Context, arg DeviceKeyIsActiveParams) (bool, error) {
-	row := q.db.QueryRow(ctx, deviceKeyIsActive, arg.ID, arg.UserID)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
-}
-
 const deviceKeyIsActiveForUpdate = `-- name: DeviceKeyIsActiveForUpdate :one
 SELECT EXISTS(SELECT 1 FROM user_device_keys WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL FOR UPDATE)
 `

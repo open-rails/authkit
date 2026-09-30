@@ -134,7 +134,7 @@ func TestSecurityBootstrapNeverAdoptsSquatters(t *testing.T) {
 	})
 	t.Run("expired alias", func(t *testing.T) {
 		alias, squatter := aliasOf(t)
-		_, err := h.pool.Exec(ctx, `UPDATE name_claims SET expires_at=now()-interval '1 minute' WHERE owner_kind='user' AND name=lower($1) AND NOT canonical`, alias)
+		_, err := h.pool.Exec(ctx, `UPDATE name_claims SET expires_at=now()-interval '1 minute' WHERE name=lower($1) AND NOT canonical`, alias)
 		require.NoError(t, err)
 		email := unique("expired") + "@security.test"
 		res, err := apply(iam.BootstrapManifestUser{Username: alias, Email: email, EmailVerified: true, RootRole: h.role(iam.RootPersona(), "admin")})

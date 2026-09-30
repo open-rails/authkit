@@ -81,7 +81,7 @@ func (s *Engine) enable2FA(ctx context.Context, in factorEnable) (authflow.TwoFa
 	}
 
 	var currentBackupCodes []string
-	if settings, err := qtx.MFASettingsByUser(ctx, userID); err == nil && settings.Enabled {
+	if settings, err := qtx.MFASettingsByUser(ctx, userID); err == nil {
 		currentBackupCodes = settings.BackupCodes
 	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return authflow.TwoFactorEnrollOutcome{}, err
@@ -129,7 +129,6 @@ func (s *Engine) enable2FA(ctx context.Context, in factorEnable) (authflow.TwoFa
 		return authflow.TwoFactorEnrollOutcome{}, err
 	}
 
-	// Settings holds only the account-level gate + backup codes (#125).
 	if err := qtx.MFAUpsertSettings(ctx, db.MFAUpsertSettingsParams{
 		UserID:      userID,
 		BackupCodes: currentBackupCodes,
@@ -195,7 +194,7 @@ func (s *Engine) Disable2FA(ctx context.Context, userID string) error {
 	if err := qtx.MFADeleteAllFactors(ctx, userID); err != nil {
 		return err
 	}
-	if err := qtx.MFADisable(ctx, userID); err != nil {
+	if err := qtx.MFASettingsDelete(ctx, userID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -238,7 +237,7 @@ func (s *Engine) Disable2FAFactor(ctx context.Context, userID, factorID string) 
 		if _, err := s.removeMFARequiredUserRoles(ctx, tx, strings.TrimSpace(userID)); err != nil {
 			return err
 		}
-		if err := qtx.MFADisable(ctx, userID); err != nil {
+		if err := qtx.MFASettingsDelete(ctx, userID); err != nil {
 			return err
 		}
 		return tx.Commit(ctx)
@@ -332,11 +331,10 @@ func (s *Engine) get2FASettings(ctx context.Context, q *db.Queries, userID strin
 	if err != nil {
 		return nil, err
 	}
-	// Settings holds only the account gate + backup codes (#125); the displayed
-	// method/phone/secret are derived from the default factor below.
+	// 2FA is on while the account has a factor; the displayed
+	// method/phone/secret are the default factor's.
 	settings := &authflow.TwoFactorSettings{
 		UserID:      row.UserID,
-		Enabled:     row.Enabled,
 		BackupCodes: row.BackupCodes,
 		CreatedAt:   row.CreatedAt,
 		UpdatedAt:   row.UpdatedAt,
@@ -345,7 +343,7 @@ func (s *Engine) get2FASettings(ctx context.Context, q *db.Queries, userID strin
 	if err != nil {
 		return nil, err
 	}
-	settings.Factors = factors
+	settings.Factors, settings.Enabled = factors, len(factors) > 0
 	for _, factor := range factors {
 		if factor.IsDefault {
 			settings.Method = factor.Method

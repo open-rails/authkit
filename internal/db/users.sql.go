@@ -372,7 +372,7 @@ func (q *Queries) UserDeleteHard(ctx context.Context, id string) error {
 const userEmailOrUsernameTaken = `-- name: UserEmailOrUsernameTaken :one
 SELECT
   EXISTS(SELECT 1 FROM users WHERE email = lower($1::text)::public.citext)::boolean AS email_taken,
-  EXISTS(SELECT 1 FROM name_claims WHERE owner_kind='user' AND persona='' AND name=lower($2::text) AND (canonical OR expires_at IS NULL OR expires_at>$3::timestamptz))::boolean AS username_taken
+  EXISTS(SELECT 1 FROM name_claims WHERE name=lower($2::text) AND (canonical OR expires_at IS NULL OR expires_at>$3::timestamptz))::boolean AS username_taken
 `
 
 type UserEmailOrUsernameTakenParams struct {
@@ -395,7 +395,7 @@ func (q *Queries) UserEmailOrUsernameTaken(ctx context.Context, arg UserEmailOrU
 
 const userImportInsert = `-- name: UserImportInsert :exec
 WITH claim AS MATERIALIZED (
- SELECT claim_canonical_name('user','',$4::text,$1::uuid,$14::timestamptz)
+ SELECT claim_canonical_name($4::text,$1::uuid,$14::timestamptz)
 )
 INSERT INTO users (
   id, email, phone_number, username, email_verified, phone_verified,
@@ -446,7 +446,7 @@ func (q *Queries) UserImportInsert(ctx context.Context, arg UserImportInsertPara
 
 const userInsert = `-- name: UserInsert :one
 WITH claim AS MATERIALIZED (
- SELECT claim_canonical_name('user','',$3::text,$1::uuid,$4::timestamptz)
+ SELECT claim_canonical_name($3::text,$1::uuid,$4::timestamptz)
 )
 INSERT INTO users (id, email, username)
 SELECT $1::uuid, NULLIF(lower($2::text), ''), $3 FROM claim
@@ -490,6 +490,18 @@ func (q *Queries) UserInsert(ctx context.Context, arg UserInsertParams) (User, e
 		&i.CredentialVersion,
 	)
 	return i, err
+}
+
+const userMetadata = `-- name: UserMetadata :one
+SELECT COALESCE(metadata, '{}'::jsonb)::jsonb AS metadata
+FROM users WHERE id = $1::uuid
+`
+
+func (q *Queries) UserMetadata(ctx context.Context, id string) ([]byte, error) {
+	row := q.db.QueryRow(ctx, userMetadata, id)
+	var metadata []byte
+	err := row.Scan(&metadata)
+	return metadata, err
 }
 
 const userNameForUpdate = `-- name: UserNameForUpdate :one
@@ -586,7 +598,7 @@ func (q *Queries) UserPasswordUpsert(ctx context.Context, arg UserPasswordUpsert
 const userPhoneOrUsernameTaken = `-- name: UserPhoneOrUsernameTaken :one
 SELECT
   EXISTS(SELECT 1 FROM users WHERE phone_number = $1::text)::boolean AS phone_taken,
-  EXISTS(SELECT 1 FROM name_claims WHERE owner_kind='user' AND persona='' AND name=lower($2::text) AND (canonical OR expires_at IS NULL OR expires_at>$3::timestamptz))::boolean AS username_taken
+  EXISTS(SELECT 1 FROM name_claims WHERE name=lower($2::text) AND (canonical OR expires_at IS NULL OR expires_at>$3::timestamptz))::boolean AS username_taken
 `
 
 type UserPhoneOrUsernameTakenParams struct {

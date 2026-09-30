@@ -96,10 +96,7 @@ ON CONFLICT DO NOTHING
 RETURNING id, user_id;
 
 -- name: UserProviderVerifyImported :one
-UPDATE user_providers
-SET verified_at = now(),
-    profile = COALESCE(profile, '{}'::jsonb)
-      || jsonb_build_object('verification_required', false)
+UPDATE user_providers SET verified_at = now()
 WHERE user_id = $1 AND issuer = $2 AND subject = $3
 RETURNING verified_at;
 

@@ -12,7 +12,7 @@ var (
 	// callers learn nothing from the error.
 	ErrAPIKeyInvalid Error = errmodel.E(errmodel.CodeAPIKeyInvalid)
 	// ErrAPIKeyRevoked indicates the API key was revoked, or its creator
-	// can no longer act (banned, deleted or reserved).
+	// can no longer act (banned or deleted).
 	ErrAPIKeyRevoked Error = errmodel.E(errmodel.CodeAPIKeyRevoked)
 	// ErrAPIKeyExpired indicates the API key is past its expires_at.
 	ErrAPIKeyExpired Error = errmodel.E(errmodel.CodeAPIKeyExpired)

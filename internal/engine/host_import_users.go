@@ -318,12 +318,6 @@ func (s *Engine) importChunk(ctx context.Context, chunk []*importRow, merge bool
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if merge {
-		// A merged `reserved` flag is an owner-loss decision.
-		if err = s.lockAuthority(ctx, tx); err != nil {
-			return err
-		}
-	}
 	st := s.groupStoreFor(tx)
 	q := db.New(tx)
 	names := make([]string, len(chunk))
@@ -525,11 +519,6 @@ func (s *Engine) importHits(ctx context.Context, q *db.Queries, rows []*importRo
 // account lacks. Identity, contacts, verification, bans and deletion stay as
 // they are.
 func (s *Engine) mergeImportRow(ctx context.Context, st *permissionGroupStore, p *importRow, userID string, withCredentials bool) error {
-	if metadataMarksReserved([]byte(p.metadata)) {
-		if err := s.refuseSubjectOwnerLoss(ctx, st, iam.UserSubject(userID)); err != nil {
-			return err
-		}
-	}
 	q := db.New(st.q)
 	if err := q.ImportMergeUser(ctx, db.ImportMergeUserParams{
 		ID: userID, Metadata: []byte(p.metadata), CreatedAt: p.createdAt, LastLogin: p.lastLogin,

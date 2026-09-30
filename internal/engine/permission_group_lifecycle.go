@@ -104,7 +104,7 @@ func (s *Engine) CreateGroup(ctx context.Context, ng iam.NewGroup, opts ...ops.O
 }
 
 // requireLiveOwner refuses a first owner that could not act: an unknown
-// account, or a banned, deleted or reserved one.
+// account, or a banned or deleted one.
 func (s *Engine) requireLiveOwner(ctx context.Context, st *permissionGroupStore, owner iam.Subject) error {
 	if owner.Kind == iam.SubjectKindUser {
 		exists, err := db.New(st.q).UserExists(ctx, owner.ID)

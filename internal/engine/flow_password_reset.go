@@ -73,8 +73,8 @@ func (s *Engine) ConfirmPasswordReset(ctx context.Context, token, newPassword st
 	return rt.UserID, nil
 }
 
-// resetGateError maps the account gate for a reset REQUEST: a banned, deleted
-// or reserved account gets the same silent 202 as an unknown address (no token,
+// resetGateError maps the account gate for a reset REQUEST: a banned or
+// deleted account gets the same silent 202 as an unknown address (no token,
 // no message); only a lookup failure is surfaced.
 func resetGateError(err error) error {
 	if errors.Is(err, errmodel.ErrUserBanned) {

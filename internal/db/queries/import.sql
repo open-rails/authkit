@@ -3,7 +3,7 @@
 -- name: ImportReleaseAliases :exec
 -- Expired aliases of the chunk's names neither match nor block.
 DELETE FROM name_claims
-WHERE owner_kind = 'user' AND persona = '' AND name = ANY(sqlc.arg(names)::text[])
+WHERE name = ANY(sqlc.arg(names)::text[])
   AND NOT canonical AND expires_at <= sqlc.arg(now)::timestamptz;
 
 -- The ImportHits* reads share one row shape: the matched key, the account,
@@ -30,7 +30,7 @@ FROM users WHERE phone_number = ANY(sqlc.arg(phones)::text[]);
 SELECT c.name AS key, c.owner_id::text AS user_id, COALESCE(u.deleted_at IS NOT NULL, false)::boolean AS deleted,
        false AS verified, (u.id IS NULL)::boolean AS missing
 FROM name_claims c LEFT JOIN users u ON u.id = c.owner_id
-WHERE c.owner_kind = 'user' AND c.persona = '' AND c.name = ANY(sqlc.arg(names)::text[])
+WHERE c.name = ANY(sqlc.arg(names)::text[])
   AND (c.canonical OR c.expires_at IS NULL OR c.expires_at > sqlc.arg(now)::timestamptz);
 
 -- name: ImportMergeUser :exec

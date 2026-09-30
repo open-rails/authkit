@@ -102,10 +102,6 @@ func TestPublicUserMetadataAllowlist(t *testing.T) {
 	require.Equal(t, map[string]any{"bio": "hi"}, public[alice.ID].Metadata, "only allowlisted keys")
 	require.Equal(t, iam.PublicUser{ID: bob.ID, Deleted: true, Metadata: map[string]any{}}, public[bob.ID], "a tombstone carries no metadata")
 	require.Equal(t, map[string]any{}, public[carol.ID].Metadata, "no public keys set, no metadata")
-
-	cfg.PublicUserMetadata = []string{"reserved"}
-	_, err = authkit.New(ctx, cfg, testDeps(pg.Pool))
-	require.ErrorContains(t, err, "PublicUserMetadata", "AuthKit's own key can never be public")
 }
 
 func TestUserBanState(t *testing.T) {
@@ -168,7 +164,6 @@ func TestUserUpdateAndMetadata(t *testing.T) {
 	meta, err := auth.UserMetadata(ctx, dave.ID)
 	require.NoError(t, err)
 	require.Equal(t, map[string]any{"bio": "hi"}, meta, "a nil value deletes its key")
-	require.ErrorIs(t, auth.PatchUserMetadata(ctx, op, dave.ID, map[string]any{"reserved": true}), errmodel.E(errmodel.CodeInvalidRequest))
 	_, err = auth.UserMetadata(ctx, "0190a0a0-0000-7000-8000-000000000000")
 	require.ErrorIs(t, err, iam.ErrUserNotFound)
 	sessions, err := auth.Sessions(ctx, dave.ID)

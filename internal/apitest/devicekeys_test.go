@@ -263,7 +263,7 @@ func testPasskeyCeremonyAndAssurance(t *testing.T, auth *authkit.Client, outbox 
 	}
 	f.expect(http.StatusNoContent, f.request(http.MethodDelete, "/me/sign-in-keys/"+created.ID, setupToken, nil))
 	require.Empty(t, list())
-	f.expect(http.StatusNoContent, f.request(http.MethodDelete, "/me/sign-in-keys/"+created.ID, setupToken, nil)) // idempotent
+	f.expect(http.StatusNotFound, f.request(http.MethodDelete, "/me/sign-in-keys/"+created.ID, setupToken, nil)) // gone
 	f.expect(http.StatusNotFound, f.request(http.MethodPatch, "/me/sign-in-keys/"+created.ID, setupToken, map[string]any{"label": "gone"}))
 	assertion = requestOptions{}
 	decode(f.expect(http.StatusOK, f.post("/passkeys/login/begin", map[string]any{})), &assertion)

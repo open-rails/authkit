@@ -57,10 +57,9 @@ type MfaFactor struct {
 	Email     *string
 }
 
-// Account-level 2FA gate + backup codes per user. enabled=true ⇒ 2FA required at login. Per-factor data lives in mfa_factors.
+// Backup codes of an account with a second factor; the row goes with its last factor.
 type MfaSetting struct {
-	UserID  string
-	Enabled bool
+	UserID string
 	// Hashed backup codes for account recovery
 	BackupCodes []string
 	CreatedAt   time.Time
@@ -126,7 +125,7 @@ type User struct {
 	// User ID of admin who imposed ban
 	BannedBy  *string
 	DeletedAt *time.Time
-	// Arbitrary user metadata (internal/admin flags such as reserved)
+	// Host metadata
 	Metadata  []byte
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -168,5 +167,4 @@ type UserPasskey struct {
 	Label                   *string
 	CreatedAt               time.Time
 	LastUsedAt              *time.Time
-	DeletedAt               *time.Time
 }

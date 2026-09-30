@@ -141,7 +141,7 @@ func requireActor(a iam.Actor) error {
 }
 
 // actorAuthority resolves a's live authority in g (rule ACTOR). A zero, deleted,
-// reserved, banned, revoked, expired or disabled actor is
+// banned, revoked, expired or disabled actor is
 // ErrInsufficientAuthority; one whose bound session or device key is revoked
 // (Actor.InSession) is ErrSessionRevoked. An actor bound to another group
 // resolves with no grants, as does a delegation from a foreign issuer.

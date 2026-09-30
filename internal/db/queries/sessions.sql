@@ -1,12 +1,11 @@
 -- Refresh-session queries.
 
--- name: SessionInsert :one
-INSERT INTO refresh_sessions (id, family_id, user_id, issuer, current_token_hash, expires_at, user_agent, ip_addr, last_authenticated_at, auth_methods, mfa_authenticated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9, CASE WHEN 'mfa' = ANY($9::text[]) THEN now() END)
-RETURNING id::text, family_id::text;
+-- name: SessionInsert :exec
+INSERT INTO refresh_sessions (id, user_id, issuer, current_token_hash, expires_at, user_agent, ip_addr, last_authenticated_at, auth_methods, mfa_authenticated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, CASE WHEN 'mfa' = ANY($8::text[]) THEN now() END);
 
 -- name: SessionByCurrentTokenHash :one
-SELECT id::text, user_id, family_id::text, auth_methods
+SELECT id::text, user_id, auth_methods
 FROM refresh_sessions
 WHERE current_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL
   AND (expires_at IS NULL OR expires_at > now());
@@ -14,8 +13,8 @@ WHERE current_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL
 -- name: SessionByHistoricalTokenHash :one
 -- A consumed token stays attributable for 90 days (SessionRotate). Only the
 -- immediate predecessor can open the current grace seal; older hashes still
--- identify the family for reuse detection.
-SELECT s.id::text AS id, s.user_id, s.family_id::text AS family_id, s.auth_methods, s.expires_at,
+-- identify the session for reuse detection.
+SELECT s.id::text AS id, s.user_id, s.auth_methods, s.expires_at,
        s.current_token_hash, s.previous_successor_sealed, s.previous_rotated_at
 FROM refresh_token_history h
 JOIN refresh_sessions s ON s.id = h.session_id
@@ -51,7 +50,7 @@ SELECT id, sqlc.arg(expected_current_token_hash) FROM rotated;
 -- session-list handler never renders them, and revoked_at is always NULL here
 -- (the WHERE clause filters to non-revoked rows), so reading them was pure
 -- over-fetch (#230).
-SELECT id::text, family_id::text, created_at, last_used_at, expires_at,
+SELECT id::text, created_at, last_used_at, expires_at,
        user_agent, CASE WHEN ip_addr IS NULL THEN NULL ELSE NULLIF(host(ip_addr)::text, '') END AS ip_addr
 FROM refresh_sessions
 WHERE user_id = $1 AND issuer = $2 AND (revoked_at IS NULL);
@@ -118,11 +117,6 @@ WHERE id IN (
   LIMIT sqlc.arg(evict_count)::bigint
 )
 RETURNING id::text;
-
--- name: SessionsRevokeFamily :many
-UPDATE refresh_sessions SET revoked_at = now()
-WHERE family_id = $1 AND revoked_at IS NULL
-RETURNING id::text, user_id::text;
 
 -- name: SessionsDeleteRevokedOrExpiredBatch :execrows
 -- One bounded GC batch (#325): collect up to batch_size dead sessions through

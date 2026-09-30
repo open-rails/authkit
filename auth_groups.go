@@ -75,7 +75,7 @@ func (a *Client) ListMemberships(ctx context.Context, s iam.Subject, p iam.PageR
 // transaction as your own row.
 
 // CreateGroup creates a group of a declared persona. g.Owner, when set, must
-// be a live account (not banned, deleted or reserved); it becomes the new
+// be a live account (not banned or deleted); it becomes the new
 // group's owner. With g.ID it is idempotent: creating a live group of the
 // same persona returns it unchanged, while a deleted group or one of another
 // persona under that id is iam.ErrGroupConflict.

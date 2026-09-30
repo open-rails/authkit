@@ -149,7 +149,7 @@ func (st *permissionGroupStore) WalkAssignments(ctx context.Context, groupID str
 // assignments on that group and on root. Deleted, unknown and
 // malformed targets have no assignments; an application's count only while it
 // is enabled and its control group is live. Latent assignments of
-// deleted/reserved accounts are included.
+// deleted or banned accounts are included.
 func (st *permissionGroupStore) readAssignmentsForGroups(ctx context.Context, groupIDs []string, subject iam.Subject) (map[string][]rbac.Assignment, error) {
 	if err := requireGroupSubjectKind(subject.Kind); err != nil {
 		return nil, err
@@ -284,7 +284,7 @@ func (st *permissionGroupStore) unassign(ctx context.Context, groupID string, su
 	return st.record(ctx, roleEvent(groupID, persona, subject, ident.RoleText(deleted.Role), iam.Role{}))
 }
 
-// OwnerCount returns the count of live, unbanned, unreserved user owners and
+// OwnerCount returns the count of live, unbanned user owners and
 // enabled application owners. Lifecycle safety uses the transaction-bound
 // engine guard, which also checks the deployment's MFA policy.
 func (st *permissionGroupStore) OwnerCount(ctx context.Context, groupID string) (int, error) {
@@ -296,7 +296,7 @@ func (st *permissionGroupStore) OwnerCount(ctx context.Context, groupID string) 
 // grant PATTERNS the subject holds on that group and on root, resolved
 // against the schema's catalog. Globs
 // like `root:*` are returned verbatim, not expanded. Targets granting nothing
-// are absent. Latent assignments of deleted/reserved accounts are included.
+// are absent. Latent assignments of deleted or banned accounts are included.
 func (st *permissionGroupStore) GrantsOnGroups(ctx context.Context, schema *rbac.Schema, subject iam.Subject, groupIDs []string) (map[string][]string, error) {
 	byGroup, err := st.readAssignmentsForGroups(ctx, groupIDs, subject)
 	if err != nil {

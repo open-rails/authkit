@@ -115,7 +115,7 @@ type TokenConfig struct {
 	SessionMaxPerUser int
 	// RefreshRotationGrace is how long a just-rotated refresh token keeps being
 	// answered with the successor it rotated into instead of being read as
-	// reuse and revoking the family. It covers two holders of one token
+	// reuse and ending the session. It covers two holders of one token
 	// refreshing at once (a shared credential file, a retried request). 0
 	// defaults to 30s; a negative value makes rotation strictly single-use.
 	RefreshRotationGrace time.Duration

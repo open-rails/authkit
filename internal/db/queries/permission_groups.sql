@@ -40,8 +40,7 @@ WHERE g.persona <> 'root' AND (sqlc.arg(persona)::text = '' OR g.persona = sqlc.
   AND (NOT sqlc.arg(ownerless)::boolean OR NOT EXISTS(
     SELECT 1 FROM group_user_roles r JOIN usable_users u ON u.id = r.user_id
      WHERE r.permission_group_id = g.id AND r.role LIKE '%:owner'
-       AND (NOT (g.persona = ANY(sqlc.arg(mfa_personas)::text[])) OR EXISTS(SELECT 1 FROM mfa_settings m WHERE m.user_id = u.id AND m.enabled
-         AND EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id = u.id)))
+       AND (NOT (g.persona = ANY(sqlc.arg(mfa_personas)::text[])) OR EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id = u.id))
     UNION ALL
     SELECT 1 FROM group_remote_application_roles r JOIN remote_applications a ON a.id = r.remote_application_id
      WHERE NOT (g.persona = ANY(sqlc.arg(mfa_personas)::text[])) AND r.permission_group_id = g.id AND r.role LIKE '%:owner'
