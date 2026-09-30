@@ -2,6 +2,7 @@ package iam
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 )
 
@@ -38,5 +39,15 @@ func TestIdentifierText(t *testing.T) {
 	}
 	if r := (Persona{"org"}).OwnerRole(); !r.IsOwner() || r.Name() != "owner" || r.Persona() != (Persona{"org"}) || r.String() != "org:owner" {
 		t.Fatalf("owner role %v", r)
+	}
+}
+
+// Roles, permissions and personas are opaque structs, so a string literal never
+// compiles where one is expected: a misspelled name is a build error.
+func TestIdentifiersAreNotStrings(t *testing.T) {
+	for _, v := range []any{Persona{}, Role{}, Perm{}} {
+		if k := reflect.TypeOf(v).Kind(); k != reflect.Struct {
+			t.Errorf("%T is a %s; it must stay an opaque struct", v, k)
+		}
 	}
 }
