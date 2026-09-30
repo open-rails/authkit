@@ -132,3 +132,11 @@ func (a *Client) Permission(text string) (iam.Perm, error) { return a.ops.Permis
 // text form of a role: a declared role or a persona's owner role, else
 // iam.ErrRoleNotAssignable.
 func (a *Client) Role(text string) (iam.Role, error) { return a.ops.Role(text) }
+
+// RolePermissions returns role's grants in Config.Roles, includes flattened:
+// permissions and patterns (`channel:*`), matched with iam.Perm.Matches. A
+// role the catalog does not declare is iam.ErrRoleNotAssignable
+// (iam.ErrUnknownGroupPersona for an undeclared persona).
+func (a *Client) RolePermissions(role iam.Role) ([]iam.Perm, error) {
+	return a.ops.RolePermissions(role)
+}

@@ -11,6 +11,7 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/ops"
+	"github.com/open-rails/authkit/internal/rbac"
 )
 
 // hostTx resolves the options of an operation that takes only InTx: the
@@ -52,14 +53,42 @@ func (s *Engine) Role(text string) (iam.Role, error) {
 	if r.IsZero() {
 		return iam.Role{}, fmt.Errorf("role %q must be <persona>:<name>: %w", text, iam.ErrRoleNotAssignable)
 	}
-	sch := s.groupSchemaOrDefault()
-	if _, ok := sch.Persona(r.Persona()); !ok {
-		return iam.Role{}, fmt.Errorf("role %q: %w", text, iam.ErrUnknownGroupPersona)
-	}
-	if _, ok := sch.Role(r.Persona(), r); !ok {
-		return iam.Role{}, fmt.Errorf("%q is not a role of %q: %w", text, r.Persona(), iam.ErrRoleNotAssignable)
+	if _, err := s.catalogRole(r); err != nil {
+		return iam.Role{}, err
 	}
 	return r, nil
+}
+
+// RolePermissions returns role's grants in the catalog, includes flattened:
+// permissions and patterns, in declaration order.
+func (s *Engine) RolePermissions(role iam.Role) ([]iam.Perm, error) {
+	def, err := s.catalogRole(role)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]iam.Perm, len(def.Permissions))
+	for i, p := range def.Permissions {
+		out[i] = ident.Perm(p)
+	}
+	return out, nil
+}
+
+// catalogRole is role's compiled definition: a declared role or a persona's
+// owner role, else iam.ErrRoleNotAssignable (iam.ErrUnknownGroupPersona for
+// an undeclared persona).
+func (s *Engine) catalogRole(role iam.Role) (rbac.Role, error) {
+	if role.IsZero() {
+		return rbac.Role{}, fmt.Errorf("the zero role: %w", iam.ErrRoleNotAssignable)
+	}
+	sch := s.groupSchemaOrDefault()
+	if _, ok := sch.Persona(role.Persona()); !ok {
+		return rbac.Role{}, fmt.Errorf("role %q: %w", role, iam.ErrUnknownGroupPersona)
+	}
+	def, ok := sch.Role(role.Persona(), role)
+	if !ok {
+		return rbac.Role{}, fmt.Errorf("%q is not a role of %q: %w", role, role.Persona(), iam.ErrRoleNotAssignable)
+	}
+	return def, nil
 }
 
 // userIn reads the account id through q: inside a transaction, it sees the

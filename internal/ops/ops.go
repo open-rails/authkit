@@ -61,6 +61,7 @@ type Operations interface {
 	Persona(name string) (iam.Persona, error)
 	Permission(text string) (iam.Perm, error)
 	Role(text string) (iam.Role, error)
+	RolePermissions(role iam.Role) ([]iam.Perm, error)
 
 	// API keys.
 	CreateAPIKey(ctx context.Context, actor iam.Actor, ref iam.GroupRef, k iam.NewAPIKey, opts ...Option) (iam.APIKeyCreated, error)
@@ -83,7 +84,6 @@ type Operations interface {
 
 	// Bootstrap, import and provider links.
 	ApplyBootstrapManifest(ctx context.Context, m iam.BootstrapManifest, o iam.BootstrapOptions, opts ...Option) (iam.BootstrapResult, error)
-	ParseBootstrapManifestYAML(raw []byte) (iam.BootstrapManifest, error)
 	EnsureUserRole(ctx context.Context, group iam.GroupRef, u iam.UserRef, role iam.Role, opts ...Option) (iam.User, error)
 	ImportUsers(ctx context.Context, rows []iam.ImportUser, o iam.ImportOptions, opts ...Option) (iam.ImportResult, error)
 	ImportSolanaLinks(ctx context.Context, rows []iam.ImportSolanaLink, opts ...Option) (iam.ImportSolanaLinksResult, error)

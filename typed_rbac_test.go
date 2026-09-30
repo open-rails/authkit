@@ -3,6 +3,7 @@ package authkit_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/open-rails/authkit"
@@ -106,4 +107,59 @@ func TestChannelDeletionModels(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError, status("/c/unloaded", owner), "no group attached fails closed")
 	require.Equal(t, http.StatusForbidden, status("/channels/golang", owner))
 	require.Equal(t, http.StatusNoContent, status("/channels/golang", sAdmin))
+}
+
+// RolePermissions reads a role's grants from the running catalog, includes
+// flattened, so a host compares roles (a no-escalation check) without a copy
+// of its catalog.
+func TestRolePermissions(t *testing.T) {
+	pg := testdb.ScratchPostgres(t)
+	rbac := authkit.NewRoles()
+	channel := rbac.Persona("channel")
+	postsRead := channel.Permission("posts", "read")
+	postsEdit := channel.Permission("posts", "edit")
+	reader := channel.Role("reader", postsRead)
+	moderator := channel.Role("moderator", reader, postsEdit, channel.Members.Read)
+	cfg := testConfig(t)
+	cfg.Roles = rbac
+	auth := newPublicRuntime(t, cfg, pg.Pool)
+	t.Cleanup(auth.Close)
+
+	grants := func(role iam.Role) []iam.Perm {
+		t.Helper()
+		perms, err := auth.RolePermissions(role)
+		require.NoError(t, err)
+		return perms
+	}
+	require.Equal(t, []iam.Perm{postsEdit, channel.Members.Read, postsRead}, grants(moderator), "own grants, then includes")
+	require.Equal(t, []iam.Perm{channel.All()}, grants(channel.Owner))
+	require.Equal(t, []iam.Perm{rbac.Root.All()}, grants(rbac.Root.Owner))
+	parsed, err := auth.Role("channel:reader")
+	require.NoError(t, err)
+	require.Equal(t, []iam.Perm{postsRead}, grants(parsed))
+
+	// No escalation: a grantor may hand out a role only when its own grants
+	// cover every permission the role grants.
+	covers := func(grantor, role iam.Role) bool {
+		for _, perm := range grants(role) {
+			if !slices.ContainsFunc(grants(grantor), perm.Matches) {
+				return false
+			}
+		}
+		return true
+	}
+	require.True(t, covers(moderator, reader))
+	require.False(t, covers(reader, moderator))
+	require.True(t, covers(channel.Owner, moderator))
+
+	// Roles of another catalog: one this app never declared, and one of a
+	// persona it does not have.
+	elsewhere := authkit.NewRoles()
+	ghost := elsewhere.Persona("channel").Role("ghost")
+	shop := elsewhere.Persona("shop")
+	clerk := shop.Role("clerk", shop.All())
+	for role, want := range map[iam.Role]error{ghost: iam.ErrRoleNotAssignable, clerk: iam.ErrUnknownGroupPersona, {}: iam.ErrRoleNotAssignable} {
+		_, err := auth.RolePermissions(role)
+		require.ErrorIs(t, err, want, role.String())
+	}
 }

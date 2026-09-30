@@ -45,7 +45,7 @@ func TestClientPublicSurface(t *testing.T) {
 		"ListAPIKeys", "ResolveAPIKey", "ListInvitations", "RemoteApplication", "ListRemoteApplications",
 		"CheckSession", "CheckRecentSignIn",
 		// Names read at run time, resolved through Config.Roles.
-		"Persona", "Permission", "Role", "ParseBootstrapManifestYAML",
+		"Persona", "Permission", "Role", "RolePermissions",
 	}
 	embeddingOnly := []string{
 		// Lifecycle: host wiring at boot and health probes.
