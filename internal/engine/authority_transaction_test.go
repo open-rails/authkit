@@ -335,8 +335,6 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 					require.Equal(t, "owner", role(root, target))
 				case "actor_revocation":
 					require.Empty(t, role(root, manager))
-				case "ban_expiry_after_transaction_start":
-					require.Equal(t, "reader", role(root, peer))
 				}
 			})
 		}

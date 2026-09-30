@@ -2,8 +2,12 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -11,7 +15,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/authkit/internal/testdpop"
+	"github.com/open-rails/authkit/verify"
 )
 
 func ephemeralEngine(t *testing.T) *Engine {
@@ -205,4 +214,72 @@ func TestEphemeralSweepRunsAsRiverMaintenance(t *testing.T) {
 	_, ok, err := core.ephemeral.Get(ctx, "live")
 	require.NoError(t, err)
 	require.True(t, ok, "the sweep must leave live rows")
+}
+
+// A failing DPoP replay claim is an operational failure, never an invalid
+// proof: the delegated mint and a resource verifier answer 500 without a DPoP
+// challenge, and once the store is back the same proofs are accepted.
+func TestDPoPReplayStoreOutageFailsClosed(t *testing.T) {
+	pg := testdb.ScratchPostgres(t)
+	ctx := t.Context()
+	cfg := newServerTestConfig()
+	cfg.Delegated = DelegatedConfig{Audiences: []string{"platform"}, AllowDPoP: true}
+	e := newServerClient(t, cfg, pg.Pool, withDelegatedAuthorization(func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
+		return iam.DelegationGrant{Permissions: []string{"resource:read"}}, nil
+	}))
+	srv, err := newServer(e, WithoutRateLimiter())
+	require.NoError(t, err)
+	t.Cleanup(srv.Close)
+	h, err := httpapi.NewMount(srv, httpapi.MountOptions{})
+	require.NoError(t, err)
+	user, err := e.createUser(ctx, uniqueEmail("dpop"), "dpop"+uniqueSuffix())
+	require.NoError(t, err)
+	sid, _, _, err := e.issueRefreshSession(ctx, user.ID, "test", nil)
+	require.NoError(t, err)
+	session, _, err := e.mintTestAccessToken(ctx, user.ID, map[string]any{"sid": sid})
+	require.NoError(t, err)
+
+	browserKey := testdpop.Key(t)
+	target := cfg.Token.Issuer + "/api/v1/delegated/token"
+	mint := func(proof string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/delegated/token", strings.NewReader(`{"requested_grant":{}}`))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Authorization", "Bearer "+session)
+		r.Header.Set("DPoP", proof)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	res := mint(testdpop.Proof(t, browserKey, http.MethodPost, target, session, nil))
+	require.Equal(t, http.StatusOK, res.Code, res.Body.String())
+	var minted httpapi.DelegatedTokenResponse
+	require.NoError(t, json.Unmarshal(res.Body.Bytes(), &minted))
+
+	const resource = "https://resource.example"
+	v := e.NewVerifier(verify.WithDPoPRequestURL(func(r *http.Request) string { return resource + r.URL.EscapedPath() }))
+	require.NoError(t, v.AddIssuer(cfg.Token.Issuer, []string{"platform"}, verify.IssuerOptions{PublicKeys: cfg.Keys.Source.PublicKeys}))
+	req := httptest.NewRequest(http.MethodGet, resource+"/tasks", nil)
+	req.Header.Set("Authorization", "DPoP "+minted.Token)
+	req.Header.Set("DPoP", testdpop.Proof(t, browserKey, http.MethodGet, resource+"/tasks", minted.Token, nil))
+
+	restore := failEphemeralWrites(t, pg.Pool, "dpop:proof:")
+	mintProof := testdpop.Proof(t, browserKey, http.MethodPost, target, session, nil)
+	res = mint(mintProof)
+	require.Equal(t, http.StatusInternalServerError, res.Code, res.Body.String())
+	require.Contains(t, res.Body.String(), "internal_error")
+	require.Empty(t, res.Header().Get("WWW-Authenticate"))
+	_, err = v.VerifyRequest(req)
+	require.Error(t, err)
+	require.Equal(t, errmodel.CodeInternalError, errmodel.CodeOf(err))
+	rejected := httptest.NewRecorder()
+	verify.Required(v)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("storage outage admitted request") })).ServeHTTP(rejected, req)
+	require.Equal(t, http.StatusInternalServerError, rejected.Code)
+	require.Empty(t, rejected.Header().Get("WWW-Authenticate"))
+
+	restore()
+	res = mint(mintProof)
+	require.Equal(t, http.StatusOK, res.Code, res.Body.String())
+	cl, err := v.VerifyRequest(req)
+	require.NoError(t, err)
+	require.NotNil(t, cl.ConfirmationJWKThumbprintSHA256)
 }
