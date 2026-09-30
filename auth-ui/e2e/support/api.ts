@@ -63,7 +63,15 @@ export async function registerVerified(
     code,
   })
   expect(verified.status, JSON.stringify(verified.body)).toBe(200)
-  return { email, password, access: verified.body!.access_token as string }
+  return { email, password, access: accessToken(verified) }
+}
+
+// The access token of a complete AuthResult reply.
+export function accessToken(reply: Reply): string {
+  expect(reply.body, JSON.stringify(reply.body)).toMatchObject({
+    status: "complete",
+  })
+  return (reply.body!.token_set as { access_token: string }).access_token
 }
 
 // RFC 6238 SHA-1, 6 digits, 30s step.

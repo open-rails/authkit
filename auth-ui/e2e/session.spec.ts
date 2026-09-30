@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test"
 
-import { api, outbox } from "./support/api"
+import { accessToken, api, outbox } from "./support/api"
 
 test("register, verify, login, refresh via cookie, logout", async ({
   page,
@@ -31,16 +31,23 @@ test("register, verify, login, refresh via cookie, logout", async ({
     code,
   })
   expect(verified.status, JSON.stringify(verified.body)).toBe(200)
-  expect(verified.body).toHaveProperty("access_token")
+  expect(verified.body).toMatchObject({
+    status: "complete",
+    user: { email },
+    token_set: { token_type: "Bearer" },
+  })
 
   const login = await api(page, "POST", "/password/login", {
     identifier: email,
     password,
   })
   expect(login.status, JSON.stringify(login.body)).toBe(200)
-  expect(login.body).toMatchObject({ token_type: "Bearer" })
-  expect(login.body!.refresh_token).toBeNull()
-  const access = login.body!.access_token as string
+  expect(login.body).toMatchObject({
+    status: "complete",
+    token_set: { token_type: "Bearer", refresh_token: null },
+    user: { email },
+  })
+  const access = accessToken(login)
 
   const cookie = (await context.cookies()).find((c) => c.name === "authkit_rt")
   expect(cookie).toMatchObject({
@@ -57,9 +64,11 @@ test("register, verify, login, refresh via cookie, logout", async ({
     grant_type: "refresh_token",
   })
   expect(refreshed.status, JSON.stringify(refreshed.body)).toBe(200)
-  expect(refreshed.body!.refresh_token).toBeNull()
-  const access2 = refreshed.body!.access_token as string
-  expect(access2).toBeTruthy()
+  expect(refreshed.body).toMatchObject({
+    status: "complete",
+    token_set: { refresh_token: null },
+  })
+  const access2 = accessToken(refreshed)
   const rotated = (await context.cookies()).find((c) => c.name === "authkit_rt")
   expect(rotated?.value).not.toBe(cookie!.value)
 

@@ -65,7 +65,11 @@ function Login() {
             identifier: String(f.get("identifier")),
             password: String(f.get("password")),
           })
-          if (out.kind === "2fa_required") setChallenge(out)
+          if (out.status === "second_factor_required")
+            setChallenge({
+              userId: out.second_factor.user_id,
+              challenge: out.second_factor.challenge,
+            })
         } catch (err) {
           fail(err)
         }

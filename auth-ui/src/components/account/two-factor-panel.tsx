@@ -165,10 +165,11 @@ function TwoFactorCard() {
           <CodeStep
             prompt={t("account.twoFactor.codeSentTo", {
               destination:
-                enrollment.destination ??
                 (enrollment.method === "sms"
-                  ? (enrollment.phoneNumber ?? "")
-                  : (user?.email ?? t("account.twoFactor.yourEmail"))),
+                  ? enrollment.phoneNumber
+                  : user?.email) ??
+                enrollment.destination ??
+                t("account.twoFactor.yourEmail"),
             })}
             busy={tf.busy}
             error={tf.error}

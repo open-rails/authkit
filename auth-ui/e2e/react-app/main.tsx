@@ -97,8 +97,8 @@ function Login() {
       )}
       {state.step === "two_factor" && (
         <>
-          <p data-testid="login-method">{state.challenge.method}</p>
-          {state.challenge.availableFactors.map((f) => (
+          <p data-testid="login-method">{state.challenge.factor.method}</p>
+          {state.challenge.factors.map((f) => (
             <button
               key={f.id}
               data-testid={`factor-${f.method}`}
