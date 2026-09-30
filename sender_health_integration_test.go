@@ -92,6 +92,8 @@ func TestSMSHealthFailsOnlyWhenTwilioRefuses(t *testing.T) {
 		{"only pending and unverified toll-free numbers", twilioPool{numbers: []string{tollFree, tollFree2},
 			verifications: verifications{{elsewhere, "TWILIO_APPROVED"}, {tollFree, "PENDING_REVIEW"}}},
 			"(" + tollFree + ", " + tollFree2 + "); Twilio refuses them with error 30032", 0, 0},
+		{"only a rejected toll-free number", twilioPool{numbers: []string{tollFree}, verifications: verifications{{tollFree, "TWILIO_REJECTED"}}},
+			"(" + tollFree + "); Twilio refuses them with error 30032", 0, 0},
 		{"an unverified toll-free number beside a short code", twilioPool{numbers: []string{tollFree2}, senders: map[string]int{"ShortCodes": 1}}, "", 1, 0},
 		{"a pending toll-free number beside a long code on a later page", twilioPool{numbers: []string{tollFree, longCode},
 			verifications: verifications{{tollFree, "IN_REVIEW"}}}, "", 2, 0},
@@ -382,13 +384,13 @@ func twilioStandIn(t *testing.T, pool *atomic.Pointer[twilioPool]) *http.Client 
 			for _, n := range p.numbers {
 				items = append(items, map[string]string{"sid": sid(n), "phone_number": n})
 			}
-			twilioPage(w, r, "phone_numbers", items)
+			twilioPage(w, r, "phone_numbers", items, 1000)
 			return
 		case "/v1/Tollfree/Verifications":
 			for _, v := range p.verifications {
 				items = append(items, map[string]string{"tollfree_phone_number_sid": sid(v[0]), "tollfree_phone_number": v[0], "status": v[1]})
 			}
-			twilioPage(w, r, "verifications", items)
+			twilioPage(w, r, "verifications", items, 50)
 			return
 		}
 		kind := strings.TrimPrefix(r.URL.Path, "/v1/Services/MG123/")
@@ -401,19 +403,28 @@ func twilioStandIn(t *testing.T, pool *atomic.Pointer[twilioPool]) *http.Client 
 		for range p.senders[kind] {
 			items = append(items, map[string]string{"sid": "XX1"})
 		}
-		twilioPage(w, r, key, items)
+		twilioPage(w, r, key, items, 1000)
 	})
 }
 
-// twilioPage answers item ?Page= of items under key, with Twilio's meta.
-func twilioPage(w http.ResponseWriter, r *http.Request, key string, items []map[string]string) {
-	page, _ := strconv.Atoi(r.URL.Query().Get("Page"))
+// twilioPage answers item ?Page= of items under key, with Twilio's meta. Like
+// Twilio, it refuses a PageSize above maxPageSize.
+func twilioPage(w http.ResponseWriter, r *http.Request, key string, items []map[string]string, maxPageSize int) {
+	q := r.URL.Query()
+	if size := q.Get("PageSize"); size != "" {
+		if n, err := strconv.Atoi(size); err != nil || n < 1 || n > maxPageSize {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = fmt.Fprintf(w, `{"code":20007,"message":"Page size must be between 1 and %d","status":400}`, maxPageSize)
+			return
+		}
+	}
+	page, _ := strconv.Atoi(q.Get("Page"))
 	body := map[string]any{key: []map[string]string{}, "meta": map[string]any{"key": key, "next_page_url": nil}}
 	if page < len(items) {
 		body[key] = items[page : page+1]
 	}
 	if page+1 < len(items) {
-		body["meta"] = map[string]any{"key": key, "next_page_url": fmt.Sprintf("https://%s%s?Page=%d&PageToken=PT%d", r.Host, r.URL.Path, page+1, page+1)}
+		body["meta"] = map[string]any{"key": key, "next_page_url": fmt.Sprintf("https://%s%s?PageSize=%s&Page=%d&PageToken=PT%d", r.Host, r.URL.Path, q.Get("PageSize"), page+1, page+1)}
 	}
 	_ = json.NewEncoder(w).Encode(body)
 }

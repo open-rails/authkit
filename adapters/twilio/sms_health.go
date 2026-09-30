@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -15,6 +16,11 @@ const (
 	messagingAPI = "https://messaging.twilio.com/v1"
 	// maxListPages bounds the pages a check reads from one Twilio list.
 	maxListPages = 20
+	// Largest page sizes Twilio accepts, else 400 (code 20007): 1000 for the
+	// Messaging Service lists, 50 for toll-free verifications, though its
+	// docs say 1000.
+	servicePageSize      = 1000
+	verificationPageSize = 50
 )
 
 // otherSenderKinds are the Messaging Service sender lists besides phone
@@ -91,7 +97,7 @@ type poolNumber struct {
 func (s *SMS) readSenderPool(ctx context.Context, serviceURL string) (senderPool, error) {
 	var pool senderPool
 	var numbers []poolNumber
-	err := listEach(ctx, s, serviceURL+"/PhoneNumbers?PageSize=1000", "phone_numbers", func(n poolNumber) bool {
+	err := listEach(ctx, s, serviceURL+"/PhoneNumbers?PageSize="+strconv.Itoa(servicePageSize), "phone_numbers", func(n poolNumber) bool {
 		numbers = append(numbers, n)
 		return true
 	})
@@ -148,7 +154,7 @@ func (s *SMS) readSenderPool(ctx context.Context, serviceURL string) (senderPool
 // by both the number's SID and the number.
 func (s *SMS) tollFreeStatuses(ctx context.Context) (map[string][]string, error) {
 	statuses := map[string][]string{}
-	err := listEach(ctx, s, messagingAPI+"/Tollfree/Verifications?PageSize=1000", "verifications", func(v struct {
+	err := listEach(ctx, s, messagingAPI+"/Tollfree/Verifications?PageSize="+strconv.Itoa(verificationPageSize), "verifications", func(v struct {
 		SID    string `json:"tollfree_phone_number_sid"`
 		Number string `json:"tollfree_phone_number"`
 		Status string `json:"status"`
