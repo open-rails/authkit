@@ -167,7 +167,6 @@ pkg authkit, type Deps struct, Email config.EmailSender
 pkg authkit, type Deps struct, EntitlementHolders func(context.Context, string) ([]string, error)
 pkg authkit, type Deps struct, Entitlements func(context.Context, []string) (map[string][]string, error)
 pkg authkit, type Deps struct, KeySource keys.Source
-pkg authkit, type Deps struct, Limiter func(string, string) (bool, error)
 pkg authkit, type Deps struct, NameAdmission func(context.Context, iam.NameAdmissionRequest) error
 pkg authkit, type Deps struct, OnEvent func(context.Context, iam.Event) error
 pkg authkit, type Deps struct, OnPurge func(context.Context, iam.UserDeletion) error

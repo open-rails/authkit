@@ -10,6 +10,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
+	"github.com/open-rails/authkit/internal/ratelimit"
 
 	"github.com/open-rails/authkit/provider"
 )
@@ -20,7 +21,7 @@ type Service struct {
 	cfg                 config.Config     // normalized
 	http                config.HTTPConfig // *cfg.HTTP
 	wrap                func(iam.Route, http.Handler) http.Handler
-	rl                  RateLimiter
+	rl                  ratelimit.Limiter
 	closers             []func() // background work stopped by Close (#305)
 	clientIP            ClientIPFunc
 	clientIPExplicit    bool                         // Deps.ClientIP: host owns the strategy; proxy sets are not composed
@@ -32,23 +33,10 @@ type Service struct {
 	providers           map[string]provider.Provider // validated, keyed by Name()
 }
 
-// limiterErrorResult is the verdict when the limiter's backend fails: refused,
-// unless the bucket guards no secret (bucket.failOpen).
-func limiterErrorResult(name string) RateLimitResult {
-	return RateLimitResult{Allowed: buckets[name].failOpen}
-}
-
+// rateLimited spends one request of bucket's budget for the client address
+// and writes the 429 once it is spent.
 func (s *Service) rateLimited(w http.ResponseWriter, r *http.Request, bucket string) bool {
-	result := s.allowResult(r, bucket)
-	if result.Allowed {
-		return false
-	}
-	if result.Availability != nil {
-		tooManyAvailability(w, *result.Availability)
-		return true
-	}
-	tooMany(w, result.RetryAfter)
-	return true
+	return s.limited(w, r, bucket, bucket+":ip:"+s.addressKey(r))
 }
 
 // rateLimitedByIdentifier checks an additional per-identifier key for the given
@@ -56,61 +44,38 @@ func (s *Service) rateLimited(w http.ResponseWriter, r *http.Request, bucket str
 // is small (one-time codes) or to stop one address being flooded with messages;
 // never for passwords, where it would let strangers lock accounts out.
 //
-// identifier should be normalised (lowercased / trimmed) before being passed in.
 // An empty identifier is a no-op (returns false).
 func (s *Service) rateLimitedByIdentifier(w http.ResponseWriter, r *http.Request, bucket, identifier string) bool {
-	if strings.TrimSpace(identifier) == "" {
+	identifier = strings.ToLower(strings.TrimSpace(identifier))
+	if identifier == "" {
 		return false
 	}
-	// Build and check the per-identifier key (separate from the IP key).
-	idKey := bucket + ":id:" + strings.ToLower(strings.TrimSpace(identifier))
-	result := s.allowResultForKey(bucket, idKey)
+	return s.limited(w, r, bucket, bucket+":id:"+identifier)
+}
+
+// limited spends one request of key's budget in bucket; once it is spent it
+// writes the 429 with Retry-After and the budget.
+func (s *Service) limited(w http.ResponseWriter, r *http.Request, bucket, key string) bool {
+	result := s.rl.Allow(r.Context(), bucket, key)
 	if result.Allowed {
 		return false
 	}
-	if result.Availability != nil {
-		tooManyAvailability(w, *result.Availability)
-		return true
-	}
-	tooMany(w, result.RetryAfter)
+	tooMany(w, availabilityFromRateLimit(bucket, result, time.Now()))
 	return true
 }
 
-// allowResultForKey is like allowResult but accepts an explicit key instead of deriving one from
-// the request IP.  Used by rateLimitedByIdentifier to check a second, identifier-scoped key.
-func (s *Service) allowResultForKey(bucket, key string) RateLimitResult {
-	if s == nil || s.rl == nil {
-		return RateLimitResult{Allowed: true}
-	}
-	if rl, ok := s.rl.(RateLimiterWithResult); ok {
-		result, err := rl.AllowNamedResult(bucket, key)
-		if err != nil {
-			return limiterErrorResult(bucket)
-		}
-		availability := availabilityFromRateLimit(bucket, result, time.Now())
-		return RateLimitResult{Allowed: result.Allowed, RetryAfter: result.RetryAfter, Availability: &availability}
-	}
-	ok, err := s.rl.AllowNamed(bucket, key)
-	if err != nil {
-		return limiterErrorResult(bucket)
-	}
-	return RateLimitResult{Allowed: ok}
-}
-
-func (s *Service) allowResult(r *http.Request, bucket string) RateLimitResult {
-	if s == nil || s.rl == nil {
-		return RateLimitResult{Allowed: true}
-	}
+// addressKey is the client address a budget is kept for. Requests without
+// one share a single budget: never exempt.
+func (s *Service) addressKey(r *http.Request) string {
 	ip := strings.TrimSpace(s.requestIP(r))
 	if ip == "" {
-		// Never exempt: every request without an address shares one budget.
 		s.unknownAddressOnce.Do(func() {
 			slog.Default().Warn("authkit: a request has no client address, so every such request shares one rate-limit budget; declare what sits in front of AuthKit (HTTPConfig.TrustedProxies, CloudflareProxies, DirectPeerIP or ClientIP)")
 		})
-		return s.allowResultForKey(bucket, bucket+":ip:unknown")
+		return "unknown"
 	}
 	s.undeclaredProxyTripwire(r, ip)
-	return s.allowResultForKey(bucket, bucket+":ip:"+rateLimitAddress(ip))
+	return rateLimitAddress(ip)
 }
 
 // rateLimitAddress keys IPv6 clients by /64: one subscriber usually holds a

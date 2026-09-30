@@ -25,6 +25,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"sync"
@@ -76,7 +77,7 @@ func WithDeps(fn func(*authkit.Deps)) Option {
 //
 //   - Token: Issuer and Audience.
 //   - TwoFactor.TOTPSecretKey: random, so authenticator apps can enroll.
-//   - HTTP: served (DirectPeerIP), without rate limits (Deps.Limiter).
+//   - HTTP: served (DirectPeerIP), with every rate limit lifted (RateLimits).
 //   - Deps.KeySource: an RSA key generated once per test binary.
 //   - Schema and River.Schema: the scratch schema, unless set.
 //
@@ -95,9 +96,9 @@ func New(t testing.TB, opts ...Option) (*authkit.Client, *Outbox) {
 	cfg := authkit.Config{
 		Token:     authkit.TokenConfig{Issuer: Issuer, IssuedAudiences: []string{Audience}},
 		TwoFactor: authkit.TwoFactorConfig{TOTPSecretKey: key},
-		HTTP:      &authkit.HTTPConfig{DirectPeerIP: true},
+		HTTP:      &authkit.HTTPConfig{DirectPeerIP: true, RateLimits: unlimited()},
 	}
-	deps := authkit.Deps{KeySource: signingKeys(), Email: outbox.Email(), SMS: outbox.SMS(), Limiter: unlimited}
+	deps := authkit.Deps{KeySource: signingKeys(), Email: outbox.Email(), SMS: outbox.SMS()}
 	for _, fn := range s.config {
 		fn(&cfg)
 	}
@@ -226,5 +227,11 @@ func scratchSchema(t testing.TB, pool *pgxpool.Pool) string {
 	return name
 }
 
-// unlimited is a rate limiter that allows every request.
-func unlimited(string, string) (bool, error) { return true, nil }
+// unlimited lifts every rate-limit bucket out of a test's way.
+func unlimited() map[string]authkit.RateLimit {
+	limits := authkit.DefaultRateLimits()
+	for bucket := range limits {
+		limits[bucket] = authkit.RateLimit{Limit: math.MaxInt32, Window: time.Millisecond}
+	}
+	return limits
+}

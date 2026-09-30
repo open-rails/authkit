@@ -114,9 +114,10 @@ func TestRuntimeHTTPBuildFailureReleasesEverything(t *testing.T) {
 	require.Equal(t, user.ID, cl.UserID)
 }
 
-// The Client owns the HTTP layer's background workers: the memory limiter's
-// sweep (Redis needs none) stops at Close, however often it runs, and a failed
-// construction strands none. The host's pool and Redis stay usable.
+// The Client owns the HTTP layer's background workers: the sweep of the
+// in-process limiter (Redis's fallback included) stops at Close, however often
+// it runs, and a failed construction strands none. The host's pool and Redis
+// stay usable.
 func TestRuntimeOwnsConfiguredHTTPWorkers(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
@@ -168,7 +169,7 @@ func TestRuntimeOwnsConfiguredHTTPWorkers(t *testing.T) {
 				require.Nil(t, runtime)
 			} else {
 				require.NoError(t, err)
-				require.Equal(t, !tc.redis, labelled("internal/ratelimit/memory."), "only the memory limiter starts a sweep worker")
+				require.True(t, labelled("internal/ratelimit/memory."), "the in-process limiter sweeps idle buckets")
 				runtime.Close()
 				runtime.Close()
 			}

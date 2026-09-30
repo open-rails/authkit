@@ -86,8 +86,8 @@ func generousLimits(c *authkit.HTTPConfig) {
 
 // newHost is authtest.New on a scratch database of the test's own (schema
 // profiles, River in public) with the host's issuer, keys, policy and HTTP
-// surface, then opts. It drops authtest's unlimited Deps.Limiter, so rate
-// limits are real.
+// surface, then opts. Its HTTPConfig drops authtest's lifted rate limits, so
+// the limits are real.
 func newHost(t *testing.T, opts ...authtest.Option) *host {
 	t.Helper()
 	pg := testdb.EmptyScratchPostgres(t)
@@ -108,7 +108,6 @@ func newHost(t *testing.T, opts ...authtest.Option) *host {
 		authtest.WithDeps(func(d *authkit.Deps) {
 			d.Postgres = pg.Pool
 			d.KeySource = testkeys.Source(s)
-			d.Limiter = nil
 		}),
 	}, opts...)
 	opts = append(opts,

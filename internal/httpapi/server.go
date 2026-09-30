@@ -8,12 +8,13 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/internal/config"
+	"github.com/open-rails/authkit/internal/ratelimit"
 
 	memorylimiter "github.com/open-rails/authkit/internal/ratelimit/memory"
 	redislimiter "github.com/open-rails/authkit/internal/ratelimit/redis"
 )
 
-// Close stops the background work New started: the memory limiter sweep.
+// Close stops the background work New started: the in-process limiter sweep.
 // The engine and Redis client are borrowed and remain owned by the host.
 // Idempotent; safe on a nil Service.
 func (s *Service) Close() {
@@ -61,10 +62,6 @@ func New(client Backend, cfg config.Config, deps config.Deps) (*Service, error) 
 	}
 	s.providers = providers
 
-	if deps.Limiter != nil {
-		s.rl = limiterFunc(deps.Limiter)
-		return s, nil
-	}
 	limits := DefaultRateLimits()
 	for bucket, lim := range h.RateLimits {
 		if _, ok := limits[bucket]; !ok {
@@ -72,28 +69,22 @@ func New(client Backend, cfg config.Config, deps config.Deps) (*Service, error) 
 		}
 		limits[bucket] = lim
 	}
-	if deps.Redis != nil {
-		rl, err := redislimiter.New(deps.Redis, limits, h.RedisKeyPrefix+"ratelimit:")
-		if err != nil {
-			return nil, err
-		}
-		s.rl = rl
-		slog.Info("authkit: rate limiter", "backend", "redis")
-		return s, nil
+	var rl interface {
+		ratelimit.Limiter
+		StartCleanup(context.Context, time.Duration)
 	}
-	ml, err := memorylimiter.New(limits)
+	if deps.Redis != nil {
+		rl, err = redislimiter.New(deps.Redis, limits, h.RedisKeyPrefix+"ratelimit:")
+	} else {
+		rl, err = memorylimiter.New(limits)
+		slog.Warn("authkit: Redis not configured; rate limits are per-process, so each replica counts separately")
+	}
 	if err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	ml.StartCleanup(ctx, time.Minute)
+	rl.StartCleanup(ctx, time.Minute)
 	s.closers = append(s.closers, cancel)
-	s.rl = ml
-	slog.Warn("authkit: Redis not configured; rate limits are per-process, so each replica counts separately")
+	s.rl = rl
 	return s, nil
 }
-
-// limiterFunc is Deps.Limiter as a RateLimiter.
-type limiterFunc func(bucket, key string) (bool, error)
-
-func (f limiterFunc) AllowNamed(bucket, key string) (bool, error) { return f(bucket, key) }

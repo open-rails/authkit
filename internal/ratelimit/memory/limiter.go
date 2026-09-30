@@ -1,10 +1,10 @@
-// Package memorylimiter is the in-memory sliding-window rate limiter over
-// ratelimit.Limit buckets.
+// Package memorylimiter is the in-process sliding-window rate limiter over
+// ratelimit.Limit buckets: AuthKit's limiter without Redis, and the Redis
+// limiter's fallback.
 package memorylimiter
 
 import (
 	"context"
-	"fmt"
 	"maps"
 	"sync"
 	"time"
@@ -25,8 +25,7 @@ type bucketState struct {
 // maxBuckets caps distinct (key, bucket) states held in memory (#305).
 const maxBuckets = 100_000
 
-// Limiter is an in-memory sliding-window rate limiter.
-// It is intended as a single-node fallback when Redis is unavailable.
+// Limiter is an in-process sliding-window rate limiter.
 type Limiter struct {
 	mu      sync.Mutex
 	limits  map[string]ratelimit.Limit
@@ -41,32 +40,14 @@ func New(limits map[string]ratelimit.Limit) (*Limiter, error) {
 	return &Limiter{limits: maps.Clone(limits), buckets: make(map[string]*bucketState)}, nil
 }
 
-// AllowNamed matches the auth adapter's RateLimiter interface.
-// It uses a simple sliding window over the configured duration, pruning
-// expired entries for the touched bucket on each call.
-//
-// Note that per-call pruning only ever touches buckets that are still being
-// hit; buckets for keys that go idle (e.g. a one-off request from an IP that
-// never returns) are never revisited and would otherwise live forever. Hosts
-// exposing this limiter on attacker-influenced keys (per-IP, per-identifier)
-// should run StartCleanup so idle buckets are reclaimed. See Cleanup.
-func (l *Limiter) AllowNamed(bucket, key string) (bool, error) {
-	result, err := l.AllowNamedResult(bucket, key)
-	return result.Allowed, err
-}
-
-func (l *Limiter) AllowNamedResult(bucket, key string) (ratelimit.Result, error) {
-	if l == nil {
-		return ratelimit.Result{Allowed: true}, nil
-	}
-	if bucket == "" || key == "" {
-		return ratelimit.Result{}, fmt.Errorf("bucket and key required")
-	}
-
+// Allow uses a sliding window over the bucket's duration, pruning the
+// touched bucket's expired entries. Buckets whose keys go idle are reclaimed
+// only by Cleanup, so StartCleanup must run.
+func (l *Limiter) Allow(_ context.Context, bucket, key string) ratelimit.Result {
 	lim, _ := ratelimit.LookupLimit(l.limits, bucket)
 	nowMs := time.Now().UnixMilli()
 	windowStart := nowMs - lim.Window.Milliseconds()
-	limitKey := fmt.Sprintf("%s:%s", key, bucket)
+	limitKey := key + ":" + bucket
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -77,7 +58,7 @@ func (l *Limiter) AllowNamedResult(bucket, key string) (ratelimit.Result, error)
 			return ratelimit.Result{
 				Allowed: false, RetryAfter: lim.Window, Reason: ratelimit.ReasonLimitExceeded,
 				Limit: lim.Limit, Window: lim.Window, Cooldown: lim.Cooldown,
-			}, nil
+			}
 		}
 		b = &bucketState{}
 		l.buckets[limitKey] = b
@@ -126,7 +107,7 @@ func (l *Limiter) AllowNamedResult(bucket, key string) (ratelimit.Result, error)
 			Remaining:  ratelimit.Remaining(lim.Limit, int64(len(ts))),
 			Window:     lim.Window,
 			Cooldown:   lim.Cooldown,
-		}, nil
+		}
 	}
 
 	// Record this request and allow. (ts is non-empty here, so there is no
@@ -141,19 +122,16 @@ func (l *Limiter) AllowNamedResult(bucket, key string) (ratelimit.Result, error)
 		Remaining: ratelimit.Remaining(lim.Limit, int64(len(ts))),
 		Window:    lim.Window,
 		Cooldown:  lim.Cooldown,
-	}, nil
+	}
 }
 
 // Cleanup prunes expired timestamps from every bucket and deletes buckets that
 // have no live timestamps left, then returns the number of buckets still
-// retained. It is safe to call concurrently with AllowNamed* and is the
+// retained. It is safe to call concurrently with Allow and is the
 // mechanism that bounds memory when the limiter is keyed on a high-cardinality,
 // attacker-influenced dimension (per-IP, per-identifier): without it, every
 // distinct key leaves behind a bucket that is never revisited.
 func (l *Limiter) Cleanup() int {
-	if l == nil {
-		return 0
-	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.cleanupLocked(time.Now().UnixMilli())
@@ -192,7 +170,7 @@ func (l *Limiter) cleanupLocked(nowMs int64) int {
 // stop it. A non-positive interval is treated as a no-op (returns without
 // starting a goroutine) so misconfiguration can't spin a hot loop.
 func (l *Limiter) StartCleanup(ctx context.Context, interval time.Duration) {
-	if l == nil || interval <= 0 {
+	if interval <= 0 {
 		return
 	}
 	go func() {

@@ -73,12 +73,9 @@ type Deps struct {
 	NameAdmission func(context.Context, iam.NameAdmissionRequest) error
 
 	// Redis shares rate-limit counters across replicas; it holds no other
-	// AuthKit state. Without it each replica counts separately.
+	// AuthKit state. Without it, and while it fails, each process counts on
+	// its own with the same limits.
 	Redis redis.UniversalClient
-	// Limiter replaces AuthKit's rate limiter: it reports whether one more
-	// request is allowed in bucket for key. At most one of Redis and Limiter
-	// may be set.
-	Limiter func(bucket, key string) (bool, error)
 	// ClientIP extracts the client address, replacing the proxy handling of
 	// HTTPConfig.
 	ClientIP func(*http.Request) string
