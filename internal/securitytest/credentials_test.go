@@ -159,14 +159,14 @@ func TestSecurityAPIKeysNeedPersonaOptIn(t *testing.T) {
 func (h *host) registerApp(group iam.GroupRef, registrar account, slug, role string) iam.RemoteApplication {
 	h.t.Helper()
 	actor := iam.UserActor(registrar.id)
-	app, err := h.upsertGroupApp(actor, group, slug, "https://"+slug+".security.test", publicKeyPEM(h.t), true)
+	app, err := h.upsertGroupApp(actor, group, "https://"+slug+".security.test", publicKeyPEM(h.t), true)
 	require.NoError(h.t, err)
 	require.NoError(h.t, setRole(h.auth, h.t.Context(), actor, group, iam.RemoteApplicationSubject(app.ID), roleIn(h.t, h.auth, group, role)))
 	return app
 }
 
 // upsertGroupApp registers or updates a static-key application in group.
-func (h *host) upsertGroupApp(actor iam.Actor, group iam.GroupRef, slug, iss, keyPEM string, enabled bool) (iam.RemoteApplication, error) {
+func (h *host) upsertGroupApp(actor iam.Actor, group iam.GroupRef, iss, keyPEM string, enabled bool) (iam.RemoteApplication, error) {
 	return h.auth.UpsertRemoteApplication(h.t.Context(), actor, group, iam.RemoteApplication{
 		Issuer: iss, PublicKeys: []iam.RemoteApplicationKey{{PublicKeyPEM: keyPEM}}, Enabled: enabled,
 	})

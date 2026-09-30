@@ -86,7 +86,7 @@ func (f *factorFlow) deviceKeySession(res authAnswer) deviceKeySession {
 	require.ElementsMatch(f.t, []string{"access_token", "token_type", "expires_in"}, slices.Collect(maps.Keys(tokenSet)))
 	var device map[string]json.RawMessage
 	require.NoError(f.t, json.Unmarshal(body["device_key"], &device))
-	require.Subset(f.t, []string{"id", "label", "created_at", "last_used_at", "current"}, slices.Collect(maps.Keys(device)))
+	require.ElementsMatch(f.t, []string{"id", "label", "public_key", "created_at", "last_used_at", "revoked_at", "current"}, slices.Collect(maps.Keys(device)), "the device key is iam.DeviceKey")
 	require.JSONEq(f.t, "true", string(device["current"]))
 	var s deviceKeySession
 	require.NoError(f.t, json.Unmarshal([]byte(res.raw), &s))

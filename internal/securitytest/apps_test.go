@@ -94,7 +94,7 @@ func TestSecuritySystemApplicationRekey(t *testing.T) {
 	attacker := newSigner(t, "partner-kid")
 	_, err = h.auth.UpsertRemoteApplication(ctx, iam.UserActor(staff.id), iam.RootGroup(), iam.RemoteApplication{Issuer: partnerIssuer, PublicKeys: staticKeys(t, attacker), Enabled: true})
 	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
-	require.ErrorIs(t, h.auth.DeleteRemoteApplication(ctx, iam.UserActor(staff.id), iam.RootGroup(), "partner"), iam.ErrInsufficientAuthority)
+	require.ErrorIs(t, h.auth.DeleteRemoteApplication(ctx, iam.UserActor(staff.id), iam.RootGroup(), app.ID), iam.ErrInsufficientAuthority)
 
 	stored, err := h.auth.RemoteApplication(ctx, iam.AppByIssuer(partnerIssuer))
 	require.NoError(t, err)
@@ -108,7 +108,7 @@ func TestSecuritySystemApplicationRekey(t *testing.T) {
 		group, _ := h.newOrg(owner)
 		h.grant(group, manager, "manager")
 		register := func() error {
-			_, err := h.upsertGroupApp(iam.UserActor(manager.id), group, "rekey-app", "https://rekey-app.security.test", publicKeyPEM(t), true)
+			_, err := h.upsertGroupApp(iam.UserActor(manager.id), group, "https://rekey-app.security.test", publicKeyPEM(t), true)
 			return err
 		}
 		require.NoError(t, register())
@@ -119,7 +119,7 @@ func TestSecuritySystemApplicationRekey(t *testing.T) {
 		_, err = h.pool.Exec(ctx, `INSERT INTO profiles.group_remote_application_roles(permission_group_id,remote_application_id,role) VALUES($1::uuid,$2::uuid,'root:credentials-admin')`, h.rootGroupID(), groupApp.ID)
 		require.NoError(t, err)
 		requireRefused(t, register())
-		requireRefused(t, h.auth.DeleteRemoteApplication(ctx, iam.UserActor(manager.id), group, "rekey-app"))
+		requireRefused(t, h.auth.DeleteRemoteApplication(ctx, iam.UserActor(manager.id), group, groupApp.ID))
 		_, err = h.pool.Exec(ctx, `DELETE FROM profiles.group_remote_application_roles WHERE remote_application_id=$1::uuid AND permission_group_id=$2::uuid`, groupApp.ID, h.rootGroupID())
 		require.NoError(t, err)
 		require.NoError(t, register(), "control: without the root role the manager covers it")
@@ -136,7 +136,7 @@ func TestSecurityGroupApplicationTrustRoot(t *testing.T) {
 	group, _ := h.newOrg(owner)
 	actor := iam.UserActor(owner.id)
 	const iss = "https://trust-app.security.test"
-	app, err := h.upsertGroupApp(actor, group, "trust-app", iss, publicKeyPEM(t), true)
+	app, err := h.upsertGroupApp(actor, group, iss, publicKeyPEM(t), true)
 	require.NoError(t, err)
 	require.Equal(t, iam.ApplicationTrustRootUser, app.TrustRoot)
 
@@ -149,9 +149,9 @@ func TestSecurityGroupApplicationTrustRoot(t *testing.T) {
 	app, err = h.auth.UpsertRemoteApplication(ctx, iam.SystemActor(), group, app)
 	require.NoError(t, err)
 	require.Equal(t, iam.ApplicationTrustRootManual, app.TrustRoot)
-	_, err = h.upsertGroupApp(actor, group, "trust-app", iss, publicKeyPEM(t), true)
+	_, err = h.upsertGroupApp(actor, group, iss, publicKeyPEM(t), true)
 	require.ErrorIs(t, err, iam.ErrInsufficientAuthority, "the system's application no longer changes through its group")
-	require.ErrorIs(t, h.auth.DeleteRemoteApplication(ctx, actor, group, "trust-app"), iam.ErrInsufficientAuthority)
+	require.ErrorIs(t, h.auth.DeleteRemoteApplication(ctx, actor, group, app.ID), iam.ErrInsufficientAuthority)
 }
 
 // TestSecurityApplicationMFARoles (L2): an application cannot enroll a second
@@ -252,7 +252,7 @@ func TestSecurityApplicationRegistrar(t *testing.T) {
 
 	t.Run("an API key registers no application", func(t *testing.T) {
 		key := h.issue(base+"/api-keys", ownerToken, map[string]any{"name": "ci", "role": "org:manager"})
-		_, err := h.upsertGroupApp(iam.APIKeyActor(key.ID), group, unique("keyapp"), "https://"+unique("keyapp")+".security.test", publicKeyPEM(t), true)
+		_, err := h.upsertGroupApp(iam.APIKeyActor(key.ID), group, "https://"+unique("keyapp")+".security.test", publicKeyPEM(t), true)
 		require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 	})
 	t.Run("an application never outranks its registrar", func(t *testing.T) {

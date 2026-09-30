@@ -7,7 +7,6 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -130,12 +129,12 @@ func TestSecurityRemoteApplicationTakeover(t *testing.T) {
 	require.NoError(t, err)
 	h.grant(group, manager, "manager")
 	ownerActor, managerActor := iam.UserActor(owner.id), iam.UserActor(manager.id)
-	register := func(actor iam.Actor, slug, issuer, key string, enabled bool) error {
-		_, err := h.upsertGroupApp(actor, group, slug, issuer, key, enabled)
+	register := func(actor iam.Actor, issuer, key string, enabled bool) error {
+		_, err := h.upsertGroupApp(actor, group, issuer, key, enabled)
 		return err
 	}
 	ownedKey := publicKeyPEM(t)
-	require.NoError(t, register(ownerActor, "owner-app", "https://owner-app.security.test", ownedKey, true))
+	require.NoError(t, register(ownerActor, "https://owner-app.security.test", ownedKey, true))
 	ownerApp, err := h.auth.RemoteApplication(ctx, iam.AppByIssuer("https://owner-app.security.test"))
 	require.NoError(t, err)
 	grantRole(t, h.auth, group, iam.RemoteApplicationSubject(ownerApp.ID), "owner")
@@ -145,13 +144,13 @@ func TestSecurityRemoteApplicationTakeover(t *testing.T) {
 		attack func() error
 	}{
 		{"swap the owner application's keys", func() error {
-			return register(managerActor, "owner-app", "https://owner-app.security.test", publicKeyPEM(t), true)
+			return register(managerActor, "https://owner-app.security.test", publicKeyPEM(t), true)
 		}},
 		{"disable the owner application", func() error {
-			return register(managerActor, "owner-app", "https://owner-app.security.test", ownedKey, false)
+			return register(managerActor, "https://owner-app.security.test", ownedKey, false)
 		}},
 		{"delete the owner application", func() error {
-			return h.auth.DeleteRemoteApplication(ctx, managerActor, group, "owner-app")
+			return h.auth.DeleteRemoteApplication(ctx, managerActor, group, ownerApp.ID)
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -164,12 +163,14 @@ func TestSecurityRemoteApplicationTakeover(t *testing.T) {
 		})
 	}
 	t.Run("control: manager operates an application within their authority", func(t *testing.T) {
-		require.NoError(t, register(managerActor, "member-app", "https://member-app.security.test", publicKeyPEM(t), true))
-		require.NoError(t, register(managerActor, "member-app", "https://member-app.security.test", publicKeyPEM(t), true))
-		require.NoError(t, h.auth.DeleteRemoteApplication(ctx, managerActor, group, "member-app"))
+		require.NoError(t, register(managerActor, "https://member-app.security.test", publicKeyPEM(t), true))
+		require.NoError(t, register(managerActor, "https://member-app.security.test", publicKeyPEM(t), true))
+		memberApp, err := h.auth.RemoteApplication(ctx, iam.AppByIssuer("https://member-app.security.test"))
+		require.NoError(t, err)
+		require.NoError(t, h.auth.DeleteRemoteApplication(ctx, managerActor, group, memberApp.ID))
 	})
 	t.Run("control: owner rotates the owner application's keys", func(t *testing.T) {
-		require.NoError(t, register(ownerActor, "owner-app", "https://owner-app.security.test", publicKeyPEM(t), true))
+		require.NoError(t, register(ownerActor, "https://owner-app.security.test", publicKeyPEM(t), true))
 	})
 }
 
@@ -357,19 +358,19 @@ func TestSecurityRemoteApplicationIssuerSquat(t *testing.T) {
 	}))
 	squatter := h.newAccount("squatter")
 	group, _ := h.newOrg(squatter)
-	register := func(actor account, group iam.GroupRef, slug, iss string) error {
-		_, err := h.upsertGroupApp(iam.UserActor(actor.id), group, slug, iss, publicKeyPEM(t), true)
+	register := func(actor account, group iam.GroupRef, iss string) error {
+		_, err := h.upsertGroupApp(iam.UserActor(actor.id), group, iss, publicKeyPEM(t), true)
 		return err
 	}
-	for i, reserved := range []string{issuer + "/", strings.ToUpper(issuer), "https://github.com/login/oauth"} {
-		require.ErrorIs(t, register(squatter, group, fmt.Sprintf("reserved-%d", i), reserved), iam.ErrReservedIssuer, reserved)
+	for _, reserved := range []string{issuer + "/", strings.ToUpper(issuer), "https://github.com/login/oauth"} {
+		require.ErrorIs(t, register(squatter, group, reserved), iam.ErrReservedIssuer, reserved)
 	}
 
 	const victimIssuer = "https://victim-app.security.test"
-	require.NoError(t, register(squatter, group, "squatted-app", victimIssuer))
+	require.NoError(t, register(squatter, group, victimIssuer))
 	rival := h.newAccount("squatrival")
 	rivalGroup, _ := h.newOrg(rival)
-	require.ErrorIs(t, register(rival, rivalGroup, "rival-app", victimIssuer), iam.ErrRemoteApplicationIssuerConflict)
+	require.ErrorIs(t, register(rival, rivalGroup, victimIssuer), iam.ErrRemoteApplicationIssuerConflict)
 }
 
 // TestSecurityAccountPeerRemoteApplication: a deployment sharing this account
@@ -396,7 +397,7 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 		squatter := h.newAccount("peersquatter")
 		group, _ := h.newOrg(squatter)
 		for _, iss := range []string{peerIssuer, strings.ToUpper(peerIssuer) + "/"} {
-			_, err := h.upsertGroupApp(iam.UserActor(squatter.id), group, unique("peer"), iss, publicKeyPEM(t), true)
+			_, err := h.upsertGroupApp(iam.UserActor(squatter.id), group, iss, publicKeyPEM(t), true)
 			require.ErrorIs(t, err, iam.ErrReservedIssuer, iss)
 		}
 		_, err = h.auth.RemoteApplication(ctx, iam.AppByIssuer(peerIssuer))

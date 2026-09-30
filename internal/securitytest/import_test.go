@@ -280,7 +280,7 @@ func TestSecurityImportUsers(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 4, res.Inserted)
 	require.Equal(t, iam.ImportRejected, res.Rows[4].Status)
-	require.Equal(t, "invalid_password_hash", res.Rows[4].Reason)
+	require.Equal(t, iam.ImportInvalidPasswordHash, res.Rows[4].Reason)
 	require.Equal(t, iam.ImportRow{Index: 5, UserID: res.Rows[0].UserID, MatchedBy: iam.ImportMatchEmail, Status: iam.ImportSkipped, Reason: "duplicate_in_batch"}, res.Rows[5])
 	require.Equal(t, iam.ImportRow{Index: 6, Status: iam.ImportRejected, Reason: "identifier_conflict"}, res.Rows[6])
 	require.Equal(t, declared.ID, res.Rows[3].UserID)
