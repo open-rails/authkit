@@ -1,7 +1,6 @@
 package authtest_test
 
 import (
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +12,8 @@ import (
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/devicekey"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/authkit/internal/testkeys"
 )
 
 // The helpers a host's test starts from: users, roles, sessions and an
@@ -109,31 +110,58 @@ func TestEnrollDeviceKey(t *testing.T) {
 // sensitive change.
 func TestReplicaAndStaleSession(t *testing.T) {
 	auth, _ := authtest.New(t)
+	testReplicaAndStaleSession(t, auth)
+}
+
+// Replica and StaleSession take a Client the host built itself, not only one
+// from New.
+func TestReplicaAndStaleSessionOfAHostClient(t *testing.T) {
+	pg := testdb.ScratchPostgres(t)
+	auth, err := authkit.New(t.Context(), authkit.Config{
+		Token: authkit.TokenConfig{Issuer: "https://host.example", IssuedAudiences: []string{"host"}},
+		HTTP:  &authkit.HTTPConfig{DirectPeerIP: true},
+	}, authkit.Deps{Postgres: pg.Pool, KeySource: testkeys.Source(testkeys.RSA("host-built"))})
+	require.NoError(t, err)
+	t.Cleanup(auth.Close)
+	testReplicaAndStaleSession(t, auth)
+}
+
+func testReplicaAndStaleSession(t *testing.T, auth *authkit.Client) {
+	ctx := t.Context()
 	alice := authtest.NewUser(t, auth)
 	replica := authtest.Replica(t, auth)
 	tokens := authtest.SignIn(t, replica, alice)
-	sessions, err := auth.Sessions(t.Context(), alice.ID)
+	sessions, err := auth.Sessions(ctx, alice.ID)
 	require.NoError(t, err)
 	require.Len(t, sessions, 1, "a session the replica issued is the deployment's")
 
-	api := httptest.NewServer(auth.Handler())
-	t.Cleanup(api.Close)
-	startTOTP := func(token string) (int, string) {
-		req, err := http.NewRequest(http.MethodPost, api.URL+"/api/v1/user/2fa", strings.NewReader(`{"method":"totp"}`))
-		require.NoError(t, err)
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+token)
-		resp, err := http.DefaultClient.Do(req)
-		require.NoError(t, err)
-		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
-		require.NoError(t, err)
-		return resp.StatusCode, string(body)
-	}
-	status, body := startTOTP(tokens.AccessToken)
-	require.Equal(t, http.StatusOK, status, body)
+	claims, err := auth.Verify(ctx, tokens.AccessToken)
+	require.NoError(t, err)
+	require.NoError(t, auth.CheckRecentSignIn(ctx, claims))
 	stale := authtest.StaleSession(t, auth, tokens.AccessToken)
-	status, body = startTOTP(stale)
-	require.Equal(t, http.StatusForbidden, status, body)
-	require.Contains(t, body, "step_up_required")
+	claims, err = auth.Verify(ctx, stale)
+	require.NoError(t, err)
+	requireCode(t, auth.CheckRecentSignIn(ctx, claims), "step_up_required")
+}
+
+// A deployment that requires a second factor: SignIn enrolls an
+// authenticator app with the enrollment token, then answers the second factor
+// with it on every later sign-in.
+func TestSignInFinishesARequiredEnrollment(t *testing.T) {
+	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) { c.TwoFactor.Mode = iam.TwoFactorRequired }))
+	u := authtest.NewUser(t, auth)
+	require.Nil(t, authtest.TOTPOf(u.ID))
+	for range 2 {
+		claims, err := auth.Verify(t.Context(), authtest.SignIn(t, auth, u).AccessToken)
+		require.NoError(t, err)
+		require.Contains(t, claims.AMR, "mfa")
+		require.NotNil(t, authtest.TOTPOf(u.ID), "SignIn remembers the app it enrolled")
+	}
+}
+
+func requireCode(t *testing.T, err error, code string) {
+	t.Helper()
+	e, ok := iam.AsError(err)
+	require.True(t, ok, "not an AuthKit error: %v", err)
+	require.Equal(t, code, e.Code())
 }

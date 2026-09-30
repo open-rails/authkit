@@ -434,3 +434,19 @@ func TestCredentialTransactionsProviderLinkBrowserRetainsSession(t *testing.T) {
 		require.Equal(t, claims.SessionID, sessions[0].ID)
 	})
 }
+
+// The provider redirect_uri is where clients reach AuthKit
+// (HTTPConfig.PublicURL), never the frontend's origin or the request's
+// forwarded headers.
+func TestProviderRedirectURIIsThePublicURL(t *testing.T) {
+	idp := testidp.New(t)
+	auth, _ := authtest.New(t, withProviders(idp.OIDC("idp")), authtest.WithConfig(func(c *authkit.Config) {
+		c.Frontend.BaseURL = "https://app.example"
+		c.HTTP.PublicURL = "https://auth.example"
+	}))
+	a := newAPI(t, auth)
+	start := a.do(request{method: http.MethodGet, path: "//oidc/idp/login", header: http.Header{"X-Forwarded-Host": {"evil.example"}, "X-Forwarded-Proto": {"https"}}})
+	require.Equal(t, "https://auth.example/oidc/idp/callback", idp.Authorize(t, startProviderFlow(t, start).authURL).RedirectURI)
+	page := startProviderFlow(t, a.post("/oidc/idp/login/start", "", map[string]any{}))
+	require.Equal(t, "https://auth.example/oidc/idp/callback", idp.Authorize(t, page.authURL).RedirectURI)
+}

@@ -17,8 +17,8 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/config"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/naming"
 	"github.com/open-rails/authkit/internal/testidp"
 )
