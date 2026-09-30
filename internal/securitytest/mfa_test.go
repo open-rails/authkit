@@ -22,19 +22,6 @@ func behindProxy(c *authkit.HTTPConfig) {
 
 func from(ip string) http.Header { return http.Header{"X-Forwarded-For": {ip}} }
 
-type challenge struct {
-	Error struct {
-		Code     string `json:"code"`
-		Metadata struct {
-			UserID           string `json:"user_id"`
-			Challenge        string `json:"challenge"`
-			AvailableFactors []struct {
-				ID string `json:"id"`
-			} `json:"available_factors"`
-		} `json:"metadata"`
-	} `json:"error"`
-}
-
 // enrollEmail2FA turns on the email second factor through the public routes
 // and returns the backup codes it issued.
 func (h *host) enrollEmail2FA(a account) []string {
@@ -84,17 +71,13 @@ func (h *host) passwordStep(a account, ip string) challenge {
 	h.t.Helper()
 	resp := h.do(request{method: http.MethodPost, path: "/password/login", header: from(ip),
 		body: map[string]string{"identifier": a.email, "password": password}})
-	require.Equal(h.t, http.StatusForbidden, resp.status, resp.String())
-	var ch challenge
-	resp.json(h.t, &ch)
-	require.Equal(h.t, "2fa_required", ch.Error.Code)
-	return ch
+	return secondFactor(h.t, resp)
 }
 
 func (h *host) secondStep(a account, ch challenge, code, ip string) response {
 	h.t.Helper()
 	return h.do(request{method: http.MethodPost, path: "/2fa/verify", header: from(ip),
-		body: map[string]string{"user_id": a.id, "challenge": ch.Error.Metadata.Challenge, "code": code}})
+		body: map[string]string{"user_id": a.id, "challenge": ch.Challenge, "code": code}})
 }
 
 func wrongCode(code string) string {
@@ -115,12 +98,11 @@ func TestSecuritySecondFactorLockout(t *testing.T) {
 	ch := h.passwordStep(victim, "198.51.100.7")
 	code := h.mail.Last(t, iam.MessageLoginCode, victim.email).Code
 	for i := range 12 {
-		junk := challenge{}
-		junk.Error.Metadata.Challenge = fmt.Sprintf("forged-challenge-%d", i)
+		junk := challenge{Challenge: fmt.Sprintf("forged-challenge-%d", i)}
 		resp := h.secondStep(victim, junk, "000000", fmt.Sprintf("203.0.113.%d", i+1))
 		require.GreaterOrEqual(t, resp.status, 400)
 		resp = h.do(request{method: http.MethodPost, path: "/2fa/challenge", header: from(fmt.Sprintf("192.0.2.%d", i+1)),
-			body: map[string]string{"user_id": victim.id, "challenge": junk.Error.Metadata.Challenge, "factor_id": "x"}})
+			body: map[string]string{"user_id": victim.id, "challenge": junk.Challenge, "factor_id": "x"}})
 		require.GreaterOrEqual(t, resp.status, 400)
 	}
 	resp := h.secondStep(victim, ch, code, "198.51.100.7")
@@ -134,11 +116,9 @@ func TestSecuritySecondFactorGuessBudget(t *testing.T) {
 	a := h.newAccount("mfabudget")
 	h.enrollEmail2FA(a)
 	ch := h.passwordStep(a, "198.51.100.20")
-	var factor string
-	if len(ch.Error.Metadata.AvailableFactors) > 0 {
-		factor = ch.Error.Metadata.AvailableFactors[0].ID
-	}
+	factor := ch.Factor.ID
 	require.NotEmpty(t, factor)
+	require.Equal(t, "email", ch.Factor.Method)
 	ip := 0
 	next := func() string { ip++; return fmt.Sprintf("203.0.113.%d", ip) }
 	for round := range 3 {
@@ -148,9 +128,12 @@ func TestSecuritySecondFactorGuessBudget(t *testing.T) {
 			require.Equal(t, http.StatusUnauthorized, resp.status, resp.String())
 		}
 		resp := h.do(request{method: http.MethodPost, path: "/2fa/challenge", header: from(next()),
-			body: map[string]string{"user_id": a.id, "challenge": ch.Error.Metadata.Challenge, "factor_id": factor}})
+			body: map[string]string{"user_id": a.id, "challenge": ch.Challenge, "factor_id": factor}})
 		if round < 2 {
-			require.Equal(t, http.StatusForbidden, resp.status, resp.String())
+			// A resend is the sign-in's next step again, not an error.
+			resent := secondFactor(t, resp)
+			require.Equal(t, ch.Challenge, resent.Challenge)
+			require.Equal(t, factor, resent.Factor.ID)
 		}
 	}
 	code := h.mail.Last(t, iam.MessageLoginCode, a.email).Code

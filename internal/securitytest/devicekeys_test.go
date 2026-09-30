@@ -268,7 +268,7 @@ func TestSecurityDeviceKeyRefusedBeforeBackupCode(t *testing.T) {
 
 	signInWithBackup := func(a account, code string) response {
 		ch := h.passwordStep(a, "198.51.100.44")
-		return h.post("/2fa/verify", map[string]any{"user_id": a.id, "challenge": ch.Error.Metadata.Challenge, "code": code, "backup_code": true}, "")
+		return h.post("/2fa/verify", map[string]any{"user_id": a.id, "challenge": ch.Challenge, "code": code, "backup_code": true}, "")
 	}
 	t.Run("revoked", func(t *testing.T) {
 		for range 2 {

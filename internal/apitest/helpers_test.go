@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -20,6 +21,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/testidp"
 	"github.com/open-rails/authkit/internal/testkeys"
@@ -191,46 +193,75 @@ func expect(t *testing.T, status int, res response) response {
 }
 
 // authAnswer is a sign-in, factor or credential route's answer, decoded as far
-// as the tests read it: a session (flat, or nested with the signed-in user and
-// where to return to), an enrollment's secret and backup codes, or the error
-// that continues the flow.
+// as the tests read it: an AuthResult (a session, or the step it waits on), a
+// factor's setup secret and backup codes with the sign-in it finished (auth),
+// or an error.
 type authAnswer struct {
 	status int
 	raw    string
-	iam.TokenSet
-	Nested      iam.TokenSet `json:"token_set"`
-	ReturnTo    string       `json:"return_to"`
-	Secret      string       `json:"secret"`
-	BackupCodes []string     `json:"backup_codes"`
-	User        struct {
-		ID    string  `json:"id"`
-		Email *string `json:"email"`
-	} `json:"user"`
-	Error struct {
+	httpapi.AuthResult
+	Secret      string              `json:"secret"`
+	BackupCodes []string            `json:"backup_codes"`
+	Auth        *httpapi.AuthResult `json:"auth"`
+	Error       struct {
 		Code     string `json:"code"`
+		Param    string `json:"param"`
 		Metadata struct {
-			UserID           string       `json:"user_id"`
-			Challenge        string       `json:"challenge"`
-			Method           string       `json:"method"`
-			TokenSet         iam.TokenSet `json:"token_set"`
-			AllowedMethods   []string     `json:"allowed_methods"`
-			AvailableFactors []struct {
-				ID     string `json:"id"`
-				Method string `json:"method"`
-			} `json:"available_factors"`
-			Recovery struct {
-				Token string `json:"token"`
-			} `json:"recovery"`
+			Method string `json:"method"` // 2fa_required
 		} `json:"metadata"`
 	} `json:"error"`
 }
 
-// tokens is the answer's session.
+// tokens is the answer's session: the AuthResult's, or the sign-in a factor's
+// creation finished.
 func (s authAnswer) tokens() iam.TokenSet {
-	if s.Nested.AccessToken != "" {
-		return s.Nested
+	switch {
+	case s.TokenSet != nil:
+		return *s.TokenSet
+	case s.Auth != nil && s.Auth.TokenSet != nil:
+		return *s.Auth.TokenSet
 	}
-	return s.TokenSet
+	return iam.TokenSet{}
+}
+
+// signedIn requires the answer to be a complete sign-in and returns its
+// session.
+func (s authAnswer) signedIn(t testing.TB) iam.TokenSet {
+	t.Helper()
+	require.Equal(t, http.StatusOK, s.status, s.raw)
+	require.Equal(t, httpapi.AuthComplete, s.Status, s.raw)
+	require.NotNil(t, s.TokenSet, s.raw)
+	require.NotNil(t, s.User, s.raw)
+	return *s.TokenSet
+}
+
+// step requires the answer to be a sign-in waiting on status.
+func (s authAnswer) step(t testing.TB, status httpapi.AuthStatus) authAnswer {
+	t.Helper()
+	require.Equal(t, http.StatusOK, s.status, s.raw)
+	require.Equal(t, status, s.Status, s.raw)
+	require.Nil(t, s.TokenSet, s.raw)
+	return s
+}
+
+// secondFactor is a second_factor_required answer's step.
+func (s authAnswer) secondFactor(t testing.TB) httpapi.SecondFactorStep {
+	t.Helper()
+	return *s.step(t, httpapi.AuthSecondFactorRequired).SecondFactor
+}
+
+// enrollment is an enrollment_required answer's step.
+func (s authAnswer) enrollment(t testing.TB) httpapi.EnrollmentStep {
+	t.Helper()
+	return *s.step(t, httpapi.AuthEnrollmentRequired).Enrollment
+}
+
+// recovery is an account_recovery_required answer's recovery token.
+func (s authAnswer) recovery(t testing.TB) string {
+	t.Helper()
+	token := s.step(t, httpapi.AuthAccountRecoveryRequired).Recovery.Token
+	require.NotEmpty(t, token)
+	return token
 }
 
 // answer decodes the body, which must be JSON unless empty.
@@ -511,24 +542,44 @@ func callbackFragment(t *testing.T, res response) url.Values {
 	return fragment
 }
 
-// providerSignIn signs id in at provider as a page does: a POST start
+// providerSignIn signs id in at provider as a page does: the JSON start
 // (returning to /checkout, carrying invite), the IdP's redirect back, and the
 // callback answered as JSON.
 func providerSignIn(t *testing.T, a *api, idp *testidp.IdP, provider string, id testidp.Identity, invite string) response {
 	t.Helper()
-	f := startProviderFlow(t, a.post("//oidc/"+provider+"/login", "", map[string]string{"return_to": "/checkout", "account_invite_token": invite}))
+	f := startProviderFlow(t, a.post("/oidc/"+provider+"/login/start", "", map[string]string{"return_to": "/checkout", "invite_code": invite}))
 	q := idp.Redirect(t, f.authURL, id)
 	q.Set("format", "json")
 	return f.callback(a, provider, q)
 }
 
 // providerBrowserSignIn is providerSignIn answered as a browser redirect: the
-// fragment it hands the page.
+// fragment it hands the page, which carries a one-time code, never a token.
 func providerBrowserSignIn(t *testing.T, a *api, idp *testidp.IdP, provider string, id testidp.Identity) url.Values {
 	t.Helper()
-	f := startProviderFlow(t, a.post("//oidc/"+provider+"/login", "", map[string]string{"return_to": "/checkout"}))
-	return callbackFragment(t, f.callback(a, provider, idp.Redirect(t, f.authURL, id)))
+	f := startProviderFlow(t, a.post("/oidc/"+provider+"/login/start", "", map[string]string{"return_to": "/checkout"}))
+	fragment := callbackFragment(t, f.callback(a, provider, idp.Redirect(t, f.authURL, id)))
+	requireNoTokens(t, fragment.Encode())
+	return fragment
 }
+
+// exchange trades a browser OIDC result's one-time code for its AuthResult.
+func exchange(t testing.TB, a *api, code string) authAnswer {
+	t.Helper()
+	return a.post("/oidc/exchange", "", map[string]string{"code": code}).answer(t)
+}
+
+// requireNoTokens requires text (a URL, a fragment, a posted message) to carry
+// no token.
+func requireNoTokens(t testing.TB, text string) {
+	t.Helper()
+	for _, key := range []string{"access_token", "refresh_token", "token_set", "enrollment_token"} {
+		require.NotContains(t, text, key)
+	}
+	require.False(t, jwtPattern.MatchString(text), "a JWT in %s", text)
+}
+
+var jwtPattern = regexp.MustCompile(`eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*\.`)
 
 // createKey is CreateAPIKey's key and its token.
 func createKey(auth *authkit.Client, ctx context.Context, actor iam.Actor, ref iam.GroupRef, k iam.NewAPIKey) (iam.APIKey, string, error) {

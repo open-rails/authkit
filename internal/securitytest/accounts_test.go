@@ -10,6 +10,7 @@ import (
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/stretchr/testify/require"
 )
 
@@ -509,8 +510,7 @@ func TestSecurityEmailFactorIsPinned(t *testing.T) {
 	require.Less(t, resp.status, 300, resp.String())
 
 	resp = h.post("/password/login", map[string]string{"identifier": evil, "password": chosen}, "")
-	require.Equal(t, http.StatusForbidden, resp.status, "the reset alone signed in an account with a second factor: %s", resp)
-	require.Equal(t, "2fa_required", resp.errorCode())
+	require.Equal(t, httpapi.AuthSecondFactorRequired, authResult(t, resp).Status, "the reset alone signed in an account with a second factor: %s", resp)
 	require.Empty(t, h.mail.Messages(iam.MessageLoginCode, evil), "a second-factor code went to the address staff set")
 	var pinned *string
 	require.NoError(t, h.pool.QueryRow(ctx, `SELECT email FROM profiles.mfa_factors WHERE user_id=$1::uuid AND method='email'`, target.id).Scan(&pinned))
@@ -518,9 +518,8 @@ func TestSecurityEmailFactorIsPinned(t *testing.T) {
 	require.Equal(t, target.email, *pinned)
 
 	t.Run("control: the code at the proven address completes the sign-in", func(t *testing.T) {
-		var ch challenge
-		resp.json(t, &ch)
-		resp := h.post("/2fa/verify", map[string]string{"user_id": target.id, "challenge": ch.Error.Metadata.Challenge,
+		ch := secondFactor(t, resp)
+		resp := h.post("/2fa/verify", map[string]string{"user_id": target.id, "challenge": ch.Challenge,
 			"code": h.mail.Last(t, iam.MessageLoginCode, target.email).Code}, "")
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
 	})
@@ -648,10 +647,8 @@ func TestSecurityEmailFactorFollowsOwnChange(t *testing.T) {
 
 	sent := len(h.mail.Messages(iam.MessageLoginCode, a.email))
 	resp = h.post("/password/login", map[string]string{"identifier": moved, "password": password}, "")
-	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
-	var ch challenge
-	resp.json(t, &ch)
-	resp = h.post("/2fa/verify", map[string]string{"user_id": a.id, "challenge": ch.Error.Metadata.Challenge,
+	ch := secondFactor(t, resp)
+	resp = h.post("/2fa/verify", map[string]string{"user_id": a.id, "challenge": ch.Challenge,
 		"code": h.mail.Last(t, iam.MessageLoginCode, moved).Code}, "")
 	require.Equal(t, http.StatusOK, resp.status, resp.String())
 	require.Equal(t, sent, len(h.mail.Messages(iam.MessageLoginCode, a.email)), "a login code went to the old mailbox")

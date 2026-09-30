@@ -22,6 +22,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/testkeys"
 	"github.com/open-rails/authkit/keys"
@@ -274,14 +275,32 @@ func (h *host) verifyEmail(id string) {
 func (h *host) login(a account) tokens {
 	h.t.Helper()
 	resp := h.post("/password/login", map[string]string{"identifier": a.email, "password": password}, "")
-	if resp.status == http.StatusForbidden && resp.errorCode() == "2fa_required" {
-		var ch challenge
-		resp.json(h.t, &ch)
-		resp = h.post("/2fa/verify", map[string]string{"user_id": a.id, "challenge": ch.Error.Metadata.Challenge,
+	if res := authResult(h.t, resp); res.Status == httpapi.AuthSecondFactorRequired {
+		resp = h.post("/2fa/verify", map[string]string{"user_id": a.id, "challenge": res.SecondFactor.Challenge,
 			"code": h.mail.Last(h.t, iam.MessageLoginCode, a.email).Code}, "")
 	}
-	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
 	return session(h.t, resp)
+}
+
+// authResult decodes a sign-in's answer: 200 and its AuthResult.
+func authResult(t *testing.T, r response) httpapi.AuthResult {
+	t.Helper()
+	require.Equal(t, http.StatusOK, r.status, r.String())
+	var res httpapi.AuthResult
+	r.json(t, &res)
+	return res
+}
+
+// challenge is a sign-in waiting on its second factor.
+type challenge = httpapi.SecondFactorStep
+
+// secondFactor requires r to be a sign-in waiting on its second factor.
+func secondFactor(t *testing.T, r response) challenge {
+	t.Helper()
+	res := authResult(t, r)
+	require.Equal(t, httpapi.AuthSecondFactorRequired, res.Status, r.String())
+	require.NotNil(t, res.SecondFactor)
+	return *res.SecondFactor
 }
 
 func (h *host) refresh(refreshToken string) response {

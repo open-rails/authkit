@@ -14,6 +14,7 @@ import (
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/testidp"
 	"github.com/open-rails/authkit/provider"
 	"github.com/stretchr/testify/require"
@@ -34,19 +35,18 @@ func (h *host) providerCallback(idp *testidp.IdP, name string, id testidp.Identi
 	return h.do(request{method: http.MethodGet, path: "//oidc/" + name + "/callback?" + q.Encode(), cookies: start.cookies})
 }
 
-// session reads a token set from either the flat or the nested response shape.
+// session is a complete sign-in's tokens.
 func session(t *testing.T, r response) tokens {
 	t.Helper()
-	var flat struct {
-		tokens
-		TokenSet *tokens `json:"token_set"`
+	res := authResult(t, r)
+	require.Equal(t, httpapi.AuthComplete, res.Status, r.String())
+	require.NotNil(t, res.TokenSet, r.String())
+	out := tokens{AccessToken: res.TokenSet.AccessToken}
+	if res.TokenSet.RefreshToken != nil {
+		out.RefreshToken = *res.TokenSet.RefreshToken
 	}
-	r.json(t, &flat)
-	if flat.TokenSet != nil && flat.TokenSet.AccessToken != "" {
-		return *flat.TokenSet
-	}
-	require.NotEmpty(t, flat.AccessToken, r.String())
-	return flat.tokens
+	require.NotEmpty(t, out.AccessToken, r.String())
+	return out
 }
 
 func (h *host) register(email string) tokens {
