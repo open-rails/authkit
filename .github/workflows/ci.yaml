@@ -66,12 +66,12 @@ jobs:
           cache: true
       - uses: pnpm/action-setup@v6.1.0
         with:
-          package_json_file: internal/engine/testdata/package.json
+          package_json_file: internal/apitest/testdata/package.json
       - uses: actions/setup-node@v7.0.0
         with:
           node-version: '24'
-      - run: pnpm --dir internal/engine/testdata install --frozen-lockfile
-      - run: pnpm --dir internal/engine/testdata exec playwright install --with-deps chromium
+      - run: pnpm --dir internal/apitest/testdata install --frozen-lockfile
+      - run: pnpm --dir internal/apitest/testdata exec playwright install --with-deps chromium
       - run: scripts/check.sh workflows
 
   contracts:
