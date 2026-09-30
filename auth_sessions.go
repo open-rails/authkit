@@ -20,17 +20,19 @@ func (a *Client) ListSessionEvents(ctx context.Context, userID string, q iam.Ses
 	return a.ops.ListSessionEvents(ctx, userID, q)
 }
 
-// RevokeSession revokes one refresh session under ACCT(root:users:manage);
-// an account may revoke its own.
+// RevokeSession revokes one refresh session under ACCT(root:users:manage),
+// where covering a peer suffices; an account may revoke its own.
 func (a *Client) RevokeSession(ctx context.Context, actor iam.Actor, userID, sessionID string, opts ...Option) error {
 	return a.ops.RevokeSession(ctx, actor, userID, sessionID, opts...)
 }
 
 // RevokeAccountSessions revokes the account's refresh sessions on every
-// account issuer and its device keys, under ACCT(root:users:manage); an
-// account may revoke its own. Their access tokens are refused at once by
-// every session check (permission checks, verify.Sensitive, account changes)
-// and pass stateless verification until they expire.
+// account issuer and its device keys, under ACCT(root:users:manage), where
+// covering a peer suffices, so staff can contain a compromised peer; an
+// account may revoke its own. It records iam.EventUserSessionsRevoked. Their
+// access tokens are refused at once by every session check (permission
+// checks, verify.Sensitive, account changes) and pass stateless verification
+// until they expire.
 func (a *Client) RevokeAccountSessions(ctx context.Context, actor iam.Actor, userID string, opts ...Option) (iam.AccountSessionRevocation, error) {
 	return a.ops.RevokeAccountSessions(ctx, actor, userID, opts...)
 }

@@ -42,7 +42,9 @@ type PublicUser struct {
 	ID        string  `json:"id"`
 	Username  string  `json:"username"`
 	AvatarURL *string `json:"avatar_url"`
-	Deleted   bool    `json:"deleted"`
+	// CreatedAt is when the account was created: its "member since".
+	CreatedAt *time.Time `json:"created_at"`
+	Deleted   bool       `json:"deleted"`
 	// Metadata holds the account's metadata keys the host made public
 	// (Config.PublicUserMetadata), and no others.
 	Metadata map[string]any `json:"metadata"`

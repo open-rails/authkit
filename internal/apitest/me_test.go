@@ -86,6 +86,49 @@ func TestMeProfileUpdate(t *testing.T) {
 	expect(t, http.StatusBadRequest, patch(map[string]any{"email": "not@editable.example"}))
 }
 
+// With Config.AvatarURLPrefixes, a user or staff member sets an avatar only
+// under the host's own image paths, never one that climbs out of them; the
+// system sets any. A bad prefix fails New.
+func TestAvatarURLPrefixes(t *testing.T) {
+	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
+		c.AvatarURLPrefixes = []string{"https://media.example.test/avatars/", "/avatars/"}
+	}))
+	a := newAPI(t, auth)
+	u := authtest.NewUser(t, auth)
+	token := authtest.SignIn(t, auth, u).AccessToken
+	avatar := func(url string) response {
+		return a.do(request{method: http.MethodPatch, path: "/me", token: token, body: map[string]any{"avatar_url": url}})
+	}
+	for _, url := range []string{
+		"https://tracker.example.test/pixel.png",
+		"https://media.example.test/avatars.evil.test/x.png",
+		"https://media.example.test/avatars/../premium/x.png",
+		"/avatars/%2e%2e/premium/x.png",
+		"//tracker.example.test/avatars/x.png",
+		"/media/x.png",
+	} {
+		res := expect(t, http.StatusBadRequest, avatar(url))
+		require.Equal(t, "avatar_url_invalid", res.code(), url)
+	}
+	stored, err := auth.User(t.Context(), iam.UserByID(u.ID))
+	require.NoError(t, err)
+	require.Nil(t, stored.AvatarURL)
+	for _, url := range []string{"https://media.example.test/avatars/u/1.webp", "/avatars/u/1.webp?v=2", ""} {
+		expect(t, http.StatusOK, avatar(url))
+	}
+
+	legacy := "https://legacy.example.test/a.png"
+	_, err = auth.UpdateUser(t.Context(), iam.SystemActor(), u.ID, iam.UserUpdate{AvatarURL: &legacy})
+	require.NoError(t, err, "the system is not bound")
+
+	cfg, deps := bareConfig(t)
+	for _, bad := range []string{"https://media.example.test/avatars", "avatars/", "ftp://media.example.test/", "//media.example.test/", "/avatars/?v=1"} {
+		cfg.AvatarURLPrefixes = []string{bad}
+		_, err := newClient(t, cfg, deps)
+		require.ErrorContains(t, err, "AvatarURLPrefixes", bad)
+	}
+}
+
 // DELETE /me/sessions signs out every other session and keeps the caller's;
 // device keys stay. One session ends by id, and the history lists the
 // revocations by kind.

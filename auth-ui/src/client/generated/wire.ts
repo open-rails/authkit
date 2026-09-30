@@ -61,7 +61,7 @@ export type AdminUserUpdateRequest = {
 
 export type AuthKitEvent = {
   id: string
-  kind: "group.created" | "group.deleted" | "group.purged" | "role.changed" | "role.granted" | "role.revoked" | "user.banned" | "user.deleted" | "user.email_changed" | "user.phone_changed" | "user.purged" | "user.registered" | "user.restored" | "user.unbanned" | "user.username_changed"
+  kind: "group.created" | "group.deleted" | "group.purged" | "role.changed" | "role.granted" | "role.revoked" | "user.banned" | "user.deleted" | "user.email_changed" | "user.phone_changed" | "user.purged" | "user.registered" | "user.restored" | "user.sessions_revoked" | "user.unbanned" | "user.username_changed"
   occurred_at: string
   actor_kind: "api_key" | "delegated" | "remote_application" | "system" | "user"
   actor_id: string
@@ -428,6 +428,7 @@ export type PublicUser = {
   id: string
   username: string
   avatar_url: string | null
+  created_at: string | null
   deleted: boolean
   metadata: Record<string, unknown>
 }

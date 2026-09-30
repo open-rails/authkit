@@ -264,6 +264,35 @@ describe("requests", () => {
     ).toBe(`Bearer ${jwt("u1")}`)
   })
 
+  it("reads public profiles without a bearer", async () => {
+    const alice = {
+      id: "a",
+      username: "alice",
+      avatar_url: null,
+      created_at: "2026-09-01T00:00:00Z",
+      deleted: false,
+      metadata: {},
+    }
+    const page = (data: unknown[]) =>
+      json(200, { data, next_cursor: null, total: null })
+    const fetch = stubFetch({
+      "GET /api/v1/users": [page([alice]), page([alice]), page([])],
+    })
+    const client = createAuthClient({ fetch })
+    await signIn(client)
+    expect(await client.getUsers(["a", "b"])).toEqual([alice])
+    expect(await client.getUserByUsername("alice")).toEqual(alice)
+    expect(await client.getUserByUsername("nobody")).toBeNull()
+    expect(await client.getUsers([])).toEqual([])
+    expect(fetch.mock.calls.map((c) => String(c[0]))).toEqual([
+      "/api/v1/users?ids=a%2Cb",
+      "/api/v1/users?username=alice",
+      "/api/v1/users?username=nobody",
+    ])
+    for (const call of fetch.mock.calls)
+      expect(new Headers(call[1]?.headers).get("Authorization")).toBeNull()
+  })
+
   it("sends ?lang and leaves the default base only as a default", async () => {
     const fetch = vi
       .fn()

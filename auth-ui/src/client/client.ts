@@ -20,6 +20,7 @@ import type {
   Membership,
   OIDCStart,
   PermissionSet,
+  PublicUser,
   Session,
   SessionEvent,
   SignInKey,
@@ -1227,6 +1228,35 @@ export function createAuthClient(options: AuthClientOptions = {}) {
         signal,
         query: { group_id: input.groupId },
       }),
+
+    // Public profiles, signed in or not: in request order, at most 100;
+    // unknown ids are absent and deleted accounts are tombstones.
+    getUsers: async (
+      ids: readonly string[],
+      signal?: AbortSignal
+    ): Promise<PublicUser[]> =>
+      ids.length === 0
+        ? []
+        : (
+            await request<ListPage<PublicUser>>("GET", "/users", {
+              signal,
+              bearer: null,
+              query: { ids: ids.join(",") },
+            })
+          ).data,
+
+    // A public profile by username or a former one; null when nobody holds it.
+    getUserByUsername: async (
+      username: string,
+      signal?: AbortSignal
+    ): Promise<PublicUser | null> =>
+      (
+        await request<ListPage<PublicUser>>("GET", "/users", {
+          signal,
+          bearer: null,
+          query: { username },
+        })
+      ).data[0] ?? null,
 
     redeemInvitation: (code: string) =>
       request<Membership>("POST", "/invitations/redeem", { body: { code } }),

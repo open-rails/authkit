@@ -119,6 +119,9 @@ func Normalize(c Config, d Deps) (Config, error) {
 			return Config{}, fmt.Errorf("authkit: PublicUserMetadata names AuthKit's own metadata key %q", k)
 		}
 	}
+	if c.AvatarURLPrefixes, err = normalizeAvatarURLPrefixes(c.AvatarURLPrefixes); err != nil {
+		return Config{}, err
+	}
 	if c.SenderHealthInterval <= 0 {
 		c.SenderHealthInterval = 5 * time.Minute
 	}
@@ -647,4 +650,21 @@ func dedup(items []string) []string {
 		}
 	}
 	return out
+}
+
+// normalizeAvatarURLPrefixes checks each prefix is an http(s) URL with a host,
+// or a root-relative path, ending in "/" and naming no query or fragment.
+func normalizeAvatarURLPrefixes(in []string) ([]string, error) {
+	out := make([]string, 0, len(in))
+	for _, p := range in {
+		p = strings.TrimSpace(p)
+		u, err := url.Parse(p)
+		ok := err == nil && strings.HasSuffix(p, "/") && u.RawQuery == "" && u.Fragment == "" && u.User == nil && !strings.Contains(p, "..") &&
+			((u.Scheme == "https" || u.Scheme == "http") && u.Host != "" || u.Scheme == "" && u.Host == "" && strings.HasPrefix(p, "/") && !strings.HasPrefix(p, "//"))
+		if !ok {
+			return nil, fmt.Errorf("authkit: invalid AvatarURLPrefixes entry %q (want an http(s) URL or a root-relative path ending in /)", p)
+		}
+		out = append(out, p)
+	}
+	return out, nil
 }

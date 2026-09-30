@@ -26,17 +26,20 @@ import (
 )
 
 // Account mutations. Every one takes an actor and runs in one authority
-// transaction: rule ACCT(p) (requireAccount: CAP p on root plus coverage of
-// the target's grants in root and every group it holds a role in), or the
-// operation's self rule, then the change, then a sweep of the target's
+// transaction: rule ACCT(p) (requireAccount: CAP p on root, outranking the
+// target on root and covering its grants in every group it holds a role in),
+// or the operation's self rule, then the change, then a sweep of the target's
 // credentials (revokeCredentialsOf), so a key or link never outlives the
 // account authority that issued it.
 
-type selfRule uint8
+// accountRule relaxes rule ACCT for one mutation. The zero rule refuses the
+// actor's own account (ErrCannotTargetSelf) and a root peer.
+type accountRule uint8
 
 const (
-	selfRefused selfRule = iota // acting on one's own account is ErrCannotTargetSelf
-	selfAllowed                 // one's own account needs only a live actor
+	selfRefused  accountRule = 0
+	selfAllowed  accountRule = 1 << iota // one's own account needs only a live actor
+	peersAllowed                         // coverage suffices: signing a peer out is containment, not a takeover
 )
 
 // accountTx is the transaction an account mutation applies its change in.
@@ -50,13 +53,13 @@ type accountTx struct {
 	by     *string // the acting user; nil for the system
 }
 
-func (s *Engine) withAccountMutation(ctx context.Context, a iam.Actor, userID string, p iam.Perm, self selfRule, apply func(at accountTx) error) error {
-	return s.withAccountMutationIn(ctx, a, nil, userID, p, self, apply)
+func (s *Engine) withAccountMutation(ctx context.Context, a iam.Actor, userID string, p iam.Perm, rule accountRule, apply func(at accountTx) error) error {
+	return s.withAccountMutationIn(ctx, a, nil, userID, p, rule, apply)
 }
 
 // withAccountMutationIn is withAccountMutation inside host, the host's own
 // transaction, when set (see withAuthorityMutationIn).
-func (s *Engine) withAccountMutationIn(ctx context.Context, a iam.Actor, host pgx.Tx, userID string, p iam.Perm, self selfRule, apply func(at accountTx) error) error {
+func (s *Engine) withAccountMutationIn(ctx context.Context, a iam.Actor, host pgx.Tx, userID string, p iam.Perm, rule accountRule, apply func(at accountTx) error) error {
 	if err := requireActor(a); err != nil {
 		return err
 	}
@@ -86,7 +89,7 @@ func (s *Engine) withAccountMutationIn(ctx context.Context, a iam.Actor, host pg
 	at := accountTx{tx: tx, q: s.qtx(tx), st: st, userID: userID, system: a.Kind() == iam.ActorSystem, by: actorUserID(a)}
 	at.self = at.by != nil && *at.by == userID
 	switch {
-	case at.self && self == selfRefused:
+	case at.self && rule&selfAllowed == 0:
 		return iam.ErrCannotTargetSelf
 	case at.self:
 		rootID, err := s.rootGroup(ctx, st)
@@ -97,7 +100,7 @@ func (s *Engine) withAccountMutationIn(ctx context.Context, a iam.Actor, host pg
 			return err
 		}
 	default:
-		if err := s.requireAccount(ctx, st, a, userID, p); err != nil {
+		if err := s.requireAccount(ctx, st, a, userID, p, rule&peersAllowed != 0); err != nil {
 			return err
 		}
 	}
@@ -338,6 +341,9 @@ func (s *Engine) applyUserUpdate(ctx context.Context, at accountTx, userID strin
 		if err != nil {
 			return revoked, err
 		}
+		if avatar != nil && !at.system && !s.avatarAllowed(*avatar) {
+			return revoked, errmodel.ErrAvatarURLInvalid
+		}
 		if err := at.q.UserSetAvatarURL(ctx, db.UserSetAvatarURLParams{ID: userID, AvatarURL: avatar}); err != nil {
 			return revoked, err
 		}
@@ -433,6 +439,27 @@ func normalizeAvatarURL(v string) (*string, error) {
 		return nil, errmodel.ErrAvatarURLInvalid
 	}
 	return &v, nil
+}
+
+// avatarAllowed reports whether a user or staff member may set avatar v: under
+// one of Config.AvatarURLPrefixes, with no dot segment or encoded separator
+// that could climb out of it.
+func (s *Engine) avatarAllowed(v string) bool {
+	if len(s.cfg.AvatarURLPrefixes) == 0 {
+		return true
+	}
+	lower := strings.ToLower(v)
+	for _, escape := range []string{"..", `\`, "%2e", "%2f", "%5c"} {
+		if strings.Contains(lower, escape) {
+			return false
+		}
+	}
+	for _, p := range s.cfg.AvatarURLPrefixes {
+		if strings.HasPrefix(v, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // PatchUserMetadata applies patch to the account's application-owned
@@ -700,8 +727,9 @@ func (s *Engine) PurgeUsers(ctx context.Context, ids []string, opts ...ops.Optio
 }
 
 // RevokeAccountSessions revokes the account's refresh sessions on every
-// account issuer and all its device keys, under ACCT(root:users:manage); an
-// account may revoke its own. Issued access tokens expire on their TTL.
+// account issuer and all its device keys, under ACCT(root:users:manage) with
+// peers allowed; an account may revoke its own. Issued access tokens expire
+// on their TTL.
 func (s *Engine) RevokeAccountSessions(ctx context.Context, a iam.Actor, userID string, opts ...ops.Option) (iam.AccountSessionRevocation, error) {
 	if err := noOptions("RevokeAccountSessions", opts); err != nil {
 		return iam.AccountSessionRevocation{}, err
@@ -716,9 +744,12 @@ func (s *Engine) RevokeAccountSessions(ctx context.Context, a iam.Actor, userID 
 		reason = *r
 	}
 	var revoked []revokedSession
-	err := s.withAccountMutation(ctx, a, userID, ident.RootUsersManage, selfAllowed, func(at accountTx) error {
+	err := s.withAccountMutation(ctx, a, userID, ident.RootUsersManage, selfAllowed|peersAllowed, func(at accountTx) error {
 		var err error
 		if revoked, err = revokeSessionsTx(ctx, at.q, userID, issuers, nil); err != nil {
+			return err
+		}
+		if err := at.st.record(ctx, userEvent(iam.EventUserSessionsRevoked, at.userID)); err != nil {
 			return err
 		}
 		keys, err := s.revokeAllDeviceKeys(ctx, at.tx, userID)
@@ -795,8 +826,8 @@ func (s *Engine) notifyMFAReset(ctx context.Context, userID string) {
 }
 
 // RevokeSession revokes one refresh session of the account on this issuer,
-// under ACCT(root:users:manage); an account may revoke its own. An unknown
-// or already revoked session is a no-op.
+// under ACCT(root:users:manage) with peers allowed; an account may revoke its
+// own. An unknown or already revoked session is a no-op.
 func (s *Engine) RevokeSession(ctx context.Context, a iam.Actor, userID, sessionID string, opts ...ops.Option) error {
 	if err := noOptions("RevokeSession", opts); err != nil {
 		return err
@@ -809,7 +840,7 @@ func (s *Engine) RevokeSession(ctx context.Context, a iam.Actor, userID, session
 		reason = string(authflow.SessionRevokeReasonUserRevoke)
 	}
 	var sid string
-	err := s.withAccountMutation(ctx, a, userID, ident.RootUsersManage, selfAllowed, func(at accountTx) error {
+	err := s.withAccountMutation(ctx, a, userID, ident.RootUsersManage, selfAllowed|peersAllowed, func(at accountTx) error {
 		var err error
 		sid, err = at.q.SessionRevokeByIDForUser(ctx, db.SessionRevokeByIDForUserParams{ID: strings.TrimSpace(sessionID), UserID: strings.TrimSpace(userID), Issuer: s.cfg.Token.Issuer})
 		if errors.Is(err, pgx.ErrNoRows) {

@@ -25,6 +25,10 @@ const (
 	EventUserDeleted  EventKind = "user.deleted"
 	EventUserRestored EventKind = "user.restored"
 	EventUserPurged   EventKind = "user.purged"
+	// EventUserSessionsRevoked: every session and device key of the account
+	// was revoked at once (Client.RevokeAccountSessions, DELETE
+	// /admin/users/{user_id}/sessions); the actor says whose call it was.
+	EventUserSessionsRevoked EventKind = "user.sessions_revoked"
 	// Role events carry GroupID, Persona (RootPersona for root roles), the
 	// subject (UserID or ApplicationID) and the role as Previous → Current.
 	EventRoleGranted EventKind = "role.granted"

@@ -63,6 +63,8 @@ const (
 	RLMeDelete         = "me_delete"
 	RLMeProviderUnlink = "me_provider_unlink"
 
+	RLUsersRead = "users_read"
+
 	RLAdminRead  = "admin_read"
 	RLAdminWrite = "admin_write"
 
@@ -138,6 +140,7 @@ var buckets = map[string]bucket{
 	RLSessionRevokeAll:     {limit: lim{Limit: 20, Window: time.Hour}, failOpen: true},
 	RLMePasswordChange:     {limit: lim{Limit: 6, Window: time.Hour}, failOpen: true},
 	RLMeRead:               {limit: lim{Limit: 120, Window: time.Minute}, failOpen: true},
+	RLUsersRead:            {limit: lim{Limit: 120, Window: time.Minute}, failOpen: true},
 	RLMeUpdate:             {limit: lim{Limit: 24, Window: time.Hour}, failOpen: true},
 	RLMeDelete:             {limit: lim{Limit: 6, Window: time.Hour}, failOpen: true},
 	RLMeProviderUnlink:     {limit: lim{Limit: 12, Window: time.Hour}, failOpen: true},

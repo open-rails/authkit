@@ -271,7 +271,7 @@ Mounting gives your users all of this: 65 routes under `/api/v1`, plus the publi
 | `DELETE /api/v1/me/providers/{provider}` | unlink a sign-in provider |
 | `GET /api/v1/me/groups` | the groups you hold a role in |
 | `GET /api/v1/me/permissions` | your role and permissions in one group (`?group_id=`) |
-| `GET /api/v1/users` | other people's public profiles (`?ids=` or `?username=`) |
+| `GET /api/v1/users` | anyone's public profile (`?ids=` or `?username=`), no sign-in needed |
 | `GET /api/v1/capabilities` | what this server offers, for your UI |
 
 **Two-factor, passkeys and device keys**
@@ -302,7 +302,7 @@ Mounting gives your users all of this: 65 routes under `/api/v1`, plus the publi
 | `POST /api/v1/groups/{group_id}/invitations` | invite someone with a link, or by email |
 | `DELETE /api/v1/groups/{group_id}/invitations/{id}` | revoke one |
 
-**Site admins** (need the matching `root:` permission, and a recent sign-in for changes)
+**Site admins** (need the matching `root:` permission, and a recent sign-in for changes; staff change only accounts they outrank, so demote a peer first. Bans, deletions, sign-outs and contact changes reach `Deps.OnEvent` with who made them, for your audit log.)
 
 | Route | What it does |
 |---|---|

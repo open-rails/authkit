@@ -119,7 +119,8 @@ func (s *Engine) PublicUsers(ctx context.Context, ids []string) (map[string]iam.
 			out[r.ID] = iam.PublicUser{ID: r.ID, Deleted: true, Metadata: map[string]any{}}
 			continue
 		}
-		out[r.ID] = iam.PublicUser{ID: r.ID, Username: deref(r.Username), AvatarURL: r.AvatarURL, Metadata: s.publicMetadata(r.Metadata)}
+		created := r.CreatedAt.UTC()
+		out[r.ID] = iam.PublicUser{ID: r.ID, Username: deref(r.Username), AvatarURL: r.AvatarURL, CreatedAt: &created, Metadata: s.publicMetadata(r.Metadata)}
 	}
 	return out, nil
 }

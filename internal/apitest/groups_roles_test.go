@@ -779,7 +779,12 @@ func TestRootGroupHTTPWorkflow(t *testing.T) {
 	var expanded iam.ListPage[iam.GroupMember]
 	res.decode(t, &expanded)
 	require.Len(t, expanded.Items, 1)
-	require.Equal(t, &iam.PublicUser{ID: admin.ID, Username: admin.Username, Metadata: map[string]any{"bio": "root admin"}}, expanded.Items[0].User)
+	shown := expanded.Items[0].User
+	account, err := auth.User(ctx, iam.UserByID(admin.ID))
+	require.NoError(t, err)
+	require.True(t, shown.CreatedAt != nil && account.CreatedAt.Equal(*shown.CreatedAt), "member since")
+	shown.CreatedAt = nil
+	require.Equal(t, &iam.PublicUser{ID: admin.ID, Username: admin.Username, Metadata: map[string]any{"bio": "root admin"}}, shown)
 	res = a.get("/groups/root/members?role=root:admin", adminToken)
 	require.Contains(t, res.String(), `"user":null`, "no expansion unless asked")
 	res = a.get("/groups/root/members?expand=email", adminToken)
