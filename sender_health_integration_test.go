@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,29 +27,11 @@ import (
 // A Twilio outage or misconfiguration disables only phone flows (503), and the
 // next passing probe, scheduled by Start, re-arms them without a restart.
 func TestSMSHealthProbeRearmsPhoneFlows(t *testing.T) {
-	var mode atomic.Value // "", "reset", "nosender"
+	healthy := &twilioPool{numbers: []string{"+15017122661"}}
+	var pool atomic.Pointer[twilioPool]
+	pool.Store(healthy)
 	sms, err := twilio.NewSMS(twilio.SMSConfig{AccountSID: "AC123", AuthToken: "token", MessagingServiceSID: "MG123",
-		Client: standIn(t, func(w http.ResponseWriter, r *http.Request) {
-			if mode.Load() == "reset" {
-				conn, _, _ := w.(http.Hijacker).Hijack()
-				_ = conn.Close()
-				return
-			}
-			switch r.URL.Path {
-			case "/2010-04-01/Accounts/AC123.json":
-				_, _ = w.Write([]byte(`{"status":"active"}`))
-			case "/v1/Services/MG123":
-				_, _ = w.Write([]byte(`{}`))
-			case "/v1/Services/MG123/PhoneNumbers":
-				if mode.Load() == "nosender" {
-					_, _ = w.Write([]byte(`{"phone_numbers":[]}`))
-					return
-				}
-				_, _ = w.Write([]byte(`{"phone_numbers":[{"sid":"PN1","phone_number":"+15017122661"}]}`))
-			default:
-				http.NotFound(w, r)
-			}
-		})})
+		Client: twilioStandIn(t, &pool)})
 	require.NoError(t, err)
 	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
 		c.SenderHealthInterval = 50 * time.Millisecond
@@ -60,8 +44,8 @@ func TestSMSHealthProbeRearmsPhoneFlows(t *testing.T) {
 	require.Equal(t, []iam.TwoFactorMethod{iam.TwoFactorEmail, iam.TwoFactorSMS, iam.TwoFactorTOTP}, auth.TwoFactorMethods())
 	require.NoError(t, auth.Start(t.Context()))
 	require.NoError(t, probed(t, auth.SMSHealth, time.Time{}), "Start probes at once")
-	for _, failure := range []string{"reset", "nosender"} {
-		mode.Store(failure)
+	for failure, p := range map[string]*twilioPool{"reset": {reset: true}, "nosender": {}} {
+		pool.Store(p)
 		require.Error(t, probed(t, auth.SMSHealth, time.Now()), failure)
 		require.False(t, capabilitiesOf(t, auth).Channels.SMS, failure)
 		require.False(t, auth.SMSAvailable(), failure)
@@ -69,10 +53,77 @@ func TestSMSHealthProbeRearmsPhoneFlows(t *testing.T) {
 		require.Equal(t, []iam.TwoFactorMethod{iam.TwoFactorEmail, iam.TwoFactorTOTP}, auth.TwoFactorMethods(), "an unhealthy sender enrolls no SMS factor")
 		expectUnavailable(t, serve(auth, http.MethodPost, "/api/v1/verify/request", `{"identifier":"+15551230000"}`), errmodel.CodeSMSUnavailable)
 
-		mode.Store("")
+		pool.Store(healthy)
 		require.NoError(t, probed(t, auth.SMSHealth, time.Now()), failure)
 		require.True(t, capabilitiesOf(t, auth).Channels.SMS, failure)
 		require.Contains(t, auth.TwoFactorMethods(), iam.TwoFactorSMS, failure)
+	}
+}
+
+// SMS health fails only when Twilio surely refuses: the account or service
+// lookup fails or is refused, the service has no sender, or every sender is a
+// toll-free number whose verification is missing, pending or rejected (error
+// 30032). Every kind of sender counts. A refused toll-free sender beside a
+// working one, or a sender it can't tell about, stays healthy and warns once
+// per change.
+func TestSMSHealthFailsOnlyWhenTwilioRefuses(t *testing.T) {
+	logs := captureLogs(t)
+	var pool atomic.Pointer[twilioPool]
+	sms, err := twilio.NewSMS(twilio.SMSConfig{AccountSID: "AC123", AuthToken: "token", MessagingServiceSID: "MG123",
+		Client: twilioStandIn(t, &pool)})
+	require.NoError(t, err)
+
+	const longCode, tollFree, tollFree2, elsewhere = "+15017122661", "+18005550100", "+18445550101", "+18885550199"
+	type verifications = [][2]string // {number, status}, in list order
+	for i, step := range []struct {
+		name             string
+		pool             twilioPool
+		fails            string // in the error; "" when healthy
+		refused, unknown int    // warnings so far
+	}{
+		{"a long code", twilioPool{numbers: []string{longCode}}, "", 0, 0},
+		{"a short code", twilioPool{senders: map[string]int{"ShortCodes": 1}}, "", 0, 0},
+		{"an alphanumeric sender", twilioPool{senders: map[string]int{"AlphaSenders": 1}}, "", 0, 0},
+		{"a destination alphanumeric sender", twilioPool{senders: map[string]int{"DestinationAlphaSenders": 1}}, "", 0, 0},
+		{"a channel sender", twilioPool{senders: map[string]int{"ChannelSenders": 1}}, "", 0, 0},
+		{"a toll-free number approved on a later page", twilioPool{numbers: []string{tollFree},
+			verifications: verifications{{tollFree2, "TWILIO_APPROVED"}, {tollFree, "TWILIO_REJECTED"}, {tollFree, "TWILIO_APPROVED"}}}, "", 0, 0},
+		{"no sender", twilioPool{}, "has no sender", 0, 0},
+		{"only pending and unverified toll-free numbers", twilioPool{numbers: []string{tollFree, tollFree2},
+			verifications: verifications{{elsewhere, "TWILIO_APPROVED"}, {tollFree, "PENDING_REVIEW"}}},
+			"(" + tollFree + ", " + tollFree2 + "); Twilio refuses them with error 30032", 0, 0},
+		{"an unverified toll-free number beside a short code", twilioPool{numbers: []string{tollFree2}, senders: map[string]int{"ShortCodes": 1}}, "", 1, 0},
+		{"a pending toll-free number beside a long code on a later page", twilioPool{numbers: []string{tollFree, longCode},
+			verifications: verifications{{tollFree, "IN_REVIEW"}}}, "", 2, 0},
+		{"the same pool again", twilioPool{numbers: []string{tollFree, longCode},
+			verifications: verifications{{tollFree, "IN_REVIEW"}}}, "", 2, 0},
+		{"verifications the credentials can't read", twilioPool{numbers: []string{tollFree},
+			failing: map[string]int{"/v1/Tollfree/Verifications": http.StatusForbidden}}, "", 2, 1},
+		{"a failing verification lookup", twilioPool{numbers: []string{tollFree},
+			failing: map[string]int{"/v1/Tollfree/Verifications": http.StatusInternalServerError}}, "", 2, 1},
+		{"a verification status Twilio may add", twilioPool{numbers: []string{tollFree},
+			verifications: verifications{{tollFree, "SOMETHING_NEW"}}}, "", 2, 1},
+		{"a sender list it can't read", twilioPool{numbers: []string{tollFree}, verifications: verifications{{tollFree, "TWILIO_REJECTED"}},
+			failing: map[string]int{"/v1/Services/MG123/ShortCodes": http.StatusForbidden}}, "", 3, 2},
+		{"a sender list outage", twilioPool{numbers: []string{tollFree}, verifications: verifications{{tollFree, "PENDING_REVIEW"}},
+			failing: map[string]int{"/v1/Services/MG123/ShortCodes": http.StatusBadGateway}}, "sender check failed", 3, 2},
+		{"a service outage", twilioPool{failing: map[string]int{"/v1/Services/MG123": http.StatusServiceUnavailable}}, "messaging service check failed", 3, 2},
+		{"a missing service", twilioPool{failing: map[string]int{"/v1/Services/MG123": http.StatusNotFound}}, "messaging service check failed", 3, 2},
+		{"an account outage", twilioPool{failing: map[string]int{"/2010-04-01/Accounts/AC123.json": http.StatusInternalServerError}}, "credential check failed", 3, 2},
+		{"rejected credentials", twilioPool{failing: map[string]int{"/2010-04-01/Accounts/AC123.json": http.StatusUnauthorized}}, "credential check failed", 3, 2},
+	} {
+		pool.Store(&step.pool)
+		err := sms.CheckHealth(t.Context())
+		if step.fails == "" {
+			require.NoError(t, err, "step %d: %s", i, step.name)
+		} else {
+			require.ErrorContains(t, err, step.fails, "step %d: %s", i, step.name)
+		}
+		require.Equal(t, step.refused, strings.Count(logs.String(), "Twilio refuses these toll-free SMS senders"), "step %d: %s", i, step.name)
+		require.Equal(t, step.unknown, strings.Count(logs.String(), "can't tell whether Twilio accepts these SMS senders"), "step %d: %s", i, step.name)
+	}
+	for _, named := range []string{"senders=[" + tollFree2 + "]", "senders=[" + tollFree + "]", "senders=[ShortCodes]"} {
+		require.Contains(t, logs.String(), named)
 	}
 }
 
@@ -82,14 +133,7 @@ func TestSMSHealthProbeRearmsPhoneFlows(t *testing.T) {
 // identity, only warns once per change; a key that can't read its senders, or
 // an outage, can't tell.
 func TestEmailHealthProbeRearmsEmailFlows(t *testing.T) {
-	logs := &lockedBuffer{}
-	previous, logOut, logFlags := slog.Default(), log.Writer(), log.Flags()
-	slog.SetDefault(slog.New(slog.NewTextHandler(logs, nil)))
-	t.Cleanup(func() {
-		slog.SetDefault(previous)
-		log.SetOutput(logOut)
-		log.SetFlags(logFlags)
-	})
+	logs := captureLogs(t)
 	warnings := func() int { return strings.Count(logs.String(), "SendGrid sender is unauthenticated") }
 
 	var mode atomic.Value // "", "badkey", "noscope", "unauthenticated", "unverified", "cant_tell", "outage"
@@ -299,6 +343,93 @@ func standIn(t *testing.T, handler http.HandlerFunc) *http.Client {
 		r.URL.Scheme, r.URL.Host = "http", api.Listener.Addr().String()
 		return http.DefaultTransport.RoundTrip(r)
 	})}
+}
+
+// twilioPool is what twilioStandIn serves. Its lists answer one item per page,
+// so every read pages.
+type twilioPool struct {
+	reset         bool           // close every connection
+	numbers       []string       // the service's phone numbers
+	verifications [][2]string    // the account's toll-free verifications: {number, status}
+	senders       map[string]int // entries of the service's other sender lists, by path
+	failing       map[string]int // status to answer, by path
+}
+
+// twilioStandIn serves the Twilio API that SMS health reads from pool.
+func twilioStandIn(t *testing.T, pool *atomic.Pointer[twilioPool]) *http.Client {
+	sid := func(number string) string { return "PN" + strings.TrimPrefix(number, "+") }
+	return standIn(t, func(w http.ResponseWriter, r *http.Request) {
+		p := pool.Load()
+		if p.reset {
+			conn, _, _ := w.(http.Hijacker).Hijack()
+			_ = conn.Close()
+			return
+		}
+		if status := p.failing[r.URL.Path]; status != 0 {
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte(`{"code":20001,"message":"stand-in failure"}`))
+			return
+		}
+		var items []map[string]string
+		switch r.URL.Path {
+		case "/2010-04-01/Accounts/AC123.json":
+			_, _ = w.Write([]byte(`{"status":"active"}`))
+			return
+		case "/v1/Services/MG123":
+			_, _ = w.Write([]byte(`{}`))
+			return
+		case "/v1/Services/MG123/PhoneNumbers":
+			for _, n := range p.numbers {
+				items = append(items, map[string]string{"sid": sid(n), "phone_number": n})
+			}
+			twilioPage(w, r, "phone_numbers", items)
+			return
+		case "/v1/Tollfree/Verifications":
+			for _, v := range p.verifications {
+				items = append(items, map[string]string{"tollfree_phone_number_sid": sid(v[0]), "tollfree_phone_number": v[0], "status": v[1]})
+			}
+			twilioPage(w, r, "verifications", items)
+			return
+		}
+		kind := strings.TrimPrefix(r.URL.Path, "/v1/Services/MG123/")
+		key, ok := map[string]string{"ShortCodes": "short_codes", "AlphaSenders": "alpha_senders",
+			"DestinationAlphaSenders": "alpha_senders", "ChannelSenders": "senders"}[kind]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		for range p.senders[kind] {
+			items = append(items, map[string]string{"sid": "XX1"})
+		}
+		twilioPage(w, r, key, items)
+	})
+}
+
+// twilioPage answers item ?Page= of items under key, with Twilio's meta.
+func twilioPage(w http.ResponseWriter, r *http.Request, key string, items []map[string]string) {
+	page, _ := strconv.Atoi(r.URL.Query().Get("Page"))
+	body := map[string]any{key: []map[string]string{}, "meta": map[string]any{"key": key, "next_page_url": nil}}
+	if page < len(items) {
+		body[key] = items[page : page+1]
+	}
+	if page+1 < len(items) {
+		body["meta"] = map[string]any{"key": key, "next_page_url": fmt.Sprintf("https://%s%s?Page=%d&PageToken=PT%d", r.Host, r.URL.Path, page+1, page+1)}
+	}
+	_ = json.NewEncoder(w).Encode(body)
+}
+
+// captureLogs sends the process logger to the returned buffer until the test
+// ends, so the test never runs in parallel.
+func captureLogs(t *testing.T) *lockedBuffer {
+	logs := &lockedBuffer{}
+	previous, logOut, logFlags := slog.Default(), log.Writer(), log.Flags()
+	slog.SetDefault(slog.New(slog.NewTextHandler(logs, nil)))
+	t.Cleanup(func() {
+		slog.SetDefault(previous)
+		log.SetOutput(logOut)
+		log.SetFlags(logFlags)
+	})
+	return logs
 }
 
 type lockedBuffer struct {

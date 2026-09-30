@@ -53,6 +53,8 @@ type SMS struct {
 	client              *http.Client
 	pollInterval        time.Duration
 	render              func(context.Context, iam.SMSMessage) (string, bool)
+
+	refusedWarning, unknownWarning changeWarner
 }
 
 // NewSMS validates cfg and returns an SMS.
