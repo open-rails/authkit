@@ -67,7 +67,7 @@ func callbackFragment(t *testing.T, res response) url.Values {
 	target, err := url.Parse(res.header.Get("Location"))
 	require.NoError(t, err)
 	require.Empty(t, target.RawQuery)
-	fragment, err := url.ParseQuery(target.Fragment)
+	fragment, err := url.ParseQuery(target.EscapedFragment())
 	require.NoError(t, err)
 	return fragment
 }
