@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
 )
 
@@ -27,9 +26,10 @@ func validTOTPKeyLen(n int) bool { return n == 16 || n == 24 || n == 32 }
 
 // resolveTOTPSecretKey returns the TOTP encryption key. The explicit override
 // wins (validated). Otherwise it loads <Keys.Path>/totp.key. A missing file
-// returns (nil, nil) — TOTP enrollment then fails closed at use. Invalid material
-// (wrong length, bad encoding, unsafe permissions) is a hard construction error,
-// the same rigor as JWT signing keys.
+// returns (nil, nil): TOTP is then unavailable, which New refuses when no
+// other second factor can be enrolled. Invalid material (wrong length, bad
+// encoding, unsafe permissions) is a hard construction error, the same rigor
+// as JWT signing keys.
 func resolveTOTPSecretKey(cfg config.Config) ([]byte, error) {
 	if len(cfg.TwoFactor.TOTPSecretKey) > 0 {
 		if !validTOTPKeyLen(len(cfg.TwoFactor.TOTPSecretKey)) {
@@ -61,20 +61,6 @@ func resolveTOTPSecretKey(cfg config.Config) ([]byte, error) {
 		return nil, fmt.Errorf("authkit: TOTP key %s: %w", path, err)
 	}
 	return key, nil
-}
-
-// twoFactorMethodListed mirrors twoFactorMethodConfigured for construction-time
-// checks: empty Methods means all three are offered.
-func twoFactorMethodListed(methods []iam.TwoFactorMethod, m iam.TwoFactorMethod) bool {
-	if len(methods) == 0 {
-		return true
-	}
-	for _, x := range methods {
-		if x == m {
-			return true
-		}
-	}
-	return false
 }
 
 func totpKeysDir(cfg config.Config) string {

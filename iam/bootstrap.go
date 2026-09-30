@@ -2,7 +2,7 @@ package iam
 
 // BootstrapManifest is genesis seed data: accounts, their root roles and
 // remote applications. ApplyBootstrapManifest applies it as a host operation;
-// Client.ParseBootstrapManifestYAML reads one from its YAML file format, whose
+// authkit.ParseBootstrapManifestYAML reads one from its YAML file format, whose
 // keys are the yaml tags below.
 type BootstrapManifest struct {
 	Users              []BootstrapManifestUser              `json:"users" yaml:"users"`

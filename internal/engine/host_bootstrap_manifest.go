@@ -24,9 +24,10 @@ import (
 const defaultBootstrapApplyName = "default"
 
 // ParseBootstrapManifestYAML parses and structurally validates a manifest,
-// checking each root_role (`root:admin`) against the role schema. An unknown
-// key is logged as a warning, with its path, and ignored.
-func (s *Engine) ParseBootstrapManifestYAML(raw []byte) (iam.BootstrapManifest, error) {
+// with no catalog or environment: each root_role must be a root role
+// (`root:admin`), and ApplyBootstrapManifest checks it against the catalog.
+// An unknown key is logged as a warning, with its path, and ignored.
+func ParseBootstrapManifestYAML(raw []byte) (iam.BootstrapManifest, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(raw, &doc); err != nil {
 		return iam.BootstrapManifest{}, err
@@ -42,13 +43,13 @@ func (s *Engine) ParseBootstrapManifestYAML(raw []byte) (iam.BootstrapManifest, 
 		return iam.BootstrapManifest{}, errmodel.ErrInvalidBootstrapManifest
 	}
 	for _, u := range manifest.Users {
-		if err := s.requireRootRole(u.RootRole); err != nil {
-			return iam.BootstrapManifest{}, fmt.Errorf("bootstrap user %q root_role: %w", u.Username, err)
+		if !u.RootRole.IsZero() && u.RootRole.Persona() != iam.RootPersona {
+			return iam.BootstrapManifest{}, fmt.Errorf("bootstrap user %q root_role %q is not a root role: %w", u.Username, u.RootRole, iam.ErrRoleNotAssignable)
 		}
 	}
 	for _, a := range manifest.RemoteApplications {
-		if err := s.requireRootRole(a.RootRole); err != nil {
-			return iam.BootstrapManifest{}, fmt.Errorf("bootstrap remote application %q root_role: %w", a.Issuer, err)
+		if !a.RootRole.IsZero() && a.RootRole.Persona() != iam.RootPersona {
+			return iam.BootstrapManifest{}, fmt.Errorf("bootstrap remote application %q root_role %q is not a root role: %w", a.Issuer, a.RootRole, iam.ErrRoleNotAssignable)
 		}
 	}
 	// Parse is env-less and structural-only; the https/private jwks_uri policy

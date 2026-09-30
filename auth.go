@@ -21,8 +21,9 @@ import (
 // verify's middleware takes: verify.Required(client),
 // verify.RequirePermission(client, perm).
 //
-// Start, Close, RiverJobs, SMSAvailable, SMSHealth, Handler, Routes, Mount
-// and the request verification methods (auth_verify.go) are embedding-only:
+// Start, Close, RiverJobs, SMSAvailable, SMSHealth, TwoFactorMethods,
+// Handler, Routes, Mount and the request verification methods
+// (auth_verify.go) are embedding-only:
 // they wire the in-process deployment, and a Client of a remote deployment
 // would not have them. Every other method is an operation a remote
 // deployment could serve.
@@ -95,6 +96,12 @@ func (a *Client) SMSAvailable() bool { return a.engine.SMSAvailable() }
 // SMSHealth is the latest Deps.SMSHealth verdict and when it ran (Start runs
 // it every Config.SMSHealthInterval); a zero time means no check has run.
 func (a *Client) SMSHealth() (checkedAt time.Time, err error) { return a.engine.SMSHealth() }
+
+// TwoFactorMethods are the second factors a user can enroll now, as GET
+// /capabilities lists them: enabled by Config.TwoFactor, with their
+// dependency present (Deps.Email, Deps.SMS while healthy, the TOTP key).
+// Empty when 2FA is disabled.
+func (a *Client) TwoFactorMethods() []iam.TwoFactorMethod { return a.engine.TwoFactorMethods() }
 
 // Handler serves AuthKit's whole HTTP surface; nil when Config.HTTP is zero.
 // Mount it at the host root: its paths already include HTTPConfig.BasePath.

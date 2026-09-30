@@ -46,8 +46,11 @@ var testSigner = sync.OnceValue(func() keys.Signer {
 // testKeys signs with testSigner.
 func testKeys() keys.Source { return testkeys.Source(testSigner()) }
 
-// testConfig is an engine that signs tokens (newTestEngine supplies testKeys)
-// and serves HTTP.
+// testTOTPKey encrypts the test engines' authenticator-app secrets.
+var testTOTPKey = []byte("0123456789abcdef0123456789abcdef")
+
+// testConfig is an engine that signs tokens (newTestEngine supplies testKeys),
+// serves HTTP and can enroll TOTP.
 func testConfig() config.Config {
 	return config.Config{
 		Token: config.TokenConfig{
@@ -56,6 +59,7 @@ func testConfig() config.Config {
 			AllowPrivateNetworkJWKS: true,
 		},
 		Registration: config.RegistrationConfig{Verification: iam.RegistrationVerificationNone},
+		TwoFactor:    config.TwoFactorConfig{TOTPSecretKey: testTOTPKey},
 	}
 }
 
@@ -328,7 +332,7 @@ func newAccountFlow(t *testing.T, pool *pgxpool.Pool, cfg config.Config, deps co
 	f := &accountFlow{t: t, email: &testoutbox.Outbox{}, sms: &testoutbox.Outbox{}}
 	cfg.Frontend.BaseURL = "https://app.example"
 	cfg.Frontend.VerifyPath, cfg.Frontend.PasswordlessPath, cfg.Frontend.PasswordResetPath = "/verify", "/login/link", "/reset"
-	cfg.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef0123456789abcdef")
+	cfg.TwoFactor.TOTPSecretKey = testTOTPKey
 	// The real limiter stays installed, loose enough for long setups;
 	// apitest's TestWorkflowRateLimits proves its boundaries.
 	limits := httpapi.DefaultRateLimits()

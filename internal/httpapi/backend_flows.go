@@ -82,6 +82,7 @@ type flowsBackend interface {
 	StartPasswordless(ctx context.Context, req authflow.PasswordlessStartRequest) (authflow.PasswordlessStartResult, error)
 	TwoFactorAllowedMethods() []string
 	TwoFactorEnabled() bool
+	TwoFactorMethods() []iam.TwoFactorMethod
 	UnlinkProviderUnlessLast(ctx context.Context, userID, provider string) (bool, error)
 	ValidatePassword(value string, identifiers ...string) error
 	ValidateUsername(username string) error

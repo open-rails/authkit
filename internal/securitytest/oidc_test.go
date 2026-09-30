@@ -10,6 +10,7 @@ import (
 
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/netguard"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/testkeys"
@@ -54,8 +55,9 @@ func TestSecurityProviderIssuerCollisions(t *testing.T) {
 	s := signer()
 	build := func(providers ...provider.Provider) error {
 		runtime, err := authkit.New(context.Background(), authkit.Config{
-			Token: authkit.TokenConfig{Issuer: issuer, IssuedAudiences: []string{audience}},
-			HTTP:  &authkit.HTTPConfig{DirectPeerIP: true},
+			Token:     authkit.TokenConfig{Issuer: issuer, IssuedAudiences: []string{audience}},
+			TwoFactor: authkit.TwoFactorConfig{Mode: iam.TwoFactorDisabled},
+			HTTP:      &authkit.HTTPConfig{DirectPeerIP: true},
 		}, authkit.Deps{
 			Postgres:  pg.Pool,
 			KeySource: testkeys.Source(s),

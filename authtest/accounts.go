@@ -9,6 +9,7 @@ import (
 	"crypto/sha1"
 	"encoding/base32"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,7 +18,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -40,13 +40,15 @@ type User struct {
 	TOTP *TOTP
 }
 
-var users atomic.Int64
-
 // NewUser creates an account with a verified email, a username and Password,
-// as the host's own code would (Client.CreateUser).
+// as the host's own code would (Client.CreateUser). The username (user plus
+// 16 random hex digits) and email are random, so test processes sharing one
+// schema never collide.
 func NewUser(t testing.TB, auth *authkit.Client) User {
 	t.Helper()
-	name := fmt.Sprintf("user%04d", users.Add(1))
+	suffix := make([]byte, 8)
+	_, _ = rand.Read(suffix)
+	name := "user" + hex.EncodeToString(suffix)
 	u, err := auth.CreateUser(context.Background(), iam.NewUser{Email: name + "@example.com", Username: name, Password: Password, EmailVerified: true})
 	if err != nil {
 		t.Fatalf("authtest: create user: %v", err)

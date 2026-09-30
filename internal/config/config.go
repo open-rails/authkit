@@ -263,7 +263,8 @@ type TwoFactorConfig struct {
 	Mode iam.TwoFactorMode
 	// Methods are the enabled second-factor channels; empty enables email,
 	// SMS and TOTP. A method whose dependency is missing (SMS with no sender)
-	// is unavailable regardless.
+	// is unavailable regardless. Unless Mode is disabled, New refuses a
+	// deployment with none available: the root owner always needs MFA.
 	Methods []iam.TwoFactorMethod
 	// TOTPSecretKey encrypts stored authenticator-app secrets: 16, 24 or 32 raw
 	// bytes. It overrides <Keys.Path>/totp.key; with neither, TOTP enrollment

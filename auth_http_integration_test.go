@@ -31,6 +31,7 @@ func TestNewServesConfiguredCapabilities(t *testing.T) {
 			FormerNames: authkit.FormerNamesConfig{Mode: authkit.FormerNamesForever}},
 		Password:      &authkit.PasswordPolicy{MinLength: 12, RequireDigit: true},
 		SolanaNetwork: "devnet",
+		TwoFactor:     authkit.TwoFactorConfig{Mode: iam.TwoFactorRequired, Methods: []iam.TwoFactorMethod{iam.TwoFactorTOTP}, TOTPSecretKey: testTOTPKey},
 		Languages:     authkit.LanguageConfig{Supported: []string{"en", "es"}},
 		HTTP:          &authkit.HTTPConfig{DirectPeerIP: true, APIPath: "/auth"},
 	}, authkit.Deps{Postgres: testdb.Pool(t), KeySource: testkeys.Source(signer)})
@@ -74,8 +75,12 @@ func TestNewServesConfiguredCapabilities(t *testing.T) {
 			Registration string `json:"registration"`
 		} `json:"verification"`
 		Channels  map[string]bool `json:"channels"`
-		Languages []string        `json:"languages"`
-		Paths     map[string]any  `json:"paths"`
+		TwoFactor struct {
+			Mode    iam.TwoFactorMode     `json:"mode"`
+			Methods []iam.TwoFactorMethod `json:"methods"`
+		} `json:"two_factor"`
+		Languages []string       `json:"languages"`
+		Paths     map[string]any `json:"paths"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &caps))
 	require.Equal(t, "invite_only", caps.Registration.Mode)
@@ -94,6 +99,8 @@ func TestNewServesConfiguredCapabilities(t *testing.T) {
 	require.Equal(t, "optional", caps.Verification.Registration)
 	require.Equal(t, []string{"en", "es"}, caps.Languages)
 	require.Equal(t, map[string]bool{"email": false, "sms": false}, caps.Channels, "no senders, no channels")
+	require.Equal(t, iam.TwoFactorRequired, caps.TwoFactor.Mode)
+	require.Equal(t, []iam.TwoFactorMethod{iam.TwoFactorTOTP}, caps.TwoFactor.Methods)
 	require.Equal(t, map[string]any{"api": "/auth", "jwks": iam.JWKSPath, "oidc": nil}, caps.Paths, "a root issuer keeps root anchors; no providers, no OIDC")
 
 	rec = httptest.NewRecorder()

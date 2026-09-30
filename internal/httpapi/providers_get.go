@@ -65,6 +65,7 @@ func (s *Service) Capabilities() Capabilities {
 			Registration: string(cfg.Registration.Verification),
 		},
 		Channels:  ChannelCapabilities{Email: s.svc.HasEmailSender(), SMS: s.SMSAvailable()},
+		TwoFactor: TwoFactorCapabilities{Mode: cfg.TwoFactor.Mode, Methods: s.svc.TwoFactorMethods()},
 		Languages: cfg.Languages.Supported,
 	}
 }

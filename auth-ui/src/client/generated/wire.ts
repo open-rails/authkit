@@ -87,6 +87,7 @@ export type Capabilities = {
   solana: SolanaCapabilities
   verification: VerificationCapabilities
   channels: ChannelCapabilities
+  two_factor: TwoFactorCapabilities
   languages: string[]
   paths: MountPaths
 }
@@ -539,6 +540,11 @@ export type TokenSet = {
   token_type: string
   expires_in: number
   refresh_token: string | null
+}
+
+export type TwoFactorCapabilities = {
+  mode: "disabled" | "optional" | "required"
+  methods: ("email" | "sms" | "totp")[]
 }
 
 export type TwoFactorChallengeRequest = {

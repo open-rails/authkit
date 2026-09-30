@@ -84,6 +84,13 @@ func Normalize(c Config, d Deps) (Config, error) {
 		return Config{}, fmt.Errorf("authkit: invalid TwoFactor.Mode %q (want disabled, optional, or required)", c.TwoFactor.Mode)
 	}
 	c.TwoFactor.Methods = slices.Clone(c.TwoFactor.Methods)
+	for _, m := range c.TwoFactor.Methods {
+		switch m {
+		case iam.TwoFactorEmail, iam.TwoFactorSMS, iam.TwoFactorTOTP:
+		default:
+			return Config{}, fmt.Errorf("authkit: invalid TwoFactor.Methods entry %q (want email, sms, or totp)", m)
+		}
+	}
 	if n := len(c.TwoFactor.TOTPSecretKey); n > 0 && n != 16 && n != 24 && n != 32 {
 		return Config{}, fmt.Errorf("authkit: TwoFactor.TOTPSecretKey must be 16, 24, or 32 bytes, got %d", n)
 	}

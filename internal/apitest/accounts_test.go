@@ -652,7 +652,7 @@ func TestBootstrapWorkflow(t *testing.T) {
 		require.FailNow(t, "unexpected sign-in answer", "%s: %s", username, res)
 		return false
 	}
-	manifest, err := auth.ParseBootstrapManifestYAML([]byte(`users:
+	manifest, err := authkit.ParseBootstrapManifestYAML([]byte(`users:
  - username: bootstrap-admin
    email: admin@example.test
    email_verified: true
@@ -663,11 +663,11 @@ func TestBootstrapWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	// A role reads only as <persona>:<name>, and a manifest's fields are the
 	// iam types' own.
-	_, err = auth.ParseBootstrapManifestYAML([]byte("users:\n - {username: bare, root_role: owner}\n"))
+	_, err = authkit.ParseBootstrapManifestYAML([]byte("users:\n - {username: bare, root_role: owner}\n"))
 	require.Error(t, err, "a bare role name is refused")
 	hash, err := bcrypt.GenerateFromPassword([]byte("seeded-password-1"), bcrypt.MinCost)
 	require.NoError(t, err)
-	parsed, err := auth.ParseBootstrapManifestYAML([]byte(`users:
+	parsed, err := authkit.ParseBootstrapManifestYAML([]byte(`users:
  - username: banned-seed
    ban: {reason: seeded, until: 2099-01-02T03:04:05Z}
    password: {hash: "` + string(hash) + `", algo: bcrypt}
