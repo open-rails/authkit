@@ -178,7 +178,9 @@ func (s *Engine) ResolveAPIKey(ctx context.Context, token string) (iam.APIKeyPri
 	if !ok {
 		return iam.APIKeyPrincipal{}, iam.ErrAPIKeyInvalid
 	}
-	k, err := s.q.APIKeyByLookupID(ctx, lookupID)
+	// A key resolves only at the app it was issued through: another app's
+	// catalog may give its role name other permissions (ak#417).
+	k, err := s.q.APIKeyByLookupID(ctx, db.APIKeyByLookupIDParams{KeyID: lookupID, Issuer: s.cfg.Token.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return iam.APIKeyPrincipal{}, iam.ErrAPIKeyInvalid
 	}

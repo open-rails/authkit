@@ -32,10 +32,12 @@ WHERE a.id = $1 AND a.enabled AND g.deleted_at IS NULL
 
 -- name: AuthorityAPIKeyRole :one
 -- The group and role of a live key in a live group whose creator is the
--- system (NULL) or usable.
+-- system (NULL) or usable, issued through issuer's app or before per-app
+-- catalogs.
 SELECT k.permission_group_id, k.role FROM api_keys k JOIN permission_groups g ON g.id = k.permission_group_id
-WHERE k.id = $1 AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at > now()) AND g.deleted_at IS NULL
-  AND (k.created_by IS NULL OR EXISTS(SELECT 1 FROM usable_users WHERE id = k.created_by));
+WHERE k.id = sqlc.arg(id) AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at > now()) AND g.deleted_at IS NULL
+  AND (k.created_by IS NULL OR EXISTS(SELECT 1 FROM usable_users WHERE id = k.created_by))
+  AND (k.catalog_issuer IS NULL OR k.catalog_issuer = sqlc.arg(issuer)::text);
 
 -- name: UserUsable :one
 SELECT EXISTS(SELECT 1 FROM usable_users WHERE id = sqlc.arg(id)::uuid)::boolean AS usable;

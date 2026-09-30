@@ -16,7 +16,13 @@ SELECT k.id, k.secret_hash, k.role, k.expires_at, k.revoked_at,
   g.id AS group_id, g.persona, g.created_at AS group_created_at
 FROM api_keys k JOIN permission_groups g ON g.id = k.permission_group_id
 WHERE k.key_id = $1 AND g.deleted_at IS NULL
+  AND (k.catalog_issuer IS NULL OR k.catalog_issuer = $2::text)
 `
+
+type APIKeyByLookupIDParams struct {
+	KeyID  string
+	Issuer string
+}
 
 type APIKeyByLookupIDRow struct {
 	ID             string
@@ -30,10 +36,11 @@ type APIKeyByLookupIDRow struct {
 	GroupCreatedAt time.Time
 }
 
-// APIKeyByLookupID reads a key of a live group. creator_live: the key's
-// creator is the system (NULL) or a usable account.
-func (q *Queries) APIKeyByLookupID(ctx context.Context, keyID string) (APIKeyByLookupIDRow, error) {
-	row := q.db.QueryRow(ctx, aPIKeyByLookupID, keyID)
+// APIKeyByLookupID reads a key of a live group issued through issuer's app,
+// or before per-app catalogs. creator_live: the key's creator is the system
+// (NULL) or a usable account.
+func (q *Queries) APIKeyByLookupID(ctx context.Context, arg APIKeyByLookupIDParams) (APIKeyByLookupIDRow, error) {
+	row := q.db.QueryRow(ctx, aPIKeyByLookupID, arg.KeyID, arg.Issuer)
 	var i APIKeyByLookupIDRow
 	err := row.Scan(
 		&i.ID,
