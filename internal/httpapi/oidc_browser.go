@@ -3,13 +3,11 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/oidcstate"
@@ -36,9 +34,9 @@ func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
 	provider := r.PathValue("provider")
 	q := r.URL.Query()
 	// An invitation is a bearer credential: it never rides in a URL, where
-	// history, logs and Referer keep it. POST /{provider}/login binds it to the
+	// history, logs and Referer keep it. The JSON start binds it to the
 	// flow's server-side state instead.
-	if q.Has("account_invite_token") {
+	if q.Has("invite_code") {
 		s.failBrowserFlow(w, r, nil, provider, errmodel.E(errmodel.CodeInvalidRequest))
 		return
 	}
@@ -246,7 +244,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 			Email: identity.Email, EmailVerified: identity.EmailVerified && p.TrustsEmailVerification(),
 			PreferredUsername: identity.PreferredUsername, DisplayName: identity.DisplayName,
 		},
-		Link: link, AccountInviteToken: sd.AccountInviteToken,
+		Link: link, AccountInviteToken: sd.AccountInviteToken, ReturnTo: sd.ReturnTo,
 		Event: "oidc_login", UserAgent: r.UserAgent(), IP: s.requestIP(r),
 	})
 	if err != nil {
@@ -259,116 +257,121 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		fragment := url.Values{"flow": {"link"}, "result": {"success"}, "provider": {name}}
-		target := buildFrontendCallbackURL(s.cfg.Frontend.BaseURL, s.cfg.Frontend.OIDCReturnPath, "#"+fragment.Encode())
-		http.Redirect(w, r, target, http.StatusFound)
+		http.Redirect(w, r, s.frontendCallbackURL("#"+fragment.Encode()), http.StatusFound)
 		return
 	}
-	if out.Kind != authflow.LoginSessionIssued {
-		s.browserLoginContinuation(w, r, out, name, sd)
+	out.ReturnTo = sd.ReturnTo
+	res, err := s.authResult(w, r, out, authExtras{})
+	if err != nil {
+		s.failBrowserFlow(w, r, &sd, name, err)
 		return
 	}
-	s.emitBrowserLogin(w, r, out.UserID, name, *out.Session, sd)
+	s.emitBrowserResult(w, r, &sd, name, res)
 }
 
-// emitBrowserLogin hands the browser its session as a popup postMessage, a
-// JSON body, or a fragment redirect — the transport half of the callback.
-func (s *Service) emitBrowserLogin(w http.ResponseWriter, r *http.Request, userID, providerName string, session authflow.IssuedSession, sd oidcstate.StateData) {
-	token, rt, exp := session.AccessToken, session.RefreshToken, session.AccessExpiresAt
-	// ak#271: the popup document and the fragment redirect both hand the
-	// browser its tokens in script-readable form by design. The ACCESS token
-	// has to stay there — it is short-lived and the SPA builds the
-	// Authorization header from it — but the durable refresh token moves to
-	// the cookie, which these same-origin responses can set.
-	if sd.UI == "popup" {
-		targetOrigin, ok := originFromBaseURL(s.cfg.Frontend.BaseURL)
-		if !ok {
-			s.failBrowserFlow(w, r, &sd, providerName, errmodel.Internal("invalid_base_url", nil))
-			return
-		}
-		b, _ := json.Marshal(oidcPopupResult{
-			Type:         "AUTHKIT_OIDC_RESULT",
-			AccessToken:  token,
-			ExpiresIn:    int64(time.Until(exp).Seconds()),
-			Provider:     providerName,
-			Nonce:        sd.PopupNonce,
-			RefreshToken: s.deliverRefreshToken(w, r, iam.NewTokenSet(token, rt, exp)).RefreshToken,
-		})
-		writePopupDocument(w, buildPopupHTML(b, targetOrigin))
-		return
-	}
-
+// emitBrowserResult hands a browser flow its AuthResult, a session or its
+// next step alike. A callback asked for JSON answers it. A popup or redirect
+// carries only a one-time code that POST {api}/oidc/exchange trades for it,
+// so no token rides a URL or a postMessage.
+func (s *Service) emitBrowserResult(w http.ResponseWriter, r *http.Request, sd *oidcstate.StateData, provider string, res AuthResult) {
 	if wantsJSONResponse(r) {
-		// Provider email is descriptive metadata; return the account's own
-		// nullable address, including on an explicit provider-link callback.
-		user, err := s.svc.User(r.Context(), iam.UserByID(userID))
-		if err != nil {
-			s.failBrowserFlow(w, r, &sd, providerName, errmodel.Internal("user_lookup_failed", err))
-			return
-		}
-		writeJSON(w, http.StatusOK, OIDCLoginResult{
-			TokenSet: s.deliverRefreshToken(w, r, iam.NewTokenSet(token, rt, exp)),
-			User:     OIDCUser{ID: userID, Email: user.Email},
-		})
+		writeAuthResult(w, res)
 		return
 	}
-
-	base := s.cfg.Frontend.BaseURL
-	if base == "" {
-		base = "/"
+	code, err := s.putOIDCResult(r, res)
+	if err != nil {
+		s.failBrowserFlow(w, r, sd, provider, err)
+		return
 	}
-	state := callbackParams(r).Get("state")
-	fragmentRT := ""
-	if delivered := s.deliverRefreshToken(w, r, iam.NewTokenSet(token, rt, exp)).RefreshToken; delivered != nil {
-		fragmentRT = *delivered
-	}
-	frag := buildAuthResultFragment(token, fragmentRT, int64(time.Until(exp).Seconds()), providerName, state, sd.ReturnTo)
-	target := buildFrontendCallbackURL(base, s.cfg.Frontend.OIDCReturnPath, frag)
-	// RFC 6749 §5.1 hygiene: the Location fragment carries the session tokens —
-	// the response must never be cached.
 	w.Header().Set("Cache-Control", "no-store")
-	http.Redirect(w, r, target, http.StatusFound)
-}
-
-// oidcPopupResult is the popup document's message to its opener.
-type oidcPopupResult struct {
-	Type         string  `json:"type"`
-	AccessToken  string  `json:"access_token"`
-	ExpiresIn    int64   `json:"expires_in"`
-	Provider     string  `json:"provider"`
-	Nonce        string  `json:"nonce"`
-	RefreshToken *string `json:"refresh_token"`
-}
-
-func buildFrontendCallbackURL(baseURL, callbackPath, fragment string) string {
-	base := baseURL
-	if base == "" {
-		base = "/"
+	if sd.StepUpUserID != "" {
+		http.Redirect(w, r, stepUpReturnURL(sd.StepUpReturnTo, url.Values{"code": {code}}), http.StatusFound)
+		return
 	}
-	path := callbackPath
+	if targetOrigin, ok := originFromBaseURL(s.cfg.Frontend.BaseURL); ok && sd.UI == "popup" {
+		writePopupDocument(w, buildPopupHTML(oidcPopupMessage{Type: oidcPopupType, Nonce: sd.PopupNonce, Provider: provider, Code: &code}, targetOrigin))
+		return
+	}
+	fragment := url.Values{"code": {code}}
+	if state := callbackParams(r).Get("state"); state != "" {
+		fragment.Set("state", state)
+	}
+	http.Redirect(w, r, s.frontendCallbackURL("#"+fragment.Encode()), http.StatusFound)
+}
+
+// putOIDCResult stores res for a new one-time code. A cookie mount's refresh
+// token already went to the cookie (authResult), so none is stored.
+func (s *Service) putOIDCResult(r *http.Request, res AuthResult) (string, error) {
+	raw, err := json.Marshal(res)
+	if err != nil {
+		return "", errmodel.Internal("oidc_result_store_failed", err)
+	}
+	code := secret.Token(32)
+	if err := s.svc.PutOIDCResult(r.Context(), code, raw); err != nil {
+		return "", errmodel.Internal("oidc_result_store_failed", err)
+	}
+	return code, nil
+}
+
+// handleOIDCExchangePOST trades a browser OIDC result's one-time code for its
+// AuthResult, once, within two minutes.
+func (s *Service) handleOIDCExchangePOST(w http.ResponseWriter, r *http.Request) {
+	var req OIDCExchangeRequest
+	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Code) == "" {
+		fail(w, errmodel.CodeInvalidRequest)
+		return
+	}
+	raw, ok, err := s.svc.ConsumeOIDCResult(r.Context(), strings.TrimSpace(req.Code))
+	if err != nil {
+		serverErr(w, "oidc_result_lookup_failed", err)
+		return
+	}
+	var res AuthResult
+	if !ok || json.Unmarshal(raw, &res) != nil {
+		fail(w, errmodel.CodeInvalidState)
+		return
+	}
+	writeAuthResult(w, res)
+}
+
+// oidcPopupType is the one message a popup posts to its opener: the result's
+// one-time code, or the error that ended the flow.
+const oidcPopupType = "AUTHKIT_OIDC_RESULT"
+
+type oidcPopupMessage struct {
+	Type     string  `json:"type"`
+	Nonce    string  `json:"nonce"`
+	Provider string  `json:"provider"`
+	Code     *string `json:"code,omitempty"`
+	Error    *string `json:"error,omitempty"`
+}
+
+// frontendCallbackURL is the app's OIDC return page with fragment.
+func (s *Service) frontendCallbackURL(fragment string) string {
+	base := strings.TrimRight(s.cfg.Frontend.BaseURL, "/")
+	path := s.cfg.Frontend.OIDCReturnPath
 	if path == "" {
 		path = "/login/callback"
 	}
-	return strings.TrimRight(base, "/") + path + fragment
+	if base == "" && !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return base + path + fragment
 }
 
-func buildAuthResultFragment(accessToken, refreshToken string, expiresIn int64, provider, state, returnTo string) string {
-	v := url.Values{}
-	v.Set("access_token", accessToken)
-	// Empty when the refresh token was delivered as a cookie (ak#271): a
-	// `refresh_token=` in the URL fragment is a lie the SPA would store.
-	if refreshToken != "" {
-		v.Set("refresh_token", refreshToken)
+// stepUpReturnURL is a step-up's return_to (same-origin) with its result in
+// the fragment.
+func stepUpReturnURL(returnTo string, fragment url.Values) string {
+	u, err := url.Parse(SanitizeReturnTo(returnTo))
+	if err != nil || u == nil {
+		u = &url.URL{Path: "/"}
 	}
-	v.Set("expires_in", fmt.Sprint(expiresIn))
-	v.Set("provider", provider)
-	v.Set("state", state)
-	if rt := SanitizeReturnTo(returnTo); rt != "/" {
-		v.Set("return_to", rt)
-	}
-	return "#" + v.Encode()
+	u.Fragment = ""
+	return u.String() + "#" + fragment.Encode()
 }
 
-func buildPopupHTML(payloadJSON []byte, targetOrigin string) []byte {
+func buildPopupHTML(message oidcPopupMessage, targetOrigin string) []byte {
+	payloadJSON, _ := json.Marshal(message)
 	originJSON, _ := json.Marshal(targetOrigin)
 	html := "<!doctype html><html><body><script>\n" +
 		"try {\n" +

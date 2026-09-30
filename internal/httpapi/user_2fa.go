@@ -119,11 +119,12 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 	default:
 		resp := TwoFactorEnrollResult{Enabled: true, Method: out.Method, BackupCodes: out.BackupCodes}
 		if out.Login != nil {
-			if s.writeLoginContinuation(w, r, *out.Login, enabledMeta(out)) {
+			res, err := s.authResult(w, r, *out.Login, authExtras{})
+			if err != nil {
+				writeError(w, err)
 				return
 			}
-			tokens := s.deliverRefreshToken(w, r, out.Login.Session.TokenSet())
-			resp.TokenSet = &tokens
+			resp.TokenSet = res.TokenSet
 			writeJSON(w, http.StatusOK, resp)
 			return
 		}
@@ -174,16 +175,6 @@ func (s *Service) handleMe2FADELETE(w http.ResponseWriter, r *http.Request) {
 		out.RemovedRoles = append(out.RemovedRoles, RemovedRole{GroupID: r.PermissionGroupID, Persona: r.Persona, Role: r.Role, RemovedAt: r.RemovedAt})
 	}
 	writeJSON(w, http.StatusOK, out)
-}
-
-// enabledMeta carries the enabled factor, and the first factor's backup
-// codes, on the sign-in continuation the enrollment leads to.
-func enabledMeta(out authflow.TwoFactorEnrollOutcome) map[string]any {
-	meta := map[string]any{"enabled": true, "method": out.Method}
-	if len(out.BackupCodes) > 0 {
-		meta["backup_codes"] = out.BackupCodes
-	}
-	return meta
 }
 
 func (s *Service) handleMe2FABackupCodesPOST(w http.ResponseWriter, r *http.Request) {

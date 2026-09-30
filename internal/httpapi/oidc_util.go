@@ -12,16 +12,15 @@ import (
 	"github.com/open-rails/authkit/provider"
 )
 
-// buildRedirectURI computes the OAuth/OIDC redirect_uri for a flow: this
-// mount's browser callback, "/step-up/callback" for a step-up.
+// buildRedirectURI is a flow's OAuth/OIDC redirect_uri: this mount's browser
+// callback ("/step-up/callback" for a step-up) where clients reach it,
+// HTTPConfig.PublicURL.
 //
-// SECURITY (AK F2): the scheme+host come from the TRUSTED server config
-// (Settings.FrontendBaseURL), never from attacker-controllable X-Forwarded-Proto /
-// X-Forwarded-Host request headers. An attacker who could set X-Forwarded-Host
-// would otherwise steer the redirect_uri — and thus the authorization code —
-// to a host they control. When no BaseURL is configured (local/dev) we fall
-// back to the request's own connection scheme + Host header, still never the
-// forwarded headers.
+// SECURITY (AK F2): the origin comes from trusted configuration, never from
+// X-Forwarded-Proto / X-Forwarded-Host, which would let an attacker steer the
+// authorization code to a host they control. Without a PublicURL (an issuer
+// that is not a URL, in development) it is the request's own connection
+// scheme and Host header, still never the forwarded headers.
 func (s *Service) buildRedirectURI(r *http.Request, provider string, stepUp bool) (string, bool) {
 	oidc := layoutFrom(r).oidc
 	if oidc == "" {
@@ -31,8 +30,8 @@ func (s *Service) buildRedirectURI(r *http.Request, provider string, stepUp bool
 	if stepUp {
 		p = oidc + "/" + url.PathEscape(provider) + "/step-up/callback"
 	}
-	if origin, ok := originFromBaseURL(s.cfg.Frontend.BaseURL); ok {
-		return origin + p, true
+	if s.http.PublicURL != "" {
+		return s.http.PublicURL + strings.TrimPrefix(p, s.http.BasePath), true
 	}
 	scheme := "http"
 	if r.TLS != nil {

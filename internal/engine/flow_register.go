@@ -148,12 +148,7 @@ func (s *Engine) registeredSession(ctx context.Context, in authflow.RegisterInpu
 	if err != nil {
 		return authflow.RegisterOutcome{}, err
 	}
-	if login.Kind == authflow.LoginSessionIssued {
-		out.Kind = authflow.RegisterSessionIssued
-		out.Session = login.Session
-	} else {
-		out.Kind = authflow.RegisterLoginRequired
-		out.Login = &login
-	}
+	login.Created = true
+	out.Kind, out.Login = authflow.RegisterSignedIn, &login
 	return out, nil
 }

@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -14,10 +13,13 @@ import (
 	"github.com/open-rails/authkit/verify"
 )
 
-func deviceKeySession(result authflow.DeviceKeyAuthResult) DeviceKeySession {
+// writeDeviceKeySignIn answers a device key's sign-in: an access token with no
+// refresh token, and the key (current).
+func (s *Service) writeDeviceKeySignIn(w http.ResponseWriter, r *http.Request, result authflow.DeviceKeyAuthResult) {
 	key := result.DeviceKey
 	key.Current = true
-	return DeviceKeySession{TokenSet: iam.NewTokenSet(result.AccessToken, "", result.ExpiresAt), DeviceKey: key}
+	out := authflow.LoginOutcome{Kind: authflow.LoginSessionIssued, UserID: result.UserID, Session: &authflow.IssuedSession{AccessToken: result.AccessToken, AccessExpiresAt: result.ExpiresAt}}
+	s.writeAuthResult(w, r, out, authExtras{deviceKey: &key})
 }
 
 func (s *Service) handleDeviceKeyEnrollBeginPOST(w http.ResponseWriter, r *http.Request) {
@@ -67,7 +69,7 @@ func (s *Service) handleDeviceKeyEnrollFinishPOST(w http.ResponseWriter, r *http
 		case errors.As(err, &secondFactor):
 			// Email code and key proof are valid; the ceremony stays live for a
 			// retry that carries the second factor in code_2fa.
-			fail(w, errmodel.CodeStepUpRequired, errmodel.WithMetadata(map[string]any{"method": secondFactor.Method, "param": "code_2fa"}))
+			fail(w, errmodel.CodeTwoFARequired, errmodel.WithParam("code_2fa"), errmodel.WithDetails(TwoFactorRequired{Method: secondFactor.Method}))
 		case errors.Is(err, jwt.ErrTokenUnverifiable), errors.Is(err, jwt.ErrTokenInvalidClaims):
 			s.svc.RecordFailedDeviceKeyEnrollment(r.Context(), req.EnrollmentID)
 			fail(w, errmodel.CodeInvalidCode)
@@ -76,7 +78,7 @@ func (s *Service) handleDeviceKeyEnrollFinishPOST(w http.ResponseWriter, r *http
 		}
 		return
 	}
-	writeJSON(w, http.StatusOK, deviceKeySession(result))
+	s.writeDeviceKeySignIn(w, r, result)
 }
 
 func (s *Service) handleDeviceKeyLoginBeginPOST(w http.ResponseWriter, r *http.Request) {
@@ -135,7 +137,7 @@ func (s *Service) handleDeviceKeyLoginFinishPOST(w http.ResponseWriter, r *http.
 		fail(w, errmodel.CodeInvalidCredentials)
 		return
 	}
-	writeJSON(w, http.StatusOK, deviceKeySession(result))
+	s.writeDeviceKeySignIn(w, r, result)
 }
 
 func deviceKeyCaller(r *http.Request) (verify.Claims, bool) {
@@ -175,24 +177,17 @@ func (s *Service) handleDeviceKeyDELETE(w http.ResponseWriter, r *http.Request) 
 	noContent(w)
 }
 
-func (s *Service) handleDeviceKeysRevokeOthersPOST(w http.ResponseWriter, r *http.Request) {
+// handleDeviceKeysDELETE revokes the caller's other device keys. Only an
+// enrollment's token may: it proves both the key and the account's email.
+func (s *Service) handleDeviceKeysDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := deviceKeyCaller(r)
 	if !ok {
 		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
-	// The enrollment finish token is the bounded recovery-root proof: it
-	// carries both the device-key and verified-email authentication methods.
 	if !claims.HasAMR("email") {
 		fail(w, errmodel.CodeForbidden)
 		return
-	}
-	if r.Body != nil && r.Body != http.NoBody && r.ContentLength != 0 {
-		var empty map[string]json.RawMessage
-		if err := decodeJSON(r, &empty); err != nil || len(empty) != 0 {
-			fail(w, errmodel.CodeInvalidRequest)
-			return
-		}
 	}
 	if err := s.svc.RevokeOtherDeviceKeys(r.Context(), claims.UserID, claims.DeviceKeyID); err != nil {
 		fail(w, errmodel.CodeUnauthenticated)

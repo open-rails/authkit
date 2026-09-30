@@ -63,13 +63,14 @@ func (s *Engine) logSessionEvictions(ctx context.Context, userID string, evicted
 	}
 }
 
-// ExchangeRefreshToken rotates a refresh token and returns a new ID token + refresh token.
-func (s *Engine) ExchangeRefreshToken(ctx context.Context, refreshToken string, ua string, ip net.IP) (idToken string, expiresAt time.Time, newRefresh string, err error) {
+// ExchangeRefreshToken rotates a refresh token: the session's user, and its
+// new access and refresh tokens.
+func (s *Engine) ExchangeRefreshToken(ctx context.Context, refreshToken string, ua string, ip net.IP) (userID string, session authflow.IssuedSession, err error) {
 	if s.pg == nil {
-		return "", time.Time{}, "", errors.New("postgres not configured")
+		return "", authflow.IssuedSession{}, errors.New("postgres not configured")
 	}
 	if strings.TrimSpace(refreshToken) == "" {
-		return "", time.Time{}, "", errors.New("invalid refresh token")
+		return "", authflow.IssuedSession{}, errors.New("invalid refresh token")
 	}
 	h := s.hashRefresh(refreshToken)
 
@@ -81,7 +82,7 @@ func (s *Engine) ExchangeRefreshToken(ctx context.Context, refreshToken string, 
 		return s.exchangeDemotedRefreshToken(ctx, refreshToken, h, ua, ip)
 	}
 	if err != nil {
-		return "", time.Time{}, "", fmt.Errorf("find current refresh session: %w", err)
+		return "", authflow.IssuedSession{}, fmt.Errorf("find current refresh session: %w", err)
 	}
 	sid, uid := cur.ID, cur.UserID
 
@@ -97,7 +98,7 @@ func (s *Engine) ExchangeRefreshToken(ctx context.Context, refreshToken string, 
 	// succeeds), instead of stranding them on the now-"previous" token.
 	accessToken, exp, err := s.issueSessionAccessToken(ctx, uid, sid, cur.AuthMethods)
 	if err != nil {
-		return "", time.Time{}, "", err
+		return "", authflow.IssuedSession{}, err
 	}
 
 	// Rotate and archive the consumed hash as an atomic compare-and-swap
@@ -121,13 +122,13 @@ func (s *Engine) ExchangeRefreshToken(ctx context.Context, refreshToken string, 
 		PreviousSuccessorSealed:  sealGraceSuccessor(refreshToken, newTok),
 	})
 	if err != nil {
-		return "", time.Time{}, "", err
+		return "", authflow.IssuedSession{}, err
 	}
 	if rotated == 0 {
 		return s.exchangeDemotedRefreshToken(ctx, refreshToken, h, ua, ip)
 	}
 
-	return accessToken, exp, newTok, nil
+	return uid, authflow.IssuedSession{SessionID: sid, AccessToken: accessToken, AccessExpiresAt: exp, RefreshToken: newTok}, nil
 }
 
 // exchangeDemotedRefreshToken answers a token that is no longer `current`. Two
@@ -147,26 +148,26 @@ func (s *Engine) ExchangeRefreshToken(ctx context.Context, refreshToken string, 
 // Re-delivery never rotates again: every holder of one predecessor converges on
 // the same successor. Older consumed hashes identify the family but cannot open
 // the seal for the current successor, so advancing twice does not hide reuse.
-func (s *Engine) exchangeDemotedRefreshToken(ctx context.Context, refreshToken string, h []byte, ua string, ip net.IP) (string, time.Time, string, error) {
+func (s *Engine) exchangeDemotedRefreshToken(ctx context.Context, refreshToken string, h []byte, ua string, ip net.IP) (string, authflow.IssuedSession, error) {
 	prev, err := s.q.SessionByHistoricalTokenHash(ctx, db.SessionByHistoricalTokenHashParams{TokenHash: h, Issuer: s.cfg.Token.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
 		reason := "refresh_token_unknown"
 		s.LogSessionFailed(ctx, "", "", &reason, ipText(ip), nullable(ua))
-		return "", time.Time{}, "", errors.New("invalid refresh token")
+		return "", authflow.IssuedSession{}, errors.New("invalid refresh token")
 	}
 	if err != nil {
-		return "", time.Time{}, "", fmt.Errorf("find historical refresh session: %w", err)
+		return "", authflow.IssuedSession{}, fmt.Errorf("find historical refresh session: %w", err)
 	}
 	successor, ok := s.graceSuccessorFor(refreshToken, prev)
 	if !ok {
 		s.revokeFamilyEnsured(ctx, prev.FamilyID, prev.UserID)
-		return "", time.Time{}, "", errors.New("refresh token reuse detected")
+		return "", authflow.IssuedSession{}, errors.New("refresh token reuse detected")
 	}
 	accessToken, exp, err := s.issueSessionAccessToken(ctx, prev.UserID, prev.ID, prev.AuthMethods)
 	if err != nil {
-		return "", time.Time{}, "", err
+		return "", authflow.IssuedSession{}, err
 	}
-	return accessToken, exp, successor, nil
+	return prev.UserID, authflow.IssuedSession{SessionID: prev.ID, AccessToken: accessToken, AccessExpiresAt: exp, RefreshToken: successor}, nil
 }
 
 // graceSuccessorFor decides whether a demoted token is inside its rotation grace

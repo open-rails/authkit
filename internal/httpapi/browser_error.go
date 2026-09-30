@@ -1,63 +1,40 @@
 package httpapi
 
 import (
-	"encoding/json"
 	stdlog "log"
 	"net/http"
 	"net/url"
 	"strings"
 
-	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/oidcstate"
 	"github.com/open-rails/authkit/provider"
 )
 
-// Browser-flow error propagation.
+// Browser-flow errors land where the flow's results do. The /oidc routes are
+// top-level navigations (or popups the page opened onto them), not fetch
+// calls: a JSON envelope would strand the user on a raw body, and a popup's
+// opener would wait forever.
 //
-// The GET routes under /oidc ({provider}/login, {provider}/callback,
-// {provider}/step-up/callback) are top-level browser navigations — or popup
-// windows the frontend opened onto them — not fetch calls. Writing a JSON
-// error envelope to them strands the user on the backend URL with a raw JSON
-// body, and a popup opener waits forever for a result message that never
-// comes. Errors on these routes are therefore emitted the same way successes
-// are:
+//   - format=json / Accept: application/json: the error envelope.
+//   - a step-up: back to its return_to with #error=<code>.
+//   - a popup: {type: AUTHKIT_OIDC_RESULT, nonce, provider, error} posted to
+//     the frontend origin.
+//   - otherwise: to the app's OIDC return page with
+//     #error=<code>&state=&flow=login|link&provider=[&return_to=], in the
+//     fragment, which access logs and Referer never see.
 //
-//   - format=json / Accept: application/json — the JSON envelope, unchanged.
-//     Programmatic callers and tests keep the legacy contract.
-//   - step-up flows (StateData.StepUpUserID set) — redirect to the flow's
-//     sanitized return_to with ?step_up=failed, exactly like every
-//     post-consume step-up failure already does (redirectStepUpResult).
-//   - popup flows (ui=popup) — a postMessage document targeting the frontend
-//     origin, type AUTHKIT_OIDC_ERROR. The type is deliberately DISTINCT from
-//     the success type (AUTHKIT_OIDC_RESULT) so pre-existing openers that only
-//     understand the success shape ignore the message instead of misreading an
-//     error as a login. The popup nonce rides along for opener validation.
-//   - everything else — 302 to Frontend BaseURL+OIDCReturnPath with the error
-//     in the URL FRAGMENT (#error=<code>&flow=login|link&provider=…
-//     [&return_to=…]), mirroring how tokens are delivered on success. The
-//     fragment (not the query) keeps error codes out of access logs and
-//     Referer headers, and lands on the exact SPA route that already parses
-//     login-result fragments.
-//
-// Rate-limit rejections (429) are deliberately left on the JSON path: they are
-// an abuse defense with Retry-After header semantics, not a user-flow outcome,
-// and the shared limiter helper serves every route group.
+// Rate-limit rejections (429) stay JSON: an abuse defense with Retry-After
+// semantics, not a flow outcome.
 func (s *Service) failBrowserFlow(w http.ResponseWriter, r *http.Request, sd *oidcstate.StateData, provider string, err error) {
-	s.failBrowserFlowExtra(w, r, sd, provider, err, nil)
-}
-
-// failBrowserFlowExtra is failBrowserFlow with additional payload fields
-// carried to the frontend (fragment params / postMessage keys) — e.g. the
-// 2FA-enrollment token. Values must already be safe to hand to the SPA.
-func (s *Service) failBrowserFlowExtra(w http.ResponseWriter, r *http.Request, sd *oidcstate.StateData, provider string, err error, extra map[string]any) {
 	if wantsJSONResponse(r) {
 		writeError(w, err)
 		return
 	}
 	code := browserErrorCode(err)
+	w.Header().Set("Cache-Control", "no-store")
 	if sd != nil && strings.TrimSpace(sd.StepUpUserID) != "" {
-		redirectStepUpResult(w, r, sd.StepUpReturnTo, "failed")
+		http.Redirect(w, r, stepUpReturnURL(sd.StepUpReturnTo, url.Values{"error": {code}}), http.StatusFound)
 		return
 	}
 
@@ -75,28 +52,18 @@ func (s *Service) failBrowserFlowExtra(w http.ResponseWriter, r *http.Request, s
 		ui, popupNonce, returnTo = q.Get("ui"), q.Get("popup_nonce"), q.Get("return_to")
 	}
 
-	if ui == "popup" {
-		if targetOrigin, ok := originFromBaseURL(s.cfg.Frontend.BaseURL); ok {
-			payload := map[string]any{
-				"type":     "AUTHKIT_OIDC_ERROR",
-				"error":    code,
-				"provider": provider,
-				"flow":     flow,
-				"nonce":    popupNonce,
-			}
-			for key, value := range extra {
-				payload[key] = value
-			}
-			b, _ := json.Marshal(payload)
-			writePopupDocument(w, buildPopupHTML(b, targetOrigin))
-			return
-		}
-		// No parseable frontend origin to postMessage to — fall through to the
-		// fragment redirect, which tolerates a relative base.
+	// Without a parseable frontend origin to post to, a popup falls through to
+	// the fragment redirect, which tolerates a relative base.
+	if targetOrigin, ok := originFromBaseURL(s.cfg.Frontend.BaseURL); ok && ui == "popup" {
+		writePopupDocument(w, buildPopupHTML(oidcPopupMessage{Type: oidcPopupType, Nonce: popupNonce, Provider: provider, Error: &code}, targetOrigin))
+		return
 	}
 
 	v := url.Values{}
 	v.Set("error", code)
+	if state := callbackParams(r).Get("state"); state != "" {
+		v.Set("state", state)
+	}
 	v.Set("flow", flow)
 	if strings.TrimSpace(provider) != "" {
 		v.Set("provider", provider)
@@ -104,20 +71,7 @@ func (s *Service) failBrowserFlowExtra(w http.ResponseWriter, r *http.Request, s
 	if rt := SanitizeReturnTo(returnTo); rt != "/" {
 		v.Set("return_to", rt)
 	}
-	for key, value := range extra {
-		if text, ok := value.(string); ok {
-			v.Set(key, text)
-		} else {
-			raw, _ := json.Marshal(value)
-			v.Set(key, string(raw))
-		}
-	}
-	target := buildFrontendCallbackURL(s.cfg.Frontend.BaseURL, s.cfg.Frontend.OIDCReturnPath, "#"+v.Encode())
-	// RFC 6749 §5.1 hygiene: flow results must never be cached — the Location
-	// fragment can carry an enrollment token (and its success sibling carries
-	// session tokens).
-	w.Header().Set("Cache-Control", "no-store")
-	http.Redirect(w, r, target, http.StatusFound)
+	http.Redirect(w, r, s.frontendCallbackURL("#"+v.Encode()), http.StatusFound)
 }
 
 // writePopupDocument writes a self-posting popup HTML document with the CSP
@@ -132,9 +86,8 @@ func writePopupDocument(w http.ResponseWriter, html []byte) {
 	_, _ = w.Write(html)
 }
 
-// wantsJSONResponse mirrors the success-path content negotiation
-// (finishBrowserLogin, emitStepUpResult): explicit format=json or an Accept
-// header naming application/json keeps the JSON contract.
+// wantsJSONResponse: a callback asked for JSON (format=json, or an Accept
+// naming application/json) answers the AuthResult or the error envelope.
 func wantsJSONResponse(r *http.Request) bool {
 	return strings.EqualFold(r.URL.Query().Get("format"), "json") ||
 		strings.Contains(r.Header.Get("Accept"), "application/json")
@@ -203,25 +156,4 @@ func (s *Service) recoverCallbackState(w http.ResponseWriter, r *http.Request, p
 		return nil
 	}
 	return &sd
-}
-
-// Browser and JSON callbacks present the same engine-produced continuation.
-func (s *Service) browserLoginContinuation(w http.ResponseWriter, r *http.Request, out authflow.LoginOutcome, provider string, sd oidcstate.StateData) {
-	out.ReturnTo = sd.ReturnTo
-	if wantsJSONResponse(r) {
-		s.writeLoginContinuation(w, r, out, nil)
-		return
-	}
-	var extra map[string]any
-	code := errmodel.CodeTwoFAEnrollmentRequired
-	if out.Kind == authflow.LoginRecoveryRequired {
-		s.failBrowserFlowExtra(w, r, &sd, provider, errmodel.E(errmodel.CodeAccountRecoveryRequired), map[string]any{"recovery": out.Recovery})
-		return
-	} else if out.Kind == authflow.LoginTwoFactorRequired {
-		code = errmodel.CodeTwoFARequired
-		extra = loginChallengeMetadata(out.UserID, out.Challenge)
-	} else {
-		extra = map[string]any{"user_id": out.UserID, "enrollment_token": out.Enrollment.AccessToken, "enrollment_expires_in": out.Enrollment.ExpiresIn, "allowed_methods": out.AllowedMethods}
-	}
-	s.failBrowserFlowExtra(w, r, &sd, provider, errmodel.E(code), extra)
 }

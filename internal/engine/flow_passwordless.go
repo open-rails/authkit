@@ -197,6 +197,7 @@ func (s *Engine) PasswordlessLogin(ctx context.Context, in authflow.Passwordless
 		method = "sms"
 	}
 	out, err := s.finishFirstFactor(ctx, loginProof{Version: account.Version, AuthenticatedAt: time.Now().UTC(), ReturnTo: rec.ReturnTo, Input: loginSessionInput{UserID: account.ID, AuthMethods: []string{method}, Event: passwordlessSessionMethod(rec.Channel), UserAgent: in.UserAgent, IP: in.IP}})
+	out.Created = rec.UserID == ""
 	return out, err
 }
 

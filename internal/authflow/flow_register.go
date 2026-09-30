@@ -16,10 +16,9 @@ type RegisterInput struct {
 type RegisterOutcomeKind string
 
 const (
-	RegisterLoginRequired RegisterOutcomeKind = "login_required"
-	// RegisterSessionIssued: the account exists and is signed in (no
-	// verification pending).
-	RegisterSessionIssued RegisterOutcomeKind = "session_issued"
+	// RegisterSignedIn: the account exists; Login is its first sign-in (a
+	// session, or the step it waits on).
+	RegisterSignedIn RegisterOutcomeKind = "signed_in"
 	// RegisterVerifyEmail / RegisterVerifyPhone: the registration is pending
 	// until the code just sent to the identifier is confirmed.
 	RegisterVerifyEmail RegisterOutcomeKind = "verify_email"
@@ -33,5 +32,4 @@ type RegisterOutcome struct {
 	Username string
 	Email    *string
 	Phone    *string
-	Session  *IssuedSession
 }

@@ -36,6 +36,8 @@ import (
 
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/builtwith"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/testkeys"
 	"github.com/open-rails/authkit/keys"
@@ -124,25 +126,24 @@ func New(t testing.TB, opts ...Option) (*authkit.Client, *Outbox) {
 		t.Fatalf("authtest: new client: %v", err)
 	}
 	t.Cleanup(auth.Close)
-	remember(t, auth, cfg, deps)
 	return auth, outbox
 }
 
 // Replica builds another Client on auth's database and schema, as another
 // replica of the deployment runs: the Config and Deps auth was built with
-// (its Outbox included), then opts. A different Token.Issuer makes a sibling
-// deployment sharing the account store; different HTTPConfig serves the same
-// accounts another way. HTTP and Password are copied, so opts may set their
-// fields; replace, never mutate, the maps and slices opts change: the replica
-// shares auth's. auth must come from New or Replica.
+// (its Outbox included, when New built it), then opts. auth may be any
+// Client authkit.New built, a host's own included. A different Token.Issuer
+// makes a sibling deployment sharing the account store; different HTTPConfig
+// serves the same accounts another way. HTTP and Password are copied, so opts
+// may set their fields; replace, never mutate, the maps and slices opts
+// change: the replica shares auth's.
 func Replica(t testing.TB, auth *authkit.Client, opts ...Option) *authkit.Client {
 	t.Helper()
-	b := builtWith(t, auth)
+	cfg, deps := builtWith(t, auth)
 	var s setup
 	for _, opt := range opts {
 		opt(&s)
 	}
-	cfg, deps := b.cfg, b.deps
 	if cfg.HTTP != nil {
 		h := *cfg.HTTP
 		cfg.HTTP = &h
@@ -162,23 +163,26 @@ func Replica(t testing.TB, auth *authkit.Client, opts ...Option) *authkit.Client
 		t.Fatalf("authtest: replica: %v", err)
 	}
 	t.Cleanup(replica.Close)
-	remember(t, replica, cfg, deps)
 	return replica
 }
 
 // StaleSession moves the sign-in of the session behind accessToken a day into
 // the past, as if its user signed in long ago, and returns a new access token
 // for that session: routes that need a recent sign-in then ask it for a
-// step-up. auth must come from New or Replica.
+// step-up. auth may be any Client authkit.New built.
 func StaleSession(t testing.TB, auth *authkit.Client, accessToken string) string {
 	t.Helper()
-	b := builtWith(t, auth)
+	cfg, deps := builtWith(t, auth)
+	schema, err := config.NormalizeSchema(cfg.Schema)
+	if err != nil || deps.Postgres == nil {
+		t.Fatalf("authtest: stale session: no database (%v)", err)
+	}
 	ctx := context.Background()
 	claims, err := auth.Verify(ctx, accessToken)
 	if err != nil || claims.SessionID == "" {
 		t.Fatalf("authtest: stale session: no session behind the token (%v)", err)
 	}
-	tag, err := b.deps.Postgres.Exec(ctx, `UPDATE `+pgx.Identifier{b.cfg.Schema, "refresh_sessions"}.Sanitize()+`
+	tag, err := deps.Postgres.Exec(ctx, `UPDATE `+pgx.Identifier{schema, "refresh_sessions"}.Sanitize()+`
 		SET last_authenticated_at = now() - interval '1 day',
 		    mfa_authenticated_at = CASE WHEN mfa_authenticated_at IS NULL THEN NULL ELSE now() - interval '1 day' END
 		WHERE id = $1::uuid`, claims.SessionID)
@@ -192,26 +196,14 @@ func StaleSession(t testing.TB, auth *authkit.Client, accessToken string) string
 	return token.Value
 }
 
-// built is what New or Replica built a Client with.
-type built struct {
-	cfg  authkit.Config
-	deps authkit.Deps
-}
-
-var clients sync.Map // *authkit.Client → built
-
-func remember(t testing.TB, auth *authkit.Client, cfg authkit.Config, deps authkit.Deps) {
-	clients.Store(auth, built{cfg: cfg, deps: deps})
-	t.Cleanup(func() { clients.Delete(auth) })
-}
-
-func builtWith(t testing.TB, auth *authkit.Client) built {
+// builtWith is the Config and Deps authkit.New built auth with.
+func builtWith(t testing.TB, auth *authkit.Client) (authkit.Config, authkit.Deps) {
 	t.Helper()
-	b, ok := clients.Load(auth)
+	cfg, deps, ok := builtwith.Of(auth)
 	if !ok {
-		t.Fatal("authtest: the Client was not built by New or Replica")
+		t.Fatal("authtest: not a Client authkit.New built")
 	}
-	return b.(built)
+	return cfg, deps
 }
 
 var signingKeys = sync.OnceValue(func() keys.Static { return testkeys.Source(testkeys.RSA("authtest")) })

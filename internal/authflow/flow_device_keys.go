@@ -24,7 +24,10 @@ type DeviceKeyChallenge struct {
 	ExpiresAt time.Time
 }
 
+// DeviceKeyAuthResult is a device key's sign-in: its account, access token
+// and key.
 type DeviceKeyAuthResult struct {
+	UserID      string
 	AccessToken string
 	ExpiresAt   time.Time
 	DeviceKey   iam.DeviceKey

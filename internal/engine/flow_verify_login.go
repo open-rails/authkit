@@ -86,7 +86,9 @@ func (s *Engine) ConfirmVerification(ctx context.Context, in authflow.Verificati
 		} else {
 			s.clearPhoneVerifyCodeAttempts(ctx, rec.Target)
 		}
-		return s.finishFirstFactor(ctx, loginProof{Version: account.Version, AuthenticatedAt: time.Now().UTC(), Input: loginSessionInput{UserID: account.ID, AuthMethods: []string{method}, Event: event, UserAgent: in.UserAgent, IP: in.IP}})
+		out, err := s.finishFirstFactor(ctx, loginProof{Version: account.Version, AuthenticatedAt: time.Now().UTC(), Input: loginSessionInput{UserID: account.ID, AuthMethods: []string{method}, Event: event, UserAgent: in.UserAgent, IP: in.IP}})
+		out.Created = kind.isRegister()
+		return out, err
 	}
 	if in.Token == "" {
 		if strings.Contains(in.Identifier, "@") {

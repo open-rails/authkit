@@ -9,55 +9,11 @@ import (
 
 // Wire types the v1 contract dropped; each goes with its last handler use.
 
-// RegistrationResult is a registration that signed in: who registered, and
-// the session. A registration waiting on a verification code answers 202.
-type RegistrationResult struct {
-	User     RegistrationUser `json:"user"`
-	TokenSet iam.TokenSet     `json:"token_set"`
-}
-
-type RegistrationUser struct {
-	Username    string  `json:"username"`
-	Email       *string `json:"email"`
-	PhoneNumber *string `json:"phone_number"`
-}
-
-// PasswordlessResult is a passwordless sign-in's session.
-type PasswordlessResult struct {
-	TokenSet iam.TokenSet `json:"token_set"`
-	ReturnTo *string      `json:"return_to"`
-}
-
-// DeviceKeySession is a device key's sign-in; the key is the token's own.
-type DeviceKeySession struct {
-	TokenSet  iam.TokenSet  `json:"token_set"`
-	DeviceKey iam.DeviceKey `json:"device_key"`
-}
-
 // StepUpResult is a re-authenticated session: a fresh access token whose
 // assurance claims match the session.
 type StepUpResult struct {
 	TokenSet  iam.TokenSet `json:"token_set"`
 	FreshAuth FreshAuth    `json:"fresh_auth"`
-}
-
-// OIDCStepUpResult is StepUpResult from a provider callback asked for JSON.
-type OIDCStepUpResult struct {
-	TokenSet  iam.TokenSet `json:"token_set"`
-	FreshAuth FreshAuth    `json:"fresh_auth"`
-	Provider  string       `json:"provider"`
-}
-
-// OIDCLoginResult is a provider sign-in's session, for a callback asked for
-// JSON.
-type OIDCLoginResult struct {
-	TokenSet iam.TokenSet `json:"token_set"`
-	User     OIDCUser     `json:"user"`
-}
-
-type OIDCUser struct {
-	ID    string  `json:"id"`
-	Email *string `json:"email"`
 }
 
 type UsernameChange struct {
@@ -94,17 +50,6 @@ type RemovedRole struct {
 	Persona   iam.Persona `json:"persona"`
 	Role      iam.Role    `json:"role"`
 	RemovedAt time.Time   `json:"removed_at"`
-}
-
-type SolanaLoginResult struct {
-	TokenSet iam.TokenSet `json:"token_set"`
-	Created  bool         `json:"created"`
-	User     SolanaUser   `json:"user"`
-}
-
-type SolanaUser struct {
-	ID            string `json:"id"`
-	SolanaAddress string `json:"solana_address"`
 }
 
 type SolanaLink struct {

@@ -164,41 +164,33 @@ func (s *Service) userHasLinkedIssuerProvider(r *http.Request, userID, issuer, p
 	return err == nil && exists
 }
 
+// completeOIDCStepUp finishes a step-up callback: the provider identity must
+// be the session's own, freshly authenticated, on an account without a second
+// factor. The result is the session's fresh AuthResult. It reports whether sd
+// was a step-up.
 func (s *Service) completeOIDCStepUp(w http.ResponseWriter, r *http.Request, sd oidcstate.StateData, provider, issuer, subject string, authTime time.Time) bool {
 	if strings.TrimSpace(sd.StepUpUserID) == "" {
 		return false
 	}
 	userID, _, err := s.svc.GetProviderLinkByIssuer(r.Context(), issuer, subject)
 	if err != nil || userID != sd.StepUpUserID {
-		redirectStepUpResult(w, r, sd.StepUpReturnTo, "failed")
+		s.failBrowserFlow(w, r, &sd, provider, errmodel.E(errmodel.CodeProviderNotLinked))
 		return true
 	}
 	if !validOIDCStepUpTime(sd.StepUpStartedAt, authTime, time.Now().UTC()) || s.hasUsableMFA(r, sd.StepUpUserID) {
-		redirectStepUpResult(w, r, sd.StepUpReturnTo, "failed")
+		s.failBrowserFlow(w, r, &sd, provider, s.svc.StepUpRequired(r.Context(), sd.StepUpUserID))
 		return true
 	}
 	if err := s.svc.MarkSessionAuthenticated(r.Context(), sd.StepUpUserID, sd.StepUpSessionID); err != nil {
-		redirectStepUpResult(w, r, sd.StepUpReturnTo, "failed")
+		s.failBrowserFlow(w, r, &sd, provider, errmodel.Internal("step_up_failed", err))
 		return true
 	}
-	return s.emitStepUpResult(w, r, sd, provider)
-}
-
-// emitStepUpResult writes the success result shared by the OIDC and OAuth2 step-up
-// completers: a fresh-token JSON body (tagged with the provider name) when JSON is
-// requested, else a success redirect. Always returns true (request handled).
-func (s *Service) emitStepUpResult(w http.ResponseWriter, r *http.Request, sd oidcstate.StateData, providerName string) bool {
-	if strings.EqualFold(r.URL.Query().Get("format"), "json") || strings.Contains(r.Header.Get("Accept"), "application/json") {
-		freshness, _ := s.svc.SessionFreshness(r.Context(), sd.StepUpUserID, sd.StepUpSessionID, time.Now())
-		fresh, err := s.freshAccessTokenResponse(r, sd.StepUpUserID, sd.StepUpSessionID, freshness)
-		if err != nil {
-			redirectStepUpResult(w, r, sd.StepUpReturnTo, "failed")
-			return true
-		}
-		writeJSON(w, http.StatusOK, OIDCStepUpResult{TokenSet: fresh.TokenSet, FreshAuth: fresh.FreshAuth, Provider: providerName})
+	res, err := s.freshAuthResult(w, r, sd.StepUpUserID, sd.StepUpSessionID)
+	if err != nil {
+		s.failBrowserFlow(w, r, &sd, provider, err)
 		return true
 	}
-	redirectStepUpResult(w, r, sd.StepUpReturnTo, "success")
+	s.emitBrowserResult(w, r, &sd, provider, res)
 	return true
 }
 
@@ -295,18 +287,6 @@ func SanitizeReturnTo(value string) string {
 		return "/"
 	}
 	return value
-}
-
-func redirectStepUpResult(w http.ResponseWriter, r *http.Request, returnTo, status string) {
-	target := SanitizeReturnTo(returnTo)
-	u, err := url.Parse(target)
-	if err != nil || u == nil {
-		u = &url.URL{Path: "/"}
-	}
-	q := u.Query()
-	q.Set("step_up", status)
-	u.RawQuery = q.Encode()
-	http.Redirect(w, r, u.String(), http.StatusFound)
 }
 
 // requireSession is the AuthSession route tier (#412): the session or device

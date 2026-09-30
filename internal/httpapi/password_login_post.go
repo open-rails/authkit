@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"errors"
 	"net/http"
 	"strings"
 
@@ -34,30 +33,5 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		writeError(w, err)
 		return
 	}
-	if s.writeLoginContinuation(w, r, out, nil) {
-		return
-	}
-	s.writeTokenSet(w, r, http.StatusOK, out.Session.TokenSet())
-}
-
-func loginRejectionCode(reason error) errmodel.Code {
-	switch {
-	case errors.Is(reason, errmodel.ErrUserBanned):
-		return errmodel.CodeUserBanned
-	case errors.Is(reason, errmodel.ErrPasswordResetRequired):
-		return errmodel.CodePasswordResetRequired
-	default:
-		return errmodel.CodeInvalidCredentials
-	}
-}
-
-// writeVerificationRequired emits the 403 verification_required envelope
-// (#313), parallel to 2fa_required. By the time this is called the engine has
-// already (re)sent a fresh verification code; the frontend routes the user to
-// the OTP verify page using metadata.identifier + metadata.channel.
-func writeVerificationRequired(w http.ResponseWriter, identifier, channel string) {
-	fail(w, errmodel.CodeVerificationRequired, errmodel.WithMetadata(map[string]any{
-		"identifier": identifier,
-		"channel":    channel,
-	}))
+	s.writeAuthResult(w, r, out, authExtras{})
 }

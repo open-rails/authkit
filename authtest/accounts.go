@@ -24,6 +24,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/devicekey"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/httpapi"
 )
 
 // Password is the password NewUser gives every account.
@@ -36,7 +37,8 @@ type User struct {
 	Email    string
 	Password string
 	// TOTP is the authenticator app SignIn answers a second-factor challenge
-	// with; EnrollTOTP returns it.
+	// with. Unset, SignIn uses the app EnrollTOTP or an earlier SignIn enrolled
+	// on the account (TOTPOf).
 	TOTP *TOTP
 }
 
@@ -56,49 +58,63 @@ func NewUser(t testing.TB, auth *authkit.Client) User {
 	return User{User: u, Email: name + "@example.com", Password: Password}
 }
 
-// SignIn signs u in with its password through auth's HTTP surface and, when
-// the account has a second factor, answers it with u.TOTP. It returns the
-// session's tokens.
+// SignIn signs u in with its password through auth's HTTP surface and follows
+// the AuthResult to a session: a second factor is answered with u.TOTP (or
+// the account's remembered app, TOTPOf); an enrollment the deployment
+// requires adds an authenticator app with the enrollment token, which SignIn
+// remembers for the account's later sign-ins. It returns the session's tokens.
 func SignIn(t testing.TB, auth *authkit.Client, u User) iam.TokenSet {
 	t.Helper()
 	identifier := u.Email
 	if identifier == "" {
 		identifier = u.Username
 	}
-	status, body := call(t, auth, http.MethodPost, "/password/login", "", map[string]string{"identifier": identifier, "password": u.Password})
-	if status == http.StatusForbidden {
-		var continuation struct {
-			Error struct {
-				Code     string `json:"code"`
-				Metadata struct {
-					UserID    string `json:"user_id"`
-					Challenge string `json:"challenge"`
-				} `json:"metadata"`
-			} `json:"error"`
-		}
-		_ = json.Unmarshal(body, &continuation)
-		if continuation.Error.Code == "2fa_required" {
-			if u.TOTP == nil {
+	res := signInCall(t, auth, identifier, "/password/login", "", map[string]string{"identifier": identifier, "password": u.Password})
+	for range 3 {
+		switch res.Status {
+		case httpapi.AuthComplete:
+			remember(t, res.User.ID, u.TOTP)
+			return *res.TokenSet
+		case httpapi.AuthSecondFactorRequired:
+			step := res.SecondFactor
+			app := u.TOTP
+			if app == nil {
+				app = TOTPOf(step.UserID)
+			}
+			factorID := ""
+			for _, f := range append([]httpapi.TwoFactorFactor{step.Factor}, step.Factors...) {
+				if f.Method == "totp" {
+					factorID = f.ID
+				}
+			}
+			if app == nil || factorID == "" {
 				t.Fatalf("authtest: %s needs a second factor and has no TOTP", identifier)
 			}
-			status, body = call(t, auth, http.MethodPost, "/2fa/verify", "", map[string]string{
-				"user_id": continuation.Error.Metadata.UserID, "challenge": continuation.Error.Metadata.Challenge, "code": u.TOTP.Code(t)})
+			u.TOTP = app
+			res = signInCall(t, auth, identifier, "/2fa/verify", "", map[string]string{"user_id": step.UserID, "challenge": step.Challenge, "factor_id": factorID, "code": app.Code(t)})
+		case httpapi.AuthEnrollmentRequired:
+			var created httpapi.TwoFactorFactorCreated
+			u.TOTP, created = addTOTP(t, auth, identifier, res.Enrollment.TokenSet.AccessToken)
+			if created.Auth == nil {
+				t.Fatalf("authtest: enroll TOTP for %s: no sign-in", identifier)
+			}
+			res = *created.Auth
+		default:
+			t.Fatalf("authtest: sign in %s: %s", identifier, res.Status)
 		}
 	}
-	if status != http.StatusOK {
-		t.Fatalf("authtest: sign in %s: %d %s", identifier, status, body)
+	t.Fatalf("authtest: sign in %s: no session", identifier)
+	return iam.TokenSet{}
+}
+
+func signInCall(t testing.TB, auth *authkit.Client, identifier, path, token string, body any) httpapi.AuthResult {
+	t.Helper()
+	status, raw := call(t, auth, http.MethodPost, path, token, body)
+	var res httpapi.AuthResult
+	if status != http.StatusOK || json.Unmarshal(raw, &res) != nil {
+		t.Fatalf("authtest: sign in %s: %s: %d %s", identifier, path, status, raw)
 	}
-	var session struct {
-		iam.TokenSet
-		Nested *iam.TokenSet `json:"token_set"`
-	}
-	if err := json.Unmarshal(body, &session); err != nil {
-		t.Fatalf("authtest: sign in %s: %v", identifier, err)
-	}
-	if session.Nested != nil {
-		return *session.Nested
-	}
-	return session.TokenSet
+	return res
 }
 
 // GrantRole gives subject role in group with system authority. A role that
@@ -159,24 +175,50 @@ func TOTPCode(t testing.TB, secret string, at time.Time) string {
 }
 
 // EnrollTOTP signs u in and adds an authenticator app through auth's HTTP
-// surface, as a user would. Keep the result as u.TOTP so SignIn can answer the
-// second factor it now requires.
+// surface, as a user would. SignIn uses it from now on; keeping it as u.TOTP
+// works too.
 func EnrollTOTP(t testing.TB, auth *authkit.Client, u User) *TOTP {
 	t.Helper()
-	token := SignIn(t, auth, u).AccessToken
-	status, body := call(t, auth, http.MethodPost, "/user/2fa", token, map[string]string{"method": "totp"})
-	var started struct {
-		Secret string `json:"secret"`
-	}
-	if status != http.StatusOK || json.Unmarshal(body, &started) != nil || started.Secret == "" {
-		t.Fatalf("authtest: start TOTP for %s: %d %s", u.Email, status, body)
-	}
-	app := &TOTP{Secret: started.Secret}
-	status, body = call(t, auth, http.MethodPost, "/user/2fa", token, map[string]string{"method": "totp", "code": app.Code(t)})
-	if status != http.StatusOK {
-		t.Fatalf("authtest: confirm TOTP for %s: %d %s", u.Email, status, body)
-	}
+	app, _ := addTOTP(t, auth, u.Email, SignIn(t, auth, u).AccessToken)
+	remember(t, u.ID, app)
 	return app
+}
+
+// addTOTP adds an authenticator app with token, a session's or an enrollment
+// token: POST /me/2fa/setup, then /me/2fa/factors with its first code.
+func addTOTP(t testing.TB, auth *authkit.Client, who, token string) (*TOTP, httpapi.TwoFactorFactorCreated) {
+	t.Helper()
+	status, body := call(t, auth, http.MethodPost, "/me/2fa/setup", token, map[string]string{"method": "totp"})
+	var setup httpapi.TwoFactorSetup
+	if status != http.StatusOK || json.Unmarshal(body, &setup) != nil || setup.Secret == nil || *setup.Secret == "" {
+		t.Fatalf("authtest: start TOTP for %s: %d %s", who, status, body)
+	}
+	app := &TOTP{Secret: *setup.Secret}
+	status, body = call(t, auth, http.MethodPost, "/me/2fa/factors", token, map[string]string{"method": "totp", "code": app.Code(t)})
+	var created httpapi.TwoFactorFactorCreated
+	if status != http.StatusCreated || json.Unmarshal(body, &created) != nil {
+		t.Fatalf("authtest: confirm TOTP for %s: %d %s", who, status, body)
+	}
+	return app, created
+}
+
+var apps sync.Map // user id → *TOTP
+
+// TOTPOf is the authenticator app EnrollTOTP or SignIn enrolled on the
+// account userID; nil for none.
+func TOTPOf(userID string) *TOTP {
+	app, _ := apps.Load(userID)
+	totp, _ := app.(*TOTP)
+	return totp
+}
+
+func remember(t testing.TB, userID string, app *TOTP) {
+	if userID == "" || app == nil {
+		return
+	}
+	if _, loaded := apps.Swap(userID, app); !loaded {
+		t.Cleanup(func() { apps.CompareAndDelete(userID, app) })
+	}
 }
 
 // DeviceKey is a device key enrolled on an account (see package devicekey).

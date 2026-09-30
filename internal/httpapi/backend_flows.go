@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"time"
 
@@ -37,7 +38,7 @@ type flowsBackend interface {
 	Disable2FAFactorWithRemovedRoles(ctx context.Context, userID, factorID string) ([]authflow.RemovedMFARoleAssignment, error)
 	Disable2FAWithRemovedRoles(ctx context.Context, userID string) ([]authflow.RemovedMFARoleAssignment, error)
 	EnrollTwoFactor(ctx context.Context, in authflow.TwoFactorEnrollInput) (authflow.TwoFactorEnrollOutcome, error)
-	ExchangeRefreshToken(ctx context.Context, refreshToken string, ua string, ip net.IP) (idToken string, expiresAt time.Time, newRefresh string, err error)
+	ExchangeRefreshToken(ctx context.Context, refreshToken string, ua string, ip net.IP) (userID string, session authflow.IssuedSession, err error)
 	FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, code, signature, secondFactor string) (authflow.DeviceKeyAuthResult, error)
 	FinishDeviceKeyLogin(ctx context.Context, challengeID, signature string) (authflow.DeviceKeyAuthResult, error)
 	FinishPasskeyLogin(ctx context.Context, response []byte, userAgent string, ip net.IP) (authflow.LoginOutcome, error)
@@ -63,6 +64,8 @@ type flowsBackend interface {
 	RecordFailedDeviceKeyEnrollment(ctx context.Context, enrollmentID string)
 	PutOIDCState(ctx context.Context, state string, data oidcstate.StateData) error
 	ConsumeOIDCState(ctx context.Context, state string) (oidcstate.StateData, bool, error)
+	PutOIDCResult(ctx context.Context, code string, result json.RawMessage) error
+	ConsumeOIDCResult(ctx context.Context, code string) (json.RawMessage, bool, error)
 	RegenerateBackupCodes(ctx context.Context, userID string) ([]string, error)
 	Register(ctx context.Context, in authflow.RegisterInput) (authflow.RegisterOutcome, error)
 	RegistrationVerificationEnabled() bool

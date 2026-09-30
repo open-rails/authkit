@@ -21,9 +21,12 @@ type ExternalLoginInput struct {
 	// Link authorizes a provider mutation only; it never creates a session.
 	Link               *ExternalLinkAuthorization
 	AccountInviteToken string
-	Event              string // session-created audit event, e.g. "oidc_login"
-	UserAgent          string
-	IP                 string
+	// ReturnTo is where the browser flow began; the sign-in's continuations
+	// carry it to their AuthResult.
+	ReturnTo  string
+	Event     string // session-created audit event, e.g. "oidc_login"
+	UserAgent string
+	IP        string
 }
 
 // ExternalLinkAuthorization records the fresh session that initiated linking.

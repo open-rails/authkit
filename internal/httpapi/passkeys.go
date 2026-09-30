@@ -83,10 +83,7 @@ func (s *Service) handlePasskeyLoginFinishPOST(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if s.writeLoginContinuation(w, r, result, nil) {
-		return
-	}
-	s.writeTokenSet(w, r, http.StatusOK, result.Session.TokenSet())
+	s.writeAuthResult(w, r, result, authExtras{})
 }
 
 func (s *Service) handlePasskeysGET(w http.ResponseWriter, r *http.Request) {

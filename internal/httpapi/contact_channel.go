@@ -93,12 +93,12 @@ func (s *Service) requireContactChannel(w http.ResponseWriter, identifier string
 	return ch, id, true
 }
 
-// POST /verify/request — {identifier, password?}. Anonymous: 202 for every
-// well-formed identifier; a code/link goes only to an unproven account or
-// pending registration, so the answer never reveals either. Authenticated:
-// start a fresh-auth-gated contact change to identifier.
+// POST /verify/request — {identifier}: sends a proof to the address. 202 for
+// every well-formed identifier; a code or link goes only to an unproven
+// account or pending registration, so the answer never reveals either.
+// Changing the caller's own address is PUT /me/email and /me/phone.
 func (s *Service) handleVerifyRequestPOST(w http.ResponseWriter, r *http.Request) {
-	var req IdentifierPasswordRequest
+	var req IdentifierRequest
 	if err := decodeJSON(r, &req); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
@@ -113,27 +113,6 @@ func (s *Service) handleVerifyRequestPOST(w http.ResponseWriter, r *http.Request
 	}
 	if !ch.senderAvailable() {
 		writeError(w, errmodel.E(ch.errUnavailable))
-		return
-	}
-	if claims, ok := verify.ClaimsFromContext(r.Context()); ok && claims.UserID != "" {
-		if s.rateLimited(w, r, RLContactChangeRequest) {
-			return
-		}
-		ok, stepUp := s.requireFreshAuthOrPassword(w, r, claims, req.Password)
-		if !ok {
-			return
-		}
-		if err := ch.requestChange(r.Context(), claims.UserID, id); err != nil {
-			writeError(w, err)
-			return
-		}
-		// A password in the body re-authenticated the session: the code is
-		// sent, and the fresh token is the result.
-		if stepUp == nil {
-			accepted(w)
-			return
-		}
-		writeJSON(w, http.StatusOK, stepUp)
 		return
 	}
 	if err := ch.requestVerification(r.Context(), id); err != nil {
@@ -182,14 +161,12 @@ func (s *Service) handleVerifyConfirmPOST(w http.ResponseWriter, r *http.Request
 		}
 		return
 	}
+	// A contact change confirmed signs nobody in.
 	if out.Kind == authflow.LoginContactChanged {
 		noContent(w)
 		return
 	}
-	if s.writeLoginContinuation(w, r, out, nil) {
-		return
-	}
-	s.writeTokenSet(w, r, http.StatusOK, out.Session.TokenSet())
+	s.writeAuthResult(w, r, out, authExtras{})
 }
 
 // POST /password/reset/request — {identifier}; always 202 for a well-formed

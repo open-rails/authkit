@@ -228,7 +228,7 @@ func (s *Engine) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, co
 	if err != nil {
 		return authflow.DeviceKeyAuthResult{}, err
 	}
-	return authflow.DeviceKeyAuthResult{AccessToken: accessToken, ExpiresAt: expiresAt, DeviceKey: deviceKey}, nil
+	return authflow.DeviceKeyAuthResult{UserID: userID, AccessToken: accessToken, ExpiresAt: expiresAt, DeviceKey: deviceKey}, nil
 }
 
 // deviceKeyEnrollmentMethods is what an enrollment proves: the key, the
@@ -520,7 +520,7 @@ func (s *Engine) FinishDeviceKeyLogin(ctx context.Context, challengeID, signatur
 	if err != nil {
 		return authflow.DeviceKeyAuthResult{}, err
 	}
-	return authflow.DeviceKeyAuthResult{AccessToken: accessToken, ExpiresAt: expiresAt, DeviceKey: deviceKey}, nil
+	return authflow.DeviceKeyAuthResult{UserID: record.UserID, AccessToken: accessToken, ExpiresAt: expiresAt, DeviceKey: deviceKey}, nil
 }
 
 // ListDeviceKeys returns the user's machine credentials after proving that the

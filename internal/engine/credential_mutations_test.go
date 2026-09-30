@@ -56,7 +56,7 @@ func TestCredentialTransactionsPasswordMutationRollsBackOnFailure(t *testing.T) 
 				require.Equal(t, before, after, "failed operation cannot invalidate grants")
 				require.NoError(t, e.CheckUserPassword(ctx, uid, testPassword))
 				require.Error(t, e.CheckUserPassword(ctx, uid, "Replacement-password-12345"))
-				_, _, _, err = e.ExchangeRefreshToken(ctx, refresh, "test", nil)
+				_, _, err = e.ExchangeRefreshToken(ctx, refresh, "test", nil)
 				require.NoError(t, err, "the rollback retains the old session")
 			})
 		}

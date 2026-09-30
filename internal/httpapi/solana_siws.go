@@ -11,6 +11,7 @@ import (
 
 	"github.com/open-rails/authkit/verify"
 
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/siws"
 )
@@ -86,18 +87,10 @@ func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if s.writeLoginContinuation(w, r, out, nil) {
-		return
-	}
-	if out.Created {
+	if out.Created && out.Kind == authflow.LoginSessionIssued {
 		go s.svc.SendWelcome(context.Background(), out.UserID)
 	}
-
-	writeJSON(w, http.StatusOK, SolanaLoginResult{
-		TokenSet: s.deliverRefreshToken(w, r, out.Session.TokenSet()),
-		Created:  out.Created,
-		User:     SolanaUser{ID: out.UserID, SolanaAddress: output.Account.Address},
-	})
+	s.writeAuthResult(w, r, out, authExtras{})
 }
 
 func (s *Service) handleMeSolanaWalletPUT(w http.ResponseWriter, r *http.Request) {
