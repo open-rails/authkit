@@ -255,6 +255,43 @@ it("unlink deletes the solana provider, without a body", async () => {
   expect(del.body).toBeUndefined()
 })
 
+describe("stepUp", () => {
+  it("signs the session's step-up challenge and adopts the fresh session", async () => {
+    let stepUp!: RequestInit
+    const fresh = {
+      last_authenticated_at: null,
+      step_up_required_for_sensitive_actions: false,
+      step_up_required_in_seconds: 900,
+      auth_methods: ["swk"],
+    }
+    const { client, fetch, solana } = setup({
+      "POST /api/v1/me/step-up/solana/challenge": () =>
+        json(200, { nonce: "n", message: MESSAGE, issued_at: "t" }),
+      "POST /api/v1/me/step-up/solana": (init) => {
+        stepUp = init
+        return json(200, complete("A", undefined, { fresh_auth: fresh }))
+      },
+    })
+    await client.completeSignIn(async () => complete("A"))
+    const sign = vi.fn(async () => SIG)
+    await expect(solana.stepUp(signer(sign))).resolves.toEqual(fresh)
+    expect(sign).toHaveBeenCalledWith(new TextEncoder().encode(MESSAGE))
+    expect(header(stepUp, "Authorization")).toBe(`Bearer ${jwt("A")}`)
+    expect(bodyOf(stepUp)).toEqual({
+      output: {
+        account: { address: "W", publicKey: b64(Uint8Array.of(29)) },
+        signature: b64(SIG),
+        signedMessage: b64(new TextEncoder().encode(MESSAGE)),
+      },
+    })
+    expect(
+      fetch.mock.calls.some(([url]) =>
+        String(url).endsWith("/api/v1/solana/challenge")
+      )
+    ).toBe(false)
+  })
+})
+
 describe("signerFromWallet", () => {
   const key = { toBase58: () => "W" }
   it("adapts a connected wallet", async () => {

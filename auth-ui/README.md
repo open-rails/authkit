@@ -62,7 +62,11 @@ const res = await auth.authFetch("/api/v1/things") // Bearer + one refresh retry
   `code_expired`; resend to get a fresh code.
 - `readStepUpRequired(err)` turns a `403 step_up_required` into the methods to
   offer; retry the action after `stepUpWithPassword`, `sendStepUpCode` +
-  `stepUpWithTwoFactor`, or `startOidcStepUp`.
+  `stepUpWithTwoFactor`, `sendContactStepUpCode` + `stepUpWithContactCode`
+  (email, sms), `stepUpWithPasskey`, a wallet's
+  `createSolanaAuth(auth).stepUp(signer)`, or `startOidcStepUp`.
+- `signInWithPasskey()` (call from a click) signs in with a passkey the
+  browser offers.
 - OIDC: `signInWithPopup` (call from a click), `signInWithRedirect` and
   `completeRedirect()` on the callback route; the OIDC step-up returns with
   `#code=` to its page (`completeStepUp()`, run by `StepUpProvider`). Results
@@ -276,8 +280,10 @@ A host that loads its wallet stack lazily passes
 device keys), `SessionsPanel` and `DeleteAccountPanel` (pick with
 `sections`); each also works alone. Every
 sensitive action runs through one `StepUpProvider`, whose `StepUpDialog` offers
-password, TOTP/email/SMS code, backup code or OIDC re-authentication and then
-retries the action. Wrap a page in your own `StepUpProvider` to share it, and
+each way the account can re-authenticate (password, second factor or backup
+code, a code to its email or phone, a passkey, its wallet, a provider) and then
+retries the action. The wallet needs `acquireSolanaSigner` on
+`AccountSecurity` or `StepUpProvider`. Wrap a page in your own `StepUpProvider` to share it, and
 use `useStepUpGuard()` for host actions. A panel outside any provider brings its
 own.
 
@@ -291,6 +297,7 @@ const solana = createSolanaAuth(auth)
 const result = await solana.signIn(signerFromWallet(wallet)) // an AuthResult, like password login
 await solana.link(signer, { linkedAddress }) // PUT /me/solana-wallet
 await solana.unlink() // needs a recent sign-in (step up first)
+await solana.stepUp(signer) // the linked wallet's step-up
 ```
 
 React: `useSolanaAuth(auth, useWallet(), { onConnectRequest: () => setVisible(true) })`

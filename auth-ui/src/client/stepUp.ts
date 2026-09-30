@@ -2,8 +2,9 @@ import { errorMetadata } from "./errors.ts"
 import type { TwoFactorFactor } from "./generated/wire.ts"
 
 export type StepUpChallenge = {
-  // "2fa" alone for an account with a second factor; otherwise "password"
-  // and the providers that support step-up.
+  // What clears the gate: "2fa" and "passkey" for an account with a second
+  // factor; otherwise "password", "passkey", "email", "sms", "solana" and
+  // the providers that support step-up.
   methods: string[]
   maxAgeSeconds?: number
   // The second factors a "2fa" step-up can use, each addressed by its id.

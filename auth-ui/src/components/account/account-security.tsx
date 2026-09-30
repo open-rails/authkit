@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 
 import { AuthUiRoot } from "../../scope.tsx"
+import type { SolanaSigner } from "../../solana/core.ts"
 import { ContactPanel, type ContactChannel } from "./contact-panel.tsx"
 import { DeleteAccountPanel } from "./delete-account-panel.tsx"
 import { LinkedProvidersPanel } from "./linked-providers-panel.tsx"
@@ -40,6 +41,8 @@ export interface AccountSecurityProps {
   navigate?: (url: string) => void
   /** Where OIDC step-up returns. Default the current URL. */
   stepUpReturnTo?: string
+  /** The linked wallet's signer, for a wallet step-up (StepUpProvider). */
+  acquireSolanaSigner?: () => Promise<SolanaSigner>
   /** Runs after account deletion; the session has already ended. */
   onDeleted?: () => void
   className?: string
@@ -52,6 +55,7 @@ export function AccountSecurity({
   linkedAccountRows,
   navigate,
   stepUpReturnTo,
+  acquireSolanaSigner,
   onDeleted,
   className,
 }: AccountSecurityProps) {
@@ -87,7 +91,11 @@ export function AccountSecurity({
   return useStepUpController() ? (
     root
   ) : (
-    <StepUpProvider navigate={navigate} returnTo={stepUpReturnTo}>
+    <StepUpProvider
+      navigate={navigate}
+      returnTo={stepUpReturnTo}
+      acquireSolanaSigner={acquireSolanaSigner}
+    >
       {root}
     </StepUpProvider>
   )

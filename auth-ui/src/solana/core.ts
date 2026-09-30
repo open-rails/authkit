@@ -96,30 +96,36 @@ export function createSolanaAuth(client: AuthClient) {
     }
   }
 
-  const challenge = async (
-    address: string,
-    username: string | undefined,
-    anonymous: boolean
-  ): Promise<string> => {
-    const body = await client.request<Rec>("POST", "/solana/challenge", {
-      body: { address, username },
-      ...(anonymous ? { bearer: null } : {}),
-    })
+  const messageOf = (body: Rec | undefined): string => {
     const message = body?.message
     if (typeof message !== "string" || !message)
       throw new Error("AuthKit returned no SIWS message")
     return message
   }
 
+  // A sign-in or link challenge for address.
+  const challenge =
+    (username: string | undefined, anonymous: boolean) =>
+    async (address: string) =>
+      messageOf(
+        await client.request<Rec>("POST", "/solana/challenge", {
+          body: { address, username },
+          ...(anonymous ? { bearer: null } : {}),
+        })
+      )
+
+  // A step-up challenge for the account's linked wallet.
+  const stepUpChallenge = async () =>
+    messageOf(await client.request<Rec>("POST", "/me/step-up/solana/challenge"))
+
   // challenge → wallet signature → SIWS output body
   const prove = async (
     signer: SolanaSigner,
-    username: string | undefined,
-    anonymous: boolean
+    issue: (address: string) => Promise<string>
   ) => {
     const address = signer.publicKey
     if (!address) throw new SolanaWalletError("not_connected")
-    const message = await challenge(address, username, anonymous)
+    const message = await issue(address)
     const bytes = new TextEncoder().encode(message)
     let signature: Uint8Array
     try {
@@ -157,7 +163,7 @@ export function createSolanaAuth(client: AuthClient) {
     ): Promise<SignInResult> =>
       exclusive(() =>
         client.completeSignIn(async () => {
-          const { body } = await prove(signer, input.username, true)
+          const { body } = await prove(signer, challenge(input.username, true))
           return client.request("POST", "/solana/login", {
             body,
             bearer: null,
@@ -185,10 +191,21 @@ export function createSolanaAuth(client: AuthClient) {
             code: "wallet_change_requires_unlink",
             message: "Unlink your current wallet before connecting another.",
           })
-        const { address, body } = await prove(signer, undefined, false)
+        const { address, body } = await prove(
+          signer,
+          challenge(undefined, false)
+        )
         if (userId() !== owner) throw new AuthSessionChangedError()
         const linked = await client.linkSolanaWallet(body.output)
         return { address: linked.address || address }
+      }),
+
+    // Re-authenticates the signed-in session with its linked wallet, for a
+    // sensitive action (step_up_methods "solana").
+    stepUp: (signer: SolanaSigner) =>
+      exclusive(async () => {
+        const { body } = await prove(signer, stepUpChallenge)
+        return client.stepUpWithSolana(body.output)
       }),
 
     unlink: () => client.unlinkProvider("solana"),

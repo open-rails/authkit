@@ -1,6 +1,7 @@
 import {
   AppleIcon,
   DiscordIcon,
+  FingerPrintIcon,
   GithubIcon,
   GoogleIcon,
   Login01Icon,
@@ -40,6 +41,7 @@ export function ProviderButtons({
   returnTo,
   inviteCode,
   disabled,
+  onPasskey,
 }: {
   mode: SignInMode
   providers?: ProvidersOption
@@ -48,6 +50,8 @@ export function ProviderButtons({
   returnTo?: string
   inviteCode?: string
   disabled?: boolean
+  // Passkey sign-in, offered first when set.
+  onPasskey?: () => void
 }) {
   const { t, error: describe } = useMessages()
   const client = useAuthClient()
@@ -64,7 +68,7 @@ export function ProviderButtons({
     onOutcome,
     disabled: !!disabled || pending !== null,
   })
-  if (!list.length && !solana) return null
+  if (!list.length && !solana && !onPasskey) return null
 
   // No await before signInWithPopup: the window must open inside the click.
   const start = async (id: string) => {
@@ -101,6 +105,19 @@ export function ProviderButtons({
       <OrSeparator label={t("common.or")} />
       {error && <FormAlert>{describe(error)}</FormAlert>}
       <div className="flex flex-col gap-2.5">
+        {onPasskey && (
+          <Button
+            type="button"
+            variant="outline"
+            size="lg"
+            className="w-full"
+            disabled={disabled || pending !== null}
+            onClick={onPasskey}
+          >
+            <HugeiconsIcon icon={FingerPrintIcon} strokeWidth={2} />
+            {t("signIn.withPasskey")}
+          </Button>
+        )}
         {list.map((p) => (
           <Button
             key={p.id}

@@ -1,7 +1,9 @@
 import { Key02Icon, Mail01Icon } from "@hugeicons/core-free-icons"
 import { useState, type ReactNode } from "react"
 
+import { webAuthnAvailable } from "#authui/client/webauthn"
 import { useMessages } from "#authui/i18n/context"
+import { useCapabilities } from "#authui/react/context"
 import { useLogin } from "#authui/react/useLogin"
 import { AuthUiRoot } from "#authui/scope"
 import { Button } from "#authui/ui/button"
@@ -78,6 +80,8 @@ function Credentials({
   onForgotPassword: (identifier: string) => void
 }) {
   const { t, error: describe } = useMessages()
+  const { capabilities } = useCapabilities()
+  const passkeys = !!capabilities?.passkeys.login && webAuthnAvailable()
   const [identifier, setIdentifier] = useState("")
   const [password, setPassword] = useState("")
   const [touched, setTouched] = useState(false)
@@ -166,6 +170,9 @@ function Credentials({
           returnTo={returnTo}
           inviteCode={inviteCode}
           disabled={busy}
+          onPasskey={
+            passkeys ? () => void login.signInWithPasskey() : undefined
+          }
         />
       )}
       {footer && (

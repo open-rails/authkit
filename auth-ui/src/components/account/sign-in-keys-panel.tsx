@@ -5,6 +5,7 @@ import {
 import { useId, useState } from "react"
 
 import type { SignInKey } from "../../client/types.ts"
+import { webAuthnAvailable } from "../../client/webauthn.ts"
 import { useMessages } from "../../i18n/context.ts"
 import { useCapabilities } from "../../react/context.ts"
 import { useSignInKeys } from "../../react/signInKeys.ts"
@@ -31,16 +32,13 @@ export function SignInKeysPanel({ className }: SignInKeysPanelProps) {
   )
 }
 
-const webAuthn = () =>
-  typeof window !== "undefined" && "PublicKeyCredential" in window
-
 function SignInKeysCard() {
   const { t } = useMessages()
   const { capabilities } = useCapabilities()
   const keys = useSignInKeys({ guard: useStepUpGuard() })
   const [renaming, setRenaming] = useState<string | null>(null)
   const [removing, setRemoving] = useState<SignInKey | null>(null)
-  const canAdd = !!capabilities?.passkeys.login && webAuthn()
+  const canAdd = !!capabilities?.passkeys.login && webAuthnAvailable()
   const list = keys.keys
   if (!canAdd && list?.length === 0) return null
 

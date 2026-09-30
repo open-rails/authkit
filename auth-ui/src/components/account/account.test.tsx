@@ -8,7 +8,14 @@ import { describe, expect, it, vi } from "vitest"
 
 import { createAuthClient } from "../../client/client.ts"
 import type { SignInKey } from "../../client/types.ts"
-import { authError, json, stubFetch } from "../../client/testing.ts"
+import {
+  authError,
+  json,
+  passkeyAssertion,
+  passkeyOptions,
+  stubFetch,
+  stubPasskey,
+} from "../../client/testing.ts"
 import { AuthUiProvider } from "../../provider.tsx"
 import { AuthProvider } from "../../react/provider.tsx"
 import { noContent, session, signedIn } from "../../react/testing.tsx"
@@ -278,6 +285,179 @@ describe("StepUpDialog", () => {
       { send: { factor_id: "f1" } },
       { code: "222222", factor_id: "f1" },
     ])
+  })
+})
+
+describe("StepUpDialog sign-in methods", () => {
+  const deleteAccount = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(
+      await screen.findByRole("button", { name: "Delete account" })
+    )
+    const confirm = screen.getByRole("alertdialog")
+    await user.type(within(confirm).getByLabelText("Confirmation"), "DELETE")
+    await user.click(
+      within(confirm).getByRole("button", { name: "Delete account" })
+    )
+    return screen.findByRole("dialog", { name: "Confirm it's you" })
+  }
+
+  it("steps up a passwordless account with a code to its email", async () => {
+    const calls: unknown[] = []
+    const onDeleted = vi.fn()
+    const { user } = await renderSignedIn(
+      <DeleteAccountPanel onDeleted={onDeleted} />,
+      {
+        "GET /api/v1/me": () => profile({ has_password: false }),
+        "DELETE /api/v1/me": [
+          stepUpRequired({ step_up_methods: ["email"] }),
+          noContent(),
+        ],
+        "POST /api/v1/me/step-up/code/send": (init) => {
+          calls.push({ send: JSON.parse(String(init.body)) })
+          return new Response(null, { status: 202 })
+        },
+        "POST /api/v1/me/step-up/code": (init) => {
+          const body = JSON.parse(String(init.body))
+          calls.push(body)
+          return body.code === "111111"
+            ? authError(401, "invalid_code")
+            : fresh()
+        },
+      }
+    )
+    const stepUp = await deleteAccount(user)
+    expect(
+      await within(stepUp).findByText("We'll send a one-time code to a@x.test.")
+    ).toBeInTheDocument()
+    expect(within(stepUp).queryByLabelText("Password")).toBeNull()
+    await user.click(within(stepUp).getByRole("button", { name: "Send code" }))
+    expect(
+      await within(stepUp).findByText("Enter the code we sent to a@x.test.")
+    ).toBeInTheDocument()
+    await user.type(within(stepUp).getByRole("textbox"), "111111")
+    expect(
+      await within(stepUp).findByText("Invalid verification code.")
+    ).toBeInTheDocument()
+    await user.type(within(stepUp).getByRole("textbox"), "222222")
+    await waitFor(() => expect(onDeleted).toHaveBeenCalledOnce())
+    expect(calls).toEqual([
+      { send: { channel: "email" } },
+      { code: "111111" },
+      { code: "222222" },
+    ])
+  })
+
+  it("steps up with a passkey, second factor or not; a closed prompt changes nothing", async () => {
+    const get = stubPasskey()
+    get.mockRejectedValueOnce(new DOMException("closed", "NotAllowedError"))
+    const finished: unknown[] = []
+    const { user } = await renderSignedIn(<TwoFactorPanel />, {
+      "GET /api/v1/me/security": () =>
+        security({
+          enabled: true,
+          factors: [factor("f1", "totp", true)],
+          allowed_methods: ["totp"],
+          backup_codes_remaining: 8,
+        }),
+      "POST /api/v1/me/2fa/backup-codes": [
+        stepUpRequired({
+          step_up_methods: ["2fa", "passkey"],
+          factors: [factor("f1", "totp", true)],
+        }),
+        json(200, { backup_codes: ["aaaa-1111"] }),
+      ],
+      "POST /api/v1/me/step-up/passkey/begin": passkeyOptions,
+      "POST /api/v1/me/step-up/passkey": (init) => {
+        finished.push(JSON.parse(String(init.body)))
+        return fresh()
+      },
+    })
+    await user.click(
+      await screen.findByRole("button", { name: "Generate new codes" })
+    )
+    await user.click(
+      within(screen.getByRole("alertdialog")).getByRole("button", {
+        name: "Generate new codes",
+      })
+    )
+    const stepUp = await screen.findByRole("dialog", {
+      name: "Confirm it's you",
+    })
+    const usePasskey = within(stepUp).getByRole("button", {
+      name: "Use a passkey",
+    })
+    await user.click(usePasskey)
+    await waitFor(() => expect(get).toHaveBeenCalledOnce())
+    expect(within(stepUp).queryByRole("alert")).toBeNull()
+    expect(finished).toEqual([])
+
+    await user.click(usePasskey)
+    expect(
+      await screen.findByRole("list", { name: "Backup codes" })
+    ).toHaveTextContent("aaaa-1111")
+    const options = get.mock.calls[1][0].publicKey
+    expect(new Uint8Array(options?.challenge as ArrayBuffer)).toEqual(
+      new Uint8Array([1, 2, 3])
+    )
+    expect(options?.allowCredentials).toHaveLength(1)
+    expect(finished).toEqual([passkeyAssertion])
+  })
+
+  it("steps up with the linked wallet through a lazily acquired signer", async () => {
+    const signMessage = vi.fn(async () => new Uint8Array(64).fill(1))
+    const acquireSolanaSigner = vi.fn(async () => ({
+      publicKey: "W",
+      signMessage,
+    }))
+    const signed: unknown[] = []
+    const onDeleted = vi.fn()
+    const { user } = await renderSignedIn(
+      <StepUpProvider acquireSolanaSigner={acquireSolanaSigner}>
+        <DeleteAccountPanel onDeleted={onDeleted} />
+      </StepUpProvider>,
+      {
+        "GET /api/v1/me": () => profile({ email: null, has_password: false }),
+        "DELETE /api/v1/me": [
+          stepUpRequired({ step_up_methods: ["solana"] }),
+          noContent(),
+        ],
+        "POST /api/v1/me/step-up/solana/challenge": () =>
+          json(200, {
+            nonce: "n",
+            issued_at: "2026-09-30T00:00:00Z",
+            message: "m",
+          }),
+        "POST /api/v1/me/step-up/solana": (init) => {
+          signed.push(JSON.parse(String(init.body)))
+          return fresh()
+        },
+      }
+    )
+    const stepUp = await deleteAccount(user)
+    await user.click(
+      within(stepUp).getByRole("button", { name: "Use your wallet" })
+    )
+    await waitFor(() => expect(onDeleted).toHaveBeenCalledOnce())
+    expect(acquireSolanaSigner).toHaveBeenCalledOnce()
+    expect(signMessage).toHaveBeenCalledWith(new TextEncoder().encode("m"))
+    expect(signed).toHaveLength(1)
+    expect(signed[0]).toMatchObject({
+      output: {
+        account: { address: "W" },
+        signature: btoa(String.fromCharCode(...new Uint8Array(64).fill(1))),
+        signedMessage: btoa("m"),
+      },
+    })
+  })
+
+  it("offers no wallet without a signer", async () => {
+    const { user } = await renderSignedIn(<DeleteAccountPanel />, {
+      "DELETE /api/v1/me": [stepUpRequired({ step_up_methods: ["solana"] })],
+    })
+    const stepUp = await deleteAccount(user)
+    expect(stepUp).toHaveTextContent(
+      "No reauthentication methods are available for this account."
+    )
   })
 })
 

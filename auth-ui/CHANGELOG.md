@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Step-up by every way an account signs in. `step_up_methods` may name
+  `email`, `sms`, `passkey` and `solana`; with a second factor it is `2fa`,
+  plus `passkey` when the account holds one. New: `sendContactStepUpCode`,
+  `stepUpWithContactCode`, `stepUpWithPasskey` and `stepUpWithSolana` on the
+  client; `sendContactCode`, `withContactCode`, `withPasskey` and `withSolana`
+  (and the `contact_code_sent` state) on `useStepUp`;
+  `createSolanaAuth(client).stepUp(signer)`. `StepUpDialog` offers each; pass
+  `acquireSolanaSigner` to `StepUpProvider` or `AccountSecurity` for the
+  wallet.
+- Passkey sign-in: `signInWithPasskey()` on the client and `useLogin`, and a
+  "Sign in with a passkey" button in the sign-in forms when `/capabilities`
+  turns passkeys on.
+- `useSignInKeys().addPasskey` runs through the guard: a new passkey needs a
+  recent sign-in.
 - A second factor is one `TwoFactorFactor` everywhere, addressed by its `id`.
   `StepUpChallenge` is `{ methods, maxAgeSeconds, factors }`; `mfaRequired`,
   `twoFactor` and `stepUpDestination` are gone (with a second factor,

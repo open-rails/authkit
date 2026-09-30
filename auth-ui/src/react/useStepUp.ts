@@ -1,10 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { AuthKitError } from "../client/errors.ts"
 import { readStepUpRequired } from "../client/stepUp.ts"
 import type { StepUpChallenge } from "../client/stepUp.ts"
+import { passkeyDismissed } from "../client/webauthn.ts"
+import {
+  createSolanaAuth,
+  isSolanaWalletError,
+  type SolanaSigner,
+} from "../solana/core.ts"
 import { useAuthClient } from "./context.ts"
 import { useTask, type Guard } from "./task.ts"
+
+// A proven address a step-up code can go to.
+export type StepUpChannel = "email" | "sms"
 
 export type StepUpState =
   | { step: "idle" }
@@ -16,6 +25,11 @@ export type StepUpState =
       factorId: string
       // Its masked address, when AuthKit listed it.
       destination: string | null
+    }
+  | {
+      step: "contact_code_sent"
+      challenge: StepUpChallenge
+      channel: StepUpChannel
     }
 
 export type StepUpOptions = {
@@ -42,6 +56,7 @@ const challengeOf = (s: StepUpState): StepUpChallenge =>
 export function useStepUp(options: StepUpOptions = {}) {
   const client = useAuthClient()
   const { busy, error, run, clearError } = useTask()
+  const solana = useMemo(() => createSolanaAuth(client), [client])
   const [state, setState] = useState<StepUpState>({ step: "idle" })
   const waiters = useRef<Waiter[]>([])
   const navigate = useRef(options.navigate)
@@ -134,6 +149,61 @@ export function useStepUp(options: StepUpOptions = {}) {
     [client, run, settle, state]
   )
 
+  // Sends a code to the account's proven email or phone.
+  const sendContactCode = useCallback(
+    (channel: StepUpChannel) =>
+      run(async () => {
+        await client.sendContactStepUpCode(channel)
+        setState((s) => ({
+          step: "contact_code_sent",
+          challenge: challengeOf(s),
+          channel,
+        }))
+      }),
+    [client, run]
+  )
+
+  const withContactCode = useCallback(
+    (code: string) =>
+      run(async () => {
+        await client.stepUpWithContactCode(code)
+        settle(true)
+      }),
+    [client, run, settle]
+  )
+
+  // Asks the browser for one of the account's passkeys; call from a click.
+  // Closing the browser's prompt leaves the dialog as it was.
+  const withPasskey = useCallback(
+    () =>
+      run(async () => {
+        try {
+          await client.stepUpWithPasskey()
+        } catch (err) {
+          if (passkeyDismissed(err)) return
+          throw err
+        }
+        settle(true)
+      }),
+    [client, run, settle]
+  )
+
+  // Signs a step-up challenge with the linked wallet that acquire resolves.
+  // A dismissed wallet prompt leaves the dialog as it was.
+  const withSolana = useCallback(
+    (acquire: () => Promise<SolanaSigner>) =>
+      run(async () => {
+        try {
+          await solana.stepUp(await acquire())
+        } catch (err) {
+          if (isSolanaWalletError(err) && err.reason === "rejected") return
+          throw err
+        }
+        settle(true)
+      }),
+    [solana, run, settle]
+  )
+
   // Leaves the page; AuthKit returns to returnTo#code= (the StepUpProvider
   // finishes it with client.completeStepUp). Pending actions are not
   // retried across the redirect.
@@ -160,6 +230,10 @@ export function useStepUp(options: StepUpOptions = {}) {
     withPassword,
     sendCode,
     withTwoFactor,
+    sendContactCode,
+    withContactCode,
+    withPasskey,
+    withSolana,
     withProvider,
     cancel,
   }
