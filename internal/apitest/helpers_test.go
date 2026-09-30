@@ -154,10 +154,8 @@ func bareConfig(t testing.TB) (authkit.Config, authkit.Deps) {
 	t.Helper()
 	pg := testdb.ScratchPostgres(t)
 	s := bareSigner()
-	return authkit.Config{
-		Keys:  authkit.KeysConfig{Source: testkeys.Source(s)},
-		Token: authkit.TokenConfig{Issuer: authtest.Issuer, IssuedAudiences: []string{authtest.Audience}},
-	}, authkit.Deps{Postgres: pg.Pool}
+	cfg := authkit.Config{Token: authkit.TokenConfig{Issuer: authtest.Issuer, IssuedAudiences: []string{authtest.Audience}}}
+	return cfg, authkit.Deps{Postgres: pg.Pool, KeySource: testkeys.Source(s)}
 }
 
 // newClient is authkit.New on cfg and deps, closed at cleanup.
@@ -437,7 +435,7 @@ func (f *factorFlow) expect(status int, r authAnswer) authAnswer {
 }
 
 // code is the code of the newest kind message to to; the test fails without one.
-func (f *factorFlow) code(kind authtest.Kind, to string) string {
+func (f *factorFlow) code(kind iam.MessageKind, to string) string {
 	f.t.Helper()
 	code := f.outbox.Last(f.t, kind, to).Code
 	require.NotEmpty(f.t, code)
@@ -452,7 +450,7 @@ func (f *factorFlow) session(tokens iam.TokenSet, amr ...string) {
 
 // withProviders configures the Client's identity providers.
 func withProviders(providers ...provider.Provider) authtest.Option {
-	return authtest.WithConfig(func(c *authkit.Config) { c.Identity.Providers = providers })
+	return authtest.WithDeps(func(d *authkit.Deps) { d.Providers = providers })
 }
 
 // providerFlow is a provider flow a browser started: the IdP authorization

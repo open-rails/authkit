@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/passkeytest"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
@@ -20,14 +21,16 @@ func TestPasskeyLoginCompletesWhileItsPasskeyIsDeleted(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := testConfig()
 	cfg.TwoFactor.Mode = iam.TwoFactorRequired
-	cfg.Passkeys = PasskeyConfig{RPID: "app.example", Origins: []string{"https://app.example"}}
-	cfg.Roles = RoleConfig{Roles: []Role{{Persona: "root", Name: "admin", Permissions: []string{"root:*"}}}}
-	f := newAccountFlow(t, pg.Pool, cfg, Deps{})
+	cfg.Passkeys = config.PasskeyConfig{RPID: "app.example", Origins: []string{"https://app.example"}}
+	roles := config.NewRoles()
+	roles.Root.Role("admin", roles.Root.All())
+	cfg.Roles = roles
+	f := newAccountFlow(t, pg.Pool, cfg, config.Deps{})
 	ctx := t.Context()
 	// The role came while 2FA was off.
 	bootstrapCfg := cfg
 	bootstrapCfg.TwoFactor.Mode = iam.TwoFactorDisabled
-	bootstrap := newTestEngine(t, bootstrapCfg, Deps{Postgres: pg.Pool})
+	bootstrap := newTestEngine(t, bootstrapCfg, config.Deps{Postgres: pg.Pool})
 	user := newUser(t, bootstrap, "uvrole")
 	grantRole(t, bootstrap, iam.RootGroup(), iam.UserSubject(user.ID), "admin")
 	authn := passkeytest.New(t, "https://app.example")

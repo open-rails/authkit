@@ -28,26 +28,37 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit"
 	authkitgin "github.com/open-rails/authkit/adapters/gin"
-	twilioemail "github.com/open-rails/authkit/adapters/twilio/email"
-	twiliosms "github.com/open-rails/authkit/adapters/twilio/sms"
+	"github.com/open-rails/authkit/adapters/twilio"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 )
 
 func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {
+	cfg := authkit.Config{
+		Schema: "profiles", // the Postgres schema AuthKit's tables go in
+		// Configure JWTs; authkit issues these to users; users then send them back with requests to prove who they are!
+		Token: authkit.TokenConfig{
+			Issuer:          "https://myapp.com", // who issued this; that's you!
+			IssuedAudiences: []string{"myapp"},   // who this JWT is intended for (doesn't have to be yourself, but usually is)
+		},
+		Keys: authkit.KeysConfig{
+			Path: "/vault/auth", // where your signing keys are stored; a keys.json file
+		},
+		HTTP: &authkit.HTTPConfig{
+			DirectPeerIP: true, // no proxy in front; otherwise set TrustedProxies
+			// Rate limits live in memory; set Deps.Redis when you run more than one copy of your server.
+		},
+		Roles: rbac, // See below for our RBAC system
+	}
+
 	// 1. Create or upgrade AuthKit's tables. Safe to run on every boot.
-	err := authkit.Migrate(
-		ctx,
-		db, // your Postgres pool
-		authkit.MigrateOptions{Schema: "profiles"}, // schema where Authkit's tables will go
-	)
-	if err != nil {
+	if err := authkit.Migrate(ctx, db, cfg, authkit.MigrateOptions{}); err != nil {
 		return nil, err
 	}
 
 	// 2. Authkit needs to send verification and account recovery codes to emails and phone numbers.
 	// Configure your messaging provider (Twilio) here.
-	mailer, err := twilioemail.New(twilioemail.Config{
+	email, err := twilio.NewEmail(twilio.EmailConfig{
 		APIKey:    os.Getenv("SENDGRID_API_KEY"),
 		FromEmail: "hello@myapp.com",
 		AppName:   "MyApp",
@@ -55,7 +66,7 @@ func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	texter, err := twiliosms.New(twiliosms.Config{
+	sms, err := twilio.NewSMS(twilio.SMSConfig{
 		AccountSID:          os.Getenv("TWILIO_ACCOUNT_SID"),
 		AuthToken:           os.Getenv("TWILIO_AUTH_TOKEN"),
 		MessagingServiceSID: os.Getenv("TWILIO_MESSAGING_SERVICE_SID"),
@@ -66,29 +77,12 @@ func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {
 	}
 
 	// 3. Build the auth engine.
-	return authkit.New(
-		ctx,
-		authkit.Config{
-			// Configure JWTs; authkit issues these to users; users then send them back with requests to prove who they are!
-			Token: authkit.TokenConfig{
-				Issuer:          "https://myapp.com", // who issued this; that's you!
-				IssuedAudiences: []string{"myapp"},   // who this JWT is intended for (doesn't have to be yourself, but usually is)
-			},
-			Keys: authkit.KeysConfig{
-				Path: "/vault/auth", // where your signing keys are stored; a keys.json file
-			},
-			HTTP: authkit.HTTPConfig{
-				DirectPeerIP: true, // no proxy in front; otherwise set TrustedProxies
-				// Rate limits live in memory; set Redis when you run more than one copy of your server.
-			},
-			Roles: rbac, // See below for our RBAC system
-		},
-		authkit.Deps{
-			Postgres: db,     // required: users, sessions and short-lived auth state
-			Email:    mailer, // sends verification codes, login codes and password resets
-			SMS:      texter, // same, for phone numbers
-		},
-	)
+	return authkit.New(ctx, cfg, authkit.Deps{
+		Postgres:  db,              // required: users, sessions and short-lived auth state
+		Email:     email.Send,      // sends verification codes, login codes and password resets
+		SMS:       sms.Send,        // same, for phone numbers
+		SMSHealth: sms.CheckHealth, // phone sign-in pauses while Twilio can't deliver
+	})
 }
 ```
 

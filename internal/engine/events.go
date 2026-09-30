@@ -148,7 +148,7 @@ func (s *Engine) emitEvents(ctx context.Context, q db.DBTX, a iam.Actor, events 
 		}
 	}
 	for _, sub := range subscribers {
-		client, err := s.eventRiver(sub.RiverSchema)
+		client, err := s.fleetProducer(sub.RiverSchema)
 		if err != nil {
 			return err
 		}
@@ -169,10 +169,10 @@ func (s *Engine) emitEvents(ctx context.Context, q db.DBTX, a iam.Actor, events 
 	return nil
 }
 
-// eventRiver is a producer for the River fleet in schema: this runtime's
+// fleetProducer is a producer for the River fleet in schema: this runtime's
 // client, else an insert-only client (no workers, polling or pool of its
 // own) writing through the change's transaction.
-func (s *Engine) eventRiver(schema string) (*river.Client[pgx.Tx], error) {
+func (s *Engine) fleetProducer(schema string) (*river.Client[pgx.Tx], error) {
 	if m := s.maintenance; m != nil {
 		m.mu.Lock()
 		local := m.client

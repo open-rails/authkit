@@ -461,7 +461,7 @@ func (s *Engine) StepUpRequired(ctx context.Context, userID string) error {
 // providerSupportsStepUp reports whether the configured provider name can
 // re-authenticate a signed-in user.
 func (s *Engine) providerSupportsStepUp(name string) bool {
-	for _, p := range s.cfg.Identity.Providers {
+	for _, p := range s.providers {
 		if p != nil && strings.EqualFold(p.Name(), strings.TrimSpace(name)) {
 			return p.SupportsStepUp()
 		}

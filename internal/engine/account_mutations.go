@@ -13,10 +13,12 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
+	"github.com/open-rails/authkit/internal/naming"
 	"github.com/open-rails/authkit/internal/ops"
 	"github.com/open-rails/authkit/internal/password"
 )
@@ -155,7 +157,7 @@ func (s *Engine) CreateUser(ctx context.Context, n iam.NewUser, opts ...ops.Opti
 		return iam.User{}, errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("verified"))
 	}
 	username := strings.TrimSpace(n.Username)
-	if err := s.cfg.Username.ValidateImport(username); err != nil {
+	if err := naming.ValidateImport(s.cfg.Username, username); err != nil {
 		return iam.User{}, err
 	}
 	var hash string
@@ -428,9 +430,6 @@ func normalizeAvatarURL(v string) (*string, error) {
 	return &v, nil
 }
 
-// reservedMetadataKeys are the metadata keys AuthKit owns.
-var reservedMetadataKeys = []string{"reserved"}
-
 // PatchUserMetadata merges patch into the account's application-owned
 // metadata under ACCT(root:users:manage); a nil value deletes its key. Keys
 // AuthKit owns are refused.
@@ -441,7 +440,7 @@ func (s *Engine) PatchUserMetadata(ctx context.Context, a iam.Actor, userID stri
 	}
 	set, drop := map[string]any{}, []string{}
 	for k, v := range patch {
-		for _, reserved := range reservedMetadataKeys {
+		for _, reserved := range config.ReservedMetadataKeys {
 			if k == reserved {
 				return errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam(k))
 			}
@@ -746,10 +745,7 @@ func (s *Engine) notifyMFAReset(ctx context.Context, userID string) {
 	if err != nil || u == nil || u.Email == nil {
 		return
 	}
-	sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
-	if err := s.withSendTimeout(sendCtx, func(c context.Context) error {
-		return s.email.SendMFAReset(c, *u.Email, deref(u.Username))
-	}); err != nil {
+	if err := s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessageMFAReset, To: *u.Email, Username: deref(u.Username), Language: s.userLanguage(ctx, userID)}); err != nil {
 		stdlog.Printf("[authkit/security] MFA reset notice failed for user %s: %v", userID, err)
 	}
 }

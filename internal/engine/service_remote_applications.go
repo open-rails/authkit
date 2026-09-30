@@ -21,13 +21,13 @@ import (
 
 // trustSourcePolicy relaxes remote-application trust-source validation.
 // AllowPrivateNetworkJWKS admits loopback/private-network JWKS URLs (local
-// development only; production leaves it off, see Config.Applications).
+// development only; production leaves it off, see Config.Token.AllowPrivateNetworkJWKS).
 type trustSourcePolicy struct {
 	AllowPrivateNetworkJWKS bool
 }
 
 func (s *Engine) trustSourcePolicy() trustSourcePolicy {
-	return trustSourcePolicy{AllowPrivateNetworkJWKS: s.cfg.Applications.AllowPrivateNetworkJWKS}
+	return trustSourcePolicy{AllowPrivateNetworkJWKS: s.cfg.Token.AllowPrivateNetworkJWKS}
 }
 
 // normalizeRemoteAppTrustSource validates the mutually-exclusive trust source
@@ -82,7 +82,7 @@ func normalizeRemoteAppTrustSource(jwksURI string, mode iam.RemoteApplicationMod
 // This is a syntactic check (no DNS resolution). The verifier's SSRF-guarding
 // dialer provides a second layer against DNS rebinding at fetch time.
 //
-// allowInsecure (Applications.AllowPrivateNetworkJWKS) permits http and
+// allowInsecure (Token.AllowPrivateNetworkJWKS) permits http and
 // loopback/private hosts for local federation; still requires a parseable
 // http(s) URL with a host.
 func validateJWKSURI(raw string, allowInsecure bool) error {
@@ -223,6 +223,7 @@ func (s *Engine) upsertRemoteApplication(ctx context.Context, st *permissionGrou
 		Mode:              string(mode),
 		PublicKeys:        keysJSON,
 		Enabled:           in.Enabled,
+		CatalogIssuer:     s.cfg.Token.Issuer,
 	})
 	// The atomic upsert guard also covers an issuer claimed after our lookup.
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -252,7 +253,7 @@ func (s *Engine) reservedIssuer(issuer string) bool {
 	if issuerKey(s.cfg.Token.Issuer) == key {
 		return true
 	}
-	for _, p := range s.cfg.Identity.Providers {
+	for _, p := range s.providers {
 		if p != nil && issuerKey(p.Issuer()) == key {
 			return true
 		}

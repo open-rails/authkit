@@ -5,10 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
-	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/config"
 
 	memorylimiter "github.com/open-rails/authkit/internal/ratelimit/memory"
 	redislimiter "github.com/open-rails/authkit/internal/ratelimit/redis"
@@ -28,101 +27,73 @@ func (s *Service) Close() {
 }
 
 // New assembles the HTTP layer over the engine, which also authenticates its
-// requests. authkit.New is the only production caller.
-func New(client Backend, hcfg Config) (*Service, error) {
-	if client == nil {
-		return nil, errors.New("authkit: httpapi.New requires an engine backend")
+// requests, from the normalized configuration. authkit.New is the only
+// production caller.
+func New(client Backend, cfg config.Config, deps config.Deps) (*Service, error) {
+	if client == nil || cfg.HTTP == nil {
+		return nil, errors.New("authkit: httpapi.New requires an engine backend and Config.HTTP")
 	}
-	if err := hcfg.Validate(); err != nil {
-		return nil, err
-	}
-	coreSvc := client
-	cfg := coreSvc.Settings()
-
+	h := *cfg.HTTP
 	s := &Service{
-		dpopRequestURL:   hcfg.DPoPRequestURL,
-		svc:              coreSvc,
-		settings:         cfg,
+		svc:              client,
+		cfg:              cfg,
+		http:             h,
 		clientIP:         DefaultClientIP(),
-		clientIPExplicit: hcfg.ClientIP != nil,
-		directPeerIP:     hcfg.DirectPeerIP,
+		clientIPExplicit: deps.ClientIP != nil,
+		directPeerIP:     h.DirectPeerIP,
+		wrap:             deps.Wrap,
 	}
-	s.trustedProxies, _ = parseProxyCIDRs("trusted proxy", hcfg.TrustedProxies)
-	s.cloudflareProxies, _ = parseProxyCIDRs("Cloudflare proxy", hcfg.CloudflareProxies)
+	s.trustedProxies, _ = config.ParseCIDRs("trusted proxy", h.TrustedProxies)
+	s.cloudflareProxies, _ = config.ParseCIDRs("Cloudflare proxy", h.CloudflareProxies)
 	switch {
-	case hcfg.ClientIP != nil:
-		s.clientIP = hcfg.ClientIP
+	case deps.ClientIP != nil:
+		s.clientIP = deps.ClientIP
 	case len(s.trustedProxies) > 0 || len(s.cloudflareProxies) > 0:
 		s.clientIP = ClientIPFromForwardedHeaders(s.trustedProxies, s.cloudflareProxies)
 	}
-	if len(hcfg.Languages.Supported) > 0 || strings.TrimSpace(hcfg.Languages.Default) != "" {
-		lc := hcfg.Languages
-		s.langCfg = &lc
-	}
 
-	providers, err := providerRegistry(cfg.Providers, cfg.AccountIssuers)
+	providers, err := providerRegistry(deps.Providers, cfg.Token.AccountIssuers)
 	if err != nil {
 		return nil, err
 	}
-	if err := requireHTTPSForFormPost(providers, cfg.FrontendBaseURL); err != nil {
+	if err := requireHTTPSForFormPost(providers, cfg.Frontend.BaseURL); err != nil {
 		return nil, err
 	}
 	s.providers = providers
 
-	if err := s.validate(cfg); err != nil {
+	if deps.Limiter != nil {
+		s.rl = limiterFunc(deps.Limiter)
+		return s, nil
+	}
+	limits := DefaultRateLimits()
+	for bucket, lim := range h.RateLimits {
+		if _, ok := limits[bucket]; !ok {
+			return nil, fmt.Errorf("authkit: RateLimits names unknown bucket %q", bucket)
+		}
+		limits[bucket] = lim
+	}
+	if deps.Redis != nil {
+		rl, err := redislimiter.New(deps.Redis, limits, h.RedisKeyPrefix+"ratelimit:")
+		if err != nil {
+			return nil, err
+		}
+		s.rl = rl
+		slog.Info("authkit: rate limiter", "backend", "redis")
+		return s, nil
+	}
+	ml, err := memorylimiter.New(limits)
+	if err != nil {
 		return nil, err
 	}
-	// Config.Validate refuses conflicting limiter choices.
-	switch {
-	case hcfg.Limiter != nil:
-		s.rl = hcfg.Limiter
-	default:
-		limits := DefaultRateLimits()
-		for bucket, lim := range hcfg.RateLimits {
-			limits[bucket] = lim
-		}
-		if hcfg.Redis != nil {
-			prefix, err := redisKeyPrefix(hcfg.RedisKeyPrefix, cfg.Schema)
-			if err != nil {
-				return nil, err
-			}
-			rl, err := redislimiter.New(hcfg.Redis, limits, prefix+"ratelimit:")
-			if err != nil {
-				return nil, err
-			}
-			s.rl = rl
-			slog.Info("authkit: rate limiter", "backend", "redis")
-		} else {
-			ml, err := memorylimiter.New(limits)
-			if err != nil {
-				return nil, err
-			}
-			ctx, cancel := context.WithCancel(context.Background())
-			ml.StartCleanup(ctx, time.Minute)
-			s.closers = append(s.closers, cancel)
-			s.rl = ml
-			slog.Warn("authkit: Redis not configured; rate limits are per-process, so each replica counts separately")
-		}
-	}
+	ctx, cancel := context.WithCancel(context.Background())
+	ml.StartCleanup(ctx, time.Minute)
+	s.closers = append(s.closers, cancel)
+	s.rl = ml
+	slog.Warn("authkit: Redis not configured; rate limits are per-process, so each replica counts separately")
 	return s, nil
 }
 
-// validate enforces the cross-layer dependency requirements for the configured
-// feature set (Config.Validate covers the HTTP layer's own fields).
-func (s *Service) validate(cfg authflow.Settings) error {
-	// #212: the registration-verification policy must be satisfiable by a
-	// configured delivery sender at CONSTRUCTION time. Fail here with an error
-	// instead of panicking later when handlers are mounted.
-	if err := s.svc.ValidateVerificationConfiguration(); err != nil {
-		return err
-	}
-	// #277: the delegated mint route never runs without its host authorizer,
-	// and an authorizer with no route is dead wiring. Both refuse at construction.
-	if len(cfg.Delegated.Audiences) > 0 && s.svc.DelegationAuthorizer() == nil {
-		return fmt.Errorf("authkit: Config.Delegated.Audiences is set but no delegation authorizer is wired — set authkit.Deps.DelegatedAuthorization")
-	}
-	if len(cfg.Delegated.Audiences) == 0 && s.svc.DelegationAuthorizer() != nil {
-		return fmt.Errorf("authkit: Deps.DelegatedAuthorization is wired but Config.Delegated.Audiences is empty — the mint route is disabled; drop the dead wiring or declare audiences")
-	}
-	return nil
-}
+// limiterFunc is Deps.Limiter as a RateLimiter.
+type limiterFunc func(bucket, key string) (bool, error)
+
+func (f limiterFunc) AllowNamed(bucket, key string) (bool, error) { return f(bucket, key) }

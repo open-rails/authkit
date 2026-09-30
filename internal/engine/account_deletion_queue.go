@@ -249,21 +249,13 @@ func (s *Engine) deliverAccountEvent(ctx context.Context, id int64) error {
 		return river.JobSnooze(time.Second)
 	}
 	stage := delivery.Stage
-	var hook func(context.Context, iam.UserDeletion) error
-	switch stage {
-	case "soft":
-		hook = s.onSoftDelete
-	case "hard":
-		hook = s.onHardDelete
-	case "restore":
-		hook = s.onRestore
-	default:
+	if stage != "hard" {
 		return fmt.Errorf("authkit: unsupported account lifecycle stage %q", stage)
 	}
 	// No pool connection or database transaction is held while application
 	// code runs. A hook may safely call Client with a one-slot pool.
-	if hook != nil {
-		if err := invokeAccountHook(ctx, hook, deletion); err != nil {
+	if s.onPurge != nil {
+		if err := invokeAccountHook(ctx, s.onPurge, deletion); err != nil {
 			return err
 		}
 	}

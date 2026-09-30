@@ -4,8 +4,8 @@
 UPDATE api_keys SET revoked_at = now() WHERE created_by = sqlc.arg(user_id)::uuid AND revoked_at IS NULL;
 
 -- name: APIKeyInsert :one
-INSERT INTO api_keys (permission_group_id, key_id, secret_hash, name, role, created_by, expires_at)
-VALUES (sqlc.arg(group_id), sqlc.arg(key_id), sqlc.arg(secret_hash), sqlc.arg(name), sqlc.arg(role), sqlc.narg(created_by)::uuid, sqlc.narg(expires_at)::timestamptz)
+INSERT INTO api_keys (permission_group_id, key_id, secret_hash, name, role, created_by, expires_at, catalog_issuer)
+VALUES (sqlc.arg(group_id), sqlc.arg(key_id), sqlc.arg(secret_hash), sqlc.arg(name), sqlc.arg(role), sqlc.narg(created_by)::uuid, sqlc.narg(expires_at)::timestamptz, sqlc.arg(catalog_issuer)::text)
 ON CONFLICT (key_id) DO NOTHING
 RETURNING id, created_at;
 
@@ -35,7 +35,8 @@ UPDATE api_keys SET last_used_at = now()
 WHERE id = sqlc.arg(id) AND (last_used_at IS NULL OR last_used_at < now() - interval '5 minutes');
 
 -- name: APIKeyRoleCounts :many
+-- The live keys issued through issuer's app, or before per-app catalogs.
 SELECT pg.persona, r.role, count(*)::bigint AS n
 FROM api_keys r JOIN permission_groups pg ON pg.id = r.permission_group_id
-WHERE r.revoked_at IS NULL
+WHERE r.revoked_at IS NULL AND (r.catalog_issuer IS NULL OR r.catalog_issuer = sqlc.arg(issuer)::text)
 GROUP BY pg.persona, r.role;

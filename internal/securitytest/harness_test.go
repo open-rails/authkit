@@ -62,7 +62,7 @@ type host struct {
 
 // withHTTP edits the host's HTTPConfig.
 func withHTTP(fn func(*authkit.HTTPConfig)) authtest.Option {
-	return authtest.WithConfig(func(c *authkit.Config) { fn(&c.HTTP) })
+	return authtest.WithConfig(func(c *authkit.Config) { fn(c.HTTP) })
 }
 
 // withSMS offers SMS as a second factor; a host delivers SMS to its outbox
@@ -85,8 +85,8 @@ func generousLimits(c *authkit.HTTPConfig) {
 
 // newHost is authtest.New on a scratch database of the test's own (schema
 // profiles, River in public) with the host's issuer, keys, policy and HTTP
-// surface, then opts. The HTTPConfig replaces authtest's unlimited one, so
-// rate limits are real.
+// surface, then opts. It drops authtest's unlimited Deps.Limiter, so rate
+// limits are real.
 func newHost(t *testing.T, opts ...authtest.Option) *host {
 	t.Helper()
 	pg := testdb.EmptyScratchPostgres(t)
@@ -95,7 +95,6 @@ func newHost(t *testing.T, opts ...authtest.Option) *host {
 	opts = append([]authtest.Option{
 		authtest.WithConfig(func(c *authkit.Config) {
 			c.Schema, c.River.Schema = "profiles", "public"
-			c.Keys = authkit.KeysConfig{Source: testkeys.Source(s)}
 			c.Token = authkit.TokenConfig{Issuer: issuer, IssuedAudiences: []string{audience}, ExpectedAudiences: []string{audience}}
 			c.Registration = authkit.RegistrationConfig{NativeUserMode: iam.RegistrationModeOpen, Verification: iam.RegistrationVerificationOptional}
 			c.TwoFactor = authkit.TwoFactorConfig{
@@ -103,9 +102,13 @@ func newHost(t *testing.T, opts ...authtest.Option) *host {
 				Methods:       []iam.TwoFactorMethod{iam.TwoFactorTOTP, iam.TwoFactorEmail},
 				TOTPSecretKey: bytes.Repeat([]byte{7}, 32),
 			}
-			c.HTTP = authkit.HTTPConfig{DirectPeerIP: true, APIPath: apiPrefix}
+			c.HTTP = &authkit.HTTPConfig{DirectPeerIP: true, APIPath: apiPrefix}
 		}),
-		authtest.WithDeps(func(d *authkit.Deps) { d.Postgres = pg.Pool }),
+		authtest.WithDeps(func(d *authkit.Deps) {
+			d.Postgres = pg.Pool
+			d.KeySource = testkeys.Source(s)
+			d.Limiter = nil
+		}),
 	}, opts...)
 	opts = append(opts,
 		authtest.WithConfig(func(c *authkit.Config) { sms = slices.Contains(c.TwoFactor.Methods, iam.TwoFactorSMS) }),
@@ -275,7 +278,7 @@ func (h *host) login(a account) tokens {
 		var ch challenge
 		resp.json(h.t, &ch)
 		resp = h.post("/2fa/verify", map[string]string{"user_id": a.id, "challenge": ch.Error.Metadata.Challenge,
-			"code": h.mail.Last(h.t, authtest.LoginCode, a.email).Code}, "")
+			"code": h.mail.Last(h.t, iam.MessageLoginCode, a.email).Code}, "")
 	}
 	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
 	return session(h.t, resp)

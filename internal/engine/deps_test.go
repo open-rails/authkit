@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -32,11 +33,12 @@ func TestSchemaPoolIsolatesSearchPathFromHostPool(t *testing.T) {
 	bound.Close()
 	require.NoError(t, host.Ping(ctx))
 
-	settings := Config{
-		Token: TokenConfig{Issuer: "https://pool.test", IssuedAudiences: []string{"test"}},
-		Keys:  KeysConfig{VerifyOnly: true},
+	settings := config.Config{
+		Token: config.TokenConfig{Issuer: "https://pool.test", IssuedAudiences: []string{"test"}},
+		Keys:  config.KeysConfig{VerifyOnly: true},
 	}
-	client, err := newEngine(settings, Deps{Postgres: host})
+	testdb.Pool(t) // New boots on the shared database: hold its lock
+	client, err := New(ctx, settings, config.Deps{Postgres: host})
 	require.NoError(t, err)
 	client.Close()
 	require.NoError(t, host.Ping(ctx))

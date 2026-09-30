@@ -20,7 +20,7 @@ import (
 )
 
 func withProviders(providers ...provider.Provider) authtest.Option {
-	return authtest.WithConfig(func(c *authkit.Config) { c.Identity.Providers = providers })
+	return authtest.WithDeps(func(d *authkit.Deps) { d.Providers = providers })
 }
 
 // providerCallback signs id in at idp through the browser flow of provider
@@ -58,7 +58,7 @@ func (h *host) register(email string) tokens {
 
 func (h *host) verificationCode(email string) string {
 	h.t.Helper()
-	return h.mail.Last(h.t, authtest.Verification, email).Code
+	return h.mail.Last(h.t, iam.MessageVerification, email).Code
 }
 
 func (h *host) userID(email string) string {
@@ -173,7 +173,7 @@ func TestSecurityPreRegistrationTakeover(t *testing.T) {
 	}{
 		{"owner resets the password", func(t *testing.T, email string) tokens {
 			require.Less(t, h.post("/password/reset/request", map[string]string{"identifier": email}, "").status, 300)
-			token := h.mail.Last(t, authtest.PasswordReset, email).Token
+			token := h.mail.Last(t, iam.MessagePasswordReset, email).Token
 			resp := h.post("/password/reset/confirm", map[string]string{"token": token, "new_password": "Owner-reclaimed-passphrase-4"}, "")
 			require.Less(t, resp.status, 300, resp.String())
 			resp = h.post("/password/login", map[string]string{"identifier": email, "password": "Owner-reclaimed-passphrase-4"}, "")

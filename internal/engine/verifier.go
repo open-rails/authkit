@@ -46,7 +46,7 @@ func (s *Engine) newAuthenticator(audiences []string, own bool, opts ...verify.V
 		verify.WithSkew(5 * time.Second),
 		// Applications register their own JWKS URIs: SSRF-guarded unless the
 		// deployment federates on a private network (#257).
-		verify.WithHTTPClient(netguard.Client(netguard.DefaultTimeout, cfg.Applications.AllowPrivateNetworkJWKS)),
+		verify.WithHTTPClient(netguard.Client(netguard.DefaultTimeout, cfg.Token.AllowPrivateNetworkJWKS)),
 		verify.WithDPoP(s.ClaimDPoPProof),
 		verify.WithRequestOrigin(issuerOrigin(cfg.Token.Issuer)),
 	}

@@ -48,9 +48,7 @@ func (s *Engine) sendAccountRegistrationInviteEmail(ctx context.Context, email, 
 	// and the inviter got the URL back (they can share it any channel), so a failed
 	// email must not fail the call — but it must be LOUD, or the recipient silently
 	// never hears about the invite (#223's original bug class).
-	if err := s.withSendTimeout(ctx, func(sendCtx context.Context) error {
-		return s.email.SendAccountRegistrationInvite(sendCtx, email, inviteURL)
-	}); err != nil {
+	if err := s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessageInvite, To: email, Language: s.messageLanguage(ctx, ""), Link: inviteURL}); err != nil {
 		stdlog.Printf("authkit: error: account-registration invite email send failed (invite created; inviter still holds the URL): %v", err)
 	}
 }
@@ -69,8 +67,8 @@ func (s *Engine) hasValidAccountRegistrationInvite(ctx context.Context, email st
 }
 
 func (s *Engine) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token string) (*db.AccountInviteForUpdateRow, error) {
-	mode, err := normalizeRegistrationMode(s.cfg.Registration.NativeUserMode)
-	if err != nil || mode == iam.RegistrationModeClosed {
+	mode := s.cfg.Registration.NativeUserMode
+	if mode == iam.RegistrationModeClosed {
 		return nil, errmodel.ErrRegistrationDisabled
 	}
 	token = strings.TrimSpace(token)

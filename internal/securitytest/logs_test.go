@@ -207,34 +207,20 @@ func leakedIn(logs, secret string) string {
 	return ""
 }
 
-// flakyEmail delivers through the host's sender, then fails while down is
-// set, as a mail provider outage does after AuthKit handed it the message.
-type flakyEmail struct {
-	authkit.EmailSender
-	down *atomic.Bool
-}
-
-func (f flakyEmail) fail(err error) error {
-	if err == nil && f.down.Load() {
-		return errors.New("smtp: 451 4.3.0 mail server temporarily unavailable")
+// flakyEmail delivers through send, then fails code and link messages while
+// down is set, as a mail provider outage does after AuthKit handed it the
+// message.
+func flakyEmail(send func(context.Context, iam.EmailMessage) error, down *atomic.Bool) func(context.Context, iam.EmailMessage) error {
+	return func(ctx context.Context, m iam.EmailMessage) error {
+		err := send(ctx, m)
+		switch m.Kind {
+		case iam.MessageVerification, iam.MessagePasswordReset, iam.MessageInvite, iam.MessageLoginCode:
+			if err == nil && down.Load() {
+				return errors.New("smtp: 451 4.3.0 mail server temporarily unavailable")
+			}
+		}
+		return err
 	}
-	return err
-}
-
-func (f flakyEmail) SendVerification(ctx context.Context, email, username string, msg iam.VerificationMessage) error {
-	return f.fail(f.EmailSender.SendVerification(ctx, email, username, msg))
-}
-
-func (f flakyEmail) SendPasswordResetLink(ctx context.Context, email, username, resetURL string) error {
-	return f.fail(f.EmailSender.SendPasswordResetLink(ctx, email, username, resetURL))
-}
-
-func (f flakyEmail) SendAccountRegistrationInvite(ctx context.Context, email, inviteURL string) error {
-	return f.fail(f.EmailSender.SendAccountRegistrationInvite(ctx, email, inviteURL))
-}
-
-func (f flakyEmail) SendLoginCode(ctx context.Context, email, username, code string) error {
-	return f.fail(f.EmailSender.SendLoginCode(ctx, email, username, code))
 }
 
 // TestSecuritySecretsStayOutOfLogs: AuthKit's log output (the slog default,
@@ -250,7 +236,7 @@ func TestSecuritySecretsStayOutOfLogs(t *testing.T) {
 	jar := &secretJar{}
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(withDeviceKeys), authtest.WithConfig(strictRotation),
 		authtest.WithConfig(func(c *authkit.Config) { c.Registration.PasswordlessLogin = true }),
-		authtest.WithDeps(func(d *authkit.Deps) { d.Email = flakyEmail{EmailSender: d.Email, down: &mailDown} }))
+		authtest.WithDeps(func(d *authkit.Deps) { d.Email = flakyEmail(d.Email, &mailDown) }))
 	h = h.observed(jar)
 	// AuthKit's River runs through every flow below and logs to the same place.
 	require.NoError(t, h.auth.Start(context.Background()))
@@ -268,7 +254,7 @@ func TestSecuritySecretsStayOutOfLogs(t *testing.T) {
 	h.proveOwnEmail(email, own)
 	other := unique("logslink") + "@security.test"
 	h.register(other)
-	ok(h.post("/verify/confirm", map[string]string{"identifier": other, "token": h.mail.Last(t, authtest.Verification, other).Token}, ""))
+	ok(h.post("/verify/confirm", map[string]string{"identifier": other, "token": h.mail.Last(t, iam.MessageVerification, other).Token}, ""))
 	a := account{id: h.userID(email), email: email}
 	h.post("/password/login", map[string]string{"identifier": email, "password": "wrong-" + password}, "")
 	signedIn := h.login(a)
@@ -279,7 +265,7 @@ func TestSecuritySecretsStayOutOfLogs(t *testing.T) {
 
 	// Reset the password from its emailed link.
 	ok(h.post("/password/reset/request", map[string]string{"identifier": email}, ""))
-	reset := map[string]string{"token": h.mail.Last(t, authtest.PasswordReset, email).Token, "new_password": "Logs-reset-passphrase-5"}
+	reset := map[string]string{"token": h.mail.Last(t, iam.MessagePasswordReset, email).Token, "new_password": "Logs-reset-passphrase-5"}
 	ok(h.post("/password/reset/confirm", reset, ""))
 	h.post("/password/reset/confirm", reset, "")
 
@@ -288,7 +274,7 @@ func TestSecuritySecretsStayOutOfLogs(t *testing.T) {
 	h.post("/passwordless/confirm", map[string]string{"identifier": email, "code": wrongCode(h.verificationCode(email))}, "")
 	ok(h.post("/passwordless/confirm", map[string]string{"identifier": email, "code": h.verificationCode(email)}, ""))
 	ok(h.post("/passwordless/start", map[string]string{"identifier": email}, ""))
-	ok(h.post("/passwordless/confirm", map[string]string{"token": h.mail.Last(t, authtest.Verification, email).Token}, ""))
+	ok(h.post("/passwordless/confirm", map[string]string{"token": h.mail.Last(t, iam.MessageVerification, email).Token}, ""))
 
 	// Second factors: TOTP enrollment; the email factor, its sign-in codes and
 	// backup codes.
@@ -297,7 +283,7 @@ func TestSecuritySecretsStayOutOfLogs(t *testing.T) {
 	mfa := h.newAccount("logsmfa")
 	require.NotEmpty(t, h.enrollEmail2FA(mfa))
 	ch := h.passwordStep(mfa, "198.51.100.60")
-	code := h.mail.Last(t, authtest.LoginCode, mfa.email).Code
+	code := h.mail.Last(t, iam.MessageLoginCode, mfa.email).Code
 	require.Equal(t, http.StatusUnauthorized, h.secondStep(mfa, ch, wrongCode(code), "198.51.100.60").status)
 	fresh := session(t, ok(h.secondStep(mfa, ch, code, "198.51.100.60")))
 	var regenerated struct {

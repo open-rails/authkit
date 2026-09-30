@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
 	internalmigrations "github.com/open-rails/authkit/internal/migrations/postgres"
 	"github.com/open-rails/migratekit"
@@ -15,28 +16,17 @@ import (
 	"github.com/riverqueue/river/rivermigrate"
 )
 
-// MigrateOptions mirrors authkit.MigrateOptions.
-type MigrateOptions struct {
-	Schema      string
-	River       *RiverOwnership
-	RiverSchema string
-	RuntimePool *pgxpool.Pool
-}
-
-// Migrate applies AuthKit's PostgreSQL migrations; see authkit.Migrate.
-func Migrate(ctx context.Context, pool *pgxpool.Pool, opts MigrateOptions) error {
-	var riverCfg RiverConfig
-	if opts.River == nil || !opts.River.fromHost {
-		var err error
-		riverCfg, err = normalizeRiverConfig(RiverConfig{Schema: opts.RiverSchema})
-		if err != nil {
-			return err
-		}
+// Migrate applies AuthKit's PostgreSQL migrations to cfg.Schema, and River's
+// unless cfg.River.HostOwned; see authkit.Migrate.
+func Migrate(ctx context.Context, pool *pgxpool.Pool, cfg config.Config, opts config.MigrateOptions) error {
+	riverCfg, err := config.NormalizeRiver(cfg.River)
+	if err != nil {
+		return err
 	}
 	if pool == nil {
 		return errors.New("authkit: Migrate requires a non-nil *pgxpool.Pool")
 	}
-	normalized, err := normalizeSchemaName(opts.Schema)
+	normalized, err := config.NormalizeSchema(cfg.Schema)
 	if err != nil {
 		return err
 	}
@@ -59,7 +49,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, opts MigrateOptions) error
 	if err := migrator.ApplyMigrations(ctx, migrations); err != nil {
 		return fmt.Errorf("authkit: apply PostgreSQL migrations to schema %q: %w", normalized, err)
 	}
-	if opts.River != nil && opts.River.fromHost {
+	if riverCfg.HostOwned {
 		return grantMigrationRuntimeAccess(ctx, pool, runtimeUser, normalized, "")
 	}
 	// River initializers share this database/schema lock protocol. The

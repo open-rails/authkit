@@ -4,8 +4,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/testdb"
-	"github.com/open-rails/authkit/internal/testoutbox"
 	"github.com/stretchr/testify/require"
 )
 
@@ -15,7 +16,7 @@ func TestPasswordlessCompletionKeepsNewerIssuance(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := testConfig()
 	cfg.Registration.PasswordlessLogin = true
-	f := newAccountFlow(t, pg.Pool, cfg, Deps{})
+	f := newAccountFlow(t, pg.Pool, cfg, config.Deps{})
 	pool, ctx := pg.Pool, t.Context()
 	user := newUser(t, f.engine, "reissue")
 	email := *user.Email
@@ -23,7 +24,7 @@ func TestPasswordlessCompletionKeepsNewerIssuance(t *testing.T) {
 		f.expect(202, f.post("/passwordless/start", map[string]any{"identifier": email, "mode": "both"}))
 	}
 	begin()
-	old := sentCode(t, f.email, testoutbox.Verification)
+	old := sentCode(t, f.email, iam.MessageVerification)
 	lock, err := pool.Begin(ctx)
 	require.NoError(t, err)
 	defer lock.Rollback(ctx)
@@ -37,7 +38,7 @@ func TestPasswordlessCompletionKeepsNewerIssuance(t *testing.T) {
 		return err == nil && n == 1
 	}, 5*time.Second, 10*time.Millisecond)
 	begin()
-	newCode := sentCode(t, f.email, testoutbox.Verification)
+	newCode := sentCode(t, f.email, iam.MessageVerification)
 	require.NoError(t, lock.Commit(ctx))
 	f.expect(200, <-completed)
 	f.expect(200, f.post("/passwordless/confirm", map[string]any{"identifier": email, "code": newCode}))

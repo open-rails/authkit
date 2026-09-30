@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/secret"
 	"github.com/open-rails/authkit/internal/testdb"
@@ -19,7 +19,7 @@ func TestRecoveryProofCannotCrossGenerationOrRaceFinalPurge(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := maintenanceConfig()
 	cfg.TwoFactor.Mode = iam.TwoFactorDisabled
-	runtime, err := New(context.Background(), cfg, Deps{Postgres: pg.Pool})
+	runtime, err := New(context.Background(), cfg, config.Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	t.Cleanup(runtime.Close)
 	s := runtime
@@ -64,13 +64,6 @@ func TestRecoveryProofCannotCrossGenerationOrRaceFinalPurge(t *testing.T) {
 	expired.ExpiresAt = time.Now().Add(-time.Second)
 	require.NoError(t, s.ephemSetJSON(t.Context(), key, expired, time.Minute))
 	require.Error(t, s.ConfirmAccountRecovery(t.Context(), token), "stored confirmation expiry is enforced independently of store TTL")
-	rows, err := s.pg.Query(t.Context(), "SELECT id FROM account_deletion_deliveries ORDER BY id")
-	require.NoError(t, err)
-	deliveries, err := pgx.CollectRows(rows, pgx.RowTo[int64])
-	require.NoError(t, err)
-	for _, id := range deliveries {
-		require.NoError(t, s.deliverAccountEvent(t.Context(), id))
-	}
 	generation := prepareExpiredDeletion(t, s, user.ID)
 	require.Equal(t, generation, saved.Generation)
 	version, err = s.q.UserCredentialVersion(t.Context(), user.ID)

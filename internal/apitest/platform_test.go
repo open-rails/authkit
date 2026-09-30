@@ -15,7 +15,6 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/testdb"
-	"github.com/open-rails/authkit/internal/testhttp"
 	"github.com/open-rails/authkit/provider"
 )
 
@@ -37,7 +36,7 @@ func routesOf(t *testing.T, auth *authkit.Client) map[routeKey]iam.Route {
 func TestMountCatalog(t *testing.T) {
 	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) { c.TwoFactor.Mode = iam.TwoFactorDisabled }))
 	variant := func(fn func(*authkit.HTTPConfig)) (*authkit.Client, *api) {
-		replica := authtest.Replica(t, auth, authtest.WithConfig(func(c *authkit.Config) { fn(&c.HTTP) }))
+		replica := authtest.Replica(t, auth, authtest.WithConfig(func(c *authkit.Config) { fn(c.HTTP) }))
 		return replica, newAPI(t, replica)
 	}
 
@@ -194,9 +193,8 @@ func TestMountCatalogOIDC(t *testing.T) {
 		})
 	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
 		c.TwoFactor.Mode = iam.TwoFactorDisabled
-		c.Identity.Providers = []provider.Provider{catalogIdP}
 		c.HTTP.APIPath = "/auth/custom"
-	}))
+	}), withProviders(catalogIdP))
 	routes := routesOf(t, auth)
 	for _, method := range []string{http.MethodGet, http.MethodHead} {
 		require.Equal(t, iam.Route{Method: method, Path: "/oidc/{provider}/login", Group: iam.RouteBrowserOIDC, Auth: iam.AuthPublic},
@@ -217,7 +215,7 @@ func TestMountCatalogOIDC(t *testing.T) {
 	} {
 		filtered := authtest.Replica(t, auth, authtest.WithConfig(func(c *authkit.Config) {
 			c.HTTP.APIPath = ""
-			fn(&c.HTTP)
+			fn(c.HTTP)
 		}))
 		filteredRoutes := routesOf(t, filtered)
 		for _, method := range []string{http.MethodGet, http.MethodHead} {
@@ -230,26 +228,36 @@ func TestMountCatalogOIDC(t *testing.T) {
 // New builds the HTTP surface a Config describes, or refuses it whole.
 func TestHTTPConfigValidation(t *testing.T) {
 	cfg, deps := bareConfig(t)
-	for name, h := range map[string]authkit.HTTPConfig{
-		"memory limiter by default": {DirectPeerIP: true},
-		"a host limiter":            {DirectPeerIP: true, Limiter: testhttp.Unlimited{}},
+	unlimited := func(string, string) (bool, error) { return true, nil }
+	for name, limiter := range map[string]func(string, string) (bool, error){
+		"memory limiter by default": nil,
+		"a host limiter":            unlimited,
 	} {
-		cfg.HTTP = h
-		_, err := newClient(t, cfg, deps)
+		cfg.HTTP = &authkit.HTTPConfig{DirectPeerIP: true}
+		d := deps
+		d.Limiter = limiter
+		_, err := newClient(t, cfg, d)
 		require.NoError(t, err, name)
 	}
 	for _, tc := range []struct {
 		http authkit.HTTPConfig
+		deps func(*authkit.Deps)
 		err  string
 	}{
-		{authkit.HTTPConfig{DirectPeerIP: true, APIPath: "auth"}, "APIPath"},
-		{authkit.HTTPConfig{DirectPeerIP: true, Exclude: []string{"/api/v1/me"}}, "Exclude"},
-		{authkit.HTTPConfig{DirectPeerIP: true, Exclude: []string{"GET /api/v1/nowhere"}}, "matches no mounted route"},
-		{authkit.HTTPConfig{DirectPeerIP: true, Redis: redis.NewClient(&redis.Options{}), Limiter: testhttp.Unlimited{}}, "at most one"},
-		{authkit.HTTPConfig{DirectPeerIP: true, RateLimits: map[string]authkit.RateLimit{"no_such_bucket": {Limit: 1, Window: time.Minute}}}, "unknown bucket"},
+		{http: authkit.HTTPConfig{}, err: "Deps.ClientIP"},
+		{http: authkit.HTTPConfig{DirectPeerIP: true, APIPath: "auth"}, err: "APIPath"},
+		{http: authkit.HTTPConfig{DirectPeerIP: true, Exclude: []string{"/api/v1/me"}}, err: "Exclude"},
+		{http: authkit.HTTPConfig{DirectPeerIP: true, Exclude: []string{"GET /api/v1/nowhere"}}, err: "matches no mounted route"},
+		{http: authkit.HTTPConfig{DirectPeerIP: true}, deps: func(d *authkit.Deps) { d.Redis, d.Limiter = redis.NewClient(&redis.Options{}), unlimited },
+			err: "at most one of Deps.Redis and Deps.Limiter"},
+		{http: authkit.HTTPConfig{DirectPeerIP: true, RateLimits: map[string]authkit.RateLimit{"no_such_bucket": {Limit: 1, Window: time.Minute}}}, err: "unknown bucket"},
 	} {
-		cfg.HTTP = tc.http
-		auth, err := newClient(t, cfg, deps)
+		cfg.HTTP = &tc.http
+		d := deps
+		if tc.deps != nil {
+			tc.deps(&d)
+		}
+		auth, err := newClient(t, cfg, d)
 		require.ErrorContains(t, err, tc.err)
 		require.Nil(t, auth)
 	}
@@ -282,9 +290,11 @@ func testWorkflowRateLimits(t *testing.T, rdb *redis.Client) {
 	}
 	forwarded := func(r *http.Request) string { return r.Header.Get("X-Forwarded-For") }
 	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
-		c.HTTP = authkit.HTTPConfig{ClientIP: forwarded, RateLimits: limits(2)}
+		c.HTTP = &authkit.HTTPConfig{RateLimits: limits(2)}
+	}), authtest.WithDeps(func(d *authkit.Deps) {
+		d.ClientIP, d.Limiter = forwarded, nil
 		if rdb != nil {
-			c.HTTP.Redis = rdb
+			d.Redis = rdb
 		}
 	}))
 	a := newAPI(t, auth)
@@ -345,9 +355,8 @@ func testWorkflowRateLimits(t *testing.T, rdb *redis.Client) {
 	outageToken := staleSession(authtest.NewUser(t, auth), "198.51.100.8")
 	broken := redis.NewClient(rdb.Options())
 	outage := authtest.Replica(t, auth, authtest.WithConfig(func(c *authkit.Config) {
-		c.HTTP.Redis = broken
 		c.HTTP.RateLimits = limits(10000)
-	}))
+	}), authtest.WithDeps(func(d *authkit.Deps) { d.Redis = broken }))
 	// Closing only this client keeps the Redis server and other tests' state,
 	// and forces the limiter's backend-error path.
 	require.NoError(t, broken.Close())

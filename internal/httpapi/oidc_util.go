@@ -31,7 +31,7 @@ func (s *Service) buildRedirectURI(r *http.Request, provider string, stepUp bool
 	if stepUp {
 		p = oidc + "/" + url.PathEscape(provider) + "/step-up/callback"
 	}
-	if origin, ok := originFromBaseURL(s.settings.FrontendBaseURL); ok {
+	if origin, ok := originFromBaseURL(s.cfg.Frontend.BaseURL); ok {
 		return origin + p, true
 	}
 	scheme := "http"
@@ -158,7 +158,7 @@ func (s *Service) stateCookieMatches(r *http.Request, p provider.Provider, state
 // true whenever the deployment is HTTPS (BaseURL scheme, or the request's own
 // TLS). Local http dev gets non-Secure cookies so the flow still works.
 func (s *Service) cookieSecure(r *http.Request) bool {
-	if origin, ok := originFromBaseURL(s.settings.FrontendBaseURL); ok {
+	if origin, ok := originFromBaseURL(s.cfg.Frontend.BaseURL); ok {
 		return strings.HasPrefix(strings.ToLower(origin), "https://")
 	}
 	return r != nil && r.TLS != nil

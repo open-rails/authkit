@@ -1,0 +1,102 @@
+package config
+
+import (
+	"context"
+	"net/http"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
+
+	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/keys"
+	"github.com/open-rails/authkit/provider"
+)
+
+// Deps is everything AuthKit reaches outside the process through: the store,
+// keys, identity providers, senders and the host's hooks. Every hook is a
+// func; bind one late with a closure when it needs the Client first.
+type Deps struct {
+	// Postgres is the durable store, required by every host-facing
+	// constructor. It also holds AuthKit's short-lived auth state (codes,
+	// ceremonies, attempt counters), shared by every replica.
+	Postgres *pgxpool.Pool
+
+	// KeySource signs and publishes tokens. Nil resolves keys from
+	// Config.Keys. Hosts never handle the private key: they hand AuthKit a
+	// source that signs.
+	KeySource keys.Source
+	// Providers are the external identity providers: provider.Google,
+	// Apple, Discord and GitHub, or provider.OIDC and OAuth2 for any other.
+	Providers []provider.Provider
+
+	// Email delivers one email. Nil means no email: flows that need one fail
+	// unless Config.Registration.AllowMissingSenders is set.
+	Email func(context.Context, iam.EmailMessage) error
+	// SMS delivers one text message, like Email.
+	SMS func(context.Context, iam.SMSMessage) error
+	// SMSHealth checks, without sending, that SMS can be delivered. Start runs
+	// it now and every Config.SMSHealthInterval; while it fails, phone flows
+	// are unavailable (Client.SMSAvailable).
+	SMSHealth func(context.Context) error
+
+	// Entitlements returns the names of users' active entitlements (billing
+	// tiers), keyed by user id; ids without any are absent. Admin views show
+	// them all; Config.Token.EntitlementAllowlist selects which go into access
+	// tokens.
+	Entitlements func(ctx context.Context, userIDs []string) (map[string][]string, error)
+	// EntitlementHolders returns the ids of the users who hold entitlement,
+	// for ListUsers' Entitlement filter. Nil makes that filter fail with
+	// ErrEntitlementFilterUnavailable.
+	EntitlementHolders func(ctx context.Context, entitlement string) ([]string, error)
+
+	// OnEvent receives account and group changes (iam.Event) durably through
+	// River: recorded in the change's transaction, delivered after commit at
+	// least once, in order per user (per group for group events). A failure
+	// is retried with backoff up to an hour apart and holds back that
+	// subject's later events. It must be idempotent on Event.ID, ignore kinds
+	// it does not know and never run in the change's transaction. Every
+	// account issuer with OnEvent receives the account events. Events are
+	// recorded from the first start of a deployment that sets it.
+	OnEvent func(context.Context, iam.Event) error
+	// OnPurge erases the host's data of a deleted account before AuthKit
+	// purges the account, 30 days after its deletion. It runs durably through
+	// River on every account issuer, and the purge waits until each has
+	// succeeded; a failure is retried. It must be idempotent and honor
+	// cancellation.
+	OnPurge func(context.Context, iam.UserDeletion) error
+
+	// DelegatedAuthorization decides delegated-token mints: its grant is the
+	// complete authority AuthKit signs. Required when
+	// Config.Delegated.Audiences is set.
+	DelegatedAuthorization iam.DelegationAuthorizer
+	// NameAdmission is the host's side-effect-free username policy for
+	// account creation and renames; an error refuses the name.
+	NameAdmission func(context.Context, iam.NameAdmissionRequest) error
+
+	// Redis shares rate-limit counters across replicas; it holds no other
+	// AuthKit state. Without it each replica counts separately.
+	Redis redis.UniversalClient
+	// Limiter replaces AuthKit's rate limiter: it reports whether one more
+	// request is allowed in bucket for key. At most one of Redis and Limiter
+	// may be set.
+	Limiter func(bucket, key string) (bool, error)
+	// ClientIP extracts the client address, replacing the proxy handling of
+	// HTTPConfig.
+	ClientIP func(*http.Request) string
+	// Wrap decorates every API and browser-OIDC handler at mount time.
+	Wrap func(iam.Route, http.Handler) http.Handler
+
+	// Clock replaces the engine clock for TTL and grace-window decisions. It
+	// never governs ephemeral state (codes, claims, counters), which always
+	// expires by the database clock so replicas agree.
+	Clock func() time.Time
+}
+
+// MigrateOptions configures authkit.Migrate beyond what Config declares.
+type MigrateOptions struct {
+	// RuntimePool is the pool AuthKit will run with, as a less privileged
+	// database user: Migrate grants that user runtime access. Both pools must
+	// reach the same database. Nil provisions no runtime privileges.
+	RuntimePool *pgxpool.Pool
+}

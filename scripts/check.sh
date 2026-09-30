@@ -84,6 +84,7 @@ required = ('TestSecurityAccessTokenForgery', 'TestSecurityBearerTransport', 'Te
             'TestSecurityGroupsJoinTheHostTransaction', 'TestSecurityLimiterOutageFailsClosed',
             'TestSecuritySecretsStayOutOfLogs', 'TestSecurityUnknownClientAddressIsLimited',
             'TestSecurityMutatingRoutesCheckTheSession', 'TestSecurityRevokedSessionAtLiveGates',
+            'TestSecurityPerAppRoleCatalogs',
             'TestRoleOwnerWorkflow', 'TestGroupLifecycleWorkflow',
             'TestAccountDeletionGenerationOrderingAndFinalization',
             'TestAccountDeletionDeliveryAcrossSeparateRiverFleets',

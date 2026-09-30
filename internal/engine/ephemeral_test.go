@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/testdb"
@@ -26,7 +27,7 @@ import (
 func ephemeralEngine(t *testing.T) *Engine {
 	t.Helper()
 	pg := testdb.ScratchPostgres(t)
-	core, err := newEngine(maintenanceConfig(), Deps{Postgres: pg.Pool})
+	core, err := New(t.Context(), maintenanceConfig(), config.Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	t.Cleanup(core.Close)
 	return core
@@ -152,7 +153,7 @@ func TestEphemeralExpiry(t *testing.T) {
 func TestEphemeralIgnoresHostClock(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	skewed := func() time.Time { return time.Now().Add(24 * time.Hour) }
-	core, err := newEngine(maintenanceConfig(), Deps{Postgres: pg.Pool, Clock: skewed})
+	core, err := New(t.Context(), maintenanceConfig(), config.Deps{Postgres: pg.Pool, Clock: skewed})
 	require.NoError(t, err)
 	t.Cleanup(core.Close)
 	ctx := t.Context()
@@ -185,10 +186,10 @@ SELECT 'expired:' || i, '\x00', now() - interval '1 second' FROM generate_series
 func TestEphemeralSweepRunsAsRiverMaintenance(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
 	runtimePool := migrationRuntimePool(t, pg)
-	require.NoError(t, Migrate(t.Context(), pg.Pool, MigrateOptions{RuntimePool: runtimePool}))
+	require.NoError(t, Migrate(t.Context(), pg.Pool, config.Config{}, config.MigrateOptions{RuntimePool: runtimePool}))
 	cfg := maintenanceConfig()
-	cfg.River = RiverConfig{CleanupInterval: time.Second}
-	core, err := newEngine(cfg, Deps{Postgres: runtimePool})
+	cfg.River = config.RiverConfig{CleanupInterval: time.Second}
+	core, err := New(t.Context(), cfg, config.Deps{Postgres: runtimePool})
 	require.NoError(t, err)
 	t.Cleanup(core.Close)
 	ctx := t.Context()
@@ -223,14 +224,16 @@ func TestDPoPReplayStoreOutageFailsClosed(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	ctx := t.Context()
 	cfg := testConfig()
-	cfg.Delegated = DelegatedConfig{Audiences: []string{"platform"}, AllowDPoP: true}
-	e := newTestEngine(t, cfg, Deps{Postgres: pg.Pool, DelegatedAuthorization: func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
+	cfg.Delegated = config.DelegatedConfig{Audiences: []string{"platform"}, AllowDPoP: true}
+	cfg.HTTP = &config.HTTPConfig{DirectPeerIP: true}
+	deps := config.Deps{Postgres: pg.Pool, KeySource: testKeys(), DelegatedAuthorization: func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
 		return iam.DelegationGrant{Permissions: []string{"resource:read"}}, nil
-	}})
-	srv, err := httpapi.New(e, httpapi.Config{DirectPeerIP: true})
+	}}
+	e := newTestEngine(t, cfg, deps)
+	srv, err := httpapi.New(e, e.Config(), deps)
 	require.NoError(t, err)
 	t.Cleanup(srv.Close)
-	h, err := httpapi.NewMount(srv, httpapi.MountOptions{})
+	h, err := httpapi.NewMount(srv)
 	require.NoError(t, err)
 	user := newUser(t, e, "dpop")
 	sid, _, err := e.issueRefreshSession(ctx, user.ID)
@@ -256,7 +259,7 @@ func TestDPoPReplayStoreOutageFailsClosed(t *testing.T) {
 
 	const resource = "https://resource.example"
 	v := verify.NewVerifier(verify.WithDPoP(e.ClaimDPoPProof), verify.WithRequestOrigin(resource))
-	require.NoError(t, v.AddIssuer(cfg.Token.Issuer, []string{"platform"}, verify.IssuerOptions{KeySource: cfg.Keys.Source}))
+	require.NoError(t, v.AddIssuer(cfg.Token.Issuer, []string{"platform"}, verify.IssuerOptions{KeySource: deps.KeySource}))
 	req := httptest.NewRequest(http.MethodGet, resource+"/tasks", nil)
 	req.Header.Set("Authorization", "DPoP "+minted.Token)
 	req.Header.Set("DPoP", testdpop.Proof(t, browserKey, http.MethodGet, resource+"/tasks", minted.Token, nil))

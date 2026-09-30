@@ -167,8 +167,8 @@ func TestSecurityDeviceKeyNeedsIndependentFactor(t *testing.T) {
 	// The attacker reads the victim's mailbox, including the victim's own
 	// sign-in codes.
 	h.passwordStep(victim, "198.51.100.41")
-	mailbox := func() string { return h.mail.Last(t, authtest.LoginCode, victim.email).Code }
-	sent := len(h.mail.Messages(authtest.LoginCode, victim.email))
+	mailbox := func() string { return h.mail.Last(t, iam.MessageLoginCode, victim.email).Code }
+	sent := len(h.mail.Messages(iam.MessageLoginCode, victim.email))
 
 	stolen := newDeviceKey(t)
 	resp := h.deviceEnroll(stolen, victim.email, nil)
@@ -183,7 +183,7 @@ func TestSecurityDeviceKeyNeedsIndependentFactor(t *testing.T) {
 	}
 	resp.json(t, &meta)
 	require.Equal(t, "backup_code", meta.Error.Metadata.Method, "the enrollment mailbox was offered as the second factor")
-	require.Equal(t, sent, len(h.mail.Messages(authtest.LoginCode, victim.email)), "enrollment mailed a second-factor code to the enrollment mailbox")
+	require.Equal(t, sent, len(h.mail.Messages(iam.MessageLoginCode, victim.email)), "enrollment mailed a second-factor code to the enrollment mailbox")
 
 	resp = h.deviceEnroll(stolen, victim.email, mailbox)
 	require.Equal(t, http.StatusUnauthorized, resp.status, "a mailbox code bound a device key: %s", resp)
@@ -234,7 +234,7 @@ func TestSecurityDeviceKeyIndependentFactors(t *testing.T) {
 		{"sms", func(a account) func() string {
 			phone := "+1555" + uniqueDigits(7)
 			h.enrollSMS(h.login(a).AccessToken, phone)
-			return func() string { return h.mail.Last(t, authtest.LoginCode, phone).Code }
+			return func() string { return h.mail.Last(t, iam.MessageLoginCode, phone).Code }
 		}},
 	} {
 		t.Run(tc.method, func(t *testing.T) {

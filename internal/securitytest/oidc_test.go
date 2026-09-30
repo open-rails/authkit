@@ -19,13 +19,8 @@ import (
 
 const frontend = "https://app.security.test"
 
-// withHTTPSProviders serves the given providers from an HTTPS deployment.
-func withHTTPSProviders(providers ...provider.Provider) authtest.Option {
-	return authtest.WithConfig(func(c *authkit.Config) {
-		c.Identity.Providers = providers
-		c.Frontend.BaseURL = frontend
-	})
-}
+// httpsFrontend serves the deployment's providers from an HTTPS frontend.
+var httpsFrontend = authtest.WithConfig(func(c *authkit.Config) { c.Frontend.BaseURL = frontend })
 
 func stateCookies(r response) []*http.Cookie {
 	var out []*http.Cookie
@@ -41,7 +36,7 @@ func stateCookies(r response) []*http.Cookie {
 // is __Host- prefixed (Secure, host-only, Path=/), so a sibling subdomain can
 // neither plant nor shadow it.
 func TestSecurityOIDCStateCookieIsHostPrefixed(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withHTTPSProviders(provider.GitHub("state-client", "state-secret")))
+	h := newHost(t, withHTTP(generousLimits), httpsFrontend, withProviders(provider.GitHub("state-client", "state-secret")))
 	resp := h.get("//oidc/github/login", "")
 	require.Equal(t, http.StatusFound, resp.status, resp.String())
 	cookies := stateCookies(resp)
@@ -59,11 +54,13 @@ func TestSecurityProviderIssuerCollisions(t *testing.T) {
 	s := signer()
 	build := func(providers ...provider.Provider) error {
 		runtime, err := authkit.New(context.Background(), authkit.Config{
-			Keys:     authkit.KeysConfig{Source: testkeys.Source(s)},
-			Token:    authkit.TokenConfig{Issuer: issuer, IssuedAudiences: []string{audience}},
-			Identity: authkit.IdentityConfig{Providers: providers},
-			HTTP:     authkit.HTTPConfig{DirectPeerIP: true},
-		}, authkit.Deps{Postgres: pg.Pool})
+			Token: authkit.TokenConfig{Issuer: issuer, IssuedAudiences: []string{audience}},
+			HTTP:  &authkit.HTTPConfig{DirectPeerIP: true},
+		}, authkit.Deps{
+			Postgres:  pg.Pool,
+			KeySource: testkeys.Source(s),
+			Providers: providers,
+		})
 		if runtime != nil {
 			runtime.Close()
 		}
@@ -88,7 +85,7 @@ func TestSecurityProviderIssuerCollisions(t *testing.T) {
 // so it never rides in a URL (history, logs, Referer). A login start binds it
 // to the flow's server-side state from a same-origin POST instead.
 func TestSecurityInviteTokenNotInURL(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withHTTPSProviders(provider.GitHub("invite-client", "invite-secret")))
+	h := newHost(t, withHTTP(generousLimits), httpsFrontend, withProviders(provider.GitHub("invite-client", "invite-secret")))
 	const invite = "invite-secret-token"
 	resp := h.get("//oidc/github/login?account_invite_token="+invite, "")
 	require.Empty(t, stateCookies(resp), "a GET carrying an invitation started a flow")
@@ -116,7 +113,7 @@ func TestSecurityInviteTokenNotInURL(t *testing.T) {
 // TestSecurityProviderPKCE: every built-in provider whose IdP supports PKCE
 // sends an S256 challenge.
 func TestSecurityProviderPKCE(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withHTTPSProviders(
+	h := newHost(t, withHTTP(generousLimits), httpsFrontend, withProviders(
 		provider.GitHub("github-client", "github-secret"),
 		provider.Discord("discord-client", "discord-secret")))
 	for _, name := range []string{"github", "discord"} {
@@ -134,7 +131,7 @@ func TestSecurityProviderPKCE(t *testing.T) {
 // TestSecurityFormPostCallbackIsBounded: the form_post callback is a public,
 // cross-site POST; its body is read under a small bound.
 func TestSecurityFormPostCallbackIsBounded(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withHTTPSProviders(provider.GitHub("form-client", "form-secret")))
+	h := newHost(t, withHTTP(generousLimits), httpsFrontend, withProviders(provider.GitHub("form-client", "form-secret")))
 	callback := func(body string) response {
 		return h.do(request{method: http.MethodPost, path: "//oidc/github/callback?format=json", body: body,
 			header: http.Header{"Content-Type": {"application/x-www-form-urlencoded"}}})

@@ -23,6 +23,8 @@ export type Capabilities = {
   passkeys: { login: boolean }
   solana: { login: boolean }
   verification: { registration: string }
+  // Which contact channels can deliver now (SMS: its latest health check passed).
+  channels?: { email: boolean; sms: boolean }
   languages?: string[]
   // The serving mount's anchors as full paths; unmounted ones are omitted.
   paths?: { api: string; oidc?: string; jwks?: string }
@@ -33,6 +35,11 @@ export type UsernamePolicy = {
   min_length: number
   max_length: number
   pattern: string
+  // Whether users may rename themselves, how often, and how long a former
+  // username stays reserved for its owner.
+  renames?: boolean
+  rename_interval_seconds?: number
+  former_names?: NamingPolicy
 }
 
 export type PasswordPolicy = {
@@ -98,13 +105,15 @@ export type UserSecurity = {
   mfa_allowed_methods?: string[]
 }
 
+export type NamingPolicy = {
+  enabled: boolean
+  former_name_retention_mode: "finite" | "forever" | "immediate"
+  former_name_retention_seconds: number
+}
+
 export type NamingState = {
   aliases?: { name: string; expires_at?: string | null }[]
-  policy: {
-    enabled: boolean
-    former_name_retention_mode: "finite" | "forever" | "immediate"
-    former_name_retention_seconds: number
-  }
+  policy: NamingPolicy
   allowed: boolean
   next_rename_at?: string | null
   retry_after_seconds: number

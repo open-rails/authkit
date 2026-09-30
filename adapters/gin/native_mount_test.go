@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testhttp"
 	"github.com/stretchr/testify/require"
@@ -35,7 +36,7 @@ func TestMountValidatesConfiguration(t *testing.T) {
 	require.Error(t, Mount(nil, nil))
 	router := gin.New()
 	require.Error(t, Mount(router, nil))
-	require.Error(t, Mount(router, testhttp.Client(t, authkit.HTTPConfig{})), "a headless runtime has no surface")
+	require.Error(t, Mount(router, testhttp.Client(t, nil)), "a headless runtime has no surface")
 	require.Empty(t, router.Routes())
 }
 
@@ -53,7 +54,7 @@ func TestMountRegistersNativeRoutesWithCanonicalGuards(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := testhttp.HTTP()
-			tc.cfg(&cfg)
+			tc.cfg(cfg)
 			auth := testhttp.Client(t, cfg)
 			canonical := auth.Handler()
 			router := gin.New()
@@ -99,7 +100,7 @@ func TestMountPreservesHostMiddlewareParametersAndCookieGuards(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := testhttp.HTTP()
 	cfg.APIPath, cfg.RefreshCookie = "/identity", true
-	cfg.Wrap = func(route iam.Route, handler http.Handler) http.Handler {
+	wrap := func(route iam.Route, handler http.Handler) http.Handler {
 		if route.Path != "/identity/user/providers/{provider}" {
 			return handler
 		}
@@ -109,7 +110,7 @@ func TestMountPreservesHostMiddlewareParametersAndCookieGuards(t *testing.T) {
 			io.WriteString(w, r.PathValue("provider")+":"+r.Context().Value(mountContextKey{}).(string))
 		})
 	}
-	auth := testhttp.Client(t, cfg)
+	auth := testhttp.Client(t, cfg, authtest.WithDeps(func(d *authkit.Deps) { d.Wrap = wrap }))
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		if c.GetHeader("X-Host-Deny") == "yes" {

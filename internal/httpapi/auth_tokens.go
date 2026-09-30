@@ -12,7 +12,7 @@ import (
 // the body unless the mount opted into the HttpOnly cookie (ak#271).
 
 // deliverRefreshToken routes the refresh token to whichever transport this
-// mount declared: with MountOptions.RefreshCookie on it moves to an HttpOnly
+// mount declared: with HTTPConfig.RefreshCookie on it moves to an HttpOnly
 // cookie and leaves the envelope, so nothing downstream can leak it into a
 // body, a URL fragment or a postMessage payload. EVERY session-establishing
 // response goes through here.

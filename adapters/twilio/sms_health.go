@@ -9,26 +9,16 @@ import (
 	"strings"
 )
 
-// CheckHealth verifies — without sending any SMS — that this sender is
-// configured to actually deliver messages. It validates credentials, that the
-// Messaging Service exists and has at least one attached sender, and that any
-// toll-free sender has completed Twilio toll-free verification (the silent
-// failure behind error 30032). It returns nil when delivery is expected to
-// succeed, or a descriptive error otherwise. Implements authkit.SMSHealthChecker.
-func (s *Sender) CheckHealth(ctx context.Context) error {
-	if s == nil {
-		return fmt.Errorf("twilio sender is nil")
-	}
-	accountSID := strings.TrimSpace(s.AccountSID)
-	if accountSID == "" || strings.TrimSpace(s.AuthToken) == "" || strings.TrimSpace(s.MessagingServiceSID) == "" {
-		return fmt.Errorf("twilio credentials/messaging service not configured")
-	}
-
+// CheckHealth verifies, without sending an SMS, that this sender can deliver:
+// the credentials work, the Messaging Service exists and has an attached
+// sender, and any toll-free sender has completed Twilio toll-free verification
+// (the silent failure behind error 30032). Wire it as authkit.Deps.SMSHealth.
+func (s *SMS) CheckHealth(ctx context.Context) error {
 	// 1) Credentials valid and account usable.
 	var account struct {
 		Status string `json:"status"`
 	}
-	if err := s.apiGet(ctx, fmt.Sprintf("https://api.twilio.com/2010-04-01/Accounts/%s.json", accountSID), &account); err != nil {
+	if err := s.apiGet(ctx, fmt.Sprintf("https://api.twilio.com/2010-04-01/Accounts/%s.json", s.accountSID), &account); err != nil {
 		return fmt.Errorf("twilio credential check failed: %w", err)
 	}
 	if st := strings.ToLower(strings.TrimSpace(account.Status)); st != "" && st != "active" {
@@ -36,7 +26,7 @@ func (s *Sender) CheckHealth(ctx context.Context) error {
 	}
 
 	// 2) Messaging Service exists.
-	msURL := fmt.Sprintf("https://messaging.twilio.com/v1/Services/%s", strings.TrimSpace(s.MessagingServiceSID))
+	msURL := fmt.Sprintf("https://messaging.twilio.com/v1/Services/%s", s.messagingServiceSID)
 	if err := s.apiGet(ctx, msURL, &struct{}{}); err != nil {
 		return fmt.Errorf("messaging service check failed: %w", err)
 	}
@@ -52,7 +42,7 @@ func (s *Sender) CheckHealth(ctx context.Context) error {
 		return fmt.Errorf("messaging service sender check failed: %w", err)
 	}
 	if len(pn.PhoneNumbers) == 0 {
-		return fmt.Errorf("messaging service %s has no attached sender (phone number)", s.MessagingServiceSID)
+		return fmt.Errorf("messaging service %s has no attached sender (phone number)", s.messagingServiceSID)
 	}
 
 	// 4) For toll-free senders, require an approved toll-free verification.
@@ -74,7 +64,7 @@ func (s *Sender) CheckHealth(ctx context.Context) error {
 		}
 	}
 	if tollFree > 0 && verifiedTollFree == 0 {
-		return fmt.Errorf("toll-free sender(s) on messaging service %s are not verified (Twilio toll-free verification incomplete; sends will fail with error 30032)", s.MessagingServiceSID)
+		return fmt.Errorf("toll-free sender(s) on messaging service %s are not verified (Twilio toll-free verification incomplete; sends will fail with error 30032)", s.messagingServiceSID)
 	}
 
 	return nil
@@ -82,7 +72,7 @@ func (s *Sender) CheckHealth(ctx context.Context) error {
 
 // tollFreeVerified reports whether the given toll-free number has an approved
 // Twilio toll-free verification.
-func (s *Sender) tollFreeVerified(ctx context.Context, phoneNumberSID, phoneNumber string) (bool, error) {
+func (s *SMS) tollFreeVerified(ctx context.Context, phoneNumberSID, phoneNumber string) (bool, error) {
 	q := url.Values{}
 	if strings.TrimSpace(phoneNumberSID) != "" {
 		q.Set("TollfreePhoneNumberSid", strings.TrimSpace(phoneNumberSID))
@@ -126,13 +116,13 @@ func isTollFreeNumber(e164 string) bool {
 }
 
 // apiGet performs an authenticated GET and decodes a 2xx JSON body into out.
-func (s *Sender) apiGet(ctx context.Context, apiURL string, out any) error {
+func (s *SMS) apiGet(ctx context.Context, apiURL string, out any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return err
 	}
-	req.SetBasicAuth(strings.TrimSpace(s.AccountSID), strings.TrimSpace(s.AuthToken))
-	resp, err := s.httpClient().Do(req)
+	req.SetBasicAuth(s.accountSID, s.authToken)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return err
 	}

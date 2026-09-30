@@ -477,7 +477,7 @@ func (p *entitlementsProvider) callCount() int {
 // the account's own view stays unfiltered.
 func TestTokenEntitlementAllowlist(t *testing.T) {
 	provider := &entitlementsProvider{names: []string{"premium", "unselected", "product-a", "premium"}}
-	auth, _ := authtest.New(t, authtest.WithDeps(func(d *authkit.Deps) { d.Entitlements = provider }),
+	auth, _ := authtest.New(t, authtest.WithDeps(func(d *authkit.Deps) { d.Entitlements = provider.ListEntitlements }),
 		authtest.WithConfig(func(c *authkit.Config) { c.TwoFactor.Mode = iam.TwoFactorDisabled }))
 	ctx := t.Context()
 	claimsOf := func(t *testing.T, auth *authkit.Client, token string) map[string]any {

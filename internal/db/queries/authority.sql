@@ -93,10 +93,10 @@ WHERE a.permission_group_id = sqlc.arg(group_id)::uuid AND a.enabled AND r.role 
 
 -- name: AuthorityUncoveredCredentials :many
 -- Live credentials in the scope of a grant change to group_id (root: every
--- live group) issued by user_id ('' = anyone): invite links, account
--- invitations (one without a group belongs to root), API keys and the roles
--- of applications (needs_creator: a group registration, which confers nothing
--- without its registrar).
+-- live group) issued by user_id ('' = anyone) through issuer's app, or before
+-- per-app catalogs: invite links, account invitations (one without a group
+-- belongs to root), API keys and the roles of applications (needs_creator: a
+-- group registration, which confers nothing without its registrar).
 WITH scope AS (
   SELECT g.id, g.persona FROM permission_groups t JOIN permission_groups g
     ON g.id = t.id OR (t.persona = 'root' AND g.deleted_at IS NULL)
@@ -106,26 +106,31 @@ SELECT 'group_invite_links'::text AS kind, l.id::text AS id, l.permission_group_
   FROM group_invite_links l JOIN scope t ON t.id = l.permission_group_id
  WHERE l.revoked_at IS NULL AND l.redeemed_at IS NULL AND (l.expires_at IS NULL OR l.expires_at > now())
    AND l.invited_by IS NOT NULL AND (sqlc.arg(user_id)::text = '' OR l.invited_by = NULLIF(sqlc.arg(user_id)::text, '')::uuid)
+   AND (l.catalog_issuer IS NULL OR l.catalog_issuer = sqlc.arg(issuer)::text)
 UNION ALL
 SELECT 'account_registration_invites', a.id::text, a.permission_group_id::text, t.persona, a.role, a.invited_by::text, false
   FROM account_registration_invites a JOIN scope t ON t.id = a.permission_group_id
  WHERE a.revoked_at IS NULL AND a.consumed_at IS NULL AND a.expires_at > now()
    AND a.invited_by IS NOT NULL AND (sqlc.arg(user_id)::text = '' OR a.invited_by = NULLIF(sqlc.arg(user_id)::text, '')::uuid)
+   AND (a.catalog_issuer IS NULL OR a.catalog_issuer = sqlc.arg(issuer)::text)
 UNION ALL
 SELECT 'account_registration_invites', a.id::text, t.id::text, t.persona, '', a.invited_by::text, false
   FROM account_registration_invites a JOIN scope t ON t.persona = 'root'
  WHERE a.permission_group_id IS NULL AND a.revoked_at IS NULL AND a.consumed_at IS NULL AND a.expires_at > now()
    AND a.invited_by IS NOT NULL AND (sqlc.arg(user_id)::text = '' OR a.invited_by = NULLIF(sqlc.arg(user_id)::text, '')::uuid)
+   AND (a.catalog_issuer IS NULL OR a.catalog_issuer = sqlc.arg(issuer)::text)
 UNION ALL
 SELECT 'api_keys', k.id::text, k.permission_group_id::text, t.persona, k.role, COALESCE(k.created_by::text, ''), false
   FROM api_keys k JOIN scope t ON t.id = k.permission_group_id
  WHERE k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at > now())
    AND (sqlc.arg(user_id)::text = '' OR k.created_by = NULLIF(sqlc.arg(user_id)::text, '')::uuid)
+   AND (k.catalog_issuer IS NULL OR k.catalog_issuer = sqlc.arg(issuer)::text)
 UNION ALL
 SELECT 'group_remote_application_roles', a.id::text, r.permission_group_id::text, t.persona, r.role, COALESCE(a.registered_by::text, ''), a.trust_root = 'user'
   FROM group_remote_application_roles r JOIN scope t ON t.id = r.permission_group_id
   JOIN remote_applications a ON a.id = r.remote_application_id
- WHERE (sqlc.arg(user_id)::text = '' OR a.registered_by = NULLIF(sqlc.arg(user_id)::text, '')::uuid);
+ WHERE (sqlc.arg(user_id)::text = '' OR a.registered_by = NULLIF(sqlc.arg(user_id)::text, '')::uuid)
+   AND (a.catalog_issuer IS NULL OR a.catalog_issuer = sqlc.arg(issuer)::text);
 
 -- name: APIKeyRetire :exec
 UPDATE api_keys SET revoked_at = now() WHERE id = $1;

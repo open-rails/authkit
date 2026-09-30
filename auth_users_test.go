@@ -77,6 +77,37 @@ func TestUserLookups(t *testing.T) {
 	})
 }
 
+// PublicUsers shows other people only the metadata keys the host made
+// public: never another key, and nothing of a deleted account.
+func TestPublicUserMetadataAllowlist(t *testing.T) {
+	pg := testdb.ScratchPostgres(t)
+	cfg := testConfig(t)
+	cfg.PublicUserMetadata = []string{"bio", "pronouns"}
+	auth := newPublicRuntime(t, cfg, pg.Pool)
+	t.Cleanup(auth.Close)
+	ctx := t.Context()
+	op := iam.SystemActor()
+	alice, err := auth.CreateUser(ctx, iam.NewUser{Email: "meta-alice@example.test", Username: "metaalice"})
+	require.NoError(t, err)
+	bob, err := auth.CreateUser(ctx, iam.NewUser{Email: "meta-bob@example.test", Username: "metabob"})
+	require.NoError(t, err)
+	carol, err := auth.CreateUser(ctx, iam.NewUser{Email: "meta-carol@example.test", Username: "metacarol"})
+	require.NoError(t, err)
+	require.NoError(t, auth.PatchUserMetadata(ctx, op, alice.ID, map[string]any{"bio": "hi", "billing_tier": "gold", "internal_note": "vip"}))
+	require.NoError(t, auth.PatchUserMetadata(ctx, op, bob.ID, map[string]any{"bio": "gone", "pronouns": "he"}))
+	require.NoError(t, itemErr(auth.DeleteUsers(ctx, op, []string{bob.ID})))
+
+	public, err := auth.PublicUsers(ctx, []string{alice.ID, bob.ID, carol.ID})
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{"bio": "hi"}, public[alice.ID].Metadata, "only allowlisted keys")
+	require.Equal(t, iam.PublicUser{ID: bob.ID, Deleted: true}, public[bob.ID], "a tombstone carries no metadata")
+	require.Nil(t, public[carol.ID].Metadata, "no public keys set, no metadata")
+
+	cfg.PublicUserMetadata = []string{"reserved"}
+	_, err = authkit.New(ctx, cfg, testDeps(pg.Pool))
+	require.ErrorContains(t, err, "PublicUserMetadata", "AuthKit's own key can never be public")
+}
+
 func TestUserBanState(t *testing.T) {
 	auth := newUsersRuntime(t)
 	ctx := t.Context()
@@ -268,7 +299,7 @@ func TestListGroupMembersLiveOnlyWithUsers(t *testing.T) {
 // entitlements is the host's billing view of accounts.
 type entitlements map[string][]string
 
-func (e entitlements) ListEntitlements(_ context.Context, ids []string) (map[string][]string, error) {
+func (e entitlements) of(_ context.Context, ids []string) (map[string][]string, error) {
 	out := map[string][]string{}
 	for _, id := range ids {
 		if ents, ok := e[id]; ok {
@@ -287,7 +318,9 @@ func TestUserDirectoryEntries(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.Roles = rbac
 	billing := entitlements{}
-	auth, err := authkit.New(t.Context(), cfg, authkit.Deps{Postgres: pg.Pool, Entitlements: billing})
+	deps := testDeps(pg.Pool)
+	deps.Entitlements = billing.of
+	auth, err := authkit.New(t.Context(), cfg, deps)
 	require.NoError(t, err)
 	t.Cleanup(auth.Close)
 	ctx := t.Context()
@@ -330,14 +363,15 @@ func TestUsersIDIsAHostForeignKeyTarget(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	ctx := t.Context()
 	purged := make(chan string, 1)
-	auth, err := authkit.New(ctx, testConfig(t), authkit.Deps{Postgres: pg.Pool,
-		OnHardDelete: func(_ context.Context, d iam.UserDeletion) error {
-			select {
-			case purged <- d.UserID:
-			default:
-			}
-			return nil
-		}})
+	deps := testDeps(pg.Pool)
+	deps.OnPurge = func(_ context.Context, d iam.UserDeletion) error {
+		select {
+		case purged <- d.UserID:
+		default:
+		}
+		return nil
+	}
+	auth, err := authkit.New(ctx, testConfig(t), deps)
 	require.NoError(t, err)
 	t.Cleanup(auth.Close)
 	_, err = pg.Pool.Exec(ctx, `CREATE TABLE public.host_notes (

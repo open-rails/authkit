@@ -5,10 +5,14 @@ package engine
 // outlives that issuer's authority. The issuer is a user, or the system
 // (NULL, never auto-revoked); machine actors cannot issue credentials. An
 // application's issuer is its registrar, the user who supplied its keys.
+// Apps sharing an account store (Token.AccountIssuers) share membership but
+// not role catalogs: a credential also records the app it was issued through
+// (catalog_issuer), and only that app judges it, under its own catalog.
 // Three layers hold it:
 //   - the sweep (revokeUncoveredCredentials) revokes what a creator no longer
 //     covers after any authority change, including a changed role catalog at
-//     boot (reconcileRoleCatalog);
+//     boot (reconcileRoleCatalog); a change made through one app has every
+//     other account issuer sweep its own (credential_sweeps.go);
 //   - every use re-checks the creator is usable (the usable_users view), so
 //     a banned or deleted creator's credentials fail even where no sweep ran;
 //   - a purge deletes the creator's keys and links with the account.
@@ -61,11 +65,12 @@ func (s *Engine) requireCredentialRevoke(ctx context.Context, st *permissionGrou
 	return nil
 }
 
-// reconcileRoleCatalog runs at New under the authority lock. When the
-// catalog differs from the one last reconciled, the whole-site sweep re-checks
-// every live credential against its creator under the new catalog. That sweep
-// never refuses the boot: it retires what the new catalog no longer allows and
-// logs what it did.
+// reconcileRoleCatalog runs at New under the authority lock. When this app's
+// catalog differs from the one it last reconciled, the whole-site sweep
+// re-checks every live credential this app judges against its creator under
+// the new catalog. That sweep never refuses the boot: it retires what the new
+// catalog no longer allows and logs what it did. Other apps' catalogs are
+// theirs: they never cause a sweep here.
 func (s *Engine) reconcileRoleCatalog(ctx context.Context) error {
 	if s.pg == nil {
 		return nil
@@ -74,7 +79,7 @@ func (s *Engine) reconcileRoleCatalog(ctx context.Context) error {
 	return s.withAuthorityMutation(ctx, iam.Actor{}, func(st *permissionGroupStore) error {
 		st.reconcile = true
 		q := db.New(st.q)
-		stored, err := q.RoleCatalogFingerprint(ctx)
+		stored, err := q.RoleCatalogFingerprint(ctx, s.cfg.Token.Issuer)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
@@ -86,9 +91,24 @@ func (s *Engine) reconcileRoleCatalog(ctx context.Context) error {
 			return err
 		}
 		st.touched = append(st.touched, authorityTouch{groupID: rootID})
-		return q.RoleCatalogSetFingerprint(ctx, fingerprint)
+		return q.RoleCatalogSet(ctx, db.RoleCatalogSetParams{Issuer: s.cfg.Token.Issuer, Fingerprint: fingerprint, Roles: s.declaredRoles()})
 	})
 }
+
+// declaredRoles is every persona:role name the catalog declares.
+func (s *Engine) declaredRoles() []string {
+	sch := s.groupSchemaOrDefault()
+	out := []string{}
+	for _, name := range sch.Personas() {
+		p, _ := sch.Persona(name)
+		for _, r := range p.Roles {
+			out = append(out, catalogRoleName(name.String(), r.Name.Name()))
+		}
+	}
+	return out
+}
+
+func catalogRoleName(persona, role string) string { return persona + ":" + role }
 
 // roleCatalogFingerprint identifies everything the credential sweep reads from
 // the configuration: every role's grants and which permissions need MFA (no key or application holds one of those

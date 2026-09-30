@@ -16,6 +16,7 @@ import (
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/naming"
 )
 
 // Account records: the engine's working row (db.User, from sqlc), its public
@@ -162,7 +163,7 @@ func (s *Engine) createUser(ctx context.Context, email, username string) (*db.Us
 		return nil, nil
 	}
 	username = strings.TrimSpace(username)
-	if err := s.cfg.Username.ValidateImport(username); err != nil {
+	if err := naming.ValidateImport(s.cfg.Username, username); err != nil {
 		return nil, err
 	}
 	userID, err := newUUIDV7String()
@@ -206,7 +207,7 @@ func (s *Engine) normalizeImportUserInput(input newAccount) (email *string, phon
 		phone = &v
 	}
 	username = strings.TrimSpace(input.Username)
-	if err := s.cfg.Username.ValidateImport(username); err != nil {
+	if err := naming.ValidateImport(s.cfg.Username, username); err != nil {
 		return nil, nil, "", nil, "", time.Time{}, time.Time{}, err
 	}
 	if input.BannedBy != nil && strings.TrimSpace(*input.BannedBy) != "" {
@@ -391,9 +392,9 @@ func (s *Engine) renameUsernameTx(ctx context.Context, tx pgx.Tx, id, username s
 		}
 	}
 	now := s.namingNow()
-	policy := s.NamingPolicy()
+	policy := s.cfg.Username
 	if authority == normalRename {
-		if err := policy.CheckRename(current.LastRenamedAt, now); err != nil {
+		if err := naming.CheckRename(policy, current.LastRenamedAt, now); err != nil {
 			return err
 		}
 	}

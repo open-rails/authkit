@@ -6,8 +6,8 @@
 -- read returns the whole row: db.RemoteApplication.
 
 -- name: RemoteApplicationUpsert :one
-INSERT INTO remote_applications (permission_group_id, issuer, jwks_uri, mode, public_keys, enabled)
-VALUES (sqlc.arg(permission_group_id)::uuid, sqlc.arg(issuer), sqlc.arg(jwks_uri), sqlc.arg(mode), sqlc.arg(public_keys), sqlc.arg(enabled))
+INSERT INTO remote_applications (permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, catalog_issuer)
+VALUES (sqlc.arg(permission_group_id)::uuid, sqlc.arg(issuer), sqlc.arg(jwks_uri), sqlc.arg(mode), sqlc.arg(public_keys), sqlc.arg(enabled), sqlc.arg(catalog_issuer)::text)
 ON CONFLICT (issuer) DO UPDATE
   SET jwks_uri      = EXCLUDED.jwks_uri,
       mode          = EXCLUDED.mode,
@@ -44,7 +44,9 @@ SELECT * FROM remote_applications WHERE id = $1 FOR UPDATE;
 UPDATE remote_applications SET trust_root = sqlc.arg(trust_root) WHERE id = sqlc.arg(id)::uuid;
 
 -- name: RemoteApplicationSetRegistrar :exec
-UPDATE remote_applications SET registered_by = sqlc.arg(registered_by)::uuid WHERE id = sqlc.arg(id)::uuid;
+-- The registrar's app becomes the registration's.
+UPDATE remote_applications SET registered_by = sqlc.arg(registered_by)::uuid, catalog_issuer = sqlc.arg(catalog_issuer)::text
+WHERE id = sqlc.arg(id)::uuid;
 
 -- name: RemoteApplicationsClearRegistrar :exec
 UPDATE remote_applications SET registered_by = NULL, updated_at = now() WHERE registered_by = sqlc.arg(user_id)::uuid;

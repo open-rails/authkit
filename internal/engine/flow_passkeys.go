@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
-	"net/url"
 	"strings"
 	"time"
 
@@ -64,65 +63,8 @@ func (u passkeyUser) WebAuthnName() string                       { return u.name
 func (u passkeyUser) WebAuthnDisplayName() string                { return u.displayName }
 func (u passkeyUser) WebAuthnCredentials() []webauthn.Credential { return u.credentials }
 
-func normalizePasskeyConfig(cfg PasskeyConfig, baseURL, issuer string) (string, string, []string, string, error) {
-	origin := strings.TrimRight(strings.TrimSpace(baseURL), "/")
-	u, err := url.Parse(origin)
-	if err != nil || u.Scheme == "" || u.Host == "" {
-		return "", "", nil, "", errors.New("authkit: Passkeys require a valid BaseURL origin")
-	}
-	u.Path, u.RawQuery, u.Fragment = "", "", ""
-	origin = u.String()
-
-	rpid := strings.ToLower(strings.TrimSpace(cfg.RPID))
-	if rpid == "" {
-		rpid = strings.ToLower(u.Hostname())
-	}
-	name := strings.TrimSpace(cfg.RPDisplayName)
-	if name == "" {
-		name = strings.TrimSpace(issuer)
-	}
-	if name == "" {
-		name = rpid
-	}
-	origins := append([]string(nil), cfg.Origins...)
-	if len(origins) == 0 {
-		origins = []string{origin}
-	}
-	for i, raw := range origins {
-		o, err := url.Parse(strings.TrimRight(strings.TrimSpace(raw), "/"))
-		if err != nil || o.Scheme == "" || o.Host == "" {
-			return "", "", nil, "", errors.New("authkit: invalid Passkey origin")
-		}
-		host := strings.ToLower(o.Hostname())
-		if host != rpid && !strings.HasSuffix(host, "."+rpid) {
-			return "", "", nil, "", errors.New("authkit: Passkey origin host must match RPID or a subdomain")
-		}
-		o.Path, o.RawQuery, o.Fragment = "", "", ""
-		origins[i] = o.String()
-	}
-	return rpid, name, origins, normalizePasskeyUserVerification(cfg.UserVerification), nil
-}
-
-func normalizePasskeyUserVerification(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "required":
-		return string(protocol.VerificationRequired)
-	case "discouraged":
-		return string(protocol.VerificationDiscouraged)
-	default:
-		return string(protocol.VerificationPreferred)
-	}
-}
-
 func (s *Engine) passkeyUserVerification() protocol.UserVerificationRequirement {
-	switch normalizePasskeyUserVerification(s.cfg.Passkeys.UserVerification) {
-	case string(protocol.VerificationRequired):
-		return protocol.VerificationRequired
-	case string(protocol.VerificationDiscouraged):
-		return protocol.VerificationDiscouraged
-	default:
-		return protocol.VerificationPreferred
-	}
+	return protocol.UserVerificationRequirement(s.cfg.Passkeys.UserVerification)
 }
 
 func (s *Engine) webAuthn() (*webauthn.WebAuthn, error) {

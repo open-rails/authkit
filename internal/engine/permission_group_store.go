@@ -41,8 +41,10 @@ type permissionGroupStore struct {
 	// touched records authority reductions for the enclosing authority
 	// mutation, which revokes credentials their creators no longer cover.
 	touched []authorityTouch
-	// reconcile marks the boot sweep: it retires what it must and logs,
-	// never refuses, so no stored state can keep AuthKit from starting.
+	// reconcile marks a sweep after a change already made: a new role catalog
+	// at boot, or another account issuer's authority change. It retires what
+	// it must and logs, never refuses (no stored state keeps AuthKit from
+	// starting) and asks no other issuer to sweep.
 	reconcile bool
 	// actor makes this transaction's changes (zero: AuthKit itself); emit
 	// records their events in it. Only Engine.groupStoreFor sets emit.

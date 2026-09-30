@@ -19,20 +19,21 @@ import (
 	"github.com/open-rails/authkit/internal/ident"
 )
 
-// PersonaSpec is one declared persona, as the host configured it.
+// PersonaSpec is one declared persona, built by the Roles builder: its names
+// are valid by construction.
 type PersonaSpec struct {
-	Permissions        []string // app-defined catalog; AuthKit adds its built-ins
-	RequireMFA         []string // permissions or patterns of the catalog that need MFA
+	Name               iam.Persona
+	Permissions        []iam.Perm // app-defined catalog; AuthKit adds its built-ins
+	RequireMFA         []iam.Perm // permissions or patterns of the catalog that need MFA
 	APIKeys            bool
 	RemoteApplications bool
 }
 
-// RoleSpec is one declared role, as the host configured it.
+// RoleSpec is one declared role.
 type RoleSpec struct {
-	Persona     string
-	Name        string
-	Permissions []string
-	Includes    []string // names of roles of the same persona
+	Name     iam.Role
+	Grants   []iam.Perm // permissions or patterns
+	Includes []iam.Role // roles of the same persona
 }
 
 // Persona is a compiled persona.
@@ -69,29 +70,22 @@ func Default() *Schema {
 	return s
 }
 
-// New validates the host's personas and roles and compiles the schema. root
-// always exists; a root entry in personas only adds app-specific root
-// permissions and capabilities.
-func New(personas map[string]PersonaSpec, roles []RoleSpec) (*Schema, error) {
+// New compiles the declared personas and roles, checking what the builder
+// cannot see while declaring: catalogs, grants, includes and MFA patterns.
+// root always exists; a root entry only adds app permissions and
+// capabilities.
+func New(personas []PersonaSpec, roles []RoleSpec) (*Schema, error) {
 	s := &Schema{
 		personas: map[iam.Persona]Persona{},
 		known:    map[iam.Perm]struct{}{},
 	}
-	specs := make(map[string]PersonaSpec, len(personas)+1)
-	for name, spec := range personas {
-		specs[name] = spec
+	specs := map[iam.Persona]PersonaSpec{iam.RootPersona: {Name: iam.RootPersona}}
+	for _, spec := range personas {
+		specs[spec.Name] = spec
 	}
-	root := iam.RootPersona.String()
-	if _, ok := specs[root]; !ok {
-		specs[root] = PersonaSpec{}
-	}
-	names := slices.Sorted(maps.Keys(specs))
-	for _, raw := range names {
-		if !ident.ValidSegment(raw) {
-			return nil, fmt.Errorf("persona %q: name must match [a-z][a-z0-9-]*", raw)
-		}
-		name := ident.Persona(raw)
-		p, err := s.compilePersona(name, specs[raw])
+	names := slices.SortedFunc(maps.Keys(specs), func(a, b iam.Persona) int { return cmp.Compare(a.String(), b.String()) })
+	for _, name := range names {
+		p, err := s.compilePersona(name, specs[name])
 		if err != nil {
 			return nil, fmt.Errorf("persona %q: %w", name, err)
 		}
@@ -110,18 +104,13 @@ func (s *Schema) compilePersona(name iam.Persona, spec PersonaSpec) (Persona, er
 		APIKeys: spec.APIKeys,
 	}
 	catalog := map[iam.Perm]struct{}{}
-	for _, raw := range spec.Permissions {
-		raw = strings.TrimSpace(raw)
-		if err := ident.ValidatePermission(raw); err != nil {
-			return Persona{}, err
-		}
-		perm := ident.Perm(raw)
+	for _, perm := range spec.Permissions {
 		if perm.Persona() != name {
 			return Persona{}, fmt.Errorf("permission %q must start with %q", perm, name.String()+":")
 		}
 		catalog[perm] = struct{}{}
 	}
-	for _, perm := range builtins(name, spec) {
+	for _, perm := range Builtins(name, spec.APIKeys || spec.RemoteApplications) {
 		catalog[perm] = struct{}{}
 	}
 	for perm := range catalog {
@@ -133,14 +122,9 @@ func (s *Schema) compilePersona(name iam.Persona, spec PersonaSpec) (Persona, er
 	if name == iam.RootPersona {
 		// Handing out site-wide roles and editing other people's accounts
 		// always need MFA, so the root owner does.
-		mfa = append([]string{ident.MembersManage(name).String(), ident.RootUsersManage.String()}, mfa...)
+		mfa = append([]iam.Perm{ident.MembersManage(name), ident.RootUsersManage}, mfa...)
 	}
-	for _, raw := range mfa {
-		raw = strings.TrimSpace(raw)
-		if err := ident.ValidateGrantPattern(raw); err != nil {
-			return Persona{}, fmt.Errorf("RequireMFA: %w", err)
-		}
-		pattern := ident.Perm(raw)
+	for _, pattern := range mfa {
 		if pattern.Persona() != name {
 			return Persona{}, fmt.Errorf("RequireMFA %q must start with %q", pattern, name.String()+":")
 		}
@@ -160,12 +144,12 @@ func (s *Schema) compilePersona(name iam.Persona, spec PersonaSpec) (Persona, er
 	return p, nil
 }
 
-// builtins returns the permissions AuthKit registers for a persona: members
-// always, credentials with APIKeys or RemoteApplications, and on root its
-// intrinsic account permissions.
-func builtins(name iam.Persona, spec PersonaSpec) []iam.Perm {
+// Builtins returns the permissions AuthKit registers for a persona: members
+// always, credentials when it has API keys or remote applications, and on
+// root its intrinsic account permissions.
+func Builtins(name iam.Persona, credentials bool) []iam.Perm {
 	out := []iam.Perm{ident.MembersRead(name), ident.MembersManage(name)}
-	if spec.APIKeys || spec.RemoteApplications {
+	if credentials {
 		out = append(out, ident.CredentialsRead(name), ident.CredentialsManage(name))
 	}
 	if name == iam.RootPersona {
@@ -177,27 +161,23 @@ func builtins(name iam.Persona, spec PersonaSpec) []iam.Perm {
 func comparePerm(a, b iam.Perm) int { return cmp.Compare(a.String(), b.String()) }
 
 func (s *Schema) compileRoles(specs []RoleSpec) error {
-	declared := map[iam.Persona]map[string]RoleSpec{}
-	order := map[iam.Persona][]string{}
+	declared := map[iam.Persona]map[iam.Role]RoleSpec{}
+	order := map[iam.Persona][]iam.Role{}
 	for _, r := range specs {
-		r.Name = strings.TrimSpace(r.Name)
-		persona := ident.Persona(strings.TrimSpace(r.Persona))
+		persona := r.Name.Persona()
 		if _, ok := s.personas[persona]; !ok {
-			return fmt.Errorf("role %q: unknown persona %q", r.Name, r.Persona)
-		}
-		if !ident.ValidSegment(r.Name) {
-			return fmt.Errorf("persona %q role %q: name must match [a-z][a-z0-9-]*", persona, r.Name)
+			return fmt.Errorf("role %q: unknown persona %q", r.Name, persona)
 		}
 		if _, dup := declared[persona][r.Name]; dup {
-			return fmt.Errorf("persona %q role %q declared twice", persona, r.Name)
+			return fmt.Errorf("role %q declared twice", r.Name)
 		}
-		for _, g := range r.Permissions {
+		for _, g := range r.Grants {
 			if err := s.validRoleGrant(persona, g); err != nil {
-				return fmt.Errorf("persona %q role %q: %w", persona, r.Name, err)
+				return fmt.Errorf("role %q: %w", r.Name, err)
 			}
 		}
 		if declared[persona] == nil {
-			declared[persona] = map[string]RoleSpec{}
+			declared[persona] = map[iam.Role]RoleSpec{}
 		}
 		declared[persona][r.Name] = r
 		order[persona] = append(order[persona], r.Name)
@@ -206,25 +186,21 @@ func (s *Schema) compileRoles(specs []RoleSpec) error {
 	for _, name := range s.order {
 		roles := declared[name]
 		if roles == nil {
-			roles = map[string]RoleSpec{}
+			roles = map[iam.Role]RoleSpec{}
 		}
-		owner := name.OwnerGrant().String()
-		ownerName := name.OwnerRole().Name()
-		if o, ok := roles[ownerName]; ok {
-			if len(o.Permissions) != 1 || o.Permissions[0] != owner || len(o.Includes) > 0 {
-				return fmt.Errorf("persona %q: the %q role must hold exactly [%q]", name, ownerName, owner)
-			}
-		} else {
-			roles[ownerName] = RoleSpec{Persona: name.String(), Name: ownerName, Permissions: []string{owner}}
-			order[name] = append(order[name], ownerName)
+		owner := name.OwnerRole()
+		if _, ok := roles[owner]; ok {
+			return fmt.Errorf("persona %q: the %q role is built in", name, owner.Name())
 		}
+		roles[owner] = RoleSpec{Name: owner, Grants: []iam.Perm{name.OwnerGrant()}}
+		order[name] = append(order[name], owner)
 		p := s.personas[name]
 		for _, role := range order[name] {
 			grants, err := flatten(roles, role, nil)
 			if err != nil {
-				return fmt.Errorf("persona %q role %q: %w", name, role, err)
+				return fmt.Errorf("role %q: %w", role, err)
 			}
-			p.Roles = append(p.Roles, Role{Name: ident.Role(name, role), Permissions: grants, RequiresMFA: s.RequiresMFA(grants)})
+			p.Roles = append(p.Roles, Role{Name: role, Permissions: grants, RequiresMFA: s.RequiresMFA(grants)})
 		}
 		s.personas[name] = p
 	}
@@ -233,7 +209,7 @@ func (s *Schema) compileRoles(specs []RoleSpec) error {
 
 // flatten returns role's grants unioned with every included role's, in
 // declaration order. path holds the roles being expanded, to reject cycles.
-func flatten(roles map[string]RoleSpec, role string, path []string) ([]string, error) {
+func flatten(roles map[iam.Role]RoleSpec, role iam.Role, path []iam.Role) ([]string, error) {
 	if slices.Contains(path, role) {
 		return nil, fmt.Errorf("includes cycle %v", append(path, role))
 	}
@@ -242,9 +218,9 @@ func flatten(roles map[string]RoleSpec, role string, path []string) ([]string, e
 		return nil, fmt.Errorf("includes unknown role %q", role)
 	}
 	path = append(path, role)
-	out := append([]string(nil), r.Permissions...)
+	out := ident.Strings(r.Grants)
 	for _, inc := range r.Includes {
-		grants, err := flatten(roles, strings.TrimSpace(inc), path)
+		grants, err := flatten(roles, inc, path)
 		if err != nil {
 			return nil, err
 		}
@@ -260,25 +236,21 @@ func flatten(roles map[string]RoleSpec, role string, path []string) ([]string, e
 // validRoleGrant checks one grant of a role held in groups of persona: the
 // role may hold the grant's persona, and the grant names at least one
 // registered permission.
-func (s *Schema) validRoleGrant(persona iam.Persona, grant string) error {
-	if err := ident.ValidateGrantPattern(grant); err != nil {
-		return err
-	}
-	pattern := ident.Perm(grant)
+func (s *Schema) validRoleGrant(persona iam.Persona, pattern iam.Perm) error {
 	target := pattern.Persona()
 	if !mayHold(persona, target) {
-		return fmt.Errorf("grant %q is cross-persona: a %q role may hold only %q permissions", grant, persona, persona.String()+":")
+		return fmt.Errorf("grant %q is cross-persona: a %q role may hold only %q permissions", pattern, persona, persona.String()+":")
 	}
 	p, ok := s.personas[target]
 	if !ok {
-		return fmt.Errorf("grant %q names unknown persona %q", grant, target)
+		return fmt.Errorf("grant %q names unknown persona %q", pattern, target)
 	}
 	for _, perm := range p.Permissions {
 		if perm.Matches(pattern) {
 			return nil
 		}
 	}
-	return fmt.Errorf("grant %q matches no permission in the %q catalog", grant, target)
+	return fmt.Errorf("grant %q matches no permission in the %q catalog", pattern, target)
 }
 
 // mayHold is the one rule for which persona's permissions a role may hold. A

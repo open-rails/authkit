@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
@@ -20,18 +21,19 @@ import (
 func TestNewServesConfiguredCapabilities(t *testing.T) {
 	signer := testkeys.RSA("capabilities")
 	auth, err := authkit.New(context.Background(), authkit.Config{
-		Keys:  authkit.KeysConfig{Source: testkeys.Source(signer)},
 		Token: authkit.TokenConfig{Issuer: "https://capabilities.test", IssuedAudiences: []string{"app"}},
 		Registration: authkit.RegistrationConfig{
 			NativeUserMode:    iam.RegistrationModeInviteOnly,
 			Verification:      iam.RegistrationVerificationOptional,
 			PasswordlessLogin: true,
 		},
-		Username:      iam.UsernamePolicy{MinLength: 6, MaxLength: 20},
-		Password:      authkit.PasswordPolicy{MinLength: 12, RequireDigit: true, AllowCommon: true},
+		Username: authkit.UsernameConfig{MinLength: 6, MaxLength: 20, Renames: true, RenameInterval: time.Hour,
+			FormerNames: authkit.FormerNamesConfig{Mode: authkit.FormerNamesForever}},
+		Password:      &authkit.PasswordPolicy{MinLength: 12, RequireDigit: true},
 		SolanaNetwork: "devnet",
-		HTTP:          authkit.HTTPConfig{DirectPeerIP: true, APIPath: "/auth", Languages: authkit.LanguageConfig{Supported: []string{"en", "es"}}},
-	}, authkit.Deps{Postgres: testdb.Pool(t)})
+		Languages:     authkit.LanguageConfig{Supported: []string{"en", "es"}},
+		HTTP:          &authkit.HTTPConfig{DirectPeerIP: true, APIPath: "/auth"},
+	}, authkit.Deps{Postgres: testdb.Pool(t), KeySource: testkeys.Source(signer)})
 	require.NoError(t, err)
 	t.Cleanup(auth.Close)
 
@@ -48,8 +50,13 @@ func TestNewServesConfiguredCapabilities(t *testing.T) {
 			InviteTokenRequired bool   `json:"invite_token_required"`
 		} `json:"registration"`
 		Username struct {
-			MinLength int `json:"min_length"`
-			MaxLength int `json:"max_length"`
+			MinLength             int  `json:"min_length"`
+			MaxLength             int  `json:"max_length"`
+			Renames               bool `json:"renames"`
+			RenameIntervalSeconds int  `json:"rename_interval_seconds"`
+			FormerNames           struct {
+				Mode string `json:"former_name_retention_mode"`
+			} `json:"former_names"`
 		} `json:"username"`
 		Password struct {
 			MinLength    int  `json:"min_length"`
@@ -66,6 +73,7 @@ func TestNewServesConfiguredCapabilities(t *testing.T) {
 		Verification struct {
 			Registration string `json:"registration"`
 		} `json:"verification"`
+		Channels  map[string]bool   `json:"channels"`
 		Languages []string          `json:"languages"`
 		Paths     map[string]string `json:"paths"`
 	}
@@ -74,6 +82,9 @@ func TestNewServesConfiguredCapabilities(t *testing.T) {
 	require.True(t, caps.Registration.InviteTokenRequired)
 	require.Equal(t, 6, caps.Username.MinLength)
 	require.Equal(t, 20, caps.Username.MaxLength)
+	require.True(t, caps.Username.Renames)
+	require.Equal(t, 3600, caps.Username.RenameIntervalSeconds)
+	require.Equal(t, "forever", caps.Username.FormerNames.Mode)
 	require.Equal(t, 12, caps.Password.MinLength)
 	require.Equal(t, 128, caps.Password.MaxLength)
 	require.True(t, caps.Password.RequireDigit)
@@ -82,6 +93,7 @@ func TestNewServesConfiguredCapabilities(t *testing.T) {
 	require.True(t, caps.Solana.Login)
 	require.Equal(t, "optional", caps.Verification.Registration)
 	require.Equal(t, []string{"en", "es"}, caps.Languages)
+	require.Equal(t, map[string]bool{"email": false, "sms": false}, caps.Channels, "no senders, no channels")
 	require.Equal(t, map[string]string{"api": "/auth", "jwks": iam.JWKSPath}, caps.Paths, "a root issuer keeps root anchors; no providers, no OIDC")
 
 	rec = httptest.NewRecorder()

@@ -54,7 +54,7 @@ func (h *host) contactState(userID string) (emailVerified, phoneVerified, hasPas
 func (h *host) proveEmail(email, newPassword string) tokens {
 	h.t.Helper()
 	require.Less(h.t, h.post("/password/reset/request", map[string]string{"identifier": email}, "").status, 300)
-	token := h.mail.Last(h.t, authtest.PasswordReset, email).Token
+	token := h.mail.Last(h.t, iam.MessagePasswordReset, email).Token
 	resp := h.post("/password/reset/confirm", map[string]string{"token": token, "new_password": newPassword}, "")
 	require.Less(h.t, resp.status, 300, resp.String())
 	resp = h.post("/password/login", map[string]string{"identifier": email, "password": newPassword}, "")
@@ -66,7 +66,8 @@ func (h *host) proveEmail(email, newPassword string) tokens {
 // or username someone pre-registered is refused and leaves that account
 // without the role and without proven contacts.
 func TestSecurityBootstrapNeverAdoptsSquatters(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC),
+		authtest.WithConfig(func(c *authkit.Config) { c.Username.Renames = true }))
 	ctx := context.Background()
 	apply := func(users ...iam.BootstrapManifestUser) (iam.BootstrapResult, error) {
 		return h.auth.ApplyBootstrapManifest(ctx, iam.BootstrapManifest{Users: users}, iam.BootstrapOptions{})
@@ -465,19 +466,17 @@ func TestSecurityImportProviders(t *testing.T) {
 
 // TestSecurityImportedDeletionLifecycle: an imported deleted account is
 // what the system's DeleteUsers leaves: it cannot sign in or restore
-// itself, OnSoftDelete runs, its recovery window runs from the imported
-// DeletedAt, and past the window it is purged after OnHardDelete with its
-// username kept. Without River such rows are refused whole.
+// itself, its recovery window runs from the imported DeletedAt, and past the
+// window it is purged after OnPurge (then user.purged) with its username
+// kept. Like every import it records no event of its own; a restore records
+// user.restored. Without River such rows are refused whole.
 func TestSecurityImportedDeletionLifecycle(t *testing.T) {
 	var mu sync.Mutex
 	stages := map[string][]string{}
-	hook := func(stage string) func(context.Context, iam.UserDeletion) error {
-		return func(_ context.Context, d iam.UserDeletion) error {
-			mu.Lock()
-			defer mu.Unlock()
-			stages[d.UserID] = append(stages[d.UserID], stage)
-			return nil
-		}
+	note := func(userID, stage string) {
+		mu.Lock()
+		defer mu.Unlock()
+		stages[userID] = append(stages[userID], stage)
 	}
 	stagesOf := func(id string) []string {
 		mu.Lock()
@@ -485,7 +484,17 @@ func TestSecurityImportedDeletionLifecycle(t *testing.T) {
 		return slices.Clone(stages[id])
 	}
 	h := newHost(t, withHTTP(generousLimits), authtest.WithDeps(func(d *authkit.Deps) {
-		d.OnSoftDelete, d.OnHardDelete, d.OnRestore = hook("soft"), hook("hard"), hook("restore")
+		d.OnEvent = func(_ context.Context, e iam.Event) error {
+			switch e.Kind {
+			case iam.EventUserDeleted, iam.EventUserRestored, iam.EventUserPurged:
+				note(e.UserID, string(e.Kind))
+			}
+			return nil
+		}
+		d.OnPurge = func(_ context.Context, del iam.UserDeletion) error {
+			note(del.UserID, "purge")
+			return nil
+		}
 	}))
 	ctx := context.Background()
 	op := iam.SystemActor()
@@ -518,17 +527,21 @@ func TestSecurityImportedDeletionLifecycle(t *testing.T) {
 	require.Equal(t, "account_disabled", login.errorCode())
 
 	require.NoError(t, h.auth.Start(t.Context()))
+	purged := []string{"purge", string(iam.EventUserPurged)}
 	require.Eventually(t, func() bool {
-		return slices.Equal(stagesOf(recentID), []string{"soft"}) && slices.Equal(stagesOf(oldID), []string{"soft", "hard"}) && !h.userExists(oldID)
-	}, 30*time.Second, 50*time.Millisecond, "recent %v, old %v", stagesOf(recentID), stagesOf(oldID))
+		return slices.Equal(stagesOf(oldID), purged) && !h.userExists(oldID)
+	}, 30*time.Second, 50*time.Millisecond, "old %v", stagesOf(oldID))
+	require.Empty(t, stagesOf(recentID), "an import recorded an event")
 	require.ErrorIs(t, h.auth.CheckUsername(ctx, old.Username), iam.ErrUsernameInUse, "a purged import released its username")
 
 	require.NoError(t, opErr(h.auth.RestoreUsers(ctx, op, []string{recentID})))
-	require.Eventually(t, func() bool { return slices.Equal(stagesOf(recentID), []string{"soft", "restore"}) }, 30*time.Second, 50*time.Millisecond)
+	require.Eventually(t, func() bool {
+		return slices.Equal(stagesOf(recentID), []string{string(iam.EventUserRestored)})
+	}, 30*time.Second, 50*time.Millisecond, "recent %v", stagesOf(recentID))
 	h.login(account{id: recentID, email: recent.Email})
 
 	t.Run("without River", func(t *testing.T) {
-		bare := newHost(t, withHTTP(generousLimits), authtest.WithDeps(func(d *authkit.Deps) { d.River = authkit.RiverFromHost() }))
+		bare := newHost(t, withHTTP(generousLimits), authtest.WithConfig(func(c *authkit.Config) { c.River.HostOwned = true }))
 		row := deletedRow("impnoriver", &recentAt)
 		_, err := bare.auth.ImportUsers(ctx, []iam.ImportUser{row, deletedRow("impnoriverlive", nil)}, iam.ImportOptions{})
 		require.Error(t, err)

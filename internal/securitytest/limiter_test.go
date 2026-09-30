@@ -2,6 +2,7 @@ package securitytest
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"strings"
@@ -25,7 +26,7 @@ func (h *host) limiterDown() *host {
 	require.NoError(h.t, ln.Close())
 	rdb := redis.NewClient(&redis.Options{Addr: addr, MaxRetries: -1, DialTimeout: time.Second})
 	h.t.Cleanup(func() { _ = rdb.Close() })
-	return h.replica(withHTTP(func(c *authkit.HTTPConfig) { c.Redis = rdb }))
+	return h.replica(authtest.WithDeps(func(d *authkit.Deps) { d.Redis = rdb }))
 }
 
 // TestSecurityLimiterOutageFailsClosed: when the rate limiter's backend fails,
@@ -168,6 +169,21 @@ func TestSecurityLimiterOutageFailsClosed(t *testing.T) {
 		})
 	}
 
+	// Deps.Limiter's error is AuthKit's verdict whatever the limiter says: a
+	// host limiter that errs while allowing is refused the same way.
+	t.Run("a host limiter's error is refused the same way", func(t *testing.T) {
+		failing := h.replica(authtest.WithDeps(func(d *authkit.Deps) {
+			d.Redis = nil
+			d.Limiter = func(string, string) (bool, error) { return true, errors.New("limiter backend down") }
+		}))
+		for _, c := range refused {
+			resp := failing.do(c.req)
+			require.Equal(t, http.StatusTooManyRequests, resp.status, "%s ran with the host limiter failing: %s", c.pattern, resp)
+		}
+		require.Equal(t, http.StatusOK, failing.get("/capabilities", "").status)
+		require.Equal(t, http.StatusOK, failing.get("/me", token).status)
+	})
+
 	t.Run("reads and plain changes stay up", func(t *testing.T) {
 		require.Equal(t, http.StatusOK, down.get("/capabilities", "").status)
 		for _, path := range []string{"/me", "/user/sessions", base + "/members"} {
@@ -187,9 +203,8 @@ func TestSecurityUnknownClientAddressIsLimited(t *testing.T) {
 	logs := captureLogs(t)
 	h := newHost(t, withHTTP(func(c *authkit.HTTPConfig) {
 		c.DirectPeerIP = false
-		c.ClientIP = func(*http.Request) string { return "" }
 		c.RateLimits = map[string]authkit.RateLimit{"auth_password_login": {Limit: 3, Window: time.Hour}}
-	}))
+	}), authtest.WithDeps(func(d *authkit.Deps) { d.ClientIP = func(*http.Request) string { return "" } }))
 	a := h.newAccount("noaddress")
 	for range 3 {
 		resp := h.post("/password/login", map[string]string{"identifier": a.email, "password": "wrong-" + password}, "")

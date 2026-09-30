@@ -19,18 +19,11 @@ import (
 // SolanaProviderSlug is the provider slug used for Solana wallets.
 const solanaProviderSlug = "solana"
 
-func solanaChainIDForConfig(cfg Config) string {
-	if cfg.SolanaNetwork != "" {
-		return string(cfg.SolanaNetwork)
+func (s *Engine) solanaChainID() string {
+	if s.cfg.SolanaNetwork != "" {
+		return string(s.cfg.SolanaNetwork)
 	}
 	return string(iam.SolanaMainnet)
-}
-
-func (s *Engine) solanaChainID() string {
-	if s == nil {
-		return solanaChainIDForConfig(Config{})
-	}
-	return solanaChainIDForConfig(s.cfg)
 }
 
 func (s *Engine) solanaIssuer() string {

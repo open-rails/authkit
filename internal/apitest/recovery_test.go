@@ -63,7 +63,7 @@ func TestAccountRecoveryUsesExistingCredentialAndMFACeremonies(t *testing.T) {
 	token := authtest.SignIn(t, auth, u).AccessToken
 	res := a.post("/user/2fa", token, map[string]string{"method": "email"})
 	require.Equal(t, http.StatusAccepted, res.status, res.String())
-	res = a.post("/user/2fa", token, map[string]string{"method": "email", "code": outbox.Last(t, authtest.Verification, u.Email).Code})
+	res = a.post("/user/2fa", token, map[string]string{"method": "email", "code": outbox.Last(t, iam.MessageVerification, u.Email).Code})
 	require.Equal(t, http.StatusOK, res.status, res.String())
 	var enrolled struct {
 		BackupCodes []string `json:"backup_codes"`
@@ -80,7 +80,7 @@ func TestAccountRecoveryUsesExistingCredentialAndMFACeremonies(t *testing.T) {
 		return a.post("/2fa/verify", "", map[string]any{"user_id": u.ID, "challenge": challenge.Error.Metadata.Challenge, "code": code})
 	}
 	beforeDelete := login()
-	beforeCode := outbox.Last(t, authtest.LoginCode, u.Email).Code
+	beforeCode := outbox.Last(t, iam.MessageLoginCode, u.Email).Code
 	remove(u.ID)
 	require.Equal(t, http.StatusUnauthorized, verify2FA(beforeDelete, beforeCode).status, "a challenge issued before the deletion is void")
 	challenge := login()
@@ -88,7 +88,7 @@ func TestAccountRecoveryUsesExistingCredentialAndMFACeremonies(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, confirmRecovery(challenge.Error.Metadata.Challenge).status)
 	require.Equal(t, http.StatusUnauthorized, verify2FA(challenge, "wrong").status)
 	challenge = login()
-	code := outbox.Last(t, authtest.LoginCode, u.Email).Code
+	code := outbox.Last(t, iam.MessageLoginCode, u.Email).Code
 	confirmed := verify2FA(challenge, code)
 	require.Equal(t, http.StatusUnauthorized, verify2FA(challenge, code).status)
 	// Another issuer on the same store refuses the confirmation without
@@ -104,7 +104,7 @@ func TestAccountRecoveryUsesExistingCredentialAndMFACeremonies(t *testing.T) {
 	res = a.post("/passwordless/start", "", map[string]any{"identifier": u.Email, "mode": "code"})
 	require.Equal(t, http.StatusAccepted, res.status, res.String())
 	challenge = expectAnswer(t, a.post("/passwordless/confirm", "", map[string]any{"identifier": u.Email,
-		"code": outbox.Last(t, authtest.Verification, u.Email).Code}), http.StatusForbidden)
+		"code": outbox.Last(t, iam.MessageVerification, u.Email).Code}), http.StatusForbidden)
 	require.Equal(t, "backup_code", challenge.Error.Metadata.Method, "one mailbox cannot supply both factors")
 	confirm(a.post("/2fa/verify", "", map[string]any{"user_id": u.ID, "challenge": challenge.Error.Metadata.Challenge,
 		"code": enrolled.BackupCodes[0], "backup_code": true}))

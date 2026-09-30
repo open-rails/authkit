@@ -9,6 +9,7 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
@@ -410,18 +411,11 @@ func (s *Engine) send2FACodeForUser(ctx context.Context, user *db.User, scope st
 		return "", err
 	}
 
-	username := ""
-	if user.Username != nil {
-		username = *user.Username
-	}
-
+	language = s.messageLanguage(ctx, language)
 	if factor.Method == "email" {
 		if s.email != nil {
-			sendCtx := contextWithPreferredLanguage(ctx, language)
-			if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
-				return s.email.SendLoginCode(sendCtx, destination, username, code)
-			}); err != nil {
-				return "", emailDeliveryError(err)
+			if err := s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessageLoginCode, To: destination, Username: deref(user.Username), Language: language, Code: code}); err != nil {
+				return "", err
 			}
 		} else {
 			// In production, require email to be configured for email 2FA
@@ -431,9 +425,8 @@ func (s *Engine) send2FACodeForUser(ctx context.Context, user *db.User, scope st
 		}
 	} else { // sms
 		if s.sms != nil {
-			sendCtx := contextWithPreferredLanguage(ctx, language)
-			if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendLoginCode(sendCtx, destination, code) }); err != nil {
-				return "", smsDeliveryError(err)
+			if err := s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessageLoginCode, To: destination, Language: language, Code: code}); err != nil {
+				return "", err
 			}
 		} else {
 			// In production, require SMS to be configured for SMS 2FA

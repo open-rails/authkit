@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/keys"
 	"github.com/stretchr/testify/require"
 )
@@ -32,10 +33,10 @@ func TestClientOwnedResourceLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "keys.json"), data, 0600))
-	config := Config{
-		Token:     TokenConfig{Issuer: "https://lifecycle.test", IssuedAudiences: []string{"test"}},
-		Keys:      KeysConfig{Path: dir},
-		TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled},
+	base := config.Config{
+		Token:     config.TokenConfig{Issuer: "https://lifecycle.test", IssuedAudiences: []string{"test"}},
+		Keys:      config.KeysConfig{Path: dir},
+		TwoFactor: config.TwoFactorConfig{Mode: iam.TwoFactorDisabled},
 	}
 
 	// Labels are inherited by the real resource goroutines started inside Do.
@@ -56,7 +57,7 @@ func TestClientOwnedResourceLifecycle(t *testing.T) {
 	t.Run("close", func(t *testing.T) {
 		var client *Engine
 		pprof.Do(context.Background(), pprof.Labels(label, t.Name()), func(context.Context) {
-			client, err = newEngine(config, Deps{})
+			client, err = New(context.Background(), base, config.Deps{})
 		})
 		require.NoError(t, err)
 		t.Cleanup(client.Close)
@@ -67,10 +68,10 @@ func TestClientOwnedResourceLifecycle(t *testing.T) {
 	})
 
 	t.Run("config", func(t *testing.T) {
-		cfg := config
+		cfg := base
 		cfg.Schema = "invalid schema"
 		pprof.Do(context.Background(), pprof.Labels(label, t.Name()), func(context.Context) {
-			client, err := newEngine(cfg, Deps{})
+			client, err := New(context.Background(), cfg, config.Deps{})
 			require.Error(t, err)
 			require.Nil(t, client)
 		})
@@ -81,9 +82,7 @@ func TestClientOwnedResourceLifecycle(t *testing.T) {
 		watched, err := keys.Watch(dir)
 		require.NoError(t, err)
 		t.Cleanup(watched.Close)
-		cfg := config
-		cfg.Keys.Source = watched
-		client, err := newEngine(cfg, Deps{})
+		client, err := New(context.Background(), base, config.Deps{KeySource: watched})
 		require.NoError(t, err)
 		client.Close()
 

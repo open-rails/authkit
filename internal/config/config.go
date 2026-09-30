@@ -1,0 +1,405 @@
+// Package config is the one definition of AuthKit's host configuration:
+// Config (plain data), Deps (everything that reaches outside the process),
+// the Roles builder and MigrateOptions. The root package re-exports each type
+// under the same name (authkit.Config is config.Config), so these field docs
+// are the ones hosts read. Normalize applies every default and rule once.
+package config
+
+import (
+	"time"
+
+	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/ratelimit"
+)
+
+// Config is the host configuration: plain data and policy. Everything that
+// reaches outside the process (the pool, senders, keys, providers, hooks) is
+// in Deps. authkit.New normalizes it once; authkit.Migrate reads Schema and
+// River from the same value.
+type Config struct {
+	// Schema is the PostgreSQL schema AuthKit's tables live in. Empty defaults
+	// to "profiles". Deployments that must not share accounts on one database
+	// use different schemas; deployments that share accounts use the same one
+	// (see TokenConfig.AccountIssuers). It must match ^[a-z_][a-z0-9_]*$ (max 63
+	// bytes).
+	Schema string
+
+	// Token is the JWT issuing/verification contract and session limits.
+	Token TokenConfig
+	// Keys controls signing-key resolution when Deps.KeySource is nil.
+	Keys KeysConfig
+	// Frontend describes host-owned frontend routes used for absolute URLs.
+	Frontend FrontendConfig
+	// Registration controls verification policy and public self-registration.
+	Registration RegistrationConfig
+	// Password is the rule every password write enforces. Nil is the default
+	// policy: 8..128 characters, no composition rules, common passwords
+	// rejected. A set policy is taken as written (zero lengths still default),
+	// so set RejectCommon to keep the blocklist. Published by
+	// GET {api}/capabilities.
+	Password *PasswordPolicy
+	// Username is the username rule: length, and whether and how often users
+	// may rename themselves. Published by GET {api}/capabilities.
+	Username UsernameConfig
+	// TwoFactor configures MFA.
+	TwoFactor TwoFactorConfig
+	// Passkeys configures WebAuthn/FIDO2 passkey ceremonies.
+	Passkeys PasskeyConfig
+	// DeviceKeys enables the refreshless native-client device-key surface.
+	// Off by default: enrollment is an email-code login, so hosts opt in
+	// explicitly before RouteDeviceKeys is mounted or the engine issues
+	// enrollment or login challenges.
+	DeviceKeys DeviceKeysConfig
+	// APIKeys configures opaque permission-group-owned machine credentials.
+	APIKeys APIKeysConfig
+	// Delegated configures the delegated-token mint route: the audience
+	// allowlist and the TTL floor/default/ceiling. The zero value leaves the
+	// route unmounted.
+	Delegated DelegatedConfig
+	// Roles is the permission model: personas, their permissions and roles
+	// (NewRoles). Nil is root-only.
+	Roles *Roles
+	// Languages declares the supported languages: the HTTP surface negotiates
+	// the request's among them, and messages fall back to Default.
+	Languages LanguageConfig
+	// PublicUserMetadata lists the user-metadata keys (Client.PatchUserMetadata)
+	// that other people may see: PublicUsers returns these and no others.
+	PublicUserMetadata []string
+
+	// SolanaNetwork turns on Sign In With Solana for one chain; the zero value
+	// leaves it off. Solana Name Service resolution is built in.
+	SolanaNetwork iam.SolanaNetwork
+
+	// SMSHealthInterval is how often Start re-runs Deps.SMSHealth; 0 defaults
+	// to five minutes.
+	SMSHealthInterval time.Duration
+
+	// SessionEventRetention is how long session-event history rows
+	// (sign-ins and revocations, with IP and user agent: personal data) are
+	// kept. 0 defaults to 365 days; a negative value keeps them forever.
+	SessionEventRetention time.Duration
+
+	// River configures AuthKit's background jobs.
+	River RiverConfig
+
+	// HTTP configures the HTTP surface. Nil keeps the Client headless:
+	// operations and Verifier only.
+	HTTP *HTTPConfig
+}
+
+// TokenConfig is the JWT issuing/verification contract plus session limits.
+type TokenConfig struct {
+	// Issuer is this deployment's JWT issuer (required), for example
+	// "https://myapp.com". Its path, if any, is where the HTTP surface lives.
+	Issuer string
+	// IssuedAudiences are the audiences every issued token carries (at least
+	// one).
+	IssuedAudiences []string
+	// ExpectedAudiences are the audiences verification accepts; empty
+	// defaults to IssuedAudiences.
+	ExpectedAudiences []string
+	// AccessTokenDuration is the access-token lifetime; 0 defaults to 15
+	// minutes, the longest a revoked session's token passes stateless checks.
+	AccessTokenDuration time.Duration
+	// RefreshTokenDuration is the refresh-session lifetime; 0 or less means
+	// sessions do not expire by age.
+	RefreshTokenDuration time.Duration
+	// SessionMaxPerUser caps concurrent refresh sessions per user, evicting
+	// the oldest. 0 defaults to 3; a negative value means unlimited.
+	SessionMaxPerUser int
+	// RefreshRotationGrace is how long a just-rotated refresh token keeps being
+	// answered with the successor it rotated into instead of being read as
+	// reuse and revoking the family. It covers two holders of one token
+	// refreshing at once (a shared credential file, a retried request). 0
+	// defaults to 30s; a negative value makes rotation strictly single-use.
+	RefreshRotationGrace time.Duration
+	// EntitlementAllowlist selects the provider-granted entitlement names
+	// (Deps.Entitlements) that access tokens carry. Empty skips the mint-time
+	// lookup and omits the claim.
+	EntitlementAllowlist []string
+	// AccountIssuers lists every issuer whose deployment shares this account
+	// store (the same Schema on the same database), e.g. two sites with
+	// separate logins over one set of accounts. Account-level revocations
+	// (admin emergency revoke, password or contact changes, ban, deletion)
+	// cover refresh sessions on all of them, and they share membership: who
+	// holds which role, root included. Each declares its own Roles: a role's
+	// permissions are per app, and each app re-checks only the credentials it
+	// issued. Issuer is always included; empty means Issuer alone. Every
+	// deployment sharing the store should list the same set.
+	AccountIssuers []string
+	// AllowPrivateNetworkJWKS permits http and private or loopback JWKS URLs
+	// for remote applications and the issuers verifiers trust, and turns off
+	// the verifier's SSRF guard. Local federation rigs only.
+	AllowPrivateNetworkJWKS bool
+}
+
+// KeysConfig controls signing-key resolution when Deps.KeySource is nil.
+// AuthKit reads no environment variables: binaries read their environment
+// once and set these fields.
+type KeysConfig struct {
+	// Path is the directory holding keys.json (hot-reloaded on rotation) and
+	// totp.key. Empty defaults to /vault/auth. With no keys.json, New fails
+	// unless AllowEphemeralDevKeys or VerifyOnly is set.
+	Path string
+	// AllowEphemeralDevKeys generates an RSA signing key when Path holds no
+	// keys.json: in memory, or written to <Path>/keys.json when Path is set so
+	// restarts reuse it. Development only.
+	AllowEphemeralDevKeys bool
+	// VerifyOnly builds AuthKit with no signer: minting returns
+	// ErrSigningNotConfigured, verification and permission reads work, and
+	// JWKS serves an empty set. Key resolution is skipped.
+	VerifyOnly bool
+}
+
+// FrontendConfig describes host-owned frontend routes.
+type FrontendConfig struct {
+	// BaseURL builds absolute links (password reset, verification, invites).
+	// Empty defaults to Token.Issuer when that is a URL.
+	BaseURL string
+	// OIDCReturnPath is the SPA route AuthKit redirects to after it finishes a
+	// browser sign-in with an identity provider (not the provider callback,
+	// which AuthKit owns). Empty defaults to "/login/callback".
+	OIDCReturnPath string
+	// VerifyPath receives scanner-safe verification link landings. Empty
+	// defaults to "/verify".
+	VerifyPath string
+	// PasswordResetPath receives scanner-safe password reset link landings.
+	// Empty defaults to "/reset".
+	PasswordResetPath string
+	// PasswordlessPath receives passwordless sign-in links. Empty defaults to
+	// "/passwordless".
+	PasswordlessPath string
+	// InvitePath receives group invitation links (?code=…); the SPA posts the
+	// code to the redeem route. Empty defaults to "/accept-invite".
+	InvitePath string
+}
+
+// RegistrationConfig controls verification policy and public self-registration.
+type RegistrationConfig struct {
+	// Verification is "none" (the default), "optional" or "required". Every
+	// policy stores the address unverified until proven; "optional" also
+	// sends a code at registration. Unproven accounts cannot add sign-in
+	// methods.
+	Verification iam.RegistrationVerificationPolicy
+	// NativeUserMode controls public self-registration: "open" (the default),
+	// "invite_only" or "closed". The host operations (CreateUser, bootstrap,
+	// import) work in every mode.
+	NativeUserMode iam.RegistrationMode
+	// PasswordlessLogin enables contact-based passwordless sessions.
+	PasswordlessLogin bool
+	// PasswordlessAutoRegistration lets a verified unknown contact create a
+	// passwordless account during passwordless confirmation.
+	PasswordlessAutoRegistration bool
+	// AllowMissingSenders lets flows that deliver codes and links proceed with
+	// no email or SMS sender: nothing is delivered and the engine hands the
+	// code back to its caller (dev rigs read it there). By default a missing
+	// sender is an error.
+	AllowMissingSenders bool
+	// VerificationSendTimeout bounds each in-line email or SMS send so an
+	// unreachable provider cannot hang the request. 0 defaults to 15s.
+	VerificationSendTimeout time.Duration
+}
+
+// PasswordPolicy is the password rule, NIST SP 800-63B-style by default.
+// Lengths count Unicode code points; 0 defaults to 8 and 128, and MaxLength is
+// at most 1024. Composition rules are opt-in: uppercase, lowercase and digit
+// use Unicode categories, and a symbol is any rune that is neither a letter
+// nor a digit.
+type PasswordPolicy struct {
+	MinLength        int
+	MaxLength        int
+	RequireUppercase bool
+	RequireLowercase bool
+	RequireDigit     bool
+	RequireSymbol    bool
+	// RejectCommon refuses passwords on AuthKit's embedded common-password
+	// blocklist.
+	RejectCommon bool
+}
+
+// UsernameConfig is the username rule. The characters are fixed: a letter,
+// then letters, digits and underscores.
+type UsernameConfig struct {
+	// MinLength and MaxLength bound the length; 0 defaults to 4 and 30, and
+	// MaxLength is at most 64.
+	MinLength int
+	MaxLength int
+	// Renames lets users change their own username.
+	Renames bool
+	// RenameInterval is the least time between two renames of one account. 0
+	// defaults to 72 hours; a negative value means no wait.
+	RenameInterval time.Duration
+	// FormerNames is what happens to a username its owner renamed away from.
+	FormerNames FormerNamesConfig
+}
+
+// FormerNamesConfig keeps a renamed-away username reserved for its owner, and
+// resolving to them, for a while.
+type FormerNamesConfig struct {
+	// Mode is FormerNamesFinite (the default), FormerNamesForever or
+	// FormerNamesImmediate.
+	Mode FormerNamesMode
+	// Duration is how long a finite reservation lasts; 0 defaults to 90 days.
+	Duration time.Duration
+}
+
+// FormerNamesMode says how long a former username stays reserved.
+type FormerNamesMode string
+
+const (
+	// FormerNamesFinite reserves it for FormerNamesConfig.Duration.
+	FormerNamesFinite FormerNamesMode = "finite"
+	// FormerNamesForever reserves it for good.
+	FormerNamesForever FormerNamesMode = "forever"
+	// FormerNamesImmediate frees it at once.
+	FormerNamesImmediate FormerNamesMode = "immediate"
+)
+
+// TwoFactorConfig configures MFA.
+type TwoFactorConfig struct {
+	// Mode is the account-wide policy: iam.TwoFactorDisabled,
+	// iam.TwoFactorOptional (the default) or iam.TwoFactorRequired (every user
+	// enrolls before normal session use). Persona.RequireMFA enforces MFA per
+	// permission; the root owner always needs it.
+	Mode iam.TwoFactorMode
+	// Methods are the enabled second-factor channels; empty enables email,
+	// SMS and TOTP. A method whose dependency is missing (SMS with no sender)
+	// is unavailable regardless.
+	Methods []iam.TwoFactorMethod
+	// TOTPSecretKey encrypts stored authenticator-app secrets: 16, 24 or 32 raw
+	// bytes. It overrides <Keys.Path>/totp.key; with neither, TOTP enrollment
+	// is unavailable.
+	TOTPSecretKey []byte
+}
+
+// PasskeyConfig configures the WebAuthn relying party. Empty fields derive
+// from Frontend.BaseURL.
+type PasskeyConfig struct {
+	RPID             string
+	RPDisplayName    string
+	Origins          []string
+	UserVerification string
+}
+
+// DeviceKeysConfig controls the native-client device-key surface.
+type DeviceKeysConfig struct {
+	// Enabled mounts RouteDeviceKeys and lets the engine run enrollment and
+	// login ceremonies.
+	Enabled bool
+}
+
+// APIKeysConfig configures opaque permission-group-owned machine credentials.
+type APIKeysConfig struct {
+	// Prefix brands generated keys (one per deployment): lowercase
+	// alphanumeric, 1-16 characters. Empty gives the bare "st_" marker.
+	Prefix string
+	// MaxTTL caps how far ahead a key may expire; a later or absent expiry is
+	// capped at creation. 0 means no cap.
+	MaxTTL time.Duration
+}
+
+// DelegatedConfig configures the delegated-token mint route (POST
+// {api}/delegated/token). AuthKit owns the mint mechanics (audience subset,
+// TTL clamp, sender binding, grant check); the host supplies the authorizer
+// (Deps.DelegatedAuthorization).
+type DelegatedConfig struct {
+	// AllowDPoP allows binding to a browser key. The authorizer must handle
+	// requests with ConfirmationJWKThumbprintSHA256 set and no certificate.
+	AllowDPoP bool
+	// Audiences is the allowlist: requested audiences must be a subset, and an
+	// empty request receives the whole list. Empty disables the route.
+	Audiences []string
+	// TTLFloor, TTLDefault and TTLCeiling bound the minted TTL, also of
+	// Client.MintDelegatedAccessToken; unset fields default to 60s, 15m and
+	// 1h (always, when the route is off), and 0 < floor <= default <= ceiling
+	// must hold.
+	TTLFloor   time.Duration
+	TTLDefault time.Duration
+	TTLCeiling time.Duration
+}
+
+// LanguageConfig declares the supported languages as two-letter codes. The
+// zero value is English only.
+type LanguageConfig struct {
+	// Supported are the languages requests may select; empty accepts any.
+	Supported []string
+	// Default is the language when neither the account nor the request
+	// chooses one; empty defaults to "en".
+	Default string
+}
+
+// RiverConfig configures AuthKit's River jobs (account lifecycle, events,
+// cleanup).
+type RiverConfig struct {
+	// HostOwned declares a River fleet the host owns and shares with other
+	// libraries: AuthKit never migrates, starts or stops it, and the host
+	// registers Client.RiverJobs. False lets AuthKit run its own client.
+	HostOwned bool
+	// Schema holds River's tables; empty defaults to "public". Replicas and
+	// libraries sharing a schema must register the same full job set.
+	Schema string
+	// CleanupInterval is how often expired auth state is cleaned up; 0
+	// defaults to one hour.
+	CleanupInterval time.Duration
+}
+
+// HTTPConfig configures the HTTP surface: one handler serving the JSON API,
+// browser OIDC and JWKS, every route beneath BasePath:
+//
+//	{BasePath}{APIPath}/...              JSON API
+//	{BasePath}/oidc/{provider}/...       browser OIDC
+//	{BasePath}/.well-known/jwks.json     JWKS
+//
+// Exactly what sits in front of AuthKit must be declared (TrustedProxies,
+// CloudflareProxies, DirectPeerIP or Deps.ClientIP), or every client shares
+// one proxy's per-IP rate-limit bucket.
+type HTTPConfig struct {
+	// Groups selects the mounted route groups. Nil mounts the default API
+	// surface plus browser OIDC; non-nil mounts exactly the named groups.
+	Groups []iam.RouteGroup
+	// BasePath roots the whole surface. Empty derives it from Token.Issuer's
+	// path ("https://example.com/auth" gives "/auth"); when the issuer is a
+	// URL a set value must equal that path, because verifiers find JWKS at
+	// the issuer plus iam.JWKSPath. Serve the paths unchanged: no StripPrefix
+	// in front.
+	BasePath string
+	// APIPath anchors the JSON API beneath BasePath. Empty means "/api/v1";
+	// "/" is BasePath itself.
+	APIPath string
+	// PublicURL is where clients reach BasePath when a proxy in front changes
+	// the origin or the path, such as "https://shop.example.com/sso". DPoP
+	// proofs sent to the delegated-token route must name PublicURL plus the
+	// route's path beneath BasePath. Empty defaults to Token.Issuer's origin
+	// plus BasePath.
+	PublicURL string
+	// Exclude drops routes the host serves itself, named as iam.Route.Pattern
+	// names them ("GET /.well-known/jwks.json"). An entry matching no route is
+	// an error.
+	Exclude []string
+	// RefreshCookie delivers the rotating refresh token as an HttpOnly cookie
+	// (iam.RefreshCookieName) instead of a JSON field. Browser mounts only:
+	// the SPA and this handler must share an origin.
+	RefreshCookie bool
+
+	// RateLimits overlays bucket limits onto authkit.DefaultRateLimits;
+	// unknown buckets are refused. Limits are in memory and per process unless
+	// Deps.Redis shares them; they do not apply to Deps.Limiter.
+	RateLimits map[string]RateLimit
+	// RedisKeyPrefix namespaces the rate-limit keys in Deps.Redis so
+	// deployments can share one Redis. Empty derives "authkit:<schema>:".
+	RedisKeyPrefix string
+
+	// TrustedProxies are the CIDRs of reverse proxies whose X-Forwarded-For
+	// is honoured.
+	TrustedProxies []string
+	// CloudflareProxies are Cloudflare's egress ranges: X-Forwarded-For plus
+	// CF-Connecting-IP. Set them only where Cloudflare fronts an origin locked
+	// down to it.
+	CloudflareProxies []string
+	// DirectPeerIP asserts nothing sits in front: RemoteAddr is the client.
+	DirectPeerIP bool
+}
+
+// RateLimit allows at most Limit requests per Window in one bucket, with an
+// optional Cooldown between accepted requests.
+type RateLimit = ratelimit.Limit

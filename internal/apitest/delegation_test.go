@@ -57,7 +57,7 @@ const (
 // issuance and every protected request.
 func TestBrowserDelegationWorkflow(t *testing.T) {
 	ctx := t.Context()
-	keys := newSwappableKeySource(t, "dpop-kid")
+	keySource := newSwappableKeySource(t, "dpop-kid")
 	var authorizations atomic.Int32
 	var observed iam.DelegationRequest
 	var mu sync.Mutex
@@ -72,9 +72,11 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 		return iam.DelegationGrant{Permissions: []string{"resource:read"}, Attributes: map[string]any{"tenant": "cozy"}}, nil
 	}
 	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
-		c.Keys.Source = keys
 		c.Delegated = authkit.DelegatedConfig{Audiences: []string{"platform"}, AllowDPoP: true}
-	}), authtest.WithDeps(func(d *authkit.Deps) { d.DelegatedAuthorization = authorizer }))
+	}), authtest.WithDeps(func(d *authkit.Deps) {
+		d.KeySource = keySource
+		d.DelegatedAuthorization = authorizer
+	}))
 	a := newAPI(t, auth)
 	u := authtest.NewUser(t, auth)
 	session := authtest.SignIn(t, auth, u)
@@ -140,14 +142,14 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 	require.EqualValues(t, 1, authorizations.Load())
 	require.Equal(t, http.StatusForbidden, post(a, `{"requested_grant":{"refuse":true}}`, session.AccessToken, proofFor(target, session.AccessToken), nil))
 
-	// A proxy may remove an external prefix. Its configured resolver supplies
-	// that path explicitly.
-	external := authtest.Issuer + "/external/api/v1/delegated/token"
-	rewritten := newAPI(t, authtest.Replica(t, auth, authtest.WithConfig(func(c *authkit.Config) {
-		c.HTTP.DPoPRequestURL = func(*http.Request) string { return external }
-	})))
-	require.Equal(t, http.StatusUnauthorized, post(rewritten, body, session.AccessToken, proofFor(target, session.AccessToken), nil))
-	require.Equal(t, http.StatusOK, post(rewritten, body, session.AccessToken, proofFor(external, session.AccessToken), nil))
+	// A proxy may remove an external prefix, or serve another origin:
+	// HTTPConfig.PublicURL anchors the proof target instead of the issuer.
+	for _, publicURL := range []string{authtest.Issuer + "/external", "https://shop.example.test/sso"} {
+		external := publicURL + "/api/v1/delegated/token"
+		rewritten := newAPI(t, authtest.Replica(t, auth, authtest.WithConfig(func(c *authkit.Config) { c.HTTP.PublicURL = publicURL })))
+		require.Equal(t, http.StatusUnauthorized, post(rewritten, body, session.AccessToken, proofFor(target, session.AccessToken), nil), publicURL)
+		require.Equal(t, http.StatusOK, post(rewritten, body, session.AccessToken, proofFor(external, session.AccessToken), nil), publicURL)
+	}
 
 	// A receiver names its own origin; the Client's verifiers share its replay
 	// store, so one proof is spent once across every verifier.
@@ -259,9 +261,11 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	grant := iam.DelegationGrant{Permissions: []string{"resource:read"}, Attributes: map[string]any{"entitlement": "pro"}}
 	host := &delegationHost{grant: grant}
 	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
-		c.Keys.Source = keySource
 		c.Delegated = authkit.DelegatedConfig{Audiences: []string{"tensorhub.net", "other.example"}}
-	}), authtest.WithDeps(func(d *authkit.Deps) { d.DelegatedAuthorization = host.authorize }))
+	}), authtest.WithDeps(func(d *authkit.Deps) {
+		d.KeySource = keySource
+		d.DelegatedAuthorization = host.authorize
+	}))
 	a := newAPI(t, auth)
 	u := authtest.NewUser(t, auth)
 	userToken := authtest.SignIn(t, auth, u).AccessToken
@@ -478,7 +482,7 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	// Construction guards: the route never mounts without its authorizer, and
 	// an authorizer without a route is dead wiring.
 	cfg, deps := bareConfig(t)
-	cfg.HTTP = authkit.HTTPConfig{DirectPeerIP: true}
+	cfg.HTTP = &authkit.HTTPConfig{DirectPeerIP: true}
 	cfg.Delegated = authkit.DelegatedConfig{Audiences: []string{"tensorhub.net"}}
 	_, err = newClient(t, cfg, deps)
 	require.ErrorContains(t, err, "Deps.DelegatedAuthorization")

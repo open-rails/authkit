@@ -12,8 +12,8 @@ WHERE invited_by = sqlc.arg(user_id)::uuid AND revoked_at IS NULL AND consumed_a
 -- outlives its issuer's authority.
 
 -- name: InviteLinkInsert :one
-INSERT INTO group_invite_links (permission_group_id, role, invited_by, code_hash, expires_at)
-VALUES (sqlc.arg(group_id), sqlc.arg(role), sqlc.narg(invited_by)::uuid, sqlc.arg(code_hash), sqlc.arg(expires_at)::timestamptz)
+INSERT INTO group_invite_links (permission_group_id, role, invited_by, code_hash, expires_at, catalog_issuer)
+VALUES (sqlc.arg(group_id), sqlc.arg(role), sqlc.narg(invited_by)::uuid, sqlc.arg(code_hash), sqlc.arg(expires_at)::timestamptz, sqlc.arg(catalog_issuer)::text)
 RETURNING id, created_at;
 
 -- InvitationsByGroup lists a group's invite links and email invitations,
@@ -56,8 +56,8 @@ FOR UPDATE OF l;
 UPDATE group_invite_links SET redeemed_at = now(), updated_at = now() WHERE id = sqlc.arg(id);
 
 -- name: AccountInviteInsert :one
-INSERT INTO account_registration_invites (email, invited_by, code_hash, expires_at, permission_group_id, role)
-VALUES (sqlc.arg(email), sqlc.narg(invited_by)::uuid, sqlc.arg(code_hash), sqlc.arg(expires_at), sqlc.narg(group_id)::uuid, sqlc.narg(role)::text)
+INSERT INTO account_registration_invites (email, invited_by, code_hash, expires_at, permission_group_id, role, catalog_issuer)
+VALUES (sqlc.arg(email), sqlc.narg(invited_by)::uuid, sqlc.arg(code_hash), sqlc.arg(expires_at), sqlc.narg(group_id)::uuid, sqlc.narg(role)::text, sqlc.arg(catalog_issuer)::text)
 RETURNING id, created_at;
 
 -- AccountInviteValid: code_hash names a live registration invite.

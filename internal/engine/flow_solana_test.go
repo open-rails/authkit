@@ -14,6 +14,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/siws"
 	"github.com/open-rails/authkit/internal/testdb"
@@ -39,9 +40,9 @@ func TestSolanaLoginRejectsReplayedSignature(t *testing.T) {
 	ctx := context.Background()
 	cfg := testConfig()
 	cfg.SolanaNetwork = "devnet" // mounts /solana/*
-	deps := Deps{SolanaSNSResolver: noSNSResolver{}}
-	f := newAccountFlow(t, pool, cfg, deps)
-	replica := newAccountFlow(t, pool, cfg, deps)
+	f := newAccountFlow(t, pool, cfg, config.Deps{})
+	replica := newAccountFlow(t, pool, cfg, config.Deps{})
+	f.engine.solanaSNSResolver, replica.engine.solanaSNSResolver = noSNSResolver{}, noSNSResolver{}
 
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
@@ -79,7 +80,8 @@ func TestSolanaRecoveryUsesTheWalletCeremony(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := testConfig()
 	cfg.SolanaNetwork = "devnet"
-	f := newAccountFlow(t, pg.Pool, cfg, Deps{SolanaSNSResolver: noSNSResolver{}})
+	f := newAccountFlow(t, pg.Pool, cfg, config.Deps{})
+	f.engine.solanaSNSResolver = noSNSResolver{}
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	address := siws.PublicKeyToBase58(pub)

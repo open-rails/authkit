@@ -37,17 +37,19 @@ func TestSecurityBasePathConfinesSurface(t *testing.T) {
 	const base = "/tenant/auth"
 	iss := server.URL + base
 	s := signer()
+	src := testkeys.Source(s)
 	cfg := authkit.Config{
-		Keys:         authkit.KeysConfig{Source: testkeys.Source(s)},
 		Token:        authkit.TokenConfig{Issuer: iss, IssuedAudiences: []string{audience}, ExpectedAudiences: []string{audience}},
 		Registration: authkit.RegistrationConfig{NativeUserMode: iam.RegistrationModeOpen, Verification: iam.RegistrationVerificationOptional},
 		TwoFactor:    authkit.TwoFactorConfig{Mode: iam.TwoFactorOptional, Methods: []iam.TwoFactorMethod{iam.TwoFactorTOTP}, TOTPSecretKey: bytes.Repeat([]byte{7}, 32)},
-		Identity:     authkit.IdentityConfig{Providers: []provider.Provider{provider.GitHub("gh-client", "gh-secret")}},
 		HTTP:         testhttp.HTTP(),
 	}
 	withApps(&cfg)
 	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) { *c = cfg }),
-		authtest.WithDeps(func(d *authkit.Deps) { *d = authkit.Deps{Postgres: pg.Pool} }))
+		authtest.WithDeps(func(d *authkit.Deps) {
+			d.Postgres, d.KeySource, d.Email, d.SMS = pg.Pool, src, nil, nil
+			d.Providers = []provider.Provider{provider.GitHub("gh-client", "gh-secret")}
+		}))
 	require.NoError(t, auth.Mount(mux))
 
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
@@ -143,9 +145,10 @@ func TestSecurityBasePathConfinesSurface(t *testing.T) {
 	t.Run("BasePath must match the issuer", func(t *testing.T) {
 		// authtest.New fails the test on a refusal, so these build directly.
 		for _, path := range []string{"/", "/other", "/tenant", base + "/x", "/tenant/{auth}", "/tenant/../auth"} {
-			bad := cfg
-			bad.HTTP.BasePath = path
-			_, err := authkit.New(ctx, bad, authkit.Deps{Postgres: pg.Pool})
+			bad, h := cfg, *cfg.HTTP
+			h.BasePath = path
+			bad.HTTP = &h
+			_, err := authkit.New(ctx, bad, authkit.Deps{Postgres: pg.Pool, KeySource: src})
 			require.ErrorContains(t, err, "BasePath", "BasePath %q", path)
 		}
 		again := authtest.Replica(t, auth, authtest.WithConfig(func(c *authkit.Config) { c.HTTP.BasePath = base + "/" }))

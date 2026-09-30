@@ -14,13 +14,12 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"net/url"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/dpop"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/jose"
@@ -77,7 +76,7 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	cfg := s.settings.Delegated
+	cfg := s.cfg.Delegated
 	audiences, err := resolveDelegatedAudiences(cfg.Audiences, req.Audiences)
 	if err != nil {
 		fail(w, errmodel.CodeInvalidAudiences)
@@ -100,12 +99,9 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 			fail(w, errmodel.CodeUnauthenticated)
 			return
 		}
-		target := ""
-		if s.dpopRequestURL != nil {
-			target = s.dpopRequestURL(r)
-		} else if issuer, parseErr := url.Parse(s.settings.Issuer); parseErr == nil && issuer.User == nil {
-			target = issuer.Scheme + "://" + issuer.Host + r.URL.EscapedPath()
-		}
+		// The proof names where the client sent it: HTTPConfig.PublicURL for
+		// BasePath, never a forwarding header.
+		target := s.http.PublicURL + strings.TrimPrefix(r.URL.EscapedPath(), s.http.BasePath)
 		jwkThumbprint, err = dpop.VerifyRequest(r, target, parent[1], "", s.svc.ClaimDPoPProof)
 		if err != nil {
 			if errors.Is(err, dpop.ErrReplayUnavailable) {
@@ -245,7 +241,7 @@ func resolveDelegatedAudiences(allowed, requested []string) ([]string, error) {
 // bounds: absent/non-positive mints the default; anything else is clamped
 // into [floor, ceiling]. The CONFIG is never silently clamped (that refuses
 // at construction); the per-request value is.
-func clampDelegatedTTL(cfg authflow.DelegatedSettings, requestedSeconds int) time.Duration {
+func clampDelegatedTTL(cfg config.DelegatedConfig, requestedSeconds int) time.Duration {
 	if requestedSeconds <= 0 {
 		return cfg.TTLDefault
 	}

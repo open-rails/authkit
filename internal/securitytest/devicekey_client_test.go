@@ -148,7 +148,7 @@ func TestSecurityDeviceKeyClient(t *testing.T) {
 		requireRefusal(t, err, http.StatusForbidden, "step_up_required")
 
 		h.passwordStep(a, "198.51.100.61")
-		_, err = c.FinishEnrollment(ctx, e, priv, code, h.mail.Last(t, authtest.LoginCode, a.email).Code)
+		_, err = c.FinishEnrollment(ctx, e, priv, code, h.mail.Last(t, iam.MessageLoginCode, a.email).Code)
 		requireRefusal(t, err, http.StatusUnauthorized, "invalid_code")
 		s, err := c.FinishEnrollment(ctx, e, priv, code, backup[0])
 		require.NoError(t, err)

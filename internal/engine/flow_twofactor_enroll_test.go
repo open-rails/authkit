@@ -8,8 +8,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/testdb"
-	"github.com/open-rails/authkit/internal/testoutbox"
 
 	"github.com/stretchr/testify/require"
 )
@@ -20,7 +21,7 @@ import (
 func TestMFAEnrollmentBackendFailures(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	ctx := context.Background()
-	f := newAccountFlow(t, pg.Pool, testConfig(), Deps{})
+	f := newAccountFlow(t, pg.Pool, testConfig(), config.Deps{})
 	for _, method := range []string{"totp", "sms"} {
 		for _, failure := range []string{"read", "claim", "persistence"} {
 			t.Run(method+"/"+failure, func(t *testing.T) {
@@ -46,7 +47,7 @@ func TestMFAEnrollmentBackendFailures(t *testing.T) {
 						require.NoError(t, err)
 						body["code"] = code
 					} else {
-						body["code"] = sentCode(t, f.sms, testoutbox.Verification)
+						body["code"] = sentCode(t, f.sms, iam.MessageVerification)
 					}
 				}
 				proof()

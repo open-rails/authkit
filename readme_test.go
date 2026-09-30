@@ -76,9 +76,9 @@ func TestReadmeRolesBlock(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	ctx := t.Context()
 	cfg := testConfig(t)
-	cfg.HTTP = authkit.HTTPConfig{DirectPeerIP: true}
+	cfg.HTTP = &authkit.HTTPConfig{DirectPeerIP: true}
 	cfg.Roles = rbac
-	auth, err := authkit.New(ctx, cfg, authkit.Deps{Postgres: pg.Pool})
+	auth, err := authkit.New(ctx, cfg, testDeps(pg.Pool))
 	require.NoError(t, err, "README roles block: authkit.New must accept it")
 	t.Cleanup(auth.Close)
 
@@ -197,9 +197,9 @@ func TestReadmeSnippetsAreInTheExample(t *testing.T) {
 func TestReadmeRoutesTable(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := testConfig(t)
-	cfg.HTTP = authkit.HTTPConfig{DirectPeerIP: true}
+	cfg.HTTP = &authkit.HTTPConfig{DirectPeerIP: true}
 	cfg.Roles = rbac
-	auth, err := authkit.New(t.Context(), cfg, authkit.Deps{Postgres: pg.Pool})
+	auth, err := authkit.New(t.Context(), cfg, testDeps(pg.Pool))
 	require.NoError(t, err)
 	t.Cleanup(auth.Close)
 

@@ -28,12 +28,12 @@ import (
 func withEveryRoute(t *testing.T) []authtest.Option {
 	idp := testidp.New(t)
 	return []authtest.Option{authtest.WithConfig(func(c *authkit.Config) {
-		c.Identity.Providers = []provider.Provider{idp.OAuth2("idp")}
 		withPasskeys(c)
 		withDeviceKeys(c)
 		c.SolanaNetwork = "devnet"
 		c.Delegated = authkit.DelegatedConfig{Audiences: []string{"resource.security.test"}}
 	}), authtest.WithDeps(func(d *authkit.Deps) {
+		d.Providers = []provider.Provider{idp.OAuth2("idp")}
 		d.DelegatedAuthorization = func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
 			return iam.DelegationGrant{Permissions: []string{"resource:read"}}, nil
 		}

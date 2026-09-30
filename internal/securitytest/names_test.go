@@ -11,6 +11,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/stretchr/testify/require"
 )
@@ -75,7 +76,7 @@ func TestSecurityUsernameChecks(t *testing.T) {
 		require.Equal(t, renamed, r.CanonicalName)
 		require.True(t, r.IsAlias)
 		require.NotNil(t, r.AliasExpiresAt)
-		require.WithinDuration(t, time.Now().Add(iam.DefaultFormerNameRetention), *r.AliasExpiresAt, time.Hour)
+		require.WithinDuration(t, time.Now().Add(config.DefaultFormerNameRetention), *r.AliasExpiresAt, time.Hour)
 		r, err = h.auth.ResolveUsername(ctx, renamed)
 		require.NoError(t, err)
 		require.Equal(t, iam.NameResolution{ID: owner.id, CanonicalName: renamed}, r)

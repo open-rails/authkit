@@ -6,24 +6,25 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/naming"
 	"github.com/open-rails/authkit/internal/password"
 )
 
-// ValidateUsername applies the configured username policy and fixed
-// iam.UsernamePattern.
+// ValidateUsername applies the configured username rule.
 func (s *Engine) ValidateUsername(username string) error {
-	return s.cfg.Username.Validate(username)
+	return naming.Validate(s.cfg.Username, username)
 }
 
 // ValidatePassword applies the configured password policy. identifiers are
 // the account's username and email address when known. Length failures carry
 // min_length/max_length; requirement failures carry the missing classes.
 func (s *Engine) ValidatePassword(value string, identifiers ...string) error {
-	return validatePassword(password.Policy(s.cfg.Password), value, identifiers...)
+	return validatePassword(*s.cfg.Password, value, identifiers...)
 }
 
-func validatePassword(p password.Policy, value string, identifiers ...string) error {
+func validatePassword(p config.PasswordPolicy, value string, identifiers ...string) error {
 	ids := make([]string, 0, len(identifiers))
 	for _, id := range identifiers {
 		if local := password.EmailLocalPart(id); local != "" {
@@ -31,7 +32,7 @@ func validatePassword(p password.Policy, value string, identifiers ...string) er
 		}
 		ids = append(ids, id)
 	}
-	err := p.Validate(value, ids...)
+	err := password.Validate(p, value, ids...)
 	var unmet *password.RequirementsError
 	switch {
 	case err == nil:

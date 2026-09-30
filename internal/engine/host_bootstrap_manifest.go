@@ -63,7 +63,7 @@ func (s *Engine) ApplyBootstrapManifest(ctx context.Context, manifest iam.Bootst
 	if err := s.requirePG(); err != nil {
 		return iam.BootstrapResult{}, err
 	}
-	if err := validateBootstrapManifest(manifest, s.cfg.Applications.AllowPrivateNetworkJWKS); err != nil {
+	if err := validateBootstrapManifest(manifest, s.cfg.Token.AllowPrivateNetworkJWKS); err != nil {
 		return iam.BootstrapResult{}, err
 	}
 	checkRole := func(role iam.Role) error {

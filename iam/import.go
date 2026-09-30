@@ -31,10 +31,10 @@ type ImportUser struct {
 	PreferredLanguage string
 	AvatarURL         string
 	// DeletedAt, not in the future, imports the account as the system's
-	// DeleteUsers at that time would have left it: OnSoftDelete runs, the
-	// 30-day recovery window runs from DeletedAt (RestoreUsers restores it,
-	// signing in does not), and once the window has passed the account is
-	// purged after OnHardDelete. Such rows need River, as DeleteUsers does.
+	// DeleteUsers at that time would have left it: the 30-day recovery window
+	// runs from DeletedAt (RestoreUsers restores it, signing in does not), and
+	// once the window has passed the account is purged after Deps.OnPurge.
+	// Such rows need River, as DeleteUsers does.
 	DeletedAt *time.Time
 	// Providers are external identities the account signs in with, linked as
 	// LinkProvider links them, at most one per issuer; Solana wallets import

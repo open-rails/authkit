@@ -1,21 +1,20 @@
 package authflow
 
 import (
-	"regexp"
 	"strings"
 
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/lang"
 )
 
-var preferredLanguageRe = regexp.MustCompile(`^[A-Za-z]{2}$`)
-
+// NormalizePreferredLanguage is lang.Normalize for an account's stored
+// preference: "" clears it, and a value naming no language is refused.
 func NormalizePreferredLanguage(language string) (string, error) {
-	language = strings.TrimSpace(strings.ToLower(language))
-	if language == "" {
+	if strings.TrimSpace(language) == "" {
 		return "", nil
 	}
-	if !preferredLanguageRe.MatchString(language) {
-		return "", errmodel.E(errmodel.CodeInvalidPreferredLanguage)
+	if l := lang.Normalize(language); l != "" {
+		return l, nil
 	}
-	return language, nil
+	return "", errmodel.E(errmodel.CodeInvalidPreferredLanguage)
 }

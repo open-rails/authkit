@@ -201,7 +201,7 @@ func EnrollDeviceKey(t testing.TB, auth *authkit.Client, outbox *Outbox, u User)
 	if err != nil {
 		t.Fatalf("authtest: begin device-key enrollment for %s: %v", u.Email, err)
 	}
-	code := outbox.Last(t, Verification, u.Email).Code
+	code := outbox.Last(t, iam.MessageVerification, u.Email).Code
 	s, err := c.FinishEnrollment(ctx, e, priv, code, "")
 	if second := (*devicekey.SecondFactorRequired)(nil); errors.As(err, &second) && second.Method == "totp" && u.TOTP != nil {
 		s, err = c.FinishEnrollment(ctx, e, priv, code, u.TOTP.Code(t))

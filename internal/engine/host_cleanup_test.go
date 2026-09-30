@@ -6,13 +6,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
 func TestAccountLifecycleTerminalGCIsBoundedAndPreservesPendingWork(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	runtime, err := New(context.Background(), maintenanceConfig(), Deps{Postgres: pg.Pool})
+	runtime, err := New(context.Background(), maintenanceConfig(), config.Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	t.Cleanup(runtime.Close)
 	ids := make([]string, 5)
@@ -37,7 +38,7 @@ func TestAccountLifecycleTerminalGCIsBoundedAndPreservesPendingWork(t *testing.T
 		if i == 0 || i == 2 {
 			var receipt int64
 			require.NoError(t, pg.Pool.QueryRow(t.Context(), `INSERT INTO profiles.account_deletion_deliveries(deletion_id,user_id,issuer,stage,completed_at)
- SELECT id,user_id,$2,'soft',CASE WHEN $3 THEN statement_timestamp() ELSE NULL END FROM profiles.account_deletions WHERE id=$1::uuid RETURNING id`, ids[i], runtime.cfg.Token.Issuer, i == 0).Scan(&receipt))
+ SELECT id,user_id,$2,'hard',CASE WHEN $3 THEN statement_timestamp() ELSE NULL END FROM profiles.account_deletions WHERE id=$1::uuid RETURNING id`, ids[i], runtime.cfg.Token.Issuer, i == 0).Scan(&receipt))
 			if i == 0 {
 				completedReceipt = receipt
 			}

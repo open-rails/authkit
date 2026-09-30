@@ -3,7 +3,7 @@ package httpapi
 // ak#271: deliver the rotating refresh token as an HttpOnly cookie instead of
 // a JSON body field, so an injected script cannot read the durable credential.
 //
-// Opt-in per mount (MountOptions.RefreshCookie). A host that does not opt in
+// Opt-in per mount (HTTPConfig.RefreshCookie). A host that does not opt in
 // keeps refresh tokens in JSON bodies. The mount-resolved request policy selects
 // exactly one transport; there is no mixed-mode fallback.
 //
@@ -78,7 +78,7 @@ func (s *Service) setRefreshCookie(w http.ResponseWriter, r *http.Request, value
 	}
 	// A finite refresh TTL mirrors onto the jar; an indefinite session
 	// (RefreshTokenDuration <= 0) gets a session cookie, matching the server.
-	if d := s.settings.RefreshTokenDuration; d > 0 {
+	if d := s.cfg.Token.RefreshTokenDuration; d > 0 {
 		c.MaxAge = int(d.Seconds())
 	}
 	http.SetCookie(w, c)
@@ -151,6 +151,6 @@ func (s *Service) cookieOriginAllowed(r *http.Request) bool {
 	if strings.EqualFold(origin, scheme+"://"+r.Host) {
 		return true
 	}
-	configured, ok := originFromBaseURL(s.settings.FrontendBaseURL)
+	configured, ok := originFromBaseURL(s.cfg.Frontend.BaseURL)
 	return ok && strings.EqualFold(origin, configured)
 }

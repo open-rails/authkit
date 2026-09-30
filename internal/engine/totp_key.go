@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 )
 
 // TOTP secret-encryption key as first-class vault key material (#148). The key
@@ -29,7 +30,7 @@ func validTOTPKeyLen(n int) bool { return n == 16 || n == 24 || n == 32 }
 // returns (nil, nil) — TOTP enrollment then fails closed at use. Invalid material
 // (wrong length, bad encoding, unsafe permissions) is a hard construction error,
 // the same rigor as JWT signing keys.
-func resolveTOTPSecretKey(cfg Config) ([]byte, error) {
+func resolveTOTPSecretKey(cfg config.Config) ([]byte, error) {
 	if len(cfg.TwoFactor.TOTPSecretKey) > 0 {
 		if !validTOTPKeyLen(len(cfg.TwoFactor.TOTPSecretKey)) {
 			return nil, fmt.Errorf("authkit: TwoFactor.TOTPSecretKey must be 16, 24, or 32 bytes, got %d", len(cfg.TwoFactor.TOTPSecretKey))
@@ -76,7 +77,7 @@ func twoFactorMethodListed(methods []iam.TwoFactorMethod, m iam.TwoFactorMethod)
 	return false
 }
 
-func totpKeysDir(cfg Config) string {
+func totpKeysDir(cfg config.Config) string {
 	if p := strings.TrimSpace(cfg.Keys.Path); p != "" {
 		return p
 	}

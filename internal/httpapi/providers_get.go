@@ -5,8 +5,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/naming"
 )
 
 // AuthCapabilities is the public, static auth feature-discovery response.
@@ -19,6 +21,7 @@ type AuthCapabilities struct {
 	Passkeys               AuthPasskeyCapabilities      `json:"passkeys"`
 	Solana                 AuthSolanaCapabilities       `json:"solana"`
 	Verification           AuthVerificationCapabilities `json:"verification"`
+	Channels               AuthChannelCapabilities      `json:"channels"`
 	Languages              []string                     `json:"languages,omitempty"`
 	Paths                  AuthPaths                    `json:"paths"`
 }
@@ -45,11 +48,22 @@ type AuthProviderSummary struct {
 }
 
 // AuthUsernameCapabilities publishes the interactive username rule. Pattern is
-// the fixed character rule; length is bounded separately.
+// the fixed character rule; length is bounded separately. Renames says
+// whether users may rename themselves, and how often.
 type AuthUsernameCapabilities struct {
-	MinLength int    `json:"min_length"`
-	MaxLength int    `json:"max_length"`
-	Pattern   string `json:"pattern"`
+	MinLength             int               `json:"min_length"`
+	MaxLength             int               `json:"max_length"`
+	Pattern               string            `json:"pattern"`
+	Renames               bool              `json:"renames"`
+	RenameIntervalSeconds int64             `json:"rename_interval_seconds"`
+	FormerNames           naming.PolicyInfo `json:"former_names"`
+}
+
+// AuthChannelCapabilities says which contact channels can deliver now: a
+// sender is configured and, for SMS, its latest health check passed.
+type AuthChannelCapabilities struct {
+	Email bool `json:"email"`
+	SMS   bool `json:"sms"`
 }
 
 // AuthPasswordCapabilities publishes everything a browser needs to
@@ -93,25 +107,24 @@ func (s *Service) handleCapabilitiesGET(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Service) Capabilities() AuthCapabilities {
-	cfg := s.settings
-	langs := []string(nil)
-	if s.langCfg != nil {
-		langs = append(langs, s.langCfg.Supported...)
-	}
+	cfg := s.cfg
 	channels := []string{"email"}
 	if s.SMSAvailable() {
 		channels = append(channels, "sms")
 	}
 	return AuthCapabilities{
 		Registration: AuthRegistrationCapabilities{
-			Mode:                string(cfg.RegistrationMode),
-			InviteTokenRequired: cfg.RegistrationMode == iam.RegistrationModeInviteOnly,
+			Mode:                string(cfg.Registration.NativeUserMode),
+			InviteTokenRequired: cfg.Registration.NativeUserMode == iam.RegistrationModeInviteOnly,
 		},
 		ExternalLoginProviders: s.providerSummaries(),
 		Username: AuthUsernameCapabilities{
-			MinLength: cfg.Username.MinLength,
-			MaxLength: cfg.Username.MaxLength,
-			Pattern:   iam.UsernamePattern,
+			MinLength:             cfg.Username.MinLength,
+			MaxLength:             cfg.Username.MaxLength,
+			Pattern:               naming.UsernamePattern,
+			Renames:               cfg.Username.Renames,
+			RenameIntervalSeconds: int64(naming.Cooldown(cfg.Username) / time.Second),
+			FormerNames:           naming.NewState(cfg.Username, nil, time.Time{}).Policy,
 		},
 		Password: AuthPasswordCapabilities{
 			MinLength:        cfg.Password.MinLength,
@@ -120,10 +133,10 @@ func (s *Service) Capabilities() AuthCapabilities {
 			RequireLowercase: cfg.Password.RequireLowercase,
 			RequireDigit:     cfg.Password.RequireDigit,
 			RequireSymbol:    cfg.Password.RequireSymbol,
-			RejectCommon:     !cfg.Password.AllowCommon,
+			RejectCommon:     cfg.Password.RejectCommon,
 		},
 		Passwordless: AuthPasswordlessCapabilities{
-			Enabled:  cfg.PasswordlessLogin,
+			Enabled:  cfg.Registration.PasswordlessLogin,
 			Channels: channels,
 		},
 		Passkeys: AuthPasskeyCapabilities{
@@ -133,8 +146,9 @@ func (s *Service) Capabilities() AuthCapabilities {
 			Login: cfg.SolanaNetwork != "",
 		},
 		Verification: AuthVerificationCapabilities{
-			Registration: string(cfg.RegistrationVerification),
+			Registration: string(cfg.Registration.Verification),
 		},
-		Languages: langs,
+		Channels:  AuthChannelCapabilities{Email: s.svc.HasEmailSender(), SMS: s.SMSAvailable()},
+		Languages: cfg.Languages.Supported,
 	}
 }

@@ -12,33 +12,21 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/password"
 	"github.com/open-rails/authkit/internal/rbac"
 	"github.com/open-rails/authkit/keys"
+	"github.com/open-rails/authkit/provider"
 )
-
-// EntitlementsProvider mirrors authkit.EntitlementsProvider.
-type EntitlementsProvider interface {
-	ListEntitlements(ctx context.Context, userIDs []string) (map[string][]string, error)
-}
-
-// entitlementFilterProvider mirrors authkit.EntitlementFilterProvider.
-type entitlementFilterProvider interface {
-	ListSubjectsWithEntitlement(ctx context.Context, entitlement string) ([]string, error)
-}
-
-// (storage layer collapsed into direct Postgres helpers)
 
 // Engine owns local business logic and resources behind Client.
 type Engine struct {
 	closeOnce sync.Once
 
-	maintenance  *riverMaintenance
-	onSoftDelete func(context.Context, iam.UserDeletion) error
-	onHardDelete func(context.Context, iam.UserDeletion) error
-	onRestore    func(context.Context, iam.UserDeletion) error
-	onEvent      func(context.Context, iam.Event) error
+	maintenance *riverMaintenance
+	onEvent     func(context.Context, iam.Event) error
+	onPurge     func(context.Context, iam.UserDeletion) error
 	// eventProducers are insert-only River clients for other issuers' fleets.
 	eventProducers sync.Map
 
@@ -50,52 +38,46 @@ type Engine struct {
 	// Only resources allocated by New are closed with the client.
 	ownedKeySource *keys.FileSource
 
-	email        EmailSender
-	sms          SMSSender
-	pg           *pgxpool.Pool
-	q            *db.Queries
-	schema       string       // validated Postgres schema name; db.DefaultSchema when unset
-	groupSchema  *rbac.Schema // compiled Config.Roles (nil ⇒ root-only default)
-	entitlements atomic.Pointer[entitlementsBox]
+	providers          []provider.Provider
+	email              func(context.Context, iam.EmailMessage) error
+	sms                func(context.Context, iam.SMSMessage) error
+	smsCheck           func(context.Context) error
+	smsHealth          smsHealth
+	entitlements       func(context.Context, []string) (map[string][]string, error)
+	entitlementHolders func(context.Context, string) ([]string, error)
+	pg                 *pgxpool.Pool
+	q                  *db.Queries
+	schema             string       // validated Postgres schema name; db.DefaultSchema when unset
+	groupSchema        *rbac.Schema // compiled Config.Roles (nil ⇒ root-only default)
 	// delegationAuthorizer is the host-injected authorizer for the
 	// delegated-token mint route (#277); required when the route is mounted.
 	delegationAuthorizer iam.DelegationAuthorizer
 	solanaSNSResolver    SolanaSNSResolver
 	sns                  solanaSNS
 	// now is the engine clock for TTL/grace decisions; Deps.Clock overrides it.
-	now       func() time.Time
-	ephemeral *ephemeralKV // nil without Postgres
-	// cfg is the host configuration, normalized exactly once at construction
-	// (normalizeConfig).
-	nameAdmission  func(context.Context, iam.NameAdmissionRequest) error
-	cfg            Config
-	verifyWarnOnce sync.Once
+	now           func() time.Time
+	ephemeral     *ephemeralKV // nil without Postgres
+	nameAdmission func(context.Context, iam.NameAdmissionRequest) error
+	// cfg is the host configuration, normalized once (config.Normalize).
+	cfg config.Config
 	// rootGroupID caches the root group id (string) once resolved.
 	rootGroupID atomic.Value
-
-	smsHealth smsHealth
 
 	auth      *Authenticator
 	fed       federation
 	mfaExempt exemptPaths
 }
 
-// SendWelcome triggers the welcome email if an EmailSender is configured.
+// SendWelcome sends the welcome email when Deps.Email is set.
 func (s *Engine) SendWelcome(ctx context.Context, userID string) {
 	if s.email == nil || s.pg == nil || strings.TrimSpace(userID) == "" {
 		return
 	}
-	// Look up user's email and username
 	u, err := s.getUserByID(ctx, userID)
 	if err != nil || u == nil || u.Email == nil {
 		return
 	}
-	username := ""
-	if u.Username != nil {
-		username = *u.Username
-	}
-	sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
-	_ = s.email.SendWelcome(sendCtx, *u.Email, username)
+	_ = s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessageWelcome, To: *u.Email, Username: deref(u.Username), Language: s.userLanguage(ctx, userID)})
 }
 
 // HasPassword reports whether the user has a local password set.
@@ -110,11 +92,10 @@ func (s *Engine) HasPassword(ctx context.Context, userID string) (bool, error) {
 // the provider — a one-element batch, #221). A provider failure is logged and
 // returned as none — callers (admin user views) degrade rather than fail.
 func (s *Engine) listEntitlements(ctx context.Context, userID string) []string {
-	provider := s.entitlementsProvider()
-	if provider == nil {
+	if s.entitlements == nil {
 		return nil
 	}
-	m, err := provider.ListEntitlements(ctx, []string{userID})
+	m, err := s.entitlements(ctx, []string{userID})
 	if err != nil {
 		stdlog.Printf("authkit: error: entitlements provider failed for user %q; reporting no entitlements: %v", userID, err)
 		return nil

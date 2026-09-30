@@ -7,6 +7,7 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/errmodel"
@@ -40,11 +41,6 @@ func (s *Engine) RequestPasswordReset(ctx context.Context, email string, ttl tim
 	if u.Email == nil {
 		return nil
 	}
-	username := ""
-	if u.Username != nil {
-		username = *u.Username
-	}
-
 	if s.email == nil {
 		if !s.cfg.Registration.AllowMissingSenders {
 			return fmt.Errorf("email password reset unavailable: email sender not configured")
@@ -52,11 +48,9 @@ func (s *Engine) RequestPasswordReset(ctx context.Context, email string, ttl tim
 		return nil
 	}
 
-	sendCtx := s.contextWithUserPreferredLanguage(ctx, u.ID)
-	if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
-		return s.email.SendPasswordResetLink(sendCtx, *u.Email, username, s.emailPasswordResetURL(token))
-	}); err != nil {
-		return emailDeliveryError(err)
+	if err := s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessagePasswordReset, To: *u.Email, Username: deref(u.Username),
+		Language: s.userLanguage(ctx, u.ID), Link: s.emailPasswordResetURL(token)}); err != nil {
+		return err
 	}
 
 	s.logPasswordRecovery(ctx, u.ID, "email", "", ip, ua)
@@ -120,11 +114,9 @@ func (s *Engine) RequestPhonePasswordReset(ctx context.Context, phone string, tt
 		return nil
 	}
 
-	sendCtx := s.contextWithUserPreferredLanguage(ctx, u.ID)
-	if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
-		return s.sms.SendPasswordResetLink(sendCtx, phone, s.phonePasswordResetURL(token))
-	}); err != nil {
-		return smsDeliveryError(err)
+	if err := s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessagePasswordReset, To: phone, Language: s.userLanguage(ctx, u.ID),
+		Link: s.phonePasswordResetURL(token)}); err != nil {
+		return err
 	}
 
 	s.logPasswordRecovery(ctx, u.ID, "sms", "", ip, ua)

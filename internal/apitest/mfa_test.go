@@ -104,7 +104,7 @@ func TestEnrollmentVerifiesEnrollingSession(t *testing.T) {
 		u := authtest.NewUser(t, auth)
 		enrolling, other := signIn(f, u), signIn(f, u)
 		f.expect(http.StatusAccepted, f.request(http.MethodPost, "/user/2fa", enrolling.AccessToken, map[string]any{"method": "email"}))
-		code := f.code(authtest.Verification, u.Email)
+		code := f.code(iam.MessageVerification, u.Email)
 		wrong := f.expect(http.StatusUnauthorized, f.request(http.MethodPost, "/user/2fa", enrolling.AccessToken, map[string]any{"method": "email", "code": "000000x"}))
 		require.Equal(t, "invalid_code", wrong.Error.Code)
 		enabled := f.expect(http.StatusOK, f.request(http.MethodPost, "/user/2fa", enrolling.AccessToken, map[string]any{"method": "email", "code": code}))
@@ -119,7 +119,7 @@ func TestEnrollmentVerifiesEnrollingSession(t *testing.T) {
 		const phone = "+15550100001"
 		f.expect(http.StatusAccepted, f.request(http.MethodPost, "/user/2fa", enrolling.AccessToken, map[string]any{"method": "sms", "phone_number": phone}))
 		enabled := f.expect(http.StatusOK, f.request(http.MethodPost, "/user/2fa", enrolling.AccessToken,
-			map[string]any{"method": "sms", "phone_number": phone, "code": f.code(authtest.Verification, phone)}))
+			map[string]any{"method": "sms", "phone_number": phone, "code": f.code(iam.MessageVerification, phone)}))
 		requireVerified(f, enabled, enrolling, "sms")
 		requireChallenged(f, other, "sms")
 	})
@@ -128,11 +128,11 @@ func TestEnrollmentVerifiesEnrollingSession(t *testing.T) {
 		f := newFactorFlow(t, auth, outbox)
 		u := authtest.NewUser(t, auth)
 		f.expect(http.StatusAccepted, f.post("/passwordless/start", map[string]any{"identifier": u.Email, "mode": "code"}))
-		session := f.expect(http.StatusOK, f.post("/passwordless/confirm", map[string]any{"identifier": u.Email, "code": f.code(authtest.Verification, u.Email)}))
+		session := f.expect(http.StatusOK, f.post("/passwordless/confirm", map[string]any{"identifier": u.Email, "code": f.code(iam.MessageVerification, u.Email)}))
 		f.session(session.Nested, "email")
 		f.expect(http.StatusAccepted, f.request(http.MethodPost, "/user/2fa", session.Nested.AccessToken, map[string]any{"method": "email"}))
 		enabled := f.expect(http.StatusOK, f.request(http.MethodPost, "/user/2fa", session.Nested.AccessToken,
-			map[string]any{"method": "email", "code": f.code(authtest.Verification, u.Email)}))
+			map[string]any{"method": "email", "code": f.code(iam.MessageVerification, u.Email)}))
 		require.NotEmpty(t, enabled.BackupCodes)
 		require.Empty(t, enabled.Nested.AccessToken, "the session stays email-only")
 		challenged := f.expect(http.StatusForbidden, refresh(f, session.Nested.RefreshToken))
@@ -151,7 +151,7 @@ func TestEnrollmentVerifiesEnrollingSession(t *testing.T) {
 		restricted := grant.Error.Metadata.TokenSet.AccessToken
 		f.expect(http.StatusAccepted, f.request(http.MethodPost, "/user/2fa", restricted, map[string]any{"method": "email"}))
 		enabled := f.expect(http.StatusOK, f.request(http.MethodPost, "/user/2fa", restricted,
-			map[string]any{"method": "email", "code": f.code(authtest.Verification, u.Email)}))
+			map[string]any{"method": "email", "code": f.code(iam.MessageVerification, u.Email)}))
 		require.NotEmpty(t, enabled.BackupCodes)
 		f.session(enabled.Nested, "pwd", "email", "otp", "mfa")
 		refreshed := f.expect(http.StatusOK, refresh(f, enabled.Nested.RefreshToken))
@@ -192,7 +192,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 				payload["password"] = pass
 			}
 			f.expect(http.StatusAccepted, f.post(start, payload))
-			link := deliveredLink(f.t, outbox.Last(t, authtest.Verification, email).Link, path, "email")
+			link := deliveredLink(f.t, outbox.Last(t, iam.MessageVerification, email).Link, path, "email")
 			first := f.expect(http.StatusForbidden, f.post(confirm, map[string]any{"token": link}))
 			require.Equal(t, "2fa_enrollment_required", first.Error.Code)
 			wireGolden(f.t, "mfa-enrollment", json.RawMessage(first.raw))
@@ -216,7 +216,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 			var second authAnswer
 			if passwordless {
 				f.expect(http.StatusAccepted, f.post("/passwordless/start", map[string]any{"identifier": email, "mode": "both"}))
-				second = f.expect(http.StatusForbidden, f.post("/passwordless/confirm", map[string]any{"identifier": email, "code": f.code(authtest.Verification, email)}))
+				second = f.expect(http.StatusForbidden, f.post("/passwordless/confirm", map[string]any{"identifier": email, "code": f.code(iam.MessageVerification, email)}))
 			} else {
 				second = f.expect(http.StatusForbidden, f.post("/password/login", map[string]any{"identifier": email, "password": pass}))
 			}
@@ -241,7 +241,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 
 			// A password change voids the pending continuation.
 			f.expect(http.StatusAccepted, f.post("/passwordless/start", map[string]any{"identifier": email, "mode": "both"}))
-			pending := f.expect(http.StatusForbidden, f.post("/passwordless/confirm", map[string]any{"token": outbox.Last(t, authtest.Verification, email).Token}))
+			pending := f.expect(http.StatusForbidden, f.post("/passwordless/confirm", map[string]any{"token": outbox.Last(t, iam.MessageVerification, email).Token}))
 			replacement := "Replacement-password-12345"
 			_, err := auth.UpdateUser(ctx, iam.SystemActor(), pending.Error.Metadata.UserID, iam.UserUpdate{Password: &replacement})
 			require.NoError(t, err)
@@ -253,7 +253,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	f := newFactorFlow(t, auth, outbox)
 	const phone = "+15550100003"
 	f.expect(http.StatusAccepted, f.post("/passwordless/start", map[string]any{"identifier": phone, "mode": "code"}))
-	phoneGrant := f.expect(http.StatusForbidden, f.post("/passwordless/confirm", map[string]any{"identifier": phone, "code": f.code(authtest.Verification, phone)}))
+	phoneGrant := f.expect(http.StatusForbidden, f.post("/passwordless/confirm", map[string]any{"identifier": phone, "code": f.code(iam.MessageVerification, phone)}))
 	require.Equal(t, "2fa_enrollment_required", phoneGrant.Error.Code)
 	require.NotContains(t, phoneGrant.Error.Metadata.AllowedMethods, "email", "an email-less account cannot enroll a mailbox factor")
 	restricted := phoneGrant.Error.Metadata.TokenSet.AccessToken
@@ -269,9 +269,9 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	credentials := map[string]any{"identifier": email, "password": pass}
 	u, err := auth.CreateUser(ctx, iam.NewUser{Email: email, Username: "samechannel", Password: pass})
 	require.NoError(t, err)
-	sent := len(outbox.Messages(authtest.Verification, ""))
+	sent := len(outbox.Messages(iam.MessageVerification, ""))
 	f.expect(http.StatusUnauthorized, f.post("/password/login", map[string]any{"identifier": email, "password": "wrong"}))
-	require.Len(t, outbox.Messages(authtest.Verification, ""), sent, "a wrong password sends no code")
+	require.Len(t, outbox.Messages(iam.MessageVerification, ""), sent, "a wrong password sends no code")
 	verify := f.expect(http.StatusForbidden, f.post("/password/login", credentials))
 	require.Equal(t, "verification_required", verify.Error.Code)
 	// Proving the address retires the password set before the proof; the
@@ -283,17 +283,17 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	require.Equal(t, "2fa_enrollment_required", grant.Error.Code)
 	f.expect(http.StatusAccepted, f.request(http.MethodPost, "/user/2fa", grant.Error.Metadata.TokenSet.AccessToken, map[string]any{"method": "email"}))
 	backups := f.expect(http.StatusOK, f.request(http.MethodPost, "/user/2fa", grant.Error.Metadata.TokenSet.AccessToken,
-		map[string]any{"method": "email", "code": f.code(authtest.Verification, email)})).BackupCodes
+		map[string]any{"method": "email", "code": f.code(iam.MessageVerification, email)})).BackupCodes
 	require.NotEmpty(t, backups)
 	f.expect(http.StatusAccepted, f.post("/passwordless/start", map[string]any{"identifier": email}))
-	ch := f.expect(http.StatusForbidden, f.post("/passwordless/confirm", map[string]any{"identifier": email, "code": f.code(authtest.Verification, email)}))
+	ch := f.expect(http.StatusForbidden, f.post("/passwordless/confirm", map[string]any{"identifier": email, "code": f.code(iam.MessageVerification, email)}))
 	require.Equal(t, "backup_code", ch.Error.Metadata.Method)
-	f.expect(http.StatusUnauthorized, f.post("/2fa/verify", map[string]any{"user_id": u.ID, "challenge": ch.Error.Metadata.Challenge, "code": f.code(authtest.Verification, email)}))
+	f.expect(http.StatusUnauthorized, f.post("/2fa/verify", map[string]any{"user_id": u.ID, "challenge": ch.Error.Metadata.Challenge, "code": f.code(iam.MessageVerification, email)}))
 	signed := f.expect(http.StatusOK, f.post("/2fa/verify", map[string]any{"user_id": u.ID, "challenge": ch.Error.Metadata.Challenge, "code": backups[0], "backup_code": true}))
 	f.session(signed.TokenSet, "email", "backup_code", "otp", "mfa")
 	ch = f.expect(http.StatusForbidden, f.post("/password/login", credentials))
 	require.Equal(t, "email", ch.Error.Metadata.Method)
-	signed = f.expect(http.StatusOK, f.post("/2fa/verify", map[string]any{"user_id": u.ID, "challenge": ch.Error.Metadata.Challenge, "code": f.code(authtest.LoginCode, email)}))
+	signed = f.expect(http.StatusOK, f.post("/2fa/verify", map[string]any{"user_id": u.ID, "challenge": ch.Error.Metadata.Challenge, "code": f.code(iam.MessageLoginCode, email)}))
 	f.session(signed.TokenSet, "pwd", "email", "otp", "mfa")
 
 	// A fresh user-verifying passkey satisfies required 2FA and an
@@ -341,13 +341,13 @@ func TestTwoFactorCodeLifecycle(t *testing.T) {
 		u := authtest.NewUser(t, auth)
 		token := authtest.SignIn(t, auth, u).AccessToken
 		f.expect(http.StatusAccepted, f.request(http.MethodPost, "/user/2fa", token, map[string]any{"method": "email"}))
-		f.expect(http.StatusOK, f.request(http.MethodPost, "/user/2fa", token, map[string]any{"method": "email", "code": f.code(authtest.Verification, u.Email)}))
+		f.expect(http.StatusOK, f.request(http.MethodPost, "/user/2fa", token, map[string]any{"method": "email", "code": f.code(iam.MessageVerification, u.Email)}))
 
 		login := func() (map[string]any, string) {
 			t.Helper()
 			ch := f.expect(http.StatusForbidden, f.post("/password/login", credentials(u)))
 			require.Equal(t, "email", ch.Error.Metadata.Method)
-			return map[string]any{"user_id": u.ID, "challenge": ch.Error.Metadata.Challenge}, f.code(authtest.LoginCode, u.Email)
+			return map[string]any{"user_id": u.ID, "challenge": ch.Error.Metadata.Challenge}, f.code(iam.MessageLoginCode, u.Email)
 		}
 		with := func(body map[string]any, code string) map[string]any {
 			out := map[string]any{"code": code}
@@ -420,7 +420,7 @@ func TestTwoFactorCodeLifecycle(t *testing.T) {
 			t.Helper()
 			ch := f.expect(http.StatusForbidden, f.request(http.MethodPost, "/step-up/2fa", access, map[string]any{}))
 			require.Equal(t, "2fa_required", ch.Error.Code)
-			return f.code(authtest.LoginCode, u.Email)
+			return f.code(iam.MessageLoginCode, u.Email)
 		}
 		code = send()
 		f.expect(http.StatusUnauthorized, stepUp(wrong(code)))
@@ -459,7 +459,7 @@ func TestTwoFactorCodeLifecycle(t *testing.T) {
 			return f.request(http.MethodPost, "/user/2fa", access, body)
 		}
 		f.expect(http.StatusAccepted, enroll(""))
-		code := f.code(authtest.Verification, u.Email)
+		code := f.code(iam.MessageVerification, u.Email)
 		for range 4 {
 			require.Equal(t, "invalid_code", errCode(http.StatusUnauthorized, enroll(wrong(code))))
 		}
@@ -467,7 +467,7 @@ func TestTwoFactorCodeLifecycle(t *testing.T) {
 		require.Equal(t, "code_expired", errCode(http.StatusUnauthorized, enroll(code)))
 		require.Equal(t, "code_expired", errCode(http.StatusUnauthorized, enroll(wrong(code))))
 		f.expect(http.StatusAccepted, enroll(""))
-		code = f.code(authtest.Verification, u.Email)
+		code = f.code(iam.MessageVerification, u.Email)
 		require.Equal(t, "invalid_code", errCode(http.StatusUnauthorized, enroll(wrong(code))))
 		f.expect(http.StatusOK, enroll(code))
 
@@ -478,7 +478,7 @@ func TestTwoFactorCodeLifecycle(t *testing.T) {
 		verify := func(code string) authAnswer {
 			return f.post("/2fa/verify", map[string]any{"user_id": u.ID, "challenge": ch.Error.Metadata.Challenge, "code": code})
 		}
-		code = f.code(authtest.LoginCode, u.Email)
+		code = f.code(iam.MessageLoginCode, u.Email)
 		for range 4 {
 			require.Equal(t, "invalid_code", errCode(http.StatusUnauthorized, verify(wrong(code))))
 		}
@@ -487,7 +487,7 @@ func TestTwoFactorCodeLifecycle(t *testing.T) {
 		require.Equal(t, "code_expired", errCode(http.StatusUnauthorized, verify(wrong(code))))
 		f.expect(http.StatusForbidden, f.post("/2fa/challenge", map[string]any{"user_id": u.ID, "challenge": ch.Error.Metadata.Challenge,
 			"factor_id": ch.Error.Metadata.AvailableFactors[0].ID}))
-		code = f.code(authtest.LoginCode, u.Email)
+		code = f.code(iam.MessageLoginCode, u.Email)
 		require.Equal(t, "invalid_code", errCode(http.StatusUnauthorized, verify(wrong(code))))
 		access = f.expect(http.StatusOK, verify(code)).AccessToken
 
@@ -498,7 +498,7 @@ func TestTwoFactorCodeLifecycle(t *testing.T) {
 		send := func() string {
 			t.Helper()
 			require.Equal(t, "2fa_required", errCode(http.StatusForbidden, f.request(http.MethodPost, "/step-up/2fa", access, map[string]any{})))
-			return f.code(authtest.LoginCode, u.Email)
+			return f.code(iam.MessageLoginCode, u.Email)
 		}
 		require.Equal(t, "code_expired", errCode(http.StatusUnauthorized, stepUp("123456")))
 		code = send()

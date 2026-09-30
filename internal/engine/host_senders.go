@@ -3,94 +3,123 @@ package engine
 import (
 	"context"
 	"fmt"
-	stdlog "log"
-	"sync/atomic"
+	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/lang"
 )
 
-// EmailSender mirrors authkit.EmailSender.
-type EmailSender interface {
-	SendVerification(ctx context.Context, email, username string, msg iam.VerificationMessage) error
-	SendPasswordResetLink(ctx context.Context, email, username, resetURL string) error
-	SendAccountRegistrationInvite(ctx context.Context, email, inviteURL string) error
-	SendLoginCode(ctx context.Context, email, username, code string) error
-	SendWelcome(ctx context.Context, email, username string) error
-	// SendContactChanged goes to the address that was just REPLACED.
-	SendContactChanged(ctx context.Context, email, username string, change iam.ContactChange) error
-	// SendDeviceKeyEnrolled tells the account's address that a new device key
-	// can now sign in as it.
-	SendDeviceKeyEnrolled(ctx context.Context, email, username string, notice iam.DeviceKeyNotice) error
-	// SendMFAReset tells the account's address that the system removed its
-	// passkeys, second factors and device keys and signed it out everywhere.
-	SendMFAReset(ctx context.Context, email, username string) error
-}
-
-// SMSSender mirrors authkit.SMSSender.
-type SMSSender interface {
-	SendVerification(ctx context.Context, phone string, msg iam.VerificationMessage) error
-	SendPasswordResetLink(ctx context.Context, phone, resetURL string) error
-	SendLoginCode(ctx context.Context, phone, code string) error
-	// SendContactChanged goes to the number that was just REPLACED.
-	SendContactChanged(ctx context.Context, phone string, change iam.ContactChange) error
-}
-
-// smsHealthChecker mirrors authkit.SMSHealthChecker.
-type smsHealthChecker interface {
-	CheckHealth(ctx context.Context) error
-}
-
-// HasEmailSender returns true if an email sender is configured.
+// HasEmailSender reports whether Deps.Email is set.
 func (s *Engine) HasEmailSender() bool { return s.email != nil }
 
-// hasSMSSender returns true if an SMS sender is configured.
-func (s *Engine) hasSMSSender() bool { return s.sms != nil }
+// sendEmail delivers msg under the per-send timeout.
+func (s *Engine) sendEmail(ctx context.Context, msg iam.EmailMessage) error {
+	return emailDeliveryError(s.withSendTimeout(ctx, func(ctx context.Context) error { return s.email(ctx, msg) }))
+}
 
-// smsHealth is the latest SMS deliverability verdict. It is optimistic: SMS
-// counts as available until a check has failed, so startup never waits on the
-// SMS provider, and every later check overwrites the verdict.
+// sendSMS delivers msg under the per-send timeout.
+func (s *Engine) sendSMS(ctx context.Context, msg iam.SMSMessage) error {
+	return smsDeliveryError(s.withSendTimeout(ctx, func(ctx context.Context) error { return s.sms(ctx, msg) }))
+}
+
+// messageLanguage is a message's language: preferred (the account's), else
+// the request's, else Config.Languages.Default.
+func (s *Engine) messageLanguage(ctx context.Context, preferred string) string {
+	if l := lang.Normalize(preferred); l != "" {
+		return l
+	}
+	if l := lang.Request(ctx); l != "" {
+		return l
+	}
+	if s.cfg.Languages.Default != "" {
+		return s.cfg.Languages.Default
+	}
+	return lang.Default
+}
+
+// userLanguage is messageLanguage for an account's stored preference.
+func (s *Engine) userLanguage(ctx context.Context, userID string) string {
+	preferred := ""
+	if s.pg != nil && userID != "" {
+		preferred, _ = s.q.UserPreferredLanguage(ctx, userID)
+	}
+	return s.messageLanguage(ctx, preferred)
+}
+
+// smsHealth is the latest Deps.SMSHealth verdict. SMS counts as available
+// until a check has failed, so startup never waits on the provider.
 type smsHealth struct {
-	checked atomic.Bool
-	healthy atomic.Bool
+	mu        sync.Mutex
+	checkedAt time.Time
+	err       error
+	stop      context.CancelFunc
 }
 
-func (h *smsHealth) record(err error) {
-	h.healthy.Store(err == nil)
-	h.checked.Store(true)
-}
-
-func (h *smsHealth) available() bool { return !h.checked.Load() || h.healthy.Load() }
-
-// CheckSMSHealth probes, without sending a message, whether the configured SMS
-// sender can deliver (when it implements SMSHealthChecker) and records the
-// verdict that gates phone flows via SMSAvailable. Every call re-records, so
-// hosts register it as an optional dependency probe rather than calling it
-// once at boot: a failure disables phone flows (503) and the next passing
-// probe re-arms them. Without a sender, or one that cannot self-check, it
-// records healthy.
-func (s *Engine) CheckSMSHealth(ctx context.Context) error {
-	if s == nil {
+// checkSMSHealth runs Deps.SMSHealth and records its verdict, which gates
+// phone flows: a failure disables them and the next pass re-arms them.
+func (s *Engine) checkSMSHealth(ctx context.Context) error {
+	if s.smsCheck == nil {
 		return nil
 	}
-	checker, ok := s.sms.(smsHealthChecker)
-	if s.sms == nil || !ok {
-		s.smsHealth.record(nil)
-		return nil
+	started := time.Now()
+	err := s.smsCheck(ctx)
+	s.smsHealth.mu.Lock()
+	s.smsHealth.checkedAt, s.smsHealth.err = started, err
+	s.smsHealth.mu.Unlock()
+	if err != nil {
+		slog.WarnContext(ctx, "authkit: SMS health check failed; phone flows are unavailable until it passes", "error", err)
 	}
-	err := checker.CheckHealth(ctx)
-	s.smsHealth.record(err)
 	return err
 }
 
-// SMSHealthy reports the latest CheckSMSHealth verdict; true until a check fails.
-func (s *Engine) SMSHealthy() bool { return s != nil && s.smsHealth.available() }
+// SMSHealth is the latest Deps.SMSHealth verdict and when that check started;
+// a zero time means no check has run.
+func (s *Engine) SMSHealth() (time.Time, error) {
+	s.smsHealth.mu.Lock()
+	defer s.smsHealth.mu.Unlock()
+	return s.smsHealth.checkedAt, s.smsHealth.err
+}
 
-// SMSAvailable reports whether phone-based flows should be offered: a sender is
-// configured and the latest health check (if any) passed.
+// SMSAvailable reports whether phone flows are offered: Deps.SMS is set and
+// the latest health check, if any, passed.
 func (s *Engine) SMSAvailable() bool {
-	return s.hasSMSSender() && s.SMSHealthy()
+	_, err := s.SMSHealth()
+	return s.sms != nil && err == nil
+}
+
+// startSMSHealth runs Deps.SMSHealth now and every Config.SMSHealthInterval
+// until Close.
+func (s *Engine) startSMSHealth() {
+	s.smsHealth.mu.Lock()
+	defer s.smsHealth.mu.Unlock()
+	if s.smsCheck == nil || s.smsHealth.stop != nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	s.smsHealth.stop = cancel
+	go func() {
+		for {
+			check, done := context.WithTimeout(ctx, time.Minute)
+			_ = s.checkSMSHealth(check)
+			done()
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(s.cfg.SMSHealthInterval):
+			}
+		}
+	}()
+}
+
+func (s *Engine) stopSMSHealth() {
+	s.smsHealth.mu.Lock()
+	defer s.smsHealth.mu.Unlock()
+	if s.smsHealth.stop != nil {
+		s.smsHealth.stop()
+	}
 }
 
 func emailDeliveryError(err error) error {
@@ -107,44 +136,11 @@ func smsDeliveryError(err error) error {
 	return fmt.Errorf("%w: %w", errmodel.ErrSMSDeliveryFailed, err)
 }
 
-// ValidateVerificationConfiguration ensures registration verification policy
-// can be satisfied by currently configured delivery senders.
-func (s *Engine) ValidateVerificationConfiguration() error {
-	if s == nil {
-		return nil
-	}
-	policy := s.registrationVerificationPolicy()
-	hasVerificationSender := s.email != nil || s.sms != nil
-
-	if policy == iam.RegistrationVerificationRequired && !hasVerificationSender {
-		return fmt.Errorf("authkit: registration verification policy is %q but no email or SMS sender is configured", iam.RegistrationVerificationRequired)
-	}
-
-	if !hasVerificationSender {
-		s.verifyWarnOnce.Do(func() {
-			stdlog.Printf("authkit: warning: no email or SMS sender configured; verification delivery is disabled")
-		})
-	}
-	return nil
-}
-
-// verificationSendTimeout is the per-send deadline for in-line email/SMS
-// provider calls. Configurable via Registration.VerificationSendTimeout; defaults to
-// 15s when unset.
-func (s *Engine) verificationSendTimeout() time.Duration {
-	if s != nil && s.cfg.Registration.VerificationSendTimeout > 0 {
-		return s.cfg.Registration.VerificationSendTimeout
-	}
-	return 15 * time.Second
-}
-
-// withSendTimeout runs a single email/SMS provider send under a bounded context
-// so a configured-but-misconfigured/unreachable provider cannot hang the
-// request that triggered it (e.g. registration verification). It is loop-safe:
-// the deadline is cancelled as soon as the send returns, not at the end of the
-// calling function.
+// withSendTimeout runs one provider send under
+// Registration.VerificationSendTimeout, so an unreachable provider cannot hang
+// the request that triggered it.
 func (s *Engine) withSendTimeout(ctx context.Context, send func(context.Context) error) error {
-	ctx, cancel := context.WithTimeout(ctx, s.verificationSendTimeout())
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.Registration.VerificationSendTimeout)
 	defer cancel()
 	return send(ctx)
 }
