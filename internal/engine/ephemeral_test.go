@@ -259,7 +259,7 @@ func TestDPoPReplayStoreOutageFailsClosed(t *testing.T) {
 	require.Equal(t, "DPoP", minted.TokenType)
 
 	const resource = "https://resource.example"
-	v := verify.NewVerifier(verify.WithDPoP(e.ClaimDPoPProof), verify.WithRequestOrigin(resource))
+	v := verify.NewVerifier(verify.WithDPoP(e.ClaimDPoPProof), verify.WithPublicURL(resource))
 	require.NoError(t, v.AddIssuer(cfg.Token.Issuer, []string{"platform"}, verify.IssuerOptions{KeySource: deps.KeySource}))
 	req := httptest.NewRequest(http.MethodGet, resource+"/tasks", nil)
 	req.Header.Set("Authorization", "DPoP "+minted.AccessToken)

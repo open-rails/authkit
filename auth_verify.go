@@ -56,7 +56,7 @@ func (a *Client) IssuerKeyStatuses() []verify.IssuerKeyStatus { return a.engine.
 // NewVerifier builds a Verifier for a host resource server in this process:
 // this deployment's API keys and tokens and its remote applications' tokens,
 // for audiences. DPoP proofs are spent once in AuthKit's replay store and
-// checked against verify.WithRequestOrigin (default: the issuer's origin).
+// checked against verify.WithPublicURL (default: the issuer's origin).
 func (a *Client) NewVerifier(audiences []string, opts ...verify.VerifierOption) (*Verifier, error) {
 	v, err := a.engine.NewAuthenticator(audiences, opts...)
 	if err != nil {

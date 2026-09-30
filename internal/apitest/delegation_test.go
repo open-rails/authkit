@@ -157,7 +157,7 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 	// store, so one proof is spent once across every verifier.
 	resourceMux := http.NewServeMux()
 	resource := httptest.NewTLSServer(resourceMux)
-	verifier, err := auth.NewVerifier([]string{"platform"}, verify.WithRequestOrigin(resource.URL))
+	verifier, err := auth.NewVerifier([]string{"platform"}, verify.WithPublicURL(resource.URL))
 	require.NoError(t, err)
 	resourceMux.Handle("/", delegatedResource(verifier))
 	resourceMux.Handle("/required", verify.Required(verifier)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })))
@@ -198,7 +198,7 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 	_, err = auth.MintDelegatedAccessToken(ctx, iam.SystemActor(), iam.DelegatedAccess{Subject: u.ID, CertificateThumbprint: jose.CertificateThumbprint([]byte{1}), JWKThumbprint: requestFacts.JWKThumbprint})
 	require.Error(t, err)
 	oneProof := resourceProof(minted.Token)
-	secondVerifier, err := auth.NewVerifier([]string{"platform"}, verify.WithRequestOrigin(resource.URL))
+	secondVerifier, err := auth.NewVerifier([]string{"platform"}, verify.WithPublicURL(resource.URL))
 	require.NoError(t, err)
 	replayed := httptest.NewRequest(http.MethodGet, resource.URL+"/tasks", nil)
 	replayed.Header.Set("Authorization", "DPoP "+minted.Token)

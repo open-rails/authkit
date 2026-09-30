@@ -28,7 +28,7 @@ import (
 type Verifier struct {
 	skew       time.Duration
 	dpopReplay dpop.ReplayGuard
-	origin     string
+	publicURL  string
 	keys       *jwks.Cache
 
 	mu      sync.RWMutex
@@ -51,7 +51,7 @@ type verifierConfig struct {
 	skew       time.Duration
 	client     *http.Client
 	dpopReplay dpop.ReplayGuard
-	origin     string
+	publicURL  string
 }
 
 // WithSkew sets the clock skew allowed on exp, nbf and iat (default 60s).
@@ -65,7 +65,7 @@ func WithHTTPClient(client *http.Client) VerifierOption {
 	return func(c *verifierConfig) { c.client = client }
 }
 
-// WithDPoP accepts RFC 9449 DPoP-bound delegated tokens, with WithRequestOrigin.
+// WithDPoP accepts RFC 9449 DPoP-bound delegated tokens, with WithPublicURL.
 // replay is the proof replay store (*authkit.Client.ClaimDPoPProof, or the
 // host's): it atomically claims key until ttl and returns true only for the
 // first claim; every replica must share it, and its errors fail closed.
@@ -73,11 +73,13 @@ func WithDPoP(replay func(ctx context.Context, key string, ttl time.Duration) (b
 	return func(c *verifierConfig) { c.dpopReplay = replay }
 }
 
-// WithRequestOrigin is the externally visible origin of the requests the
-// verifier sees ("https://api.example.com"): a DPoP proof must name it plus
-// the request's path. No Host or Forwarded header is consulted.
-func WithRequestOrigin(origin string) VerifierOption {
-	return func(c *verifierConfig) { c.origin = strings.TrimRight(strings.TrimSpace(origin), "/") }
+// WithPublicURL is where clients reach the paths this verifier sees:
+// "https://api.example.com", or "https://example.com/api" when a proxy in
+// front strips /api. A DPoP proof must name it plus the request's path, the
+// rule HTTPConfig.PublicURL sets for AuthKit's own routes. No Host or
+// Forwarded header is consulted.
+func WithPublicURL(url string) VerifierOption {
+	return func(c *verifierConfig) { c.publicURL = strings.TrimRight(strings.TrimSpace(url), "/") }
 }
 
 // NewVerifier returns a Verifier that trusts no issuer until AddIssuer.
@@ -89,7 +91,7 @@ func NewVerifier(opts ...VerifierOption) *Verifier {
 	return &Verifier{
 		skew:       cfg.skew,
 		dpopReplay: cfg.dpopReplay,
-		origin:     cfg.origin,
+		publicURL:  cfg.publicURL,
 		keys:       jwks.New(cfg.client),
 		issuers:    map[string]issuer{},
 	}
