@@ -10,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/internal/db"
 	internalmigrations "github.com/open-rails/authkit/internal/migrations/postgres"
-	"github.com/open-rails/authkit/internal/migrations/retired"
 	"github.com/open-rails/migratekit"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivermigrate"
@@ -55,8 +54,8 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, opts MigrateOptions) error
 	}
 	defer migrator.Close()
 	// Strict integrity: an edited applied migration refuses unless the schema
-	// is unchanged. Databases built by a retired baseline are converted.
-	migrator = migrator.WithSchema(normalized).WithStrictIntegrity().WithConversions(retired.Conversions()...)
+	// is unchanged.
+	migrator = migrator.WithSchema(normalized).WithStrictIntegrity()
 	if err := migrator.ApplyMigrations(ctx, migrations); err != nil {
 		return fmt.Errorf("authkit: apply PostgreSQL migrations to schema %q: %w", normalized, err)
 	}
