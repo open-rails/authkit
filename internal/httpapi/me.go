@@ -148,4 +148,3 @@ func (s *Service) providerSupportsStepUp(name string) bool {
 	p, ok := s.provider(name)
 	return ok && p.SupportsStepUp()
 }
-

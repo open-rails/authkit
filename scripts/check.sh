@@ -117,19 +117,27 @@ if [[ "$mode" != workflows ]]; then
   git diff --exit-code -- internal/db
   test -z "$(git ls-files --others --exclude-standard -- internal/db)"
 
-  # Released migrations are immutable; new ones are numbered after them.
+  # Released migrations are immutable and new ones are numbered after them. A
+  # squash keeps the released chain verbatim under internal/migrations/retired
+  # (its conversion reads it) and restarts the numbering.
   migrations=internal/migrations/postgres
   release=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD)
-  changed=$(git diff --name-only --diff-filter=DMRT "$release" -- "$migrations/*.sql")
-  if [[ -n "$changed" ]]; then
-    printf 'migrations released in %s were changed or removed:\n%s\n' "$release" "$changed" >&2
-    exit 1
-  fi
-  last=$(git ls-tree --name-only "$release" -- "$migrations/" | sed -n 's|.*/\([0-9]*\)_.*\.sql$|\1|p' | sort -n | tail -1)
+  last=0
+  for path in $(git ls-tree --name-only "$release" -- "$migrations/" | grep '\.sql$'); do
+    blob=$(git rev-parse "$release:$path")
+    number=$(basename "$path")
+    number=${number%%_*}
+    if [[ -f $path && $(git hash-object "$path") == "$blob" ]]; then
+      if (( 10#$number > last )); then last=$((10#$number)); fi
+    elif ! git hash-object internal/migrations/retired/*/"$(basename "$path")" 2>/dev/null | grep -qx "$blob"; then
+      echo "migration $path released in $release was changed or removed; a squash keeps it verbatim under internal/migrations/retired" >&2
+      exit 1
+    fi
+  done
   for added in $(git diff --name-only --diff-filter=A "$release" -- "$migrations/*.sql"); do
     number=$(basename "$added")
     number=${number%%_*}
-    if (( 10#$number <= 10#$last )); then
+    if (( 10#$number <= last )); then
       echo "new migration $added must be numbered after $last (released in $release)" >&2
       exit 1
     fi
