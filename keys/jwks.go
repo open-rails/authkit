@@ -12,23 +12,12 @@ import (
 	"math/big"
 	"strings"
 
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/keypolicy"
 )
 
 // JWK is a JSON Web Key (RSA, EC or OKP).
-type JWK struct {
-	Kty string `json:"kty"`
-	Use string `json:"use,omitempty"`
-	Kid string `json:"kid,omitempty"`
-	Alg string `json:"alg,omitempty"`
-	// RSA
-	N string `json:"n,omitempty"`
-	E string `json:"e,omitempty"`
-	// EC / OKP
-	Crv string `json:"crv,omitempty"`
-	X   string `json:"x,omitempty"`
-	Y   string `json:"y,omitempty"`
-}
+type JWK = iam.JWK
 
 // JWKS is a JSON Web Key Set.
 type JWKS struct {
@@ -72,6 +61,10 @@ func PublicJWK(pub crypto.PublicKey, kid, alg string) JWK {
 		return JWK{Kid: kid, Alg: alg}
 	}
 }
+
+// ParsePublicJWK parses a public JWK under AuthKit's key policy, like
+// ParsePublicPEM.
+func ParsePublicJWK(j JWK) (crypto.PublicKey, error) { return publicKey(j) }
 
 // publicKey parses one JWK under the key policy.
 func publicKey(j JWK) (crypto.PublicKey, error) {

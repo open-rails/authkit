@@ -104,8 +104,8 @@ type IssuerOptions struct {
 	// its keys expire or an unknown kid arrives. Expired keys keep verifying
 	// while refreshes fail, up to MaxStale.
 	JWKSURI string
-	// Keys are static PEM public keys, each with its kid. Replace them by
-	// calling AddIssuer again.
+	// Keys are static public keys (PEM or JWK), each with its kid. Replace
+	// them by calling AddIssuer again.
 	Keys []iam.RemoteApplicationKey
 	// KeySource is read live on every verification: a co-located, rotating
 	// key source such as AuthKit's own.
@@ -188,17 +188,17 @@ func (v *Verifier) RemoveIssuer(issuerID string) {
 func staticKeys(set []iam.RemoteApplicationKey) (map[string]crypto.PublicKey, error) {
 	out := make(map[string]crypto.PublicKey, len(set))
 	for _, k := range set {
-		if k.KID == "" || k.KID != strings.TrimSpace(k.KID) {
+		kid, pub, err := jose.StaticKey(k)
+		if err != nil {
+			return nil, fmt.Errorf("key %q: %w", kid, err)
+		}
+		if kid == "" || kid != strings.TrimSpace(kid) {
 			return nil, errors.New("key ID required without surrounding whitespace")
 		}
-		if _, dup := out[k.KID]; dup {
-			return nil, fmt.Errorf("duplicate key ID %q", k.KID)
+		if _, dup := out[kid]; dup {
+			return nil, fmt.Errorf("duplicate key ID %q", kid)
 		}
-		pub, err := keys.ParsePublicPEM([]byte(k.PublicKeyPEM))
-		if err != nil {
-			return nil, fmt.Errorf("key %q: %w", k.KID, err)
-		}
-		out[k.KID] = pub
+		out[kid] = pub
 	}
 	return out, nil
 }

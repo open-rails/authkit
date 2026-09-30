@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"slices"
@@ -113,7 +114,7 @@ func (f *federation) isEnabled(ctx context.Context, iss string, list func(contex
 
 // register trusts app's current key source on a's verifier, replacing the
 // earlier one when it changed: JWKS mode fetches from its URI, static mode
-// uses its PEM list.
+// uses its key list.
 func (a *Authenticator) register(app iam.RemoteApplication) error {
 	var opts verify.IssuerOptions
 	source := string(app.Mode)
@@ -125,9 +126,8 @@ func (a *Authenticator) register(app iam.RemoteApplication) error {
 		source += " " + opts.JWKSURI
 	case iam.RemoteApplicationModeStatic:
 		opts.Keys = app.PublicKeys
-		for _, k := range app.PublicKeys {
-			source += " " + k.KID + "=" + k.PublicKeyPEM
-		}
+		keys, _ := json.Marshal(app.PublicKeys)
+		source += " " + string(keys)
 	default:
 		return errors.New("unknown application trust mode")
 	}

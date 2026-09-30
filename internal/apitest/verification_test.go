@@ -152,9 +152,11 @@ func TestRemoteApplicationTokens(t *testing.T) {
 	require.Equal(t, app.Issuer, service.Issuer)
 	require.Equal(t, http.StatusNoContent, gateStatus(t, verify.RequirePermissionOn(partner, group, m.catalog), forPartner), "the Verifier is an Authority")
 
-	// Rotating the static key takes effect on the next request.
+	// Rotating the static key takes effect on the next request; a JWK names
+	// its own kid.
 	rotated := testkeys.RSA("app-2")
-	app.PublicKeys = []iam.RemoteApplicationKey{{KID: rotated.KID(), PublicKeyPEM: publicKeyPEM(t, rotated.Public())}}
+	jwk := keys.PublicJWK(rotated.Public(), rotated.KID(), "")
+	app.PublicKeys = []iam.RemoteApplicationKey{{JWK: &jwk}}
 	app, err = auth.UpsertRemoteApplication(ctx, iam.SystemActor(), group, app)
 	require.NoError(t, err)
 	_, err = auth.Verify(ctx, sign(signer, jose.RemoteApplicationAccessTokenType, authtest.Audience, nil))

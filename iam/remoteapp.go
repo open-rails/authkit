@@ -24,10 +24,12 @@ const (
 )
 
 // RemoteApplicationKey is one entry of a static-mode principal's human-managed key list
-// (stored as jsonb; edited like an authorized_keys file).
+// (stored as jsonb; edited like an authorized_keys file): exactly one of
+// PublicKeyPEM and JWK. An empty KID takes the JWK's kid.
 type RemoteApplicationKey struct {
 	KID          string `json:"kid,omitempty" yaml:"kid,omitempty"`
 	PublicKeyPEM string `json:"public_key_pem" yaml:"public_key_pem"`
+	JWK          *JWK   `json:"jwk,omitempty" yaml:"jwk,omitempty"`
 }
 
 // RemoteApplication is a registered federation principal: an external issuer

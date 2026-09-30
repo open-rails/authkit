@@ -236,13 +236,17 @@ func leafCertificate(t *testing.T) *x509.Certificate {
 func TestAddIssuer(t *testing.T) {
 	f := newFixture(t)
 	s := testkeys.RSA("k")
+	jwk := keys.PublicJWK(s.Public(), s.KID(), "")
 	for name, opts := range map[string]IssuerOptions{
-		"no key source":  {},
-		"two sources":    {JWKSURI: "https://peer.example/jwks", KeySource: testkeys.Source(s)},
-		"bad PEM":        {Keys: []iam.RemoteApplicationKey{{KID: "k", PublicKeyPEM: "nope"}}},
-		"no kid":         {Keys: []iam.RemoteApplicationKey{{PublicKeyPEM: pemKey(t, s).PublicKeyPEM}}},
-		"duplicate kid":  {Keys: []iam.RemoteApplicationKey{pemKey(t, s), pemKey(t, s)}},
-		"over the local": {KeySource: testkeys.Source(s)},
+		"PEM and JWK":       {Keys: []iam.RemoteApplicationKey{{KID: "k", PublicKeyPEM: pemKey(t, s).PublicKeyPEM, JWK: &jwk}}},
+		"bad JWK":           {Keys: []iam.RemoteApplicationKey{{KID: "k", JWK: &iam.JWK{Kty: "RSA"}}}},
+		"kid not the JWK's": {Keys: []iam.RemoteApplicationKey{{KID: "other", JWK: &jwk}}},
+		"no key source":     {},
+		"two sources":       {JWKSURI: "https://peer.example/jwks", KeySource: testkeys.Source(s)},
+		"bad PEM":           {Keys: []iam.RemoteApplicationKey{{KID: "k", PublicKeyPEM: "nope"}}},
+		"no kid":            {Keys: []iam.RemoteApplicationKey{{PublicKeyPEM: pemKey(t, s).PublicKeyPEM}}},
+		"duplicate kid":     {Keys: []iam.RemoteApplicationKey{pemKey(t, s), pemKey(t, s)}},
+		"over the local":    {KeySource: testkeys.Source(s)},
 	} {
 		issuer := "https://new.example"
 		if name == "over the local" {
@@ -251,8 +255,12 @@ func TestAddIssuer(t *testing.T) {
 		require.Error(t, f.v.AddIssuer(issuer, []string{audience}, opts), name)
 	}
 	require.Error(t, f.v.AddIssuer("https://new.example", []string{" "}, IssuerOptions{KeySource: testkeys.Source(s)}), "an issuer needs an audience")
+	// A JWK key carries its kid.
+	require.NoError(t, f.v.AddIssuer("https://jwk.example", []string{audience}, IssuerOptions{Keys: []iam.RemoteApplicationKey{{JWK: &jwk}}}))
+	_, err := f.v.Verify(context.Background(), sign(t, s, jose.DelegatedAccessTokenType, "https://jwk.example", map[string]any{"delegated_sub": "agent", "jti": "j-1"}))
+	require.NoError(t, err)
 	// The failed attempt left the local issuer as it was.
-	_, err := f.v.Verify(context.Background(), sign(t, f.local, jose.AccessTokenType, localIssuer, map[string]any{"sub": "u"}))
+	_, err = f.v.Verify(context.Background(), sign(t, f.local, jose.AccessTokenType, localIssuer, map[string]any{"sub": "u"}))
 	require.NoError(t, err)
 
 	// A live key source is read on every verification: rotation needs no
