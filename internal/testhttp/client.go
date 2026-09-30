@@ -11,7 +11,8 @@ import (
 )
 
 // Client builds a Client serving httpCfg (nil: headless) with Google and
-// GitHub providers, so provider routes exist; opts adjust the rest.
+// GitHub providers, so provider routes exist; opts adjust the rest. Unless
+// httpCfg sets RateLimits, authtest's lifted limits apply.
 func Client(t testing.TB, httpCfg *authkit.HTTPConfig, opts ...authtest.Option) *authkit.Client {
 	t.Helper()
 	return ClientAt(t, authtest.Issuer, httpCfg, opts...)
@@ -25,6 +26,11 @@ func ClientAt(t testing.TB, issuer string, httpCfg *authkit.HTTPConfig, opts ...
 		c.Token = authkit.TokenConfig{Issuer: issuer, IssuedAudiences: []string{"test"}}
 		c.TwoFactor.Mode = iam.TwoFactorDisabled
 		c.River.HostOwned = true
+		if httpCfg != nil && httpCfg.RateLimits == nil {
+			h := *httpCfg
+			h.RateLimits = c.HTTP.RateLimits
+			httpCfg = &h
+		}
 		c.HTTP = httpCfg
 	}), authtest.WithDeps(func(d *authkit.Deps) {
 		d.Providers = []provider.Provider{provider.Google("google-client", "google-secret"), provider.GitHub("github-client", "github-secret")}
@@ -32,6 +38,5 @@ func ClientAt(t testing.TB, issuer string, httpCfg *authkit.HTTPConfig, opts ...
 	return auth
 }
 
-// HTTP is a direct-peer HTTP configuration for tests; authtest's Deps have
-// no rate limits.
+// HTTP is a direct-peer HTTP configuration for tests.
 func HTTP() *authkit.HTTPConfig { return &authkit.HTTPConfig{DirectPeerIP: true} }
