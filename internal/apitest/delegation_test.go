@@ -134,7 +134,9 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 	require.Equal(t, float64(60), claims["exp"].(float64)-claims["iat"].(float64))
 	require.Equal(t, http.StatusUnauthorized, post(a, body, session.AccessToken, proof, nil))
 	require.Equal(t, `DPoP error="invalid_dpop_proof", algs="ES256"`, lastChallenge)
-	require.Equal(t, http.StatusBadRequest, post(a, body, session.AccessToken, "", nil))
+	// No DPoP proof and no certificate: the token would bind to nothing.
+	require.Equal(t, http.StatusUnauthorized, post(a, body, session.AccessToken, "", nil))
+	require.Equal(t, `DPoP algs="ES256"`, lastChallenge)
 	require.Equal(t, http.StatusUnauthorized, post(a, body, "", proofFor(target, ""), nil))
 	require.Equal(t, http.StatusUnauthorized, post(a, body, session.AccessToken, proofFor(target, "wrong-parent"), nil))
 	require.Equal(t, http.StatusBadRequest, post(a, delegationBody(newDelegateCertificate(t, nil), ""), session.AccessToken, proofFor(target, session.AccessToken), nil))
