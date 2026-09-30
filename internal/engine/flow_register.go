@@ -144,11 +144,10 @@ func registrationErr(stage string, err error) error {
 }
 
 func (s *Engine) registeredSession(ctx context.Context, in authflow.RegisterInput, out authflow.RegisterOutcome, account registeredAccount) (authflow.RegisterOutcome, error) {
-	login, err := s.finishFirstFactor(ctx, loginProof{Version: account.Version, AuthenticatedAt: time.Now().UTC(), Input: loginSessionInput{UserID: account.ID, AuthMethods: []string{"pwd"}, Event: "registration", UserAgent: in.UserAgent, IP: in.IP}})
+	login, err := s.finishFirstFactor(ctx, loginProof{Version: account.Version, AuthenticatedAt: time.Now().UTC(), Created: true, Input: loginSessionInput{UserID: account.ID, AuthMethods: []string{"pwd"}, Event: "registration", UserAgent: in.UserAgent, IP: in.IP}})
 	if err != nil {
 		return authflow.RegisterOutcome{}, err
 	}
-	login.Created = true
 	out.Kind, out.Login = authflow.RegisterSignedIn, &login
 	return out, nil
 }

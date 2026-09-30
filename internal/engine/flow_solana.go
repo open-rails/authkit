@@ -161,9 +161,7 @@ func (s *Engine) VerifySIWSAndLogin(ctx context.Context, output siws.SignInOutpu
 	if err != nil {
 		return authflow.LoginOutcome{}, err
 	}
-	out, err := s.finishFirstFactor(ctx, loginProof{ProviderID: link.ProviderID, ProviderIssuer: s.solanaIssuer(), ProviderSubject: output.Account.Address, Version: link.CredentialVersion, AuthenticatedAt: time.Now().UTC(), Input: loginSessionInput{UserID: userID, AuthMethods: []string{"swk"}, Event: "solana_login", Extra: extra}})
-	out.Created = created
-	return out, err
+	return s.finishFirstFactor(ctx, loginProof{ProviderID: link.ProviderID, ProviderIssuer: s.solanaIssuer(), ProviderSubject: output.Account.Address, Version: link.CredentialVersion, AuthenticatedAt: time.Now().UTC(), Created: created, Input: loginSessionInput{UserID: userID, AuthMethods: []string{"swk"}, Event: "solana_login", Extra: extra}})
 }
 
 // LinkSolanaWallet links the Solana wallet a SIWS output proves to an existing

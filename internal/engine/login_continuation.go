@@ -25,7 +25,10 @@ type loginProof struct {
 	ProviderSubject string `json:"provider_subject,omitempty"`
 	PasskeyID       string `json:"passkey_id,omitempty"`
 	nonce           string
-	ReturnTo        string            `json:"return_to,omitempty"`
+	ReturnTo        string `json:"return_to,omitempty"`
+	// Created: this sign-in's first factor created the account; the finished
+	// sign-in reports it after a second factor or an enrollment too.
+	Created         bool              `json:"created,omitempty"`
 	Input           loginSessionInput `json:"input"`
 	Version         int64             `json:"version"`
 	Issuer          string            `json:"issuer"`
@@ -104,7 +107,7 @@ func (s *Engine) finishFirstFactor(ctx context.Context, proof loginProof) (authf
 	if gateErr != nil && !errors.Is(gateErr, iam.ErrTwoFAEnrollmentRequired) && !errors.Is(gateErr, errTwoFARequired) {
 		return authflow.LoginOutcome{}, gateErr
 	}
-	out := authflow.LoginOutcome{UserID: user.ID, ReturnTo: proof.ReturnTo}
+	out := authflow.LoginOutcome{UserID: user.ID, ReturnTo: proof.ReturnTo, Created: proof.Created}
 	if needsChallenge || gateErr != nil {
 		// Enrollment JWTs authorize account mutations. A deleted account may
 		// complete an existing factor, but never receives an enrollment token.

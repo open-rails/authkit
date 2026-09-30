@@ -184,8 +184,8 @@ func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	ref := iam.RootGroup()
-	if q.GroupID != "" && q.GroupID != "root" {
-		ref = iam.GroupByID(q.GroupID)
+	if q.GroupID != "" {
+		ref = groupRef(q.GroupID)
 	}
 	out := PermissionSet{GroupID: q.GroupID, Permissions: []iam.Perm{}}
 	g, err := s.svc.Group(r.Context(), ref)

@@ -2,10 +2,8 @@ package httpapi
 
 import (
 	"net/http"
-	"slices"
 	"strings"
 
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
 )
@@ -88,34 +86,4 @@ func (s *Service) handleMeSessionEventsGET(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	list(w, page)
-}
-
-// sessionEventKinds are the kinds ?kind= may name.
-var sessionEventKinds = []iam.SessionEventKind{
-	iam.SessionEventCreated, iam.SessionEventFailed, iam.SessionEventRevoked,
-	iam.SessionEventPasswordChange, iam.SessionEventPasswordRecovery, iam.SessionEventAccountSessionsRevoked,
-}
-
-// readSessionEventQuery reads a session history's ?kind=, ?cursor= and
-// ?limit=, answering 400 for an unknown kind or a bad limit.
-func readSessionEventQuery(w http.ResponseWriter, r *http.Request) (iam.SessionEventQuery, bool) {
-	var query SessionEventQuery
-	if !readQuery(w, r, &query) {
-		return iam.SessionEventQuery{}, false
-	}
-	page, err := query.Page()
-	if err != nil {
-		writeError(w, err)
-		return iam.SessionEventQuery{}, false
-	}
-	q := iam.SessionEventQuery{Page: page}
-	for _, k := range query.Kind {
-		kind := iam.SessionEventKind(k)
-		if !slices.Contains(sessionEventKinds, kind) {
-			fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("kind"))
-			return iam.SessionEventQuery{}, false
-		}
-		q.Kinds = append(q.Kinds, kind)
-	}
-	return q, true
 }

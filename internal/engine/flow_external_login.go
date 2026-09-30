@@ -34,8 +34,7 @@ func (s *Engine) CompleteExternalLogin(ctx context.Context, in authflow.External
 	if err != nil {
 		return authflow.LoginOutcome{}, err
 	}
-	out, err := s.finishFirstFactor(ctx, loginProof{ProviderID: link.ProviderID, ProviderIssuer: in.Identity.Issuer, ProviderSubject: in.Identity.Subject, Version: link.CredentialVersion, AuthenticatedAt: time.Now().UTC(), ReturnTo: in.ReturnTo, Input: loginSessionInput{UserID: userID, AuthMethods: []string{"oauth"}, Event: in.Event, Extra: map[string]any{"provider": in.Identity.Provider}, UserAgent: in.UserAgent, IP: in.IP}})
-	out.Created = created
+	out, err := s.finishFirstFactor(ctx, loginProof{ProviderID: link.ProviderID, ProviderIssuer: in.Identity.Issuer, ProviderSubject: in.Identity.Subject, Version: link.CredentialVersion, AuthenticatedAt: time.Now().UTC(), ReturnTo: in.ReturnTo, Created: created, Input: loginSessionInput{UserID: userID, AuthMethods: []string{"oauth"}, Event: in.Event, Extra: map[string]any{"provider": in.Identity.Provider}, UserAgent: in.UserAgent, IP: in.IP}})
 	if err == nil && created {
 		s.SendWelcome(ctx, userID)
 	}
