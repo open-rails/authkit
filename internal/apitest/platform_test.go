@@ -316,11 +316,7 @@ func testWorkflowRateLimits(t *testing.T, rdb *redis.Client) {
 	// staleSession signs u in from address and ages the session, so a
 	// sensitive change asks for the password again.
 	staleSession := func(u authtest.User, address string) string {
-		res := signIn(a, u, u.Password, address)
-		require.Equal(t, http.StatusOK, res.status, res.String())
-		var tokens iam.TokenSet
-		res.decode(t, &tokens)
-		return authtest.StaleSession(t, auth, tokens.AccessToken)
+		return authtest.StaleSession(t, auth, signIn(a, u, u.Password, address).answer(t).signedIn(t).AccessToken)
 	}
 
 	owner := authtest.NewUser(t, auth)
