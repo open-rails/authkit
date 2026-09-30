@@ -36,12 +36,33 @@ func contactStateForUpdate(ctx context.Context, q db.DBTX, userID string) (db.Co
 	return db.ContactStateRow(st), err
 }
 
-func contactVerificationRequired(st db.ContactStateRow) error {
+func contactVerificationRequired(identifier, channel string) error {
 	return errmodel.E(errmodel.CodeVerificationRequired, errmodel.WithMetadata(map[string]any{
-		"identifier": st.Identifier,
-		"channel":    st.Channel,
+		"identifier": identifier,
+		"channel":    channel,
 		"reason":     "contact_unproven",
 	}))
+}
+
+// refuseProofBesideUnproven refuses a contact change on channel (email or
+// sms) that would prove a new address while the account's other address
+// stays unproven (ak#417). On an account with no proven address, a change may
+// only replace the unproven address: its first proof is then always of, or in
+// place of, the address it was registered with, and retires every credential
+// that predates it. Proving a second address instead would make the account
+// proven, so the real owner's later proof of the first would leave the
+// squatter's credentials, and the squatter's verified address, in place.
+func refuseProofBesideUnproven(u *db.User, channel string) error {
+	if u == nil || u.Email != nil && u.EmailVerified || u.PhoneNumber != nil && u.PhoneVerified {
+		return nil
+	}
+	switch {
+	case channel != passwordlessChannelEmail && u.Email != nil:
+		return contactVerificationRequired(*u.Email, "email")
+	case channel != passwordlessChannelSMS && u.PhoneNumber != nil:
+		return contactVerificationRequired(*u.PhoneNumber, "phone")
+	}
+	return nil
 }
 
 // requireProvenContactOn refuses to add a login method while the account's
@@ -53,7 +74,7 @@ func requireProvenContactOn(ctx context.Context, q db.DBTX, userID string) error
 		return err
 	}
 	if st.Unproven {
-		return contactVerificationRequired(st)
+		return contactVerificationRequired(st.Identifier, st.Channel)
 	}
 	return nil
 }
@@ -67,8 +88,8 @@ func (s *Engine) RequireProvenContact(ctx context.Context, userID string) error 
 }
 
 // retirePreProofCredentials runs in the transaction that proves one of the
-// account's addresses, before the address is marked verified. When no address
-// was proven yet, whoever created the account's credentials was never shown to
+// account's addresses (or, for a contact change, replaces its unproven one),
+// before the address is marked verified. When no address was proven yet, whoever created the account's credentials was never shown to
 // control it, so every credential and session goes: provider links (including
 // Solana wallets), passkeys, device keys, 2FA factors and backup codes, the API
 // keys, invite links and account invitations the account issued, the

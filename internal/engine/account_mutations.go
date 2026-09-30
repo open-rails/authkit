@@ -396,7 +396,7 @@ func (s *Engine) keepMFAHolderProven(ctx context.Context, tx pgx.Tx, userID stri
 			return err
 		}
 	}
-	return contactVerificationRequired(after)
+	return contactVerificationRequired(after.Identifier, after.Channel)
 }
 
 // passwordForUpdate validates a new password against the policy and the

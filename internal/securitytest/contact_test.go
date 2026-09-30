@@ -225,6 +225,72 @@ func TestSecurityPreRegistrationTakeover(t *testing.T) {
 	})
 }
 
+// TestSecurityPreRegistrationContactChange (ak#417): a squatter who
+// registered the victim's address cannot make the account proven by proving
+// an address of its own through a contact change. The real owner's first
+// proof still leaves the squatter nothing, not even a recovery channel.
+func TestSecurityPreRegistrationContactChange(t *testing.T) {
+	h := newHost(t, withSMS, withHTTP(generousLimits))
+	ctx := context.Background()
+	victim := unique("ccvictim") + "@security.test"
+	attackerPhone := "+1555" + uniqueDigits(7)
+	squatter := h.register(victim)
+	userID := h.userID(victim)
+
+	resp := h.post("/verify/request", map[string]string{"identifier": attackerPhone}, squatter.AccessToken)
+	require.Equal(t, http.StatusForbidden, resp.status, "an unproven account started proving a second address: %s", resp)
+	identifier, channel := contactOf(t, resp)
+	require.Equal(t, victim, identifier)
+	require.Equal(t, "email", channel)
+	require.Empty(t, h.mail.Messages(iam.MessageVerification, attackerPhone), "a code went to the squatter's phone")
+	require.Equal(t, "verification_required", h.post("/user/2fa", map[string]string{"method": "totp"}, squatter.AccessToken).errorCode())
+
+	require.Less(t, h.post("/password/reset/request", map[string]string{"identifier": victim}, "").status, 300)
+	token := h.mail.Last(t, iam.MessagePasswordReset, victim).Token
+	resp = h.post("/password/reset/confirm", map[string]string{"token": token, "new_password": "Victim-owns-this-now-7"}, "")
+	require.Less(t, resp.status, 300, resp.String())
+	u, err := h.auth.User(ctx, iam.UserByID(userID))
+	require.NoError(t, err)
+	require.True(t, u.EmailVerified)
+	require.Nil(t, u.Phone, "the squatter kept a recovery channel")
+	require.Equal(t, http.StatusUnauthorized, h.refresh(squatter.RefreshToken).status, "the squatter's session survived")
+	login := h.post("/password/login", map[string]string{"identifier": victim, "password": password}, "")
+	require.Equal(t, http.StatusUnauthorized, login.status, "the squatter's password survived: %s", login)
+
+	t.Run("a change confirmed after the account lost its proof is refused", func(t *testing.T) {
+		a := h.newAccount("ccproven")
+		access := h.login(a).AccessToken
+		phone := "+1555" + uniqueDigits(7)
+		resp := h.post("/verify/request", map[string]string{"identifier": phone}, access)
+		require.Equal(t, http.StatusAccepted, resp.status, resp.String())
+		unproven := unique("ccunproven") + "@security.test"
+		_, err := h.auth.UpdateUser(ctx, iam.SystemActor(), a.id, iam.UserUpdate{Email: &unproven})
+		require.NoError(t, err)
+		resp = h.post("/verify/confirm", map[string]string{"identifier": phone, "code": h.mail.Last(t, iam.MessageVerification, phone).Code}, access)
+		require.Equal(t, http.StatusForbidden, resp.status, resp.String())
+		identifier, _ := contactOf(t, resp)
+		require.Equal(t, unproven, identifier)
+		u, err := h.auth.User(ctx, iam.UserByID(a.id))
+		require.NoError(t, err)
+		require.Nil(t, u.Phone)
+	})
+
+	t.Run("control: an unproven account may replace its address", func(t *testing.T) {
+		typo := unique("cctypo") + "@security.test"
+		own := h.register(typo)
+		fixed := unique("ccfixed") + "@security.test"
+		resp := h.post("/verify/request", map[string]string{"identifier": fixed}, own.AccessToken)
+		require.Equal(t, http.StatusAccepted, resp.status, resp.String())
+		resp = h.post("/verify/confirm", map[string]string{"identifier": fixed, "code": h.verificationCode(fixed)}, own.AccessToken)
+		require.Equal(t, http.StatusNoContent, resp.status, resp.String())
+		u, err := h.auth.User(ctx, iam.UserByEmail(fixed))
+		require.NoError(t, err)
+		require.True(t, u.EmailVerified)
+		require.Equal(t, http.StatusOK, h.refresh(own.RefreshToken).status, "the proving session was revoked")
+		h.register(typo) // the replaced address is free again
+	})
+}
+
 // TestSecurityRegistrationNeverSelfVerifies: no registration policy marks an
 // address verified without a proof of it.
 func TestSecurityRegistrationNeverSelfVerifies(t *testing.T) {

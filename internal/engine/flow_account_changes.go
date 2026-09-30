@@ -81,6 +81,9 @@ func (s *Engine) RequestPhoneChange(ctx context.Context, userID, newPhone string
 		}
 		return s.sendPhoneVerificationToUser(ctx, trimmed, userID, 0)
 	}
+	if err := refuseProofBesideUnproven(u, passwordlessChannelSMS); err != nil {
+		return err
+	}
 	// Check if new phone is already in use by another user.
 	existing, _ := s.getUserByPhone(ctx, trimmed)
 	if existing != nil && existing.ID != userID {
@@ -123,6 +126,9 @@ func (s *Engine) RequestEmailChange(ctx context.Context, userID, newEmail string
 			return errmodel.ErrEmailAlreadyVerified
 		}
 		return s.sendEmailVerificationToUser(ctx, u, 0)
+	}
+	if err := refuseProofBesideUnproven(u, passwordlessChannelEmail); err != nil {
+		return err
 	}
 	// Check if new email is already in use by another user.
 	existing, _ := s.getUserByEmail(ctx, trimmed)
