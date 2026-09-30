@@ -18,6 +18,7 @@ import {
 import { AuthUiProvider } from "../../provider.tsx"
 import { AuthProvider } from "../../react/provider.tsx"
 import { session, signedIn } from "../../react/testing.tsx"
+import { AuthCallback } from "./AuthCallback.tsx"
 import { normalizeIdentifier } from "./identifier.ts"
 import { LoginForm } from "./LoginForm.tsx"
 import { RegisterForm } from "./RegisterForm.tsx"
@@ -412,6 +413,88 @@ describe("RegisterForm", () => {
     ).toBeVisible()
     expect(screen.getByText("Username must start with a letter.")).toBeVisible()
     expect(register).not.toHaveBeenCalled()
+  })
+})
+
+describe("AuthCallback", () => {
+  const at = (hash: string) =>
+    window.history.replaceState(null, "", `/login/callback${hash}`)
+
+  it("trades the fragment code once, even across a remount", async () => {
+    at("#code=one-time&state=s&provider=github")
+    const exchange = vi.fn(({ body }: { body?: BodyInit | null }) => {
+      expect(JSON.parse(String(body))).toEqual({ code: "one-time" })
+      return json(
+        200,
+        signedIn({ sub: "u1", sid: "s1" }, { return_to: "/library" })
+      )
+    })
+    const client = createAuthClient({
+      fetch: stubFetch({ "POST /api/v1/oidc/exchange": exchange }),
+    })
+    const navigate = vi.fn()
+    const onSignedIn = vi.fn()
+    const page = (key: string) => (
+      <AuthProvider client={client} autoStart={false}>
+        <AuthUiProvider>
+          <AuthCallback key={key} navigate={navigate} onSignedIn={onSignedIn} />
+        </AuthUiProvider>
+      </AuthProvider>
+    )
+    const view = render(page("a"))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/library"))
+    expect(onSignedIn).toHaveBeenCalledWith({
+      returnTo: "/library",
+      provider: "github",
+    })
+    expect(window.location.hash).toBe("")
+    expect(client.getSnapshot()).toMatchObject({ userId: "u1" })
+    view.rerender(page("b"))
+    await waitFor(() => expect(navigate).toHaveBeenCalledTimes(2))
+    expect(navigate).toHaveBeenLastCalledWith("/library")
+    expect(exchange).toHaveBeenCalledOnce()
+  })
+
+  it("finishes a second factor in place", async () => {
+    at("#code=one-time&state=s")
+    const user = userEvent.setup()
+    const factor = {
+      id: "f-totp",
+      method: "totp",
+      is_default: true,
+      destination: null,
+    }
+    const fetch = stubFetch({
+      "POST /api/v1/oidc/exchange": [
+        json(
+          200,
+          authResult("second_factor_required", {
+            return_to: "/after",
+            second_factor: {
+              user_id: "u1",
+              challenge: "ch",
+              factor,
+              factors: [factor],
+            },
+          })
+        ),
+      ],
+      "POST /api/v1/2fa/verify": [session({ sub: "u1", sid: "s1" })],
+    })
+    const navigate = vi.fn()
+    renderUi(<AuthCallback navigate={navigate} />, fetch)
+    await screen.findByRole("heading", { name: "Verify it's you" })
+    await user.type(screen.getByLabelText("Verification code"), "123456")
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/after"))
+  })
+
+  it("shows a failed exchange", async () => {
+    at("#code=spent&state=s")
+    const fetch = stubFetch({
+      "POST /api/v1/oidc/exchange": [authError(400, "invalid_code")],
+    })
+    renderUi(<AuthCallback navigate={vi.fn()} />, fetch)
+    await screen.findByRole("heading", { name: "Sign-in failed" })
   })
 })
 

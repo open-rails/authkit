@@ -273,6 +273,51 @@ describe("StepUpDialog", () => {
   })
 })
 
+describe("StepUpProvider return", () => {
+  it("adopts the session an OIDC step-up's #code= returns with", async () => {
+    const client = createAuthClient({
+      fetch: stubFetch({
+        "POST /api/v1/password/login": () => session({ sub: "u1", sid: "s1" }),
+        "GET /api/v1/capabilities": () => capabilities(),
+        "POST /api/v1/oidc/exchange": (init) => {
+          expect(JSON.parse(String(init.body))).toEqual({ code: "one-time" })
+          return fresh()
+        },
+      }),
+    })
+    await client.signInWithPassword({ identifier: "a@x.test", password: "pw" })
+    window.history.replaceState(null, "", "/account#code=one-time")
+    render(
+      <AuthProvider client={client} autoStart={false}>
+        <AuthUiProvider>
+          <StepUpProvider>
+            <p>page</p>
+          </StepUpProvider>
+        </AuthUiProvider>
+      </AuthProvider>
+    )
+    await waitFor(() =>
+      expect(client.getSnapshot()).toMatchObject({ claims: { auth_time: 2 } })
+    )
+    expect(window.location.hash).toBe("")
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  })
+
+  it("reports a failed step-up", async () => {
+    window.history.replaceState(null, "", "/account#error=provider_error")
+    await renderSignedIn(
+      <StepUpProvider>
+        <p>page</p>
+      </StepUpProvider>,
+      {}
+    )
+    const dialog = await screen.findByRole("dialog", {
+      name: "Confirm it's you",
+    })
+    expect(dialog).toHaveTextContent("Reauthentication failed.")
+  })
+})
+
 describe("TwoFactorPanel", () => {
   it("enrolls TOTP with a QR code and shows the backup codes once", async () => {
     let enabled = false
