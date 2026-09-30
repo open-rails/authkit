@@ -46,7 +46,7 @@ type Deps struct {
 	Entitlements func(ctx context.Context, userIDs []string) (map[string][]string, error)
 	// EntitlementHolders returns the ids of the users who hold entitlement,
 	// for ListUsers' Entitlement filter. Nil makes that filter fail with
-	// ErrEntitlementFilterUnavailable.
+	// iam.ErrEntitlementFilterUnavailable.
 	EntitlementHolders func(ctx context.Context, entitlement string) ([]string, error)
 
 	// OnEvent receives account and group changes (iam.Event) durably through

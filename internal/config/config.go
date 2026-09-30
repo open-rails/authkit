@@ -145,7 +145,7 @@ type KeysConfig struct {
 	// restarts reuse it. Development only.
 	AllowEphemeralDevKeys bool
 	// VerifyOnly builds AuthKit with no signer: minting returns
-	// ErrSigningNotConfigured, verification and permission reads work, and
+	// iam.ErrSigningNotConfigured, verification and permission reads work, and
 	// JWKS serves an empty set. Key resolution is skipped.
 	VerifyOnly bool
 }

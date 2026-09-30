@@ -90,7 +90,7 @@ func (s *Service) GroupHandler(op GroupOp) http.HandlerFunc {
 		case OpAPIKeyMint:
 			s.groupAPIKeyMint(w, r, g, actor)
 		case OpAPIKeyRevoke:
-			s.groupAPIKeyRevoke(w, r, g, actor, r.PathValue("key"))
+			s.groupAPIKeyRevoke(w, r, g, actor, r.PathValue("id"))
 		case OpInvitationsList:
 			s.groupInvitationsList(w, r, g)
 		case OpInvitationCreate:

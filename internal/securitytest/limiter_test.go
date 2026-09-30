@@ -132,7 +132,7 @@ func TestSecurityLimiterOutageFailsClosed(t *testing.T) {
 		"POST /admin/users/{user_id}/restore", "PUT /admin/users/{user_id}/ban", "DELETE /admin/users/{user_id}/ban",
 		"GET /admin/users/{user_id}/sessions", "DELETE /admin/users/{user_id}/sessions", "GET /admin/users/{user_id}/session-events",
 		"GET /groups/{group_id}/members", "PUT /groups/{group_id}/members/{kind}/{id}", "DELETE /groups/{group_id}/members/{kind}/{id}",
-		"GET /groups/{group_id}/roles", "GET /groups/{group_id}/api-keys", "DELETE /groups/{group_id}/api-keys/{key}",
+		"GET /groups/{group_id}/roles", "GET /groups/{group_id}/api-keys", "DELETE /groups/{group_id}/api-keys/{id}",
 		"GET /groups/{group_id}/invitations", "DELETE /groups/{group_id}/invitations/{id}",
 	}
 	full := func(pattern string) string {

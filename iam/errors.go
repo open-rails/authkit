@@ -78,6 +78,9 @@ var (
 	ErrInvalidUntil           Error = errmodel.E(errmodel.CodeInvalidUntil)
 	ErrAccountRecoveryExpired Error = errmodel.E(errmodel.CodeAccountRecoveryExpired)
 	ErrContactNotVerified     Error = errmodel.E(errmodel.CodeContactNotVerified)
+	// ErrEntitlementFilterUnavailable refuses UserQuery.Entitlement when the
+	// host set no Deps.EntitlementHolders.
+	ErrEntitlementFilterUnavailable Error = errmodel.E(errmodel.CodeEntitlementFilterUnavailable)
 )
 
 // Credentials and applications (the API-key, service-JWT, delegation and

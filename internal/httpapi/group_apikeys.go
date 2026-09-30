@@ -53,7 +53,7 @@ func (s *Service) groupAPIKeyList(w http.ResponseWriter, r *http.Request, g iam.
 	list(w, page)
 }
 
-// groupAPIKeyRevoke revokes the group's key {key}. Like every DELETE it is
+// groupAPIKeyRevoke revokes the group's key {id}. Like every DELETE it is
 // idempotent: a revoked or unknown key answers 204 too.
 func (s *Service) groupAPIKeyRevoke(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor, id string) {
 	if id == "" {

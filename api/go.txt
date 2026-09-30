@@ -1,0 +1,1383 @@
+pkg authkit, const APIKeys config.PersonaOption = 1
+pkg authkit, const FormerNamesFinite config.FormerNamesMode = "finite"
+pkg authkit, const FormerNamesForever config.FormerNamesMode = "forever"
+pkg authkit, const FormerNamesImmediate config.FormerNamesMode = "immediate"
+pkg authkit, const RemoteApplications config.PersonaOption = 2
+pkg authkit, func DefaultRateLimits() map[string]RateLimit
+pkg authkit, func IfRole(iam.Role) Option
+pkg authkit, func InTx(pgx.Tx) Option
+pkg authkit, func IncludeDeleted() Option
+pkg authkit, func Migrate(context.Context, *pgxpool.Pool, Config, MigrateOptions) error
+pkg authkit, func New(context.Context, Config, Deps) (*Client, error)
+pkg authkit, func NewRoles(...PersonaOption) *Roles
+pkg authkit, func ParseBootstrapManifestYAML([]byte) (iam.BootstrapManifest, error)
+pkg authkit, method (*Client) ApplyBootstrapManifest(context.Context, iam.BootstrapManifest, iam.BootstrapOptions, ...Option) (iam.BootstrapResult, error)
+pkg authkit, method (*Client) AuthenticateRequest(context.Context, *http.Request) (auth.Principal, error)
+pkg authkit, method (*Client) Ban(context.Context, iam.Actor, string, iam.Ban, ...Option) error
+pkg authkit, method (*Client) Can(context.Context, iam.Actor, iam.GroupRef, iam.Perm) (bool, error)
+pkg authkit, method (*Client) CheckIssuerKeys(context.Context) error
+pkg authkit, method (*Client) CheckRecentSignIn(context.Context, verify.Claims) error
+pkg authkit, method (*Client) CheckSession(context.Context, verify.Claims) error
+pkg authkit, method (*Client) CheckUsername(context.Context, string) error
+pkg authkit, method (*Client) Close()
+pkg authkit, method (*Client) CreateAPIKey(context.Context, iam.Actor, iam.GroupRef, iam.NewAPIKey, ...Option) (iam.APIKeyCreated, error)
+pkg authkit, method (*Client) CreateGroup(context.Context, iam.NewGroup, ...Option) (iam.Group, error)
+pkg authkit, method (*Client) CreateInvitation(context.Context, iam.Actor, iam.GroupRef, iam.NewInvitation, ...Option) (iam.InvitationCreated, error)
+pkg authkit, method (*Client) CreateUser(context.Context, iam.NewUser, ...Option) (iam.User, error)
+pkg authkit, method (*Client) DeleteGroup(context.Context, iam.GroupRef, ...Option) error
+pkg authkit, method (*Client) DeleteRemoteApplication(context.Context, iam.Actor, iam.GroupRef, string, ...Option) error
+pkg authkit, method (*Client) DeleteUsers(context.Context, iam.Actor, []string, ...Option) ([]iam.OpResult, error)
+pkg authkit, method (*Client) DeviceKeys(context.Context, string) ([]iam.DeviceKey, error)
+pkg authkit, method (*Client) EffectivePermissions(context.Context, iam.Actor, []iam.GroupRef) (map[string][]iam.Perm, error)
+pkg authkit, method (*Client) EmailAvailable() bool
+pkg authkit, method (*Client) EmailHealth() (time.Time, error)
+pkg authkit, method (*Client) EnsureUserRole(context.Context, iam.GroupRef, iam.UserRef, iam.Role, ...Option) (iam.User, error)
+pkg authkit, method (*Client) Group(context.Context, iam.GroupRef) (iam.Group, error)
+pkg authkit, method (*Client) GroupRoles(context.Context, iam.GroupRef, []iam.Subject) (map[iam.Subject]iam.Role, error)
+pkg authkit, method (*Client) Groups(context.Context, []string) (map[string]iam.Group, error)
+pkg authkit, method (*Client) Handler() http.Handler
+pkg authkit, method (*Client) ImportSolanaLinks(context.Context, []iam.ImportSolanaLink, ...Option) (iam.ImportSolanaLinksResult, error)
+pkg authkit, method (*Client) ImportUsers(context.Context, []iam.ImportUser, iam.ImportOptions, ...Option) (iam.ImportResult, error)
+pkg authkit, method (*Client) IssuerKeyStatuses() []verify.IssuerKeyStatus
+pkg authkit, method (*Client) KnownPermission(iam.Perm) bool
+pkg authkit, method (*Client) LinkProvider(context.Context, string, iam.ProviderLink, ...Option) error
+pkg authkit, method (*Client) ListAPIKeys(context.Context, iam.GroupRef, iam.PageRequest) (iam.ListPage[iam.APIKey], error)
+pkg authkit, method (*Client) ListGroupMembers(context.Context, iam.GroupRef, iam.MemberQuery) (iam.ListPage[iam.GroupMember], error)
+pkg authkit, method (*Client) ListGroups(context.Context, iam.GroupQuery) (iam.ListPage[iam.Group], error)
+pkg authkit, method (*Client) ListInvitations(context.Context, iam.GroupRef, iam.PageRequest) (iam.ListPage[iam.Invitation], error)
+pkg authkit, method (*Client) ListMemberships(context.Context, iam.Subject, iam.PageRequest) (iam.ListPage[iam.Membership], error)
+pkg authkit, method (*Client) ListRemoteApplications(context.Context, iam.GroupRef, iam.PageRequest) (iam.ListPage[iam.RemoteApplication], error)
+pkg authkit, method (*Client) ListSessionEvents(context.Context, string, iam.SessionEventQuery) (iam.ListPage[iam.SessionEvent], error)
+pkg authkit, method (*Client) ListUsers(context.Context, iam.UserQuery) (iam.ListPage[iam.UserEntry], error)
+pkg authkit, method (*Client) MintAccessToken(context.Context, string, iam.AccessTokenOptions, ...Option) (iam.Token, error)
+pkg authkit, method (*Client) MintDelegatedAccessToken(context.Context, iam.Actor, iam.DelegatedAccess, ...Option) (iam.Token, error)
+pkg authkit, method (*Client) MintServiceJWT(context.Context, iam.ServiceJWT, ...Option) (iam.Token, iam.ServiceJWTClaims, error)
+pkg authkit, method (*Client) Mount(*http.ServeMux) error
+pkg authkit, method (*Client) NewVerifier([]string, ...verify.VerifierOption) (*Verifier, error)
+pkg authkit, method (*Client) PatchUserMetadata(context.Context, iam.Actor, string, map[string]any, ...Option) error
+pkg authkit, method (*Client) Permission(string) (iam.Perm, error)
+pkg authkit, method (*Client) Persona(string) (iam.Persona, error)
+pkg authkit, method (*Client) PublicUsers(context.Context, []string) (map[string]iam.PublicUser, error)
+pkg authkit, method (*Client) PurgeGroup(context.Context, iam.GroupRef, ...Option) error
+pkg authkit, method (*Client) PurgeUsers(context.Context, []string, ...Option) ([]iam.OpResult, error)
+pkg authkit, method (*Client) RemoteApplication(context.Context, iam.AppRef) (iam.RemoteApplication, error)
+pkg authkit, method (*Client) RemoveGroupMember(context.Context, iam.Actor, iam.GroupRef, iam.Subject, ...Option) error
+pkg authkit, method (*Client) ResetAccountMFA(context.Context, string, ...Option) error
+pkg authkit, method (*Client) ResolveAPIKey(context.Context, string) (iam.APIKeyPrincipal, error)
+pkg authkit, method (*Client) ResolveUsername(context.Context, string) (iam.NameResolution, error)
+pkg authkit, method (*Client) RestoreUsers(context.Context, iam.Actor, []string, ...Option) ([]iam.OpResult, error)
+pkg authkit, method (*Client) RevokeAPIKey(context.Context, iam.Actor, iam.GroupRef, string, ...Option) error
+pkg authkit, method (*Client) RevokeAccountSessions(context.Context, iam.Actor, string, ...Option) (iam.AccountSessionRevocation, error)
+pkg authkit, method (*Client) RevokeInvitation(context.Context, iam.Actor, iam.GroupRef, string, ...Option) error
+pkg authkit, method (*Client) RevokeSession(context.Context, iam.Actor, string, string, ...Option) error
+pkg authkit, method (*Client) RiverJobs() river.Contribution
+pkg authkit, method (*Client) Role(string) (iam.Role, error)
+pkg authkit, method (*Client) RolePermissions(iam.Role) ([]iam.Perm, error)
+pkg authkit, method (*Client) Routes() []iam.Route
+pkg authkit, method (*Client) SMSAvailable() bool
+pkg authkit, method (*Client) SMSHealth() (time.Time, error)
+pkg authkit, method (*Client) Sessions(context.Context, string) ([]iam.Session, error)
+pkg authkit, method (*Client) SetGroupRole(context.Context, iam.Actor, iam.GroupRef, iam.Subject, iam.Role, ...Option) (iam.GroupMember, error)
+pkg authkit, method (*Client) Start(context.Context) error
+pkg authkit, method (*Client) TwoFactorMethods() []iam.TwoFactorMethod
+pkg authkit, method (*Client) Unban(context.Context, iam.Actor, string, ...Option) error
+pkg authkit, method (*Client) UpdateUser(context.Context, iam.Actor, string, iam.UserUpdate, ...Option) (iam.User, error)
+pkg authkit, method (*Client) UpsertRemoteApplication(context.Context, iam.Actor, iam.GroupRef, iam.RemoteApplication, ...Option) (iam.RemoteApplication, error)
+pkg authkit, method (*Client) User(context.Context, iam.UserRef, ...Option) (iam.User, error)
+pkg authkit, method (*Client) UserMetadata(context.Context, string) (map[string]any, error)
+pkg authkit, method (*Client) Users(context.Context, []string) (map[string]iam.User, error)
+pkg authkit, method (*Client) Verify(context.Context, string) (verify.Claims, error)
+pkg authkit, method (*Client) VerifyRequest(*http.Request) (verify.Claims, error)
+pkg authkit, method (*Client) VerifyServiceJWT(context.Context, string, ...verify.ServiceJWTVerifyOption) (iam.ServiceJWTClaims, error)
+pkg authkit, method (*PersonaDef) All() iam.Perm
+pkg authkit, method (*PersonaDef) Permission(string, string) iam.Perm
+pkg authkit, method (*PersonaDef) RequireMFA(...iam.Perm)
+pkg authkit, method (*PersonaDef) Resource(string) config.Resource
+pkg authkit, method (*PersonaDef) Role(string, ...iam.Grant) iam.Role
+pkg authkit, method (*Roles) Persona(string, ...config.PersonaOption) *config.PersonaDef
+pkg authkit, method (*Verifier) AuthenticateRequest(context.Context, *http.Request) (auth.Principal, error)
+pkg authkit, method (*Verifier) Can(context.Context, iam.Actor, iam.GroupRef, iam.Perm) (bool, error)
+pkg authkit, method (*Verifier) CheckIssuerKeys(context.Context) error
+pkg authkit, method (*Verifier) CheckRecentSignIn(context.Context, verify.Claims) error
+pkg authkit, method (*Verifier) CheckSession(context.Context, verify.Claims) error
+pkg authkit, method (*Verifier) IssuerKeyStatuses() []verify.IssuerKeyStatus
+pkg authkit, method (*Verifier) KnownPermission(iam.Perm) bool
+pkg authkit, method (*Verifier) Verify(context.Context, string) (verify.Claims, error)
+pkg authkit, method (*Verifier) VerifyRequest(*http.Request) (verify.Claims, error)
+pkg authkit, method (*Verifier) VerifyServiceJWT(context.Context, string, ...verify.ServiceJWTVerifyOption) (iam.ServiceJWTClaims, error)
+pkg authkit, method (CredentialPerms) All() iam.Perm
+pkg authkit, method (MemberPerms) All() iam.Perm
+pkg authkit, method (Resource) All() iam.Perm
+pkg authkit, method (RootDef) All() iam.Perm
+pkg authkit, method (RootDef) Permission(string, string) iam.Perm
+pkg authkit, method (RootDef) RequireMFA(...iam.Perm)
+pkg authkit, method (RootDef) Resource(string) config.Resource
+pkg authkit, method (RootDef) Role(string, ...iam.Grant) iam.Role
+pkg authkit, method (UserPerms) All() iam.Perm
+pkg authkit, type APIKeysConfig = config.APIKeysConfig
+pkg authkit, type APIKeysConfig struct
+pkg authkit, type APIKeysConfig struct, MaxTTL time.Duration
+pkg authkit, type APIKeysConfig struct, Prefix string
+pkg authkit, type Client struct
+pkg authkit, type Config = config.Config
+pkg authkit, type Config struct
+pkg authkit, type Config struct, APIKeys config.APIKeysConfig
+pkg authkit, type Config struct, Delegated config.DelegatedConfig
+pkg authkit, type Config struct, DeviceKeys config.DeviceKeysConfig
+pkg authkit, type Config struct, Frontend config.FrontendConfig
+pkg authkit, type Config struct, HTTP *config.HTTPConfig
+pkg authkit, type Config struct, Keys config.KeysConfig
+pkg authkit, type Config struct, Languages config.LanguageConfig
+pkg authkit, type Config struct, Passkeys config.PasskeyConfig
+pkg authkit, type Config struct, Password *config.PasswordPolicy
+pkg authkit, type Config struct, PublicUserMetadata []string
+pkg authkit, type Config struct, Registration config.RegistrationConfig
+pkg authkit, type Config struct, River config.RiverConfig
+pkg authkit, type Config struct, Roles *config.Roles
+pkg authkit, type Config struct, Schema string
+pkg authkit, type Config struct, SenderHealthInterval time.Duration
+pkg authkit, type Config struct, SessionEventRetention time.Duration
+pkg authkit, type Config struct, SolanaNetwork iam.SolanaNetwork
+pkg authkit, type Config struct, Token config.TokenConfig
+pkg authkit, type Config struct, TwoFactor config.TwoFactorConfig
+pkg authkit, type Config struct, Username config.UsernameConfig
+pkg authkit, type CredentialPerms = config.CredentialPerms
+pkg authkit, type CredentialPerms struct
+pkg authkit, type CredentialPerms struct, Manage iam.Perm
+pkg authkit, type CredentialPerms struct, Read iam.Perm
+pkg authkit, type CredentialPerms struct, embedded config.Resource
+pkg authkit, type DelegatedConfig = config.DelegatedConfig
+pkg authkit, type DelegatedConfig struct
+pkg authkit, type DelegatedConfig struct, AllowDPoP bool
+pkg authkit, type DelegatedConfig struct, Audiences []string
+pkg authkit, type DelegatedConfig struct, TTLCeiling time.Duration
+pkg authkit, type DelegatedConfig struct, TTLDefault time.Duration
+pkg authkit, type DelegatedConfig struct, TTLFloor time.Duration
+pkg authkit, type Deps = config.Deps
+pkg authkit, type Deps struct
+pkg authkit, type Deps struct, ClientIP func(*http.Request) string
+pkg authkit, type Deps struct, Clock func() time.Time
+pkg authkit, type Deps struct, DelegatedAuthorization iam.DelegationAuthorizer
+pkg authkit, type Deps struct, Email config.EmailSender
+pkg authkit, type Deps struct, EntitlementHolders func(context.Context, string) ([]string, error)
+pkg authkit, type Deps struct, Entitlements func(context.Context, []string) (map[string][]string, error)
+pkg authkit, type Deps struct, KeySource keys.Source
+pkg authkit, type Deps struct, Limiter func(string, string) (bool, error)
+pkg authkit, type Deps struct, NameAdmission func(context.Context, iam.NameAdmissionRequest) error
+pkg authkit, type Deps struct, OnEvent func(context.Context, iam.Event) error
+pkg authkit, type Deps struct, OnPurge func(context.Context, iam.UserDeletion) error
+pkg authkit, type Deps struct, Postgres *pgxpool.Pool
+pkg authkit, type Deps struct, Providers []provider.Provider
+pkg authkit, type Deps struct, Redis redis.UniversalClient
+pkg authkit, type Deps struct, SMS config.SMSSender
+pkg authkit, type Deps struct, Wrap func(iam.Route, http.Handler) http.Handler
+pkg authkit, type DeviceKeysConfig = config.DeviceKeysConfig
+pkg authkit, type DeviceKeysConfig struct
+pkg authkit, type DeviceKeysConfig struct, Enabled bool
+pkg authkit, type EmailSender = config.EmailSender
+pkg authkit, type EmailSender interface
+pkg authkit, type EmailSender interface, CheckHealth(context.Context) error
+pkg authkit, type EmailSender interface, Send(context.Context, iam.EmailMessage) error
+pkg authkit, type FormerNamesConfig = config.FormerNamesConfig
+pkg authkit, type FormerNamesConfig struct
+pkg authkit, type FormerNamesConfig struct, Duration time.Duration
+pkg authkit, type FormerNamesConfig struct, Mode config.FormerNamesMode
+pkg authkit, type FormerNamesMode = config.FormerNamesMode
+pkg authkit, type FormerNamesMode string
+pkg authkit, type FrontendConfig = config.FrontendConfig
+pkg authkit, type FrontendConfig struct
+pkg authkit, type FrontendConfig struct, BaseURL string
+pkg authkit, type FrontendConfig struct, InvitePath string
+pkg authkit, type FrontendConfig struct, OIDCReturnPath string
+pkg authkit, type FrontendConfig struct, PasswordResetPath string
+pkg authkit, type FrontendConfig struct, PasswordlessPath string
+pkg authkit, type FrontendConfig struct, VerifyPath string
+pkg authkit, type HTTPConfig = config.HTTPConfig
+pkg authkit, type HTTPConfig struct
+pkg authkit, type HTTPConfig struct, APIPath string
+pkg authkit, type HTTPConfig struct, BasePath string
+pkg authkit, type HTTPConfig struct, CloudflareProxies []string
+pkg authkit, type HTTPConfig struct, DirectPeerIP bool
+pkg authkit, type HTTPConfig struct, Exclude []string
+pkg authkit, type HTTPConfig struct, Groups []iam.RouteGroup
+pkg authkit, type HTTPConfig struct, PublicURL string
+pkg authkit, type HTTPConfig struct, RateLimits map[string]config.RateLimit
+pkg authkit, type HTTPConfig struct, RedisKeyPrefix string
+pkg authkit, type HTTPConfig struct, RefreshCookie bool
+pkg authkit, type HTTPConfig struct, TrustedProxies []string
+pkg authkit, type KeysConfig = config.KeysConfig
+pkg authkit, type KeysConfig struct
+pkg authkit, type KeysConfig struct, AllowEphemeralDevKeys bool
+pkg authkit, type KeysConfig struct, Path string
+pkg authkit, type KeysConfig struct, VerifyOnly bool
+pkg authkit, type LanguageConfig = config.LanguageConfig
+pkg authkit, type LanguageConfig struct
+pkg authkit, type LanguageConfig struct, Default string
+pkg authkit, type LanguageConfig struct, Supported []string
+pkg authkit, type MemberPerms = config.MemberPerms
+pkg authkit, type MemberPerms struct
+pkg authkit, type MemberPerms struct, Manage iam.Perm
+pkg authkit, type MemberPerms struct, Read iam.Perm
+pkg authkit, type MemberPerms struct, embedded config.Resource
+pkg authkit, type MigrateOptions = config.MigrateOptions
+pkg authkit, type MigrateOptions struct
+pkg authkit, type MigrateOptions struct, RuntimePool *pgxpool.Pool
+pkg authkit, type Option = ops.Option
+pkg authkit, type Option struct
+pkg authkit, type PasskeyConfig = config.PasskeyConfig
+pkg authkit, type PasskeyConfig struct
+pkg authkit, type PasskeyConfig struct, Origins []string
+pkg authkit, type PasskeyConfig struct, RPDisplayName string
+pkg authkit, type PasskeyConfig struct, RPID string
+pkg authkit, type PasskeyConfig struct, UserVerification string
+pkg authkit, type PasswordPolicy = config.PasswordPolicy
+pkg authkit, type PasswordPolicy struct
+pkg authkit, type PasswordPolicy struct, AllowCommon bool
+pkg authkit, type PasswordPolicy struct, MaxLength int
+pkg authkit, type PasswordPolicy struct, MinLength int
+pkg authkit, type PasswordPolicy struct, RequireDigit bool
+pkg authkit, type PasswordPolicy struct, RequireLowercase bool
+pkg authkit, type PasswordPolicy struct, RequireSymbol bool
+pkg authkit, type PasswordPolicy struct, RequireUppercase bool
+pkg authkit, type PersonaDef = config.PersonaDef
+pkg authkit, type PersonaDef struct
+pkg authkit, type PersonaDef struct, Credentials config.CredentialPerms
+pkg authkit, type PersonaDef struct, Members config.MemberPerms
+pkg authkit, type PersonaDef struct, Owner iam.Role
+pkg authkit, type PersonaDef struct, Persona iam.Persona
+pkg authkit, type PersonaOption = config.PersonaOption
+pkg authkit, type PersonaOption uint8
+pkg authkit, type RateLimit = config.RateLimit
+pkg authkit, type RateLimit struct
+pkg authkit, type RateLimit struct, Cooldown time.Duration
+pkg authkit, type RateLimit struct, Limit int
+pkg authkit, type RateLimit struct, Window time.Duration
+pkg authkit, type RegistrationConfig = config.RegistrationConfig
+pkg authkit, type RegistrationConfig struct
+pkg authkit, type RegistrationConfig struct, AllowMissingSenders bool
+pkg authkit, type RegistrationConfig struct, NativeUserMode iam.RegistrationMode
+pkg authkit, type RegistrationConfig struct, PasswordlessAutoRegistration bool
+pkg authkit, type RegistrationConfig struct, PasswordlessLogin bool
+pkg authkit, type RegistrationConfig struct, Verification iam.RegistrationVerificationPolicy
+pkg authkit, type RegistrationConfig struct, VerificationSendTimeout time.Duration
+pkg authkit, type Resource = config.Resource
+pkg authkit, type Resource struct
+pkg authkit, type RiverConfig = config.RiverConfig
+pkg authkit, type RiverConfig struct
+pkg authkit, type RiverConfig struct, CleanupInterval time.Duration
+pkg authkit, type RiverConfig struct, HostOwned bool
+pkg authkit, type RiverConfig struct, Schema string
+pkg authkit, type Roles = config.Roles
+pkg authkit, type Roles struct
+pkg authkit, type Roles struct, Root *config.RootDef
+pkg authkit, type RootDef = config.RootDef
+pkg authkit, type RootDef struct
+pkg authkit, type RootDef struct, Users config.UserPerms
+pkg authkit, type RootDef struct, embedded *config.PersonaDef
+pkg authkit, type SMSSender = config.SMSSender
+pkg authkit, type SMSSender interface
+pkg authkit, type SMSSender interface, CheckHealth(context.Context) error
+pkg authkit, type SMSSender interface, Send(context.Context, iam.SMSMessage) error
+pkg authkit, type TokenConfig = config.TokenConfig
+pkg authkit, type TokenConfig struct
+pkg authkit, type TokenConfig struct, AccessTokenDuration time.Duration
+pkg authkit, type TokenConfig struct, AccountIssuers []string
+pkg authkit, type TokenConfig struct, AllowPrivateNetworkJWKS bool
+pkg authkit, type TokenConfig struct, EntitlementAllowlist []string
+pkg authkit, type TokenConfig struct, ExpectedAudiences []string
+pkg authkit, type TokenConfig struct, IssuedAudiences []string
+pkg authkit, type TokenConfig struct, Issuer string
+pkg authkit, type TokenConfig struct, RefreshRotationGrace time.Duration
+pkg authkit, type TokenConfig struct, RefreshTokenDuration time.Duration
+pkg authkit, type TokenConfig struct, SessionMaxPerUser int
+pkg authkit, type TwoFactorConfig = config.TwoFactorConfig
+pkg authkit, type TwoFactorConfig struct
+pkg authkit, type TwoFactorConfig struct, Methods []iam.TwoFactorMethod
+pkg authkit, type TwoFactorConfig struct, Mode iam.TwoFactorMode
+pkg authkit, type TwoFactorConfig struct, TOTPSecretKey []byte
+pkg authkit, type UserPerms = config.UserPerms
+pkg authkit, type UserPerms struct
+pkg authkit, type UserPerms struct, Ban iam.Perm
+pkg authkit, type UserPerms struct, Delete iam.Perm
+pkg authkit, type UserPerms struct, Invite iam.Perm
+pkg authkit, type UserPerms struct, Manage iam.Perm
+pkg authkit, type UserPerms struct, Read iam.Perm
+pkg authkit, type UserPerms struct, embedded config.Resource
+pkg authkit, type UsernameConfig = config.UsernameConfig
+pkg authkit, type UsernameConfig struct
+pkg authkit, type UsernameConfig struct, FormerNames config.FormerNamesConfig
+pkg authkit, type UsernameConfig struct, MaxLength int
+pkg authkit, type UsernameConfig struct, MinLength int
+pkg authkit, type UsernameConfig struct, RenameInterval time.Duration
+pkg authkit, type UsernameConfig struct, Renames bool
+pkg authkit, type Verifier struct
+pkg authkit/adapters/fiber, const RouteNamePrefix untyped string = "authkit."
+pkg authkit/adapters/fiber, func Mount(*fiber.App, Surface) error
+pkg authkit/adapters/fiber, func Optional(verify.Authenticator) fiber.Handler
+pkg authkit/adapters/fiber, func RequirePermission(verify.Authority, iam.Perm) fiber.Handler
+pkg authkit/adapters/fiber, func RequirePermissionOn(verify.Authority, iam.GroupRef, iam.Perm) fiber.Handler
+pkg authkit/adapters/fiber, func RequireSession(verify.Authority) fiber.Handler
+pkg authkit/adapters/fiber, func Required(verify.Authenticator) fiber.Handler
+pkg authkit/adapters/fiber, func Sensitive(verify.Authority) fiber.Handler
+pkg authkit/adapters/fiber, func SetGroup(fiber.Ctx, iam.GroupRef)
+pkg authkit/adapters/fiber, func Use(...func(http.Handler) http.Handler) fiber.Handler
+pkg authkit/adapters/fiber, type Surface interface
+pkg authkit/adapters/fiber, type Surface interface, Handler() http.Handler
+pkg authkit/adapters/fiber, type Surface interface, Routes() []iam.Route
+pkg authkit/adapters/gin, func Mount(*gin.Engine, Surface) error
+pkg authkit/adapters/gin, func Optional(verify.Authenticator) gin.HandlerFunc
+pkg authkit/adapters/gin, func RequirePermission(verify.Authority, iam.Perm) gin.HandlerFunc
+pkg authkit/adapters/gin, func RequirePermissionOn(verify.Authority, iam.GroupRef, iam.Perm) gin.HandlerFunc
+pkg authkit/adapters/gin, func RequireSession(verify.Authority) gin.HandlerFunc
+pkg authkit/adapters/gin, func Required(verify.Authenticator) gin.HandlerFunc
+pkg authkit/adapters/gin, func Sensitive(verify.Authority) gin.HandlerFunc
+pkg authkit/adapters/gin, func SetGroup(*gin.Context, iam.GroupRef)
+pkg authkit/adapters/gin, func Use(...func(http.Handler) http.Handler) gin.HandlerFunc
+pkg authkit/adapters/gin, type Surface interface
+pkg authkit/adapters/gin, type Surface interface, Handler() http.Handler
+pkg authkit/adapters/gin, type Surface interface, Routes() []iam.Route
+pkg authkit/adapters/twilio, func NewEmail(EmailConfig) (*Email, error)
+pkg authkit/adapters/twilio, func NewSMS(SMSConfig) (*SMS, error)
+pkg authkit/adapters/twilio, method (*Email) CheckHealth(context.Context) error
+pkg authkit/adapters/twilio, method (*Email) Send(context.Context, iam.EmailMessage) error
+pkg authkit/adapters/twilio, method (*SMS) CheckHealth(context.Context) error
+pkg authkit/adapters/twilio, method (*SMS) Send(context.Context, iam.SMSMessage) error
+pkg authkit/adapters/twilio, type Email struct
+pkg authkit/adapters/twilio, type EmailConfig struct
+pkg authkit/adapters/twilio, type EmailConfig struct, APIKey string
+pkg authkit/adapters/twilio, type EmailConfig struct, AppName string
+pkg authkit/adapters/twilio, type EmailConfig struct, Categories []string
+pkg authkit/adapters/twilio, type EmailConfig struct, Client *http.Client
+pkg authkit/adapters/twilio, type EmailConfig struct, CustomArgs map[string]string
+pkg authkit/adapters/twilio, type EmailConfig struct, FromEmail string
+pkg authkit/adapters/twilio, type EmailConfig struct, FromName string
+pkg authkit/adapters/twilio, type EmailConfig struct, Render func(context.Context, iam.EmailMessage) (EmailContent, bool)
+pkg authkit/adapters/twilio, type EmailContent struct
+pkg authkit/adapters/twilio, type EmailContent struct, Categories []string
+pkg authkit/adapters/twilio, type EmailContent struct, CustomArgs map[string]string
+pkg authkit/adapters/twilio, type EmailContent struct, HTML string
+pkg authkit/adapters/twilio, type EmailContent struct, Subject string
+pkg authkit/adapters/twilio, type EmailContent struct, Text string
+pkg authkit/adapters/twilio, type SMS struct
+pkg authkit/adapters/twilio, type SMSConfig struct
+pkg authkit/adapters/twilio, type SMSConfig struct, AccountSID string
+pkg authkit/adapters/twilio, type SMSConfig struct, AppName string
+pkg authkit/adapters/twilio, type SMSConfig struct, AuthToken string
+pkg authkit/adapters/twilio, type SMSConfig struct, Client *http.Client
+pkg authkit/adapters/twilio, type SMSConfig struct, DeliveryPollInterval time.Duration
+pkg authkit/adapters/twilio, type SMSConfig struct, MessagingServiceSID string
+pkg authkit/adapters/twilio, type SMSConfig struct, Render func(context.Context, iam.SMSMessage) (string, bool)
+pkg authkit/authtest, const Audience untyped string = "authtest"
+pkg authkit/authtest, const Issuer untyped string = "https://example.com"
+pkg authkit/authtest, const Password untyped string = "Authtest-password-1"
+pkg authkit/authtest, func EnrollDeviceKey(testing.TB, *authkit.Client, *Outbox, User) DeviceKey
+pkg authkit/authtest, func EnrollTOTP(testing.TB, *authkit.Client, User) *TOTP
+pkg authkit/authtest, func GrantRole(testing.TB, *authkit.Client, iam.GroupRef, iam.Subject, iam.Role)
+pkg authkit/authtest, func New(testing.TB, ...Option) (*authkit.Client, *Outbox)
+pkg authkit/authtest, func NewTestIssuer() *TestIssuer
+pkg authkit/authtest, func NewTestIssuerWithAudience(string) *TestIssuer
+pkg authkit/authtest, func NewTestIssuerWithSigner(keys.Signer, string) *TestIssuer
+pkg authkit/authtest, func NewUser(testing.TB, *authkit.Client) User
+pkg authkit/authtest, func Replica(testing.TB, *authkit.Client, ...Option) *authkit.Client
+pkg authkit/authtest, func RevokeRole(testing.TB, *authkit.Client, iam.GroupRef, iam.Subject, iam.Role)
+pkg authkit/authtest, func SignIn(testing.TB, *authkit.Client, User) iam.TokenSet
+pkg authkit/authtest, func StaleSession(testing.TB, *authkit.Client, string) string
+pkg authkit/authtest, func TOTPCode(testing.TB, string, time.Time) string
+pkg authkit/authtest, func TOTPOf(string) *TOTP
+pkg authkit/authtest, func WithConfig(func(*authkit.Config)) Option
+pkg authkit/authtest, func WithDeps(func(*authkit.Deps)) Option
+pkg authkit/authtest, method (*Outbox) Email() config.EmailSender
+pkg authkit/authtest, method (*Outbox) Last(testing.TB, iam.MessageKind, string) testoutbox.Message
+pkg authkit/authtest, method (*Outbox) Messages(iam.MessageKind, string) []testoutbox.Message
+pkg authkit/authtest, method (*Outbox) SMS() config.SMSSender
+pkg authkit/authtest, method (*Outbox) SetEmailHealth(error)
+pkg authkit/authtest, method (*Outbox) SetSMSHealth(error)
+pkg authkit/authtest, method (*TOTP) Code(testing.TB) string
+pkg authkit/authtest, method (*TestIssuer) Audience() string
+pkg authkit/authtest, method (*TestIssuer) Close()
+pkg authkit/authtest, method (*TestIssuer) CreateExpiredToken(string, string) string
+pkg authkit/authtest, method (*TestIssuer) CreateToken(string, string) string
+pkg authkit/authtest, method (*TestIssuer) CreateTokenWithClaims(string, string, map[string]any) string
+pkg authkit/authtest, method (*TestIssuer) CreateTokenWithExpiry(string, string, time.Time) string
+pkg authkit/authtest, method (*TestIssuer) Signer() keys.Signer
+pkg authkit/authtest, method (*TestIssuer) URL() string
+pkg authkit/authtest, type DeviceKey struct
+pkg authkit/authtest, type DeviceKey struct, AccessToken string
+pkg authkit/authtest, type DeviceKey struct, ID string
+pkg authkit/authtest, type DeviceKey struct, Key ed25519.PrivateKey
+pkg authkit/authtest, type Message = testoutbox.Message
+pkg authkit/authtest, type Message struct
+pkg authkit/authtest, type Message struct, At time.Time `json:"at"`
+pkg authkit/authtest, type Message struct, Channel string `json:"channel"`
+pkg authkit/authtest, type Message struct, Code string `json:"code,omitempty"`
+pkg authkit/authtest, type Message struct, ContactChange *iam.ContactChange `json:"contact_change,omitempty"`
+pkg authkit/authtest, type Message struct, DeviceKey *iam.DeviceKeyNotice `json:"device_key,omitempty"`
+pkg authkit/authtest, type Message struct, Kind iam.MessageKind `json:"kind"`
+pkg authkit/authtest, type Message struct, Language string `json:"language"`
+pkg authkit/authtest, type Message struct, Link string `json:"link,omitempty"`
+pkg authkit/authtest, type Message struct, Purpose iam.VerificationPurpose `json:"purpose,omitempty"`
+pkg authkit/authtest, type Message struct, To string `json:"to"`
+pkg authkit/authtest, type Message struct, Token string `json:"token,omitempty"`
+pkg authkit/authtest, type Option func(*setup)
+pkg authkit/authtest, type Outbox = testoutbox.Outbox
+pkg authkit/authtest, type Outbox struct
+pkg authkit/authtest, type TOTP struct
+pkg authkit/authtest, type TOTP struct, Secret string
+pkg authkit/authtest, type TestIssuer struct
+pkg authkit/authtest, type User struct
+pkg authkit/authtest, type User struct, Email string
+pkg authkit/authtest, type User struct, Password string
+pkg authkit/authtest, type User struct, TOTP *TOTP
+pkg authkit/authtest, type User struct, embedded iam.User
+pkg authkit/devicekey, const EnrollmentDomain untyped string = "authkit.device-key-enrollment/1"
+pkg authkit/devicekey, const LoginDomain untyped string = "authkit.device-key-login/1"
+pkg authkit/devicekey, func Message(string, []byte) []byte
+pkg authkit/devicekey, func NewClient(string, *http.Client) (*Client, error)
+pkg authkit/devicekey, func SignEnrollment(crypto.Signer, string) (string, error)
+pkg authkit/devicekey, func SignLogin(crypto.Signer, string) (string, error)
+pkg authkit/devicekey, method (*Client) BeginEnrollment(context.Context, string, ed25519.PublicKey, string) (Enrollment, error)
+pkg authkit/devicekey, method (*Client) FinishEnrollment(context.Context, Enrollment, crypto.Signer, string, string) (Session, error)
+pkg authkit/devicekey, method (*Client) List(context.Context, string) ([]iam.DeviceKey, error)
+pkg authkit/devicekey, method (*Client) Login(context.Context, string, crypto.Signer) (Session, error)
+pkg authkit/devicekey, method (*Client) Logout(context.Context, string) error
+pkg authkit/devicekey, method (*Client) Revoke(context.Context, string, string) error
+pkg authkit/devicekey, method (*Client) RevokeOthers(context.Context, string) error
+pkg authkit/devicekey, method (*SecondFactorRequired) Error() string
+pkg authkit/devicekey, method (*SecondFactorRequired) Unwrap() error
+pkg authkit/devicekey, type Client struct
+pkg authkit/devicekey, type Enrollment struct
+pkg authkit/devicekey, type Enrollment struct, Challenge string
+pkg authkit/devicekey, type Enrollment struct, ExpiresAt time.Time
+pkg authkit/devicekey, type Enrollment struct, ID string
+pkg authkit/devicekey, type Enrollment struct, PublicKey ed25519.PublicKey
+pkg authkit/devicekey, type SecondFactorRequired struct
+pkg authkit/devicekey, type SecondFactorRequired struct, Method string
+pkg authkit/devicekey, type Session struct
+pkg authkit/devicekey, type Session struct, AccessToken string
+pkg authkit/devicekey, type Session struct, DeviceKey iam.DeviceKey
+pkg authkit/devicekey, type Session struct, ExpiresAt time.Time
+pkg authkit/iam, const ActorAPIKey ActorKind = "api_key"
+pkg authkit/iam, const ActorDelegated ActorKind = "delegated"
+pkg authkit/iam, const ActorRemoteApplication ActorKind = "remote_application"
+pkg authkit/iam, const ActorSystem ActorKind = "system"
+pkg authkit/iam, const ActorUser ActorKind = "user"
+pkg authkit/iam, const ApplicationTrustRootManual ApplicationTrustRoot = "manual"
+pkg authkit/iam, const ApplicationTrustRootUser ApplicationTrustRoot = "user"
+pkg authkit/iam, const AssuranceLevelMFA untyped string = "urn:authkit:loa:2"
+pkg authkit/iam, const AssuranceLevelPassword untyped string = "urn:authkit:loa:1"
+pkg authkit/iam, const AuthOptional RouteAuthTier = "optional"
+pkg authkit/iam, const AuthPermission RouteAuthTier = "permission"
+pkg authkit/iam, const AuthPublic RouteAuthTier = "public"
+pkg authkit/iam, const AuthRequired RouteAuthTier = "required"
+pkg authkit/iam, const AuthSession RouteAuthTier = "session"
+pkg authkit/iam, const ContactEmail ContactField = "email"
+pkg authkit/iam, const ContactPhone ContactField = "phone"
+pkg authkit/iam, const DefaultPageLimit untyped int = 50
+pkg authkit/iam, const DefaultServiceJWTLifetime time.Duration = 900000000000
+pkg authkit/iam, const EventGroupCreated EventKind = "group.created"
+pkg authkit/iam, const EventGroupDeleted EventKind = "group.deleted"
+pkg authkit/iam, const EventGroupPurged EventKind = "group.purged"
+pkg authkit/iam, const EventRoleChanged EventKind = "role.changed"
+pkg authkit/iam, const EventRoleGranted EventKind = "role.granted"
+pkg authkit/iam, const EventRoleRevoked EventKind = "role.revoked"
+pkg authkit/iam, const EventUserBanned EventKind = "user.banned"
+pkg authkit/iam, const EventUserDeleted EventKind = "user.deleted"
+pkg authkit/iam, const EventUserEmailChanged EventKind = "user.email_changed"
+pkg authkit/iam, const EventUserPhoneChanged EventKind = "user.phone_changed"
+pkg authkit/iam, const EventUserPurged EventKind = "user.purged"
+pkg authkit/iam, const EventUserRegistered EventKind = "user.registered"
+pkg authkit/iam, const EventUserRestored EventKind = "user.restored"
+pkg authkit/iam, const EventUserUnbanned EventKind = "user.unbanned"
+pkg authkit/iam, const EventUserUsernameChanged EventKind = "user.username_changed"
+pkg authkit/iam, const HashArgon2id HashAlgo = "argon2id"
+pkg authkit/iam, const HashBcrypt HashAlgo = "bcrypt"
+pkg authkit/iam, const HashLegacyResetRequired HashAlgo = "legacy-reset-required"
+pkg authkit/iam, const ImportAddressOwnedByOtherUser ImportReason = "address_owned_by_other_user"
+pkg authkit/iam, const ImportAlreadyExists ImportReason = "already_exists"
+pkg authkit/iam, const ImportAlreadyImported ImportReason = "already_imported"
+pkg authkit/iam, const ImportAlreadyVerified ImportReason = "already_verified"
+pkg authkit/iam, const ImportDeleted ImportReason = "deleted"
+pkg authkit/iam, const ImportDuplicateInBatch ImportReason = "duplicate_in_batch"
+pkg authkit/iam, const ImportIdentifierConflict ImportReason = "identifier_conflict"
+pkg authkit/iam, const ImportInserted ImportStatus = "inserted"
+pkg authkit/iam, const ImportInvalidAddress ImportReason = "invalid_address"
+pkg authkit/iam, const ImportInvalidBan ImportReason = "invalid_ban"
+pkg authkit/iam, const ImportInvalidDeletedAt ImportReason = "invalid_deleted_at"
+pkg authkit/iam, const ImportInvalidID ImportReason = "invalid_id"
+pkg authkit/iam, const ImportInvalidPasswordHash ImportReason = "invalid_password_hash"
+pkg authkit/iam, const ImportInvalidProvider ImportReason = "invalid_provider"
+pkg authkit/iam, const ImportInvalidText ImportReason = "invalid_text"
+pkg authkit/iam, const ImportInvalidUserID ImportReason = "invalid_user_id"
+pkg authkit/iam, const ImportMatchEmail ImportMatch = "email"
+pkg authkit/iam, const ImportMatchID ImportMatch = "id"
+pkg authkit/iam, const ImportMatchPhone ImportMatch = "phone"
+pkg authkit/iam, const ImportMatchUsername ImportMatch = "username"
+pkg authkit/iam, const ImportMerge ImportConflict = "merge"
+pkg authkit/iam, const ImportMerged ImportStatus = "merged"
+pkg authkit/iam, const ImportMissingSource ImportReason = "missing_source"
+pkg authkit/iam, const ImportMissingSourceID ImportReason = "missing_source_id"
+pkg authkit/iam, const ImportMissingUser ImportReason = "missing_user"
+pkg authkit/iam, const ImportProviderAlreadyLinked ImportReason = "provider_already_linked"
+pkg authkit/iam, const ImportProviderChangeRequiresUnlink ImportReason = "provider_change_requires_unlink"
+pkg authkit/iam, const ImportProviderLinkConflict ImportReason = "provider_link_conflict"
+pkg authkit/iam, const ImportRejected ImportStatus = "rejected"
+pkg authkit/iam, const ImportSkip ImportConflict = "skip"
+pkg authkit/iam, const ImportSkipped ImportStatus = "skipped"
+pkg authkit/iam, const ImportUnboundMatch ImportReason = "unbound_match"
+pkg authkit/iam, const ImportUserHasDifferentAddress ImportReason = "user_has_different_address"
+pkg authkit/iam, const ImportUsernameUnavailable ImportReason = "username_unavailable"
+pkg authkit/iam, const InsecureRefreshCookieName untyped string = "authkit_rt"
+pkg authkit/iam, const JWKSPath untyped string = "/.well-known/jwks.json"
+pkg authkit/iam, const MaxBatch untyped int = 500
+pkg authkit/iam, const MaxPageLimit untyped int = 500
+pkg authkit/iam, const MessageContactChanged MessageKind = "contact_changed"
+pkg authkit/iam, const MessageDeviceKeyEnrolled MessageKind = "device_key_enrolled"
+pkg authkit/iam, const MessageInvite MessageKind = "invite"
+pkg authkit/iam, const MessageLoginCode MessageKind = "login_code"
+pkg authkit/iam, const MessageMFAReset MessageKind = "mfa_reset"
+pkg authkit/iam, const MessagePasswordReset MessageKind = "password_reset"
+pkg authkit/iam, const MessageVerification MessageKind = "verification"
+pkg authkit/iam, const MessageWelcome MessageKind = "welcome"
+pkg authkit/iam, const NameCreate NameOperation = "create"
+pkg authkit/iam, const NameRename NameOperation = "rename"
+pkg authkit/iam, const PermWildcard untyped string = "*"
+pkg authkit/iam, const PurposeContactChange VerificationPurpose = "contact_change"
+pkg authkit/iam, const PurposeContactVerify VerificationPurpose = "contact_verify"
+pkg authkit/iam, const PurposeDeviceKeyEnrollment VerificationPurpose = "device_key_enrollment"
+pkg authkit/iam, const PurposePasswordlessLogin VerificationPurpose = "passwordless_login"
+pkg authkit/iam, const PurposeSignup VerificationPurpose = "signup"
+pkg authkit/iam, const PurposeTwoFactorSetup VerificationPurpose = "2fa_setup"
+pkg authkit/iam, const RefreshCookieName untyped string = "__Host-authkit_rt"
+pkg authkit/iam, const RegistrationModeClosed RegistrationMode = "closed"
+pkg authkit/iam, const RegistrationModeInviteOnly RegistrationMode = "invite_only"
+pkg authkit/iam, const RegistrationModeOpen RegistrationMode = "open"
+pkg authkit/iam, const RegistrationVerificationNone RegistrationVerificationPolicy = "none"
+pkg authkit/iam, const RegistrationVerificationOptional RegistrationVerificationPolicy = "optional"
+pkg authkit/iam, const RegistrationVerificationRequired RegistrationVerificationPolicy = "required"
+pkg authkit/iam, const RemoteApplicationModeJWKS RemoteApplicationMode = "jwks"
+pkg authkit/iam, const RemoteApplicationModeStatic RemoteApplicationMode = "static"
+pkg authkit/iam, const RouteAccount RouteGroup = "account"
+pkg authkit/iam, const RouteAdmin RouteGroup = "admin"
+pkg authkit/iam, const RouteAuth RouteGroup = "auth"
+pkg authkit/iam, const RouteBrowserOIDC RouteGroup = "browser_oidc"
+pkg authkit/iam, const RouteDelegated RouteGroup = "delegated"
+pkg authkit/iam, const RouteDeviceKeys RouteGroup = "device_keys"
+pkg authkit/iam, const RoutePermissionGroups RouteGroup = "permission_groups"
+pkg authkit/iam, const RouteRegistration RouteGroup = "registration"
+pkg authkit/iam, const ServiceJWTTokenUse untyped string = "service"
+pkg authkit/iam, const SessionEventAccountSessionsRevoked SessionEventKind = "account_sessions_revoked"
+pkg authkit/iam, const SessionEventCreated SessionEventKind = "session_created"
+pkg authkit/iam, const SessionEventFailed SessionEventKind = "session_failed"
+pkg authkit/iam, const SessionEventPasswordChange SessionEventKind = "password_changed"
+pkg authkit/iam, const SessionEventPasswordRecovery SessionEventKind = "password_recovery"
+pkg authkit/iam, const SessionEventRevoked SessionEventKind = "session_revoked"
+pkg authkit/iam, const SolanaDevnet SolanaNetwork = "devnet"
+pkg authkit/iam, const SolanaMainnet SolanaNetwork = "mainnet"
+pkg authkit/iam, const SolanaTestnet SolanaNetwork = "testnet"
+pkg authkit/iam, const SubjectKindRemoteApplication SubjectKind = "remote_application"
+pkg authkit/iam, const SubjectKindUser SubjectKind = "user"
+pkg authkit/iam, const TwoFactorDisabled TwoFactorMode = "disabled"
+pkg authkit/iam, const TwoFactorEmail TwoFactorMethod = "email"
+pkg authkit/iam, const TwoFactorOptional TwoFactorMode = "optional"
+pkg authkit/iam, const TwoFactorRequired TwoFactorMode = "required"
+pkg authkit/iam, const TwoFactorSMS TwoFactorMethod = "sms"
+pkg authkit/iam, const TwoFactorTOTP TwoFactorMethod = "totp"
+pkg authkit/iam, const UserKeyEmail UserKey = "email"
+pkg authkit/iam, const UserKeyID UserKey = "id"
+pkg authkit/iam, const UserKeyPhone UserKey = "phone"
+pkg authkit/iam, const UserKeyUsername UserKey = "username"
+pkg authkit/iam, const UserRecoveryPeriod time.Duration = 2592000000000000
+pkg authkit/iam, const UserSortCreatedAt UserSort = "created_at"
+pkg authkit/iam, const UserSortEmail UserSort = "email"
+pkg authkit/iam, const UserSortLastLogin UserSort = "last_login"
+pkg authkit/iam, const UserSortUsername UserSort = "username"
+pkg authkit/iam, const UserStatusActive UserStatus = "active"
+pkg authkit/iam, const UserStatusAny UserStatus = "any"
+pkg authkit/iam, const UserStatusBanned UserStatus = "banned"
+pkg authkit/iam, const UserStatusDeleted UserStatus = "deleted"
+pkg authkit/iam, const UserStatusLive UserStatus = ""
+pkg authkit/iam, func APIKeyActor(string) Actor
+pkg authkit/iam, func AppByID(string) AppRef
+pkg authkit/iam, func AppByIssuer(string) AppRef
+pkg authkit/iam, func AsError(error) (Error, bool)
+pkg authkit/iam, func DecodeError(*http.Response) error
+pkg authkit/iam, func DelegatedActor(DelegatedGrant) Actor
+pkg authkit/iam, func ErrorResponse(error) (int, ErrorEnvelope)
+pkg authkit/iam, func GroupByID(string) GroupRef
+pkg authkit/iam, func NewTokenSet(string, string, time.Time) TokenSet
+pkg authkit/iam, func PublicDisplayName(map[string]PublicUser, string) string
+pkg authkit/iam, func RemoteApplicationActor(string) Actor
+pkg authkit/iam, func RemoteApplicationSubject(string) Subject
+pkg authkit/iam, func RootGroup() GroupRef
+pkg authkit/iam, func SystemActor() Actor
+pkg authkit/iam, func UserActor(string) Actor
+pkg authkit/iam, func UserByEmail(string) UserRef
+pkg authkit/iam, func UserByID(string) UserRef
+pkg authkit/iam, func UserByPhone(string) UserRef
+pkg authkit/iam, func UserByUsername(string) UserRef
+pkg authkit/iam, func UserSubject(string) Subject
+pkg authkit/iam, func WriteError(http.ResponseWriter, error)
+pkg authkit/iam, method (*ListPage[T]) UnmarshalJSON([]byte) error
+pkg authkit/iam, method (*OpResult) UnmarshalJSON([]byte) error
+pkg authkit/iam, method (*Perm) UnmarshalText([]byte) error
+pkg authkit/iam, method (*Persona) UnmarshalText([]byte) error
+pkg authkit/iam, method (*Role) UnmarshalText([]byte) error
+pkg authkit/iam, method (Actor) Bounded() bool
+pkg authkit/iam, method (Actor) CeilingCovers(Perm) bool
+pkg authkit/iam, method (Actor) Delegation() (DelegatedGrant, bool)
+pkg authkit/iam, method (Actor) ID() string
+pkg authkit/iam, method (Actor) InSession(SessionRef) Actor
+pkg authkit/iam, method (Actor) IsZero() bool
+pkg authkit/iam, method (Actor) Kind() ActorKind
+pkg authkit/iam, method (Actor) Session() (SessionRef, bool)
+pkg authkit/iam, method (Actor) String() string
+pkg authkit/iam, method (Actor) Within(...Perm) Actor
+pkg authkit/iam, method (AppRef) ID() string
+pkg authkit/iam, method (AppRef) IsZero() bool
+pkg authkit/iam, method (AppRef) Issuer() string
+pkg authkit/iam, method (AppRef) String() string
+pkg authkit/iam, method (GroupRef) ID() string
+pkg authkit/iam, method (GroupRef) IsRoot() bool
+pkg authkit/iam, method (GroupRef) IsZero() bool
+pkg authkit/iam, method (GroupRef) String() string
+pkg authkit/iam, method (ListPage[T]) MarshalJSON() ([]byte, error)
+pkg authkit/iam, method (OpResult) MarshalJSON() ([]byte, error)
+pkg authkit/iam, method (PageRequest) PageLimit() int
+pkg authkit/iam, method (Perm) IsZero() bool
+pkg authkit/iam, method (Perm) MarshalText() ([]byte, error)
+pkg authkit/iam, method (Perm) Matches(Perm) bool
+pkg authkit/iam, method (Perm) Persona() Persona
+pkg authkit/iam, method (Perm) String() string
+pkg authkit/iam, method (Persona) IsZero() bool
+pkg authkit/iam, method (Persona) MarshalText() ([]byte, error)
+pkg authkit/iam, method (Persona) OwnerGrant() Perm
+pkg authkit/iam, method (Persona) OwnerRole() Role
+pkg authkit/iam, method (Persona) String() string
+pkg authkit/iam, method (PublicUser) DisplayName() string
+pkg authkit/iam, method (Role) IsOwner() bool
+pkg authkit/iam, method (Role) IsZero() bool
+pkg authkit/iam, method (Role) MarshalText() ([]byte, error)
+pkg authkit/iam, method (Role) Name() string
+pkg authkit/iam, method (Role) Persona() Persona
+pkg authkit/iam, method (Role) String() string
+pkg authkit/iam, method (Route) Pattern() string
+pkg authkit/iam, method (SessionRef) IsZero() bool
+pkg authkit/iam, method (UserRef) IsZero() bool
+pkg authkit/iam, method (UserRef) Key() UserKey
+pkg authkit/iam, method (UserRef) String() string
+pkg authkit/iam, method (UserRef) Value() string
+pkg authkit/iam, type APIKey struct
+pkg authkit/iam, type APIKey struct, CreatedAt time.Time `json:"created_at"`
+pkg authkit/iam, type APIKey struct, CreatedBy *string `json:"created_by"`
+pkg authkit/iam, type APIKey struct, ExpiresAt *time.Time `json:"expires_at"`
+pkg authkit/iam, type APIKey struct, GroupID string `json:"group_id"`
+pkg authkit/iam, type APIKey struct, ID string `json:"id"`
+pkg authkit/iam, type APIKey struct, LastUsedAt *time.Time `json:"last_used_at"`
+pkg authkit/iam, type APIKey struct, LookupID string `json:"lookup_id"`
+pkg authkit/iam, type APIKey struct, Name string `json:"name"`
+pkg authkit/iam, type APIKey struct, Permissions []Perm `json:"permissions"`
+pkg authkit/iam, type APIKey struct, RevokedAt *time.Time `json:"revoked_at"`
+pkg authkit/iam, type APIKey struct, Role Role `json:"role"`
+pkg authkit/iam, type APIKeyCreated struct
+pkg authkit/iam, type APIKeyCreated struct, APIKey APIKey `json:"api_key"`
+pkg authkit/iam, type APIKeyCreated struct, Secret string `json:"secret"`
+pkg authkit/iam, type APIKeyPrincipal struct
+pkg authkit/iam, type APIKeyPrincipal struct, ExpiresAt *time.Time `json:"expires_at"`
+pkg authkit/iam, type APIKeyPrincipal struct, Group Group `json:"group"`
+pkg authkit/iam, type APIKeyPrincipal struct, ID string `json:"id"`
+pkg authkit/iam, type APIKeyPrincipal struct, Issuer string `json:"issuer"`
+pkg authkit/iam, type APIKeyPrincipal struct, LookupID string `json:"lookup_id"`
+pkg authkit/iam, type APIKeyPrincipal struct, Permissions []Perm `json:"permissions"`
+pkg authkit/iam, type APIKeyPrincipal struct, Role Role `json:"role"`
+pkg authkit/iam, type AccessTokenOptions struct
+pkg authkit/iam, type AccessTokenOptions struct, Claims map[string]any
+pkg authkit/iam, type AccessTokenOptions struct, SessionID string
+pkg authkit/iam, type AccessTokenOptions struct, TTL time.Duration
+pkg authkit/iam, type AccountSessionRevocation struct
+pkg authkit/iam, type AccountSessionRevocation struct, Issuers []string `json:"issuers"`
+pkg authkit/iam, type AccountSessionRevocation struct, RevokedDeviceKeys int `json:"revoked_device_keys"`
+pkg authkit/iam, type AccountSessionRevocation struct, RevokedSessions map[string]int `json:"revoked_sessions"`
+pkg authkit/iam, type AccountSessionRevocation struct, UnlistedIssuerSessions int `json:"unlisted_issuer_sessions"`
+pkg authkit/iam, type Actor struct
+pkg authkit/iam, type ActorKind string
+pkg authkit/iam, type AppRef struct
+pkg authkit/iam, type ApplicationTrustRoot string
+pkg authkit/iam, type Ban struct
+pkg authkit/iam, type Ban struct, KeepExisting bool
+pkg authkit/iam, type Ban struct, Reason string
+pkg authkit/iam, type Ban struct, Until *time.Time
+pkg authkit/iam, type BanState struct
+pkg authkit/iam, type BanState struct, At time.Time `json:"at" yaml:"at"`
+pkg authkit/iam, type BanState struct, By *string `json:"by" yaml:"by"`
+pkg authkit/iam, type BanState struct, Reason *string `json:"reason" yaml:"reason"`
+pkg authkit/iam, type BanState struct, Until *time.Time `json:"until" yaml:"until"`
+pkg authkit/iam, type BootstrapManifest struct
+pkg authkit/iam, type BootstrapManifest struct, RemoteApplications []BootstrapManifestRemoteApplication `json:"remote_applications" yaml:"remote_applications"`
+pkg authkit/iam, type BootstrapManifest struct, Users []BootstrapManifestUser `json:"users" yaml:"users"`
+pkg authkit/iam, type BootstrapManifestRemoteApplication struct
+pkg authkit/iam, type BootstrapManifestRemoteApplication struct, Enabled *bool `json:"enabled" yaml:"enabled"`
+pkg authkit/iam, type BootstrapManifestRemoteApplication struct, Issuer string `json:"issuer" yaml:"issuer"`
+pkg authkit/iam, type BootstrapManifestRemoteApplication struct, JWKSURI string `json:"jwks_uri" yaml:"jwks_uri"`
+pkg authkit/iam, type BootstrapManifestRemoteApplication struct, PublicKeys []RemoteApplicationKey `json:"public_keys" yaml:"public_keys"`
+pkg authkit/iam, type BootstrapManifestRemoteApplication struct, RootRole Role `json:"root_role" yaml:"root_role"`
+pkg authkit/iam, type BootstrapManifestUser struct
+pkg authkit/iam, type BootstrapManifestUser struct, Ban *BanState `json:"ban" yaml:"ban"`
+pkg authkit/iam, type BootstrapManifestUser struct, Email string `json:"email" yaml:"email"`
+pkg authkit/iam, type BootstrapManifestUser struct, EmailVerified bool `json:"email_verified" yaml:"email_verified"`
+pkg authkit/iam, type BootstrapManifestUser struct, Metadata map[string]any `json:"metadata" yaml:"metadata"`
+pkg authkit/iam, type BootstrapManifestUser struct, Password *BootstrapUserPassword `json:"password" yaml:"password"`
+pkg authkit/iam, type BootstrapManifestUser struct, Phone string `json:"phone" yaml:"phone"`
+pkg authkit/iam, type BootstrapManifestUser struct, PhoneVerified bool `json:"phone_verified" yaml:"phone_verified"`
+pkg authkit/iam, type BootstrapManifestUser struct, RootRole Role `json:"root_role" yaml:"root_role"`
+pkg authkit/iam, type BootstrapManifestUser struct, Username string `json:"username" yaml:"username"`
+pkg authkit/iam, type BootstrapOptions struct
+pkg authkit/iam, type BootstrapOptions struct, DryRun bool
+pkg authkit/iam, type BootstrapOptions struct, Name string
+pkg authkit/iam, type BootstrapOptions struct, StartupOnly bool
+pkg authkit/iam, type BootstrapResult struct
+pkg authkit/iam, type BootstrapResult struct, AlreadyApplied bool `json:"already_applied"`
+pkg authkit/iam, type BootstrapResult struct, DryRun bool `json:"dry_run"`
+pkg authkit/iam, type BootstrapResult struct, PasswordsKept int `json:"passwords_kept"`
+pkg authkit/iam, type BootstrapResult struct, PasswordsSet int `json:"passwords_set"`
+pkg authkit/iam, type BootstrapResult struct, RemoteApplicationRootRoles int `json:"remote_application_root_roles"`
+pkg authkit/iam, type BootstrapResult struct, RemoteApplications int `json:"remote_applications"`
+pkg authkit/iam, type BootstrapResult struct, RootRoleAssignments int `json:"root_role_assignments"`
+pkg authkit/iam, type BootstrapResult struct, UsersCreated int `json:"users_created"`
+pkg authkit/iam, type BootstrapResult struct, UsersMatched int `json:"users_matched"`
+pkg authkit/iam, type BootstrapUserPassword struct
+pkg authkit/iam, type BootstrapUserPassword struct, Enforce bool `json:"enforce" yaml:"enforce"`
+pkg authkit/iam, type BootstrapUserPassword struct, Plaintext string `json:"plaintext" yaml:"plaintext"`
+pkg authkit/iam, type BootstrapUserPassword struct, ResetRequired bool `json:"reset_required" yaml:"reset_required"`
+pkg authkit/iam, type BootstrapUserPassword struct, embedded PasswordHash
+pkg authkit/iam, type ContactChange struct
+pkg authkit/iam, type ContactChange struct, Field ContactField
+pkg authkit/iam, type ContactChange struct, NewValue string
+pkg authkit/iam, type ContactField string
+pkg authkit/iam, type DelegatedAccess struct
+pkg authkit/iam, type DelegatedAccess struct, Attributes map[string]any
+pkg authkit/iam, type DelegatedAccess struct, Audiences []string
+pkg authkit/iam, type DelegatedAccess struct, CertificateThumbprint string
+pkg authkit/iam, type DelegatedAccess struct, JTI string
+pkg authkit/iam, type DelegatedAccess struct, JWKThumbprint string
+pkg authkit/iam, type DelegatedAccess struct, NotBefore time.Time
+pkg authkit/iam, type DelegatedAccess struct, Permissions []string
+pkg authkit/iam, type DelegatedAccess struct, Subject string
+pkg authkit/iam, type DelegatedAccess struct, TTL time.Duration
+pkg authkit/iam, type DelegatedGrant struct
+pkg authkit/iam, type DelegatedGrant struct, GroupID string
+pkg authkit/iam, type DelegatedGrant struct, Issuer string
+pkg authkit/iam, type DelegatedGrant struct, Permissions []Perm
+pkg authkit/iam, type DelegatedGrant struct, RemoteApplicationID string
+pkg authkit/iam, type DelegatedGrant struct, Subject string
+pkg authkit/iam, type DelegationAuthorizer func(context.Context, DelegationRequest) (DelegationGrant, error)
+pkg authkit/iam, type DelegationGrant struct
+pkg authkit/iam, type DelegationGrant struct, Attributes map[string]any
+pkg authkit/iam, type DelegationGrant struct, Permissions []string
+pkg authkit/iam, type DelegationRequest struct
+pkg authkit/iam, type DelegationRequest struct, Audiences []string
+pkg authkit/iam, type DelegationRequest struct, CertificateThumbprint string
+pkg authkit/iam, type DelegationRequest struct, DelegateCertificate []byte
+pkg authkit/iam, type DelegationRequest struct, JWKThumbprint string
+pkg authkit/iam, type DelegationRequest struct, RequestedGrant json.RawMessage
+pkg authkit/iam, type DelegationRequest struct, TTL time.Duration
+pkg authkit/iam, type DelegationRequest struct, UserID string
+pkg authkit/iam, type DeviceKey struct
+pkg authkit/iam, type DeviceKey struct, CreatedAt time.Time `json:"created_at"`
+pkg authkit/iam, type DeviceKey struct, Current bool `json:"current"`
+pkg authkit/iam, type DeviceKey struct, ID string `json:"id"`
+pkg authkit/iam, type DeviceKey struct, Label *string `json:"label"`
+pkg authkit/iam, type DeviceKey struct, LastUsedAt *time.Time `json:"last_used_at"`
+pkg authkit/iam, type DeviceKey struct, PublicKey ed25519.PublicKey `json:"public_key"`
+pkg authkit/iam, type DeviceKey struct, RevokedAt *time.Time `json:"revoked_at"`
+pkg authkit/iam, type DeviceKeyNotice struct
+pkg authkit/iam, type DeviceKeyNotice struct, CreatedAt time.Time
+pkg authkit/iam, type DeviceKeyNotice struct, Label string
+pkg authkit/iam, type EmailMessage struct
+pkg authkit/iam, type EmailMessage struct, Code string
+pkg authkit/iam, type EmailMessage struct, ContactChange *ContactChange
+pkg authkit/iam, type EmailMessage struct, DeviceKey *DeviceKeyNotice
+pkg authkit/iam, type EmailMessage struct, Kind MessageKind
+pkg authkit/iam, type EmailMessage struct, Language string
+pkg authkit/iam, type EmailMessage struct, Link string
+pkg authkit/iam, type EmailMessage struct, Purpose VerificationPurpose
+pkg authkit/iam, type EmailMessage struct, To string
+pkg authkit/iam, type EmailMessage struct, Username string
+pkg authkit/iam, type Error interface
+pkg authkit/iam, type Error interface, Code() string
+pkg authkit/iam, type Error interface, Error() string
+pkg authkit/iam, type Error interface, Metadata() map[string]any
+pkg authkit/iam, type Error interface, Param() string
+pkg authkit/iam, type Error interface, Status() int
+pkg authkit/iam, type ErrorEnvelope struct
+pkg authkit/iam, type ErrorEnvelope struct, Error ErrorObject `json:"error"`
+pkg authkit/iam, type ErrorObject struct
+pkg authkit/iam, type ErrorObject struct, Code string `json:"code"`
+pkg authkit/iam, type ErrorObject struct, Message string `json:"message"`
+pkg authkit/iam, type ErrorObject struct, Metadata map[string]any `json:"metadata"`
+pkg authkit/iam, type ErrorObject struct, Param *string `json:"param"`
+pkg authkit/iam, type ErrorObject struct, Type string `json:"type"`
+pkg authkit/iam, type Event struct
+pkg authkit/iam, type Event struct, ActorID string `json:"actor_id"`
+pkg authkit/iam, type Event struct, ActorKind ActorKind `json:"actor_kind"`
+pkg authkit/iam, type Event struct, ApplicationID string `json:"application_id"`
+pkg authkit/iam, type Event struct, Current string `json:"current"`
+pkg authkit/iam, type Event struct, GroupID string `json:"group_id"`
+pkg authkit/iam, type Event struct, ID string `json:"id"`
+pkg authkit/iam, type Event struct, Kind EventKind `json:"kind"`
+pkg authkit/iam, type Event struct, OccurredAt time.Time `json:"occurred_at"`
+pkg authkit/iam, type Event struct, Persona Persona `json:"persona"`
+pkg authkit/iam, type Event struct, Previous string `json:"previous"`
+pkg authkit/iam, type Event struct, Reason string `json:"reason"`
+pkg authkit/iam, type Event struct, Until *time.Time `json:"until"`
+pkg authkit/iam, type Event struct, UserID string `json:"user_id"`
+pkg authkit/iam, type EventKind string
+pkg authkit/iam, type Grant interface
+pkg authkit/iam, type Grant interface, unexported methods
+pkg authkit/iam, type Group struct
+pkg authkit/iam, type Group struct, CreatedAt time.Time `json:"created_at"`
+pkg authkit/iam, type Group struct, DeletedAt *time.Time `json:"deleted_at"`
+pkg authkit/iam, type Group struct, ID string `json:"id"`
+pkg authkit/iam, type Group struct, Persona Persona `json:"persona"`
+pkg authkit/iam, type GroupMember struct
+pkg authkit/iam, type GroupMember struct, Role Role `json:"role"`
+pkg authkit/iam, type GroupMember struct, Subject Subject `json:"subject"`
+pkg authkit/iam, type GroupMember struct, User *PublicUser `json:"user"`
+pkg authkit/iam, type GroupQuery struct
+pkg authkit/iam, type GroupQuery struct, IncludeDeleted bool
+pkg authkit/iam, type GroupQuery struct, Ownerless bool
+pkg authkit/iam, type GroupQuery struct, Page PageRequest
+pkg authkit/iam, type GroupQuery struct, Persona Persona
+pkg authkit/iam, type GroupRef struct
+pkg authkit/iam, type HashAlgo string
+pkg authkit/iam, type ImportConflict string
+pkg authkit/iam, type ImportMatch string
+pkg authkit/iam, type ImportOptions struct
+pkg authkit/iam, type ImportOptions struct, OnConflict ImportConflict
+pkg authkit/iam, type ImportReason string
+pkg authkit/iam, type ImportResult struct
+pkg authkit/iam, type ImportResult struct, Inserted int `json:"inserted"`
+pkg authkit/iam, type ImportResult struct, Merged int `json:"merged"`
+pkg authkit/iam, type ImportResult struct, Rejected int `json:"rejected"`
+pkg authkit/iam, type ImportResult struct, Rows []ImportRow `json:"rows"`
+pkg authkit/iam, type ImportResult struct, Skipped int `json:"skipped"`
+pkg authkit/iam, type ImportRow struct
+pkg authkit/iam, type ImportRow struct, Index int `json:"index"`
+pkg authkit/iam, type ImportRow struct, MatchedBy ImportMatch `json:"matched_by"`
+pkg authkit/iam, type ImportRow struct, Reason ImportReason `json:"reason"`
+pkg authkit/iam, type ImportRow struct, Status ImportStatus `json:"status"`
+pkg authkit/iam, type ImportRow struct, UserID string `json:"user_id"`
+pkg authkit/iam, type ImportSolanaLink struct
+pkg authkit/iam, type ImportSolanaLink struct, Address string
+pkg authkit/iam, type ImportSolanaLink struct, Source string
+pkg authkit/iam, type ImportSolanaLink struct, SourceCreatedAt *time.Time
+pkg authkit/iam, type ImportSolanaLink struct, SourceID string
+pkg authkit/iam, type ImportSolanaLink struct, UserID string
+pkg authkit/iam, type ImportSolanaLinkRow struct
+pkg authkit/iam, type ImportSolanaLinkRow struct, Address string `json:"address"`
+pkg authkit/iam, type ImportSolanaLinkRow struct, Index int `json:"index"`
+pkg authkit/iam, type ImportSolanaLinkRow struct, Reason ImportReason `json:"reason"`
+pkg authkit/iam, type ImportSolanaLinkRow struct, Status ImportStatus `json:"status"`
+pkg authkit/iam, type ImportSolanaLinkRow struct, UserID string `json:"user_id"`
+pkg authkit/iam, type ImportSolanaLinksResult struct
+pkg authkit/iam, type ImportSolanaLinksResult struct, Inserted int `json:"inserted"`
+pkg authkit/iam, type ImportSolanaLinksResult struct, Rejected int `json:"rejected"`
+pkg authkit/iam, type ImportSolanaLinksResult struct, Rows []ImportSolanaLinkRow `json:"rows"`
+pkg authkit/iam, type ImportSolanaLinksResult struct, Skipped int `json:"skipped"`
+pkg authkit/iam, type ImportStatus string
+pkg authkit/iam, type ImportUser struct
+pkg authkit/iam, type ImportUser struct, AvatarURL string
+pkg authkit/iam, type ImportUser struct, Ban *BanState
+pkg authkit/iam, type ImportUser struct, CreatedAt *time.Time
+pkg authkit/iam, type ImportUser struct, DeletedAt *time.Time
+pkg authkit/iam, type ImportUser struct, Email string
+pkg authkit/iam, type ImportUser struct, EmailVerified bool
+pkg authkit/iam, type ImportUser struct, ID string
+pkg authkit/iam, type ImportUser struct, LastLogin *time.Time
+pkg authkit/iam, type ImportUser struct, Metadata map[string]any
+pkg authkit/iam, type ImportUser struct, PasswordHash *PasswordHash
+pkg authkit/iam, type ImportUser struct, Phone string
+pkg authkit/iam, type ImportUser struct, PhoneVerified bool
+pkg authkit/iam, type ImportUser struct, PreferredLanguage string
+pkg authkit/iam, type ImportUser struct, Providers []ProviderLink
+pkg authkit/iam, type ImportUser struct, UpdatedAt *time.Time
+pkg authkit/iam, type ImportUser struct, Username string
+pkg authkit/iam, type Invitation struct
+pkg authkit/iam, type Invitation struct, CreatedAt time.Time `json:"created_at"`
+pkg authkit/iam, type Invitation struct, CreatedBy *string `json:"created_by"`
+pkg authkit/iam, type Invitation struct, Email *string `json:"email"`
+pkg authkit/iam, type Invitation struct, ExpiresAt *time.Time `json:"expires_at"`
+pkg authkit/iam, type Invitation struct, GroupID string `json:"group_id"`
+pkg authkit/iam, type Invitation struct, ID string `json:"id"`
+pkg authkit/iam, type Invitation struct, RedeemedAt *time.Time `json:"redeemed_at"`
+pkg authkit/iam, type Invitation struct, RevokedAt *time.Time `json:"revoked_at"`
+pkg authkit/iam, type Invitation struct, Role Role `json:"role"`
+pkg authkit/iam, type InvitationCreated struct
+pkg authkit/iam, type InvitationCreated struct, Code string `json:"code"`
+pkg authkit/iam, type InvitationCreated struct, Invitation Invitation `json:"invitation"`
+pkg authkit/iam, type InvitationCreated struct, URL string `json:"url"`
+pkg authkit/iam, type ListPage struct, Items []T
+pkg authkit/iam, type ListPage struct, Next string
+pkg authkit/iam, type ListPage struct, Total *int
+pkg authkit/iam, type ListPage[T any] struct
+pkg authkit/iam, type MemberQuery struct
+pkg authkit/iam, type MemberQuery struct, Kinds []SubjectKind
+pkg authkit/iam, type MemberQuery struct, LiveOnly bool
+pkg authkit/iam, type MemberQuery struct, Page PageRequest
+pkg authkit/iam, type MemberQuery struct, Roles []Role
+pkg authkit/iam, type MemberQuery struct, WithUsers bool
+pkg authkit/iam, type Membership struct
+pkg authkit/iam, type Membership struct, Group Group `json:"group"`
+pkg authkit/iam, type Membership struct, Role Role `json:"role"`
+pkg authkit/iam, type MessageKind string
+pkg authkit/iam, type NameAdmissionRequest struct
+pkg authkit/iam, type NameAdmissionRequest struct, ActorID string
+pkg authkit/iam, type NameAdmissionRequest struct, CurrentName string
+pkg authkit/iam, type NameAdmissionRequest struct, Operation NameOperation
+pkg authkit/iam, type NameAdmissionRequest struct, RequestedName string
+pkg authkit/iam, type NameAdmissionRequest struct, UserID string
+pkg authkit/iam, type NameOperation string
+pkg authkit/iam, type NameResolution struct
+pkg authkit/iam, type NameResolution struct, AliasExpiresAt *time.Time `json:"alias_expires_at,omitempty"`
+pkg authkit/iam, type NameResolution struct, CanonicalName string `json:"canonical_name"`
+pkg authkit/iam, type NameResolution struct, ID string `json:"id"`
+pkg authkit/iam, type NameResolution struct, IsAlias bool `json:"is_alias"`
+pkg authkit/iam, type NewAPIKey struct
+pkg authkit/iam, type NewAPIKey struct, ExpiresAt *time.Time
+pkg authkit/iam, type NewAPIKey struct, Name string
+pkg authkit/iam, type NewAPIKey struct, Role Role
+pkg authkit/iam, type NewGroup struct
+pkg authkit/iam, type NewGroup struct, ID string
+pkg authkit/iam, type NewGroup struct, Owner *Subject
+pkg authkit/iam, type NewGroup struct, Persona Persona
+pkg authkit/iam, type NewInvitation struct
+pkg authkit/iam, type NewInvitation struct, Email string
+pkg authkit/iam, type NewInvitation struct, ExpiresAt *time.Time
+pkg authkit/iam, type NewInvitation struct, Role Role
+pkg authkit/iam, type NewUser struct
+pkg authkit/iam, type NewUser struct, Email string
+pkg authkit/iam, type NewUser struct, EmailVerified bool
+pkg authkit/iam, type NewUser struct, Password string
+pkg authkit/iam, type NewUser struct, Phone string
+pkg authkit/iam, type NewUser struct, PhoneVerified bool
+pkg authkit/iam, type NewUser struct, Username string
+pkg authkit/iam, type OpResult struct
+pkg authkit/iam, type OpResult struct, Err error
+pkg authkit/iam, type OpResult struct, ID string
+pkg authkit/iam, type PageRequest struct
+pkg authkit/iam, type PageRequest struct, Cursor string
+pkg authkit/iam, type PageRequest struct, Limit int
+pkg authkit/iam, type Passkey struct
+pkg authkit/iam, type Passkey struct, AuthenticatorAttachment *string `json:"authenticator_attachment"`
+pkg authkit/iam, type Passkey struct, BackupEligible bool `json:"backup_eligible"`
+pkg authkit/iam, type Passkey struct, BackupState bool `json:"backup_state"`
+pkg authkit/iam, type Passkey struct, CreatedAt time.Time `json:"created_at"`
+pkg authkit/iam, type Passkey struct, ID string `json:"id"`
+pkg authkit/iam, type Passkey struct, Label *string `json:"label"`
+pkg authkit/iam, type Passkey struct, LastUsedAt *time.Time `json:"last_used_at"`
+pkg authkit/iam, type Passkey struct, Transports []string `json:"transports"`
+pkg authkit/iam, type PasswordHash struct
+pkg authkit/iam, type PasswordHash struct, Algo HashAlgo `json:"algo" yaml:"algo"`
+pkg authkit/iam, type PasswordHash struct, Hash string `json:"hash" yaml:"hash"`
+pkg authkit/iam, type Perm struct
+pkg authkit/iam, type Persona struct
+pkg authkit/iam, type ProviderLink struct
+pkg authkit/iam, type ProviderLink struct, Email string
+pkg authkit/iam, type ProviderLink struct, Issuer string
+pkg authkit/iam, type ProviderLink struct, Provider string
+pkg authkit/iam, type ProviderLink struct, Subject string
+pkg authkit/iam, type PublicUser struct
+pkg authkit/iam, type PublicUser struct, AvatarURL *string `json:"avatar_url"`
+pkg authkit/iam, type PublicUser struct, Deleted bool `json:"deleted"`
+pkg authkit/iam, type PublicUser struct, ID string `json:"id"`
+pkg authkit/iam, type PublicUser struct, Metadata map[string]any `json:"metadata"`
+pkg authkit/iam, type PublicUser struct, Username string `json:"username"`
+pkg authkit/iam, type RegistrationMode string
+pkg authkit/iam, type RegistrationVerificationPolicy string
+pkg authkit/iam, type RemoteApplication struct
+pkg authkit/iam, type RemoteApplication struct, CreatedAt time.Time `json:"created_at"`
+pkg authkit/iam, type RemoteApplication struct, Enabled bool `json:"enabled"`
+pkg authkit/iam, type RemoteApplication struct, GroupID string `json:"group_id"`
+pkg authkit/iam, type RemoteApplication struct, ID string `json:"id"`
+pkg authkit/iam, type RemoteApplication struct, Issuer string `json:"issuer"`
+pkg authkit/iam, type RemoteApplication struct, JWKSURI string `json:"jwks_uri"`
+pkg authkit/iam, type RemoteApplication struct, Mode RemoteApplicationMode `json:"mode"`
+pkg authkit/iam, type RemoteApplication struct, Permissions []Perm `json:"permissions"`
+pkg authkit/iam, type RemoteApplication struct, PublicKeys []RemoteApplicationKey `json:"public_keys"`
+pkg authkit/iam, type RemoteApplication struct, Role Role `json:"role"`
+pkg authkit/iam, type RemoteApplication struct, TrustRoot ApplicationTrustRoot `json:"trust_root"`
+pkg authkit/iam, type RemoteApplication struct, UpdatedAt time.Time `json:"updated_at"`
+pkg authkit/iam, type RemoteApplicationKey struct
+pkg authkit/iam, type RemoteApplicationKey struct, KID string `json:"kid,omitempty" yaml:"kid,omitempty"`
+pkg authkit/iam, type RemoteApplicationKey struct, PublicKeyPEM string `json:"public_key_pem" yaml:"public_key_pem"`
+pkg authkit/iam, type RemoteApplicationMode string
+pkg authkit/iam, type Role struct
+pkg authkit/iam, type Route struct
+pkg authkit/iam, type Route struct, Auth RouteAuthTier
+pkg authkit/iam, type Route struct, Group RouteGroup
+pkg authkit/iam, type Route struct, Method string
+pkg authkit/iam, type Route struct, Path string
+pkg authkit/iam, type Route struct, Permission string
+pkg authkit/iam, type RouteAuthTier string
+pkg authkit/iam, type RouteGroup string
+pkg authkit/iam, type SMSMessage struct
+pkg authkit/iam, type SMSMessage struct, Code string
+pkg authkit/iam, type SMSMessage struct, ContactChange *ContactChange
+pkg authkit/iam, type SMSMessage struct, Kind MessageKind
+pkg authkit/iam, type SMSMessage struct, Language string
+pkg authkit/iam, type SMSMessage struct, Link string
+pkg authkit/iam, type SMSMessage struct, Purpose VerificationPurpose
+pkg authkit/iam, type SMSMessage struct, To string
+pkg authkit/iam, type ServiceJWT struct
+pkg authkit/iam, type ServiceJWT struct, Audiences []string
+pkg authkit/iam, type ServiceJWT struct, IssuedAt time.Time
+pkg authkit/iam, type ServiceJWT struct, JTI string
+pkg authkit/iam, type ServiceJWT struct, NotBefore time.Time
+pkg authkit/iam, type ServiceJWT struct, Permissions []string
+pkg authkit/iam, type ServiceJWT struct, Subject string
+pkg authkit/iam, type ServiceJWT struct, TTL time.Duration
+pkg authkit/iam, type ServiceJWTClaims struct
+pkg authkit/iam, type ServiceJWTClaims struct, Audiences []string `json:"audiences"`
+pkg authkit/iam, type ServiceJWTClaims struct, ExpiresAt time.Time `json:"expires_at"`
+pkg authkit/iam, type ServiceJWTClaims struct, IssuedAt time.Time `json:"issued_at"`
+pkg authkit/iam, type ServiceJWTClaims struct, Issuer string `json:"issuer"`
+pkg authkit/iam, type ServiceJWTClaims struct, JTI string `json:"jti"`
+pkg authkit/iam, type ServiceJWTClaims struct, NotBefore time.Time `json:"not_before"`
+pkg authkit/iam, type ServiceJWTClaims struct, Permissions []string `json:"permissions"`
+pkg authkit/iam, type ServiceJWTClaims struct, Subject string `json:"subject"`
+pkg authkit/iam, type ServiceJWTClaims struct, TokenUse string `json:"token_use"`
+pkg authkit/iam, type Session struct
+pkg authkit/iam, type Session struct, CreatedAt time.Time `json:"created_at"`
+pkg authkit/iam, type Session struct, Current bool `json:"current"`
+pkg authkit/iam, type Session struct, ExpiresAt *time.Time `json:"expires_at"`
+pkg authkit/iam, type Session struct, ID string `json:"id"`
+pkg authkit/iam, type Session struct, IP *string `json:"ip"`
+pkg authkit/iam, type Session struct, LastUsedAt time.Time `json:"last_used_at"`
+pkg authkit/iam, type Session struct, UserAgent *string `json:"user_agent"`
+pkg authkit/iam, type SessionEvent struct
+pkg authkit/iam, type SessionEvent struct, IP *string `json:"ip"`
+pkg authkit/iam, type SessionEvent struct, Issuer string `json:"issuer"`
+pkg authkit/iam, type SessionEvent struct, Kind SessionEventKind `json:"kind"`
+pkg authkit/iam, type SessionEvent struct, Method *string `json:"method"`
+pkg authkit/iam, type SessionEvent struct, OccurredAt time.Time `json:"occurred_at"`
+pkg authkit/iam, type SessionEvent struct, Reason *string `json:"reason"`
+pkg authkit/iam, type SessionEvent struct, SessionID *string `json:"session_id"`
+pkg authkit/iam, type SessionEvent struct, UserAgent *string `json:"user_agent"`
+pkg authkit/iam, type SessionEventKind string
+pkg authkit/iam, type SessionEventQuery struct
+pkg authkit/iam, type SessionEventQuery struct, Kinds []SessionEventKind
+pkg authkit/iam, type SessionEventQuery struct, Page PageRequest
+pkg authkit/iam, type SessionRef struct
+pkg authkit/iam, type SessionRef struct, DeviceKeyID string
+pkg authkit/iam, type SessionRef struct, SessionID string
+pkg authkit/iam, type SolanaNetwork string
+pkg authkit/iam, type Subject struct
+pkg authkit/iam, type Subject struct, ID string `json:"id"`
+pkg authkit/iam, type Subject struct, Kind SubjectKind `json:"kind"`
+pkg authkit/iam, type SubjectKind string
+pkg authkit/iam, type Token struct
+pkg authkit/iam, type Token struct, ExpiresAt time.Time `json:"expires_at"`
+pkg authkit/iam, type Token struct, Value string `json:"value"`
+pkg authkit/iam, type TokenSet struct
+pkg authkit/iam, type TokenSet struct, AccessToken string `json:"access_token"`
+pkg authkit/iam, type TokenSet struct, ExpiresIn int64 `json:"expires_in"`
+pkg authkit/iam, type TokenSet struct, RefreshToken *string `json:"refresh_token"`
+pkg authkit/iam, type TokenSet struct, TokenType string `json:"token_type"`
+pkg authkit/iam, type TwoFactorMethod string
+pkg authkit/iam, type TwoFactorMode string
+pkg authkit/iam, type User struct
+pkg authkit/iam, type User struct, AvatarURL *string `json:"avatar_url"`
+pkg authkit/iam, type User struct, Ban *BanState `json:"ban"`
+pkg authkit/iam, type User struct, CreatedAt time.Time `json:"created_at"`
+pkg authkit/iam, type User struct, DeletedAt *time.Time `json:"deleted_at"`
+pkg authkit/iam, type User struct, Email *string `json:"email"`
+pkg authkit/iam, type User struct, EmailVerified bool `json:"email_verified"`
+pkg authkit/iam, type User struct, ID string `json:"id"`
+pkg authkit/iam, type User struct, LastLogin *time.Time `json:"last_login"`
+pkg authkit/iam, type User struct, Phone *string `json:"phone_number"`
+pkg authkit/iam, type User struct, PhoneVerified bool `json:"phone_verified"`
+pkg authkit/iam, type User struct, PreferredLanguage *string `json:"preferred_language"`
+pkg authkit/iam, type User struct, UpdatedAt time.Time `json:"updated_at"`
+pkg authkit/iam, type User struct, Username string `json:"username"`
+pkg authkit/iam, type UserDeletion struct
+pkg authkit/iam, type UserDeletion struct, DeletedAt time.Time
+pkg authkit/iam, type UserDeletion struct, ID string
+pkg authkit/iam, type UserDeletion struct, PurgeAt time.Time
+pkg authkit/iam, type UserDeletion struct, UserID string
+pkg authkit/iam, type UserEntry struct
+pkg authkit/iam, type UserEntry struct, Entitlements []string `json:"entitlements"`
+pkg authkit/iam, type UserEntry struct, RootRole *Role `json:"root_role"`
+pkg authkit/iam, type UserEntry struct, embedded User
+pkg authkit/iam, type UserKey string
+pkg authkit/iam, type UserQuery struct
+pkg authkit/iam, type UserQuery struct, Desc bool
+pkg authkit/iam, type UserQuery struct, Entitlement string
+pkg authkit/iam, type UserQuery struct, Page PageRequest
+pkg authkit/iam, type UserQuery struct, RootRole Role
+pkg authkit/iam, type UserQuery struct, Search string
+pkg authkit/iam, type UserQuery struct, Sort UserSort
+pkg authkit/iam, type UserQuery struct, Status UserStatus
+pkg authkit/iam, type UserQuery struct, Total bool
+pkg authkit/iam, type UserQuery struct, WithEntitlements bool
+pkg authkit/iam, type UserRef struct
+pkg authkit/iam, type UserSort string
+pkg authkit/iam, type UserStatus string
+pkg authkit/iam, type UserUpdate struct
+pkg authkit/iam, type UserUpdate struct, AvatarURL *string
+pkg authkit/iam, type UserUpdate struct, Email *string
+pkg authkit/iam, type UserUpdate struct, EmailVerified *bool
+pkg authkit/iam, type UserUpdate struct, Password *string
+pkg authkit/iam, type UserUpdate struct, PasswordHash *PasswordHash
+pkg authkit/iam, type UserUpdate struct, Phone *string
+pkg authkit/iam, type UserUpdate struct, PhoneVerified *bool
+pkg authkit/iam, type UserUpdate struct, PreferredLanguage *string
+pkg authkit/iam, type UserUpdate struct, Username *string
+pkg authkit/iam, type VerificationPurpose string
+pkg authkit/iam, var ErrAPIKeyExpired Error
+pkg authkit/iam, var ErrAPIKeyInvalid Error
+pkg authkit/iam, var ErrAPIKeyNotFound Error
+pkg authkit/iam, var ErrAPIKeyRevoked Error
+pkg authkit/iam, var ErrAccountAuthorityEscalation Error
+pkg authkit/iam, var ErrAccountRecoveryExpired Error
+pkg authkit/iam, var ErrCannotTargetSelf Error
+pkg authkit/iam, var ErrContactNotVerified Error
+pkg authkit/iam, var ErrDelegationRefused Error
+pkg authkit/iam, var ErrDeviceKeysDisabled Error
+pkg authkit/iam, var ErrEmailInUse Error
+pkg authkit/iam, var ErrEntitlementFilterUnavailable Error
+pkg authkit/iam, var ErrExternalInvitesDisabled Error
+pkg authkit/iam, var ErrGroupConflict Error
+pkg authkit/iam, var ErrGroupNotFound Error
+pkg authkit/iam, var ErrInsufficientAuthority Error
+pkg authkit/iam, var ErrInvalidRemoteApplication Error
+pkg authkit/iam, var ErrInvalidServiceJWT Error
+pkg authkit/iam, var ErrInvalidUntil Error
+pkg authkit/iam, var ErrInvitationNotFound Error
+pkg authkit/iam, var ErrLastOwner Error
+pkg authkit/iam, var ErrPhoneInUse Error
+pkg authkit/iam, var ErrRemoteApplicationIssuerConflict Error
+pkg authkit/iam, var ErrRemoteApplicationNotFound Error
+pkg authkit/iam, var ErrRenameRateLimited Error
+pkg authkit/iam, var ErrRenamesDisabled Error
+pkg authkit/iam, var ErrReservedIssuer Error
+pkg authkit/iam, var ErrRoleAssignmentEscalation Error
+pkg authkit/iam, var ErrRoleNotAssignable Error
+pkg authkit/iam, var ErrSessionRevoked Error
+pkg authkit/iam, var ErrSigningNotConfigured Error
+pkg authkit/iam, var ErrSubjectMFARequired Error
+pkg authkit/iam, var ErrTokenExpired Error
+pkg authkit/iam, var ErrTwoFAEnrollmentRequired Error
+pkg authkit/iam, var ErrUnknownGroupPersona Error
+pkg authkit/iam, var ErrUnknownPermission error
+pkg authkit/iam, var ErrUserNotFound Error
+pkg authkit/iam, var ErrUsernameInUse Error
+pkg authkit/iam, var RootPersona Persona
+pkg authkit/keys, func ParsePublicPEM([]byte) (crypto.PublicKey, error)
+pkg authkit/keys, func PublicJWK(crypto.PublicKey, string, string) JWK
+pkg authkit/keys, func PublicKeys(JWKS) (map[string]crypto.PublicKey, error)
+pkg authkit/keys, func SignerFromKey(string, crypto.Signer) (Signer, error)
+pkg authkit/keys, func SignerFromPEM(string, []byte) (Signer, error)
+pkg authkit/keys, func StaticFromPEM(string, string, map[string]string) (Static, error)
+pkg authkit/keys, func Watch(string) (*FileSource, error)
+pkg authkit/keys, method (*FileSource) ActiveSigner() Signer
+pkg authkit/keys, method (*FileSource) Close()
+pkg authkit/keys, method (*FileSource) PublicKeys() map[string]crypto.PublicKey
+pkg authkit/keys, method (*FileSource) Reload() error
+pkg authkit/keys, method (Static) ActiveSigner() Signer
+pkg authkit/keys, method (Static) PublicKeys() map[string]crypto.PublicKey
+pkg authkit/keys, type FileSource struct
+pkg authkit/keys, type JWK struct
+pkg authkit/keys, type JWK struct, Alg string `json:"alg,omitempty"`
+pkg authkit/keys, type JWK struct, Crv string `json:"crv,omitempty"`
+pkg authkit/keys, type JWK struct, E string `json:"e,omitempty"`
+pkg authkit/keys, type JWK struct, Kid string `json:"kid,omitempty"`
+pkg authkit/keys, type JWK struct, Kty string `json:"kty"`
+pkg authkit/keys, type JWK struct, N string `json:"n,omitempty"`
+pkg authkit/keys, type JWK struct, Use string `json:"use,omitempty"`
+pkg authkit/keys, type JWK struct, X string `json:"x,omitempty"`
+pkg authkit/keys, type JWK struct, Y string `json:"y,omitempty"`
+pkg authkit/keys, type JWKS struct
+pkg authkit/keys, type JWKS struct, Keys []JWK `json:"keys"`
+pkg authkit/keys, type Signer interface
+pkg authkit/keys, type Signer interface, Algorithm() string
+pkg authkit/keys, type Signer interface, KID() string
+pkg authkit/keys, type Signer interface, Public() crypto.PublicKey
+pkg authkit/keys, type Signer interface, Sign(context.Context, []byte) ([]byte, error)
+pkg authkit/keys, type Source interface
+pkg authkit/keys, type Source interface, ActiveSigner() Signer
+pkg authkit/keys, type Source interface, PublicKeys() map[string]crypto.PublicKey
+pkg authkit/keys, type Static struct
+pkg authkit/keys, type Static struct, Active Signer
+pkg authkit/keys, type Static struct, Pubs map[string]crypto.PublicKey
+pkg authkit/provider, func Apple(string, AppleSecret, ...Option) Provider
+pkg authkit/provider, func Discord(string, string, ...Option) Provider
+pkg authkit/provider, func GitHub(string, string, ...Option) Provider
+pkg authkit/provider, func Google(string, string, ...Option) Provider
+pkg authkit/provider, func OAuth2(string, string, Endpoint, string, string, UserInfoFunc, ...Option) Provider
+pkg authkit/provider, func OIDC(string, string, string, string, ...Option) Provider
+pkg authkit/provider, func WithAuthParams(map[string]string) Option
+pkg authkit/provider, func WithDisplayName(string) Option
+pkg authkit/provider, func WithHTTPClient(*http.Client) Option
+pkg authkit/provider, func WithPKCE(bool) Option
+pkg authkit/provider, func WithScopes(...string) Option
+pkg authkit/provider, func WithSecret(Secret) Option
+pkg authkit/provider, func WithTrustedEmailVerification(bool) Option
+pkg authkit/provider, method (SecretFunc) ClientSecret(context.Context) (string, error)
+pkg authkit/provider, method (StaticSecret) ClientSecret(context.Context) (string, error)
+pkg authkit/provider, type AppleSecret struct
+pkg authkit/provider, type AppleSecret struct, KeyID string
+pkg authkit/provider, type AppleSecret struct, PrivateKeyPEM []byte
+pkg authkit/provider, type AppleSecret struct, Static string
+pkg authkit/provider, type AppleSecret struct, TTL time.Duration
+pkg authkit/provider, type AppleSecret struct, TeamID string
+pkg authkit/provider, type AuthRequest struct
+pkg authkit/provider, type AuthRequest struct, CodeChallenge string
+pkg authkit/provider, type AuthRequest struct, Nonce string
+pkg authkit/provider, type AuthRequest struct, Params map[string]string
+pkg authkit/provider, type AuthRequest struct, RedirectURI string
+pkg authkit/provider, type AuthRequest struct, State string
+pkg authkit/provider, type Endpoint struct
+pkg authkit/provider, type Endpoint struct, AuthorizeURL string
+pkg authkit/provider, type Endpoint struct, TokenURL string
+pkg authkit/provider, type ExchangeRequest struct
+pkg authkit/provider, type ExchangeRequest struct, Code string
+pkg authkit/provider, type ExchangeRequest struct, CodeVerifier string
+pkg authkit/provider, type ExchangeRequest struct, Nonce string
+pkg authkit/provider, type ExchangeRequest struct, RedirectURI string
+pkg authkit/provider, type HealthChecker interface
+pkg authkit/provider, type HealthChecker interface, CheckHealth(context.Context) error
+pkg authkit/provider, type Identity struct
+pkg authkit/provider, type Identity struct, AuthTime time.Time
+pkg authkit/provider, type Identity struct, DisplayName string
+pkg authkit/provider, type Identity struct, Email string
+pkg authkit/provider, type Identity struct, EmailVerified bool
+pkg authkit/provider, type Identity struct, PreferredUsername string
+pkg authkit/provider, type Identity struct, Subject string
+pkg authkit/provider, type Option func(*base)
+pkg authkit/provider, type Provider interface
+pkg authkit/provider, type Provider interface, AuthCodeURL(context.Context, AuthRequest) (string, error)
+pkg authkit/provider, type Provider interface, DisplayName() string
+pkg authkit/provider, type Provider interface, Exchange(context.Context, ExchangeRequest) (Identity, error)
+pkg authkit/provider, type Provider interface, Issuer() string
+pkg authkit/provider, type Provider interface, Name() string
+pkg authkit/provider, type Provider interface, PKCE() bool
+pkg authkit/provider, type Provider interface, ResponseModeFormPost() bool
+pkg authkit/provider, type Provider interface, SupportsStepUp() bool
+pkg authkit/provider, type Provider interface, TrustsEmailVerification() bool
+pkg authkit/provider, type Provider interface, Validate() error
+pkg authkit/provider, type Provider interface, unexported methods
+pkg authkit/provider, type Secret interface
+pkg authkit/provider, type Secret interface, ClientSecret(context.Context) (string, error)
+pkg authkit/provider, type SecretFunc func(context.Context) (string, error)
+pkg authkit/provider, type StaticSecret string
+pkg authkit/provider, type UserInfoFunc func(context.Context, *http.Client) (Identity, error)
+pkg authkit/provider, var ErrInvalid error
+pkg authkit/provider, var ErrNonHTTPSURL error
+pkg authkit/provider, var ErrUnavailable error
+pkg authkit/verify, func ActorFromClaims(Claims) (iam.Actor, bool)
+pkg authkit/verify, func ActorFromContext(context.Context) (iam.Actor, bool)
+pkg authkit/verify, func AuthenticateRequest(context.Context, Authenticator, *http.Request) (auth.Principal, error)
+pkg authkit/verify, func ClaimsFromContext(context.Context) (Claims, bool)
+pkg authkit/verify, func IdentityFromContext(context.Context) (auth.Identity, bool)
+pkg authkit/verify, func NewVerifier(...VerifierOption) *Verifier
+pkg authkit/verify, func Optional(Authenticator) func(http.Handler) http.Handler
+pkg authkit/verify, func PrincipalFromClaims(Authenticator, Claims) (auth.Principal, error)
+pkg authkit/verify, func RequirePermission(Authority, iam.Perm) func(http.Handler) http.Handler
+pkg authkit/verify, func RequirePermissionOn(Authority, iam.GroupRef, iam.Perm) func(http.Handler) http.Handler
+pkg authkit/verify, func RequireSession(Authority) func(http.Handler) http.Handler
+pkg authkit/verify, func Required(Authenticator) func(http.Handler) http.Handler
+pkg authkit/verify, func Sensitive(Authority) func(http.Handler) http.Handler
+pkg authkit/verify, func SetClaims(context.Context, Claims) context.Context
+pkg authkit/verify, func WithDPoP(func(context.Context, string, time.Duration) (bool, error)) VerifierOption
+pkg authkit/verify, func WithGroup(context.Context, iam.GroupRef) context.Context
+pkg authkit/verify, func WithHTTPClient(*http.Client) VerifierOption
+pkg authkit/verify, func WithPublicURL(string) VerifierOption
+pkg authkit/verify, func WithServiceJWTMaxLifetime(time.Duration) ServiceJWTVerifyOption
+pkg authkit/verify, func WithSkew(time.Duration) VerifierOption
+pkg authkit/verify, method (*Verifier) AddIssuer(string, []string, IssuerOptions) error
+pkg authkit/verify, method (*Verifier) AuthenticateRequest(context.Context, *http.Request) (auth.Principal, error)
+pkg authkit/verify, method (*Verifier) CheckIssuerKeys(context.Context) error
+pkg authkit/verify, method (*Verifier) IssuerKeyStatuses() []IssuerKeyStatus
+pkg authkit/verify, method (*Verifier) RemoveIssuer(string)
+pkg authkit/verify, method (*Verifier) Verify(context.Context, string) (Claims, error)
+pkg authkit/verify, method (*Verifier) VerifyClaims(context.Context, string) (map[string]any, error)
+pkg authkit/verify, method (*Verifier) VerifyDelegatedAccess(context.Context, string) (Claims, error)
+pkg authkit/verify, method (*Verifier) VerifyDelegatedAccessRequest(*http.Request) (Claims, error)
+pkg authkit/verify, method (*Verifier) VerifyRequest(*http.Request) (Claims, error)
+pkg authkit/verify, method (*Verifier) VerifyServiceJWT(context.Context, string, ...ServiceJWTVerifyOption) (iam.ServiceJWTClaims, error)
+pkg authkit/verify, method (Claims) HasAMR(string) bool
+pkg authkit/verify, method (Claims) HasEntitlement(string) bool
+pkg authkit/verify, method (Claims) HasPermission(iam.Perm) bool
+pkg authkit/verify, method (Claims) Identity() (auth.Identity, bool)
+pkg authkit/verify, method (Claims) IsUser() bool
+pkg authkit/verify, type Authenticator interface
+pkg authkit/verify, type Authenticator interface, VerifyRequest(*http.Request) (Claims, error)
+pkg authkit/verify, type Authority interface
+pkg authkit/verify, type Authority interface, Can(context.Context, iam.Actor, iam.GroupRef, iam.Perm) (bool, error)
+pkg authkit/verify, type Authority interface, CheckRecentSignIn(context.Context, Claims) error
+pkg authkit/verify, type Authority interface, CheckSession(context.Context, Claims) error
+pkg authkit/verify, type Authority interface, KnownPermission(iam.Perm) bool
+pkg authkit/verify, type Authority interface, VerifyRequest(*http.Request) (Claims, error)
+pkg authkit/verify, type Claims struct
+pkg authkit/verify, type Claims struct, ACR string
+pkg authkit/verify, type Claims struct, AMR []string
+pkg authkit/verify, type Claims struct, APIKeyID string
+pkg authkit/verify, type Claims struct, Attributes map[string]json.RawMessage
+pkg authkit/verify, type Claims struct, AuthTime time.Time
+pkg authkit/verify, type Claims struct, CertificateThumbprint string
+pkg authkit/verify, type Claims struct, DelegatedSubject string
+pkg authkit/verify, type Claims struct, DeviceKeyID string
+pkg authkit/verify, type Claims struct, Email string
+pkg authkit/verify, type Claims struct, EmailVerified bool
+pkg authkit/verify, type Claims struct, Entitlements []string
+pkg authkit/verify, type Claims struct, Group *PermissionScope
+pkg authkit/verify, type Claims struct, Issuer string
+pkg authkit/verify, type Claims struct, JOSEType string
+pkg authkit/verify, type Claims struct, JTI string
+pkg authkit/verify, type Claims struct, JWKThumbprint string
+pkg authkit/verify, type Claims struct, Kind iam.ActorKind
+pkg authkit/verify, type Claims struct, MFAEnrolled bool
+pkg authkit/verify, type Claims struct, Permissions []string
+pkg authkit/verify, type Claims struct, RemoteApplicationID string
+pkg authkit/verify, type Claims struct, RootRole string
+pkg authkit/verify, type Claims struct, SessionID string
+pkg authkit/verify, type Claims struct, Subject string
+pkg authkit/verify, type Claims struct, TwoFAEnrollment bool
+pkg authkit/verify, type Claims struct, UserID string
+pkg authkit/verify, type Claims struct, Username string
+pkg authkit/verify, type IssuerKeyStatus = jwks.Status
+pkg authkit/verify, type IssuerKeyStatus struct
+pkg authkit/verify, type IssuerKeyStatus struct, Age time.Duration
+pkg authkit/verify, type IssuerKeyStatus struct, CheckedAt time.Time
+pkg authkit/verify, type IssuerKeyStatus struct, Expired bool
+pkg authkit/verify, type IssuerKeyStatus struct, Failures int
+pkg authkit/verify, type IssuerKeyStatus struct, FetchedAt time.Time
+pkg authkit/verify, type IssuerKeyStatus struct, Fresh bool
+pkg authkit/verify, type IssuerKeyStatus struct, Issuer string
+pkg authkit/verify, type IssuerKeyStatus struct, JWKSURI string
+pkg authkit/verify, type IssuerKeyStatus struct, Keys int
+pkg authkit/verify, type IssuerKeyStatus struct, LastError string
+pkg authkit/verify, type IssuerKeyStatus struct, MaxStale time.Duration
+pkg authkit/verify, type IssuerOptions struct
+pkg authkit/verify, type IssuerOptions struct, CacheTTL time.Duration
+pkg authkit/verify, type IssuerOptions struct, IsLocal bool
+pkg authkit/verify, type IssuerOptions struct, JWKSURI string
+pkg authkit/verify, type IssuerOptions struct, KeySource keys.Source
+pkg authkit/verify, type IssuerOptions struct, Keys []iam.RemoteApplicationKey
+pkg authkit/verify, type IssuerOptions struct, MaxStale time.Duration
+pkg authkit/verify, type PermissionChecker interface
+pkg authkit/verify, type PermissionChecker interface, Can(context.Context, iam.Actor, iam.GroupRef, iam.Perm) (bool, error)
+pkg authkit/verify, type PermissionChecker interface, KnownPermission(iam.Perm) bool
+pkg authkit/verify, type PermissionScope struct
+pkg authkit/verify, type PermissionScope struct, AuthorityIssuer string
+pkg authkit/verify, type PermissionScope struct, GroupID string
+pkg authkit/verify, type PermissionScope struct, Persona iam.Persona
+pkg authkit/verify, type ServiceJWTVerifyOption func(*serviceJWTConfig)
+pkg authkit/verify, type SessionChecker interface
+pkg authkit/verify, type SessionChecker interface, CheckRecentSignIn(context.Context, Claims) error
+pkg authkit/verify, type SessionChecker interface, CheckSession(context.Context, Claims) error
+pkg authkit/verify, type Verifier struct
+pkg authkit/verify, type VerifierOption func(*verifierConfig)
+pkg authkit/verify, var ErrConfirmationWrongTokenType iam.Error
+pkg authkit/verify, var ErrInvalidConfirmation iam.Error
+pkg authkit/verify, var ErrSenderProofRequired iam.Error
+pkg authkit/verify, var ErrSenderProofUnavailable error
