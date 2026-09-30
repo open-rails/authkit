@@ -199,6 +199,11 @@ func TestMountCatalogOIDC(t *testing.T) {
 	for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPost} {
 		require.Contains(t, routes, routeKey{method, "/oidc/{provider}/callback"})
 	}
+	// The JSON start and the code exchange are API routes beneath its prefix.
+	for _, path := range []string{"/auth/custom/oidc/{provider}/login/start", "/auth/custom/oidc/exchange"} {
+		require.Equal(t, iam.Route{Method: http.MethodPost, Path: path, Group: iam.RouteBrowserOIDC, Auth: iam.AuthPublic}, routes[routeKey{http.MethodPost, path}])
+	}
+	require.NotContains(t, routes, routeKey{http.MethodPost, "/oidc/{provider}/login"})
 	login := newAPI(t, auth).get("//oidc/catalog/login", "")
 	require.Equal(t, http.StatusFound, login.status, login.String())
 	require.Contains(t, login.header.Get("Location"), idp+"/")
@@ -206,7 +211,7 @@ func TestMountCatalogOIDC(t *testing.T) {
 	for _, fn := range []func(*authkit.HTTPConfig){
 		func(h *authkit.HTTPConfig) { h.Groups = []iam.RouteGroup{iam.RouteRegistration} },
 		func(h *authkit.HTTPConfig) {
-			h.Exclude = []string{"GET /oidc/{provider}/login", "POST /oidc/{provider}/login"}
+			h.Exclude = []string{"GET /oidc/{provider}/login", "POST /api/v1/oidc/{provider}/login/start"}
 		},
 	} {
 		filtered := authtest.Replica(t, auth, authtest.WithConfig(func(c *authkit.Config) {
