@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 
@@ -269,8 +270,7 @@ func (s *Engine) ListUsers(ctx context.Context, q iam.UserQuery) (iam.ListPage[i
  WHERE r.user_id=u.id AND g.persona='root' AND r.role=`+arg(role.String())+`)`)
 	}
 	if search := strings.TrimSpace(q.Search); search != "" {
-		p := arg("%" + search + "%")
-		where = append(where, "(u.username ILIKE "+p+" OR u.email ILIKE "+p+" OR u.phone_number ILIKE "+p+")")
+		where = append(where, userSearch(search, arg))
 	}
 	if ent := strings.TrimSpace(q.Entitlement); ent != "" {
 		if s.entitlementHolders == nil {
@@ -359,6 +359,33 @@ func (s *Engine) ListUsers(ctx context.Context, q iam.UserQuery) (iam.ListPage[i
 	page.Items, err = s.userEntries(ctx, users, q.WithEntitlements)
 	return page, err
 }
+
+// userSearch is ListUsers' search predicate, every branch indexed (migration
+// 0002). Three or more characters match within username, email or phone, a
+// shorter search their start (pg_trgm GIN, on the columns as text); a uuid
+// matches the account; a linked sign-in matches exactly on its subject, or its
+// provider email or username in any case.
+func userSearch(search string, arg func(any) string) string {
+	pattern := likeEscaper.Replace(search) + "%"
+	if utf8.RuneCountInString(search) >= 3 {
+		pattern = "%" + pattern
+	}
+	p, s := arg(pattern)+"::text", arg(search)+"::text"
+	or := []string{
+		"u.username::text ILIKE " + p,
+		"u.email::text ILIKE " + p,
+		"u.phone_number ILIKE " + p,
+		"u.id = ANY(ARRAY(SELECT l.user_id FROM user_providers l WHERE l.subject = " + s +
+			" OR lower(l.email_at_provider) = lower(" + s + ") OR lower(l.profile->>'username') = lower(" + s + ")))",
+	}
+	if isUUID(search) {
+		or = append(or, "u.id = "+arg(search)+"::uuid")
+	}
+	return "(" + strings.Join(or, " OR ") + ")"
+}
+
+// likeEscaper makes a search literal in a LIKE pattern.
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 
 // UserEntry is one account, deleted ones included, as the user directory
 // lists it, entitlements included.

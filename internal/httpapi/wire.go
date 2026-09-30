@@ -219,6 +219,8 @@ type SolanaAccount struct {
 	PublicKey string `json:"publicKey"`
 }
 
+// UserListQuery is the admin user directory's query. total=true counts every
+// match into the page's total, at the price of a count.
 type UserListQuery struct {
 	PageQuery
 	Search      string `query:"search"`
@@ -227,6 +229,7 @@ type UserListQuery struct {
 	Sort        string `query:"sort"`
 	Order       string `query:"order"`
 	Entitlement string `query:"entitlement"`
+	Total       bool   `query:"total"`
 }
 
 // BanRequest is the ban to put in force; a null until bans indefinitely.
