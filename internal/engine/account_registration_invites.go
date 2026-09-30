@@ -72,7 +72,7 @@ func (s *Engine) CreateAccountInvite(ctx context.Context, a iam.Actor, i iam.New
 	if ttl <= 0 {
 		ttl = defaultAccountRegistrationInviteTTL
 	}
-	out := iam.AccountInviteCreated{Code: secret.RandB64(32), Email: email, ExpiresAt: time.Now().UTC().Add(ttl)}
+	out := iam.AccountInviteCreated{Code: secret.Token(32), Email: email, ExpiresAt: time.Now().UTC().Add(ttl)}
 	err = s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
 		var groupID, roleParam *string
 		if carriesRole {
@@ -94,7 +94,7 @@ func (s *Engine) CreateAccountInvite(ctx context.Context, a iam.Actor, i iam.New
 			}
 		}
 		id, err := db.New(st.q).AccountInviteInsert(ctx, db.AccountInviteInsertParams{
-			Email: email, InvitedBy: nullable(creator), CodeHash: sha256Hex(out.Code), ExpiresAt: out.ExpiresAt, GroupID: groupID, Role: roleParam,
+			Email: email, InvitedBy: nullable(creator), CodeHash: secret.Hash(out.Code), ExpiresAt: out.ExpiresAt, GroupID: groupID, Role: roleParam,
 		})
 		out.ID = id
 		return err
@@ -132,7 +132,7 @@ func (s *Engine) hasValidAccountRegistrationInvite(ctx context.Context, email st
 		return false, nil
 	}
 	_ = email
-	return s.q.AccountInviteValid(ctx, sha256Hex(token))
+	return s.q.AccountInviteValid(ctx, secret.Hash(token))
 }
 
 func (s *Engine) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token string) (*db.AccountInviteForUpdateRow, error) {
@@ -151,7 +151,7 @@ func (s *Engine) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token st
 		return nil, err
 	}
 	q := db.New(tx)
-	codeHash := sha256Hex(token)
+	codeHash := secret.Hash(token)
 	groupID, err := q.AccountInviteGroupLive(ctx, codeHash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errmodel.ErrAccountRegistrationInviteNotFound

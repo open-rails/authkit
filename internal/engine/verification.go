@@ -66,10 +66,10 @@ func (s *Engine) sendEmailVerificationToUser(ctx context.Context, u *db.User, tt
 	if u.Email == nil {
 		return iam.ErrUserNotFound
 	}
-	code := randAlphanumeric(6)
-	codeHash := sha256Hex(code)
-	linkToken := secret.RandB64(32)
-	linkTokenHash := sha256Hex(linkToken)
+	code := secret.Digits(6)
+	codeHash := secret.Hash(code)
+	linkToken := secret.Token(32)
+	linkTokenHash := secret.Hash(linkToken)
 	if err := s.storeEmailVerification(ctx, u.ID, u.Email, codeHash, linkTokenHash, ttl); err != nil {
 		return err
 	}
@@ -128,10 +128,10 @@ func (s *Engine) sendPhoneVerificationToUser(ctx context.Context, phone, userID 
 	}
 
 	// Generate a numeric code for manual entry + a high-entropy link token.
-	code := randAlphanumeric(6)
-	codeHash := sha256Hex(code)
-	linkToken := secret.RandB64(32)
-	linkHash := sha256Hex(linkToken)
+	code := secret.Digits(6)
+	codeHash := secret.Hash(code)
+	linkToken := secret.Token(32)
+	linkHash := secret.Hash(linkToken)
 	if err := s.storePhoneVerification(ctx, "verify_phone", phone, userID, codeHash, linkHash, ttl); err != nil {
 		return err
 	}

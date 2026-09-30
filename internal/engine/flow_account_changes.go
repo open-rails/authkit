@@ -30,14 +30,14 @@ import (
 // plaintext code and link token for delivery. Re-storing supersedes any prior
 // record for the same user/kind.
 func (s *Engine) newPendingContactChange(ctx context.Context, kind pendingChangeKind, target, userID string, ttl time.Duration) (code, linkToken string, err error) {
-	code = randAlphanumeric(6)
-	linkToken = secret.RandB64(32)
+	code = secret.Digits(6)
+	linkToken = secret.Token(32)
 	if err := s.storePendingChange(ctx, pendingChange{
 		Kind:     kind,
 		Target:   target,
 		UserID:   userID,
-		CodeHash: sha256Hex(code),
-		LinkHash: sha256Hex(linkToken),
+		CodeHash: secret.Hash(code),
+		LinkHash: secret.Hash(linkToken),
 	}, ttl); err != nil {
 		return "", "", err
 	}

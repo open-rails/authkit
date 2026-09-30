@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/secret"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/testoutbox"
 	"github.com/stretchr/testify/require"
@@ -70,7 +71,7 @@ func TestCredentialChangesHaveOneConcurrentWinner(t *testing.T) {
 			ctx := context.Background()
 			u := newUser(t, svc, "parallel")
 			for _, token := range []string{"reset-a", "reset-b"} {
-				require.NoError(t, svc.storePasswordReset(ctx, sha256Hex(token), u.ID, "email", *u.Email, time.Minute))
+				require.NoError(t, svc.storePasswordReset(ctx, secret.Hash(token), u.ID, "email", *u.Email, time.Minute))
 			}
 			lock, err := svc.pg.Begin(ctx)
 			require.NoError(t, err)

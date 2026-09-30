@@ -41,7 +41,7 @@ func (s *Engine) loadLoginProof(ctx context.Context, userID, nonce string) (logi
 	if err != nil {
 		return proof, err
 	}
-	if !ok || nonce == "" || proof.Version <= 0 || proof.Input.UserID != userID || proof.Issuer != s.cfg.Token.Issuer || !secret.Equal(proof.NonceHash, sha256Hex(nonce)) || proof.AuthenticatedAt.IsZero() || proof.AuthenticatedAt.After(time.Now().Add(time.Minute)) || time.Since(proof.AuthenticatedAt) > 10*time.Minute {
+	if !ok || nonce == "" || proof.Version <= 0 || proof.Input.UserID != userID || proof.Issuer != s.cfg.Token.Issuer || !secret.Equal(proof.NonceHash, secret.Hash(nonce)) || proof.AuthenticatedAt.IsZero() || proof.AuthenticatedAt.After(time.Now().Add(time.Minute)) || time.Since(proof.AuthenticatedAt) > 10*time.Minute {
 		return proof, jwt.ErrTokenUnverifiable
 	}
 	proof.expected = raw
@@ -121,8 +121,8 @@ func (s *Engine) finishFirstFactor(ctx context.Context, proof loginProof) (authf
 				return authflow.LoginOutcome{}, err
 			}
 		}
-		nonce := secret.RandB64(32)
-		proof.NonceHash = sha256Hex(nonce)
+		nonce := secret.Token(32)
+		proof.NonceHash = secret.Hash(nonce)
 		proof.Issuer = s.cfg.Token.Issuer
 		proof.Enrollment = !needsChallenge
 		if proof.AuthenticatedAt.IsZero() {
@@ -305,7 +305,7 @@ func (s *Engine) CompleteLoginChallenge(ctx context.Context, in authflow.LoginCh
 		if method == "totp" {
 			valid, err = s.verifyTOTPFactorCodeOn(ctx, q, *selected, in.Code)
 		} else {
-			valid, err = s.consumeMFAStepUpCode(ctx, in.UserID, "login:"+proof.NonceHash, sha256Hex(in.Code), method)
+			valid, err = s.consumeMFAStepUpCode(ctx, in.UserID, "login:"+proof.NonceHash, secret.Hash(in.Code), method)
 		}
 	}
 	if err != nil {

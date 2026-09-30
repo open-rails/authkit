@@ -30,8 +30,8 @@ func (s *Engine) RequestPasswordReset(ctx context.Context, email string, ttl tim
 		ttl = time.Hour
 	}
 
-	token := secret.RandB64(32)
-	hash := sha256Hex(token)
+	token := secret.Token(32)
+	hash := secret.Hash(token)
 	if err := s.storePasswordReset(ctx, hash, u.ID, "email", email, ttl); err != nil {
 		// Internal error, but do not reveal anything about whether user exists.
 		return err
@@ -69,7 +69,7 @@ func (s *Engine) ConfirmPasswordReset(ctx context.Context, token, newPassword st
 	if s.pg == nil {
 		return "", jwt.ErrTokenUnverifiable
 	}
-	rt, err := s.consumePasswordReset(ctx, sha256Hex(token))
+	rt, err := s.consumePasswordReset(ctx, secret.Hash(token))
 	if err != nil {
 		return "", err
 	}
@@ -107,8 +107,8 @@ func (s *Engine) RequestPhonePasswordReset(ctx context.Context, phone string, tt
 		ttl = time.Hour
 	}
 
-	token := secret.RandB64(32)
-	hash := sha256Hex(token)
+	token := secret.Token(32)
+	hash := secret.Hash(token)
 	if err := s.storePasswordReset(ctx, hash, u.ID, "sms", contact.NormalizePhone(phone), ttl); err != nil {
 		return err
 	}

@@ -26,7 +26,7 @@ import (
 // insertRefreshSessionTx is the one session insert/cap operation. Its caller
 // owns the account lock, admission checks, commit and post-commit audit.
 func (s *Engine) insertRefreshSessionTx(ctx context.Context, q *db.Queries, userID, userAgent string, ip net.IP, authMethods []string) (string, string, *time.Time, []string, error) {
-	rt := secret.RandB64(32)
+	rt := secret.Token(32)
 	var exp *time.Time
 	if s.cfg.Token.RefreshTokenDuration > 0 {
 		deadline := time.Now().Add(s.cfg.Token.RefreshTokenDuration)
@@ -110,7 +110,7 @@ func (s *Engine) ExchangeRefreshToken(ctx context.Context, refreshToken string, 
 	// The rotation also seals the successor under the token it replaces (ak#274), so
 	// that a racer who presents the same predecessor an instant from now is handed
 	// THIS successor rather than a second chain of its own.
-	newTok := secret.RandB64(32)
+	newTok := secret.Token(32)
 	newHash := s.hashRefresh(newTok)
 	rotated, err := s.q.SessionRotate(ctx, db.SessionRotateParams{
 		NewTokenHash:             newHash,

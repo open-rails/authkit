@@ -118,8 +118,8 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 		}
 	}
 
-	state := secret.RandB64(32)
-	nonce := secret.RandB64(16)
+	state := secret.Token(32)
+	nonce := secret.Token(16)
 	verifier, challenge := "", ""
 	if p.PKCE() {
 		var err error

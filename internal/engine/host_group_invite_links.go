@@ -80,7 +80,7 @@ func (s *Engine) CreateInviteLink(ctx context.Context, a iam.Actor, ref iam.Grou
 	if ttl <= 0 {
 		ttl = defaultGroupInviteTTL
 	}
-	out := iam.InviteLinkCreated{Code: secret.RandB64(32), ExpiresAt: time.Now().UTC().Add(min(ttl, maxGroupInviteTTL))}
+	out := iam.InviteLinkCreated{Code: secret.Token(32), ExpiresAt: time.Now().UTC().Add(min(ttl, maxGroupInviteTTL))}
 	err = s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
 		if _, err := s.requireIssuableRole(ctx, st, g, role); err != nil {
 			return err
@@ -89,7 +89,7 @@ func (s *Engine) CreateInviteLink(ctx context.Context, a iam.Actor, ref iam.Grou
 			return err
 		}
 		id, err := db.New(st.q).InviteLinkInsert(ctx, db.InviteLinkInsertParams{
-			GroupID: g.ID, Role: role.Name(), InvitedBy: nullable(creator), CodeHash: sha256Hex(out.Code), ExpiresAt: out.ExpiresAt,
+			GroupID: g.ID, Role: role.Name(), InvitedBy: nullable(creator), CodeHash: secret.Hash(out.Code), ExpiresAt: out.ExpiresAt,
 		})
 		out.ID = id
 		return err
@@ -172,7 +172,7 @@ func (s *Engine) RedeemInviteLink(ctx context.Context, a iam.Actor, code string)
 		return out, errmodel.ErrInvalidInvite
 	}
 	redeemer := iam.UserSubject(a.ID())
-	codeHash := sha256Hex(code)
+	codeHash := secret.Hash(code)
 	err := s.withAuthorityMutation(ctx, a, func(st *permissionGroupStore) error {
 		q := db.New(st.q)
 		groupID, err := q.InviteLinkGroupByCode(ctx, codeHash)

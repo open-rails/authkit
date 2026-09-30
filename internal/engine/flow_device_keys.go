@@ -114,11 +114,11 @@ func (s *Engine) BeginDeviceKeyEnrollment(ctx context.Context, email, publicKey,
 	}
 
 	now := time.Now().UTC()
-	result := authflow.DeviceKeyChallenge{ID: secret.RandB64(32), Challenge: secret.RandB64(32), ExpiresAt: now.Add(deviceKeyChallengeTTL)}
-	code := randAlphanumeric(6)
+	result := authflow.DeviceKeyChallenge{ID: secret.Token(32), Challenge: secret.Token(32), ExpiresAt: now.Add(deviceKeyChallengeTTL)}
+	code := secret.Digits(6)
 	record := deviceKeyEnrollment{
 		Email: email, PublicKey: publicKey, Label: label,
-		CodeHash: sha256Hex(code), Challenge: result.Challenge, ExpiresAt: result.ExpiresAt,
+		CodeHash: secret.Hash(code), Challenge: result.Challenge, ExpiresAt: result.ExpiresAt,
 	}
 	if err := s.ephemSetJSON(ctx, keyDeviceKeyEnrollment+result.ID, record, deviceKeyChallengeTTL); err != nil {
 		return authflow.DeviceKeyChallenge{}, err
@@ -154,7 +154,7 @@ func (s *Engine) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, co
 	if err != nil || !ok {
 		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
-	if !secret.Equal(record.CodeHash, sha256Hex(strings.TrimSpace(code))) {
+	if !secret.Equal(record.CodeHash, secret.Hash(strings.TrimSpace(code))) {
 		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
 	publicKey, err := decodeDeviceKey(record.PublicKey)
@@ -311,20 +311,20 @@ func (s *Engine) verifyDeviceKeySecondFactor(ctx context.Context, userID, enroll
 		case "totp":
 			ok, err = s.verifyTOTPFactorCode(ctx, f, code)
 		case "sms":
-			ok, err = s.consumeMFAStepUpCode(ctx, userID, deviceKeyCodeScope(enrollmentID), sha256Hex(code), "sms")
+			ok, err = s.consumeMFAStepUpCode(ctx, userID, deviceKeyCodeScope(enrollmentID), secret.Hash(code), "sms")
 		}
 		if err == nil && ok {
 			return "", true
 		}
 	}
-	if slices.Contains(backupHashes, sha256Hex(code)) {
+	if slices.Contains(backupHashes, secret.Hash(code)) {
 		return code, true
 	}
 	return "", false
 }
 
 // deviceKeyCodeScope binds an SMS code to one enrollment ceremony.
-func deviceKeyCodeScope(enrollmentID string) string { return "device-key:" + sha256Hex(enrollmentID) }
+func deviceKeyCodeScope(enrollmentID string) string { return "device-key:" + secret.Hash(enrollmentID) }
 
 // notifyDeviceKeyEnrolled is best-effort: the key is already enrolled, so a
 // delivery failure is logged rather than reported as a failed enrollment.
@@ -481,7 +481,7 @@ func (s *Engine) BeginDeviceKeyLogin(ctx context.Context, deviceKeyID string) (a
 		return authflow.DeviceKeyChallenge{}, err
 	}
 	now := time.Now().UTC()
-	result := authflow.DeviceKeyChallenge{ID: secret.RandB64(32), Challenge: secret.RandB64(32), ExpiresAt: now.Add(deviceKeyChallengeTTL)}
+	result := authflow.DeviceKeyChallenge{ID: secret.Token(32), Challenge: secret.Token(32), ExpiresAt: now.Add(deviceKeyChallengeTTL)}
 	record.Challenge, record.ExpiresAt = result.Challenge, result.ExpiresAt
 	if err := s.ephemSetJSON(ctx, keyDeviceKeyLogin+result.ID, record, deviceKeyChallengeTTL); err != nil {
 		return authflow.DeviceKeyChallenge{}, err
