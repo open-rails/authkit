@@ -9,7 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestConfiguredUsernamePolicyGovernsDerivedAndImportedNames(t *testing.T) {
+// A provider sign-in's derived username fits the configured policy, and a
+// taken one is suffixed within its maximum. The import ceiling and the
+// invalid policy are in apitest's TestAccountPolicies.
+func TestConfiguredUsernamePolicyGovernsDerivedNames(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	cfg := maintenanceConfig()
 	cfg.Username = iam.UsernamePolicy{MinLength: 8, MaxLength: 10}
@@ -24,14 +27,4 @@ func TestConfiguredUsernamePolicyGovernsDerivedAndImportedNames(t *testing.T) {
 	second := rt.deriveUsernameForOAuth(t.Context(), "google", "", "ab@example.test", "")
 	require.Equal(t, "ab_user_u1", second, "a taken name is suffixed within the maximum")
 	require.NoError(t, rt.ValidateUsername(second))
-
-	_, err = rt.createUser(t.Context(), "short@example.test", "shorty")
-	e, ok := iam.AsError(err)
-	require.True(t, ok, "%v", err)
-	require.Equal(t, "username_too_short", e.Code())
-	require.Equal(t, map[string]any{"min_length": 8, "max_length": 64}, e.Metadata(), "imports keep the 64-character import ceiling")
-
-	cfg.Username = iam.UsernamePolicy{MinLength: 9, MaxLength: 8}
-	_, err = New(context.Background(), cfg, Deps{Postgres: pg.Pool})
-	require.ErrorContains(t, err, "invalid username policy")
 }
