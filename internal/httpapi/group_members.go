@@ -170,8 +170,9 @@ func (s *Service) handleMeGroupsGET(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleMePermissionsGET is the caller's role and permissions in one group
-// (?group_id=; root by default), the permissions expanded over the persona's
-// catalog so a client gates UI by set membership. An unknown group has none.
+// (?group_id=, `root` or absent for the root group), the permissions expanded
+// over the persona's catalog so a client gates UI by set membership. An
+// unknown group has none.
 func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request) {
 	actor, ok := verify.ActorFromContext(r.Context())
 	if !ok {
@@ -183,7 +184,7 @@ func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	ref := iam.RootGroup()
-	if q.GroupID != "" {
+	if q.GroupID != "" && q.GroupID != "root" {
 		ref = iam.GroupByID(q.GroupID)
 	}
 	out := PermissionSet{GroupID: q.GroupID, Permissions: []iam.Perm{}}
