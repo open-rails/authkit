@@ -205,7 +205,7 @@ func TestSecurityUnknownClientAddressIsLimited(t *testing.T) {
 	logs := captureLogs(t)
 	h := newHost(t, withHTTP(func(c *authkit.HTTPConfig) {
 		c.DirectPeerIP = false
-		c.RateLimits = map[string]authkit.RateLimit{"auth_password_login": {Limit: 3, Window: time.Hour}}
+		c.RateLimits = map[string]authkit.RateLimit{"password_login": {Limit: 3, Window: time.Hour}}
 	}), authtest.WithDeps(func(d *authkit.Deps) { d.ClientIP = func(*http.Request) string { return "" } }))
 	a := h.newAccount("noaddress")
 	for range 3 {

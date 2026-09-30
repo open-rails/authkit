@@ -15,7 +15,7 @@ const (
 	RouteRegistration     RouteGroup = "registration"
 	RouteAccount          RouteGroup = "account"
 	RouteAdmin            RouteGroup = "admin"
-	RoutePermissionGroups RouteGroup = "permission_groups"
+	RoutePermissionGroups RouteGroup = "groups"
 	RouteBrowserOIDC      RouteGroup = "browser_oidc"
 	// RouteDelegated is the delegated-token mint surface (POST
 	// /delegated/token), mounted only when Config.Delegated declares audiences.

@@ -67,11 +67,10 @@ func TestRootRoleClaimIsDisplayOnly(t *testing.T) {
 	require.NoError(t, auth.RemoveGroupMember(ctx, iam.SystemActor(), iam.RootGroup(), iam.UserSubject(boss.ID)))
 	require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, gateStatus(t, gate, bossToken), "a stale role grants nothing")
 
-	minted, err := auth.MintAccessToken(ctx, plain.ID, iam.AccessTokenOptions{Claims: map[string]any{"root_role": admin.String()}})
-	require.NoError(t, err)
-	cl, err = auth.Verify(ctx, minted.Value)
-	require.NoError(t, err)
-	require.Empty(t, cl.RootRole, "a host cannot mint the claim")
+	_, err = auth.MintAccessToken(ctx, plain.ID, iam.AccessTokenOptions{Claims: map[string]any{"root_role": admin.String()}})
+	e, ok := iam.AsError(err)
+	require.True(t, ok, "a host cannot mint the claim: %v", err)
+	require.Equal(t, "claims.root_role", e.Param())
 }
 
 // A remote application's tokens authenticate through the Client and through

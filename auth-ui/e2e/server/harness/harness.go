@@ -90,7 +90,7 @@ func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
 		Postgres: pool,
 		KeySource: keys.Static{
 			Active: signer,
-			Pubs:   map[string]crypto.PublicKey{signer.KID(): signer.Public()},
+			Public: map[string]crypto.PublicKey{signer.KID(): signer.Public()},
 		},
 		// Dummy credentials: mounts the provider link/login routes for the
 		// contract; the upstream exchange is not exercised.

@@ -28,7 +28,7 @@ func (s *Engine) rootRoles(ctx context.Context, ids []string) (map[string]iam.Ro
 	sch := s.groupSchemaOrDefault()
 	for _, r := range rows {
 		role := ident.RoleText(r.Role)
-		if _, ok := sch.Role(iam.RootPersona, role); ok {
+		if _, ok := sch.Role(iam.RootPersona(), role); ok {
 			out[r.UserID] = role
 		}
 	}

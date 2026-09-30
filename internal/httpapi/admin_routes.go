@@ -38,7 +38,7 @@ func (s *Service) userQuery(r *http.Request) (iam.UserQuery, error) {
 		WithEntitlements: true,
 	}
 	if text := q.RootRole; text != "" {
-		role, err := s.groupRole(iam.RootPersona, text)
+		role, err := s.groupRole(iam.RootPersona(), text)
 		if err != nil {
 			return iam.UserQuery{}, err
 		}

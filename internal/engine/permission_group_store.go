@@ -108,7 +108,7 @@ func (st *permissionGroupStore) lockGroup(ctx context.Context, groupID string) (
 		return iam.Persona{}, err
 	}
 	persona := ident.Persona(group.Persona)
-	if persona == iam.RootPersona {
+	if persona == iam.RootPersona() {
 		return iam.Persona{}, fmt.Errorf("the root group cannot be deleted: %w", iam.ErrUnknownGroupPersona)
 	}
 	return persona, nil

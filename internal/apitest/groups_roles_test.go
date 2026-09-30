@@ -110,7 +110,7 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	acme, err := auth.CreateGroup(ctx, iam.NewGroup{Persona: org.Persona})
 	require.NoError(t, err)
-	for _, persona := range []iam.Persona{iam.RootPersona, wire[iam.Persona](t, "nope"), {}} {
+	for _, persona := range []iam.Persona{iam.RootPersona(), wire[iam.Persona](t, "nope"), {}} {
 		_, err := auth.CreateGroup(ctx, iam.NewGroup{Persona: persona})
 		require.ErrorIs(t, err, iam.ErrUnknownGroupPersona, persona)
 	}
@@ -127,7 +127,7 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 	require.Equal(t, golang, got)
 	root, err := auth.Group(ctx, iam.RootGroup())
 	require.NoError(t, err)
-	require.Equal(t, iam.RootPersona, root.Persona)
+	require.Equal(t, iam.RootPersona(), root.Persona)
 	for _, ref := range []iam.GroupRef{iam.GroupByID("not-a-uuid"), iam.GroupByID(uuid.NewString()), {}} {
 		_, err = auth.Group(ctx, ref)
 		require.ErrorIs(t, err, iam.ErrGroupNotFound)

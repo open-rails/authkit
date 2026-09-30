@@ -53,15 +53,15 @@ func (s *Service) handleMe2FASetupPOST(w http.ResponseWriter, r *http.Request) {
 	// Anti-spam velocity on the code-sending starts (authkit owns velocity).
 	switch {
 	case method == "sms" && strings.HasPrefix(phone, "+"):
-		if s.rateLimited(w, r, RL2FAStartPhone) || s.rateLimitedByIdentifier(w, r, RL2FAStartPhone, contact.NormalizePhone(phone)) {
+		if s.rateLimited(w, r, RL2FASetupSMS) || s.rateLimitedByIdentifier(w, r, RL2FASetupSMS, contact.NormalizePhone(phone)) {
 			return
 		}
 	case method == "totp":
-		if s.rateLimited(w, r, RL2FAStartTOTP) {
+		if s.rateLimited(w, r, RL2FASetupTOTP) {
 			return
 		}
 	case method == "email":
-		if s.rateLimited(w, r, RL2FAStartEmail) || s.rateLimitedByIdentifier(w, r, RL2FAStartEmail, claims.UserID) {
+		if s.rateLimited(w, r, RL2FASetupEmail) || s.rateLimitedByIdentifier(w, r, RL2FASetupEmail, claims.UserID) {
 			return
 		}
 	}

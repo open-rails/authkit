@@ -109,7 +109,7 @@ func (s *Engine) rootAuthority(ctx context.Context, a iam.Actor) (authority, err
 	if err != nil {
 		return authority{}, err
 	}
-	return s.actorAuthority(ctx, st, a, groupTarget{ID: rootID, Persona: iam.RootPersona})
+	return s.actorAuthority(ctx, st, a, groupTarget{ID: rootID, Persona: iam.RootPersona()})
 }
 
 func (s *Engine) delegatedPermissionHeld(auth authority, perm string) bool {

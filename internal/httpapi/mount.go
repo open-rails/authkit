@@ -8,13 +8,15 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 // Mount layout. The whole surface lives beneath one base path: the path of
 // the issuer, so verifiers find JWKS at the issuer plus iam.JWKSPath.
 // Beneath it, browser OIDC
-// sits at OIDCPath and the JSON API at APIPath. The surface is ONE handler.
+// sits at OIDCPath and the JSON API at APIPath plus config.APIVersion. The
+// surface is ONE handler.
 const OIDCPath = "/oidc"
 
 // Mount is the canonical HTTP handler and its route catalog. Framework adapters
@@ -73,7 +75,7 @@ func NewMount(svc *Service) (result *Mount, err error) {
 	}
 	opts := svc.http
 	base := opts.BasePath
-	api := joinRoutePath(base, opts.APIPath)
+	api := joinRoutePath(joinRoutePath(base, opts.APIPath), config.APIVersion)
 	excluded := make(map[string]bool, len(opts.Exclude))
 	for _, raw := range opts.Exclude {
 		method, path, ok := strings.Cut(strings.TrimSpace(raw), " ")

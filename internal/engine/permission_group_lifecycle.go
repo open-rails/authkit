@@ -47,7 +47,7 @@ func (s *Engine) CreateGroup(ctx context.Context, ng iam.NewGroup, opts ...ops.O
 		return iam.Group{}, err
 	}
 	persona := ng.Persona
-	if _, ok := s.groupSchemaOrDefault().Persona(persona); !ok || persona == iam.RootPersona {
+	if _, ok := s.groupSchemaOrDefault().Persona(persona); !ok || persona == iam.RootPersona() {
 		return iam.Group{}, fmt.Errorf("unknown group persona %q: %w", persona, iam.ErrUnknownGroupPersona)
 	}
 	id := strings.TrimSpace(ng.ID)
@@ -146,7 +146,7 @@ func (s *Engine) DeleteGroup(ctx context.Context, ref iam.GroupRef, opts ...ops.
 			return err
 		}
 		persona := ident.Persona(group.Persona)
-		if persona == iam.RootPersona {
+		if persona == iam.RootPersona() {
 			return fmt.Errorf("the root group cannot be deleted: %w", iam.ErrUnknownGroupPersona)
 		}
 		gid := strings.ToLower(ref.ID())

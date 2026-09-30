@@ -69,7 +69,7 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 		if string(req.RequestedGrant) == `{"refuse":true}` {
 			return iam.DelegationGrant{}, iam.ErrDelegationRefused
 		}
-		return iam.DelegationGrant{Permissions: []string{"resource:read"}, Attributes: map[string]any{"tenant": "cozy"}}, nil
+		return iam.DelegationGrant{Permissions: []string{"resource:read"}, Attributes: map[string]any{"tenant": "acme"}}, nil
 	}
 	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
 		c.Delegated = authkit.DelegatedConfig{Audiences: []string{"platform"}, AllowDPoP: true}

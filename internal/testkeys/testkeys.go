@@ -27,7 +27,7 @@ func Ed25519(kid string) keys.Signer {
 
 // Source is a key source whose only key is s.
 func Source(s keys.Signer) keys.Static {
-	return keys.Static{Active: s, Pubs: map[string]crypto.PublicKey{s.KID(): s.Public()}}
+	return keys.Static{Active: s, Public: map[string]crypto.PublicKey{s.KID(): s.Public()}}
 }
 
 func must[K crypto.Signer](key K, err error) func(kid string) keys.Signer {

@@ -14,7 +14,7 @@ import (
 	"github.com/open-rails/authkit/internal/httpapi"
 )
 
-const defaultAPIPath = config.DefaultAPIPath
+const defaultAPIPath = config.DefaultAPIPath + config.APIVersion
 
 // obj is a JSON object whose keys keep their insertion order, so the
 // generated document is stable and reads top-down.
@@ -233,7 +233,11 @@ func (c *contract) operation(r httpapi.RouteSpec) *obj {
 	op := newObj("tags", []string{string(r.Group)})
 	var params []any
 	for _, p := range pathParams(r.Path) {
-		params = append(params, newObj("name", p, "in", "path", "required", true, "schema", newObj("type", "string")))
+		schema := newObj("type", "string")
+		if values, ok := httpapi.PathEnums[p]; ok {
+			schema.set("enum", values)
+		}
+		params = append(params, newObj("name", p, "in", "path", "required", true, "schema", schema))
 	}
 	for _, q := range queryParams(r.Query) {
 		t := q.t

@@ -562,7 +562,7 @@ pkg authkit/iam, const RouteAuth RouteGroup = "auth"
 pkg authkit/iam, const RouteBrowserOIDC RouteGroup = "browser_oidc"
 pkg authkit/iam, const RouteDelegated RouteGroup = "delegated"
 pkg authkit/iam, const RouteDeviceKeys RouteGroup = "device_keys"
-pkg authkit/iam, const RoutePermissionGroups RouteGroup = "permission_groups"
+pkg authkit/iam, const RoutePermissionGroups RouteGroup = "groups"
 pkg authkit/iam, const RouteRegistration RouteGroup = "registration"
 pkg authkit/iam, const ServiceJWTTokenUse untyped string = "service"
 pkg authkit/iam, const SessionEventAccountSessionsRevoked SessionEventKind = "account_sessions_revoked"
@@ -604,11 +604,11 @@ pkg authkit/iam, func DecodeError(*http.Response) error
 pkg authkit/iam, func DelegatedActor(DelegatedGrant) Actor
 pkg authkit/iam, func ErrorResponse(error) (int, ErrorEnvelope)
 pkg authkit/iam, func GroupByID(string) GroupRef
-pkg authkit/iam, func NewTokenSet(string, string, time.Time) TokenSet
 pkg authkit/iam, func PublicDisplayName(map[string]PublicUser, string) string
 pkg authkit/iam, func RemoteApplicationActor(string) Actor
 pkg authkit/iam, func RemoteApplicationSubject(string) Subject
 pkg authkit/iam, func RootGroup() GroupRef
+pkg authkit/iam, func RootPersona() Persona
 pkg authkit/iam, func SystemActor() Actor
 pkg authkit/iam, func UserActor(string) Actor
 pkg authkit/iam, func UserByEmail(string) UserRef
@@ -726,7 +726,7 @@ pkg authkit/iam, type BootstrapManifestUser struct, Email string `json:"email" y
 pkg authkit/iam, type BootstrapManifestUser struct, EmailVerified bool `json:"email_verified" yaml:"email_verified"`
 pkg authkit/iam, type BootstrapManifestUser struct, Metadata map[string]any `json:"metadata" yaml:"metadata"`
 pkg authkit/iam, type BootstrapManifestUser struct, Password *BootstrapUserPassword `json:"password" yaml:"password"`
-pkg authkit/iam, type BootstrapManifestUser struct, Phone string `json:"phone" yaml:"phone"`
+pkg authkit/iam, type BootstrapManifestUser struct, Phone string `json:"phone_number" yaml:"phone_number"`
 pkg authkit/iam, type BootstrapManifestUser struct, PhoneVerified bool `json:"phone_verified" yaml:"phone_verified"`
 pkg authkit/iam, type BootstrapManifestUser struct, RootRole Role `json:"root_role" yaml:"root_role"`
 pkg authkit/iam, type BootstrapManifestUser struct, Username string `json:"username" yaml:"username"`
@@ -1170,7 +1170,6 @@ pkg authkit/iam, var ErrUnknownGroupPersona Error
 pkg authkit/iam, var ErrUnknownPermission error
 pkg authkit/iam, var ErrUserNotFound Error
 pkg authkit/iam, var ErrUsernameInUse Error
-pkg authkit/iam, var RootPersona Persona
 pkg authkit/keys, func ParsePublicPEM([]byte) (crypto.PublicKey, error)
 pkg authkit/keys, func PublicJWK(crypto.PublicKey, string, string) JWK
 pkg authkit/keys, func PublicKeys(JWKS) (map[string]crypto.PublicKey, error)
@@ -1207,7 +1206,7 @@ pkg authkit/keys, type Source interface, ActiveSigner() Signer
 pkg authkit/keys, type Source interface, PublicKeys() map[string]crypto.PublicKey
 pkg authkit/keys, type Static struct
 pkg authkit/keys, type Static struct, Active Signer
-pkg authkit/keys, type Static struct, Pubs map[string]crypto.PublicKey
+pkg authkit/keys, type Static struct, Public map[string]crypto.PublicKey
 pkg authkit/provider, func Apple(string, AppleSecret, ...Option) Provider
 pkg authkit/provider, func Discord(string, string, ...Option) Provider
 pkg authkit/provider, func GitHub(string, string, ...Option) Provider

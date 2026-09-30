@@ -17,7 +17,17 @@ type IssuedSession struct {
 
 // TokenSet is the wire shape of an IssuedSession.
 func (s IssuedSession) TokenSet() iam.TokenSet {
-	return iam.NewTokenSet(s.AccessToken, s.RefreshToken, s.AccessExpiresAt)
+	return NewTokenSet(s.AccessToken, s.RefreshToken, s.AccessExpiresAt)
+}
+
+// NewTokenSet builds a Bearer TokenSet whose expires_in is derived from exp;
+// an empty refresh token is none.
+func NewTokenSet(access, refresh string, exp time.Time) iam.TokenSet {
+	t := iam.TokenSet{AccessToken: access, TokenType: "Bearer", ExpiresIn: int64(time.Until(exp).Seconds())}
+	if refresh != "" {
+		t.RefreshToken = &refresh
+	}
+	return t
 }
 
 // LoginOutcomeKind is the closed set of ways a login attempt ends.

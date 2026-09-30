@@ -48,7 +48,7 @@ func TestMountRegistersNativeRoutesWithCanonicalGuards(t *testing.T) {
 	}{
 		{name: "default", cfg: func(*authkit.HTTPConfig) {}},
 		{name: "selected groups and prefix", cfg: func(c *authkit.HTTPConfig) {
-			c.APIPath, c.Groups, c.Exclude = "/identity", []iam.RouteGroup{iam.RouteAuth, iam.RouteAccount}, []string{"GET /identity/me"}
+			c.APIPath, c.Groups, c.Exclude = "/identity", []iam.RouteGroup{iam.RouteAuth, iam.RouteAccount}, []string{"GET /identity/v1/me"}
 		}},
 		{name: "root prefix", cfg: func(c *authkit.HTTPConfig) { c.APIPath = "/" }},
 	} {
@@ -101,7 +101,7 @@ func TestMountPreservesHostMiddlewareParametersAndCookieGuards(t *testing.T) {
 	cfg := testhttp.HTTP()
 	cfg.APIPath, cfg.RefreshCookie = "/identity", true
 	wrap := func(route iam.Route, handler http.Handler) http.Handler {
-		if route.Path != "/identity/me/providers/{provider}" {
+		if route.Path != "/identity/v1/me/providers/{provider}" {
 			return handler
 		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -131,7 +131,7 @@ func TestMountPreservesHostMiddlewareParametersAndCookieGuards(t *testing.T) {
 		{name: "host middleware abort", contentType: "application/json", origin: "https://example.com", deny: "yes", status: http.StatusForbidden},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			r := httptest.NewRequest(http.MethodDelete, "https://example.com/identity/me/providers/google", strings.NewReader("{}"))
+			r := httptest.NewRequest(http.MethodDelete, "https://example.com/identity/v1/me/providers/google", strings.NewReader("{}"))
 			r.Header.Set("Content-Type", tc.contentType)
 			r.Header.Set("Origin", tc.origin)
 			r.Header.Set("X-Host-Deny", tc.deny)

@@ -136,7 +136,7 @@ func TestCatalogDeclaresGates(t *testing.T) {
 			require.NotEmpty(t, r.Perm, "%s: a permission route names its permission", key)
 		}
 		if strings.HasPrefix(r.Perm, "root:") {
-			require.True(t, slices.Contains(append(ident.IntrinsicRootPermissions(), ident.MembersRead(iam.RootPersona), ident.MembersManage(iam.RootPersona)), ident.Perm(r.Perm)), "%s: %s", key, r.Perm)
+			require.True(t, slices.Contains(append(ident.IntrinsicRootPermissions(), ident.MembersRead(iam.RootPersona()), ident.MembersManage(iam.RootPersona())), ident.Perm(r.Perm)), "%s: %s", key, r.Perm)
 		}
 		require.Contains(t, append(httpapi.Features, httpapi.Always), r.MountedWhen, key)
 		// A signed-in change checks the session (AuthSession) or runs through

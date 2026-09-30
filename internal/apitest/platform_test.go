@@ -87,18 +87,18 @@ func TestMountCatalog(t *testing.T) {
 		custom, a := variant(func(h *authkit.HTTPConfig) {
 			h.APIPath = " /auth/custom/ "
 			h.Groups = []iam.RouteGroup{iam.RouteRegistration}
-			h.Exclude = []string{" get /auth/custom/register/availability ", "GET " + iam.JWKSPath}
+			h.Exclude = []string{" get /auth/custom/v1/register/availability ", "GET " + iam.JWKSPath}
 		})
 		require.ElementsMatch(t, []iam.Route{
-			{Method: http.MethodPost, Path: "/auth/custom/register", Group: iam.RouteRegistration, Auth: iam.AuthPublic},
-			{Method: http.MethodPost, Path: "/auth/custom/register/abandon", Group: iam.RouteRegistration, Auth: iam.AuthPublic},
+			{Method: http.MethodPost, Path: "/auth/custom/v1/register", Group: iam.RouteRegistration, Auth: iam.AuthPublic},
+			{Method: http.MethodPost, Path: "/auth/custom/v1/register/abandon", Group: iam.RouteRegistration, Auth: iam.AuthPublic},
 		}, custom.Routes())
 		for _, ref := range []routeKey{
-			{http.MethodGet, "/auth/custom/register/availability"},
-			{http.MethodHead, "/auth/custom/register/availability"},
+			{http.MethodGet, "/auth/custom/v1/register/availability"},
+			{http.MethodHead, "/auth/custom/v1/register/availability"},
 			{http.MethodGet, iam.JWKSPath},
 			{http.MethodHead, iam.JWKSPath},
-			{http.MethodPost, "/auth/custom/password/login"},
+			{http.MethodPost, "/auth/custom/v1/password/login"},
 			{http.MethodPost, "/api/v1/register"},
 		} {
 			res := a.do(request{method: ref.method, path: "/" + ref.path})
@@ -112,9 +112,9 @@ func TestMountCatalog(t *testing.T) {
 			h.Groups = []iam.RouteGroup{iam.RouteAuth}
 		})
 		routes := routesOf(t, root)
-		require.Contains(t, routes, routeKey{http.MethodPost, "/password/login"})
+		require.Contains(t, routes, routeKey{http.MethodPost, "/v1/password/login"})
 		require.NotContains(t, routes, routeKey{http.MethodPost, "/api/v1/password/login"})
-		require.Equal(t, http.StatusOK, a.get("//capabilities", "").status)
+		require.Equal(t, http.StatusOK, a.get("//v1/capabilities", "").status)
 	})
 
 	t.Run("disabled capabilities are absent from catalog and handler", func(t *testing.T) {
@@ -172,7 +172,7 @@ func TestMountCatalog(t *testing.T) {
 		login := a.post("/password/login", "", map[string]string{"identifier": u.Email, "password": u.Password}).answer(t)
 		token := login.enrollment(t).TokenSet.AccessToken
 		require.NotEmpty(t, token)
-		for path, status := range map[string]int{"//custom/auth/me": http.StatusForbidden, "//custom/auth/me/2fa": http.StatusOK} {
+		for path, status := range map[string]int{"//custom/auth/v1/me": http.StatusForbidden, "//custom/auth/v1/me/2fa": http.StatusOK} {
 			res := a.get(path, token)
 			require.Equal(t, status, res.status, "%s: %s", path, res)
 		}
@@ -200,7 +200,7 @@ func TestMountCatalogOIDC(t *testing.T) {
 		require.Contains(t, routes, routeKey{method, "/oidc/{provider}/callback"})
 	}
 	// The JSON start and the code exchange are API routes beneath its prefix.
-	for _, path := range []string{"/auth/custom/oidc/{provider}/login/start", "/auth/custom/oidc/exchange"} {
+	for _, path := range []string{"/auth/custom/v1/oidc/{provider}/login/start", "/auth/custom/v1/oidc/exchange"} {
 		require.Equal(t, iam.Route{Method: http.MethodPost, Path: path, Group: iam.RouteBrowserOIDC, Auth: iam.AuthPublic}, routes[routeKey{http.MethodPost, path}])
 	}
 	require.NotContains(t, routes, routeKey{http.MethodPost, "/oidc/{provider}/login"})
@@ -285,8 +285,8 @@ func testWorkflowRateLimits(t *testing.T, rdb *redis.Client) {
 		for bucket := range out {
 			out[bucket] = authkit.RateLimit{Limit: 10000, Window: time.Minute}
 		}
-		out["auth_password_login"] = authkit.RateLimit{Limit: login, Window: time.Minute}
-		out["auth_password_step_up"] = authkit.RateLimit{Limit: 2, Window: time.Minute}
+		out["password_login"] = authkit.RateLimit{Limit: login, Window: time.Minute}
+		out["step_up_password"] = authkit.RateLimit{Limit: 2, Window: time.Minute}
 		return out
 	}
 	forwarded := func(r *http.Request) string { return r.Header.Get("X-Forwarded-For") }

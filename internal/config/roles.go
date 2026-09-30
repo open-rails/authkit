@@ -37,7 +37,7 @@ type Roles struct {
 // capabilities.
 func NewRoles(opts ...PersonaOption) *Roles {
 	r := &Roles{}
-	r.Root = &RootDef{PersonaDef: r.persona(iam.RootPersona, opts)}
+	r.Root = &RootDef{PersonaDef: r.persona(iam.RootPersona(), opts)}
 	r.Root.Users = UserPerms{
 		Resource: r.Root.Resource("users"),
 		Read:     ident.RootUsersRead,
@@ -67,7 +67,7 @@ func (r *Roles) Persona(name string, opts ...PersonaOption) *PersonaDef {
 	switch {
 	case p.IsZero():
 		r.errorf("persona %q: name must match [a-z][a-z0-9-]*", name)
-	case p == iam.RootPersona:
+	case p == iam.RootPersona():
 		r.errorf("persona %q always exists: use Roles.Root", name)
 	default:
 		for _, d := range r.personas {

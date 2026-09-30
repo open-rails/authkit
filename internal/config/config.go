@@ -346,7 +346,7 @@ type RiverConfig struct {
 // HTTPConfig configures the HTTP surface: one handler serving the JSON API,
 // browser OIDC and JWKS, every route beneath BasePath:
 //
-//	{BasePath}{APIPath}/...              JSON API
+//	{BasePath}{APIPath}/v1/...           JSON API
 //	{BasePath}/oidc/{provider}/...       browser OIDC
 //	{BasePath}/.well-known/jwks.json     JWKS
 //
@@ -363,8 +363,9 @@ type HTTPConfig struct {
 	// the issuer plus iam.JWKSPath. Serve the paths unchanged: no StripPrefix
 	// in front.
 	BasePath string
-	// APIPath anchors the JSON API beneath BasePath. Empty means "/api/v1";
-	// "/" is BasePath itself.
+	// APIPath is the JSON API's prefix beneath BasePath; AuthKit adds the
+	// version segment, /v1, after it. Empty means "/api"; "/" puts /v1 right
+	// beneath BasePath.
 	APIPath string
 	// PublicURL is where clients reach BasePath when a proxy in front changes
 	// the origin or the path, such as "https://shop.example.com/sso". DPoP

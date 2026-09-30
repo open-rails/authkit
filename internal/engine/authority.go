@@ -39,7 +39,7 @@ func (s *Engine) resolveGroup(ctx context.Context, st *permissionGroupStore, ref
 	switch {
 	case ref.IsRoot():
 		id, err := s.rootGroup(ctx, st)
-		return groupTarget{ID: id, Persona: iam.RootPersona}, err
+		return groupTarget{ID: id, Persona: iam.RootPersona()}, err
 	case !isUUID(ref.ID()):
 		return groupTarget{}, iam.ErrGroupNotFound
 	}
@@ -299,7 +299,7 @@ func (s *Engine) requireAccount(ctx context.Context, st *permissionGroupStore, a
 	if err != nil {
 		return err
 	}
-	root := groupTarget{ID: rootID, Persona: iam.RootPersona}
+	root := groupTarget{ID: rootID, Persona: iam.RootPersona()}
 	auth, err := s.actorAuthority(ctx, st, a, root)
 	if err != nil {
 		return err

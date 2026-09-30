@@ -63,7 +63,7 @@ func TestCookieRegistry(t *testing.T) {
 				return w.Result()
 			}
 
-			login := serve(http.MethodPost, config.DefaultAPIPath+"/password/login", `{"identifier":"`+u.Email+`","password":"`+u.Password+`"}`)
+			login := serve(http.MethodPost, config.DefaultAPIPath+config.APIVersion+"/password/login", `{"identifier":"`+u.Email+`","password":"`+u.Password+`"}`)
 			require.Equal(t, http.StatusOK, login.StatusCode)
 			requireIssued(t, login.Cookies(), httpapi.CurrentCookie(httpapi.CookieRefresh, secure), secure, func(name string) bool {
 				return strings.HasSuffix(name, "authkit_rt")

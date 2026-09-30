@@ -152,7 +152,7 @@ func (s *Engine) finishFirstFactor(ctx context.Context, proof loginProof) (authf
 			if err != nil {
 				return authflow.LoginOutcome{}, err
 			}
-			tokens := iam.NewTokenSet(token, "", expires)
+			tokens := authflow.NewTokenSet(token, "", expires)
 			out.Enrollment = &tokens
 		}
 		if err := tx.Commit(ctx); err != nil {

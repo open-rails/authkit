@@ -38,7 +38,7 @@ func grantMigrationRuntimeAccess(ctx context.Context, pool *pgxpool.Pool, user, 
 		return fmt.Errorf("authkit: begin runtime access provisioning: %w", err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	// AuthKit and OpenRails use the same lock because ACL writes can share
+	// Every open-rails migrator uses this lock because ACL writes can share
 	// public schema objects even when their application schemas differ.
 	if err := db.New(tx).RuntimeAccessLock(ctx); err != nil {
 		return fmt.Errorf("authkit: lock runtime access provisioning: %w", err)

@@ -36,7 +36,9 @@ func (a *Client) RevokeAccountSessions(ctx context.Context, actor iam.Actor, use
 }
 
 // MintAccessToken mints an access token for a live account outside any login
-// flow; reserved claims are dropped. Host operation: your code decides.
+// flow. A claim in o.Claims named like one of AuthKit's own
+// (docs/stability.md) is refused with invalid_request. Host operation: your
+// code decides.
 func (a *Client) MintAccessToken(ctx context.Context, userID string, o iam.AccessTokenOptions, opts ...Option) (iam.Token, error) {
 	return a.ops.MintAccessToken(ctx, userID, o, opts...)
 }

@@ -56,7 +56,7 @@ func TestSecurityMultiReplicaStores(t *testing.T) {
 	t.Run("Redis budgets are shared by every replica", func(t *testing.T) {
 		rdb := testdb.ScratchRedis(t)
 		one := newHost(t, withHTTP(func(c *authkit.HTTPConfig) {
-			c.RateLimits = map[string]authkit.RateLimit{"auth_password_login": {Limit: 3, Window: time.Hour}}
+			c.RateLimits = map[string]authkit.RateLimit{"password_login": {Limit: 3, Window: time.Hour}}
 		}), authtest.WithDeps(func(d *authkit.Deps) { d.Redis = rdb }))
 		two := one.replica()
 		a := one.newAccount("replicas")
@@ -75,7 +75,7 @@ func TestSecurityMultiReplicaStores(t *testing.T) {
 // with the right password, and IPv6 clients are limited per /64.
 func TestSecurityPasswordLimitIsPerAddress(t *testing.T) {
 	h := newHost(t, withHTTP(behindProxy), withHTTP(func(c *authkit.HTTPConfig) {
-		c.RateLimits = map[string]authkit.RateLimit{"auth_password_login": {Limit: 3, Window: time.Hour}}
+		c.RateLimits = map[string]authkit.RateLimit{"password_login": {Limit: 3, Window: time.Hour}}
 	}))
 	a := h.newAccount("peraddress")
 	attempt := func(ip, pass string) response {
@@ -107,7 +107,7 @@ func TestSecurityPasswordLimitIsPerAddress(t *testing.T) {
 // are attacker input and must not create fresh per-address budgets.
 func TestSecurityClientAddressSpoofing(t *testing.T) {
 	h := newHost(t, withHTTP(func(c *authkit.HTTPConfig) {
-		c.RateLimits = map[string]authkit.RateLimit{"auth_password_login": {Limit: 3, Window: time.Hour}}
+		c.RateLimits = map[string]authkit.RateLimit{"password_login": {Limit: 3, Window: time.Hour}}
 	}))
 	for i := range 4 {
 		resp := h.do(request{method: http.MethodPost, path: "/password/login",

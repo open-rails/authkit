@@ -20,7 +20,7 @@ type Persona struct{ name string }
 
 // RootPersona is the persona with exactly one group, the whole site. It
 // always exists.
-var RootPersona = Persona{"root"}
+func RootPersona() Persona { return Persona{"root"} }
 
 // String is the persona's name, "" for the zero Persona.
 func (p Persona) String() string { return p.name }

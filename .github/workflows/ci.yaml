@@ -100,9 +100,8 @@ jobs:
   # Keep the security boundary explicit while avoiding four independent CI
   # workflows. govulncheck covers known reachable dependency vulnerabilities;
   # Trivy covers the full checkout for high and critical dependency, secret and
-  # misconfiguration findings. AuthKit does
-  # not duplicate OpenRails' specialized injected-build-config detector; that
-  # scanner remains owned by the repository that carries those build surfaces.
+  # misconfiguration findings. The injected-build-config detector stays with
+  # the repositories that carry those build surfaces.
   security:
     name: Required Security
     if: github.event_name != 'push'

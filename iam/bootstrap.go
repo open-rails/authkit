@@ -18,7 +18,7 @@ type BootstrapManifest struct {
 type BootstrapManifestUser struct {
 	Username      string `json:"username" yaml:"username"`
 	Email         string `json:"email" yaml:"email"`
-	Phone         string `json:"phone" yaml:"phone"`
+	Phone         string `json:"phone_number" yaml:"phone_number"`
 	EmailVerified bool   `json:"email_verified" yaml:"email_verified"`
 	PhoneVerified bool   `json:"phone_verified" yaml:"phone_verified"`
 	// Ban bans a new account from now: only Until and Reason may be set.

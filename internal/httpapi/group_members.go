@@ -5,6 +5,7 @@ package httpapi
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
@@ -13,10 +14,14 @@ import (
 	"github.com/open-rails/authkit/verify"
 )
 
+// PathEnums are the values a path parameter takes, by name, for the
+// generated contract: a member path's {kind} is the kind of subject it names.
+var PathEnums = map[string][]string{"kind": {"users"}}
+
 // memberSubject is the member a {kind}/{id} path names. The one kind is
 // `users`; any other is 404. Nobody changes their own root role (ak#417).
 func memberSubject(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor) (iam.Subject, bool) {
-	if r.PathValue("kind") != "users" {
+	if !slices.Contains(PathEnums["kind"], r.PathValue("kind")) {
 		fail(w, errmodel.CodeNotFound)
 		return iam.Subject{}, false
 	}
@@ -25,7 +30,7 @@ func memberSubject(w http.ResponseWriter, r *http.Request, g iam.Group, actor ia
 		fail(w, errmodel.CodeNotFound)
 		return iam.Subject{}, false
 	}
-	if g.Persona == iam.RootPersona && actor.Kind() == iam.ActorUser && strings.EqualFold(id, actor.ID()) {
+	if g.Persona == iam.RootPersona() && actor.Kind() == iam.ActorUser && strings.EqualFold(id, actor.ID()) {
 		writeError(w, iam.ErrCannotTargetSelf)
 		return iam.Subject{}, false
 	}
