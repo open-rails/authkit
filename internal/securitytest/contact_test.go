@@ -257,7 +257,7 @@ func TestSecurityPreRegistrationContactChange(t *testing.T) {
 	login := h.post("/password/login", map[string]string{"identifier": victim, "password": password}, "")
 	require.Equal(t, http.StatusUnauthorized, login.status, "the squatter's password survived: %s", login)
 
-	t.Run("a change confirmed after the account lost its proof is refused", func(t *testing.T) {
+	t.Run("a change requested before the account lost its proof dies with it", func(t *testing.T) {
 		a := h.newAccount("ccproven")
 		access := h.login(a).AccessToken
 		phone := "+1555" + uniqueDigits(7)
@@ -267,9 +267,7 @@ func TestSecurityPreRegistrationContactChange(t *testing.T) {
 		_, err := h.auth.UpdateUser(ctx, iam.SystemActor(), a.id, iam.UserUpdate{Email: &unproven})
 		require.NoError(t, err)
 		resp = h.post("/verify/confirm", map[string]string{"identifier": phone, "code": h.mail.Last(t, iam.MessageVerification, phone).Code}, access)
-		require.Equal(t, http.StatusForbidden, resp.status, resp.String())
-		identifier, _ := contactOf(t, resp)
-		require.Equal(t, unproven, identifier)
+		require.Equal(t, "invalid_code", resp.errorCode(), resp.String())
 		u, err := h.auth.User(ctx, iam.UserByID(a.id))
 		require.NoError(t, err)
 		require.Nil(t, u.Phone)

@@ -80,8 +80,9 @@ func (s *Engine) finalizeChangePhone(ctx context.Context, rec pendingChange, kee
 // every other session in ONE transaction (as finishPasswordReset does, #199): a
 // hijacked contact must never go live while the sessions that hijacked it survive.
 // It is a proof like any other (ak#417): re-checked against the account's
-// unproven addresses under the account lock, and when it replaces the
-// account's only unproven address it first retires the pre-proof credentials.
+// unproven addresses under the account lock (the version-bound record already
+// dies with any contact change), and when it replaces the account's only
+// unproven address it first retires the pre-proof credentials.
 func (s *Engine) applyContactChange(ctx context.Context, rec pendingChange, channel string, keepSessionID *string, apply func(*db.Queries) error) error {
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
