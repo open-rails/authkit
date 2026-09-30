@@ -90,7 +90,8 @@ func accountOps(h *host) map[string]func(actor iam.Actor, target string) error {
 // TestSecurityAccountAuthority (H4, M1): an account mutation needs the root
 // permission it names AND coverage of the target's grants in root and in every
 // group the target holds a role in. A narrow root:users staffer can neither
-// edit a more privileged account nor act on a group owner it does not outrank.
+// edit a more privileged account nor act on a group owner it does not outrank,
+// and a banned actor has no account authority, whatever roles it holds.
 func TestSecurityAccountAuthority(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), withEngine(withAccountRoles))
 	ctx := context.Background()
@@ -130,6 +131,14 @@ func TestSecurityAccountAuthority(t *testing.T) {
 	t.Run("invariant: no root permission, no account authority", func(t *testing.T) {
 		for name, op := range ops {
 			require.ErrorIs(t, op(iam.UserActor(plain.id), staff.id), iam.ErrInsufficientAuthority, name)
+		}
+	})
+	t.Run("invariant: a banned actor holds no account authority", func(t *testing.T) {
+		banned := h.newAccount("bannedadmin")
+		h.grant(root, banned, "siteadmin")
+		require.NoError(t, h.auth.Ban(ctx, iam.SystemActor(), banned.id, iam.Ban{}))
+		for name, op := range ops {
+			require.ErrorIs(t, op(iam.UserActor(banned.id), plain.id), iam.ErrInsufficientAuthority, name)
 		}
 	})
 	t.Run("nobody bans, unbans or edits the credentials of their own account", func(t *testing.T) {

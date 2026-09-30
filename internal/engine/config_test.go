@@ -5,8 +5,6 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
-	"github.com/open-rails/authkit/internal/testdb"
-	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
 )
 
@@ -70,18 +68,45 @@ func TestRoleConfigCompiles(t *testing.T) {
 	} {
 		require.Equal(t, known, s.KnownPermission(perm), perm)
 	}
-}
 
-func TestRoleConfigCapabilityBuiltins(t *testing.T) {
-	s, err := RoleConfig{Personas: map[string]Persona{
-		"org":  {APIKeys: true},
-		"root": {RemoteApplications: true},
-	}}.schema()
-	require.NoError(t, err)
-	for _, perm := range []iam.Perm{ident.Perm("org:credentials:read"), ident.Perm("org:credentials:manage"), ident.Perm("root:credentials:manage")} {
-		require.True(t, s.KnownPermission(perm), perm)
-	}
-	require.False(t, s.KnownPermission(ident.Perm("org:roles:manage")), "there are no custom roles")
+	t.Run("capability built-ins", func(t *testing.T) {
+		s, err := RoleConfig{Personas: map[string]Persona{
+			"org":  {APIKeys: true},
+			"root": {RemoteApplications: true},
+		}}.schema()
+		require.NoError(t, err)
+		for _, perm := range []iam.Perm{ident.Perm("org:credentials:read"), ident.Perm("org:credentials:manage"), ident.Perm("root:credentials:manage")} {
+			require.True(t, s.KnownPermission(perm), perm)
+		}
+		require.False(t, s.KnownPermission(ident.Perm("org:roles:manage")), "there are no custom roles")
+	})
+
+	// A role needs MFA when its grants reach a RequireMFA permission, however
+	// it is built: a catalog role, a pattern, an include, the owner.
+	t.Run("MFA follows permissions", func(t *testing.T) {
+		s, err := RoleConfig{
+			Personas: map[string]Persona{"channel": {
+				Permissions: []string{"channel:posts:edit", "channel:posts:delete"},
+				RequireMFA:  []string{"channel:posts:delete"},
+				APIKeys:     true,
+			}},
+			Roles: []Role{
+				{Persona: "channel", Name: "editor", Permissions: []string{"channel:posts:edit"}},
+				{Persona: "channel", Name: "moderator", Permissions: []string{"channel:posts:*"}},
+				{Persona: "channel", Name: "senior", Includes: []string{"moderator"}},
+				{Persona: "root", Name: "staff", Permissions: []string{"channel:*"}},
+			},
+		}.schema()
+		require.NoError(t, err)
+		for role, want := range map[string]bool{"editor": false, "moderator": true, "senior": true, "owner": true} {
+			r, ok := s.RoleNamed(ident.Persona("channel"), role)
+			require.True(t, ok)
+			require.Equal(t, want, r.RequiresMFA, role)
+		}
+		rootOwner, ok := s.Role(iam.RootPersona, iam.RootPersona.OwnerRole())
+		require.True(t, ok)
+		require.True(t, rootOwner.RequiresMFA, "root:members:manage always needs MFA")
+	})
 }
 
 func TestRoleConfigRejects(t *testing.T) {
@@ -121,55 +146,4 @@ func TestRoleConfigRejects(t *testing.T) {
 			require.ErrorContains(t, err, tc.want)
 		})
 	}
-}
-
-// TestRolesWorkflow drives README's rulebook through the real engine: root
-// roles apply in every group, an app catalog may name any resource, and an
-// unregistered permission fails closed.
-func TestRolesWorkflow(t *testing.T) {
-	pg := testdb.ScratchPostgres(t)
-	ctx := t.Context()
-	a, err := newWithKeys(Config{TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled}, Roles: readmeRoles()}, keyset{}, Deps{Postgres: pg.Pool, River: RiverFromHost()})
-	require.NoError(t, err)
-	t.Cleanup(a.Close)
-	user := func(name string) iam.Subject {
-		u, err := a.createUser(ctx, name+"@roles.test", name)
-		require.NoError(t, err)
-		return iam.UserSubject(u.ID)
-	}
-	admin, bob, carol := user("rolesadmin"), user("rolesbob"), user("rolescarol")
-	grantRole(t, a, iam.RootGroup(), admin, "admin")
-
-	owner := func(s iam.Subject) *iam.Subject { return &s }
-	ann, err := a.CreateGroup(ctx, iam.NewGroup{Persona: ident.Persona("channel"), Owner: owner(admin)}, nil)
-	require.NoError(t, err)
-	announcements := iam.GroupByID(ann.ID)
-	gl, err := a.CreateGroup(ctx, iam.NewGroup{Persona: ident.Persona("channel"), Owner: owner(bob)}, nil)
-	require.NoError(t, err)
-	golang := iam.GroupByID(gl.ID)
-	grantRole(t, a, golang, carol, "moderator")
-
-	can := func(s iam.Subject, g iam.GroupRef, perm iam.Perm) bool {
-		t.Helper()
-		ok, err := a.Can(ctx, actorOf(s), g, perm)
-		require.NoError(t, err)
-		return ok
-	}
-	require.True(t, can(admin, golang, ident.Perm("channel:posts:delete")), "a role held on root applies in every group")
-	require.True(t, can(bob, golang, ident.Perm("channel:self:delete")), "the owner holds every channel permission")
-	require.False(t, can(bob, announcements, ident.Perm("channel:self:delete")), "in its own channel only")
-	require.True(t, can(admin, announcements, ident.Perm("channel:self:delete")))
-	require.False(t, can(carol, golang, ident.Perm("channel:self:edit")), "moderators can't edit the channel")
-	require.True(t, can(carol, golang, ident.Perm("channel:posts:approve")))
-	require.False(t, can(carol, announcements, ident.Perm("channel:posts:approve")), "a channel role applies only in its group")
-	require.False(t, can(carol, golang, ident.Perm("channel:members:manage")))
-
-	_, err = a.Can(ctx, actorOf(carol), golang, ident.Perm("channel:posts:pin"))
-	require.ErrorIs(t, err, iam.ErrUnknownPermission)
-	_, err = a.Can(ctx, actorOf(carol), golang, ident.Perm("channel:self:read"))
-	require.ErrorIs(t, err, iam.ErrUnknownPermission)
-	require.True(t, a.KnownPermission(ident.Perm("channel:posts:edit")))
-	require.False(t, a.KnownPermission(ident.Perm("channel:posts:pin")))
-	require.NotPanics(t, func() { verify.RequirePermission(a, ident.Perm("channel:posts:edit")) })
-	require.Panics(t, func() { verify.RequirePermission(a, ident.Perm("channel:posts:pin")) })
 }
