@@ -331,7 +331,13 @@ func TestUsersIDIsAHostForeignKeyTarget(t *testing.T) {
 	ctx := t.Context()
 	purged := make(chan string, 1)
 	auth, err := authkit.New(ctx, testConfig(t), authkit.Deps{Postgres: pg.Pool,
-		OnHardDelete: func(_ context.Context, d iam.UserDeletion) error { purged <- d.UserID; return nil }})
+		OnHardDelete: func(_ context.Context, d iam.UserDeletion) error {
+			select {
+			case purged <- d.UserID:
+			default:
+			}
+			return nil
+		}})
 	require.NoError(t, err)
 	t.Cleanup(auth.Close)
 	_, err = pg.Pool.Exec(ctx, `CREATE TABLE public.host_notes (
