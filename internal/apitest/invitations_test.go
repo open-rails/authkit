@@ -26,6 +26,7 @@ func TestInvitationRoutes(t *testing.T) {
 	authtest.GrantRole(t, auth, iam.RootGroup(), iam.UserSubject(inviter.ID), o.inviter)
 	managerToken, memberToken := authtest.SignIn(t, auth, manager).AccessToken, authtest.SignIn(t, auth, member).AccessToken
 	inviterToken, holderToken := authtest.SignIn(t, auth, inviter).AccessToken, authtest.SignIn(t, auth, holder).AccessToken
+	founderToken := authtest.SignIn(t, auth, o.founder).AccessToken
 	base := "/groups/" + o.acmeID + "/invitations"
 	role := o.member.String()
 
@@ -77,10 +78,11 @@ func TestInvitationRoutes(t *testing.T) {
 		}
 	}
 
-	// Both kinds are listed, newest first, never with a code.
+	// Both kinds are listed, newest first, never with a code, to whoever
+	// reads the members.
 	list := func() []iam.Invitation {
 		t.Helper()
-		res := expect(t, http.StatusOK, a.get(base, managerToken))
+		res := expect(t, http.StatusOK, a.get(base, founderToken))
 		require.NotContains(t, res.String(), link.Code)
 		require.NotContains(t, res.String(), code)
 		var page iam.ListPage[iam.Invitation]
@@ -97,6 +99,7 @@ func TestInvitationRoutes(t *testing.T) {
 	require.Equal(t, []*string{&holderEmail, &newcomerEmail, nil}, emails)
 	require.Equal(t, link.Invitation.ID, items[2].ID)
 	expect(t, http.StatusForbidden, a.get(base, memberToken))
+	expect(t, http.StatusForbidden, a.get(base, managerToken))
 
 	// The account that proved the address redeems its invitation; anyone
 	// signed in redeems a link.

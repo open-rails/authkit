@@ -594,7 +594,7 @@ func TestRoleOwnerHTTPWorkflow(t *testing.T) {
 	require.Equal(t, http.StatusOK, put(token, peer.ID, "org:owner").status)
 	res = a.do(request{method: http.MethodDelete, path: base + "/members/users/" + owner.ID, token: token})
 	require.Equal(t, http.StatusNoContent, res.status, res.String())
-	res = a.do(request{method: http.MethodDelete, path: base + "/members/users/" + owner.ID, token: token})
+	res = a.do(request{method: http.MethodDelete, path: base + "/members/users/" + owner.ID, token: authtest.SignIn(t, auth, peer).AccessToken})
 	require.Equal(t, http.StatusNoContent, res.status, "removing a non-member changes nothing: %s", res)
 	allowed, err := auth.Can(ctx, iam.UserActor(peer.ID), group, m.org.Members.Manage)
 	require.NoError(t, err)
