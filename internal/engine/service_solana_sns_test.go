@@ -39,12 +39,10 @@ func (r *stalledSNSResolver) ResolvePrimaryName(ctx context.Context, _ string) (
 func TestSolanaLoginDoesNotWaitOnSNS(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
-	cfg := newServerTestConfig()
+	cfg := testConfig()
 	cfg.SolanaNetwork = "devnet"
 	sns := &stalledSNSResolver{release: make(chan struct{})}
-	srv, err := newServer(newServerClient(t, cfg, pool, withSolanaSNSResolver(sns)), WithoutRateLimiter())
-	require.NoError(t, err)
-	t.Cleanup(srv.Close)
+	f := newAccountFlow(t, pool, cfg, Deps{SolanaSNSResolver: sns})
 
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
@@ -53,14 +51,12 @@ func TestSolanaLoginDoesNotWaitOnSNS(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM users WHERE id IN (SELECT user_id FROM user_providers WHERE subject=$1)`, address)
 	})
 	login := func() {
-		w := serveJSON(srv, http.MethodPost, "/solana/challenge", `{"address":"`+address+`"}`)
-		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		w := f.expect(http.StatusOK, f.post("/solana/challenge", map[string]any{"address": address}))
 		var challenge struct {
 			Message string `json:"message"`
 		}
-		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &challenge))
-		w = serveJSON(srv, http.MethodPost, "/solana/login", siwsOutput(pub, priv, challenge.Message))
-		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		require.NoError(t, json.Unmarshal([]byte(w.raw), &challenge))
+		f.expect(http.StatusOK, f.post("/solana/login", json.RawMessage(siwsOutput(pub, priv, challenge.Message))))
 		require.Zero(t, sns.exited.Load(), "login must not wait for the SNS lookup")
 	}
 

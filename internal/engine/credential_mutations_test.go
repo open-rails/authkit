@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/testoutbox"
 	"github.com/stretchr/testify/require"
@@ -22,15 +23,13 @@ func TestCredentialTransactionsPasswordMutationRollsBackOnFailure(t *testing.T) 
 				ctx := context.Background()
 				// The injected trigger is DDL: give it a database of its own.
 				sender := &testoutbox.Outbox{}
-				srv, err := newServer(newServerClient(t, newServerTestConfig(), testdb.ScratchPostgres(t).Pool, withEmailSender(sender.Email())), WithoutRateLimiter())
-				require.NoError(t, err)
-				pool := fixtureBackend(srv.Backend()).pg
-				uid := mustPasswordUser(t, srv, "atomic-password")
-				user, err := fixtureBackend(srv.Backend()).getUserByID(ctx, uid)
-				require.NoError(t, err)
-				require.NoError(t, srv.Backend().RequestPasswordReset(ctx, *user.Email, time.Hour, nil, nil))
+				pool := testdb.ScratchPostgres(t).Pool
+				e := newTestEngine(t, testConfig(), Deps{Postgres: pool, Email: sender.Email()})
+				user := newUser(t, e, "atomic")
+				uid := user.ID
+				require.NoError(t, e.RequestPasswordReset(ctx, *user.Email, time.Hour, nil, nil))
 				reset := sender.Last(t, testoutbox.PasswordReset, "").Token
-				_, refresh, _, err := fixtureBackend(srv.Backend()).issueRefreshSession(ctx, uid, "atomic", nil)
+				_, refresh, err := e.issueRefreshSession(ctx, uid)
 				require.NoError(t, err)
 				var before, after int64
 				require.NoError(t, pool.QueryRow(ctx, `SELECT credential_version FROM users WHERE id=$1`, uid).Scan(&before))
@@ -42,20 +41,20 @@ func TestCredentialTransactionsPasswordMutationRollsBackOnFailure(t *testing.T) 
 				var changeErr error
 				switch method {
 				case "change":
-					changeErr = srv.Backend().ChangePassword(ctx, uid, "Correct-password-12345", "Replacement-password-12345", nil)
+					changeErr = e.ChangePassword(ctx, uid, testPassword, "Replacement-password-12345", nil)
 				case "fresh":
-					changeErr = srv.Backend().SetPasswordAfterFreshAuth(ctx, uid, "Replacement-password-12345", nil)
+					changeErr = e.SetPasswordAfterFreshAuth(ctx, uid, "Replacement-password-12345", nil)
 				case "admin":
-					changeErr = fixtureBackend(srv.Backend()).adminSetPassword(ctx, uid, "Replacement-password-12345")
+					changeErr = e.adminSetPassword(ctx, uid, "Replacement-password-12345")
 				case "reset":
-					_, changeErr = srv.Backend().ConfirmPasswordReset(ctx, reset, "Replacement-password-12345")
+					_, changeErr = e.ConfirmPasswordReset(ctx, reset, "Replacement-password-12345")
 				}
 				require.ErrorContains(t, changeErr, "injected credential failure")
 				require.NoError(t, pool.QueryRow(ctx, `SELECT credential_version FROM users WHERE id=$1`, uid).Scan(&after))
 				require.Equal(t, before, after, "failed operation cannot invalidate grants")
-				require.NoError(t, srv.Backend().CheckUserPassword(ctx, uid, "Correct-password-12345"))
-				require.Error(t, srv.Backend().CheckUserPassword(ctx, uid, "Replacement-password-12345"))
-				_, _, _, err = srv.Backend().ExchangeRefreshToken(ctx, refresh, "atomic", nil)
+				require.NoError(t, e.CheckUserPassword(ctx, uid, testPassword))
+				require.Error(t, e.CheckUserPassword(ctx, uid, "Replacement-password-12345"))
+				_, _, _, err = e.ExchangeRefreshToken(ctx, refresh, "test", nil)
 				require.NoError(t, err, "the rollback retains the old session")
 			})
 		}
@@ -65,12 +64,13 @@ func TestCredentialTransactionsPasswordMutationRollsBackOnFailure(t *testing.T) 
 func TestCredentialChangesHaveOneConcurrentWinner(t *testing.T) {
 	for _, kind := range []string{"reset", "current_password"} {
 		t.Run(kind, func(t *testing.T) {
-			svc, _ := newHardeningService(t)
+			cfg := maintenanceConfig()
+			cfg.TwoFactor.Mode = iam.TwoFactorOptional
+			svc := newTestEngine(t, cfg, Deps{Postgres: testdb.Pool(t), Email: (&testoutbox.Outbox{}).Email()})
 			ctx := context.Background()
-			u, email := newHardeningUser(t, ctx, svc, "parallel")
-			require.NoError(t, svc.adminSetPassword(ctx, u.ID, "Original-password-12345"))
+			u := newUser(t, svc, "parallel")
 			for _, token := range []string{"reset-a", "reset-b"} {
-				require.NoError(t, svc.storePasswordReset(ctx, sha256Hex(token), u.ID, "email", email, time.Minute))
+				require.NoError(t, svc.storePasswordReset(ctx, sha256Hex(token), u.ID, "email", *u.Email, time.Minute))
 			}
 			lock, err := svc.pg.Begin(ctx)
 			require.NoError(t, err)
@@ -89,7 +89,7 @@ func TestCredentialChangesHaveOneConcurrentWinner(t *testing.T) {
 						_, err := svc.ConfirmPasswordReset(ctx, []string{"reset-a", "reset-b"}[i], newPassword)
 						result <- err
 					} else {
-						result <- svc.ChangePassword(ctx, u.ID, "Original-password-12345", newPassword, nil)
+						result <- svc.ChangePassword(ctx, u.ID, testPassword, newPassword, nil)
 					}
 				}()
 			}

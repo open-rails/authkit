@@ -18,26 +18,22 @@ import (
 // 2FA with an MFA-required role.
 func TestPasskeyLoginCompletesWhileItsPasskeyIsDeleted(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	cfg := newServerTestConfig()
+	cfg := testConfig()
 	cfg.TwoFactor.Mode = iam.TwoFactorRequired
 	cfg.Passkeys = PasskeyConfig{RPID: "app.example", Origins: []string{"https://app.example"}}
 	cfg.Roles = RoleConfig{Roles: []Role{{Persona: "root", Name: "admin", Permissions: []string{"root:*"}}}}
-	f := newAccountFlow(t, pg.Pool, cfg)
+	f := newAccountFlow(t, pg.Pool, cfg, Deps{})
 	ctx := t.Context()
 	// The role came while 2FA was off.
 	bootstrapCfg := cfg
 	bootstrapCfg.TwoFactor.Mode = iam.TwoFactorDisabled
-	bootstrap := newServerClient(t, bootstrapCfg, pg.Pool)
-	_, err := bootstrap.ensureRootGroup(ctx)
-	require.NoError(t, err)
-	user, err := bootstrap.createUser(ctx, uniqueEmail("uv-role"), "uv"+uniqueSuffix())
-	require.NoError(t, err)
-	require.NoError(t, bootstrap.markEmailVerified(ctx, user.ID))
+	bootstrap := newTestEngine(t, bootstrapCfg, Deps{Postgres: pg.Pool})
+	user := newUser(t, bootstrap, "uvrole")
 	grantRole(t, bootstrap, iam.RootGroup(), iam.UserSubject(user.ID), "admin")
 	authn := passkeytest.New(t, "https://app.example")
-	creation, err := f.service.Backend().BeginPasskeyRegistration(ctx, user.ID)
+	creation, err := f.engine.BeginPasskeyRegistration(ctx, user.ID)
 	require.NoError(t, err)
-	created, err := f.service.Backend().FinishPasskeyRegistration(ctx, user.ID, authn.Register(t, creation))
+	created, err := f.engine.FinishPasskeyRegistration(ctx, user.ID, authn.Register(t, creation))
 	require.NoError(t, err)
 
 	start := f.expect(200, f.post("/passkeys/login/begin", map[string]any{}))
@@ -45,7 +41,7 @@ func TestPasskeyLoginCompletesWhileItsPasskeyIsDeleted(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(start.raw), &assertion))
 	proof := json.RawMessage(authn.Assert(t, &assertion, 1))
 	completed := f.completeWhileRevoking(user.ID, func() flowResponse { return f.post("/passkeys/login/finish", proof) }, func(ctx context.Context) error {
-		return f.service.Backend().DeletePasskey(ctx, user.ID, created.ID)
+		return f.engine.DeletePasskey(ctx, user.ID, created.ID)
 	})
 	f.expect(200, completed)
 	f.session(completed.TokenSet, "swk", "mfa")

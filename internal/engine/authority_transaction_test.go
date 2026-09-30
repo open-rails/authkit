@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/testdb"
@@ -29,7 +30,9 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 	hostPool, err := pgxpool.NewWithConfig(ctx, config)
 	require.NoError(t, err)
 	t.Cleanup(hostPool.Close)
-	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://owners.test"}, TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled}, Registration: RegistrationConfig{NativeUserMode: iam.RegistrationModeInviteOnly}, Roles: RoleConfig{
+	cfg := maintenanceConfig()
+	cfg.Registration.NativeUserMode = iam.RegistrationModeInviteOnly
+	cfg.Roles = RoleConfig{
 		Personas: map[string]Persona{"org": {Permissions: []string{"org:records:read", "org:records:write"}, RemoteApplications: true}},
 		Roles: []Role{
 			{Persona: "root", Name: "manager", Permissions: []string{"root:members:manage", "root:users:ban"}},
@@ -38,7 +41,8 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 			{Persona: "org", Name: "editor", Permissions: []string{"org:records:read", "org:records:write"}},
 			{Persona: "org", Name: "manager", Permissions: []string{"org:members:manage", "org:credentials:manage", "org:records:read"}},
 		},
-	}}, keyset{}, Deps{Postgres: hostPool})
+	}
+	svc := newTestEngine(t, cfg, Deps{Postgres: hostPool})
 	root, err := svc.ensureRootGroup(ctx)
 	require.NoError(t, err)
 	n := 0
@@ -217,8 +221,13 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 						Personas: map[string]Persona{"org": {RequireMFA: []string{"org:members:manage"}}},
 						Roles:    []Role{{Persona: "org", Name: "owner", Permissions: []string{"org:*"}}},
 					}
-					raceSvc = mustNewWithKeys(t, cfg, keyset{}, Deps{Postgres: hostPool})
-					_, err := raceSvc.enableFactor(ctx, one, "email", nil, authflow.AllowAdditionalFactors)
+					// newEngine, not New: booting this catalog would sweep the
+					// credentials the shared workflow still holds.
+					var err error
+					raceSvc, err = newEngine(cfg, Deps{Postgres: hostPool})
+					require.NoError(t, err)
+					t.Cleanup(raceSvc.Close)
+					_, err = raceSvc.enableFactor(ctx, one, "email", nil, authflow.AllowAdditionalFactors)
 					require.NoError(t, err)
 					_, err = raceSvc.enableFactor(ctx, two, "email", nil, authflow.AllowAdditionalFactors)
 					require.NoError(t, err)
@@ -339,4 +348,22 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 			})
 		}
 	})
+}
+
+// updateImportedUser applies an import row to an existing account, as
+// bootstrap does.
+func (s *Engine) updateImportedUser(ctx context.Context, id string, input newAccount) (*db.User, error) {
+	tx, err := s.beginAuthorityTransaction(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	if err := s.lockAuthority(ctx, tx); err != nil {
+		return nil, err
+	}
+	u, err := s.updateImportedUserTx(ctx, tx, id, input)
+	if err != nil {
+		return nil, err
+	}
+	return u, tx.Commit(ctx)
 }

@@ -15,7 +15,9 @@ import (
 func TestBootstrapRepairsAnEmptyOwnerSet(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	ctx := t.Context()
-	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://bootstrap.test"}}, keyset{}, Deps{Postgres: pg.Pool})
+	cfg := maintenanceConfig()
+	cfg.TwoFactor.Mode = iam.TwoFactorOptional
+	svc := newTestEngine(t, cfg, Deps{Postgres: pg.Pool})
 	owner := iam.RootPersona.OwnerRole()
 	_, err := svc.ApplyBootstrapManifest(ctx, iam.BootstrapManifest{Users: []iam.BootstrapManifestUser{
 		{Username: "bootstrap-admin", Email: "admin@example.test", EmailVerified: true, RootRole: owner}}}, iam.BootstrapOptions{})

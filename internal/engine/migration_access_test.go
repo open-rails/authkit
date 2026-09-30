@@ -71,8 +71,8 @@ func TestMigrateProvisionsRuntimePool(t *testing.T) {
 			require.NoError(t, err)
 			cfg := maintenanceConfig()
 			cfg.Schema = schema
-			cfg.Keys.VerifyOnly = false
-			client, err := newEngineWithKeys(cfg, keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()}}, Deps{Postgres: runtimePool, River: opts.River})
+			cfg.Keys = KeysConfig{Source: jwtkit.StaticKeySource{Active: signer, Pubs: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()}}}
+			client, err := newEngine(cfg, Deps{Postgres: runtimePool, River: opts.River})
 			require.NoError(t, err)
 			t.Cleanup(client.Close)
 			registered, err := client.Register(ctx, authflow.RegisterInput{Identifier: "runtime@example.test", Username: "runtimeuser", Password: "Pool-Test-Password-49!"})

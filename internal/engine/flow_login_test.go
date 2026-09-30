@@ -13,13 +13,9 @@ import (
 // credential version and finds it changed.
 func TestPasswordLoginRacingRecoveryMintsNoSession(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	f := newAccountFlow(t, pg.Pool, newServerTestConfig())
+	f := newAccountFlow(t, pg.Pool, testConfig(), Deps{})
 	ctx := t.Context()
-	backend := fixtureBackend(f.service.Backend())
-	user, err := backend.createUser(ctx, uniqueEmail("paused-password"), "paused"+uniqueSuffix())
-	require.NoError(t, err)
-	require.NoError(t, backend.adminSetPassword(ctx, user.ID, "Original-password-12345"))
-	require.NoError(t, backend.markEmailVerified(ctx, user.ID))
+	user := newUser(t, f.engine, "paused")
 	lock, err := pg.Pool.Begin(ctx)
 	require.NoError(t, err)
 	defer lock.Rollback(ctx)
@@ -27,7 +23,7 @@ func TestPasswordLoginRacingRecoveryMintsNoSession(t *testing.T) {
 	require.NoError(t, err)
 	changed := make(chan error, 1)
 	go func() {
-		changed <- backend.adminSetPassword(ctx, user.ID, "Replacement-password-12345")
+		changed <- f.engine.adminSetPassword(ctx, user.ID, "Replacement-password-12345")
 	}()
 	waitLocks := func(want int) {
 		require.Eventually(t, func() bool {
@@ -39,7 +35,7 @@ func TestPasswordLoginRacingRecoveryMintsNoSession(t *testing.T) {
 	waitLocks(1)
 	login := make(chan flowResponse, 1)
 	go func() {
-		login <- f.post("/password/login", map[string]any{"identifier": *user.Email, "password": "Original-password-12345"})
+		login <- f.post("/password/login", map[string]any{"identifier": *user.Email, "password": testPassword})
 	}()
 	waitLocks(2)
 	require.NoError(t, lock.Commit(ctx))

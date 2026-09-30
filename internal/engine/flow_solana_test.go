@@ -37,15 +37,11 @@ func siwsOutput(pub ed25519.PublicKey, priv ed25519.PrivateKey, message string) 
 func TestSolanaLoginRejectsReplayedSignature(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
-	cfg := newServerTestConfig()
+	cfg := testConfig()
 	cfg.SolanaNetwork = "devnet" // mounts /solana/*
-	opts := []coreOpt{withSolanaSNSResolver(noSNSResolver{})}
-	srv, err := newServer(newServerClient(t, cfg, pool, opts...), WithoutRateLimiter())
-	require.NoError(t, err)
-	t.Cleanup(srv.Close)
-	replica, err := newServer(newServerClient(t, cfg, pool, opts...), WithoutRateLimiter())
-	require.NoError(t, err)
-	t.Cleanup(replica.Close)
+	deps := Deps{SolanaSNSResolver: noSNSResolver{}}
+	f := newAccountFlow(t, pool, cfg, deps)
+	replica := newAccountFlow(t, pool, cfg, deps)
 
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
@@ -54,26 +50,23 @@ func TestSolanaLoginRejectsReplayedSignature(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM users WHERE id IN (SELECT user_id FROM user_providers WHERE subject=$1)`, address)
 	})
 
-	w := serveJSON(srv, http.MethodPost, "/solana/challenge", `{"address":"`+address+`"}`)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	w := f.expect(http.StatusOK, f.post("/solana/challenge", map[string]any{"address": address}))
 	var challenge struct {
 		Nonce   string `json:"nonce"`
 		Message string `json:"message"`
 	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &challenge))
+	require.NoError(t, json.Unmarshal([]byte(w.raw), &challenge))
 	require.NotEmpty(t, challenge.Message)
-	body := siwsOutput(pub, priv, challenge.Message)
+	body := json.RawMessage(siwsOutput(pub, priv, challenge.Message))
 
-	first := serveJSON(replica, http.MethodPost, "/solana/login", body)
-	require.Equal(t, http.StatusOK, first.Code, first.Body.String())
-	require.Contains(t, first.Body.String(), "access_token")
+	first := replica.expect(http.StatusOK, replica.post("/solana/login", body))
+	require.Contains(t, first.raw, "access_token")
 
-	replay := serveJSON(srv, http.MethodPost, "/solana/login", body)
-	require.Equal(t, http.StatusUnauthorized, replay.Code, replay.Body.String())
-	require.Contains(t, replay.Body.String(), string(errmodel.CodeChallengeNotFound))
+	replay := f.expect(http.StatusUnauthorized, f.post("/solana/login", body))
+	require.Contains(t, replay.raw, string(errmodel.CodeChallengeNotFound))
 
 	var found bool
-	require.NoError(t, fixtureBackend(srv.Backend()).pg.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM ephemeral_kv WHERE key = 'siws:nonce:' || $1)`, challenge.Nonce).Scan(&found))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM ephemeral_kv WHERE key = 'siws:nonce:' || $1)`, challenge.Nonce).Scan(&found))
 	require.False(t, found, "the nonce must be consumed by the first login")
 }
 
@@ -84,9 +77,9 @@ func TestSolanaLoginRejectsReplayedSignature(t *testing.T) {
 // here because only the engine can stub SNS resolution.
 func TestSolanaRecoveryUsesTheWalletCeremony(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	cfg := newServerTestConfig()
+	cfg := testConfig()
 	cfg.SolanaNetwork = "devnet"
-	f := newAccountFlow(t, pg.Pool, cfg, withSolanaSNSResolver(noSNSResolver{}))
+	f := newAccountFlow(t, pg.Pool, cfg, Deps{SolanaSNSResolver: noSNSResolver{}})
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	address := siws.PublicKeyToBase58(pub)
@@ -101,8 +94,8 @@ func TestSolanaRecoveryUsesTheWalletCeremony(t *testing.T) {
 	}
 	f.expect(200, f.post("/solana/login", walletProof()))
 	var walletUser string
-	require.NoError(t, fixtureBackend(f.service.Backend()).pg.QueryRow(t.Context(), `SELECT user_id::text FROM user_providers WHERE subject=$1`, address).Scan(&walletUser))
-	results, err := fixtureBackend(f.service.Backend()).DeleteUsers(t.Context(), iam.UserActor(walletUser), []string{walletUser})
+	require.NoError(t, pg.Pool.QueryRow(t.Context(), `SELECT user_id::text FROM user_providers WHERE subject=$1`, address).Scan(&walletUser))
+	results, err := f.engine.DeleteUsers(t.Context(), iam.UserActor(walletUser), []string{walletUser})
 	require.NoError(t, err)
 	require.NoError(t, results[0].Err)
 

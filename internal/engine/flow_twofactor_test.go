@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/testdb"
@@ -20,7 +21,9 @@ import (
 func TestFactorEnrollmentConcurrentFirstFactor(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
-	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://test"}}, keyset{}, Deps{Postgres: pool})
+	cfg := maintenanceConfig()
+	cfg.TwoFactor.Mode = iam.TwoFactorOptional
+	svc := newTestEngine(t, cfg, Deps{Postgres: pool})
 	for _, sameMethod := range []bool{false, true} {
 		t.Run(fmt.Sprintf("same_method_%v", sameMethod), func(t *testing.T) {
 			username := fmt.Sprintf("firstfactor%d", time.Now().UnixNano())
@@ -68,7 +71,7 @@ func TestFactorEnrollmentConcurrentFirstFactor(t *testing.T) {
 
 			// Authenticated management may add another method, but cannot replace the winner.
 			phone := "+15559876543"
-			_, err = svc.enableDefaultFactor(ctx, user.ID, settings.Factors[0].Method, &phone, authflow.AllowAdditionalFactors)
+			_, _, err = svc.enable2FA(ctx, factorEnable{UserID: user.ID, Method: settings.Factors[0].Method, Phone: &phone, Email: user.Email, MakeDefault: true, Mode: authflow.AllowAdditionalFactors})
 			require.ErrorIs(t, err, errmodel.ErrTwoFAFactorExists)
 			preserved, err := svc.Get2FASettings(ctx, user.ID)
 			require.NoError(t, err)
@@ -81,17 +84,11 @@ func TestFactorEnrollmentConcurrentFirstFactor(t *testing.T) {
 // right code is code_expired, until a new one is sent.
 func TestTwoFactorCodeExpiresByDatabaseClock(t *testing.T) {
 	ctx := t.Context()
-	f := newAccountFlow(t, testdb.Pool(t), newServerTestConfig())
-	backend := fixtureBackend(f.service.Backend())
-	const pass = "Correct-horse-battery-1"
-	email := uniqueEmail("code-expiry")
-	user, err := backend.createUser(ctx, email, "codeexpiry"+uniqueSuffix())
+	f := newAccountFlow(t, testdb.Pool(t), testConfig(), Deps{})
+	user := newUser(t, f.engine, "codeexp")
+	_, err := f.engine.enableFactor(ctx, user.ID, "email", nil, authflow.AllowAdditionalFactors)
 	require.NoError(t, err)
-	require.NoError(t, backend.adminSetPassword(ctx, user.ID, pass))
-	require.NoError(t, backend.markEmailVerified(ctx, user.ID))
-	_, err = backend.enableFactor(ctx, user.ID, "email", nil, authflow.AllowAdditionalFactors)
-	require.NoError(t, err)
-	ch := f.expect(403, f.post("/password/login", map[string]any{"identifier": email, "password": pass}))
+	ch := f.expect(403, f.post("/password/login", map[string]any{"identifier": *user.Email, "password": testPassword}))
 	access := f.expect(200, f.post("/2fa/verify", map[string]any{"user_id": user.ID, "challenge": ch.Error.Metadata.Challenge,
 		"code": sentCode(t, f.email, testoutbox.LoginCode)})).AccessToken
 
@@ -109,7 +106,7 @@ func TestTwoFactorCodeExpiresByDatabaseClock(t *testing.T) {
 		wrong = "1" + code[1:]
 	}
 	require.Equal(t, "invalid_code", f.expect(401, stepUp(wrong)).Error.Code)
-	tag, err := backend.pg.Exec(ctx, `UPDATE ephemeral_kv SET expires_at = now() - interval '1 second' WHERE key LIKE $1 AND expires_at > now()`,
+	tag, err := f.engine.pg.Exec(ctx, `UPDATE ephemeral_kv SET expires_at = now() - interval '1 second' WHERE key LIKE $1 AND expires_at > now()`,
 		keyTwoFactorStepUp+user.ID+":%")
 	require.NoError(t, err)
 	require.EqualValues(t, 1, tag.RowsAffected())
