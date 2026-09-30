@@ -121,7 +121,7 @@ func TestSecurityEventsRecordOnlyCommittedChanges(t *testing.T) {
 	staff := h.newAccount("staff")
 	expect(bySystem(iam.Event{Kind: iam.EventUserRegistered, UserID: staff.id}))
 	h.grant(root, staff, "superadmin")
-	expect(bySystem(iam.Event{Kind: iam.EventRoleGranted, UserID: staff.id, GroupID: rootGroup.ID, Persona: iam.RootPersona, Current: "superadmin"}))
+	expect(bySystem(iam.Event{Kind: iam.EventRoleGranted, UserID: staff.id, GroupID: rootGroup.ID, Persona: iam.RootPersona, Current: "root:superadmin"}))
 	staffToken := h.login(staff).AccessToken
 
 	aliceEmail := unique("alice") + "@security.test"
@@ -176,7 +176,7 @@ func TestSecurityEventsRecordOnlyCommittedChanges(t *testing.T) {
 	require.NoError(t, err)
 	org := iam.GroupByID(group.ID)
 	expect(bySystem(iam.Event{Kind: iam.EventGroupCreated, GroupID: group.ID, Persona: orgPersona}))
-	expect(bySystem(iam.Event{Kind: iam.EventRoleGranted, UserID: bob.id, GroupID: group.ID, Persona: orgPersona, Current: "owner"}))
+	expect(bySystem(iam.Event{Kind: iam.EventRoleGranted, UserID: bob.id, GroupID: group.ID, Persona: orgPersona, Current: "org:owner"}))
 
 	resp = h.do(request{method: http.MethodPut, path: "/groups/" + group.ID + "/members/" + alice.id + "/roles/org:member", token: bobToken})
 	require.Less(t, resp.status, 300, resp.String())
@@ -195,8 +195,8 @@ func TestSecurityEventsRecordOnlyCommittedChanges(t *testing.T) {
 
 	grantRole(t, h.auth, root, iam.UserSubject(alice.id), "moderator")
 	revokeRole(t, h.auth, root, iam.UserSubject(alice.id), "moderator")
-	expect(bySystem(iam.Event{Kind: iam.EventRoleGranted, UserID: alice.id, GroupID: rootGroup.ID, Persona: iam.RootPersona, Current: "moderator"}))
-	expect(bySystem(iam.Event{Kind: iam.EventRoleRevoked, UserID: alice.id, GroupID: rootGroup.ID, Persona: iam.RootPersona, Previous: "moderator"}))
+	expect(bySystem(iam.Event{Kind: iam.EventRoleGranted, UserID: alice.id, GroupID: rootGroup.ID, Persona: iam.RootPersona, Current: "root:moderator"}))
+	expect(bySystem(iam.Event{Kind: iam.EventRoleRevoked, UserID: alice.id, GroupID: rootGroup.ID, Persona: iam.RootPersona, Previous: "root:moderator"}))
 
 	require.NoError(t, h.auth.DeleteGroup(ctx, org))
 	require.NoError(t, h.auth.DeleteGroup(ctx, org), "deleting again records nothing")
