@@ -16,6 +16,7 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
+	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/jwtkit"
@@ -77,7 +78,7 @@ func publicKeyPEM(t *testing.T) string {
 // needs the same no-escalation check as imposing one, and never applies to the
 // actor's own account.
 func TestSecurityUnbanRequiresAuthority(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
 	ctx := context.Background()
 	root := iam.RootGroup()
 	owner, admin := h.newAccount("owner"), h.newAccount("admin")
@@ -123,7 +124,7 @@ func TestSecurityUnbanRequiresAuthority(t *testing.T) {
 // authority. A bounded credentials manager must not swap the keys of, disable
 // or delete an application holding a role above their own.
 func TestSecurityRemoteApplicationTakeover(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
 	ctx := context.Background()
 	owner, manager := h.newAccount("orgowner"), h.newAccount("orgmanager")
 	group, err := h.createOrg(ctx, owner)
@@ -176,7 +177,7 @@ func TestSecurityRemoteApplicationTakeover(t *testing.T) {
 // TestSecurityRoleEscalation keeps the no-escalation rules for direct grants,
 // invite links and API keys under the embedded HTTP surface.
 func TestSecurityRoleEscalation(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
 	ctx := context.Background()
 	owner, manager, member := h.newAccount("escowner"), h.newAccount("escmanager"), h.newAccount("escmember")
 	group, err := h.createOrg(ctx, owner)
@@ -288,7 +289,7 @@ func liveLink(t *testing.T, h *host, group iam.GroupRef, id string) bool {
 // outlives its creator's authority. A demoted owner must not redeem their own
 // owner link, or keep an owner key, to get the role back.
 func TestSecurityDemotedCreatorCredentials(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
 	ctx := context.Background()
 	founder, creator := h.newAccount("founder"), h.newAccount("creator")
 	group, base := h.newOrg(founder)
@@ -321,7 +322,7 @@ func TestSecurityDemotedCreatorCredentials(t *testing.T) {
 // TestSecurityRevokeAboveOwnRole: revoking a credential is the authority to
 // issue it; a bounded manager cannot revoke the owner's key or invite link.
 func TestSecurityRevokeAboveOwnRole(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
 	owner, manager := h.newAccount("revowner"), h.newAccount("revmanager")
 	group, base := h.newOrg(owner)
 	h.grant(group, manager, "manager")
@@ -352,7 +353,7 @@ func TestSecurityRevokeAboveOwnRole(t *testing.T) {
 // deployment's own or its identity providers' issuers, nor an issuer another
 // group already holds.
 func TestSecurityRemoteApplicationIssuerSquat(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC), withEngine(func(c *authkit.Config) {
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(func(c *authkit.Config) {
 		c.Identity.Providers = []authprovider.Provider{authprovider.GitHub("squat-client", "squat-secret")}
 	}))
 	squatter := h.newAccount("squatter")
@@ -380,7 +381,7 @@ func TestSecurityRemoteApplicationIssuerSquat(t *testing.T) {
 // shadows this deployment's own issuer.
 func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 	const peerIssuer = "https://peer.security.test"
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC), withEngine(func(c *authkit.Config) {
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(func(c *authkit.Config) {
 		c.Token.AccountIssuers = []string{issuer, peerIssuer}
 		c.Identity.Providers = []authprovider.Provider{authprovider.GitHub("peer-client", "peer-secret")}
 	}))
@@ -470,7 +471,7 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 // under an upper-case id takes the API keys, invite links and application
 // roles they issued there with them.
 func TestSecurityGroupRoleIDsAreCanonical(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
 	founder, manager := h.newAccount("p4founder"), h.newAccount("p4manager")
 	group, base := h.newOrg(founder)
 	h.grant(group, manager, "manager")
@@ -516,7 +517,7 @@ func (h *host) ownerlessGroups() []string {
 // be deleted or be banned while only their own application co-owns the
 // group; ListGroups with GroupQuery.Ownerless lists groups that have no owner.
 func TestSecurityOwnApplicationIsNoReplacementOwner(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
 	ctx := context.Background()
 	founder := h.newAccount("r1founder")
 	group, _ := h.newOrg(founder)

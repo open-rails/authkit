@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
@@ -29,7 +30,7 @@ func strictRotation(c *authkit.Config) { c.Token.RefreshRotationGrace = -1 }
 // legitimate holder rotated it. Reuse must revoke the whole family, so the
 // thief cannot keep a parallel session and the victim is forced to log in.
 func TestSecurityRefreshTokenTheft(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(strictRotation))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(strictRotation))
 	for _, tc := range []struct {
 		name  string
 		steal func(t *testing.T, stolen, rotated string)
@@ -208,22 +209,12 @@ func TestSecurityPasswordChangeEndsOtherSessions(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, old.status, old.String())
 }
 
-// replica builds a second runtime over the same database, as a multi-replica
-// host deployment does.
-func (h *host) replica() *host {
-	h.t.Helper()
-	r, err := authkit.New(context.Background(), h.cfg.engine, h.cfg.deps)
-	require.NoError(h.t, err)
-	h.t.Cleanup(r.Close)
-	return h.fork(r)
-}
-
 // TestSecurityRevokedSessionCannotChangeCredentials: a stolen access token is
 // still cryptographically valid after the owner logs out or secures the
 // account. It must not be able to install a credential that outlives the
 // revocation (new password, passkey, second factor) or delete the account.
 func TestSecurityRevokedSessionCannotChangeCredentials(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(func(c *authkit.Config) {
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(func(c *authkit.Config) {
 		c.Passkeys = authkit.PasskeyConfig{RPID: "localhost", RPDisplayName: "Security", Origins: []string{"http://localhost"}}
 	}))
 	ctx := context.Background()
@@ -313,13 +304,13 @@ func delegateCertificate(t *testing.T) string {
 // than its parent access token, so minting one from a revoked session or a
 // banned account would extend a thief's access past revocation.
 func TestSecurityDelegationOutlivingRevocation(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(func(c *authkit.Config) {
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(func(c *authkit.Config) {
 		c.Delegated = authkit.DelegatedConfig{Audiences: []string{"resource.security.test"}}
-	}), func(c *hostConfig) {
-		c.deps.DelegatedAuthorization = func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
+	}), authtest.WithDeps(func(d *authkit.Deps) {
+		d.DelegatedAuthorization = func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
 			return iam.DelegationGrant{Permissions: []string{"resource:read"}}, nil
 		}
-	})
+	}))
 	ctx := context.Background()
 	mint := func(token string) response {
 		return h.post("/delegated/token", map[string]any{
@@ -360,15 +351,15 @@ func TestSecurityDelegationOutlivingRevocation(t *testing.T) {
 func TestSecurityDelegatedGrantClamp(t *testing.T) {
 	var mu sync.Mutex
 	var grant []string
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC), withEngine(func(c *authkit.Config) {
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(func(c *authkit.Config) {
 		c.Delegated = authkit.DelegatedConfig{Audiences: []string{"resource.security.test"}}
-	}), func(c *hostConfig) {
-		c.deps.DelegatedAuthorization = func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
+	}), authtest.WithDeps(func(d *authkit.Deps) {
+		d.DelegatedAuthorization = func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
 			mu.Lock()
 			defer mu.Unlock()
 			return iam.DelegationGrant{Permissions: append([]string(nil), grant...)}, nil
 		}
-	})
+	}))
 	ctx := context.Background()
 	manager, moderator := h.newAccount("delegmanager"), h.newAccount("delegmod")
 	group, _ := h.newOrg(h.newAccount("delegowner"))

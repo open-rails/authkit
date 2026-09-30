@@ -24,9 +24,10 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	svc := mustNewWithKeys(t, Config{Token: TokenConfig{Issuer: "https://lifecycle.test"}, TwoFactor: TwoFactorConfig{Mode: iam.TwoFactorDisabled}, Registration: RegistrationConfig{NativeUserMode: iam.RegistrationModeInviteOnly}, Roles: RoleConfig{
-		Personas: map[string]Persona{"org": {Permissions: []string{"org:billing:read", "org:billing:write"}, APIKeys: true}},
-	}}, keyset{}, Deps{Postgres: pool})
+	cfg := maintenanceConfig()
+	cfg.Registration.NativeUserMode = iam.RegistrationModeInviteOnly
+	cfg.Roles = RoleConfig{Personas: map[string]Persona{"org": {Permissions: []string{"org:billing:read", "org:billing:write"}, APIKeys: true}}}
+	svc := newTestEngine(t, cfg, Deps{Postgres: pool})
 	_, err = svc.ensureRootGroup(ctx)
 	require.NoError(t, err)
 	owner, err := svc.createUser(ctx, "owner@lifecycle.test", "lifecycleowner")

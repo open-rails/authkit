@@ -248,9 +248,9 @@ func TestSecuritySecretsStayOutOfLogs(t *testing.T) {
 	logs := captureLogs(t)
 	var mailDown atomic.Bool
 	jar := &secretJar{}
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC), withEngine(withDeviceKeys), withEngine(strictRotation),
-		withEngine(func(c *authkit.Config) { c.Registration.PasswordlessLogin = true }),
-		withDeps(func(d *authkit.Deps) { d.Email = flakyEmail{EmailSender: d.Email, down: &mailDown} }))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(withDeviceKeys), authtest.WithConfig(strictRotation),
+		authtest.WithConfig(func(c *authkit.Config) { c.Registration.PasswordlessLogin = true }),
+		authtest.WithDeps(func(d *authkit.Deps) { d.Email = flakyEmail{EmailSender: d.Email, down: &mailDown} }))
 	h = h.observed(jar)
 	// AuthKit's River runs through every flow below and logs to the same place.
 	require.NoError(t, h.auth.Start(context.Background()))

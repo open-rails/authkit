@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
-	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -16,44 +15,22 @@ import (
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/testidp"
 	"github.com/stretchr/testify/require"
 )
 
-// stubProvider is a host-supplied identity provider whose exchange returns a
-// fixed identity, so the browser flow runs without a network IdP.
-type stubProvider struct {
-	name     string
-	trusted  bool
-	identity authprovider.Identity
+func withProviders(providers ...authprovider.Provider) authtest.Option {
+	return authtest.WithConfig(func(c *authkit.Config) { c.Identity.Providers = providers })
 }
 
-func (p *stubProvider) Name() string                  { return p.name }
-func (p *stubProvider) DisplayName() string           { return p.name }
-func (p *stubProvider) Issuer() string                { return "https://" + p.name + ".idp.security.test" }
-func (p *stubProvider) PKCE() bool                    { return false }
-func (p *stubProvider) ResponseModeFormPost() bool    { return false }
-func (p *stubProvider) SupportsStepUp() bool          { return false }
-func (p *stubProvider) TrustsEmailVerification() bool { return p.trusted }
-func (p *stubProvider) Validate() error               { return nil }
-func (p *stubProvider) AuthCodeURL(_ context.Context, req authprovider.AuthRequest) (string, error) {
-	return p.Issuer() + "/authorize?" + url.Values{"state": {req.State}}.Encode(), nil
-}
-func (p *stubProvider) Exchange(context.Context, authprovider.ExchangeRequest) (authprovider.Identity, error) {
-	return p.identity, nil
-}
-
-func withProviders(providers ...authprovider.Provider) hostOption {
-	return withEngine(func(c *authkit.Config) { c.Identity.Providers = providers })
-}
-
-// providerCallback completes a browser provider login in one client.
-func (h *host) providerCallback(name string) response {
+// providerCallback signs id in at idp through the browser flow of provider
+// name, in one client, and returns the callback's JSON answer.
+func (h *host) providerCallback(idp *testidp.IdP, name string, id testidp.Identity) response {
 	h.t.Helper()
 	start := h.do(request{method: http.MethodGet, path: "//oidc/" + name + "/login"})
 	require.Equal(h.t, http.StatusFound, start.status, start.String())
-	loc, err := url.Parse(start.header.Get("Location"))
-	require.NoError(h.t, err)
-	q := url.Values{"state": {loc.Query().Get("state")}, "code": {"stub"}, "format": {"json"}}
+	q := idp.Redirect(h.t, start.header.Get("Location"), id)
+	q.Set("format", "json")
 	return h.do(request{method: http.MethodGet, path: "//oidc/" + name + "/callback?" + q.Encode(), cookies: start.cookies})
 }
 
@@ -113,8 +90,7 @@ func contactOf(t *testing.T, r response) (string, string) {
 // address they never proved (possibly someone else's) cannot attach a login
 // method that would outlive the real owner reclaiming it.
 func TestSecurityUnprovenContactCannotAddLoginMethods(t *testing.T) {
-	provider := &stubProvider{name: "linkidp", trusted: true}
-	h := newHost(t, withHTTP(generousLimits), withProviders(provider), withEngine(func(c *authkit.Config) {
+	h := newHost(t, withHTTP(generousLimits), withProviders(testidp.New(t).OAuth2("linkidp")), authtest.WithConfig(func(c *authkit.Config) {
 		c.Passkeys = authkit.PasskeyConfig{RPID: "localhost", RPDisplayName: "Security", Origins: []string{"http://localhost"}}
 		c.SolanaNetwork = "devnet"
 	}))
@@ -157,7 +133,7 @@ func TestSecurityUnprovenContactCannotAddLoginMethods(t *testing.T) {
 // could have). The first proof of the address by its real owner must leave
 // the attacker nothing: no session, password, provider, device key or factor.
 func TestSecurityPreRegistrationTakeover(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(func(c *authkit.Config) {
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(func(c *authkit.Config) {
 		c.Registration.PasswordlessLogin = true
 	}))
 	ctx := context.Background()
@@ -254,7 +230,7 @@ func TestSecurityPreRegistrationTakeover(t *testing.T) {
 func TestSecurityRegistrationNeverSelfVerifies(t *testing.T) {
 	for _, policy := range []iam.RegistrationVerificationPolicy{iam.RegistrationVerificationNone, iam.RegistrationVerificationOptional} {
 		t.Run(string(policy), func(t *testing.T) {
-			h := newHost(t, withHTTP(generousLimits), withEngine(func(c *authkit.Config) { c.Registration.Verification = policy }))
+			h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(func(c *authkit.Config) { c.Registration.Verification = policy }))
 			email := unique("selfverify") + "@security.test"
 			s := h.register(email)
 			u, err := h.auth.User(context.Background(), iam.UserByEmail(email))
@@ -271,31 +247,31 @@ func TestSecurityRegistrationNeverSelfVerifies(t *testing.T) {
 // provider is trusted to verify addresses.
 func TestSecurityProviderEmailTrust(t *testing.T) {
 	victim := unique("provvictim") + "@security.test"
-	untrusted := &stubProvider{name: "anyidp", identity: authprovider.Identity{Subject: unique("sub"), Email: victim, EmailVerified: true}}
 	fresh := unique("provfresh") + "@security.test"
-	trusted := &stubProvider{name: "trustedidp", trusted: true, identity: authprovider.Identity{Subject: unique("sub"), Email: victim, EmailVerified: true}}
-	trustedFresh := &stubProvider{name: "trustedfresh", trusted: true, identity: authprovider.Identity{Subject: unique("sub"), Email: fresh, EmailVerified: true}}
-	h := newHost(t, withHTTP(generousLimits), withProviders(untrusted, trusted, trustedFresh))
+	untrusted, trusted, trustedFresh := testidp.New(t), testidp.New(t), testidp.New(t)
+	h := newHost(t, withHTTP(generousLimits), withProviders(untrusted.OAuth2("anyidp", authprovider.WithTrustedEmailVerification(false)),
+		trusted.OAuth2("trustedidp"), trustedFresh.OAuth2("trustedfresh")))
 	ctx := context.Background()
 	owner := h.newAccount("provowner")
 	_, err := h.pool.Exec(ctx, `UPDATE users SET email = $1, email_verified = true WHERE id = $2::uuid`, victim, owner.id)
 	require.NoError(t, err)
 
-	resp := h.providerCallback("anyidp")
+	claimed := testidp.Identity{Subject: unique("sub"), Email: victim, EmailVerified: true}
+	resp := h.providerCallback(untrusted, "anyidp", claimed)
 	require.Equal(t, http.StatusOK, resp.status, resp.String())
 	var linkedTo string
 	var email *string
-	require.NoError(t, h.pool.QueryRow(ctx, `SELECT u.id::text, u.email::text FROM user_providers p JOIN users u ON u.id = p.user_id WHERE p.subject = $1`, untrusted.identity.Subject).Scan(&linkedTo, &email))
+	require.NoError(t, h.pool.QueryRow(ctx, `SELECT u.id::text, u.email::text FROM user_providers p JOIN users u ON u.id = p.user_id WHERE p.subject = $1`, claimed.Subject).Scan(&linkedTo, &email))
 	require.NotEqual(t, owner.id, linkedTo, "an untrusted provider reached the owner's account")
 	require.Nil(t, email, "an untrusted provider's address was stored")
 
 	t.Run("control: trusted provider matches the existing address", func(t *testing.T) {
-		resp := h.providerCallback("trustedidp")
+		resp := h.providerCallback(trusted, "trustedidp", testidp.Identity{Subject: unique("sub"), Email: victim, EmailVerified: true})
 		require.Equal(t, http.StatusConflict, resp.status, resp.String())
 		require.Equal(t, string(errmodel.CodeAccountExistsLinkRequired), resp.errorCode())
 	})
 	t.Run("control: trusted provider creates a verified account", func(t *testing.T) {
-		resp := h.providerCallback("trustedfresh")
+		resp := h.providerCallback(trustedFresh, "trustedfresh", testidp.Identity{Subject: unique("sub"), Email: fresh, EmailVerified: true})
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
 		u, err := h.auth.User(ctx, iam.UserByEmail(fresh))
 		require.NoError(t, err)
@@ -310,7 +286,7 @@ func TestSecurityProviderEmailTrust(t *testing.T) {
 // deleted account gets nothing. A failed verification link says nothing about
 // the address either.
 func TestSecurityMemberEmailIsAnInvitation(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
 	ctx := context.Background()
 	owner := h.newAccount("n9owner")
 	group, base := h.newOrg(owner)

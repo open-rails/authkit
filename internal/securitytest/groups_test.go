@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/stretchr/testify/require"
 )
@@ -18,7 +19,7 @@ import (
 // transactions join.
 func TestSecurityGroupsJoinTheHostTransaction(t *testing.T) {
 	events := newEventLog()
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBACNoMFA), withEvents(events))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBACNoMFA), withEvents(events))
 	ctx := context.Background()
 	require.NoError(t, h.auth.Start(ctx))
 	cfg := h.pool.Config().Copy()

@@ -170,3 +170,15 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 	_, err = client.EffectivePermissions(ctx, actor, tooManyRefs)
 	require.Error(t, err)
 }
+
+// effectivePermissions is the actor's effective grants in one group.
+func effectivePermissions(ctx context.Context, e *Engine, a iam.Actor, ref iam.GroupRef) ([]iam.Perm, error) {
+	byGroup, err := e.EffectivePermissions(ctx, a, []iam.GroupRef{ref})
+	if err != nil {
+		return nil, err
+	}
+	for _, perms := range byGroup {
+		return perms, nil
+	}
+	return []iam.Perm{}, nil
+}

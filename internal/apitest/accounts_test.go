@@ -20,15 +20,6 @@ import (
 	"github.com/open-rails/authkit/internal/testidp"
 )
 
-const appURL = "https://app.example"
-
-// withAppLinks points delivered links at the host's app, so a test can follow
-// them.
-func withAppLinks(c *authkit.Config) {
-	c.Frontend.BaseURL = appURL
-	c.Frontend.VerifyPath, c.Frontend.PasswordlessPath, c.Frontend.PasswordResetPath = "/verify", "/login/link", "/reset"
-}
-
 var seq atomic.Int64
 
 // unique is prefix plus a number no other call in the process returns.
@@ -37,21 +28,6 @@ func unique(prefix string) string { return fmt.Sprintf("%s%d", prefix, seq.Add(1
 func uniqueEmail(prefix string) string { return unique(prefix) + "@example.com" }
 
 func uniquePhone() string { return fmt.Sprintf("+1555%07d", seq.Add(1)) }
-
-// signedIn is a sign-in's tokens: at the top level (password and verification
-// routes) or nested (passwordless), with where to return to.
-type signedIn struct {
-	iam.TokenSet
-	Nested   iam.TokenSet `json:"token_set"`
-	ReturnTo string       `json:"return_to"`
-}
-
-func tokensOf(t *testing.T, res response) signedIn {
-	t.Helper()
-	var out signedIn
-	res.decode(t, &out)
-	return out
-}
 
 // profile is GET /me.
 type profile struct {
@@ -74,29 +50,6 @@ func (a *api) me(t *testing.T, token string) profile {
 	var p profile
 	res.decode(t, &p)
 	return p
-}
-
-// deliveredLink checks a delivered link opens path in the app with its
-// status and channel, and returns its token.
-func deliveredLink(t *testing.T, raw, path, channel string) string {
-	t.Helper()
-	u, err := url.Parse(raw)
-	require.NoError(t, err)
-	require.Equal(t, appURL+path, u.Scheme+"://"+u.Host+u.Path)
-	require.Empty(t, u.RawQuery)
-	fragment, err := url.ParseQuery(u.Fragment)
-	require.NoError(t, err)
-	require.Equal(t, "ready", fragment.Get("status"))
-	require.Equal(t, channel, fragment.Get("channel"))
-	require.NotEmpty(t, fragment.Get("token"))
-	return fragment.Get("token")
-}
-
-// expect checks res has status and returns it.
-func expect(t *testing.T, status int, res response) response {
-	t.Helper()
-	require.Equal(t, status, res.status, res.String())
-	return res
 }
 
 // Invite-only admission by email and phone, registration and passwordless:
@@ -193,7 +146,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 					require.NoError(t, errs[i])
 					if reply.status == http.StatusOK {
 						winners++
-						session := tokensOf(t, reply)
+						session := reply.answer(t)
 						tokens = session.TokenSet
 						if passwordless {
 							tokens = session.Nested
@@ -353,7 +306,7 @@ func testProofLifecycle(t *testing.T, auth *authkit.Client, a *api, outbox *auth
 			expect(t, http.StatusBadRequest, a.post(confirm, "", map[string]any{"token": link}))
 			sent := begin()
 			link = deliveredLink(t, sent.Link, path, channel)
-			done := tokensOf(t, expect(t, http.StatusOK, a.post(confirm, "", map[string]any{"identifier": identifier, "code": sent.Code})))
+			done := expect(t, http.StatusOK, a.post(confirm, "", map[string]any{"identifier": identifier, "code": sent.Code})).answer(t)
 			tokens := done.TokenSet
 			if passwordless {
 				tokens = done.Nested
@@ -366,7 +319,7 @@ func testProofLifecycle(t *testing.T, auth *authkit.Client, a *api, outbox *auth
 			if passwordless {
 				sent = begin()
 				link = deliveredLink(t, sent.Link, path, channel)
-				done = tokensOf(t, expect(t, http.StatusOK, a.post(confirm, "", map[string]any{"token": link})))
+				done = expect(t, http.StatusOK, a.post(confirm, "", map[string]any{"token": link})).answer(t)
 				requireSessionWith(t, a, auth, done.Nested, amr)
 				expect(t, http.StatusUnauthorized, a.post(confirm, "", map[string]any{"identifier": identifier, "code": sent.Code}))
 			}
@@ -416,7 +369,7 @@ func TestPasswordChangeOnLegacyHashRequiresReset(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, res.status, res.String())
 	res = a.post("/passwordless/confirm", "", map[string]any{"identifier": email, "code": outbox.Last(t, authtest.Verification, email).Code})
 	require.Equal(t, http.StatusOK, res.status, res.String())
-	token := tokensOf(t, res).Nested.AccessToken
+	token := res.answer(t).Nested.AccessToken
 	require.NotEmpty(t, token)
 
 	res = a.post("/user/password", token, map[string]any{"current_password": "Correct-horse-battery-7", "new_password": "Another-horse-battery-8"})
@@ -443,7 +396,7 @@ func TestUsernameCaseWorkflow(t *testing.T) {
 	held := expect(t, http.StatusBadRequest, a.post("/register", "", map[string]any{"identifier": uniqueEmail("case-pending"), "username": lower, "password": pass}))
 	require.Equal(t, "username_in_use", held.code(), "a pending signup holds every spelling of its name")
 
-	confirmed := tokensOf(t, expect(t, http.StatusOK, a.post("/verify/confirm", "", map[string]any{"identifier": owner, "code": outbox.Last(t, authtest.Verification, owner).Code})))
+	confirmed := expect(t, http.StatusOK, a.post("/verify/confirm", "", map[string]any{"identifier": owner, "code": outbox.Last(t, authtest.Verification, owner).Code})).answer(t)
 	claims, err := auth.Verifier().Verify(ctx, confirmed.AccessToken)
 	require.NoError(t, err)
 	userID := claims.UserID
@@ -453,7 +406,7 @@ func TestUsernameCaseWorkflow(t *testing.T) {
 	// the last one's token is live.
 	var live string
 	for _, spelling := range []string{name, lower, upper} {
-		login := tokensOf(t, expect(t, http.StatusOK, a.post("/password/login", "", map[string]any{"identifier": spelling, "password": pass})))
+		login := expect(t, http.StatusOK, a.post("/password/login", "", map[string]any{"identifier": spelling, "password": pass})).answer(t)
 		got, err := auth.Verifier().Verify(ctx, login.AccessToken)
 		require.NoError(t, err)
 		require.Equal(t, userID, got.UserID, "login as %s", spelling)
@@ -539,7 +492,7 @@ func TestAccountPolicies(t *testing.T) {
 	registered := func(t *testing.T, res response) string {
 		t.Helper()
 		require.Equal(t, http.StatusAccepted, res.status, res.String())
-		token := tokensOf(t, res).Nested.AccessToken
+		token := res.answer(t).Nested.AccessToken
 		require.NotEmpty(t, token)
 		return token
 	}
@@ -623,9 +576,7 @@ func TestAccountPolicies(t *testing.T) {
 		require.ErrorIs(t, auth.CheckUsername(ctx, second), iam.ErrUsernameInUse, "the suffixed name passes the policy; only its owner holds it")
 
 		_, err := auth.CreateUser(ctx, iam.NewUser{Email: "short@example.test", Username: "shorty"})
-		e, ok := iam.AsError(err)
-		require.True(t, ok, "%v", err)
-		require.Equal(t, "username_too_short", e.Code())
+		e := requireIAMCode(t, err, "username_too_short")
 		require.Equal(t, map[string]any{"min_length": 8, "max_length": 64}, e.Metadata(), "imports keep the 64-character import ceiling")
 
 		cfg, deps := bareConfig(t)

@@ -93,7 +93,7 @@ func (h *host) deviceLogin(k *deviceKey) response {
 // with a factor independent of that mailbox; a holder of an MFA-required role
 // without one cannot enroll a key; and a password change ends every device key.
 func TestSecurityDeviceKeyMFAGate(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withAccountRoles), withEngine(withDeviceKeys))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withAccountRoles), authtest.WithConfig(withDeviceKeys))
 	ctx := context.Background()
 	victim := h.newAccount("devkey")
 	// The attacker reads the victim's mailbox for a while and enrolls a key;
@@ -129,8 +129,7 @@ func TestSecurityDeviceKeyMFAGate(t *testing.T) {
 	})
 
 	t.Run("a password change ends every device key", func(t *testing.T) {
-		sid := h.mfaSession(victim)
-		resp := h.post("/user/password", map[string]string{"current_password": password, "new_password": password + "x"}, h.sessionToken(victim.id, sid))
+		resp := h.post("/user/password", map[string]string{"current_password": password, "new_password": password + "x"}, h.mfaSession(victim))
 		require.Less(t, resp.status, 300, resp.String())
 		var live int
 		require.NoError(t, h.pool.QueryRow(ctx, `SELECT count(*) FROM profiles.user_device_keys WHERE user_id=$1::uuid AND revoked_at IS NULL`, victim.id).Scan(&live))
@@ -161,7 +160,7 @@ func TestSecurityDeviceKeyMFAGate(t *testing.T) {
 // device key MFA-grade. A mailbox reader gets no second-factor code and cannot
 // bind a key; a TOTP or SMS code or a backup code can.
 func TestSecurityDeviceKeyNeedsIndependentFactor(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withDeviceKeys))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withDeviceKeys))
 	ctx := context.Background()
 	victim := h.newAccount("p1victim")
 	backup := h.enrollEmail2FA(victim)
@@ -223,7 +222,7 @@ func stepUpMethod(t *testing.T, resp response) string {
 // TestSecurityDeviceKeyIndependentFactors (P1, I8): an authenticator-app code,
 // or the SMS code sent for the ceremony, makes a device key MFA-grade.
 func TestSecurityDeviceKeyIndependentFactors(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withDeviceKeys), withSMS)
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withDeviceKeys), withSMS)
 	for _, tc := range []struct {
 		method string
 		enroll func(a account) (next func() string)
@@ -258,7 +257,7 @@ func TestSecurityDeviceKeyIndependentFactors(t *testing.T) {
 // factor is asked for, and a backup code is spent only by an enrollment that
 // commits, so retrying a stale key burns none.
 func TestSecurityDeviceKeyRefusedBeforeBackupCode(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withDeviceKeys))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withDeviceKeys))
 	ctx := context.Background()
 	owner := h.newAccount("r4owner")
 	backup := h.enrollEmail2FA(owner)

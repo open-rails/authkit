@@ -156,15 +156,6 @@ func (s *Service) Verifier() *verify.Verifier { return s.verifier }
 // Backend returns the engine the service drives.
 func (s *Service) Backend() Backend { return s.svc }
 
-// SetProviders replaces the identity-provider registry without validation.
-// Tests use it to point at local fake IdPs.
-func (s *Service) SetProviders(providers ...authprovider.Provider) {
-	s.providers = make(map[string]authprovider.Provider, len(providers))
-	for _, p := range providers {
-		s.providers[p.Name()] = p
-	}
-}
-
 // publicRegistrationDisabled reports whether public user self-registration /
 // auto-registration is turned off for this service.
 func (s *Service) publicRegistrationDisabled() bool {

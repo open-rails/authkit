@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"crypto"
 	"fmt"
 	stdlog "log"
 	"strings"
@@ -19,14 +18,6 @@ import (
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
 )
-
-// keyset is a fixed active signer + public-key set for explicit-key tests. It
-// is converted to a jwtkit.KeySource at construction and never read again;
-// hosts provide a live jwtkit.KeySource via Config.Keys.Source (#238).
-type keyset struct {
-	Active     jwtkit.Signer
-	PublicKeys map[string]crypto.PublicKey // kid -> pub
-}
 
 // EntitlementsProvider mirrors authkit.EntitlementsProvider.
 type EntitlementsProvider interface {

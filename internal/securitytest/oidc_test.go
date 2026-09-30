@@ -11,6 +11,7 @@ import (
 
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
+	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/internal/netguard"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
@@ -20,8 +21,8 @@ import (
 const frontend = "https://app.security.test"
 
 // withHTTPSProviders serves the given providers from an HTTPS deployment.
-func withHTTPSProviders(providers ...authprovider.Provider) hostOption {
-	return withEngine(func(c *authkit.Config) {
+func withHTTPSProviders(providers ...authprovider.Provider) authtest.Option {
+	return authtest.WithConfig(func(c *authkit.Config) {
 		c.Identity.Providers = providers
 		c.Frontend.BaseURL = frontend
 	})

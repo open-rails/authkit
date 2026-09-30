@@ -15,6 +15,7 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/jwtkit"
@@ -72,7 +73,7 @@ func (h *host) rootGroupID() string {
 // application the system registered, and never re-keys one holding a role
 // they do not cover in any group.
 func TestSecuritySystemApplicationRekey(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withApps))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withApps))
 	ctx := context.Background()
 	partner := newSigner(t, "partner-kid")
 	app, err := h.auth.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.RootGroup(), iam.RemoteApplication{
@@ -128,7 +129,7 @@ func TestSecuritySystemApplicationRekey(t *testing.T) {
 // in its group (trust root user); only the system registers an application
 // its group cannot change (manual).
 func TestSecurityGroupApplicationTrustRoot(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
 	ctx := context.Background()
 	owner := h.newAccount("trustowner")
 	group, _ := h.newOrg(owner)
@@ -156,7 +157,7 @@ func TestSecurityGroupApplicationTrustRoot(t *testing.T) {
 // factor, so it never holds an MFA-required role and never stands in for the
 // MFA owner of a group whose owners need one.
 func TestSecurityApplicationMFARoles(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withApps))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withApps))
 	ctx := context.Background()
 	app, err := h.auth.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.RootGroup(), iam.RemoteApplication{
 		Slug: "root-app", Issuer: "https://root-app.security.test", PublicKeys: staticKeys(t, newSigner(t, "root-app")), Enabled: true,
@@ -203,7 +204,7 @@ func TestSecurityApplicationMFARoles(t *testing.T) {
 // register one, it holds only roles its registrar could issue, and its roles
 // end when the registrar is removed from the group or banned.
 func TestSecurityApplicationRegistrar(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
 	ctx := context.Background()
 	owner := h.newAccount("regowner")
 	group, base := h.newOrg(owner)
@@ -295,13 +296,13 @@ func TestSecurityApplicationRegistrar(t *testing.T) {
 // of its user's authority: AuthKit's own routes refuse it, and host gates
 // re-check it against the user's live, ban-aware authority.
 func TestSecurityDelegatedPrincipalManagementPlane(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC), withEngine(func(c *authkit.Config) {
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(func(c *authkit.Config) {
 		c.Delegated = authkit.DelegatedConfig{Audiences: []string{audience}}
-	}), func(c *hostConfig) {
-		c.deps.DelegatedAuthorization = func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
+	}), authtest.WithDeps(func(d *authkit.Deps) {
+		d.DelegatedAuthorization = func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
 			return iam.DelegationGrant{Permissions: []string{iam.PermRootUsersRead.String()}}, nil
 		}
-	})
+	}))
 	ctx := context.Background()
 	admin := h.newAccount("delegadmin")
 	h.grant(iam.RootGroup(), admin, "admin")
@@ -332,7 +333,7 @@ func TestSecurityDelegatedPrincipalManagementPlane(t *testing.T) {
 // A user mints only for itself and only AuthKit authority it holds live;
 // machine actors never mint; the system is trusted.
 func TestSecurityDelegatedMintAuthority(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
 	ctx := context.Background()
 	moderator, other := h.newAccount("mintmod"), h.newAccount("mintother")
 	h.grant(iam.RootGroup(), moderator, "moderator")
@@ -361,7 +362,7 @@ func TestSecurityDelegatedMintAuthority(t *testing.T) {
 // shape implies (never the system), and AuthKit's management routes refuse
 // every delegated principal that verifies.
 func TestSecurityTokenMatrix(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
 	ctx := context.Background()
 	user := h.newAccount("matrixuser")
 	h.grant(iam.RootGroup(), user, "admin")
@@ -468,7 +469,7 @@ func TestSecurityTokenMatrix(t *testing.T) {
 // TestSecurityRemoteApplicationPaging: a group's applications list in pages
 // through an opaque cursor.
 func TestSecurityRemoteApplicationPaging(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
 	ctx := context.Background()
 	owner := h.newAccount("pageowner")
 	group, _ := h.newOrg(owner)
@@ -524,7 +525,7 @@ func TestSecurityServiceJWTPermissionsOnly(t *testing.T) {
 // 404 (405 where the path serves another method). The Go operations on
 // applications remain.
 func TestSecurityRemovedRoutesAreGone(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withApps))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withApps))
 	ctx := context.Background()
 	owner := h.newAccount("cutowner")
 	group, base := h.newOrg(owner)

@@ -179,7 +179,7 @@ func TestNoCredentialOutlivesItsIssuer(t *testing.T) {
 			require.NoError(t, removeMember(ctx, f.e, owner, f.acme, c))
 		}},
 		{"root role lost", func(t *testing.T, c iam.Subject) { grantRole(t, f.e, iam.RootGroup(), c, "org-admin") }, func(t *testing.T, c iam.Subject) {
-			revokeRole(t, f.e, iam.RootGroup(), c, "org-admin")
+			require.NoError(t, unassignRole(ctx, f.e, iam.SystemActor(), iam.RootGroup(), c, "org-admin"))
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -198,7 +198,7 @@ func TestNoCredentialOutlivesItsIssuer(t *testing.T) {
 		grantRole(t, f.e, iam.RootGroup(), creator, "inviter")
 		plain, err := f.e.CreateAccountInvite(ctx, iam.UserActor(creator.ID), iam.NewAccountInvite{Email: "lost@credentials.test"})
 		require.NoError(t, err)
-		revokeRole(t, f.e, iam.RootGroup(), creator, "inviter")
+		require.NoError(t, unassignRole(ctx, f.e, iam.SystemActor(), iam.RootGroup(), creator, "inviter"))
 		requireCredentialsCovered(t, f.e)
 		require.ErrorIs(t, f.e.consumeRegistrationInvite(ctx, "lost@credentials.test", f.user("registrant").ID, plain.Code), errmodel.ErrAccountRegistrationInviteNotFound)
 	})
@@ -312,4 +312,8 @@ func TestRoleCatalogChangesAtBoot(t *testing.T) {
 	f.requireDead(t, c)
 	_, err = e.ResolveAPIKey(ctx, control.token)
 	require.NoError(t, err, "the owner's credentials survive")
+}
+
+func (s *Engine) consumeRegistrationInvite(ctx context.Context, email, userID, token string) error {
+	return s.consumeAccountRegistrationInvite(contextWithAccountRegistrationInviteToken(ctx, token), email, userID)
 }

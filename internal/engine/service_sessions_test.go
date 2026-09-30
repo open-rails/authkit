@@ -14,21 +14,17 @@ import (
 // when revocation began while that completion held the source session.
 func TestRevokeAllCoversRefreshDerivedMFASession(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	f := newAccountFlow(t, pg.Pool, newServerTestConfig())
+	f := newAccountFlow(t, pg.Pool, testConfig(), Deps{})
 	ctx := t.Context()
-	backend := fixtureBackend(f.service.Backend())
-	user, err := backend.createUser(ctx, uniqueEmail("revoke-all"), "revall"+uniqueSuffix())
-	require.NoError(t, err)
-	require.NoError(t, backend.adminSetPassword(ctx, user.ID, "Correct-horse-battery-1"))
-	require.NoError(t, backend.markEmailVerified(ctx, user.ID))
-	initial := f.expect(200, f.post("/password/login", map[string]any{"identifier": *user.Email, "password": "Correct-horse-battery-1"}))
-	_, err = backend.enableFactor(ctx, user.ID, "email", nil, authflow.AllowAdditionalFactors)
+	user := newUser(t, f.engine, "revall")
+	initial := f.expect(200, f.post("/password/login", map[string]any{"identifier": *user.Email, "password": testPassword}))
+	_, err := f.engine.enableFactor(ctx, user.ID, "email", nil, authflow.AllowAdditionalFactors)
 	require.NoError(t, err)
 	needed := f.expect(403, f.post("/token", map[string]any{"grant_type": "refresh_token", "refresh_token": initial.RefreshToken}))
 	require.Equal(t, "2fa_required", needed.Error.Code)
 	completion := map[string]any{"user_id": user.ID, "challenge": needed.Error.Metadata.Challenge, "code": sentCode(t, f.email, testoutbox.LoginCode)}
 	completed := f.completeWhileRevoking(user.ID, func() flowResponse { return f.post("/2fa/verify", completion) }, func(ctx context.Context) error {
-		return f.service.Backend().RevokeIssuerSessions(ctx, user.ID, nil)
+		return f.engine.RevokeIssuerSessions(ctx, user.ID, nil)
 	})
 	f.expect(200, completed)
 	var live int

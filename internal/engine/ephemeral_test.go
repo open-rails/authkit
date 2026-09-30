@@ -222,21 +222,20 @@ func TestEphemeralSweepRunsAsRiverMaintenance(t *testing.T) {
 func TestDPoPReplayStoreOutageFailsClosed(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	ctx := t.Context()
-	cfg := newServerTestConfig()
+	cfg := testConfig()
 	cfg.Delegated = DelegatedConfig{Audiences: []string{"platform"}, AllowDPoP: true}
-	e := newServerClient(t, cfg, pg.Pool, withDelegatedAuthorization(func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
+	e := newTestEngine(t, cfg, Deps{Postgres: pg.Pool, DelegatedAuthorization: func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
 		return iam.DelegationGrant{Permissions: []string{"resource:read"}}, nil
-	}))
-	srv, err := newServer(e, WithoutRateLimiter())
+	}})
+	srv, err := httpapi.New(e, e.Verifier(), httpapi.Config{DirectPeerIP: true})
 	require.NoError(t, err)
 	t.Cleanup(srv.Close)
 	h, err := httpapi.NewMount(srv, httpapi.MountOptions{})
 	require.NoError(t, err)
-	user, err := e.createUser(ctx, uniqueEmail("dpop"), "dpop"+uniqueSuffix())
+	user := newUser(t, e, "dpop")
+	sid, _, err := e.issueRefreshSession(ctx, user.ID)
 	require.NoError(t, err)
-	sid, _, _, err := e.issueRefreshSession(ctx, user.ID, "test", nil)
-	require.NoError(t, err)
-	session, _, err := e.mintTestAccessToken(ctx, user.ID, map[string]any{"sid": sid})
+	session, _, err := e.mintAccessToken(ctx, user.ID, map[string]any{"sid": sid}, e.cfg.Token.AccessTokenDuration)
 	require.NoError(t, err)
 
 	browserKey := testdpop.Key(t)
@@ -262,7 +261,7 @@ func TestDPoPReplayStoreOutageFailsClosed(t *testing.T) {
 	req.Header.Set("Authorization", "DPoP "+minted.Token)
 	req.Header.Set("DPoP", testdpop.Proof(t, browserKey, http.MethodGet, resource+"/tasks", minted.Token, nil))
 
-	restore := failEphemeralWrites(t, pg.Pool, "dpop:proof:")
+	restore := failEphemeral(t, pg.Pool, "INSERT OR UPDATE", "NEW", "dpop:proof:")
 	mintProof := testdpop.Proof(t, browserKey, http.MethodPost, target, session, nil)
 	res = mint(mintProof)
 	require.Equal(t, http.StatusInternalServerError, res.Code, res.Body.String())

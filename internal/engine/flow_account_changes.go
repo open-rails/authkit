@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/errmodel"
@@ -43,26 +42,6 @@ func (s *Engine) newPendingContactChange(ctx context.Context, kind pendingChange
 		return "", "", err
 	}
 	return code, linkToken, nil
-}
-
-// confirmContactChangeCode finalizes the caller's own pending change when the
-// typed code matches and (if supplied) the target is the one being changed to.
-func (s *Engine) confirmContactChangeCode(ctx context.Context, kind pendingChangeKind, userID, target, code string, keepSessionID *string) error {
-	if s.pg == nil {
-		return jwt.ErrTokenUnverifiable
-	}
-	rec, ok, err := s.pendingChangeByUser(ctx, kind, userID)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return jwt.ErrTokenUnverifiable
-	}
-	if strings.TrimSpace(target) != "" && !strings.EqualFold(normalizePendingTarget(kind, target), rec.Target) {
-		return jwt.ErrTokenUnverifiable
-	}
-	_, err = s.consumePendingChangeCode(ctx, rec, code, keepSessionID)
-	return err
 }
 
 // sendContactChangeVerification delivers a contact-change verification message
@@ -126,7 +105,7 @@ func (s *Engine) RequestPhoneChange(ctx context.Context, userID, newPhone string
 }
 
 // RequestEmailChange initiates an email change by sending a verification code to the new email.
-// The current email is NOT changed until the user confirms via confirmEmailChange.
+// The current email is NOT changed until the user confirms it (ConfirmVerification).
 // The old address is not notified by AuthKit (only a security log line); a host
 // that wants that notification sends it itself.
 func (s *Engine) RequestEmailChange(ctx context.Context, userID, newEmail string) error {
@@ -173,10 +152,4 @@ func (s *Engine) RequestEmailChange(ctx context.Context, userID, newEmail string
 		return err
 	}
 	return nil
-}
-
-// confirmEmailChange verifies the code and applies the new email. Every other
-// session is revoked; keepSessionID (the confirming session) survives.
-func (s *Engine) confirmEmailChange(ctx context.Context, userID, email, code string, keepSessionID *string) error {
-	return s.confirmContactChangeCode(ctx, kindChangeEmail, userID, email, code, keepSessionID)
 }

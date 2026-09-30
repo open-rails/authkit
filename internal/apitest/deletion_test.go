@@ -87,7 +87,7 @@ func TestAccountRecoveryPasswordConfirmationBoundary(t *testing.T) {
 	login := func() response {
 		return a.post("/password/login", "", map[string]string{"identifier": user.Email, "password": password})
 	}
-	old := tokensOf(t, expect(t, http.StatusOK, login())).TokenSet
+	old := expect(t, http.StatusOK, login()).answer(t).TokenSet
 	remove := func() {
 		t.Helper()
 		require.NoError(t, opErr(auth.DeleteUsers(ctx, iam.UserActor(user.ID), []string{user.ID})))
@@ -192,7 +192,7 @@ func TestStaffAccountRestoreHTTPRequiresCurrentAuthority(t *testing.T) {
 	register := func(name string) (iam.TokenSet, string) {
 		t.Helper()
 		res := expect(t, http.StatusAccepted, a.post("/register", "", map[string]any{"identifier": name + "@example.test", "username": name, "password": "Correct-horse-account-recovery-1"}))
-		tokens := tokensOf(t, res).Nested
+		tokens := res.answer(t).Nested
 		claims, err := auth.Verifier().Verify(ctx, tokens.AccessToken)
 		require.NoError(t, err)
 		return tokens, claims.UserID
@@ -215,7 +215,7 @@ func TestStaffAccountRestoreHTTPRequiresCurrentAuthority(t *testing.T) {
 	require.Nil(t, deletedAt(targetID))
 	expect(t, http.StatusUnauthorized, a.post("/token", "", map[string]any{"grant_type": "refresh_token", "refresh_token": target.RefreshToken}))
 	expect(t, http.StatusNoContent, a.do(request{method: http.MethodDelete, path: path, token: staff.AccessToken}))
-	revokeRole(t, auth, iam.RootGroup(), iam.UserSubject(staffID), staffRole)
+	authtest.RevokeRole(t, auth, iam.RootGroup(), iam.UserSubject(staffID), staffRole)
 	expect(t, http.StatusForbidden, a.post(path+"/restore", staff.AccessToken, nil))
 	require.NotNil(t, deletedAt(targetID), "revocation is immediate even for a previously accepted staff token")
 	expect(t, http.StatusNotFound, a.get("/admin/erasure/backlog", staff.AccessToken))

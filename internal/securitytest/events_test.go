@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/stretchr/testify/require"
 )
@@ -44,8 +45,8 @@ func (l *eventLog) hook(_ context.Context, e iam.Event) error {
 	return nil
 }
 
-func withEvents(l *eventLog) hostOption {
-	return func(c *hostConfig) { c.deps.OnEvent = l.hook }
+func withEvents(l *eventLog) authtest.Option {
+	return authtest.WithDeps(func(d *authkit.Deps) { d.OnEvent = l.hook })
 }
 
 // withRBACNoMFA is withRBAC without second factors in the way.
@@ -105,7 +106,7 @@ func sig(e iam.Event) string {
 // events.
 func TestSecurityEventsRecordOnlyCommittedChanges(t *testing.T) {
 	events := newEventLog(iam.EventUserBanned)
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBACNoMFA), withEvents(events))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBACNoMFA), withEvents(events))
 	ctx := context.Background()
 	require.NoError(t, h.auth.Start(ctx))
 	system := iam.SystemActor()
@@ -274,7 +275,7 @@ func TestSecurityEventsRecordOnlyCommittedChanges(t *testing.T) {
 // event.
 func TestSecurityEventsCarryNoSecrets(t *testing.T) {
 	events := newEventLog()
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBACNoMFA), withEvents(events))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBACNoMFA), withEvents(events))
 	ctx := context.Background()
 	secrets := []string{password, "argon2"}
 

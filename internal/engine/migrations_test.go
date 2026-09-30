@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -117,16 +118,21 @@ func TestRetiredBaselineUpgradesInPlace(t *testing.T) {
 			// A second boot converts nothing and applies nothing.
 			require.NoError(t, Migrate(ctx, pool, MigrateOptions{Schema: src.schema}))
 
-			cfg := newServerTestConfig()
+			cfg := testConfig()
 			cfg.Schema = src.schema
-			f := newAccountFlow(t, pool, cfg)
+			f := newAccountFlow(t, pool, cfg, Deps{})
 			for _, spelling := range []string{username, strings.ToLower(username)} {
 				login := f.expect(200, f.post("/password/login", map[string]any{"identifier": spelling, "password": retiredPassword}))
-				claims, err := f.service.Verifier().Verify(ctx, login.AccessToken)
+				claims, err := f.engine.Verifier().Verify(ctx, login.AccessToken)
 				require.NoError(t, err)
 				require.Equal(t, userID, claims.UserID, "login as %s", spelling)
 			}
-			require.Equal(t, username, meUsername(t, f, f.expect(200, f.post("/password/login", map[string]any{"identifier": username, "password": retiredPassword})).AccessToken))
+			login := f.expect(200, f.post("/password/login", map[string]any{"identifier": username, "password": retiredPassword}))
+			var me struct {
+				Username string `json:"username"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(f.expect(200, f.request("GET", "/me", login.AccessToken, nil)).raw), &me))
+			require.Equal(t, username, me.Username)
 		})
 	}
 }

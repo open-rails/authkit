@@ -14,6 +14,7 @@ import (
 
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
+	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/testhttp"
@@ -46,9 +47,8 @@ func TestSecurityBasePathConfinesSurface(t *testing.T) {
 		HTTP:         testhttp.HTTP(),
 	}
 	withApps(&cfg)
-	auth, err := authkit.New(ctx, cfg, authkit.Deps{Postgres: pg.Pool})
-	require.NoError(t, err)
-	t.Cleanup(auth.Close)
+	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) { *c = cfg }),
+		authtest.WithDeps(func(d *authkit.Deps) { *d = authkit.Deps{Postgres: pg.Pool} }))
 	require.NoError(t, auth.Mount(mux))
 
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
@@ -142,17 +142,14 @@ func TestSecurityBasePathConfinesSurface(t *testing.T) {
 	})
 
 	t.Run("BasePath must match the issuer", func(t *testing.T) {
+		// authtest.New fails the test on a refusal, so these build directly.
 		for _, path := range []string{"/", "/other", "/tenant", base + "/x", "/tenant/{auth}", "/tenant/../auth"} {
 			bad := cfg
 			bad.HTTP.BasePath = path
 			_, err := authkit.New(ctx, bad, authkit.Deps{Postgres: pg.Pool})
 			require.ErrorContains(t, err, "BasePath", "BasePath %q", path)
 		}
-		same := cfg
-		same.HTTP.BasePath = base + "/"
-		again, err := authkit.New(ctx, same, authkit.Deps{Postgres: pg.Pool})
-		require.NoError(t, err)
-		defer again.Close()
+		again := authtest.Replica(t, auth, authtest.WithConfig(func(c *authkit.Config) { c.HTTP.BasePath = base + "/" }))
 		require.Equal(t, auth.Patterns(), again.Patterns())
 	})
 }

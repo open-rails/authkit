@@ -13,14 +13,12 @@ import (
 // newer issuance: both the paused code and the newer one sign in.
 func TestPasswordlessCompletionKeepsNewerIssuance(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	cfg := newServerTestConfig()
+	cfg := testConfig()
 	cfg.Registration.PasswordlessLogin = true
-	f := newAccountFlow(t, pg.Pool, cfg)
-	pool, ctx := fixtureBackend(f.service.Backend()).pg, t.Context()
-	email := uniqueEmail("reissue")
-	user, err := fixtureBackend(f.service.Backend()).createUser(ctx, email, "reissue"+uniqueSuffix())
-	require.NoError(t, err)
-	require.NoError(t, fixtureBackend(f.service.Backend()).markEmailVerified(ctx, user.ID))
+	f := newAccountFlow(t, pg.Pool, cfg, Deps{})
+	pool, ctx := pg.Pool, t.Context()
+	user := newUser(t, f.engine, "reissue")
+	email := *user.Email
 	begin := func() {
 		f.expect(202, f.post("/passwordless/start", map[string]any{"identifier": email, "mode": "both"}))
 	}

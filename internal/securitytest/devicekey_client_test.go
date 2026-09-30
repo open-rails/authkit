@@ -44,7 +44,7 @@ func requireRefusal(t *testing.T, err error, status int, code string) {
 // bound to their domain, revoked and foreign keys are refused, and only an
 // email-proven token revokes the other machines.
 func TestSecurityDeviceKeyClient(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withAccountRoles), withEngine(withDeviceKeys))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withAccountRoles), authtest.WithConfig(withDeviceKeys))
 	ctx := context.Background()
 	c := h.deviceKeyClient()
 
@@ -233,7 +233,7 @@ func TestSecurityDeviceKeyClient(t *testing.T) {
 	})
 
 	t.Run("rate limits decode with their retry delay", func(t *testing.T) {
-		limited := newHost(t, withEngine(withDeviceKeys)).deviceKeyClient()
+		limited := newHost(t, authtest.WithConfig(withDeviceKeys)).deviceKeyClient()
 		email := unique("dkrate") + "@security.test"
 		pub, _ := ed25519Key(t)
 		var err error

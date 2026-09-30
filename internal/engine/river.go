@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	riverhelpers "github.com/open-rails/helpers/river"
 	"github.com/riverqueue/river"
 
@@ -68,13 +69,21 @@ func maintenanceQueue(schema string) string {
 type riverMaintenance struct {
 	mu         sync.Mutex
 	client     *river.Client[pgx.Tx]
+	pool       *pgxpool.Pool // the managed client's own; nil in host mode
 	fromHost   bool
 	registered bool
 	failed     bool
 	closed     bool
 }
 
-func (s *Engine) initRiver(ownership *RiverOwnership) error {
+// riverPoolConns sizes the managed River client's own pool: a fetcher per
+// queue (four, one worker each), the leader elector, the periodic enqueuer
+// and the completer. River's deadlines (5s to keep leadership, 10s to fetch)
+// include waiting for a connection, so on the request pool a small or busy
+// host pool made the leader resign and stopped every periodic job.
+const riverPoolConns = 4
+
+func (s *Engine) initRiver(host *pgxpool.Pool, ownership *RiverOwnership) error {
 	if s.pg == nil {
 		return nil
 	}
@@ -82,11 +91,18 @@ func (s *Engine) initRiver(ownership *RiverOwnership) error {
 	if s.maintenance.fromHost {
 		return nil
 	}
-	client, err := riverhelpers.New(context.Background(), s.pg, riverConfig(s.cfg.River.Schema), s.RiverJobs())
+	pool, err := schemaPool(host, s.dbSchema(), func(c *pgxpool.Config) {
+		c.MaxConns, c.MinConns, c.MaxConnIdleTime = riverPoolConns, 0, time.Minute
+	})
 	if err != nil {
+		return err
+	}
+	client, err := riverhelpers.New(context.Background(), pool, riverConfig(s.cfg.River.Schema), s.RiverJobs())
+	if err != nil {
+		pool.Close()
 		return fmt.Errorf("authkit: construct managed River: %w", err)
 	}
-	s.maintenance.client = client
+	s.maintenance.client, s.maintenance.pool = client, pool
 	return nil
 }
 
@@ -245,6 +261,9 @@ func (s *Engine) closeRiver() {
 	// propagates. Never wait for their shutdown while holding that mutex.
 	if client != nil && owned {
 		_ = client.StopAndCancel(context.Background())
+	}
+	if m.pool != nil {
+		m.pool.Close()
 	}
 }
 

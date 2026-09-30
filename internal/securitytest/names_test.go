@@ -9,21 +9,18 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/stretchr/testify/require"
 )
-
-func withDeps(fn func(*authkit.Deps)) hostOption {
-	return func(c *hostConfig) { fn(&c.deps) }
-}
 
 // TestSecurityUsernameChecks: CheckUsername answers every name an account
 // holds (current or live alias, any case; deleted, banned or purged owner)
 // with one identical username_in_use that carries nothing about the owner.
 // ResolveUsername forwards only live aliases of live accounts.
 func TestSecurityUsernameChecks(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withDeps(func(d *authkit.Deps) {
+	h := newHost(t, withHTTP(generousLimits), authtest.WithDeps(func(d *authkit.Deps) {
 		d.NameAdmission = func(_ context.Context, r iam.NameAdmissionRequest) error {
 			if strings.Contains(strings.ToLower(r.RequestedName), "forbidden") {
 				return errors.New("a brand name")

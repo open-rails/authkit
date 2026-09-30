@@ -1,15 +1,13 @@
 package engine
 
 import (
-	"bytes"
-	"encoding/json"
-	"io"
-	"net/http"
 	"testing"
 
+	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/testidp"
+	"github.com/open-rails/authkit/internal/testoutbox"
 	"github.com/stretchr/testify/require"
 )
 
@@ -18,13 +16,14 @@ import (
 // behind.
 func TestRegistrationRollsBackWhenInviteConsumeFails(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	cfg := newServerTestConfig()
+	cfg := testConfig()
 	cfg.Registration.PasswordlessLogin, cfg.Registration.PasswordlessAutoRegistration = true, true
 	cfg.Registration.Verification = iam.RegistrationVerificationRequired
 	cfg.Registration.NativeUserMode = iam.RegistrationModeInviteOnly
-	f := newAccountFlow(t, pg.Pool, cfg)
-	inviter, _ := createAccountInvite(t, f.service, pg.Pool, uniqueEmail("unused"))
-	pool, ctx := fixtureBackend(f.service.Backend()).pg, t.Context()
+	idps := map[string]*testidp.IdP{"oidc": testidp.New(t), "oauth2": testidp.New(t)}
+	cfg.Identity.Providers = []authprovider.Provider{idps["oidc"].OIDC("oidc"), idps["oauth2"].OAuth2("oauth2")}
+	f := newAccountFlow(t, pg.Pool, cfg, Deps{})
+	pool, ctx := pg.Pool, t.Context()
 	_, err := pool.Exec(ctx, `CREATE FUNCTION registration_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected invite consume failure'; END $$; CREATE TRIGGER registration_failure BEFORE UPDATE OF consumed_at ON account_registration_invites FOR EACH ROW EXECUTE FUNCTION registration_failure()`)
 	require.NoError(t, err)
 	defer func() {
@@ -37,18 +36,11 @@ func TestRegistrationRollsBackWhenInviteConsumeFails(t *testing.T) {
 		if flow == "sms" {
 			identifier = uniquePhone()
 		}
-		invite, err := f.service.Backend().CreateAccountInvite(ctx, iam.UserActor(inviter), iam.NewAccountInvite{Email: email})
+		invite, err := f.engine.CreateAccountInvite(ctx, iam.SystemActor(), iam.NewAccountInvite{Email: email})
 		require.NoError(t, err)
 		var failed flowResponse
-		if flow == "oidc" || flow == "oauth2" {
-			idp := testidp.New(t)
-			provider := idp.OAuth2("idp")
-			if flow == "oidc" {
-				provider = idp.OIDC("idp")
-			}
-			f.service.SetProviders(provider)
-			f.mount()
-			failed = providerSignUp(f, idp, testidp.Identity{Subject: "rollback-" + uniqueSuffix(), Email: email, EmailVerified: true}, invite.Code)
+		if idp, ok := idps[flow]; ok {
+			failed = f.providerSignIn(idp, flow, testidp.Identity{Subject: "rollback-" + uniqueSuffix(), Email: email, EmailVerified: true}, invite.Code)
 		} else {
 			path := "/register"
 			body := map[string]any{"identifier": identifier, "account_invite_token": invite.Code}
@@ -64,7 +56,11 @@ func TestRegistrationRollsBackWhenInviteConsumeFails(t *testing.T) {
 			if flow == "passwordless" {
 				confirm = "/passwordless/confirm"
 			}
-			failed = f.post(confirm, map[string]any{"identifier": identifier, "code": f.verifyCode(flow == "sms")})
+			outbox := f.email
+			if flow == "sms" {
+				outbox = f.sms
+			}
+			failed = f.post(confirm, map[string]any{"identifier": identifier, "code": sentCode(t, outbox, testoutbox.Verification)})
 		}
 		require.GreaterOrEqual(t, failed.status, 400, flow+failed.raw)
 		var exists, consumed bool
@@ -72,34 +68,4 @@ func TestRegistrationRollsBackWhenInviteConsumeFails(t *testing.T) {
 		require.False(t, exists, flow)
 		require.False(t, consumed, flow)
 	}
-}
-
-// providerSignUp signs id in at f's provider "idp" as a page does, carrying
-// invite: a JSON start, the IdP's redirect back, and the JSON callback.
-func providerSignUp(f *accountFlow, idp *testidp.IdP, id testidp.Identity, invite string) flowResponse {
-	t := f.t
-	t.Helper()
-	begin, err := json.Marshal(map[string]string{"account_invite_token": invite})
-	require.NoError(t, err)
-	start, err := f.server.Client().Post(f.server.URL+"/oidc/idp/login", "application/json", bytes.NewReader(begin))
-	require.NoError(t, err)
-	defer start.Body.Close()
-	require.Equal(t, http.StatusOK, start.StatusCode)
-	var begun struct {
-		AuthURL string `json:"auth_url"`
-	}
-	require.NoError(t, json.NewDecoder(start.Body).Decode(&begun))
-	query := idp.Redirect(t, begun.AuthURL, id)
-	query.Set("format", "json")
-	req, err := http.NewRequest(http.MethodGet, f.server.URL+"/oidc/idp/callback?"+query.Encode(), nil)
-	require.NoError(t, err)
-	for _, cookie := range start.Cookies() {
-		req.AddCookie(cookie)
-	}
-	callback, err := f.server.Client().Do(req)
-	require.NoError(t, err)
-	defer callback.Body.Close()
-	raw, err := io.ReadAll(callback.Body)
-	require.NoError(t, err)
-	return flowResponse{status: callback.StatusCode, raw: string(raw)}
 }

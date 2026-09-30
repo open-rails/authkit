@@ -61,14 +61,6 @@ func newCredentialOrg(t *testing.T) credentialOrg {
 	return o
 }
 
-// requireIAMCode asserts err carries the AuthKit wire code.
-func requireIAMCode(t *testing.T, err error, code string) {
-	t.Helper()
-	e, ok := iam.AsError(err)
-	require.True(t, ok, "not an AuthKit error: %v", err)
-	require.Equal(t, code, e.Code())
-}
-
 func TestCredentialIssuance(t *testing.T) {
 	o := newCredentialOrg(t)
 	auth, ctx := o.auth, t.Context()

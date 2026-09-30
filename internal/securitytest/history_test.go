@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/stretchr/testify/require"
 )
@@ -19,7 +20,7 @@ import (
 // included), refuses forged cursors, and the admin sign-in route needs
 // root:users:read.
 func TestSecuritySessionEventHistory(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(func(c *authkit.Config) {
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(func(c *authkit.Config) {
 		r := authkit.NewRoles()
 		r.Root.Role("auditor", r.Root.Users.Read)
 		c.Roles = r

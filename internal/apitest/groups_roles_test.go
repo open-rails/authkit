@@ -31,32 +31,6 @@ import (
 	"github.com/open-rails/authkit/verify"
 )
 
-// opErr is the outcome of a one-subject batch call.
-func opErr(res []iam.OpResult, err error) error {
-	if err != nil {
-		return err
-	}
-	return res[0].Err
-}
-
-func assign(auth *authkit.Client, actor iam.Actor, ref iam.GroupRef, subject iam.Subject, role iam.Role) error {
-	return opErr(auth.AssignGroupRoles(context.Background(), actor, ref, []iam.Subject{subject}, role))
-}
-
-func unassign(auth *authkit.Client, actor iam.Actor, ref iam.GroupRef, subject iam.Subject, role iam.Role) error {
-	return opErr(auth.UnassignGroupRoles(context.Background(), actor, ref, []iam.Subject{subject}, role))
-}
-
-func removeMember(auth *authkit.Client, actor iam.Actor, ref iam.GroupRef, subject iam.Subject) error {
-	return opErr(auth.RemoveGroupMembers(context.Background(), actor, ref, []iam.Subject{subject}))
-}
-
-// revokeRole takes role from subject with system authority.
-func revokeRole(t testing.TB, auth *authkit.Client, ref iam.GroupRef, subject iam.Subject, role iam.Role) {
-	t.Helper()
-	require.NoError(t, unassign(auth, iam.SystemActor(), ref, subject, role))
-}
-
 // createGroup creates a group of persona owned by the user ownerID ("" = no
 // owner), as the host does.
 func createGroup(auth *authkit.Client, persona iam.Persona, ownerID string) (iam.Group, error) {
@@ -73,18 +47,6 @@ func newGroup(t testing.TB, auth *authkit.Client, persona iam.Persona, ownerID s
 	g, err := createGroup(auth, persona, ownerID)
 	require.NoError(t, err)
 	return iam.GroupByID(g.ID)
-}
-
-// wire reads a persona, permission or role as it arrives off the wire: its
-// syntax is checked, the schema is not.
-func wire[T any, P interface {
-	*T
-	UnmarshalText([]byte) error
-}](t testing.TB, text string) T {
-	t.Helper()
-	var v T
-	require.NoError(t, P(&v).UnmarshalText([]byte(text)))
-	return v
 }
 
 // orgModel is the permission model most tests here run: an org persona whose
@@ -190,9 +152,7 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 	require.ElementsMatch(t, []string{golang.ID, announcements.ID, rust, python}, ids(iam.GroupQuery{Persona: channel.Persona, Page: iam.PageRequest{Limit: 3}}))
 	require.ElementsMatch(t, []string{golang.ID, announcements.ID, acme.ID, rust, python}, ids(iam.GroupQuery{Page: iam.PageRequest{Limit: 1}}))
 	_, err = auth.ListGroups(ctx, iam.GroupQuery{Page: iam.PageRequest{Cursor: "garbage"}})
-	invalid, ok := iam.AsError(err)
-	require.True(t, ok, "%v is not an AuthKit error", err)
-	require.Equal(t, "invalid_request", invalid.Code())
+	requireIAMCode(t, err, "invalid_request")
 	_, err = auth.ListGroups(ctx, iam.GroupQuery{Persona: wire[iam.Persona](t, "nope")})
 	require.ErrorIs(t, err, iam.ErrUnknownGroupPersona)
 
@@ -392,7 +352,7 @@ func TestRequirePermissionGatesTheRequestGroup(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, get("/orgs/"+uuid.NewString(), token))
 	require.Equal(t, http.StatusForbidden, get("/admin", token))
 	require.Equal(t, http.StatusInternalServerError, get("/unloaded/"+acme.ID(), token), "no group attached fails closed, never falls back to root")
-	revokeRole(t, auth, acme, iam.UserSubject(member.ID), m.member)
+	authtest.RevokeRole(t, auth, acme, iam.UserSubject(member.ID), m.member)
 	require.Equal(t, http.StatusForbidden, get("/orgs/"+acme.ID(), token), "a removed role stops working at once")
 	require.Panics(t, func() { authkitgin.RequirePermission(auth, wire[iam.Perm](t, "org:catalog:write")) })
 }
@@ -960,7 +920,7 @@ func TestRuntimeRequestPrincipalUsesLiveAuthority(t *testing.T) {
 	allowed, err = checker.Can(ctx, scope, iam.PermRootUsersRead.String())
 	require.NoError(t, err)
 	require.True(t, allowed, "runtime must wire live authority without host glue")
-	revokeRole(t, auth, iam.RootGroup(), iam.UserSubject(u.ID), m.siteAdmin)
+	authtest.RevokeRole(t, auth, iam.RootGroup(), iam.UserSubject(u.ID), m.siteAdmin)
 	allowed, err = checker.Can(ctx, scope, iam.PermRootUsersRead.String())
 	require.NoError(t, err)
 	require.False(t, allowed, "same principal observes removal without reauthenticating")
@@ -1032,6 +992,6 @@ func TestCapabilitiesAndRootMembershipDiscovery(t *testing.T) {
 	require.Equal(t, "root", got[0].Persona)
 	require.Equal(t, "reader", got[0].Role)
 	require.Empty(t, groups(bob.AccessToken, "?user_id="+claims.UserID), "caller cannot select another user's memberships")
-	revokeRole(t, auth, iam.RootGroup(), iam.UserSubject(claims.UserID), reader)
+	authtest.RevokeRole(t, auth, iam.RootGroup(), iam.UserSubject(claims.UserID), reader)
 	require.Empty(t, groups(alice.AccessToken, ""), "membership discovery reads current assignments")
 }

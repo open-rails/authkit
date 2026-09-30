@@ -20,34 +20,31 @@ import (
 // the rest of the continuation.
 func TestProviderLoginHoldsItsLinkUntilTheSessionCommits(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	f := newAccountFlow(t, pg.Pool, newServerTestConfig())
 	for kind, build := range map[string]func(*testidp.IdP, string, ...authprovider.Option) authprovider.Provider{
 		"oidc": (*testidp.IdP).OIDC, "oauth2": (*testidp.IdP).OAuth2,
 	} {
 		t.Run(kind, func(t *testing.T) {
-			f.t = t
 			ctx := t.Context()
-			provider := build(testidp.New(t), "race-provider")
-			f.service.SetProviders(provider)
-			f.mount() // providers are configured before the public mount is built
-			verified := true
-			identity := providerTestIdentity{Subject: "race-" + uniqueSuffix(), Email: uniqueEmail("provider-race"), Verified: &verified}
-			first, _ := f.providerLogin(provider, identity, "", false)
-			f.expect(200, first)
-			uid, _, err := f.service.Backend().GetProviderLinkByIssuer(ctx, provider.Issuer(), identity.Subject)
+			idp := testidp.New(t)
+			provider := build(idp, "race-provider")
+			cfg := testConfig()
+			cfg.Identity.Providers = []authprovider.Provider{provider}
+			f := newAccountFlow(t, pg.Pool, cfg, Deps{})
+			identity := testidp.Identity{Subject: "race-" + uniqueSuffix(), Email: uniqueEmail("provider-race"), EmailVerified: true}
+			f.expect(200, f.providerSignIn(idp, provider.Name(), identity, ""))
+			uid, _, err := f.engine.GetProviderLinkByIssuer(ctx, provider.Issuer(), identity.Subject)
 			require.NoError(t, err)
 			// A password keeps the unlink from removing the last login method.
-			require.NoError(t, fixtureBackend(f.service.Backend()).adminSetPassword(ctx, uid, "Provider-backup-password-123"))
+			require.NoError(t, f.engine.adminSetPassword(ctx, uid, "Provider-backup-password-123"))
 			phone := uniquePhone()
-			_, err = fixtureBackend(f.service.Backend()).enableFactor(ctx, uid, "sms", &phone, authflow.AllowAdditionalFactors)
+			_, err = f.engine.enableFactor(ctx, uid, "sms", &phone, authflow.AllowAdditionalFactors)
 			require.NoError(t, err)
 
-			next, _ := f.providerLogin(provider, identity, "", false)
-			f.expect(403, next)
+			next := f.expect(403, f.providerSignIn(idp, provider.Name(), identity, ""))
 			require.Equal(t, "2fa_required", next.Error.Code)
-			body := map[string]any{"user_id": uid, "challenge": next.Error.Metadata.Challenge, "code": lastSent(f.sms, testoutbox.LoginCode).Code}
+			body := map[string]any{"user_id": uid, "challenge": next.Error.Metadata.Challenge, "code": sentCode(t, f.sms, testoutbox.LoginCode)}
 			unlink := func(ctx context.Context) error {
-				removed, err := f.service.Backend().UnlinkProviderUnlessLast(ctx, uid, provider.Name())
+				removed, err := f.engine.UnlinkProviderUnlessLast(ctx, uid, provider.Name())
 				if err != nil {
 					return err
 				}
@@ -59,7 +56,7 @@ func TestProviderLoginHoldsItsLinkUntilTheSessionCommits(t *testing.T) {
 			completed := f.completeWhileRevoking(uid, func() flowResponse { return f.post("/2fa/verify", body) }, unlink)
 			f.expect(200, completed)
 			f.session(completed.TokenSet, "oauth", "sms", "otp", "mfa")
-			_, _, err = f.service.Backend().GetProviderLinkByIssuer(ctx, provider.Issuer(), identity.Subject)
+			_, _, err = f.engine.GetProviderLinkByIssuer(ctx, provider.Issuer(), identity.Subject)
 			require.Error(t, err, "the unlink ran after the session committed")
 		})
 	}

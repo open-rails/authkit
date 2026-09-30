@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/secret"
 )
@@ -194,20 +193,6 @@ func (s *Engine) pendingChangeByTarget(ctx context.Context, kind pendingChangeKi
 	return rec, true, nil
 }
 
-func (s *Engine) pendingChangeByUser(ctx context.Context, kind pendingChangeKind, userID string) (pendingChange, bool, error) {
-	if kind.isRegister() || userID == "" {
-		return pendingChange{}, false, nil
-	}
-	rec, ok, err := s.loadPendingChange(ctx, pendingChangeKey(kind, userID))
-	if err != nil {
-		return pendingChange{}, false, err
-	}
-	if !ok || rec.Kind != kind || rec.UserID != userID {
-		return pendingChange{}, false, nil
-	}
-	return rec, true, nil
-}
-
 // pendingChangeUsernameTaken reports whether a register-kind pending change is
 // holding the given username (used by availability/conflict checks).
 type pendingChangeIndex struct {
@@ -283,18 +268,4 @@ func (s *Engine) finalizePendingChange(ctx context.Context, rec pendingChange, k
 	default:
 		return "", fmt.Errorf("unknown pending change kind: %s", rec.Kind)
 	}
-}
-
-// consumePendingChangeCode finalizes the record the caller addressed when the
-// typed code matches. A wrong code leaves the record intact; the per-identifier
-// attempt caps bound guessing. keepSessionID is the confirming session a
-// contact change must not revoke (nil for registrations and link confirms).
-func (s *Engine) consumePendingChangeCode(ctx context.Context, rec pendingChange, code string, keepSessionID *string) (string, error) {
-	if !secret.Equal(rec.CodeHash, sha256Hex(code)) {
-		return "", jwt.ErrTokenUnverifiable
-	}
-	if err := s.claimPendingChange(ctx, rec); err != nil {
-		return "", err
-	}
-	return s.finalizePendingChange(ctx, rec, keepSessionID)
 }

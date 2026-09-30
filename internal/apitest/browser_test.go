@@ -1,6 +1,6 @@
 //go:build browser
 
-package engine
+package apitest_test
 
 import (
 	"context"
@@ -14,42 +14,38 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-rails/authkit/internal/httpapi"
-	"github.com/open-rails/authkit/internal/password"
-	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
+
+	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/authtest"
+	"github.com/open-rails/authkit/iam"
 )
 
-// Run with -tags browser and AUTHKIT_PLAYWRIGHT_MODULE pointing at an installed
-// @playwright/test module. Each run launches an isolated headless browser.
+// A real browser signs in with the refresh cookie on one site; another site's
+// form posts in every HTML encoding are refused and leave the cookie alone.
+// Run with -tags browser and AUTHKIT_PLAYWRIGHT_MODULE pointing at an
+// installed @playwright/test module (testdata/README.md). Each run launches an
+// isolated headless browser.
 func TestCookieLoginBrowserTwoSites(t *testing.T) {
-	ctx := context.Background()
-	pg := testdb.ScratchPostgres(t)
+	ctx := t.Context()
 	mux := http.NewServeMux()
 	victim := httptest.NewTLSServer(mux)
 	defer victim.Close()
 	victimURL := strings.Replace(victim.URL, "127.0.0.1", "localhost", 1)
-	cfg := newServerTestConfig()
-	cfg.Frontend = FrontendConfig{BaseURL: victimURL}
-	core := newServerClient(t, cfg, pg.Pool)
-	srv, err := newTestService(core, httpapi.Config{DirectPeerIP: true})
-	require.NoError(t, err)
-	defer srv.Close()
+	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
+		c.Frontend.BaseURL = victimURL
+		c.HTTP = authkit.HTTPConfig{DirectPeerIP: true, RefreshCookie: true}
+	}))
 	accounts := map[string]string{"browser-victim@example.test": "Victim-password-12345", "browser-attacker@example.test": "=Attack-password-12345"}
 	var attackerID string
-	for email, plain := range accounts {
-		user, err := core.createUser(ctx, email, strings.Split(email, "@")[0])
+	for email, password := range accounts {
+		u, err := auth.CreateUser(ctx, iam.NewUser{Email: email, Username: strings.Split(email, "@")[0], Password: password, EmailVerified: true})
 		require.NoError(t, err)
-		hash, err := password.HashArgon2id(plain)
-		require.NoError(t, err)
-		require.NoError(t, core.upsertPasswordHash(ctx, user.ID, hash, "argon2id"))
 		if strings.Contains(email, "attacker") {
-			attackerID = user.ID
+			attackerID = u.ID
 		}
 	}
-	mounted, err := httpapi.NewMount(srv, httpapi.MountOptions{RefreshCookie: true})
-	require.NoError(t, err)
-	mux.Handle("/api/", mounted)
+	mux.Handle("/api/", auth.Handler())
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		fmt.Fprint(w, "<!doctype html><title>Application</title>")
@@ -71,7 +67,10 @@ func TestCookieLoginBrowserTwoSites(t *testing.T) {
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, string(output))
 	t.Log(strings.TrimSpace(string(output)))
-	var sessions int
-	require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT count(*) FROM refresh_sessions WHERE user_id=$1`, attackerID).Scan(&sessions))
-	require.Zero(t, sessions, "cross-site submissions cannot create even an unused attacker session")
+	sessions, err := auth.Sessions(ctx, attackerID)
+	require.NoError(t, err)
+	require.Empty(t, sessions, "cross-site submissions cannot create even an unused attacker session")
+	events, err := auth.SessionEvents(ctx, attackerID, iam.SessionEventQuery{})
+	require.NoError(t, err)
+	require.Empty(t, events.Items, "no attacker session ever existed")
 }

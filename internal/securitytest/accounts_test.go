@@ -93,7 +93,7 @@ func accountOps(h *host) map[string]func(actor iam.Actor, target string) error {
 // edit a more privileged account nor act on a group owner it does not outrank,
 // and a banned actor has no account authority, whatever roles it holds.
 func TestSecurityAccountAuthority(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withAccountRoles))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withAccountRoles))
 	ctx := context.Background()
 	root := iam.RootGroup()
 	staff, moderator := h.newAccount("staff"), h.newAccount("moderator")
@@ -167,7 +167,7 @@ func TestSecurityAccountAuthority(t *testing.T) {
 // an account holding MFA-required roles with no proven contact, since the next
 // proof (a password reset to the new address) retires its second factor.
 func TestSecurityContactChangeKeepsMFARoles(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withAccountRoles))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withAccountRoles))
 	ctx := context.Background()
 	holder := h.newAccount("mfaholder")
 	h.enrollEmail2FA(holder)
@@ -230,24 +230,14 @@ func TestSecurityVerifiedOnlyByProof(t *testing.T) {
 func TestSecurityInlinePasswordNeedsSecondFactor(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits))
 	ctx := context.Background()
-	stale := func(a account, access string) string {
-		_, claims := splitToken(t, access)
-		sid, _ := claims["sid"].(string)
-		require.NotEmpty(t, sid)
-		// A stolen session whose authentication is old: the password branch
-		// of the fresh-auth gate is the only way through.
-		_, err := h.pool.Exec(ctx, `UPDATE profiles.refresh_sessions SET created_at=now()-interval '1 day', last_authenticated_at=now()-interval '1 day', mfa_authenticated_at=now()-interval '1 day' WHERE id=$1::uuid`, sid)
-		require.NoError(t, err)
-		tok, err := h.auth.MintAccessToken(ctx, a.id, iam.AccessTokenOptions{SessionID: sid})
-		require.NoError(t, err)
-		return tok.Value
-	}
 	a := h.newAccount("mfastep")
 	h.enrollEmail2FA(a)
 	ch := h.passwordStep(a, "198.51.100.9")
 	resp := h.secondStep(a, ch, h.mail.Last(t, authtest.LoginCode, a.email).Code, "198.51.100.9")
 	require.Equal(t, http.StatusOK, resp.status, resp.String())
-	token := stale(a, session(t, resp).AccessToken)
+	// A stolen session whose authentication is old: the password branch of
+	// the fresh-auth gate is the only way through.
+	token := authtest.StaleSession(t, h.auth, session(t, resp).AccessToken)
 	for _, req := range []request{
 		{method: http.MethodPost, path: "/verify/request", body: map[string]string{"identifier": unique("evil") + "@security.test", "password": password}},
 		{method: http.MethodPost, path: "/user/password", body: map[string]string{"current_password": password, "new_password": password + "x"}},
@@ -264,7 +254,7 @@ func TestSecurityInlinePasswordNeedsSecondFactor(t *testing.T) {
 
 	t.Run("control: a password clears the gate without a second factor", func(t *testing.T) {
 		b := h.newAccount("pwdstep")
-		resp := h.do(request{method: http.MethodDelete, path: "/user", body: map[string]string{"password": password}, token: stale(b, h.login(b).AccessToken)})
+		resp := h.do(request{method: http.MethodDelete, path: "/user", body: map[string]string{"password": password}, token: authtest.StaleSession(t, h.auth, h.login(b).AccessToken)})
 		require.Equal(t, http.StatusNoContent, resp.status, resp.String())
 	})
 }
@@ -273,7 +263,7 @@ func TestSecurityInlinePasswordNeedsSecondFactor(t *testing.T) {
 // account revokes the API keys and invite links it issued, and lifting the
 // ban does not bring them back.
 func TestSecurityAccountLifecycleRevokesCredentials(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
 	ctx := context.Background()
 	founder := h.newAccount("h1founder")
 	group, base := h.newOrg(founder)
@@ -316,7 +306,7 @@ func TestSecurityAccountLifecycleRevokesCredentials(t *testing.T) {
 // window restores only an account that deleted itself. An account staff
 // deleted comes back only through RestoreUsers, with its authority re-checked.
 func TestSecurityDeletionRecoveryIsSelfOnly(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withAccountRoles))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withAccountRoles))
 	ctx := context.Background()
 	moderator, target := h.newAccount("n5moderator"), h.newAccount("n5target")
 	h.grant(iam.RootGroup(), moderator, "moderator")
@@ -357,7 +347,7 @@ func TestSecurityDeletionRecoveryIsSelfOnly(t *testing.T) {
 // same account. It never slips a self-edit, self-ban or self-unban past the
 // self rule.
 func TestSecuritySelfRulesUseCanonicalIDs(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withAccountRoles))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withAccountRoles))
 	ctx := context.Background()
 	staff, other := h.newAccount("n6staff"), h.newAccount("n6other")
 	h.grant(iam.RootGroup(), staff, "siteadmin")
@@ -397,7 +387,7 @@ func TestSecuritySelfRulesUseCanonicalIDs(t *testing.T) {
 // not leave any account with a second factor unproven, role or not: the next
 // reset to the new address would retire that factor and hand the account over.
 func TestSecurityContactChangeKeepsEnrolledMFA(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withAccountRoles))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withAccountRoles))
 	ctx := context.Background()
 	support, target := h.newAccount("n10support"), h.newAccount("n10target")
 	h.grant(iam.RootGroup(), support, "staff")
@@ -427,7 +417,7 @@ func TestSecurityContactChangeKeepsEnrolledMFA(t *testing.T) {
 // and a group is never seeded with an owner who cannot act: an unknown,
 // banned, deleted or reserved account, or an application of another group.
 func TestSecurityGroupLifecycleIsTheHosts(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
 	ctx := context.Background()
 	founder := h.newAccount("lifefounder")
 	group, base := h.newOrg(founder)
@@ -500,7 +490,7 @@ func TestSecurityGroupLifecycleIsTheHosts(t *testing.T) {
 // phone keeps proven, then a reset to the new address, never sends the
 // account's second-factor codes there.
 func TestSecurityEmailFactorIsPinned(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withAccountRoles))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withAccountRoles))
 	ctx := context.Background()
 	support, target := h.newAccount("p3support"), h.newAccount("p3target")
 	h.grant(iam.RootGroup(), support, "staff")
@@ -540,7 +530,7 @@ func TestSecurityEmailFactorIsPinned(t *testing.T) {
 // account that already deleted itself records a staff deletion; signing in no
 // longer undoes it.
 func TestSecurityStaffDeleteOverridesSelfDelete(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withAccountRoles))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withAccountRoles))
 	moderator, target := h.newAccount("p6moderator"), h.newAccount("p6target")
 	h.grant(iam.RootGroup(), moderator, "moderator")
 	// The target deletes itself ahead of moderation.
@@ -566,7 +556,7 @@ func TestSecurityStaffDeleteOverridesSelfDelete(t *testing.T) {
 // edits other people's accounts, so it needs MFA like root:members:manage.
 // Only the system sets another account's password; staff send a reset.
 func TestSecurityUserManagementNeedsMFA(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withAccountRoles))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withAccountRoles))
 	ctx := context.Background()
 	staff, target := h.newAccount("cstaff"), h.newAccount("ctarget")
 	res, err := h.auth.AssignGroupRoles(ctx, iam.SystemActor(), iam.RootGroup(), []iam.Subject{iam.UserSubject(staff.id)}, h.role(iam.RootPersona, "staff"))

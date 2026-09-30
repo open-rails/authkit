@@ -517,7 +517,7 @@ func TestTokenEntitlementAllowlist(t *testing.T) {
 		for _, key := range []string{"roles", "permissions", "groups", "root_permissions"} {
 			require.NotContains(t, claims, key)
 		}
-		matchWireGolden(t, "access-claims", claims)
+		wireGolden(t, "access-claims", claims)
 		provider.set([]string{"lifetime", "product-b"}, nil)
 		status, refreshed, err := refreshSession(s, login.RefreshToken)
 		require.NoError(t, err)

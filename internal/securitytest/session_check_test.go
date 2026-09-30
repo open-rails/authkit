@@ -15,23 +15,29 @@ import (
 	authkitfiber "github.com/open-rails/authkit/adapters/fiber"
 	authkitgin "github.com/open-rails/authkit/adapters/gin"
 	"github.com/open-rails/authkit/authprovider"
+	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
+	"github.com/open-rails/authkit/internal/testidp"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
 )
 
 // withEveryRoute mounts every optional route: a provider, passkeys, device
 // keys, Solana and the delegated-token mint.
-func withEveryRoute(c *hostConfig) {
-	c.engine.Identity.Providers = []authprovider.Provider{&stubProvider{name: "stub"}}
-	withPasskeys(&c.engine)
-	withDeviceKeys(&c.engine)
-	c.engine.SolanaNetwork = "devnet"
-	c.engine.Delegated = authkit.DelegatedConfig{Audiences: []string{"resource.security.test"}}
-	c.deps.DelegatedAuthorization = func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
-		return iam.DelegationGrant{Permissions: []string{"resource:read"}}, nil
-	}
+func withEveryRoute(t *testing.T) []authtest.Option {
+	idp := testidp.New(t)
+	return []authtest.Option{authtest.WithConfig(func(c *authkit.Config) {
+		c.Identity.Providers = []authprovider.Provider{idp.OAuth2("idp")}
+		withPasskeys(c)
+		withDeviceKeys(c)
+		c.SolanaNetwork = "devnet"
+		c.Delegated = authkit.DelegatedConfig{Audiences: []string{"resource.security.test"}}
+	}), authtest.WithDeps(func(d *authkit.Deps) {
+		d.DelegatedAuthorization = func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
+			return iam.DelegationGrant{Permissions: []string{"resource:read"}}, nil
+		}
+	})}
 }
 
 func mutating(route iam.Route) bool {
@@ -45,7 +51,7 @@ func mutating(route iam.Route) bool {
 // the two routes that end the caller's own sign-in stay AuthRequired: they
 // must also work, idempotently, with an already revoked one.
 func TestSecurityMutatingRoutesCheckTheSession(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC), withEveryRoute)
+	h := newHost(t, append(withEveryRoute(t), withHTTP(generousLimits), authtest.WithConfig(withRBAC))...)
 	signOut := map[string]bool{
 		"DELETE " + apiPrefix + "/logout":           true,
 		"DELETE " + apiPrefix + "/device-keys/{id}": true,
@@ -106,7 +112,7 @@ func serveFiber(app *fiber.App, method string) gateCall {
 // admits the token until it expires, and API keys are untouched.
 func TestSecurityRevokedSessionAtLiveGates(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	h := newHost(t, withHTTP(generousLimits), withEngine(withRBAC), withEveryRoute)
+	h := newHost(t, append(withEveryRoute(t), withHTTP(generousLimits), authtest.WithConfig(withRBAC))...)
 	ctx := context.Background()
 	founder := h.newAccount("scfounder")
 	group, base := h.newOrg(founder)
@@ -143,7 +149,7 @@ func TestSecurityRevokedSessionAtLiveGates(t *testing.T) {
 			continue
 		}
 		path := strings.ReplaceAll(route.Path, "{group_id}", group.ID())
-		path = strings.ReplaceAll(path, "{provider}", "stub")
+		path = strings.ReplaceAll(path, "{provider}", "idp")
 		for strings.Contains(path, "{") {
 			open, end := strings.Index(path, "{"), strings.Index(path, "}")
 			path = path[:open] + "0190a0a0-0000-7000-8000-000000000000" + path[end+1:]
