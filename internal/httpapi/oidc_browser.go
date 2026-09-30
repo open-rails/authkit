@@ -49,12 +49,7 @@ func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
 // {"auth_url","state"}; the page then navigates (or its popup does) to
 // auth_url. It is the only start that accepts an account invitation.
 func (s *Service) handleOIDCLoginPOST(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ReturnTo           string `json:"return_to"`
-		AccountInviteToken string `json:"account_invite_token"`
-		UI                 string `json:"ui"`
-		PopupNonce         string `json:"popup_nonce"`
-	}
+	var req OIDCLoginRequest
 	if err := decodeJSON(r, &req); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
@@ -62,7 +57,7 @@ func (s *Service) handleOIDCLoginPOST(w http.ResponseWriter, r *http.Request) {
 	// The response sets the flow's state cookie; a cross-site page must not
 	// bind a flow into this browser.
 	if !s.cookieOriginAllowed(r) {
-		fail(w, errmodel.CodeForbidden)
+		fail(w, errmodel.CodeOriginNotAllowed)
 		return
 	}
 	s.startProviderFlow(w, r, r.PathValue("provider"), flowStart{login: &loginStart{
@@ -178,7 +173,7 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 		http.Redirect(w, r, authURL, http.StatusFound)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"auth_url": authURL, "state": state})
+	writeJSON(w, http.StatusOK, OIDCStart{AuthURL: authURL, State: state})
 }
 
 // handleOIDCCallbackGET completes the browser flow for the IdP's GET redirect
@@ -290,18 +285,14 @@ func (s *Service) emitBrowserLogin(w http.ResponseWriter, r *http.Request, userI
 			s.failBrowserFlow(w, r, &sd, providerName, errmodel.Internal("invalid_base_url", nil))
 			return
 		}
-		deliveredRT := s.deliverRefreshToken(w, r, iam.NewTokenSet(token, rt, exp)).RefreshToken
-		payload := map[string]any{
-			"type":         "AUTHKIT_OIDC_RESULT",
-			"access_token": token,
-			"expires_in":   int64(time.Until(exp).Seconds()),
-			"provider":     providerName,
-			"nonce":        sd.PopupNonce,
-		}
-		if deliveredRT != "" {
-			payload["refresh_token"] = deliveredRT
-		}
-		b, _ := json.Marshal(payload)
+		b, _ := json.Marshal(oidcPopupResult{
+			Type:         "AUTHKIT_OIDC_RESULT",
+			AccessToken:  token,
+			ExpiresIn:    int64(time.Until(exp).Seconds()),
+			Provider:     providerName,
+			Nonce:        sd.PopupNonce,
+			RefreshToken: s.deliverRefreshToken(w, r, iam.NewTokenSet(token, rt, exp)).RefreshToken,
+		})
 		writePopupDocument(w, buildPopupHTML(b, targetOrigin))
 		return
 	}
@@ -314,8 +305,9 @@ func (s *Service) emitBrowserLogin(w http.ResponseWriter, r *http.Request, userI
 			s.failBrowserFlow(w, r, &sd, providerName, errmodel.Internal("user_lookup_failed", err))
 			return
 		}
-		s.writeTokenSetWith(w, r, http.StatusOK, iam.NewTokenSet(token, rt, exp), map[string]any{
-			"user": map[string]any{"id": userID, "email": nullableString(user.Email)},
+		writeJSON(w, http.StatusOK, OIDCLoginResult{
+			TokenSet: s.deliverRefreshToken(w, r, iam.NewTokenSet(token, rt, exp)),
+			User:     OIDCUser{ID: userID, Email: user.Email},
 		})
 		return
 	}
@@ -325,13 +317,26 @@ func (s *Service) emitBrowserLogin(w http.ResponseWriter, r *http.Request, userI
 		base = "/"
 	}
 	state := callbackParams(r).Get("state")
-	fragmentRT := s.deliverRefreshToken(w, r, iam.NewTokenSet(token, rt, exp)).RefreshToken
+	fragmentRT := ""
+	if delivered := s.deliverRefreshToken(w, r, iam.NewTokenSet(token, rt, exp)).RefreshToken; delivered != nil {
+		fragmentRT = *delivered
+	}
 	frag := buildAuthResultFragment(token, fragmentRT, int64(time.Until(exp).Seconds()), providerName, state, sd.ReturnTo)
 	target := buildFrontendCallbackURL(base, s.cfg.Frontend.OIDCReturnPath, frag)
 	// RFC 6749 §5.1 hygiene: the Location fragment carries the session tokens —
 	// the response must never be cached.
 	w.Header().Set("Cache-Control", "no-store")
 	http.Redirect(w, r, target, http.StatusFound)
+}
+
+// oidcPopupResult is the popup document's message to its opener.
+type oidcPopupResult struct {
+	Type         string  `json:"type"`
+	AccessToken  string  `json:"access_token"`
+	ExpiresIn    int64   `json:"expires_in"`
+	Provider     string  `json:"provider"`
+	Nonce        string  `json:"nonce"`
+	RefreshToken *string `json:"refresh_token"`
 }
 
 func buildFrontendCallbackURL(baseURL, callbackPath, fragment string) string {

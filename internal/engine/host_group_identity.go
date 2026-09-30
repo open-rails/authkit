@@ -4,16 +4,13 @@ package engine
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/cursor"
 	"github.com/open-rails/authkit/internal/db"
-	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
 )
 
@@ -78,7 +75,7 @@ func (s *Engine) ListGroups(ctx context.Context, q iam.GroupQuery) (iam.ListPage
 	if _, ok := s.groupSchemaOrDefault().Persona(persona); !persona.IsZero() && (!ok || persona == iam.RootPersona) {
 		return out, fmt.Errorf("unknown group persona %q: %w", persona, iam.ErrUnknownGroupPersona)
 	}
-	after, err := decodePageCursor(q.Page.Cursor, 1)
+	after, err := cursor.Keys(q.Page.Cursor, 1)
 	if err != nil {
 		return out, err
 	}
@@ -101,7 +98,7 @@ func (s *Engine) ListGroups(ctx context.Context, q iam.GroupQuery) (iam.ListPage
 	}
 	if len(out.Items) > limit {
 		out.Items = out.Items[:limit]
-		out.Next = encodePageCursor(out.Items[limit-1].ID)
+		out.Next = pageCursor(out.Items[limit-1].ID)
 	}
 	return out, nil
 }
@@ -117,7 +114,7 @@ func (s *Engine) ListGroupMembers(ctx context.Context, ref iam.GroupRef, q iam.M
 	if err != nil {
 		return out, err
 	}
-	after, err := decodePageCursor(q.Page.Cursor, 2)
+	after, err := cursor.Keys(q.Page.Cursor, 2)
 	if err != nil {
 		return out, err
 	}
@@ -150,7 +147,7 @@ func (s *Engine) ListGroupMembers(ctx context.Context, ref iam.GroupRef, q iam.M
 	if len(out.Items) > limit {
 		out.Items = out.Items[:limit]
 		last := out.Items[limit-1]
-		out.Next = encodePageCursor(string(last.Subject.Kind), last.Subject.ID)
+		out.Next = pageCursor(string(last.Subject.Kind), last.Subject.ID)
 	}
 	if q.WithUsers {
 		var ids []string
@@ -183,7 +180,7 @@ func (s *Engine) ListMemberships(ctx context.Context, subject iam.Subject, p iam
 	if validSubject(subject) != nil {
 		return out, nil
 	}
-	after, err := decodePageCursor(p.Cursor, 2)
+	after, err := cursor.Keys(p.Cursor, 2)
 	if err != nil {
 		return out, err
 	}
@@ -209,29 +206,10 @@ func (s *Engine) ListMemberships(ctx context.Context, subject iam.Subject, p iam
 	if len(out.Items) > limit {
 		out.Items = out.Items[:limit]
 		last := out.Items[limit-1].Group
-		out.Next = encodePageCursor(last.Persona.String(), last.ID)
+		out.Next = pageCursor(last.Persona.String(), last.ID)
 	}
 	return out, nil
 }
 
-// encodePageCursor makes an opaque keyset cursor from the last row's sort key.
-func encodePageCursor(key ...string) string {
-	raw, _ := json.Marshal(key)
-	return base64.RawURLEncoding.EncodeToString(raw)
-}
-
-// decodePageCursor reads a cursor of n key parts; "" is the first page.
-func decodePageCursor(cursor string, n int) ([]string, error) {
-	if cursor == "" {
-		return make([]string, n), nil
-	}
-	var key []string
-	raw, err := base64.RawURLEncoding.DecodeString(cursor)
-	if err == nil {
-		err = json.Unmarshal(raw, &key)
-	}
-	if err != nil || len(key) != n || key[0] == "" {
-		return nil, errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithCause(errors.New("invalid page cursor")))
-	}
-	return key, nil
-}
+// pageCursor makes the opaque keyset cursor after the row with these keys.
+func pageCursor(keys ...string) string { return cursor.Encode(keys) }

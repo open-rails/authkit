@@ -14,25 +14,6 @@ import (
 	"github.com/open-rails/authkit/verify"
 )
 
-type twoFactorStatusResponse struct {
-	Enabled              bool                      `json:"enabled"`
-	Method               string                    `json:"method"`
-	PhoneNumber          *string                   `json:"phone_number,omitempty"`
-	DefaultFactor        *TwoFactorFactorResponse  `json:"default_factor,omitempty"`
-	Factors              []TwoFactorFactorResponse `json:"factors,omitempty"`
-	AllowedMethods       []string                  `json:"allowed_methods,omitempty"`
-	BackupCodesRemaining int                       `json:"backup_codes_remaining,omitempty"`
-}
-
-type TwoFactorFactorResponse struct {
-	ID          string  `json:"id,omitempty"`
-	Method      string  `json:"method"`
-	IsDefault   bool    `json:"is_default,omitempty"`
-	PhoneNumber *string `json:"phone_number,omitempty"`
-	// Email is the masked address an email factor's codes go to.
-	Email *string `json:"email,omitempty"`
-}
-
 func (s *Service) handleUser2FAStatusGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
@@ -42,12 +23,12 @@ func (s *Service) handleUser2FAStatusGET(w http.ResponseWriter, r *http.Request)
 
 	settings, err := s.svc.Get2FASettings(r.Context(), claims.UserID)
 	if err != nil {
-		writeJSON(w, http.StatusOK, twoFactorStatusResponse{Enabled: false, Method: "email", AllowedMethods: s.svc.TwoFactorAllowedMethods()})
+		writeJSON(w, http.StatusOK, TwoFactorStatus{Enabled: false, Method: "email", AllowedMethods: s.svc.TwoFactorAllowedMethods()})
 		return
 	}
 
 	factors := twoFactorFactorResponses(settings.Factors)
-	writeJSON(w, http.StatusOK, twoFactorStatusResponse{
+	writeJSON(w, http.StatusOK, TwoFactorStatus{
 		Enabled:              settings.Enabled,
 		Method:               settings.Method,
 		PhoneNumber:          settings.PhoneNumber,
@@ -84,13 +65,7 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var req struct {
-		Method      string  `json:"method"`
-		Code        string  `json:"code,omitempty"`
-		PhoneNumber *string `json:"phone_number"`
-		Default     bool    `json:"default,omitempty"`
-		FactorID    string  `json:"factor_id,omitempty"`
-	}
+	var req TwoFactorEnrollRequest
 	if err := decodeJSON(r, &req); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
@@ -144,21 +119,16 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 	case authflow.TwoFactorEnrollCodeSent:
 		accepted(w)
 	case authflow.TwoFactorEnrollTOTPStarted:
-		writeJSON(w, http.StatusOK, map[string]any{
-			"method":      "totp",
-			"secret":      out.Secret,
-			"otpauth_uri": out.OTPAuthURI,
-		})
+		writeJSON(w, http.StatusOK, TwoFactorEnrollResult{Method: "totp", Secret: &out.Secret, OTPAuthURI: &out.OTPAuthURI})
 	default:
-		resp := map[string]any{"enabled": true, "method": out.Method}
-		if len(out.BackupCodes) > 0 {
-			resp["backup_codes"] = out.BackupCodes
-		}
+		resp := TwoFactorEnrollResult{Enabled: true, Method: out.Method, BackupCodes: out.BackupCodes}
 		if out.Login != nil {
-			if s.writeLoginContinuation(w, r, *out.Login, resp) {
+			if s.writeLoginContinuation(w, r, *out.Login, enabledMeta(out)) {
 				return
 			}
-			s.writeTokenSetWith(w, r, http.StatusOK, out.Login.Session.TokenSet(), resp)
+			tokens := s.deliverRefreshToken(w, r, out.Login.Session.TokenSet())
+			resp.TokenSet = &tokens
+			writeJSON(w, http.StatusOK, resp)
 			return
 		}
 		// The confirmed code verified this session: hand back a token whose
@@ -170,9 +140,7 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 				serverErr(w, "token_issue_failed", err)
 				return
 			}
-			for k, v := range fresh {
-				resp[k] = v
-			}
+			resp.TokenSet, resp.FreshAuth = &fresh.TokenSet, &fresh.FreshAuth
 		}
 		writeJSON(w, http.StatusOK, resp)
 	}
@@ -188,7 +156,9 @@ func (s *Service) handleUser2FADELETE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	factorID := strings.TrimSpace(r.URL.Query().Get("factor_id"))
+	var q TwoFactorFactorQuery
+	decodeQuery(r, &q)
+	factorID := q.FactorID
 	var removed []authflow.RemovedMFARoleAssignment
 	var err error
 	if factorID == "" {
@@ -197,24 +167,25 @@ func (s *Service) handleUser2FADELETE(w http.ResponseWriter, r *http.Request) {
 		removed, err = s.svc.Disable2FAFactorWithRemovedRoles(r.Context(), claims.UserID, factorID)
 	}
 	if err != nil {
-		writeError(w, remap(err, groupOpCodes))
+		writeError(w, err)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"removed_roles": removedMFARolesResponse(removed)})
+	out := RemovedRoles{RemovedRoles: make([]RemovedRole, 0, len(removed))}
+	for _, r := range removed {
+		out.RemovedRoles = append(out.RemovedRoles, RemovedRole{GroupID: r.PermissionGroupID, Persona: r.Persona, Role: r.Role, RemovedAt: r.RemovedAt})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
-func removedMFARolesResponse(removed []authflow.RemovedMFARoleAssignment) []map[string]any {
-	out := make([]map[string]any, 0, len(removed))
-	for _, r := range removed {
-		out = append(out, map[string]any{
-			"permission_group_id": r.PermissionGroupID,
-			"persona":             r.Persona,
-			"role":                r.Role.String(),
-			"removed_at":          r.RemovedAt.UTC().Format(time.RFC3339),
-		})
+// enabledMeta carries the enabled factor, and the first factor's backup
+// codes, on the sign-in continuation the enrollment leads to.
+func enabledMeta(out authflow.TwoFactorEnrollOutcome) map[string]any {
+	meta := map[string]any{"enabled": true, "method": out.Method}
+	if len(out.BackupCodes) > 0 {
+		meta["backup_codes"] = out.BackupCodes
 	}
-	return out
+	return meta
 }
 
 func (s *Service) handleUser2FABackupCodesPOST(w http.ResponseWriter, r *http.Request) {
@@ -232,19 +203,19 @@ func (s *Service) handleUser2FABackupCodesPOST(w http.ResponseWriter, r *http.Re
 		serverErr(w, "regenerate_codes_failed", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"backup_codes": backupCodes})
+	writeJSON(w, http.StatusOK, BackupCodes{BackupCodes: backupCodes})
 }
 
-func twoFactorFactorResponses(factors []authflow.TwoFactorFactor) []TwoFactorFactorResponse {
-	out := make([]TwoFactorFactorResponse, 0, len(factors))
+func twoFactorFactorResponses(factors []authflow.TwoFactorFactor) []TwoFactorFactor {
+	out := make([]TwoFactorFactor, 0, len(factors))
 	for _, factor := range factors {
 		out = append(out, twoFactorFactorResponse(factor))
 	}
 	return out
 }
 
-func twoFactorFactorResponse(factor authflow.TwoFactorFactor) TwoFactorFactorResponse {
-	out := TwoFactorFactorResponse{ID: factor.ID, Method: factor.Method, IsDefault: factor.IsDefault, PhoneNumber: factor.PhoneNumber}
+func twoFactorFactorResponse(factor authflow.TwoFactorFactor) TwoFactorFactor {
+	out := TwoFactorFactor{ID: factor.ID, Method: factor.Method, IsDefault: factor.IsDefault, PhoneNumber: factor.PhoneNumber}
 	if factor.Email != nil {
 		masked := contact.MaskDestination(*factor.Email)
 		out.Email = &masked
@@ -252,7 +223,7 @@ func twoFactorFactorResponse(factor authflow.TwoFactorFactor) TwoFactorFactorRes
 	return out
 }
 
-func defaultTwoFactorFactorResponse(factors []TwoFactorFactorResponse) *TwoFactorFactorResponse {
+func defaultTwoFactorFactorResponse(factors []TwoFactorFactor) *TwoFactorFactor {
 	for _, factor := range factors {
 		if factor.IsDefault {
 			f := factor

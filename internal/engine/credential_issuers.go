@@ -31,8 +31,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/cursor"
 	"github.com/open-rails/authkit/internal/db"
-	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/rbac"
 )
 
@@ -135,14 +135,14 @@ func (s *Engine) roleCatalogFingerprint() string {
 // idCursor reads a keyset cursor: the id of the previous page's last item.
 // Credential ids are uuidv7, so id order is creation order.
 func idCursor(p iam.PageRequest) (*string, error) {
-	c := strings.TrimSpace(p.Cursor)
-	if c == "" {
-		return nil, nil
+	keys, err := cursor.Keys(strings.TrimSpace(p.Cursor), 1)
+	if err != nil || keys[0] == "" {
+		return nil, err
 	}
-	if !isUUID(c) {
-		return nil, errmodel.E(errmodel.CodeInvalidRequest)
+	if !isUUID(keys[0]) {
+		return nil, cursor.Invalid()
 	}
-	return &c, nil
+	return &keys[0], nil
 }
 
 // idPage cuts rows fetched with LIMIT limit+1 to one page.
@@ -150,7 +150,7 @@ func idPage[T any](rows []T, limit int, id func(T) string) iam.ListPage[T] {
 	page := iam.ListPage[T]{Items: rows}
 	if len(rows) > limit {
 		page.Items = rows[:limit]
-		page.Next = id(rows[limit-1])
+		page.Next = pageCursor(id(rows[limit-1]))
 	}
 	if page.Items == nil {
 		page.Items = []T{}

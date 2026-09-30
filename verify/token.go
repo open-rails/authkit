@@ -126,10 +126,6 @@ func profile(typ string, mc map[string]any) (Claims, error) {
 		return Claims{}, errmodel.E(errmodel.CodeMissingDelegatedSub)
 	case isAccess && sub == "":
 		return Claims{}, errmodel.E(errmodel.CodeMissingSub)
-	case isDelegated && jose.String(mc, "user_tier") != "":
-		return Claims{}, errmodel.E(errmodel.CodeDelegatedAccessHasUserTier)
-	case isDelegated && len(jose.Strings(mc, "roles")) > 0:
-		return Claims{}, errmodel.E(errmodel.CodeDelegatedAccessHasRoles)
 	}
 	cl := Claims{
 		Kind:             iam.ActorUser,

@@ -99,7 +99,7 @@ func Validate(p config.PasswordPolicy, pw string, identifiers ...string) error {
 			return ErrContainsIdentifier
 		}
 	}
-	if p.RejectCommon && IsCommon(lower) {
+	if !p.AllowCommon && IsCommon(lower) {
 		return ErrTooCommon
 	}
 	return nil

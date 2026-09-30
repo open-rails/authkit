@@ -243,12 +243,12 @@ func (s *Engine) prepareImportRow(idx int, in iam.ImportUser) (*importRow, error
 		Metadata: in.Metadata, CreatedAt: in.CreatedAt, UpdatedAt: in.UpdatedAt,
 	}
 	if b := in.Ban; b != nil {
-		by := strings.TrimSpace(b.By)
+		by := strings.TrimSpace(deref(b.By))
 		if b.At.IsZero() || by != "" && !isUUID(by) {
 			return nil, errImportInvalidBan
 		}
 		at := b.At
-		acct.BannedAt, acct.BannedUntil, acct.BanReason = &at, b.Until, nullable(strings.TrimSpace(b.Reason))
+		acct.BannedAt, acct.BannedUntil, acct.BanReason = &at, b.Until, nullable(strings.TrimSpace(deref(b.Reason)))
 		if by != "" {
 			by = strings.ToLower(by)
 			acct.BannedBy = &by
@@ -729,7 +729,7 @@ func validImportText(in iam.ImportUser) bool {
 		texts = append(texts, in.PasswordHash.Hash, string(in.PasswordHash.Algo))
 	}
 	if in.Ban != nil {
-		texts = append(texts, in.Ban.Reason, in.Ban.By)
+		texts = append(texts, deref(in.Ban.Reason), deref(in.Ban.By))
 	}
 	for _, l := range in.Providers {
 		texts = append(texts, l.Issuer, l.Subject, l.Provider, l.Email)

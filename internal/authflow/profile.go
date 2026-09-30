@@ -72,11 +72,13 @@ func NewStepUpTwoFactorOptions(settings *TwoFactorSettings) *StepUpTwoFactorOpti
 		switch method {
 		case "email":
 			if factor.Email != nil {
-				option.VerificationID = contact.MaskDestination(*factor.Email)
+				masked := contact.MaskDestination(*factor.Email)
+				option.VerificationID = &masked
 			}
 		case "sms":
 			if factor.PhoneNumber != nil {
-				option.VerificationID = contact.MaskDestination(*factor.PhoneNumber)
+				masked := contact.MaskDestination(*factor.PhoneNumber)
+				option.VerificationID = &masked
 			}
 		}
 		out.Methods = append(out.Methods, method)

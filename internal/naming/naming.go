@@ -126,7 +126,7 @@ func FormerNameExpiresAt(c config.UsernameConfig, now time.Time) *time.Time {
 // Alias is a former username that still resolves to its owner.
 type Alias struct {
 	Name      string     `json:"name"`
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	ExpiresAt *time.Time `json:"expires_at"`
 }
 
 // PolicyInfo is the rename policy account UIs show. Timing is reported by
@@ -134,15 +134,15 @@ type Alias struct {
 type PolicyInfo struct {
 	Enabled                    bool                   `json:"enabled"`
 	FormerNameRetentionMode    config.FormerNamesMode `json:"former_name_retention_mode"`
-	FormerNameRetentionSeconds float64                `json:"former_name_retention_seconds"`
+	FormerNameRetentionSeconds int64                  `json:"former_name_retention_seconds"`
 }
 
 // State is an account's rename state.
 type State struct {
-	Aliases           []Alias    `json:"aliases,omitempty"`
+	Aliases           []Alias    `json:"aliases"`
 	Policy            PolicyInfo `json:"policy"`
 	Allowed           bool       `json:"allowed"`
-	NextRenameAt      *time.Time `json:"next_rename_at,omitempty"`
+	NextRenameAt      *time.Time `json:"next_rename_at"`
 	RetryAfterSeconds int64      `json:"retry_after_seconds"`
 }
 
@@ -154,7 +154,7 @@ func NewState(c config.UsernameConfig, last *time.Time, now time.Time) State {
 	}
 	out := State{Policy: PolicyInfo{
 		Enabled: c.Renames, FormerNameRetentionMode: c.FormerNames.Mode,
-		FormerNameRetentionSeconds: retention.Seconds(),
+		FormerNameRetentionSeconds: int64(retention / time.Second),
 	}, Allowed: c.Renames}
 	if next, ok := nextRename(c, last); ok {
 		out.NextRenameAt = &next

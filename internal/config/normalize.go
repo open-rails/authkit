@@ -275,7 +275,7 @@ func normalizeRegistration(r *RegistrationConfig) error {
 // NormalizePassword returns the policy with defaults: nil is the default
 // policy.
 func NormalizePassword(p *PasswordPolicy) (*PasswordPolicy, error) {
-	out := PasswordPolicy{RejectCommon: true}
+	var out PasswordPolicy
 	if p != nil {
 		out = *p
 	}

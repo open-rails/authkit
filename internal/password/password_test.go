@@ -60,10 +60,10 @@ func TestPolicyValidateCountsCharacters(t *testing.T) {
 }
 
 func TestPolicyNormalize(t *testing.T) {
-	if p := policy(t, nil); p != (config.PasswordPolicy{MinLength: config.DefaultPasswordMinLength, MaxLength: config.DefaultPasswordMaxLength, RejectCommon: true}) {
+	if p := policy(t, nil); p != (config.PasswordPolicy{MinLength: config.DefaultPasswordMinLength, MaxLength: config.DefaultPasswordMaxLength}) {
 		t.Fatalf("default = %+v", p)
 	}
-	if p := policy(t, &config.PasswordPolicy{MinLength: 200}); p.MaxLength != 200 || p.RejectCommon {
+	if p := policy(t, &config.PasswordPolicy{MinLength: 200}); p.MaxLength != 200 || p.AllowCommon {
 		t.Fatalf("a set policy is taken as written = %+v", p)
 	}
 	for _, bad := range []config.PasswordPolicy{{MinLength: -1}, {MinLength: 10, MaxLength: 9}, {MaxLength: config.PasswordMaxLengthCeiling + 1}} {
@@ -84,8 +84,13 @@ func TestPolicyRejectsCommonIdentifiersAndMissingClasses(t *testing.T) {
 	if err := Validate(p, "abc-12345", "abc"); err != nil {
 		t.Fatalf("short identifiers are ignored: %v", err)
 	}
-	if err := Validate(policy(t, &config.PasswordPolicy{}), "qwertyuiop"); err != nil {
-		t.Fatalf("without RejectCommon = %v", err)
+	// The zero value keeps the blocklist: a policy set only for its lengths
+	// never admits a common password by omission.
+	if err := Validate(policy(t, &config.PasswordPolicy{MinLength: 10}), "qwertyuiop"); err != ErrTooCommon {
+		t.Fatalf("a set policy without AllowCommon = %v", err)
+	}
+	if err := Validate(policy(t, &config.PasswordPolicy{AllowCommon: true}), "qwertyuiop"); err != nil {
+		t.Fatalf("with AllowCommon = %v", err)
 	}
 	strict := policy(t, &config.PasswordPolicy{RequireUppercase: true, RequireLowercase: true, RequireDigit: true, RequireSymbol: true})
 	var unmet *RequirementsError

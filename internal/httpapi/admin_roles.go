@@ -20,7 +20,7 @@ import (
 func (s *Service) handleAdminRolesGET(w http.ResponseWriter, r *http.Request) {
 	g, err := s.svc.Group(r.Context(), iam.RootGroup())
 	if err != nil {
-		s.writeGroupOpError(w, err)
+		writeError(w, err)
 		return
 	}
 	s.groupRolesList(w, g)
@@ -28,17 +28,26 @@ func (s *Service) handleAdminRolesGET(w http.ResponseWriter, r *http.Request) {
 
 func (s *Service) handleAdminUserRolePUT(w http.ResponseWriter, r *http.Request) {
 	s.adminUserRole(w, r, func(ctx context.Context, a iam.Actor, subject iam.Subject, role iam.Role) error {
-		_, err := s.svc.SetGroupRole(ctx, a, iam.RootGroup(), subject, role)
+		member, err := s.svc.SetGroupRole(ctx, a, iam.RootGroup(), subject, role)
+		if err == nil {
+			writeJSON(w, http.StatusOK, member)
+		}
 		return err
 	})
 }
 
 func (s *Service) handleAdminUserRoleDELETE(w http.ResponseWriter, r *http.Request) {
 	s.adminUserRole(w, r, func(ctx context.Context, a iam.Actor, subject iam.Subject, role iam.Role) error {
-		return s.svc.RemoveGroupMember(ctx, a, iam.RootGroup(), subject, ops.IfRole(role))
+		err := s.svc.RemoveGroupMember(ctx, a, iam.RootGroup(), subject, ops.IfRole(role))
+		if err == nil {
+			noContent(w)
+		}
+		return err
 	})
 }
 
+// adminUserRole runs op on {user_id} and the root role {role}; op answers its
+// success.
 func (s *Service) adminUserRole(w http.ResponseWriter, r *http.Request, op func(ctx context.Context, a iam.Actor, subject iam.Subject, role iam.Role) error) {
 	actor, ok := verify.ActorFromContext(r.Context())
 	if !ok {
@@ -56,12 +65,10 @@ func (s *Service) adminUserRole(w http.ResponseWriter, r *http.Request, op func(
 	}
 	role, err := s.groupRole(iam.RootPersona, text)
 	if err != nil {
-		writeError(w, remap(err, notFoundCodes, groupOpCodes))
+		writeError(w, err)
 		return
 	}
 	if err := op(r.Context(), actor, iam.UserSubject(userID), role); err != nil {
-		s.writeGroupOpError(w, err)
-		return
+		writeError(w, err)
 	}
-	noContent(w)
 }

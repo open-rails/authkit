@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/open-rails/authkit/verify"
 
@@ -31,10 +32,7 @@ func siwsDomain(baseURL, issuer string) string {
 }
 
 func (s *Service) handleSolanaChallengePOST(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Address  string `json:"address"`
-		Username string `json:"username"`
-	}
+	var req SolanaChallengeRequest
 	if err := decodeJSON(r, &req); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
@@ -68,11 +66,12 @@ func (s *Service) handleSolanaChallengePOST(w http.ResponseWriter, r *http.Reque
 		serverErr(w, "challenge_failed", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"nonce":     input.Nonce,
-		"issued_at": input.IssuedAt,
-		"message":   siws.ConstructMessage(input),
-	})
+	issuedAt, err := time.Parse(time.RFC3339Nano, input.IssuedAt)
+	if err != nil {
+		serverErr(w, "challenge_failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, SolanaChallenge{Nonce: input.Nonce, IssuedAt: issuedAt, Message: siws.ConstructMessage(input)})
 }
 
 func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) {
@@ -94,12 +93,10 @@ func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) 
 		go s.svc.SendWelcome(context.Background(), out.UserID)
 	}
 
-	s.writeTokenSetWith(w, r, http.StatusOK, out.Session.TokenSet(), map[string]any{
-		"created": out.Created,
-		"user": map[string]any{
-			"id":             out.UserID,
-			"solana_address": output.Account.Address,
-		},
+	writeJSON(w, http.StatusOK, SolanaLoginResult{
+		TokenSet: s.deliverRefreshToken(w, r, out.Session.TokenSet()),
+		Created:  out.Created,
+		User:     SolanaUser{ID: out.UserID, SolanaAddress: output.Account.Address},
 	})
 }
 
@@ -125,7 +122,7 @@ func (s *Service) handleSolanaLinkPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"solana_address": output.Account.Address})
+	writeJSON(w, http.StatusOK, SolanaLink{SolanaAddress: output.Account.Address})
 }
 
 // decodeSIWSB64 decodes a base64 string, trying StdEncoding then RawURLEncoding —
@@ -141,16 +138,7 @@ func decodeSIWSB64(s string) ([]byte, error) {
 // SIWS request body used by both the login and link handlers. On a decode failure
 // it writes the appropriate 400 and returns ok=false (the caller just returns).
 func decodeSIWSOutput(w http.ResponseWriter, r *http.Request) (siws.SignInOutput, bool) {
-	var req struct {
-		Output struct {
-			Account struct {
-				Address   string `json:"address"`
-				PublicKey string `json:"publicKey"`
-			} `json:"account"`
-			Signature     string `json:"signature"`
-			SignedMessage string `json:"signedMessage"`
-		} `json:"output"`
-	}
+	var req SolanaSignInRequest
 	if err := decodeJSON(r, &req); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return siws.SignInOutput{}, false

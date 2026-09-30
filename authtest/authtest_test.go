@@ -81,7 +81,7 @@ func TestOutboxCompletesSignUp(t *testing.T) {
 	require.NotEmpty(t, sent.Token)
 	require.Equal(t, http.StatusOK, post("/verify/confirm", `{"identifier":"`+email+`","code":"`+sent.Code+`"}`))
 
-	tokens := authtest.SignIn(t, auth, authtest.User{User: iam.User{Email: email}, Password: authtest.Password})
+	tokens := authtest.SignIn(t, auth, authtest.User{Email: email, Password: authtest.Password})
 	require.NotEmpty(t, tokens.AccessToken)
 	require.Empty(t, outbox.Messages(iam.MessageLoginCode, email))
 }

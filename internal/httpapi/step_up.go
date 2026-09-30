@@ -24,9 +24,7 @@ func (s *Service) handlePasswordStepUpPOST(w http.ResponseWriter, r *http.Reques
 		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
-	var body struct {
-		Password string `json:"password"`
-	}
+	var body PasswordRequest
 	if err := decodeJSON(r, &body); err != nil || body.Password == "" {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
@@ -70,12 +68,7 @@ func (s *Service) handleTwoFactorStepUpPOST(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	var body struct {
-		Code       string `json:"code"`
-		Method     string `json:"method"`
-		FactorID   string `json:"factor_id"`
-		BackupCode bool   `json:"backup_code"`
-	}
+	var body TwoFactorStepUpRequest
 	if err := decodeJSON(r, &body); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
@@ -140,9 +133,7 @@ func (s *Service) handleOIDCStepUpStartPOST(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	var body struct {
-		ReturnTo string `json:"return_to"`
-	}
+	var body ReturnToRequest
 	_ = decodeJSON(r, &body)
 
 	// #294: only a provider that proves a fresh interactive login (OIDC
@@ -207,13 +198,12 @@ func (s *Service) completeOIDCStepUp(w http.ResponseWriter, r *http.Request, sd 
 func (s *Service) emitStepUpResult(w http.ResponseWriter, r *http.Request, sd oidcstate.StateData, providerName string) bool {
 	if strings.EqualFold(r.URL.Query().Get("format"), "json") || strings.Contains(r.Header.Get("Accept"), "application/json") {
 		freshness, _ := s.svc.SessionFreshness(r.Context(), sd.StepUpUserID, sd.StepUpSessionID, time.Now())
-		body, err := s.freshAccessTokenResponse(r, sd.StepUpUserID, sd.StepUpSessionID, freshness)
+		fresh, err := s.freshAccessTokenResponse(r, sd.StepUpUserID, sd.StepUpSessionID, freshness)
 		if err != nil {
 			redirectStepUpResult(w, r, sd.StepUpReturnTo, "failed")
 			return true
 		}
-		body["provider"] = providerName
-		writeJSON(w, http.StatusOK, body)
+		writeJSON(w, http.StatusOK, OIDCStepUpResult{TokenSet: fresh.TokenSet, FreshAuth: fresh.FreshAuth, Provider: providerName})
 		return true
 	}
 	redirectStepUpResult(w, r, sd.StepUpReturnTo, "success")
@@ -232,7 +222,7 @@ func validOIDCStepUpTime(startedAt, authTime, now time.Time) bool {
 // verify.Sensitive applies to host routes), or, for an account without a
 // second factor, a correct password in the request, which re-authenticates
 // the session and returns a fresh token set.
-func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Request, claims verify.Claims, password string) (bool, map[string]any) {
+func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Request, claims verify.Claims, password string) (bool, *StepUpResult) {
 	err := s.svc.CheckRecentSignIn(r.Context(), claims)
 	if err == nil {
 		return true, nil
@@ -259,12 +249,12 @@ func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Requ
 		return false, nil
 	}
 	freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
-	body, err := s.freshAccessTokenResponse(r, claims.UserID, claims.SessionID, freshness)
+	fresh, err := s.freshAccessTokenResponse(r, claims.UserID, claims.SessionID, freshness)
 	if err != nil {
 		serverErr(w, "token_issue_failed", err)
 		return false, nil
 	}
-	return true, body
+	return true, &fresh
 }
 
 // requireStepUp answers step_up_required with how userID can step up.
@@ -272,15 +262,13 @@ func (s *Service) requireStepUp(w http.ResponseWriter, r *http.Request, userID s
 	writeError(w, s.svc.StepUpRequired(r.Context(), userID))
 }
 
-func (s *Service) freshAccessTokenResponse(r *http.Request, userID, sessionID string, freshness authflow.SessionFreshness) (map[string]any, error) {
+// freshAccessTokenResponse mints the re-authenticated session's access token.
+func (s *Service) freshAccessTokenResponse(r *http.Request, userID, sessionID string, freshness authflow.SessionFreshness) (StepUpResult, error) {
 	token, exp, err := s.svc.MintSessionAccessToken(r.Context(), userID, sessionID)
 	if err != nil {
-		return nil, err
+		return StepUpResult{}, err
 	}
-	return map[string]any{
-		"token_set":  iam.TokenSet{AccessToken: token, TokenType: "Bearer", ExpiresIn: int64(time.Until(exp).Seconds())},
-		"fresh_auth": sessionFreshnessResponse(freshness),
-	}, nil
+	return StepUpResult{TokenSet: iam.NewTokenSet(token, "", exp), FreshAuth: freshAuth(freshness)}, nil
 }
 
 // hasUsableMFA reports whether the account has an enabled second factor. A
@@ -290,16 +278,14 @@ func (s *Service) hasUsableMFA(r *http.Request, userID string) bool {
 	return ok || err != nil
 }
 
-func sessionFreshnessResponse(f authflow.SessionFreshness) map[string]any {
-	out := map[string]any{
-		"step_up_required_for_sensitive_actions": f.StepUpRequiredForSensitiveOps,
-		"time_until_step_up_required":            int64((f.TimeUntilStepUpRequired + time.Second - time.Nanosecond) / time.Second),
+func freshAuth(f authflow.SessionFreshness) FreshAuth {
+	out := FreshAuth{
+		StepUpRequiredForSensitiveActions: f.StepUpRequiredForSensitiveOps,
+		TimeUntilStepUpRequired:           int64((f.TimeUntilStepUpRequired + time.Second - time.Nanosecond) / time.Second),
+		AuthMethods:                       f.AuthMethods,
 	}
 	if !f.LastAuthenticatedAt.IsZero() {
-		out["last_authenticated_at"] = f.LastAuthenticatedAt.UTC().Format(time.RFC3339)
-	}
-	if len(f.AuthMethods) > 0 {
-		out["auth_methods"] = f.AuthMethods
+		out.LastAuthenticatedAt = &f.LastAuthenticatedAt
 	}
 	return out
 }

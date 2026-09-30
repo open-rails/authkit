@@ -7,32 +7,32 @@ import (
 )
 
 // User is an account. It is the privileged view: it carries contact details,
-// so render other people with PublicUser.
+// so render other people with PublicUser. A nil field is unset.
 type User struct {
 	ID                string     `json:"id"`
-	Email             string     `json:"email,omitempty"`
-	Phone             string     `json:"phone,omitempty"`
-	Username          string     `json:"username,omitempty"`
+	Email             *string    `json:"email"`
+	Phone             *string    `json:"phone_number"`
+	Username          string     `json:"username"`
 	EmailVerified     bool       `json:"email_verified"`
 	PhoneVerified     bool       `json:"phone_verified"`
-	PreferredLanguage string     `json:"preferred_language,omitempty"`
-	AvatarURL         string     `json:"avatar_url,omitempty"`
+	PreferredLanguage *string    `json:"preferred_language"`
+	AvatarURL         *string    `json:"avatar_url"`
 	CreatedAt         time.Time  `json:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at"`
-	LastLogin         *time.Time `json:"last_login,omitempty"`
-	DeletedAt         *time.Time `json:"deleted_at,omitempty"`
+	LastLogin         *time.Time `json:"last_login"`
+	DeletedAt         *time.Time `json:"deleted_at"`
 	// Ban is nil when no ban is in force.
-	Ban *BanState `json:"ban,omitempty"`
+	Ban *BanState `json:"ban"`
 }
 
 // BanState is a ban in force: when it began, until when (nil =
-// indefinitely), why, and the account that banned (By, "" for the system or a
-// machine).
+// indefinitely), why, and the account that banned (By, nil for the system or
+// a machine).
 type BanState struct {
 	At     time.Time  `json:"at" yaml:"at"`
-	Until  *time.Time `json:"until,omitempty" yaml:"until"`
-	Reason string     `json:"reason,omitempty" yaml:"reason"`
-	By     string     `json:"by,omitempty" yaml:"by"`
+	Until  *time.Time `json:"until" yaml:"until"`
+	Reason *string    `json:"reason" yaml:"reason"`
+	By     *string    `json:"by" yaml:"by"`
 }
 
 // PublicUser is what other people may see of an account. A deleted account
@@ -185,10 +185,10 @@ type UserQuery struct {
 }
 
 // UserEntry is one row of the user directory: the account and its root
-// role (zero when it holds none), and, when the query asks, its entitlements.
+// role (nil when it holds none), and, when the query asks, its entitlements.
 type UserEntry struct {
 	User
-	RootRole     Role     `json:"root_role"`
+	RootRole     *Role    `json:"root_role"`
 	Entitlements []string `json:"entitlements"`
 }
 
@@ -196,7 +196,7 @@ type UserEntry struct {
 // the key behind the access token of the request that listed it.
 type DeviceKey struct {
 	ID         string            `json:"id"`
-	Label      string            `json:"label"`
+	Label      *string           `json:"label"`
 	PublicKey  ed25519.PublicKey `json:"public_key"`
 	CreatedAt  time.Time         `json:"created_at"`
 	LastUsedAt *time.Time        `json:"last_used_at"`
@@ -204,14 +204,16 @@ type DeviceKey struct {
 	Current    bool              `json:"current"`
 }
 
-// Session is one refresh session on this deployment's issuer.
+// Session is one refresh session on this deployment's issuer. Current marks
+// the session behind the access token of the request that listed it.
 type Session struct {
 	ID         string     `json:"id"`
 	CreatedAt  time.Time  `json:"created_at"`
 	LastUsedAt time.Time  `json:"last_used_at"`
-	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
-	UserAgent  string     `json:"user_agent,omitempty"`
-	IP         string     `json:"ip,omitempty"`
+	ExpiresAt  *time.Time `json:"expires_at"`
+	UserAgent  *string    `json:"user_agent"`
+	IP         *string    `json:"ip"`
+	Current    bool       `json:"current"`
 }
 
 // SessionEventKind names an entry of an account's session history.
@@ -235,11 +237,11 @@ type SessionEvent struct {
 	Kind       SessionEventKind `json:"kind"`
 	OccurredAt time.Time        `json:"occurred_at"`
 	Issuer     string           `json:"issuer"`
-	SessionID  string           `json:"session_id,omitempty"`
-	Method     string           `json:"method,omitempty"`
-	Reason     string           `json:"reason,omitempty"`
-	IP         string           `json:"ip,omitempty"`
-	UserAgent  string           `json:"user_agent,omitempty"`
+	SessionID  *string          `json:"session_id"`
+	Method     *string          `json:"method"`
+	Reason     *string          `json:"reason"`
+	IP         *string          `json:"ip"`
+	UserAgent  *string          `json:"user_agent"`
 }
 
 // SessionEventQuery pages an account's session history, newest first. No

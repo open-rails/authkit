@@ -24,17 +24,9 @@ func (s *Engine) UserProfile(ctx context.Context, in authflow.ProfileInput) (aut
 	if held, err := s.rootRoles(ctx, []string{u.ID}); err == nil && !held[u.ID].IsZero() {
 		roles = append(roles, held[u.ID].String())
 	}
-	username := ""
-	if u.Username != nil {
-		username = strings.TrimSpace(*u.Username)
-	}
-	if username == "" {
-		username = strings.TrimSpace(in.ClaimsUsername)
-	}
-	var preferredLanguage *string
-	if u.PreferredLanguage != nil && strings.TrimSpace(*u.PreferredLanguage) != "" {
-		language := *u.PreferredLanguage
-		preferredLanguage = &language
+	user := publicUser(u, time.Now())
+	if user.Username == "" {
+		user.Username = strings.TrimSpace(in.ClaimsUsername)
 	}
 	hasPassword, err := s.HasPassword(ctx, u.ID)
 	if err != nil {
@@ -50,16 +42,11 @@ func (s *Engine) UserProfile(ctx context.Context, in authflow.ProfileInput) (aut
 			}
 		}
 	}
-	var createdAt *string
-	if !u.CreatedAt.IsZero() {
-		formatted := u.CreatedAt.UTC().Format(time.RFC3339)
-		createdAt = &formatted
-	}
-	var lastAuthenticatedAt *string
+	var lastAuthenticatedAt *time.Time
 	var timeUntilStepUpRequired *int64
 	if !in.AuthTime.IsZero() {
-		formatted := in.AuthTime.UTC().Format(time.RFC3339)
-		lastAuthenticatedAt = &formatted
+		at := in.AuthTime
+		lastAuthenticatedAt = &at
 		remaining := authflow.SensitiveActionFreshAuthWindow - time.Since(in.AuthTime)
 		if remaining < 0 {
 			remaining = 0
@@ -78,20 +65,12 @@ func (s *Engine) UserProfile(ctx context.Context, in authflow.ProfileInput) (aut
 	// profile.
 	namingState, _ := s.UserNamingState(ctx, u.ID)
 	return authflow.UserProfile{
-		ID:                  u.ID,
-		Username:            username,
-		Email:               u.Email,
-		PhoneNumber:         u.PhoneNumber,
-		EmailVerified:       u.EmailVerified,
-		PhoneVerified:       u.PhoneVerified,
+		User:                user,
 		HasPassword:         hasPassword,
 		SolanaLinkedAccount: solanaLinkedAccount,
 		LinkedProviders:     linkedProviders,
 		Roles:               roles,
 		Entitlements:        s.listEntitlements(ctx, u.ID),
-		AvatarURL:           u.AvatarURL,
-		PreferredLanguage:   preferredLanguage,
-		CreatedAt:           createdAt,
 		Naming:              namingState,
 		Security: authflow.UserSecurity{
 			LastAuthenticatedAt:               lastAuthenticatedAt,

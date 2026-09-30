@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 
@@ -51,7 +52,7 @@ func (s *Service) handlePasskeyRegisterFinishPOST(w http.ResponseWriter, r *http
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	writeJSON(w, http.StatusOK, passkey)
+	writeJSON(w, http.StatusCreated, passkey)
 }
 
 func (s *Service) handlePasskeyLoginBeginPOST(w http.ResponseWriter, r *http.Request) {
@@ -99,7 +100,7 @@ func (s *Service) handlePasskeysGET(w http.ResponseWriter, r *http.Request) {
 		serverErr(w, "passkey_failed", err)
 		return
 	}
-	writeList(w, passkeys, "")
+	all(w, passkeys)
 }
 
 func (s *Service) handlePasskeyPATCH(w http.ResponseWriter, r *http.Request) {
@@ -111,18 +112,28 @@ func (s *Service) handlePasskeyPATCH(w http.ResponseWriter, r *http.Request) {
 	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, ""); !ok {
 		return
 	}
-	var req struct {
-		Label string `json:"label"`
-	}
+	var req LabelRequest
 	if err := decodeJSON(r, &req); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	if err := s.svc.RenamePasskey(r.Context(), claims.UserID, r.PathValue("id"), req.Label); err != nil {
-		writeError(w, remap(err, notFoundCodes))
+	id := r.PathValue("id")
+	if err := s.svc.RenamePasskey(r.Context(), claims.UserID, id, req.Label); err != nil {
+		writeError(w, err)
 		return
 	}
-	noContent(w)
+	passkeys, err := s.svc.ListPasskeys(r.Context(), claims.UserID)
+	if err != nil {
+		serverErr(w, "passkey_failed", err)
+		return
+	}
+	for _, p := range passkeys {
+		if p.ID == id {
+			writeJSON(w, http.StatusOK, p)
+			return
+		}
+	}
+	fail(w, errmodel.CodePasskeyNotFound)
 }
 
 func (s *Service) handlePasskeyDELETE(w http.ResponseWriter, r *http.Request) {
@@ -134,8 +145,8 @@ func (s *Service) handlePasskeyDELETE(w http.ResponseWriter, r *http.Request) {
 	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, ""); !ok {
 		return
 	}
-	if err := s.svc.DeletePasskey(r.Context(), claims.UserID, r.PathValue("id")); err != nil {
-		writeError(w, remap(err, notFoundCodes))
+	if err := s.svc.DeletePasskey(r.Context(), claims.UserID, r.PathValue("id")); err != nil && !errors.Is(err, errmodel.ErrPasskeyNotFound) {
+		writeError(w, err)
 		return
 	}
 	noContent(w)

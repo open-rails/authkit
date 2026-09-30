@@ -80,7 +80,7 @@ func (s *Engine) createInviteLink(ctx context.Context, a iam.Actor, host pgx.Tx,
 			GroupID: g.ID, Role: n.Role.String(), InvitedBy: nullable(creator), CodeHash: secret.Hash(out.Code), ExpiresAt: expiresAt,
 			CatalogIssuer: s.cfg.Token.Issuer,
 		})
-		out.Invitation = iam.Invitation{ID: row.ID, GroupID: g.ID, Role: n.Role, CreatedBy: creator, CreatedAt: row.CreatedAt, ExpiresAt: &expiresAt}
+		out.Invitation = iam.Invitation{ID: row.ID, GroupID: g.ID, Role: n.Role, CreatedBy: nullable(creator), CreatedAt: row.CreatedAt, ExpiresAt: &expiresAt}
 		return err
 	})
 	if err != nil {
@@ -131,7 +131,7 @@ func (s *Engine) createEmailInvitation(ctx context.Context, a iam.Actor, ref iam
 			Email: email, InvitedBy: nullable(creator), CodeHash: secret.Hash(out.Code), ExpiresAt: expiresAt, GroupID: groupID, Role: roleText,
 			CatalogIssuer: s.cfg.Token.Issuer,
 		})
-		out.Invitation = iam.Invitation{ID: row.ID, GroupID: g.ID, Role: role, Email: email, CreatedBy: creator, CreatedAt: row.CreatedAt, ExpiresAt: &expiresAt}
+		out.Invitation = iam.Invitation{ID: row.ID, GroupID: g.ID, Role: role, Email: nullable(email), CreatedBy: nullable(creator), CreatedAt: row.CreatedAt, ExpiresAt: &expiresAt}
 		return err
 	})
 	if err != nil {
@@ -167,7 +167,7 @@ func (s *Engine) ListInvitations(ctx context.Context, ref iam.GroupRef, p iam.Pa
 	items := make([]iam.Invitation, len(rows))
 	for i, r := range rows {
 		items[i] = iam.Invitation{
-			ID: r.ID, GroupID: g.ID, Role: ident.RoleText(r.Role), Email: r.Email, CreatedBy: r.CreatedBy,
+			ID: r.ID, GroupID: g.ID, Role: ident.RoleText(r.Role), Email: nullable(r.Email), CreatedBy: nullable(r.CreatedBy),
 			CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt, RedeemedAt: r.RedeemedAt, RevokedAt: r.RevokedAt,
 		}
 	}

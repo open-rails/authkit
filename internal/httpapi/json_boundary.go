@@ -16,12 +16,12 @@ func (s *Service) guardJSONAPI(next http.Handler) http.Handler {
 		if r.ContentLength != 0 && r.Body != nil && r.Body != http.NoBody {
 			mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 			if err != nil || mediaType != "application/json" {
-				fail(w, errmodel.CodeInvalidRequest)
+				fail(w, errmodel.CodeUnsupportedMediaType)
 				return
 			}
 		}
 		if _, cookies := refreshCookieEnabled(r); cookies && r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions && !s.cookieOriginAllowed(r) {
-			fail(w, errmodel.CodeInvalidRequest)
+			fail(w, errmodel.CodeOriginNotAllowed)
 			return
 		}
 		next.ServeHTTP(w, r)

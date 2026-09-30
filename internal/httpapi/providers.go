@@ -78,11 +78,11 @@ func (s *Service) providerNames() []string {
 	return names
 }
 
-func (s *Service) providerSummaries() []AuthProviderSummary {
+func (s *Service) providerSummaries() []ExternalLoginProvider {
 	names := s.providerNames()
-	out := make([]AuthProviderSummary, 0, len(names))
+	out := make([]ExternalLoginProvider, 0, len(names))
 	for _, name := range names {
-		out = append(out, AuthProviderSummary{
+		out = append(out, ExternalLoginProvider{
 			ID:                   name,
 			Name:                 s.providers[name].DisplayName(),
 			SupportsLogin:        true,

@@ -674,7 +674,7 @@ func TestBootstrapWorkflow(t *testing.T) {
 `))
 	require.NoError(t, err)
 	until := time.Date(2099, 1, 2, 3, 4, 5, 0, time.UTC)
-	require.Equal(t, &iam.BanState{Reason: "seeded", Until: &until}, parsed.Users[0].Ban)
+	require.Equal(t, &iam.BanState{Reason: new("seeded"), Until: &until}, parsed.Users[0].Ban)
 	require.Equal(t, iam.HashBcrypt, parsed.Users[0].Password.Algo)
 	dry, err := auth.ApplyBootstrapManifest(ctx, manifest, iam.BootstrapOptions{DryRun: true})
 	require.NoError(t, err)

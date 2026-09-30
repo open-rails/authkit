@@ -12,13 +12,7 @@ import (
 )
 
 func (s *Service) handlePasswordlessStartPOST(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Identifier         string `json:"identifier"`
-		Mode               string `json:"mode"`
-		ReturnTo           string `json:"return_to"`
-		PreferredLanguage  string `json:"preferred_language"`
-		AccountInviteToken string `json:"account_invite_token,omitempty"`
-	}
+	var req PasswordlessStartRequest
 	if err := decodeJSON(r, &req); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
@@ -47,11 +41,7 @@ func (s *Service) handlePasswordlessStartPOST(w http.ResponseWriter, r *http.Req
 }
 
 func (s *Service) handlePasswordlessConfirmPOST(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Identifier string `json:"identifier"`
-		Code       string `json:"code"`
-		Token      string `json:"token"`
-	}
+	var req CodeOrLinkRequest
 	if err := decodeJSON(r, &req); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
@@ -84,9 +74,8 @@ func (s *Service) handlePasswordlessConfirmPOST(w http.ResponseWriter, r *http.R
 	if s.writeLoginContinuation(w, r, result, nil) {
 		return
 	}
-	var extra map[string]any
-	if result.ReturnTo != "" {
-		extra = map[string]any{"return_to": result.ReturnTo}
-	}
-	s.writeTokenSetWith(w, r, http.StatusOK, result.Session.TokenSet(), extra)
+	writeJSON(w, http.StatusOK, PasswordlessResult{
+		TokenSet: s.deliverRefreshToken(w, r, result.Session.TokenSet()),
+		ReturnTo: nullableString(result.ReturnTo),
+	})
 }

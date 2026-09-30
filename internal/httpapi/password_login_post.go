@@ -14,10 +14,7 @@ import (
 // verification gate, credentials, the account gate, 2FA, session) is
 // authkit.PasswordLogin (ak#318).
 func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Identifier string `json:"identifier"` // email, phone number, or username
-		Password   string `json:"password"`
-	}
+	var req PasswordLoginRequest
 	if err := decodeJSON(r, &req); err != nil || req.Password == "" {
 		fail(w, errmodel.CodeInvalidRequest)
 		return

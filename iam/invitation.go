@@ -33,8 +33,8 @@ type Invitation struct {
 	ID         string     `json:"id"`
 	GroupID    string     `json:"group_id"`
 	Role       Role       `json:"role"`
-	Email      string     `json:"email"`
-	CreatedBy  string     `json:"created_by"` // "" = issued by the system
+	Email      *string    `json:"email"`      // nil = a link, not an email invitation
+	CreatedBy  *string    `json:"created_by"` // nil = issued by the system
 	CreatedAt  time.Time  `json:"created_at"`
 	ExpiresAt  *time.Time `json:"expires_at"`
 	RedeemedAt *time.Time `json:"redeemed_at"`

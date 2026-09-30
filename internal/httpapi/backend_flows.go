@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/oidcstate"
 	"github.com/open-rails/authkit/internal/siws"
@@ -41,7 +42,7 @@ type flowsBackend interface {
 	FinishDeviceKeyLogin(ctx context.Context, challengeID, signature string) (authflow.DeviceKeyAuthResult, error)
 	FinishPasskeyLogin(ctx context.Context, response []byte, userAgent string, ip net.IP) (authflow.LoginOutcome, error)
 	ConfirmAccountRecovery(ctx context.Context, token string) error
-	FinishPasskeyRegistration(ctx context.Context, userID string, response []byte) (authflow.Passkey, error)
+	FinishPasskeyRegistration(ctx context.Context, userID string, response []byte) (iam.Passkey, error)
 	GenerateSIWSChallenge(ctx context.Context, domain, address, username string) (siws.SignInInput, error)
 	Get2FASettings(ctx context.Context, userID string) (*authflow.TwoFactorSettings, error)
 	GetProviderLinkByIssuer(ctx context.Context, issuer, subject string) (string, *string, error)
@@ -50,7 +51,7 @@ type flowsBackend interface {
 	HasProviderLink(ctx context.Context, userID, issuer, providerSlug string) (bool, error)
 	JWKS() keys.JWKS
 	LinkSolanaWallet(ctx context.Context, userID string, output siws.SignInOutput) error
-	ListPasskeys(ctx context.Context, userID string) ([]authflow.Passkey, error)
+	ListPasskeys(ctx context.Context, userID string) ([]iam.Passkey, error)
 	LogSessionFailed(ctx context.Context, userID string, sessionID string, reason *string, ip *string, ua *string)
 	MarkSessionAuthenticated(ctx context.Context, userID, sessionID string) error
 	MarkSessionAuthenticatedWithMethods(ctx context.Context, userID, sessionID string, authMethods []string) error

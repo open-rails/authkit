@@ -62,14 +62,14 @@ func TestImportTextAndBans(t *testing.T) {
 	at := time.Date(2023, 3, 4, 5, 6, 7, 0, time.UTC)
 	banner := uuid.NewString()
 	res, err := auth.ImportUsers(ctx, []iam.ImportUser{
-		{Email: "banned@example.test", Username: "banned", Ban: &iam.BanState{At: at, Reason: "spam", By: banner}},
+		{Email: "banned@example.test", Username: "banned", Ban: &iam.BanState{At: at, Reason: new("spam"), By: &banner}},
 		{ID: banner, Email: "moderator@example.test", Username: "moderator"},
 		{Email: "bad\xfftext@example.test", Username: "badtext"},
 		{Email: "badmeta@example.test", Username: "badmeta", Metadata: map[string]any{"bio": map[string]any{"quote": "\xff"}}},
 		{Email: "badkey@example.test", Username: "badkey", Metadata: map[string]any{"\xff": true}},
-		{Email: "noat@example.test", Username: "noat", Ban: &iam.BanState{Reason: "no time"}},
-		{Email: "badby@example.test", Username: "badby", Ban: &iam.BanState{At: at, By: "not-a-uuid"}},
-		{Email: "ghostby@example.test", Username: "ghostby", Ban: &iam.BanState{At: at, By: uuid.NewString()}},
+		{Email: "noat@example.test", Username: "noat", Ban: &iam.BanState{Reason: new("no time")}},
+		{Email: "badby@example.test", Username: "badby", Ban: &iam.BanState{At: at, By: new("not-a-uuid")}},
+		{Email: "ghostby@example.test", Username: "ghostby", Ban: &iam.BanState{At: at, By: new(uuid.NewString())}},
 		{Email: "unicode@example.test", Username: "unicode", Metadata: map[string]any{"bio": "café ☕"}},
 	}, iam.ImportOptions{})
 	require.NoError(t, err)
@@ -81,7 +81,7 @@ func TestImportTextAndBans(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, banned.Ban)
 	require.True(t, at.Equal(banned.Ban.At))
-	require.Equal(t, iam.BanState{At: banned.Ban.At, Reason: "spam", By: banner}, *banned.Ban)
+	require.Equal(t, iam.BanState{At: banned.Ban.At, Reason: new("spam"), By: &banner}, *banned.Ban)
 	ghost, err := auth.User(ctx, iam.UserByID(res.Rows[7].UserID))
 	require.NoError(t, err)
 	require.NotNil(t, ghost.Ban)

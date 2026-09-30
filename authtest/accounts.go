@@ -29,9 +29,11 @@ import (
 // Password is the password NewUser gives every account.
 const Password = "Authtest-password-1"
 
-// User is an account and what SignIn needs to sign it in.
+// User is an account and what SignIn needs to sign it in. Email is the
+// account's address as text ("" for none).
 type User struct {
 	iam.User
+	Email    string
 	Password string
 	// TOTP is the authenticator app SignIn answers a second-factor challenge
 	// with; EnrollTOTP returns it.
@@ -49,7 +51,7 @@ func NewUser(t testing.TB, auth *authkit.Client) User {
 	if err != nil {
 		t.Fatalf("authtest: create user: %v", err)
 	}
-	return User{User: u, Password: Password}
+	return User{User: u, Email: name + "@example.com", Password: Password}
 }
 
 // SignIn signs u in with its password through auth's HTTP surface and, when

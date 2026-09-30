@@ -350,7 +350,7 @@ func validateBootstrapManifest(manifest iam.BootstrapManifest, allowInsecureJWKS
 		if strings.TrimSpace(user.Username) == "" {
 			return errmodel.ErrInvalidBootstrapManifest
 		}
-		if b := user.Ban; b != nil && (!b.At.IsZero() || b.By != "") {
+		if b := user.Ban; b != nil && (!b.At.IsZero() || deref(b.By) != "") {
 			return errmodel.ErrInvalidBootstrapManifest
 		}
 		if user.Password != nil {
@@ -439,7 +439,7 @@ func bootstrapAccount(user iam.BootstrapManifestUser) newAccount {
 	}
 	if b := user.Ban; b != nil {
 		now := time.Now().UTC()
-		acct.BannedAt, acct.BannedUntil, acct.BanReason = &now, b.Until, nullable(strings.TrimSpace(b.Reason))
+		acct.BannedAt, acct.BannedUntil, acct.BanReason = &now, b.Until, nullable(strings.TrimSpace(deref(b.Reason)))
 	}
 	return acct
 }

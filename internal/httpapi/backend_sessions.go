@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -19,7 +18,6 @@ type sessionsBackend interface {
 	StepUpRequired(ctx context.Context, userID string) error
 	MintSessionAccessToken(ctx context.Context, userID, sessionID string) (string, time.Time, error)
 	ListDeviceKeys(ctx context.Context, userID, currentID string) ([]iam.DeviceKey, error)
-	ListUserSessions(ctx context.Context, userID string) ([]authflow.Session, error)
 	RevokeDeviceKey(ctx context.Context, userID, currentID, targetID string) error
 	RevokeIssuerSessions(ctx context.Context, userID string, keepSessionID *string) error
 	RevokeOtherDeviceKeys(ctx context.Context, userID, currentID string) error

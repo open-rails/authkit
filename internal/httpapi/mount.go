@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 // Mount layout. The whole surface lives beneath one base path: the path of
@@ -110,9 +111,11 @@ func NewMount(svc *Service) (result *Mount, err error) {
 			result.routes = append(result.routes, route)
 		}
 	}
-	if jwks := joinRoutePath(base, iam.JWKSPath); !skip(http.MethodGet, jwks) {
-		register("GET "+jwks, svc.JWKSHandler(), iam.Route{Method: http.MethodGet, Path: jwks, Group: iam.RouteAuth, Auth: iam.AuthPublic})
-		layout.jwks = jwks
+	for _, spec := range Catalog() {
+		if path := joinRoutePath(base, spec.Path); spec.Surface == SurfaceBase && !skip(spec.Method, path) {
+			register(spec.Method+" "+path, spec.serve(svc), iam.Route{Method: spec.Method, Path: path, Group: spec.Group, Auth: spec.Auth, Permission: spec.Perm})
+			layout.jwks = path
+		}
 	}
 
 	// #243/ak#324: the MFA-enrollment exempt surface is anchored at THIS
@@ -141,7 +144,7 @@ func NewMount(svc *Service) (result *Mount, err error) {
 			if jsonAPI && isOIDCPath(spec.Path) && layout.oidc == "" {
 				continue
 			}
-			route := iam.Route{Method: spec.Method, Path: joinRoutePath(anchor, spec.Path), Group: spec.Group, Auth: spec.Auth, Permission: spec.Permission}
+			route := iam.Route{Method: spec.Method, Path: joinRoutePath(anchor, spec.Path), Group: spec.Group, Auth: spec.Auth, Permission: spec.Perm}
 			if skip(route.Method, route.Path) {
 				continue
 			}
@@ -163,7 +166,7 @@ func NewMount(svc *Service) (result *Mount, err error) {
 		}
 	}
 
-	result.handler = withMountLayout(mux, layout)
+	result.handler = withMountLayout(apiMisses(mux, api), layout)
 	if opts.RefreshCookie {
 		result.handler = withRefreshCookiePolicy(result.handler, refreshCookiePolicy{})
 	}
@@ -180,4 +183,45 @@ func joinRoutePath(prefix, path string) string {
 		return "/"
 	}
 	return prefix + path
+}
+
+// apiMisses answers a request beneath the API anchor that matches no route
+// with the JSON envelope: 404 not_found, or 405 method_not_allowed with the
+// Allow header ServeMux computed.
+func apiMisses(mux *http.ServeMux, api string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h, pattern := mux.Handler(r)
+		if pattern != "" || (api != "/" && r.URL.Path != api && !strings.HasPrefix(r.URL.Path, api+"/")) {
+			mux.ServeHTTP(w, r)
+			return
+		}
+		probe := &statusProbe{header: http.Header{}}
+		h.ServeHTTP(probe, r)
+		switch probe.status {
+		case http.StatusNotFound:
+			fail(w, errmodel.CodeNotFound)
+		case http.StatusMethodNotAllowed:
+			w.Header().Set("Allow", probe.header.Get("Allow"))
+			fail(w, errmodel.CodeMethodNotAllowed)
+		default:
+			mux.ServeHTTP(w, r)
+		}
+	})
+}
+
+// statusProbe records the status and headers a handler answers with.
+type statusProbe struct {
+	header http.Header
+	status int
+}
+
+func (p *statusProbe) Header() http.Header { return p.header }
+func (p *statusProbe) WriteHeader(status int) {
+	if p.status == 0 {
+		p.status = status
+	}
+}
+func (p *statusProbe) Write(b []byte) (int, error) {
+	p.WriteHeader(http.StatusOK)
+	return len(b), nil
 }

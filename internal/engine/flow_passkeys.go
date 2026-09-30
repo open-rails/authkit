@@ -15,6 +15,7 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
@@ -118,13 +119,13 @@ func (s *Engine) beginPasskeyCreation(ctx context.Context, u passkeyUser, purpos
 	return creation, s.storePasskeySession(ctx, session, purpose, u.id)
 }
 
-func (s *Engine) FinishPasskeyRegistration(ctx context.Context, userID string, response []byte) (authflow.Passkey, error) {
+func (s *Engine) FinishPasskeyRegistration(ctx context.Context, userID string, response []byte) (iam.Passkey, error) {
 	if err := s.RequireProvenContact(ctx, strings.TrimSpace(userID)); err != nil {
-		return authflow.Passkey{}, err
+		return iam.Passkey{}, err
 	}
 	cred, err := s.finishPasskeyCreation(ctx, userID, response)
 	if err != nil {
-		return authflow.Passkey{}, err
+		return iam.Passkey{}, err
 	}
 	return s.insertPasskey(ctx, strings.TrimSpace(userID), cred, nil)
 }
@@ -243,12 +244,12 @@ func (s *Engine) finishDiscoverableAssertion(ctx context.Context, purpose string
 	}, nil
 }
 
-func (s *Engine) ListPasskeys(ctx context.Context, userID string) ([]authflow.Passkey, error) {
+func (s *Engine) ListPasskeys(ctx context.Context, userID string) ([]iam.Passkey, error) {
 	rows, err := s.q.PasskeysByUser(ctx, db.PasskeysByUserParams{UserID: userID, Rpid: s.cfg.Passkeys.RPID})
 	if err != nil {
 		return nil, err
 	}
-	var out []authflow.Passkey
+	var out []iam.Passkey
 	for _, p := range rows {
 		out = append(out, publicPasskey(p))
 	}
@@ -380,12 +381,16 @@ func passkeyFlags(p db.UserPasskey) webauthn.CredentialFlags {
 }
 
 // publicPasskey is the one mapping from a passkey row to what callers see.
-func publicPasskey(p db.UserPasskey) authflow.Passkey {
+func publicPasskey(p db.UserPasskey) iam.Passkey {
 	flags := passkeyFlags(p)
-	return authflow.Passkey{
-		ID: p.ID, UserID: p.UserID, Label: p.Label, Transports: p.Transports, AuthenticatorAttachment: p.AuthenticatorAttachment,
+	out := iam.Passkey{
+		ID: p.ID, Label: p.Label, Transports: p.Transports,
 		BackupEligible: flags.BackupEligible, BackupState: flags.BackupState, CreatedAt: p.CreatedAt, LastUsedAt: p.LastUsedAt,
 	}
+	if p.AuthenticatorAttachment != "" {
+		out.AuthenticatorAttachment = &p.AuthenticatorAttachment
+	}
+	return out
 }
 
 // webAuthnCredential is the one mapping from a passkey row to the credential a
@@ -411,7 +416,7 @@ func webAuthnCredential(p db.UserPasskey) webauthn.Credential {
 	}
 }
 
-func (s *Engine) insertPasskey(ctx context.Context, userID string, cred *webauthn.Credential, label *string) (authflow.Passkey, error) {
+func (s *Engine) insertPasskey(ctx context.Context, userID string, cred *webauthn.Credential, label *string) (iam.Passkey, error) {
 	p, err := s.q.PasskeyInsert(ctx, db.PasskeyInsertParams{
 		UserID: userID, Rpid: s.cfg.Passkeys.RPID, CredentialID: cred.ID, PublicKey: cred.PublicKey,
 		SignCount: int64(cred.Authenticator.SignCount), CloneWarning: cred.Authenticator.CloneWarning, Aaguid: nullBytes(cred.Authenticator.AAGUID),
@@ -419,7 +424,7 @@ func (s *Engine) insertPasskey(ctx context.Context, userID string, cred *webauth
 		Flags: []byte{byte(cred.Flags.ProtocolValue())}, AttestationType: cred.AttestationType, AttestationFmt: cred.AttestationFormat, Label: label,
 	})
 	if err != nil {
-		return authflow.Passkey{}, err
+		return iam.Passkey{}, err
 	}
 	return publicPasskey(p), nil
 }

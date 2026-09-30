@@ -144,7 +144,7 @@ func (s *Engine) requireMFAForRoleAssignment(ctx context.Context, q db.DBTX, gid
 		return err
 	}
 	if !ok {
-		return iam.ErrTwoFAEnrollmentRequired
+		return iam.ErrSubjectMFARequired
 	}
 	return nil
 }

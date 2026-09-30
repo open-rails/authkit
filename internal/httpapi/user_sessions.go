@@ -14,24 +14,15 @@ func (s *Service) handleUserSessionsGET(w http.ResponseWriter, r *http.Request) 
 		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
-	sessions, err := s.svc.ListUserSessions(r.Context(), cl.UserID)
+	sessions, err := s.svc.Sessions(r.Context(), cl.UserID)
 	if err != nil {
 		serverErr(w, "failed_to_list", err)
 		return
 	}
-	arr := make([]map[string]any, 0, len(sessions))
-	for _, sess := range sessions {
-		arr = append(arr, map[string]any{
-			"session_id":   sess.ID,
-			"family_id":    sess.FamilyID,
-			"created_at":   sess.CreatedAt,
-			"last_used_at": sess.LastUsedAt,
-			"expires_at":   sess.ExpiresAt,
-			"ip":           sess.IPAddr,
-			"ua":           sess.UserAgent,
-		})
+	for i := range sessions {
+		sessions[i].Current = sessions[i].ID == cl.SessionID
 	}
-	writeList(w, arr, "")
+	all(w, sessions)
 }
 
 func (s *Service) handleUserSessionDELETE(w http.ResponseWriter, r *http.Request) {
