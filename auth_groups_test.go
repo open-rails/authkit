@@ -139,3 +139,59 @@ func TestOperationsJoinTheHostTransaction(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, u.Ban, "a refused option changes nothing")
 }
+
+// Batch reads take any number of ids, reading iam.MaxBatch at a time, and
+// iam.All reads every page of a list.
+func TestBatchReadsAndAllPages(t *testing.T) {
+	auth, _, team, _, _ := teamRuntime(t)
+	ctx := t.Context()
+	alice, err := auth.CreateUser(ctx, iam.NewUser{Email: "batch-alice@example.test", Username: "batchalice"})
+	require.NoError(t, err)
+	owner := iam.UserSubject(alice.ID)
+	ids := make([]string, iam.MaxBatch, iam.MaxBatch+1)
+	subjects := make([]iam.Subject, 0, iam.MaxBatch+1)
+	for i := range ids {
+		ids[i] = uuid.NewString()
+		subjects = append(subjects, iam.UserSubject(ids[i]))
+	}
+	ids, subjects = append(ids, alice.ID), append(subjects, owner) // the second batch
+
+	users, err := auth.Users(ctx, ids)
+	require.NoError(t, err)
+	require.Len(t, users, 1)
+	require.Equal(t, alice.ID, users[alice.ID].ID)
+	public, err := auth.PublicUsers(ctx, ids)
+	require.NoError(t, err)
+	require.Len(t, public, 1)
+	require.Equal(t, "batchalice", public[alice.ID].Username)
+
+	var groups []string
+	for range 3 {
+		g, err := auth.CreateGroup(ctx, iam.NewGroup{Persona: team, Owner: &owner})
+		require.NoError(t, err)
+		groups = append(groups, g.ID)
+	}
+	roles, err := auth.GroupRoles(ctx, iam.GroupByID(groups[0]), subjects)
+	require.NoError(t, err)
+	require.Equal(t, map[iam.Subject]iam.Role{owner: team.OwnerRole()}, roles)
+
+	pages := 0
+	memberships := iam.All(func(p iam.PageRequest) (iam.ListPage[iam.Membership], error) {
+		pages++
+		require.Equal(t, iam.MaxPageLimit, p.Limit)
+		p.Limit = 1
+		return auth.ListMemberships(ctx, owner, p)
+	})
+	var listed []string
+	for m, err := range memberships {
+		require.NoError(t, err)
+		listed = append(listed, m.Group.ID)
+	}
+	require.ElementsMatch(t, groups, listed)
+	require.Equal(t, 3, pages)
+	pages = 0
+	for range memberships {
+		break
+	}
+	require.Equal(t, 1, pages, "stopping early reads no further page")
+}

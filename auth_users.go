@@ -23,15 +23,15 @@ func (a *Client) User(ctx context.Context, ref iam.UserRef, opts ...Option) (iam
 	return a.ops.User(ctx, ref, opts...)
 }
 
-// Users returns the accounts among ids (at most iam.MaxBatch), deleted ones
-// included; unknown ids are absent. It carries contact details: render other
+// Users returns the accounts among any number of ids, deleted ones included;
+// unknown ids are absent. It carries contact details: render other
 // people with PublicUsers.
 func (a *Client) Users(ctx context.Context, ids []string) (map[string]iam.User, error) {
 	return a.ops.Users(ctx, ids)
 }
 
-// PublicUsers returns what other people may see of ids: deleted accounts are
-// tombstones, unknown ids are absent.
+// PublicUsers returns what other people may see of any number of ids: deleted
+// accounts are tombstones, unknown ids are absent.
 func (a *Client) PublicUsers(ctx context.Context, ids []string) (map[string]iam.PublicUser, error) {
 	return a.ops.PublicUsers(ctx, ids)
 }

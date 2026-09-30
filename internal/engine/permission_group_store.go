@@ -146,7 +146,7 @@ func (st *permissionGroupStore) WalkAssignments(ctx context.Context, groupID str
 }
 
 // readAssignmentsForGroups reads, for every live target, the subject's
-// assignments on that group and on root, in one query. Deleted, unknown and
+// assignments on that group and on root. Deleted, unknown and
 // malformed targets have no assignments; an application's count only while it
 // is enabled and its control group is live. Latent assignments of
 // deleted/reserved accounts are included.
@@ -160,24 +160,30 @@ func (st *permissionGroupStore) readAssignmentsForGroups(ctx context.Context, gr
 		return out, nil
 	}
 	q := db.New(st.q)
-	arg := db.GroupUserAssignmentsForGroupsParams{SubjectID: subject.ID, GroupIds: ids}
-	var rows []db.GroupUserAssignmentsForGroupsRow
-	var err error
-	if subject.Kind == iam.SubjectKindUser {
-		rows, err = q.GroupUserAssignmentsForGroups(ctx, arg)
-	} else {
-		var apps []db.GroupApplicationAssignmentsForGroupsRow
-		apps, err = q.GroupApplicationAssignmentsForGroups(ctx, db.GroupApplicationAssignmentsForGroupsParams(arg))
-		for _, r := range apps {
-			rows = append(rows, db.GroupUserAssignmentsForGroupsRow(r))
+	err := inBatches(ids, func(batch []string) error {
+		arg := db.GroupUserAssignmentsForGroupsParams{SubjectID: subject.ID, GroupIds: batch}
+		var rows []db.GroupUserAssignmentsForGroupsRow
+		var err error
+		if subject.Kind == iam.SubjectKindUser {
+			rows, err = q.GroupUserAssignmentsForGroups(ctx, arg)
+		} else {
+			var apps []db.GroupApplicationAssignmentsForGroupsRow
+			apps, err = q.GroupApplicationAssignmentsForGroups(ctx, db.GroupApplicationAssignmentsForGroupsParams(arg))
+			for _, r := range apps {
+				rows = append(rows, db.GroupUserAssignmentsForGroupsRow(r))
+			}
 		}
-	}
+		if err != nil {
+			return err
+		}
+		for _, r := range rows {
+			persona := ident.Persona(r.Persona)
+			out[r.Target] = append(out[r.Target], rbac.Assignment{PermissionGroupID: r.GroupID, Persona: persona, Role: ident.RoleText(r.Role)})
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
-	}
-	for _, r := range rows {
-		persona := ident.Persona(r.Persona)
-		out[r.Target] = append(out[r.Target], rbac.Assignment{PermissionGroupID: r.GroupID, Persona: persona, Role: ident.RoleText(r.Role)})
 	}
 	return out, nil
 }
@@ -288,7 +294,7 @@ func (st *permissionGroupStore) OwnerCount(ctx context.Context, groupID string) 
 
 // GrantsOnGroups returns, per live target group, the de-duplicated UNION of
 // grant PATTERNS the subject holds on that group and on root, resolved
-// against the schema's catalog, in one query. Globs
+// against the schema's catalog. Globs
 // like `root:*` are returned verbatim, not expanded. Targets granting nothing
 // are absent. Latent assignments of deleted/reserved accounts are included.
 func (st *permissionGroupStore) GrantsOnGroups(ctx context.Context, schema *rbac.Schema, subject iam.Subject, groupIDs []string) (map[string][]string, error) {
@@ -317,20 +323,22 @@ func (st *permissionGroupStore) GrantsOnGroup(ctx context.Context, schema *rbac.
 	return []string{}, nil
 }
 
-// groupsByID reads many groups by id, soft-deleted ones included, in one
-// query. Unknown and malformed ids are absent.
+// groupsByID reads many groups by id, soft-deleted ones included. Unknown and
+// malformed ids are absent.
 func (st *permissionGroupStore) groupsByID(ctx context.Context, groupIDs []string) (map[string]iam.Group, error) {
 	out := map[string]iam.Group{}
-	ids := groupBatchIDs(groupIDs)
-	if len(ids) == 0 {
-		return out, nil
-	}
-	rows, err := db.New(st.q).PermissionGroupsByIDs(ctx, ids)
+	err := inBatches(groupBatchIDs(groupIDs), func(batch []string) error {
+		rows, err := db.New(st.q).PermissionGroupsByIDs(ctx, batch)
+		if err != nil {
+			return err
+		}
+		for _, r := range rows {
+			out[r.ID] = publicGroup(r)
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
-	}
-	for _, r := range rows {
-		out[r.ID] = publicGroup(r)
 	}
 	return out, nil
 }

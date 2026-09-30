@@ -78,19 +78,22 @@ func (s *Engine) Users(ctx context.Context, ids []string) (map[string]iam.User, 
 	if len(ids) == 0 {
 		return out, nil
 	}
-	if len(ids) > iam.MaxBatch {
-		return nil, errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("ids"))
-	}
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
-	rows, err := s.q.UsersByIDs(ctx, ids)
+	now := time.Now()
+	err := inBatches(ids, func(batch []string) error {
+		rows, err := s.q.UsersByIDs(ctx, batch)
+		if err != nil {
+			return err
+		}
+		for i := range rows {
+			out[rows[i].ID] = publicUser(&rows[i], now)
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
-	}
-	now := time.Now()
-	for i := range rows {
-		out[rows[i].ID] = publicUser(&rows[i], now)
 	}
 	return out, nil
 }
@@ -104,23 +107,26 @@ func (s *Engine) PublicUsers(ctx context.Context, ids []string) (map[string]iam.
 	if len(ids) == 0 {
 		return out, nil
 	}
-	if len(ids) > iam.MaxBatch {
-		return nil, errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("ids"))
-	}
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
-	rows, err := s.q.IdentityPublicUsersByIDs(ctx, ids)
+	err := inBatches(ids, func(batch []string) error {
+		rows, err := s.q.IdentityPublicUsersByIDs(ctx, batch)
+		if err != nil {
+			return err
+		}
+		for _, r := range rows {
+			if r.DeletedAt != nil {
+				out[r.ID] = iam.PublicUser{ID: r.ID, Deleted: true, Metadata: map[string]any{}}
+				continue
+			}
+			created := r.CreatedAt.UTC()
+			out[r.ID] = iam.PublicUser{ID: r.ID, Username: deref(r.Username), AvatarURL: r.AvatarURL, CreatedAt: &created, Metadata: s.publicMetadata(r.Metadata)}
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
-	}
-	for _, r := range rows {
-		if r.DeletedAt != nil {
-			out[r.ID] = iam.PublicUser{ID: r.ID, Deleted: true, Metadata: map[string]any{}}
-			continue
-		}
-		created := r.CreatedAt.UTC()
-		out[r.ID] = iam.PublicUser{ID: r.ID, Username: deref(r.Username), AvatarURL: r.AvatarURL, CreatedAt: &created, Metadata: s.publicMetadata(r.Metadata)}
 	}
 	return out, nil
 }
@@ -143,10 +149,13 @@ func (s *Engine) publicMetadata(raw []byte) map[string]any {
 	return out
 }
 
+// uuidsOnly is ids' distinct UUIDs.
 func uuidsOnly(ids []string) []string {
 	out := make([]string, 0, len(ids))
+	seen := make(map[string]bool, len(ids))
 	for _, id := range ids {
-		if id = strings.TrimSpace(id); isUUID(id) {
+		if id = strings.TrimSpace(id); isUUID(id) && !seen[id] {
+			seen[id] = true
 			out = append(out, id)
 		}
 	}

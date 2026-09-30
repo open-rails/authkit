@@ -152,11 +152,8 @@ func (s *Engine) Can(ctx context.Context, a iam.Actor, ref iam.GroupRef, perm ia
 // Unknown and deleted groups and groups granting nothing are absent; a dead
 // actor has none, and one whose bound session was revoked is
 // ErrSessionRevoked. The system gets each persona's owner grant. A user's
-// grants on many groups are read in one query.
+// grants on many groups are read together, not group by group.
 func (s *Engine) EffectivePermissions(ctx context.Context, a iam.Actor, refs []iam.GroupRef) (map[string][]iam.Perm, error) {
-	if len(refs) > iam.MaxBatch {
-		return nil, fmt.Errorf("batch has %d groups; at most %d", len(refs), iam.MaxBatch)
-	}
 	out := map[string][]iam.Perm{}
 	if a.IsZero() || len(refs) == 0 {
 		return out, nil
