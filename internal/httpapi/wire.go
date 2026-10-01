@@ -142,12 +142,11 @@ type CodeRequest struct {
 	Code string `json:"code"`
 }
 
-// ProfileUpdateRequest is PATCH /me: an absent field is unchanged; an empty
-// avatar_url clears it.
+// ProfileUpdateRequest is PATCH /me: an absent field is unchanged. Public
+// metadata is the host's to write, never the user's.
 type ProfileUpdateRequest struct {
 	Username          *string `json:"username"`
 	PreferredLanguage *string `json:"preferred_language"`
-	AvatarURL         *string `json:"avatar_url"`
 }
 
 type EmailChangeRequest struct {
@@ -255,7 +254,6 @@ type AdminUserUpdateRequest struct {
 	Email             *string `json:"email"`
 	PhoneNumber       *string `json:"phone_number"`
 	Username          *string `json:"username"`
-	AvatarURL         *string `json:"avatar_url"`
 	PreferredLanguage *string `json:"preferred_language"`
 }
 

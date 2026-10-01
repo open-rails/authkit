@@ -27,15 +27,16 @@ users:
    email: unknown-keys@example.test
    email_verified: true
    nickname: uk
-   metadata: {anything: {goes: here}}
+   public_metadata: {anything: {goes: here}}
+   metadata: {legacy: true}
    password: {plaintext: bootstrap-password-1, rotate: true}
 `))
 	require.NoError(t, err)
 	require.Contains(t, logs.String(), "level=WARN")
-	for _, path := range []string{"version", "users[0].nickname", "users[0].password.rotate"} {
+	for _, path := range []string{"version", "users[0].nickname", "users[0].metadata", "users[0].password.rotate"} {
 		require.Contains(t, logs.String(), `ignoring unknown key" path=`+path+"\n")
 	}
-	require.NotContains(t, logs.String(), "path=users[0].metadata", "metadata is free-form")
+	require.NotContains(t, logs.String(), "path=users[0].public_metadata", "public metadata is free-form")
 	require.NotContains(t, logs.String(), "path=users[0].email\n")
 
 	auth, _ := authtest.New(t)
@@ -47,6 +48,7 @@ users:
 	require.NoError(t, err)
 	require.NotNil(t, u.Email)
 	require.Equal(t, "unknown-keys@example.test", *u.Email)
+	require.Equal(t, map[string]any{"anything": map[string]any{"goes": "here"}}, u.PublicMetadata)
 
 	_, err = authkit.ParseBootstrapManifestYAML([]byte("users:\n - {username: bad, email_verified: maybe}\n"))
 	require.Error(t, err, "an invalid value of a known key still fails")

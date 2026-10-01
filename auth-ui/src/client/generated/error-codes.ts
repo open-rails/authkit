@@ -22,7 +22,6 @@ export type AuthErrorCode =
   | "api_key_revoked"
   | "auth_required_for_link"
   | "authentication_failed"
-  | "avatar_url_invalid"
   | "bad_audience"
   | "bad_issuer"
   | "bootstrap_database_not_empty"
@@ -192,7 +191,6 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   api_key_revoked: 401,
   auth_required_for_link: 401,
   authentication_failed: 401,
-  avatar_url_invalid: 400,
   bad_audience: 401,
   bad_issuer: 401,
   bootstrap_database_not_empty: 409,
@@ -363,7 +361,6 @@ export const AUTH_ERROR_MESSAGES = {
   api_key_revoked: "The API key has been revoked.",
   auth_required_for_link: "Sign in before linking a provider.",
   authentication_failed: "Authentication failed.",
-  avatar_url_invalid: "The avatar URL is invalid.",
   bad_audience: "The token audience is not accepted.",
   bad_issuer: "The token issuer is not trusted.",
   bootstrap_database_not_empty: "The database is not empty; bootstrap refused.",

@@ -1239,13 +1239,11 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     updateProfile: async (input: {
       username?: string
       preferredLanguage?: string
-      avatarUrl?: string | null
     }) => {
       const profile = await request<UserProfile>("PATCH", "/me", {
         body: {
           username: input.username,
           preferred_language: input.preferredLanguage,
-          avatar_url: input.avatarUrl,
         },
       })
       rememberUsername(profile.id, profile.username)

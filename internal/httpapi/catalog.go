@@ -281,7 +281,7 @@ func Catalog() []RouteSpec {
 		// default), expanded.
 		{Method: GET, Path: "/me/permissions", Group: account, Auth: required,
 			Query: GroupQuery{}, Responses: replyOK(PermissionSet{}), serve: handle((*Service).handleMePermissionsGET)},
-		// Other people, as anyone may see them (Config.PublicUserMetadata):
+		// Other people, as anyone may see them, public metadata included:
 		// public profile pages need no sign-in.
 		{Method: GET, Path: "/users", Group: account, Auth: public, Bucket: RLUsersRead,
 			Query: UsersQuery{}, Responses: replyOK(iam.ListPage[iam.PublicUser]{}), serve: handle((*Service).handleUsersGET)},

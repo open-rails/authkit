@@ -25,8 +25,8 @@ func (s *Service) handleMeGET(w http.ResponseWriter, r *http.Request) {
 	s.writeProfile(w, r, claims)
 }
 
-// handleMePATCH changes the caller's username, preferred language and avatar
-// in one UpdateUser call (the rename policy applies) and answers the profile.
+// handleMePATCH changes the caller's username and preferred language in one
+// UpdateUser call (the rename policy applies) and answers the profile.
 func (s *Service) handleMePATCH(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	actor, hasActor := verify.ActorFromContext(r.Context())
@@ -39,7 +39,7 @@ func (s *Service) handleMePATCH(w http.ResponseWriter, r *http.Request) {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	update := iam.UserUpdate{AvatarURL: body.AvatarURL}
+	var update iam.UserUpdate
 	if body.Username != nil {
 		name := strings.TrimSpace(*body.Username)
 		if name == "" {

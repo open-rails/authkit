@@ -268,10 +268,9 @@ describe("requests", () => {
     const alice = {
       id: "a",
       username: "alice",
-      avatar_url: null,
       created_at: "2026-09-01T00:00:00Z",
       deleted: false,
-      metadata: {},
+      public_metadata: { avatar: "https://cdn.example/a.png" },
     }
     const page = (data: unknown[]) =>
       json(200, { data, next_cursor: null, total: null })

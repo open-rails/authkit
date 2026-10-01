@@ -21,7 +21,7 @@ type Option = ops.Option
 // promptly.
 //
 // CreateGroup, DeleteGroup, PurgeGroup, SetGroupRole, RemoveGroupMember,
-// EnsureUserRole, CreateUser, PatchUserMetadata, Unban, CreateAPIKey,
+// EnsureUserRole, CreateUser, PatchPublicMetadata, Unban, CreateAPIKey,
 // RevokeAPIKey, CreateInvitation (a link), RevokeInvitation,
 // UpsertRemoteApplication and DeleteRemoteApplication take it.
 func InTx(tx pgx.Tx) Option { return ops.InTx(tx) }

@@ -16,13 +16,14 @@ type User struct {
 	EmailVerified     bool       `json:"email_verified"`
 	PhoneVerified     bool       `json:"phone_verified"`
 	PreferredLanguage *string    `json:"preferred_language"`
-	AvatarURL         *string    `json:"avatar_url"`
 	CreatedAt         time.Time  `json:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at"`
 	LastLogin         *time.Time `json:"last_login"`
 	DeletedAt         *time.Time `json:"deleted_at"`
 	// Ban is nil when no ban is in force.
 	Ban *BanState `json:"ban"`
+	// PublicMetadata is the account's public metadata (see PublicUser).
+	PublicMetadata map[string]any `json:"public_metadata"`
 }
 
 // BanState is a ban in force: when it began, until when (nil =
@@ -39,15 +40,17 @@ type BanState struct {
 // ban or sign-in data. A deleted account is a tombstone: Deleted is set and
 // every other field but ID is empty.
 type PublicUser struct {
-	ID        string  `json:"id"`
-	Username  string  `json:"username"`
-	AvatarURL *string `json:"avatar_url"`
+	ID       string `json:"id"`
+	Username string `json:"username"`
 	// CreatedAt is when the account was created: its "member since".
 	CreatedAt *time.Time `json:"created_at"`
 	Deleted   bool       `json:"deleted"`
-	// Metadata holds the account's metadata keys the host made public
-	// (Config.PublicUserMetadata), and no others.
-	Metadata map[string]any `json:"metadata"`
+	// PublicMetadata is the JSON object only the host writes
+	// (Client.PatchPublicMetadata, ImportUsers) and anyone may read: GET /me,
+	// GET /users and every PublicUser carry it whole. It is the place for a
+	// profile's public fields (an avatar URL, a biography); keep anything
+	// private in your own tables, keyed by the account id.
+	PublicMetadata map[string]any `json:"public_metadata"`
 }
 
 // DisplayName is the username, or "user-<first 8 of id>" for tombstoned and
@@ -114,12 +117,12 @@ type NewUser struct {
 }
 
 // UserUpdate changes an account; nil fields stay unchanged, and "" clears
-// AvatarURL and PreferredLanguage. A new Email or Phone starts unverified
-// unless the same update sets its verified flag.
+// PreferredLanguage. A new Email or Phone starts unverified unless the same
+// update sets its verified flag.
 type UserUpdate struct {
-	Email, Phone, Username, AvatarURL, PreferredLanguage, Password *string
-	EmailVerified, PhoneVerified                                   *bool
-	PasswordHash                                                   *PasswordHash
+	Email, Phone, Username, PreferredLanguage, Password *string
+	EmailVerified, PhoneVerified                        *bool
+	PasswordHash                                        *PasswordHash
 }
 
 // PasswordHash is a password hash made elsewhere (an import, a bootstrap

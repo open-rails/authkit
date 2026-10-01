@@ -3,6 +3,7 @@ package apitest_test
 import (
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -18,8 +19,8 @@ import (
 	"github.com/open-rails/authkit/internal/passkeytest"
 )
 
-// PATCH /me changes the username, preferred language and avatar in one call
-// and answers the profile; a refused field changes nothing, and a second
+// PATCH /me changes the username and preferred language in one call and
+// answers the profile; a refused field changes nothing, and a second
 // rename inside the cooldown is rename_rate_limited with its availability.
 func TestMeProfileUpdate(t *testing.T) {
 	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
@@ -36,7 +37,6 @@ func TestMeProfileUpdate(t *testing.T) {
 		ID                string  `json:"id"`
 		Username          string  `json:"username"`
 		PreferredLanguage *string `json:"preferred_language"`
-		AvatarURL         *string `json:"avatar_url"`
 		HasPassword       bool    `json:"has_password"`
 		Naming            struct {
 			Allowed      bool       `json:"allowed"`
@@ -49,12 +49,11 @@ func TestMeProfileUpdate(t *testing.T) {
 	require.Equal(t, u.Username, a.me(t, token).Username, "a refused field changes nothing")
 
 	name := unique("renamed")
-	res := expect(t, http.StatusOK, patch(map[string]any{"username": name, "preferred_language": "es", "avatar_url": "https://cdn.example/a.png"}))
+	res := expect(t, http.StatusOK, patch(map[string]any{"username": name, "preferred_language": "es"}))
 	res.decode(t, &profile)
 	require.Equal(t, u.ID, profile.ID)
 	require.Equal(t, name, profile.Username)
 	require.Equal(t, "es", *profile.PreferredLanguage)
-	require.Equal(t, "https://cdn.example/a.png", *profile.AvatarURL)
 	require.True(t, profile.HasPassword)
 	require.False(t, profile.Naming.Allowed)
 	require.NotNil(t, profile.Naming.NextRenameAt)
@@ -62,10 +61,9 @@ func TestMeProfileUpdate(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, name, stored.Username)
 
-	// An empty avatar clears it; an absent field stays.
-	res = expect(t, http.StatusOK, patch(map[string]any{"avatar_url": ""}))
+	// An absent field stays.
+	res = expect(t, http.StatusOK, patch(map[string]any{}))
 	res.decode(t, &profile)
-	require.Nil(t, profile.AvatarURL)
 	require.Equal(t, "es", *profile.PreferredLanguage)
 
 	limited := expect(t, http.StatusTooManyRequests, patch(map[string]any{"username": unique("again")}))
@@ -86,47 +84,62 @@ func TestMeProfileUpdate(t *testing.T) {
 	expect(t, http.StatusBadRequest, patch(map[string]any{"email": "not@editable.example"}))
 }
 
-// With Config.AvatarURLPrefixes, a user or staff member sets an avatar only
-// under the host's own image paths, never one that climbs out of them; the
-// system sets any. A bad prefix fails New.
-func TestAvatarURLPrefixes(t *testing.T) {
-	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
-		c.AvatarURLPrefixes = []string{"https://media.example.test/avatars/", "/avatars/"}
-	}))
+// Public metadata is the host's to write and anyone's to read: GET /me and
+// GET /users carry it whole, signed in or not. No route takes it, so neither
+// the account nor staff writes it over HTTP, and the account can't through the
+// Client either.
+func TestPublicMetadataOverHTTP(t *testing.T) {
+	auth, _ := authtest.New(t)
 	a := newAPI(t, auth)
 	u := authtest.NewUser(t, auth)
 	token := authtest.SignIn(t, auth, u).AccessToken
-	avatar := func(url string) response {
-		return a.do(request{method: http.MethodPatch, path: "/me", token: token, body: map[string]any{"avatar_url": url}})
+	profile := map[string]any{"avatar": "https://media.example.test/u/1.webp", "biography": "hi", "links": map[string]any{"site": "https://u.example"}}
+	require.NoError(t, auth.PatchPublicMetadata(t.Context(), iam.SystemActor(), u.ID, profile))
+
+	var me struct {
+		PublicMetadata map[string]any `json:"public_metadata"`
 	}
-	for _, url := range []string{
-		"https://tracker.example.test/pixel.png",
-		"https://media.example.test/avatars.evil.test/x.png",
-		"https://media.example.test/avatars/../premium/x.png",
-		"/avatars/%2e%2e/premium/x.png",
-		"//tracker.example.test/avatars/x.png",
-		"/media/x.png",
+	expect(t, http.StatusOK, a.get("/me", token)).decode(t, &me)
+	require.Equal(t, profile, me.PublicMetadata)
+	var page iam.ListPage[iam.PublicUser]
+	expect(t, http.StatusOK, a.get("/users?ids="+u.ID, "")).decode(t, &page)
+	require.Len(t, page.Items, 1)
+	require.Equal(t, profile, page.Items[0].PublicMetadata)
+
+	for _, body := range []map[string]any{
+		{"public_metadata": map[string]any{"biography": "mine now"}},
+		{"metadata": map[string]any{"badge": "admin"}},
+		{"avatar_url": "https://tracker.example.test/pixel.png"},
 	} {
-		res := expect(t, http.StatusBadRequest, avatar(url))
-		require.Equal(t, "avatar_url_invalid", res.code(), url)
+		res := expect(t, http.StatusBadRequest, a.do(request{method: http.MethodPatch, path: "/me", token: token, body: body}))
+		require.Equal(t, "invalid_request", res.code())
 	}
+	require.ErrorIs(t, auth.PatchPublicMetadata(t.Context(), iam.UserActor(u.ID), u.ID, map[string]any{"biography": "x"}), iam.ErrCannotTargetSelf)
 	stored, err := auth.User(t.Context(), iam.UserByID(u.ID))
 	require.NoError(t, err)
-	require.Nil(t, stored.AvatarURL)
-	for _, url := range []string{"https://media.example.test/avatars/u/1.webp", "/avatars/u/1.webp?v=2", ""} {
-		expect(t, http.StatusOK, avatar(url))
+	require.Equal(t, profile, stored.PublicMetadata)
+	for _, r := range httpapi.Catalog() {
+		for _, in := range []any{r.Request, r.Query} {
+			require.False(t, in != nil && namesMember(reflect.TypeOf(in), "public_metadata", map[reflect.Type]bool{}), "%s %s takes public metadata", r.Method, r.Path)
+		}
 	}
+}
 
-	legacy := "https://legacy.example.test/a.png"
-	_, err = auth.UpdateUser(t.Context(), iam.SystemActor(), u.ID, iam.UserUpdate{AvatarURL: &legacy})
-	require.NoError(t, err, "the system is not bound")
-
-	cfg, deps := bareConfig(t)
-	for _, bad := range []string{"https://media.example.test/avatars", "avatars/", "ftp://media.example.test/", "//media.example.test/", "/avatars/?v=1"} {
-		cfg.AvatarURLPrefixes = []string{bad}
-		_, err := newClient(t, cfg, deps)
-		require.ErrorContains(t, err, "AvatarURLPrefixes", bad)
+// namesMember reports whether t, or a type it holds, has a JSON member name.
+func namesMember(t reflect.Type, name string, seen map[reflect.Type]bool) bool {
+	for t.Kind() == reflect.Pointer || t.Kind() == reflect.Slice || t.Kind() == reflect.Map {
+		t = t.Elem()
 	}
+	if t.Kind() != reflect.Struct || seen[t] {
+		return false
+	}
+	seen[t] = true
+	for _, f := range reflect.VisibleFields(t) {
+		if tag, _, _ := strings.Cut(f.Tag.Get("json"), ","); tag == name || namesMember(f.Type, name, seen) {
+			return true
+		}
+	}
+	return false
 }
 
 // DELETE /me/sessions signs out every other session and keeps the caller's;

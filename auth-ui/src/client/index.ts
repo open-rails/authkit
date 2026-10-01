@@ -15,6 +15,7 @@ export type {
   TwoFactorEnrolled,
 } from "./client.ts"
 export { toSignInResult } from "./authResult.ts"
+export { avatarURL } from "./avatar.ts"
 export type { PendingSignIn, SignInResult } from "./authResult.ts"
 export { AUTH_ERROR_STATUS } from "./codes.ts"
 export type {

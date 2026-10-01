@@ -151,8 +151,9 @@ func TestHTTPConventions(t *testing.T) {
 		var me map[string]any
 		require.NoError(t, json.Unmarshal(res.body, &me))
 		require.True(t, strings.HasSuffix(me["created_at"].(string), "Z"), me["created_at"])
-		require.Contains(t, me, "avatar_url")
-		require.Nil(t, me["avatar_url"])
+		require.Contains(t, me, "deleted_at")
+		require.Nil(t, me["deleted_at"])
+		require.Equal(t, map[string]any{}, me["public_metadata"])
 		require.Equal(t, []any{}, me["providers"])
 		require.Nil(t, me["solana_wallet"])
 	})

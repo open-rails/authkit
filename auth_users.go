@@ -59,12 +59,6 @@ func (a *Client) CheckUsername(ctx context.Context, name string) error {
 	return a.ops.CheckUsername(ctx, name)
 }
 
-// UserMetadata returns the account's application-owned metadata. It is not a
-// public profile: select public fields explicitly.
-func (a *Client) UserMetadata(ctx context.Context, userID string) (map[string]any, error) {
-	return a.ops.UserMetadata(ctx, userID)
-}
-
 // DeviceKeys returns the account's device keys in enrollment order, revoked
 // ones included. iam.ErrDeviceKeysDisabled without Config.DeviceKeys.Enabled.
 func (a *Client) DeviceKeys(ctx context.Context, userID string) ([]iam.DeviceKey, error) {
@@ -77,7 +71,7 @@ func (a *Client) CreateUser(ctx context.Context, u iam.NewUser, opts ...Option) 
 }
 
 // UpdateUser changes an account under ACCT(root:users:manage). An account may
-// change its own Username, AvatarURL and PreferredLanguage. Password,
+// change its own Username and PreferredLanguage. Password,
 // PasswordHash and the verified flags are system-only. A verified flag
 // asserts a proof, so never set one on another system's word: on an account
 // with no proven contact it first retires the pre-proof credentials and the
@@ -87,13 +81,17 @@ func (a *Client) UpdateUser(ctx context.Context, actor iam.Actor, userID string,
 	return a.ops.UpdateUser(ctx, actor, userID, u, opts...)
 }
 
-// PatchUserMetadata applies patch to the account's metadata as an RFC 7396
-// JSON Merge Patch under ACCT(root:users:manage): objects merge recursively,
-// a nil value deletes its key, and any other value (arrays included)
-// replaces the one it names. {"prefs": {"theme": "dark", "beta": nil}} sets
-// prefs.theme, deletes prefs.beta and keeps prefs' other keys.
-func (a *Client) PatchUserMetadata(ctx context.Context, actor iam.Actor, userID string, patch map[string]any, opts ...Option) error {
-	return a.ops.PatchUserMetadata(ctx, actor, userID, patch, opts...)
+// PatchPublicMetadata applies patch to the account's public metadata
+// (iam.PublicUser.PublicMetadata) as an RFC 7396 JSON Merge Patch under
+// ACCT(root:users:manage), never on the actor's own account: objects merge
+// recursively, a nil value deletes its key, and any other value (arrays
+// included) replaces the one it names. {"links": {"site": "https://…",
+// "old": nil}} sets links.site, deletes links.old and keeps links' other
+// keys. Only the host writes public metadata, and anyone may read it: GET
+// /me, GET /users and PublicUsers return it whole. Keep private data in your
+// own tables, keyed by the account id.
+func (a *Client) PatchPublicMetadata(ctx context.Context, actor iam.Actor, userID string, patch map[string]any, opts ...Option) error {
+	return a.ops.PatchPublicMetadata(ctx, actor, userID, patch, opts...)
 }
 
 // Ban bans an account under ACCT(root:users:ban) and revokes its sessions,

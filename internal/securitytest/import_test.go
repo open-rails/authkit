@@ -313,9 +313,9 @@ func TestSecurityImportUsers(t *testing.T) {
 		owner := h.newAccount("impowner")
 		merge := iam.ImportOptions{OnConflict: iam.ImportMerge}
 		out, err := h.auth.ImportUsers(ctx, []iam.ImportUser{
-			{Email: squat, EmailVerified: true, Username: unique("impx"), Metadata: map[string]any{"vip": true}, PasswordHash: &iam.PasswordHash{Hash: bcryptHash, Algo: iam.HashBcrypt}},
-			{ID: ids[1], Username: b.Username, Metadata: map[string]any{"legacy_id": 7}, PasswordHash: &iam.PasswordHash{Hash: bcryptHash, Algo: iam.HashBcrypt}},
-			{Email: owner.email, EmailVerified: true, Username: unique("impy"), Metadata: map[string]any{"legacy_id": 8}, PasswordHash: &iam.PasswordHash{Hash: bcryptHash, Algo: iam.HashBcrypt}},
+			{Email: squat, EmailVerified: true, Username: unique("impx"), PublicMetadata: map[string]any{"vip": true}, PasswordHash: &iam.PasswordHash{Hash: bcryptHash, Algo: iam.HashBcrypt}},
+			{ID: ids[1], Username: b.Username, PublicMetadata: map[string]any{"legacy_id": 7}, PasswordHash: &iam.PasswordHash{Hash: bcryptHash, Algo: iam.HashBcrypt}},
+			{Email: owner.email, EmailVerified: true, Username: unique("impy"), PublicMetadata: map[string]any{"legacy_id": 8}, PasswordHash: &iam.PasswordHash{Hash: bcryptHash, Algo: iam.HashBcrypt}},
 		}, merge)
 		require.NoError(t, err)
 		require.Equal(t, iam.ImportRow{Index: 0, UserID: squatter, MatchedBy: iam.ImportMatchEmail, Status: iam.ImportSkipped, Reason: "unbound_match"}, out.Rows[0])
@@ -323,12 +323,12 @@ func TestSecurityImportUsers(t *testing.T) {
 		require.Equal(t, iam.ImportRow{Index: 2, UserID: owner.id, MatchedBy: iam.ImportMatchEmail, Status: iam.ImportMerged}, out.Rows[2])
 
 		var vip bool
-		require.NoError(t, h.pool.QueryRow(ctx, `SELECT metadata ? 'vip' FROM users WHERE id=$1::uuid`, squatter).Scan(&vip))
+		require.NoError(t, h.pool.QueryRow(ctx, `SELECT public_metadata ? 'vip' FROM users WHERE id=$1::uuid`, squatter).Scan(&vip))
 		require.False(t, vip, "an unverified address bound an import row")
 		emailVerified, _, _, _, _ := h.contactState(squatter)
 		require.False(t, emailVerified)
 		var legacyID string
-		require.NoError(t, h.pool.QueryRow(ctx, `SELECT metadata->>'legacy_id' FROM users WHERE id=$1::uuid`, ids[1]).Scan(&legacyID))
+		require.NoError(t, h.pool.QueryRow(ctx, `SELECT public_metadata->>'legacy_id' FROM users WHERE id=$1::uuid`, ids[1]).Scan(&legacyID))
 		require.Equal(t, "7", legacyID)
 		_, phoneVerified, hasPassword, _, _ := h.contactState(ids[1])
 		require.True(t, hasPassword, "a merge by id did not fill the missing password")
@@ -554,7 +554,7 @@ func TestSecurityImportProviders(t *testing.T) {
 		out, err := h.auth.ImportUsers(ctx, []iam.ImportUser{
 			{ID: target.id, Username: target.username, Providers: []iam.ProviderLink{byID}},
 			{Email: other.email, Username: unique("impmergex"), Providers: []iam.ProviderLink{byEmail}},
-			{ID: other.id, Username: other.username, Providers: []iam.ProviderLink{held}, Metadata: map[string]any{"stolen": true}},
+			{ID: other.id, Username: other.username, Providers: []iam.ProviderLink{held}, PublicMetadata: map[string]any{"stolen": true}},
 			{Email: both.email, EmailVerified: true, Username: unique("impmergey"), Providers: []iam.ProviderLink{byBoth}},
 		}, merge)
 		require.NoError(t, err)
@@ -567,7 +567,7 @@ func TestSecurityImportProviders(t *testing.T) {
 		require.Equal(t, holder.id, h.providerOwner(held.Subject))
 		require.Empty(t, h.providerOwner(byBoth.Subject), "an imported verified flag linked an identity to the address's account")
 		var stolen bool
-		require.NoError(t, h.pool.QueryRow(ctx, `SELECT metadata ? 'stolen' FROM users WHERE id=$1::uuid`, other.id).Scan(&stolen))
+		require.NoError(t, h.pool.QueryRow(ctx, `SELECT public_metadata ? 'stolen' FROM users WHERE id=$1::uuid`, other.id).Scan(&stolen))
 		require.False(t, stolen, "a rejected merge kept part of its row")
 
 		again, err := h.auth.ImportUsers(ctx, []iam.ImportUser{{ID: target.id, Username: target.username, Providers: []iam.ProviderLink{link("mergesecond")}}}, merge)

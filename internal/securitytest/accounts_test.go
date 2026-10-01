@@ -67,8 +67,8 @@ func accountOps(h *host) map[string]func(actor iam.Actor, target string) error {
 			_, err := h.auth.UpdateUser(ctx, a, id, iam.UserUpdate{Email: email()})
 			return err
 		},
-		"PatchUserMetadata": func(a iam.Actor, id string) error {
-			return h.auth.PatchUserMetadata(ctx, a, id, map[string]any{"note": "x"})
+		"PatchPublicMetadata": func(a iam.Actor, id string) error {
+			return h.auth.PatchPublicMetadata(ctx, a, id, map[string]any{"note": "x"})
 		},
 		"Ban":   func(a iam.Actor, id string) error { return h.auth.Ban(ctx, a, id, iam.Ban{}) },
 		"Unban": func(a iam.Actor, id string) error { return h.auth.Unban(ctx, a, id) },
@@ -110,7 +110,7 @@ func TestSecurityAccountAuthority(t *testing.T) {
 	ops := accountOps(h)
 
 	t.Run("H4: a root:users:manage staffer edits a more privileged account", func(t *testing.T) {
-		for _, name := range []string{"UpdateUser", "PatchUserMetadata", "RevokeAccountSessions", "RevokeSession"} {
+		for _, name := range []string{"UpdateUser", "PatchPublicMetadata", "RevokeAccountSessions", "RevokeSession"} {
 			require.ErrorIs(t, ops[name](iam.UserActor(staff.id), target.id), iam.ErrAccountAuthorityEscalation, name)
 		}
 		u, err := h.auth.User(ctx, iam.UserByID(target.id))
@@ -156,7 +156,7 @@ func TestSecurityAccountAuthority(t *testing.T) {
 	})
 	t.Run("a root peer is signed out, never banned, deleted or edited", func(t *testing.T) {
 		admin := iam.UserActor(siteadmin.id)
-		for _, name := range []string{"UpdateUser", "PatchUserMetadata", "Ban", "Unban", "DeleteUsers", "RestoreUsers"} {
+		for _, name := range []string{"UpdateUser", "PatchPublicMetadata", "Ban", "Unban", "DeleteUsers", "RestoreUsers"} {
 			require.ErrorIs(t, ops[name](admin, target.id), iam.ErrAccountAuthorityEscalation, name)
 		}
 		resp := h.do(request{method: http.MethodPut, path: "/admin/users/" + target.id + "/ban", body: map[string]any{"until": nil}, token: h.login(siteadmin).AccessToken})
@@ -167,7 +167,7 @@ func TestSecurityAccountAuthority(t *testing.T) {
 	})
 	t.Run("control: an actor outranking the target", func(t *testing.T) {
 		admin := iam.UserActor(siteadmin.id)
-		require.NoError(t, ops["PatchUserMetadata"](admin, staff.id))
+		require.NoError(t, ops["PatchPublicMetadata"](admin, staff.id))
 		require.NoError(t, ops["Ban"](admin, coOwner.id))
 		require.NoError(t, ops["Unban"](admin, coOwner.id))
 		require.NoError(t, ops["UpdateUser"](iam.UserActor(staff.id), plain.id))
@@ -359,8 +359,8 @@ func TestSecuritySelfRulesUseCanonicalIDs(t *testing.T) {
 	h.grant(iam.RootGroup(), staff, "siteadmin")
 	email := unique("n6self") + "@security.test"
 	selfOps := map[string]func(a iam.Actor, id string) error{
-		"PatchUserMetadata": func(a iam.Actor, id string) error {
-			return h.auth.PatchUserMetadata(ctx, a, id, map[string]any{"plan": "enterprise"})
+		"PatchPublicMetadata": func(a iam.Actor, id string) error {
+			return h.auth.PatchPublicMetadata(ctx, a, id, map[string]any{"plan": "enterprise"})
 		},
 		"UpdateUser": func(a iam.Actor, id string) error {
 			_, err := h.auth.UpdateUser(ctx, a, id, iam.UserUpdate{Email: &email})
@@ -374,18 +374,16 @@ func TestSecuritySelfRulesUseCanonicalIDs(t *testing.T) {
 		require.ErrorIs(t, op(iam.UserActor(staff.id), upper), iam.ErrCannotTargetSelf, name+": upper-case target")
 		require.ErrorIs(t, op(iam.UserActor(upper), staff.id), iam.ErrCannotTargetSelf, name+": upper-case actor")
 	}
-	meta, err := h.auth.UserMetadata(ctx, staff.id)
-	require.NoError(t, err)
-	require.NotContains(t, meta, "plan")
 	u, err := h.auth.User(ctx, iam.UserByID(staff.id))
 	require.NoError(t, err)
+	require.NotContains(t, u.PublicMetadata, "plan")
 	require.Equal(t, staff.email, *u.Email)
 
 	t.Run("control: an upper-case id names another account", func(t *testing.T) {
-		require.NoError(t, selfOps["PatchUserMetadata"](iam.UserActor(staff.id), strings.ToUpper(other.id)))
-		meta, err := h.auth.UserMetadata(ctx, other.id)
+		require.NoError(t, selfOps["PatchPublicMetadata"](iam.UserActor(staff.id), strings.ToUpper(other.id)))
+		u, err := h.auth.User(ctx, iam.UserByID(other.id))
 		require.NoError(t, err)
-		require.Equal(t, "enterprise", meta["plan"])
+		require.Equal(t, "enterprise", u.PublicMetadata["plan"])
 	})
 }
 

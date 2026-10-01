@@ -10,25 +10,25 @@ import (
 	"github.com/open-rails/authkit/iam"
 )
 
-// PatchUserMetadata is an RFC 7396 JSON Merge Patch: objects merge
+// PatchPublicMetadata is an RFC 7396 JSON Merge Patch: objects merge
 // recursively, null deletes a key at any depth, and any other value, an
 // array or a scalar, replaces what it names.
-func TestPatchUserMetadataIsAMergePatch(t *testing.T) {
+func TestPatchPublicMetadataIsAMergePatch(t *testing.T) {
 	auth, _ := authtest.New(t)
 	ctx := t.Context()
 	u := authtest.NewUser(t, auth)
 	// apply patches with patch (JSON, or a Go value) and returns the stored
-	// metadata as JSON.
+	// public metadata as JSON.
 	apply := func(t *testing.T, patch any) string {
 		t.Helper()
 		p, ok := patch.(map[string]any)
 		if !ok {
 			require.NoError(t, json.Unmarshal([]byte(patch.(string)), &p))
 		}
-		require.NoError(t, auth.PatchUserMetadata(ctx, iam.SystemActor(), u.ID, p))
-		meta, err := auth.UserMetadata(ctx, u.ID)
+		require.NoError(t, auth.PatchPublicMetadata(ctx, iam.SystemActor(), u.ID, p))
+		got, err := auth.User(ctx, iam.UserByID(u.ID))
 		require.NoError(t, err)
-		raw, err := json.Marshal(meta)
+		raw, err := json.Marshal(got.PublicMetadata)
 		require.NoError(t, err)
 		return string(raw)
 	}

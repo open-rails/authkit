@@ -55,7 +55,7 @@ pkg authkit, method (*Client) MintDelegatedAccessToken(context.Context, iam.Acto
 pkg authkit, method (*Client) MintServiceJWT(context.Context, iam.ServiceJWT, ...Option) (iam.Token, iam.ServiceJWTClaims, error)
 pkg authkit, method (*Client) Mount(*http.ServeMux) error
 pkg authkit, method (*Client) NewVerifier([]string, ...verify.VerifierOption) (*Verifier, error)
-pkg authkit, method (*Client) PatchUserMetadata(context.Context, iam.Actor, string, map[string]any, ...Option) error
+pkg authkit, method (*Client) PatchPublicMetadata(context.Context, iam.Actor, string, map[string]any, ...Option) error
 pkg authkit, method (*Client) Permission(string) (iam.Perm, error)
 pkg authkit, method (*Client) Persona(string) (iam.Persona, error)
 pkg authkit, method (*Client) PublicUsers(context.Context, []string) (map[string]iam.PublicUser, error)
@@ -85,7 +85,6 @@ pkg authkit, method (*Client) Unban(context.Context, iam.Actor, string, ...Optio
 pkg authkit, method (*Client) UpdateUser(context.Context, iam.Actor, string, iam.UserUpdate, ...Option) (iam.User, error)
 pkg authkit, method (*Client) UpsertRemoteApplication(context.Context, iam.Actor, iam.GroupRef, iam.RemoteApplication, ...Option) (iam.RemoteApplication, error)
 pkg authkit, method (*Client) User(context.Context, iam.UserRef, ...Option) (iam.User, error)
-pkg authkit, method (*Client) UserMetadata(context.Context, string) (map[string]any, error)
 pkg authkit, method (*Client) Users(context.Context, []string) (map[string]iam.User, error)
 pkg authkit, method (*Client) Verify(context.Context, string) (verify.Claims, error)
 pkg authkit, method (*Client) VerifyRequest(*http.Request) (verify.Claims, error)
@@ -127,7 +126,6 @@ pkg authkit, type Client struct
 pkg authkit, type Config = config.Config
 pkg authkit, type Config struct
 pkg authkit, type Config struct, APIKeys config.APIKeysConfig
-pkg authkit, type Config struct, AvatarURLPrefixes []string
 pkg authkit, type Config struct, Delegated config.DelegatedConfig
 pkg authkit, type Config struct, DeviceKeys config.DeviceKeysConfig
 pkg authkit, type Config struct, Frontend config.FrontendConfig
@@ -136,7 +134,6 @@ pkg authkit, type Config struct, Keys config.KeysConfig
 pkg authkit, type Config struct, Languages config.LanguageConfig
 pkg authkit, type Config struct, Passkeys config.PasskeyConfig
 pkg authkit, type Config struct, Password config.PasswordPolicy
-pkg authkit, type Config struct, PublicUserMetadata []string
 pkg authkit, type Config struct, Registration config.RegistrationConfig
 pkg authkit, type Config struct, River config.RiverConfig
 pkg authkit, type Config struct, Roles *config.Roles
@@ -722,10 +719,10 @@ pkg authkit/iam, type BootstrapManifestUser struct
 pkg authkit/iam, type BootstrapManifestUser struct, Ban *BanState `json:"ban" yaml:"ban"`
 pkg authkit/iam, type BootstrapManifestUser struct, Email string `json:"email" yaml:"email"`
 pkg authkit/iam, type BootstrapManifestUser struct, EmailVerified bool `json:"email_verified" yaml:"email_verified"`
-pkg authkit/iam, type BootstrapManifestUser struct, Metadata map[string]any `json:"metadata" yaml:"metadata"`
 pkg authkit/iam, type BootstrapManifestUser struct, Password *BootstrapUserPassword `json:"password" yaml:"password"`
 pkg authkit/iam, type BootstrapManifestUser struct, Phone string `json:"phone_number" yaml:"phone_number"`
 pkg authkit/iam, type BootstrapManifestUser struct, PhoneVerified bool `json:"phone_verified" yaml:"phone_verified"`
+pkg authkit/iam, type BootstrapManifestUser struct, PublicMetadata map[string]any `json:"public_metadata" yaml:"public_metadata"`
 pkg authkit/iam, type BootstrapManifestUser struct, RootRole Role `json:"root_role" yaml:"root_role"`
 pkg authkit/iam, type BootstrapManifestUser struct, Username string `json:"username" yaml:"username"`
 pkg authkit/iam, type BootstrapOptions struct
@@ -883,7 +880,6 @@ pkg authkit/iam, type ImportSolanaLinksResult struct, Rows []ImportSolanaLinkRow
 pkg authkit/iam, type ImportSolanaLinksResult struct, Skipped int `json:"skipped"`
 pkg authkit/iam, type ImportStatus string
 pkg authkit/iam, type ImportUser struct
-pkg authkit/iam, type ImportUser struct, AvatarURL string
 pkg authkit/iam, type ImportUser struct, Ban *BanState
 pkg authkit/iam, type ImportUser struct, CreatedAt *time.Time
 pkg authkit/iam, type ImportUser struct, DeletedAt *time.Time
@@ -891,12 +887,12 @@ pkg authkit/iam, type ImportUser struct, Email string
 pkg authkit/iam, type ImportUser struct, EmailVerified bool
 pkg authkit/iam, type ImportUser struct, ID string
 pkg authkit/iam, type ImportUser struct, LastLogin *time.Time
-pkg authkit/iam, type ImportUser struct, Metadata map[string]any
 pkg authkit/iam, type ImportUser struct, PasswordHash *PasswordHash
 pkg authkit/iam, type ImportUser struct, Phone string
 pkg authkit/iam, type ImportUser struct, PhoneVerified bool
 pkg authkit/iam, type ImportUser struct, PreferredLanguage string
 pkg authkit/iam, type ImportUser struct, Providers []ProviderLink
+pkg authkit/iam, type ImportUser struct, PublicMetadata map[string]any
 pkg authkit/iam, type ImportUser struct, UpdatedAt *time.Time
 pkg authkit/iam, type ImportUser struct, Username string
 pkg authkit/iam, type Invitation struct
@@ -994,11 +990,10 @@ pkg authkit/iam, type ProviderLink struct, Issuer string
 pkg authkit/iam, type ProviderLink struct, Provider string
 pkg authkit/iam, type ProviderLink struct, Subject string
 pkg authkit/iam, type PublicUser struct
-pkg authkit/iam, type PublicUser struct, AvatarURL *string `json:"avatar_url"`
 pkg authkit/iam, type PublicUser struct, CreatedAt *time.Time `json:"created_at"`
 pkg authkit/iam, type PublicUser struct, Deleted bool `json:"deleted"`
 pkg authkit/iam, type PublicUser struct, ID string `json:"id"`
-pkg authkit/iam, type PublicUser struct, Metadata map[string]any `json:"metadata"`
+pkg authkit/iam, type PublicUser struct, PublicMetadata map[string]any `json:"public_metadata"`
 pkg authkit/iam, type PublicUser struct, Username string `json:"username"`
 pkg authkit/iam, type RegistrationMode string
 pkg authkit/iam, type RegistrationVerificationPolicy string
@@ -1095,7 +1090,6 @@ pkg authkit/iam, type TokenSet struct, TokenType string `json:"token_type"`
 pkg authkit/iam, type TwoFactorMethod string
 pkg authkit/iam, type TwoFactorMode string
 pkg authkit/iam, type User struct
-pkg authkit/iam, type User struct, AvatarURL *string `json:"avatar_url"`
 pkg authkit/iam, type User struct, Ban *BanState `json:"ban"`
 pkg authkit/iam, type User struct, CreatedAt time.Time `json:"created_at"`
 pkg authkit/iam, type User struct, DeletedAt *time.Time `json:"deleted_at"`
@@ -1106,6 +1100,7 @@ pkg authkit/iam, type User struct, LastLogin *time.Time `json:"last_login"`
 pkg authkit/iam, type User struct, Phone *string `json:"phone_number"`
 pkg authkit/iam, type User struct, PhoneVerified bool `json:"phone_verified"`
 pkg authkit/iam, type User struct, PreferredLanguage *string `json:"preferred_language"`
+pkg authkit/iam, type User struct, PublicMetadata map[string]any `json:"public_metadata"`
 pkg authkit/iam, type User struct, UpdatedAt time.Time `json:"updated_at"`
 pkg authkit/iam, type User struct, Username string `json:"username"`
 pkg authkit/iam, type UserDeletion struct
@@ -1132,7 +1127,6 @@ pkg authkit/iam, type UserRef struct
 pkg authkit/iam, type UserSort string
 pkg authkit/iam, type UserStatus string
 pkg authkit/iam, type UserUpdate struct
-pkg authkit/iam, type UserUpdate struct, AvatarURL *string
 pkg authkit/iam, type UserUpdate struct, Email *string
 pkg authkit/iam, type UserUpdate struct, EmailVerified *bool
 pkg authkit/iam, type UserUpdate struct, Password *string

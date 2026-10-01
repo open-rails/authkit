@@ -29,14 +29,15 @@ type ImportUser struct {
 	PasswordHash *PasswordHash
 	// Ban imports a ban as it stood: At is required, By (the banning
 	// account) is optional.
-	Ban       *BanState
-	Metadata  map[string]any
-	CreatedAt *time.Time
-	UpdatedAt *time.Time
-	LastLogin *time.Time
-	// PreferredLanguage and AvatarURL are validated as UpdateUser validates them.
+	Ban *BanState
+	// PublicMetadata is the account's public metadata (iam.PublicUser):
+	// anyone may read it, so import only public fields.
+	PublicMetadata map[string]any
+	CreatedAt      *time.Time
+	UpdatedAt      *time.Time
+	LastLogin      *time.Time
+	// PreferredLanguage is validated as UpdateUser validates it.
 	PreferredLanguage string
-	AvatarURL         string
 	// DeletedAt, not in the future, imports the account as the system's
 	// DeleteUsers at that time would have left it: the 30-day recovery window
 	// runs from DeletedAt (RestoreUsers restores it, signing in does not), and
@@ -58,13 +59,13 @@ const (
 	// ImportSkip leaves the account unchanged. It is the default.
 	ImportSkip ImportConflict = "skip"
 	// ImportMerge updates an account the row is bound to: found by ID, or by an
-	// email or phone verified on the account. It merges Metadata, keeps the
-	// earlier CreatedAt and the later LastLogin, and fills a PreferredLanguage
-	// or AvatarURL the account lacks. Only a row bound by ID links Providers,
-	// and stores PasswordHash when the account has no password: the row's own
-	// verified flags never do. It never changes identity, contacts,
-	// verification, bans or deletion. A row that is not bound is skipped with
-	// ImportUnboundMatch.
+	// email or phone verified on the account. It merges PublicMetadata's
+	// top-level keys over the account's, keeps the earlier CreatedAt and the
+	// later LastLogin, and fills a PreferredLanguage the account lacks. Only a
+	// row bound by ID links Providers, and stores PasswordHash when the account
+	// has no password: the row's own verified flags never do. It never changes
+	// identity, contacts, verification, bans or deletion. A row that is not
+	// bound is skipped with ImportUnboundMatch.
 	ImportMerge ImportConflict = "merge"
 )
 

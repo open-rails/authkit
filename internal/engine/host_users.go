@@ -26,9 +26,9 @@ import (
 func publicUser(r *db.User, now time.Time) iam.User {
 	u := iam.User{
 		ID: r.ID, Email: nullable(deref(r.Email)), Phone: nullable(deref(r.PhoneNumber)), Username: deref(r.Username),
-		EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified,
-		PreferredLanguage: nullable(deref(r.PreferredLanguage)), AvatarURL: nullable(deref(r.AvatarURL)),
+		EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, PreferredLanguage: nullable(deref(r.PreferredLanguage)),
 		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin, DeletedAt: r.DeletedAt,
+		PublicMetadata: publicMetadata(r.PublicMetadata),
 	}
 	if banInForce(r.BannedAt, r.BannedUntil, now) {
 		u.Ban = &iam.BanState{Until: r.BannedUntil, Reason: nullable(deref(r.BanReason)), By: nullable(deref(r.BannedBy))}
@@ -44,6 +44,13 @@ func publicUser(r *db.User, now time.Time) iam.User {
 // is none.
 func banInForce(bannedAt, bannedUntil *time.Time, now time.Time) bool {
 	return bannedAt != nil && (bannedUntil == nil || bannedUntil.After(now))
+}
+
+// publicMetadata decodes a public_metadata column, an object by constraint.
+func publicMetadata(raw []byte) map[string]any {
+	out := map[string]any{}
+	_ = json.Unmarshal(raw, &out)
+	return out
 }
 
 func deref(p *string) string {
@@ -149,7 +156,7 @@ func (s *Engine) createUser(ctx context.Context, email, username string) (*db.Us
 	return &ins, nil
 }
 
-func (s *Engine) normalizeImportUserInput(input newAccount) (email *string, phone *string, username string, bannedBy *string, metadata string, createdAt time.Time, updatedAt time.Time, err error) {
+func (s *Engine) normalizeImportUserInput(input newAccount) (email *string, phone *string, username string, bannedBy *string, publicMetadata string, createdAt time.Time, updatedAt time.Time, err error) {
 	if trimmed := strings.TrimSpace(input.Email); trimmed != "" {
 		if err := contact.ValidateEmail(trimmed); err != nil {
 			return nil, nil, "", nil, "", time.Time{}, time.Time{}, err
@@ -172,7 +179,7 @@ func (s *Engine) normalizeImportUserInput(input newAccount) (email *string, phon
 		v := strings.TrimSpace(*input.BannedBy)
 		bannedBy = &v
 	}
-	rawMetadata := input.Metadata
+	rawMetadata := input.PublicMetadata
 	if rawMetadata == nil {
 		rawMetadata = map[string]any{}
 	}
@@ -193,7 +200,7 @@ func (s *Engine) normalizeImportUserInput(input newAccount) (email *string, phon
 }
 
 func (s *Engine) importUser(ctx context.Context, q *db.Queries, input newAccount) (*db.User, error) {
-	email, phone, username, bannedBy, metadata, createdAt, updatedAt, err := s.normalizeImportUserInput(input)
+	email, phone, username, bannedBy, publicMetadata, createdAt, updatedAt, err := s.normalizeImportUserInput(input)
 	if err != nil {
 		return nil, err
 	}
@@ -202,20 +209,20 @@ func (s *Engine) importUser(ctx context.Context, q *db.Queries, input newAccount
 		return nil, err
 	}
 	err = q.UserImportInsert(ctx, db.UserImportInsertParams{
-		ID:            userID,
-		Email:         email,
-		PhoneNumber:   phone,
-		Username:      &username,
-		AtTime:        s.namingNow(),
-		EmailVerified: input.EmailVerified,
-		PhoneVerified: input.PhoneVerified,
-		BannedAt:      input.BannedAt,
-		BannedUntil:   input.BannedUntil,
-		BanReason:     input.BanReason,
-		BannedBy:      bannedBy,
-		Metadata:      []byte(metadata),
-		CreatedAt:     createdAt,
-		UpdatedAt:     updatedAt,
+		ID:             userID,
+		Email:          email,
+		PhoneNumber:    phone,
+		Username:       &username,
+		AtTime:         s.namingNow(),
+		EmailVerified:  input.EmailVerified,
+		PhoneVerified:  input.PhoneVerified,
+		BannedAt:       input.BannedAt,
+		BannedUntil:    input.BannedUntil,
+		BanReason:      input.BanReason,
+		BannedBy:       bannedBy,
+		PublicMetadata: []byte(publicMetadata),
+		CreatedAt:      createdAt,
+		UpdatedAt:      updatedAt,
 	})
 	if err != nil {
 		return nil, err

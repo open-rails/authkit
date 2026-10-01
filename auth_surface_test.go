@@ -55,7 +55,7 @@ func TestGoAPISurface(t *testing.T) {
 func TestClientPublicSurface(t *testing.T) {
 	takesActor := []string{
 		// Accounts and sessions.
-		"UpdateUser", "PatchUserMetadata", "Ban", "Unban", "DeleteUsers", "RestoreUsers",
+		"UpdateUser", "PatchPublicMetadata", "Ban", "Unban", "DeleteUsers", "RestoreUsers",
 		"RevokeSession", "RevokeAccountSessions",
 		// Roles and checks.
 		"SetGroupRole", "RemoveGroupMember", "Can", "EffectivePermissions",
@@ -73,7 +73,7 @@ func TestClientPublicSurface(t *testing.T) {
 	}
 	reads := []string{
 		// The host is the trust boundary.
-		"User", "Users", "PublicUsers", "ListUsers", "UserMetadata", "ResolveUsername", "CheckUsername",
+		"User", "Users", "PublicUsers", "ListUsers", "ResolveUsername", "CheckUsername",
 		"DeviceKeys", "Sessions", "ListSessionEvents",
 		"Group", "Groups", "ListGroups", "ListGroupMembers", "ListMemberships", "GroupRoles", "KnownPermission",
 		"ListAPIKeys", "ResolveAPIKey", "ListInvitations", "RemoteApplication", "ListRemoteApplications",

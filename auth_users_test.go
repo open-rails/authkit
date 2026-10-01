@@ -67,7 +67,7 @@ func TestUserLookups(t *testing.T) {
 		require.NotNil(t, users[bob.ID].DeletedAt)
 		public, err := auth.PublicUsers(ctx, []string{alice.ID, bob.ID})
 		require.NoError(t, err)
-		require.Equal(t, iam.PublicUser{ID: bob.ID, Deleted: true, Metadata: map[string]any{}}, public[bob.ID])
+		require.Equal(t, iam.PublicUser{ID: bob.ID, Deleted: true, PublicMetadata: map[string]any{}}, public[bob.ID])
 		require.Equal(t, "alice", public[alice.ID].DisplayName())
 		require.Equal(t, "user-"+bob.ID[:8], iam.PublicDisplayName(public, bob.ID))
 		require.NoError(t, itemErr(auth.RestoreUsers(ctx, op, []string{bob.ID})))
@@ -77,14 +77,10 @@ func TestUserLookups(t *testing.T) {
 	})
 }
 
-// PublicUsers shows other people only the metadata keys the host made
-// public: never another key, and nothing of a deleted account.
-func TestPublicUserMetadataAllowlist(t *testing.T) {
-	pg := testdb.ScratchPostgres(t)
-	cfg := testConfig(t)
-	cfg.PublicUserMetadata = []string{"bio", "pronouns"}
-	auth := newPublicRuntime(t, cfg, pg.Pool)
-	t.Cleanup(auth.Close)
+// Public metadata is the host's: PublicUsers and User return it whole, and
+// a deleted account's tombstone carries none.
+func TestPublicMetadata(t *testing.T) {
+	auth := newUsersRuntime(t)
 	ctx := t.Context()
 	op := iam.SystemActor()
 	alice, err := auth.CreateUser(ctx, iam.NewUser{Email: "meta-alice@example.test", Username: "metaalice"})
@@ -93,15 +89,19 @@ func TestPublicUserMetadataAllowlist(t *testing.T) {
 	require.NoError(t, err)
 	carol, err := auth.CreateUser(ctx, iam.NewUser{Email: "meta-carol@example.test", Username: "metacarol"})
 	require.NoError(t, err)
-	require.NoError(t, auth.PatchUserMetadata(ctx, op, alice.ID, map[string]any{"bio": "hi", "billing_tier": "gold", "internal_note": "vip"}))
-	require.NoError(t, auth.PatchUserMetadata(ctx, op, bob.ID, map[string]any{"bio": "gone", "pronouns": "he"}))
+	profile := map[string]any{"avatar": "https://cdn.example.test/a.png", "biography": "hi", "links": []any{"https://alice.example"}}
+	require.NoError(t, auth.PatchPublicMetadata(ctx, op, alice.ID, profile))
+	require.NoError(t, auth.PatchPublicMetadata(ctx, op, bob.ID, map[string]any{"biography": "gone"}))
 	require.NoError(t, itemErr(auth.DeleteUsers(ctx, op, []string{bob.ID})))
 
 	public, err := auth.PublicUsers(ctx, []string{alice.ID, bob.ID, carol.ID})
 	require.NoError(t, err)
-	require.Equal(t, map[string]any{"bio": "hi"}, public[alice.ID].Metadata, "only allowlisted keys")
-	require.Equal(t, iam.PublicUser{ID: bob.ID, Deleted: true, Metadata: map[string]any{}}, public[bob.ID], "a tombstone carries no metadata")
-	require.Equal(t, map[string]any{}, public[carol.ID].Metadata, "no public keys set, no metadata")
+	require.Equal(t, profile, public[alice.ID].PublicMetadata)
+	require.Equal(t, iam.PublicUser{ID: bob.ID, Deleted: true, PublicMetadata: map[string]any{}}, public[bob.ID], "a tombstone carries no metadata")
+	require.Equal(t, map[string]any{}, public[carol.ID].PublicMetadata)
+	u, err := auth.User(ctx, iam.UserByID(alice.ID))
+	require.NoError(t, err)
+	require.Equal(t, profile, u.PublicMetadata)
 }
 
 func TestUserBanState(t *testing.T) {
@@ -140,11 +140,10 @@ func TestUserUpdateAndMetadata(t *testing.T) {
 	dave, err := auth.CreateUser(ctx, iam.NewUser{Email: "dave@example.test", Username: "dave", EmailVerified: true})
 	require.NoError(t, err)
 	self := iam.UserActor(dave.ID)
-	lang, avatar := "fr", "https://cdn.example.test/dave.png"
-	u, err := auth.UpdateUser(ctx, self, dave.ID, iam.UserUpdate{PreferredLanguage: &lang, AvatarURL: &avatar})
+	lang := "fr"
+	u, err := auth.UpdateUser(ctx, self, dave.ID, iam.UserUpdate{PreferredLanguage: &lang})
 	require.NoError(t, err)
 	require.Equal(t, "fr", *u.PreferredLanguage)
-	require.Equal(t, avatar, *u.AvatarURL)
 	email := "dave2@example.test"
 	_, err = auth.UpdateUser(ctx, self, dave.ID, iam.UserUpdate{Email: &email})
 	require.ErrorIs(t, err, iam.ErrCannotTargetSelf, "contact changes go through the verified flow")
@@ -153,19 +152,18 @@ func TestUserUpdateAndMetadata(t *testing.T) {
 	require.Equal(t, email, *u.Email)
 	require.False(t, u.EmailVerified, "a new address starts unverified")
 	clear := ""
-	u, err = auth.UpdateUser(ctx, op, dave.ID, iam.UserUpdate{AvatarURL: &clear})
+	u, err = auth.UpdateUser(ctx, op, dave.ID, iam.UserUpdate{PreferredLanguage: &clear})
 	require.NoError(t, err)
-	require.Empty(t, u.AvatarURL)
+	require.Nil(t, u.PreferredLanguage)
 	_, err = auth.UpdateUser(ctx, op, dave.ID, iam.UserUpdate{PasswordHash: &iam.PasswordHash{Hash: "not-a-hash", Algo: "argon2id"}})
 	require.Error(t, err)
 
-	require.NoError(t, auth.PatchUserMetadata(ctx, op, dave.ID, map[string]any{"bio": "hi", "tier": "gold"}))
-	require.NoError(t, auth.PatchUserMetadata(ctx, op, dave.ID, map[string]any{"tier": nil}))
-	meta, err := auth.UserMetadata(ctx, dave.ID)
+	require.NoError(t, auth.PatchPublicMetadata(ctx, op, dave.ID, map[string]any{"bio": "hi", "badge": "gold"}))
+	require.NoError(t, auth.PatchPublicMetadata(ctx, op, dave.ID, map[string]any{"badge": nil}))
+	u, err = auth.User(ctx, iam.UserByID(dave.ID))
 	require.NoError(t, err)
-	require.Equal(t, map[string]any{"bio": "hi"}, meta, "a nil value deletes its key")
-	_, err = auth.UserMetadata(ctx, "0190a0a0-0000-7000-8000-000000000000")
-	require.ErrorIs(t, err, iam.ErrUserNotFound)
+	require.Equal(t, map[string]any{"bio": "hi"}, u.PublicMetadata, "a nil value deletes its key")
+	require.ErrorIs(t, auth.PatchPublicMetadata(ctx, op, "0190a0a0-0000-7000-8000-000000000000", map[string]any{"bio": "x"}), iam.ErrUserNotFound)
 	sessions, err := auth.Sessions(ctx, dave.ID)
 	require.NoError(t, err)
 	require.Empty(t, sessions)

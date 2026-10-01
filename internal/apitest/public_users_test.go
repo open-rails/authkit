@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 )
@@ -19,17 +18,15 @@ import (
 // GET /users shows anyone, signed in or not, other people as anyone may see
 // them: by ids in request order (unknown ids absent, deleted accounts
 // tombstones), or by username (a former name resolves), with the join date and
-// only the public metadata keys, never a contact, ban or sign-in data.
+// public metadata, never a contact, ban or sign-in data.
 func TestPublicUsersRoute(t *testing.T) {
-	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) { c.PublicUserMetadata = []string{"bio"} }))
+	auth, _ := authtest.New(t)
 	ctx, op := t.Context(), iam.SystemActor()
 	a := newAPI(t, auth)
 	caller, alice, bob, gone := authtest.NewUser(t, auth), authtest.NewUser(t, auth), authtest.NewUser(t, auth), authtest.NewUser(t, auth)
 	token := authtest.SignIn(t, auth, caller).AccessToken
-	require.NoError(t, auth.PatchUserMetadata(ctx, op, alice.ID, map[string]any{"bio": "hello", "plan": "gold"}))
-	avatar := "https://img.example/alice.png"
-	_, err := auth.UpdateUser(ctx, op, alice.ID, iam.UserUpdate{AvatarURL: &avatar})
-	require.NoError(t, err)
+	profile := map[string]any{"bio": "hello", "avatar": "https://img.example/alice.png"}
+	require.NoError(t, auth.PatchPublicMetadata(ctx, op, alice.ID, profile))
 	require.NoError(t, auth.Ban(ctx, op, bob.ID, iam.Ban{Reason: "spam"}))
 	require.NoError(t, opErr(auth.DeleteUsers(ctx, op, []string{gone.ID})))
 
@@ -55,23 +52,23 @@ func TestPublicUsersRoute(t *testing.T) {
 		got[i].CreatedAt = nil
 	}
 	require.Equal(t, []iam.PublicUser{
-		{ID: bob.ID, Username: bob.Username, Metadata: map[string]any{}},
-		{ID: alice.ID, Username: alice.Username, AvatarURL: &avatar, Metadata: map[string]any{"bio": "hello"}},
-		{ID: gone.ID, Deleted: true, Metadata: map[string]any{}},
+		{ID: bob.ID, Username: bob.Username, PublicMetadata: map[string]any{}},
+		{ID: alice.ID, Username: alice.Username, PublicMetadata: profile},
+		{ID: gone.ID, Deleted: true, PublicMetadata: map[string]any{}},
 	}, got, "request order, each once; unknown ids absent; a ban is not visible")
 	var raw struct {
 		Data []json.RawMessage `json:"data"`
 	}
 	res.decode(t, &raw)
-	require.JSONEq(t, `{"id":"`+gone.ID+`","username":"","avatar_url":null,"created_at":null,"deleted":true,"metadata":{}}`, string(raw.Data[2]))
-	for _, leak := range []string{alice.Email, bob.Email, gone.Email, "gold", "spam", "email", "phone", "ban", "last_login", "updated_at"} {
+	require.JSONEq(t, `{"id":"`+gone.ID+`","username":"","created_at":null,"deleted":true,"public_metadata":{}}`, string(raw.Data[2]))
+	for _, leak := range []string{alice.Email, bob.Email, gone.Email, "spam", "email", "phone", "ban", "last_login", "updated_at"} {
 		require.NotContains(t, res.String(), leak)
 	}
 
 	// By username: a former name resolves to its owner; a name nobody holds,
 	// or a deleted account's, is an empty page.
 	former, renamed := alice.Username, "renamed"+alice.Username
-	_, err = auth.UpdateUser(ctx, op, alice.ID, iam.UserUpdate{Username: &renamed})
+	_, err := auth.UpdateUser(ctx, op, alice.ID, iam.UserUpdate{Username: &renamed})
 	require.NoError(t, err)
 	for _, name := range []string{renamed, former, strings.ToUpper(renamed)} {
 		_, got = users("username=" + name)

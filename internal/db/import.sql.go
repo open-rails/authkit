@@ -272,9 +272,9 @@ func (q *Queries) ImportInsertProviders(ctx context.Context, arg ImportInsertPro
 
 const importInsertUsers = `-- name: ImportInsertUsers :many
 INSERT INTO users (id, email, phone_number, username, verified_elsewhere, banned_at, banned_until,
-                   ban_reason, metadata, created_at, updated_at, last_login, preferred_language, avatar_url, deleted_at)
+                   ban_reason, public_metadata, created_at, updated_at, last_login, preferred_language, deleted_at)
 SELECT r.id, r.email, r.phone_number, r.username, r.verified_elsewhere, r.banned_at, r.banned_until,
-       r.ban_reason, r.metadata, r.created_at, r.updated_at, r.last_login, r.preferred_language, r.avatar_url, r.deleted_at
+       r.ban_reason, r.public_metadata, r.created_at, r.updated_at, r.last_login, r.preferred_language, r.deleted_at
 FROM jsonb_populate_recordset(NULL::users, $1::jsonb) AS r
 ON CONFLICT DO NOTHING
 RETURNING id::text
@@ -321,31 +321,28 @@ func (q *Queries) ImportMergePassword(ctx context.Context, arg ImportMergePasswo
 
 const importMergeUser = `-- name: ImportMergeUser :exec
 UPDATE users SET
-  metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb,
+  public_metadata = public_metadata || $1::jsonb,
   created_at = LEAST(created_at, $2),
   last_login = GREATEST(last_login, $3),
   preferred_language = COALESCE(preferred_language, $4),
-  avatar_url = COALESCE(avatar_url, $5),
   updated_at = now()
-WHERE id = $6::uuid
+WHERE id = $5::uuid
 `
 
 type ImportMergeUserParams struct {
-	Metadata          []byte
+	PublicMetadata    []byte
 	CreatedAt         time.Time
 	LastLogin         *time.Time
 	PreferredLanguage *string
-	AvatarURL         *string
 	ID                string
 }
 
 func (q *Queries) ImportMergeUser(ctx context.Context, arg ImportMergeUserParams) error {
 	_, err := q.db.Exec(ctx, importMergeUser,
-		arg.Metadata,
+		arg.PublicMetadata,
 		arg.CreatedAt,
 		arg.LastLogin,
 		arg.PreferredLanguage,
-		arg.AvatarURL,
 		arg.ID,
 	)
 	return err

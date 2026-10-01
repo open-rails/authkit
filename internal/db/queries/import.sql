@@ -35,11 +35,10 @@ WHERE c.name = ANY(sqlc.arg(names)::text[])
 
 -- name: ImportMergeUser :exec
 UPDATE users SET
-  metadata = COALESCE(metadata, '{}'::jsonb) || sqlc.arg(metadata)::jsonb,
+  public_metadata = public_metadata || sqlc.arg(public_metadata)::jsonb,
   created_at = LEAST(created_at, sqlc.arg(created_at)),
   last_login = GREATEST(last_login, sqlc.narg(last_login)),
   preferred_language = COALESCE(preferred_language, sqlc.narg(preferred_language)),
-  avatar_url = COALESCE(avatar_url, sqlc.narg(avatar_url)),
   updated_at = now()
 WHERE id = sqlc.arg(id)::uuid;
 
@@ -52,9 +51,9 @@ ON CONFLICT (user_id) DO NOTHING;
 -- users is a JSON array of users rows (column-named keys; a missing key is
 -- NULL). A row losing a uniqueness race to another writer is not returned.
 INSERT INTO users (id, email, phone_number, username, verified_elsewhere, banned_at, banned_until,
-                   ban_reason, metadata, created_at, updated_at, last_login, preferred_language, avatar_url, deleted_at)
+                   ban_reason, public_metadata, created_at, updated_at, last_login, preferred_language, deleted_at)
 SELECT r.id, r.email, r.phone_number, r.username, r.verified_elsewhere, r.banned_at, r.banned_until,
-       r.ban_reason, r.metadata, r.created_at, r.updated_at, r.last_login, r.preferred_language, r.avatar_url, r.deleted_at
+       r.ban_reason, r.public_metadata, r.created_at, r.updated_at, r.last_login, r.preferred_language, r.deleted_at
 FROM jsonb_populate_recordset(NULL::users, sqlc.arg(users)::jsonb) AS r
 ON CONFLICT DO NOTHING
 RETURNING id::text;

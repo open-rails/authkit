@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Users carry `public_metadata`, the JSON object the host writes and anyone
+  may read; `avatar_url` is gone from `User`, `PublicUser` and
+  `updateProfile`, and `PublicUser.metadata` is `public_metadata`. New:
+  `avatarURL(user, key = "avatar")` reads the host's picture from it.
 - Step-up by every way an account signs in. `step_up_methods` may name
   `email`, `sms`, `passkey` and `solana`; with a second factor it is `2fa`,
   plus `passkey` when the account holds one. New: `sendContactStepUpCode`,

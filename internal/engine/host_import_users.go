@@ -22,20 +22,20 @@ import (
 // newAccount is one account row to create: a registration, an import row or a
 // bootstrap user. normalizeImportUserInput validates it.
 type newAccount struct {
-	Email         string
-	PhoneNumber   string
-	Username      string
-	EmailVerified bool
-	PhoneVerified bool
-	BannedAt      *time.Time
-	BannedUntil   *time.Time
-	BanReason     *string
-	BannedBy      *string
-	Metadata      map[string]any
-	CreatedAt     *time.Time
-	UpdatedAt     *time.Time
-	PasswordHash  string
-	HashAlgo      string
+	Email          string
+	PhoneNumber    string
+	Username       string
+	EmailVerified  bool
+	PhoneVerified  bool
+	BannedAt       *time.Time
+	BannedUntil    *time.Time
+	BanReason      *string
+	BannedBy       *string
+	PublicMetadata map[string]any
+	CreatedAt      *time.Time
+	UpdatedAt      *time.Time
+	PasswordHash   string
+	HashAlgo       string
 }
 
 // importUsersChunkSize bounds rows per transaction.
@@ -71,12 +71,11 @@ type importRow struct {
 	phone     *string
 	username  string
 	name      string // the username's claim key
-	metadata  string
+	metadata  string // public metadata
 	createdAt time.Time
 	updatedAt time.Time
 	lastLogin *time.Time
 	language  *string
-	avatar    *string
 	deletedAt *time.Time
 	providers []iam.ProviderLink
 	out       iam.ImportRow
@@ -242,7 +241,7 @@ func (s *Engine) prepareImportRow(idx int, in iam.ImportUser) (*importRow, error
 	acct := newAccount{
 		Email: in.Email, PhoneNumber: in.Phone, Username: in.Username,
 		EmailVerified: in.EmailVerified, PhoneVerified: in.PhoneVerified,
-		Metadata: in.Metadata, CreatedAt: in.CreatedAt, UpdatedAt: in.UpdatedAt,
+		PublicMetadata: in.PublicMetadata, CreatedAt: in.CreatedAt, UpdatedAt: in.UpdatedAt,
 	}
 	if b := in.Ban; b != nil {
 		by := strings.TrimSpace(deref(b.By))
@@ -274,9 +273,6 @@ func (s *Engine) prepareImportRow(idx int, in iam.ImportUser) (*importRow, error
 		return nil, err
 	}
 	p.language = nullable(language)
-	if p.avatar, err = normalizeAvatarURL(in.AvatarURL); err != nil {
-		return nil, err
-	}
 	if in.DeletedAt != nil {
 		if in.DeletedAt.After(time.Now()) {
 			return nil, errImportInvalidDeletedAt
@@ -516,16 +512,16 @@ func (s *Engine) importHits(ctx context.Context, q *db.Queries, rows []*importRo
 	return out, nil
 }
 
-// mergeImportRow merges a bound row into its account: metadata, the earlier
-// creation time, the later last login, a language and avatar the account
-// lacks and, when withCredentials, the row's providers and a password the
+// mergeImportRow merges a bound row into its account: public metadata, the
+// earlier creation time, the later last login, a language the account lacks
+// and, when withCredentials, the row's providers and a password the
 // account lacks. Identity, contacts, verification, bans and deletion stay as
 // they are.
 func (s *Engine) mergeImportRow(ctx context.Context, st *permissionGroupStore, p *importRow, userID string, withCredentials bool) error {
 	q := db.New(st.q)
 	if err := q.ImportMergeUser(ctx, db.ImportMergeUserParams{
-		ID: userID, Metadata: []byte(p.metadata), CreatedAt: p.createdAt, LastLogin: p.lastLogin,
-		PreferredLanguage: p.language, AvatarURL: p.avatar,
+		ID: userID, PublicMetadata: []byte(p.metadata), CreatedAt: p.createdAt, LastLogin: p.lastLogin,
+		PreferredLanguage: p.language,
 	}); err != nil {
 		return err
 	}
@@ -555,12 +551,11 @@ type importUserColumns struct {
 	BannedAt          *time.Time      `json:"banned_at"`
 	BannedUntil       *time.Time      `json:"banned_until"`
 	BanReason         *string         `json:"ban_reason"`
-	Metadata          json.RawMessage `json:"metadata"`
+	PublicMetadata    json.RawMessage `json:"public_metadata"`
 	CreatedAt         *time.Time      `json:"created_at"`
 	UpdatedAt         *time.Time      `json:"updated_at"`
 	LastLogin         *time.Time      `json:"last_login"`
 	PreferredLanguage *string         `json:"preferred_language"`
-	AvatarURL         *string         `json:"avatar_url"`
 	DeletedAt         *time.Time      `json:"deleted_at"`
 }
 
@@ -592,8 +587,8 @@ func insertImportRows(ctx context.Context, q *db.Queries, rows []*importRow) (ma
 		cols[i] = importUserColumns{
 			ID: r.id, Email: r.email, PhoneNumber: r.phone, Username: r.username, VerifiedElsewhere: elsewhere,
 			BannedAt: pgTime(r.in.BannedAt), BannedUntil: pgTime(r.in.BannedUntil), BanReason: r.in.BanReason,
-			Metadata: json.RawMessage(r.metadata), CreatedAt: pgTime(&r.createdAt), UpdatedAt: pgTime(&r.updatedAt),
-			LastLogin: pgTime(r.lastLogin), PreferredLanguage: r.language, AvatarURL: r.avatar, DeletedAt: pgTime(r.deletedAt),
+			PublicMetadata: json.RawMessage(r.metadata), CreatedAt: pgTime(&r.createdAt), UpdatedAt: pgTime(&r.updatedAt),
+			LastLogin: pgTime(r.lastLogin), PreferredLanguage: r.language, DeletedAt: pgTime(r.deletedAt),
 		}
 	}
 	users, err := json.Marshal(cols)
@@ -714,10 +709,10 @@ func importRejectReason(err error) iam.ImportReason {
 	return iam.ImportReason(err.Error())
 }
 
-// validImportText reports whether every text field of in, metadata included,
+// validImportText reports whether every text field of in, public metadata included,
 // is valid UTF-8. The JSON bulk insert would store invalid bytes as U+FFFD.
 func validImportText(in iam.ImportUser) bool {
-	texts := []string{in.ID, in.Email, in.Phone, in.Username, in.PreferredLanguage, in.AvatarURL}
+	texts := []string{in.ID, in.Email, in.Phone, in.Username, in.PreferredLanguage}
 	if in.PasswordHash != nil {
 		texts = append(texts, in.PasswordHash.Hash, string(in.PasswordHash.Algo))
 	}
@@ -732,7 +727,7 @@ func validImportText(in iam.ImportUser) bool {
 			return false
 		}
 	}
-	return validUTF8Value(in.Metadata)
+	return validUTF8Value(in.PublicMetadata)
 }
 
 // validUTF8Value reports whether every string in v, a JSON-shaped value,

@@ -439,12 +439,12 @@ func validateBootstrapUserPassword(p iam.BootstrapUserPassword) error {
 // bootstrapAccount is the account a manifest user creates.
 func bootstrapAccount(user iam.BootstrapManifestUser) newAccount {
 	acct := newAccount{
-		Email:         user.Email,
-		PhoneNumber:   user.Phone,
-		Username:      user.Username,
-		EmailVerified: user.EmailVerified,
-		PhoneVerified: user.PhoneVerified,
-		Metadata:      user.Metadata,
+		Email:          user.Email,
+		PhoneNumber:    user.Phone,
+		Username:       user.Username,
+		EmailVerified:  user.EmailVerified,
+		PhoneVerified:  user.PhoneVerified,
+		PublicMetadata: user.PublicMetadata,
 	}
 	if b := user.Ban; b != nil {
 		now := time.Now().UTC()
