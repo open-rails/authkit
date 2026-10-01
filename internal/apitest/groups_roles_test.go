@@ -1087,6 +1087,34 @@ func TestRuntimeRequestPrincipalUsesLiveAuthority(t *testing.T) {
 	require.False(t, allowed, "same principal observes removal without reauthenticating")
 }
 
+// The request's principal proves a recent sign-in, Sensitive's check, to
+// helpers/auth code that moves money or grants access, without verifying the
+// request again. A stale sign-in is a step-up carrying the account's methods.
+func TestRuntimeRequestPrincipalChecksRecentSignIn(t *testing.T) {
+	auth, _ := authtest.New(t)
+	ctx := t.Context()
+	u := authtest.NewUser(t, auth)
+	session := authtest.SignIn(t, auth, u)
+	check := func(token string) error {
+		req := httptest.NewRequest(http.MethodPost, "https://resource.example/refunds", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		principal, err := auth.AuthenticateRequest(ctx, req)
+		require.NoError(t, err)
+		return principal.(hostauth.RecentSignInChecker).CheckRecentSignIn(ctx)
+	}
+	require.NoError(t, check(session.AccessToken))
+
+	err := check(authtest.StaleSession(t, auth, session.AccessToken))
+	require.ErrorIs(t, err, hostauth.ErrStepUpRequired)
+	var challenge interface{ Metadata() map[string]any }
+	require.ErrorAs(t, err, &challenge)
+	require.Contains(t, challenge.Metadata(), "step_up_methods")
+
+	_, err = auth.RevokeAccountSessions(ctx, iam.SystemActor(), u.ID)
+	require.NoError(t, err)
+	require.ErrorIs(t, check(session.AccessToken), hostauth.ErrRevoked)
+}
+
 // /capabilities lists the configured providers; /me/groups lists the caller's
 // current memberships, root included, and nobody else's.
 func TestCapabilitiesAndRootMembershipDiscovery(t *testing.T) {
