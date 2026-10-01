@@ -114,9 +114,7 @@ func importRejected(idx int, reason iam.ImportReason) iam.ImportRow {
 // their password hashes, and merge where asked. A row sharing an identifier
 // with an earlier row of the batch is that row's account. A row whose
 // identifiers name two accounts is rejected. Matching is never proof: only an
-// id, or a contact verified on the account, binds a row for a merge, and only
-// an id binds its credentials. Nor is a source's verified flag (see
-// importUserColumns).
+// id binds a row for a merge. Addresses import unverified.
 func (s *Engine) ImportUsers(ctx context.Context, rows []iam.ImportUser, opts iam.ImportOptions, options ...ops.Option) (iam.ImportResult, error) {
 	if err := noOptions("ImportUsers", options); err != nil {
 		return iam.ImportResult{}, err
@@ -240,7 +238,6 @@ func (s *Engine) prepareImportRow(idx int, in iam.ImportUser) (*importRow, error
 	}
 	acct := newAccount{
 		Email: in.Email, PhoneNumber: in.Phone, Username: in.Username,
-		EmailVerified: in.EmailVerified, PhoneVerified: in.PhoneVerified,
 		PublicMetadata: in.PublicMetadata, CreatedAt: in.CreatedAt, UpdatedAt: in.UpdatedAt,
 	}
 	if b := in.Ban; b != nil {
@@ -383,11 +380,10 @@ func (s *Engine) importChunk(ctx context.Context, chunk []*importRow, merge bool
 }
 
 type importHit struct {
-	match    iam.ImportMatch
-	userID   string
-	deleted  bool
-	verified bool // a contact hit verified on the account
-	missing  bool // a username reserved for a purged account
+	match   iam.ImportMatch
+	userID  string
+	deleted bool
+	missing bool // a username reserved for a purged account
 }
 
 // resolveImportRows finds the accounts rows name, records the outcome of every
@@ -411,19 +407,12 @@ func (s *Engine) resolveImportRows(ctx context.Context, st *permissionGroupStore
 			continue
 		}
 		top := found[0]
-		conflict := p.declared && top.match != iam.ImportMatchID
-		// credentialBound: bound strongly enough to add a password or providers.
-		// The row's own verified flags are the source system's word, which an
-		// attacker may have forged there: they never bind credentials.
-		bound, credentialBound := false, false
+		// Only the id binds: the row's other identifiers are the source
+		// system's word, which an attacker may have forged there.
+		bound := top.match == iam.ImportMatchID
+		conflict := p.declared && !bound
 		for _, h := range found {
 			conflict = conflict || h.userID != top.userID
-			switch {
-			case h.match == iam.ImportMatchID:
-				bound, credentialBound = true, true
-			case h.verified:
-				bound = true
-			}
 		}
 		skipped := iam.ImportRow{Index: p.idx, UserID: top.userID, MatchedBy: top.match, Status: iam.ImportSkipped, Reason: iam.ImportAlreadyExists}
 		switch {
@@ -440,7 +429,7 @@ func (s *Engine) resolveImportRows(ctx context.Context, st *permissionGroupStore
 			skipped.Reason = iam.ImportUnboundMatch
 			p.out = skipped
 		default:
-			err := st.savepoint(ctx, func() error { return s.mergeImportRow(ctx, st, p, top.userID, credentialBound) })
+			err := st.savepoint(ctx, func() error { return s.mergeImportRow(ctx, st, p, top.userID) })
 			if err != nil {
 				if code := errmodel.CodeOf(err); code == "" || code == errmodel.CodeInternalError {
 					return nil, err
@@ -473,7 +462,7 @@ func (s *Engine) importHits(ctx context.Context, q *db.Queries, rows []*importRo
 	// The four ImportHitsBy* rows share one shape.
 	out := map[importKey]importHit{}
 	add := func(match iam.ImportMatch, r db.ImportHitsByIDRow) {
-		out[importKey{match, r.Key}] = importHit{match: match, userID: r.UserID, deleted: r.Deleted, verified: r.Verified, missing: r.Missing}
+		out[importKey{match, r.Key}] = importHit{match: match, userID: r.UserID, deleted: r.Deleted, missing: r.Missing}
 	}
 	if len(ids) > 0 {
 		hits, err := q.ImportHitsByID(ctx, ids)
@@ -512,21 +501,17 @@ func (s *Engine) importHits(ctx context.Context, q *db.Queries, rows []*importRo
 	return out, nil
 }
 
-// mergeImportRow merges a bound row into its account: public metadata, the
-// earlier creation time, the later last login, a language the account lacks
-// and, when withCredentials, the row's providers and a password the
-// account lacks. Identity, contacts, verification, bans and deletion stay as
-// they are.
-func (s *Engine) mergeImportRow(ctx context.Context, st *permissionGroupStore, p *importRow, userID string, withCredentials bool) error {
+// mergeImportRow merges a row into the account its id names: public metadata,
+// the earlier creation time, the later last login, a language the account
+// lacks, the row's providers and a password the account lacks. Identity,
+// contacts, verification, bans and deletion stay as they are.
+func (s *Engine) mergeImportRow(ctx context.Context, st *permissionGroupStore, p *importRow, userID string) error {
 	q := db.New(st.q)
 	if err := q.ImportMergeUser(ctx, db.ImportMergeUserParams{
 		ID: userID, PublicMetadata: []byte(p.metadata), CreatedAt: p.createdAt, LastLogin: p.lastLogin,
 		PreferredLanguage: p.language,
 	}); err != nil {
 		return err
-	}
-	if !withCredentials {
-		return nil
 	}
 	for _, l := range p.providers {
 		if _, err := linkProviderByIssuer(ctx, q, userID, l.Issuer, l.Provider, l.Subject, nullable(l.Email)); err != nil {
@@ -540,14 +525,12 @@ func (s *Engine) mergeImportRow(ctx context.Context, st *permissionGroupStore, p
 }
 
 // importUserColumns is one users row for ImportInsertUsers, keyed by column.
-// Addresses import unverified: the source's verified flags only set
-// verified_elsewhere, which lets the account sign in before proving one.
+// Addresses import unverified.
 type importUserColumns struct {
 	ID                string          `json:"id"`
 	Email             *string         `json:"email"`
 	PhoneNumber       *string         `json:"phone_number"`
 	Username          string          `json:"username"`
-	VerifiedElsewhere bool            `json:"verified_elsewhere"`
 	BannedAt          *time.Time      `json:"banned_at"`
 	BannedUntil       *time.Time      `json:"banned_until"`
 	BanReason         *string         `json:"ban_reason"`
@@ -583,9 +566,8 @@ func insertImportRows(ctx context.Context, q *db.Queries, rows []*importRow) (ma
 	}
 	cols := make([]importUserColumns, len(rows))
 	for i, r := range rows {
-		elsewhere := r.email != nil && r.in.EmailVerified || r.phone != nil && r.in.PhoneVerified
 		cols[i] = importUserColumns{
-			ID: r.id, Email: r.email, PhoneNumber: r.phone, Username: r.username, VerifiedElsewhere: elsewhere,
+			ID: r.id, Email: r.email, PhoneNumber: r.phone, Username: r.username,
 			BannedAt: pgTime(r.in.BannedAt), BannedUntil: pgTime(r.in.BannedUntil), BanReason: r.in.BanReason,
 			PublicMetadata: json.RawMessage(r.metadata), CreatedAt: pgTime(&r.createdAt), UpdatedAt: pgTime(&r.updatedAt),
 			LastLogin: pgTime(r.lastLogin), PreferredLanguage: r.language, DeletedAt: pgTime(r.deletedAt),

@@ -178,7 +178,7 @@ func (q *Queries) UserBanInForce(ctx context.Context, id string) (bool, error) {
 }
 
 const userByEmail = `-- name: UserByEmail :one
-SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, verified_elsewhere, public_metadata FROM users WHERE email = lower($1::text)::public.citext
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata FROM users WHERE email = lower($1::text)::public.citext
 `
 
 func (q *Queries) UserByEmail(ctx context.Context, email string) (User, error) {
@@ -202,7 +202,6 @@ func (q *Queries) UserByEmail(ctx context.Context, email string) (User, error) {
 		&i.PreferredLanguage,
 		&i.LastRenamedAt,
 		&i.CredentialVersion,
-		&i.VerifiedElsewhere,
 		&i.PublicMetadata,
 	)
 	return i, err
@@ -210,7 +209,7 @@ func (q *Queries) UserByEmail(ctx context.Context, email string) (User, error) {
 
 const userByID = `-- name: UserByID :one
 
-SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, verified_elsewhere, public_metadata FROM users WHERE id = $1
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata FROM users WHERE id = $1
 `
 
 // User-row queries. A user read selects the whole row, so every read returns
@@ -236,14 +235,13 @@ func (q *Queries) UserByID(ctx context.Context, id string) (User, error) {
 		&i.PreferredLanguage,
 		&i.LastRenamedAt,
 		&i.CredentialVersion,
-		&i.VerifiedElsewhere,
 		&i.PublicMetadata,
 	)
 	return i, err
 }
 
 const userByPhone = `-- name: UserByPhone :one
-SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, verified_elsewhere, public_metadata FROM users WHERE phone_number = $1
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata FROM users WHERE phone_number = $1
 `
 
 func (q *Queries) UserByPhone(ctx context.Context, phoneNumber *string) (User, error) {
@@ -267,14 +265,13 @@ func (q *Queries) UserByPhone(ctx context.Context, phoneNumber *string) (User, e
 		&i.PreferredLanguage,
 		&i.LastRenamedAt,
 		&i.CredentialVersion,
-		&i.VerifiedElsewhere,
 		&i.PublicMetadata,
 	)
 	return i, err
 }
 
 const userByUsername = `-- name: UserByUsername :one
-SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, verified_elsewhere, public_metadata FROM users WHERE username = $1::text::public.citext
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata FROM users WHERE username = $1::text::public.citext
 `
 
 func (q *Queries) UserByUsername(ctx context.Context, username string) (User, error) {
@@ -298,7 +295,6 @@ func (q *Queries) UserByUsername(ctx context.Context, username string) (User, er
 		&i.PreferredLanguage,
 		&i.LastRenamedAt,
 		&i.CredentialVersion,
-		&i.VerifiedElsewhere,
 		&i.PublicMetadata,
 	)
 	return i, err
@@ -310,16 +306,6 @@ UPDATE users SET banned_at = NULL, banned_until = NULL, ban_reason = NULL, banne
 
 func (q *Queries) UserClearBan(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, userClearBan, id)
-	return err
-}
-
-const userClearVerifiedElsewhere = `-- name: UserClearVerifiedElsewhere :exec
-UPDATE users SET verified_elsewhere = false WHERE id = $1 AND verified_elsewhere
-`
-
-// A proof ends an import's sign-in allowance.
-func (q *Queries) UserClearVerifiedElsewhere(ctx context.Context, id string) error {
-	_, err := q.db.Exec(ctx, userClearVerifiedElsewhere, id)
 	return err
 }
 
@@ -460,7 +446,7 @@ WITH claim AS MATERIALIZED (
 )
 INSERT INTO users (id, email, username)
 SELECT $1::uuid, NULLIF(lower($2::text), ''), $3 FROM claim
-RETURNING id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, verified_elsewhere, public_metadata
+RETURNING id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata
 `
 
 type UserInsertParams struct {
@@ -496,7 +482,6 @@ func (q *Queries) UserInsert(ctx context.Context, arg UserInsertParams) (User, e
 		&i.PreferredLanguage,
 		&i.LastRenamedAt,
 		&i.CredentialVersion,
-		&i.VerifiedElsewhere,
 		&i.PublicMetadata,
 	)
 	return i, err
@@ -828,7 +813,7 @@ func (q *Queries) UserSoftDelete(ctx context.Context, id string) error {
 }
 
 const usersByIDs = `-- name: UsersByIDs :many
-SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, verified_elsewhere, public_metadata FROM users WHERE id = ANY($1::uuid[])
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata FROM users WHERE id = ANY($1::uuid[])
 `
 
 func (q *Queries) UsersByIDs(ctx context.Context, ids []string) ([]User, error) {
@@ -858,7 +843,6 @@ func (q *Queries) UsersByIDs(ctx context.Context, ids []string) ([]User, error) 
 			&i.PreferredLanguage,
 			&i.LastRenamedAt,
 			&i.CredentialVersion,
-			&i.VerifiedElsewhere,
 			&i.PublicMetadata,
 		); err != nil {
 			return nil, err

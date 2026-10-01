@@ -11,19 +11,17 @@ import "time"
 type ImportUser struct {
 	// ID, when set, is the new account's id, or the existing account a Merge
 	// updates. It must be a UUID.
-	ID       string
+	ID string
+	// Email and Phone import unverified: another system's "verified" is not
+	// proof (someone may have confirmed another person's address there). The
+	// account is unproven until it proves one here (a code, at its first
+	// sign-in where registration requires verification, or a reset link): it
+	// adds no login method or address, and its first proof retires the
+	// imported credentials and other addresses (a password survives only when
+	// the proving session signed in with it).
 	Email    string
 	Phone    string
 	Username string
-	// EmailVerified and PhoneVerified are the source system's word, not proof
-	// (someone may have confirmed another person's address there). They only
-	// let the account sign in before proving an address. Addresses import
-	// unverified, and the account is unproven until it proves one here (a
-	// code or a reset link): it adds no login method or address, and its first
-	// proof retires the imported credentials and other addresses (a password
-	// survives only when the proving session signed in with it).
-	EmailVerified bool
-	PhoneVerified bool
 	// PasswordHash is validated before it is stored; HashLegacyResetRequired
 	// keeps any value and makes the account reset its password.
 	PasswordHash *PasswordHash
@@ -58,14 +56,13 @@ type ImportConflict string
 const (
 	// ImportSkip leaves the account unchanged. It is the default.
 	ImportSkip ImportConflict = "skip"
-	// ImportMerge updates an account the row is bound to: found by ID, or by an
-	// email or phone verified on the account. It merges PublicMetadata's
-	// top-level keys over the account's, keeps the earlier CreatedAt and the
-	// later LastLogin, and fills a PreferredLanguage the account lacks. Only a
-	// row bound by ID links Providers, and stores PasswordHash when the account
-	// has no password: the row's own verified flags never do. It never changes
-	// identity, contacts, verification, bans or deletion. A row that is not
-	// bound is skipped with ImportUnboundMatch.
+	// ImportMerge updates the account the row's ID names. It merges
+	// PublicMetadata's top-level keys over the account's, keeps the earlier
+	// CreatedAt and the later LastLogin, fills a PreferredLanguage the account
+	// lacks, links Providers, and stores PasswordHash when the account has no
+	// password. It never changes identity, contacts, verification, bans or
+	// deletion. A row that finds an account only by email, phone or username
+	// is skipped with ImportUnboundMatch: matching is not proof.
 	ImportMerge ImportConflict = "merge"
 )
 

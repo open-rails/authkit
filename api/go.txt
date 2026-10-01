@@ -884,12 +884,10 @@ pkg authkit/iam, type ImportUser struct, Ban *BanState
 pkg authkit/iam, type ImportUser struct, CreatedAt *time.Time
 pkg authkit/iam, type ImportUser struct, DeletedAt *time.Time
 pkg authkit/iam, type ImportUser struct, Email string
-pkg authkit/iam, type ImportUser struct, EmailVerified bool
 pkg authkit/iam, type ImportUser struct, ID string
 pkg authkit/iam, type ImportUser struct, LastLogin *time.Time
 pkg authkit/iam, type ImportUser struct, PasswordHash *PasswordHash
 pkg authkit/iam, type ImportUser struct, Phone string
-pkg authkit/iam, type ImportUser struct, PhoneVerified bool
 pkg authkit/iam, type ImportUser struct, PreferredLanguage string
 pkg authkit/iam, type ImportUser struct, Providers []ProviderLink
 pkg authkit/iam, type ImportUser struct, PublicMetadata map[string]any

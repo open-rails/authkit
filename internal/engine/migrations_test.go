@@ -332,7 +332,8 @@ func TestUpgradeKeepsAndNormalizesRows(t *testing.T) {
 
 // 0006 drops users.metadata and avatar_url with what they held, and public
 // metadata starts empty: a host's private keys never become public. After the
-// upgrade no HTTP answer carries them.
+// upgrade no HTTP answer carries them. 0007 drops verified_elsewhere: an
+// imported address is unverified.
 func TestUpgradeDropsAppMetadata(t *testing.T) {
 	ctx := t.Context()
 	tree, err := migratekit.LoadFromFS(pgmigrations.FS)
@@ -344,15 +345,15 @@ func TestUpgradeDropsAppMetadata(t *testing.T) {
 	require.NoError(t, err)
 	username := "Legacy" + uniqueSuffix()
 	var id string
-	require.NoError(t, pg.Pool.QueryRow(ctx, `INSERT INTO users (email, username, email_verified, metadata, avatar_url)
- VALUES ($1, $2, true, '{"legacy_ban": {"reason": "private-ban-reason"}, "biography": "private-until-published"}', 'https://cdn.example/private-avatar.png')
+	require.NoError(t, pg.Pool.QueryRow(ctx, `INSERT INTO users (email, username, email_verified, verified_elsewhere, metadata, avatar_url)
+ VALUES ($1, $2, true, true, '{"legacy_ban": {"reason": "private-ban-reason"}, "biography": "private-until-published"}', 'https://cdn.example/private-avatar.png')
  RETURNING id::text`, uniqueEmail("legacy"), username).Scan(&id))
 	_, err = pg.Pool.Exec(ctx, `INSERT INTO user_passwords (user_id, password_hash) VALUES ($1::uuid, $2)`, id, hash)
 	require.NoError(t, err)
 
 	require.NoError(t, Migrate(ctx, pg.Pool, config.Config{Schema: "profiles", River: config.RiverConfig{HostOwned: true}}, config.MigrateOptions{}))
 	rows, err := pg.Pool.Query(ctx, `SELECT column_name FROM information_schema.columns
- WHERE table_schema = 'profiles' AND table_name = 'users' AND column_name IN ('metadata', 'avatar_url', 'public_metadata')`)
+ WHERE table_schema = 'profiles' AND table_name = 'users' AND column_name IN ('metadata', 'avatar_url', 'verified_elsewhere', 'public_metadata')`)
 	require.NoError(t, err)
 	columns, err := pgx.CollectRows(rows, pgx.RowTo[string])
 	require.NoError(t, err)

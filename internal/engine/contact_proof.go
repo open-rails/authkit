@@ -96,10 +96,9 @@ func proofOn(channel string) proof {
 
 // retirePreProofCredentials runs in the transaction that proves one of the
 // account's addresses (or, for a contact change, replaces its unproven one),
-// before the address is marked verified, on behalf of a. Every proof ends an
-// import's sign-in allowance (verified_elsewhere). When no address was proven
-// yet, whoever created the account's credentials was never shown to control
-// it, so every credential and session goes: the addresses p does not cover,
+// before the address is marked verified, on behalf of a. When no address was
+// proven yet, whoever created the account's credentials was never shown to
+// control it, so every credential and session goes: the addresses p does not cover,
 // provider links (including Solana wallets), passkeys, device keys, 2FA
 // factors and backup codes, the API keys, invite links and account invitations
 // the account issued, the applications it registered (they keep no
@@ -112,13 +111,10 @@ func proofOn(channel string) proof {
 // the password, so it is deleted (a reset replaces it anyway).
 func (s *Engine) retirePreProofCredentials(ctx context.Context, tx pgx.Tx, a iam.Actor, userID string, p proof, keepSessionID *string) ([]revokedSession, error) {
 	st, err := contactStateForUpdate(ctx, tx, userID)
-	if err != nil {
+	if err != nil || !st.Unproven {
 		return nil, err
 	}
 	q := s.qtx(tx)
-	if err := q.UserClearVerifiedElsewhere(ctx, userID); err != nil || !st.Unproven {
-		return nil, err
-	}
 	if err := s.dropUnprovenContacts(ctx, tx, a, userID, p); err != nil {
 		return nil, err
 	}

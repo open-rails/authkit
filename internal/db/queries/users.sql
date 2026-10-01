@@ -148,10 +148,6 @@ SELECT ((email IS NOT NULL OR phone_number IS NOT NULL)
        (CASE WHEN email IS NOT NULL THEN 'email' ELSE 'phone' END)::text AS channel
 FROM users WHERE id = $1 FOR UPDATE;
 
--- name: UserClearVerifiedElsewhere :exec
--- A proof ends an import's sign-in allowance.
-UPDATE users SET verified_elsewhere = false WHERE id = $1 AND verified_elsewhere;
-
 -- name: UserSetEmail :exec
 -- A new address is unverified; setting the current one changes nothing.
 UPDATE users SET email = sqlc.narg(email), email_verified = false, updated_at = now()
