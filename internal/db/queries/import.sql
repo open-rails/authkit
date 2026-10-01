@@ -51,9 +51,9 @@ ON CONFLICT (user_id) DO NOTHING;
 -- name: ImportInsertUsers :many
 -- users is a JSON array of users rows (column-named keys; a missing key is
 -- NULL). A row losing a uniqueness race to another writer is not returned.
-INSERT INTO users (id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until,
+INSERT INTO users (id, email, phone_number, username, verified_elsewhere, banned_at, banned_until,
                    ban_reason, metadata, created_at, updated_at, last_login, preferred_language, avatar_url, deleted_at)
-SELECT r.id, r.email, r.phone_number, r.username, r.email_verified, r.phone_verified, r.banned_at, r.banned_until,
+SELECT r.id, r.email, r.phone_number, r.username, r.verified_elsewhere, r.banned_at, r.banned_until,
        r.ban_reason, r.metadata, r.created_at, r.updated_at, r.last_login, r.preferred_language, r.avatar_url, r.deleted_at
 FROM jsonb_populate_recordset(NULL::users, sqlc.arg(users)::jsonb) AS r
 ON CONFLICT DO NOTHING

@@ -15,6 +15,7 @@ import (
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/testidp"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
@@ -336,6 +337,116 @@ func TestSecurityImportUsers(t *testing.T) {
 	})
 }
 
+// TestSecurityImportedVerificationIsNotProof: a source system's "verified" is
+// its word, not a proof. An attacker who confirmed the victim's address there
+// (a guessable confirmation link) and set the password imports as an account
+// that signs in, even where registration requires verification, but adds no
+// login method or address until it proves one here. The owner's first proof
+// leaves the attacker nothing: no session, password, factor or other address.
+func TestSecurityImportedVerificationIsNotProof(t *testing.T) {
+	h := newHost(t, withSMS, withHTTP(generousLimits), authtest.WithConfig(func(c *authkit.Config) {
+		c.Registration.Verification = iam.RegistrationVerificationRequired
+		c.Registration.PasswordlessLogin = true
+	}))
+	ctx := context.Background()
+	raw, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
+	require.NoError(t, err)
+	legacyHash := &iam.PasswordHash{Hash: string(raw), Algo: iam.HashBcrypt}
+	importVerified := func(t *testing.T, row iam.ImportUser) string {
+		t.Helper()
+		row.Username, row.PasswordHash = unique("legacy"), legacyHash
+		row.EmailVerified, row.PhoneVerified = row.Email != "", row.Phone != ""
+		res, err := h.auth.ImportUsers(ctx, []iam.ImportUser{row}, iam.ImportOptions{})
+		require.NoError(t, err)
+		require.Equal(t, iam.ImportInserted, res.Rows[0].Status, "%+v", res.Rows[0])
+		return res.Rows[0].UserID
+	}
+	signIn := func(t *testing.T, email, pw string) response {
+		t.Helper()
+		return h.post("/password/login", map[string]string{"identifier": email, "password": pw}, "")
+	}
+	reset := func(t *testing.T, email, pw string) {
+		t.Helper()
+		require.Less(t, h.post("/password/reset/request", map[string]string{"identifier": email}, "").status, 300)
+		resp := h.post("/password/reset/confirm", map[string]string{"token": h.mail.Last(t, iam.MessagePasswordReset, email).Token, "new_password": pw}, "")
+		require.Less(t, resp.status, 300, resp.String())
+	}
+
+	victim := unique("importvictim") + "@security.test"
+	id := importVerified(t, iam.ImportUser{Email: victim})
+	u, err := h.auth.User(ctx, iam.UserByID(id))
+	require.NoError(t, err)
+	require.False(t, u.EmailVerified, "an import marked its address verified")
+	attacker := session(t, signIn(t, victim, password))
+
+	resp := h.post("/me/2fa/setup", map[string]string{"method": "totp"}, attacker.AccessToken)
+	require.Equal(t, http.StatusForbidden, resp.status, "an imported account enrolled a second factor: %s", resp)
+	identifier, channel := contactOf(t, resp)
+	require.Equal(t, victim, identifier)
+	require.Equal(t, "email", channel)
+	resp = h.do(request{method: http.MethodPut, path: "/me/phone", body: map[string]string{"phone_number": "+1555" + uniqueDigits(7)}, token: attacker.AccessToken})
+	require.Equal(t, http.StatusForbidden, resp.status, "an imported account started proving a second address: %s", resp)
+
+	reset(t, victim, "Victim-owns-this-now-7")
+	require.Equal(t, http.StatusUnauthorized, h.refresh(attacker.RefreshToken).status, "the attacker's session survived")
+	require.Equal(t, http.StatusUnauthorized, signIn(t, victim, password).status, "the imported password survived")
+	owner := authResult(t, signIn(t, victim, "Victim-owns-this-now-7"))
+	require.Equal(t, httpapi.AuthComplete, owner.Status, "the owner is held at a second factor")
+	var factors int
+	require.NoError(t, h.pool.QueryRow(ctx, `SELECT count(*) FROM mfa_factors WHERE user_id = $1::uuid`, id).Scan(&factors))
+	require.Zero(t, factors)
+	emailVerified, _, _, _, _ := h.contactState(id)
+	require.True(t, emailVerified)
+
+	t.Run("control: the owner signs in with the imported password and proves the address", func(t *testing.T) {
+		email := unique("importowner") + "@security.test"
+		importVerified(t, iam.ImportUser{Email: email})
+		own := session(t, signIn(t, email, password))
+		resp := h.post("/me/2fa/setup", map[string]string{"method": "totp"}, own.AccessToken)
+		require.Equal(t, http.StatusForbidden, resp.status, resp.String())
+		h.proveOwnEmail(email, own)
+		require.Equal(t, http.StatusOK, h.refresh(own.RefreshToken).status, "the proving session was revoked")
+		h.enrollTOTP(own.AccessToken)
+		// The proving session signed in with the imported password, so it stays.
+		require.Equal(t, httpapi.AuthSecondFactorRequired, authResult(t, signIn(t, email, password)).Status)
+	})
+
+	t.Run("control: an import the source never verified is held at sign-in", func(t *testing.T) {
+		email := unique("importunverified") + "@security.test"
+		res, err := h.auth.ImportUsers(ctx, []iam.ImportUser{{Email: email, Username: unique("legacy"), PasswordHash: legacyHash}}, iam.ImportOptions{})
+		require.NoError(t, err)
+		require.Equal(t, iam.ImportInserted, res.Rows[0].Status)
+		require.Equal(t, httpapi.AuthVerificationRequired, authResult(t, signIn(t, email, password)).Status)
+	})
+
+	t.Run("the first proof drops the other imported address", func(t *testing.T) {
+		email, phone := unique("importboth")+"@security.test", "+1555"+uniqueDigits(7)
+		id := importVerified(t, iam.ImportUser{Email: email, Phone: phone})
+		// The phone's holder proves it first; the email, never proven here,
+		// leaves the account and is free for its owner.
+		require.Less(t, h.post("/passwordless/start", map[string]string{"identifier": phone, "mode": "code"}, "").status, 300)
+		resp := h.post("/passwordless/confirm", map[string]string{"identifier": phone, "code": h.verificationCode(phone)}, "")
+		session(t, resp)
+		u, err := h.auth.User(ctx, iam.UserByID(id))
+		require.NoError(t, err)
+		require.Nil(t, u.Email, "an unproven imported address survived the first proof")
+		require.True(t, u.PhoneVerified)
+		require.False(t, h.emailTaken(email))
+	})
+
+	t.Run("a merge by a verified address adds no credential", func(t *testing.T) {
+		email := unique("importmerge") + "@security.test"
+		created, err := h.auth.CreateUser(ctx, iam.NewUser{Email: email, Username: unique("importmerge"), EmailVerified: true})
+		require.NoError(t, err)
+		res, err := h.auth.ImportUsers(ctx, []iam.ImportUser{{Email: email, EmailVerified: true, Username: unique("legacy"), PasswordHash: legacyHash}},
+			iam.ImportOptions{OnConflict: iam.ImportMerge})
+		require.NoError(t, err)
+		require.Equal(t, iam.ImportRow{Index: 0, UserID: created.ID, MatchedBy: iam.ImportMatchEmail, Status: iam.ImportMerged}, res.Rows[0])
+		_, _, hasPassword, _, _ := h.contactState(created.ID)
+		require.False(t, hasPassword, "a row's verified flag set the account's password")
+	})
+}
+
 // TestSecurityImportSolanaLinks: imported wallets are reservations, never
 // login methods, and never move between accounts.
 func TestSecurityImportSolanaLinks(t *testing.T) {
@@ -392,7 +503,8 @@ func TestSecurityLinkProvider(t *testing.T) {
 // TestSecurityImportProviders: an imported provider identity signs in to
 // exactly the imported account, and an import never binds an identity another
 // account holds, or one another row of the batch names. A merge links
-// identities only for a row bound by id or a contact verified on both sides.
+// identities only for a row bound by id: a row's verified flag, the source
+// system's word, never binds one to the account holding its address.
 func TestSecurityImportProviders(t *testing.T) {
 	idp := testidp.New(t)
 	provider := idp.OAuth2("impidp")
@@ -451,9 +563,9 @@ func TestSecurityImportProviders(t *testing.T) {
 		require.Equal(t, iam.ImportRow{Index: 2, Status: iam.ImportRejected, Reason: "provider_already_linked"}, out.Rows[2])
 		require.Equal(t, iam.ImportRow{Index: 3, UserID: both.id, MatchedBy: iam.ImportMatchEmail, Status: iam.ImportMerged}, out.Rows[3])
 		require.Equal(t, target.id, h.providerOwner(byID.Subject))
-		require.Empty(t, h.providerOwner(byEmail.Subject), "a row not proven by id or a verified contact linked an identity")
+		require.Empty(t, h.providerOwner(byEmail.Subject), "a row not bound by id linked an identity")
 		require.Equal(t, holder.id, h.providerOwner(held.Subject))
-		require.Equal(t, both.id, h.providerOwner(byBoth.Subject))
+		require.Empty(t, h.providerOwner(byBoth.Subject), "an imported verified flag linked an identity to the address's account")
 		var stolen bool
 		require.NoError(t, h.pool.QueryRow(ctx, `SELECT metadata ? 'stolen' FROM users WHERE id=$1::uuid`, other.id).Scan(&stolen))
 		require.False(t, stolen, "a rejected merge kept part of its row")

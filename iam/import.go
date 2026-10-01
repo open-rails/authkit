@@ -11,10 +11,17 @@ import "time"
 type ImportUser struct {
 	// ID, when set, is the new account's id, or the existing account a Merge
 	// updates. It must be a UUID.
-	ID            string
-	Email         string
-	Phone         string
-	Username      string
+	ID       string
+	Email    string
+	Phone    string
+	Username string
+	// EmailVerified and PhoneVerified are the source system's word, not proof
+	// (someone may have confirmed another person's address there). They only
+	// let the account sign in before proving an address. Addresses import
+	// unverified, and the account is unproven until it proves one here (a
+	// code or a reset link): it adds no login method or address, and its first
+	// proof retires the imported credentials and other addresses (a password
+	// survives only when the proving session signed in with it).
 	EmailVerified bool
 	PhoneVerified bool
 	// PasswordHash is validated before it is stored; HashLegacyResetRequired
@@ -53,9 +60,9 @@ const (
 	// ImportMerge updates an account the row is bound to: found by ID, or by an
 	// email or phone verified on the account. It merges Metadata, keeps the
 	// earlier CreatedAt and the later LastLogin, and fills a PreferredLanguage
-	// or AvatarURL the account lacks. Only a row bound by ID or by a contact
-	// verified on both sides links Providers, and stores PasswordHash when the
-	// account has no password. It never changes identity, contacts,
+	// or AvatarURL the account lacks. Only a row bound by ID links Providers,
+	// and stores PasswordHash when the account has no password: the row's own
+	// verified flags never do. It never changes identity, contacts,
 	// verification, bans or deletion. A row that is not bound is skipped with
 	// ImportUnboundMatch.
 	ImportMerge ImportConflict = "merge"

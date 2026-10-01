@@ -352,7 +352,8 @@ func TestClientReadsUserMetadata(t *testing.T) {
 
 // An imported legacy reset-required hash never verifies: a password step-up
 // answers 401 password_reset_required, from a fresh session too. A session
-// fresh from another proof (passwordless) replaces it.
+// fresh from another proof (passwordless) replaces it. The hash is merged onto
+// a proven account: an imported account's first proof would retire it.
 func TestLegacyHashStepUpRequiresReset(t *testing.T) {
 	auth, outbox := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
 		withAppLinks(c)
@@ -361,10 +362,12 @@ func TestLegacyHashStepUpRequiresReset(t *testing.T) {
 	}))
 	a := newAPI(t, auth)
 	const email = "legacy@example.test"
-	imported, err := auth.ImportUsers(t.Context(), []iam.ImportUser{{Email: email, EmailVerified: true, Username: "legacyuser",
-		PasswordHash: &iam.PasswordHash{Hash: "legacy-digest", Algo: iam.HashLegacyResetRequired}}}, iam.ImportOptions{})
+	created, err := auth.CreateUser(t.Context(), iam.NewUser{Email: email, EmailVerified: true, Username: "legacyuser"})
 	require.NoError(t, err)
-	require.Equal(t, 1, imported.Inserted, "%+v", imported.Rows)
+	imported, err := auth.ImportUsers(t.Context(), []iam.ImportUser{{ID: created.ID, Username: "legacyuser",
+		PasswordHash: &iam.PasswordHash{Hash: "legacy-digest", Algo: iam.HashLegacyResetRequired}}}, iam.ImportOptions{OnConflict: iam.ImportMerge})
+	require.NoError(t, err)
+	require.Equal(t, 1, imported.Merged, "%+v", imported.Rows)
 	// A passwordless sign-in: a fresh session without the password.
 	res := a.post("/passwordless/start", "", map[string]any{"identifier": email, "mode": "code"})
 	require.Equal(t, http.StatusAccepted, res.status, res.String())

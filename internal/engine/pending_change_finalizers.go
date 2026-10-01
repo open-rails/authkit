@@ -98,7 +98,7 @@ func (s *Engine) applyContactChange(ctx context.Context, rec pendingChange, chan
 		return err
 	}
 	userID := rec.UserID
-	proven, err := s.retirePreProofCredentials(ctx, tx, userID, keepSessionID)
+	proven, err := s.retirePreProofCredentials(ctx, tx, iam.UserActor(userID), userID, proofOn(channel), keepSessionID)
 	if err != nil {
 		return err
 	}
