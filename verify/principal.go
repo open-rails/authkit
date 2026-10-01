@@ -82,6 +82,9 @@ func principalOf(a Authenticator, cl Claims) (auth.Principal, error) {
 		return nil, auth.ErrUnauthenticated
 	}
 	cl.Permissions = append([]string(nil), cl.Permissions...)
+	if authority, ok := a.(Authority); ok {
+		return sessionPrincipal{checkingPrincipal{identity{i}, cl, authority}, authority}, nil
+	}
 	if checker, ok := a.(PermissionChecker); ok {
 		return checkingPrincipal{identity{i}, cl, checker}, nil
 	}
@@ -149,4 +152,36 @@ func classify(err error) error {
 		}
 	}
 	return errors.Join(auth.ErrUnauthenticated, err)
+}
+
+// sessionPrincipal is a checkingPrincipal whose authority also checks the
+// credential's sign-in (*authkit.Client is one).
+type sessionPrincipal struct {
+	checkingPrincipal
+	sessions SessionChecker
+}
+
+var _ auth.RecentSignInChecker = sessionPrincipal{}
+
+// CheckRecentSignIn is Sensitive's check, live and without verifying the
+// request again: the user's own token, signed in within the last 15 minutes,
+// with the second factor when the account has one. A stale sign-in is
+// auth.ErrStepUpRequired joined with step_up_required, whose Metadata lists
+// the account's step-up methods. A credential with no sign-in of its own (a
+// delegated token, an API key) is auth.ErrForbidden, and a revoked session
+// auth.ErrRevoked.
+func (p sessionPrincipal) CheckRecentSignIn(ctx context.Context) error {
+	err := p.sessions.CheckRecentSignIn(ctx, p.claims)
+	switch code := errmodel.CodeOf(err); {
+	case err == nil:
+		return nil
+	case code == errmodel.CodeStepUpRequired:
+		return errors.Join(auth.ErrStepUpRequired, err)
+	case errors.Is(err, iam.ErrSessionRevoked):
+		return errors.Join(auth.ErrUnauthenticated, auth.ErrRevoked, err)
+	case code == errmodel.CodeForbidden:
+		return errors.Join(auth.ErrForbidden, err)
+	default:
+		return errors.Join(auth.ErrUnavailable, err)
+	}
 }
