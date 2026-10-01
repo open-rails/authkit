@@ -115,7 +115,9 @@ func importRejected(idx int, reason iam.ImportReason) iam.ImportRow {
 // their password hashes, and merge where asked. A row sharing an identifier
 // with an earlier row of the batch is that row's account. A row whose
 // identifiers name two accounts is rejected. Matching is never proof: only an
-// id, or a contact verified on the account, binds a row for a merge.
+// id, or a contact verified on the account, binds a row for a merge, and only
+// an id binds its credentials. Nor is a source's verified flag (see
+// importUserColumns).
 func (s *Engine) ImportUsers(ctx context.Context, rows []iam.ImportUser, opts iam.ImportOptions, options ...ops.Option) (iam.ImportResult, error) {
 	if err := noOptions("ImportUsers", options); err != nil {
 		return iam.ImportResult{}, err
@@ -415,6 +417,8 @@ func (s *Engine) resolveImportRows(ctx context.Context, st *permissionGroupStore
 		top := found[0]
 		conflict := p.declared && top.match != iam.ImportMatchID
 		// credentialBound: bound strongly enough to add a password or providers.
+		// The row's own verified flags are the source system's word, which an
+		// attacker may have forged there: they never bind credentials.
 		bound, credentialBound := false, false
 		for _, h := range found {
 			conflict = conflict || h.userID != top.userID
@@ -423,7 +427,6 @@ func (s *Engine) resolveImportRows(ctx context.Context, st *permissionGroupStore
 				bound, credentialBound = true, true
 			case h.verified:
 				bound = true
-				credentialBound = credentialBound || h.match == iam.ImportMatchEmail && p.in.EmailVerified || h.match == iam.ImportMatchPhone && p.in.PhoneVerified
 			}
 		}
 		skipped := iam.ImportRow{Index: p.idx, UserID: top.userID, MatchedBy: top.match, Status: iam.ImportSkipped, Reason: iam.ImportAlreadyExists}
@@ -541,13 +544,14 @@ func (s *Engine) mergeImportRow(ctx context.Context, st *permissionGroupStore, p
 }
 
 // importUserColumns is one users row for ImportInsertUsers, keyed by column.
+// Addresses import unverified: the source's verified flags only set
+// verified_elsewhere, which lets the account sign in before proving one.
 type importUserColumns struct {
 	ID                string          `json:"id"`
 	Email             *string         `json:"email"`
 	PhoneNumber       *string         `json:"phone_number"`
 	Username          string          `json:"username"`
-	EmailVerified     bool            `json:"email_verified"`
-	PhoneVerified     bool            `json:"phone_verified"`
+	VerifiedElsewhere bool            `json:"verified_elsewhere"`
 	BannedAt          *time.Time      `json:"banned_at"`
 	BannedUntil       *time.Time      `json:"banned_until"`
 	BanReason         *string         `json:"ban_reason"`
@@ -584,9 +588,9 @@ func insertImportRows(ctx context.Context, q *db.Queries, rows []*importRow) (ma
 	}
 	cols := make([]importUserColumns, len(rows))
 	for i, r := range rows {
+		elsewhere := r.email != nil && r.in.EmailVerified || r.phone != nil && r.in.PhoneVerified
 		cols[i] = importUserColumns{
-			ID: r.id, Email: r.email, PhoneNumber: r.phone, Username: r.username,
-			EmailVerified: r.in.EmailVerified, PhoneVerified: r.in.PhoneVerified,
+			ID: r.id, Email: r.email, PhoneNumber: r.phone, Username: r.username, VerifiedElsewhere: elsewhere,
 			BannedAt: pgTime(r.in.BannedAt), BannedUntil: pgTime(r.in.BannedUntil), BanReason: r.in.BanReason,
 			Metadata: json.RawMessage(r.metadata), CreatedAt: pgTime(&r.createdAt), UpdatedAt: pgTime(&r.updatedAt),
 			LastLogin: pgTime(r.lastLogin), PreferredLanguage: r.language, AvatarURL: r.avatar, DeletedAt: pgTime(r.deletedAt),

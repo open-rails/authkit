@@ -12,10 +12,11 @@ import (
 
 // Contact ownership (ak#393). An account whose only addresses are unproven was
 // created by someone who has not shown they control them: anyone can register
-// victim@example.com. Such an account may sign in, but it cannot add login
-// methods, and the first proof of one of its addresses retires every
-// credential created before that proof, so a pre-registration can never leave
-// the real owner's account with a backdoor.
+// victim@example.com, or have another system confirm it for them and import
+// it. Such an account may sign in, but it cannot add login methods, and the
+// first proof of one of its addresses retires every credential and every
+// other address created before that proof, so a pre-registration can never
+// leave the real owner's account with a backdoor.
 
 // contactState reads whether the account's addresses are all unproven, and
 // the address to prove.
@@ -85,26 +86,42 @@ func (s *Engine) RequireProvenContact(ctx context.Context, userID string) error 
 	return requireProvenContactOn(ctx, s.pg, userID)
 }
 
+// proof names the addresses a proof covers.
+type proof struct{ email, phone bool }
+
+// proofOn is a proof of the account's address on channel (email or sms).
+func proofOn(channel string) proof {
+	return proof{email: channel == passwordlessChannelEmail, phone: channel == passwordlessChannelSMS}
+}
+
 // retirePreProofCredentials runs in the transaction that proves one of the
 // account's addresses (or, for a contact change, replaces its unproven one),
-// before the address is marked verified. When no address was proven yet, whoever created the account's credentials was never shown to
-// control it, so every credential and session goes: provider links (including
-// Solana wallets), passkeys, device keys, 2FA factors and backup codes, the API
-// keys, invite links and account invitations the account issued, the
-// applications it registered (they keep no registrar), and refresh sessions on
-// every account issuer.
+// before the address is marked verified, on behalf of a. Every proof ends an
+// import's sign-in allowance (verified_elsewhere). When no address was proven
+// yet, whoever created the account's credentials was never shown to control
+// it, so every credential and session goes: the addresses p does not cover,
+// provider links (including Solana wallets), passkeys, device keys, 2FA
+// factors and backup codes, the API keys, invite links and account invitations
+// the account issued, the applications it registered (they keep no
+// registrar), and refresh sessions on every account issuer.
 //
 // keepSessionID is the authenticated session presenting the proof, if any. It
 // survives, and the password survives only when that live session itself
 // proved the password: then the prover demonstrably holds both. A proof from a
 // fresh device, a reset or an email/SMS login code says nothing about who set
 // the password, so it is deleted (a reset replaces it anyway).
-func (s *Engine) retirePreProofCredentials(ctx context.Context, tx pgx.Tx, userID string, keepSessionID *string) ([]revokedSession, error) {
+func (s *Engine) retirePreProofCredentials(ctx context.Context, tx pgx.Tx, a iam.Actor, userID string, p proof, keepSessionID *string) ([]revokedSession, error) {
 	st, err := contactStateForUpdate(ctx, tx, userID)
-	if err != nil || !st.Unproven {
+	if err != nil {
 		return nil, err
 	}
 	q := s.qtx(tx)
+	if err := q.UserClearVerifiedElsewhere(ctx, userID); err != nil || !st.Unproven {
+		return nil, err
+	}
+	if err := s.dropUnprovenContacts(ctx, tx, a, userID, p); err != nil {
+		return nil, err
+	}
 	keepPassword := false
 	if keepSessionID != nil && *keepSessionID != "" {
 		pwd, err := q.SessionProvedPassword(ctx, db.SessionProvedPasswordParams{SessionID: *keepSessionID, UserID: userID})
@@ -142,4 +159,33 @@ func (s *Engine) retirePreProofCredentials(ctx context.Context, tx pgx.Tx, userI
 		}
 	}
 	return revokeSessionsTx(ctx, q, userID, s.accountIssuers(), keepSessionID)
+}
+
+// dropUnprovenContacts removes the account's addresses that the first proof
+// does not cover. Nobody has shown they control them, and each would still
+// sign in to or recover the account (a reset or a login code to it).
+func (s *Engine) dropUnprovenContacts(ctx context.Context, tx pgx.Tx, a iam.Actor, userID string, p proof) error {
+	if p.email && p.phone {
+		return nil
+	}
+	before, err := readAccountIdentity(ctx, tx, userID)
+	if err != nil {
+		return err
+	}
+	q := s.qtx(tx)
+	if !p.email {
+		if err := q.UserSetEmail(ctx, db.UserSetEmailParams{ID: userID}); err != nil {
+			return err
+		}
+	}
+	if !p.phone {
+		if err := q.UserSetPhone(ctx, db.UserSetPhoneParams{ID: userID}); err != nil {
+			return err
+		}
+	}
+	changes, err := identityChanges(ctx, tx, userID, before)
+	if err != nil {
+		return err
+	}
+	return s.emitEvents(ctx, tx, a, changes...)
 }

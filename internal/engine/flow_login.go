@@ -141,8 +141,12 @@ func (s *Engine) recoverPendingLogin(ctx context.Context, in authflow.PasswordLo
 
 // verificationGate parks an unverified account: the password must verify
 // first (no OTP for the unauthenticated), then a fresh code goes out over the
-// unverified channel and the login ends in LoginVerificationRequired.
+// unverified channel and the login ends in LoginVerificationRequired. An
+// import the source system verified passes, still unproven.
 func (s *Engine) verificationGate(ctx context.Context, in authflow.PasswordLoginInput, u *db.User) (authflow.LoginOutcome, bool, error) {
+	if u.VerifiedElsewhere {
+		return authflow.LoginOutcome{}, false, nil
+	}
 	needsEmail := !u.EmailVerified && u.Email != nil
 	needsPhone := !u.PhoneVerified && u.PhoneNumber != nil
 	if !needsEmail && !needsPhone {

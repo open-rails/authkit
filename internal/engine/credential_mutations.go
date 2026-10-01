@@ -91,7 +91,7 @@ func (s *Engine) changePassword(ctx context.Context, userID, new string, keepSes
 				return jwt.ErrTokenInvalidClaims
 			}
 			// A completed reset proves the reset channel (ak#393).
-			if proven, err = s.retirePreProofCredentials(ctx, tx, userID, nil); err != nil {
+			if proven, err = s.retirePreProofCredentials(ctx, tx, iam.UserActor(userID), userID, proofOn(grant.Channel), nil); err != nil {
 				return err
 			}
 			if grant.Channel == "email" {

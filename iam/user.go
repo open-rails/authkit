@@ -105,8 +105,9 @@ func (r UserRef) Value() string  { return r.value }
 func (r UserRef) IsZero() bool   { return r.key == "" || r.value == "" }
 func (r UserRef) String() string { return string(r.key) + ":" + r.value }
 
-// NewUser creates a native account. Verified flags are the system's
-// assertion that the address was proven elsewhere.
+// NewUser creates a native account. A verified flag asserts that your code
+// proved the address; another system's word is not proof (import such
+// accounts with ImportUsers).
 type NewUser struct {
 	Email, Phone, Username, Password string
 	EmailVerified, PhoneVerified     bool

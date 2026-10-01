@@ -223,11 +223,12 @@ func selfEditable(u iam.UserUpdate) bool {
 // applies to itself, not to staff renaming it); Password, PasswordHash and the verified flags are system-only
 // (staff send a reset to the proven address instead). Setting a verified flag
 // is the proof transition: on an account with no proven contact it first
-// retires every pre-proof credential. A contact change never leaves an
-// account with a second factor or MFA-required roles without a proven
-// contact, since the next proof would retire its MFA, and never moves its
-// email factor, which stays bound to the address it was proven for. Nothing
-// is sent to the new address.
+// retires every pre-proof credential, and every address the flags set don't
+// cover. Never set one on another system's word (see ImportUsers). A contact
+// change never leaves an account with a second factor or MFA-required roles
+// without a proven contact, since the next proof would retire its MFA, and
+// never moves its email factor, which stays bound to the address it was
+// proven for. Nothing is sent to the new address.
 func (s *Engine) UpdateUser(ctx context.Context, a iam.Actor, userID string, u iam.UserUpdate, opts ...ops.Option) (iam.User, error) {
 	if err := noOptions("UpdateUser", opts); err != nil {
 		return iam.User{}, err
@@ -244,11 +245,19 @@ func (s *Engine) UpdateUser(ctx context.Context, a iam.Actor, userID string, u i
 	}
 	var revoked userUpdateRevocations
 	err := s.withAccountMutation(ctx, a, userID, ident.RootUsersManage, self, func(at accountTx) error {
+		// A verified flag set is a proof, applied first: it records the
+		// events of the addresses it drops, so the diff below starts after it.
+		var err error
+		if p := (proof{email: u.EmailVerified != nil && *u.EmailVerified, phone: u.PhoneVerified != nil && *u.PhoneVerified}); p.email || p.phone {
+			if revoked.proven, err = s.retirePreProofCredentials(ctx, at.tx, a, at.userID, p, nil); err != nil {
+				return err
+			}
+		}
 		before, err := readAccountIdentity(ctx, at.tx, at.userID)
 		if err != nil {
 			return err
 		}
-		if revoked, err = s.applyUserUpdate(ctx, at, strings.TrimSpace(userID), u); err != nil {
+		if revoked.password, err = s.applyUserUpdate(ctx, at, strings.TrimSpace(userID), u); err != nil {
 			return err
 		}
 		changes, err := identityChanges(ctx, at.tx, at.userID, before)
@@ -268,16 +277,13 @@ func (s *Engine) UpdateUser(ctx context.Context, a iam.Actor, userID string, u i
 // userUpdateRevocations are the sessions an update revoked, by cause.
 type userUpdateRevocations struct{ proven, password []revokedSession }
 
-func (s *Engine) applyUserUpdate(ctx context.Context, at accountTx, userID string, u iam.UserUpdate) (userUpdateRevocations, error) {
-	var revoked userUpdateRevocations
+// applyUserUpdate applies u after its proof, if any, and returns the sessions
+// a password change revoked.
+func (s *Engine) applyUserUpdate(ctx context.Context, at accountTx, userID string, u iam.UserUpdate) ([]revokedSession, error) {
+	var revoked []revokedSession
 	before, err := contactStateForUpdate(ctx, at.tx, userID)
 	if err != nil {
 		return revoked, err
-	}
-	if (u.EmailVerified != nil && *u.EmailVerified) || (u.PhoneVerified != nil && *u.PhoneVerified) {
-		if revoked.proven, err = s.retirePreProofCredentials(ctx, at.tx, userID, nil); err != nil {
-			return revoked, err
-		}
 	}
 	if u.Username != nil {
 		authority := normalRename
@@ -364,7 +370,7 @@ func (s *Engine) applyUserUpdate(ctx context.Context, at accountTx, userID strin
 		if err != nil {
 			return revoked, err
 		}
-		revoked.password, err = s.mutateCredentialsTx(ctx, at.q, userID, nil, func(q *db.Queries, _ db.UserCredentialVersionForUpdateRow) error {
+		revoked, err = s.mutateCredentialsTx(ctx, at.q, userID, nil, func(q *db.Queries, _ db.UserCredentialVersionForUpdateRow) error {
 			return q.UserPasswordUpsert(ctx, db.UserPasswordUpsertParams{UserID: userID, PasswordHash: hash, HashAlgo: algo})
 		})
 		if err != nil {

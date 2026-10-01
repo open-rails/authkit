@@ -315,7 +315,7 @@ func (s *Engine) verifyContactProofWithRecovery(ctx context.Context, userID stri
 	default:
 		return registeredAccount{}, jwt.ErrTokenInvalidClaims
 	}
-	revoked, err := s.retirePreProofCredentials(ctx, tx, u.ID, keepSessionID)
+	revoked, err := s.retirePreProofCredentials(ctx, tx, iam.UserActor(u.ID), u.ID, proofOn(channel), keepSessionID)
 	if err != nil {
 		return registeredAccount{}, err
 	}

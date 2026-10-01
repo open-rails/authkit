@@ -136,6 +136,8 @@ type User struct {
 	AvatarURL         *string
 	LastRenamedAt     *time.Time
 	CredentialVersion int64
+	// An import said another system verified an address: the account signs in before proving one
+	VerifiedElsewhere bool
 }
 
 // Ed25519 public keys for native clients. Revoked rows remain tombstones and cannot be re-enrolled.

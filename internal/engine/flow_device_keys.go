@@ -386,7 +386,7 @@ func (s *Engine) enrollDeviceKey(ctx context.Context, record deviceKeyEnrollment
 	}
 	userID := account.ID
 	// The emailed enrollment code proves the address (ak#393).
-	proven, err := s.retirePreProofCredentials(ctx, tx, userID, nil)
+	proven, err := s.retirePreProofCredentials(ctx, tx, iam.UserActor(userID), userID, proofOn(passwordlessChannelEmail), nil)
 	if err != nil {
 		return iam.DeviceKey{}, "", false, err
 	}
