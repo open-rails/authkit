@@ -100,7 +100,7 @@ func (s *Service) handleAdminUserPATCH(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	update := iam.UserUpdate{Email: req.Email, Phone: req.PhoneNumber, Username: req.Username, AvatarURL: req.AvatarURL, PreferredLanguage: req.PreferredLanguage}
+	update := iam.UserUpdate{Email: req.Email, Phone: req.PhoneNumber, Username: req.Username, PreferredLanguage: req.PreferredLanguage}
 	if _, err := s.svc.UpdateUser(r.Context(), actor, target, update); err != nil {
 		writeError(w, err)
 		return

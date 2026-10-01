@@ -24,7 +24,6 @@ var (
 	CodeAPIKeyRevoked                     = def("api_key_revoked", 401, "The API key has been revoked.")
 	CodeAuthRequiredForLink               = def("auth_required_for_link", 401, "Sign in before linking a provider.")
 	CodeAuthenticationFailed              = def("authentication_failed", 401, "Authentication failed.")
-	CodeAvatarURLInvalid                  = def("avatar_url_invalid", 400, "The avatar URL is invalid.")
 	CodeBadAudience                       = def("bad_audience", 401, "The token audience is not accepted.")
 	CodeBadIssuer                         = def("bad_issuer", 401, "The token issuer is not trusted.")
 	CodeBootstrapDatabaseNotEmpty         = def("bootstrap_database_not_empty", 409, "The database is not empty; bootstrap refused.")
@@ -180,7 +179,6 @@ var (
 var (
 	ErrAccountExistsLinkRequired       = E(CodeAccountExistsLinkRequired)
 	ErrAddressMismatch                 = E(CodeAddressMismatch)
-	ErrAvatarURLInvalid                = E(CodeAvatarURLInvalid)
 	ErrBootstrapDatabaseNotEmpty       = E(CodeBootstrapDatabaseNotEmpty)
 	ErrCannotRemoveLastContact         = E(CodeCannotRemoveLastContact)
 	ErrCannotUnlinkLastLoginMethod     = E(CodeCannotUnlinkLastLoginMethod)

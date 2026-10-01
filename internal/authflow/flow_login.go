@@ -53,9 +53,12 @@ const (
 )
 
 // VerificationRequired names the contact channel a login is parked on.
+// PasswordProof, when the login proved the account's password, is the
+// single-use token that lets the confirmation keep it (VerificationInput).
 type VerificationRequired struct {
-	Identifier string
-	Channel    string // "email" | "phone"
+	Identifier    string
+	Channel       string // "email" | "phone"
+	PasswordProof string
 }
 
 // TwoFactorChallenge is the second-factor step a password login opened.

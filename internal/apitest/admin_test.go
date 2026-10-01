@@ -41,20 +41,19 @@ func TestAdminAccountRoutes(t *testing.T) {
 		}
 		email, phone := uniqueEmail("adminpatch"), uniquePhone()
 		res := expect(t, http.StatusOK, patch(token, user, map[string]any{"email": email, "phone_number": phone, "username": "patched" + target.ID[:8],
-			"avatar_url": "https://img.example/a.png", "preferred_language": "fr"}))
+			"preferred_language": "fr"}))
 		var got iam.UserEntry
 		res.decode(t, &got)
 		require.Equal(t, target.ID, got.ID)
 		require.Equal(t, email, *got.Email)
 		require.Equal(t, phone, *got.Phone)
 		require.Equal(t, "patched"+target.ID[:8], got.Username)
-		require.Equal(t, "https://img.example/a.png", *got.AvatarURL)
 		require.Equal(t, "fr", *got.PreferredLanguage)
 		require.Equal(t, got, entry())
 		// An absent field is unchanged; an empty one clears it.
-		res = expect(t, http.StatusOK, patch(token, user, map[string]any{"avatar_url": ""}))
+		res = expect(t, http.StatusOK, patch(token, user, map[string]any{"preferred_language": ""}))
 		res.decode(t, &got)
-		require.Nil(t, got.AvatarURL)
+		require.Nil(t, got.PreferredLanguage)
 		require.Equal(t, email, *got.Email)
 		expect(t, http.StatusOK, patch(token, user, map[string]any{}))
 
@@ -65,6 +64,7 @@ func TestAdminAccountRoutes(t *testing.T) {
 			code         string
 		}{
 			"the verified flags are the system's": {token, user, map[string]any{"email_verified": true}, http.StatusBadRequest, "invalid_request"},
+			"public metadata is the host's":       {token, user, map[string]any{"public_metadata": map[string]any{"badge": "staff"}}, http.StatusBadRequest, "invalid_request"},
 			"a contact of one's own":              {token, "/admin/users/" + staff.ID, map[string]any{"email": uniqueEmail("self")}, http.StatusForbidden, "cannot_target_self"},
 			"no root:users:manage":                {plainToken, user, map[string]any{"username": "hijack"}, http.StatusForbidden, ""},
 			"an unknown account":                  {token, "/admin/users/0190a0a0-0000-7000-8000-000000000000", map[string]any{"username": "ghost"}, http.StatusNotFound, "user_not_found"},

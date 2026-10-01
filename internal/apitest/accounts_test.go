@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
 
@@ -327,29 +326,6 @@ func testProofLifecycle(t *testing.T, auth *authkit.Client, a *api, outbox *auth
 	}
 }
 
-// The Client reads an account's application metadata as a copy.
-func TestClientReadsUserMetadata(t *testing.T) {
-	auth, _ := authtest.New(t)
-	ctx := t.Context()
-	imported, err := auth.ImportUsers(ctx, []iam.ImportUser{{Email: "metadata-client@example.test", Username: "metadata-client",
-		Metadata: map[string]any{"biography": "Public bio", "host_private": "not automatically public"}}}, iam.ImportOptions{})
-	require.NoError(t, err)
-	require.Equal(t, 1, imported.Inserted)
-	id := imported.Rows[0].UserID
-	data, err := auth.UserMetadata(ctx, id)
-	require.NoError(t, err)
-	require.Equal(t, "Public bio", data["biography"])
-	require.Equal(t, "not automatically public", data["host_private"])
-	data["biography"] = "local mutation"
-	again, err := auth.UserMetadata(ctx, id)
-	require.NoError(t, err)
-	require.Equal(t, "Public bio", again["biography"])
-	_, err = auth.UserMetadata(ctx, uuid.NewString())
-	require.ErrorIs(t, err, iam.ErrUserNotFound)
-	_, err = auth.UserMetadata(ctx, "")
-	require.ErrorIs(t, err, iam.ErrUserNotFound)
-}
-
 // An imported legacy reset-required hash never verifies: a password step-up
 // answers 401 password_reset_required, from a fresh session too. A session
 // fresh from another proof (passwordless) replaces it. The hash is merged onto
@@ -662,7 +638,7 @@ func TestBootstrapWorkflow(t *testing.T) {
    email: admin@example.test
    email_verified: true
    root_role: root:owner
-   metadata: {source: bootstrap-test}
+   public_metadata: {source: bootstrap-test}
    password: {plaintext: bootstrap-password-1}
 `))
 	require.NoError(t, err)
@@ -692,6 +668,7 @@ func TestBootstrapWorkflow(t *testing.T) {
 	require.Equal(t, iam.BootstrapResult{UsersCreated: 1, PasswordsSet: 1, RootRoleAssignments: 1}, first)
 	user, err := auth.User(ctx, iam.UserByUsername("bootstrap-admin"))
 	require.NoError(t, err)
+	require.Equal(t, map[string]any{"source": "bootstrap-test"}, user.PublicMetadata)
 	require.True(t, passwordIs("bootstrap-admin", seeded))
 	owner := iam.RootPersona().OwnerRole()
 	roleOf := func(subject iam.Subject) iam.Role {

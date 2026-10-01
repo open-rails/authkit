@@ -190,7 +190,7 @@ func Catalog() []RouteSpec {
 		{Method: POST, Path: "/verify/request", Group: account, Auth: public, Bucket: RLVerifyRequest,
 			Request: IdentifierRequest{}, Responses: replyAccepted, serve: handle((*Service).handleVerifyRequestPOST)},
 		{Method: POST, Path: "/verify/confirm", Group: account, Auth: optional, Bucket: RLVerifyConfirm,
-			Request: CodeOrLinkRequest{}, Responses: []Reply{{http.StatusOK, AuthResult{}}, {http.StatusNoContent, nil}}, serve: handle((*Service).handleVerifyConfirmPOST)},
+			Request: VerifyConfirmRequest{}, Responses: []Reply{{http.StatusOK, AuthResult{}}, {http.StatusNoContent, nil}}, serve: handle((*Service).handleVerifyConfirmPOST)},
 
 		// The caller's own account.
 		{Method: GET, Path: "/me", Group: account, Auth: required, Bucket: RLMeRead,
@@ -281,7 +281,7 @@ func Catalog() []RouteSpec {
 		// default), expanded.
 		{Method: GET, Path: "/me/permissions", Group: account, Auth: required,
 			Query: GroupQuery{}, Responses: replyOK(PermissionSet{}), serve: handle((*Service).handleMePermissionsGET)},
-		// Other people, as anyone may see them (Config.PublicUserMetadata):
+		// Other people, as anyone may see them, public metadata included:
 		// public profile pages need no sign-in.
 		{Method: GET, Path: "/users", Group: account, Auth: public, Bucket: RLUsersRead,
 			Query: UsersQuery{}, Responses: replyOK(iam.ListPage[iam.PublicUser]{}), serve: handle((*Service).handleUsersGET)},

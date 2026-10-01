@@ -263,7 +263,7 @@ Mounting gives your users all of this: 68 routes under `/api/v1`, plus the publi
 | Route | What it does |
 |---|---|
 | `GET /api/v1/me` | who you are |
-| `PATCH /api/v1/me` | change your username, language or avatar |
+| `PATCH /api/v1/me` | change your username or language |
 | `DELETE /api/v1/me` | delete your account (30 days to change your mind) |
 | `GET /api/v1/me/security` | whether you need to step up and how, and your second factors |
 | `PUT /api/v1/me/password` | change your password |

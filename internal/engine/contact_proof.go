@@ -3,11 +3,13 @@ package engine
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/secret"
 )
 
 // Contact ownership (ak#393). An account whose only addresses are unproven was
@@ -86,8 +88,9 @@ func (s *Engine) RequireProvenContact(ctx context.Context, userID string) error 
 	return requireProvenContactOn(ctx, s.pg, userID)
 }
 
-// proof names the addresses a proof covers.
-type proof struct{ email, phone bool }
+// proof names what a proof covers: the addresses, and whether the prover
+// also proved the account's password in the same sign-in.
+type proof struct{ email, phone, password bool }
 
 // proofOn is a proof of the account's address on channel (email or sms).
 func proofOn(channel string) proof {
@@ -96,33 +99,30 @@ func proofOn(channel string) proof {
 
 // retirePreProofCredentials runs in the transaction that proves one of the
 // account's addresses (or, for a contact change, replaces its unproven one),
-// before the address is marked verified, on behalf of a. Every proof ends an
-// import's sign-in allowance (verified_elsewhere). When no address was proven
-// yet, whoever created the account's credentials was never shown to control
-// it, so every credential and session goes: the addresses p does not cover,
+// before the address is marked verified, on behalf of a. When no address was
+// proven yet, whoever created the account's credentials was never shown to
+// control it, so every credential and session goes: the addresses p does not cover,
 // provider links (including Solana wallets), passkeys, device keys, 2FA
 // factors and backup codes, the API keys, invite links and account invitations
 // the account issued, the applications it registered (they keep no
 // registrar), and refresh sessions on every account issuer.
 //
 // keepSessionID is the authenticated session presenting the proof, if any. It
-// survives, and the password survives only when that live session itself
-// proved the password: then the prover demonstrably holds both. A proof from a
-// fresh device, a reset or an email/SMS login code says nothing about who set
-// the password, so it is deleted (a reset replaces it anyway).
+// survives. The password survives only when the prover demonstrably holds it
+// too: that live session proved it, or p.password (a sign-in proved it and
+// handed the code's confirmation its password proof). A proof from a fresh
+// device, a reset or an email/SMS login code says nothing about who set the
+// password, so it is deleted (a reset replaces it anyway).
 func (s *Engine) retirePreProofCredentials(ctx context.Context, tx pgx.Tx, a iam.Actor, userID string, p proof, keepSessionID *string) ([]revokedSession, error) {
 	st, err := contactStateForUpdate(ctx, tx, userID)
-	if err != nil {
+	if err != nil || !st.Unproven {
 		return nil, err
 	}
 	q := s.qtx(tx)
-	if err := q.UserClearVerifiedElsewhere(ctx, userID); err != nil || !st.Unproven {
-		return nil, err
-	}
 	if err := s.dropUnprovenContacts(ctx, tx, a, userID, p); err != nil {
 		return nil, err
 	}
-	keepPassword := false
+	keepPassword := p.password
 	if keepSessionID != nil && *keepSessionID != "" {
 		pwd, err := q.SessionProvedPassword(ctx, db.SessionProvedPasswordParams{SessionID: *keepSessionID, UserID: userID})
 		switch {
@@ -131,7 +131,7 @@ func (s *Engine) retirePreProofCredentials(ctx context.Context, tx pgx.Tx, a iam
 		case err != nil:
 			return nil, err
 		default:
-			keepPassword = pwd
+			keepPassword = keepPassword || pwd
 		}
 	} else {
 		keepSessionID = nil
@@ -188,4 +188,40 @@ func (s *Engine) dropUnprovenContacts(ctx context.Context, tx pgx.Tx, a iam.Acto
 		return err
 	}
 	return s.emitEvents(ctx, tx, a, changes...)
+}
+
+// A password sign-in parked at a code (verificationGate) proved the password,
+// but not the address. Its password proof is a single-use token for that
+// account at its credential version: the code's confirmation presents it, and
+// the address's proof then keeps the password. Whoever planted a password
+// can't read the code, and whoever reads the code doesn't hold the token.
+type passwordProofData struct {
+	UserID  string `json:"user_id"`
+	Version int64  `json:"version"`
+}
+
+// issuePasswordProof records that a sign-in just proved userID's password and
+// returns its token, valid for ttl.
+func (s *Engine) issuePasswordProof(ctx context.Context, userID string, ttl time.Duration) (string, error) {
+	v, err := s.q.UserCredentialVersion(ctx, userID)
+	if err != nil {
+		return "", err
+	}
+	token := secret.Token(32)
+	return token, s.ephemSetJSON(ctx, keyPasswordProof+secret.Hash(token), passwordProofData{UserID: userID, Version: v.CredentialVersion}, ttl)
+}
+
+// spendPasswordProof consumes token and returns the credential version it
+// proved userID's password at, or 0: no token, or one spent, expired or
+// issued for another account.
+func (s *Engine) spendPasswordProof(ctx context.Context, token, userID string) (int64, error) {
+	if token == "" {
+		return 0, nil
+	}
+	var d passwordProofData
+	ok, err := s.ephemConsumeJSON(ctx, keyPasswordProof+secret.Hash(token), &d)
+	if err != nil || !ok || d.UserID != userID {
+		return 0, err
+	}
+	return d.Version, nil
 }

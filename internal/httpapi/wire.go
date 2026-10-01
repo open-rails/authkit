@@ -56,6 +56,16 @@ type CodeOrLinkRequest struct {
 	Token      string `json:"token"`
 }
 
+// VerifyConfirmRequest is POST /verify/confirm: {identifier, code} or {token,
+// identifier?}, with the sign-in's verification.password_proof when a
+// password sign-in sent the code.
+type VerifyConfirmRequest struct {
+	Identifier    string `json:"identifier"`
+	Code          string `json:"code"`
+	Token         string `json:"token"`
+	PasswordProof string `json:"password_proof"`
+}
+
 type DeviceKeyEnrollBeginRequest struct {
 	Email     string `json:"email"`
 	PublicKey string `json:"public_key"`
@@ -142,12 +152,11 @@ type CodeRequest struct {
 	Code string `json:"code"`
 }
 
-// ProfileUpdateRequest is PATCH /me: an absent field is unchanged; an empty
-// avatar_url clears it.
+// ProfileUpdateRequest is PATCH /me: an absent field is unchanged. Public
+// metadata is the host's to write, never the user's.
 type ProfileUpdateRequest struct {
 	Username          *string `json:"username"`
 	PreferredLanguage *string `json:"preferred_language"`
-	AvatarURL         *string `json:"avatar_url"`
 }
 
 type EmailChangeRequest struct {
@@ -255,7 +264,6 @@ type AdminUserUpdateRequest struct {
 	Email             *string `json:"email"`
 	PhoneNumber       *string `json:"phone_number"`
 	Username          *string `json:"username"`
-	AvatarURL         *string `json:"avatar_url"`
 	PreferredLanguage *string `json:"preferred_language"`
 }
 
@@ -492,10 +500,15 @@ type EnrollmentStep struct {
 }
 
 // VerificationStep is a sign-in waiting on a contact proof; the code went to
-// Identifier over Channel ("email" or "phone").
+// Identifier over Channel ("email" or "phone"). PasswordProof, when the
+// sign-in proved the account's password, is a single-use token: send it with
+// the code to POST /verify/confirm and the account keeps that password.
+// Without it, an account's first proof retires a password nobody proved
+// alongside it.
 type VerificationStep struct {
-	Identifier string `json:"identifier"`
-	Channel    string `json:"channel"`
+	Identifier    string  `json:"identifier"`
+	Channel       string  `json:"channel"`
+	PasswordProof *string `json:"password_proof"`
 }
 
 // Availability answers each field asked for; null for a field not asked.

@@ -52,6 +52,9 @@ const res = await auth.authFetch("/api/v1/things") // Bearer + one refresh retry
   `account_recovery_required` carry their next step and are returned, not
   thrown. Failures throw `AuthKitError` with the AuthKit `code`
   (`errorMetadata(err, code)` reads its typed metadata).
+- A password sign-in parked at `verification_required` carries a
+  `password_proof`; `confirmVerification` sends it with that address's code,
+  so the account keeps its password.
 - 2FA factors: `setupTwoFactor` starts one (TOTP answers its secret, email and
   SMS send a code), `addTwoFactorFactor` confirms it and adopts the
   re-verified session. A forced enrollment passes the step's

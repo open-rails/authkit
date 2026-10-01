@@ -141,12 +141,9 @@ func (s *Engine) recoverPendingLogin(ctx context.Context, in authflow.PasswordLo
 
 // verificationGate parks an unverified account: the password must verify
 // first (no OTP for the unauthenticated), then a fresh code goes out over the
-// unverified channel and the login ends in LoginVerificationRequired. An
-// import the source system verified passes, still unproven.
+// unverified channel and the login ends in LoginVerificationRequired with a
+// password proof.
 func (s *Engine) verificationGate(ctx context.Context, in authflow.PasswordLoginInput, u *db.User) (authflow.LoginOutcome, bool, error) {
-	if u.VerifiedElsewhere {
-		return authflow.LoginOutcome{}, false, nil
-	}
 	needsEmail := !u.EmailVerified && u.Email != nil
 	needsPhone := !u.PhoneVerified && u.PhoneNumber != nil
 	if !needsEmail && !needsPhone {
@@ -162,14 +159,26 @@ func (s *Engine) verificationGate(ctx context.Context, in authflow.PasswordLogin
 			return authflow.LoginOutcome{}, true, stageErr("send_email_verification", fmt.Errorf("%w: %w", errmodel.ErrEmailVerificationSendFailed, err))
 		}
 		s.loginFailed(ctx, in, u.ID, "email_not_verified")
-		return authflow.LoginOutcome{Kind: authflow.LoginVerificationRequired, UserID: u.ID, Verification: &authflow.VerificationRequired{Identifier: *u.Email, Channel: "email"}}, true, nil
+		return s.verificationRequired(ctx, u.ID, *u.Email, "email", defaultEmailVerificationTTL)
 	}
 	if needsPhone && s.SMSAvailable() {
 		if err := s.sendPhoneVerificationToUser(ctx, *u.PhoneNumber, u.ID, 0); err != nil {
 			return authflow.LoginOutcome{}, true, stageErr("send_phone_verification", fmt.Errorf("%w: %w", errmodel.ErrPhoneVerificationSendFailed, err))
 		}
 		s.loginFailed(ctx, in, u.ID, "phone_not_verified")
-		return authflow.LoginOutcome{Kind: authflow.LoginVerificationRequired, UserID: u.ID, Verification: &authflow.VerificationRequired{Identifier: *u.PhoneNumber, Channel: "phone"}}, true, nil
+		return s.verificationRequired(ctx, u.ID, *u.PhoneNumber, "phone", defaultPhoneVerificationTTL)
 	}
 	return authflow.LoginOutcome{}, false, nil
+}
+
+// verificationRequired parks a login that proved userID's password at the code
+// sent to identifier, with the password proof its confirmation may present
+// for as long as the code lives.
+func (s *Engine) verificationRequired(ctx context.Context, userID, identifier, channel string, ttl time.Duration) (authflow.LoginOutcome, bool, error) {
+	proof, err := s.issuePasswordProof(ctx, userID, ttl)
+	if err != nil {
+		return authflow.LoginOutcome{}, true, err
+	}
+	return authflow.LoginOutcome{Kind: authflow.LoginVerificationRequired, UserID: userID,
+		Verification: &authflow.VerificationRequired{Identifier: identifier, Channel: channel, PasswordProof: proof}}, true, nil
 }

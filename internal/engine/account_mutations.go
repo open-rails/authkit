@@ -193,7 +193,7 @@ func (s *Engine) CreateUser(ctx context.Context, n iam.NewUser, opts ...ops.Opti
 	now := time.Now().UTC()
 	err = s.qtx(tx).UserImportInsert(ctx, db.UserImportInsertParams{
 		ID: userID, Email: email, PhoneNumber: phone, Username: &username, AtTime: s.namingNow(),
-		EmailVerified: n.EmailVerified, PhoneVerified: n.PhoneVerified, Metadata: []byte(`{}`), CreatedAt: now, UpdatedAt: now,
+		EmailVerified: n.EmailVerified, PhoneVerified: n.PhoneVerified, PublicMetadata: []byte(`{}`), CreatedAt: now, UpdatedAt: now,
 	})
 	if err != nil {
 		return iam.User{}, mapUserUniqueViolation(err)
@@ -219,7 +219,7 @@ func selfEditable(u iam.UserUpdate) bool {
 }
 
 // UpdateUser changes an account under ACCT(root:users:manage). An account may
-// change its own Username, AvatarURL and PreferredLanguage (the rename policy
+// change its own Username and PreferredLanguage (the rename policy
 // applies to itself, not to staff renaming it); Password, PasswordHash and the verified flags are system-only
 // (staff send a reset to the proven address instead). Setting a verified flag
 // is the proof transition: on an account with no proven contact it first
@@ -340,18 +340,6 @@ func (s *Engine) applyUserUpdate(ctx context.Context, at accountTx, userID strin
 			return revoked, err
 		}
 	}
-	if u.AvatarURL != nil {
-		avatar, err := normalizeAvatarURL(*u.AvatarURL)
-		if err != nil {
-			return revoked, err
-		}
-		if avatar != nil && !at.system && !s.avatarAllowed(*avatar) {
-			return revoked, errmodel.ErrAvatarURLInvalid
-		}
-		if err := at.q.UserSetAvatarURL(ctx, db.UserSetAvatarURLParams{ID: userID, AvatarURL: avatar}); err != nil {
-			return revoked, err
-		}
-	}
 	if u.PreferredLanguage != nil {
 		var language *string
 		if v := strings.TrimSpace(*u.PreferredLanguage); v != "" {
@@ -430,48 +418,12 @@ func (s *Engine) passwordForUpdate(ctx context.Context, q *db.Queries, userID st
 	return hash, "argon2id", err
 }
 
-// maxAvatarURLLen caps the stored avatar URL or key: a sanity bound, not
-// format validation, since hosts may store opaque object keys.
-const maxAvatarURLLen = 2048
-
-func normalizeAvatarURL(v string) (*string, error) {
-	v = strings.TrimSpace(v)
-	switch {
-	case v == "":
-		return nil, nil
-	case len(v) > maxAvatarURLLen || strings.ContainsAny(v, "\n\r"):
-		return nil, errmodel.ErrAvatarURLInvalid
-	}
-	return &v, nil
-}
-
-// avatarAllowed reports whether a user or staff member may set avatar v: under
-// one of Config.AvatarURLPrefixes, with no dot segment or encoded separator
-// that could climb out of it.
-func (s *Engine) avatarAllowed(v string) bool {
-	if len(s.cfg.AvatarURLPrefixes) == 0 {
-		return true
-	}
-	lower := strings.ToLower(v)
-	for _, escape := range []string{"..", `\`, "%2e", "%2f", "%5c"} {
-		if strings.Contains(lower, escape) {
-			return false
-		}
-	}
-	for _, p := range s.cfg.AvatarURLPrefixes {
-		if strings.HasPrefix(v, p) {
-			return true
-		}
-	}
-	return false
-}
-
-// PatchUserMetadata applies patch to the account's application-owned
-// metadata as an RFC 7396 JSON Merge Patch under ACCT(root:users:manage):
-// objects merge recursively, a nil value deletes its key, and any other
-// value (arrays included) replaces the one it names.
-func (s *Engine) PatchUserMetadata(ctx context.Context, a iam.Actor, userID string, patch map[string]any, opts ...ops.Option) error {
-	host, err := hostTx("PatchUserMetadata", opts)
+// PatchPublicMetadata applies patch to the account's public metadata as an
+// RFC 7396 JSON Merge Patch under ACCT(root:users:manage), never on oneself:
+// objects merge recursively, a nil value deletes its key, and any other value
+// (arrays included) replaces the one it names.
+func (s *Engine) PatchPublicMetadata(ctx context.Context, a iam.Actor, userID string, patch map[string]any, opts ...ops.Option) error {
+	host, err := hostTx("PatchPublicMetadata", opts)
 	if err != nil {
 		return err
 	}
@@ -487,7 +439,7 @@ func (s *Engine) PatchUserMetadata(ctx context.Context, a iam.Actor, userID stri
 		if len(patch) == 0 {
 			return nil
 		}
-		current, err := at.q.UserMetadata(ctx, at.userID)
+		current, err := at.q.UserPublicMetadata(ctx, at.userID)
 		if err != nil {
 			return err
 		}
@@ -499,7 +451,7 @@ func (s *Engine) PatchUserMetadata(ctx context.Context, a iam.Actor, userID stri
 		if err != nil {
 			return err
 		}
-		return at.q.UserSetMetadata(ctx, db.UserSetMetadataParams{ID: at.userID, Metadata: merged})
+		return at.q.UserSetPublicMetadata(ctx, db.UserSetPublicMetadataParams{ID: at.userID, PublicMetadata: merged})
 	})
 }
 

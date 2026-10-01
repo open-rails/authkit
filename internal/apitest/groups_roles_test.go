@@ -670,7 +670,6 @@ func TestRootGroupHTTPWorkflow(t *testing.T) {
 		m.config(c)
 		// root:members:manage needs MFA; this test is about actor kinds, not MFA.
 		c.TwoFactor.Mode = iam.TwoFactorDisabled
-		c.PublicUserMetadata = []string{"bio"}
 	}))
 	ctx := t.Context()
 	a := newAPI(t, auth)
@@ -771,11 +770,10 @@ func TestRootGroupHTTPWorkflow(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, a.get("/groups/root/roles", targetToken).status)
 
 	// Members expand to what anyone may see of them: never a contact.
-	require.NoError(t, auth.PatchUserMetadata(ctx, iam.SystemActor(), admin.ID, map[string]any{"bio": "root admin", "note": "private"}))
+	require.NoError(t, auth.PatchPublicMetadata(ctx, iam.SystemActor(), admin.ID, map[string]any{"bio": "root admin"}))
 	res = a.get("/groups/root/members?expand=user&role=root:admin", adminToken)
 	require.Equal(t, http.StatusOK, res.status, res.String())
 	require.NotContains(t, res.String(), admin.Email)
-	require.NotContains(t, res.String(), "private")
 	var expanded iam.ListPage[iam.GroupMember]
 	res.decode(t, &expanded)
 	require.Len(t, expanded.Items, 1)
@@ -784,7 +782,7 @@ func TestRootGroupHTTPWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, shown.CreatedAt != nil && account.CreatedAt.Equal(*shown.CreatedAt), "member since")
 	shown.CreatedAt = nil
-	require.Equal(t, &iam.PublicUser{ID: admin.ID, Username: admin.Username, Metadata: map[string]any{"bio": "root admin"}}, shown)
+	require.Equal(t, &iam.PublicUser{ID: admin.ID, Username: admin.Username, PublicMetadata: map[string]any{"bio": "root admin"}}, shown)
 	res = a.get("/groups/root/members?role=root:admin", adminToken)
 	require.Contains(t, res.String(), `"user":null`, "no expansion unless asked")
 	res = a.get("/groups/root/members?expand=email", adminToken)

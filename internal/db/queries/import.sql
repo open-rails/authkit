@@ -7,39 +7,34 @@ WHERE name = ANY(sqlc.arg(names)::text[])
   AND NOT canonical AND expires_at <= sqlc.arg(now)::timestamptz;
 
 -- The ImportHits* reads share one row shape: the matched key, the account,
--- and whether it is deleted, the key verified on it, or a name reserved for
--- a purged account.
+-- and whether it is deleted or a name reserved for a purged account.
 
 -- name: ImportHitsByID :many
-SELECT id::text AS key, id::text AS user_id, (deleted_at IS NOT NULL)::boolean AS deleted,
-       true AS verified, false AS missing
+SELECT id::text AS key, id::text AS user_id, (deleted_at IS NOT NULL)::boolean AS deleted, false AS missing
 FROM users WHERE id = ANY(sqlc.arg(ids)::uuid[]);
 
 -- name: ImportHitsByEmail :many
-SELECT lower(email::text)::text AS key, id::text AS user_id, (deleted_at IS NOT NULL)::boolean AS deleted,
-       email_verified AS verified, false AS missing
+SELECT lower(email::text)::text AS key, id::text AS user_id, (deleted_at IS NOT NULL)::boolean AS deleted, false AS missing
 FROM users WHERE email = ANY(sqlc.arg(emails)::text[]::public.citext[]);
 
 -- name: ImportHitsByPhone :many
-SELECT COALESCE(phone_number, '')::text AS key, id::text AS user_id, (deleted_at IS NOT NULL)::boolean AS deleted,
-       phone_verified AS verified, false AS missing
+SELECT COALESCE(phone_number, '')::text AS key, id::text AS user_id, (deleted_at IS NOT NULL)::boolean AS deleted, false AS missing
 FROM users WHERE phone_number = ANY(sqlc.arg(phones)::text[]);
 
 -- name: ImportHitsByName :many
 -- A canonical name or a live alias.
 SELECT c.name AS key, c.owner_id::text AS user_id, COALESCE(u.deleted_at IS NOT NULL, false)::boolean AS deleted,
-       false AS verified, (u.id IS NULL)::boolean AS missing
+       (u.id IS NULL)::boolean AS missing
 FROM name_claims c LEFT JOIN users u ON u.id = c.owner_id
 WHERE c.name = ANY(sqlc.arg(names)::text[])
   AND (c.canonical OR c.expires_at IS NULL OR c.expires_at > sqlc.arg(now)::timestamptz);
 
 -- name: ImportMergeUser :exec
 UPDATE users SET
-  metadata = COALESCE(metadata, '{}'::jsonb) || sqlc.arg(metadata)::jsonb,
+  public_metadata = public_metadata || sqlc.arg(public_metadata)::jsonb,
   created_at = LEAST(created_at, sqlc.arg(created_at)),
   last_login = GREATEST(last_login, sqlc.narg(last_login)),
   preferred_language = COALESCE(preferred_language, sqlc.narg(preferred_language)),
-  avatar_url = COALESCE(avatar_url, sqlc.narg(avatar_url)),
   updated_at = now()
 WHERE id = sqlc.arg(id)::uuid;
 
@@ -51,10 +46,10 @@ ON CONFLICT (user_id) DO NOTHING;
 -- name: ImportInsertUsers :many
 -- users is a JSON array of users rows (column-named keys; a missing key is
 -- NULL). A row losing a uniqueness race to another writer is not returned.
-INSERT INTO users (id, email, phone_number, username, verified_elsewhere, banned_at, banned_until,
-                   ban_reason, metadata, created_at, updated_at, last_login, preferred_language, avatar_url, deleted_at)
-SELECT r.id, r.email, r.phone_number, r.username, r.verified_elsewhere, r.banned_at, r.banned_until,
-       r.ban_reason, r.metadata, r.created_at, r.updated_at, r.last_login, r.preferred_language, r.avatar_url, r.deleted_at
+INSERT INTO users (id, email, phone_number, username, banned_at, banned_until,
+                   ban_reason, public_metadata, created_at, updated_at, last_login, preferred_language, deleted_at)
+SELECT r.id, r.email, r.phone_number, r.username, r.banned_at, r.banned_until,
+       r.ban_reason, r.public_metadata, r.created_at, r.updated_at, r.last_login, r.preferred_language, r.deleted_at
 FROM jsonb_populate_recordset(NULL::users, sqlc.arg(users)::jsonb) AS r
 ON CONFLICT DO NOTHING
 RETURNING id::text;

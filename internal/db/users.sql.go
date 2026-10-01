@@ -178,7 +178,7 @@ func (q *Queries) UserBanInForce(ctx context.Context, id string) (bool, error) {
 }
 
 const userByEmail = `-- name: UserByEmail :one
-SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, metadata, created_at, updated_at, last_login, preferred_language, avatar_url, last_renamed_at, credential_version, verified_elsewhere FROM users WHERE email = lower($1::text)::public.citext
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata FROM users WHERE email = lower($1::text)::public.citext
 `
 
 func (q *Queries) UserByEmail(ctx context.Context, email string) (User, error) {
@@ -196,22 +196,20 @@ func (q *Queries) UserByEmail(ctx context.Context, email string) (User, error) {
 		&i.BanReason,
 		&i.BannedBy,
 		&i.DeletedAt,
-		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastLogin,
 		&i.PreferredLanguage,
-		&i.AvatarURL,
 		&i.LastRenamedAt,
 		&i.CredentialVersion,
-		&i.VerifiedElsewhere,
+		&i.PublicMetadata,
 	)
 	return i, err
 }
 
 const userByID = `-- name: UserByID :one
 
-SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, metadata, created_at, updated_at, last_login, preferred_language, avatar_url, last_renamed_at, credential_version, verified_elsewhere FROM users WHERE id = $1
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata FROM users WHERE id = $1
 `
 
 // User-row queries. A user read selects the whole row, so every read returns
@@ -231,21 +229,19 @@ func (q *Queries) UserByID(ctx context.Context, id string) (User, error) {
 		&i.BanReason,
 		&i.BannedBy,
 		&i.DeletedAt,
-		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastLogin,
 		&i.PreferredLanguage,
-		&i.AvatarURL,
 		&i.LastRenamedAt,
 		&i.CredentialVersion,
-		&i.VerifiedElsewhere,
+		&i.PublicMetadata,
 	)
 	return i, err
 }
 
 const userByPhone = `-- name: UserByPhone :one
-SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, metadata, created_at, updated_at, last_login, preferred_language, avatar_url, last_renamed_at, credential_version, verified_elsewhere FROM users WHERE phone_number = $1
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata FROM users WHERE phone_number = $1
 `
 
 func (q *Queries) UserByPhone(ctx context.Context, phoneNumber *string) (User, error) {
@@ -263,21 +259,19 @@ func (q *Queries) UserByPhone(ctx context.Context, phoneNumber *string) (User, e
 		&i.BanReason,
 		&i.BannedBy,
 		&i.DeletedAt,
-		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastLogin,
 		&i.PreferredLanguage,
-		&i.AvatarURL,
 		&i.LastRenamedAt,
 		&i.CredentialVersion,
-		&i.VerifiedElsewhere,
+		&i.PublicMetadata,
 	)
 	return i, err
 }
 
 const userByUsername = `-- name: UserByUsername :one
-SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, metadata, created_at, updated_at, last_login, preferred_language, avatar_url, last_renamed_at, credential_version, verified_elsewhere FROM users WHERE username = $1::text::public.citext
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata FROM users WHERE username = $1::text::public.citext
 `
 
 func (q *Queries) UserByUsername(ctx context.Context, username string) (User, error) {
@@ -295,15 +289,13 @@ func (q *Queries) UserByUsername(ctx context.Context, username string) (User, er
 		&i.BanReason,
 		&i.BannedBy,
 		&i.DeletedAt,
-		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastLogin,
 		&i.PreferredLanguage,
-		&i.AvatarURL,
 		&i.LastRenamedAt,
 		&i.CredentialVersion,
-		&i.VerifiedElsewhere,
+		&i.PublicMetadata,
 	)
 	return i, err
 }
@@ -314,16 +306,6 @@ UPDATE users SET banned_at = NULL, banned_until = NULL, ban_reason = NULL, banne
 
 func (q *Queries) UserClearBan(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, userClearBan, id)
-	return err
-}
-
-const userClearVerifiedElsewhere = `-- name: UserClearVerifiedElsewhere :exec
-UPDATE users SET verified_elsewhere = false WHERE id = $1 AND verified_elsewhere
-`
-
-// A proof ends an import's sign-in allowance.
-func (q *Queries) UserClearVerifiedElsewhere(ctx context.Context, id string) error {
-	_, err := q.db.Exec(ctx, userClearVerifiedElsewhere, id)
 	return err
 }
 
@@ -413,7 +395,7 @@ WITH claim AS MATERIALIZED (
 )
 INSERT INTO users (
   id, email, phone_number, username, email_verified, phone_verified,
-  banned_at, banned_until, ban_reason, banned_by, metadata, created_at, updated_at
+  banned_at, banned_until, ban_reason, banned_by, public_metadata, created_at, updated_at
 )
 SELECT
   $1::uuid, $2, $3, $4, $5, $6,
@@ -422,20 +404,20 @@ FROM claim
 `
 
 type UserImportInsertParams struct {
-	ID            string
-	Email         *string
-	PhoneNumber   *string
-	Username      *string
-	EmailVerified bool
-	PhoneVerified bool
-	BannedAt      *time.Time
-	BannedUntil   *time.Time
-	BanReason     *string
-	BannedBy      *string
-	Metadata      []byte
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	AtTime        time.Time
+	ID             string
+	Email          *string
+	PhoneNumber    *string
+	Username       *string
+	EmailVerified  bool
+	PhoneVerified  bool
+	BannedAt       *time.Time
+	BannedUntil    *time.Time
+	BanReason      *string
+	BannedBy       *string
+	PublicMetadata []byte
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	AtTime         time.Time
 }
 
 func (q *Queries) UserImportInsert(ctx context.Context, arg UserImportInsertParams) error {
@@ -450,7 +432,7 @@ func (q *Queries) UserImportInsert(ctx context.Context, arg UserImportInsertPara
 		arg.BannedUntil,
 		arg.BanReason,
 		arg.BannedBy,
-		arg.Metadata,
+		arg.PublicMetadata,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 		arg.AtTime,
@@ -464,7 +446,7 @@ WITH claim AS MATERIALIZED (
 )
 INSERT INTO users (id, email, username)
 SELECT $1::uuid, NULLIF(lower($2::text), ''), $3 FROM claim
-RETURNING id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, metadata, created_at, updated_at, last_login, preferred_language, avatar_url, last_renamed_at, credential_version, verified_elsewhere
+RETURNING id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata
 `
 
 type UserInsertParams struct {
@@ -494,29 +476,15 @@ func (q *Queries) UserInsert(ctx context.Context, arg UserInsertParams) (User, e
 		&i.BanReason,
 		&i.BannedBy,
 		&i.DeletedAt,
-		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastLogin,
 		&i.PreferredLanguage,
-		&i.AvatarURL,
 		&i.LastRenamedAt,
 		&i.CredentialVersion,
-		&i.VerifiedElsewhere,
+		&i.PublicMetadata,
 	)
 	return i, err
-}
-
-const userMetadata = `-- name: UserMetadata :one
-SELECT COALESCE(metadata, '{}'::jsonb)::jsonb AS metadata
-FROM users WHERE id = $1::uuid
-`
-
-func (q *Queries) UserMetadata(ctx context.Context, id string) ([]byte, error) {
-	row := q.db.QueryRow(ctx, userMetadata, id)
-	var metadata []byte
-	err := row.Scan(&metadata)
-	return metadata, err
 }
 
 const userNameForUpdate = `-- name: UserNameForUpdate :one
@@ -647,6 +615,17 @@ func (q *Queries) UserPreferredLanguage(ctx context.Context, id string) (string,
 	return language, err
 }
 
+const userPublicMetadata = `-- name: UserPublicMetadata :one
+SELECT public_metadata FROM users WHERE id = $1::uuid
+`
+
+func (q *Queries) UserPublicMetadata(ctx context.Context, id string) ([]byte, error) {
+	row := q.db.QueryRow(ctx, userPublicMetadata, id)
+	var public_metadata []byte
+	err := row.Scan(&public_metadata)
+	return public_metadata, err
+}
+
 const userRename = `-- name: UserRename :exec
 UPDATE users SET username = $1, last_renamed_at = $2::timestamptz, updated_at = $2::timestamptz
 WHERE id = $3
@@ -660,20 +639,6 @@ type UserRenameParams struct {
 
 func (q *Queries) UserRename(ctx context.Context, arg UserRenameParams) error {
 	_, err := q.db.Exec(ctx, userRename, arg.Username, arg.AtTime, arg.ID)
-	return err
-}
-
-const userSetAvatarURL = `-- name: UserSetAvatarURL :exec
-UPDATE users SET avatar_url = $1, updated_at = now() WHERE id = $2
-`
-
-type UserSetAvatarURLParams struct {
-	AvatarURL *string
-	ID        string
-}
-
-func (q *Queries) UserSetAvatarURL(ctx context.Context, arg UserSetAvatarURLParams) error {
-	_, err := q.db.Exec(ctx, userSetAvatarURL, arg.AvatarURL, arg.ID)
 	return err
 }
 
@@ -737,22 +702,6 @@ type UserSetLastLoginParams struct {
 
 func (q *Queries) UserSetLastLogin(ctx context.Context, arg UserSetLastLoginParams) error {
 	_, err := q.db.Exec(ctx, userSetLastLogin, arg.ID, arg.LastLogin)
-	return err
-}
-
-const userSetMetadata = `-- name: UserSetMetadata :exec
-UPDATE users SET metadata = $1::jsonb, updated_at = now()
-WHERE id = $2
-`
-
-type UserSetMetadataParams struct {
-	Metadata []byte
-	ID       string
-}
-
-// Replaces the metadata document (PatchUserMetadata merges in Go).
-func (q *Queries) UserSetMetadata(ctx context.Context, arg UserSetMetadataParams) error {
-	_, err := q.db.Exec(ctx, userSetMetadata, arg.Metadata, arg.ID)
 	return err
 }
 
@@ -822,6 +771,22 @@ func (q *Queries) UserSetPreferredLanguage(ctx context.Context, arg UserSetPrefe
 	return err
 }
 
+const userSetPublicMetadata = `-- name: UserSetPublicMetadata :exec
+UPDATE users SET public_metadata = $1::jsonb, updated_at = now()
+WHERE id = $2
+`
+
+type UserSetPublicMetadataParams struct {
+	PublicMetadata []byte
+	ID             string
+}
+
+// Replaces the public metadata (PatchPublicMetadata merges in Go).
+func (q *Queries) UserSetPublicMetadata(ctx context.Context, arg UserSetPublicMetadataParams) error {
+	_, err := q.db.Exec(ctx, userSetPublicMetadata, arg.PublicMetadata, arg.ID)
+	return err
+}
+
 const userSetUsernameSpelling = `-- name: UserSetUsernameSpelling :exec
 UPDATE users SET username = $1, updated_at = $2::timestamptz WHERE id = $3
 `
@@ -848,7 +813,7 @@ func (q *Queries) UserSoftDelete(ctx context.Context, id string) error {
 }
 
 const usersByIDs = `-- name: UsersByIDs :many
-SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, metadata, created_at, updated_at, last_login, preferred_language, avatar_url, last_renamed_at, credential_version, verified_elsewhere FROM users WHERE id = ANY($1::uuid[])
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata FROM users WHERE id = ANY($1::uuid[])
 `
 
 func (q *Queries) UsersByIDs(ctx context.Context, ids []string) ([]User, error) {
@@ -872,15 +837,13 @@ func (q *Queries) UsersByIDs(ctx context.Context, ids []string) ([]User, error) 
 			&i.BanReason,
 			&i.BannedBy,
 			&i.DeletedAt,
-			&i.Metadata,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LastLogin,
 			&i.PreferredLanguage,
-			&i.AvatarURL,
 			&i.LastRenamedAt,
 			&i.CredentialVersion,
-			&i.VerifiedElsewhere,
+			&i.PublicMetadata,
 		); err != nil {
 			return nil, err
 		}

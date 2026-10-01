@@ -125,19 +125,15 @@ type User struct {
 	// User ID of admin who imposed ban
 	BannedBy  *string
 	DeletedAt *time.Time
-	// Host metadata
-	Metadata  []byte
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	LastLogin *time.Time
 	// User communication/auth language, e.g. en, es, de, ko, zh
 	PreferredLanguage *string
-	// Host-supplied avatar URL/key string; blob storage is host-owned
-	AvatarURL         *string
 	LastRenamedAt     *time.Time
 	CredentialVersion int64
-	// An import said another system verified an address: the account signs in before proving one
-	VerifiedElsewhere bool
+	// Host-written application data anyone may read
+	PublicMetadata []byte
 }
 
 // Ed25519 public keys for native clients. Revoked rows remain tombstones and cannot be re-enrolled.

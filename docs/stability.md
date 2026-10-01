@@ -80,6 +80,8 @@ AuthKit owns its schema (`Config.Schema`), and only `Migrate` changes it. A v1.x
 
 One thing in the schema is contract: host tables may reference `<schema>.users(id)` with a foreign key, `ON DELETE CASCADE` or `SET NULL`. The row outlives the account's recovery window and goes when AuthKit purges the account (30 days after deletion, or `Client.PurgeUsers`), once every `Deps.OnPurge` has succeeded. Every other table, column, index and function is private: don't read, write or reference it.
 
+The only application data AuthKit keeps about an account is its public metadata, a JSON object. Only the host writes it (`Client.PatchPublicMetadata`, `ImportUsers`, the bootstrap manifest); no HTTP route does. Anyone may read it: `GET /me`, `GET /users` and every `iam.PublicUser` carry it as `public_metadata`. Keep any other per-account data, private data especially, in your own tables keyed by that foreign key.
+
 ## Events and hooks
 
 - `Deps.OnEvent` receives `iam.Event`. The kinds, the members and the delivery guarantees in `OnEvent`'s doc (recorded with the change, delivered after commit at least once, in order per subject, idempotent on `Event.ID`) are covered. New kinds and members may be added; ignore kinds you don't know.

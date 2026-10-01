@@ -278,7 +278,11 @@ describe("useLogin", () => {
   })
 
   it("verification_required → confirm code signs in", async () => {
-    const verification = { identifier: "a@x.test", channel: "email" }
+    const verification = {
+      identifier: "a@x.test",
+      channel: "email",
+      password_proof: "pp",
+    }
     const fetch = stubFetch({
       "POST /api/v1/password/login": [
         json(200, authResult("verification_required", { verification })),

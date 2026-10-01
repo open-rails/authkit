@@ -55,7 +55,6 @@ export type AdminUserUpdateRequest = {
   email?: string | null
   phone_number?: string | null
   username?: string | null
-  avatar_url?: string | null
   preferred_language?: string | null
 }
 
@@ -420,7 +419,6 @@ export type PhoneChangeRequest = {
 export type ProfileUpdateRequest = {
   username?: string | null
   preferred_language?: string | null
-  avatar_url?: string | null
 }
 
 export type ProviderError = {
@@ -430,10 +428,9 @@ export type ProviderError = {
 export type PublicUser = {
   id: string
   username: string
-  avatar_url: string | null
   created_at: string | null
   deleted: boolean
-  metadata: Record<string, unknown>
+  public_metadata: Record<string, unknown>
 }
 
 export type RegisterRequest = {
@@ -656,12 +653,12 @@ export type User = {
   email_verified: boolean
   phone_verified: boolean
   preferred_language: string | null
-  avatar_url: string | null
   created_at: string
   updated_at: string
   last_login: string | null
   deleted_at: string | null
   ban: BanState | null
+  public_metadata: Record<string, unknown>
 }
 
 export type UserEntry = {
@@ -672,12 +669,12 @@ export type UserEntry = {
   email_verified: boolean
   phone_verified: boolean
   preferred_language: string | null
-  avatar_url: string | null
   created_at: string
   updated_at: string
   last_login: string | null
   deleted_at: string | null
   ban: BanState | null
+  public_metadata: Record<string, unknown>
   root_role: string | null
   entitlements: string[]
 }
@@ -690,12 +687,12 @@ export type UserProfile = {
   email_verified: boolean
   phone_verified: boolean
   preferred_language: string | null
-  avatar_url: string | null
   created_at: string
   updated_at: string
   last_login: string | null
   deleted_at: string | null
   ban: BanState | null
+  public_metadata: Record<string, unknown>
   root_role: string | null
   entitlements: string[]
   has_password: boolean
@@ -729,4 +726,12 @@ export type VerificationCapabilities = {
 export type VerificationStep = {
   identifier: string
   channel: string
+  password_proof: string | null
+}
+
+export type VerifyConfirmRequest = {
+  identifier?: string
+  code?: string
+  token?: string
+  password_proof?: string
 }

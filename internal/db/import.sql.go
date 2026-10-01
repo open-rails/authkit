@@ -48,17 +48,15 @@ func (q *Queries) ImportHeldProviders(ctx context.Context, arg ImportHeldProvide
 }
 
 const importHitsByEmail = `-- name: ImportHitsByEmail :many
-SELECT lower(email::text)::text AS key, id::text AS user_id, (deleted_at IS NOT NULL)::boolean AS deleted,
-       email_verified AS verified, false AS missing
+SELECT lower(email::text)::text AS key, id::text AS user_id, (deleted_at IS NOT NULL)::boolean AS deleted, false AS missing
 FROM users WHERE email = ANY($1::text[]::public.citext[])
 `
 
 type ImportHitsByEmailRow struct {
-	Key      string
-	UserID   string
-	Deleted  bool
-	Verified bool
-	Missing  bool
+	Key     string
+	UserID  string
+	Deleted bool
+	Missing bool
 }
 
 func (q *Queries) ImportHitsByEmail(ctx context.Context, emails []string) ([]ImportHitsByEmailRow, error) {
@@ -74,7 +72,6 @@ func (q *Queries) ImportHitsByEmail(ctx context.Context, emails []string) ([]Imp
 			&i.Key,
 			&i.UserID,
 			&i.Deleted,
-			&i.Verified,
 			&i.Missing,
 		); err != nil {
 			return nil, err
@@ -89,22 +86,19 @@ func (q *Queries) ImportHitsByEmail(ctx context.Context, emails []string) ([]Imp
 
 const importHitsByID = `-- name: ImportHitsByID :many
 
-SELECT id::text AS key, id::text AS user_id, (deleted_at IS NOT NULL)::boolean AS deleted,
-       true AS verified, false AS missing
+SELECT id::text AS key, id::text AS user_id, (deleted_at IS NOT NULL)::boolean AS deleted, false AS missing
 FROM users WHERE id = ANY($1::uuid[])
 `
 
 type ImportHitsByIDRow struct {
-	Key      string
-	UserID   string
-	Deleted  bool
-	Verified bool
-	Missing  bool
+	Key     string
+	UserID  string
+	Deleted bool
+	Missing bool
 }
 
 // The ImportHits* reads share one row shape: the matched key, the account,
-// and whether it is deleted, the key verified on it, or a name reserved for
-// a purged account.
+// and whether it is deleted or a name reserved for a purged account.
 func (q *Queries) ImportHitsByID(ctx context.Context, ids []string) ([]ImportHitsByIDRow, error) {
 	rows, err := q.db.Query(ctx, importHitsByID, ids)
 	if err != nil {
@@ -118,7 +112,6 @@ func (q *Queries) ImportHitsByID(ctx context.Context, ids []string) ([]ImportHit
 			&i.Key,
 			&i.UserID,
 			&i.Deleted,
-			&i.Verified,
 			&i.Missing,
 		); err != nil {
 			return nil, err
@@ -133,7 +126,7 @@ func (q *Queries) ImportHitsByID(ctx context.Context, ids []string) ([]ImportHit
 
 const importHitsByName = `-- name: ImportHitsByName :many
 SELECT c.name AS key, c.owner_id::text AS user_id, COALESCE(u.deleted_at IS NOT NULL, false)::boolean AS deleted,
-       false AS verified, (u.id IS NULL)::boolean AS missing
+       (u.id IS NULL)::boolean AS missing
 FROM name_claims c LEFT JOIN users u ON u.id = c.owner_id
 WHERE c.name = ANY($1::text[])
   AND (c.canonical OR c.expires_at IS NULL OR c.expires_at > $2::timestamptz)
@@ -145,11 +138,10 @@ type ImportHitsByNameParams struct {
 }
 
 type ImportHitsByNameRow struct {
-	Key      string
-	UserID   string
-	Deleted  bool
-	Verified bool
-	Missing  bool
+	Key     string
+	UserID  string
+	Deleted bool
+	Missing bool
 }
 
 // A canonical name or a live alias.
@@ -166,7 +158,6 @@ func (q *Queries) ImportHitsByName(ctx context.Context, arg ImportHitsByNamePara
 			&i.Key,
 			&i.UserID,
 			&i.Deleted,
-			&i.Verified,
 			&i.Missing,
 		); err != nil {
 			return nil, err
@@ -180,17 +171,15 @@ func (q *Queries) ImportHitsByName(ctx context.Context, arg ImportHitsByNamePara
 }
 
 const importHitsByPhone = `-- name: ImportHitsByPhone :many
-SELECT COALESCE(phone_number, '')::text AS key, id::text AS user_id, (deleted_at IS NOT NULL)::boolean AS deleted,
-       phone_verified AS verified, false AS missing
+SELECT COALESCE(phone_number, '')::text AS key, id::text AS user_id, (deleted_at IS NOT NULL)::boolean AS deleted, false AS missing
 FROM users WHERE phone_number = ANY($1::text[])
 `
 
 type ImportHitsByPhoneRow struct {
-	Key      string
-	UserID   string
-	Deleted  bool
-	Verified bool
-	Missing  bool
+	Key     string
+	UserID  string
+	Deleted bool
+	Missing bool
 }
 
 func (q *Queries) ImportHitsByPhone(ctx context.Context, phones []string) ([]ImportHitsByPhoneRow, error) {
@@ -206,7 +195,6 @@ func (q *Queries) ImportHitsByPhone(ctx context.Context, phones []string) ([]Imp
 			&i.Key,
 			&i.UserID,
 			&i.Deleted,
-			&i.Verified,
 			&i.Missing,
 		); err != nil {
 			return nil, err
@@ -271,10 +259,10 @@ func (q *Queries) ImportInsertProviders(ctx context.Context, arg ImportInsertPro
 }
 
 const importInsertUsers = `-- name: ImportInsertUsers :many
-INSERT INTO users (id, email, phone_number, username, verified_elsewhere, banned_at, banned_until,
-                   ban_reason, metadata, created_at, updated_at, last_login, preferred_language, avatar_url, deleted_at)
-SELECT r.id, r.email, r.phone_number, r.username, r.verified_elsewhere, r.banned_at, r.banned_until,
-       r.ban_reason, r.metadata, r.created_at, r.updated_at, r.last_login, r.preferred_language, r.avatar_url, r.deleted_at
+INSERT INTO users (id, email, phone_number, username, banned_at, banned_until,
+                   ban_reason, public_metadata, created_at, updated_at, last_login, preferred_language, deleted_at)
+SELECT r.id, r.email, r.phone_number, r.username, r.banned_at, r.banned_until,
+       r.ban_reason, r.public_metadata, r.created_at, r.updated_at, r.last_login, r.preferred_language, r.deleted_at
 FROM jsonb_populate_recordset(NULL::users, $1::jsonb) AS r
 ON CONFLICT DO NOTHING
 RETURNING id::text
@@ -321,31 +309,28 @@ func (q *Queries) ImportMergePassword(ctx context.Context, arg ImportMergePasswo
 
 const importMergeUser = `-- name: ImportMergeUser :exec
 UPDATE users SET
-  metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb,
+  public_metadata = public_metadata || $1::jsonb,
   created_at = LEAST(created_at, $2),
   last_login = GREATEST(last_login, $3),
   preferred_language = COALESCE(preferred_language, $4),
-  avatar_url = COALESCE(avatar_url, $5),
   updated_at = now()
-WHERE id = $6::uuid
+WHERE id = $5::uuid
 `
 
 type ImportMergeUserParams struct {
-	Metadata          []byte
+	PublicMetadata    []byte
 	CreatedAt         time.Time
 	LastLogin         *time.Time
 	PreferredLanguage *string
-	AvatarURL         *string
 	ID                string
 }
 
 func (q *Queries) ImportMergeUser(ctx context.Context, arg ImportMergeUserParams) error {
 	_, err := q.db.Exec(ctx, importMergeUser,
-		arg.Metadata,
+		arg.PublicMetadata,
 		arg.CreatedAt,
 		arg.LastLogin,
 		arg.PreferredLanguage,
-		arg.AvatarURL,
 		arg.ID,
 	)
 	return err

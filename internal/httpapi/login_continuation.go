@@ -43,7 +43,7 @@ func (s *Service) authResult(w http.ResponseWriter, r *http.Request, out authflo
 		res.Enrollment = &EnrollmentStep{TokenSet: *out.Enrollment, AllowedMethods: allowed}
 	case authflow.LoginVerificationRequired:
 		res.Status = AuthVerificationRequired
-		res.Verification = &VerificationStep{Identifier: out.Verification.Identifier, Channel: out.Verification.Channel}
+		res.Verification = &VerificationStep{Identifier: out.Verification.Identifier, Channel: out.Verification.Channel, PasswordProof: nullableString(out.Verification.PasswordProof)}
 	case authflow.LoginRecoveryRequired:
 		res.Status = AuthAccountRecoveryRequired
 		res.Recovery = out.Recovery

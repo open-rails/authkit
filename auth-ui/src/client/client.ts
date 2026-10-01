@@ -629,10 +629,20 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     return signedIn(await call(), gen)
   }
 
+  // A password sign-in parked at a code hands back a proof of the password;
+  // confirmVerification sends it with that code so the account keeps it.
+  let passwordProof: { identifier: string; proof: string } | null = null
+
   function signedIn(body: unknown, gen: number): SignInResult {
     const result = toSignInResult(body)
     if (result.status !== "complete") {
       if (gen !== generation) throw new AuthSessionChangedError()
+      if (result.status === "verification_required") {
+        const { identifier, password_proof } = result.verification
+        passwordProof = password_proof
+          ? { identifier, proof: password_proof }
+          : null
+      }
       return result
     }
     commit(result.token_set, gen, "login")
@@ -942,15 +952,26 @@ export function createAuthClient(options: AuthClientOptions = {}) {
 
     // Null (204): a signed-in proof, the session unchanged. Otherwise the
     // sign-in the proof finished (or its next step).
+    // A code for the address a password sign-in just parked on carries that
+    // sign-in's password proof, so the account keeps its password.
     confirmVerification: async (
       input:
         | { identifier: string; code: string }
         | { token: string; identifier?: string }
     ): Promise<SignInResult | null> => {
       const gen = generation
+      const pending = passwordProof
+      const proof =
+        pending &&
+        (!input.identifier ||
+          input.identifier.trim().toLowerCase() ===
+            pending.identifier.toLowerCase())
+          ? pending.proof
+          : undefined
       const { status, body } = await exchange("POST", "/verify/confirm", {
-        body: input,
+        body: { ...input, password_proof: proof },
       })
+      if (proof && passwordProof === pending) passwordProof = null
       return status === 204 ? null : signedIn(body, gen)
     },
 
@@ -1239,13 +1260,11 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     updateProfile: async (input: {
       username?: string
       preferredLanguage?: string
-      avatarUrl?: string | null
     }) => {
       const profile = await request<UserProfile>("PATCH", "/me", {
         body: {
           username: input.username,
           preferred_language: input.preferredLanguage,
-          avatar_url: input.avatarUrl,
         },
       })
       rememberUsername(profile.id, profile.username)

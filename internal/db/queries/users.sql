@@ -56,11 +56,11 @@ WITH claim AS MATERIALIZED (
 )
 INSERT INTO users (
   id, email, phone_number, username, email_verified, phone_verified,
-  banned_at, banned_until, ban_reason, banned_by, metadata, created_at, updated_at
+  banned_at, banned_until, ban_reason, banned_by, public_metadata, created_at, updated_at
 )
 SELECT
   sqlc.arg(id)::uuid, sqlc.narg(email), sqlc.narg(phone_number), sqlc.arg(username), sqlc.arg(email_verified), sqlc.arg(phone_verified),
-  sqlc.narg(banned_at), sqlc.narg(banned_until), sqlc.narg(ban_reason), sqlc.narg(banned_by)::uuid, sqlc.arg(metadata)::jsonb, sqlc.arg(created_at), sqlc.arg(updated_at)
+  sqlc.narg(banned_at), sqlc.narg(banned_until), sqlc.narg(ban_reason), sqlc.narg(banned_by)::uuid, sqlc.arg(public_metadata)::jsonb, sqlc.arg(created_at), sqlc.arg(updated_at)
 FROM claim;
 
 -- name: UserSetEmailVerified :exec
@@ -148,10 +148,6 @@ SELECT ((email IS NOT NULL OR phone_number IS NOT NULL)
        (CASE WHEN email IS NOT NULL THEN 'email' ELSE 'phone' END)::text AS channel
 FROM users WHERE id = $1 FOR UPDATE;
 
--- name: UserClearVerifiedElsewhere :exec
--- A proof ends an import's sign-in allowance.
-UPDATE users SET verified_elsewhere = false WHERE id = $1 AND verified_elsewhere;
-
 -- name: UserSetEmail :exec
 -- A new address is unverified; setting the current one changes nothing.
 UPDATE users SET email = sqlc.narg(email), email_verified = false, updated_at = now()
@@ -170,17 +166,13 @@ WHERE id = sqlc.arg(id) AND (NOT sqlc.arg(verified)::boolean OR email IS NOT NUL
 UPDATE users SET phone_verified = sqlc.arg(verified), updated_at = now()
 WHERE id = sqlc.arg(id) AND (NOT sqlc.arg(verified)::boolean OR phone_number IS NOT NULL);
 
--- name: UserSetAvatarURL :exec
-UPDATE users SET avatar_url = sqlc.narg(avatar_url), updated_at = now() WHERE id = sqlc.arg(id);
-
--- name: UserSetMetadata :exec
--- Replaces the metadata document (PatchUserMetadata merges in Go).
-UPDATE users SET metadata = sqlc.arg(metadata)::jsonb, updated_at = now()
+-- name: UserSetPublicMetadata :exec
+-- Replaces the public metadata (PatchPublicMetadata merges in Go).
+UPDATE users SET public_metadata = sqlc.arg(public_metadata)::jsonb, updated_at = now()
 WHERE id = sqlc.arg(id);
 
--- name: UserMetadata :one
-SELECT COALESCE(metadata, '{}'::jsonb)::jsonb AS metadata
-FROM users WHERE id = sqlc.arg(id)::uuid;
+-- name: UserPublicMetadata :one
+SELECT public_metadata FROM users WHERE id = sqlc.arg(id)::uuid;
 
 -- name: UserBanInForce :one
 SELECT ban_in_force(banned_at, banned_until)::boolean AS in_force

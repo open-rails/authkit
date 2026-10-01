@@ -22,11 +22,10 @@ type Operations interface {
 	ListUsers(ctx context.Context, q iam.UserQuery) (iam.ListPage[iam.UserEntry], error)
 	ResolveUsername(ctx context.Context, name string) (iam.NameResolution, error)
 	CheckUsername(ctx context.Context, name string) error
-	UserMetadata(ctx context.Context, userID string) (map[string]any, error)
 	DeviceKeys(ctx context.Context, userID string) ([]iam.DeviceKey, error)
 	CreateUser(ctx context.Context, u iam.NewUser, opts ...Option) (iam.User, error)
 	UpdateUser(ctx context.Context, actor iam.Actor, userID string, u iam.UserUpdate, opts ...Option) (iam.User, error)
-	PatchUserMetadata(ctx context.Context, actor iam.Actor, userID string, patch map[string]any, opts ...Option) error
+	PatchPublicMetadata(ctx context.Context, actor iam.Actor, userID string, patch map[string]any, opts ...Option) error
 	Ban(ctx context.Context, actor iam.Actor, userID string, b iam.Ban, opts ...Option) error
 	Unban(ctx context.Context, actor iam.Actor, userID string, opts ...Option) error
 	DeleteUsers(ctx context.Context, actor iam.Actor, ids []string, opts ...Option) ([]iam.OpResult, error)

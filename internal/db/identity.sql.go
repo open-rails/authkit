@@ -11,18 +11,17 @@ import (
 )
 
 const identityPublicUsersByIDs = `-- name: IdentityPublicUsersByIDs :many
-SELECT id, username, avatar_url, created_at, deleted_at, metadata
+SELECT id, username, created_at, deleted_at, public_metadata
 FROM users
 WHERE id = ANY($1::uuid[])
 `
 
 type IdentityPublicUsersByIDsRow struct {
-	ID        string
-	Username  *string
-	AvatarURL *string
-	CreatedAt time.Time
-	DeletedAt *time.Time
-	Metadata  []byte
+	ID             string
+	Username       *string
+	CreatedAt      time.Time
+	DeletedAt      *time.Time
+	PublicMetadata []byte
 }
 
 // The PUBLIC-safe display projection (#268): no email column is selected, so a
@@ -41,10 +40,9 @@ func (q *Queries) IdentityPublicUsersByIDs(ctx context.Context, ids []string) ([
 		if err := rows.Scan(
 			&i.ID,
 			&i.Username,
-			&i.AvatarURL,
 			&i.CreatedAt,
 			&i.DeletedAt,
-			&i.Metadata,
+			&i.PublicMetadata,
 		); err != nil {
 			return nil, err
 		}

@@ -278,18 +278,19 @@ func (s *Engine) consumePasswordlessChallenge(ctx context.Context, rec passwordl
 		}
 		return s.createPasswordlessUser(ctx, rec)
 	}
-	return s.verifyContactProofWithRecovery(ctx, rec.UserID, rec.Version, rec.Channel, rec.Identifier, true, nil)
+	return s.verifyContactProofWithRecovery(ctx, rec.UserID, rec.Version, rec.Channel, rec.Identifier, true, nil, 0)
 }
 
 func (s *Engine) verifyContactProof(ctx context.Context, userID string, version int64, channel, identifier string, keepSessionID *string) (registeredAccount, error) {
-	return s.verifyContactProofWithRecovery(ctx, userID, version, channel, identifier, false, keepSessionID)
+	return s.verifyContactProofWithRecovery(ctx, userID, version, channel, identifier, false, keepSessionID, 0)
 }
 
 // Only a login completion can verify a deleted account's contact before the
 // recovery tail. Standalone contact finalizers retain the normal access gate.
-// keepSessionID is the authenticated session presenting the proof, if any; see
-// retirePreProofCredentials.
-func (s *Engine) verifyContactProofWithRecovery(ctx context.Context, userID string, version int64, channel, identifier string, allowRecovery bool, keepSessionID *string) (registeredAccount, error) {
+// keepSessionID is the authenticated session presenting the proof, if any, and
+// passwordVersion the credential version a spent password proof holds (0 for
+// none); see retirePreProofCredentials.
+func (s *Engine) verifyContactProofWithRecovery(ctx context.Context, userID string, version int64, channel, identifier string, allowRecovery bool, keepSessionID *string, passwordVersion int64) (registeredAccount, error) {
 	if version <= 0 {
 		return registeredAccount{}, jwt.ErrTokenUnverifiable
 	}
@@ -315,7 +316,10 @@ func (s *Engine) verifyContactProofWithRecovery(ctx context.Context, userID stri
 	default:
 		return registeredAccount{}, jwt.ErrTokenInvalidClaims
 	}
-	revoked, err := s.retirePreProofCredentials(ctx, tx, iam.UserActor(u.ID), u.ID, proofOn(channel), keepSessionID)
+	p := proofOn(channel)
+	// The proof held for this password: no credential change since it.
+	p.password = passwordVersion > 0 && passwordVersion == u.CredentialVersion
+	revoked, err := s.retirePreProofCredentials(ctx, tx, iam.UserActor(u.ID), u.ID, p, keepSessionID)
 	if err != nil {
 		return registeredAccount{}, err
 	}

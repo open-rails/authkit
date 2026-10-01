@@ -256,7 +256,8 @@ func requireTree(t *testing.T, pg *testdb.Postgres, db *sql.DB, schema string, c
 // on with its rows. 0003 drops refresh-token history past 90 days and makes
 // banned_at the one mark of a ban, keeping banned what the sign-in gate
 // refused. 0004 turns `reserved` into a permanent ban, keeps backup codes only
-// beside a factor, and drops passkey tombstones.
+// beside a factor, and drops passkey tombstones. 0006 drops the old metadata:
+// public metadata starts empty.
 func TestUpgradeKeepsAndNormalizesRows(t *testing.T) {
 	tree, err := migratekit.LoadFromFS(pgmigrations.FS)
 	require.NoError(t, err)
@@ -311,12 +312,12 @@ func TestUpgradeKeepsAndNormalizesRows(t *testing.T) {
 				"reservedbanned true spam false", "reservedowner true reserved false", "unreserved false - true"}, users)
 			var state string
 			require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT concat_ws(' | ',
- (SELECT string_agg(username || ' ' || metadata::text || ' ' || (banned_until IS NULL), ', ' ORDER BY username) FROM users WHERE username LIKE '%reserved%'),
+ (SELECT string_agg(username || ' ' || public_metadata::text || ' ' || (banned_until IS NULL), ', ' ORDER BY username) FROM users WHERE username LIKE '%reserved%'),
  (SELECT string_agg(u.username || ' ' || COALESCE(array_to_string(s.backup_codes, ','), '-'), ', ' ORDER BY u.username) FROM mfa_settings s JOIN users u ON u.id = s.user_id),
  (SELECT string_agg(encode(credential_id, 'hex'), ',') FROM user_passkeys),
  (SELECT profile::text FROM user_providers),
  (SELECT count(*) FILTER (WHERE canonical) || '/' || count(*) FROM name_claims))`).Scan(&state))
-			require.Equal(t, `reservedbanned {} true, reservedowner {"tier": "gold"} true, unreserved {} true`+
+			require.Equal(t, `reservedbanned {} true, reservedowner {} true, unreserved {} true`+
 				` | handexpired -, unreserved kept | 01 | {"migration_source": "legacy"} | 6/6`, state)
 			var history []byte
 			require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT string_agg(token_hash, '') FROM refresh_token_history`).Scan(&history))
@@ -326,6 +327,48 @@ func TestUpgradeKeepsAndNormalizesRows(t *testing.T) {
 			require.ErrorAs(t, err, &refusal)
 			require.Equal(t, "users_ban_chk", refusal.ConstraintName, "a ban's other columns need banned_at")
 		})
+	}
+}
+
+// 0006 drops users.metadata and avatar_url with what they held, and public
+// metadata starts empty: a host's private keys never become public. After the
+// upgrade no HTTP answer carries them. 0007 drops verified_elsewhere: an
+// imported address is unverified.
+func TestUpgradeDropsAppMetadata(t *testing.T) {
+	ctx := t.Context()
+	tree, err := migratekit.LoadFromFS(pgmigrations.FS)
+	require.NoError(t, err)
+	pg := testdb.EmptyScratchPostgres(t)
+	db := sqlDB(t, pg.URL)
+	require.NoError(t, migratekit.NewPostgres(db, "authkit").WithSchema("profiles").ApplyMigrations(ctx, tree[:5]))
+	hash, err := password.HashArgon2id(ctx, testPassword)
+	require.NoError(t, err)
+	username := "Legacy" + uniqueSuffix()
+	var id string
+	require.NoError(t, pg.Pool.QueryRow(ctx, `INSERT INTO users (email, username, email_verified, verified_elsewhere, metadata, avatar_url)
+ VALUES ($1, $2, true, true, '{"legacy_ban": {"reason": "private-ban-reason"}, "biography": "private-until-published"}', 'https://cdn.example/private-avatar.png')
+ RETURNING id::text`, uniqueEmail("legacy"), username).Scan(&id))
+	_, err = pg.Pool.Exec(ctx, `INSERT INTO user_passwords (user_id, password_hash) VALUES ($1::uuid, $2)`, id, hash)
+	require.NoError(t, err)
+
+	require.NoError(t, Migrate(ctx, pg.Pool, config.Config{Schema: "profiles", River: config.RiverConfig{HostOwned: true}}, config.MigrateOptions{}))
+	rows, err := pg.Pool.Query(ctx, `SELECT column_name FROM information_schema.columns
+ WHERE table_schema = 'profiles' AND table_name = 'users' AND column_name IN ('metadata', 'avatar_url', 'verified_elsewhere', 'public_metadata')`)
+	require.NoError(t, err)
+	columns, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	require.NoError(t, err)
+	require.Equal(t, []string{"public_metadata"}, columns)
+	var public string
+	require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT public_metadata::text FROM users WHERE id = $1::uuid`, id).Scan(&public))
+	require.Equal(t, "{}", public)
+
+	f := newAccountFlow(t, pg.Pool, testConfig(), config.Deps{})
+	token := f.expect(200, f.post("/password/login", map[string]any{"identifier": username, "password": testPassword})).tokens().AccessToken
+	for _, res := range []flowResponse{f.expect(200, f.request("GET", "/me", token, nil)), f.expect(200, f.request("GET", "/users?ids="+id, "", nil))} {
+		require.Contains(t, res.raw, `"public_metadata":{}`)
+		for _, private := range []string{"legacy_ban", "private-ban-reason", "private-until-published", "private-avatar"} {
+			require.NotContains(t, res.raw, private)
+		}
 	}
 }
 

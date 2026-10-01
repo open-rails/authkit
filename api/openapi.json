@@ -1094,7 +1094,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CodeOrLinkRequest"
+                "$ref": "#/components/schemas/VerifyConfirmRequest"
               }
             }
           }
@@ -4462,16 +4462,6 @@
               }
             ]
           },
-          "avatar_url": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "preferred_language": {
             "oneOf": [
               {
@@ -5927,16 +5917,6 @@
                 "type": "null"
               }
             ]
-          },
-          "avatar_url": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
           }
         }
       },
@@ -5960,16 +5940,6 @@
           "username": {
             "type": "string"
           },
-          "avatar_url": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "created_at": {
             "oneOf": [
               {
@@ -5985,7 +5955,7 @@
           "deleted": {
             "type": "boolean"
           },
-          "metadata": {
+          "public_metadata": {
             "type": "object",
             "additionalProperties": {}
           }
@@ -5993,10 +5963,9 @@
         "required": [
           "id",
           "username",
-          "avatar_url",
           "created_at",
           "deleted",
-          "metadata"
+          "public_metadata"
         ]
       },
       "RegisterRequest": {
@@ -6876,16 +6845,6 @@
               }
             ]
           },
-          "avatar_url": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -6929,6 +6888,10 @@
                 "type": "null"
               }
             ]
+          },
+          "public_metadata": {
+            "type": "object",
+            "additionalProperties": {}
           }
         },
         "required": [
@@ -6939,12 +6902,12 @@
           "email_verified",
           "phone_verified",
           "preferred_language",
-          "avatar_url",
           "created_at",
           "updated_at",
           "last_login",
           "deleted_at",
-          "ban"
+          "ban",
+          "public_metadata"
         ]
       },
       "UserEntry": {
@@ -6992,16 +6955,6 @@
               }
             ]
           },
-          "avatar_url": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -7046,6 +6999,10 @@
               }
             ]
           },
+          "public_metadata": {
+            "type": "object",
+            "additionalProperties": {}
+          },
           "root_role": {
             "oneOf": [
               {
@@ -7071,12 +7028,12 @@
           "email_verified",
           "phone_verified",
           "preferred_language",
-          "avatar_url",
           "created_at",
           "updated_at",
           "last_login",
           "deleted_at",
           "ban",
+          "public_metadata",
           "root_role",
           "entitlements"
         ]
@@ -7126,16 +7083,6 @@
               }
             ]
           },
-          "avatar_url": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -7179,6 +7126,10 @@
                 "type": "null"
               }
             ]
+          },
+          "public_metadata": {
+            "type": "object",
+            "additionalProperties": {}
           },
           "root_role": {
             "oneOf": [
@@ -7227,12 +7178,12 @@
           "email_verified",
           "phone_verified",
           "preferred_language",
-          "avatar_url",
           "created_at",
           "updated_at",
           "last_login",
           "deleted_at",
           "ban",
+          "public_metadata",
           "root_role",
           "entitlements",
           "has_password",
@@ -7337,12 +7288,40 @@
           },
           "channel": {
             "type": "string"
+          },
+          "password_proof": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
           "identifier",
-          "channel"
+          "channel",
+          "password_proof"
         ]
+      },
+      "VerifyConfirmRequest": {
+        "type": "object",
+        "properties": {
+          "identifier": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          },
+          "password_proof": {
+            "type": "string"
+          }
+        }
       },
       "APIKeyPage": {
         "type": "object",
@@ -7771,10 +7750,6 @@
     "authentication_failed": {
       "status": 401,
       "message": "Authentication failed."
-    },
-    "avatar_url_invalid": {
-      "status": 400,
-      "message": "The avatar URL is invalid."
     },
     "bad_audience": {
       "status": 401,

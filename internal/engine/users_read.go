@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -117,11 +116,11 @@ func (s *Engine) PublicUsers(ctx context.Context, ids []string) (map[string]iam.
 		}
 		for _, r := range rows {
 			if r.DeletedAt != nil {
-				out[r.ID] = iam.PublicUser{ID: r.ID, Deleted: true, Metadata: map[string]any{}}
+				out[r.ID] = iam.PublicUser{ID: r.ID, Deleted: true, PublicMetadata: map[string]any{}}
 				continue
 			}
 			created := r.CreatedAt.UTC()
-			out[r.ID] = iam.PublicUser{ID: r.ID, Username: deref(r.Username), AvatarURL: r.AvatarURL, CreatedAt: &created, Metadata: s.publicMetadata(r.Metadata)}
+			out[r.ID] = iam.PublicUser{ID: r.ID, Username: deref(r.Username), CreatedAt: &created, PublicMetadata: publicMetadata(r.PublicMetadata)}
 		}
 		return nil
 	})
@@ -129,24 +128,6 @@ func (s *Engine) PublicUsers(ctx context.Context, ids []string) (map[string]iam.
 		return nil, err
 	}
 	return out, nil
-}
-
-// publicMetadata keeps the Config.PublicUserMetadata keys of raw.
-func (s *Engine) publicMetadata(raw []byte) map[string]any {
-	out := map[string]any{}
-	if len(s.cfg.PublicUserMetadata) == 0 || len(raw) == 0 {
-		return out
-	}
-	var all map[string]any
-	if json.Unmarshal(raw, &all) != nil {
-		return out
-	}
-	for _, k := range s.cfg.PublicUserMetadata {
-		if v, ok := all[k]; ok {
-			out[k] = v
-		}
-	}
-	return out
 }
 
 // uuidsOnly is ids' distinct UUIDs.
@@ -160,30 +141,6 @@ func uuidsOnly(ids []string) []string {
 		}
 	}
 	return out
-}
-
-// UserMetadata returns the account's application-owned metadata.
-func (s *Engine) UserMetadata(ctx context.Context, userID string) (map[string]any, error) {
-	if err := s.requirePG(); err != nil {
-		return nil, err
-	}
-	if !isUUID(strings.TrimSpace(userID)) {
-		return nil, iam.ErrUserNotFound
-	}
-	raw, err := s.q.UserMetadata(ctx, strings.TrimSpace(userID))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, iam.ErrUserNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	out := map[string]any{}
-	if len(raw) > 0 {
-		if err := json.Unmarshal(raw, &out); err != nil {
-			return nil, err
-		}
-	}
-	return out, nil
 }
 
 // Sessions lists the account's live refresh sessions on this issuer.
