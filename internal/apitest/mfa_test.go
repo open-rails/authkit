@@ -270,9 +270,10 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	f.expect(http.StatusUnauthorized, f.post("/password/login", map[string]any{"identifier": email, "password": "wrong"}))
 	require.Len(t, outbox.Messages(iam.MessageVerification, ""), sent, "a wrong password sends no code")
 	verify := f.post("/password/login", credentials).step(t, httpapi.AuthVerificationRequired)
-	require.Equal(t, httpapi.VerificationStep{Identifier: email, Channel: "email"}, *verify.Verification)
-	// Proving the address retires the password set before the proof; the
-	// owner sets it again.
+	require.NotNil(t, verify.Verification.PasswordProof, "the password sign-in hands back its proof")
+	require.Equal(t, httpapi.VerificationStep{Identifier: email, Channel: "email", PasswordProof: verify.Verification.PasswordProof}, *verify.Verification)
+	// Proving the address without that proof retires the password set before
+	// it; the owner sets it again.
 	verified, password := true, pass
 	_, err = auth.UpdateUser(ctx, iam.SystemActor(), u.ID, iam.UserUpdate{EmailVerified: &verified, Password: &password})
 	require.NoError(t, err)

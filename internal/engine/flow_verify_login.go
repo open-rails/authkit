@@ -62,7 +62,11 @@ func (s *Engine) ConfirmVerification(ctx context.Context, in authflow.Verificati
 			if in.UserID == rec.UserID && in.SessionID != "" {
 				keep = &in.SessionID
 			}
-			account, err = s.verifyContactProofWithRecovery(ctx, rec.UserID, rec.Version, channel, rec.Target, true, keep)
+			var passwordVersion int64
+			if passwordVersion, err = s.spendPasswordProof(ctx, in.PasswordProof, rec.UserID); err != nil {
+				return authflow.LoginOutcome{}, err
+			}
+			account, err = s.verifyContactProofWithRecovery(ctx, rec.UserID, rec.Version, channel, rec.Target, true, keep, passwordVersion)
 		} else {
 			var keep *string
 			if in.UserID == rec.UserID && in.SessionID != "" {

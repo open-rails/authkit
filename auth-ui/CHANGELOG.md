@@ -6,6 +6,9 @@
   may read; `avatar_url` is gone from `User`, `PublicUser` and
   `updateProfile`, and `PublicUser.metadata` is `public_metadata`. New:
   `avatarURL(user, key = "avatar")` reads the host's picture from it.
+- `confirmVerification` sends the parked password sign-in's
+  `verification.password_proof` with its code, so an imported or unproven
+  account keeps its password when it proves its address.
 - Step-up by every way an account signs in. `step_up_methods` may name
   `email`, `sms`, `passkey` and `solana`; with a second factor it is `2fa`,
   plus `passkey` when the account holds one. New: `sendContactStepUpCode`,

@@ -190,7 +190,7 @@ func Catalog() []RouteSpec {
 		{Method: POST, Path: "/verify/request", Group: account, Auth: public, Bucket: RLVerifyRequest,
 			Request: IdentifierRequest{}, Responses: replyAccepted, serve: handle((*Service).handleVerifyRequestPOST)},
 		{Method: POST, Path: "/verify/confirm", Group: account, Auth: optional, Bucket: RLVerifyConfirm,
-			Request: CodeOrLinkRequest{}, Responses: []Reply{{http.StatusOK, AuthResult{}}, {http.StatusNoContent, nil}}, serve: handle((*Service).handleVerifyConfirmPOST)},
+			Request: VerifyConfirmRequest{}, Responses: []Reply{{http.StatusOK, AuthResult{}}, {http.StatusNoContent, nil}}, serve: handle((*Service).handleVerifyConfirmPOST)},
 
 		// The caller's own account.
 		{Method: GET, Path: "/me", Group: account, Auth: required, Bucket: RLMeRead,

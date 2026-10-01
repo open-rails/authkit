@@ -726,4 +726,12 @@ export type VerificationCapabilities = {
 export type VerificationStep = {
   identifier: string
   channel: string
+  password_proof: string | null
+}
+
+export type VerifyConfirmRequest = {
+  identifier?: string
+  code?: string
+  token?: string
+  password_proof?: string
 }

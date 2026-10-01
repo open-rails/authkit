@@ -33,6 +33,7 @@ const (
 	keyEmailVerify        = "email_verify:user:" // +<userID>
 	keyEmailVerifyLink    = "email_verify:link:" // +<linkHash> -> record key
 	keyPasswordReset      = "password_reset:token:"
+	keyPasswordProof      = "password_proof:" // +<token hash>
 	keyTwoFactorStepUp    = "2fa:step-up:"
 	keyTwoFactorChallenge = "2fa:challenge:"
 	keyPasskeyCeremony    = "passkey:"

@@ -122,14 +122,16 @@ func (s *Service) handleVerifyRequestPOST(w http.ResponseWriter, r *http.Request
 	accepted(w)
 }
 
-// POST /verify/confirm — {identifier, code} or {token, identifier?}.
+// POST /verify/confirm — {identifier, code} or {token, identifier?}, and a
+// sign-in's password_proof.
 func (s *Service) handleVerifyConfirmPOST(w http.ResponseWriter, r *http.Request) {
-	var req CodeOrLinkRequest
+	var req VerifyConfirmRequest
 	if err := decodeJSON(r, &req); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	in := authflow.VerificationInput{Identifier: strings.TrimSpace(req.Identifier), Code: strings.ToUpper(strings.TrimSpace(req.Code)), Token: strings.TrimSpace(req.Token), UserAgent: r.UserAgent(), IP: s.requestIP(r)}
+	in := authflow.VerificationInput{Identifier: strings.TrimSpace(req.Identifier), Code: strings.ToUpper(strings.TrimSpace(req.Code)), Token: strings.TrimSpace(req.Token),
+		PasswordProof: strings.TrimSpace(req.PasswordProof), UserAgent: r.UserAgent(), IP: s.requestIP(r)}
 	if in.Token != "" && in.Code != "" || in.Token == "" && in.Code == "" {
 		fail(w, errmodel.CodeInvalidRequest)
 		return

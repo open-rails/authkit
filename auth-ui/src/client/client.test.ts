@@ -326,7 +326,11 @@ describe("flows", () => {
     secondFactor,
     enrollment,
     authResult("verification_required", {
-      verification: { identifier: "a@b.c", channel: "email" },
+      verification: {
+        identifier: "a@b.c",
+        channel: "email",
+        password_proof: "pp",
+      },
     }),
     authResult("account_recovery_required", {
       recovery: { token: "r", expires_at: "x", purge_at: "y" },
@@ -407,6 +411,50 @@ describe("flows", () => {
       status: "complete",
     })
     expect(client.getSnapshot()).toMatchObject({ userId: "u3" })
+  })
+
+  it("confirms a parked password sign-in's code with its password proof", async () => {
+    const parked = (identifier: string, proof: string | null) =>
+      json(
+        200,
+        authResult("verification_required", {
+          verification: {
+            identifier,
+            channel: "email",
+            password_proof: proof,
+          },
+        })
+      )
+    const bodies: unknown[] = []
+    const confirm = ({ body }: RequestInit) => {
+      bodies.push(JSON.parse(String(body)))
+      return bodies.length === 1
+        ? authError(400, "invalid_code")
+        : tokens("u4")
+    }
+    const client = createAuthClient({
+      fetch: stubFetch({
+        "POST /api/v1/password/login": [
+          parked("a@b.c", "pp"),
+          parked("other@b.c", "pq"),
+        ],
+        "POST /api/v1/verify/confirm": confirm,
+      }),
+    })
+    await client.signInWithPassword({ identifier: "a@b.c", password: "p" })
+    await expect(
+      client.confirmVerification({ identifier: "A@b.c", code: "BAD" })
+    ).rejects.toBeInstanceOf(AuthKitError)
+    await client.confirmVerification({ identifier: "a@b.c", code: "GOOD" })
+    await client.signInWithPassword({ identifier: "other@b.c", password: "p" })
+    await client
+      .confirmVerification({ identifier: "a@b.c", code: "X" })
+      .catch(() => undefined)
+    expect(bodies).toEqual([
+      { identifier: "A@b.c", code: "BAD", password_proof: "pp" },
+      { identifier: "a@b.c", code: "GOOD", password_proof: "pp" },
+      { identifier: "a@b.c", code: "X" },
+    ])
   })
 
   it("a contact change is PUT /me/email|phone, then a signed-in proof", async () => {

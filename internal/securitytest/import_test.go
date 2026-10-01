@@ -345,8 +345,11 @@ func TestSecurityImportUsers(t *testing.T) {
 // there through a guessable link), so an imported address is unverified like
 // any other. Where registration requires verification, an imported account
 // signs in only by proving its address with a code, as a registration does.
-// The attacker who set the password gets no session, and the owner's first
-// proof leaves them nothing: no password, factor or other address.
+// The sign-in hands back a password proof: with it, the code's confirmation
+// keeps the imported password. The attacker who planted a password holds a
+// proof but can't read the code; the owner reads the code but holds no proof,
+// so their first proof leaves the attacker nothing: no session, password,
+// factor or other address.
 func TestSecurityImportedVerificationIsNotProof(t *testing.T) {
 	h := newHost(t, withSMS, withHTTP(generousLimits), authtest.WithConfig(func(c *authkit.Config) {
 		c.Registration.Verification = iam.RegistrationVerificationRequired
@@ -368,11 +371,23 @@ func TestSecurityImportedVerificationIsNotProof(t *testing.T) {
 		t.Helper()
 		return h.post("/password/login", map[string]string{"identifier": email, "password": pw}, "")
 	}
-	reset := func(t *testing.T, email, pw string) {
+	// park signs in with the imported password and returns the proof the
+	// sign-in parked at a code hands back.
+	park := func(t *testing.T, email string) string {
 		t.Helper()
-		require.Less(t, h.post("/password/reset/request", map[string]string{"identifier": email}, "").status, 300)
-		resp := h.post("/password/reset/confirm", map[string]string{"token": h.mail.Last(t, iam.MessagePasswordReset, email).Token, "new_password": pw}, "")
-		require.Less(t, resp.status, 300, resp.String())
+		res := authResult(t, signIn(t, email, password))
+		require.Equal(t, httpapi.AuthVerificationRequired, res.Status)
+		require.Nil(t, res.TokenSet)
+		require.NotNil(t, res.Verification.PasswordProof)
+		return *res.Verification.PasswordProof
+	}
+	confirm := func(t *testing.T, email, proof string) tokens {
+		t.Helper()
+		return session(t, h.post("/verify/confirm", map[string]string{"identifier": email, "code": h.verificationCode(email), "password_proof": proof}, ""))
+	}
+	hasPassword := func(id string) bool {
+		_, _, has, _, _ := h.contactState(id)
+		return has
 	}
 
 	victim := unique("importvictim") + "@security.test"
@@ -380,26 +395,56 @@ func TestSecurityImportedVerificationIsNotProof(t *testing.T) {
 	u, err := h.auth.User(ctx, iam.UserByID(id))
 	require.NoError(t, err)
 	require.False(t, u.EmailVerified, "an import marked its address verified")
-	parked := authResult(t, signIn(t, victim, password))
-	require.Equal(t, httpapi.AuthVerificationRequired, parked.Status, "the attacker signed in without the mailbox")
-	require.Nil(t, parked.TokenSet)
-
-	reset(t, victim, "Victim-owns-this-now-7")
-	require.Equal(t, http.StatusUnauthorized, signIn(t, victim, password).status, "the imported password survived")
-	owner := authResult(t, signIn(t, victim, "Victim-owns-this-now-7"))
-	require.Equal(t, httpapi.AuthComplete, owner.Status)
+	planted := park(t, victim)
+	resp := h.post("/verify/confirm", map[string]string{"identifier": victim, "code": "not-the-code", "password_proof": planted}, "")
+	require.Equal(t, http.StatusBadRequest, resp.status, "a password proof is no code: %s", resp)
+	require.Less(t, h.post("/password/reset/request", map[string]string{"identifier": victim}, "").status, 300)
+	resp = h.post("/password/reset/confirm", map[string]string{"token": h.mail.Last(t, iam.MessagePasswordReset, victim).Token, "new_password": "Victim-owns-this-now-7"}, "")
+	require.Less(t, resp.status, 300, resp.String())
+	require.Equal(t, http.StatusUnauthorized, signIn(t, victim, password).status, "the planted password survived")
+	require.Equal(t, httpapi.AuthComplete, authResult(t, signIn(t, victim, "Victim-owns-this-now-7")).Status)
 	emailVerified, _, _, _, _ := h.contactState(id)
 	require.True(t, emailVerified)
 
-	t.Run("control: the owner proves the address by code at sign-in", func(t *testing.T) {
+	t.Run("the owner's link, without the proof, retires the planted password", func(t *testing.T) {
+		email := unique("importlink") + "@security.test"
+		id := importRow(t, iam.ImportUser{Email: email})
+		park(t, email)
+		session(t, h.post("/verify/confirm", map[string]string{"token": h.mail.Last(t, iam.MessageVerification, email).Token}, ""))
+		require.False(t, hasPassword(id))
+		require.Equal(t, http.StatusUnauthorized, signIn(t, email, password).status)
+	})
+
+	t.Run("control: the owner keeps the imported password, proving the address with the sign-in's proof", func(t *testing.T) {
 		email := unique("importowner") + "@security.test"
 		id := importRow(t, iam.ImportUser{Email: email})
-		require.Equal(t, httpapi.AuthVerificationRequired, authResult(t, signIn(t, email, password)).Status)
-		own := session(t, h.post("/verify/confirm", map[string]string{"identifier": email, "code": h.verificationCode(email)}, ""))
-		emailVerified, _, hasPassword, _, _ := h.contactState(id)
+		own := confirm(t, email, park(t, email))
+		emailVerified, _, has, _, _ := h.contactState(id)
 		require.True(t, emailVerified)
-		require.False(t, hasPassword, "the code proved the mailbox, not who set the imported password")
+		require.True(t, has, "the owner's proof retired the password it proved")
+		require.Equal(t, httpapi.AuthComplete, authResult(t, signIn(t, email, password)).Status)
 		h.enrollTOTP(own.AccessToken)
+	})
+
+	t.Run("a proof is single-use and holds only for its account and credential version", func(t *testing.T) {
+		a, b := unique("proofa")+"@security.test", unique("proofb")+"@security.test"
+		aID, bID := importRow(t, iam.ImportUser{Email: a}), importRow(t, iam.ImportUser{Email: b})
+		aProof := park(t, a)
+		park(t, b)
+		confirm(t, b, aProof)
+		require.False(t, hasPassword(bID), "another account's proof kept the password")
+		confirm(t, a, aProof)
+		require.False(t, hasPassword(aID), "a spent proof kept the password")
+
+		c := unique("proofc") + "@security.test"
+		cID := importRow(t, iam.ImportUser{Email: c})
+		cProof := park(t, c)
+		staffSet := "Set-by-staff-since-9"
+		_, err := h.auth.UpdateUser(ctx, iam.SystemActor(), cID, iam.UserUpdate{Password: &staffSet})
+		require.NoError(t, err)
+		require.Less(t, h.post("/verify/request", map[string]string{"identifier": c}, "").status, 300)
+		confirm(t, c, cProof)
+		require.False(t, hasPassword(cID), "a proof outlived a credential change")
 	})
 
 	t.Run("the first proof drops the other imported address", func(t *testing.T) {

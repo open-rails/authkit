@@ -1094,7 +1094,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CodeOrLinkRequest"
+                "$ref": "#/components/schemas/VerifyConfirmRequest"
               }
             }
           }
@@ -7288,12 +7288,40 @@
           },
           "channel": {
             "type": "string"
+          },
+          "password_proof": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
           "identifier",
-          "channel"
+          "channel",
+          "password_proof"
         ]
+      },
+      "VerifyConfirmRequest": {
+        "type": "object",
+        "properties": {
+          "identifier": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          },
+          "password_proof": {
+            "type": "string"
+          }
+        }
       },
       "APIKeyPage": {
         "type": "object",

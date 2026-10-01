@@ -17,8 +17,9 @@ type ImportUser struct {
 	// account is unproven until it proves one here (a code, at its first
 	// sign-in where registration requires verification, or a reset link): it
 	// adds no login method or address, and its first proof retires the
-	// imported credentials and other addresses (a password survives only when
-	// the proving session signed in with it).
+	// imported credentials and other addresses. The password survives only a
+	// proof by its holder: the code its password sign-in sent, confirmed with
+	// that sign-in's password proof, or a session that signed in with it.
 	Email    string
 	Phone    string
 	Username string
