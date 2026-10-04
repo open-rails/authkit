@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `User`, `UserEntry` and `UserProfile` carry `expired_ban`: the stored ban
+  once its `until` has passed and no unban cleared it. `ban` still means a ban
+  in force; at most one of the two is set.
 - `Capabilities.invitations.enabled` is false when the host turns invitations
   off (`Config.Invitations.Disabled`); issuing or redeeming one is then
   `invitations_disabled`.

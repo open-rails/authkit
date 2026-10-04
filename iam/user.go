@@ -22,13 +22,15 @@ type User struct {
 	DeletedAt         *time.Time `json:"deleted_at"`
 	// Ban is nil when no ban is in force.
 	Ban *BanState `json:"ban"`
+	// ExpiredBan is the stored ban once its Until has passed and no unban
+	// cleared it; nil otherwise. At most one of Ban and ExpiredBan is set.
+	ExpiredBan *BanState `json:"expired_ban"`
 	// PublicMetadata is the account's public metadata (see PublicUser).
 	PublicMetadata map[string]any `json:"public_metadata"`
 }
 
-// BanState is a ban in force: when it began, until when (nil =
-// indefinitely), why, and the account that banned (By, nil for the system or
-// a machine).
+// BanState is a stored ban: when it began, until when (nil = indefinitely),
+// why, and the account that banned (By, nil for the system or a machine).
 type BanState struct {
 	At     time.Time  `json:"at" yaml:"at"`
 	Until  *time.Time `json:"until" yaml:"until"`

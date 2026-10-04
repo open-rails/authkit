@@ -663,6 +663,7 @@ export type User = {
   last_login: string | null
   deleted_at: string | null
   ban: BanState | null
+  expired_ban: BanState | null
   public_metadata: Record<string, unknown>
 }
 
@@ -679,6 +680,7 @@ export type UserEntry = {
   last_login: string | null
   deleted_at: string | null
   ban: BanState | null
+  expired_ban: BanState | null
   public_metadata: Record<string, unknown>
   root_role: string | null
   entitlements: string[]
@@ -697,6 +699,7 @@ export type UserProfile = {
   last_login: string | null
   deleted_at: string | null
   ban: BanState | null
+  expired_ban: BanState | null
   public_metadata: Record<string, unknown>
   root_role: string | null
   entitlements: string[]

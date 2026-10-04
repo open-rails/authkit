@@ -113,6 +113,44 @@ func TestAdminAccountRoutes(t *testing.T) {
 		expect(t, http.StatusNoContent, unban())
 	})
 
+	// A ban that ran out is no ban, but stays readable as ExpiredBan until an
+	// unban clears it.
+	t.Run("an expired ban is ExpiredBan", func(t *testing.T) {
+		until := time.Now().Add(3 * time.Second).UTC().Truncate(time.Second)
+		expect(t, http.StatusNoContent, a.do(request{method: http.MethodPut, path: user + "/ban", token: token,
+			body: `{"reason":"cooling off","until":"` + until.Format(time.RFC3339) + `"}`}))
+		require.NotNil(t, entry().Ban)
+		require.Nil(t, entry().ExpiredBan)
+		require.Eventually(t, func() bool { return entry().Ban == nil }, 10*time.Second, 200*time.Millisecond, "the ban runs out")
+
+		got := entry()
+		require.Nil(t, got.Ban)
+		require.NotNil(t, got.ExpiredBan)
+		require.True(t, until.Equal(*got.ExpiredBan.Until))
+		require.Equal(t, "cooling off", *got.ExpiredBan.Reason)
+		require.Equal(t, staff.ID, *got.ExpiredBan.By)
+		require.False(t, got.ExpiredBan.At.IsZero())
+		sameBan := func(b *iam.BanState) {
+			t.Helper()
+			require.NotNil(t, b)
+			require.True(t, got.ExpiredBan.At.Equal(b.At) && until.Equal(*b.Until))
+			require.Equal(t, []string{"cooling off", staff.ID}, []string{*b.Reason, *b.By})
+		}
+		viaClient, err := auth.User(t.Context(), iam.UserByID(target.ID))
+		require.NoError(t, err)
+		require.Nil(t, viaClient.Ban)
+		sameBan(viaClient.ExpiredBan)
+		bulk, err := auth.Users(t.Context(), []string{target.ID})
+		require.NoError(t, err)
+		require.Nil(t, bulk[target.ID].Ban)
+		sameBan(bulk[target.ID].ExpiredBan)
+
+		expect(t, http.StatusNoContent, a.do(request{method: http.MethodDelete, path: user + "/ban", token: token}))
+		got = entry()
+		require.Nil(t, got.Ban)
+		require.Nil(t, got.ExpiredBan, "an unban clears an expired ban too")
+	})
+
 	t.Run("sessions of an unknown id", func(t *testing.T) {
 		res := expect(t, http.StatusNotFound, a.get("/admin/users/not-a-uuid/sessions", token))
 		require.Equal(t, "user_not_found", res.code())
