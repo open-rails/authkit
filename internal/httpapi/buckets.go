@@ -164,10 +164,6 @@ var buckets = map[string]ratelimit.Limit{
 	RLJWKSRead: {Limit: 600, Window: time.Minute},
 }
 
-// RLGlobal is HTTPConfig.GlobalRateLimit's bucket: one budget per client
-// address for the JSON API and browser OIDC. It is no key of RateLimits.
-const RLGlobal = "global"
-
 // DefaultRateLimits returns AuthKit's built-in per-endpoint rate limits, per
 // client IP: every route has a bucket, and "default" applies to any bucket
 // not listed. Hosts overlay them with HTTPConfig.RateLimits.

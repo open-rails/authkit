@@ -421,11 +421,6 @@ type HTTPConfig struct {
 	// unknown buckets are refused. Limits are in memory and per process unless
 	// Deps.Redis shares them.
 	RateLimits map[string]RateLimit
-	// GlobalRateLimit caps what one client address may send to the JSON API
-	// and browser OIDC together, counted before each route's own bucket; a
-	// request the API answers 404 or 405 counts too. The zero value sets no
-	// cap. JWKS is outside it and keeps its own bucket: verifiers poll it.
-	GlobalRateLimit RateLimit
 	// RedisKeyPrefix namespaces the rate-limit keys in Deps.Redis so
 	// deployments can share one Redis. Empty derives "authkit:<schema>:".
 	RedisKeyPrefix string

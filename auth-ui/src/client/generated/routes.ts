@@ -88,7 +88,6 @@ export const AUTHKIT_ROUTES: readonly AuthKitRoute[] = [
   { method: "POST", path: "/api/v1/admin/users/{user_id}/restore", group: "admin", auth: "session", permission: "root:users:delete", stepUp: true, mountedWhen: null },
   { method: "PUT", path: "/api/v1/admin/users/{user_id}/ban", group: "admin", auth: "session", permission: "root:users:ban", stepUp: true, mountedWhen: null },
   { method: "DELETE", path: "/api/v1/admin/users/{user_id}/ban", group: "admin", auth: "session", permission: "root:users:ban", stepUp: true, mountedWhen: null },
-  { method: "GET", path: "/api/v1/admin/users/{user_id}/ban-history", group: "admin", auth: "permission", permission: "root:users:read", stepUp: false, mountedWhen: null },
   { method: "GET", path: "/api/v1/admin/users/{user_id}/sessions", group: "admin", auth: "permission", permission: "root:users:read", stepUp: false, mountedWhen: null },
   { method: "DELETE", path: "/api/v1/admin/users/{user_id}/sessions", group: "admin", auth: "session", permission: "root:users:manage", stepUp: true, mountedWhen: null },
   { method: "GET", path: "/api/v1/admin/users/{user_id}/session-events", group: "admin", auth: "permission", permission: "root:users:read", stepUp: false, mountedWhen: null },

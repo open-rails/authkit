@@ -257,8 +257,7 @@ func requireTree(t *testing.T, pg *testdb.Postgres, db *sql.DB, schema string, c
 // banned_at the one mark of a ban, keeping banned what the sign-in gate
 // refused. 0004 turns `reserved` into a permanent ban, keeps backup codes only
 // beside a factor, and drops passkey tombstones. 0006 drops the old metadata:
-// public metadata starts empty. 0008 starts the ban history with the bans on
-// record.
+// public metadata starts empty.
 func TestUpgradeKeepsAndNormalizesRows(t *testing.T) {
 	tree, err := migratekit.LoadFromFS(pgmigrations.FS)
 	require.NoError(t, err)
@@ -320,11 +319,6 @@ func TestUpgradeKeepsAndNormalizesRows(t *testing.T) {
  (SELECT count(*) FILTER (WHERE canonical) || '/' || count(*) FROM name_claims))`).Scan(&state))
 			require.Equal(t, `reservedbanned {} true, reservedowner {} true, unreserved {} true`+
 				` | handexpired -, unreserved kept | 01 | {"migration_source": "legacy"} | 6/6`, state)
-			var bans string
-			require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT string_agg(u.username || ' ' || e.kind || ' ' || COALESCE(e.reason, '-') || ' ' ||
- (e.occurred_at = u.banned_at AND e.banned_until IS NOT DISTINCT FROM u.banned_until), ', ' ORDER BY u.username)
- FROM user_ban_events e JOIN users u ON u.id = e.user_id`).Scan(&bans))
-			require.Equal(t, "handbanned banned spam true, lapsed banned - true, reservedbanned banned spam true, reservedowner banned reserved true", bans)
 			var history []byte
 			require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT string_agg(token_hash, '') FROM refresh_token_history`).Scan(&history))
 			require.Equal(t, []byte{2}, history, "history past 90 days is gone")
