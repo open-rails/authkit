@@ -202,7 +202,6 @@ pkg authkit, type HTTPConfig struct, BasePath string
 pkg authkit, type HTTPConfig struct, CloudflareProxies []string
 pkg authkit, type HTTPConfig struct, DirectPeerIP bool
 pkg authkit, type HTTPConfig struct, Exclude []string
-pkg authkit, type HTTPConfig struct, GlobalRateLimit config.RateLimit
 pkg authkit, type HTTPConfig struct, Groups []iam.RouteGroup
 pkg authkit, type HTTPConfig struct, PublicURL string
 pkg authkit, type HTTPConfig struct, RateLimits map[string]config.RateLimit

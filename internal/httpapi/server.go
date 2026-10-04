@@ -69,9 +69,6 @@ func New(client Backend, cfg config.Config, deps config.Deps) (*Service, error) 
 		}
 		limits[bucket] = lim
 	}
-	if h.GlobalRateLimit != (config.RateLimit{}) {
-		limits[RLGlobal], s.global = h.GlobalRateLimit, true
-	}
 	var rl interface {
 		ratelimit.Limiter
 		StartCleanup(context.Context, time.Duration)

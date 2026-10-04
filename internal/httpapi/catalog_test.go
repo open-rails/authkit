@@ -159,7 +159,6 @@ func TestCatalogRateLimitsEveryRoute(t *testing.T) {
 		require.NotEmpty(t, r.Bucket, "%s has no rate-limit bucket", key)
 		require.Contains(t, defaults, r.Bucket, key)
 	}
-	require.NotContains(t, defaults, httpapi.RLGlobal, "the global limit is HTTPConfig.GlobalRateLimit, not a bucket")
 }
 
 // One page parser: limit 1-500, default 50, anything else 400 on param limit.
