@@ -55,6 +55,14 @@ type RetryAfter struct {
 	RetryAfterSeconds int64 `json:"retry_after_seconds"`
 }
 
+// SignInLimit is the metadata of too_many_accounts and too_many_devices: the
+// limit reached, and when the oldest sign-in counted leaves the 24 hours
+// (also the Retry-After header).
+type SignInLimit struct {
+	Limit             int   `json:"limit"`
+	RetryAfterSeconds int64 `json:"retry_after_seconds"`
+}
+
 // LengthBounds is a length rule a value broke: the metadata of
 // username_too_short/long and password_too_short/long.
 type LengthBounds struct {

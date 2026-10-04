@@ -45,3 +45,14 @@ Every route lives beneath `HTTPConfig.BasePath`:
 - Counters live in each process's memory. Set `Deps.Redis` when you run more than one replica, to share them.
 - If Redis fails, each process counts on its own with the same limits until Redis answers again, so no budget is ever lifted. A request waits on Redis for at most 250ms, and AuthKit logs the fallback and the recovery once each.
 - A 429 is `rate_limited` with `Retry-After`, the `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset` headers, and the budget in `metadata`.
+
+## Sign-in limits
+
+`Config.SignIn` counts distinct accounts and devices over a rolling 24 hours. Rate limits count requests per address; these count who signs in where, which only AuthKit knows.
+
+- **A device** is a browser's `__Host-authkit_device` cookie (`authkit_device` over plain HTTP): random, `HttpOnly`, `SameSite=Lax`, kept 400 days, granting nothing. Routes that sign in, and browser OIDC starts, set it when it is missing. A client without one is known by its address (per /64 for IPv6). A provider sign-in counts against the device that started it.
+- **`AccountsPerDevice`** (default 5; `AccountsPerAddress`, 20, without the cookie): distinct accounts that sign in or register from one device. Signing back into one of them is always allowed. The next account gets 429 `too_many_accounts`, and registration creates no account.
+- **`NewDevicesPerAccount`** (default 10): new devices that sign in to one account. A device that signed in to it within 30 days is not new. Past the limit, a new device answers `device_verification_required`: a code went to the account's proven email (else its phone), telling the owner someone is signing in. `POST /device-verification/confirm` with the code finishes the sign-in (or asks for the second factor), and `/device-verification/send` sends another, at most 10 an hour. A sign-in that proved the owner's email or phone, or that a second factor finishes, needs no code. An account with no proven address gets 429 `too_many_devices`.
+- Both 429s carry `Retry-After`, and `limit` and `retry_after_seconds` in `metadata`. A negative value turns a limit off; with all three off, no device cookie is set.
+- The counts live in the short-lived store every replica shares (Postgres, with or without `Deps.Redis`). They hold only hashes of a device with an account, so they never list which accounts share a device, and they expire on their own.
+- `authtest.New` turns the limits off; set `Config.SignIn` in a test that exercises them.

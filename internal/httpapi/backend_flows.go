@@ -32,6 +32,8 @@ type flowsBackend interface {
 	CompleteLoginChallenge(ctx context.Context, in authflow.LoginChallengeInput) (authflow.LoginOutcome, error)
 	ConfirmPasswordReset(ctx context.Context, token, newPassword string) (string, error)
 	ConfirmVerification(ctx context.Context, in authflow.VerificationInput) (authflow.LoginOutcome, error)
+	ConfirmDeviceVerification(ctx context.Context, in authflow.DeviceVerificationInput) (authflow.LoginOutcome, error)
+	SendDeviceVerification(ctx context.Context, userID, challenge, channel string) (*authflow.DeviceChallenge, error)
 	ContinueRefreshMFA(ctx context.Context, userID, sessionID string) (authflow.LoginOutcome, error)
 	DeletePasskey(ctx context.Context, userID, id string) error
 	DeletePendingPhoneRegistrationByPhone(ctx context.Context, phone string) error

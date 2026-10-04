@@ -4,3 +4,5 @@ refresh name=authkit_rt path=/ domain="" secure=false
 refresh name=__Host-authkit_rt path=/ domain="" secure=true
 oidc_state name=authkit_oauth_state_ path=/ domain="" secure=false
 oidc_state name=__Host-authkit_oauth_state_ path=/ domain="" secure=true
+device name=authkit_device path=/ domain="" secure=false
+device name=__Host-authkit_device path=/ domain="" secure=true

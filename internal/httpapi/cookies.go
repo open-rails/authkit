@@ -21,6 +21,7 @@ type cookieKind string
 const (
 	CookieRefresh   cookieKind = "refresh"
 	CookieOIDCState cookieKind = "oidc_state"
+	CookieDevice    cookieKind = "device"
 	OIDCStatePrefix            = "authkit_oauth_state_"
 )
 
@@ -42,6 +43,8 @@ var CookieRegistry = []CookieVariant{
 	{Kind: CookieRefresh, Name: "__Host-authkit_rt", Path: "/", Secure: true, Current: true},
 	{Kind: CookieOIDCState, Name: OIDCStatePrefix, Path: "/", Current: true},
 	{Kind: CookieOIDCState, Name: "__Host-" + OIDCStatePrefix, Path: "/", Secure: true, Current: true},
+	{Kind: CookieDevice, Name: "authkit_device", Path: "/", Current: true},
+	{Kind: CookieDevice, Name: "__Host-authkit_device", Path: "/", Secure: true, Current: true},
 }
 
 func CurrentCookie(kind cookieKind, secure bool) CookieVariant {

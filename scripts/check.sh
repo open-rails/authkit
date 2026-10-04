@@ -88,6 +88,7 @@ required = ('TestSecurityAccessTokenForgery', 'TestSecurityBearerTransport', 'Te
             'TestSecurityPerAppRoleCatalogs', 'TestSecurityPreRegistrationContactChange',
             'TestSecurityDisabledApplicationTokens', 'TestSecurityAdminDeleteIsNotSelfDelete',
             'TestSecurityPasswordHashingIsBounded', 'TestSecurityAPIKeyResolvesOnlyAtItsApp',
+            'TestSecuritySignInLimits', 'TestSecuritySignInLimitsEdges',
             'TestRoleOwnerWorkflow', 'TestGroupLifecycleWorkflow',
             'TestAccountDeletionGenerationOrderingAndFinalization',
             'TestAccountDeletionDeliveryAcrossSeparateRiverFleets',

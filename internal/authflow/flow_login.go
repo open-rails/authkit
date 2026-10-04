@@ -47,6 +47,9 @@ const (
 	// LoginTwoFAEnrollmentRequired: the password verified but the deployment
 	// requires a second factor the user has not enrolled yet.
 	LoginTwoFAEnrollmentRequired LoginOutcomeKind = "2fa_enrollment_required"
+	// LoginDeviceVerificationRequired: a new device past the account's limit;
+	// Device carries the code's challenge.
+	LoginDeviceVerificationRequired LoginOutcomeKind = "device_verification_required"
 	// LoginRejected: no session; Reason says why (ErrInvalidCredentials,
 	// ErrUserBanned, ErrPasswordResetRequired).
 	LoginRejected LoginOutcomeKind = "rejected"
@@ -84,6 +87,7 @@ type LoginOutcome struct {
 	Session        *IssuedSession
 	Verification   *VerificationRequired
 	Challenge      *TwoFactorChallenge
+	Device         *DeviceChallenge
 }
 
 const LoginRecoveryRequired LoginOutcomeKind = "account_recovery_required"

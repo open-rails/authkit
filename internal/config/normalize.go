@@ -46,6 +46,9 @@ const (
 	maxTokenEntitlementNameBytes   = 128
 	maxTokenEntitlementBytes       = 2048
 	defaultVerificationSendTimeout = 15 * time.Second
+	DefaultAccountsPerDevice       = 5
+	DefaultAccountsPerAddress      = 20
+	DefaultNewDevicesPerAccount    = 10
 )
 
 // Normalize applies every default and checks every rule of c and d, once:
@@ -60,6 +63,7 @@ func Normalize(c Config, d Deps) (Config, error) {
 	if err := normalizeToken(&c.Token); err != nil {
 		return Config{}, err
 	}
+	c.SignIn = NormalizeSignIn(c.SignIn)
 	switch c.SolanaNetwork {
 	case "", iam.SolanaMainnet, iam.SolanaTestnet, iam.SolanaDevnet:
 	default:
@@ -153,6 +157,24 @@ func normalizeRemoteApplications(apps []RemoteApplicationConfig) ([]RemoteApplic
 		seen[out[i].Issuer] = true
 	}
 	return out, nil
+}
+
+// NormalizeSignIn applies the sign-in limit defaults; a negative limit is off
+// and stays negative.
+func NormalizeSignIn(c SignInConfig) SignInConfig {
+	for _, f := range []struct {
+		value *int
+		def   int
+	}{
+		{&c.AccountsPerDevice, DefaultAccountsPerDevice},
+		{&c.AccountsPerAddress, DefaultAccountsPerAddress},
+		{&c.NewDevicesPerAccount, DefaultNewDevicesPerAccount},
+	} {
+		if *f.value == 0 {
+			*f.value = f.def
+		}
+	}
+	return c
 }
 
 func normalizeToken(t *TokenConfig) error {

@@ -21,6 +21,8 @@ export const AUTHKIT_ROUTES: readonly AuthKitRoute[] = [
   { method: "POST", path: "/api/v1/password/login", group: "auth", auth: "public", permission: null, stepUp: false, mountedWhen: null },
   { method: "POST", path: "/api/v1/2fa/challenge", group: "auth", auth: "public", permission: null, stepUp: false, mountedWhen: "two_factor" },
   { method: "POST", path: "/api/v1/2fa/verify", group: "auth", auth: "public", permission: null, stepUp: false, mountedWhen: "two_factor" },
+  { method: "POST", path: "/api/v1/device-verification/send", group: "auth", auth: "public", permission: null, stepUp: false, mountedWhen: "new_devices" },
+  { method: "POST", path: "/api/v1/device-verification/confirm", group: "auth", auth: "public", permission: null, stepUp: false, mountedWhen: "new_devices" },
   { method: "POST", path: "/api/v1/account/recovery/confirm", group: "auth", auth: "public", permission: null, stepUp: false, mountedWhen: null },
   { method: "POST", path: "/api/v1/passwordless/start", group: "auth", auth: "public", permission: null, stepUp: false, mountedWhen: "passwordless" },
   { method: "POST", path: "/api/v1/passwordless/confirm", group: "auth", auth: "public", permission: null, stepUp: false, mountedWhen: "passwordless" },

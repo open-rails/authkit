@@ -26,6 +26,10 @@ type Config struct {
 
 	// Token is the JWT issuing/verification contract and session limits.
 	Token TokenConfig
+	// SignIn limits how sign-ins spread across accounts and devices: one
+	// person signing in and out of many accounts, and one account shared by
+	// many people. The zero value is on, with generous limits.
+	SignIn SignInConfig
 	// Keys controls signing-key resolution when Deps.KeySource is nil.
 	Keys KeysConfig
 	// Frontend describes host-owned frontend routes used for absolute URLs.
@@ -137,6 +141,30 @@ type TokenConfig struct {
 	// for remote applications and the issuers verifiers trust, and turns off
 	// the verifier's SSRF guard. Local federation rigs only.
 	AllowPrivateNetworkJWKS bool
+}
+
+// SignInConfig limits distinct accounts and devices over a rolling 24 hours.
+// A device is a browser's device cookie (set by the HTTP surface); a client
+// without one is known by its address (per /64 for IPv6). The counts live in
+// the short-lived store every replica shares, never in a history.
+type SignInConfig struct {
+	// AccountsPerDevice caps the distinct accounts that sign in, or are
+	// registered, from one device in 24 hours. Signing back into one of them
+	// is always allowed; the next other account is refused with 429
+	// too_many_accounts. 0 defaults to 5; negative turns it off.
+	AccountsPerDevice int
+	// AccountsPerAddress is AccountsPerDevice for a client without a device
+	// cookie, counted per client address, which many people may share. 0
+	// defaults to 20; negative turns it off.
+	AccountsPerAddress int
+	// NewDevicesPerAccount caps the new devices that sign in to one account
+	// in 24 hours. A device that signed in to it within 30 days is not new.
+	// Past the cap, a new device enters a code sent to the account's proven
+	// email or phone (status device_verification_required); an account with
+	// neither is refused with 429 too_many_devices. A sign-in that proved the
+	// owner's email or phone, or a second factor, needs no code. 0 defaults
+	// to 10; negative turns it off.
+	NewDevicesPerAccount int
 }
 
 // KeysConfig controls signing-key resolution when Deps.KeySource is nil.

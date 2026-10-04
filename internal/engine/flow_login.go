@@ -33,6 +33,7 @@ type loginSessionInput struct {
 	Extra       map[string]any // extra access-token claims
 	UserAgent   string
 	IP          string
+	Device      authflow.SignInDevice // where the sign-in comes from (Config.SignIn)
 }
 
 // PasswordLogin runs the whole password-login decision tree. It returns an

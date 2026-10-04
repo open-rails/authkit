@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 
@@ -32,6 +33,10 @@ func (s *Service) handlePasskeyLoginFinishPOST(w http.ResponseWriter, r *http.Re
 	}
 	result, err := s.svc.FinishPasskeyLogin(r.Context(), body, r.UserAgent(), parseIP(s.requestIP(r)))
 	if err != nil {
+		if errors.Is(err, errmodel.ErrTooManyAccounts) || errors.Is(err, errmodel.ErrTooManyDevices) {
+			writeError(w, err)
+			return
+		}
 		fail(w, errmodel.CodeInvalidCredentials)
 		return
 	}

@@ -27,6 +27,9 @@ func (s *Engine) registerAccount(ctx context.Context, in accountRegistration) (r
 	if err := s.requirePG(); err != nil {
 		return registeredAccount{}, err
 	}
+	if err := s.admitNewAccount(ctx); err != nil {
+		return registeredAccount{}, err
+	}
 	tx, err := s.beginAuthorityTransaction(ctx)
 	if err != nil {
 		return registeredAccount{}, err

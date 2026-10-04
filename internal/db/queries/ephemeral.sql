@@ -42,3 +42,13 @@ WHERE key IN (
   WHERE e.expires_at <= now()
   ORDER BY e.expires_at LIMIT sqlc.arg(batch_size) FOR UPDATE SKIP LOCKED
 ) AND expires_at <= now();
+
+-- name: EphemeralSwap :execrows
+-- Writes value only while key still holds expected (an empty expected: while
+-- key is absent or expired), so concurrent read-modify-writes of one record
+-- never lose an update. No row means another writer came first.
+INSERT INTO ephemeral_kv AS kv (key, value, expires_at)
+VALUES (sqlc.arg(key), sqlc.arg(value), now() + sqlc.arg(ttl_us)::bigint * interval '1 microsecond')
+ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, expires_at = EXCLUDED.expires_at
+WHERE (kv.expires_at > now() AND kv.value = sqlc.arg(expected))
+   OR (kv.expires_at <= now() AND octet_length(sqlc.arg(expected)) = 0);

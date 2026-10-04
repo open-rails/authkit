@@ -47,6 +47,9 @@ func (s *Service) authResult(w http.ResponseWriter, r *http.Request, out authflo
 	case authflow.LoginRecoveryRequired:
 		res.Status = AuthAccountRecoveryRequired
 		res.Recovery = out.Recovery
+	case authflow.LoginDeviceVerificationRequired:
+		res.Status = AuthDeviceVerificationRequired
+		res.DeviceVerification = deviceVerificationStep(out.UserID, out.Device)
 	default:
 		return AuthResult{}, errmodel.E(loginRejectionCode(out.Reason))
 	}

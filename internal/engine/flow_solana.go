@@ -123,6 +123,9 @@ func (s *Engine) VerifySIWSAndLogin(ctx context.Context, output siws.SignInOutpu
 		if !s.PublicNativeUserRegistrationEnabled() {
 			return authflow.LoginOutcome{}, errmodel.ErrRegistrationDisabled
 		}
+		if err := s.admitNewAccount(ctx); err != nil {
+			return authflow.LoginOutcome{}, err
+		}
 		username := strings.TrimSpace(challengeData.Username)
 		if username == "" || s.ValidateUsername(username) != nil || !s.usernameAvailable(ctx, username) {
 			if username == "" {

@@ -14,6 +14,7 @@ type (
 	// outside the process is in Deps.
 	Config             = config.Config
 	TokenConfig        = config.TokenConfig
+	SignInConfig       = config.SignInConfig
 	KeysConfig         = config.KeysConfig
 	FrontendConfig     = config.FrontendConfig
 	RegistrationConfig = config.RegistrationConfig
