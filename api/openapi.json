@@ -3168,6 +3168,67 @@
         "x-authkit-step-up": true
       }
     },
+    "/api/v1/admin/users/{user_id}/ban-history": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BanEventPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "root:users:read",
+        "x-authkit-rate-limit": "admin_read"
+      }
+    },
     "/api/v1/admin/users/{user_id}/sessions": {
       "get": {
         "tags": [
@@ -4777,6 +4838,66 @@
         },
         "required": [
           "backup_codes"
+        ]
+      },
+      "BanEvent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "banned",
+              "unbanned"
+            ]
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "until": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "by": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "occurred_at",
+          "until",
+          "reason",
+          "by"
         ]
       },
       "BanRequest": {
@@ -7344,6 +7465,35 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/APIKey"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor",
+          "total"
+        ]
+      },
+      "BanEventPage": {
+        "type": "object",
+        "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BanEvent"
             }
           },
           "next_cursor": {

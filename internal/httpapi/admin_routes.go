@@ -146,6 +146,21 @@ func (s *Service) handleAdminUserBanDELETE(w http.ResponseWriter, r *http.Reques
 	noContent(w)
 }
 
+// handleAdminUserBanHistoryGET pages the account's bans and unbans, newest
+// first (?cursor=, ?limit=).
+func (s *Service) handleAdminUserBanHistoryGET(w http.ResponseWriter, r *http.Request) {
+	p, ok := readPage(w, r)
+	if !ok {
+		return
+	}
+	page, err := s.svc.ListBanEvents(r.Context(), r.PathValue("user_id"), p)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	list(w, page)
+}
+
 func (s *Service) handleAdminUserDeleteDELETE(w http.ResponseWriter, r *http.Request) {
 	actor, target, ok := accountActor(w, r)
 	if !ok {

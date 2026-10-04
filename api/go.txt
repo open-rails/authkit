@@ -43,6 +43,7 @@ pkg authkit, method (*Client) IssuerKeyStatuses() []verify.IssuerKeyStatus
 pkg authkit, method (*Client) KnownPermission(iam.Perm) bool
 pkg authkit, method (*Client) LinkProvider(context.Context, string, iam.ProviderLink, ...Option) error
 pkg authkit, method (*Client) ListAPIKeys(context.Context, iam.GroupRef, iam.PageRequest) (iam.ListPage[iam.APIKey], error)
+pkg authkit, method (*Client) ListBanEvents(context.Context, string, iam.PageRequest) (iam.ListPage[iam.BanEvent], error)
 pkg authkit, method (*Client) ListGroupMembers(context.Context, iam.GroupRef, iam.MemberQuery) (iam.ListPage[iam.GroupMember], error)
 pkg authkit, method (*Client) ListGroups(context.Context, iam.GroupQuery) (iam.ListPage[iam.Group], error)
 pkg authkit, method (*Client) ListInvitations(context.Context, iam.GroupRef, iam.PageRequest) (iam.ListPage[iam.Invitation], error)
@@ -464,6 +465,8 @@ pkg authkit/iam, const AuthPermission RouteAuthTier = "permission"
 pkg authkit/iam, const AuthPublic RouteAuthTier = "public"
 pkg authkit/iam, const AuthRequired RouteAuthTier = "required"
 pkg authkit/iam, const AuthSession RouteAuthTier = "session"
+pkg authkit/iam, const BanEventBanned BanEventKind = "banned"
+pkg authkit/iam, const BanEventUnbanned BanEventKind = "unbanned"
 pkg authkit/iam, const ContactEmail ContactField = "email"
 pkg authkit/iam, const ContactPhone ContactField = "phone"
 pkg authkit/iam, const DefaultPageLimit untyped int = 50
@@ -702,6 +705,14 @@ pkg authkit/iam, type Ban struct
 pkg authkit/iam, type Ban struct, KeepExisting bool
 pkg authkit/iam, type Ban struct, Reason string
 pkg authkit/iam, type Ban struct, Until *time.Time
+pkg authkit/iam, type BanEvent struct
+pkg authkit/iam, type BanEvent struct, By *string `json:"by"`
+pkg authkit/iam, type BanEvent struct, ID string `json:"id"`
+pkg authkit/iam, type BanEvent struct, Kind BanEventKind `json:"kind"`
+pkg authkit/iam, type BanEvent struct, OccurredAt time.Time `json:"occurred_at"`
+pkg authkit/iam, type BanEvent struct, Reason *string `json:"reason"`
+pkg authkit/iam, type BanEvent struct, Until *time.Time `json:"until"`
+pkg authkit/iam, type BanEventKind string
 pkg authkit/iam, type BanState struct
 pkg authkit/iam, type BanState struct, At time.Time `json:"at" yaml:"at"`
 pkg authkit/iam, type BanState struct, By *string `json:"by" yaml:"by"`

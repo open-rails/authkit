@@ -74,7 +74,7 @@ func TestClientPublicSurface(t *testing.T) {
 	reads := []string{
 		// The host is the trust boundary.
 		"User", "Users", "PublicUsers", "ListUsers", "ResolveUsername", "CheckUsername",
-		"DeviceKeys", "Sessions", "ListSessionEvents",
+		"DeviceKeys", "Sessions", "ListSessionEvents", "ListBanEvents",
 		"Group", "Groups", "ListGroups", "ListGroupMembers", "ListMemberships", "GroupRoles", "KnownPermission",
 		"ListAPIKeys", "ResolveAPIKey", "ListInvitations", "RemoteApplication", "ListRemoteApplications",
 		"CheckSession", "CheckRecentSignIn",

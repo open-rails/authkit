@@ -28,6 +28,7 @@ type Operations interface {
 	PatchPublicMetadata(ctx context.Context, actor iam.Actor, userID string, patch map[string]any, opts ...Option) error
 	Ban(ctx context.Context, actor iam.Actor, userID string, b iam.Ban, opts ...Option) error
 	Unban(ctx context.Context, actor iam.Actor, userID string, opts ...Option) error
+	ListBanEvents(ctx context.Context, userID string, p iam.PageRequest) (iam.ListPage[iam.BanEvent], error)
 	DeleteUsers(ctx context.Context, actor iam.Actor, ids []string, opts ...Option) ([]iam.OpResult, error)
 	RestoreUsers(ctx context.Context, actor iam.Actor, ids []string, opts ...Option) ([]iam.OpResult, error)
 	PurgeUsers(ctx context.Context, ids []string, opts ...Option) ([]iam.OpResult, error)

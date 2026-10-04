@@ -303,6 +303,8 @@ func Catalog() []RouteSpec {
 			Request: BanRequest{}, Responses: replyNoContent, serve: handle((*Service).handleAdminUserBanPUT)},
 		{Method: DELETE, Path: "/admin/users/{user_id}/ban", Group: admin, Auth: session, StepUp: true, Perm: ident.RootUsersBan.String(), Bucket: RLAdminWrite,
 			Responses: replyNoContent, serve: handle((*Service).handleAdminUserBanDELETE)},
+		{Method: GET, Path: "/admin/users/{user_id}/ban-history", Group: admin, Auth: permission, Perm: usersRead, Bucket: RLAdminRead,
+			Query: PageQuery{}, Responses: replyOK(iam.ListPage[iam.BanEvent]{}), serve: handle((*Service).handleAdminUserBanHistoryGET)},
 		{Method: GET, Path: "/admin/users/{user_id}/sessions", Group: admin, Auth: permission, Perm: usersRead, Bucket: RLAdminRead,
 			Responses: replyOK(iam.ListPage[iam.Session]{}), serve: handle((*Service).handleAdminUserSessionsGET)},
 		// Revokes every session and device key of the account.

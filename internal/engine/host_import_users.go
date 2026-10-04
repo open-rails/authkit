@@ -543,18 +543,31 @@ type importUserColumns struct {
 }
 
 // importBannedBy records who banned the inserted rows, once every chunk has
-// committed, so a banner imported later in the batch counts too.
+// committed, so a banner imported later in the batch counts too; each ban
+// then starts its account's ban history.
 func (s *Engine) importBannedBy(ctx context.Context, rows []*importRow) error {
 	var arg db.ImportSetBannedByParams
+	var banned []string
 	for _, p := range rows {
-		if p.out.Status == iam.ImportInserted && p.in.BannedBy != nil {
+		if p.out.Status != iam.ImportInserted {
+			continue
+		}
+		if p.in.BannedAt != nil {
+			banned = append(banned, p.id)
+		}
+		if p.in.BannedBy != nil {
 			arg.UserIds, arg.BannedBy = append(arg.UserIds, p.id), append(arg.BannedBy, *p.in.BannedBy)
 		}
 	}
-	if len(arg.UserIds) == 0 {
+	if len(arg.UserIds) > 0 {
+		if err := s.q.ImportSetBannedBy(ctx, arg); err != nil {
+			return err
+		}
+	}
+	if len(banned) == 0 {
 		return nil
 	}
-	return s.q.ImportSetBannedBy(ctx, arg)
+	return s.q.BanEventsRecordCreated(ctx, banned)
 }
 
 // insertImportRows inserts rows in one statement and returns the ids that
