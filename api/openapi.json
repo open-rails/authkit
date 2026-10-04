@@ -6921,6 +6921,16 @@
               }
             ]
           },
+          "expired_ban": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BanState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "public_metadata": {
             "type": "object",
             "additionalProperties": {}
@@ -6939,6 +6949,7 @@
           "last_login",
           "deleted_at",
           "ban",
+          "expired_ban",
           "public_metadata"
         ]
       },
@@ -7031,6 +7042,16 @@
               }
             ]
           },
+          "expired_ban": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BanState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "public_metadata": {
             "type": "object",
             "additionalProperties": {}
@@ -7065,6 +7086,7 @@
           "last_login",
           "deleted_at",
           "ban",
+          "expired_ban",
           "public_metadata",
           "root_role",
           "entitlements"
@@ -7159,6 +7181,16 @@
               }
             ]
           },
+          "expired_ban": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BanState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "public_metadata": {
             "type": "object",
             "additionalProperties": {}
@@ -7215,6 +7247,7 @@
           "last_login",
           "deleted_at",
           "ban",
+          "expired_ban",
           "public_metadata",
           "root_role",
           "entitlements",

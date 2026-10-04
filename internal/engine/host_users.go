@@ -22,7 +22,8 @@ import (
 // projection, the internal lookups the flows use, the login account gate and
 // username renames.
 
-// publicUser projects r. An expired temporary ban is no ban.
+// publicUser projects r. An expired temporary ban is no ban: it is
+// ExpiredBan, not Ban.
 func publicUser(r *db.User, now time.Time) iam.User {
 	u := iam.User{
 		ID: r.ID, Email: nullable(deref(r.Email)), Phone: nullable(deref(r.PhoneNumber)), Username: deref(r.Username),
@@ -30,10 +31,12 @@ func publicUser(r *db.User, now time.Time) iam.User {
 		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin, DeletedAt: r.DeletedAt,
 		PublicMetadata: publicMetadata(r.PublicMetadata),
 	}
-	if banInForce(r.BannedAt, r.BannedUntil, now) {
-		u.Ban = &iam.BanState{Until: r.BannedUntil, Reason: nullable(deref(r.BanReason)), By: nullable(deref(r.BannedBy))}
-		if r.BannedAt != nil {
-			u.Ban.At = *r.BannedAt
+	if r.BannedAt != nil {
+		ban := &iam.BanState{At: *r.BannedAt, Until: r.BannedUntil, Reason: nullable(deref(r.BanReason)), By: nullable(deref(r.BannedBy))}
+		if banInForce(r.BannedAt, r.BannedUntil, now) {
+			u.Ban = ban
+		} else {
+			u.ExpiredBan = ban
 		}
 	}
 	return u

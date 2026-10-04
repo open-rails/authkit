@@ -1105,6 +1105,7 @@ pkg authkit/iam, type User struct, CreatedAt time.Time `json:"created_at"`
 pkg authkit/iam, type User struct, DeletedAt *time.Time `json:"deleted_at"`
 pkg authkit/iam, type User struct, Email *string `json:"email"`
 pkg authkit/iam, type User struct, EmailVerified bool `json:"email_verified"`
+pkg authkit/iam, type User struct, ExpiredBan *BanState `json:"expired_ban"`
 pkg authkit/iam, type User struct, ID string `json:"id"`
 pkg authkit/iam, type User struct, LastLogin *time.Time `json:"last_login"`
 pkg authkit/iam, type User struct, Phone *string `json:"phone_number"`
