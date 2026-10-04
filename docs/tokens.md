@@ -67,6 +67,7 @@ mux.Handle("/api/", verify.Required(v)(api))
   - through `Client.MintDelegatedAccessToken`.
 
   A remote application may also sign its own.
+- `Config.RemoteApplications` declares root's remote applications as a whole set. `New` registers each one, and disables any that an earlier boot declared and this one doesn't. A removed application is disabled, not deleted: its tokens stop at the next request, and it keeps its roles for when it is declared again. `nil` leaves the stored applications alone, and applications registered through `Client.UpsertRemoteApplication` or the bootstrap manifest are never touched.
 - A delegated token's authority is its `permissions` claim, capped by the application's stored grants when an application signed it. The user's roles don't apply.
 - A token can be bound to its holder:
   - `cnf.x5t#S256` binds it to a TLS client certificate;

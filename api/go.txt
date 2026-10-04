@@ -137,6 +137,7 @@ pkg authkit, type Config struct, Languages config.LanguageConfig
 pkg authkit, type Config struct, Passkeys config.PasskeyConfig
 pkg authkit, type Config struct, Password config.PasswordPolicy
 pkg authkit, type Config struct, Registration config.RegistrationConfig
+pkg authkit, type Config struct, RemoteApplications []config.RemoteApplicationConfig
 pkg authkit, type Config struct, River config.RiverConfig
 pkg authkit, type Config struct, Roles *config.Roles
 pkg authkit, type Config struct, Schema string
@@ -267,6 +268,13 @@ pkg authkit, type RegistrationConfig struct, PasswordlessAutoRegistration bool
 pkg authkit, type RegistrationConfig struct, PasswordlessLogin bool
 pkg authkit, type RegistrationConfig struct, Verification iam.RegistrationVerificationPolicy
 pkg authkit, type RegistrationConfig struct, VerificationSendTimeout time.Duration
+pkg authkit, type RemoteApplicationConfig = config.RemoteApplicationConfig
+pkg authkit, type RemoteApplicationConfig struct
+pkg authkit, type RemoteApplicationConfig struct, Disabled bool
+pkg authkit, type RemoteApplicationConfig struct, Issuer string
+pkg authkit, type RemoteApplicationConfig struct, JWKSURI string
+pkg authkit, type RemoteApplicationConfig struct, PublicKeys []iam.RemoteApplicationKey
+pkg authkit, type RemoteApplicationConfig struct, RootRole iam.Role
 pkg authkit, type Resource = config.Resource
 pkg authkit, type Resource struct
 pkg authkit, type RiverConfig = config.RiverConfig

@@ -27,10 +27,13 @@ type (
 	APIKeysConfig      = config.APIKeysConfig
 	DelegatedConfig    = config.DelegatedConfig
 	InvitationsConfig  = config.InvitationsConfig
-	LanguageConfig     = config.LanguageConfig
-	RiverConfig        = config.RiverConfig
-	HTTPConfig         = config.HTTPConfig
-	RateLimit          = config.RateLimit
+	// RemoteApplicationConfig declares one remote application
+	// (Config.RemoteApplications).
+	RemoteApplicationConfig = config.RemoteApplicationConfig
+	LanguageConfig          = config.LanguageConfig
+	RiverConfig             = config.RiverConfig
+	HTTPConfig              = config.HTTPConfig
+	RateLimit               = config.RateLimit
 )
 
 // Former-name reservation modes.

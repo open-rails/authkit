@@ -92,6 +92,8 @@ type RemoteApplication struct {
 	RegisteredBy *string
 	// The Token.Issuer of the app its registrar registered it through; only its role catalog judges the application's roles. NULL = every app does.
 	CatalogIssuer *string
+	// The Token.Issuer of the app whose Config.RemoteApplications declares it; NULL = registered through an operation.
+	DeclaredBy *string
 }
 
 type SessionEvent struct {

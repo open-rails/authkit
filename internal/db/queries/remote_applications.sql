@@ -67,3 +67,21 @@ FROM remote_applications ra
 JOIN permission_groups pg ON pg.id = ra.permission_group_id
 WHERE ra.id = sqlc.arg(id)::uuid AND ra.enabled AND pg.deleted_at IS NULL
   AND (ra.trust_root <> 'user' OR EXISTS (SELECT 1 FROM usable_users WHERE id = ra.registered_by));
+
+-- name: RemoteApplicationsDeclare :exec
+-- Config.RemoteApplications of declared_by declares these issuers.
+UPDATE remote_applications SET declared_by = sqlc.arg(declared_by)::text
+WHERE issuer = ANY(sqlc.arg(issuers)::text[]) AND declared_by IS DISTINCT FROM sqlc.arg(declared_by)::text;
+
+-- name: RemoteApplicationsUndeclared :many
+-- What declared_by declared at an earlier boot and no longer does.
+SELECT * FROM remote_applications
+WHERE declared_by = sqlc.arg(declared_by)::text AND NOT (issuer = ANY(sqlc.arg(issuers)::text[]))
+ORDER BY issuer
+FOR UPDATE;
+
+-- name: RemoteApplicationsRelease :exec
+-- Disables them and ends the declaration: a later registration is an
+-- operation's.
+UPDATE remote_applications SET enabled = false, declared_by = NULL, updated_at = now()
+WHERE id = ANY(sqlc.arg(ids)::uuid[]);

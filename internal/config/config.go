@@ -59,6 +59,15 @@ type Config struct {
 	// Roles is the permission model: personas, their permissions and roles
 	// (NewRoles). Nil is root-only.
 	Roles *Roles
+	// RemoteApplications declares the remote applications root controls, as
+	// the whole set: New registers each one and disables any this deployment
+	// declared at an earlier boot and no longer does. A removed application
+	// is disabled, not deleted: its tokens stop at once, and it keeps its
+	// roles for when it is declared again. Nil leaves the stored applications
+	// alone. Applications registered through an operation
+	// (Client.UpsertRemoteApplication, the bootstrap manifest) or declared by
+	// a deployment sharing the account store are never touched.
+	RemoteApplications []RemoteApplicationConfig
 	// Languages declares the supported languages: the HTTP surface negotiates
 	// the request's among them, and messages fall back to Default.
 	Languages LanguageConfig
@@ -315,6 +324,21 @@ type DelegatedConfig struct {
 	TTLFloor   time.Duration
 	TTLDefault time.Duration
 	TTLCeiling time.Duration
+}
+
+// RemoteApplicationConfig declares one remote application of the root group,
+// keyed by Issuer. Only the system changes it (trust root manual).
+type RemoteApplicationConfig struct {
+	// Issuer is the iss of the tokens it signs: an absolute http(s) URL.
+	Issuer string
+	// JWKSURI is where its keys are fetched; PublicKeys is a static key list
+	// instead. Set exactly one.
+	JWKSURI    string
+	PublicKeys []iam.RemoteApplicationKey
+	// Disabled keeps it registered and refuses its tokens.
+	Disabled bool
+	// RootRole, when set, is the role it holds on root.
+	RootRole iam.Role
 }
 
 // InvitationsConfig controls invitations: invite links and emailed

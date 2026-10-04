@@ -108,6 +108,9 @@ func Normalize(c Config, d Deps) (Config, error) {
 	if err := normalizeDelegated(&c.Delegated); err != nil {
 		return Config{}, err
 	}
+	if c.RemoteApplications, err = normalizeRemoteApplications(c.RemoteApplications); err != nil {
+		return Config{}, err
+	}
 	if err := normalizeLanguages(&c.Languages); err != nil {
 		return Config{}, err
 	}
@@ -131,6 +134,25 @@ func Normalize(c Config, d Deps) (Config, error) {
 		c.HTTP = &h
 	}
 	return c, nil
+}
+
+// normalizeRemoteApplications trims the declared set and refuses a blank or
+// repeated issuer. Nil stays nil: an undeclared set. The engine checks each
+// trust source and role.
+func normalizeRemoteApplications(apps []RemoteApplicationConfig) ([]RemoteApplicationConfig, error) {
+	out := slices.Clone(apps)
+	seen := make(map[string]bool, len(out))
+	for i := range out {
+		out[i].Issuer, out[i].JWKSURI = strings.TrimSpace(out[i].Issuer), strings.TrimSpace(out[i].JWKSURI)
+		if out[i].Issuer == "" {
+			return nil, errors.New("authkit: Config.RemoteApplications contains an application with no Issuer")
+		}
+		if seen[out[i].Issuer] {
+			return nil, fmt.Errorf("authkit: Config.RemoteApplications declares %q twice", out[i].Issuer)
+		}
+		seen[out[i].Issuer] = true
+	}
+	return out, nil
 }
 
 func normalizeToken(t *TokenConfig) error {
