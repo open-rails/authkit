@@ -5,6 +5,7 @@ import { AuthKitError } from "../client/errors.ts"
 import { passkeyDismissed } from "../client/webauthn.ts"
 import type {
   AccountRecoveryConfirmation,
+  DeviceVerificationStep,
   EnrollmentStep,
   SecondFactorStep,
   TwoFactorMethod,
@@ -31,6 +32,12 @@ export type LoginState =
       codeSentTo?: string
     }
   | { step: "recovery"; recovery: AccountRecoveryConfirmation }
+  // A new device past the account's limit: a code went to the owner.
+  | {
+      step: "new_device"
+      verification: DeviceVerificationStep
+      returnTo?: string
+    }
   | {
       step: "verification"
       verification: VerificationStep
@@ -96,6 +103,12 @@ export function useLogin(options: LoginOptions = {}) {
           return setState({
             step: "verification",
             verification: result.verification,
+            returnTo,
+          })
+        case "device_verification_required":
+          return setState({
+            step: "new_device",
+            verification: result.device_verification,
             returnTo,
           })
       }
@@ -194,6 +207,41 @@ export function useLogin(options: LoginOptions = {}) {
         setState({
           step: "two_factor",
           challenge: next.second_factor,
+          returnTo,
+        })
+      }),
+    [client, run, state]
+  )
+
+  const confirmNewDevice = useCallback(
+    (code: string) =>
+      run(async () => {
+        if (state.step !== "new_device") return
+        const { verification, returnTo } = state
+        const result = await client.confirmDeviceVerification({
+          userId: verification.user_id,
+          challenge: verification.challenge,
+          code: code.trim(),
+        })
+        apply(result, result.return_to ?? returnTo)
+      }),
+    [client, run, apply, state]
+  )
+
+  // Resends the new device's code, or sends it to the other channel.
+  const sendNewDeviceCode = useCallback(
+    (channel?: "email" | "sms") =>
+      run(async () => {
+        if (state.step !== "new_device") return
+        const { verification, returnTo } = state
+        const next = await client.sendDeviceVerification({
+          userId: verification.user_id,
+          challenge: verification.challenge,
+          channel,
+        })
+        setState({
+          step: "new_device",
+          verification: next.device_verification,
           returnTo,
         })
       }),
@@ -306,6 +354,8 @@ export function useLogin(options: LoginOptions = {}) {
     resume,
     verifyTwoFactor,
     sendTwoFactorCode,
+    confirmNewDevice,
+    sendNewDeviceCode,
     startEnrollment,
     confirmEnrollment,
     confirmRecovery,

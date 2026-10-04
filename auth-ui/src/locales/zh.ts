@@ -444,6 +444,11 @@ export const zh: AuthUiMessageBundle = {
     sendNewCode: "发送新验证码",
     useFactor: "改用{method}",
   },
+  newDevice: {
+    title: "新设备",
+    description:
+      "要在此设备上完成登录，请输入我们发送到 {destination} 的验证码。",
+  },
   enrollment: {
     title: "设置双重验证",
     chooseMethod: "选择接收登录验证码的方式。",
@@ -548,6 +553,9 @@ export const zh: AuthUiMessageBundle = {
     provider_not_linked: "尚未关联该登录方式。",
     provider_unavailable: "登录提供方暂时不可用，请稍后重试。",
     rate_limited: "尝试次数过多，请稍后再试。",
+    too_many_accounts: "今天从此设备登录的账户过多，请稍后再试。",
+    too_many_devices:
+      "今天登录此账户的新设备过多，请稍后再试，或使用你之前用过的设备。",
     registration_disabled: "注册功能当前已关闭。",
     rename_rate_limited: "用户名修改次数过多，请稍后再试。",
     renames_disabled: "已禁止修改用户名。",

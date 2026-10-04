@@ -479,6 +479,11 @@ export const ja: AuthUiMessageBundle = {
     sendNewCode: "新しいコードを送信",
     useFactor: "代わりに{method}を使用",
   },
+  newDevice: {
+    title: "新しいデバイス",
+    description:
+      "このデバイスでのサインインを完了するには、{destination} に送信したコードを入力してください。",
+  },
   enrollment: {
     title: "2段階認証を設定",
     chooseMethod: "ログインコードの受け取り方法を選択してください。",
@@ -608,6 +613,10 @@ export const ja: AuthUiMessageBundle = {
       "サインインプロバイダーは一時的に利用できません。しばらくしてからもう一度お試しください。",
     rate_limited:
       "試行回数が多すぎます。しばらくしてからもう一度お試しください。",
+    too_many_accounts:
+      "本日このデバイスからサインインしたアカウントが多すぎます。しばらくしてからもう一度お試しください。",
+    too_many_devices:
+      "本日このアカウントに新しいデバイスからのサインインが多すぎます。しばらくしてから、または以前に使用したデバイスでお試しください。",
     registration_disabled: "現在、新規登録は停止しています。",
     rename_rate_limited:
       "ユーザー名の変更回数が多すぎます。しばらくしてからもう一度お試しください。",

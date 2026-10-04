@@ -473,6 +473,11 @@ export const ko: AuthUiMessageBundle = {
     sendNewCode: "새 코드 보내기",
     useFactor: "대신 {method} 사용",
   },
+  newDevice: {
+    title: "새 기기",
+    description:
+      "이 기기에서 로그인을 마치려면 {destination}(으)로 보낸 코드를 입력하세요.",
+  },
   enrollment: {
     title: "2단계 인증 설정",
     chooseMethod: "로그인 코드를 받을 방법을 선택하세요.",
@@ -593,6 +598,10 @@ export const ko: AuthUiMessageBundle = {
     provider_unavailable:
       "로그인 제공자를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해주세요.",
     rate_limited: "시도 횟수가 너무 많습니다. 잠시 후 다시 시도해주세요.",
+    too_many_accounts:
+      "오늘 이 기기에서 로그인한 계정이 너무 많습니다. 잠시 후 다시 시도해주세요.",
+    too_many_devices:
+      "오늘 이 계정에 새 기기로 로그인한 횟수가 너무 많습니다. 나중에 다시 시도하거나 이전에 사용한 기기에서 시도해주세요.",
     registration_disabled: "현재 가입이 비활성화되어 있습니다.",
     rename_rate_limited:
       "사용자명 변경 횟수가 너무 많습니다. 잠시 후 다시 시도해주세요.",

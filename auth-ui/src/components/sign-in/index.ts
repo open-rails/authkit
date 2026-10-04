@@ -14,6 +14,10 @@ export type {
 } from "./host.ts"
 export type { LoginController, RegisterController } from "./labels.ts"
 export { LoginForm, type LoginFormProps } from "./LoginForm.tsx"
+export {
+  NewDeviceVerification,
+  type NewDeviceVerificationProps,
+} from "./NewDeviceVerification.tsx"
 export { RegisterForm, type RegisterFormProps } from "./RegisterForm.tsx"
 export {
   ResetPasswordForm,

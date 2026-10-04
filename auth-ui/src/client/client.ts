@@ -1045,6 +1045,45 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       return result
     },
 
+    // A new device past the account's limit finishes signing in with the code
+    // sent to the account's owner (or goes on to its second factor).
+    confirmDeviceVerification: (input: {
+      userId: string
+      challenge: string
+      code: string
+    }) =>
+      completeSignIn(() =>
+        request("POST", "/device-verification/confirm", {
+          bearer: null,
+          body: {
+            user_id: input.userId,
+            challenge: input.challenge,
+            code: input.code,
+          },
+        })
+      ),
+
+    // Sends the new device's code again, or to the account's other channel.
+    sendDeviceVerification: async (input: {
+      userId: string
+      challenge: string
+      channel?: "email" | "sms"
+    }) => {
+      const result = await completeSignIn(() =>
+        request("POST", "/device-verification/send", {
+          bearer: null,
+          body: {
+            user_id: input.userId,
+            challenge: input.challenge,
+            channel: input.channel,
+          },
+        })
+      )
+      if (result.status !== "device_verification_required")
+        throw new Error("AuthKit returned no device verification step")
+      return result
+    },
+
     // Starts a factor: TOTP answers its secret, email and SMS send a code.
     // An enrollment token (AuthResult enrollment_required) finishes a forced
     // enrollment.

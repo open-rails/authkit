@@ -500,6 +500,11 @@ export const de: AuthUiMessageBundle = {
     sendNewCode: "Neuen Code senden",
     useFactor: "Stattdessen {method} verwenden",
   },
+  newDevice: {
+    title: "Neues Gerät",
+    description:
+      "Um die Anmeldung auf diesem Gerät abzuschließen, geben Sie den Code ein, den wir an {destination} gesendet haben.",
+  },
   enrollment: {
     title: "Zwei-Faktor-Authentifizierung einrichten",
     chooseMethod: "Wählen Sie, wie Sie Anmeldecodes erhalten.",
@@ -637,6 +642,10 @@ export const de: AuthUiMessageBundle = {
     provider_unavailable:
       "Der Anmeldeanbieter ist vorübergehend nicht verfügbar. Bitte versuchen Sie es gleich noch einmal.",
     rate_limited: "Zu viele Versuche. Bitte versuchen Sie es später erneut.",
+    too_many_accounts:
+      "Auf diesem Gerät haben sich heute zu viele Konten angemeldet. Bitte versuchen Sie es später erneut.",
+    too_many_devices:
+      "Heute haben sich zu viele neue Geräte bei diesem Konto angemeldet. Versuchen Sie es später erneut oder mit einem Gerät, das Sie schon verwendet haben.",
     registration_disabled: "Die Registrierung ist derzeit deaktiviert.",
     rename_rate_limited:
       "Zu viele Änderungen des Benutzernamens. Bitte versuchen Sie es später erneut.",
