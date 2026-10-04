@@ -138,17 +138,6 @@ type User struct {
 	PublicMetadata []byte
 }
 
-// Ban history: one row per ban put in force (banned) or lifted (unbanned). actor_id NULL = the system.
-type UserBanEvent struct {
-	ID          string
-	UserID      string
-	Kind        string
-	OccurredAt  time.Time
-	BannedUntil *time.Time
-	Reason      *string
-	ActorID     *string
-}
-
 // Ed25519 public keys for native clients. Revoked rows remain tombstones and cannot be re-enrolled.
 type UserDeviceKey struct {
 	ID          string

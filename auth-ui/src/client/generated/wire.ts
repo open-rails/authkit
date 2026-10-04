@@ -103,15 +103,6 @@ export type BackupCodes = {
   backup_codes: string[]
 }
 
-export type BanEvent = {
-  id: string
-  kind: "banned" | "unbanned"
-  occurred_at: string
-  until: string | null
-  reason: string | null
-  by: string | null
-}
-
 export type BanRequest = {
   reason?: string | null
   until?: string | null

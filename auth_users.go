@@ -106,12 +106,6 @@ func (a *Client) Unban(ctx context.Context, actor iam.Actor, userID string, opts
 	return a.ops.Unban(ctx, actor, userID, opts...)
 }
 
-// ListBanEvents pages an account's ban history, newest first: every ban put
-// in force and every ban lifted, with who did it.
-func (a *Client) ListBanEvents(ctx context.Context, userID string, p iam.PageRequest) (iam.ListPage[iam.BanEvent], error) {
-	return a.ops.ListBanEvents(ctx, userID, p)
-}
-
 // DeleteUsers soft-deletes accounts under ACCT(root:users:delete), starting
 // the 30-day recovery window; an account may delete itself. Only a
 // self-deletion is undone by signing in; any other comes back through
