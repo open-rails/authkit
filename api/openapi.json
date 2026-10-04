@@ -34,7 +34,8 @@
           }
         },
         "security": [],
-        "x-authkit-auth": "public"
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "jwks_read"
       }
     },
     "/api/v1/capabilities": {
@@ -65,7 +66,8 @@
           }
         },
         "security": [],
-        "x-authkit-auth": "public"
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "capabilities_read"
       }
     },
     "/api/v1/token": {
@@ -2694,7 +2696,8 @@
             "bearer": []
           }
         ],
-        "x-authkit-auth": "required"
+        "x-authkit-auth": "required",
+        "x-authkit-rate-limit": "me_groups_read"
       }
     },
     "/api/v1/me/permissions": {
@@ -2738,7 +2741,8 @@
             "bearer": []
           }
         ],
-        "x-authkit-auth": "required"
+        "x-authkit-auth": "required",
+        "x-authkit-rate-limit": "me_permissions_read"
       }
     },
     "/api/v1/users": {
@@ -3459,7 +3463,8 @@
           }
         ],
         "x-authkit-auth": "permission",
-        "x-authkit-permission": "<persona>:members:read"
+        "x-authkit-permission": "<persona>:members:read",
+        "x-authkit-rate-limit": "group_read"
       }
     },
     "/api/v1/groups/{group_id}/members/{kind}/{id}": {
@@ -3534,7 +3539,8 @@
           }
         ],
         "x-authkit-auth": "permission",
-        "x-authkit-permission": "<persona>:members:manage"
+        "x-authkit-permission": "<persona>:members:manage",
+        "x-authkit-rate-limit": "group_write"
       },
       "delete": {
         "tags": [
@@ -3590,7 +3596,8 @@
           }
         ],
         "x-authkit-auth": "permission",
-        "x-authkit-permission": "<persona>:members:manage"
+        "x-authkit-permission": "<persona>:members:manage",
+        "x-authkit-rate-limit": "group_write"
       }
     },
     "/api/v1/groups/{group_id}/roles": {
@@ -3636,7 +3643,8 @@
           }
         ],
         "x-authkit-auth": "permission",
-        "x-authkit-permission": "<persona>:members:read"
+        "x-authkit-permission": "<persona>:members:read",
+        "x-authkit-rate-limit": "group_read"
       }
     },
     "/api/v1/groups/{group_id}/invitations": {
@@ -3696,7 +3704,8 @@
           }
         ],
         "x-authkit-auth": "permission",
-        "x-authkit-permission": "<persona>:members:read"
+        "x-authkit-permission": "<persona>:members:read",
+        "x-authkit-rate-limit": "group_read"
       },
       "post": {
         "tags": [
@@ -3801,7 +3810,8 @@
           }
         ],
         "x-authkit-auth": "permission",
-        "x-authkit-permission": "<persona>:members:manage"
+        "x-authkit-permission": "<persona>:members:manage",
+        "x-authkit-rate-limit": "group_write"
       }
     },
     "/api/v1/groups/{group_id}/api-keys": {
@@ -3862,6 +3872,7 @@
         ],
         "x-authkit-auth": "permission",
         "x-authkit-permission": "<persona>:credentials:read",
+        "x-authkit-rate-limit": "group_read",
         "x-authkit-mounted-when": "api_keys"
       },
       "post": {
@@ -3917,6 +3928,7 @@
         ],
         "x-authkit-auth": "permission",
         "x-authkit-permission": "<persona>:credentials:manage",
+        "x-authkit-rate-limit": "api_key_create",
         "x-authkit-mounted-when": "api_keys"
       }
     },
@@ -3965,6 +3977,7 @@
         ],
         "x-authkit-auth": "permission",
         "x-authkit-permission": "<persona>:credentials:manage",
+        "x-authkit-rate-limit": "group_write",
         "x-authkit-mounted-when": "api_keys"
       }
     },

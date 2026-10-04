@@ -22,6 +22,7 @@ type Service struct {
 	http                config.HTTPConfig // *cfg.HTTP
 	wrap                func(iam.Route, http.Handler) http.Handler
 	rl                  ratelimit.Limiter
+	global              bool     // HTTPConfig.GlobalRateLimit is set
 	closers             []func() // background work stopped by Close (#305)
 	clientIP            ClientIPFunc
 	clientIPExplicit    bool                         // Deps.ClientIP: host owns the strategy; proxy sets are not composed

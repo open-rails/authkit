@@ -124,7 +124,7 @@ func NewMount(svc *Service) (result *Mount, err error) {
 	}
 	for _, spec := range Catalog() {
 		if path := joinRoutePath(base, spec.Path); spec.Surface == SurfaceBase && !skip(spec.Method, path) {
-			register(spec.Method+" "+path, spec.serve(svc), iam.Route{Method: spec.Method, Path: path, Group: spec.Group, Auth: spec.Auth, Permission: spec.Perm})
+			register(spec.Method+" "+path, svc.rateLimitedRoute(spec.Bucket, spec.serve(svc)), iam.Route{Method: spec.Method, Path: path, Group: spec.Group, Auth: spec.Auth, Permission: spec.Perm})
 			layout.jwks = path
 		}
 	}
@@ -177,7 +177,7 @@ func NewMount(svc *Service) (result *Mount, err error) {
 		}
 	}
 
-	result.handler = withMountLayout(apiMisses(mux, api), layout)
+	result.handler = withMountLayout(apiMisses(mux, api, svc.globalRateLimit), layout)
 	if opts.RefreshCookie {
 		result.handler = withRefreshCookiePolicy(result.handler, refreshCookiePolicy{})
 	}
@@ -198,15 +198,12 @@ func joinRoutePath(prefix, path string) string {
 
 // apiMisses answers a request beneath the API anchor that matches no route
 // with the JSON envelope: 404 not_found, or 405 method_not_allowed with the
-// Allow header ServeMux computed.
-func apiMisses(mux *http.ServeMux, api string) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		h, pattern := mux.Handler(r)
-		if pattern != "" || (api != "/" && r.URL.Path != api && !strings.HasPrefix(r.URL.Path, api+"/")) {
-			mux.ServeHTTP(w, r)
-			return
-		}
+// Allow header ServeMux computed. A miss spends the limit budget a route
+// would.
+func apiMisses(mux *http.ServeMux, api string, limit func(http.Handler) http.Handler) http.Handler {
+	miss := limit(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		probe := &statusProbe{header: http.Header{}}
+		h, _ := mux.Handler(r)
 		h.ServeHTTP(probe, r)
 		switch probe.status {
 		case http.StatusNotFound:
@@ -217,6 +214,14 @@ func apiMisses(mux *http.ServeMux, api string) http.Handler {
 		default:
 			mux.ServeHTTP(w, r)
 		}
+	}))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, pattern := mux.Handler(r)
+		if pattern != "" || (api != "/" && r.URL.Path != api && !strings.HasPrefix(r.URL.Path, api+"/")) {
+			mux.ServeHTTP(w, r)
+			return
+		}
+		miss.ServeHTTP(w, r)
 	})
 }
 

@@ -502,6 +502,11 @@ func normalizeHTTP(h *HTTPConfig, c Config, d Deps) error {
 	if err := ratelimit.ValidateLimits(h.RateLimits); err != nil {
 		return err
 	}
+	if h.GlobalRateLimit != (RateLimit{}) {
+		if err := ratelimit.ValidateLimits(map[string]RateLimit{"GlobalRateLimit": h.GlobalRateLimit}); err != nil {
+			return err
+		}
+	}
 	if h.RedisKeyPrefix, err = redisKeyPrefix(h.RedisKeyPrefix, c.Schema); err != nil {
 		return err
 	}

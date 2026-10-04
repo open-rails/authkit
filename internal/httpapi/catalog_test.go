@@ -151,6 +151,17 @@ func TestCatalogDeclaresGates(t *testing.T) {
 	}
 }
 
+// Every route spends a per-address bucket, and every bucket has a default.
+func TestCatalogRateLimitsEveryRoute(t *testing.T) {
+	defaults := httpapi.DefaultRateLimits()
+	for _, r := range httpapi.Catalog() {
+		key := string(r.Surface) + " " + r.Method + " " + r.Path
+		require.NotEmpty(t, r.Bucket, "%s has no rate-limit bucket", key)
+		require.Contains(t, defaults, r.Bucket, key)
+	}
+	require.NotContains(t, defaults, httpapi.RLGlobal, "the global limit is HTTPConfig.GlobalRateLimit, not a bucket")
+}
+
 // One page parser: limit 1-500, default 50, anything else 400 on param limit.
 func TestPageQuery(t *testing.T) {
 	limit := func(n int) *int { return &n }
