@@ -74,6 +74,15 @@ const (
 	RLAdminRead  = "admin_read"
 	RLAdminWrite = "admin_write"
 
+	RLCapabilitiesRead  = "capabilities_read"
+	RLJWKSRead          = "jwks_read"
+	RLMeGroupsRead      = "me_groups_read"
+	RLMePermissionsRead = "me_permissions_read"
+	// Group management: members, roles, and listing or revoking a group's
+	// invitations and API keys. Creating either has its own bucket.
+	RLGroupRead  = "group_read"
+	RLGroupWrite = "group_write"
+
 	// Solana SIWS authentication
 	RLSolanaChallenge = "solana_challenge"
 	RLSolanaLogin     = "solana_login"
@@ -145,11 +154,23 @@ var buckets = map[string]ratelimit.Limit{
 	RL2FADisable:           {Limit: 6, Window: time.Hour},
 	RLAdminRead:            {Limit: 600, Window: time.Hour},
 	RLAdminWrite:           {Limit: 30, Window: time.Hour},
+	RLCapabilitiesRead:     {Limit: 120, Window: time.Minute},
+	RLMeGroupsRead:         {Limit: 120, Window: time.Minute},
+	RLMePermissionsRead:    {Limit: 120, Window: time.Minute},
+	// API keys and applications manage groups too, many calls from one address.
+	RLGroupRead:  {Limit: 300, Window: time.Minute},
+	RLGroupWrite: {Limit: 120, Window: time.Minute},
+	// Verifiers behind one address each poll JWKS.
+	RLJWKSRead: {Limit: 600, Window: time.Minute},
 }
 
+// RLGlobal is HTTPConfig.GlobalRateLimit's bucket: one budget per client
+// address for the JSON API and browser OIDC. It is no key of RateLimits.
+const RLGlobal = "global"
+
 // DefaultRateLimits returns AuthKit's built-in per-endpoint rate limits, per
-// client IP; "default" applies to any bucket not listed. Hosts overlay them
-// with HTTPConfig.RateLimits.
+// client IP: every route has a bucket, and "default" applies to any bucket
+// not listed. Hosts overlay them with HTTPConfig.RateLimits.
 func DefaultRateLimits() map[string]ratelimit.Limit {
 	out := map[string]ratelimit.Limit{"default": {Limit: 120, Window: time.Minute}}
 	maps.Copy(out, buckets)

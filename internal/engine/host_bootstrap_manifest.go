@@ -380,17 +380,23 @@ func validateBootstrapManifest(manifest iam.BootstrapManifest, allowInsecureJWKS
 }
 
 func (s *Engine) applyBootstrapRemoteApplication(ctx context.Context, st *permissionGroupStore, rootID string, app iam.BootstrapManifestRemoteApplication) error {
-	ra, err := s.upsertRemoteApplication(ctx, st, iam.RemoteApplication{
+	return s.applyRootApplication(ctx, st, iam.RemoteApplication{
 		GroupID:    rootID,
 		Issuer:     strings.TrimSpace(app.Issuer),
 		JWKSURI:    strings.TrimSpace(app.JWKSURI),
 		PublicKeys: app.PublicKeys,
 		Enabled:    *app.Enabled,
-	})
+	}, app.RootRole)
+}
+
+// applyRootApplication registers app in the root group app.GroupID, or
+// updates it there, and gives it role on root when one is set.
+func (s *Engine) applyRootApplication(ctx context.Context, st *permissionGroupStore, app iam.RemoteApplication, role iam.Role) error {
+	rootID := app.GroupID
+	ra, err := s.upsertRemoteApplication(ctx, st, app)
 	if err != nil {
 		return err
 	}
-	role := app.RootRole
 	if role.IsZero() {
 		return nil
 	}

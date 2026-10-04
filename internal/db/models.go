@@ -92,6 +92,8 @@ type RemoteApplication struct {
 	RegisteredBy *string
 	// The Token.Issuer of the app its registrar registered it through; only its role catalog judges the application's roles. NULL = every app does.
 	CatalogIssuer *string
+	// The Token.Issuer of the app whose Config.RemoteApplications declares it; NULL = registered through an operation.
+	DeclaredBy *string
 }
 
 type SessionEvent struct {
@@ -134,6 +136,17 @@ type User struct {
 	CredentialVersion int64
 	// Host-written application data anyone may read
 	PublicMetadata []byte
+}
+
+// Ban history: one row per ban put in force (banned) or lifted (unbanned). actor_id NULL = the system.
+type UserBanEvent struct {
+	ID          string
+	UserID      string
+	Kind        string
+	OccurredAt  time.Time
+	BannedUntil *time.Time
+	Reason      *string
+	ActorID     *string
 }
 
 // Ed25519 public keys for native clients. Revoked rows remain tombstones and cannot be re-enrolled.

@@ -44,7 +44,7 @@ func (s *Service) routes(surface Surface, groups []iam.RouteGroup, wrap func(Rou
 		if route.Auth == iam.AuthPermission && strings.HasPrefix(route.Perm, iam.RootPersona().String()+":") {
 			h = s.requirePermission(iam.RootGroup(), ident.Perm(route.Perm), h)
 		}
-		route.Handler = s.languageMiddleware(wrap(route, h))
+		route.Handler = s.languageMiddleware(s.globalRateLimit(wrap(route, h)))
 		out = append(out, route)
 	}
 	return out
@@ -72,6 +72,8 @@ func (s *Service) mounts(f Feature) bool {
 		return len(cfg.Delegated.Audiences) > 0
 	case FeatureDeviceKeys:
 		return cfg.DeviceKeys.Enabled
+	case FeatureInvitations:
+		return !cfg.Invitations.Disabled
 	case FeatureGroups, FeatureAPIKeys:
 		schema := s.svc.PermissionGroupSchema()
 		for _, name := range schema.Personas() {
@@ -129,6 +131,20 @@ func (s *Service) rateLimitedRoute(bucket string, next http.Handler) http.Handle
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.rateLimited(w, r, bucket) {
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// globalRateLimit applies HTTPConfig.GlobalRateLimit in front of next, when
+// one is set: the client address's one budget for the whole surface.
+func (s *Service) globalRateLimit(next http.Handler) http.Handler {
+	if !s.global {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.rateLimited(w, r, RLGlobal) {
 			return
 		}
 		next.ServeHTTP(w, r)

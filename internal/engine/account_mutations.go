@@ -521,6 +521,9 @@ func (s *Engine) Ban(ctx context.Context, a iam.Actor, userID string, b iam.Ban,
 		if err := at.q.UserBan(ctx, db.UserBanParams{ID: userID, BannedAt: &now, BannedUntil: until, BanReason: reason, BannedBy: actorUserID(a)}); err != nil {
 			return err
 		}
+		if err := at.q.BanEventInsert(ctx, db.BanEventInsertParams{UserID: userID, Kind: string(iam.BanEventBanned), OccurredAt: now, BannedUntil: until, Reason: reason, ActorID: actorUserID(a)}); err != nil {
+			return err
+		}
 		var err error
 		if revoked, err = s.revokeCredentialsTx(ctx, at.tx, userID); err != nil {
 			return err
@@ -550,6 +553,9 @@ func (s *Engine) Unban(ctx context.Context, a iam.Actor, userID string, opts ...
 			return err
 		}
 		if err := at.q.UserClearBan(ctx, userID); err != nil || !inForce {
+			return err
+		}
+		if err := at.q.BanEventInsert(ctx, db.BanEventInsertParams{UserID: userID, Kind: string(iam.BanEventUnbanned), OccurredAt: time.Now().UTC(), ActorID: actorUserID(a)}); err != nil {
 			return err
 		}
 		return at.st.record(ctx, userEvent(iam.EventUserUnbanned, at.userID))

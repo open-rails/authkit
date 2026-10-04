@@ -152,6 +152,26 @@ type Ban struct {
 	KeepExisting bool
 }
 
+// BanEventKind is what a BanEvent records.
+type BanEventKind string
+
+const (
+	BanEventBanned   BanEventKind = "banned"   // a ban put in force
+	BanEventUnbanned BanEventKind = "unbanned" // the ban in force lifted
+)
+
+// BanEvent is one entry of an account's ban history. A ban carries its Until
+// (nil = indefinitely) and Reason; By is the account that banned or unbanned,
+// nil for the system. A ban that ran out on its own leaves no entry.
+type BanEvent struct {
+	ID         string       `json:"id"`
+	Kind       BanEventKind `json:"kind"`
+	OccurredAt time.Time    `json:"occurred_at"`
+	Until      *time.Time   `json:"until"`
+	Reason     *string      `json:"reason"`
+	By         *string      `json:"by"`
+}
+
 // UserStatus filters a user list.
 type UserStatus string
 

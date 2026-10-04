@@ -43,6 +43,7 @@ pkg authkit, method (*Client) IssuerKeyStatuses() []verify.IssuerKeyStatus
 pkg authkit, method (*Client) KnownPermission(iam.Perm) bool
 pkg authkit, method (*Client) LinkProvider(context.Context, string, iam.ProviderLink, ...Option) error
 pkg authkit, method (*Client) ListAPIKeys(context.Context, iam.GroupRef, iam.PageRequest) (iam.ListPage[iam.APIKey], error)
+pkg authkit, method (*Client) ListBanEvents(context.Context, string, iam.PageRequest) (iam.ListPage[iam.BanEvent], error)
 pkg authkit, method (*Client) ListGroupMembers(context.Context, iam.GroupRef, iam.MemberQuery) (iam.ListPage[iam.GroupMember], error)
 pkg authkit, method (*Client) ListGroups(context.Context, iam.GroupQuery) (iam.ListPage[iam.Group], error)
 pkg authkit, method (*Client) ListInvitations(context.Context, iam.GroupRef, iam.PageRequest) (iam.ListPage[iam.Invitation], error)
@@ -130,11 +131,13 @@ pkg authkit, type Config struct, Delegated config.DelegatedConfig
 pkg authkit, type Config struct, DeviceKeys config.DeviceKeysConfig
 pkg authkit, type Config struct, Frontend config.FrontendConfig
 pkg authkit, type Config struct, HTTP *config.HTTPConfig
+pkg authkit, type Config struct, Invitations config.InvitationsConfig
 pkg authkit, type Config struct, Keys config.KeysConfig
 pkg authkit, type Config struct, Languages config.LanguageConfig
 pkg authkit, type Config struct, Passkeys config.PasskeyConfig
 pkg authkit, type Config struct, Password config.PasswordPolicy
 pkg authkit, type Config struct, Registration config.RegistrationConfig
+pkg authkit, type Config struct, RemoteApplications []config.RemoteApplicationConfig
 pkg authkit, type Config struct, River config.RiverConfig
 pkg authkit, type Config struct, Roles *config.Roles
 pkg authkit, type Config struct, Schema string
@@ -200,12 +203,16 @@ pkg authkit, type HTTPConfig struct, BasePath string
 pkg authkit, type HTTPConfig struct, CloudflareProxies []string
 pkg authkit, type HTTPConfig struct, DirectPeerIP bool
 pkg authkit, type HTTPConfig struct, Exclude []string
+pkg authkit, type HTTPConfig struct, GlobalRateLimit config.RateLimit
 pkg authkit, type HTTPConfig struct, Groups []iam.RouteGroup
 pkg authkit, type HTTPConfig struct, PublicURL string
 pkg authkit, type HTTPConfig struct, RateLimits map[string]config.RateLimit
 pkg authkit, type HTTPConfig struct, RedisKeyPrefix string
 pkg authkit, type HTTPConfig struct, RefreshCookie bool
 pkg authkit, type HTTPConfig struct, TrustedProxies []string
+pkg authkit, type InvitationsConfig = config.InvitationsConfig
+pkg authkit, type InvitationsConfig struct
+pkg authkit, type InvitationsConfig struct, Disabled bool
 pkg authkit, type KeysConfig = config.KeysConfig
 pkg authkit, type KeysConfig struct
 pkg authkit, type KeysConfig struct, AllowEphemeralDevKeys bool
@@ -261,6 +268,13 @@ pkg authkit, type RegistrationConfig struct, PasswordlessAutoRegistration bool
 pkg authkit, type RegistrationConfig struct, PasswordlessLogin bool
 pkg authkit, type RegistrationConfig struct, Verification iam.RegistrationVerificationPolicy
 pkg authkit, type RegistrationConfig struct, VerificationSendTimeout time.Duration
+pkg authkit, type RemoteApplicationConfig = config.RemoteApplicationConfig
+pkg authkit, type RemoteApplicationConfig struct
+pkg authkit, type RemoteApplicationConfig struct, Disabled bool
+pkg authkit, type RemoteApplicationConfig struct, Issuer string
+pkg authkit, type RemoteApplicationConfig struct, JWKSURI string
+pkg authkit, type RemoteApplicationConfig struct, PublicKeys []iam.RemoteApplicationKey
+pkg authkit, type RemoteApplicationConfig struct, RootRole iam.Role
 pkg authkit, type Resource = config.Resource
 pkg authkit, type Resource struct
 pkg authkit, type RiverConfig = config.RiverConfig
@@ -463,6 +477,8 @@ pkg authkit/iam, const AuthPermission RouteAuthTier = "permission"
 pkg authkit/iam, const AuthPublic RouteAuthTier = "public"
 pkg authkit/iam, const AuthRequired RouteAuthTier = "required"
 pkg authkit/iam, const AuthSession RouteAuthTier = "session"
+pkg authkit/iam, const BanEventBanned BanEventKind = "banned"
+pkg authkit/iam, const BanEventUnbanned BanEventKind = "unbanned"
 pkg authkit/iam, const ContactEmail ContactField = "email"
 pkg authkit/iam, const ContactPhone ContactField = "phone"
 pkg authkit/iam, const DefaultPageLimit untyped int = 50
@@ -701,6 +717,14 @@ pkg authkit/iam, type Ban struct
 pkg authkit/iam, type Ban struct, KeepExisting bool
 pkg authkit/iam, type Ban struct, Reason string
 pkg authkit/iam, type Ban struct, Until *time.Time
+pkg authkit/iam, type BanEvent struct
+pkg authkit/iam, type BanEvent struct, By *string `json:"by"`
+pkg authkit/iam, type BanEvent struct, ID string `json:"id"`
+pkg authkit/iam, type BanEvent struct, Kind BanEventKind `json:"kind"`
+pkg authkit/iam, type BanEvent struct, OccurredAt time.Time `json:"occurred_at"`
+pkg authkit/iam, type BanEvent struct, Reason *string `json:"reason"`
+pkg authkit/iam, type BanEvent struct, Until *time.Time `json:"until"`
+pkg authkit/iam, type BanEventKind string
 pkg authkit/iam, type BanState struct
 pkg authkit/iam, type BanState struct, At time.Time `json:"at" yaml:"at"`
 pkg authkit/iam, type BanState struct, By *string `json:"by" yaml:"by"`
@@ -1154,6 +1178,7 @@ pkg authkit/iam, var ErrInvalidRemoteApplication Error
 pkg authkit/iam, var ErrInvalidServiceJWT Error
 pkg authkit/iam, var ErrInvalidUntil Error
 pkg authkit/iam, var ErrInvitationNotFound Error
+pkg authkit/iam, var ErrInvitationsDisabled Error
 pkg authkit/iam, var ErrLastOwner Error
 pkg authkit/iam, var ErrPhoneInUse Error
 pkg authkit/iam, var ErrRemoteApplicationIssuerConflict Error

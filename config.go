@@ -26,10 +26,14 @@ type (
 	DeviceKeysConfig   = config.DeviceKeysConfig
 	APIKeysConfig      = config.APIKeysConfig
 	DelegatedConfig    = config.DelegatedConfig
-	LanguageConfig     = config.LanguageConfig
-	RiverConfig        = config.RiverConfig
-	HTTPConfig         = config.HTTPConfig
-	RateLimit          = config.RateLimit
+	InvitationsConfig  = config.InvitationsConfig
+	// RemoteApplicationConfig declares one remote application
+	// (Config.RemoteApplications).
+	RemoteApplicationConfig = config.RemoteApplicationConfig
+	LanguageConfig          = config.LanguageConfig
+	RiverConfig             = config.RiverConfig
+	HTTPConfig              = config.HTTPConfig
+	RateLimit               = config.RateLimit
 )
 
 // Former-name reservation modes.

@@ -222,7 +222,7 @@ func run(ctx context.Context) error {
 }
 ```
 
-Mounting gives your users all of this: 68 routes under `/api/v1`, plus the public keys that let anyone verify AuthKit's tokens. Every request and response shape is in [`api/openapi.json`](api/openapi.json), generated from the route catalog.
+Mounting gives your users all of this: 69 routes under `/api/v1`, plus the public keys that let anyone verify AuthKit's tokens. Every request and response shape is in [`api/openapi.json`](api/openapi.json), generated from the route catalog.
 
 **Signing up and signing in** (every sign-in answers an `AuthResult`: signed in, or the one next step, such as a second factor)
 
@@ -312,13 +312,14 @@ Mounting gives your users all of this: 68 routes under `/api/v1`, plus the publi
 | `PATCH /api/v1/admin/users/{user_id}` | edit their account |
 | `PUT /api/v1/admin/users/{user_id}/ban` | ban them, until a time or for good |
 | `DELETE /api/v1/admin/users/{user_id}/ban` | lift the ban |
+| `GET /api/v1/admin/users/{user_id}/ban-history` | every ban and unban, and who did it |
 | `DELETE /api/v1/admin/users/{user_id}` | delete an account |
 | `POST /api/v1/admin/users/{user_id}/restore` | restore it within 30 days |
 | `GET /api/v1/admin/users/{user_id}/sessions` | their signed-in devices |
 | `DELETE /api/v1/admin/users/{user_id}/sessions` | sign them out everywhere |
 | `GET /api/v1/admin/users/{user_id}/session-events` | their sign-in history |
 
-Switch on social logins (Google, Apple, GitHub, Discord) or API keys, and AuthKit mounts their routes too.
+Switch on social logins (Google, Apple, GitHub, Discord) or API keys, and AuthKit mounts their routes too. Set `Invitations.Disabled`, and the invitation routes go.
 
 Now for our application-specific routes, we can check user permissions using middleware, to enforce that certain actions are moderator or admin-only:
 

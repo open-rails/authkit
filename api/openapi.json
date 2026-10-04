@@ -34,7 +34,8 @@
           }
         },
         "security": [],
-        "x-authkit-auth": "public"
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "jwks_read"
       }
     },
     "/api/v1/capabilities": {
@@ -65,7 +66,8 @@
           }
         },
         "security": [],
-        "x-authkit-auth": "public"
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "capabilities_read"
       }
     },
     "/api/v1/token": {
@@ -2694,7 +2696,8 @@
             "bearer": []
           }
         ],
-        "x-authkit-auth": "required"
+        "x-authkit-auth": "required",
+        "x-authkit-rate-limit": "me_groups_read"
       }
     },
     "/api/v1/me/permissions": {
@@ -2738,7 +2741,8 @@
             "bearer": []
           }
         ],
-        "x-authkit-auth": "required"
+        "x-authkit-auth": "required",
+        "x-authkit-rate-limit": "me_permissions_read"
       }
     },
     "/api/v1/users": {
@@ -3164,6 +3168,67 @@
         "x-authkit-step-up": true
       }
     },
+    "/api/v1/admin/users/{user_id}/ban-history": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BanEventPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "root:users:read",
+        "x-authkit-rate-limit": "admin_read"
+      }
+    },
     "/api/v1/admin/users/{user_id}/sessions": {
       "get": {
         "tags": [
@@ -3459,7 +3524,8 @@
           }
         ],
         "x-authkit-auth": "permission",
-        "x-authkit-permission": "<persona>:members:read"
+        "x-authkit-permission": "<persona>:members:read",
+        "x-authkit-rate-limit": "group_read"
       }
     },
     "/api/v1/groups/{group_id}/members/{kind}/{id}": {
@@ -3534,7 +3600,8 @@
           }
         ],
         "x-authkit-auth": "permission",
-        "x-authkit-permission": "<persona>:members:manage"
+        "x-authkit-permission": "<persona>:members:manage",
+        "x-authkit-rate-limit": "group_write"
       },
       "delete": {
         "tags": [
@@ -3590,7 +3657,8 @@
           }
         ],
         "x-authkit-auth": "permission",
-        "x-authkit-permission": "<persona>:members:manage"
+        "x-authkit-permission": "<persona>:members:manage",
+        "x-authkit-rate-limit": "group_write"
       }
     },
     "/api/v1/groups/{group_id}/roles": {
@@ -3636,7 +3704,8 @@
           }
         ],
         "x-authkit-auth": "permission",
-        "x-authkit-permission": "<persona>:members:read"
+        "x-authkit-permission": "<persona>:members:read",
+        "x-authkit-rate-limit": "group_read"
       }
     },
     "/api/v1/groups/{group_id}/invitations": {
@@ -3696,7 +3765,9 @@
           }
         ],
         "x-authkit-auth": "permission",
-        "x-authkit-permission": "<persona>:members:read"
+        "x-authkit-permission": "<persona>:members:read",
+        "x-authkit-rate-limit": "group_read",
+        "x-authkit-mounted-when": "invitations"
       },
       "post": {
         "tags": [
@@ -3754,7 +3825,8 @@
         ],
         "x-authkit-auth": "permission",
         "x-authkit-permission": "<persona>:members:manage",
-        "x-authkit-rate-limit": "invite_create"
+        "x-authkit-rate-limit": "invite_create",
+        "x-authkit-mounted-when": "invitations"
       }
     },
     "/api/v1/groups/{group_id}/invitations/{id}": {
@@ -3801,7 +3873,9 @@
           }
         ],
         "x-authkit-auth": "permission",
-        "x-authkit-permission": "<persona>:members:manage"
+        "x-authkit-permission": "<persona>:members:manage",
+        "x-authkit-rate-limit": "group_write",
+        "x-authkit-mounted-when": "invitations"
       }
     },
     "/api/v1/groups/{group_id}/api-keys": {
@@ -3862,6 +3936,7 @@
         ],
         "x-authkit-auth": "permission",
         "x-authkit-permission": "<persona>:credentials:read",
+        "x-authkit-rate-limit": "group_read",
         "x-authkit-mounted-when": "api_keys"
       },
       "post": {
@@ -3917,6 +3992,7 @@
         ],
         "x-authkit-auth": "permission",
         "x-authkit-permission": "<persona>:credentials:manage",
+        "x-authkit-rate-limit": "api_key_create",
         "x-authkit-mounted-when": "api_keys"
       }
     },
@@ -3965,6 +4041,7 @@
         ],
         "x-authkit-auth": "permission",
         "x-authkit-permission": "<persona>:credentials:manage",
+        "x-authkit-rate-limit": "group_write",
         "x-authkit-mounted-when": "api_keys"
       }
     },
@@ -4011,7 +4088,8 @@
           }
         ],
         "x-authkit-auth": "session",
-        "x-authkit-rate-limit": "invite_redeem"
+        "x-authkit-rate-limit": "invite_redeem",
+        "x-authkit-mounted-when": "invitations"
       }
     },
     "/oidc/{provider}/login": {
@@ -4766,6 +4844,66 @@
           "backup_codes"
         ]
       },
+      "BanEvent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "banned",
+              "unbanned"
+            ]
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "until": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "by": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "occurred_at",
+          "until",
+          "reason",
+          "by"
+        ]
+      },
       "BanRequest": {
         "type": "object",
         "properties": {
@@ -4877,6 +5015,9 @@
           "two_factor": {
             "$ref": "#/components/schemas/TwoFactorCapabilities"
           },
+          "invitations": {
+            "$ref": "#/components/schemas/InvitationCapabilities"
+          },
           "languages": {
             "type": "array",
             "items": {
@@ -4898,6 +5039,7 @@
           "verification",
           "channels",
           "two_factor",
+          "invitations",
           "languages",
           "paths"
         ]
@@ -5387,6 +5529,17 @@
           "expires_at",
           "redeemed_at",
           "revoked_at"
+        ]
+      },
+      "InvitationCapabilities": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
         ]
       },
       "InvitationCreateRequest": {
@@ -7352,6 +7505,35 @@
           "total"
         ]
       },
+      "BanEventPage": {
+        "type": "object",
+        "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BanEvent"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor",
+          "total"
+        ]
+      },
       "GroupMemberPage": {
         "type": "object",
         "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
@@ -8001,6 +8183,10 @@
     "invitation_revoked": {
       "status": 400,
       "message": "The invitation was revoked."
+    },
+    "invitations_disabled": {
+      "status": 403,
+      "message": "Invitations are disabled."
     },
     "issuer_keys_unavailable": {
       "status": 503,

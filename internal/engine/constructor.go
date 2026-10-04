@@ -71,6 +71,9 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 	if err := s.reconcileRoleCatalog(ctx); err != nil {
 		return nil, err
 	}
+	if err := s.reconcileRemoteApplications(ctx); err != nil {
+		return nil, err
+	}
 	if s.auth, err = s.newAuthenticator(s.cfg.Token.ExpectedAudiences, true); err != nil {
 		return nil, err
 	}

@@ -24,6 +24,7 @@ Every route lives beneath `HTTPConfig.BasePath`:
 ## Which routes are mounted
 
 - A route is mounted only when its feature is on. Each feature has its switch, such as `Passkeys`, `TwoFactor`, `DeviceKeys.Enabled`, `Delegated.Audiences`, `SolanaNetwork` or `Deps.Providers`. The OpenAPI entry's `x-authkit-mounted-when` names the feature.
+- `Invitations.Disabled` turns invitations off: the four invitation routes go, `/capabilities` reports `invitations.enabled` false, and issuing or redeeming one is `invitations_disabled`.
 - `HTTPConfig.Groups` limits the surface to route groups (`iam.RouteGroup`); nil mounts them all.
 - `HTTPConfig.Exclude` drops individual routes the host serves itself.
 - `Client.Routes()` lists what is mounted.
@@ -39,8 +40,9 @@ Every route lives beneath `HTTPConfig.BasePath`:
 ## Client addresses and rate limits
 
 - `New` requires you to declare what sits in front of AuthKit: `HTTPConfig.TrustedProxies`, `CloudflareProxies` or `DirectPeerIP`, or `Deps.ClientIP`. Forwarded-address headers count only from the declared proxies.
-- Each route has a rate-limit bucket (`x-authkit-rate-limit` in the OpenAPI). Budgets are per client address; an IPv6 address counts per /64. Emailed and texted codes also have per-account and per-destination budgets.
+- Every route has a rate-limit bucket (`x-authkit-rate-limit` in the OpenAPI). Budgets are per client address; an IPv6 address counts per /64. Emailed and texted codes also have per-account and per-destination budgets.
 - `DefaultRateLimits()` holds the defaults. `HTTPConfig.RateLimits` overrides buckets by name; an unknown name is an error.
+- `HTTPConfig.GlobalRateLimit` adds one budget per client address for the JSON API and browser OIDC together, such as `{Limit: 20, Window: time.Minute}`. It is counted before the route's bucket, and a 404 or 405 beneath the API path counts too. It is off by default. JWKS is outside it and keeps its own bucket (`jwks_read`), because verifiers poll it.
 - Counters live in each process's memory. Set `Deps.Redis` when you run more than one replica, to share them.
 - If Redis fails, each process counts on its own with the same limits until Redis answers again, so no budget is ever lifted. A request waits on Redis for at most 250ms, and AuthKit logs the fallback and the recovery once each.
 - A 429 is `rate_limited` with `Retry-After`, the `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset` headers, and the budget in `metadata`.

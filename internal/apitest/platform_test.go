@@ -360,6 +360,103 @@ func testWorkflowRateLimits(t *testing.T, rdb *redis.Client) {
 	require.Equal(t, http.StatusTooManyRequests, res.status, res.String())
 }
 
+// HTTPConfig.GlobalRateLimit is one budget per client address across the JSON
+// API and browser OIDC, whatever the route answers, with each production
+// limiter. JWKS stays outside it, and another address has its own budget.
+func TestWorkflowGlobalRateLimit(t *testing.T) {
+	forEachLimiter(t, testWorkflowGlobalRateLimit)
+}
+
+func testWorkflowGlobalRateLimit(t *testing.T, rdb *redis.Client) {
+	const idp = "https://idp.example"
+	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
+		c.HTTP.DirectPeerIP = false
+		c.HTTP.GlobalRateLimit = authkit.RateLimit{Limit: 6, Window: time.Minute}
+	}), authtest.WithDeps(func(d *authkit.Deps) {
+		d.ClientIP = func(r *http.Request) string { return r.Header.Get("X-Forwarded-For") }
+		d.Providers = []provider.Provider{provider.OAuth2("catalog", idp, provider.Endpoint{AuthorizeURL: idp + "/authorize", TokenURL: idp + "/token"},
+			"client", "secret", func(context.Context, *http.Client) (provider.Identity, error) {
+				return provider.Identity{}, errors.New("never completes a sign-in")
+			})}
+		if rdb != nil {
+			d.Redis = rdb
+		}
+	}))
+	a := newAPI(t, auth)
+	from := func(address, method, path string, body any) response {
+		return a.do(request{method: method, path: path, body: body, header: http.Header{"X-Forwarded-For": {address}}})
+	}
+	const client = "198.51.100.20"
+	for _, call := range []struct {
+		method, path string
+		body         any
+		status       int
+	}{
+		{http.MethodGet, "/capabilities", nil, http.StatusOK},
+		{http.MethodHead, "//api/v1/capabilities", nil, http.StatusOK},
+		{http.MethodGet, "/me/permissions", nil, http.StatusUnauthorized},
+		{http.MethodGet, "/no/such/route", nil, http.StatusNotFound},
+		{http.MethodPut, "/capabilities", nil, http.StatusMethodNotAllowed},
+		{http.MethodGet, "//oidc/catalog/login", nil, http.StatusFound},
+	} {
+		res := from(client, call.method, call.path, call.body)
+		require.Equal(t, call.status, res.status, "%s %s: %s", call.method, call.path, res)
+	}
+	for _, call := range [][2]string{{http.MethodGet, "/capabilities"}, {http.MethodGet, "/no/such/route"}, {http.MethodGet, "//oidc/catalog/login"},
+		{http.MethodPost, "/password/login"}} {
+		res := from(client, call[0], call[1], nil)
+		require.Equal(t, http.StatusTooManyRequests, res.status, "%s %s: %s", call[0], call[1], res)
+		require.Equal(t, "rate_limited", res.code())
+		require.Equal(t, "6", res.header.Get("RateLimit-Limit"))
+		require.NotEmpty(t, res.header.Get("Retry-After"))
+		var env struct {
+			Error struct {
+				Metadata struct {
+					Action string `json:"action"`
+				} `json:"metadata"`
+			} `json:"error"`
+		}
+		res.decode(t, &env)
+		require.Equal(t, "global", env.Error.Metadata.Action)
+	}
+	require.Equal(t, http.StatusOK, from(client, http.MethodGet, "//.well-known/jwks.json", nil).status, "JWKS is outside the global limit")
+	require.Equal(t, http.StatusOK, from("198.51.100.21", http.MethodGet, "/capabilities", nil).status, "another address has its own budget")
+
+	// The global limit is no bucket of RateLimits.
+	cfg, deps := bareConfig(t)
+	cfg.HTTP = &authkit.HTTPConfig{DirectPeerIP: true, RateLimits: map[string]authkit.RateLimit{"global": {Limit: 1, Window: time.Minute}}}
+	_, err := newClient(t, cfg, deps)
+	require.ErrorContains(t, err, "unknown bucket")
+	cfg.HTTP = &authkit.HTTPConfig{DirectPeerIP: true, GlobalRateLimit: authkit.RateLimit{Limit: 5}}
+	_, err = newClient(t, cfg, deps)
+	require.ErrorContains(t, err, "GlobalRateLimit")
+}
+
+// Every route spends a bucket, the ones a page loads without asking
+// included: capabilities, the caller's groups and permissions, and JWKS.
+func TestEveryRouteIsRateLimited(t *testing.T) {
+	limits := authkit.DefaultRateLimits()
+	for bucket := range limits {
+		limits[bucket] = authkit.RateLimit{Limit: 10000, Window: time.Minute}
+	}
+	for _, bucket := range []string{"capabilities_read", "me_groups_read", "me_permissions_read", "jwks_read", "group_read"} {
+		require.Contains(t, limits, bucket)
+		limits[bucket] = authkit.RateLimit{Limit: 2, Window: time.Minute}
+	}
+	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) { c.HTTP.RateLimits = limits }))
+	a := newAPI(t, auth)
+	token := authtest.SignIn(t, auth, authtest.NewUser(t, auth)).AccessToken
+	for _, path := range []string{"/capabilities", "/me/groups", "/me/permissions", "//.well-known/jwks.json", "/groups/root/roles"} {
+		for range 2 {
+			res := a.get(path, token)
+			require.NotEqual(t, http.StatusTooManyRequests, res.status, "%s: %s", path, res)
+		}
+		res := a.get(path, token)
+		require.Equal(t, http.StatusTooManyRequests, res.status, "%s: %s", path, res)
+		require.Equal(t, "2", res.header.Get("RateLimit-Limit"))
+	}
+}
+
 // editorRoles declare an application root permission and a root role holding it.
 func editorRoles() (*authkit.Roles, iam.Perm, iam.Role) {
 	rbac := authkit.NewRoles()

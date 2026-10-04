@@ -103,6 +103,15 @@ export type BackupCodes = {
   backup_codes: string[]
 }
 
+export type BanEvent = {
+  id: string
+  kind: "banned" | "unbanned"
+  occurred_at: string
+  until: string | null
+  reason: string | null
+  by: string | null
+}
+
 export type BanRequest = {
   reason?: string | null
   until?: string | null
@@ -126,6 +135,7 @@ export type Capabilities = {
   verification: VerificationCapabilities
   channels: ChannelCapabilities
   two_factor: TwoFactorCapabilities
+  invitations: InvitationCapabilities
   languages: string[]
   paths: MountPaths
 }
@@ -258,6 +268,10 @@ export type Invitation = {
   expires_at: string | null
   redeemed_at: string | null
   revoked_at: string | null
+}
+
+export type InvitationCapabilities = {
+  enabled: boolean
 }
 
 export type InvitationCreateRequest = {

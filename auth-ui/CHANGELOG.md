@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `Capabilities.invitations.enabled` is false when the host turns invitations
+  off (`Config.Invitations.Disabled`); issuing or redeeming one is then
+  `invitations_disabled`.
 - Users carry `public_metadata`, the JSON object the host writes and anyone
   may read; `avatar_url` is gone from `User`, `PublicUser` and
   `updateProfile`, and `PublicUser.metadata` is `public_metadata`. New:

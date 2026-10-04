@@ -37,10 +37,11 @@ const (
 	FeatureDeviceKeys   Feature = "device_keys"  // device keys on
 	FeatureGroups       Feature = "groups"       // a persona besides root
 	FeatureAPIKeys      Feature = "api_keys"     // a persona whose groups hold API keys
+	FeatureInvitations  Feature = "invitations"  // invitations not disabled
 )
 
 // Features lists every Feature a route can be mounted under.
-var Features = []Feature{FeaturePasskeys, FeaturePasswordless, FeatureRegistration, FeatureTwoFactor, FeatureSolana, FeatureOIDC, FeatureDelegated, FeatureDeviceKeys, FeatureGroups, FeatureAPIKeys}
+var Features = []Feature{FeaturePasskeys, FeaturePasswordless, FeatureRegistration, FeatureTwoFactor, FeatureSolana, FeatureOIDC, FeatureDelegated, FeatureDeviceKeys, FeatureGroups, FeatureAPIKeys, FeatureInvitations}
 
 // Reply is one success outcome of a route: its status and body. Body is a
 // zero value of the body's type, nil for none.
@@ -63,9 +64,9 @@ type RouteSpec struct {
 	// addressed group's persona. The route checks it when Auth is
 	// AuthPermission; otherwise the operation does.
 	Perm string
-	// Bucket is the per-IP rate-limit bucket applied in front of the handler
-	// ("" = none). Per-identifier and branch-specific buckets stay in the
-	// handler.
+	// Bucket is the per-IP rate-limit bucket applied in front of the handler;
+	// every route has one. Per-identifier and branch-specific buckets stay in
+	// the handler.
 	Bucket string
 	// MountedWhen is the configuration the route needs.
 	MountedWhen Feature
@@ -121,12 +122,12 @@ func Catalog() []RouteSpec {
 	signedIn := replyOK(AuthResult{})
 	usersRead := ident.RootUsersRead.String()
 	return []RouteSpec{
-		{Method: GET, Path: iam.JWKSPath, Surface: SurfaceBase, Group: auth, Auth: public,
+		{Method: GET, Path: iam.JWKSPath, Surface: SurfaceBase, Group: auth, Auth: public, Bucket: RLJWKSRead,
 			Responses: replyOK(keys.JWKS{}), serve: func(s *Service) http.Handler { return s.JWKSHandler() }},
 
 		// Signing in. Every answer that signs in, or names the next step, is
 		// an AuthResult.
-		{Method: GET, Path: "/capabilities", Group: auth, Auth: public,
+		{Method: GET, Path: "/capabilities", Group: auth, Auth: public, Bucket: RLCapabilitiesRead,
 			Responses: replyOK(Capabilities{}), serve: handle((*Service).handleCapabilitiesGET)},
 		{Method: POST, Path: "/token", Group: auth, Auth: public, Bucket: RLTokenRefresh,
 			Request: TokenRefreshRequest{}, Responses: signedIn, serve: handle((*Service).handleAuthTokenPOST)},
@@ -275,11 +276,11 @@ func Catalog() []RouteSpec {
 
 		{Method: PUT, Path: "/me/solana-wallet", Group: account, Auth: session, StepUp: true, Bucket: RLSolanaLink, MountedWhen: FeatureSolana,
 			Request: SolanaSignInRequest{}, Responses: replyOK(authflow.SolanaLinkedAccount{}), serve: handle((*Service).handleMeSolanaWalletPUT)},
-		{Method: GET, Path: "/me/groups", Group: account, Auth: required,
+		{Method: GET, Path: "/me/groups", Group: account, Auth: required, Bucket: RLMeGroupsRead,
 			Query: PageQuery{}, Responses: replyOK(iam.ListPage[iam.Membership]{}), serve: handle((*Service).handleMeGroupsGET)},
 		// The caller's role and permissions in one group (?group_id=; root by
 		// default), expanded.
-		{Method: GET, Path: "/me/permissions", Group: account, Auth: required,
+		{Method: GET, Path: "/me/permissions", Group: account, Auth: required, Bucket: RLMePermissionsRead,
 			Query: GroupQuery{}, Responses: replyOK(PermissionSet{}), serve: handle((*Service).handleMePermissionsGET)},
 		// Other people, as anyone may see them, public metadata included:
 		// public profile pages need no sign-in.
@@ -303,6 +304,8 @@ func Catalog() []RouteSpec {
 			Request: BanRequest{}, Responses: replyNoContent, serve: handle((*Service).handleAdminUserBanPUT)},
 		{Method: DELETE, Path: "/admin/users/{user_id}/ban", Group: admin, Auth: session, StepUp: true, Perm: ident.RootUsersBan.String(), Bucket: RLAdminWrite,
 			Responses: replyNoContent, serve: handle((*Service).handleAdminUserBanDELETE)},
+		{Method: GET, Path: "/admin/users/{user_id}/ban-history", Group: admin, Auth: permission, Perm: usersRead, Bucket: RLAdminRead,
+			Query: PageQuery{}, Responses: replyOK(iam.ListPage[iam.BanEvent]{}), serve: handle((*Service).handleAdminUserBanHistoryGET)},
 		{Method: GET, Path: "/admin/users/{user_id}/sessions", Group: admin, Auth: permission, Perm: usersRead, Bucket: RLAdminRead,
 			Responses: replyOK(iam.ListPage[iam.Session]{}), serve: handle((*Service).handleAdminUserSessionsGET)},
 		// Revokes every session and device key of the account.
@@ -319,30 +322,30 @@ func Catalog() []RouteSpec {
 		// Group management: each route resolves {group_id} (`root` is the root
 		// group), refuses a group whose persona lacks the route, and checks
 		// Perm in the group. A root-group change needs a recent sign-in.
-		{Method: GET, Path: "/groups/{group_id}/members", Group: groups, Auth: permission, Perm: OpMembersList.catalogPermission(),
+		{Method: GET, Path: "/groups/{group_id}/members", Group: groups, Auth: permission, Perm: OpMembersList.catalogPermission(), Bucket: RLGroupRead,
 			Query: MemberListQuery{}, Responses: replyOK(iam.ListPage[iam.GroupMember]{}), serve: groupOp(OpMembersList)},
 		// {kind} is `users`; the segment leaves room for other subject kinds.
-		{Method: PUT, Path: "/groups/{group_id}/members/{kind}/{id}", Group: groups, Auth: permission, Perm: OpMemberSet.catalogPermission(),
+		{Method: PUT, Path: "/groups/{group_id}/members/{kind}/{id}", Group: groups, Auth: permission, Perm: OpMemberSet.catalogPermission(), Bucket: RLGroupWrite,
 			Request: MemberRoleRequest{}, Responses: replyOK(iam.GroupMember{}), serve: groupOp(OpMemberSet)},
-		{Method: DELETE, Path: "/groups/{group_id}/members/{kind}/{id}", Group: groups, Auth: permission, Perm: OpMemberRemove.catalogPermission(),
+		{Method: DELETE, Path: "/groups/{group_id}/members/{kind}/{id}", Group: groups, Auth: permission, Perm: OpMemberRemove.catalogPermission(), Bucket: RLGroupWrite,
 			Responses: replyNoContent, serve: groupOp(OpMemberRemove)},
-		{Method: GET, Path: "/groups/{group_id}/roles", Group: groups, Auth: permission, Perm: OpRolesList.catalogPermission(),
+		{Method: GET, Path: "/groups/{group_id}/roles", Group: groups, Auth: permission, Perm: OpRolesList.catalogPermission(), Bucket: RLGroupRead,
 			Responses: replyOK(iam.ListPage[RoleInfo]{}), serve: groupOp(OpRolesList)},
-		{Method: GET, Path: "/groups/{group_id}/invitations", Group: groups, Auth: permission, Perm: OpInvitationsList.catalogPermission(),
+		{Method: GET, Path: "/groups/{group_id}/invitations", Group: groups, Auth: permission, Perm: OpInvitationsList.catalogPermission(), Bucket: RLGroupRead, MountedWhen: FeatureInvitations,
 			Query: PageQuery{}, Responses: replyOK(iam.ListPage[iam.Invitation]{}), serve: groupOp(OpInvitationsList)},
 		// A link answers its code once (201); an emailed invitation answers
 		// 202 whoever holds the address.
-		{Method: POST, Path: "/groups/{group_id}/invitations", Group: groups, Auth: permission, Perm: OpInvitationCreate.catalogPermission(), Bucket: RLInviteCreate,
+		{Method: POST, Path: "/groups/{group_id}/invitations", Group: groups, Auth: permission, Perm: OpInvitationCreate.catalogPermission(), Bucket: RLInviteCreate, MountedWhen: FeatureInvitations,
 			Request: InvitationCreateRequest{}, Responses: []Reply{{http.StatusCreated, iam.InvitationCreated{}}, {http.StatusAccepted, nil}}, serve: groupOp(OpInvitationCreate)},
-		{Method: DELETE, Path: "/groups/{group_id}/invitations/{id}", Group: groups, Auth: permission, Perm: OpInvitationRevoke.catalogPermission(),
+		{Method: DELETE, Path: "/groups/{group_id}/invitations/{id}", Group: groups, Auth: permission, Perm: OpInvitationRevoke.catalogPermission(), Bucket: RLGroupWrite, MountedWhen: FeatureInvitations,
 			Responses: replyNoContent, serve: groupOp(OpInvitationRevoke)},
-		{Method: GET, Path: "/groups/{group_id}/api-keys", Group: groups, Auth: permission, Perm: OpAPIKeysList.catalogPermission(), MountedWhen: FeatureAPIKeys,
+		{Method: GET, Path: "/groups/{group_id}/api-keys", Group: groups, Auth: permission, Perm: OpAPIKeysList.catalogPermission(), Bucket: RLGroupRead, MountedWhen: FeatureAPIKeys,
 			Query: PageQuery{}, Responses: replyOK(iam.ListPage[iam.APIKey]{}), serve: groupOp(OpAPIKeysList)},
-		{Method: POST, Path: "/groups/{group_id}/api-keys", Group: groups, Auth: permission, Perm: OpAPIKeyMint.catalogPermission(), MountedWhen: FeatureAPIKeys,
+		{Method: POST, Path: "/groups/{group_id}/api-keys", Group: groups, Auth: permission, Perm: OpAPIKeyMint.catalogPermission(), Bucket: RLAPIKeyCreate, MountedWhen: FeatureAPIKeys,
 			Request: APIKeyCreateRequest{}, Responses: replyCreated(iam.APIKeyCreated{}), serve: groupOp(OpAPIKeyMint)},
-		{Method: DELETE, Path: "/groups/{group_id}/api-keys/{id}", Group: groups, Auth: permission, Perm: OpAPIKeyRevoke.catalogPermission(), MountedWhen: FeatureAPIKeys,
+		{Method: DELETE, Path: "/groups/{group_id}/api-keys/{id}", Group: groups, Auth: permission, Perm: OpAPIKeyRevoke.catalogPermission(), Bucket: RLGroupWrite, MountedWhen: FeatureAPIKeys,
 			Responses: replyNoContent, serve: groupOp(OpAPIKeyRevoke)},
-		{Method: POST, Path: "/invitations/redeem", Group: groups, Auth: session, Bucket: RLInviteRedeem,
+		{Method: POST, Path: "/invitations/redeem", Group: groups, Auth: session, Bucket: RLInviteRedeem, MountedWhen: FeatureInvitations,
 			Request: InvitationRedeemRequest{}, Responses: replyOK(iam.Membership{}), serve: handle((*Service).handleInvitationRedeemPOST)},
 
 		// Browser OIDC: navigations and the provider's one callback, which

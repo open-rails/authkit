@@ -227,6 +227,11 @@ func (s *Engine) importUser(ctx context.Context, q *db.Queries, input newAccount
 	if err != nil {
 		return nil, err
 	}
+	if input.BannedAt != nil {
+		if err := q.BanEventsRecordCreated(ctx, []string{userID}); err != nil {
+			return nil, err
+		}
+	}
 	row, err := q.UserByID(ctx, userID)
 	if err != nil {
 		return nil, err
