@@ -26,6 +26,7 @@ type (
 	DeviceKeysConfig   = config.DeviceKeysConfig
 	APIKeysConfig      = config.APIKeysConfig
 	DelegatedConfig    = config.DelegatedConfig
+	InvitationsConfig  = config.InvitationsConfig
 	LanguageConfig     = config.LanguageConfig
 	RiverConfig        = config.RiverConfig
 	HTTPConfig         = config.HTTPConfig

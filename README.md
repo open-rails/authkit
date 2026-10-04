@@ -319,7 +319,7 @@ Mounting gives your users all of this: 69 routes under `/api/v1`, plus the publi
 | `DELETE /api/v1/admin/users/{user_id}/sessions` | sign them out everywhere |
 | `GET /api/v1/admin/users/{user_id}/session-events` | their sign-in history |
 
-Switch on social logins (Google, Apple, GitHub, Discord) or API keys, and AuthKit mounts their routes too.
+Switch on social logins (Google, Apple, GitHub, Discord) or API keys, and AuthKit mounts their routes too. Set `Invitations.Disabled`, and the invitation routes go.
 
 Now for our application-specific routes, we can check user permissions using middleware, to enforce that certain actions are moderator or admin-only:
 

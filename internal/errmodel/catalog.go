@@ -86,6 +86,7 @@ var (
 	CodeInvitationExpired                 = def("invitation_expired", 400, "The invitation has expired.")
 	CodeInvitationNotFound                = def("invitation_not_found", 404, "The invitation was not found.")
 	CodeInvitationRevoked                 = def("invitation_revoked", 400, "The invitation was revoked.")
+	CodeInvitationsDisabled               = def("invitations_disabled", 403, "Invitations are disabled.")
 	CodeIssuerKeysUnavailable             = def("issuer_keys_unavailable", 503, "The token issuer's signing keys are temporarily unavailable.")
 	CodeLastOwner                         = def("last_owner", 409, "The last owner cannot be removed.")
 	CodeMalformedPermissions              = def("malformed_permissions", 401, "The permissions claim is malformed.")

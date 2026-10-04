@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 )
@@ -140,4 +141,73 @@ func TestInvitationRoutes(t *testing.T) {
 	require.Equal(t, joiner, *roots.Items[0].Email)
 	require.True(t, roots.Items[0].Role.IsZero())
 	expect(t, http.StatusNoContent, a.do(request{method: http.MethodDelete, path: root + "/" + roots.Items[0].ID, token: inviterToken}))
+}
+
+// Config.Invitations.Disabled turns invitations off: their routes are not
+// mounted, /capabilities says so, and no invitation is issued or honoured,
+// one issued earlier included. The host still lists and revokes them.
+func TestInvitationsDisabled(t *testing.T) {
+	o := newCredentialOrg(t)
+	auth, ctx := o.auth, t.Context()
+	manager := authtest.NewUser(t, auth)
+	authtest.GrantRole(t, auth, o.acme, iam.UserSubject(manager.ID), o.manager)
+	mgr := iam.UserActor(manager.ID)
+	link, err := auth.CreateInvitation(ctx, mgr, o.acme, iam.NewInvitation{Role: o.member})
+	require.NoError(t, err)
+	emailed, err := auth.CreateInvitation(ctx, iam.SystemActor(), iam.RootGroup(), iam.NewInvitation{Email: "invited@invitations.test"})
+	require.NoError(t, err)
+	enabled := func(a *api) bool {
+		var caps struct {
+			Invitations struct {
+				Enabled *bool `json:"enabled"`
+			} `json:"invitations"`
+		}
+		expect(t, http.StatusOK, a.get("/capabilities", "")).decode(t, &caps)
+		require.NotNil(t, caps.Invitations.Enabled)
+		return *caps.Invitations.Enabled
+	}
+	require.True(t, enabled(newAPI(t, auth)))
+
+	off := authtest.Replica(t, auth, authtest.WithConfig(func(c *authkit.Config) { c.Invitations.Disabled = true }))
+	a := newAPI(t, off)
+	require.False(t, enabled(a))
+	for _, route := range off.Routes() {
+		require.NotContains(t, route.Path, "invitations", route.Pattern())
+	}
+	token := authtest.SignIn(t, off, manager).AccessToken
+	base := "/groups/" + o.acmeID + "/invitations"
+	for _, r := range []request{
+		{method: http.MethodGet, path: base},
+		{method: http.MethodPost, path: base, body: map[string]any{"role": o.member.String()}},
+		{method: http.MethodDelete, path: base + "/" + link.Invitation.ID},
+		{method: http.MethodPost, path: "/invitations/redeem", body: map[string]any{"code": link.Code}},
+	} {
+		r.token = token
+		res := expect(t, http.StatusNotFound, a.do(r))
+		require.Equal(t, "not_found", res.code(), "%s %s", r.method, r.path)
+	}
+
+	_, err = off.CreateInvitation(ctx, mgr, o.acme, iam.NewInvitation{Role: o.member})
+	require.ErrorIs(t, err, iam.ErrInvitationsDisabled)
+	_, err = off.CreateInvitation(ctx, iam.SystemActor(), iam.RootGroup(), iam.NewInvitation{Email: "later@invitations.test"})
+	require.ErrorIs(t, err, iam.ErrInvitationsDisabled)
+	register := func(code string) response {
+		id := unique("uninvited")
+		return a.post("/register", "", map[string]any{"identifier": id + "@invitations.test", "username": id, "password": authtest.Password, "invite_code": code})
+	}
+	res := expect(t, http.StatusForbidden, register(emailed.Code))
+	require.Equal(t, "invitations_disabled", res.code())
+	expect(t, http.StatusOK, register(""))
+
+	listed, err := off.ListInvitations(ctx, o.acme, iam.PageRequest{})
+	require.NoError(t, err)
+	require.Len(t, listed.Items, 1)
+	require.NoError(t, off.RevokeInvitation(ctx, mgr, o.acme, link.Invitation.ID))
+
+	// Nobody could register invite-only with invitations off.
+	cfg, deps := bareConfig(t)
+	cfg.Invitations.Disabled = true
+	cfg.Registration.NativeUserMode = iam.RegistrationModeInviteOnly
+	_, err = newClient(t, cfg, deps)
+	require.ErrorContains(t, err, "Invitations.Disabled")
 }

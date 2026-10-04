@@ -135,6 +135,7 @@ export type Capabilities = {
   verification: VerificationCapabilities
   channels: ChannelCapabilities
   two_factor: TwoFactorCapabilities
+  invitations: InvitationCapabilities
   languages: string[]
   paths: MountPaths
 }
@@ -267,6 +268,10 @@ export type Invitation = {
   expires_at: string | null
   redeemed_at: string | null
   revoked_at: string | null
+}
+
+export type InvitationCapabilities = {
+  enabled: boolean
 }
 
 export type InvitationCreateRequest = {

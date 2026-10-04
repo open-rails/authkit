@@ -71,6 +71,9 @@ func Normalize(c Config, d Deps) (Config, error) {
 	if err := normalizeRegistration(&c.Registration); err != nil {
 		return Config{}, err
 	}
+	if c.Invitations.Disabled && c.Registration.NativeUserMode == iam.RegistrationModeInviteOnly {
+		return Config{}, errors.New("authkit: Registration.NativeUserMode \"invite_only\" needs invitations, but Invitations.Disabled is set")
+	}
 	if c.Password, err = NormalizePassword(c.Password); err != nil {
 		return Config{}, err
 	}

@@ -363,6 +363,7 @@ type Capabilities struct {
 	Verification           VerificationCapabilities `json:"verification"`
 	Channels               ChannelCapabilities      `json:"channels"`
 	TwoFactor              TwoFactorCapabilities    `json:"two_factor"`
+	Invitations            InvitationCapabilities   `json:"invitations"`
 	Languages              []string                 `json:"languages"`
 	Paths                  MountPaths               `json:"paths"`
 }
@@ -378,6 +379,12 @@ type MountPaths struct {
 type RegistrationCapabilities struct {
 	Mode                string `json:"mode"`
 	InviteTokenRequired bool   `json:"invite_token_required"`
+}
+
+// InvitationCapabilities says whether invitations are on
+// (Config.Invitations).
+type InvitationCapabilities struct {
+	Enabled bool `json:"enabled"`
 }
 
 type ExternalLoginProvider struct {

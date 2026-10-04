@@ -67,6 +67,9 @@ func (s *Engine) requireIssuableRole(g groupTarget, role iam.Role) ([]string, er
 func (s *Engine) RedeemInvitation(ctx context.Context, a iam.Actor, code string) (authflow.InviteRedemption, error) {
 	var out authflow.InviteRedemption
 	code = strings.TrimSpace(code)
+	if s.cfg.Invitations.Disabled {
+		return out, iam.ErrInvitationsDisabled
+	}
 	if a.Kind() != iam.ActorUser || !isUUID(a.ID()) {
 		return out, iam.ErrInsufficientAuthority
 	}

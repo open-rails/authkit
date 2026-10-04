@@ -72,6 +72,8 @@ func (s *Service) mounts(f Feature) bool {
 		return len(cfg.Delegated.Audiences) > 0
 	case FeatureDeviceKeys:
 		return cfg.DeviceKeys.Enabled
+	case FeatureInvitations:
+		return !cfg.Invitations.Disabled
 	case FeatureGroups, FeatureAPIKeys:
 		schema := s.svc.PermissionGroupSchema()
 		for _, name := range schema.Personas() {

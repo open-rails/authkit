@@ -54,6 +54,8 @@ type Config struct {
 	// allowlist and the TTL floor/default/ceiling. The zero value leaves the
 	// route unmounted.
 	Delegated DelegatedConfig
+	// Invitations turns invitations off. The zero value leaves them on.
+	Invitations InvitationsConfig
 	// Roles is the permission model: personas, their permissions and roles
 	// (NewRoles). Nil is root-only.
 	Roles *Roles
@@ -313,6 +315,18 @@ type DelegatedConfig struct {
 	TTLFloor   time.Duration
 	TTLDefault time.Duration
 	TTLCeiling time.Duration
+}
+
+// InvitationsConfig controls invitations: invite links and emailed
+// invitations into a group, and emailed invitations to register.
+type InvitationsConfig struct {
+	// Disabled turns them off: no invitation is issued or honoured. The
+	// invitation routes are not mounted, GET {api}/capabilities reports
+	// invitations.enabled false, and CreateInvitation, redeeming a code and
+	// registering with one return iam.ErrInvitationsDisabled. Listing and
+	// revoking earlier invitations still work. Registration.NativeUserMode
+	// "invite_only" cannot be combined with it.
+	Disabled bool
 }
 
 // LanguageConfig declares the supported languages as two-letter codes. The

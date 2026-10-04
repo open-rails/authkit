@@ -84,6 +84,7 @@ export type AuthErrorCode =
   | "invitation_expired"
   | "invitation_not_found"
   | "invitation_revoked"
+  | "invitations_disabled"
   | "issuer_keys_unavailable"
   | "last_owner"
   | "malformed_permissions"
@@ -253,6 +254,7 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   invitation_expired: 400,
   invitation_not_found: 404,
   invitation_revoked: 400,
+  invitations_disabled: 403,
   issuer_keys_unavailable: 503,
   last_owner: 409,
   malformed_permissions: 401,
@@ -423,6 +425,7 @@ export const AUTH_ERROR_MESSAGES = {
   invitation_expired: "The invitation has expired.",
   invitation_not_found: "The invitation was not found.",
   invitation_revoked: "The invitation was revoked.",
+  invitations_disabled: "Invitations are disabled.",
   issuer_keys_unavailable: "The token issuer's signing keys are temporarily unavailable.",
   last_owner: "The last owner cannot be removed.",
   malformed_permissions: "The permissions claim is malformed.",

@@ -131,6 +131,7 @@ pkg authkit, type Config struct, Delegated config.DelegatedConfig
 pkg authkit, type Config struct, DeviceKeys config.DeviceKeysConfig
 pkg authkit, type Config struct, Frontend config.FrontendConfig
 pkg authkit, type Config struct, HTTP *config.HTTPConfig
+pkg authkit, type Config struct, Invitations config.InvitationsConfig
 pkg authkit, type Config struct, Keys config.KeysConfig
 pkg authkit, type Config struct, Languages config.LanguageConfig
 pkg authkit, type Config struct, Passkeys config.PasskeyConfig
@@ -208,6 +209,9 @@ pkg authkit, type HTTPConfig struct, RateLimits map[string]config.RateLimit
 pkg authkit, type HTTPConfig struct, RedisKeyPrefix string
 pkg authkit, type HTTPConfig struct, RefreshCookie bool
 pkg authkit, type HTTPConfig struct, TrustedProxies []string
+pkg authkit, type InvitationsConfig = config.InvitationsConfig
+pkg authkit, type InvitationsConfig struct
+pkg authkit, type InvitationsConfig struct, Disabled bool
 pkg authkit, type KeysConfig = config.KeysConfig
 pkg authkit, type KeysConfig struct
 pkg authkit, type KeysConfig struct, AllowEphemeralDevKeys bool
@@ -1166,6 +1170,7 @@ pkg authkit/iam, var ErrInvalidRemoteApplication Error
 pkg authkit/iam, var ErrInvalidServiceJWT Error
 pkg authkit/iam, var ErrInvalidUntil Error
 pkg authkit/iam, var ErrInvitationNotFound Error
+pkg authkit/iam, var ErrInvitationsDisabled Error
 pkg authkit/iam, var ErrLastOwner Error
 pkg authkit/iam, var ErrPhoneInUse Error
 pkg authkit/iam, var ErrRemoteApplicationIssuerConflict Error

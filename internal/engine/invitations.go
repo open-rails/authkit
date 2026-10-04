@@ -37,6 +37,9 @@ func (s *Engine) CreateInvitation(ctx context.Context, a iam.Actor, ref iam.Grou
 	if err != nil {
 		return iam.InvitationCreated{}, err
 	}
+	if s.cfg.Invitations.Disabled {
+		return iam.InvitationCreated{}, iam.ErrInvitationsDisabled
+	}
 	creator, err := credentialIssuer(a)
 	if err != nil {
 		return iam.InvitationCreated{}, err

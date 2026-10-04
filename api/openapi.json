@@ -3766,7 +3766,8 @@
         ],
         "x-authkit-auth": "permission",
         "x-authkit-permission": "<persona>:members:read",
-        "x-authkit-rate-limit": "group_read"
+        "x-authkit-rate-limit": "group_read",
+        "x-authkit-mounted-when": "invitations"
       },
       "post": {
         "tags": [
@@ -3824,7 +3825,8 @@
         ],
         "x-authkit-auth": "permission",
         "x-authkit-permission": "<persona>:members:manage",
-        "x-authkit-rate-limit": "invite_create"
+        "x-authkit-rate-limit": "invite_create",
+        "x-authkit-mounted-when": "invitations"
       }
     },
     "/api/v1/groups/{group_id}/invitations/{id}": {
@@ -3872,7 +3874,8 @@
         ],
         "x-authkit-auth": "permission",
         "x-authkit-permission": "<persona>:members:manage",
-        "x-authkit-rate-limit": "group_write"
+        "x-authkit-rate-limit": "group_write",
+        "x-authkit-mounted-when": "invitations"
       }
     },
     "/api/v1/groups/{group_id}/api-keys": {
@@ -4085,7 +4088,8 @@
           }
         ],
         "x-authkit-auth": "session",
-        "x-authkit-rate-limit": "invite_redeem"
+        "x-authkit-rate-limit": "invite_redeem",
+        "x-authkit-mounted-when": "invitations"
       }
     },
     "/oidc/{provider}/login": {
@@ -5011,6 +5015,9 @@
           "two_factor": {
             "$ref": "#/components/schemas/TwoFactorCapabilities"
           },
+          "invitations": {
+            "$ref": "#/components/schemas/InvitationCapabilities"
+          },
           "languages": {
             "type": "array",
             "items": {
@@ -5032,6 +5039,7 @@
           "verification",
           "channels",
           "two_factor",
+          "invitations",
           "languages",
           "paths"
         ]
@@ -5521,6 +5529,17 @@
           "expires_at",
           "redeemed_at",
           "revoked_at"
+        ]
+      },
+      "InvitationCapabilities": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
         ]
       },
       "InvitationCreateRequest": {
@@ -8164,6 +8183,10 @@
     "invitation_revoked": {
       "status": 400,
       "message": "The invitation was revoked."
+    },
+    "invitations_disabled": {
+      "status": 403,
+      "message": "Invitations are disabled."
     },
     "issuer_keys_unavailable": {
       "status": 503,

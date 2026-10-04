@@ -37,10 +37,11 @@ const (
 	FeatureDeviceKeys   Feature = "device_keys"  // device keys on
 	FeatureGroups       Feature = "groups"       // a persona besides root
 	FeatureAPIKeys      Feature = "api_keys"     // a persona whose groups hold API keys
+	FeatureInvitations  Feature = "invitations"  // invitations not disabled
 )
 
 // Features lists every Feature a route can be mounted under.
-var Features = []Feature{FeaturePasskeys, FeaturePasswordless, FeatureRegistration, FeatureTwoFactor, FeatureSolana, FeatureOIDC, FeatureDelegated, FeatureDeviceKeys, FeatureGroups, FeatureAPIKeys}
+var Features = []Feature{FeaturePasskeys, FeaturePasswordless, FeatureRegistration, FeatureTwoFactor, FeatureSolana, FeatureOIDC, FeatureDelegated, FeatureDeviceKeys, FeatureGroups, FeatureAPIKeys, FeatureInvitations}
 
 // Reply is one success outcome of a route: its status and body. Body is a
 // zero value of the body's type, nil for none.
@@ -330,13 +331,13 @@ func Catalog() []RouteSpec {
 			Responses: replyNoContent, serve: groupOp(OpMemberRemove)},
 		{Method: GET, Path: "/groups/{group_id}/roles", Group: groups, Auth: permission, Perm: OpRolesList.catalogPermission(), Bucket: RLGroupRead,
 			Responses: replyOK(iam.ListPage[RoleInfo]{}), serve: groupOp(OpRolesList)},
-		{Method: GET, Path: "/groups/{group_id}/invitations", Group: groups, Auth: permission, Perm: OpInvitationsList.catalogPermission(), Bucket: RLGroupRead,
+		{Method: GET, Path: "/groups/{group_id}/invitations", Group: groups, Auth: permission, Perm: OpInvitationsList.catalogPermission(), Bucket: RLGroupRead, MountedWhen: FeatureInvitations,
 			Query: PageQuery{}, Responses: replyOK(iam.ListPage[iam.Invitation]{}), serve: groupOp(OpInvitationsList)},
 		// A link answers its code once (201); an emailed invitation answers
 		// 202 whoever holds the address.
-		{Method: POST, Path: "/groups/{group_id}/invitations", Group: groups, Auth: permission, Perm: OpInvitationCreate.catalogPermission(), Bucket: RLInviteCreate,
+		{Method: POST, Path: "/groups/{group_id}/invitations", Group: groups, Auth: permission, Perm: OpInvitationCreate.catalogPermission(), Bucket: RLInviteCreate, MountedWhen: FeatureInvitations,
 			Request: InvitationCreateRequest{}, Responses: []Reply{{http.StatusCreated, iam.InvitationCreated{}}, {http.StatusAccepted, nil}}, serve: groupOp(OpInvitationCreate)},
-		{Method: DELETE, Path: "/groups/{group_id}/invitations/{id}", Group: groups, Auth: permission, Perm: OpInvitationRevoke.catalogPermission(), Bucket: RLGroupWrite,
+		{Method: DELETE, Path: "/groups/{group_id}/invitations/{id}", Group: groups, Auth: permission, Perm: OpInvitationRevoke.catalogPermission(), Bucket: RLGroupWrite, MountedWhen: FeatureInvitations,
 			Responses: replyNoContent, serve: groupOp(OpInvitationRevoke)},
 		{Method: GET, Path: "/groups/{group_id}/api-keys", Group: groups, Auth: permission, Perm: OpAPIKeysList.catalogPermission(), Bucket: RLGroupRead, MountedWhen: FeatureAPIKeys,
 			Query: PageQuery{}, Responses: replyOK(iam.ListPage[iam.APIKey]{}), serve: groupOp(OpAPIKeysList)},
@@ -344,7 +345,7 @@ func Catalog() []RouteSpec {
 			Request: APIKeyCreateRequest{}, Responses: replyCreated(iam.APIKeyCreated{}), serve: groupOp(OpAPIKeyMint)},
 		{Method: DELETE, Path: "/groups/{group_id}/api-keys/{id}", Group: groups, Auth: permission, Perm: OpAPIKeyRevoke.catalogPermission(), Bucket: RLGroupWrite, MountedWhen: FeatureAPIKeys,
 			Responses: replyNoContent, serve: groupOp(OpAPIKeyRevoke)},
-		{Method: POST, Path: "/invitations/redeem", Group: groups, Auth: session, Bucket: RLInviteRedeem,
+		{Method: POST, Path: "/invitations/redeem", Group: groups, Auth: session, Bucket: RLInviteRedeem, MountedWhen: FeatureInvitations,
 			Request: InvitationRedeemRequest{}, Responses: replyOK(iam.Membership{}), serve: handle((*Service).handleInvitationRedeemPOST)},
 
 		// Browser OIDC: navigations and the provider's one callback, which

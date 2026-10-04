@@ -68,8 +68,9 @@ func (s *Service) Capabilities() Capabilities {
 		Verification: VerificationCapabilities{
 			Registration: string(cfg.Registration.Verification),
 		},
-		Channels:  ChannelCapabilities{Email: email, SMS: sms},
-		TwoFactor: TwoFactorCapabilities{Mode: cfg.TwoFactor.Mode, Methods: s.svc.TwoFactorMethods()},
-		Languages: cfg.Languages.Supported,
+		Channels:    ChannelCapabilities{Email: email, SMS: sms},
+		TwoFactor:   TwoFactorCapabilities{Mode: cfg.TwoFactor.Mode, Methods: s.svc.TwoFactorMethods()},
+		Invitations: InvitationCapabilities{Enabled: !cfg.Invitations.Disabled},
+		Languages:   cfg.Languages.Supported,
 	}
 }
