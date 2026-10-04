@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Sign-in limits (AuthKit `Config.SignIn`). A new device past the account's
+  daily limit answers `device_verification_required` with its
+  `device_verification` step: a code went to the owner's email or phone.
+  New: `confirmDeviceVerification` and `sendDeviceVerification` on the client,
+  `confirmNewDevice` and `sendNewDeviceCode` (and the `new_device` state) on
+  `useLogin`, and `NewDeviceVerification`, which the sign-in forms show. The
+  errors `too_many_accounts` and `too_many_devices` have copy in every locale.
 - `User`, `UserEntry` and `UserProfile` carry `expired_ban`: the stored ban
   once its `until` has passed and no unban cleared it. `ban` still means a ban
   in force; at most one of the two is set.

@@ -123,3 +123,34 @@ func (q *Queries) EphemeralSet(ctx context.Context, arg EphemeralSetParams) erro
 	_, err := q.db.Exec(ctx, ephemeralSet, arg.Key, arg.Value, arg.TtlUs)
 	return err
 }
+
+const ephemeralSwap = `-- name: EphemeralSwap :execrows
+INSERT INTO ephemeral_kv AS kv (key, value, expires_at)
+VALUES ($1, $2, now() + $3::bigint * interval '1 microsecond')
+ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, expires_at = EXCLUDED.expires_at
+WHERE (kv.expires_at > now() AND kv.value = $4)
+   OR (kv.expires_at <= now() AND octet_length($4) = 0)
+`
+
+type EphemeralSwapParams struct {
+	Key      string
+	Value    []byte
+	TtlUs    int64
+	Expected []byte
+}
+
+// Writes value only while key still holds expected (an empty expected: while
+// key is absent or expired), so concurrent read-modify-writes of one record
+// never lose an update. No row means another writer came first.
+func (q *Queries) EphemeralSwap(ctx context.Context, arg EphemeralSwapParams) (int64, error) {
+	result, err := q.db.Exec(ctx, ephemeralSwap,
+		arg.Key,
+		arg.Value,
+		arg.TtlUs,
+		arg.Expected,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}

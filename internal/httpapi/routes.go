@@ -44,6 +44,9 @@ func (s *Service) routes(surface Surface, groups []iam.RouteGroup, wrap func(Rou
 		if route.Auth == iam.AuthPermission && strings.HasPrefix(route.Perm, iam.RootPersona().String()+":") {
 			h = s.requirePermission(iam.RootGroup(), ident.Perm(route.Perm), h)
 		}
+		if route.signsIn() && s.countsDevices() {
+			h = s.withSignInDevice(h)
+		}
 		route.Handler = s.languageMiddleware(wrap(route, h))
 		out = append(out, route)
 	}
@@ -74,6 +77,8 @@ func (s *Service) mounts(f Feature) bool {
 		return cfg.DeviceKeys.Enabled
 	case FeatureInvitations:
 		return !cfg.Invitations.Disabled
+	case FeatureNewDevices:
+		return cfg.SignIn.NewDevicesPerAccount > 0
 	case FeatureGroups, FeatureAPIKeys:
 		schema := s.svc.PermissionGroupSchema()
 		for _, name := range schema.Personas() {

@@ -25,6 +25,11 @@ const (
 	// MessageDeviceKeyEnrolled tells an existing account that a device key can
 	// now sign in as it (email only): DeviceKey.
 	MessageDeviceKeyEnrolled MessageKind = "device_key_enrolled"
+	// MessageNewDeviceCode is the Code a new device enters to sign in once
+	// the account has had too many new devices today
+	// (Config.SignIn.NewDevicesPerAccount). It tells the owner someone is
+	// signing in, and to change the password if it was not them.
+	MessageNewDeviceCode MessageKind = "new_device_code"
 	// MessageMFAReset tells an account that the system removed its passkeys,
 	// second factors and device keys and signed it out everywhere (email only).
 	MessageMFAReset MessageKind = "mfa_reset"

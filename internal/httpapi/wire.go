@@ -211,6 +211,20 @@ type TwoFactorVerifyRequest struct {
 	BackupCode bool   `json:"backup_code"`
 }
 
+// DeviceVerificationSendRequest resends a new device's code; an empty
+// channel keeps the first available.
+type DeviceVerificationSendRequest struct {
+	UserID    string `json:"user_id"`
+	Challenge string `json:"challenge"`
+	Channel   string `json:"channel"`
+}
+
+type DeviceVerificationConfirmRequest struct {
+	UserID    string `json:"user_id"`
+	Challenge string `json:"challenge"`
+	Code      string `json:"code"`
+}
+
 type TwoFactorChallengeRequest struct {
 	UserID    string `json:"user_id"`
 	Challenge string `json:"challenge"`
@@ -468,6 +482,11 @@ const (
 	// AuthAccountRecoveryRequired: the account is deleted and restorable;
 	// confirm recovery.token at POST /account/recovery/confirm.
 	AuthAccountRecoveryRequired AuthStatus = "account_recovery_required"
+	// AuthDeviceVerificationRequired: a new device past the account's limit
+	// (Config.SignIn.NewDevicesPerAccount); a code went to the owner's
+	// device_verification.channel. Confirm it at POST
+	// /device-verification/confirm (or resend at /device-verification/send).
+	AuthDeviceVerificationRequired AuthStatus = "device_verification_required"
 )
 
 // AuthResult is every sign-in and re-authentication answer: a session, or
@@ -488,6 +507,8 @@ type AuthResult struct {
 	Enrollment   *EnrollmentStep                       `json:"enrollment"`
 	Verification *VerificationStep                     `json:"verification"`
 	Recovery     *authflow.AccountRecoveryConfirmation `json:"recovery"`
+	// DeviceVerification: a new device's code step.
+	DeviceVerification *DeviceVerificationStep `json:"device_verification"`
 }
 
 // SecondFactorStep is a sign-in waiting on its second factor: the challenge
@@ -497,6 +518,17 @@ type SecondFactorStep struct {
 	Challenge string            `json:"challenge"`
 	Factor    TwoFactorFactor   `json:"factor"`
 	Factors   []TwoFactorFactor `json:"factors"`
+}
+
+// DeviceVerificationStep is a sign-in from a new device waiting on the code
+// sent to the account's proven Channel ("email" or "sms"), at Destination,
+// masked. Channels are the ones a resend may choose.
+type DeviceVerificationStep struct {
+	UserID      string   `json:"user_id"`
+	Challenge   string   `json:"challenge"`
+	Channel     string   `json:"channel"`
+	Destination string   `json:"destination"`
+	Channels    []string `json:"channels"`
 }
 
 // EnrollmentStep is a sign-in waiting on a first second factor. TokenSet is

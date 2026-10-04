@@ -18,6 +18,9 @@ type emailCopy struct {
 	resetIntro      string
 	loginSubject    string
 	loginCodeLabel  string
+	deviceSubject   string
+	deviceIntro     string
+	deviceWarning   string
 	welcomeSubject  string
 	welcomeBody     string
 }
@@ -34,6 +37,9 @@ func emailCopyFor(language, app string) emailCopy {
 			resetIntro:      "Usa este enlace para restablecer tu contrasena:",
 			loginSubject:    fmt.Sprintf("Tu codigo de inicio de sesion de %s", app),
 			loginCodeLabel:  "Codigo de inicio de sesion",
+			deviceSubject:   fmt.Sprintf("Nuevo dispositivo en tu cuenta de %s", app),
+			deviceIntro:     fmt.Sprintf("Alguien esta iniciando sesion en tu cuenta de %s desde un dispositivo nuevo. Si eres tu, introduce este codigo:", app),
+			deviceWarning:   "Si no eres tu, no compartas el codigo y cambia tu contrasena: quien lo intenta la conoce.",
 			welcomeSubject:  fmt.Sprintf("Bienvenido a %s", app),
 			welcomeBody:     fmt.Sprintf("Bienvenido a %s.", app),
 		}
@@ -48,6 +54,9 @@ func emailCopyFor(language, app string) emailCopy {
 		resetIntro:      "Use this link to reset your password:",
 		loginSubject:    fmt.Sprintf("Your %s login code", app),
 		loginCodeLabel:  "Login code",
+		deviceSubject:   fmt.Sprintf("New device signing in to your %s account", app),
+		deviceIntro:     fmt.Sprintf("Someone is signing in to your %s account from a new device. If it's you, enter this code:", app),
+		deviceWarning:   "If it isn't you, don't share the code, and change your password: whoever is trying knows it.",
 		welcomeSubject:  fmt.Sprintf("Welcome to %s", app),
 		welcomeBody:     fmt.Sprintf("Welcome to %s.", app),
 	}
@@ -66,6 +75,14 @@ func emailTemplate(app string, msg iam.EmailMessage) (EmailContent, error) {
 			Text:       c.loginCodeLabel + ": " + code,
 			HTML:       "<p><strong>" + escapeHTML(c.loginCodeLabel) + ":</strong> " + escapeHTML(code) + "</p>",
 			Categories: []string{"auth", "2fa-login"},
+		}, nil
+	case iam.MessageNewDeviceCode:
+		code := strings.TrimSpace(msg.Code)
+		return EmailContent{
+			Subject:    c.deviceSubject,
+			Text:       c.deviceIntro + "\n" + code + "\n" + c.deviceWarning,
+			HTML:       "<p>" + escapeHTML(c.deviceIntro) + "</p><p><strong>" + escapeHTML(code) + "</strong></p><p>" + escapeHTML(c.deviceWarning) + "</p>",
+			Categories: []string{"auth", "new-device"},
 		}, nil
 	case iam.MessagePasswordReset:
 		return linkEmail(c.resetSubject, c.resetIntro, msg.Link, "password-reset"), nil

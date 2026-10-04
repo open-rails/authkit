@@ -78,6 +78,8 @@ func WithDeps(fn func(*authkit.Deps)) Option {
 //   - Token: Issuer and Audience.
 //   - TwoFactor.TOTPSecretKey: random, so authenticator apps can enroll.
 //   - HTTP: served (DirectPeerIP), with every rate limit lifted (RateLimits).
+//   - SignIn: every limit off, since tests sign many accounts in from one
+//     address.
 //   - Deps.KeySource: an RSA key generated once per test binary.
 //   - Schema and River.Schema: the scratch schema, unless set.
 //
@@ -97,6 +99,7 @@ func New(t testing.TB, opts ...Option) (*authkit.Client, *Outbox) {
 		Token:     authkit.TokenConfig{Issuer: Issuer, IssuedAudiences: []string{Audience}},
 		TwoFactor: authkit.TwoFactorConfig{TOTPSecretKey: key},
 		HTTP:      &authkit.HTTPConfig{DirectPeerIP: true, RateLimits: unlimited()},
+		SignIn:    authkit.SignInConfig{AccountsPerDevice: -1, AccountsPerAddress: -1, NewDevicesPerAccount: -1},
 	}
 	deps := authkit.Deps{KeySource: signingKeys(), Email: outbox.Email(), SMS: outbox.SMS()}
 	for _, fn := range s.config {

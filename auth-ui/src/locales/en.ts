@@ -489,6 +489,11 @@ export const en = {
     sendNewCode: "Send a new code",
     useFactor: "Use {method} instead",
   },
+  newDevice: {
+    title: "New device",
+    description:
+      "To finish signing in on this device, enter the code we sent to {destination}.",
+  },
   enrollment: {
     title: "Set up two-factor authentication",
     chooseMethod: "Choose how you'll get sign-in codes.",

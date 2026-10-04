@@ -40,6 +40,11 @@ func smsTemplate(app string, msg iam.SMSMessage) (string, error) {
 			return fmt.Sprintf("%s codigo de inicio: %s", app, strings.TrimSpace(msg.Code)), nil
 		}
 		return fmt.Sprintf("%s login code: %s", app, strings.TrimSpace(msg.Code)), nil
+	case iam.MessageNewDeviceCode:
+		if es {
+			return fmt.Sprintf("%s codigo de nuevo dispositivo: %s. Si no eres tu, cambia tu contrasena.", app, strings.TrimSpace(msg.Code)), nil
+		}
+		return fmt.Sprintf("%s new device code: %s. If this isn't you, change your password.", app, strings.TrimSpace(msg.Code)), nil
 	case iam.MessagePasswordReset:
 		if es {
 			return fmt.Sprintf("%s restablecer contrasena: %s", app, strings.TrimSpace(msg.Link)), nil

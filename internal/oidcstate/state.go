@@ -7,6 +7,8 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"time"
+
+	"github.com/open-rails/authkit/internal/authflow"
 )
 
 // GeneratePKCE returns a verifier and S256 challenge suitable for the auth request.
@@ -40,4 +42,6 @@ type StateData struct {
 	StepUpStartedAt time.Time
 	UI              string // "popup" to trigger popup HTML callback; else redirect
 	PopupNonce      string // echoed in popup postMessage for opener validation
+	// Device began the flow; its sign-in counts against it (Config.SignIn).
+	Device authflow.SignInDevice
 }

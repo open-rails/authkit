@@ -38,10 +38,11 @@ const (
 	FeatureGroups       Feature = "groups"       // a persona besides root
 	FeatureAPIKeys      Feature = "api_keys"     // a persona whose groups hold API keys
 	FeatureInvitations  Feature = "invitations"  // invitations not disabled
+	FeatureNewDevices   Feature = "new_devices"  // SignIn.NewDevicesPerAccount not off
 )
 
 // Features lists every Feature a route can be mounted under.
-var Features = []Feature{FeaturePasskeys, FeaturePasswordless, FeatureRegistration, FeatureTwoFactor, FeatureSolana, FeatureOIDC, FeatureDelegated, FeatureDeviceKeys, FeatureGroups, FeatureAPIKeys, FeatureInvitations}
+var Features = []Feature{FeaturePasskeys, FeaturePasswordless, FeatureRegistration, FeatureTwoFactor, FeatureSolana, FeatureOIDC, FeatureDelegated, FeatureDeviceKeys, FeatureGroups, FeatureAPIKeys, FeatureInvitations, FeatureNewDevices}
 
 // Reply is one success outcome of a route: its status and body. Body is a
 // zero value of the body's type, nil for none.
@@ -141,6 +142,12 @@ func Catalog() []RouteSpec {
 			Request: TwoFactorChallengeRequest{}, Responses: signedIn, serve: handle((*Service).handleUser2FAChallengePOST)},
 		{Method: POST, Path: "/2fa/verify", Group: auth, Auth: public, Bucket: RL2FAVerify, MountedWhen: FeatureTwoFactor, MFAEnrollmentExempt: true,
 			Request: TwoFactorVerifyRequest{}, Responses: signedIn, serve: handle((*Service).handleUser2FAVerifyPOST)},
+		// A new device past the account's limit proves it with a code sent to
+		// the owner: a step-up by code before the session exists.
+		{Method: POST, Path: "/device-verification/send", Group: auth, Auth: public, Bucket: RLStepUpCodeSend, MountedWhen: FeatureNewDevices,
+			Request: DeviceVerificationSendRequest{}, Responses: signedIn, serve: handle((*Service).handleDeviceVerificationSendPOST)},
+		{Method: POST, Path: "/device-verification/confirm", Group: auth, Auth: public, Bucket: RLStepUpCode, MountedWhen: FeatureNewDevices,
+			Request: DeviceVerificationConfirmRequest{}, Responses: signedIn, serve: handle((*Service).handleDeviceVerificationConfirmPOST)},
 		{Method: POST, Path: "/account/recovery/confirm", Group: auth, Auth: public, Bucket: RLPasswordLogin,
 			Request: TokenRequest{}, Responses: replyNoContent, serve: handle((*Service).handleAccountRecoveryConfirmPOST)},
 		{Method: POST, Path: "/passwordless/start", Group: auth, Auth: public, Bucket: RLPasswordlessStart, MountedWhen: FeaturePasswordless,

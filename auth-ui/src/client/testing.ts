@@ -34,6 +34,7 @@ const NO_STEP = {
   enrollment: null,
   verification: null,
   recovery: null,
+  device_verification: null,
 }
 
 // An AuthResult with every field present, as AuthKit sends it.

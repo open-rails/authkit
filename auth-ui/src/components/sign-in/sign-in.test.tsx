@@ -125,6 +125,87 @@ describe("LoginForm", () => {
     })
   })
 
+  it("finishes a new device's sign-in with the code sent to the owner", async () => {
+    const user = userEvent.setup()
+    const onSignedIn = vi.fn()
+    const newDevice = (channel: string, destination: string) =>
+      json(
+        200,
+        authResult("device_verification_required", {
+          device_verification: {
+            user_id: "u1",
+            challenge: "dv-1",
+            channel,
+            destination,
+            channels: ["email", "sms"],
+          },
+        })
+      )
+    const fetch = stubFetch({
+      "GET /api/v1/capabilities": capabilities,
+      "POST /api/v1/password/login": [newDevice("email", "a***@x.test")],
+      "POST /api/v1/device-verification/send": [
+        newDevice("sms", "+1******0000"),
+      ],
+      "POST /api/v1/device-verification/confirm": [
+        authError(401, "invalid_code"),
+        session({ sub: "u1", sid: "s1" }),
+      ],
+    })
+    renderUi(<LoginForm onSignedIn={onSignedIn} />, fetch)
+    await submitCredentials(user)
+
+    await screen.findByRole("heading", { name: "New device" })
+    expect(screen.getByText(/a\*\*\*@x\.test/)).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "Use SMS instead" }))
+    await screen.findByText(/\+1\*{6}0000/)
+    await user.type(screen.getByLabelText("Verification code"), "111111")
+    await screen.findByText("Invalid verification code.")
+    await waitFor(() =>
+      expect(screen.getByLabelText("Verification code")).toBeEnabled()
+    )
+    await user.type(screen.getByLabelText("Verification code"), "222222")
+    await waitFor(() => expect(onSignedIn).toHaveBeenCalledOnce())
+
+    const body = (path: string, i = 0) =>
+      JSON.parse(
+        String(
+          fetch.mock.calls.filter(([url]) => String(url).endsWith(path))[i][1]
+            ?.body
+        )
+      )
+    expect(body("/device-verification/send")).toEqual({
+      user_id: "u1",
+      challenge: "dv-1",
+      channel: "sms",
+    })
+    expect(body("/device-verification/confirm", 1)).toEqual({
+      user_id: "u1",
+      challenge: "dv-1",
+      code: "222222",
+    })
+  })
+
+  it("explains a device that signed in to too many accounts", async () => {
+    const user = userEvent.setup()
+    const fetch = stubFetch({
+      "GET /api/v1/capabilities": capabilities,
+      "POST /api/v1/password/login": [
+        authError(
+          429,
+          "too_many_accounts",
+          { limit: 5, retry_after_seconds: 3600 },
+          { "Retry-After": "3600" }
+        ),
+      ],
+    })
+    renderUi(<LoginForm />, fetch)
+    await submitCredentials(user)
+    await screen.findByText(
+      "Too many accounts have signed in from this device today. Try again later."
+    )
+  })
+
   it("makes a new code primary once the 5th miss spends it", async () => {
     const user = userEvent.setup()
     const onSignedIn = vi.fn()

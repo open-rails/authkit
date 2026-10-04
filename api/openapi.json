@@ -271,6 +271,92 @@
         "x-authkit-mfa-enrollment-exempt": true
       }
     },
+    "/api/v1/device-verification/send": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceVerificationSendRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "step_up_code_send",
+        "x-authkit-mounted-when": "new_devices"
+      }
+    },
+    "/api/v1/device-verification/confirm": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceVerificationConfirmRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "step_up_code",
+        "x-authkit-mounted-when": "new_devices"
+      }
+    },
     "/api/v1/account/recovery/confirm": {
       "post": {
         "tags": [
@@ -4594,6 +4680,7 @@
             "enum": [
               "account_recovery_required",
               "complete",
+              "device_verification_required",
               "enrollment_required",
               "second_factor_required",
               "verification_required"
@@ -4691,6 +4778,16 @@
                 "type": "null"
               }
             ]
+          },
+          "device_verification": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DeviceVerificationStep"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -4704,7 +4801,8 @@
           "second_factor",
           "enrollment",
           "verification",
-          "recovery"
+          "recovery",
+          "device_verification"
         ]
       },
       "Availability": {
@@ -5151,6 +5249,64 @@
             "type": "string"
           }
         }
+      },
+      "DeviceVerificationConfirmRequest": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string"
+          },
+          "challenge": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          }
+        }
+      },
+      "DeviceVerificationSendRequest": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string"
+          },
+          "challenge": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          }
+        }
+      },
+      "DeviceVerificationStep": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string"
+          },
+          "challenge": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          },
+          "destination": {
+            "type": "string"
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "user_id",
+          "challenge",
+          "channel",
+          "destination",
+          "channels"
+        ]
       },
       "EmailChangeRequest": {
         "type": "object",
@@ -6292,6 +6448,21 @@
           "created_at",
           "last_used_at",
           "current"
+        ]
+      },
+      "SignInLimit": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "retry_after_seconds": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "limit",
+          "retry_after_seconds"
         ]
       },
       "SolanaAccount": {
@@ -8354,6 +8525,20 @@
     "token_not_yet_valid": {
       "status": 401,
       "message": "The token is not yet valid."
+    },
+    "too_many_accounts": {
+      "status": 429,
+      "message": "Too many accounts have signed in from this device today. Try again later.",
+      "metadata": {
+        "$ref": "#/components/schemas/SignInLimit"
+      }
+    },
+    "too_many_devices": {
+      "status": 429,
+      "message": "Too many new devices have signed in to this account today. Try again later, or from a device you've used before.",
+      "metadata": {
+        "$ref": "#/components/schemas/SignInLimit"
+      }
     },
     "ttl_exceeds_delegate_certificate": {
       "status": 400,

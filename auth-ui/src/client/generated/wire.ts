@@ -75,7 +75,7 @@ export type AuthKitEvent = {
 }
 
 export type AuthResult = {
-  status: "account_recovery_required" | "complete" | "enrollment_required" | "second_factor_required" | "verification_required"
+  status: "account_recovery_required" | "complete" | "device_verification_required" | "enrollment_required" | "second_factor_required" | "verification_required"
   token_set: TokenSet | null
   user: User | null
   created: boolean
@@ -86,6 +86,7 @@ export type AuthResult = {
   enrollment: EnrollmentStep | null
   verification: VerificationStep | null
   recovery: AccountRecoveryConfirmation | null
+  device_verification: DeviceVerificationStep | null
 }
 
 export type Availability = {
@@ -201,6 +202,26 @@ export type DeviceKeyLoginChallenge = {
 export type DeviceKeyLoginFinishRequest = {
   challenge_id?: string
   signature?: string
+}
+
+export type DeviceVerificationConfirmRequest = {
+  user_id?: string
+  challenge?: string
+  code?: string
+}
+
+export type DeviceVerificationSendRequest = {
+  user_id?: string
+  challenge?: string
+  channel?: string
+}
+
+export type DeviceVerificationStep = {
+  user_id: string
+  challenge: string
+  channel: string
+  destination: string
+  channels: string[]
 }
 
 export type EmailChangeRequest = {
@@ -498,6 +519,11 @@ export type SignInKey = {
   created_at: string
   last_used_at: string | null
   current: boolean
+}
+
+export type SignInLimit = {
+  limit: number
+  retry_after_seconds: number
 }
 
 export type SolanaAccount = {

@@ -85,6 +85,20 @@ func (k *ephemeralKV) Incr(ctx context.Context, key string, ttl time.Duration) (
 	return k.q.EphemeralIncr(ctx, db.EphemeralIncrParams{Key: key, TtlUs: us})
 }
 
+// Swap writes value with a fresh ttl only while key still holds expected (nil:
+// while it is absent), reporting whether it did.
+func (k *ephemeralKV) Swap(ctx context.Context, key string, expected, value []byte, ttl time.Duration) (bool, error) {
+	us, err := ephemeralTTL(ttl)
+	if err != nil {
+		return false, err
+	}
+	if expected == nil {
+		expected = []byte{}
+	}
+	n, err := k.q.EphemeralSwap(ctx, db.EphemeralSwapParams{Key: key, Value: value, TtlUs: us, Expected: expected})
+	return n == 1, err
+}
+
 // purgeExpiredEphemeral deletes expired rows in bounded batches. It runs on
 // the main pool so it never occupies the small pool live claims use.
 func (s *Engine) purgeExpiredEphemeral(ctx context.Context) (int64, error) {
@@ -188,6 +202,33 @@ func (s *Engine) ephemConsumeJSON(ctx context.Context, key string, out any) (boo
 		return false, err
 	}
 	return true, json.Unmarshal(b, out)
+}
+
+// updateEphemeralJSON is an atomic read-modify-write of key's JSON value
+// (zero when absent): edit changes it and reports whether to write it, which
+// renews ttl. A concurrent writer makes it re-read and edit again.
+func updateEphemeralJSON[T any](ctx context.Context, s *Engine, key string, ttl time.Duration, edit func(*T) bool) error {
+	if !s.useEphemeralStore() {
+		return fmt.Errorf("ephemeral store unavailable")
+	}
+	for range 16 {
+		var v T
+		raw, _, err := s.ephemReadJSON(ctx, key, &v)
+		if err != nil {
+			return err
+		}
+		if !edit(&v) {
+			return nil
+		}
+		b, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		if ok, err := s.ephemeral.Swap(ctx, key, raw, b, ttl); err != nil || ok {
+			return err
+		}
+	}
+	return fmt.Errorf("ephemeral update of %s kept conflicting", key)
 }
 
 func (s *Engine) ephemIncr(ctx context.Context, key string, ttl time.Duration) (int64, error) {

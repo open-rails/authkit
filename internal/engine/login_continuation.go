@@ -35,7 +35,9 @@ type loginProof struct {
 	AuthenticatedAt time.Time         `json:"authenticated_at"`
 	NonceHash       string            `json:"nonce_hash"`
 	Enrollment      bool              `json:"enrollment"`
-	expected        []byte
+	// DeviceCode: the sign-in waits on a new-device code (Config.SignIn).
+	DeviceCode bool `json:"device_code,omitempty"`
+	expected   []byte
 }
 
 func (s *Engine) loadLoginProof(ctx context.Context, userID, nonce string) (loginProof, error) {
@@ -103,6 +105,21 @@ func (s *Engine) finishFirstFactor(ctx context.Context, proof loginProof) (authf
 	// providers. A verified UV passkey has already completed MFA itself.
 	completedMFA := hasAuthMethod(proof.Input.AuthMethods, "mfa")
 	needsChallenge := s.TwoFactorEnabled() && status.Enabled && status.Satisfied && !completedMFA
+	// A new sign-in passes the sign-in limits; a session's own continuation
+	// and an account recovery do not.
+	if proof.SessionID == "" && proof.DeletionID == "" {
+		if proof.Input.Device == (authflow.SignInDevice{}) {
+			proof.Input.Device = authflow.SignInDeviceFrom(ctx)
+		}
+		needsCode, refused, err := s.admitSignIn(ctx, user.ID, proof.Input, needsChallenge)
+		if err != nil {
+			return authflow.LoginOutcome{}, err
+		}
+		if needsCode {
+			return s.challengeNewDevice(ctx, user, proof, refused)
+		}
+	}
+	proof.DeviceCode = false
 	gateErr := s.requireSessionMFAStateOn(ctx, tx, user.ID, proof.Input.AuthMethods, status, nil)
 	if gateErr != nil && !errors.Is(gateErr, iam.ErrTwoFAEnrollmentRequired) && !errors.Is(gateErr, errTwoFARequired) {
 		return authflow.LoginOutcome{}, gateErr
@@ -220,7 +237,7 @@ func (s *Engine) sendLoginFactor(ctx context.Context, user *db.User, proof login
 // the first-factor proof and its original expiry.
 func (s *Engine) ResendLoginChallenge(ctx context.Context, userID, nonce, factorID string) (*authflow.TwoFactorChallenge, error) {
 	proof, err := s.loadLoginProof(ctx, userID, nonce)
-	if err != nil || proof.Enrollment {
+	if err != nil || proof.Enrollment || proof.DeviceCode {
 		return nil, jwt.ErrTokenUnverifiable
 	}
 	tx, err := s.pg.Begin(ctx)
@@ -254,7 +271,7 @@ func (s *Engine) ResendLoginChallenge(ctx context.Context, userID, nonce, factor
 // second-factor completion and commits its session while holding the account lock.
 func (s *Engine) CompleteLoginChallenge(ctx context.Context, in authflow.LoginChallengeInput) (authflow.LoginOutcome, error) {
 	proof, err := s.loadLoginProof(ctx, in.UserID, in.Challenge)
-	if err != nil || proof.Enrollment {
+	if err != nil || proof.Enrollment || proof.DeviceCode {
 		return authflow.LoginOutcome{}, jwt.ErrTokenUnverifiable
 	}
 	if err := s.chargeLoginProofAttempt(ctx, proof); err != nil {

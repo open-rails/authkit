@@ -497,6 +497,11 @@ export const es: AuthUiMessageBundle = {
     sendNewCode: "Enviar un código nuevo",
     useFactor: "Usar {method} en su lugar",
   },
+  newDevice: {
+    title: "Dispositivo nuevo",
+    description:
+      "Para terminar de iniciar sesión en este dispositivo, introduce el código que enviamos a {destination}.",
+  },
   enrollment: {
     title: "Configura la autenticación en dos pasos",
     chooseMethod: "Elige cómo recibirás los códigos de inicio de sesión.",
@@ -626,6 +631,10 @@ export const es: AuthUiMessageBundle = {
     provider_unavailable:
       "El proveedor de inicio de sesión no está disponible temporalmente. Inténtalo de nuevo en breve.",
     rate_limited: "Demasiados intentos. Inténtalo de nuevo más tarde.",
+    too_many_accounts:
+      "Demasiadas cuentas han iniciado sesión desde este dispositivo hoy. Inténtalo de nuevo más tarde.",
+    too_many_devices:
+      "Demasiados dispositivos nuevos han iniciado sesión en esta cuenta hoy. Inténtalo más tarde o desde un dispositivo que ya hayas usado.",
     registration_disabled: "El registro está deshabilitado en este momento.",
     rename_rate_limited:
       "Demasiados cambios de nombre de usuario. Inténtalo más tarde.",

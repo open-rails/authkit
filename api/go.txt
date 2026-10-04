@@ -142,6 +142,7 @@ pkg authkit, type Config struct, Roles *config.Roles
 pkg authkit, type Config struct, Schema string
 pkg authkit, type Config struct, SenderHealthInterval time.Duration
 pkg authkit, type Config struct, SessionEventRetention time.Duration
+pkg authkit, type Config struct, SignIn config.SignInConfig
 pkg authkit, type Config struct, SolanaNetwork iam.SolanaNetwork
 pkg authkit, type Config struct, Token config.TokenConfig
 pkg authkit, type Config struct, TwoFactor config.TwoFactorConfig
@@ -291,6 +292,11 @@ pkg authkit, type SMSSender = config.SMSSender
 pkg authkit, type SMSSender interface
 pkg authkit, type SMSSender interface, CheckHealth(context.Context) error
 pkg authkit, type SMSSender interface, Send(context.Context, iam.SMSMessage) error
+pkg authkit, type SignInConfig = config.SignInConfig
+pkg authkit, type SignInConfig struct
+pkg authkit, type SignInConfig struct, AccountsPerAddress int
+pkg authkit, type SignInConfig struct, AccountsPerDevice int
+pkg authkit, type SignInConfig struct, NewDevicesPerAccount int
 pkg authkit, type TokenConfig = config.TokenConfig
 pkg authkit, type TokenConfig struct
 pkg authkit, type TokenConfig struct, AccessTokenDuration time.Duration
@@ -541,6 +547,7 @@ pkg authkit/iam, const MessageDeviceKeyEnrolled MessageKind = "device_key_enroll
 pkg authkit/iam, const MessageInvite MessageKind = "invite"
 pkg authkit/iam, const MessageLoginCode MessageKind = "login_code"
 pkg authkit/iam, const MessageMFAReset MessageKind = "mfa_reset"
+pkg authkit/iam, const MessageNewDeviceCode MessageKind = "new_device_code"
 pkg authkit/iam, const MessagePasswordReset MessageKind = "password_reset"
 pkg authkit/iam, const MessageVerification MessageKind = "verification"
 pkg authkit/iam, const MessageWelcome MessageKind = "welcome"
@@ -1181,6 +1188,8 @@ pkg authkit/iam, var ErrSessionRevoked Error
 pkg authkit/iam, var ErrSigningNotConfigured Error
 pkg authkit/iam, var ErrSubjectMFARequired Error
 pkg authkit/iam, var ErrTokenExpired Error
+pkg authkit/iam, var ErrTooManyAccounts Error
+pkg authkit/iam, var ErrTooManyDevices Error
 pkg authkit/iam, var ErrTwoFAEnrollmentRequired Error
 pkg authkit/iam, var ErrUnknownGroupPersona Error
 pkg authkit/iam, var ErrUnknownPermission error

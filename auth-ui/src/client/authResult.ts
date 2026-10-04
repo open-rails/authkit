@@ -13,6 +13,7 @@ export type SignInResult =
   | With<"enrollment_required", "enrollment">
   | With<"verification_required", "verification">
   | With<"account_recovery_required", "recovery">
+  | With<"device_verification_required", "device_verification">
 
 // A sign-in that needs one more step before it has a session.
 export type PendingSignIn = Exclude<SignInResult, { status: "complete" }>
@@ -23,6 +24,7 @@ const STEP = {
   enrollment_required: "enrollment",
   verification_required: "verification",
   account_recovery_required: "recovery",
+  device_verification_required: "device_verification",
 } as const satisfies Record<Status, keyof AuthResult>
 
 // Checks an AuthKit answer is an AuthResult whose status carries its step.

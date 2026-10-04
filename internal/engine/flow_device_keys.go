@@ -212,6 +212,17 @@ func (s *Engine) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, co
 	} else if s.TwoFactorEnabled() && s.requireMFAEnrollment() {
 		return authflow.DeviceKeyAuthResult{}, iam.ErrTwoFAEnrollmentRequired
 	}
+	// The emailed code proves the owner's mailbox, so a new key is never a
+	// device to challenge; the client's device still counts its accounts.
+	device := authflow.SignInDeviceFrom(ctx)
+	if user != nil {
+		err = s.admitAccountOnDevice(ctx, user.ID, device)
+	} else {
+		err = s.admitNewAccount(ctx)
+	}
+	if err != nil {
+		return authflow.DeviceKeyAuthResult{}, err
+	}
 
 	var consumed deviceKeyEnrollment
 	ok, err = s.ephemConsumeJSON(ctx, keyDeviceKeyEnrollment+enrollmentID, &consumed)
@@ -223,6 +234,11 @@ func (s *Engine) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, co
 	deviceKey, userID, created, err := s.enrollDeviceKey(ctx, record, publicKey, mfaProof, backupCode)
 	if err != nil {
 		return authflow.DeviceKeyAuthResult{}, err
+	}
+	if user == nil {
+		if err := s.admitAccountOnDevice(ctx, userID, device); err != nil {
+			return authflow.DeviceKeyAuthResult{}, err
+		}
 	}
 	if user != nil && created {
 		s.notifyDeviceKeyEnrolled(ctx, user, deviceKey)

@@ -48,13 +48,18 @@ const res = await auth.authFetch("/api/v1/things") // Bearer + one refresh retry
   refreshes, profiles, popups and sign-ins from an older generation are dropped.
 - Every sign-in answers AuthKit's `AuthResult` (`SignInResult`, narrowed by
   `status`). `complete` is committed as the session; `second_factor_required`,
-  `enrollment_required`, `verification_required` and
-  `account_recovery_required` carry their next step and are returned, not
-  thrown. Failures throw `AuthKitError` with the AuthKit `code`
+  `enrollment_required`, `verification_required`,
+  `account_recovery_required` and `device_verification_required` carry their
+  next step and are returned, not thrown. Failures throw `AuthKitError` with the AuthKit `code`
   (`errorMetadata(err, code)` reads its typed metadata).
 - A password sign-in parked at `verification_required` carries a
   `password_proof`; `confirmVerification` sends it with that address's code,
   so the account keeps its password.
+- A new device past the account's daily limit answers
+  `device_verification_required`: a code went to the owner's email or phone.
+  `confirmDeviceVerification` finishes the sign-in with it;
+  `sendDeviceVerification` resends it, or to the other `channels` entry. Too
+  many accounts from one device is `too_many_accounts` (429, `Retry-After`).
 - 2FA factors: `setupTwoFactor` starts one (TOTP answers its secret, email and
   SMS send a code), `addTwoFactorFactor` confirms it and adopts the
   re-verified session. A forced enrollment passes the step's
@@ -238,10 +243,11 @@ import { SolanaSignInButton } from "@openrails/auth-ui/solana"
 
 - `SignInDialog` (controlled) and `SignInPanel` (inline card) run the whole
   flow: password and popup provider sign-in, 2FA challenge (factor switch,
-  resend, backup code), forced 2FA enrollment, account recovery, contact
-  verification, registration with availability checks and code verification,
-  and forgot password. `LoginForm`, `RegisterForm`, `ForgotPasswordForm`,
-  `TwoFactorChallenge` and `TwoFactorEnrollment` are exported on their own.
+  resend, backup code), forced 2FA enrollment, a new device's code, account
+  recovery, contact verification, registration with availability checks and
+  code verification, and forgot password. `LoginForm`, `RegisterForm`,
+  `ForgotPasswordForm`, `TwoFactorChallenge`, `NewDeviceVerification` and
+  `TwoFactorEnrollment` are exported on their own.
 - Close on `onSignedIn`, not on a session change: when 2FA enrollment issues
   backup codes the session is already live, and `onSignedIn` fires only after
   the user acknowledges them. The dialog closes itself then and can't be

@@ -222,7 +222,7 @@ func run(ctx context.Context) error {
 }
 ```
 
-Mounting gives your users all of this: 68 routes under `/api/v1`, plus the public keys that let anyone verify AuthKit's tokens. Every request and response shape is in [`api/openapi.json`](api/openapi.json), generated from the route catalog.
+Mounting gives your users all of this: 70 routes under `/api/v1`, plus the public keys that let anyone verify AuthKit's tokens. Every request and response shape is in [`api/openapi.json`](api/openapi.json), generated from the route catalog.
 
 **Signing up and signing in** (every sign-in answers an `AuthResult`: signed in, or the one next step, such as a second factor)
 
@@ -239,8 +239,11 @@ Mounting gives your users all of this: 68 routes under `/api/v1`, plus the publi
 | `POST /api/v1/passkeys/login/begin`, `/finish` | sign in with a passkey |
 | `POST /api/v1/2fa/challenge` | send the second-factor code to another of your factors |
 | `POST /api/v1/2fa/verify` | finish signing in with it |
+| `POST /api/v1/device-verification/confirm`, `/send` | finish signing in on a new device with the code sent to the account's owner, or send it again |
 | `POST /api/v1/account/recovery/confirm` | undo deleting your own account, within 30 days |
 | `POST /api/v1/invitations/redeem` | accept an invitation |
+
+Sign-ins are limited per device over 24 hours (`Config.SignIn`): 5 accounts per browser (20 per address for a client without AuthKit's device cookie), and 10 new devices per account. Signing back into a counted account, or from a device the account used in the last 30 days, is never limited. Past the device limit, a new device enters a code sent to the owner's email or phone, which a posted password doesn't get you.
 
 **Sessions and tokens**
 

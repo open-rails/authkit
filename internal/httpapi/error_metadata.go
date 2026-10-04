@@ -24,6 +24,8 @@ func ErrorMetadata() map[errmodel.Code]any {
 	return map[errmodel.Code]any{
 		errmodel.CodeRateLimited:               errmodel.ActionAvailability{},
 		errmodel.CodeServerBusy:                errmodel.RetryAfter{},
+		errmodel.CodeTooManyAccounts:           errmodel.SignInLimit{},
+		errmodel.CodeTooManyDevices:            errmodel.SignInLimit{},
 		errmodel.CodeRenameRateLimited:         errmodel.ActionAvailability{},
 		errmodel.CodeStepUpRequired:            authflow.StepUpRequired{},
 		errmodel.CodeVerificationRequired:      errmodel.ContactProofRequired{},

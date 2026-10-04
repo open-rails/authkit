@@ -139,6 +139,7 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 		RedirectURI: redirectURI,
 		UI:          login.ui,
 		PopupNonce:  login.popupNonce,
+		Device:      authflow.SignInDeviceFrom(r.Context()),
 	}
 	if start.link != nil {
 		sd.LinkUserID = start.link.UserID
@@ -234,7 +235,8 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	if sd.LinkUserID != "" {
 		link = &authflow.ExternalLinkAuthorization{UserID: sd.LinkUserID, SessionID: sd.LinkSessionID, AuthenticatedAt: sd.LinkAuthenticatedAt}
 	}
-	out, err := s.svc.CompleteExternalLogin(r.Context(), authflow.ExternalLoginInput{
+	// The sign-in counts against the device that began it.
+	out, err := s.svc.CompleteExternalLogin(authflow.WithSignInDevice(r.Context(), sd.Device), authflow.ExternalLoginInput{
 		Identity: authflow.ExternalIdentity{
 			Provider: name, Issuer: p.Issuer(), Subject: identity.Subject,
 			Email: identity.Email, EmailVerified: identity.EmailVerified && p.TrustsEmailVerification(),
