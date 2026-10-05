@@ -530,7 +530,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
   // True when res is a contact_unproven refusal the handler has now resolved.
   const contactProven = async (
     res: Response,
-    gen: number
+    requestGeneration: number
   ): Promise<boolean> => {
     const handler = proveContact
     if (res.status !== 403 || !handler) return false
@@ -538,7 +538,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     const meta = errorMetadata(err, "verification_required")
     const identifier = str(meta?.identifier)
     if (meta?.reason !== "contact_unproven" || !identifier) return false
-    if (gen !== generation) throw new AuthSessionChangedError()
+    if (requestGeneration !== generation) throw new AuthSessionChangedError()
     return handler({ identifier, channel: str(meta.channel) ?? "email" })
   }
 
@@ -577,15 +577,17 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     const target = url(baseUrl, path, opts.query)
     const explicit = opts.bearer !== undefined
     if (!explicit) await ready()
-    const gen = generation
+    const requestGeneration = generation
     const bearer = explicit ? (opts.bearer ?? null) : accessToken()
     let res = await send(method, target, opts, bearer)
     if (res.status === 401 && !explicit && bearer) {
       const err = await readAuthKitError(res.clone())
       if (STALE_BEARER.has(err.code as AuthErrorCode)) {
-        if (gen !== generation) throw new AuthSessionChangedError()
+        if (requestGeneration !== generation)
+          throw new AuthSessionChangedError()
         if (await refresh()) {
-          if (gen !== generation) throw new AuthSessionChangedError()
+          if (requestGeneration !== generation)
+            throw new AuthSessionChangedError()
           const next = accessToken()
           if (next && next !== bearer)
             res = await send(method, target, opts, next)
@@ -593,8 +595,8 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       }
     }
     // Proving the address may rotate the session: retry with the new bearer.
-    if (await contactProven(res, gen)) {
-      if (gen !== generation) throw new AuthSessionChangedError()
+    if (await contactProven(res, requestGeneration)) {
+      if (requestGeneration !== generation) throw new AuthSessionChangedError()
       res = await send(method, target, opts, explicit ? bearer : accessToken())
     }
     if (!res.ok) throw await readAuthKitError(res)
@@ -617,20 +619,24 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       return doFetch(source, { ...init, headers })
     }
     await ready()
-    const gen = generation
+    const requestGeneration = generation
     const bearer = accessToken()
     let res = await attempt(bearer, input)
     if (res.status === 401 && bearer) {
-      if (gen !== generation) throw new AuthSessionChangedError()
+      if (requestGeneration !== generation) throw new AuthSessionChangedError()
       if (await refresh()) {
-        if (gen !== generation) throw new AuthSessionChangedError()
+        if (requestGeneration !== generation)
+          throw new AuthSessionChangedError()
         const next = accessToken()
         if (next && next !== bearer) res = await attempt(next, original)
       }
     }
     // A Request body is consumed; only plain inputs are retried.
-    if (!(input instanceof Request) && (await contactProven(res, gen))) {
-      if (gen !== generation) throw new AuthSessionChangedError()
+    if (
+      !(input instanceof Request) &&
+      (await contactProven(res, requestGeneration))
+    ) {
+      if (requestGeneration !== generation) throw new AuthSessionChangedError()
       res = await attempt(accessToken(), input)
     }
     return res
