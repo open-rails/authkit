@@ -3,7 +3,7 @@ import { expect, it, vi } from "vitest"
 
 import { createAuthClient } from "./client.ts"
 import { AuthSessionChangedError } from "./errors.ts"
-import { complete, deferred, json, tokens } from "./testing.ts"
+import { authError, complete, deferred, json, tokens } from "./testing.ts"
 
 const signedIn = async (fetch: typeof globalThis.fetch, sub: string) => {
   const client = createAuthClient({ fetch })
@@ -18,6 +18,133 @@ const userId = (client: ReturnType<typeof createAuthClient>) => {
   const s = client.getSnapshot()
   return s.status === "authenticated" ? s.userId : null
 }
+
+it.each([
+  ["authkit", 401],
+  ["host", 401],
+  ["authkit", 403],
+  ["host", 403],
+] as const)(
+  "%s mutations do not retry a %i refusal under a replacement session",
+  async (transport, status) => {
+    const pending = deferred<Response>()
+    const fetch = vi
+      .fn()
+      .mockReturnValueOnce(pending.promise)
+      .mockImplementation(async (url: RequestInfo | URL) =>
+        String(url).endsWith("/token")
+          ? tokens("B")
+          : new Response(null, { status: 204 })
+      )
+    const client = await signedIn(fetch, "A")
+    const prove = vi.fn().mockResolvedValue(true)
+    client.onContactProofRequired(prove)
+    const changing =
+      transport === "authkit"
+        ? client.changeEmail("a-new@example.test")
+        : client.authFetch("/host/settings", { method: "PUT" })
+    const rejected = expect(changing).rejects.toBeInstanceOf(
+      AuthSessionChangedError
+    )
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+    await login(client, "B")
+    pending.resolve(
+      status === 401
+        ? authError(401, "token_expired")
+        : authError(403, "verification_required", {
+            identifier: "a@example.test",
+            channel: "email",
+            reason: "contact_unproven",
+          })
+    )
+    await rejected
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(prove).not.toHaveBeenCalled()
+    expect(userId(client)).toBe("B")
+  }
+)
+
+it.each(["authkit", "host"] as const)(
+  "%s mutations recheck the session after refresh completes",
+  async (transport) => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(authError(401, "token_expired"))
+      .mockResolvedValueOnce(tokens("A", 9_999_999_998))
+    const client = await signedIn(fetch, "A")
+    const off = client.subscribe(() => {
+      off()
+      void login(client, "B")
+    })
+    const changing =
+      transport === "authkit"
+        ? client.changeEmail("a-new@example.test")
+        : client.authFetch("/host/settings", { method: "PUT" })
+    await expect(changing).rejects.toBeInstanceOf(AuthSessionChangedError)
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(userId(client)).toBe("B")
+  }
+)
+
+it.each(["authkit", "host"] as const)(
+  "%s contact-proof retries stay bound to their session while allowing token rotation",
+  async (transport) => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        authError(403, "verification_required", {
+          identifier: "a@example.test",
+          channel: "email",
+          reason: "contact_unproven",
+        })
+      )
+      .mockResolvedValueOnce(tokens("A", 9_999_999_998))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+    const client = await signedIn(fetch, "A")
+    client.onContactProofRequired(async () => client.refresh())
+    if (transport === "authkit") await client.changeEmail("a-new@example.test")
+    else await client.authFetch("/host/settings", { method: "PUT" })
+    expect(fetch).toHaveBeenCalledTimes(3)
+    expect(
+      new Headers(fetch.mock.calls[2][1]?.headers).get("Authorization")
+    ).toBe(`Bearer ${client.getAccessToken()}`)
+    expect(userId(client)).toBe("A")
+  }
+)
+
+it.each(["authkit", "host"] as const)(
+  "%s mutations do not retry after the account changes during contact proof",
+  async (transport) => {
+    const proof = deferred<boolean>()
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(
+        authError(403, "verification_required", {
+          identifier: "a@example.test",
+          channel: "email",
+          reason: "contact_unproven",
+        })
+      )
+    const client = await signedIn(fetch, "A")
+    const prove = vi.fn(() => proof.promise)
+    client.onContactProofRequired(prove)
+    const changing =
+      transport === "authkit"
+        ? client.changeEmail("a-new@example.test")
+        : client.authFetch("/host/settings", { method: "PUT" })
+    const rejected = expect(changing).rejects.toBeInstanceOf(
+      AuthSessionChangedError
+    )
+    await vi.waitFor(() => expect(prove).toHaveBeenCalledOnce())
+    await login(client, "B")
+    proof.resolve(true)
+    await rejected
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(userId(client)).toBe("B")
+  }
+)
 
 it.each([false, true])(
   "discards a refresh that lands after logout (cold boot=%s)",

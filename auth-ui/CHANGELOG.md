@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Authenticated requests refuse a refresh or contact-proof retry after the
+  session is replaced, instead of repeating the old account's action under the
+  new account. Same-session token rotation continues to work.
+
 - Sign-in limits (AuthKit `Config.SignIn`). A new device past the account's
   daily limit answers `device_verification_required` with its
   `device_verification` step: a code went to the owner's email or phone.
