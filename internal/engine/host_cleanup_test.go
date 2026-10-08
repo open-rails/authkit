@@ -15,7 +15,7 @@ func TestAccountLifecycleTerminalGCIsBoundedAndPreservesPendingWork(t *testing.T
 	pg := testdb.ScratchPostgres(t)
 	runtime, err := New(context.Background(), maintenanceConfig(), config.Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
-	t.Cleanup(runtime.Close)
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
 	ids := make([]string, 5)
 	var completedReceipt int64
 	for i := range ids {

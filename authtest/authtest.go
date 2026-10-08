@@ -81,7 +81,7 @@ func WithDeps(fn func(*authkit.Deps)) Option {
 //   - SignIn: every limit off, since tests sign many accounts in from one
 //     address.
 //   - Deps.KeySource: an RSA key generated once per test binary.
-//   - Schema and River.Schema: the scratch schema, unless set.
+//   - Schema and RiverSchema: the scratch schema, unless set.
 //
 // The Client is not started: call Start when a test needs River's work, such
 // as Deps.OnEvent or the deletion hooks. Cleanup closes the Client and drops
@@ -120,8 +120,8 @@ func New(t testing.TB, opts ...Option) (*authkit.Client, *Outbox) {
 	if cfg.Schema == "" {
 		cfg.Schema = scratchSchema(t, deps.Postgres)
 	}
-	if cfg.River.Schema == "" {
-		cfg.River.Schema = cfg.Schema
+	if cfg.RiverSchema == "" {
+		cfg.RiverSchema = cfg.Schema
 	}
 	if err := authkit.Migrate(ctx, deps.Postgres, cfg, authkit.MigrateOptions{}); err != nil {
 		t.Fatalf("authtest: migrate: %v", err)
@@ -130,7 +130,7 @@ func New(t testing.TB, opts ...Option) (*authkit.Client, *Outbox) {
 	if err != nil {
 		t.Fatalf("authtest: new client: %v", err)
 	}
-	t.Cleanup(auth.Close)
+	closeAtCleanup(t, auth)
 	return auth, outbox
 }
 
@@ -163,8 +163,16 @@ func Replica(t testing.TB, auth *authkit.Client, opts ...Option) *authkit.Client
 	if err != nil {
 		t.Fatalf("authtest: replica: %v", err)
 	}
-	t.Cleanup(replica.Close)
+	closeAtCleanup(t, replica)
 	return replica
+}
+
+func closeAtCleanup(t testing.TB, auth *authkit.Client) {
+	t.Cleanup(func() {
+		if err := auth.Close(context.Background()); err != nil {
+			t.Errorf("authtest: close: %v", err)
+		}
+	})
 }
 
 // StaleSession moves the sign-in of the session behind accessToken a day into

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	riverhelpers "github.com/open-rails/helpers/river"
 	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 )
 
 // riverConfig configures a River client AuthKit owns. It logs through the
@@ -36,48 +38,45 @@ func maintenanceQueue(schema string) string {
 }
 
 type riverMaintenance struct {
+	// producer inserts AuthKit's jobs into RiverSchema in the caller's
+	// transaction from New on; they wait there for whichever fleet runs them.
+	producer   *river.Client[pgx.Tx]
 	mu         sync.Mutex
-	client     *river.Client[pgx.Tx]
-	pool       *pgxpool.Pool // the managed client's own; nil in host mode
-	fromHost   bool
+	host       *pgxpool.Pool         // the host pool Start clones its own River's pool from
+	client     *river.Client[pgx.Tx] // the fleet RiverJobs is bound to
+	pool       *pgxpool.Pool         // Start's own River pool; nil on a host fleet
+	own        bool                  // Start built and started client; Close stops it
 	registered bool
+	started    bool
 	failed     bool
 	closed     bool
 }
 
-// riverPoolConns sizes the managed River client's own pool: a fetcher per
+// riverPoolConns sizes the pool of the River client Start builds: a fetcher per
 // queue (five, one worker each), the leader elector, the periodic enqueuer
 // and the completer. River's deadlines (5s to keep leadership, 10s to fetch)
 // include waiting for a connection, so on the request pool a small or busy
 // host pool made the leader resign and stopped every periodic job.
 const riverPoolConns = 5
 
-func (s *Engine) initRiver(host *pgxpool.Pool) error {
+// initRiver builds the insert-only producer and records RiverSchema as this
+// issuer's account-lifecycle fleet. It starts nothing: Start runs the jobs.
+func (s *Engine) initRiver(ctx context.Context, host *pgxpool.Pool) error {
 	if s.pg == nil {
 		return nil
 	}
-	s.maintenance = &riverMaintenance{fromHost: s.cfg.River.HostOwned}
-	if s.maintenance.fromHost {
-		return nil
-	}
-	pool, err := schemaPool(host, s.dbSchema(), func(c *pgxpool.Config) {
-		c.MaxConns, c.MinConns, c.MaxConnIdleTime = riverPoolConns, 0, time.Minute
-	})
+	producer, err := river.NewClient(riverpgxv5.New(s.pg), riverConfig(s.cfg.RiverSchema))
 	if err != nil {
-		return err
+		return fmt.Errorf("authkit: construct River producer: %w", err)
 	}
-	client, err := riverhelpers.New(context.Background(), pool, riverConfig(s.cfg.River.Schema), s.RiverJobs())
-	if err != nil {
-		pool.Close()
-		return fmt.Errorf("authkit: construct managed River: %w", err)
-	}
-	s.maintenance.client, s.maintenance.pool = client, pool
-	return nil
+	s.maintenance = &riverMaintenance{producer: producer, host: host}
+	return s.registerAccountDeliveryFleet(ctx, s.cfg.RiverSchema)
 }
 
-// RiverJobs contributes AuthKit maintenance to one host-owned fleet. It does not
-// construct or start a client. Compose once, before serving requests, and close
-// the library if composition fails. The host controls Start and Stop.
+// RiverJobs contributes AuthKit's jobs to one fleet: the host's, which it
+// passes to Start with WithRiverClient, or the one Start builds itself. It
+// neither constructs nor starts a client. Compose once; a failed composition
+// needs a new Client.
 func (s *Engine) RiverJobs() riverhelpers.Contribution {
 	claimed := false
 	return riverhelpers.NewContribution("authkit", func(_ context.Context, cfg *river.Config) error {
@@ -107,7 +106,7 @@ func (s *Engine) RiverJobs() riverhelpers.Contribution {
 		}
 		m.client = binding.Client
 		m.mu.Unlock()
-		return s.registerAccountDeliveryFleet(ctx, binding.Client)
+		return nil
 	}, func() error {
 		if !claimed || s == nil || s.maintenance == nil {
 			return nil
@@ -127,6 +126,11 @@ func (s *Engine) registerRiver(cfg *river.Config) error {
 	}
 	if s.maintenance.registered {
 		return fmt.Errorf("authkit: River workers already registered")
+	}
+	// Migrate prepared River's tables, and granted the runtime role, in
+	// RiverSchema only.
+	if cfg.Schema != s.cfg.RiverSchema {
+		return fmt.Errorf("authkit: River fleet schema %q differs from Config.RiverSchema %q", cfg.Schema, s.cfg.RiverSchema)
 	}
 	queue := maintenanceQueue(s.dbSchema())
 	if existing, ok := cfg.Queues[queue]; ok && existing.MaxWorkers < 1 {
@@ -186,7 +190,7 @@ func (s *Engine) registerRiver(cfg *river.Config) error {
 	if _, ok := cfg.Queues[finalizerQueue]; !ok {
 		cfg.Queues[finalizerQueue] = river.QueueConfig{MaxWorkers: 1}
 	}
-	interval := s.cfg.River.CleanupInterval
+	interval := s.cfg.CleanupInterval
 	cfg.PeriodicJobs = append(cfg.PeriodicJobs, river.NewPeriodicJob(
 		river.PeriodicInterval(interval),
 		func() (river.JobArgs, *river.InsertOpts) {
@@ -200,51 +204,94 @@ func (s *Engine) registerRiver(cfg *river.Config) error {
 	return nil
 }
 
-// Start starts AuthKit-owned maintenance after privileged initialization. It
-// performs no migrations. In host mode it checks registration only: the host
-// starts its shared client after composing every library's worker registry.
-// A client without PostgreSQL (for example verify-only tests) has no jobs.
-func (s *Engine) Start(ctx context.Context) error {
-	s.startSenderHealth()
-	if s.maintenance == nil {
+// Start starts the senders' health checks and River. Without a fleet it builds
+// and starts AuthKit's own River client in RiverSchema; with one it requires
+// the fleet RiverJobs is bound to and leaves its start to the host. It runs no
+// DDL. A client without PostgreSQL (for example verify-only tests) has no jobs.
+func (s *Engine) Start(ctx context.Context, fleet *river.Client[pgx.Tx]) error {
+	m := s.maintenance
+	if m == nil {
+		if fleet != nil {
+			return errors.New("authkit: WithRiverClient requires Deps.Postgres")
+		}
+		s.startSenderHealth()
 		return nil
 	}
+	m.mu.Lock()
+	switch {
+	case m.closed:
+		m.mu.Unlock()
+		return errors.New("authkit: client is closed")
+	case m.started:
+		m.mu.Unlock()
+		return errors.New("authkit: already started")
+	case m.failed:
+		m.mu.Unlock()
+		return errors.New("authkit: River composition failed; recreate the client")
+	case fleet != nil && (!m.registered || m.client != fleet):
+		m.mu.Unlock()
+		return errors.New("authkit: WithRiverClient takes the fleet riverhelpers.New built with RiverJobs")
+	case fleet == nil && m.registered:
+		m.mu.Unlock()
+		return errors.New("authkit: RiverJobs is composed into a host fleet; pass it to Start with WithRiverClient")
+	}
+	m.started = true
+	m.mu.Unlock()
+	if fleet == nil {
+		if err := s.startOwnRiver(ctx); err != nil {
+			return err
+		}
+	}
+	s.startSenderHealth()
+	return nil
+}
+
+// startOwnRiver composes RiverJobs into a client of AuthKit's own and starts
+// it. Close, not ctx, stops it.
+func (s *Engine) startOwnRiver(ctx context.Context) error {
 	m := s.maintenance
+	pool, err := schemaPool(m.host, s.dbSchema(), func(c *pgxpool.Config) {
+		c.MaxConns, c.MinConns, c.MaxConnIdleTime = riverPoolConns, 0, time.Minute
+	})
+	if err != nil {
+		return err
+	}
+	client, err := riverhelpers.New(ctx, pool, riverConfig(s.cfg.RiverSchema), s.RiverJobs())
+	if err != nil {
+		pool.Close()
+		return fmt.Errorf("authkit: construct River: %w", err)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed {
-		return fmt.Errorf("authkit: client is closed")
+		pool.Close()
+		return errors.New("authkit: client is closed")
 	}
-	if m.failed || !m.registered || m.client == nil {
-		return fmt.Errorf("authkit: compose RiverJobs with riverhelpers.New before starting the host fleet")
-	}
-	if m.fromHost {
-		return nil
-	}
-	return m.client.Start(ctx)
+	m.pool, m.own = pool, true
+	return client.Start(context.WithoutCancel(ctx))
 }
 
-func (s *Engine) closeRiver() {
-	if s.maintenance == nil {
-		return
-	}
+// closeRiver revokes the bound producers and stops the client Start built,
+// returning its pool for Close to release. A host fleet keeps running.
+func (s *Engine) closeRiver(ctx context.Context) (*pgxpool.Pool, error) {
 	m := s.maintenance
+	if m == nil {
+		return nil, nil
+	}
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
-		return
+		return nil, nil
 	}
 	m.closed = true
-	client, owned := m.client, !m.fromHost
+	client, pool, own := m.client, m.pool, m.own
 	m.mu.Unlock()
 	// Active lifecycle workers may still read the binding as cancellation
 	// propagates. Never wait for their shutdown while holding that mutex.
-	if client != nil && owned {
-		_ = client.StopAndCancel(context.Background())
+	if own {
+		return pool, client.StopAndCancel(ctx)
 	}
-	if m.pool != nil {
-		m.pool.Close()
-	}
+	return nil, nil
 }
 
 type cleanupAuthStateArgs struct {

@@ -21,8 +21,8 @@ func TestCloseWithPendingAPIKeyTouch(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 	client := &Engine{pg: pool, q: db.New(pool)}
-	client.Close()
-	client.Close()
+	client.Close(context.Background())
+	client.Close(context.Background())
 
 	_, err = pool.Exec(context.Background(), "SELECT 1")
 	require.ErrorIs(t, err, puddle.ErrClosedPool, "Close must still release the owned pool")

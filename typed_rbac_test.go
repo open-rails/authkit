@@ -1,6 +1,7 @@
 package authkit_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -33,7 +34,7 @@ func TestChannelDeletionModels(t *testing.T) {
 	cfg.Roles = rbac
 	cfg.TwoFactor.Mode = iam.TwoFactorDisabled // root:owner needs MFA; this test is about reach
 	auth := newPublicRuntime(t, cfg, pg.Pool)
-	t.Cleanup(auth.Close)
+	t.Cleanup(func() { _ = auth.Close(context.Background()) })
 
 	user := func(name string) string {
 		u, err := auth.CreateUser(ctx, iam.NewUser{Email: name + "@deletion.test", Username: name})
@@ -128,7 +129,7 @@ func TestRolePermissions(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.Roles = rbac
 	auth := newPublicRuntime(t, cfg, pg.Pool)
-	t.Cleanup(auth.Close)
+	t.Cleanup(func() { _ = auth.Close(context.Background()) })
 
 	grants := func(role iam.Role) []iam.Perm {
 		t.Helper()

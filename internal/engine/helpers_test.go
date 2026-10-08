@@ -82,7 +82,7 @@ func newTestEngine(t testing.TB, cfg config.Config, deps config.Deps) *Engine {
 	}
 	e, err := New(context.Background(), cfg, deps)
 	require.NoError(t, err)
-	t.Cleanup(e.Close)
+	t.Cleanup(func() { _ = e.Close(context.Background()) })
 	return e
 }
 

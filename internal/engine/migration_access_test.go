@@ -22,21 +22,21 @@ func TestMigrateProvisionsRuntimePool(t *testing.T) {
 			runtimePool := migrationRuntimePool(t, pg)
 			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 			defer cancel()
-			_, err := pg.Pool.Exec(ctx, "CREATE TABLE public.host_data(id bigserial); CREATE TABLE public.river_job(id bigserial)")
+			_, err := pg.Pool.Exec(ctx, "CREATE TABLE public.host_data(id bigserial)")
 			require.NoError(t, err)
 			adminCfg := pg.Pool.Config()
 			adminCfg.MaxConns = 1
 			admin, err := pgxpool.NewWithConfig(ctx, adminCfg)
 			require.NoError(t, err)
 			t.Cleanup(admin.Close)
-			hostRiver := config.Config{Schema: schema, River: config.RiverConfig{HostOwned: true}}
+			migrate := config.Config{Schema: schema}
 			opts := config.MigrateOptions{RuntimePool: runtimePool}
 			start := make(chan struct{})
 			results := make(chan error, 6)
 			for range 6 {
 				go func() {
 					<-start
-					results <- Migrate(ctx, admin, hostRiver, opts)
+					results <- Migrate(ctx, admin, migrate, opts)
 				}()
 			}
 			close(start)
@@ -57,12 +57,12 @@ func TestMigrateProvisionsRuntimePool(t *testing.T) {
 			// supply the function permission used by canonical-name triggers.
 			_, err = admin.Exec(ctx, "REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA "+pgx.Identifier{schema}.Sanitize()+" FROM PUBLIC")
 			require.NoError(t, err)
-			require.NoError(t, Migrate(ctx, admin, hostRiver, opts))
+			require.NoError(t, Migrate(ctx, admin, migrate, opts))
 			assertMigrationRuntimeUser(t, runtimePool)
-			for _, table := range []string{"public.host_data", "public.river_job", "public.migrations"} {
+			for table, granted := range map[string]bool{"public.host_data": false, "public.migrations": false, "public.river_migration": false, "public.river_job": true} {
 				var allowed bool
 				require.NoError(t, runtimePool.QueryRow(ctx, "SELECT has_table_privilege(current_user,$1,'SELECT,INSERT,UPDATE,DELETE')", table).Scan(&allowed))
-				require.False(t, allowed, "host River and unrelated objects retain host-owned access: "+table)
+				require.Equal(t, granted, allowed, "only AuthKit's and River's runtime objects are granted: "+table)
 			}
 			var canCreate bool
 			require.NoError(t, runtimePool.QueryRow(ctx, "SELECT has_schema_privilege(current_user,$1,'CREATE')", schema).Scan(&canCreate))
@@ -70,10 +70,10 @@ func TestMigrateProvisionsRuntimePool(t *testing.T) {
 
 			signer := testkeys.RSA("runtime-access-test")
 			cfg := maintenanceConfig()
-			cfg.Schema, cfg.River, cfg.Keys = schema, hostRiver.River, config.KeysConfig{}
+			cfg.Schema, cfg.Keys = schema, config.KeysConfig{}
 			client, err := New(ctx, cfg, config.Deps{Postgres: runtimePool, KeySource: testkeys.Source(signer)})
 			require.NoError(t, err)
-			t.Cleanup(client.Close)
+			t.Cleanup(func() { _ = client.Close(context.Background()) })
 			registered, err := client.Register(ctx, authflow.RegisterInput{Identifier: "runtime@example.test", Username: "runtimeuser", Password: "Pool-Test-Password-49!"})
 			require.NoError(t, err)
 			require.Equal(t, authflow.RegisterSignedIn, registered.Kind)
@@ -85,7 +85,7 @@ func TestMigrateProvisionsRuntimePool(t *testing.T) {
 			byName, err := client.getUserByUsername(ctx, "runtimeuser")
 			require.NoError(t, err)
 			require.Equal(t, user.ID, byName.ID)
-			client.Close()
+			client.Close(context.Background())
 			require.NoError(t, admin.Ping(ctx))
 			require.NoError(t, runtimePool.Ping(ctx), "the initializer and client must leave the host pool open")
 			var searchPath string
@@ -120,7 +120,7 @@ func TestMigrateRuntimeIdentityValidation(t *testing.T) {
 	require.NoError(t, pg.Pool.QueryRow(ctx, "SELECT to_regnamespace('profiles') IS NOT NULL").Scan(&exists))
 	require.False(t, exists, "bad runtime configuration must fail before DDL or grants")
 	// An omitted runtime pool retains the existing migration-only contract.
-	require.NoError(t, Migrate(ctx, pg.Pool, config.Config{Schema: "profiles", River: config.RiverConfig{HostOwned: true}}, config.MigrateOptions{}))
+	require.NoError(t, Migrate(ctx, pg.Pool, config.Config{Schema: "profiles"}, config.MigrateOptions{}))
 	var allowed bool
 	require.NoError(t, runtimePool.QueryRow(ctx, "SELECT has_schema_privilege(current_user,'profiles','USAGE')").Scan(&allowed))
 	require.False(t, allowed)
@@ -137,7 +137,7 @@ func TestMigrateRuntimeIdentityValidation(t *testing.T) {
 	rolePool, err := pgxpool.NewWithConfig(ctx, cfg)
 	require.NoError(t, err)
 	defer rolePool.Close()
-	require.NoError(t, Migrate(ctx, pg.Pool, config.Config{Schema: "profiles", River: config.RiverConfig{HostOwned: true}}, config.MigrateOptions{RuntimePool: rolePool}))
+	require.NoError(t, Migrate(ctx, pg.Pool, config.Config{Schema: "profiles"}, config.MigrateOptions{RuntimePool: rolePool}))
 	require.NoError(t, runtimePool.QueryRow(ctx, "SELECT has_schema_privilege(current_user,'profiles','USAGE')").Scan(&allowed))
 	require.True(t, allowed)
 	assertMigrationRuntimeUser(t, runtimePool)

@@ -172,7 +172,7 @@ func newClient(t testing.TB, cfg authkit.Config, deps authkit.Deps) (*authkit.Cl
 	t.Helper()
 	auth, err := authkit.New(context.Background(), cfg, deps)
 	if err == nil {
-		t.Cleanup(auth.Close)
+		t.Cleanup(func() { _ = auth.Close(context.Background()) })
 	}
 	return auth, err
 }
@@ -181,7 +181,7 @@ func newClient(t testing.TB, cfg authkit.Config, deps authkit.Deps) (*authkit.Cl
 // release boots.
 func restart(t *testing.T, auth *authkit.Client, opts ...authtest.Option) *authkit.Client {
 	t.Helper()
-	auth.Close()
+	auth.Close(context.Background())
 	return authtest.Replica(t, auth, opts...)
 }
 

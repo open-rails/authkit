@@ -59,7 +59,7 @@ func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 		OnPurge: func(ctx context.Context, d iam.UserDeletion) error { return observe(ctx, "purge:"+d.ID, d.UserID) },
 	})
 	require.NoError(t, err)
-	t.Cleanup(runtime.Close)
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
 	client := runtime
 	user, err := client.createUser(t.Context(), "lifecycle@example.test", "lifecycle")
 	require.NoError(t, err)
@@ -127,7 +127,7 @@ func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 	// Run the real River client. Delivered events are receipt-idempotent, then
 	// the purge callback commits and schedules the private purge job, whose
 	// user.purged event follows.
-	require.NoError(t, runtime.Start(t.Context()))
+	require.NoError(t, runtime.Start(t.Context(), nil))
 	require.Eventually(t, func() bool {
 		var exists bool
 		err := pg.Pool.QueryRow(context.Background(), "SELECT EXISTS(SELECT 1 FROM profiles.users WHERE id=$1::uuid)", user.ID).Scan(&exists)
@@ -154,7 +154,7 @@ func TestAccountFinalizationPreservesForeignKeysAndCascadesMemberships(t *testin
 	cfg.Roles = roles
 	runtime, err := New(context.Background(), cfg, config.Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
-	t.Cleanup(runtime.Close)
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
 	client := runtime
 	user, err := client.createUser(t.Context(), "finalize-fk@example.test", "finalizefk")
 	require.NoError(t, err)
@@ -185,7 +185,7 @@ func TestAccountPurgeSweepsCredentialsBeforeTheRowGoes(t *testing.T) {
 	require.NoError(t, Migrate(t.Context(), pg.Pool, config.Config{}, config.MigrateOptions{}))
 	runtime, err := New(context.Background(), maintenanceConfig(), config.Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
-	t.Cleanup(runtime.Close)
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
 	ctx := t.Context()
 	user, err := runtime.createUser(ctx, "purged@example.test", "purgeduser")
 	require.NoError(t, err)
@@ -217,7 +217,7 @@ func TestAccountPurgeSweepsCredentialsBeforeTheRowGoes(t *testing.T) {
 
 	// A key no sweep has seen: only the purge-time sweep can revoke it.
 	leftover := key("leftover")
-	require.NoError(t, runtime.Start(ctx))
+	require.NoError(t, runtime.Start(ctx, nil))
 	require.Eventually(t, func() bool {
 		var exists bool
 		err := pg.Pool.QueryRow(context.Background(), "SELECT EXISTS(SELECT 1 FROM profiles.users WHERE id=$1::uuid)", user.ID).Scan(&exists)
@@ -239,7 +239,7 @@ func TestAccountRecoveryAndFinalizerSerializeAtDeadline(t *testing.T) {
 			pg := testdb.ScratchPostgres(t)
 			runtime, err := New(context.Background(), maintenanceConfig(), config.Deps{Postgres: pg.Pool})
 			require.NoError(t, err)
-			t.Cleanup(runtime.Close)
+			t.Cleanup(func() { _ = runtime.Close(context.Background()) })
 			user, err := runtime.createUser(t.Context(), name+"@example.test", name)
 			require.NoError(t, err)
 			require.NoError(t, runtime.softDelete(t.Context(), user.ID))

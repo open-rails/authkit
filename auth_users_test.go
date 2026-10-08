@@ -18,7 +18,7 @@ func newUsersRuntime(t *testing.T) *authkit.Client {
 	t.Helper()
 	pg := testdb.ScratchPostgres(t)
 	auth := newPublicRuntime(t, testConfig(t), pg.Pool)
-	t.Cleanup(auth.Close)
+	t.Cleanup(func() { _ = auth.Close(context.Background()) })
 	return auth
 }
 
@@ -249,7 +249,7 @@ func TestListGroupMembersLiveOnlyWithUsers(t *testing.T) {
 	member := team.Role("member", team.Permission("docs", "read"))
 	cfg.Roles = roles
 	auth := newPublicRuntime(t, cfg, pg.Pool)
-	t.Cleanup(auth.Close)
+	t.Cleanup(func() { _ = auth.Close(context.Background()) })
 	ctx := t.Context()
 	op := iam.SystemActor()
 	g, err := auth.CreateGroup(ctx, iam.NewGroup{Persona: team.Persona})
@@ -316,7 +316,7 @@ func TestUserDirectoryEntries(t *testing.T) {
 	deps.Entitlements = billing.of
 	auth, err := authkit.New(t.Context(), cfg, deps)
 	require.NoError(t, err)
-	t.Cleanup(auth.Close)
+	t.Cleanup(func() { _ = auth.Close(context.Background()) })
 	ctx := t.Context()
 	var ids []string
 	for _, name := range []string{"dira", "dirb", "dirc"} {
@@ -367,7 +367,7 @@ func TestUsersIDIsAHostForeignKeyTarget(t *testing.T) {
 	}
 	auth, err := authkit.New(ctx, testConfig(t), deps)
 	require.NoError(t, err)
-	t.Cleanup(auth.Close)
+	t.Cleanup(func() { _ = auth.Close(context.Background()) })
 	_, err = pg.Pool.Exec(ctx, `CREATE TABLE public.host_notes (
 		id serial PRIMARY KEY,
 		user_id uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,

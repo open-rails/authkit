@@ -80,7 +80,7 @@ func TestReadmeRolesBlock(t *testing.T) {
 	cfg.Roles = rbac
 	auth, err := authkit.New(ctx, cfg, testDeps(pg.Pool))
 	require.NoError(t, err, "README roles block: authkit.New must accept it")
-	t.Cleanup(auth.Close)
+	t.Cleanup(func() { _ = auth.Close(context.Background()) })
 
 	gin.SetMode(gin.TestMode)
 	require.NoError(t, authkitgin.Mount(gin.New(), auth))
@@ -201,7 +201,7 @@ func TestReadmeRoutesTable(t *testing.T) {
 	cfg.Roles = rbac
 	auth, err := authkit.New(t.Context(), cfg, testDeps(pg.Pool))
 	require.NoError(t, err)
-	t.Cleanup(auth.Close)
+	t.Cleanup(func() { _ = auth.Close(context.Background()) })
 
 	readme, err := os.ReadFile("README.md")
 	require.NoError(t, err)

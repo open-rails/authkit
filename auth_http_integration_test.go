@@ -36,7 +36,7 @@ func TestNewServesConfiguredCapabilities(t *testing.T) {
 		HTTP:          &authkit.HTTPConfig{DirectPeerIP: true, APIPath: "/auth"},
 	}, authkit.Deps{Postgres: testdb.Pool(t), KeySource: testkeys.Source(signer)})
 	require.NoError(t, err)
-	t.Cleanup(auth.Close)
+	t.Cleanup(func() { _ = auth.Close(context.Background()) })
 
 	mux := http.NewServeMux()
 	require.NoError(t, auth.Mount(mux))

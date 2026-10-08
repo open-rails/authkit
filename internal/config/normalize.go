@@ -129,8 +129,14 @@ func Normalize(c Config, d Deps) (Config, error) {
 	if c.SessionEventRetention == 0 {
 		c.SessionEventRetention = 365 * 24 * time.Hour
 	}
-	if c.River, err = NormalizeRiver(c.River); err != nil {
+	if c.RiverSchema, err = NormalizeRiverSchema(c.RiverSchema); err != nil {
 		return Config{}, err
+	}
+	if c.CleanupInterval == 0 {
+		c.CleanupInterval = time.Hour
+	}
+	if c.CleanupInterval < time.Second {
+		return Config{}, errors.New("authkit: CleanupInterval must be at least one second")
 	}
 	if err := normalizeMerchant(&c.Merchant); err != nil {
 		return Config{}, err
@@ -523,22 +529,16 @@ func NormalizeSchema(raw string) (string, error) {
 	return schema, nil
 }
 
-// NormalizeRiver defaults River's schema to public and cleanup to hourly.
-func NormalizeRiver(r RiverConfig) (RiverConfig, error) {
-	r.Schema = strings.TrimSpace(r.Schema)
-	if r.Schema == "" {
-		r.Schema = "public"
+// NormalizeRiverSchema defaults River's schema to public.
+func NormalizeRiverSchema(raw string) (string, error) {
+	schema := strings.TrimSpace(raw)
+	if schema == "" {
+		schema = "public"
 	}
-	if !db.ValidSchemaName(r.Schema) {
-		return r, fmt.Errorf("authkit: invalid River.Schema %q", r.Schema)
+	if !db.ValidSchemaName(schema) {
+		return "", fmt.Errorf("authkit: invalid RiverSchema %q", raw)
 	}
-	if r.CleanupInterval == 0 {
-		r.CleanupInterval = time.Hour
-	}
-	if r.CleanupInterval < time.Second {
-		return r, errors.New("authkit: River.CleanupInterval must be at least one second")
-	}
-	return r, nil
+	return schema, nil
 }
 
 func normalizeHTTP(h *HTTPConfig, c Config, d Deps) error {

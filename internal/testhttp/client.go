@@ -25,7 +25,6 @@ func ClientAt(t testing.TB, issuer string, httpCfg *authkit.HTTPConfig, opts ...
 	auth, _ := authtest.New(t, append([]authtest.Option{authtest.WithConfig(func(c *authkit.Config) {
 		c.Token = authkit.TokenConfig{Issuer: issuer, IssuedAudiences: []string{"test"}}
 		c.TwoFactor.Mode = iam.TwoFactorDisabled
-		c.River.HostOwned = true
 		if httpCfg != nil && httpCfg.RateLimits == nil {
 			h := *httpCfg
 			h.RateLimits = c.HTTP.RateLimits

@@ -598,7 +598,7 @@ func TestSecurityImportProviders(t *testing.T) {
 // itself, its recovery window runs from the imported DeletedAt, and past the
 // window it is purged after OnPurge (then user.purged) with its username
 // kept. Like every import it records no event of its own; a restore records
-// user.restored. Without River such rows are refused whole.
+// user.restored.
 func TestSecurityImportedDeletionLifecycle(t *testing.T) {
 	var mu sync.Mutex
 	stages := map[string][]string{}
@@ -669,13 +669,6 @@ func TestSecurityImportedDeletionLifecycle(t *testing.T) {
 	}, 30*time.Second, 50*time.Millisecond, "recent %v", stagesOf(recentID))
 	h.login(account{id: recentID, email: recent.Email})
 
-	t.Run("without River", func(t *testing.T) {
-		bare := newHost(t, withHTTP(generousLimits), authtest.WithConfig(func(c *authkit.Config) { c.River.HostOwned = true }))
-		row := deletedRow("impnoriver", &recentAt)
-		_, err := bare.auth.ImportUsers(ctx, []iam.ImportUser{row, deletedRow("impnoriverlive", nil)}, iam.ImportOptions{})
-		require.Error(t, err)
-		require.False(t, bare.emailTaken(row.Email))
-	})
 }
 
 // providerOwner is the account holding subject, or "".

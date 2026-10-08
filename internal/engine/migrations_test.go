@@ -41,7 +41,7 @@ func TestMigrateSerializesManagedRiverWithSingleConnectionPool(t *testing.T) {
 			for range 6 {
 				go func() {
 					<-start
-					results <- Migrate(ctx, pool, config.Config{Schema: "profiles", River: config.RiverConfig{Schema: schema}}, config.MigrateOptions{RuntimePool: runtimePool})
+					results <- Migrate(ctx, pool, config.Config{Schema: "profiles", RiverSchema: schema}, config.MigrateOptions{RuntimePool: runtimePool})
 				}()
 			}
 			close(start)
@@ -51,7 +51,7 @@ func TestMigrateSerializesManagedRiverWithSingleConnectionPool(t *testing.T) {
 			var exists bool
 			require.NoError(t, pool.QueryRow(ctx, "SELECT to_regclass($1) IS NOT NULL", schema+".river_job").Scan(&exists))
 			require.True(t, exists)
-			require.NoError(t, Migrate(ctx, pool, config.Config{Schema: "profiles", River: config.RiverConfig{Schema: schema}}, config.MigrateOptions{RuntimePool: runtimePool}))
+			require.NoError(t, Migrate(ctx, pool, config.Config{Schema: "profiles", RiverSchema: schema}, config.MigrateOptions{RuntimePool: runtimePool}))
 			assertMigrationRuntimeUser(t, runtimePool)
 		})
 	}
@@ -101,7 +101,7 @@ func TestRetiredChainConvertsInPlace(t *testing.T) {
 	}
 	requireRowsKept := keepRows(t, db, "profiles")
 
-	cfg := config.Config{Schema: "profiles", River: config.RiverConfig{HostOwned: true}}
+	cfg := config.Config{Schema: "profiles"}
 	require.NoError(t, Migrate(ctx, pg.Pool, cfg, config.MigrateOptions{}))
 	require.NoError(t, Migrate(ctx, pg.Pool, cfg, config.MigrateOptions{}), "a second boot converts nothing")
 	requireRowsKept()
@@ -145,7 +145,7 @@ func TestRetiredChainPrefixConvertsInPlace(t *testing.T) {
 	seed(`INSERT INTO account_delivery_fleets(issuer, river_schema) VALUES ($1, 'public')`, issuer)
 	seed(`INSERT INTO refresh_sessions(user_id, issuer, current_token_hash, auth_methods) VALUES ($1, $2, $3, '{pwd}'), ($1, $2, $4, '{pwd,mfa}')`, owner, issuer, tokenHash[:], mfaTokenHash[:])
 
-	cfg := config.Config{Schema: "profiles", River: config.RiverConfig{HostOwned: true}}
+	cfg := config.Config{Schema: "profiles"}
 	require.NoError(t, Migrate(ctx, pg.Pool, cfg, config.MigrateOptions{}))
 	require.NoError(t, Migrate(ctx, pg.Pool, cfg, config.MigrateOptions{}), "a second boot converts nothing")
 	requireTree(t, pg, db, "profiles", true)
@@ -179,7 +179,7 @@ func TestRetiredChainReleasePointsConvert(t *testing.T) {
 			pg := testdb.EmptyScratchPostgres(t)
 			db := sqlDB(t, pg.URL)
 			require.NoError(t, migratekit.NewPostgres(db, "authkit").WithSchema("profiles").ApplyMigrations(t.Context(), retired.Chain()[:n]))
-			require.NoError(t, Migrate(t.Context(), pg.Pool, config.Config{Schema: "profiles", River: config.RiverConfig{HostOwned: true}}, config.MigrateOptions{}))
+			require.NoError(t, Migrate(t.Context(), pg.Pool, config.Config{Schema: "profiles"}, config.MigrateOptions{}))
 			requireTree(t, pg, db, "profiles", true)
 		})
 	}
@@ -215,7 +215,7 @@ func TestRetiredChainRefusesWhatItCannotConvert(t *testing.T) {
 			}
 			schema, recorded := testdb.SchemaCatalog(t, db, "profiles"), ledger(t, db, "profiles")
 
-			err := Migrate(ctx, pg.Pool, config.Config{Schema: "profiles", River: config.RiverConfig{HostOwned: true}}, config.MigrateOptions{})
+			err := Migrate(ctx, pg.Pool, config.Config{Schema: "profiles"}, config.MigrateOptions{})
 			require.ErrorContains(t, err, tc.want)
 			if tc.edit == "" {
 				require.ErrorContains(t, err, "upgrades through AuthKit v0.146.x first")
@@ -242,7 +242,7 @@ func requireTree(t *testing.T, pg *testdb.Postgres, db *sql.DB, schema string, c
 		want = append(want, m.Name+" "+migratekit.ContentDigest(m.Content))
 	}
 	fresh := schema + "_fresh"
-	require.NoError(t, Migrate(ctx, pg.Pool, config.Config{Schema: fresh, River: config.RiverConfig{HostOwned: true}}, config.MigrateOptions{}))
+	require.NoError(t, Migrate(ctx, pg.Pool, config.Config{Schema: fresh}, config.MigrateOptions{}))
 	for s, converted := range map[string]bool{schema: converted, fresh: false} {
 		require.Equal(t, want, ledger(t, db, s), s)
 		var audits int
@@ -298,7 +298,7 @@ func TestUpgradeKeepsAndNormalizesRows(t *testing.T) {
 			seed(`INSERT INTO user_providers (user_id, issuer, subject, profile, verified_at)
  SELECT id, 'solana', 'wallet', '{"verification_required": true, "migration_source": "legacy"}', NULL FROM users WHERE username = 'unreserved'`)
 
-			cfg := config.Config{Schema: "profiles", River: config.RiverConfig{HostOwned: true}}
+			cfg := config.Config{Schema: "profiles"}
 			require.NoError(t, Migrate(ctx, pg.Pool, cfg, config.MigrateOptions{}))
 			require.NoError(t, Migrate(ctx, pg.Pool, cfg, config.MigrateOptions{}), "a second boot changes nothing")
 			requireTree(t, pg, db, "profiles", name == "retired chain")
@@ -351,7 +351,7 @@ func TestUpgradeDropsAppMetadata(t *testing.T) {
 	_, err = pg.Pool.Exec(ctx, `INSERT INTO user_passwords (user_id, password_hash) VALUES ($1::uuid, $2)`, id, hash)
 	require.NoError(t, err)
 
-	require.NoError(t, Migrate(ctx, pg.Pool, config.Config{Schema: "profiles", River: config.RiverConfig{HostOwned: true}}, config.MigrateOptions{}))
+	require.NoError(t, Migrate(ctx, pg.Pool, config.Config{Schema: "profiles"}, config.MigrateOptions{}))
 	rows, err := pg.Pool.Query(ctx, `SELECT column_name FROM information_schema.columns
  WHERE table_schema = 'profiles' AND table_name = 'users' AND column_name IN ('metadata', 'avatar_url', 'verified_elsewhere', 'public_metadata')`)
 	require.NoError(t, err)

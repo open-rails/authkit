@@ -53,7 +53,7 @@ func run(addr, baseURL, dsn, static string, lifetime time.Duration) error {
 	if err != nil {
 		return err
 	}
-	defer rt.Close()
+	defer rt.Close(context.WithoutCancel(ctx))
 	if err := rt.Start(ctx); err != nil {
 		return err
 	}

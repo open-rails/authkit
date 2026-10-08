@@ -40,7 +40,7 @@ func TestSchemaPoolIsolatesSearchPathFromHostPool(t *testing.T) {
 	testdb.Pool(t) // New boots on the shared database: hold its lock
 	client, err := New(ctx, settings, config.Deps{Postgres: host})
 	require.NoError(t, err)
-	client.Close()
+	client.Close(context.Background())
 	require.NoError(t, host.Ping(ctx))
 
 	connections := func() int {

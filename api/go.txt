@@ -15,6 +15,7 @@ pkg authkit, func Migrate(context.Context, *pgxpool.Pool, Config, MigrateOptions
 pkg authkit, func New(context.Context, Config, Deps) (*Client, error)
 pkg authkit, func NewRoles(...PersonaOption) *Roles
 pkg authkit, func ParseBootstrapManifestYAML([]byte) (iam.BootstrapManifest, error)
+pkg authkit, func WithRiverClient(*river.Client[pgx.Tx]) StartOption
 pkg authkit, method (*Client) APIBase() string
 pkg authkit, method (*Client) ApplyBootstrapManifest(context.Context, iam.BootstrapManifest, iam.BootstrapOptions, ...Option) (iam.BootstrapResult, error)
 pkg authkit, method (*Client) AuthenticateRequest(context.Context, *http.Request) (auth.Verified, error)
@@ -24,7 +25,7 @@ pkg authkit, method (*Client) CheckIssuerKeys(context.Context) error
 pkg authkit, method (*Client) CheckRecentSignIn(context.Context, verify.Claims) error
 pkg authkit, method (*Client) CheckSession(context.Context, verify.Claims) error
 pkg authkit, method (*Client) CheckUsername(context.Context, string) error
-pkg authkit, method (*Client) Close()
+pkg authkit, method (*Client) Close(context.Context) error
 pkg authkit, method (*Client) CreateAPIKey(context.Context, iam.Actor, iam.GroupRef, iam.NewAPIKey, ...Option) (iam.APIKeyCreated, error)
 pkg authkit, method (*Client) CreateGroup(context.Context, iam.NewGroup, ...Option) (iam.Group, error)
 pkg authkit, method (*Client) CreateInvitation(context.Context, iam.Actor, iam.GroupRef, iam.NewInvitation, ...Option) (iam.InvitationCreated, error)
@@ -88,7 +89,7 @@ pkg authkit, method (*Client) SMSHealth() (time.Time, error)
 pkg authkit, method (*Client) Sensitive() func(http.Handler) http.Handler
 pkg authkit, method (*Client) Sessions(context.Context, string) ([]iam.Session, error)
 pkg authkit, method (*Client) SetGroupRole(context.Context, iam.Actor, iam.GroupRef, iam.Subject, iam.Role, ...Option) (iam.GroupMember, error)
-pkg authkit, method (*Client) Start(context.Context) error
+pkg authkit, method (*Client) Start(context.Context, ...StartOption) error
 pkg authkit, method (*Client) TwoFactorMethods() []iam.TwoFactorMethod
 pkg authkit, method (*Client) Unban(context.Context, iam.Actor, string, ...Option) error
 pkg authkit, method (*Client) UpdateUser(context.Context, iam.Actor, string, iam.UserUpdate, ...Option) (iam.User, error)
@@ -144,6 +145,7 @@ pkg authkit, type Config = config.Config
 pkg authkit, type Config struct
 pkg authkit, type Config struct, APIKeys config.APIKeysConfig
 pkg authkit, type Config struct, AuthorizationServer config.AuthorizationServerConfig
+pkg authkit, type Config struct, CleanupInterval time.Duration
 pkg authkit, type Config struct, Delegated config.DelegatedConfig
 pkg authkit, type Config struct, DeviceKeys config.DeviceKeysConfig
 pkg authkit, type Config struct, Frontend config.FrontendConfig
@@ -156,7 +158,7 @@ pkg authkit, type Config struct, Passkeys config.PasskeyConfig
 pkg authkit, type Config struct, Password config.PasswordPolicy
 pkg authkit, type Config struct, Registration config.RegistrationConfig
 pkg authkit, type Config struct, RemoteApplications []config.RemoteApplicationConfig
-pkg authkit, type Config struct, River config.RiverConfig
+pkg authkit, type Config struct, RiverSchema string
 pkg authkit, type Config struct, Roles *config.Roles
 pkg authkit, type Config struct, Schema string
 pkg authkit, type Config struct, SenderHealthInterval time.Duration
@@ -324,11 +326,6 @@ pkg authkit, type ResourceServerConfig struct
 pkg authkit, type ResourceServerConfig struct, ID string
 pkg authkit, type ResourceServerConfig struct, Permissions []string
 pkg authkit, type ResourceServerConfig struct, Scopes []string
-pkg authkit, type RiverConfig = config.RiverConfig
-pkg authkit, type RiverConfig struct
-pkg authkit, type RiverConfig struct, CleanupInterval time.Duration
-pkg authkit, type RiverConfig struct, HostOwned bool
-pkg authkit, type RiverConfig struct, Schema string
 pkg authkit, type Roles = config.Roles
 pkg authkit, type Roles struct
 pkg authkit, type Roles struct, Root *config.RootDef
@@ -345,6 +342,7 @@ pkg authkit, type SignInConfig struct
 pkg authkit, type SignInConfig struct, AccountsPerAddress int
 pkg authkit, type SignInConfig struct, AccountsPerDevice int
 pkg authkit, type SignInConfig struct, NewDevicesPerAccount int
+pkg authkit, type StartOption func(*startOptions)
 pkg authkit, type TokenConfig = config.TokenConfig
 pkg authkit, type TokenConfig struct
 pkg authkit, type TokenConfig struct, AccessTokenDuration time.Duration

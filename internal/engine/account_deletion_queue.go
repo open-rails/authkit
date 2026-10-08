@@ -43,15 +43,19 @@ func accountFinalizerQueue(schema string) string {
 }
 
 func (s *Engine) deletionRiver() (*river.Client[pgx.Tx], error) {
-	if s.maintenance == nil {
+	m := s.maintenance
+	if m == nil {
 		return nil, errors.New("authkit: account lifecycle requires River")
 	}
-	s.maintenance.mu.Lock()
-	defer s.maintenance.mu.Unlock()
-	if s.maintenance.closed || s.maintenance.failed || s.maintenance.client == nil {
-		return nil, errors.New("authkit: compose RiverJobs before accepting account lifecycle operations")
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	switch {
+	case m.closed:
+		return nil, errors.New("authkit: client is closed")
+	case m.failed:
+		return nil, errors.New("authkit: River composition failed; recreate the client")
 	}
-	return s.maintenance.client, nil
+	return m.producer, nil
 }
 
 func (s *Engine) enqueueAccountFinalizer(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], deletion iam.UserDeletion, purge bool) error {
@@ -92,10 +96,11 @@ func (s *Engine) enqueueAccountDeliveries(ctx context.Context, tx pgx.Tx, client
 	return nil
 }
 
-// Register the durable destination before accepting account mutations. Every
-// configured account issuer must bind once before deletion can affect it. An
-// offline registered application still receives durable jobs in its own fleet.
-func (s *Engine) registerAccountDeliveryFleet(ctx context.Context, client *river.Client[pgx.Tx]) error {
+// New registers RiverSchema as the issuer's durable destination before it
+// accepts account mutations. Every configured account issuer must have been
+// built once against this database before deletion can affect it. An offline
+// registered application still receives durable jobs in its own fleet.
+func (s *Engine) registerAccountDeliveryFleet(ctx context.Context, schema string) error {
 	if s.cfg.Token.Issuer == "" {
 		return nil
 	}
@@ -105,14 +110,14 @@ func (s *Engine) registerAccountDeliveryFleet(ctx context.Context, client *river
 	}
 	defer tx.Rollback(ctx)
 	q, issuer := s.qtx(tx), s.cfg.Token.Issuer
-	if err := q.AccountDeliveryFleetInsert(ctx, db.AccountDeliveryFleetInsertParams{Issuer: issuer, RiverSchema: client.Schema()}); err != nil {
+	if err := q.AccountDeliveryFleetInsert(ctx, db.AccountDeliveryFleetInsertParams{Issuer: issuer, RiverSchema: schema}); err != nil {
 		return err
 	}
 	registered, err := q.AccountDeliveryFleetSchemaForUpdate(ctx, issuer)
 	if err != nil {
 		return err
 	}
-	if registered != client.Schema() {
+	if registered != schema {
 		busy, err := q.AccountDeliveryFleetBusy(ctx, issuer)
 		if err != nil {
 			return err
@@ -120,7 +125,7 @@ func (s *Engine) registerAccountDeliveryFleet(ctx context.Context, client *river
 		if busy {
 			return fmt.Errorf("authkit: issuer %q still has active account lifecycle work in River schema %q; finish that work before rebinding its fleet", issuer, registered)
 		}
-		if err := q.AccountDeliveryFleetSetSchema(ctx, db.AccountDeliveryFleetSetSchemaParams{Issuer: issuer, RiverSchema: client.Schema()}); err != nil {
+		if err := q.AccountDeliveryFleetSetSchema(ctx, db.AccountDeliveryFleetSetSchemaParams{Issuer: issuer, RiverSchema: schema}); err != nil {
 			return err
 		}
 	}
@@ -167,7 +172,7 @@ func (s *Engine) accountDeliveryClient(ctx context.Context, tx pgx.Tx, local *ri
 	schema, err := s.qtx(tx).AccountDeliveryFleetSchemaForShare(ctx, issuer)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("authkit: account issuer %q must compose its River fleet before account deletion", issuer)
+			return nil, fmt.Errorf("authkit: account issuer %q must boot against this database before account deletion", issuer)
 		}
 		return nil, err
 	}

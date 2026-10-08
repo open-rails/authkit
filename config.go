@@ -39,7 +39,6 @@ type (
 	// (Config.RemoteApplications).
 	RemoteApplicationConfig = config.RemoteApplicationConfig
 	LanguageConfig          = config.LanguageConfig
-	RiverConfig             = config.RiverConfig
 	HTTPConfig              = config.HTTPConfig
 	RateLimit               = config.RateLimit
 )

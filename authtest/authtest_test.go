@@ -1,6 +1,7 @@
 package authtest_test
 
 import (
+	"context"
 	"crypto/rand"
 	"net/http"
 	"net/http/httptest"
@@ -128,7 +129,7 @@ func TestReplicaAndStaleSessionOfAHostClient(t *testing.T) {
 		HTTP:      &authkit.HTTPConfig{DirectPeerIP: true},
 	}, authkit.Deps{Postgres: pg.Pool, KeySource: testkeys.Source(testkeys.RSA("host-built"))})
 	require.NoError(t, err)
-	t.Cleanup(auth.Close)
+	t.Cleanup(func() { _ = auth.Close(context.Background()) })
 	testReplicaAndStaleSession(t, auth)
 }
 

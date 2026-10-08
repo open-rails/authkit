@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/builtwith"
 	"github.com/open-rails/authkit/internal/engine"
@@ -16,6 +17,7 @@ import (
 	"github.com/open-rails/authkit/internal/testclock"
 	"github.com/open-rails/authkit/verify"
 	riverhelpers "github.com/open-rails/helpers/river"
+	"github.com/riverqueue/river"
 )
 
 // Client is AuthKit embedded in a host: the engine and, when Config.HTTP is
@@ -66,7 +68,7 @@ func New(ctx context.Context, cfg Config, deps Deps) (_ *Client, err error) {
 	a := &Client{ops: e, engine: e, cfg: cfg, deps: deps}
 	defer func() {
 		if err != nil {
-			a.Close()
+			_ = a.Close(context.WithoutCancel(ctx))
 		}
 	}()
 	if group := e.Config().Merchant.Group; group != "" {
@@ -100,22 +102,50 @@ func newHTTP(e *engine.Engine, deps Deps) (*httpapi.Service, *httpapi.Mount, err
 	return svc, mount, nil
 }
 
-// Start starts AuthKit's background work: River (account lifecycle, events,
-// auth-state cleanup) and the senders' health checks. Call it once, before
-// serving.
-func (a *Client) Start(ctx context.Context) error { return a.engine.Start(ctx) }
+// StartOption configures Start.
+type StartOption func(*startOptions)
 
-// RiverJobs contributes AuthKit's jobs to a host-owned River fleet
-// (Config.River.HostOwned).
+type startOptions struct {
+	fleet    *river.Client[pgx.Tx]
+	hostOwns bool
+}
+
+// WithRiverClient runs AuthKit's jobs on the host's River fleet, which
+// riverhelpers.New built with RiverJobs in Config.RiverSchema. AuthKit enqueues
+// through it and never starts or stops it.
+func WithRiverClient(fleet *river.Client[pgx.Tx]) StartOption {
+	return func(o *startOptions) { o.fleet, o.hostOwns = fleet, true }
+}
+
+// Start starts AuthKit's background work: River (account lifecycle, events,
+// auth-state cleanup) and the senders' health checks. With no options it
+// builds and runs AuthKit's own River client in Config.RiverSchema; with
+// WithRiverClient the jobs run on the host's fleet. Jobs queued before Start
+// wait for it. Call it once, before serving.
+func (a *Client) Start(ctx context.Context, opts ...StartOption) error {
+	var o startOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	if o.hostOwns && o.fleet == nil {
+		return errors.New("authkit: WithRiverClient requires a River client")
+	}
+	return a.engine.Start(ctx, o.fleet)
+}
+
+// RiverJobs contributes AuthKit's jobs to the host's River fleet: compose it
+// with riverhelpers.New, then pass that fleet to Start with WithRiverClient.
 func (a *Client) RiverJobs() riverhelpers.Contribution { return a.engine.RiverJobs() }
 
-// Close releases AuthKit-owned resources. Host-owned dependencies stay open.
-func (a *Client) Close() {
+// Close stops what Start started and releases AuthKit's own resources; ctx
+// bounds stopping its own River client. The host's pool and River fleet stay
+// open.
+func (a *Client) Close(ctx context.Context) error {
 	if a == nil {
-		return
+		return nil
 	}
 	a.http.Close()
-	a.engine.Close()
+	return a.engine.Close(ctx)
 }
 
 // EmailAvailable reports whether email flows are offered: Deps.Email is set

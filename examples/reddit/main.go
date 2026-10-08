@@ -147,7 +147,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer auth.Close()
+	defer auth.Close(context.Background())
 	if err := auth.Start(ctx); err != nil { // background maintenance jobs
 		return err
 	}

@@ -43,7 +43,7 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 	}
 	defer func() {
 		if err != nil {
-			s.Close()
+			_ = s.Close(context.WithoutCancel(ctx))
 		}
 	}()
 	if err := s.applyDeps(deps); err != nil {
@@ -55,7 +55,7 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 	if err := s.probeMigrations(); err != nil {
 		return nil, err
 	}
-	if err := s.initRiver(deps.Postgres); err != nil {
+	if err := s.initRiver(ctx, deps.Postgres); err != nil {
 		return nil, err
 	}
 	if err := s.initializeGroups(ctx); err != nil {

@@ -55,7 +55,7 @@ func newCredentialFixture(t *testing.T) *credentialFixture {
 	pg := testdb.ScratchPostgres(t)
 	e, err := New(context.Background(), credentialConfig(credentialRoles(false)), config.Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
-	t.Cleanup(e.Close)
+	t.Cleanup(func() { _ = e.Close(context.Background()) })
 	f := &credentialFixture{t: t, e: e, pool: pg.Pool}
 	f.founder = f.user("founder")
 	f.acmeID, err = seedGroup(t.Context(), e, ident.Persona("org"), f.founder.ID)
@@ -291,7 +291,7 @@ func TestRoleCatalogChangesAtBoot(t *testing.T) {
 	boot := func(roles *config.Roles) (*Engine, error) {
 		e, err := New(context.Background(), credentialConfig(roles), config.Deps{Postgres: f.pool})
 		if err == nil {
-			t.Cleanup(e.Close)
+			t.Cleanup(func() { _ = e.Close(context.Background()) })
 		}
 		return e, err
 	}
