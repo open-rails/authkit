@@ -82,6 +82,7 @@ export const de: AuthUiMessageBundle = {
     titleCombined: "Anmelden / Registrieren",
     description:
       "Melden Sie sich an oder erstellen Sie ein Konto, um fortzufahren",
+    descriptionSignIn: "Melden Sie sich an, um fortzufahren",
     submit: "Anmelden",
     forgotPassword: "Passwort vergessen?",
     noAccount: "Noch kein Konto?",

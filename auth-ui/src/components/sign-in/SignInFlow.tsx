@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react"
 import { useMessages } from "#authui/i18n/context"
 import type { PendingSignIn } from "#authui/client/authResult"
 import type { LoginState } from "#authui/react/useLogin"
+import { useRegistration } from "#authui/react/registration"
 import { useLogin } from "#authui/react/useLogin"
 import { useRegister } from "#authui/react/useRegister"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#authui/ui/tabs"
@@ -68,15 +69,21 @@ export function SignInFlow(props: SignInFlowProps) {
   })
   const [tab, setTab] = useState<SignInMode>(props.initialTab ?? "login")
   const [forgot, setForgot] = useState<string | null>(null)
+  // Sign-up only when /capabilities allows it; a registration already
+  // waiting for its code still finishes.
+  const registration = useRegistration(props.inviteCode)
+  const verifying = register.state.step === "verify"
+  const canRegister = registration.available || verifying
+  const activeTab = canRegister ? tab : "login"
 
   const step: SignInStep =
     forgot !== null
       ? "forgot_password"
       : login.state.step !== "credentials"
         ? login.state.step
-        : register.state.step === "verify"
+        : verifying
           ? "verify_registration"
-          : tab
+          : activeTab
   const onStepChange = useRef(props.onStepChange)
   useEffect(() => {
     onStepChange.current = props.onStepChange
@@ -103,8 +110,8 @@ export function SignInFlow(props: SignInFlowProps) {
     return <LoginForm {...host} controller={login} />
 
   return (
-    <Tabs value={tab} onValueChange={(v) => setTab(v as SignInMode)}>
-      {register.state.step !== "verify" && (
+    <Tabs value={activeTab} onValueChange={(v) => setTab(v as SignInMode)}>
+      {canRegister && !verifying && (
         <TabsList
           aria-label={t("signIn.tabsLabel")}
           className="mb-3 h-10! w-full"
@@ -127,23 +134,25 @@ export function SignInFlow(props: SignInFlowProps) {
           footer={props.footer}
         />
       </TabsContent>
-      <TabsContent value="register" keepMounted>
-        <RegisterForm
-          {...host}
-          controller={register}
-          loginController={login}
-          onSignIn={() => {
-            register.reset()
-            setTab("login")
-          }}
-          legal={
-            props.legal ??
-            (props.termsUrl || props.privacyUrl ? (
-              <DefaultLegal {...props} />
-            ) : null)
-          }
-        />
-      </TabsContent>
+      {canRegister && (
+        <TabsContent value="register" keepMounted>
+          <RegisterForm
+            {...host}
+            controller={register}
+            loginController={login}
+            onSignIn={() => {
+              register.reset()
+              setTab("login")
+            }}
+            legal={
+              props.legal ??
+              (props.termsUrl || props.privacyUrl ? (
+                <DefaultLegal {...props} />
+              ) : null)
+            }
+          />
+        </TabsContent>
+      )}
     </Tabs>
   )
 }

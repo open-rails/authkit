@@ -74,6 +74,7 @@ export const zh: AuthUiMessageBundle = {
     title: "登录",
     titleCombined: "登录 / 注册",
     description: "请登录或创建账户以继续",
+    descriptionSignIn: "请登录以继续",
     submit: "登录",
     forgotPassword: "忘记密码？",
     noAccount: "没有账户？",

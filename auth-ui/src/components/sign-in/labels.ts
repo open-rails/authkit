@@ -37,3 +37,11 @@ export const sendsCode = (method: string) =>
 
 export const isEntryStep = (step: SignInStep) =>
   step === "login" || step === "register"
+
+// Default entry heading and line: "Sign in / Register" only when sign-up is
+// offered (see useRegistration).
+export function entryText(t: Translator["t"], canRegister: boolean) {
+  return canRegister
+    ? { title: t("signIn.titleCombined"), description: t("signIn.description") }
+    : { title: t("signIn.title"), description: t("signIn.descriptionSignIn") }
+}

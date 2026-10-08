@@ -18,6 +18,7 @@ import type {
 } from "#authui/client/types"
 import { useMessages } from "#authui/i18n/context"
 import { useCapabilities } from "#authui/react/context"
+import { useRegistration } from "#authui/react/registration"
 import { useLogin } from "#authui/react/useLogin"
 import { useRegister, type RegisterInput } from "#authui/react/useRegister"
 import type { PendingSignIn } from "#authui/client/authResult"
@@ -119,6 +120,8 @@ export function RegisterForm(props: RegisterFormProps) {
   const { state, reset } = register
   const { onContinuation } = props
   const resume = login.resume
+  const registration = useRegistration(props.inviteCode)
+  const { error: describe } = useMessages()
 
   useEffect(() => {
     if (state.step !== "continuation") return
@@ -138,6 +141,9 @@ export function RegisterForm(props: RegisterFormProps) {
     body = <VerifyRegistration register={register} />
   } else if (state.step === "done" && !state.signedIn) {
     body = <Registered onSignIn={props.onSignIn} />
+  } else if (registration.mode !== null && !registration.available) {
+    // Placed by the host, but AuthKit is not taking sign-ups right now.
+    body = <FormAlert>{describe("registration_disabled")}</FormAlert>
   } else {
     body = <RegisterFields {...props} register={register} login={login} />
   }

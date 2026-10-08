@@ -81,6 +81,7 @@ export const es: AuthUiMessageBundle = {
     title: "Iniciar sesión",
     titleCombined: "Iniciar sesión / Registrarse",
     description: "Inicia sesión o crea una cuenta para continuar",
+    descriptionSignIn: "Inicia sesión para continuar",
     submit: "Iniciar sesión",
     forgotPassword: "¿Olvidaste tu contraseña?",
     noAccount: "¿No tienes una cuenta?",

@@ -77,6 +77,7 @@ export const ja: AuthUiMessageBundle = {
     title: "ログイン",
     titleCombined: "ログイン／新規登録",
     description: "続行するにはログインまたはアカウント作成をしてください",
+    descriptionSignIn: "続行するにはログインしてください",
     submit: "ログイン",
     forgotPassword: "パスワードをお忘れですか？",
     noAccount: "アカウントをお持ちでないですか？",
