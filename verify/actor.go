@@ -9,8 +9,9 @@ import (
 
 // ActorFromClaims derives the actor verified claims act as. It is pure and
 // never yields the system. ok is false for claims that carry no AuthKit
-// authority: another issuer's user, a 2FA-enrollment-only token, or an
-// unrecognized shape. A user or AuthKit-minted delegated actor is bound to
+// authority: another issuer's user, a resource access token (its authority
+// is Permissions, for the resource server), a 2FA-enrollment-only token, or
+// an unrecognized shape. A user or AuthKit-minted delegated actor is bound to
 // the session or device key its token was minted from (iam.Actor.InSession),
 // so every permission check refuses it once that sign-in is revoked.
 func ActorFromClaims(c Claims) (iam.Actor, bool) {

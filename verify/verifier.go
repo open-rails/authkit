@@ -28,6 +28,7 @@ import (
 type Verifier struct {
 	skew       time.Duration
 	dpopReplay dpop.ReplayGuard
+	dpopNonces *dpop.Nonces
 	publicURL  string
 	keys       *jwks.Cache
 
@@ -51,6 +52,7 @@ type verifierConfig struct {
 	skew       time.Duration
 	client     *http.Client
 	dpopReplay dpop.ReplayGuard
+	nonceKey   []byte
 	publicURL  string
 }
 
@@ -65,12 +67,21 @@ func WithHTTPClient(client *http.Client) VerifierOption {
 	return func(c *verifierConfig) { c.client = client }
 }
 
-// WithDPoP accepts RFC 9449 DPoP-bound delegated tokens, with WithPublicURL.
+// WithDPoP accepts RFC 9449 DPoP-bound tokens, with WithPublicURL.
 // replay is the proof replay store: it atomically claims key until ttl and
 // returns true only for the first claim; every replica must share it, and
 // its errors fail closed. Client.NewVerifier wires AuthKit's own.
 func WithDPoP(replay func(ctx context.Context, key string, ttl time.Duration) (bool, error)) VerifierOption {
 	return func(c *verifierConfig) { c.dpopReplay = replay }
+}
+
+// WithDPoPNonce requires every DPoP proof to carry a server nonce (RFC 9449
+// §8). A proof without a current one is refused 401 use_dpop_nonce with a
+// fresh nonce in the DPoP-Nonce header (DPoPChallenge), which the client
+// retries with. key, at least 32 random bytes, keys the nonces; every
+// replica must share it.
+func WithDPoPNonce(key []byte) VerifierOption {
+	return func(c *verifierConfig) { c.nonceKey = append([]byte(nil), key...) }
 }
 
 // WithPublicURL is where clients reach the paths this verifier sees:
@@ -82,19 +93,28 @@ func WithPublicURL(url string) VerifierOption {
 	return func(c *verifierConfig) { c.publicURL = strings.TrimRight(strings.TrimSpace(url), "/") }
 }
 
-// NewVerifier returns a Verifier that trusts no issuer until AddIssuer.
+// NewVerifier returns a Verifier that trusts no issuer until AddIssuer. It
+// panics on a WithDPoPNonce key shorter than 32 bytes.
 func NewVerifier(opts ...VerifierOption) *Verifier {
 	cfg := verifierConfig{skew: 60 * time.Second}
 	for _, o := range opts {
 		o(&cfg)
 	}
-	return &Verifier{
+	v := &Verifier{
 		skew:       cfg.skew,
 		dpopReplay: cfg.dpopReplay,
 		publicURL:  cfg.publicURL,
 		keys:       jwks.New(cfg.client),
 		issuers:    map[string]issuer{},
 	}
+	if cfg.nonceKey != nil {
+		nonces, err := dpop.NewNonces(cfg.nonceKey)
+		if err != nil {
+			panic("authkit: verify.WithDPoPNonce: " + err.Error())
+		}
+		v.dpopNonces = nonces
+	}
+	return v
 }
 
 // IssuerOptions is where an issuer's keys come from: exactly one of JWKSURI,

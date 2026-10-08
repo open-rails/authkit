@@ -209,9 +209,7 @@ func mustAuthenticator(a Authenticator) {
 // writeAuthError answers a failed authentication: an AuthKit error keeps its
 // code, anything else is 401 invalid_token.
 func writeAuthError(w http.ResponseWriter, r *http.Request, err error) {
-	if errors.Is(err, errDPoPProofRequired) || (isDPoPRequest(r) && errors.Is(err, ErrSenderProofRequired)) {
-		w.Header().Set("WWW-Authenticate", `DPoP error="invalid_dpop_proof", algs="ES256"`)
-	}
+	DPoPChallenge(w, r, err)
 	if errmodel.As(err) == nil {
 		err = errmodel.E(errmodel.CodeInvalidToken, errmodel.WithCause(err))
 	}

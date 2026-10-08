@@ -520,6 +520,7 @@ pkg authkit/devicekey, type Session struct, DeviceKey iam.DeviceKey
 pkg authkit/devicekey, type Session struct, ExpiresAt time.Time
 pkg authkit/iam, const ActorAPIKey ActorKind = "api_key"
 pkg authkit/iam, const ActorDelegated ActorKind = "delegated"
+pkg authkit/iam, const ActorOAuthClient ActorKind = "oauth_client"
 pkg authkit/iam, const ActorRemoteApplication ActorKind = "remote_application"
 pkg authkit/iam, const ActorSystem ActorKind = "system"
 pkg authkit/iam, const ActorUser ActorKind = "user"
@@ -1352,6 +1353,7 @@ pkg authkit/verify, func ActorFromContext(context.Context) (iam.Actor, bool)
 pkg authkit/verify, func AuthenticateRequest(context.Context, Authenticator, *http.Request) (auth.Principal, error)
 pkg authkit/verify, func AuthenticateSession(context.Context, Authority, *http.Request) (auth.Principal, error)
 pkg authkit/verify, func ClaimsFromContext(context.Context) (Claims, bool)
+pkg authkit/verify, func DPoPChallenge(http.ResponseWriter, *http.Request, error)
 pkg authkit/verify, func IdentityFromContext(context.Context) (auth.Identity, bool)
 pkg authkit/verify, func NewVerifier(...VerifierOption) *Verifier
 pkg authkit/verify, func Optional(Authenticator) func(http.Handler) http.Handler
@@ -1362,6 +1364,7 @@ pkg authkit/verify, func Required(Authenticator) func(http.Handler) http.Handler
 pkg authkit/verify, func Sensitive(Authority) func(http.Handler) http.Handler
 pkg authkit/verify, func SetClaims(context.Context, Claims) context.Context
 pkg authkit/verify, func WithDPoP(func(context.Context, string, time.Duration) (bool, error)) VerifierOption
+pkg authkit/verify, func WithDPoPNonce([]byte) VerifierOption
 pkg authkit/verify, func WithGroup(context.Context, iam.GroupRef) context.Context
 pkg authkit/verify, func WithHTTPClient(*http.Client) VerifierOption
 pkg authkit/verify, func WithPublicURL(string) VerifierOption
@@ -1379,7 +1382,9 @@ pkg authkit/verify, method (*Verifier) VerifyServiceJWT(context.Context, string,
 pkg authkit/verify, method (Claims) HasAMR(string) bool
 pkg authkit/verify, method (Claims) HasEntitlement(string) bool
 pkg authkit/verify, method (Claims) HasPermission(iam.Perm) bool
+pkg authkit/verify, method (Claims) HasScope(string) bool
 pkg authkit/verify, method (Claims) Identity() (auth.Identity, bool)
+pkg authkit/verify, method (Claims) IsResourceToken() bool
 pkg authkit/verify, method (Claims) IsUser() bool
 pkg authkit/verify, type Authenticator interface
 pkg authkit/verify, type Authenticator interface, VerifyRequest(*http.Request) (Claims, error)
@@ -1396,6 +1401,7 @@ pkg authkit/verify, type Claims struct, APIKeyID string
 pkg authkit/verify, type Claims struct, Attributes map[string]json.RawMessage
 pkg authkit/verify, type Claims struct, AuthTime time.Time
 pkg authkit/verify, type Claims struct, CertificateThumbprint string
+pkg authkit/verify, type Claims struct, ClientID string
 pkg authkit/verify, type Claims struct, DelegatedSubject string
 pkg authkit/verify, type Claims struct, DeviceKeyID string
 pkg authkit/verify, type Claims struct, Email string
@@ -1410,7 +1416,9 @@ pkg authkit/verify, type Claims struct, Kind iam.ActorKind
 pkg authkit/verify, type Claims struct, MFAEnrolled bool
 pkg authkit/verify, type Claims struct, Permissions []string
 pkg authkit/verify, type Claims struct, RemoteApplicationID string
+pkg authkit/verify, type Claims struct, Roles []string
 pkg authkit/verify, type Claims struct, RootRole string
+pkg authkit/verify, type Claims struct, Scopes []string
 pkg authkit/verify, type Claims struct, SessionID string
 pkg authkit/verify, type Claims struct, Subject string
 pkg authkit/verify, type Claims struct, TwoFAEnrollment bool

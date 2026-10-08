@@ -91,6 +91,7 @@ export type AuthErrorCode =
   | "malformed_permissions"
   | "method_not_allowed"
   | "missing_audience"
+  | "missing_client_id"
   | "missing_delegated_sub"
   | "missing_exp"
   | "missing_fields"
@@ -160,6 +161,7 @@ export type AuthErrorCode =
   | "unknown_provider"
   | "unsupported_media_type"
   | "unsupported_token_typ"
+  | "use_dpop_nonce"
   | "user_banned"
   | "user_not_found"
   | "user_referenced"
@@ -264,6 +266,7 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   malformed_permissions: 401,
   method_not_allowed: 405,
   missing_audience: 401,
+  missing_client_id: 401,
   missing_delegated_sub: 401,
   missing_exp: 401,
   missing_fields: 400,
@@ -333,6 +336,7 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   unknown_provider: 400,
   unsupported_media_type: 415,
   unsupported_token_typ: 401,
+  use_dpop_nonce: 401,
   user_banned: 401,
   user_not_found: 404,
   user_referenced: 409,
@@ -438,6 +442,7 @@ export const AUTH_ERROR_MESSAGES = {
   malformed_permissions: "The permissions claim is malformed.",
   method_not_allowed: "That method is not allowed on this path.",
   missing_audience: "The token carries no audience.",
+  missing_client_id: "The token names no client.",
   missing_delegated_sub: "The delegated token carries no subject.",
   missing_exp: "The token carries no expiry.",
   missing_fields: "Please fill in all required fields.",
@@ -507,6 +512,7 @@ export const AUTH_ERROR_MESSAGES = {
   unknown_provider: "Unknown sign-in provider.",
   unsupported_media_type: "Request bodies must be JSON (Content-Type: application/json).",
   unsupported_token_typ: "The token type is not supported.",
+  use_dpop_nonce: "The request must be retried with the server's DPoP nonce.",
   user_banned: "Your account is disabled.",
   user_not_found: "User not found.",
   user_referenced: "The user is still referenced.",
