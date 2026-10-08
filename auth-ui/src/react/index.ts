@@ -46,6 +46,8 @@ export {
   useTwoFactorSettings,
   type TwoFactorEnrollmentState,
 } from "./twoFactor.ts"
+export { useRegistration, type RegistrationState } from "./registration.ts"
+export type { RegistrationMode } from "../client/registration.ts"
 export { useSignInKeys } from "./signInKeys.ts"
 export {
   useContactVerification,

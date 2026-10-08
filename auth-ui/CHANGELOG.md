@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Sign-in follows AuthKit's registration policy (`/capabilities`
+  `registration.mode`). `SignInDialog` and `SignInPanel` offer the
+  "Create account" tab only when registration is `open`, or `invite_only`
+  with an `inviteCode`; otherwise they show sign-in alone, titled "Sign in".
+  Nothing is offered until capabilities answer, and an unknown mode counts as
+  closed. A host-placed `RegisterForm` explains that registration is disabled
+  instead of showing fields. New: `useRegistration(inviteCode?)` in
+  `@openrails/auth-ui/react` (`mode`, `available`, `loading`) for the host's
+  own sign-up links, and `registrationMode` / `registrationAvailable` in the
+  client entry. Locales gain `signIn.descriptionSignIn`.
+
 - Authenticated requests refuse a refresh or contact-proof retry after the
   session is replaced, instead of repeating the old account's action under the
   new account. Same-session token rotation continues to work.

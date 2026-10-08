@@ -76,6 +76,7 @@ export const ko: AuthUiMessageBundle = {
     title: "로그인",
     titleCombined: "로그인 / 회원가입",
     description: "계속하려면 로그인하거나 계정을 만드세요",
+    descriptionSignIn: "계속하려면 로그인하세요",
     submit: "로그인",
     forgotPassword: "비밀번호를 잊으셨나요?",
     noAccount: "계정이 없으신가요?",

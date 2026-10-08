@@ -2,8 +2,9 @@ import { cn } from "cn"
 import { useState, type ReactNode } from "react"
 
 import { useMessages } from "#authui/i18n/context"
+import { useRegistration } from "#authui/react/registration"
 import { AuthUiRoot } from "#authui/scope"
-import { isEntryStep } from "./labels.ts"
+import { entryText, isEntryStep } from "./labels.ts"
 import {
   SignInFlow,
   type SignInFlowProps,
@@ -33,6 +34,7 @@ export function SignInPanel({
   ...flow
 }: SignInPanelProps) {
   const { t } = useMessages()
+  const entry = entryText(t, useRegistration(flow.inviteCode).available)
   const [step, setStep] = useState<SignInStep>(flow.initialTab ?? "login")
   return (
     <AuthUiRoot className={cn("w-full max-w-md", className)}>
@@ -40,11 +42,11 @@ export function SignInPanel({
         <div className="flex flex-col gap-1.5">
           {logo && <div className="mb-2 flex">{logo}</div>}
           <h1 className="text-lg leading-tight font-semibold">
-            {title ?? t("signIn.titleCombined")}
+            {title ?? entry.title}
           </h1>
           {isEntryStep(step) && (
             <p className="text-sm text-muted-foreground">
-              {description ?? t("signIn.description")}
+              {description ?? entry.description}
             </p>
           )}
         </div>

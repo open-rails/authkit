@@ -2,6 +2,7 @@ import { cn } from "cn"
 import { useRef, useState } from "react"
 
 import { useMessages } from "#authui/i18n/context"
+import { useRegistration } from "#authui/react/registration"
 import {
   Dialog,
   DialogContent,
@@ -11,7 +12,7 @@ import {
 } from "#authui/ui/dialog"
 import type { SignInMode } from "./host.ts"
 import { SignInFlow, type SignInStep } from "./SignInFlow.tsx"
-import { isEntryStep } from "./labels.ts"
+import { entryText, isEntryStep } from "./labels.ts"
 import type { SignInPanelProps } from "./SignInPanel.tsx"
 
 export type SignInDialogProps = Omit<SignInPanelProps, "initialTab"> & {
@@ -39,6 +40,7 @@ export function SignInDialog({
   ...flow
 }: SignInDialogProps) {
   const { t } = useMessages()
+  const entry = entryText(t, useRegistration(flow.inviteCode).available)
   const [step, setStep] = useState<SignInStep>(flow.initialTab ?? "login")
   const popup = useRef<HTMLDivElement>(null)
   const blocking = open && step === "backup_codes"
@@ -69,10 +71,10 @@ export function SignInDialog({
         <DialogHeader className="gap-1.5 pr-8 text-left">
           {logo && <div className="mb-2 flex">{logo}</div>}
           <DialogTitle className="text-lg leading-tight font-semibold">
-            {title ?? t("signIn.titleCombined")}
+            {title ?? entry.title}
           </DialogTitle>
           <DialogDescription className={cn(!isEntryStep(step) && "sr-only")}>
-            {description ?? t("signIn.description")}
+            {description ?? entry.description}
           </DialogDescription>
         </DialogHeader>
         {header}

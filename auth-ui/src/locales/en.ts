@@ -81,6 +81,7 @@ export const en = {
     title: "Sign in",
     titleCombined: "Sign in / Register",
     description: "Sign in or create an account to continue",
+    descriptionSignIn: "Sign in to continue",
     submit: "Sign in",
     forgotPassword: "Forgot password?",
     noAccount: "Don't have an account?",

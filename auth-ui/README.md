@@ -252,6 +252,11 @@ import { SolanaSignInButton } from "@openrails/auth-ui/solana"
   backup codes the session is already live, and `onSignedIn` fires only after
   the user acknowledges them. The dialog closes itself then and can't be
   dismissed on that screen.
+- Registration follows `/capabilities` `registration.mode`: the
+  "Create account" tab appears only when it is `open`, or `invite_only` with
+  `inviteCode`; sign-in is never gated. Gate the host's own sign-up links the
+  same way: `const { available } = useRegistration(inviteCode)` from
+  `@openrails/auth-ui/react` (false until capabilities load).
 - `providers` replaces (array) or edits (function) the `/capabilities` list.
 - `continuation` opens on a pending step: pass `session.continuation` (set
   when a refresh answered with a next step) so the user finishes signing in

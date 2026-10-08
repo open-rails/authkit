@@ -26,6 +26,7 @@ import { normalizeIdentifier } from "./identifier.ts"
 import { LoginForm } from "./LoginForm.tsx"
 import { RegisterForm } from "./RegisterForm.tsx"
 import { SignInDialog } from "./SignInDialog.tsx"
+import { SignInPanel } from "./SignInPanel.tsx"
 import { VerifyLink } from "./VerifyLink.tsx"
 
 // input-otp probes for password-manager overlays.
@@ -712,6 +713,96 @@ describe("VerifyLink", () => {
     expect(
       screen.getByText("This link is invalid or has expired.")
     ).toBeVisible()
+  })
+})
+
+describe("registration policy", () => {
+  // /capabilities with only the registration mode changed.
+  const withMode = (mode: string) => () =>
+    json(200, {
+      registration: { mode, invite_token_required: mode === "invite_only" },
+      external_login_providers: [
+        {
+          id: "github",
+          name: "GitHub",
+          supports_login: true,
+          supports_registration: true,
+          supports_link: true,
+        },
+      ],
+      password: {},
+      passwordless: { enabled: false },
+      passkeys: { login: false },
+      solana: { login: false },
+      verification: { registration: "required" },
+    })
+  const loaded = () =>
+    screen.findByRole("button", { name: "Continue with GitHub" })
+
+  it("offers both tabs when registration is open", async () => {
+    renderUi(
+      <SignInPanel />,
+      stubFetch({ "GET /api/v1/capabilities": withMode("open") })
+    )
+    await screen.findByRole("tab", { name: "Create account" })
+    expect(
+      screen.getByRole("heading", { name: "Sign in / Register" })
+    ).toBeVisible()
+  })
+
+  it("shows only sign-in when registration is closed", async () => {
+    renderUi(
+      <SignInPanel initialTab="register" />,
+      stubFetch({ "GET /api/v1/capabilities": withMode("closed") })
+    )
+    await loaded()
+    expect(screen.queryByRole("tablist")).toBeNull()
+    expect(screen.queryByRole("button", { name: "Register" })).toBeNull()
+    expect(screen.getByRole("heading", { name: "Sign in" })).toBeVisible()
+    expect(screen.getByText("Sign in to continue")).toBeVisible()
+    expect(screen.getByLabelText("Password")).toBeVisible()
+  })
+
+  it("treats an unknown mode as closed", async () => {
+    renderUi(
+      <SignInPanel />,
+      stubFetch({ "GET /api/v1/capabilities": withMode("waitlist") })
+    )
+    await loaded()
+    expect(screen.queryByRole("tab", { name: "Create account" })).toBeNull()
+  })
+
+  it("needs an invitation when registration is invite-only", async () => {
+    const fetch = () =>
+      stubFetch({ "GET /api/v1/capabilities": withMode("invite_only") })
+    const { unmount } = renderUi(<SignInPanel />, fetch())
+    await loaded()
+    expect(screen.queryByRole("tab", { name: "Create account" })).toBeNull()
+    unmount()
+
+    renderUi(<SignInPanel inviteCode="inv-1" />, fetch())
+    await screen.findByRole("tab", { name: "Create account" })
+  })
+
+  it("does not offer sign-up before capabilities answer", () => {
+    renderUi(
+      <SignInPanel initialTab="register" />,
+      stubFetch({
+        "GET /api/v1/capabilities": () => new Promise<Response>(() => {}),
+      })
+    )
+    expect(screen.queryByRole("tablist")).toBeNull()
+    expect(screen.getByRole("heading", { name: "Sign in" })).toBeVisible()
+    expect(screen.getByLabelText("Password")).toBeVisible()
+  })
+
+  it("explains a host-placed RegisterForm while registration is closed", async () => {
+    renderUi(
+      <RegisterForm />,
+      stubFetch({ "GET /api/v1/capabilities": withMode("closed") })
+    )
+    await screen.findByText("Registration is currently disabled.")
+    expect(screen.queryByLabelText("Password")).toBeNull()
   })
 })
 
