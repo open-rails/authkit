@@ -367,6 +367,59 @@ export type NamingState = {
   retry_after_seconds: number
 }
 
+export type OAuthAuthorizationDeclineRequest = {
+  error?: string
+}
+
+export type OAuthAuthorizationRequest = {
+  id: string
+  client_id: string
+  client_name: string
+  scopes: string[]
+  resource: string | null
+  prompt: string[]
+  max_age_seconds: number | null
+  login_hint: string | null
+  expires_at: string
+}
+
+export type OAuthAuthorizationResult = {
+  redirect_to: string
+}
+
+export type OAuthServerMetadata = {
+  issuer: string
+  authorization_endpoint: string
+  token_endpoint: string
+  userinfo_endpoint: string
+  revocation_endpoint?: string
+  end_session_endpoint: string
+  jwks_uri: string
+  scopes_supported: string[]
+  response_types_supported: string[]
+  response_modes_supported: string[]
+  grant_types_supported: string[]
+  subject_types_supported: string[]
+  id_token_signing_alg_values_supported: string[]
+  token_endpoint_auth_methods_supported: string[]
+  code_challenge_methods_supported: string[]
+  claims_supported: string[]
+  prompt_values_supported: string[]
+  dpop_signing_alg_values_supported?: string[]
+  authorization_response_iss_parameter_supported: boolean
+  request_parameter_supported: boolean
+  request_uri_parameter_supported: boolean
+}
+
+export type OAuthTokens = {
+  access_token: string
+  token_type: string
+  expires_in: number
+  scope?: string
+  id_token?: string
+  refresh_token?: string
+}
+
 export type OIDCExchangeRequest = {
   code?: string
 }

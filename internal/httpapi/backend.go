@@ -14,4 +14,5 @@ type Backend interface {
 	invitesBackend
 	appsBackend
 	flowsBackend
+	oauthBackend
 }

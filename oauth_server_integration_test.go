@@ -1,0 +1,539 @@
+package authkit_test
+
+import (
+	"context"
+	"crypto"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/go-jose/go-jose/v4"
+	"github.com/stretchr/testify/require"
+
+	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/authtest"
+	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/testkeys"
+	"github.com/open-rails/authkit/keys"
+)
+
+const (
+	oauthResource     = "https://api.example.com"
+	oauthConsole      = "console"
+	oauthConsoleCB    = "https://console.example.com/callback"
+	oauthConsoleOut   = "https://console.example.com/signed-out"
+	oauthBackend      = "backend"
+	oauthBackendCB    = "https://app.example.com/cb"
+	oauthBackendToken = "backend-secret-0123456789-abcdefghij-0123456789"
+)
+
+// oauthRoles gives the issuer a merchant persona in the resource server's
+// vocabulary: an admin role holding all of it, a support role holding only
+// subscriptions.
+func oauthRoles() (*authkit.Roles, iam.Role, iam.Role) {
+	roles := authkit.NewRoles()
+	merchant := roles.Persona("merchant")
+	merchant.Permission("subscriptions", "read")
+	merchant.Permission("subscriptions", "update")
+	merchant.Permission("payouts", "read")
+	admin := roles.Root.Role("admin", merchant.All())
+	support := roles.Root.Role("support", merchant.Resource("subscriptions").All())
+	return roles, admin, support
+}
+
+func newOAuthServer(t *testing.T, opts ...authtest.Option) (*authtest.AuthorizationServer, iam.Role, iam.Role) {
+	t.Helper()
+	roles, admin, support := oauthRoles()
+	opts = append([]authtest.Option{authtest.WithConfig(func(c *authkit.Config) {
+		c.Roles = roles
+		c.AuthorizationServer = authkit.AuthorizationServerConfig{
+			Resources: []authkit.ResourceServerConfig{{
+				ID: oauthResource, Scopes: []string{"api:merchant", "api:self"}, Permissions: []string{"merchant:*"},
+			}},
+			Clients: []authkit.OAuthClientConfig{
+				{ID: oauthConsole, Name: "Console", RedirectURIs: []string{oauthConsoleCB}, PostLogoutRedirectURIs: []string{oauthConsoleOut}, Resources: []string{oauthResource}},
+				{ID: oauthBackend, SecretSHA256: authtest.ClientSecretSHA256(oauthBackendToken), RedirectURIs: []string{oauthBackendCB}},
+			},
+		}
+	})}, opts...)
+	return authtest.NewAuthorizationServer(t, opts...), admin, support
+}
+
+func consoleFlow() authtest.CodeFlow {
+	return authtest.CodeFlow{
+		ClientID: oauthConsole, RedirectURI: oauthConsoleCB, Resource: oauthResource,
+		Scopes: []string{"openid", "profile", "email", "api:merchant"}, Nonce: "n-0S6_WzA2Mj",
+	}
+}
+
+// TestOAuthAuthorizationCodeFlow runs the code flow end to end over HTTPS and
+// verifies its tokens the way a resource server and a client would: from
+// the issuer's metadata and JWKS alone.
+func TestOAuthAuthorizationCodeFlow(t *testing.T) {
+	as, admin, _ := newOAuthServer(t)
+	ctx := context.Background()
+
+	var meta map[string]any
+	require.Equal(t, http.StatusOK, getJSON(t, as, as.URL+iam.OpenIDConfigurationPath, &meta))
+	require.Equal(t, as.URL, meta["issuer"])
+	require.Equal(t, as.URL+iam.OAuthAuthorizePath, meta["authorization_endpoint"])
+	require.Equal(t, as.URL+iam.OAuthTokenPath, meta["token_endpoint"])
+	require.Equal(t, as.URL+iam.JWKSPath, meta["jwks_uri"])
+	require.Equal(t, []any{"S256"}, meta["code_challenge_methods_supported"])
+	require.Equal(t, []any{"code"}, meta["response_types_supported"])
+	require.Equal(t, true, meta["authorization_response_iss_parameter_supported"])
+	var rfc8414 map[string]any
+	require.Equal(t, http.StatusOK, getJSON(t, as, as.URL+iam.AuthorizationServerMetadataPath, &rfc8414))
+	require.Equal(t, meta, rfc8414)
+
+	owner := authtest.NewUser(t, as.Client)
+	authtest.GrantRole(t, as.Client, iam.RootGroup(), iam.UserSubject(owner.ID), admin)
+	tokens := as.Authorize(t, owner, consoleFlow())
+	require.Equal(t, "Bearer", tokens.TokenType)
+	require.EqualValues(t, 300, tokens.ExpiresIn)
+	require.Equal(t, "openid profile email api:merchant", tokens.Scope)
+	require.Empty(t, tokens.RefreshToken)
+
+	at := verifyIssued(t, as, tokens.AccessToken, "at+jwt")
+	require.Equal(t, as.URL, at["iss"])
+	require.Equal(t, owner.ID, at["sub"])
+	require.Equal(t, oauthResource, at["aud"])
+	require.Equal(t, oauthConsole, at["client_id"])
+	require.Equal(t, "openid profile email api:merchant", at["scope"])
+	require.Equal(t, []any{"merchant:*"}, at["permissions"], "the admin role's grants, within the resource's ceiling")
+	require.Equal(t, []any{"admin"}, at["roles"])
+	require.Equal(t, owner.Email, at["email"])
+	require.Equal(t, true, at["email_verified"])
+	require.NotEmpty(t, at["jti"])
+	require.NotEmpty(t, at["sid"])
+	require.EqualValues(t, 300, at["exp"].(float64)-at["iat"].(float64))
+
+	id := verifyIssued(t, as, tokens.IDToken, "JWT")
+	require.Equal(t, []any{oauthConsole}, id["aud"])
+	require.Equal(t, oauthConsole, id["azp"])
+	require.Equal(t, "n-0S6_WzA2Mj", id["nonce"])
+	require.Equal(t, at["sid"], id["sid"])
+	require.Equal(t, owner.Username, id["preferred_username"])
+	require.Equal(t, owner.Email, id["email"])
+
+	var info map[string]any
+	require.Equal(t, http.StatusOK, bearerJSON(t, as, http.MethodGet, as.URL+iam.OAuthUserInfoPath, tokens.AccessToken, &info))
+	require.Equal(t, owner.ID, info["sub"])
+	require.Equal(t, owner.Email, info["email"])
+
+	// AuthKit's own API refuses a token minted for a resource server.
+	status, _ := bearer(t, as, http.MethodGet, as.URL+as.Client.APIBase()+"/me", tokens.AccessToken)
+	require.Equal(t, http.StatusUnauthorized, status)
+
+	// A user without a role on the resource's namespace gets no permissions;
+	// a narrower role, only its own.
+	plain := as.Authorize(t, authtest.NewUser(t, as.Client), consoleFlow())
+	require.Equal(t, []any{}, verifyIssued(t, as, plain.AccessToken, "at+jwt")["permissions"])
+	require.Equal(t, []any{}, verifyIssued(t, as, plain.AccessToken, "at+jwt")["roles"])
+
+	// Without openid there is no ID token, and userinfo refuses the token.
+	flow := consoleFlow()
+	flow.Scopes = []string{"api:merchant"}
+	apiOnly := as.Authorize(t, authtest.NewUser(t, as.Client), flow)
+	require.Empty(t, apiOnly.IDToken)
+	require.Equal(t, http.StatusForbidden, bearerJSON(t, as, http.MethodGet, as.URL+iam.OAuthUserInfoPath, apiOnly.AccessToken, &info))
+	require.Equal(t, "insufficient_scope", info["error"])
+
+	// A confidential client authenticates with its secret; with no resource,
+	// the access token is for userinfo alone.
+	backend := as.Authorize(t, authtest.NewUser(t, as.Client), authtest.CodeFlow{
+		ClientID: oauthBackend, ClientSecret: oauthBackendToken, RedirectURI: oauthBackendCB, Scopes: []string{"openid"},
+	})
+	require.Equal(t, as.URL, verifyIssued(t, as, backend.AccessToken, "at+jwt")["aud"])
+	_ = ctx
+}
+
+// TestOAuthCodeFlowRefusals pins every refusal of the authorize and token
+// endpoints and of the SPA's approval.
+func TestOAuthCodeFlowRefusals(t *testing.T) {
+	as, _, support := newOAuthServer(t)
+	user := authtest.NewUser(t, as.Client)
+	authtest.GrantRole(t, as.Client, iam.RootGroup(), iam.UserSubject(user.ID), support)
+	signedIn := authtest.SignIn(t, as.Client, user)
+	flow := consoleFlow()
+
+	authorize := func(q url.Values) (int, *url.URL, map[string]any) {
+		t.Helper()
+		res, err := as.HTTPClient().Get(as.URL + iam.OAuthAuthorizePath + "?" + q.Encode())
+		require.NoError(t, err)
+		defer res.Body.Close()
+		body, _ := io.ReadAll(res.Body)
+		var out map[string]any
+		_ = json.Unmarshal(body, &out)
+		loc, _ := url.Parse(res.Header.Get("Location"))
+		return res.StatusCode, loc, out
+	}
+	good := func() url.Values {
+		return url.Values{
+			"response_type": {"code"}, "client_id": {oauthConsole}, "redirect_uri": {oauthConsoleCB},
+			"scope": {"openid api:merchant"}, "state": {"xyz"}, "resource": {oauthResource},
+			"code_challenge": {authtest.PKCEChallenge(strings.Repeat("v", 43))}, "code_challenge_method": {"S256"},
+		}
+	}
+	t.Run("authorize answers here until the redirect URI is known good", func(t *testing.T) {
+		q := good()
+		q.Set("redirect_uri", "https://evil.example/cb")
+		status, loc, body := authorize(q)
+		require.Equal(t, http.StatusBadRequest, status)
+		require.Empty(t, loc.String())
+		require.Equal(t, "invalid_request", body["error"])
+		q = good()
+		q.Set("client_id", "nobody")
+		status, loc, _ = authorize(q)
+		require.Equal(t, http.StatusBadRequest, status)
+		require.Empty(t, loc.String())
+		q = good()
+		q.Add("state", "again")
+		status, _, body = authorize(q)
+		require.Equal(t, http.StatusBadRequest, status)
+		require.Equal(t, "invalid_request", body["error"])
+	})
+	t.Run("authorize returns other errors to the client", func(t *testing.T) {
+		for name, tc := range map[string]struct {
+			edit func(url.Values)
+			code string
+		}{
+			"no PKCE":             {func(q url.Values) { q.Del("code_challenge"); q.Del("code_challenge_method") }, "invalid_request"},
+			"plain PKCE":          {func(q url.Values) { q.Set("code_challenge_method", "plain") }, "invalid_request"},
+			"implicit":            {func(q url.Values) { q.Set("response_type", "token") }, "unsupported_response_type"},
+			"unknown scope":       {func(q url.Values) { q.Set("scope", "openid admin:everything") }, "invalid_scope"},
+			"offline_access":      {func(q url.Values) { q.Set("scope", "openid offline_access") }, "invalid_scope"},
+			"unregistered target": {func(q url.Values) { q.Set("resource", "https://other.example") }, "invalid_target"},
+			"two targets":         {func(q url.Values) { q.Add("resource", "https://other.example") }, "invalid_target"},
+			"request object":      {func(q url.Values) { q.Set("request", "eyJ") }, "request_not_supported"},
+			"form_post":           {func(q url.Values) { q.Set("response_mode", "form_post") }, "invalid_request"},
+			"prompt none+login":   {func(q url.Values) { q.Set("prompt", "none login") }, "invalid_request"},
+		} {
+			t.Run(name, func(t *testing.T) {
+				q := good()
+				tc.edit(q)
+				status, loc, _ := authorize(q)
+				require.Equal(t, http.StatusSeeOther, status)
+				require.Equal(t, "https://console.example.com", loc.Scheme+"://"+loc.Host)
+				require.Equal(t, tc.code, loc.Query().Get("error"))
+				require.Equal(t, "xyz", loc.Query().Get("state"))
+				require.Equal(t, as.URL, loc.Query().Get("iss"))
+			})
+		}
+	})
+
+	exchange := func(code, verifier string, mutate func(url.Values)) (int, map[string]any) {
+		t.Helper()
+		params := url.Values{"grant_type": {"authorization_code"}, "code": {code}, "redirect_uri": {oauthConsoleCB}, "code_verifier": {verifier}}
+		if mutate != nil {
+			mutate(params)
+		}
+		status, body := as.Token(t, oauthConsole, "", params)
+		var out map[string]any
+		require.NoError(t, json.Unmarshal(body, &out), string(body))
+		return status, out
+	}
+	codeFor := func(verifier string) string {
+		t.Helper()
+		id := as.BeginAuthorization(t, flow, verifier, "st")
+		loc, err := url.Parse(as.Approve(t, signedIn.AccessToken, id))
+		require.NoError(t, err)
+		return loc.Query().Get("code")
+	}
+	verifier := strings.Repeat("a", 43)
+	t.Run("a code is redeemed once", func(t *testing.T) {
+		code := codeFor(verifier)
+		status, out := exchange(code, verifier, nil)
+		require.Equal(t, http.StatusOK, status, out)
+		require.Equal(t, []any{"merchant:subscriptions:*"}, decodeClaims(t, out["access_token"].(string))["permissions"])
+		status, out = exchange(code, verifier, nil)
+		require.Equal(t, http.StatusBadRequest, status)
+		require.Equal(t, "invalid_grant", out["error"])
+	})
+	for name, tc := range map[string]struct {
+		verifier string
+		mutate   func(url.Values)
+		code     string
+	}{
+		"wrong verifier":     {strings.Repeat("b", 43), nil, "invalid_grant"},
+		"short verifier":     {"abc", nil, "invalid_grant"},
+		"wrong redirect_uri": {verifier, func(p url.Values) { p.Set("redirect_uri", oauthBackendCB) }, "invalid_grant"},
+		"wrong resource":     {verifier, func(p url.Values) { p.Set("resource", "https://other.example") }, "invalid_target"},
+		"unknown grant":      {verifier, func(p url.Values) { p.Set("grant_type", "password") }, "unsupported_grant_type"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			status, out := exchange(codeFor(verifier), tc.verifier, tc.mutate)
+			require.Equal(t, tc.code, out["error"], out)
+			require.GreaterOrEqual(t, status, 400)
+		})
+	}
+	t.Run("a code redeems only for its client", func(t *testing.T) {
+		status, body := as.Token(t, oauthBackend, oauthBackendToken, url.Values{
+			"grant_type": {"authorization_code"}, "code": {codeFor(verifier)}, "redirect_uri": {oauthConsoleCB}, "code_verifier": {verifier},
+		})
+		require.Equal(t, http.StatusBadRequest, status)
+		require.Contains(t, string(body), `"invalid_grant"`)
+	})
+	t.Run("client authentication", func(t *testing.T) {
+		status, body := as.Token(t, oauthBackend, "wrong-secret", url.Values{"grant_type": {"authorization_code"}, "code": {"x"}})
+		require.Equal(t, http.StatusUnauthorized, status, string(body))
+		require.Contains(t, string(body), `"invalid_client"`)
+		status, body = as.Token(t, oauthBackend, "", url.Values{"grant_type": {"authorization_code"}, "code": {"x"}})
+		require.Equal(t, http.StatusUnauthorized, status, "a confidential client must authenticate: %s", body)
+		status, body = as.Token(t, oauthConsole, "", url.Values{"grant_type": {"authorization_code"}, "code": {"x"}, "client_secret": {"anything"}})
+		require.Equal(t, http.StatusUnauthorized, status, "a public client has no secret: %s", body)
+	})
+	t.Run("the token endpoint takes only a form body", func(t *testing.T) {
+		req, _ := http.NewRequest(http.MethodPost, as.URL+iam.OAuthTokenPath, strings.NewReader(`{"grant_type":"authorization_code"}`))
+		req.Header.Set("Content-Type", "application/json")
+		res, err := as.HTTPClient().Do(req)
+		require.NoError(t, err)
+		res.Body.Close()
+		require.Equal(t, http.StatusBadRequest, res.StatusCode)
+		req, _ = http.NewRequest(http.MethodPost, as.URL+iam.OAuthTokenPath+"?code=x", strings.NewReader("grant_type=authorization_code&client_id=console"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		res, err = as.HTTPClient().Do(req)
+		require.NoError(t, err)
+		res.Body.Close()
+		require.Equal(t, http.StatusBadRequest, res.StatusCode)
+	})
+	t.Run("an ended sign-in redeems nothing", func(t *testing.T) {
+		other := authtest.SignIn(t, as.Client, user)
+		id := as.BeginAuthorization(t, flow, verifier, "st")
+		loc, err := url.Parse(as.Approve(t, other.AccessToken, id))
+		require.NoError(t, err)
+		claims, err := as.Client.Verify(context.Background(), other.AccessToken)
+		require.NoError(t, err)
+		require.NoError(t, as.Client.RevokeSession(context.Background(), iam.SystemActor(), user.ID, claims.SessionID))
+		_, out := exchange(loc.Query().Get("code"), verifier, nil)
+		require.Equal(t, "invalid_grant", out["error"])
+	})
+	t.Run("the SPA's answers", func(t *testing.T) {
+		status, _ := postJSON(t, as, as.URL+as.Client.APIBase()+"/oauth2/authorizations/nope/approve", signedIn.AccessToken, nil)
+		require.Equal(t, http.StatusNotFound, status)
+		id := as.BeginAuthorization(t, flow, verifier, "st")
+		status, _ = postJSON(t, as, as.URL+as.Client.APIBase()+"/oauth2/authorizations/"+id+"/approve", "", nil)
+		require.Equal(t, http.StatusUnauthorized, status, "approving needs a sign-in")
+		var view map[string]any
+		require.Equal(t, http.StatusOK, getJSON(t, as, as.URL+as.Client.APIBase()+"/oauth2/authorizations/"+id, &view))
+		require.Equal(t, "Console", view["client_name"])
+		require.Equal(t, oauthResource, view["resource"])
+		status, body := postJSON(t, as, as.URL+as.Client.APIBase()+"/oauth2/authorizations/"+id+"/decline", "", map[string]string{"error": "server_error"})
+		require.Equal(t, http.StatusBadRequest, status, string(body))
+		status, body = postJSON(t, as, as.URL+as.Client.APIBase()+"/oauth2/authorizations/"+id+"/decline", "", map[string]string{"error": "login_required"})
+		require.Equal(t, http.StatusOK, status, string(body))
+		var out struct {
+			RedirectTo string `json:"redirect_to"`
+		}
+		require.NoError(t, json.Unmarshal(body, &out))
+		loc, _ := url.Parse(out.RedirectTo)
+		require.Equal(t, "login_required", loc.Query().Get("error"))
+		require.Equal(t, "st", loc.Query().Get("state"))
+		status, _ = postJSON(t, as, as.URL+as.Client.APIBase()+"/oauth2/authorizations/"+id+"/approve", signedIn.AccessToken, nil)
+		require.Equal(t, http.StatusNotFound, status, "a declined request is gone")
+	})
+	t.Run("max_age and prompt=login ask for a fresh sign-in", func(t *testing.T) {
+		stale := authtest.StaleSession(t, as.Client, signedIn.AccessToken)
+		for _, extra := range []url.Values{{"max_age": {"3600"}}, {"prompt": {"login"}}} {
+			q := good()
+			for k, v := range extra {
+				q[k] = v
+			}
+			status, loc, _ := authorize(q)
+			require.Equal(t, http.StatusSeeOther, status)
+			id := loc.Query().Get("authorization")
+			status, body := postJSON(t, as, as.URL+as.Client.APIBase()+"/oauth2/authorizations/"+id+"/approve", stale, nil)
+			require.Equal(t, http.StatusForbidden, status, string(body))
+			require.Contains(t, string(body), "step_up_required")
+		}
+	})
+}
+
+// TestOAuthEndSessionAndCORS: RP-initiated logout ends the sign-in the ID
+// token names; browser clients may call the token and userinfo endpoints
+// from their own origin.
+func TestOAuthEndSessionAndCORS(t *testing.T) {
+	as, _, _ := newOAuthServer(t)
+	user := authtest.NewUser(t, as.Client)
+	tokens := as.Authorize(t, user, consoleFlow())
+
+	req, _ := http.NewRequest(http.MethodOptions, as.URL+iam.OAuthTokenPath, nil)
+	req.Header.Set("Origin", "https://console.example.com")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	res, err := as.HTTPClient().Do(req)
+	require.NoError(t, err)
+	res.Body.Close()
+	require.Equal(t, http.StatusNoContent, res.StatusCode)
+	require.Equal(t, "https://console.example.com", res.Header.Get("Access-Control-Allow-Origin"))
+	require.Contains(t, res.Header.Get("Access-Control-Allow-Headers"), "DPoP")
+	req.Header.Set("Origin", "https://evil.example")
+	res, err = as.HTTPClient().Do(req)
+	require.NoError(t, err)
+	res.Body.Close()
+	require.Empty(t, res.Header.Get("Access-Control-Allow-Origin"))
+
+	q := url.Values{"id_token_hint": {tokens.IDToken}, "post_logout_redirect_uri": {"https://evil.example/out"}}
+	res, err = as.HTTPClient().Get(as.URL + iam.OAuthEndSessionPath + "?" + q.Encode())
+	require.NoError(t, err)
+	res.Body.Close()
+	require.Equal(t, http.StatusBadRequest, res.StatusCode, "an unregistered post-logout URI is refused")
+
+	q = url.Values{"id_token_hint": {tokens.IDToken}, "post_logout_redirect_uri": {oauthConsoleOut}, "state": {"bye"}}
+	res, err = as.HTTPClient().Get(as.URL + iam.OAuthEndSessionPath + "?" + q.Encode())
+	require.NoError(t, err)
+	res.Body.Close()
+	require.Equal(t, http.StatusSeeOther, res.StatusCode)
+	require.Equal(t, oauthConsoleOut+"?state=bye", res.Header.Get("Location"))
+
+	var info map[string]any
+	require.Equal(t, http.StatusUnauthorized, bearerJSON(t, as, http.MethodGet, as.URL+iam.OAuthUserInfoPath, tokens.AccessToken, &info))
+	require.Equal(t, "invalid_token", info["error"], "the sign-in has ended")
+}
+
+// TestOAuthSigningKeyRotationMidFlow: a code approved under one signing key
+// redeems after a rotation for tokens a verifier checks against the JWKS it
+// refetches.
+func TestOAuthSigningKeyRotationMidFlow(t *testing.T) {
+	src := &rotatingKeys{}
+	src.set(testkeys.RSA("key-1"))
+	as, _, _ := newOAuthServer(t, authtest.WithDeps(func(d *authkit.Deps) { d.KeySource = src }))
+	user := authtest.NewUser(t, as.Client)
+	signedIn := authtest.SignIn(t, as.Client, user)
+	verifier := strings.Repeat("r", 43)
+	id := as.BeginAuthorization(t, consoleFlow(), verifier, "st")
+	loc, err := url.Parse(as.Approve(t, signedIn.AccessToken, id))
+	require.NoError(t, err)
+
+	src.set(testkeys.EC("key-2"))
+	status, body := as.Token(t, oauthConsole, "", url.Values{
+		"grant_type": {"authorization_code"}, "code": {loc.Query().Get("code")}, "redirect_uri": {oauthConsoleCB}, "code_verifier": {verifier},
+	})
+	require.Equal(t, http.StatusOK, status, string(body))
+	var tokens authtest.OAuthTokens
+	require.NoError(t, json.Unmarshal(body, &tokens))
+	_, header := verifyIssuedHeader(t, as, tokens.AccessToken, "at+jwt")
+	require.Equal(t, "key-2", header.KeyID)
+	verifyIssued(t, as, tokens.IDToken, "JWT")
+}
+
+// rotatingKeys is a keys.Source whose active key the test swaps; every key
+// it has held stays published.
+type rotatingKeys struct {
+	active atomic.Pointer[keys.Signer]
+	all    atomic.Pointer[map[string]crypto.PublicKey]
+}
+
+func (r *rotatingKeys) set(s keys.Signer) {
+	public := map[string]crypto.PublicKey{}
+	if prev := r.all.Load(); prev != nil {
+		for k, v := range *prev {
+			public[k] = v
+		}
+	}
+	public[s.KID()] = s.Public()
+	r.all.Store(&public)
+	r.active.Store(&s)
+}
+
+func (r *rotatingKeys) ActiveSigner() keys.Signer { return *r.active.Load() }
+func (r *rotatingKeys) PublicKeys() map[string]crypto.PublicKey {
+	out := map[string]crypto.PublicKey{}
+	for k, v := range *r.all.Load() {
+		out[k] = v
+	}
+	return out
+}
+
+// verifyIssued verifies a token as a resource server or client would, from
+// the issuer's metadata and JWKS alone, and returns its claims.
+func verifyIssued(t *testing.T, as *authtest.AuthorizationServer, token, typ string) map[string]any {
+	t.Helper()
+	claims, _ := verifyIssuedHeader(t, as, token, typ)
+	return claims
+}
+
+func verifyIssuedHeader(t *testing.T, as *authtest.AuthorizationServer, token, typ string) (map[string]any, jose.Header) {
+	t.Helper()
+	var meta struct {
+		Issuer  string `json:"issuer"`
+		JWKSURI string `json:"jwks_uri"`
+	}
+	require.Equal(t, http.StatusOK, getJSON(t, as, as.URL+iam.OpenIDConfigurationPath, &meta))
+	var set jose.JSONWebKeySet
+	require.Equal(t, http.StatusOK, getJSON(t, as, meta.JWKSURI, &set))
+	jws, err := jose.ParseSigned(token, []jose.SignatureAlgorithm{jose.RS256, jose.ES256, jose.EdDSA})
+	require.NoError(t, err)
+	require.Len(t, jws.Signatures, 1)
+	header := jws.Signatures[0].Protected
+	require.Equal(t, typ, header.ExtraHeaders["typ"])
+	keys := set.Key(header.KeyID)
+	require.Len(t, keys, 1, "the JWKS publishes the signing key")
+	payload, err := jws.Verify(keys[0])
+	require.NoError(t, err)
+	var claims map[string]any
+	require.NoError(t, json.Unmarshal(payload, &claims))
+	require.Equal(t, meta.Issuer, claims["iss"])
+	require.Greater(t, claims["exp"].(float64), float64(time.Now().Unix()))
+	return claims, header
+}
+
+// decodeClaims reads a JWT's claims without verifying it.
+func decodeClaims(t *testing.T, token string) map[string]any {
+	t.Helper()
+	jws, err := jose.ParseSigned(token, []jose.SignatureAlgorithm{jose.RS256, jose.ES256, jose.EdDSA})
+	require.NoError(t, err)
+	var claims map[string]any
+	require.NoError(t, json.Unmarshal(jws.UnsafePayloadWithoutVerification(), &claims))
+	return claims
+}
+
+func getJSON(t *testing.T, as *authtest.AuthorizationServer, u string, out any) int {
+	t.Helper()
+	return bearerJSON(t, as, http.MethodGet, u, "", out)
+}
+
+func bearerJSON(t *testing.T, as *authtest.AuthorizationServer, method, u, token string, out any) int {
+	t.Helper()
+	status, body := bearer(t, as, method, u, token)
+	require.NoError(t, json.Unmarshal(body, out), "%d %s", status, body)
+	return status
+}
+
+func bearer(t *testing.T, as *authtest.AuthorizationServer, method, u, token string) (int, []byte) {
+	t.Helper()
+	req, _ := http.NewRequest(method, u, nil)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	res, err := as.HTTPClient().Do(req)
+	require.NoError(t, err)
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	return res.StatusCode, body
+}
+
+func postJSON(t *testing.T, as *authtest.AuthorizationServer, u, token string, body any) (int, []byte) {
+	t.Helper()
+	var r io.Reader
+	if body != nil {
+		raw, _ := json.Marshal(body)
+		r = strings.NewReader(string(raw))
+	}
+	req, _ := http.NewRequest(http.MethodPost, u, r)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	res, err := as.HTTPClient().Do(req)
+	require.NoError(t, err)
+	defer res.Body.Close()
+	out, _ := io.ReadAll(res.Body)
+	return res.StatusCode, out
+}

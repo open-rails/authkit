@@ -20,6 +20,9 @@ const (
 	SurfaceAPI  Surface = ""     // the JSON API, beneath the API path
 	SurfaceOIDC Surface = "oidc" // browser OIDC navigations, beneath OIDCPath
 	SurfaceBase Surface = "base" // the issuer's own paths (JWKS)
+	// SurfaceOAuth is the authorization server's protocol endpoints beneath
+	// the issuer's path: form requests and OAuth errors, no JSON envelope.
+	SurfaceOAuth Surface = "oauth"
 )
 
 // Feature is the configuration a route needs to be mounted.
@@ -39,10 +42,12 @@ const (
 	FeatureAPIKeys      Feature = "api_keys"     // a persona whose groups hold API keys
 	FeatureInvitations  Feature = "invitations"  // invitations not disabled
 	FeatureNewDevices   Feature = "new_devices"  // SignIn.NewDevicesPerAccount not off
+	// FeatureAuthorizationServer: AuthorizationServer declares clients.
+	FeatureAuthorizationServer Feature = "authorization_server"
 )
 
 // Features lists every Feature a route can be mounted under.
-var Features = []Feature{FeaturePasskeys, FeaturePasswordless, FeatureRegistration, FeatureTwoFactor, FeatureSolana, FeatureOIDC, FeatureDelegated, FeatureDeviceKeys, FeatureGroups, FeatureAPIKeys, FeatureInvitations, FeatureNewDevices}
+var Features = []Feature{FeaturePasskeys, FeaturePasswordless, FeatureRegistration, FeatureTwoFactor, FeatureSolana, FeatureOIDC, FeatureDelegated, FeatureDeviceKeys, FeatureGroups, FeatureAPIKeys, FeatureInvitations, FeatureNewDevices, FeatureAuthorizationServer}
 
 // Reply is one success outcome of a route: its status and body. Body is a
 // zero value of the body's type, nil for none.
@@ -79,8 +84,11 @@ type RouteSpec struct {
 	MFAEnrollmentExempt bool
 	// Query, Request: the query string and the JSON body (zero values; nil
 	// for none). Responses: every success outcome.
-	Query     any
-	Request   any
+	Query   any
+	Request any
+	// Form documents an application/x-www-form-urlencoded body by its
+	// query tags: the authorization server's protocol endpoints.
+	Form      any
 	Responses []Reply
 
 	serve func(*Service) http.Handler
@@ -112,8 +120,9 @@ var (
 // and the TypeScript wire types from it.
 func Catalog() []RouteSpec {
 	const (
-		GET, POST, PUT, PATCH, DELETE                                           = http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete
+		GET, POST, PUT, PATCH, DELETE, OPTIONS                                  = http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions
 		auth, deviceKeys, registration, account, admin, groups, oidc, delegated = iam.RouteAuth, iam.RouteDeviceKeys, iam.RouteRegistration, iam.RouteAccount, iam.RouteAdmin, iam.RoutePermissionGroups, iam.RouteBrowserOIDC, iam.RouteDelegated
+		as                                                                      = iam.RouteAuthorizationServer
 		public, optional, required, session, permission                         = iam.AuthPublic, iam.AuthOptional, iam.AuthRequired, iam.AuthSession, iam.AuthPermission
 	)
 	type (
@@ -324,6 +333,17 @@ func Catalog() []RouteSpec {
 		{Method: POST, Path: "/delegated/token", Group: delegated, Auth: session, Bucket: RLDelegatedTokenMint, MountedWhen: FeatureDelegated,
 			Request: DelegatedTokenRequest{}, Responses: replyOK(iam.TokenSet{}), serve: handle((*Service).handleDelegatedTokenPOST)},
 
+		// #430: the SPA's half of an OAuth sign-in. The authorize endpoint
+		// stores the request and sends the browser to Frontend.AuthorizePath;
+		// the SPA signs the user in, then approves it for that sign-in (a
+		// one-time code back to the client) or declines it.
+		{Method: GET, Path: "/oauth2/authorizations/{authorization_id}", Group: as, Auth: public, Bucket: RLOAuthAuthorization, MountedWhen: FeatureAuthorizationServer,
+			Responses: replyOK(OAuthAuthorizationRequest{}), serve: handle((*Service).handleOAuthAuthorizationGET)},
+		{Method: POST, Path: "/oauth2/authorizations/{authorization_id}/approve", Group: as, Auth: session, Bucket: RLOAuthAuthorization, MountedWhen: FeatureAuthorizationServer,
+			Responses: replyOK(OAuthAuthorizationResult{}), serve: handle((*Service).handleOAuthAuthorizationApprovePOST)},
+		{Method: POST, Path: "/oauth2/authorizations/{authorization_id}/decline", Group: as, Auth: public, Bucket: RLOAuthAuthorization, MountedWhen: FeatureAuthorizationServer,
+			Request: OAuthAuthorizationDeclineRequest{}, Responses: replyOK(OAuthAuthorizationResult{}), serve: handle((*Service).handleOAuthAuthorizationDeclinePOST)},
+
 		// Group management: each route resolves {group_id} (`root` is the root
 		// group), refuses a group whose persona lacks the route, and checks
 		// Perm in the group. A root-group change needs a recent sign-in.
@@ -365,8 +385,37 @@ func Catalog() []RouteSpec {
 		// as a cross-site POST body (#295).
 		{Method: POST, Path: "/{provider}/callback", Surface: SurfaceOIDC, Group: oidc, Auth: public, Bucket: RLOIDCCallback, MountedWhen: FeatureOIDC,
 			Responses: oidcCallbackReplies, serve: handle((*Service).handleOIDCCallbackGET)},
+
+		// #430: the authorization server's protocol endpoints, beneath the
+		// issuer's path. Errors are OAuth's {error, error_description}; the
+		// browser endpoints redirect.
+		{Method: GET, Path: iam.OpenIDConfigurationPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthMetadata, MountedWhen: FeatureAuthorizationServer,
+			Responses: replyOK(OAuthServerMetadata{}), serve: handle((*Service).handleOAuthMetadata)},
+		{Method: GET, Path: iam.AuthorizationServerMetadataPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthMetadata, MountedWhen: FeatureAuthorizationServer,
+			Responses: replyOK(OAuthServerMetadata{}), serve: handle((*Service).handleOAuthMetadata)},
+		{Method: GET, Path: iam.OAuthAuthorizePath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthAuthorize, MountedWhen: FeatureAuthorizationServer,
+			Query: OAuthAuthorizeParams{}, Responses: oauthRedirectReply, serve: handle((*Service).handleOAuthAuthorize)},
+		{Method: POST, Path: iam.OAuthAuthorizePath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthAuthorize, MountedWhen: FeatureAuthorizationServer,
+			Form: OAuthAuthorizeParams{}, Responses: oauthRedirectReply, serve: handle((*Service).handleOAuthAuthorize)},
+		{Method: POST, Path: iam.OAuthTokenPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthToken, MountedWhen: FeatureAuthorizationServer,
+			Form: OAuthTokenParams{}, Responses: replyOK(authflow.OAuthTokens{}), serve: handle((*Service).handleOAuthToken)},
+		{Method: OPTIONS, Path: iam.OAuthTokenPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthToken, MountedWhen: FeatureAuthorizationServer,
+			Responses: replyNoContent, serve: handle((*Service).handleOAuthPreflight)},
+		{Method: GET, Path: iam.OAuthUserInfoPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthUserInfo, MountedWhen: FeatureAuthorizationServer,
+			Responses: replyOK(map[string]any{}), serve: handle((*Service).handleOAuthUserInfo)},
+		{Method: POST, Path: iam.OAuthUserInfoPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthUserInfo, MountedWhen: FeatureAuthorizationServer,
+			Responses: replyOK(map[string]any{}), serve: handle((*Service).handleOAuthUserInfo)},
+		{Method: OPTIONS, Path: iam.OAuthUserInfoPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthUserInfo, MountedWhen: FeatureAuthorizationServer,
+			Responses: replyNoContent, serve: handle((*Service).handleOAuthPreflight)},
+		{Method: GET, Path: iam.OAuthEndSessionPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthEndSession, MountedWhen: FeatureAuthorizationServer,
+			Query: OAuthEndSessionParams{}, Responses: oauthRedirectReply, serve: handle((*Service).handleOAuthEndSession)},
+		{Method: POST, Path: iam.OAuthEndSessionPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthEndSession, MountedWhen: FeatureAuthorizationServer,
+			Form: OAuthEndSessionParams{}, Responses: oauthRedirectReply, serve: handle((*Service).handleOAuthEndSession)},
 	}
 }
+
+// oauthRedirectReply: the browser endpoints answer 303 See Other.
+var oauthRedirectReply = []Reply{{Status: http.StatusSeeOther}}
 
 // A callback redirects to the frontend, a step-up's return_to or the popup
 // document; asked for JSON it answers the AuthResult, or 204 for a linked
