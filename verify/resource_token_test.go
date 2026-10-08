@@ -120,17 +120,18 @@ func TestDPoPBoundResourceTokenOverHTTP(t *testing.T) {
 	nonceKey := make([]byte, 32)
 	_, _ = rand.Read(nonceKey)
 
-	var v *Verifier
-	server := httptest.NewServer(http.NewServeMux())
+	server := httptest.NewUnstartedServer(nil)
 	t.Cleanup(server.Close)
-	v = NewVerifier(WithDPoP(replay), WithPublicURL(server.URL), WithDPoPNonce(nonceKey))
+	base := "http://" + server.Listener.Addr().String()
+	v := NewVerifier(WithDPoP(replay), WithPublicURL(base), WithDPoPNonce(nonceKey))
 	peer := newFixture(t).peer
 	require.NoError(t, v.AddIssuer(peerIssuer, []string{audience}, IssuerOptions{Keys: []iam.RemoteApplicationKey{pemKey(t, peer)}}))
 	server.Config.Handler = Required(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cl, _ := ClaimsFromContext(r.Context())
 		_ = json.NewEncoder(w).Encode(map[string]any{"sub": cl.Subject, "jkt": cl.JWKThumbprint, "permissions": cl.Permissions})
 	}))
-	target := server.URL + "/v1/merchant/subscriptions"
+	server.Start()
+	target := base + "/v1/merchant/subscriptions"
 
 	key := testdpop.Key(t)
 	jkt := testdpop.Thumbprint(t, key)
@@ -202,7 +203,7 @@ func TestDPoPBoundResourceTokenOverHTTP(t *testing.T) {
 
 	for name, got := range map[string]answer{
 		"another key's proof": call("DPoP", bound, testdpop.Proof(t, testdpop.Key(t), http.MethodGet, target, bound, withNonce(first.nonce))),
-		"another URL":         call("DPoP", bound, testdpop.Proof(t, key, http.MethodGet, server.URL+"/v1/merchant/payouts", bound, withNonce(first.nonce))),
+		"another URL":         call("DPoP", bound, testdpop.Proof(t, key, http.MethodGet, base+"/v1/merchant/payouts", bound, withNonce(first.nonce))),
 		"another method":      call("DPoP", bound, testdpop.Proof(t, key, http.MethodPost, target, bound, withNonce(first.nonce))),
 		"no proof":            call("DPoP", bound, ""),
 		"as a bearer token":   call("Bearer", bound, ""),
