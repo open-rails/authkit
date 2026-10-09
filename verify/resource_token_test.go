@@ -66,6 +66,12 @@ func TestResourceAccessTokens(t *testing.T) {
 	require.Empty(t, cl.UserID, "the local issuer's resource token is no sign-in")
 	require.Equal(t, "user-1", cl.Subject)
 	require.Equal(t, []string{"merchant:*"}, cl.Permissions)
+	cl, err = f.v.Verify(ctx, sign(t, f.local, jose.ResourceAccessTokenType, localIssuer, map[string]any{
+		"sub": "user-1", "client_id": "tensord", "device_key_id": "dk-1", "act": map[string]any{"sub": "worker-1"},
+	}))
+	require.NoError(t, err)
+	require.Equal(t, "dk-1", cl.DeviceKeyID, "a jwt-bearer token's device key, for the session check")
+	require.Equal(t, "worker-1", cl.Invoker)
 
 	cl, err = f.v.Verify(ctx, sign(t, f.peer, jose.ResourceAccessTokenType, peerIssuer, map[string]any{
 		"sub": "billing-worker", "client_id": "billing-worker", "permissions": []string{"merchant:payouts:read"},

@@ -67,9 +67,9 @@ type Deps struct {
 	OnPurge func(context.Context, iam.UserDeletion) error
 
 	// OAuthGrants decides every grant of the authorization server: at
-	// consent, token exchange and client credentials, and at every refresh.
-	// Nil grants the defaults. Required when a client declares
-	// AuthorizationDetailsTypes.
+	// consent, token exchange, client credentials and jwt-bearer, and at
+	// every refresh. Nil grants the defaults. Required when a client
+	// declares AuthorizationDetailsTypes, as every jwt-bearer client does.
 	OAuthGrants iam.OAuthGrantAuthorizer
 	// NameAdmission is the host's side-effect-free username policy for
 	// account creation and renames; an error refuses the name.

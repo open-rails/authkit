@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/open-rails/authkit/devicekey"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/config"
@@ -377,6 +378,10 @@ type oauthMint struct {
 	invoker  string
 	// grantEnd, when set, is when the grant ends: no token outlives it.
 	grantEnd time.Time
+	// workload is a jwt-bearer token: it stands on deviceKeyID's capability,
+	// which grantEnd ends; no sign-in stands behind it (no auth_time, amr or
+	// acr) and it carries no permissions.
+	workload bool
 }
 
 // mintOAuthTokens mints the access token for m's resource (or, with none,
@@ -390,6 +395,9 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 	}
 	now := s.nowTime()
 	ttl := config.OAuthClientAccessTTL(s.cfg.AuthorizationServer, m.client)
+	if m.workload {
+		ttl = devicekey.MaxCapabilityLifetime + authflow.AssertionSkew // grantEnd, the capability's exp, bounds it
+	}
 	if m.decision != nil && m.decision.MaxLifetime > 0 && m.decision.MaxLifetime < ttl {
 		ttl = m.decision.MaxLifetime.Truncate(time.Second)
 	}
@@ -434,6 +442,9 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 	if m.invoker != "" {
 		at["act"] = map[string]any{"sub": m.invoker}
 	}
+	if m.workload {
+		at["device_key_id"] = m.deviceKeyID
+	}
 	permissions, err := s.grantPermissions(ctx, m, resource.Permissions)
 	if err != nil {
 		return authflow.OAuthTokens{}, err
@@ -455,9 +466,10 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 		return authflow.OAuthTokens{}, iam.ErrUserNotFound
 	}
 	roles := s.oauthRoles(ctx, m.userID)
-	maps.Copy(at, map[string]any{
-		"sub": m.userID, "auth_time": m.authTime, "acr": m.acr, "amr": m.amr, "roles": roles,
-	})
+	at["sub"], at["roles"] = m.userID, roles
+	if !m.workload {
+		maps.Copy(at, map[string]any{"auth_time": m.authTime, "acr": m.acr, "amr": m.amr})
+	}
 	if !m.offline && m.sessionID != "" {
 		// An offline grant outlives its sign-in, and a device key is no
 		// session: their tokens name none.

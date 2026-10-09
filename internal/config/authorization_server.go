@@ -46,7 +46,8 @@ type OAuthClientConfig struct {
 	// SecretSHA256 makes the client confidential: the lowercase hex SHA-256
 	// of its secret, which must be at least 32 random bytes. AuthKit never
 	// holds the secret. Empty makes the client public (a browser or native
-	// app), which must use PKCE and DPoP and cannot use client credentials.
+	// app, or a fleet of workloads using the jwt-bearer grant), which must
+	// use DPoP and cannot use client credentials.
 	SecretSHA256 string
 	// RedirectURIs are the exact redirect_uri values the client may use:
 	// absolute https URLs, or http on a loopback host, without a fragment.
@@ -122,6 +123,10 @@ const (
 	GrantTokenExchange OAuthGrantType = "urn:ietf:params:oauth:grant-type:token-exchange"
 	// GrantClientCredentials is a confidential client acting for itself.
 	GrantClientCredentials OAuthGrantType = "client_credentials"
+	// GrantJWTBearer is the RFC 7523 JWT-bearer grant: a workload's key
+	// signs an assertion carrying a capability one of the user's device keys
+	// signed for it, and proves itself with DPoP.
+	GrantJWTBearer OAuthGrantType = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 )
 
 // DefaultOAuthAccessTokenTTL is AuthorizationServerConfig.AccessTokenTTL's
@@ -254,6 +259,9 @@ func normalizeAuthorizationServer(a *AuthorizationServerConfig, c Config) error 
 		if err := normalizeOAuthClient(&cl, a.Resources); err != nil {
 			return fmt.Errorf("authkit: AuthorizationServer.Clients[%d]: %w", i, err)
 		}
+		if OAuthClientAllows(cl, GrantJWTBearer) && !c.DeviceKeys.Enabled {
+			return fmt.Errorf("authkit: AuthorizationServer.Clients[%d]: client %q: the jwt-bearer grant needs DeviceKeys.Enabled: device keys sign its capabilities", i, cl.ID)
+		}
 		if slices.ContainsFunc(clients, func(o OAuthClientConfig) bool { return o.ID == cl.ID }) {
 			return fmt.Errorf("authkit: AuthorizationServer.Clients[%d]: client %q is declared twice", i, cl.ID)
 		}
@@ -294,7 +302,7 @@ func normalizeOAuthClient(cl *OAuthClientConfig, resources []ResourceServerConfi
 	grants := make([]OAuthGrantType, 0, len(cl.GrantTypes))
 	for _, g := range cl.GrantTypes {
 		switch g {
-		case GrantAuthorizationCode, GrantRefreshToken, GrantTokenExchange, GrantClientCredentials:
+		case GrantAuthorizationCode, GrantRefreshToken, GrantTokenExchange, GrantClientCredentials, GrantJWTBearer:
 		default:
 			return fmt.Errorf("client %q: unsupported grant type %q", cl.ID, g)
 		}
@@ -342,6 +350,10 @@ func normalizeOAuthClient(cl *OAuthClientConfig, resources []ResourceServerConfi
 		return fmt.Errorf("client %q: client credentials need a confidential client (SecretSHA256)", cl.ID)
 	case OAuthClientAllows(*cl, GrantClientCredentials) && len(cl.Resources) == 0:
 		return fmt.Errorf("client %q: client credentials need Resources to mint for", cl.ID)
+	case OAuthClientAllows(*cl, GrantJWTBearer) && len(cl.Resources) == 0:
+		return fmt.Errorf("client %q: the jwt-bearer grant needs Resources to mint for", cl.ID)
+	case OAuthClientAllows(*cl, GrantJWTBearer) && len(cl.AuthorizationDetailsTypes) == 0:
+		return fmt.Errorf("client %q: the jwt-bearer grant needs AuthorizationDetailsTypes: its capabilities' operations", cl.ID)
 	case len(cl.Permissions) > 0 && !OAuthClientAllows(*cl, GrantClientCredentials):
 		return fmt.Errorf("client %q: Permissions are a client-credentials client's own grants", cl.ID)
 	}

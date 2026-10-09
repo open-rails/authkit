@@ -32,12 +32,13 @@ type OAuthAuthorization struct {
 
 // OAuthGrantDecision is the host authorizer's decision a grant carries:
 // permissions (nil for the defaults), authorization details, a lifetime cap
-// and extra access-token claims.
+// and extra access-token claims; for jwt-bearer, its invoker.
 type OAuthGrantDecision struct {
 	Permissions          []string        `json:"permissions,omitempty"`
 	AuthorizationDetails json.RawMessage `json:"authorization_details,omitempty"`
 	MaxLifetime          time.Duration   `json:"max_lifetime,omitempty"`
 	Claims               map[string]any  `json:"claims,omitempty"`
+	Invoker              string          `json:"invoker,omitempty"`
 }
 
 // OAuthGrant is what an authorization code stands for: the approved request
@@ -166,6 +167,9 @@ type OAuthError struct {
 	// Status is the HTTP status for a direct (non-redirect) answer; 0 means
 	// 400.
 	Status int
+	// Reason is a stable machine-readable cause beside Code ("reason"),
+	// which the jwt-bearer grant sets.
+	Reason string
 }
 
 func (e *OAuthError) Error() string { return fmt.Sprintf("oauth: %s: %s", e.Code, e.Description) }

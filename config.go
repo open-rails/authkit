@@ -49,6 +49,7 @@ const (
 	GrantRefreshToken      = config.GrantRefreshToken
 	GrantTokenExchange     = config.GrantTokenExchange
 	GrantClientCredentials = config.GrantClientCredentials
+	GrantJWTBearer         = config.GrantJWTBearer
 )
 
 // Former-name reservation modes.

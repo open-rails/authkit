@@ -66,6 +66,10 @@ func (v *Verifier) verify(ctx context.Context, token string, r *http.Request) (C
 	if err != nil {
 		return Claims{}, err
 	}
+	if cl.IsResourceToken() && !is.local {
+		// Only this deployment's device keys mean anything here (#437).
+		cl.DeviceKeyID = ""
+	}
 	if cl.Kind == TokenUser && !cl.IsResourceToken() {
 		if is.local {
 			// Native tokens establish identity, never authority.
@@ -125,7 +129,7 @@ func profile(typ string, mc map[string]any) (Claims, error) {
 	cl.AuthTime, _ = jose.Time(mc, "auth_time")
 	if isResource {
 		cl.ClientID, cl.Scopes, cl.Roles = clientID, strings.Fields(jose.String(mc, "scope")), jose.Strings(mc, "roles")
-		cl.RootRole, cl.TwoFAEnrollment, cl.MFAEnrolled, cl.DeviceKeyID = "", false, false, ""
+		cl.RootRole, cl.TwoFAEnrollment, cl.MFAEnrolled = "", false, false
 		if sub == clientID {
 			cl.Kind = TokenOAuthClient
 		}

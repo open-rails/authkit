@@ -46,7 +46,9 @@ type Claims struct {
 	// It is meaningful only with Issuer and never names a local user.
 	Subject string
 	// SessionID (sid) or DeviceKeyID names the sign-in a native token was
-	// minted from; the session check refuses the token once it is revoked.
+	// minted from, or for a local issuer's jwt-bearer resource token the
+	// device key that signed its capability; the session check refuses the
+	// token once it is revoked.
 	SessionID   string
 	DeviceKeyID string
 	// APIKeyID is the key an API-key credential resolved to.
@@ -92,8 +94,9 @@ type Claims struct {
 	// AuthorizationDetails is a resource access token's RFC 9396 grant, the
 	// raw JSON array; nil when it carries none.
 	AuthorizationDetails json.RawMessage
-	// Invoker is the client acting for the user, from token exchange: the
-	// RFC 8693 identity claim (act.sub), the Identity's Invoker.
+	// Invoker is who acts for the user, from the RFC 8693 actor claim
+	// (act.sub), the Identity's Invoker: the client after token exchange, the
+	// workload the grant authorizer named after jwt-bearer.
 	Invoker string
 	// CustomClaims are a resource access token's claims named by an absolute
 	// URI ("https://example.com/grant"), the issuer's own, each value raw JSON.

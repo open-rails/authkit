@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strconv"
 )
@@ -80,4 +81,27 @@ func authorizationDetails(raw []byte) ([]map[string]json.RawMessage, []string, e
 		types = append(types, typ)
 	}
 	return items, types, nil
+}
+
+// NarrowsAuthorizationDetails reports whether every entry of narrowed is one
+// of granted's, member order aside (numbers compare as written): a narrowing
+// drops entries, never adds or changes one.
+func NarrowsAuthorizationDetails(granted, narrowed json.RawMessage) bool {
+	decode := func(raw json.RawMessage) ([]any, bool) {
+		var items []any
+		dec := json.NewDecoder(bytes.NewReader(raw))
+		dec.UseNumber()
+		return items, dec.Decode(&items) == nil
+	}
+	have, ok1 := decode(granted)
+	want, ok2 := decode(narrowed)
+	if !ok1 || !ok2 {
+		return false
+	}
+	for _, w := range want {
+		if !slices.ContainsFunc(have, func(h any) bool { return reflect.DeepEqual(h, w) }) {
+			return false
+		}
+	}
+	return true
 }

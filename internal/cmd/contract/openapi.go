@@ -174,8 +174,8 @@ func (c *contract) openAPI() ([]byte, error) {
 		"metadata is null, or the shape x-authkit-error-codes gives the code.")
 	schemas.set("ErrorObject", errSchema)
 	schemas.set("OAuthError", newObj("type", "object",
-		"description", "The authorization server's protocol endpoints answer OAuth's own error object (RFC 6749 §5.2): error is the code, error_description is for people.",
-		"properties", newObj("error", newObj("type", "string"), "error_description", newObj("type", "string")),
+		"description", "The authorization server's protocol endpoints answer OAuth's own error object (RFC 6749 §5.2): error is the code, error_description is for people, and reason, when present, a stable cause beside the code.",
+		"properties", newObj("error", newObj("type", "string"), "error_description", newObj("type", "string"), "reason", newObj("type", "string")),
 		"required", []string{"error"}))
 
 	paths := newObj()

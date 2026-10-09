@@ -222,6 +222,51 @@ func (as *AuthorizationServer) RequestClientCredentials(t testing.TB, r ClientCr
 	}})
 }
 
+// TokenEndpoint is the token endpoint's URL: a jwt-bearer assertion's aud.
+func (as *AuthorizationServer) TokenEndpoint() string { return as.URL + iam.OAuthTokenPath }
+
+// JWTBearerRequest is an RFC 7523 JWT-bearer token request: Key signs the
+// assertion carrying Capability and proves itself with DPoP. Assertion, when
+// set, is sent as is (Key still proves itself; nil Key sends no proof);
+// otherwise Key asserts itself for ClientID at the token endpoint.
+type JWTBearerRequest struct {
+	ClientID     string
+	ClientSecret string
+	Key          *DPoPKey
+	Capability   string
+	Resource     string
+	Scopes       []string
+	Assertion    string
+}
+
+// JWTBearer runs a jwt-bearer grant and fails the test on a refusal.
+func (as *AuthorizationServer) JWTBearer(t testing.TB, r JWTBearerRequest) OAuthTokens {
+	t.Helper()
+	return as.mustToken(t, "jwt-bearer", as.jwtBearer(t, r))
+}
+
+// JWTBearerToken runs a jwt-bearer grant and returns the status and body,
+// refusals included.
+func (as *AuthorizationServer) JWTBearerToken(t testing.TB, r JWTBearerRequest) (int, []byte) {
+	t.Helper()
+	return as.Token(t, as.jwtBearer(t, r))
+}
+
+func (as *AuthorizationServer) jwtBearer(t testing.TB, r JWTBearerRequest) TokenRequest {
+	t.Helper()
+	assertion := r.Assertion
+	if assertion == "" {
+		if r.Key == nil {
+			t.Fatalf("authtest: jwt-bearer: a Key or an Assertion is required")
+		}
+		assertion = r.Key.Assertion(t, Assertion{Issuer: r.ClientID, Audience: as.TokenEndpoint(), Capability: r.Capability})
+	}
+	return TokenRequest{ClientID: r.ClientID, ClientSecret: r.ClientSecret, DPoP: r.Key, Params: url.Values{
+		"grant_type": {"urn:ietf:params:oauth:grant-type:jwt-bearer"}, "assertion": {assertion},
+		"resource": nonEmptyValues(r.Resource), "scope": nonEmptyValues(strings.Join(r.Scopes, " ")),
+	}}
+}
+
 // GrantAuthorizer is a recording grant authorizer: install it with
 // WithDeps (d.OAuthGrants = g.Authorize). Decide answers each request; nil
 // grants the defaults.
