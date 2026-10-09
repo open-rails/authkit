@@ -103,7 +103,7 @@ The Client is helpers/auth `Auth`, the middleware OpenRails mounts its routes wi
 | `Required()` | `verify.RequireSession` | a person (a user's or a device key's token), session checked live; machines are 403 |
 | `RequirePermission(p)` | `verify.RequirePermissionOn` in `Config.Merchant`'s group | a caller holding `p` there, live; without `Config.Merchant`, nobody |
 | `Sensitive()` | `verify.Sensitive` | a person who signed in within 15 minutes, with the second factor when the account has one |
-| `Caller(ctx)` | | who a gate over the Client verified: a person by user id, or a `Machine` (an API key, a remote application) |
+| `Identity(ctx)` | | who a gate over the Client verified: a person by user id, or a `Machine` (an API key, a remote application) |
 
 Declare the merchant permissions from the library's published strings, then grant them like any other:
 

@@ -62,13 +62,13 @@ func (a *Client) Sensitive() func(http.Handler) http.Handler {
 	return verify.Sensitive(a)
 }
 
-// Caller is the identity a gate over the Client verified for the request
-// whose context ctx is (verify.CallerFromContext). Access tokens carry no
+// Identity is the identity a gate over the Client verified for the request
+// whose context ctx is (verify.VerifiedIdentity). Access tokens carry no
 // contact details, so a local user's are read from the account when the
 // user is the subject and acts themselves; they are display only, and stay
 // empty when the read fails.
-func (a *Client) Caller(ctx context.Context) (auth.Identity, bool) {
-	id, ok := verify.CallerFromContext(ctx, a)
+func (a *Client) Identity(ctx context.Context) (auth.Identity, bool) {
+	id, ok := verify.VerifiedIdentity(ctx, a)
 	cl, _ := verify.ClaimsFromContext(ctx)
 	if !ok || !id.SelfInvoked() || cl.UserID == "" || id.Subject != cl.UserID || id.Email != "" || id.Username != "" {
 		return id, ok

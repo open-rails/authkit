@@ -187,7 +187,7 @@ func TestOAuthResourceServerVerifiesAccessTokens(t *testing.T) {
 	require.NoError(t, v.AddIssuer(as.URL, []string{oauthResource}, verify.IssuerOptions{JWKSURI: as.URL + iam.JWKSPath}))
 	resource.Config.Handler = verify.Required(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cl, _ := verify.ClaimsFromContext(r.Context())
-		id, _ := verify.CallerFromContext(r.Context(), v)
+		id, _ := verify.VerifiedIdentity(r.Context(), v)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"subject": id.Subject, "subject_kind": id.SubjectKind, "invoker": id.Invoker.ID, "invoker_issuer": id.Invoker.Issuer,
 			"credential": id.Credential.Kind, "self_invoked": id.SelfInvoked(),

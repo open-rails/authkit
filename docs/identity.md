@@ -25,6 +25,6 @@ A group API key belongs to its group's account for now: every key of a group has
 
 ## Reading it
 
-Behind a gate over the Client (`verify.Required`, `RequireSession`, `RequirePermission`, `Sensitive` and their adapters), `Client.Caller(ctx)` is the request's identity. It reads only what a gate over this Client verified: claims a host stored with `verify.SetClaims`, or a gate over another authenticator, prove nothing. `verify.CallerFromContext(ctx, authenticator)` is the same read for any authenticator.
+Behind a gate over the Client (`verify.Required`, `RequireSession`, `RequirePermission`, `Sensitive` and their adapters), `Client.Identity(ctx)` is the request's identity. It reads only what a gate over this Client verified: claims a host stored with `verify.SetClaims`, or a gate over another authenticator, prove nothing. `verify.VerifiedIdentity(ctx, authenticator)` is the same read for any authenticator.
 
-Access tokens carry no contact details. `Client.Caller` reads a local user's email and username from the account when the user is the subject and acts for itself.
+Access tokens carry no contact details. `Client.Identity` reads a local user's email and username from the account when the user is the subject and acts for itself.

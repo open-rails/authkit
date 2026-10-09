@@ -320,7 +320,7 @@ func TestMiddleware(t *testing.T) {
 func TestPrincipalIsIdentityOnly(t *testing.T) {
 	f := newFixture(t)
 	var _ interface {
-		AuthenticateRequest(context.Context, *http.Request) (auth.Principal, error)
+		AuthenticateRequest(context.Context, *http.Request) (auth.Verified, error)
 	} = f.v
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.Header.Set("Authorization", "Bearer "+sign(t, f.local, jose.AccessTokenType, localIssuer, map[string]any{"sub": "user-1"}))

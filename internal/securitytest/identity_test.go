@@ -35,7 +35,7 @@ func delegatedAppToken(t *testing.T, s keys.Signer, iss, user string) string {
 // application), the Invoker who acts (the subject itself unless an
 // application acts for one of its users) and itself as the Credential,
 // never as the subject. Read through a gate over the Client, as a billing
-// library reads it (Client.Caller).
+// library reads it (Client.Identity).
 func TestSecurityIdentitySubjectInvokerCredential(t *testing.T) {
 	ctx := context.Background()
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(withDeviceKeys), authtest.WithConfig(func(c *authkit.Config) {

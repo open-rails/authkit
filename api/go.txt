@@ -17,9 +17,8 @@ pkg authkit, func NewRoles(...PersonaOption) *Roles
 pkg authkit, func ParseBootstrapManifestYAML([]byte) (iam.BootstrapManifest, error)
 pkg authkit, method (*Client) APIBase() string
 pkg authkit, method (*Client) ApplyBootstrapManifest(context.Context, iam.BootstrapManifest, iam.BootstrapOptions, ...Option) (iam.BootstrapResult, error)
-pkg authkit, method (*Client) AuthenticateRequest(context.Context, *http.Request) (auth.Principal, error)
+pkg authkit, method (*Client) AuthenticateRequest(context.Context, *http.Request) (auth.Verified, error)
 pkg authkit, method (*Client) Ban(context.Context, iam.Actor, string, iam.Ban, ...Option) error
-pkg authkit, method (*Client) Caller(context.Context) (auth.Identity, bool)
 pkg authkit, method (*Client) Can(context.Context, iam.Actor, iam.GroupRef, iam.Perm) (bool, error)
 pkg authkit, method (*Client) CheckIssuerKeys(context.Context) error
 pkg authkit, method (*Client) CheckRecentSignIn(context.Context, verify.Claims) error
@@ -42,6 +41,7 @@ pkg authkit, method (*Client) Group(context.Context, iam.GroupRef) (iam.Group, e
 pkg authkit, method (*Client) GroupRoles(context.Context, iam.GroupRef, []iam.Subject) (map[iam.Subject]iam.Role, error)
 pkg authkit, method (*Client) Groups(context.Context, []string) (map[string]iam.Group, error)
 pkg authkit, method (*Client) Handler() http.Handler
+pkg authkit, method (*Client) Identity(context.Context) (auth.Identity, bool)
 pkg authkit, method (*Client) ImportSolanaLinks(context.Context, []iam.ImportSolanaLink, ...Option) (iam.ImportSolanaLinksResult, error)
 pkg authkit, method (*Client) ImportUsers(context.Context, []iam.ImportUser, iam.ImportOptions, ...Option) (iam.ImportResult, error)
 pkg authkit, method (*Client) IssuerKeyStatuses() []verify.IssuerKeyStatus
@@ -106,7 +106,7 @@ pkg authkit, method (*PersonaDef) RequireMFA(...iam.Perm)
 pkg authkit, method (*PersonaDef) Resource(string) config.Resource
 pkg authkit, method (*PersonaDef) Role(string, ...iam.Grant) iam.Role
 pkg authkit, method (*Roles) Persona(string, ...config.PersonaOption) *config.PersonaDef
-pkg authkit, method (*Verifier) AuthenticateRequest(context.Context, *http.Request) (auth.Principal, error)
+pkg authkit, method (*Verifier) AuthenticateRequest(context.Context, *http.Request) (auth.Verified, error)
 pkg authkit, method (*Verifier) Can(context.Context, iam.Actor, iam.GroupRef, iam.Perm) (bool, error)
 pkg authkit, method (*Verifier) CheckIssuerKeys(context.Context) error
 pkg authkit, method (*Verifier) CheckRecentSignIn(context.Context, verify.Claims) error
@@ -1392,9 +1392,8 @@ pkg authkit/provider, var ErrNonHTTPSURL error
 pkg authkit/provider, var ErrUnavailable error
 pkg authkit/verify, func ActorFromClaims(Claims) (iam.Actor, bool)
 pkg authkit/verify, func ActorFromContext(context.Context) (iam.Actor, bool)
-pkg authkit/verify, func AuthenticateRequest(context.Context, Authenticator, *http.Request) (auth.Principal, error)
-pkg authkit/verify, func AuthenticateSession(context.Context, Authority, *http.Request) (auth.Principal, error)
-pkg authkit/verify, func CallerFromContext(context.Context, Authenticator) (auth.Identity, bool)
+pkg authkit/verify, func AuthenticateRequest(context.Context, Authenticator, *http.Request) (auth.Verified, error)
+pkg authkit/verify, func AuthenticateSession(context.Context, Authority, *http.Request) (auth.Verified, error)
 pkg authkit/verify, func ClaimsFromContext(context.Context) (Claims, bool)
 pkg authkit/verify, func DPoPChallenge(http.ResponseWriter, *http.Request, error)
 pkg authkit/verify, func IdentityFromContext(context.Context) (auth.Identity, bool)
@@ -1406,6 +1405,7 @@ pkg authkit/verify, func RequireSession(Authority) func(http.Handler) http.Handl
 pkg authkit/verify, func Required(Authenticator) func(http.Handler) http.Handler
 pkg authkit/verify, func Sensitive(Authority) func(http.Handler) http.Handler
 pkg authkit/verify, func SetClaims(context.Context, Claims) context.Context
+pkg authkit/verify, func VerifiedIdentity(context.Context, Authenticator) (auth.Identity, bool)
 pkg authkit/verify, func WithDPoP(func(context.Context, string, time.Duration) (bool, error)) VerifierOption
 pkg authkit/verify, func WithDPoPNonce([]byte) VerifierOption
 pkg authkit/verify, func WithGroup(context.Context, iam.GroupRef) context.Context
@@ -1414,7 +1414,7 @@ pkg authkit/verify, func WithPublicURL(string) VerifierOption
 pkg authkit/verify, func WithServiceJWTMaxLifetime(time.Duration) ServiceJWTVerifyOption
 pkg authkit/verify, func WithSkew(time.Duration) VerifierOption
 pkg authkit/verify, method (*Verifier) AddIssuer(string, []string, IssuerOptions) error
-pkg authkit/verify, method (*Verifier) AuthenticateRequest(context.Context, *http.Request) (auth.Principal, error)
+pkg authkit/verify, method (*Verifier) AuthenticateRequest(context.Context, *http.Request) (auth.Verified, error)
 pkg authkit/verify, method (*Verifier) CheckIssuerKeys(context.Context) error
 pkg authkit/verify, method (*Verifier) IssuerKeyStatuses() []IssuerKeyStatus
 pkg authkit/verify, method (*Verifier) RemoveIssuer(string)

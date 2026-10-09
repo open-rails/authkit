@@ -278,11 +278,11 @@ func ClaimsFromContext(ctx context.Context) (Claims, bool) {
 	return v.claims, ok
 }
 
-// CallerFromContext is the identity a gate over a verified and stored in ctx
-// (Claims.Identity), as helpers/auth Auth.Caller reports it. It is false
+// VerifiedIdentity is the identity a gate over a verified and stored in ctx
+// (Claims.Identity), as helpers/auth Auth.Identity reports it. It is false
 // without one, and for claims SetClaims or a gate over another authenticator
 // stored: only a gate's own verification proves who called.
-func CallerFromContext(ctx context.Context, a Authenticator) (auth.Identity, bool) {
+func VerifiedIdentity(ctx context.Context, a Authenticator) (auth.Identity, bool) {
 	v, ok := ctx.Value(claimsKey{}).(verified)
 	if !ok || v.by == nil || reflect.ValueOf(v.by).Kind() != reflect.Pointer || v.by != a {
 		return auth.Identity{}, false

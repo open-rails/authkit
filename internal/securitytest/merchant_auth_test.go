@@ -42,7 +42,7 @@ func merchantRoles(c *authkit.Config) {
 // reports none for.
 func gated(a *authkit.Client, gates ...func(http.Handler) http.Handler) func(t *testing.T, header http.Header) response {
 	var h http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		c, ok := a.Caller(r.Context())
+		c, ok := a.Identity(r.Context())
 		if !ok {
 			w.WriteHeader(299)
 			return
