@@ -54,7 +54,7 @@ The authorize endpoint stores the request and sends the browser to the SPA at `F
 
 1. reads the request: `GET {api}/oauth2/authorizations/{id}` (the client's name, scopes, `authorization_details`, `prompt`, `max_age`);
 2. signs the user in as usual, second factors included;
-3. approves it with that sign-in: `POST {api}/oauth2/authorizations/{id}/approve` answers `{redirect_to}`, the client's redirect URI with a one-time code. A request asking for a fresher sign-in than the user's (`prompt=login`, `max_age`) answers 403 `step_up_required`; step up and approve again.
+3. approves it with that sign-in, a session or a device key: `POST {api}/oauth2/authorizations/{id}/approve` answers `{redirect_to}`, the client's redirect URI with a one-time code. A request asking for a fresher sign-in than the user's (`prompt=login`, `max_age`) answers 403 `step_up_required`; step up and approve again.
 
 auth-ui's `OAuthAuthorize` component is that page. It asks the user to allow a request for `offline_access` or `authorization_details` before approving it.
 
@@ -109,6 +109,7 @@ cfg.AuthorizationServer.Clients = append(cfg.AuthorizationServer.Clients, authki
 - **Key-bound clients** (`KeyBound`) must send `dpop_jkt` on the authorization request and prove that key (ES256, P-256) at every token request, so the grant and every token are bound to it. The authorizer sees the key as `JWKThumbprint`.
 - **Consent**: `prompt=none` cannot grant `offline_access` or `authorization_details` (`consent_required`); `OAuthAuthorize` shows the request and waits for the user.
 - A token from token exchange names the exchanging client in `act` (RFC 8693).
+- **Device-key sign-ins** approve and exchange like sessions. The grant stands on the device key (`DeviceKeyID` in the authorizer's request, through every refresh): revoking the key ends it unless it is offline. Its tokens name no `sid`, and carry the device-key sign-in's `auth_time`, which `prompt=login` and `max_age` measure; a stale one signs in with the key again.
 
 `authtest.GrantAuthorizer` records every request for a test; `CodeFlow`, `TokenExchange` and `ClientCredentialsRequest` take `AuthorizationDetails`, and `Consent` returns the client redirect, refusals included.
 

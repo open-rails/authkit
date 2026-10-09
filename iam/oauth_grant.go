@@ -41,11 +41,13 @@ type OAuthGrantRequest struct {
 	ClientID string
 	// UserID is the user the grant is for; empty for client credentials.
 	UserID string
-	// SessionID is the sign-in that consented (or the exchanged token's).
-	// An offline grant outlives it.
-	SessionID string
-	Resource  string
-	Scopes    []string
+	// SessionID or DeviceKeyID is the sign-in that consented (or the
+	// exchanged token's): a refresh session or a device key. A grant ends
+	// with it, unless offline.
+	SessionID   string
+	DeviceKeyID string
+	Resource    string
+	Scopes      []string
 	// AuthorizationDetails is the RFC 9396 authorization_details array: as
 	// requested, or on refresh as the grant carries it. Nil when absent.
 	AuthorizationDetails json.RawMessage

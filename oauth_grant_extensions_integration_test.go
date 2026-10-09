@@ -16,6 +16,7 @@ import (
 
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
+	"github.com/open-rails/authkit/devicekey"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 )
@@ -603,4 +604,93 @@ func putJSON(t *testing.T, as *authtest.AuthorizationServer, u, token string, bo
 	defer res.Body.Close()
 	out, _ := io.ReadAll(res.Body)
 	return res.StatusCode, out
+}
+
+// TestOAuthDeviceKeySignIns: a device-key sign-in approves and exchanges like
+// a session. The grant stands on the device key: its tokens name no sid and
+// carry the device-key sign-in's assurance, the authorizer sees the key, a
+// fresh sign-in requirement asks the device key to sign in again, and
+// revoking the key ends the grant unless it is offline.
+func TestOAuthDeviceKeySignIns(t *testing.T) {
+	g := &authtest.GrantAuthorizer{}
+	as, admin, _ := newGrantServer(t, g, authtest.WithConfig(func(c *authkit.Config) { c.DeviceKeys.Enabled = true }))
+	ctx := context.Background()
+	owner := authtest.NewUser(t, as.Client)
+	authtest.GrantRole(t, as.Client, iam.RootGroup(), iam.UserSubject(owner.ID), admin)
+	keys, err := devicekey.NewClient(as.URL+as.Client.APIBase(), as.HTTPClient())
+	require.NoError(t, err)
+	online := func(key *authtest.DPoPKey) authtest.CodeFlow {
+		f := machineFlow(key)
+		f.Scopes = []string{"openid", "api:merchant"}
+		return f
+	}
+	refreshReq := func(tokens authtest.OAuthTokens) authtest.TokenRequest {
+		return authtest.TokenRequest{ClientID: grantMachine, DPoP: tokens.DPoP, Params: url.Values{"grant_type": {"refresh_token"}, "refresh_token": {tokens.RefreshToken}}}
+	}
+	signOut := func(token string) {
+		status, body := bearer(t, as, http.MethodDelete, as.URL+as.Client.APIBase()+"/logout", token)
+		require.Equal(t, http.StatusNoContent, status, string(body))
+	}
+
+	dk := authtest.EnrollDeviceKey(t, as.Client, as.Outbox, owner)
+	signedIn := iam.TokenSet{AccessToken: dk.AccessToken}
+	tokens := as.AuthorizeAs(t, signedIn, online(authtest.NewDPoPKey(t)))
+	consent, _ := g.Last(iam.OAuthGrantConsent)
+	require.Equal(t, dk.ID, consent.DeviceKeyID)
+	require.Empty(t, consent.SessionID)
+	require.False(t, consent.Offline)
+	at := verifyIssued(t, as, tokens.AccessToken, "at+jwt")
+	require.Nil(t, at["sid"], "a device key is no session")
+	require.Nil(t, decodeClaims(t, tokens.IDToken)["sid"])
+	require.Equal(t, decodeClaims(t, dk.AccessToken)["auth_time"], at["auth_time"], "the device-key sign-in's assurance")
+	require.Equal(t, []any{"merchant:*"}, at["permissions"])
+
+	tokens = as.Refresh(t, grantMachine, "", tokens)
+	refresh, _ := g.Last(iam.OAuthGrantRefresh)
+	require.Equal(t, dk.ID, refresh.DeviceKeyID)
+	require.Equal(t, consent.GrantID, refresh.GrantID)
+	require.Equal(t, decodeClaims(t, dk.AccessToken)["auth_time"], verifyIssued(t, as, tokens.AccessToken, "at+jwt")["auth_time"])
+
+	// Token exchange stands on the device key too.
+	exchanged := as.Exchange(t, authtest.TokenExchange{ClientID: oauthAdminUI, SubjectToken: dk.AccessToken, Scopes: []string{"api:merchant"}})
+	x, _ := g.Last(iam.OAuthGrantTokenExchange)
+	require.Equal(t, dk.ID, x.DeviceKeyID)
+	require.Nil(t, verifyIssued(t, as, exchanged.AccessToken, "at+jwt")["sid"])
+
+	// A fresh sign-in requirement is met by signing in with the key again.
+	stale := online(authtest.NewDPoPKey(t))
+	zero := 0
+	stale.MaxAge = &zero
+	time.Sleep(1100 * time.Millisecond)
+	id := as.BeginAuthorization(t, stale, "0123456789012345678901234567890123456789abc", "state-dk")
+	status, body := postJSON(t, as, as.URL+as.Client.APIBase()+"/oauth2/authorizations/"+url.PathEscape(id)+"/approve", dk.AccessToken, nil)
+	require.Equal(t, http.StatusForbidden, status, string(body))
+	require.Contains(t, string(body), "step_up_required")
+	fresh, err := keys.Login(ctx, dk.ID, dk.Key)
+	require.NoError(t, err)
+	require.Contains(t, as.Approve(t, fresh.AccessToken, id), "code=")
+
+	// Revoking the device key ends its grants and codes.
+	revoked := as.AuthorizeAs(t, iam.TokenSet{AccessToken: fresh.AccessToken}, online(authtest.NewDPoPKey(t)))
+	offlineGrant := as.AuthorizeAs(t, iam.TokenSet{AccessToken: fresh.AccessToken}, machineFlow(authtest.NewDPoPKey(t)))
+	pending := online(authtest.NewDPoPKey(t))
+	code, verifier := consentWithVerifier(t, as, iam.TokenSet{AccessToken: fresh.AccessToken}, pending)
+	signOut(fresh.AccessToken)
+	_, errCode := tokenError(t, as, refreshReq(revoked))
+	require.Equal(t, "invalid_grant", errCode)
+	_, errCode = tokenError(t, as, refreshReq(tokens))
+	require.Equal(t, "invalid_grant", errCode, "every grant of the key ends")
+	_, errCode = tokenError(t, as, authtest.TokenRequest{ClientID: grantMachine, DPoP: pending.DPoP, Params: url.Values{
+		"grant_type": {"authorization_code"}, "code": {code.Query().Get("code")}, "redirect_uri": {grantMachineCB}, "code_verifier": {verifier},
+	}})
+	require.Equal(t, "invalid_grant", errCode, "a code of the revoked key")
+	// An offline grant outlives its sign-in, the device key included.
+	as.Refresh(t, grantMachine, "", offlineGrant)
+	id = as.BeginAuthorization(t, online(authtest.NewDPoPKey(t)), "0123456789012345678901234567890123456789abc", "state-dk2")
+	status, _ = postJSON(t, as, as.URL+as.Client.APIBase()+"/oauth2/authorizations/"+url.PathEscape(id)+"/approve", fresh.AccessToken, nil)
+	require.Equal(t, http.StatusUnauthorized, status, "a revoked key approves nothing")
+
+	// A second device key of the account stands on its own.
+	other := authtest.EnrollDeviceKey(t, as.Client, as.Outbox, owner)
+	as.AuthorizeAs(t, iam.TokenSet{AccessToken: other.AccessToken}, online(authtest.NewDPoPKey(t)))
 }
