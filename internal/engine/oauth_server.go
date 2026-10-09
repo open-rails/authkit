@@ -37,6 +37,8 @@ const (
 	keyOAuthCode          = "oauth:code:" // +hash of the code
 	oauthCodeTTL          = 60 * time.Second
 	oauthIDTokenTTL       = 10 * time.Minute
+	// idTokenType is the ID token's JOSE typ; no other token is signed with it.
+	idTokenType = "JWT"
 )
 
 // BeginOAuthAuthorization stores a validated authorization request for its
@@ -214,15 +216,19 @@ func (s *Engine) EndOAuthSession(ctx context.Context, in authflow.OAuthEndSessio
 	clientID := in.ClientID
 	var userID, sessionID string
 	if in.IDTokenHint != "" {
-		claims, err := s.verifyOwnToken(in.IDTokenHint, "")
-		if err != nil || jose.String(claims, "iss") != s.cfg.Token.Issuer {
+		// Only an ID token: an access token a resource server holds names the
+		// same sub and sid, and must not end the user's sign-in.
+		claims, err := s.verifyOwnToken(in.IDTokenHint, idTokenType)
+		azp := jose.String(claims, "azp")
+		audiences := jose.Audiences(claims)
+		_, registered := config.FindOAuthClient(s.cfg.AuthorizationServer, azp)
+		if err != nil || !registered || len(audiences) != 1 || audiences[0] != azp {
 			return "", authflow.NewOAuthError(authflow.OAuthInvalidRequest, "id_token_hint is not an ID token this server issued")
 		}
-		audiences := jose.Audiences(claims)
-		if clientID == "" && len(audiences) == 1 {
-			clientID = audiences[0]
+		if clientID == "" {
+			clientID = azp
 		}
-		if clientID != "" && !slices.Contains(audiences, clientID) {
+		if clientID != azp {
 			return "", authflow.NewOAuthError(authflow.OAuthInvalidRequest, "id_token_hint was issued to another client")
 		}
 		userID, sessionID = jose.String(claims, "sub"), jose.String(claims, "sid")
@@ -340,7 +346,7 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, client config.OAuthClientC
 			id["nonce"] = g.Nonce
 		}
 		s.addProfileClaims(ctx, id, u, g.Scopes)
-		if out.IDToken, err = jose.Sign(ctx, signer, "JWT", id); err != nil {
+		if out.IDToken, err = jose.Sign(ctx, signer, idTokenType, id); err != nil {
 			return authflow.OAuthTokens{}, err
 		}
 	}

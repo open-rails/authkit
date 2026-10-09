@@ -287,6 +287,14 @@ func TestOAuthCodeFlowRefusals(t *testing.T) {
 		require.Equal(t, http.StatusUnauthorized, status, "a confidential client must authenticate: %s", body)
 		status, body = as.Token(t, oauthConsole, "", url.Values{"grant_type": {"authorization_code"}, "code": {"x"}, "client_secret": {"anything"}})
 		require.Equal(t, http.StatusUnauthorized, status, "a public client has no secret: %s", body)
+		req, _ := http.NewRequest(http.MethodPost, as.URL+iam.OAuthTokenPath, strings.NewReader("grant_type=authorization_code&code=x"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.SetBasicAuth(oauthBackend, "wrong-secret")
+		res, err := as.HTTPClient().Do(req)
+		require.NoError(t, err)
+		res.Body.Close()
+		require.Equal(t, http.StatusUnauthorized, res.StatusCode)
+		require.Equal(t, `Basic realm="authkit"`, res.Header.Get("WWW-Authenticate"), "a failed Basic authentication is challenged (RFC 6749 §5.2)")
 	})
 	t.Run("the token endpoint takes only a form body", func(t *testing.T) {
 		req, _ := http.NewRequest(http.MethodPost, as.URL+iam.OAuthTokenPath, strings.NewReader(`{"grant_type":"authorization_code"}`))
@@ -376,6 +384,18 @@ func TestOAuthEndSessionAndCORS(t *testing.T) {
 	require.NoError(t, err)
 	res.Body.Close()
 	require.Empty(t, res.Header.Get("Access-Control-Allow-Origin"))
+
+	// Only an ID token ends a sign-in: the access token a resource server
+	// holds names the same sub and sid.
+	for name, hint := range map[string]string{"access token": tokens.AccessToken, "garbage": "not-a-token"} {
+		q := url.Values{"id_token_hint": {hint}}
+		res, err := as.HTTPClient().Get(as.URL + iam.OAuthEndSessionPath + "?" + q.Encode())
+		require.NoError(t, err)
+		res.Body.Close()
+		require.Equal(t, http.StatusBadRequest, res.StatusCode, "%s as id_token_hint is refused", name)
+	}
+	var stillSignedIn map[string]any
+	require.Equal(t, http.StatusOK, bearerJSON(t, as, http.MethodGet, as.URL+iam.OAuthUserInfoPath, tokens.AccessToken, &stillSignedIn), "a refused hint ends nothing")
 
 	q := url.Values{"id_token_hint": {tokens.IDToken}, "post_logout_redirect_uri": {"https://evil.example/out"}}
 	res, err = as.HTTPClient().Get(as.URL + iam.OAuthEndSessionPath + "?" + q.Encode())

@@ -241,7 +241,7 @@ func (s *Service) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 	}
 	client, oerr := s.authenticateOAuthClient(r, params)
 	if oerr != nil {
-		oauthFail(w, oerr)
+		oauthClientFail(w, r, oerr)
 		return
 	}
 	switch grant := config.OAuthGrantType(params.Get("grant_type")); grant {
@@ -268,6 +268,15 @@ func (s *Service) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 	default:
 		oauthFail(w, authflow.NewOAuthError(authflow.OAuthUnsupportedGrantType, "unsupported grant_type"))
 	}
+}
+
+// oauthClientFail answers a failed client authentication; one that used
+// the Authorization header gets its Basic challenge (RFC 6749 §5.2).
+func oauthClientFail(w http.ResponseWriter, r *http.Request, oerr *authflow.OAuthError) {
+	if _, _, basic := r.BasicAuth(); basic && oerr.Code == authflow.OAuthInvalidClient {
+		w.Header().Set("WWW-Authenticate", `Basic realm="authkit"`)
+	}
+	oauthFail(w, oerr)
 }
 
 // authenticateOAuthClient applies RFC 6749 §2.3: a confidential client
