@@ -108,6 +108,13 @@ type ResourceServerConfig struct {
 	// with this ceiling, so the resource server authorizes from the token.
 	// Empty mints tokens with no permissions.
 	Permissions []string
+	// ContactClaims puts the user's contact in every access token for the
+	// resource, whatever scopes it carries: the OIDC claims email and
+	// email_verified, preferred_username, name and updated_at (seconds since
+	// the epoch, when one of them last changed). A resource that keeps its
+	// own copy of who a user is learns a new user from the first request.
+	// Other resources' tokens carry only what their scopes grant.
+	ContactClaims bool
 }
 
 // OAuthGrantType is an OAuth 2.0 grant type a client may use.
@@ -204,6 +211,14 @@ func OAuthClientRefreshTTL(a AuthorizationServerConfig, c OAuthClientConfig) tim
 	return a.RefreshTokenTTL
 }
 
+// SCIMReadScope is the scope a client-credentials token needs to read the
+// SCIM service provider.
+const SCIMReadScope = "scim:read"
+
+// SCIMResource is the SCIM service provider beneath issuer: its base URL,
+// and the resource a client lists to get tokens for it.
+func SCIMResource(issuer string) string { return strings.TrimRight(issuer, "/") + "/scim/v2" }
+
 // OIDCScope reports whether scope is one AuthKit itself defines.
 func OIDCScope(scope string) bool { return slices.Contains(oidcScopes, scope) }
 
@@ -252,7 +267,15 @@ func normalizeAuthorizationServer(a *AuthorizationServerConfig, c Config) error 
 		}
 		resources = append(resources, r)
 	}
-	a.Resources = resources
+	scim := ResourceServerConfig{ID: SCIMResource(c.Token.Issuer), Scopes: []string{SCIMReadScope}}
+	if i := slices.IndexFunc(resources, func(r ResourceServerConfig) bool { return r.ID == scim.ID }); i >= 0 {
+		// Normalized once already, or declared by hand.
+		if r := resources[i]; !slices.Equal(r.Scopes, scim.Scopes) || len(r.Permissions) > 0 || r.ContactClaims {
+			return fmt.Errorf("authkit: AuthorizationServer.Resources: %q is AuthKit's own SCIM service provider; clients name it without declaring it", scim.ID)
+		}
+		resources = slices.Delete(resources, i, i+1)
+	}
+	a.Resources = append(resources, scim)
 
 	clients := make([]OAuthClientConfig, 0, len(a.Clients))
 	for i, cl := range a.Clients {

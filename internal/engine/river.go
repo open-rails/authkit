@@ -158,6 +158,9 @@ func (s *Engine) registerRiver(cfg *river.Config) error {
 	if cfg.Queues == nil {
 		cfg.Queues = make(map[string]river.QueueConfig)
 	}
+	if err := s.registerProvisioning(cfg); err != nil {
+		return err
+	}
 	if _, ok := cfg.Queues[queue]; !ok {
 		cfg.Queues[queue] = river.QueueConfig{MaxWorkers: 1}
 	}
@@ -240,6 +243,9 @@ func (s *Engine) Start(ctx context.Context, fleet *river.Client[pgx.Tx]) error {
 	m.mu.Unlock()
 	if err := s.syncEventSubscription(ctx); err != nil {
 		return fmt.Errorf("authkit: account event subscription: %w", err)
+	}
+	if err := s.pruneProvisioningTargets(ctx); err != nil {
+		return fmt.Errorf("authkit: provisioning targets: %w", err)
 	}
 	if fleet == nil {
 		if err := s.startOwnRiver(ctx); err != nil {

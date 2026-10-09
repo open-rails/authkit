@@ -61,6 +61,9 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 	if err := s.initRiver(ctx, deps.Postgres); err != nil {
 		return nil, err
 	}
+	if err := s.initProvisioning(ctx); err != nil {
+		return nil, err
+	}
 	if err := s.initializeGroups(ctx); err != nil {
 		return nil, err
 	}

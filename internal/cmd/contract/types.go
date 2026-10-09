@@ -69,10 +69,19 @@ var wireNames = map[string]string{
 	module + "/iam.Event":                  "AuthKitEvent",
 }
 
-// wireName is t's name on the wire.
+// wireName is t's name on the wire. SCIM's types (RFC 7643) are prefixed:
+// scim.User is SCIMUser, scim.ListResponse[scim.User] SCIMUserList.
 func wireName(t reflect.Type) string {
 	if name, ok := wireNames[t.PkgPath()+"."+t.Name()]; ok {
 		return name
+	}
+	if t.PkgPath() == module+"/internal/scim" {
+		name, arg, generic := strings.Cut(t.Name(), "[")
+		if generic {
+			arg = strings.TrimSuffix(arg[strings.LastIndex(arg, ".")+1:], "]")
+			return "SCIM" + arg + strings.TrimSuffix(name, "Response")
+		}
+		return "SCIM" + name
 	}
 	return t.Name()
 }

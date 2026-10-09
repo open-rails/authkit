@@ -25,6 +25,7 @@ pkg authkit, method (*Client) CheckRecentSignIn(context.Context, verify.Claims) 
 pkg authkit, method (*Client) CheckSession(context.Context, verify.Claims) error
 pkg authkit, method (*Client) CheckUsername(context.Context, string) error
 pkg authkit, method (*Client) Close(context.Context) error
+pkg authkit, method (*Client) Contacts(context.Context, []string) (map[string]contacts.Contact, error)
 pkg authkit, method (*Client) CreateAPIKey(context.Context, auth.Identity, iam.GroupRef, iam.NewAPIKey, ...Option) (iam.APIKeyCreated, error)
 pkg authkit, method (*Client) CreateGroup(context.Context, iam.NewGroup, ...Option) (iam.Group, error)
 pkg authkit, method (*Client) CreateInvitation(context.Context, auth.Identity, iam.GroupRef, iam.NewInvitation, ...Option) (iam.InvitationCreated, error)
@@ -60,6 +61,7 @@ pkg authkit, method (*Client) NewVerifier([]string, ...verify.VerifierOption) (*
 pkg authkit, method (*Client) PatchPublicMetadata(context.Context, auth.Identity, string, map[string]any, ...Option) error
 pkg authkit, method (*Client) Permission(string) (iam.Perm, error)
 pkg authkit, method (*Client) Persona(string) (iam.Persona, error)
+pkg authkit, method (*Client) ProvisioningTargets(context.Context) ([]iam.ProvisioningTarget, error)
 pkg authkit, method (*Client) PublicUsers(context.Context, []string) (map[string]iam.PublicUser, error)
 pkg authkit, method (*Client) PurgeGroup(context.Context, iam.GroupRef, ...Option) error
 pkg authkit, method (*Client) PurgeUsers(context.Context, []string, ...Option) ([]iam.OpResult, error)
@@ -82,6 +84,7 @@ pkg authkit, method (*Client) RolePermissions(iam.Role) ([]iam.Perm, error)
 pkg authkit, method (*Client) Routes() []iam.Route
 pkg authkit, method (*Client) SMSAvailable() bool
 pkg authkit, method (*Client) SMSHealth() (time.Time, error)
+pkg authkit, method (*Client) SearchContacts(context.Context, string, int) ([]contacts.Contact, error)
 pkg authkit, method (*Client) Sensitive() func(http.Handler) http.Handler
 pkg authkit, method (*Client) Sessions(context.Context, string) ([]iam.Session, error)
 pkg authkit, method (*Client) SetGroupRole(context.Context, auth.Identity, iam.GroupRef, iam.Subject, iam.Role, ...Option) (iam.GroupMember, error)
@@ -148,6 +151,7 @@ pkg authkit, type Config struct, Languages config.LanguageConfig
 pkg authkit, type Config struct, Merchant config.MerchantConfig
 pkg authkit, type Config struct, Passkeys config.PasskeyConfig
 pkg authkit, type Config struct, Password config.PasswordPolicy
+pkg authkit, type Config struct, Provisioning config.ProvisioningConfig
 pkg authkit, type Config struct, Registration config.RegistrationConfig
 pkg authkit, type Config struct, RemoteApplications []config.RemoteApplicationConfig
 pkg authkit, type Config struct, Roles *config.Roles
@@ -281,6 +285,25 @@ pkg authkit, type PersonaDef struct, Owner iam.Role
 pkg authkit, type PersonaDef struct, Persona iam.Persona
 pkg authkit, type PersonaOption = config.PersonaOption
 pkg authkit, type PersonaOption uint8
+pkg authkit, type ProvisioningClientCredentials = config.ProvisioningClientCredentials
+pkg authkit, type ProvisioningClientCredentials struct
+pkg authkit, type ProvisioningClientCredentials struct, ClientID string
+pkg authkit, type ProvisioningClientCredentials struct, ClientSecret string
+pkg authkit, type ProvisioningClientCredentials struct, Resource string
+pkg authkit, type ProvisioningClientCredentials struct, Scopes []string
+pkg authkit, type ProvisioningClientCredentials struct, TokenURL string
+pkg authkit, type ProvisioningConfig = config.ProvisioningConfig
+pkg authkit, type ProvisioningConfig struct
+pkg authkit, type ProvisioningConfig struct, Interval time.Duration
+pkg authkit, type ProvisioningConfig struct, ReconcileInterval time.Duration
+pkg authkit, type ProvisioningConfig struct, Targets []config.ProvisioningTarget
+pkg authkit, type ProvisioningTarget = config.ProvisioningTarget
+pkg authkit, type ProvisioningTarget struct
+pkg authkit, type ProvisioningTarget struct, BearerToken string
+pkg authkit, type ProvisioningTarget struct, ClientCredentials *config.ProvisioningClientCredentials
+pkg authkit, type ProvisioningTarget struct, Handler http.Handler
+pkg authkit, type ProvisioningTarget struct, Name string
+pkg authkit, type ProvisioningTarget struct, URL string
 pkg authkit, type RateLimit = config.RateLimit
 pkg authkit, type RateLimit struct
 pkg authkit, type RateLimit struct, Cooldown time.Duration
@@ -305,6 +328,7 @@ pkg authkit, type Resource = config.Resource
 pkg authkit, type Resource struct
 pkg authkit, type ResourceServerConfig = config.ResourceServerConfig
 pkg authkit, type ResourceServerConfig struct
+pkg authkit, type ResourceServerConfig struct, ContactClaims bool
 pkg authkit, type ResourceServerConfig struct, ID string
 pkg authkit, type ResourceServerConfig struct, Permissions []string
 pkg authkit, type ResourceServerConfig struct, Scopes []string
@@ -726,6 +750,7 @@ pkg authkit/iam, const RouteBrowserOIDC RouteGroup = "browser_oidc"
 pkg authkit/iam, const RouteDeviceKeys RouteGroup = "device_keys"
 pkg authkit/iam, const RoutePermissionGroups RouteGroup = "groups"
 pkg authkit/iam, const RouteRegistration RouteGroup = "registration"
+pkg authkit/iam, const RouteSCIM RouteGroup = "scim"
 pkg authkit/iam, const SessionEventAccountSessionsRevoked SessionEventKind = "account_sessions_revoked"
 pkg authkit/iam, const SessionEventCreated SessionEventKind = "session_created"
 pkg authkit/iam, const SessionEventFailed SessionEventKind = "session_failed"
@@ -1159,6 +1184,14 @@ pkg authkit/iam, type ProviderLink struct, Email string
 pkg authkit/iam, type ProviderLink struct, Issuer string
 pkg authkit/iam, type ProviderLink struct, Provider string
 pkg authkit/iam, type ProviderLink struct, Subject string
+pkg authkit/iam, type ProvisioningTarget struct
+pkg authkit/iam, type ProvisioningTarget struct, Backlog int `json:"backlog"`
+pkg authkit/iam, type ProvisioningTarget struct, FailingSince *time.Time `json:"failing_since"`
+pkg authkit/iam, type ProvisioningTarget struct, LastError *string `json:"last_error"`
+pkg authkit/iam, type ProvisioningTarget struct, LastSuccessAt *time.Time `json:"last_success_at"`
+pkg authkit/iam, type ProvisioningTarget struct, Name string `json:"name"`
+pkg authkit/iam, type ProvisioningTarget struct, ReconciledAt *time.Time `json:"reconciled_at"`
+pkg authkit/iam, type ProvisioningTarget struct, SyncedAt *time.Time `json:"synced_at"`
 pkg authkit/iam, type PublicUser struct
 pkg authkit/iam, type PublicUser struct, CreatedAt *time.Time `json:"created_at"`
 pkg authkit/iam, type PublicUser struct, Deleted bool `json:"deleted"`
@@ -1498,6 +1531,7 @@ pkg authkit/verify, type Claims struct, JTI string
 pkg authkit/verify, type Claims struct, JWKThumbprint string
 pkg authkit/verify, type Claims struct, Kind TokenKind
 pkg authkit/verify, type Claims struct, MFAEnrolled bool
+pkg authkit/verify, type Claims struct, Name string
 pkg authkit/verify, type Claims struct, Permissions []string
 pkg authkit/verify, type Claims struct, Roles []string
 pkg authkit/verify, type Claims struct, RootRole string
@@ -1505,6 +1539,7 @@ pkg authkit/verify, type Claims struct, Scopes []string
 pkg authkit/verify, type Claims struct, SessionID string
 pkg authkit/verify, type Claims struct, Subject string
 pkg authkit/verify, type Claims struct, TwoFAEnrollment bool
+pkg authkit/verify, type Claims struct, UpdatedAt time.Time
 pkg authkit/verify, type Claims struct, UserID string
 pkg authkit/verify, type Claims struct, Username string
 pkg authkit/verify, type IssuerKeyStatus = jwks.Status

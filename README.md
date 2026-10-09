@@ -218,7 +218,7 @@ func run(ctx context.Context) error {
 }
 ```
 
-Mounting gives your users all of this: 70 routes under `/api/v1`, plus the public keys that let anyone verify AuthKit's tokens. Every request and response shape is in [`api/openapi.json`](api/openapi.json), generated from the route catalog.
+Mounting gives your users all of this: 71 routes under `/api/v1`, plus the public keys that let anyone verify AuthKit's tokens. Every request and response shape is in [`api/openapi.json`](api/openapi.json), generated from the route catalog.
 
 **Signing up and signing in** (every sign-in answers an `AuthResult`: signed in, or the one next step, such as a second factor)
 
@@ -316,6 +316,7 @@ Sign-ins are limited per device over 24 hours (`Config.SignIn`): 5 accounts per 
 | `GET /api/v1/admin/users/{user_id}/sessions` | their signed-in devices |
 | `DELETE /api/v1/admin/users/{user_id}/sessions` | sign them out everywhere |
 | `GET /api/v1/admin/users/{user_id}/session-events` | their sign-in history |
+| `GET /api/v1/admin/provisioning/targets` | how each [SCIM](docs/scim.md) target's sync is doing |
 
 Switch on social logins (Google, Apple, GitHub, Discord) or API keys, and AuthKit mounts their routes too. Set `Invitations.Disabled`, and the invitation routes go.
 
@@ -352,4 +353,4 @@ The rest is ordinary app code (our channel and post handlers), not AuthKit. The 
 
 `Start` runs AuthKit's background jobs (account deletion, events, cleanup) on its own [River](https://riverqueue.com) client in `Config.Database.RiverSchema` (default `public`), whose tables `New` creates. An app that already runs a River fleet builds it in that schema with `riverhelpers.New(ctx, db, riverConfig, auth.RiverJobs(), …)` (`github.com/open-rails/helpers/river`) and calls `auth.Start(ctx, authkit.WithRiverClient(fleet))` instead; the app starts and stops that fleet, and `auth.Close` leaves it running.
 
-More: [keys](docs/keys.md), [tokens](docs/tokens.md), [subject, invoker, credential](docs/identity.md), [HTTP](docs/http.md), [RBAC](docs/rbac.md), [security](SECURITY.md), [v1 stability](docs/stability.md)
+More: [keys](docs/keys.md), [tokens](docs/tokens.md), [SCIM provisioning and contacts](docs/scim.md), [subject, invoker, credential](docs/identity.md), [HTTP](docs/http.md), [RBAC](docs/rbac.md), [security](SECURITY.md), [v1 stability](docs/stability.md)

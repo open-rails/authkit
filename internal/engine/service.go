@@ -67,6 +67,8 @@ type Engine struct {
 
 	auth      *Authenticator
 	mfaExempt exemptPaths
+	// provisioning are Config.Provisioning's targets.
+	provisioning []*provisioningTarget
 }
 
 // SendWelcome sends the welcome email when Deps.Email is set.

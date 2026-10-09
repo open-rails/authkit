@@ -211,3 +211,12 @@ func opErr(res []iam.OpResult, err error) error {
 	}
 	return err
 }
+
+func (s *Service) handleAdminProvisioningTargetsGET(w http.ResponseWriter, r *http.Request) {
+	targets, err := s.svc.ProvisioningTargets(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	all(w, targets)
+}

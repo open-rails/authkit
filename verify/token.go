@@ -124,6 +124,13 @@ func profile(typ string, mc map[string]any) (Claims, error) {
 		JTI:          jose.String(mc, "jti"),
 	}
 	cl.EmailVerified, _ = mc["email_verified"].(bool)
+	if cl.Username == "" && isResource {
+		cl.Username = jose.String(mc, "preferred_username")
+	}
+	if isResource {
+		cl.Name = jose.String(mc, "name")
+		cl.UpdatedAt, _ = jose.Time(mc, "updated_at")
+	}
 	cl.TwoFAEnrollment, _ = mc["2fa_enrollment"].(bool)
 	cl.MFAEnrolled, _ = mc["mfa_enrolled"].(bool)
 	cl.AuthTime, _ = jose.Time(mc, "auth_time")

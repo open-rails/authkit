@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.11.0
+
+Additive. AuthKit is a SCIM 2.0 directory both ways (#441, [docs/scim.md](docs/scim.md)).
+
+- **Push** (`Config.Provisioning`): every account reaches each target (a SCIM base URL, or an in-process `Handler`, with a bearer token or client credentials) and stays current. Triggers on `users` record every change a SCIM User shows in the change's transaction; every `Interval` (5 minutes) a River job sends each target its pending accounts' latest state in `POST /Bulk` requests within the target's limits (single requests without bulk), retrying with backoff. A new target gets an initial sync; a daily reconciliation repairs drift. `Client.ProvisioningTargets` and `GET /api/v1/admin/provisioning/targets` report each target's status.
+- **Pull**: a read-only SCIM service provider at `{issuer}/scim/v2` (`/Users`, `/Users/{id}`, filters on `id`, `userName` and `emails.value`, discovery), for client-credentials tokens with scope `scim:read`. AuthKit declares the resource `{issuer}/scim/v2` itself; writes answer 501. Route group `iam.RouteSCIM`.
+- **Contacts**: `*authkit.Client` is a `helpers/contacts.Source` (`Contacts`, `SearchContacts`; helpers v1.3.0).
+- **Contact claims**: `ResourceServerConfig.ContactClaims` puts `email`, `email_verified`, `preferred_username`, `name` and `updated_at` in that resource's user tokens; `verify.Claims` gains `Name` and `UpdatedAt`, and `Username` reads `preferred_username`.
+- Migration 0010: `users.profile_updated_at` and the provisioning tables.
+
 ## v1.10.1
 
 - A TOTP key file readable by its group (0440, as a Kubernetes secret volume with `fsGroup` mounts it) loads without a warning (#439). World-read still warns; any group or world write bit is still refused.

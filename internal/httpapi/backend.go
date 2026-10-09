@@ -15,4 +15,5 @@ type Backend interface {
 	appsBackend
 	flowsBackend
 	oauthBackend
+	scimBackend
 }

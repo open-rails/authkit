@@ -78,6 +78,33 @@ type PermissionGroup struct {
 	DeletedAt *time.Time
 }
 
+type ProvisioningResource struct {
+	Issuer   string
+	Target   string
+	UserID   string
+	RemoteID string
+	// SHA-256 of the resource the target last accepted; empty when reconciliation found it drifted
+	StateDigest string
+	SyncedAt    time.Time
+	// When reconciliation last found the resource at the target
+	SeenAt *time.Time
+}
+
+// SCIM targets of each issuer's Config.Provisioning; a target no longer configured is deleted at its issuer's Start.
+type ProvisioningTarget struct {
+	Issuer        string
+	Name          string
+	CreatedAt     time.Time
+	SyncAfter     *string
+	SyncedAt      *time.Time
+	ReconciledAt  *time.Time
+	LastSuccessAt *time.Time
+	FailingSince  *time.Time
+	Failures      int32
+	RetryAt       *time.Time
+	LastError     *string
+}
+
 // Registered applications: external systems that authenticate by signing JWTs verified against configured keys.
 type RemoteApplication struct {
 	ID         string
@@ -140,6 +167,8 @@ type User struct {
 	CredentialVersion int64
 	// Host-written application data anyone may read
 	PublicMetadata []byte
+	// When email, its verification, username, deletion or ban last changed
+	ProfileUpdatedAt time.Time
 }
 
 // Ed25519 public keys for native clients. Revoked rows remain tombstones and cannot be re-enrolled.

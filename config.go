@@ -39,8 +39,13 @@ type (
 	// (Config.RemoteApplications).
 	RemoteApplicationConfig = config.RemoteApplicationConfig
 	LanguageConfig          = config.LanguageConfig
-	HTTPConfig              = config.HTTPConfig
-	RateLimit               = config.RateLimit
+	// ProvisioningConfig pushes the accounts to SCIM 2.0 service providers
+	// (Config.Provisioning).
+	ProvisioningConfig            = config.ProvisioningConfig
+	ProvisioningTarget            = config.ProvisioningTarget
+	ProvisioningClientCredentials = config.ProvisioningClientCredentials
+	HTTPConfig                    = config.HTTPConfig
+	RateLimit                     = config.RateLimit
 )
 
 // OAuth grant types a client may use (OAuthClientConfig.GrantTypes).

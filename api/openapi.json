@@ -3412,6 +3412,43 @@
         "x-authkit-rate-limit": "admin_read"
       }
     },
+    "/api/v1/admin/provisioning/targets": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProvisioningTargetPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "root:users:read",
+        "x-authkit-rate-limit": "admin_read"
+      }
+    },
     "/api/v1/oauth2/authorizations/{authorization_id}": {
       "get": {
         "tags": [
@@ -5061,6 +5098,427 @@
         "security": [],
         "x-authkit-auth": "public",
         "x-authkit-rate-limit": "oauth_end_session",
+        "x-authkit-mounted-when": "authorization_server"
+      }
+    },
+    "/scim/v2/ServiceProviderConfig": {
+      "get": {
+        "tags": [
+          "scim"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMServiceProviderConfig"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMError"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "scim_read",
+        "x-authkit-mounted-when": "authorization_server"
+      }
+    },
+    "/scim/v2/ResourceTypes": {
+      "get": {
+        "tags": [
+          "scim"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMResourceTypeList"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMError"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "scim_read",
+        "x-authkit-mounted-when": "authorization_server"
+      }
+    },
+    "/scim/v2/ResourceTypes/{id}": {
+      "get": {
+        "tags": [
+          "scim"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMResourceType"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMError"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "scim_read",
+        "x-authkit-mounted-when": "authorization_server"
+      }
+    },
+    "/scim/v2/Schemas": {
+      "get": {
+        "tags": [
+          "scim"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMSchemaDocList"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMError"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "scim_read",
+        "x-authkit-mounted-when": "authorization_server"
+      }
+    },
+    "/scim/v2/Schemas/{id}": {
+      "get": {
+        "tags": [
+          "scim"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMSchemaDoc"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMError"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "scim_read",
+        "x-authkit-mounted-when": "authorization_server"
+      }
+    },
+    "/scim/v2/Users": {
+      "get": {
+        "tags": [
+          "scim"
+        ],
+        "parameters": [
+          {
+            "name": "filter",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "startIndex",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "count",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMUserList"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMError"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "scim_read",
+        "x-authkit-mounted-when": "authorization_server"
+      },
+      "post": {
+        "tags": [
+          "scim"
+        ],
+        "responses": {
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMError"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "scim_read",
+        "x-authkit-mounted-when": "authorization_server"
+      }
+    },
+    "/scim/v2/Users/{id}": {
+      "get": {
+        "tags": [
+          "scim"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMUser"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMError"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "scim_read",
+        "x-authkit-mounted-when": "authorization_server"
+      },
+      "put": {
+        "tags": [
+          "scim"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMError"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "scim_read",
+        "x-authkit-mounted-when": "authorization_server"
+      },
+      "patch": {
+        "tags": [
+          "scim"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMError"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "scim_read",
+        "x-authkit-mounted-when": "authorization_server"
+      },
+      "delete": {
+        "tags": [
+          "scim"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMError"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "scim_read",
+        "x-authkit-mounted-when": "authorization_server"
+      }
+    },
+    "/scim/v2/Bulk": {
+      "post": {
+        "tags": [
+          "scim"
+        ],
+        "responses": {
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMError"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "scim_read",
         "x-authkit-mounted-when": "authorization_server"
       }
     }
@@ -7140,6 +7598,84 @@
           "provider_error"
         ]
       },
+      "ProvisioningTarget": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "synced_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reconciled_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_success_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "failing_since": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_error": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "backlog": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "synced_at",
+          "reconciled_at",
+          "last_success_at",
+          "failing_since",
+          "last_error",
+          "backlog"
+        ]
+      },
       "PublicUser": {
         "type": "object",
         "properties": {
@@ -7244,6 +7780,485 @@
         "required": [
           "name",
           "permissions"
+        ]
+      },
+      "SCIMAttribute": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "multiValued": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "caseExact": {
+            "type": "boolean"
+          },
+          "mutability": {
+            "type": "string"
+          },
+          "returned": {
+            "type": "string"
+          },
+          "uniqueness": {
+            "type": "string"
+          },
+          "subAttributes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SCIMAttribute"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "multiValued",
+          "required",
+          "caseExact",
+          "mutability",
+          "returned",
+          "uniqueness"
+        ]
+      },
+      "SCIMAuthScheme": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "specUri": {
+            "type": "string"
+          },
+          "primary": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "type",
+          "name",
+          "description"
+        ]
+      },
+      "SCIMBulkSupport": {
+        "type": "object",
+        "properties": {
+          "supported": {
+            "type": "boolean"
+          },
+          "maxOperations": {
+            "type": "integer"
+          },
+          "maxPayloadSize": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "supported",
+          "maxOperations",
+          "maxPayloadSize"
+        ]
+      },
+      "SCIMEmail": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string"
+          },
+          "primary": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "value"
+        ]
+      },
+      "SCIMFilterSupport": {
+        "type": "object",
+        "properties": {
+          "supported": {
+            "type": "boolean"
+          },
+          "maxResults": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "supported",
+          "maxResults"
+        ]
+      },
+      "SCIMMeta": {
+        "type": "object",
+        "properties": {
+          "resourceType": {
+            "type": "string"
+          },
+          "created": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastModified": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "location": {
+            "type": "string"
+          }
+        }
+      },
+      "SCIMName": {
+        "type": "object",
+        "properties": {
+          "formatted": {
+            "type": "string"
+          }
+        }
+      },
+      "SCIMResourceType": {
+        "type": "object",
+        "properties": {
+          "schemas": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "schema": {
+            "type": "string"
+          },
+          "meta": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SCIMMeta"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "schemas",
+          "id",
+          "name",
+          "endpoint",
+          "schema"
+        ]
+      },
+      "SCIMResourceTypeList": {
+        "type": "object",
+        "properties": {
+          "schemas": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "totalResults": {
+            "type": "integer"
+          },
+          "startIndex": {
+            "type": "integer"
+          },
+          "itemsPerPage": {
+            "type": "integer"
+          },
+          "Resources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SCIMResourceType"
+            }
+          }
+        },
+        "required": [
+          "schemas",
+          "totalResults",
+          "startIndex",
+          "itemsPerPage",
+          "Resources"
+        ]
+      },
+      "SCIMSchemaDoc": {
+        "type": "object",
+        "properties": {
+          "schemas": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "attributes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SCIMAttribute"
+            }
+          },
+          "meta": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SCIMMeta"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "attributes"
+        ]
+      },
+      "SCIMSchemaDocList": {
+        "type": "object",
+        "properties": {
+          "schemas": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "totalResults": {
+            "type": "integer"
+          },
+          "startIndex": {
+            "type": "integer"
+          },
+          "itemsPerPage": {
+            "type": "integer"
+          },
+          "Resources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SCIMSchemaDoc"
+            }
+          }
+        },
+        "required": [
+          "schemas",
+          "totalResults",
+          "startIndex",
+          "itemsPerPage",
+          "Resources"
+        ]
+      },
+      "SCIMServiceProviderConfig": {
+        "type": "object",
+        "properties": {
+          "schemas": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "documentationUri": {
+            "type": "string"
+          },
+          "patch": {
+            "$ref": "#/components/schemas/SCIMSupported"
+          },
+          "bulk": {
+            "$ref": "#/components/schemas/SCIMBulkSupport"
+          },
+          "filter": {
+            "$ref": "#/components/schemas/SCIMFilterSupport"
+          },
+          "changePassword": {
+            "$ref": "#/components/schemas/SCIMSupported"
+          },
+          "sort": {
+            "$ref": "#/components/schemas/SCIMSupported"
+          },
+          "etag": {
+            "$ref": "#/components/schemas/SCIMSupported"
+          },
+          "authenticationSchemes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SCIMAuthScheme"
+            }
+          },
+          "meta": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SCIMMeta"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "schemas",
+          "patch",
+          "bulk",
+          "filter",
+          "changePassword",
+          "sort",
+          "etag",
+          "authenticationSchemes"
+        ]
+      },
+      "SCIMSupported": {
+        "type": "object",
+        "properties": {
+          "supported": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "supported"
+        ]
+      },
+      "SCIMUser": {
+        "type": "object",
+        "properties": {
+          "schemas": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "id": {
+            "type": "string"
+          },
+          "externalId": {
+            "type": "string"
+          },
+          "userName": {
+            "type": "string"
+          },
+          "name": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SCIMName"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "emails": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SCIMEmail"
+            }
+          },
+          "active": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "meta": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SCIMMeta"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "schemas",
+          "userName"
+        ]
+      },
+      "SCIMUserList": {
+        "type": "object",
+        "properties": {
+          "schemas": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "totalResults": {
+            "type": "integer"
+          },
+          "startIndex": {
+            "type": "integer"
+          },
+          "itemsPerPage": {
+            "type": "integer"
+          },
+          "Resources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SCIMUser"
+            }
+          }
+        },
+        "required": [
+          "schemas",
+          "totalResults",
+          "startIndex",
+          "itemsPerPage",
+          "Resources"
         ]
       },
       "SecondFactorStep": {
@@ -8696,6 +9711,35 @@
           "total"
         ]
       },
+      "ProvisioningTargetPage": {
+        "type": "object",
+        "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProvisioningTarget"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor",
+          "total"
+        ]
+      },
       "PublicUserPage": {
         "type": "object",
         "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
@@ -8935,6 +9979,31 @@
         },
         "required": [
           "error"
+        ]
+      },
+      "SCIMError": {
+        "type": "object",
+        "description": "The SCIM service provider answers SCIM's error (RFC 7644 §3.12) as application/scim+json: status is the HTTP status as a string, scimType a SCIM error type when one applies.",
+        "properties": {
+          "schemas": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "string"
+          },
+          "scimType": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schemas",
+          "status"
         ]
       }
     },

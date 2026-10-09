@@ -57,6 +57,9 @@ type Config struct {
 	AuthorizationServer AuthorizationServerConfig
 	// Invitations turns invitations off. The zero value leaves them on.
 	Invitations InvitationsConfig
+	// Provisioning pushes the accounts to SCIM 2.0 service providers. The
+	// zero value pushes nothing.
+	Provisioning ProvisioningConfig
 	// Roles is the permission model: personas, their permissions and roles
 	// (NewRoles). Nil is root-only.
 	Roles *Roles

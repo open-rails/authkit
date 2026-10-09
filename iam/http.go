@@ -23,6 +23,10 @@ const (
 	// API the SPA approves sign-in requests through. Mounted only when
 	// Config.AuthorizationServer declares clients.
 	RouteAuthorizationServer RouteGroup = "authorization_server"
+	// RouteSCIM is the read-only SCIM 2.0 service provider beneath the
+	// issuer's path (/scim/v2), for client-credentials tokens with scope
+	// scim:read. Mounted with the authorization server.
+	RouteSCIM RouteGroup = "scim"
 )
 
 // RouteAuthTier is the authentication a route enforces before its handler runs.

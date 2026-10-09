@@ -30,6 +30,13 @@ func (s *Service) OAuthRoutes(groups ...iam.RouteGroup) []RouteSpec {
 	})
 }
 
+// SCIMRoutes returns the SCIM service provider's routes, prefix-neutral.
+func (s *Service) SCIMRoutes(groups ...iam.RouteGroup) []RouteSpec {
+	return s.routes(SurfaceSCIM, groups, func(route RouteSpec, h http.Handler) http.Handler {
+		return s.rateLimitedRoute(route.Bucket, h)
+	})
+}
+
 // OIDCBrowserRoutes returns the browser OIDC routes, prefix-neutral.
 func (s *Service) OIDCBrowserRoutes(groups ...iam.RouteGroup) []RouteSpec {
 	return s.routes(SurfaceOIDC, groups, func(route RouteSpec, h http.Handler) http.Handler {

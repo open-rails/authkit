@@ -475,8 +475,14 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 		// session: their tokens name none.
 		at["sid"] = m.sessionID
 	}
-	if slices.Contains(m.scopes, "email") && u.Email != nil {
+	if (slices.Contains(m.scopes, "email") || resource.ContactClaims) && u.Email != nil {
 		at["email"], at["email_verified"] = *u.Email, u.EmailVerified
+	}
+	if resource.ContactClaims {
+		if u.Username != nil {
+			at["preferred_username"], at["name"] = *u.Username, *u.Username
+		}
+		at["updated_at"] = u.ProfileUpdatedAt.Unix()
 	}
 	access, err := jose.Sign(ctx, signer, jose.ResourceAccessTokenType, at)
 	if err != nil {

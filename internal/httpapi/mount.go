@@ -172,6 +172,7 @@ func NewMount(svc *Service) (result *Mount, err error) {
 	mount(apiRoutes, api, true)
 	mount(browserOIDC, layout.oidc, false)
 	mount(svc.OAuthRoutes(opts.Groups...), base, false)
+	mount(svc.SCIMRoutes(opts.Groups...), base, false)
 	for pattern, used := range excluded {
 		if !used {
 			return nil, fmt.Errorf("authkit: Exclude entry %q matches no mounted route", pattern)

@@ -135,6 +135,9 @@ func Normalize(c Config, d Deps) (Config, error) {
 	if err := normalizeMerchant(&c.Merchant); err != nil {
 		return Config{}, err
 	}
+	if err := normalizeProvisioning(&c.Provisioning, d); err != nil {
+		return Config{}, err
+	}
 	if d.OnEvent != nil && d.Postgres == nil {
 		return Config{}, errors.New("authkit: OnEvent requires Deps.Postgres")
 	}

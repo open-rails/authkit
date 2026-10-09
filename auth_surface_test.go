@@ -75,7 +75,7 @@ func TestClientPublicSurface(t *testing.T) {
 		"DeviceKeys", "Sessions", "ListSessionEvents",
 		"Group", "Groups", "ListGroups", "ListGroupMembers", "ListMemberships", "GroupRoles", "KnownPermission",
 		"ListAPIKeys", "ResolveAPIKey", "ListInvitations", "RemoteApplication", "ListRemoteApplications",
-		"CheckSession", "CheckRecentSignIn",
+		"CheckSession", "CheckRecentSignIn", "ProvisioningTargets", "Contacts", "SearchContacts",
 		// Names read at run time, resolved through Config.Roles.
 		"Persona", "Permission", "Role", "RolePermissions",
 	}

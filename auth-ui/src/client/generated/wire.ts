@@ -505,6 +505,16 @@ export type ProviderError = {
   provider_error: string
 }
 
+export type ProvisioningTarget = {
+  name: string
+  synced_at: string | null
+  reconciled_at: string | null
+  last_success_at: string | null
+  failing_since: string | null
+  last_error: string | null
+  backlog: number
+}
+
 export type PublicUser = {
   id: string
   username: string
@@ -536,6 +546,126 @@ export type ReturnToRequest = {
 export type RoleInfo = {
   name: string
   permissions: string[]
+}
+
+export type SCIMAttribute = {
+  name: string
+  type: string
+  multiValued: boolean
+  description?: string
+  required: boolean
+  caseExact: boolean
+  mutability: string
+  returned: string
+  uniqueness: string
+  subAttributes?: SCIMAttribute[]
+}
+
+export type SCIMAuthScheme = {
+  type: string
+  name: string
+  description: string
+  specUri?: string
+  primary?: boolean
+}
+
+export type SCIMBulkSupport = {
+  supported: boolean
+  maxOperations: number
+  maxPayloadSize: number
+}
+
+export type SCIMEmail = {
+  value: string
+  primary?: boolean
+}
+
+export type SCIMFilterSupport = {
+  supported: boolean
+  maxResults: number
+}
+
+export type SCIMMeta = {
+  resourceType?: string
+  created?: string | null
+  lastModified?: string | null
+  location?: string
+}
+
+export type SCIMName = {
+  formatted?: string
+}
+
+export type SCIMResourceType = {
+  schemas: string[]
+  id: string
+  name: string
+  endpoint: string
+  description?: string
+  schema: string
+  meta?: SCIMMeta | null
+}
+
+export type SCIMResourceTypeList = {
+  schemas: string[]
+  totalResults: number
+  startIndex: number
+  itemsPerPage: number
+  Resources: SCIMResourceType[]
+}
+
+export type SCIMSchemaDoc = {
+  schemas?: string[]
+  id: string
+  name: string
+  description?: string
+  attributes: SCIMAttribute[]
+  meta?: SCIMMeta | null
+}
+
+export type SCIMSchemaDocList = {
+  schemas: string[]
+  totalResults: number
+  startIndex: number
+  itemsPerPage: number
+  Resources: SCIMSchemaDoc[]
+}
+
+export type SCIMServiceProviderConfig = {
+  schemas: string[]
+  documentationUri?: string
+  patch: SCIMSupported
+  bulk: SCIMBulkSupport
+  filter: SCIMFilterSupport
+  changePassword: SCIMSupported
+  sort: SCIMSupported
+  etag: SCIMSupported
+  authenticationSchemes: SCIMAuthScheme[]
+  meta?: SCIMMeta | null
+}
+
+export type SCIMSupported = {
+  supported: boolean
+}
+
+export type SCIMUser = {
+  schemas: string[]
+  id?: string
+  externalId?: string
+  userName: string
+  name?: SCIMName | null
+  displayName?: string
+  emails?: SCIMEmail[]
+  active?: boolean | null
+  meta?: SCIMMeta | null
+}
+
+export type SCIMUserList = {
+  schemas: string[]
+  totalResults: number
+  startIndex: number
+  itemsPerPage: number
+  Resources: SCIMUser[]
 }
 
 export type SecondFactorStep = {

@@ -177,6 +177,11 @@ func (c *contract) openAPI() ([]byte, error) {
 		"description", "The authorization server's protocol endpoints answer OAuth's own error object (RFC 6749 §5.2): error is the code, error_description is for people, and reason, when present, a stable cause beside the code.",
 		"properties", newObj("error", newObj("type", "string"), "error_description", newObj("type", "string"), "reason", newObj("type", "string")),
 		"required", []string{"error"}))
+	schemas.set("SCIMError", newObj("type", "object",
+		"description", "The SCIM service provider answers SCIM's error (RFC 7644 §3.12) as application/scim+json: status is the HTTP status as a string, scimType a SCIM error type when one applies.",
+		"properties", newObj("schemas", newObj("type", "array", "items", newObj("type", "string")), "status", newObj("type", "string"),
+			"scimType", newObj("type", "string"), "detail", newObj("type", "string")),
+		"required", []string{"schemas", "status"}))
 
 	paths := newObj()
 	for _, r := range c.routes {
@@ -288,8 +293,11 @@ func (c *contract) operation(r httpapi.RouteSpec) *obj {
 		responses.set(strconv.Itoa(reply.Status), resp)
 	}
 	errorSchema := "#/components/schemas/ErrorEnvelope"
-	if r.Surface == httpapi.SurfaceOAuth {
+	switch r.Surface {
+	case httpapi.SurfaceOAuth:
 		errorSchema = "#/components/schemas/OAuthError"
+	case httpapi.SurfaceSCIM:
+		errorSchema = "#/components/schemas/SCIMError"
 	}
 	responses.set("default", newObj("description", "An error",
 		"content", newObj("application/json", newObj("schema", newObj("$ref", errorSchema)))))

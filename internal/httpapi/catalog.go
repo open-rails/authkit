@@ -10,6 +10,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/ident"
+	"github.com/open-rails/authkit/internal/scim"
 	"github.com/open-rails/authkit/keys"
 )
 
@@ -23,6 +24,9 @@ const (
 	// SurfaceOAuth is the authorization server's protocol endpoints beneath
 	// the issuer's path: form requests and OAuth errors, no JSON envelope.
 	SurfaceOAuth Surface = "oauth"
+	// SurfaceSCIM is the read-only SCIM 2.0 service provider beneath the
+	// issuer's path: SCIM's media type and errors.
+	SurfaceSCIM Surface = "scim"
 )
 
 // Feature is the configuration a route needs to be mounted.
@@ -128,6 +132,7 @@ func Catalog() []RouteSpec {
 		creation  = protocol.CredentialCreation
 		assertion = protocol.CredentialAssertion
 	)
+	scimGroup := iam.RouteSCIM
 	signedIn := replyOK(AuthResult{})
 	usersRead := ident.RootUsersRead.String()
 	return []RouteSpec{
@@ -326,6 +331,9 @@ func Catalog() []RouteSpec {
 			Responses: replyNoContent, serve: handle((*Service).handleAdminUserSessionsDELETE)},
 		{Method: GET, Path: "/admin/users/{user_id}/session-events", Group: admin, Auth: permission, Perm: usersRead, Bucket: RLAdminRead,
 			Query: SessionEventQuery{}, Responses: replyOK(iam.ListPage[iam.SessionEvent]{}), serve: handle((*Service).handleAdminUserSessionEventsGET)},
+		// Each Config.Provisioning target's delivery.
+		{Method: GET, Path: "/admin/provisioning/targets", Group: admin, Auth: permission, Perm: usersRead, Bucket: RLAdminRead,
+			Responses: replyOK(iam.ListPage[iam.ProvisioningTarget]{}), serve: handle((*Service).handleAdminProvisioningTargetsGET)},
 
 		// #430: the SPA's half of an OAuth sign-in. The authorize endpoint
 		// stores the request and sends the browser to Frontend.AuthorizePath;
@@ -409,6 +417,34 @@ func Catalog() []RouteSpec {
 			Query: OAuthEndSessionParams{}, Responses: oauthRedirectReply, serve: handle((*Service).handleOAuthEndSession)},
 		{Method: POST, Path: iam.OAuthEndSessionPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthEndSession, MountedWhen: FeatureAuthorizationServer,
 			Form: OAuthEndSessionParams{}, Responses: oauthRedirectReply, serve: handle((*Service).handleOAuthEndSession)},
+
+		// #441: the read-only SCIM 2.0 service provider (RFC 7644), beneath
+		// the issuer's path, for a client-credentials token with scope
+		// scim:read (config.SCIMResource). Writes answer 501.
+		{Method: GET, Path: "/scim/v2/ServiceProviderConfig", Surface: SurfaceSCIM, Group: scimGroup, Auth: public, Bucket: RLSCIMRead, MountedWhen: FeatureAuthorizationServer,
+			Responses: replyOK(scim.ServiceProviderConfig{}), serve: scimRead((*Service).handleSCIMServiceProviderConfig)},
+		{Method: GET, Path: "/scim/v2/ResourceTypes", Surface: SurfaceSCIM, Group: scimGroup, Auth: public, Bucket: RLSCIMRead, MountedWhen: FeatureAuthorizationServer,
+			Responses: replyOK(scim.ListResponse[scim.ResourceType]{}), serve: scimRead((*Service).handleSCIMResourceTypes)},
+		{Method: GET, Path: "/scim/v2/ResourceTypes/{id}", Surface: SurfaceSCIM, Group: scimGroup, Auth: public, Bucket: RLSCIMRead, MountedWhen: FeatureAuthorizationServer,
+			Responses: replyOK(scim.ResourceType{}), serve: scimRead((*Service).handleSCIMResourceType)},
+		{Method: GET, Path: "/scim/v2/Schemas", Surface: SurfaceSCIM, Group: scimGroup, Auth: public, Bucket: RLSCIMRead, MountedWhen: FeatureAuthorizationServer,
+			Responses: replyOK(scim.ListResponse[scim.SchemaDoc]{}), serve: scimRead((*Service).handleSCIMSchemas)},
+		{Method: GET, Path: "/scim/v2/Schemas/{id}", Surface: SurfaceSCIM, Group: scimGroup, Auth: public, Bucket: RLSCIMRead, MountedWhen: FeatureAuthorizationServer,
+			Responses: replyOK(scim.SchemaDoc{}), serve: scimRead((*Service).handleSCIMSchema)},
+		{Method: GET, Path: "/scim/v2/Users", Surface: SurfaceSCIM, Group: scimGroup, Auth: public, Bucket: RLSCIMRead, MountedWhen: FeatureAuthorizationServer,
+			Query: SCIMUsersQuery{}, Responses: replyOK(scim.ListResponse[scim.User]{}), serve: scimRead((*Service).handleSCIMUsers)},
+		{Method: GET, Path: "/scim/v2/Users/{id}", Surface: SurfaceSCIM, Group: scimGroup, Auth: public, Bucket: RLSCIMRead, MountedWhen: FeatureAuthorizationServer,
+			Responses: replyOK(scim.User{}), serve: scimRead((*Service).handleSCIMUser)},
+		{Method: POST, Path: "/scim/v2/Users", Surface: SurfaceSCIM, Group: scimGroup, Auth: public, Bucket: RLSCIMRead, MountedWhen: FeatureAuthorizationServer,
+			serve: scimRead((*Service).handleSCIMReadOnly)},
+		{Method: PUT, Path: "/scim/v2/Users/{id}", Surface: SurfaceSCIM, Group: scimGroup, Auth: public, Bucket: RLSCIMRead, MountedWhen: FeatureAuthorizationServer,
+			serve: scimRead((*Service).handleSCIMReadOnly)},
+		{Method: PATCH, Path: "/scim/v2/Users/{id}", Surface: SurfaceSCIM, Group: scimGroup, Auth: public, Bucket: RLSCIMRead, MountedWhen: FeatureAuthorizationServer,
+			serve: scimRead((*Service).handleSCIMReadOnly)},
+		{Method: DELETE, Path: "/scim/v2/Users/{id}", Surface: SurfaceSCIM, Group: scimGroup, Auth: public, Bucket: RLSCIMRead, MountedWhen: FeatureAuthorizationServer,
+			serve: scimRead((*Service).handleSCIMReadOnly)},
+		{Method: POST, Path: "/scim/v2/Bulk", Surface: SurfaceSCIM, Group: scimGroup, Auth: public, Bucket: RLSCIMRead, MountedWhen: FeatureAuthorizationServer,
+			serve: scimRead((*Service).handleSCIMReadOnly)},
 	}
 }
 

@@ -72,7 +72,14 @@ type Claims struct {
 
 	Email         string
 	EmailVerified bool
-	Username      string
+	// Username is a native token's username, or a resource access token's
+	// preferred_username.
+	Username string
+	// Name and UpdatedAt are a resource access token's OIDC name and
+	// updated_at: the contact AuthKit puts in tokens for a resource with
+	// ContactClaims, and when it last changed.
+	Name      string
+	UpdatedAt time.Time
 
 	// AMR, ACR and AuthTime describe the sign-in the token carries.
 	AMR      []string
