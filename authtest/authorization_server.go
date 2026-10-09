@@ -226,13 +226,14 @@ func (as *AuthorizationServer) RequestClientCredentials(t testing.TB, r ClientCr
 func (as *AuthorizationServer) TokenEndpoint() string { return as.URL + iam.OAuthTokenPath }
 
 // JWTBearerRequest is an RFC 7523 JWT-bearer token request: Key signs the
-// assertion and proves itself with DPoP. Assertion, when set, is sent as is
-// (Key still proves itself; nil Key sends no proof); otherwise Key asserts
-// itself for ClientID at the token endpoint.
+// assertion carrying Capability and proves itself with DPoP. Assertion, when
+// set, is sent as is (Key still proves itself; nil Key sends no proof);
+// otherwise Key asserts itself for ClientID at the token endpoint.
 type JWTBearerRequest struct {
 	ClientID     string
 	ClientSecret string
 	Key          *DPoPKey
+	Capability   string
 	Resource     string
 	Scopes       []string
 	Assertion    string
@@ -258,7 +259,7 @@ func (as *AuthorizationServer) jwtBearer(t testing.TB, r JWTBearerRequest) Token
 		if r.Key == nil {
 			t.Fatalf("authtest: jwt-bearer: a Key or an Assertion is required")
 		}
-		assertion = r.Key.Assertion(t, Assertion{Issuer: r.ClientID, Audience: as.TokenEndpoint()})
+		assertion = r.Key.Assertion(t, Assertion{Issuer: r.ClientID, Audience: as.TokenEndpoint(), Capability: r.Capability})
 	}
 	return TokenRequest{ClientID: r.ClientID, ClientSecret: r.ClientSecret, DPoP: r.Key, Params: url.Values{
 		"grant_type": {"urn:ietf:params:oauth:grant-type:jwt-bearer"}, "assertion": {assertion},

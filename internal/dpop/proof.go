@@ -3,23 +3,19 @@
 package dpop
 
 import (
-	"bytes"
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
-	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/open-rails/authkit/internal/jws"
 )
 
 var (
@@ -65,15 +61,20 @@ func Verify(r *http.Request, c Check) (string, error) {
 	if len(proof) > 4<<10 {
 		return zero, ErrInvalidProof
 	}
-	header, claims, thumbprint, err := ParseKeyJWS(proof)
-	if err != nil || len(header) != 3 || stringValue(header["typ"]) != "dpop+jwt" {
+	jwt, err := jws.Parse(proof)
+	if err != nil || len(jwt.Header) != 3 || jws.String(jwt.Header["typ"]) != "dpop+jwt" {
 		return zero, ErrInvalidProof
 	}
-	jti := stringValue(claims["jti"])
-	if len(jti) < 16 || len(jti) > 128 || strings.ContainsAny(jti, " \t\r\n") || stringValue(claims["htm"]) != r.Method {
+	thumbprint, err := jwt.VerifyEmbeddedES256()
+	if err != nil {
 		return zero, ErrInvalidProof
 	}
-	proofURL := stringValue(claims["htu"])
+	claims := jwt.Claims
+	jti := jws.String(claims["jti"])
+	if len(jti) < 16 || len(jti) > 128 || strings.ContainsAny(jti, " \t\r\n") || jws.String(claims["htm"]) != r.Method {
+		return zero, ErrInvalidProof
+	}
+	proofURL := jws.String(claims["htu"])
 	parsed, err := url.Parse(proofURL)
 	if err != nil || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" || strings.Contains(proofURL, "#") {
 		return zero, ErrInvalidProof
@@ -98,13 +99,13 @@ func Verify(r *http.Request, c Check) (string, error) {
 		if _, ok := claims["ath"]; ok {
 			return zero, ErrInvalidProof
 		}
-	} else if ath := sha256.Sum256([]byte(c.AccessToken)); stringValue(claims["ath"]) != base64.RawURLEncoding.EncodeToString(ath[:]) {
+	} else if ath := sha256.Sum256([]byte(c.AccessToken)); jws.String(claims["ath"]) != base64.RawURLEncoding.EncodeToString(ath[:]) {
 		return zero, ErrInvalidProof
 	}
 	if c.Thumbprint != "" && c.Thumbprint != thumbprint {
 		return zero, ErrInvalidProof
 	}
-	if c.Nonces != nil && !c.Nonces.Valid(stringValue(claims["nonce"]), now) {
+	if c.Nonces != nil && !c.Nonces.Valid(jws.String(claims["nonce"]), now) {
 		return zero, ErrNonceRequired
 	}
 	if c.Replay == nil {
@@ -123,95 +124,6 @@ func Verify(r *http.Request, c Check) (string, error) {
 		return zero, ErrReplay
 	}
 	return thumbprint, nil
-}
-
-// ParseKeyJWS verifies a compact ES256 JWS whose protected header carries
-// its own public P-256 key (jwk, exactly kty, crv, x and y), and returns the
-// header, the claims and the key's RFC 7638 thumbprint (unpadded base64url).
-// It proves possession of that key and nothing else: the caller checks the
-// header's other members and every claim. Duplicate members are refused.
-func ParseKeyJWS(compact string) (header, claims map[string]json.RawMessage, thumbprint string, err error) {
-	parts := strings.Split(compact, ".")
-	if len(compact) == 0 || len(parts) != 3 {
-		return nil, nil, "", ErrInvalidProof
-	}
-	header, err = decodeObject(parts[0])
-	if err != nil || stringValue(header["alg"]) != "ES256" {
-		return nil, nil, "", ErrInvalidProof
-	}
-	jwk, err := object(header["jwk"])
-	if err != nil || len(jwk) != 4 || stringValue(jwk["kty"]) != "EC" || stringValue(jwk["crv"]) != "P-256" {
-		return nil, nil, "", ErrInvalidProof
-	}
-	x, y := stringValue(jwk["x"]), stringValue(jwk["y"])
-	xb, xe := base64.RawURLEncoding.Strict().DecodeString(x)
-	yb, ye := base64.RawURLEncoding.Strict().DecodeString(y)
-	if xe != nil || ye != nil || len(xb) != 32 || len(yb) != 32 {
-		return nil, nil, "", ErrInvalidProof
-	}
-	key, err := ecdsa.ParseUncompressedPublicKey(elliptic.P256(), append(append([]byte{4}, xb...), yb...))
-	if err != nil {
-		return nil, nil, "", ErrInvalidProof
-	}
-	signature, err := base64.RawURLEncoding.Strict().DecodeString(parts[2])
-	if err != nil || jwt.SigningMethodES256.Verify(parts[0]+"."+parts[1], signature, key) != nil {
-		return nil, nil, "", ErrInvalidProof
-	}
-	if claims, err = decodeObject(parts[1]); err != nil {
-		return nil, nil, "", ErrInvalidProof
-	}
-	// RFC 7638: lexicographic member order and only required public members.
-	sum := sha256.Sum256([]byte(`{"crv":"P-256","kty":"EC","x":"` + x + `","y":"` + y + `"}`))
-	return header, claims, base64.RawURLEncoding.EncodeToString(sum[:]), nil
-}
-
-func decodeObject(encoded string) (map[string]json.RawMessage, error) {
-	raw, err := base64.RawURLEncoding.Strict().DecodeString(encoded)
-	if err != nil {
-		return nil, err
-	}
-	return object(raw)
-}
-
-// object rejects duplicate members, non-objects and trailing JSON.
-func object(raw []byte) (map[string]json.RawMessage, error) {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	tok, err := dec.Token()
-	if err != nil || tok != json.Delim('{') {
-		return nil, ErrInvalidProof
-	}
-	out := map[string]json.RawMessage{}
-	for dec.More() {
-		tok, err := dec.Token()
-		if err != nil {
-			return nil, err
-		}
-		key, ok := tok.(string)
-		if !ok {
-			return nil, ErrInvalidProof
-		}
-		if _, dup := out[key]; dup {
-			return nil, ErrInvalidProof
-		}
-		var value json.RawMessage
-		if err := dec.Decode(&value); err != nil {
-			return nil, err
-		}
-		out[key] = value
-	}
-	if _, err := dec.Token(); err != nil {
-		return nil, err
-	}
-	if err := dec.Decode(new(any)); err != io.EOF {
-		return nil, ErrInvalidProof
-	}
-	return out, nil
-}
-
-func stringValue(raw json.RawMessage) string {
-	var value string
-	_ = json.Unmarshal(raw, &value)
-	return value
 }
 
 func canonicalURL(raw string) (string, error) {

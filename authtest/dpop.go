@@ -86,7 +86,10 @@ type Assertion struct {
 	Lifetime time.Duration
 	// ID (jti) is "" for a random one.
 	ID string
-	// Claims are extra claims, such as a host's URI-named capability.
+	// Capability is the device-key capability it carries
+	// (DeviceKey.Capability).
+	Capability string
+	// Claims are extra claims.
 	Claims map[string]any
 }
 
@@ -112,6 +115,9 @@ func (k *DPoPKey) Assertion(t testing.TB, a Assertion) string {
 		claims[name] = value
 	}
 	claims["iss"], claims["sub"], claims["aud"], claims["jti"] = a.Issuer, a.Subject, a.Audience, a.ID
+	if a.Capability != "" {
+		claims["capability"] = a.Capability
+	}
 	claims["iat"], claims["exp"] = now.Unix(), now.Add(lifetime).Unix()
 	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
 	x, y := k.coordinates()

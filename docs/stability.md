@@ -18,7 +18,7 @@ The covered API is every exported identifier of the packages below, with its doc
 | `verify` | token verification without a database, `Claims`, the middleware |
 | `keys` | signing keys: `Source`, `Signer`, `Watch`, JWK and JWKS |
 | `provider` | social sign-in providers |
-| `devicekey` | the device-key client and its signing domains |
+| `devicekey` | the device-key client, its signing domains and capabilities |
 | `adapters/gin`, `adapters/fiber` | mounting on Gin or Fiber, and the middleware |
 | `adapters/twilio` | the email and SMS senders |
 | `authtest` | test helpers for hosts |
@@ -61,7 +61,7 @@ Other services verify AuthKit's JWTs, so these are covered: each token's `typ` h
 | `typ` | Minted by | Claims |
 |---|---|---|
 | `access+jwt` | AuthKit, for a user | `iss sub aud iat exp`; `sid` or `device_key_id`; `jti auth_time amr acr mfa_enrolled`; `provider` after an identity-provider sign-in; `root_role` (display only); `entitlements`; `2fa_enrollment` on an enrollment-only token; the host's claims (`iam.AccessTokenOptions.Claims`), which may not reuse a name on this page |
-| `at+jwt` (RFC 9068) | the authorization server, for a registered resource server | `iss sub aud client_id iat nbf exp jti scope permissions roles sid auth_time acr amr`; `email email_verified` with the `email` scope; `cnf` (`jkt`) when DPoP-bound; `authorization_details` (RFC 9396) and `act` (RFC 8693, after token exchange) when granted; the grant authorizer's claims, each named by an absolute URI. `aud` is the resource (or the issuer, for userinfo); `permissions` is the user's grants within the resource's ceiling; `sid` is absent on an offline grant; `roles` is informational |
+| `at+jwt` (RFC 9068) | the authorization server, for a registered resource server | `iss sub aud client_id iat nbf exp jti scope permissions roles sid auth_time acr amr`; `email email_verified` with the `email` scope; `cnf` (`jkt`) when DPoP-bound; `authorization_details` (RFC 9396) and `act` (RFC 8693: the exchanging client after token exchange, the decided invoker after jwt-bearer) when granted; the grant authorizer's claims, each named by an absolute URI. `aud` is the resource (or the issuer, for userinfo); `permissions` is the user's grants within the resource's ceiling; `sid` is absent on an offline grant; a jwt-bearer token carries `device_key_id` (its capability's key) and no `scope`, `sid`, `auth_time`, `acr` or `amr`; `roles` is informational |
 
 New claims may be added, so verifiers ignore claims they don't know; `verify` also reads `email`, `email_verified` and `username` when an issuer sets them. Refresh tokens and API-key secrets are opaque.
 

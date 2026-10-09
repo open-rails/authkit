@@ -78,19 +78,24 @@ func (s *Engine) decideOAuthGrant(ctx context.Context, req iam.OAuthGrantRequest
 		out.Claims = d.Claims
 	}
 	if req.Kind != iam.OAuthGrantJWTBearer {
-		if d.UserID != "" || d.Invoker != "" {
-			return nil, errors.New("authkit: oauth: grant authorizer UserID and Invoker answer only a jwt_bearer grant")
+		if d.Invoker != "" {
+			return nil, errors.New("authkit: oauth: grant authorizer Invoker answers only a jwt_bearer grant")
 		}
 		return out, nil
 	}
-	userID, ok := canonicalUUID(strings.TrimSpace(d.UserID))
-	switch {
-	case !ok:
-		return nil, errors.New("authkit: oauth: grant authorizer must name the jwt_bearer token's user (UserID, a user id)")
-	case !validActor(d.Invoker):
-		return nil, errors.New("authkit: oauth: grant authorizer must name the jwt_bearer token's Invoker: 1-256 printable characters without spaces")
+	invoker := d.Invoker
+	if invoker == "" {
+		invoker = req.JWKThumbprint
 	}
-	out.UserID, out.Invoker = userID, d.Invoker
+	switch {
+	case d.Permissions != nil:
+		return nil, errors.New("authkit: oauth: a jwt_bearer token carries no permissions: its capability's authorization_details are its authority")
+	case !authflow.NarrowsAuthorizationDetails(req.AuthorizationDetails, out.AuthorizationDetails):
+		return nil, errors.New("authkit: oauth: grant authorizer may only narrow a capability's authorization_details: each entry must be one of the capability's")
+	case !validActor(invoker):
+		return nil, errors.New("authkit: oauth: grant authorizer Invoker must be 1-256 printable characters without spaces")
+	}
+	out.Invoker = invoker
 	return out, nil
 }
 
@@ -141,7 +146,7 @@ func oauthGrantFailure(err error, code string) error {
 // within the resource's ceiling. An authorizer permission in an AuthKit
 // persona's namespace the user does not hold now refuses the grant.
 func (s *Engine) grantPermissions(ctx context.Context, m oauthMint, ceiling []string) ([]string, error) {
-	if len(ceiling) == 0 {
+	if len(ceiling) == 0 || m.workload {
 		return []string{}, nil
 	}
 	if m.userID == "" {

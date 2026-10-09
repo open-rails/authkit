@@ -11,6 +11,7 @@ This page covers the credentials AuthKit issues, how long each lasts, and when a
 | Device-key sign-in | a native client | each sign-in is signed by the device key, with no refresh token | like a session, when the key is revoked |
 | API key | a group's account | until revoked or its expiry (capped by `APIKeysConfig.MaxTTL`) | at once, since it is resolved on every request; also when its creator loses the authority to issue it |
 | Resource access token (`at+jwt`) | an OAuth client, for a resource server | `AuthorizationServerConfig.AccessTokenTTL` (5 minutes), or the client's `AccessTokenTTL` (at most 15) | at expiry; each grant re-checks the sign-in or grant it stands on ([authorization server](authorization-server.md)) |
+| Workload token (`at+jwt`, jwt-bearer) | a workload, for a resource server | until its capability expires (at most 24 hours) | at once for a resource server that checks its device key (`verify.RequireSession`); revoking the device key revokes it ([workloads](authorization-server.md#workloads)) |
 
 ## Refresh and sessions
 

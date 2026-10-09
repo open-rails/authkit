@@ -30,8 +30,9 @@ const (
 	// itself.
 	OAuthGrantClientCredentials OAuthGrantKind = "client_credentials"
 	// OAuthGrantJWTBearer is an RFC 7523 JWT-bearer grant: a workload
-	// proves its key (Assertion, JWKThumbprint) and the decision names the
-	// user its token acts for (UserID) and the workload acting (Invoker).
+	// proves its key (Assertion, JWKThumbprint) and presents a Capability
+	// one of the user's device keys signed for that key: the operations
+	// (AuthorizationDetails) it may do for the user on Resource.
 	OAuthGrantJWTBearer OAuthGrantKind = "jwt_bearer"
 )
 
@@ -43,18 +44,19 @@ type OAuthGrantRequest struct {
 	// and jwt-bearer, which have no refresh tokens.
 	GrantID  string
 	ClientID string
-	// UserID is the user the grant is for; empty for client credentials and
-	// jwt-bearer, whose decision names it.
+	// UserID is the user the grant is for; empty for client credentials.
 	UserID string
 	// SessionID or DeviceKeyID is the sign-in that consented (or the
 	// exchanged token's): a refresh session or a device key. A grant ends
-	// with it, unless offline.
+	// with it, unless offline. For jwt-bearer, DeviceKeyID is the live key
+	// that signed the capability.
 	SessionID   string
 	DeviceKeyID string
 	Resource    string
 	Scopes      []string
 	// AuthorizationDetails is the RFC 9396 authorization_details array: as
-	// requested, or on refresh as the grant carries it. Nil when absent.
+	// requested, on refresh as the grant carries it, for jwt-bearer as the
+	// capability grants it. Nil when absent.
 	AuthorizationDetails json.RawMessage
 	// JWKThumbprint is the DPoP key (RFC 7638 thumbprint) the grant is
 	// bound to, or the token request proves; empty for a bearer grant. For
@@ -63,53 +65,70 @@ type OAuthGrantRequest struct {
 	// Offline is a grant whose refresh tokens outlive the sign-in (the
 	// offline_access scope); changing the account's credentials ends it.
 	Offline bool
-	// Assertion is a jwt-bearer grant's verified assertion; nil otherwise.
-	Assertion *OAuthAssertion
+	// Assertion and Capability are a jwt-bearer grant's, verified; nil
+	// otherwise.
+	Assertion  *OAuthAssertion
+	Capability *OAuthCapability
 }
 
 // OAuthAssertion is a verified RFC 7523 assertion: signed by the key the
 // request's JWKThumbprint names, which the token request also proved with
-// DPoP, and never presented before. AuthKit checked its iss (the client),
-// aud (the token endpoint), lifetime and jti; the rest is the workload's
-// own say, for the host to judge.
+// DPoP. AuthKit checked its iss (the client), aud (the token endpoint),
+// lifetime and jti; the rest is the workload's own say.
 type OAuthAssertion struct {
 	// Subject (sub) is the workload as it names itself.
 	Subject string
-	// ID (jti) is single-use per key until ExpiresAt.
+	// ID (jti) redeems once per key.
 	ID string
 	// IssuedAt (iat) is zero when absent.
 	IssuedAt  time.Time
 	ExpiresAt time.Time
-	// Claims are its other claims, raw JSON by name: room for a host's
-	// own, named by absolute URI ("https://hub.example.com/capability").
-	// Nil when there are none.
+	// Claims are its claims AuthKit does not define, raw JSON by name; nil
+	// when there are none.
+	Claims map[string]json.RawMessage
+}
+
+// OAuthCapability is a verified capability: a JWT the request's UserID
+// signed offline with its live device key DeviceKeyID, letting the workload
+// key JWKThumbprint do AuthorizationDetails on Resource until ExpiresAt.
+type OAuthCapability struct {
+	// ID (jti) redeems once per device key: one token per capability.
+	ID string
+	// IssuedAt (iat) is zero when absent.
+	IssuedAt  time.Time
+	ExpiresAt time.Time
+	// Claims are its claims AuthKit does not define (a run id, say), raw
+	// JSON by name; nil when there are none.
 	Claims map[string]json.RawMessage
 }
 
 // OAuthGrantDecision is the authority AuthKit mints for one grant. Its zero
 // value grants the defaults: the user's live root-group grants (a client's
-// own Permissions for client credentials) within the resource's ceiling.
+// own Permissions for client credentials) within the resource's ceiling;
+// for jwt-bearer, no permissions and the capability's operations.
 type OAuthGrantDecision struct {
 	// Permissions, when non-nil, replace the default permissions. One in an
 	// AuthKit persona's namespace must be held live by the user; the host's
 	// own vocabulary is the host's decision. Either way the token carries
-	// them only within the resource's ceiling.
+	// them only within the resource's ceiling. A jwt-bearer token carries
+	// none: leave it nil.
 	Permissions []string
 	// AuthorizationDetails is what the grant carries (RFC 9396), in the
-	// access token and the token response; nil keeps the request's.
+	// access token and the token response; nil keeps the request's. For
+	// jwt-bearer it may only narrow: each entry must equal one of the
+	// capability's.
 	AuthorizationDetails json.RawMessage
 	// MaxLifetime caps the grant from its start (consent, or the token
 	// request): no refresh or access token outlives it. It only shortens the
-	// client's lifetimes; 0 adds no cap.
+	// client's lifetimes (a jwt-bearer token's, the capability's); 0 adds no
+	// cap.
 	MaxLifetime time.Duration
 	// Claims are added to the access token. Each name must be
 	// collision-resistant: an absolute URI ("https://tensorhub.com/grant").
 	Claims map[string]any
-	// UserID and Invoker answer a jwt-bearer grant, where both are required
-	// (and must be empty for every other kind): the live user the token acts
-	// for (its sub), and who acts for them (act.sub, verify.Claims.Invoker),
-	// such as the workload.
-	UserID  string
+	// Invoker names the workload acting for the user in a jwt-bearer token
+	// (act.sub, verify.Claims.Invoker); empty is the workload key's
+	// JWKThumbprint. Other grants leave it empty.
 	Invoker string
 }
 

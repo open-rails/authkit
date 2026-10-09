@@ -355,9 +355,11 @@ func (s *Engine) SessionFreshness(ctx context.Context, userID, sessionID string,
 
 // CheckSession is the session check (#412) for verified claims: the refresh
 // session or device key the token was minted from is still active and its
-// account usable. A user's token names one. A token that names none, such as one the host minted, is refused
-// too, since nothing proves it still stands. Every refusal is
-// ErrSessionRevoked; any other credential (an API key, a 2FA-enrollment
+// account usable. A user's token names one; so does this issuer's jwt-bearer
+// resource token, the device key that signed its capability (#437). A token
+// that names none, such as one the host minted, is refused too, since
+// nothing proves it still stands. Every refusal is ErrSessionRevoked; any
+// other credential (an API key, a 2FA-enrollment token, another resource
 // token) is forbidden. Permission checks run the same query through the
 // identity's session binding.
 func (s *Engine) CheckSession(ctx context.Context, cl verify.Claims) error {
@@ -382,13 +384,16 @@ func (s *Engine) CheckSession(ctx context.Context, cl verify.Claims) error {
 	return nil
 }
 
-// signedInUser is the account whose sign-in cl stands on: a user's own token.
+// signedInUser is the account whose sign-in cl stands on: a user's own
+// token, or this issuer's resource token standing on a device key.
 func (s *Engine) signedInUser(cl verify.Claims) (string, bool) {
 	switch {
 	case cl.TwoFAEnrollment:
 		return "", false
 	case cl.IsUser():
 		return cl.UserID, true
+	case cl.Kind == verify.TokenUser && cl.IsResourceToken() && cl.DeviceKeyID != "" && cl.SessionID == "" && cl.Issuer == s.cfg.Token.Issuer:
+		return cl.Subject, isUUID(cl.Subject)
 	}
 	return "", false
 }

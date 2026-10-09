@@ -600,8 +600,8 @@ func oauthParams(r *http.Request, bodyOnly bool) (url.Values, error) {
 	return params, nil
 }
 
-// oauthFail answers an OAuth error ({error, error_description}); any other
-// error is a server_error, logged.
+// oauthFail answers an OAuth error ({error, error_description}, and reason
+// when set); any other error is a server_error, logged.
 func oauthFail(w http.ResponseWriter, err error) {
 	var oe *authflow.OAuthError
 	if !errors.As(err, &oe) {
@@ -615,7 +615,11 @@ func oauthFail(w http.ResponseWriter, err error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(oe.HTTPStatus())
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": oe.Code, "error_description": oe.Description})
+	body := map[string]string{"error": oe.Code, "error_description": oe.Description}
+	if oe.Reason != "" {
+		body["reason"] = oe.Reason
+	}
+	_ = json.NewEncoder(w).Encode(body)
 }
 
 // redirectWith appends params to a URI, keeping its own query.

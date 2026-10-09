@@ -429,8 +429,8 @@ type HTTPConfig struct {
 	APIPath string
 	// PublicURL is where clients reach BasePath when a proxy in front changes
 	// the origin or the path, such as "https://shop.example.com/sso". DPoP
-	// proofs sent to the token endpoint must name PublicURL plus its path
-	// beneath BasePath. Empty defaults to Token.Issuer's origin plus
+	// proofs sent to the token endpoint, and jwt-bearer assertions' aud, must
+	// name PublicURL plus its path beneath BasePath. Empty defaults to Token.Issuer's origin plus
 	// BasePath.
 	PublicURL string
 	// Exclude drops routes the host serves itself, named as iam.Route.Pattern

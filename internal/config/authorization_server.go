@@ -124,8 +124,8 @@ const (
 	// GrantClientCredentials is a confidential client acting for itself.
 	GrantClientCredentials OAuthGrantType = "client_credentials"
 	// GrantJWTBearer is the RFC 7523 JWT-bearer grant: a workload's key
-	// signs an assertion, proves itself with DPoP, and the grant authorizer
-	// decides whom the token acts for.
+	// signs an assertion carrying a capability one of the user's device keys
+	// signed for it, and proves itself with DPoP.
 	GrantJWTBearer OAuthGrantType = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 )
 
@@ -259,6 +259,9 @@ func normalizeAuthorizationServer(a *AuthorizationServerConfig, c Config) error 
 		if err := normalizeOAuthClient(&cl, a.Resources); err != nil {
 			return fmt.Errorf("authkit: AuthorizationServer.Clients[%d]: %w", i, err)
 		}
+		if OAuthClientAllows(cl, GrantJWTBearer) && !c.DeviceKeys.Enabled {
+			return fmt.Errorf("authkit: AuthorizationServer.Clients[%d]: client %q: the jwt-bearer grant needs DeviceKeys.Enabled: device keys sign its capabilities", i, cl.ID)
+		}
 		if slices.ContainsFunc(clients, func(o OAuthClientConfig) bool { return o.ID == cl.ID }) {
 			return fmt.Errorf("authkit: AuthorizationServer.Clients[%d]: client %q is declared twice", i, cl.ID)
 		}
@@ -349,6 +352,8 @@ func normalizeOAuthClient(cl *OAuthClientConfig, resources []ResourceServerConfi
 		return fmt.Errorf("client %q: client credentials need Resources to mint for", cl.ID)
 	case OAuthClientAllows(*cl, GrantJWTBearer) && len(cl.Resources) == 0:
 		return fmt.Errorf("client %q: the jwt-bearer grant needs Resources to mint for", cl.ID)
+	case OAuthClientAllows(*cl, GrantJWTBearer) && len(cl.AuthorizationDetailsTypes) == 0:
+		return fmt.Errorf("client %q: the jwt-bearer grant needs AuthorizationDetailsTypes: its capabilities' operations", cl.ID)
 	case len(cl.Permissions) > 0 && !OAuthClientAllows(*cl, GrantClientCredentials):
 		return fmt.Errorf("client %q: Permissions are a client-credentials client's own grants", cl.ID)
 	}

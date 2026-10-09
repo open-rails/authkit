@@ -223,8 +223,10 @@ func remember(t testing.TB, userID string, app *TOTP) {
 
 // DeviceKey is a device key enrolled on an account (see package devicekey).
 type DeviceKey struct {
-	ID  string
-	Key ed25519.PrivateKey
+	ID string
+	// UserID is the account's.
+	UserID string
+	Key    ed25519.PrivateKey
 	// AccessToken is the enrollment's sign-in.
 	AccessToken string
 }
@@ -255,7 +257,61 @@ func EnrollDeviceKey(t testing.TB, auth *authkit.Client, outbox *Outbox, u User)
 	if err != nil {
 		t.Fatalf("authtest: finish device-key enrollment for %s: %v", u.Email, err)
 	}
-	return DeviceKey{ID: s.DeviceKey.ID, Key: priv, AccessToken: s.AccessToken}
+	return DeviceKey{ID: s.DeviceKey.ID, UserID: u.ID, Key: priv, AccessToken: s.AccessToken}
+}
+
+// RevokeDeviceKey revokes k, as its machine signing out does: every
+// capability it signed stops working.
+func RevokeDeviceKey(t testing.TB, auth *authkit.Client, k DeviceKey) {
+	t.Helper()
+	c, err := devicekey.NewClient("http://authtest"+apiPath(t, auth), &http.Client{Transport: handlerTransport{auth.Handler()}})
+	if err != nil {
+		t.Fatalf("authtest: device-key client: %v", err)
+	}
+	if err := c.Logout(context.Background(), k.AccessToken); err != nil {
+		t.Fatalf("authtest: revoke device key %s: %v", k.ID, err)
+	}
+}
+
+// Capability is what a device key lets a workload do for its user
+// (DeviceKey.Capability).
+type Capability struct {
+	// Audience is the resource server's identifier.
+	Audience string
+	// Workload is the key the capability is bound to (cnf.jkt).
+	Workload *DPoPKey
+	// AuthorizationDetails are the operations, an RFC 9396 JSON array.
+	AuthorizationDetails string
+	// Lifetime sets exp from now: 0 is one hour; a negative one makes an
+	// expired capability.
+	Lifetime time.Duration
+	// ID (jti) is "" for a random one.
+	ID string
+	// Claims are other claims, such as the host's run id.
+	Claims map[string]any
+}
+
+// Capability signs c with k for k's user, as a CLI does for a run
+// (devicekey.SignCapability).
+func (k DeviceKey) Capability(t testing.TB, c Capability) string {
+	t.Helper()
+	if c.Workload == nil {
+		t.Fatalf("authtest: capability: a Workload key is required")
+	}
+	lifetime := c.Lifetime
+	if lifetime == 0 {
+		lifetime = time.Hour
+	}
+	now := time.Now()
+	signed, err := devicekey.SignCapability(k.Key, k.ID, devicekey.Capability{
+		UserID: k.UserID, Audience: c.Audience, WorkloadThumbprint: c.Workload.Thumbprint(),
+		AuthorizationDetails: json.RawMessage(c.AuthorizationDetails), ID: c.ID,
+		IssuedAt: now.Add(min(lifetime, 0)), ExpiresAt: now.Add(lifetime), Claims: c.Claims,
+	})
+	if err != nil {
+		t.Fatalf("authtest: capability: %v", err)
+	}
+	return signed
 }
 
 // call sends a JSON request to auth's API in process.

@@ -89,6 +89,8 @@ func TestNormalizeAuthorizationServerClients(t *testing.T) {
 		"origin with a path":           {OAuthClientConfig{ID: "c", RedirectURIs: []string{"https://c.example/cb"}, Origins: []string{"https://admin.example.com/app"}}, "is not an origin"},
 		"plain-http origin":            {OAuthClientConfig{ID: "c", RedirectURIs: []string{"https://c.example/cb"}, Origins: []string{"http://admin.example.com"}}, "must use https"},
 		"unknown grant":                {OAuthClientConfig{ID: "c", RedirectURIs: []string{"https://c.example/cb"}, GrantTypes: []OAuthGrantType{"password"}}, "unsupported grant type"},
+		"jwt-bearer no target":         {OAuthClientConfig{ID: "c", GrantTypes: []OAuthGrantType{GrantJWTBearer}, AuthorizationDetailsTypes: []string{"op"}}, "jwt-bearer grant needs Resources"},
+		"jwt-bearer no operations":     {OAuthClientConfig{ID: "c", Resources: []string{"https://api.example.com"}, GrantTypes: []OAuthGrantType{GrantJWTBearer}}, "needs AuthorizationDetailsTypes"},
 	} {
 		_, err := Normalize(base(tc.client), Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}})
 		require.ErrorContains(t, err, tc.want, name)
@@ -103,6 +105,17 @@ func TestNormalizeAuthorizationServerClients(t *testing.T) {
 	grants := func(context.Context, iam.OAuthGrantRequest) (iam.OAuthGrantDecision, error) {
 		return iam.OAuthGrantDecision{}, nil
 	}
+	// A jwt-bearer client, public or not, needs device keys to sign its
+	// capabilities and the authorizer to judge them.
+	workload := OAuthClientConfig{ID: "tensord", Resources: []string{"https://api.example.com"}, GrantTypes: []OAuthGrantType{GrantJWTBearer}, AuthorizationDetailsTypes: []string{"op"}}
+	withKeys := base(workload)
+	withKeys.DeviceKeys.Enabled = true
+	_, err = Normalize(base(workload), Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}, OAuthGrants: grants})
+	require.ErrorContains(t, err, "needs DeviceKeys.Enabled")
+	_, err = Normalize(withKeys, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}})
+	require.ErrorContains(t, err, "Deps.OAuthGrants")
+	_, err = Normalize(withKeys, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}, OAuthGrants: grants})
+	require.NoError(t, err)
 	machine := OAuthClientConfig{ID: "cli", RedirectURIs: []string{"https://c.example/cb"}, GrantTypes: []OAuthGrantType{GrantAuthorizationCode, GrantRefreshToken},
 		AuthorizationDetailsTypes: []string{"machine", "machine"}, Offline: true, KeyBound: true, AccessTokenTTL: time.Minute, RefreshTokenTTL: 7 * 24 * time.Hour}
 	_, err = Normalize(base(machine), Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}})

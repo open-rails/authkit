@@ -69,7 +69,7 @@ type Deps struct {
 	// OAuthGrants decides every grant of the authorization server: at
 	// consent, token exchange, client credentials and jwt-bearer, and at
 	// every refresh. Nil grants the defaults. Required when a client
-	// declares AuthorizationDetailsTypes or allows the jwt-bearer grant.
+	// declares AuthorizationDetailsTypes, as every jwt-bearer client does.
 	OAuthGrants iam.OAuthGrantAuthorizer
 	// NameAdmission is the host's side-effect-free username policy for
 	// account creation and renames; an error refuses the name.
