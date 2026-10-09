@@ -88,6 +88,8 @@ func TestClientPublicSurface(t *testing.T) {
 		"Handler", "APIBase", "Routes", "Mount",
 		"VerifyRequest", "Verify", "VerifyServiceJWT", "AuthenticateRequest",
 		"CheckIssuerKeys", "IssuerKeyStatuses", "NewVerifier",
+		// helpers/auth Auth: a merchant library's route gates.
+		"Required", "RequirePermission", "Sensitive", "Caller",
 	}
 	noActor := append(append(append([]string{}, hostOperations...), reads...), embeddingOnly...)
 

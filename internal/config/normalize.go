@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/lang"
@@ -131,6 +132,9 @@ func Normalize(c Config, d Deps) (Config, error) {
 	if c.River, err = NormalizeRiver(c.River); err != nil {
 		return Config{}, err
 	}
+	if err := normalizeMerchant(&c.Merchant); err != nil {
+		return Config{}, err
+	}
 	if d.OnEvent != nil && d.Postgres == nil {
 		return Config{}, errors.New("authkit: OnEvent requires Deps.Postgres")
 	}
@@ -142,6 +146,24 @@ func Normalize(c Config, d Deps) (Config, error) {
 		c.HTTP = &h
 	}
 	return c, nil
+}
+
+// normalizeMerchant refuses both Group and Root, and a Group that is not a
+// uuid.
+func normalizeMerchant(m *MerchantConfig) error {
+	m.Group = strings.TrimSpace(m.Group)
+	if m.Group == "" {
+		return nil
+	}
+	if m.Root {
+		return errors.New("authkit: set Config.Merchant.Group or Config.Merchant.Root, not both")
+	}
+	id, err := uuid.Parse(m.Group)
+	if err != nil {
+		return fmt.Errorf("authkit: Config.Merchant.Group %q is not a group id", m.Group)
+	}
+	m.Group = id.String()
+	return nil
 }
 
 // normalizeRemoteApplications trims the declared set and refuses a blank or

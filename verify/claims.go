@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/helpers/auth"
@@ -236,6 +237,41 @@ func credential(r *http.Request) [2]string {
 func ClaimsFromContext(ctx context.Context) (Claims, bool) {
 	v, ok := ctx.Value(claimsKey{}).(verified)
 	return v.claims, ok
+}
+
+// CallerFromContext is the caller a gate over a verified and stored in ctx,
+// as helpers/auth Auth.Caller reports it: a person (a user's token, a device
+// key's included, by user id) or a Machine (an API key, a remote
+// application). It is false without one, for claims SetClaims or a gate over
+// another authenticator stored, and for any other credential (a delegation, a
+// resource access token, another issuer's user).
+func CallerFromContext(ctx context.Context, a Authenticator) (auth.Caller, bool) {
+	v, ok := ctx.Value(claimsKey{}).(verified)
+	if !ok || v.by == nil || reflect.ValueOf(v.by).Kind() != reflect.Pointer || v.by != a {
+		return auth.Caller{}, false
+	}
+	cl := v.claims
+	c := auth.Caller{Email: cl.Email, Username: cl.Username, EmailVerified: cl.EmailVerified}
+	switch cl.Kind {
+	case iam.ActorUser:
+		id, err := uuid.Parse(cl.UserID)
+		if err != nil || cl.TwoFAEnrollment || cl.IsResourceToken() {
+			return auth.Caller{}, false
+		}
+		c.ID, c.Issuer, c.Credential = id.String(), cl.Issuer, string(auth.KindUser)
+		if cl.DeviceKeyID != "" {
+			c.Credential = string(auth.KindDeviceKey)
+		}
+	case iam.ActorAPIKey, iam.ActorRemoteApplication:
+		i, ok := cl.Identity()
+		if !ok {
+			return auth.Caller{}, false
+		}
+		c.ID, c.Issuer, c.Credential, c.Machine = i.Subject, i.Issuer, string(i.Kind), true
+	default:
+		return auth.Caller{}, false
+	}
+	return c, true
 }
 
 // IdentityFromContext is the verified caller's provider-neutral identity.

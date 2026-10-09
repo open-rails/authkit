@@ -19,6 +19,7 @@ pkg authkit, method (*Client) APIBase() string
 pkg authkit, method (*Client) ApplyBootstrapManifest(context.Context, iam.BootstrapManifest, iam.BootstrapOptions, ...Option) (iam.BootstrapResult, error)
 pkg authkit, method (*Client) AuthenticateRequest(context.Context, *http.Request) (auth.Principal, error)
 pkg authkit, method (*Client) Ban(context.Context, iam.Actor, string, iam.Ban, ...Option) error
+pkg authkit, method (*Client) Caller(context.Context) (auth.Caller, bool)
 pkg authkit, method (*Client) Can(context.Context, iam.Actor, iam.GroupRef, iam.Perm) (bool, error)
 pkg authkit, method (*Client) CheckIssuerKeys(context.Context) error
 pkg authkit, method (*Client) CheckRecentSignIn(context.Context, verify.Claims) error
@@ -67,6 +68,8 @@ pkg authkit, method (*Client) PurgeGroup(context.Context, iam.GroupRef, ...Optio
 pkg authkit, method (*Client) PurgeUsers(context.Context, []string, ...Option) ([]iam.OpResult, error)
 pkg authkit, method (*Client) RemoteApplication(context.Context, iam.AppRef) (iam.RemoteApplication, error)
 pkg authkit, method (*Client) RemoveGroupMember(context.Context, iam.Actor, iam.GroupRef, iam.Subject, ...Option) error
+pkg authkit, method (*Client) RequirePermission(string) func(http.Handler) http.Handler
+pkg authkit, method (*Client) Required() func(http.Handler) http.Handler
 pkg authkit, method (*Client) ResetAccountMFA(context.Context, string, ...Option) error
 pkg authkit, method (*Client) ResolveAPIKey(context.Context, string) (iam.APIKeyPrincipal, error)
 pkg authkit, method (*Client) ResolveUsername(context.Context, string) (iam.NameResolution, error)
@@ -81,6 +84,7 @@ pkg authkit, method (*Client) RolePermissions(iam.Role) ([]iam.Perm, error)
 pkg authkit, method (*Client) Routes() []iam.Route
 pkg authkit, method (*Client) SMSAvailable() bool
 pkg authkit, method (*Client) SMSHealth() (time.Time, error)
+pkg authkit, method (*Client) Sensitive() func(http.Handler) http.Handler
 pkg authkit, method (*Client) Sessions(context.Context, string) ([]iam.Session, error)
 pkg authkit, method (*Client) SetGroupRole(context.Context, iam.Actor, iam.GroupRef, iam.Subject, iam.Role, ...Option) (iam.GroupMember, error)
 pkg authkit, method (*Client) Start(context.Context) error
@@ -94,6 +98,7 @@ pkg authkit, method (*Client) Verify(context.Context, string) (verify.Claims, er
 pkg authkit, method (*Client) VerifyRequest(*http.Request) (verify.Claims, error)
 pkg authkit, method (*Client) VerifyServiceJWT(context.Context, string, ...verify.ServiceJWTVerifyOption) (iam.ServiceJWTClaims, error)
 pkg authkit, method (*PersonaDef) All() iam.Perm
+pkg authkit, method (*PersonaDef) Declare(...string) []iam.Perm
 pkg authkit, method (*PersonaDef) Expand([]iam.Perm) []iam.Perm
 pkg authkit, method (*PersonaDef) Permission(string, string) iam.Perm
 pkg authkit, method (*PersonaDef) Permissions() []iam.Perm
@@ -115,6 +120,7 @@ pkg authkit, method (CredentialPerms) All() iam.Perm
 pkg authkit, method (MemberPerms) All() iam.Perm
 pkg authkit, method (Resource) All() iam.Perm
 pkg authkit, method (RootDef) All() iam.Perm
+pkg authkit, method (RootDef) Declare(...string) []iam.Perm
 pkg authkit, method (RootDef) Expand([]iam.Perm) []iam.Perm
 pkg authkit, method (RootDef) Permission(string, string) iam.Perm
 pkg authkit, method (RootDef) Permissions() []iam.Perm
@@ -144,6 +150,7 @@ pkg authkit, type Config struct, HTTP *config.HTTPConfig
 pkg authkit, type Config struct, Invitations config.InvitationsConfig
 pkg authkit, type Config struct, Keys config.KeysConfig
 pkg authkit, type Config struct, Languages config.LanguageConfig
+pkg authkit, type Config struct, Merchant config.MerchantConfig
 pkg authkit, type Config struct, Passkeys config.PasskeyConfig
 pkg authkit, type Config struct, Password config.PasswordPolicy
 pkg authkit, type Config struct, Registration config.RegistrationConfig
@@ -238,6 +245,10 @@ pkg authkit, type MemberPerms struct
 pkg authkit, type MemberPerms struct, Manage iam.Perm
 pkg authkit, type MemberPerms struct, Read iam.Perm
 pkg authkit, type MemberPerms struct, embedded config.Resource
+pkg authkit, type MerchantConfig = config.MerchantConfig
+pkg authkit, type MerchantConfig struct
+pkg authkit, type MerchantConfig struct, Group string
+pkg authkit, type MerchantConfig struct, Root bool
 pkg authkit, type MigrateOptions = config.MigrateOptions
 pkg authkit, type MigrateOptions struct
 pkg authkit, type MigrateOptions struct, RuntimePool *pgxpool.Pool
@@ -1383,6 +1394,7 @@ pkg authkit/verify, func ActorFromClaims(Claims) (iam.Actor, bool)
 pkg authkit/verify, func ActorFromContext(context.Context) (iam.Actor, bool)
 pkg authkit/verify, func AuthenticateRequest(context.Context, Authenticator, *http.Request) (auth.Principal, error)
 pkg authkit/verify, func AuthenticateSession(context.Context, Authority, *http.Request) (auth.Principal, error)
+pkg authkit/verify, func CallerFromContext(context.Context, Authenticator) (auth.Caller, bool)
 pkg authkit/verify, func ClaimsFromContext(context.Context) (Claims, bool)
 pkg authkit/verify, func DPoPChallenge(http.ResponseWriter, *http.Request, error)
 pkg authkit/verify, func IdentityFromContext(context.Context) (auth.Identity, bool)

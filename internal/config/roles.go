@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
@@ -136,6 +137,28 @@ func (p *PersonaDef) Permission(resource, action string) iam.Perm {
 		p.spec.Permissions = append(p.spec.Permissions, perm)
 	}
 	return perm
+}
+
+// Declare declares permissions given whole, `<persona>:<resource>:<action>`,
+// such as a library's published catalog (OpenRails' `merchant:` strings), and
+// returns them in order. A built-in among them is returned as it is; any other
+// follows Permission's rules.
+func (p *PersonaDef) Declare(perms ...string) []iam.Perm {
+	out := make([]iam.Perm, 0, len(perms))
+	for _, text := range perms {
+		persona, rest, _ := strings.Cut(text, ":")
+		resource, action, ok := strings.Cut(rest, ":")
+		switch {
+		case persona != p.Persona.String() || !ok:
+			p.roles.errorf("persona %q permission %q: want %s:<resource>:<action>", p.Persona, text, p.Persona)
+			out = append(out, iam.Perm{})
+		case p.builtIn(ident.Perm(text)):
+			out = append(out, ident.Perm(text))
+		default:
+			out = append(out, p.Permission(resource, action))
+		}
+	}
+	return out
 }
 
 func (p *PersonaDef) builtIn(perm iam.Perm) bool {

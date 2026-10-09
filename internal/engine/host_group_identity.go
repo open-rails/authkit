@@ -35,6 +35,14 @@ func (s *Engine) Group(ctx context.Context, ref iam.GroupRef) (iam.Group, error)
 	return st.groupByID(ctx, u.String())
 }
 
+// RootGroupID is the root group's id.
+func (s *Engine) RootGroupID(ctx context.Context) (string, error) {
+	if err := s.requirePG(); err != nil {
+		return "", err
+	}
+	return s.rootGroup(ctx, s.groupStore())
+}
+
 // Groups reads many groups by id, soft-deleted ones included. Unknown ids
 // are absent.
 func (s *Engine) Groups(ctx context.Context, ids []string) (map[string]iam.Group, error) {
