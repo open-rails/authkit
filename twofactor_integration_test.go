@@ -1,6 +1,7 @@
 package authkit_test
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -44,7 +45,7 @@ func TestNewRequiresAnEnrollableSecondFactor(t *testing.T) {
 		t.Helper()
 		auth, err := authkit.New(t.Context(), cfg, deps)
 		require.NoError(t, err)
-		t.Cleanup(auth.Close)
+		t.Cleanup(func() { _ = auth.Close(context.Background()) })
 		return auth
 	}
 	// offered is what GET /capabilities reports, which must match the Client.

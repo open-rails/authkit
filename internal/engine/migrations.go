@@ -17,10 +17,10 @@ import (
 	"github.com/riverqueue/river/rivermigrate"
 )
 
-// Migrate applies AuthKit's PostgreSQL migrations to cfg.Schema, and River's
-// unless cfg.River.HostOwned; see authkit.Migrate.
+// Migrate applies AuthKit's PostgreSQL migrations to cfg.Schema and River's to
+// cfg.RiverSchema; see authkit.Migrate.
 func Migrate(ctx context.Context, pool *pgxpool.Pool, cfg config.Config, opts config.MigrateOptions) error {
-	riverCfg, err := config.NormalizeRiver(cfg.River)
+	riverSchema, err := config.NormalizeRiverSchema(cfg.RiverSchema)
 	if err != nil {
 		return err
 	}
@@ -56,9 +56,6 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, cfg config.Config, opts co
 	if err := migrator.ApplyMigrations(ctx, migrations); err != nil {
 		return fmt.Errorf("authkit: apply PostgreSQL migrations to schema %q: %w", normalized, err)
 	}
-	if riverCfg.HostOwned {
-		return grantMigrationRuntimeAccess(ctx, pool, runtimeUser, normalized, "")
-	}
 	// River initializers share this database/schema lock protocol. The
 	// dedicated session leaves even a one-connection caller pool free for DDL.
 	lockConn, err := pgx.ConnectConfig(ctx, pool.Config().ConnConfig.Copy())
@@ -70,23 +67,23 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, cfg config.Config, opts co
 		defer cancel()
 		_ = lockConn.Close(cleanupCtx) // Closing the session releases its advisory lock.
 	}()
-	if err := db.New(lockConn).AdvisoryLock(ctx, "river-migrations:"+riverCfg.Schema); err != nil {
+	if err := db.New(lockConn).AdvisoryLock(ctx, "river-migrations:"+riverSchema); err != nil {
 		return fmt.Errorf("authkit: lock River migrations: %w", err)
 	}
 
 	// River owns its table migrations. Schema creation is deployment setup, and
 	// the schema is always explicit instead of following the pool search_path.
-	if _, err := pool.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS "+pgx.Identifier{riverCfg.Schema}.Sanitize()); err != nil {
+	if _, err := pool.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS "+pgx.Identifier{riverSchema}.Sanitize()); err != nil {
 		return fmt.Errorf("authkit: create River schema: %w", err)
 	}
-	riverMigrator, err := rivermigrate.New(riverpgxv5.New(pool), &rivermigrate.Config{Schema: riverCfg.Schema})
+	riverMigrator, err := rivermigrate.New(riverpgxv5.New(pool), &rivermigrate.Config{Schema: riverSchema})
 	if err != nil {
 		return fmt.Errorf("authkit: construct River migrator: %w", err)
 	}
 	if _, err := riverMigrator.Migrate(ctx, rivermigrate.DirectionUp, nil); err != nil {
 		return fmt.Errorf("authkit: migrate River: %w", err)
 	}
-	return grantMigrationRuntimeAccess(ctx, pool, runtimeUser, normalized, riverCfg.Schema)
+	return grantMigrationRuntimeAccess(ctx, pool, runtimeUser, normalized, riverSchema)
 }
 
 // probeMigrations fails fast at construction when AuthKit's migrations were

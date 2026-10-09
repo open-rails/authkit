@@ -247,11 +247,11 @@ func TestUserDeleteWithUnboundAccountIssuerLogsCause(t *testing.T) {
 	res := expect(t, http.StatusInternalServerError, newAPI(t, auth).do(request{method: http.MethodDelete, path: "/me", token: token}))
 	require.Equal(t, "internal_error", res.code())
 	require.NotContains(t, res.String(), peer, "deployment topology stays off the wire")
-	require.Contains(t, logs.String(), `failed_to_delete: authkit: account issuer \"`+peer+`\" must compose its River fleet before account deletion`)
+	require.Contains(t, logs.String(), `failed_to_delete: authkit: account issuer \"`+peer+`\" must boot against this database before account deletion`)
 }
 
 // A Client from authtest.New soft-deletes and restores with nothing but its
-// defaults: its managed River carries the account lifecycle.
+// defaults: its own River carries the account lifecycle.
 func TestDeleteUsersOnAPlainTestClient(t *testing.T) {
 	auth, _ := authtest.New(t)
 	ctx := t.Context()

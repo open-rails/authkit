@@ -38,7 +38,7 @@ func (s *Engine) createAccountDeletion(ctx context.Context, tx pgx.Tx, client *r
 	for _, issuer := range issuers[1:] {
 		if _, err := s.qtx(tx).AccountDeliveryFleetSchemaForShare(ctx, issuer); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				return fmt.Errorf("authkit: account issuer %q must compose its River fleet before account deletion", issuer)
+				return fmt.Errorf("authkit: account issuer %q must boot against this database before account deletion", issuer)
 			}
 			return err
 		}

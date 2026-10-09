@@ -23,6 +23,7 @@ import (
 // Engine owns local business logic and resources behind Client.
 type Engine struct {
 	closeOnce sync.Once
+	closeErr  error
 
 	maintenance *riverMaintenance
 	onEvent     func(context.Context, iam.Event) error

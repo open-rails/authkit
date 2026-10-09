@@ -212,7 +212,7 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 					var err error
 					raceSvc, err = New(ctx, cfg, config.Deps{Postgres: hostPool})
 					require.NoError(t, err)
-					t.Cleanup(raceSvc.Close)
+					t.Cleanup(func() { _ = raceSvc.Close(context.Background()) })
 					_, err = raceSvc.enableFactor(ctx, one, "email", nil, authflow.AllowAdditionalFactors)
 					require.NoError(t, err)
 					_, err = raceSvc.enableFactor(ctx, two, "email", nil, authflow.AllowAdditionalFactors)

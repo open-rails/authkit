@@ -51,16 +51,14 @@ func grantMigrationRuntimeAccess(ctx context.Context, pool *pgxpool.Pool, user, 
 		"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA " + namespace + " TO " + role,
 		"GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA " + namespace + " TO " + role,
 	}
-	if riverSchema != "" {
-		grants = append(grants, "GRANT USAGE ON SCHEMA "+pgx.Identifier{riverSchema}.Sanitize()+" TO "+role)
-		// Only River's runtime objects are shared. Its migration ledger and
-		// unrelated host tables in public remain outside this initializer's ACLs.
-		for _, table := range []string{"river_job", "river_queue", "river_leader", "river_notification"} {
-			grants = append(grants, "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "+pgx.Identifier{riverSchema, table}.Sanitize()+" TO "+role)
-		}
-		for _, sequence := range []string{"river_job_id_seq", "river_notification_id_seq"} {
-			grants = append(grants, "GRANT USAGE, SELECT ON SEQUENCE "+pgx.Identifier{riverSchema, sequence}.Sanitize()+" TO "+role)
-		}
+	grants = append(grants, "GRANT USAGE ON SCHEMA "+pgx.Identifier{riverSchema}.Sanitize()+" TO "+role)
+	// Only River's runtime objects are shared. Its migration ledger and
+	// unrelated host tables in public remain outside this initializer's ACLs.
+	for _, table := range []string{"river_job", "river_queue", "river_leader", "river_notification"} {
+		grants = append(grants, "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "+pgx.Identifier{riverSchema, table}.Sanitize()+" TO "+role)
+	}
+	for _, sequence := range []string{"river_job_id_seq", "river_notification_id_seq"} {
+		grants = append(grants, "GRANT USAGE, SELECT ON SEQUENCE "+pgx.Identifier{riverSchema, sequence}.Sanitize()+" TO "+role)
 	}
 	for _, grant := range grants {
 		if _, err := tx.Exec(ctx, grant); err != nil {

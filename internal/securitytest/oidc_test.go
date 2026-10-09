@@ -74,7 +74,7 @@ func TestSecurityProviderIssuerCollisions(t *testing.T) {
 			Providers: providers,
 		})
 		if runtime != nil {
-			runtime.Close()
+			runtime.Close(context.Background())
 		}
 		return err
 	}

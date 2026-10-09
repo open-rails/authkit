@@ -60,10 +60,10 @@ func TestClientOwnedResourceLifecycle(t *testing.T) {
 			client, err = New(context.Background(), base, config.Deps{})
 		})
 		require.NoError(t, err)
-		t.Cleanup(client.Close)
+		t.Cleanup(func() { _ = client.Close(context.Background()) })
 		require.Eventually(t, func() bool { return resourceCount(t) == 1 }, time.Second, time.Millisecond)
-		client.Close()
-		client.Close()
+		client.Close(context.Background())
+		client.Close(context.Background())
 		awaitClosed(t)
 	})
 
@@ -84,7 +84,7 @@ func TestClientOwnedResourceLifecycle(t *testing.T) {
 		t.Cleanup(watched.Close)
 		client, err := New(context.Background(), base, config.Deps{KeySource: watched})
 		require.NoError(t, err)
-		client.Close()
+		client.Close(context.Background())
 
 		// A borrowed key source keeps reloading after Close.
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "keys.json"),

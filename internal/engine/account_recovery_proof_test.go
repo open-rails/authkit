@@ -21,7 +21,7 @@ func TestRecoveryProofCannotCrossGenerationOrRaceFinalPurge(t *testing.T) {
 	cfg.TwoFactor.Mode = iam.TwoFactorDisabled
 	runtime, err := New(context.Background(), cfg, config.Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
-	t.Cleanup(runtime.Close)
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
 	s := runtime
 	user, err := s.createUser(t.Context(), "recovery-race@example.test", "recoveryrace")
 	require.NoError(t, err)

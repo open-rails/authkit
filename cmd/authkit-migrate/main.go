@@ -16,8 +16,7 @@ import (
 func main() {
 	dsn := flag.String("dsn", "", "PostgreSQL connection string")
 	schema := flag.String("schema", "profiles", "AuthKit PostgreSQL schema")
-	riverSchema := flag.String("river-schema", "public", "Managed River PostgreSQL schema")
-	hostRiver := flag.Bool("host-river", false, "Host owns River migrations; initialize only AuthKit")
+	riverSchema := flag.String("river-schema", "public", "River PostgreSQL schema")
 	flag.Parse()
 	if *dsn == "" {
 		log.Fatal("-dsn is required")
@@ -33,7 +32,7 @@ func main() {
 	if err := pool.Ping(ctx); err != nil {
 		log.Fatalf("ping PostgreSQL: %v", err)
 	}
-	cfg := authkit.Config{Schema: *schema, River: authkit.RiverConfig{Schema: *riverSchema, HostOwned: *hostRiver}}
+	cfg := authkit.Config{Schema: *schema, RiverSchema: *riverSchema}
 	if err := authkit.Migrate(ctx, pool, cfg, authkit.MigrateOptions{}); err != nil {
 		log.Fatalf("apply AuthKit migrations: %v", err)
 	}

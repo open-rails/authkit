@@ -98,8 +98,14 @@ type Config struct {
 	// kept. 0 defaults to 365 days; a negative value keeps them forever.
 	SessionEventRetention time.Duration
 
-	// River configures AuthKit's background jobs.
-	River RiverConfig
+	// RiverSchema holds the River tables AuthKit's jobs (account lifecycle,
+	// events, cleanup) run in; empty defaults to "public". Migrate creates
+	// them; Start runs AuthKit's own River client there, and a host fleet
+	// passed to Start with WithRiverClient must use the same schema.
+	RiverSchema string
+	// CleanupInterval is how often expired auth state is cleaned up; 0
+	// defaults to one hour.
+	CleanupInterval time.Duration
 
 	// HTTP configures the HTTP surface. Nil keeps the Client headless:
 	// operations and Verifier only.
@@ -415,21 +421,6 @@ type LanguageConfig struct {
 	// Default is the language when neither the account nor the request
 	// chooses one; empty defaults to "en".
 	Default string
-}
-
-// RiverConfig configures AuthKit's River jobs (account lifecycle, events,
-// cleanup).
-type RiverConfig struct {
-	// HostOwned declares a River fleet the host owns and shares with other
-	// libraries: AuthKit never migrates, starts or stops it, and the host
-	// registers Client.RiverJobs. False lets AuthKit run its own client.
-	HostOwned bool
-	// Schema holds River's tables; empty defaults to "public". Replicas and
-	// libraries sharing a schema must register the same full job set.
-	Schema string
-	// CleanupInterval is how often expired auth state is cleaned up; 0
-	// defaults to one hour.
-	CleanupInterval time.Duration
 }
 
 // HTTPConfig configures the HTTP surface: one handler serving the JSON API,

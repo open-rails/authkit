@@ -1,6 +1,7 @@
 package authkit_test
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"testing"
@@ -24,7 +25,7 @@ func teamRuntime(t *testing.T) (*authkit.Client, *testdb.Postgres, iam.Persona, 
 	cfg := testConfig(t)
 	cfg.Roles = rbac
 	auth := newPublicRuntime(t, cfg, pg.Pool)
-	t.Cleanup(auth.Close)
+	t.Cleanup(func() { _ = auth.Close(context.Background()) })
 	return auth, pg, team.Persona, member, club.Persona
 }
 

@@ -29,7 +29,7 @@ func ephemeralEngine(t *testing.T) *Engine {
 	pg := testdb.ScratchPostgres(t)
 	core, err := New(t.Context(), maintenanceConfig(), config.Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
-	t.Cleanup(core.Close)
+	t.Cleanup(func() { _ = core.Close(context.Background()) })
 	return core
 }
 
@@ -155,7 +155,7 @@ func TestEphemeralIgnoresHostClock(t *testing.T) {
 	skewed := func() time.Time { return time.Now().Add(24 * time.Hour) }
 	core, err := New(t.Context(), maintenanceConfig(), config.Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
-	t.Cleanup(core.Close)
+	t.Cleanup(func() { _ = core.Close(context.Background()) })
 	core.SetClock(skewed)
 	ctx := t.Context()
 	require.NoError(t, core.ephemeral.Set(ctx, "proof", []byte("v"), time.Minute))
@@ -183,16 +183,16 @@ SELECT 'expired:' || i, '\x00', now() - interval '1 second' FROM generate_series
 	require.True(t, ok)
 }
 
-// The managed River periodic job purges expired rows and leaves live ones.
+// AuthKit's own River periodic job purges expired rows and leaves live ones.
 func TestEphemeralSweepRunsAsRiverMaintenance(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
 	runtimePool := migrationRuntimePool(t, pg)
 	require.NoError(t, Migrate(t.Context(), pg.Pool, config.Config{}, config.MigrateOptions{RuntimePool: runtimePool}))
 	cfg := maintenanceConfig()
-	cfg.River = config.RiverConfig{CleanupInterval: time.Second}
+	cfg.CleanupInterval = time.Second
 	core, err := New(t.Context(), cfg, config.Deps{Postgres: runtimePool})
 	require.NoError(t, err)
-	t.Cleanup(core.Close)
+	t.Cleanup(func() { _ = core.Close(context.Background()) })
 	ctx := t.Context()
 	expire := func(key string) {
 		require.NoError(t, core.ephemeral.Set(ctx, key, []byte("v"), time.Hour))
@@ -208,7 +208,7 @@ func TestEphemeralSweepRunsAsRiverMaintenance(t *testing.T) {
 	}
 	expire("expired:1")
 	require.NoError(t, core.ephemeral.Set(ctx, "live", []byte("v"), time.Hour))
-	require.NoError(t, core.Start(ctx))
+	require.NoError(t, core.Start(ctx, nil))
 	require.Eventually(t, purged("expired:1"), 15*time.Second, 25*time.Millisecond)
 	// A second purge proves recurring scheduling, not just RunOnStart.
 	expire("expired:2")

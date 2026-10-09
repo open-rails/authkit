@@ -1,10 +1,12 @@
 package engine
 
 import (
+	"context"
 	"crypto"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
@@ -44,31 +46,45 @@ func (s *Engine) nowTime() time.Time {
 	return s.now()
 }
 
-// Close releases AuthKit-owned resources, including its schema-bound pool.
-// Injected dependencies, including the host pool, stores and keys, stay host-owned.
-func (s *Engine) Close() {
+// Close stops what Start started and releases AuthKit-owned resources,
+// including its schema-bound pool. ctx bounds stopping AuthKit's own River.
+// Injected dependencies, including the host pool, a host River fleet, stores
+// and keys, stay host-owned.
+func (s *Engine) Close(ctx context.Context) error {
 	if s == nil {
-		return
+		return nil
 	}
-	s.closeOnce.Do(s.close)
+	s.closeOnce.Do(func() { s.closeErr = s.close(ctx) })
+	return s.closeErr
 }
 
-func (s *Engine) close() {
+func (s *Engine) close(ctx context.Context) error {
 	s.stopSenderHealth()
-	s.closeRiver()
+	riverPool, err := s.closeRiver(ctx)
 	if s.ownedKeySource != nil {
 		s.ownedKeySource.Close()
 		s.ownedKeySource = nil
 	}
-	if s.pg != nil {
-		// Keep database handles immutable: background last-used writes may still
-		// be starting. pgxpool safely rejects work after Close; clearing the
-		// handles instead races readers and can turn that error into a panic.
-		s.pg.Close()
-	}
+	// Keep database handles immutable: background last-used writes may still
+	// be starting. pgxpool safely rejects work after Close; clearing the
+	// handles instead races readers and can turn that error into a panic.
+	pools := []*pgxpool.Pool{riverPool, s.pg}
 	if s.ephemeral != nil {
-		s.ephemeral.pool.Close()
+		pools = append(pools, s.ephemeral.pool)
 	}
+	release := func() {
+		for _, pool := range pools {
+			if pool != nil {
+				pool.Close()
+			}
+		}
+	}
+	if err != nil {
+		go release() // ctx ended first: River's cancelled workers still hold connections
+		return err
+	}
+	release()
+	return nil
 }
 
 // dbSchema returns the validated schema name, defaulting for zero-value

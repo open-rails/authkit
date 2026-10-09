@@ -12,7 +12,6 @@ import (
 	riverhelpers "github.com/open-rails/helpers/river"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
-	"github.com/riverqueue/river/rivermigrate"
 	"github.com/stretchr/testify/require"
 
 	"github.com/open-rails/authkit/internal/config"
@@ -41,31 +40,36 @@ func TestManagedRiverMaintenance(t *testing.T) {
 		t.Run(schema, func(t *testing.T) {
 			pg := testdb.EmptyScratchPostgres(t)
 			runtimePool := migrationRuntimePool(t, pg)
-			require.NoError(t, Migrate(t.Context(), pg.Pool, config.Config{River: config.RiverConfig{Schema: schema}}, config.MigrateOptions{RuntimePool: runtimePool}))
+			require.NoError(t, Migrate(t.Context(), pg.Pool, config.Config{RiverSchema: schema}, config.MigrateOptions{RuntimePool: runtimePool}))
 			_, err := pg.Pool.Exec(t.Context(), "REVOKE CREATE ON SCHEMA public FROM PUBLIC")
 			require.NoError(t, err)
 			assertMigrationRuntimeUser(t, runtimePool)
 			cfg := maintenanceConfig()
-			cfg.River = config.RiverConfig{Schema: schema, CleanupInterval: time.Second}
+			cfg.RiverSchema, cfg.CleanupInterval = schema, time.Second
 			core, err := New(t.Context(), cfg, config.Deps{Postgres: runtimePool})
 			require.NoError(t, err)
-			t.Cleanup(core.Close)
+			t.Cleanup(func() { _ = core.Close(context.Background()) })
 			id := expiredEvent(t, pg.Pool)
 			var count int
 			require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT count(*) FROM "+pgx.Identifier{schema}.Sanitize()+".river_job").Scan(&count))
 			require.Zero(t, count, "New must neither enqueue nor start workers")
-			require.NoError(t, core.Start(t.Context()))
+			require.Nil(t, core.maintenance.client, "New builds no River client")
+			// Cancelling Start's context leaves River running: Close stops it.
+			startCtx, cancel := context.WithCancel(t.Context())
+			require.NoError(t, core.Start(startCtx, nil))
+			cancel()
+			require.ErrorContains(t, core.Start(t.Context(), nil), "already started")
 			awaitEventCleanup(t, pg.Pool, id)
 			// A second deletion proves recurring scheduling, not just RunOnStart.
 			awaitEventCleanup(t, pg.Pool, expiredEvent(t, pg.Pool))
-			core.Close()
+			require.NoError(t, core.Close(t.Context()))
 			select {
 			case <-core.maintenance.client.Stopped():
 			default:
 				t.Fatal("owned River client did not stop")
 			}
 			require.NoError(t, runtimePool.Ping(t.Context()), "host pool remains host owned")
-			require.ErrorContains(t, core.Start(t.Context()), "closed")
+			require.ErrorContains(t, core.Start(t.Context(), nil), "closed")
 		})
 	}
 }
@@ -87,35 +91,36 @@ func (w *hostMaintenanceWorker) Work(context.Context, *river.Job[hostMaintenance
 func TestHostRiverMaintenanceComposition(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
 	cfg := maintenanceConfig()
-	cfg.River.HostOwned = true
+	cfg.RiverSchema = "host_queue"
 	require.NoError(t, Migrate(t.Context(), pg.Pool, cfg, config.MigrateOptions{}))
-	var riverExists bool
-	require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT to_regclass('public.river_job') IS NOT NULL").Scan(&riverExists))
-	require.False(t, riverExists, "host mode must not migrate River")
+	var hostRiver, publicRiver bool
+	require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT to_regclass('host_queue.river_job') IS NOT NULL, to_regclass('public.river_job') IS NOT NULL").Scan(&hostRiver, &publicRiver))
+	require.True(t, hostRiver, "Migrate prepares River in RiverSchema")
+	require.False(t, publicRiver, "Migrate touches no other River schema")
 	core, err := New(t.Context(), cfg, config.Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
-	t.Cleanup(core.Close)
-	require.Nil(t, core.maintenance.client, "host mode must not construct another River client")
-	require.ErrorContains(t, core.Start(t.Context()), "RiverJobs")
+	t.Cleanup(func() { _ = core.Close(context.Background()) })
+	require.Nil(t, core.maintenance.client, "New builds no River client")
 	hostCfg := &river.Config{Schema: "host_queue", Workers: river.NewWorkers(), Queues: map[string]river.QueueConfig{"host_jobs": {MaxWorkers: 1}}}
 	hostWorker := &hostMaintenanceWorker{done: make(chan struct{}, 4)}
 	river.AddWorker(hostCfg.Workers, hostWorker)
 	hostCfg.PeriodicJobs = []*river.PeriodicJob{river.NewPeriodicJob(river.PeriodicInterval(time.Hour), func() (river.JobArgs, *river.InsertOpts) {
 		return hostMaintenanceArgs{}, &river.InsertOpts{Queue: "host_jobs"}
 	}, &river.PeriodicJobOpts{RunOnStart: true})}
+	stranger, err := river.NewClient(riverpgxv5.New(pg.Pool), &river.Config{Schema: "host_queue"})
+	require.NoError(t, err)
+	require.ErrorContains(t, core.Start(t.Context(), stranger), "RiverJobs", "a fleet without AuthKit's jobs is refused")
 	host, err := riverhelpers.New(t.Context(), pg.Pool, hostCfg, core.RiverJobs())
 	require.NoError(t, err)
 	require.Equal(t, "host_queue", hostCfg.Schema, "host schema is authoritative")
 	require.Len(t, hostCfg.PeriodicJobs, 1, "composer preserves the caller configuration")
 	_, err = riverhelpers.New(t.Context(), pg.Pool, hostCfg, core.RiverJobs())
 	require.ErrorContains(t, err, "already composed")
-	require.NoError(t, core.Start(t.Context()))
-	_, err = pg.Pool.Exec(t.Context(), "CREATE SCHEMA host_queue")
-	require.NoError(t, err)
-	migrator, err := rivermigrate.New(riverpgxv5.New(pg.Pool), &rivermigrate.Config{Schema: hostCfg.Schema})
-	require.NoError(t, err)
-	_, err = migrator.Migrate(t.Context(), rivermigrate.DirectionUp, nil)
-	require.NoError(t, err)
+	require.ErrorContains(t, core.Start(t.Context(), nil), "WithRiverClient", "a composed fleet is never doubled by AuthKit's own")
+	require.ErrorContains(t, core.Start(t.Context(), stranger), "RiverJobs")
+	require.NoError(t, core.Start(t.Context(), host))
+	require.Nil(t, core.maintenance.pool, "a host fleet gets no AuthKit pool")
+	require.ErrorContains(t, core.Start(t.Context(), host), "already started")
 	t.Cleanup(func() { require.NoError(t, host.StopAndCancel(context.Background())) })
 	id := expiredEvent(t, pg.Pool)
 	require.NoError(t, host.Start(t.Context()))
@@ -125,7 +130,7 @@ func TestHostRiverMaintenanceComposition(t *testing.T) {
 	case <-time.After(15 * time.Second):
 		t.Fatal("host periodic job did not run")
 	}
-	core.Close()
+	require.NoError(t, core.Close(t.Context()))
 	_, err = host.Insert(t.Context(), hostMaintenanceArgs{}, &river.InsertOpts{Queue: "host_jobs"})
 	require.NoError(t, err)
 	select {
@@ -136,22 +141,45 @@ func TestHostRiverMaintenanceComposition(t *testing.T) {
 	require.NoError(t, pg.Pool.Ping(t.Context()))
 }
 
+// RiverSchema is where Migrate prepared River, granted the runtime role and
+// New queues AuthKit's jobs: a host fleet elsewhere is refused at composition.
+func TestHostRiverSchemaMustMatchRiverSchema(t *testing.T) {
+	pg := testdb.EmptyScratchPostgres(t)
+	cfg := maintenanceConfig()
+	require.NoError(t, Migrate(t.Context(), pg.Pool, cfg, config.MigrateOptions{}))
+	core, err := New(t.Context(), cfg, config.Deps{Postgres: pg.Pool})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = core.Close(context.Background()) })
+	_, err = riverhelpers.New(t.Context(), pg.Pool, &river.Config{Schema: "elsewhere"}, core.RiverJobs())
+	require.ErrorContains(t, err, `River fleet schema "elsewhere" differs from Config.RiverSchema "public"`)
+	require.Nil(t, core.maintenance.client)
+	var registered string
+	require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT river_schema FROM profiles.account_delivery_fleets WHERE issuer=$1", cfg.Token.Issuer).Scan(&registered))
+	require.Equal(t, "public", registered)
+}
+
 func TestRiverWithoutPostgresAndInvalidConfig(t *testing.T) {
 	core, err := New(t.Context(), maintenanceConfig(), config.Deps{})
 	require.NoError(t, err)
-	defer core.Close()
-	require.NoError(t, core.Start(t.Context()))
+	defer core.Close(context.Background())
+	require.NoError(t, core.Start(t.Context(), nil))
 	pool, err := pgxpool.New(t.Context(), "postgres://unused@127.0.0.1:1/unused?sslmode=disable")
 	require.NoError(t, err)
 	defer pool.Close()
 	_, err = riverhelpers.New(t.Context(), pool, nil, core.RiverJobs())
 	require.ErrorContains(t, err, "requires PostgreSQL")
+	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{})
+	require.NoError(t, err)
+	verifyOnly, err := New(t.Context(), maintenanceConfig(), config.Deps{})
+	require.NoError(t, err)
+	defer verifyOnly.Close(context.Background())
+	require.ErrorContains(t, verifyOnly.Start(t.Context(), client), "Deps.Postgres")
 	cfg := maintenanceConfig()
-	cfg.River.Schema = "invalid;schema"
+	cfg.RiverSchema = "invalid;schema"
 	_, err = New(t.Context(), cfg, config.Deps{})
-	require.ErrorContains(t, err, "River.Schema")
+	require.ErrorContains(t, err, "RiverSchema")
 	cfg = maintenanceConfig()
-	cfg.River.CleanupInterval = -time.Hour
+	cfg.CleanupInterval = -time.Hour
 	_, err = New(t.Context(), cfg, config.Deps{})
 	require.ErrorContains(t, err, "CleanupInterval")
 }
@@ -159,17 +187,16 @@ func TestRiverWithoutPostgresAndInvalidConfig(t *testing.T) {
 func TestRiverJobsFailureInvalidatesPartialBindingAndPreservesHostPool(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
 	cfg := maintenanceConfig()
-	cfg.River.HostOwned = true
 	require.NoError(t, Migrate(t.Context(), pg.Pool, cfg, config.MigrateOptions{}))
 	core, err := New(t.Context(), cfg, config.Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
-	defer core.Close()
+	defer core.Close(context.Background())
 	fail := riverhelpers.NewContribution("fail", func(context.Context, *river.Config) error { return nil }, func(context.Context, riverhelpers.Binding) error { return fmt.Errorf("binding failed") }, func() error { return nil })
 	client, err := riverhelpers.New(t.Context(), pg.Pool, nil, core.RiverJobs(), fail)
 	require.ErrorContains(t, err, "binding failed")
 	require.Nil(t, client)
 	require.Nil(t, core.maintenance.client)
-	require.ErrorContains(t, core.Start(t.Context()), "RiverJobs")
+	require.ErrorContains(t, core.Start(t.Context(), nil), "recreate the client")
 	_, err = riverhelpers.New(t.Context(), pg.Pool, nil, core.RiverJobs())
 	require.ErrorContains(t, err, "already composed")
 	require.NoError(t, pg.Pool.Ping(t.Context()))
@@ -178,11 +205,10 @@ func TestRiverJobsFailureInvalidatesPartialBindingAndPreservesHostPool(t *testin
 func TestClosedRiverJobsCannotCompose(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
 	cfg := maintenanceConfig()
-	cfg.River.HostOwned = true
 	require.NoError(t, Migrate(t.Context(), pg.Pool, cfg, config.MigrateOptions{}))
 	core, err := New(t.Context(), cfg, config.Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
-	core.Close()
+	require.NoError(t, core.Close(t.Context()))
 	_, err = riverhelpers.New(t.Context(), pg.Pool, nil, core.RiverJobs())
 	require.ErrorContains(t, err, "closed")
 	require.NoError(t, pg.Pool.Ping(t.Context()))
@@ -209,13 +235,12 @@ func TestMaintenanceQueueNames(t *testing.T) {
 			}
 			cfg := maintenanceConfig()
 			cfg.Schema = schema
-			cfg.River.HostOwned = true
 			// Without a database New boots nothing; registration reads only
-			// the configuration and the host-mode binding.
+			// the configuration.
 			hosted, err := New(t.Context(), cfg, config.Deps{})
 			require.NoError(t, err)
-			defer hosted.Close()
-			hosted.maintenance = &riverMaintenance{fromHost: true}
+			defer hosted.Close(context.Background())
+			hosted.maintenance = &riverMaintenance{}
 			riverCfg := &river.Config{Schema: "public"}
 			require.NoError(t, hosted.registerRiver(riverCfg))
 			_, err = river.NewClient(riverpgxv5.New(pool), riverCfg)
@@ -235,27 +260,21 @@ func TestLongIdentitySchemaRunsRiverCleanup(t *testing.T) {
 			pg := testdb.EmptyScratchPostgres(t)
 			cfg := maintenanceConfig()
 			cfg.Schema = schema
-			cfg.River.HostOwned = host
 			require.NoError(t, Migrate(t.Context(), pg.Pool, cfg, config.MigrateOptions{}))
 			core, err := New(t.Context(), cfg, config.Deps{Postgres: pg.Pool})
 			require.NoError(t, err)
-			defer core.Close()
+			defer core.Close(context.Background())
 			var id int64
 			table := pgx.Identifier{schema, "session_events"}.Sanitize()
 			require.NoError(t, pg.Pool.QueryRow(t.Context(), "INSERT INTO "+table+" (occurred_at,issuer,user_id,session_id,event) VALUES (now()-interval '2 years','test','user','session','login') RETURNING id").Scan(&id))
 			if host {
-				migrator, err := rivermigrate.New(riverpgxv5.New(pg.Pool), &rivermigrate.Config{Schema: "public"})
+				client, err := riverhelpers.New(t.Context(), pg.Pool, &river.Config{Schema: "public"}, core.RiverJobs())
 				require.NoError(t, err)
-				_, err = migrator.Migrate(t.Context(), rivermigrate.DirectionUp, nil)
-				require.NoError(t, err)
-				riverCfg := &river.Config{Schema: "public"}
-				client, err := riverhelpers.New(t.Context(), pg.Pool, riverCfg, core.RiverJobs())
-				require.NoError(t, err)
-				require.NoError(t, core.Start(t.Context()))
+				require.NoError(t, core.Start(t.Context(), client))
 				require.NoError(t, client.Start(t.Context()))
 				defer func() { require.NoError(t, client.StopAndCancel(context.Background())) }()
 			} else {
-				require.NoError(t, core.Start(t.Context()))
+				require.NoError(t, core.Start(t.Context(), nil))
 			}
 			require.Eventually(t, func() bool {
 				var remains bool

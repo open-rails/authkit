@@ -20,6 +20,7 @@ import (
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/testkeys"
 	"github.com/open-rails/authkit/keys"
+	riverhelpers "github.com/open-rails/helpers/river"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
@@ -39,7 +40,7 @@ func TestRuntimeConfiguredHTTPLoginAndLifecycle(t *testing.T) {
 	cfg.HTTP = testHTTPConfig()
 	cfg.HTTP.APIPath = "/auth"
 	runtime := newPublicRuntime(t, cfg, pg.Pool)
-	t.Cleanup(runtime.Close)
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
 	_, err := runtime.CreateUser(context.Background(), iam.NewUser{Email: "runtime-boundary@example.test", Username: "runtime-boundary", Password: "Correct-horse-battery-1"})
 	require.NoError(t, err)
 	require.Contains(t, patterns(runtime), "GET "+iam.JWKSPath)
@@ -85,8 +86,8 @@ func TestRuntimeConfiguredHTTPLoginAndLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, call(http.MethodGet, "/auth/v1/me", "", tokens.AccessToken).Code)
 	require.Equal(t, http.StatusForbidden, call(http.MethodGet, "/auth/v1/admin/users", "", tokens.AccessToken).Code)
 	require.Equal(t, http.StatusOK, call(http.MethodGet, "/auth/v1/me/sessions", "", tokens.AccessToken).Code)
-	runtime.Close()
-	runtime.Close()
+	runtime.Close(context.Background())
+	runtime.Close(context.Background())
 	require.NoError(t, pg.Pool.Ping(context.Background()), "runtime closed host-owned pool")
 }
 
@@ -102,7 +103,7 @@ func TestRuntimeHTTPBuildFailureReleasesEverything(t *testing.T) {
 	require.NoError(t, pg.Pool.Ping(t.Context()), "a failed construction closed the host-owned pool")
 
 	headless := newPublicRuntime(t, testConfig(t), pg.Pool)
-	t.Cleanup(headless.Close)
+	t.Cleanup(func() { _ = headless.Close(context.Background()) })
 	require.Nil(t, headless.Handler())
 	require.Error(t, headless.Mount(http.NewServeMux()))
 	user, err := headless.CreateUser(context.Background(), iam.NewUser{Email: "headless@example.test", Username: "headless", Password: "Correct-horse-battery-1"})
@@ -149,7 +150,6 @@ func TestRuntimeOwnsConfiguredHTTPWorkers(t *testing.T) {
 			hasWorkers := func() bool { return labelled("") }
 			cfg := testConfig(t)
 			cfg.HTTP = &authkit.HTTPConfig{DirectPeerIP: true}
-			cfg.River.HostOwned = true
 			deps := testDeps(pg.Pool)
 			var rdb *redis.Client
 			if tc.redis {
@@ -170,8 +170,8 @@ func TestRuntimeOwnsConfiguredHTTPWorkers(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				require.True(t, labelled("internal/ratelimit/memory."), "the in-process limiter sweeps idle buckets")
-				runtime.Close()
-				runtime.Close()
+				runtime.Close(context.Background())
+				runtime.Close(context.Background())
 			}
 			require.Eventually(t, func() bool { return !hasWorkers() }, 5*time.Second, 10*time.Millisecond, "HTTP workers survived runtime cleanup")
 			require.NoError(t, pg.Pool.Ping(t.Context()))
@@ -194,7 +194,6 @@ func TestRuntimeConstructorHTTPFailureKeepsBorrowedPool(t *testing.T) {
 	// No client-IP posture: the HTTP layer refuses after the engine is built.
 	cfg := testConfig(t)
 	cfg.HTTP = &authkit.HTTPConfig{APIPath: "/auth"}
-	cfg.River.HostOwned = true
 	runtime, err := authkit.New(context.Background(), cfg, testDeps(pg.Pool))
 	require.ErrorContains(t, err, "client-IP posture")
 	require.Nil(t, runtime)
@@ -219,3 +218,41 @@ func testDeps(pool *pgxpool.Pool) authkit.Deps {
 }
 
 var testKeys = sync.OnceValue(func() keys.Static { return testkeys.Source(testkeys.RSA("runtime-test")) })
+
+// A host fleet built with RiverJobs runs AuthKit's jobs; AuthKit never starts
+// or stops it. WithRiverClient(nil) is refused, not read as "run your own".
+func TestStartWithRiverClient(t *testing.T) {
+	pg := testdb.ScratchPostgres(t)
+	events := make(chan iam.Event, 8)
+	deps := testDeps(pg.Pool)
+	deps.OnEvent = func(_ context.Context, e iam.Event) error { events <- e; return nil }
+	auth, err := authkit.New(t.Context(), testConfig(t), deps)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = auth.Close(context.Background()) })
+	require.ErrorContains(t, auth.Start(t.Context(), authkit.WithRiverClient(nil)), "WithRiverClient")
+	fleet, err := riverhelpers.New(t.Context(), pg.Pool, nil, auth.RiverJobs())
+	require.NoError(t, err)
+	require.NoError(t, auth.Start(t.Context(), authkit.WithRiverClient(fleet)))
+	user, err := auth.CreateUser(t.Context(), iam.NewUser{Email: "fleet@example.test", Username: "fleet", Password: "Correct-horse-battery-1"})
+	require.NoError(t, err)
+	results, err := auth.DeleteUsers(t.Context(), iam.SystemActor(), []string{user.ID})
+	require.NoError(t, err)
+	require.NoError(t, results[0].Err)
+	require.NoError(t, fleet.Start(t.Context()), "jobs queued before the fleet starts wait for it")
+	t.Cleanup(func() { require.NoError(t, fleet.StopAndCancel(context.Background())) })
+	deadline := time.After(15 * time.Second)
+	for deleted := false; !deleted; {
+		select {
+		case e := <-events:
+			deleted = e.Kind == iam.EventUserDeleted && e.UserID == user.ID
+		case <-deadline:
+			t.Fatal("the host fleet did not deliver user.deleted")
+		}
+	}
+	require.NoError(t, auth.Close(t.Context()))
+	select {
+	case <-fleet.Stopped():
+		t.Fatal("Close stopped the host's fleet")
+	default:
+	}
+}

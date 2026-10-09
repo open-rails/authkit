@@ -37,7 +37,7 @@ Breaking, only in a minor release and listed in its notes:
 - removing or renaming anything in `api/go.txt`, or changing a signature, a field's type or tag, or a constant's value;
 - adding a method to an interface a host implements: `EmailSender`, `SMSSender`, `keys.Source`, `keys.Signer`, `provider.Secret`, the `verify` interfaces, the adapters' `Surface`;
 - changing documented behavior;
-- moving to a new major version of a module whose types the API exposes: pgx v5, go-redis v9, Gin, Fiber v3, `github.com/open-rails/helpers`.
+- moving to a new major version of a module whose types the API exposes: pgx v5, go-redis v9, Gin, Fiber v3, `github.com/open-rails/helpers`, and any release of River (`github.com/riverqueue/river`, v0) that changes `*river.Client`.
 
 ## HTTP API
 
