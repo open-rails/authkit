@@ -125,7 +125,7 @@ Delegated and service tokens are deprecated; each use has an OAuth replacement:
 | a requested grant or `attributes` | `authorization_details`; the decision's `Claims` |
 | a delegate certificate (`cnf.x5t#S256`) | the key-bound DPoP key (`cnf.jkt`); the authorizer checks `JWKThumbprint` |
 | `Client.MintServiceJWT`, `remote-application-access+jwt` | client credentials |
-| `verify.Claims.DelegatedSubject`, `Attributes` | `Subject`, `AuthorizationDetails`, `CustomClaims`, `Actor` |
+| `verify.Claims.DelegatedSubject`, `Attributes` | `Subject`, `AuthorizationDetails`, `CustomClaims`, `Invoker` |
 
 ## Tokens
 
@@ -151,5 +151,5 @@ err := v.AddIssuer("https://myapp.com", []string{"https://api.example.com"}, ver
 mux.Handle("/v1/", verify.Required(v)(api))
 ```
 
-- `Claims.Subject` is the user, `ClientID` the client, `Scopes` (`HasScope`) and `Permissions` (`HasPermission`) what it was granted; `Roles` is for display. A token whose `sub` is its `client_id` is the client acting for itself (`Kind` `iam.ActorOAuthClient`). `AuthorizationDetails` is the raw RFC 9396 array, `Actor` the client acting for the user after token exchange, and `CustomClaims` the issuer's URI-named claims.
+- `Claims.Subject` is the user, `ClientID` the client, `Scopes` (`HasScope`) and `Permissions` (`HasPermission`) what it was granted; `Roles` is for display. A token whose `sub` is its `client_id` is the client acting for itself (`Kind` `verify.TokenOAuthClient`). `AuthorizationDetails` is the raw RFC 9396 array, `Invoker` the client acting for the user after token exchange (RFC 8693's actor claim, `act.sub`), and `CustomClaims` the issuer's URI-named claims.
 - A `cnf.jkt` token needs a fresh, single-use DPoP proof of its key on every request. With `WithDPoPNonce`, a proof without a current nonce is 401 `use_dpop_nonce` carrying a `DPoP-Nonce` header to retry with. A host writing its own refusals calls `verify.DPoPChallenge` first for the `WWW-Authenticate` and `DPoP-Nonce` headers; browser clients need both exposed by CORS.

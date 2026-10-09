@@ -39,7 +39,7 @@ func TestHostSetup(t *testing.T) {
 	alice := authtest.NewUser(t, auth)
 	require.True(t, alice.EmailVerified)
 	authtest.GrantRole(t, auth, group, iam.UserSubject(alice.ID), moderator)
-	can, err := auth.Can(ctx, iam.UserActor(alice.ID), group, edit)
+	can, err := auth.Can(ctx, iam.UserIdentity(alice.ID), group, edit)
 	require.NoError(t, err)
 	require.True(t, can)
 	tokens := authtest.SignIn(t, auth, alice)
@@ -59,7 +59,7 @@ func TestHostSetup(t *testing.T) {
 	require.Contains(t, claims.AMR, "mfa")
 
 	authtest.RevokeRole(t, auth, group, iam.UserSubject(alice.ID), moderator)
-	can, err = auth.Can(ctx, iam.UserActor(alice.ID), group, edit)
+	can, err = auth.Can(ctx, iam.UserIdentity(alice.ID), group, edit)
 	require.NoError(t, err)
 	require.False(t, can)
 }

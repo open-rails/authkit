@@ -22,6 +22,7 @@ import (
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/secret"
+	"github.com/open-rails/helpers/auth"
 )
 
 const (
@@ -64,19 +65,19 @@ func (s *Engine) requireIssuableRole(g groupTarget, role iam.Role) ([]string, er
 // Idempotent: a redeemer already holding the role succeeds without using it.
 // code may also be a role-carrying account invitation (an add by email): only
 // the account that has verified the invited address accepts it.
-func (s *Engine) RedeemInvitation(ctx context.Context, a iam.Actor, code string) (authflow.InviteRedemption, error) {
+func (s *Engine) RedeemInvitation(ctx context.Context, a auth.Identity, code string) (authflow.InviteRedemption, error) {
 	var out authflow.InviteRedemption
 	code = strings.TrimSpace(code)
 	if s.cfg.Invitations.Disabled {
 		return out, iam.ErrInvitationsDisabled
 	}
-	if a.Kind() != iam.ActorUser || !isUUID(a.ID()) {
+	if cs := stateOf(a); !cs.IsUser() || !isUUID(cs.ID()) {
 		return out, iam.ErrInsufficientAuthority
 	}
 	if code == "" {
 		return out, errmodel.ErrInvalidInvite
 	}
-	redeemer := iam.UserSubject(a.ID())
+	redeemer := iam.UserSubject(stateOf(a).ID())
 	codeHash := secret.Hash(code)
 	err := s.withAuthorityMutation(ctx, a, func(st *permissionGroupStore) error {
 		q := db.New(st.q)

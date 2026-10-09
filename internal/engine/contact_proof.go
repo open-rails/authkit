@@ -10,6 +10,7 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/secret"
+	"github.com/open-rails/helpers/auth"
 )
 
 // Contact ownership (ak#393). An account whose only addresses are unproven was
@@ -113,7 +114,7 @@ func proofOn(channel string) proof {
 // handed the code's confirmation its password proof). A proof from a fresh
 // device, a reset or an email/SMS login code says nothing about who set the
 // password, so it is deleted (a reset replaces it anyway).
-func (s *Engine) retirePreProofCredentials(ctx context.Context, tx pgx.Tx, a iam.Actor, userID string, p proof, keepSessionID *string) ([]revokedSession, error) {
+func (s *Engine) retirePreProofCredentials(ctx context.Context, tx pgx.Tx, a auth.Identity, userID string, p proof, keepSessionID *string) ([]revokedSession, error) {
 	st, err := contactStateForUpdate(ctx, tx, userID)
 	if err != nil || !st.Unproven {
 		return nil, err
@@ -164,7 +165,7 @@ func (s *Engine) retirePreProofCredentials(ctx context.Context, tx pgx.Tx, a iam
 // dropUnprovenContacts removes the account's addresses that the first proof
 // does not cover. Nobody has shown they control them, and each would still
 // sign in to or recover the account (a reset or a login code to it).
-func (s *Engine) dropUnprovenContacts(ctx context.Context, tx pgx.Tx, a iam.Actor, userID string, p proof) error {
+func (s *Engine) dropUnprovenContacts(ctx context.Context, tx pgx.Tx, a auth.Identity, userID string, p proof) error {
 	if p.email && p.phone {
 		return nil
 	}

@@ -94,7 +94,7 @@ func TestPublicMetadataOverHTTP(t *testing.T) {
 	u := authtest.NewUser(t, auth)
 	token := authtest.SignIn(t, auth, u).AccessToken
 	profile := map[string]any{"avatar": "https://media.example.test/u/1.webp", "biography": "hi", "links": map[string]any{"site": "https://u.example"}}
-	require.NoError(t, auth.PatchPublicMetadata(t.Context(), iam.SystemActor(), u.ID, profile))
+	require.NoError(t, auth.PatchPublicMetadata(t.Context(), iam.SystemIdentity(), u.ID, profile))
 
 	var me struct {
 		PublicMetadata map[string]any `json:"public_metadata"`
@@ -114,7 +114,7 @@ func TestPublicMetadataOverHTTP(t *testing.T) {
 		res := expect(t, http.StatusBadRequest, a.do(request{method: http.MethodPatch, path: "/me", token: token, body: body}))
 		require.Equal(t, "invalid_request", res.code())
 	}
-	require.ErrorIs(t, auth.PatchPublicMetadata(t.Context(), iam.UserActor(u.ID), u.ID, map[string]any{"biography": "x"}), iam.ErrCannotTargetSelf)
+	require.ErrorIs(t, auth.PatchPublicMetadata(t.Context(), iam.UserIdentity(u.ID), u.ID, map[string]any{"biography": "x"}), iam.ErrCannotTargetSelf)
 	stored, err := auth.User(t.Context(), iam.UserByID(u.ID))
 	require.NoError(t, err)
 	require.Equal(t, profile, stored.PublicMetadata)

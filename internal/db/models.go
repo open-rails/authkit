@@ -22,24 +22,28 @@ type AccountDeletion struct {
 }
 
 type AccountEvent struct {
-	ID            int64
-	Issuer        string
-	Subject       string
-	EventID       string
-	Kind          string
-	OccurredAt    time.Time
-	ActorKind     string
-	ActorID       string
-	UserID        *string
-	GroupID       *string
-	Persona       string
-	ApplicationID *string
-	PreviousValue string
-	CurrentValue  string
-	Reason        string
-	Until         *time.Time
-	Attempts      int32
-	RetryAt       *time.Time
+	ID             int64
+	Issuer         string
+	Stream         string
+	EventID        string
+	Kind           string
+	OccurredAt     time.Time
+	UserID         *string
+	GroupID        *string
+	Persona        string
+	ApplicationID  *string
+	PreviousValue  string
+	CurrentValue   string
+	Reason         string
+	Until          *time.Time
+	Attempts       int32
+	RetryAt        *time.Time
+	SubjectKind    string
+	SubjectID      string
+	InvokerIssuer  string
+	InvokerID      string
+	CredentialKind string
+	CredentialID   string
 }
 
 // Enrolled 2FA factors per user (hard-deleted on removal); backup codes remain user-scoped on mfa_settings
@@ -74,7 +78,7 @@ type PermissionGroup struct {
 	DeletedAt *time.Time
 }
 
-// Federation principals: external systems that authenticate by signing JWTs verified against configured keys.
+// Registered applications: external systems that authenticate by signing JWTs verified against configured keys.
 type RemoteApplication struct {
 	ID         string
 	Issuer     string

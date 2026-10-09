@@ -121,7 +121,7 @@ func (s *Engine) applyRegistrationInvite(ctx context.Context, tx pgx.Tx, invite 
 			persona = ident.Persona(*invite.Persona)
 		}
 		st := s.groupStoreFor(tx)
-		st.actor = iam.UserActor(userID)
+		st.who = iam.UserIdentity(userID)
 		return s.assignInvitedRole(ctx, st, *invite.PermissionGroupID, persona, userID, ident.RoleText(*invite.Role))
 	}
 	return nil

@@ -15,16 +15,17 @@ import (
 
 // A gin handler behind Required reads the verified caller from the request
 // context, the same call net/http and Fiber handlers make.
-func TestActorFromContextBehindRequired(t *testing.T) {
+func TestIdentityFromContextBehindRequired(t *testing.T) {
 	issuer := testissuer.New(t)
 	verifier := verify.NewVerifier()
 	require.NoError(t, verifier.AddIssuer(issuer.URL(), []string{issuer.Audience()}, verify.IssuerOptions{JWKSURI: issuer.URL() + "/.well-known/jwks.json", IsLocal: true}))
 	router := gin.New()
 	router.GET("/", authkitgin.Required(verifier), func(c *gin.Context) {
-		actor, ok := verify.ActorFromContext(c.Request.Context())
+		who, ok := verify.IdentityFromContext(c.Request.Context())
 		require.True(t, ok)
-		require.Equal(t, iam.ActorUser, actor.Kind())
-		c.String(http.StatusOK, actor.ID())
+		state, bound := iam.StateOf(who)
+		require.True(t, bound && state.IsUser(), "a gate's identity carries AuthKit's state")
+		c.String(http.StatusOK, who.Subject)
 	})
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/", nil)

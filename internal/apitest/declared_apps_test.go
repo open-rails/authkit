@@ -71,7 +71,7 @@ func TestDeclaredRemoteApplications(t *testing.T) {
 	require.Equal(t, service, app(auth, billing).Role)
 	require.NoError(t, verifies(auth))
 
-	_, err = auth.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.RootGroup(), iam.RemoteApplication{Issuer: manual, JWKSURI: manual + "/jwks.json", Enabled: true})
+	_, err = auth.UpsertRemoteApplication(ctx, iam.SystemIdentity(), iam.RootGroup(), iam.RemoteApplication{Issuer: manual, JWKSURI: manual + "/jwks.json", Enabled: true})
 	require.NoError(t, err)
 	authtest.Replica(t, auth, authtest.WithConfig(func(c *authkit.Config) { c.Token.Issuer = "https://sibling-deployment.declared.test" }),
 		declare(authkit.RemoteApplicationConfig{Issuer: sibling, JWKSURI: sibling + "/jwks.json"}))
@@ -92,7 +92,7 @@ func TestDeclaredRemoteApplications(t *testing.T) {
 
 	// A removal is not repeated: an operation may enable it again.
 	gone.Enabled = true
-	_, err = next.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.RootGroup(), gone)
+	_, err = next.UpsertRemoteApplication(ctx, iam.SystemIdentity(), iam.RootGroup(), gone)
 	require.NoError(t, err)
 	next = restart(t, next, declare(moved))
 	require.True(t, app(next, billing).Enabled)

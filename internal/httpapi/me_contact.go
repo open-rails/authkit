@@ -34,12 +34,12 @@ func (s *Service) handleMePhonePUT(w http.ResponseWriter, r *http.Request) {
 // remains.
 func (s *Service) handleMePhoneDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
-	actor, hasActor := verify.ActorFromContext(r.Context())
-	if !ok || !hasActor || claims.UserID == "" {
+	who, hasIdentity := verify.IdentityFromContext(r.Context())
+	if !ok || !hasIdentity || claims.UserID == "" {
 		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
-	if err := s.svc.RemovePhone(r.Context(), actor, claims.UserID); err != nil {
+	if err := s.svc.RemovePhone(r.Context(), who, claims.UserID); err != nil {
 		writeError(w, err)
 		return
 	}

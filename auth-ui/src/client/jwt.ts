@@ -29,5 +29,5 @@ export function decodeAccessClaims(token: string): AccessClaims | null {
   }
 }
 
-export const principalOf = (claims: AccessClaims | null): string | undefined =>
+export const subjectOf = (claims: AccessClaims | null): string | undefined =>
   claims?.sub ?? claims?.delegated_sub

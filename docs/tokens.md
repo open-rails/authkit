@@ -10,7 +10,7 @@ This page covers the credentials AuthKit issues, how long each lasts, and when a
 | Refresh token | a signed-in user | until revoked, or for `TokenConfig.RefreshTokenDuration` | at once |
 | Device-key sign-in | a native client | each sign-in is signed by the device key, with no refresh token | like a session, when the key is revoked |
 | API key | a group's account | until revoked or its expiry (capped by `APIKeysConfig.MaxTTL`) | at once, since it is resolved on every request; also when its creator loses the authority to issue it |
-| Delegated token (`delegated-access+jwt`) | a service acting for a user or an outside actor | `DelegatedConfig.TTLDefault` (15 minutes), at most `TTLCeiling` (1 hour) | when the user's sign-in ends, if AuthKit minted it from one; when its application is disabled, if an application did |
+| Delegated token (`delegated-access+jwt`) | a service acting for a user or an outside party | `DelegatedConfig.TTLDefault` (15 minutes), at most `TTLCeiling` (1 hour) | when the user's sign-in ends, if AuthKit minted it from one; when its application is disabled, if an application did |
 | Remote-application token | a remote application | set by the application | when the application is disabled or deleted |
 | Service JWT (`service+jwt`) | your own services | at most 15 minutes by default (`verify.WithServiceJWTMaxLifetime`) | at expiry only; it grants no AuthKit authority |
 | Resource access token (`at+jwt`) | an OAuth client, for a resource server | `AuthorizationServerConfig.AccessTokenTTL`, at most 5 minutes | at expiry; each grant re-checks the sign-in it stands on ([authorization server](authorization-server.md)) |
@@ -34,7 +34,7 @@ An access token is a signed JWT, so it outlives its session unless something che
 
 - The live gates check the session on every request:
   - `verify.RequireSession`, `RequirePermission` and `Sensitive`, and their Gin and Fiber versions;
-  - `Client.Can`, and every operation that takes an actor;
+  - `Client.Can`, and every operation that takes an identity;
   - every AuthKit route that changes state, except sign-out.
 
   A revoked session's token fails there at once, with 401 `session_revoked`.

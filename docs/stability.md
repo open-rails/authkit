@@ -14,7 +14,7 @@ The covered API is every exported identifier of the packages below, with its doc
 | Package | Holds |
 |---|---|
 | `authkit` | `Migrate`, `New`, `*Client`, `Config` and `Deps` with their sub-configs, the role builder, the `Option`s |
-| `iam` | the shared types: actors, refs, typed RBAC names, domain and wire types, events, `Error` and the `Err*` sentinels |
+| `iam` | the shared types: credential state, refs, typed RBAC names, domain and wire types, events, `Error` and the `Err*` sentinels |
 | `verify` | token verification without a database, `Claims`, the middleware |
 | `keys` | signing keys: `Source`, `Signer`, `Watch`, JWK and JWKS |
 | `provider` | social sign-in providers |

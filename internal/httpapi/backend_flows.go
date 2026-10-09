@@ -12,6 +12,7 @@ import (
 	"github.com/open-rails/authkit/internal/oidcstate"
 	"github.com/open-rails/authkit/internal/siws"
 	"github.com/open-rails/authkit/keys"
+	"github.com/open-rails/helpers/auth"
 )
 
 // flowsBackend is the login, registration, 2FA, passkey, SIWS, OIDC,
@@ -70,7 +71,7 @@ type flowsBackend interface {
 	PutOIDCResult(ctx context.Context, code string, result json.RawMessage) error
 	ConsumeOIDCResult(ctx context.Context, code string) (json.RawMessage, bool, error)
 	RegenerateBackupCodes(ctx context.Context, userID string) ([]string, error)
-	RemovePhone(ctx context.Context, actor iam.Actor, userID string) error
+	RemovePhone(ctx context.Context, who auth.Identity, userID string) error
 	Register(ctx context.Context, in authflow.RegisterInput) (authflow.RegisterOutcome, error)
 	RegistrationVerificationEnabled() bool
 	RenamePasskey(ctx context.Context, userID, id, label string) error

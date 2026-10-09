@@ -147,10 +147,10 @@ func TestReadmeRolesBlock(t *testing.T) {
 	require.NoError(t, readmeCreateChannel(ctx, pg.Pool, auth, "golang", ownerID))
 	var golang string
 	require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT group_id::text FROM channels WHERE name = 'golang'`).Scan(&golang))
-	_, err = auth.SetGroupRole(ctx, iam.UserActor(ownerID), iam.GroupByID(golang), iam.UserSubject(bobID), Moderator)
+	_, err = auth.SetGroupRole(ctx, iam.UserIdentity(ownerID), iam.GroupByID(golang), iam.UserSubject(bobID), Moderator)
 	require.NoError(t, err, "the owner pins the badge on Bob")
 	can := func(userID, groupID string, perm iam.Perm) bool {
-		ok, err := auth.Can(ctx, iam.UserActor(userID), iam.GroupByID(groupID), perm)
+		ok, err := auth.Can(ctx, iam.UserIdentity(userID), iam.GroupByID(groupID), perm)
 		require.NoError(t, err)
 		return ok
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/httpapi"
+	"github.com/open-rails/helpers/auth"
 	"github.com/stretchr/testify/require"
 )
 
@@ -59,30 +60,30 @@ func opErr(res []iam.OpResult, err error) error {
 }
 
 // accountOps is every account mutation on Client, by name.
-func accountOps(h *host) map[string]func(actor iam.Actor, target string) error {
+func accountOps(h *host) map[string]func(who auth.Identity, target string) error {
 	ctx := context.Background()
 	email := func() *string { v := unique("edited") + "@security.test"; return &v }
-	return map[string]func(iam.Actor, string) error{
-		"UpdateUser": func(a iam.Actor, id string) error {
+	return map[string]func(auth.Identity, string) error{
+		"UpdateUser": func(a auth.Identity, id string) error {
 			_, err := h.auth.UpdateUser(ctx, a, id, iam.UserUpdate{Email: email()})
 			return err
 		},
-		"PatchPublicMetadata": func(a iam.Actor, id string) error {
+		"PatchPublicMetadata": func(a auth.Identity, id string) error {
 			return h.auth.PatchPublicMetadata(ctx, a, id, map[string]any{"note": "x"})
 		},
-		"Ban":   func(a iam.Actor, id string) error { return h.auth.Ban(ctx, a, id, iam.Ban{}) },
-		"Unban": func(a iam.Actor, id string) error { return h.auth.Unban(ctx, a, id) },
-		"DeleteUsers": func(a iam.Actor, id string) error {
+		"Ban":   func(a auth.Identity, id string) error { return h.auth.Ban(ctx, a, id, iam.Ban{}) },
+		"Unban": func(a auth.Identity, id string) error { return h.auth.Unban(ctx, a, id) },
+		"DeleteUsers": func(a auth.Identity, id string) error {
 			return opErr(h.auth.DeleteUsers(ctx, a, []string{id}))
 		},
-		"RestoreUsers": func(a iam.Actor, id string) error {
+		"RestoreUsers": func(a auth.Identity, id string) error {
 			return opErr(h.auth.RestoreUsers(ctx, a, []string{id}))
 		},
-		"RevokeAccountSessions": func(a iam.Actor, id string) error {
+		"RevokeAccountSessions": func(a auth.Identity, id string) error {
 			_, err := h.auth.RevokeAccountSessions(ctx, a, id)
 			return err
 		},
-		"RevokeSession": func(a iam.Actor, id string) error {
+		"RevokeSession": func(a auth.Identity, id string) error {
 			return h.auth.RevokeSession(ctx, a, id, "0190a0a0-0000-7000-8000-000000000000")
 		},
 	}
@@ -93,7 +94,7 @@ func accountOps(h *host) map[string]func(actor iam.Actor, target string) error {
 // group the target holds a role in. A narrow root:users staffer can neither
 // edit a more privileged account nor act on a group owner it does not outrank,
 // staff never ban, delete or edit a root peer (they may sign one out), and a
-// banned actor has no account authority, whatever roles it holds.
+// banned identity has no account authority, whatever roles it holds.
 func TestSecurityAccountAuthority(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withAccountRoles))
 	ctx := context.Background()
@@ -111,7 +112,7 @@ func TestSecurityAccountAuthority(t *testing.T) {
 
 	t.Run("H4: a root:users:manage staffer edits a more privileged account", func(t *testing.T) {
 		for _, name := range []string{"UpdateUser", "PatchPublicMetadata", "RevokeAccountSessions", "RevokeSession"} {
-			require.ErrorIs(t, ops[name](iam.UserActor(staff.id), target.id), iam.ErrAccountAuthorityEscalation, name)
+			require.ErrorIs(t, ops[name](iam.UserIdentity(staff.id), target.id), iam.ErrAccountAuthorityEscalation, name)
 		}
 		u, err := h.auth.User(ctx, iam.UserByID(target.id))
 		require.NoError(t, err)
@@ -119,43 +120,43 @@ func TestSecurityAccountAuthority(t *testing.T) {
 	})
 	t.Run("M1: site moderation against a group owner with no root role", func(t *testing.T) {
 		for name, op := range ops {
-			require.ErrorIs(t, op(iam.UserActor(moderator.id), orgOwner.id), iam.ErrAccountAuthorityEscalation, name)
+			require.ErrorIs(t, op(iam.UserIdentity(moderator.id), orgOwner.id), iam.ErrAccountAuthorityEscalation, name)
 		}
 		resp := h.do(request{method: http.MethodPut, path: "/admin/users/" + orgOwner.id + "/ban", body: map[string]any{"until": nil}, token: h.login(moderator).AccessToken})
 		require.Equal(t, http.StatusForbidden, resp.status, resp.String())
 		require.Equal(t, "account_authority_escalation", resp.errorCode())
 	})
 	t.Run("M1: restore re-checks the roles the account resumes", func(t *testing.T) {
-		require.NoError(t, opErr(h.auth.DeleteUsers(ctx, iam.SystemActor(), []string{orgOwner.id})))
-		require.ErrorIs(t, ops["RestoreUsers"](iam.UserActor(moderator.id), orgOwner.id), iam.ErrAccountAuthorityEscalation)
-		require.NoError(t, ops["RestoreUsers"](iam.UserActor(siteadmin.id), orgOwner.id))
+		require.NoError(t, opErr(h.auth.DeleteUsers(ctx, iam.SystemIdentity(), []string{orgOwner.id})))
+		require.ErrorIs(t, ops["RestoreUsers"](iam.UserIdentity(moderator.id), orgOwner.id), iam.ErrAccountAuthorityEscalation)
+		require.NoError(t, ops["RestoreUsers"](iam.UserIdentity(siteadmin.id), orgOwner.id))
 	})
 	t.Run("invariant: no root permission, no account authority", func(t *testing.T) {
 		for name, op := range ops {
-			require.ErrorIs(t, op(iam.UserActor(plain.id), staff.id), iam.ErrInsufficientAuthority, name)
+			require.ErrorIs(t, op(iam.UserIdentity(plain.id), staff.id), iam.ErrInsufficientAuthority, name)
 		}
 	})
-	t.Run("invariant: a banned actor holds no account authority", func(t *testing.T) {
+	t.Run("invariant: a banned identity holds no account authority", func(t *testing.T) {
 		banned := h.newAccount("bannedadmin")
 		h.grant(root, banned, "siteadmin")
-		require.NoError(t, h.auth.Ban(ctx, iam.SystemActor(), banned.id, iam.Ban{}))
+		require.NoError(t, h.auth.Ban(ctx, iam.SystemIdentity(), banned.id, iam.Ban{}))
 		for name, op := range ops {
-			require.ErrorIs(t, op(iam.UserActor(banned.id), plain.id), iam.ErrInsufficientAuthority, name)
+			require.ErrorIs(t, op(iam.UserIdentity(banned.id), plain.id), iam.ErrInsufficientAuthority, name)
 		}
 	})
 	t.Run("nobody bans, unbans or edits the credentials of their own account", func(t *testing.T) {
-		self := iam.UserActor(siteadmin.id)
+		self := iam.UserIdentity(siteadmin.id)
 		require.ErrorIs(t, h.auth.Ban(ctx, self, siteadmin.id, iam.Ban{}), iam.ErrCannotTargetSelf)
 		require.ErrorIs(t, h.auth.Unban(ctx, self, siteadmin.id), iam.ErrCannotTargetSelf)
 		require.ErrorIs(t, ops["UpdateUser"](self, siteadmin.id), iam.ErrCannotTargetSelf)
 	})
 	t.Run("verified flags and imported hashes are the system's", func(t *testing.T) {
 		verified := true
-		_, err := h.auth.UpdateUser(ctx, iam.UserActor(siteadmin.id), plain.id, iam.UserUpdate{EmailVerified: &verified})
+		_, err := h.auth.UpdateUser(ctx, iam.UserIdentity(siteadmin.id), plain.id, iam.UserUpdate{EmailVerified: &verified})
 		require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 	})
 	t.Run("a root peer is signed out, never banned, deleted or edited", func(t *testing.T) {
-		admin := iam.UserActor(siteadmin.id)
+		admin := iam.UserIdentity(siteadmin.id)
 		for _, name := range []string{"UpdateUser", "PatchPublicMetadata", "Ban", "Unban", "DeleteUsers", "RestoreUsers"} {
 			require.ErrorIs(t, ops[name](admin, target.id), iam.ErrAccountAuthorityEscalation, name)
 		}
@@ -165,13 +166,13 @@ func TestSecurityAccountAuthority(t *testing.T) {
 		require.NoError(t, ops["RevokeAccountSessions"](admin, target.id), "containing a compromised peer")
 		require.NoError(t, ops["RevokeSession"](admin, target.id))
 	})
-	t.Run("control: an actor outranking the target", func(t *testing.T) {
-		admin := iam.UserActor(siteadmin.id)
+	t.Run("control: an identity outranking the target", func(t *testing.T) {
+		admin := iam.UserIdentity(siteadmin.id)
 		require.NoError(t, ops["PatchPublicMetadata"](admin, staff.id))
 		require.NoError(t, ops["Ban"](admin, coOwner.id))
 		require.NoError(t, ops["Unban"](admin, coOwner.id))
-		require.NoError(t, ops["UpdateUser"](iam.UserActor(staff.id), plain.id))
-		require.NoError(t, ops["RevokeSession"](iam.UserActor(plain.id), plain.id), "an account revokes its own sessions")
+		require.NoError(t, ops["UpdateUser"](iam.UserIdentity(staff.id), plain.id))
+		require.NoError(t, ops["RevokeSession"](iam.UserIdentity(plain.id), plain.id), "an account revokes its own sessions")
 	})
 }
 
@@ -185,7 +186,7 @@ func TestSecurityContactChangeKeepsMFARoles(t *testing.T) {
 	h.enrollEmail2FA(holder)
 	h.grant(iam.RootGroup(), holder, "security")
 	attacker := unique("takeover") + "@security.test"
-	_, err := h.auth.UpdateUser(ctx, iam.SystemActor(), holder.id, iam.UserUpdate{Email: &attacker})
+	_, err := h.auth.UpdateUser(ctx, iam.SystemIdentity(), holder.id, iam.UserUpdate{Email: &attacker})
 	require.ErrorIs(t, err, errmodel.E(errmodel.CodeVerificationRequired))
 	u, err := h.auth.User(ctx, iam.UserByID(holder.id))
 	require.NoError(t, err)
@@ -195,7 +196,7 @@ func TestSecurityContactChangeKeepsMFARoles(t *testing.T) {
 	t.Run("control: the system vouching for the new address keeps MFA and roles", func(t *testing.T) {
 		moved := unique("moved") + "@security.test"
 		verified := true
-		u, err := h.auth.UpdateUser(ctx, iam.SystemActor(), holder.id, iam.UserUpdate{Email: &moved, EmailVerified: &verified})
+		u, err := h.auth.UpdateUser(ctx, iam.SystemIdentity(), holder.id, iam.UserUpdate{Email: &moved, EmailVerified: &verified})
 		require.NoError(t, err)
 		require.Equal(t, moved, *u.Email)
 		var factors int
@@ -217,7 +218,7 @@ func TestSecurityVerifiedOnlyByProof(t *testing.T) {
 	squatter := h.register(victim)
 	id := h.userID(victim)
 	verified := true
-	_, err := h.auth.UpdateUser(ctx, iam.SystemActor(), id, iam.UserUpdate{EmailVerified: &verified})
+	_, err := h.auth.UpdateUser(ctx, iam.SystemIdentity(), id, iam.UserUpdate{EmailVerified: &verified})
 	require.NoError(t, err)
 	login := h.post("/password/login", map[string]string{"identifier": victim, "password": password}, "")
 	require.Equal(t, http.StatusUnauthorized, login.status, "the squatter's password survived: %s", login)
@@ -229,7 +230,7 @@ func TestSecurityVerifiedOnlyByProof(t *testing.T) {
 	t.Run("control: verifying a proven account keeps its credentials", func(t *testing.T) {
 		a := h.newAccount("proven")
 		s := h.login(a)
-		_, err := h.auth.UpdateUser(ctx, iam.SystemActor(), a.id, iam.UserUpdate{EmailVerified: &verified})
+		_, err := h.auth.UpdateUser(ctx, iam.SystemIdentity(), a.id, iam.UserUpdate{EmailVerified: &verified})
 		require.NoError(t, err)
 		h.login(a)
 		require.Equal(t, http.StatusOK, h.refresh(s.RefreshToken).status)
@@ -288,11 +289,11 @@ func TestSecurityAccountLifecycleRevokesCredentials(t *testing.T) {
 		end  func(a account)
 	}{
 		{"ban", func(a account) {
-			require.NoError(t, h.auth.Ban(ctx, iam.SystemActor(), a.id, iam.Ban{Reason: "abuse"}))
-			require.NoError(t, h.auth.Unban(ctx, iam.SystemActor(), a.id))
+			require.NoError(t, h.auth.Ban(ctx, iam.SystemIdentity(), a.id, iam.Ban{Reason: "abuse"}))
+			require.NoError(t, h.auth.Unban(ctx, iam.SystemIdentity(), a.id))
 		}},
 		{"soft delete", func(a account) {
-			require.NoError(t, opErr(h.auth.DeleteUsers(ctx, iam.SystemActor(), []string{a.id})))
+			require.NoError(t, opErr(h.auth.DeleteUsers(ctx, iam.SystemIdentity(), []string{a.id})))
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -307,7 +308,7 @@ func TestSecurityAccountLifecycleRevokesCredentials(t *testing.T) {
 			fresh := h.newAccount("h1fresh")
 			resp := h.post("/invitations/redeem", map[string]string{"code": link.Code}, h.login(fresh).AccessToken)
 			require.GreaterOrEqual(t, resp.status, 400, resp.String())
-			can, err := h.auth.Can(ctx, iam.UserActor(fresh.id), group, ownerOnly)
+			can, err := h.auth.Can(ctx, iam.UserIdentity(fresh.id), group, ownerOnly)
 			require.NoError(t, err)
 			require.False(t, can)
 		})
@@ -358,21 +359,21 @@ func TestSecuritySelfRulesUseCanonicalIDs(t *testing.T) {
 	staff, other := h.newAccount("n6staff"), h.newAccount("n6other")
 	h.grant(iam.RootGroup(), staff, "siteadmin")
 	email := unique("n6self") + "@security.test"
-	selfOps := map[string]func(a iam.Actor, id string) error{
-		"PatchPublicMetadata": func(a iam.Actor, id string) error {
+	selfOps := map[string]func(a auth.Identity, id string) error{
+		"PatchPublicMetadata": func(a auth.Identity, id string) error {
 			return h.auth.PatchPublicMetadata(ctx, a, id, map[string]any{"plan": "enterprise"})
 		},
-		"UpdateUser": func(a iam.Actor, id string) error {
+		"UpdateUser": func(a auth.Identity, id string) error {
 			_, err := h.auth.UpdateUser(ctx, a, id, iam.UserUpdate{Email: &email})
 			return err
 		},
-		"Ban":   func(a iam.Actor, id string) error { return h.auth.Ban(ctx, a, id, iam.Ban{}) },
-		"Unban": func(a iam.Actor, id string) error { return h.auth.Unban(ctx, a, id) },
+		"Ban":   func(a auth.Identity, id string) error { return h.auth.Ban(ctx, a, id, iam.Ban{}) },
+		"Unban": func(a auth.Identity, id string) error { return h.auth.Unban(ctx, a, id) },
 	}
 	upper := strings.ToUpper(staff.id)
 	for name, op := range selfOps {
-		require.ErrorIs(t, op(iam.UserActor(staff.id), upper), iam.ErrCannotTargetSelf, name+": upper-case target")
-		require.ErrorIs(t, op(iam.UserActor(upper), staff.id), iam.ErrCannotTargetSelf, name+": upper-case actor")
+		require.ErrorIs(t, op(iam.UserIdentity(staff.id), upper), iam.ErrCannotTargetSelf, name+": upper-case target")
+		require.ErrorIs(t, op(iam.UserIdentity(upper), staff.id), iam.ErrCannotTargetSelf, name+": upper-case identity")
 	}
 	u, err := h.auth.User(ctx, iam.UserByID(staff.id))
 	require.NoError(t, err)
@@ -380,7 +381,7 @@ func TestSecuritySelfRulesUseCanonicalIDs(t *testing.T) {
 	require.Equal(t, staff.email, *u.Email)
 
 	t.Run("control: an upper-case id names another account", func(t *testing.T) {
-		require.NoError(t, selfOps["PatchPublicMetadata"](iam.UserActor(staff.id), strings.ToUpper(other.id)))
+		require.NoError(t, selfOps["PatchPublicMetadata"](iam.UserIdentity(staff.id), strings.ToUpper(other.id)))
 		u, err := h.auth.User(ctx, iam.UserByID(other.id))
 		require.NoError(t, err)
 		require.Equal(t, "enterprise", u.PublicMetadata["plan"])
@@ -397,7 +398,7 @@ func TestSecurityContactChangeKeepsEnrolledMFA(t *testing.T) {
 	h.grant(iam.RootGroup(), support, "staff")
 	h.enrollEmail2FA(target)
 	attacker := unique("n10evil") + "@security.test"
-	_, err := h.auth.UpdateUser(ctx, iam.UserActor(support.id), target.id, iam.UserUpdate{Email: &attacker})
+	_, err := h.auth.UpdateUser(ctx, iam.UserIdentity(support.id), target.id, iam.UserUpdate{Email: &attacker})
 	require.ErrorIs(t, err, errmodel.E(errmodel.CodeVerificationRequired))
 	u, err := h.auth.User(ctx, iam.UserByID(target.id))
 	require.NoError(t, err)
@@ -410,7 +411,7 @@ func TestSecurityContactChangeKeepsEnrolledMFA(t *testing.T) {
 	t.Run("control: an account without a second factor may be moved", func(t *testing.T) {
 		plain := h.newAccount("n10plain")
 		moved := unique("n10moved") + "@security.test"
-		u, err := h.auth.UpdateUser(ctx, iam.UserActor(support.id), plain.id, iam.UserUpdate{Email: &moved})
+		u, err := h.auth.UpdateUser(ctx, iam.UserIdentity(support.id), plain.id, iam.UserUpdate{Email: &moved})
 		require.NoError(t, err)
 		require.Equal(t, moved, *u.Email)
 	})
@@ -442,8 +443,8 @@ func TestSecurityGroupLifecycleIsTheHosts(t *testing.T) {
 
 	app := h.registerApp(group, founder, "life-app", "member")
 	banned, deleted := h.newAccount("lifebanned"), h.newAccount("lifedeleted")
-	require.NoError(t, h.auth.Ban(ctx, iam.SystemActor(), banned.id, iam.Ban{Reason: "abuse"}))
-	require.NoError(t, opErr(h.auth.DeleteUsers(ctx, iam.SystemActor(), []string{deleted.id})))
+	require.NoError(t, h.auth.Ban(ctx, iam.SystemIdentity(), banned.id, iam.Ban{Reason: "abuse"}))
+	require.NoError(t, opErr(h.auth.DeleteUsers(ctx, iam.SystemIdentity(), []string{deleted.id})))
 	groups := func() int {
 		var n int
 		require.NoError(t, h.pool.QueryRow(ctx, `SELECT count(*) FROM profiles.permission_groups WHERE persona=$1`, orgPersona.String()).Scan(&n))
@@ -497,11 +498,11 @@ func TestSecurityEmailFactorIsPinned(t *testing.T) {
 	h.grant(iam.RootGroup(), support, "staff")
 	h.enrollEmail2FA(target)
 	phone, verified := "+1555"+uniqueDigits(7), true
-	_, err := h.auth.UpdateUser(ctx, iam.SystemActor(), target.id, iam.UserUpdate{Phone: &phone, PhoneVerified: &verified})
+	_, err := h.auth.UpdateUser(ctx, iam.SystemIdentity(), target.id, iam.UserUpdate{Phone: &phone, PhoneVerified: &verified})
 	require.NoError(t, err)
 
 	evil := unique("p3evil") + "@security.test"
-	_, err = h.auth.UpdateUser(ctx, iam.UserActor(support.id), target.id, iam.UserUpdate{Email: &evil})
+	_, err = h.auth.UpdateUser(ctx, iam.UserIdentity(support.id), target.id, iam.UserUpdate{Email: &evil})
 	require.NoError(t, err, "control: the verified phone keeps the account proven")
 	require.Less(t, h.post("/password/reset/request", map[string]string{"identifier": evil}, "").status, 300)
 	token := h.mail.Last(t, iam.MessagePasswordReset, evil).Token
@@ -544,7 +545,7 @@ func TestSecurityStaffDeleteOverridesSelfDelete(t *testing.T) {
 
 	t.Run("control: a self-deletion alone stays recoverable", func(t *testing.T) {
 		self := h.newAccount("p6self")
-		require.NoError(t, opErr(h.auth.DeleteUsers(context.Background(), iam.UserActor(self.id), []string{self.id})))
+		require.NoError(t, opErr(h.auth.DeleteUsers(context.Background(), iam.UserIdentity(self.id), []string{self.id})))
 		login := h.post("/password/login", map[string]string{"identifier": self.email, "password": password}, "")
 		require.Equal(t, httpapi.AuthAccountRecoveryRequired, authResult(t, login).Status, login.String())
 	})
@@ -588,7 +589,7 @@ func TestSecurityUserManagementNeedsMFA(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withAccountRoles))
 	ctx := context.Background()
 	staff, target := h.newAccount("cstaff"), h.newAccount("ctarget")
-	require.ErrorIs(t, setRole(h.auth, ctx, iam.SystemActor(), iam.RootGroup(), iam.UserSubject(staff.id), h.role(iam.RootPersona(), "staff")), iam.ErrSubjectMFARequired, "a root:users:manage role went to an account without MFA")
+	require.ErrorIs(t, setRole(h.auth, ctx, iam.SystemIdentity(), iam.RootGroup(), iam.UserSubject(staff.id), h.role(iam.RootPersona(), "staff")), iam.ErrSubjectMFARequired, "a root:users:manage role went to an account without MFA")
 	// A role granted while 2FA was off: signing in yields only an enrollment token.
 	_, err := h.pool.Exec(ctx, `INSERT INTO profiles.group_user_roles(permission_group_id,user_id,role) VALUES($1::uuid,$2::uuid,'root:staff')`, h.rootGroupID(), staff.id)
 	require.NoError(t, err)
@@ -598,7 +599,7 @@ func TestSecurityUserManagementNeedsMFA(t *testing.T) {
 	admin := h.newAccount("cadmin")
 	h.grant(iam.RootGroup(), admin, "siteadmin")
 	chosen := "Staff-chosen-passphrase-9"
-	_, err = h.auth.UpdateUser(ctx, iam.UserActor(admin.id), target.id, iam.UserUpdate{Password: &chosen})
+	_, err = h.auth.UpdateUser(ctx, iam.UserIdentity(admin.id), target.id, iam.UserUpdate{Password: &chosen})
 	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 	h.login(target)
 
@@ -659,7 +660,7 @@ func TestSecurityEmailFactorFollowsOwnChange(t *testing.T) {
 
 	t.Run("control: the system change leaves the factor where it was proven", func(t *testing.T) {
 		third, verified := unique("third")+"@security.test", true
-		_, err := h.auth.UpdateUser(ctx, iam.SystemActor(), a.id, iam.UserUpdate{Email: &third, EmailVerified: &verified})
+		_, err := h.auth.UpdateUser(ctx, iam.SystemIdentity(), a.id, iam.UserUpdate{Email: &third, EmailVerified: &verified})
 		require.NoError(t, err)
 		require.Equal(t, moved, pinned())
 	})

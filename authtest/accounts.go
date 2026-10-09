@@ -121,7 +121,7 @@ func signInCall(t testing.TB, auth *authkit.Client, identifier, path, token stri
 // requires MFA needs the account's second factor first (EnrollTOTP).
 func GrantRole(t testing.TB, auth *authkit.Client, group iam.GroupRef, subject iam.Subject, role iam.Role) {
 	t.Helper()
-	if _, err := auth.SetGroupRole(context.Background(), iam.SystemActor(), group, subject, role); err != nil {
+	if _, err := auth.SetGroupRole(context.Background(), iam.SystemIdentity(), group, subject, role); err != nil {
 		t.Fatalf("authtest: grant %v to %s: %v", role, subject.ID, err)
 	}
 }
@@ -129,7 +129,7 @@ func GrantRole(t testing.TB, auth *authkit.Client, group iam.GroupRef, subject i
 // RevokeRole takes role in group from subject with system authority.
 func RevokeRole(t testing.TB, auth *authkit.Client, group iam.GroupRef, subject iam.Subject, role iam.Role) {
 	t.Helper()
-	if err := auth.RemoveGroupMember(context.Background(), iam.SystemActor(), group, subject, authkit.IfRole(role)); err != nil {
+	if err := auth.RemoveGroupMember(context.Background(), iam.SystemIdentity(), group, subject, authkit.IfRole(role)); err != nil {
 		t.Fatalf("authtest: revoke %v from %s: %v", role, subject.ID, err)
 	}
 }

@@ -1,7 +1,7 @@
 // Package authkitfiber bridges AuthKit's net/http middleware to Fiber v3.
 // Mount registers AuthKit's routes directly on the application. Verification
 // policy stays in verify. Handlers read the verified caller from c.Context()
-// (verify.ActorFromContext, verify.ClaimsFromContext) and write AuthKit errors
+// (verify.IdentityFromContext, verify.ClaimsFromContext) and write AuthKit errors
 // with status, body := iam.ErrorResponse(err); c.Status(status).JSON(body).
 package authkitfiber
 

@@ -92,5 +92,5 @@ func TestRecoveryProofCannotCrossGenerationOrRaceFinalPurge(t *testing.T) {
 
 // selfDelete is the account deleting itself, the deletion a sign-in may undo.
 func (s *Engine) selfDelete(ctx context.Context, id string) error {
-	return itemErr(s.DeleteUsers(ctx, iam.UserActor(id), []string{id}))
+	return itemErr(s.DeleteUsers(ctx, iam.UserIdentity(id), []string{id}))
 }

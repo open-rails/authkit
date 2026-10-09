@@ -15,8 +15,9 @@ type NameResolution struct {
 
 // NameAdmissionRequest is the username admission hook's operation context.
 type NameAdmissionRequest struct {
-	UserID        string // Empty only before a new account is created.
-	ActorID       string
+	UserID string // Empty only before a new account is created.
+	// SubjectID is the account making the change: the user, or staff.
+	SubjectID     string
 	CurrentName   string
 	RequestedName string
 	Operation     NameOperation

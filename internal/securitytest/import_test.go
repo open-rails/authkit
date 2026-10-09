@@ -441,7 +441,7 @@ func TestSecurityImportedVerificationIsNotProof(t *testing.T) {
 		cID := importRow(t, iam.ImportUser{Email: c})
 		cProof := park(t, c)
 		staffSet := "Set-by-staff-since-9"
-		_, err := h.auth.UpdateUser(ctx, iam.SystemActor(), cID, iam.UserUpdate{Password: &staffSet})
+		_, err := h.auth.UpdateUser(ctx, iam.SystemIdentity(), cID, iam.UserUpdate{Password: &staffSet})
 		require.NoError(t, err)
 		require.Less(t, h.post("/verify/request", map[string]string{"identifier": c}, "").status, 300)
 		confirm(t, c, cProof)
@@ -626,7 +626,7 @@ func TestSecurityImportedDeletionLifecycle(t *testing.T) {
 		}
 	}))
 	ctx := context.Background()
-	op := iam.SystemActor()
+	op := iam.SystemIdentity()
 	raw, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
 	require.NoError(t, err)
 	recentAt := time.Now().Add(-time.Hour).UTC().Truncate(time.Microsecond)

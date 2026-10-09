@@ -1,7 +1,7 @@
 // Package authkitgin bridges AuthKit's net/http middleware to Gin. Mount
 // registers AuthKit's routes directly on the engine; verification policy
 // stays in verify. Handlers read the verified caller from
-// c.Request.Context() (verify.ActorFromContext, verify.ClaimsFromContext) and
+// c.Request.Context() (verify.IdentityFromContext, verify.ClaimsFromContext) and
 // write AuthKit errors with c.JSON(iam.ErrorResponse(err)).
 package authkitgin
 

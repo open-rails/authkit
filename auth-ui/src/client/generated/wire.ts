@@ -62,8 +62,12 @@ export type AuthKitEvent = {
   id: string
   kind: "group.created" | "group.deleted" | "group.purged" | "role.changed" | "role.granted" | "role.revoked" | "user.banned" | "user.deleted" | "user.email_changed" | "user.phone_changed" | "user.purged" | "user.registered" | "user.restored" | "user.sessions_revoked" | "user.unbanned" | "user.username_changed"
   occurred_at: string
-  actor_kind: "api_key" | "delegated" | "oauth_client" | "remote_application" | "system" | "user"
-  actor_id: string
+  subject_kind: "application" | "user"
+  subject_id: string
+  invoker_issuer: string
+  invoker_id: string
+  credential_kind: "access_token" | "api_key" | "device_key" | "session" | "signed_token" | "system"
+  credential_id: string
   user_id: string
   group_id: string
   persona: string

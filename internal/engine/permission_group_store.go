@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/helpers/auth"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -46,13 +47,13 @@ type permissionGroupStore struct {
 	// it must and logs, never refuses (no stored state keeps AuthKit from
 	// starting) and asks no other issuer to sweep.
 	reconcile bool
-	// actor makes this transaction's changes (zero: AuthKit itself); emit
+	// identity makes this transaction's changes (zero: AuthKit itself); emit
 	// records their events in it. Only Engine.groupStoreFor sets emit.
-	actor iam.Actor
-	emit  func(context.Context, iam.Actor, ...iam.Event) error
+	who  auth.Identity
+	emit func(context.Context, auth.Identity, ...iam.Event) error
 }
 
-// record records events of the store's actor in its transaction.
+// record records events of the store's identity in its transaction.
 func (st *permissionGroupStore) record(ctx context.Context, events ...iam.Event) error {
 	if len(events) == 0 {
 		return nil
@@ -60,7 +61,7 @@ func (st *permissionGroupStore) record(ctx context.Context, events ...iam.Event)
 	if st.emit == nil {
 		return errors.New("authkit: this group store cannot record events")
 	}
-	return st.emit(ctx, st.actor, events...)
+	return st.emit(ctx, st.who, events...)
 }
 
 // authorityTouch names a group whose grants changed, and the user whose

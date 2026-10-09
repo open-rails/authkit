@@ -133,7 +133,7 @@ func TestSecurityPasswordStepUpNeedsSecondFactor(t *testing.T) {
 // TestSecurityEnrollmentTokenOutsideMiddleware (N7): a password-only
 // enrollment token, issued before the second factor exists, reaches only
 // AuthKit's enrollment routes. A host that authenticates out of band (Verify,
-// then Allow) never gets a full actor from it.
+// then Allow) never gets a full identity from it.
 func TestSecurityEnrollmentTokenOutsideMiddleware(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withAccountRoles))
 	ctx := context.Background()
@@ -156,18 +156,17 @@ func TestSecurityEnrollmentTokenOutsideMiddleware(t *testing.T) {
 	cl, err := h.auth.VerifyRequest(r)
 	require.NoError(t, err)
 	require.True(t, cl.TwoFAEnrollment)
-	_, ok := verify.ActorFromClaims(cl)
-	require.False(t, ok, "an enrollment token became an actor")
-	allowed, err := allow(ctx, h.auth, cl, ident.Perm("root:audit:read"), iam.RootGroup())
+	stored, _ := verify.IdentityFromContext(verify.SetClaims(ctx, cl))
+	_, ok := iam.StateOf(stored)
+	require.False(t, ok, "an enrollment token became an identity with authority")
+	allowed, err := allow(ctx, h.auth, stored, ident.Perm("root:audit:read"), iam.RootGroup())
 	require.NoError(t, err)
 	require.False(t, allowed, "an enrollment token used the MFA-required role")
 
 	t.Run("control: a full token of a role holder is allowed", func(t *testing.T) {
 		admin := h.newAccount("fulltoken")
 		h.grant(iam.RootGroup(), admin, "moderator")
-		cl, err := h.auth.Verify(ctx, h.login(admin).AccessToken)
-		require.NoError(t, err)
-		allowed, err := allow(ctx, h.auth, cl, ident.RootUsersBan, iam.RootGroup())
+		allowed, err := allow(ctx, h.auth, tokenIdentity(t, h.auth, h.login(admin).AccessToken), ident.RootUsersBan, iam.RootGroup())
 		require.NoError(t, err)
 		require.True(t, allowed)
 	})
@@ -257,7 +256,7 @@ func TestSecurityPasskeyHolderNeedsPasskey(t *testing.T) {
 // strong credential is a lost passkey answers passkey_required to every other
 // sign-in. The system's ResetAccountMFA removes its passkeys, factors,
 // backup codes, device keys and sessions and tells its address; the next
-// password sign-in enrolls a factor. No other actor may reset an account.
+// password sign-in enrolls a factor. No other identity may reset an account.
 func TestSecurityResetAccountMFA(t *testing.T) {
 	optional := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withAccountRoles), authtest.WithConfig(withPasskeys), authtest.WithConfig(withDeviceKeys))
 	ctx := context.Background()

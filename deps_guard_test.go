@@ -49,18 +49,22 @@ const (
 	wireformPackage = "github.com/open-rails/authkit/internal/wireform"
 )
 
+// helpersAuth is helpers/auth: the neutral Identity, itself standard library
+// only.
+const helpersAuth = "github.com/open-rails/helpers/auth"
+
 // stdlibOnly packages depend on nothing outside the standard library, except
 // the listed packages. devicekey is linked into CLIs and machines.
 var stdlibOnly = map[string][]string{
-	"./devicekey":           {rootPackage + "/iam", errmodelPackage, wireformPackage},
-	"./iam":                 {errmodelPackage, wireformPackage},
+	"./devicekey":           {rootPackage + "/iam", errmodelPackage, wireformPackage, helpersAuth},
+	"./iam":                 {errmodelPackage, wireformPackage, helpersAuth},
 	"./internal/errmodel":   {wireformPackage},
 	"./internal/wireform":   nil,
 	"./internal/netguard":   nil,
 	"./internal/apikey":     nil,
 	"./internal/enrollment": nil,
 	"./internal/keypolicy":  nil,
-	"./internal/ident":      {rootPackage + "/iam", errmodelPackage, wireformPackage},
+	"./internal/ident":      {rootPackage + "/iam", errmodelPackage, wireformPackage, helpersAuth},
 }
 
 func listDeps(t *testing.T, pkg string) []string {
@@ -134,15 +138,16 @@ func TestNothingBelowRootImportsRoot(t *testing.T) {
 	}
 }
 
-// Request-facing code never builds an actor from path or body fields: the only
-// actor derivation is verify.ActorFromClaims, and nothing there may name the
-// system actor or its kind, or call a host operation (they take no actor).
-func TestRequestSurfaceCannotBuildActors(t *testing.T) {
-	constructors := map[string]bool{"SystemActor": true, "UserActor": true, "APIKeyActor": true, "RemoteApplicationActor": true, "DelegatedActor": true}
+// Request-facing code never builds an identity from path or body fields: the
+// only derivation is verify's from verified claims (verify/identity.go), and
+// nothing there may name the system's identity or credential, or call a host
+// operation (they take no identity).
+func TestRequestSurfaceCannotBuildIdentities(t *testing.T) {
+	constructors := map[string]bool{"SystemIdentity": true, "UserIdentity": true, "APIKeyIdentity": true, "ApplicationIdentity": true, "DelegatedIdentity": true}
 	hostOperations := map[string]bool{"CreateUser": true, "PurgeUsers": true, "ResetAccountMFA": true, "MintAccessToken": true,
 		"CreateGroup": true, "DeleteGroup": true, "PurgeGroup": true, "ApplyBootstrapManifest": true, "EnsureUserRole": true,
 		"ImportUsers": true, "ImportSolanaLinks": true, "LinkProvider": true}
-	derivation := filepath.Join("verify", "actor.go")
+	derivation := filepath.Join("verify", "identity.go")
 	var violations []string
 	for _, root := range []string{"internal/httpapi", "verify", "adapters"} {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -167,13 +172,13 @@ func TestRequestSurfaceCannotBuildActors(t *testing.T) {
 				if !ok {
 					return true
 				}
-				if sel.Sel.Name == "SystemActor" || sel.Sel.Name == "ActorSystem" || hostOperations[sel.Sel.Name] {
+				if sel.Sel.Name == "SystemIdentity" || sel.Sel.Name == "CredentialSystem" || hostOperations[sel.Sel.Name] {
 					violations = append(violations, path+": "+sel.Sel.Name)
 				}
 				if iamName == "" {
 					return true
 				}
-				if x, ok := sel.X.(*ast.Ident); ok && x.Name == iamName && constructors[sel.Sel.Name] && sel.Sel.Name != "SystemActor" {
+				if x, ok := sel.X.(*ast.Ident); ok && x.Name == iamName && constructors[sel.Sel.Name] && sel.Sel.Name != "SystemIdentity" {
 					if path != derivation {
 						violations = append(violations, path+": iam."+sel.Sel.Name)
 					}
@@ -187,6 +192,6 @@ func TestRequestSurfaceCannotBuildActors(t *testing.T) {
 		}
 	}
 	if len(violations) > 0 {
-		t.Fatalf("request-facing code must derive actors only through verify.ActorFromClaims:\n  %s", strings.Join(violations, "\n  "))
+		t.Fatalf("request-facing code must derive identities only from verified claims (verify/identity.go):\n  %s", strings.Join(violations, "\n  "))
 	}
 }

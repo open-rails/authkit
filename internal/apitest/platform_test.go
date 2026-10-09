@@ -404,7 +404,7 @@ func TestBootNeverRestoresRoles(t *testing.T) {
 	_, err := auth.Group(ctx, iam.RootGroup())
 	require.NoError(t, err, "construction installs the root group")
 	can := func(auth *authkit.Client, u authtest.User) bool {
-		ok, err := auth.Can(ctx, iam.UserActor(u.ID), iam.RootGroup(), edit)
+		ok, err := auth.Can(ctx, iam.UserIdentity(u.ID), iam.RootGroup(), edit)
 		require.NoError(t, err)
 		return ok
 	}

@@ -21,7 +21,7 @@ import (
 // public metadata, never a contact, ban or sign-in data.
 func TestPublicUsersRoute(t *testing.T) {
 	auth, _ := authtest.New(t)
-	ctx, op := t.Context(), iam.SystemActor()
+	ctx, op := t.Context(), iam.SystemIdentity()
 	a := newAPI(t, auth)
 	caller, alice, bob, gone := authtest.NewUser(t, auth), authtest.NewUser(t, auth), authtest.NewUser(t, auth), authtest.NewUser(t, auth)
 	token := authtest.SignIn(t, auth, caller).AccessToken

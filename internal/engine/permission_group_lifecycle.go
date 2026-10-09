@@ -67,7 +67,7 @@ func (s *Engine) CreateGroup(ctx context.Context, ng iam.NewGroup, opts ...ops.O
 		owner = &o
 	}
 	var out iam.Group
-	err = s.withAuthorityMutationIn(ctx, iam.SystemActor(), host, func(st *permissionGroupStore) error {
+	err = s.withAuthorityMutationIn(ctx, iam.SystemIdentity(), host, func(st *permissionGroupStore) error {
 		if id != "" {
 			existing, err := db.New(st.q).AuthorityGroupState(ctx, id)
 			switch {
@@ -130,7 +130,7 @@ func (s *Engine) DeleteGroup(ctx context.Context, ref iam.GroupRef, opts ...ops.
 	if err != nil {
 		return err
 	}
-	return s.withAuthorityMutationIn(ctx, iam.SystemActor(), host, func(st *permissionGroupStore) error {
+	return s.withAuthorityMutationIn(ctx, iam.SystemIdentity(), host, func(st *permissionGroupStore) error {
 		if ref.IsRoot() {
 			return fmt.Errorf("the root group cannot be deleted: %w", iam.ErrUnknownGroupPersona)
 		}
@@ -176,7 +176,7 @@ func (s *Engine) PurgeGroup(ctx context.Context, ref iam.GroupRef, opts ...ops.O
 	if err != nil {
 		return err
 	}
-	err = s.withAuthorityMutationIn(ctx, iam.SystemActor(), host, func(st *permissionGroupStore) error {
+	err = s.withAuthorityMutationIn(ctx, iam.SystemIdentity(), host, func(st *permissionGroupStore) error {
 		if ref.IsRoot() {
 			return fmt.Errorf("the root group cannot be deleted: %w", iam.ErrUnknownGroupPersona)
 		}

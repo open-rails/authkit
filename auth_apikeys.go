@@ -4,17 +4,18 @@ import (
 	"context"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/helpers/auth"
 )
 
 // API keys: long-lived machine credentials owned by a permission group. A key
 // holds one role of its group and dies with its creator's authority.
 
-// CreateAPIKey issues a key holding k.Role in ref. The actor needs
+// CreateAPIKey issues a key holding k.Role in ref. The identity needs
 // <persona>:credentials:manage and must cover the role; only a user or the
 // system issues credentials (the system's keys have no creator). The secret
 // is returned once.
-func (a *Client) CreateAPIKey(ctx context.Context, actor iam.Actor, ref iam.GroupRef, k iam.NewAPIKey, opts ...Option) (iam.APIKeyCreated, error) {
-	return a.ops.CreateAPIKey(ctx, actor, ref, k, opts...)
+func (a *Client) CreateAPIKey(ctx context.Context, who auth.Identity, ref iam.GroupRef, k iam.NewAPIKey, opts ...Option) (iam.APIKeyCreated, error) {
+	return a.ops.CreateAPIKey(ctx, who, ref, k, opts...)
 }
 
 // ListAPIKeys lists the group's keys, newest first, including revoked and
@@ -26,13 +27,13 @@ func (a *Client) ListAPIKeys(ctx context.Context, ref iam.GroupRef, p iam.PageRe
 // RevokeAPIKey revokes the group's key id; it needs the authority to issue
 // the key's role. Revoking a revoked key is a no-op; an id unknown in the
 // group is iam.ErrAPIKeyNotFound.
-func (a *Client) RevokeAPIKey(ctx context.Context, actor iam.Actor, ref iam.GroupRef, id string, opts ...Option) error {
-	return a.ops.RevokeAPIKey(ctx, actor, ref, id, opts...)
+func (a *Client) RevokeAPIKey(ctx context.Context, who auth.Identity, ref iam.GroupRef, id string, opts ...Option) error {
+	return a.ops.RevokeAPIKey(ctx, who, ref, id, opts...)
 }
 
 // ResolveAPIKey authenticates a presented token: iam.ErrAPIKeyInvalid,
 // iam.ErrAPIKeyRevoked (also when its creator is banned or deleted) or
 // iam.ErrAPIKeyExpired. The verifier resolves API keys through it.
-func (a *Client) ResolveAPIKey(ctx context.Context, token string) (iam.APIKeyPrincipal, error) {
+func (a *Client) ResolveAPIKey(ctx context.Context, token string) (iam.ResolvedAPIKey, error) {
 	return a.ops.ResolveAPIKey(ctx, token)
 }

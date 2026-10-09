@@ -126,7 +126,7 @@ func TestAccountDeletionRollsBackWhenRiverInsertFails(t *testing.T) {
 	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
 	user, err := runtime.createUser(t.Context(), "rollback@example.test", "rollback")
 	require.NoError(t, err)
-	results, err := runtime.DeleteUsers(t.Context(), iam.SystemActor(), []string{user.ID})
+	results, err := runtime.DeleteUsers(t.Context(), iam.SystemIdentity(), []string{user.ID})
 	require.NoError(t, err)
 	require.Error(t, results[0].Err)
 	var deleted *time.Time
@@ -176,7 +176,7 @@ func TestAccountDeletionDeliveryAcrossSeparateRiverFleets(t *testing.T) {
 	second := makeRuntime(issuers[1], "sibling_jobs")
 	user, err := first.createUser(t.Context(), "two-fleets@example.test", "twofleets")
 	require.NoError(t, err)
-	results, err := first.DeleteUsers(t.Context(), iam.SystemActor(), []string{user.ID})
+	results, err := first.DeleteUsers(t.Context(), iam.SystemIdentity(), []string{user.ID})
 	require.NoError(t, err)
 	require.NoError(t, results[0].Err)
 	for _, pair := range [][2]string{{"public", issuers[0]}, {"sibling_jobs", issuers[1]}} {
@@ -192,7 +192,7 @@ func TestAccountDeletionDeliveryAcrossSeparateRiverFleets(t *testing.T) {
 		defer mu.Unlock()
 		return len(events[issuers[0]]) == 1 && len(events[issuers[1]]) == 0
 	}, 10*time.Second, 25*time.Millisecond)
-	results, err = first.RestoreUsers(t.Context(), iam.SystemActor(), []string{user.ID})
+	results, err = first.RestoreUsers(t.Context(), iam.SystemIdentity(), []string{user.ID})
 	require.NoError(t, err)
 	require.NoError(t, results[0].Err)
 	// The second deployment was offline throughout deletion and recovery. Its
@@ -224,7 +224,7 @@ func TestAccountFleetRebindRequiresQuiescenceAndFencesOldProducer(t *testing.T) 
 	cfg.RiverSchema = "replacement_jobs"
 	_, err = New(context.Background(), cfg, config.Deps{Postgres: pg.Pool})
 	require.ErrorContains(t, err, "active account lifecycle work")
-	results, err := old.RestoreUsers(t.Context(), iam.SystemActor(), []string{user.ID})
+	results, err := old.RestoreUsers(t.Context(), iam.SystemIdentity(), []string{user.ID})
 	require.NoError(t, err)
 	require.NoError(t, results[0].Err)
 	_, err = New(context.Background(), cfg, config.Deps{Postgres: pg.Pool})

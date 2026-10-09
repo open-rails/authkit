@@ -29,8 +29,8 @@ func (s *Service) handleMeGET(w http.ResponseWriter, r *http.Request) {
 // UpdateUser call (the rename policy applies) and answers the profile.
 func (s *Service) handleMePATCH(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
-	actor, hasActor := verify.ActorFromContext(r.Context())
-	if !ok || !hasActor || claims.UserID == "" {
+	who, hasIdentity := verify.IdentityFromContext(r.Context())
+	if !ok || !hasIdentity || claims.UserID == "" {
 		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
@@ -56,7 +56,7 @@ func (s *Service) handleMePATCH(w http.ResponseWriter, r *http.Request) {
 		}
 		update.PreferredLanguage = &language
 	}
-	if _, err := s.svc.UpdateUser(r.Context(), actor, claims.UserID, update); err != nil {
+	if _, err := s.svc.UpdateUser(r.Context(), who, claims.UserID, update); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -81,12 +81,12 @@ func (s *Service) handleMeSecurityGET(w http.ResponseWriter, r *http.Request) {
 // the route requires a recent sign-in.
 func (s *Service) handleMeDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
-	actor, hasActor := verify.ActorFromContext(r.Context())
-	if !ok || !hasActor || claims.UserID == "" {
+	who, hasIdentity := verify.IdentityFromContext(r.Context())
+	if !ok || !hasIdentity || claims.UserID == "" {
 		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
-	res, err := s.svc.DeleteUsers(r.Context(), actor, []string{claims.UserID})
+	res, err := s.svc.DeleteUsers(r.Context(), who, []string{claims.UserID})
 	if err := opErr(res, err); err != nil {
 		if errmodel.As(err) == nil {
 			serverErr(w, "failed_to_delete", err)

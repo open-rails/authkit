@@ -81,7 +81,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		}, 5*time.Second, 10*time.Millisecond)
 		granted := make(chan error, 1)
 		go func() {
-			granted <- assignRole(ctx, svc, iam.UserActor(owner.ID), iam.GroupByID(group), iam.UserSubject(member.ID), "owner")
+			granted <- assignRole(ctx, svc, iam.UserIdentity(owner.ID), iam.GroupByID(group), iam.UserSubject(member.ID), "owner")
 		}()
 		require.Eventually(t, func() bool {
 			var n int
@@ -98,7 +98,7 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		survivorID, err := seedGroup(ctx, svc, ident.Persona("org"), "")
 		require.NoError(t, err)
 		survivor := iam.GroupByID(survivorID)
-		application, err := svc.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(controller), iam.RemoteApplication{Issuer: "https://retained-app.example", JWKSURI: "https://retained-app.example/jwks", Mode: iam.RemoteApplicationModeJWKS, Enabled: true})
+		application, err := svc.UpsertRemoteApplication(ctx, iam.SystemIdentity(), iam.GroupByID(controller), iam.RemoteApplication{Issuer: "https://retained-app.example", JWKSURI: "https://retained-app.example/jwks", Mode: iam.RemoteApplicationModeJWKS, Enabled: true})
 		require.NoError(t, err)
 		// A historical cross-control assignment that the assignment APIs
 		// refuse: deleting its controller must not count the departing
@@ -115,11 +115,11 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		require.Error(t, err)
 		_, _, err = svc.storedApplicationAuthority(ctx, application.ID)
 		require.Error(t, err)
-		allowed, err := svc.Can(ctx, iam.RemoteApplicationActor(application.ID), survivor, ident.Perm("org:billing:read"))
+		allowed, err := svc.Can(ctx, iam.ApplicationIdentity(application.ID), survivor, ident.Perm("org:billing:read"))
 		require.NoError(t, err)
 		require.False(t, allowed)
 		application.Enabled = false
-		_, err = svc.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.GroupByID(application.GroupID), application)
+		_, err = svc.UpsertRemoteApplication(ctx, iam.SystemIdentity(), iam.GroupByID(application.GroupID), application)
 		require.ErrorIs(t, err, iam.ErrGroupNotFound, "retained application state cannot be rewritten")
 	})
 }

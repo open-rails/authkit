@@ -22,6 +22,7 @@ import (
 	"github.com/open-rails/authkit/internal/testkeys"
 	"github.com/open-rails/authkit/keys"
 	"github.com/open-rails/authkit/verify"
+	"github.com/open-rails/helpers/auth"
 	"github.com/stretchr/testify/require"
 )
 
@@ -77,7 +78,7 @@ func TestSecuritySystemApplicationRekey(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withApps))
 	ctx := context.Background()
 	partner := newSigner(t, "partner-kid")
-	app, err := h.auth.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.RootGroup(), iam.RemoteApplication{
+	app, err := h.auth.UpsertRemoteApplication(ctx, iam.SystemIdentity(), iam.RootGroup(), iam.RemoteApplication{
 		Issuer: partnerIssuer, PublicKeys: staticKeys(t, partner), Enabled: true,
 	})
 	require.NoError(t, err)
@@ -92,9 +93,9 @@ func TestSecuritySystemApplicationRekey(t *testing.T) {
 	staff := h.newAccount("credstaff")
 	h.grant(iam.RootGroup(), staff, "credentials-admin")
 	attacker := newSigner(t, "partner-kid")
-	_, err = h.auth.UpsertRemoteApplication(ctx, iam.UserActor(staff.id), iam.RootGroup(), iam.RemoteApplication{Issuer: partnerIssuer, PublicKeys: staticKeys(t, attacker), Enabled: true})
+	_, err = h.auth.UpsertRemoteApplication(ctx, iam.UserIdentity(staff.id), iam.RootGroup(), iam.RemoteApplication{Issuer: partnerIssuer, PublicKeys: staticKeys(t, attacker), Enabled: true})
 	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
-	require.ErrorIs(t, h.auth.DeleteRemoteApplication(ctx, iam.UserActor(staff.id), iam.RootGroup(), app.ID), iam.ErrInsufficientAuthority)
+	require.ErrorIs(t, h.auth.DeleteRemoteApplication(ctx, iam.UserIdentity(staff.id), iam.RootGroup(), app.ID), iam.ErrInsufficientAuthority)
 
 	stored, err := h.auth.RemoteApplication(ctx, iam.AppByIssuer(partnerIssuer))
 	require.NoError(t, err)
@@ -108,7 +109,7 @@ func TestSecuritySystemApplicationRekey(t *testing.T) {
 		group, _ := h.newOrg(owner)
 		h.grant(group, manager, "manager")
 		register := func() error {
-			_, err := h.upsertGroupApp(iam.UserActor(manager.id), group, "https://rekey-app.security.test", publicKeyPEM(t), true)
+			_, err := h.upsertGroupApp(iam.UserIdentity(manager.id), group, "https://rekey-app.security.test", publicKeyPEM(t), true)
 			return err
 		}
 		require.NoError(t, register())
@@ -119,7 +120,7 @@ func TestSecuritySystemApplicationRekey(t *testing.T) {
 		_, err = h.pool.Exec(ctx, `INSERT INTO profiles.group_remote_application_roles(permission_group_id,remote_application_id,role) VALUES($1::uuid,$2::uuid,'root:credentials-admin')`, h.rootGroupID(), groupApp.ID)
 		require.NoError(t, err)
 		requireRefused(t, register())
-		requireRefused(t, h.auth.DeleteRemoteApplication(ctx, iam.UserActor(manager.id), group, groupApp.ID))
+		requireRefused(t, h.auth.DeleteRemoteApplication(ctx, iam.UserIdentity(manager.id), group, groupApp.ID))
 		_, err = h.pool.Exec(ctx, `DELETE FROM profiles.group_remote_application_roles WHERE remote_application_id=$1::uuid AND permission_group_id=$2::uuid`, groupApp.ID, h.rootGroupID())
 		require.NoError(t, err)
 		require.NoError(t, register(), "control: without the root role the manager covers it")
@@ -134,24 +135,24 @@ func TestSecurityGroupApplicationTrustRoot(t *testing.T) {
 	ctx := context.Background()
 	owner := h.newAccount("trustowner")
 	group, _ := h.newOrg(owner)
-	actor := iam.UserActor(owner.id)
+	who := iam.UserIdentity(owner.id)
 	const iss = "https://trust-app.security.test"
-	app, err := h.upsertGroupApp(actor, group, iss, publicKeyPEM(t), true)
+	app, err := h.upsertGroupApp(who, group, iss, publicKeyPEM(t), true)
 	require.NoError(t, err)
 	require.Equal(t, iam.ApplicationTrustRootUser, app.TrustRoot)
 
 	app.TrustRoot = iam.ApplicationTrustRootManual
-	app, err = h.auth.UpsertRemoteApplication(ctx, actor, group, app)
+	app, err = h.auth.UpsertRemoteApplication(ctx, who, group, app)
 	require.NoError(t, err)
-	require.Equal(t, iam.ApplicationTrustRootUser, app.TrustRoot, "a group actor cannot hand the application to the system")
+	require.Equal(t, iam.ApplicationTrustRootUser, app.TrustRoot, "a group member cannot hand the application to the system")
 
 	app.TrustRoot = iam.ApplicationTrustRootManual
-	app, err = h.auth.UpsertRemoteApplication(ctx, iam.SystemActor(), group, app)
+	app, err = h.auth.UpsertRemoteApplication(ctx, iam.SystemIdentity(), group, app)
 	require.NoError(t, err)
 	require.Equal(t, iam.ApplicationTrustRootManual, app.TrustRoot)
-	_, err = h.upsertGroupApp(actor, group, iss, publicKeyPEM(t), true)
+	_, err = h.upsertGroupApp(who, group, iss, publicKeyPEM(t), true)
 	require.ErrorIs(t, err, iam.ErrInsufficientAuthority, "the system's application no longer changes through its group")
-	require.ErrorIs(t, h.auth.DeleteRemoteApplication(ctx, actor, group, app.ID), iam.ErrInsufficientAuthority)
+	require.ErrorIs(t, h.auth.DeleteRemoteApplication(ctx, who, group, app.ID), iam.ErrInsufficientAuthority)
 }
 
 // TestSecurityApplicationMFARoles (L2): an application cannot enroll a second
@@ -160,11 +161,11 @@ func TestSecurityGroupApplicationTrustRoot(t *testing.T) {
 func TestSecurityApplicationMFARoles(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withApps))
 	ctx := context.Background()
-	app, err := h.auth.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.RootGroup(), iam.RemoteApplication{
+	app, err := h.auth.UpsertRemoteApplication(ctx, iam.SystemIdentity(), iam.RootGroup(), iam.RemoteApplication{
 		Issuer: "https://root-app.security.test", PublicKeys: staticKeys(t, newSigner(t, "root-app")), Enabled: true,
 	})
 	require.NoError(t, err)
-	require.ErrorIs(t, setRole(h.auth, ctx, iam.SystemActor(), iam.RootGroup(), iam.RemoteApplicationSubject(app.ID), iam.RootPersona().OwnerRole()), iam.ErrRoleNotAssignable)
+	require.ErrorIs(t, setRole(h.auth, ctx, iam.SystemIdentity(), iam.RootGroup(), iam.RemoteApplicationSubject(app.ID), iam.RootPersona().OwnerRole()), iam.ErrRoleNotAssignable)
 	grantRole(t, h.auth, iam.RootGroup(), iam.RemoteApplicationSubject(app.ID), "credentials-admin")
 
 	owner := h.newAccount("mfaowner")
@@ -173,7 +174,7 @@ func TestSecurityApplicationMFARoles(t *testing.T) {
 	// An owner row for the application from before this rule.
 	_, err = h.pool.Exec(ctx, `UPDATE profiles.group_remote_application_roles SET role='root:owner' WHERE remote_application_id=$1::uuid`, app.ID)
 	require.NoError(t, err)
-	require.ErrorIs(t, h.auth.RemoveGroupMember(ctx, iam.SystemActor(), iam.RootGroup(), iam.UserSubject(owner.id), authkit.IfRole(iam.RootPersona().OwnerRole())), iam.ErrLastOwner, "the application counted as the MFA owner")
+	require.ErrorIs(t, h.auth.RemoveGroupMember(ctx, iam.SystemIdentity(), iam.RootGroup(), iam.UserSubject(owner.id), authkit.IfRole(iam.RootPersona().OwnerRole())), iam.ErrLastOwner, "the application counted as the MFA owner")
 	roles, err := h.auth.GroupRoles(ctx, iam.RootGroup(), []iam.Subject{iam.UserSubject(owner.id)})
 	require.NoError(t, err)
 	require.Equal(t, iam.RootPersona().OwnerRole(), roles[iam.UserSubject(owner.id)])
@@ -182,7 +183,7 @@ func TestSecurityApplicationMFARoles(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, iam.RootPersona().OwnerRole(), stored.Role)
 	require.Empty(t, stored.Permissions)
-	can, err := h.auth.Can(ctx, iam.RemoteApplicationActor(app.ID), iam.RootGroup(), ident.RootUsersRead)
+	can, err := h.auth.Can(ctx, iam.ApplicationIdentity(app.ID), iam.RootGroup(), ident.RootUsersRead)
 	require.NoError(t, err)
 	require.False(t, can)
 
@@ -198,7 +199,7 @@ func TestSecurityApplicationMFARoles(t *testing.T) {
 }
 
 // TestSecurityApplicationRegistrar (N3): a group-registered application is a
-// credential of the user who supplied its keys. A machine actor cannot
+// credential of the user who supplied its keys. A machine identity cannot
 // register one, it holds only roles its registrar could issue, and its roles
 // end when the registrar is removed from the group or banned.
 func TestSecurityApplicationRegistrar(t *testing.T) {
@@ -220,13 +221,13 @@ func TestSecurityApplicationRegistrar(t *testing.T) {
 		t.Helper()
 		r := registered{registrar: registrar, slug: unique("regapp")}
 		r.signer = newSigner(t, r.slug)
-		actor := iam.UserActor(registrar.id)
+		who := iam.UserIdentity(registrar.id)
 		var err error
-		r.app, err = h.auth.UpsertRemoteApplication(ctx, actor, group, iam.RemoteApplication{
+		r.app, err = h.auth.UpsertRemoteApplication(ctx, who, group, iam.RemoteApplication{
 			Issuer: "https://" + r.slug + ".security.test", PublicKeys: staticKeys(t, r.signer), Enabled: true,
 		})
 		require.NoError(t, err)
-		require.NoError(t, setRole(h.auth, ctx, actor, group, iam.RemoteApplicationSubject(r.app.ID), h.role(orgPersona, "member")))
+		require.NoError(t, setRole(h.auth, ctx, who, group, iam.RemoteApplicationSubject(r.app.ID), h.role(orgPersona, "member")))
 		return r
 	}
 	manager := func(prefix string) account {
@@ -252,11 +253,11 @@ func TestSecurityApplicationRegistrar(t *testing.T) {
 
 	t.Run("an API key registers no application", func(t *testing.T) {
 		key := h.issue(base+"/api-keys", ownerToken, map[string]any{"name": "ci", "role": "org:manager"})
-		_, err := h.upsertGroupApp(iam.APIKeyActor(key.ID), group, "https://"+unique("keyapp")+".security.test", publicKeyPEM(t), true)
+		_, err := h.upsertGroupApp(iam.APIKeyIdentity(key.ID), group, "https://"+unique("keyapp")+".security.test", publicKeyPEM(t), true)
 		require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 	})
 	t.Run("an application never outranks its registrar", func(t *testing.T) {
-		requireRefused(t, setRole(h.auth, ctx, iam.UserActor(owner.id), group, iam.RemoteApplicationSubject(removedApp.app.ID), orgPersona.OwnerRole()))
+		requireRefused(t, setRole(h.auth, ctx, iam.UserIdentity(owner.id), group, iam.RemoteApplicationSubject(removedApp.app.ID), orgPersona.OwnerRole()))
 		roles, err := h.auth.GroupRoles(ctx, group, []iam.Subject{iam.RemoteApplicationSubject(removedApp.app.ID)})
 		require.NoError(t, err)
 		require.Equal(t, h.role(orgPersona, "member"), roles[iam.RemoteApplicationSubject(removedApp.app.ID)])
@@ -271,7 +272,7 @@ func TestSecurityApplicationRegistrar(t *testing.T) {
 			require.Less(t, resp.status, 300, resp.String())
 		}},
 		{"the registrar is banned", bannedApp, func(a account) {
-			require.NoError(t, h.auth.Ban(ctx, iam.SystemActor(), a.id, iam.Ban{Reason: "abuse"}))
+			require.NoError(t, h.auth.Ban(ctx, iam.SystemIdentity(), a.id, iam.Ban{Reason: "abuse"}))
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -289,11 +290,11 @@ func TestSecurityApplicationRegistrar(t *testing.T) {
 	})
 }
 
-// TestSecurityDelegatedPrincipalManagementPlane (L3): with overlapping
+// TestSecurityDelegationManagementPlane (L3): with overlapping
 // audiences a delegated token verifies at AuthKit itself, but it is a snapshot
 // of its user's authority: AuthKit's own routes refuse it, and host gates
 // re-check it against the user's live, ban-aware authority.
-func TestSecurityDelegatedPrincipalManagementPlane(t *testing.T) {
+func TestSecurityDelegationManagementPlane(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(func(c *authkit.Config) {
 		c.Delegated = authkit.DelegatedConfig{Audiences: []string{audience}}
 	}), authtest.WithDeps(func(d *authkit.Deps) {
@@ -305,12 +306,13 @@ func TestSecurityDelegatedPrincipalManagementPlane(t *testing.T) {
 	admin := h.newAccount("delegadmin")
 	h.grant(iam.RootGroup(), admin, "admin")
 	require.Equal(t, http.StatusOK, h.get("/admin/users", h.login(admin).AccessToken).status, "control: the user reads the directory")
-	token, err := h.auth.MintDelegatedAccessToken(ctx, iam.UserActor(admin.id), iam.DelegatedAccess{Audiences: []string{audience}, Permissions: []string{ident.RootUsersRead.String()}})
+	token, err := h.auth.MintDelegatedAccessToken(ctx, iam.UserIdentity(admin.id), iam.DelegatedAccess{Audiences: []string{audience}, Permissions: []string{ident.RootUsersRead.String()}})
 	require.NoError(t, err)
-	cl, err := h.auth.Verify(ctx, token.Value)
+	_, err = h.auth.Verify(ctx, token.Value)
 	require.NoError(t, err, "overlapping audiences: the delegated token verifies here")
+	delegated := tokenIdentity(t, h.auth, token.Value)
 	perm := iam.Perm(ident.RootUsersRead)
-	allowed, err := allow(ctx, h.auth, cl, perm, iam.RootGroup())
+	allowed, err := allow(ctx, h.auth, delegated, perm, iam.RootGroup())
 	require.NoError(t, err)
 	require.True(t, allowed)
 
@@ -322,43 +324,43 @@ func TestSecurityDelegatedPrincipalManagementPlane(t *testing.T) {
 	_, err = h.pool.Exec(ctx, `UPDATE profiles.users SET banned_at=now(), ban_reason='test' WHERE id=$1::uuid`, admin.id)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusForbidden, h.get("/admin/users", token.Value).status)
-	allowed, err = allow(ctx, h.auth, cl, perm, iam.RootGroup())
+	allowed, err = allow(ctx, h.auth, delegated, perm, iam.RootGroup())
 	require.NoError(t, err)
 	require.False(t, allowed, "a banned user's delegated token kept its authority")
 }
 
 // TestSecurityDelegatedMintAuthority: the grant check runs on the Go path too.
 // A user mints only for itself and only AuthKit authority it holds live;
-// machine actors never mint; the system is trusted.
+// machine identities never mint; the system is trusted.
 func TestSecurityDelegatedMintAuthority(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
 	ctx := context.Background()
 	moderator, other := h.newAccount("mintmod"), h.newAccount("mintother")
 	h.grant(iam.RootGroup(), moderator, "moderator")
-	mint := func(a iam.Actor, d iam.DelegatedAccess) error {
+	mint := func(a auth.Identity, d iam.DelegatedAccess) error {
 		d.Audiences = []string{"resource.security.test"}
 		_, err := h.auth.MintDelegatedAccessToken(ctx, a, d)
 		return err
 	}
-	require.NoError(t, mint(iam.UserActor(moderator.id), iam.DelegatedAccess{Permissions: []string{ident.RootUsersBan.String(), "resource:read"}}))
-	require.ErrorIs(t, mint(iam.UserActor(moderator.id), iam.DelegatedAccess{Permissions: []string{ident.RootUsersManage.String()}}), iam.ErrDelegationRefused)
-	require.ErrorIs(t, mint(iam.UserActor(moderator.id), iam.DelegatedAccess{Permissions: []string{"root:*"}}), iam.ErrDelegationRefused)
-	require.ErrorIs(t, mint(iam.UserActor(moderator.id), iam.DelegatedAccess{Subject: other.id}), iam.ErrInsufficientAuthority)
-	for _, a := range []iam.Actor{{}, iam.APIKeyActor("0190f000-0000-7000-8000-000000000001"), iam.RemoteApplicationActor("0190f000-0000-7000-8000-000000000002")} {
-		require.Error(t, mint(a, iam.DelegatedAccess{Subject: moderator.id}), a.String())
+	require.NoError(t, mint(iam.UserIdentity(moderator.id), iam.DelegatedAccess{Permissions: []string{ident.RootUsersBan.String(), "resource:read"}}))
+	require.ErrorIs(t, mint(iam.UserIdentity(moderator.id), iam.DelegatedAccess{Permissions: []string{ident.RootUsersManage.String()}}), iam.ErrDelegationRefused)
+	require.ErrorIs(t, mint(iam.UserIdentity(moderator.id), iam.DelegatedAccess{Permissions: []string{"root:*"}}), iam.ErrDelegationRefused)
+	require.ErrorIs(t, mint(iam.UserIdentity(moderator.id), iam.DelegatedAccess{Subject: other.id}), iam.ErrInsufficientAuthority)
+	for _, a := range []auth.Identity{{}, iam.APIKeyIdentity("0190f000-0000-7000-8000-000000000001"), iam.ApplicationIdentity("0190f000-0000-7000-8000-000000000002")} {
+		require.Error(t, mint(a, iam.DelegatedAccess{Subject: moderator.id}), "%+v", a)
 	}
-	require.Error(t, mint(iam.SystemActor(), iam.DelegatedAccess{}), "the system names the subject")
-	require.NoError(t, mint(iam.SystemActor(), iam.DelegatedAccess{Subject: other.id, Permissions: []string{ident.RootUsersManage.String()}}))
+	require.Error(t, mint(iam.SystemIdentity(), iam.DelegatedAccess{}), "the system names the subject")
+	require.NoError(t, mint(iam.SystemIdentity(), iam.DelegatedAccess{Subject: other.id, Permissions: []string{ident.RootUsersManage.String()}}))
 
 	_, err := h.pool.Exec(ctx, `UPDATE profiles.users SET banned_at=now(), ban_reason='test' WHERE id=$1::uuid`, moderator.id)
 	require.NoError(t, err)
-	require.ErrorIs(t, mint(iam.UserActor(moderator.id), iam.DelegatedAccess{Permissions: []string{"resource:read"}}), iam.ErrInsufficientAuthority)
+	require.ErrorIs(t, mint(iam.UserIdentity(moderator.id), iam.DelegatedAccess{Permissions: []string{"resource:read"}}), iam.ErrInsufficientAuthority)
 }
 
 // TestSecurityTokenMatrix (invariant 7): typ × subject claims × sender binding
-// × issuer kind. Only the allowed shapes verify, each derives the one actor its
+// × issuer kind. Only the allowed shapes verify, each derives the one identity its
 // shape implies (never the system), and AuthKit's management routes refuse
-// every delegated principal that verifies.
+// every delegation that verifies.
 func TestSecurityTokenMatrix(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
 	ctx := context.Background()
@@ -367,7 +369,7 @@ func TestSecurityTokenMatrix(t *testing.T) {
 	_, base := h.newOrg(user)
 	managed, foreign := newSigner(t, "managed-kid"), newSigner(t, "foreign-kid")
 	const managedIssuer, foreignIssuer = "https://managed.security.test", "https://foreign.security.test"
-	app, err := h.auth.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.RootGroup(), iam.RemoteApplication{
+	app, err := h.auth.UpsertRemoteApplication(ctx, iam.SystemIdentity(), iam.RootGroup(), iam.RemoteApplication{
 		Issuer: managedIssuer, PublicKeys: staticKeys(t, managed), Enabled: true,
 	})
 	require.NoError(t, err)
@@ -424,31 +426,34 @@ func TestSecurityTokenMatrix(t *testing.T) {
 					if bound {
 						name += "/cnf"
 					}
-					cl, err := authenticators[is.name].VerifyRequest(req)
+					_, err = authenticators[is.name].VerifyRequest(req)
 					want := allowed[[3]string{is.name, typ, subject}] && (!bound || typ == jose.DelegatedAccessTokenType)
 					if !want {
 						require.Error(t, err, name)
 						continue
 					}
 					require.NoError(t, err, name)
-					actor, ok := verify.ActorFromClaims(cl)
-					require.NotEqual(t, iam.ActorSystem, actor.Kind(), name)
+					who, _ := gateIdentity(authenticators[is.name], req)
+					state, ok := iam.StateOf(who)
+					require.False(t, state.IsSystem(), name)
 					switch {
 					case typ == jose.AccessTokenType && is.name == "local":
-						require.True(t, ok, name)
-						require.Equal(t, iam.UserActor(user.id), actor, name)
+						require.True(t, ok && state.IsUser(), name)
+						require.Equal(t, user.id, state.ID(), name)
+						_, sessionBound := state.Session()
+						require.False(t, sessionBound, name)
 					case typ == jose.AccessTokenType:
 						require.False(t, ok, "a foreign user has no AuthKit authority: %s", name)
 					case typ == jose.RemoteApplicationAccessTokenType:
-						require.Equal(t, iam.ActorRemoteApplication, actor.Kind(), name)
-						require.Equal(t, app.ID, actor.ID(), name)
+						require.True(t, state.IsApplication(), name)
+						require.Equal(t, app.ID, state.ID(), name)
+					case is.name == "managed":
+						require.True(t, state.IsApplication() && state.Delegated(), name)
+						require.Equal(t, app.ID, state.ID(), name)
+						require.Equal(t, auth.Invoker{Issuer: is.iss, ID: user.id}, who.Invoker, name)
 					default:
-						require.Equal(t, iam.ActorDelegated, actor.Kind(), name)
-						grant, _ := actor.Delegation()
-						require.Equal(t, is.iss, grant.Issuer, name)
-						if is.name == "managed" {
-							require.Equal(t, app.ID, grant.RemoteApplicationID, name)
-						}
+						require.True(t, state.Delegated(), name)
+						require.Equal(t, is.iss, state.DelegatedIssuer(), name)
 						if !bound {
 							resp := h.get("/admin/users", token)
 							refused := http.StatusForbidden
@@ -475,7 +480,7 @@ func TestSecurityRemoteApplicationPaging(t *testing.T) {
 	owner := h.newAccount("pageowner")
 	group, _ := h.newOrg(owner)
 	for _, slug := range []string{"page-a", "page-b", "page-c"} {
-		_, err := h.auth.UpsertRemoteApplication(ctx, iam.UserActor(owner.id), group, iam.RemoteApplication{
+		_, err := h.auth.UpsertRemoteApplication(ctx, iam.UserIdentity(owner.id), group, iam.RemoteApplication{
 			Issuer: "https://" + slug + ".security.test", PublicKeys: []iam.RemoteApplicationKey{{PublicKeyPEM: publicKeyPEM(t)}}, Enabled: true,
 		})
 		require.NoError(t, err)

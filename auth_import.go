@@ -8,7 +8,7 @@ import (
 )
 
 // Bootstrap, the first admin, bulk import and provider links. These are host
-// operations: your code decides, so they take no actor, and nothing on
+// operations: your code decides, so they take no identity, and nothing on
 // AuthKit's HTTP surface reaches them. The invariants still hold, and none of
 // them lets an account someone else registered gain authority through an
 // unverified email or phone, a username or an alias.

@@ -81,7 +81,7 @@ func TestCreateGroupByHostID(t *testing.T) {
 		require.NoError(t, errs[i])
 		require.Equal(t, id, got[i])
 	}
-	_, err = auth.SetGroupRole(ctx, iam.SystemActor(), iam.GroupByID(id), iam.UserSubject(other.ID), member)
+	_, err = auth.SetGroupRole(ctx, iam.SystemIdentity(), iam.GroupByID(id), iam.UserSubject(other.ID), member)
 	require.NoError(t, err)
 }
 
@@ -100,7 +100,7 @@ func TestOperationsJoinTheHostTransaction(t *testing.T) {
 		require.NoError(t, err)
 		mod, err := auth.CreateUser(ctx, iam.NewUser{Email: n + "@example.test", Username: n}, authkit.InTx(tx))
 		require.NoError(t, err)
-		seated, err := auth.SetGroupRole(ctx, iam.UserActor(founder.ID), iam.GroupByID(g.ID), iam.UserSubject(mod.ID), member, authkit.InTx(tx))
+		seated, err := auth.SetGroupRole(ctx, iam.UserIdentity(founder.ID), iam.GroupByID(g.ID), iam.UserSubject(mod.ID), member, authkit.InTx(tx))
 		require.NoError(t, err)
 		require.Equal(t, iam.GroupMember{Subject: iam.UserSubject(mod.ID), Role: member}, seated)
 		invited, err := auth.EnsureUserRole(ctx, iam.GroupByID(g.ID), iam.UserByEmail(n+"-invited@example.test"), member, authkit.InTx(tx))
@@ -131,8 +131,8 @@ func TestOperationsJoinTheHostTransaction(t *testing.T) {
 	tx, err = pg.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	require.NoError(t, err)
 	defer tx.Rollback(ctx)
-	require.ErrorContains(t, auth.Ban(ctx, iam.SystemActor(), mod.ID, iam.Ban{}, authkit.InTx(tx)), "does not take InTx")
-	_, err = auth.DeleteUsers(ctx, iam.SystemActor(), []string{mod.ID}, authkit.IfRole(member))
+	require.ErrorContains(t, auth.Ban(ctx, iam.SystemIdentity(), mod.ID, iam.Ban{}, authkit.InTx(tx)), "does not take InTx")
+	_, err = auth.DeleteUsers(ctx, iam.SystemIdentity(), []string{mod.ID}, authkit.IfRole(member))
 	require.ErrorContains(t, err, "does not take IfRole")
 	_, err = auth.User(ctx, iam.UserByID(mod.ID), authkit.InTx(tx))
 	require.ErrorContains(t, err, "does not take InTx")

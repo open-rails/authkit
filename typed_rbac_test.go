@@ -47,7 +47,7 @@ func TestChannelDeletionModels(t *testing.T) {
 	require.NoError(t, err)
 	golang := iam.GroupByID(g.ID)
 	grant := func(ref iam.GroupRef, userID string, role iam.Role) {
-		_, err := auth.SetGroupRole(ctx, iam.SystemActor(), ref, iam.UserSubject(userID), role)
+		_, err := auth.SetGroupRole(ctx, iam.SystemIdentity(), ref, iam.UserSubject(userID), role)
 		require.NoError(t, err)
 	}
 	grant(golang, mod, moderator)
@@ -56,7 +56,7 @@ func TestChannelDeletionModels(t *testing.T) {
 	grant(iam.RootGroup(), siteOwner, rbac.Root.Owner)
 
 	can := func(userID string, ref iam.GroupRef, perm iam.Perm) bool {
-		ok, err := auth.Can(ctx, iam.UserActor(userID), ref, perm)
+		ok, err := auth.Can(ctx, iam.UserIdentity(userID), ref, perm)
 		require.NoError(t, err)
 		return ok
 	}
@@ -74,7 +74,7 @@ func TestChannelDeletionModels(t *testing.T) {
 		require.Equal(t, tc.perChannel, can(tc.id, golang, selfDelete), "%s, per channel", tc.who)
 		require.Equal(t, tc.global, can(tc.id, iam.RootGroup(), channelsDelete), "%s, global", tc.who)
 	}
-	_, err = auth.Can(ctx, iam.UserActor(owner), golang, channelsDelete)
+	_, err = auth.Can(ctx, iam.UserIdentity(owner), golang, channelsDelete)
 	require.NoError(t, err, "a root permission asked of a channel is false, not an error")
 	require.False(t, can(sAdmin, golang, channelsDelete), "root:channels:delete counts only on root")
 

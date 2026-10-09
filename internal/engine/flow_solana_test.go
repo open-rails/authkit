@@ -98,7 +98,7 @@ func TestSolanaRecoveryUsesTheWalletCeremony(t *testing.T) {
 	f.expect(200, f.post("/solana/login", walletProof()))
 	var walletUser string
 	require.NoError(t, pg.Pool.QueryRow(t.Context(), `SELECT user_id::text FROM user_providers WHERE subject=$1`, address).Scan(&walletUser))
-	results, err := f.engine.DeleteUsers(t.Context(), iam.UserActor(walletUser), []string{walletUser})
+	results, err := f.engine.DeleteUsers(t.Context(), iam.UserIdentity(walletUser), []string{walletUser})
 	require.NoError(t, err)
 	require.NoError(t, results[0].Err)
 

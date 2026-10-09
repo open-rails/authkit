@@ -14,6 +14,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	hauth "github.com/open-rails/helpers/auth"
 	"github.com/stretchr/testify/require"
 )
 
@@ -96,7 +97,9 @@ func (h *host) proveOwnEmail(email string, own tokens) {
 
 // sig is what an event says, without its id and time.
 func sig(e iam.Event) string {
-	return fmt.Sprintf("%s user=%s group=%s persona=%s app=%s by=%s:%s %q->%q", e.Kind, e.UserID, e.GroupID, e.Persona, e.ApplicationID, e.ActorKind, e.ActorID, e.Previous, e.Current)
+	system := e.CredentialKind == iam.CredentialSystem && e.SubjectID == ""
+	return fmt.Sprintf("%s user=%s group=%s persona=%s app=%s by=%s:%s invoker=%s system=%t %q->%q", e.Kind, e.UserID, e.GroupID, e.Persona, e.ApplicationID,
+		e.SubjectKind, e.SubjectID, e.InvokerID, system, e.Previous, e.Current)
 }
 
 // TestSecurityEventsRecordOnlyCommittedChanges: a host's audit trail (ban
@@ -109,14 +112,17 @@ func TestSecurityEventsRecordOnlyCommittedChanges(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBACNoMFA), withEvents(events))
 	ctx := context.Background()
 	require.NoError(t, h.auth.Start(ctx))
-	system := iam.SystemActor()
+	system := iam.SystemIdentity()
 	root := iam.RootGroup()
 	rootGroup, err := h.auth.Group(ctx, root)
 	require.NoError(t, err)
 	var want []string
 	expect := func(e iam.Event) { want = append(want, sig(e)) }
-	bySystem := func(e iam.Event) iam.Event { e.ActorKind = iam.ActorSystem; return e }
-	byUser := func(id string, e iam.Event) iam.Event { e.ActorKind, e.ActorID = iam.ActorUser, id; return e }
+	bySystem := func(e iam.Event) iam.Event { e.CredentialKind = iam.CredentialSystem; return e }
+	byUser := func(id string, e iam.Event) iam.Event {
+		e.SubjectKind, e.SubjectID, e.InvokerID = hauth.SubjectUser, id, id
+		return e
+	}
 
 	staff := h.newAccount("staff")
 	expect(bySystem(iam.Event{Kind: iam.EventUserRegistered, UserID: staff.id}))
@@ -190,15 +196,15 @@ func TestSecurityEventsRecordOnlyCommittedChanges(t *testing.T) {
 	require.Less(t, resp.status, 300, resp.String())
 	expect(byUser(bob.id, iam.Event{Kind: iam.EventRoleGranted, UserID: alice.id, GroupID: group.ID, Persona: orgPersona, Current: "org:member"}))
 	for range 2 { // the second assignment changes nothing
-		require.NoError(t, setRole(h.auth, ctx, iam.UserActor(bob.id), org, iam.UserSubject(alice.id), h.role(orgPersona, "manager")))
+		require.NoError(t, setRole(h.auth, ctx, iam.UserIdentity(bob.id), org, iam.UserSubject(alice.id), h.role(orgPersona, "manager")))
 	}
 	expect(byUser(bob.id, iam.Event{Kind: iam.EventRoleChanged, UserID: alice.id, GroupID: group.ID, Persona: orgPersona, Previous: "org:member", Current: "org:manager"}))
 	t.Run("refused assignments record nothing", func(t *testing.T) {
-		require.Error(t, setRole(h.auth, ctx, iam.UserActor(alice.id), org, iam.UserSubject(alice.id), orgPersona.OwnerRole()), "a manager cannot make itself owner")
-		require.Error(t, setRole(h.auth, ctx, iam.UserActor(alice.id), org, iam.UserSubject(staff.id), orgPersona.OwnerRole()), "nor anyone else")
-		require.ErrorIs(t, setRole(h.auth, ctx, iam.UserActor(bob.id), org, iam.UserSubject("0198a0f0-0000-7000-8000-000000000000"), h.role(orgPersona, "member")), iam.ErrUserNotFound)
+		require.Error(t, setRole(h.auth, ctx, iam.UserIdentity(alice.id), org, iam.UserSubject(alice.id), orgPersona.OwnerRole()), "a manager cannot make itself owner")
+		require.Error(t, setRole(h.auth, ctx, iam.UserIdentity(alice.id), org, iam.UserSubject(staff.id), orgPersona.OwnerRole()), "nor anyone else")
+		require.ErrorIs(t, setRole(h.auth, ctx, iam.UserIdentity(bob.id), org, iam.UserSubject("0198a0f0-0000-7000-8000-000000000000"), h.role(orgPersona, "member")), iam.ErrUserNotFound)
 	})
-	require.NoError(t, h.auth.RemoveGroupMember(ctx, iam.UserActor(bob.id), org, iam.UserSubject(alice.id), authkit.IfRole(h.role(orgPersona, "manager"))))
+	require.NoError(t, h.auth.RemoveGroupMember(ctx, iam.UserIdentity(bob.id), org, iam.UserSubject(alice.id), authkit.IfRole(h.role(orgPersona, "manager"))))
 	expect(byUser(bob.id, iam.Event{Kind: iam.EventRoleRevoked, UserID: alice.id, GroupID: group.ID, Persona: orgPersona, Previous: "org:manager"}))
 
 	grantRole(t, h.auth, root, iam.UserSubject(alice.id), "moderator")

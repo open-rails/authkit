@@ -9,11 +9,12 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/helpers/auth"
 )
 
 // groupAPIKeyMint mints a key created by the caller and returns its token
 // once, as "secret".
-func (s *Service) groupAPIKeyMint(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor) {
+func (s *Service) groupAPIKeyMint(w http.ResponseWriter, r *http.Request, g iam.Group, who auth.Identity) {
 	var body APIKeyCreateRequest
 	if err := decodeJSON(r, &body); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
@@ -24,7 +25,7 @@ func (s *Service) groupAPIKeyMint(w http.ResponseWriter, r *http.Request, g iam.
 		writeError(w, err)
 		return
 	}
-	created, err := s.svc.CreateAPIKey(r.Context(), actor, iam.GroupByID(g.ID), iam.NewAPIKey{
+	created, err := s.svc.CreateAPIKey(r.Context(), who, iam.GroupByID(g.ID), iam.NewAPIKey{
 		Name:      strings.TrimSpace(body.Name),
 		Role:      role,
 		ExpiresAt: body.ExpiresAt,
@@ -52,12 +53,12 @@ func (s *Service) groupAPIKeyList(w http.ResponseWriter, r *http.Request, g iam.
 
 // groupAPIKeyRevoke revokes the group's key {id}. Like every DELETE it is
 // idempotent: a revoked or unknown key answers 204 too.
-func (s *Service) groupAPIKeyRevoke(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor, id string) {
+func (s *Service) groupAPIKeyRevoke(w http.ResponseWriter, r *http.Request, g iam.Group, who auth.Identity, id string) {
 	if id == "" {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	if err := s.svc.RevokeAPIKey(r.Context(), actor, iam.GroupByID(g.ID), id); err != nil && !errors.Is(err, iam.ErrAPIKeyNotFound) {
+	if err := s.svc.RevokeAPIKey(r.Context(), who, iam.GroupByID(g.ID), id); err != nil && !errors.Is(err, iam.ErrAPIKeyNotFound) {
 		writeError(w, err)
 		return
 	}

@@ -150,7 +150,7 @@ func (s *Engine) createUser(ctx context.Context, email, username string) (*db.Us
 	if err != nil {
 		return nil, mapUserUniqueViolation(err)
 	}
-	if err := s.emitEvents(ctx, tx, iam.UserActor(ins.ID), userEvent(iam.EventUserRegistered, ins.ID)); err != nil {
+	if err := s.emitEvents(ctx, tx, iam.UserIdentity(ins.ID), userEvent(iam.EventUserRegistered, ins.ID)); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -291,7 +291,7 @@ func (s *Engine) renameUsernameTx(ctx context.Context, tx pgx.Tx, id, username s
 			return err
 		}
 	}
-	if err := s.admitName(ctx, iam.NameAdmissionRequest{UserID: id, ActorID: id, CurrentName: oldName, RequestedName: username, Operation: iam.NameRename}); err != nil {
+	if err := s.admitName(ctx, iam.NameAdmissionRequest{UserID: id, SubjectID: id, CurrentName: oldName, RequestedName: username, Operation: iam.NameRename}); err != nil {
 		return err
 	}
 	if err := renameNameClaim(ctx, tx, id, oldName, username, now, policy); err != nil {

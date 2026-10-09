@@ -131,7 +131,7 @@ func TestSecurityAuthenticateBehindGate(t *testing.T) {
 	})
 
 	t.Run("a delegation minted without a sign-in", func(t *testing.T) {
-		token, err := h.auth.MintDelegatedAccessToken(t.Context(), iam.SystemActor(), iam.DelegatedAccess{Subject: moderator.id, Audiences: []string{resource}})
+		token, err := h.auth.MintDelegatedAccessToken(t.Context(), iam.SystemIdentity(), iam.DelegatedAccess{Subject: moderator.id, Audiences: []string{resource}})
 		require.NoError(t, err)
 		resp := send("/required", http.Header{"Authorization": {"Bearer " + token.Value}})
 		require.Equal(t, "revoked", resp.String())
@@ -207,11 +207,7 @@ func TestSecurityPermissionReadMatchesMePermissions(t *testing.T) {
 				require.Equal(t, tc.role, *me.Role)
 			}
 
-			cl, err := h.auth.Verify(t.Context(), token)
-			require.NoError(t, err)
-			actor, ok := verify.ActorFromClaims(cl)
-			require.True(t, ok)
-			byGroup, err := h.auth.EffectivePermissions(t.Context(), actor, []iam.GroupRef{iam.RootGroup()})
+			byGroup, err := h.auth.EffectivePermissions(t.Context(), tokenIdentity(t, h.auth, token), []iam.GroupRef{iam.RootGroup()})
 			require.NoError(t, err)
 			var live []iam.Perm
 			for _, grants := range byGroup {

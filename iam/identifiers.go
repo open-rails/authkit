@@ -152,7 +152,8 @@ const (
 	SubjectKindRemoteApplication SubjectKind = "remote_application"
 )
 
-// Subject is a principal that can hold roles in a permission group.
+// Subject is an account that can hold roles in a permission group: a user or
+// a remote application.
 type Subject struct {
 	ID   string      `json:"id"`
 	Kind SubjectKind `json:"kind"`

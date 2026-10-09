@@ -235,7 +235,7 @@ func TestStartWithRiverClient(t *testing.T) {
 	require.NoError(t, auth.Start(t.Context(), authkit.WithRiverClient(fleet)))
 	user, err := auth.CreateUser(t.Context(), iam.NewUser{Email: "fleet@example.test", Username: "fleet", Password: "Correct-horse-battery-1"})
 	require.NoError(t, err)
-	results, err := auth.DeleteUsers(t.Context(), iam.SystemActor(), []string{user.ID})
+	results, err := auth.DeleteUsers(t.Context(), iam.SystemIdentity(), []string{user.ID})
 	require.NoError(t, err)
 	require.NoError(t, results[0].Err)
 	require.NoError(t, fleet.Start(t.Context()), "jobs queued before the fleet starts wait for it")

@@ -24,6 +24,7 @@ import (
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/ops"
 	"github.com/open-rails/authkit/internal/secret"
+	"github.com/open-rails/helpers/auth"
 )
 
 // CreateInvitation creates an invite link (n.Email empty), or emails an
@@ -32,7 +33,7 @@ import (
 // (no role) is issued in the root group and needs CAP(root:users:invite).
 // Only a user or the system issues credentials. The code is returned once.
 // ops.InTx applies to links only: an email is sent at once.
-func (s *Engine) CreateInvitation(ctx context.Context, a iam.Actor, ref iam.GroupRef, n iam.NewInvitation, opts ...ops.Option) (iam.InvitationCreated, error) {
+func (s *Engine) CreateInvitation(ctx context.Context, a auth.Identity, ref iam.GroupRef, n iam.NewInvitation, opts ...ops.Option) (iam.InvitationCreated, error) {
 	host, err := hostTx("CreateInvitation", opts)
 	if err != nil {
 		return iam.InvitationCreated{}, err
@@ -57,7 +58,7 @@ func (s *Engine) CreateInvitation(ctx context.Context, a iam.Actor, ref iam.Grou
 	return s.createEmailInvitation(ctx, a, ref, n, creator, now)
 }
 
-func (s *Engine) createInviteLink(ctx context.Context, a iam.Actor, host pgx.Tx, ref iam.GroupRef, n iam.NewInvitation, creator string, now time.Time) (iam.InvitationCreated, error) {
+func (s *Engine) createInviteLink(ctx context.Context, a auth.Identity, host pgx.Tx, ref iam.GroupRef, n iam.NewInvitation, creator string, now time.Time) (iam.InvitationCreated, error) {
 	if !s.externalInvitesEnabled() {
 		return iam.InvitationCreated{}, iam.ErrExternalInvitesDisabled
 	}
@@ -93,7 +94,7 @@ func (s *Engine) createInviteLink(ctx context.Context, a iam.Actor, host pgx.Tx,
 	return out, nil
 }
 
-func (s *Engine) createEmailInvitation(ctx context.Context, a iam.Actor, ref iam.GroupRef, n iam.NewInvitation, creator string, now time.Time) (iam.InvitationCreated, error) {
+func (s *Engine) createEmailInvitation(ctx context.Context, a auth.Identity, ref iam.GroupRef, n iam.NewInvitation, creator string, now time.Time) (iam.InvitationCreated, error) {
 	email := contact.NormalizeEmail(n.Email)
 	if err := contact.ValidateEmail(email); err != nil {
 		return iam.InvitationCreated{}, err
@@ -113,7 +114,7 @@ func (s *Engine) createEmailInvitation(ctx context.Context, a iam.Actor, ref iam
 			if g.Persona != iam.RootPersona() {
 				return errmodel.ErrInvalidInvite
 			}
-			auth, err := s.actorAuthority(ctx, st, a, g)
+			auth, err := s.identityAuthority(ctx, st, a, g)
 			if err != nil {
 				return err
 			}
@@ -182,12 +183,12 @@ func (s *Engine) ListInvitations(ctx context.Context, ref iam.GroupRef, p iam.Pa
 // CAP(root:users:invite) for a plain email invitation. A revoked or redeemed
 // invitation is a no-op; an id unknown in the group is
 // iam.ErrInvitationNotFound.
-func (s *Engine) RevokeInvitation(ctx context.Context, a iam.Actor, ref iam.GroupRef, id string, opts ...ops.Option) error {
+func (s *Engine) RevokeInvitation(ctx context.Context, a auth.Identity, ref iam.GroupRef, id string, opts ...ops.Option) error {
 	host, err := hostTx("RevokeInvitation", opts)
 	if err != nil {
 		return err
 	}
-	if err := requireActor(a); err != nil {
+	if err := requireIdentity(a); err != nil {
 		return err
 	}
 	id = strings.TrimSpace(id)
@@ -217,7 +218,7 @@ func (s *Engine) RevokeInvitation(ctx context.Context, a iam.Actor, ref iam.Grou
 			return err
 		}
 		if invite.Role == "" {
-			auth, err := s.actorAuthority(ctx, st, a, g)
+			auth, err := s.identityAuthority(ctx, st, a, g)
 			if err != nil {
 				return err
 			}

@@ -86,7 +86,7 @@ type issued struct {
 func (f *credentialFixture) issue(t *testing.T, creator iam.Subject, keyRole string, plain bool) issued {
 	t.Helper()
 	ctx := t.Context()
-	a := iam.UserActor(creator.ID)
+	a := iam.UserIdentity(creator.ID)
 	var out issued
 	key, err := f.e.CreateAPIKey(ctx, a, f.acme, iam.NewAPIKey{Name: "key", Role: f.role(keyRole)})
 	require.NoError(t, err)
@@ -111,7 +111,7 @@ func (f *credentialFixture) requireDead(t *testing.T, c issued) {
 	ctx := t.Context()
 	_, err := f.e.ResolveAPIKey(ctx, c.token)
 	require.ErrorIs(t, err, iam.ErrAPIKeyRevoked, "API key")
-	_, err = f.e.RedeemInvitation(ctx, iam.UserActor(f.user("redeemer").ID), c.link.Code)
+	_, err = f.e.RedeemInvitation(ctx, iam.UserIdentity(f.user("redeemer").ID), c.link.Code)
 	require.ErrorIs(t, err, errmodel.ErrInvitationRevoked, "invite link")
 	require.ErrorIs(t, f.e.consumeRegistrationInvite(ctx, c.inviteEmail, f.user("registrant").ID, c.invite.Code), iam.ErrInvitationNotFound, "registration invite")
 	if c.plain.Code != "" {
@@ -170,7 +170,7 @@ SELECT 'account_registration_invites', a.id::text, g.id::text, g.persona, COALES
 func TestNoCredentialOutlivesItsIssuer(t *testing.T) {
 	f := newCredentialFixture(t)
 	ctx := t.Context()
-	owner := iam.UserActor(f.founder.ID)
+	owner := iam.UserIdentity(f.founder.ID)
 	control := f.issue(t, f.founder, "manager", false)
 	for _, tc := range []struct {
 		name        string
@@ -183,7 +183,7 @@ func TestNoCredentialOutlivesItsIssuer(t *testing.T) {
 			require.NoError(t, removeMember(ctx, f.e, owner, f.acme, c))
 		}},
 		{"root role lost", func(t *testing.T, c iam.Subject) { grantRole(t, f.e, iam.RootGroup(), c, "org-admin") }, func(t *testing.T, c iam.Subject) {
-			require.NoError(t, unassignRole(ctx, f.e, iam.SystemActor(), iam.RootGroup(), c, "org-admin"))
+			require.NoError(t, unassignRole(ctx, f.e, iam.SystemIdentity(), iam.RootGroup(), c, "org-admin"))
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -200,9 +200,9 @@ func TestNoCredentialOutlivesItsIssuer(t *testing.T) {
 	t.Run("root invite permission lost", func(t *testing.T) {
 		creator := f.user("inviter")
 		grantRole(t, f.e, iam.RootGroup(), creator, "inviter")
-		plain, err := f.e.CreateInvitation(ctx, iam.UserActor(creator.ID), iam.RootGroup(), iam.NewInvitation{Email: "lost@credentials.test"})
+		plain, err := f.e.CreateInvitation(ctx, iam.UserIdentity(creator.ID), iam.RootGroup(), iam.NewInvitation{Email: "lost@credentials.test"})
 		require.NoError(t, err)
-		require.NoError(t, unassignRole(ctx, f.e, iam.SystemActor(), iam.RootGroup(), creator, "inviter"))
+		require.NoError(t, unassignRole(ctx, f.e, iam.SystemIdentity(), iam.RootGroup(), creator, "inviter"))
 		requireCredentialsCovered(t, f.e)
 		require.ErrorIs(t, f.e.consumeRegistrationInvite(ctx, "lost@credentials.test", f.user("registrant").ID, plain.Code), iam.ErrInvitationNotFound)
 	})
@@ -220,11 +220,11 @@ func TestNoCredentialOutlivesItsIssuer(t *testing.T) {
 				grantRole(t, f.e, f.acme, creator, "manager")
 				grantRole(t, f.e, iam.RootGroup(), creator, "inviter")
 				c := f.issue(t, creator, "manager", true)
-				require.NoError(t, assignRole(ctx, f.e, iam.APIKeyActor(c.key.ID), f.acme, f.user("control"), "member"), "a live creator's key acts")
+				require.NoError(t, assignRole(ctx, f.e, iam.APIKeyIdentity(c.key.ID), f.acme, f.user("control"), "member"), "a live creator's key acts")
 				_, err := f.e.pg.Exec(ctx, end.sql, creator.ID)
 				require.NoError(t, err)
 				f.requireDead(t, c)
-				require.ErrorIs(t, assignRole(ctx, f.e, iam.APIKeyActor(c.key.ID), f.acme, f.user("target"), "member"), iam.ErrInsufficientAuthority)
+				require.ErrorIs(t, assignRole(ctx, f.e, iam.APIKeyIdentity(c.key.ID), f.acme, f.user("target"), "member"), iam.ErrInsufficientAuthority)
 			})
 		}
 	})
@@ -237,7 +237,7 @@ func TestNoCredentialOutlivesItsIssuer(t *testing.T) {
 		creator := f.user("purged")
 		grantRole(t, f.e, f.acme, creator, "manager")
 		c := f.issue(t, creator, "member", false)
-		opKey, err := f.e.CreateAPIKey(ctx, iam.SystemActor(), f.acme, iam.NewAPIKey{Name: "system", Role: f.role("member")})
+		opKey, err := f.e.CreateAPIKey(ctx, iam.SystemIdentity(), f.acme, iam.NewAPIKey{Name: "system", Role: f.role("member")})
 		require.NoError(t, err)
 		opToken := opKey.Secret
 		generation := prepareExpiredDeletion(t, f.e, creator.ID)

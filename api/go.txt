@@ -19,22 +19,22 @@ pkg authkit, func WithRiverClient(*river.Client[pgx.Tx]) StartOption
 pkg authkit, method (*Client) APIBase() string
 pkg authkit, method (*Client) ApplyBootstrapManifest(context.Context, iam.BootstrapManifest, iam.BootstrapOptions, ...Option) (iam.BootstrapResult, error)
 pkg authkit, method (*Client) AuthenticateRequest(context.Context, *http.Request) (auth.Verified, error)
-pkg authkit, method (*Client) Ban(context.Context, iam.Actor, string, iam.Ban, ...Option) error
-pkg authkit, method (*Client) Can(context.Context, iam.Actor, iam.GroupRef, iam.Perm) (bool, error)
+pkg authkit, method (*Client) Ban(context.Context, auth.Identity, string, iam.Ban, ...Option) error
+pkg authkit, method (*Client) Can(context.Context, auth.Identity, iam.GroupRef, iam.Perm) (bool, error)
 pkg authkit, method (*Client) CheckIssuerKeys(context.Context) error
 pkg authkit, method (*Client) CheckRecentSignIn(context.Context, verify.Claims) error
 pkg authkit, method (*Client) CheckSession(context.Context, verify.Claims) error
 pkg authkit, method (*Client) CheckUsername(context.Context, string) error
 pkg authkit, method (*Client) Close(context.Context) error
-pkg authkit, method (*Client) CreateAPIKey(context.Context, iam.Actor, iam.GroupRef, iam.NewAPIKey, ...Option) (iam.APIKeyCreated, error)
+pkg authkit, method (*Client) CreateAPIKey(context.Context, auth.Identity, iam.GroupRef, iam.NewAPIKey, ...Option) (iam.APIKeyCreated, error)
 pkg authkit, method (*Client) CreateGroup(context.Context, iam.NewGroup, ...Option) (iam.Group, error)
-pkg authkit, method (*Client) CreateInvitation(context.Context, iam.Actor, iam.GroupRef, iam.NewInvitation, ...Option) (iam.InvitationCreated, error)
+pkg authkit, method (*Client) CreateInvitation(context.Context, auth.Identity, iam.GroupRef, iam.NewInvitation, ...Option) (iam.InvitationCreated, error)
 pkg authkit, method (*Client) CreateUser(context.Context, iam.NewUser, ...Option) (iam.User, error)
 pkg authkit, method (*Client) DeleteGroup(context.Context, iam.GroupRef, ...Option) error
-pkg authkit, method (*Client) DeleteRemoteApplication(context.Context, iam.Actor, iam.GroupRef, string, ...Option) error
-pkg authkit, method (*Client) DeleteUsers(context.Context, iam.Actor, []string, ...Option) ([]iam.OpResult, error)
+pkg authkit, method (*Client) DeleteRemoteApplication(context.Context, auth.Identity, iam.GroupRef, string, ...Option) error
+pkg authkit, method (*Client) DeleteUsers(context.Context, auth.Identity, []string, ...Option) ([]iam.OpResult, error)
 pkg authkit, method (*Client) DeviceKeys(context.Context, string) ([]iam.DeviceKey, error)
-pkg authkit, method (*Client) EffectivePermissions(context.Context, iam.Actor, []iam.GroupRef) (map[string][]iam.Perm, error)
+pkg authkit, method (*Client) EffectivePermissions(context.Context, auth.Identity, []iam.GroupRef) (map[string][]iam.Perm, error)
 pkg authkit, method (*Client) EmailAvailable() bool
 pkg authkit, method (*Client) EmailHealth() (time.Time, error)
 pkg authkit, method (*Client) EnsureUserRole(context.Context, iam.GroupRef, iam.UserRef, iam.Role, ...Option) (iam.User, error)
@@ -57,29 +57,29 @@ pkg authkit, method (*Client) ListRemoteApplications(context.Context, iam.GroupR
 pkg authkit, method (*Client) ListSessionEvents(context.Context, string, iam.SessionEventQuery) (iam.ListPage[iam.SessionEvent], error)
 pkg authkit, method (*Client) ListUsers(context.Context, iam.UserQuery) (iam.ListPage[iam.UserEntry], error)
 pkg authkit, method (*Client) MintAccessToken(context.Context, string, iam.AccessTokenOptions, ...Option) (iam.Token, error)
-pkg authkit, method (*Client) MintDelegatedAccessToken(context.Context, iam.Actor, iam.DelegatedAccess, ...Option) (iam.Token, error)
+pkg authkit, method (*Client) MintDelegatedAccessToken(context.Context, auth.Identity, iam.DelegatedAccess, ...Option) (iam.Token, error)
 pkg authkit, method (*Client) MintServiceJWT(context.Context, iam.ServiceJWT, ...Option) (iam.Token, iam.ServiceJWTClaims, error)
 pkg authkit, method (*Client) Mount(*http.ServeMux) error
 pkg authkit, method (*Client) NewVerifier([]string, ...verify.VerifierOption) (*Verifier, error)
-pkg authkit, method (*Client) PatchPublicMetadata(context.Context, iam.Actor, string, map[string]any, ...Option) error
+pkg authkit, method (*Client) PatchPublicMetadata(context.Context, auth.Identity, string, map[string]any, ...Option) error
 pkg authkit, method (*Client) Permission(string) (iam.Perm, error)
 pkg authkit, method (*Client) Persona(string) (iam.Persona, error)
 pkg authkit, method (*Client) PublicUsers(context.Context, []string) (map[string]iam.PublicUser, error)
 pkg authkit, method (*Client) PurgeGroup(context.Context, iam.GroupRef, ...Option) error
 pkg authkit, method (*Client) PurgeUsers(context.Context, []string, ...Option) ([]iam.OpResult, error)
 pkg authkit, method (*Client) RemoteApplication(context.Context, iam.AppRef) (iam.RemoteApplication, error)
-pkg authkit, method (*Client) RemoveGroupMember(context.Context, iam.Actor, iam.GroupRef, iam.Subject, ...Option) error
+pkg authkit, method (*Client) RemoveGroupMember(context.Context, auth.Identity, iam.GroupRef, iam.Subject, ...Option) error
 pkg authkit, method (*Client) RequirePermission(string) func(http.Handler) http.Handler
 pkg authkit, method (*Client) Required() func(http.Handler) http.Handler
 pkg authkit, method (*Client) ResetAccountMFA(context.Context, string, ...Option) error
-pkg authkit, method (*Client) ResolveAPIKey(context.Context, string) (iam.APIKeyPrincipal, error)
+pkg authkit, method (*Client) ResolveAPIKey(context.Context, string) (iam.ResolvedAPIKey, error)
 pkg authkit, method (*Client) ResolveUsername(context.Context, string) (iam.NameResolution, error)
-pkg authkit, method (*Client) RestoreUsers(context.Context, iam.Actor, []string, ...Option) ([]iam.OpResult, error)
-pkg authkit, method (*Client) RevokeAPIKey(context.Context, iam.Actor, iam.GroupRef, string, ...Option) error
-pkg authkit, method (*Client) RevokeAccountSessions(context.Context, iam.Actor, string, ...Option) (iam.AccountSessionRevocation, error)
-pkg authkit, method (*Client) RevokeInvitation(context.Context, iam.Actor, iam.GroupRef, string, ...Option) error
+pkg authkit, method (*Client) RestoreUsers(context.Context, auth.Identity, []string, ...Option) ([]iam.OpResult, error)
+pkg authkit, method (*Client) RevokeAPIKey(context.Context, auth.Identity, iam.GroupRef, string, ...Option) error
+pkg authkit, method (*Client) RevokeAccountSessions(context.Context, auth.Identity, string, ...Option) (iam.AccountSessionRevocation, error)
+pkg authkit, method (*Client) RevokeInvitation(context.Context, auth.Identity, iam.GroupRef, string, ...Option) error
 pkg authkit, method (*Client) RevokeOAuthGrant(context.Context, string, ...Option) error
-pkg authkit, method (*Client) RevokeSession(context.Context, iam.Actor, string, string, ...Option) error
+pkg authkit, method (*Client) RevokeSession(context.Context, auth.Identity, string, string, ...Option) error
 pkg authkit, method (*Client) RiverJobs() river.Contribution
 pkg authkit, method (*Client) Role(string) (iam.Role, error)
 pkg authkit, method (*Client) RolePermissions(iam.Role) ([]iam.Perm, error)
@@ -88,12 +88,12 @@ pkg authkit, method (*Client) SMSAvailable() bool
 pkg authkit, method (*Client) SMSHealth() (time.Time, error)
 pkg authkit, method (*Client) Sensitive() func(http.Handler) http.Handler
 pkg authkit, method (*Client) Sessions(context.Context, string) ([]iam.Session, error)
-pkg authkit, method (*Client) SetGroupRole(context.Context, iam.Actor, iam.GroupRef, iam.Subject, iam.Role, ...Option) (iam.GroupMember, error)
+pkg authkit, method (*Client) SetGroupRole(context.Context, auth.Identity, iam.GroupRef, iam.Subject, iam.Role, ...Option) (iam.GroupMember, error)
 pkg authkit, method (*Client) Start(context.Context, ...StartOption) error
 pkg authkit, method (*Client) TwoFactorMethods() []iam.TwoFactorMethod
-pkg authkit, method (*Client) Unban(context.Context, iam.Actor, string, ...Option) error
-pkg authkit, method (*Client) UpdateUser(context.Context, iam.Actor, string, iam.UserUpdate, ...Option) (iam.User, error)
-pkg authkit, method (*Client) UpsertRemoteApplication(context.Context, iam.Actor, iam.GroupRef, iam.RemoteApplication, ...Option) (iam.RemoteApplication, error)
+pkg authkit, method (*Client) Unban(context.Context, auth.Identity, string, ...Option) error
+pkg authkit, method (*Client) UpdateUser(context.Context, auth.Identity, string, iam.UserUpdate, ...Option) (iam.User, error)
+pkg authkit, method (*Client) UpsertRemoteApplication(context.Context, auth.Identity, iam.GroupRef, iam.RemoteApplication, ...Option) (iam.RemoteApplication, error)
 pkg authkit, method (*Client) User(context.Context, iam.UserRef, ...Option) (iam.User, error)
 pkg authkit, method (*Client) Users(context.Context, []string) (map[string]iam.User, error)
 pkg authkit, method (*Client) Verify(context.Context, string) (verify.Claims, error)
@@ -109,7 +109,7 @@ pkg authkit, method (*PersonaDef) Resource(string) config.Resource
 pkg authkit, method (*PersonaDef) Role(string, ...iam.Grant) iam.Role
 pkg authkit, method (*Roles) Persona(string, ...config.PersonaOption) *config.PersonaDef
 pkg authkit, method (*Verifier) AuthenticateRequest(context.Context, *http.Request) (auth.Verified, error)
-pkg authkit, method (*Verifier) Can(context.Context, iam.Actor, iam.GroupRef, iam.Perm) (bool, error)
+pkg authkit, method (*Verifier) Can(context.Context, auth.Identity, iam.GroupRef, iam.Perm) (bool, error)
 pkg authkit, method (*Verifier) CheckIssuerKeys(context.Context) error
 pkg authkit, method (*Verifier) CheckRecentSignIn(context.Context, verify.Claims) error
 pkg authkit, method (*Verifier) CheckSession(context.Context, verify.Claims) error
@@ -439,6 +439,7 @@ pkg authkit/authtest, func ClientSecretSHA256(string) string
 pkg authkit/authtest, func EnrollDeviceKey(testing.TB, *authkit.Client, *Outbox, User) DeviceKey
 pkg authkit/authtest, func EnrollTOTP(testing.TB, *authkit.Client, User) *TOTP
 pkg authkit/authtest, func GrantRole(testing.TB, *authkit.Client, iam.GroupRef, iam.Subject, iam.Role)
+pkg authkit/authtest, func Identity(testing.TB, *authkit.Client, string) auth.Identity
 pkg authkit/authtest, func New(testing.TB, ...Option) (*authkit.Client, *Outbox)
 pkg authkit/authtest, func NewAuthorizationServer(testing.TB, ...Option) *AuthorizationServer
 pkg authkit/authtest, func NewDPoPKey(testing.TB) *DPoPKey
@@ -583,12 +584,6 @@ pkg authkit/devicekey, type Session struct
 pkg authkit/devicekey, type Session struct, AccessToken string
 pkg authkit/devicekey, type Session struct, DeviceKey iam.DeviceKey
 pkg authkit/devicekey, type Session struct, ExpiresAt time.Time
-pkg authkit/iam, const ActorAPIKey ActorKind = "api_key"
-pkg authkit/iam, const ActorDelegated ActorKind = "delegated"
-pkg authkit/iam, const ActorOAuthClient ActorKind = "oauth_client"
-pkg authkit/iam, const ActorRemoteApplication ActorKind = "remote_application"
-pkg authkit/iam, const ActorSystem ActorKind = "system"
-pkg authkit/iam, const ActorUser ActorKind = "user"
 pkg authkit/iam, const ApplicationTrustRootManual ApplicationTrustRoot = "manual"
 pkg authkit/iam, const ApplicationTrustRootUser ApplicationTrustRoot = "user"
 pkg authkit/iam, const AssuranceLevelMFA untyped string = "urn:authkit:loa:2"
@@ -601,6 +596,7 @@ pkg authkit/iam, const AuthSession RouteAuthTier = "session"
 pkg authkit/iam, const AuthorizationServerMetadataPath untyped string = "/.well-known/oauth-authorization-server"
 pkg authkit/iam, const ContactEmail ContactField = "email"
 pkg authkit/iam, const ContactPhone ContactField = "phone"
+pkg authkit/iam, const CredentialSystem auth.CredentialKind = "system"
 pkg authkit/iam, const DefaultPageLimit untyped int = 50
 pkg authkit/iam, const DefaultServiceJWTLifetime time.Duration = 900000000000
 pkg authkit/iam, const EventGroupCreated EventKind = "group.created"
@@ -738,47 +734,55 @@ pkg authkit/iam, const UserStatusAny UserStatus = "any"
 pkg authkit/iam, const UserStatusBanned UserStatus = "banned"
 pkg authkit/iam, const UserStatusDeleted UserStatus = "deleted"
 pkg authkit/iam, const UserStatusLive UserStatus = ""
-pkg authkit/iam, func APIKeyActor(string) Actor
+pkg authkit/iam, func APIKeyIdentity(string) auth.Identity
 pkg authkit/iam, func All[T any](func(PageRequest) (ListPage[T], error)) iter.Seq2[T, error]
 pkg authkit/iam, func AppByID(string) AppRef
 pkg authkit/iam, func AppByIssuer(string) AppRef
+pkg authkit/iam, func ApplicationIdentity(string) auth.Identity
 pkg authkit/iam, func AsError(error) (Error, bool)
 pkg authkit/iam, func DecodeError(*http.Response) error
-pkg authkit/iam, func DelegatedActor(DelegatedGrant) Actor
+pkg authkit/iam, func DelegatedIdentity(DelegatedGrant) auth.Identity
 pkg authkit/iam, func ErrorResponse(error) (int, ErrorEnvelope)
 pkg authkit/iam, func GroupByID(string) GroupRef
+pkg authkit/iam, func InSession(auth.Identity, SessionRef) auth.Identity
+pkg authkit/iam, func PinnedTo(auth.Identity, string) auth.Identity
 pkg authkit/iam, func PublicDisplayName(map[string]PublicUser, string) string
-pkg authkit/iam, func RemoteApplicationActor(string) Actor
 pkg authkit/iam, func RemoteApplicationSubject(string) Subject
 pkg authkit/iam, func RootGroup() GroupRef
 pkg authkit/iam, func RootPersona() Persona
-pkg authkit/iam, func SystemActor() Actor
-pkg authkit/iam, func UserActor(string) Actor
+pkg authkit/iam, func StateOf(auth.Identity) (CredentialState, bool)
+pkg authkit/iam, func SystemIdentity() auth.Identity
 pkg authkit/iam, func UserByEmail(string) UserRef
 pkg authkit/iam, func UserByID(string) UserRef
 pkg authkit/iam, func UserByPhone(string) UserRef
 pkg authkit/iam, func UserByUsername(string) UserRef
+pkg authkit/iam, func UserIdentity(string) auth.Identity
 pkg authkit/iam, func UserSubject(string) Subject
+pkg authkit/iam, func Within(auth.Identity, ...Perm) auth.Identity
 pkg authkit/iam, func WriteError(http.ResponseWriter, error)
 pkg authkit/iam, method (*ListPage[T]) UnmarshalJSON([]byte) error
 pkg authkit/iam, method (*OpResult) UnmarshalJSON([]byte) error
 pkg authkit/iam, method (*Perm) UnmarshalText([]byte) error
 pkg authkit/iam, method (*Persona) UnmarshalText([]byte) error
 pkg authkit/iam, method (*Role) UnmarshalText([]byte) error
-pkg authkit/iam, method (Actor) Bounded() bool
-pkg authkit/iam, method (Actor) CeilingCovers(Perm) bool
-pkg authkit/iam, method (Actor) Delegation() (DelegatedGrant, bool)
-pkg authkit/iam, method (Actor) ID() string
-pkg authkit/iam, method (Actor) InSession(SessionRef) Actor
-pkg authkit/iam, method (Actor) IsZero() bool
-pkg authkit/iam, method (Actor) Kind() ActorKind
-pkg authkit/iam, method (Actor) Session() (SessionRef, bool)
-pkg authkit/iam, method (Actor) String() string
-pkg authkit/iam, method (Actor) Within(...Perm) Actor
 pkg authkit/iam, method (AppRef) ID() string
 pkg authkit/iam, method (AppRef) IsZero() bool
 pkg authkit/iam, method (AppRef) Issuer() string
 pkg authkit/iam, method (AppRef) String() string
+pkg authkit/iam, method (CredentialState) Bounded() bool
+pkg authkit/iam, method (CredentialState) CeilingCovers(Perm) bool
+pkg authkit/iam, method (CredentialState) Delegated() bool
+pkg authkit/iam, method (CredentialState) DelegatedIssuer() string
+pkg authkit/iam, method (CredentialState) Group() string
+pkg authkit/iam, method (CredentialState) ID() string
+pkg authkit/iam, method (CredentialState) IsAPIKey() bool
+pkg authkit/iam, method (CredentialState) IsApplication() bool
+pkg authkit/iam, method (CredentialState) IsSystem() bool
+pkg authkit/iam, method (CredentialState) IsUser() bool
+pkg authkit/iam, method (CredentialState) IsZero() bool
+pkg authkit/iam, method (CredentialState) Session() (SessionRef, bool)
+pkg authkit/iam, method (CredentialState) String() string
+pkg authkit/iam, method (CredentialState) SubjectKind() auth.SubjectKind
 pkg authkit/iam, method (GroupRef) ID() string
 pkg authkit/iam, method (GroupRef) IsRoot() bool
 pkg authkit/iam, method (GroupRef) IsZero() bool
@@ -824,14 +828,6 @@ pkg authkit/iam, type APIKey struct, Role Role `json:"role"`
 pkg authkit/iam, type APIKeyCreated struct
 pkg authkit/iam, type APIKeyCreated struct, APIKey APIKey `json:"api_key"`
 pkg authkit/iam, type APIKeyCreated struct, Secret string `json:"secret"`
-pkg authkit/iam, type APIKeyPrincipal struct
-pkg authkit/iam, type APIKeyPrincipal struct, ExpiresAt *time.Time `json:"expires_at"`
-pkg authkit/iam, type APIKeyPrincipal struct, Group Group `json:"group"`
-pkg authkit/iam, type APIKeyPrincipal struct, ID string `json:"id"`
-pkg authkit/iam, type APIKeyPrincipal struct, Issuer string `json:"issuer"`
-pkg authkit/iam, type APIKeyPrincipal struct, LookupID string `json:"lookup_id"`
-pkg authkit/iam, type APIKeyPrincipal struct, Permissions []Perm `json:"permissions"`
-pkg authkit/iam, type APIKeyPrincipal struct, Role Role `json:"role"`
 pkg authkit/iam, type AccessTokenOptions struct
 pkg authkit/iam, type AccessTokenOptions struct, Claims map[string]any
 pkg authkit/iam, type AccessTokenOptions struct, SessionID string
@@ -841,8 +837,6 @@ pkg authkit/iam, type AccountSessionRevocation struct, Issuers []string `json:"i
 pkg authkit/iam, type AccountSessionRevocation struct, RevokedDeviceKeys int `json:"revoked_device_keys"`
 pkg authkit/iam, type AccountSessionRevocation struct, RevokedSessions map[string]int `json:"revoked_sessions"`
 pkg authkit/iam, type AccountSessionRevocation struct, UnlistedIssuerSessions int `json:"unlisted_issuer_sessions"`
-pkg authkit/iam, type Actor struct
-pkg authkit/iam, type ActorKind string
 pkg authkit/iam, type AppRef struct
 pkg authkit/iam, type ApplicationTrustRoot string
 pkg authkit/iam, type Ban struct
@@ -896,6 +890,7 @@ pkg authkit/iam, type ContactChange struct
 pkg authkit/iam, type ContactChange struct, Field ContactField
 pkg authkit/iam, type ContactChange struct, NewValue string
 pkg authkit/iam, type ContactField string
+pkg authkit/iam, type CredentialState struct
 pkg authkit/iam, type DelegatedAccess struct
 pkg authkit/iam, type DelegatedAccess struct, Attributes map[string]any
 pkg authkit/iam, type DelegatedAccess struct, Audiences []string
@@ -960,17 +955,21 @@ pkg authkit/iam, type ErrorObject struct, Metadata map[string]any `json:"metadat
 pkg authkit/iam, type ErrorObject struct, Param *string `json:"param"`
 pkg authkit/iam, type ErrorObject struct, Type string `json:"type"`
 pkg authkit/iam, type Event struct
-pkg authkit/iam, type Event struct, ActorID string `json:"actor_id"`
-pkg authkit/iam, type Event struct, ActorKind ActorKind `json:"actor_kind"`
 pkg authkit/iam, type Event struct, ApplicationID string `json:"application_id"`
+pkg authkit/iam, type Event struct, CredentialID string `json:"credential_id"`
+pkg authkit/iam, type Event struct, CredentialKind auth.CredentialKind `json:"credential_kind"`
 pkg authkit/iam, type Event struct, Current string `json:"current"`
 pkg authkit/iam, type Event struct, GroupID string `json:"group_id"`
 pkg authkit/iam, type Event struct, ID string `json:"id"`
+pkg authkit/iam, type Event struct, InvokerID string `json:"invoker_id"`
+pkg authkit/iam, type Event struct, InvokerIssuer string `json:"invoker_issuer"`
 pkg authkit/iam, type Event struct, Kind EventKind `json:"kind"`
 pkg authkit/iam, type Event struct, OccurredAt time.Time `json:"occurred_at"`
 pkg authkit/iam, type Event struct, Persona Persona `json:"persona"`
 pkg authkit/iam, type Event struct, Previous string `json:"previous"`
 pkg authkit/iam, type Event struct, Reason string `json:"reason"`
+pkg authkit/iam, type Event struct, SubjectID string `json:"subject_id"`
+pkg authkit/iam, type Event struct, SubjectKind auth.SubjectKind `json:"subject_kind"`
 pkg authkit/iam, type Event struct, Until *time.Time `json:"until"`
 pkg authkit/iam, type Event struct, UserID string `json:"user_id"`
 pkg authkit/iam, type EventKind string
@@ -1080,10 +1079,10 @@ pkg authkit/iam, type Membership struct, Group Group `json:"group"`
 pkg authkit/iam, type Membership struct, Role Role `json:"role"`
 pkg authkit/iam, type MessageKind string
 pkg authkit/iam, type NameAdmissionRequest struct
-pkg authkit/iam, type NameAdmissionRequest struct, ActorID string
 pkg authkit/iam, type NameAdmissionRequest struct, CurrentName string
 pkg authkit/iam, type NameAdmissionRequest struct, Operation NameOperation
 pkg authkit/iam, type NameAdmissionRequest struct, RequestedName string
+pkg authkit/iam, type NameAdmissionRequest struct, SubjectID string
 pkg authkit/iam, type NameAdmissionRequest struct, UserID string
 pkg authkit/iam, type NameOperation string
 pkg authkit/iam, type NameResolution struct
@@ -1180,6 +1179,14 @@ pkg authkit/iam, type RemoteApplicationKey struct, JWK *JWK `json:"jwk,omitempty
 pkg authkit/iam, type RemoteApplicationKey struct, KID string `json:"kid,omitempty" yaml:"kid,omitempty"`
 pkg authkit/iam, type RemoteApplicationKey struct, PublicKeyPEM string `json:"public_key_pem" yaml:"public_key_pem"`
 pkg authkit/iam, type RemoteApplicationMode string
+pkg authkit/iam, type ResolvedAPIKey struct
+pkg authkit/iam, type ResolvedAPIKey struct, ExpiresAt *time.Time `json:"expires_at"`
+pkg authkit/iam, type ResolvedAPIKey struct, Group Group `json:"group"`
+pkg authkit/iam, type ResolvedAPIKey struct, ID string `json:"id"`
+pkg authkit/iam, type ResolvedAPIKey struct, Issuer string `json:"issuer"`
+pkg authkit/iam, type ResolvedAPIKey struct, LookupID string `json:"lookup_id"`
+pkg authkit/iam, type ResolvedAPIKey struct, Permissions []Perm `json:"permissions"`
+pkg authkit/iam, type ResolvedAPIKey struct, Role Role `json:"role"`
 pkg authkit/iam, type Role struct
 pkg authkit/iam, type Route struct
 pkg authkit/iam, type Route struct, Auth RouteAuthTier
@@ -1438,8 +1445,11 @@ pkg authkit/provider, type UserInfoFunc func(context.Context, *http.Client) (Ide
 pkg authkit/provider, var ErrInvalid error
 pkg authkit/provider, var ErrNonHTTPSURL error
 pkg authkit/provider, var ErrUnavailable error
-pkg authkit/verify, func ActorFromClaims(Claims) (iam.Actor, bool)
-pkg authkit/verify, func ActorFromContext(context.Context) (iam.Actor, bool)
+pkg authkit/verify, const TokenAPIKey TokenKind = "api_key"
+pkg authkit/verify, const TokenDelegated TokenKind = "delegated"
+pkg authkit/verify, const TokenOAuthClient TokenKind = "oauth_client"
+pkg authkit/verify, const TokenRemoteApplication TokenKind = "remote_application"
+pkg authkit/verify, const TokenUser TokenKind = "user"
 pkg authkit/verify, func AuthenticateRequest(context.Context, Authenticator, *http.Request) (auth.Verified, error)
 pkg authkit/verify, func AuthenticateSession(context.Context, Authority, *http.Request) (auth.Verified, error)
 pkg authkit/verify, func ClaimsFromContext(context.Context) (Claims, bool)
@@ -1480,7 +1490,7 @@ pkg authkit/verify, method (Claims) IsUser() bool
 pkg authkit/verify, type Authenticator interface
 pkg authkit/verify, type Authenticator interface, VerifyRequest(*http.Request) (Claims, error)
 pkg authkit/verify, type Authority interface
-pkg authkit/verify, type Authority interface, Can(context.Context, iam.Actor, iam.GroupRef, iam.Perm) (bool, error)
+pkg authkit/verify, type Authority interface, Can(context.Context, auth.Identity, iam.GroupRef, iam.Perm) (bool, error)
 pkg authkit/verify, type Authority interface, CheckRecentSignIn(context.Context, Claims) error
 pkg authkit/verify, type Authority interface, CheckSession(context.Context, Claims) error
 pkg authkit/verify, type Authority interface, KnownPermission(iam.Perm) bool
@@ -1489,7 +1499,6 @@ pkg authkit/verify, type Claims struct
 pkg authkit/verify, type Claims struct, ACR string
 pkg authkit/verify, type Claims struct, AMR []string
 pkg authkit/verify, type Claims struct, APIKeyID string
-pkg authkit/verify, type Claims struct, Actor string
 pkg authkit/verify, type Claims struct, Attributes map[string]json.RawMessage
 pkg authkit/verify, type Claims struct, AuthTime time.Time
 pkg authkit/verify, type Claims struct, AuthorizationDetails json.RawMessage
@@ -1502,11 +1511,12 @@ pkg authkit/verify, type Claims struct, Email string
 pkg authkit/verify, type Claims struct, EmailVerified bool
 pkg authkit/verify, type Claims struct, Entitlements []string
 pkg authkit/verify, type Claims struct, Group *PermissionScope
+pkg authkit/verify, type Claims struct, Invoker string
 pkg authkit/verify, type Claims struct, Issuer string
 pkg authkit/verify, type Claims struct, JOSEType string
 pkg authkit/verify, type Claims struct, JTI string
 pkg authkit/verify, type Claims struct, JWKThumbprint string
-pkg authkit/verify, type Claims struct, Kind iam.ActorKind
+pkg authkit/verify, type Claims struct, Kind TokenKind
 pkg authkit/verify, type Claims struct, MFAEnrolled bool
 pkg authkit/verify, type Claims struct, Permissions []string
 pkg authkit/verify, type Claims struct, RemoteApplicationID string
@@ -1539,7 +1549,7 @@ pkg authkit/verify, type IssuerOptions struct, KeySource keys.Source
 pkg authkit/verify, type IssuerOptions struct, Keys []iam.RemoteApplicationKey
 pkg authkit/verify, type IssuerOptions struct, MaxStale time.Duration
 pkg authkit/verify, type PermissionChecker interface
-pkg authkit/verify, type PermissionChecker interface, Can(context.Context, iam.Actor, iam.GroupRef, iam.Perm) (bool, error)
+pkg authkit/verify, type PermissionChecker interface, Can(context.Context, auth.Identity, iam.GroupRef, iam.Perm) (bool, error)
 pkg authkit/verify, type PermissionChecker interface, KnownPermission(iam.Perm) bool
 pkg authkit/verify, type PermissionScope struct
 pkg authkit/verify, type PermissionScope struct, AuthorityIssuer string
@@ -1549,6 +1559,7 @@ pkg authkit/verify, type ServiceJWTVerifyOption func(*serviceJWTConfig)
 pkg authkit/verify, type SessionChecker interface
 pkg authkit/verify, type SessionChecker interface, CheckRecentSignIn(context.Context, Claims) error
 pkg authkit/verify, type SessionChecker interface, CheckSession(context.Context, Claims) error
+pkg authkit/verify, type TokenKind string
 pkg authkit/verify, type Verifier struct
 pkg authkit/verify, type VerifierOption func(*verifierConfig)
 pkg authkit/verify, var ErrConfirmationWrongTokenType iam.Error

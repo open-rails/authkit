@@ -193,7 +193,7 @@ func TestOAuthResourceServerVerifiesAccessTokens(t *testing.T) {
 			"credential": id.Credential.Kind, "self_invoked": id.SelfInvoked(),
 			"kind": cl.Kind, "sub": cl.Subject, "user_id": cl.UserID, "client_id": cl.ClientID, "scopes": cl.Scopes,
 			"roles": cl.Roles, "sid": cl.SessionID, "can_update": cl.HasPermission(update), "can_pay_out": cl.HasPermission(payouts),
-			"jkt": cl.JWKThumbprint, "kind_client": cl.Kind == iam.ActorOAuthClient,
+			"jkt": cl.JWKThumbprint, "kind_client": cl.Kind == verify.TokenOAuthClient,
 		})
 	}))
 	resource.Start()
@@ -218,7 +218,7 @@ func TestOAuthResourceServerVerifiesAccessTokens(t *testing.T) {
 	status, got := call(ownerTokens)
 	require.Equal(t, http.StatusOK, status, got)
 	require.Equal(t, ownerTokens.DPoP.Thumbprint(), got["jkt"])
-	require.Equal(t, string(iam.ActorUser), got["kind"])
+	require.Equal(t, string(verify.TokenUser), got["kind"])
 	require.Equal(t, owner.ID, got["sub"])
 	require.Empty(t, got["user_id"], "another deployment's user")
 	require.Equal(t, oauthConsole, got["client_id"])
@@ -439,7 +439,7 @@ func TestOAuthCodeFlowRefusals(t *testing.T) {
 		require.NoError(t, err)
 		claims, err := as.Client.Verify(context.Background(), other.AccessToken)
 		require.NoError(t, err)
-		require.NoError(t, as.Client.RevokeSession(context.Background(), iam.SystemActor(), user.ID, claims.SessionID))
+		require.NoError(t, as.Client.RevokeSession(context.Background(), iam.SystemIdentity(), user.ID, claims.SessionID))
 		_, out := exchange(loc.Query().Get("code"), verifier, nil)
 		require.Equal(t, "invalid_grant", out["error"])
 	})

@@ -28,6 +28,7 @@ import (
 	"github.com/open-rails/authkit/keys"
 	"github.com/open-rails/authkit/provider"
 	"github.com/open-rails/authkit/verify"
+	hauth "github.com/open-rails/helpers/auth"
 )
 
 // api drives a Client's HTTP surface in process, as one client at one address.
@@ -411,17 +412,17 @@ func opErr(res []iam.OpResult, err error) error {
 	return res[0].Err
 }
 
-func assign(auth *authkit.Client, actor iam.Actor, ref iam.GroupRef, subject iam.Subject, role iam.Role) error {
-	_, err := auth.SetGroupRole(context.Background(), actor, ref, subject, role)
+func assign(auth *authkit.Client, who hauth.Identity, ref iam.GroupRef, subject iam.Subject, role iam.Role) error {
+	_, err := auth.SetGroupRole(context.Background(), who, ref, subject, role)
 	return err
 }
 
-func unassign(auth *authkit.Client, actor iam.Actor, ref iam.GroupRef, subject iam.Subject, role iam.Role) error {
-	return auth.RemoveGroupMember(context.Background(), actor, ref, subject, authkit.IfRole(role))
+func unassign(auth *authkit.Client, who hauth.Identity, ref iam.GroupRef, subject iam.Subject, role iam.Role) error {
+	return auth.RemoveGroupMember(context.Background(), who, ref, subject, authkit.IfRole(role))
 }
 
-func removeMember(auth *authkit.Client, actor iam.Actor, ref iam.GroupRef, subject iam.Subject) error {
-	return auth.RemoveGroupMember(context.Background(), actor, ref, subject)
+func removeMember(auth *authkit.Client, who hauth.Identity, ref iam.GroupRef, subject iam.Subject) error {
+	return auth.RemoveGroupMember(context.Background(), who, ref, subject)
 }
 
 // wire reads a persona, permission or role as it arrives off the wire: its
@@ -582,8 +583,8 @@ func requireNoTokens(t testing.TB, text string) {
 var jwtPattern = regexp.MustCompile(`eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*\.`)
 
 // createKey is CreateAPIKey's key and its token.
-func createKey(auth *authkit.Client, ctx context.Context, actor iam.Actor, ref iam.GroupRef, k iam.NewAPIKey) (iam.APIKey, string, error) {
-	created, err := auth.CreateAPIKey(ctx, actor, ref, k)
+func createKey(auth *authkit.Client, ctx context.Context, who hauth.Identity, ref iam.GroupRef, k iam.NewAPIKey) (iam.APIKey, string, error) {
+	created, err := auth.CreateAPIKey(ctx, who, ref, k)
 	return created.APIKey, created.Secret, err
 }
 

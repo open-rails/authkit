@@ -21,8 +21,6 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/ident"
-	"github.com/open-rails/authkit/internal/jose"
-	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
 )
 
@@ -188,14 +186,14 @@ func TestSecuritySessionRevocationEvents(t *testing.T) {
 			require.NoError(t, h.setPassword(a.id, password))
 		}, true},
 		{"admin emergency revoke", func(t *testing.T, a account, _ tokens) {
-			_, err := h.auth.RevokeAccountSessions(ctx, iam.SystemActor(), a.id)
+			_, err := h.auth.RevokeAccountSessions(ctx, iam.SystemIdentity(), a.id)
 			require.NoError(t, err)
 		}, true},
 		{"ban", func(t *testing.T, a account, _ tokens) {
-			require.NoError(t, h.auth.Ban(ctx, iam.SystemActor(), a.id, iam.Ban{}))
+			require.NoError(t, h.auth.Ban(ctx, iam.SystemIdentity(), a.id, iam.Ban{}))
 		}, false},
 		{"soft delete", func(t *testing.T, a account, _ tokens) {
-			results, err := h.auth.DeleteUsers(ctx, iam.SystemActor(), []string{a.id})
+			results, err := h.auth.DeleteUsers(ctx, iam.SystemIdentity(), []string{a.id})
 			require.NoError(t, err)
 			require.Len(t, results, 1)
 			require.NoError(t, results[0].Err)
@@ -285,7 +283,7 @@ func TestSecurityRevokedSessionCannotChangeCredentials(t *testing.T) {
 			require.NoError(t, h.setPassword(a.id, password))
 		}},
 		{"the system bans the account", func(t *testing.T, a account, _ tokens) {
-			require.NoError(t, h.auth.Ban(ctx, iam.SystemActor(), a.id, iam.Ban{}))
+			require.NoError(t, h.auth.Ban(ctx, iam.SystemIdentity(), a.id, iam.Ban{}))
 		}},
 	}
 	for _, event := range events {
@@ -357,9 +355,9 @@ func TestSecurityDelegationOutlivingRevocation(t *testing.T) {
 		{"after logout", func(_ account, s tokens) {
 			require.Less(t, h.do(request{method: http.MethodDelete, path: "/logout", token: s.AccessToken}).status, 300)
 		}},
-		{"after ban", func(a account, _ tokens) { require.NoError(t, h.auth.Ban(ctx, iam.SystemActor(), a.id, iam.Ban{})) }},
+		{"after ban", func(a account, _ tokens) { require.NoError(t, h.auth.Ban(ctx, iam.SystemIdentity(), a.id, iam.Ban{})) }},
 		{"after soft delete", func(a account, _ tokens) {
-			_, err := h.auth.DeleteUsers(ctx, iam.SystemActor(), []string{a.id})
+			_, err := h.auth.DeleteUsers(ctx, iam.SystemIdentity(), []string{a.id})
 			require.NoError(t, err)
 		}},
 	} {
@@ -429,12 +427,12 @@ func TestSecurityDelegatedGrantClamp(t *testing.T) {
 	})
 	t.Run("a minted token loses authority its user lost", func(t *testing.T) {
 		perm := iam.Perm(ident.RootUsersBan)
-		cl := verify.Claims{Kind: iam.ActorDelegated, Issuer: issuer, DelegatedSubject: moderator.id, JOSEType: jose.DelegatedAccessTokenType, Permissions: []string{perm.String()}}
-		ok, err := allow(ctx, h.auth, cl, perm, iam.RootGroup())
+		delegated := iam.DelegatedIdentity(iam.DelegatedGrant{Issuer: issuer, Subject: moderator.id, Permissions: []iam.Perm{perm}})
+		ok, err := allow(ctx, h.auth, delegated, perm, iam.RootGroup())
 		require.NoError(t, err)
 		require.True(t, ok)
 		revokeRole(t, h.auth, iam.RootGroup(), iam.UserSubject(moderator.id), "moderator")
-		ok, err = allow(ctx, h.auth, cl, perm, iam.RootGroup())
+		ok, err = allow(ctx, h.auth, delegated, perm, iam.RootGroup())
 		require.NoError(t, err)
 		require.False(t, ok, "a delegated token kept root authority its user lost")
 	})

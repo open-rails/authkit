@@ -15,6 +15,7 @@ import (
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/ops"
+	"github.com/open-rails/helpers/auth"
 )
 
 // API keys (#111): long-lived, revocable bearer credentials owned by a
@@ -27,7 +28,7 @@ import (
 // CreateAPIKey issues a key holding role in ref: CAP(<p>:credentials:manage)
 // plus COVER(role). Only a user or the system issues credentials. The token
 // is returned once.
-func (s *Engine) CreateAPIKey(ctx context.Context, a iam.Actor, ref iam.GroupRef, k iam.NewAPIKey, opts ...ops.Option) (iam.APIKeyCreated, error) {
+func (s *Engine) CreateAPIKey(ctx context.Context, a auth.Identity, ref iam.GroupRef, k iam.NewAPIKey, opts ...ops.Option) (iam.APIKeyCreated, error) {
 	host, err := hostTx("CreateAPIKey", opts)
 	if err != nil {
 		return iam.APIKeyCreated{}, err
@@ -137,12 +138,12 @@ func (s *Engine) ListAPIKeys(ctx context.Context, ref iam.GroupRef, p iam.PageRe
 // RevokeAPIKey revokes the group's key id. It needs the authority to issue
 // the key's role: CAP(<p>:credentials:manage) plus COVER(role). A revoked key
 // is a no-op; an id unknown in the group is iam.ErrAPIKeyNotFound.
-func (s *Engine) RevokeAPIKey(ctx context.Context, a iam.Actor, ref iam.GroupRef, id string, opts ...ops.Option) error {
+func (s *Engine) RevokeAPIKey(ctx context.Context, a auth.Identity, ref iam.GroupRef, id string, opts ...ops.Option) error {
 	host, err := hostTx("RevokeAPIKey", opts)
 	if err != nil {
 		return err
 	}
-	if err := requireActor(a); err != nil {
+	if err := requireIdentity(a); err != nil {
 		return err
 	}
 	id = strings.TrimSpace(id)
@@ -170,34 +171,34 @@ func (s *Engine) RevokeAPIKey(ctx context.Context, a iam.Actor, ref iam.GroupRef
 // have a live creator (a banned or deleted creator's keys are
 // refused even before any sweep revokes them). Permissions are the role's now.
 // It is verify's API-key resolver.
-func (s *Engine) ResolveAPIKey(ctx context.Context, token string) (iam.APIKeyPrincipal, error) {
+func (s *Engine) ResolveAPIKey(ctx context.Context, token string) (iam.ResolvedAPIKey, error) {
 	if err := s.requirePG(); err != nil {
-		return iam.APIKeyPrincipal{}, err
+		return iam.ResolvedAPIKey{}, err
 	}
 	lookupID, secret, ok := apikey.Parse(s.cfg.APIKeys.Prefix, strings.TrimSpace(token))
 	if !ok {
-		return iam.APIKeyPrincipal{}, iam.ErrAPIKeyInvalid
+		return iam.ResolvedAPIKey{}, iam.ErrAPIKeyInvalid
 	}
 	// A key resolves only at the app it was issued through: another app's
 	// catalog may give its role name other permissions (ak#417).
 	k, err := s.q.APIKeyByLookupID(ctx, db.APIKeyByLookupIDParams{KeyID: lookupID, Issuer: s.cfg.Token.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return iam.APIKeyPrincipal{}, iam.ErrAPIKeyInvalid
+		return iam.ResolvedAPIKey{}, iam.ErrAPIKeyInvalid
 	}
 	if err != nil {
-		return iam.APIKeyPrincipal{}, err
+		return iam.ResolvedAPIKey{}, err
 	}
 	if !apikey.Matches(k.SecretHash, secret) {
-		return iam.APIKeyPrincipal{}, iam.ErrAPIKeyInvalid
+		return iam.ResolvedAPIKey{}, iam.ErrAPIKeyInvalid
 	}
 	if k.RevokedAt != nil || !k.CreatorLive {
-		return iam.APIKeyPrincipal{}, iam.ErrAPIKeyRevoked
+		return iam.ResolvedAPIKey{}, iam.ErrAPIKeyRevoked
 	}
 	if k.ExpiresAt != nil && !k.ExpiresAt.After(time.Now().UTC()) {
-		return iam.APIKeyPrincipal{}, iam.ErrAPIKeyExpired
+		return iam.ResolvedAPIKey{}, iam.ErrAPIKeyExpired
 	}
 	s.touchAccessTokenAsync(k.ID)
-	p := iam.APIKeyPrincipal{ID: k.ID, ExpiresAt: k.ExpiresAt, Group: iam.Group{ID: k.GroupID, Persona: ident.Persona(k.Persona), CreatedAt: k.GroupCreatedAt}}
+	p := iam.ResolvedAPIKey{ID: k.ID, ExpiresAt: k.ExpiresAt, Group: iam.Group{ID: k.GroupID, Persona: ident.Persona(k.Persona), CreatedAt: k.GroupCreatedAt}}
 	p.Role = ident.RoleText(k.Role)
 	sch := s.groupSchemaOrDefault()
 	grants := []string{}
@@ -208,7 +209,7 @@ func (s *Engine) ResolveAPIKey(ctx context.Context, token string) (iam.APIKeyPri
 	// A key can present no second factor: a role that came to need MFA (a
 	// changed RequireMFA) confers nothing even before the boot sweep revokes it.
 	if s.TwoFactorEnabled() && sch.RequiresMFA(grants) {
-		return iam.APIKeyPrincipal{}, iam.ErrAPIKeyRevoked
+		return iam.ResolvedAPIKey{}, iam.ErrAPIKeyRevoked
 	}
 	p.LookupID = lookupID
 	p.Issuer = s.cfg.Token.Issuer

@@ -319,7 +319,7 @@ func (s *Engine) verifyContactProofWithRecovery(ctx context.Context, userID stri
 	p := proofOn(channel)
 	// The proof held for this password: no credential change since it.
 	p.password = passwordVersion > 0 && passwordVersion == u.CredentialVersion
-	revoked, err := s.retirePreProofCredentials(ctx, tx, iam.UserActor(u.ID), u.ID, p, keepSessionID)
+	revoked, err := s.retirePreProofCredentials(ctx, tx, iam.UserIdentity(u.ID), u.ID, p, keepSessionID)
 	if err != nil {
 		return registeredAccount{}, err
 	}

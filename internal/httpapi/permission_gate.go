@@ -10,25 +10,24 @@ import (
 )
 
 // requirePermission gates AuthKit's own routes on perm in group, checked live
-// for every actor kind: the engine resolves the actor's current grants (a
+// for every identity kind: the engine resolves the identity's current grants (a
 // user's roles on the group and on root, an API key's role, an application's
-// grants in its controlling group) and applies any token ceiling. Delegated
-// principals never reach AuthKit's management routes. Admin
-// authority over the user directory is the root:users:* permissions on the
+// grants in its controlling group) and applies any token ceiling.
+// Delegations never reach AuthKit's management routes. Admin authority over
+// the user directory is the root:users:* permissions on the
 // root group, gated the same way.
 func (s *Service) requirePermission(group iam.GroupRef, perm iam.Perm, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		claims, ok := verify.ClaimsFromContext(r.Context())
+		who, ok := verify.IdentityFromContext(r.Context())
 		if !ok {
 			fail(w, errmodel.CodeUnauthenticated)
 			return
 		}
-		actor, ok := verify.ActorFromClaims(claims)
-		if !ok || actor.Kind() == iam.ActorDelegated {
+		if s := state(who); s.IsZero() || s.Delegated() {
 			fail(w, errmodel.CodeForbidden)
 			return
 		}
-		allowed, err := s.svc.Can(r.Context(), actor, group, perm)
+		allowed, err := s.svc.Can(r.Context(), who, group, perm)
 		if errors.Is(err, iam.ErrSessionRevoked) {
 			writeError(w, err)
 			return

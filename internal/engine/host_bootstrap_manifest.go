@@ -129,7 +129,7 @@ func (s *Engine) ApplyBootstrapManifest(ctx context.Context, manifest iam.Bootst
 	}
 	var result iam.BootstrapResult
 	var revocations []revocation
-	err := s.withAuthorityMutation(ctx, iam.SystemActor(), func(st *permissionGroupStore) error {
+	err := s.withAuthorityMutation(ctx, iam.SystemIdentity(), func(st *permissionGroupStore) error {
 		result, revocations = iam.BootstrapResult{}, nil
 		if opts.StartupOnly {
 			already, err := s.claimBootstrapApply(ctx, db.New(st.q), opts.Name)

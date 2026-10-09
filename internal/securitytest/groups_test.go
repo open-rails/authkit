@@ -87,7 +87,7 @@ func TestSecurityGroupsJoinTheHostTransaction(t *testing.T) {
 
 	t.Run("a refused operation leaves the host transaction usable", func(t *testing.T) {
 		banned := h.newAccount("txbanned")
-		require.NoError(t, h.auth.Ban(ctx, iam.SystemActor(), banned.id, iam.Ban{}))
+		require.NoError(t, h.auth.Ban(ctx, iam.SystemIdentity(), banned.id, iam.Ban{}))
 		tx, err := app.Begin(ctx)
 		require.NoError(t, err)
 		bannedSubject := iam.UserSubject(banned.id)
@@ -131,7 +131,7 @@ func TestSecurityGroupsJoinTheHostTransaction(t *testing.T) {
 		require.NotNil(t, g.DeletedAt)
 		require.Zero(t, count(`SELECT count(*) FROM public.channels WHERE group_id=$1::uuid`, kept.ID))
 		require.True(t, delivered(iam.EventGroupDeleted, kept.ID))
-		ok, err := h.auth.Can(ctx, iam.UserActor(owner.id), iam.GroupByID(kept.ID), ownerOnly)
+		ok, err := h.auth.Can(ctx, iam.UserIdentity(owner.id), iam.GroupByID(kept.ID), ownerOnly)
 		require.NoError(t, err)
 		require.False(t, ok, "a deleted group grants nothing")
 	})

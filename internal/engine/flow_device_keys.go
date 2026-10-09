@@ -391,7 +391,7 @@ func (s *Engine) enrollDeviceKey(ctx context.Context, record deviceKeyEnrollment
 			return iam.DeviceKey{}, "", false, err
 		}
 		if inserted == 1 {
-			if err := s.emitEvents(ctx, tx, iam.UserActor(userID), userEvent(iam.EventUserRegistered, userID)); err != nil {
+			if err := s.emitEvents(ctx, tx, iam.UserIdentity(userID), userEvent(iam.EventUserRegistered, userID)); err != nil {
 				return iam.DeviceKey{}, "", false, err
 			}
 		}
@@ -402,7 +402,7 @@ func (s *Engine) enrollDeviceKey(ctx context.Context, record deviceKeyEnrollment
 	}
 	userID := account.ID
 	// The emailed enrollment code proves the address (ak#393).
-	proven, err := s.retirePreProofCredentials(ctx, tx, iam.UserActor(userID), userID, proofOn(passwordlessChannelEmail), nil)
+	proven, err := s.retirePreProofCredentials(ctx, tx, iam.UserIdentity(userID), userID, proofOn(passwordlessChannelEmail), nil)
 	if err != nil {
 		return iam.DeviceKey{}, "", false, err
 	}

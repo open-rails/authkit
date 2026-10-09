@@ -35,7 +35,7 @@ func TestRegistrationRollsBackWhenInviteConsumeFails(t *testing.T) {
 		if flow == "sms" {
 			identifier = uniquePhone()
 		}
-		invite, err := f.engine.CreateInvitation(ctx, iam.SystemActor(), iam.RootGroup(), iam.NewInvitation{Email: email})
+		invite, err := f.engine.CreateInvitation(ctx, iam.SystemIdentity(), iam.RootGroup(), iam.NewInvitation{Email: email})
 		require.NoError(t, err)
 		var failed flowResponse
 		if idp, ok := idps[flow]; ok {

@@ -182,7 +182,7 @@ func (p *PersonaDef) All() iam.Perm { return p.Persona.OwnerGrant() }
 func (p *PersonaDef) Permissions() []iam.Perm { return rbac.Catalog(p.spec) }
 
 // Expand lists every catalog permission some grant covers, in catalog order,
-// such as a role's grants (Client.RolePermissions) or an actor's
+// such as a role's grants (Client.RolePermissions) or an identity's
 // (Client.EffectivePermissions): the owner's `<persona>:*` lists each
 // permission. GET /me/permissions answers the same expansion. It reads no
 // database.

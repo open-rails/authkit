@@ -14,8 +14,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
 
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/helpers/auth"
 )
 
 type credentialSweepArgs struct {
@@ -80,7 +80,7 @@ func (w *credentialSweepWorker) Work(ctx context.Context, job *river.Job[credent
 	if job.Args.Schema != w.engine.dbSchema() || job.Args.Issuer != w.engine.cfg.Token.Issuer {
 		return river.JobCancel(errors.New("authkit: credential sweep routed to a different application"))
 	}
-	return w.engine.withAuthorityMutation(ctx, iam.Actor{}, func(st *permissionGroupStore) error {
+	return w.engine.withAuthorityMutation(ctx, auth.Identity{}, func(st *permissionGroupStore) error {
 		st.reconcile = true
 		for _, t := range job.Args.Touches {
 			st.touched = append(st.touched, authorityTouch{groupID: t.GroupID, userID: t.UserID})

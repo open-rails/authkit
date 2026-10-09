@@ -24,6 +24,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/ident"
+	"github.com/open-rails/helpers/auth"
 )
 
 type accountEventArgs struct {
@@ -81,8 +82,8 @@ func roleEvent(groupID string, persona iam.Persona, subject iam.Subject, previou
 	return e
 }
 
-// eventSubject is the ordering key of e.
-func eventSubject(e iam.Event) string {
+// eventStream is the delivery ordering key of e.
+func eventStream(e iam.Event) string {
 	switch {
 	case e.UserID != "":
 		return "user:" + e.UserID
@@ -90,6 +91,15 @@ func eventSubject(e iam.Event) string {
 		return "application:" + e.ApplicationID
 	default:
 		return "group:" + e.GroupID
+	}
+}
+
+// eventIdentity is who made a change, as an event records it: the identity's
+// subject, invoker and credential, ids in canonical form.
+func eventIdentity(a auth.Identity) iam.Event {
+	return iam.Event{
+		SubjectKind: a.SubjectKind, SubjectID: canonicalID(a.Subject), InvokerIssuer: a.Invoker.Issuer, InvokerID: canonicalID(a.Invoker.ID),
+		CredentialKind: a.Credential.Kind, CredentialID: canonicalID(a.Credential.ID),
 	}
 }
 
@@ -127,7 +137,7 @@ func identityChanges(ctx context.Context, q db.DBTX, userID string, before accou
 // emitEvents records events a made in q, the change's transaction, for every
 // account issuer subscribed to events. The fleet rows stay share-locked until
 // commit, so a fleet cannot be rebound under a pending event.
-func (s *Engine) emitEvents(ctx context.Context, q db.DBTX, a iam.Actor, events ...iam.Event) error {
+func (s *Engine) emitEvents(ctx context.Context, q db.DBTX, a auth.Identity, events ...iam.Event) error {
 	if len(events) == 0 {
 		return nil
 	}
@@ -140,7 +150,7 @@ func (s *Engine) emitEvents(ctx context.Context, q db.DBTX, a iam.Actor, events 
 	if err != nil || len(subscribers) == 0 {
 		return err
 	}
-	actorKind, actorID := string(a.Kind()), canonicalID(a.ID())
+	who := eventIdentity(a)
 	ids := make([]string, len(events))
 	for i := range events {
 		if ids[i], err = newUUIDV7String(); err != nil {
@@ -154,7 +164,9 @@ func (s *Engine) emitEvents(ctx context.Context, q db.DBTX, a iam.Actor, events 
 		}
 		for i, e := range events {
 			row, err := txq.AccountEventInsert(ctx, db.AccountEventInsertParams{
-				Issuer: sub.Issuer, Subject: eventSubject(e), EventID: ids[i], Kind: string(e.Kind), ActorKind: actorKind, ActorID: actorID,
+				Issuer: sub.Issuer, Stream: eventStream(e), EventID: ids[i], Kind: string(e.Kind),
+				SubjectKind: string(who.SubjectKind), SubjectID: who.SubjectID, InvokerIssuer: who.InvokerIssuer, InvokerID: who.InvokerID,
+				CredentialKind: string(who.CredentialKind), CredentialID: who.CredentialID,
 				UserID: nullable(e.UserID), GroupID: nullable(e.GroupID), Persona: e.Persona.String(), ApplicationID: nullable(e.ApplicationID),
 				PreviousValue: e.Previous, CurrentValue: e.Current, Reason: e.Reason, Until: e.Until,
 			})
@@ -222,12 +234,13 @@ func (s *Engine) deliverEvent(ctx context.Context, row int64) error {
 	}
 	e := iam.Event{
 		ID: rec.EventID, Kind: iam.EventKind(rec.Kind), OccurredAt: rec.OccurredAt,
-		ActorKind: iam.ActorKind(rec.ActorKind), ActorID: rec.ActorID,
+		SubjectKind: auth.SubjectKind(rec.SubjectKind), SubjectID: rec.SubjectID, InvokerIssuer: rec.InvokerIssuer, InvokerID: rec.InvokerID,
+		CredentialKind: auth.CredentialKind(rec.CredentialKind), CredentialID: rec.CredentialID,
 		UserID: deref(rec.UserID), GroupID: deref(rec.GroupID), Persona: ident.Persona(rec.Persona), ApplicationID: deref(rec.ApplicationID),
 		Previous: rec.PreviousValue, Current: rec.CurrentValue, Reason: rec.Reason, Until: rec.Until,
 	}
 	failures := int(rec.Attempts)
-	earlier, err := s.q.AccountEventEarlierPending(ctx, db.AccountEventEarlierPendingParams{Issuer: rec.Issuer, Subject: rec.Subject, ID: row})
+	earlier, err := s.q.AccountEventEarlierPending(ctx, db.AccountEventEarlierPendingParams{Issuer: rec.Issuer, Stream: rec.Stream, ID: row})
 	if err != nil {
 		return err
 	}

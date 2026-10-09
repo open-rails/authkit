@@ -9,9 +9,9 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/apisurface"
 	"github.com/open-rails/authkit/internal/ops"
+	"github.com/open-rails/helpers/auth"
 	"github.com/stretchr/testify/require"
 )
 
@@ -48,12 +48,12 @@ func TestGoAPISurface(t *testing.T) {
 
 // TestClientPublicSurface keeps Auth's surface a deliberate choice: every method
 // is in exactly one of two lists. Methods whose rules depend on who acts take
-// the acting iam.Actor right after ctx; host operations (your code decides),
+// the acting auth.Identity right after ctx; host operations (your code decides),
 // reads, lifecycle and HTTP take none. Every mutation and host operation ends
 // in ...Option, and every method but the embedding-only ones is an operation
 // of internal/ops.Operations with the same signature.
 func TestClientPublicSurface(t *testing.T) {
-	takesActor := []string{
+	takesIdentity := []string{
 		// Accounts and sessions.
 		"UpdateUser", "PatchPublicMetadata", "Ban", "Unban", "DeleteUsers", "RestoreUsers",
 		"RevokeSession", "RevokeAccountSessions",
@@ -91,38 +91,38 @@ func TestClientPublicSurface(t *testing.T) {
 		// helpers/auth Auth: a merchant library's route gates.
 		"Required", "RequirePermission", "Sensitive", "Identity",
 	}
-	noActor := append(append(append([]string{}, hostOperations...), reads...), embeddingOnly...)
+	noIdentity := append(append(append([]string{}, hostOperations...), reads...), embeddingOnly...)
 
 	typ := reflect.TypeFor[*authkit.Client]()
 	var names []string
 	for m := range typ.Methods() {
 		names = append(names, m.Name)
 	}
-	require.ElementsMatch(t, append(append([]string{}, takesActor...), noActor...), names)
+	require.ElementsMatch(t, append(append([]string{}, takesIdentity...), noIdentity...), names)
 
-	ctxType, actorType := reflect.TypeFor[context.Context](), reflect.TypeFor[iam.Actor]()
-	for _, name := range takesActor {
+	ctxType, identityType := reflect.TypeFor[context.Context](), reflect.TypeFor[auth.Identity]()
+	for _, name := range takesIdentity {
 		m, _ := typ.MethodByName(name)
 		require.GreaterOrEqual(t, m.Type.NumIn(), 3, name)
 		require.Equal(t, ctxType, m.Type.In(1), "%s: ctx comes first", name)
-		require.Equal(t, actorType, m.Type.In(2), "%s: the actor follows ctx", name)
+		require.Equal(t, identityType, m.Type.In(2), "%s: the identity follows ctx", name)
 	}
-	for _, name := range noActor {
+	for _, name := range noIdentity {
 		m, _ := typ.MethodByName(name)
 		for in := range m.Type.Ins() {
 			if in.Kind() == reflect.Slice {
 				in = in.Elem()
 			}
-			require.NotEqual(t, actorType, in, "%s takes an actor: list it in takesActor", name)
+			require.NotEqual(t, identityType, in, "%s takes an identity: list it in takesIdentity", name)
 		}
 	}
 	for _, name := range names {
 		require.False(t, strings.HasSuffix(name, "As") || strings.HasPrefix(name, "System"),
-			"%s: the actor is a parameter, never part of the name", name)
+			"%s: the identity is a parameter, never part of the name", name)
 	}
 
 	optionType := reflect.TypeFor[[]authkit.Option]()
-	for _, name := range append(append([]string{"User"}, takesActor...), hostOperations...) {
+	for _, name := range append(append([]string{"User"}, takesIdentity...), hostOperations...) {
 		if name == "Can" || name == "EffectivePermissions" {
 			continue
 		}
@@ -146,6 +146,6 @@ func TestClientPublicSurface(t *testing.T) {
 			require.Equal(t, m.Type.Out(i), cm.Type.Out(i), "%s result %d", m.Name, i)
 		}
 	}
-	require.ElementsMatch(t, append(append(append([]string{}, takesActor...), hostOperations...), reads...), opNames,
+	require.ElementsMatch(t, append(append(append([]string{}, takesIdentity...), hostOperations...), reads...), opNames,
 		"every method but the embedding-only ones is an ops.Operations operation")
 }

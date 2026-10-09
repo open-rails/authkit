@@ -4,12 +4,13 @@ import (
 	"context"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/helpers/auth"
 )
 
-// Accounts. Reads take no actor: the host is the trust boundary. Host
+// Accounts. Reads take no identity: the host is the trust boundary. Host
 // operations (CreateUser, PurgeUsers, ResetAccountMFA) take none either: your
-// code decides. Every other mutation takes the actor right after ctx;
-// iam.SystemActor() is trusted host authority, and any other actor needs rule
+// code decides. Every other mutation takes the identity right after ctx;
+// iam.SystemIdentity() is trusted host authority, and any other identity needs rule
 // ACCT: the named root:users:* permission, outranking the target account on
 // root (a peer or superior is iam.ErrAccountAuthorityEscalation: demote it
 // first) and covering its grants in every group it holds a role in.
@@ -77,47 +78,47 @@ func (a *Client) CreateUser(ctx context.Context, u iam.NewUser, opts ...Option) 
 // with no proven contact it first retires the pre-proof credentials and the
 // addresses the flags don't cover. An email change never moves the account's
 // email factor.
-func (a *Client) UpdateUser(ctx context.Context, actor iam.Actor, userID string, u iam.UserUpdate, opts ...Option) (iam.User, error) {
-	return a.ops.UpdateUser(ctx, actor, userID, u, opts...)
+func (a *Client) UpdateUser(ctx context.Context, who auth.Identity, userID string, u iam.UserUpdate, opts ...Option) (iam.User, error) {
+	return a.ops.UpdateUser(ctx, who, userID, u, opts...)
 }
 
 // PatchPublicMetadata applies patch to the account's public metadata
 // (iam.PublicUser.PublicMetadata) as an RFC 7396 JSON Merge Patch under
-// ACCT(root:users:manage), never on the actor's own account: objects merge
+// ACCT(root:users:manage), never on the identity's own account: objects merge
 // recursively, a nil value deletes its key, and any other value (arrays
 // included) replaces the one it names. {"links": {"site": "https://…",
 // "old": nil}} sets links.site, deletes links.old and keeps links' other
 // keys. Only the host writes public metadata, and anyone may read it: GET
 // /me, GET /users and PublicUsers return it whole. Keep private data in your
 // own tables, keyed by the account id.
-func (a *Client) PatchPublicMetadata(ctx context.Context, actor iam.Actor, userID string, patch map[string]any, opts ...Option) error {
-	return a.ops.PatchPublicMetadata(ctx, actor, userID, patch, opts...)
+func (a *Client) PatchPublicMetadata(ctx context.Context, who auth.Identity, userID string, patch map[string]any, opts ...Option) error {
+	return a.ops.PatchPublicMetadata(ctx, who, userID, patch, opts...)
 }
 
 // Ban bans an account under ACCT(root:users:ban) and revokes its sessions,
 // device keys, and the API keys and invitations it issued. Nobody bans
 // themselves.
-func (a *Client) Ban(ctx context.Context, actor iam.Actor, userID string, b iam.Ban, opts ...Option) error {
-	return a.ops.Ban(ctx, actor, userID, b, opts...)
+func (a *Client) Ban(ctx context.Context, who auth.Identity, userID string, b iam.Ban, opts ...Option) error {
+	return a.ops.Ban(ctx, who, userID, b, opts...)
 }
 
 // Unban lifts a ban under ACCT(root:users:ban). Nobody lifts their own ban.
-func (a *Client) Unban(ctx context.Context, actor iam.Actor, userID string, opts ...Option) error {
-	return a.ops.Unban(ctx, actor, userID, opts...)
+func (a *Client) Unban(ctx context.Context, who auth.Identity, userID string, opts ...Option) error {
+	return a.ops.Unban(ctx, who, userID, opts...)
 }
 
 // DeleteUsers soft-deletes accounts under ACCT(root:users:delete), starting
 // the 30-day recovery window; an account may delete itself. Only a
 // self-deletion is undone by signing in; any other comes back through
 // RestoreUsers. Results are per item; the error is a whole-call failure.
-func (a *Client) DeleteUsers(ctx context.Context, actor iam.Actor, ids []string, opts ...Option) ([]iam.OpResult, error) {
-	return a.ops.DeleteUsers(ctx, actor, ids, opts...)
+func (a *Client) DeleteUsers(ctx context.Context, who auth.Identity, ids []string, opts ...Option) ([]iam.OpResult, error) {
+	return a.ops.DeleteUsers(ctx, who, ids, opts...)
 }
 
 // RestoreUsers restores soft-deleted accounts within their recovery window
 // under ACCT(root:users:delete).
-func (a *Client) RestoreUsers(ctx context.Context, actor iam.Actor, ids []string, opts ...Option) ([]iam.OpResult, error) {
-	return a.ops.RestoreUsers(ctx, actor, ids, opts...)
+func (a *Client) RestoreUsers(ctx context.Context, who auth.Identity, ids []string, opts ...Option) ([]iam.OpResult, error) {
+	return a.ops.RestoreUsers(ctx, who, ids, opts...)
 }
 
 // PurgeUsers ends the recovery window of accounts now; the rows go once the

@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -13,14 +14,31 @@ import (
 	"github.com/open-rails/helpers/auth"
 )
 
+// TokenKind is the class of credential verified Claims hold: which of their
+// fields apply. It is not the subject's kind (Claims.Identity).
+type TokenKind string
+
+const (
+	// TokenUser is a user's token: a native one (UserID), another issuer's
+	// (Subject), or a resource access token for a user.
+	TokenUser TokenKind = "user"
+	// TokenAPIKey is one of this deployment's API keys (*authkit.Client).
+	TokenAPIKey TokenKind = "api_key"
+	// TokenRemoteApplication is a registered remote application's own token
+	// (*authkit.Client).
+	TokenRemoteApplication TokenKind = "remote_application"
+	// TokenDelegated is a delegated access token: AuthKit's for a user, or a
+	// remote application's for one of its own users.
+	TokenDelegated TokenKind = "delegated"
+	// TokenOAuthClient is an OAuth client's own resource access token
+	// (at+jwt) whose sub is its client_id. It carries no AuthKit authority.
+	TokenOAuthClient TokenKind = "oauth_client"
+)
+
 // Claims is a verified credential: what the middleware stores in the request
 // context. Kind says which fields apply.
 type Claims struct {
-	// Kind is the credential class: iam.ActorUser, iam.ActorDelegated or
-	// (a resource access token whose sub is its client_id)
-	// iam.ActorOAuthClient for a token, and from *authkit.Client also
-	// iam.ActorAPIKey and iam.ActorRemoteApplication.
-	Kind iam.ActorKind
+	Kind TokenKind
 	// JOSEType is the token's typ header ("access+jwt",
 	// "delegated-access+jwt", "remote-application-access+jwt", "at+jwt");
 	// empty for an API key.
@@ -36,7 +54,7 @@ type Claims struct {
 	Subject string
 	// DelegatedSubject is a delegated token's delegated_sub, whose authority
 	// is Permissions: the user who minted a token of this deployment, else an
-	// external actor. It never sets UserID.
+	// external identity. It never sets UserID.
 	DelegatedSubject string
 	// SessionID (sid) or DeviceKeyID names the sign-in a native token, or a
 	// delegated token AuthKit minted from one, was minted from; the session
@@ -95,9 +113,9 @@ type Claims struct {
 	// AuthorizationDetails is a resource access token's RFC 9396 grant, the
 	// raw JSON array; nil when it carries none.
 	AuthorizationDetails json.RawMessage
-	// Actor is the client acting for the user (RFC 8693 act.sub): set on a
-	// token from token exchange.
-	Actor string
+	// Invoker is the client acting for the user, from token exchange: the
+	// RFC 8693 identity claim (act.sub), the Identity's Invoker.
+	Invoker string
 	// CustomClaims are a resource access token's claims named by an absolute
 	// URI ("https://example.com/grant"), the issuer's own, each value raw JSON.
 	CustomClaims map[string]json.RawMessage
@@ -119,7 +137,7 @@ type PermissionScope struct {
 }
 
 // IsUser reports whether the claims are a local user's.
-func (c Claims) IsUser() bool { return c.Kind == iam.ActorUser && c.UserID != "" }
+func (c Claims) IsUser() bool { return c.Kind == TokenUser && c.UserID != "" }
 
 // IsResourceToken reports whether the claims are an RFC 9068 resource
 // access token's (at+jwt): an authorization server's grant to a client for
@@ -191,33 +209,33 @@ func (c Claims) Identity() (auth.Identity, bool) {
 	}
 	var invoker *auth.Invoker
 	switch c.Kind {
-	case iam.ActorUser:
+	case TokenUser:
 		i.Subject = c.UserID
 		if i.Subject == "" {
 			i.Subject = c.Subject
 		}
 		switch {
 		case c.IsResourceToken():
-			if c.ClientID != "" {
-				invoker = &auth.Invoker{Issuer: c.Issuer, ID: c.ClientID}
+			if client := cmp.Or(c.Invoker, c.ClientID); client != "" {
+				invoker = &auth.Invoker{Issuer: c.Issuer, ID: client}
 			}
 		case c.DeviceKeyID != "":
 			i.Credential = auth.Credential{Kind: auth.CredentialDeviceKey, ID: c.DeviceKeyID}
 		case c.SessionID != "":
 			i.Credential = auth.Credential{Kind: auth.CredentialSession, ID: c.SessionID}
 		}
-	case iam.ActorAPIKey:
+	case TokenAPIKey:
 		if c.Group != nil {
 			i.Subject = c.Group.GroupID
 		}
 		i.Issuer, i.SubjectKind = authority, auth.SubjectApplication
 		i.Credential = auth.Credential{Kind: auth.CredentialAPIKey, ID: c.APIKeyID}
-	case iam.ActorRemoteApplication:
+	case TokenRemoteApplication:
 		i.Issuer, i.Subject, i.SubjectKind = authority, c.RemoteApplicationID, auth.SubjectApplication
 		i.Credential.Kind = auth.CredentialSignedToken
-	case iam.ActorOAuthClient:
+	case TokenOAuthClient:
 		i.Subject, i.SubjectKind = c.ClientID, auth.SubjectApplication
-	case iam.ActorDelegated:
+	case TokenDelegated:
 		i.Subject = c.DelegatedSubject
 		if c.RemoteApplicationID != "" {
 			i.Issuer, i.Subject, i.SubjectKind = authority, c.RemoteApplicationID, auth.SubjectApplication
@@ -243,27 +261,31 @@ func (c Claims) Identity() (auth.Identity, bool) {
 type claimsKey struct{}
 
 // verified is what the middleware stores in a request context: the claims,
-// the actor they act as, and, when a gate verified them, its authenticator
-// and the request credential (Authorization and DPoP headers) it verified.
+// their identity, and, when a gate verified them, its authenticator and the
+// request credential (Authorization and DPoP headers) it verified. Only a
+// gate's identity carries AuthKit's credential state.
 type verified struct {
 	claims     Claims
-	actor      iam.Actor
+	identity   auth.Identity
 	by         Authenticator
 	credential [2]string
 }
 
-// SetClaims stores cl in ctx for the handlers. The gates and
-// AuthenticateRequest never trust claims stored this way: they verify the
-// request themselves.
+// SetClaims stores cl in ctx for the handlers. Nothing trusts claims stored
+// this way: the gates and AuthenticateRequest verify the request themselves,
+// and their identity (IdentityFromContext) grants nothing.
 func SetClaims(ctx context.Context, cl Claims) context.Context {
-	actor, _ := ActorFromClaims(cl)
-	return context.WithValue(ctx, claimsKey{}, verified{claims: cl, actor: actor})
+	id, _ := cl.Identity()
+	return context.WithValue(ctx, claimsKey{}, verified{claims: cl, identity: id})
 }
 
 // setVerified stores the claims a verified r to carry.
 func setVerified(r *http.Request, a Authenticator, cl Claims) *http.Request {
-	actor, _ := ActorFromClaims(cl)
-	return r.WithContext(context.WithValue(r.Context(), claimsKey{}, verified{claims: cl, actor: actor, by: a, credential: credential(r)}))
+	id, ok := boundIdentity(cl)
+	if !ok {
+		id, _ = cl.Identity()
+	}
+	return r.WithContext(context.WithValue(r.Context(), claimsKey{}, verified{claims: cl, identity: id, by: a, credential: credential(r)}))
 }
 
 // verifiedBy is the claims a gate over a stored in ctx for r's credential:
@@ -288,22 +310,13 @@ func ClaimsFromContext(ctx context.Context) (Claims, bool) {
 }
 
 // VerifiedIdentity is the identity a gate over a verified and stored in ctx
-// (Claims.Identity), as helpers/auth Auth.Identity reports it. It is false
-// without one, and for claims SetClaims or a gate over another authenticator
-// stored: only a gate's own verification proves who called.
+// (IdentityFromContext), as helpers/auth Auth.Identity reports it. It is
+// false without one, and for claims SetClaims or a gate over another
+// authenticator stored: only a gate's own verification proves who called.
 func VerifiedIdentity(ctx context.Context, a Authenticator) (auth.Identity, bool) {
 	v, ok := ctx.Value(claimsKey{}).(verified)
-	if !ok || v.by == nil || reflect.ValueOf(v.by).Kind() != reflect.Pointer || v.by != a {
+	if !ok || v.by == nil || reflect.ValueOf(v.by).Kind() != reflect.Pointer || v.by != a || v.identity.Subject == "" {
 		return auth.Identity{}, false
 	}
-	return v.claims.Identity()
-}
-
-// IdentityFromContext is the verified caller's provider-neutral identity.
-func IdentityFromContext(ctx context.Context) (auth.Identity, bool) {
-	cl, ok := ClaimsFromContext(ctx)
-	if !ok {
-		return auth.Identity{}, false
-	}
-	return cl.Identity()
+	return v.identity, true
 }

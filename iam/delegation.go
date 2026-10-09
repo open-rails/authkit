@@ -42,8 +42,8 @@ type DelegationAuthorizer func(context.Context, DelegationRequest) (DelegationGr
 // DelegatedAccess is a delegated access token to mint: signed by this
 // deployment, it carries delegated_sub and never sub.
 type DelegatedAccess struct {
-	// Subject becomes delegated_sub. A user actor mints only for itself (empty
-	// means the actor); the system must name the subject.
+	// Subject becomes delegated_sub. A user mints only for itself (empty
+	// means the user); the system must name the subject.
 	Subject string
 	// Audiences becomes aud: the resource APIs the token is for.
 	Audiences []string

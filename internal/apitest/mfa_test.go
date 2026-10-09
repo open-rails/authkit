@@ -240,7 +240,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 			f.expect(http.StatusAccepted, f.post("/passwordless/start", map[string]any{"identifier": email, "mode": "both"}))
 			pending := f.post("/passwordless/confirm", map[string]any{"token": outbox.Last(t, iam.MessageVerification, email).Token}).secondFactor(t)
 			replacement := "Replacement-password-12345"
-			_, err := auth.UpdateUser(ctx, iam.SystemActor(), pending.UserID, iam.UserUpdate{Password: &replacement})
+			_, err := auth.UpdateUser(ctx, iam.SystemIdentity(), pending.UserID, iam.UserUpdate{Password: &replacement})
 			require.NoError(t, err)
 			f.expect(http.StatusUnauthorized, f.post("/2fa/verify", map[string]any{"user_id": pending.UserID,
 				"challenge": pending.Challenge, "code": enabled.BackupCodes[1], "backup_code": true}))
@@ -275,7 +275,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	// Proving the address without that proof retires the password set before
 	// it; the owner sets it again.
 	verified, password := true, pass
-	_, err = auth.UpdateUser(ctx, iam.SystemActor(), u.ID, iam.UserUpdate{EmailVerified: &verified, Password: &password})
+	_, err = auth.UpdateUser(ctx, iam.SystemIdentity(), u.ID, iam.UserUpdate{EmailVerified: &verified, Password: &password})
 	require.NoError(t, err)
 	grant := f.post("/password/login", credentials).enrollment(t).TokenSet.AccessToken
 	f.expect(http.StatusOK, f.request(http.MethodPost, "/me/2fa/setup", grant, map[string]any{"method": "email"}))
@@ -702,7 +702,7 @@ func TestSoleRootOwnerCannotDisable2FA(t *testing.T) {
 	ctx := t.Context()
 	owner := iam.RootPersona().OwnerRole()
 	can := func(u authtest.User) bool {
-		ok, err := auth.Can(ctx, iam.UserActor(u.ID), iam.RootGroup(), ident.RootUsersRead)
+		ok, err := auth.Can(ctx, iam.UserIdentity(u.ID), iam.RootGroup(), ident.RootUsersRead)
 		require.NoError(t, err)
 		return ok
 	}
