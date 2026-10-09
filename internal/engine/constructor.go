@@ -10,13 +10,19 @@ import (
 	"github.com/open-rails/authkit/keys"
 )
 
-// New builds the engine: it normalizes cfg once (config.Normalize), resolves
-// keys, then builds the store, River, the permission groups and the request
-// authenticator. ctx bounds the boot-time database work.
+// New builds the engine: it normalizes cfg once (config.Normalize), creates or
+// upgrades the tables (Migrate), resolves keys, then builds the store, River,
+// the permission groups and the request authenticator. ctx bounds the
+// boot-time database work.
 func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, err error) {
 	norm, err := config.Normalize(cfg, deps)
 	if err != nil {
 		return nil, err
+	}
+	if deps.Postgres != nil {
+		if err := Migrate(ctx, deps.Postgres, norm.Database); err != nil {
+			return nil, err
+		}
 	}
 	gs, err := config.CompileRoles(norm.Roles)
 	if err != nil {
@@ -36,7 +42,7 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 		cfg:               norm,
 		keys:              src,
 		ownedKeySource:    owned,
-		schema:            norm.Schema,
+		schema:            norm.Database.Schema,
 		groupSchema:       gs,
 		solanaSNSResolver: newDefaultSolanaSNSResolver(),
 		now:               time.Now,
@@ -50,9 +56,6 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 		return nil, err
 	}
 	if err := s.requireEnrollableSecondFactor(deps.KeySource != nil || !norm.Keys.VerifyOnly); err != nil {
-		return nil, err
-	}
-	if err := s.probeMigrations(); err != nil {
 		return nil, err
 	}
 	if err := s.initRiver(ctx, deps.Postgres); err != nil {

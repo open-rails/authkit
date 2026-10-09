@@ -81,7 +81,7 @@ func WithDeps(fn func(*authkit.Deps)) Option {
 //   - SignIn: every limit off, since tests sign many accounts in from one
 //     address.
 //   - Deps.KeySource: an RSA key generated once per test binary.
-//   - Schema and RiverSchema: the scratch schema, unless set.
+//   - Database.Schema and Database.RiverSchema: the scratch schema, unless set.
 //
 // The Client is not started: call Start when a test needs River's work, such
 // as Deps.OnEvent or the deletion hooks. Cleanup closes the Client and drops
@@ -117,14 +117,11 @@ func New(t testing.TB, opts ...Option) (*authkit.Client, *Outbox) {
 		t.Cleanup(pool.Close)
 		deps.Postgres = pool
 	}
-	if cfg.Schema == "" {
-		cfg.Schema = scratchSchema(t, deps.Postgres)
+	if cfg.Database.Schema == "" {
+		cfg.Database.Schema = scratchSchema(t, deps.Postgres)
 	}
-	if cfg.RiverSchema == "" {
-		cfg.RiverSchema = cfg.Schema
-	}
-	if err := authkit.Migrate(ctx, deps.Postgres, cfg, authkit.MigrateOptions{}); err != nil {
-		t.Fatalf("authtest: migrate: %v", err)
+	if cfg.Database.RiverSchema == "" {
+		cfg.Database.RiverSchema = cfg.Database.Schema
 	}
 	auth, err := authkit.New(ctx, cfg, deps)
 	if err != nil {
@@ -182,7 +179,7 @@ func closeAtCleanup(t testing.TB, auth *authkit.Client) {
 func StaleSession(t testing.TB, auth *authkit.Client, accessToken string) string {
 	t.Helper()
 	cfg, deps := builtWith(t, auth)
-	schema, err := config.NormalizeSchema(cfg.Schema)
+	schema, err := config.NormalizeSchema(cfg.Database.Schema)
 	if err != nil || deps.Postgres == nil {
 		t.Fatalf("authtest: stale session: no database (%v)", err)
 	}
@@ -220,7 +217,7 @@ var signingKeys = sync.OnceValue(func() keys.Static { return testkeys.Source(tes
 var schemas atomic.Int64
 
 // scratchSchema names a schema no other test uses and drops it at cleanup
-// (after the Client closes); Migrate creates it.
+// (after the Client closes); New creates it.
 func scratchSchema(t testing.TB, pool *pgxpool.Pool) string {
 	t.Helper()
 	name := fmt.Sprintf("authtest_%d_%s_%d", os.Getpid(), strconv.FormatInt(time.Now().UnixNano(), 36), schemas.Add(1))

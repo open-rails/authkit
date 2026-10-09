@@ -18,8 +18,10 @@ import (
 // when it needs the Client first.
 type Deps struct {
 	// Postgres is the durable store, required by every host-facing
-	// constructor. It also holds AuthKit's short-lived auth state (codes,
-	// ceremonies, attempt counters), shared by every replica.
+	// constructor. New creates or upgrades AuthKit's and River's tables
+	// through it, so its role owns and uses them. It also holds AuthKit's
+	// short-lived auth state (codes, ceremonies, attempt counters), shared by
+	// every replica.
 	Postgres *pgxpool.Pool
 
 	// KeySource signs and publishes tokens. Nil resolves keys from
@@ -102,12 +104,4 @@ type SMSSender interface {
 	// CheckHealth reports, without sending, whether messages can be delivered
 	// now: nil when healthy, or when the provider can't tell.
 	CheckHealth(ctx context.Context) error
-}
-
-// MigrateOptions configures authkit.Migrate beyond what Config declares.
-type MigrateOptions struct {
-	// RuntimePool is the pool AuthKit will run with, as a less privileged
-	// database user: Migrate grants that user runtime access. Both pools must
-	// reach the same database. Nil provisions no runtime privileges.
-	RuntimePool *pgxpool.Pool
 }

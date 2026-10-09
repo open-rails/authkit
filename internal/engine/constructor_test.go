@@ -69,7 +69,7 @@ func TestClientOwnedResourceLifecycle(t *testing.T) {
 
 	t.Run("config", func(t *testing.T) {
 		cfg := base
-		cfg.Schema = "invalid schema"
+		cfg.Database.Schema = "invalid schema"
 		pprof.Do(context.Background(), pprof.Labels(label, t.Name()), func(context.Context) {
 			client, err := New(context.Background(), cfg, config.Deps{})
 			require.Error(t, err)

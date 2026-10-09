@@ -65,12 +65,12 @@ func (s *Engine) initRiver(ctx context.Context, host *pgxpool.Pool) error {
 	if s.pg == nil {
 		return nil
 	}
-	producer, err := river.NewClient(riverpgxv5.New(s.pg), riverConfig(s.cfg.RiverSchema))
+	producer, err := river.NewClient(riverpgxv5.New(s.pg), riverConfig(s.cfg.Database.RiverSchema))
 	if err != nil {
 		return fmt.Errorf("authkit: construct River producer: %w", err)
 	}
 	s.maintenance = &riverMaintenance{producer: producer, host: host}
-	return s.registerAccountDeliveryFleet(ctx, s.cfg.RiverSchema)
+	return s.registerAccountDeliveryFleet(ctx, s.cfg.Database.RiverSchema)
 }
 
 // RiverJobs contributes AuthKit's jobs to one fleet: the host's, which it
@@ -127,10 +127,9 @@ func (s *Engine) registerRiver(cfg *river.Config) error {
 	if s.maintenance.registered {
 		return fmt.Errorf("authkit: River workers already registered")
 	}
-	// Migrate prepared River's tables, and granted the runtime role, in
-	// RiverSchema only.
-	if cfg.Schema != s.cfg.RiverSchema {
-		return fmt.Errorf("authkit: River fleet schema %q differs from Config.RiverSchema %q", cfg.Schema, s.cfg.RiverSchema)
+	// New prepared River's tables in RiverSchema only.
+	if cfg.Schema != s.cfg.Database.RiverSchema {
+		return fmt.Errorf("authkit: River fleet schema %q differs from Config.Database.RiverSchema %q", cfg.Schema, s.cfg.Database.RiverSchema)
 	}
 	queue := maintenanceQueue(s.dbSchema())
 	if existing, ok := cfg.Queues[queue]; ok && existing.MaxWorkers < 1 {
@@ -256,7 +255,7 @@ func (s *Engine) startOwnRiver(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	client, err := riverhelpers.New(ctx, pool, riverConfig(s.cfg.RiverSchema), s.RiverJobs())
+	client, err := riverhelpers.New(ctx, pool, riverConfig(s.cfg.Database.RiverSchema), s.RiverJobs())
 	if err != nil {
 		pool.Close()
 		return fmt.Errorf("authkit: construct River: %w", err)

@@ -1,6 +1,6 @@
 // Package config is the one definition of AuthKit's host configuration:
-// Config (plain data), Deps (everything that reaches outside the process),
-// the Roles builder and MigrateOptions. The root package re-exports each type
+// Config (plain data), Deps (everything that reaches outside the process)
+// and the Roles builder. The root package re-exports each type
 // under the same name (authkit.Config is config.Config), so these field docs
 // are the ones hosts read. Normalize applies every default and rule once.
 package config
@@ -14,15 +14,11 @@ import (
 
 // Config is the host configuration: plain data and policy. Everything that
 // reaches outside the process (the pool, senders, keys, providers, hooks) is
-// in Deps. authkit.New normalizes it once; authkit.Migrate reads Schema and
-// River from the same value.
+// in Deps. authkit.New normalizes it once.
 type Config struct {
-	// Schema is the PostgreSQL schema AuthKit's tables live in. Empty defaults
-	// to "profiles". Deployments that must not share accounts on one database
-	// use different schemas; deployments that share accounts use the same one
-	// (see TokenConfig.AccountIssuers). It must match ^[a-z_][a-z0-9_]*$ (max 63
-	// bytes).
-	Schema string
+	// Database names the PostgreSQL schemas AuthKit's and River's tables live
+	// in. New creates or upgrades them.
+	Database DatabaseConfig
 
 	// Token is the JWT issuing/verification contract and session limits.
 	Token TokenConfig
@@ -98,11 +94,6 @@ type Config struct {
 	// kept. 0 defaults to 365 days; a negative value keeps them forever.
 	SessionEventRetention time.Duration
 
-	// RiverSchema holds the River tables AuthKit's jobs (account lifecycle,
-	// events, cleanup) run in; empty defaults to "public". Migrate creates
-	// them; Start runs AuthKit's own River client there, and a host fleet
-	// passed to Start with WithRiverClient must use the same schema.
-	RiverSchema string
 	// CleanupInterval is how often expired auth state is cleaned up; 0
 	// defaults to one hour.
 	CleanupInterval time.Duration
@@ -387,6 +378,23 @@ type RemoteApplicationConfig struct {
 	Disabled bool
 	// RootRole, when set, is the role it holds on root.
 	RootRole iam.Role
+}
+
+// DatabaseConfig names the PostgreSQL schemas of AuthKit's tables. New
+// creates them, and creates or upgrades the tables, before anything else
+// touches the database: the pool in Deps.Postgres owns and uses them.
+type DatabaseConfig struct {
+	// Schema is the PostgreSQL schema AuthKit's tables live in. Empty
+	// defaults to "profiles". Deployments that must not share accounts on one
+	// database use different schemas; deployments that share accounts use the
+	// same one (see TokenConfig.AccountIssuers). It must match
+	// ^[a-z_][a-z0-9_]*$ (max 63 bytes).
+	Schema string
+	// RiverSchema holds the River tables AuthKit's jobs (account lifecycle,
+	// events, cleanup) run in; empty defaults to "public". Start runs AuthKit's
+	// own River client there, and a host fleet passed to Start with
+	// WithRiverClient must use the same schema.
+	RiverSchema string
 }
 
 // InvitationsConfig controls invitations: invite links and emailed

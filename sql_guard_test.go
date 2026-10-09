@@ -41,12 +41,11 @@ const pendingSQL = "pending #414 group "
 // internal/db/queries/*.sql (sqlc); only SQL built at runtime stays inline,
 // with its reason here. #414 groups delete their pending entries.
 var inlineSQL = map[string]inlineSQLSite{
-	"authtest/authtest.go StaleSession":                               {1, "ages a session in a generated schema; identifiers cannot be bind parameters"},
-	"authtest/authtest.go scratchSchema":                              {1, "DDL on a generated schema name; identifiers cannot be bind parameters"},
-	"internal/engine/migration_access.go grantMigrationRuntimeAccess": {1, "GRANTs name the runtime role, schema and River objects; identifiers cannot be bind parameters"},
-	"internal/engine/migrations.go Migrate":                           {1, "CREATE SCHEMA names the River schema; identifiers cannot be bind parameters"},
-	"internal/engine/users_read.go Engine.ListUsers":                  {1, "filters, sort column and keyset cursor are chosen at runtime; it pages ids and loads rows with UsersByIDs"},
-	"internal/engine/users_read.go Engine.countUsers":                 {1, "counts ListUsers' runtime-chosen filters"},
+	"authtest/authtest.go StaleSession":               {1, "ages a session in a generated schema; identifiers cannot be bind parameters"},
+	"authtest/authtest.go scratchSchema":              {1, "DDL on a generated schema name; identifiers cannot be bind parameters"},
+	"internal/engine/migrations.go Migrate":           {1, "CREATE SCHEMA names the River schema; identifiers cannot be bind parameters"},
+	"internal/engine/users_read.go Engine.ListUsers":  {1, "filters, sort column and keyset cursor are chosen at runtime; it pages ids and loads rows with UsersByIDs"},
+	"internal/engine/users_read.go Engine.countUsers": {1, "counts ListUsers' runtime-chosen filters"},
 }
 
 // Static SQL outside internal/db escapes sqlc's schema check and grows a

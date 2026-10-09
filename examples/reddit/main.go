@@ -27,7 +27,7 @@ import (
 
 func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {
 	cfg := authkit.Config{
-		Schema: "profiles", // the Postgres schema AuthKit's tables go in
+		Database: authkit.DatabaseConfig{Schema: "profiles"}, // the Postgres schema AuthKit's tables go in
 		// Configure JWTs; authkit issues these to users; users then send them back with requests to prove who they are!
 		Token: authkit.TokenConfig{
 			Issuer:          "https://myapp.com", // who issued this; that's you!
@@ -43,12 +43,7 @@ func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {
 		Roles: rbac, // See below for our RBAC system
 	}
 
-	// 1. Create or upgrade AuthKit's tables. Safe to run on every boot.
-	if err := authkit.Migrate(ctx, db, cfg, authkit.MigrateOptions{}); err != nil {
-		return nil, err
-	}
-
-	// 2. Authkit needs to send verification and account recovery codes to emails and phone numbers.
+	// 1. Authkit needs to send verification and account recovery codes to emails and phone numbers.
 	// Configure your messaging provider (Twilio) here.
 	email, err := twilio.NewEmail(twilio.EmailConfig{
 		APIKey:    os.Getenv("SENDGRID_API_KEY"),
@@ -68,7 +63,7 @@ func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {
 		return nil, err
 	}
 
-	// 3. Build the auth engine.
+	// 2. Build the auth engine. It creates or upgrades its tables first; safe on every boot.
 	return authkit.New(ctx, cfg, authkit.Deps{
 		Postgres: db,    // required: users, sessions and short-lived auth state
 		Email:    email, // sends verification codes, login codes and password resets

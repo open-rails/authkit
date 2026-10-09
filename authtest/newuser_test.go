@@ -30,7 +30,7 @@ var generatedName = regexp.MustCompile(`^user[0-9a-f]{16}$`)
 func TestNewUserAcrossProcessesSharingASchema(t *testing.T) {
 	if schema := os.Getenv(sharedSchemaEnv); schema != "" {
 		// The child: print the usernames NewUser gives it in the parent's schema.
-		auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) { c.Schema = schema }))
+		auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) { c.Database.Schema = schema }))
 		for range 3 {
 			fmt.Println(authtest.NewUser(t, auth).Username)
 		}
@@ -46,7 +46,7 @@ func TestNewUserAcrossProcessesSharingASchema(t *testing.T) {
 		require.NoError(t, err)
 	})
 	auth, _ := authtest.New(t,
-		authtest.WithConfig(func(c *authkit.Config) { c.Schema = schema }),
+		authtest.WithConfig(func(c *authkit.Config) { c.Database.Schema = schema }),
 		authtest.WithDeps(func(d *authkit.Deps) { d.Postgres = pool }))
 
 	names := map[string]bool{}

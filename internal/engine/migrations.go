@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/internal/config"
-	"github.com/open-rails/authkit/internal/db"
+	sqlc "github.com/open-rails/authkit/internal/db"
 	internalmigrations "github.com/open-rails/authkit/internal/migrations/postgres"
 	"github.com/open-rails/authkit/internal/migrations/retired"
 	"github.com/open-rails/migratekit"
@@ -17,21 +17,21 @@ import (
 	"github.com/riverqueue/river/rivermigrate"
 )
 
-// Migrate applies AuthKit's PostgreSQL migrations to cfg.Schema and River's to
-// cfg.RiverSchema; see authkit.Migrate.
-func Migrate(ctx context.Context, pool *pgxpool.Pool, cfg config.Config, opts config.MigrateOptions) error {
-	riverSchema, err := config.NormalizeRiverSchema(cfg.RiverSchema)
-	if err != nil {
-		return err
-	}
+// Migrate creates or upgrades AuthKit's tables in db.Schema and River's in
+// db.RiverSchema through pool, whose role then owns them. New runs it before
+// anything else touches the database; replicas booting together serialize on
+// advisory locks, so it is safe to run concurrently. A schema a newer build
+// already migrated passes unchanged: migrations this build does not know are
+// left as they are.
+func Migrate(ctx context.Context, pool *pgxpool.Pool, db config.DatabaseConfig) error {
 	if pool == nil {
-		return errors.New("authkit: Migrate requires a non-nil *pgxpool.Pool")
+		return errors.New("authkit: migrating needs Deps.Postgres")
 	}
-	normalized, err := config.NormalizeSchema(cfg.Schema)
+	normalized, err := config.NormalizeSchema(db.Schema)
 	if err != nil {
 		return err
 	}
-	runtimeUser, err := migrationRuntimeUser(ctx, pool, opts.RuntimePool)
+	riverSchema, err := config.NormalizeRiverSchema(db.RiverSchema)
 	if err != nil {
 		return err
 	}
@@ -67,7 +67,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, cfg config.Config, opts co
 		defer cancel()
 		_ = lockConn.Close(cleanupCtx) // Closing the session releases its advisory lock.
 	}()
-	if err := db.New(lockConn).AdvisoryLock(ctx, "river-migrations:"+riverSchema); err != nil {
+	if err := sqlc.New(lockConn).AdvisoryLock(ctx, "river-migrations:"+riverSchema); err != nil {
 		return fmt.Errorf("authkit: lock River migrations: %w", err)
 	}
 
@@ -83,22 +83,5 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, cfg config.Config, opts co
 	if _, err := riverMigrator.Migrate(ctx, rivermigrate.DirectionUp, nil); err != nil {
 		return fmt.Errorf("authkit: migrate River: %w", err)
 	}
-	return grantMigrationRuntimeAccess(ctx, pool, runtimeUser, normalized, riverSchema)
-}
-
-// probeMigrations fails fast at construction when AuthKit's migrations were
-// never run: a definitive "users table missing" beats a cryptic mid-request
-// `relation "users" does not exist`. Probe errors (connectivity, permissions)
-// fail open; they surface elsewhere.
-func (s *Engine) probeMigrations() error {
-	if s.pg == nil {
-		return nil
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	exists, err := s.q.MigrationSchemaHasUsers(ctx, s.dbSchema())
-	if err != nil || exists {
-		return nil
-	}
-	return fmt.Errorf("authkit: schema %q has no users table — run authkit.Migrate before authkit.New", s.dbSchema())
+	return nil
 }

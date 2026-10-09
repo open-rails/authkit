@@ -13,6 +13,7 @@ type (
 	// Config is the host configuration: plain data. Everything that reaches
 	// outside the process is in Deps.
 	Config             = config.Config
+	DatabaseConfig     = config.DatabaseConfig
 	TokenConfig        = config.TokenConfig
 	SignInConfig       = config.SignInConfig
 	KeysConfig         = config.KeysConfig

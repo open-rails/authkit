@@ -59,7 +59,7 @@ const (
 // nothing.
 func Normalize(c Config, d Deps) (Config, error) {
 	var err error
-	if c.Schema, err = NormalizeSchema(c.Schema); err != nil {
+	if c.Database.Schema, err = NormalizeSchema(c.Database.Schema); err != nil {
 		return Config{}, err
 	}
 	if err := normalizeToken(&c.Token); err != nil {
@@ -129,7 +129,7 @@ func Normalize(c Config, d Deps) (Config, error) {
 	if c.SessionEventRetention == 0 {
 		c.SessionEventRetention = 365 * 24 * time.Hour
 	}
-	if c.RiverSchema, err = NormalizeRiverSchema(c.RiverSchema); err != nil {
+	if c.Database.RiverSchema, err = NormalizeRiverSchema(c.Database.RiverSchema); err != nil {
 		return Config{}, err
 	}
 	if c.CleanupInterval == 0 {
@@ -524,7 +524,7 @@ func NormalizeSchema(raw string) (string, error) {
 		schema = db.DefaultSchema
 	}
 	if !db.ValidSchemaName(schema) {
-		return "", fmt.Errorf("authkit: invalid Schema %q (want lowercase identifier matching ^[a-z_][a-z0-9_]*$, max 63 bytes)", raw)
+		return "", fmt.Errorf("authkit: invalid Database.Schema %q (want lowercase identifier matching ^[a-z_][a-z0-9_]*$, max 63 bytes)", raw)
 	}
 	return schema, nil
 }
@@ -536,7 +536,7 @@ func NormalizeRiverSchema(raw string) (string, error) {
 		schema = "public"
 	}
 	if !db.ValidSchemaName(schema) {
-		return "", fmt.Errorf("authkit: invalid RiverSchema %q", raw)
+		return "", fmt.Errorf("authkit: invalid Database.RiverSchema %q", raw)
 	}
 	return schema, nil
 }
@@ -576,7 +576,7 @@ func normalizeHTTP(h *HTTPConfig, c Config, d Deps) error {
 	if err := ratelimit.ValidateLimits(h.RateLimits); err != nil {
 		return err
 	}
-	if h.RedisKeyPrefix, err = redisKeyPrefix(h.RedisKeyPrefix, c.Schema); err != nil {
+	if h.RedisKeyPrefix, err = redisKeyPrefix(h.RedisKeyPrefix, c.Database.Schema); err != nil {
 		return err
 	}
 	if d.Email == nil && d.SMS == nil {

@@ -36,7 +36,7 @@ import (
 
 func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {
 	cfg := authkit.Config{
-		Schema: "profiles", // the Postgres schema AuthKit's tables go in
+		Database: authkit.DatabaseConfig{Schema: "profiles"}, // the Postgres schema AuthKit's tables go in
 		// Configure JWTs; authkit issues these to users; users then send them back with requests to prove who they are!
 		Token: authkit.TokenConfig{
 			Issuer:          "https://myapp.com", // who issued this; that's you!
@@ -52,12 +52,7 @@ func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {
 		Roles: rbac, // See below for our RBAC system
 	}
 
-	// 1. Create or upgrade AuthKit's tables. Safe to run on every boot.
-	if err := authkit.Migrate(ctx, db, cfg, authkit.MigrateOptions{}); err != nil {
-		return nil, err
-	}
-
-	// 2. Authkit needs to send verification and account recovery codes to emails and phone numbers.
+	// 1. Authkit needs to send verification and account recovery codes to emails and phone numbers.
 	// Configure your messaging provider (Twilio) here.
 	email, err := twilio.NewEmail(twilio.EmailConfig{
 		APIKey:    os.Getenv("SENDGRID_API_KEY"),
@@ -77,7 +72,7 @@ func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {
 		return nil, err
 	}
 
-	// 3. Build the auth engine.
+	// 2. Build the auth engine. It creates or upgrades its tables first; safe on every boot.
 	return authkit.New(ctx, cfg, authkit.Deps{
 		Postgres: db,    // required: users, sessions and short-lived auth state
 		Email:    email, // sends verification codes, login codes and password resets
@@ -355,6 +350,6 @@ func mountForum(r *gin.Engine, auth *authkit.Client, db *pgxpool.Pool) {
 
 The rest is ordinary app code (our channel and post handlers), not AuthKit. The whole program is one file: [examples/reddit/main.go](examples/reddit/main.go).
 
-`Start` runs AuthKit's background jobs (account deletion, events, cleanup) on its own [River](https://riverqueue.com) client in `Config.RiverSchema` (default `public`), whose tables `Migrate` creates. An app that already runs a River fleet builds it in that schema with `riverhelpers.New(ctx, db, riverConfig, auth.RiverJobs(), …)` (`github.com/open-rails/helpers/river`) and calls `auth.Start(ctx, authkit.WithRiverClient(fleet))` instead; the app starts and stops that fleet, and `auth.Close` leaves it running.
+`Start` runs AuthKit's background jobs (account deletion, events, cleanup) on its own [River](https://riverqueue.com) client in `Config.Database.RiverSchema` (default `public`), whose tables `New` creates. An app that already runs a River fleet builds it in that schema with `riverhelpers.New(ctx, db, riverConfig, auth.RiverJobs(), …)` (`github.com/open-rails/helpers/river`) and calls `auth.Start(ctx, authkit.WithRiverClient(fleet))` instead; the app starts and stops that fleet, and `auth.Close` leaves it running.
 
 More: [keys](docs/keys.md), [tokens](docs/tokens.md), [subject, invoker, credential](docs/identity.md), [HTTP](docs/http.md), [RBAC](docs/rbac.md), [security](SECURITY.md), [v1 stability](docs/stability.md)

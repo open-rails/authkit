@@ -19,7 +19,7 @@ import (
 
 func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
-	require.NoError(t, Migrate(t.Context(), pg.Pool, config.Config{}, config.MigrateOptions{}))
+	require.NoError(t, Migrate(t.Context(), pg.Pool, config.DatabaseConfig{}))
 	cfgPool := pg.Pool.Config().Copy()
 	cfgPool.MaxConns = 1
 	pool, err := pgxpool.NewWithConfig(t.Context(), cfgPool)
@@ -182,7 +182,7 @@ func TestAccountFinalizationPreservesForeignKeysAndCascadesMemberships(t *testin
 // key the account issued is live, including one no earlier sweep saw.
 func TestAccountPurgeSweepsCredentialsBeforeTheRowGoes(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
-	require.NoError(t, Migrate(t.Context(), pg.Pool, config.Config{}, config.MigrateOptions{}))
+	require.NoError(t, Migrate(t.Context(), pg.Pool, config.DatabaseConfig{}))
 	runtime, err := New(context.Background(), maintenanceConfig(), config.Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = runtime.Close(context.Background()) })

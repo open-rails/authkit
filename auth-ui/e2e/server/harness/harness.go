@@ -46,20 +46,12 @@ type Runtime struct {
 	Outbox *authtest.Outbox
 }
 
-// Open connects to dsn and applies AuthKit's migrations.
+// Open connects to dsn; New creates AuthKit's tables.
 func Open(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	if dsn == "" {
 		return nil, errors.New("harness: Postgres DSN is required")
 	}
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		return nil, err
-	}
-	if err := authkit.Migrate(ctx, pool, authkit.Config{Schema: Schema}, authkit.MigrateOptions{}); err != nil {
-		pool.Close()
-		return nil, err
-	}
-	return pool, nil
+	return pgxpool.New(ctx, dsn)
 }
 
 // New builds the runtime for baseURL (the single same-origin SPA+API origin).
@@ -83,7 +75,7 @@ func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
 			RateLimits:    limits,
 			RefreshCookie: true,
 		},
-		Schema: Schema,
+		Database: authkit.DatabaseConfig{Schema: Schema},
 		Token: authkit.TokenConfig{
 			Issuer:          baseURL,
 			IssuedAudiences: []string{Audience},

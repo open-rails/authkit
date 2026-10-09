@@ -115,7 +115,6 @@ func TestVerificationSurfaceIsDBLess(t *testing.T) {
 // The root is the public API over internal/engine: nothing below it imports
 // it back. Only binaries and test harnesses sit above the root.
 var rootImporters = map[string]bool{
-	rootPackage + "/cmd/authkit-migrate": true,
 	rootPackage + "/examples/reddit":     true, // a host program, like any app
 	rootPackage + "/authtest":            true, // the host test kit
 	rootPackage + "/internal/testhttp":   true,

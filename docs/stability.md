@@ -13,7 +13,7 @@ The covered API is every exported identifier of the packages below, with its doc
 
 | Package | Holds |
 |---|---|
-| `authkit` | `Migrate`, `New`, `*Client`, `Config` and `Deps` with their sub-configs, the role builder, the `Option`s |
+| `authkit` | `New`, `*Client`, `Config` and `Deps` with their sub-configs, the role builder, the `Option`s |
 | `iam` | the shared types: credential state, refs, typed RBAC names, domain and wire types, events, `Error` and the `Err*` sentinels |
 | `verify` | token verification without a database, `Claims`, the middleware |
 | `keys` | signing keys: `Source`, `Signer`, `Watch`, JWK and JWKS |
@@ -77,7 +77,7 @@ New claims may be added, so verifiers ignore claims they don't know; `verify` al
 
 ## Database
 
-AuthKit owns its schema (`Config.Schema`), and only `Migrate` changes it. A v1.x `Migrate` upgrades a database of any earlier v1 release.
+AuthKit owns its schema (`Config.Database.Schema`), and only `New` changes it: it creates or upgrades AuthKit's and River's tables through `Deps.Postgres`, whose role owns and uses them. A v1.x `New` upgrades a database of any earlier v1 release, replicas booting together migrate it once, and an earlier v1.x build still boots on a database a later one migrated, so two apps sharing one account store upgrade one at a time.
 
 One thing in the schema is contract: host tables may reference `<schema>.users(id)` with a foreign key, `ON DELETE CASCADE` or `SET NULL`. The row outlives the account's recovery window and goes when AuthKit purges the account (30 days after deletion, or `Client.PurgeUsers`), once every `Deps.OnPurge` has succeeded. Every other table, column, index and function is private: don't read, write or reference it.
 

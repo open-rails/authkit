@@ -7,7 +7,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/internal/config"
+	"github.com/open-rails/authkit/internal/engine"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
@@ -25,7 +26,7 @@ func TestSchemaQualifiedWritesKeepAuthKitTriggerScope(t *testing.T) {
 
 	for _, schema := range []string{"profiles", "custom_identity"} {
 		t.Run(schema, func(t *testing.T) {
-			require.NoError(t, authkit.Migrate(ctx, pg.Pool, authkit.Config{Schema: schema}, authkit.MigrateOptions{}))
+			require.NoError(t, engine.Migrate(ctx, pg.Pool, config.DatabaseConfig{Schema: schema}))
 			conn, err := db.Conn(ctx)
 			require.NoError(t, err)
 			defer conn.Close()

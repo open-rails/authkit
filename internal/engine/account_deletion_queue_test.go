@@ -118,12 +118,14 @@ func TestAccountCallbackCanObserveBindingDuringManagedShutdown(t *testing.T) {
 
 func TestAccountDeletionRollsBackWhenRiverInsertFails(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
-	require.NoError(t, Migrate(t.Context(), pg.Pool, config.Config{}, config.MigrateOptions{}))
 	cfg := maintenanceConfig()
-	cfg.RiverSchema = "uninitialized_jobs"
+	cfg.Database.RiverSchema = "broken_jobs"
 	runtime, err := New(context.Background(), cfg, config.Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+	// The deletion's River insert fails.
+	_, err = pg.Pool.Exec(t.Context(), "DROP TABLE broken_jobs.river_job CASCADE")
+	require.NoError(t, err)
 	user, err := runtime.createUser(t.Context(), "rollback@example.test", "rollback")
 	require.NoError(t, err)
 	results, err := runtime.DeleteUsers(t.Context(), iam.SystemIdentity(), []string{user.ID})
@@ -142,8 +144,8 @@ func TestAccountDeletionRollsBackWhenRiverInsertFails(t *testing.T) {
 // deployment was offline throughout.
 func TestAccountDeletionDeliveryAcrossSeparateRiverFleets(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
-	require.NoError(t, Migrate(t.Context(), pg.Pool, config.Config{}, config.MigrateOptions{}))
-	require.NoError(t, Migrate(t.Context(), pg.Pool, config.Config{RiverSchema: "sibling_jobs"}, config.MigrateOptions{}))
+	require.NoError(t, Migrate(t.Context(), pg.Pool, config.DatabaseConfig{}))
+	require.NoError(t, Migrate(t.Context(), pg.Pool, config.DatabaseConfig{RiverSchema: "sibling_jobs"}))
 	issuers := []string{"https://first.example.test", "https://second.example.test"}
 	var mu sync.Mutex
 	events := map[string][]string{}
@@ -152,7 +154,7 @@ func TestAccountDeletionDeliveryAcrossSeparateRiverFleets(t *testing.T) {
 		cfg := maintenanceConfig()
 		cfg.Token.Issuer = issuer
 		cfg.Token.AccountIssuers = issuers
-		cfg.RiverSchema = schema
+		cfg.Database.RiverSchema = schema
 		record := func(entry string) {
 			mu.Lock()
 			defer mu.Unlock()
@@ -213,7 +215,7 @@ func TestAccountDeletionDeliveryAcrossSeparateRiverFleets(t *testing.T) {
 
 func TestAccountFleetRebindRequiresQuiescenceAndFencesOldProducer(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	require.NoError(t, Migrate(t.Context(), pg.Pool, config.Config{RiverSchema: "replacement_jobs"}, config.MigrateOptions{}))
+	require.NoError(t, Migrate(t.Context(), pg.Pool, config.DatabaseConfig{RiverSchema: "replacement_jobs"}))
 	cfg := maintenanceConfig()
 	old, err := New(context.Background(), cfg, config.Deps{Postgres: pg.Pool, OnEvent: func(context.Context, iam.Event) error { return nil }})
 	require.NoError(t, err)
@@ -221,7 +223,7 @@ func TestAccountFleetRebindRequiresQuiescenceAndFencesOldProducer(t *testing.T) 
 	user, err := old.createUser(t.Context(), "rebind@example.test", "rebind")
 	require.NoError(t, err)
 	require.NoError(t, old.softDelete(t.Context(), user.ID))
-	cfg.RiverSchema = "replacement_jobs"
+	cfg.Database.RiverSchema = "replacement_jobs"
 	_, err = New(context.Background(), cfg, config.Deps{Postgres: pg.Pool})
 	require.ErrorContains(t, err, "active account lifecycle work")
 	results, err := old.RestoreUsers(t.Context(), iam.SystemIdentity(), []string{user.ID})

@@ -21,7 +21,7 @@ fi
 export SQLC_DATABASE_URL="${AUTHKIT_TEST_DATABASE_URL}${sqlc_sep}options=-csearch_path%3Dprofiles%2Cpublic"
 export GOMAXPROCS=${GOMAXPROCS:-2}
 export GOWORK=off
-go run ./cmd/authkit-migrate \
+go run ./internal/cmd/migrate \
 	-dsn "$AUTHKIT_TEST_DATABASE_URL" -schema profiles
 
 if [[ "$mode" != contracts ]]; then

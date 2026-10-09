@@ -30,56 +30,6 @@ func (q *Queries) AdvisoryXactLock(ctx context.Context, key string) error {
 	return err
 }
 
-const currentDatabase = `-- name: CurrentDatabase :one
-SELECT current_database()::text
-`
-
-func (q *Queries) CurrentDatabase(ctx context.Context) (string, error) {
-	row := q.db.QueryRow(ctx, currentDatabase)
-	var column_1 string
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
-const migrationSchemaHasUsers = `-- name: MigrationSchemaHasUsers :one
-SELECT EXISTS (
-  SELECT 1 FROM information_schema.tables WHERE table_schema = $1::text AND table_name = 'users'
-)::boolean
-`
-
-func (q *Queries) MigrationSchemaHasUsers(ctx context.Context, schemaName string) (bool, error) {
-	row := q.db.QueryRow(ctx, migrationSchemaHasUsers, schemaName)
-	var column_1 bool
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
-const runtimeAccessLock = `-- name: RuntimeAccessLock :exec
-SELECT pg_advisory_xact_lock(hashtextextended('open-rails:runtime-access', 0))
-`
-
-// Shared with every open-rails migrator: ACL writes can touch the same public objects.
-func (q *Queries) RuntimeAccessLock(ctx context.Context) error {
-	_, err := q.db.Exec(ctx, runtimeAccessLock)
-	return err
-}
-
-const runtimeIdentity = `-- name: RuntimeIdentity :one
-SELECT current_user::text AS user_name, current_database()::text AS database_name
-`
-
-type RuntimeIdentityRow struct {
-	UserName     string
-	DatabaseName string
-}
-
-func (q *Queries) RuntimeIdentity(ctx context.Context) (RuntimeIdentityRow, error) {
-	row := q.db.QueryRow(ctx, runtimeIdentity)
-	var i RuntimeIdentityRow
-	err := row.Scan(&i.UserName, &i.DatabaseName)
-	return i, err
-}
-
 const setSearchPath = `-- name: SetSearchPath :exec
 
 SELECT set_config('search_path', $1::text, $2::boolean)
@@ -90,8 +40,8 @@ type SetSearchPathParams struct {
 	IsLocal    bool
 }
 
-// Connection setup, migrations and runtime-role provisioning. The schema
-// identifiers in CREATE SCHEMA and the GRANTs stay inline in the engine.
+// Connection setup and migration locks. The schema identifier in CREATE
+// SCHEMA stays inline in the engine.
 // is_local false sets it for the session, true until the transaction (or
 // savepoint) ends.
 func (q *Queries) SetSearchPath(ctx context.Context, arg SetSearchPathParams) error {

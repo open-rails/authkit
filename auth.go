@@ -58,8 +58,11 @@ func init() {
 
 var _ verify.Authority = (*Client)(nil)
 
-// New builds AuthKit from host configuration and dependencies. Run Migrate on
-// the pool first. ctx bounds the boot-time database work.
+// New builds AuthKit from host configuration and dependencies. It first
+// creates or upgrades AuthKit's and River's tables (Config.Database) through
+// Deps.Postgres, whose role owns them; replicas booting together are safe,
+// and a schema a newer build already migrated boots unchanged. ctx bounds the
+// boot-time database work.
 func New(ctx context.Context, cfg Config, deps Deps) (_ *Client, err error) {
 	e, err := engine.New(ctx, cfg, deps)
 	if err != nil {
@@ -111,7 +114,7 @@ type startOptions struct {
 }
 
 // WithRiverClient runs AuthKit's jobs on the host's River fleet, which
-// riverhelpers.New built with RiverJobs in Config.RiverSchema. AuthKit enqueues
+// riverhelpers.New built with RiverJobs in Config.Database.RiverSchema. AuthKit enqueues
 // through it and never starts or stops it.
 func WithRiverClient(fleet *river.Client[pgx.Tx]) StartOption {
 	return func(o *startOptions) { o.fleet, o.hostOwns = fleet, true }
@@ -119,7 +122,7 @@ func WithRiverClient(fleet *river.Client[pgx.Tx]) StartOption {
 
 // Start starts AuthKit's background work: River (account lifecycle, events,
 // auth-state cleanup) and the senders' health checks. With no options it
-// builds and runs AuthKit's own River client in Config.RiverSchema; with
+// builds and runs AuthKit's own River client in Config.Database.RiverSchema; with
 // WithRiverClient the jobs run on the host's fleet. Jobs queued before Start
 // wait for it. Call it once, before serving.
 func (a *Client) Start(ctx context.Context, opts ...StartOption) error {

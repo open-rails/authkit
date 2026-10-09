@@ -97,7 +97,7 @@ func newHost(t *testing.T, opts ...authtest.Option) *host {
 	var sms bool
 	opts = append([]authtest.Option{
 		authtest.WithConfig(func(c *authkit.Config) {
-			c.Schema, c.RiverSchema = "profiles", "public"
+			c.Database.Schema, c.Database.RiverSchema = "profiles", "public"
 			c.Token = authkit.TokenConfig{Issuer: issuer, IssuedAudiences: []string{audience}, ExpectedAudiences: []string{audience}}
 			c.Registration = authkit.RegistrationConfig{NativeUserMode: iam.RegistrationModeOpen, Verification: iam.RegistrationVerificationOptional}
 			c.TwoFactor = authkit.TwoFactorConfig{

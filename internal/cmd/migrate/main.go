@@ -1,6 +1,6 @@
-// Command authkit-migrate is AuthKit's repository-owned migration runner.
-// Consumers should call authkit.Migrate from their application
-// startup instead of importing this command or AuthKit's private source.
+// Command migrate creates or upgrades AuthKit's tables in a database for the
+// repository's own tooling (scripts/check.sh: sqlc's live checks and the
+// shared test schema). Applications never run it: authkit.New migrates.
 package main
 
 import (
@@ -10,7 +10,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/internal/config"
+	"github.com/open-rails/authkit/internal/engine"
 )
 
 func main() {
@@ -21,7 +22,6 @@ func main() {
 	if *dsn == "" {
 		log.Fatal("-dsn is required")
 	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, *dsn)
@@ -29,11 +29,7 @@ func main() {
 		log.Fatalf("connect to PostgreSQL: %v", err)
 	}
 	defer pool.Close()
-	if err := pool.Ping(ctx); err != nil {
-		log.Fatalf("ping PostgreSQL: %v", err)
-	}
-	cfg := authkit.Config{Schema: *schema, RiverSchema: *riverSchema}
-	if err := authkit.Migrate(ctx, pool, cfg, authkit.MigrateOptions{}); err != nil {
-		log.Fatalf("apply AuthKit migrations: %v", err)
+	if err := engine.Migrate(ctx, pool, config.DatabaseConfig{Schema: *schema, RiverSchema: *riverSchema}); err != nil {
+		log.Fatalf("migrate: %v", err)
 	}
 }
