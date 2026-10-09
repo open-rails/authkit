@@ -76,7 +76,6 @@ pkg authkit, method (*Client) RestoreUsers(context.Context, auth.Identity, []str
 pkg authkit, method (*Client) RevokeAPIKey(context.Context, auth.Identity, iam.GroupRef, string, ...Option) error
 pkg authkit, method (*Client) RevokeAccountSessions(context.Context, auth.Identity, string, ...Option) (iam.AccountSessionRevocation, error)
 pkg authkit, method (*Client) RevokeInvitation(context.Context, auth.Identity, iam.GroupRef, string, ...Option) error
-pkg authkit, method (*Client) RevokeOAuthGrant(context.Context, string, ...Option) error
 pkg authkit, method (*Client) RevokeSession(context.Context, auth.Identity, string, string, ...Option) error
 pkg authkit, method (*Client) RiverJobs() river.Contribution
 pkg authkit, method (*Client) Role(string) (iam.Role, error)
@@ -244,18 +243,14 @@ pkg authkit, type MerchantConfig struct
 pkg authkit, type MerchantConfig struct, Group string
 pkg authkit, type OAuthClientConfig = config.OAuthClientConfig
 pkg authkit, type OAuthClientConfig struct
-pkg authkit, type OAuthClientConfig struct, AccessTokenTTL time.Duration
 pkg authkit, type OAuthClientConfig struct, AuthorizationDetailsTypes []string
 pkg authkit, type OAuthClientConfig struct, GrantTypes []config.OAuthGrantType
 pkg authkit, type OAuthClientConfig struct, ID string
-pkg authkit, type OAuthClientConfig struct, KeyBound bool
 pkg authkit, type OAuthClientConfig struct, Name string
-pkg authkit, type OAuthClientConfig struct, Offline bool
 pkg authkit, type OAuthClientConfig struct, Origins []string
 pkg authkit, type OAuthClientConfig struct, Permissions []string
 pkg authkit, type OAuthClientConfig struct, PostLogoutRedirectURIs []string
 pkg authkit, type OAuthClientConfig struct, RedirectURIs []string
-pkg authkit, type OAuthClientConfig struct, RefreshTokenTTL time.Duration
 pkg authkit, type OAuthClientConfig struct, Resources []string
 pkg authkit, type OAuthClientConfig struct, SecretSHA256 string
 pkg authkit, type OAuthGrantType = config.OAuthGrantType
@@ -466,13 +461,11 @@ pkg authkit/authtest, method (*AuthorizationServer) Authorize(testing.TB, User, 
 pkg authkit/authtest, method (*AuthorizationServer) AuthorizeAs(testing.TB, iam.TokenSet, CodeFlow) OAuthTokens
 pkg authkit/authtest, method (*AuthorizationServer) BeginAuthorization(testing.TB, CodeFlow, string, string) string
 pkg authkit/authtest, method (*AuthorizationServer) ClientCredentials(testing.TB, string, string, string, []string, *DPoPKey) OAuthTokens
-pkg authkit/authtest, method (*AuthorizationServer) Consent(testing.TB, iam.TokenSet, CodeFlow) *url.URL
 pkg authkit/authtest, method (*AuthorizationServer) Exchange(testing.TB, TokenExchange) OAuthTokens
 pkg authkit/authtest, method (*AuthorizationServer) HTTPClient() *http.Client
 pkg authkit/authtest, method (*AuthorizationServer) JWTBearer(testing.TB, JWTBearerRequest) OAuthTokens
 pkg authkit/authtest, method (*AuthorizationServer) JWTBearerToken(testing.TB, JWTBearerRequest) (int, []byte)
 pkg authkit/authtest, method (*AuthorizationServer) Refresh(testing.TB, string, string, OAuthTokens) OAuthTokens
-pkg authkit/authtest, method (*AuthorizationServer) RequestClientCredentials(testing.TB, ClientCredentialsRequest) OAuthTokens
 pkg authkit/authtest, method (*AuthorizationServer) Revoke(testing.TB, string, string, string) int
 pkg authkit/authtest, method (*AuthorizationServer) Token(testing.TB, TokenRequest) (int, []byte)
 pkg authkit/authtest, method (*AuthorizationServer) TokenEndpoint() string
@@ -512,15 +505,7 @@ pkg authkit/authtest, type Capability struct, Claims map[string]any
 pkg authkit/authtest, type Capability struct, ID string
 pkg authkit/authtest, type Capability struct, Lifetime time.Duration
 pkg authkit/authtest, type Capability struct, Workload *DPoPKey
-pkg authkit/authtest, type ClientCredentialsRequest struct
-pkg authkit/authtest, type ClientCredentialsRequest struct, AuthorizationDetails string
-pkg authkit/authtest, type ClientCredentialsRequest struct, ClientID string
-pkg authkit/authtest, type ClientCredentialsRequest struct, ClientSecret string
-pkg authkit/authtest, type ClientCredentialsRequest struct, DPoP *DPoPKey
-pkg authkit/authtest, type ClientCredentialsRequest struct, Resource string
-pkg authkit/authtest, type ClientCredentialsRequest struct, Scopes []string
 pkg authkit/authtest, type CodeFlow struct
-pkg authkit/authtest, type CodeFlow struct, AuthorizationDetails string
 pkg authkit/authtest, type CodeFlow struct, ClientID string
 pkg authkit/authtest, type CodeFlow struct, ClientSecret string
 pkg authkit/authtest, type CodeFlow struct, DPoP *DPoPKey
@@ -576,7 +561,6 @@ pkg authkit/authtest, type Outbox struct
 pkg authkit/authtest, type TOTP struct
 pkg authkit/authtest, type TOTP struct, Secret string
 pkg authkit/authtest, type TokenExchange struct
-pkg authkit/authtest, type TokenExchange struct, AuthorizationDetails string
 pkg authkit/authtest, type TokenExchange struct, ClientID string
 pkg authkit/authtest, type TokenExchange struct, ClientSecret string
 pkg authkit/authtest, type TokenExchange struct, DPoP *DPoPKey
@@ -717,11 +701,7 @@ pkg authkit/iam, const NameCreate NameOperation = "create"
 pkg authkit/iam, const NameRename NameOperation = "rename"
 pkg authkit/iam, const OAuthAuthorizePath untyped string = "/oauth2/authorize"
 pkg authkit/iam, const OAuthEndSessionPath untyped string = "/oauth2/end_session"
-pkg authkit/iam, const OAuthGrantClientCredentials OAuthGrantKind = "client_credentials"
-pkg authkit/iam, const OAuthGrantConsent OAuthGrantKind = "consent"
 pkg authkit/iam, const OAuthGrantJWTBearer OAuthGrantKind = "jwt_bearer"
-pkg authkit/iam, const OAuthGrantRefresh OAuthGrantKind = "refresh_token"
-pkg authkit/iam, const OAuthGrantTokenExchange OAuthGrantKind = "token_exchange"
 pkg authkit/iam, const OAuthRevocationPath untyped string = "/oauth2/revoke"
 pkg authkit/iam, const OAuthTokenPath untyped string = "/oauth2/token"
 pkg authkit/iam, const OAuthUserInfoPath untyped string = "/oauth2/userinfo"
@@ -1143,7 +1123,6 @@ pkg authkit/iam, type OAuthGrantDecision struct, AuthorizationDetails json.RawMe
 pkg authkit/iam, type OAuthGrantDecision struct, Claims map[string]any
 pkg authkit/iam, type OAuthGrantDecision struct, Invoker string
 pkg authkit/iam, type OAuthGrantDecision struct, MaxLifetime time.Duration
-pkg authkit/iam, type OAuthGrantDecision struct, Permissions []string
 pkg authkit/iam, type OAuthGrantKind string
 pkg authkit/iam, type OAuthGrantRequest struct
 pkg authkit/iam, type OAuthGrantRequest struct, Assertion *OAuthAssertion
@@ -1151,13 +1130,9 @@ pkg authkit/iam, type OAuthGrantRequest struct, AuthorizationDetails json.RawMes
 pkg authkit/iam, type OAuthGrantRequest struct, Capability *OAuthCapability
 pkg authkit/iam, type OAuthGrantRequest struct, ClientID string
 pkg authkit/iam, type OAuthGrantRequest struct, DeviceKeyID string
-pkg authkit/iam, type OAuthGrantRequest struct, GrantID string
 pkg authkit/iam, type OAuthGrantRequest struct, JWKThumbprint string
 pkg authkit/iam, type OAuthGrantRequest struct, Kind OAuthGrantKind
-pkg authkit/iam, type OAuthGrantRequest struct, Offline bool
 pkg authkit/iam, type OAuthGrantRequest struct, Resource string
-pkg authkit/iam, type OAuthGrantRequest struct, Scopes []string
-pkg authkit/iam, type OAuthGrantRequest struct, SessionID string
 pkg authkit/iam, type OAuthGrantRequest struct, UserID string
 pkg authkit/iam, type OpResult struct
 pkg authkit/iam, type OpResult struct, Err error

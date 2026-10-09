@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
 import "../../test/dom.ts"
 
-import { render, screen, waitFor } from "@testing-library/react"
-import userEvent from "@testing-library/user-event"
+import { render, waitFor } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 import { createAuthClient } from "../../client/client.ts"
@@ -13,20 +12,17 @@ import { AuthProvider } from "../../react/provider.tsx"
 import { session } from "../../react/testing.tsx"
 import { OAuthAuthorize } from "./OAuthAuthorize.tsx"
 
-const details = [{ type: "machine", machine_id: "m-1" }]
-
 const pending = (extra: Record<string, unknown> = {}) =>
   json(200, {
     id: "a1",
-    client_id: "hub-cli",
-    client_name: "Hub CLI",
+    client_id: "console",
+    client_name: "Console",
     scopes: ["api:jobs"],
     resource: null,
     prompt: [],
     max_age_seconds: null,
     login_hint: null,
     expires_at: "2030-01-01T00:00:00Z",
-    authorization_details: null,
     ...extra,
   })
 
@@ -65,49 +61,6 @@ describe("OAuthAuthorize", () => {
     })
     await waitFor(() =>
       expect(redirect).toHaveBeenCalledWith("https://c/cb?code=x")
-    )
-  })
-
-  it("asks before granting offline access and authorization_details", async () => {
-    const user = userEvent.setup()
-    const approve = vi.fn(() =>
-      json(200, { redirect_to: "https://c/cb?code=x" })
-    )
-    const redirect = renderAuthorize({
-      "GET /api/v1/oauth2/authorizations/a1": [
-        pending({
-          scopes: ["api:jobs", "offline_access"],
-          authorization_details: details,
-        }),
-      ],
-      "POST /api/v1/oauth2/authorizations/a1/approve": approve,
-    })
-    await screen.findByRole("heading", { name: "Allow Hub CLI access?" })
-    screen.getByText(/keep access after you sign out/)
-    screen.getByText(/"machine_id": "m-1"/)
-    expect(approve).not.toHaveBeenCalled()
-    await user.click(screen.getByRole("button", { name: "Allow" }))
-    await waitFor(() =>
-      expect(redirect).toHaveBeenCalledWith("https://c/cb?code=x")
-    )
-    expect(approve).toHaveBeenCalledOnce()
-  })
-
-  it("sends access_denied when the user declines", async () => {
-    const user = userEvent.setup()
-    const decline = vi.fn(({ body }: { body?: BodyInit | null }) => {
-      expect(JSON.parse(String(body))).toEqual({ error: "access_denied" })
-      return json(200, { redirect_to: "https://c/cb?error=access_denied" })
-    })
-    const redirect = renderAuthorize({
-      "GET /api/v1/oauth2/authorizations/a1": [
-        pending({ authorization_details: details }),
-      ],
-      "POST /api/v1/oauth2/authorizations/a1/decline": decline,
-    })
-    await user.click(await screen.findByRole("button", { name: "Deny" }))
-    await waitFor(() =>
-      expect(redirect).toHaveBeenCalledWith("https://c/cb?error=access_denied")
     )
   })
 })

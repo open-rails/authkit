@@ -60,9 +60,6 @@ func (s *Service) handleOAuthMetadata(w http.ResponseWriter, _ *http.Request) {
 				detailTypes = append(detailTypes, typ)
 			}
 		}
-		if c.Offline && !slices.Contains(scopes, "offline_access") {
-			scopes = append(scopes, "offline_access")
-		}
 		confidential = confidential || config.OAuthClientConfidential(c)
 		public = public || !config.OAuthClientConfidential(c)
 	}
@@ -202,9 +199,9 @@ func (s *Service) validateAuthorization(client config.OAuthClientConfig, redirec
 		switch {
 		case slices.Contains(granted, scope):
 			continue
-		case scope == "offline_access" && !client.Offline:
-			return fail(authflow.OAuthInvalidScope, "offline_access is not available to this client")
-		case scope == "offline_access", config.OIDCScope(scope), slices.Contains(allowed, scope):
+		case scope == "offline_access":
+			return fail(authflow.OAuthInvalidScope, "offline_access is not available: refresh tokens stand on the sign-in")
+		case config.OIDCScope(scope), slices.Contains(allowed, scope):
 			granted = append(granted, scope)
 		default:
 			return fail(authflow.OAuthInvalidScope, "unknown scope "+strconv.Quote(scope))
@@ -238,22 +235,13 @@ func (s *Service) validateAuthorization(client config.OAuthClientConfig, redirec
 	switch {
 	case jkt != "" && !jose.ValidThumbprint(jkt):
 		return fail(authflow.OAuthInvalidRequest, "dpop_jkt must be a JWK SHA-256 thumbprint")
-	case jkt == "" && client.KeyBound:
-		return fail(authflow.OAuthInvalidRequest, "dpop_jkt is required: the client's grants are bound to its key")
-	}
-	details, oerr := authflow.ParseAuthorizationDetails(p.Get("authorization_details"), client.AuthorizationDetailsTypes)
-	if oerr != nil {
-		return authflow.OAuthAuthorization{}, oerr
-	}
-	if slices.Contains(prompt, "none") && (slices.Contains(granted, "offline_access") || details != nil) {
-		// RFC 8252 §8.6: a lasting or structured grant needs the user's click.
-		return fail(authflow.OAuthConsentRequired, "offline_access and authorization_details need the user's consent")
+	case p.Has("authorization_details"):
+		return fail(authflow.OAuthInvalidRequest, "authorization_details are granted only by a jwt-bearer capability")
 	}
 	return authflow.OAuthAuthorization{
 		ClientID: client.ID, RedirectURI: redirectURI, State: p.Get("state"), Nonce: p.Get("nonce"),
 		Scopes: granted, Resource: resource, CodeChallenge: challenge,
 		Prompt: prompt, MaxAge: maxAge, LoginHint: p.Get("login_hint"), DPoPJKT: jkt,
-		AuthorizationDetails: details,
 	}, nil
 }
 
@@ -292,12 +280,8 @@ func (s *Service) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 		oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidTarget, "request one resource at a time"))
 		return
 	}
-	if params.Has("authorization_details") && (grant == config.GrantAuthorizationCode || grant == config.GrantRefreshToken) {
-		oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidRequest, "authorization_details are granted at the authorization request"))
-		return
-	}
-	if params.Has("authorization_details") && grant == config.GrantJWTBearer {
-		oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidRequest, "the jwt-bearer grant takes no authorization_details"))
+	if params.Has("authorization_details") {
+		oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidRequest, "authorization_details are granted only by a jwt-bearer capability"))
 		return
 	}
 	jkt, err := s.oauthTokenDPoP(r, client)
@@ -305,7 +289,6 @@ func (s *Service) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 		oauthFail(w, err)
 		return
 	}
-	details := json.RawMessage(params.Get("authorization_details"))
 	var tokens authflow.OAuthTokens
 	switch grant {
 	case config.GrantAuthorizationCode:
@@ -322,12 +305,11 @@ func (s *Service) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 		tokens, err = s.svc.ExchangeOAuthToken(r.Context(), authflow.OAuthTokenExchange{
 			ClientID: client.ID, SubjectToken: params.Get("subject_token"), SubjectTokenType: params.Get("subject_token_type"),
 			RequestedTokenType: params.Get("requested_token_type"), Resource: params.Get("resource"),
-			Scopes: strings.Fields(params.Get("scope")), JKT: jkt, AuthorizationDetails: details,
+			Scopes: strings.Fields(params.Get("scope")), JKT: jkt,
 		})
 	case config.GrantClientCredentials:
 		tokens, err = s.svc.OAuthClientCredentials(r.Context(), authflow.OAuthClientCredentials{
 			ClientID: client.ID, Resource: params.Get("resource"), Scopes: strings.Fields(params.Get("scope")), JKT: jkt,
-			AuthorizationDetails: details,
 		})
 	case config.GrantJWTBearer:
 		tokens, err = s.svc.OAuthJWTBearer(r.Context(), authflow.OAuthJWTBearer{
@@ -344,15 +326,11 @@ func (s *Service) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 
 // oauthTokenDPoP verifies the token request's DPoP proof (no ath at the
 // token endpoint) and returns its key's thumbprint: "" without one, which
-// only a confidential client that is not key-bound may omit (the jwt-bearer
-// grant refuses it).
+// only a confidential client may omit (the jwt-bearer grant refuses it).
 func (s *Service) oauthTokenDPoP(r *http.Request, client config.OAuthClientConfig) (string, error) {
 	if len(r.Header.Values("DPoP")) == 0 {
-		switch {
-		case !config.OAuthClientConfidential(client):
+		if !config.OAuthClientConfidential(client) {
 			return "", authflow.NewOAuthError(authflow.OAuthInvalidDPoPProof, "a public client must send a DPoP proof")
-		case client.KeyBound:
-			return "", authflow.NewOAuthError(authflow.OAuthInvalidDPoPProof, "the client's tokens are bound to its key: send a DPoP proof")
 		}
 		return "", nil
 	}

@@ -478,11 +478,6 @@ export const zh: AuthUiMessageBundle = {
   oauth: {
     signInTo: "登录以继续前往 {client}",
     continuing: "正在前往 {client}…",
-    consentTitle: "允许 {client} 访问？",
-    offline: "{client} 将在你退出登录后继续保有访问权限，直到你撤销。",
-    details: "请求内容：",
-    allow: "允许",
-    deny: "拒绝",
   },
   solana: {
     provider: "Solana",

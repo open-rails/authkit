@@ -33,9 +33,9 @@ const (
 	workloadOps        = `[` + workloadRead + `,` + workloadPublish + `]`
 )
 
-// newWorkloadServer is newOAuthServer with device keys, g deciding every
-// grant, and two jwt-bearer clients for workloads: a public one and a
-// confidential one.
+// newWorkloadServer is newOAuthServer with device keys, g deciding the
+// jwt-bearer grants, and two jwt-bearer clients for workloads: a public one
+// and a confidential one.
 func newWorkloadServer(t *testing.T, g *authtest.GrantAuthorizer) (*authtest.AuthorizationServer, iam.Role, iam.Role) {
 	t.Helper()
 	return newOAuthServer(t,
@@ -118,8 +118,6 @@ func TestOAuthJWTBearerGrant(t *testing.T) {
 	require.Equal(t, oauthResource, req.Resource)
 	require.JSONEq(t, workloadOps, string(req.AuthorizationDetails))
 	require.Equal(t, worker.Thumbprint(), req.JWKThumbprint)
-	require.Empty(t, req.Scopes)
-	require.Empty(t, req.GrantID)
 	require.Equal(t, worker.Thumbprint(), req.Assertion.Subject)
 	require.WithinDuration(t, time.Now().Add(time.Minute), req.Assertion.ExpiresAt, 5*time.Second)
 	require.Nil(t, req.Assertion.Claims)
@@ -329,7 +327,6 @@ func TestOAuthJWTBearerRefusals(t *testing.T) {
 	}
 	refuse(authtest.JWTBearerRequest{}, 400, "invalid_grant", "refused", "the host refuses")
 	for why, d := range map[string]iam.OAuthGrantDecision{
-		"permissions":          {Permissions: []string{"merchant:*"}},
 		"an added operation":   {AuthorizationDetails: json.RawMessage(`[` + workloadRead + `,{"type":"hub_operation","action":"delete","resource":"ns:acme"}]`)},
 		"a changed operation":  {AuthorizationDetails: json.RawMessage(`[{"type":"hub_operation","action":"read","resource":"pkg:acme/*"}]`)},
 		"an invoker w/ spaces": {Invoker: "a worker"},
@@ -337,12 +334,18 @@ func TestOAuthJWTBearerRefusals(t *testing.T) {
 		g.Decide = func(iam.OAuthGrantRequest) (iam.OAuthGrantDecision, error) { return d, nil }
 		refuse(authtest.JWTBearerRequest{}, 503, "temporarily_unavailable", "", why)
 	}
+
+	// The authorizer decides only jwt-bearer: a code flow, its refresh, a
+	// token exchange and client credentials never reach it.
 	g.Decide = func(iam.OAuthGrantRequest) (iam.OAuthGrantDecision, error) {
-		return iam.OAuthGrantDecision{Invoker: "worker"}, nil
+		return iam.OAuthGrantDecision{}, iam.ErrOAuthGrantRefused
 	}
-	status, code := tokenError(t, as, authtest.TokenRequest{ClientID: oauthWorker, ClientSecret: oauthWorkerSecret, Params: url.Values{"grant_type": {"client_credentials"}}})
-	require.Equal(t, http.StatusServiceUnavailable, status, "Invoker answers only a jwt-bearer grant")
-	require.Equal(t, "temporarily_unavailable", code)
+	decided := len(g.Requests())
+	signedIn := authtest.SignIn(t, as.Client, owner)
+	as.Refresh(t, oauthConsole, "", as.AuthorizeAs(t, signedIn, consoleFlow()))
+	as.Exchange(t, authtest.TokenExchange{ClientID: oauthAdminUI, SubjectToken: signedIn.AccessToken})
+	as.ClientCredentials(t, oauthWorker, oauthWorkerSecret, "", nil, nil)
+	require.Len(t, g.Requests(), decided)
 	g.Decide = nil
 
 	// The device key and its account.
@@ -359,13 +362,13 @@ func TestOAuthJWTBearerRefusals(t *testing.T) {
 		params.Set("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer")
 		return tokenError(t, as, authtest.TokenRequest{ClientID: clientID, ClientSecret: secret, DPoP: worker, Params: params})
 	}
-	_, code = jwtBearer(oauthWorker, oauthWorkerSecret, url.Values{"assertion": {"x"}})
+	_, code := jwtBearer(oauthWorker, oauthWorkerSecret, url.Values{"assertion": {"x"}})
 	require.Equal(t, "unauthorized_client", code, "a client without the grant")
 	_, code = jwtBearer(workloadClient, "", url.Values{})
 	require.Equal(t, "invalid_request", code, "no assertion")
 	_, code = jwtBearer(workloadClient, "", url.Values{"assertion": {"x"}, "authorization_details": {`[{"type":"hub_operation"}]`}})
 	require.Equal(t, "invalid_request", code, "authorization_details")
-	status, code = jwtBearer(workloadClient, "a-secret", url.Values{"assertion": {"x"}})
+	status, code := jwtBearer(workloadClient, "a-secret", url.Values{"assertion": {"x"}})
 	require.Equal(t, http.StatusUnauthorized, status)
 	require.Equal(t, "invalid_client", code, "a public client sends no secret")
 }

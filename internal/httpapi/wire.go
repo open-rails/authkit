@@ -692,9 +692,6 @@ type OAuthAuthorizationRequest struct {
 	MaxAgeSeconds *int64    `json:"max_age_seconds"`
 	LoginHint     *string   `json:"login_hint"`
 	ExpiresAt     time.Time `json:"expires_at"`
-	// AuthorizationDetails is what the client asks the user to grant
-	// (RFC 9396), for the consent screen; null when it asks for none.
-	AuthorizationDetails json.RawMessage `json:"authorization_details"`
 }
 
 // OAuthAuthorizationResult is where the SPA sends the browser to finish:

@@ -525,12 +525,6 @@ export const en = {
   oauth: {
     signInTo: "Sign in to continue to {client}",
     continuing: "Continuing to {client}…",
-    consentTitle: "Allow {client} access?",
-    offline:
-      "{client} will keep access after you sign out, until you revoke it.",
-    details: "It asks for:",
-    allow: "Allow",
-    deny: "Deny",
   },
   solana: {
     provider: "Solana",

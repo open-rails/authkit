@@ -7162,8 +7162,7 @@
             "type": "string",
             "format": "date-time",
             "description": "RFC 3339, UTC"
-          },
-          "authorization_details": {}
+          }
         },
         "required": [
           "id",
@@ -7174,8 +7173,7 @@
           "prompt",
           "max_age_seconds",
           "login_hint",
-          "expires_at",
-          "authorization_details"
+          "expires_at"
         ]
       },
       "OAuthAuthorizationResult": {
@@ -10381,10 +10379,6 @@
     "not_implemented": {
       "status": 501,
       "message": "Not implemented."
-    },
-    "oauth_grant_authorizer_unavailable": {
-      "status": 503,
-      "message": "Authorization is unavailable right now. Try again shortly."
     },
     "oauth_grant_refused": {
       "status": 403,

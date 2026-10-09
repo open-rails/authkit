@@ -23,22 +23,19 @@ type OAuthAuthorization struct {
 	LoginHint     string   `json:"login_hint,omitempty"`
 	// DPoPJKT binds the code to a DPoP key (RFC 9449 §10): its redemption
 	// must prove that key.
-	DPoPJKT string `json:"dpop_jkt,omitempty"`
-	// AuthorizationDetails is the request's RFC 9396 authorization_details.
-	AuthorizationDetails json.RawMessage `json:"authorization_details,omitempty"`
-	CreatedAt            time.Time       `json:"created_at"`
-	ExpiresAt            time.Time       `json:"expires_at"`
+	DPoPJKT   string    `json:"dpop_jkt,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
 
-// OAuthGrantDecision is the host authorizer's decision a grant carries:
-// permissions (nil for the defaults), authorization details, a lifetime cap
-// and extra access-token claims; for jwt-bearer, its invoker.
+// OAuthGrantDecision is the host authorizer's checked decision on a
+// jwt-bearer grant: the operations, a lifetime cap, extra access-token
+// claims and the invoker.
 type OAuthGrantDecision struct {
-	Permissions          []string        `json:"permissions,omitempty"`
-	AuthorizationDetails json.RawMessage `json:"authorization_details,omitempty"`
-	MaxLifetime          time.Duration   `json:"max_lifetime,omitempty"`
-	Claims               map[string]any  `json:"claims,omitempty"`
-	Invoker              string          `json:"invoker,omitempty"`
+	AuthorizationDetails json.RawMessage
+	MaxLifetime          time.Duration
+	Claims               map[string]any
+	Invoker              string
 }
 
 // OAuthGrant is what an authorization code stands for: the approved request
@@ -52,33 +49,10 @@ type OAuthGrant struct {
 	Resource      string   `json:"resource,omitempty"`
 	UserID        string   `json:"user_id"`
 	SessionID     string   `json:"session_id"`
-	DeviceKeyID   string   `json:"device_key_id,omitempty"`
 	AuthTime      int64    `json:"auth_time"`
 	AMR           []string `json:"amr"`
 	ACR           string   `json:"acr"`
 	DPoPJKT       string   `json:"dpop_jkt,omitempty"`
-	// GrantID names the consented grant through its refreshes; Offline
-	// grants outlive the sign-in, until the account's credentials change
-	// (CredentialVersion). Decision is the host authorizer's at consent (nil
-	// without one).
-	GrantID           string              `json:"grant_id"`
-	ApprovedAt        time.Time           `json:"approved_at"`
-	Offline           bool                `json:"offline,omitempty"`
-	CredentialVersion int64               `json:"credential_version,omitempty"`
-	Decision          *OAuthGrantDecision `json:"decision,omitempty"`
-}
-
-// OAuthApprover is the sign-in approving an authorization request: a
-// refresh session (SessionID) or a device key (DeviceKeyID). A device-key
-// sign-in keeps no session to read its assurance from, so AuthTime, AMR and
-// ACR are its verified token's.
-type OAuthApprover struct {
-	UserID      string
-	SessionID   string
-	DeviceKeyID string
-	AuthTime    int64
-	AMR         []string
-	ACR         string
 }
 
 // OAuthCodeExchange is an authorization_code token request from an
@@ -116,17 +90,14 @@ type OAuthTokenExchange struct {
 	Resource           string
 	Scopes             []string
 	JKT                string
-	// AuthorizationDetails is the request's RFC 9396 authorization_details.
-	AuthorizationDetails json.RawMessage
 }
 
 // OAuthClientCredentials is a client_credentials token request.
 type OAuthClientCredentials struct {
-	ClientID             string
-	Resource             string
-	Scopes               []string
-	JKT                  string
-	AuthorizationDetails json.RawMessage
+	ClientID string
+	Resource string
+	Scopes   []string
+	JKT      string
 }
 
 // RFC 8693 token type identifiers.
@@ -195,7 +166,6 @@ const (
 	OAuthAccessDenied            = "access_denied"
 	OAuthLoginRequired           = "login_required"
 	OAuthInteractionRequired     = "interaction_required"
-	OAuthConsentRequired         = "consent_required"
 	OAuthRequestNotSupported     = "request_not_supported"
 	OAuthRequestURINotSupported  = "request_uri_not_supported"
 	OAuthInvalidToken            = "invalid_token"

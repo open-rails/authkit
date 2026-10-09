@@ -32,10 +32,11 @@ func TestNormalizeIsIdempotent(t *testing.T) {
 			AuthorizationServer: AuthorizationServerConfig{
 				Resources: []ResourceServerConfig{{ID: "https://api.example.com", Scopes: []string{"api"}, Permissions: []string{"merchant:*"}}},
 				Clients: []OAuthClientConfig{{ID: "cli", RedirectURIs: []string{"http://127.0.0.1/cb"}, Resources: []string{"https://api.example.com"},
-					GrantTypes:                []OAuthGrantType{GrantAuthorizationCode, GrantRefreshToken},
-					AuthorizationDetailsTypes: []string{"machine"}, Offline: true, KeyBound: true, RefreshTokenTTL: 7 * 24 * time.Hour}},
+					GrantTypes: []OAuthGrantType{GrantAuthorizationCode, GrantRefreshToken}}, {ID: "tensord", Resources: []string{"https://api.example.com"},
+					GrantTypes: []OAuthGrantType{GrantJWTBearer}, AuthorizationDetailsTypes: []string{"op"}}},
 			},
-			HTTP: &HTTPConfig{DirectPeerIP: true, APIPath: "/"},
+			DeviceKeys: DeviceKeysConfig{Enabled: true},
+			HTTP:       &HTTPConfig{DirectPeerIP: true, APIPath: "/"},
 		},
 	} {
 		once, err := Normalize(c, deps)
@@ -79,18 +80,19 @@ func TestNormalizeAuthorizationServerClients(t *testing.T) {
 		client OAuthClientConfig
 		want   string
 	}{
-		"refresh without code":         {OAuthClientConfig{ID: "c", GrantTypes: []OAuthGrantType{GrantRefreshToken}}, "refresh tokens come only with"},
-		"public client credentials":    {OAuthClientConfig{ID: "c", Resources: []string{"https://api.example.com"}, GrantTypes: []OAuthGrantType{GrantClientCredentials}}, "confidential client"},
-		"client credentials no target": {OAuthClientConfig{ID: "c", SecretSHA256: secret, GrantTypes: []OAuthGrantType{GrantClientCredentials}}, "need Resources"},
-		"exchange no target":           {OAuthClientConfig{ID: "c", GrantTypes: []OAuthGrantType{GrantTokenExchange}}, "needs Resources"},
-		"permissions without grant":    {OAuthClientConfig{ID: "c", RedirectURIs: []string{"https://c.example/cb"}, Permissions: []string{"merchant:*"}}, "client-credentials client's own grants"},
-		"root permissions":             {OAuthClientConfig{ID: "c", SecretSHA256: secret, Resources: []string{"https://api.example.com"}, Permissions: []string{"root:*"}, GrantTypes: []OAuthGrantType{GrantClientCredentials}}, "root namespace"},
-		"UUID client ID":               {OAuthClientConfig{ID: "0199b1a2-7c3d-7e4f-8a9b-0c1d2e3f4a5b", RedirectURIs: []string{"https://c.example/cb"}}, "looks like a user ID"},
-		"origin with a path":           {OAuthClientConfig{ID: "c", RedirectURIs: []string{"https://c.example/cb"}, Origins: []string{"https://admin.example.com/app"}}, "is not an origin"},
-		"plain-http origin":            {OAuthClientConfig{ID: "c", RedirectURIs: []string{"https://c.example/cb"}, Origins: []string{"http://admin.example.com"}}, "must use https"},
-		"unknown grant":                {OAuthClientConfig{ID: "c", RedirectURIs: []string{"https://c.example/cb"}, GrantTypes: []OAuthGrantType{"password"}}, "unsupported grant type"},
-		"jwt-bearer no target":         {OAuthClientConfig{ID: "c", GrantTypes: []OAuthGrantType{GrantJWTBearer}, AuthorizationDetailsTypes: []string{"op"}}, "jwt-bearer grant needs Resources"},
-		"jwt-bearer no operations":     {OAuthClientConfig{ID: "c", Resources: []string{"https://api.example.com"}, GrantTypes: []OAuthGrantType{GrantJWTBearer}}, "needs AuthorizationDetailsTypes"},
+		"refresh without code":          {OAuthClientConfig{ID: "c", GrantTypes: []OAuthGrantType{GrantRefreshToken}}, "refresh tokens come only with"},
+		"public client credentials":     {OAuthClientConfig{ID: "c", Resources: []string{"https://api.example.com"}, GrantTypes: []OAuthGrantType{GrantClientCredentials}}, "confidential client"},
+		"client credentials no target":  {OAuthClientConfig{ID: "c", SecretSHA256: secret, GrantTypes: []OAuthGrantType{GrantClientCredentials}}, "need Resources"},
+		"exchange no target":            {OAuthClientConfig{ID: "c", GrantTypes: []OAuthGrantType{GrantTokenExchange}}, "needs Resources"},
+		"permissions without grant":     {OAuthClientConfig{ID: "c", RedirectURIs: []string{"https://c.example/cb"}, Permissions: []string{"merchant:*"}}, "client-credentials client's own grants"},
+		"root permissions":              {OAuthClientConfig{ID: "c", SecretSHA256: secret, Resources: []string{"https://api.example.com"}, Permissions: []string{"root:*"}, GrantTypes: []OAuthGrantType{GrantClientCredentials}}, "root namespace"},
+		"UUID client ID":                {OAuthClientConfig{ID: "0199b1a2-7c3d-7e4f-8a9b-0c1d2e3f4a5b", RedirectURIs: []string{"https://c.example/cb"}}, "looks like a user ID"},
+		"origin with a path":            {OAuthClientConfig{ID: "c", RedirectURIs: []string{"https://c.example/cb"}, Origins: []string{"https://admin.example.com/app"}}, "is not an origin"},
+		"plain-http origin":             {OAuthClientConfig{ID: "c", RedirectURIs: []string{"https://c.example/cb"}, Origins: []string{"http://admin.example.com"}}, "must use https"},
+		"unknown grant":                 {OAuthClientConfig{ID: "c", RedirectURIs: []string{"https://c.example/cb"}, GrantTypes: []OAuthGrantType{"password"}}, "unsupported grant type"},
+		"jwt-bearer no target":          {OAuthClientConfig{ID: "c", GrantTypes: []OAuthGrantType{GrantJWTBearer}, AuthorizationDetailsTypes: []string{"op"}}, "jwt-bearer grant needs Resources"},
+		"jwt-bearer no operations":      {OAuthClientConfig{ID: "c", Resources: []string{"https://api.example.com"}, GrantTypes: []OAuthGrantType{GrantJWTBearer}}, "needs AuthorizationDetailsTypes"},
+		"operations without jwt-bearer": {OAuthClientConfig{ID: "c", RedirectURIs: []string{"https://c.example/cb"}, AuthorizationDetailsTypes: []string{"op"}}, "jwt-bearer client's capability operations"},
 	} {
 		_, err := Normalize(base(tc.client), Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}})
 		require.ErrorContains(t, err, tc.want, name)
@@ -100,8 +102,6 @@ func TestNormalizeAuthorizationServerClients(t *testing.T) {
 	_, err := Normalize(c, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}})
 	require.ErrorContains(t, err, "RefreshTokenTTL")
 
-	// Grant extensions: authorization_details need a grant authorizer, and
-	// the per-client knobs are bounded.
 	grants := func(context.Context, iam.OAuthGrantRequest) (iam.OAuthGrantDecision, error) {
 		return iam.OAuthGrantDecision{}, nil
 	}
@@ -116,30 +116,13 @@ func TestNormalizeAuthorizationServerClients(t *testing.T) {
 	require.ErrorContains(t, err, "Deps.OAuthGrants")
 	_, err = Normalize(withKeys, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}, OAuthGrants: grants})
 	require.NoError(t, err)
-	machine := OAuthClientConfig{ID: "cli", RedirectURIs: []string{"https://c.example/cb"}, GrantTypes: []OAuthGrantType{GrantAuthorizationCode, GrantRefreshToken},
-		AuthorizationDetailsTypes: []string{"machine", "machine"}, Offline: true, KeyBound: true, AccessTokenTTL: time.Minute, RefreshTokenTTL: 7 * 24 * time.Hour}
-	_, err = Normalize(base(machine), Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}})
-	require.ErrorContains(t, err, "Deps.OAuthGrants")
-	once, err := Normalize(base(machine), Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}, OAuthGrants: grants})
+	withKeys.AuthorizationServer.Clients[0].AuthorizationDetailsTypes = []string{"op", "op"}
+	once, err := Normalize(withKeys, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}, OAuthGrants: grants})
 	require.NoError(t, err)
-	require.Equal(t, []string{"machine"}, once.AuthorizationServer.Clients[0].AuthorizationDetailsTypes)
-	require.Equal(t, time.Minute, OAuthClientAccessTTL(once.AuthorizationServer, once.AuthorizationServer.Clients[0]))
-	require.Equal(t, 7*24*time.Hour, OAuthClientRefreshTTL(once.AuthorizationServer, once.AuthorizationServer.Clients[0]))
-	for want, mutate := range map[string]func(*OAuthClientConfig){
-		"AccessTokenTTL must be":  func(c *OAuthClientConfig) { c.AccessTokenTTL = 16 * time.Minute },
-		"RefreshTokenTTL must be": func(c *OAuthClientConfig) { c.RefreshTokenTTL = 31 * 24 * time.Hour },
-		"Offline needs the refresh_token": func(c *OAuthClientConfig) {
-			c.GrantTypes = []OAuthGrantType{GrantAuthorizationCode}
-			c.RefreshTokenTTL = 0
-		},
-		"RefreshTokenTTL needs":              func(c *OAuthClientConfig) { c.GrantTypes = []OAuthGrantType{GrantAuthorizationCode}; c.Offline = false },
-		"invalid authorization_details type": func(c *OAuthClientConfig) { c.AuthorizationDetailsTypes = []string{"has space"} },
-	} {
-		cl := machine
-		mutate(&cl)
-		_, err := Normalize(base(cl), Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}, OAuthGrants: grants})
-		require.ErrorContains(t, err, want)
-	}
+	require.Equal(t, []string{"op"}, once.AuthorizationServer.Clients[0].AuthorizationDetailsTypes)
+	withKeys.AuthorizationServer.Clients[0].AuthorizationDetailsTypes = []string{"has space"}
+	_, err = Normalize(withKeys, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}, OAuthGrants: grants})
+	require.ErrorContains(t, err, "invalid authorization_details type")
 }
 
 func TestNormalizeMerchant(t *testing.T) {

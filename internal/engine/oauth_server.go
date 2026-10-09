@@ -77,29 +77,25 @@ func (s *Engine) oauthAuthorization(ctx context.Context, id string) (authflow.OA
 	return a, raw, nil
 }
 
-// ApproveOAuthAuthorization answers a pending request for in's sign-in, a
-// session or a device key: it issues a one-time authorization code and
-// returns the client redirect carrying it. A request asking for a fresh
-// sign-in (prompt=login, max_age) that this one does not meet is
-// StepUpRequired, and stays pending for the retry.
-func (s *Engine) ApproveOAuthAuthorization(ctx context.Context, in authflow.OAuthApprover, id string) (string, error) {
-	userID, signIn := in.UserID, iam.SessionRef{SessionID: in.SessionID, DeviceKeyID: in.DeviceKeyID}
+// ApproveOAuthAuthorization answers a pending request for the signed-in user
+// of sessionID: it issues a one-time authorization code and returns the
+// client redirect carrying it. A request asking for a fresh sign-in
+// (prompt=login, max_age) that this one does not meet is StepUpRequired,
+// and stays pending for the retry.
+func (s *Engine) ApproveOAuthAuthorization(ctx context.Context, userID, sessionID, id string) (string, error) {
 	a, raw, err := s.oauthAuthorization(ctx, id)
 	if err != nil {
 		return "", err
 	}
-	client, ok := config.FindOAuthClient(s.cfg.AuthorizationServer, a.ClientID)
-	if !ok {
+	if _, ok := config.FindOAuthClient(s.cfg.AuthorizationServer, a.ClientID); !ok {
 		return "", errmodel.E(errmodel.CodeAuthorizationRequestNotFound)
 	}
-	if err := s.requireOAuthSignIn(ctx, userID, signIn); err != nil {
+	if err := s.requireOAuthSignIn(ctx, userID, sessionID); err != nil {
 		return "", err
 	}
-	authTime, amr, acr := in.AuthTime, in.AMR, in.ACR
-	if signIn.SessionID != "" {
-		if authTime, amr, acr, err = s.sessionAssurance(ctx, userID, signIn.SessionID); err != nil {
-			return "", err
-		}
+	authTime, amr, acr, err := s.sessionAssurance(ctx, userID, sessionID)
+	if err != nil {
+		return "", err
 	}
 	// Freshness is measured from the request, so a step-up taken for it
 	// satisfies max_age=0 however long the approval takes.
@@ -107,32 +103,6 @@ func (s *Engine) ApproveOAuthAuthorization(ctx context.Context, in authflow.OAut
 	if stale || a.MaxAge != nil && authTime < a.CreatedAt.Unix()-*a.MaxAge {
 		// Carries the account's step-up methods, for the SPA's dialog.
 		return "", s.StepUpRequired(ctx, userID)
-	}
-	grantID, err := newUUIDV7String()
-	if err != nil {
-		return "", err
-	}
-	offline := client.Offline && slices.Contains(a.Scopes, "offline_access")
-	var credentialVersion int64
-	if offline {
-		// Changing the account's credentials ends its offline grants.
-		row, err := s.q.UserCredentialVersion(ctx, userID)
-		if err != nil {
-			return "", err
-		}
-		credentialVersion = row.CredentialVersion
-	}
-	decision, err := s.decideOAuthGrant(ctx, iam.OAuthGrantRequest{
-		Kind: iam.OAuthGrantConsent, GrantID: grantID, ClientID: a.ClientID, UserID: userID, SessionID: signIn.SessionID, DeviceKeyID: signIn.DeviceKeyID,
-		Resource: a.Resource, Scopes: a.Scopes, AuthorizationDetails: a.AuthorizationDetails, JWKThumbprint: a.DPoPJKT, Offline: offline,
-	}, client.AuthorizationDetailsTypes)
-	switch {
-	case errors.Is(err, errOAuthGrantRefused):
-		// The host refused: the client hears access_denied, as from the user.
-		s.oauthAudit(ctx, "oauth_grant_refused", userID, map[string]string{"client_id": a.ClientID, "grant_id": grantID})
-		return s.DeclineOAuthAuthorization(ctx, id, authflow.OAuthAccessDenied)
-	case err != nil:
-		return "", errmodel.E(errmodel.CodeOAuthGrantAuthorizerUnavailable, errmodel.WithCause(err))
 	}
 	claimed, err := s.ephemeral.CompareAndConsume(ctx, keyOAuthAuthorization+secret.Hash(strings.TrimSpace(id)), raw)
 	if err != nil {
@@ -145,13 +115,12 @@ func (s *Engine) ApproveOAuthAuthorization(ctx context.Context, in authflow.OAut
 	grant := authflow.OAuthGrant{
 		ClientID: a.ClientID, RedirectURI: a.RedirectURI, CodeChallenge: a.CodeChallenge,
 		Nonce: a.Nonce, Scopes: a.Scopes, Resource: a.Resource,
-		UserID: userID, SessionID: signIn.SessionID, DeviceKeyID: signIn.DeviceKeyID, AuthTime: authTime, AMR: amr, ACR: acr, DPoPJKT: a.DPoPJKT,
-		GrantID: grantID, ApprovedAt: s.nowTime().UTC(), Offline: offline, CredentialVersion: credentialVersion, Decision: decision,
+		UserID: userID, SessionID: sessionID, AuthTime: authTime, AMR: amr, ACR: acr, DPoPJKT: a.DPoPJKT,
 	}
 	if err := s.ephemSetJSON(ctx, keyOAuthCode+secret.Hash(code), grant, oauthCodeTTL); err != nil {
 		return "", err
 	}
-	s.oauthAudit(ctx, "oauth_authorization_approved", userID, map[string]string{"client_id": a.ClientID, "session_id": signIn.SessionID, "device_key_id": signIn.DeviceKeyID, "grant_id": grantID})
+	s.oauthAudit(ctx, "oauth_authorization_approved", userID, map[string]string{"client_id": a.ClientID, "session_id": sessionID})
 	return oauthRedirect(a.RedirectURI, url.Values{"code": {code}, "state": optional(a.State), "iss": {s.cfg.Token.Issuer}})
 }
 
@@ -202,26 +171,19 @@ func (s *Engine) ExchangeOAuthCode(ctx context.Context, in authflow.OAuthCodeExc
 	if !ok {
 		return authflow.OAuthTokens{}, authflow.NewOAuthError(authflow.OAuthInvalidGrant, "the client is no longer registered")
 	}
-	if err := s.oauthSignInStands(ctx, g.UserID, iam.SessionRef{SessionID: g.SessionID, DeviceKeyID: g.DeviceKeyID}, "the sign-in the code was issued for has ended"); err != nil {
+	if err := s.oauthSignInStands(ctx, g.UserID, g.SessionID, "the sign-in the code was issued for has ended"); err != nil {
 		return authflow.OAuthTokens{}, err
 	}
 	m := oauthMint{
-		client: client, userID: g.UserID, sessionID: g.SessionID, deviceKeyID: g.DeviceKeyID, scopes: g.Scopes, resource: g.Resource,
+		client: client, userID: g.UserID, sessionID: g.SessionID, scopes: g.Scopes, resource: g.Resource,
 		nonce: g.Nonce, authTime: g.AuthTime, amr: g.AMR, acr: g.ACR, jkt: in.JKT,
-		grantID: g.GrantID, offline: g.Offline, decision: g.Decision,
-	}
-	if g.Decision != nil && g.Decision.MaxLifetime > 0 {
-		m.grantEnd = g.ApprovedAt.Add(g.Decision.MaxLifetime)
 	}
 	tokens, err := s.mintOAuthTokens(ctx, m)
-	if errors.Is(err, errOAuthGrantRefused) {
-		return authflow.OAuthTokens{}, authflow.NewOAuthError(authflow.OAuthInvalidGrant, "the grant was refused")
-	}
 	if err != nil {
 		return authflow.OAuthTokens{}, err
 	}
 	if config.OAuthClientAllows(client, config.GrantRefreshToken) {
-		if tokens.RefreshToken, err = s.startOAuthRefreshFamily(ctx, m, g.CredentialVersion); err != nil {
+		if tokens.RefreshToken, err = s.startOAuthRefreshFamily(ctx, m); err != nil {
 			return authflow.OAuthTokens{}, err
 		}
 	}
@@ -232,8 +194,8 @@ func (s *Engine) ExchangeOAuthCode(ctx context.Context, in authflow.OAuthCodeExc
 // oauthSignInStands is requireOAuthSignIn answering invalid_grant (with
 // description) once the user or sign-in is gone; a store failure stays an
 // error.
-func (s *Engine) oauthSignInStands(ctx context.Context, userID string, signIn iam.SessionRef, description string) error {
-	err := s.requireOAuthSignIn(ctx, userID, signIn)
+func (s *Engine) oauthSignInStands(ctx context.Context, userID, sessionID, description string) error {
+	err := s.requireOAuthSignIn(ctx, userID, sessionID)
 	if err != nil && (errors.Is(err, iam.ErrSessionRevoked) || errors.Is(err, iam.ErrUserNotFound) || errmodel.As(err) != nil && errmodel.As(err).Status() < 500) {
 		return authflow.NewOAuthError(authflow.OAuthInvalidGrant, description)
 	}
@@ -261,12 +223,7 @@ func (s *Engine) OAuthUserInfo(ctx context.Context, accessToken, jkt string) (ma
 		return nil, &authflow.OAuthError{Code: "insufficient_scope", Description: "the access token was not granted the openid scope", Status: 403}
 	}
 	userID, sessionID := jose.String(claims, "sub"), jose.String(claims, "sid")
-	if sessionID == "" {
-		// An offline grant's token names no sign-in: the account must be usable.
-		if usable, _, err := userLive(ctx, s.pg, userID, iam.SessionRef{}); err != nil || !usable {
-			return nil, authflow.NewOAuthError(authflow.OAuthInvalidToken, "the user is unavailable")
-		}
-	} else if err := s.requireOAuthSignIn(ctx, userID, iam.SessionRef{SessionID: sessionID}); err != nil {
+	if err := s.requireOAuthSignIn(ctx, userID, sessionID); err != nil {
 		return nil, authflow.NewOAuthError(authflow.OAuthInvalidToken, "the sign-in the access token was issued for has ended")
 	}
 	u, err := s.getUserByID(ctx, userID)
@@ -322,16 +279,16 @@ func (s *Engine) EndOAuthSession(ctx context.Context, in authflow.OAuthEndSessio
 	return redirect, nil
 }
 
-// requireOAuthSignIn refuses a user who is not live, and a sign-in (a
-// session or a device key) that no longer stands: every grant needs both.
-func (s *Engine) requireOAuthSignIn(ctx context.Context, userID string, signIn iam.SessionRef) error {
+// requireOAuthSignIn refuses a user who is not live, and a session that no
+// longer stands: every grant on a sign-in needs both.
+func (s *Engine) requireOAuthSignIn(ctx context.Context, userID, sessionID string) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
-	if userID == "" || signIn.IsZero() || signIn.SessionID != "" && signIn.DeviceKeyID != "" {
+	if userID == "" || sessionID == "" {
 		return iam.ErrSessionRevoked
 	}
-	usable, signedIn, err := userLive(ctx, s.pg, userID, signIn)
+	usable, signedIn, err := userLive(ctx, s.pg, userID, iam.SessionRef{SessionID: sessionID})
 	switch {
 	case err != nil:
 		return err
@@ -354,34 +311,29 @@ func (s *Engine) sessionAssurance(ctx context.Context, userID, sessionID string)
 }
 
 // oauthMint is what one token response is minted for: a user's sign-in
-// (userID, sessionID and its assurance), or with no userID the client
-// itself; jkt binds the access token to a DPoP key.
+// (userID, sessionID and its assurance), a workload's capability, or with no
+// userID the client itself; jkt binds the access token to a DPoP key.
 type oauthMint struct {
 	client    config.OAuthClientConfig
 	userID    string
 	sessionID string
-	// deviceKeyID is a device-key sign-in's key, in place of sessionID.
-	deviceKeyID string
-	scopes      []string
-	resource    string
-	nonce       string
-	authTime    int64
-	amr         []string
-	acr         string
-	jkt         string
-	// grantID names a consented grant; offline grants mint without the
-	// sign-in (no sid). decision is the host authorizer's (nil: defaults),
-	// invoker the exchanging client (RFC 8693 act, its actor claim).
-	grantID  string
-	offline  bool
-	decision *authflow.OAuthGrantDecision
-	invoker  string
-	// grantEnd, when set, is when the grant ends: no token outlives it.
-	grantEnd time.Time
+	scopes    []string
+	resource  string
+	nonce     string
+	authTime  int64
+	amr       []string
+	acr       string
+	jkt       string
+	// invoker acts for the user (RFC 8693 act): the exchanging client, or
+	// the workload.
+	invoker string
 	// workload is a jwt-bearer token: it stands on deviceKeyID's capability,
 	// which grantEnd ends; no sign-in stands behind it (no auth_time, amr or
-	// acr) and it carries no permissions.
-	workload bool
+	// acr) and it carries no permissions. decision is the host authorizer's.
+	workload    bool
+	deviceKeyID string
+	grantEnd    time.Time
+	decision    *authflow.OAuthGrantDecision
 }
 
 // mintOAuthTokens mints the access token for m's resource (or, with none,
@@ -394,7 +346,7 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 		return authflow.OAuthTokens{}, iam.ErrSigningNotConfigured
 	}
 	now := s.nowTime()
-	ttl := config.OAuthClientAccessTTL(s.cfg.AuthorizationServer, m.client)
+	ttl := s.cfg.AuthorizationServer.AccessTokenTTL
 	if m.workload {
 		ttl = devicekey.MaxCapabilityLifetime + authflow.AssertionSkew // grantEnd, the capability's exp, bounds it
 	}
@@ -470,9 +422,7 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 	if !m.workload {
 		maps.Copy(at, map[string]any{"auth_time": m.authTime, "acr": m.acr, "amr": m.amr})
 	}
-	if !m.offline && m.sessionID != "" {
-		// An offline grant outlives its sign-in, and a device key is no
-		// session: their tokens name none.
+	if m.sessionID != "" {
 		at["sid"] = m.sessionID
 	}
 	if (slices.Contains(m.scopes, "email") || resource.ContactClaims) && u.Email != nil {
@@ -495,7 +445,7 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 			"iat": now.Unix(), "exp": now.Add(oauthIDTokenTTL).Unix(),
 			"auth_time": m.authTime, "acr": m.acr, "amr": m.amr, "roles": roles,
 		}
-		if !m.offline && m.sessionID != "" {
+		if m.sessionID != "" {
 			id["sid"] = m.sessionID
 		}
 		if m.nonce != "" {

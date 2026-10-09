@@ -39,7 +39,7 @@ bad = [e for e in events if e.get('Action') in ('fail', 'build-fail')
 if bad:
     raise SystemExit(f'Unqualified workflows: {bad}')
 # Required by name, so a test can move between packages without an edit here.
-required = ('TestSecurityAccessTokenForgery', 'TestSecurityBearerTransport', 'TestSecurityRefreshTokenTheft', 'TestSecurityTokenExchangeOutlivingRevocation', 'TestSecurityGrantAuthorizerClamp',
+required = ('TestSecurityAccessTokenForgery', 'TestSecurityBearerTransport', 'TestSecurityRefreshTokenTheft', 'TestSecurityTokenExchangeOutlivingRevocation',
             'TestSecurityRefreshHistoryIsBounded',
             'TestSecurityRefreshGraceDoesNotFork', 'TestSecuritySessionRevocationEvents',
             'TestSecurityPasswordChangeEndsOtherSessions', 'TestSecurityRevokedSessionCannotChangeCredentials',

@@ -70,26 +70,10 @@ type OAuthClientConfig struct {
 	// host frontend using token exchange.
 	Origins []string
 	// AuthorizationDetailsTypes are the RFC 9396 authorization_details types
-	// the client may request ("machine_publication"). The host's grant
-	// authorizer (Deps.OAuthGrants) decides each request, so declaring any
-	// needs one.
+	// a jwt-bearer client's capabilities may carry ("hub_operation"). The
+	// host's grant authorizer (Deps.OAuthGrants) decides each grant, so
+	// declaring any needs one.
 	AuthorizationDetailsTypes []string
-	// Offline lets the client request offline_access: its refresh tokens
-	// stand on the grant, not the sign-in, so they keep working after the
-	// user signs out, until the grant's lifetime ends, it is revoked
-	// (Client.RevokeOAuthGrant) or the authorizer refuses a refresh. It
-	// needs the refresh_token grant.
-	Offline bool
-	// KeyBound pins every grant of the client to a DPoP key: an
-	// authorization request must name it (dpop_jkt), and every token request
-	// must prove it, so each token is bound to that key.
-	KeyBound bool
-	// AccessTokenTTL overrides AuthorizationServerConfig.AccessTokenTTL for
-	// the client, up to 15 minutes; 0 keeps the server's.
-	AccessTokenTTL time.Duration
-	// RefreshTokenTTL overrides AuthorizationServerConfig.RefreshTokenTTL
-	// for the client, up to 30 days; 0 keeps the server's.
-	RefreshTokenTTL time.Duration
 }
 
 // ResourceServerConfig registers one resource server: an API that accepts
@@ -140,10 +124,6 @@ const (
 // default and ceiling.
 const DefaultOAuthAccessTokenTTL = 5 * time.Minute
 
-// MaxOAuthClientAccessTokenTTL is OAuthClientConfig.AccessTokenTTL's
-// ceiling.
-const MaxOAuthClientAccessTokenTTL = 15 * time.Minute
-
 // DefaultOAuthRefreshTokenTTL is AuthorizationServerConfig.RefreshTokenTTL's
 // default; MaxOAuthRefreshTokenTTL its ceiling.
 const (
@@ -193,22 +173,6 @@ func OAuthClientConfidential(c OAuthClientConfig) bool { return c.SecretSHA256 !
 // OAuthClientAllows reports whether c may use grant.
 func OAuthClientAllows(c OAuthClientConfig, grant OAuthGrantType) bool {
 	return slices.Contains(c.GrantTypes, grant)
-}
-
-// OAuthClientAccessTTL is the lifetime of access tokens minted for c.
-func OAuthClientAccessTTL(a AuthorizationServerConfig, c OAuthClientConfig) time.Duration {
-	if c.AccessTokenTTL > 0 {
-		return c.AccessTokenTTL
-	}
-	return a.AccessTokenTTL
-}
-
-// OAuthClientRefreshTTL bounds a refresh token family of c.
-func OAuthClientRefreshTTL(a AuthorizationServerConfig, c OAuthClientConfig) time.Duration {
-	if c.RefreshTokenTTL > 0 {
-		return c.RefreshTokenTTL
-	}
-	return a.RefreshTokenTTL
 }
 
 // SCIMReadScope is the scope a client-credentials token needs to read the
@@ -353,16 +317,6 @@ func normalizeOAuthClient(cl *OAuthClientConfig, resources []ResourceServerConfi
 		}
 	}
 	switch {
-	case cl.AccessTokenTTL < 0 || cl.AccessTokenTTL > MaxOAuthClientAccessTokenTTL:
-		return fmt.Errorf("client %q: AccessTokenTTL must be between 0 and %v, got %v", cl.ID, MaxOAuthClientAccessTokenTTL, cl.AccessTokenTTL)
-	case cl.RefreshTokenTTL < 0 || cl.RefreshTokenTTL > MaxOAuthRefreshTokenTTL:
-		return fmt.Errorf("client %q: RefreshTokenTTL must be between 0 and %v, got %v", cl.ID, MaxOAuthRefreshTokenTTL, cl.RefreshTokenTTL)
-	case cl.Offline && !OAuthClientAllows(*cl, GrantRefreshToken):
-		return fmt.Errorf("client %q: Offline needs the refresh_token grant", cl.ID)
-	case cl.RefreshTokenTTL > 0 && !OAuthClientAllows(*cl, GrantRefreshToken):
-		return fmt.Errorf("client %q: RefreshTokenTTL needs the refresh_token grant", cl.ID)
-	}
-	switch {
 	case OAuthClientAllows(*cl, GrantAuthorizationCode) && len(cl.RedirectURIs) == 0:
 		return fmt.Errorf("client %q: the authorization_code grant needs RedirectURIs", cl.ID)
 	case OAuthClientAllows(*cl, GrantRefreshToken) && !OAuthClientAllows(*cl, GrantAuthorizationCode):
@@ -377,6 +331,8 @@ func normalizeOAuthClient(cl *OAuthClientConfig, resources []ResourceServerConfi
 		return fmt.Errorf("client %q: the jwt-bearer grant needs Resources to mint for", cl.ID)
 	case OAuthClientAllows(*cl, GrantJWTBearer) && len(cl.AuthorizationDetailsTypes) == 0:
 		return fmt.Errorf("client %q: the jwt-bearer grant needs AuthorizationDetailsTypes: its capabilities' operations", cl.ID)
+	case len(cl.AuthorizationDetailsTypes) > 0 && !OAuthClientAllows(*cl, GrantJWTBearer):
+		return fmt.Errorf("client %q: AuthorizationDetailsTypes are a jwt-bearer client's capability operations", cl.ID)
 	case len(cl.Permissions) > 0 && !OAuthClientAllows(*cl, GrantClientCredentials):
 		return fmt.Errorf("client %q: Permissions are a client-credentials client's own grants", cl.ID)
 	}

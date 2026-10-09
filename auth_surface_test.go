@@ -65,7 +65,7 @@ func TestClientPublicSurface(t *testing.T) {
 		"UpsertRemoteApplication", "DeleteRemoteApplication",
 	}
 	hostOperations := []string{
-		"CreateUser", "PurgeUsers", "ResetAccountMFA", "MintAccessToken", "RevokeOAuthGrant",
+		"CreateUser", "PurgeUsers", "ResetAccountMFA", "MintAccessToken",
 		"CreateGroup", "DeleteGroup", "PurgeGroup",
 		"ApplyBootstrapManifest", "EnsureUserRole", "ImportUsers", "ImportSolanaLinks", "LinkProvider",
 	}

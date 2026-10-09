@@ -245,6 +245,8 @@ func TestOAuthTokenExchange(t *testing.T) {
 	require.Equal(t, []any{"merchant:*"}, at["permissions"])
 	require.Equal(t, owner.Email, at["email"])
 	require.Equal(t, map[string]any{"jkt": key.Thumbprint()}, at["cnf"])
+	require.Equal(t, map[string]any{"sub": oauthAdminUI}, at["act"], "the exchanging client acts for the user")
+	require.Nil(t, at["authorization_details"])
 
 	exchange := func(mutate func(url.Values), dpop *authtest.DPoPKey) (int, string) {
 		params := url.Values{
@@ -266,6 +268,7 @@ func TestOAuthTokenExchange(t *testing.T) {
 		"an unregistered resource":    {func(p url.Values) { p.Set("resource", "https://other.example") }, "invalid_target"},
 		"an unknown scope":            {func(p url.Values) { p.Set("scope", "api:merchant admin:all") }, "invalid_scope"},
 		"openid":                      {func(p url.Values) { p.Set("scope", "openid") }, "invalid_scope"},
+		"authorization_details":       {func(p url.Values) { p.Set("authorization_details", `[{"type":"job"}]`) }, "invalid_request"},
 	} {
 		_, code := exchange(tc.mutate, key)
 		require.Equal(t, tc.code, code, name)
