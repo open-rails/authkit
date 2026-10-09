@@ -498,7 +498,9 @@ pkg authkit/authtest, type CodeFlow struct, AuthorizationDetails string
 pkg authkit/authtest, type CodeFlow struct, ClientID string
 pkg authkit/authtest, type CodeFlow struct, ClientSecret string
 pkg authkit/authtest, type CodeFlow struct, DPoP *DPoPKey
+pkg authkit/authtest, type CodeFlow struct, MaxAge *int
 pkg authkit/authtest, type CodeFlow struct, Nonce string
+pkg authkit/authtest, type CodeFlow struct, Prompt string
 pkg authkit/authtest, type CodeFlow struct, RedirectURI string
 pkg authkit/authtest, type CodeFlow struct, Resource string
 pkg authkit/authtest, type CodeFlow struct, Scopes []string
@@ -1120,6 +1122,7 @@ pkg authkit/iam, type OAuthGrantKind string
 pkg authkit/iam, type OAuthGrantRequest struct
 pkg authkit/iam, type OAuthGrantRequest struct, AuthorizationDetails json.RawMessage
 pkg authkit/iam, type OAuthGrantRequest struct, ClientID string
+pkg authkit/iam, type OAuthGrantRequest struct, DeviceKeyID string
 pkg authkit/iam, type OAuthGrantRequest struct, GrantID string
 pkg authkit/iam, type OAuthGrantRequest struct, JWKThumbprint string
 pkg authkit/iam, type OAuthGrantRequest struct, Kind OAuthGrantKind

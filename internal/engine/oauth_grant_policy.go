@@ -124,7 +124,7 @@ func (s *Engine) grantPermissions(ctx context.Context, m oauthMint, ceiling []st
 	}
 	actor := iam.UserActor(m.userID)
 	if !m.offline {
-		actor = actor.InSession(iam.SessionRef{SessionID: m.sessionID})
+		actor = actor.InSession(iam.SessionRef{SessionID: m.sessionID, DeviceKeyID: m.deviceKeyID})
 	}
 	auth, err := s.rootAuthority(ctx, actor)
 	if err != nil {

@@ -51,6 +51,7 @@ type OAuthGrant struct {
 	Resource      string   `json:"resource,omitempty"`
 	UserID        string   `json:"user_id"`
 	SessionID     string   `json:"session_id"`
+	DeviceKeyID   string   `json:"device_key_id,omitempty"`
 	AuthTime      int64    `json:"auth_time"`
 	AMR           []string `json:"amr"`
 	ACR           string   `json:"acr"`
@@ -64,6 +65,19 @@ type OAuthGrant struct {
 	Offline           bool                `json:"offline,omitempty"`
 	CredentialVersion int64               `json:"credential_version,omitempty"`
 	Decision          *OAuthGrantDecision `json:"decision,omitempty"`
+}
+
+// OAuthApprover is the sign-in approving an authorization request: a
+// refresh session (SessionID) or a device key (DeviceKeyID). A device-key
+// sign-in keeps no session to read its assurance from, so AuthTime, AMR and
+// ACR are its verified token's.
+type OAuthApprover struct {
+	UserID      string
+	SessionID   string
+	DeviceKeyID string
+	AuthTime    int64
+	AMR         []string
+	ACR         string
 }
 
 // OAuthCodeExchange is an authorization_code token request from an

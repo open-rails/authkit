@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -86,6 +87,10 @@ type CodeFlow struct {
 	Nonce                string
 	AuthorizationDetails string
 	DPoP                 *DPoPKey
+	// Prompt ("login") and MaxAge (seconds; 0 is now) ask for a fresh
+	// sign-in: approving with an older one answers step_up_required.
+	Prompt string
+	MaxAge *int
 }
 
 // OAuthTokens is the token endpoint's answer. DPoP is the key the tokens
@@ -283,6 +288,12 @@ func (as *AuthorizationServer) BeginAuthorization(t testing.TB, f CodeFlow, veri
 	}
 	if f.DPoP != nil {
 		q.Set("dpop_jkt", f.DPoP.Thumbprint())
+	}
+	if f.Prompt != "" {
+		q.Set("prompt", f.Prompt)
+	}
+	if f.MaxAge != nil {
+		q.Set("max_age", strconv.Itoa(*f.MaxAge))
 	}
 	res, err := as.HTTPClient().Get(as.URL + iam.OAuthAuthorizePath + "?" + q.Encode())
 	if err != nil {
