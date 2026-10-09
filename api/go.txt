@@ -19,7 +19,7 @@ pkg authkit, method (*Client) APIBase() string
 pkg authkit, method (*Client) ApplyBootstrapManifest(context.Context, iam.BootstrapManifest, iam.BootstrapOptions, ...Option) (iam.BootstrapResult, error)
 pkg authkit, method (*Client) AuthenticateRequest(context.Context, *http.Request) (auth.Principal, error)
 pkg authkit, method (*Client) Ban(context.Context, iam.Actor, string, iam.Ban, ...Option) error
-pkg authkit, method (*Client) Caller(context.Context) (auth.Caller, bool)
+pkg authkit, method (*Client) Caller(context.Context) (auth.Identity, bool)
 pkg authkit, method (*Client) Can(context.Context, iam.Actor, iam.GroupRef, iam.Perm) (bool, error)
 pkg authkit, method (*Client) CheckIssuerKeys(context.Context) error
 pkg authkit, method (*Client) CheckRecentSignIn(context.Context, verify.Claims) error
@@ -1394,7 +1394,7 @@ pkg authkit/verify, func ActorFromClaims(Claims) (iam.Actor, bool)
 pkg authkit/verify, func ActorFromContext(context.Context) (iam.Actor, bool)
 pkg authkit/verify, func AuthenticateRequest(context.Context, Authenticator, *http.Request) (auth.Principal, error)
 pkg authkit/verify, func AuthenticateSession(context.Context, Authority, *http.Request) (auth.Principal, error)
-pkg authkit/verify, func CallerFromContext(context.Context, Authenticator) (auth.Caller, bool)
+pkg authkit/verify, func CallerFromContext(context.Context, Authenticator) (auth.Identity, bool)
 pkg authkit/verify, func ClaimsFromContext(context.Context) (Claims, bool)
 pkg authkit/verify, func DPoPChallenge(http.ResponseWriter, *http.Request, error)
 pkg authkit/verify, func IdentityFromContext(context.Context) (auth.Identity, bool)

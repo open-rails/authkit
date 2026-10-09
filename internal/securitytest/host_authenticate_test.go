@@ -126,7 +126,7 @@ func TestSecurityAuthenticateBehindGate(t *testing.T) {
 		apiKey := h.issue(base+"/api-keys", h.login(manager).AccessToken, map[string]any{"name": "ci", "role": "org:member"})
 		resp := send("/required", http.Header{"Authorization": {"Bearer " + apiKey.Secret}})
 		require.Equal(t, http.StatusOK, resp.status, resp.String())
-		require.Equal(t, apiKey.ID, resp.String())
+		require.Equal(t, group.ID(), resp.String(), "the key is a credential of its group's account")
 		require.EqualValues(t, 1, auth.verified.Load())
 	})
 

@@ -187,7 +187,10 @@ func TestOAuthResourceServerVerifiesAccessTokens(t *testing.T) {
 	require.NoError(t, v.AddIssuer(as.URL, []string{oauthResource}, verify.IssuerOptions{JWKSURI: as.URL + iam.JWKSPath}))
 	resource.Config.Handler = verify.Required(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cl, _ := verify.ClaimsFromContext(r.Context())
+		id, _ := verify.CallerFromContext(r.Context(), v)
 		_ = json.NewEncoder(w).Encode(map[string]any{
+			"subject": id.Subject, "subject_kind": id.SubjectKind, "invoker": id.Invoker.ID, "invoker_issuer": id.Invoker.Issuer,
+			"credential": id.Credential.Kind, "self_invoked": id.SelfInvoked(),
 			"kind": cl.Kind, "sub": cl.Subject, "user_id": cl.UserID, "client_id": cl.ClientID, "scopes": cl.Scopes,
 			"roles": cl.Roles, "sid": cl.SessionID, "can_update": cl.HasPermission(update), "can_pay_out": cl.HasPermission(payouts),
 			"jkt": cl.JWKThumbprint, "kind_client": cl.Kind == iam.ActorOAuthClient,
@@ -224,6 +227,13 @@ func TestOAuthResourceServerVerifiesAccessTokens(t *testing.T) {
 	require.NotEmpty(t, got["sid"])
 	require.Equal(t, true, got["can_update"])
 	require.Equal(t, true, got["can_pay_out"])
+	// The user is the subject; the client acting for them is the invoker.
+	require.Equal(t, owner.ID, got["subject"])
+	require.Equal(t, "user", got["subject_kind"])
+	require.Equal(t, oauthConsole, got["invoker"])
+	require.Equal(t, as.URL, got["invoker_issuer"])
+	require.Equal(t, "access_token", got["credential"])
+	require.Equal(t, false, got["self_invoked"])
 
 	agent := authtest.NewUser(t, as.Client)
 	authtest.GrantRole(t, as.Client, iam.RootGroup(), iam.UserSubject(agent.ID), support)
@@ -257,6 +267,9 @@ func TestOAuthResourceServerVerifiesAccessTokens(t *testing.T) {
 	require.Equal(t, http.StatusOK, status, got)
 	require.Equal(t, oauthWorker, got["sub"])
 	require.Equal(t, true, got["kind_client"])
+	require.Equal(t, oauthWorker, got["subject"], "a client acting for itself is the subject")
+	require.Equal(t, "application", got["subject_kind"])
+	require.Equal(t, true, got["self_invoked"])
 	require.Equal(t, true, got["can_pay_out"])
 	require.Equal(t, false, got["can_update"], "the worker holds payouts only")
 }

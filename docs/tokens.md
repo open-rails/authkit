@@ -1,6 +1,6 @@
 # Tokens
 
-This page covers the credentials AuthKit issues, how long each lasts, and when a revocation takes effect. Each JWT's `typ` and claims are listed in [Stability](stability.md#tokens), and the middleware godoc in `verify` describes the gates.
+This page covers the credentials AuthKit issues, how long each lasts, and when a revocation takes effect. Which subject each credential acts as, and who invokes it, is in [Subject, Invoker, Credential](identity.md). Each JWT's `typ` and claims are listed in [Stability](stability.md#tokens), and the middleware godoc in `verify` describes the gates.
 
 ## Credentials
 
@@ -9,7 +9,7 @@ This page covers the credentials AuthKit issues, how long each lasts, and when a
 | Access token (`access+jwt`) | a signed-in user | `TokenConfig.AccessTokenDuration`, 15 minutes by default | live gates refuse it at once; `Required` accepts it until it expires |
 | Refresh token | a signed-in user | until revoked, or for `TokenConfig.RefreshTokenDuration` | at once |
 | Device-key sign-in | a native client | each sign-in is signed by the device key, with no refresh token | like a session, when the key is revoked |
-| API key | a group's machine client | until revoked or its expiry (capped by `APIKeysConfig.MaxTTL`) | at once, since it is resolved on every request; also when its creator loses the authority to issue it |
+| API key | a group's account | until revoked or its expiry (capped by `APIKeysConfig.MaxTTL`) | at once, since it is resolved on every request; also when its creator loses the authority to issue it |
 | Delegated token (`delegated-access+jwt`) | a service acting for a user or an outside actor | `DelegatedConfig.TTLDefault` (15 minutes), at most `TTLCeiling` (1 hour) | when the user's sign-in ends, if AuthKit minted it from one; when its application is disabled, if an application did |
 | Remote-application token | a remote application | set by the application | when the application is disabled or deleted |
 | Service JWT (`service+jwt`) | your own services | at most 15 minutes by default (`verify.WithServiceJWTMaxLifetime`) | at expiry only; it grants no AuthKit authority |

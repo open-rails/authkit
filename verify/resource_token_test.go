@@ -56,7 +56,9 @@ func TestResourceAccessTokens(t *testing.T) {
 		require.False(t, ok, "its authority is Permissions, for the resource server")
 		id, ok := cl.Identity()
 		require.True(t, ok)
-		require.Equal(t, auth.Identity{Kind: auth.KindUser, Issuer: peerIssuer, Subject: "user-1", SessionID: "s-1"}, id)
+		require.Equal(t, auth.Identity{Issuer: peerIssuer, Subject: "user-1", SubjectKind: auth.SubjectUser,
+			Invoker: auth.Invoker{Issuer: peerIssuer, ID: "console"}, Credential: auth.Credential{Kind: auth.CredentialAccessToken, ID: "at-1"}}, id,
+			"the user is the subject, the client acting for them its invoker")
 	}
 
 	cl, err := f.v.Verify(ctx, sign(t, f.local, jose.ResourceAccessTokenType, localIssuer, user))
@@ -75,7 +77,8 @@ func TestResourceAccessTokens(t *testing.T) {
 	require.False(t, ok)
 	id, ok := cl.Identity()
 	require.True(t, ok)
-	require.Equal(t, auth.Identity{Kind: auth.KindRemoteApplication, Issuer: peerIssuer, Subject: "billing-worker"}, id)
+	require.Equal(t, auth.Identity{Issuer: peerIssuer, Subject: "billing-worker", SubjectKind: auth.SubjectApplication,
+		Invoker: auth.Invoker{Issuer: peerIssuer, ID: "billing-worker"}, Credential: auth.Credential{Kind: auth.CredentialAccessToken}}, id)
 
 	cl, err = f.v.Verify(ctx, sign(t, f.peer, jose.ResourceAccessTokenType, peerIssuer, map[string]any{
 		"sub": "user-1", "client_id": "console", "root_role": "root:admin", "2fa_enrollment": true, "device_key_id": "dk-1",

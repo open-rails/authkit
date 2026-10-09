@@ -104,7 +104,7 @@ func TestAccessTokens(t *testing.T) {
 	require.False(t, ok, "another issuer's user has no AuthKit authority")
 	id, ok := cl.Identity()
 	require.True(t, ok)
-	require.Equal(t, auth.Identity{Kind: auth.KindUser, Issuer: peerIssuer, Subject: "ext-1"}, id)
+	require.Equal(t, auth.Identity{Issuer: peerIssuer, Subject: "ext-1", SubjectKind: auth.SubjectUser, Invoker: auth.Invoker{Issuer: peerIssuer, ID: "ext-1"}, Credential: auth.Credential{Kind: auth.CredentialAccessToken}}, id)
 }
 
 // Each token class has one shape; anything else is refused with its code.
@@ -326,7 +326,7 @@ func TestPrincipalIsIdentityOnly(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer "+sign(t, f.local, jose.AccessTokenType, localIssuer, map[string]any{"sub": "user-1"}))
 	p, err := f.v.AuthenticateRequest(r.Context(), r)
 	require.NoError(t, err)
-	require.Equal(t, auth.Identity{Kind: auth.KindUser, Issuer: localIssuer, Subject: "user-1"}, p.Identity())
+	require.Equal(t, auth.Identity{Issuer: localIssuer, Subject: "user-1", SubjectKind: auth.SubjectUser, Invoker: auth.Invoker{Issuer: localIssuer, ID: "user-1"}, Credential: auth.Credential{Kind: auth.CredentialAccessToken}}, p.Identity())
 	_, checks := p.(auth.PermissionChecker)
 	require.False(t, checks)
 

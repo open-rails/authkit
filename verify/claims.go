@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/helpers/auth"
@@ -158,36 +157,76 @@ func (c Claims) HasAMR(m string) bool {
 	return false
 }
 
-// Identity is the claims' provider-neutral identity (helpers/auth); ok is
-// false when they name no subject under an issuer.
+// Identity is the claims' provider-neutral identity (helpers/auth): the
+// Subject, native to Issuer, whose authority the credential uses; the
+// Invoker who actually acts, the subject itself unless someone acts on its
+// behalf; and the Credential that proved it, never the subject.
+//
+//   - A user's token is the user, by its session or device key; so is a
+//     token its issuer delegated from that user.
+//   - A registered application's own token is the application. A token it
+//     signs for one of its users is the application too, invoked by that
+//     user in the application's namespace.
+//   - An OAuth client's client-credentials token is the client; its token
+//     for a user is the user, invoked by the client.
+//   - An API key is a credential of its group's account, an application
+//     whose id is the group's, so rotating keys never changes the subject.
+//
+// ok is false when they name no subject under an issuer.
 func (c Claims) Identity() (auth.Identity, bool) {
-	i := auth.Identity{Issuer: c.Issuer, Email: c.Email, EmailVerified: c.EmailVerified, Username: c.Username, SessionID: c.SessionID}
+	i := auth.Identity{Issuer: c.Issuer, SubjectKind: auth.SubjectUser, Email: c.Email, EmailVerified: c.EmailVerified, Username: c.Username,
+		Credential: auth.Credential{Kind: auth.CredentialAccessToken, ID: c.JTI}}
+	authority := c.Issuer
+	if c.Group != nil {
+		authority = c.Group.AuthorityIssuer
+	}
+	var invoker *auth.Invoker
 	switch c.Kind {
 	case iam.ActorUser:
-		i.Kind, i.Subject = auth.KindUser, c.UserID
+		i.Subject = c.UserID
 		if i.Subject == "" {
 			i.Subject = c.Subject
 		}
-		if c.DeviceKeyID != "" {
-			i.Kind, i.Subject = auth.KindDeviceKey, c.DeviceKeyID
+		switch {
+		case c.IsResourceToken():
+			if c.ClientID != "" {
+				invoker = &auth.Invoker{Issuer: c.Issuer, ID: c.ClientID}
+			}
+		case c.DeviceKeyID != "":
+			i.Credential = auth.Credential{Kind: auth.CredentialDeviceKey, ID: c.DeviceKeyID}
+		case c.SessionID != "":
+			i.Credential = auth.Credential{Kind: auth.CredentialSession, ID: c.SessionID}
 		}
 	case iam.ActorAPIKey:
-		i.Kind, i.Subject = auth.KindAPIKey, c.APIKeyID
 		if c.Group != nil {
-			i.Issuer = c.Group.AuthorityIssuer
+			i.Subject = c.Group.GroupID
 		}
+		i.Issuer, i.SubjectKind = authority, auth.SubjectApplication
+		i.Credential = auth.Credential{Kind: auth.CredentialAPIKey, ID: c.APIKeyID}
 	case iam.ActorRemoteApplication:
-		i.Kind, i.Subject = auth.KindRemoteApplication, c.RemoteApplicationID
-	case iam.ActorDelegated:
-		i.Kind, i.Subject = auth.KindDelegated, c.DelegatedSubject
+		i.Issuer, i.Subject, i.SubjectKind = authority, c.RemoteApplicationID, auth.SubjectApplication
+		i.Credential.Kind = auth.CredentialSignedToken
 	case iam.ActorOAuthClient:
-		// helpers/auth's machine identity: an application acting for itself.
-		i.Kind, i.Subject = auth.KindRemoteApplication, c.ClientID
+		i.Subject, i.SubjectKind = c.ClientID, auth.SubjectApplication
+	case iam.ActorDelegated:
+		i.Subject = c.DelegatedSubject
+		if c.RemoteApplicationID != "" {
+			i.Issuer, i.Subject, i.SubjectKind = authority, c.RemoteApplicationID, auth.SubjectApplication
+			invoker = &auth.Invoker{Issuer: c.Issuer, ID: c.DelegatedSubject}
+			i.Credential.Kind = auth.CredentialSignedToken
+		}
 	default:
 		return auth.Identity{}, false
 	}
 	if strings.TrimSpace(i.Subject) == "" || strings.TrimSpace(i.Issuer) == "" {
 		return auth.Identity{}, false
+	}
+	i.Invoker = auth.Invoker{Issuer: i.Issuer, ID: i.Subject}
+	if invoker != nil {
+		if strings.TrimSpace(invoker.ID) == "" || strings.TrimSpace(invoker.Issuer) == "" {
+			return auth.Identity{}, false
+		}
+		i.Invoker = *invoker
 	}
 	return i, true
 }
@@ -239,39 +278,16 @@ func ClaimsFromContext(ctx context.Context) (Claims, bool) {
 	return v.claims, ok
 }
 
-// CallerFromContext is the caller a gate over a verified and stored in ctx,
-// as helpers/auth Auth.Caller reports it: a person (a user's token, a device
-// key's included, by user id) or a Machine (an API key, a remote
-// application). It is false without one, for claims SetClaims or a gate over
-// another authenticator stored, and for any other credential (a delegation, a
-// resource access token, another issuer's user).
-func CallerFromContext(ctx context.Context, a Authenticator) (auth.Caller, bool) {
+// CallerFromContext is the identity a gate over a verified and stored in ctx
+// (Claims.Identity), as helpers/auth Auth.Caller reports it. It is false
+// without one, and for claims SetClaims or a gate over another authenticator
+// stored: only a gate's own verification proves who called.
+func CallerFromContext(ctx context.Context, a Authenticator) (auth.Identity, bool) {
 	v, ok := ctx.Value(claimsKey{}).(verified)
 	if !ok || v.by == nil || reflect.ValueOf(v.by).Kind() != reflect.Pointer || v.by != a {
-		return auth.Caller{}, false
+		return auth.Identity{}, false
 	}
-	cl := v.claims
-	c := auth.Caller{Email: cl.Email, Username: cl.Username, EmailVerified: cl.EmailVerified}
-	switch cl.Kind {
-	case iam.ActorUser:
-		id, err := uuid.Parse(cl.UserID)
-		if err != nil || cl.TwoFAEnrollment || cl.IsResourceToken() {
-			return auth.Caller{}, false
-		}
-		c.ID, c.Issuer, c.Credential = id.String(), cl.Issuer, string(auth.KindUser)
-		if cl.DeviceKeyID != "" {
-			c.Credential = string(auth.KindDeviceKey)
-		}
-	case iam.ActorAPIKey, iam.ActorRemoteApplication:
-		i, ok := cl.Identity()
-		if !ok {
-			return auth.Caller{}, false
-		}
-		c.ID, c.Issuer, c.Credential, c.Machine = i.Subject, i.Issuer, string(i.Kind), true
-	default:
-		return auth.Caller{}, false
-	}
-	return c, true
+	return v.claims.Identity()
 }
 
 // IdentityFromContext is the verified caller's provider-neutral identity.

@@ -138,8 +138,8 @@ func TestClaimsAndExternalPrincipal(t *testing.T) {
 					t.Error("verified claims missing")
 				}
 				p, ok := verify.IdentityFromContext(c.Context())
-				if !ok || p.Kind != auth.KindUser || p.Subject != "user-1" || p.Issuer != issuer.URL() {
-					t.Errorf("principal = %+v, present = %v", p, ok)
+				if !ok || p.SubjectKind != auth.SubjectUser || p.Subject != "user-1" || p.Issuer != issuer.URL() || !p.SelfInvoked() {
+					t.Errorf("identity = %+v, present = %v", p, ok)
 				}
 				if cl.IsUser() != local {
 					t.Errorf("IsUser = %v, local = %v", cl.IsUser(), local)
@@ -183,14 +183,14 @@ func TestAccessorsRejectMachineClaimsAsUsers(t *testing.T) {
 			})
 		}), func(c fiber.Ctx) error {
 			if got, _ := verify.ClaimsFromContext(c.Context()); got.IsUser() {
-				t.Error("machine/delegated principal exposed as a local user")
+				t.Error("an application or delegation exposed as a local user")
 			}
 			want, wantOK := cl.Identity()
 			if p, ok := verify.IdentityFromContext(c.Context()); ok != wantOK || p != want {
 				t.Errorf("identity = %+v, present = %v", p, ok)
 			}
 			if a, ok := verify.ActorFromContext(c.Context()); ok && a.Kind() == iam.ActorUser {
-				t.Errorf("machine/delegated principal acts as user %v", a)
+				t.Errorf("an application or delegation acts as user %v", a)
 			}
 			return c.SendStatus(http.StatusNoContent)
 		})

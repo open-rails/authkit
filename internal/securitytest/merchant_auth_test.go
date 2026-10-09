@@ -37,8 +37,9 @@ func merchantRoles(c *authkit.Config) {
 	withDeviceKeys(c)
 }
 
-// gated serves a gate stack whose handler answers 200 with the Client's
-// Caller, or 299 when the gates admitted a request it reports no Caller for.
+// gated serves a gate stack whose handler answers 200 with the identity the
+// Client's Caller reports, or 299 when the gates admitted a request it
+// reports none for.
 func gated(a *authkit.Client, gates ...func(http.Handler) http.Handler) func(t *testing.T, header http.Header) response {
 	var h http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, ok := a.Caller(r.Context())
@@ -56,10 +57,10 @@ func gated(a *authkit.Client, gates ...func(http.Handler) http.Handler) func(t *
 
 func bearer(token string) http.Header { return http.Header{"Authorization": {"Bearer " + token}} }
 
-func callerOf(t *testing.T, r response) neutral.Caller {
+func callerOf(t *testing.T, r response) neutral.Identity {
 	t.Helper()
 	require.Equal(t, http.StatusOK, r.status, r.String())
-	var c neutral.Caller
+	var c neutral.Identity
 	r.json(t, &c)
 	return c
 }
@@ -76,9 +77,8 @@ func requireStatus(t *testing.T, r response, status int, code string) {
 // library (OpenRails) mounts merchant routes with. Required admits only a
 // person, live; RequirePermission checks one concrete merchant permission,
 // live, in exactly the group Config.Merchant names; Sensitive refuses a stale
-// sign-in and every machine; Caller reports people by user id (a device key's
-// included) and API keys and remote applications as machines, and only for
-// claims a gate over the Client verified.
+// sign-in and every credential without one; Caller reports the identity only
+// for claims a gate over the Client verified.
 func TestSecurityMerchantAuth(t *testing.T) {
 	ctx := context.Background()
 	merchant := uuid.NewString()
@@ -132,11 +132,14 @@ func TestSecurityMerchantAuth(t *testing.T) {
 	t.Run("Required admits a person, live", func(t *testing.T) {
 		requireStatus(t, required(t, http.Header{}), http.StatusUnauthorized, "unauthenticated")
 		c := callerOf(t, required(t, bearer(token["support"])))
-		require.Equal(t, neutral.Caller{ID: support.id, Email: support.email, Username: support.username, EmailVerified: true, Issuer: issuer, Credential: "user"}, c)
+		require.Equal(t, support.id, c.Subject)
+		require.Equal(t, neutral.SubjectUser, c.SubjectKind)
+		require.Equal(t, neutral.CredentialSession, c.Credential.Kind)
+		require.True(t, c.SelfInvoked())
+		require.Equal(t, support.email, c.Email)
 		c = callerOf(t, required(t, bearer(device.AccessToken)))
-		require.Equal(t, support.id, c.ID, "a device key's caller is its person")
-		require.Equal(t, "device_key", c.Credential)
-		require.False(t, c.Machine)
+		require.Equal(t, support.id, c.Subject, "a device key's subject is its user")
+		require.Equal(t, neutral.CredentialDeviceKey, c.Credential.Kind)
 		requireStatus(t, required(t, bearer(token["banned"])), http.StatusUnauthorized, "session_revoked")
 		requireStatus(t, required(t, bearer(supportKey)), http.StatusForbidden, "forbidden")
 		requireStatus(t, required(t, bearer(appBearer)), http.StatusForbidden, "forbidden")
@@ -145,8 +148,7 @@ func TestSecurityMerchantAuth(t *testing.T) {
 	t.Run("RequirePermission checks the merchant group, live", func(t *testing.T) {
 		requireStatus(t, permitted(t, http.Header{}), http.StatusUnauthorized, "unauthenticated")
 		for _, name := range []string{"support", "owner", "billing"} {
-			c := callerOf(t, permitted(t, bearer(token[name])))
-			require.False(t, c.Machine, name)
+			require.Equal(t, neutral.SubjectUser, callerOf(t, permitted(t, bearer(token[name]))).SubjectKind, name)
 		}
 		requireStatus(t, permitted(t, bearer(token["viewer"])), http.StatusForbidden, "forbidden")
 		requireStatus(t, permitted(t, bearer(token["outsider"])), http.StatusForbidden, "forbidden")
@@ -154,25 +156,27 @@ func TestSecurityMerchantAuth(t *testing.T) {
 		requireStatus(t, permitted(t, bearer(viewerKey)), http.StatusForbidden, "forbidden")
 
 		c := callerOf(t, permitted(t, bearer(supportKey)))
-		require.True(t, c.Machine)
-		require.Equal(t, "api_key", c.Credential)
-		require.Equal(t, issuer, c.Issuer)
+		require.Equal(t, merchant, c.Subject, "a group API key is the group's account")
+		require.Equal(t, neutral.SubjectApplication, c.SubjectKind)
+		require.Equal(t, neutral.CredentialAPIKey, c.Credential.Kind)
 		c = callerOf(t, permitted(t, bearer(appBearer)))
-		require.Equal(t, neutral.Caller{ID: app.ID, Machine: true, Issuer: merchantApp, Credential: "remote_application"}, c)
+		require.Equal(t, app.ID, c.Subject)
+		require.Equal(t, issuer, c.Issuer)
+		require.Equal(t, neutral.CredentialSignedToken, c.Credential.Kind)
 
 		for _, pattern := range []string{"merchant:*", "merchant:payments:*", "merchant:*:read", "merchant:payments:void"} {
 			require.Panics(t, func() { h.auth.RequirePermission(pattern) }, "%s is not one registered permission", pattern)
 		}
 	})
 
-	t.Run("Sensitive refuses a stale sign-in and machines", func(t *testing.T) {
+	t.Run("Sensitive refuses a stale sign-in and credentials without one", func(t *testing.T) {
 		callerOf(t, sensitive(t, bearer(token["support"])))
 		requireStatus(t, sensitive(t, bearer(authtest.StaleSession(t, h.auth, token["support"]))), http.StatusForbidden, "step_up_required")
 		requireStatus(t, sensitive(t, bearer(supportKey)), http.StatusForbidden, "forbidden")
 		requireStatus(t, sensitive(t, bearer(appBearer)), http.StatusForbidden, "forbidden")
 	})
 
-	t.Run("only the Client's own gates prove a caller", func(t *testing.T) {
+	t.Run("only the Client's own gates prove an identity", func(t *testing.T) {
 		forged := verify.Claims{Kind: iam.ActorUser, Issuer: issuer, UserID: owner.id, SessionID: uuid.NewString()}
 		setClaims := func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -182,7 +186,7 @@ func TestSecurityMerchantAuth(t *testing.T) {
 		requireStatus(t, gated(h.auth, setClaims)(t, http.Header{}), 299, "")
 		requireStatus(t, gated(h.auth, setClaims, h.auth.RequirePermission(refund))(t, http.Header{}), http.StatusUnauthorized, "unauthenticated")
 		c := callerOf(t, gated(h.auth, setClaims, h.auth.RequirePermission(refund))(t, bearer(token["support"])))
-		require.Equal(t, support.id, c.ID, "the gate verified the request, not the stored claims")
+		require.Equal(t, support.id, c.Subject, "the gate verified the request, not the stored claims")
 
 		verifier, err := h.auth.NewVerifier([]string{audience})
 		require.NoError(t, err)

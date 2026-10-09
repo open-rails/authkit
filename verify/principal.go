@@ -40,7 +40,7 @@ func AuthenticateRequest(ctx context.Context, a Authenticator, r *http.Request) 
 // RequireSession, a credential that carries no sign-in (an API key, a remote
 // application's token or delegation) passes: verification already refuses it
 // once revoked, and Can checks its authority live. Admitting only some kinds
-// is the caller's policy (Principal.Identity().Kind).
+// is the caller's policy (Principal.Identity()).
 func AuthenticateSession(ctx context.Context, a Authority, r *http.Request) (auth.Principal, error) {
 	cl, err := authenticate(ctx, a, r)
 	if err != nil {

@@ -20,9 +20,9 @@ var _ auth.Auth = (*Client)(nil)
 
 // Required is verify.RequireSession over the Client: a person signed in
 // (a user's token, a device key's included), the session checked live, so a
-// revoked sign-in or a banned or deleted account is 401 session_revoked. An
-// API key or a remote application is 403 forbidden: it reaches merchant
-// routes through RequirePermission.
+// revoked sign-in or a banned or deleted account is 401 session_revoked. A
+// service (an API key, a remote application) is 403 forbidden: it reaches
+// merchant routes through RequirePermission.
 func (a *Client) Required() func(http.Handler) http.Handler {
 	return verify.RequireSession(a)
 }
@@ -56,26 +56,28 @@ func (a *Client) RequirePermission(permission string) func(http.Handler) http.Ha
 // Sensitive is verify.Sensitive over the Client: a person's own sign-in
 // within the last 15 minutes, with the second factor when the account has
 // one, else 403 step_up_required with the account's step-up methods. A
-// machine has no sign-in of its own: 403 forbidden.
+// credential with no sign-in of its own (an API key, an application's token,
+// a delegation) is 403 forbidden.
 func (a *Client) Sensitive() func(http.Handler) http.Handler {
 	return verify.Sensitive(a)
 }
 
-// Caller is who a gate over the Client verified for the request whose
-// context ctx is (verify.CallerFromContext): a person by user id, a device
-// key's included, or a Machine (an API key, a remote application). Access
-// tokens carry no contact details, so a person's are read from the account;
-// they are display only, and empty when the read fails.
-func (a *Client) Caller(ctx context.Context) (auth.Caller, bool) {
-	c, ok := verify.CallerFromContext(ctx, a)
-	if !ok || c.Machine || c.Email != "" || c.Username != "" {
-		return c, ok
+// Caller is the identity a gate over the Client verified for the request
+// whose context ctx is (verify.CallerFromContext). Access tokens carry no
+// contact details, so a local user's are read from the account when the
+// user is the subject and acts themselves; they are display only, and stay
+// empty when the read fails.
+func (a *Client) Caller(ctx context.Context) (auth.Identity, bool) {
+	id, ok := verify.CallerFromContext(ctx, a)
+	cl, _ := verify.ClaimsFromContext(ctx)
+	if !ok || !id.SelfInvoked() || cl.UserID == "" || id.Subject != cl.UserID || id.Email != "" || id.Username != "" {
+		return id, ok
 	}
-	if u, err := a.User(ctx, iam.UserByID(c.ID)); err == nil {
-		c.Username, c.EmailVerified = u.Username, u.EmailVerified
+	if u, err := a.User(ctx, iam.UserByID(id.Subject)); err == nil {
+		id.Username, id.EmailVerified = u.Username, u.EmailVerified
 		if u.Email != nil {
-			c.Email = *u.Email
+			id.Email = *u.Email
 		}
 	}
-	return c, true
+	return id, true
 }
