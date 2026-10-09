@@ -14,6 +14,10 @@ const (
 	ActorRemoteApplication ActorKind = "remote_application"
 	ActorDelegated         ActorKind = "delegated"
 	ActorSystem            ActorKind = "system"
+	// ActorOAuthClient is an OAuth client acting for itself: a resource
+	// access token (at+jwt) whose sub is its client_id. It carries no
+	// AuthKit authority.
+	ActorOAuthClient ActorKind = "oauth_client"
 )
 
 // Actor is who performs an operation. Its fields are unexported: the zero

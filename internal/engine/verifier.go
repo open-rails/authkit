@@ -160,6 +160,11 @@ func (a *Authenticator) authenticate(ctx context.Context, token string, r *http.
 	if err != nil {
 		return verify.Claims{}, err
 	}
+	if a.own && cl.IsResourceToken() {
+		// A resource access token is the issuer's grant to a client for a
+		// resource server, never a sign-in to this deployment's API.
+		return verify.Claims{}, errmodel.E(errmodel.CodeUnsupportedTokenTyp)
+	}
 	// Under a Required 2FA policy a user not yet enrolled reaches only the
 	// enrollment routes (#148).
 	if a.own && a.s.requireMFAEnrollment() && cl.IsUser() && !cl.MFAEnrolled && !enrollment.IsRoute(ctx) {

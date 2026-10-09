@@ -52,3 +52,22 @@ For `prompt=none` with nobody signed in, or when the user refuses, the SPA decli
 - Codes last 60 seconds and redeem once; each grant re-checks that the user is live and the sign-in still stands. AuthKit's own API refuses an `at+jwt`.
 
 `authtest.NewAuthorizationServer` runs one over HTTPS for a resource server's or client's tests.
+
+## Resource servers
+
+A resource server trusts the issuer for its own resource ID, from the JWKS alone:
+
+```go
+v := verify.NewVerifier(
+	verify.WithDPoP(replay), // a replay store every replica shares
+	verify.WithPublicURL("https://api.example.com"),
+	verify.WithDPoPNonce(nonceKey), // optional: RFC 9449 server nonces
+)
+err := v.AddIssuer("https://myapp.com", []string{"https://api.example.com"}, verify.IssuerOptions{
+	JWKSURI: "https://myapp.com/.well-known/jwks.json",
+})
+mux.Handle("/v1/", verify.Required(v)(api))
+```
+
+- `Claims.Subject` is the user, `ClientID` the client, `Scopes` (`HasScope`) and `Permissions` (`HasPermission`) what it was granted; `Roles` is for display. A token whose `sub` is its `client_id` is the client acting for itself (`Kind` `iam.ActorOAuthClient`).
+- A `cnf.jkt` token needs a fresh, single-use DPoP proof of its key on every request. With `WithDPoPNonce`, a proof without a current nonce is 401 `use_dpop_nonce` carrying a `DPoP-Nonce` header to retry with. A host writing its own refusals calls `verify.DPoPChallenge` first for the `WWW-Authenticate` and `DPoP-Nonce` headers; browser clients need both exposed by CORS.

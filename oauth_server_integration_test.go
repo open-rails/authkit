@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync/atomic"
@@ -20,6 +21,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testkeys"
 	"github.com/open-rails/authkit/keys"
+	"github.com/open-rails/authkit/verify"
 )
 
 const (
@@ -151,6 +153,65 @@ func TestOAuthAuthorizationCodeFlow(t *testing.T) {
 	})
 	require.Equal(t, as.URL, verifyIssued(t, as, backend.AccessToken, "at+jwt")["aud"])
 	_ = ctx
+}
+
+// TestOAuthResourceServerVerifiesAccessTokens: a resource server that trusts
+// the issuer by its JWKS alone reads the token's user, client, scopes and
+// permissions, and refuses a token minted for another audience.
+func TestOAuthResourceServerVerifiesAccessTokens(t *testing.T) {
+	as, admin, support := newOAuthServer(t)
+	// The resource server's own vocabulary, as it would declare it.
+	merchant := authkit.NewRoles().Persona("merchant")
+	update, payouts := merchant.Permission("subscriptions", "update"), merchant.Permission("payouts", "read")
+	v := verify.NewVerifier(verify.WithHTTPClient(as.HTTPClient()))
+	require.NoError(t, v.AddIssuer(as.URL, []string{oauthResource}, verify.IssuerOptions{JWKSURI: as.URL + iam.JWKSPath}))
+	resource := httptest.NewServer(verify.Required(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cl, _ := verify.ClaimsFromContext(r.Context())
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"kind": cl.Kind, "sub": cl.Subject, "user_id": cl.UserID, "client_id": cl.ClientID, "scopes": cl.Scopes,
+			"roles": cl.Roles, "sid": cl.SessionID, "can_update": cl.HasPermission(update), "can_pay_out": cl.HasPermission(payouts),
+		})
+	})))
+	t.Cleanup(resource.Close)
+	call := func(token string) (int, map[string]any) {
+		req, _ := http.NewRequest(http.MethodGet, resource.URL+"/v1/merchant/subscriptions", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		res, err := resource.Client().Do(req)
+		require.NoError(t, err)
+		defer res.Body.Close()
+		var out map[string]any
+		require.NoError(t, json.NewDecoder(res.Body).Decode(&out))
+		return res.StatusCode, out
+	}
+
+	owner := authtest.NewUser(t, as.Client)
+	authtest.GrantRole(t, as.Client, iam.RootGroup(), iam.UserSubject(owner.ID), admin)
+	status, got := call(as.Authorize(t, owner, consoleFlow()).AccessToken)
+	require.Equal(t, http.StatusOK, status, got)
+	require.Equal(t, string(iam.ActorUser), got["kind"])
+	require.Equal(t, owner.ID, got["sub"])
+	require.Empty(t, got["user_id"], "another deployment's user")
+	require.Equal(t, oauthConsole, got["client_id"])
+	require.Equal(t, []any{"openid", "profile", "email", "api:merchant"}, got["scopes"])
+	require.Equal(t, []any{"admin"}, got["roles"])
+	require.NotEmpty(t, got["sid"])
+	require.Equal(t, true, got["can_update"])
+	require.Equal(t, true, got["can_pay_out"])
+
+	agent := authtest.NewUser(t, as.Client)
+	authtest.GrantRole(t, as.Client, iam.RootGroup(), iam.UserSubject(agent.ID), support)
+	_, got = call(as.Authorize(t, agent, consoleFlow()).AccessToken)
+	require.Equal(t, true, got["can_update"])
+	require.Equal(t, false, got["can_pay_out"], "the support role holds subscriptions only")
+
+	backend := as.Authorize(t, authtest.NewUser(t, as.Client), authtest.CodeFlow{
+		ClientID: oauthBackend, ClientSecret: oauthBackendToken, RedirectURI: oauthBackendCB, Scopes: []string{"openid"},
+	})
+	status, got = call(backend.AccessToken)
+	require.Equal(t, http.StatusUnauthorized, status, "a token for userinfo is not for this resource")
+	require.Equal(t, "bad_audience", got["error"].(map[string]any)["code"])
+	status, _ = call(authtest.SignIn(t, as.Client, owner).AccessToken)
+	require.Equal(t, http.StatusUnauthorized, status, "nor is the issuer's own sign-in")
 }
 
 // TestOAuthCodeFlowRefusals pins every refusal of the authorize and token

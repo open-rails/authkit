@@ -16,21 +16,23 @@ import (
 // Claims is a verified credential: what the middleware stores in the request
 // context. Kind says which fields apply.
 type Claims struct {
-	// Kind is the credential class: iam.ActorUser or iam.ActorDelegated for a
-	// token, and from *authkit.Client also iam.ActorAPIKey and
-	// iam.ActorRemoteApplication.
+	// Kind is the credential class: iam.ActorUser, iam.ActorDelegated or
+	// (a resource access token whose sub is its client_id)
+	// iam.ActorOAuthClient for a token, and from *authkit.Client also
+	// iam.ActorAPIKey and iam.ActorRemoteApplication.
 	Kind iam.ActorKind
 	// JOSEType is the token's typ header ("access+jwt",
-	// "delegated-access+jwt", "remote-application-access+jwt"); empty for an
-	// API key.
+	// "delegated-access+jwt", "remote-application-access+jwt", "at+jwt");
+	// empty for an API key.
 	JOSEType string
 	// Issuer is the validated iss.
 	Issuer string
 
 	// UserID is a local user: set only for an issuer registered IsLocal.
 	UserID string
-	// Subject is another issuer's user. It is meaningful only with Issuer and
-	// never names a local user.
+	// Subject is another issuer's user, or a resource access token's sub
+	// (its user, or its client acting for itself) whichever issuer minted it.
+	// It is meaningful only with Issuer and never names a local user.
 	Subject string
 	// DelegatedSubject is a delegated token's delegated_sub, whose authority
 	// is Permissions: the user who minted a token of this deployment, else an
@@ -52,9 +54,11 @@ type Claims struct {
 	Group *PermissionScope
 
 	// Permissions are the credential's permission strings: an API key's or
-	// application's stored grants, or a delegated token's grant (bounded by
-	// the application's stored ceiling when an application issued it). Native
-	// user tokens carry none; their authority is read live (Can).
+	// application's stored grants, a delegated token's grant (bounded by the
+	// application's stored ceiling when an application issued it), or a
+	// resource access token's grant for its audience (the user's permissions
+	// within the resource server's ceiling at mint). Native user tokens carry
+	// none; their authority is read live (Can).
 	Permissions []string
 	// Attributes is the attributes claim, each value raw JSON for the
 	// consuming service to decode; AuthKit assigns no key a meaning.
@@ -82,9 +86,17 @@ type Claims struct {
 	MFAEnrolled bool
 	JTI         string
 
+	// ClientID is the OAuth client a resource access token was issued to;
+	// Scopes its granted scopes and Roles the user's role names at mint, for
+	// display only.
+	ClientID string
+	Scopes   []string
+	Roles    []string
+
 	// CertificateThumbprint (cnf x5t#S256) or JWKThumbprint (cnf jkt) is a
-	// delegated token's sender binding, already matched against this
-	// request's TLS peer certificate or DPoP proof; empty for a bearer token.
+	// delegated or resource token's sender binding, already matched against
+	// this request's TLS peer certificate or DPoP proof; empty for a bearer
+	// token.
 	CertificateThumbprint string
 	JWKThumbprint         string
 }
@@ -99,6 +111,21 @@ type PermissionScope struct {
 
 // IsUser reports whether the claims are a local user's.
 func (c Claims) IsUser() bool { return c.Kind == iam.ActorUser && c.UserID != "" }
+
+// IsResourceToken reports whether the claims are an RFC 9068 resource
+// access token's (at+jwt): an authorization server's grant to a client for
+// this resource server, never a sign-in of this deployment.
+func (c Claims) IsResourceToken() bool { return isResourceType(c.JOSEType) }
+
+// HasScope reports whether a resource access token was granted scope.
+func (c Claims) HasScope(scope string) bool {
+	for _, s := range c.Scopes {
+		if s == scope {
+			return true
+		}
+	}
+	return false
+}
 
 // HasPermission reports whether the claims carry a permission covering perm.
 func (c Claims) HasPermission(perm iam.Perm) bool {
@@ -152,6 +179,9 @@ func (c Claims) Identity() (auth.Identity, bool) {
 		i.Kind, i.Subject = auth.KindRemoteApplication, c.RemoteApplicationID
 	case iam.ActorDelegated:
 		i.Kind, i.Subject = auth.KindDelegated, c.DelegatedSubject
+	case iam.ActorOAuthClient:
+		// helpers/auth's machine identity: an application acting for itself.
+		i.Kind, i.Subject = auth.KindRemoteApplication, c.ClientID
 	default:
 		return auth.Identity{}, false
 	}

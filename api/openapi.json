@@ -5322,6 +5322,7 @@
             "enum": [
               "api_key",
               "delegated",
+              "oauth_client",
               "remote_application",
               "system",
               "user"
@@ -9230,6 +9231,10 @@
       "status": 401,
       "message": "The token carries no audience."
     },
+    "missing_client_id": {
+      "status": 401,
+      "message": "The token names no client."
+    },
     "missing_delegated_sub": {
       "status": 401,
       "message": "The delegated token carries no subject."
@@ -9535,6 +9540,10 @@
     "unsupported_token_typ": {
       "status": 401,
       "message": "The token type is not supported."
+    },
+    "use_dpop_nonce": {
+      "status": 401,
+      "message": "The request must be retried with the server's DPoP nonce."
     },
     "user_banned": {
       "status": 401,

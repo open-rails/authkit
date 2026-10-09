@@ -82,7 +82,7 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 		// The proof names where the client sent it: HTTPConfig.PublicURL for
 		// BasePath, never a forwarding header.
 		target := s.http.PublicURL + strings.TrimPrefix(r.URL.EscapedPath(), s.http.BasePath)
-		jwkThumbprint, err = dpop.VerifyRequest(r, target, parent[1], "", s.svc.ClaimDPoPProof)
+		jwkThumbprint, err = dpop.Verify(r, dpop.Check{URL: target, AccessToken: parent[1], Replay: s.svc.ClaimDPoPProof})
 		if err != nil {
 			if errors.Is(err, dpop.ErrReplayUnavailable) {
 				serverErr(w, "dpop_replay", err)

@@ -26,6 +26,9 @@ var (
 	ErrInvalidProof      = errors.New("invalid DPoP proof")
 	ErrReplay            = errors.New("DPoP proof already used")
 	ErrReplayUnavailable = errors.New("DPoP replay protection unavailable")
+	// ErrNonceRequired refuses an otherwise valid proof without a current
+	// server nonce (RFC 9449 §8); the client retries with a fresh one.
+	ErrNonceRequired = errors.New("DPoP nonce required")
 )
 
 // ReplayGuard atomically claims key until ttl elapses. It returns true only
@@ -34,16 +37,28 @@ var (
 // Keys are fixed-size SHA-256 digests; ttl is at most 121 seconds.
 type ReplayGuard func(ctx context.Context, key string, ttl time.Duration) (bool, error)
 
-// VerifyRequest verifies exactly one DPoP header against a trusted public URL,
-// the request method and the presented access token, and returns the proof
-// key's RFC 7638 thumbprint (unpadded base64url). expected is the access
-// token's cnf.jkt; "" is allowed only when binding a newly issued token to the
-// proof's key. AuthKit requires ath even on authenticated delegation mints.
-// Call only after authenticating the access token. requestURL must come from
-// server configuration or trusted routing, never unvalidated forwarding headers.
-func VerifyRequest(r *http.Request, requestURL, accessToken, expected string, replay ReplayGuard) (string, error) {
+// Check is what a proof must match.
+type Check struct {
+	// URL is the trusted request URL: from server configuration or trusted
+	// routing, never unvalidated forwarding headers.
+	URL string
+	// AccessToken is the token the proof must hash (ath); "" at a token
+	// endpoint, where a proof carries none.
+	AccessToken string
+	// Thumbprint is the bound token's cnf.jkt; "" binds a new token to the
+	// proof's key.
+	Thumbprint string
+	Replay     ReplayGuard
+	// Nonces, when set, requires a current server nonce.
+	Nonces *Nonces
+}
+
+// Verify verifies exactly one DPoP header against c and the request method,
+// and returns the proof key's RFC 7638 thumbprint (unpadded base64url). Call
+// only after authenticating the access token.
+func Verify(r *http.Request, c Check) (string, error) {
 	const zero = ""
-	if r == nil || accessToken == "" || len(accessToken) > 32<<10 || len(r.Header.Values("DPoP")) != 1 {
+	if r == nil || len(c.AccessToken) > 32<<10 || len(r.Header.Values("DPoP")) != 1 {
 		return zero, ErrInvalidProof
 	}
 	proof := r.Header.Get("DPoP")
@@ -89,7 +104,7 @@ func VerifyRequest(r *http.Request, requestURL, accessToken, expected string, re
 	if err != nil || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" || strings.Contains(proofURL, "#") {
 		return zero, ErrInvalidProof
 	}
-	wantURL, err := canonicalURL(requestURL)
+	wantURL, err := canonicalURL(c.URL)
 	if err != nil {
 		return zero, ErrInvalidProof
 	}
@@ -105,25 +120,31 @@ func VerifyRequest(r *http.Request, requestURL, accessToken, expected string, re
 	if iat < now.Unix()-60 || iat > now.Unix()+60 {
 		return zero, ErrInvalidProof
 	}
-	ath := sha256.Sum256([]byte(accessToken))
-	if stringValue(claims["ath"]) != base64.RawURLEncoding.EncodeToString(ath[:]) {
+	if c.AccessToken == "" {
+		if _, ok := claims["ath"]; ok {
+			return zero, ErrInvalidProof
+		}
+	} else if ath := sha256.Sum256([]byte(c.AccessToken)); stringValue(claims["ath"]) != base64.RawURLEncoding.EncodeToString(ath[:]) {
 		return zero, ErrInvalidProof
 	}
 	// RFC 7638: lexicographic member order and only required public members.
 	canonicalKey := `{"crv":"P-256","kty":"EC","x":"` + x + `","y":"` + y + `"}`
 	sum := sha256.Sum256([]byte(canonicalKey))
 	thumbprint := base64.RawURLEncoding.EncodeToString(sum[:])
-	if expected != "" && expected != thumbprint {
+	if c.Thumbprint != "" && c.Thumbprint != thumbprint {
 		return zero, ErrInvalidProof
 	}
-	if replay == nil {
+	if c.Nonces != nil && !c.Nonces.Valid(stringValue(claims["nonce"]), now) {
+		return zero, ErrNonceRequired
+	}
+	if c.Replay == nil {
 		return zero, ErrReplayUnavailable
 	}
 	replayKey := sha256.Sum256(append(sum[:], []byte(jti)...))
 	// Round up to whole seconds so millisecond-resolution stores cannot expire
 	// a replay claim just before the last accepted fractional second.
 	ttl := time.Duration(iat+61-now.Unix()) * time.Second
-	claimed, err := replay(r.Context(), base64.RawURLEncoding.EncodeToString(replayKey[:]), ttl)
+	claimed, err := c.Replay(r.Context(), base64.RawURLEncoding.EncodeToString(replayKey[:]), ttl)
 	if err != nil {
 		return zero, fmt.Errorf("%w: %w", ErrReplayUnavailable, err)
 	}

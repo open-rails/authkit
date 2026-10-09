@@ -24,7 +24,7 @@ func TestProofValidationWorkflow(t *testing.T) {
 	guard := func(context.Context, string, time.Duration) (bool, error) { return true, nil }
 	good := testdpop.Proof(t, key, "POST", target, "access-token", nil)
 	request.Header.Set("DPoP", good)
-	thumbprint, err := dpop.VerifyRequest(request, target+"?page=2", "access-token", "", guard)
+	thumbprint, err := dpop.Verify(request, dpop.Check{URL: target + "?page=2", AccessToken: "access-token", Replay: guard})
 	require.NoError(t, err)
 	for name, change := range map[string]func(*jwt.Token){
 		"wrong type":           func(t *jwt.Token) { t.Header["typ"] = "JWT" },
@@ -48,33 +48,33 @@ func TestProofValidationWorkflow(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			request.Header.Set("DPoP", testdpop.Proof(t, key, "POST", target, "access-token", change))
-			_, err := dpop.VerifyRequest(request, target, "access-token", thumbprint, guard)
+			_, err := dpop.Verify(request, dpop.Check{URL: target, AccessToken: "access-token", Thumbprint: thumbprint, Replay: guard})
 			require.ErrorIs(t, err, dpop.ErrInvalidProof)
 		})
 	}
 	request.Header.Set("DPoP", testdpop.Proof(t, testdpop.Key(t), "POST", target, "access-token", nil))
-	_, err = dpop.VerifyRequest(request, target, "access-token", thumbprint, guard)
+	_, err = dpop.Verify(request, dpop.Check{URL: target, AccessToken: "access-token", Thumbprint: thumbprint, Replay: guard})
 	require.ErrorIs(t, err, dpop.ErrInvalidProof)
 	request.Header.Set("DPoP", testdpop.Proof(t, key, "POST", "HTTPS://API.EXAMPLE:443/tasks", "access-token", nil))
-	_, err = dpop.VerifyRequest(request, target, "access-token", thumbprint, guard)
+	_, err = dpop.Verify(request, dpop.Check{URL: target, AccessToken: "access-token", Thumbprint: thumbprint, Replay: guard})
 	require.NoError(t, err)
 	request.Header.Set("DPoP", testdpop.Proof(t, key, "POST", target+"/a%2Fb", "access-token", nil))
-	_, err = dpop.VerifyRequest(request, target+"/a/b", "access-token", thumbprint, guard)
+	_, err = dpop.Verify(request, dpop.Check{URL: target + "/a/b", AccessToken: "access-token", Thumbprint: thumbprint, Replay: guard})
 	require.ErrorIs(t, err, dpop.ErrInvalidProof)
 	for _, malformed := range []string{"", "a.b.c.d", strings.Repeat("x", 4097), good + ", " + good,
 		base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"dpop+jwt","typ":"dpop+jwt","alg":"ES256","jwk":{}}`)) + ".e30.AA"} {
 		request.Header.Set("DPoP", malformed)
-		_, err = dpop.VerifyRequest(request, target, "access-token", "", guard)
+		_, err = dpop.Verify(request, dpop.Check{URL: target, AccessToken: "access-token", Replay: guard})
 		require.ErrorIs(t, err, dpop.ErrInvalidProof)
 	}
 	request.Header.Set("DPoP", good)
 	request.Header.Add("DPoP", good)
-	_, err = dpop.VerifyRequest(request, target, "access-token", "", guard)
+	_, err = dpop.Verify(request, dpop.Check{URL: target, AccessToken: "access-token", Replay: guard})
 	require.ErrorIs(t, err, dpop.ErrInvalidProof)
 	request.Header.Set("DPoP", good)
-	_, err = dpop.VerifyRequest(request, target, "access-token", "", nil)
+	_, err = dpop.Verify(request, dpop.Check{URL: target, AccessToken: "access-token", Replay: nil})
 	require.ErrorIs(t, err, dpop.ErrReplayUnavailable)
-	_, err = dpop.VerifyRequest(request, target, "access-token", "", func(context.Context, string, time.Duration) (bool, error) { return false, errors.New("offline") })
+	_, err = dpop.Verify(request, dpop.Check{URL: target, AccessToken: "access-token", Replay: func(context.Context, string, time.Duration) (bool, error) { return false, errors.New("offline") }})
 	require.ErrorIs(t, err, dpop.ErrReplayUnavailable)
 	// Concurrent identical proofs can yield exactly one accepted request.
 	var claimed atomic.Bool
@@ -82,12 +82,12 @@ func TestProofValidationWorkflow(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 16 {
 		wg.Go(func() {
-			_, err := dpop.VerifyRequest(request, target, "access-token", "", func(_ context.Context, key string, ttl time.Duration) (bool, error) {
+			_, err := dpop.Verify(request, dpop.Check{URL: target, AccessToken: "access-token", Replay: func(_ context.Context, key string, ttl time.Duration) (bool, error) {
 				if len(key) != 43 || ttl <= 0 || ttl > 121*time.Second {
 					panic("unbounded replay claim")
 				}
 				return claimed.CompareAndSwap(false, true), nil
-			})
+			}})
 			if err == nil {
 				accepted.Add(1)
 			}
@@ -95,4 +95,49 @@ func TestProofValidationWorkflow(t *testing.T) {
 	}
 	wg.Wait()
 	require.EqualValues(t, 1, accepted.Load())
+}
+
+func TestNonces(t *testing.T) {
+	_, err := dpop.NewNonces(make([]byte, 31))
+	require.Error(t, err)
+	key := make([]byte, 32)
+	key[0] = 1
+	nonces, err := dpop.NewNonces(key)
+	require.NoError(t, err)
+	other, err := dpop.NewNonces(make([]byte, 32))
+	require.NoError(t, err)
+	now := time.Now()
+	require.True(t, nonces.Valid(nonces.Issue(now), now))
+	require.True(t, nonces.Valid(nonces.Issue(now.Add(-dpop.NonceLifetime+time.Second)), now))
+	require.False(t, nonces.Valid(nonces.Issue(now.Add(-dpop.NonceLifetime-time.Second)), now), "expired")
+	require.False(t, nonces.Valid(nonces.Issue(now.Add(2*time.Minute)), now), "from the future")
+	require.False(t, nonces.Valid(other.Issue(now), now), "another key")
+	require.False(t, nonces.Valid("", now))
+	tampered := []byte(nonces.Issue(now))
+	tampered[3] ^= 1
+	require.False(t, nonces.Valid(string(tampered), now))
+}
+
+func TestProofNonceAndTokenEndpoint(t *testing.T) {
+	key := testdpop.Key(t)
+	const target = "https://as.example/oauth2/token"
+	guard := func(context.Context, string, time.Duration) (bool, error) { return true, nil }
+	secret := make([]byte, 32)
+	nonces, err := dpop.NewNonces(secret)
+	require.NoError(t, err)
+	request := httptest.NewRequest("POST", target, nil)
+	withoutAth := func(t *jwt.Token) { delete(t.Claims.(jwt.MapClaims), "ath") }
+	request.Header.Set("DPoP", testdpop.Proof(t, key, "POST", target, "", withoutAth))
+	_, err = dpop.Verify(request, dpop.Check{URL: target, Replay: guard})
+	require.NoError(t, err, "a token endpoint proof carries no ath")
+	request.Header.Set("DPoP", testdpop.Proof(t, key, "POST", target, "access-token", nil))
+	_, err = dpop.Verify(request, dpop.Check{URL: target, Replay: guard})
+	require.ErrorIs(t, err, dpop.ErrInvalidProof, "nor may it")
+	_, err = dpop.Verify(request, dpop.Check{URL: target, AccessToken: "access-token", Replay: guard, Nonces: nonces})
+	require.ErrorIs(t, err, dpop.ErrNonceRequired)
+	request.Header.Set("DPoP", testdpop.Proof(t, key, "POST", target, "access-token", func(t *jwt.Token) {
+		t.Claims.(jwt.MapClaims)["nonce"] = nonces.Issue(time.Now())
+	}))
+	_, err = dpop.Verify(request, dpop.Check{URL: target, AccessToken: "access-token", Replay: guard, Nonces: nonces})
+	require.NoError(t, err)
 }
