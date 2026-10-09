@@ -504,7 +504,7 @@ func TestOAuthEndSessionAndCORS(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, res.StatusCode, "%s as id_token_hint is refused", name)
 	}
 	var stillSignedIn map[string]any
-	require.Equal(t, http.StatusOK, bearerJSON(t, as, http.MethodGet, as.URL+iam.OAuthUserInfoPath, tokens.AccessToken, &stillSignedIn), "a refused hint ends nothing")
+	require.Equal(t, http.StatusOK, dpopJSON(t, as, http.MethodGet, as.URL+iam.OAuthUserInfoPath, tokens, &stillSignedIn), "a refused hint ends nothing")
 
 	q := url.Values{"id_token_hint": {tokens.IDToken}, "post_logout_redirect_uri": {"https://evil.example/out"}}
 	res, err = as.HTTPClient().Get(as.URL + iam.OAuthEndSessionPath + "?" + q.Encode())
@@ -520,8 +520,9 @@ func TestOAuthEndSessionAndCORS(t *testing.T) {
 	require.Equal(t, oauthConsoleOut+"?state=bye", res.Header.Get("Location"))
 
 	var info map[string]any
-	require.Equal(t, http.StatusUnauthorized, bearerJSON(t, as, http.MethodGet, as.URL+iam.OAuthUserInfoPath, tokens.AccessToken, &info))
-	require.Equal(t, "invalid_token", info["error"], "the sign-in has ended")
+	require.Equal(t, http.StatusUnauthorized, dpopJSON(t, as, http.MethodGet, as.URL+iam.OAuthUserInfoPath, tokens, &info))
+	require.Equal(t, "invalid_token", info["error"])
+	require.Contains(t, info["error_description"], "has ended", "the proven token is refused because the sign-in ended")
 }
 
 // TestOAuthSigningKeyRotationMidFlow: a code approved under one signing key

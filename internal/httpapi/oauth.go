@@ -344,7 +344,7 @@ func (s *Service) handleOAuthRevoke(w http.ResponseWriter, r *http.Request) {
 	}
 	client, oerr := s.authenticateOAuthClient(r, params)
 	if oerr != nil {
-		oauthFail(w, oerr)
+		oauthClientFail(w, r, oerr)
 		return
 	}
 	if params.Get("token") == "" {

@@ -47,8 +47,9 @@ func (a *Client) ListRemoteApplications(ctx context.Context, ref iam.GroupRef, p
 // d.Permissions must be held live by it on the root group
 // (iam.ErrDelegationRefused otherwise). The system mints for any subject.
 //
-// Delegated tokens are superseded by the authorization server's RFC 9068
-// access tokens (token exchange, client credentials) and are removed in v2.
+// Deprecated: delegated access tokens are superseded by the authorization
+// server's RFC 9068 access tokens (token exchange for a user, client
+// credentials for a machine) and are removed in v2.
 func (a *Client) MintDelegatedAccessToken(ctx context.Context, actor iam.Actor, d iam.DelegatedAccess, opts ...Option) (iam.Token, error) {
 	return a.ops.MintDelegatedAccessToken(ctx, actor, d, opts...)
 }
