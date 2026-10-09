@@ -3,6 +3,7 @@
 ## v1.10.1
 
 - A TOTP key file readable by its group (0440, as a Kubernetes secret volume with `fsGroup` mounts it) loads without a warning (#439). World-read still warns; any group or world write bit is still refused.
+- Building a client without `Deps.OnEvent` no longer turns account events off for its issuer (#440). A verify-only, ops or test client on the same database and issuer used to stop the server's events until it restarted. `New` with `OnEvent` subscribes the issuer; `New` without it changes nothing. `Start` of the client running the issuer's fleet sets the subscription to whether it handles events: a fleet run without a handler unsubscribes and drains what is pending.
 
 ## v1.10.0
 

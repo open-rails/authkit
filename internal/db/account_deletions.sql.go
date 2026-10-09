@@ -367,16 +367,19 @@ func (q *Queries) AccountDeliveryFleetSchemaForUpdate(ctx context.Context, issue
 }
 
 const accountDeliveryFleetSetEvents = `-- name: AccountDeliveryFleetSetEvents :exec
-UPDATE account_delivery_fleets SET events = $1 WHERE issuer = $2 AND events <> $1
+UPDATE account_delivery_fleets SET events = $1
+WHERE issuer = $2 AND river_schema = $3 AND events <> $1
 `
 
 type AccountDeliveryFleetSetEventsParams struct {
-	Events bool
-	Issuer string
+	Events      bool
+	Issuer      string
+	RiverSchema string
 }
 
+// Only the issuer's bound fleet sets whether it records events.
 func (q *Queries) AccountDeliveryFleetSetEvents(ctx context.Context, arg AccountDeliveryFleetSetEventsParams) error {
-	_, err := q.db.Exec(ctx, accountDeliveryFleetSetEvents, arg.Events, arg.Issuer)
+	_, err := q.db.Exec(ctx, accountDeliveryFleetSetEvents, arg.Events, arg.Issuer, arg.RiverSchema)
 	return err
 }
 

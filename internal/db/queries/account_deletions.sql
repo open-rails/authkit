@@ -110,7 +110,9 @@ SELECT (
 UPDATE account_delivery_fleets SET river_schema = sqlc.arg(river_schema) WHERE issuer = sqlc.arg(issuer);
 
 -- name: AccountDeliveryFleetSetEvents :exec
-UPDATE account_delivery_fleets SET events = sqlc.arg(events) WHERE issuer = sqlc.arg(issuer) AND events <> sqlc.arg(events);
+-- Only the issuer's bound fleet sets whether it records events.
+UPDATE account_delivery_fleets SET events = sqlc.arg(events)
+WHERE issuer = sqlc.arg(issuer) AND river_schema = sqlc.arg(river_schema) AND events <> sqlc.arg(events);
 
 -- name: AccountDeliveryFleetsUnbound :one
 -- The issuers, sorted, with no fleet bound yet.

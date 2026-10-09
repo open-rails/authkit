@@ -207,6 +207,8 @@ func (s *Engine) registerRiver(cfg *river.Config) error {
 // and starts AuthKit's own River client in RiverSchema; with one it requires
 // the fleet RiverJobs is bound to and leaves its start to the host. It runs no
 // DDL. A client without PostgreSQL (for example verify-only tests) has no jobs.
+// The client running its issuer's fleet sets whether the issuer records
+// account events (Deps.OnEvent).
 func (s *Engine) Start(ctx context.Context, fleet *river.Client[pgx.Tx]) error {
 	m := s.maintenance
 	if m == nil {
@@ -236,6 +238,9 @@ func (s *Engine) Start(ctx context.Context, fleet *river.Client[pgx.Tx]) error {
 	}
 	m.started = true
 	m.mu.Unlock()
+	if err := s.syncEventSubscription(ctx); err != nil {
+		return fmt.Errorf("authkit: account event subscription: %w", err)
+	}
 	if fleet == nil {
 		if err := s.startOwnRiver(ctx); err != nil {
 			return err

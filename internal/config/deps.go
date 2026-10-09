@@ -56,8 +56,11 @@ type Deps struct {
 	// is retried with backoff up to an hour apart and holds back that
 	// subject's later events. It must be idempotent on Event.ID, ignore kinds
 	// it does not know and never run in the change's transaction. Every
-	// account issuer with OnEvent receives the account events. Events are
-	// recorded from the first start of a deployment that sets it.
+	// account issuer with OnEvent receives the account events. Building a
+	// client with OnEvent subscribes its issuer: changes are recorded from
+	// then on, even while no fleet runs. Clients without it change nothing
+	// until one starts the issuer's fleet: that unsubscribes the issuer, and
+	// its fleet drains what is pending.
 	OnEvent func(context.Context, iam.Event) error
 	// OnPurge erases the host's data of a deleted account before AuthKit
 	// purges the account, 30 days after its deletion. It runs durably through

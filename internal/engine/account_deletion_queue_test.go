@@ -245,3 +245,85 @@ func TestAccountFleetRebindRequiresQuiescenceAndFencesOldProducer(t *testing.T) 
 	require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT count(*) FROM replacement_jobs.river_job WHERE kind='authkit_account_finalize'").Scan(&jobs))
 	require.Equal(t, 1, jobs, "the deletion's durable work lands in the current fleet")
 }
+
+// Building a client without OnEvent never unsubscribes its issuer: before or
+// after the client that handles events, and while that client runs, changes
+// either one makes are recorded and delivered.
+func TestClientWithoutOnEventKeepsEventSubscription(t *testing.T) {
+	for name, handlerFirst := range map[string]bool{"handler first": true, "handler last": false} {
+		t.Run(name, func(t *testing.T) {
+			pg := testdb.ScratchPostgres(t)
+			var mu sync.Mutex
+			delivered := map[string]bool{}
+			hook := func(_ context.Context, e iam.Event) error {
+				mu.Lock()
+				defer mu.Unlock()
+				delivered[string(e.Kind)+":"+e.UserID] = true
+				return nil
+			}
+			build := func(onEvent func(context.Context, iam.Event) error) *Engine {
+				t.Helper()
+				e, err := New(context.Background(), maintenanceConfig(), config.Deps{Postgres: pg.Pool, OnEvent: onEvent})
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = e.Close(context.Background()) })
+				return e
+			}
+			var handler, other *Engine
+			if handlerFirst {
+				handler, other = build(hook), build(nil)
+			} else {
+				other, handler = build(nil), build(hook)
+			}
+			awaitDelivered := func(userID string) {
+				t.Helper()
+				require.Eventually(t, func() bool {
+					mu.Lock()
+					defer mu.Unlock()
+					return delivered[string(iam.EventUserRegistered)+":"+userID]
+				}, 10*time.Second, 25*time.Millisecond)
+			}
+
+			before, err := other.createUser(t.Context(), "before-start@example.test", "beforestart")
+			require.NoError(t, err)
+			var recorded int
+			require.NoError(t, handler.pg.QueryRow(t.Context(), "SELECT count(*) FROM account_events WHERE user_id=$1::uuid", before.ID).Scan(&recorded))
+			require.Equal(t, 1, recorded, "recorded before any fleet runs")
+			require.NoError(t, handler.Start(t.Context(), nil))
+			awaitDelivered(before.ID)
+
+			late := build(nil)
+			after, err := late.createUser(t.Context(), "after-start@example.test", "afterstart")
+			require.NoError(t, err)
+			awaitDelivered(after.ID)
+		})
+	}
+}
+
+// The client that starts the issuer's fleet sets whether it records events:
+// one without OnEvent unsubscribes it, one with OnEvent subscribes it again.
+func TestFleetStartSetsEventSubscription(t *testing.T) {
+	pg := testdb.ScratchPostgres(t)
+	subscribed := func() bool {
+		t.Helper()
+		var events bool
+		require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT events FROM profiles.account_delivery_fleets WHERE issuer=$1", maintenanceConfig().Token.Issuer).Scan(&events))
+		return events
+	}
+	build := func(onEvent func(context.Context, iam.Event) error) *Engine {
+		t.Helper()
+		e, err := New(context.Background(), maintenanceConfig(), config.Deps{Postgres: pg.Pool, OnEvent: onEvent})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = e.Close(context.Background()) })
+		return e
+	}
+	handles := func(context.Context, iam.Event) error { return nil }
+	handler := build(handles)
+	require.True(t, subscribed())
+	without := build(nil)
+	require.True(t, subscribed(), "building a client without OnEvent changes nothing")
+	require.NoError(t, without.Start(t.Context(), nil))
+	require.False(t, subscribed(), "the fleet runs without a handler")
+	require.NoError(t, without.Close(t.Context()))
+	require.NoError(t, handler.Start(t.Context(), nil))
+	require.True(t, subscribed())
+}
