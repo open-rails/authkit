@@ -534,6 +534,10 @@ export const de: AuthUiMessageBundle = {
     completing: "Anmeldung wird abgeschlossen…",
     errorTitle: "Anmeldung fehlgeschlagen",
   },
+  oauth: {
+    signInTo: "Melden Sie sich an, um mit {client} fortzufahren",
+    continuing: "Weiter zu {client}…",
+  },
   solana: {
     provider: "Solana",
     errors: {
@@ -545,6 +549,8 @@ export const de: AuthUiMessageBundle = {
     },
   },
   errors: {
+    authorization_request_not_found:
+      "Diese Anmeldeanfrage ist abgelaufen. Kehren Sie zur App zurück und versuchen Sie es erneut.",
     network_error: "Netzwerkfehler. Bitte überprüfen Sie Ihre Verbindung.",
     popup_blocked:
       "Das Anmeldefenster wurde blockiert. Erlauben Sie Pop-ups und versuchen Sie es erneut.",

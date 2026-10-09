@@ -24,6 +24,8 @@ import type {
   FreshAuth,
   ListPage,
   Membership,
+  OAuthAuthorizationRequest,
+  OAuthAuthorizationResult,
   OIDCStart,
   PermissionSet,
   PublicUser,
@@ -1414,6 +1416,30 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       await request<void>("DELETE", "/me")
       clear("signed_out")
     },
+
+    // The authorization server's sign-in requests (the page at
+    // Frontend.AuthorizePath, ?authorization=<id>): read one, approve it
+    // with this session, or decline it.
+    getOAuthAuthorization: (id: string, signal?: AbortSignal) =>
+      request<OAuthAuthorizationRequest>(
+        "GET",
+        `/oauth2/authorizations/${segment(id)}`,
+        { signal, bearer: null }
+      ),
+    approveOAuthAuthorization: (id: string) =>
+      request<OAuthAuthorizationResult>(
+        "POST",
+        `/oauth2/authorizations/${segment(id)}/approve`
+      ),
+    declineOAuthAuthorization: (
+      id: string,
+      error: "access_denied" | "login_required" | "interaction_required"
+    ) =>
+      request<OAuthAuthorizationResult>(
+        "POST",
+        `/oauth2/authorizations/${segment(id)}/decline`,
+        { body: { error }, bearer: null }
+      ),
 
     // Restores a soft-deleted account; the user then signs in normally.
     confirmAccountRecovery: (token: string) =>

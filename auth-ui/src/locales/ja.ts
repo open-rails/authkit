@@ -512,6 +512,10 @@ export const ja: AuthUiMessageBundle = {
     completing: "ログインを完了しています…",
     errorTitle: "ログインに失敗しました",
   },
+  oauth: {
+    signInTo: "{client} に進むにはログインしてください",
+    continuing: "{client} に移動しています…",
+  },
   solana: {
     provider: "Solana",
     errors: {
@@ -523,6 +527,8 @@ export const ja: AuthUiMessageBundle = {
     },
   },
   errors: {
+    authorization_request_not_found:
+      "このログインリクエストは期限切れです。アプリに戻ってもう一度お試しください。",
     network_error: "ネットワークエラーです。接続を確認してください。",
     popup_blocked:
       "ログインウィンドウがブロックされました。ポップアップを許可してもう一度お試しください。",

@@ -72,13 +72,34 @@ func run(addr, baseURL, dsn, static string, lifetime time.Duration) error {
 	if err != nil {
 		return err
 	}
-	mux.Handle("GET "+harness.ResourcePath+"/whoami", verify.Required(resource)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	whoami := verify.Required(resource)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cl, _ := verify.ClaimsFromContext(r.Context())
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"sub": cl.Subject, "client_id": cl.ClientID, "scopes": cl.Scopes, "jkt": cl.JWKThumbprint,
 		})
-	})))
+	}))
+	// The console calls it from its own origin: CORS without credentials,
+	// exposing the DPoP challenge headers.
+	console := harness.ConsoleOrigin(baseURL)
+	cors := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Add("Vary", "Origin")
+			if r.Header.Get("Origin") == console {
+				w.Header().Set("Access-Control-Allow-Origin", console)
+				w.Header().Set("Access-Control-Expose-Headers", "DPoP-Nonce, WWW-Authenticate")
+			}
+			if r.Method == http.MethodOptions {
+				w.Header().Set("Access-Control-Allow-Headers", "Authorization, DPoP")
+				w.Header().Set("Access-Control-Allow-Methods", "GET")
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+	mux.Handle("GET "+harness.ResourcePath+"/whoami", cors(whoami))
+	mux.Handle("OPTIONS "+harness.ResourcePath+"/whoami", cors(whoami))
 	mux.HandleFunc("GET /__test/outbox", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(rt.Outbox.Messages("", r.URL.Query().Get("to")))

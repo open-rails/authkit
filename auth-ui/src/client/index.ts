@@ -17,6 +17,14 @@ export type {
 export { toSignInResult } from "./authResult.ts"
 export { deleteDPoPKey, dpopFetch, loadDPoPKey } from "./dpop.ts"
 export type { DPoPKey, DPoPNonces } from "./dpop.ts"
+export { createIssuerClient } from "./issuer.ts"
+export type {
+  IssuerCallback,
+  IssuerClient,
+  IssuerClientOptions,
+  IssuerSignInOptions,
+  IssuerUser,
+} from "./issuer.ts"
 export { isOAuthError, OAuthError } from "./oauthError.ts"
 export type {
   ResourceRequest,

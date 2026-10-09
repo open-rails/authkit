@@ -18,6 +18,12 @@ export {
   type AuthState,
   type AuthStatus,
 } from "./useAuth.ts"
+export { IssuerAuthProvider, type IssuerAuthProviderProps } from "./issuer.tsx"
+export {
+  useIssuerAuth,
+  useIssuerClient,
+  type IssuerAuthState,
+} from "./issuerContext.ts"
 export { isStepUpCancelled, toAuthKitError, type Guard } from "./task.ts"
 export { useLogin, type LoginOptions, type LoginState } from "./useLogin.ts"
 export {

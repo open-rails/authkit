@@ -522,6 +522,10 @@ export const en = {
     completing: "Completing sign-in…",
     errorTitle: "Sign-in failed",
   },
+  oauth: {
+    signInTo: "Sign in to continue to {client}",
+    continuing: "Continuing to {client}…",
+  },
   solana: {
     provider: "Solana",
     errors: {

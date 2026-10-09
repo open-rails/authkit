@@ -2,6 +2,10 @@
 // IndexedDB (memory when unavailable), proofs, and fetch with the server
 // nonce handshake.
 
+import { idbAdd, idbDelete, idbGet } from "./idb.ts"
+
+const STORE = "dpop-keys"
+
 export type DPoPKey = {
   // RFC 7638 thumbprint: a bound token's cnf.jkt.
   thumbprint: string
@@ -14,16 +18,13 @@ export type DPoPKey = {
   ): Promise<string>
 }
 
-const DB = "authkit-dpop"
-const STORE = "keys"
-
-const b64url = (bytes: ArrayBuffer | Uint8Array): string => {
+export const b64url = (bytes: ArrayBuffer | Uint8Array): string => {
   const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
   let bin = ""
   for (const b of arr) bin += String.fromCharCode(b)
   return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
 }
-const utf8 = (s: string) => new TextEncoder().encode(s)
+export const utf8 = (s: string) => new TextEncoder().encode(s)
 
 const memory = new Map<string, Promise<CryptoKeyPair>>()
 
@@ -42,68 +43,25 @@ export function loadDPoPKey(name: string): Promise<DPoPKey> {
 // Forgets the key named name (sign-out): tokens bound to it become useless.
 export async function deleteDPoPKey(name: string): Promise<void> {
   memory.delete(name)
-  try {
-    const db = await openDB()
-    await tx(db, "readwrite", (s) => s.delete(name))
-    db.close()
-  } catch {
-    // no IndexedDB: the key lived in memory only
-  }
+  await idbDelete(STORE, name).catch(() => undefined)
 }
 
 async function loadPair(name: string): Promise<CryptoKeyPair> {
-  const db = await openDB().catch(() => null)
+  const found = await idbGet<CryptoKeyPair>(STORE, name).catch(() => null)
+  if (found?.privateKey && found.publicKey) return found
+  const pair = await crypto.subtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" },
+    false,
+    ["sign", "verify"]
+  )
   try {
-    if (db) {
-      const found = await tx<CryptoKeyPair | undefined>(db, "readonly", (s) =>
-        s.get(name)
-      )
-      if (found?.privateKey && found.publicKey) return found
-    }
-    const pair = await crypto.subtle.generateKey(
-      { name: "ECDSA", namedCurve: "P-256" },
-      false,
-      ["sign", "verify"]
-    )
-    if (!db) return pair
-    try {
-      await tx(db, "readwrite", (s) => s.add(pair, name))
-      return pair
-    } catch {
-      // another tab stored one first: use it
-      const won = await tx<CryptoKeyPair | undefined>(db, "readonly", (s) =>
-        s.get(name)
-      )
-      return won ?? pair
-    }
-  } finally {
-    db?.close()
+    await idbAdd(STORE, name, pair)
+    return pair
+  } catch {
+    // another tab stored one first (or no IndexedDB: memory only)
+    const won = await idbGet<CryptoKeyPair>(STORE, name).catch(() => null)
+    return won?.privateKey ? won : pair
   }
-}
-
-function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    if (typeof indexedDB === "undefined")
-      return reject(new Error("no IndexedDB"))
-    const req = indexedDB.open(DB, 1)
-    req.onupgradeneeded = () => req.result.createObjectStore(STORE)
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
-  })
-}
-
-function tx<T>(
-  db: IDBDatabase,
-  mode: IDBTransactionMode,
-  op: (s: IDBObjectStore) => IDBRequest
-): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const t = db.transaction(STORE, mode)
-    const req = op(t.objectStore(STORE))
-    t.oncomplete = () => resolve(req.result as T)
-    t.onerror = () => reject(t.error ?? req.error)
-    t.onabort = () => reject(t.error ?? req.error)
-  })
 }
 
 async function dpopKey(pair: CryptoKeyPair): Promise<DPoPKey> {
