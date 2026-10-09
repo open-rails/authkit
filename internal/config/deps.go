@@ -89,7 +89,7 @@ type Deps struct {
 	Wrap func(iam.Route, http.Handler) http.Handler
 }
 
-// EmailSender delivers email; adapters/twilio.NewEmail returns one.
+// EmailSender delivers email; adapters/smtp.New returns one.
 type EmailSender interface {
 	Send(ctx context.Context, msg iam.EmailMessage) error
 	// CheckHealth reports, without sending, whether email can be delivered

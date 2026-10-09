@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.13.0
+
+The owner approved shipping this breaking change in a minor release. Email goes through any SMTP server (#443): the provider is configuration, not code.
+
+### Breaking
+
+| Removed | Use instead |
+|---|---|
+| `twilio.NewEmail`, `twilio.EmailConfig`, `twilio.EmailContent`, `twilio.Email` (SendGrid's API) | `smtp.New(smtp.Config{Server: smtp.Server{Host, Port, Username, Password, From}, AppName, Render})`, `smtp.Content` |
+| `EmailConfig.Categories`, `CustomArgs` | nothing: SendGrid-only tags |
+
+- `adapters/smtp` builds on `helpers/smtp` (helpers v1.4.0): port 465 is implicit TLS, any other STARTTLS (required before credentials leave loopback); PLAIN or LOGIN; multipart text and HTML. The built-in templates and `Render` are unchanged. SendGrid keeps working: host `smtp.sendgrid.net`, port 587, username `apikey`, password an API key with `mail.send`. Hosts name the settings `EMAIL_SMTP_HOST`, `EMAIL_SMTP_PORT`, `EMAIL_SMTP_USERNAME`, `EMAIL_SMTP_PASSWORD`, `EMAIL_SMTP_FROM`.
+- `CheckHealth` connects, negotiates TLS and authenticates without sending, instead of reading SendGrid's scopes and sender verification.
+- `adapters/twilio` sends text messages only.
+
 ## v1.12.0
 
 The owner approved shipping this breaking change in a minor release. It deletes the OAuth grant extensions of v1.6.0–v1.6.1 (#433) that only Tensorhub's retired CLI grant flow used (#442). The JWT-bearer capability grant (v1.10.0) replaced that flow. These stay: the jwt-bearer grant and its authorizer (`Deps.OAuthGrants`), `authorization_details`, `act`, DPoP and `dpop_jkt`, the code flow with PKCE, refresh tokens, token exchange and client credentials.

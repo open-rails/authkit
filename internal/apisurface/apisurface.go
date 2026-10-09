@@ -28,7 +28,7 @@ const (
 
 // Packages are the covered packages, relative to Module.
 var Packages = []string{
-	"", "adapters/fiber", "adapters/gin", "adapters/twilio", "authtest",
+	"", "adapters/fiber", "adapters/gin", "adapters/smtp", "adapters/twilio", "authtest",
 	"devicekey", "iam", "keys", "provider", "verify",
 }
 

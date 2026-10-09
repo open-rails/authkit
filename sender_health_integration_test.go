@@ -17,10 +17,12 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/adapters/smtp"
 	"github.com/open-rails/authkit/adapters/twilio"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/helpers/smtp/smtptest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -129,66 +131,12 @@ func TestSMSHealthFailsOnlyWhenTwilioRefuses(t *testing.T) {
 	}
 }
 
-// A SendGrid key that is rejected or can't send mail disables only email flows
-// (503), and the next passing probe re-arms them. Anything else stays healthy:
-// an unauthenticated sender, since not every SendGrid account enforces sender
-// identity, only warns once per change; a key that can't read its senders, or
-// an outage, can't tell.
+// An SMTP server that is down or refuses this client disables only email
+// flows (503), and the next passing probe re-arms them.
 func TestEmailHealthProbeRearmsEmailFlows(t *testing.T) {
-	logs := captureLogs(t)
-	warnings := func() int { return strings.Count(logs.String(), "SendGrid sender is unauthenticated") }
-
-	var mode atomic.Value // "", "badkey", "noscope", "unauthenticated", "unverified", "cant_tell", "outage"
-	mode.Store("")
-	email, err := twilio.NewEmail(twilio.EmailConfig{APIKey: "SG.key", FromEmail: "hello@acme.test",
-		Client: standIn(t, func(w http.ResponseWriter, r *http.Request) {
-			m := mode.Load().(string)
-			if r.Header.Get("Authorization") != "Bearer SG.key" {
-				http.Error(w, `{"errors":[{"message":"bad auth"}]}`, http.StatusUnauthorized)
-				return
-			}
-			switch r.URL.Path {
-			case "/v3/scopes":
-				switch m {
-				case "badkey":
-					http.Error(w, `{"errors":[{"message":"authorization required"}]}`, http.StatusUnauthorized)
-				case "noscope":
-					_, _ = w.Write([]byte(`{"scopes":["alerts.read"]}`))
-				case "outage":
-					http.Error(w, `{"errors":[{"message":"internal error"}]}`, http.StatusServiceUnavailable)
-				default:
-					_, _ = w.Write([]byte(`{"scopes":["alerts.read","mail.send"]}`))
-				}
-			case "/v3/whitelabel/domains":
-				switch m {
-				case "cant_tell":
-					http.Error(w, `{"errors":[{"message":"access forbidden"}]}`, http.StatusForbidden)
-				case "unauthenticated", "unverified":
-					_, _ = w.Write([]byte(`[{"domain":"acme.test","valid":false}]`))
-				default:
-					if r.URL.Query().Get("domain") != "acme.test" {
-						_, _ = w.Write([]byte(`[]`))
-						return
-					}
-					_, _ = w.Write([]byte(`[{"domain":"mail.acme.test","valid":true},{"domain":"acme.test","valid":true}]`))
-				}
-			case "/v3/verified_senders":
-				switch m {
-				case "cant_tell":
-					http.Error(w, `{"errors":[{"message":"access forbidden"}]}`, http.StatusForbidden)
-				case "unverified":
-					if r.URL.Query().Get("lastSeenID") != "" {
-						_, _ = w.Write([]byte(`{"results":[]}`))
-						return
-					}
-					_, _ = w.Write([]byte(`{"results":[{"id":1,"from_email":"other@acme.test","verified":true},{"id":2,"from_email":"hello@acme.test","verified":false}]}`))
-				default:
-					_, _ = w.Write([]byte(`{"results":[]}`))
-				}
-			default:
-				http.NotFound(w, r)
-			}
-		})})
+	srv := smtptest.Start(t, smtptest.Options{Username: "apikey", Password: "SG.key", STARTTLS: true})
+	email, err := smtp.New(smtp.Config{Server: smtp.Server{Host: srv.Host, Port: srv.Port, Username: "apikey", Password: "SG.key",
+		From: "hello@acme.test", TLS: srv.ClientTLS()}})
 	require.NoError(t, err)
 	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
 		c.SenderHealthInterval = 50 * time.Millisecond
@@ -197,8 +145,8 @@ func TestEmailHealthProbeRearmsEmailFlows(t *testing.T) {
 	require.True(t, auth.EmailAvailable(), "optimistic before the first probe")
 	require.NoError(t, auth.Start(t.Context()))
 	require.NoError(t, probed(t, auth.EmailHealth, time.Time{}), "Start probes at once")
-	for _, failure := range []string{"badkey", "noscope"} {
-		mode.Store(failure)
+	for _, failure := range []string{"421 4.3.2 service unavailable", "554 5.7.1 client host rejected"} {
+		srv.Outage(failure)
 		require.Error(t, probed(t, auth.EmailHealth, time.Now()), failure)
 		require.False(t, capabilitiesOf(t, auth).Channels.Email, failure)
 		require.False(t, auth.EmailAvailable(), failure)
@@ -206,33 +154,12 @@ func TestEmailHealthProbeRearmsEmailFlows(t *testing.T) {
 		require.Equal(t, []iam.TwoFactorMethod{iam.TwoFactorSMS, iam.TwoFactorTOTP}, auth.TwoFactorMethods(), "an unhealthy sender enrolls no email factor")
 		expectUnavailable(t, serve(auth, http.MethodPost, "/api/v1/verify/request", `{"identifier":"ana@acme.test"}`), errmodel.CodeEmailUnavailable)
 
-		mode.Store("")
+		srv.Outage("")
 		require.NoError(t, probed(t, auth.EmailHealth, time.Now()), failure)
 		require.True(t, capabilitiesOf(t, auth).Channels.Email, failure)
 		require.Contains(t, auth.TwoFactorMethods(), iam.TwoFactorEmail, failure)
 	}
-	require.Zero(t, warnings(), "a valid authenticated domain warns nothing")
-
-	// Each step's warning count is cumulative. The order keeps a probe that
-	// straddles a mode change from reaching a third state.
-	for i, step := range []struct {
-		mode     string
-		warnings int
-	}{{"unverified", 1}, {"unverified", 1}, {"unauthenticated", 2}, {"", 2}, {"unauthenticated", 3}} {
-		mode.Store(step.mode)
-		require.NoError(t, probed(t, auth.EmailHealth, time.Now()), "step %d", i)
-		require.True(t, capabilitiesOf(t, auth).Channels.Email, "step %d", i)
-		require.Equal(t, step.warnings, warnings(), "step %d", i)
-	}
-	require.Contains(t, logs.String(), `from=hello@acme.test reason="single sender not verified yet"`)
-	require.Contains(t, logs.String(), `from=hello@acme.test reason="no valid authenticated domain and no verified single sender"`)
-
-	for _, m := range []string{"cant_tell", "outage"} {
-		mode.Store(m)
-		require.NoError(t, probed(t, auth.EmailHealth, time.Now()), m)
-		require.True(t, auth.EmailAvailable(), m)
-	}
-	require.Equal(t, 3, warnings(), "can't tell warns nothing")
+	require.Empty(t, srv.Messages(), "a probe sends no mail")
 }
 
 // A host's own sender reports its health the same way: while its

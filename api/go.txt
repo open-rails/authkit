@@ -402,28 +402,22 @@ pkg authkit/adapters/gin, func Use(...func(http.Handler) http.Handler) gin.Handl
 pkg authkit/adapters/gin, type Surface interface
 pkg authkit/adapters/gin, type Surface interface, Handler() http.Handler
 pkg authkit/adapters/gin, type Surface interface, Routes() []iam.Route
-pkg authkit/adapters/twilio, func NewEmail(EmailConfig) (*Email, error)
+pkg authkit/adapters/smtp, func New(Config) (*Email, error)
+pkg authkit/adapters/smtp, method (*Email) CheckHealth(context.Context) error
+pkg authkit/adapters/smtp, method (*Email) Send(context.Context, iam.EmailMessage) error
+pkg authkit/adapters/smtp, type Config struct
+pkg authkit/adapters/smtp, type Config struct, AppName string
+pkg authkit/adapters/smtp, type Config struct, Render func(context.Context, iam.EmailMessage) (Content, bool)
+pkg authkit/adapters/smtp, type Config struct, Server Server
+pkg authkit/adapters/smtp, type Content struct
+pkg authkit/adapters/smtp, type Content struct, HTML string
+pkg authkit/adapters/smtp, type Content struct, Subject string
+pkg authkit/adapters/smtp, type Content struct, Text string
+pkg authkit/adapters/smtp, type Email struct
+pkg authkit/adapters/smtp, type Server = smtp.Config
 pkg authkit/adapters/twilio, func NewSMS(SMSConfig) (*SMS, error)
-pkg authkit/adapters/twilio, method (*Email) CheckHealth(context.Context) error
-pkg authkit/adapters/twilio, method (*Email) Send(context.Context, iam.EmailMessage) error
 pkg authkit/adapters/twilio, method (*SMS) CheckHealth(context.Context) error
 pkg authkit/adapters/twilio, method (*SMS) Send(context.Context, iam.SMSMessage) error
-pkg authkit/adapters/twilio, type Email struct
-pkg authkit/adapters/twilio, type EmailConfig struct
-pkg authkit/adapters/twilio, type EmailConfig struct, APIKey string
-pkg authkit/adapters/twilio, type EmailConfig struct, AppName string
-pkg authkit/adapters/twilio, type EmailConfig struct, Categories []string
-pkg authkit/adapters/twilio, type EmailConfig struct, Client *http.Client
-pkg authkit/adapters/twilio, type EmailConfig struct, CustomArgs map[string]string
-pkg authkit/adapters/twilio, type EmailConfig struct, FromEmail string
-pkg authkit/adapters/twilio, type EmailConfig struct, FromName string
-pkg authkit/adapters/twilio, type EmailConfig struct, Render func(context.Context, iam.EmailMessage) (EmailContent, bool)
-pkg authkit/adapters/twilio, type EmailContent struct
-pkg authkit/adapters/twilio, type EmailContent struct, Categories []string
-pkg authkit/adapters/twilio, type EmailContent struct, CustomArgs map[string]string
-pkg authkit/adapters/twilio, type EmailContent struct, HTML string
-pkg authkit/adapters/twilio, type EmailContent struct, Subject string
-pkg authkit/adapters/twilio, type EmailContent struct, Text string
 pkg authkit/adapters/twilio, type SMS struct
 pkg authkit/adapters/twilio, type SMSConfig struct
 pkg authkit/adapters/twilio, type SMSConfig struct, AccountSID string

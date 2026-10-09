@@ -28,6 +28,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit"
 	authkitgin "github.com/open-rails/authkit/adapters/gin"
+	"github.com/open-rails/authkit/adapters/smtp"
 	"github.com/open-rails/authkit/adapters/twilio"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
@@ -53,11 +54,17 @@ func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {
 	}
 
 	// 1. Authkit needs to send verification and account recovery codes to emails and phone numbers.
-	// Configure your messaging provider (Twilio) here.
-	email, err := twilio.NewEmail(twilio.EmailConfig{
-		APIKey:    os.Getenv("SENDGRID_API_KEY"),
-		FromEmail: "hello@myapp.com",
-		AppName:   "MyApp",
+	// Email goes through any SMTP server (SendGrid: smtp.sendgrid.net, username "apikey", an API key as password); texts through Twilio.
+	port, _ := strconv.Atoi(os.Getenv("EMAIL_SMTP_PORT")) // 0 means 587
+	email, err := smtp.New(smtp.Config{
+		Server: smtp.Server{
+			Host:     os.Getenv("EMAIL_SMTP_HOST"),
+			Port:     port,
+			Username: os.Getenv("EMAIL_SMTP_USERNAME"),
+			Password: os.Getenv("EMAIL_SMTP_PASSWORD"),
+			From:     "MyApp <hello@myapp.com>",
+		},
+		AppName: "MyApp",
 	})
 	if err != nil {
 		return nil, err
@@ -77,7 +84,7 @@ func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {
 		Postgres: db,    // required: users, sessions and short-lived auth state
 		Email:    email, // sends verification codes, login codes and password resets
 		SMS:      sms,   // same, for phone numbers
-		// Both also report when Twilio can't deliver, pausing that channel's sign-in until it can.
+		// Both also report when they can't deliver, pausing that channel's sign-in until they can.
 	})
 }
 ```
