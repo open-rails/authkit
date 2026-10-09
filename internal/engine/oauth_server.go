@@ -12,6 +12,7 @@ import (
 	"crypto"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -85,7 +86,8 @@ func (s *Engine) ApproveOAuthAuthorization(ctx context.Context, userID, sessionI
 	if err != nil {
 		return "", err
 	}
-	if _, ok := config.FindOAuthClient(s.cfg.AuthorizationServer, a.ClientID); !ok {
+	client, ok := config.FindOAuthClient(s.cfg.AuthorizationServer, a.ClientID)
+	if !ok {
 		return "", errmodel.E(errmodel.CodeAuthorizationRequestNotFound)
 	}
 	if err := s.requireOAuthSignIn(ctx, userID, sessionID); err != nil {
@@ -102,6 +104,32 @@ func (s *Engine) ApproveOAuthAuthorization(ctx context.Context, userID, sessionI
 		// Carries the account's step-up methods, for the SPA's dialog.
 		return "", s.StepUpRequired(ctx, userID)
 	}
+	grantID, err := newUUIDV7String()
+	if err != nil {
+		return "", err
+	}
+	offline := client.Offline && slices.Contains(a.Scopes, "offline_access")
+	var credentialVersion int64
+	if offline {
+		// Changing the account's credentials ends its offline grants.
+		row, err := s.q.UserCredentialVersion(ctx, userID)
+		if err != nil {
+			return "", err
+		}
+		credentialVersion = row.CredentialVersion
+	}
+	decision, err := s.decideOAuthGrant(ctx, iam.OAuthGrantRequest{
+		Kind: iam.OAuthGrantConsent, GrantID: grantID, ClientID: a.ClientID, UserID: userID, SessionID: sessionID,
+		Resource: a.Resource, Scopes: a.Scopes, AuthorizationDetails: a.AuthorizationDetails, JWKThumbprint: a.DPoPJKT, Offline: offline,
+	}, client.AuthorizationDetailsTypes)
+	switch {
+	case errors.Is(err, errOAuthGrantRefused):
+		// The host refused: the client hears access_denied, as from the user.
+		s.oauthAudit(ctx, "oauth_grant_refused", userID, map[string]string{"client_id": a.ClientID, "grant_id": grantID})
+		return s.DeclineOAuthAuthorization(ctx, id, authflow.OAuthAccessDenied)
+	case err != nil:
+		return "", errmodel.E(errmodel.CodeOAuthGrantAuthorizerUnavailable, errmodel.WithCause(err))
+	}
 	claimed, err := s.ephemeral.CompareAndConsume(ctx, keyOAuthAuthorization+secret.Hash(strings.TrimSpace(id)), raw)
 	if err != nil {
 		return "", err
@@ -114,11 +142,12 @@ func (s *Engine) ApproveOAuthAuthorization(ctx context.Context, userID, sessionI
 		ClientID: a.ClientID, RedirectURI: a.RedirectURI, CodeChallenge: a.CodeChallenge,
 		Nonce: a.Nonce, Scopes: a.Scopes, Resource: a.Resource,
 		UserID: userID, SessionID: sessionID, AuthTime: authTime, AMR: amr, ACR: acr, DPoPJKT: a.DPoPJKT,
+		GrantID: grantID, ApprovedAt: s.nowTime().UTC(), Offline: offline, CredentialVersion: credentialVersion, Decision: decision,
 	}
 	if err := s.ephemSetJSON(ctx, keyOAuthCode+secret.Hash(code), grant, oauthCodeTTL); err != nil {
 		return "", err
 	}
-	s.oauthAudit(ctx, "oauth_authorization_approved", userID, map[string]string{"client_id": a.ClientID, "session_id": sessionID})
+	s.oauthAudit(ctx, "oauth_authorization_approved", userID, map[string]string{"client_id": a.ClientID, "session_id": sessionID, "grant_id": grantID})
 	return oauthRedirect(a.RedirectURI, url.Values{"code": {code}, "state": optional(a.State), "iss": {s.cfg.Token.Issuer}})
 }
 
@@ -175,13 +204,20 @@ func (s *Engine) ExchangeOAuthCode(ctx context.Context, in authflow.OAuthCodeExc
 	m := oauthMint{
 		client: client, userID: g.UserID, sessionID: g.SessionID, scopes: g.Scopes, resource: g.Resource,
 		nonce: g.Nonce, authTime: g.AuthTime, amr: g.AMR, acr: g.ACR, jkt: in.JKT,
+		grantID: g.GrantID, offline: g.Offline, decision: g.Decision,
+	}
+	if g.Decision != nil && g.Decision.MaxLifetime > 0 {
+		m.grantEnd = g.ApprovedAt.Add(g.Decision.MaxLifetime)
 	}
 	tokens, err := s.mintOAuthTokens(ctx, m)
+	if errors.Is(err, errOAuthGrantRefused) {
+		return authflow.OAuthTokens{}, authflow.NewOAuthError(authflow.OAuthInvalidGrant, "the grant was refused")
+	}
 	if err != nil {
 		return authflow.OAuthTokens{}, err
 	}
 	if config.OAuthClientAllows(client, config.GrantRefreshToken) {
-		if tokens.RefreshToken, err = s.startOAuthRefreshFamily(ctx, m); err != nil {
+		if tokens.RefreshToken, err = s.startOAuthRefreshFamily(ctx, m, g.CredentialVersion); err != nil {
 			return authflow.OAuthTokens{}, err
 		}
 	}
@@ -221,7 +257,12 @@ func (s *Engine) OAuthUserInfo(ctx context.Context, accessToken, jkt string) (ma
 		return nil, &authflow.OAuthError{Code: "insufficient_scope", Description: "the access token was not granted the openid scope", Status: 403}
 	}
 	userID, sessionID := jose.String(claims, "sub"), jose.String(claims, "sid")
-	if err := s.requireOAuthSignIn(ctx, userID, sessionID); err != nil {
+	if sessionID == "" {
+		// An offline grant's token names no sign-in: the account must be usable.
+		if usable, _, err := userLive(ctx, s.pg, userID, iam.SessionRef{}); err != nil || !usable {
+			return nil, authflow.NewOAuthError(authflow.OAuthInvalidToken, "the user is unavailable")
+		}
+	} else if err := s.requireOAuthSignIn(ctx, userID, sessionID); err != nil {
 		return nil, authflow.NewOAuthError(authflow.OAuthInvalidToken, "the sign-in the access token was issued for has ended")
 	}
 	u, err := s.getUserByID(ctx, userID)
@@ -322,6 +363,15 @@ type oauthMint struct {
 	amr       []string
 	acr       string
 	jkt       string
+	// grantID names a consented grant; offline grants mint without the
+	// sign-in (no sid). decision is the host authorizer's (nil: defaults),
+	// actor the exchanging client (RFC 8693 act).
+	grantID  string
+	offline  bool
+	decision *authflow.OAuthGrantDecision
+	actor    string
+	// grantEnd, when set, is when the grant ends: no token outlives it.
+	grantEnd time.Time
 }
 
 // mintOAuthTokens mints the access token for m's resource (or, with none,
@@ -334,7 +384,18 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 		return authflow.OAuthTokens{}, iam.ErrSigningNotConfigured
 	}
 	now := s.nowTime()
-	ttl := s.cfg.AuthorizationServer.AccessTokenTTL
+	ttl := config.OAuthClientAccessTTL(s.cfg.AuthorizationServer, m.client)
+	if m.decision != nil && m.decision.MaxLifetime > 0 && m.decision.MaxLifetime < ttl {
+		ttl = m.decision.MaxLifetime.Truncate(time.Second)
+	}
+	if !m.grantEnd.IsZero() {
+		if left := m.grantEnd.Sub(now).Truncate(time.Second); left < ttl {
+			ttl = left
+		}
+		if ttl < time.Second {
+			return authflow.OAuthTokens{}, errOAuthGrantRefused
+		}
+	}
 	issuer := s.cfg.Token.Issuer
 	audience := m.resource
 	if audience == "" {
@@ -355,14 +416,31 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 	if m.jkt != "" {
 		at["cnf"] = map[string]any{jose.JWKThumbprintMember: m.jkt}
 	}
+	var details json.RawMessage
+	if m.decision != nil {
+		details = m.decision.AuthorizationDetails
+		for name, value := range m.decision.Claims {
+			at[name] = value
+		}
+	}
+	if len(details) > 0 {
+		at["authorization_details"] = details
+	}
+	if m.actor != "" {
+		at["act"] = map[string]any{"sub": m.actor}
+	}
+	permissions, err := s.grantPermissions(ctx, m, resource.Permissions)
+	if err != nil {
+		return authflow.OAuthTokens{}, err
+	}
+	at["permissions"] = permissions
 	if m.userID == "" {
 		at["sub"] = m.client.ID
-		at["permissions"] = intersectGrants(m.client.Permissions, resource.Permissions)
 		access, err := jose.Sign(ctx, signer, jose.ResourceAccessTokenType, at)
 		if err != nil {
 			return authflow.OAuthTokens{}, err
 		}
-		return oauthAnswer(access, m, ttl), nil
+		return oauthAnswer(access, m, ttl, details), nil
 	}
 	u, err := s.getUserByID(ctx, m.userID)
 	if err != nil {
@@ -371,19 +449,14 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 	if u == nil {
 		return authflow.OAuthTokens{}, iam.ErrUserNotFound
 	}
-	permissions := []string{}
-	if len(resource.Permissions) > 0 {
-		auth, err := s.rootAuthority(ctx, iam.UserActor(m.userID).InSession(iam.SessionRef{SessionID: m.sessionID}))
-		if err != nil {
-			return authflow.OAuthTokens{}, err
-		}
-		permissions = intersectGrants(auth.grants, resource.Permissions)
-	}
 	roles := s.oauthRoles(ctx, m.userID)
 	maps.Copy(at, map[string]any{
-		"sub": m.userID, "auth_time": m.authTime, "acr": m.acr, "amr": m.amr, "sid": m.sessionID,
-		"permissions": permissions, "roles": roles,
+		"sub": m.userID, "auth_time": m.authTime, "acr": m.acr, "amr": m.amr, "roles": roles,
 	})
+	if !m.offline {
+		// An offline grant outlives its sign-in: its tokens name none.
+		at["sid"] = m.sessionID
+	}
 	if slices.Contains(m.scopes, "email") && u.Email != nil {
 		at["email"], at["email_verified"] = *u.Email, u.EmailVerified
 	}
@@ -391,13 +464,15 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 	if err != nil {
 		return authflow.OAuthTokens{}, err
 	}
-	out := oauthAnswer(access, m, ttl)
+	out := oauthAnswer(access, m, ttl, details)
 	if slices.Contains(m.scopes, "openid") {
 		id := map[string]any{
 			"iss": issuer, "sub": m.userID, "aud": []string{m.client.ID}, "azp": m.client.ID,
 			"iat": now.Unix(), "exp": now.Add(oauthIDTokenTTL).Unix(),
-			"auth_time": m.authTime, "acr": m.acr, "amr": m.amr, "sid": m.sessionID,
-			"roles": roles,
+			"auth_time": m.authTime, "acr": m.acr, "amr": m.amr, "roles": roles,
+		}
+		if !m.offline {
+			id["sid"] = m.sessionID
 		}
 		if m.nonce != "" {
 			id["nonce"] = m.nonce
@@ -410,8 +485,8 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 	return out, nil
 }
 
-func oauthAnswer(access string, m oauthMint, ttl time.Duration) authflow.OAuthTokens {
-	out := authflow.OAuthTokens{AccessToken: access, TokenType: "Bearer", ExpiresIn: int64(ttl / time.Second), Scope: strings.Join(m.scopes, " ")}
+func oauthAnswer(access string, m oauthMint, ttl time.Duration, details json.RawMessage) authflow.OAuthTokens {
+	out := authflow.OAuthTokens{AccessToken: access, TokenType: "Bearer", ExpiresIn: int64(ttl / time.Second), Scope: strings.Join(m.scopes, " "), AuthorizationDetails: details}
 	if m.jkt != "" {
 		out.TokenType = "DPoP"
 	}

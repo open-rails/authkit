@@ -2,9 +2,11 @@ package verify
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -144,8 +146,35 @@ func profile(typ string, mc map[string]any) (Claims, error) {
 		if sub == clientID {
 			cl.Kind = iam.ActorOAuthClient
 		}
+		if act, ok := mc["act"].(map[string]any); ok {
+			cl.Actor, _ = act["sub"].(string)
+		}
+		if details, ok := mc["authorization_details"].([]any); ok {
+			cl.AuthorizationDetails, _ = json.Marshal(details)
+		}
+		cl.CustomClaims = uriClaims(mc)
 	}
 	return cl, nil
+}
+
+// uriClaims is mc's claims named by an absolute URI, each as raw JSON; nil
+// when there are none.
+func uriClaims(mc map[string]any) map[string]json.RawMessage {
+	var out map[string]json.RawMessage
+	for name, value := range mc {
+		if u, err := url.Parse(name); err != nil || !u.IsAbs() || u.Host == "" {
+			continue
+		}
+		raw, err := json.Marshal(value)
+		if err != nil {
+			continue
+		}
+		if out == nil {
+			out = map[string]json.RawMessage{}
+		}
+		out[name] = raw
+	}
+	return out
 }
 
 // isResourceType is RFC 9068's typ, bare or as its media type.

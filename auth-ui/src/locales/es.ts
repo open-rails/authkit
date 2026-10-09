@@ -535,6 +535,12 @@ export const es: AuthUiMessageBundle = {
   oauth: {
     signInTo: "Inicia sesión para continuar en {client}",
     continuing: "Continuando a {client}…",
+    consentTitle: "¿Permitir el acceso a {client}?",
+    offline:
+      "{client} conservará el acceso después de cerrar sesión, hasta que lo revoques.",
+    details: "Solicita:",
+    allow: "Permitir",
+    deny: "Denegar",
   },
   solana: {
     provider: "Solana",

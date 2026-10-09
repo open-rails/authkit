@@ -110,6 +110,8 @@ var (
 	CodeNotDelegatedAccessToken           = def("not_delegated_access_token", 401, "The token is not a delegated access token.")
 	CodeNotFound                          = def("not_found", 404, "The requested resource was not found.")
 	CodeNotImplemented                    = def("not_implemented", 501, "Not implemented.")
+	CodeOAuthGrantAuthorizerUnavailable   = def("oauth_grant_authorizer_unavailable", 503, "Authorization is unavailable right now. Try again shortly.")
+	CodeOAuthGrantRefused                 = def("oauth_grant_refused", 403, "The authorization was refused.")
 	CodeOIDCBeginFailed                   = def("oidc_begin_failed", 400, "The provider sign-in could not be started.")
 	CodeOIDCExchangeFailed                = def("oidc_exchange_failed", 401, "The provider sign-in could not be completed.")
 	CodeOriginNotAllowed                  = def("origin_not_allowed", 403, "The request origin is not allowed.")

@@ -1,6 +1,7 @@
 package authtest
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -11,6 +12,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -70,17 +72,20 @@ func (as *AuthorizationServer) HTTPClient() *http.Client {
 }
 
 // CodeFlow is one authorization code request. ClientSecret is set for a
-// confidential client; Resource and Scopes are what the client asks for.
-// DPoP binds the tokens to a key: a public client always has one (Authorize
-// makes it when nil).
+// confidential client; Resource, Scopes ("offline_access" for an offline
+// grant) and AuthorizationDetails (an RFC 9396 JSON array) are what the
+// client asks for. DPoP binds the tokens to a key, and the grant to it for a
+// key-bound client: a public client always has one (Authorize makes it when
+// nil).
 type CodeFlow struct {
-	ClientID     string
-	ClientSecret string
-	RedirectURI  string
-	Resource     string
-	Scopes       []string
-	Nonce        string
-	DPoP         *DPoPKey
+	ClientID             string
+	ClientSecret         string
+	RedirectURI          string
+	Resource             string
+	Scopes               []string
+	Nonce                string
+	AuthorizationDetails string
+	DPoP                 *DPoPKey
 }
 
 // OAuthTokens is the token endpoint's answer. DPoP is the key the tokens
@@ -94,6 +99,8 @@ type OAuthTokens struct {
 	RefreshToken    string   `json:"refresh_token"`
 	IssuedTokenType string   `json:"issued_token_type"`
 	DPoP            *DPoPKey `json:"-"`
+	// AuthorizationDetails is the grant's RFC 9396 array, when it has one.
+	AuthorizationDetails json.RawMessage `json:"authorization_details"`
 }
 
 // Authorize signs u in and runs the authorization code flow for it as a
@@ -111,6 +118,28 @@ func (as *AuthorizationServer) AuthorizeAs(t testing.TB, signedIn iam.TokenSet, 
 	if f.DPoP == nil && f.ClientSecret == "" {
 		f.DPoP = NewDPoPKey(t)
 	}
+	callback, verifier := as.consent(t, signedIn, f)
+	code := callback.Query().Get("code")
+	if code == "" {
+		t.Fatalf("authtest: authorize: redirect carries no code: %s", callback)
+	}
+	return as.mustToken(t, "authorize", TokenRequest{ClientID: f.ClientID, ClientSecret: f.ClientSecret, DPoP: f.DPoP, Params: url.Values{
+		"grant_type": {"authorization_code"}, "code": {code}, "redirect_uri": {f.RedirectURI},
+		"code_verifier": {verifier}, "resource": nonEmptyValues(f.Resource),
+	}})
+}
+
+// Consent runs f's authorization request and the SPA's approval for
+// signedIn, and returns the client redirect: its code, or the error a
+// refusal (the grant authorizer's: access_denied) sends back.
+func (as *AuthorizationServer) Consent(t testing.TB, signedIn iam.TokenSet, f CodeFlow) *url.URL {
+	t.Helper()
+	callback, _ := as.consent(t, signedIn, f)
+	return callback
+}
+
+func (as *AuthorizationServer) consent(t testing.TB, signedIn iam.TokenSet, f CodeFlow) (*url.URL, string) {
+	t.Helper()
 	verifier := pkceVerifier()
 	state := pkceVerifier()[:16]
 	id := as.BeginAuthorization(t, f, verifier, state)
@@ -119,14 +148,7 @@ func (as *AuthorizationServer) AuthorizeAs(t testing.TB, signedIn iam.TokenSet, 
 	if err != nil || callback.Query().Get("state") != state || callback.Query().Get("iss") != as.URL {
 		t.Fatalf("authtest: authorize: redirect %q does not answer the request", location)
 	}
-	code := callback.Query().Get("code")
-	if code == "" {
-		t.Fatalf("authtest: authorize: redirect carries no code: %s", location)
-	}
-	return as.mustToken(t, "authorize", TokenRequest{ClientID: f.ClientID, ClientSecret: f.ClientSecret, DPoP: f.DPoP, Params: url.Values{
-		"grant_type": {"authorization_code"}, "code": {code}, "redirect_uri": {f.RedirectURI},
-		"code_verifier": {verifier}, "resource": nonEmptyValues(f.Resource),
-	}})
+	return callback, verifier
 }
 
 // Refresh redeems tokens' refresh token as clientID (with clientSecret for
@@ -142,12 +164,13 @@ func (as *AuthorizationServer) Refresh(t testing.TB, clientID, clientSecret stri
 // TokenExchange is an RFC 8693 request: SubjectToken, the user's AuthKit
 // access token (SignIn's), for an access token to Resource.
 type TokenExchange struct {
-	ClientID     string
-	ClientSecret string
-	SubjectToken string
-	Resource     string
-	Scopes       []string
-	DPoP         *DPoPKey
+	ClientID             string
+	ClientSecret         string
+	SubjectToken         string
+	Resource             string
+	Scopes               []string
+	AuthorizationDetails string
+	DPoP                 *DPoPKey
 }
 
 // Exchange runs a token exchange and fails the test on a refusal. A public
@@ -160,7 +183,7 @@ func (as *AuthorizationServer) Exchange(t testing.TB, x TokenExchange) OAuthToke
 	return as.mustToken(t, "exchange", TokenRequest{ClientID: x.ClientID, ClientSecret: x.ClientSecret, DPoP: x.DPoP, Params: url.Values{
 		"grant_type": {"urn:ietf:params:oauth:grant-type:token-exchange"}, "subject_token": {x.SubjectToken},
 		"subject_token_type": {"urn:ietf:params:oauth:token-type:access_token"}, "resource": nonEmptyValues(x.Resource),
-		"scope": nonEmptyValues(strings.Join(x.Scopes, " ")),
+		"scope": nonEmptyValues(strings.Join(x.Scopes, " ")), "authorization_details": nonEmptyValues(x.AuthorizationDetails),
 	}})
 }
 
@@ -171,6 +194,67 @@ func (as *AuthorizationServer) ClientCredentials(t testing.TB, clientID, clientS
 	return as.mustToken(t, "client credentials", TokenRequest{ClientID: clientID, ClientSecret: clientSecret, DPoP: key, Params: url.Values{
 		"grant_type": {"client_credentials"}, "resource": nonEmptyValues(resource), "scope": nonEmptyValues(strings.Join(scopes, " ")),
 	}})
+}
+
+// ClientCredentialsRequest is a confidential client's request for its own
+// access token; DPoP, when set, binds it.
+type ClientCredentialsRequest struct {
+	ClientID             string
+	ClientSecret         string
+	Resource             string
+	Scopes               []string
+	AuthorizationDetails string
+	DPoP                 *DPoPKey
+}
+
+// RequestClientCredentials is ClientCredentials with authorization_details,
+// failing the test on a refusal.
+func (as *AuthorizationServer) RequestClientCredentials(t testing.TB, r ClientCredentialsRequest) OAuthTokens {
+	t.Helper()
+	return as.mustToken(t, "client credentials", TokenRequest{ClientID: r.ClientID, ClientSecret: r.ClientSecret, DPoP: r.DPoP, Params: url.Values{
+		"grant_type": {"client_credentials"}, "resource": nonEmptyValues(r.Resource), "scope": nonEmptyValues(strings.Join(r.Scopes, " ")),
+		"authorization_details": nonEmptyValues(r.AuthorizationDetails),
+	}})
+}
+
+// GrantAuthorizer is a recording grant authorizer: install it with
+// WithDeps (d.OAuthGrants = g.Authorize). Decide answers each request; nil
+// grants the defaults.
+type GrantAuthorizer struct {
+	Decide   func(iam.OAuthGrantRequest) (iam.OAuthGrantDecision, error)
+	mu       sync.Mutex
+	requests []iam.OAuthGrantRequest
+}
+
+// Authorize is the iam.OAuthGrantAuthorizer.
+func (g *GrantAuthorizer) Authorize(_ context.Context, req iam.OAuthGrantRequest) (iam.OAuthGrantDecision, error) {
+	g.mu.Lock()
+	g.requests = append(g.requests, req)
+	decide := g.Decide
+	g.mu.Unlock()
+	if decide == nil {
+		return iam.OAuthGrantDecision{}, nil
+	}
+	return decide(req)
+}
+
+// Requests are the requests decided so far, oldest first.
+func (g *GrantAuthorizer) Requests() []iam.OAuthGrantRequest {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return append([]iam.OAuthGrantRequest{}, g.requests...)
+}
+
+// Last is the latest request of kind; ok is false when there is none.
+func (g *GrantAuthorizer) Last(kind iam.OAuthGrantKind) (req iam.OAuthGrantRequest, ok bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for i := len(g.requests) - 1; i >= 0; i-- {
+		if g.requests[i].Kind == kind {
+			return g.requests[i], true
+		}
+	}
+	return iam.OAuthGrantRequest{}, false
 }
 
 func (as *AuthorizationServer) mustToken(t testing.TB, what string, req TokenRequest) OAuthTokens {
@@ -195,7 +279,7 @@ func (as *AuthorizationServer) BeginAuthorization(t testing.TB, f CodeFlow, veri
 		"response_type": {"code"}, "client_id": {f.ClientID}, "redirect_uri": {f.RedirectURI},
 		"scope": {strings.Join(f.Scopes, " ")}, "state": {state}, "nonce": nonEmptyValues(f.Nonce),
 		"code_challenge": {PKCEChallenge(verifier)}, "code_challenge_method": {"S256"},
-		"resource": nonEmptyValues(f.Resource),
+		"resource": nonEmptyValues(f.Resource), "authorization_details": nonEmptyValues(f.AuthorizationDetails),
 	}
 	if f.DPoP != nil {
 		q.Set("dpop_jkt", f.DPoP.Thumbprint())

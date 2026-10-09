@@ -6748,7 +6748,8 @@
             "type": "string",
             "format": "date-time",
             "description": "RFC 3339, UTC"
-          }
+          },
+          "authorization_details": {}
         },
         "required": [
           "id",
@@ -6759,7 +6760,8 @@
           "prompt",
           "max_age_seconds",
           "login_hint",
-          "expires_at"
+          "expires_at",
+          "authorization_details"
         ]
       },
       "OAuthAuthorizationResult": {
@@ -6871,6 +6873,12 @@
           },
           "request_uri_parameter_supported": {
             "type": "boolean"
+          },
+          "authorization_details_types_supported": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
@@ -6918,7 +6926,8 @@
           },
           "issued_token_type": {
             "type": "string"
-          }
+          },
+          "authorization_details": {}
         },
         "required": [
           "access_token",
@@ -9404,6 +9413,14 @@
     "not_implemented": {
       "status": 501,
       "message": "Not implemented."
+    },
+    "oauth_grant_authorizer_unavailable": {
+      "status": 503,
+      "message": "Authorization is unavailable right now. Try again shortly."
+    },
+    "oauth_grant_refused": {
+      "status": 403,
+      "message": "The authorization was refused."
     },
     "oidc_begin_failed": {
       "status": 400,

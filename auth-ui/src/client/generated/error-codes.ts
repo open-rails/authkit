@@ -108,6 +108,8 @@ export type AuthErrorCode =
   | "not_delegated_access_token"
   | "not_found"
   | "not_implemented"
+  | "oauth_grant_authorizer_unavailable"
+  | "oauth_grant_refused"
   | "oidc_begin_failed"
   | "oidc_exchange_failed"
   | "origin_not_allowed"
@@ -283,6 +285,8 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   not_delegated_access_token: 401,
   not_found: 404,
   not_implemented: 501,
+  oauth_grant_authorizer_unavailable: 503,
+  oauth_grant_refused: 403,
   oidc_begin_failed: 400,
   oidc_exchange_failed: 401,
   origin_not_allowed: 403,
@@ -459,6 +463,8 @@ export const AUTH_ERROR_MESSAGES = {
   not_delegated_access_token: "The token is not a delegated access token.",
   not_found: "The requested resource was not found.",
   not_implemented: "Not implemented.",
+  oauth_grant_authorizer_unavailable: "Authorization is unavailable right now. Try again shortly.",
+  oauth_grant_refused: "The authorization was refused.",
   oidc_begin_failed: "The provider sign-in could not be started.",
   oidc_exchange_failed: "The provider sign-in could not be completed.",
   origin_not_allowed: "The request origin is not allowed.",

@@ -39,6 +39,7 @@ type Operations interface {
 	RevokeSession(ctx context.Context, actor iam.Actor, userID, sessionID string, opts ...Option) error
 	RevokeAccountSessions(ctx context.Context, actor iam.Actor, userID string, opts ...Option) (iam.AccountSessionRevocation, error)
 	MintAccessToken(ctx context.Context, userID string, o iam.AccessTokenOptions, opts ...Option) (iam.Token, error)
+	RevokeOAuthGrant(ctx context.Context, grantID string, opts ...Option) error
 	CheckSession(ctx context.Context, cl verify.Claims) error
 	CheckRecentSignIn(ctx context.Context, cl verify.Claims) error
 

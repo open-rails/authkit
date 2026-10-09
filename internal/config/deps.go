@@ -64,6 +64,11 @@ type Deps struct {
 	// cancellation.
 	OnPurge func(context.Context, iam.UserDeletion) error
 
+	// OAuthGrants decides every grant of the authorization server: at
+	// consent, token exchange and client credentials, and at every refresh.
+	// Nil grants the defaults. Required when a client declares
+	// AuthorizationDetailsTypes.
+	OAuthGrants iam.OAuthGrantAuthorizer
 	// DelegatedAuthorization decides delegated-token mints: its grant is the
 	// complete authority AuthKit signs. Required when
 	// Config.Delegated.Audiences is set.

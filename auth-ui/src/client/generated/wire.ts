@@ -381,6 +381,7 @@ export type OAuthAuthorizationRequest = {
   max_age_seconds: number | null
   login_hint: string | null
   expires_at: string
+  authorization_details: unknown
 }
 
 export type OAuthAuthorizationResult = {
@@ -409,6 +410,7 @@ export type OAuthServerMetadata = {
   authorization_response_iss_parameter_supported: boolean
   request_parameter_supported: boolean
   request_uri_parameter_supported: boolean
+  authorization_details_types_supported?: string[]
 }
 
 export type OAuthTokens = {
@@ -419,6 +421,7 @@ export type OAuthTokens = {
   id_token?: string
   refresh_token?: string
   issued_token_type?: string
+  authorization_details?: unknown
 }
 
 export type OIDCExchangeRequest = {

@@ -54,8 +54,10 @@ type Engine struct {
 	// delegationAuthorizer is the host-injected authorizer for the
 	// delegated-token mint route (#277); required when the route is mounted.
 	delegationAuthorizer iam.DelegationAuthorizer
-	solanaSNSResolver    SolanaSNSResolver
-	sns                  solanaSNS
+	// oauthGrants is the host's OAuth grant authorizer (Deps.OAuthGrants), nil for the defaults.
+	oauthGrants       iam.OAuthGrantAuthorizer
+	solanaSNSResolver SolanaSNSResolver
+	sns               solanaSNS
 	// now is the engine clock for TTL/grace decisions (SetClock).
 	now           func() time.Time
 	ephemeral     *ephemeralKV // nil without Postgres

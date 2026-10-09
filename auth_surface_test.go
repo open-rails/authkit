@@ -65,7 +65,7 @@ func TestClientPublicSurface(t *testing.T) {
 		"UpsertRemoteApplication", "DeleteRemoteApplication", "MintDelegatedAccessToken",
 	}
 	hostOperations := []string{
-		"CreateUser", "PurgeUsers", "ResetAccountMFA", "MintAccessToken",
+		"CreateUser", "PurgeUsers", "ResetAccountMFA", "MintAccessToken", "RevokeOAuthGrant",
 		"CreateGroup", "DeleteGroup", "PurgeGroup",
 		"ApplyBootstrapManifest", "EnsureUserRole", "ImportUsers", "ImportSolanaLinks", "LinkProvider",
 		// Signing that grants no AuthKit authority.

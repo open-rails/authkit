@@ -515,6 +515,11 @@ export const ja: AuthUiMessageBundle = {
   oauth: {
     signInTo: "{client} に進むにはログインしてください",
     continuing: "{client} に移動しています…",
+    consentTitle: "{client} にアクセスを許可しますか？",
+    offline: "{client} はサインアウト後も、取り消すまでアクセスを保持します。",
+    details: "要求内容:",
+    allow: "許可",
+    deny: "拒否",
   },
   solana: {
     provider: "Solana",

@@ -677,9 +677,9 @@ func (s *Engine) PurgeUsers(ctx context.Context, ids []string, opts ...ops.Optio
 }
 
 // RevokeAccountSessions revokes the account's refresh sessions on every
-// account issuer and all its device keys, under ACCT(root:users:manage) with
-// peers allowed; an account may revoke its own. Issued access tokens expire
-// on their TTL.
+// account issuer, all its device keys and its offline OAuth grants, under
+// ACCT(root:users:manage) with peers allowed; an account may revoke its own.
+// Issued access tokens expire on their TTL.
 func (s *Engine) RevokeAccountSessions(ctx context.Context, a iam.Actor, userID string, opts ...ops.Option) (iam.AccountSessionRevocation, error) {
 	if err := noOptions("RevokeAccountSessions", opts); err != nil {
 		return iam.AccountSessionRevocation{}, err
@@ -695,6 +695,10 @@ func (s *Engine) RevokeAccountSessions(ctx context.Context, a iam.Actor, userID 
 	}
 	var revoked []revokedSession
 	err := s.withAccountMutation(ctx, a, userID, ident.RootUsersManage, selfAllowed|peersAllowed, func(at accountTx) error {
+		// First: should the rest fail, the offline grants stay ended.
+		if err := s.endOfflineGrants(ctx, at.userID); err != nil {
+			return err
+		}
 		var err error
 		if revoked, err = revokeSessionsTx(ctx, at.q, userID, issuers, nil); err != nil {
 			return err

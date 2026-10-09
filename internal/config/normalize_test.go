@@ -101,4 +101,34 @@ func TestNormalizeAuthorizationServerClients(t *testing.T) {
 	c.AuthorizationServer.RefreshTokenTTL = 31 * 24 * time.Hour
 	_, err := Normalize(c, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}})
 	require.ErrorContains(t, err, "RefreshTokenTTL")
+
+	// Grant extensions: authorization_details need a grant authorizer, and
+	// the per-client knobs are bounded.
+	grants := func(context.Context, iam.OAuthGrantRequest) (iam.OAuthGrantDecision, error) {
+		return iam.OAuthGrantDecision{}, nil
+	}
+	machine := OAuthClientConfig{ID: "cli", RedirectURIs: []string{"https://c.example/cb"}, GrantTypes: []OAuthGrantType{GrantAuthorizationCode, GrantRefreshToken},
+		AuthorizationDetailsTypes: []string{"machine", "machine"}, Offline: true, KeyBound: true, AccessTokenTTL: time.Minute, RefreshTokenTTL: 7 * 24 * time.Hour}
+	_, err = Normalize(base(machine), Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}})
+	require.ErrorContains(t, err, "Deps.OAuthGrants")
+	once, err := Normalize(base(machine), Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}, OAuthGrants: grants})
+	require.NoError(t, err)
+	require.Equal(t, []string{"machine"}, once.AuthorizationServer.Clients[0].AuthorizationDetailsTypes)
+	require.Equal(t, time.Minute, OAuthClientAccessTTL(once.AuthorizationServer, once.AuthorizationServer.Clients[0]))
+	require.Equal(t, 7*24*time.Hour, OAuthClientRefreshTTL(once.AuthorizationServer, once.AuthorizationServer.Clients[0]))
+	for want, mutate := range map[string]func(*OAuthClientConfig){
+		"AccessTokenTTL must be":  func(c *OAuthClientConfig) { c.AccessTokenTTL = 16 * time.Minute },
+		"RefreshTokenTTL must be": func(c *OAuthClientConfig) { c.RefreshTokenTTL = 31 * 24 * time.Hour },
+		"Offline needs the refresh_token": func(c *OAuthClientConfig) {
+			c.GrantTypes = []OAuthGrantType{GrantAuthorizationCode}
+			c.RefreshTokenTTL = 0
+		},
+		"RefreshTokenTTL needs":              func(c *OAuthClientConfig) { c.GrantTypes = []OAuthGrantType{GrantAuthorizationCode}; c.Offline = false },
+		"invalid authorization_details type": func(c *OAuthClientConfig) { c.AuthorizationDetailsTypes = []string{"has space"} },
+	} {
+		cl := machine
+		mutate(&cl)
+		_, err := Normalize(base(cl), Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}, OAuthGrants: grants})
+		require.ErrorContains(t, err, want)
+	}
 }
