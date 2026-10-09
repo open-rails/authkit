@@ -136,13 +136,7 @@ func TestNormalizeMerchant(t *testing.T) {
 	out, err := Normalize(c, Deps{})
 	require.NoError(t, err)
 	require.Equal(t, "0190a7a8-35a1-7c3e-9a1f-1d2b3c4d5e6f", out.Merchant.Group)
-	c.Merchant.Root = true
-	_, err = Normalize(c, Deps{})
-	require.ErrorContains(t, err, "not both")
 	c.Merchant = MerchantConfig{Group: "merchant-1"}
 	_, err = Normalize(c, Deps{})
 	require.ErrorContains(t, err, "not a group id")
-	c.Merchant = MerchantConfig{Root: true}
-	_, err = Normalize(c, Deps{})
-	require.NoError(t, err)
 }

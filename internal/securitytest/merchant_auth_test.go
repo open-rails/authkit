@@ -17,12 +17,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const refund = "merchant:payments:refund"
+const (
+	refund        = "merchant:payments:refund"
+	customersRead = "root:customers:read"
+)
 
-// merchantRoles declares OpenRails-shaped merchant permissions from their
-// published strings (an AuthKit built-in among them), a support role holding
-// refund exactly, a viewer holding only the merchant:*:read pattern, and a
-// root role holding every merchant permission.
+// merchantRoles declares merchant permissions given whole (an AuthKit
+// built-in among them), a support role holding refund exactly, a viewer
+// holding only the merchant:*:read pattern, a root role holding every merchant
+// permission, and a root staff role holding a host's own root permission.
 func merchantRoles(c *authkit.Config) {
 	r := authkit.NewRoles()
 	m := r.Persona("merchant", authkit.APIKeys, authkit.RemoteApplications)
@@ -30,6 +33,7 @@ func merchantRoles(c *authkit.Config) {
 	m.Role("support", p[0], p[1])
 	m.Role("viewer", ident.Perm("merchant:*:read"))
 	r.Root.Role("billing", m.All())
+	r.Root.Role("staff", r.Root.Permission("customers", "read"))
 	c.Roles = r
 	withDeviceKeys(c)
 }
@@ -178,36 +182,60 @@ func TestSecurityMerchantAuth(t *testing.T) {
 	})
 }
 
-// TestSecurityMerchantGroupIsExplicit: without Config.Merchant,
-// RequirePermission refuses everyone, an unregistered permission included;
-// the root group checks staff only through Config.Merchant.Root, and New
-// refuses Config.Merchant.Group naming it.
-func TestSecurityMerchantGroupIsExplicit(t *testing.T) {
+// TestSecurityPermissionGroupIsInferred: a root: permission is checked on
+// root with no configuration, and still on root when Config.Merchant.Group is
+// set; a persona permission without Group refuses everyone; a pattern or an
+// unregistered permission panics at construction; and New refuses
+// Config.Merchant.Group naming the root group.
+func TestSecurityPermissionGroupIsInferred(t *testing.T) {
 	ctx := context.Background()
 	unset := newHost(t, withHTTP(generousLimits), authtest.WithConfig(merchantRoles))
-	billing := unset.newAccount("ubilling")
+	staff, billing, owner := unset.newAccount("ustaff"), unset.newAccount("ubilling"), unset.newAccount("uowner")
+	unset.grant(iam.RootGroup(), staff, "staff")
 	unset.grant(iam.RootGroup(), billing, "billing")
-	billingToken := unset.login(billing).AccessToken
-	requireStatus(t, gated(unset.auth, unset.auth.RequirePermission(refund))(t, http.Header{}), http.StatusUnauthorized, "unauthenticated")
-	requireStatus(t, gated(unset.auth, unset.auth.RequirePermission(refund))(t, bearer(billingToken)), http.StatusForbidden, "forbidden")
-	requireStatus(t, gated(unset.auth, unset.auth.RequirePermission("merchant:payments:void"))(t, bearer(billingToken)), http.StatusForbidden, "forbidden")
-
-	root := unset.replica(authtest.WithConfig(func(c *authkit.Config) { c.Merchant.Root = true }))
-	callerOf(t, gated(root.auth, root.auth.RequirePermission(refund))(t, bearer(billingToken)))
-	owner := root.newAccount("rowner")
 	ownerSubject := iam.UserSubject(owner.id)
-	_, err := root.auth.CreateGroup(ctx, iam.NewGroup{Persona: ident.Persona("merchant"), Owner: &ownerSubject})
+	merchant, err := unset.auth.CreateGroup(ctx, iam.NewGroup{Persona: ident.Persona("merchant"), Owner: &ownerSubject})
 	require.NoError(t, err)
-	requireStatus(t, gated(root.auth, root.auth.RequirePermission(refund))(t, bearer(root.login(owner).AccessToken)), http.StatusForbidden, "forbidden")
+	token := map[string]string{"staff": unset.login(staff).AccessToken, "billing": unset.login(billing).AccessToken, "owner": unset.login(owner).AccessToken}
 
-	rootGroup, err := root.auth.Group(ctx, iam.RootGroup())
+	t.Run("root permission on root, no configuration", func(t *testing.T) {
+		read := gated(unset.auth, unset.auth.RequirePermission(customersRead))
+		requireStatus(t, read(t, http.Header{}), http.StatusUnauthorized, "unauthenticated")
+		require.Equal(t, staff.id, callerOf(t, read(t, bearer(token["staff"]))).Subject)
+		requireStatus(t, read(t, bearer(token["billing"])), http.StatusForbidden, "forbidden")
+		requireStatus(t, read(t, bearer(token["owner"])), http.StatusForbidden, "forbidden")
+	})
+
+	t.Run("persona permission without Group refuses everyone", func(t *testing.T) {
+		permitted := gated(unset.auth, unset.auth.RequirePermission(refund))
+		requireStatus(t, permitted(t, http.Header{}), http.StatusUnauthorized, "unauthenticated")
+		for _, name := range []string{"billing", "owner", "staff"} {
+			requireStatus(t, permitted(t, bearer(token[name])), http.StatusForbidden, "forbidden")
+		}
+	})
+
+	t.Run("construction refuses a pattern or an unregistered permission", func(t *testing.T) {
+		for _, p := range []string{"merchant:payments:void", "merchant:*", "root:*", "root:customers:*", "root:customers:delete", "customers:read"} {
+			require.Panics(t, func() { unset.auth.RequirePermission(p) }, p)
+		}
+	})
+
+	t.Run("with Group, root stays on root and the persona checks there", func(t *testing.T) {
+		grouped := unset.replica(authtest.WithConfig(func(c *authkit.Config) { c.Merchant.Group = merchant.ID }))
+		read := gated(grouped.auth, grouped.auth.RequirePermission(customersRead))
+		callerOf(t, read(t, bearer(token["staff"])))
+		requireStatus(t, read(t, bearer(token["owner"])), http.StatusForbidden, "forbidden")
+		permitted := gated(grouped.auth, grouped.auth.RequirePermission(refund))
+		callerOf(t, permitted(t, bearer(token["owner"])))
+		callerOf(t, permitted(t, bearer(token["billing"])))
+		requireStatus(t, permitted(t, bearer(token["staff"])), http.StatusForbidden, "forbidden")
+	})
+
+	rootGroup, err := unset.auth.Group(ctx, iam.RootGroup())
 	require.NoError(t, err)
 	cfg, deps, ok := builtwith.Of(unset.auth)
 	require.True(t, ok)
 	cfg.Merchant.Group = rootGroup.ID
 	_, err = authkit.New(ctx, cfg, deps)
 	require.ErrorContains(t, err, "Config.Merchant.Group is the root group")
-	cfg.Merchant.Root = true
-	_, err = authkit.New(ctx, cfg, deps)
-	require.ErrorContains(t, err, "not both")
 }

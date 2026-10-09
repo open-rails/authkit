@@ -101,18 +101,22 @@ The Client is helpers/auth `Auth`, the middleware OpenRails mounts its routes wi
 | Method | Gate | Admits |
 |---|---|---|
 | `Required()` | `verify.RequireSession` | a person (a user's or a device key's token), session checked live; machines are 403 |
-| `RequirePermission(p)` | `verify.RequirePermissionOn` in `Config.Merchant`'s group | a caller holding `p` there, live; without `Config.Merchant`, nobody |
+| `RequirePermission(p)` | `verify.RequirePermissionOn` on root for a `root:` permission, else in `Config.Merchant.Group` | a caller holding `p` there, live; a persona permission without `Config.Merchant.Group`, nobody |
 | `Sensitive()` | `verify.Sensitive` | a person who signed in within 15 minutes, with the second factor when the account has one |
 | `Identity(ctx)` | | who a gate over the Client verified: a person by user id, or a `Machine` (an API key, a remote application) |
 
-Declare the merchant permissions from the library's published strings, then grant them like any other:
+The library names no permissions; the host passes its own. A `root:` permission needs no configuration: root roles holding it apply.
 
 ```go
-Merchant = rbac.Persona("merchant", authkit.APIKeys)
-_        = Merchant.Declare(openrails.Permissions()...)
+rbac := authkit.NewRoles()
+customersRead := rbac.Root.Permission("customers", "read")
+customersUpdate := rbac.Root.Permission("customers", "update")
+rbac.Root.Role("support", customersRead, customersUpdate)
+// openrails.Routes{Auth: client, Merchant: true, Staff: openrails.StaffPermissions{
+//	Read: customersRead.String(), Write: customersUpdate.String()}}
 ```
 
-`Config.Merchant.Group` is the id of the group that controls the merchant, typically one of that persona, created by the host. Its owner holds `merchant:*` and so every merchant permission. `Config.Merchant.Root` checks staff on root instead, where root roles holding merchant permissions apply; naming root's id in `Group` fails `New`. With a group named, `RequirePermission` takes one registered permission and panics on a pattern, as `RequirePermissionOn` does.
+A persona permission (`merchant:billing:read`, one group per merchant) is checked in `Config.Merchant.Group`, the id of the group that controls the merchant, created by the host; its owner holds `merchant:*`. Naming root's id there fails `New`. `RequirePermission` takes one registered permission and panics on a pattern or an unregistered one, as `RequirePermissionOn` does.
 
 ## Related
 

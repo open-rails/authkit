@@ -148,15 +148,11 @@ func Normalize(c Config, d Deps) (Config, error) {
 	return c, nil
 }
 
-// normalizeMerchant refuses both Group and Root, and a Group that is not a
-// uuid.
+// normalizeMerchant refuses a Group that is not a uuid.
 func normalizeMerchant(m *MerchantConfig) error {
 	m.Group = strings.TrimSpace(m.Group)
 	if m.Group == "" {
 		return nil
-	}
-	if m.Root {
-		return errors.New("authkit: set Config.Merchant.Group or Config.Merchant.Root, not both")
 	}
 	id, err := uuid.Parse(m.Group)
 	if err != nil {

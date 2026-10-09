@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.9.0
+
+The owner approved shipping this breaking change in a minor release. `Client.RequirePermission` infers the group from the permission.
+
+### Breaking
+
+| Removed | Use instead |
+|---|---|
+| `MerchantConfig.Root` | nothing: a `root:` permission is checked on the root group with no configuration |
+
+- A `root:` permission is checked on root even when `Config.Merchant.Group` is set; `Config.Merchant.Group` is only for a persona permission (such as `merchant:billing:read` in one group per merchant).
+- A persona permission without `Config.Merchant.Group` still refuses everyone.
+- `RequirePermission` panics on a pattern or an unregistered permission whatever the configuration (before, only when a group was configured).
+
+Host migration: delete `Merchant: authkit.MerchantConfig{Root: true}` and pass `root:` permissions of your own to the library (for OpenRails, `Routes.Staff`). A host with one group per merchant keeps `Config.Merchant.Group`.
+
 ## v1.8.0
 
 The owner approved shipping this breaking change in a minor release, before any external consumer exists. The delegated-token and service-JWT systems are removed. The authorization server (v1.5–v1.6) replaces them, and there is no compatibility path.

@@ -140,8 +140,7 @@ func (p *PersonaDef) Permission(resource, action string) iam.Perm {
 }
 
 // Declare declares permissions given whole, `<persona>:<resource>:<action>`,
-// such as a library's published catalog (OpenRails' `merchant:` strings), and
-// returns them in order. A built-in among them is returned as it is; any other
+// such as strings read from configuration, and returns them in order. A built-in among them is returned as it is; any other
 // follows Permission's rules.
 func (p *PersonaDef) Declare(perms ...string) []iam.Perm {
 	out := make([]iam.Perm, 0, len(perms))

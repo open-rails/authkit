@@ -2,6 +2,7 @@ package authkit
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -14,8 +15,7 @@ import (
 
 // The Client is helpers/auth Auth: the middleware a library that serves a
 // merchant's routes (OpenRails) mounts them with. Its gates are verify's over
-// the Client, so they stack and verify a request once. Config.Merchant names
-// the group that controls the merchant.
+// the Client, so they stack and verify a request once.
 var _ auth.Auth = (*Client)(nil)
 
 // Required is verify.RequireSession over the Client: a person signed in
@@ -27,23 +27,27 @@ func (a *Client) Required() func(http.Handler) http.Handler {
 	return verify.RequireSession(a)
 }
 
-// RequirePermission is verify.RequirePermissionOn over the Client in the
-// group Config.Merchant names: permission is one concrete permission the
+// RequirePermission is verify.RequirePermissionOn over the Client, in the
+// group the permission's persona names: root for a `root:` permission, else
+// the group Config.Merchant names. permission is one concrete permission the
 // catalog registers (it panics on a pattern or an unregistered one, like
 // RequirePermissionOn), checked live. A role covers it as Can decides, by the
-// permission or a pattern over it such as the group owner's `merchant:*`.
-// Without Config.Merchant it refuses every request: 401 without a valid
-// credential, else 403 forbidden.
+// permission or a pattern over it such as a group owner's `<persona>:*`. A
+// persona's permission without Config.Merchant.Group refuses every request:
+// 401 without a valid credential, else 403 forbidden.
 func (a *Client) RequirePermission(permission string) func(http.Handler) http.Handler {
-	m := a.engine.Config().Merchant
-	switch {
-	case m.Root:
-		return verify.RequirePermissionOn(a, iam.RootGroup(), ident.Perm(permission))
-	case m.Group != "":
-		return verify.RequirePermissionOn(a, iam.GroupByID(m.Group), ident.Perm(permission))
+	perm := ident.Perm(permission)
+	if !a.KnownPermission(perm) {
+		panic(fmt.Sprintf("authkit: RequirePermission: permission %q is not registered in any persona catalog", permission))
+	}
+	if perm.Persona() == iam.RootPersona() {
+		return verify.RequirePermissionOn(a, iam.RootGroup(), perm)
+	}
+	if group := a.engine.Config().Merchant.Group; group != "" {
+		return verify.RequirePermissionOn(a, iam.GroupByID(group), perm)
 	}
 	a.noMerchant.Do(func() {
-		slog.Warn("authkit: RequirePermission refuses every request: Config.Merchant names no group", "permission", permission)
+		slog.Warn("authkit: RequirePermission refuses every request: a persona permission needs Config.Merchant.Group", "permission", permission)
 	})
 	required := verify.Required(a)
 	return func(http.Handler) http.Handler {

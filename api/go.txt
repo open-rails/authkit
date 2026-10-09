@@ -237,7 +237,6 @@ pkg authkit, type MemberPerms struct, embedded config.Resource
 pkg authkit, type MerchantConfig = config.MerchantConfig
 pkg authkit, type MerchantConfig struct
 pkg authkit, type MerchantConfig struct, Group string
-pkg authkit, type MerchantConfig struct, Root bool
 pkg authkit, type OAuthClientConfig = config.OAuthClientConfig
 pkg authkit, type OAuthClientConfig struct
 pkg authkit, type OAuthClientConfig struct, AccessTokenTTL time.Duration

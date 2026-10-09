@@ -41,7 +41,7 @@ type Client struct {
 	// cfg and deps are what New was given (internal/builtwith).
 	cfg  Config
 	deps Deps
-	// noMerchant logs once that RequirePermission refuses everything.
+	// noMerchant logs once that RequirePermission refuses a persona permission.
 	noMerchant sync.Once
 }
 
@@ -80,7 +80,7 @@ func New(ctx context.Context, cfg Config, deps Deps) (_ *Client, err error) {
 			return nil, err
 		}
 		if group == root {
-			return nil, errors.New("authkit: Config.Merchant.Group is the root group; set Config.Merchant.Root to check merchant staff there")
+			return nil, errors.New("authkit: Config.Merchant.Group is the root group; a root: permission is checked there without it")
 		}
 	}
 	if e.Config().HTTP != nil {
