@@ -2,6 +2,7 @@ pkg authkit, const APIKeys config.PersonaOption = 1
 pkg authkit, const FormerNamesFinite config.FormerNamesMode = "finite"
 pkg authkit, const FormerNamesForever config.FormerNamesMode = "forever"
 pkg authkit, const FormerNamesImmediate config.FormerNamesMode = "immediate"
+pkg authkit, const GrantAuthorizationCode config.OAuthGrantType = "authorization_code"
 pkg authkit, const RemoteApplications config.PersonaOption = 2
 pkg authkit, func DefaultRateLimits() map[string]RateLimit
 pkg authkit, func IfRole(iam.Role) Option
@@ -122,10 +123,16 @@ pkg authkit, type APIKeysConfig = config.APIKeysConfig
 pkg authkit, type APIKeysConfig struct
 pkg authkit, type APIKeysConfig struct, MaxTTL time.Duration
 pkg authkit, type APIKeysConfig struct, Prefix string
+pkg authkit, type AuthorizationServerConfig = config.AuthorizationServerConfig
+pkg authkit, type AuthorizationServerConfig struct
+pkg authkit, type AuthorizationServerConfig struct, AccessTokenTTL time.Duration
+pkg authkit, type AuthorizationServerConfig struct, Clients []config.OAuthClientConfig
+pkg authkit, type AuthorizationServerConfig struct, Resources []config.ResourceServerConfig
 pkg authkit, type Client struct
 pkg authkit, type Config = config.Config
 pkg authkit, type Config struct
 pkg authkit, type Config struct, APIKeys config.APIKeysConfig
+pkg authkit, type Config struct, AuthorizationServer config.AuthorizationServerConfig
 pkg authkit, type Config struct, Delegated config.DelegatedConfig
 pkg authkit, type Config struct, DeviceKeys config.DeviceKeysConfig
 pkg authkit, type Config struct, Frontend config.FrontendConfig
@@ -190,6 +197,7 @@ pkg authkit, type FormerNamesMode = config.FormerNamesMode
 pkg authkit, type FormerNamesMode string
 pkg authkit, type FrontendConfig = config.FrontendConfig
 pkg authkit, type FrontendConfig struct
+pkg authkit, type FrontendConfig struct, AuthorizePath string
 pkg authkit, type FrontendConfig struct, BaseURL string
 pkg authkit, type FrontendConfig struct, InvitePath string
 pkg authkit, type FrontendConfig struct, OIDCReturnPath string
@@ -229,6 +237,17 @@ pkg authkit, type MemberPerms struct, embedded config.Resource
 pkg authkit, type MigrateOptions = config.MigrateOptions
 pkg authkit, type MigrateOptions struct
 pkg authkit, type MigrateOptions struct, RuntimePool *pgxpool.Pool
+pkg authkit, type OAuthClientConfig = config.OAuthClientConfig
+pkg authkit, type OAuthClientConfig struct
+pkg authkit, type OAuthClientConfig struct, GrantTypes []config.OAuthGrantType
+pkg authkit, type OAuthClientConfig struct, ID string
+pkg authkit, type OAuthClientConfig struct, Name string
+pkg authkit, type OAuthClientConfig struct, PostLogoutRedirectURIs []string
+pkg authkit, type OAuthClientConfig struct, RedirectURIs []string
+pkg authkit, type OAuthClientConfig struct, Resources []string
+pkg authkit, type OAuthClientConfig struct, SecretSHA256 string
+pkg authkit, type OAuthGrantType = config.OAuthGrantType
+pkg authkit, type OAuthGrantType string
 pkg authkit, type Option = ops.Option
 pkg authkit, type Option struct
 pkg authkit, type PasskeyConfig = config.PasskeyConfig
@@ -276,6 +295,11 @@ pkg authkit, type RemoteApplicationConfig struct, PublicKeys []iam.RemoteApplica
 pkg authkit, type RemoteApplicationConfig struct, RootRole iam.Role
 pkg authkit, type Resource = config.Resource
 pkg authkit, type Resource struct
+pkg authkit, type ResourceServerConfig = config.ResourceServerConfig
+pkg authkit, type ResourceServerConfig struct
+pkg authkit, type ResourceServerConfig struct, ID string
+pkg authkit, type ResourceServerConfig struct, Permissions []string
+pkg authkit, type ResourceServerConfig struct, Scopes []string
 pkg authkit, type RiverConfig = config.RiverConfig
 pkg authkit, type RiverConfig struct
 pkg authkit, type RiverConfig struct, CleanupInterval time.Duration
@@ -389,12 +413,15 @@ pkg authkit/adapters/twilio, type SMSConfig struct, Render func(context.Context,
 pkg authkit/authtest, const Audience untyped string = "authtest"
 pkg authkit/authtest, const Issuer untyped string = "https://example.com"
 pkg authkit/authtest, const Password untyped string = "Authtest-password-1"
+pkg authkit/authtest, func ClientSecretSHA256(string) string
 pkg authkit/authtest, func EnrollDeviceKey(testing.TB, *authkit.Client, *Outbox, User) DeviceKey
 pkg authkit/authtest, func EnrollTOTP(testing.TB, *authkit.Client, User) *TOTP
 pkg authkit/authtest, func GrantRole(testing.TB, *authkit.Client, iam.GroupRef, iam.Subject, iam.Role)
 pkg authkit/authtest, func New(testing.TB, ...Option) (*authkit.Client, *Outbox)
+pkg authkit/authtest, func NewAuthorizationServer(testing.TB, ...Option) *AuthorizationServer
 pkg authkit/authtest, func NewIdP(testing.TB) *IdP
 pkg authkit/authtest, func NewUser(testing.TB, *authkit.Client) User
+pkg authkit/authtest, func PKCEChallenge(string) string
 pkg authkit/authtest, func Replica(testing.TB, *authkit.Client, ...Option) *authkit.Client
 pkg authkit/authtest, func RevokeRole(testing.TB, *authkit.Client, iam.GroupRef, iam.Subject, iam.Role)
 pkg authkit/authtest, func SignIn(testing.TB, *authkit.Client, User) iam.TokenSet
@@ -403,6 +430,12 @@ pkg authkit/authtest, func TOTPCode(testing.TB, string, time.Time) string
 pkg authkit/authtest, func TOTPOf(string) *TOTP
 pkg authkit/authtest, func WithConfig(func(*authkit.Config)) Option
 pkg authkit/authtest, func WithDeps(func(*authkit.Deps)) Option
+pkg authkit/authtest, method (*AuthorizationServer) Approve(testing.TB, string, string) string
+pkg authkit/authtest, method (*AuthorizationServer) Authorize(testing.TB, User, CodeFlow) OAuthTokens
+pkg authkit/authtest, method (*AuthorizationServer) AuthorizeAs(testing.TB, iam.TokenSet, CodeFlow) OAuthTokens
+pkg authkit/authtest, method (*AuthorizationServer) BeginAuthorization(testing.TB, CodeFlow, string, string) string
+pkg authkit/authtest, method (*AuthorizationServer) HTTPClient() *http.Client
+pkg authkit/authtest, method (*AuthorizationServer) Token(testing.TB, string, string, url.Values) (int, []byte)
 pkg authkit/authtest, method (*IdP) Provider(string, ...provider.Option) provider.Provider
 pkg authkit/authtest, method (*IdP) SignIn(testing.TB, string, provider.Identity) url.Values
 pkg authkit/authtest, method (*Outbox) Email() config.EmailSender
@@ -412,6 +445,17 @@ pkg authkit/authtest, method (*Outbox) SMS() config.SMSSender
 pkg authkit/authtest, method (*Outbox) SetEmailHealth(error)
 pkg authkit/authtest, method (*Outbox) SetSMSHealth(error)
 pkg authkit/authtest, method (*TOTP) Code(testing.TB) string
+pkg authkit/authtest, type AuthorizationServer struct
+pkg authkit/authtest, type AuthorizationServer struct, Client *authkit.Client
+pkg authkit/authtest, type AuthorizationServer struct, Outbox *Outbox
+pkg authkit/authtest, type AuthorizationServer struct, URL string
+pkg authkit/authtest, type CodeFlow struct
+pkg authkit/authtest, type CodeFlow struct, ClientID string
+pkg authkit/authtest, type CodeFlow struct, ClientSecret string
+pkg authkit/authtest, type CodeFlow struct, Nonce string
+pkg authkit/authtest, type CodeFlow struct, RedirectURI string
+pkg authkit/authtest, type CodeFlow struct, Resource string
+pkg authkit/authtest, type CodeFlow struct, Scopes []string
 pkg authkit/authtest, type DeviceKey struct
 pkg authkit/authtest, type DeviceKey struct, AccessToken string
 pkg authkit/authtest, type DeviceKey struct, ID string
@@ -430,6 +474,13 @@ pkg authkit/authtest, type Message struct, Link string `json:"link,omitempty"`
 pkg authkit/authtest, type Message struct, Purpose iam.VerificationPurpose `json:"purpose,omitempty"`
 pkg authkit/authtest, type Message struct, To string `json:"to"`
 pkg authkit/authtest, type Message struct, Token string `json:"token,omitempty"`
+pkg authkit/authtest, type OAuthTokens struct
+pkg authkit/authtest, type OAuthTokens struct, AccessToken string `json:"access_token"`
+pkg authkit/authtest, type OAuthTokens struct, ExpiresIn int64 `json:"expires_in"`
+pkg authkit/authtest, type OAuthTokens struct, IDToken string `json:"id_token"`
+pkg authkit/authtest, type OAuthTokens struct, RefreshToken string `json:"refresh_token"`
+pkg authkit/authtest, type OAuthTokens struct, Scope string `json:"scope"`
+pkg authkit/authtest, type OAuthTokens struct, TokenType string `json:"token_type"`
 pkg authkit/authtest, type Option func(*setup)
 pkg authkit/authtest, type Outbox = testoutbox.Outbox
 pkg authkit/authtest, type Outbox struct
@@ -481,6 +532,7 @@ pkg authkit/iam, const AuthPermission RouteAuthTier = "permission"
 pkg authkit/iam, const AuthPublic RouteAuthTier = "public"
 pkg authkit/iam, const AuthRequired RouteAuthTier = "required"
 pkg authkit/iam, const AuthSession RouteAuthTier = "session"
+pkg authkit/iam, const AuthorizationServerMetadataPath untyped string = "/.well-known/oauth-authorization-server"
 pkg authkit/iam, const ContactEmail ContactField = "email"
 pkg authkit/iam, const ContactPhone ContactField = "phone"
 pkg authkit/iam, const DefaultPageLimit untyped int = 50
@@ -553,6 +605,11 @@ pkg authkit/iam, const MessageVerification MessageKind = "verification"
 pkg authkit/iam, const MessageWelcome MessageKind = "welcome"
 pkg authkit/iam, const NameCreate NameOperation = "create"
 pkg authkit/iam, const NameRename NameOperation = "rename"
+pkg authkit/iam, const OAuthAuthorizePath untyped string = "/oauth2/authorize"
+pkg authkit/iam, const OAuthEndSessionPath untyped string = "/oauth2/end_session"
+pkg authkit/iam, const OAuthTokenPath untyped string = "/oauth2/token"
+pkg authkit/iam, const OAuthUserInfoPath untyped string = "/oauth2/userinfo"
+pkg authkit/iam, const OpenIDConfigurationPath untyped string = "/.well-known/openid-configuration"
 pkg authkit/iam, const PermWildcard untyped string = "*"
 pkg authkit/iam, const PurposeContactChange VerificationPurpose = "contact_change"
 pkg authkit/iam, const PurposeContactVerify VerificationPurpose = "contact_verify"
@@ -572,6 +629,7 @@ pkg authkit/iam, const RemoteApplicationModeStatic RemoteApplicationMode = "stat
 pkg authkit/iam, const RouteAccount RouteGroup = "account"
 pkg authkit/iam, const RouteAdmin RouteGroup = "admin"
 pkg authkit/iam, const RouteAuth RouteGroup = "auth"
+pkg authkit/iam, const RouteAuthorizationServer RouteGroup = "authorization_server"
 pkg authkit/iam, const RouteBrowserOIDC RouteGroup = "browser_oidc"
 pkg authkit/iam, const RouteDelegated RouteGroup = "delegated"
 pkg authkit/iam, const RouteDeviceKeys RouteGroup = "device_keys"

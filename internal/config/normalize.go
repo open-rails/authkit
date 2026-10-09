@@ -39,6 +39,7 @@ const (
 	defaultPasswordResetPath       = "/reset"
 	defaultPasswordlessPath        = "/passwordless"
 	defaultInvitePath              = "/accept-invite"
+	defaultAuthorizePath           = "/authorize"
 	DefaultDelegatedTTLFloor       = time.Minute
 	DefaultDelegatedTTLDefault     = 15 * time.Minute
 	DefaultDelegatedTTLCeiling     = time.Hour
@@ -110,6 +111,9 @@ func Normalize(c Config, d Deps) (Config, error) {
 		return Config{}, fmt.Errorf("authkit: invalid APIKeyPrefix %q (want lowercase alphanumeric, 1-16 chars, or empty)", c.APIKeys.Prefix)
 	}
 	if err := normalizeDelegated(&c.Delegated); err != nil {
+		return Config{}, err
+	}
+	if err := normalizeAuthorizationServer(&c.AuthorizationServer, c); err != nil {
 		return Config{}, err
 	}
 	if c.RemoteApplications, err = normalizeRemoteApplications(c.RemoteApplications); err != nil {
@@ -263,6 +267,7 @@ func normalizeFrontend(f *FrontendConfig, issuer string) error {
 		{"FrontendPasswordResetPath", &f.PasswordResetPath, defaultPasswordResetPath},
 		{"FrontendPasswordlessPath", &f.PasswordlessPath, defaultPasswordlessPath},
 		{"FrontendInvitePath", &f.InvitePath, defaultInvitePath},
+		{"FrontendAuthorizePath", &f.AuthorizePath, defaultAuthorizePath},
 	} {
 		v, err := frontendPath(p.field, *p.value, p.def)
 		if err != nil {

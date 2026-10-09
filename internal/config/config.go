@@ -58,6 +58,11 @@ type Config struct {
 	// allowlist and the TTL floor/default/ceiling. The zero value leaves the
 	// route unmounted.
 	Delegated DelegatedConfig
+	// AuthorizationServer makes this deployment an OAuth 2.0 authorization
+	// server and OpenID provider for its registered clients: they sign users
+	// in here and receive tokens for registered resource servers. The zero
+	// value leaves it off and its routes unmounted.
+	AuthorizationServer AuthorizationServerConfig
 	// Invitations turns invitations off. The zero value leaves them on.
 	Invitations InvitationsConfig
 	// Roles is the permission model: personas, their permissions and roles
@@ -206,6 +211,11 @@ type FrontendConfig struct {
 	// InvitePath receives group invitation links (?code=…); the SPA posts the
 	// code to the redeem route. Empty defaults to "/accept-invite".
 	InvitePath string
+	// AuthorizePath receives an OAuth client's sign-in request
+	// (?authorization=…) when the authorization server is on: the SPA signs
+	// the user in, then approves the request through the API. Empty defaults
+	// to "/authorize".
+	AuthorizePath string
 }
 
 // RegistrationConfig controls verification policy and public self-registration.

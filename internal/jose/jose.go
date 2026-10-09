@@ -29,6 +29,9 @@ const (
 	// itself: no sub, no delegated_sub; its identity is the validated iss.
 	RemoteApplicationAccessTokenType = "remote-application-access+jwt"
 	ServiceJWTType                   = "service+jwt"
+	// ResourceAccessTokenType is an RFC 9068 access token the authorization
+	// server mints for a registered resource server.
+	ResourceAccessTokenType = "at+jwt"
 )
 
 // Algorithms are the JWS algorithms AuthKit verifies: asymmetric only, so

@@ -661,3 +661,100 @@ type UserProfile = authflow.UserProfile
 // UserSecurity is GET /me/security: the session's freshness and the
 // account's step-up and MFA state.
 type UserSecurity = authflow.UserSecurity
+
+// The authorization server (#430). OAuthServerMetadata and the token
+// endpoint's answer are OAuth protocol documents: members the protocol
+// leaves out are omitted, not null.
+
+// OAuthServerMetadata is the issuer metadata (RFC 8414, OIDC Discovery 1.0).
+type OAuthServerMetadata struct {
+	Issuer                           string   `json:"issuer"`
+	AuthorizationEndpoint            string   `json:"authorization_endpoint"`
+	TokenEndpoint                    string   `json:"token_endpoint"`
+	UserInfoEndpoint                 string   `json:"userinfo_endpoint"`
+	RevocationEndpoint               string   `json:"revocation_endpoint,omitempty"`
+	EndSessionEndpoint               string   `json:"end_session_endpoint"`
+	JWKSURI                          string   `json:"jwks_uri"`
+	ScopesSupported                  []string `json:"scopes_supported"`
+	ResponseTypesSupported           []string `json:"response_types_supported"`
+	ResponseModesSupported           []string `json:"response_modes_supported"`
+	GrantTypesSupported              []string `json:"grant_types_supported"`
+	SubjectTypesSupported            []string `json:"subject_types_supported"`
+	IDTokenSigningAlgValuesSupported []string `json:"id_token_signing_alg_values_supported"`
+	TokenEndpointAuthMethods         []string `json:"token_endpoint_auth_methods_supported"`
+	CodeChallengeMethodsSupported    []string `json:"code_challenge_methods_supported"`
+	ClaimsSupported                  []string `json:"claims_supported"`
+	PromptValuesSupported            []string `json:"prompt_values_supported"`
+	DPoPSigningAlgValuesSupported    []string `json:"dpop_signing_alg_values_supported,omitempty"`
+	AuthorizationResponseIss         bool     `json:"authorization_response_iss_parameter_supported"`
+	RequestParameterSupported        bool     `json:"request_parameter_supported"`
+	RequestURIParameterSupported     bool     `json:"request_uri_parameter_supported"`
+}
+
+// OAuthAuthorizationRequest is a pending OAuth sign-in request, as the SPA
+// shows it while it signs the user in.
+type OAuthAuthorizationRequest struct {
+	ID         string   `json:"id"`
+	ClientID   string   `json:"client_id"`
+	ClientName string   `json:"client_name"`
+	Scopes     []string `json:"scopes"`
+	Resource   *string  `json:"resource"`
+	// Prompt is the client's prompt values: "none" means the SPA must not
+	// show UI (decline with login_required when nobody is signed in);
+	// "login" means a fresh sign-in.
+	Prompt        []string  `json:"prompt"`
+	MaxAgeSeconds *int64    `json:"max_age_seconds"`
+	LoginHint     *string   `json:"login_hint"`
+	ExpiresAt     time.Time `json:"expires_at"`
+}
+
+// OAuthAuthorizationResult is where the SPA sends the browser to finish:
+// the client's redirect URI with a code or an error.
+type OAuthAuthorizationResult struct {
+	RedirectTo string `json:"redirect_to"`
+}
+
+// OAuthAuthorizationDeclineRequest declines a pending request: error is
+// access_denied (the user refused), login_required or interaction_required
+// (prompt=none could not be met).
+type OAuthAuthorizationDeclineRequest struct {
+	Error string `json:"error"`
+}
+
+// OAuthAuthorizeParams are the authorization request's parameters (RFC 6749
+// §4.1.1, OIDC Core §3.1.2.1, RFC 7636, RFC 8707).
+type OAuthAuthorizeParams struct {
+	ResponseType        string   `query:"response_type"`
+	ClientID            string   `query:"client_id"`
+	RedirectURI         string   `query:"redirect_uri"`
+	Scope               *string  `query:"scope"`
+	State               *string  `query:"state"`
+	Nonce               *string  `query:"nonce"`
+	CodeChallenge       string   `query:"code_challenge"`
+	CodeChallengeMethod string   `query:"code_challenge_method"`
+	Resource            []string `query:"resource"`
+	Prompt              *string  `query:"prompt"`
+	MaxAge              *int     `query:"max_age"`
+	LoginHint           *string  `query:"login_hint"`
+	ResponseMode        *string  `query:"response_mode"`
+}
+
+// OAuthTokenParams are the token request's parameters (RFC 6749 §4.1.3).
+// A confidential client authenticates with HTTP Basic or client_secret.
+type OAuthTokenParams struct {
+	GrantType    string   `query:"grant_type"`
+	Code         *string  `query:"code"`
+	RedirectURI  *string  `query:"redirect_uri"`
+	CodeVerifier *string  `query:"code_verifier"`
+	ClientID     *string  `query:"client_id"`
+	ClientSecret *string  `query:"client_secret"`
+	Resource     []string `query:"resource"`
+}
+
+// OAuthEndSessionParams are RP-Initiated Logout's parameters.
+type OAuthEndSessionParams struct {
+	IDTokenHint           *string `query:"id_token_hint"`
+	ClientID              *string `query:"client_id"`
+	PostLogoutRedirectURI *string `query:"post_logout_redirect_uri"`
+	State                 *string `query:"state"`
+}

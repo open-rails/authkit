@@ -173,6 +173,10 @@ func (c *contract) openAPI() ([]byte, error) {
 	errSchema.set("description", "type follows the status; code is stable (clients tolerate new ones); message is not contract. "+
 		"metadata is null, or the shape x-authkit-error-codes gives the code.")
 	schemas.set("ErrorObject", errSchema)
+	schemas.set("OAuthError", newObj("type", "object",
+		"description", "The authorization server's protocol endpoints answer OAuth's own error object (RFC 6749 §5.2): error is the code, error_description is for people.",
+		"properties", newObj("error", newObj("type", "string"), "error_description", newObj("type", "string")),
+		"required", []string{"error"}))
 
 	paths := newObj()
 	for _, r := range c.routes {
@@ -253,6 +257,22 @@ func (c *contract) operation(r httpapi.RouteSpec) *obj {
 	if len(params) > 0 {
 		op.set("parameters", params)
 	}
+	if r.Form != nil {
+		props, required := newObj(), []string{}
+		for _, f := range queryParams(r.Form) {
+			t := f.t
+			if t.Kind() == reflect.Pointer {
+				t = t.Elem()
+			} else if t.Kind() != reflect.Slice {
+				required = append(required, f.name)
+			}
+			props.set(f.name, c.schema(t))
+		}
+		op.set("requestBody", newObj(
+			"required", true,
+			"content", newObj("application/x-www-form-urlencoded", newObj("schema", newObj("type", "object", "properties", props, "required", required))),
+		))
+	}
 	if r.Request != nil {
 		op.set("requestBody", newObj(
 			"required", r.Method != http.MethodDelete,
@@ -267,8 +287,12 @@ func (c *contract) operation(r httpapi.RouteSpec) *obj {
 		}
 		responses.set(strconv.Itoa(reply.Status), resp)
 	}
+	errorSchema := "#/components/schemas/ErrorEnvelope"
+	if r.Surface == httpapi.SurfaceOAuth {
+		errorSchema = "#/components/schemas/OAuthError"
+	}
 	responses.set("default", newObj("description", "An error",
-		"content", newObj("application/json", newObj("schema", newObj("$ref", "#/components/schemas/ErrorEnvelope")))))
+		"content", newObj("application/json", newObj("schema", newObj("$ref", errorSchema)))))
 	op.set("responses", responses)
 	if r.Auth == iam.AuthPublic {
 		op.set("security", []any{})

@@ -56,6 +56,15 @@ const (
 	RLOIDCStart    = "oidc_start"
 	RLOIDCCallback = "oidc_callback"
 
+	// The authorization server (#430): its protocol endpoints, and the API the
+	// SPA answers a pending sign-in request through.
+	RLOAuthMetadata      = "oauth_metadata"
+	RLOAuthAuthorize     = "oauth_authorize"
+	RLOAuthToken         = "oauth_token"
+	RLOAuthUserInfo      = "oauth_userinfo"
+	RLOAuthEndSession    = "oauth_end_session"
+	RLOAuthAuthorization = "oauth_authorization"
+
 	RLMePasswordChange = "me_password_change"
 	RLMeRead           = "me_read"
 	RLMeUpdate         = "me_update"
@@ -107,6 +116,7 @@ var buckets = map[string]ratelimit.Limit{
 	RLInviteRedeem:          {Limit: 60, Window: time.Hour},
 	RLOIDCCallback:          {Limit: 60, Window: 10 * time.Minute},
 	RLSolanaLogin:           {Limit: 20, Window: 10 * time.Minute},
+	RLOAuthToken:            {Limit: 120, Window: time.Minute},
 	RLSolanaLink:            {Limit: 12, Window: time.Hour},
 	RLStepUpCode:            {Limit: 10, Window: 10 * time.Minute},
 	RLStepUpSignature:       {Limit: 20, Window: 10 * time.Minute},
@@ -131,6 +141,8 @@ var buckets = map[string]ratelimit.Limit{
 	RLAPIKeyCreate:       {Limit: 20, Window: time.Hour},
 	RLDelegatedTokenMint: {Limit: 60, Window: time.Minute},
 	RLOIDCStart:          {Limit: 30, Window: 10 * time.Minute},
+	RLOAuthAuthorize:     {Limit: 60, Window: 10 * time.Minute},
+	RLOAuthAuthorization: {Limit: 60, Window: 10 * time.Minute},
 
 	// Reads, and changes that check, issue and send nothing. A challenge the
 	// caller must sign is not a secret; a password the account routes accept
@@ -161,7 +173,11 @@ var buckets = map[string]ratelimit.Limit{
 	RLGroupRead:  {Limit: 300, Window: time.Minute},
 	RLGroupWrite: {Limit: 120, Window: time.Minute},
 	// Verifiers behind one address each poll JWKS.
-	RLJWKSRead: {Limit: 600, Window: time.Minute},
+	RLJWKSRead:      {Limit: 600, Window: time.Minute},
+	RLOAuthMetadata: {Limit: 600, Window: time.Minute},
+	RLOAuthUserInfo: {Limit: 300, Window: time.Minute},
+	// A logout only ends a session the hint names.
+	RLOAuthEndSession: {Limit: 60, Window: 10 * time.Minute},
 }
 
 // DefaultRateLimits returns AuthKit's built-in per-endpoint rate limits, per

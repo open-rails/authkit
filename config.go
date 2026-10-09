@@ -28,6 +28,12 @@ type (
 	APIKeysConfig      = config.APIKeysConfig
 	DelegatedConfig    = config.DelegatedConfig
 	InvitationsConfig  = config.InvitationsConfig
+	// AuthorizationServerConfig declares the OAuth clients and resource
+	// servers of the authorization server (Config.AuthorizationServer).
+	AuthorizationServerConfig = config.AuthorizationServerConfig
+	OAuthClientConfig         = config.OAuthClientConfig
+	ResourceServerConfig      = config.ResourceServerConfig
+	OAuthGrantType            = config.OAuthGrantType
 	// RemoteApplicationConfig declares one remote application
 	// (Config.RemoteApplications).
 	RemoteApplicationConfig = config.RemoteApplicationConfig
@@ -35,6 +41,11 @@ type (
 	RiverConfig             = config.RiverConfig
 	HTTPConfig              = config.HTTPConfig
 	RateLimit               = config.RateLimit
+)
+
+// OAuth grant types a client may use (OAuthClientConfig.GrantTypes).
+const (
+	GrantAuthorizationCode = config.GrantAuthorizationCode
 )
 
 // Former-name reservation modes.

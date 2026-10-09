@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/verify"
 )
@@ -18,6 +19,14 @@ func (s *Service) APIRoutes(groups ...iam.RouteGroup) []RouteSpec {
 			h = s.requireRecentSignIn(h)
 		}
 		return s.rateLimitedRoute(route.Bucket, s.authenticate(route.Auth, h))
+	})
+}
+
+// OAuthRoutes returns the authorization server's protocol routes,
+// prefix-neutral: issuer-relative paths beneath the base path.
+func (s *Service) OAuthRoutes(groups ...iam.RouteGroup) []RouteSpec {
+	return s.routes(SurfaceOAuth, groups, func(route RouteSpec, h http.Handler) http.Handler {
+		return s.rateLimitedRoute(route.Bucket, h)
 	})
 }
 
@@ -79,6 +88,8 @@ func (s *Service) mounts(f Feature) bool {
 		return !cfg.Invitations.Disabled
 	case FeatureNewDevices:
 		return cfg.SignIn.NewDevicesPerAccount > 0
+	case FeatureAuthorizationServer:
+		return config.AuthorizationServerEnabled(cfg.AuthorizationServer)
 	case FeatureGroups, FeatureAPIKeys:
 		schema := s.svc.PermissionGroupSchema()
 		for _, name := range schema.Personas() {

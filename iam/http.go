@@ -20,6 +20,12 @@ const (
 	// RouteDelegated is the delegated-token mint surface (POST
 	// /delegated/token), mounted only when Config.Delegated declares audiences.
 	RouteDelegated RouteGroup = "delegated"
+	// RouteAuthorizationServer is the OAuth 2.0 authorization server and
+	// OpenID provider: issuer metadata, authorize, token, userinfo,
+	// revocation and RP-initiated logout beneath the issuer's path, and the
+	// API the SPA approves sign-in requests through. Mounted only when
+	// Config.AuthorizationServer declares clients.
+	RouteAuthorizationServer RouteGroup = "authorization_server"
 )
 
 // RouteAuthTier is the authentication a route enforces before its handler runs.
@@ -50,6 +56,17 @@ func (r Route) Pattern() string { return r.Method + " " + r.Path }
 // JWKSPath serves the issuer's public signing keys beneath the issuer's path
 // (the mount's BasePath), so verifiers derive it: issuer + JWKSPath.
 const JWKSPath = "/.well-known/jwks.json"
+
+// The authorization server's endpoints beneath the issuer's path, as its
+// metadata (OpenIDConfigurationPath) advertises them.
+const (
+	OpenIDConfigurationPath         = "/.well-known/openid-configuration"
+	AuthorizationServerMetadataPath = "/.well-known/oauth-authorization-server"
+	OAuthAuthorizePath              = "/oauth2/authorize"
+	OAuthTokenPath                  = "/oauth2/token"
+	OAuthUserInfoPath               = "/oauth2/userinfo"
+	OAuthEndSessionPath             = "/oauth2/end_session"
+)
 
 const (
 	// RefreshCookieName is the refresh cookie on HTTPS deployments. Browsers
