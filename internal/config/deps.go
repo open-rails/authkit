@@ -71,10 +71,6 @@ type Deps struct {
 	// Nil grants the defaults. Required when a client declares
 	// AuthorizationDetailsTypes.
 	OAuthGrants iam.OAuthGrantAuthorizer
-	// DelegatedAuthorization decides delegated-token mints: its grant is the
-	// complete authority AuthKit signs. Required when
-	// Config.Delegated.Audiences is set.
-	DelegatedAuthorization iam.DelegationAuthorizer
 	// NameAdmission is the host's side-effect-free username policy for
 	// account creation and renames; an error refuses the name.
 	NameAdmission func(context.Context, iam.NameAdmissionRequest) error

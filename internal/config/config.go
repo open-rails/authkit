@@ -50,10 +50,6 @@ type Config struct {
 	DeviceKeys DeviceKeysConfig
 	// APIKeys configures opaque permission-group-owned machine credentials.
 	APIKeys APIKeysConfig
-	// Delegated configures the delegated-token mint route: the audience
-	// allowlist and the TTL floor/default/ceiling. The zero value leaves the
-	// route unmounted.
-	Delegated DelegatedConfig
 	// AuthorizationServer makes this deployment an OAuth 2.0 authorization
 	// server and OpenID provider for its registered clients: they sign users
 	// in here and receive tokens for registered resource servers. The zero
@@ -145,7 +141,7 @@ type TokenConfig struct {
 	AccountIssuers []string
 	// AllowPrivateNetworkJWKS permits http and private or loopback JWKS URLs
 	// for remote applications and the issuers verifiers trust, and turns off
-	// the verifier's SSRF guard. Local federation rigs only.
+	// the SSRF guard on remote applications' JWKS URLs. Local development only.
 	AllowPrivateNetworkJWKS bool
 }
 
@@ -344,27 +340,6 @@ type APIKeysConfig struct {
 	MaxTTL time.Duration
 }
 
-// DelegatedConfig configures the delegated-token mint route (POST
-// {api}/delegated/token). AuthKit owns the mint mechanics (audience subset,
-// TTL clamp, sender binding, grant check); the host supplies the authorizer
-// (Deps.DelegatedAuthorization).
-type DelegatedConfig struct {
-	// AllowDPoP allows binding to a browser key. The authorizer must handle
-	// requests with iam.DelegationRequest.JWKThumbprint set and no
-	// certificate.
-	AllowDPoP bool
-	// Audiences is the allowlist: requested audiences must be a subset, and an
-	// empty request receives the whole list. Empty disables the route.
-	Audiences []string
-	// TTLFloor, TTLDefault and TTLCeiling bound the minted TTL, also of
-	// Client.MintDelegatedAccessToken; unset fields default to 60s, 15m and
-	// 1h (always, when the route is off), and 0 < floor <= default <= ceiling
-	// must hold.
-	TTLFloor   time.Duration
-	TTLDefault time.Duration
-	TTLCeiling time.Duration
-}
-
 // RemoteApplicationConfig declares one remote application of the root group,
 // keyed by Issuer. Only the system changes it (trust root manual).
 type RemoteApplicationConfig struct {
@@ -457,9 +432,9 @@ type HTTPConfig struct {
 	APIPath string
 	// PublicURL is where clients reach BasePath when a proxy in front changes
 	// the origin or the path, such as "https://shop.example.com/sso". DPoP
-	// proofs sent to the delegated-token route must name PublicURL plus the
-	// route's path beneath BasePath. Empty defaults to Token.Issuer's origin
-	// plus BasePath.
+	// proofs sent to the token endpoint must name PublicURL plus its path
+	// beneath BasePath. Empty defaults to Token.Issuer's origin plus
+	// BasePath.
 	PublicURL string
 	// Exclude drops routes the host serves itself, named as iam.Route.Pattern
 	// names them ("GET /.well-known/jwks.json"). An entry matching no route is

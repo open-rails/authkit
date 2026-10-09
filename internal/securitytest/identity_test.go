@@ -5,48 +5,23 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
-	"time"
 
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
-	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
-	"github.com/open-rails/authkit/internal/jose"
-	"github.com/open-rails/authkit/keys"
 	"github.com/open-rails/authkit/verify"
 	neutral "github.com/open-rails/helpers/auth"
 	"github.com/stretchr/testify/require"
 )
 
-// delegatedAppToken is a token a registered application signs for one of its
-// own users: typ delegated-access+jwt, the user in delegated_sub.
-func delegatedAppToken(t *testing.T, s keys.Signer, iss, user string) string {
-	t.Helper()
-	now := time.Now()
-	token, err := jose.Sign(context.Background(), s, jose.DelegatedAccessTokenType, jwt.MapClaims{
-		"iss": iss, "aud": []string{audience}, "delegated_sub": user, "jti": uuid.NewString(), "iat": now.Unix(), "exp": now.Add(time.Minute).Unix(),
-	})
-	require.NoError(t, err)
-	return token
-}
-
 // TestSecurityIdentitySubjectInvokerCredential: each credential AuthKit
-// accepts names the Subject whose authority it uses (a native user or
-// application), the Invoker who acts (the subject itself unless an
-// application acts for one of its users) and itself as the Credential,
-// never as the subject. Read through a gate over the Client, as a billing
+// accepts names the Subject whose authority it uses (a native user or a
+// group's account), the Invoker who acts (the subject itself) and itself as
+// the Credential, never as the subject. Read through a gate over the Client, as a billing
 // library reads it (Client.Identity).
 func TestSecurityIdentitySubjectInvokerCredential(t *testing.T) {
 	ctx := context.Background()
-	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(withDeviceKeys), authtest.WithConfig(func(c *authkit.Config) {
-		c.Delegated = authkit.DelegatedConfig{Audiences: []string{audience}}
-	}), authtest.WithDeps(func(d *authkit.Deps) {
-		d.DelegatedAuthorization = func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
-			return iam.DelegationGrant{}, nil
-		}
-	}))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(withDeviceKeys))
 	identity := gated(h.auth, verify.Required(h.auth))
 	identityOf := func(t *testing.T, credential string) neutral.Identity {
 		t.Helper()
@@ -112,41 +87,6 @@ func TestSecurityIdentitySubjectInvokerCredential(t *testing.T) {
 		require.NoError(t, h.auth.RevokeAPIKey(ctx, iam.UserIdentity(owner.id), group, first.ID))
 		requireStatus(t, identity(t, bearer(firstSecret)), http.StatusUnauthorized, "api_key_revoked")
 		require.Equal(t, a.Subject, identityOf(t, secondSecret).Subject, "a revoked credential leaves its subject")
-	})
-
-	signer := newSigner(t, "identity-app")
-	const appIssuer = "https://identity-app.security.test"
-	app, err := h.auth.UpsertRemoteApplication(ctx, iam.SystemIdentity(), iam.RootGroup(), iam.RemoteApplication{
-		Issuer: appIssuer, PublicKeys: staticKeys(t, signer), Enabled: true,
-	})
-	require.NoError(t, err)
-
-	t.Run("application by its signed token", func(t *testing.T) {
-		id := identityOf(t, appToken(t, signer, appIssuer))
-		require.Equal(t, issuer, id.Issuer, "the deployment that registered it vouches")
-		require.Equal(t, app.ID, id.Subject)
-		require.Equal(t, neutral.SubjectApplication, id.SubjectKind)
-		require.Equal(t, neutral.CredentialSignedToken, id.Credential.Kind)
-		self(t, id)
-	})
-
-	t.Run("an application's user invokes the application", func(t *testing.T) {
-		id := identityOf(t, delegatedAppToken(t, signer, appIssuer, "u_42"))
-		require.Equal(t, app.ID, id.Subject, "the application's authority and money")
-		require.Equal(t, neutral.SubjectApplication, id.SubjectKind)
-		require.Equal(t, neutral.Invoker{Issuer: appIssuer, ID: "u_42"}, id.Invoker, "the foreign user acting")
-		require.False(t, id.SelfInvoked())
-		require.Equal(t, neutral.CredentialSignedToken, id.Credential.Kind)
-		require.Empty(t, id.Email, "a foreign invoker's subject has no account to read")
-	})
-
-	t.Run("a token delegated from a user is the user", func(t *testing.T) {
-		token, err := h.auth.MintDelegatedAccessToken(ctx, iam.SystemIdentity(), iam.DelegatedAccess{Subject: user.id, Audiences: []string{audience}})
-		require.NoError(t, err)
-		id := identityOf(t, token.Value)
-		require.Equal(t, user.id, id.Subject)
-		require.Equal(t, neutral.CredentialAccessToken, id.Credential.Kind)
-		self(t, id)
 	})
 
 	t.Run("a revoked session is refused, the user's other sign-in is not", func(t *testing.T) {
@@ -217,8 +157,5 @@ func TestSecurityIdentityStateIsAuthKits(t *testing.T) {
 		require.False(t, can(pinned, groupB), "pinned to A, refused in B though the application controls B")
 		_, moved := iam.StateOf(iam.PinnedTo(pinned, groupB.ID()))
 		require.False(t, moved, "narrowing never moves a pin")
-		delegated := iam.DelegatedIdentity(iam.DelegatedGrant{Issuer: "https://pinned-app.security.test", Subject: "u_42",
-			Permissions: []iam.Perm{catalog}, RemoteApplicationID: app.ID, GroupID: groupA.ID()})
-		require.False(t, can(delegated, groupB), "its delegation for A is refused in B")
 	})
 }

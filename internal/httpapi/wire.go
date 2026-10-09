@@ -281,22 +281,6 @@ type AdminUserUpdateRequest struct {
 	PreferredLanguage *string `json:"preferred_language"`
 }
 
-type DelegatedTokenRequest struct {
-	// TTLSeconds is an optional override, clamped into the configured
-	// floor/ceiling; absent or <= 0 mints the configured default.
-	TTLSeconds int `json:"ttl_seconds"`
-	// Audiences is an optional narrowing; every requested audience must be in
-	// the configured allowlist. Absent mints the full configured list.
-	Audiences []string `json:"audiences"`
-	// DelegateCertificateDERB64URL is the delegate's public X.509 leaf as
-	// unpadded base64url DER; the token is bound to exactly this certificate.
-	// Omitted when a DPoP proof binds the token instead.
-	DelegateCertificateDERB64URL string `json:"delegate_certificate_der_b64url"`
-	// RequestedGrant is one host-schema JSON object passed to the authorizer
-	// verbatim and never copied into the token.
-	RequestedGrant json.RawMessage `json:"requested_grant"`
-}
-
 // MemberListQuery filters a group's members; kind and role repeat, and
 // expand=user adds each user member's PublicUser.
 type MemberListQuery struct {

@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	hostauth "github.com/open-rails/helpers/auth"
@@ -27,10 +26,7 @@ import (
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
-	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/internal/testdb"
-	"github.com/open-rails/authkit/internal/testkeys"
-	"github.com/open-rails/authkit/keys"
 	"github.com/open-rails/authkit/provider"
 	"github.com/open-rails/authkit/verify"
 )
@@ -206,11 +202,6 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 	require.False(t, can(iam.Within(iam.UserIdentity(carol.ID), membersRead), golangRef, postsEdit), "a ceiling narrows")
 	require.True(t, can(iam.APIKeyIdentity(key.ID), golangRef, postsEdit))
 	require.False(t, can(iam.APIKeyIdentity(key.ID), annRef, postsEdit), "a key is bound to its group")
-	local := iam.DelegatedIdentity(iam.DelegatedGrant{Issuer: authtest.Issuer, Subject: carol.ID, Permissions: []iam.Perm{membersRead}})
-	require.True(t, can(local, golangRef, membersRead))
-	require.False(t, can(local, golangRef, postsEdit), "a delegation is capped by its permissions")
-	foreign := iam.DelegatedIdentity(iam.DelegatedGrant{Issuer: "https://elsewhere.test", Subject: carol.ID, Permissions: []iam.Perm{membersRead}})
-	require.False(t, can(foreign, golangRef, membersRead), "a foreign delegation carries no authority here")
 	require.True(t, can(iam.SystemIdentity(), golangRef, postsEdit))
 	require.False(t, can(hostauth.Identity{}, golangRef, postsEdit))
 	_, err = auth.Can(ctx, iam.UserIdentity(carol.ID), golangRef, wire[iam.Perm](t, "channel:posts:pin"))
@@ -471,11 +462,9 @@ func TestGroupRoleOperations(t *testing.T) {
 	key, _, err := createKey(auth, ctx, iam.UserIdentity(founder.ID), acme, iam.NewAPIKey{Name: "manager-key", Role: manager})
 	require.NoError(t, err)
 	for name, who := range map[string]hostauth.Identity{
-		"user":                  iam.UserIdentity(mgr.ID),
-		"api_key":               iam.APIKeyIdentity(key.ID),
-		"remote_application":    iam.ApplicationIdentity(app.ID),
-		"delegated_local":       iam.DelegatedIdentity(iam.DelegatedGrant{Issuer: authtest.Issuer, Subject: mgr.ID, Permissions: []iam.Perm{org.All()}}),
-		"delegated_application": iam.DelegatedIdentity(iam.DelegatedGrant{Issuer: app.Issuer, Subject: "customer", Permissions: []iam.Perm{org.All()}, RemoteApplicationID: app.ID, GroupID: acme.ID()}),
+		"user":               iam.UserIdentity(mgr.ID),
+		"api_key":            iam.APIKeyIdentity(key.ID),
+		"remote_application": iam.ApplicationIdentity(app.ID),
 	} {
 		t.Run(name, func(t *testing.T) {
 			fresh := newSubject(t)
@@ -495,10 +484,6 @@ func TestGroupRoleOperations(t *testing.T) {
 			}
 		})
 	}
-	t.Run("foreign_delegation", func(t *testing.T) {
-		foreign := iam.DelegatedIdentity(iam.DelegatedGrant{Issuer: "https://foreign.test", Subject: mgr.ID, Permissions: []iam.Perm{org.All()}})
-		require.ErrorIs(t, assign(auth, foreign, acme, newSubject(t), member), iam.ErrInsufficientAuthority)
-	})
 	t.Run("system", func(t *testing.T) {
 		require.NoError(t, assign(auth, iam.SystemIdentity(), acme, newSubject(t), org.Owner))
 		require.ErrorIs(t, removeMember(auth, iam.SystemIdentity(), other, founder), iam.ErrLastOwner)
@@ -742,19 +727,12 @@ func TestRootGroupHTTPWorkflow(t *testing.T) {
 	require.Empty(t, rootRole(target.ID))
 	require.Equal(t, http.StatusOK, a.get("/groups/root/members", stale).status)
 
-	// Machine and delegated identities never change root, even with the
-	// authority to; a delegation never reads it either.
+	// A machine identity never changes root, even with the authority to.
 	_, keyToken, err := createKey(auth, ctx, iam.UserIdentity(owner.ID), iam.RootGroup(), iam.NewAPIKey{Name: "root-admin-key", Role: adminRole})
 	require.NoError(t, err)
-	delegated, err := auth.MintDelegatedAccessToken(ctx, iam.SystemIdentity(), iam.DelegatedAccess{Audiences: []string{authtest.Audience}, Subject: admin.ID,
-		Permissions: []string{m.rbac.Root.Members.All().String(), ident.RootUsersRead.String()}})
-	require.NoError(t, err)
-	for _, token := range []string{keyToken, delegated.Value} {
-		res := a.do(member(http.MethodPut, target.ID, "root:site-admin", token))
-		require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, res.status, res.String())
-	}
+	res = a.do(member(http.MethodPut, target.ID, "root:site-admin", keyToken))
+	require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, res.status, res.String())
 	require.Empty(t, rootRole(target.ID))
-	require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, a.get("/groups/root/members", delegated.Value).status)
 
 	// The root role catalog.
 	res = a.get("/groups/root/roles", adminToken)
@@ -818,102 +796,32 @@ func publicKeyPEM(t testing.TB, pub crypto.PublicKey) string {
 	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
 }
 
-// remoteApplicationToken is an application's own access token, signed with
-// its key: no subject, the apitest audience. A non-nil perms narrows the
-// application's stored authority.
-func remoteApplicationToken(t testing.TB, signer keys.Signer, issuer string, perms []string) string {
-	t.Helper()
-	now := time.Now()
-	claims := jwt.MapClaims{"iss": issuer, "aud": []string{authtest.Audience}, "iat": now.Unix(), "exp": now.Add(time.Minute).Unix()}
-	if perms != nil {
-		claims["permissions"] = perms
-	}
-	token, err := jose.Sign(context.Background(), signer, jose.RemoteApplicationAccessTokenType, claims)
-	require.NoError(t, err)
-	return token
-}
-
-// An application owning a group operates its member routes with its own
-// signed token, within its live authority, its group and its token's ceiling.
-func TestRemoteOwnerOperatesGroupHTTP(t *testing.T) {
+// Verification is not a lease on database authority: a change between
+// verification and mutation is seen inside the mutation transaction; and
+// claims a host stores grant nothing.
+func TestVerifiedIdentityIsNoLease(t *testing.T) {
 	m := newOrgModel()
 	auth, _ := authtest.New(t, authtest.WithConfig(m.config))
 	ctx := t.Context()
-	a := newAPI(t, auth)
-	owner, peer := authtest.NewUser(t, auth), authtest.NewUser(t, auth)
-	ownerToken := authtest.SignIn(t, auth, owner).AccessToken
+	owner, manager, peer := authtest.NewUser(t, auth), authtest.NewUser(t, auth), authtest.NewUser(t, auth)
 	group := newGroup(t, auth, m.org.Persona, owner.ID)
-	other := newGroup(t, auth, m.org.Persona, owner.ID)
-	signer := testkeys.RSA("remote-owner")
-	app, err := auth.UpsertRemoteApplication(ctx, iam.SystemIdentity(), group, iam.RemoteApplication{
-		Issuer: "https://operable-owner.test", Enabled: true,
-		PublicKeys: []iam.RemoteApplicationKey{{KID: signer.KID(), PublicKeyPEM: publicKeyPEM(t, signer.Public())}},
-	})
-	require.NoError(t, err)
-	authtest.GrantRole(t, auth, group, iam.RemoteApplicationSubject(app.ID), m.org.Owner)
-	mint := func(perms []string) string {
-		t.Helper()
-		return remoteApplicationToken(t, signer, app.Issuer, perms)
-	}
-	token := mint(nil)
+	authtest.GrantRole(t, auth, group, iam.UserSubject(manager.ID), m.org.Owner)
+	token := authtest.SignIn(t, auth, manager).AccessToken
+	who := authtest.Identity(t, auth, token)
+	require.NoError(t, assign(auth, who, group, iam.UserSubject(peer.ID), m.member), "control")
+	authtest.GrantRole(t, auth, group, iam.UserSubject(manager.ID), m.member)
+	require.ErrorIs(t, assign(auth, who, group, iam.UserSubject(authtest.NewUser(t, auth).ID), m.member), iam.ErrInsufficientAuthority)
+
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	verified, err := auth.VerifyRequest(req)
 	require.NoError(t, err)
-	// Verification is not a lease on database authority: a change between
-	// verification and mutation must be seen inside the mutation transaction.
-	who := authtest.Identity(t, auth, token)
-	state, ok := iam.StateOf(who)
-	require.True(t, ok && state.IsApplication())
-	authtest.GrantRole(t, auth, group, iam.RemoteApplicationSubject(app.ID), m.member)
-	require.ErrorIs(t, assign(auth, who, group, iam.UserSubject(peer.ID), m.member), iam.ErrInsufficientAuthority)
-	authtest.GrantRole(t, auth, group, iam.RemoteApplicationSubject(app.ID), m.org.Owner)
-	// Application authority is bound to its controlling group and its ceiling.
-	require.ErrorIs(t, assign(auth, who, other, iam.UserSubject(peer.ID), m.member), iam.ErrInsufficientAuthority)
-	require.ErrorIs(t, assign(auth, iam.Within(who, m.catalog), group, iam.UserSubject(peer.ID), m.member), iam.ErrInsufficientAuthority)
 	forged := verified
 	forged.Kind = verify.TokenAPIKey
 	stored, _ := verify.IdentityFromContext(verify.SetClaims(ctx, forged))
-	_, ok = iam.StateOf(stored)
+	_, ok := iam.StateOf(stored)
 	require.False(t, ok, "claims a host stores grant nothing")
 	require.ErrorIs(t, assign(auth, hostauth.Identity{}, group, iam.UserSubject(peer.ID), m.member), iam.ErrInsufficientAuthority)
-	call := func(method, path string, body any, bearer string, status int) {
-		t.Helper()
-		res := a.do(request{method: method, path: path, body: body, token: bearer})
-		require.Equal(t, status, res.status, res.String())
-	}
-	members := "/groups/" + group.ID() + "/members"
-	base := members + "/users/"
-	role := func(r string) map[string]string { return map[string]string{"role": r} }
-	// A signed app-self credential can manage existing users on its own group.
-	call(http.MethodPut, base+peer.ID, role("org:member"), token, http.StatusOK)
-	call(http.MethodPut, base+peer.ID, role("org:owner"), mint([]string{m.org.Members.Manage.String()}), http.StatusForbidden)
-	call(http.MethodPut, base+peer.ID, role("org:member"), mint([]string{}), http.StatusForbidden)
-	call(http.MethodPut, "/groups/"+other.ID()+"/members/users/"+peer.ID, role("org:member"), token, http.StatusForbidden)
-	// Full live authority cannot widen a downscoped credential when replacing
-	// an existing owner, even if the requested replacement is a lesser role.
-	call(http.MethodPut, base+peer.ID, role("org:owner"), token, http.StatusOK)
-	call(http.MethodPut, base+peer.ID, role("org:member"), mint([]string{m.org.Members.Manage.String(), m.catalog.String()}), http.StatusForbidden)
-	call(http.MethodDelete, base+peer.ID, nil, token, http.StatusNoContent)
-	call(http.MethodDelete, base+owner.ID, nil, ownerToken, http.StatusNoContent)
-	// The last native owner may leave: the remaining remote owner can restore
-	// native ownership through exactly the supported signed HTTP interface.
-	call(http.MethodPut, base+peer.ID, role("org:owner"), token, http.StatusOK)
-	call(http.MethodGet, members, nil, token, http.StatusOK)
-	// Only a user issues invitations.
-	call(http.MethodPost, "/groups/"+group.ID()+"/invitations", map[string]string{"email": "unregistered@example.test", "role": "org:member"}, token, http.StatusForbidden)
-	// Sender metadata on a delegated credential is never app-self authority.
-	delegated, err := jose.Sign(ctx, signer, jose.DelegatedAccessTokenType, jwt.MapClaims{"iss": app.Issuer, "aud": []string{authtest.Audience}, "exp": time.Now().Add(time.Minute).Unix(),
-		"delegated_sub": "external-customer", "permissions": []string{m.org.All().String()}})
-	require.NoError(t, err)
-	res := a.do(request{method: http.MethodPut, path: base + owner.ID, body: role("org:owner"), token: delegated})
-	require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, res.status, res.String())
-	// A cached signature/issuer never preserves disabled application authority.
-	app.Enabled = false
-	_, err = auth.UpsertRemoteApplication(ctx, iam.SystemIdentity(), iam.GroupByID(app.GroupID), app)
-	require.NoError(t, err)
-	res = a.do(request{method: http.MethodPut, path: base + owner.ID, body: role("org:owner"), token: token})
-	require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, res.status, res.String())
 }
 
 // oneConnection is a replica of auth on a pool of one connection, so no

@@ -145,7 +145,7 @@ func requireIdentity(a auth.Identity) error {
 // banned, revoked, expired or disabled identity is
 // ErrInsufficientAuthority; one whose bound session or device key is revoked
 // (Identity.InSession) is ErrSessionRevoked. An identity bound to another group
-// resolves with no grants, as does a delegation from a foreign issuer.
+// resolves with no grants.
 func (s *Engine) identityAuthority(ctx context.Context, st *permissionGroupStore, a auth.Identity, g groupTarget) (authority, error) {
 	cs, ok := iam.StateOf(a)
 	if !ok {
@@ -162,13 +162,9 @@ func (s *Engine) identityAuthority(ctx context.Context, st *permissionGroupStore
 	case cs.IsAPIKey():
 		return s.apiKeyAuthority(ctx, st, out, cs.ID(), g)
 	case cs.IsApplication():
-		return s.applicationAuthority(ctx, st, out, cs.ID(), cs.Group(), g)
+		return s.applicationAuthority(ctx, st, out, cs.ID(), g)
 	case cs.IsUser():
 		return s.userAuthority(ctx, st, out, cs.ID(), session, g)
-	case cs.Delegated() && cs.DelegatedIssuer() == strings.TrimSpace(s.cfg.Token.Issuer):
-		return s.userAuthority(ctx, st, out, cs.ID(), session, g)
-	case cs.Delegated():
-		return out, nil
 	}
 	return authority{}, iam.ErrInsufficientAuthority
 }
@@ -190,13 +186,13 @@ func (s *Engine) userAuthority(ctx context.Context, st *permissionGroupStore, ou
 }
 
 // applicationAuthority resolves an enabled application in a live controlling
-// group. Its authority is bound to that group; wantGroup, when set, must match it.
-func (s *Engine) applicationAuthority(ctx context.Context, st *permissionGroupStore, out authority, appID, wantGroup string, g groupTarget) (authority, error) {
+// group. Its authority is bound to that group.
+func (s *Engine) applicationAuthority(ctx context.Context, st *permissionGroupStore, out authority, appID string, g groupTarget) (authority, error) {
 	if !isUUID(appID) {
 		return authority{}, iam.ErrInsufficientAuthority
 	}
 	control, err := db.New(st.q).AuthorityApplicationGroup(ctx, appID)
-	if errors.Is(err, pgx.ErrNoRows) || err == nil && wantGroup != "" && wantGroup != control {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return authority{}, iam.ErrInsufficientAuthority
 	}
 	if err != nil || control != g.ID {

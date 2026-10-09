@@ -23,7 +23,7 @@ Every route lives beneath `HTTPConfig.BasePath`:
 
 ## Which routes are mounted
 
-- A route is mounted only when its feature is on. Each feature has its switch, such as `Passkeys`, `TwoFactor`, `DeviceKeys.Enabled`, `Delegated.Audiences`, `SolanaNetwork` or `Deps.Providers`. The OpenAPI entry's `x-authkit-mounted-when` names the feature.
+- A route is mounted only when its feature is on. Each feature has its switch, such as `Passkeys`, `TwoFactor`, `DeviceKeys.Enabled`, `AuthorizationServer.Clients`, `SolanaNetwork` or `Deps.Providers`. The OpenAPI entry's `x-authkit-mounted-when` names the feature.
 - `Invitations.Disabled` turns invitations off: the four invitation routes go, `/capabilities` reports `invitations.enabled` false, and issuing or redeeming one is `invitations_disabled`.
 - `HTTPConfig.Groups` limits the surface to route groups (`iam.RouteGroup`); nil mounts them all.
 - `HTTPConfig.Exclude` drops individual routes the host serves itself.

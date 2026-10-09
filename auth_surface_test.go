@@ -61,15 +61,13 @@ func TestClientPublicSurface(t *testing.T) {
 		"SetGroupRole", "RemoveGroupMember", "Can", "EffectivePermissions",
 		// Credentials and invitations.
 		"CreateAPIKey", "RevokeAPIKey", "CreateInvitation", "RevokeInvitation",
-		// Remote applications and delegation.
-		"UpsertRemoteApplication", "DeleteRemoteApplication", "MintDelegatedAccessToken",
+		// Remote applications.
+		"UpsertRemoteApplication", "DeleteRemoteApplication",
 	}
 	hostOperations := []string{
 		"CreateUser", "PurgeUsers", "ResetAccountMFA", "MintAccessToken", "RevokeOAuthGrant",
 		"CreateGroup", "DeleteGroup", "PurgeGroup",
 		"ApplyBootstrapManifest", "EnsureUserRole", "ImportUsers", "ImportSolanaLinks", "LinkProvider",
-		// Signing that grants no AuthKit authority.
-		"MintServiceJWT",
 	}
 	reads := []string{
 		// The host is the trust boundary.
@@ -86,8 +84,7 @@ func TestClientPublicSurface(t *testing.T) {
 		"Start", "Close", "RiverJobs", "EmailAvailable", "EmailHealth", "SMSAvailable", "SMSHealth", "TwoFactorMethods",
 		// HTTP surface and request verification.
 		"Handler", "APIBase", "Routes", "Mount",
-		"VerifyRequest", "Verify", "VerifyServiceJWT", "AuthenticateRequest",
-		"CheckIssuerKeys", "IssuerKeyStatuses", "NewVerifier",
+		"VerifyRequest", "Verify", "AuthenticateRequest", "NewVerifier",
 		// helpers/auth Auth: a merchant library's route gates.
 		"Required", "RequirePermission", "Sensitive", "Identity",
 	}

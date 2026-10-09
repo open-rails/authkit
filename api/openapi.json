@@ -3412,54 +3412,6 @@
         "x-authkit-rate-limit": "admin_read"
       }
     },
-    "/api/v1/delegated/token": {
-      "post": {
-        "tags": [
-          "delegated"
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DelegatedTokenRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TokenSet"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "An error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "deprecated": true,
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "x-authkit-auth": "session",
-        "x-authkit-rate-limit": "delegated_token_mint",
-        "x-authkit-mounted-when": "delegated"
-      }
-    },
     "/api/v1/oauth2/authorizations/{authorization_id}": {
       "get": {
         "tags": [
@@ -5443,7 +5395,6 @@
               "api_key",
               "device_key",
               "session",
-              "signed_token",
               "system"
             ]
           },
@@ -5908,24 +5859,6 @@
           "channel",
           "reason"
         ]
-      },
-      "DelegatedTokenRequest": {
-        "type": "object",
-        "properties": {
-          "ttl_seconds": {
-            "type": "integer"
-          },
-          "audiences": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "delegate_certificate_der_b64url": {
-            "type": "string"
-          },
-          "requested_grant": {}
-        }
       },
       "DeviceKey": {
         "type": "object",
@@ -9027,14 +8960,6 @@
         "$ref": "#/components/schemas/TwoFactorRequired"
       }
     },
-    "access_token_has_sub": {
-      "status": 401,
-      "message": "An access token must not carry a subject."
-    },
-    "access_token_wrong_typ": {
-      "status": 401,
-      "message": "The token type is wrong for an access token."
-    },
     "account_authority_escalation": {
       "status": 403,
       "message": "You do not outrank that account."
@@ -9135,28 +9060,12 @@
       "status": 401,
       "message": "This token type does not accept a confirmation claim."
     },
-    "conflicting_subject": {
-      "status": 401,
-      "message": "The token carries conflicting subjects."
-    },
     "contact_not_verified": {
       "status": 409,
       "message": "The email address or phone number is not verified.",
       "metadata": {
         "$ref": "#/components/schemas/ContactProofRequired"
       }
-    },
-    "delegated_access_wrong_typ": {
-      "status": 401,
-      "message": "The token type is wrong for delegated access."
-    },
-    "delegation_authorizer_unavailable": {
-      "status": 503,
-      "message": "Delegation is unavailable."
-    },
-    "delegation_refused": {
-      "status": 403,
-      "message": "The delegation was refused."
     },
     "device_keys_disabled": {
       "status": 403,
@@ -9214,10 +9123,6 @@
       "status": 400,
       "message": "The address is invalid."
     },
-    "invalid_audiences": {
-      "status": 400,
-      "message": "The audiences are invalid."
-    },
     "invalid_bootstrap_manifest": {
       "status": 400,
       "message": "The bootstrap manifest is invalid."
@@ -9237,10 +9142,6 @@
     "invalid_credentials": {
       "status": 401,
       "message": "Wrong email or password."
-    },
-    "invalid_delegate_certificate": {
-      "status": 400,
-      "message": "The delegate certificate is invalid."
     },
     "invalid_domain": {
       "status": 401,
@@ -9294,14 +9195,6 @@
       "status": 400,
       "message": "Invalid request. Please check your input and try again."
     },
-    "invalid_requested_grant": {
-      "status": 400,
-      "message": "The requested grant is invalid."
-    },
-    "invalid_service_jwt": {
-      "status": 401,
-      "message": "The service token is invalid."
-    },
     "invalid_signature": {
       "status": 401,
       "message": "The wallet signature is invalid."
@@ -9354,10 +9247,6 @@
       "status": 409,
       "message": "The last owner cannot be removed."
     },
-    "malformed_permissions": {
-      "status": 401,
-      "message": "The permissions claim is malformed."
-    },
     "method_not_allowed": {
       "status": 405,
       "message": "That method is not allowed on this path."
@@ -9370,10 +9259,6 @@
       "status": 401,
       "message": "The token names no client."
     },
-    "missing_delegated_sub": {
-      "status": 401,
-      "message": "The delegated token carries no subject."
-    },
     "missing_exp": {
       "status": 401,
       "message": "The token carries no expiry."
@@ -9382,10 +9267,6 @@
       "status": 400,
       "message": "Please fill in all required fields."
     },
-    "missing_iat": {
-      "status": 401,
-      "message": "The token carries no issued-at."
-    },
     "missing_kid": {
       "status": 401,
       "message": "The token names no key."
@@ -9393,10 +9274,6 @@
     "missing_name": {
       "status": 400,
       "message": "A name is required."
-    },
-    "missing_nbf": {
-      "status": 401,
-      "message": "The token carries no not-before."
     },
     "missing_session_id": {
       "status": 400,
@@ -9421,10 +9298,6 @@
     "no_session": {
       "status": 401,
       "message": "No session is signed in."
-    },
-    "not_delegated_access_token": {
-      "status": 401,
-      "message": "The token is not a delegated access token."
     },
     "not_found": {
       "status": 404,
@@ -9507,10 +9380,6 @@
       "status": 403,
       "message": "Passwordless sign-in is disabled."
     },
-    "permission_not_granted": {
-      "status": 403,
-      "message": "The token claims a permission it was not granted."
-    },
     "phone_already_verified": {
       "status": 409,
       "message": "Your phone number is already verified."
@@ -9561,10 +9430,6 @@
       "status": 403,
       "message": "Registration is currently disabled."
     },
-    "remote_application_access_has_subject": {
-      "status": 401,
-      "message": "A remote-application token must not carry a subject."
-    },
     "remote_application_issuer_conflict": {
       "status": 409,
       "message": "That issuer already belongs to another remote application."
@@ -9606,10 +9471,6 @@
       "metadata": {
         "$ref": "#/components/schemas/RetryAfter"
       }
-    },
-    "service_jwt_lifetime_exceeded": {
-      "status": 401,
-      "message": "The service token lifetime is too long."
     },
     "session_revoked": {
       "status": 401,
@@ -9655,10 +9516,6 @@
       "metadata": {
         "$ref": "#/components/schemas/SignInLimit"
       }
-    },
-    "ttl_exceeds_delegate_certificate": {
-      "status": 400,
-      "message": "The TTL exceeds the delegate certificate."
     },
     "unauthenticated": {
       "status": 401,

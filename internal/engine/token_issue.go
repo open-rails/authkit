@@ -66,7 +66,7 @@ var authkitClaims = map[string]bool{
 	"iss": true, "sub": true, "aud": true, "iat": true, "nbf": true, "exp": true, "jti": true,
 	"sid": true, "device_key_id": true, "auth_time": true, "amr": true, "acr": true, "mfa_enrolled": true,
 	"root_role": true, "entitlements": true, "2fa_enrollment": true, "provider": true,
-	"delegated_sub": true, "permissions": true, "attributes": true, "cnf": true, "token_use": true,
+	"permissions": true, "cnf": true,
 	"email": true, "email_verified": true, "username": true,
 }
 

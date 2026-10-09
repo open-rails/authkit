@@ -34,13 +34,11 @@ func AuthenticateRequest(ctx context.Context, a Authenticator, r *http.Request) 
 
 // AuthenticateSession is AuthenticateRequest plus RequireSession's session
 // check, for identity-only code that must stop the moment a sign-in is
-// revoked (billing, say): a credential minted from a sign-in (a user's token,
-// or a delegated token AuthKit minted from one) is auth.ErrRevoked once it is
-// revoked, and so is a delegated token AuthKit minted without one. Unlike
-// RequireSession, a credential that carries no sign-in (an API key, a remote
-// application's token or delegation) passes: verification already refuses it
-// once revoked, and Can checks its authority live. Admitting only some kinds
-// is the caller's policy (Verified.Identity()).
+// revoked (billing, say): a user's token is auth.ErrRevoked once its sign-in
+// is revoked. Unlike RequireSession, a credential that carries no sign-in (an
+// API key) passes: verification already refuses it once revoked, and Can
+// checks its authority live. Admitting only some kinds is the caller's policy
+// (Verified.Identity()).
 func AuthenticateSession(ctx context.Context, a Authority, r *http.Request) (auth.Verified, error) {
 	cl, err := authenticate(ctx, a, r)
 	if err != nil {
@@ -167,8 +165,8 @@ var _ auth.RecentSignInChecker = sessionVerified{}
 // request again: the user's own token, signed in within the last 15 minutes,
 // with the second factor when the account has one. A stale sign-in is
 // auth.ErrStepUpRequired joined with step_up_required, whose Metadata lists
-// the account's step-up methods. A credential with no sign-in of its own (a
-// delegated token, an API key) is auth.ErrForbidden, and a revoked session
+// the account's step-up methods. A credential with no sign-in of its own (an
+// API key) is auth.ErrForbidden, and a revoked session
 // auth.ErrRevoked.
 func (p sessionVerified) CheckRecentSignIn(ctx context.Context) error {
 	err := p.sessions.CheckRecentSignIn(ctx, p.claims)

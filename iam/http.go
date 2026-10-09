@@ -17,9 +17,6 @@ const (
 	RouteAdmin            RouteGroup = "admin"
 	RoutePermissionGroups RouteGroup = "groups"
 	RouteBrowserOIDC      RouteGroup = "browser_oidc"
-	// RouteDelegated is the delegated-token mint surface (POST
-	// /delegated/token), mounted only when Config.Delegated declares audiences.
-	RouteDelegated RouteGroup = "delegated"
 	// RouteAuthorizationServer is the OAuth 2.0 authorization server and
 	// OpenID provider: issuer metadata, authorize, token, userinfo,
 	// revocation and RP-initiated logout beneath the issuer's path, and the

@@ -15,15 +15,13 @@ import (
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/jose"
-	"github.com/open-rails/authkit/internal/netguard"
 	"github.com/open-rails/authkit/verify"
 )
 
 // Authenticator authenticates requests against this deployment: its API
-// keys, the tokens it issues (verified statelessly against its live key
-// source) and the tokens its stored remote applications issue (federation),
-// for a set of audiences. The engine's own serves AuthKit's routes and the
-// Client; NewAuthenticator builds one for a host resource server.
+// keys and the tokens it issues (verified statelessly against its live key
+// source), for a set of audiences. The engine's own serves AuthKit's routes
+// and the Client; NewAuthenticator builds one for a host resource server.
 type Authenticator struct {
 	s         *Engine
 	v         *verify.Verifier
@@ -31,11 +29,6 @@ type Authenticator struct {
 	// own marks the deployment's authenticator: it applies the Required 2FA
 	// gate and its enrollment-route exemptions.
 	own bool
-
-	mu sync.Mutex
-	// registered is each application's key source as last registered on v,
-	// re-registered when the live row's differs.
-	registered map[string]string
 }
 
 // newAuthenticator trusts this deployment's issuer for audiences; opts come
@@ -44,9 +37,6 @@ func (s *Engine) newAuthenticator(audiences []string, own bool, opts ...verify.V
 	cfg := s.cfg
 	base := []verify.VerifierOption{
 		verify.WithSkew(5 * time.Second),
-		// Applications register their own JWKS URIs: SSRF-guarded unless the
-		// deployment federates on a private network (#257).
-		verify.WithHTTPClient(netguard.Client(netguard.DefaultTimeout, cfg.Token.AllowPrivateNetworkJWKS)),
 		verify.WithDPoP(s.ClaimDPoPProof),
 		verify.WithPublicURL(issuerOrigin(cfg.Token.Issuer)),
 	}
@@ -60,8 +50,7 @@ func (s *Engine) newAuthenticator(audiences []string, own bool, opts ...verify.V
 }
 
 // NewAuthenticator builds an authenticator for a host resource server in this
-// process: this deployment's API keys and tokens and its remote
-// applications' tokens, for audiences. DPoP proofs are spent in this
+// process: this deployment's API keys and tokens, for audiences. DPoP proofs are spent in this
 // deployment's replay store and checked against the issuer's origin unless
 // opts say otherwise (verify.WithPublicURL). It applies no 2FA policy.
 func (s *Engine) NewAuthenticator(audiences []string, opts ...verify.VerifierOption) (*Authenticator, error) {
@@ -88,21 +77,8 @@ func (s *Engine) Verify(ctx context.Context, token string) (verify.Claims, error
 	return s.auth.Verify(ctx, token)
 }
 
-// VerifyServiceJWT verifies a service JWT this deployment or one of its
-// remote applications issued.
-func (s *Engine) VerifyServiceJWT(ctx context.Context, token string, opts ...verify.ServiceJWTVerifyOption) (iam.ServiceJWTClaims, error) {
-	return s.auth.VerifyServiceJWT(ctx, token, opts...)
-}
-
-// CheckIssuerKeys is the no-I/O health probe of the remote applications'
-// JWKS keys (verify.Verifier.CheckIssuerKeys).
-func (s *Engine) CheckIssuerKeys(ctx context.Context) error { return s.auth.CheckIssuerKeys(ctx) }
-
-// IssuerKeyStatuses reports the remote applications' JWKS key state.
-func (s *Engine) IssuerKeyStatuses() []verify.IssuerKeyStatus { return s.auth.IssuerKeyStatuses() }
-
 // VerifyRequest authenticates r: an API key is resolved and never tried as
-// a JWT; a JWT is this deployment's or a stored application's.
+// a JWT; a JWT is this deployment's.
 func (a *Authenticator) VerifyRequest(r *http.Request) (verify.Claims, error) {
 	token, dpop := jose.RequestToken(r)
 	if token == "" {
@@ -114,8 +90,7 @@ func (a *Authenticator) VerifyRequest(r *http.Request) (verify.Claims, error) {
 	return a.authenticate(r.Context(), token, r, dpop)
 }
 
-// Verify is VerifyRequest for a token detached from any request, so a
-// sender-bound delegated token fails with verify.ErrSenderProofRequired.
+// Verify is VerifyRequest for a token detached from any request.
 func (a *Authenticator) Verify(ctx context.Context, token string) (verify.Claims, error) {
 	if token = strings.TrimSpace(token); token == "" {
 		return verify.Claims{}, errmodel.E(errmodel.CodeUnauthenticated)
@@ -123,37 +98,11 @@ func (a *Authenticator) Verify(ctx context.Context, token string) (verify.Claims
 	return a.authenticate(ctx, token, nil, false)
 }
 
-// VerifyServiceJWT verifies a service JWT (verify.Verifier.VerifyServiceJWT)
-// of this deployment or of a stored application.
-func (a *Authenticator) VerifyServiceJWT(ctx context.Context, token string, opts ...verify.ServiceJWTVerifyOption) (iam.ServiceJWTClaims, error) {
-	found := false
-	if _, claims, ok := jose.Unverified(strings.TrimSpace(token)); ok {
-		var err error
-		if _, found, err = a.federated(ctx, jose.String(claims, "iss")); err != nil {
-			return iam.ServiceJWTClaims{}, err
-		}
-	}
-	cl, err := a.v.VerifyServiceJWT(ctx, token, opts...)
-	if err != nil {
-		return iam.ServiceJWTClaims{}, err
-	}
-	if !found && !a.local(cl.Issuer) {
-		return iam.ServiceJWTClaims{}, errmodel.E(errmodel.CodeBadIssuer)
-	}
-	return cl, nil
-}
-
-// local reports whether iss is this deployment's issuer: the only one a
-// token not federated through an enabled application may carry (ak#417).
+// local reports whether iss is this deployment's issuer: the only one its
+// tokens carry.
 func (a *Authenticator) local(iss string) bool {
 	return a.s.cfg.Token.Issuer != "" && strings.TrimSpace(iss) == a.s.cfg.Token.Issuer
 }
-
-// CheckIssuerKeys is the no-I/O health probe of the applications' JWKS keys.
-func (a *Authenticator) CheckIssuerKeys(ctx context.Context) error { return a.v.CheckIssuerKeys(ctx) }
-
-// IssuerKeyStatuses reports the applications' JWKS key state and age.
-func (a *Authenticator) IssuerKeyStatuses() []verify.IssuerKeyStatus { return a.v.IssuerKeyStatuses() }
 
 func (a *Authenticator) authenticate(ctx context.Context, token string, r *http.Request, dpop bool) (verify.Claims, error) {
 	cl, err := a.credential(ctx, token, r, dpop)
@@ -179,15 +128,6 @@ func (a *Authenticator) credential(ctx context.Context, token string, r *http.Re
 			return verify.Claims{}, verify.ErrSenderProofRequired
 		}
 		return a.s.apiKeyClaims(ctx, token)
-	}
-	if typ, claims, ok := jose.Unverified(token); ok {
-		app, found, err := a.federated(ctx, jose.String(claims, "iss"))
-		if err != nil {
-			return verify.Claims{}, err
-		}
-		if found {
-			return a.applicationClaims(ctx, app, token, typ, r, dpop)
-		}
 	}
 	var cl verify.Claims
 	var err error

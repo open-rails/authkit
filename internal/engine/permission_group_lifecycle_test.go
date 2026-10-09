@@ -113,8 +113,6 @@ func TestGroupLifecycleWorkflow(t *testing.T) {
 		require.NoError(t, svc.DeleteGroup(ctx, iam.GroupByID(controller)))
 		_, err = svc.GetRemoteApplication(ctx, application.Issuer)
 		require.Error(t, err)
-		_, _, err = svc.storedApplicationAuthority(ctx, application.ID)
-		require.Error(t, err)
 		allowed, err := svc.Can(ctx, iam.ApplicationIdentity(application.ID), survivor, ident.Perm("org:billing:read"))
 		require.NoError(t, err)
 		require.False(t, allowed)

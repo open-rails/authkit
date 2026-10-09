@@ -6,9 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"testing"
-	"time"
 
-	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
 
 	"github.com/open-rails/authkit"
@@ -18,7 +16,7 @@ import (
 
 // Config.RemoteApplications is the declared set: New registers it on root and
 // disables what this deployment declared at an earlier boot and no longer
-// does. A removed application keeps its row and role, verifies nothing, and
+// does. A removed application keeps its row and role, confers nothing, and
 // comes back when it is declared again. An application registered through an
 // operation, or declared by a deployment sharing the store, is left alone.
 func TestDeclaredRemoteApplications(t *testing.T) {
@@ -48,16 +46,11 @@ func TestDeclaredRemoteApplications(t *testing.T) {
 		require.NoError(t, err, issuer)
 		return a
 	}
-	// A delegation billing signs verifies only while billing is enabled.
-	verifies := func(auth *authkit.Client) error {
-		now := time.Now()
-		token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{"iss": billing, "aud": []string{authtest.Audience},
-			"iat": now.Unix(), "nbf": now.Unix(), "exp": now.Add(5 * time.Minute).Unix(), "delegated_sub": unique("sub")})
-		token.Header["kid"], token.Header["typ"] = "billing-1", "delegated-access+jwt"
-		signed, err := token.SignedString(key)
-		require.NoError(t, err)
-		_, err = auth.Verify(ctx, signed)
-		return err
+	// What a resource server trusting the registry reads: billing is
+	// trusted, with its role's grants as the ceiling, only while enabled.
+	trusted := func(auth *authkit.Client) bool {
+		a := app(auth, billing)
+		return a.Enabled && len(a.Permissions) > 0
 	}
 
 	root, err := auth.Group(ctx, iam.RootGroup())
@@ -69,7 +62,7 @@ func TestDeclaredRemoteApplications(t *testing.T) {
 		require.Equal(t, iam.ApplicationTrustRootManual, got.TrustRoot, issuer)
 	}
 	require.Equal(t, service, app(auth, billing).Role)
-	require.NoError(t, verifies(auth))
+	require.True(t, trusted(auth))
 
 	_, err = auth.UpsertRemoteApplication(ctx, iam.SystemIdentity(), iam.RootGroup(), iam.RemoteApplication{Issuer: manual, JWKSURI: manual + "/jwks.json", Enabled: true})
 	require.NoError(t, err)
@@ -84,7 +77,7 @@ func TestDeclaredRemoteApplications(t *testing.T) {
 	require.False(t, gone.Enabled, "an application no longer declared is disabled")
 	require.Equal(t, service, gone.Role, "it keeps its role")
 	require.Empty(t, gone.Permissions, "and confers nothing")
-	require.Error(t, verifies(next), "a disabled application's token verified")
+	require.False(t, trusted(next), "a disabled application is still trusted")
 	require.Equal(t, moved.JWKSURI, app(next, search).JWKSURI)
 	for _, issuer := range []string{search, manual, sibling} {
 		require.True(t, app(next, issuer).Enabled, "%s is declared, or not this deployment's to remove", issuer)
@@ -104,7 +97,7 @@ func TestDeclaredRemoteApplications(t *testing.T) {
 	require.False(t, app(next, billing).Enabled)
 	next = restart(t, next, declare(billingApp, moved))
 	require.True(t, app(next, billing).Enabled)
-	require.NoError(t, verifies(next))
+	require.True(t, trusted(next))
 
 	// Nil declares nothing and changes nothing; an empty set removes them all.
 	next = restart(t, next, declare())

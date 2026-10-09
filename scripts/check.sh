@@ -39,11 +39,11 @@ bad = [e for e in events if e.get('Action') in ('fail', 'build-fail')
 if bad:
     raise SystemExit(f'Unqualified workflows: {bad}')
 # Required by name, so a test can move between packages without an edit here.
-required = ('TestSecurityAccessTokenForgery', 'TestSecurityBearerTransport', 'TestSecurityRefreshTokenTheft',
+required = ('TestSecurityAccessTokenForgery', 'TestSecurityBearerTransport', 'TestSecurityRefreshTokenTheft', 'TestSecurityTokenExchangeOutlivingRevocation', 'TestSecurityGrantAuthorizerClamp',
             'TestSecurityRefreshHistoryIsBounded',
             'TestSecurityRefreshGraceDoesNotFork', 'TestSecuritySessionRevocationEvents',
             'TestSecurityPasswordChangeEndsOtherSessions', 'TestSecurityRevokedSessionCannotChangeCredentials',
-            'TestSecurityDelegationOutlivingRevocation', 'TestSecuritySecondFactorLockout',
+            'TestSecuritySecondFactorLockout',
             'TestSecuritySecondFactorGuessBudget', 'TestSecurityUnbanRequiresAuthority',
             'TestSecurityRemoteApplicationTakeover', 'TestSecurityRoleEscalation', 'TestSecurityMultiReplicaStores',
             'TestSecurityClientAddressSpoofing', 'TestSecurityKeyRotationIsPublished',
@@ -52,12 +52,9 @@ required = ('TestSecurityAccessTokenForgery', 'TestSecurityBearerTransport', 'Te
             'TestSecurityRegistrationNeverSelfVerifies', 'TestSecurityProviderEmailTrust',
             'TestSecurityPasswordLimitIsPerAddress', 'TestSecurityDemotedCreatorCredentials',
             'TestSecurityRevokeAboveOwnRole', 'TestSecurityRemoteApplicationIssuerSquat',
-            'TestSecurityDelegatedGrantClamp', 'TestSecurityAccountPeerRemoteApplication',
+            'TestSecurityAccountPeerRemoteApplication',
             'TestSecuritySystemApplicationRekey', 'TestSecurityGroupApplicationTrustRoot',
-            'TestSecurityApplicationMFARoles', 'TestSecurityDelegationManagementPlane',
-            'TestSecurityRemovedRoutesAreGone', 'TestSecurityTokenMatrix', 'TestSecurityDelegatedMintAuthority',
-            'TestSecurityRemoteApplicationPaging', 'TestSecurityServiceJWTPermissionsOnly',
-            'TestSecurityBootstrapNeverAdoptsSquatters', 'TestSecurityEnsureUserRole', 'TestSecurityImportUsers',
+            'TestSecurityApplicationMFARoles', 'TestSecurityRemovedRoutesAreGone', 'TestSecurityTokenMatrix', 'TestSecurityRemoteApplicationPaging', 'TestSecurityBootstrapNeverAdoptsSquatters', 'TestSecurityEnsureUserRole', 'TestSecurityImportUsers',
             'TestSecurityImportSolanaLinks', 'TestSecurityLinkProvider', 'TestSecurityIssuerWithoutAudience',
             'TestSecurityOIDCStateCookieIsHostPrefixed', 'TestSecurityProviderIssuerCollisions',
             'TestSecurityInviteTokenNotInURL', 'TestSecurityProviderPKCE', 'TestSecurityFormPostCallbackIsBounded',
@@ -101,10 +98,12 @@ required = ('TestSecurityAccessTokenForgery', 'TestSecurityBearerTransport', 'Te
             'TestRecoveryProofCannotCrossGenerationOrRaceFinalPurge', 'TestCookieRegistry',
             'TestAccountAdmissionWorkflow', 'TestAuthenticationContinuationWorkflow',
             'TestProviderAuthenticationWorkflow', 'TestNativeCredentialWorkflow', 'TestCookieLoginBrowserTwoSites',
-            'TestBrowserDelegationWorkflow', 'TestWorkflowRateLimits',
+            'TestWorkflowRateLimits',
             'TestStaffAccountRestoreHTTPRequiresCurrentAuthority', 'TestAccountRecoveryPasswordConfirmationBoundary',
             'TestAccountRecoveryUsesExistingCredentialAndMFACeremonies', 'TestNoCredentialOutlivesItsIssuer',
-            'TestRoleCatalogChangesAtBoot')
+            'TestRoleCatalogChangesAtBoot', 'TestRemoteApplicationRegistry',
+            'TestOAuthGrantAuthorizerDecidesEveryGrant', 'TestOAuthGrantAuthorizerRefusals', 'TestOAuthOfflineGrants',
+            'TestOAuthGrantLifetimesAndKeys', 'TestOAuthResourceServerReadsGrants')
 passed = {e['Test'] for e in events if e.get('Action') == 'pass' and e.get('Test')}
 missing = [name for name in required if name not in passed]
 if missing:

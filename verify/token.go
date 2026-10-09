@@ -18,7 +18,7 @@ import (
 )
 
 // Sender-proof errors: RFC 8705 certificate-bound and RFC 9449 DPoP-bound
-// delegated tokens.
+// resource tokens.
 var (
 	// ErrSenderProofRequired refuses a bound token presented without its
 	// proof: no TLS peer or another leaf, no or an invalid DPoP proof, or a
@@ -85,62 +85,45 @@ func (v *Verifier) verify(ctx context.Context, token string, r *http.Request) (C
 }
 
 // profile maps a signature-verified token to Claims under AuthKit's
-// profiles: an access token names a user (sub), a delegated access token an
-// external identity (delegated_sub), never both; a resource access token
+// profiles: an access token names a user (sub); a resource access token
 // (RFC 9068 at+jwt) names a user, or its client acting for itself, with the
 // client_id it was issued to.
 func profile(typ string, mc map[string]any) (Claims, error) {
-	sub, delegated := jose.String(mc, "sub"), jose.String(mc, "delegated_sub")
+	sub := jose.String(mc, "sub")
 	isAccess := strings.EqualFold(typ, jose.AccessTokenType)
-	isDelegated := strings.EqualFold(typ, jose.DelegatedAccessTokenType)
 	isResource := isResourceType(typ)
 	clientID := jose.String(mc, "client_id")
 	switch {
-	case sub != "" && delegated != "":
-		return Claims{}, errmodel.E(errmodel.CodeConflictingSubject)
-	case isDelegated && sub != "":
-		return Claims{}, errmodel.E(errmodel.CodeAccessTokenHasSub)
-	case delegated != "" && !isDelegated:
-		return Claims{}, errmodel.E(errmodel.CodeDelegatedAccessWrongTyp)
-	case sub != "" && !isAccess && !isResource:
-		return Claims{}, errmodel.E(errmodel.CodeAccessTokenWrongTyp)
 	case typ == "":
 		return Claims{}, errmodel.E(errmodel.CodeMissingTokenTyp)
-	case !isAccess && !isDelegated && !isResource:
+	case !isAccess && !isResource:
 		return Claims{}, errmodel.E(errmodel.CodeUnsupportedTokenTyp)
-	case isDelegated && delegated == "":
-		return Claims{}, errmodel.E(errmodel.CodeMissingDelegatedSub)
-	case (isAccess || isResource) && sub == "":
+	case sub == "":
 		return Claims{}, errmodel.E(errmodel.CodeMissingSub)
 	case isResource && clientID == "":
 		return Claims{}, errmodel.E(errmodel.CodeMissingClientID)
 	}
 	cl := Claims{
-		Kind:             TokenUser,
-		JOSEType:         typ,
-		Issuer:           jose.String(mc, "iss"),
-		Subject:          sub,
-		DelegatedSubject: delegated,
-		SessionID:        jose.String(mc, "sid"),
-		DeviceKeyID:      jose.String(mc, "device_key_id"),
-		Permissions:      jose.Strings(mc, "permissions"),
-		Attributes:       jose.Object(mc, "attributes"),
-		Entitlements:     jose.Strings(mc, "entitlements"),
-		RootRole:         jose.String(mc, "root_role"),
-		Email:            jose.String(mc, "email"),
-		Username:         jose.String(mc, "username"),
-		AMR:              jose.Strings(mc, "amr"),
-		ACR:              jose.String(mc, "acr"),
-		JTI:              jose.String(mc, "jti"),
+		Kind:         TokenUser,
+		JOSEType:     typ,
+		Issuer:       jose.String(mc, "iss"),
+		Subject:      sub,
+		SessionID:    jose.String(mc, "sid"),
+		DeviceKeyID:  jose.String(mc, "device_key_id"),
+		Permissions:  jose.Strings(mc, "permissions"),
+		Entitlements: jose.Strings(mc, "entitlements"),
+		RootRole:     jose.String(mc, "root_role"),
+		Email:        jose.String(mc, "email"),
+		Username:     jose.String(mc, "username"),
+		AMR:          jose.Strings(mc, "amr"),
+		ACR:          jose.String(mc, "acr"),
+		JTI:          jose.String(mc, "jti"),
 	}
 	cl.EmailVerified, _ = mc["email_verified"].(bool)
 	cl.TwoFAEnrollment, _ = mc["2fa_enrollment"].(bool)
 	cl.MFAEnrolled, _ = mc["mfa_enrolled"].(bool)
 	cl.AuthTime, _ = jose.Time(mc, "auth_time")
-	switch {
-	case isDelegated:
-		cl.Kind, cl.RootRole = TokenDelegated, ""
-	case isResource:
+	if isResource {
 		cl.ClientID, cl.Scopes, cl.Roles = clientID, strings.Fields(jose.String(mc, "scope")), jose.Strings(mc, "roles")
 		cl.RootRole, cl.TwoFAEnrollment, cl.MFAEnrolled, cl.DeviceKeyID = "", false, false, ""
 		if sub == clientID {
@@ -182,7 +165,7 @@ func isResourceType(typ string) bool {
 	return strings.EqualFold(typ, jose.ResourceAccessTokenType) || strings.EqualFold(typ, "application/"+jose.ResourceAccessTokenType)
 }
 
-// senderProof enforces a delegated or resource token's cnf binding against
+// senderProof enforces a resource token's cnf binding against
 // r: the TLS peer certificate for x5t#S256, a fresh DPoP proof for jkt. A
 // DPoP request must carry a DPoP-bound token.
 func (v *Verifier) senderProof(token string, r *http.Request, cl *Claims) error {
@@ -190,7 +173,7 @@ func (v *Verifier) senderProof(token string, r *http.Request, cl *Claims) error 
 	if err != nil {
 		return ErrInvalidConfirmation
 	}
-	if member != "" && cl.Kind != TokenDelegated && !cl.IsResourceToken() {
+	if member != "" && !cl.IsResourceToken() {
 		return ErrConfirmationWrongTokenType
 	}
 	if isDPoPRequest(r) && member != jose.JWKThumbprintMember {

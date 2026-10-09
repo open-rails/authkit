@@ -95,8 +95,8 @@ var (
 	ErrTooManyDevices Error = errmodel.ErrTooManyDevices
 )
 
-// Credentials and applications (the API-key, service-JWT, delegation and
-// remote-application sentinels live beside their types).
+// Credentials and applications (the API-key and remote-application
+// sentinels live beside their types).
 var (
 	ErrSigningNotConfigured            Error = errmodel.Internal("signing_not_configured", nil)
 	ErrDeviceKeysDisabled              Error = errmodel.E(errmodel.CodeDeviceKeysDisabled)

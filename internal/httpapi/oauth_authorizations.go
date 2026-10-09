@@ -50,8 +50,7 @@ func (s *Service) handleOAuthAuthorizationGET(w http.ResponseWriter, r *http.Req
 func (s *Service) handleOAuthAuthorizationApprovePOST(w http.ResponseWriter, r *http.Request) {
 	claims, _ := verify.ClaimsFromContext(r.Context())
 	if !claims.IsUser() || claims.SessionID == "" && claims.DeviceKeyID == "" {
-		// Only a user's own sign-in, a session or a device key, may approve:
-		// a delegated token stands on none the code could carry.
+		// Only a user's own sign-in, a session or a device key, may approve.
 		fail(w, errmodel.CodeForbidden)
 		return
 	}

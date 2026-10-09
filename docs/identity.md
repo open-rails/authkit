@@ -3,19 +3,16 @@
 Every request AuthKit verifies has three parts, and its helpers/auth `Identity` (`verify.Claims.Identity`) names each one:
 
 - **Subject**: the account, native to `Issuer`, whose authority and money the request uses. It is a `user` or an `application`.
-- **Invoker**: who actually acts. It is always set. It equals the subject (`{Issuer, Subject}`) unless someone acts on the subject's behalf, such as an application's own user, who may be foreign to this deployment.
-- **Credential**: how the request was proven: `session`, `device_key`, `api_key`, `signed_token` or `access_token`, with its id (the session, device key or API key, or the token's `jti`). A credential is never the subject, so rotating keys or signing in on another device never changes who the subject is.
+- **Invoker**: who actually acts. It is always set. It equals the subject (`{Issuer, Subject}`) unless someone acts on the subject's behalf, such as an OAuth client acting for a user.
+- **Credential**: how the request was proven: `session`, `device_key`, `api_key` or `access_token`, with its id (the session, device key or API key, or the token's `jti`). A credential is never the subject, so rotating keys or signing in on another device never changes who the subject is.
 
-Authorization is the subject's grants, narrowed by what the credential carries (a token's permissions, an application's registered ceiling). Limits and budgets are per invoker within the subject: an application's users each spend within the application's budget. Audit records all three.
+Authorization is the subject's grants, narrowed by what the credential carries (a token's permissions within its resource's ceiling). Limits and budgets are per invoker within the subject. Audit records all three.
 
 | Request | Subject | SubjectKind | Invoker | Credential |
 |---|---|---|---|---|
 | a user signed in (browser) | the user | user | the subject | `session` |
 | a user's device key | the owning user | user | the subject | `device_key` |
 | a group API key | the group's account (its id) | application | the subject | `api_key` |
-| a registered application's own token | the application | application | the subject | `signed_token` |
-| an application's token for one of its users | the application | application | the user, in the application's namespace | `signed_token` |
-| a token AuthKit delegated from a user | the user | user | the subject | `access_token` |
 | an OAuth client's client-credentials token | the client | application | the subject | `access_token` |
 | an OAuth client's token for a user (`at+jwt`) | the user | user | the client | `access_token` |
 
@@ -25,7 +22,7 @@ A group API key belongs to its group's account for now: every key of a group has
 
 ## Authority comes from the credential's state
 
-Every operation that depends on who acts (`Client.Can`, `SetGroupRole`, `Ban`, …) takes an `auth.Identity`, and reads its authority only from the credential's state (`Credential.State`): an `iam.CredentialState` that only AuthKit builds. It records the account the credential acts as, the sign-in it must stay signed in with, the ceilings a token carries and the group a delegation is pinned to. Narrowing (`iam.Within`, `iam.PinnedTo`, `iam.InSession`) only shrinks it.
+Every operation that depends on who acts (`Client.Can`, `SetGroupRole`, `Ban`, …) takes an `auth.Identity`, and reads its authority only from the credential's state (`Credential.State`): an `iam.CredentialState` that only AuthKit builds. It records the account the credential acts as, the sign-in it must stay signed in with, the ceilings a token carries and the group it is pinned to. Narrowing (`iam.Within`, `iam.PinnedTo`, `iam.InSession`) only shrinks it.
 
 - verify's gates attach it to the identity of a request they verified.
 - Your own code builds one with `iam.SystemIdentity()` (your code, with host authority), `iam.UserIdentity(id)`, `iam.APIKeyIdentity(id)` or `iam.ApplicationIdentity(id)` (checked at account level, with no sign-in), and never from request input.

@@ -7,11 +7,13 @@ import (
 	"github.com/open-rails/helpers/auth"
 )
 
-// Remote applications, delegation and service JWTs.
+// Remote applications.
 //
 // A remote application is an external issuer controlled by one group,
-// addressed by its id (iam.AppByID) or its issuer (iam.AppByIssuer). Every
-// mutation takes an auth.Identity: registering one needs
+// addressed by its id (iam.AppByID) or its issuer (iam.AppByIssuer): the
+// registry a resource server reads to trust that issuer's access tokens, its
+// role in the group their ceiling. AuthKit itself accepts no token it
+// signs. Every mutation takes an auth.Identity: registering one needs
 // <persona>:credentials:manage in the group; changing or deleting an existing
 // one also needs coverage of every role it holds, because whoever controls its
 // keys acts as it. Only the system registers applications a group cannot
@@ -41,22 +43,4 @@ func (a *Client) RemoteApplication(ctx context.Context, ref iam.AppRef) (iam.Rem
 // ListRemoteApplications lists the applications ref controls, newest first.
 func (a *Client) ListRemoteApplications(ctx context.Context, ref iam.GroupRef, p iam.PageRequest) (iam.ListPage[iam.RemoteApplication], error) {
 	return a.ops.ListRemoteApplications(ctx, ref, p)
-}
-
-// MintDelegatedAccessToken signs a delegated access token as this deployment.
-// A user identity mints only for itself, and every AuthKit permission in
-// d.Permissions must be held live by it on the root group
-// (iam.ErrDelegationRefused otherwise). The system mints for any subject.
-//
-// Deprecated: delegated access tokens are superseded by the authorization
-// server's RFC 9068 access tokens (token exchange for a user, client
-// credentials for a machine) and are removed in v2.
-func (a *Client) MintDelegatedAccessToken(ctx context.Context, who auth.Identity, d iam.DelegatedAccess, opts ...Option) (iam.Token, error) {
-	return a.ops.MintDelegatedAccessToken(ctx, who, d, opts...)
-}
-
-// MintServiceJWT signs a first-party service JWT with this deployment's key.
-// It grants nothing AuthKit enforces; the receiver authorizes it.
-func (a *Client) MintServiceJWT(ctx context.Context, s iam.ServiceJWT, opts ...Option) (iam.Token, iam.ServiceJWTClaims, error) {
-	return a.ops.MintServiceJWT(ctx, s, opts...)
 }

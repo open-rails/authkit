@@ -30,18 +30,6 @@ type SessionRef struct {
 // IsZero reports whether r names no sign-in.
 func (r SessionRef) IsZero() bool { return r.SessionID == "" && r.DeviceKeyID == "" }
 
-// DelegatedGrant is copied from a verified delegated access token.
-type DelegatedGrant struct {
-	Issuer  string
-	Subject string // delegated_sub
-	// Permissions are always a ceiling.
-	Permissions []Perm
-	// RemoteApplicationID is set when the token is bound to an application.
-	RemoteApplicationID string
-	// GroupID is that application's controlling group.
-	GroupID string
-}
-
 // CredentialState is AuthKit's record of what an Identity's credential may
 // do: the account it acts as, the sign-in it stays bound to, the ceilings and
 // the group that narrow it. Its fields are unexported, so nothing outside
@@ -51,13 +39,8 @@ type CredentialState struct {
 	subject    auth.SubjectKind
 	credential auth.CredentialKind
 	// id is the user's or application's id, or an API key's.
-	id string
-	// delegated marks authority delegated to another party: an AuthKit
-	// delegation of a user (issued by issuer), or an application's token for
-	// one of its own users.
-	delegated bool
-	issuer    string
-	session   SessionRef
+	id      string
+	session SessionRef
 	// ceilings narrow authority; each one must cover a permission. nil =
 	// unbounded.
 	ceilings [][]Perm
@@ -118,32 +101,11 @@ func asserted(subject auth.SubjectKind, credential auth.CredentialKind, id strin
 	return CredentialState{subject: subject, credential: credential, id: id}.bind(out)
 }
 
-// DelegatedIdentity acts under a verified delegated grant: an application's grant for
-// one of its own users is the application, pinned to its group and invoked by
-// that user; any other grant is its subject, a user, as delegated by its
-// issuer (AuthKit grants it authority only when that issuer is AuthKit's). Its
-// Permissions are a ceiling.
-func DelegatedIdentity(g DelegatedGrant) auth.Identity {
-	g.Issuer, g.Subject = strings.TrimSpace(g.Issuer), strings.TrimSpace(g.Subject)
-	if g.Issuer == "" || g.Subject == "" {
-		return auth.Identity{}
-	}
-	s := CredentialState{subject: auth.SubjectUser, credential: auth.CredentialAccessToken, id: g.Subject, delegated: true, issuer: g.Issuer}
-	out := auth.Identity{Issuer: g.Issuer, Subject: g.Subject, SubjectKind: auth.SubjectUser,
-		Invoker: auth.Invoker{Issuer: g.Issuer, ID: g.Subject}, Credential: auth.Credential{Kind: auth.CredentialAccessToken}}
-	if app := strings.TrimSpace(g.RemoteApplicationID); app != "" {
-		s = CredentialState{subject: auth.SubjectApplication, credential: auth.CredentialSignedToken, id: app, delegated: true, group: strings.TrimSpace(g.GroupID)}
-		out = auth.Identity{Subject: app, SubjectKind: auth.SubjectApplication, Invoker: auth.Invoker{Issuer: g.Issuer, ID: g.Subject},
-			Credential: auth.Credential{Kind: auth.CredentialSignedToken}}
-	}
-	return Within(s.bind(out), g.Permissions...)
-}
-
-// InSession binds a user's identity, or a delegation of one, to the sign-in
-// its token was minted from. Every authority check then also requires that
-// session or device key to be active, in the same query as the account check,
-// and refuses a revoked one with ErrSessionRevoked. verify binds every
-// identity it builds from an AuthKit user or delegated token; an unbound one
+// InSession binds a user's identity to the sign-in its token was minted
+// from. Every authority check then also requires that session or device key
+// to be active, in the same query as the account check, and refuses a
+// revoked one with ErrSessionRevoked. verify binds every identity it builds
+// from an AuthKit user token; an unbound one
 // (UserIdentity in trusted server code) is checked at account level only. The zero
 // ref leaves id unchanged; any other identity, or a ref naming both, is the
 // zero Identity.
@@ -201,25 +163,16 @@ func (s CredentialState) SubjectKind() auth.SubjectKind { return s.subject }
 // ID is the user's or application's id, or the API key's; "" for the system.
 func (s CredentialState) ID() string { return s.id }
 
-// IsUser reports whether s acts as a user with the user's own credential,
-// not a delegation of it.
-func (s CredentialState) IsUser() bool { return s.subject == auth.SubjectUser && !s.delegated }
+// IsUser reports whether s acts as a user.
+func (s CredentialState) IsUser() bool { return s.subject == auth.SubjectUser }
 
 // IsAPIKey reports whether s is an API key's.
 func (s CredentialState) IsAPIKey() bool { return s.credential == auth.CredentialAPIKey }
 
-// IsApplication reports whether s acts as a registered application, for
-// itself or for one of its users.
+// IsApplication reports whether s acts as a registered application.
 func (s CredentialState) IsApplication() bool {
 	return s.subject == auth.SubjectApplication && s.credential != auth.CredentialAPIKey
 }
-
-// Delegated reports whether s acts under a delegation: AuthKit's of a user
-// (DelegatedIssuer names its issuer), or an application's for its own user.
-func (s CredentialState) Delegated() bool { return s.delegated }
-
-// DelegatedIssuer is the issuer of a user's delegation; "" otherwise.
-func (s CredentialState) DelegatedIssuer() string { return s.issuer }
 
 // Session is the sign-in s is bound to (InSession).
 func (s CredentialState) Session() (SessionRef, bool) { return s.session, !s.session.IsZero() }

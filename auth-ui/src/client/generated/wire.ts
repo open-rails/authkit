@@ -66,7 +66,7 @@ export type AuthKitEvent = {
   subject_id: string
   invoker_issuer: string
   invoker_id: string
-  credential_kind: "access_token" | "api_key" | "device_key" | "session" | "signed_token" | "system"
+  credential_kind: "access_token" | "api_key" | "device_key" | "session" | "system"
   credential_id: string
   user_id: string
   group_id: string
@@ -155,13 +155,6 @@ export type ContactProofRequired = {
   identifier: string
   channel: string
   reason: string
-}
-
-export type DelegatedTokenRequest = {
-  ttl_seconds?: number
-  audiences?: string[]
-  delegate_certificate_der_b64url?: string
-  requested_grant?: unknown
 }
 
 export type DeviceKey = {

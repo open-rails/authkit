@@ -129,9 +129,6 @@ func TestRuntimeOwnsConfiguredHTTPWorkers(t *testing.T) {
 		{name: "memory limiter"},
 		{name: "redis limiter", redis: true},
 		{name: "invalid prefix", configure: func(c *authkit.Config) { c.HTTP.APIPath = "invalid prefix" }, err: "APIPath"},
-		{name: "delegated route without its authorizer", configure: func(c *authkit.Config) {
-			c.Delegated = authkit.DelegatedConfig{Audiences: []string{"resource.example"}}
-		}, err: "Deps.DelegatedAuthorization"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			pg := testdb.ScratchPostgres(t)

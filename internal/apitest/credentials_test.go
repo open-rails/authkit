@@ -109,7 +109,6 @@ func TestCredentialIssuance(t *testing.T) {
 		"zero":               {},
 		"api_key":            iam.APIKeyIdentity(managerKey.ID),
 		"remote_application": iam.ApplicationIdentity(uuid.NewString()),
-		"delegated":          iam.DelegatedIdentity(iam.DelegatedGrant{Issuer: authtest.Issuer, Subject: manager.ID, Permissions: []iam.Perm{o.member.Persona().OwnerGrant()}}),
 	} {
 		_, _, err := createKey(auth, ctx, a, o.acme, iam.NewAPIKey{Name: name, Role: o.member})
 		require.ErrorIs(t, err, iam.ErrInsufficientAuthority, name)

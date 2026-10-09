@@ -10,10 +10,7 @@ This page covers the credentials AuthKit issues, how long each lasts, and when a
 | Refresh token | a signed-in user | until revoked, or for `TokenConfig.RefreshTokenDuration` | at once |
 | Device-key sign-in | a native client | each sign-in is signed by the device key, with no refresh token | like a session, when the key is revoked |
 | API key | a group's account | until revoked or its expiry (capped by `APIKeysConfig.MaxTTL`) | at once, since it is resolved on every request; also when its creator loses the authority to issue it |
-| Delegated token (`delegated-access+jwt`) | a service acting for a user or an outside party | `DelegatedConfig.TTLDefault` (15 minutes), at most `TTLCeiling` (1 hour) | when the user's sign-in ends, if AuthKit minted it from one; when its application is disabled, if an application did |
-| Remote-application token | a remote application | set by the application | when the application is disabled or deleted |
-| Service JWT (`service+jwt`) | your own services | at most 15 minutes by default (`verify.WithServiceJWTMaxLifetime`) | at expiry only; it grants no AuthKit authority |
-| Resource access token (`at+jwt`) | an OAuth client, for a resource server | `AuthorizationServerConfig.AccessTokenTTL`, at most 5 minutes | at expiry; each grant re-checks the sign-in it stands on ([authorization server](authorization-server.md)) |
+| Resource access token (`at+jwt`) | an OAuth client, for a resource server | `AuthorizationServerConfig.AccessTokenTTL` (5 minutes), or the client's `AccessTokenTTL` (at most 15) | at expiry; each grant re-checks the sign-in or grant it stands on ([authorization server](authorization-server.md)) |
 
 ## Refresh and sessions
 
@@ -61,19 +58,8 @@ mux.Handle("/api/", verify.Required(v)(api))
 - While fetches fail, the cached keys keep verifying for up to `MaxStale` (4 hours). After that, the issuer's tokens fail with 503 `issuer_keys_unavailable`. `CheckIssuerKeys` reports this state for health probes.
 - Such a verifier can't check sessions or permissions, so only `Required` and `Optional` work with it. A service on the same database gets the live gates from `Client.NewVerifier(audiences)`.
 
-## Delegated tokens
+## Remote applications
 
-Deprecated: `POST /api/v1/delegated/token` and delegated tokens remain in v1 and are removed in v2. New integrations use the [authorization server](authorization-server.md): token exchange for a frontend, client credentials for a machine.
+A remote application registers another issuer a resource server may trust: `Client.RemoteApplication` by issuer gives its keys (or JWKS URI) and, as `Permissions`, the ceiling its role in its group confers. AuthKit itself authenticates none of its tokens.
 
-- AuthKit mints delegated tokens in two ways:
-  - at `POST /api/v1/delegated/token`, for one of `DelegatedConfig.Audiences`, with `Deps.DelegatedAuthorization` deciding the grant;
-  - through `Client.MintDelegatedAccessToken`.
-
-  A remote application may also sign its own.
-- `Config.RemoteApplications` declares root's remote applications as a whole set. `New` registers each one, and disables any that an earlier boot declared and this one doesn't. A removed application is disabled, not deleted: its tokens stop at the next request, and it keeps its roles for when it is declared again. `nil` leaves the stored applications alone, and applications registered through `Client.UpsertRemoteApplication` or the bootstrap manifest are never touched.
-- A delegated token's authority is its `permissions` claim, capped by the application's stored grants when an application signed it. The user's roles don't apply.
-- A token can be bound to its holder:
-  - `cnf.x5t#S256` binds it to a TLS client certificate;
-  - `cnf.jkt` binds it to a DPoP key (`DelegatedConfig.AllowDPoP`).
-
-  A bound token needs its proof on every request. `Client.NewVerifier` wires DPoP itself; a standalone verifier needs `verify.WithDPoP` and `verify.WithPublicURL`.
+`Config.RemoteApplications` declares root's remote applications as a whole set. `New` registers each one, and disables any that an earlier boot declared and this one doesn't. A removed application is disabled, not deleted: resource servers read it as disabled at once, and it keeps its roles for when it is declared again. `nil` leaves the stored applications alone, and applications registered through `Client.UpsertRemoteApplication` or the bootstrap manifest are never touched.

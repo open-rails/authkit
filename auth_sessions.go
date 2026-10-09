@@ -56,10 +56,8 @@ func (a *Client) MintAccessToken(ctx context.Context, userID string, o iam.Acces
 
 // CheckSession is the gate verify.RequireSession applies, for callers holding
 // verified claims: nil when the session or device key cl was minted from is
-// still active, else iam.ErrSessionRevoked. A user's token names one, and so
-// does a delegated token minted from a sign-in (MintDelegatedAccessToken with
-// a session-bound identity); a token minted without one is refused. Any other
-// credential is forbidden.
+// still active, else iam.ErrSessionRevoked. A user's token names one; a
+// token minted without one is refused. Any other credential is forbidden.
 func (a *Client) CheckSession(ctx context.Context, cl verify.Claims) error {
 	return a.ops.CheckSession(ctx, cl)
 }
@@ -67,7 +65,7 @@ func (a *Client) CheckSession(ctx context.Context, cl verify.Claims) error {
 // CheckRecentSignIn is the gate verify.Sensitive applies: CheckSession, and
 // the user's own token, signed in within the last 15 minutes, with the second
 // factor when the account has one; otherwise step_up_required (its metadata
-// lists the account's step-up methods). A delegated token is forbidden.
+// lists the account's step-up methods).
 func (a *Client) CheckRecentSignIn(ctx context.Context, cl verify.Claims) error {
 	return a.ops.CheckRecentSignIn(ctx, cl)
 }

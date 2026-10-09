@@ -94,7 +94,6 @@ func TestResourceAccessTokens(t *testing.T) {
 	}{
 		"no client_id":     {map[string]any{"sub": "user-1"}, errmodel.CodeMissingClientID},
 		"no sub":           {map[string]any{"client_id": "console"}, errmodel.CodeMissingSub},
-		"delegated_sub":    {map[string]any{"delegated_sub": "d", "client_id": "console"}, errmodel.CodeDelegatedAccessWrongTyp},
 		"no aud":           {map[string]any{"sub": "user-1", "client_id": "console", "aud": nil}, errmodel.CodeBadAudience},
 		"another resource": {map[string]any{"sub": "user-1", "client_id": "console", "aud": "https://other.example"}, errmodel.CodeBadAudience},
 		"expired":          {map[string]any{"sub": "user-1", "client_id": "console", "exp": time.Now().Add(-time.Hour).Unix()}, errmodel.CodeTokenExpired},

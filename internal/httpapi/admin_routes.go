@@ -13,8 +13,8 @@ import (
 
 // Account administration. Reads are gated by root:users:read at the route.
 // Mutations take the verified identity and the engine applies rule ACCT; they are
-// for signed-in users only, like root-role administration: API keys,
-// applications and delegated tokens never reach the account plane.
+// for signed-in users only, like root-role administration: API keys never
+// reach the account plane.
 
 // userQuery parses the directory query: cursor, limit, search, root_role,
 // status, sort, order (default desc), entitlement, total.

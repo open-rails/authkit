@@ -50,7 +50,7 @@ Breaking, only in a minor release and listed in its notes:
 - **Statuses.** 200 is a result, 201 a creation (with any secret, shown only then), 202 accepted and 204 done, both without a body. DELETE is idempotent. Sign-in answers 200 with an `AuthResult` whose `status` names the next step.
 - **Lists.** `{data, next_cursor}`, paged by `?cursor=&limit=`: the limit is 1–500, 50 by default, and cursors are opaque.
 - **Errors.** `{error: {type, code, message, param, metadata}}`. The `code` is stable; the `message` is not contract. Every 5xx is `internal_error`, and 429 is `rate_limited` with `Retry-After`.
-- **Credentials.** `Authorization: Bearer` carries a JWT or an API key (`<prefix>_st_<lookup id>_<secret>`), and `DPoP` a sender-bound delegated token's proof. The refresh cookie is `__Host-authkit_rt` (`authkit_rt` over plain HTTP); cookie mounts refuse cross-site requests with 403 `origin_not_allowed`.
+- **Credentials.** `Authorization: Bearer` carries a JWT or an API key (`<prefix>_st_<lookup id>_<secret>`), and `DPoP` a sender-bound token's proof. The refresh cookie is `__Host-authkit_rt` (`authkit_rt` over plain HTTP); cookie mounts refuse cross-site requests with 403 `origin_not_allowed`.
 
 Additive: new routes, optional request members, response members, error codes and enum values, and new kinds in `/groups/{group_id}/members/{kind}/{id}` (only `users` today). Breaking (minor releases only): removing or renaming a route, member, code or value; making a request member required; changing a type, status or meaning.
 
@@ -61,10 +61,7 @@ Other services verify AuthKit's JWTs, so these are covered: each token's `typ` h
 | `typ` | Minted by | Claims |
 |---|---|---|
 | `access+jwt` | AuthKit, for a user | `iss sub aud iat exp`; `sid` or `device_key_id`; `jti auth_time amr acr mfa_enrolled`; `provider` after an identity-provider sign-in; `root_role` (display only); `entitlements`; `2fa_enrollment` on an enrollment-only token; the host's claims (`iam.AccessTokenOptions.Claims`), which may not reuse a name on this page |
-| `delegated-access+jwt` | AuthKit, or a remote application | `iss aud iat nbf exp jti delegated_sub permissions attributes`; `cnf` (`x5t#S256` or `jkt`) when sender-bound; `sid` or `device_key_id` when AuthKit minted it from a sign-in |
-| `remote-application-access+jwt` | a remote application, as itself | `iss aud iat exp`, and `permissions` to narrow its grants; never `sub` |
 | `at+jwt` (RFC 9068) | the authorization server, for a registered resource server | `iss sub aud client_id iat nbf exp jti scope permissions roles sid auth_time acr amr`; `email email_verified` with the `email` scope; `cnf` (`jkt`) when DPoP-bound; `authorization_details` (RFC 9396) and `act` (RFC 8693, after token exchange) when granted; the grant authorizer's claims, each named by an absolute URI. `aud` is the resource (or the issuer, for userinfo); `permissions` is the user's grants within the resource's ceiling; `sid` is absent on an offline grant; `roles` is informational |
-| `service+jwt` | `Client.MintServiceJWT` | `iss sub aud iat nbf exp jti permissions`, and `token_use` `"service"` |
 
 New claims may be added, so verifiers ignore claims they don't know; `verify` also reads `email`, `email_verified` and `username` when an issuer sets them. Refresh tokens and API-key secrets are opaque.
 
@@ -86,7 +83,7 @@ The only application data AuthKit keeps about an account is its public metadata,
 ## Events and hooks
 
 - `Deps.OnEvent` receives `iam.Event`. The kinds, the members and the delivery guarantees in `OnEvent`'s doc (recorded with the change, delivered after commit at least once, in order per subject, idempotent on `Event.ID`) are covered. New kinds and members may be added; ignore kinds you don't know.
-- The other hooks in `Deps` (`OnPurge`, `NameAdmission`, `DelegatedAuthorization`, `Entitlements`, `EntitlementHolders`, `ClientIP`, `Wrap`) and the senders keep their signatures and documented call semantics. Senders may receive new `iam.MessageKind` values.
+- The other hooks in `Deps` (`OnPurge`, `NameAdmission`, `OAuthGrants`, `Entitlements`, `EntitlementHolders`, `ClientIP`, `Wrap`) and the senders keep their signatures and documented call semantics. Senders may receive new `iam.MessageKind` values.
 
 ## Roles
 

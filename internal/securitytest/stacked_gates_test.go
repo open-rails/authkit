@@ -11,12 +11,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gofiber/fiber/v3"
-	"github.com/open-rails/authkit"
 	authkitfiber "github.com/open-rails/authkit/adapters/fiber"
 	authkitgin "github.com/open-rails/authkit/adapters/gin"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/testdpop"
 	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
@@ -72,10 +70,6 @@ func requiredGate(a verify.Authority) gate {
 	return gate{verify.Required(a), authkitgin.Required(a), authkitfiber.Required(a)}
 }
 
-func sessionGate(a verify.Authority) gate {
-	return gate{verify.RequireSession(a), authkitgin.RequireSession(a), authkitfiber.RequireSession(a)}
-}
-
 func sensitiveGate(a verify.Authority) gate {
 	return gate{verify.Sensitive(a), authkitgin.Sensitive(a), authkitfiber.Sensitive(a)}
 }
@@ -107,15 +101,8 @@ func stacks(first, second gate) map[string]func(*testing.T, http.Header) respons
 // again.
 func TestSecurityStackedGatesVerifyOnce(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	const resource = "resource.security.test"
-	ban := iam.Perm(ident.RootUsersBan)
-	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(func(c *authkit.Config) {
-		c.Delegated = authkit.DelegatedConfig{Audiences: []string{resource}, AllowDPoP: true}
-	}), authtest.WithDeps(func(d *authkit.Deps) {
-		d.DelegatedAuthorization = func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
-			return iam.DelegationGrant{Permissions: []string{ban.String()}}, nil
-		}
-	}))
+	const resource = "https://resource.security.test"
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(withResourceClient(resource)))
 	verifier, err := h.auth.NewVerifier([]string{resource})
 	require.NoError(t, err)
 	auth := &countingAuthority{Authority: verifier}
@@ -135,37 +122,24 @@ func TestSecurityStackedGatesVerifyOnce(t *testing.T) {
 		}
 	}
 
-	t.Run("DPoP-bound delegated token", func(t *testing.T) {
-		moderator := h.newAccount("stackmod")
-		h.grant(iam.RootGroup(), moderator, "moderator")
-		parent := h.login(moderator).AccessToken
+	t.Run("DPoP-bound resource token", func(t *testing.T) {
 		key := testdpop.Key(t)
-		resp := h.do(request{method: http.MethodPost, path: "/delegated/token", token: parent,
-			body:   map[string]any{"requested_grant": map[string]any{}, "audiences": []string{resource}},
-			header: http.Header{"DPoP": {testdpop.Proof(t, key, http.MethodPost, issuer+apiPrefix+"/delegated/token", parent, nil)}}})
-		require.Equal(t, http.StatusOK, resp.status, resp.String())
-		var minted struct {
-			Token     string `json:"access_token"`
-			TokenType string `json:"token_type"`
-		}
-		resp.json(t, &minted)
-		require.Equal(t, "DPoP", minted.TokenType)
+		minted := h.resourceToken(h.login(h.newAccount("stackmod")).AccessToken, key)
 		proven := func() http.Header {
 			header := http.Header{}
-			header.Set("Authorization", "DPoP "+minted.Token)
-			header.Set("DPoP", testdpop.Proof(t, key, http.MethodPost, resourceURL, minted.Token, nil))
+			header.Set("Authorization", "DPoP "+minted)
+			header.Set("DPoP", testdpop.Proof(t, key, http.MethodPost, resourceURL, minted, nil))
 			return header
 		}
-		canBan := permissionGate(auth, iam.RootGroup(), ban)
-
-		once(t, stacks(canBan, sessionGate(auth)), proven, http.StatusNoContent, "")
-		// Sensitive reuses the claims too, then refuses: a delegated token
-		// carries no sign-in of its own to be recent.
-		once(t, stacks(canBan, sensitiveGate(auth)), proven, http.StatusForbidden, "forbidden")
+		required := stacks(requiredGate(auth), requiredGate(auth))
+		once(t, required, proven, http.StatusNoContent, "")
+		// Sensitive reuses the claims too, then refuses: a resource token
+		// carries no sign-in of this deployment to be recent.
+		once(t, stacks(requiredGate(auth), sensitiveGate(auth)), proven, http.StatusForbidden, "forbidden")
 
 		// The one verification spent the proof.
 		header := proven()
-		send := stacks(requiredGate(auth), sessionGate(auth))["net/http"]
+		send := required["net/http"]
 		require.Equal(t, http.StatusNoContent, send(t, header).status)
 		require.Equal(t, http.StatusUnauthorized, send(t, header).status, "a replayed proof")
 	})

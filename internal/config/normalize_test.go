@@ -18,8 +18,8 @@ func TestNormalizeIsIdempotent(t *testing.T) {
 	deps := Deps{
 		Postgres: &pgxpool.Pool{},
 		Email:    nopEmail{},
-		DelegatedAuthorization: func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
-			return iam.DelegationGrant{}, nil
+		OAuthGrants: func(context.Context, iam.OAuthGrantRequest) (iam.OAuthGrantDecision, error) {
+			return iam.OAuthGrantDecision{}, nil
 		},
 	}
 	for name, c := range map[string]Config{
@@ -29,8 +29,13 @@ func TestNormalizeIsIdempotent(t *testing.T) {
 			Password:  PasswordPolicy{MinLength: 12},
 			Username:  UsernameConfig{Renames: true, FormerNames: FormerNamesConfig{Mode: FormerNamesForever}},
 			Languages: LanguageConfig{Supported: []string{"EN", "es-MX"}, Default: "es"},
-			Delegated: DelegatedConfig{Audiences: []string{"platform"}, TTLCeiling: 2 * time.Hour},
-			HTTP:      &HTTPConfig{DirectPeerIP: true, APIPath: "/"},
+			AuthorizationServer: AuthorizationServerConfig{
+				Resources: []ResourceServerConfig{{ID: "https://api.example.com", Scopes: []string{"api"}, Permissions: []string{"merchant:*"}}},
+				Clients: []OAuthClientConfig{{ID: "cli", RedirectURIs: []string{"http://127.0.0.1/cb"}, Resources: []string{"https://api.example.com"},
+					GrantTypes:                []OAuthGrantType{GrantAuthorizationCode, GrantRefreshToken},
+					AuthorizationDetailsTypes: []string{"machine"}, Offline: true, KeyBound: true, RefreshTokenTTL: 7 * 24 * time.Hour}},
+			},
+			HTTP: &HTTPConfig{DirectPeerIP: true, APIPath: "/"},
 		},
 	} {
 		once, err := Normalize(c, deps)
@@ -39,15 +44,6 @@ func TestNormalizeIsIdempotent(t *testing.T) {
 		require.NoError(t, err, name)
 		require.Equal(t, once, twice, name)
 	}
-}
-
-// A delegated-token setting without the route's audiences is dead
-// configuration and refuses.
-func TestNormalizeRefusesDeadDelegatedConfig(t *testing.T) {
-	c := Config{Token: TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"app"}}}
-	c.Delegated.TTLDefault = time.Minute
-	_, err := Normalize(c, Deps{})
-	require.ErrorContains(t, err, "Delegated.Audiences is empty")
 }
 
 type nopEmail struct{}

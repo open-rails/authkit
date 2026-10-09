@@ -7,8 +7,7 @@ export type AccessClaims = {
   auth_time?: number
   amr?: string[]
   entitlements?: string[]
-  // Delegated tokens carry concrete permissions and no sub.
-  delegated_sub?: string
+  // Resource access tokens carry their grant.
   permissions?: string[]
   [claim: string]: unknown
 }
@@ -28,6 +27,3 @@ export function decodeAccessClaims(token: string): AccessClaims | null {
     return null
   }
 }
-
-export const subjectOf = (claims: AccessClaims | null): string | undefined =>
-  claims?.sub ?? claims?.delegated_sub

@@ -6,24 +6,28 @@ package securitytest
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/authkit/internal/testdpop"
 	"github.com/open-rails/authkit/internal/testkeys"
 	"github.com/open-rails/authkit/keys"
 	"github.com/open-rails/authkit/verify"
@@ -384,3 +388,47 @@ func tokenIdentity(t *testing.T, a verify.Authenticator, token string) hauth.Ide
 	require.True(t, ok, "the gate refused the token")
 	return id
 }
+
+// resourceClient is the token-exchange client withResourceClient registers.
+const resourceClient = "resource-ui"
+
+// withResourceClient makes the host an authorization server for resource,
+// with a public token-exchange client.
+func withResourceClient(resource string) func(*authkit.Config) {
+	return func(c *authkit.Config) {
+		c.AuthorizationServer = authkit.AuthorizationServerConfig{
+			Resources: []authkit.ResourceServerConfig{{ID: resource, Scopes: []string{"api"}, Permissions: []string{"resource:*"}}},
+			Clients: []authkit.OAuthClientConfig{{ID: resourceClient, Resources: []string{resource},
+				GrantTypes: []authkit.OAuthGrantType{authkit.GrantTokenExchange}}},
+		}
+	}
+}
+
+// resourceToken trades a user's access token for a resource token bound to key
+// (RFC 8693 at the token endpoint, as withResourceClient's client).
+func (h *host) resourceToken(subject string, key *ecdsa.PrivateKey) string {
+	h.t.Helper()
+	resp := h.exchangeToken(subject, key)
+	require.Equal(h.t, http.StatusOK, resp.status, resp.String())
+	var out struct {
+		AccessToken string `json:"access_token"`
+	}
+	resp.json(h.t, &out)
+	return out.AccessToken
+}
+
+// exchangeToken is resourceToken's token request, answered as it is.
+func (h *host) exchangeToken(subject string, key *ecdsa.PrivateKey) response {
+	h.t.Helper()
+	form := url.Values{
+		"grant_type": {"urn:ietf:params:oauth:grant-type:token-exchange"}, "client_id": {resourceClient},
+		"subject_token": {subject}, "subject_token_type": {"urn:ietf:params:oauth:token-type:access_token"},
+	}
+	return h.do(request{method: http.MethodPost, path: "//oauth2/token", body: form.Encode(), header: http.Header{
+		"Content-Type": {"application/x-www-form-urlencoded"},
+		"DPoP":         {testdpop.Proof(h.t, key, http.MethodPost, issuer+"/oauth2/token", "", noATH)},
+	}})
+}
+
+// noATH drops a proof's ath: the token endpoint's proofs bind no token.
+func noATH(tok *jwt.Token) { delete(tok.Claims.(jwt.MapClaims), "ath") }

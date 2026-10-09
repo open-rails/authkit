@@ -36,7 +36,6 @@ const (
 	FeatureTwoFactor    Feature = "two_factor"   // two-factor authentication not disabled
 	FeatureSolana       Feature = "solana"       // a Solana network set
 	FeatureOIDC         Feature = "oidc"         // an identity provider configured
-	FeatureDelegated    Feature = "delegated"    // delegated-token audiences declared
 	FeatureDeviceKeys   Feature = "device_keys"  // device keys on
 	FeatureGroups       Feature = "groups"       // a persona besides root
 	FeatureAPIKeys      Feature = "api_keys"     // a persona whose groups hold API keys
@@ -47,7 +46,7 @@ const (
 )
 
 // Features lists every Feature a route can be mounted under.
-var Features = []Feature{FeaturePasskeys, FeaturePasswordless, FeatureRegistration, FeatureTwoFactor, FeatureSolana, FeatureOIDC, FeatureDelegated, FeatureDeviceKeys, FeatureGroups, FeatureAPIKeys, FeatureInvitations, FeatureNewDevices, FeatureAuthorizationServer}
+var Features = []Feature{FeaturePasskeys, FeaturePasswordless, FeatureRegistration, FeatureTwoFactor, FeatureSolana, FeatureOIDC, FeatureDeviceKeys, FeatureGroups, FeatureAPIKeys, FeatureInvitations, FeatureNewDevices, FeatureAuthorizationServer}
 
 // Reply is one success outcome of a route: its status and body. Body is a
 // zero value of the body's type, nil for none.
@@ -82,8 +81,6 @@ type RouteSpec struct {
 	// MFAEnrollmentExempt marks the 2FA enroll/challenge/verify surface a
 	// forced-enrollment-gated user must still reach (#243).
 	MFAEnrollmentExempt bool
-	// Deprecated marks a route kept until the next major version.
-	Deprecated bool
 	// Query, Request: the query string and the JSON body (zero values; nil
 	// for none). Responses: every success outcome.
 	Query   any
@@ -122,10 +119,10 @@ var (
 // and the TypeScript wire types from it.
 func Catalog() []RouteSpec {
 	const (
-		GET, POST, PUT, PATCH, DELETE, OPTIONS                                  = http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions
-		auth, deviceKeys, registration, account, admin, groups, oidc, delegated = iam.RouteAuth, iam.RouteDeviceKeys, iam.RouteRegistration, iam.RouteAccount, iam.RouteAdmin, iam.RoutePermissionGroups, iam.RouteBrowserOIDC, iam.RouteDelegated
-		as                                                                      = iam.RouteAuthorizationServer
-		public, optional, required, session, permission                         = iam.AuthPublic, iam.AuthOptional, iam.AuthRequired, iam.AuthSession, iam.AuthPermission
+		GET, POST, PUT, PATCH, DELETE, OPTIONS                       = http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions
+		auth, deviceKeys, registration, account, admin, groups, oidc = iam.RouteAuth, iam.RouteDeviceKeys, iam.RouteRegistration, iam.RouteAccount, iam.RouteAdmin, iam.RoutePermissionGroups, iam.RouteBrowserOIDC
+		as                                                           = iam.RouteAuthorizationServer
+		public, optional, required, session, permission              = iam.AuthPublic, iam.AuthOptional, iam.AuthRequired, iam.AuthSession, iam.AuthPermission
 	)
 	type (
 		creation  = protocol.CredentialCreation
@@ -329,11 +326,6 @@ func Catalog() []RouteSpec {
 			Responses: replyNoContent, serve: handle((*Service).handleAdminUserSessionsDELETE)},
 		{Method: GET, Path: "/admin/users/{user_id}/session-events", Group: admin, Auth: permission, Perm: usersRead, Bucket: RLAdminRead,
 			Query: SessionEventQuery{}, Responses: replyOK(iam.ListPage[iam.SessionEvent]{}), serve: handle((*Service).handleAdminUserSessionEventsGET)},
-
-		// #261: users exchange their session for a short-lived delegated token
-		// aimed at the configured audiences.
-		{Method: POST, Path: "/delegated/token", Group: delegated, Auth: session, Bucket: RLDelegatedTokenMint, MountedWhen: FeatureDelegated, Deprecated: true,
-			Request: DelegatedTokenRequest{}, Responses: replyOK(iam.TokenSet{}), serve: handle((*Service).handleDelegatedTokenPOST)},
 
 		// #430: the SPA's half of an OAuth sign-in. The authorize endpoint
 		// stores the request and sends the browser to Frontend.AuthorizePath;
