@@ -113,20 +113,6 @@ cfg.AuthorizationServer.Clients = append(cfg.AuthorizationServer.Clients, authki
 
 `authtest.GrantAuthorizer` records every request for a test; `CodeFlow`, `TokenExchange` and `ClientCredentialsRequest` take `AuthorizationDetails`, and `Consent` returns the client redirect, refusals included.
 
-### From delegated tokens
-
-Delegated and service tokens are deprecated; each use has an OAuth replacement:
-
-| Delegated | OAuth |
-|---|---|
-| `POST /delegated/token`, `Client.MintDelegatedAccessToken` for a signed-in user | token exchange by a client with `GrantTokenExchange` |
-| a delegate acting for days (a worker, a machine) | a code-flow client with `Offline`, `KeyBound` and its own `RefreshTokenTTL`, refreshing with its DPoP key |
-| `Deps.DelegatedAuthorization` | `Deps.OAuthGrants` |
-| a requested grant or `attributes` | `authorization_details`; the decision's `Claims` |
-| a delegate certificate (`cnf.x5t#S256`) | the key-bound DPoP key (`cnf.jkt`); the authorizer checks `JWKThumbprint` |
-| `Client.MintServiceJWT`, `remote-application-access+jwt` | client credentials |
-| `verify.Claims.DelegatedSubject`, `Attributes` | `Subject`, `AuthorizationDetails`, `CustomClaims`, `Invoker` |
-
 ## Tokens
 
 - The access token is an RFC 9068 `at+jwt` for the requested resource ([claims](stability.md#tokens)). Its `permissions` are the user's grants on the root group intersected with the resource's `Permissions`: a role that holds `merchant:*` gives `merchant:*` under that ceiling, so the issuer's role catalog decides what the user may do there. `roles` names the user's root role, for display only.

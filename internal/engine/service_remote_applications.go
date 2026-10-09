@@ -239,9 +239,9 @@ func (s *Engine) reservedIssuer(issuer string) bool {
 }
 
 // accountPeerIssuer reports whether issuer is another deployment sharing this
-// account store. A peer's delegated subjects name accounts here, so only the
-// system may register it as a remote application; a group registration under
-// it would sign for every shared account.
+// account store. A peer's tokens name accounts here, so only the system may
+// register it as a remote application; a group registration under it would
+// sign for every shared account.
 func (s *Engine) accountPeerIssuer(issuer string) bool {
 	key := issuerKey(issuer)
 	for _, peer := range s.cfg.Token.AccountIssuers {
@@ -358,21 +358,4 @@ func (s *Engine) loadApplicationRoles(ctx context.Context, q db.DBTX, groupID st
 		apps[i].Permissions = ident.Perms(grants)
 	}
 	return nil
-}
-
-// ListEnabledRemoteApplications returns only the enabled remote_applications:
-// the verification-facing snapshot a Verifier trusts issuers from.
-func (s *Engine) ListEnabledRemoteApplications(ctx context.Context) ([]iam.RemoteApplication, error) {
-	if err := s.requirePG(); err != nil {
-		return nil, err
-	}
-	rows, err := s.q.RemoteApplicationsEnabled(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var out []iam.RemoteApplication
-	for _, r := range rows {
-		out = append(out, *remoteAppFromRow(r))
-	}
-	return out, nil
 }

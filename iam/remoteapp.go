@@ -32,8 +32,9 @@ type RemoteApplicationKey struct {
 	JWK          *JWK   `json:"jwk,omitempty" yaml:"jwk,omitempty"`
 }
 
-// RemoteApplication is a registered remote application: an external issuer
-// AuthKit trusts to mint delegated and remote-application tokens. Role and
+// RemoteApplication is a registered external issuer: the registry a resource
+// server reads to trust its access tokens, with its role as their ceiling.
+// Role and
 // Permissions are read, never written: its role in its controlling group and
 // the permissions that role confers now (none when it needs MFA, which an
 // application cannot present).

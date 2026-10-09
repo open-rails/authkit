@@ -1,7 +1,6 @@
 package securitytest
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -37,19 +36,13 @@ func serveGin(t *testing.T, h *host, routes func(*gin.Engine)) {
 // and then AuthenticateSession. Over real HTTP through the Gin adapter both
 // reuse the gate's verification, so a DPoP proof is spent and the request
 // verified once. AuthenticateSession refuses a credential whose sign-in was
-// revoked, which the stateless gate admits, and a delegation minted without
-// one; it passes an API key, which carries no sign-in.
+// revoked, which the stateless gate admits, and a token minted without one;
+// it passes an API key, which carries no sign-in.
 func TestSecurityAuthenticateBehindGate(t *testing.T) {
-	const resource = "resource.security.test"
+	const resource = "https://resource.security.test"
 	ban := iam.Perm(ident.RootUsersBan)
-	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(func(c *authkit.Config) {
-		c.Delegated = authkit.DelegatedConfig{Audiences: []string{resource}, AllowDPoP: true}
-	}), authtest.WithDeps(func(d *authkit.Deps) {
-		d.DelegatedAuthorization = func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
-			return iam.DelegationGrant{Permissions: []string{ban.String()}}, nil
-		}
-	}))
-	verifier, err := h.auth.NewVerifier([]string{resource})
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(withResourceClient(resource)))
+	verifier, err := h.auth.NewVerifier([]string{resource, audience})
 	require.NoError(t, err)
 	auth := &countingAuthority{Authority: verifier}
 
@@ -91,23 +84,19 @@ func TestSecurityAuthenticateBehindGate(t *testing.T) {
 	h.grant(iam.RootGroup(), moderator, "moderator")
 	parent := h.login(moderator).AccessToken
 	key := testdpop.Key(t)
-	resp := h.do(request{method: http.MethodPost, path: "/delegated/token", token: parent,
-		body:   map[string]any{"requested_grant": map[string]any{}, "audiences": []string{resource}},
-		header: http.Header{"DPoP": {testdpop.Proof(t, key, http.MethodPost, issuer+apiPrefix+"/delegated/token", parent, nil)}}})
-	require.Equal(t, http.StatusOK, resp.status, resp.String())
-	var minted struct {
-		Token string `json:"access_token"`
-	}
-	resp.json(t, &minted)
+	minted := h.resourceToken(parent, key)
 	proven := func(path string) http.Header {
 		return http.Header{
-			"Authorization": {"DPoP " + minted.Token},
-			"DPoP":          {testdpop.Proof(t, key, http.MethodPost, issuer+path, minted.Token, nil)},
+			"Authorization": {"DPoP " + minted},
+			"DPoP":          {testdpop.Proof(t, key, http.MethodPost, issuer+path, minted, nil)},
 		}
 	}
 
 	t.Run("a DPoP proof is spent once", func(t *testing.T) {
 		for path := range gates {
+			if path == "/permission" || path == "/session" {
+				continue // a resource token carries no sign-in or authority of this deployment
+			}
 			resp := send(path, proven(path))
 			require.Equal(t, http.StatusOK, resp.status, "%s: %s", path, resp)
 			require.Equal(t, moderator.id, resp.String(), path)
@@ -130,8 +119,8 @@ func TestSecurityAuthenticateBehindGate(t *testing.T) {
 		require.EqualValues(t, 1, auth.verified.Load())
 	})
 
-	t.Run("a delegation minted without a sign-in", func(t *testing.T) {
-		token, err := h.auth.MintDelegatedAccessToken(t.Context(), iam.SystemIdentity(), iam.DelegatedAccess{Subject: moderator.id, Audiences: []string{resource}})
+	t.Run("a token minted without a sign-in", func(t *testing.T) {
+		token, err := h.auth.MintAccessToken(t.Context(), moderator.id, iam.AccessTokenOptions{})
 		require.NoError(t, err)
 		resp := send("/required", http.Header{"Authorization": {"Bearer " + token.Value}})
 		require.Equal(t, "revoked", resp.String())
@@ -139,7 +128,7 @@ func TestSecurityAuthenticateBehindGate(t *testing.T) {
 
 	t.Run("a revoked sign-in", func(t *testing.T) {
 		require.Equal(t, http.StatusNoContent, h.do(request{method: http.MethodDelete, path: "/logout", token: parent}).status)
-		resp := send("/required", proven("/required"))
+		resp := send("/required", http.Header{"Authorization": {"Bearer " + parent}})
 		require.Equal(t, http.StatusUnauthorized, resp.status, "the stateless gate admits it, AuthenticateSession does not: %s", resp)
 		require.Equal(t, "revoked", resp.String())
 		require.EqualValues(t, 1, auth.verified.Load())

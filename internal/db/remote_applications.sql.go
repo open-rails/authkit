@@ -9,28 +9,6 @@ import (
 	"context"
 )
 
-const remoteApplicationAuthority = `-- name: RemoteApplicationAuthority :one
-SELECT ra.permission_group_id::text AS permission_group_id, pg.persona
-FROM remote_applications ra
-JOIN permission_groups pg ON pg.id = ra.permission_group_id
-WHERE ra.id = $1::uuid AND ra.enabled AND pg.deleted_at IS NULL
-  AND (ra.trust_root <> 'user' OR EXISTS (SELECT 1 FROM usable_users WHERE id = ra.registered_by))
-`
-
-type RemoteApplicationAuthorityRow struct {
-	PermissionGroupID string
-	Persona           string
-}
-
-// An enabled application in a live group, whose registrar (if a group
-// registered it) is usable.
-func (q *Queries) RemoteApplicationAuthority(ctx context.Context, id string) (RemoteApplicationAuthorityRow, error) {
-	row := q.db.QueryRow(ctx, remoteApplicationAuthority, id)
-	var i RemoteApplicationAuthorityRow
-	err := row.Scan(&i.PermissionGroupID, &i.Persona)
-	return i, err
-}
-
 const remoteApplicationByID = `-- name: RemoteApplicationByID :one
 SELECT id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by, catalog_issuer, declared_by FROM remote_applications WHERE id = $1
 `
@@ -315,44 +293,6 @@ type RemoteApplicationsDeclareParams struct {
 func (q *Queries) RemoteApplicationsDeclare(ctx context.Context, arg RemoteApplicationsDeclareParams) error {
 	_, err := q.db.Exec(ctx, remoteApplicationsDeclare, arg.DeclaredBy, arg.Issuers)
 	return err
-}
-
-const remoteApplicationsEnabled = `-- name: RemoteApplicationsEnabled :many
-SELECT id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by, catalog_issuer, declared_by FROM remote_applications WHERE enabled = true ORDER BY issuer
-`
-
-func (q *Queries) RemoteApplicationsEnabled(ctx context.Context) ([]RemoteApplication, error) {
-	rows, err := q.db.Query(ctx, remoteApplicationsEnabled)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []RemoteApplication
-	for rows.Next() {
-		var i RemoteApplication
-		if err := rows.Scan(
-			&i.ID,
-			&i.Issuer,
-			&i.JwksUri,
-			&i.Mode,
-			&i.PublicKeys,
-			&i.Enabled,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.PermissionGroupID,
-			&i.TrustRoot,
-			&i.RegisteredBy,
-			&i.CatalogIssuer,
-			&i.DeclaredBy,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const remoteApplicationsRelease = `-- name: RemoteApplicationsRelease :exec

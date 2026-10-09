@@ -389,11 +389,10 @@ func TestSecurityRemoteApplicationIssuerSquat(t *testing.T) {
 }
 
 // TestSecurityAccountPeerRemoteApplication: a deployment sharing this account
-// store delegates its users here as a system-registered remote application.
-// Its delegated subjects name accounts in the shared store, so no group may
-// register its issuer; its native user tokens, signed by the same
-// keys, never authenticate here in either role; and registering it never
-// shadows this deployment's own issuer.
+// store is a system-registered remote application. Its tokens name accounts
+// in the shared store, so no group may register its issuer; none of its
+// tokens authenticate here; and registering it never shadows this
+// deployment's own issuer.
 func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 	const peerIssuer = "https://peer.security.test"
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(func(c *authkit.Config) {
@@ -437,31 +436,27 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 	require.NoError(t, err)
 
 	user := h.newAccount("peeruser")
-	ver := h.auth
 	peerToken := func(typ string, claims jwt.MapClaims) string {
 		now := time.Now()
 		claims["iss"], claims["iat"], claims["exp"] = peerIssuer, now.Unix(), now.Add(5*time.Minute).Unix()
 		return sign(t, jwt.SigningMethodRS256, peerKey, map[string]any{"kid": "peer-kid", "typ": typ}, claims)
 	}
-	delegated := peerToken(jose.DelegatedAccessTokenType, jwt.MapClaims{"aud": []string{audience}, "delegated_sub": user.id})
 
-	t.Run("the peer delegates a shared account", func(t *testing.T) {
-		cl, err := ver.Verify(ctx, delegated)
-		require.NoError(t, err)
-		require.Equal(t, peerIssuer, cl.Issuer)
-		require.Equal(t, user.id, cl.DelegatedSubject)
-		require.Empty(t, cl.UserID)
-		require.NotEmpty(t, cl.RemoteApplicationID)
-	})
-
-	t.Run("a peer user token is not a delegation or a local session", func(t *testing.T) {
-		for name, aud := range map[string][]string{"peer audience": {"peer-app"}, "this audience": {audience}} {
-			_, err := ver.Verify(ctx, peerToken(jose.AccessTokenType, jwt.MapClaims{"aud": aud, "sub": user.id, "sid": "peer-session"}))
-			require.Error(t, err, name)
-			require.Equal(t, http.StatusUnauthorized, h.get("/me", peerToken(jose.AccessTokenType, jwt.MapClaims{"aud": aud, "sub": user.id})).status, name)
+	t.Run("no peer token authenticates here", func(t *testing.T) {
+		for _, tc := range []struct {
+			typ    string
+			claims jwt.MapClaims
+		}{
+			{jose.AccessTokenType, jwt.MapClaims{"aud": []string{audience}, "sub": user.id, "sid": "peer-session"}},
+			{jose.AccessTokenType, jwt.MapClaims{"aud": []string{"peer-app"}, "sub": user.id}},
+			{"delegated-access+jwt", jwt.MapClaims{"aud": []string{audience}, "delegated_sub": user.id}},
+			{"remote-application-access+jwt", jwt.MapClaims{"aud": []string{audience}}},
+		} {
+			token := peerToken(tc.typ, tc.claims)
+			_, err := h.auth.Verify(ctx, token)
+			require.Error(t, err, tc.typ)
+			require.Equal(t, http.StatusUnauthorized, h.get("/me", token).status, tc.typ)
 		}
-		_, err := ver.Verify(ctx, peerToken(jose.DelegatedAccessTokenType, jwt.MapClaims{"aud": []string{"peer-app"}, "delegated_sub": user.id}))
-		require.Error(t, err, "a delegation for another audience")
 	})
 
 	t.Run("the peer registration never shadows this deployment's issuer", func(t *testing.T) {
@@ -477,15 +472,15 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 		app.Enabled = false
 		_, err = h.auth.UpsertRemoteApplication(ctx, iam.SystemIdentity(), iam.RootGroup(), app)
 		require.NoError(t, err)
-		_, err = ver.Verify(ctx, delegated)
-		require.Error(t, err)
+		app, err = h.auth.RemoteApplication(ctx, iam.AppByIssuer(peerIssuer))
+		require.NoError(t, err)
+		require.False(t, app.Enabled, "a resource server reads the peer as disabled")
 	})
 }
 
-// TestSecurityDisabledApplicationTokens (ak#417): disabling or deleting a
-// remote application refuses its tokens from the next request on, for as
-// long as the process runs. The verifier's registration from while it was
-// enabled never admits them through another path, whatever they claim.
+// TestSecurityDisabledApplicationTokens: a resource server reading the
+// registry sees a disabled application as disabled and a deleted one as gone;
+// and AuthKit never authenticates an application's token, enabled or not.
 func TestSecurityDisabledApplicationTokens(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
 	ctx := context.Background()
@@ -508,28 +503,26 @@ func TestSecurityDisabledApplicationTokens(t *testing.T) {
 	}
 	_, err := h.auth.ApplyBootstrapManifest(ctx, manifest, iam.BootstrapOptions{})
 	require.NoError(t, err)
-	token := func(a *app, typ string, claims jwt.MapClaims) string {
+	tokens := func(a *app) []string {
 		now := time.Now()
-		claims["iss"], claims["aud"], claims["iat"], claims["nbf"], claims["exp"] = a.issuer, []string{audience}, now.Unix(), now.Unix(), now.Add(5*time.Minute).Unix()
-		return sign(t, jwt.SigningMethodRS256, a.key, map[string]any{"kid": a.kid, "typ": typ}, claims)
-	}
-	delegated := func(a *app, permissions ...string) string {
-		claims := jwt.MapClaims{"delegated_sub": unique("sub")}
-		if permissions != nil {
-			claims["permissions"] = permissions
+		var out []string
+		for typ, claims := range map[string]jwt.MapClaims{
+			"delegated-access+jwt":          {"delegated_sub": unique("sub")},
+			"remote-application-access+jwt": {},
+			"service+jwt":                   {"sub": "billing", "jti": unique("svc"), "token_use": "service", "permissions": []string{"orders:write"}},
+		} {
+			claims["iss"], claims["aud"], claims["iat"], claims["nbf"], claims["exp"] = a.issuer, []string{audience}, now.Unix(), now.Unix(), now.Add(5*time.Minute).Unix()
+			out = append(out, sign(t, jwt.SigningMethodRS256, a.key, map[string]any{"kid": a.kid, "typ": typ}, claims))
 		}
-		return token(a, jose.DelegatedAccessTokenType, claims)
-	}
-	service := func(a *app) string {
-		return token(a, "service+jwt", jwt.MapClaims{"sub": "billing", "jti": unique("svc"), "token_use": iam.ServiceJWTTokenUse, "permissions": []string{"orders:write"}})
+		return out
 	}
 	for name, a := range apps {
-		_, err := h.auth.Verify(ctx, delegated(a))
-		require.NoError(t, err, "control: %s verifies while enabled", name)
-		_, err = h.auth.VerifyServiceJWT(ctx, service(a))
-		require.NoError(t, err, "control: %s's service JWT verifies while enabled", name)
-		_, err = h.auth.Verify(ctx, delegated(a, "billing:refund"))
-		require.Error(t, err, "control: %s's stored authority bounds its delegations", name)
+		_, err := h.auth.RemoteApplication(ctx, iam.AppByIssuer(a.issuer))
+		require.NoError(t, err, "control: %s resolves while enabled", name)
+		for _, token := range tokens(a) {
+			_, err := h.auth.Verify(ctx, token)
+			require.Error(t, err, "%s: AuthKit authenticated an application's token", name)
+		}
 	}
 
 	stored, err := h.auth.RemoteApplication(ctx, iam.AppByIssuer(disabled.issuer))
@@ -540,19 +533,11 @@ func TestSecurityDisabledApplicationTokens(t *testing.T) {
 	stored, err = h.auth.RemoteApplication(ctx, iam.AppByIssuer(deleted.issuer))
 	require.NoError(t, err)
 	require.NoError(t, h.auth.DeleteRemoteApplication(ctx, iam.SystemIdentity(), iam.RootGroup(), stored.ID))
-	// Outlive the enabled-set snapshot, then refresh it with an issuer no
-	// application has.
-	time.Sleep(6 * time.Second)
-	_, err = h.auth.Verify(ctx, token(&app{issuer: "https://nobody.security.test", kid: disabled.kid, key: disabled.key}, jose.DelegatedAccessTokenType, jwt.MapClaims{"delegated_sub": "x"}))
-	require.Error(t, err)
-	for name, a := range apps {
-		for range 2 {
-			_, err := h.auth.Verify(ctx, delegated(a, "billing:refund"))
-			require.Error(t, err, "%s: its delegated token verified", name)
-			_, err = h.auth.VerifyServiceJWT(ctx, service(a))
-			require.Error(t, err, "%s: its service JWT verified", name)
-		}
-	}
+	stored, err = h.auth.RemoteApplication(ctx, iam.AppByIssuer(disabled.issuer))
+	require.NoError(t, err)
+	require.False(t, stored.Enabled)
+	_, err = h.auth.RemoteApplication(ctx, iam.AppByIssuer(deleted.issuer))
+	require.ErrorIs(t, err, iam.ErrRemoteApplicationNotFound)
 }
 
 // TestSecurityGroupRoleIDsAreCanonical (P4): an upper-case subject id names

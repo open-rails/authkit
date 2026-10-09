@@ -35,8 +35,7 @@ type PermissionChecker interface {
 // or (CheckRecentSignIn) step_up_required carrying the step-up methods.
 type SessionChecker interface {
 	// CheckSession: the session or device key the token was minted from is
-	// still active. A user's token carries one, and so does a delegated
-	// token AuthKit minted from it.
+	// still active. A user's token carries one.
 	CheckSession(ctx context.Context, cl Claims) error
 	// CheckRecentSignIn: CheckSession, and the user's own token, signed in
 	// recently enough for a sensitive action, with the second factor when
@@ -99,8 +98,7 @@ func Optional(a Authenticator) func(http.Handler) http.Handler {
 // RequireSession is Required plus the session check: the session or device
 // key the token was minted from is still active (not logged out, revoked,
 // banned or deleted), or the request is 401 session_revoked. A user's token
-// passes, and so does a delegated token AuthKit minted from a sign-in, while
-// that sign-in stands; any other credential is 403 forbidden.
+// passes while its sign-in stands; any other credential is 403 forbidden.
 func RequireSession(a Authority) func(http.Handler) http.Handler {
 	mustAuthenticator(a)
 	return liveGate(a, a.CheckSession)
@@ -109,9 +107,8 @@ func RequireSession(a Authority) func(http.Handler) http.Handler {
 // Sensitive is RequireSession plus a recent sign-in of the user's own token:
 // within the last 15 minutes, with the second factor when the account has
 // one. A stale sign-in answers 403 step_up_required with the account's
-// step-up methods, which auth-ui handles; a delegated token, which carries no
-// sign-in of its own, is 403 forbidden. Stack it after RequirePermission when
-// a route needs both.
+// step-up methods, which auth-ui handles; any other credential is 403
+// forbidden. Stack it after RequirePermission when a route needs both.
 func Sensitive(a Authority) func(http.Handler) http.Handler {
 	mustAuthenticator(a)
 	return liveGate(a, a.CheckRecentSignIn)

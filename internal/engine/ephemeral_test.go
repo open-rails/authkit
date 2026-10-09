@@ -2,6 +2,8 @@ package engine
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -218,58 +221,60 @@ func TestEphemeralSweepRunsAsRiverMaintenance(t *testing.T) {
 }
 
 // A failing DPoP replay claim is an operational failure, never an invalid
-// proof: the delegated mint and a resource verifier answer 500 without a DPoP
-// challenge, and once the store is back the same proofs are accepted.
+// proof: the token endpoint and a resource verifier answer 500 without a
+// DPoP challenge, and once the store is back the same proofs are accepted.
 func TestDPoPReplayStoreOutageFailsClosed(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	ctx := t.Context()
+	const resource = "https://resource.example"
+	secret := strings.Repeat("s", 48)
+	sum := sha256.Sum256([]byte(secret))
 	cfg := testConfig()
-	cfg.Delegated = config.DelegatedConfig{Audiences: []string{"platform"}, AllowDPoP: true}
 	cfg.HTTP = &config.HTTPConfig{DirectPeerIP: true}
-	deps := config.Deps{Postgres: pg.Pool, KeySource: testKeys(), DelegatedAuthorization: func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
-		return iam.DelegationGrant{Permissions: []string{"resource:read"}}, nil
-	}}
+	cfg.AuthorizationServer = config.AuthorizationServerConfig{
+		Resources: []config.ResourceServerConfig{{ID: resource, Scopes: []string{"tasks"}, Permissions: []string{"resource:*"}}},
+		Clients: []config.OAuthClientConfig{{ID: "worker", SecretSHA256: hex.EncodeToString(sum[:]), Resources: []string{resource},
+			Permissions: []string{"resource:tasks:read"}, GrantTypes: []config.OAuthGrantType{config.GrantClientCredentials}}},
+	}
+	deps := config.Deps{Postgres: pg.Pool, KeySource: testKeys()}
 	e := newTestEngine(t, cfg, deps)
 	srv, err := httpapi.New(e, e.Config(), deps)
 	require.NoError(t, err)
 	t.Cleanup(srv.Close)
 	h, err := httpapi.NewMount(srv)
 	require.NoError(t, err)
-	user := newUser(t, e, "dpop")
-	sid, _, err := e.issueRefreshSession(ctx, user.ID)
-	require.NoError(t, err)
-	session, _, err := e.mintAccessToken(ctx, user.ID, map[string]any{"sid": sid}, e.cfg.Token.AccessTokenDuration)
-	require.NoError(t, err)
 
-	browserKey := testdpop.Key(t)
-	target := cfg.Token.Issuer + "/api/v1/delegated/token"
+	key := testdpop.Key(t)
+	target := cfg.Token.Issuer + iam.OAuthTokenPath
 	mint := func(proof string) *httptest.ResponseRecorder {
-		r := httptest.NewRequest(http.MethodPost, "/api/v1/delegated/token", strings.NewReader(`{"requested_grant":{}}`))
-		r.Header.Set("Content-Type", "application/json")
-		r.Header.Set("Authorization", "Bearer "+session)
+		r := httptest.NewRequest(http.MethodPost, iam.OAuthTokenPath, strings.NewReader("grant_type=client_credentials"))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.SetBasicAuth("worker", secret)
 		r.Header.Set("DPoP", proof)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, r)
 		return w
 	}
-	res := mint(testdpop.Proof(t, browserKey, http.MethodPost, target, session, nil))
+	noATH := func(tok *jwt.Token) { delete(tok.Claims.(jwt.MapClaims), "ath") }
+	res := mint(testdpop.Proof(t, key, http.MethodPost, target, "", noATH))
 	require.Equal(t, http.StatusOK, res.Code, res.Body.String())
-	var minted iam.TokenSet
+	var minted struct {
+		AccessToken string `json:"access_token"`
+		TokenType   string `json:"token_type"`
+	}
 	require.NoError(t, json.Unmarshal(res.Body.Bytes(), &minted))
 	require.Equal(t, "DPoP", minted.TokenType)
 
-	const resource = "https://resource.example"
 	v := verify.NewVerifier(verify.WithDPoP(e.ClaimDPoPProof), verify.WithPublicURL(resource))
-	require.NoError(t, v.AddIssuer(cfg.Token.Issuer, []string{"platform"}, verify.IssuerOptions{KeySource: deps.KeySource}))
+	require.NoError(t, v.AddIssuer(cfg.Token.Issuer, []string{resource}, verify.IssuerOptions{KeySource: deps.KeySource}))
 	req := httptest.NewRequest(http.MethodGet, resource+"/tasks", nil)
 	req.Header.Set("Authorization", "DPoP "+minted.AccessToken)
-	req.Header.Set("DPoP", testdpop.Proof(t, browserKey, http.MethodGet, resource+"/tasks", minted.AccessToken, nil))
+	req.Header.Set("DPoP", testdpop.Proof(t, key, http.MethodGet, resource+"/tasks", minted.AccessToken, nil))
 
 	restore := failEphemeral(t, pg.Pool, "INSERT OR UPDATE", "NEW", "dpop:proof:")
-	mintProof := testdpop.Proof(t, browserKey, http.MethodPost, target, session, nil)
+	mintProof := testdpop.Proof(t, key, http.MethodPost, target, "", noATH)
 	res = mint(mintProof)
 	require.Equal(t, http.StatusInternalServerError, res.Code, res.Body.String())
-	require.Contains(t, res.Body.String(), "internal_error")
+	require.Contains(t, res.Body.String(), "server_error")
 	require.Empty(t, res.Header().Get("WWW-Authenticate"))
 	_, err = v.VerifyRequest(req)
 	require.Error(t, err)

@@ -125,8 +125,13 @@ func TestSecurityMFARequirementRevokesMachineCredentials(t *testing.T) {
 		gate.ServeHTTP(w, r)
 		return w.Code
 	}
+	appCan := func(auth *authkit.Client) bool {
+		ok, err := auth.Can(ctx, iam.ApplicationIdentity(app.ID), group, ident.Perm("org:catalog:read"))
+		require.NoError(t, err)
+		return ok
+	}
 	require.Equal(t, http.StatusNoContent, hostRoute(h.auth, key.Secret), "control: the key works")
-	require.Equal(t, http.StatusNoContent, hostRoute(h.auth, appToken(t, s, appIssuer)), "control: the application works")
+	require.True(t, appCan(h.auth), "control: the application works")
 
 	// The host redeploys with org:catalog:read needing MFA.
 	m := newSecurityModel()
@@ -138,7 +143,7 @@ func TestSecurityMFARequirementRevokesMachineCredentials(t *testing.T) {
 	roles, err := h.auth.GroupRoles(ctx, group, []iam.Subject{iam.RemoteApplicationSubject(app.ID)})
 	require.NoError(t, err)
 	require.Empty(t, roles, "the boot sweep kept an application role that needs MFA")
-	require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, hostRoute(rebooted, appToken(t, s, appIssuer)))
+	require.False(t, appCan(rebooted))
 }
 
 // TestSecurityAPIKeysNeedPersonaOptIn: a persona without APIKeys has no keys,

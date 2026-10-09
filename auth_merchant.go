@@ -56,8 +56,7 @@ func (a *Client) RequirePermission(permission string) func(http.Handler) http.Ha
 // Sensitive is verify.Sensitive over the Client: a person's own sign-in
 // within the last 15 minutes, with the second factor when the account has
 // one, else 403 step_up_required with the account's step-up methods. A
-// credential with no sign-in of its own (an API key, an application's token,
-// a delegation) is 403 forbidden.
+// credential with no sign-in of its own (an API key) is 403 forbidden.
 func (a *Client) Sensitive() func(http.Handler) http.Handler {
 	return verify.Sensitive(a)
 }

@@ -173,8 +173,7 @@ func TestClaimsAndExternalIdentity(t *testing.T) {
 func TestAccessorsNeverTrustStoredClaims(t *testing.T) {
 	for _, cl := range []verify.Claims{
 		{Kind: verify.TokenAPIKey, APIKeyID: "machine-1", UserID: "must-not-be-used"},
-		{Kind: verify.TokenRemoteApplication, RemoteApplicationID: "machine-2"},
-		{Kind: verify.TokenDelegated, DelegatedSubject: "external-1", Issuer: "https://external.example"},
+		{Kind: verify.TokenOAuthClient, ClientID: "machine-2", Subject: "machine-2", JOSEType: "at+jwt", Issuer: "https://external.example"},
 	} {
 		app := fiber.New()
 		app.Get("/", authkitfiber.Use(func(next http.Handler) http.Handler {
@@ -183,7 +182,7 @@ func TestAccessorsNeverTrustStoredClaims(t *testing.T) {
 			})
 		}), func(c fiber.Ctx) error {
 			if got, _ := verify.ClaimsFromContext(c.Context()); got.IsUser() {
-				t.Error("an application or delegation exposed as a local user")
+				t.Error("machine principal exposed as a local user")
 			}
 			want, wantOK := cl.Identity()
 			if p, ok := verify.IdentityFromContext(c.Context()); ok != wantOK || p != want {

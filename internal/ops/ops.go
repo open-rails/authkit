@@ -75,13 +75,11 @@ type Operations interface {
 	ListInvitations(ctx context.Context, ref iam.GroupRef, p iam.PageRequest) (iam.ListPage[iam.Invitation], error)
 	RevokeInvitation(ctx context.Context, who auth.Identity, ref iam.GroupRef, id string, opts ...Option) error
 
-	// Remote applications, delegation and service JWTs.
+	// Remote applications: the issuers resource servers trust.
 	UpsertRemoteApplication(ctx context.Context, who auth.Identity, ref iam.GroupRef, app iam.RemoteApplication, opts ...Option) (iam.RemoteApplication, error)
 	DeleteRemoteApplication(ctx context.Context, who auth.Identity, ref iam.GroupRef, id string, opts ...Option) error
 	RemoteApplication(ctx context.Context, ref iam.AppRef) (iam.RemoteApplication, error)
 	ListRemoteApplications(ctx context.Context, ref iam.GroupRef, p iam.PageRequest) (iam.ListPage[iam.RemoteApplication], error)
-	MintDelegatedAccessToken(ctx context.Context, who auth.Identity, d iam.DelegatedAccess, opts ...Option) (iam.Token, error)
-	MintServiceJWT(ctx context.Context, s iam.ServiceJWT, opts ...Option) (iam.Token, iam.ServiceJWTClaims, error)
 
 	// Bootstrap, import and provider links.
 	ApplyBootstrapManifest(ctx context.Context, m iam.BootstrapManifest, o iam.BootstrapOptions, opts ...Option) (iam.BootstrapResult, error)

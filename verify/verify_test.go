@@ -117,23 +117,22 @@ func TestTokenProfiles(t *testing.T) {
 		claims map[string]any
 		want   errmodel.Code
 	}{
-		"sub and delegated_sub":       {jose.AccessTokenType, map[string]any{"sub": "u", "delegated_sub": "d"}, errmodel.CodeConflictingSubject},
-		"delegated with sub":          {jose.DelegatedAccessTokenType, map[string]any{"sub": "u"}, errmodel.CodeAccessTokenHasSub},
-		"delegated_sub on access typ": {jose.AccessTokenType, map[string]any{"delegated_sub": "d"}, errmodel.CodeDelegatedAccessWrongTyp},
-		"sub on another typ":          {"JWT", map[string]any{"sub": "u"}, errmodel.CodeAccessTokenWrongTyp},
-		"no typ":                      {"", map[string]any{}, errmodel.CodeMissingTokenTyp},
-		"remote-application typ":      {jose.RemoteApplicationAccessTokenType, map[string]any{}, errmodel.CodeUnsupportedTokenTyp},
-		"delegated without subject":   {jose.DelegatedAccessTokenType, map[string]any{}, errmodel.CodeMissingDelegatedSub},
-		"access without subject":      {jose.AccessTokenType, map[string]any{}, errmodel.CodeMissingSub},
-		"expired":                     {jose.AccessTokenType, map[string]any{"sub": "u", "exp": time.Now().Add(-time.Hour).Unix()}, errmodel.CodeTokenExpired},
-		"no exp":                      {jose.AccessTokenType, map[string]any{"sub": "u", "exp": nil}, errmodel.CodeMissingExp},
-		"not yet valid":               {jose.AccessTokenType, map[string]any{"sub": "u", "nbf": time.Now().Add(time.Hour).Unix()}, errmodel.CodeTokenNotYetValid},
-		"foreign audience":            {jose.AccessTokenType, map[string]any{"sub": "u", "aud": "elsewhere"}, errmodel.CodeBadAudience},
-		"unknown issuer":              {jose.AccessTokenType, map[string]any{"sub": "u", "iss": "https://nobody.example"}, errmodel.CodeInvalidToken},
-		"2FA-enrollment-only token":   {jose.AccessTokenType, map[string]any{"sub": "u", "2fa_enrollment": true}, errmodel.CodeForbidden},
-		"cnf on an access token":      {jose.AccessTokenType, map[string]any{"sub": "u", "cnf": map[string]any{"jkt": jose.CertificateThumbprint([]byte("k"))}}, errmodel.CodeConfirmationWrongTokenType},
-		"malformed cnf":               {jose.DelegatedAccessTokenType, map[string]any{"delegated_sub": "d", "cnf": map[string]any{"jkt": "short"}}, errmodel.CodeInvalidConfirmation},
-		"two cnf members":             {jose.DelegatedAccessTokenType, map[string]any{"delegated_sub": "d", "cnf": map[string]any{"jkt": jose.CertificateThumbprint([]byte("a")), "x5t#S256": jose.CertificateThumbprint([]byte("b"))}}, errmodel.CodeInvalidConfirmation},
+		"sub on another typ":        {"JWT", map[string]any{"sub": "u"}, errmodel.CodeUnsupportedTokenTyp},
+		"no typ":                    {"", map[string]any{}, errmodel.CodeMissingTokenTyp},
+		"remote-application typ":    {"remote-application-access+jwt", map[string]any{}, errmodel.CodeUnsupportedTokenTyp},
+		"delegated typ":             {"delegated-access+jwt", map[string]any{"delegated_sub": "d"}, errmodel.CodeUnsupportedTokenTyp},
+		"service typ":               {"service+jwt", map[string]any{"sub": "billing", "token_use": "service"}, errmodel.CodeUnsupportedTokenTyp},
+		"delegated_sub only":        {jose.AccessTokenType, map[string]any{"delegated_sub": "d"}, errmodel.CodeMissingSub},
+		"access without subject":    {jose.AccessTokenType, map[string]any{}, errmodel.CodeMissingSub},
+		"expired":                   {jose.AccessTokenType, map[string]any{"sub": "u", "exp": time.Now().Add(-time.Hour).Unix()}, errmodel.CodeTokenExpired},
+		"no exp":                    {jose.AccessTokenType, map[string]any{"sub": "u", "exp": nil}, errmodel.CodeMissingExp},
+		"not yet valid":             {jose.AccessTokenType, map[string]any{"sub": "u", "nbf": time.Now().Add(time.Hour).Unix()}, errmodel.CodeTokenNotYetValid},
+		"foreign audience":          {jose.AccessTokenType, map[string]any{"sub": "u", "aud": "elsewhere"}, errmodel.CodeBadAudience},
+		"unknown issuer":            {jose.AccessTokenType, map[string]any{"sub": "u", "iss": "https://nobody.example"}, errmodel.CodeInvalidToken},
+		"2FA-enrollment-only token": {jose.AccessTokenType, map[string]any{"sub": "u", "2fa_enrollment": true}, errmodel.CodeForbidden},
+		"cnf on an access token":    {jose.AccessTokenType, map[string]any{"sub": "u", "cnf": map[string]any{"jkt": jose.CertificateThumbprint([]byte("k"))}}, errmodel.CodeConfirmationWrongTokenType},
+		"malformed cnf":             {jose.ResourceAccessTokenType, map[string]any{"sub": "u", "client_id": "c", "cnf": map[string]any{"jkt": "short"}}, errmodel.CodeInvalidConfirmation},
+		"two cnf members":           {jose.ResourceAccessTokenType, map[string]any{"sub": "u", "client_id": "c", "cnf": map[string]any{"jkt": jose.CertificateThumbprint([]byte("a")), "x5t#S256": jose.CertificateThumbprint([]byte("b"))}}, errmodel.CodeInvalidConfirmation},
 	} {
 		_, err := f.v.Verify(ctx, sign(t, f.local, tc.typ, localIssuer, tc.claims))
 		require.Equal(t, tc.want, codeOf(err), name)
@@ -143,30 +142,9 @@ func TestTokenProfiles(t *testing.T) {
 	require.Equal(t, errmodel.CodeInvalidToken, codeOf(err))
 }
 
-// A delegated token names an external identity bounded by its permissions.
-func TestDelegatedTokens(t *testing.T) {
-	f := newFixture(t)
-	ctx := context.Background()
-	token := sign(t, f.peer, jose.DelegatedAccessTokenType, peerIssuer, map[string]any{
-		"delegated_sub": "agent-7", "permissions": []string{"repo:read"}, "jti": "t-1", "attributes": map[string]any{"tier": "gold"},
-	})
-	cl, err := f.v.Verify(ctx, token)
-	require.NoError(t, err)
-	require.Equal(t, TokenDelegated, cl.Kind)
-	require.Equal(t, "agent-7", cl.DelegatedSubject)
-	require.Equal(t, []string{"repo:read"}, cl.Permissions)
-	require.JSONEq(t, `"gold"`, string(cl.Attributes["tier"]))
-	require.Nil(t, cl.Group, "explicitly trusted delegation has no group binding")
-	a, ok := boundIdentity(cl)
-	require.True(t, ok)
-	state, _ := iam.StateOf(a)
-	require.True(t, state.CeilingCovers(ident.Perm("repo:read")))
-	require.False(t, state.CeilingCovers(ident.Perm("repo:write")))
-}
-
 // A certificate-bound token verifies only on a request whose TLS peer is its
 // certificate; a DPoP-bound one only with a fresh proof of its key.
-func TestSenderBoundDelegation(t *testing.T) {
+func TestSenderBoundResourceTokens(t *testing.T) {
 	ctx := context.Background()
 	replay := map[string]bool{}
 	f := newFixture(t, WithDPoP(func(_ context.Context, key string, _ time.Duration) (bool, error) {
@@ -178,8 +156,8 @@ func TestSenderBoundDelegation(t *testing.T) {
 	}), WithPublicURL("https://resource.example"))
 
 	leaf, other := leafCertificate(t), leafCertificate(t)
-	bound := sign(t, f.peer, jose.DelegatedAccessTokenType, peerIssuer, map[string]any{
-		"delegated_sub": "d", "cnf": map[string]any{"x5t#S256": jose.CertificateThumbprint(leaf.Raw)},
+	bound := sign(t, f.peer, jose.ResourceAccessTokenType, peerIssuer, map[string]any{
+		"sub": "u", "client_id": "c", "cnf": map[string]any{"x5t#S256": jose.CertificateThumbprint(leaf.Raw)},
 	})
 	_, err := f.v.Verify(ctx, bound)
 	require.ErrorIs(t, err, ErrSenderProofRequired, "detached from its request")
@@ -199,7 +177,7 @@ func TestSenderBoundDelegation(t *testing.T) {
 
 	key := testdpop.Key(t)
 	jkt := testdpop.Thumbprint(t, key)
-	dpopBound := sign(t, f.peer, jose.DelegatedAccessTokenType, peerIssuer, map[string]any{"delegated_sub": "d", "cnf": map[string]any{"jkt": jkt}})
+	dpopBound := sign(t, f.peer, jose.ResourceAccessTokenType, peerIssuer, map[string]any{"sub": "u", "client_id": "c", "cnf": map[string]any{"jkt": jkt}})
 	r := request(nil, "DPoP", dpopBound)
 	r.Header.Set("DPoP", testdpop.Proof(t, key, http.MethodGet, "https://resource.example/read", dpopBound, nil))
 	cl, err = f.v.VerifyRequest(r)
@@ -209,7 +187,7 @@ func TestSenderBoundDelegation(t *testing.T) {
 	require.ErrorIs(t, err, ErrSenderProofRequired, "a proof is single-use")
 	_, err = f.v.VerifyRequest(request(nil, "Bearer", dpopBound))
 	require.ErrorIs(t, err, ErrSenderProofRequired, "no proof")
-	unbound := sign(t, f.peer, jose.DelegatedAccessTokenType, peerIssuer, map[string]any{"delegated_sub": "d"})
+	unbound := sign(t, f.peer, jose.ResourceAccessTokenType, peerIssuer, map[string]any{"sub": "u", "client_id": "c"})
 	_, err = f.v.VerifyRequest(request(nil, "DPoP", unbound))
 	require.ErrorIs(t, err, ErrSenderProofRequired, "a DPoP request needs a DPoP-bound token")
 	_, err = NewVerifier().VerifyRequest(request(nil, "DPoP", dpopBound))
@@ -259,7 +237,7 @@ func TestAddIssuer(t *testing.T) {
 	require.Error(t, f.v.AddIssuer("https://new.example", []string{" "}, IssuerOptions{KeySource: testkeys.Source(s)}), "an issuer needs an audience")
 	// A JWK key carries its kid.
 	require.NoError(t, f.v.AddIssuer("https://jwk.example", []string{audience}, IssuerOptions{Keys: []iam.RemoteApplicationKey{{JWK: &jwk}}}))
-	_, err := f.v.Verify(context.Background(), sign(t, s, jose.DelegatedAccessTokenType, "https://jwk.example", map[string]any{"delegated_sub": "agent", "jti": "j-1"}))
+	_, err := f.v.Verify(context.Background(), sign(t, s, jose.AccessTokenType, "https://jwk.example", map[string]any{"sub": "agent", "jti": "j-1"}))
 	require.NoError(t, err)
 	// The failed attempt left the local issuer as it was.
 	_, err = f.v.Verify(context.Background(), sign(t, f.local, jose.AccessTokenType, localIssuer, map[string]any{"sub": "u"}))

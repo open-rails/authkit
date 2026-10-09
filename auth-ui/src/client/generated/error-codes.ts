@@ -7,8 +7,6 @@ export type AuthErrorCode =
   | "2fa_factor_exists"
   | "2fa_method_unavailable"
   | "2fa_required"
-  | "access_token_has_sub"
-  | "access_token_wrong_typ"
   | "account_authority_escalation"
   | "account_disabled"
   | "account_exists_link_required"
@@ -34,11 +32,7 @@ export type AuthErrorCode =
   | "challenge_not_found"
   | "code_expired"
   | "confirmation_wrong_token_type"
-  | "conflicting_subject"
   | "contact_not_verified"
-  | "delegated_access_wrong_typ"
-  | "delegation_authorizer_unavailable"
-  | "delegation_refused"
   | "device_keys_disabled"
   | "email_already_verified"
   | "email_delivery_failed"
@@ -53,13 +47,11 @@ export type AuthErrorCode =
   | "internal_error"
   | "invalid_2fa_method"
   | "invalid_address"
-  | "invalid_audiences"
   | "invalid_bootstrap_manifest"
   | "invalid_challenge"
   | "invalid_code"
   | "invalid_confirmation"
   | "invalid_credentials"
-  | "invalid_delegate_certificate"
   | "invalid_domain"
   | "invalid_email"
   | "invalid_expiry"
@@ -73,8 +65,6 @@ export type AuthErrorCode =
   | "invalid_provider"
   | "invalid_remote_application"
   | "invalid_request"
-  | "invalid_requested_grant"
-  | "invalid_service_jwt"
   | "invalid_signature"
   | "invalid_signature_encoding"
   | "invalid_state"
@@ -88,24 +78,19 @@ export type AuthErrorCode =
   | "invitations_disabled"
   | "issuer_keys_unavailable"
   | "last_owner"
-  | "malformed_permissions"
   | "method_not_allowed"
   | "missing_audience"
   | "missing_client_id"
-  | "missing_delegated_sub"
   | "missing_exp"
   | "missing_fields"
-  | "missing_iat"
   | "missing_kid"
   | "missing_name"
-  | "missing_nbf"
   | "missing_session_id"
   | "missing_sid_claim"
   | "missing_sub"
   | "missing_token_typ"
   | "name_admission_refused"
   | "no_session"
-  | "not_delegated_access_token"
   | "not_found"
   | "not_implemented"
   | "oauth_grant_authorizer_unavailable"
@@ -124,7 +109,6 @@ export type AuthErrorCode =
   | "password_too_long"
   | "password_too_short"
   | "passwordless_disabled"
-  | "permission_not_granted"
   | "phone_already_verified"
   | "phone_in_use"
   | "phone_number_must_be_e164"
@@ -136,7 +120,6 @@ export type AuthErrorCode =
   | "provider_unavailable"
   | "rate_limited"
   | "registration_disabled"
-  | "remote_application_access_has_subject"
   | "remote_application_issuer_conflict"
   | "remote_application_not_found"
   | "rename_rate_limited"
@@ -146,7 +129,6 @@ export type AuthErrorCode =
   | "role_not_assignable"
   | "sender_proof_required"
   | "server_busy"
-  | "service_jwt_lifetime_exceeded"
   | "session_revoked"
   | "sms_delivery_failed"
   | "sms_unavailable"
@@ -156,7 +138,6 @@ export type AuthErrorCode =
   | "token_not_yet_valid"
   | "too_many_accounts"
   | "too_many_devices"
-  | "ttl_exceeds_delegate_certificate"
   | "unauthenticated"
   | "unknown_group_persona"
   | "unknown_kid"
@@ -184,8 +165,6 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   "2fa_factor_exists": 409,
   "2fa_method_unavailable": 400,
   "2fa_required": 403,
-  access_token_has_sub: 401,
-  access_token_wrong_typ: 401,
   account_authority_escalation: 403,
   account_disabled: 401,
   account_exists_link_required: 409,
@@ -211,11 +190,7 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   challenge_not_found: 401,
   code_expired: 401,
   confirmation_wrong_token_type: 401,
-  conflicting_subject: 401,
   contact_not_verified: 409,
-  delegated_access_wrong_typ: 401,
-  delegation_authorizer_unavailable: 503,
-  delegation_refused: 403,
   device_keys_disabled: 403,
   email_already_verified: 409,
   email_delivery_failed: 502,
@@ -230,13 +205,11 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   internal_error: 500,
   invalid_2fa_method: 400,
   invalid_address: 400,
-  invalid_audiences: 400,
   invalid_bootstrap_manifest: 400,
   invalid_challenge: 401,
   invalid_code: 401,
   invalid_confirmation: 401,
   invalid_credentials: 401,
-  invalid_delegate_certificate: 400,
   invalid_domain: 401,
   invalid_email: 400,
   invalid_expiry: 400,
@@ -250,8 +223,6 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   invalid_provider: 400,
   invalid_remote_application: 400,
   invalid_request: 400,
-  invalid_requested_grant: 400,
-  invalid_service_jwt: 401,
   invalid_signature: 401,
   invalid_signature_encoding: 400,
   invalid_state: 400,
@@ -265,24 +236,19 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   invitations_disabled: 403,
   issuer_keys_unavailable: 503,
   last_owner: 409,
-  malformed_permissions: 401,
   method_not_allowed: 405,
   missing_audience: 401,
   missing_client_id: 401,
-  missing_delegated_sub: 401,
   missing_exp: 401,
   missing_fields: 400,
-  missing_iat: 401,
   missing_kid: 401,
   missing_name: 400,
-  missing_nbf: 401,
   missing_session_id: 400,
   missing_sid_claim: 400,
   missing_sub: 401,
   missing_token_typ: 401,
   name_admission_refused: 403,
   no_session: 401,
-  not_delegated_access_token: 401,
   not_found: 404,
   not_implemented: 501,
   oauth_grant_authorizer_unavailable: 503,
@@ -301,7 +267,6 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   password_too_long: 400,
   password_too_short: 400,
   passwordless_disabled: 403,
-  permission_not_granted: 403,
   phone_already_verified: 409,
   phone_in_use: 400,
   phone_number_must_be_e164: 400,
@@ -313,7 +278,6 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   provider_unavailable: 503,
   rate_limited: 429,
   registration_disabled: 403,
-  remote_application_access_has_subject: 401,
   remote_application_issuer_conflict: 409,
   remote_application_not_found: 404,
   rename_rate_limited: 429,
@@ -323,7 +287,6 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   role_not_assignable: 400,
   sender_proof_required: 401,
   server_busy: 503,
-  service_jwt_lifetime_exceeded: 401,
   session_revoked: 401,
   sms_delivery_failed: 502,
   sms_unavailable: 503,
@@ -333,7 +296,6 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   token_not_yet_valid: 401,
   too_many_accounts: 429,
   too_many_devices: 429,
-  ttl_exceeds_delegate_certificate: 400,
   unauthenticated: 401,
   unknown_group_persona: 400,
   unknown_kid: 401,
@@ -362,8 +324,6 @@ export const AUTH_ERROR_MESSAGES = {
   "2fa_factor_exists": "A two-factor method is already enrolled. Remove it before adding another.",
   "2fa_method_unavailable": "That two-factor method is unavailable.",
   "2fa_required": "Two-factor authentication is required.",
-  access_token_has_sub: "An access token must not carry a subject.",
-  access_token_wrong_typ: "The token type is wrong for an access token.",
   account_authority_escalation: "You do not outrank that account.",
   account_disabled: "This account is disabled.",
   account_exists_link_required: "An account with this email already exists. Sign in, then link the provider from your account page.",
@@ -389,11 +349,7 @@ export const AUTH_ERROR_MESSAGES = {
   challenge_not_found: "Your verification session has expired. Start again.",
   code_expired: "This code has expired or can't be used again. Send a new code.",
   confirmation_wrong_token_type: "This token type does not accept a confirmation claim.",
-  conflicting_subject: "The token carries conflicting subjects.",
   contact_not_verified: "The email address or phone number is not verified.",
-  delegated_access_wrong_typ: "The token type is wrong for delegated access.",
-  delegation_authorizer_unavailable: "Delegation is unavailable.",
-  delegation_refused: "The delegation was refused.",
   device_keys_disabled: "Device keys are disabled.",
   email_already_verified: "Your email address is already verified.",
   email_delivery_failed: "We couldn't deliver the email. Please try again, or contact support.",
@@ -408,13 +364,11 @@ export const AUTH_ERROR_MESSAGES = {
   internal_error: "Something went wrong on our side. Please try again.",
   invalid_2fa_method: "The two-factor method is invalid.",
   invalid_address: "The address is invalid.",
-  invalid_audiences: "The audiences are invalid.",
   invalid_bootstrap_manifest: "The bootstrap manifest is invalid.",
   invalid_challenge: "Your 2FA session is invalid or expired.",
   invalid_code: "Invalid verification code.",
   invalid_confirmation: "The confirmation claim is invalid.",
   invalid_credentials: "Wrong email or password.",
-  invalid_delegate_certificate: "The delegate certificate is invalid.",
   invalid_domain: "Authentication failed.",
   invalid_email: "Please enter a valid email address.",
   invalid_expiry: "The expiry is invalid.",
@@ -428,8 +382,6 @@ export const AUTH_ERROR_MESSAGES = {
   invalid_provider: "That sign-in provider is not supported.",
   invalid_remote_application: "The remote application is invalid.",
   invalid_request: "Invalid request. Please check your input and try again.",
-  invalid_requested_grant: "The requested grant is invalid.",
-  invalid_service_jwt: "The service token is invalid.",
   invalid_signature: "The wallet signature is invalid.",
   invalid_signature_encoding: "The signature encoding is invalid.",
   invalid_state: "The sign-in session is invalid. Please try again.",
@@ -443,24 +395,19 @@ export const AUTH_ERROR_MESSAGES = {
   invitations_disabled: "Invitations are disabled.",
   issuer_keys_unavailable: "The token issuer's signing keys are temporarily unavailable.",
   last_owner: "The last owner cannot be removed.",
-  malformed_permissions: "The permissions claim is malformed.",
   method_not_allowed: "That method is not allowed on this path.",
   missing_audience: "The token carries no audience.",
   missing_client_id: "The token names no client.",
-  missing_delegated_sub: "The delegated token carries no subject.",
   missing_exp: "The token carries no expiry.",
   missing_fields: "Please fill in all required fields.",
-  missing_iat: "The token carries no issued-at.",
   missing_kid: "The token names no key.",
   missing_name: "A name is required.",
-  missing_nbf: "The token carries no not-before.",
   missing_session_id: "A session id is required.",
   missing_sid_claim: "The token carries no session.",
   missing_sub: "The token carries no subject.",
   missing_token_typ: "The token carries no type.",
   name_admission_refused: "That name was refused.",
   no_session: "No session is signed in.",
-  not_delegated_access_token: "The token is not a delegated access token.",
   not_found: "The requested resource was not found.",
   not_implemented: "Not implemented.",
   oauth_grant_authorizer_unavailable: "Authorization is unavailable right now. Try again shortly.",
@@ -479,7 +426,6 @@ export const AUTH_ERROR_MESSAGES = {
   password_too_long: "Password is too long.",
   password_too_short: "Password is too short.",
   passwordless_disabled: "Passwordless sign-in is disabled.",
-  permission_not_granted: "The token claims a permission it was not granted.",
   phone_already_verified: "Your phone number is already verified.",
   phone_in_use: "This phone number is already in use.",
   phone_number_must_be_e164: "Enter the phone number in international format, e.g. +1234567890.",
@@ -491,7 +437,6 @@ export const AUTH_ERROR_MESSAGES = {
   provider_unavailable: "The sign-in provider is temporarily unavailable. Try again shortly.",
   rate_limited: "Too many attempts. Please try again later.",
   registration_disabled: "Registration is currently disabled.",
-  remote_application_access_has_subject: "A remote-application token must not carry a subject.",
   remote_application_issuer_conflict: "That issuer already belongs to another remote application.",
   remote_application_not_found: "The remote application was not found.",
   rename_rate_limited: "Too many username changes. Please try again later.",
@@ -501,7 +446,6 @@ export const AUTH_ERROR_MESSAGES = {
   role_not_assignable: "The role cannot be assigned in this group.",
   sender_proof_required: "The token requires sender proof.",
   server_busy: "The server is busy. Try again in a moment.",
-  service_jwt_lifetime_exceeded: "The service token lifetime is too long.",
   session_revoked: "Your session has ended. Please sign in again.",
   sms_delivery_failed: "We couldn't deliver the text message. Please try again, or contact support.",
   sms_unavailable: "SMS is currently unavailable. Please use email instead.",
@@ -511,7 +455,6 @@ export const AUTH_ERROR_MESSAGES = {
   token_not_yet_valid: "The token is not yet valid.",
   too_many_accounts: "Too many accounts have signed in from this device today. Try again later.",
   too_many_devices: "Too many new devices have signed in to this account today. Try again later, or from a device you've used before.",
-  ttl_exceeds_delegate_certificate: "The TTL exceeds the delegate certificate.",
   unauthenticated: "Please sign in to continue.",
   unknown_group_persona: "Unknown group persona.",
   unknown_kid: "The token names an unknown key.",

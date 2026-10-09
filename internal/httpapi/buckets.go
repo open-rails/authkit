@@ -43,9 +43,6 @@ const (
 	RLSessionRevoke         = "session_revoke"
 	RLSessionRevokeAll      = "session_revoke_all"
 
-	// #261 delegated-token mint (authenticated; bounds signing cost per IP).
-	RLDelegatedTokenMint = "delegated_token_mint"
-
 	RLPasswordResetRequest = "password_reset_request"
 	RLPasswordResetConfirm = "password_reset_confirm"
 	// #312: one bucket per contact flow, whichever channel the identifier names.
@@ -139,7 +136,6 @@ var buckets = map[string]ratelimit.Limit{
 	RL2FASetupTOTP:       {Limit: 6, Window: time.Hour},
 	RL2FARegenerateCodes: {Limit: 3, Window: time.Hour},
 	RLAPIKeyCreate:       {Limit: 20, Window: time.Hour},
-	RLDelegatedTokenMint: {Limit: 60, Window: time.Minute},
 	RLOIDCStart:          {Limit: 30, Window: 10 * time.Minute},
 	RLOAuthAuthorize:     {Limit: 60, Window: 10 * time.Minute},
 	RLOAuthAuthorization: {Limit: 60, Window: 10 * time.Minute},

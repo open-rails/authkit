@@ -23,9 +23,6 @@ SELECT * FROM remote_applications WHERE id = $1;
 -- name: RemoteApplicationByIssuer :one
 SELECT * FROM remote_applications WHERE issuer = $1;
 
--- name: RemoteApplicationsEnabled :many
-SELECT * FROM remote_applications WHERE enabled = true ORDER BY issuer;
-
 -- name: RemoteApplicationsByGroup :many
 -- Newest first, keyset-paged by id.
 SELECT * FROM remote_applications
@@ -58,15 +55,6 @@ FROM group_remote_application_roles r
 JOIN permission_groups g ON g.id = r.permission_group_id
 WHERE r.remote_application_id = sqlc.arg(remote_application_id)::uuid AND g.deleted_at IS NULL
 ORDER BY g.id;
-
--- name: RemoteApplicationAuthority :one
--- An enabled application in a live group, whose registrar (if a group
--- registered it) is usable.
-SELECT ra.permission_group_id::text AS permission_group_id, pg.persona
-FROM remote_applications ra
-JOIN permission_groups pg ON pg.id = ra.permission_group_id
-WHERE ra.id = sqlc.arg(id)::uuid AND ra.enabled AND pg.deleted_at IS NULL
-  AND (ra.trust_root <> 'user' OR EXISTS (SELECT 1 FROM usable_users WHERE id = ra.registered_by));
 
 -- name: RemoteApplicationsDeclare :exec
 -- Config.RemoteApplications of declared_by declares these issuers.

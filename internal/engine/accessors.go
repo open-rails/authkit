@@ -8,7 +8,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/keys"
@@ -20,12 +19,6 @@ import (
 // JWKS publishes the CURRENT public keys, read from the KeySource on every
 // call, so a rotation shows on the very next request (#238).
 func (s *Engine) JWKS() keys.JWKS { return jose.JWKS(s.keys) }
-
-// DelegationAuthorizer returns the host-injected delegated-token authorizer
-// (#277), nil when none was wired.
-func (s *Engine) DelegationAuthorizer() iam.DelegationAuthorizer {
-	return s.delegationAuthorizer
-}
 
 // PublicKeysByKID returns the CURRENT public keys indexed by key ID, read
 // fresh from the KeySource on every call (#238).

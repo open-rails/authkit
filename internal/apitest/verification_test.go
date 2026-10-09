@@ -10,7 +10,6 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/internal/testkeys"
 	"github.com/open-rails/authkit/keys"
@@ -73,11 +72,11 @@ func TestRootRoleClaimIsDisplayOnly(t *testing.T) {
 	require.Equal(t, "claims.root_role", e.Param())
 }
 
-// A remote application's tokens authenticate through the Client and through
-// a Client-built Verifier for another audience, bounded by its stored
-// authority. Its live row decides at once: a key rotation or trust-mode
-// change needs no restart, and a disabled application's tokens stop.
-func TestRemoteApplicationTokens(t *testing.T) {
+// A remote application is a registry entry a resource server trusts: its
+// issuer, keys and the ceiling its role confers, read live. AuthKit itself
+// authenticates none of its tokens. A disabled one is read as disabled at
+// once.
+func TestRemoteApplicationRegistry(t *testing.T) {
 	m := newOrgModel()
 	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
 		m.config(c)
@@ -93,10 +92,11 @@ func TestRemoteApplicationTokens(t *testing.T) {
 	})
 	require.NoError(t, err)
 	authtest.GrantRole(t, auth, group, iam.RemoteApplicationSubject(app.ID), m.member)
-	sign := func(s keys.Signer, typ, aud string, claims map[string]any) string {
+	const resource = "https://partner.example"
+	sign := func(s keys.Signer, typ string, claims map[string]any) string {
 		t.Helper()
 		now := time.Now()
-		base := map[string]any{"iss": app.Issuer, "aud": []string{aud}, "iat": now.Unix(), "exp": now.Add(time.Minute).Unix()}
+		base := map[string]any{"iss": app.Issuer, "aud": []string{resource}, "iat": now.Unix(), "exp": now.Add(time.Minute).Unix(), "sub": "customer-1", "client_id": "app"}
 		for k, v := range claims {
 			base[k] = v
 		}
@@ -104,64 +104,52 @@ func TestRemoteApplicationTokens(t *testing.T) {
 		require.NoError(t, err)
 		return token
 	}
-	catalog := m.catalog.String()
+	// trusted is a resource server's view of the registry.
+	trusted := func(t *testing.T) (iam.RemoteApplication, *verify.Verifier, error) {
+		t.Helper()
+		got, err := auth.RemoteApplication(ctx, iam.AppByIssuer(app.Issuer))
+		if err == nil && !got.Enabled {
+			err = iam.ErrRemoteApplicationNotFound
+		}
+		if err != nil {
+			return got, nil, err
+		}
+		v := verify.NewVerifier(verify.WithHTTPClient(http.DefaultClient))
+		opts := verify.IssuerOptions{Keys: got.PublicKeys}
+		if got.Mode == iam.RemoteApplicationModeJWKS {
+			opts = verify.IssuerOptions{JWKSURI: got.JWKSURI}
+		}
+		require.NoError(t, v.AddIssuer(got.Issuer, []string{resource}, opts))
+		return got, v, nil
+	}
 
-	// The application acting as itself carries its stored grants, bound to
-	// its group; a permissions claim only narrows them.
-	cl, err := auth.Verify(ctx, sign(signer, jose.RemoteApplicationAccessTokenType, authtest.Audience, nil))
+	got, v, err := trusted(t)
 	require.NoError(t, err)
-	require.Equal(t, verify.TokenRemoteApplication, cl.Kind)
-	require.Equal(t, app.ID, cl.RemoteApplicationID)
-	require.Equal(t, group.ID(), cl.Group.GroupID)
-	require.Equal(t, authtest.Issuer, cl.Group.AuthorityIssuer)
-	require.Equal(t, []string{catalog}, cl.Permissions)
-	_, err = auth.Verify(ctx, sign(signer, jose.RemoteApplicationAccessTokenType, authtest.Audience, map[string]any{"permissions": []string{m.org.Members.Manage.String()}}))
-	require.Equal(t, errmodel.CodePermissionNotGranted, errmodel.CodeOf(err), "a claim cannot widen the stored grants")
+	require.Equal(t, group.ID(), got.GroupID)
+	require.Equal(t, []iam.Perm{m.catalog}, got.Permissions, "the ceiling is its role's grants")
+	cl, err := v.Verify(ctx, sign(signer, jose.ResourceAccessTokenType, nil))
+	require.NoError(t, err)
+	require.Equal(t, "customer-1", cl.Subject)
+	require.Equal(t, app.Issuer, cl.Issuer)
 
-	// Its delegation grants what it names, within the same ceiling.
-	delegation := sign(signer, jose.DelegatedAccessTokenType, authtest.Audience, map[string]any{"delegated_sub": "customer-1", "permissions": []string{catalog}, "sid": "app-session"})
-	cl, err = auth.Verify(ctx, delegation)
-	require.NoError(t, err)
-	require.Equal(t, verify.TokenDelegated, cl.Kind)
-	require.Equal(t, app.ID, cl.RemoteApplicationID)
-	require.Equal(t, []string{catalog}, cl.Permissions)
-	require.Empty(t, cl.SessionID, "an application's sign-ins are not AuthKit's")
-	who := authtest.Identity(t, auth, delegation)
-	allowed, err := auth.Can(ctx, who, group, m.catalog)
-	require.NoError(t, err)
-	require.True(t, allowed)
-	_, err = auth.Verify(ctx, sign(signer, jose.DelegatedAccessTokenType, authtest.Audience, map[string]any{"delegated_sub": "customer-1", "permissions": []string{m.org.All().String()}}))
-	require.Equal(t, errmodel.CodePermissionNotGranted, errmodel.CodeOf(err))
-	_, err = auth.Verify(ctx, sign(signer, jose.AccessTokenType, authtest.Audience, map[string]any{"sub": owner.ID}))
-	require.Equal(t, errmodel.CodeBadIssuer, errmodel.CodeOf(err), "an application mints no user tokens")
+	// AuthKit authenticates no application token, whatever its type.
+	for _, typ := range []string{jose.ResourceAccessTokenType, jose.AccessTokenType, "remote-application-access+jwt", "delegated-access+jwt"} {
+		_, err := auth.Verify(ctx, sign(signer, typ, map[string]any{"aud": []string{authtest.Audience}, "delegated_sub": "customer-1"}))
+		require.Error(t, err, typ)
+	}
 
-	// A Client-built Verifier serves another audience, which the Client
-	// itself refuses; it verifies the application's service JWTs too.
-	partner, err := auth.NewVerifier([]string{"partner-api"}, verify.WithPublicURL("https://partner.example"))
-	require.NoError(t, err)
-	forPartner := sign(signer, jose.RemoteApplicationAccessTokenType, "partner-api", nil)
-	_, err = auth.Verify(ctx, forPartner)
-	require.Equal(t, errmodel.CodeBadAudience, errmodel.CodeOf(err))
-	cl, err = partner.Verify(ctx, forPartner)
-	require.NoError(t, err)
-	require.Equal(t, app.ID, cl.RemoteApplicationID)
-	service, err := partner.VerifyServiceJWT(ctx, sign(signer, jose.ServiceJWTType, "partner-api", map[string]any{
-		"sub": "billing", "jti": "svc-1", "nbf": time.Now().Unix(), "token_use": iam.ServiceJWTTokenUse, "permissions": []string{"ledger:write"},
-	}))
-	require.NoError(t, err)
-	require.Equal(t, app.Issuer, service.Issuer)
-	require.Equal(t, http.StatusNoContent, gateStatus(t, verify.RequirePermissionOn(partner, group, m.catalog), forPartner), "the Verifier is an Authority")
-
-	// Rotating the static key takes effect on the next request; a JWK names
+	// Rotating the static key takes effect on the next read; a JWK names
 	// its own kid.
 	rotated := testkeys.RSA("app-2")
 	jwk := keys.PublicJWK(rotated.Public(), rotated.KID(), "")
 	app.PublicKeys = []iam.RemoteApplicationKey{{JWK: &jwk}}
 	app, err = auth.UpsertRemoteApplication(ctx, iam.SystemIdentity(), group, app)
 	require.NoError(t, err)
-	_, err = auth.Verify(ctx, sign(signer, jose.RemoteApplicationAccessTokenType, authtest.Audience, nil))
+	_, v, err = trusted(t)
+	require.NoError(t, err)
+	_, err = v.Verify(ctx, sign(signer, jose.ResourceAccessTokenType, nil))
 	require.Error(t, err, "the retired key")
-	_, err = auth.Verify(ctx, sign(rotated, jose.RemoteApplicationAccessTokenType, authtest.Audience, nil))
+	_, err = v.Verify(ctx, sign(rotated, jose.ResourceAccessTokenType, nil))
 	require.NoError(t, err)
 
 	// Switching to JWKS mode trusts only the endpoint's keys.
@@ -173,22 +161,17 @@ func TestRemoteApplicationTokens(t *testing.T) {
 	app.Mode, app.JWKSURI, app.PublicKeys = iam.RemoteApplicationModeJWKS, jwks.URL, nil
 	app, err = auth.UpsertRemoteApplication(ctx, iam.SystemIdentity(), group, app)
 	require.NoError(t, err)
-	_, err = auth.Verify(ctx, sign(rotated, jose.RemoteApplicationAccessTokenType, authtest.Audience, nil))
-	require.Error(t, err, "the static key no longer verifies")
-	_, err = auth.Verify(ctx, sign(published, jose.RemoteApplicationAccessTokenType, authtest.Audience, nil))
+	_, v, err = trusted(t)
 	require.NoError(t, err)
-	require.NoError(t, auth.CheckIssuerKeys(ctx))
-	statuses := auth.IssuerKeyStatuses()
-	require.Len(t, statuses, 1)
-	require.Equal(t, app.Issuer, statuses[0].Issuer)
-	require.True(t, statuses[0].Fresh)
+	_, err = v.Verify(ctx, sign(rotated, jose.ResourceAccessTokenType, nil))
+	require.Error(t, err, "the static key no longer verifies")
+	_, err = v.Verify(ctx, sign(published, jose.ResourceAccessTokenType, nil))
+	require.NoError(t, err)
 
-	// Disabling the application stops its tokens everywhere at once.
+	// A resource server trusts a disabled application no more.
 	app.Enabled = false
 	_, err = auth.UpsertRemoteApplication(ctx, iam.SystemIdentity(), group, app)
 	require.NoError(t, err)
-	_, err = auth.Verify(ctx, sign(published, jose.RemoteApplicationAccessTokenType, authtest.Audience, nil))
-	require.Error(t, err)
-	_, err = partner.Verify(ctx, sign(published, jose.RemoteApplicationAccessTokenType, "partner-api", nil))
-	require.Error(t, err)
+	_, _, err = trusted(t)
+	require.ErrorIs(t, err, iam.ErrRemoteApplicationNotFound)
 }

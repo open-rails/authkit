@@ -41,9 +41,6 @@ const (
 	defaultPasswordlessPath        = "/passwordless"
 	defaultInvitePath              = "/accept-invite"
 	defaultAuthorizePath           = "/authorize"
-	DefaultDelegatedTTLFloor       = time.Minute
-	DefaultDelegatedTTLDefault     = 15 * time.Minute
-	DefaultDelegatedTTLCeiling     = time.Hour
 	maxTokenEntitlements           = 32
 	maxTokenEntitlementNameBytes   = 128
 	maxTokenEntitlementBytes       = 2048
@@ -110,9 +107,6 @@ func Normalize(c Config, d Deps) (Config, error) {
 	c.APIKeys.Prefix = strings.TrimSpace(c.APIKeys.Prefix)
 	if !validAPIKeyPrefix(c.APIKeys.Prefix) {
 		return Config{}, fmt.Errorf("authkit: invalid APIKeyPrefix %q (want lowercase alphanumeric, 1-16 chars, or empty)", c.APIKeys.Prefix)
-	}
-	if err := normalizeDelegated(&c.Delegated); err != nil {
-		return Config{}, err
 	}
 	if err := normalizeAuthorizationServer(&c.AuthorizationServer, c); err != nil {
 		return Config{}, err
@@ -461,34 +455,6 @@ func validAPIKeyPrefix(p string) bool {
 	return true
 }
 
-// An impossible TTL triple refuses at construction, never a silent clamp.
-// TTLs or DPoP set while the route is disabled are dead config and refuse too.
-func normalizeDelegated(d *DelegatedConfig) error {
-	d.Audiences = dedup(d.Audiences)
-	if len(d.Audiences) == 0 {
-		if d.AllowDPoP || d.TTLFloor != 0 || d.TTLDefault != 0 || d.TTLCeiling != 0 {
-			return errors.New("authkit: Delegated TTLs or DPoP are set but Delegated.Audiences is empty — the mint route is disabled without an audience allowlist")
-		}
-		return nil
-	}
-	if d.TTLFloor < 0 || d.TTLDefault < 0 || d.TTLCeiling < 0 {
-		return fmt.Errorf("authkit: Delegated TTLs must not be negative (floor=%v default=%v ceiling=%v)", d.TTLFloor, d.TTLDefault, d.TTLCeiling)
-	}
-	if d.TTLFloor == 0 {
-		d.TTLFloor = DefaultDelegatedTTLFloor
-	}
-	if d.TTLDefault == 0 {
-		d.TTLDefault = DefaultDelegatedTTLDefault
-	}
-	if d.TTLCeiling == 0 {
-		d.TTLCeiling = DefaultDelegatedTTLCeiling
-	}
-	if d.TTLFloor > d.TTLCeiling || d.TTLDefault < d.TTLFloor || d.TTLDefault > d.TTLCeiling {
-		return fmt.Errorf("authkit: Delegated TTLs must satisfy floor <= default <= ceiling (floor=%v default=%v ceiling=%v)", d.TTLFloor, d.TTLDefault, d.TTLCeiling)
-	}
-	return nil
-}
-
 func normalizeLanguages(l *LanguageConfig) error {
 	var supported []string
 	for _, raw := range l.Supported {
@@ -589,12 +555,6 @@ func normalizeHTTP(h *HTTPConfig, c Config, d Deps) error {
 		if len(cl.AuthorizationDetailsTypes) > 0 && d.OAuthGrants == nil {
 			return fmt.Errorf("authkit: AuthorizationServer client %q declares AuthorizationDetailsTypes but no grant authorizer is wired — set authkit.Deps.OAuthGrants", cl.ID)
 		}
-	}
-	if len(c.Delegated.Audiences) > 0 && d.DelegatedAuthorization == nil {
-		return errors.New("authkit: Config.Delegated.Audiences is set but no delegation authorizer is wired — set authkit.Deps.DelegatedAuthorization")
-	}
-	if len(c.Delegated.Audiences) == 0 && d.DelegatedAuthorization != nil {
-		return errors.New("authkit: Deps.DelegatedAuthorization is wired but Config.Delegated.Audiences is empty — the mint route is disabled; drop the dead wiring or declare audiences")
 	}
 	return nil
 }

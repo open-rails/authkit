@@ -17,10 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	refund      = "merchant:payments:refund"
-	merchantApp = "https://billing-bot.security.test"
-)
+const refund = "merchant:payments:refund"
 
 // merchantRoles declares OpenRails-shaped merchant permissions from their
 // published strings (an AuthKit built-in among them), a support role holding
@@ -105,13 +102,6 @@ func TestSecurityMerchantAuth(t *testing.T) {
 		return secret
 	}
 	supportKey, viewerKey := apiKey("support"), apiKey("viewer")
-	signer := newSigner(t, "billing-bot")
-	app, err := h.auth.UpsertRemoteApplication(ctx, iam.UserIdentity(owner.id), group, iam.RemoteApplication{
-		Issuer: merchantApp, PublicKeys: staticKeys(t, signer), Enabled: true,
-	})
-	require.NoError(t, err)
-	grantRole(t, h.auth, group, iam.RemoteApplicationSubject(app.ID), "support")
-	appBearer := appToken(t, signer, merchantApp)
 
 	token := map[string]string{}
 	for name, a := range map[string]account{"owner": owner, "support": support, "viewer": viewer, "outsider": outsider, "billing": billing, "banned": banned} {
@@ -142,7 +132,6 @@ func TestSecurityMerchantAuth(t *testing.T) {
 		require.Equal(t, neutral.CredentialDeviceKey, c.Credential.Kind)
 		requireStatus(t, required(t, bearer(token["banned"])), http.StatusUnauthorized, "session_revoked")
 		requireStatus(t, required(t, bearer(supportKey)), http.StatusForbidden, "forbidden")
-		requireStatus(t, required(t, bearer(appBearer)), http.StatusForbidden, "forbidden")
 	})
 
 	t.Run("RequirePermission checks the merchant group, live", func(t *testing.T) {
@@ -159,10 +148,6 @@ func TestSecurityMerchantAuth(t *testing.T) {
 		require.Equal(t, merchant, c.Subject, "a group API key is the group's account")
 		require.Equal(t, neutral.SubjectApplication, c.SubjectKind)
 		require.Equal(t, neutral.CredentialAPIKey, c.Credential.Kind)
-		c = callerOf(t, permitted(t, bearer(appBearer)))
-		require.Equal(t, app.ID, c.Subject)
-		require.Equal(t, issuer, c.Issuer)
-		require.Equal(t, neutral.CredentialSignedToken, c.Credential.Kind)
 
 		for _, pattern := range []string{"merchant:*", "merchant:payments:*", "merchant:*:read", "merchant:payments:void"} {
 			require.Panics(t, func() { h.auth.RequirePermission(pattern) }, "%s is not one registered permission", pattern)
@@ -173,7 +158,6 @@ func TestSecurityMerchantAuth(t *testing.T) {
 		callerOf(t, sensitive(t, bearer(token["support"])))
 		requireStatus(t, sensitive(t, bearer(authtest.StaleSession(t, h.auth, token["support"]))), http.StatusForbidden, "step_up_required")
 		requireStatus(t, sensitive(t, bearer(supportKey)), http.StatusForbidden, "forbidden")
-		requireStatus(t, sensitive(t, bearer(appBearer)), http.StatusForbidden, "forbidden")
 	})
 
 	t.Run("only the Client's own gates prove an identity", func(t *testing.T) {

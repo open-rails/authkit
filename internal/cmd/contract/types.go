@@ -219,7 +219,7 @@ func fullPath(r httpapi.RouteSpec) string {
 var neutralEnums = map[reflect.Type][]string{
 	reflect.TypeFor[auth.SubjectKind](): {string(auth.SubjectUser), string(auth.SubjectApplication)},
 	reflect.TypeFor[auth.CredentialKind](): {string(auth.CredentialSession), string(auth.CredentialDeviceKey), string(auth.CredentialAPIKey),
-		string(auth.CredentialSignedToken), string(auth.CredentialAccessToken), string(iam.CredentialSystem)},
+		string(auth.CredentialAccessToken), string(iam.CredentialSystem)},
 }
 
 // enumValues are the string constants declared with an AuthKit string type,

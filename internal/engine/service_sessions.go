@@ -355,13 +355,11 @@ func (s *Engine) SessionFreshness(ctx context.Context, userID, sessionID string,
 
 // CheckSession is the session check (#412) for verified claims: the refresh
 // session or device key the token was minted from is still active and its
-// account usable. A user's token names one, and so does a delegated token
-// this deployment minted from a sign-in (#412 binds it to its minting
-// session). A token that names none, such as one the host minted, is refused
+// account usable. A user's token names one. A token that names none, such as one the host minted, is refused
 // too, since nothing proves it still stands. Every refusal is
-// ErrSessionRevoked; any other credential (an API key, an application's, a
-// 2FA-enrollment token) is forbidden. Permission checks run the same query
-// through the identity's session binding.
+// ErrSessionRevoked; any other credential (an API key, a 2FA-enrollment
+// token) is forbidden. Permission checks run the same query through the
+// identity's session binding.
 func (s *Engine) CheckSession(ctx context.Context, cl verify.Claims) error {
 	userID, ok := s.signedInUser(cl)
 	if !ok {
@@ -384,18 +382,13 @@ func (s *Engine) CheckSession(ctx context.Context, cl verify.Claims) error {
 	return nil
 }
 
-// signedInUser is the account whose sign-in cl stands on: a user's own
-// token, or a delegated token this deployment minted, whose delegated_sub is
-// the user it was minted for (as identityAuthority reads it).
+// signedInUser is the account whose sign-in cl stands on: a user's own token.
 func (s *Engine) signedInUser(cl verify.Claims) (string, bool) {
 	switch {
 	case cl.TwoFAEnrollment:
 		return "", false
 	case cl.IsUser():
 		return cl.UserID, true
-	case cl.Kind == verify.TokenDelegated && cl.RemoteApplicationID == "" && cl.DelegatedSubject != "" &&
-		cl.Issuer != "" && cl.Issuer == strings.TrimSpace(s.cfg.Token.Issuer):
-		return cl.DelegatedSubject, true
 	}
 	return "", false
 }
@@ -405,8 +398,7 @@ func (s *Engine) signedInUser(cl verify.Claims) (string, bool) {
 // of the user's own token within authflow.SensitiveActionFreshAuthWindow,
 // with a second factor when the account has one (checked live, so a token
 // minted before enrollment cannot hide it). A stale sign-in is
-// StepUpRequired; a delegated token, which carries no sign-in of its own, is
-// forbidden.
+// StepUpRequired; any other credential is forbidden.
 func (s *Engine) CheckRecentSignIn(ctx context.Context, cl verify.Claims) error {
 	if err := s.CheckSession(ctx, cl); err != nil {
 		return err

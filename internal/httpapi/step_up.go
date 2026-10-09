@@ -284,8 +284,7 @@ func SanitizeReturnTo(value string) string {
 // token stops changing the account the moment any of them happens, instead of
 // installing a credential that outlives them. A 2FA-enrollment token has no
 // session; it reaches only the enrollment routes, where the engine checks its
-// login proof. These routes are a user's own: a delegated token passes the
-// session check but not this tier.
+// login proof. These routes are a user's own.
 func (s *Service) requireSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims, err := callerClaims(r)

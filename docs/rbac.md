@@ -81,7 +81,7 @@ A check (`Client.Can`, or `RequirePermission` in `verify` and the adapters) comb
 | Change | What you do | What happens at the next deploy |
 |---|---|---|
 | Add a permission or role | code | It's available as soon as it ships. |
-| Rename or remove a permission | code; the compiler finds every use | No stored data names a permission, so there's nothing to migrate. Delegated tokens carry permission text as a ceiling, so those minted earlier lack the new name until they're re-minted. |
+| Rename or remove a permission | code; the compiler finds every use | No stored data names a permission, so there's nothing to migrate. Resource access tokens carry permission text, so those minted earlier lack the new name until they expire. |
 | Change what a role grants | code | Every holder gets the new grants. No migration. |
 | Remove a role | code | Its assignments stay in Postgres but grant nothing. At startup AuthKit logs `authkit: rbac drift detected` with counts. The credential sweep revokes API keys and invitations users issued for it. Anyone with `members:manage` in a group can remove its holders there or give them another role. |
 | Rename a role or persona | code, plus a data fix | Stored rows keep the old text. Until they're fixed, the old name's holders hold nothing, as if the role were removed. AuthKit has no rename operation. |

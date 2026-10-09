@@ -39,7 +39,6 @@ func (s *Engine) applyDeps(d config.Deps) error {
 	s.email, s.sms = d.Email, d.SMS
 	s.entitlements, s.entitlementHolders = d.Entitlements, d.EntitlementHolders
 	s.onEvent, s.onPurge = d.OnEvent, d.OnPurge
-	s.delegationAuthorizer = d.DelegatedAuthorization
 	s.oauthGrants = d.OAuthGrants
 	s.nameAdmission = d.NameAdmission
 	return nil

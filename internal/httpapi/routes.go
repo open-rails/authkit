@@ -80,8 +80,6 @@ func (s *Service) mounts(f Feature) bool {
 		return cfg.SolanaNetwork != ""
 	case FeatureOIDC:
 		return len(s.providers) > 0
-	case FeatureDelegated:
-		return len(cfg.Delegated.Audiences) > 0
 	case FeatureDeviceKeys:
 		return cfg.DeviceKeys.Enabled
 	case FeatureInvitations:

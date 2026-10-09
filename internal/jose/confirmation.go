@@ -8,7 +8,7 @@ import (
 	"io"
 )
 
-// Sender binding (cnf) of a delegated token: RFC 8705 binds it to an X.509
+// Sender binding (cnf) of a resource token: RFC 8705 binds it to an X.509
 // certificate (x5t#S256), RFC 9449 to a DPoP key (jkt). Both thumbprints are
 // the unpadded base64url SHA-256 the claim itself carries.
 const (

@@ -8,7 +8,7 @@ import (
 )
 
 func TestIdentityState(t *testing.T) {
-	for _, id := range []auth.Identity{{}, UserIdentity(" "), APIKeyIdentity(""), ApplicationIdentity(""), DelegatedIdentity(DelegatedGrant{Subject: "s"}),
+	for _, id := range []auth.Identity{{}, UserIdentity(" "), APIKeyIdentity(""), ApplicationIdentity(""),
 		Within(SystemIdentity(), Perm{"org:*"}), Within(auth.Identity{}, Perm{"org:*"}), PinnedTo(SystemIdentity(), "g-1")} {
 		if s, ok := StateOf(id); ok || !s.IsZero() || s.String() != "invalid" {
 			t.Fatalf("want no state, got %v", s)
@@ -40,23 +40,9 @@ func TestIdentityState(t *testing.T) {
 		t.Fatal("an empty ceiling permits nothing")
 	}
 
-	grant := DelegatedGrant{Issuer: "https://auth.test", Subject: "user-2", Permissions: []Perm{{"org:catalog:read"}}}
-	delegated := DelegatedIdentity(grant)
-	grant.Permissions[0] = Perm{"org:*"}
-	d, _ := StateOf(delegated)
-	if !d.Delegated() || d.IsUser() || d.ID() != "user-2" || d.DelegatedIssuer() != "https://auth.test" || !d.CeilingCovers(Perm{"org:catalog:read"}) || d.CeilingCovers(Perm{"org:catalog:write"}) {
-		t.Fatalf("delegated = %v", d)
-	}
-	if delegated.Subject != "user-2" || !delegated.SelfInvoked() {
-		t.Fatalf("a user's delegation is the user: %+v", delegated)
-	}
-	app := DelegatedIdentity(DelegatedGrant{Issuer: "https://app.test", Subject: "u_42", RemoteApplicationID: "app-1", GroupID: "g-1"})
-	a, _ := StateOf(app)
-	if !a.IsApplication() || !a.Delegated() || a.ID() != "app-1" || a.Group() != "g-1" {
-		t.Fatalf("an application's delegation = %v", a)
-	}
-	if app.Subject != "app-1" || app.Invoker != (auth.Invoker{Issuer: "https://app.test", ID: "u_42"}) || app.SelfInvoked() {
-		t.Fatalf("an application's user invokes it: %+v", app)
+	app := PinnedTo(ApplicationIdentity("app-1"), "g-1")
+	if a, _ := StateOf(app); !a.IsApplication() || a.ID() != "app-1" || a.Group() != "g-1" {
+		t.Fatalf("an application pinned to its group = %v", a)
 	}
 	if _, ok := StateOf(PinnedTo(app, "g-2")); ok {
 		t.Fatal("a pin only narrows: pinned to g-1, it cannot move to g-2")

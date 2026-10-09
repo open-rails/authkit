@@ -22,7 +22,6 @@ import (
 	"github.com/open-rails/authkit/internal/testkeys"
 	"github.com/open-rails/authkit/keys"
 	"github.com/open-rails/authkit/verify"
-	"github.com/open-rails/helpers/auth"
 	"github.com/stretchr/testify/require"
 )
 
@@ -53,16 +52,6 @@ func staticKeys(t *testing.T, s keys.Signer) []iam.RemoteApplicationKey {
 	return []iam.RemoteApplicationKey{{KID: s.KID(), PublicKeyPEM: pemOf(t, s.Public())}}
 }
 
-// appToken is a remote-application access token the application signs with
-// its own key: typ remote-application-access+jwt and no subject.
-func appToken(t *testing.T, s keys.Signer, iss string) string {
-	t.Helper()
-	now := time.Now()
-	token, err := jose.Sign(context.Background(), s, jose.RemoteApplicationAccessTokenType, jwt.MapClaims{"iss": iss, "aud": []string{audience}, "iat": now.Unix(), "exp": now.Add(time.Minute).Unix()})
-	require.NoError(t, err)
-	return token
-}
-
 func (h *host) rootGroupID() string {
 	h.t.Helper()
 	g, err := h.auth.Group(context.Background(), iam.RootGroup())
@@ -71,7 +60,7 @@ func (h *host) rootGroupID() string {
 }
 
 // TestSecuritySystemApplicationRekey (M4): an application's keys are its
-// identity and authority. A credentials manager never re-keys or deletes an
+// identity and authority to the resource servers that trust the registry. A credentials manager never re-keys or deletes an
 // application the system registered, and never re-keys one holding a role
 // they do not cover in any group.
 func TestSecuritySystemApplicationRekey(t *testing.T) {
@@ -84,11 +73,6 @@ func TestSecuritySystemApplicationRekey(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, iam.ApplicationTrustRootManual, app.TrustRoot)
 	grantRole(t, h.auth, iam.RootGroup(), iam.RemoteApplicationSubject(app.ID), "credentials-admin")
-	verifies := func(token string) bool {
-		_, err := h.auth.Verify(ctx, token)
-		return err == nil
-	}
-	require.True(t, verifies(appToken(t, partner, partnerIssuer)), "control: the partner authenticates")
 
 	staff := h.newAccount("credstaff")
 	h.grant(iam.RootGroup(), staff, "credentials-admin")
@@ -101,8 +85,7 @@ func TestSecuritySystemApplicationRekey(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, staticKeys(t, partner), stored.PublicKeys)
 	require.Equal(t, iam.ApplicationTrustRootManual, stored.TrustRoot)
-	require.False(t, verifies(appToken(t, attacker, partnerIssuer)), "a token signed with the refused key")
-	require.True(t, verifies(appToken(t, partner, partnerIssuer)))
+	require.NotEqual(t, staticKeys(t, attacker), stored.PublicKeys, "the refused key is not the application's")
 
 	t.Run("a role held in another group needs coverage there", func(t *testing.T) {
 		owner, manager := h.newAccount("appowner"), h.newAccount("appmanager")
@@ -215,8 +198,7 @@ func TestSecurityApplicationRegistrar(t *testing.T) {
 		app       iam.RemoteApplication
 	}
 	// register has registrar (a manager, or the owner) register an application
-	// holding member. Every application is registered before the first token
-	// is verified: the verifier refreshes its application set on a timer.
+	// holding member.
 	register := func(registrar account) registered {
 		t.Helper()
 		r := registered{registrar: registrar, slug: unique("regapp")}
@@ -239,16 +221,15 @@ func TestSecurityApplicationRegistrar(t *testing.T) {
 	removedApp, bannedApp := register(removedManager), register(bannedManager)
 	ownerApp := register(owner)
 
-	gate := verify.RequirePermissionOn(h.auth, group, ident.Perm("org:catalog:read"))(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
-	hostRoute := func(r registered) int {
-		req := httptest.NewRequest(http.MethodGet, "https://host.security.test/catalog", nil)
-		req.Header.Set("Authorization", "Bearer "+appToken(t, r.signer, r.app.Issuer))
-		w := httptest.NewRecorder()
-		gate.ServeHTTP(w, req)
-		return w.Code
+	// What the application may do, as a resource server trusting the
+	// registry asks it.
+	canRead := func(r registered) bool {
+		ok, err := h.auth.Can(ctx, iam.ApplicationIdentity(r.app.ID), group, ident.Perm("org:catalog:read"))
+		require.NoError(t, err)
+		return ok
 	}
 	for _, r := range []registered{removedApp, bannedApp, ownerApp} {
-		require.Equal(t, http.StatusNoContent, hostRoute(r), "control: an application works while its registrar does")
+		require.True(t, canRead(r), "control: an application works while its registrar does")
 	}
 
 	t.Run("an API key registers no application", func(t *testing.T) {
@@ -280,101 +261,34 @@ func TestSecurityApplicationRegistrar(t *testing.T) {
 			roles, err := h.auth.GroupRoles(ctx, group, []iam.Subject{iam.RemoteApplicationSubject(tc.app.app.ID)})
 			require.NoError(t, err)
 			require.Empty(t, roles, "the application kept its role past its registrar's authority")
-			require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, hostRoute(tc.app))
+			require.False(t, canRead(tc.app))
 		})
 	}
 	t.Run("control: another registrar's application survives a manager's removal", func(t *testing.T) {
 		resp := h.do(request{method: http.MethodDelete, path: base + "/members/users/" + bystander.id, token: ownerToken})
 		require.Less(t, resp.status, 300, resp.String())
-		require.Equal(t, http.StatusNoContent, hostRoute(ownerApp))
+		require.True(t, canRead(ownerApp))
 	})
 }
 
-// TestSecurityDelegationManagementPlane (L3): with overlapping
-// audiences a delegated token verifies at AuthKit itself, but it is a snapshot
-// of its user's authority: AuthKit's own routes refuse it, and host gates
-// re-check it against the user's live, ban-aware authority.
-func TestSecurityDelegationManagementPlane(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(func(c *authkit.Config) {
-		c.Delegated = authkit.DelegatedConfig{Audiences: []string{audience}}
-	}), authtest.WithDeps(func(d *authkit.Deps) {
-		d.DelegatedAuthorization = func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
-			return iam.DelegationGrant{Permissions: []string{ident.RootUsersRead.String()}}, nil
-		}
-	}))
-	ctx := context.Background()
-	admin := h.newAccount("delegadmin")
-	h.grant(iam.RootGroup(), admin, "admin")
-	require.Equal(t, http.StatusOK, h.get("/admin/users", h.login(admin).AccessToken).status, "control: the user reads the directory")
-	token, err := h.auth.MintDelegatedAccessToken(ctx, iam.UserIdentity(admin.id), iam.DelegatedAccess{Audiences: []string{audience}, Permissions: []string{ident.RootUsersRead.String()}})
-	require.NoError(t, err)
-	_, err = h.auth.Verify(ctx, token.Value)
-	require.NoError(t, err, "overlapping audiences: the delegated token verifies here")
-	delegated := tokenIdentity(t, h.auth, token.Value)
-	perm := iam.Perm(ident.RootUsersRead)
-	allowed, err := allow(ctx, h.auth, delegated, perm, iam.RootGroup())
-	require.NoError(t, err)
-	require.True(t, allowed)
-
-	resp := h.get("/admin/users", token.Value)
-	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
-	resp = h.get("/admin/users/"+admin.id, token.Value)
-	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
-
-	_, err = h.pool.Exec(ctx, `UPDATE profiles.users SET banned_at=now(), ban_reason='test' WHERE id=$1::uuid`, admin.id)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusForbidden, h.get("/admin/users", token.Value).status)
-	allowed, err = allow(ctx, h.auth, delegated, perm, iam.RootGroup())
-	require.NoError(t, err)
-	require.False(t, allowed, "a banned user's delegated token kept its authority")
-}
-
-// TestSecurityDelegatedMintAuthority: the grant check runs on the Go path too.
-// A user mints only for itself and only AuthKit authority it holds live;
-// machine identities never mint; the system is trusted.
-func TestSecurityDelegatedMintAuthority(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
-	ctx := context.Background()
-	moderator, other := h.newAccount("mintmod"), h.newAccount("mintother")
-	h.grant(iam.RootGroup(), moderator, "moderator")
-	mint := func(a auth.Identity, d iam.DelegatedAccess) error {
-		d.Audiences = []string{"resource.security.test"}
-		_, err := h.auth.MintDelegatedAccessToken(ctx, a, d)
-		return err
-	}
-	require.NoError(t, mint(iam.UserIdentity(moderator.id), iam.DelegatedAccess{Permissions: []string{ident.RootUsersBan.String(), "resource:read"}}))
-	require.ErrorIs(t, mint(iam.UserIdentity(moderator.id), iam.DelegatedAccess{Permissions: []string{ident.RootUsersManage.String()}}), iam.ErrDelegationRefused)
-	require.ErrorIs(t, mint(iam.UserIdentity(moderator.id), iam.DelegatedAccess{Permissions: []string{"root:*"}}), iam.ErrDelegationRefused)
-	require.ErrorIs(t, mint(iam.UserIdentity(moderator.id), iam.DelegatedAccess{Subject: other.id}), iam.ErrInsufficientAuthority)
-	for _, a := range []auth.Identity{{}, iam.APIKeyIdentity("0190f000-0000-7000-8000-000000000001"), iam.ApplicationIdentity("0190f000-0000-7000-8000-000000000002")} {
-		require.Error(t, mint(a, iam.DelegatedAccess{Subject: moderator.id}), "%+v", a)
-	}
-	require.Error(t, mint(iam.SystemIdentity(), iam.DelegatedAccess{}), "the system names the subject")
-	require.NoError(t, mint(iam.SystemIdentity(), iam.DelegatedAccess{Subject: other.id, Permissions: []string{ident.RootUsersManage.String()}}))
-
-	_, err := h.pool.Exec(ctx, `UPDATE profiles.users SET banned_at=now(), ban_reason='test' WHERE id=$1::uuid`, moderator.id)
-	require.NoError(t, err)
-	require.ErrorIs(t, mint(iam.UserIdentity(moderator.id), iam.DelegatedAccess{Permissions: []string{"resource:read"}}), iam.ErrInsufficientAuthority)
-}
-
-// TestSecurityTokenMatrix (invariant 7): typ × subject claims × sender binding
-// × issuer kind. Only the allowed shapes verify, each derives the one identity its
-// shape implies (never the system), and AuthKit's management routes refuse
-// every delegation that verifies.
+// TestSecurityTokenMatrix: across token types, subject claims, issuers and
+// sender binding, only a user's access token verifies, and only this
+// deployment's grants AuthKit authority. A delegated, remote-application or
+// service token, even signed with this deployment's key or a registered
+// application's, verifies nowhere.
 func TestSecurityTokenMatrix(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
 	ctx := context.Background()
 	user := h.newAccount("matrixuser")
 	h.grant(iam.RootGroup(), user, "admin")
-	_, base := h.newOrg(user)
 	managed, foreign := newSigner(t, "managed-kid"), newSigner(t, "foreign-kid")
 	const managedIssuer, foreignIssuer = "https://managed.security.test", "https://foreign.security.test"
-	app, err := h.auth.UpsertRemoteApplication(ctx, iam.SystemIdentity(), iam.RootGroup(), iam.RemoteApplication{
+	_, err := h.auth.UpsertRemoteApplication(ctx, iam.SystemIdentity(), iam.RootGroup(), iam.RemoteApplication{
 		Issuer: managedIssuer, PublicKeys: staticKeys(t, managed), Enabled: true,
 	})
 	require.NoError(t, err)
-	// The Client authenticates its own and its applications' tokens; another
-	// issuer's are a host verifier's.
+	// The Client authenticates only its own tokens; another issuer's,
+	// registered or not, are a host verifier's.
 	foreignVerifier := verify.NewVerifier()
 	require.NoError(t, foreignVerifier.AddIssuer(foreignIssuer, []string{audience}, verify.IssuerOptions{Keys: []iam.RemoteApplicationKey{{KID: foreign.KID(), PublicKeyPEM: pemOf(t, foreign.Public())}}}))
 	authenticators := map[string]verify.Authenticator{"local": h.auth, "managed": h.auth, "foreign": foreignVerifier}
@@ -387,15 +301,13 @@ func TestSecurityTokenMatrix(t *testing.T) {
 		name, iss string
 		signer    keys.Signer
 	}{{"local", issuer, signer()}, {"managed", managedIssuer, managed}, {"foreign", foreignIssuer, foreign}}
-	typs := []string{jose.AccessTokenType, jose.DelegatedAccessTokenType, jose.RemoteApplicationAccessTokenType, "service+jwt", ""}
+	typs := []string{jose.AccessTokenType, "delegated-access+jwt", "remote-application-access+jwt", "service+jwt", ""}
 	subjects := []string{"sub", "delegated_sub", "both", "none"}
 	allowed := map[[3]string]bool{
-		{"local", jose.AccessTokenType, "sub"}:                      true,
-		{"local", jose.DelegatedAccessTokenType, "delegated_sub"}:   true,
-		{"managed", jose.DelegatedAccessTokenType, "delegated_sub"}: true,
-		{"managed", jose.RemoteApplicationAccessTokenType, "none"}:  true,
-		{"foreign", jose.AccessTokenType, "sub"}:                    true,
-		{"foreign", jose.DelegatedAccessTokenType, "delegated_sub"}: true,
+		{"local", jose.AccessTokenType, "sub"}:    true,
+		{"local", jose.AccessTokenType, "both"}:   true,
+		{"foreign", jose.AccessTokenType, "sub"}:  true,
+		{"foreign", jose.AccessTokenType, "both"}: true,
 	}
 	for _, is := range issuers {
 		for _, typ := range typs {
@@ -408,8 +320,6 @@ func TestSecurityTokenMatrix(t *testing.T) {
 					}
 					if subject == "delegated_sub" || subject == "both" {
 						claims["delegated_sub"] = user.id
-					}
-					if is.name == "local" && typ == jose.DelegatedAccessTokenType {
 						claims["permissions"] = []string{ident.RootUsersRead.String()}
 					}
 					if bound {
@@ -426,44 +336,24 @@ func TestSecurityTokenMatrix(t *testing.T) {
 					if bound {
 						name += "/cnf"
 					}
-					_, err = authenticators[is.name].VerifyRequest(req)
-					want := allowed[[3]string{is.name, typ, subject}] && (!bound || typ == jose.DelegatedAccessTokenType)
-					if !want {
+					cl, err := authenticators[is.name].VerifyRequest(req)
+					if !allowed[[3]string{is.name, typ, subject}] || bound {
 						require.Error(t, err, name)
+						if is.name != "foreign" {
+							require.Equal(t, http.StatusUnauthorized, h.get("/admin/users", token).status, name)
+						}
 						continue
 					}
 					require.NoError(t, err, name)
 					who, _ := gateIdentity(authenticators[is.name], req)
 					state, ok := iam.StateOf(who)
 					require.False(t, state.IsSystem(), name)
-					switch {
-					case typ == jose.AccessTokenType && is.name == "local":
+					if is.name == "local" {
+						require.Empty(t, cl.Permissions, "a native token carries no grant: %s", name)
 						require.True(t, ok && state.IsUser(), name)
 						require.Equal(t, user.id, state.ID(), name)
-						_, sessionBound := state.Session()
-						require.False(t, sessionBound, name)
-					case typ == jose.AccessTokenType:
+					} else {
 						require.False(t, ok, "a foreign user has no AuthKit authority: %s", name)
-					case typ == jose.RemoteApplicationAccessTokenType:
-						require.True(t, state.IsApplication(), name)
-						require.Equal(t, app.ID, state.ID(), name)
-					case is.name == "managed":
-						require.True(t, state.IsApplication() && state.Delegated(), name)
-						require.Equal(t, app.ID, state.ID(), name)
-						require.Equal(t, auth.Invoker{Issuer: is.iss, ID: user.id}, who.Invoker, name)
-					default:
-						require.True(t, state.Delegated(), name)
-						require.Equal(t, is.iss, state.DelegatedIssuer(), name)
-						if !bound {
-							resp := h.get("/admin/users", token)
-							refused := http.StatusForbidden
-							if is.name == "foreign" {
-								refused = http.StatusUnauthorized // the Client trusts no other issuer
-							}
-							require.Equal(t, refused, resp.status, "%s: %s", name, resp)
-							resp = h.get(base+"/members", token)
-							require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, resp.status, "%s: %s", name, resp)
-						}
 					}
 				}
 			}
@@ -502,34 +392,9 @@ func TestSecurityRemoteApplicationPaging(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestSecurityServiceJWTPermissionsOnly: a service JWT's authority is its
-// permissions claim; an OAuth scope claim grants nothing.
-func TestSecurityServiceJWTPermissionsOnly(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits))
-	ctx := context.Background()
-	token, minted, err := h.auth.MintServiceJWT(ctx, iam.ServiceJWT{Subject: "billing", Audiences: []string{audience}, Permissions: []string{"ledger:write"}})
-	require.NoError(t, err)
-	require.Equal(t, minted.ExpiresAt, token.ExpiresAt)
-	// A resource server trusting this deployment verifies its service JWTs.
-	ver := verify.NewVerifier()
-	require.NoError(t, ver.AddIssuer(issuer, []string{audience}, verify.IssuerOptions{KeySource: testkeys.Source(signer())}))
-	cl, err := ver.VerifyServiceJWT(ctx, token.Value)
-	require.NoError(t, err)
-	require.Equal(t, []string{"ledger:write"}, cl.Permissions)
-
-	now := time.Now()
-	scoped, err := jose.Sign(ctx, signer(), "service+jwt", jwt.MapClaims{
-		"iss": issuer, "sub": "billing", "aud": []string{audience}, "iat": now.Unix(), "nbf": now.Unix(),
-		"exp": now.Add(time.Minute).Unix(), "jti": unique("svc"), "token_use": iam.ServiceJWTTokenUse, "scope": "ledger:write",
-	})
-	require.NoError(t, err)
-	cl, err = ver.VerifyServiceJWT(ctx, scoped)
-	require.NoError(t, err)
-	require.Empty(t, cl.Permissions, "scope became permissions")
-}
-
 // TestSecurityRemovedRoutesAreGone: v1 serves no signed-document,
-// application self-registration, remote-application or custom-role route, nor
+// application self-registration, remote-application, delegated-token or
+// custom-role route, nor
 // the member, invite-link and root-role routes the member and invitation
 // resources replaced, even with every capability on. The catalog lists none,
 // and a signed-in owner gets 404 (405 where the path serves another method).
@@ -543,7 +408,7 @@ func TestSecurityRemovedRoutesAreGone(t *testing.T) {
 	app := h.registerApp(group, owner, "cut-app", "member")
 
 	for _, pattern := range patterns(h.auth) {
-		for _, gone := range []string{"/.well-known/authkit/", "/applications/", "/remote-applications"} {
+		for _, gone := range []string{"/.well-known/authkit/", "/applications/", "/remote-applications", "/delegated/"} {
 			require.NotContains(t, pattern, gone)
 		}
 	}
@@ -555,6 +420,7 @@ func TestSecurityRemovedRoutesAreGone(t *testing.T) {
 		status int
 	}{
 		{request{method: http.MethodGet, path: "//.well-known/authkit/documents/sha256:" + strings.Repeat("0", 64), token: token}, http.StatusNotFound},
+		{request{method: http.MethodPost, path: "/delegated/token", token: token, body: map[string]any{"requested_grant": map[string]any{}}}, http.StatusNotFound},
 		{request{method: http.MethodPost, path: "/applications/register", body: map[string]string{"domain": "cut.security.test"}}, http.StatusNotFound},
 		{request{method: http.MethodGet, path: base + "/remote-applications", token: token}, http.StatusNotFound},
 		{request{method: http.MethodPost, path: base + "/remote-applications", token: token,

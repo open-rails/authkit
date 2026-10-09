@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -229,14 +228,11 @@ func (s *Engine) EffectivePermissions(ctx context.Context, a auth.Identity, refs
 	return out, nil
 }
 
-// subjectUser is the user whose grants a acts with: a user, or a delegation
-// this deployment issued for one.
+// subjectUser is the user whose grants a acts with.
 func (s *Engine) subjectUser(a auth.Identity) (string, bool) {
 	switch cs := stateOf(a); {
 	case cs.IsUser():
 		return cs.ID(), true
-	case cs.Delegated() && cs.SubjectKind() == auth.SubjectUser:
-		return cs.ID(), cs.DelegatedIssuer() == strings.TrimSpace(s.cfg.Token.Issuer)
 	}
 	return "", false
 }

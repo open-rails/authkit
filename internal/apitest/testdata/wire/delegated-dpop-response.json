@@ -1,6 +1,0 @@
-{
-  "access_token": "$string",
-  "token_type": "DPoP",
-  "expires_in": "$number",
-  "refresh_token": null
-}

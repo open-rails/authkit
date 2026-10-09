@@ -21,6 +21,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/ident"
+	"github.com/open-rails/authkit/internal/testdpop"
 	"github.com/stretchr/testify/require"
 )
 
@@ -330,24 +331,13 @@ func delegateCertificate(t *testing.T) string {
 	return base64.RawURLEncoding.EncodeToString(der)
 }
 
-// TestSecurityDelegationOutlivingRevocation: a delegated token lives longer
-// than its parent access token, so minting one from a revoked session or a
-// banned account would extend a thief's access past revocation.
-func TestSecurityDelegationOutlivingRevocation(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(func(c *authkit.Config) {
-		c.Delegated = authkit.DelegatedConfig{Audiences: []string{"resource.security.test"}}
-	}), authtest.WithDeps(func(d *authkit.Deps) {
-		d.DelegatedAuthorization = func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
-			return iam.DelegationGrant{Permissions: []string{"resource:read"}}, nil
-		}
-	}))
+// TestSecurityTokenExchangeOutlivingRevocation: a resource token lives on
+// its own, so exchanging the token of a revoked session or of a banned or
+// deleted account would extend a thief's access past revocation.
+func TestSecurityTokenExchangeOutlivingRevocation(t *testing.T) {
+	const resource = "https://resource.security.test"
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withResourceClient(resource)))
 	ctx := context.Background()
-	mint := func(token string) response {
-		return h.post("/delegated/token", map[string]any{
-			"delegate_certificate_der_b64url": delegateCertificate(t),
-			"requested_grant":                 map[string]any{"scope": "read"},
-		}, token)
-	}
 	for _, tc := range []struct {
 		name   string
 		revoke func(a account, s tokens)
@@ -362,78 +352,73 @@ func TestSecurityDelegationOutlivingRevocation(t *testing.T) {
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			a := h.newAccount("delegate")
+			a := h.newAccount("exchange")
 			s := h.login(a)
 			tc.revoke(a, s)
-			resp := mint(s.AccessToken)
-			require.Equal(t, http.StatusUnauthorized, resp.status, resp.String())
+			resp := h.exchangeToken(s.AccessToken, testdpop.Key(t))
+			require.Equal(t, http.StatusBadRequest, resp.status, resp.String())
+			require.Contains(t, resp.String(), "invalid_grant")
 		})
 	}
-	t.Run("control: live session mints", func(t *testing.T) {
-		resp := mint(h.login(h.newAccount("delegatelive")).AccessToken)
-		require.Equal(t, http.StatusOK, resp.status, resp.String())
+	t.Run("control: a live session exchanges", func(t *testing.T) {
+		require.NotEmpty(t, h.resourceToken(h.login(h.newAccount("exchangelive")).AccessToken, testdpop.Key(t)))
 	})
 }
 
-// TestSecurityDelegatedGrantClamp: delegated permissions are scope-free, so a
-// grant may carry AuthKit authority only when the user holds it at the root,
-// and a token this deployment minted loses that authority when the user does.
-func TestSecurityDelegatedGrantClamp(t *testing.T) {
+// TestSecurityGrantAuthorizerClamp: a grant authorizer's permissions may
+// carry AuthKit authority only when the user holds it at the root, and a
+// resource token carries none beyond its resource's ceiling.
+func TestSecurityGrantAuthorizerClamp(t *testing.T) {
+	const resource = "https://resource.security.test"
 	var mu sync.Mutex
 	var grant []string
-	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(func(c *authkit.Config) {
-		c.Delegated = authkit.DelegatedConfig{Audiences: []string{"resource.security.test"}}
-	}), authtest.WithDeps(func(d *authkit.Deps) {
-		d.DelegatedAuthorization = func(context.Context, iam.DelegationRequest) (iam.DelegationGrant, error) {
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(withResourceClient(resource)), authtest.WithDeps(func(d *authkit.Deps) {
+		d.OAuthGrants = func(context.Context, iam.OAuthGrantRequest) (iam.OAuthGrantDecision, error) {
 			mu.Lock()
 			defer mu.Unlock()
-			return iam.DelegationGrant{Permissions: append([]string(nil), grant...)}, nil
+			return iam.OAuthGrantDecision{Permissions: append([]string(nil), grant...)}, nil
 		}
 	}))
-	ctx := context.Background()
-	manager, moderator := h.newAccount("delegmanager"), h.newAccount("delegmod")
-	group, _ := h.newOrg(h.newAccount("delegowner"))
+	manager, moderator := h.newAccount("grantmanager"), h.newAccount("grantmod")
+	group, _ := h.newOrg(h.newAccount("grantowner"))
 	h.grant(group, manager, "manager")
 	h.grant(iam.RootGroup(), moderator, "moderator")
-	mint := func(a account, perms ...string) response {
+	exchange := func(a account, perms ...string) response {
 		mu.Lock()
 		grant = perms
 		mu.Unlock()
-		return h.post("/delegated/token", map[string]any{
-			"delegate_certificate_der_b64url": delegateCertificate(t),
-			"requested_grant":                 map[string]any{"scope": "clamp"},
-		}, h.login(a).AccessToken)
+		return h.exchangeToken(h.login(a).AccessToken, testdpop.Key(t))
 	}
 	for _, tc := range []struct {
-		name  string
-		who   account
-		perms []string
+		name   string
+		who    account
+		perms  []string
+		status int
+		code   string
 	}{
-		{"group role as scope-free authority", manager, []string{"org:members:manage"}},
-		{"root authority the user lacks", manager, []string{ident.RootUsersBan.String()}},
-		{"wildcard", moderator, []string{"*"}},
+		{"group role as scope-free authority", manager, []string{"org:members:manage"}, http.StatusBadRequest, "invalid_grant"},
+		{"root authority the user lacks", manager, []string{ident.RootUsersBan.String()}, http.StatusBadRequest, "invalid_grant"},
+		{"a wildcard is no grant", moderator, []string{"*"}, http.StatusServiceUnavailable, "temporarily_unavailable"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			resp := mint(tc.who, tc.perms...)
-			require.Equal(t, http.StatusForbidden, resp.status, resp.String())
-			require.Equal(t, "delegation_refused", resp.errorCode())
+			resp := exchange(tc.who, tc.perms...)
+			require.Equal(t, tc.status, resp.status, resp.String())
+			require.Contains(t, resp.String(), tc.code)
 		})
 	}
-	t.Run("control: host vocabulary and held root authority", func(t *testing.T) {
-		resp := mint(manager, "resource:read")
-		require.Equal(t, http.StatusOK, resp.status, resp.String())
-		resp = mint(moderator, ident.RootUsersBan.String(), "resource:read")
-		require.Equal(t, http.StatusOK, resp.status, resp.String())
-	})
-	t.Run("a minted token loses authority its user lost", func(t *testing.T) {
-		perm := iam.Perm(ident.RootUsersBan)
-		delegated := iam.DelegatedIdentity(iam.DelegatedGrant{Issuer: issuer, Subject: moderator.id, Permissions: []iam.Perm{perm}})
-		ok, err := allow(ctx, h.auth, delegated, perm, iam.RootGroup())
-		require.NoError(t, err)
-		require.True(t, ok)
-		revokeRole(t, h.auth, iam.RootGroup(), iam.UserSubject(moderator.id), "moderator")
-		ok, err = allow(ctx, h.auth, delegated, perm, iam.RootGroup())
-		require.NoError(t, err)
-		require.False(t, ok, "a delegated token kept root authority its user lost")
+	t.Run("control: host vocabulary and held root authority, within the ceiling", func(t *testing.T) {
+		for _, tc := range []struct {
+			who   account
+			perms []string
+		}{{manager, []string{"resource:tasks:read"}}, {moderator, []string{ident.RootUsersBan.String(), "resource:tasks:read"}}} {
+			resp := exchange(tc.who, tc.perms...)
+			require.Equal(t, http.StatusOK, resp.status, resp.String())
+			var out struct {
+				AccessToken string `json:"access_token"`
+			}
+			resp.json(t, &out)
+			_, claims := splitToken(t, out.AccessToken)
+			require.Equal(t, []any{"resource:tasks:read"}, claims["permissions"], "root authority passed the resource's ceiling")
+		}
 	})
 }

@@ -52,9 +52,6 @@ type Engine struct {
 	q                  *db.Queries
 	schema             string       // validated Postgres schema name; db.DefaultSchema when unset
 	groupSchema        *rbac.Schema // compiled Config.Roles (nil ⇒ root-only default)
-	// delegationAuthorizer is the host-injected authorizer for the
-	// delegated-token mint route (#277); required when the route is mounted.
-	delegationAuthorizer iam.DelegationAuthorizer
 	// oauthGrants is the host's OAuth grant authorizer (Deps.OAuthGrants), nil for the defaults.
 	oauthGrants       iam.OAuthGrantAuthorizer
 	solanaSNSResolver SolanaSNSResolver
@@ -69,7 +66,6 @@ type Engine struct {
 	rootGroupID atomic.Value
 
 	auth      *Authenticator
-	fed       federation
 	mfaExempt exemptPaths
 }
 
@@ -176,20 +172,4 @@ func (s *Engine) requirePG() error {
 		return fmt.Errorf("postgres not configured")
 	}
 	return nil
-}
-
-// dedupeStrings trims, drops empties, and de-duplicates a string slice,
-// preserving first-seen order.
-func dedupeStrings(in []string) []string {
-	seen := map[string]bool{}
-	out := make([]string, 0, len(in))
-	for _, s := range in {
-		s = strings.TrimSpace(s)
-		if s == "" || seen[s] {
-			continue
-		}
-		seen[s] = true
-		out = append(out, s)
-	}
-	return out
 }

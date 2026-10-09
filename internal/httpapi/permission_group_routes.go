@@ -21,7 +21,7 @@ import (
 var groupScopeCodes = map[error]errmodel.Code{iam.ErrGroupNotFound: errmodel.CodeForbidden}
 
 // GroupHandler returns the handler for one group route. It:
-//  1. derives the caller's identity (401 if none; 403 for a delegation);
+//  1. derives the caller's identity (401 if none);
 //  2. resolves :group_id (`root` is the root group) to a live group;
 //  3. refuses a group whose persona lacks the route, like an unknown group;
 //  4. authorizes the route's permission on the group with the engine's live
@@ -34,11 +34,6 @@ func (s *Service) GroupHandler(op GroupOp) http.HandlerFunc {
 		who, ok := verify.IdentityFromContext(r.Context())
 		if !ok {
 			fail(w, errmodel.CodeUnauthenticated)
-			return
-		}
-		// AuthKit's management routes refuse delegations.
-		if state(who).Delegated() {
-			fail(w, errmodel.CodeForbidden)
 			return
 		}
 		g, err := s.svc.Group(r.Context(), groupRef(r.PathValue("group_id")))

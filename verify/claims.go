@@ -24,12 +24,6 @@ const (
 	TokenUser TokenKind = "user"
 	// TokenAPIKey is one of this deployment's API keys (*authkit.Client).
 	TokenAPIKey TokenKind = "api_key"
-	// TokenRemoteApplication is a registered remote application's own token
-	// (*authkit.Client).
-	TokenRemoteApplication TokenKind = "remote_application"
-	// TokenDelegated is a delegated access token: AuthKit's for a user, or a
-	// remote application's for one of its own users.
-	TokenDelegated TokenKind = "delegated"
 	// TokenOAuthClient is an OAuth client's own resource access token
 	// (at+jwt) whose sub is its client_id. It carries no AuthKit authority.
 	TokenOAuthClient TokenKind = "oauth_client"
@@ -39,9 +33,8 @@ const (
 // context. Kind says which fields apply.
 type Claims struct {
 	Kind TokenKind
-	// JOSEType is the token's typ header ("access+jwt",
-	// "delegated-access+jwt", "remote-application-access+jwt", "at+jwt");
-	// empty for an API key.
+	// JOSEType is the token's typ header ("access+jwt", "at+jwt"); empty
+	// for an API key.
 	JOSEType string
 	// Issuer is the validated iss.
 	Issuer string
@@ -52,35 +45,21 @@ type Claims struct {
 	// (its user, or its client acting for itself) whichever issuer minted it.
 	// It is meaningful only with Issuer and never names a local user.
 	Subject string
-	// DelegatedSubject is a delegated token's delegated_sub, whose authority
-	// is Permissions: the user who minted a token of this deployment, else an
-	// external identity. It never sets UserID.
-	DelegatedSubject string
-	// SessionID (sid) or DeviceKeyID names the sign-in a native token, or a
-	// delegated token AuthKit minted from one, was minted from; the session
-	// check refuses the token once it is revoked.
+	// SessionID (sid) or DeviceKeyID names the sign-in a native token was
+	// minted from; the session check refuses the token once it is revoked.
 	SessionID   string
 	DeviceKeyID string
 	// APIKeyID is the key an API-key credential resolved to.
 	APIKeyID string
-	// RemoteApplicationID is the stored application behind a remote
-	// application token or its delegation, resolved from the validated iss.
-	RemoteApplicationID string
-	// Group binds a machine credential's authority to the group it was
-	// granted in: set for API keys, remote applications and their
-	// delegations; nil otherwise.
+	// Group binds an API key's authority to the group it was granted in;
+	// nil otherwise.
 	Group *PermissionScope
 
-	// Permissions are the credential's permission strings: an API key's or
-	// application's stored grants, a delegated token's grant (bounded by the
-	// application's stored ceiling when an application issued it), or a
-	// resource access token's grant for its audience (the user's permissions
-	// within the resource server's ceiling at mint). Native user tokens carry
-	// none; their authority is read live (Can).
+	// Permissions are the credential's permission strings: an API key's
+	// stored grants, or a resource access token's grant for its audience (the
+	// user's permissions within the resource server's ceiling at mint).
+	// Native user tokens carry none; their authority is read live (Can).
 	Permissions []string
-	// Attributes is the attributes claim, each value raw JSON for the
-	// consuming service to decode; AuthKit assigns no key a meaning.
-	Attributes map[string]json.RawMessage
 	// Entitlements is the issuer's token-time entitlements snapshot.
 	Entitlements []string
 	// RootRole is the user's root-group role at mint ("root:admin"), for
@@ -121,7 +100,7 @@ type Claims struct {
 	CustomClaims map[string]json.RawMessage
 
 	// CertificateThumbprint (cnf x5t#S256) or JWKThumbprint (cnf jkt) is a
-	// delegated or resource token's sender binding, already matched against
+	// resource token's sender binding, already matched against
 	// this request's TLS peer certificate or DPoP proof; empty for a bearer
 	// token.
 	CertificateThumbprint string
@@ -189,11 +168,7 @@ func (c Claims) HasAMR(m string) bool {
 // Invoker who actually acts, the subject itself unless someone acts on its
 // behalf; and the Credential that proved it, never the subject.
 //
-//   - A user's token is the user, by its session or device key; so is a
-//     token its issuer delegated from that user.
-//   - A registered application's own token is the application. A token it
-//     signs for one of its users is the application too, invoked by that
-//     user in the application's namespace.
+//   - A user's token is the user, by its session or device key.
 //   - An OAuth client's client-credentials token is the client; its token
 //     for a user is the user, invoked by the client.
 //   - An API key is a credential of its group's account, an application
@@ -230,18 +205,8 @@ func (c Claims) Identity() (auth.Identity, bool) {
 		}
 		i.Issuer, i.SubjectKind = authority, auth.SubjectApplication
 		i.Credential = auth.Credential{Kind: auth.CredentialAPIKey, ID: c.APIKeyID}
-	case TokenRemoteApplication:
-		i.Issuer, i.Subject, i.SubjectKind = authority, c.RemoteApplicationID, auth.SubjectApplication
-		i.Credential.Kind = auth.CredentialSignedToken
 	case TokenOAuthClient:
 		i.Subject, i.SubjectKind = c.ClientID, auth.SubjectApplication
-	case TokenDelegated:
-		i.Subject = c.DelegatedSubject
-		if c.RemoteApplicationID != "" {
-			i.Issuer, i.Subject, i.SubjectKind = authority, c.RemoteApplicationID, auth.SubjectApplication
-			invoker = &auth.Invoker{Issuer: c.Issuer, ID: c.DelegatedSubject}
-			i.Credential.Kind = auth.CredentialSignedToken
-		}
 	default:
 		return auth.Identity{}, false
 	}

@@ -12,9 +12,8 @@ import (
 // requirePermission gates AuthKit's own routes on perm in group, checked live
 // for every identity kind: the engine resolves the identity's current grants (a
 // user's roles on the group and on root, an API key's role, an application's
-// grants in its controlling group) and applies any token ceiling.
-// Delegations never reach AuthKit's management routes. Admin authority over
-// the user directory is the root:users:* permissions on the
+// grants in its controlling group) and applies any token ceiling. Admin
+// authority over the user directory is the root:users:* permissions on the
 // root group, gated the same way.
 func (s *Service) requirePermission(group iam.GroupRef, perm iam.Perm, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -23,7 +22,7 @@ func (s *Service) requirePermission(group iam.GroupRef, perm iam.Perm, next http
 			fail(w, errmodel.CodeUnauthenticated)
 			return
 		}
-		if s := state(who); s.IsZero() || s.Delegated() {
+		if s := state(who); s.IsZero() {
 			fail(w, errmodel.CodeForbidden)
 			return
 		}

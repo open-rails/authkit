@@ -1,9 +1,9 @@
 // Package verify verifies AuthKit tokens without a database: access tokens
-// and delegated access tokens of the issuers a Verifier trusts, checked
-// against their keys (a JWKS, static keys or a live key source). It also
-// holds the claims, identity and context helpers and the net/http middleware,
-// which authenticate through a *Verifier or an *authkit.Client (which adds
-// API keys and remote applications from its database).
+// and RFC 9068 resource access tokens of the issuers a Verifier trusts,
+// checked against their keys (a JWKS, static keys or a live key source). It
+// also holds the claims, identity and context helpers and the net/http
+// middleware, which authenticate through a *Verifier or an *authkit.Client
+// (which adds API keys from its database).
 package verify
 
 import (

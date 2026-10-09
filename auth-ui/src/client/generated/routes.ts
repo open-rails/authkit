@@ -93,7 +93,6 @@ export const AUTHKIT_ROUTES: readonly AuthKitRoute[] = [
   { method: "GET", path: "/api/v1/admin/users/{user_id}/sessions", group: "admin", auth: "permission", permission: "root:users:read", stepUp: false, mountedWhen: null },
   { method: "DELETE", path: "/api/v1/admin/users/{user_id}/sessions", group: "admin", auth: "session", permission: "root:users:manage", stepUp: true, mountedWhen: null },
   { method: "GET", path: "/api/v1/admin/users/{user_id}/session-events", group: "admin", auth: "permission", permission: "root:users:read", stepUp: false, mountedWhen: null },
-  { method: "POST", path: "/api/v1/delegated/token", group: "delegated", auth: "session", permission: null, stepUp: false, mountedWhen: "delegated" },
   { method: "GET", path: "/api/v1/oauth2/authorizations/{authorization_id}", group: "authorization_server", auth: "public", permission: null, stepUp: false, mountedWhen: "authorization_server" },
   { method: "POST", path: "/api/v1/oauth2/authorizations/{authorization_id}/approve", group: "authorization_server", auth: "session", permission: null, stepUp: false, mountedWhen: "authorization_server" },
   { method: "POST", path: "/api/v1/oauth2/authorizations/{authorization_id}/decline", group: "authorization_server", auth: "public", permission: null, stepUp: false, mountedWhen: "authorization_server" },

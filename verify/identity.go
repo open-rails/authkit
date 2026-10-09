@@ -13,9 +13,9 @@ import (
 // accept it. It is false for claims that carry no AuthKit authority: another
 // issuer's user, a resource access token (its authority is Permissions, for
 // the resource server), a 2FA-enrollment-only token, or an unrecognized
-// shape. A user's identity, or AuthKit's delegation of one, is bound to the
-// session or device key its token was minted from (iam.InSession), so every
-// permission check refuses it once that sign-in is revoked.
+// shape. A user's identity is bound to the session or device key its token
+// was minted from (iam.InSession), so every permission check refuses it once
+// that sign-in is revoked.
 func boundIdentity(c Claims) (auth.Identity, bool) {
 	if c.TwoFAEnrollment {
 		return auth.Identity{}, false
@@ -24,24 +24,6 @@ func boundIdentity(c Claims) (auth.Identity, bool) {
 	switch c.Kind {
 	case TokenAPIKey:
 		bound = iam.APIKeyIdentity(c.APIKeyID)
-	case TokenRemoteApplication:
-		// The token's down-scope is a ceiling; stored grants are re-read live.
-		if c.RemoteApplicationID != "" {
-			bound = iam.Within(iam.ApplicationIdentity(c.RemoteApplicationID), perms(c.Permissions)...)
-		}
-	case TokenDelegated:
-		bound = iam.DelegatedIdentity(iam.DelegatedGrant{
-			Issuer:              c.Issuer,
-			Subject:             c.DelegatedSubject,
-			Permissions:         perms(c.Permissions),
-			RemoteApplicationID: c.RemoteApplicationID,
-			GroupID:             groupID(c.Group),
-		})
-		// An application's delegation is its own; only AuthKit's carries the
-		// minting session.
-		if c.RemoteApplicationID == "" {
-			bound = iam.InSession(bound, c.session())
-		}
 	case TokenUser:
 		// A native token, including a device-key token. Another issuer's
 		// user (Subject without UserID) has no AuthKit authority.
