@@ -64,7 +64,7 @@ func TestRootRoleClaimIsDisplayOnly(t *testing.T) {
 	require.Equal(t, admin.String(), cl.RootRole, "the claim is surfaced for display")
 	require.Equal(t, http.StatusForbidden, gateStatus(t, gate, forged), "a claimed role grants nothing")
 
-	require.NoError(t, auth.RemoveGroupMember(ctx, iam.SystemActor(), iam.RootGroup(), iam.UserSubject(boss.ID)))
+	require.NoError(t, auth.RemoveGroupMember(ctx, iam.SystemIdentity(), iam.RootGroup(), iam.UserSubject(boss.ID)))
 	require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, gateStatus(t, gate, bossToken), "a stale role grants nothing")
 
 	_, err = auth.MintAccessToken(ctx, plain.ID, iam.AccessTokenOptions{Claims: map[string]any{"root_role": admin.String()}})
@@ -87,7 +87,7 @@ func TestRemoteApplicationTokens(t *testing.T) {
 	owner := authtest.NewUser(t, auth)
 	group := newGroup(t, auth, m.org.Persona, owner.ID)
 	signer := testkeys.RSA("app-1")
-	app, err := auth.UpsertRemoteApplication(ctx, iam.SystemActor(), group, iam.RemoteApplication{
+	app, err := auth.UpsertRemoteApplication(ctx, iam.SystemIdentity(), group, iam.RemoteApplication{
 		Issuer: "https://verification-app.test", Enabled: true,
 		PublicKeys: []iam.RemoteApplicationKey{{KID: signer.KID(), PublicKeyPEM: publicKeyPEM(t, signer.Public())}},
 	})
@@ -110,7 +110,7 @@ func TestRemoteApplicationTokens(t *testing.T) {
 	// its group; a permissions claim only narrows them.
 	cl, err := auth.Verify(ctx, sign(signer, jose.RemoteApplicationAccessTokenType, authtest.Audience, nil))
 	require.NoError(t, err)
-	require.Equal(t, iam.ActorRemoteApplication, cl.Kind)
+	require.Equal(t, verify.TokenRemoteApplication, cl.Kind)
 	require.Equal(t, app.ID, cl.RemoteApplicationID)
 	require.Equal(t, group.ID(), cl.Group.GroupID)
 	require.Equal(t, authtest.Issuer, cl.Group.AuthorityIssuer)
@@ -119,15 +119,15 @@ func TestRemoteApplicationTokens(t *testing.T) {
 	require.Equal(t, errmodel.CodePermissionNotGranted, errmodel.CodeOf(err), "a claim cannot widen the stored grants")
 
 	// Its delegation grants what it names, within the same ceiling.
-	cl, err = auth.Verify(ctx, sign(signer, jose.DelegatedAccessTokenType, authtest.Audience, map[string]any{"delegated_sub": "customer-1", "permissions": []string{catalog}, "sid": "app-session"}))
+	delegation := sign(signer, jose.DelegatedAccessTokenType, authtest.Audience, map[string]any{"delegated_sub": "customer-1", "permissions": []string{catalog}, "sid": "app-session"})
+	cl, err = auth.Verify(ctx, delegation)
 	require.NoError(t, err)
-	require.Equal(t, iam.ActorDelegated, cl.Kind)
+	require.Equal(t, verify.TokenDelegated, cl.Kind)
 	require.Equal(t, app.ID, cl.RemoteApplicationID)
 	require.Equal(t, []string{catalog}, cl.Permissions)
 	require.Empty(t, cl.SessionID, "an application's sign-ins are not AuthKit's")
-	actor, ok := verify.ActorFromClaims(cl)
-	require.True(t, ok)
-	allowed, err := auth.Can(ctx, actor, group, m.catalog)
+	who := authtest.Identity(t, auth, delegation)
+	allowed, err := auth.Can(ctx, who, group, m.catalog)
 	require.NoError(t, err)
 	require.True(t, allowed)
 	_, err = auth.Verify(ctx, sign(signer, jose.DelegatedAccessTokenType, authtest.Audience, map[string]any{"delegated_sub": "customer-1", "permissions": []string{m.org.All().String()}}))
@@ -157,7 +157,7 @@ func TestRemoteApplicationTokens(t *testing.T) {
 	rotated := testkeys.RSA("app-2")
 	jwk := keys.PublicJWK(rotated.Public(), rotated.KID(), "")
 	app.PublicKeys = []iam.RemoteApplicationKey{{JWK: &jwk}}
-	app, err = auth.UpsertRemoteApplication(ctx, iam.SystemActor(), group, app)
+	app, err = auth.UpsertRemoteApplication(ctx, iam.SystemIdentity(), group, app)
 	require.NoError(t, err)
 	_, err = auth.Verify(ctx, sign(signer, jose.RemoteApplicationAccessTokenType, authtest.Audience, nil))
 	require.Error(t, err, "the retired key")
@@ -171,7 +171,7 @@ func TestRemoteApplicationTokens(t *testing.T) {
 	}))
 	t.Cleanup(jwks.Close)
 	app.Mode, app.JWKSURI, app.PublicKeys = iam.RemoteApplicationModeJWKS, jwks.URL, nil
-	app, err = auth.UpsertRemoteApplication(ctx, iam.SystemActor(), group, app)
+	app, err = auth.UpsertRemoteApplication(ctx, iam.SystemIdentity(), group, app)
 	require.NoError(t, err)
 	_, err = auth.Verify(ctx, sign(rotated, jose.RemoteApplicationAccessTokenType, authtest.Audience, nil))
 	require.Error(t, err, "the static key no longer verifies")
@@ -185,7 +185,7 @@ func TestRemoteApplicationTokens(t *testing.T) {
 
 	// Disabling the application stops its tokens everywhere at once.
 	app.Enabled = false
-	_, err = auth.UpsertRemoteApplication(ctx, iam.SystemActor(), group, app)
+	_, err = auth.UpsertRemoteApplication(ctx, iam.SystemIdentity(), group, app)
 	require.NoError(t, err)
 	_, err = auth.Verify(ctx, sign(published, jose.RemoteApplicationAccessTokenType, authtest.Audience, nil))
 	require.Error(t, err)

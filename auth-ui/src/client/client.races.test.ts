@@ -204,7 +204,7 @@ it("checks ownership after a delayed JSON body, not only after headers", async (
   expect(userId(client)).toBe("B")
 })
 
-it("a refresh minting a different principal is discarded", async () => {
+it("a refresh minting a different subject is discarded", async () => {
   const client = await signedIn(vi.fn().mockResolvedValue(tokens("Z")), "A")
   expect(await client.refresh()).toBe(false)
   expect(userId(client)).toBe("A")
@@ -268,7 +268,7 @@ it("does not return an old profile after account replacement", async () => {
   expect(userId(client)).toBe("B")
 })
 
-it("rejects a profile for a different principal without a generation change", async () => {
+it("rejects a profile for a different subject without a generation change", async () => {
   const client = await signedIn(
     vi.fn().mockResolvedValue(json(200, { id: "A" })),
     "B"

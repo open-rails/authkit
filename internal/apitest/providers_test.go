@@ -281,7 +281,7 @@ func TestProviderAuthenticationWorkflow(t *testing.T) {
 		// challenge that belonged to the previous provider-link row. A
 		// password keeps the unlink from removing the last login method.
 		backup := "Provider-backup-password-123"
-		_, err := auth.UpdateUser(ctx, iam.SystemActor(), owner, iam.UserUpdate{Password: &backup})
+		_, err := auth.UpdateUser(ctx, iam.SystemIdentity(), owner, iam.UserUpdate{Password: &backup})
 		require.NoError(t, err)
 		fresh := providerSignIn(t, a, idp, "idp", id, "").answer(t).secondFactor(t)
 		session := verify2FA(fresh, outbox.Last(t, iam.MessageLoginCode, phone).Code).answer(t).signedIn(t)
@@ -366,7 +366,7 @@ func TestProviderUnlinkCountsEverySignInMethod(t *testing.T) {
 		id := testidp.Identity{Subject: unique("unlink")}
 		userID, _ := signIn(id)
 		pw := "Unlink-backup-password-1"
-		_, err := auth.UpdateUser(ctx, iam.SystemActor(), userID, iam.UserUpdate{Password: &pw})
+		_, err := auth.UpdateUser(ctx, iam.SystemIdentity(), userID, iam.UserUpdate{Password: &pw})
 		require.NoError(t, err)
 		// The new password ended the sessions: sign in again.
 		_, token := signIn(id)
@@ -455,7 +455,7 @@ func TestFederatedEmailLessRegistrationRequiresAndConsumesInvite(t *testing.T) {
 		id := testidp.Identity{Subject: "invite-user", Email: "unverified-invite@example.com"}
 		res := providerSignIn(t, a, idp, "idp", id, "")
 		require.Equal(t, http.StatusForbidden, res.status, res.String())
-		invite, err := auth.CreateInvitation(t.Context(), iam.SystemActor(), iam.RootGroup(), iam.NewInvitation{Email: "invite-destination@example.com"})
+		invite, err := auth.CreateInvitation(t.Context(), iam.SystemIdentity(), iam.RootGroup(), iam.NewInvitation{Email: "invite-destination@example.com"})
 		require.NoError(t, err)
 		allowed := providerSignIn(t, a, idp, "idp", id, invite.Code).answer(t)
 		allowed.signedIn(t)
@@ -475,7 +475,7 @@ func TestCredentialTransactionsProviderLinkGrantDoesNotOutliveSessionRevocation(
 		a := newAPI(t, auth)
 		u := authtest.NewUser(t, auth)
 		f := startProviderFlow(t, a.post("/oidc/idp/link/start", authtest.SignIn(t, auth, u).AccessToken, map[string]any{}))
-		_, err := auth.RevokeAccountSessions(t.Context(), iam.SystemActor(), u.ID)
+		_, err := auth.RevokeAccountSessions(t.Context(), iam.SystemIdentity(), u.ID)
 		require.NoError(t, err)
 		id := testidp.Identity{Subject: "revoked-link"}
 		q := idp.Redirect(t, f.authURL, id)

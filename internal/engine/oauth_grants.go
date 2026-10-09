@@ -21,6 +21,7 @@ import (
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/internal/secret"
+	"github.com/open-rails/authkit/verify"
 )
 
 const keyOAuthRefresh = "oauth:refresh:" // +hash of the family id
@@ -329,7 +330,7 @@ func (s *Engine) ExchangeOAuthToken(ctx context.Context, in authflow.OAuthTokenE
 	}
 	cl, err := s.auth.Verify(ctx, in.SubjectToken)
 	signIn := iam.SessionRef{SessionID: cl.SessionID, DeviceKeyID: cl.DeviceKeyID}
-	if err != nil || cl.Kind != iam.ActorUser || cl.UserID == "" || signIn.IsZero() || !strings.EqualFold(cl.JOSEType, jose.AccessTokenType) {
+	if err != nil || cl.Kind != verify.TokenUser || cl.UserID == "" || signIn.IsZero() || !strings.EqualFold(cl.JOSEType, jose.AccessTokenType) {
 		return authflow.OAuthTokens{}, authflow.NewOAuthError(authflow.OAuthInvalidGrant, "subject_token is not a valid access token for a sign-in here")
 	}
 	scopes, oerr := grantScopes(in.Scopes, resource, "email", "profile")
@@ -362,7 +363,7 @@ func (s *Engine) ExchangeOAuthToken(ctx context.Context, in authflow.OAuthTokenE
 	}
 	m := oauthMint{
 		client: client, userID: cl.UserID, sessionID: cl.SessionID, deviceKeyID: cl.DeviceKeyID, scopes: scopes, resource: resource.ID,
-		authTime: authTime, amr: amr, acr: acr, jkt: in.JKT, decision: decision, actor: client.ID,
+		authTime: authTime, amr: amr, acr: acr, jkt: in.JKT, decision: decision, invoker: client.ID,
 	}
 	tokens, err := s.mintOAuthTokens(ctx, m)
 	if errors.Is(err, errOAuthGrantRefused) {

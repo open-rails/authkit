@@ -13,6 +13,7 @@ import (
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/rbac"
 	"github.com/open-rails/authkit/verify"
+	"github.com/open-rails/helpers/auth"
 )
 
 // PathEnums are the values a path parameter takes, by name, for the
@@ -21,7 +22,7 @@ var PathEnums = map[string][]string{"kind": {"users"}}
 
 // memberSubject is the member a {kind}/{id} path names. The one kind is
 // `users`; any other is 404. Nobody changes their own root role (ak#417).
-func memberSubject(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor) (iam.Subject, bool) {
+func memberSubject(w http.ResponseWriter, r *http.Request, g iam.Group, who auth.Identity) (iam.Subject, bool) {
 	if !slices.Contains(PathEnums["kind"], r.PathValue("kind")) {
 		fail(w, errmodel.CodeNotFound)
 		return iam.Subject{}, false
@@ -31,7 +32,7 @@ func memberSubject(w http.ResponseWriter, r *http.Request, g iam.Group, actor ia
 		fail(w, errmodel.CodeNotFound)
 		return iam.Subject{}, false
 	}
-	if g.Persona == iam.RootPersona() && actor.Kind() == iam.ActorUser && strings.EqualFold(id, actor.ID()) {
+	if g.Persona == iam.RootPersona() && state(who).IsUser() && strings.EqualFold(id, state(who).ID()) {
 		writeError(w, iam.ErrCannotTargetSelf)
 		return iam.Subject{}, false
 	}
@@ -40,8 +41,8 @@ func memberSubject(w http.ResponseWriter, r *http.Request, g iam.Group, actor ia
 
 // groupMemberSet makes the member hold the body's role in the group,
 // replacing the one it holds.
-func (s *Service) groupMemberSet(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor) {
-	subject, ok := memberSubject(w, r, g, actor)
+func (s *Service) groupMemberSet(w http.ResponseWriter, r *http.Request, g iam.Group, who auth.Identity) {
+	subject, ok := memberSubject(w, r, g, who)
 	if !ok {
 		return
 	}
@@ -59,7 +60,7 @@ func (s *Service) groupMemberSet(w http.ResponseWriter, r *http.Request, g iam.G
 		writeError(w, err)
 		return
 	}
-	member, err := s.svc.SetGroupRole(r.Context(), actor, iam.GroupByID(g.ID), subject, role)
+	member, err := s.svc.SetGroupRole(r.Context(), who, iam.GroupByID(g.ID), subject, role)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -69,12 +70,12 @@ func (s *Service) groupMemberSet(w http.ResponseWriter, r *http.Request, g iam.G
 
 // groupMemberRemove takes the member's role in the group; a non-member
 // answers 204 too.
-func (s *Service) groupMemberRemove(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor) {
-	subject, ok := memberSubject(w, r, g, actor)
+func (s *Service) groupMemberRemove(w http.ResponseWriter, r *http.Request, g iam.Group, who auth.Identity) {
+	subject, ok := memberSubject(w, r, g, who)
 	if !ok {
 		return
 	}
-	if err := s.svc.RemoveGroupMember(r.Context(), actor, iam.GroupByID(g.ID), subject); err != nil {
+	if err := s.svc.RemoveGroupMember(r.Context(), who, iam.GroupByID(g.ID), subject); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -165,7 +166,7 @@ func (s *Service) handleMeGroupsGET(w http.ResponseWriter, r *http.Request) {
 // over the persona's catalog so a client gates UI by set membership. An
 // unknown group has none.
 func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request) {
-	actor, ok := verify.ActorFromContext(r.Context())
+	who, ok := verify.IdentityFromContext(r.Context())
 	if !ok {
 		fail(w, errmodel.CodeUnauthenticated)
 		return
@@ -189,7 +190,7 @@ func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	out.GroupID = g.ID
-	byGroup, err := s.svc.EffectivePermissions(r.Context(), actor, []iam.GroupRef{iam.GroupByID(g.ID)})
+	byGroup, err := s.svc.EffectivePermissions(r.Context(), who, []iam.GroupRef{iam.GroupByID(g.ID)})
 	if err != nil {
 		writeError(w, err)
 		return
@@ -197,8 +198,8 @@ func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request)
 	if persona, ok := s.svc.PermissionGroupSchema().Persona(g.Persona); ok {
 		out.Permissions = rbac.Expand(persona.Permissions, byGroup[g.ID])
 	}
-	if actor.Kind() == iam.ActorUser {
-		subject := iam.UserSubject(actor.ID())
+	if state(who).IsUser() {
+		subject := iam.UserSubject(state(who).ID())
 		held, err := s.svc.GroupRoles(r.Context(), iam.GroupByID(g.ID), []iam.Subject{subject})
 		if err != nil {
 			writeError(w, err)

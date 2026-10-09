@@ -34,6 +34,7 @@ import (
 	"github.com/open-rails/authkit/internal/testkeys"
 	"github.com/open-rails/authkit/internal/testoutbox"
 	"github.com/open-rails/authkit/keys"
+	"github.com/open-rails/helpers/auth"
 )
 
 // testSigner is one RSA key for the package's engines: explicit keys, since
@@ -118,12 +119,12 @@ func (s *Engine) markEmailVerified(ctx context.Context, id string) error {
 }
 
 func (s *Engine) adminSetPassword(ctx context.Context, id, pw string) error {
-	_, err := s.UpdateUser(ctx, iam.SystemActor(), id, iam.UserUpdate{Password: &pw})
+	_, err := s.UpdateUser(ctx, iam.SystemIdentity(), id, iam.UserUpdate{Password: &pw})
 	return err
 }
 
 func (s *Engine) softDelete(ctx context.Context, id string) error {
-	return itemErr(s.DeleteUsers(ctx, iam.SystemActor(), []string{id}))
+	return itemErr(s.DeleteUsers(ctx, iam.SystemIdentity(), []string{id}))
 }
 
 // enableFactor enrolls a second factor without its proof ceremony; an email
@@ -246,7 +247,7 @@ func roleIn(ctx context.Context, e *Engine, ref iam.GroupRef, name string) (iam.
 	return ident.Role(group.Persona, name), err
 }
 
-func assignRole(ctx context.Context, e *Engine, a iam.Actor, ref iam.GroupRef, subject iam.Subject, name string) error {
+func assignRole(ctx context.Context, e *Engine, a auth.Identity, ref iam.GroupRef, subject iam.Subject, name string) error {
 	role, err := roleIn(ctx, e, ref, name)
 	if err != nil {
 		return err
@@ -255,7 +256,7 @@ func assignRole(ctx context.Context, e *Engine, a iam.Actor, ref iam.GroupRef, s
 	return err
 }
 
-func unassignRole(ctx context.Context, e *Engine, a iam.Actor, ref iam.GroupRef, subject iam.Subject, name string) error {
+func unassignRole(ctx context.Context, e *Engine, a auth.Identity, ref iam.GroupRef, subject iam.Subject, name string) error {
 	role, err := roleIn(ctx, e, ref, name)
 	if err != nil {
 		return err
@@ -263,14 +264,14 @@ func unassignRole(ctx context.Context, e *Engine, a iam.Actor, ref iam.GroupRef,
 	return e.RemoveGroupMember(ctx, a, ref, subject, ops.IfRole(role))
 }
 
-func removeMember(ctx context.Context, e *Engine, a iam.Actor, ref iam.GroupRef, subject iam.Subject) error {
+func removeMember(ctx context.Context, e *Engine, a auth.Identity, ref iam.GroupRef, subject iam.Subject) error {
 	return e.RemoveGroupMember(ctx, a, ref, subject)
 }
 
 // grantRole assigns the role name of ref's persona with system authority.
 func grantRole(t testing.TB, e *Engine, ref iam.GroupRef, subject iam.Subject, name string) {
 	t.Helper()
-	require.NoError(t, assignRole(t.Context(), e, iam.SystemActor(), ref, subject, name))
+	require.NoError(t, assignRole(t.Context(), e, iam.SystemIdentity(), ref, subject, name))
 }
 
 // failEphemeral makes event (INSERT OR UPDATE on NEW rows, DELETE on OLD) on

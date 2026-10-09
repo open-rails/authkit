@@ -15,7 +15,7 @@ var ErrInvalidRemoteApplication Error = errmodel.E(errmodel.CodeInvalidRemoteApp
 //
 //	jwks   — keys fetched and refreshed from JWKSURI; rotation is publishing a
 //	         new kid at the same URL.
-//	static — a human-managed PEM list for principals without a JWKS endpoint.
+//	static — a human-managed PEM list for applications without a JWKS endpoint.
 type RemoteApplicationMode string
 
 const (
@@ -23,7 +23,7 @@ const (
 	RemoteApplicationModeStatic RemoteApplicationMode = "static"
 )
 
-// RemoteApplicationKey is one entry of a static-mode principal's human-managed key list
+// RemoteApplicationKey is one entry of a static-mode application's human-managed key list
 // (stored as jsonb; edited like an authorized_keys file): exactly one of
 // PublicKeyPEM and JWK. An empty KID takes the JWK's kid.
 type RemoteApplicationKey struct {
@@ -32,7 +32,7 @@ type RemoteApplicationKey struct {
 	JWK          *JWK   `json:"jwk,omitempty" yaml:"jwk,omitempty"`
 }
 
-// RemoteApplication is a registered federation principal: an external issuer
+// RemoteApplication is a registered remote application: an external issuer
 // AuthKit trusts to mint delegated and remote-application tokens. Role and
 // Permissions are read, never written: its role in its controlling group and
 // the permissions that role confers now (none when it needs MFA, which an

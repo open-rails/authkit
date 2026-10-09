@@ -9,6 +9,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/helpers/auth"
 )
 
 // Authenticator authenticates requests: a *Verifier, or an *authkit.Client,
@@ -17,12 +18,13 @@ type Authenticator interface {
 	VerifyRequest(r *http.Request) (Claims, error)
 }
 
-// PermissionChecker checks an actor's authority in a group live;
-// *authkit.Client is one. Can is false for an unknown group or an actor bound
-// to another group, iam.ErrSessionRevoked once the actor's session is
+// PermissionChecker checks an identity's authority in a group live;
+// *authkit.Client is one. Can is false for an unknown group, an identity
+// bound to another group or one without AuthKit's credential state,
+// iam.ErrSessionRevoked once the identity's session is
 // revoked, and iam.ErrUnknownPermission for an unregistered perm.
 type PermissionChecker interface {
-	Can(ctx context.Context, a iam.Actor, ref iam.GroupRef, perm iam.Perm) (bool, error)
+	Can(ctx context.Context, identity auth.Identity, ref iam.GroupRef, perm iam.Perm) (bool, error)
 	// KnownPermission reports whether perm is registered.
 	KnownPermission(perm iam.Perm) bool
 }
@@ -51,7 +53,7 @@ type Authority interface {
 }
 
 // Required authenticates every request through a, storing its claims and
-// actor in the request context, and answers 401 otherwise. It is stateless:
+// identity in the request context, and answers 401 otherwise. It is stateless:
 // a token outlives its revoked session until it expires. The live gates
 // (RequireSession, RequirePermission, Sensitive) include it.
 //
@@ -171,12 +173,12 @@ func requirePermission(a Authority, perm iam.Perm, fixed iam.GroupRef) func(http
 				iam.WriteError(w, errmodel.E(errmodel.CodeInternalError))
 				return
 			}
-			actor, ok := ActorFromContext(r.Context())
-			if !ok {
+			identity, _ := IdentityFromContext(r.Context())
+			if _, bound := iam.StateOf(identity); !bound {
 				iam.WriteError(w, errmodel.E(errmodel.CodeForbidden))
 				return
 			}
-			allowed, err := a.Can(r.Context(), actor, ref, perm)
+			allowed, err := a.Can(r.Context(), identity, ref, perm)
 			switch {
 			case errors.Is(err, iam.ErrSessionRevoked):
 				iam.WriteError(w, err)

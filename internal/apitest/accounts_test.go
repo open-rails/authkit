@@ -80,7 +80,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 	}
 	invite := func(t *testing.T, inviter, email string) iam.InvitationCreated {
 		t.Helper()
-		created, err := auth.CreateInvitation(ctx, iam.UserActor(inviter), iam.RootGroup(), iam.NewInvitation{Email: email})
+		created, err := auth.CreateInvitation(ctx, iam.UserIdentity(inviter), iam.RootGroup(), iam.NewInvitation{Email: email})
 		require.NoError(t, err)
 		require.Equal(t, created.URL, outbox.Last(t, iam.MessageInvite, email).Link)
 		return created
@@ -214,7 +214,7 @@ func TestAccountAdmissionWorkflow(t *testing.T) {
 		expect(t, http.StatusAccepted, a.post(start, "", payload))
 		code := outbox.Last(t, iam.MessageVerification, email).Code
 		require.NotEmpty(t, code)
-		require.NoError(t, auth.Ban(ctx, iam.SystemActor(), issuer, iam.Ban{}))
+		require.NoError(t, auth.Ban(ctx, iam.SystemIdentity(), issuer, iam.Ban{}))
 		reply := a.post(confirm, "", map[string]any{"identifier": email, "code": code})
 		require.GreaterOrEqual(t, reply.status, 400, reply.String())
 		_, err := auth.User(ctx, iam.UserByEmail(email), authkit.IncludeDeleted())
@@ -679,7 +679,7 @@ func TestBootstrapWorkflow(t *testing.T) {
 	}
 	require.Equal(t, owner, roleOf(iam.UserSubject(user.ID)))
 	password := rotated
-	_, err = auth.UpdateUser(ctx, iam.SystemActor(), user.ID, iam.UserUpdate{Password: &password})
+	_, err = auth.UpdateUser(ctx, iam.SystemIdentity(), user.ID, iam.UserUpdate{Password: &password})
 	require.NoError(t, err)
 
 	// Neither the original name nor a different name can replay genesis, even
@@ -718,7 +718,7 @@ func TestBootstrapWorkflow(t *testing.T) {
 	recoveryUser, err := auth.User(ctx, iam.UserByUsername("recovery-owner"))
 	require.NoError(t, err)
 	require.NotEqual(t, owner, roleOf(iam.UserSubject(recoveryUser.ID)))
-	require.ErrorIs(t, unassign(auth, iam.SystemActor(), iam.RootGroup(), iam.UserSubject(user.ID), owner), iam.ErrLastOwner)
+	require.ErrorIs(t, unassign(auth, iam.SystemIdentity(), iam.RootGroup(), iam.UserSubject(user.ID), owner), iam.ErrLastOwner)
 
 	enabled := true
 	app := iam.BootstrapManifestRemoteApplication{Issuer: "https://app.test", JWKSURI: "https://app.test/keys", Enabled: &enabled}

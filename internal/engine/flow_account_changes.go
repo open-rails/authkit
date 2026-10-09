@@ -12,6 +12,7 @@ import (
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/secret"
+	"github.com/open-rails/helpers/auth"
 )
 
 // Account contact-change flows (email + phone). Each is a request / confirm /
@@ -154,7 +155,7 @@ func (s *Engine) RequestEmailChange(ctx context.Context, userID, newEmail string
 // unless a proven email remains, so the account keeps an address to sign in
 // and recover with, and an MFA holder keeps a proven contact. An account
 // without a phone is unchanged.
-func (s *Engine) RemovePhone(ctx context.Context, a iam.Actor, userID string) error {
+func (s *Engine) RemovePhone(ctx context.Context, a auth.Identity, userID string) error {
 	return s.withAccountMutation(ctx, a, userID, ident.RootUsersManage, selfAllowed, func(at accountTx) error {
 		if _, err := contactStateForUpdate(ctx, at.tx, at.userID); err != nil {
 			return err

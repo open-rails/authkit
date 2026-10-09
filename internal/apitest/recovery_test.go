@@ -44,7 +44,7 @@ func TestAccountRecoveryUsesExistingCredentialAndMFACeremonies(t *testing.T) {
 	ctx := t.Context()
 	remove := func(id string) {
 		t.Helper()
-		results, err := auth.DeleteUsers(ctx, iam.UserActor(id), []string{id})
+		results, err := auth.DeleteUsers(ctx, iam.UserIdentity(id), []string{id})
 		require.NoError(t, err)
 		require.NoError(t, results[0].Err)
 	}

@@ -272,7 +272,7 @@ func TestSecurityPreRegistrationContactChange(t *testing.T) {
 		resp := h.do(request{method: http.MethodPut, path: "/me/phone", body: map[string]string{"phone_number": phone}, token: access})
 		require.Equal(t, http.StatusAccepted, resp.status, resp.String())
 		unproven := unique("ccunproven") + "@security.test"
-		_, err := h.auth.UpdateUser(ctx, iam.SystemActor(), a.id, iam.UserUpdate{Email: &unproven})
+		_, err := h.auth.UpdateUser(ctx, iam.SystemIdentity(), a.id, iam.UserUpdate{Email: &unproven})
 		require.NoError(t, err)
 		resp = h.post("/verify/confirm", map[string]string{"identifier": phone, "code": h.mail.Last(t, iam.MessageVerification, phone).Code}, access)
 		require.Equal(t, "invalid_code", resp.errorCode(), resp.String())
@@ -406,7 +406,7 @@ func TestSecurityMemberEmailIsAnInvitation(t *testing.T) {
 	})
 	t.Run("a deleted account's address gets no role", func(t *testing.T) {
 		gone := h.newAccount("n9gone")
-		require.NoError(t, opErr(h.auth.DeleteUsers(ctx, iam.SystemActor(), []string{gone.id})))
+		require.NoError(t, opErr(h.auth.DeleteUsers(ctx, iam.SystemIdentity(), []string{gone.id})))
 		resp := h.post(base+"/invitations", map[string]string{"email": gone.email, "role": "org:member"}, ownerToken)
 		require.Equal(t, http.StatusAccepted, resp.status, resp.String())
 		require.Empty(t, roleOf(gone.id), "a deleted account received a role")

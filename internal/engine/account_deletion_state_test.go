@@ -65,7 +65,7 @@ func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 	require.NoError(t, err)
 	remove := func() {
 		t.Helper()
-		results, err := client.DeleteUsers(t.Context(), iam.SystemActor(), []string{user.ID})
+		results, err := client.DeleteUsers(t.Context(), iam.SystemIdentity(), []string{user.ID})
 		require.NoError(t, err)
 		require.NoError(t, results[0].Err)
 	}
@@ -83,7 +83,7 @@ func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 	require.True(t, first.PurgeAt.Equal(scheduled), "each account has its own exact deadline job")
 	remove()
 	require.Equal(t, first, current(), "repeated deletion must not reset the deadline/generation")
-	results, err := client.RestoreUsers(t.Context(), iam.SystemActor(), []string{user.ID})
+	results, err := client.RestoreUsers(t.Context(), iam.SystemIdentity(), []string{user.ID})
 	require.NoError(t, err)
 	require.NoError(t, results[0].Err)
 	remove()
@@ -121,7 +121,7 @@ func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit(t.Context()))
 	require.NoError(t, runtime.finalizeAccountDeletion(t.Context(), second.ID, false))
-	results, err = client.RestoreUsers(t.Context(), iam.SystemActor(), []string{user.ID})
+	results, err = client.RestoreUsers(t.Context(), iam.SystemIdentity(), []string{user.ID})
 	require.NoError(t, err)
 	require.Error(t, results[0].Err, "finalization cannot be restored after deadline")
 	// Run the real River client. Delivered events are receipt-idempotent, then
@@ -190,7 +190,7 @@ func TestAccountPurgeSweepsCredentialsBeforeTheRowGoes(t *testing.T) {
 	user, err := runtime.createUser(ctx, "purged@example.test", "purgeduser")
 	require.NoError(t, err)
 	var rootID string
-	require.NoError(t, runtime.withAuthorityMutation(ctx, iam.SystemActor(), func(st *permissionGroupStore) error {
+	require.NoError(t, runtime.withAuthorityMutation(ctx, iam.SystemIdentity(), func(st *permissionGroupStore) error {
 		rootID, err = runtime.rootGroup(ctx, st)
 		return err
 	}))
@@ -211,7 +211,7 @@ func TestAccountPurgeSweepsCredentialsBeforeTheRowGoes(t *testing.T) {
 
 	require.NoError(t, itemErr(runtime.PurgeUsers(ctx, []string{user.ID})))
 	require.True(t, revoked(issued), "the soft delete sweeps the account's keys")
-	restore, err := runtime.RestoreUsers(ctx, iam.SystemActor(), []string{user.ID})
+	restore, err := runtime.RestoreUsers(ctx, iam.SystemIdentity(), []string{user.ID})
 	require.NoError(t, err)
 	require.Error(t, restore[0].Err, "a purge closes the recovery window")
 
@@ -257,7 +257,7 @@ func TestAccountRecoveryAndFinalizerSerializeAtDeadline(t *testing.T) {
 			var wg sync.WaitGroup
 			wg.Go(func() {
 				<-start
-				restoreErr = itemErr(runtime.RestoreUsers(t.Context(), iam.SystemActor(), []string{user.ID}))
+				restoreErr = itemErr(runtime.RestoreUsers(t.Context(), iam.SystemIdentity(), []string{user.ID}))
 			})
 			wg.Go(func() {
 				<-start

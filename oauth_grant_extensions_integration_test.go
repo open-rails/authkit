@@ -391,7 +391,7 @@ func TestOAuthOfflineGrants(t *testing.T) {
 	signOut := func(signedIn iam.TokenSet) {
 		claims, err := as.Client.Verify(ctx, signedIn.AccessToken)
 		require.NoError(t, err)
-		require.NoError(t, as.Client.RevokeSession(ctx, iam.SystemActor(), owner.ID, claims.SessionID))
+		require.NoError(t, as.Client.RevokeSession(ctx, iam.SystemIdentity(), owner.ID, claims.SessionID))
 	}
 
 	// Signing out of the laptop leaves the machine's grant standing.
@@ -433,7 +433,7 @@ func TestOAuthOfflineGrants(t *testing.T) {
 	// Containing the account (RevokeAccountSessions) ends its offline
 	// grants; one granted afterwards stands.
 	contained := as.AuthorizeAs(t, authtest.SignIn(t, as.Client, owner), machineFlow(authtest.NewDPoPKey(t)))
-	_, err := as.Client.RevokeAccountSessions(ctx, iam.SystemActor(), owner.ID)
+	_, err := as.Client.RevokeAccountSessions(ctx, iam.SystemIdentity(), owner.ID)
 	require.NoError(t, err)
 	_, code = tokenError(t, as, refreshReq(contained))
 	require.Equal(t, "invalid_grant", code)
@@ -452,7 +452,7 @@ func TestOAuthOfflineGrants(t *testing.T) {
 	// So does a ban.
 	owner.Password = "Another-horse-battery-98"
 	banned := as.AuthorizeAs(t, authtest.SignIn(t, as.Client, owner), machineFlow(authtest.NewDPoPKey(t)))
-	require.NoError(t, as.Client.Ban(ctx, iam.SystemActor(), owner.ID, iam.Ban{Reason: "test"}))
+	require.NoError(t, as.Client.Ban(ctx, iam.SystemIdentity(), owner.ID, iam.Ban{Reason: "test"}))
 	_, code = tokenError(t, as, refreshReq(banned))
 	require.Equal(t, "invalid_grant", code)
 
@@ -538,7 +538,7 @@ func TestOAuthGrantLifetimesAndKeys(t *testing.T) {
 }
 
 // TestOAuthResourceServerReadsGrants: a resource server trusting the issuer
-// by its JWKS reads a grant's authorization_details, actor and the issuer's
+// by its JWKS reads a grant's authorization_details, identity and the issuer's
 // URI-named claims from verify.Claims.
 func TestOAuthResourceServerReadsGrants(t *testing.T) {
 	g := &authtest.GrantAuthorizer{Decide: func(req iam.OAuthGrantRequest) (iam.OAuthGrantDecision, error) {
@@ -552,7 +552,7 @@ func TestOAuthResourceServerReadsGrants(t *testing.T) {
 	resource.Config.Handler = verify.Required(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cl, _ := verify.ClaimsFromContext(r.Context())
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"details": cl.AuthorizationDetails, "actor": cl.Actor, "custom": cl.CustomClaims, "sid": cl.SessionID,
+			"details": cl.AuthorizationDetails, "invoker": cl.Invoker, "custom": cl.CustomClaims, "sid": cl.SessionID,
 		})
 	}))
 	resource.Start()
@@ -574,13 +574,13 @@ func TestOAuthResourceServerReadsGrants(t *testing.T) {
 	got := call(as.AuthorizeAs(t, signedIn, machineFlow(authtest.NewDPoPKey(t))))
 	consent, _ := g.Last(iam.OAuthGrantConsent)
 	require.JSONEq(t, machineDetails, mustJSON(t, got["details"]))
-	require.Empty(t, got["actor"])
+	require.Empty(t, got["invoker"])
 	require.Empty(t, got["sid"])
 	require.Equal(t, map[string]any{grantClaim: map[string]any{"grant": consent.GrantID}}, got["custom"])
 
 	got = call(as.Exchange(t, authtest.TokenExchange{ClientID: oauthAdminUI, SubjectToken: signedIn.AccessToken, AuthorizationDetails: submitDetails}))
 	require.JSONEq(t, submitDetails, mustJSON(t, got["details"]))
-	require.Equal(t, oauthAdminUI, got["actor"])
+	require.Equal(t, oauthAdminUI, got["invoker"])
 	require.Equal(t, map[string]any{grantClaim: map[string]any{"grant": ""}}, got["custom"])
 }
 

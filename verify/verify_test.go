@@ -82,7 +82,7 @@ func TestAccessTokens(t *testing.T) {
 		"root_role": "root:admin", "amr": []string{"pwd", "mfa"}, "mfa_enrolled": true,
 	}))
 	require.NoError(t, err)
-	require.Equal(t, iam.ActorUser, cl.Kind)
+	require.Equal(t, TokenUser, cl.Kind)
 	require.Equal(t, jose.AccessTokenType, cl.JOSEType)
 	require.Equal(t, "user-1", cl.UserID)
 	require.Empty(t, cl.Subject)
@@ -90,17 +90,18 @@ func TestAccessTokens(t *testing.T) {
 	require.False(t, cl.HasPermission(ident.Perm("root:users:ban")))
 	require.Equal(t, "root:admin", cl.RootRole, "display only")
 	require.True(t, cl.IsUser() && cl.MFAEnrolled && cl.HasAMR("mfa"))
-	a, ok := ActorFromClaims(cl)
+	a, ok := boundIdentity(cl)
 	require.True(t, ok)
-	session, _ := a.Session()
-	require.Equal(t, "s-1", session.SessionID, "the actor is bound to its session")
+	state, _ := iam.StateOf(a)
+	session, _ := state.Session()
+	require.Equal(t, "s-1", session.SessionID, "the identity is bound to its session")
 
 	cl, err = f.v.Verify(ctx, sign(t, f.peer, jose.AccessTokenType, peerIssuer, map[string]any{"sub": "ext-1"}))
 	require.NoError(t, err)
 	require.Equal(t, "ext-1", cl.Subject)
 	require.Empty(t, cl.UserID, "another issuer never names a local user")
 	require.False(t, cl.IsUser())
-	_, ok = ActorFromClaims(cl)
+	_, ok = boundIdentity(cl)
 	require.False(t, ok, "another issuer's user has no AuthKit authority")
 	id, ok := cl.Identity()
 	require.True(t, ok)
@@ -142,7 +143,7 @@ func TestTokenProfiles(t *testing.T) {
 	require.Equal(t, errmodel.CodeInvalidToken, codeOf(err))
 }
 
-// A delegated token names an external actor bounded by its permissions.
+// A delegated token names an external identity bounded by its permissions.
 func TestDelegatedTokens(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
@@ -151,15 +152,16 @@ func TestDelegatedTokens(t *testing.T) {
 	})
 	cl, err := f.v.Verify(ctx, token)
 	require.NoError(t, err)
-	require.Equal(t, iam.ActorDelegated, cl.Kind)
+	require.Equal(t, TokenDelegated, cl.Kind)
 	require.Equal(t, "agent-7", cl.DelegatedSubject)
 	require.Equal(t, []string{"repo:read"}, cl.Permissions)
 	require.JSONEq(t, `"gold"`, string(cl.Attributes["tier"]))
 	require.Nil(t, cl.Group, "explicitly trusted delegation has no group binding")
-	a, ok := ActorFromClaims(cl)
+	a, ok := boundIdentity(cl)
 	require.True(t, ok)
-	require.True(t, a.CeilingCovers(ident.Perm("repo:read")))
-	require.False(t, a.CeilingCovers(ident.Perm("repo:write")))
+	state, _ := iam.StateOf(a)
+	require.True(t, state.CeilingCovers(ident.Perm("repo:read")))
+	require.False(t, state.CeilingCovers(ident.Perm("repo:write")))
 }
 
 // A certificate-bound token verifies only on a request whose TLS peer is its
@@ -315,9 +317,9 @@ func TestMiddleware(t *testing.T) {
 	require.Panics(t, func() { RequirePermissionOn(nil, iam.GroupRef{}, ident.Perm("repo:read")) })
 }
 
-// A Verifier's helpers/auth principal is identity only: it checks no
+// A Verifier's helpers/auth Verified request is identity only: it checks no
 // permissions (the Client's does, live).
-func TestPrincipalIsIdentityOnly(t *testing.T) {
+func TestVerifiedIsIdentityOnly(t *testing.T) {
 	f := newFixture(t)
 	var _ interface {
 		AuthenticateRequest(context.Context, *http.Request) (auth.Verified, error)

@@ -13,30 +13,31 @@ import (
 	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/internal/ops"
 	"github.com/open-rails/authkit/keys"
+	"github.com/open-rails/helpers/auth"
 )
 
 // MintDelegatedAccessToken signs a delegated access token as this deployment.
-// A user actor mints for itself only, and every AuthKit-namespace permission
+// A user identity mints for itself only, and every AuthKit-namespace permission
 // in the grant must be held live on the root group (checkDelegatedGrant); the
-// system may mint for any subject; machine actors may not mint. A user actor
-// bound to a session (verify.ActorFromClaims) mints only while that session
+// system may mint for any subject; machine identities may not mint. A user identity
+// bound to a session (verify's gates) mints only while that session
 // stands, and the token carries it (sid or device_key_id), so revoking the
 // session cuts the delegated token off at every AuthKit permission check.
-func (s *Engine) MintDelegatedAccessToken(ctx context.Context, actor iam.Actor, d iam.DelegatedAccess, opts ...ops.Option) (iam.Token, error) {
+func (s *Engine) MintDelegatedAccessToken(ctx context.Context, who auth.Identity, d iam.DelegatedAccess, opts ...ops.Option) (iam.Token, error) {
 	if err := noOptions("MintDelegatedAccessToken", opts); err != nil {
 		return iam.Token{}, err
 	}
-	if err := requireActor(actor); err != nil {
+	if err := requireIdentity(who); err != nil {
 		return iam.Token{}, err
 	}
 	d.Subject = strings.TrimSpace(d.Subject)
-	switch actor.Kind() {
-	case iam.ActorSystem:
+	switch cs := stateOf(who); {
+	case cs.IsSystem():
 		if d.Subject == "" {
 			return iam.Token{}, fmt.Errorf("%w: delegated subject required", errmodel.E(errmodel.CodeInvalidRequest))
 		}
-	case iam.ActorUser:
-		self, _ := canonicalUUID(actor.ID())
+	case cs.IsUser():
+		self, _ := canonicalUUID(cs.ID())
 		if d.Subject == "" {
 			d.Subject = self
 		}
@@ -44,7 +45,7 @@ func (s *Engine) MintDelegatedAccessToken(ctx context.Context, actor iam.Actor, 
 			return iam.Token{}, iam.ErrInsufficientAuthority
 		}
 		d.Subject = self
-		if err := s.checkDelegatedGrant(ctx, actor, d.Permissions); err != nil {
+		if err := s.checkDelegatedGrant(ctx, who, d.Permissions); err != nil {
 			return iam.Token{}, err
 		}
 	default:
@@ -56,7 +57,7 @@ func (s *Engine) MintDelegatedAccessToken(ctx context.Context, actor iam.Actor, 
 	}
 	d.TTL = s.delegatedTTL(d.TTL)
 	now := time.Now()
-	session, _ := actor.Session()
+	session, _ := stateOf(who).Session()
 	token, err := mintDelegatedAccessToken(ctx, signer, strings.TrimSpace(s.cfg.Token.Issuer), d, session, now)
 	if err != nil {
 		return iam.Token{}, err
@@ -86,7 +87,7 @@ func (s *Engine) delegatedTTL(ttl time.Duration) time.Duration {
 // session). Delegated permissions are scope-free, so one in an AuthKit
 // persona's namespace must be held on the root group; the host's own
 // vocabulary is the host's decision.
-func (s *Engine) checkDelegatedGrant(ctx context.Context, user iam.Actor, permissions []string) error {
+func (s *Engine) checkDelegatedGrant(ctx context.Context, user auth.Identity, permissions []string) error {
 	auth, err := s.rootAuthority(ctx, user)
 	if err != nil {
 		return err

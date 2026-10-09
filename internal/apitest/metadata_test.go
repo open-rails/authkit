@@ -25,7 +25,7 @@ func TestPatchPublicMetadataIsAMergePatch(t *testing.T) {
 		if !ok {
 			require.NoError(t, json.Unmarshal([]byte(patch.(string)), &p))
 		}
-		require.NoError(t, auth.PatchPublicMetadata(ctx, iam.SystemActor(), u.ID, p))
+		require.NoError(t, auth.PatchPublicMetadata(ctx, iam.SystemIdentity(), u.ID, p))
 		got, err := auth.User(ctx, iam.UserByID(u.ID))
 		require.NoError(t, err)
 		raw, err := json.Marshal(got.PublicMetadata)

@@ -1,16 +1,16 @@
 package engine
 
 // Shared authority helper (#399). Every checked mutation resolves its group
-// and actor here, inside the authority transaction, and applies:
+// and identity here, inside the authority transaction, and applies:
 //
-//	ACTOR  the actor is valid and live (every kind, every call)
-//	CAP    the actor covers a capability permission in the target group
-//	COVER  the actor covers every permission a role confers (no escalation)
-//	ACCT   CAP on the root group, outranking the target account on root and
-//	       covering its grants in each of its groups
+//	IDENTITY  the identity is valid and live (every kind, every call)
+//	CAP       the identity covers a capability permission in the target group
+//	COVER     the identity covers every permission a role confers (no escalation)
+//	ACCT      CAP on the root group, outranking the target account on root and
+//	          covering its grants in each of its groups
 //
 // The system skips every rule and never an invariant (last owner, MFA).
-// Root is the widest scope: an actor's roles on root count in every group, but
+// Root is the widest scope: an identity's roles on root count in every group, but
 // root's own `root:` permissions count only on root (rbac.Schema.ResolveGrants).
 
 import (
@@ -25,6 +25,7 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/rbac"
+	"github.com/open-rails/helpers/auth"
 )
 
 // groupTarget is a GroupRef resolved to a live group. Persona is the stored
@@ -75,13 +76,13 @@ func (s *Engine) rootGroup(ctx context.Context, st *permissionGroupStore) (strin
 // withGroupMutation runs apply in one authority transaction (advisory lock,
 // ReadCommitted, credential re-check before commit) with ref resolved and its
 // row locked.
-func (s *Engine) withGroupMutation(ctx context.Context, a iam.Actor, ref iam.GroupRef, apply func(st *permissionGroupStore, g groupTarget) error) error {
+func (s *Engine) withGroupMutation(ctx context.Context, a auth.Identity, ref iam.GroupRef, apply func(st *permissionGroupStore, g groupTarget) error) error {
 	return s.withGroupMutationIn(ctx, a, nil, ref, apply)
 }
 
 // withGroupMutationIn is withGroupMutation inside host, the host's own
 // transaction, when set (withAuthorityMutationIn).
-func (s *Engine) withGroupMutationIn(ctx context.Context, a iam.Actor, host pgx.Tx, ref iam.GroupRef, apply func(st *permissionGroupStore, g groupTarget) error) error {
+func (s *Engine) withGroupMutationIn(ctx context.Context, a auth.Identity, host pgx.Tx, ref iam.GroupRef, apply func(st *permissionGroupStore, g groupTarget) error) error {
 	return s.withAuthorityMutationIn(ctx, a, host, func(st *permissionGroupStore) error {
 		g, err := s.resolveGroup(ctx, st, ref)
 		if err != nil {
@@ -94,9 +95,9 @@ func (s *Engine) withGroupMutationIn(ctx context.Context, a iam.Actor, host pgx.
 	})
 }
 
-// authority is an actor's live authority in one group.
+// authority is an identity's live authority in one group.
 type authority struct {
-	actor  iam.Actor
+	who    auth.Identity
 	system bool
 	grants []string // base grants in the group; none when bound elsewhere
 }
@@ -104,7 +105,7 @@ type authority struct {
 // covers is the effective-coverage check: the base grants cover p and every
 // ceiling permits it. The system covers everything.
 func (a authority) covers(p iam.Perm) bool {
-	return a.system || rbac.Covers(a.grants, p) && a.actor.CeilingCovers(p)
+	return a.system || rbac.Covers(a.grants, p) && stateOf(a.who).CeilingCovers(p)
 }
 
 func (a authority) coversAll(grants []string) bool {
@@ -132,47 +133,48 @@ func (a authority) requireCover(grants []string) error {
 	return nil
 }
 
-// requireActor refuses the zero Actor before any work.
-func requireActor(a iam.Actor) error {
-	if a.IsZero() {
+// requireActor refuses the zero Identity before any work.
+func requireIdentity(a auth.Identity) error {
+	if _, ok := iam.StateOf(a); !ok {
 		return iam.ErrInsufficientAuthority
 	}
 	return nil
 }
 
-// actorAuthority resolves a's live authority in g (rule ACTOR). A zero, deleted,
-// banned, revoked, expired or disabled actor is
+// identityAuthority resolves a's live authority in g (rule IDENTITY). A zero, deleted,
+// banned, revoked, expired or disabled identity is
 // ErrInsufficientAuthority; one whose bound session or device key is revoked
-// (Actor.InSession) is ErrSessionRevoked. An actor bound to another group
+// (Identity.InSession) is ErrSessionRevoked. An identity bound to another group
 // resolves with no grants, as does a delegation from a foreign issuer.
-func (s *Engine) actorAuthority(ctx context.Context, st *permissionGroupStore, a iam.Actor, g groupTarget) (authority, error) {
-	out := authority{actor: a}
-	session, _ := a.Session()
-	switch a.Kind() {
-	case iam.ActorSystem:
+func (s *Engine) identityAuthority(ctx context.Context, st *permissionGroupStore, a auth.Identity, g groupTarget) (authority, error) {
+	cs, ok := iam.StateOf(a)
+	if !ok {
+		return authority{}, iam.ErrInsufficientAuthority
+	}
+	out := authority{who: a}
+	session, _ := cs.Session()
+	switch {
+	case cs.IsSystem():
 		out.system = true
 		return out, nil
-	case iam.ActorUser:
-		return s.userAuthority(ctx, st, out, a.ID(), session, g)
-	case iam.ActorRemoteApplication:
-		return s.applicationAuthority(ctx, st, out, a.ID(), "", g)
-	case iam.ActorAPIKey:
-		return s.apiKeyAuthority(ctx, st, out, a.ID(), g)
-	case iam.ActorDelegated:
-		grant, _ := a.Delegation()
-		switch {
-		case grant.RemoteApplicationID != "":
-			return s.applicationAuthority(ctx, st, out, grant.RemoteApplicationID, grant.GroupID, g)
-		case grant.Issuer == strings.TrimSpace(s.cfg.Token.Issuer):
-			return s.userAuthority(ctx, st, out, grant.Subject, session, g)
-		}
+	case cs.Group() != "" && cs.Group() != g.ID:
+		return out, nil // pinned to another group
+	case cs.IsAPIKey():
+		return s.apiKeyAuthority(ctx, st, out, cs.ID(), g)
+	case cs.IsApplication():
+		return s.applicationAuthority(ctx, st, out, cs.ID(), cs.Group(), g)
+	case cs.IsUser():
+		return s.userAuthority(ctx, st, out, cs.ID(), session, g)
+	case cs.Delegated() && cs.DelegatedIssuer() == strings.TrimSpace(s.cfg.Token.Issuer):
+		return s.userAuthority(ctx, st, out, cs.ID(), session, g)
+	case cs.Delegated():
 		return out, nil
 	}
 	return authority{}, iam.ErrInsufficientAuthority
 }
 
 // userAuthority is a usable user's grants in g, refused when the sign-in the
-// actor is bound to no longer stands.
+// identity is bound to no longer stands.
 func (s *Engine) userAuthority(ctx context.Context, st *permissionGroupStore, out authority, userID string, session iam.SessionRef, g groupTarget) (authority, error) {
 	usable, signedIn, err := userLive(ctx, st.q, userID, session)
 	switch {
@@ -204,7 +206,7 @@ func (s *Engine) applicationAuthority(ctx context.Context, st *permissionGroupSt
 	return out.withoutMFAGrants(s), err
 }
 
-// withoutMFAGrants drops the grants of a machine actor (an API key or an
+// withoutMFAGrants drops the grants of a machine identity (an API key or an
 // application) that reach a permission needing MFA: it can present no second
 // factor, whatever path handed it the role.
 func (a authority) withoutMFAGrants(s *Engine) authority {
@@ -276,8 +278,8 @@ func (s *Engine) requireHeldRoleCover(ctx context.Context, st *permissionGroupSt
 
 // requireRoleGrant is CAP(capability) plus COVER(role) in g: what assigning,
 // revoking or issuing a credential for role through capability requires.
-func (s *Engine) requireRoleGrant(ctx context.Context, st *permissionGroupStore, a iam.Actor, g groupTarget, capability iam.Perm, role iam.Role) error {
-	auth, err := s.actorAuthority(ctx, st, a, g)
+func (s *Engine) requireRoleGrant(ctx context.Context, st *permissionGroupStore, a auth.Identity, g groupTarget, capability iam.Perm, role iam.Role) error {
+	auth, err := s.identityAuthority(ctx, st, a, g)
 	if err != nil {
 		return err
 	}
@@ -290,13 +292,13 @@ func (s *Engine) requireRoleGrant(ctx context.Context, st *permissionGroupStore,
 // requireAccount is rule ACCT(p) over targetUserID: CAP(p) on the root group,
 // and, in root and in every group where the target holds a role, coverage of
 // the target's effective grants there (else ErrAccountAuthorityEscalation), so
-// site moderation never outranks a group role the actor does not itself hold.
-// On root the actor must also outrank a target holding root grants: a peer,
-// whose grants cover the actor's, is refused unless peers is set, so staff
+// site moderation never outranks a group role the identity does not itself hold.
+// On root the identity must also outrank a target holding root grants: a peer,
+// whose grants cover the identity's, is refused unless peers is set, so staff
 // never ban, delete or edit each other; demoting comes first. Callers apply
 // their self-targeting rule first.
-func (s *Engine) requireAccount(ctx context.Context, st *permissionGroupStore, a iam.Actor, targetUserID string, p iam.Perm, peers bool) error {
-	if err := requireActor(a); err != nil || a.Kind() == iam.ActorSystem {
+func (s *Engine) requireAccount(ctx context.Context, st *permissionGroupStore, a auth.Identity, targetUserID string, p iam.Perm, peers bool) error {
+	if err := requireIdentity(a); err != nil || stateOf(a).IsSystem() {
 		return err
 	}
 	rootID, err := s.rootGroup(ctx, st)
@@ -304,7 +306,7 @@ func (s *Engine) requireAccount(ctx context.Context, st *permissionGroupStore, a
 		return err
 	}
 	root := groupTarget{ID: rootID, Persona: iam.RootPersona()}
-	auth, err := s.actorAuthority(ctx, st, a, root)
+	auth, err := s.identityAuthority(ctx, st, a, root)
 	if err != nil {
 		return err
 	}
@@ -321,7 +323,7 @@ func (s *Engine) requireAccount(ctx context.Context, st *permissionGroupStore, a
 	}
 	for _, g := range groups {
 		if g.ID != rootID {
-			if auth, err = s.actorAuthority(ctx, st, a, g); err != nil {
+			if auth, err = s.identityAuthority(ctx, st, a, g); err != nil {
 				return err
 			}
 		}

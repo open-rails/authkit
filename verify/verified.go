@@ -111,11 +111,11 @@ func (p checkingVerified) Can(ctx context.Context, scope auth.Scope, permission 
 	if scope.ID == "" || permission == "" || scope.Authority == "" || scope.Authority != authorityOf(p.claims) {
 		return false, nil
 	}
-	actor, ok := ActorFromClaims(p.claims)
+	identity, ok := boundIdentity(p.claims)
 	if !ok {
 		return false, nil
 	}
-	allowed, err := p.checker.Can(ctx, actor, iam.GroupByID(scope.ID), ident.Perm(permission))
+	allowed, err := p.checker.Can(ctx, identity, iam.GroupByID(scope.ID), ident.Perm(permission))
 	switch {
 	case errors.Is(err, iam.ErrSessionRevoked):
 		return false, errors.Join(auth.ErrUnauthenticated, auth.ErrRevoked, err)

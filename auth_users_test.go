@@ -11,6 +11,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/testdb"
+	hauth "github.com/open-rails/helpers/auth"
 	"github.com/stretchr/testify/require"
 )
 
@@ -32,7 +33,7 @@ func itemErr(res []iam.OpResult, err error) error {
 func TestUserLookups(t *testing.T) {
 	auth := newUsersRuntime(t)
 	ctx := t.Context()
-	op := iam.SystemActor()
+	op := iam.SystemIdentity()
 	alice, err := auth.CreateUser(ctx, iam.NewUser{Email: "Alice@Example.test", Phone: "+15555550100", Username: "alice", EmailVerified: true})
 	require.NoError(t, err)
 	require.Equal(t, "alice@example.test", *alice.Email)
@@ -82,7 +83,7 @@ func TestUserLookups(t *testing.T) {
 func TestPublicMetadata(t *testing.T) {
 	auth := newUsersRuntime(t)
 	ctx := t.Context()
-	op := iam.SystemActor()
+	op := iam.SystemIdentity()
 	alice, err := auth.CreateUser(ctx, iam.NewUser{Email: "meta-alice@example.test", Username: "metaalice"})
 	require.NoError(t, err)
 	bob, err := auth.CreateUser(ctx, iam.NewUser{Email: "meta-bob@example.test", Username: "metabob"})
@@ -107,7 +108,7 @@ func TestPublicMetadata(t *testing.T) {
 func TestUserBanState(t *testing.T) {
 	auth := newUsersRuntime(t)
 	ctx := t.Context()
-	op := iam.SystemActor()
+	op := iam.SystemIdentity()
 	carol, err := auth.CreateUser(ctx, iam.NewUser{Email: "carol@example.test", Username: "carol"})
 	require.NoError(t, err)
 	ban := func() *iam.BanState {
@@ -136,10 +137,10 @@ func TestUserBanState(t *testing.T) {
 func TestUserUpdateAndMetadata(t *testing.T) {
 	auth := newUsersRuntime(t)
 	ctx := t.Context()
-	op := iam.SystemActor()
+	op := iam.SystemIdentity()
 	dave, err := auth.CreateUser(ctx, iam.NewUser{Email: "dave@example.test", Username: "dave", EmailVerified: true})
 	require.NoError(t, err)
-	self := iam.UserActor(dave.ID)
+	self := iam.UserIdentity(dave.ID)
 	lang := "fr"
 	u, err := auth.UpdateUser(ctx, self, dave.ID, iam.UserUpdate{PreferredLanguage: &lang})
 	require.NoError(t, err)
@@ -174,7 +175,7 @@ func TestAccountHostOperations(t *testing.T) {
 	ctx := t.Context()
 	erin, err := auth.CreateUser(ctx, iam.NewUser{Email: "erin@example.test", Username: "erin"})
 	require.NoError(t, err)
-	require.ErrorIs(t, auth.Ban(ctx, iam.Actor{}, erin.ID, iam.Ban{}), iam.ErrInsufficientAuthority, "the zero actor is refused")
+	require.ErrorIs(t, auth.Ban(ctx, hauth.Identity{}, erin.ID, iam.Ban{}), iam.ErrInsufficientAuthority, "the zero identity is refused")
 	token, err := auth.MintAccessToken(ctx, erin.ID, iam.AccessTokenOptions{TTL: time.Minute})
 	require.NoError(t, err)
 	require.NotEmpty(t, token.Value)
@@ -251,7 +252,7 @@ func TestListGroupMembersLiveOnlyWithUsers(t *testing.T) {
 	auth := newPublicRuntime(t, cfg, pg.Pool)
 	t.Cleanup(func() { _ = auth.Close(context.Background()) })
 	ctx := t.Context()
-	op := iam.SystemActor()
+	op := iam.SystemIdentity()
 	g, err := auth.CreateGroup(ctx, iam.NewGroup{Persona: team.Persona})
 	require.NoError(t, err)
 	ref := iam.GroupByID(g.ID)
@@ -324,7 +325,7 @@ func TestUserDirectoryEntries(t *testing.T) {
 		require.NoError(t, err)
 		ids = append(ids, u.ID)
 	}
-	_, err = auth.SetGroupRole(ctx, iam.SystemActor(), iam.RootGroup(), iam.UserSubject(ids[1]), staff)
+	_, err = auth.SetGroupRole(ctx, iam.SystemIdentity(), iam.RootGroup(), iam.UserSubject(ids[1]), staff)
 	require.NoError(t, err)
 	billing[ids[1]] = []string{"premium"}
 
@@ -383,7 +384,7 @@ func TestUsersIDIsAHostForeignKeyTarget(t *testing.T) {
 		return n
 	}
 
-	require.NoError(t, itemErr(auth.DeleteUsers(ctx, iam.SystemActor(), []string{u.ID})))
+	require.NoError(t, itemErr(auth.DeleteUsers(ctx, iam.SystemIdentity(), []string{u.ID})))
 	require.Equal(t, 1, notes(), "a soft-deleted account keeps its row")
 	require.NoError(t, itemErr(auth.PurgeUsers(ctx, []string{u.ID})))
 	require.NoError(t, auth.Start(ctx))

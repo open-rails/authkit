@@ -107,8 +107,8 @@ chain AS (
   UNION SELECT t.id, rg.id, rg.persona FROM targets t JOIN permission_groups rg ON rg.persona = 'root')
 SELECT c.target::text AS target, c.id::text AS group_id, c.persona::text AS persona, a.role
 FROM chain c JOIN group_remote_application_roles a ON a.permission_group_id = c.id AND a.remote_application_id = sqlc.arg(subject_id)::uuid
-WHERE EXISTS(SELECT 1 FROM remote_applications actor JOIN permission_groups control ON control.id = actor.permission_group_id
-  WHERE actor.id = sqlc.arg(subject_id)::uuid AND actor.enabled AND control.deleted_at IS NULL)
+WHERE EXISTS(SELECT 1 FROM remote_applications app JOIN permission_groups control ON control.id = app.permission_group_id
+  WHERE app.id = sqlc.arg(subject_id)::uuid AND app.enabled AND control.deleted_at IS NULL)
 ORDER BY c.target, c.id;
 
 -- name: GroupRolesForSubjects :many

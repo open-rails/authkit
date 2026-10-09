@@ -361,7 +361,7 @@ func (s *Engine) SessionFreshness(ctx context.Context, userID, sessionID string,
 // too, since nothing proves it still stands. Every refusal is
 // ErrSessionRevoked; any other credential (an API key, an application's, a
 // 2FA-enrollment token) is forbidden. Permission checks run the same query
-// through the actor's session binding.
+// through the identity's session binding.
 func (s *Engine) CheckSession(ctx context.Context, cl verify.Claims) error {
 	userID, ok := s.signedInUser(cl)
 	if !ok {
@@ -386,14 +386,14 @@ func (s *Engine) CheckSession(ctx context.Context, cl verify.Claims) error {
 
 // signedInUser is the account whose sign-in cl stands on: a user's own
 // token, or a delegated token this deployment minted, whose delegated_sub is
-// the user it was minted for (as actorAuthority reads it).
+// the user it was minted for (as identityAuthority reads it).
 func (s *Engine) signedInUser(cl verify.Claims) (string, bool) {
 	switch {
 	case cl.TwoFAEnrollment:
 		return "", false
 	case cl.IsUser():
 		return cl.UserID, true
-	case cl.Kind == iam.ActorDelegated && cl.RemoteApplicationID == "" && cl.DelegatedSubject != "" &&
+	case cl.Kind == verify.TokenDelegated && cl.RemoteApplicationID == "" && cl.DelegatedSubject != "" &&
 		cl.Issuer != "" && cl.Issuer == strings.TrimSpace(s.cfg.Token.Issuer):
 		return cl.DelegatedSubject, true
 	}

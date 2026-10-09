@@ -64,7 +64,7 @@ func TestAdminUserDirectory(t *testing.T) {
 	require.NoError(t, err)
 	// Renamed, so only the link still carries the provider username.
 	renamed := "dave_account"
-	_, err = auth.UpdateUser(ctx, iam.SystemActor(), dave.ID, iam.UserUpdate{Username: &renamed})
+	_, err = auth.UpdateUser(ctx, iam.SystemIdentity(), dave.ID, iam.UserUpdate{Username: &renamed})
 	require.NoError(t, err)
 
 	list := func(query string) (iam.ListPage[iam.UserEntry], string) {
@@ -110,7 +110,7 @@ func TestAdminUserDirectory(t *testing.T) {
 		for _, name := range []string{"pagera", "pagerb", "pagerc", "pagerd", "pagere"} {
 			ids[name] = create(iam.NewUser{Username: name, Email: name + "@example.test"})
 		}
-		require.NoError(t, auth.Ban(ctx, iam.SystemActor(), ids["pagerc"], iam.Ban{}))
+		require.NoError(t, auth.Ban(ctx, iam.SystemIdentity(), ids["pagerc"], iam.Ban{}))
 		authtest.GrantRole(t, auth, iam.RootGroup(), iam.UserSubject(ids["pagerd"]), staffRole)
 		walk := func(query string) (names []string, totals []int) {
 			t.Helper()
@@ -161,7 +161,7 @@ func TestAdminUserDirectory(t *testing.T) {
 	t.Run("an expired ban is no ban", func(t *testing.T) {
 		lapsed := create(iam.NewUser{Username: "lapsedban", Email: "lapsedban@example.test"})
 		until := time.Now().Add(time.Hour)
-		require.NoError(t, auth.Ban(ctx, iam.SystemActor(), lapsed, iam.Ban{Reason: "cooling off", Until: &until}))
+		require.NoError(t, auth.Ban(ctx, iam.SystemIdentity(), lapsed, iam.Ban{Reason: "cooling off", Until: &until}))
 		traced.take()
 		page, _ := list("status=banned&search=lapsedban")
 		require.Len(t, page.Items, 1)

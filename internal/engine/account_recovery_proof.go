@@ -125,7 +125,7 @@ func (s *Engine) ConfirmAccountRecovery(ctx context.Context, token string) error
 	if err := s.claimProof(ctx, key, raw); err != nil {
 		return err
 	}
-	if err := s.restoreAccountDeletionOn(ctx, tx, iam.UserActor(proof.UserID), proof.UserID, proof.Generation); err != nil {
+	if err := s.restoreAccountDeletionOn(ctx, tx, iam.UserIdentity(proof.UserID), proof.UserID, proof.Generation); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

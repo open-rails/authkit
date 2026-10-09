@@ -109,7 +109,7 @@ func isOIDCPath(path string) bool {
 // authenticate applies a route's declared tier (#412), so the catalog entry
 // is the gate that runs: AuthSession adds the session check to Required, and
 // AuthPermission's own check (requirePermission, GroupHandler) runs the same
-// check through the actor's session binding.
+// check through the identity's session binding.
 func (s *Service) authenticate(tier iam.RouteAuthTier, h http.Handler) http.Handler {
 	switch tier {
 	case iam.AuthOptional:

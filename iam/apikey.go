@@ -24,7 +24,7 @@ var (
 // A key holds one role of its group; Permissions is that role resolved now,
 // so editing the role changes every key holding it.
 type APIKey struct {
-	ID          string     `json:"id"`        // the key's identity: APIKeyActor(ID), verify Claims.APIKeyID
+	ID          string     `json:"id"`        // the key's id: APIKeyIdentity(ID), verify Claims.APIKeyID
 	LookupID    string     `json:"lookup_id"` // the public lookup id embedded in the token
 	GroupID     string     `json:"group_id"`
 	Name        string     `json:"name"`
@@ -51,9 +51,9 @@ type NewAPIKey struct {
 	ExpiresAt *time.Time
 }
 
-// APIKeyPrincipal is a resolved, live API key: the group it acts in and the
+// ResolvedAPIKey is a resolved, live API key: the group it acts in and the
 // permissions of its role at resolution time.
-type APIKeyPrincipal struct {
+type ResolvedAPIKey struct {
 	ID          string     `json:"id"`
 	LookupID    string     `json:"lookup_id"`
 	Group       Group      `json:"group"`

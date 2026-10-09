@@ -1,5 +1,5 @@
 -- Remote application registry. A
--- remote_application is the federation PRINCIPAL: it authenticates by signing
+-- remote_application is a registered application: it authenticates by signing
 -- JWTs verified against its JWKS/public keys (#74).
 --
 -- The controlling group is addressed as permission_group_id throughout. Every

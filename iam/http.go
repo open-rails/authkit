@@ -32,11 +32,11 @@ const (
 type RouteAuthTier string
 
 const (
-	AuthPublic     RouteAuthTier = "public"     // no principal
-	AuthOptional   RouteAuthTier = "optional"   // principal used when present
-	AuthRequired   RouteAuthTier = "required"   // valid principal
-	AuthSession    RouteAuthTier = "session"    // valid principal whose session or device key is still active
-	AuthPermission RouteAuthTier = "permission" // valid principal holding Route.Permission, its session checked
+	AuthPublic     RouteAuthTier = "public"     // no credential
+	AuthOptional   RouteAuthTier = "optional"   // the identity, when a credential is present
+	AuthRequired   RouteAuthTier = "required"   // a verified identity
+	AuthSession    RouteAuthTier = "session"    // a verified identity whose session or device key is still active
+	AuthPermission RouteAuthTier = "permission" // a verified identity holding Route.Permission, its session checked
 )
 
 // Route is one mounted endpoint. Path is the full net/http pattern path

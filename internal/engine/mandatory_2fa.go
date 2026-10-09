@@ -171,7 +171,7 @@ func (s *Engine) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, user
 		}
 	}
 	st := s.groupStoreFor(q)
-	st.actor = iam.UserActor(userID)
+	st.who = iam.UserIdentity(userID)
 	if s.TwoFactorEnabled() && s.requireMFAEnrollment() {
 		if err := s.refuseSubjectOwnerLoss(ctx, st, iam.UserSubject(userID)); err != nil {
 			return nil, err

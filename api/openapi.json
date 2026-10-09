@@ -5420,18 +5420,34 @@
             "format": "date-time",
             "description": "RFC 3339, UTC"
           },
-          "actor_kind": {
+          "subject_kind": {
             "type": "string",
             "enum": [
-              "api_key",
-              "delegated",
-              "oauth_client",
-              "remote_application",
-              "system",
+              "application",
               "user"
             ]
           },
-          "actor_id": {
+          "subject_id": {
+            "type": "string"
+          },
+          "invoker_issuer": {
+            "type": "string"
+          },
+          "invoker_id": {
+            "type": "string"
+          },
+          "credential_kind": {
+            "type": "string",
+            "enum": [
+              "access_token",
+              "api_key",
+              "device_key",
+              "session",
+              "signed_token",
+              "system"
+            ]
+          },
+          "credential_id": {
             "type": "string"
           },
           "user_id": {
@@ -5472,8 +5488,12 @@
           "id",
           "kind",
           "occurred_at",
-          "actor_kind",
-          "actor_id",
+          "subject_kind",
+          "subject_id",
+          "invoker_issuer",
+          "invoker_id",
+          "credential_kind",
+          "credential_id",
           "user_id",
           "group_id",
           "persona",

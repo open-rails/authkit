@@ -11,6 +11,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/ident"
+	"github.com/open-rails/helpers/auth"
 )
 
 // lockAuthority precedes every group, account, MFA and session row lock in an
@@ -27,8 +28,8 @@ func (s *Engine) beginAuthorityTransaction(ctx context.Context) (pgx.Tx, error) 
 }
 
 // withAuthorityMutation runs apply, a's change, in one authority transaction.
-// The zero actor is AuthKit itself.
-func (s *Engine) withAuthorityMutation(ctx context.Context, a iam.Actor, apply func(*permissionGroupStore) error) error {
+// The zero identity is AuthKit itself.
+func (s *Engine) withAuthorityMutation(ctx context.Context, a auth.Identity, apply func(*permissionGroupStore) error) error {
 	return s.withAuthorityMutationIn(ctx, a, nil, apply)
 }
 
@@ -38,7 +39,7 @@ func (s *Engine) withAuthorityMutation(ctx context.Context, a iam.Actor, apply f
 // credentials and records events, so all of it commits or rolls back with the
 // host's own writes. A refused change rolls back to the savepoint and leaves
 // host usable.
-func (s *Engine) withAuthorityMutationIn(ctx context.Context, a iam.Actor, host pgx.Tx, apply func(*permissionGroupStore) error) error {
+func (s *Engine) withAuthorityMutationIn(ctx context.Context, a auth.Identity, host pgx.Tx, apply func(*permissionGroupStore) error) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
@@ -54,7 +55,7 @@ func (s *Engine) withAuthorityMutationIn(ctx context.Context, a iam.Actor, host 
 	}
 	defer tx.Rollback(ctx)
 	st := s.groupStoreFor(tx)
-	st.actor = a
+	st.who = a
 	if err := s.lockAuthority(ctx, st.q); err != nil {
 		return err
 	}
@@ -244,13 +245,13 @@ func (s *Engine) retireCredential(ctx context.Context, st *permissionGroupStore,
 // registration invite carries no role, so it needs capability only.
 func (s *Engine) creatorCovers(ctx context.Context, st *permissionGroupStore, creator string, g groupTarget, capability iam.Perm, role iam.Role) error {
 	if role.IsZero() {
-		auth, err := s.actorAuthority(ctx, st, iam.UserActor(creator), g)
+		auth, err := s.identityAuthority(ctx, st, iam.UserIdentity(creator), g)
 		if err != nil {
 			return err
 		}
 		return auth.requireCap(capability)
 	}
-	return s.requireRoleGrant(ctx, st, iam.UserActor(creator), g, capability, role)
+	return s.requireRoleGrant(ctx, st, iam.UserIdentity(creator), g, capability, role)
 }
 
 // revokeCredentialsOf re-checks every live API key, invite link and
@@ -312,7 +313,7 @@ func subjectUsable(ctx context.Context, q db.DBTX, subject iam.Subject) (bool, e
 }
 
 // refuseOwnerLoss checks a specific departing assignment, excluding its subject
-// from the remaining live owners. Removing a principal that does not count as
+// from the remaining live owners. Removing a subject that does not count as
 // an owner (unusable, or an application where owners need MFA) creates no
 // ownership loss; empty bootstrap groups also remain possible.
 func (s *Engine) refuseOwnerLoss(ctx context.Context, st *permissionGroupStore, gid string, subject iam.Subject) error {

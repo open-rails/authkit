@@ -1,6 +1,10 @@
 package iam
 
-import "time"
+import (
+	"time"
+
+	"github.com/open-rails/helpers/auth"
+)
 
 // EventKind names a committed change delivered to Deps.OnEvent. Hosts ignore
 // kinds they do not know: later versions add kinds.
@@ -27,7 +31,7 @@ const (
 	EventUserPurged   EventKind = "user.purged"
 	// EventUserSessionsRevoked: every session and device key of the account
 	// was revoked at once (Client.RevokeAccountSessions, DELETE
-	// /admin/users/{user_id}/sessions); the actor says whose call it was.
+	// /admin/users/{user_id}/sessions); the subject says whose call it was.
 	EventUserSessionsRevoked EventKind = "user.sessions_revoked"
 	// Role events carry GroupID, Persona (RootPersona for root roles), the
 	// subject (UserID or ApplicationID) and the role as Previous → Current.
@@ -50,11 +54,18 @@ type Event struct {
 	ID         string    `json:"id"`
 	Kind       EventKind `json:"kind"`
 	OccurredAt time.Time `json:"occurred_at"`
-	// ActorKind and ActorID name who made the change (ActorID is empty for
-	// the system). Both are empty for a change AuthKit made on its own: the
-	// end of a recovery window, or a role retired with its grantor's cover.
-	ActorKind ActorKind `json:"actor_kind"`
-	ActorID   string    `json:"actor_id"`
+	// Who made the change (docs/identity.md): the account whose authority
+	// it used (SubjectKind, SubjectID), who acted (InvokerIssuer, InvokerID)
+	// and how it was proven (CredentialKind, CredentialID). Your own code
+	// is CredentialKind "system" with no subject. All are empty for a change
+	// AuthKit made on its own: the end of a recovery window, or a role
+	// retired with its grantor's cover.
+	SubjectKind    auth.SubjectKind    `json:"subject_kind"`
+	SubjectID      string              `json:"subject_id"`
+	InvokerIssuer  string              `json:"invoker_issuer"`
+	InvokerID      string              `json:"invoker_id"`
+	CredentialKind auth.CredentialKind `json:"credential_kind"`
+	CredentialID   string              `json:"credential_id"`
 	// UserID is the account of a user event and the user subject of a role
 	// event.
 	UserID string `json:"user_id"`

@@ -20,6 +20,7 @@ import (
 	"github.com/open-rails/authkit/internal/testidp"
 	"github.com/open-rails/authkit/provider"
 	"github.com/open-rails/authkit/verify"
+	hauth "github.com/open-rails/helpers/auth"
 	"github.com/stretchr/testify/require"
 )
 
@@ -47,7 +48,7 @@ func mutating(route iam.Route) bool {
 // TestSecurityMutatingRoutesCheckTheSession (#412): the session check is a
 // route's declared tier, not a call each handler must remember. Every route
 // that changes state for a signed-in caller declares AuthSession, or
-// AuthPermission, whose check runs through the actor's session binding. Only
+// AuthPermission, whose check runs through the identity's session binding. Only
 // logout, which ends the caller's own sign-in, stays AuthRequired: it must
 // also work, idempotently, with an already revoked one.
 func TestSecurityMutatingRoutesCheckTheSession(t *testing.T) {
@@ -113,7 +114,7 @@ func serveFiber(app *fiber.App, method string) gateCall {
 // revoke it, and from then on its still-unexpired access token is refused by
 // every live gate: every mutating account, admin and group route, host
 // RequireSession, RequirePermission and Sensitive over net/http, Gin and
-// Fiber, and Client operations taking the actor it names. Plain Required stays stateless and
+// Fiber, and Client operations taking the identity it names. Plain Required stays stateless and
 // admits the token until it expires, and API keys are untouched.
 func TestSecurityRevokedSessionAtLiveGates(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -170,15 +171,13 @@ func TestSecurityRevokedSessionAtLiveGates(t *testing.T) {
 	}
 	require.NotEmpty(t, routes)
 
-	actorOf := func(t *testing.T, token string) iam.Actor {
+	identityOf := func(t *testing.T, token string) hauth.Identity {
 		t.Helper()
-		cl, err := h.auth.Verify(ctx, token)
-		require.NoError(t, err)
-		actor, ok := verify.ActorFromClaims(cl)
-		require.True(t, ok)
-		_, bound := actor.Session()
-		require.True(t, bound, "an actor from a token is bound to its session")
-		return actor
+		who := tokenIdentity(t, h.auth, token)
+		state, _ := iam.StateOf(who)
+		_, bound := state.Session()
+		require.True(t, bound, "an identity from a token is bound to its session")
+		return who
 	}
 	refused := func(t *testing.T, name string, resp response) {
 		t.Helper()
@@ -198,11 +197,11 @@ func TestSecurityRevokedSessionAtLiveGates(t *testing.T) {
 		for name, call := range sensitiveGates {
 			refused(t, name, call(t, token))
 		}
-		actor := actorOf(t, token)
-		_, err := h.auth.Can(ctx, actor, group, perm)
+		who := identityOf(t, token)
+		_, err := h.auth.Can(ctx, who, group, perm)
 		require.ErrorIs(t, err, iam.ErrSessionRevoked, "Client.Can")
-		err = setRole(h.auth, ctx, actor, group, iam.UserSubject(other.id), member)
-		require.ErrorIs(t, err, iam.ErrSessionRevoked, "an actor-authorized Client mutation")
+		err = setRole(h.auth, ctx, who, group, iam.UserSubject(other.id), member)
+		require.ErrorIs(t, err, iam.ErrSessionRevoked, "an identity-authorized Client mutation")
 		for _, req := range routes {
 			req.token = token
 			refused(t, req.method+" "+req.path, h.do(req))
@@ -224,7 +223,7 @@ func TestSecurityRevokedSessionAtLiveGates(t *testing.T) {
 			resp := call(t, token)
 			require.Equal(t, http.StatusNoContent, resp.status, "%s: %s", name, resp)
 		}
-		allowed, err := h.auth.Can(ctx, actorOf(t, token), group, perm)
+		allowed, err := h.auth.Can(ctx, identityOf(t, token), group, perm)
 		require.NoError(t, err)
 		require.True(t, allowed)
 	}
@@ -265,14 +264,14 @@ func TestSecurityRevokedSessionAtLiveGates(t *testing.T) {
 			require.Less(t, resp.status, 300, resp.String())
 		}, true},
 		{"account-wide revocation", func(t *testing.T, a account, _ tokens) {
-			_, err := h.auth.RevokeAccountSessions(ctx, iam.SystemActor(), a.id)
+			_, err := h.auth.RevokeAccountSessions(ctx, iam.SystemIdentity(), a.id)
 			require.NoError(t, err)
 		}, true},
 		{"ban", func(t *testing.T, a account, _ tokens) {
-			require.NoError(t, h.auth.Ban(ctx, iam.SystemActor(), a.id, iam.Ban{}))
+			require.NoError(t, h.auth.Ban(ctx, iam.SystemIdentity(), a.id, iam.Ban{}))
 		}, false},
 		{"deletion", func(t *testing.T, a account, _ tokens) {
-			require.NoError(t, opErr(h.auth.DeleteUsers(ctx, iam.SystemActor(), []string{a.id})))
+			require.NoError(t, opErr(h.auth.DeleteUsers(ctx, iam.SystemIdentity(), []string{a.id})))
 		}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -332,33 +331,28 @@ func TestSecurityRevokedSessionAtLiveGates(t *testing.T) {
 		}
 	})
 
-	t.Run("a hand-built actor is checked at account level only", func(t *testing.T) {
+	t.Run("a hand-built identity is checked at account level only", func(t *testing.T) {
 		a, _ := manager(t)
-		allowed, err := h.auth.Can(ctx, iam.UserActor(a.id), group, perm)
+		allowed, err := h.auth.Can(ctx, iam.UserIdentity(a.id), group, perm)
 		require.NoError(t, err)
 		require.True(t, allowed, "trusted server code acts without a session")
-		require.NoError(t, h.auth.Ban(ctx, iam.SystemActor(), a.id, iam.Ban{}))
-		allowed, err = h.auth.Can(ctx, iam.UserActor(a.id), group, perm)
+		require.NoError(t, h.auth.Ban(ctx, iam.SystemIdentity(), a.id, iam.Ban{}))
+		allowed, err = h.auth.Can(ctx, iam.UserIdentity(a.id), group, perm)
 		require.NoError(t, err)
 		require.False(t, allowed, "a banned account has no authority")
 	})
 }
 
-// allow is whether the actor verified claims act as holds perm in ref,
-// checked live.
-func allow(ctx context.Context, auth *authkit.Client, cl verify.Claims, perm iam.Perm, ref iam.GroupRef) (bool, error) {
-	actor, ok := verify.ActorFromClaims(cl)
-	if !ok {
-		return false, nil
-	}
-	return auth.Can(ctx, actor, ref, perm)
+// allow is whether who holds perm in ref, checked live.
+func allow(ctx context.Context, auth *authkit.Client, who hauth.Identity, perm iam.Perm, ref iam.GroupRef) (bool, error) {
+	return auth.Can(ctx, who, ref, perm)
 }
 
 // TestSecurityDelegatedTokenSessionCheck (#418): a delegated token minted
 // from a sign-in carries that session (#412), so RequireSession and
 // CheckSession admit it while the session stands and refuse it, 401
 // session_revoked, once it is revoked, over net/http, Gin and Fiber. One
-// minted without a session (by the host, or for an unbound actor) is always
+// minted without a session (by the host, or for an unbound identity) is always
 // refused. It never reaches AuthKit's own account routes, and never passes
 // Sensitive, which wants the user's own recent sign-in.
 func TestSecurityDelegatedTokenSessionCheck(t *testing.T) {
@@ -395,12 +389,12 @@ func TestSecurityDelegatedTokenSessionCheck(t *testing.T) {
 			require.ErrorIs(t, h.auth.CheckSession(ctx, cl), iam.ErrSessionRevoked)
 		}
 	}
-	mint := func(t *testing.T, actor iam.Actor, d iam.DelegatedAccess) string {
+	mint := func(t *testing.T, who hauth.Identity, d iam.DelegatedAccess) string {
 		t.Helper()
 		if len(d.Audiences) == 0 {
 			d.Audiences = []string{resource}
 		}
-		token, err := h.auth.MintDelegatedAccessToken(ctx, actor, d)
+		token, err := h.auth.MintDelegatedAccessToken(ctx, who, d)
 		require.NoError(t, err)
 		return token.Value
 	}
@@ -409,9 +403,8 @@ func TestSecurityDelegatedTokenSessionCheck(t *testing.T) {
 	signIn := h.login(a)
 	cl, err := h.auth.Verify(ctx, signIn.AccessToken)
 	require.NoError(t, err)
-	actor, ok := verify.ActorFromClaims(cl)
-	require.True(t, ok)
-	delegated := mint(t, actor, iam.DelegatedAccess{})
+	who := tokenIdentity(t, h.auth, signIn.AccessToken)
+	delegated := mint(t, who, iam.DelegatedAccess{})
 	_, claims := splitToken(t, delegated)
 	require.Equal(t, cl.SessionID, claims["sid"], "the token carries its minting session")
 
@@ -421,14 +414,14 @@ func TestSecurityDelegatedTokenSessionCheck(t *testing.T) {
 	require.Equal(t, "forbidden", resp.errorCode())
 
 	// AuthKit's account routes are the user's own.
-	own := mint(t, actor, iam.DelegatedAccess{Audiences: []string{audience}})
+	own := mint(t, who, iam.DelegatedAccess{Audiences: []string{audience}})
 	resp = h.do(request{method: http.MethodPatch, path: "/me", body: map[string]string{"preferred_language": "fr"}, token: own})
 	require.Equal(t, http.StatusForbidden, resp.status, resp.String())
 	require.Equal(t, "forbidden", resp.errorCode())
 
 	// No minting session, nothing to check: refused by design.
-	requireGates(t, mint(t, iam.SystemActor(), iam.DelegatedAccess{Subject: a.id}), http.StatusUnauthorized, "session_revoked")
-	requireGates(t, mint(t, iam.UserActor(a.id), iam.DelegatedAccess{}), http.StatusUnauthorized, "session_revoked")
+	requireGates(t, mint(t, iam.SystemIdentity(), iam.DelegatedAccess{Subject: a.id}), http.StatusUnauthorized, "session_revoked")
+	requireGates(t, mint(t, iam.UserIdentity(a.id), iam.DelegatedAccess{}), http.StatusUnauthorized, "session_revoked")
 
 	// The user's own token behaves as before; another session's logout
 	// leaves this one standing.
@@ -440,8 +433,8 @@ func TestSecurityDelegatedTokenSessionCheck(t *testing.T) {
 
 	require.Equal(t, http.StatusNoContent, h.do(request{method: http.MethodDelete, path: "/logout", token: signIn.AccessToken}).status)
 	requireGates(t, delegated, http.StatusUnauthorized, "session_revoked")
-	dcl, err := verifier.Verify(ctx, delegated)
+	_, err = verifier.Verify(ctx, delegated)
 	require.NoError(t, err, "stateless verification admits it until it expires")
-	_, err = allow(ctx, h.auth, dcl, ident.RootUsersRead, iam.RootGroup())
+	_, err = allow(ctx, h.auth, tokenIdentity(t, verifier, delegated), ident.RootUsersRead, iam.RootGroup())
 	require.ErrorIs(t, err, iam.ErrSessionRevoked, "its permission checks end with the session too")
 }

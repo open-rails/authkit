@@ -74,7 +74,7 @@ Typed values are the point: `iam.Persona`, `iam.Perm` and `iam.Role` aren't stri
 
 Postgres never stores a permission or what a role grants.
 
-A check (`Client.Can`, or `RequirePermission` in `verify` and the adapters) combines the two. Postgres answers "is this actor still signed in and usable, and which role does it hold in this group and on root?" The in-memory catalog answers "what do those roles allow?" This runs live on every gated request, so a role change, ban or sign-out applies at the next request. `Required` alone, meaning signed in with no permission check, verifies a user's token without the database.
+A check (`Client.Can`, or `RequirePermission` in `verify` and the adapters) combines the two. Postgres answers "is this identity still signed in and usable, and which role does it hold in this group and on root?" The in-memory catalog answers "what do those roles allow?" This runs live on every gated request, so a role change, ban or sign-out applies at the next request. `Required` alone, meaning signed in with no permission check, verifies a user's token without the database.
 
 ## Changing the catalog
 
@@ -117,7 +117,7 @@ _        = Merchant.Declare(openrails.Permissions()...)
 ## Related
 
 - **`verify.Claims.RootRole`** is the user's root role when the token was minted. It is for display only, can be stale for the token's lifetime, and must never authorize anything.
-- **`Client.RolePermissions(role)`** returns a role's grants, with includes flattened. `Client.EffectivePermissions` and `GET /api/v1/me/permissions` return what an actor holds, for UIs.
+- **`Client.RolePermissions(role)`** returns a role's grants, with includes flattened. `Client.EffectivePermissions` and `GET /api/v1/me/permissions` return what an identity holds, for UIs.
 - **`PersonaDef.Permissions()`** lists a persona's catalog, built-ins included. **`PersonaDef.Expand(grants)`** lists the catalog permissions some grant covers, as `GET /api/v1/me/permissions` does, with no database read: `Roles.Root.Expand(grants)` over a token's `RootRole` and `Client.RolePermissions` shows a user's permissions.
 - **Members over HTTP:**
   - `PUT /api/v1/groups/{group_id}/members/users/{id}` with `{"role": "channel:moderator"}` gives a role.

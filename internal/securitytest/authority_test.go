@@ -19,6 +19,7 @@ import (
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/provider"
+	"github.com/open-rails/helpers/auth"
 	"github.com/stretchr/testify/require"
 )
 
@@ -54,7 +55,7 @@ func withRBAC(c *authkit.Config) { c.Roles = newSecurityModel().Roles }
 // holder of an MFA-required role enrolls the email second factor first.
 func (h *host) grant(group iam.GroupRef, a account, name string) {
 	h.t.Helper()
-	err := setRole(h.auth, h.t.Context(), iam.SystemActor(), group, iam.UserSubject(a.id), roleIn(h.t, h.auth, group, name))
+	err := setRole(h.auth, h.t.Context(), iam.SystemIdentity(), group, iam.UserSubject(a.id), roleIn(h.t, h.auth, group, name))
 	if errors.Is(err, iam.ErrSubjectMFARequired) {
 		h.enrollEmail2FA(a)
 		grantRole(h.t, h.auth, group, iam.UserSubject(a.id), name)
@@ -74,7 +75,7 @@ func publicKeyPEM(t *testing.T) string {
 
 // TestSecurityUnbanRequiresAuthority: lifting a ban restores authority, so it
 // needs the same no-escalation check as imposing one, and never applies to the
-// actor's own account.
+// identity's own account.
 func TestSecurityUnbanRequiresAuthority(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
 	ctx := context.Background()
@@ -91,8 +92,8 @@ func TestSecurityUnbanRequiresAuthority(t *testing.T) {
 	unban := func(target account, token string) response {
 		return h.do(request{method: http.MethodDelete, path: "/admin/users/" + target.id + "/ban", token: token})
 	}
-	require.NoError(t, h.auth.Ban(ctx, iam.SystemActor(), moderator.id, iam.Ban{}))
-	require.NoError(t, h.auth.Ban(ctx, iam.SystemActor(), admin.id, iam.Ban{}))
+	require.NoError(t, h.auth.Ban(ctx, iam.SystemIdentity(), moderator.id, iam.Ban{}))
+	require.NoError(t, h.auth.Ban(ctx, iam.SystemIdentity(), admin.id, iam.Ban{}))
 
 	for _, tc := range []struct {
 		name   string
@@ -128,13 +129,13 @@ func TestSecurityRemoteApplicationTakeover(t *testing.T) {
 	group, err := h.createOrg(ctx, owner)
 	require.NoError(t, err)
 	h.grant(group, manager, "manager")
-	ownerActor, managerActor := iam.UserActor(owner.id), iam.UserActor(manager.id)
-	register := func(actor iam.Actor, issuer, key string, enabled bool) error {
-		_, err := h.upsertGroupApp(actor, group, issuer, key, enabled)
+	ownerIdentity, managerIdentity := iam.UserIdentity(owner.id), iam.UserIdentity(manager.id)
+	register := func(who auth.Identity, issuer, key string, enabled bool) error {
+		_, err := h.upsertGroupApp(who, group, issuer, key, enabled)
 		return err
 	}
 	ownedKey := publicKeyPEM(t)
-	require.NoError(t, register(ownerActor, "https://owner-app.security.test", ownedKey, true))
+	require.NoError(t, register(ownerIdentity, "https://owner-app.security.test", ownedKey, true))
 	ownerApp, err := h.auth.RemoteApplication(ctx, iam.AppByIssuer("https://owner-app.security.test"))
 	require.NoError(t, err)
 	grantRole(t, h.auth, group, iam.RemoteApplicationSubject(ownerApp.ID), "owner")
@@ -144,13 +145,13 @@ func TestSecurityRemoteApplicationTakeover(t *testing.T) {
 		attack func() error
 	}{
 		{"swap the owner application's keys", func() error {
-			return register(managerActor, "https://owner-app.security.test", publicKeyPEM(t), true)
+			return register(managerIdentity, "https://owner-app.security.test", publicKeyPEM(t), true)
 		}},
 		{"disable the owner application", func() error {
-			return register(managerActor, "https://owner-app.security.test", ownedKey, false)
+			return register(managerIdentity, "https://owner-app.security.test", ownedKey, false)
 		}},
 		{"delete the owner application", func() error {
-			return h.auth.DeleteRemoteApplication(ctx, managerActor, group, ownerApp.ID)
+			return h.auth.DeleteRemoteApplication(ctx, managerIdentity, group, ownerApp.ID)
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -163,14 +164,14 @@ func TestSecurityRemoteApplicationTakeover(t *testing.T) {
 		})
 	}
 	t.Run("control: manager operates an application within their authority", func(t *testing.T) {
-		require.NoError(t, register(managerActor, "https://member-app.security.test", publicKeyPEM(t), true))
-		require.NoError(t, register(managerActor, "https://member-app.security.test", publicKeyPEM(t), true))
+		require.NoError(t, register(managerIdentity, "https://member-app.security.test", publicKeyPEM(t), true))
+		require.NoError(t, register(managerIdentity, "https://member-app.security.test", publicKeyPEM(t), true))
 		memberApp, err := h.auth.RemoteApplication(ctx, iam.AppByIssuer("https://member-app.security.test"))
 		require.NoError(t, err)
-		require.NoError(t, h.auth.DeleteRemoteApplication(ctx, managerActor, group, memberApp.ID))
+		require.NoError(t, h.auth.DeleteRemoteApplication(ctx, managerIdentity, group, memberApp.ID))
 	})
 	t.Run("control: owner rotates the owner application's keys", func(t *testing.T) {
-		require.NoError(t, register(ownerActor, "https://owner-app.security.test", publicKeyPEM(t), true))
+		require.NoError(t, register(ownerIdentity, "https://owner-app.security.test", publicKeyPEM(t), true))
 	})
 }
 
@@ -223,10 +224,10 @@ func TestSecurityRoleEscalation(t *testing.T) {
 			require.Contains(t, []int{http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound, http.StatusConflict, http.StatusUnprocessableEntity}, resp.status, resp.String())
 		})
 	}
-	ownerAllowed, err := h.auth.Can(ctx, iam.UserActor(manager.id), group, ownerOnly)
+	ownerAllowed, err := h.auth.Can(ctx, iam.UserIdentity(manager.id), group, ownerOnly)
 	require.NoError(t, err)
 	require.False(t, ownerAllowed)
-	stillOwner, err := h.auth.Can(ctx, iam.UserActor(owner.id), group, ident.Perm("org:members:manage"))
+	stillOwner, err := h.auth.Can(ctx, iam.UserIdentity(owner.id), group, ident.Perm("org:members:manage"))
 	require.NoError(t, err)
 	require.True(t, stillOwner)
 }
@@ -319,7 +320,7 @@ func TestSecurityDemotedCreatorCredentials(t *testing.T) {
 	t.Run("demoted creator redeems their own owner link", func(t *testing.T) {
 		resp := h.post("/invitations/redeem", map[string]string{"code": link.Code}, h.login(creator).AccessToken)
 		require.GreaterOrEqual(t, resp.status, 400, resp.String())
-		owner, err := h.auth.Can(ctx, iam.UserActor(creator.id), group, ownerOnly)
+		owner, err := h.auth.Can(ctx, iam.UserIdentity(creator.id), group, ownerOnly)
 		require.NoError(t, err)
 		require.False(t, owner, "the demoted creator regained owner")
 		require.False(t, liveLink(t, h, group, link.ID))
@@ -372,8 +373,8 @@ func TestSecurityRemoteApplicationIssuerSquat(t *testing.T) {
 	}))
 	squatter := h.newAccount("squatter")
 	group, _ := h.newOrg(squatter)
-	register := func(actor account, group iam.GroupRef, iss string) error {
-		_, err := h.upsertGroupApp(iam.UserActor(actor.id), group, iss, publicKeyPEM(t), true)
+	register := func(who account, group iam.GroupRef, iss string) error {
+		_, err := h.upsertGroupApp(iam.UserIdentity(who.id), group, iss, publicKeyPEM(t), true)
 		return err
 	}
 	for _, reserved := range []string{issuer + "/", strings.ToUpper(issuer), "https://github.com/login/oauth"} {
@@ -412,7 +413,7 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 		squatter := h.newAccount("peersquatter")
 		group, _ := h.newOrg(squatter)
 		for _, iss := range []string{peerIssuer, strings.ToUpper(peerIssuer) + "/"} {
-			_, err := h.upsertGroupApp(iam.UserActor(squatter.id), group, iss, publicKeyPEM(t), true)
+			_, err := h.upsertGroupApp(iam.UserIdentity(squatter.id), group, iss, publicKeyPEM(t), true)
 			require.ErrorIs(t, err, iam.ErrReservedIssuer, iss)
 		}
 		_, err = h.auth.RemoteApplication(ctx, iam.AppByIssuer(peerIssuer))
@@ -474,7 +475,7 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 		app, err := h.auth.RemoteApplication(ctx, iam.AppByIssuer(peerIssuer))
 		require.NoError(t, err)
 		app.Enabled = false
-		_, err = h.auth.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.RootGroup(), app)
+		_, err = h.auth.UpsertRemoteApplication(ctx, iam.SystemIdentity(), iam.RootGroup(), app)
 		require.NoError(t, err)
 		_, err = ver.Verify(ctx, delegated)
 		require.Error(t, err)
@@ -534,11 +535,11 @@ func TestSecurityDisabledApplicationTokens(t *testing.T) {
 	stored, err := h.auth.RemoteApplication(ctx, iam.AppByIssuer(disabled.issuer))
 	require.NoError(t, err)
 	stored.Enabled = false
-	_, err = h.auth.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.RootGroup(), stored)
+	_, err = h.auth.UpsertRemoteApplication(ctx, iam.SystemIdentity(), iam.RootGroup(), stored)
 	require.NoError(t, err)
 	stored, err = h.auth.RemoteApplication(ctx, iam.AppByIssuer(deleted.issuer))
 	require.NoError(t, err)
-	require.NoError(t, h.auth.DeleteRemoteApplication(ctx, iam.SystemActor(), iam.RootGroup(), stored.ID))
+	require.NoError(t, h.auth.DeleteRemoteApplication(ctx, iam.SystemIdentity(), iam.RootGroup(), stored.ID))
 	// Outlive the enabled-set snapshot, then refresh it with an issuer no
 	// application has.
 	time.Sleep(6 * time.Second)
@@ -617,8 +618,8 @@ func TestSecurityOwnApplicationIsNoReplacementOwner(t *testing.T) {
 	resp := h.do(request{method: http.MethodDelete, path: "/me", token: token})
 	require.Equal(t, http.StatusConflict, resp.status, "the last human owner deleted itself: %s", resp)
 	require.Equal(t, "last_owner", resp.errorCode())
-	require.ErrorIs(t, opErr(h.auth.DeleteUsers(ctx, iam.SystemActor(), []string{founder.id})), iam.ErrLastOwner)
-	require.ErrorIs(t, h.auth.Ban(ctx, iam.SystemActor(), founder.id, iam.Ban{Reason: "r1"}), iam.ErrLastOwner)
+	require.ErrorIs(t, opErr(h.auth.DeleteUsers(ctx, iam.SystemIdentity(), []string{founder.id})), iam.ErrLastOwner)
+	require.ErrorIs(t, h.auth.Ban(ctx, iam.SystemIdentity(), founder.id, iam.Ban{Reason: "r1"}), iam.ErrLastOwner)
 	require.Equal(t, orgPersona.OwnerRole(), h.roleOf(group, iam.RemoteApplicationSubject(app.ID)))
 	require.NotContains(t, h.ownerlessGroups(), g.ID)
 

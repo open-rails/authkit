@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-rails/helpers/auth"
+	hauth "github.com/open-rails/helpers/auth"
 
 	"github.com/gofiber/fiber/v3"
 	authkitfiber "github.com/open-rails/authkit/adapters/fiber"
@@ -117,7 +117,7 @@ func TestRequiredOptionalParity(t *testing.T) {
 	}
 }
 
-func TestClaimsAndExternalPrincipal(t *testing.T) {
+func TestClaimsAndExternalIdentity(t *testing.T) {
 	issuer := testissuer.New(t)
 	authTime := time.Now().Add(-time.Minute).Truncate(time.Second)
 	token := issuer.Token("user-1", "user@example.com", map[string]any{
@@ -138,7 +138,7 @@ func TestClaimsAndExternalPrincipal(t *testing.T) {
 					t.Error("verified claims missing")
 				}
 				p, ok := verify.IdentityFromContext(c.Context())
-				if !ok || p.SubjectKind != auth.SubjectUser || p.Subject != "user-1" || p.Issuer != issuer.URL() || !p.SelfInvoked() {
+				if !ok || p.SubjectKind != hauth.SubjectUser || p.Subject != "user-1" || p.Issuer != issuer.URL() || !p.SelfInvoked() {
 					t.Errorf("identity = %+v, present = %v", p, ok)
 				}
 				if cl.IsUser() != local {
@@ -170,11 +170,11 @@ func TestClaimsAndExternalPrincipal(t *testing.T) {
 	}
 }
 
-func TestAccessorsRejectMachineClaimsAsUsers(t *testing.T) {
+func TestAccessorsNeverTrustStoredClaims(t *testing.T) {
 	for _, cl := range []verify.Claims{
-		{Kind: iam.ActorAPIKey, APIKeyID: "machine-1", UserID: "must-not-be-used"},
-		{Kind: iam.ActorRemoteApplication, RemoteApplicationID: "machine-2"},
-		{Kind: iam.ActorDelegated, DelegatedSubject: "external-1", Issuer: "https://external.example"},
+		{Kind: verify.TokenAPIKey, APIKeyID: "machine-1", UserID: "must-not-be-used"},
+		{Kind: verify.TokenRemoteApplication, RemoteApplicationID: "machine-2"},
+		{Kind: verify.TokenDelegated, DelegatedSubject: "external-1", Issuer: "https://external.example"},
 	} {
 		app := fiber.New()
 		app.Get("/", authkitfiber.Use(func(next http.Handler) http.Handler {
@@ -189,8 +189,8 @@ func TestAccessorsRejectMachineClaimsAsUsers(t *testing.T) {
 			if p, ok := verify.IdentityFromContext(c.Context()); ok != wantOK || p != want {
 				t.Errorf("identity = %+v, present = %v", p, ok)
 			}
-			if a, ok := verify.ActorFromContext(c.Context()); ok && a.Kind() == iam.ActorUser {
-				t.Errorf("an application or delegation acts as user %v", a)
+			if p, _ := verify.IdentityFromContext(c.Context()); p.Credential.State() != nil {
+				t.Errorf("claims a host stored grant: %+v", p)
 			}
 			return c.SendStatus(http.StatusNoContent)
 		})
@@ -420,13 +420,13 @@ func TestUseAbortAndFiberErrors(t *testing.T) {
 // authority is a verify.Authority whose Can is f.
 type authority struct {
 	v *verify.Verifier
-	f func(context.Context, iam.Actor, iam.GroupRef, iam.Perm) (bool, error)
+	f func(context.Context, hauth.Identity, iam.GroupRef, iam.Perm) (bool, error)
 }
 
 func (a authority) VerifyRequest(r *http.Request) (verify.Claims, error) { return a.v.VerifyRequest(r) }
 func (authority) CheckSession(context.Context, verify.Claims) error      { return nil }
-func (a authority) Can(ctx context.Context, actor iam.Actor, ref iam.GroupRef, perm iam.Perm) (bool, error) {
-	return a.f(ctx, actor, ref, perm)
+func (a authority) Can(ctx context.Context, who hauth.Identity, ref iam.GroupRef, perm iam.Perm) (bool, error) {
+	return a.f(ctx, who, ref, perm)
 }
 func (authority) KnownPermission(perm iam.Perm) bool { return perm.String() == "blog:posts:write" }
 func (authority) CheckRecentSignIn(context.Context, verify.Claims) error {
@@ -438,10 +438,10 @@ func TestRequirePermissionAuthenticatesAndChecksTheResolvedGroup(t *testing.T) {
 	group := iam.GroupByID("0190e2b6-0000-7000-8000-000000000001")
 	for _, allow := range []bool{true, false} {
 		calls := 0
-		auth := authority{v: newVerifier(t, issuer, true), f: func(ctx context.Context, actor iam.Actor, ref iam.GroupRef, perm iam.Perm) (bool, error) {
+		auth := authority{v: newVerifier(t, issuer, true), f: func(ctx context.Context, who hauth.Identity, ref iam.GroupRef, perm iam.Perm) (bool, error) {
 			calls++
-			if actor.Kind() != iam.ActorUser || actor.ID() != "user-1" || ref != group || perm.String() != "blog:posts:write" {
-				t.Errorf("permission input = %v %v %q", actor, ref, perm)
+			if state, _ := iam.StateOf(who); !state.IsUser() || state.ID() != "user-1" || ref != group || perm.String() != "blog:posts:write" {
+				t.Errorf("permission input = %+v %v %q", who, ref, perm)
 			}
 			return allow, nil
 		}}
@@ -480,7 +480,7 @@ func TestRequirePermissionAuthenticatesAndChecksTheResolvedGroup(t *testing.T) {
 }
 
 func TestRequirePermissionPanicsOnUnregisteredPermission(t *testing.T) {
-	auth := authority{f: func(context.Context, iam.Actor, iam.GroupRef, iam.Perm) (bool, error) { return true, nil }}
+	auth := authority{f: func(context.Context, hauth.Identity, iam.GroupRef, iam.Perm) (bool, error) { return true, nil }}
 	defer func() {
 		if recover() == nil {
 			t.Fatal("an unregistered permission must panic when the route is built")
@@ -631,15 +631,15 @@ func (s surface) Routes() []iam.Route {
 
 // A Fiber handler behind Required reads the verified caller from c.Context(),
 // the same call net/http and Gin handlers make.
-func TestActorFromContextBehindRequired(t *testing.T) {
+func TestIdentityFromContextBehindRequired(t *testing.T) {
 	issuer := testissuer.New(t)
 	app := fiber.New()
 	app.Get("/", authkitfiber.Required(newVerifier(t, issuer, true)), func(c fiber.Ctx) error {
-		actor, ok := verify.ActorFromContext(c.Context())
-		if !ok || actor.Kind() != iam.ActorUser {
-			t.Errorf("actor = %v, %v", actor, ok)
+		who, ok := verify.IdentityFromContext(c.Context())
+		if state, _ := iam.StateOf(who); !ok || !state.IsUser() {
+			t.Errorf("identity = %+v, %v", who, ok)
 		}
-		return c.SendString(actor.ID())
+		return c.SendString(who.Subject)
 	})
 	status, _, body := request(t, app, http.MethodGet, "/", "Bearer "+issuer.Token("user-1", "user@example.com", nil))
 	if status != http.StatusOK || body != "user-1" {

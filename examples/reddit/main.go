@@ -22,6 +22,7 @@ import (
 	"github.com/open-rails/authkit/adapters/twilio"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
+	"github.com/open-rails/helpers/auth"
 )
 
 func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {
@@ -266,8 +267,8 @@ func (f *forum) getChannel(c *gin.Context) {
 
 // createChannel is POST /c. Which names are taken is our rule, not AuthKit's.
 func (f *forum) createChannel(c *gin.Context) {
-	who, ok := verify.ActorFromContext(c.Request.Context())
-	if !ok || who.Kind() != iam.ActorUser {
+	who, ok := verify.IdentityFromContext(c.Request.Context())
+	if !ok || who.SubjectKind != auth.SubjectUser {
 		c.JSON(http.StatusForbidden, gin.H{"error": "only people can start channels"})
 		return
 	}
@@ -282,7 +283,7 @@ func (f *forum) createChannel(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "that name is reserved"})
 		return
 	}
-	err := createChannel(c.Request.Context(), f.db, f.auth, in.Name, who.ID())
+	err := createChannel(c.Request.Context(), f.db, f.auth, in.Name, who.Subject)
 	if errors.Is(err, errChannelTaken) {
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		return
@@ -343,8 +344,8 @@ func (f *forum) listPosts(approved bool) gin.HandlerFunc {
 }
 
 func (f *forum) createPost(c *gin.Context) {
-	who, ok := verify.ActorFromContext(c.Request.Context()) // who is posting?
-	if !ok || who.Kind() != iam.ActorUser {
+	who, ok := verify.IdentityFromContext(c.Request.Context()) // who is posting?
+	if !ok || who.SubjectKind != auth.SubjectUser {
 		c.JSON(http.StatusForbidden, gin.H{"error": "only people can post"})
 		return
 	}
@@ -356,7 +357,7 @@ func (f *forum) createPost(c *gin.Context) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.nextID++
-	p.ID, p.ChannelID, p.AuthorID, p.Approved = f.nextID, c.GetString("channel"), who.ID(), false
+	p.ID, p.ChannelID, p.AuthorID, p.Approved = f.nextID, c.GetString("channel"), who.Subject, false
 	f.posts[p.ID] = &p
 	c.JSON(http.StatusCreated, p)
 }
@@ -391,13 +392,13 @@ func (f *forum) withPost(c *gin.Context, change func(*Post)) {
 // appoint pins the moderator badge on someone in this channel (PUT) or takes it back (DELETE).
 // AuthKit decides whether the caller may: this channel's owner or an admin, yes; Bob, no.
 func (f *forum) appoint(c *gin.Context) {
-	actor, _ := verify.ActorFromContext(c.Request.Context()) // no actor? AuthKit refuses the empty one
+	requester, _ := verify.IdentityFromContext(c.Request.Context()) // none? AuthKit refuses the empty one
 	ctx, channel, who := c.Request.Context(), iam.GroupByID(c.GetString("channel")), iam.UserSubject(c.Param("user_id"))
 	var err error
 	if c.Request.Method == http.MethodDelete {
-		err = f.auth.RemoveGroupMember(ctx, actor, channel, who, authkit.IfRole(Moderator)) // a moderator only
+		err = f.auth.RemoveGroupMember(ctx, requester, channel, who, authkit.IfRole(Moderator)) // a moderator only
 	} else {
-		_, err = f.auth.SetGroupRole(ctx, actor, channel, who, Moderator)
+		_, err = f.auth.SetGroupRole(ctx, requester, channel, who, Moderator)
 	}
 	if err != nil {
 		c.JSON(iam.ErrorResponse(err))

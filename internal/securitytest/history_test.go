@@ -34,7 +34,7 @@ func TestSecuritySessionEventHistory(t *testing.T) {
 	sessions, err := h.auth.Sessions(ctx, a.id)
 	require.NoError(t, err)
 	require.Len(t, sessions, 2)
-	require.NoError(t, h.auth.RevokeSession(ctx, iam.UserActor(a.id), a.id, sessions[0].ID))
+	require.NoError(t, h.auth.RevokeSession(ctx, iam.UserIdentity(a.id), a.id, sessions[0].ID))
 	h.login(other)
 
 	history := func(q iam.SessionEventQuery) []iam.SessionEvent {

@@ -100,13 +100,13 @@ func TestSecurityMerchantAuth(t *testing.T) {
 	h.grant(iam.RootGroup(), billing, "billing")
 
 	apiKey := func(role string) string {
-		_, secret, err := createKey(h.auth, ctx, iam.UserActor(owner.id), group, iam.NewAPIKey{Name: role, Role: roleIn(t, h.auth, group, role)})
+		_, secret, err := createKey(h.auth, ctx, iam.UserIdentity(owner.id), group, iam.NewAPIKey{Name: role, Role: roleIn(t, h.auth, group, role)})
 		require.NoError(t, err)
 		return secret
 	}
 	supportKey, viewerKey := apiKey("support"), apiKey("viewer")
 	signer := newSigner(t, "billing-bot")
-	app, err := h.auth.UpsertRemoteApplication(ctx, iam.UserActor(owner.id), group, iam.RemoteApplication{
+	app, err := h.auth.UpsertRemoteApplication(ctx, iam.UserIdentity(owner.id), group, iam.RemoteApplication{
 		Issuer: merchantApp, PublicKeys: staticKeys(t, signer), Enabled: true,
 	})
 	require.NoError(t, err)
@@ -123,7 +123,7 @@ func TestSecurityMerchantAuth(t *testing.T) {
 	require.NoError(t, err)
 	device, err := dk.FinishEnrollment(ctx, enrollment, priv, h.verificationCode(support.email), "")
 	require.NoError(t, err)
-	require.NoError(t, h.auth.Ban(ctx, iam.SystemActor(), banned.id, iam.Ban{Reason: "fraud"}))
+	require.NoError(t, h.auth.Ban(ctx, iam.SystemIdentity(), banned.id, iam.Ban{Reason: "fraud"}))
 
 	required := gated(h.auth, h.auth.Required())
 	permitted := gated(h.auth, h.auth.RequirePermission(refund))
@@ -177,7 +177,7 @@ func TestSecurityMerchantAuth(t *testing.T) {
 	})
 
 	t.Run("only the Client's own gates prove an identity", func(t *testing.T) {
-		forged := verify.Claims{Kind: iam.ActorUser, Issuer: issuer, UserID: owner.id, SessionID: uuid.NewString()}
+		forged := verify.Claims{Kind: verify.TokenUser, Issuer: issuer, UserID: owner.id, SessionID: uuid.NewString()}
 		setClaims := func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				next.ServeHTTP(w, r.WithContext(verify.SetClaims(r.Context(), forged)))

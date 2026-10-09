@@ -12,6 +12,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	hauth "github.com/open-rails/helpers/auth"
 )
 
 // credentialOrg is an org persona with API keys and its group acme, owned by
@@ -69,22 +70,22 @@ func TestCredentialIssuance(t *testing.T) {
 	authtest.GrantRole(t, auth, o.acme, iam.UserSubject(manager.ID), o.manager)
 	authtest.GrantRole(t, auth, o.acme, iam.UserSubject(member.ID), o.member)
 	authtest.GrantRole(t, auth, iam.RootGroup(), iam.UserSubject(inviter.ID), o.inviter)
-	mgr := iam.UserActor(manager.ID)
+	mgr := iam.UserIdentity(manager.ID)
 
 	// A user issues what it covers and is recorded as the creator.
 	key, token, err := createKey(auth, ctx, mgr, o.acme, iam.NewAPIKey{Name: " ci ", Role: o.member})
 	require.NoError(t, err)
 	require.Equal(t, iam.APIKey{ID: key.ID, LookupID: key.LookupID, GroupID: o.acmeID, Name: "ci", Role: o.member, Permissions: []iam.Perm{o.read}, CreatedBy: &manager.ID, CreatedAt: key.CreatedAt}, key)
-	principal, err := auth.ResolveAPIKey(ctx, token)
+	resolved, err := auth.ResolveAPIKey(ctx, token)
 	require.NoError(t, err)
-	require.Equal(t, key.ID, principal.ID)
-	require.Equal(t, key.LookupID, principal.LookupID)
-	require.Equal(t, iam.Group{ID: o.acmeID, Persona: o.member.Persona(), CreatedAt: principal.Group.CreatedAt}, principal.Group)
-	require.False(t, principal.Group.CreatedAt.IsZero())
-	require.Equal(t, authtest.Issuer, principal.Issuer)
-	require.Equal(t, o.member, principal.Role)
-	require.Equal(t, []iam.Perm{o.read}, principal.Permissions)
-	require.Nil(t, principal.ExpiresAt)
+	require.Equal(t, key.ID, resolved.ID)
+	require.Equal(t, key.LookupID, resolved.LookupID)
+	require.Equal(t, iam.Group{ID: o.acmeID, Persona: o.member.Persona(), CreatedAt: resolved.Group.CreatedAt}, resolved.Group)
+	require.False(t, resolved.Group.CreatedAt.IsZero())
+	require.Equal(t, authtest.Issuer, resolved.Issuer)
+	require.Equal(t, o.member, resolved.Role)
+	require.Equal(t, []iam.Perm{o.read}, resolved.Permissions)
+	require.Nil(t, resolved.ExpiresAt)
 	link, err := auth.CreateInvitation(ctx, mgr, o.acme, iam.NewInvitation{Role: o.member})
 	require.NoError(t, err)
 	require.NotEmpty(t, link.Code)
@@ -94,21 +95,21 @@ func TestCredentialIssuance(t *testing.T) {
 	require.ErrorIs(t, err, iam.ErrRoleAssignmentEscalation)
 	_, err = auth.CreateInvitation(ctx, mgr, o.acme, iam.NewInvitation{Role: o.owner})
 	require.ErrorIs(t, err, iam.ErrRoleAssignmentEscalation)
-	_, _, err = createKey(auth, ctx, iam.UserActor(member.ID), o.acme, iam.NewAPIKey{Name: "member", Role: o.member})
+	_, _, err = createKey(auth, ctx, iam.UserIdentity(member.ID), o.acme, iam.NewAPIKey{Name: "member", Role: o.member})
 	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 	var nobody iam.Role
 	require.NoError(t, nobody.UnmarshalText([]byte("org:nobody")))
-	_, _, err = createKey(auth, ctx, iam.SystemActor(), o.acme, iam.NewAPIKey{Name: "unknown", Role: nobody})
+	_, _, err = createKey(auth, ctx, iam.SystemIdentity(), o.acme, iam.NewAPIKey{Name: "unknown", Role: nobody})
 	require.ErrorIs(t, err, iam.ErrRoleNotAssignable, "the system skips authority, never role validity")
 
-	// Machine actors never issue credentials, whatever authority they hold.
-	managerKey, _, err := createKey(auth, ctx, iam.UserActor(o.founder.ID), o.acme, iam.NewAPIKey{Name: "manager-key", Role: o.manager})
+	// Machine identities never issue credentials, whatever authority they hold.
+	managerKey, _, err := createKey(auth, ctx, iam.UserIdentity(o.founder.ID), o.acme, iam.NewAPIKey{Name: "manager-key", Role: o.manager})
 	require.NoError(t, err)
-	for name, a := range map[string]iam.Actor{
+	for name, a := range map[string]hauth.Identity{
 		"zero":               {},
-		"api_key":            iam.APIKeyActor(managerKey.ID),
-		"remote_application": iam.RemoteApplicationActor(uuid.NewString()),
-		"delegated":          iam.DelegatedActor(iam.DelegatedGrant{Issuer: authtest.Issuer, Subject: manager.ID, Permissions: []iam.Perm{o.member.Persona().OwnerGrant()}}),
+		"api_key":            iam.APIKeyIdentity(managerKey.ID),
+		"remote_application": iam.ApplicationIdentity(uuid.NewString()),
+		"delegated":          iam.DelegatedIdentity(iam.DelegatedGrant{Issuer: authtest.Issuer, Subject: manager.ID, Permissions: []iam.Perm{o.member.Persona().OwnerGrant()}}),
 	} {
 		_, _, err := createKey(auth, ctx, a, o.acme, iam.NewAPIKey{Name: name, Role: o.member})
 		require.ErrorIs(t, err, iam.ErrInsufficientAuthority, name)
@@ -118,15 +119,15 @@ func TestCredentialIssuance(t *testing.T) {
 		require.ErrorIs(t, err, iam.ErrInsufficientAuthority, name)
 	}
 
-	// Revoking needs the authority to issue, from any actor kind.
-	require.ErrorIs(t, auth.RevokeAPIKey(ctx, iam.UserActor(member.ID), o.acme, key.ID), iam.ErrInsufficientAuthority)
-	require.NoError(t, auth.RevokeAPIKey(ctx, iam.APIKeyActor(managerKey.ID), o.acme, key.ID))
+	// Revoking needs the authority to issue, from any identity kind.
+	require.ErrorIs(t, auth.RevokeAPIKey(ctx, iam.UserIdentity(member.ID), o.acme, key.ID), iam.ErrInsufficientAuthority)
+	require.NoError(t, auth.RevokeAPIKey(ctx, iam.APIKeyIdentity(managerKey.ID), o.acme, key.ID))
 	_, err = auth.ResolveAPIKey(ctx, token)
 	require.ErrorIs(t, err, iam.ErrAPIKeyRevoked)
 	require.NoError(t, auth.RevokeAPIKey(ctx, mgr, o.acme, key.ID), "revoking a revoked key is a no-op")
 	require.ErrorIs(t, auth.RevokeAPIKey(ctx, mgr, o.acme, uuid.NewString()), iam.ErrAPIKeyNotFound)
 	require.ErrorIs(t, auth.RevokeAPIKey(ctx, mgr, iam.RootGroup(), key.ID), iam.ErrAPIKeyNotFound, "another group's key is unknown here")
-	require.ErrorIs(t, auth.RevokeInvitation(ctx, iam.UserActor(member.ID), o.acme, link.Invitation.ID), iam.ErrInsufficientAuthority)
+	require.ErrorIs(t, auth.RevokeInvitation(ctx, iam.UserIdentity(member.ID), o.acme, link.Invitation.ID), iam.ErrInsufficientAuthority)
 	require.NoError(t, auth.RevokeInvitation(ctx, mgr, o.acme, link.Invitation.ID))
 	require.NoError(t, auth.RevokeInvitation(ctx, mgr, o.acme, link.Invitation.ID), "revoking a revoked invitation is a no-op")
 	require.ErrorIs(t, auth.RevokeInvitation(ctx, mgr, o.acme, uuid.NewString()), iam.ErrInvitationNotFound)
@@ -135,9 +136,9 @@ func TestCredentialIssuance(t *testing.T) {
 	// the group's members:manage and coverage of the role.
 	_, err = auth.CreateInvitation(ctx, mgr, iam.RootGroup(), iam.NewInvitation{Email: "plain@credentials.test"})
 	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
-	_, err = auth.CreateInvitation(ctx, iam.UserActor(inviter.ID), iam.RootGroup(), iam.NewInvitation{Email: "plain@credentials.test"})
+	_, err = auth.CreateInvitation(ctx, iam.UserIdentity(inviter.ID), iam.RootGroup(), iam.NewInvitation{Email: "plain@credentials.test"})
 	require.NoError(t, err)
-	_, err = auth.CreateInvitation(ctx, iam.UserActor(inviter.ID), o.acme, iam.NewInvitation{Email: "join@credentials.test", Role: o.member})
+	_, err = auth.CreateInvitation(ctx, iam.UserIdentity(inviter.ID), o.acme, iam.NewInvitation{Email: "join@credentials.test", Role: o.member})
 	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 	_, err = auth.CreateInvitation(ctx, mgr, o.acme, iam.NewInvitation{Email: "join@credentials.test", Role: o.owner})
 	require.ErrorIs(t, err, iam.ErrRoleAssignmentEscalation)
@@ -147,14 +148,14 @@ func TestCredentialIssuance(t *testing.T) {
 	// The system issues with no creator, and no sweep takes its credentials:
 	// not a creator's (a ban) nor the whole site's (a changed root catalog at
 	// boot).
-	opKey, opToken, err := createKey(auth, ctx, iam.SystemActor(), o.acme, iam.NewAPIKey{Name: "system", Role: o.owner})
+	opKey, opToken, err := createKey(auth, ctx, iam.SystemIdentity(), o.acme, iam.NewAPIKey{Name: "system", Role: o.owner})
 	require.NoError(t, err)
 	require.Empty(t, opKey.CreatedBy)
-	opLink, err := auth.CreateInvitation(ctx, iam.SystemActor(), o.acme, iam.NewInvitation{Role: o.owner})
+	opLink, err := auth.CreateInvitation(ctx, iam.SystemIdentity(), o.acme, iam.NewInvitation{Role: o.owner})
 	require.NoError(t, err)
-	opInvite, err := auth.CreateInvitation(ctx, iam.SystemActor(), iam.RootGroup(), iam.NewInvitation{Email: "system@credentials.test"})
+	opInvite, err := auth.CreateInvitation(ctx, iam.SystemIdentity(), iam.RootGroup(), iam.NewInvitation{Email: "system@credentials.test"})
 	require.NoError(t, err)
-	require.NoError(t, auth.Ban(ctx, iam.SystemActor(), manager.ID, iam.Ban{}))
+	require.NoError(t, auth.Ban(ctx, iam.SystemIdentity(), manager.ID, iam.Ban{}))
 	authtest.Replica(t, auth, authtest.WithConfig(func(c *authkit.Config) { c.Roles = o.changedCatalog }))
 	_, err = auth.ResolveAPIKey(ctx, opToken)
 	require.NoError(t, err)
@@ -179,7 +180,7 @@ func TestCredentialIssuance(t *testing.T) {
 	}
 	// ResolveAPIKey reads the wall clock.
 	expires := time.Now().Add(time.Second)
-	_, expiring, err := createKey(auth, ctx, iam.SystemActor(), o.acme, iam.NewAPIKey{Name: "expiring", Role: o.member, ExpiresAt: &expires})
+	_, expiring, err := createKey(auth, ctx, iam.SystemIdentity(), o.acme, iam.NewAPIKey{Name: "expiring", Role: o.member, ExpiresAt: &expires})
 	require.NoError(t, err)
 	time.Sleep(time.Until(expires) + 10*time.Millisecond)
 	_, err = auth.ResolveAPIKey(ctx, expiring)
@@ -191,10 +192,10 @@ func TestCredentialListsPage(t *testing.T) {
 	auth, ctx := o.auth, t.Context()
 	var keys, links []string
 	for i := range 3 {
-		k, _, err := createKey(auth, ctx, iam.SystemActor(), o.acme, iam.NewAPIKey{Name: fmt.Sprintf("key-%d", i), Role: o.member})
+		k, _, err := createKey(auth, ctx, iam.SystemIdentity(), o.acme, iam.NewAPIKey{Name: fmt.Sprintf("key-%d", i), Role: o.member})
 		require.NoError(t, err)
 		keys = append([]string{k.ID}, keys...)
-		l, err := auth.CreateInvitation(ctx, iam.SystemActor(), o.acme, iam.NewInvitation{Role: o.member})
+		l, err := auth.CreateInvitation(ctx, iam.SystemIdentity(), o.acme, iam.NewInvitation{Role: o.member})
 		require.NoError(t, err)
 		links = append([]string{l.Invitation.ID}, links...)
 	}
@@ -231,7 +232,7 @@ func TestCredentialListsPage(t *testing.T) {
 func TestInvitationsAreOneResource(t *testing.T) {
 	o := newCredentialOrg(t)
 	auth, ctx := o.auth, t.Context()
-	founder := iam.UserActor(o.founder.ID)
+	founder := iam.UserIdentity(o.founder.ID)
 	expires := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
 	link, err := auth.CreateInvitation(ctx, founder, o.acme, iam.NewInvitation{Role: o.member, ExpiresAt: &expires})
 	require.NoError(t, err)
@@ -251,7 +252,7 @@ func TestInvitationsAreOneResource(t *testing.T) {
 	past := time.Now().Add(-time.Minute)
 	_, err = auth.CreateInvitation(ctx, founder, o.acme, iam.NewInvitation{Role: o.member, ExpiresAt: &past})
 	requireIAMCode(t, err, "invalid_expiry")
-	plain, err := auth.CreateInvitation(ctx, iam.SystemActor(), iam.RootGroup(), iam.NewInvitation{Email: "newcomer@example.test"})
+	plain, err := auth.CreateInvitation(ctx, iam.SystemIdentity(), iam.RootGroup(), iam.NewInvitation{Email: "newcomer@example.test"})
 	require.NoError(t, err)
 
 	list, err := auth.ListInvitations(ctx, o.acme, iam.PageRequest{})
@@ -276,7 +277,7 @@ func TestInvitationsAreOneResource(t *testing.T) {
 	require.NoError(t, auth.RevokeInvitation(ctx, founder, o.acme, emailed.Invitation.ID), "revoking twice is a no-op")
 	require.ErrorIs(t, auth.RevokeInvitation(ctx, founder, iam.RootGroup(), link.Invitation.ID), iam.ErrInvitationNotFound, "another group's invitation")
 	require.ErrorIs(t, auth.RevokeInvitation(ctx, founder, iam.RootGroup(), plain.Invitation.ID), iam.ErrInsufficientAuthority, "a plain invitation needs root:users:invite")
-	require.NoError(t, auth.RevokeInvitation(ctx, iam.SystemActor(), iam.RootGroup(), plain.Invitation.ID))
+	require.NoError(t, auth.RevokeInvitation(ctx, iam.SystemIdentity(), iam.RootGroup(), plain.Invitation.ID))
 	list, err = auth.ListInvitations(ctx, o.acme, iam.PageRequest{})
 	require.NoError(t, err)
 	require.NotNil(t, list.Items[1].RevokedAt)

@@ -17,6 +17,7 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/rbac"
+	"github.com/open-rails/helpers/auth"
 )
 
 // PermissionGroupSchema returns the compiled Config.Roles.
@@ -45,11 +46,11 @@ func (s *Engine) groupStore() *permissionGroupStore {
 }
 
 // groupStoreFor is a store over q that records its events in q, the change's
-// transaction; set actor to the one making the change.
+// transaction; set identity to the one making the change.
 func (s *Engine) groupStoreFor(q db.DBTX) *permissionGroupStore {
 	st := newPermissionGroupStore(q)
 	st.now = s.namingNow
-	st.emit = func(ctx context.Context, a iam.Actor, events ...iam.Event) error {
+	st.emit = func(ctx context.Context, a auth.Identity, events ...iam.Event) error {
 		return s.emitEvents(ctx, q, a, events...)
 	}
 	return st
@@ -62,7 +63,7 @@ func (s *Engine) initializeGroups(ctx context.Context) error {
 	if s.pg == nil {
 		return nil
 	}
-	if err := s.withAuthorityMutation(ctx, iam.Actor{}, func(st *permissionGroupStore) error {
+	if err := s.withAuthorityMutation(ctx, auth.Identity{}, func(st *permissionGroupStore) error {
 		_, err := st.ensureRootGroup(ctx)
 		return err
 	}); err != nil {
@@ -115,14 +116,14 @@ func (s *Engine) validRoleForPersona(sch *rbac.Schema, persona iam.Persona, role
 }
 
 // Can reports whether a covers perm in the group ref addresses, live: a dead
-// actor, an unknown group or an actor bound to another group is false, and an
-// actor whose bound session was revoked is ErrSessionRevoked. The system is
+// identity, an unknown group or an identity bound to another group is false, and an
+// identity whose bound session was revoked is ErrSessionRevoked. The system is
 // always true. An unregistered perm is ErrUnknownPermission.
-func (s *Engine) Can(ctx context.Context, a iam.Actor, ref iam.GroupRef, perm iam.Perm) (bool, error) {
+func (s *Engine) Can(ctx context.Context, a auth.Identity, ref iam.GroupRef, perm iam.Perm) (bool, error) {
 	if !s.KnownPermission(perm) {
 		return false, fmt.Errorf("%w: %q", iam.ErrUnknownPermission, perm)
 	}
-	if a.IsZero() {
+	if _, ok := iam.StateOf(a); !ok {
 		return false, nil
 	}
 	if err := s.requirePG(); err != nil {
@@ -136,7 +137,7 @@ func (s *Engine) Can(ctx context.Context, a iam.Actor, ref iam.GroupRef, perm ia
 	if err != nil {
 		return false, err
 	}
-	auth, err := s.actorAuthority(ctx, st, a, g)
+	auth, err := s.identityAuthority(ctx, st, a, g)
 	if errors.Is(err, iam.ErrInsufficientAuthority) {
 		return false, nil
 	}
@@ -150,12 +151,12 @@ func (s *Engine) Can(ctx context.Context, a iam.Actor, ref iam.GroupRef, perm ia
 // clients that gate UI on permission strings (glob-matching with
 // iam.Perm.Matches). Globs are returned verbatim; a ceiling narrows them.
 // Unknown and deleted groups and groups granting nothing are absent; a dead
-// actor has none, and one whose bound session was revoked is
+// identity has none, and one whose bound session was revoked is
 // ErrSessionRevoked. The system gets each persona's owner grant. A user's
 // grants on many groups are read together, not group by group.
-func (s *Engine) EffectivePermissions(ctx context.Context, a iam.Actor, refs []iam.GroupRef) (map[string][]iam.Perm, error) {
+func (s *Engine) EffectivePermissions(ctx context.Context, a auth.Identity, refs []iam.GroupRef) (map[string][]iam.Perm, error) {
 	out := map[string][]iam.Perm{}
-	if a.IsZero() || len(refs) == 0 {
+	if _, ok := iam.StateOf(a); !ok || len(refs) == 0 {
 		return out, nil
 	}
 	if err := s.requirePG(); err != nil {
@@ -179,8 +180,8 @@ func (s *Engine) EffectivePermissions(ctx context.Context, a iam.Actor, refs []i
 		}
 		ids = append(ids, g.ID)
 	}
-	if userID, ok := s.actorUser(a); ok {
-		session, _ := a.Session()
+	if userID, ok := s.subjectUser(a); ok {
+		session, _ := stateOf(a).Session()
 		usable, signedIn, err := userLive(ctx, st.q, userID, session)
 		switch {
 		case err != nil:
@@ -196,7 +197,10 @@ func (s *Engine) EffectivePermissions(ctx context.Context, a iam.Actor, refs []i
 			return nil, err
 		}
 		for gid, grants := range byGroup {
-			if perms := s.effectiveGrants(authority{actor: a, grants: grants}, groupTarget{ID: gid}); len(perms) > 0 {
+			if pin := stateOf(a).Group(); pin != "" && pin != gid {
+				continue
+			}
+			if perms := s.effectiveGrants(authority{who: a, grants: grants}, groupTarget{ID: gid}); len(perms) > 0 {
 				out[gid] = perms
 			}
 		}
@@ -211,7 +215,7 @@ func (s *Engine) EffectivePermissions(ctx context.Context, a iam.Actor, refs []i
 			continue
 		}
 		t := groupTarget{ID: g.ID, Persona: g.Persona}
-		auth, err := s.actorAuthority(ctx, st, a, t)
+		auth, err := s.identityAuthority(ctx, st, a, t)
 		if errors.Is(err, iam.ErrInsufficientAuthority) {
 			return map[string][]iam.Perm{}, nil
 		}
@@ -225,15 +229,14 @@ func (s *Engine) EffectivePermissions(ctx context.Context, a iam.Actor, refs []i
 	return out, nil
 }
 
-// actorUser is the user whose grants a acts with: a user, or a delegation
+// subjectUser is the user whose grants a acts with: a user, or a delegation
 // this deployment issued for one.
-func (s *Engine) actorUser(a iam.Actor) (string, bool) {
-	switch a.Kind() {
-	case iam.ActorUser:
-		return a.ID(), true
-	case iam.ActorDelegated:
-		grant, _ := a.Delegation()
-		return grant.Subject, grant.RemoteApplicationID == "" && grant.Issuer == strings.TrimSpace(s.cfg.Token.Issuer)
+func (s *Engine) subjectUser(a auth.Identity) (string, bool) {
+	switch cs := stateOf(a); {
+	case cs.IsUser():
+		return cs.ID(), true
+	case cs.Delegated() && cs.SubjectKind() == auth.SubjectUser:
+		return cs.ID(), cs.DelegatedIssuer() == strings.TrimSpace(s.cfg.Token.Issuer)
 	}
 	return "", false
 }
@@ -256,13 +259,13 @@ func (s *Engine) effectiveGrants(auth authority, g groupTarget) []iam.Perm {
 	}
 	for _, raw := range auth.grants {
 		grant := ident.Perm(raw)
-		if auth.actor.CeilingCovers(grant) {
+		if stateOf(auth.who).CeilingCovers(grant) {
 			add(grant)
 			continue
 		}
 		persona, _ := sch.Persona(grant.Persona())
 		for _, perm := range persona.Permissions {
-			if perm.Matches(grant) && auth.actor.CeilingCovers(perm) {
+			if perm.Matches(grant) && stateOf(auth.who).CeilingCovers(perm) {
 				add(perm)
 			}
 		}

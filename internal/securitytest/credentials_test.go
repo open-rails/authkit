@@ -13,6 +13,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/verify"
+	hauth "github.com/open-rails/helpers/auth"
 	"github.com/stretchr/testify/require"
 )
 
@@ -111,11 +112,11 @@ func TestSecurityMFARequirementRevokesMachineCredentials(t *testing.T) {
 	key := h.issue(base+"/api-keys", token, map[string]any{"name": "ci", "role": "org:member"})
 	s := newSigner(t, "n8-app")
 	const appIssuer = "https://n8-app.security.test"
-	app, err := h.auth.UpsertRemoteApplication(ctx, iam.UserActor(owner.id), group, iam.RemoteApplication{
+	app, err := h.auth.UpsertRemoteApplication(ctx, iam.UserIdentity(owner.id), group, iam.RemoteApplication{
 		Issuer: appIssuer, PublicKeys: staticKeys(t, s), Enabled: true,
 	})
 	require.NoError(t, err)
-	require.NoError(t, setRole(h.auth, ctx, iam.UserActor(owner.id), group, iam.RemoteApplicationSubject(app.ID), roleIn(t, h.auth, group, "member")))
+	require.NoError(t, setRole(h.auth, ctx, iam.UserIdentity(owner.id), group, iam.RemoteApplicationSubject(app.ID), roleIn(t, h.auth, group, "member")))
 	hostRoute := func(auth *authkit.Client, bearer string) int {
 		gate := verify.RequirePermissionOn(auth, group, ident.Perm("org:catalog:read"))(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
 		r := httptest.NewRequest(http.MethodGet, "https://host.security.test/catalog", nil)
@@ -147,9 +148,9 @@ func TestSecurityAPIKeysNeedPersonaOptIn(t *testing.T) {
 	ctx := context.Background()
 	owner := h.newAccount("nokeysowner")
 	group, _ := h.newOrg(owner)
-	for _, a := range []iam.Actor{iam.UserActor(owner.id), iam.SystemActor()} {
+	for _, a := range []hauth.Identity{iam.UserIdentity(owner.id), iam.SystemIdentity()} {
 		_, _, err := createKey(h.auth, ctx, a, group, iam.NewAPIKey{Name: "ci", Role: orgPersona.OwnerRole()})
-		require.ErrorIs(t, err, iam.ErrInsufficientAuthority, a.String())
+		require.ErrorIs(t, err, iam.ErrInsufficientAuthority, "%+v", a)
 	}
 	keys, err := h.auth.ListAPIKeys(ctx, group, iam.PageRequest{})
 	require.NoError(t, err)
@@ -159,21 +160,21 @@ func TestSecurityAPIKeysNeedPersonaOptIn(t *testing.T) {
 // registerApp registers a group application as registrar and gives it role.
 func (h *host) registerApp(group iam.GroupRef, registrar account, slug, role string) iam.RemoteApplication {
 	h.t.Helper()
-	actor := iam.UserActor(registrar.id)
-	app, err := h.upsertGroupApp(actor, group, "https://"+slug+".security.test", publicKeyPEM(h.t), true)
+	who := iam.UserIdentity(registrar.id)
+	app, err := h.upsertGroupApp(who, group, "https://"+slug+".security.test", publicKeyPEM(h.t), true)
 	require.NoError(h.t, err)
-	require.NoError(h.t, setRole(h.auth, h.t.Context(), actor, group, iam.RemoteApplicationSubject(app.ID), roleIn(h.t, h.auth, group, role)))
+	require.NoError(h.t, setRole(h.auth, h.t.Context(), who, group, iam.RemoteApplicationSubject(app.ID), roleIn(h.t, h.auth, group, role)))
 	return app
 }
 
 // upsertGroupApp registers or updates a static-key application in group.
-func (h *host) upsertGroupApp(actor iam.Actor, group iam.GroupRef, iss, keyPEM string, enabled bool) (iam.RemoteApplication, error) {
-	return h.auth.UpsertRemoteApplication(h.t.Context(), actor, group, iam.RemoteApplication{
+func (h *host) upsertGroupApp(who hauth.Identity, group iam.GroupRef, iss, keyPEM string, enabled bool) (iam.RemoteApplication, error) {
+	return h.auth.UpsertRemoteApplication(h.t.Context(), who, group, iam.RemoteApplication{
 		Issuer: iss, PublicKeys: []iam.RemoteApplicationKey{{PublicKeyPEM: keyPEM}}, Enabled: enabled,
 	})
 }
 
-// requireRefused: the actor lacks the authority (a capability or coverage).
+// requireRefused: the identity lacks the authority (a capability or coverage).
 func requireRefused(t *testing.T, err error) {
 	t.Helper()
 	require.True(t, errors.Is(err, iam.ErrInsufficientAuthority) || errors.Is(err, iam.ErrRoleAssignmentEscalation), "want an authority refusal, got %v", err)
@@ -206,7 +207,7 @@ func TestSecurityCredentialSweepNeverBlocksBoot(t *testing.T) {
 	t.Run("2FA turned on with an application holding root owner", func(t *testing.T) {
 		h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withApps), authtest.WithConfig(func(c *authkit.Config) { c.TwoFactor.Mode = iam.TwoFactorDisabled }))
 		s := newSigner(t, "p2b-kid")
-		app, err := h.auth.UpsertRemoteApplication(ctx, iam.SystemActor(), iam.RootGroup(), iam.RemoteApplication{
+		app, err := h.auth.UpsertRemoteApplication(ctx, iam.SystemIdentity(), iam.RootGroup(), iam.RemoteApplication{
 			Issuer: "https://p2b-app.security.test", PublicKeys: staticKeys(t, s), Enabled: true,
 		})
 		require.NoError(t, err)
@@ -243,11 +244,11 @@ func TestSecurityCredentialSweepNeverBlocksBoot(t *testing.T) {
 		require.NoError(t, err)
 		group, err := h.createOrg(ctx, account{id: u.ID})
 		require.NoError(t, err)
-		app, err := h.auth.UpsertRemoteApplication(ctx, iam.UserActor(u.ID), group, iam.RemoteApplication{
+		app, err := h.auth.UpsertRemoteApplication(ctx, iam.UserIdentity(u.ID), group, iam.RemoteApplication{
 			Issuer: "https://p2d-app.security.test", PublicKeys: staticKeys(t, newSigner(t, "p2d-kid")), Enabled: true,
 		})
 		require.NoError(t, err)
-		require.NoError(t, setRole(h.auth, ctx, iam.UserActor(u.ID), group, iam.RemoteApplicationSubject(app.ID), orgPersona.OwnerRole()))
+		require.NoError(t, setRole(h.auth, ctx, iam.UserIdentity(u.ID), group, iam.RemoteApplicationSubject(app.ID), orgPersona.OwnerRole()))
 		require.Less(t, h.post("/password/reset/request", map[string]string{"identifier": email}, "").status, 300)
 		token := h.mail.Last(t, iam.MessagePasswordReset, email).Token
 		resp := h.post("/password/reset/confirm", map[string]string{"token": token, "new_password": "Founder-proves-the-address-4"}, "")
@@ -311,9 +312,9 @@ func TestSecurityPerAppRoleCatalogs(t *testing.T) {
 	grantRole(t, a.auth, group, iam.UserSubject(alice.id), "manager")
 	grantRole(t, a.auth, group, iam.UserSubject(bob.id), "curator")
 	member := roleIn(t, a.auth, group, "member")
-	keyA, _, err := createKey(a.auth, ctx, iam.UserActor(alice.id), group, iam.NewAPIKey{Name: "a", Role: member})
+	keyA, _, err := createKey(a.auth, ctx, iam.UserIdentity(alice.id), group, iam.NewAPIKey{Name: "a", Role: member})
 	require.NoError(t, err)
-	created, err := a.auth.CreateInvitation(ctx, iam.UserActor(alice.id), group, iam.NewInvitation{Role: member})
+	created, err := a.auth.CreateInvitation(ctx, iam.UserIdentity(alice.id), group, iam.NewInvitation{Role: member})
 	require.NoError(t, err)
 	linkA := created.Invitation
 
@@ -322,9 +323,9 @@ func TestSecurityPerAppRoleCatalogs(t *testing.T) {
 	require.True(t, liveKey(t, b, group, keyA.ID), "B's boot swept an A-issued key")
 	require.True(t, liveLink(t, b, group, linkA.ID), "B's boot swept an A-issued link")
 	require.Equal(t, "manager", b.roleOf(group, iam.UserSubject(alice.id)).Name(), "a role granted through A shows through B")
-	_, _, err = createKey(b.auth, ctx, iam.UserActor(alice.id), group, iam.NewAPIKey{Name: "refused", Role: member})
+	_, _, err = createKey(b.auth, ctx, iam.UserIdentity(alice.id), group, iam.NewAPIKey{Name: "refused", Role: member})
 	requireRefused(t, err)
-	keyB, _, err := createKey(b.auth, ctx, iam.UserActor(bob.id), group, iam.NewAPIKey{Name: "b", Role: member})
+	keyB, _, err := createKey(b.auth, ctx, iam.UserIdentity(bob.id), group, iam.NewAPIKey{Name: "b", Role: member})
 	require.NoError(t, err)
 	stamp := func(id string) (catalogIssuer string) {
 		require.NoError(t, a.pool.QueryRow(ctx, `SELECT catalog_issuer FROM profiles.api_keys WHERE id = $1::uuid`, id).Scan(&catalogIssuer))
@@ -400,7 +401,7 @@ func TestSecurityAPIKeyResolvesOnlyAtItsApp(t *testing.T) {
 	group, _ := a.newOrg(founder)
 	grantRole(t, a.auth, group, iam.UserSubject(minter.id), "manager")
 	mint := func(h *host) string {
-		_, secret, err := createKey(h.auth, ctx, iam.UserActor(minter.id), group, iam.NewAPIKey{Name: unique("key"), Role: roleIn(t, h.auth, group, "member")})
+		_, secret, err := createKey(h.auth, ctx, iam.UserIdentity(minter.id), group, iam.NewAPIKey{Name: unique("key"), Role: roleIn(t, h.auth, group, "member")})
 		require.NoError(t, err)
 		return secret
 	}

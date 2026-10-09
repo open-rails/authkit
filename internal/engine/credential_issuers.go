@@ -3,7 +3,7 @@ package engine
 // Rule CRED: a credential (API key, invite link, registration invite, and the
 // roles of a group-registered application) records who issued it, and never
 // outlives that issuer's authority. The issuer is a user, or the system
-// (NULL, never auto-revoked); machine actors cannot issue credentials. An
+// (NULL, never auto-revoked); machine identities cannot issue credentials. An
 // application's issuer is its registrar, the user who supplied its keys.
 // Apps sharing an account store (Token.AccountIssuers) share membership but
 // not role catalogs: a credential also records the app it was issued through
@@ -34,24 +34,25 @@ import (
 	"github.com/open-rails/authkit/internal/cursor"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/rbac"
+	"github.com/open-rails/helpers/auth"
 )
 
 // credentialIssuer is the creator a credential issued by a records: the user,
-// or "" for the system. Machine actors cannot issue credentials.
-func credentialIssuer(a iam.Actor) (string, error) {
-	switch a.Kind() {
-	case iam.ActorSystem:
+// or "" for the system. Machine identities cannot issue credentials.
+func credentialIssuer(a auth.Identity) (string, error) {
+	switch cs := stateOf(a); {
+	case cs.IsSystem():
 		return "", nil
-	case iam.ActorUser:
-		return a.ID(), nil
+	case cs.IsUser():
+		return cs.ID(), nil
 	}
 	return "", iam.ErrInsufficientAuthority
 }
 
 // requireCredentialRevoke is the authority to take back a credential of role:
 // CAP(capability) plus COVER(role), which a removed role does not need.
-func (s *Engine) requireCredentialRevoke(ctx context.Context, st *permissionGroupStore, a iam.Actor, g groupTarget, capability iam.Perm, role iam.Role) error {
-	auth, err := s.actorAuthority(ctx, st, a, g)
+func (s *Engine) requireCredentialRevoke(ctx context.Context, st *permissionGroupStore, a auth.Identity, g groupTarget, capability iam.Perm, role iam.Role) error {
+	auth, err := s.identityAuthority(ctx, st, a, g)
 	if err != nil {
 		return err
 	}
@@ -72,7 +73,7 @@ func (s *Engine) reconcileRoleCatalog(ctx context.Context) error {
 		return nil
 	}
 	fingerprint := s.roleCatalogFingerprint()
-	return s.withAuthorityMutation(ctx, iam.Actor{}, func(st *permissionGroupStore) error {
+	return s.withAuthorityMutation(ctx, auth.Identity{}, func(st *permissionGroupStore) error {
 		st.reconcile = true
 		q := db.New(st.q)
 		stored, err := q.RoleCatalogFingerprint(ctx, s.cfg.Token.Issuer)

@@ -98,7 +98,7 @@ func (s *Engine) applyContactChange(ctx context.Context, rec pendingChange, chan
 		return err
 	}
 	userID := rec.UserID
-	proven, err := s.retirePreProofCredentials(ctx, tx, iam.UserActor(userID), userID, proofOn(channel), keepSessionID)
+	proven, err := s.retirePreProofCredentials(ctx, tx, iam.UserIdentity(userID), userID, proofOn(channel), keepSessionID)
 	if err != nil {
 		return err
 	}
@@ -113,7 +113,7 @@ func (s *Engine) applyContactChange(ctx context.Context, rec pendingChange, chan
 	if err != nil {
 		return err
 	}
-	if err := s.emitEvents(ctx, tx, iam.UserActor(userID), changes...); err != nil {
+	if err := s.emitEvents(ctx, tx, iam.UserIdentity(userID), changes...); err != nil {
 		return err
 	}
 	revoked, err := revokeSessionsTx(ctx, q, userID, s.accountIssuers(), keepSessionID)

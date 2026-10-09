@@ -370,11 +370,11 @@ type oauthMint struct {
 	jkt         string
 	// grantID names a consented grant; offline grants mint without the
 	// sign-in (no sid). decision is the host authorizer's (nil: defaults),
-	// actor the exchanging client (RFC 8693 act).
+	// invoker the exchanging client (RFC 8693 act, its actor claim).
 	grantID  string
 	offline  bool
 	decision *authflow.OAuthGrantDecision
-	actor    string
+	invoker  string
 	// grantEnd, when set, is when the grant ends: no token outlives it.
 	grantEnd time.Time
 }
@@ -431,8 +431,8 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 	if len(details) > 0 {
 		at["authorization_details"] = details
 	}
-	if m.actor != "" {
-		at["act"] = map[string]any{"sub": m.actor}
+	if m.invoker != "" {
+		at["act"] = map[string]any{"sub": m.invoker}
 	}
 	permissions, err := s.grantPermissions(ctx, m, resource.Permissions)
 	if err != nil {

@@ -100,8 +100,8 @@ func (v *Verifier) AuthenticateRequest(ctx context.Context, r *http.Request) (au
 }
 
 // Can is Client.Can.
-func (v *Verifier) Can(ctx context.Context, actor iam.Actor, ref iam.GroupRef, perm iam.Perm) (bool, error) {
-	return v.client.Can(ctx, actor, ref, perm)
+func (v *Verifier) Can(ctx context.Context, who auth.Identity, ref iam.GroupRef, perm iam.Perm) (bool, error) {
+	return v.client.Can(ctx, who, ref, perm)
 }
 
 // KnownPermission is Client.KnownPermission.

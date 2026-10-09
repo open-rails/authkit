@@ -5,6 +5,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
+	"github.com/open-rails/helpers/auth"
 )
 
 // Sessions and access tokens.
@@ -22,8 +23,8 @@ func (a *Client) ListSessionEvents(ctx context.Context, userID string, q iam.Ses
 
 // RevokeSession revokes one refresh session under ACCT(root:users:manage),
 // where covering a peer suffices; an account may revoke its own.
-func (a *Client) RevokeSession(ctx context.Context, actor iam.Actor, userID, sessionID string, opts ...Option) error {
-	return a.ops.RevokeSession(ctx, actor, userID, sessionID, opts...)
+func (a *Client) RevokeSession(ctx context.Context, who auth.Identity, userID, sessionID string, opts ...Option) error {
+	return a.ops.RevokeSession(ctx, who, userID, sessionID, opts...)
 }
 
 // RevokeAccountSessions revokes the account's refresh sessions on every
@@ -33,8 +34,8 @@ func (a *Client) RevokeSession(ctx context.Context, actor iam.Actor, userID, ses
 // access tokens are refused at once by every session check (permission
 // checks, verify.Sensitive, account changes) and pass stateless verification
 // until they expire.
-func (a *Client) RevokeAccountSessions(ctx context.Context, actor iam.Actor, userID string, opts ...Option) (iam.AccountSessionRevocation, error) {
-	return a.ops.RevokeAccountSessions(ctx, actor, userID, opts...)
+func (a *Client) RevokeAccountSessions(ctx context.Context, who auth.Identity, userID string, opts ...Option) (iam.AccountSessionRevocation, error) {
+	return a.ops.RevokeAccountSessions(ctx, who, userID, opts...)
 }
 
 // RevokeOAuthGrant ends a consented OAuth grant, named by the grant id the
@@ -57,7 +58,7 @@ func (a *Client) MintAccessToken(ctx context.Context, userID string, o iam.Acces
 // verified claims: nil when the session or device key cl was minted from is
 // still active, else iam.ErrSessionRevoked. A user's token names one, and so
 // does a delegated token minted from a sign-in (MintDelegatedAccessToken with
-// a session-bound actor); a token minted without one is refused. Any other
+// a session-bound identity); a token minted without one is refused. Any other
 // credential is forbidden.
 func (a *Client) CheckSession(ctx context.Context, cl verify.Claims) error {
 	return a.ops.CheckSession(ctx, cl)

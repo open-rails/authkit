@@ -52,8 +52,8 @@ var (
 	// ErrSubjectMFARequired refuses a role that needs MFA for an account with
 	// no usable second factor.
 	ErrSubjectMFARequired Error = errmodel.E(errmodel.CodeSubjectMFARequired)
-	// ErrSessionRevoked refuses an actor bound to a session or device key
-	// (Actor.InSession) that was revoked or expired, as logout, revoke-all, a
+	// ErrSessionRevoked refuses an identity bound to a session or device key
+	// (InSession) that was revoked or expired, as logout, revoke-all, a
 	// password change, a ban and deletion all do.
 	ErrSessionRevoked Error = errmodel.E(errmodel.CodeSessionRevoked)
 	// ErrTokenExpired refuses a token past its exp (beyond the verifier's

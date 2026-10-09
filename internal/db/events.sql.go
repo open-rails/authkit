@@ -11,7 +11,7 @@ import (
 )
 
 const accountEventByID = `-- name: AccountEventByID :one
-SELECT id, issuer, subject, event_id, kind, occurred_at, actor_kind, actor_id, user_id, group_id, persona, application_id, previous_value, current_value, reason, until, attempts, retry_at FROM account_events WHERE id = $1
+SELECT id, issuer, stream, event_id, kind, occurred_at, user_id, group_id, persona, application_id, previous_value, current_value, reason, until, attempts, retry_at, subject_kind, subject_id, invoker_issuer, invoker_id, credential_kind, credential_id FROM account_events WHERE id = $1
 `
 
 func (q *Queries) AccountEventByID(ctx context.Context, id int64) (AccountEvent, error) {
@@ -20,12 +20,10 @@ func (q *Queries) AccountEventByID(ctx context.Context, id int64) (AccountEvent,
 	err := row.Scan(
 		&i.ID,
 		&i.Issuer,
-		&i.Subject,
+		&i.Stream,
 		&i.EventID,
 		&i.Kind,
 		&i.OccurredAt,
-		&i.ActorKind,
-		&i.ActorID,
 		&i.UserID,
 		&i.GroupID,
 		&i.Persona,
@@ -36,6 +34,12 @@ func (q *Queries) AccountEventByID(ctx context.Context, id int64) (AccountEvent,
 		&i.Until,
 		&i.Attempts,
 		&i.RetryAt,
+		&i.SubjectKind,
+		&i.SubjectID,
+		&i.InvokerIssuer,
+		&i.InvokerID,
+		&i.CredentialKind,
+		&i.CredentialID,
 	)
 	return i, err
 }
@@ -53,13 +57,13 @@ const accountEventEarlierPending = `-- name: AccountEventEarlierPending :one
 SELECT (count(*) > 0)::boolean AS blocked,
        COALESCE(EXTRACT(EPOCH FROM max(retry_at) - statement_timestamp()), 0)::float8 AS wait
 FROM account_events
-WHERE issuer = $1 AND subject = $2 AND id < $3
+WHERE issuer = $1 AND stream = $2 AND id < $3
 `
 
 type AccountEventEarlierPendingParams struct {
-	Issuer  string
-	Subject string
-	ID      int64
+	Issuer string
+	Stream string
+	ID     int64
 }
 
 type AccountEventEarlierPendingRow struct {
@@ -67,10 +71,10 @@ type AccountEventEarlierPendingRow struct {
 	Wait    float64
 }
 
-// Whether an earlier event of the subject is still pending, and the seconds
+// Whether an earlier event of the stream is still pending, and the seconds
 // until the latest of their retries.
 func (q *Queries) AccountEventEarlierPending(ctx context.Context, arg AccountEventEarlierPendingParams) (AccountEventEarlierPendingRow, error) {
-	row := q.db.QueryRow(ctx, accountEventEarlierPending, arg.Issuer, arg.Subject, arg.ID)
+	row := q.db.QueryRow(ctx, accountEventEarlierPending, arg.Issuer, arg.Stream, arg.ID)
 	var i AccountEventEarlierPendingRow
 	err := row.Scan(&i.Blocked, &i.Wait)
 	return i, err
@@ -113,40 +117,49 @@ func (q *Queries) AccountEventFleetsForShare(ctx context.Context, issuers []stri
 
 const accountEventInsert = `-- name: AccountEventInsert :one
 INSERT INTO account_events
-    (issuer, subject, event_id, kind, actor_kind, actor_id, user_id, group_id, persona, application_id,
-     previous_value, current_value, reason, until)
+    (issuer, stream, event_id, kind, subject_kind, subject_id, invoker_issuer, invoker_id, credential_kind, credential_id,
+     user_id, group_id, persona, application_id, previous_value, current_value, reason, until)
 VALUES
     ($1, $2, $3, $4, $5, $6,
      $7, $8, $9, $10,
-     $11, $12, $13, $14)
+     $11, $12, $13, $14,
+     $15, $16, $17, $18)
 RETURNING id
 `
 
 type AccountEventInsertParams struct {
-	Issuer        string
-	Subject       string
-	EventID       string
-	Kind          string
-	ActorKind     string
-	ActorID       string
-	UserID        *string
-	GroupID       *string
-	Persona       string
-	ApplicationID *string
-	PreviousValue string
-	CurrentValue  string
-	Reason        string
-	Until         *time.Time
+	Issuer         string
+	Stream         string
+	EventID        string
+	Kind           string
+	SubjectKind    string
+	SubjectID      string
+	InvokerIssuer  string
+	InvokerID      string
+	CredentialKind string
+	CredentialID   string
+	UserID         *string
+	GroupID        *string
+	Persona        string
+	ApplicationID  *string
+	PreviousValue  string
+	CurrentValue   string
+	Reason         string
+	Until          *time.Time
 }
 
 func (q *Queries) AccountEventInsert(ctx context.Context, arg AccountEventInsertParams) (int64, error) {
 	row := q.db.QueryRow(ctx, accountEventInsert,
 		arg.Issuer,
-		arg.Subject,
+		arg.Stream,
 		arg.EventID,
 		arg.Kind,
-		arg.ActorKind,
-		arg.ActorID,
+		arg.SubjectKind,
+		arg.SubjectID,
+		arg.InvokerIssuer,
+		arg.InvokerID,
+		arg.CredentialKind,
+		arg.CredentialID,
 		arg.UserID,
 		arg.GroupID,
 		arg.Persona,

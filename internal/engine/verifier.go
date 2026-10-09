@@ -215,7 +215,7 @@ func (s *Engine) apiKeyClaims(ctx context.Context, token string) (verify.Claims,
 		return verify.Claims{}, iam.ErrAPIKeyInvalid
 	}
 	return verify.Claims{
-		Kind:        iam.ActorAPIKey,
+		Kind:        verify.TokenAPIKey,
 		APIKeyID:    p.ID,
 		Permissions: ident.Strings(p.Permissions),
 		Group:       &verify.PermissionScope{GroupID: p.Group.ID, AuthorityIssuer: p.Issuer, Persona: p.Group.Persona},

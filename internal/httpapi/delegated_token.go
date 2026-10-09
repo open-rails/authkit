@@ -36,13 +36,13 @@ const (
 
 func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
-	actor, isActor := verify.ActorFromClaims(claims)
-	if !ok || !isActor || actor.Kind() != iam.ActorUser {
+	who, _ := verify.IdentityFromContext(r.Context())
+	if !ok || !state(who).IsUser() {
 		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	// A delegated token outlives its parent: the route's session tier refused
-	// a revoked parent, and the mint below re-checks it through the actor's
+	// a revoked parent, and the mint below re-checks it through the identity's
 	// session binding and carries that session in the token (#412).
 	authorize := s.svc.DelegationAuthorizer()
 	if authorize == nil {
@@ -136,7 +136,7 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 	}
 	// The grant is host policy, but never more AuthKit authority than the
 	// user holds (ak#394): the engine's mint checks it.
-	token, err := s.svc.MintDelegatedAccessToken(r.Context(), actor, iam.DelegatedAccess{
+	token, err := s.svc.MintDelegatedAccessToken(r.Context(), who, iam.DelegatedAccess{
 		Audiences:             audiences,
 		Permissions:           grant.Permissions,
 		Attributes:            grant.Attributes,

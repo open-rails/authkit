@@ -13,6 +13,7 @@ import (
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/helpers/auth"
 	"github.com/stretchr/testify/require"
 )
 
@@ -66,7 +67,7 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 	member, err := client.createUser(ctx, "batch-member@example.test", "batch-member")
 	require.NoError(t, err)
 	subject := iam.UserSubject(member.ID)
-	actor := iam.UserActor(member.ID)
+	who := iam.UserIdentity(member.ID)
 	create := func(persona iam.Persona) (string, iam.GroupRef) {
 		id, err := seedGroup(ctx, client, persona, owner.ID)
 		require.NoError(t, err)
@@ -115,7 +116,7 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 
 	var perms map[string][]iam.Perm
 	require.EqualValues(t, 1, counter.during(t, func() {
-		perms, err = client.EffectivePermissions(ctx, actor, byID)
+		perms, err = client.EffectivePermissions(ctx, who, byID)
 	}))
 	require.NoError(t, err)
 	want := map[string][]iam.Perm{
@@ -129,11 +130,11 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 		require.ElementsMatch(t, grants, perms[id])
 	}
 	for id, ref := range refs {
-		single, err := effectivePermissions(ctx, client, actor, ref)
+		single, err := effectivePermissions(ctx, client, who, ref)
 		require.NoError(t, err)
 		require.ElementsMatch(t, single, perms[id], "group %s", ref)
 		for _, perm := range []iam.Perm{ident.Perm("channel:posts:read"), ident.Perm("channel:posts:write"), ident.Perm("section:pages:write")} {
-			allowed, err := client.Can(ctx, actor, iam.GroupByID(id), perm)
+			allowed, err := client.Can(ctx, who, iam.GroupByID(id), perm)
 			require.NoError(t, err)
 			covered := false
 			for _, grant := range perms[id] {
@@ -143,17 +144,17 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 		}
 	}
 
-	ownerPerms, err := client.EffectivePermissions(ctx, iam.UserActor(owner.ID), byID)
+	ownerPerms, err := client.EffectivePermissions(ctx, iam.UserIdentity(owner.ID), byID)
 	require.NoError(t, err)
 	require.NotContains(t, ownerPerms, retired)
 	for _, id := range []string{reader, section, unassigned} {
-		single, err := effectivePermissions(ctx, client, iam.UserActor(owner.ID), refs[id])
+		single, err := effectivePermissions(ctx, client, iam.UserIdentity(owner.ID), refs[id])
 		require.NoError(t, err)
 		require.NotEmpty(t, single)
 		require.ElementsMatch(t, single, ownerPerms[id])
 	}
 
-	empty, err := client.EffectivePermissions(ctx, actor, nil)
+	empty, err := client.EffectivePermissions(ctx, who, nil)
 	require.NoError(t, err)
 	require.Empty(t, empty)
 
@@ -173,14 +174,14 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 		require.Equal(t, instances, batched)
 	}))
 	require.EqualValues(t, 2, counter.during(t, func() {
-		batched, err := client.EffectivePermissions(ctx, actor, manyRefs)
+		batched, err := client.EffectivePermissions(ctx, who, manyRefs)
 		require.NoError(t, err)
 		require.Equal(t, perms, batched)
 	}))
 }
 
-// effectivePermissions is the actor's effective grants in one group.
-func effectivePermissions(ctx context.Context, e *Engine, a iam.Actor, ref iam.GroupRef) ([]iam.Perm, error) {
+// effectivePermissions is the identity's effective grants in one group.
+func effectivePermissions(ctx context.Context, e *Engine, a auth.Identity, ref iam.GroupRef) ([]iam.Perm, error) {
 	byGroup, err := e.EffectivePermissions(ctx, a, []iam.GroupRef{ref})
 	if err != nil {
 		return nil, err

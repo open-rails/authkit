@@ -7,7 +7,7 @@ import {
   errorMetadata,
   readAuthKitError,
 } from "./errors.ts"
-import { decodeAccessClaims, principalOf } from "./jwt.ts"
+import { decodeAccessClaims, subjectOf } from "./jwt.ts"
 import type { AccessClaims } from "./jwt.ts"
 import { randomNonce, waitForPopup } from "./popup.ts"
 import {
@@ -270,7 +270,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
   ) => {
     if (expected !== generation) throw new AuthSessionChangedError()
     const claims = decodeAccessClaims(tokens.access_token) ?? {}
-    const userId = principalOf(claims) ?? ""
+    const userId = subjectOf(claims) ?? ""
     if (
       mode === "refresh" &&
       session.status === "authenticated" &&

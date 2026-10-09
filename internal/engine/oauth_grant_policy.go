@@ -20,6 +20,7 @@ import (
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/ops"
+	"github.com/open-rails/helpers/auth"
 )
 
 const (
@@ -122,11 +123,11 @@ func (s *Engine) grantPermissions(ctx context.Context, m oauthMint, ceiling []st
 		}
 		return nonNil(intersectGrants(held, ceiling)), nil
 	}
-	actor := iam.UserActor(m.userID)
+	who := iam.UserIdentity(m.userID)
 	if !m.offline {
-		actor = actor.InSession(iam.SessionRef{SessionID: m.sessionID, DeviceKeyID: m.deviceKeyID})
+		who = iam.InSession(who, iam.SessionRef{SessionID: m.sessionID, DeviceKeyID: m.deviceKeyID})
 	}
-	auth, err := s.rootAuthority(ctx, actor)
+	auth, err := s.rootAuthority(ctx, who)
 	if err != nil {
 		return nil, err
 	}
@@ -141,8 +142,8 @@ func (s *Engine) grantPermissions(ctx context.Context, m oauthMint, ceiling []st
 	return nonNil(intersectGrants(m.decision.Permissions, ceiling)), nil
 }
 
-// rootAuthority is a's authority on the root group (rule ACTOR).
-func (s *Engine) rootAuthority(ctx context.Context, a iam.Actor) (authority, error) {
+// rootAuthority is a's authority on the root group (rule IDENTITY).
+func (s *Engine) rootAuthority(ctx context.Context, a auth.Identity) (authority, error) {
 	if err := s.requirePG(); err != nil {
 		return authority{}, err
 	}
@@ -151,7 +152,7 @@ func (s *Engine) rootAuthority(ctx context.Context, a iam.Actor) (authority, err
 	if err != nil {
 		return authority{}, err
 	}
-	return s.actorAuthority(ctx, st, a, groupTarget{ID: rootID, Persona: iam.RootPersona()})
+	return s.identityAuthority(ctx, st, a, groupTarget{ID: rootID, Persona: iam.RootPersona()})
 }
 
 // grantPermissionHeld is whether a grant may carry perm for auth: the

@@ -39,7 +39,7 @@ func TestMessagesCarryTheirLanguage(t *testing.T) {
 	require.Equal(t, "en", reset("?lang=EN_gb", "es"), "?lang wins over Accept-Language")
 
 	preferred := "es"
-	_, err := auth.UpdateUser(t.Context(), iam.SystemActor(), u.ID, iam.UserUpdate{PreferredLanguage: &preferred})
+	_, err := auth.UpdateUser(t.Context(), iam.SystemIdentity(), u.ID, iam.UserUpdate{PreferredLanguage: &preferred})
 	require.NoError(t, err)
 	require.Equal(t, "es", reset("?lang=en", "en"), "the account's preference wins")
 }

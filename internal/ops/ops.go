@@ -9,6 +9,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
+	"github.com/open-rails/helpers/auth"
 )
 
 // Operations is every operation of the Client that a remote deployment could
@@ -24,20 +25,20 @@ type Operations interface {
 	CheckUsername(ctx context.Context, name string) error
 	DeviceKeys(ctx context.Context, userID string) ([]iam.DeviceKey, error)
 	CreateUser(ctx context.Context, u iam.NewUser, opts ...Option) (iam.User, error)
-	UpdateUser(ctx context.Context, actor iam.Actor, userID string, u iam.UserUpdate, opts ...Option) (iam.User, error)
-	PatchPublicMetadata(ctx context.Context, actor iam.Actor, userID string, patch map[string]any, opts ...Option) error
-	Ban(ctx context.Context, actor iam.Actor, userID string, b iam.Ban, opts ...Option) error
-	Unban(ctx context.Context, actor iam.Actor, userID string, opts ...Option) error
-	DeleteUsers(ctx context.Context, actor iam.Actor, ids []string, opts ...Option) ([]iam.OpResult, error)
-	RestoreUsers(ctx context.Context, actor iam.Actor, ids []string, opts ...Option) ([]iam.OpResult, error)
+	UpdateUser(ctx context.Context, who auth.Identity, userID string, u iam.UserUpdate, opts ...Option) (iam.User, error)
+	PatchPublicMetadata(ctx context.Context, who auth.Identity, userID string, patch map[string]any, opts ...Option) error
+	Ban(ctx context.Context, who auth.Identity, userID string, b iam.Ban, opts ...Option) error
+	Unban(ctx context.Context, who auth.Identity, userID string, opts ...Option) error
+	DeleteUsers(ctx context.Context, who auth.Identity, ids []string, opts ...Option) ([]iam.OpResult, error)
+	RestoreUsers(ctx context.Context, who auth.Identity, ids []string, opts ...Option) ([]iam.OpResult, error)
 	PurgeUsers(ctx context.Context, ids []string, opts ...Option) ([]iam.OpResult, error)
 	ResetAccountMFA(ctx context.Context, userID string, opts ...Option) error
 
 	// Sessions and tokens.
 	Sessions(ctx context.Context, userID string) ([]iam.Session, error)
 	ListSessionEvents(ctx context.Context, userID string, q iam.SessionEventQuery) (iam.ListPage[iam.SessionEvent], error)
-	RevokeSession(ctx context.Context, actor iam.Actor, userID, sessionID string, opts ...Option) error
-	RevokeAccountSessions(ctx context.Context, actor iam.Actor, userID string, opts ...Option) (iam.AccountSessionRevocation, error)
+	RevokeSession(ctx context.Context, who auth.Identity, userID, sessionID string, opts ...Option) error
+	RevokeAccountSessions(ctx context.Context, who auth.Identity, userID string, opts ...Option) (iam.AccountSessionRevocation, error)
 	MintAccessToken(ctx context.Context, userID string, o iam.AccessTokenOptions, opts ...Option) (iam.Token, error)
 	RevokeOAuthGrant(ctx context.Context, grantID string, opts ...Option) error
 	CheckSession(ctx context.Context, cl verify.Claims) error
@@ -53,10 +54,10 @@ type Operations interface {
 	CreateGroup(ctx context.Context, g iam.NewGroup, opts ...Option) (iam.Group, error)
 	DeleteGroup(ctx context.Context, ref iam.GroupRef, opts ...Option) error
 	PurgeGroup(ctx context.Context, ref iam.GroupRef, opts ...Option) error
-	SetGroupRole(ctx context.Context, actor iam.Actor, ref iam.GroupRef, subject iam.Subject, role iam.Role, opts ...Option) (iam.GroupMember, error)
-	RemoveGroupMember(ctx context.Context, actor iam.Actor, ref iam.GroupRef, subject iam.Subject, opts ...Option) error
-	Can(ctx context.Context, actor iam.Actor, ref iam.GroupRef, perm iam.Perm) (bool, error)
-	EffectivePermissions(ctx context.Context, actor iam.Actor, refs []iam.GroupRef) (map[string][]iam.Perm, error)
+	SetGroupRole(ctx context.Context, who auth.Identity, ref iam.GroupRef, subject iam.Subject, role iam.Role, opts ...Option) (iam.GroupMember, error)
+	RemoveGroupMember(ctx context.Context, who auth.Identity, ref iam.GroupRef, subject iam.Subject, opts ...Option) error
+	Can(ctx context.Context, who auth.Identity, ref iam.GroupRef, perm iam.Perm) (bool, error)
+	EffectivePermissions(ctx context.Context, who auth.Identity, refs []iam.GroupRef) (map[string][]iam.Perm, error)
 	KnownPermission(perm iam.Perm) bool
 	Persona(name string) (iam.Persona, error)
 	Permission(text string) (iam.Perm, error)
@@ -64,22 +65,22 @@ type Operations interface {
 	RolePermissions(role iam.Role) ([]iam.Perm, error)
 
 	// API keys.
-	CreateAPIKey(ctx context.Context, actor iam.Actor, ref iam.GroupRef, k iam.NewAPIKey, opts ...Option) (iam.APIKeyCreated, error)
+	CreateAPIKey(ctx context.Context, who auth.Identity, ref iam.GroupRef, k iam.NewAPIKey, opts ...Option) (iam.APIKeyCreated, error)
 	ListAPIKeys(ctx context.Context, ref iam.GroupRef, p iam.PageRequest) (iam.ListPage[iam.APIKey], error)
-	RevokeAPIKey(ctx context.Context, actor iam.Actor, ref iam.GroupRef, id string, opts ...Option) error
-	ResolveAPIKey(ctx context.Context, token string) (iam.APIKeyPrincipal, error)
+	RevokeAPIKey(ctx context.Context, who auth.Identity, ref iam.GroupRef, id string, opts ...Option) error
+	ResolveAPIKey(ctx context.Context, token string) (iam.ResolvedAPIKey, error)
 
 	// Invitations.
-	CreateInvitation(ctx context.Context, actor iam.Actor, ref iam.GroupRef, n iam.NewInvitation, opts ...Option) (iam.InvitationCreated, error)
+	CreateInvitation(ctx context.Context, who auth.Identity, ref iam.GroupRef, n iam.NewInvitation, opts ...Option) (iam.InvitationCreated, error)
 	ListInvitations(ctx context.Context, ref iam.GroupRef, p iam.PageRequest) (iam.ListPage[iam.Invitation], error)
-	RevokeInvitation(ctx context.Context, actor iam.Actor, ref iam.GroupRef, id string, opts ...Option) error
+	RevokeInvitation(ctx context.Context, who auth.Identity, ref iam.GroupRef, id string, opts ...Option) error
 
 	// Remote applications, delegation and service JWTs.
-	UpsertRemoteApplication(ctx context.Context, actor iam.Actor, ref iam.GroupRef, app iam.RemoteApplication, opts ...Option) (iam.RemoteApplication, error)
-	DeleteRemoteApplication(ctx context.Context, actor iam.Actor, ref iam.GroupRef, id string, opts ...Option) error
+	UpsertRemoteApplication(ctx context.Context, who auth.Identity, ref iam.GroupRef, app iam.RemoteApplication, opts ...Option) (iam.RemoteApplication, error)
+	DeleteRemoteApplication(ctx context.Context, who auth.Identity, ref iam.GroupRef, id string, opts ...Option) error
 	RemoteApplication(ctx context.Context, ref iam.AppRef) (iam.RemoteApplication, error)
 	ListRemoteApplications(ctx context.Context, ref iam.GroupRef, p iam.PageRequest) (iam.ListPage[iam.RemoteApplication], error)
-	MintDelegatedAccessToken(ctx context.Context, actor iam.Actor, d iam.DelegatedAccess, opts ...Option) (iam.Token, error)
+	MintDelegatedAccessToken(ctx context.Context, who auth.Identity, d iam.DelegatedAccess, opts ...Option) (iam.Token, error)
 	MintServiceJWT(ctx context.Context, s iam.ServiceJWT, opts ...Option) (iam.Token, iam.ServiceJWTClaims, error)
 
 	// Bootstrap, import and provider links.

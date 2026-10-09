@@ -151,10 +151,10 @@ func TestInvitationsDisabled(t *testing.T) {
 	auth, ctx := o.auth, t.Context()
 	manager := authtest.NewUser(t, auth)
 	authtest.GrantRole(t, auth, o.acme, iam.UserSubject(manager.ID), o.manager)
-	mgr := iam.UserActor(manager.ID)
+	mgr := iam.UserIdentity(manager.ID)
 	link, err := auth.CreateInvitation(ctx, mgr, o.acme, iam.NewInvitation{Role: o.member})
 	require.NoError(t, err)
-	emailed, err := auth.CreateInvitation(ctx, iam.SystemActor(), iam.RootGroup(), iam.NewInvitation{Email: "invited@invitations.test"})
+	emailed, err := auth.CreateInvitation(ctx, iam.SystemIdentity(), iam.RootGroup(), iam.NewInvitation{Email: "invited@invitations.test"})
 	require.NoError(t, err)
 	enabled := func(a *api) bool {
 		var caps struct {
@@ -189,7 +189,7 @@ func TestInvitationsDisabled(t *testing.T) {
 
 	_, err = off.CreateInvitation(ctx, mgr, o.acme, iam.NewInvitation{Role: o.member})
 	require.ErrorIs(t, err, iam.ErrInvitationsDisabled)
-	_, err = off.CreateInvitation(ctx, iam.SystemActor(), iam.RootGroup(), iam.NewInvitation{Email: "later@invitations.test"})
+	_, err = off.CreateInvitation(ctx, iam.SystemIdentity(), iam.RootGroup(), iam.NewInvitation{Email: "later@invitations.test"})
 	require.ErrorIs(t, err, iam.ErrInvitationsDisabled)
 	register := func(code string) response {
 		id := unique("uninvited")

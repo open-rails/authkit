@@ -1,5 +1,5 @@
 -- Authority: the lock and transaction settings of authority mutations, group
--- and actor resolution, ownership invariants and the credential sweep. A
+-- and identity resolution, ownership invariants and the credential sweep. A
 -- usable account is a row of usable_users; an application's registrar counts
 -- only while usable.
 

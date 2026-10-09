@@ -18,7 +18,7 @@ import (
 	"github.com/open-rails/authkit/internal/ops"
 )
 
-// Account reads. They take no actor: the host is the trust boundary, and
+// Account reads. They take no identity: the host is the trust boundary, and
 // httpapi gates its read routes with root:users:read.
 
 // User returns one account. Soft-deleted accounts are excluded unless opts

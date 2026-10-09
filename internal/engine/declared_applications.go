@@ -30,7 +30,7 @@ func (s *Engine) reconcileRemoteApplications(ctx context.Context) error {
 		}
 	}
 	var disabled []string
-	err := s.withAuthorityMutation(ctx, iam.SystemActor(), func(st *permissionGroupStore) error {
+	err := s.withAuthorityMutation(ctx, iam.SystemIdentity(), func(st *permissionGroupStore) error {
 		disabled = nil
 		rootID, err := s.rootGroup(ctx, st)
 		if err != nil {

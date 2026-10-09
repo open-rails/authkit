@@ -12,6 +12,7 @@ import (
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
+	"github.com/open-rails/helpers/auth"
 )
 
 // groupInvitationCreate makes an invite link (no email), whose code is
@@ -20,7 +21,7 @@ import (
 // lands only when the recipient registers with it, or redeems it signed in to
 // the account that proved the address. On root, an email with no role
 // invites someone to register (root:users:invite).
-func (s *Service) groupInvitationCreate(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor) {
+func (s *Service) groupInvitationCreate(w http.ResponseWriter, r *http.Request, g iam.Group, who auth.Identity) {
 	var body InvitationCreateRequest
 	if err := decodeJSON(r, &body); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
@@ -40,7 +41,7 @@ func (s *Service) groupInvitationCreate(w http.ResponseWriter, r *http.Request, 
 			fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("role"))
 			return
 		}
-		created, err := s.svc.CreateInvitation(r.Context(), actor, iam.GroupByID(g.ID), n)
+		created, err := s.svc.CreateInvitation(r.Context(), who, iam.GroupByID(g.ID), n)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -56,7 +57,7 @@ func (s *Service) groupInvitationCreate(w http.ResponseWriter, r *http.Request, 
 	if s.rateLimitedByIdentifier(w, r, RLInviteCreate, n.Email) {
 		return
 	}
-	if _, err := s.svc.CreateInvitation(r.Context(), actor, iam.GroupByID(g.ID), n); err != nil {
+	if _, err := s.svc.CreateInvitation(r.Context(), who, iam.GroupByID(g.ID), n); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -80,8 +81,8 @@ func (s *Service) groupInvitationsList(w http.ResponseWriter, r *http.Request, g
 
 // groupInvitationRevoke revokes the group's invitation {id}; a revoked,
 // redeemed or unknown one answers 204 too.
-func (s *Service) groupInvitationRevoke(w http.ResponseWriter, r *http.Request, g iam.Group, actor iam.Actor, id string) {
-	if err := s.svc.RevokeInvitation(r.Context(), actor, iam.GroupByID(g.ID), id); err != nil && !errors.Is(err, iam.ErrInvitationNotFound) {
+func (s *Service) groupInvitationRevoke(w http.ResponseWriter, r *http.Request, g iam.Group, who auth.Identity, id string) {
+	if err := s.svc.RevokeInvitation(r.Context(), who, iam.GroupByID(g.ID), id); err != nil && !errors.Is(err, iam.ErrInvitationNotFound) {
 		writeError(w, err)
 		return
 	}
@@ -92,8 +93,8 @@ func (s *Service) groupInvitationRevoke(w http.ResponseWriter, r *http.Request, 
 // user, assigning its role (an emailed one only to the account that proved
 // its address). Persona-agnostic: the code resolves to its own group.
 func (s *Service) handleInvitationRedeemPOST(w http.ResponseWriter, r *http.Request) {
-	actor, ok := verify.ActorFromContext(r.Context())
-	if !ok || actor.Kind() != iam.ActorUser {
+	who, ok := verify.IdentityFromContext(r.Context())
+	if !ok || !state(who).IsUser() {
 		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
@@ -102,7 +103,7 @@ func (s *Service) handleInvitationRedeemPOST(w http.ResponseWriter, r *http.Requ
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	res, err := s.svc.RedeemInvitation(r.Context(), actor, strings.TrimSpace(body.Code))
+	res, err := s.svc.RedeemInvitation(r.Context(), who, strings.TrimSpace(body.Code))
 	if err != nil {
 		writeError(w, err)
 		return

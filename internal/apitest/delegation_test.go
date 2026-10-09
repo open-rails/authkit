@@ -192,10 +192,10 @@ func TestBrowserDelegationWorkflow(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, call("DPoP", minted.Token, testdpop.Proof(t, testdpop.Key(t), http.MethodGet, resource.URL+"/tasks", minted.Token, nil), "/tasks"))
 	_, err = verifier.Verify(ctx, minted.Token)
 	require.ErrorIs(t, err, verify.ErrSenderProofRequired)
-	detached, err := auth.MintDelegatedAccessToken(ctx, iam.UserActor(u.ID), iam.DelegatedAccess{Audiences: []string{"platform"}, Permissions: []string{"resource:read"}})
+	detached, err := auth.MintDelegatedAccessToken(ctx, iam.UserIdentity(u.ID), iam.DelegatedAccess{Audiences: []string{"platform"}, Permissions: []string{"resource:read"}})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusUnauthorized, call("DPoP", detached.Value, resourceProof(detached.Value), "/tasks"))
-	_, err = auth.MintDelegatedAccessToken(ctx, iam.SystemActor(), iam.DelegatedAccess{Subject: u.ID, CertificateThumbprint: jose.CertificateThumbprint([]byte{1}), JWKThumbprint: requestFacts.JWKThumbprint})
+	_, err = auth.MintDelegatedAccessToken(ctx, iam.SystemIdentity(), iam.DelegatedAccess{Subject: u.ID, CertificateThumbprint: jose.CertificateThumbprint([]byte{1}), JWKThumbprint: requestFacts.JWKThumbprint})
 	require.Error(t, err)
 	oneProof := resourceProof(minted.Token)
 	secondVerifier, err := auth.NewVerifier([]string{"platform"}, verify.WithPublicURL(resource.URL))
@@ -380,7 +380,7 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 	require.NotContains(t, body, `"bound"`)
 
 	// Trusted in-process minting stays unbound: a plain bearer over plain HTTP.
-	unbound, err := auth.MintDelegatedAccessToken(ctx, iam.UserActor(u.ID), iam.DelegatedAccess{Audiences: []string{"tensorhub.net"}, TTL: time.Minute})
+	unbound, err := auth.MintDelegatedAccessToken(ctx, iam.UserIdentity(u.ID), iam.DelegatedAccess{Audiences: []string{"tensorhub.net"}, TTL: time.Minute})
 	require.NoError(t, err)
 	status, body = callResource(t, plain.Client(), plain.URL, unbound.Value, nil)
 	require.Equal(t, http.StatusOK, status, body)
@@ -503,7 +503,7 @@ func TestDelegatedTokenRoute_CertificateBoundEndToEnd(t *testing.T) {
 
 	// A live key rotation (#238: the KeySource is read per operation): the
 	// user's token from the old key keeps authenticating, the next mint signs
-	// with the new key and still verifies as a delegated principal over mTLS.
+	// with the new key and still verifies as a delegation over mTLS.
 	host.answer(iam.DelegationGrant{}, nil)
 	keySource.rotate(t, "bound-kid-2")
 	rotated := mintOK(delegationBody(delegate, ""))
@@ -633,11 +633,11 @@ func delegatedVerifier(t *testing.T, signer keys.Signer, iss string, aud []strin
 	return v
 }
 
-// delegatedResource authenticates with ver and echoes the delegated principal.
+// delegatedResource authenticates with ver and echoes the delegation.
 func delegatedResource(ver verify.Authenticator) http.Handler {
 	return verify.Required(ver)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cl, _ := verify.ClaimsFromContext(r.Context())
-		if cl.Kind != iam.ActorDelegated {
+		if cl.Kind != verify.TokenDelegated {
 			cl = verify.Claims{}
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{

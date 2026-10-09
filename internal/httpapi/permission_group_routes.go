@@ -13,6 +13,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
+	"github.com/open-rails/helpers/auth"
 )
 
 // groupScopeCodes: a group-scoped route answers an unknown group as forbidden,
@@ -20,23 +21,23 @@ import (
 var groupScopeCodes = map[error]errmodel.Code{iam.ErrGroupNotFound: errmodel.CodeForbidden}
 
 // GroupHandler returns the handler for one group route. It:
-//  1. derives the caller's actor (401 if none; 403 for a delegation);
+//  1. derives the caller's identity (401 if none; 403 for a delegation);
 //  2. resolves :group_id (`root` is the root group) to a live group;
 //  3. refuses a group whose persona lacks the route, like an unknown group;
 //  4. authorizes the route's permission on the group with the engine's live
-//     Can, for every actor kind (403 on deny);
+//     Can, for every identity kind (403 on deny);
 //  5. for a change to the root group, requires a user who signed in
-//     recently (M7): step_up_required otherwise, 403 for any other actor;
+//     recently (M7): step_up_required otherwise, 403 for any other identity;
 //  6. performs the operation, whose engine call applies its own rules.
 func (s *Service) GroupHandler(op GroupOp) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		actor, ok := verify.ActorFromContext(r.Context())
+		who, ok := verify.IdentityFromContext(r.Context())
 		if !ok {
 			fail(w, errmodel.CodeUnauthenticated)
 			return
 		}
-		// AuthKit's management routes refuse delegated principals.
-		if actor.Kind() == iam.ActorDelegated {
+		// AuthKit's management routes refuse delegations.
+		if state(who).Delegated() {
 			fail(w, errmodel.CodeForbidden)
 			return
 		}
@@ -56,7 +57,7 @@ func (s *Service) GroupHandler(op GroupOp) http.HandlerFunc {
 		group := iam.GroupByID(g.ID)
 		allowed := false
 		for _, perm := range op.Perms(persona) {
-			if allowed, err = s.svc.Can(r.Context(), actor, group, perm); err != nil || allowed {
+			if allowed, err = s.svc.Can(r.Context(), who, group, perm); err != nil || allowed {
 				break
 			}
 		}
@@ -72,7 +73,7 @@ func (s *Service) GroupHandler(op GroupOp) http.HandlerFunc {
 			fail(w, errmodel.CodeForbidden)
 			return
 		}
-		if op.Mutates() && g.Persona == iam.RootPersona() && !s.recentUserSignIn(w, r, actor) {
+		if op.Mutates() && g.Persona == iam.RootPersona() && !s.recentUserSignIn(w, r, who) {
 			return
 		}
 
@@ -80,23 +81,23 @@ func (s *Service) GroupHandler(op GroupOp) http.HandlerFunc {
 		case OpMembersList:
 			s.groupMembersList(w, r, g)
 		case OpMemberSet:
-			s.groupMemberSet(w, r, g, actor)
+			s.groupMemberSet(w, r, g, who)
 		case OpMemberRemove:
-			s.groupMemberRemove(w, r, g, actor)
+			s.groupMemberRemove(w, r, g, who)
 		case OpRolesList:
 			s.groupRolesList(w, g)
 		case OpAPIKeysList:
 			s.groupAPIKeyList(w, r, g)
 		case OpAPIKeyMint:
-			s.groupAPIKeyMint(w, r, g, actor)
+			s.groupAPIKeyMint(w, r, g, who)
 		case OpAPIKeyRevoke:
-			s.groupAPIKeyRevoke(w, r, g, actor, r.PathValue("id"))
+			s.groupAPIKeyRevoke(w, r, g, who, r.PathValue("id"))
 		case OpInvitationsList:
 			s.groupInvitationsList(w, r, g)
 		case OpInvitationCreate:
-			s.groupInvitationCreate(w, r, g, actor)
+			s.groupInvitationCreate(w, r, g, who)
 		case OpInvitationRevoke:
-			s.groupInvitationRevoke(w, r, g, actor, r.PathValue("id"))
+			s.groupInvitationRevoke(w, r, g, who, r.PathValue("id"))
 		default:
 			fail(w, errmodel.CodeNotImplemented)
 		}
@@ -118,8 +119,8 @@ func groupRef(id string) iam.GroupRef {
 // signed in recently (CheckRecentSignIn, MFA-fresh when enrolled): API keys
 // and applications never change root, and a stale session is asked to step
 // up. It answers the refusal itself.
-func (s *Service) recentUserSignIn(w http.ResponseWriter, r *http.Request, actor iam.Actor) bool {
-	if actor.Kind() != iam.ActorUser {
+func (s *Service) recentUserSignIn(w http.ResponseWriter, r *http.Request, who auth.Identity) bool {
+	if !state(who).IsUser() {
 		fail(w, errmodel.CodeForbidden)
 		return false
 	}
@@ -134,14 +135,14 @@ func (s *Service) recentUserSignIn(w http.ResponseWriter, r *http.Request, actor
 	return true
 }
 
-// userActorID is the user behind actor, for operations only a user may
-// perform; any other actor gets 403.
-func userActorID(w http.ResponseWriter, actor iam.Actor) (string, bool) {
-	if actor.Kind() != iam.ActorUser {
+// userSubjectID is the user behind identity, for operations only a user may
+// perform; any other identity gets 403.
+func userSubjectID(w http.ResponseWriter, who auth.Identity) (string, bool) {
+	if !state(who).IsUser() {
 		fail(w, errmodel.CodeForbidden)
 		return "", false
 	}
-	return actor.ID(), true
+	return state(who).ID(), true
 }
 
 // groupRole resolves role text `<persona>:<name>` for a group of persona. The

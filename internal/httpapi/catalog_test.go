@@ -140,7 +140,7 @@ func TestCatalogDeclaresGates(t *testing.T) {
 		}
 		require.Contains(t, append(httpapi.Features, httpapi.Always), r.MountedWhen, key)
 		// A signed-in change checks the session (AuthSession) or runs through
-		// the actor's session binding (AuthPermission); only logout, which
+		// the identity's session binding (AuthPermission); only logout, which
 		// must end an already revoked session too, is AuthRequired.
 		if r.Method != http.MethodGet && r.Auth == iam.AuthRequired {
 			require.Equal(t, "DELETE /logout", r.Method+" "+r.Path, "%s changes state: declare AuthSession or AuthPermission", key)

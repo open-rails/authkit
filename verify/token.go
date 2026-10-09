@@ -66,7 +66,7 @@ func (v *Verifier) verify(ctx context.Context, token string, r *http.Request) (C
 	if err != nil {
 		return Claims{}, err
 	}
-	if cl.Kind == iam.ActorUser && !cl.IsResourceToken() {
+	if cl.Kind == TokenUser && !cl.IsResourceToken() {
 		if is.local {
 			// Native tokens establish identity, never authority.
 			cl.UserID, cl.Permissions = cl.Subject, nil
@@ -86,7 +86,7 @@ func (v *Verifier) verify(ctx context.Context, token string, r *http.Request) (C
 
 // profile maps a signature-verified token to Claims under AuthKit's
 // profiles: an access token names a user (sub), a delegated access token an
-// external actor (delegated_sub), never both; a resource access token
+// external identity (delegated_sub), never both; a resource access token
 // (RFC 9068 at+jwt) names a user, or its client acting for itself, with the
 // client_id it was issued to.
 func profile(typ string, mc map[string]any) (Claims, error) {
@@ -116,7 +116,7 @@ func profile(typ string, mc map[string]any) (Claims, error) {
 		return Claims{}, errmodel.E(errmodel.CodeMissingClientID)
 	}
 	cl := Claims{
-		Kind:             iam.ActorUser,
+		Kind:             TokenUser,
 		JOSEType:         typ,
 		Issuer:           jose.String(mc, "iss"),
 		Subject:          sub,
@@ -139,15 +139,15 @@ func profile(typ string, mc map[string]any) (Claims, error) {
 	cl.AuthTime, _ = jose.Time(mc, "auth_time")
 	switch {
 	case isDelegated:
-		cl.Kind, cl.RootRole = iam.ActorDelegated, ""
+		cl.Kind, cl.RootRole = TokenDelegated, ""
 	case isResource:
 		cl.ClientID, cl.Scopes, cl.Roles = clientID, strings.Fields(jose.String(mc, "scope")), jose.Strings(mc, "roles")
 		cl.RootRole, cl.TwoFAEnrollment, cl.MFAEnrolled, cl.DeviceKeyID = "", false, false, ""
 		if sub == clientID {
-			cl.Kind = iam.ActorOAuthClient
+			cl.Kind = TokenOAuthClient
 		}
 		if act, ok := mc["act"].(map[string]any); ok {
-			cl.Actor, _ = act["sub"].(string)
+			cl.Invoker, _ = act["sub"].(string)
 		}
 		if details, ok := mc["authorization_details"].([]any); ok {
 			cl.AuthorizationDetails, _ = json.Marshal(details)
@@ -190,7 +190,7 @@ func (v *Verifier) senderProof(token string, r *http.Request, cl *Claims) error 
 	if err != nil {
 		return ErrInvalidConfirmation
 	}
-	if member != "" && cl.Kind != iam.ActorDelegated && !cl.IsResourceToken() {
+	if member != "" && cl.Kind != TokenDelegated && !cl.IsResourceToken() {
 		return ErrConfirmationWrongTokenType
 	}
 	if isDPoPRequest(r) && member != jose.JWKThumbprintMember {

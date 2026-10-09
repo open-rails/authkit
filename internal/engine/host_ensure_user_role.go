@@ -37,7 +37,7 @@ func (s *Engine) EnsureUserRole(ctx context.Context, ref iam.GroupRef, u iam.Use
 		return iam.User{}, err
 	}
 	var out iam.User
-	err = s.withGroupMutationIn(ctx, iam.SystemActor(), host, ref, func(st *permissionGroupStore, g groupTarget) error {
+	err = s.withGroupMutationIn(ctx, iam.SystemIdentity(), host, ref, func(st *permissionGroupStore, g groupTarget) error {
 		if !s.validRoleForPersona(s.groupSchemaOrDefault(), g.Persona, role) {
 			return fmt.Errorf("role %q is not assignable in a %q group: %w", role, g.Persona, iam.ErrRoleNotAssignable)
 		}

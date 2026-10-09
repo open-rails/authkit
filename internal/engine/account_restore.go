@@ -7,13 +7,14 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/helpers/auth"
 )
 
 // restoreAccountDeletionOn is the common transactional restore transition.
 // Recovery proofs must pass their server-bound generation; system restores
 // pass an empty generation to select the current deletion. Callers retain
-// responsibility for authenticating a, their actor, before invoking this helper.
-func (s *Engine) restoreAccountDeletionOn(ctx context.Context, tx pgx.Tx, a iam.Actor, userID, generation string) error {
+// responsibility for authenticating a, their identity, before invoking this helper.
+func (s *Engine) restoreAccountDeletionOn(ctx context.Context, tx pgx.Tx, a auth.Identity, userID, generation string) error {
 	if _, err := s.deletionRiver(); err != nil {
 		return err
 	}

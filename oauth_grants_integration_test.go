@@ -206,7 +206,7 @@ func TestOAuthRefreshTokenFamilies(t *testing.T) {
 	ended := as.AuthorizeAs(t, signedIn, consoleFlow())
 	claims, err := as.Client.Verify(ctx, signedIn.AccessToken)
 	require.NoError(t, err)
-	require.NoError(t, as.Client.RevokeSession(ctx, iam.SystemActor(), owner.ID, claims.SessionID))
+	require.NoError(t, as.Client.RevokeSession(ctx, iam.SystemIdentity(), owner.ID, claims.SessionID))
 	_, code = refresh(ended, ended.DPoP, nil)
 	require.Equal(t, "invalid_grant", code)
 
@@ -278,7 +278,7 @@ func TestOAuthTokenExchange(t *testing.T) {
 	}})
 	require.Equal(t, "unauthorized_client", code, "a client without the grant")
 
-	require.NoError(t, as.Client.RevokeSession(ctx, iam.SystemActor(), owner.ID, session.SessionID))
+	require.NoError(t, as.Client.RevokeSession(ctx, iam.SystemIdentity(), owner.ID, session.SessionID))
 	_, code = exchange(func(url.Values) {}, key)
 	require.Equal(t, "invalid_grant", code, "an ended sign-in exchanges nothing")
 

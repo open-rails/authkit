@@ -257,7 +257,7 @@ func TestSecurityDeviceKeyRefusedBeforeBackupCode(t *testing.T) {
 	backup := h.enrollEmail2FA(owner)
 	key := newDeviceKey(t)
 	require.Equal(t, http.StatusOK, h.deviceEnroll(key, owner.email, func() string { return backup[0] }).status)
-	_, err := h.auth.RevokeAccountSessions(ctx, iam.SystemActor(), owner.id)
+	_, err := h.auth.RevokeAccountSessions(ctx, iam.SystemIdentity(), owner.id)
 	require.NoError(t, err)
 
 	signInWithBackup := func(a account, code string) response {

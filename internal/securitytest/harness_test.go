@@ -26,6 +26,8 @@ import (
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/testkeys"
 	"github.com/open-rails/authkit/keys"
+	"github.com/open-rails/authkit/verify"
+	hauth "github.com/open-rails/helpers/auth"
 	"github.com/stretchr/testify/require"
 )
 
@@ -257,7 +259,7 @@ func (h *host) newAccount(prefix string) account {
 
 // setPassword replaces a password with system authority.
 func (h *host) setPassword(id, pw string) error {
-	_, err := h.auth.UpdateUser(context.Background(), iam.SystemActor(), id, iam.UserUpdate{Password: &pw})
+	_, err := h.auth.UpdateUser(context.Background(), iam.SystemIdentity(), id, iam.UserUpdate{Password: &pw})
 	return err
 }
 
@@ -265,7 +267,7 @@ func (h *host) setPassword(id, pw string) error {
 func (h *host) verifyEmail(id string) {
 	h.t.Helper()
 	verified := true
-	_, err := h.auth.UpdateUser(context.Background(), iam.SystemActor(), id, iam.UserUpdate{EmailVerified: &verified})
+	_, err := h.auth.UpdateUser(context.Background(), iam.SystemIdentity(), id, iam.UserUpdate{EmailVerified: &verified})
 	require.NoError(h.t, err)
 }
 
@@ -339,14 +341,14 @@ func revokeRole(t testing.TB, auth *authkit.Client, ref iam.GroupRef, subject ia
 }
 
 // createKey is CreateAPIKey's key and its token.
-func createKey(auth *authkit.Client, ctx context.Context, actor iam.Actor, ref iam.GroupRef, k iam.NewAPIKey) (iam.APIKey, string, error) {
-	created, err := auth.CreateAPIKey(ctx, actor, ref, k)
+func createKey(auth *authkit.Client, ctx context.Context, who hauth.Identity, ref iam.GroupRef, k iam.NewAPIKey) (iam.APIKey, string, error) {
+	created, err := auth.CreateAPIKey(ctx, who, ref, k)
 	return created.APIKey, created.Secret, err
 }
 
 // setRole is SetGroupRole's error.
-func setRole(auth *authkit.Client, ctx context.Context, actor iam.Actor, ref iam.GroupRef, subject iam.Subject, role iam.Role) error {
-	_, err := auth.SetGroupRole(ctx, actor, ref, subject, role)
+func setRole(auth *authkit.Client, ctx context.Context, who hauth.Identity, ref iam.GroupRef, subject iam.Subject, role iam.Role) error {
+	_, err := auth.SetGroupRole(ctx, who, ref, subject, role)
 	return err
 }
 
@@ -359,4 +361,26 @@ func patterns(auth *authkit.Client) []string {
 		}
 	}
 	return out
+}
+
+// gateIdentity is the identity a gate over a stores for r: what a handler
+// behind verify.Required reads (verify.IdentityFromContext).
+func gateIdentity(a verify.Authenticator, r *http.Request) (hauth.Identity, bool) {
+	var id hauth.Identity
+	var ok bool
+	verify.Required(a)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		id, ok = verify.IdentityFromContext(r.Context())
+	})).ServeHTTP(httptest.NewRecorder(), r.Clone(r.Context()))
+	return id, ok
+}
+
+// tokenIdentity is the identity a request bearing token acts as behind a
+// gate over a; the test fails when a refuses it.
+func tokenIdentity(t *testing.T, a verify.Authenticator, token string) hauth.Identity {
+	t.Helper()
+	r := httptest.NewRequest(http.MethodGet, "https://resource.security.test/", nil)
+	r.Header.Set("Authorization", "Bearer "+token)
+	id, ok := gateIdentity(a, r)
+	require.True(t, ok, "the gate refused the token")
+	return id
 }

@@ -189,7 +189,7 @@ func (a *Authenticator) applicationClaims(ctx context.Context, app iam.RemoteApp
 		if _, present := mc["permissions"]; present && requested == nil {
 			requested = []string{}
 		}
-		cl := verify.Claims{Kind: iam.ActorRemoteApplication, JOSEType: typ, Issuer: app.Issuer}
+		cl := verify.Claims{Kind: verify.TokenRemoteApplication, JOSEType: typ, Issuer: app.Issuer}
 		return a.s.withinApplication(ctx, app, cl, requested)
 	case strings.EqualFold(typ, jose.DelegatedAccessTokenType):
 		var cl verify.Claims
@@ -199,7 +199,7 @@ func (a *Authenticator) applicationClaims(ctx context.Context, app iam.RemoteApp
 		} else {
 			cl, err = a.v.Verify(ctx, token)
 		}
-		if err == nil && cl.Kind != iam.ActorDelegated {
+		if err == nil && cl.Kind != verify.TokenDelegated {
 			err = errmodel.E(errmodel.CodeNotDelegatedAccessToken)
 		}
 		if err != nil {

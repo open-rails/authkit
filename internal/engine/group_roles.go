@@ -21,12 +21,13 @@ import (
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/ops"
 	"github.com/open-rails/authkit/internal/rbac"
+	"github.com/open-rails/helpers/auth"
 )
 
-// grantsCoverAll reports whether actorGrants cover every permission in targetGrants.
-func grantsCoverAll(actorGrants, targetGrants []string) bool {
+// grantsCoverAll reports whether identityGrants cover every permission in targetGrants.
+func grantsCoverAll(identityGrants, targetGrants []string) bool {
 	for _, tp := range targetGrants {
-		if !rbac.Covers(actorGrants, ident.Perm(tp)) {
+		if !rbac.Covers(identityGrants, ident.Perm(tp)) {
 			return false
 		}
 	}
@@ -37,7 +38,7 @@ func grantsCoverAll(actorGrants, targetGrants []string) bool {
 // CAP by subject kind, COVER(role), and when replacing, COVER(old) (none for a
 // removed role) and the last-owner check. An application subject must be
 // controlled by the group. Holding role already changes nothing.
-func (s *Engine) SetGroupRole(ctx context.Context, a iam.Actor, ref iam.GroupRef, subject iam.Subject, role iam.Role, opts ...ops.Option) (iam.GroupMember, error) {
+func (s *Engine) SetGroupRole(ctx context.Context, a auth.Identity, ref iam.GroupRef, subject iam.Subject, role iam.Role, opts ...ops.Option) (iam.GroupMember, error) {
 	tx, err := hostTx("SetGroupRole", opts)
 	if err != nil {
 		return iam.GroupMember{}, err
@@ -93,7 +94,7 @@ func (s *Engine) SetGroupRole(ctx context.Context, a iam.Actor, ref iam.GroupRef
 // of the role it holds (none for a removed role), then the last-owner check. A
 // non-member is a no-op, as is a subject holding another role than ops.IfRole
 // names.
-func (s *Engine) RemoveGroupMember(ctx context.Context, a iam.Actor, ref iam.GroupRef, subject iam.Subject, opts ...ops.Option) error {
+func (s *Engine) RemoveGroupMember(ctx context.Context, a auth.Identity, ref iam.GroupRef, subject iam.Subject, opts ...ops.Option) error {
 	o, err := ops.Resolve("RemoveGroupMember", opts, ops.KindTx, ops.KindIfRole)
 	if err != nil {
 		return err
@@ -143,11 +144,11 @@ func (s *Engine) requireMemberRoleCover(ctx context.Context, st *permissionGroup
 	return nil
 }
 
-// groupSubject validates the actor and subject of a role change. Ids are
+// groupSubject validates the identity and subject of a role change. Ids are
 // compared as text downstream (self rules, the sweep's issuer filter): only
 // the canonical form may travel (P4).
-func groupSubject(a iam.Actor, subject iam.Subject) (iam.Subject, error) {
-	if err := requireActor(a); err != nil {
+func groupSubject(a auth.Identity, subject iam.Subject) (iam.Subject, error) {
+	if err := requireIdentity(a); err != nil {
 		return subject, err
 	}
 	subject.ID = strings.TrimSpace(subject.ID)
@@ -176,10 +177,10 @@ func (s *Engine) requireRegistrarCover(ctx context.Context, st *permissionGroupS
 	return fmt.Errorf("the application's registrar cannot issue role %q: %w", role, iam.ErrRoleAssignmentEscalation)
 }
 
-// subjectCap resolves the actor's authority in g and checks the subject
+// subjectCap resolves the identity's authority in g and checks the subject
 // kind's capability.
-func (s *Engine) subjectCap(ctx context.Context, st *permissionGroupStore, a iam.Actor, g groupTarget, subject iam.Subject) (authority, error) {
-	auth, err := s.actorAuthority(ctx, st, a, g)
+func (s *Engine) subjectCap(ctx context.Context, st *permissionGroupStore, a auth.Identity, g groupTarget, subject iam.Subject) (authority, error) {
+	auth, err := s.identityAuthority(ctx, st, a, g)
 	if err != nil {
 		return authority{}, err
 	}
