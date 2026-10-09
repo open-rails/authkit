@@ -377,6 +377,9 @@ type oauthMint struct {
 	invoker  string
 	// grantEnd, when set, is when the grant ends: no token outlives it.
 	grantEnd time.Time
+	// workload is a jwt-bearer token: no sign-in stands behind it, so it
+	// carries no auth_time, amr or acr.
+	workload bool
 }
 
 // mintOAuthTokens mints the access token for m's resource (or, with none,
@@ -455,9 +458,10 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 		return authflow.OAuthTokens{}, iam.ErrUserNotFound
 	}
 	roles := s.oauthRoles(ctx, m.userID)
-	maps.Copy(at, map[string]any{
-		"sub": m.userID, "auth_time": m.authTime, "acr": m.acr, "amr": m.amr, "roles": roles,
-	})
+	at["sub"], at["roles"] = m.userID, roles
+	if !m.workload {
+		maps.Copy(at, map[string]any{"auth_time": m.authTime, "acr": m.acr, "amr": m.amr})
+	}
 	if !m.offline && m.sessionID != "" {
 		// An offline grant outlives its sign-in, and a device key is no
 		// session: their tokens name none.

@@ -551,6 +551,9 @@ func normalizeHTTP(h *HTTPConfig, c Config, d Deps) error {
 		if len(cl.AuthorizationDetailsTypes) > 0 && d.OAuthGrants == nil {
 			return fmt.Errorf("authkit: AuthorizationServer client %q declares AuthorizationDetailsTypes but no grant authorizer is wired — set authkit.Deps.OAuthGrants", cl.ID)
 		}
+		if OAuthClientAllows(cl, GrantJWTBearer) && d.OAuthGrants == nil {
+			return fmt.Errorf("authkit: AuthorizationServer client %q allows the jwt-bearer grant but no grant authorizer is wired to decide whom its tokens act for — set authkit.Deps.OAuthGrants", cl.ID)
+		}
 	}
 	return nil
 }

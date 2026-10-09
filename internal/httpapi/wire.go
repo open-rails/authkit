@@ -731,22 +731,26 @@ type OAuthAuthorizeParams struct {
 }
 
 // OAuthTokenParams are the token request's parameters: the authorization
-// code (RFC 6749 §4.1.3), refresh (§6), client credentials (§4.4) and token
-// exchange (RFC 8693 §2.1) grants. A confidential client authenticates with
-// HTTP Basic or client_secret; a public client sends a DPoP proof.
+// code (RFC 6749 §4.1.3), refresh (§6), client credentials (§4.4), token
+// exchange (RFC 8693 §2.1) and JWT-bearer (RFC 7523 §2.1) grants. A
+// confidential client authenticates with HTTP Basic or client_secret; a
+// public client sends a DPoP proof, as does every jwt-bearer request.
 type OAuthTokenParams struct {
-	GrantType          string   `query:"grant_type"`
-	Code               *string  `query:"code"`
-	RedirectURI        *string  `query:"redirect_uri"`
-	CodeVerifier       *string  `query:"code_verifier"`
-	RefreshToken       *string  `query:"refresh_token"`
-	SubjectToken       *string  `query:"subject_token"`
-	SubjectTokenType   *string  `query:"subject_token_type"`
-	RequestedTokenType *string  `query:"requested_token_type"`
-	Scope              *string  `query:"scope"`
-	ClientID           *string  `query:"client_id"`
-	ClientSecret       *string  `query:"client_secret"`
-	Resource           []string `query:"resource"`
+	GrantType          string  `query:"grant_type"`
+	Code               *string `query:"code"`
+	RedirectURI        *string `query:"redirect_uri"`
+	CodeVerifier       *string `query:"code_verifier"`
+	RefreshToken       *string `query:"refresh_token"`
+	SubjectToken       *string `query:"subject_token"`
+	SubjectTokenType   *string `query:"subject_token_type"`
+	RequestedTokenType *string `query:"requested_token_type"`
+	// Assertion is the jwt-bearer grant's JWT, signed by the key its DPoP
+	// proof proves.
+	Assertion    *string  `query:"assertion"`
+	Scope        *string  `query:"scope"`
+	ClientID     *string  `query:"client_id"`
+	ClientSecret *string  `query:"client_secret"`
+	Resource     []string `query:"resource"`
 }
 
 // OAuthRevokeParams are a revocation request's parameters (RFC 7009).

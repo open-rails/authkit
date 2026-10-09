@@ -32,12 +32,15 @@ type OAuthAuthorization struct {
 
 // OAuthGrantDecision is the host authorizer's decision a grant carries:
 // permissions (nil for the defaults), authorization details, a lifetime cap
-// and extra access-token claims.
+// and extra access-token claims; for jwt-bearer, the user the token acts for
+// and its invoker.
 type OAuthGrantDecision struct {
 	Permissions          []string        `json:"permissions,omitempty"`
 	AuthorizationDetails json.RawMessage `json:"authorization_details,omitempty"`
 	MaxLifetime          time.Duration   `json:"max_lifetime,omitempty"`
 	Claims               map[string]any  `json:"claims,omitempty"`
+	UserID               string          `json:"user_id,omitempty"`
+	Invoker              string          `json:"invoker,omitempty"`
 }
 
 // OAuthGrant is what an authorization code stands for: the approved request

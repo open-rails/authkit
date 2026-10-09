@@ -4714,6 +4714,9 @@
                   "requested_token_type": {
                     "type": "string"
                   },
+                  "assertion": {
+                    "type": "string"
+                  },
                   "scope": {
                     "type": "string"
                   },

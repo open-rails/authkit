@@ -1,6 +1,6 @@
 package httpapi
 
-// The authorization server's protocol endpoints (#430): issuer metadata
+// The authorization server's protocol endpoints (#430, #437): issuer metadata
 // (RFC 8414, OIDC Discovery), authorize (RFC 6749 §4.1 with RFC 7636 PKCE and
 // RFC 8707 resource indicators), token, userinfo and RP-initiated logout.
 // They answer OAuth's own error format, not AuthKit's envelope. Validation
@@ -259,7 +259,7 @@ func (s *Service) validateAuthorization(client config.OAuthClientConfig, redirec
 
 // handleOAuthToken is the token endpoint: one authenticated (or public)
 // client, one grant. A DPoP proof (RFC 9449) binds the tokens to its key; a
-// public client must send one.
+// public client, and every jwt-bearer grant, must send one.
 func (s *Service) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 	s.oauthCORS(w, r)
 	w.Header().Set("Cache-Control", "no-store")
@@ -279,7 +279,7 @@ func (s *Service) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 	case "":
 		oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidRequest, "grant_type is required"))
 		return
-	case config.GrantAuthorizationCode, config.GrantRefreshToken, config.GrantTokenExchange, config.GrantClientCredentials:
+	case config.GrantAuthorizationCode, config.GrantRefreshToken, config.GrantTokenExchange, config.GrantClientCredentials, config.GrantJWTBearer:
 	default:
 		oauthFail(w, authflow.NewOAuthError(authflow.OAuthUnsupportedGrantType, "unsupported grant_type"))
 		return
@@ -294,6 +294,10 @@ func (s *Service) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 	}
 	if params.Has("authorization_details") && (grant == config.GrantAuthorizationCode || grant == config.GrantRefreshToken) {
 		oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidRequest, "authorization_details are granted at the authorization request"))
+		return
+	}
+	if params.Has("authorization_details") && grant == config.GrantJWTBearer {
+		oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidRequest, "the jwt-bearer grant takes no authorization_details"))
 		return
 	}
 	jkt, err := s.oauthTokenDPoP(r, client)
@@ -325,6 +329,11 @@ func (s *Service) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 			ClientID: client.ID, Resource: params.Get("resource"), Scopes: strings.Fields(params.Get("scope")), JKT: jkt,
 			AuthorizationDetails: details,
 		})
+	case config.GrantJWTBearer:
+		tokens, err = s.svc.OAuthJWTBearer(r.Context(), authflow.OAuthJWTBearer{
+			ClientID: client.ID, Assertion: params.Get("assertion"), Resource: params.Get("resource"),
+			Scopes: strings.Fields(params.Get("scope")), JKT: jkt,
+		})
 	}
 	if err != nil {
 		oauthFail(w, err)
@@ -335,7 +344,8 @@ func (s *Service) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 
 // oauthTokenDPoP verifies the token request's DPoP proof (no ath at the
 // token endpoint) and returns its key's thumbprint: "" without one, which
-// only a confidential client that is not key-bound may omit.
+// only a confidential client that is not key-bound may omit (the jwt-bearer
+// grant refuses it).
 func (s *Service) oauthTokenDPoP(r *http.Request, client config.OAuthClientConfig) (string, error) {
 	if len(r.Header.Values("DPoP")) == 0 {
 		switch {

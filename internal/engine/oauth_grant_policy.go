@@ -2,7 +2,7 @@ package engine
 
 // The host's say in the authorization server's grants (#433): the grant
 // authorizer (Deps.OAuthGrants) decides consent, token exchange, client
-// credentials and every refresh; RFC 9396 authorization_details carry
+// credentials, jwt-bearer (#437) and every refresh; RFC 9396 authorization_details carry
 // structured grants; RevokeOAuthGrant ends a consented grant.
 
 import (
@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
@@ -76,7 +77,34 @@ func (s *Engine) decideOAuthGrant(ctx context.Context, req iam.OAuthGrantRequest
 		}
 		out.Claims = d.Claims
 	}
+	if req.Kind != iam.OAuthGrantJWTBearer {
+		if d.UserID != "" || d.Invoker != "" {
+			return nil, errors.New("authkit: oauth: grant authorizer UserID and Invoker answer only a jwt_bearer grant")
+		}
+		return out, nil
+	}
+	userID, ok := canonicalUUID(strings.TrimSpace(d.UserID))
+	switch {
+	case !ok:
+		return nil, errors.New("authkit: oauth: grant authorizer must name the jwt_bearer token's user (UserID, a user id)")
+	case !validActor(d.Invoker):
+		return nil, errors.New("authkit: oauth: grant authorizer must name the jwt_bearer token's Invoker: 1-256 printable characters without spaces")
+	}
+	out.UserID, out.Invoker = userID, d.Invoker
 	return out, nil
+}
+
+// validActor is an act.sub: 1-256 printable bytes without spaces.
+func validActor(s string) bool {
+	if s == "" || len(s) > 256 {
+		return false
+	}
+	for _, r := range s {
+		if !unicode.IsPrint(r) || unicode.IsSpace(r) {
+			return false
+		}
+	}
+	return true
 }
 
 // checkGrantClaims refuses an extra claim whose name is not an absolute URI

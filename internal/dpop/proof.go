@@ -62,37 +62,11 @@ func Verify(r *http.Request, c Check) (string, error) {
 		return zero, ErrInvalidProof
 	}
 	proof := r.Header.Get("DPoP")
-	if len(proof) == 0 || len(proof) > 4<<10 {
+	if len(proof) > 4<<10 {
 		return zero, ErrInvalidProof
 	}
-	parts := strings.Split(proof, ".")
-	if len(parts) != 3 {
-		return zero, ErrInvalidProof
-	}
-	header, err := decodeObject(parts[0])
-	if err != nil || len(header) != 3 || stringValue(header["typ"]) != "dpop+jwt" || stringValue(header["alg"]) != "ES256" {
-		return zero, ErrInvalidProof
-	}
-	jwk, err := object(header["jwk"])
-	if err != nil || len(jwk) != 4 || stringValue(jwk["kty"]) != "EC" || stringValue(jwk["crv"]) != "P-256" {
-		return zero, ErrInvalidProof
-	}
-	x, y := stringValue(jwk["x"]), stringValue(jwk["y"])
-	xb, xe := base64.RawURLEncoding.Strict().DecodeString(x)
-	yb, ye := base64.RawURLEncoding.Strict().DecodeString(y)
-	if xe != nil || ye != nil || len(xb) != 32 || len(yb) != 32 {
-		return zero, ErrInvalidProof
-	}
-	key, err := ecdsa.ParseUncompressedPublicKey(elliptic.P256(), append(append([]byte{4}, xb...), yb...))
-	if err != nil {
-		return zero, ErrInvalidProof
-	}
-	signature, err := base64.RawURLEncoding.Strict().DecodeString(parts[2])
-	if err != nil || jwt.SigningMethodES256.Verify(parts[0]+"."+parts[1], signature, key) != nil {
-		return zero, ErrInvalidProof
-	}
-	claims, err := decodeObject(parts[1])
-	if err != nil {
+	header, claims, thumbprint, err := ParseKeyJWS(proof)
+	if err != nil || len(header) != 3 || stringValue(header["typ"]) != "dpop+jwt" {
 		return zero, ErrInvalidProof
 	}
 	jti := stringValue(claims["jti"])
@@ -127,10 +101,6 @@ func Verify(r *http.Request, c Check) (string, error) {
 	} else if ath := sha256.Sum256([]byte(c.AccessToken)); stringValue(claims["ath"]) != base64.RawURLEncoding.EncodeToString(ath[:]) {
 		return zero, ErrInvalidProof
 	}
-	// RFC 7638: lexicographic member order and only required public members.
-	canonicalKey := `{"crv":"P-256","kty":"EC","x":"` + x + `","y":"` + y + `"}`
-	sum := sha256.Sum256([]byte(canonicalKey))
-	thumbprint := base64.RawURLEncoding.EncodeToString(sum[:])
 	if c.Thumbprint != "" && c.Thumbprint != thumbprint {
 		return zero, ErrInvalidProof
 	}
@@ -140,7 +110,8 @@ func Verify(r *http.Request, c Check) (string, error) {
 	if c.Replay == nil {
 		return zero, ErrReplayUnavailable
 	}
-	replayKey := sha256.Sum256(append(sum[:], []byte(jti)...))
+	sum, _ := base64.RawURLEncoding.DecodeString(thumbprint)
+	replayKey := sha256.Sum256(append(sum, []byte(jti)...))
 	// Round up to whole seconds so millisecond-resolution stores cannot expire
 	// a replay claim just before the last accepted fractional second.
 	ttl := time.Duration(iat+61-now.Unix()) * time.Second
@@ -152,6 +123,46 @@ func Verify(r *http.Request, c Check) (string, error) {
 		return zero, ErrReplay
 	}
 	return thumbprint, nil
+}
+
+// ParseKeyJWS verifies a compact ES256 JWS whose protected header carries
+// its own public P-256 key (jwk, exactly kty, crv, x and y), and returns the
+// header, the claims and the key's RFC 7638 thumbprint (unpadded base64url).
+// It proves possession of that key and nothing else: the caller checks the
+// header's other members and every claim. Duplicate members are refused.
+func ParseKeyJWS(compact string) (header, claims map[string]json.RawMessage, thumbprint string, err error) {
+	parts := strings.Split(compact, ".")
+	if len(compact) == 0 || len(parts) != 3 {
+		return nil, nil, "", ErrInvalidProof
+	}
+	header, err = decodeObject(parts[0])
+	if err != nil || stringValue(header["alg"]) != "ES256" {
+		return nil, nil, "", ErrInvalidProof
+	}
+	jwk, err := object(header["jwk"])
+	if err != nil || len(jwk) != 4 || stringValue(jwk["kty"]) != "EC" || stringValue(jwk["crv"]) != "P-256" {
+		return nil, nil, "", ErrInvalidProof
+	}
+	x, y := stringValue(jwk["x"]), stringValue(jwk["y"])
+	xb, xe := base64.RawURLEncoding.Strict().DecodeString(x)
+	yb, ye := base64.RawURLEncoding.Strict().DecodeString(y)
+	if xe != nil || ye != nil || len(xb) != 32 || len(yb) != 32 {
+		return nil, nil, "", ErrInvalidProof
+	}
+	key, err := ecdsa.ParseUncompressedPublicKey(elliptic.P256(), append(append([]byte{4}, xb...), yb...))
+	if err != nil {
+		return nil, nil, "", ErrInvalidProof
+	}
+	signature, err := base64.RawURLEncoding.Strict().DecodeString(parts[2])
+	if err != nil || jwt.SigningMethodES256.Verify(parts[0]+"."+parts[1], signature, key) != nil {
+		return nil, nil, "", ErrInvalidProof
+	}
+	if claims, err = decodeObject(parts[1]); err != nil {
+		return nil, nil, "", ErrInvalidProof
+	}
+	// RFC 7638: lexicographic member order and only required public members.
+	sum := sha256.Sum256([]byte(`{"crv":"P-256","kty":"EC","x":"` + x + `","y":"` + y + `"}`))
+	return header, claims, base64.RawURLEncoding.EncodeToString(sum[:]), nil
 }
 
 func decodeObject(encoded string) (map[string]json.RawMessage, error) {
