@@ -509,6 +509,12 @@ export const ko: AuthUiMessageBundle = {
   oauth: {
     signInTo: "{client}(으)로 계속하려면 로그인하세요",
     continuing: "{client}(으)로 이동하는 중…",
+    consentTitle: "{client}에 접근을 허용할까요?",
+    offline:
+      "{client}은(는) 로그아웃한 후에도 취소할 때까지 접근 권한을 유지합니다.",
+    details: "요청 내용:",
+    allow: "허용",
+    deny: "거부",
   },
   solana: {
     provider: "Solana",

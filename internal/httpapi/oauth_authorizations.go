@@ -25,7 +25,7 @@ func (s *Service) handleOAuthAuthorizationGET(w http.ResponseWriter, r *http.Req
 	client, _ := config.FindOAuthClient(s.cfg.AuthorizationServer, a.ClientID)
 	out := OAuthAuthorizationRequest{
 		ID: id, ClientID: a.ClientID, ClientName: client.Name, Scopes: a.Scopes,
-		Prompt: a.Prompt, MaxAgeSeconds: a.MaxAge, ExpiresAt: a.ExpiresAt,
+		Prompt: a.Prompt, MaxAgeSeconds: a.MaxAge, ExpiresAt: a.ExpiresAt, AuthorizationDetails: a.AuthorizationDetails,
 	}
 	if out.ClientName == "" {
 		out.ClientName = a.ClientID

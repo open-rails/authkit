@@ -689,6 +689,8 @@ type OAuthServerMetadata struct {
 	AuthorizationResponseIss         bool     `json:"authorization_response_iss_parameter_supported"`
 	RequestParameterSupported        bool     `json:"request_parameter_supported"`
 	RequestURIParameterSupported     bool     `json:"request_uri_parameter_supported"`
+	// AuthorizationDetailsTypes are the RFC 9396 types the clients may request.
+	AuthorizationDetailsTypes []string `json:"authorization_details_types_supported,omitempty"`
 }
 
 // OAuthAuthorizationRequest is a pending OAuth sign-in request, as the SPA
@@ -706,6 +708,9 @@ type OAuthAuthorizationRequest struct {
 	MaxAgeSeconds *int64    `json:"max_age_seconds"`
 	LoginHint     *string   `json:"login_hint"`
 	ExpiresAt     time.Time `json:"expires_at"`
+	// AuthorizationDetails is what the client asks the user to grant
+	// (RFC 9396), for the consent screen; null when it asks for none.
+	AuthorizationDetails json.RawMessage `json:"authorization_details"`
 }
 
 // OAuthAuthorizationResult is where the SPA sends the browser to finish:

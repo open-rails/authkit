@@ -563,6 +563,11 @@ func normalizeHTTP(h *HTTPConfig, c Config, d Deps) error {
 		}
 		slog.Warn("authkit: no email or SMS sender configured; verification delivery is disabled")
 	}
+	for _, cl := range c.AuthorizationServer.Clients {
+		if len(cl.AuthorizationDetailsTypes) > 0 && d.OAuthGrants == nil {
+			return fmt.Errorf("authkit: AuthorizationServer client %q declares AuthorizationDetailsTypes but no grant authorizer is wired — set authkit.Deps.OAuthGrants", cl.ID)
+		}
+	}
 	if len(c.Delegated.Audiences) > 0 && d.DelegatedAuthorization == nil {
 		return errors.New("authkit: Config.Delegated.Audiences is set but no delegation authorizer is wired — set authkit.Deps.DelegatedAuthorization")
 	}

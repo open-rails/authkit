@@ -92,34 +92,11 @@ func (s *Engine) checkDelegatedGrant(ctx context.Context, user iam.Actor, permis
 		return err
 	}
 	for _, perm := range permissions {
-		if !s.delegatedPermissionHeld(auth, strings.TrimSpace(perm)) {
+		if !s.grantPermissionHeld(auth, strings.TrimSpace(perm)) {
 			return iam.ErrDelegationRefused
 		}
 	}
 	return nil
-}
-
-// rootAuthority is a's authority on the root group (rule ACTOR).
-func (s *Engine) rootAuthority(ctx context.Context, a iam.Actor) (authority, error) {
-	if err := s.requirePG(); err != nil {
-		return authority{}, err
-	}
-	st := s.groupStore()
-	rootID, err := s.rootGroup(ctx, st)
-	if err != nil {
-		return authority{}, err
-	}
-	return s.actorAuthority(ctx, st, a, groupTarget{ID: rootID, Persona: iam.RootPersona()})
-}
-
-func (s *Engine) delegatedPermissionHeld(auth authority, perm string) bool {
-	namespace, _, _ := strings.Cut(perm, ":")
-	sch := s.groupSchemaOrDefault()
-	if _, ok := sch.PersonaNamed(namespace); !ok && namespace != "*" {
-		return true
-	}
-	p, known := sch.Permission(perm)
-	return known && auth.covers(p)
 }
 
 // mintDelegatedAccessToken signs a canonical delegated access token: typ

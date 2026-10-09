@@ -92,6 +92,15 @@ type Claims struct {
 	ClientID string
 	Scopes   []string
 	Roles    []string
+	// AuthorizationDetails is a resource access token's RFC 9396 grant, the
+	// raw JSON array; nil when it carries none.
+	AuthorizationDetails json.RawMessage
+	// Actor is the client acting for the user (RFC 8693 act.sub): set on a
+	// token from token exchange.
+	Actor string
+	// CustomClaims are a resource access token's claims named by an absolute
+	// URI ("https://example.com/grant"), the issuer's own, each value raw JSON.
+	CustomClaims map[string]json.RawMessage
 
 	// CertificateThumbprint (cnf x5t#S256) or JWKThumbprint (cnf jkt) is a
 	// delegated or resource token's sender binding, already matched against

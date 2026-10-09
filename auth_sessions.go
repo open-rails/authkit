@@ -27,14 +27,22 @@ func (a *Client) RevokeSession(ctx context.Context, actor iam.Actor, userID, ses
 }
 
 // RevokeAccountSessions revokes the account's refresh sessions on every
-// account issuer and its device keys, under ACCT(root:users:manage), where
-// covering a peer suffices, so staff can contain a compromised peer; an
-// account may revoke its own. It records iam.EventUserSessionsRevoked. Their
+// account issuer, its device keys and its offline OAuth grants, under
+// ACCT(root:users:manage), where covering a peer suffices, so staff can
+// contain a compromised peer; an account may revoke its own. It records iam.EventUserSessionsRevoked. Their
 // access tokens are refused at once by every session check (permission
 // checks, verify.Sensitive, account changes) and pass stateless verification
 // until they expire.
 func (a *Client) RevokeAccountSessions(ctx context.Context, actor iam.Actor, userID string, opts ...Option) (iam.AccountSessionRevocation, error) {
 	return a.ops.RevokeAccountSessions(ctx, actor, userID, opts...)
+}
+
+// RevokeOAuthGrant ends a consented OAuth grant, named by the grant id the
+// grant authorizer (Deps.OAuthGrants) is given: its refresh tokens stop
+// working at once, and its access tokens expire on their own. An unknown or
+// ended grant is not an error. Host operation: your code decides.
+func (a *Client) RevokeOAuthGrant(ctx context.Context, grantID string, opts ...Option) error {
+	return a.ops.RevokeOAuthGrant(ctx, grantID, opts...)
 }
 
 // MintAccessToken mints an access token for a live account outside any login

@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/config"
@@ -38,29 +39,69 @@ type oauthRefreshFamily struct {
 	Generation uint64    `json:"generation"`
 	SecretHash string    `json:"secret_hash"`
 	ExpiresAt  time.Time `json:"expires_at"`
+	// GrantID is the consented grant (RevokeOAuthGrant), CreatedAt its
+	// start. An Offline family outlives its sign-in: it keeps the sign-in's
+	// assurance and ends when the account's credentials change.
+	GrantID              string          `json:"grant_id"`
+	CreatedAt            time.Time       `json:"created_at"`
+	AuthorizationDetails json.RawMessage `json:"authorization_details,omitempty"`
+	Offline              bool            `json:"offline,omitempty"`
+	CredentialVersion    int64           `json:"credential_version,omitempty"`
+	AuthTime             int64           `json:"auth_time,omitempty"`
+	AMR                  []string        `json:"amr,omitempty"`
+	ACR                  string          `json:"acr,omitempty"`
 }
 
-// startOAuthRefreshFamily opens a family for m's sign-in and returns its
-// first refresh token. A public client's family is bound to m's DPoP key.
-func (s *Engine) startOAuthRefreshFamily(ctx context.Context, m oauthMint) (string, error) {
+// startOAuthRefreshFamily opens a family for m's grant and returns its first
+// refresh token. A family with a DPoP key is bound to it. The family lives
+// the client's refresh lifetime, capped by the grant decision.
+func (s *Engine) startOAuthRefreshFamily(ctx context.Context, m oauthMint, credentialVersion int64) (string, error) {
 	id := secret.Token(16)
+	now := s.nowTime().UTC()
 	f := oauthRefreshFamily{
 		ClientID: m.client.ID, UserID: m.userID, SessionID: m.sessionID, Scopes: m.scopes, Resource: m.resource,
-		JKT: m.jkt, ExpiresAt: s.nowTime().Add(s.cfg.AuthorizationServer.RefreshTokenTTL).UTC(),
+		JKT: m.jkt, GrantID: m.grantID, CreatedAt: now, Offline: m.offline,
+		ExpiresAt: grantExpiry(now, now.Add(config.OAuthClientRefreshTTL(s.cfg.AuthorizationServer, m.client)), m.decision),
+	}
+	if m.decision != nil {
+		f.AuthorizationDetails = m.decision.AuthorizationDetails
+	}
+	if m.offline {
+		f.CredentialVersion, f.AuthTime, f.AMR, f.ACR = credentialVersion, m.authTime, m.amr, m.acr
 	}
 	token := f.rotate(id)
 	raw, err := json.Marshal(f)
 	if err != nil {
 		return "", err
 	}
-	ok, err := s.ephemeral.Swap(ctx, keyOAuthRefresh+secret.Hash(id), nil, raw, time.Until(f.ExpiresAt))
+	key := keyOAuthRefresh + secret.Hash(id)
+	ttl := time.Until(f.ExpiresAt)
+	ok, err := s.ephemeral.Swap(ctx, key, nil, raw, ttl)
 	switch {
 	case err != nil:
 		return "", err
 	case !ok:
 		return "", errors.New("authkit: oauth: refresh family id collision")
 	}
+	if f.GrantID == "" {
+		return token, nil
+	}
+	if err := s.ephemSetJSON(ctx, keyOAuthGrant+f.GrantID, key, ttl); err != nil {
+		_ = s.ephemeral.Del(ctx, key)
+		return "", err
+	}
 	return token, nil
+}
+
+// endOAuthFamily deletes a family and its grant index.
+func (s *Engine) endOAuthFamily(ctx context.Context, key string, f oauthRefreshFamily) error {
+	if err := s.ephemeral.Del(ctx, key); err != nil {
+		return err
+	}
+	if f.GrantID == "" {
+		return nil
+	}
+	return s.ephemeral.Del(ctx, keyOAuthGrant+f.GrantID)
 }
 
 // rotate advances f to a fresh generation and returns its token.
@@ -85,7 +126,8 @@ func parseRefreshToken(token string) (id string, generation uint64, value string
 
 // RefreshOAuthTokens redeems a refresh token (RFC 6749 §6) once: it rotates
 // the family and mints fresh tokens with live permissions while the sign-in
-// stands. A replayed token revokes the family.
+// (an offline grant: the account and its credentials) stands and the grant
+// authorizer agrees. A replayed token revokes the family.
 func (s *Engine) RefreshOAuthTokens(ctx context.Context, in authflow.OAuthRefresh) (authflow.OAuthTokens, error) {
 	invalid := authflow.NewOAuthError(authflow.OAuthInvalidGrant, "the refresh token is invalid, expired or revoked")
 	id, generation, value, ok := parseRefreshToken(in.RefreshToken)
@@ -119,21 +161,52 @@ func (s *Engine) RefreshOAuthTokens(ctx context.Context, in authflow.OAuthRefres
 		scopes = in.Scopes
 	}
 	client, ok := config.FindOAuthClient(s.cfg.AuthorizationServer, f.ClientID)
-	if !ok || !config.OAuthClientAllows(client, config.GrantRefreshToken) {
-		_ = s.ephemeral.Del(ctx, key)
+	if !ok || !config.OAuthClientAllows(client, config.GrantRefreshToken) || f.Offline && !client.Offline {
+		_ = s.endOAuthFamily(ctx, key, f)
 		return authflow.OAuthTokens{}, invalid
 	}
-	if err := s.oauthSignInStands(ctx, f.UserID, f.SessionID, "the sign-in the refresh token was issued for has ended"); err != nil {
-		_ = s.ephemeral.Del(ctx, key)
+	if client.KeyBound && f.JKT == "" {
+		_ = s.endOAuthFamily(ctx, key, f)
+		return authflow.OAuthTokens{}, invalid
+	}
+	if len(f.AuthorizationDetails) > 0 {
+		// The client no longer declares the grant's types.
+		if _, oerr := authflow.ParseAuthorizationDetails(string(f.AuthorizationDetails), client.AuthorizationDetailsTypes); oerr != nil {
+			_ = s.endOAuthFamily(ctx, key, f)
+			return authflow.OAuthTokens{}, invalid
+		}
+	}
+	if err := s.oauthFamilyStands(ctx, f); err != nil {
+		_ = s.endOAuthFamily(ctx, key, f)
 		return authflow.OAuthTokens{}, err
 	}
+	jkt := in.JKT
+	if f.JKT != "" {
+		jkt = f.JKT
+	}
+	decision, err := s.decideOAuthGrant(ctx, iam.OAuthGrantRequest{
+		Kind: iam.OAuthGrantRefresh, GrantID: f.GrantID, ClientID: f.ClientID, UserID: f.UserID, SessionID: f.SessionID,
+		Resource: f.Resource, Scopes: scopes, AuthorizationDetails: f.AuthorizationDetails, JWKThumbprint: jkt, Offline: f.Offline,
+	}, client.AuthorizationDetailsTypes)
+	if errors.Is(err, errOAuthGrantRefused) {
+		_ = s.endOAuthFamily(ctx, key, f)
+		s.oauthAudit(ctx, "oauth_grant_refused", f.UserID, map[string]string{"client_id": f.ClientID, "grant_id": f.GrantID})
+	}
+	if err != nil {
+		return authflow.OAuthTokens{}, oauthGrantFailure(err, authflow.OAuthInvalidGrant)
+	}
 	next := f
+	next.ExpiresAt = grantExpiry(f.CreatedAt, f.ExpiresAt, decision)
+	if !s.nowTime().Before(next.ExpiresAt) {
+		_ = s.endOAuthFamily(ctx, key, f)
+		return authflow.OAuthTokens{}, invalid
+	}
 	token := next.rotate(id)
 	updated, err := json.Marshal(next)
 	if err != nil {
 		return authflow.OAuthTokens{}, err
 	}
-	swapped, err := s.ephemeral.Swap(ctx, key, raw, updated, time.Until(f.ExpiresAt))
+	swapped, err := s.ephemeral.Swap(ctx, key, raw, updated, time.Until(next.ExpiresAt))
 	switch {
 	case err != nil:
 		return authflow.OAuthTokens{}, err
@@ -141,18 +214,21 @@ func (s *Engine) RefreshOAuthTokens(ctx context.Context, in authflow.OAuthRefres
 		// Another request redeemed this token first: the same token twice.
 		return authflow.OAuthTokens{}, s.revokeReusedFamily(ctx, key, f)
 	}
-	authTime, amr, acr, err := s.sessionAssurance(ctx, f.UserID, f.SessionID)
-	if err != nil {
-		return authflow.OAuthTokens{}, err
-	}
-	jkt := in.JKT
-	if f.JKT != "" {
-		jkt = f.JKT
+	authTime, amr, acr := f.AuthTime, f.AMR, f.ACR
+	if !f.Offline {
+		if authTime, amr, acr, err = s.sessionAssurance(ctx, f.UserID, f.SessionID); err != nil {
+			return authflow.OAuthTokens{}, err
+		}
 	}
 	tokens, err := s.mintOAuthTokens(ctx, oauthMint{
 		client: client, userID: f.UserID, sessionID: f.SessionID, scopes: scopes, resource: f.Resource,
 		authTime: authTime, amr: amr, acr: acr, jkt: jkt,
+		grantID: f.GrantID, offline: f.Offline, decision: decision, grantEnd: next.ExpiresAt,
 	})
+	if errors.Is(err, errOAuthGrantRefused) {
+		_ = s.endOAuthFamily(ctx, key, next)
+		return authflow.OAuthTokens{}, oauthGrantFailure(err, authflow.OAuthInvalidGrant)
+	}
 	if err != nil {
 		return authflow.OAuthTokens{}, err
 	}
@@ -160,8 +236,46 @@ func (s *Engine) RefreshOAuthTokens(ctx context.Context, in authflow.OAuthRefres
 	return tokens, nil
 }
 
+// oauthFamilyStands is whether f may still be redeemed: its sign-in stands,
+// or for an offline grant its account is usable with unchanged credentials
+// and its offline grants were not ended since (RevokeAccountSessions).
+func (s *Engine) oauthFamilyStands(ctx context.Context, f oauthRefreshFamily) error {
+	if !f.Offline {
+		return s.oauthSignInStands(ctx, f.UserID, f.SessionID, "the sign-in the refresh token was issued for has ended")
+	}
+	if err := s.requirePG(); err != nil {
+		return err
+	}
+	ended := authflow.NewOAuthError(authflow.OAuthInvalidGrant, "the account the offline grant was issued for has changed its credentials or is unavailable")
+	usable, _, err := userLive(ctx, s.pg, f.UserID, iam.SessionRef{})
+	switch {
+	case err != nil:
+		return err
+	case !usable:
+		return ended
+	}
+	row, err := s.q.UserCredentialVersion(ctx, f.UserID)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return ended
+	case err != nil:
+		return err
+	case row.CredentialVersion != f.CredentialVersion:
+		return ended
+	}
+	var endedAt time.Time
+	_, found, err := s.ephemReadJSON(ctx, keyOAuthOfflineEnded+f.UserID, &endedAt)
+	switch {
+	case err != nil:
+		return err
+	case found && !f.CreatedAt.After(endedAt):
+		return ended
+	}
+	return nil
+}
+
 func (s *Engine) revokeReusedFamily(ctx context.Context, key string, f oauthRefreshFamily) error {
-	if err := s.ephemeral.Del(ctx, key); err != nil {
+	if err := s.endOAuthFamily(ctx, key, f); err != nil {
 		return err
 	}
 	s.oauthAudit(ctx, "oauth_refresh_reuse_revoked", f.UserID, map[string]string{"client_id": f.ClientID, "session_id": f.SessionID})
@@ -182,7 +296,7 @@ func (s *Engine) RevokeOAuthToken(ctx context.Context, clientID, token string) e
 	if err != nil || !found || !secret.Equal(f.ClientID, clientID) {
 		return err
 	}
-	if err := s.ephemeral.Del(ctx, key); err != nil {
+	if err := s.endOAuthFamily(ctx, key, f); err != nil {
 		return err
 	}
 	s.oauthAudit(ctx, "oauth_refresh_revoked", f.UserID, map[string]string{"client_id": f.ClientID, "session_id": f.SessionID})
@@ -222,10 +336,25 @@ func (s *Engine) ExchangeOAuthToken(ctx context.Context, in authflow.OAuthTokenE
 	if err != nil {
 		return authflow.OAuthTokens{}, err
 	}
-	tokens, err := s.mintOAuthTokens(ctx, oauthMint{
+	details, oerr := authflow.ParseAuthorizationDetails(string(in.AuthorizationDetails), client.AuthorizationDetailsTypes)
+	if oerr != nil {
+		return authflow.OAuthTokens{}, oerr
+	}
+	decision, err := s.decideOAuthGrant(ctx, iam.OAuthGrantRequest{
+		Kind: iam.OAuthGrantTokenExchange, ClientID: client.ID, UserID: cl.UserID, SessionID: cl.SessionID,
+		Resource: resource.ID, Scopes: scopes, AuthorizationDetails: details, JWKThumbprint: in.JKT,
+	}, client.AuthorizationDetailsTypes)
+	if err != nil {
+		return authflow.OAuthTokens{}, oauthGrantFailure(err, authflow.OAuthInvalidGrant)
+	}
+	m := oauthMint{
 		client: client, userID: cl.UserID, sessionID: cl.SessionID, scopes: scopes, resource: resource.ID,
-		authTime: authTime, amr: amr, acr: acr, jkt: in.JKT,
-	})
+		authTime: authTime, amr: amr, acr: acr, jkt: in.JKT, decision: decision, actor: client.ID,
+	}
+	tokens, err := s.mintOAuthTokens(ctx, m)
+	if errors.Is(err, errOAuthGrantRefused) {
+		return authflow.OAuthTokens{}, oauthGrantFailure(err, authflow.OAuthInvalidGrant)
+	}
 	if err != nil {
 		return authflow.OAuthTokens{}, err
 	}
@@ -246,7 +375,19 @@ func (s *Engine) OAuthClientCredentials(ctx context.Context, in authflow.OAuthCl
 	if oerr != nil {
 		return authflow.OAuthTokens{}, oerr
 	}
-	tokens, err := s.mintOAuthTokens(ctx, oauthMint{client: client, scopes: scopes, resource: resource.ID, jkt: in.JKT})
+	details, oerr := authflow.ParseAuthorizationDetails(string(in.AuthorizationDetails), client.AuthorizationDetailsTypes)
+	if oerr != nil {
+		return authflow.OAuthTokens{}, oerr
+	}
+	decision, err := s.decideOAuthGrant(ctx, iam.OAuthGrantRequest{
+		Kind: iam.OAuthGrantClientCredentials, ClientID: client.ID, Resource: resource.ID, Scopes: scopes,
+		AuthorizationDetails: details, JWKThumbprint: in.JKT,
+	}, client.AuthorizationDetailsTypes)
+	if err != nil {
+		return authflow.OAuthTokens{}, oauthGrantFailure(err, authflow.OAuthUnauthorizedClient)
+	}
+	m := oauthMint{client: client, scopes: scopes, resource: resource.ID, jkt: in.JKT, decision: decision}
+	tokens, err := s.mintOAuthTokens(ctx, m)
 	if err != nil {
 		return authflow.OAuthTokens{}, err
 	}

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `OAuthAuthorize` asks the user to allow a request for `offline_access` or
+  RFC 9396 `authorization_details` (shown as requested) before approving;
+  Deny declines with `access_denied`. New messages under `oauth`:
+  `consentTitle`, `offline`, `details`, `allow`, `deny`. The wire types gain
+  `authorization_details` on authorization requests and token responses.
+
 - External issuers: `createIssuerClient` signs users in at an OIDC issuer
   (code + PKCE + `resource` + DPoP) and calls APIs with its tokens. The
   DPoP-bound refresh token is kept in IndexedDB, so reloads restore without
