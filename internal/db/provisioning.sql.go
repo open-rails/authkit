@@ -141,26 +141,51 @@ func (q *Queries) ProvisioningPendingThrough(ctx context.Context, arg Provisioni
 	return items, nil
 }
 
-const provisioningReconcileMissing = `-- name: ProvisioningReconcileMissing :exec
-WITH gone AS (
-  DELETE FROM provisioning_resources
-  WHERE issuer = $1 AND target = $2
-    AND (seen_at IS NULL OR seen_at < $3) AND synced_at < $3
-  RETURNING user_id
-)
-INSERT INTO provisioning_changes (issuer, target, user_id)
-SELECT $1::text, $2::text, user_id FROM gone
+const provisioningReconcileAdvance = `-- name: ProvisioningReconcileAdvance :exec
+UPDATE provisioning_targets SET reconcile_next_index = $1
+WHERE issuer = $2 AND name = $3
 `
 
-type ProvisioningReconcileMissingParams struct {
-	Issuer string
-	Target string
-	AsOf   *time.Time
+type ProvisioningReconcileAdvanceParams struct {
+	NextIndex *int32
+	Issuer    string
+	Name      string
 }
 
-// Resources reconciliation did not find at the target are created again.
-func (q *Queries) ProvisioningReconcileMissing(ctx context.Context, arg ProvisioningReconcileMissingParams) error {
-	_, err := q.db.Exec(ctx, provisioningReconcileMissing, arg.Issuer, arg.Target, arg.AsOf)
+func (q *Queries) ProvisioningReconcileAdvance(ctx context.Context, arg ProvisioningReconcileAdvanceParams) error {
+	_, err := q.db.Exec(ctx, provisioningReconcileAdvance, arg.NextIndex, arg.Issuer, arg.Name)
+	return err
+}
+
+const provisioningReconcileBegin = `-- name: ProvisioningReconcileBegin :exec
+UPDATE provisioning_targets
+SET reconcile_started_at = $1, reconcile_next_index = 1, reconcile_listed_at = NULL
+WHERE issuer = $2 AND name = $3
+`
+
+type ProvisioningReconcileBeginParams struct {
+	AsOf   *time.Time
+	Issuer string
+	Name   string
+}
+
+func (q *Queries) ProvisioningReconcileBegin(ctx context.Context, arg ProvisioningReconcileBeginParams) error {
+	_, err := q.db.Exec(ctx, provisioningReconcileBegin, arg.AsOf, arg.Issuer, arg.Name)
+	return err
+}
+
+const provisioningReconcileListed = `-- name: ProvisioningReconcileListed :exec
+UPDATE provisioning_targets SET reconcile_listed_at = statement_timestamp()
+WHERE issuer = $1 AND name = $2
+`
+
+type ProvisioningReconcileListedParams struct {
+	Issuer string
+	Name   string
+}
+
+func (q *Queries) ProvisioningReconcileListed(ctx context.Context, arg ProvisioningReconcileListedParams) error {
+	_, err := q.db.Exec(ctx, provisioningReconcileListed, arg.Issuer, arg.Name)
 	return err
 }
 
@@ -183,7 +208,8 @@ func (q *Queries) ProvisioningReconcileUnlinked(ctx context.Context, arg Provisi
 }
 
 const provisioningReconciled = `-- name: ProvisioningReconciled :exec
-UPDATE provisioning_targets SET reconciled_at = $1
+UPDATE provisioning_targets
+SET reconciled_at = $1, reconcile_started_at = NULL, reconcile_next_index = NULL, reconcile_listed_at = NULL
 WHERE issuer = $2 AND name = $3
 `
 
@@ -446,7 +472,7 @@ func (q *Queries) ProvisioningSyncPage(ctx context.Context, arg ProvisioningSync
 }
 
 const provisioningTarget = `-- name: ProvisioningTarget :one
-SELECT issuer, name, created_at, sync_after, synced_at, reconciled_at, last_success_at, failing_since, failures, retry_at, last_error FROM provisioning_targets WHERE issuer = $1 AND name = $2
+SELECT issuer, name, created_at, sync_after, synced_at, reconciled_at, reconcile_started_at, reconcile_next_index, reconcile_listed_at, last_success_at, failing_since, failures, retry_at, last_error FROM provisioning_targets WHERE issuer = $1 AND name = $2
 `
 
 type ProvisioningTargetParams struct {
@@ -464,6 +490,9 @@ func (q *Queries) ProvisioningTarget(ctx context.Context, arg ProvisioningTarget
 		&i.SyncAfter,
 		&i.SyncedAt,
 		&i.ReconciledAt,
+		&i.ReconcileStartedAt,
+		&i.ReconcileNextIndex,
+		&i.ReconcileListedAt,
 		&i.LastSuccessAt,
 		&i.FailingSince,
 		&i.Failures,
@@ -627,6 +656,53 @@ func (q *Queries) ProvisioningTargetsPrune(ctx context.Context, arg Provisioning
 			return nil, err
 		}
 		items = append(items, name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const provisioningUnseen = `-- name: ProvisioningUnseen :many
+SELECT user_id, remote_id FROM provisioning_resources
+WHERE issuer = $1 AND target = $2
+  AND (seen_at IS NULL OR seen_at < $3) AND synced_at < $3
+ORDER BY user_id
+LIMIT $4
+`
+
+type ProvisioningUnseenParams struct {
+	Issuer  string
+	Target  string
+	AsOf    *time.Time
+	MaxRows int64
+}
+
+type ProvisioningUnseenRow struct {
+	UserID   string
+	RemoteID string
+}
+
+// Resources the reconciliation's listing did not show, older than it: each
+// is asked for by its id.
+func (q *Queries) ProvisioningUnseen(ctx context.Context, arg ProvisioningUnseenParams) ([]ProvisioningUnseenRow, error) {
+	rows, err := q.db.Query(ctx, provisioningUnseen,
+		arg.Issuer,
+		arg.Target,
+		arg.AsOf,
+		arg.MaxRows,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ProvisioningUnseenRow
+	for rows.Next() {
+		var i ProvisioningUnseenRow
+		if err := rows.Scan(&i.UserID, &i.RemoteID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

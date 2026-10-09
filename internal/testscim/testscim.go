@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,13 +17,17 @@ import (
 // Request is one request the server answered.
 type Request struct {
 	Method, Path string
+	Query        url.Values
 	Body         []byte
 }
 
 // Server holds users by the id it gives them. Token, when set, is the bearer
-// token it requires.
+// token it requires; PageSize, when set, is the most users a list answers;
+// FailWhen, when it returns true, answers a request 503.
 type Server struct {
-	Token string
+	Token    string
+	PageSize int
+	FailWhen func(*http.Request) bool
 
 	mu       sync.Mutex
 	bulk     bool
@@ -113,9 +118,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.requests = append(s.requests, Request{Method: r.Method, Path: r.URL.Path, Body: body})
+	s.requests = append(s.requests, Request{Method: r.Method, Path: r.URL.Path, Query: r.URL.Query(), Body: body})
 	if s.Token != "" && r.Header.Get("Authorization") != "Bearer "+s.Token {
 		write(w, http.StatusUnauthorized, scim.NewError(http.StatusUnauthorized, "", "bad token"))
+		return
+	}
+	if s.FailWhen != nil && s.FailWhen(r) {
+		write(w, http.StatusServiceUnavailable, scim.NewError(http.StatusServiceUnavailable, "", "try later"))
 		return
 	}
 	if s.failing > 0 {
@@ -129,7 +138,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		write(w, http.StatusOK, scim.ServiceProviderConfig{
 			Schemas: []string{scim.SchemaServiceProviderConfig},
 			Bulk:    scim.BulkSupport{Supported: s.bulk, MaxOperations: s.maxOps, MaxPayloadSize: 1 << 20},
-			Filter:  scim.FilterSupport{Supported: true, MaxResults: 50},
+			Filter:  scim.FilterSupport{Supported: true, MaxResults: s.maxResults()},
 		})
 	case r.Method == http.MethodPost && path == "/Bulk" && s.bulk:
 		var req scim.BulkRequest
@@ -150,6 +159,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		write(w, http.StatusOK, resp)
 	case r.Method == http.MethodGet && path == "/Users":
 		s.list(w, r)
+	case r.Method == http.MethodGet && strings.HasPrefix(path, "/Users/"):
+		u, ok := s.users[strings.TrimPrefix(path, "/Users/")]
+		if !ok {
+			write(w, http.StatusNotFound, scim.NewError(http.StatusNotFound, "", "no such user"))
+			return
+		}
+		write(w, http.StatusOK, u)
 	default:
 		status, location, errBody := s.apply(r.Method, path, body)
 		if errBody != nil {
@@ -238,11 +254,19 @@ func (s *Server) list(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		count = len(all)
 	}
+	count = min(count, s.maxResults())
 	start = min(max(start, 1), len(all)+1)
 	page := all[start-1 : min(start-1+count, len(all))]
 	write(w, http.StatusOK, scim.ListResponse[scim.User]{
 		Schemas: []string{scim.SchemaListResponse}, TotalResults: len(all), StartIndex: start, ItemsPerPage: len(page), Resources: page,
 	})
+}
+
+func (s *Server) maxResults() int {
+	if s.PageSize > 0 {
+		return s.PageSize
+	}
+	return 50
 }
 
 func write(w http.ResponseWriter, status int, v any) {

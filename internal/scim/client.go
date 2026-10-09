@@ -119,6 +119,13 @@ func (c *Client) Create(ctx context.Context, u User) (User, error) {
 	return out, err
 }
 
+// Get reads the user id.
+func (c *Client) Get(ctx context.Context, id string) (User, error) {
+	var out User
+	err := c.do(ctx, http.MethodGet, "/Users/"+url.PathEscape(id), nil, []int{http.StatusOK}, &out)
+	return out, err
+}
+
 // Replace replaces the user id.
 func (c *Client) Replace(ctx context.Context, id string, u User) error {
 	return c.do(ctx, http.MethodPut, "/Users/"+url.PathEscape(id), u, []int{http.StatusOK, http.StatusNoContent}, nil)

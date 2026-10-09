@@ -92,17 +92,20 @@ type ProvisioningResource struct {
 
 // SCIM targets of each issuer's Config.Provisioning; a target no longer configured is deleted at its issuer's Start.
 type ProvisioningTarget struct {
-	Issuer        string
-	Name          string
-	CreatedAt     time.Time
-	SyncAfter     *string
-	SyncedAt      *time.Time
-	ReconciledAt  *time.Time
-	LastSuccessAt *time.Time
-	FailingSince  *time.Time
-	Failures      int32
-	RetryAt       *time.Time
-	LastError     *string
+	Issuer             string
+	Name               string
+	CreatedAt          time.Time
+	SyncAfter          *string
+	SyncedAt           *time.Time
+	ReconciledAt       *time.Time
+	ReconcileStartedAt *time.Time
+	ReconcileNextIndex *int32
+	ReconcileListedAt  *time.Time
+	LastSuccessAt      *time.Time
+	FailingSince       *time.Time
+	Failures           int32
+	RetryAt            *time.Time
+	LastError          *string
 }
 
 // Registered applications: external systems that authenticate by signing JWTs verified against configured keys.

@@ -21,6 +21,12 @@ CREATE TABLE provisioning_targets (
   sync_after uuid,
   synced_at timestamptz,
   reconciled_at timestamptz,
+  -- A reconciliation spans runs: when it began, the next startIndex of its
+  -- listing of the target's users, and when that listing finished (the
+  -- resources it did not see are then checked one by one).
+  reconcile_started_at timestamptz,
+  reconcile_next_index integer,
+  reconcile_listed_at timestamptz,
   last_success_at timestamptz,
   failing_since timestamptz,
   failures integer NOT NULL DEFAULT 0,

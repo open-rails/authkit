@@ -45,7 +45,9 @@ func TestProvisioningTriggersWatchWhatIsPushed(t *testing.T) {
 	typ := reflect.TypeFor[db.User]()
 	for i := range typ.NumField() {
 		f := typ.Field(i)
-		if f.Name == "ID" { // immutable (enforce_canonical_name_claim)
+		// ID is immutable (enforce_canonical_name_claim); the trigger itself
+		// moves profile_updated_at when a column it watches changes.
+		if f.Name == "ID" || f.Name == "ProfileUpdatedAt" {
 			continue
 		}
 		changed := base

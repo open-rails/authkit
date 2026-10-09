@@ -3,8 +3,11 @@ package authkit_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -89,6 +92,7 @@ func TestProvisioningPush(t *testing.T) {
 		require.Equal(t, u.Email, got.PrimaryEmail())
 		require.Equal(t, u.Username, got.Name.Formatted)
 		require.Equal(t, []string{scim.SchemaUser}, got.Schemas)
+		require.NotNil(t, got.Meta.LastModified, "a target keeps the newest state by meta.lastModified")
 	}
 	bulks, ops, methods := bulkOps(t, server)
 	require.GreaterOrEqual(t, bulks, 2, "three users at two operations a request")
@@ -209,7 +213,7 @@ func TestProvisioningWithoutBulk(t *testing.T) {
 	bulks, _, methods := bulkOps(t, server)
 	require.Zero(t, bulks)
 	require.Equal(t, 1, methods[http.MethodPost])
-	require.Equal(t, 1, methods[http.MethodPut])
+	require.Equal(t, 2, methods[http.MethodPut], "the ban, then the deletion (inactive already, a new lastModified)")
 	require.Equal(t, 1, methods[http.MethodDelete])
 }
 
@@ -338,4 +342,46 @@ func TestProvisioningOutboxCoversEveryWriter(t *testing.T) {
 	require.NoError(t, auth.PatchPublicMetadata(ctx, iam.SystemIdentity(), quiet.ID, map[string]any{"bio": "hi"}))
 	authtest.SignIn(t, auth, quiet)
 	require.Equal(t, len(writers), backlog(), "a change a SCIM User does not show records nothing")
+}
+
+// TestProvisioningReconcileResumes: a reconciliation stopped partway (here
+// by a failing page) goes on from the page it stopped at in the next run,
+// and finishes.
+func TestProvisioningReconcileResumes(t *testing.T) {
+	server := testscim.New(true, 10)
+	server.PageSize = 5
+	var failed atomic.Bool
+	server.FailWhen = func(r *http.Request) bool {
+		return r.Method == http.MethodGet && r.URL.Path == "/scim/v2/Users" && r.URL.Query().Get("startIndex") == "6" && failed.CompareAndSwap(false, true)
+	}
+	auth := provisioned(t, server, func(_ *authkit.ProvisioningTarget, p *authkit.ProvisioningConfig) {
+		p.ReconcileInterval = 2 * time.Second
+	})
+	ctx := context.Background()
+	var rows []iam.ImportUser
+	for i := range 11 {
+		rows = append(rows, iam.ImportUser{Username: fmt.Sprintf("resume%02d%s", i, strings.ReplaceAll(t.Name(), "/", "")[:8])})
+	}
+	_, err := auth.ImportUsers(ctx, rows, iam.ImportOptions{})
+	require.NoError(t, err)
+	require.NoError(t, auth.Start(ctx))
+
+	var synced time.Time
+	require.Eventually(t, func() bool {
+		targets, err := auth.ProvisioningTargets(ctx)
+		if err != nil || targets[0].SyncedAt == nil || targets[0].ReconciledAt == nil {
+			return false
+		}
+		synced = *targets[0].SyncedAt
+		return targets[0].ReconciledAt.After(synced) && failed.Load()
+	}, 45*time.Second, 100*time.Millisecond, "the reconciliation finished")
+	var starts []string
+	for _, r := range server.Requests() {
+		if r.Method == http.MethodGet && r.Path == "/scim/v2/Users" {
+			starts = append(starts, r.Query.Get("startIndex"))
+		}
+	}
+	require.GreaterOrEqual(t, len(starts), 4)
+	require.Equal(t, []string{"1", "6", "6", "11"}, starts[:4], "the next run resumed at the page that failed")
+	require.Equal(t, 11, server.Len())
 }

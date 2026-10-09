@@ -272,14 +272,7 @@ func (s *Engine) runProvisioning(ctx context.Context, t *provisioningTarget) err
 		}
 		row.ReconciledAt = &start
 	}
-	spc, err := t.client.ServiceProviderConfig(ctx)
-	if scim.IsStatus(err, http.StatusNotFound) {
-		spc, err = scim.ServiceProviderConfig{}, nil // no discovery: no bulk
-	}
-	if err != nil {
-		return s.provisioningFailed(ctx, t, row, err)
-	}
-	run := &provisioningRun{engine: s, target: t, spc: spc, deadline: start.Add(provisioningRunBudget), rounds: map[string]int{}}
+	run := &provisioningRun{engine: s, target: t, deadline: start.Add(provisioningRunBudget), rounds: map[string]int{}}
 	caughtUp, err := run.deliver(ctx)
 	var unreachable *targetError
 	if errors.As(err, &unreachable) {
@@ -289,8 +282,9 @@ func (s *Engine) runProvisioning(ctx context.Context, t *provisioningTarget) err
 		return err
 	}
 	interval := s.cfg.Provisioning.ReconcileInterval
-	if caughtUp && interval > 0 && (row.ReconciledAt == nil || s.nowTime().Sub(*row.ReconciledAt) >= interval) {
-		err := run.reconcile(ctx)
+	due := row.ReconcileStartedAt != nil || row.ReconciledAt == nil || s.nowTime().Sub(*row.ReconciledAt) >= interval
+	if caughtUp && interval > 0 && due {
+		err := run.reconcile(ctx, row)
 		if errors.As(err, &unreachable) {
 			return s.provisioningFailed(ctx, t, row, unreachable.err)
 		}
@@ -367,12 +361,21 @@ func (s *Engine) ProvisioningTargets(ctx context.Context) ([]iam.ProvisioningTar
 }
 
 // scimUser is u as a SCIM User at asOf, externalId its id: its contact
-// (accountContact), userName its username or else its id, and whether it is
-// usable.
+// (accountContact), userName its username or else its id, whether it is
+// usable, and meta.lastModified, when that last changed (a target keeps the
+// newest of what it is told).
 func scimUser(u db.User, asOf time.Time) scim.User {
 	active := u.DeletedAt == nil && !banInForce(u.BannedAt, u.BannedUntil, asOf)
+	modified := u.ProfileUpdatedAt
+	if u.BannedUntil != nil && u.BannedUntil.After(modified) && !u.BannedUntil.After(asOf) {
+		modified = *u.BannedUntil // a temporary ban ended: active changed then
+	}
+	modified = modified.UTC()
 	c := accountContact(u)
-	out := scim.User{Schemas: []string{scim.SchemaUser}, ExternalID: u.ID, UserName: c.Username, Active: &active}
+	out := scim.User{
+		Schemas: []string{scim.SchemaUser}, ExternalID: u.ID, UserName: c.Username, Active: &active,
+		Meta: &scim.Meta{ResourceType: "User", LastModified: &modified},
+	}
 	if out.UserName == "" {
 		out.UserName = u.ID
 	}

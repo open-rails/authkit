@@ -107,16 +107,27 @@ FROM unnest(sqlc.arg(users)::uuid[], sqlc.arg(remote_ids)::text[], sqlc.arg(dige
 ON CONFLICT (issuer, target, user_id) DO UPDATE
 SET seen_at = EXCLUDED.seen_at, remote_id = EXCLUDED.remote_id, state_digest = EXCLUDED.state_digest;
 
--- name: ProvisioningReconcileMissing :exec
--- Resources reconciliation did not find at the target are created again.
-WITH gone AS (
-  DELETE FROM provisioning_resources
-  WHERE issuer = sqlc.arg(issuer) AND target = sqlc.arg(target)
-    AND (seen_at IS NULL OR seen_at < sqlc.arg(as_of)) AND synced_at < sqlc.arg(as_of)
-  RETURNING user_id
-)
-INSERT INTO provisioning_changes (issuer, target, user_id)
-SELECT sqlc.arg(issuer)::text, sqlc.arg(target)::text, user_id FROM gone;
+-- name: ProvisioningReconcileBegin :exec
+UPDATE provisioning_targets
+SET reconcile_started_at = sqlc.arg(as_of), reconcile_next_index = 1, reconcile_listed_at = NULL
+WHERE issuer = sqlc.arg(issuer) AND name = sqlc.arg(name);
+
+-- name: ProvisioningReconcileAdvance :exec
+UPDATE provisioning_targets SET reconcile_next_index = sqlc.arg(next_index)
+WHERE issuer = sqlc.arg(issuer) AND name = sqlc.arg(name);
+
+-- name: ProvisioningReconcileListed :exec
+UPDATE provisioning_targets SET reconcile_listed_at = statement_timestamp()
+WHERE issuer = sqlc.arg(issuer) AND name = sqlc.arg(name);
+
+-- name: ProvisioningUnseen :many
+-- Resources the reconciliation's listing did not show, older than it: each
+-- is asked for by its id.
+SELECT user_id, remote_id FROM provisioning_resources
+WHERE issuer = sqlc.arg(issuer) AND target = sqlc.arg(target)
+  AND (seen_at IS NULL OR seen_at < sqlc.arg(as_of)) AND synced_at < sqlc.arg(as_of)
+ORDER BY user_id
+LIMIT sqlc.arg(max_rows);
 
 -- name: ProvisioningReconcileUnlinked :exec
 -- Accounts the target holds no resource for, and none is pending for.
@@ -126,7 +137,8 @@ WHERE NOT EXISTS (SELECT 1 FROM provisioning_resources r WHERE r.issuer = sqlc.a
   AND NOT EXISTS (SELECT 1 FROM provisioning_changes c WHERE c.issuer = sqlc.arg(issuer) AND c.target = sqlc.arg(target) AND c.user_id = u.id);
 
 -- name: ProvisioningReconciled :exec
-UPDATE provisioning_targets SET reconciled_at = sqlc.arg(as_of)
+UPDATE provisioning_targets
+SET reconciled_at = sqlc.arg(as_of), reconcile_started_at = NULL, reconcile_next_index = NULL, reconcile_listed_at = NULL
 WHERE issuer = sqlc.arg(issuer) AND name = sqlc.arg(name);
 
 -- name: ProvisioningTargetFailed :exec

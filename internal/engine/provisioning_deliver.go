@@ -49,9 +49,11 @@ func targetWide(status int) bool {
 }
 
 type provisioningRun struct {
-	engine   *Engine
-	target   *provisioningTarget
-	spc      scim.ServiceProviderConfig
+	engine *Engine
+	target *provisioningTarget
+	// spc is the target's /ServiceProviderConfig, read once a run has
+	// something to send or compare.
+	spc      *scim.ServiceProviderConfig
 	deadline time.Time
 	// rounds counts each user's sends after a conflict or a lost resource.
 	rounds map[string]int
@@ -91,6 +93,22 @@ type provisioningResult struct {
 	// conflict: a create found the user there; gone: a replace found it gone.
 	conflict, gone bool
 	err            error
+}
+
+// config reads the target's features and limits once per run; a target
+// without discovery has no bulk.
+func (r *provisioningRun) config(ctx context.Context) (scim.ServiceProviderConfig, error) {
+	if r.spc == nil {
+		spc, err := r.target.client.ServiceProviderConfig(ctx)
+		if scim.IsStatus(err, http.StatusNotFound) {
+			spc, err = scim.ServiceProviderConfig{}, nil
+		}
+		if err != nil {
+			return spc, unreachable(err)
+		}
+		r.spc = &spc
+	}
+	return *r.spc, nil
 }
 
 // deliver sends batches until no change is due (caughtUp) or the run's
@@ -181,7 +199,14 @@ func (r *provisioningRun) send(ctx context.Context, ops []*provisioningOp) ([]pr
 			pending = append(pending, op)
 		}
 	}
-	if !r.spc.Bulk.Supported || r.noBulk {
+	if len(pending) == 0 {
+		return results, nil
+	}
+	spc, err := r.config(ctx)
+	if err != nil {
+		return results, err
+	}
+	if !spc.Bulk.Supported || r.noBulk {
 		for _, op := range pending {
 			res, err := r.sendOne(ctx, op)
 			if err != nil {
@@ -191,7 +216,7 @@ func (r *provisioningRun) send(ctx context.Context, ops []*provisioningOp) ([]pr
 		}
 		return results, nil
 	}
-	maxOps, maxPayload := r.spc.Bulk.MaxOperations, r.spc.Bulk.MaxPayloadSize
+	maxOps, maxPayload := spc.Bulk.MaxOperations, spc.Bulk.MaxPayloadSize
 	if maxOps <= 0 {
 		maxOps = defaultBulkOperations
 	}

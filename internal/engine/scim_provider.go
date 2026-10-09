@@ -121,7 +121,7 @@ func (s *Engine) SCIMUsers(ctx context.Context, filter string, startIndex, count
 func (s *Engine) servedSCIMUser(u db.User) scim.User {
 	out := scimUser(u, s.nowTime())
 	out.ID, out.ExternalID = u.ID, ""
-	created, modified := u.CreatedAt, u.ProfileUpdatedAt
-	out.Meta = &scim.Meta{ResourceType: "User", Created: &created, LastModified: &modified}
+	created := u.CreatedAt.UTC()
+	out.Meta.Created = &created
 	return out
 }
