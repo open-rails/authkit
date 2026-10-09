@@ -30,18 +30,21 @@ const keyOAuthRefresh = "oauth:refresh:" // +hash of the family id
 // generation and its secret's hash. Presenting an older generation is
 // reuse: the family is revoked, cutting off whoever holds the newer token.
 type oauthRefreshFamily struct {
-	ClientID   string    `json:"client_id"`
-	UserID     string    `json:"user_id"`
-	SessionID  string    `json:"session_id"`
-	Scopes     []string  `json:"scopes"`
-	Resource   string    `json:"resource,omitempty"`
-	JKT        string    `json:"jkt,omitempty"`
-	Generation uint64    `json:"generation"`
-	SecretHash string    `json:"secret_hash"`
-	ExpiresAt  time.Time `json:"expires_at"`
+	ClientID  string `json:"client_id"`
+	UserID    string `json:"user_id"`
+	SessionID string `json:"session_id"`
+	// DeviceKeyID is a device-key sign-in's key, in place of SessionID.
+	DeviceKeyID string    `json:"device_key_id,omitempty"`
+	Scopes      []string  `json:"scopes"`
+	Resource    string    `json:"resource,omitempty"`
+	JKT         string    `json:"jkt,omitempty"`
+	Generation  uint64    `json:"generation"`
+	SecretHash  string    `json:"secret_hash"`
+	ExpiresAt   time.Time `json:"expires_at"`
 	// GrantID is the consented grant (RevokeOAuthGrant), CreatedAt its
-	// start. An Offline family outlives its sign-in: it keeps the sign-in's
-	// assurance and ends when the account's credentials change.
+	// start. An Offline family outlives its sign-in and ends when the
+	// account's credentials change. One without a session (offline, or a
+	// device key's) keeps the consent's assurance.
 	GrantID              string          `json:"grant_id"`
 	CreatedAt            time.Time       `json:"created_at"`
 	AuthorizationDetails json.RawMessage `json:"authorization_details,omitempty"`
@@ -59,7 +62,7 @@ func (s *Engine) startOAuthRefreshFamily(ctx context.Context, m oauthMint, crede
 	id := secret.Token(16)
 	now := s.nowTime().UTC()
 	f := oauthRefreshFamily{
-		ClientID: m.client.ID, UserID: m.userID, SessionID: m.sessionID, Scopes: m.scopes, Resource: m.resource,
+		ClientID: m.client.ID, UserID: m.userID, SessionID: m.sessionID, DeviceKeyID: m.deviceKeyID, Scopes: m.scopes, Resource: m.resource,
 		JKT: m.jkt, GrantID: m.grantID, CreatedAt: now, Offline: m.offline,
 		ExpiresAt: grantExpiry(now, now.Add(config.OAuthClientRefreshTTL(s.cfg.AuthorizationServer, m.client)), m.decision),
 	}
@@ -67,7 +70,10 @@ func (s *Engine) startOAuthRefreshFamily(ctx context.Context, m oauthMint, crede
 		f.AuthorizationDetails = m.decision.AuthorizationDetails
 	}
 	if m.offline {
-		f.CredentialVersion, f.AuthTime, f.AMR, f.ACR = credentialVersion, m.authTime, m.amr, m.acr
+		f.CredentialVersion = credentialVersion
+	}
+	if m.offline || m.sessionID == "" {
+		f.AuthTime, f.AMR, f.ACR = m.authTime, m.amr, m.acr
 	}
 	token := f.rotate(id)
 	raw, err := json.Marshal(f)
@@ -185,7 +191,7 @@ func (s *Engine) RefreshOAuthTokens(ctx context.Context, in authflow.OAuthRefres
 		jkt = f.JKT
 	}
 	decision, err := s.decideOAuthGrant(ctx, iam.OAuthGrantRequest{
-		Kind: iam.OAuthGrantRefresh, GrantID: f.GrantID, ClientID: f.ClientID, UserID: f.UserID, SessionID: f.SessionID,
+		Kind: iam.OAuthGrantRefresh, GrantID: f.GrantID, ClientID: f.ClientID, UserID: f.UserID, SessionID: f.SessionID, DeviceKeyID: f.DeviceKeyID,
 		Resource: f.Resource, Scopes: scopes, AuthorizationDetails: f.AuthorizationDetails, JWKThumbprint: jkt, Offline: f.Offline,
 	}, client.AuthorizationDetailsTypes)
 	if errors.Is(err, errOAuthGrantRefused) {
@@ -215,13 +221,13 @@ func (s *Engine) RefreshOAuthTokens(ctx context.Context, in authflow.OAuthRefres
 		return authflow.OAuthTokens{}, s.revokeReusedFamily(ctx, key, f)
 	}
 	authTime, amr, acr := f.AuthTime, f.AMR, f.ACR
-	if !f.Offline {
+	if !f.Offline && f.SessionID != "" {
 		if authTime, amr, acr, err = s.sessionAssurance(ctx, f.UserID, f.SessionID); err != nil {
 			return authflow.OAuthTokens{}, err
 		}
 	}
 	tokens, err := s.mintOAuthTokens(ctx, oauthMint{
-		client: client, userID: f.UserID, sessionID: f.SessionID, scopes: scopes, resource: f.Resource,
+		client: client, userID: f.UserID, sessionID: f.SessionID, deviceKeyID: f.DeviceKeyID, scopes: scopes, resource: f.Resource,
 		authTime: authTime, amr: amr, acr: acr, jkt: jkt,
 		grantID: f.GrantID, offline: f.Offline, decision: decision, grantEnd: next.ExpiresAt,
 	})
@@ -241,7 +247,7 @@ func (s *Engine) RefreshOAuthTokens(ctx context.Context, in authflow.OAuthRefres
 // and its offline grants were not ended since (RevokeAccountSessions).
 func (s *Engine) oauthFamilyStands(ctx context.Context, f oauthRefreshFamily) error {
 	if !f.Offline {
-		return s.oauthSignInStands(ctx, f.UserID, f.SessionID, "the sign-in the refresh token was issued for has ended")
+		return s.oauthSignInStands(ctx, f.UserID, iam.SessionRef{SessionID: f.SessionID, DeviceKeyID: f.DeviceKeyID}, "the sign-in the refresh token was issued for has ended")
 	}
 	if err := s.requirePG(); err != nil {
 		return err
@@ -322,33 +328,40 @@ func (s *Engine) ExchangeOAuthToken(ctx context.Context, in authflow.OAuthTokenE
 		return authflow.OAuthTokens{}, err
 	}
 	cl, err := s.auth.Verify(ctx, in.SubjectToken)
-	if err != nil || cl.Kind != iam.ActorUser || cl.UserID == "" || cl.SessionID == "" || !strings.EqualFold(cl.JOSEType, jose.AccessTokenType) {
+	signIn := iam.SessionRef{SessionID: cl.SessionID, DeviceKeyID: cl.DeviceKeyID}
+	if err != nil || cl.Kind != iam.ActorUser || cl.UserID == "" || signIn.IsZero() || !strings.EqualFold(cl.JOSEType, jose.AccessTokenType) {
 		return authflow.OAuthTokens{}, authflow.NewOAuthError(authflow.OAuthInvalidGrant, "subject_token is not a valid access token for a sign-in here")
 	}
 	scopes, oerr := grantScopes(in.Scopes, resource, "email", "profile")
 	if oerr != nil {
 		return authflow.OAuthTokens{}, oerr
 	}
-	if err := s.oauthSignInStands(ctx, cl.UserID, cl.SessionID, "the subject token's sign-in has ended"); err != nil {
+	if err := s.oauthSignInStands(ctx, cl.UserID, signIn, "the subject token's sign-in has ended"); err != nil {
 		return authflow.OAuthTokens{}, err
 	}
-	authTime, amr, acr, err := s.sessionAssurance(ctx, cl.UserID, cl.SessionID)
-	if err != nil {
-		return authflow.OAuthTokens{}, err
+	// A device-key sign-in's assurance is its token's.
+	authTime, amr, acr := int64(0), cl.AMR, cl.ACR
+	if !cl.AuthTime.IsZero() {
+		authTime = cl.AuthTime.Unix()
+	}
+	if signIn.SessionID != "" {
+		if authTime, amr, acr, err = s.sessionAssurance(ctx, cl.UserID, cl.SessionID); err != nil {
+			return authflow.OAuthTokens{}, err
+		}
 	}
 	details, oerr := authflow.ParseAuthorizationDetails(string(in.AuthorizationDetails), client.AuthorizationDetailsTypes)
 	if oerr != nil {
 		return authflow.OAuthTokens{}, oerr
 	}
 	decision, err := s.decideOAuthGrant(ctx, iam.OAuthGrantRequest{
-		Kind: iam.OAuthGrantTokenExchange, ClientID: client.ID, UserID: cl.UserID, SessionID: cl.SessionID,
+		Kind: iam.OAuthGrantTokenExchange, ClientID: client.ID, UserID: cl.UserID, SessionID: cl.SessionID, DeviceKeyID: cl.DeviceKeyID,
 		Resource: resource.ID, Scopes: scopes, AuthorizationDetails: details, JWKThumbprint: in.JKT,
 	}, client.AuthorizationDetailsTypes)
 	if err != nil {
 		return authflow.OAuthTokens{}, oauthGrantFailure(err, authflow.OAuthInvalidGrant)
 	}
 	m := oauthMint{
-		client: client, userID: cl.UserID, sessionID: cl.SessionID, scopes: scopes, resource: resource.ID,
+		client: client, userID: cl.UserID, sessionID: cl.SessionID, deviceKeyID: cl.DeviceKeyID, scopes: scopes, resource: resource.ID,
 		authTime: authTime, amr: amr, acr: acr, jkt: in.JKT, decision: decision, actor: client.ID,
 	}
 	tokens, err := s.mintOAuthTokens(ctx, m)
@@ -359,7 +372,7 @@ func (s *Engine) ExchangeOAuthToken(ctx context.Context, in authflow.OAuthTokenE
 		return authflow.OAuthTokens{}, err
 	}
 	tokens.IssuedTokenType = authflow.TokenTypeAccessToken
-	s.oauthAudit(ctx, "oauth_token_exchanged", cl.UserID, map[string]string{"client_id": client.ID, "session_id": cl.SessionID, "resource": resource.ID})
+	s.oauthAudit(ctx, "oauth_token_exchanged", cl.UserID, map[string]string{"client_id": client.ID, "session_id": cl.SessionID, "device_key_id": cl.DeviceKeyID, "resource": resource.ID})
 	return tokens, nil
 }
 
