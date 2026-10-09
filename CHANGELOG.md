@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.10.0
+
+Additive.
+
+- **JWT-bearer grant with device-key capabilities** (#437, RFC 7523). A workload acts for a user only through a capability the user's device key signs offline with `devicekey.SignCapability`. The capability names the resource, the operations (`authorization_details`), the workload's P-256 key (`cnf.jkt`) and an expiry of at most 24 hours. The workload posts an ES256 `assertion` signed by its own key (`jwk` header, `iss` the client, `aud` the token endpoint, a single-use `jti`) that carries the capability, with a DPoP proof of the same key.
+  - A client opts in with `GrantJWTBearer` and its `AuthorizationDetailsTypes`. It may be public, and it needs `DeviceKeys.Enabled` and `Deps.OAuthGrants`.
+  - AuthKit verifies both signatures, the device key's liveness and the key binding. The grant authorizer then sees `iam.OAuthGrantJWTBearer` with `UserID`, `DeviceKeyID`, the operations, `JWKThumbprint`, `iam.OAuthAssertion` and `iam.OAuthCapability`. It may refuse, or narrow the operations by dropping entries. `OAuthGrantDecision.Invoker` names the workload in `act`.
+  - The `at+jwt` lasts until the capability expires and carries `device_key_id`, with no refresh token. `Client.CheckSession` and `verify.RequireSession` now check that device key for this issuer's jwt-bearer tokens, so revoking the key ends them at once. `verify.Claims.DeviceKeyID` is now kept for a local issuer's resource tokens.
+  - Refusals carry a `reason` beside the OAuth `error`. Discovery lists the grant type. See [Workloads](docs/authorization-server.md#workloads).
+- `authtest`: `DeviceKey.UserID`, `DeviceKey.Capability`, `RevokeDeviceKey`, `DPoPKey.Assertion`, `AuthorizationServer.JWTBearer`, `JWTBearerToken` and `TokenEndpoint`.
+
 ## v1.9.0
 
 The owner approved shipping this breaking change in a minor release. `Client.RequirePermission` infers the group from the permission.
@@ -15,15 +26,6 @@ The owner approved shipping this breaking change in a minor release. `Client.Req
 - `RequirePermission` panics on a pattern or an unregistered permission whatever the configuration (before, only when a group was configured).
 
 Host migration: delete `Merchant: authkit.MerchantConfig{Root: true}` and pass `root:` permissions of your own to the library (for OpenRails, `Routes.Staff`). A host with one group per merchant keeps `Config.Merchant.Group`.
-
-### Added
-
-- **JWT-bearer grant with device-key capabilities** (#437, RFC 7523). A workload acts for a user only through a capability the user's device key signs offline with `devicekey.SignCapability`. The capability names the resource, the operations (`authorization_details`), the workload's P-256 key (`cnf.jkt`) and an expiry of at most 24 hours. The workload posts an ES256 `assertion` signed by its own key (`jwk` header, `iss` the client, `aud` the token endpoint, a single-use `jti`) that carries the capability, with a DPoP proof of the same key.
-  - A client opts in with `GrantJWTBearer` and its `AuthorizationDetailsTypes`. It may be public, and it needs `DeviceKeys.Enabled` and `Deps.OAuthGrants`.
-  - AuthKit verifies both signatures, the device key's liveness and the key binding. The grant authorizer then sees `iam.OAuthGrantJWTBearer` with `UserID`, `DeviceKeyID`, the operations, `JWKThumbprint`, `iam.OAuthAssertion` and `iam.OAuthCapability`. It may refuse, or narrow the operations by dropping entries. `OAuthGrantDecision.Invoker` names the workload in `act`.
-  - The `at+jwt` lasts until the capability expires and carries `device_key_id`, with no refresh token. `Client.CheckSession` and `verify.RequireSession` now check that device key for this issuer's jwt-bearer tokens, so revoking the key ends them at once. `verify.Claims.DeviceKeyID` is now kept for a local issuer's resource tokens.
-  - Refusals carry a `reason` beside the OAuth `error`. Discovery lists the grant type. See [Workloads](docs/authorization-server.md#workloads).
-- `authtest`: `DeviceKey.UserID`, `DeviceKey.Capability`, `RevokeDeviceKey`, `DPoPKey.Assertion`, `AuthorizationServer.JWTBearer`, `JWTBearerToken` and `TokenEndpoint`.
 
 ## v1.8.0
 
