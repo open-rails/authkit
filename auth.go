@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/open-rails/authkit/iam"
@@ -38,6 +39,8 @@ type Client struct {
 	// cfg and deps are what New was given (internal/builtwith).
 	cfg  Config
 	deps Deps
+	// noMerchant logs once that RequirePermission refuses everything.
+	noMerchant sync.Once
 }
 
 func init() {
@@ -66,6 +69,15 @@ func New(ctx context.Context, cfg Config, deps Deps) (_ *Client, err error) {
 			a.Close()
 		}
 	}()
+	if group := e.Config().Merchant.Group; group != "" {
+		root, err := e.RootGroupID(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if group == root {
+			return nil, errors.New("authkit: Config.Merchant.Group is the root group; set Config.Merchant.Root to check merchant staff there")
+		}
+	}
 	if e.Config().HTTP != nil {
 		if a.http, a.mount, err = newHTTP(e, deps); err != nil {
 			return nil, err

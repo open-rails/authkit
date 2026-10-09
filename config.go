@@ -28,6 +28,7 @@ type (
 	APIKeysConfig      = config.APIKeysConfig
 	DelegatedConfig    = config.DelegatedConfig
 	InvitationsConfig  = config.InvitationsConfig
+	MerchantConfig     = config.MerchantConfig
 	// AuthorizationServerConfig declares the OAuth clients and resource
 	// servers of the authorization server (Config.AuthorizationServer).
 	AuthorizationServerConfig = config.AuthorizationServerConfig

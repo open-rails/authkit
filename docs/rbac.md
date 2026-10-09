@@ -94,6 +94,26 @@ Apps that share one account store (the same schema, listed in `TokenConfig.Accou
 
 Fingerprints and sweeps are per app. Each app judges only the API keys, invitations and applications issued through it, and an API key works only at the app that minted it. When a change through one app demotes a user, every other app sweeps its own credentials from that user.
 
+## A billing library's merchant routes
+
+The Client is helpers/auth `Auth`, the middleware OpenRails mounts its routes with (`openrails.Routes{Auth: client}`). Its gates are `verify`'s over the Client, so they stack and verify a request once:
+
+| Method | Gate | Admits |
+|---|---|---|
+| `Required()` | `verify.RequireSession` | a person (a user's or a device key's token), session checked live; machines are 403 |
+| `RequirePermission(p)` | `verify.RequirePermissionOn` in `Config.Merchant`'s group | a caller holding `p` there, live; without `Config.Merchant`, nobody |
+| `Sensitive()` | `verify.Sensitive` | a person who signed in within 15 minutes, with the second factor when the account has one |
+| `Identity(ctx)` | | who a gate over the Client verified: a person by user id, or a `Machine` (an API key, a remote application) |
+
+Declare the merchant permissions from the library's published strings, then grant them like any other:
+
+```go
+Merchant = rbac.Persona("merchant", authkit.APIKeys)
+_        = Merchant.Declare(openrails.Permissions()...)
+```
+
+`Config.Merchant.Group` is the id of the group that controls the merchant, typically one of that persona, created by the host. Its owner holds `merchant:*` and so every merchant permission. `Config.Merchant.Root` checks staff on root instead, where root roles holding merchant permissions apply; naming root's id in `Group` fails `New`. With a group named, `RequirePermission` takes one registered permission and panics on a pattern, as `RequirePermissionOn` does.
+
 ## Related
 
 - **`verify.Claims.RootRole`** is the user's root role when the token was minted. It is for display only, can be stale for the token's lifetime, and must never authorize anything.

@@ -38,10 +38,10 @@ func (a *Client) VerifyServiceJWT(ctx context.Context, token string, opts ...ver
 	return a.engine.VerifyServiceJWT(ctx, token, opts...)
 }
 
-// AuthenticateRequest is r's helpers/auth principal, whose Can checks
+// AuthenticateRequest is r's helpers/auth Verified request, whose Can checks
 // permissions live (verify.AuthenticateRequest: behind a gate over the
 // Client it reuses the gate's verification).
-func (a *Client) AuthenticateRequest(ctx context.Context, r *http.Request) (auth.Principal, error) {
+func (a *Client) AuthenticateRequest(ctx context.Context, r *http.Request) (auth.Verified, error) {
 	return verify.AuthenticateRequest(ctx, a, r)
 }
 
@@ -95,7 +95,7 @@ func (v *Verifier) VerifyServiceJWT(ctx context.Context, token string, opts ...v
 }
 
 // AuthenticateRequest is Client.AuthenticateRequest for this Verifier.
-func (v *Verifier) AuthenticateRequest(ctx context.Context, r *http.Request) (auth.Principal, error) {
+func (v *Verifier) AuthenticateRequest(ctx context.Context, r *http.Request) (auth.Verified, error) {
 	return verify.AuthenticateRequest(ctx, v, r)
 }
 

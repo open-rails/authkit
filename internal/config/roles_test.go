@@ -197,3 +197,28 @@ func TestCompileRolesKeepsOwnerOnlyPermissions(t *testing.T) {
 		require.True(t, rbac.Covers(owner.Permissions, perm), "the %s owner holds %s", perm.Persona(), perm)
 	}
 }
+
+// A library's published permission strings declare in one call; a built-in
+// among them is returned as it is, and another persona's or a malformed one
+// fails the catalog.
+func TestPersonaDeclare(t *testing.T) {
+	r := NewRoles()
+	merchant := r.Persona("merchant", APIKeys)
+	perms := merchant.Declare("merchant:payments:refund", "merchant:credentials:manage", "merchant:catalog:read")
+	require.Equal(t, []string{"merchant:payments:refund", "merchant:credentials:manage", "merchant:catalog:read"}, ident.Strings(perms))
+	merchant.Role("support", perms[0])
+	s, err := CompileRoles(r)
+	require.NoError(t, err)
+	require.True(t, s.KnownPermission(perms[0]))
+	require.True(t, s.KnownPermission(perms[1]))
+
+	for _, bad := range []string{"root:payments:refund", "merchant:payments", "merchant:payments:refund:x", "merchant:payments:*", "merchant:payments:refund"} {
+		r := NewRoles()
+		m := r.Persona("merchant")
+		m.Declare("merchant:payments:refund")
+		got := m.Declare(bad)
+		require.Len(t, got, 1, bad)
+		_, err := CompileRoles(r)
+		require.Error(t, err, bad)
+	}
+}

@@ -11,25 +11,25 @@ import (
 	"github.com/open-rails/helpers/auth"
 )
 
-// AuthenticateRequest is r's helpers/auth principal, identity only: a
+// AuthenticateRequest is r's helpers/auth Verified request, identity only: a
 // Verifier checks no permissions.
-func (v *Verifier) AuthenticateRequest(ctx context.Context, r *http.Request) (auth.Principal, error) {
+func (v *Verifier) AuthenticateRequest(ctx context.Context, r *http.Request) (auth.Verified, error) {
 	return AuthenticateRequest(ctx, v, r)
 }
 
-// AuthenticateRequest is r's helpers/auth principal, for code written against
+// AuthenticateRequest is r's helpers/auth Verified request, for code written against
 // helpers/auth providers. Behind a gate over a (Required, Optional,
 // RequireSession, RequirePermission or Sensitive, in any adapter) it reuses
 // the gate's verification, since verifying again would spend a DPoP proof
 // twice; otherwise it verifies r through a. When a is a PermissionChecker
-// (*authkit.Client), the principal's Can checks the credential's permissions
+// (*authkit.Client), its Can checks the credential's permissions
 // live, the session included; otherwise it is identity only.
-func AuthenticateRequest(ctx context.Context, a Authenticator, r *http.Request) (auth.Principal, error) {
+func AuthenticateRequest(ctx context.Context, a Authenticator, r *http.Request) (auth.Verified, error) {
 	cl, err := authenticate(ctx, a, r)
 	if err != nil {
 		return nil, err
 	}
-	return principalOf(a, cl)
+	return verifiedOf(a, cl)
 }
 
 // AuthenticateSession is AuthenticateRequest plus RequireSession's session
@@ -40,8 +40,8 @@ func AuthenticateRequest(ctx context.Context, a Authenticator, r *http.Request) 
 // RequireSession, a credential that carries no sign-in (an API key, a remote
 // application's token or delegation) passes: verification already refuses it
 // once revoked, and Can checks its authority live. Admitting only some kinds
-// is the caller's policy (Principal.Identity().Kind).
-func AuthenticateSession(ctx context.Context, a Authority, r *http.Request) (auth.Principal, error) {
+// is the caller's policy (Verified.Identity()).
+func AuthenticateSession(ctx context.Context, a Authority, r *http.Request) (auth.Verified, error) {
 	cl, err := authenticate(ctx, a, r)
 	if err != nil {
 		return nil, err
@@ -53,7 +53,7 @@ func AuthenticateSession(ctx context.Context, a Authority, r *http.Request) (aut
 	default:
 		return nil, errors.Join(auth.ErrUnavailable, err)
 	}
-	return principalOf(a, cl)
+	return verifiedOf(a, cl)
 }
 
 // authenticate is the claims a gate over a stored for r's credential, in ctx
@@ -74,19 +74,19 @@ func authenticate(ctx context.Context, a Authenticator, r *http.Request) (Claims
 	return cl, nil
 }
 
-// principalOf is verified claims' helpers/auth principal (see
+// verifiedOf is verified claims' helpers/auth Verified request (see
 // AuthenticateRequest for Can).
-func principalOf(a Authenticator, cl Claims) (auth.Principal, error) {
+func verifiedOf(a Authenticator, cl Claims) (auth.Verified, error) {
 	i, ok := cl.Identity()
 	if !ok {
 		return nil, auth.ErrUnauthenticated
 	}
 	cl.Permissions = append([]string(nil), cl.Permissions...)
 	if authority, ok := a.(Authority); ok {
-		return sessionPrincipal{checkingPrincipal{identity{i}, cl, authority}, authority}, nil
+		return sessionVerified{checkingVerified{identity{i}, cl, authority}, authority}, nil
 	}
 	if checker, ok := a.(PermissionChecker); ok {
-		return checkingPrincipal{identity{i}, cl, checker}, nil
+		return checkingVerified{identity{i}, cl, checker}, nil
 	}
 	return identity{i}, nil
 }
@@ -95,19 +95,19 @@ type identity struct{ id auth.Identity }
 
 func (p identity) Identity() auth.Identity { return p.id }
 
-type checkingPrincipal struct {
+type checkingVerified struct {
 	identity
 	claims  Claims
 	checker PermissionChecker
 }
 
-var _ auth.PermissionChecker = checkingPrincipal{}
+var _ auth.PermissionChecker = checkingVerified{}
 
 // Can checks the credential's authority in the group scope.ID names, live
 // and without verifying the request again. The scope's authority must be the
 // credential's own (the issuer of the groups it acts in). A revoked session
 // is auth.ErrRevoked.
-func (p checkingPrincipal) Can(ctx context.Context, scope auth.Scope, permission string) (bool, error) {
+func (p checkingVerified) Can(ctx context.Context, scope auth.Scope, permission string) (bool, error) {
 	if scope.ID == "" || permission == "" || scope.Authority == "" || scope.Authority != authorityOf(p.claims) {
 		return false, nil
 	}
@@ -154,14 +154,14 @@ func classify(err error) error {
 	return errors.Join(auth.ErrUnauthenticated, err)
 }
 
-// sessionPrincipal is a checkingPrincipal whose authority also checks the
+// sessionVerified is a checkingVerified whose authority also checks the
 // credential's sign-in (*authkit.Client is one).
-type sessionPrincipal struct {
-	checkingPrincipal
+type sessionVerified struct {
+	checkingVerified
 	sessions SessionChecker
 }
 
-var _ auth.RecentSignInChecker = sessionPrincipal{}
+var _ auth.RecentSignInChecker = sessionVerified{}
 
 // CheckRecentSignIn is Sensitive's check, live and without verifying the
 // request again: the user's own token, signed in within the last 15 minutes,
@@ -170,7 +170,7 @@ var _ auth.RecentSignInChecker = sessionPrincipal{}
 // the account's step-up methods. A credential with no sign-in of its own (a
 // delegated token, an API key) is auth.ErrForbidden, and a revoked session
 // auth.ErrRevoked.
-func (p sessionPrincipal) CheckRecentSignIn(ctx context.Context) error {
+func (p sessionVerified) CheckRecentSignIn(ctx context.Context) error {
 	err := p.sessions.CheckRecentSignIn(ctx, p.claims)
 	switch code := errmodel.CodeOf(err); {
 	case err == nil:
