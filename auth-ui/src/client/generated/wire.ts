@@ -418,6 +418,7 @@ export type OAuthTokens = {
   scope?: string
   id_token?: string
   refresh_token?: string
+  issued_token_type?: string
 }
 
 export type OIDCExchangeRequest = {

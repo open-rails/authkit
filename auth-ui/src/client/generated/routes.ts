@@ -117,6 +117,8 @@ export const AUTHKIT_ROUTES: readonly AuthKitRoute[] = [
   { method: "POST", path: "/oauth2/authorize", group: "authorization_server", auth: "public", permission: null, stepUp: false, mountedWhen: "authorization_server" },
   { method: "POST", path: "/oauth2/token", group: "authorization_server", auth: "public", permission: null, stepUp: false, mountedWhen: "authorization_server" },
   { method: "OPTIONS", path: "/oauth2/token", group: "authorization_server", auth: "public", permission: null, stepUp: false, mountedWhen: "authorization_server" },
+  { method: "POST", path: "/oauth2/revoke", group: "authorization_server", auth: "public", permission: null, stepUp: false, mountedWhen: "authorization_server" },
+  { method: "OPTIONS", path: "/oauth2/revoke", group: "authorization_server", auth: "public", permission: null, stepUp: false, mountedWhen: "authorization_server" },
   { method: "GET", path: "/oauth2/userinfo", group: "authorization_server", auth: "public", permission: null, stepUp: false, mountedWhen: "authorization_server" },
   { method: "POST", path: "/oauth2/userinfo", group: "authorization_server", auth: "public", permission: null, stepUp: false, mountedWhen: "authorization_server" },
   { method: "OPTIONS", path: "/oauth2/userinfo", group: "authorization_server", auth: "public", permission: null, stepUp: false, mountedWhen: "authorization_server" },

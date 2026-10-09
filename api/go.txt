@@ -3,6 +3,9 @@ pkg authkit, const FormerNamesFinite config.FormerNamesMode = "finite"
 pkg authkit, const FormerNamesForever config.FormerNamesMode = "forever"
 pkg authkit, const FormerNamesImmediate config.FormerNamesMode = "immediate"
 pkg authkit, const GrantAuthorizationCode config.OAuthGrantType = "authorization_code"
+pkg authkit, const GrantClientCredentials config.OAuthGrantType = "client_credentials"
+pkg authkit, const GrantRefreshToken config.OAuthGrantType = "refresh_token"
+pkg authkit, const GrantTokenExchange config.OAuthGrantType = "urn:ietf:params:oauth:grant-type:token-exchange"
 pkg authkit, const RemoteApplications config.PersonaOption = 2
 pkg authkit, func DefaultRateLimits() map[string]RateLimit
 pkg authkit, func IfRole(iam.Role) Option
@@ -127,6 +130,7 @@ pkg authkit, type AuthorizationServerConfig = config.AuthorizationServerConfig
 pkg authkit, type AuthorizationServerConfig struct
 pkg authkit, type AuthorizationServerConfig struct, AccessTokenTTL time.Duration
 pkg authkit, type AuthorizationServerConfig struct, Clients []config.OAuthClientConfig
+pkg authkit, type AuthorizationServerConfig struct, RefreshTokenTTL time.Duration
 pkg authkit, type AuthorizationServerConfig struct, Resources []config.ResourceServerConfig
 pkg authkit, type Client struct
 pkg authkit, type Config = config.Config
@@ -242,6 +246,8 @@ pkg authkit, type OAuthClientConfig struct
 pkg authkit, type OAuthClientConfig struct, GrantTypes []config.OAuthGrantType
 pkg authkit, type OAuthClientConfig struct, ID string
 pkg authkit, type OAuthClientConfig struct, Name string
+pkg authkit, type OAuthClientConfig struct, Origins []string
+pkg authkit, type OAuthClientConfig struct, Permissions []string
 pkg authkit, type OAuthClientConfig struct, PostLogoutRedirectURIs []string
 pkg authkit, type OAuthClientConfig struct, RedirectURIs []string
 pkg authkit, type OAuthClientConfig struct, Resources []string
@@ -419,6 +425,7 @@ pkg authkit/authtest, func EnrollTOTP(testing.TB, *authkit.Client, User) *TOTP
 pkg authkit/authtest, func GrantRole(testing.TB, *authkit.Client, iam.GroupRef, iam.Subject, iam.Role)
 pkg authkit/authtest, func New(testing.TB, ...Option) (*authkit.Client, *Outbox)
 pkg authkit/authtest, func NewAuthorizationServer(testing.TB, ...Option) *AuthorizationServer
+pkg authkit/authtest, func NewDPoPKey(testing.TB) *DPoPKey
 pkg authkit/authtest, func NewIdP(testing.TB) *IdP
 pkg authkit/authtest, func NewUser(testing.TB, *authkit.Client) User
 pkg authkit/authtest, func PKCEChallenge(string) string
@@ -434,8 +441,15 @@ pkg authkit/authtest, method (*AuthorizationServer) Approve(testing.TB, string, 
 pkg authkit/authtest, method (*AuthorizationServer) Authorize(testing.TB, User, CodeFlow) OAuthTokens
 pkg authkit/authtest, method (*AuthorizationServer) AuthorizeAs(testing.TB, iam.TokenSet, CodeFlow) OAuthTokens
 pkg authkit/authtest, method (*AuthorizationServer) BeginAuthorization(testing.TB, CodeFlow, string, string) string
+pkg authkit/authtest, method (*AuthorizationServer) ClientCredentials(testing.TB, string, string, string, []string, *DPoPKey) OAuthTokens
+pkg authkit/authtest, method (*AuthorizationServer) Exchange(testing.TB, TokenExchange) OAuthTokens
 pkg authkit/authtest, method (*AuthorizationServer) HTTPClient() *http.Client
-pkg authkit/authtest, method (*AuthorizationServer) Token(testing.TB, string, string, url.Values) (int, []byte)
+pkg authkit/authtest, method (*AuthorizationServer) Refresh(testing.TB, string, string, OAuthTokens) OAuthTokens
+pkg authkit/authtest, method (*AuthorizationServer) Revoke(testing.TB, string, string, string) int
+pkg authkit/authtest, method (*AuthorizationServer) Token(testing.TB, TokenRequest) (int, []byte)
+pkg authkit/authtest, method (*DPoPKey) Authorize(testing.TB, *http.Request, string, string)
+pkg authkit/authtest, method (*DPoPKey) Proof(testing.TB, string, string, string, string) string
+pkg authkit/authtest, method (*DPoPKey) Thumbprint() string
 pkg authkit/authtest, method (*IdP) Provider(string, ...provider.Option) provider.Provider
 pkg authkit/authtest, method (*IdP) SignIn(testing.TB, string, provider.Identity) url.Values
 pkg authkit/authtest, method (*Outbox) Email() config.EmailSender
@@ -452,10 +466,12 @@ pkg authkit/authtest, type AuthorizationServer struct, URL string
 pkg authkit/authtest, type CodeFlow struct
 pkg authkit/authtest, type CodeFlow struct, ClientID string
 pkg authkit/authtest, type CodeFlow struct, ClientSecret string
+pkg authkit/authtest, type CodeFlow struct, DPoP *DPoPKey
 pkg authkit/authtest, type CodeFlow struct, Nonce string
 pkg authkit/authtest, type CodeFlow struct, RedirectURI string
 pkg authkit/authtest, type CodeFlow struct, Resource string
 pkg authkit/authtest, type CodeFlow struct, Scopes []string
+pkg authkit/authtest, type DPoPKey struct
 pkg authkit/authtest, type DeviceKey struct
 pkg authkit/authtest, type DeviceKey struct, AccessToken string
 pkg authkit/authtest, type DeviceKey struct, ID string
@@ -476,8 +492,10 @@ pkg authkit/authtest, type Message struct, To string `json:"to"`
 pkg authkit/authtest, type Message struct, Token string `json:"token,omitempty"`
 pkg authkit/authtest, type OAuthTokens struct
 pkg authkit/authtest, type OAuthTokens struct, AccessToken string `json:"access_token"`
+pkg authkit/authtest, type OAuthTokens struct, DPoP *DPoPKey `json:"-"`
 pkg authkit/authtest, type OAuthTokens struct, ExpiresIn int64 `json:"expires_in"`
 pkg authkit/authtest, type OAuthTokens struct, IDToken string `json:"id_token"`
+pkg authkit/authtest, type OAuthTokens struct, IssuedTokenType string `json:"issued_token_type"`
 pkg authkit/authtest, type OAuthTokens struct, RefreshToken string `json:"refresh_token"`
 pkg authkit/authtest, type OAuthTokens struct, Scope string `json:"scope"`
 pkg authkit/authtest, type OAuthTokens struct, TokenType string `json:"token_type"`
@@ -486,6 +504,18 @@ pkg authkit/authtest, type Outbox = testoutbox.Outbox
 pkg authkit/authtest, type Outbox struct
 pkg authkit/authtest, type TOTP struct
 pkg authkit/authtest, type TOTP struct, Secret string
+pkg authkit/authtest, type TokenExchange struct
+pkg authkit/authtest, type TokenExchange struct, ClientID string
+pkg authkit/authtest, type TokenExchange struct, ClientSecret string
+pkg authkit/authtest, type TokenExchange struct, DPoP *DPoPKey
+pkg authkit/authtest, type TokenExchange struct, Resource string
+pkg authkit/authtest, type TokenExchange struct, Scopes []string
+pkg authkit/authtest, type TokenExchange struct, SubjectToken string
+pkg authkit/authtest, type TokenRequest struct
+pkg authkit/authtest, type TokenRequest struct, ClientID string
+pkg authkit/authtest, type TokenRequest struct, ClientSecret string
+pkg authkit/authtest, type TokenRequest struct, DPoP *DPoPKey
+pkg authkit/authtest, type TokenRequest struct, Params url.Values
 pkg authkit/authtest, type User struct
 pkg authkit/authtest, type User struct, Email string
 pkg authkit/authtest, type User struct, Password string
@@ -608,6 +638,7 @@ pkg authkit/iam, const NameCreate NameOperation = "create"
 pkg authkit/iam, const NameRename NameOperation = "rename"
 pkg authkit/iam, const OAuthAuthorizePath untyped string = "/oauth2/authorize"
 pkg authkit/iam, const OAuthEndSessionPath untyped string = "/oauth2/end_session"
+pkg authkit/iam, const OAuthRevocationPath untyped string = "/oauth2/revoke"
 pkg authkit/iam, const OAuthTokenPath untyped string = "/oauth2/token"
 pkg authkit/iam, const OAuthUserInfoPath untyped string = "/oauth2/userinfo"
 pkg authkit/iam, const OpenIDConfigurationPath untyped string = "/.well-known/openid-configuration"

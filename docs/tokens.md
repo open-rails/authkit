@@ -63,6 +63,8 @@ mux.Handle("/api/", verify.Required(v)(api))
 
 ## Delegated tokens
 
+Deprecated: `POST /api/v1/delegated/token` and delegated tokens remain in v1 and are removed in v2. New integrations use the [authorization server](authorization-server.md): token exchange for a frontend, client credentials for a machine.
+
 - AuthKit mints delegated tokens in two ways:
   - at `POST /api/v1/delegated/token`, for one of `DelegatedConfig.Audiences`, with `Deps.DelegatedAuthorization` deciding the grant;
   - through `Client.MintDelegatedAccessToken`.

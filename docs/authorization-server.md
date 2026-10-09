@@ -14,12 +14,24 @@ cfg.AuthorizationServer = authkit.AuthorizationServerConfig{
 		Name:         "Billing",
 		RedirectURIs: []string{"https://billing.example.com/callback"},
 		Resources:    []string{"https://billing.example.com"},
+		GrantTypes:   []authkit.OAuthGrantType{authkit.GrantAuthorizationCode, authkit.GrantRefreshToken},
+	}, {
+		ID:         "admin-ui", // the host's own frontend
+		Origins:    []string{"https://admin.example.com"},
+		Resources:  []string{"https://billing.example.com"},
+		GrantTypes: []authkit.OAuthGrantType{authkit.GrantTokenExchange},
+	}, {
+		ID:           "payout-worker", // a machine
+		SecretSHA256: workerSecretSHA256,
+		Resources:    []string{"https://billing.example.com"},
+		Permissions:  []string{"merchant:payouts:read"},
+		GrantTypes:   []authkit.OAuthGrantType{authkit.GrantClientCredentials},
 	}},
 }
 ```
 
 - There is no dynamic registration and no consent screen: every client is first-party.
-- A confidential client sets `SecretSHA256`, the hex SHA-256 of a secret of at least 32 random bytes; AuthKit never holds the secret.
+- A confidential client sets `SecretSHA256`, the hex SHA-256 of a secret of at least 32 random bytes; AuthKit never holds the secret. A public client must prove a DPoP key (RFC 9449) at the token endpoint, so its tokens are always sender-bound.
 - Redirect URIs match exactly: https, or http on a loopback host.
 
 ## Endpoints
@@ -29,8 +41,9 @@ Beneath the issuer's path, as the metadata at `/.well-known/openid-configuration
 | Endpoint | Does |
 |---|---|
 | `/oauth2/authorize` | authorization code with PKCE S256 (required), `resource` (RFC 8707), `prompt=none\|login`, `max_age`; the response carries `iss` (RFC 9207) |
-| `/oauth2/token` | redeems a code once, for the client, redirect URI and verifier it was issued to |
-| `/oauth2/userinfo` | the user's claims, for an access token with the `openid` scope |
+| `/oauth2/token` | the grants below; a `DPoP` proof binds the tokens to its key (`token_type` `DPoP`, `cnf.jkt`) |
+| `/oauth2/revoke` | RFC 7009: ends a refresh token's family; any token answers 200 |
+| `/oauth2/userinfo` | the user's claims, for an access token with the `openid` scope (a DPoP-bound one with its proof) |
 | `/oauth2/end_session` | RP-initiated logout: ends the sign-in `id_token_hint` names |
 
 Errors are OAuth's `{error, error_description}`. Until the client and redirect URI check out, the authorize endpoint answers itself; after that it redirects back to the client with the error.
@@ -44,6 +57,17 @@ The authorize endpoint stores the request and sends the browser to the SPA at `F
 3. approves it with that sign-in: `POST {api}/oauth2/authorizations/{id}/approve` answers `{redirect_to}`, the client's redirect URI with a one-time code. A request asking for a fresher sign-in than the user's (`prompt=login`, `max_age`) answers 403 `step_up_required`; step up and approve again.
 
 For `prompt=none` with nobody signed in, or when the user refuses, the SPA declines: `POST {api}/oauth2/authorizations/{id}/decline` with `{"error": "login_required"}` (or `access_denied`, `interaction_required`).
+
+## Grants
+
+| Grant | For | Answer |
+|---|---|---|
+| `authorization_code` | a browser or server client signing the user in, with PKCE; `dpop_jkt` on the authorize request binds the code to the key | access token, ID token with `openid`, refresh token with `refresh_token` |
+| `refresh_token` | the same client, proving the same DPoP key; `scope` may narrow | rotated tokens with live permissions |
+| `urn:ietf:params:oauth:grant-type:token-exchange` | a host frontend (RFC 8693): `subject_token` is the user's AuthKit access token, `subject_token_type` `urn:ietf:params:oauth:token-type:access_token` | an access token for `resource`, on the same sign-in |
+| `client_credentials` | a confidential client acting for itself | an access token with `sub` = `client_id` and the client's `Permissions` within the ceiling |
+
+Refresh tokens rotate on every use. A family stands on the sign-in it was issued from and lasts `RefreshTokenTTL` (12 hours by default), which rotation never extends; then the client signs in again with `prompt=none`. Presenting a rotated-out token revokes the family, newest token included. `offline_access` is not offered.
 
 ## Tokens
 

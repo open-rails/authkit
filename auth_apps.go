@@ -46,6 +46,9 @@ func (a *Client) ListRemoteApplications(ctx context.Context, ref iam.GroupRef, p
 // A user actor mints only for itself, and every AuthKit permission in
 // d.Permissions must be held live by it on the root group
 // (iam.ErrDelegationRefused otherwise). The system mints for any subject.
+//
+// Delegated tokens are superseded by the authorization server's RFC 9068
+// access tokens (token exchange, client credentials) and are removed in v2.
 func (a *Client) MintDelegatedAccessToken(ctx context.Context, actor iam.Actor, d iam.DelegatedAccess, opts ...Option) (iam.Token, error) {
 	return a.ops.MintDelegatedAccessToken(ctx, actor, d, opts...)
 }

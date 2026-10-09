@@ -10,18 +10,21 @@ import (
 // user: the authorize endpoint stores it, the SPA signs the user in and
 // approves or declines it.
 type OAuthAuthorization struct {
-	ClientID      string    `json:"client_id"`
-	RedirectURI   string    `json:"redirect_uri"`
-	State         string    `json:"state,omitempty"`
-	Nonce         string    `json:"nonce,omitempty"`
-	Scopes        []string  `json:"scopes"`
-	Resource      string    `json:"resource,omitempty"`
-	CodeChallenge string    `json:"code_challenge"`
-	Prompt        []string  `json:"prompt,omitempty"`
-	MaxAge        *int64    `json:"max_age,omitempty"`
-	LoginHint     string    `json:"login_hint,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
-	ExpiresAt     time.Time `json:"expires_at"`
+	ClientID      string   `json:"client_id"`
+	RedirectURI   string   `json:"redirect_uri"`
+	State         string   `json:"state,omitempty"`
+	Nonce         string   `json:"nonce,omitempty"`
+	Scopes        []string `json:"scopes"`
+	Resource      string   `json:"resource,omitempty"`
+	CodeChallenge string   `json:"code_challenge"`
+	Prompt        []string `json:"prompt,omitempty"`
+	MaxAge        *int64   `json:"max_age,omitempty"`
+	LoginHint     string   `json:"login_hint,omitempty"`
+	// DPoPJKT binds the code to a DPoP key (RFC 9449 §10): its redemption
+	// must prove that key.
+	DPoPJKT   string    `json:"dpop_jkt,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
 
 // OAuthGrant is what an authorization code stands for: the approved request
@@ -38,6 +41,7 @@ type OAuthGrant struct {
 	AuthTime      int64    `json:"auth_time"`
 	AMR           []string `json:"amr"`
 	ACR           string   `json:"acr"`
+	DPoPJKT       string   `json:"dpop_jkt,omitempty"`
 }
 
 // OAuthCodeExchange is an authorization_code token request from an
@@ -50,7 +54,46 @@ type OAuthCodeExchange struct {
 	// Resource is the request's resource parameter; "" takes the authorized
 	// one.
 	Resource string
+	// JKT is the thumbprint of the request's DPoP proof key; "" without
+	// DPoP. The tokens are bound to it.
+	JKT string
 }
+
+// OAuthRefresh is a refresh_token token request.
+type OAuthRefresh struct {
+	ClientID     string
+	RefreshToken string
+	// Scopes narrows the family's scopes; nil keeps them.
+	Scopes   []string
+	Resource string
+	JKT      string
+}
+
+// OAuthTokenExchange is an RFC 8693 token exchange request: the user's
+// AuthKit access token for an access token to a resource.
+type OAuthTokenExchange struct {
+	ClientID           string
+	SubjectToken       string
+	SubjectTokenType   string
+	RequestedTokenType string
+	Resource           string
+	Scopes             []string
+	JKT                string
+}
+
+// OAuthClientCredentials is a client_credentials token request.
+type OAuthClientCredentials struct {
+	ClientID string
+	Resource string
+	Scopes   []string
+	JKT      string
+}
+
+// RFC 8693 token type identifiers.
+const (
+	TokenTypeAccessToken = "urn:ietf:params:oauth:token-type:access_token"
+	TokenTypeJWT         = "urn:ietf:params:oauth:token-type:jwt"
+)
 
 // OAuthTokens is a token endpoint answer (RFC 6749 §5.1). Absent members
 // are omitted, as the protocol expects.
@@ -61,6 +104,8 @@ type OAuthTokens struct {
 	Scope        string `json:"scope,omitempty"`
 	IDToken      string `json:"id_token,omitempty"`
 	RefreshToken string `json:"refresh_token,omitempty"`
+	// IssuedTokenType answers a token exchange (RFC 8693 §2.2.1).
+	IssuedTokenType string `json:"issued_token_type,omitempty"`
 }
 
 // OAuthEndSession is an RP-initiated logout request.
@@ -107,6 +152,9 @@ const (
 	OAuthRequestNotSupported     = "request_not_supported"
 	OAuthRequestURINotSupported  = "request_uri_not_supported"
 	OAuthInvalidToken            = "invalid_token"
+	OAuthInvalidDPoPProof        = "invalid_dpop_proof"
+	OAuthUseDPoPNonce            = "use_dpop_nonce"
+	OAuthUnsupportedTokenType    = "unsupported_token_type"
 	OAuthServerError             = "server_error"
 	OAuthTemporarilyUnavailable  = "temporarily_unavailable"
 )
