@@ -84,12 +84,14 @@ func loadTOTPKey(path string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("authkit: stat TOTP key %s: %w", path, err)
 	}
+	// Group-read is allowed: a Kubernetes secret volume with fsGroup mounts it
+	// 0440, the only way a non-root pod reads it.
 	mode := info.Mode().Perm()
 	if mode&0o022 != 0 {
-		return nil, fmt.Errorf("authkit: TOTP key %s is group/world-writable (%#o) — refuse to load (expected 0600/0400)", path, mode)
+		return nil, fmt.Errorf("authkit: TOTP key %s is group/world-writable (%#o) — refuse to load (expected 0600, 0400 or 0440)", path, mode)
 	}
-	if mode&0o044 != 0 {
-		stdlog.Printf("authkit: warning: TOTP key %s is group/world-readable (%#o); expected 0600/0400", path, mode)
+	if mode&0o004 != 0 {
+		stdlog.Printf("authkit: warning: TOTP key %s is world-readable (%#o); expected 0600, 0400 or 0440", path, mode)
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {

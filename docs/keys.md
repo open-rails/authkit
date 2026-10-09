@@ -22,7 +22,7 @@ AuthKit signs tokens with asymmetric keys and publishes their public halves at `
 - `public_keys` are verify-only keys that JWKS keeps publishing, so tokens signed before a rotation keep verifying.
 - With no `keys.json`, `New` fails, unless `KeysConfig.VerifyOnly` is set (no signing) or `AllowEphemeralDevKeys` (development only: AuthKit generates a key, and writes it to `keys.json` when `Path` is set).
 
-`totp.key` is the AES key (16, 24 or 32 bytes; hex, base64 or raw) that encrypts authenticator-app secrets; `TwoFactorConfig.TOTPSecretKey` overrides it. It can't be rotated: replacing it breaks every enrolled authenticator app, so back it up. Without it, authenticator apps can't be enrolled, unless `AllowEphemeralDevKeys` generates one the same way as `keys.json`.
+`totp.key` is the AES key (16, 24 or 32 bytes; hex, base64 or raw) that encrypts authenticator-app secrets; `TwoFactorConfig.TOTPSecretKey` overrides it. It can't be rotated: replacing it breaks every enrolled authenticator app, so back it up. Without it, authenticator apps can't be enrolled, unless `AllowEphemeralDevKeys` generates one the same way as `keys.json`. The file may be 0600, 0400 or 0440 (group-read, as a Kubernetes secret volume with `fsGroup` mounts it); world-read logs a warning and any group or world write bit refuses to boot.
 
 To keep the private key out of the process entirely, set `Deps.KeySource` to your own `keys.Source`: an HSM, KMS or Vault key implements `keys.Signer`. A fixed source can't rotate without a restart.
 

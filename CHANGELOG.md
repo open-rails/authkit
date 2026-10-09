@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.10.1
+
+- A TOTP key file readable by its group (0440, as a Kubernetes secret volume with `fsGroup` mounts it) loads without a warning (#439). World-read still warns; any group or world write bit is still refused.
+
 ## v1.10.0
 
 Additive.
