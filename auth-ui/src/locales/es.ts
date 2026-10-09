@@ -532,6 +532,10 @@ export const es: AuthUiMessageBundle = {
     completing: "Completando el inicio de sesión…",
     errorTitle: "Error al iniciar sesión",
   },
+  oauth: {
+    signInTo: "Inicia sesión para continuar en {client}",
+    continuing: "Continuando a {client}…",
+  },
   solana: {
     provider: "Solana",
     errors: {
@@ -543,6 +547,8 @@ export const es: AuthUiMessageBundle = {
     },
   },
   errors: {
+    authorization_request_not_found:
+      "Esta solicitud de inicio de sesión ha caducado. Vuelve a la aplicación e inténtalo de nuevo.",
     network_error: "Error de red. Comprueba tu conexión.",
     popup_blocked:
       "Se bloqueó la ventana de inicio de sesión. Permite las ventanas emergentes e inténtalo de nuevo.",

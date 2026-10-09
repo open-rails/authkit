@@ -56,6 +56,8 @@ The authorize endpoint stores the request and sends the browser to the SPA at `F
 2. signs the user in as usual, second factors included;
 3. approves it with that sign-in: `POST {api}/oauth2/authorizations/{id}/approve` answers `{redirect_to}`, the client's redirect URI with a one-time code. A request asking for a fresher sign-in than the user's (`prompt=login`, `max_age`) answers 403 `step_up_required`; step up and approve again.
 
+auth-ui's `OAuthAuthorize` component is that page.
+
 For `prompt=none` with nobody signed in, or when the user refuses, the SPA declines: `POST {api}/oauth2/authorizations/{id}/decline` with `{"error": "login_required"}` (or `access_denied`, `interaction_required`).
 
 ## Grants

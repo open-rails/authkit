@@ -72,6 +72,8 @@ func (s *Service) handleOAuthMetadata(w http.ResponseWriter, _ *http.Request) {
 		}
 	}
 	w.Header().Set("Cache-Control", "public, max-age=300")
+	// A public document every browser client reads first.
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	writeJSON(w, http.StatusOK, OAuthServerMetadata{
 		Issuer:                           s.cfg.Token.Issuer,
 		AuthorizationEndpoint:            s.oauthURL(iam.OAuthAuthorizePath),

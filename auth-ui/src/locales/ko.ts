@@ -506,6 +506,10 @@ export const ko: AuthUiMessageBundle = {
     completing: "로그인을 완료하는 중…",
     errorTitle: "로그인 실패",
   },
+  oauth: {
+    signInTo: "{client}(으)로 계속하려면 로그인하세요",
+    continuing: "{client}(으)로 이동하는 중…",
+  },
   solana: {
     provider: "Solana",
     errors: {
@@ -517,6 +521,8 @@ export const ko: AuthUiMessageBundle = {
     },
   },
   errors: {
+    authorization_request_not_found:
+      "이 로그인 요청이 만료되었습니다. 앱으로 돌아가 다시 시도하세요.",
     network_error: "네트워크 오류입니다. 연결을 확인하세요.",
     popup_blocked:
       "로그인 창이 차단되었습니다. 팝업을 허용하고 다시 시도하세요.",

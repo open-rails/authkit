@@ -111,6 +111,55 @@ const res = await auth.resourceFetch(
   `invalid_token`.
 - Token endpoint refusals throw `OAuthError` (`error`, `description`).
 
+### Signing in at another issuer
+
+An app whose users belong to another deployment (any OIDC issuer; AuthKit's
+[authorization server](../docs/authorization-server.md) included) signs them
+in there and calls its API with that issuer's access tokens:
+
+```ts
+import { createIssuerClient } from "@openrails/auth-ui/client"
+
+const issuer = createIssuerClient({
+  issuer: "https://myapp.com",
+  clientId: "billing-console",
+  redirectUri: "/callback",
+  resource: "https://billing.example.com",
+  scope: "openid profile email billing:merchant",
+  postLogoutRedirectUri: "/signed-out",
+})
+
+await issuer.completeSignIn() // on /callback: null elsewhere
+issuer.start() // restores a kept session
+await issuer.signIn({ returnTo: "/merchants" }) // or { popup: true } from a click
+const res = await issuer.authFetch(
+  "https://billing.example.com/v1/merchant/plans"
+)
+```
+
+- Authorization code with PKCE S256, `resource` (RFC 8707), `iss` checked
+  (RFC 9207), the ID token's `nonce`, `aud` and `exp` checked.
+- Tokens are bound to a non-extractable DPoP key (`dpop: false` for an issuer
+  without DPoP). The access token stays in memory. The rotating refresh token
+  is kept in IndexedDB beside the key, so a reload restores the session
+  without a redirect, and tabs rotate it one at a time (Web Locks).
+- `stepUp()` re-authenticates (`max_age=0`); `signOut()` revokes the refresh
+  token and ends the issuer session (`end_session_endpoint`); with
+  `{ redirect: false }` it signs out here only.
+- A popup sign-in ends on the app's own callback page, which hands the answer
+  to its opener by `postMessage` (same origin, same window, same `state`).
+- React: `<IssuerAuthProvider client={issuer}>` and `useIssuerAuth()`
+  (`status`, `user` from the ID token, `session`, `fetch`, `signIn`, `stepUp`,
+  `signOut`) from `@openrails/auth-ui/react`.
+
+### The issuer's authorize page
+
+A deployment that is an authorization server renders `<OAuthAuthorize />` at
+`Frontend.AuthorizePath` (`/authorize`), inside `AuthProvider` and
+`AuthUiProvider`. It signs the user in (second factors and step-ups
+included), approves the client's request, and sends the browser back with the
+code; `prompt=none` with nobody signed in returns `login_required`.
+
 ## Session lifecycle
 
 auth-ui owns the browser session, so an app writes no auth plumbing:

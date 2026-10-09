@@ -475,6 +475,10 @@ export const zh: AuthUiMessageBundle = {
     completing: "正在完成登录…",
     errorTitle: "登录失败",
   },
+  oauth: {
+    signInTo: "登录以继续前往 {client}",
+    continuing: "正在前往 {client}…",
+  },
   solana: {
     provider: "Solana",
     errors: {
@@ -486,6 +490,7 @@ export const zh: AuthUiMessageBundle = {
     },
   },
   errors: {
+    authorization_request_not_found: "此登录请求已过期。请返回应用并重试。",
     network_error: "网络错误，请检查您的连接。",
     popup_blocked: "登录窗口被拦截。请允许弹出窗口后重试。",
     popup_closed: "登录窗口已关闭。",

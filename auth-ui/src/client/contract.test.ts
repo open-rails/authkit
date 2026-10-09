@@ -77,6 +77,9 @@ it("calls only routes AuthKit mounts", async () => {
     () => client.completeRedirect("#code=c&state=s"),
     () => client.signOut(),
     () => client.oidcLoginStart("google", { inviteCode: "i" }),
+    () => client.getOAuthAuthorization("a"),
+    () => client.approveOAuthAuthorization("a"),
+    () => client.declineOAuthAuthorization("a", "login_required"),
   ]
   for (const call of calls) await call().catch(() => undefined)
   called.add(`GET ${client.oidcLoginUrl("google").split("?")[0]}`)

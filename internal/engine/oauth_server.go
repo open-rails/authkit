@@ -95,12 +95,12 @@ func (s *Engine) ApproveOAuthAuthorization(ctx context.Context, userID, sessionI
 	if err != nil {
 		return "", err
 	}
-	now := s.nowTime()
-	if slices.Contains(a.Prompt, "login") && authTime < a.CreatedAt.Unix() {
-		return "", errmodel.ErrStepUpRequired
-	}
-	if a.MaxAge != nil && now.Unix()-authTime > *a.MaxAge {
-		return "", errmodel.ErrStepUpRequired
+	// Freshness is measured from the request, so a step-up taken for it
+	// satisfies max_age=0 however long the approval takes.
+	stale := slices.Contains(a.Prompt, "login") && authTime < a.CreatedAt.Unix()
+	if stale || a.MaxAge != nil && authTime < a.CreatedAt.Unix()-*a.MaxAge {
+		// Carries the account's step-up methods, for the SPA's dialog.
+		return "", s.StepUpRequired(ctx, userID)
 	}
 	claimed, err := s.ephemeral.CompareAndConsume(ctx, keyOAuthAuthorization+secret.Hash(strings.TrimSpace(id)), raw)
 	if err != nil {

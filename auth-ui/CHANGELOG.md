@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- External issuers: `createIssuerClient` signs users in at an OIDC issuer
+  (code + PKCE + `resource` + DPoP) and calls APIs with its tokens. The
+  DPoP-bound refresh token is kept in IndexedDB, so reloads restore without
+  a redirect. It offers redirect or popup sign-in, `stepUp` (`max_age=0`),
+  and `signOut` through the issuer's `end_session_endpoint`. React:
+  `IssuerAuthProvider` and `useIssuerAuth`.
+- `OAuthAuthorize`: the authorization server's authorize page (sign-in,
+  step-up, approval). New client methods: `getOAuthAuthorization`,
+  `approveOAuthAuthorization`, `declineOAuthAuthorization`.
+
 - Resource tokens for other services' APIs: `createAuthClient({
 resourceTokens: { clientId } })` adds `getResourceToken({ resource, scope })`
   (RFC 8693 token exchange of the session, DPoP-bound) and `resourceFetch`.

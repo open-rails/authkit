@@ -66,6 +66,7 @@ async function buildReactApp() {
     app: "react-app/main.tsx",
     "sign-in": "sign-in-app/main.tsx",
     account: "account-app/main.tsx",
+    authorize: "authorize-app/main.tsx",
     solana: "solana-app/main.ts",
   }
   for (const [name, entry] of Object.entries(apps)) {
