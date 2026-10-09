@@ -114,6 +114,9 @@ fi
 
 if [[ "$mode" != workflows ]]; then
   go vet ./...
+  # auth-ui's e2e server builds AuthKit from this checkout: its module must
+  # follow the root's requirements.
+  (cd auth-ui/e2e/server && go mod tidy -diff)
   go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate -f internal/db/sqlc.yaml
   go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 vet -f internal/db/sqlc.yaml
   git diff --exit-code -- internal/db
