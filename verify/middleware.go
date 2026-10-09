@@ -35,7 +35,8 @@ type PermissionChecker interface {
 // or (CheckRecentSignIn) step_up_required carrying the step-up methods.
 type SessionChecker interface {
 	// CheckSession: the session or device key the token was minted from is
-	// still active. A user's token carries one.
+	// still active. A user's token carries one, as does a jwt-bearer token
+	// of the issuer's own (its capability's device key).
 	CheckSession(ctx context.Context, cl Claims) error
 	// CheckRecentSignIn: CheckSession, and the user's own token, signed in
 	// recently enough for a sensitive action, with the second factor when
@@ -98,7 +99,8 @@ func Optional(a Authenticator) func(http.Handler) http.Handler {
 // RequireSession is Required plus the session check: the session or device
 // key the token was minted from is still active (not logged out, revoked,
 // banned or deleted), or the request is 401 session_revoked. A user's token
-// passes while its sign-in stands; any other credential is 403 forbidden.
+// passes while its sign-in stands, and a jwt-bearer token while its
+// capability's device key does; any other credential is 403 forbidden.
 func RequireSession(a Authority) func(http.Handler) http.Handler {
 	mustAuthenticator(a)
 	return liveGate(a, a.CheckSession)

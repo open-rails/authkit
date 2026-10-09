@@ -56,8 +56,10 @@ func (a *Client) MintAccessToken(ctx context.Context, userID string, o iam.Acces
 
 // CheckSession is the gate verify.RequireSession applies, for callers holding
 // verified claims: nil when the session or device key cl was minted from is
-// still active, else iam.ErrSessionRevoked. A user's token names one; a
-// token minted without one is refused. Any other credential is forbidden.
+// still active, else iam.ErrSessionRevoked. A user's token names one, and so
+// does this issuer's jwt-bearer token: the device key that signed its
+// capability. A token minted without one is refused. Any other credential
+// is forbidden.
 func (a *Client) CheckSession(ctx context.Context, cl verify.Claims) error {
 	return a.ops.CheckSession(ctx, cl)
 }

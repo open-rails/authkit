@@ -61,22 +61,22 @@ func Verify(r *http.Request, c Check) (string, error) {
 	if len(proof) > 4<<10 {
 		return zero, ErrInvalidProof
 	}
-	jwt, err := jws.Parse(proof)
-	if err != nil || len(jwt.Header) != 3 || jws.String(jwt.Header["typ"]) != "dpop+jwt" {
+	parsed, err := jws.Parse(proof)
+	if err != nil || len(parsed.Header) != 3 || jws.String(parsed.Header["typ"]) != "dpop+jwt" {
 		return zero, ErrInvalidProof
 	}
-	thumbprint, err := jwt.VerifyEmbeddedES256()
+	thumbprint, err := parsed.VerifyEmbeddedES256()
 	if err != nil {
 		return zero, ErrInvalidProof
 	}
-	claims := jwt.Claims
+	claims := parsed.Claims
 	jti := jws.String(claims["jti"])
 	if len(jti) < 16 || len(jti) > 128 || strings.ContainsAny(jti, " \t\r\n") || jws.String(claims["htm"]) != r.Method {
 		return zero, ErrInvalidProof
 	}
 	proofURL := jws.String(claims["htu"])
-	parsed, err := url.Parse(proofURL)
-	if err != nil || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" || strings.Contains(proofURL, "#") {
+	target, err := url.Parse(proofURL)
+	if err != nil || target.RawQuery != "" || target.ForceQuery || target.Fragment != "" || strings.Contains(proofURL, "#") {
 		return zero, ErrInvalidProof
 	}
 	wantURL, err := canonicalURL(c.URL)
