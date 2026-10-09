@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"flag"
 	"log"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/auth-ui/e2e/server/harness"
+	"github.com/open-rails/authkit/verify"
 )
 
 func main() {
@@ -60,6 +62,23 @@ func run(addr, baseURL, dsn, static string, lifetime time.Duration) error {
 	if err := rt.Mount(mux); err != nil {
 		return err
 	}
+	// A resource server accepting the issuer's DPoP-bound access tokens,
+	// with server nonces, as another service's API would.
+	nonceKey := make([]byte, 32)
+	if _, err := rand.Read(nonceKey); err != nil {
+		return err
+	}
+	resource, err := rt.NewVerifier([]string{harness.Resource(baseURL)}, verify.WithPublicURL(baseURL), verify.WithDPoPNonce(nonceKey))
+	if err != nil {
+		return err
+	}
+	mux.Handle("GET "+harness.ResourcePath+"/whoami", verify.Required(resource)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cl, _ := verify.ClaimsFromContext(r.Context())
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"sub": cl.Subject, "client_id": cl.ClientID, "scopes": cl.Scopes, "jkt": cl.JWKThumbprint,
+		})
+	})))
 	mux.HandleFunc("GET /__test/outbox", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(rt.Outbox.Messages("", r.URL.Query().Get("to")))

@@ -15,6 +15,14 @@ export type {
   TwoFactorEnrolled,
 } from "./client.ts"
 export { toSignInResult } from "./authResult.ts"
+export { deleteDPoPKey, dpopFetch, loadDPoPKey } from "./dpop.ts"
+export type { DPoPKey, DPoPNonces } from "./dpop.ts"
+export { isOAuthError, OAuthError } from "./oauthError.ts"
+export type {
+  ResourceRequest,
+  ResourceToken,
+  ResourceTokenOptions,
+} from "./resource.ts"
 export { avatarURL } from "./avatar.ts"
 export type { PendingSignIn, SignInResult } from "./authResult.ts"
 export { AUTH_ERROR_STATUS } from "./codes.ts"

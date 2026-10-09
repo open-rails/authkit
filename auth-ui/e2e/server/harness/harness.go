@@ -20,7 +20,15 @@ import (
 const (
 	Schema   = "profiles"
 	Audience = "auth-ui-e2e"
+	// HostClient is the token-exchange client the page gets resource tokens
+	// through.
+	HostClient = "e2e-host"
+	// ResourcePath is the test resource server, beneath the origin.
+	ResourcePath = "/__test/resource"
 )
+
+// Resource is the test resource server's identifier (the tokens' aud).
+func Resource(baseURL string) string { return baseURL + ResourcePath }
 
 // Runtime is a started-or-not AuthKit instance plus its captured deliveries.
 type Runtime struct {
@@ -85,6 +93,13 @@ func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
 			Origins:       []string{baseURL},
 		},
 		SolanaNetwork: "devnet",
+		AuthorizationServer: authkit.AuthorizationServerConfig{
+			Resources: []authkit.ResourceServerConfig{{ID: Resource(baseURL), Scopes: []string{"e2e:read"}}},
+			Clients: []authkit.OAuthClientConfig{{
+				ID: HostClient, Resources: []string{Resource(baseURL)},
+				GrantTypes: []authkit.OAuthGrantType{authkit.GrantTokenExchange},
+			}},
+		},
 	}
 	rt, err := authkit.New(context.Background(), cfg, authkit.Deps{
 		Postgres: pool,

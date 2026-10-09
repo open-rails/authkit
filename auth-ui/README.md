@@ -82,6 +82,35 @@ const res = await auth.authFetch("/api/v1/things") // Bearer + one refresh retry
   token enters a URL or a message. With `inviteCode` a sign-in starts by POST
   (`oidcLoginStart`), so the invitation never enters a URL either.
 
+### Other services' APIs
+
+A host frontend calls another service's API (a resource server of the
+issuer's authorization server) with the user's identity, directly from the
+browser:
+
+```ts
+const auth = createAuthClient({ resourceTokens: { clientId: "admin-ui" } })
+
+const res = await auth.resourceFetch(
+  "https://billing.example.com/v1/merchant/plans",
+  {
+    resource: "https://billing.example.com",
+    scope: "billing:merchant",
+  }
+)
+```
+
+- `getResourceToken({ resource, scope })` trades the session's access token
+  at the issuer's token endpoint (`tokenEndpoint`, default `/oauth2/token`;
+  RFC 8693 token exchange) for an access token bound to this browser's DPoP
+  key. Tokens stay in memory, cached until shortly before they expire, and
+  are dropped at sign-out.
+- The DPoP key is a non-extractable P-256 key in IndexedDB, so it survives a
+  reload. `resourceFetch` sends a fresh proof with every request, answers a
+  `use_dpop_nonce` challenge once, and retries once with a new token on a 401
+  `invalid_token`.
+- Token endpoint refusals throw `OAuthError` (`error`, `description`).
+
 ## Session lifecycle
 
 auth-ui owns the browser session, so an app writes no auth plumbing:
