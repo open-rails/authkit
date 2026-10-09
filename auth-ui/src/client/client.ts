@@ -10,6 +10,12 @@ import {
 import { decodeAccessClaims, principalOf } from "./jwt.ts"
 import type { AccessClaims } from "./jwt.ts"
 import { randomNonce, waitForPopup } from "./popup.ts"
+import {
+  createResourceTokens,
+  type ResourceRequest,
+  type ResourceToken,
+  type ResourceTokenOptions,
+} from "./resource.ts"
 import { safeReturnTo } from "./returnTo.ts"
 import type {
   Availability,
@@ -89,6 +95,9 @@ export type AuthClientOptions = {
   refreshLeadSeconds?: number
   // Signed-in hint for instant restore and cross-tab sync; false disables.
   sessionHint?: SessionHintOptions | false
+  // Enables getResourceToken and resourceFetch: the OAuth client this
+  // frontend exchanges the session through for other services' APIs.
+  resourceTokens?: ResourceTokenOptions
 }
 
 export type AuthSession =
@@ -302,6 +311,8 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     writeHint({ ...hint, username })
   }
 
+  let resources: ReturnType<typeof createResourceTokens> | null = null
+
   // keepHint: another tab already rewrote the hint.
   const clear = (
     reason: "initial" | "signed_out" | "expired",
@@ -312,6 +323,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     storage?.set(null)
     if (!keepHint) writeHint(null)
     clearTimer()
+    resources?.clear()
     emit({ status: "anonymous", reason, continuation })
   }
 
@@ -641,6 +653,29 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     }
     return res
   }
+
+  // --- resource tokens -------------------------------------------------------
+
+  resources = options.resourceTokens
+    ? createResourceTokens(options.resourceTokens, {
+        fetch: doFetch,
+        session: async () => {
+          await ready()
+          let snap = session
+          if (
+            snap.status === "authenticated" &&
+            snap.expiresAt !== null &&
+            snap.expiresAt - Date.now() < 15_000
+          ) {
+            await refresh()
+            snap = session
+          }
+          return snap.status === "authenticated"
+            ? { token: snap.accessToken, userId: snap.userId }
+            : null
+        },
+      })
+    : null
 
   // --- generation-guarded flows ----------------------------------------------
 
@@ -1421,8 +1456,25 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       }),
   }
 
+  const noResources = (): never => {
+    throw new Error(
+      "auth-ui: resource tokens need createAuthClient({ resourceTokens: { clientId } })"
+    )
+  }
+
   return {
     ...api,
+    // An access token for another service's API (RFC 8693 token exchange of
+    // this session, DPoP-bound), cached in memory until shortly before it
+    // expires.
+    getResourceToken: (r: ResourceRequest): Promise<ResourceToken> =>
+      resources ? resources.getResourceToken(r) : noResources(),
+    // fetch for another service's API with its access token and a DPoP proof.
+    resourceFetch: (
+      input: string | URL,
+      init: RequestInit & ResourceRequest
+    ): Promise<Response> =>
+      resources ? resources.resourceFetch(input, init) : noResources(),
     subscribe(listener: Listener): () => void {
       listeners.add(listener)
       return () => listeners.delete(listener)

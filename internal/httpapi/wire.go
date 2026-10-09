@@ -737,18 +737,35 @@ type OAuthAuthorizeParams struct {
 	MaxAge              *int     `query:"max_age"`
 	LoginHint           *string  `query:"login_hint"`
 	ResponseMode        *string  `query:"response_mode"`
+	// DPoPJKT binds the code to a DPoP key (RFC 9449 §10).
+	DPoPJKT *string `query:"dpop_jkt"`
 }
 
-// OAuthTokenParams are the token request's parameters (RFC 6749 §4.1.3).
-// A confidential client authenticates with HTTP Basic or client_secret.
+// OAuthTokenParams are the token request's parameters: the authorization
+// code (RFC 6749 §4.1.3), refresh (§6), client credentials (§4.4) and token
+// exchange (RFC 8693 §2.1) grants. A confidential client authenticates with
+// HTTP Basic or client_secret; a public client sends a DPoP proof.
 type OAuthTokenParams struct {
-	GrantType    string   `query:"grant_type"`
-	Code         *string  `query:"code"`
-	RedirectURI  *string  `query:"redirect_uri"`
-	CodeVerifier *string  `query:"code_verifier"`
-	ClientID     *string  `query:"client_id"`
-	ClientSecret *string  `query:"client_secret"`
-	Resource     []string `query:"resource"`
+	GrantType          string   `query:"grant_type"`
+	Code               *string  `query:"code"`
+	RedirectURI        *string  `query:"redirect_uri"`
+	CodeVerifier       *string  `query:"code_verifier"`
+	RefreshToken       *string  `query:"refresh_token"`
+	SubjectToken       *string  `query:"subject_token"`
+	SubjectTokenType   *string  `query:"subject_token_type"`
+	RequestedTokenType *string  `query:"requested_token_type"`
+	Scope              *string  `query:"scope"`
+	ClientID           *string  `query:"client_id"`
+	ClientSecret       *string  `query:"client_secret"`
+	Resource           []string `query:"resource"`
+}
+
+// OAuthRevokeParams are a revocation request's parameters (RFC 7009).
+type OAuthRevokeParams struct {
+	Token         string  `query:"token"`
+	TokenTypeHint *string `query:"token_type_hint"`
+	ClientID      *string `query:"client_id"`
+	ClientSecret  *string `query:"client_secret"`
 }
 
 // OAuthEndSessionParams are RP-Initiated Logout's parameters.

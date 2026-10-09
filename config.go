@@ -46,6 +46,9 @@ type (
 // OAuth grant types a client may use (OAuthClientConfig.GrantTypes).
 const (
 	GrantAuthorizationCode = config.GrantAuthorizationCode
+	GrantRefreshToken      = config.GrantRefreshToken
+	GrantTokenExchange     = config.GrantTokenExchange
+	GrantClientCredentials = config.GrantClientCredentials
 )
 
 // Former-name reservation modes.

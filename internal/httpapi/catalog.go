@@ -82,6 +82,8 @@ type RouteSpec struct {
 	// MFAEnrollmentExempt marks the 2FA enroll/challenge/verify surface a
 	// forced-enrollment-gated user must still reach (#243).
 	MFAEnrollmentExempt bool
+	// Deprecated marks a route kept until the next major version.
+	Deprecated bool
 	// Query, Request: the query string and the JSON body (zero values; nil
 	// for none). Responses: every success outcome.
 	Query   any
@@ -330,7 +332,7 @@ func Catalog() []RouteSpec {
 
 		// #261: users exchange their session for a short-lived delegated token
 		// aimed at the configured audiences.
-		{Method: POST, Path: "/delegated/token", Group: delegated, Auth: session, Bucket: RLDelegatedTokenMint, MountedWhen: FeatureDelegated,
+		{Method: POST, Path: "/delegated/token", Group: delegated, Auth: session, Bucket: RLDelegatedTokenMint, MountedWhen: FeatureDelegated, Deprecated: true,
 			Request: DelegatedTokenRequest{}, Responses: replyOK(iam.TokenSet{}), serve: handle((*Service).handleDelegatedTokenPOST)},
 
 		// #430: the SPA's half of an OAuth sign-in. The authorize endpoint
@@ -400,6 +402,10 @@ func Catalog() []RouteSpec {
 		{Method: POST, Path: iam.OAuthTokenPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthToken, MountedWhen: FeatureAuthorizationServer,
 			Form: OAuthTokenParams{}, Responses: replyOK(authflow.OAuthTokens{}), serve: handle((*Service).handleOAuthToken)},
 		{Method: OPTIONS, Path: iam.OAuthTokenPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthToken, MountedWhen: FeatureAuthorizationServer,
+			Responses: replyNoContent, serve: handle((*Service).handleOAuthPreflight)},
+		{Method: POST, Path: iam.OAuthRevocationPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthToken, MountedWhen: FeatureAuthorizationServer,
+			Form: OAuthRevokeParams{}, Responses: []Reply{{Status: http.StatusOK}}, serve: handle((*Service).handleOAuthRevoke)},
+		{Method: OPTIONS, Path: iam.OAuthRevocationPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthToken, MountedWhen: FeatureAuthorizationServer,
 			Responses: replyNoContent, serve: handle((*Service).handleOAuthPreflight)},
 		{Method: GET, Path: iam.OAuthUserInfoPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthUserInfo, MountedWhen: FeatureAuthorizationServer,
 			Responses: replyOK(map[string]any{}), serve: handle((*Service).handleOAuthUserInfo)},

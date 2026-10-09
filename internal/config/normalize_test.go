@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,3 +54,51 @@ type nopEmail struct{}
 
 func (nopEmail) Send(context.Context, iam.EmailMessage) error { return nil }
 func (nopEmail) CheckHealth(context.Context) error            { return nil }
+
+// The authorization server's clients refuse grant combinations that could
+// not work or would be unsafe, and a client ID that could pass for a user.
+func TestNormalizeAuthorizationServerClients(t *testing.T) {
+	secret := strings.Repeat("a", 64)
+	base := func(cl OAuthClientConfig) Config {
+		return Config{
+			Token: TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"app"}},
+			HTTP:  &HTTPConfig{DirectPeerIP: true},
+			AuthorizationServer: AuthorizationServerConfig{
+				Resources: []ResourceServerConfig{{ID: "https://api.example.com", Scopes: []string{"api"}, Permissions: []string{"merchant:*"}}},
+				Clients:   []OAuthClientConfig{cl},
+			},
+		}
+	}
+	ok := []OAuthClientConfig{
+		{ID: "console", RedirectURIs: []string{"https://c.example/cb"}, GrantTypes: []OAuthGrantType{GrantAuthorizationCode, GrantRefreshToken}},
+		{ID: "admin-ui", Resources: []string{"https://api.example.com"}, Origins: []string{"https://admin.example.com"}, GrantTypes: []OAuthGrantType{GrantTokenExchange}},
+		{ID: "worker", SecretSHA256: secret, Resources: []string{"https://api.example.com"}, Permissions: []string{"merchant:payouts:read"}, GrantTypes: []OAuthGrantType{GrantClientCredentials}},
+	}
+	for _, cl := range ok {
+		once, err := Normalize(base(cl), Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}})
+		require.NoError(t, err, cl.ID)
+		require.Equal(t, DefaultOAuthRefreshTokenTTL, once.AuthorizationServer.RefreshTokenTTL)
+	}
+	for name, tc := range map[string]struct {
+		client OAuthClientConfig
+		want   string
+	}{
+		"refresh without code":         {OAuthClientConfig{ID: "c", GrantTypes: []OAuthGrantType{GrantRefreshToken}}, "refresh tokens come only with"},
+		"public client credentials":    {OAuthClientConfig{ID: "c", Resources: []string{"https://api.example.com"}, GrantTypes: []OAuthGrantType{GrantClientCredentials}}, "confidential client"},
+		"client credentials no target": {OAuthClientConfig{ID: "c", SecretSHA256: secret, GrantTypes: []OAuthGrantType{GrantClientCredentials}}, "need Resources"},
+		"exchange no target":           {OAuthClientConfig{ID: "c", GrantTypes: []OAuthGrantType{GrantTokenExchange}}, "needs Resources"},
+		"permissions without grant":    {OAuthClientConfig{ID: "c", RedirectURIs: []string{"https://c.example/cb"}, Permissions: []string{"merchant:*"}}, "client-credentials client's own grants"},
+		"root permissions":             {OAuthClientConfig{ID: "c", SecretSHA256: secret, Resources: []string{"https://api.example.com"}, Permissions: []string{"root:*"}, GrantTypes: []OAuthGrantType{GrantClientCredentials}}, "root namespace"},
+		"UUID client ID":               {OAuthClientConfig{ID: "0199b1a2-7c3d-7e4f-8a9b-0c1d2e3f4a5b", RedirectURIs: []string{"https://c.example/cb"}}, "looks like a user ID"},
+		"origin with a path":           {OAuthClientConfig{ID: "c", RedirectURIs: []string{"https://c.example/cb"}, Origins: []string{"https://admin.example.com/app"}}, "is not an origin"},
+		"plain-http origin":            {OAuthClientConfig{ID: "c", RedirectURIs: []string{"https://c.example/cb"}, Origins: []string{"http://admin.example.com"}}, "must use https"},
+		"unknown grant":                {OAuthClientConfig{ID: "c", RedirectURIs: []string{"https://c.example/cb"}, GrantTypes: []OAuthGrantType{"password"}}, "unsupported grant type"},
+	} {
+		_, err := Normalize(base(tc.client), Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}})
+		require.ErrorContains(t, err, tc.want, name)
+	}
+	c := base(ok[0])
+	c.AuthorizationServer.RefreshTokenTTL = 31 * 24 * time.Hour
+	_, err := Normalize(c, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}})
+	require.ErrorContains(t, err, "RefreshTokenTTL")
+}

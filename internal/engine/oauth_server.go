@@ -113,7 +113,7 @@ func (s *Engine) ApproveOAuthAuthorization(ctx context.Context, userID, sessionI
 	grant := authflow.OAuthGrant{
 		ClientID: a.ClientID, RedirectURI: a.RedirectURI, CodeChallenge: a.CodeChallenge,
 		Nonce: a.Nonce, Scopes: a.Scopes, Resource: a.Resource,
-		UserID: userID, SessionID: sessionID, AuthTime: authTime, AMR: amr, ACR: acr,
+		UserID: userID, SessionID: sessionID, AuthTime: authTime, AMR: amr, ACR: acr, DPoPJKT: a.DPoPJKT,
 	}
 	if err := s.ephemSetJSON(ctx, keyOAuthCode+secret.Hash(code), grant, oauthCodeTTL); err != nil {
 		return "", err
@@ -162,31 +162,55 @@ func (s *Engine) ExchangeOAuthCode(ctx context.Context, in authflow.OAuthCodeExc
 		return authflow.OAuthTokens{}, authflow.NewOAuthError(authflow.OAuthInvalidGrant, "code_verifier does not match the code_challenge")
 	case in.Resource != "" && in.Resource != g.Resource:
 		return authflow.OAuthTokens{}, authflow.NewOAuthError(authflow.OAuthInvalidTarget, "resource does not match the authorization request")
+	case g.DPoPJKT != "" && !secret.Equal(g.DPoPJKT, in.JKT):
+		return authflow.OAuthTokens{}, authflow.NewOAuthError(authflow.OAuthInvalidDPoPProof, "the DPoP key is not the one the authorization request named")
 	}
 	client, ok := config.FindOAuthClient(s.cfg.AuthorizationServer, g.ClientID)
 	if !ok {
 		return authflow.OAuthTokens{}, authflow.NewOAuthError(authflow.OAuthInvalidGrant, "the client is no longer registered")
 	}
-	if err := s.requireOAuthSignIn(ctx, g.UserID, g.SessionID); err != nil {
-		if errors.Is(err, iam.ErrSessionRevoked) || errors.Is(err, iam.ErrUserNotFound) || errmodel.As(err) != nil && errmodel.As(err).Status() < 500 {
-			return authflow.OAuthTokens{}, authflow.NewOAuthError(authflow.OAuthInvalidGrant, "the sign-in the code was issued for has ended")
-		}
+	if err := s.oauthSignInStands(ctx, g.UserID, g.SessionID, "the sign-in the code was issued for has ended"); err != nil {
 		return authflow.OAuthTokens{}, err
 	}
-	tokens, err := s.mintOAuthTokens(ctx, client, g)
+	m := oauthMint{
+		client: client, userID: g.UserID, sessionID: g.SessionID, scopes: g.Scopes, resource: g.Resource,
+		nonce: g.Nonce, authTime: g.AuthTime, amr: g.AMR, acr: g.ACR, jkt: in.JKT,
+	}
+	tokens, err := s.mintOAuthTokens(ctx, m)
 	if err != nil {
 		return authflow.OAuthTokens{}, err
+	}
+	if config.OAuthClientAllows(client, config.GrantRefreshToken) {
+		if tokens.RefreshToken, err = s.startOAuthRefreshFamily(ctx, m); err != nil {
+			return authflow.OAuthTokens{}, err
+		}
 	}
 	s.oauthAudit(ctx, "oauth_code_exchanged", g.UserID, map[string]string{"client_id": g.ClientID, "session_id": g.SessionID})
 	return tokens, nil
 }
 
+// oauthSignInStands is requireOAuthSignIn answering invalid_grant (with
+// description) once the user or sign-in is gone; a store failure stays an
+// error.
+func (s *Engine) oauthSignInStands(ctx context.Context, userID, sessionID, description string) error {
+	err := s.requireOAuthSignIn(ctx, userID, sessionID)
+	if err != nil && (errors.Is(err, iam.ErrSessionRevoked) || errors.Is(err, iam.ErrUserNotFound) || errmodel.As(err) != nil && errmodel.As(err).Status() < 500) {
+		return authflow.NewOAuthError(authflow.OAuthInvalidGrant, description)
+	}
+	return err
+}
+
 // OAuthUserInfo answers the userinfo endpoint (OIDC Core §5.3) for one of
-// this server's access tokens granted the openid scope.
-func (s *Engine) OAuthUserInfo(ctx context.Context, accessToken string) (map[string]any, error) {
+// this server's access tokens granted the openid scope. jkt is the
+// request's proven DPoP key: a DPoP-bound token needs its own, and a bearer
+// token none.
+func (s *Engine) OAuthUserInfo(ctx context.Context, accessToken, jkt string) (map[string]any, error) {
 	claims, err := s.verifyOwnToken(accessToken, jose.ResourceAccessTokenType)
 	if err != nil {
 		return nil, authflow.NewOAuthError(authflow.OAuthInvalidToken, "the access token is invalid")
+	}
+	if member, bound, err := jose.Confirmation(accessToken); err != nil || (member != "" && member != jose.JWKThumbprintMember) || bound != jkt {
+		return nil, authflow.NewOAuthError(authflow.OAuthInvalidToken, "the request does not prove the access token's DPoP key")
 	}
 	exp, ok := jose.Time(claims, "exp")
 	if !ok || !s.nowTime().Before(exp) {
@@ -284,25 +308,35 @@ func (s *Engine) sessionAssurance(ctx context.Context, userID, sessionID string)
 	return authTime, amr, acr, nil
 }
 
-// mintOAuthTokens mints the access token for the grant's resource (or, with
-// none, for userinfo) and, for the openid scope, the ID token.
-func (s *Engine) mintOAuthTokens(ctx context.Context, client config.OAuthClientConfig, g authflow.OAuthGrant) (authflow.OAuthTokens, error) {
+// oauthMint is what one token response is minted for: a user's sign-in
+// (userID, sessionID and its assurance), or with no userID the client
+// itself; jkt binds the access token to a DPoP key.
+type oauthMint struct {
+	client    config.OAuthClientConfig
+	userID    string
+	sessionID string
+	scopes    []string
+	resource  string
+	nonce     string
+	authTime  int64
+	amr       []string
+	acr       string
+	jkt       string
+}
+
+// mintOAuthTokens mints the access token for m's resource (or, with none,
+// for userinfo) and, for a user with the openid scope, the ID token. The
+// permissions are read live: the user's root grants, or the client's own,
+// within the resource's ceiling.
+func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAuthTokens, error) {
 	signer := s.keys.ActiveSigner()
 	if signer == nil {
 		return authflow.OAuthTokens{}, iam.ErrSigningNotConfigured
 	}
-	u, err := s.getUserByID(ctx, g.UserID)
-	if err != nil {
-		return authflow.OAuthTokens{}, err
-	}
-	if u == nil {
-		return authflow.OAuthTokens{}, iam.ErrUserNotFound
-	}
 	now := s.nowTime()
 	ttl := s.cfg.AuthorizationServer.AccessTokenTTL
 	issuer := s.cfg.Token.Issuer
-	roles := s.oauthRoles(ctx, g.UserID)
-	audience := g.Resource
+	audience := m.resource
 	if audience == "" {
 		audience = issuer
 	}
@@ -310,47 +344,78 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, client config.OAuthClientC
 	if err != nil {
 		return authflow.OAuthTokens{}, err
 	}
+	resource, _ := config.FindResourceServer(s.cfg.AuthorizationServer, m.resource)
+	at := map[string]any{
+		"iss": issuer, "aud": audience, "client_id": m.client.ID,
+		"iat": now.Unix(), "nbf": now.Unix(), "exp": now.Add(ttl).Unix(), "jti": jti,
+	}
+	if len(m.scopes) > 0 {
+		at["scope"] = strings.Join(m.scopes, " ")
+	}
+	if m.jkt != "" {
+		at["cnf"] = map[string]any{jose.JWKThumbprintMember: m.jkt}
+	}
+	if m.userID == "" {
+		at["sub"] = m.client.ID
+		at["permissions"] = intersectGrants(m.client.Permissions, resource.Permissions)
+		access, err := jose.Sign(ctx, signer, jose.ResourceAccessTokenType, at)
+		if err != nil {
+			return authflow.OAuthTokens{}, err
+		}
+		return oauthAnswer(access, m, ttl), nil
+	}
+	u, err := s.getUserByID(ctx, m.userID)
+	if err != nil {
+		return authflow.OAuthTokens{}, err
+	}
+	if u == nil {
+		return authflow.OAuthTokens{}, iam.ErrUserNotFound
+	}
 	permissions := []string{}
-	if resource, ok := config.FindResourceServer(s.cfg.AuthorizationServer, g.Resource); ok && len(resource.Permissions) > 0 {
-		auth, err := s.rootAuthority(ctx, iam.UserActor(g.UserID).InSession(iam.SessionRef{SessionID: g.SessionID}))
+	if len(resource.Permissions) > 0 {
+		auth, err := s.rootAuthority(ctx, iam.UserActor(m.userID).InSession(iam.SessionRef{SessionID: m.sessionID}))
 		if err != nil {
 			return authflow.OAuthTokens{}, err
 		}
 		permissions = intersectGrants(auth.grants, resource.Permissions)
 	}
-	at := map[string]any{
-		"iss": issuer, "sub": g.UserID, "aud": audience, "client_id": client.ID,
-		"iat": now.Unix(), "nbf": now.Unix(), "exp": now.Add(ttl).Unix(), "jti": jti,
-		"auth_time": g.AuthTime, "acr": g.ACR, "amr": g.AMR, "sid": g.SessionID,
+	roles := s.oauthRoles(ctx, m.userID)
+	maps.Copy(at, map[string]any{
+		"sub": m.userID, "auth_time": m.authTime, "acr": m.acr, "amr": m.amr, "sid": m.sessionID,
 		"permissions": permissions, "roles": roles,
-	}
-	if len(g.Scopes) > 0 {
-		at["scope"] = strings.Join(g.Scopes, " ")
-	}
-	if slices.Contains(g.Scopes, "email") && u.Email != nil {
+	})
+	if slices.Contains(m.scopes, "email") && u.Email != nil {
 		at["email"], at["email_verified"] = *u.Email, u.EmailVerified
 	}
 	access, err := jose.Sign(ctx, signer, jose.ResourceAccessTokenType, at)
 	if err != nil {
 		return authflow.OAuthTokens{}, err
 	}
-	out := authflow.OAuthTokens{AccessToken: access, TokenType: "Bearer", ExpiresIn: int64(ttl / time.Second), Scope: strings.Join(g.Scopes, " ")}
-	if slices.Contains(g.Scopes, "openid") {
+	out := oauthAnswer(access, m, ttl)
+	if slices.Contains(m.scopes, "openid") {
 		id := map[string]any{
-			"iss": issuer, "sub": g.UserID, "aud": []string{client.ID}, "azp": client.ID,
+			"iss": issuer, "sub": m.userID, "aud": []string{m.client.ID}, "azp": m.client.ID,
 			"iat": now.Unix(), "exp": now.Add(oauthIDTokenTTL).Unix(),
-			"auth_time": g.AuthTime, "acr": g.ACR, "amr": g.AMR, "sid": g.SessionID,
+			"auth_time": m.authTime, "acr": m.acr, "amr": m.amr, "sid": m.sessionID,
 			"roles": roles,
 		}
-		if g.Nonce != "" {
-			id["nonce"] = g.Nonce
+		if m.nonce != "" {
+			id["nonce"] = m.nonce
 		}
-		s.addProfileClaims(ctx, id, u, g.Scopes)
+		s.addProfileClaims(ctx, id, u, m.scopes)
 		if out.IDToken, err = jose.Sign(ctx, signer, idTokenType, id); err != nil {
 			return authflow.OAuthTokens{}, err
 		}
 	}
 	return out, nil
+}
+
+func oauthAnswer(access string, m oauthMint, ttl time.Duration) authflow.OAuthTokens {
+	out := authflow.OAuthTokens{AccessToken: access, TokenType: "Bearer", ExpiresIn: int64(ttl / time.Second), Scope: strings.Join(m.scopes, " ")}
+	if m.jkt != "" {
+		out.TokenType = "DPoP"
+	}
+	return out
 }
 
 // intersectGrants is what both grant sets allow, as grant patterns: each

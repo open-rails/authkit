@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Resource tokens for other services' APIs: `createAuthClient({
+resourceTokens: { clientId } })` adds `getResourceToken({ resource, scope })`
+  (RFC 8693 token exchange of the session, DPoP-bound) and `resourceFetch`.
+  The DPoP key is a non-extractable P-256 key in IndexedDB; proofs answer
+  server nonces. New in the client entry: `loadDPoPKey`, `deleteDPoPKey`,
+  `dpopFetch`, `OAuthError`.
+
 - Sign-in follows AuthKit's registration policy (`/capabilities`
   `registration.mode`). `SignInDialog` and `SignInPanel` offer the
   "Create account" tab only when registration is `open`, or `invite_only`

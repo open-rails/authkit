@@ -21,6 +21,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/config"
+	"github.com/open-rails/authkit/internal/dpop"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/internal/secret"
@@ -47,23 +48,22 @@ func (s *Service) handleOAuthMetadata(w http.ResponseWriter, _ *http.Request) {
 		}
 	}
 	grants := []string{}
-	authMethods := []string{}
+	public, confidential := false, false
 	for _, c := range as.Clients {
 		for _, g := range c.GrantTypes {
 			if !slices.Contains(grants, string(g)) {
 				grants = append(grants, string(g))
 			}
 		}
-		method := "none"
-		if config.OAuthClientConfidential(c) {
-			method = "client_secret_basic"
-		}
-		if !slices.Contains(authMethods, method) {
-			authMethods = append(authMethods, method)
-		}
-		if method == "client_secret_basic" && !slices.Contains(authMethods, "client_secret_post") {
-			authMethods = append(authMethods, "client_secret_post")
-		}
+		confidential = confidential || config.OAuthClientConfidential(c)
+		public = public || !config.OAuthClientConfidential(c)
+	}
+	authMethods := []string{}
+	if public {
+		authMethods = append(authMethods, "none")
+	}
+	if confidential {
+		authMethods = append(authMethods, "client_secret_basic", "client_secret_post")
 	}
 	algs := []string{}
 	for _, k := range s.svc.JWKS().Keys {
@@ -77,6 +77,7 @@ func (s *Service) handleOAuthMetadata(w http.ResponseWriter, _ *http.Request) {
 		AuthorizationEndpoint:            s.oauthURL(iam.OAuthAuthorizePath),
 		TokenEndpoint:                    s.oauthURL(iam.OAuthTokenPath),
 		UserInfoEndpoint:                 s.oauthURL(iam.OAuthUserInfoPath),
+		RevocationEndpoint:               s.oauthURL(iam.OAuthRevocationPath),
 		EndSessionEndpoint:               s.oauthURL(iam.OAuthEndSessionPath),
 		JWKSURI:                          s.oauthURL(iam.JWKSPath),
 		ScopesSupported:                  scopes,
@@ -89,6 +90,7 @@ func (s *Service) handleOAuthMetadata(w http.ResponseWriter, _ *http.Request) {
 		CodeChallengeMethodsSupported:    []string{"S256"},
 		ClaimsSupported:                  []string{"sub", "iss", "aud", "exp", "iat", "auth_time", "nonce", "acr", "amr", "sid", "azp", "preferred_username", "email", "email_verified", "roles"},
 		PromptValuesSupported:            []string{"none", "login"},
+		DPoPSigningAlgValuesSupported:    []string{"ES256"},
 		AuthorizationResponseIss:         true,
 		RequestParameterSupported:        false,
 		RequestURIParameterSupported:     false,
@@ -221,15 +223,19 @@ func (s *Service) validateAuthorization(client config.OAuthClientConfig, redirec
 			return fail(authflow.OAuthInvalidRequest, name+" is too long")
 		}
 	}
+	if jkt := p.Get("dpop_jkt"); jkt != "" && !jose.ValidThumbprint(jkt) {
+		return fail(authflow.OAuthInvalidRequest, "dpop_jkt must be a JWK SHA-256 thumbprint")
+	}
 	return authflow.OAuthAuthorization{
 		ClientID: client.ID, RedirectURI: redirectURI, State: p.Get("state"), Nonce: p.Get("nonce"),
 		Scopes: granted, Resource: resource, CodeChallenge: challenge,
-		Prompt: prompt, MaxAge: maxAge, LoginHint: p.Get("login_hint"),
+		Prompt: prompt, MaxAge: maxAge, LoginHint: p.Get("login_hint"), DPoPJKT: p.Get("dpop_jkt"),
 	}, nil
 }
 
 // handleOAuthToken is the token endpoint: one authenticated (or public)
-// client, one grant.
+// client, one grant. A DPoP proof (RFC 9449) binds the tokens to its key; a
+// public client must send one.
 func (s *Service) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 	s.oauthCORS(w, r)
 	w.Header().Set("Cache-Control", "no-store")
@@ -244,30 +250,112 @@ func (s *Service) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 		oauthClientFail(w, r, oerr)
 		return
 	}
-	switch grant := config.OAuthGrantType(params.Get("grant_type")); grant {
+	grant := config.OAuthGrantType(params.Get("grant_type"))
+	switch grant {
 	case "":
 		oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidRequest, "grant_type is required"))
-	case config.GrantAuthorizationCode:
-		if !config.OAuthClientAllows(client, grant) {
-			oauthFail(w, authflow.NewOAuthError(authflow.OAuthUnauthorizedClient, "the client may not use this grant"))
-			return
-		}
-		if len(params["resource"]) > 1 {
-			oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidTarget, "request one resource at a time"))
-			return
-		}
-		tokens, err := s.svc.ExchangeOAuthCode(r.Context(), authflow.OAuthCodeExchange{
-			ClientID: client.ID, Code: params.Get("code"), RedirectURI: params.Get("redirect_uri"),
-			CodeVerifier: params.Get("code_verifier"), Resource: params.Get("resource"),
-		})
-		if err != nil {
-			oauthFail(w, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, tokens)
+		return
+	case config.GrantAuthorizationCode, config.GrantRefreshToken, config.GrantTokenExchange, config.GrantClientCredentials:
 	default:
 		oauthFail(w, authflow.NewOAuthError(authflow.OAuthUnsupportedGrantType, "unsupported grant_type"))
+		return
 	}
+	if !config.OAuthClientAllows(client, grant) {
+		oauthFail(w, authflow.NewOAuthError(authflow.OAuthUnauthorizedClient, "the client may not use this grant"))
+		return
+	}
+	if len(params["resource"]) > 1 {
+		oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidTarget, "request one resource at a time"))
+		return
+	}
+	jkt, err := s.oauthTokenDPoP(r, client)
+	if err != nil {
+		oauthFail(w, err)
+		return
+	}
+	var tokens authflow.OAuthTokens
+	switch grant {
+	case config.GrantAuthorizationCode:
+		tokens, err = s.svc.ExchangeOAuthCode(r.Context(), authflow.OAuthCodeExchange{
+			ClientID: client.ID, Code: params.Get("code"), RedirectURI: params.Get("redirect_uri"),
+			CodeVerifier: params.Get("code_verifier"), Resource: params.Get("resource"), JKT: jkt,
+		})
+	case config.GrantRefreshToken:
+		tokens, err = s.svc.RefreshOAuthTokens(r.Context(), authflow.OAuthRefresh{
+			ClientID: client.ID, RefreshToken: params.Get("refresh_token"), Scopes: scopeParam(params),
+			Resource: params.Get("resource"), JKT: jkt,
+		})
+	case config.GrantTokenExchange:
+		tokens, err = s.svc.ExchangeOAuthToken(r.Context(), authflow.OAuthTokenExchange{
+			ClientID: client.ID, SubjectToken: params.Get("subject_token"), SubjectTokenType: params.Get("subject_token_type"),
+			RequestedTokenType: params.Get("requested_token_type"), Resource: params.Get("resource"),
+			Scopes: strings.Fields(params.Get("scope")), JKT: jkt,
+		})
+	case config.GrantClientCredentials:
+		tokens, err = s.svc.OAuthClientCredentials(r.Context(), authflow.OAuthClientCredentials{
+			ClientID: client.ID, Resource: params.Get("resource"), Scopes: strings.Fields(params.Get("scope")), JKT: jkt,
+		})
+	}
+	if err != nil {
+		oauthFail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, tokens)
+}
+
+// oauthTokenDPoP verifies the token request's DPoP proof (no ath at the
+// token endpoint) and returns its key's thumbprint: "" without one, which
+// only a confidential client may omit.
+func (s *Service) oauthTokenDPoP(r *http.Request, client config.OAuthClientConfig) (string, error) {
+	if len(r.Header.Values("DPoP")) == 0 {
+		if !config.OAuthClientConfidential(client) {
+			return "", authflow.NewOAuthError(authflow.OAuthInvalidDPoPProof, "a public client must send a DPoP proof")
+		}
+		return "", nil
+	}
+	jkt, err := dpop.Verify(r, dpop.Check{URL: s.oauthURL(iam.OAuthTokenPath), Replay: s.svc.ClaimDPoPProof})
+	switch {
+	case errors.Is(err, dpop.ErrReplayUnavailable):
+		return "", err
+	case err != nil:
+		return "", authflow.NewOAuthError(authflow.OAuthInvalidDPoPProof, "the DPoP proof is invalid or already used")
+	}
+	return jkt, nil
+}
+
+// scopeParam is the scope parameter's scopes; nil when it is absent.
+func scopeParam(params url.Values) []string {
+	if !params.Has("scope") {
+		return nil
+	}
+	return append([]string{}, strings.Fields(params.Get("scope"))...)
+}
+
+// handleOAuthRevoke is RFC 7009 token revocation for an authenticated (or
+// public) client: a refresh token ends its family. It answers 200 for any
+// token, revoked or not.
+func (s *Service) handleOAuthRevoke(w http.ResponseWriter, r *http.Request) {
+	s.oauthCORS(w, r)
+	w.Header().Set("Cache-Control", "no-store")
+	params, err := oauthParams(r, true)
+	if err != nil {
+		oauthFail(w, err)
+		return
+	}
+	client, oerr := s.authenticateOAuthClient(r, params)
+	if oerr != nil {
+		oauthClientFail(w, r, oerr)
+		return
+	}
+	if params.Get("token") == "" {
+		oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidRequest, "token is required"))
+		return
+	}
+	if err := s.svc.RevokeOAuthToken(r.Context(), client.ID, params.Get("token")); err != nil {
+		oauthFail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 // oauthClientFail answers a failed client authentication; one that used
@@ -309,26 +397,48 @@ func (s *Service) authenticateOAuthClient(r *http.Request, params url.Values) (c
 	return client, nil
 }
 
-// handleOAuthUserInfo answers the userinfo endpoint for a bearer access
-// token this server minted with the openid scope.
+// handleOAuthUserInfo answers the userinfo endpoint for an access token
+// this server minted with the openid scope: a bearer token, or a DPoP-bound
+// one with a fresh proof of its key.
 func (s *Service) handleOAuthUserInfo(w http.ResponseWriter, r *http.Request) {
 	s.oauthCORS(w, r)
 	w.Header().Set("Cache-Control", "no-store")
-	token, dpop := jose.RequestToken(r)
-	if token == "" || dpop {
-		w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
-		oauthFail(w, &authflow.OAuthError{Code: authflow.OAuthInvalidToken, Description: "a Bearer access token is required", Status: http.StatusUnauthorized})
+	token, isDPoP := jose.RequestToken(r)
+	scheme := "Bearer"
+	if isDPoP {
+		scheme = "DPoP"
+	}
+	refuse := func(code, description string, status int) {
+		w.Header().Set("WWW-Authenticate", scheme+` error="`+code+`"`)
+		oauthFail(w, &authflow.OAuthError{Code: code, Description: description, Status: status})
+	}
+	if token == "" {
+		refuse(authflow.OAuthInvalidToken, "an access token is required", http.StatusUnauthorized)
 		return
 	}
-	claims, err := s.svc.OAuthUserInfo(r.Context(), token)
+	jkt := ""
+	if isDPoP {
+		var err error
+		jkt, err = dpop.Verify(r, dpop.Check{URL: s.oauthURL(iam.OAuthUserInfoPath), AccessToken: token, Replay: s.svc.ClaimDPoPProof})
+		switch {
+		case errors.Is(err, dpop.ErrReplayUnavailable):
+			oauthFail(w, err)
+			return
+		case err != nil:
+			refuse(authflow.OAuthInvalidDPoPProof, "the DPoP proof is invalid or already used", http.StatusUnauthorized)
+			return
+		}
+	}
+	claims, err := s.svc.OAuthUserInfo(r.Context(), token, jkt)
 	if err != nil {
 		var oe *authflow.OAuthError
 		if errors.As(err, &oe) {
-			if oe.Status == 0 {
-				oe = &authflow.OAuthError{Code: oe.Code, Description: oe.Description, Status: http.StatusUnauthorized}
+			status := oe.Status
+			if status == 0 {
+				status = http.StatusUnauthorized
 			}
-			w.Header().Set("WWW-Authenticate", `Bearer error="`+oe.Code+`"`)
-			err = oe
+			refuse(oe.Code, oe.Description, status)
+			return
 		}
 		oauthFail(w, err)
 		return
@@ -371,8 +481,8 @@ func (s *Service) handleOAuthPreflight(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// oauthCORS allows a registered browser client's origin (that of one of its
-// redirect URIs) to read the answer. No credentials: these endpoints take
+// oauthCORS allows a registered browser client's origin (one of its Origins
+// or its redirect URIs') to read the answer. No credentials: these endpoints take
 // none from cookies.
 func (s *Service) oauthCORS(w http.ResponseWriter, r *http.Request) bool {
 	origin := r.Header.Get("Origin")
@@ -387,6 +497,9 @@ func (s *Service) oauthCORS(w http.ResponseWriter, r *http.Request) bool {
 
 func (s *Service) oauthOrigin(origin string) bool {
 	for _, c := range s.cfg.AuthorizationServer.Clients {
+		if slices.Contains(c.Origins, origin) {
+			return true
+		}
 		for _, uri := range c.RedirectURIs {
 			if u, err := url.Parse(uri); err == nil && u.Scheme+"://"+u.Host == origin {
 				return true

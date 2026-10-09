@@ -3449,6 +3449,7 @@
             }
           }
         },
+        "deprecated": true,
         "security": [
           {
             "bearer": []
@@ -4607,6 +4608,13 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "dpop_jkt",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -4681,6 +4689,9 @@
                   },
                   "response_mode": {
                     "type": "string"
+                  },
+                  "dpop_jkt": {
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -4739,6 +4750,21 @@
                   "code_verifier": {
                     "type": "string"
                   },
+                  "refresh_token": {
+                    "type": "string"
+                  },
+                  "subject_token": {
+                    "type": "string"
+                  },
+                  "subject_token_type": {
+                    "type": "string"
+                  },
+                  "requested_token_type": {
+                    "type": "string"
+                  },
+                  "scope": {
+                    "type": "string"
+                  },
                   "client_id": {
                     "type": "string"
                   },
@@ -4769,6 +4795,83 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthError"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "oauth_token",
+        "x-authkit-mounted-when": "authorization_server"
+      },
+      "options": {
+        "tags": [
+          "authorization_server"
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthError"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "oauth_token",
+        "x-authkit-mounted-when": "authorization_server"
+      }
+    },
+    "/oauth2/revoke": {
+      "post": {
+        "tags": [
+          "authorization_server"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "token": {
+                    "type": "string"
+                  },
+                  "token_type_hint": {
+                    "type": "string"
+                  },
+                  "client_id": {
+                    "type": "string"
+                  },
+                  "client_secret": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "token"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
           },
           "default": {
             "description": "An error",
@@ -6811,6 +6914,9 @@
             "type": "string"
           },
           "refresh_token": {
+            "type": "string"
+          },
+          "issued_token_type": {
             "type": "string"
           }
         },

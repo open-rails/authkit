@@ -29,6 +29,11 @@ type AuthorizationServerConfig struct {
 	// AccessTokenTTL is the lifetime of the RFC 9068 access tokens it mints.
 	// 0 defaults to 5 minutes, the most allowed.
 	AccessTokenTTL time.Duration
+	// RefreshTokenTTL bounds a refresh token family: rotation never extends
+	// it, and the client signs the user in again (prompt=none) after it.
+	// 0 defaults to 12 hours; at most 30 days. A family also ends with the
+	// sign-in it was issued from.
+	RefreshTokenTTL time.Duration
 }
 
 // OAuthClientConfig registers one OAuth client.
@@ -41,7 +46,7 @@ type OAuthClientConfig struct {
 	// SecretSHA256 makes the client confidential: the lowercase hex SHA-256
 	// of its secret, which must be at least 32 random bytes. AuthKit never
 	// holds the secret. Empty makes the client public (a browser or native
-	// app), which must use PKCE and cannot use client credentials.
+	// app), which must use PKCE and DPoP and cannot use client credentials.
 	SecretSHA256 string
 	// RedirectURIs are the exact redirect_uri values the client may use:
 	// absolute https URLs, or http on a loopback host, without a fragment.
@@ -56,6 +61,13 @@ type OAuthClientConfig struct {
 	// client may request tokens for. A request names one with the resource
 	// parameter; with none, the access token is good for userinfo only.
 	Resources []string
+	// Permissions are a client-credentials client's own grants, as grant
+	// patterns: its tokens carry them within the resource's ceiling.
+	Permissions []string
+	// Origins are browser origins ("https://admin.example.com") the client
+	// calls the token endpoint from, besides its redirect URIs' origins: a
+	// host frontend using token exchange.
+	Origins []string
 }
 
 // ResourceServerConfig registers one resource server: an API that accepts
@@ -82,11 +94,25 @@ type OAuthGrantType string
 const (
 	// GrantAuthorizationCode is the authorization code grant with PKCE.
 	GrantAuthorizationCode OAuthGrantType = "authorization_code"
+	// GrantRefreshToken issues rotating refresh tokens with the code grant.
+	GrantRefreshToken OAuthGrantType = "refresh_token"
+	// GrantTokenExchange is RFC 8693 token exchange: a frontend trades the
+	// user's AuthKit access token for a resource's access token.
+	GrantTokenExchange OAuthGrantType = "urn:ietf:params:oauth:grant-type:token-exchange"
+	// GrantClientCredentials is a confidential client acting for itself.
+	GrantClientCredentials OAuthGrantType = "client_credentials"
 )
 
 // DefaultOAuthAccessTokenTTL is AuthorizationServerConfig.AccessTokenTTL's
 // default and ceiling.
 const DefaultOAuthAccessTokenTTL = 5 * time.Minute
+
+// DefaultOAuthRefreshTokenTTL is AuthorizationServerConfig.RefreshTokenTTL's
+// default; MaxOAuthRefreshTokenTTL its ceiling.
+const (
+	DefaultOAuthRefreshTokenTTL = 12 * time.Hour
+	MaxOAuthRefreshTokenTTL     = 30 * 24 * time.Hour
+)
 
 // oidcScopes are the scopes AuthKit defines itself; a resource may not
 // redefine one.
@@ -94,6 +120,9 @@ var oidcScopes = []string{"openid", "profile", "email", "offline_access"}
 
 var (
 	clientIDPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)
+	// uuidPattern: a client ID shaped like a user ID would make a client
+	// credentials token's sub ambiguous.
+	uuidPattern = regexp.MustCompile(`^[0-9A-Fa-f]{8}-?[0-9A-Fa-f]{4}-?[0-9A-Fa-f]{4}-?[0-9A-Fa-f]{4}-?[0-9A-Fa-f]{12}$`)
 	// RFC 6749 §3.3 scope-token, minus the quote and backslash.
 	scopePattern = regexp.MustCompile(`^[\x21\x23-\x5B\x5D-\x7E]{1,128}$`)
 )
@@ -134,7 +163,7 @@ func OIDCScope(scope string) bool { return slices.Contains(oidcScopes, scope) }
 
 func normalizeAuthorizationServer(a *AuthorizationServerConfig, c Config) error {
 	if len(a.Clients) == 0 {
-		if len(a.Resources) > 0 || a.AccessTokenTTL != 0 {
+		if len(a.Resources) > 0 || a.AccessTokenTTL != 0 || a.RefreshTokenTTL != 0 {
 			return errors.New("authkit: AuthorizationServer has resources or a TTL but no Clients — the authorization server is off without a client")
 		}
 		return nil
@@ -150,6 +179,12 @@ func normalizeAuthorizationServer(a *AuthorizationServerConfig, c Config) error 
 		return fmt.Errorf("authkit: AuthorizationServer.AccessTokenTTL must be between 0 and %v, got %v", DefaultOAuthAccessTokenTTL, a.AccessTokenTTL)
 	case a.AccessTokenTTL == 0:
 		a.AccessTokenTTL = DefaultOAuthAccessTokenTTL
+	}
+	switch {
+	case a.RefreshTokenTTL < 0 || a.RefreshTokenTTL > MaxOAuthRefreshTokenTTL:
+		return fmt.Errorf("authkit: AuthorizationServer.RefreshTokenTTL must be between 0 and %v, got %v", MaxOAuthRefreshTokenTTL, a.RefreshTokenTTL)
+	case a.RefreshTokenTTL == 0:
+		a.RefreshTokenTTL = DefaultOAuthRefreshTokenTTL
 	}
 
 	resources := make([]ResourceServerConfig, 0, len(a.Resources))
@@ -192,6 +227,9 @@ func normalizeOAuthClient(cl *OAuthClientConfig, resources []ResourceServerConfi
 	if !clientIDPattern.MatchString(cl.ID) {
 		return fmt.Errorf("invalid client ID %q (want 1-128 of letters, digits, '.', '_', '-', ':')", cl.ID)
 	}
+	if uuidPattern.MatchString(cl.ID) {
+		return fmt.Errorf("client ID %q looks like a user ID", cl.ID)
+	}
 	cl.Name = strings.TrimSpace(cl.Name)
 	if cl.Name == "" {
 		cl.Name = cl.ID
@@ -215,7 +253,7 @@ func normalizeOAuthClient(cl *OAuthClientConfig, resources []ResourceServerConfi
 	grants := make([]OAuthGrantType, 0, len(cl.GrantTypes))
 	for _, g := range cl.GrantTypes {
 		switch g {
-		case GrantAuthorizationCode:
+		case GrantAuthorizationCode, GrantRefreshToken, GrantTokenExchange, GrantClientCredentials:
 		default:
 			return fmt.Errorf("client %q: unsupported grant type %q", cl.ID, g)
 		}
@@ -224,16 +262,51 @@ func normalizeOAuthClient(cl *OAuthClientConfig, resources []ResourceServerConfi
 		}
 	}
 	cl.GrantTypes = grants
-	if OAuthClientAllows(*cl, GrantAuthorizationCode) && len(cl.RedirectURIs) == 0 {
-		return fmt.Errorf("client %q: the authorization_code grant needs RedirectURIs", cl.ID)
-	}
 	cl.Resources = dedup(cl.Resources)
 	for _, id := range cl.Resources {
 		if !slices.ContainsFunc(resources, func(r ResourceServerConfig) bool { return r.ID == id }) {
 			return fmt.Errorf("client %q: resource %q is not in AuthorizationServer.Resources", cl.ID, id)
 		}
 	}
+	if cl.Permissions, err = normalizeResourcePermissions(cl.Permissions); err != nil {
+		return fmt.Errorf("client %q: Permissions: %w", cl.ID, err)
+	}
+	if cl.Origins, err = normalizeOrigins(cl.Origins); err != nil {
+		return fmt.Errorf("client %q: Origins: %w", cl.ID, err)
+	}
+	switch {
+	case OAuthClientAllows(*cl, GrantAuthorizationCode) && len(cl.RedirectURIs) == 0:
+		return fmt.Errorf("client %q: the authorization_code grant needs RedirectURIs", cl.ID)
+	case OAuthClientAllows(*cl, GrantRefreshToken) && !OAuthClientAllows(*cl, GrantAuthorizationCode):
+		return fmt.Errorf("client %q: refresh tokens come only with the authorization_code grant", cl.ID)
+	case OAuthClientAllows(*cl, GrantTokenExchange) && len(cl.Resources) == 0:
+		return fmt.Errorf("client %q: token exchange needs Resources to mint for", cl.ID)
+	case OAuthClientAllows(*cl, GrantClientCredentials) && !OAuthClientConfidential(*cl):
+		return fmt.Errorf("client %q: client credentials need a confidential client (SecretSHA256)", cl.ID)
+	case OAuthClientAllows(*cl, GrantClientCredentials) && len(cl.Resources) == 0:
+		return fmt.Errorf("client %q: client credentials need Resources to mint for", cl.ID)
+	case len(cl.Permissions) > 0 && !OAuthClientAllows(*cl, GrantClientCredentials):
+		return fmt.Errorf("client %q: Permissions are a client-credentials client's own grants", cl.ID)
+	}
 	return nil
+}
+
+// normalizeOrigins trims and dedups browser origins: scheme://host[:port]
+// only, https or http on a loopback host.
+func normalizeOrigins(origins []string) ([]string, error) {
+	out := dedup(origins)
+	for _, raw := range out {
+		u, err := url.Parse(raw)
+		switch {
+		case err != nil || u.Host == "" || u.Scheme+"://"+u.Host != raw:
+			return nil, fmt.Errorf("%q is not an origin (scheme://host[:port])", raw)
+		case u.Scheme == "https":
+		case u.Scheme == "http" && loopbackHost(u.Hostname()):
+		default:
+			return nil, fmt.Errorf("%q must use https (http only on a loopback host)", raw)
+		}
+	}
+	return out, nil
 }
 
 // normalizeClientURIs trims and dedups redirect URIs and refuses any that is

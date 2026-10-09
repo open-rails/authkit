@@ -294,6 +294,9 @@ func (c *contract) operation(r httpapi.RouteSpec) *obj {
 	responses.set("default", newObj("description", "An error",
 		"content", newObj("application/json", newObj("schema", newObj("$ref", errorSchema)))))
 	op.set("responses", responses)
+	if r.Deprecated {
+		op.set("deprecated", true)
+	}
 	if r.Auth == iam.AuthPublic {
 		op.set("security", []any{})
 	} else {

@@ -71,6 +71,8 @@ func (as *AuthorizationServer) HTTPClient() *http.Client {
 
 // CodeFlow is one authorization code request. ClientSecret is set for a
 // confidential client; Resource and Scopes are what the client asks for.
+// DPoP binds the tokens to a key: a public client always has one (Authorize
+// makes it when nil).
 type CodeFlow struct {
 	ClientID     string
 	ClientSecret string
@@ -78,16 +80,20 @@ type CodeFlow struct {
 	Resource     string
 	Scopes       []string
 	Nonce        string
+	DPoP         *DPoPKey
 }
 
-// OAuthTokens is the token endpoint's answer.
+// OAuthTokens is the token endpoint's answer. DPoP is the key the tokens
+// are bound to, nil for bearer tokens.
 type OAuthTokens struct {
-	AccessToken  string `json:"access_token"`
-	TokenType    string `json:"token_type"`
-	ExpiresIn    int64  `json:"expires_in"`
-	Scope        string `json:"scope"`
-	IDToken      string `json:"id_token"`
-	RefreshToken string `json:"refresh_token"`
+	AccessToken     string   `json:"access_token"`
+	TokenType       string   `json:"token_type"`
+	ExpiresIn       int64    `json:"expires_in"`
+	Scope           string   `json:"scope"`
+	IDToken         string   `json:"id_token"`
+	RefreshToken    string   `json:"refresh_token"`
+	IssuedTokenType string   `json:"issued_token_type"`
+	DPoP            *DPoPKey `json:"-"`
 }
 
 // Authorize signs u in and runs the authorization code flow for it as a
@@ -102,6 +108,9 @@ func (as *AuthorizationServer) Authorize(t testing.TB, u User, f CodeFlow) OAuth
 // AuthorizeAs is Authorize for a sign-in the test already holds.
 func (as *AuthorizationServer) AuthorizeAs(t testing.TB, signedIn iam.TokenSet, f CodeFlow) OAuthTokens {
 	t.Helper()
+	if f.DPoP == nil && f.ClientSecret == "" {
+		f.DPoP = NewDPoPKey(t)
+	}
 	verifier := pkceVerifier()
 	state := pkceVerifier()[:16]
 	id := as.BeginAuthorization(t, f, verifier, state)
@@ -114,13 +123,65 @@ func (as *AuthorizationServer) AuthorizeAs(t testing.TB, signedIn iam.TokenSet, 
 	if code == "" {
 		t.Fatalf("authtest: authorize: redirect carries no code: %s", location)
 	}
-	status, body := as.Token(t, f.ClientID, f.ClientSecret, url.Values{
+	return as.mustToken(t, "authorize", TokenRequest{ClientID: f.ClientID, ClientSecret: f.ClientSecret, DPoP: f.DPoP, Params: url.Values{
 		"grant_type": {"authorization_code"}, "code": {code}, "redirect_uri": {f.RedirectURI},
 		"code_verifier": {verifier}, "resource": nonEmptyValues(f.Resource),
-	})
+	}})
+}
+
+// Refresh redeems tokens' refresh token as clientID (with clientSecret for
+// a confidential client), proving tokens' DPoP key, and returns the rotated
+// tokens.
+func (as *AuthorizationServer) Refresh(t testing.TB, clientID, clientSecret string, tokens OAuthTokens) OAuthTokens {
+	t.Helper()
+	return as.mustToken(t, "refresh", TokenRequest{ClientID: clientID, ClientSecret: clientSecret, DPoP: tokens.DPoP, Params: url.Values{
+		"grant_type": {"refresh_token"}, "refresh_token": {tokens.RefreshToken},
+	}})
+}
+
+// TokenExchange is an RFC 8693 request: SubjectToken, the user's AuthKit
+// access token (SignIn's), for an access token to Resource.
+type TokenExchange struct {
+	ClientID     string
+	ClientSecret string
+	SubjectToken string
+	Resource     string
+	Scopes       []string
+	DPoP         *DPoPKey
+}
+
+// Exchange runs a token exchange and fails the test on a refusal. A public
+// client without a key gets a fresh one.
+func (as *AuthorizationServer) Exchange(t testing.TB, x TokenExchange) OAuthTokens {
+	t.Helper()
+	if x.DPoP == nil && x.ClientSecret == "" {
+		x.DPoP = NewDPoPKey(t)
+	}
+	return as.mustToken(t, "exchange", TokenRequest{ClientID: x.ClientID, ClientSecret: x.ClientSecret, DPoP: x.DPoP, Params: url.Values{
+		"grant_type": {"urn:ietf:params:oauth:grant-type:token-exchange"}, "subject_token": {x.SubjectToken},
+		"subject_token_type": {"urn:ietf:params:oauth:token-type:access_token"}, "resource": nonEmptyValues(x.Resource),
+		"scope": nonEmptyValues(strings.Join(x.Scopes, " ")),
+	}})
+}
+
+// ClientCredentials gets a confidential client's own access token for
+// resource; key, when set, binds it.
+func (as *AuthorizationServer) ClientCredentials(t testing.TB, clientID, clientSecret, resource string, scopes []string, key *DPoPKey) OAuthTokens {
+	t.Helper()
+	return as.mustToken(t, "client credentials", TokenRequest{ClientID: clientID, ClientSecret: clientSecret, DPoP: key, Params: url.Values{
+		"grant_type": {"client_credentials"}, "resource": nonEmptyValues(resource), "scope": nonEmptyValues(strings.Join(scopes, " ")),
+	}})
+}
+
+func (as *AuthorizationServer) mustToken(t testing.TB, what string, req TokenRequest) OAuthTokens {
+	t.Helper()
+	status, body := as.Token(t, req)
 	var tokens OAuthTokens
 	if status != http.StatusOK || json.Unmarshal(body, &tokens) != nil {
-		t.Fatalf("authtest: authorize: token: %d %s", status, body)
+		t.Fatalf("authtest: %s: token: %d %s", what, status, body)
+	}
+	if tokens.TokenType == "DPoP" {
+		tokens.DPoP = req.DPoP
 	}
 	return tokens
 }
@@ -135,6 +196,9 @@ func (as *AuthorizationServer) BeginAuthorization(t testing.TB, f CodeFlow, veri
 		"scope": {strings.Join(f.Scopes, " ")}, "state": {state}, "nonce": nonEmptyValues(f.Nonce),
 		"code_challenge": {PKCEChallenge(verifier)}, "code_challenge_method": {"S256"},
 		"resource": nonEmptyValues(f.Resource),
+	}
+	if f.DPoP != nil {
+		q.Set("dpop_jkt", f.DPoP.Thumbprint())
 	}
 	res, err := as.HTTPClient().Get(as.URL + iam.OAuthAuthorizePath + "?" + q.Encode())
 	if err != nil {
@@ -170,21 +234,50 @@ func (as *AuthorizationServer) Approve(t testing.TB, accessToken, id string) str
 	return out.RedirectTo
 }
 
-// Token posts params to the token endpoint as clientID (with Basic
-// authentication when clientSecret is set) and returns the status and body.
-func (as *AuthorizationServer) Token(t testing.TB, clientID, clientSecret string, params url.Values) (int, []byte) {
+// TokenRequest is one raw token endpoint request: Params as clientID (with
+// Basic authentication when ClientSecret is set), with a DPoP proof of DPoP
+// when set.
+type TokenRequest struct {
+	ClientID     string
+	ClientSecret string
+	Params       url.Values
+	DPoP         *DPoPKey
+}
+
+// Token posts req to the token endpoint and returns the status and body.
+func (as *AuthorizationServer) Token(t testing.TB, req TokenRequest) (int, []byte) {
 	t.Helper()
-	if clientSecret == "" {
-		params.Set("client_id", clientID)
+	return as.post(t, iam.OAuthTokenPath, req)
+}
+
+// Revoke posts token to the revocation endpoint (RFC 7009) as clientID and
+// returns the status.
+func (as *AuthorizationServer) Revoke(t testing.TB, clientID, clientSecret, token string) int {
+	t.Helper()
+	status, _ := as.post(t, iam.OAuthRevocationPath, TokenRequest{ClientID: clientID, ClientSecret: clientSecret, Params: url.Values{"token": {token}}})
+	return status
+}
+
+func (as *AuthorizationServer) post(t testing.TB, path string, r TokenRequest) (int, []byte) {
+	t.Helper()
+	params := url.Values{}
+	for k, v := range r.Params {
+		params[k] = v
 	}
-	req, _ := http.NewRequest(http.MethodPost, as.URL+iam.OAuthTokenPath, strings.NewReader(params.Encode()))
+	if r.ClientSecret == "" {
+		params.Set("client_id", r.ClientID)
+	}
+	req, _ := http.NewRequest(http.MethodPost, as.URL+path, strings.NewReader(params.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	if clientSecret != "" {
-		req.SetBasicAuth(url.QueryEscape(clientID), url.QueryEscape(clientSecret))
+	if r.ClientSecret != "" {
+		req.SetBasicAuth(url.QueryEscape(r.ClientID), url.QueryEscape(r.ClientSecret))
+	}
+	if r.DPoP != nil {
+		req.Header.Set("DPoP", r.DPoP.Proof(t, http.MethodPost, as.URL+path, "", ""))
 	}
 	res, err := as.HTTPClient().Do(req)
 	if err != nil {
-		t.Fatalf("authtest: token: %v", err)
+		t.Fatalf("authtest: %s: %v", path, err)
 	}
 	defer res.Body.Close()
 	body, _ := io.ReadAll(res.Body)

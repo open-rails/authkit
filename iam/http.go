@@ -65,6 +65,7 @@ const (
 	OAuthAuthorizePath              = "/oauth2/authorize"
 	OAuthTokenPath                  = "/oauth2/token"
 	OAuthUserInfoPath               = "/oauth2/userinfo"
+	OAuthRevocationPath             = "/oauth2/revoke"
 	OAuthEndSessionPath             = "/oauth2/end_session"
 )
 
