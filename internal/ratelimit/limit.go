@@ -10,9 +10,9 @@ import (
 // with an optional Cooldown between accepted requests. It is the single shared
 // limit type consumed by the memory and redis limiter backends and the HTTP layer.
 type Limit struct {
-	Limit    int
-	Window   time.Duration
-	Cooldown time.Duration
+	Limit    int           `yaml:"limit"`
+	Window   time.Duration `yaml:"window"`
+	Cooldown time.Duration `yaml:"cooldown"`
 }
 
 // ValidateLimits rejects policies that the millisecond-based backends cannot

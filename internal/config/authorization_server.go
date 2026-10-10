@@ -22,58 +22,58 @@ import (
 type AuthorizationServerConfig struct {
 	// Clients are the registered OAuth clients. None leaves the
 	// authorization server off.
-	Clients []OAuthClientConfig
+	Clients []OAuthClientConfig `yaml:"clients"`
 	// Resources are the resource servers access tokens may be minted for
 	// (RFC 8707 resource indicators).
-	Resources []ResourceServerConfig
+	Resources []ResourceServerConfig `yaml:"resources"`
 	// AccessTokenTTL is the lifetime of the RFC 9068 access tokens it mints.
 	// 0 defaults to 5 minutes, the most allowed.
-	AccessTokenTTL time.Duration
+	AccessTokenTTL time.Duration `yaml:"access_token_ttl"`
 	// RefreshTokenTTL bounds a refresh token family: rotation never extends
 	// it, and the client signs the user in again (prompt=none) after it.
 	// 0 defaults to 12 hours; at most 30 days. A family also ends with the
 	// sign-in it was issued from.
-	RefreshTokenTTL time.Duration
+	RefreshTokenTTL time.Duration `yaml:"refresh_token_ttl"`
 }
 
 // OAuthClientConfig registers one OAuth client.
 type OAuthClientConfig struct {
 	// ID is the client_id: 1-128 characters of letters, digits, '.', '_',
 	// '-' and ':'.
-	ID string
+	ID string `yaml:"id"`
 	// Name is shown to the user while they sign in for it; empty uses ID.
-	Name string
+	Name string `yaml:"name"`
 	// SecretSHA256 makes the client confidential: the lowercase hex SHA-256
 	// of its secret, which must be at least 32 random bytes. AuthKit never
 	// holds the secret. Empty makes the client public (a browser or native
 	// app, or a fleet of workloads using the jwt-bearer grant), which must
 	// use DPoP and cannot use client credentials.
-	SecretSHA256 string
+	SecretSHA256 string `yaml:"secret_sha256"`
 	// RedirectURIs are the exact redirect_uri values the client may use:
 	// absolute https URLs, or http on a loopback host, without a fragment.
-	RedirectURIs []string
+	RedirectURIs []string `yaml:"redirect_uris"`
 	// PostLogoutRedirectURIs are the exact post_logout_redirect_uri values
 	// RP-initiated logout may return to; the same rules apply.
-	PostLogoutRedirectURIs []string
+	PostLogoutRedirectURIs []string `yaml:"post_logout_redirect_uris"`
 	// GrantTypes are the grants the client may use. Empty allows
 	// authorization_code.
-	GrantTypes []OAuthGrantType
+	GrantTypes []OAuthGrantType `yaml:"grant_types"`
 	// Resources are the resource identifiers (ResourceServerConfig.ID) the
 	// client may request tokens for. A request names one with the resource
 	// parameter; with none, the access token is good for userinfo only.
-	Resources []string
+	Resources []string `yaml:"resources"`
 	// Permissions are a client-credentials client's own grants, as grant
 	// patterns: its tokens carry them within the resource's ceiling.
-	Permissions []string
+	Permissions []string `yaml:"permissions"`
 	// Origins are browser origins ("https://admin.example.com") the client
 	// calls the token endpoint from, besides its redirect URIs' origins: a
 	// host frontend using token exchange.
-	Origins []string
+	Origins []string `yaml:"origins"`
 	// AuthorizationDetailsTypes are the RFC 9396 authorization_details types
 	// a jwt-bearer client's capabilities may carry ("hub_operation"). The
 	// host's grant authorizer (Deps.OAuthGrants) decides each grant, so
 	// declaring any needs one.
-	AuthorizationDetailsTypes []string
+	AuthorizationDetailsTypes []string `yaml:"authorization_details_types"`
 }
 
 // ResourceServerConfig registers one resource server: an API that accepts
@@ -81,24 +81,24 @@ type OAuthClientConfig struct {
 type ResourceServerConfig struct {
 	// ID is the resource identifier, the access token's aud: an absolute URI
 	// without a fragment, usually the API's base URL.
-	ID string
+	ID string `yaml:"id"`
 	// Scopes are the OAuth scopes the resource defines; a client may request
 	// any of them for it.
-	Scopes []string
+	Scopes []string `yaml:"scopes"`
 	// Permissions is the resource's permission ceiling, as grant patterns in
 	// its own namespace ("merchant:*", "merchant:subscriptions:update"). An
 	// access token for it carries, as permissions, the user's live grants on
 	// the root group (what this deployment's roles assign them) intersected
 	// with this ceiling, so the resource server authorizes from the token.
 	// Empty mints tokens with no permissions.
-	Permissions []string
+	Permissions []string `yaml:"permissions"`
 	// ContactClaims puts the user's contact in every access token for the
 	// resource, whatever scopes it carries: the OIDC claims email and
 	// email_verified, preferred_username, name and updated_at (seconds since
 	// the epoch, when one of them last changed). A resource that keeps its
 	// own copy of who a user is learns a new user from the first request.
 	// Other resources' tokens carry only what their scopes grant.
-	ContactClaims bool
+	ContactClaims bool `yaml:"contact_claims"`
 }
 
 // OAuthGrantType is an OAuth 2.0 grant type a client may use.

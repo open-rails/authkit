@@ -21,14 +21,14 @@ type ProvisioningConfig struct {
 	// Targets are the service providers. A target removed from the list is
 	// forgotten, with its pending changes, when this issuer's River fleet
 	// starts.
-	Targets []ProvisioningTarget
+	Targets []ProvisioningTarget `yaml:"targets"`
 	// Interval is how often the pending changes are sent; 0 defaults to five
 	// minutes.
-	Interval time.Duration
+	Interval time.Duration `yaml:"interval"`
 	// ReconcileInterval is how often each target's users are listed and
 	// compared with the accounts, repairing what drifted; 0 defaults to a
 	// day, and a negative value turns reconciliation off.
-	ReconcileInterval time.Duration
+	ReconcileInterval time.Duration `yaml:"reconcile_interval"`
 }
 
 // ProvisioningTarget is one SCIM service provider: its base URL or an
@@ -37,31 +37,31 @@ type ProvisioningTarget struct {
 	// Name identifies the target in its status and logs: 1-64 lowercase
 	// letters, digits, '-' and '_'. Renaming a target makes a new one,
 	// which gets a full initial sync.
-	Name string
+	Name string `yaml:"name"`
 	// URL is the SCIM base URL, beneath which /Users and /Bulk are served
 	// ("https://billing.example.com/billing/v1/app/scim/v2").
-	URL string
+	URL string `yaml:"url"`
 	// Handler serves the SCIM endpoints in process instead of URL, so an
 	// embedded service provider is called with no network. Requests reach it
 	// with paths relative to the base ("/Users", "/Bulk").
-	Handler http.Handler
+	Handler http.Handler `yaml:"-"`
 	// BearerToken is a static credential sent as Authorization: Bearer.
-	BearerToken string
+	BearerToken string `yaml:"bearer_token"`
 	// ClientCredentials gets the access token from an OAuth 2.0 token
 	// endpoint instead.
-	ClientCredentials *ProvisioningClientCredentials
+	ClientCredentials *ProvisioningClientCredentials `yaml:"client_credentials"`
 }
 
 // ProvisioningClientCredentials is an OAuth 2.0 client-credentials client
 // (RFC 6749 §4.4) whose access tokens authenticate to a target.
 type ProvisioningClientCredentials struct {
-	TokenURL     string
-	ClientID     string
-	ClientSecret string
+	TokenURL     string `yaml:"token_url"`
+	ClientID     string `yaml:"client_id"`
+	ClientSecret string `yaml:"client_secret"`
 	// Scopes and Resource (RFC 8707) are sent with the token request when
 	// set.
-	Scopes   []string
-	Resource string
+	Scopes   []string `yaml:"scopes"`
+	Resource string   `yaml:"resource"`
 }
 
 // DefaultProvisioningInterval and DefaultProvisioningReconcileInterval are
