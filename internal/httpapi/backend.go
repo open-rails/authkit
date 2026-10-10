@@ -15,4 +15,5 @@ type Backend interface {
 	flowsBackend
 	oauthBackend
 	scimBackend
+	scimDirectoryBackend
 }

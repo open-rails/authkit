@@ -24,8 +24,8 @@ const (
 	// SurfaceOAuth is the authorization server's protocol endpoints beneath
 	// the issuer's path: form requests and OAuth errors, no JSON envelope.
 	SurfaceOAuth Surface = "oauth"
-	// SurfaceSCIM is the read-only SCIM 2.0 service provider beneath the
-	// issuer's path: SCIM's media type and errors.
+	// SurfaceSCIM is the SCIM 2.0 service providers beneath the issuer's
+	// path: SCIM's media type and errors.
 	SurfaceSCIM Surface = "scim"
 )
 
@@ -43,14 +43,17 @@ const (
 	FeatureDeviceKeys   Feature = "device_keys"  // device keys on
 	FeatureGroups       Feature = "groups"       // a persona besides root
 	FeatureAPIKeys      Feature = "api_keys"     // a persona whose groups hold API keys
-	FeatureInvitations  Feature = "invitations"  // invitations not disabled
-	FeatureNewDevices   Feature = "new_devices"  // SignIn.NewDevicesPerAccount not off
+	// FeatureRemoteApplications: a persona whose groups control remote
+	// applications, and so hold their users' directory.
+	FeatureRemoteApplications Feature = "remote_applications"
+	FeatureInvitations        Feature = "invitations" // invitations not disabled
+	FeatureNewDevices         Feature = "new_devices" // SignIn.NewDevicesPerAccount not off
 	// FeatureAuthorizationServer: AuthorizationServer declares clients.
 	FeatureAuthorizationServer Feature = "authorization_server"
 )
 
 // Features lists every Feature a route can be mounted under.
-var Features = []Feature{FeaturePasskeys, FeaturePasswordless, FeatureRegistration, FeatureTwoFactor, FeatureSolana, FeatureOIDC, FeatureDeviceKeys, FeatureGroups, FeatureAPIKeys, FeatureInvitations, FeatureNewDevices, FeatureAuthorizationServer}
+var Features = []Feature{FeaturePasskeys, FeaturePasswordless, FeatureRegistration, FeatureTwoFactor, FeatureSolana, FeatureOIDC, FeatureDeviceKeys, FeatureGroups, FeatureAPIKeys, FeatureRemoteApplications, FeatureInvitations, FeatureNewDevices, FeatureAuthorizationServer}
 
 // Reply is one success outcome of a route: its status and body. Body is a
 // zero value of the body's type, nil for none.
@@ -445,6 +448,35 @@ func Catalog() []RouteSpec {
 			serve: scimRead((*Service).handleSCIMReadOnly)},
 		{Method: POST, Path: "/scim/v2/Bulk", Surface: SurfaceSCIM, Group: scimGroup, Auth: public, Bucket: RLSCIMRead, MountedWhen: FeatureAuthorizationServer,
 			serve: scimRead((*Service).handleSCIMReadOnly)},
+
+		// #447: a group's directory of its remote applications' users, a SCIM
+		// 2.0 service provider (RFC 7644) beneath the issuer's path. The
+		// credential names the tenant: an API key bound to a remote
+		// application, or the application's own token.
+		{Method: GET, Path: "/directory/scim/v2/ServiceProviderConfig", Surface: SurfaceSCIM, Group: scimGroup, Auth: public, Bucket: RLSCIMRead, MountedWhen: FeatureRemoteApplications,
+			Responses: replyOK(scim.ServiceProviderConfig{}), serve: handle((*Service).handleDirectoryServiceProviderConfig)},
+		{Method: GET, Path: "/directory/scim/v2/ResourceTypes", Surface: SurfaceSCIM, Group: scimGroup, Auth: public, Bucket: RLSCIMRead, MountedWhen: FeatureRemoteApplications,
+			Responses: replyOK(scim.ListResponse[scim.ResourceType]{}), serve: handle((*Service).handleDirectoryResourceTypes)},
+		{Method: GET, Path: "/directory/scim/v2/ResourceTypes/{id}", Surface: SurfaceSCIM, Group: scimGroup, Auth: public, Bucket: RLSCIMRead, MountedWhen: FeatureRemoteApplications,
+			Responses: replyOK(scim.ResourceType{}), serve: handle((*Service).handleDirectoryResourceType)},
+		{Method: GET, Path: "/directory/scim/v2/Schemas", Surface: SurfaceSCIM, Group: scimGroup, Auth: public, Bucket: RLSCIMRead, MountedWhen: FeatureRemoteApplications,
+			Responses: replyOK(scim.ListResponse[scim.SchemaDoc]{}), serve: handle((*Service).handleDirectorySchemas)},
+		{Method: GET, Path: "/directory/scim/v2/Schemas/{id}", Surface: SurfaceSCIM, Group: scimGroup, Auth: public, Bucket: RLSCIMRead, MountedWhen: FeatureRemoteApplications,
+			Responses: replyOK(scim.SchemaDoc{}), serve: handle((*Service).handleDirectorySchema)},
+		{Method: GET, Path: "/directory/scim/v2/Users", Surface: SurfaceSCIM, Group: scimGroup, Auth: public, Bucket: RLSCIMRead, MountedWhen: FeatureRemoteApplications,
+			Query: SCIMUsersQuery{}, Responses: replyOK(scim.ListResponse[scim.User]{}), serve: scimDirectory(false, (*Service).handleDirectoryUsers)},
+		{Method: GET, Path: "/directory/scim/v2/Users/{id}", Surface: SurfaceSCIM, Group: scimGroup, Auth: public, Bucket: RLSCIMRead, MountedWhen: FeatureRemoteApplications,
+			Responses: replyOK(scim.User{}), serve: scimDirectory(false, (*Service).handleDirectoryUser)},
+		{Method: POST, Path: "/directory/scim/v2/Users", Surface: SurfaceSCIM, Group: scimGroup, Auth: public, Bucket: RLSCIMWrite, MountedWhen: FeatureRemoteApplications,
+			Request: scim.User{}, Responses: replyCreated(scim.User{}), serve: scimDirectory(true, (*Service).handleDirectoryCreate)},
+		{Method: PUT, Path: "/directory/scim/v2/Users/{id}", Surface: SurfaceSCIM, Group: scimGroup, Auth: public, Bucket: RLSCIMWrite, MountedWhen: FeatureRemoteApplications,
+			Request: scim.User{}, Responses: replyOK(scim.User{}), serve: scimDirectory(true, (*Service).handleDirectoryReplace)},
+		{Method: PATCH, Path: "/directory/scim/v2/Users/{id}", Surface: SurfaceSCIM, Group: scimGroup, Auth: public, Bucket: RLSCIMWrite, MountedWhen: FeatureRemoteApplications,
+			Request: scim.PatchRequest{}, Responses: replyOK(scim.User{}), serve: scimDirectory(true, (*Service).handleDirectoryPatch)},
+		{Method: DELETE, Path: "/directory/scim/v2/Users/{id}", Surface: SurfaceSCIM, Group: scimGroup, Auth: public, Bucket: RLSCIMWrite, MountedWhen: FeatureRemoteApplications,
+			Responses: replyNoContent, serve: scimDirectory(true, (*Service).handleDirectoryDelete)},
+		{Method: POST, Path: "/directory/scim/v2/Bulk", Surface: SurfaceSCIM, Group: scimGroup, Auth: public, Bucket: RLSCIMWrite, MountedWhen: FeatureRemoteApplications,
+			Request: scim.BulkRequest{}, Responses: replyOK(scim.BulkResponse{}), serve: scimDirectory(true, (*Service).handleDirectoryBulk)},
 	}
 }
 

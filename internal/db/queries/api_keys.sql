@@ -4,14 +4,14 @@
 UPDATE api_keys SET revoked_at = now() WHERE created_by = sqlc.arg(user_id)::uuid AND revoked_at IS NULL;
 
 -- name: APIKeyInsert :one
-INSERT INTO api_keys (permission_group_id, key_id, secret_hash, name, role, created_by, expires_at, catalog_issuer)
-VALUES (sqlc.arg(group_id), sqlc.arg(key_id), sqlc.arg(secret_hash), sqlc.arg(name), sqlc.arg(role), sqlc.narg(created_by)::uuid, sqlc.narg(expires_at)::timestamptz, sqlc.arg(catalog_issuer)::text)
+INSERT INTO api_keys (permission_group_id, key_id, secret_hash, name, role, created_by, expires_at, catalog_issuer, provisions_for)
+VALUES (sqlc.arg(group_id), sqlc.arg(key_id), sqlc.arg(secret_hash), sqlc.arg(name), sqlc.arg(role), sqlc.narg(created_by)::uuid, sqlc.narg(expires_at)::timestamptz, sqlc.arg(catalog_issuer)::text, sqlc.narg(provisions_for)::uuid)
 ON CONFLICT (key_id) DO NOTHING
 RETURNING id, created_at;
 
 -- APIKeysByGroup lists a group's keys newest first, never the secret hash.
 -- name: APIKeysByGroup :many
-SELECT id, permission_group_id, key_id, name, role, COALESCE(created_by::text, '')::text AS created_by, created_at, last_used_at, expires_at, revoked_at
+SELECT id, permission_group_id, key_id, name, role, COALESCE(created_by::text, '')::text AS created_by, created_at, last_used_at, expires_at, revoked_at, provisions_for
 FROM api_keys
 WHERE permission_group_id = sqlc.arg(group_id) AND (sqlc.narg(after)::uuid IS NULL OR id < sqlc.narg(after)::uuid)
 ORDER BY id DESC

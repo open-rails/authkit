@@ -299,6 +299,9 @@ type APIKeyCreateRequest struct {
 	Name      string     `json:"name"`
 	Role      string     `json:"role"`
 	ExpiresAt *time.Time `json:"expires_at"`
+	// ProvisionsFor is a remote application of the group: the key may push
+	// its users to the group's directory over SCIM.
+	ProvisionsFor *string `json:"provisions_for"`
 }
 
 // InvitationCreateRequest makes an invite link (no email), or emails an

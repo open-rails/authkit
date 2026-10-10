@@ -95,11 +95,11 @@ func (s *Service) mounts(f Feature) bool {
 		return cfg.SignIn.NewDevicesPerAccount > 0
 	case FeatureAuthorizationServer:
 		return config.AuthorizationServerEnabled(cfg.AuthorizationServer)
-	case FeatureGroups, FeatureAPIKeys:
+	case FeatureGroups, FeatureAPIKeys, FeatureRemoteApplications:
 		schema := s.svc.PermissionGroupSchema()
 		for _, name := range schema.Personas() {
 			p, _ := schema.Persona(name)
-			if f == FeatureGroups && name != iam.RootPersona() || f == FeatureAPIKeys && p.APIKeys {
+			if f == FeatureGroups && name != iam.RootPersona() || f == FeatureAPIKeys && p.APIKeys || f == FeatureRemoteApplications && p.RemoteApplications {
 				return true
 			}
 		}

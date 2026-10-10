@@ -21,6 +21,15 @@ func CredentialsRead(p iam.Persona) iam.Perm { return Perm(p.String() + ":creden
 // remote applications. Registered with CredentialsRead.
 func CredentialsManage(p iam.Persona) iam.Perm { return Perm(p.String() + ":credentials:manage") }
 
+// DirectoryRead gates reading the group's directory of its remote
+// applications' users over SCIM. Registered only for personas with remote
+// applications.
+func DirectoryRead(p iam.Persona) iam.Perm { return Perm(p.String() + ":directory:read") }
+
+// DirectoryManage gates provisioning that directory over SCIM. Registered
+// with DirectoryRead.
+func DirectoryManage(p iam.Persona) iam.Perm { return Perm(p.String() + ":directory:manage") }
+
 // The intrinsic root permissions gating AuthKit's account administration.
 var (
 	RootUsersRead   = Perm("root:users:read")   // list and read accounts and their sign-ins

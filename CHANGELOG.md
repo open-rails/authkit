@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+Additive. A group keeps a directory of its remote applications' users: AuthKit is a SCIM 2.0 service provider for them (#447, [docs/scim.md](docs/scim.md#directory)).
+
+- `{issuer}/directory/scim/v2`: `/Users` create, read, replace, patch and delete, `/Bulk`, filters on `externalId`, `userName`, `id` and `emails.value`, and discovery (RFC 7644). It takes Okta's and Entra's PATCH shapes, and answers RFC 7644 §3.12 errors.
+- The credential names the tenant (RFC 7644 §6.1): one issuer's users in one group. An API key bound to a remote application of its group (`iam.NewAPIKey.ProvisionsFor`, `provisions_for`) provisions that application's users; the application's own token will too, once the Authenticator accepts trusted issuers.
+- New built-ins with `RemoteApplications`: `<persona>:directory:read` and `<persona>:directory:manage` (`PersonaDef.Directory`). A host that declared a permission of that name must drop it.
+- `Client.RemoteUserInfo(ref, issuer)` reads the directory as a `helpers/userinfo.Lookup` keyed by the issuer's subject.
+- Another AuthKit's push reaches it unchanged: point a `Config.Provisioning` target at the URL with the bound key as its `BearerToken`.
+- Migration 0013: `remote_users`, keyed by group, issuer and subject, and `api_keys.provisions_for`.
+
 ## v1.17.0
 
 The owner approved shipping this breaking change in a minor release. Rate limits and spent DPoP proofs are kept in Redis or in memory, never in PostgreSQL (#446), and a resource server no longer supplies its own DPoP replay store. This reverses v1.16.0's PostgreSQL limiter.

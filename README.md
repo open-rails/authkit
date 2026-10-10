@@ -128,6 +128,7 @@ AuthKit gives every persona these permissions for free, so you never define them
 | `channel:members:read` | see who holds which role in it |
 | `channel:members:manage` | give someone a role, change it, or take it away |
 | `channel:credentials:read`, `channel:credentials:manage` | list, or create and revoke, the channel's API keys and connected apps (only when `APIKeys` or `RemoteApplications` is on) |
+| `channel:directory:read`, `channel:directory:manage` | read, or provision over SCIM, the channel's [directory](docs/scim.md#directory) of its connected apps' users (only when `RemoteApplications` is on) |
 
 What a channel's data is, and who may change it, is define by your app. Authkit merely stores definitions for permissions and checks against those.
 

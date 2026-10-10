@@ -1,7 +1,7 @@
 // Package scim is the SCIM 2.0 wire format (RFC 7643, RFC 7644) AuthKit
-// speaks both ways: the User resource, list and error messages, bulk
-// requests, discovery documents, the filter subset its service provider
-// answers, and the client its provisioning pushes with.
+// speaks both ways: the User resource, list, patch and error messages, bulk
+// requests, discovery documents, the filter subset its service providers
+// answer, and the client its provisioning pushes with.
 package scim
 
 import (
@@ -24,6 +24,7 @@ const (
 	SchemaListResponse          = "urn:ietf:params:scim:api:messages:2.0:ListResponse"
 	SchemaError                 = "urn:ietf:params:scim:api:messages:2.0:Error"
 	SchemaBulkRequest           = "urn:ietf:params:scim:api:messages:2.0:BulkRequest"
+	SchemaPatchOp               = "urn:ietf:params:scim:api:messages:2.0:PatchOp"
 	SchemaBulkResponse          = "urn:ietf:params:scim:api:messages:2.0:BulkResponse"
 	SchemaServiceProviderConfig = "urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig"
 	SchemaResourceType          = "urn:ietf:params:scim:schemas:core:2.0:ResourceType"
@@ -43,14 +44,17 @@ type User struct {
 	Meta        *Meta    `json:"meta,omitempty"`
 }
 
-// Name is the User's name; AuthKit keeps only the display form.
+// Name is the User's name, as much of it as AuthKit keeps.
 type Name struct {
-	Formatted string `json:"formatted,omitempty"`
+	Formatted  string `json:"formatted,omitempty"`
+	GivenName  string `json:"givenName,omitempty"`
+	FamilyName string `json:"familyName,omitempty"`
 }
 
 // Email is one of the User's addresses.
 type Email struct {
 	Value   string `json:"value"`
+	Type    string `json:"type,omitempty"`
 	Primary bool   `json:"primary,omitempty"`
 }
 
@@ -63,16 +67,27 @@ type Meta struct {
 }
 
 // PrimaryEmail is the primary address, else the first; "" without one.
-func (u User) PrimaryEmail() string {
-	for _, e := range u.Emails {
+func (u User) PrimaryEmail() string { return primary(u.Emails).Value }
+
+// primary is the primary address of emails, else the first.
+func primary(emails []Email) Email {
+	for _, e := range emails {
 		if e.Primary {
-			return e.Value
+			return e
 		}
 	}
-	if len(u.Emails) > 0 {
-		return u.Emails[0].Value
+	if len(emails) > 0 {
+		return emails[0]
 	}
-	return ""
+	return Email{}
+}
+
+// Tenant is the directory a SCIM client provisions (RFC 7644 §6): the users
+// of one issuer that a group trusts.
+type Tenant struct {
+	GroupID string
+	Persona string
+	Issuer  string
 }
 
 // ListResponse is a query's page (RFC 7644 §3.4.2).
@@ -98,8 +113,11 @@ func NewError(status int, scimType, detail string) Error {
 	return Error{Schemas: []string{SchemaError}, Status: strconv.Itoa(status), ScimType: scimType, Detail: detail}
 }
 
-// Status is an HTTP status a SCIM peer sent as a JSON string or number.
+// Status is an HTTP status a SCIM peer sent as a JSON string or number;
+// AuthKit sends a string, as RFC 7644 §3.7.3's examples do.
 type Status int
+
+func (s Status) MarshalText() ([]byte, error) { return []byte(strconv.Itoa(int(s))), nil }
 
 func (s *Status) UnmarshalJSON(b []byte) error {
 	var n int

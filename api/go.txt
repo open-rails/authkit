@@ -65,6 +65,7 @@ pkg authkit, method (*Client) PublicUsers(context.Context, []string) (map[string
 pkg authkit, method (*Client) PurgeGroup(context.Context, iam.GroupRef, ...Option) error
 pkg authkit, method (*Client) PurgeUsers(context.Context, []string, ...Option) ([]iam.OpResult, error)
 pkg authkit, method (*Client) RemoteApplication(context.Context, iam.AppRef) (iam.RemoteApplication, error)
+pkg authkit, method (*Client) RemoteUserInfo(iam.GroupRef, string) userinfo.Lookup
 pkg authkit, method (*Client) RemoveGroupMember(context.Context, auth.Identity, iam.GroupRef, iam.Subject, ...Option) error
 pkg authkit, method (*Client) ResetAccountMFA(context.Context, string, ...Option) error
 pkg authkit, method (*Client) ResolveAPIKey(context.Context, string) (iam.ResolvedAPIKey, error)
@@ -111,6 +112,7 @@ pkg authkit, method (*Verifier) KnownPermission(iam.Perm) bool
 pkg authkit, method (*Verifier) Verify(context.Context, string) (verify.Claims, error)
 pkg authkit, method (*Verifier) VerifyRequest(*http.Request) (verify.Claims, error)
 pkg authkit, method (CredentialPerms) All() iam.Perm
+pkg authkit, method (DirectoryPerms) All() iam.Perm
 pkg authkit, method (MemberPerms) All() iam.Perm
 pkg authkit, method (Resource) All() iam.Perm
 pkg authkit, method (RootDef) All() iam.Perm
@@ -186,6 +188,11 @@ pkg authkit, type Deps struct, Wrap func(iam.Route, http.Handler) http.Handler
 pkg authkit, type DeviceKeysConfig = config.DeviceKeysConfig
 pkg authkit, type DeviceKeysConfig struct
 pkg authkit, type DeviceKeysConfig struct, Enabled bool
+pkg authkit, type DirectoryPerms = config.DirectoryPerms
+pkg authkit, type DirectoryPerms struct
+pkg authkit, type DirectoryPerms struct, Manage iam.Perm
+pkg authkit, type DirectoryPerms struct, Read iam.Perm
+pkg authkit, type DirectoryPerms struct, embedded config.Resource
 pkg authkit, type EmailSender = config.EmailSender
 pkg authkit, type EmailSender interface
 pkg authkit, type EmailSender interface, CheckHealth(context.Context) error
@@ -269,6 +276,7 @@ pkg authkit, type PasswordPolicy struct, RequireUppercase bool
 pkg authkit, type PersonaDef = config.PersonaDef
 pkg authkit, type PersonaDef struct
 pkg authkit, type PersonaDef struct, Credentials config.CredentialPerms
+pkg authkit, type PersonaDef struct, Directory config.DirectoryPerms
 pkg authkit, type PersonaDef struct, Members config.MemberPerms
 pkg authkit, type PersonaDef struct, Owner iam.Role
 pkg authkit, type PersonaDef struct, Persona iam.Persona
@@ -836,6 +844,7 @@ pkg authkit/iam, type APIKey struct, LastUsedAt *time.Time `json:"last_used_at"`
 pkg authkit/iam, type APIKey struct, LookupID string `json:"lookup_id"`
 pkg authkit/iam, type APIKey struct, Name string `json:"name"`
 pkg authkit/iam, type APIKey struct, Permissions []Perm `json:"permissions"`
+pkg authkit/iam, type APIKey struct, ProvisionsFor *string `json:"provisions_for"`
 pkg authkit/iam, type APIKey struct, RevokedAt *time.Time `json:"revoked_at"`
 pkg authkit/iam, type APIKey struct, Role Role `json:"role"`
 pkg authkit/iam, type APIKeyCreated struct
@@ -1078,6 +1087,7 @@ pkg authkit/iam, type NameResolution struct, IsAlias bool `json:"is_alias"`
 pkg authkit/iam, type NewAPIKey struct
 pkg authkit/iam, type NewAPIKey struct, ExpiresAt *time.Time
 pkg authkit/iam, type NewAPIKey struct, Name string
+pkg authkit/iam, type NewAPIKey struct, ProvisionsFor string
 pkg authkit/iam, type NewAPIKey struct, Role Role
 pkg authkit/iam, type NewGroup struct
 pkg authkit/iam, type NewGroup struct, ID string

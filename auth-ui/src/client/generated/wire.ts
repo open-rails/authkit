@@ -20,12 +20,14 @@ export type APIKey = {
   last_used_at: string | null
   expires_at: string | null
   revoked_at: string | null
+  provisions_for: string | null
 }
 
 export type APIKeyCreateRequest = {
   name?: string
   role?: string
   expires_at?: string | null
+  provisions_for?: string | null
 }
 
 export type APIKeyCreated = {
@@ -568,6 +570,32 @@ export type SCIMAuthScheme = {
   primary?: boolean
 }
 
+export type SCIMBulkOperation = {
+  method?: string
+  bulkId?: string
+  path?: string
+  data?: unknown
+}
+
+export type SCIMBulkRequest = {
+  schemas?: string[]
+  failOnErrors?: number | null
+  Operations?: SCIMBulkOperation[]
+}
+
+export type SCIMBulkResponse = {
+  schemas: string[]
+  Operations: SCIMBulkResult[]
+}
+
+export type SCIMBulkResult = {
+  location?: string
+  method?: string
+  bulkId?: string
+  status: string
+  response?: unknown
+}
+
 export type SCIMBulkSupport = {
   supported: boolean
   maxOperations: number
@@ -576,6 +604,7 @@ export type SCIMBulkSupport = {
 
 export type SCIMEmail = {
   value: string
+  type?: string
   primary?: boolean
 }
 
@@ -593,6 +622,19 @@ export type SCIMMeta = {
 
 export type SCIMName = {
   formatted?: string
+  givenName?: string
+  familyName?: string
+}
+
+export type SCIMPatchOperation = {
+  op?: string
+  path?: string
+  value?: unknown
+}
+
+export type SCIMPatchRequest = {
+  schemas?: string[]
+  Operations?: SCIMPatchOperation[]
 }
 
 export type SCIMResourceType = {

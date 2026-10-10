@@ -62,8 +62,10 @@ const (
 	RLOAuthEndSession    = "oauth_end_session"
 	RLOAuthAuthorization = "oauth_authorization"
 
-	// The SCIM service provider's reads; a directory sync pages through it.
+	// The SCIM service providers' reads; a directory sync pages through them.
 	RLSCIMRead = "scim_read"
+	// A directory's writes: a client provisioning its users one request each.
+	RLSCIMWrite = "scim_write"
 
 	RLMePasswordChange = "me_password_change"
 	RLMeRead           = "me_read"
@@ -176,6 +178,7 @@ var buckets = map[string]ratelimit.Limit{
 	RLOAuthMetadata: {Limit: 600, Window: time.Minute},
 	RLOAuthUserInfo: {Limit: 300, Window: time.Minute},
 	RLSCIMRead:      {Limit: 600, Window: time.Minute},
+	RLSCIMWrite:     {Limit: 1200, Window: time.Minute},
 	// A logout only ends a session the hint names.
 	RLOAuthEndSession: {Limit: 60, Window: 10 * time.Minute},
 }

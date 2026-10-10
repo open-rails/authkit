@@ -12,6 +12,7 @@ type (
 	Resource        = config.Resource
 	MemberPerms     = config.MemberPerms
 	CredentialPerms = config.CredentialPerms
+	DirectoryPerms  = config.DirectoryPerms
 	UserPerms       = config.UserPerms
 	PersonaOption   = config.PersonaOption
 )

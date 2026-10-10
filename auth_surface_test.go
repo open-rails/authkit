@@ -89,7 +89,7 @@ func TestClientPublicSurface(t *testing.T) {
 		// scope its Can checks.
 		"Authenticator", "Scope",
 		// helpers/userinfo Lookup: a library's directory reads.
-		"UserInfo",
+		"UserInfo", "RemoteUserInfo",
 	}
 	noIdentity := append(append(append([]string{}, hostOperations...), reads...), embeddingOnly...)
 

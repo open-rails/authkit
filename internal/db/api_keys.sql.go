@@ -78,8 +78,8 @@ func (q *Queries) APIKeyForRevoke(ctx context.Context, arg APIKeyForRevokeParams
 }
 
 const aPIKeyInsert = `-- name: APIKeyInsert :one
-INSERT INTO api_keys (permission_group_id, key_id, secret_hash, name, role, created_by, expires_at, catalog_issuer)
-VALUES ($1, $2, $3, $4, $5, $6::uuid, $7::timestamptz, $8::text)
+INSERT INTO api_keys (permission_group_id, key_id, secret_hash, name, role, created_by, expires_at, catalog_issuer, provisions_for)
+VALUES ($1, $2, $3, $4, $5, $6::uuid, $7::timestamptz, $8::text, $9::uuid)
 ON CONFLICT (key_id) DO NOTHING
 RETURNING id, created_at
 `
@@ -93,6 +93,7 @@ type APIKeyInsertParams struct {
 	CreatedBy     *string
 	ExpiresAt     *time.Time
 	CatalogIssuer string
+	ProvisionsFor *string
 }
 
 type APIKeyInsertRow struct {
@@ -110,6 +111,7 @@ func (q *Queries) APIKeyInsert(ctx context.Context, arg APIKeyInsertParams) (API
 		arg.CreatedBy,
 		arg.ExpiresAt,
 		arg.CatalogIssuer,
+		arg.ProvisionsFor,
 	)
 	var i APIKeyInsertRow
 	err := row.Scan(&i.ID, &i.CreatedAt)
@@ -162,7 +164,7 @@ func (q *Queries) APIKeyTouch(ctx context.Context, id string) error {
 }
 
 const aPIKeysByGroup = `-- name: APIKeysByGroup :many
-SELECT id, permission_group_id, key_id, name, role, COALESCE(created_by::text, '')::text AS created_by, created_at, last_used_at, expires_at, revoked_at
+SELECT id, permission_group_id, key_id, name, role, COALESCE(created_by::text, '')::text AS created_by, created_at, last_used_at, expires_at, revoked_at, provisions_for
 FROM api_keys
 WHERE permission_group_id = $1 AND ($2::uuid IS NULL OR id < $2::uuid)
 ORDER BY id DESC
@@ -186,6 +188,7 @@ type APIKeysByGroupRow struct {
 	LastUsedAt        *time.Time
 	ExpiresAt         *time.Time
 	RevokedAt         *time.Time
+	ProvisionsFor     *string
 }
 
 // APIKeysByGroup lists a group's keys newest first, never the secret hash.
@@ -209,6 +212,7 @@ func (q *Queries) APIKeysByGroup(ctx context.Context, arg APIKeysByGroupParams) 
 			&i.LastUsedAt,
 			&i.ExpiresAt,
 			&i.RevokedAt,
+			&i.ProvisionsFor,
 		); err != nil {
 			return nil, err
 		}

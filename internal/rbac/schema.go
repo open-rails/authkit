@@ -43,6 +43,9 @@ type Persona struct {
 	Permissions []iam.Perm
 	Roles       []Role // declared roles (includes flattened) plus owner
 	APIKeys     bool
+	// RemoteApplications: the persona's groups control remote applications
+	// and hold their users' directory.
+	RemoteApplications bool
 }
 
 // Role is a compiled role: its grant patterns with includes flattened.
@@ -99,10 +102,7 @@ func New(personas []PersonaSpec, roles []RoleSpec) (*Schema, error) {
 }
 
 func (s *Schema) compilePersona(name iam.Persona, spec PersonaSpec) (Persona, error) {
-	p := Persona{
-		Name:    name,
-		APIKeys: spec.APIKeys,
-	}
+	p := Persona{Name: name, APIKeys: spec.APIKeys, RemoteApplications: spec.RemoteApplications}
 	for _, perm := range spec.Permissions {
 		if perm.Persona() != name {
 			return Persona{}, fmt.Errorf("permission %q must start with %q", perm, name.String()+":")
@@ -145,7 +145,7 @@ func Catalog(spec PersonaSpec) []iam.Perm {
 	for _, perm := range spec.Permissions {
 		set[perm] = struct{}{}
 	}
-	for _, perm := range Builtins(spec.Name, spec.APIKeys || spec.RemoteApplications) {
+	for _, perm := range Builtins(spec.Name, spec.APIKeys || spec.RemoteApplications, spec.RemoteApplications) {
 		set[perm] = struct{}{}
 	}
 	return slices.SortedFunc(maps.Keys(set), comparePerm)
@@ -164,12 +164,16 @@ func Expand(catalog, grants []iam.Perm) []iam.Perm {
 }
 
 // Builtins returns the permissions AuthKit registers for a persona: members
-// always, credentials when it has API keys or remote applications, and on
-// root its intrinsic account permissions.
-func Builtins(name iam.Persona, credentials bool) []iam.Perm {
+// always, credentials when it has API keys or remote applications, the
+// directory when it has remote applications, and on root its intrinsic
+// account permissions.
+func Builtins(name iam.Persona, credentials, directory bool) []iam.Perm {
 	out := []iam.Perm{ident.MembersRead(name), ident.MembersManage(name)}
 	if credentials {
 		out = append(out, ident.CredentialsRead(name), ident.CredentialsManage(name))
+	}
+	if directory {
+		out = append(out, ident.DirectoryRead(name), ident.DirectoryManage(name))
 	}
 	if name == iam.RootPersona() {
 		out = append(out, ident.IntrinsicRootPermissions()...)

@@ -6,11 +6,11 @@ import (
 	"strings"
 )
 
-// Filter is the filter subset AuthKit's service provider answers: equality
-// on id, userName or emails.value, joined by "or". A user matches when it
-// matches any term.
+// Filter is the filter subset AuthKit's service providers answer: equality
+// on id, externalId, userName or emails.value, joined by "or". A user
+// matches when it matches any term.
 type Filter struct {
-	IDs, UserNames, Emails []string
+	IDs, ExternalIDs, UserNames, Emails []string
 }
 
 // ErrInvalidFilter is a filter outside the subset; its message is the
@@ -47,12 +47,14 @@ func ParseFilter(expr string) (Filter, error) {
 		switch strings.ToLower(attr) {
 		case "id":
 			f.IDs = append(f.IDs, value)
+		case "externalid":
+			f.ExternalIDs = append(f.ExternalIDs, value)
 		case "username":
 			f.UserNames = append(f.UserNames, value)
 		case "emails.value", "emails":
 			f.Emails = append(f.Emails, value)
 		default:
-			return Filter{}, filterError("filtering on " + attr + " is not supported (id, userName, emails.value)")
+			return Filter{}, filterError("filtering on " + attr + " is not supported (id, externalId, userName, emails.value)")
 		}
 		rest = strings.TrimSpace(after)
 		if rest == "" {

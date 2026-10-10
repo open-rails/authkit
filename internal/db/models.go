@@ -130,6 +130,30 @@ type RemoteApplication struct {
 	DeclaredBy *string
 }
 
+// The users of the issuers a group trusts, by issuer and subject: SCIM-provisioned or recorded from token claims; a SCIM DELETE deletes the row.
+type RemoteUser struct {
+	ID                string
+	PermissionGroupID string
+	Issuer            string
+	// The issuer's sub for the user: the SCIM externalId
+	Subject       string
+	UserName      *string
+	DisplayName   *string
+	NameFormatted *string
+	GivenName     *string
+	FamilyName    *string
+	// An address the issuer asserts: pushed over SCIM, or an email claim with email_verified
+	Email     *string
+	EmailType *string
+	Active    bool
+	// When a SCIM client created the User (meta.created); NULL when only token claims recorded it
+	ProvisionedAt *time.Time
+	// When the values were last reported: a SCIM write's arrival, or a token's updated_at claim. An older claim is ignored
+	SourceUpdatedAt *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
 type SessionEvent struct {
 	ID         int64
 	OccurredAt time.Time

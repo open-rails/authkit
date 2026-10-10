@@ -94,6 +94,7 @@ func (r *Roles) persona(p iam.Persona, opts []PersonaOption) *PersonaDef {
 	}
 	d.Members = MemberPerms{Resource: d.Resource("members"), Read: ident.MembersRead(p), Manage: ident.MembersManage(p)}
 	d.Credentials = CredentialPerms{Resource: d.Resource("credentials"), Read: ident.CredentialsRead(p), Manage: ident.CredentialsManage(p)}
+	d.Directory = DirectoryPerms{Resource: d.Resource("directory"), Read: ident.DirectoryRead(p), Manage: ident.DirectoryManage(p)}
 	r.personas = append(r.personas, d)
 	return d
 }
@@ -104,8 +105,8 @@ func (r *Roles) errorf(format string, args ...any) {
 
 // PersonaDef is one declared persona: the permissions and roles of its
 // groups. AuthKit registers the built-in permission fields: Members always,
-// Credentials with APIKeys or RemoteApplications. A role holding one that is
-// not registered fails New.
+// Credentials with APIKeys or RemoteApplications, Directory with
+// RemoteApplications. A role holding one that is not registered fails New.
 type PersonaDef struct {
 	Persona iam.Persona
 	// Owner is the role every persona has: it holds All(). Root's also holds
@@ -114,6 +115,7 @@ type PersonaDef struct {
 	Owner       iam.Role
 	Members     MemberPerms
 	Credentials CredentialPerms
+	Directory   DirectoryPerms
 
 	roles    *Roles
 	spec     rbac.PersonaSpec
@@ -161,7 +163,7 @@ func (p *PersonaDef) Declare(perms ...string) []iam.Perm {
 }
 
 func (p *PersonaDef) builtIn(perm iam.Perm) bool {
-	return slices.Contains(rbac.Builtins(p.Persona, true), perm)
+	return slices.Contains(rbac.Builtins(p.Persona, true, true), perm)
 }
 
 // Resource is one resource of the persona, for the pattern over all its
@@ -265,6 +267,15 @@ type CredentialPerms struct {
 	Resource
 	Read   iam.Perm // list the group's API keys
 	Manage iam.Perm // mint, revoke and re-role them
+}
+
+// DirectoryPerms are the directory permissions, registered with
+// RemoteApplications: the group's remote applications' users, provisioned
+// over SCIM (docs/scim.md).
+type DirectoryPerms struct {
+	Resource
+	Read   iam.Perm // read the directory
+	Manage iam.Perm // provision it: create, replace, patch and delete users
 }
 
 // UserPerms are root's account administration permissions.

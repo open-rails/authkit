@@ -31,6 +31,8 @@ AuthKit registers these itself; you never declare them. `<persona>` means every 
 | `<persona>:members:manage` | always | give someone a role, change it or take it away; invite people |
 | `<persona>:credentials:read` | with `APIKeys` or `RemoteApplications` | list the group's API keys |
 | `<persona>:credentials:manage` | with `APIKeys` or `RemoteApplications` | create and revoke API keys; give remote applications roles |
+| `<persona>:directory:read` | with `RemoteApplications` | read the group's [directory](scim.md#directory) of its remote applications' users |
+| `<persona>:directory:manage` | with `RemoteApplications` | provision that directory over SCIM |
 | `root:users:read` | always | look through accounts and their sign-in history |
 | `root:users:ban` | always | ban and unban |
 | `root:users:delete` | always | delete an account, or restore it within 30 days |

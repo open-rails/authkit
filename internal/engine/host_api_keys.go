@@ -75,15 +75,30 @@ func (s *Engine) CreateAPIKey(ctx context.Context, a auth.Identity, ref iam.Grou
 		if err := s.requireRoleGrant(ctx, st, a, g, ident.CredentialsManage(g.Persona), role); err != nil {
 			return err
 		}
+		var provisions *string
+		if k.ProvisionsFor != "" {
+			id, ok := canonicalUUID(k.ProvisionsFor)
+			if !ok {
+				return iam.ErrRemoteApplicationNotFound
+			}
+			app, err := db.New(st.q).RemoteApplicationByID(ctx, id)
+			if errors.Is(err, pgx.ErrNoRows) || err == nil && app.PermissionGroupID != g.ID {
+				return iam.ErrRemoteApplicationNotFound
+			}
+			if err != nil {
+				return err
+			}
+			provisions = &id
+		}
 		for range 5 {
 			minted, err := apikey.Mint(s.cfg.APIKeys.Prefix)
 			if err != nil {
 				return err
 			}
-			out.APIKey = iam.APIKey{LookupID: minted.LookupID, GroupID: g.ID, Name: name, Role: role, Permissions: ident.Perms(grants), CreatedBy: nullable(creator), ExpiresAt: expiresAt}
+			out.APIKey = iam.APIKey{LookupID: minted.LookupID, GroupID: g.ID, Name: name, Role: role, Permissions: ident.Perms(grants), CreatedBy: nullable(creator), ExpiresAt: expiresAt, ProvisionsFor: provisions}
 			row, err := db.New(st.q).APIKeyInsert(ctx, db.APIKeyInsertParams{
 				GroupID: g.ID, KeyID: minted.LookupID, SecretHash: minted.SecretHash, Name: name,
-				Role: role.String(), CreatedBy: nullable(creator), ExpiresAt: expiresAt, CatalogIssuer: s.cfg.Token.Issuer,
+				Role: role.String(), CreatedBy: nullable(creator), ExpiresAt: expiresAt, CatalogIssuer: s.cfg.Token.Issuer, ProvisionsFor: provisions,
 			})
 			if errors.Is(err, pgx.ErrNoRows) {
 				continue // lookup id collision
@@ -125,7 +140,7 @@ func (s *Engine) ListAPIKeys(ctx context.Context, ref iam.GroupRef, p iam.PageRe
 	for i, r := range rows {
 		keys[i] = iam.APIKey{
 			ID: r.ID, LookupID: r.KeyID, GroupID: r.PermissionGroupID, Name: r.Name, Role: ident.RoleText(r.Role), CreatedBy: nullable(r.CreatedBy),
-			CreatedAt: r.CreatedAt, LastUsedAt: r.LastUsedAt, ExpiresAt: r.ExpiresAt, RevokedAt: r.RevokedAt,
+			CreatedAt: r.CreatedAt, LastUsedAt: r.LastUsedAt, ExpiresAt: r.ExpiresAt, RevokedAt: r.RevokedAt, ProvisionsFor: r.ProvisionsFor,
 		}
 	}
 	page := idPage(keys, p.PageLimit(), func(k iam.APIKey) string { return k.ID })

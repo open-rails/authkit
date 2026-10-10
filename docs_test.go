@@ -25,7 +25,7 @@ func TestDocsRBACBuiltins(t *testing.T) {
 	for _, m := range row.FindAllStringSubmatch(table, -1) {
 		listed = append(listed, strings.ReplaceAll(m[1], "<persona>", "channel"))
 	}
-	registered := append(rbacschema.Builtins(ident.Persona("channel"), true), ident.IntrinsicRootPermissions()...)
+	registered := append(rbacschema.Builtins(ident.Persona("channel"), true, true), ident.IntrinsicRootPermissions()...)
 	require.ElementsMatch(t, ident.Strings(registered), listed, "docs/rbac.md's built-in table must list exactly what AuthKit registers")
 }
 

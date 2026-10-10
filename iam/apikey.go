@@ -35,6 +35,9 @@ type APIKey struct {
 	LastUsedAt  *time.Time `json:"last_used_at"`
 	ExpiresAt   *time.Time `json:"expires_at"`
 	RevokedAt   *time.Time `json:"revoked_at"`
+	// ProvisionsFor is the remote application whose users the key
+	// provisions over SCIM (docs/scim.md); nil for none.
+	ProvisionsFor *string `json:"provisions_for"`
 }
 
 // APIKeyCreated is a new key and its token, shown this once.
@@ -44,11 +47,15 @@ type APIKeyCreated struct {
 }
 
 // NewAPIKey is the input of CreateAPIKey. ExpiresAt nil means no expiry,
-// capped by Config.APIKeys.MaxTTL when set.
+// capped by Config.APIKeys.MaxTTL when set. ProvisionsFor, the id of a
+// remote application of the key's group, binds the key to that
+// application's users: it may push them to the group's directory over SCIM
+// (docs/scim.md). The key dies with the application.
 type NewAPIKey struct {
-	Name      string
-	Role      Role
-	ExpiresAt *time.Time
+	Name          string
+	Role          Role
+	ExpiresAt     *time.Time
+	ProvisionsFor string
 }
 
 // ResolvedAPIKey is a resolved, live API key: the group it acts in and the

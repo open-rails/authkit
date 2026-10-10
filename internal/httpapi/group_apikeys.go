@@ -25,11 +25,11 @@ func (s *Service) groupAPIKeyMint(w http.ResponseWriter, r *http.Request, g iam.
 		writeError(w, err)
 		return
 	}
-	created, err := s.svc.CreateAPIKey(r.Context(), who, iam.GroupByID(g.ID), iam.NewAPIKey{
-		Name:      strings.TrimSpace(body.Name),
-		Role:      role,
-		ExpiresAt: body.ExpiresAt,
-	})
+	k := iam.NewAPIKey{Name: strings.TrimSpace(body.Name), Role: role, ExpiresAt: body.ExpiresAt}
+	if body.ProvisionsFor != nil {
+		k.ProvisionsFor = *body.ProvisionsFor
+	}
+	created, err := s.svc.CreateAPIKey(r.Context(), who, iam.GroupByID(g.ID), k)
 	if err != nil {
 		writeError(w, err)
 		return
