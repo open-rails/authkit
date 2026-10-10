@@ -479,7 +479,7 @@ func TestOAuthCodeFlowRefusals(t *testing.T) {
 			require.Equal(t, http.StatusSeeOther, status)
 			id := loc.Query().Get("authorization")
 			status, body := postJSON(t, as, as.URL+as.Client.APIBase()+"/oauth2/authorizations/"+id+"/approve", stale, nil)
-			require.Equal(t, http.StatusForbidden, status, string(body))
+			require.Equal(t, http.StatusUnauthorized, status, string(body))
 			require.Contains(t, string(body), "step_up_required")
 		}
 	})

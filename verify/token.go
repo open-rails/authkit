@@ -233,18 +233,31 @@ func (n dpopNonce) Error() string { return "DPoP nonce required" }
 // DPoP-Nonce to retry with. It sets nothing for an error unrelated to DPoP.
 // The gates call it; a host writing its own refusals calls it first.
 func DPoPChallenge(w http.ResponseWriter, r *http.Request, err error) {
+	for name, values := range dpopChallenge(r, err) {
+		w.Header()[name] = values
+	}
+}
+
+// dpopChallenge is DPoPChallenge's headers; nil for an error unrelated to
+// DPoP.
+func dpopChallenge(r *http.Request, err error) http.Header {
+	h := http.Header{}
 	var nonce dpopNonce
 	switch {
 	case errors.As(err, &nonce):
-		w.Header().Set("DPoP-Nonce", string(nonce))
-		w.Header().Set("WWW-Authenticate", `DPoP error="use_dpop_nonce", error_description="Resource server requires nonce in DPoP proof", algs="ES256"`)
+		h.Set("DPoP-Nonce", string(nonce))
+		h.Set("WWW-Authenticate", `DPoP error="use_dpop_nonce", error_description="Resource server requires nonce in DPoP proof", algs="ES256"`)
 	case errors.Is(err, errDPoPProofRequired) || (isDPoPRequest(r) && errors.Is(err, ErrSenderProofRequired)):
-		w.Header().Set("WWW-Authenticate", `DPoP error="invalid_dpop_proof", algs="ES256"`)
+		h.Set("WWW-Authenticate", `DPoP error="invalid_dpop_proof", algs="ES256"`)
 	case isDPoPRequest(r):
 		if e := errmodel.As(err); e == nil || e.Status() == http.StatusUnauthorized {
-			w.Header().Set("WWW-Authenticate", `DPoP error="invalid_token", algs="ES256"`)
+			h.Set("WWW-Authenticate", `DPoP error="invalid_token", algs="ES256"`)
 		}
 	}
+	if len(h) == 0 {
+		return nil
+	}
+	return h
 }
 
 func isDPoPRequest(r *http.Request) bool {

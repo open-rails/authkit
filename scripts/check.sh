@@ -86,7 +86,7 @@ required = ('TestSecurityAccessTokenForgery', 'TestSecurityBearerTransport', 'Te
             'TestSecurityDisabledApplicationTokens', 'TestSecurityAdminDeleteIsNotSelfDelete',
             'TestSecurityPasswordHashingIsBounded', 'TestSecurityAPIKeyResolvesOnlyAtItsApp',
             'TestSecuritySignInLimits', 'TestSecuritySignInLimitsEdges',
-            'TestSecurityMerchantAuth', 'TestSecurityPermissionGroupIsInferred', 'TestSecurityIdentitySubjectInvokerCredential', 'TestSecurityIdentityStateIsAuthKits',
+            'TestSecurityAuthenticatorConformance', 'TestClientIsNotAnAuthenticator', 'TestSecurityIdentitySubjectInvokerCredential', 'TestSecurityIdentityStateIsAuthKits',
             'TestRoleOwnerWorkflow', 'TestGroupLifecycleWorkflow',
             'TestAccountDeletionGenerationOrderingAndFinalization',
             'TestAccountDeletionDeliveryAcrossSeparateRiverFleets',

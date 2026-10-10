@@ -52,11 +52,13 @@ func TestSecurityPasswordStepUpNeedsSecondFactor(t *testing.T) {
 	sid, _ := claims["sid"].(string)
 	require.NotEmpty(t, sid)
 
-	// Every refusal says the account's second factor, not a password, clears it.
+	// Every refusal says the account's second factor, not a password, clears
+	// it, as RFC 9470's 401 challenge.
 	requireMFAStepUp := func(resp response, msg string, args ...any) {
 		t.Helper()
-		require.Equal(t, http.StatusForbidden, resp.status, append([]any{msg + ": %s"}, append(args, resp)...)...)
+		require.Equal(t, http.StatusUnauthorized, resp.status, append([]any{msg + ": %s"}, append(args, resp)...)...)
 		require.Equal(t, "step_up_required", resp.errorCode())
+		require.Equal(t, `Bearer error="insufficient_user_authentication", max_age="900"`, resp.header.Get("WWW-Authenticate"))
 		var meta struct {
 			Error struct {
 				Metadata authflow.StepUpRequired `json:"metadata"`
@@ -84,6 +86,9 @@ func TestSecurityPasswordStepUpNeedsSecondFactor(t *testing.T) {
 		r.Header.Set("Authorization", "Bearer "+token)
 		w := httptest.NewRecorder()
 		sensitive.ServeHTTP(w, r)
+		if w.Code != http.StatusNoContent {
+			requireMFAStepUp(response{status: w.Code, body: w.Body.Bytes(), header: w.Header()}, "a host Sensitive route")
+		}
 		return w.Code
 	}
 	someKey := uuid.NewString()
@@ -110,7 +115,7 @@ func TestSecurityPasswordStepUpNeedsSecondFactor(t *testing.T) {
 			req.token = token
 			requireMFAStepUp(h.do(req), "%s token %s %s", name, req.method, req.path)
 		}
-		require.Equal(t, http.StatusForbidden, hostRoute(token), "%s token on a host Sensitive route", name)
+		require.Equal(t, http.StatusUnauthorized, hostRoute(token), "%s token on a host Sensitive route", name)
 	}
 	u, err := h.auth.User(ctx, iam.UserByID(victim.id))
 	require.NoError(t, err)

@@ -13,7 +13,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/google/uuid"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/lang"
@@ -132,9 +131,6 @@ func Normalize(c Config, d Deps) (Config, error) {
 	if c.CleanupInterval < time.Second {
 		return Config{}, errors.New("authkit: CleanupInterval must be at least one second")
 	}
-	if err := normalizeMerchant(&c.Merchant); err != nil {
-		return Config{}, err
-	}
 	if err := normalizeProvisioning(&c.Provisioning, d); err != nil {
 		return Config{}, err
 	}
@@ -149,20 +145,6 @@ func Normalize(c Config, d Deps) (Config, error) {
 		c.HTTP = &h
 	}
 	return c, nil
-}
-
-// normalizeMerchant refuses a Group that is not a uuid.
-func normalizeMerchant(m *MerchantConfig) error {
-	m.Group = strings.TrimSpace(m.Group)
-	if m.Group == "" {
-		return nil
-	}
-	id, err := uuid.Parse(m.Group)
-	if err != nil {
-		return fmt.Errorf("authkit: Config.Merchant.Group %q is not a group id", m.Group)
-	}
-	m.Group = id.String()
-	return nil
 }
 
 // normalizeRemoteApplications trims the declared set and refuses a blank or

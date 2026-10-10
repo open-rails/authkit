@@ -27,7 +27,7 @@ var groupScopeCodes = map[error]errmodel.Code{iam.ErrGroupNotFound: errmodel.Cod
 //  4. authorizes the route's permission on the group with the engine's live
 //     Can, for every identity kind (403 on deny);
 //  5. for a change to the root group, requires a user who signed in
-//     recently (M7): step_up_required otherwise, 403 for any other identity;
+//     recently (M7): 401 step_up_required otherwise, 403 for any other identity;
 //  6. performs the operation, whose engine call applies its own rules.
 func (s *Service) GroupHandler(op GroupOp) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

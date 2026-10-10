@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createAuthClient } from "./client.ts"
-import { AuthKitError } from "./errors.ts"
+import { AuthKitError, readAuthKitError } from "./errors.ts"
+import { readStepUpRequired } from "./stepUp.ts"
 import {
   authError,
   authResult,
@@ -262,6 +263,31 @@ describe("requests", () => {
     expect(
       new Headers(fetch.mock.calls[2][1]?.headers).get("Authorization")
     ).toBe(`Bearer ${jwt("u1")}`)
+  })
+
+  it("authFetch does not refresh on a step-up", async () => {
+    const fetch = stubFetch({
+      "POST /host/refund": [
+        authError(
+          401,
+          "step_up_required",
+          { step_up_methods: ["password"], max_age_seconds: 900, factors: [] },
+          {
+            "WWW-Authenticate":
+              'Bearer error="insufficient_user_authentication", max_age="900"',
+          }
+        ),
+      ],
+    })
+    const client = createAuthClient({ fetch })
+    await signIn(client)
+    const res = await client.authFetch("/host/refund", { method: "POST" })
+    expect(res.status).toBe(401)
+    expect(readStepUpRequired(await readAuthKitError(res))).toMatchObject({
+      methods: ["password"],
+      maxAgeSeconds: 900,
+    })
+    expect(fetch).toHaveBeenCalledTimes(1)
   })
 
   it("reads public profiles without a bearer", async () => {

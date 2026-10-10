@@ -266,7 +266,7 @@ func TestSignInKeysView(t *testing.T) {
 
 	// Management needs a recent sign-in.
 	stale := authtest.StaleSession(t, auth, browser)
-	denied := f.expect(http.StatusForbidden, f.request(http.MethodDelete, "/me/sign-in-keys/"+device.ID, stale, nil))
+	denied := f.expect(http.StatusUnauthorized, f.request(http.MethodDelete, "/me/sign-in-keys/"+device.ID, stale, nil))
 	require.Equal(t, "step_up_required", denied.Error.Code)
 
 	f.expect(http.StatusNoContent, f.request(http.MethodDelete, "/me/sign-in-keys/"+device.ID, browser, nil))
@@ -317,7 +317,7 @@ func TestMePhoneRemoval(t *testing.T) {
 
 	proven := newAccount(uniqueEmail("phone-proven"), true)
 	token := authtest.SignIn(t, auth, proven).AccessToken
-	denied := expect(t, http.StatusForbidden, remove(authtest.StaleSession(t, auth, token)))
+	denied := expect(t, http.StatusUnauthorized, remove(authtest.StaleSession(t, auth, token)))
 	require.Equal(t, "step_up_required", denied.code())
 	expect(t, http.StatusNoContent, remove(token))
 	require.Nil(t, phoneOf(proven.ID))
@@ -353,7 +353,7 @@ func TestMeContactChange(t *testing.T) {
 		return a.do(request{method: http.MethodPut, path: path, token: token, body: body})
 	}
 	next := uniqueEmail("changed")
-	denied := expect(t, http.StatusForbidden, put("/me/email", authtest.StaleSession(t, auth, token), map[string]any{"email": next}))
+	denied := expect(t, http.StatusUnauthorized, put("/me/email", authtest.StaleSession(t, auth, token), map[string]any{"email": next}))
 	require.Equal(t, "step_up_required", denied.code())
 	require.Empty(t, outbox.Messages(iam.MessageVerification, next), "a stale session sends nothing")
 
@@ -420,7 +420,7 @@ func TestMePasswordChange(t *testing.T) {
 	u.Password = "Second-horse-battery-2"
 
 	stale = authtest.StaleSession(t, auth, authtest.SignIn(t, auth, u).AccessToken)
-	required := expect(t, http.StatusForbidden, put(stale, map[string]any{"new_password": "Third-horse-battery-3"}))
+	required := expect(t, http.StatusUnauthorized, put(stale, map[string]any{"new_password": "Third-horse-battery-3"}))
 	require.Equal(t, "step_up_required", required.code())
 	fresh := expectAnswer(t, stepUp(stale, u.Password), http.StatusOK).tokens().AccessToken
 	expect(t, http.StatusNoContent, put(fresh, map[string]any{"new_password": "Third-horse-battery-3"}))
@@ -430,9 +430,9 @@ func TestMePasswordChange(t *testing.T) {
 	holder := authtest.NewUser(t, auth)
 	holder.TOTP = authtest.EnrollTOTP(t, auth, holder)
 	staleMFA := authtest.StaleSession(t, auth, authtest.SignIn(t, auth, holder).AccessToken)
-	refused = expect(t, http.StatusForbidden, stepUp(staleMFA, holder.Password))
+	refused = expect(t, http.StatusUnauthorized, stepUp(staleMFA, holder.Password))
 	require.Equal(t, "step_up_required", refused.code(), "a password never re-proves an account with a second factor")
-	refused = expect(t, http.StatusForbidden, put(staleMFA, map[string]any{"new_password": "Fourth-horse-battery-4"}))
+	refused = expect(t, http.StatusUnauthorized, put(staleMFA, map[string]any{"new_password": "Fourth-horse-battery-4"}))
 	require.Equal(t, "step_up_required", refused.code())
 }
 

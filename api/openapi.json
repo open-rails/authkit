@@ -10554,7 +10554,7 @@
       "message": "SMS is currently unavailable. Please use email instead."
     },
     "step_up_required": {
-      "status": 403,
+      "status": 401,
       "message": "Please confirm it's you to continue.",
       "metadata": {
         "$ref": "#/components/schemas/StepUpRequired"

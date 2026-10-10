@@ -124,15 +124,3 @@ func TestNormalizeAuthorizationServerClients(t *testing.T) {
 	_, err = Normalize(withKeys, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}, OAuthGrants: grants})
 	require.ErrorContains(t, err, "invalid authorization_details type")
 }
-
-func TestNormalizeMerchant(t *testing.T) {
-	base := Config{Token: TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"app"}}}
-	c := base
-	c.Merchant.Group = " 0190A7A8-35A1-7C3E-9A1F-1D2B3C4D5E6F "
-	out, err := Normalize(c, Deps{})
-	require.NoError(t, err)
-	require.Equal(t, "0190a7a8-35a1-7c3e-9a1f-1d2b3c4d5e6f", out.Merchant.Group)
-	c.Merchant = MerchantConfig{Group: "merchant-1"}
-	_, err = Normalize(c, Deps{})
-	require.ErrorContains(t, err, "not a group id")
-}

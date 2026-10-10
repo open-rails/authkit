@@ -133,7 +133,7 @@ var (
 	CodeSessionRevoked                  = def("session_revoked", 401, "Your session has ended. Please sign in again.")
 	CodeSMSDeliveryFailed               = def("sms_delivery_failed", 502, "We couldn't deliver the text message. Please try again, or contact support.")
 	CodeSMSUnavailable                  = def("sms_unavailable", 503, "SMS is currently unavailable. Please use email instead.")
-	CodeStepUpRequired                  = def("step_up_required", 403, "Please confirm it's you to continue.")
+	CodeStepUpRequired                  = def("step_up_required", 401, "Please confirm it's you to continue.")
 	CodeSubjectMFARequired              = def("subject_mfa_required", 409, "The account must enroll two-factor authentication before it can hold this role.")
 	CodeTokenExpired                    = def("token_expired", 401, "Your session has expired. Please sign in again.")
 	CodeTokenNotYetValid                = def("token_not_yet_valid", 401, "The token is not yet valid.")

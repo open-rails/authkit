@@ -259,7 +259,7 @@ func TestSecurityInlinePasswordNeedsSecondFactor(t *testing.T) {
 	} {
 		req.token = token
 		resp := h.do(req)
-		require.Equal(t, http.StatusForbidden, resp.status, "%s %s: %s", req.method, req.path, resp)
+		require.Equal(t, http.StatusUnauthorized, resp.status, "%s %s: %s", req.method, req.path, resp)
 		require.Equal(t, "step_up_required", resp.errorCode())
 	}
 	u, err := h.auth.User(ctx, iam.UserByID(a.id))
@@ -564,7 +564,7 @@ func TestSecurityAdminDeleteIsNotSelfDelete(t *testing.T) {
 	require.Equal(t, "step_up_required", resp.errorCode(), resp.String())
 	for _, id := range []string{victim.id, strings.ToUpper(victim.id)} {
 		resp := h.do(request{method: http.MethodDelete, path: "/admin/users/" + id, token: stale})
-		require.Equal(t, http.StatusForbidden, resp.status, resp.String())
+		require.Equal(t, http.StatusUnauthorized, resp.status, resp.String())
 		require.Equal(t, "step_up_required", resp.errorCode())
 		resp = h.do(request{method: http.MethodDelete, path: "/admin/users/" + id, token: fresh})
 		require.Equal(t, http.StatusForbidden, resp.status, resp.String())

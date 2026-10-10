@@ -383,11 +383,11 @@ func TestProviderLinkRequiresFreshAuthAndExplicitUnlink(t *testing.T) {
 		u := authtest.NewUser(t, auth)
 		stale := authtest.StaleSession(t, auth, authtest.SignIn(t, auth, u).AccessToken)
 		denied := a.post("/oidc/idp/link/start", stale, map[string]any{})
-		require.Equal(t, http.StatusForbidden, denied.status, denied.String())
+		require.Equal(t, http.StatusUnauthorized, denied.status, denied.String())
 		require.Equal(t, "step_up_required", denied.code())
 		require.Empty(t, denied.cookies)
 		denied = a.do(request{method: http.MethodPut, path: "/me/solana-wallet", token: stale, body: map[string]any{}})
-		require.Equal(t, http.StatusForbidden, denied.status, denied.String())
+		require.Equal(t, http.StatusUnauthorized, denied.status, denied.String())
 		require.Equal(t, "step_up_required", denied.code())
 		fresh := expectAnswer(t, a.post("/me/step-up/password", stale, map[string]string{"password": u.Password}), http.StatusOK).tokens().AccessToken
 		require.NotEmpty(t, fresh)

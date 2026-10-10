@@ -67,7 +67,10 @@ test("TOTP 2FA, step-up, delete and recover", async ({ page, request }) => {
     { password },
     access2
   )
-  expect(stepUp.status).toBe(403)
+  expect(stepUp.status).toBe(401)
+  expect(stepUp.challenge).toBe(
+    'Bearer error="insufficient_user_authentication", max_age="900"'
+  )
   const stepUpError = (stepUp.body as ErrorBody).error
   expect(stepUpError.code).toBe("step_up_required")
   expect(stepUpError.metadata).toMatchObject({

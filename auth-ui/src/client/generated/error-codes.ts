@@ -288,7 +288,7 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   session_revoked: 401,
   sms_delivery_failed: 502,
   sms_unavailable: 503,
-  step_up_required: 403,
+  step_up_required: 401,
   subject_mfa_required: 409,
   token_expired: 401,
   token_not_yet_valid: 401,

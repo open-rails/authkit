@@ -40,7 +40,7 @@ if (result.status === "second_factor_required") {
   await auth.verifyTwoFactor({ userId: user_id, challenge, code })
 }
 
-const res = await auth.authFetch("/api/v1/things") // Bearer + one refresh retry
+const res = await auth.authFetch("/api/v1/things") // Bearer + one refresh retry, never on a step-up
 ```
 
 - The access token lives in memory only. Refresh is `POST /token` with the
@@ -69,7 +69,7 @@ const res = await auth.authFetch("/api/v1/things") // Bearer + one refresh retry
 - A wrong email/SMS 2FA code is `invalid_code` and can be retried. Once no
   code is live (the 5th miss, expiry, already used) AuthKit answers
   `code_expired`; resend to get a fresh code.
-- `readStepUpRequired(err)` turns a `403 step_up_required` into the methods to
+- `readStepUpRequired(err)` turns a `401 step_up_required` into the methods to
   offer; retry the action after `stepUpWithPassword`, `sendStepUpCode` +
   `stepUpWithTwoFactor`, `sendContactStepUpCode` + `stepUpWithContactCode`
   (email, sms), `stepUpWithPasskey`, a wallet's
@@ -249,7 +249,7 @@ function SignIn() {
 }
 
 function Security() {
-  // A 403 step_up_required opens stepUp.state; after withPassword or
+  // A 401 step_up_required opens stepUp.state; after withPassword or
   // withTwoFactor the original action is retried.
   const stepUp = useStepUp()
   const twoFactor = useTwoFactorSettings({ guard: stepUp.guard })

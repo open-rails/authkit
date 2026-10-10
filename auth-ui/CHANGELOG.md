@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- AuthKit answers `step_up_required` with 401 and RFC 9470's challenge
+  (`error="insufficient_user_authentication"` with `max_age`), as OpenRails
+  does. `readStepUpRequired` and `useStepUp` read the code, so they are
+  unchanged; `authFetch` and the issuer client's `authFetch` no longer
+  refresh the token on a step-up 401.
+
 - The wire types gain `authorization_details` on token responses (a
   jwt-bearer grant's).
 

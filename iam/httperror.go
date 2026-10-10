@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/helpers/auth"
 )
 
 // ErrorObject is the error detail under the envelope's "error" key: a stable
@@ -29,9 +30,15 @@ type ErrorEnvelope struct {
 
 // WriteError writes err as the error envelope with the catalog's status for
 // its code. Anything that is not an AuthKit error, and every server failure,
-// is written as 500 internal_error.
+// is written as 500 internal_error. A 401 step_up_required also carries RFC
+// 9470's challenge, `Bearer error="insufficient_user_authentication",
+// max_age="900"`, unless the response already has a WWW-Authenticate.
 func WriteError(w http.ResponseWriter, err error) {
 	status, body := ErrorResponse(err)
+	if maxAge, _, ok := errmodel.StepUp(err); ok && w.Header().Get("WWW-Authenticate") == "" {
+		challenge := &auth.Challenge{Err: auth.ErrStepUpRequired, MaxAge: maxAge}
+		w.Header().Set("WWW-Authenticate", auth.Refuse(nil, challenge).Header.Get("WWW-Authenticate"))
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)

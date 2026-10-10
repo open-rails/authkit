@@ -108,9 +108,11 @@ func RequireSession(a Authority) func(http.Handler) http.Handler {
 
 // Sensitive is RequireSession plus a recent sign-in of the user's own token:
 // within the last 15 minutes, with the second factor when the account has
-// one. A stale sign-in answers 403 step_up_required with the account's
-// step-up methods, which auth-ui handles; any other credential is 403
-// forbidden. Stack it after RequirePermission when a route needs both.
+// one. A stale sign-in answers 401 step_up_required with the account's
+// step-up methods and RFC 9470's challenge (`WWW-Authenticate: Bearer
+// error="insufficient_user_authentication", max_age="900"`), which auth-ui
+// handles; any other credential is 403 forbidden. Stack it after
+// RequirePermission when a route needs both.
 func Sensitive(a Authority) func(http.Handler) http.Handler {
 	mustAuthenticator(a)
 	return liveGate(a, a.CheckRecentSignIn)
@@ -122,6 +124,9 @@ func liveGate(a Authority, check func(context.Context, Claims) error) func(http.
 		return required(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cl, _ := ClaimsFromContext(r.Context())
 			if err := check(r.Context(), cl); err != nil {
+				if c := stepUpChallenge(err); c != nil {
+					w.Header().Set("WWW-Authenticate", auth.Refuse(r, c).Header.Get("WWW-Authenticate"))
+				}
 				iam.WriteError(w, err)
 				return
 			}

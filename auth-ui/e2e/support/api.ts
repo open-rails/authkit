@@ -2,7 +2,12 @@ import { createHmac } from "node:crypto"
 
 import { expect, type APIRequestContext, type Page } from "@playwright/test"
 
-export type Reply = { status: number; body: Record<string, unknown> | null }
+export type Reply = {
+  status: number
+  body: Record<string, unknown> | null
+  // The WWW-Authenticate challenge, if any.
+  challenge: string | null
+}
 
 // Browser-side same-origin fetch, as the client library will issue it.
 export function api(
@@ -24,7 +29,11 @@ export function api(
         body: body === undefined ? undefined : JSON.stringify(body),
       })
       const text = await res.text()
-      return { status: res.status, body: text ? JSON.parse(text) : null }
+      return {
+        status: res.status,
+        body: text ? JSON.parse(text) : null,
+        challenge: res.headers.get("WWW-Authenticate"),
+      }
     },
     { method, path, body, token }
   )

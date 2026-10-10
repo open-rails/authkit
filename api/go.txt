@@ -19,6 +19,7 @@ pkg authkit, func WithRiverClient(*river.Client[pgx.Tx]) StartOption
 pkg authkit, method (*Client) APIBase() string
 pkg authkit, method (*Client) ApplyBootstrapManifest(context.Context, iam.BootstrapManifest, iam.BootstrapOptions, ...Option) (iam.BootstrapResult, error)
 pkg authkit, method (*Client) AuthenticateRequest(context.Context, *http.Request) (auth.Verified, error)
+pkg authkit, method (*Client) Authenticator() auth.Authenticator
 pkg authkit, method (*Client) Ban(context.Context, auth.Identity, string, iam.Ban, ...Option) error
 pkg authkit, method (*Client) Can(context.Context, auth.Identity, iam.GroupRef, iam.Perm) (bool, error)
 pkg authkit, method (*Client) CheckRecentSignIn(context.Context, verify.Claims) error
@@ -41,7 +42,6 @@ pkg authkit, method (*Client) Group(context.Context, iam.GroupRef) (iam.Group, e
 pkg authkit, method (*Client) GroupRoles(context.Context, iam.GroupRef, []iam.Subject) (map[iam.Subject]iam.Role, error)
 pkg authkit, method (*Client) Groups(context.Context, []string) (map[string]iam.Group, error)
 pkg authkit, method (*Client) Handler() http.Handler
-pkg authkit, method (*Client) Identity(context.Context) (auth.Identity, bool)
 pkg authkit, method (*Client) ImportSolanaLinks(context.Context, []iam.ImportSolanaLink, ...Option) (iam.ImportSolanaLinksResult, error)
 pkg authkit, method (*Client) ImportUsers(context.Context, []iam.ImportUser, iam.ImportOptions, ...Option) (iam.ImportResult, error)
 pkg authkit, method (*Client) KnownPermission(iam.Perm) bool
@@ -66,8 +66,6 @@ pkg authkit, method (*Client) PurgeGroup(context.Context, iam.GroupRef, ...Optio
 pkg authkit, method (*Client) PurgeUsers(context.Context, []string, ...Option) ([]iam.OpResult, error)
 pkg authkit, method (*Client) RemoteApplication(context.Context, iam.AppRef) (iam.RemoteApplication, error)
 pkg authkit, method (*Client) RemoveGroupMember(context.Context, auth.Identity, iam.GroupRef, iam.Subject, ...Option) error
-pkg authkit, method (*Client) RequirePermission(string) func(http.Handler) http.Handler
-pkg authkit, method (*Client) Required() func(http.Handler) http.Handler
 pkg authkit, method (*Client) ResetAccountMFA(context.Context, string, ...Option) error
 pkg authkit, method (*Client) ResolveAPIKey(context.Context, string) (iam.ResolvedAPIKey, error)
 pkg authkit, method (*Client) ResolveUsername(context.Context, string) (iam.NameResolution, error)
@@ -82,7 +80,7 @@ pkg authkit, method (*Client) RolePermissions(iam.Role) ([]iam.Perm, error)
 pkg authkit, method (*Client) Routes() []iam.Route
 pkg authkit, method (*Client) SMSAvailable() bool
 pkg authkit, method (*Client) SMSHealth() (time.Time, error)
-pkg authkit, method (*Client) Sensitive() func(http.Handler) http.Handler
+pkg authkit, method (*Client) Scope(context.Context, iam.GroupRef) (auth.Scope, error)
 pkg authkit, method (*Client) Sessions(context.Context, string) ([]iam.Session, error)
 pkg authkit, method (*Client) SetGroupRole(context.Context, auth.Identity, iam.GroupRef, iam.Subject, iam.Role, ...Option) (iam.GroupMember, error)
 pkg authkit, method (*Client) Start(context.Context, ...StartOption) error
@@ -105,6 +103,7 @@ pkg authkit, method (*PersonaDef) Resource(string) config.Resource
 pkg authkit, method (*PersonaDef) Role(string, ...iam.Grant) iam.Role
 pkg authkit, method (*Roles) Persona(string, ...config.PersonaOption) *config.PersonaDef
 pkg authkit, method (*Verifier) AuthenticateRequest(context.Context, *http.Request) (auth.Verified, error)
+pkg authkit, method (*Verifier) Authenticator() auth.Authenticator
 pkg authkit, method (*Verifier) Can(context.Context, auth.Identity, iam.GroupRef, iam.Perm) (bool, error)
 pkg authkit, method (*Verifier) CheckRecentSignIn(context.Context, verify.Claims) error
 pkg authkit, method (*Verifier) CheckSession(context.Context, verify.Claims) error
@@ -146,7 +145,6 @@ pkg authkit, type Config struct, HTTP *config.HTTPConfig
 pkg authkit, type Config struct, Invitations config.InvitationsConfig
 pkg authkit, type Config struct, Keys config.KeysConfig
 pkg authkit, type Config struct, Languages config.LanguageConfig
-pkg authkit, type Config struct, Merchant config.MerchantConfig
 pkg authkit, type Config struct, Passkeys config.PasskeyConfig
 pkg authkit, type Config struct, Password config.PasswordPolicy
 pkg authkit, type Config struct, Provisioning config.ProvisioningConfig
@@ -237,9 +235,6 @@ pkg authkit, type MemberPerms struct
 pkg authkit, type MemberPerms struct, Manage iam.Perm
 pkg authkit, type MemberPerms struct, Read iam.Perm
 pkg authkit, type MemberPerms struct, embedded config.Resource
-pkg authkit, type MerchantConfig = config.MerchantConfig
-pkg authkit, type MerchantConfig struct
-pkg authkit, type MerchantConfig struct, Group string
 pkg authkit, type OAuthClientConfig = config.OAuthClientConfig
 pkg authkit, type OAuthClientConfig struct
 pkg authkit, type OAuthClientConfig struct, AuthorizationDetailsTypes []string

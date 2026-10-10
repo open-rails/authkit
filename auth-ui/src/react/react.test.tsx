@@ -347,7 +347,7 @@ describe("useRegister", () => {
 
 describe("useStepUp", () => {
   const stepUpRequired = () =>
-    authError(403, "step_up_required", {
+    authError(401, "step_up_required", {
       step_up_methods: ["password", "github"],
       max_age_seconds: 900,
       factors: [],
@@ -410,7 +410,7 @@ describe("useStepUp", () => {
     const fetch = stubFetch({
       "POST /api/v1/password/login": () => session({ sub: "u1", sid: "s1" }),
       "PUT /api/v1/me/password": [
-        authError(403, "step_up_required", {
+        authError(401, "step_up_required", {
           step_up_methods: ["2fa"],
           max_age_seconds: 900,
           factors: [

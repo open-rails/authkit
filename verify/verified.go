@@ -67,7 +67,7 @@ func authenticate(ctx context.Context, a Authenticator, r *http.Request) (Claims
 	}
 	cl, err := a.VerifyRequest(r.WithContext(ctx))
 	if err != nil {
-		return Claims{}, classify(err)
+		return Claims{}, classify(r, err)
 	}
 	return cl, nil
 }
@@ -131,10 +131,21 @@ func authorityOf(cl Claims) string {
 	return cl.Issuer
 }
 
-// classify maps a verification error onto the helpers/auth taxonomy.
-func classify(err error) error {
+// classify maps r's verification error onto the helpers/auth taxonomy. A
+// DPoP refusal is a *auth.Challenge carrying the headers DPoPChallenge
+// writes (WWW-Authenticate, DPoP-Nonce).
+func classify(r *http.Request, err error) error {
+	out := classifyErr(err)
+	if h := dpopChallenge(r, err); h != nil {
+		return &auth.Challenge{Err: out, Header: h}
+	}
+	return out
+}
+
+func classifyErr(err error) error {
+	var nonce dpopNonce
 	switch {
-	case errors.Is(err, ErrSenderProofRequired):
+	case errors.Is(err, ErrSenderProofRequired), errors.As(err, &nonce):
 		return errors.Join(auth.ErrUnauthenticated, auth.ErrSenderProofRequired, err)
 	case errors.Is(err, iam.ErrAPIKeyExpired), errors.Is(err, iam.ErrTokenExpired):
 		return errors.Join(auth.ErrUnauthenticated, auth.ErrExpired, err)
@@ -163,18 +174,18 @@ var _ auth.RecentSignInChecker = sessionVerified{}
 
 // CheckRecentSignIn is Sensitive's check, live and without verifying the
 // request again: the user's own token, signed in within the last 15 minutes,
-// with the second factor when the account has one. A stale sign-in is
-// auth.ErrStepUpRequired joined with step_up_required, whose Metadata lists
-// the account's step-up methods. A credential with no sign-in of its own (an
-// API key) is auth.ErrForbidden, and a revoked session
-// auth.ErrRevoked.
+// with the second factor when the account has one. A stale sign-in is a
+// *auth.Challenge: auth.ErrStepUpRequired joined with step_up_required, the
+// window as MaxAge, and the account's step-up methods as Metadata. A
+// credential with no sign-in of its own (an API key) is auth.ErrForbidden,
+// and a revoked session auth.ErrRevoked.
 func (p sessionVerified) CheckRecentSignIn(ctx context.Context) error {
 	err := p.sessions.CheckRecentSignIn(ctx, p.claims)
 	switch code := errmodel.CodeOf(err); {
 	case err == nil:
 		return nil
 	case code == errmodel.CodeStepUpRequired:
-		return errors.Join(auth.ErrStepUpRequired, err)
+		return stepUpChallenge(err)
 	case errors.Is(err, iam.ErrSessionRevoked):
 		return errors.Join(auth.ErrUnauthenticated, auth.ErrRevoked, err)
 	case code == errmodel.CodeForbidden:
@@ -182,4 +193,15 @@ func (p sessionVerified) CheckRecentSignIn(ctx context.Context) error {
 	default:
 		return errors.Join(auth.ErrUnavailable, err)
 	}
+}
+
+// stepUpChallenge is err, when it is step_up_required, as a helpers/auth
+// step-up challenge: auth.ErrStepUpRequired with the error's max age and its
+// metadata (the account's step-up methods). Nil for any other error.
+func stepUpChallenge(err error) *auth.Challenge {
+	maxAge, metadata, ok := errmodel.StepUp(err)
+	if !ok {
+		return nil
+	}
+	return &auth.Challenge{Err: errors.Join(auth.ErrStepUpRequired, err), MaxAge: maxAge, Metadata: metadata}
 }

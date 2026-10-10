@@ -30,8 +30,8 @@ Every operation that depends on who acts (`Client.Can`, `SetGroupRole`, `Ban`, â
 
 ## Reading it
 
-Behind a gate over the Client (`verify.Required`, `RequireSession`, `RequirePermission`, `Sensitive` and their adapters), `Client.Identity(ctx)` is the request's identity. It reads only what a gate over this Client verified: claims a host stored with `verify.SetClaims`, or a gate over another authenticator, prove nothing. `verify.VerifiedIdentity(ctx, authenticator)` is the same read for any authenticator, and `verify.IdentityFromContext` the identity of whatever claims the context holds.
+Behind a gate (`verify.Required`, `RequireSession`, `RequirePermission`, `Sensitive` and their adapters), `verify.VerifiedIdentity(ctx, client)` is the request's identity. It reads only what a gate over that authenticator verified: claims a host stored with `verify.SetClaims`, or a gate over another authenticator, prove nothing. `verify.IdentityFromContext` is the identity of whatever claims the context holds.
 
-Access tokens carry no contact details. `Client.Identity` reads a local user's email and username from the account when the user is the subject and acts for itself.
+A library that guards its own routes takes `client.Authenticator()` instead ([RBAC](rbac.md#a-library-that-guards-its-own-routes)): its `Authenticate(r)` returns the request's `Verified`, whose `Identity()` this is. Access tokens carry no contact details, so it reads a local user's email and username from the account when the user is the subject and acts for itself.
 
 Events (`Deps.OnEvent`) record who made a change the same way: `subject_kind` and `subject_id`, `invoker_issuer` and `invoker_id`, `credential_kind` and `credential_id`.

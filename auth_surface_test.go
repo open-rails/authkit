@@ -85,8 +85,9 @@ func TestClientPublicSurface(t *testing.T) {
 		// HTTP surface and request verification.
 		"Handler", "APIBase", "Routes", "Mount",
 		"VerifyRequest", "Verify", "AuthenticateRequest", "NewVerifier",
-		// helpers/auth Auth: a merchant library's route gates.
-		"Required", "RequirePermission", "Sensitive", "Identity",
+		// helpers/auth Authenticator: who a library's request is, and the
+		// scope its Can checks.
+		"Authenticator", "Scope",
 		// helpers/userinfo Lookup: a library's directory reads.
 		"UserInfo",
 	}
@@ -147,4 +148,16 @@ func TestClientPublicSurface(t *testing.T) {
 	}
 	require.ElementsMatch(t, append(append(append([]string{}, takesIdentity...), hostOperations...), reads...), opNames,
 		"every method but the embedding-only ones is an ops.Operations operation")
+}
+
+// TestClientIsNotAnAuthenticator: a library takes Client.Authenticator(), a
+// narrow value, never the whole Client.
+func TestClientIsNotAnAuthenticator(t *testing.T) {
+	var client any = (*authkit.Client)(nil)
+	_, ok := client.(auth.Authenticator)
+	require.False(t, ok, "*authkit.Client is an auth.Authenticator")
+	_, ok = client.(auth.PermissionCatalog)
+	require.False(t, ok, "*authkit.Client is an auth.PermissionCatalog")
+	_, ok = client.(auth.Verified)
+	require.False(t, ok, "*authkit.Client is an auth.Verified")
 }

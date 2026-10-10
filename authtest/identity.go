@@ -19,7 +19,7 @@ func Identity(t testing.TB, auth *authkit.Client, credential string) hauth.Ident
 	var id hauth.Identity
 	var ok bool
 	gate := verify.Required(auth)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		id, ok = auth.Identity(r.Context())
+		id, ok = verify.VerifiedIdentity(r.Context(), auth)
 	}))
 	r := httptest.NewRequest(http.MethodGet, "https://authtest/identity", nil)
 	r.Header.Set("Authorization", "Bearer "+credential)

@@ -35,9 +35,9 @@ An access token is a signed JWT, so it outlives its session unless something che
   - `Client.Can`, and every operation that takes an identity;
   - every AuthKit route that changes state, except sign-out.
 
-  A revoked session's token fails there at once, with 401 `session_revoked`.
+  A revoked session's token fails there at once, with 401 `session_revoked`. A stale sign-in at `Sensitive` (or an AuthKit route that needs a recent one) is 401 `step_up_required` with RFC 9470's challenge, `WWW-Authenticate: Bearer error="insufficient_user_authentication", max_age="900"`.
 - `verify.Required` is stateless. It accepts a token until it expires, which can be up to 15 minutes after sign-out. Use it only where that is acceptable.
-- Code behind a gate that wants a helpers/auth `Verified` request calls `verify.AuthenticateRequest`, which reuses the gate's verification, since a DPoP proof is single-use. `verify.AuthenticateSession` adds the session check; unlike `RequireSession`, it passes a credential with no sign-in, such as an API key. Over an `*authkit.Client` it also implements helpers/auth `RecentSignInChecker`: `CheckRecentSignIn` is `Sensitive`'s check, for code that moves money or grants access, and a stale sign-in is `auth.ErrStepUpRequired` carrying the `step_up_required` metadata.
+- Code behind a gate that wants a helpers/auth `Verified` request calls `verify.AuthenticateRequest`, which reuses the gate's verification, since a DPoP proof is single-use. `verify.AuthenticateSession` adds the session check; unlike `RequireSession`, it passes a credential with no sign-in, such as an API key. Over an `*authkit.Client` it also implements helpers/auth `RecentSignInChecker`: `CheckRecentSignIn` is `Sensitive`'s check, for code that moves money or grants access, and a stale sign-in is a `*auth.Challenge`: `auth.ErrStepUpRequired`, its `MaxAge` and the `step_up_required` metadata. `Client.Authenticator()` is the same, for a library that guards its own routes.
 - Roles are read live at every permission check. The `root_role` and `entitlements` claims are snapshots taken at mint: fine for display or content tiers, never for authorization.
 
 ## Verifying AuthKit tokens in another service

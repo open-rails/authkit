@@ -14,10 +14,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// stepUpOffer is a 403 step_up_required's step_up_methods.
+// stepUpOffer is a 401 step_up_required's step_up_methods.
 func stepUpOffer(t *testing.T, r response) []string {
 	t.Helper()
-	require.Equal(t, http.StatusForbidden, r.status, r.String())
+	require.Equal(t, http.StatusUnauthorized, r.status, r.String())
 	require.Equal(t, "step_up_required", r.errorCode(), r.String())
 	var body struct {
 		Error struct {
@@ -100,7 +100,7 @@ func TestSecurityStepUpByCode(t *testing.T) {
 	require.Contains(t, claims["amr"], "email")
 	require.Equal(t, iam.AssuranceLevelPassword, claims["acr"], "a code is one factor")
 	require.Equal(t, http.StatusNoContent, h.sensitive(fresh).status, "the step-up opens a host's Sensitive route")
-	require.Equal(t, http.StatusForbidden, h.sensitive(stale).status)
+	require.Equal(t, http.StatusUnauthorized, h.sensitive(stale).status)
 	requireCode(stepUp(stale, code), "code_expired")
 
 	t.Run("an expired code", func(t *testing.T) {

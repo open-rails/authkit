@@ -535,7 +535,7 @@ func TestFactorManagementWorkflow(t *testing.T) {
 		{http.MethodDelete, "/me/2fa/factors/" + uuid.NewString(), nil},
 		{http.MethodDelete, "/me/2fa", nil},
 	} {
-		denied := f.expect(http.StatusForbidden, f.request(call.method, call.path, stale, call.body))
+		denied := f.expect(http.StatusUnauthorized, f.request(call.method, call.path, stale, call.body))
 		require.Equal(t, "step_up_required", denied.Error.Code, call.path)
 	}
 	steppedUp := f.expect(http.StatusOK, f.request(http.MethodPost, "/me/step-up/password", stale, map[string]any{"password": u.Password}))
@@ -594,9 +594,10 @@ func TestFactorManagementWorkflow(t *testing.T) {
 	// Age the enrolling session so the step-up gates below apply again.
 	current := authtest.StaleSession(t, auth, enabled.tokens().AccessToken)
 	require.Equal(t, true, accessClaims(f.t, current)["mfa_enrolled"])
-	denied := f.expect(http.StatusForbidden, f.request(http.MethodPost, "/me/2fa/backup-codes", current, nil))
+	denied := f.expect(http.StatusUnauthorized, f.request(http.MethodPost, "/me/2fa/backup-codes", current, nil))
 	require.Equal(t, "step_up_required", denied.Error.Code)
-	f.expect(http.StatusForbidden, f.request(http.MethodPost, "/me/2fa/setup", stepped.AccessToken, map[string]any{"method": "totp"}))
+	denied = f.expect(http.StatusUnauthorized, f.request(http.MethodPost, "/me/2fa/setup", stepped.AccessToken, map[string]any{"method": "totp"}))
+	require.Equal(t, "step_up_required", denied.Error.Code)
 
 	security := f.security(current)
 	status := security.TwoFactor
@@ -624,7 +625,7 @@ func TestFactorManagementWorkflow(t *testing.T) {
 	require.NotEmpty(t, claims["auth_time"])
 	require.ElementsMatch(t, []any{"pwd", "totp", "otp", "mfa"}, claims["amr"])
 	require.Equal(t, iam.AssuranceLevelMFA, claims["acr"])
-	passwordAgain := f.expect(http.StatusForbidden, f.request(http.MethodPost, "/me/step-up/password", mfa.AccessToken, map[string]any{"password": u.Password}))
+	passwordAgain := f.expect(http.StatusUnauthorized, f.request(http.MethodPost, "/me/step-up/password", mfa.AccessToken, map[string]any{"password": u.Password}))
 	require.Equal(t, "step_up_required", passwordAgain.Error.Code, "a password never re-proves an account with a second factor")
 
 	// A fresh factor proof permits management but cannot replace the factor:
@@ -670,7 +671,7 @@ func TestFactorManagementWorkflow(t *testing.T) {
 
 	// Only age the real MFA session; never inject proof or reset TOTP replay state.
 	staleMFA := authtest.StaleSession(t, auth, tokens.AccessToken)
-	denied = f.expect(http.StatusForbidden, f.request(http.MethodPost, "/me/2fa/backup-codes", staleMFA, nil))
+	denied = f.expect(http.StatusUnauthorized, f.request(http.MethodPost, "/me/2fa/backup-codes", staleMFA, nil))
 	var staleResponse struct {
 		Error struct {
 			Metadata authflow.StepUpRequired `json:"metadata"`

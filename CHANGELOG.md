@@ -1,5 +1,29 @@
 # Changelog
 
+## v1.15.0
+
+The owner approved shipping this breaking change in a minor release. A library that guards its own routes takes a narrow `auth.Authenticator` that only says who a request is, and builds its own gates (helpers v1.6.0 replaces the `auth.Auth` middleware contract).
+
+### Breaking
+
+| Removed | Use instead |
+|---|---|
+| `*Client` as helpers/auth `Auth`: `Client.Required()`, `RequirePermission(p)`, `Sensitive()`, `Identity(ctx)` | `Client.Authenticator()` for a library (OpenRails' `Routes.Auth`); for a host's own routes, `verify.RequireSession(client)`, `verify.RequirePermissionOn(client, ref, p)`, `verify.Sensitive(client)` (or `authkitgin`/`authkitfiber`) and `verify.VerifiedIdentity(ctx, client)` |
+| `Config.Merchant`, `MerchantConfig` | `Client.Scope(ctx, ref)`, given to the library: `Scope(ctx, iam.RootGroup())` for root roles, `Scope(ctx, iam.GroupByID(id))` for a merchant's group |
+| `step_up_required` answered 403 | 401, with RFC 9470's `WWW-Authenticate: Bearer error="insufficient_user_authentication", max_age="900"`, on AuthKit's routes and at `verify.Sensitive`; the code and metadata are unchanged, the `type` is `authentication_error`. auth-ui handles it; a client of its own that keyed step-up on 403, or signs out on any 401, checks the code first |
+
+- `Client.Authenticator()` is a `helpers/auth` `Authenticator` and `PermissionCatalog`; the Client itself is neither.
+  - `Authenticate(r)` is `verify.AuthenticateSession` over the Client. It admits people and applications (API keys) and reuses a gate's verification of the same request.
+  - Its `Verified` has `Can` (`Client.Can` in the scope's group) and `CheckRecentSignIn`.
+  - A user acting for themself carries their email and username, read from the account.
+  - It passes `helpers/auth/authtest.Check` against a real AuthKit (`TestSecurityAuthenticatorConformance`).
+- `Verifier.Authenticator()` is the same for a resource server's audiences (`Client.NewVerifier`). It also admits the resource access tokens minted for them, so an OAuth client's own token (client credentials) authenticates as an application. That token holds nothing in a group.
+- `verify.AuthenticateRequest` and `AuthenticateSession` return an `*auth.Challenge` for a DPoP refusal, carrying the `WWW-Authenticate` and `DPoP-Nonce` that `verify.DPoPChallenge` writes. A missing DPoP nonce is `auth.ErrSenderProofRequired`.
+- Their `CheckRecentSignIn` returns an `*auth.Challenge` for a stale sign-in, with `MaxAge` and the step-up methods as `Metadata`.
+- auth-ui: `authFetch` does not refresh on a step-up 401, from AuthKit or a host.
+- The client IP reads every `X-Forwarded-For` line (#408). Behind a proxy that appends its own line (HAProxy's `option forwardfor`), only the first line was read, so a client could pick its own rate-limit key.
+- helpers v1.6.0.
+
 ## v1.14.0
 
 The owner approved shipping this breaking change in a minor release. A library takes a read-only user lookup, not the whole Client, named after OIDC's UserInfo (helpers v1.5.0 replaces `helpers/contacts` with `helpers/userinfo`).

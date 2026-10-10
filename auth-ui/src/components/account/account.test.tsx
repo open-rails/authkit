@@ -96,7 +96,7 @@ async function renderSignedIn(ui: ReactNode, routes: Routes) {
 }
 
 const stepUpRequired = (metadata: Record<string, unknown>) =>
-  authError(403, "step_up_required", {
+  authError(401, "step_up_required", {
     max_age_seconds: 900,
     factors: [],
     ...metadata,

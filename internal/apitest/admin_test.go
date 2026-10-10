@@ -69,7 +69,7 @@ func TestAdminAccountRoutes(t *testing.T) {
 			"no root:users:manage":                {plainToken, user, map[string]any{"username": "hijack"}, http.StatusForbidden, ""},
 			"an unknown account":                  {token, "/admin/users/0190a0a0-0000-7000-8000-000000000000", map[string]any{"username": "ghost"}, http.StatusNotFound, "user_not_found"},
 			"signed out":                          {"", user, map[string]any{"username": "anon"}, http.StatusUnauthorized, ""},
-			"a stale session":                     {authtest.StaleSession(t, auth, token), user, map[string]any{"username": "stale"}, http.StatusForbidden, "step_up_required"},
+			"a stale session":                     {authtest.StaleSession(t, auth, token), user, map[string]any{"username": "stale"}, http.StatusUnauthorized, "step_up_required"},
 		} {
 			res := patch(tc.bearer, tc.path, tc.body)
 			require.Equal(t, tc.status, res.status, "%s: %s", name, res)

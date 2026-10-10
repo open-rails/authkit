@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/open-rails/authkit/authtest"
@@ -17,15 +18,28 @@ import (
 // TestSecurityIdentitySubjectInvokerCredential: each credential AuthKit
 // accepts names the Subject whose authority it uses (a native user or a
 // group's account), the Invoker who acts (the subject itself) and itself as
-// the Credential, never as the subject. Read through a gate over the Client, as a billing
-// library reads it (Client.Identity).
+// the Credential, never as the subject. Read through the Client's
+// Authenticator, as a library (OpenRails) reads it.
 func TestSecurityIdentitySubjectInvokerCredential(t *testing.T) {
 	ctx := context.Background()
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(withDeviceKeys))
-	identity := gated(h.auth, verify.Required(h.auth))
+	authenticate := func(credential string) (neutral.Verified, error) {
+		r := httptest.NewRequest(http.MethodGet, resourceURL, nil)
+		r.Header.Set("Authorization", "Bearer "+credential)
+		return h.auth.Authenticator().Authenticate(r)
+	}
 	identityOf := func(t *testing.T, credential string) neutral.Identity {
 		t.Helper()
-		return callerOf(t, identity(t, bearer(credential)))
+		v, err := authenticate(credential)
+		require.NoError(t, err)
+		return v.Identity()
+	}
+	refused := func(t *testing.T, credential string, want error) {
+		t.Helper()
+		v, err := authenticate(credential)
+		require.Nil(t, v)
+		require.ErrorIs(t, err, want)
+		require.Equal(t, http.StatusUnauthorized, neutral.Refuse(nil, err).Status)
 	}
 	self := func(t *testing.T, id neutral.Identity) {
 		t.Helper()
@@ -85,20 +99,31 @@ func TestSecurityIdentitySubjectInvokerCredential(t *testing.T) {
 		self(t, a)
 
 		require.NoError(t, h.auth.RevokeAPIKey(ctx, iam.UserIdentity(owner.id), group, first.ID))
-		requireStatus(t, identity(t, bearer(firstSecret)), http.StatusUnauthorized, "api_key_revoked")
+		refused(t, firstSecret, neutral.ErrRevoked)
 		require.Equal(t, a.Subject, identityOf(t, secondSecret).Subject, "a revoked credential leaves its subject")
 	})
 
 	t.Run("a revoked session is refused, the user's other sign-in is not", func(t *testing.T) {
 		stale, fresh := h.login(user).AccessToken, h.login(user).AccessToken
 		require.NoError(t, h.auth.RevokeSession(ctx, iam.UserIdentity(user.id), user.id, sessionOf(t, stale)))
-		required := gated(h.auth, h.auth.Required())
-		requireStatus(t, required(t, bearer(stale)), http.StatusUnauthorized, "session_revoked")
-		require.Equal(t, user.id, callerOf(t, required(t, bearer(fresh))).Subject)
+		refused(t, stale, neutral.ErrRevoked)
+		require.Equal(t, user.id, identityOf(t, fresh).Subject)
 	})
 
-	t.Run("only the Client's gates prove an identity", func(t *testing.T) {
-		requireStatus(t, gated(h.auth)(t, bearer(h.login(user).AccessToken)), 299, "")
+	t.Run("only a gate over the Client proves an identity in the context", func(t *testing.T) {
+		token := h.login(user).AccessToken
+		r := httptest.NewRequest(http.MethodGet, resourceURL, nil)
+		r.Header.Set("Authorization", "Bearer "+token)
+		_, ok := verify.VerifiedIdentity(r.Context(), h.auth)
+		require.False(t, ok, "no gate ran")
+		forged := verify.SetClaims(r.Context(), verify.Claims{Kind: verify.TokenUser, Issuer: issuer, UserID: user.id})
+		_, ok = verify.VerifiedIdentity(forged, h.auth)
+		require.False(t, ok, "stored claims prove nothing")
+		id, ok := gateIdentity(h.auth, r)
+		require.True(t, ok)
+		require.Equal(t, user.id, id.Subject)
+		_, err := authenticate("not-a-token")
+		require.ErrorIs(t, err, neutral.ErrUnauthenticated)
 	})
 }
 

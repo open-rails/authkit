@@ -17,6 +17,7 @@ import {
   type ResourceTokenOptions,
 } from "./resource.ts"
 import { safeReturnTo } from "./returnTo.ts"
+import { asksForStepUp } from "./stepUp.ts"
 import type {
   Availability,
   BackupCodes,
@@ -619,7 +620,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
   }
 
   // fetch for host APIs: attaches the session bearer and retries once after a
-  // refresh on 401. Never throws on HTTP status.
+  // refresh on 401, unless it asks for a step-up. Never throws on HTTP status.
   async function authFetch(
     input: RequestInfo | URL,
     init: RequestInit = {}
@@ -636,7 +637,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     const requestGeneration = generation
     const bearer = accessToken()
     let res = await attempt(bearer, input)
-    if (res.status === 401 && bearer) {
+    if (res.status === 401 && bearer && !(await asksForStepUp(res))) {
       if (requestGeneration !== generation) throw new AuthSessionChangedError()
       if (await refresh()) {
         if (requestGeneration !== generation)

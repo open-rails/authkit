@@ -63,11 +63,6 @@ type Config struct {
 	// Roles is the permission model: personas, their permissions and roles
 	// (NewRoles). Nil is root-only.
 	Roles *Roles
-	// Merchant is the group that controls the merchant a billing library
-	// serves (OpenRails), where Client.RequirePermission checks a persona's
-	// permission. A root: permission is checked on root and needs none; the
-	// zero value refuses every other check.
-	Merchant MerchantConfig
 	// RemoteApplications declares the remote applications root controls, as
 	// the whole set: New registers each one and disables any this deployment
 	// declared at an earlier boot and no longer does. A removed application
@@ -386,14 +381,6 @@ type InvitationsConfig struct {
 	// revoking earlier invitations still work. Registration.NativeUserMode
 	// "invite_only" cannot be combined with it.
 	Disabled bool
-}
-
-// MerchantConfig names the group that controls the merchant.
-type MerchantConfig struct {
-	// Group is the group's id, a group of the persona whose permissions the
-	// library checks (such as one per merchant). It must not be the root
-	// group's.
-	Group string
 }
 
 // LanguageConfig declares the supported languages as two-letter codes. The

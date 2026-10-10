@@ -76,7 +76,7 @@ export function useStepUp(options: StepUpOptions = {}) {
 
   useEffect(() => () => settle(false), [settle])
 
-  // Runs a sensitive action; on 403 step_up_required it waits for the user to
+  // Runs a sensitive action; on 401 step_up_required it waits for the user to
   // step up, then retries. Rejects with code "step_up_cancelled" on cancel().
   const guard: Guard = useCallback(<T>(action: () => Promise<T>) => {
     return action().catch((err: unknown) => {

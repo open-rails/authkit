@@ -721,7 +721,7 @@ func TestRootGroupHTTPWorkflow(t *testing.T) {
 		{method: http.MethodPost, path: "/groups/root/invitations", body: map[string]string{"role": "root:site-admin"}, token: stale},
 	} {
 		res := a.do(req)
-		require.Equal(t, http.StatusForbidden, res.status, "%s %s: %s", req.method, req.path, res)
+		require.Equal(t, http.StatusUnauthorized, res.status, "%s %s: %s", req.method, req.path, res)
 		require.Equal(t, "step_up_required", res.code())
 	}
 	require.Empty(t, rootRole(target.ID))

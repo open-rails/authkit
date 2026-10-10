@@ -20,6 +20,7 @@ import {
 import { idbDelete, idbGet, idbPut } from "./idb.ts"
 import { decodeAccessClaims, type AccessClaims } from "./jwt.ts"
 import { OAuthError, readOAuthError } from "./oauthError.ts"
+import { asksForStepUp } from "./stepUp.ts"
 
 export type IssuerClientOptions = {
   // The issuer identifier; its metadata is at
@@ -546,7 +547,8 @@ export function createIssuerClient(options: IssuerClientOptions) {
     session.status === "authenticated" ? session.accessToken : null
 
   // fetch for the API with the access token (and a DPoP proof); a 401
-  // invalid_token is retried once after a refresh. Never throws on status.
+  // invalid_token is retried once after a refresh (a step-up is not). Never
+  // throws on status.
   async function authFetch(
     input: string | URL,
     init: RequestInit = {}
@@ -565,6 +567,7 @@ export function createIssuerClient(options: IssuerClientOptions) {
       at &&
       res.status === 401 &&
       !/use_dpop_nonce/.test(res.headers.get("WWW-Authenticate") ?? "") &&
+      !(await asksForStepUp(res)) &&
       (await refresh())
     )
       res = await attempt(accessToken())

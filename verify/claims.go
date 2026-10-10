@@ -285,9 +285,9 @@ func ClaimsFromContext(ctx context.Context) (Claims, bool) {
 }
 
 // VerifiedIdentity is the identity a gate over a verified and stored in ctx
-// (IdentityFromContext), as helpers/auth Auth.Identity reports it. It is
-// false without one, and for claims SetClaims or a gate over another
-// authenticator stored: only a gate's own verification proves who called.
+// (IdentityFromContext), for a host's own handlers. It is false without one,
+// and for claims SetClaims or a gate over another authenticator stored: only
+// a gate's own verification proves who called.
 func VerifiedIdentity(ctx context.Context, a Authenticator) (auth.Identity, bool) {
 	v, ok := ctx.Value(claimsKey{}).(verified)
 	if !ok || v.by == nil || reflect.ValueOf(v.by).Kind() != reflect.Pointer || v.by != a || v.identity.Subject == "" {

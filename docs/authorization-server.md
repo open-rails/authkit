@@ -54,7 +54,7 @@ The authorize endpoint stores the request and sends the browser to the SPA at `F
 
 1. reads the request: `GET {api}/oauth2/authorizations/{id}` (the client's name, scopes, `prompt`, `max_age`);
 2. signs the user in as usual, second factors included;
-3. approves it with that session (a device-key sign-in cannot): `POST {api}/oauth2/authorizations/{id}/approve` answers `{redirect_to}`, the client's redirect URI with a one-time code. A request asking for a fresher sign-in than the user's (`prompt=login`, `max_age`) answers 403 `step_up_required`; step up and approve again.
+3. approves it with that session (a device-key sign-in cannot): `POST {api}/oauth2/authorizations/{id}/approve` answers `{redirect_to}`, the client's redirect URI with a one-time code. A request asking for a fresher sign-in than the user's (`prompt=login`, `max_age`) answers 401 `step_up_required`; step up and approve again.
 
 auth-ui's `OAuthAuthorize` component is that page.
 

@@ -94,29 +94,38 @@ Apps that share one account store (the same schema, listed in `TokenConfig.Accou
 
 Fingerprints and sweeps are per app. Each app judges only the API keys, invitations and applications issued through it, and an API key works only at the app that minted it. When a change through one app demotes a user, every other app sweeps its own credentials from that user.
 
-## A billing library's merchant routes
+## A library that guards its own routes
 
-The Client is helpers/auth `Auth`, the middleware OpenRails mounts its routes with (`openrails.Routes{Auth: client}`). Its gates are `verify`'s over the Client, so they stack and verify a request once:
+A library that serves routes inside your app, such as OpenRails' billing routes, takes `client.Authenticator()`, a helpers/auth `Authenticator`. It says who a request is; the library decides what to admit and answers its own refusals. People and applications (API keys) both authenticate, checked live. The Client itself is not one.
 
-| Method | Gate | Admits |
-|---|---|---|
-| `Required()` | `verify.RequireSession` | a person (a user's or a device key's token), session checked live; machines are 403 |
-| `RequirePermission(p)` | `verify.RequirePermissionOn` on root for a `root:` permission, else in `Config.Merchant.Group` | a caller holding `p` there, live; a persona permission without `Config.Merchant.Group`, nobody |
-| `Sensitive()` | `verify.Sensitive` | a person who signed in within 15 minutes, with the second factor when the account has one |
-| `Identity(ctx)` | | who a gate over the Client verified: a person by user id, or a `Machine` (an API key, a remote application) |
+| Method | Is |
+|---|---|
+| `Authenticate(r)` | `verify.AuthenticateSession` over the Client: a revoked sign-in or a banned or deleted account is refused. Behind a gate over the Client it reuses the gate's verification, so a DPoP proof is spent once. A DPoP refusal is an `*auth.Challenge` carrying `WWW-Authenticate` and `DPoP-Nonce` |
+| `Verified.Can(ctx, scope, p)` | `Client.Can`: exactly `p`, in the group `scope.ID` names, live |
+| `Verified.CheckRecentSignIn(ctx)` | `verify.Sensitive`'s check. A stale sign-in is an `*auth.Challenge` with `auth.ErrStepUpRequired`, `MaxAge` (15 minutes) and the account's step-up methods as `Metadata`; a credential with no sign-in of its own (an API key) is `auth.ErrForbidden` |
+| `KnownPermission(p)` | `p` is one registered permission, so the library refuses a misspelled one when it mounts |
 
-The library names no permissions; the host passes its own. A `root:` permission needs no configuration: root roles holding it apply.
+A user acting for themself carries their email and username, read from the account. `client.Scope(ctx, ref)` is the group where the library checks its permissions, `{Authority: Config.Token.Issuer, ID: <the group's id>}`; root roles hold theirs in `client.Scope(ctx, iam.RootGroup())`. The library names no permissions: the host passes its own.
 
 ```go
 rbac := authkit.NewRoles()
 customersRead := rbac.Root.Permission("customers", "read")
 customersUpdate := rbac.Root.Permission("customers", "update")
 rbac.Root.Role("support", customersRead, customersUpdate)
-// openrails.Routes{Auth: client, Merchant: true, Staff: openrails.StaffPermissions{
-//	Read: customersRead.String(), Write: customersUpdate.String()}}
+
+staff, err := client.Scope(ctx, iam.RootGroup()) // where the roles above are held
+if err != nil {
+	return err
+}
+err = openrailsgin.Mount(r, bill, openrails.Routes{
+	Auth:        client.Authenticator(), // says who a request is; OpenRails decides what to admit
+	Scope:       staff,
+	RouteGroups: openrails.RouteGroups{Admin: true},
+	Permissions: openrails.Permissions{AdminRead: customersRead, AdminUpdate: customersUpdate},
+})
 ```
 
-A persona permission (`merchant:billing:read`, one group per merchant) is checked in `Config.Merchant.Group`, the id of the group that controls the merchant, created by the host; its owner holds `merchant:*`. Naming root's id there fails `New`. `RequirePermission` takes one registered permission and panics on a pattern or an unregistered one, as `RequirePermissionOn` does.
+A group API key holds its role only in its own group, so it acts where a library is mounted with that group's scope (one group per merchant: `client.Scope(ctx, iam.GroupByID(id))`); a root API key (`NewRoles(authkit.APIKeys)`) acts in root's. Like AuthKit's own API, `client.Authenticator()` refuses resource access tokens (`at+jwt`). For a library that is also a resource server, `client.NewVerifier(audiences)` with its resource among them gives a `Verifier` whose `Authenticator()` takes them too: an OAuth client's own token (client credentials) authenticates as an application, holding nothing in a group (its `permissions` are the resource server's to read).
 
 ## Related
 

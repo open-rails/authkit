@@ -12,7 +12,7 @@ const err = (status: number, code: string, metadata: Record<string, unknown>) =>
 it("reads step_up_required with its second factors", () => {
   expect(
     readStepUpRequired(
-      err(403, "step_up_required", {
+      err(401, "step_up_required", {
         step_up_methods: ["password", "Google"],
         max_age_seconds: 300,
         factors: [],
@@ -29,7 +29,7 @@ it("reads step_up_required with its second factors", () => {
   ]
   expect(
     readStepUpRequired(
-      err(403, "step_up_required", {
+      err(401, "step_up_required", {
         step_up_methods: ["2fa"],
         max_age_seconds: 300,
         factors,
