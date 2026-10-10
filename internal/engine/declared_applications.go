@@ -32,7 +32,7 @@ func (s *Engine) reconcileRemoteApplications(ctx context.Context) error {
 	}
 	apps := make([]iam.RemoteApplication, len(declared))
 	for i, app := range declared {
-		apps[i] = iam.RemoteApplication{Issuer: app.Issuer, JWKSURI: app.JWKSURI, PublicKeys: app.PublicKeys, Enabled: !app.Disabled, Role: app.Role}
+		apps[i] = iam.RemoteApplication{Issuer: app.Issuer, JWKSURI: app.JWKSURI, PublicKeys: app.PublicKeys, Enabled: !app.Disabled, Role: app.Role, RoleMap: app.RoleMap}
 	}
 	return s.declareRemoteApplications(ctx, nil, iam.RootGroup(), apps, "Config.RemoteApplications")
 }
@@ -111,6 +111,9 @@ func (s *Engine) declareRemoteApplications(ctx context.Context, host pgx.Tx, ref
 func (s *Engine) applyDeclaredApplication(ctx context.Context, st *permissionGroupStore, g groupTarget, app iam.RemoteApplication) error {
 	if !app.Role.IsZero() && !s.validRoleForPersona(s.groupSchemaOrDefault(), g.Persona, app.Role) {
 		return fmt.Errorf("%q is not a role of a %q group: %w", app.Role, g.Persona, iam.ErrRoleNotAssignable)
+	}
+	if err := s.validRoleMap(g.Persona, app.RoleMap); err != nil {
+		return err
 	}
 	app.GroupID, app.TrustRoot = g.ID, iam.ApplicationTrustRootManual
 	ra, err := s.upsertRemoteApplication(ctx, st, app)

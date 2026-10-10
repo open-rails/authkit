@@ -6,13 +6,14 @@
 -- read returns the whole row: db.RemoteApplication.
 
 -- name: RemoteApplicationUpsert :one
-INSERT INTO remote_applications (permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, catalog_issuer)
-VALUES (sqlc.arg(permission_group_id)::uuid, sqlc.arg(issuer), sqlc.arg(jwks_uri), sqlc.arg(mode), sqlc.arg(public_keys), sqlc.arg(enabled), sqlc.arg(catalog_issuer)::text)
+INSERT INTO remote_applications (permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, catalog_issuer, role_map)
+VALUES (sqlc.arg(permission_group_id)::uuid, sqlc.arg(issuer), sqlc.arg(jwks_uri), sqlc.arg(mode), sqlc.arg(public_keys), sqlc.arg(enabled), sqlc.arg(catalog_issuer)::text, sqlc.narg(role_map)::jsonb)
 ON CONFLICT (issuer) DO UPDATE
   SET jwks_uri      = EXCLUDED.jwks_uri,
       mode          = EXCLUDED.mode,
       public_keys   = EXCLUDED.public_keys,
       enabled       = EXCLUDED.enabled,
+      role_map      = EXCLUDED.role_map,
       updated_at    = now()
 WHERE remote_applications.permission_group_id = EXCLUDED.permission_group_id
 RETURNING *;

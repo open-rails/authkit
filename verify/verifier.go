@@ -51,8 +51,8 @@ type issuer struct {
 type VerifierOption func(*verifierConfig)
 
 type verifierConfig struct {
-	skew      time.Duration
-	client    *http.Client
+	skew         time.Duration
+	client       *http.Client
 	dpop         bool
 	redis        redis.UniversalClient
 	nonceKey     []byte

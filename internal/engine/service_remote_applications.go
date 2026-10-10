@@ -46,11 +46,13 @@ func normalizeRemoteAppTrustSource(jwksURI string, mode iam.RemoteApplicationMod
 	}
 	switch mode {
 	case iam.RemoteApplicationModeJWKS:
-		if jwksURI == "" {
-			return "", fmt.Errorf("%w: jwks mode requires jwks_uri", iam.ErrInvalidRemoteApplication)
-		}
+		// No jwks_uri: a resource server discovers it from the issuer's
+		// metadata (RFC 8414).
 		if len(keys) > 0 {
 			return "", fmt.Errorf("%w: jwks_uri and public_keys are mutually exclusive — register one trust source, never both", iam.ErrInvalidRemoteApplication)
+		}
+		if jwksURI == "" {
+			break
 		}
 		if err := validateJWKSURI(jwksURI, allowInsecureJWKS); err != nil {
 			return "", fmt.Errorf("%w: %v", iam.ErrInvalidRemoteApplication, err)
@@ -125,12 +127,56 @@ func decodeRemoteAppKeys(raw []byte) []iam.RemoteApplicationKey {
 	return keys
 }
 
+// decodeRoleMap reads a stored role_map: role name → role text.
+func decodeRoleMap(raw []byte) map[string]iam.Role {
+	if len(raw) == 0 {
+		return nil
+	}
+	var texts map[string]string
+	if json.Unmarshal(raw, &texts) != nil || len(texts) == 0 {
+		return nil
+	}
+	out := make(map[string]iam.Role, len(texts))
+	for name, role := range texts {
+		out[name] = ident.RoleText(role)
+	}
+	return out
+}
+
+// encodeRoleMap is m as stored; nil maps none.
+func encodeRoleMap(m map[string]iam.Role) []byte {
+	if len(m) == 0 {
+		return nil
+	}
+	texts := make(map[string]string, len(m))
+	for name, role := range m {
+		texts[name] = role.String()
+	}
+	b, _ := json.Marshal(texts)
+	return b
+}
+
+// validRoleMap refuses a role_map naming an empty role name or a role that
+// is not one of the group persona's.
+func (s *Engine) validRoleMap(persona iam.Persona, m map[string]iam.Role) error {
+	for name, role := range m {
+		if strings.TrimSpace(name) == "" || name != strings.TrimSpace(name) {
+			return fmt.Errorf("%w: role_map has an empty or padded role name", iam.ErrInvalidRemoteApplication)
+		}
+		if !s.validRoleForPersona(s.groupSchemaOrDefault(), persona, role) {
+			return fmt.Errorf("role_map %q: %q is not a role of a %q group: %w", name, role, persona, iam.ErrRoleNotAssignable)
+		}
+	}
+	return nil
+}
+
 func remoteAppFromRow(row db.RemoteApplication) *iam.RemoteApplication {
 	ra := &iam.RemoteApplication{
 		ID: row.ID, GroupID: row.PermissionGroupID,
 		Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: iam.RemoteApplicationMode(row.Mode),
 		PublicKeys: decodeRemoteAppKeys(row.PublicKeys), Enabled: row.Enabled,
 		TrustRoot: iam.ApplicationTrustRoot(row.TrustRoot),
+		RoleMap:   decodeRoleMap(row.RoleMap),
 		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}
 	return ra
@@ -201,6 +247,7 @@ func (s *Engine) upsertRemoteApplication(ctx context.Context, st *permissionGrou
 		PublicKeys:        keysJSON,
 		Enabled:           in.Enabled,
 		CatalogIssuer:     s.cfg.Token.Issuer,
+		RoleMap:           encodeRoleMap(in.RoleMap),
 	})
 	// The atomic upsert guard also covers an issuer claimed after our lookup.
 	if errors.Is(err, pgx.ErrNoRows) {

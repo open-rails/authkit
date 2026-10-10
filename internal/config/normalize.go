@@ -113,6 +113,9 @@ func Normalize(c Config, d Deps) (Config, error) {
 	if c.RemoteApplications, err = normalizeRemoteApplications(c.RemoteApplications); err != nil {
 		return Config{}, err
 	}
+	if err := normalizeResource(&c.Resource); err != nil {
+		return Config{}, err
+	}
 	if err := normalizeLanguages(&c.Languages); err != nil {
 		return Config{}, err
 	}

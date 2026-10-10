@@ -58,9 +58,13 @@ type Engine struct {
 	solanaSNSResolver SolanaSNSResolver
 	sns               solanaSNS
 	// now is the engine clock for TTL/grace decisions (SetClock).
-	now           func() time.Time
-	ephemeral     *ephemeralKV          // nil without Postgres
-	redis         redis.UniversalClient // Deps.Redis: DPoP proofs, else memory
+	now       func() time.Time
+	ephemeral *ephemeralKV          // nil without Postgres
+	redis     redis.UniversalClient // Deps.Redis: DPoP proofs, else memory
+	// resource verifies access tokens for Config.Resource.ID; nil admits
+	// none. resourceHosts is Deps.ResourceHosts.
+	resource      *resourceServer
+	resourceHosts func(ctx context.Context, host string) (bool, error)
 	nameAdmission func(context.Context, iam.NameAdmissionRequest) error
 	// cfg is the host configuration, normalized once (config.Normalize).
 	cfg config.Config

@@ -36,6 +36,7 @@ func (s *Engine) applyDeps(d config.Deps) error {
 		s.ephemeral = &ephemeralKV{pool: ephemeralPool, q: db.New(ephemeralPool)}
 	}
 	s.redis = d.Redis
+	s.resourceHosts = d.ResourceHosts
 	s.providers = slices.Clone(d.Providers)
 	s.email, s.sms = d.Email, d.SMS
 	s.entitlements, s.entitlementHolders = d.Entitlements, d.EntitlementHolders

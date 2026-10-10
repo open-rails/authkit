@@ -55,6 +55,11 @@ type RemoteApplication struct {
 	// Never the keypair alone.
 	TrustRoot   ApplicationTrustRoot `json:"trust_root"`
 	Role        Role                 `json:"role"`
+	// RoleMap maps a role name its tokens carry (the RFC 9068 §2.2.3.1 roles
+	// claim) to a role of its group, for an issuer that cannot mint the
+	// group's permissions: its tokens then hold that role's permissions,
+	// within Role as ever.
+	RoleMap map[string]Role `json:"role_map,omitempty"`
 	Permissions []Perm               `json:"permissions"`
 	CreatedAt   time.Time            `json:"created_at"`
 	UpdatedAt   time.Time            `json:"updated_at"`

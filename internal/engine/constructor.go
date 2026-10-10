@@ -83,6 +83,11 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 	if s.auth, err = s.newAuthenticator(s.cfg.Token.ExpectedAudiences, true); err != nil {
 		return nil, err
 	}
+	if s.cfg.Resource.Enabled() {
+		if s.resource, err = s.newResourceServer(); err != nil {
+			return nil, err
+		}
+	}
 	return s, nil
 }
 

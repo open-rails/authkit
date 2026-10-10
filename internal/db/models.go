@@ -128,6 +128,8 @@ type RemoteApplication struct {
 	CatalogIssuer *string
 	// The Token.Issuer of the app whose Config.RemoteApplications declares it; NULL = registered through an operation.
 	DeclaredBy *string
+	// Role names its tokens carry (the roles claim) mapped to role texts of its group; NULL maps none.
+	RoleMap []byte
 }
 
 // The users of the issuers a group trusts, by issuer and subject: SCIM-provisioned or recorded from token claims; a SCIM DELETE deletes the row.

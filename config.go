@@ -33,6 +33,7 @@ type (
 	AuthorizationServerConfig = config.AuthorizationServerConfig
 	OAuthClientConfig         = config.OAuthClientConfig
 	ResourceServerConfig      = config.ResourceServerConfig
+	ResourceConfig            = config.ResourceConfig
 	OAuthGrantType            = config.OAuthGrantType
 	// RemoteApplicationConfig declares one remote application
 	// (Config.RemoteApplications).

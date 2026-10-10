@@ -10,7 +10,7 @@ import (
 )
 
 const remoteApplicationByID = `-- name: RemoteApplicationByID :one
-SELECT id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by, catalog_issuer, declared_by FROM remote_applications WHERE id = $1
+SELECT id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by, catalog_issuer, declared_by, role_map FROM remote_applications WHERE id = $1
 `
 
 func (q *Queries) RemoteApplicationByID(ctx context.Context, id string) (RemoteApplication, error) {
@@ -30,12 +30,13 @@ func (q *Queries) RemoteApplicationByID(ctx context.Context, id string) (RemoteA
 		&i.RegisteredBy,
 		&i.CatalogIssuer,
 		&i.DeclaredBy,
+		&i.RoleMap,
 	)
 	return i, err
 }
 
 const remoteApplicationByIDForUpdate = `-- name: RemoteApplicationByIDForUpdate :one
-SELECT id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by, catalog_issuer, declared_by FROM remote_applications WHERE id = $1 FOR UPDATE
+SELECT id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by, catalog_issuer, declared_by, role_map FROM remote_applications WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) RemoteApplicationByIDForUpdate(ctx context.Context, id string) (RemoteApplication, error) {
@@ -55,12 +56,13 @@ func (q *Queries) RemoteApplicationByIDForUpdate(ctx context.Context, id string)
 		&i.RegisteredBy,
 		&i.CatalogIssuer,
 		&i.DeclaredBy,
+		&i.RoleMap,
 	)
 	return i, err
 }
 
 const remoteApplicationByIssuer = `-- name: RemoteApplicationByIssuer :one
-SELECT id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by, catalog_issuer, declared_by FROM remote_applications WHERE issuer = $1
+SELECT id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by, catalog_issuer, declared_by, role_map FROM remote_applications WHERE issuer = $1
 `
 
 func (q *Queries) RemoteApplicationByIssuer(ctx context.Context, issuer string) (RemoteApplication, error) {
@@ -80,6 +82,7 @@ func (q *Queries) RemoteApplicationByIssuer(ctx context.Context, issuer string) 
 		&i.RegisteredBy,
 		&i.CatalogIssuer,
 		&i.DeclaredBy,
+		&i.RoleMap,
 	)
 	return i, err
 }
@@ -164,16 +167,17 @@ func (q *Queries) RemoteApplicationSetTrustRoot(ctx context.Context, arg RemoteA
 
 const remoteApplicationUpsert = `-- name: RemoteApplicationUpsert :one
 
-INSERT INTO remote_applications (permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, catalog_issuer)
-VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::text)
+INSERT INTO remote_applications (permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, catalog_issuer, role_map)
+VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::text, $8::jsonb)
 ON CONFLICT (issuer) DO UPDATE
   SET jwks_uri      = EXCLUDED.jwks_uri,
       mode          = EXCLUDED.mode,
       public_keys   = EXCLUDED.public_keys,
       enabled       = EXCLUDED.enabled,
+      role_map      = EXCLUDED.role_map,
       updated_at    = now()
 WHERE remote_applications.permission_group_id = EXCLUDED.permission_group_id
-RETURNING id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by, catalog_issuer, declared_by
+RETURNING id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by, catalog_issuer, declared_by, role_map
 `
 
 type RemoteApplicationUpsertParams struct {
@@ -184,6 +188,7 @@ type RemoteApplicationUpsertParams struct {
 	PublicKeys        []byte
 	Enabled           bool
 	CatalogIssuer     string
+	RoleMap           []byte
 }
 
 // Remote application registry. A
@@ -201,6 +206,7 @@ func (q *Queries) RemoteApplicationUpsert(ctx context.Context, arg RemoteApplica
 		arg.PublicKeys,
 		arg.Enabled,
 		arg.CatalogIssuer,
+		arg.RoleMap,
 	)
 	var i RemoteApplication
 	err := row.Scan(
@@ -217,12 +223,13 @@ func (q *Queries) RemoteApplicationUpsert(ctx context.Context, arg RemoteApplica
 		&i.RegisteredBy,
 		&i.CatalogIssuer,
 		&i.DeclaredBy,
+		&i.RoleMap,
 	)
 	return i, err
 }
 
 const remoteApplicationsByGroup = `-- name: RemoteApplicationsByGroup :many
-SELECT id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by, catalog_issuer, declared_by FROM remote_applications
+SELECT id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by, catalog_issuer, declared_by, role_map FROM remote_applications
 WHERE permission_group_id = $1::uuid
   AND ($2::uuid IS NULL OR id < $2::uuid)
 ORDER BY id DESC
@@ -259,6 +266,7 @@ func (q *Queries) RemoteApplicationsByGroup(ctx context.Context, arg RemoteAppli
 			&i.RegisteredBy,
 			&i.CatalogIssuer,
 			&i.DeclaredBy,
+			&i.RoleMap,
 		); err != nil {
 			return nil, err
 		}
@@ -310,7 +318,7 @@ func (q *Queries) RemoteApplicationsRelease(ctx context.Context, ids []string) e
 }
 
 const remoteApplicationsUndeclared = `-- name: RemoteApplicationsUndeclared :many
-SELECT id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by, catalog_issuer, declared_by FROM remote_applications
+SELECT id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by, catalog_issuer, declared_by, role_map FROM remote_applications
 WHERE declared_by = $1::text AND permission_group_id = $2::uuid
   AND NOT (issuer = ANY($3::text[]))
 ORDER BY issuer
@@ -347,6 +355,7 @@ func (q *Queries) RemoteApplicationsUndeclared(ctx context.Context, arg RemoteAp
 			&i.RegisteredBy,
 			&i.CatalogIssuer,
 			&i.DeclaredBy,
+			&i.RoleMap,
 		); err != nil {
 			return nil, err
 		}

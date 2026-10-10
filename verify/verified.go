@@ -99,7 +99,19 @@ type checkingVerified struct {
 	checker PermissionChecker
 }
 
-var _ auth.PermissionChecker = checkingVerified{}
+var (
+	_ auth.PermissionChecker = checkingVerified{}
+	_ auth.Bound             = checkingVerified{}
+)
+
+// BoundScope is the group a credential is bound to (an API key's), as a
+// scope of its group's issuer; zero for a person's own sign-in.
+func (p checkingVerified) BoundScope() auth.Scope {
+	if g := p.claims.Group; g != nil && g.GroupID != "" {
+		return auth.Scope{Authority: g.AuthorityIssuer, ID: g.GroupID}
+	}
+	return auth.Scope{}
+}
 
 // Can checks the credential's authority in the group scope.ID names, live
 // and without verifying the request again. The scope's authority must be the
@@ -131,9 +143,13 @@ func authorityOf(cl Claims) string {
 	return cl.Issuer
 }
 
-// classify maps r's verification error onto the helpers/auth taxonomy. A
-// DPoP refusal is a *auth.Challenge carrying the headers DPoPChallenge
-// writes (WWW-Authenticate, DPoP-Nonce).
+// Refusal maps a failed verification of r onto the helpers/auth taxonomy,
+// for an Authenticator that verifies r itself. A DPoP refusal is a
+// *auth.Challenge carrying the headers DPoPChallenge writes
+// (WWW-Authenticate, DPoP-Nonce).
+func Refusal(r *http.Request, err error) error { return classify(r, err) }
+
+// classify is Refusal.
 func classify(r *http.Request, err error) error {
 	out := classifyErr(err)
 	if h := dpopChallenge(r, err); h != nil {

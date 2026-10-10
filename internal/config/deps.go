@@ -82,6 +82,11 @@ type Deps struct {
 	// replicas; it holds no other AuthKit state. Without it, and while it
 	// fails, each process keeps its own: one node only.
 	Redis redis.UniversalClient
+	// ResourceHosts admits hosts besides Config.Resource.PublicURL's that the
+	// resource answers on (a host's per-tenant API hosts): a DPoP proof's htu
+	// may name https://<host> when it reports true for the request's Host.
+	// No header is trusted otherwise.
+	ResourceHosts func(ctx context.Context, host string) (bool, error)
 	// ClientIP extracts the client address, replacing the proxy handling of
 	// HTTPConfig.
 	ClientIP func(*http.Request) string

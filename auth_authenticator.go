@@ -31,9 +31,19 @@ import (
 //     the account (access tokens carry none).
 //   - It is an auth.PermissionCatalog over Config.Roles.
 //
-// The Client itself is not an auth.Authenticator. Like the Client's own API,
-// it refuses resource access tokens (at+jwt); Verifier.Authenticator takes
-// them for a resource server's audiences.
+// With Config.Resource it also admits the RFC 9068 access tokens (at+jwt)
+// minted for Resource.ID by this deployment's authorization server and by its
+// trusted issuers, the remote applications (resourceVerified). Without it,
+// like the Client's own API, it refuses them; Verifier.Authenticator takes
+// them for other audiences.
+//
+// Every credential is verified once per call: a DPoP proof is spent by the
+// first Authenticate of a request, so a library calls it once per request.
+// Its Verified reports BoundScope (helpers/auth Bound): an API key's group,
+// a trusted issuer's token's group; zero for a person's own sign-in. The
+// Authenticator lists the headers its credentials use (auth.Headers).
+//
+// The Client itself is not an auth.Authenticator.
 func (a *Client) Authenticator() auth.Authenticator { return authenticator{a, a} }
 
 // Authenticator is Client.Authenticator for this Verifier's audiences, a
@@ -64,11 +74,25 @@ type authenticator struct {
 	client    *Client
 }
 
-var _ auth.PermissionCatalog = authenticator{}
+var (
+	_ auth.PermissionCatalog = authenticator{}
+	_ auth.Headers           = authenticator{}
+)
+
+// AllowedHeaders are the request headers credentials travel in: a token
+// (RFC 6750 §2.1) and its DPoP proof (RFC 9449 §4.1).
+func (authenticator) AllowedHeaders() []string { return []string{"Authorization", "DPoP"} }
+
+// ExposedHeaders are the response headers a refusal carries: its challenge
+// (RFC 6750 §3, RFC 9470) and a DPoP nonce (RFC 9449 §9).
+func (authenticator) ExposedHeaders() []string { return []string{"WWW-Authenticate", "DPoP-Nonce"} }
 
 func (a authenticator) Authenticate(r *http.Request) (auth.Verified, error) {
 	if r == nil {
 		return nil, auth.ErrUnauthenticated
+	}
+	if a.authority == verify.Authority(a.client) && a.client.engine.ResourceEnabled() && resourceTokenRequest(r) {
+		return a.client.authenticateResource(r)
 	}
 	v, err := verify.AuthenticateSession(r.Context(), a.authority, r)
 	if err != nil {
@@ -107,6 +131,13 @@ func (v contacted) Can(ctx context.Context, scope auth.Scope, permission string)
 		return false, nil
 	}
 	return c.Can(ctx, scope, permission)
+}
+
+func (v contacted) BoundScope() auth.Scope {
+	if b, ok := v.Verified.(auth.Bound); ok {
+		return b.BoundScope()
+	}
+	return auth.Scope{}
 }
 
 func (v contacted) CheckRecentSignIn(ctx context.Context) error {

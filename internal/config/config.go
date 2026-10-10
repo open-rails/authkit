@@ -55,6 +55,11 @@ type Config struct {
 	// in here and receive tokens for registered resource servers. The zero
 	// value leaves it off and its routes unmounted.
 	AuthorizationServer AuthorizationServerConfig
+	// Resource makes this deployment a resource server: Client.Authenticator
+	// also admits the RFC 9068 access tokens minted for Resource.ID, by this
+	// deployment's authorization server and by its trusted issuers (remote
+	// applications). The zero value admits none.
+	Resource ResourceConfig
 	// Invitations turns invitations off. The zero value leaves them on.
 	Invitations InvitationsConfig
 	// Provisioning pushes the accounts to SCIM 2.0 service providers. The
@@ -355,6 +360,10 @@ type RemoteApplicationConfig struct {
 	// Role is the role it holds in its group: the ceiling of what its tokens
 	// may do there. Zero holds none.
 	Role iam.Role
+	// RoleMap maps a role name its tokens carry (RFC 9068 §2.2.3.1 roles) to
+	// a role of its group, for an issuer that cannot mint the group's
+	// permissions.
+	RoleMap map[string]iam.Role
 }
 
 // DatabaseConfig names the PostgreSQL schemas of AuthKit's tables. New

@@ -117,7 +117,7 @@ func TestDeclaredRemoteApplications(t *testing.T) {
 	}{
 		"no issuer":            {[]authkit.RemoteApplicationConfig{{JWKSURI: search + "/jwks.json"}}, "no Issuer"},
 		"an issuer twice":      {[]authkit.RemoteApplicationConfig{searchApp, searchApp}, "twice"},
-		"no trust source":      {[]authkit.RemoteApplicationConfig{{Issuer: search}}, "jwks_uri"},
+		"two trust sources":    {[]authkit.RemoteApplicationConfig{{Issuer: search, JWKSURI: search + "/jwks.json", PublicKeys: billingApp.PublicKeys}}, "mutually exclusive"},
 		"this deployment":      {[]authkit.RemoteApplicationConfig{{Issuer: authtest.Issuer, JWKSURI: search + "/jwks.json"}}, "reserved"},
 		"a role root does not": {[]authkit.RemoteApplicationConfig{{Issuer: search, JWKSURI: search + "/jwks.json", Role: authkit.NewRoles().Persona("channel").Role("member")}}, "is not a role of a"},
 	} {
@@ -198,10 +198,10 @@ func TestDeclaredGroupRemoteApplications(t *testing.T) {
 		apps []iam.RemoteApplication
 		err  error
 	}{
-		"another group's issuer":   {[]iam.RemoteApplication{jwks(other)}, iam.ErrRemoteApplicationIssuerConflict},
+		"another group's issuer":    {[]iam.RemoteApplication{jwks(other)}, iam.ErrRemoteApplicationIssuerConflict},
 		"a role of another persona": {[]iam.RemoteApplication{withRole(jwks(shop), iam.RootPersona().OwnerRole())}, iam.ErrRoleNotAssignable},
-		"an issuer twice":          {[]iam.RemoteApplication{jwks(shop), jwks(shop)}, iam.ErrInvalidRemoteApplication},
-		"this deployment":          {[]iam.RemoteApplication{jwks(authtest.Issuer)}, iam.ErrReservedIssuer},
+		"an issuer twice":           {[]iam.RemoteApplication{jwks(shop), jwks(shop)}, iam.ErrInvalidRemoteApplication},
+		"this deployment":           {[]iam.RemoteApplication{jwks(authtest.Issuer)}, iam.ErrReservedIssuer},
 	} {
 		require.ErrorIs(t, next.DeclareRemoteApplications(ctx, a, tc.apps), tc.err, name)
 	}
