@@ -8,7 +8,7 @@ type Deps = config.Deps
 
 type (
 	// EmailSender delivers email and reports whether it can
-	// (adapters/twilio.NewEmail).
+	// (adapters/smtp.New).
 	EmailSender = config.EmailSender
 	// SMSSender delivers text messages and reports whether it can
 	// (adapters/twilio.NewSMS).

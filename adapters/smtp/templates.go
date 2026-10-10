@@ -1,4 +1,4 @@
-package twilio
+package smtp
 
 import (
 	"errors"
@@ -63,48 +63,45 @@ func emailCopyFor(language, app string) emailCopy {
 }
 
 // emailTemplate is the built-in content for msg.Kind.
-func emailTemplate(app string, msg iam.EmailMessage) (EmailContent, error) {
+func emailTemplate(app string, msg iam.EmailMessage) (Content, error) {
 	c := emailCopyFor(msg.Language, app)
 	switch msg.Kind {
 	case iam.MessageVerification:
 		return verificationEmail(c, msg), nil
 	case iam.MessageLoginCode:
 		code := strings.TrimSpace(msg.Code)
-		return EmailContent{
+		return Content{
 			Subject:    c.loginSubject,
 			Text:       c.loginCodeLabel + ": " + code,
 			HTML:       "<p><strong>" + escapeHTML(c.loginCodeLabel) + ":</strong> " + escapeHTML(code) + "</p>",
-			Categories: []string{"auth", "2fa-login"},
 		}, nil
 	case iam.MessageNewDeviceCode:
 		code := strings.TrimSpace(msg.Code)
-		return EmailContent{
+		return Content{
 			Subject:    c.deviceSubject,
 			Text:       c.deviceIntro + "\n" + code + "\n" + c.deviceWarning,
 			HTML:       "<p>" + escapeHTML(c.deviceIntro) + "</p><p><strong>" + escapeHTML(code) + "</strong></p><p>" + escapeHTML(c.deviceWarning) + "</p>",
-			Categories: []string{"auth", "new-device"},
 		}, nil
 	case iam.MessagePasswordReset:
-		return linkEmail(c.resetSubject, c.resetIntro, msg.Link, "password-reset"), nil
+		return linkEmail(c.resetSubject, c.resetIntro, msg.Link), nil
 	case iam.MessageInvite:
 		intro := fmt.Sprintf("You've been invited to join %s. Follow the link to create your account:", app)
-		return linkEmail(fmt.Sprintf("You're invited to %s", app), intro, msg.Link, "invite"), nil
+		return linkEmail(fmt.Sprintf("You're invited to %s", app), intro, msg.Link), nil
 	case iam.MessageWelcome:
-		return noticeEmail(c.welcomeSubject, c.welcomeBody, "welcome"), nil
+		return noticeEmail(c.welcomeSubject, c.welcomeBody), nil
 	case iam.MessageContactChanged:
 		ch := msg.ContactChange
 		if ch == nil {
-			return EmailContent{}, errors.New("contact_changed email needs a ContactChange")
+			return Content{}, errors.New("contact_changed email needs a ContactChange")
 		}
 		return noticeEmail(
 			fmt.Sprintf("Your %s %s was changed", app, ch.Field),
 			fmt.Sprintf("The %s on your %s account was changed to %s. If this was not you, secure your account now.", ch.Field, app, ch.NewValue),
-			"contact-changed",
 		), nil
 	case iam.MessageDeviceKeyEnrolled:
 		key := msg.DeviceKey
 		if key == nil {
-			return EmailContent{}, errors.New("device_key_enrolled email needs a DeviceKey")
+			return Content{}, errors.New("device_key_enrolled email needs a DeviceKey")
 		}
 		device := strings.TrimSpace(key.Label)
 		if device == "" {
@@ -113,19 +110,17 @@ func emailTemplate(app string, msg iam.EmailMessage) (EmailContent, error) {
 		return noticeEmail(
 			fmt.Sprintf("A new device can sign in to your %s account", app),
 			fmt.Sprintf("%s was enrolled on your %s account on %s and can now sign in as you. If this was not you, revoke it and secure your email now.", device, app, key.CreatedAt.UTC().Format("2006-01-02 15:04 UTC")),
-			"device-key-enrolled",
 		), nil
 	case iam.MessageMFAReset:
 		return noticeEmail(
 			fmt.Sprintf("Two-step verification on your %s account was reset", app),
 			fmt.Sprintf("An administrator removed the passkeys, second factors, backup codes and device keys of your %s account and signed it out everywhere. Set up two-step verification again when you next sign in. If you did not ask for this, contact support now.", app),
-			"mfa-reset",
 		), nil
 	}
-	return EmailContent{}, fmt.Errorf("twilio email: no built-in template for message kind %q", msg.Kind)
+	return Content{}, fmt.Errorf("smtp: no built-in template for message kind %q", msg.Kind)
 }
 
-func verificationEmail(c emailCopy, msg iam.EmailMessage) EmailContent {
+func verificationEmail(c emailCopy, msg iam.EmailMessage) Content {
 	intro := c.verifyIntro
 	if msg.Purpose == iam.PurposeContactChange {
 		intro = c.changeIntro
@@ -142,30 +137,27 @@ func verificationEmail(c emailCopy, msg iam.EmailMessage) EmailContent {
 		html += "<li><strong>" + escapeHTML(c.verifyLinkLabel) + ":</strong> " + escapeHTML(link) + "</li>"
 	}
 	html += "</ul>"
-	return EmailContent{
+	return Content{
 		Subject:    c.verifySubject,
 		Text:       strings.Join(lines, "\n"),
 		HTML:       html,
-		Categories: []string{"auth", "email-verification"},
 	}
 }
 
-func linkEmail(subject, intro, link, category string) EmailContent {
+func linkEmail(subject, intro, link string) Content {
 	link = strings.TrimSpace(link)
-	return EmailContent{
+	return Content{
 		Subject:    subject,
 		Text:       intro + "\n" + link,
 		HTML:       "<p>" + escapeHTML(intro) + "</p><p>" + escapeHTML(link) + "</p>",
-		Categories: []string{"auth", category},
 	}
 }
 
-func noticeEmail(subject, text, category string) EmailContent {
-	return EmailContent{
+func noticeEmail(subject, text string) Content {
+	return Content{
 		Subject:    subject,
 		Text:       text,
 		HTML:       "<p>" + escapeHTML(text) + "</p>",
-		Categories: []string{"auth", category},
 	}
 }
 

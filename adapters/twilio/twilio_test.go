@@ -2,7 +2,6 @@ package twilio_test
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
@@ -29,53 +28,6 @@ func (r *recorder) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	r.bodies = append(r.bodies, string(b))
 	return &http.Response{StatusCode: r.status, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(r.reply)), Request: req}, nil
-}
-
-func TestEmailRenderFallsBackPerKind(t *testing.T) {
-	rec := &recorder{status: http.StatusAccepted}
-	email, err := twilio.NewEmail(twilio.EmailConfig{
-		APIKey:    "SG.key",
-		FromEmail: "hello@acme.test",
-		AppName:   "Acme",
-		Client:    &http.Client{Transport: rec},
-		Render: func(_ context.Context, msg iam.EmailMessage) (twilio.EmailContent, bool) {
-			if msg.Kind != iam.MessageLoginCode {
-				return twilio.EmailContent{}, false
-			}
-			return twilio.EmailContent{Subject: "Acme sign-in", Text: "Your code is " + msg.Code}, true
-		},
-	})
-	require.NoError(t, err)
-
-	type payload struct {
-		Personalizations []struct{ Subject string }
-		Content          []struct{ Type, Value string }
-		Categories       []string
-	}
-	send := func(msg iam.EmailMessage) payload {
-		t.Helper()
-		msg.To = "ana@acme.test"
-		require.NoError(t, email.Send(t.Context(), msg))
-		var p payload
-		require.NoError(t, json.Unmarshal([]byte(rec.bodies[len(rec.bodies)-1]), &p))
-		return p
-	}
-
-	got := send(iam.EmailMessage{Kind: iam.MessageLoginCode, Language: "en", Code: "123456"})
-	require.Equal(t, "Acme sign-in", got.Personalizations[0].Subject)
-	require.Equal(t, "Your code is 123456", got.Content[0].Value)
-
-	got = send(iam.EmailMessage{Kind: iam.MessagePasswordReset, Language: "en", Link: "https://acme.test/reset"})
-	require.Equal(t, "Reset your Acme password", got.Personalizations[0].Subject)
-	require.Equal(t, "Use this link to reset your password:\nhttps://acme.test/reset", got.Content[0].Value)
-	require.Equal(t, []string{"auth", "password-reset"}, got.Categories)
-
-	got = send(iam.EmailMessage{Kind: iam.MessagePasswordReset, Language: "es", Link: "https://acme.test/reset"})
-	require.Equal(t, "Restablece tu contrasena de Acme", got.Personalizations[0].Subject)
-
-	err = email.Send(t.Context(), iam.EmailMessage{Kind: "carrier_pigeon", To: "ana@acme.test"})
-	require.ErrorContains(t, err, "carrier_pigeon")
-	require.Len(t, rec.bodies, 3, "an unknown kind reaches no provider")
 }
 
 func TestSMSRenderFallsBackPerKind(t *testing.T) {
