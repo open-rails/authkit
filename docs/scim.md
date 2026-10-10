@@ -71,7 +71,7 @@ A group whose persona has `RemoteApplications` keeps a directory of its remote a
 **Tenant.** The credential names the directory (RFC 7644 §6.1): one issuer's users in one group. A user is its issuer and subject together (OpenID Connect Core §2, §5.7), so two issuers' users never mix, and another group's credential sees none of them (404).
 
 - An API key bound to a remote application of its group: `iam.NewAPIKey.ProvisionsFor`, or `provisions_for` on `POST /api/v1/groups/{group_id}/api-keys`. It is sent as `Authorization: Bearer` (RFC 6750 §2.1): a push target's `BearerToken`, or Okta's and Entra's secret token. It is deleted with the application.
-- The remote application's own access token (client credentials, `sub` equal to `client_id`), once `Client.Authenticator()` accepts trusted issuers' tokens.
+- The remote application's own access token (client credentials, `sub` equal to `client_id`) for `Config.Resource.ID` ([resource server](resource-server.md)), carrying `<persona>:directory:manage` (or `:read`) within the application's role.
 
 A credential with no application, or whose application is disabled, is refused 403. Reads need `<persona>:directory:read` in the group, writes `<persona>:directory:manage`.
 
@@ -98,6 +98,8 @@ key, err := ak.CreateAPIKey(ctx, iam.SystemIdentity(), group, iam.NewAPIKey{
 - **PATCH** takes Okta's and Entra's shapes: operations without a path, `op` in any case, a value filter on `emails` (`emails[type eq "work"].value`: one equality on `value`, `type` or `primary`), and `"True"`/`"False"` for `active`. One address is kept, so every `emails` path addresses it; an `add` whose filter matches nothing adds it with the filter's `type`, a `replace` is 400 `noTarget`.
 - **Errors** are RFC 7644 §3.12 bodies as `application/scim+json`: 400 with a `scimType`, 401 with RFC 6750 §3's `WWW-Authenticate`, 403, 404, 409 `uniqueness`, 413.
 - **Verified addresses.** SCIM's User has no verification flag (RFC 7643 §4.1.2), so an address pushed is one the issuer asserts; AuthKit's own push sends an address only once verified. Point only such a directory at it.
+
+**Token claims.** With `Config.Resource`, a trusted issuer's user token carrying contact claims (`email` with `email_verified`, `name`, `preferred_username`, `updated_at`; OIDC Core §5.1) records them in its group's directory as it is verified, the newer of a token's claims and a push winning. A failure to record never refuses the request.
 
 `Client.RemoteUserInfo(ref, issuer)` is the group's users of issuer as a `helpers/userinfo.Lookup`, keyed by subject: the email, the name (`displayName`, else `name.formatted`, else the given and family names) and the username. An inactive user (`active: false`) is absent. A library reads a customer's contact through it by the issuer and subject of the customer's token.
 
