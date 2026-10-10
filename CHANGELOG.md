@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.17.0
+
+Rate limits are counted in Redis or in memory, never in PostgreSQL (#446). This reverses v1.16.0's PostgreSQL limiter.
+
+- With `Deps.Redis`, every replica spends the same budgets there. Without it, each process counts its own in memory: one node only.
+- While a declared Redis fails, each process counts on its own with the same limits until Redis answers again; AuthKit logs the fallback and the recovery once each. A limited request is never refused 503.
+- The in-memory limiter keeps at most 100,000 buckets and sweeps expired ones every minute.
+- Migration 0012 drops `rate_limits`.
+
 ## v1.16.0
 
 Rate limits are shared by every replica without Redis (#445).

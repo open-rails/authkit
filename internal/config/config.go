@@ -433,8 +433,8 @@ type HTTPConfig struct {
 	RefreshCookie bool
 
 	// RateLimits overlays bucket limits onto authkit.DefaultRateLimits;
-	// unknown buckets are refused. Every replica spends the same budgets, in
-	// Postgres or, with Deps.Redis, in Redis.
+	// unknown buckets are refused. Limits are in memory and per process unless
+	// Deps.Redis shares them.
 	RateLimits map[string]RateLimit
 	// RedisKeyPrefix namespaces the rate-limit keys in Deps.Redis so
 	// deployments can share one Redis. Empty derives "authkit:<schema>:".

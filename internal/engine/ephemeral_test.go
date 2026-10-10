@@ -239,6 +239,7 @@ func TestDPoPReplayStoreOutageFailsClosed(t *testing.T) {
 	e := newTestEngine(t, cfg, deps)
 	srv, err := httpapi.New(e, e.Config(), deps)
 	require.NoError(t, err)
+	t.Cleanup(srv.Close)
 	h, err := httpapi.NewMount(srv)
 	require.NoError(t, err)
 

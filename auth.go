@@ -35,6 +35,7 @@ import (
 type Client struct {
 	ops    ops.Operations
 	engine *engine.Engine
+	http   *httpapi.Service
 	mount  *httpapi.Mount
 	// cfg and deps are what New was given (internal/builtwith).
 	cfg  Config
@@ -71,20 +72,25 @@ func New(ctx context.Context, cfg Config, deps Deps) (_ *Client, err error) {
 		}
 	}()
 	if e.Config().HTTP != nil {
-		if a.mount, err = newHTTP(e, deps); err != nil {
+		if a.http, a.mount, err = newHTTP(e, deps); err != nil {
 			return nil, err
 		}
 	}
 	return a, nil
 }
 
-// newHTTP builds the HTTP layer's one mounted handler.
-func newHTTP(e *engine.Engine, deps Deps) (*httpapi.Mount, error) {
+// newHTTP builds the HTTP layer and its one mounted handler.
+func newHTTP(e *engine.Engine, deps Deps) (*httpapi.Service, *httpapi.Mount, error) {
 	svc, err := httpapi.New(e, e.Config(), deps)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return httpapi.NewMount(svc)
+	mount, err := httpapi.NewMount(svc)
+	if err != nil {
+		svc.Close()
+		return nil, nil, err
+	}
+	return svc, mount, nil
 }
 
 // StartOption configures Start.
@@ -129,6 +135,7 @@ func (a *Client) Close(ctx context.Context) error {
 	if a == nil {
 		return nil
 	}
+	a.http.Close()
 	return a.engine.Close(ctx)
 }
 

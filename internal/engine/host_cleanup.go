@@ -32,18 +32,15 @@ func (s *Engine) gcDeadSessions(ctx context.Context, batchSize int64) (int, erro
 }
 
 // cleanupExpiredAuthState is the periodic maintenance sweep: expired
-// ephemeral rows (codes, ceremonies, counters) and rate-limit budgets,
-// revoked/expired refresh sessions and their consumed-token history, terminal
-// keys/invites (retained terminalRetention after their first terminal event),
-// and session-event history past Config.SessionEventRetention (#245).
+// ephemeral rows (codes, ceremonies, counters), revoked/expired refresh
+// sessions and their consumed-token history, terminal keys/invites (retained
+// terminalRetention after their first terminal event), and session-event
+// history past Config.SessionEventRetention (#245).
 func (s *Engine) cleanupExpiredAuthState(ctx context.Context) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
 	if _, err := s.purgeExpiredEphemeral(ctx); err != nil {
-		return err
-	}
-	if _, err := s.purgeExpiredRateLimits(ctx); err != nil {
 		return err
 	}
 

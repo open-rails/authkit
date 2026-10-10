@@ -1,7 +1,6 @@
 package securitytest
 
 import (
-	"context"
 	"io"
 	"net"
 	"net/http"
@@ -11,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/internal/testdb"
@@ -19,12 +17,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSecurityLimiterOutageStaysLimited: a Redis outage never lifts a budget
-// or splits it per process. While the limiter's Redis stops answering or
-// refuses connections, replicas spend the same budgets in PostgreSQL, a
-// request waits on Redis only a moment whatever the client's timeouts, and a
-// 429 still says when to retry. Once Redis answers again, budgets are spent
-// there again.
+// TestSecurityLimiterOutageStaysLimited: a Redis outage never lifts a budget.
+// While the limiter's Redis stops answering or refuses connections, each
+// replica keeps every budget on its own with the same limits, a request waits
+// on Redis only a moment whatever the client's timeouts, and a 429 still says
+// when to retry. Once Redis answers again, the budgets are shared again.
 func TestSecurityLimiterOutageStaysLimited(t *testing.T) {
 	link, rdb := newRedisLink(t)
 	h := newHost(t, withHTTP(func(c *authkit.HTTPConfig) {
@@ -70,18 +67,20 @@ func TestSecurityLimiterOutageStaysLimited(t *testing.T) {
 		spend(t, loginFrom("203.0.113.1"), http.StatusUnauthorized, h, b)
 	})
 
-	t.Run("a Redis that stops answering costs a moment, and replicas share budgets in PostgreSQL", func(t *testing.T) {
+	t.Run("a Redis that stops answering costs a moment, and each replica limits on its own", func(t *testing.T) {
 		link.set(linkStalled)
 		started := time.Now()
-		spend(t, loginFrom("203.0.113.2"), http.StatusUnauthorized, h, b)
+		spend(t, loginFrom("203.0.113.2"), http.StatusUnauthorized, h)
+		spend(t, loginFrom("203.0.113.2"), http.StatusUnauthorized, b)
 		require.Less(t, time.Since(started), 5*time.Second, "requests waited on the stalled Redis")
-		spend(t, func(on *host) response { return availability(on, "203.0.113.2") }, http.StatusOK, h, b)
+		spend(t, func(on *host) response { return availability(on, "203.0.113.2") }, http.StatusOK, h)
 	})
 
-	t.Run("a Redis that refuses connections leaves every budget shared", func(t *testing.T) {
+	t.Run("a Redis that refuses connections leaves every budget in place", func(t *testing.T) {
 		link.set(linkCut)
-		spend(t, loginFrom("203.0.113.3"), http.StatusUnauthorized, b, h)
-		spend(t, func(on *host) response { return availability(on, "203.0.113.3") }, http.StatusOK, b, h)
+		spend(t, loginFrom("203.0.113.3"), http.StatusUnauthorized, h)
+		spend(t, loginFrom("203.0.113.3"), http.StatusUnauthorized, b)
+		spend(t, func(on *host) response { return availability(on, "203.0.113.3") }, http.StatusOK, b)
 	})
 
 	t.Run("budgets are shared again once Redis answers", func(t *testing.T) {
@@ -96,77 +95,6 @@ func TestSecurityLimiterOutageStaysLimited(t *testing.T) {
 		}
 		spend(t, loginFrom("203.0.113.4"), http.StatusUnauthorized, h, b)
 	})
-}
-
-// TestSecurityReplicasShareRateLimits: two AuthKit instances on one database,
-// each with its own pool, spend one budget without Redis and with a declared
-// Redis that is down: the request past the limit is refused whichever
-// instance it reaches.
-func TestSecurityReplicasShareRateLimits(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		redis func(t *testing.T) *redis.Client
-	}{
-		{name: "without Redis"},
-		{name: "with a declared Redis that is down", redis: refusedRedis},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			logs := captureLogs(t)
-			deps := authtest.WithDeps(func(d *authkit.Deps) {
-				if tc.redis != nil {
-					d.Redis = tc.redis(t)
-				}
-			})
-			one := newHost(t, withHTTP(func(c *authkit.HTTPConfig) {
-				c.RateLimits = map[string]authkit.RateLimit{"password_login": {Limit: 3, Window: time.Hour}}
-			}), deps)
-			two := one.replica(ownPool(t, one.pool), deps)
-			a := one.newAccount("shared-limits")
-			login := func(on *host) response {
-				return on.post("/password/login", map[string]string{"identifier": a.email, "password": "wrong-" + password}, "")
-			}
-			for i, on := range []*host{one, two, one} {
-				resp := login(on)
-				require.Equal(t, http.StatusUnauthorized, resp.status, "request %d: %s", i+1, resp)
-			}
-			for _, on := range []*host{two, one} {
-				resp := login(on)
-				require.Equal(t, http.StatusTooManyRequests, resp.status, "an instance kept its own budget: %s", resp)
-				require.Equal(t, "rate_limited", resp.errorCode())
-				retry, err := strconv.Atoi(resp.header.Get("Retry-After"))
-				require.NoError(t, err)
-				require.Positive(t, retry)
-				require.Equal(t, "0", resp.header.Get("RateLimit-Remaining"))
-			}
-			var rows int
-			require.NoError(t, one.pool.QueryRow(t.Context(), `SELECT count(*) FROM profiles.rate_limits WHERE key LIKE 'password_login:%'`).Scan(&rows))
-			require.Equal(t, 1, rows, "the budget is one PostgreSQL row")
-			if tc.redis != nil {
-				require.Contains(t, logs.String(), "budgets are spent in PostgreSQL until Redis recovers")
-			}
-			require.NotContains(t, logs.String(), "per-process")
-		})
-	}
-}
-
-// refusedRedis is a client of a Redis that is down: nothing listens on its
-// address.
-func refusedRedis(t *testing.T) *redis.Client {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	addr := ln.Addr().String()
-	require.NoError(t, ln.Close())
-	client := redis.NewClient(&redis.Options{Addr: addr, MaxRetries: -1})
-	t.Cleanup(func() { _ = client.Close() })
-	return client
-}
-
-// ownPool gives a replica its own pool on the host's database.
-func ownPool(t *testing.T, shared *pgxpool.Pool) authtest.Option {
-	pool, err := pgxpool.New(context.Background(), shared.Config().ConnString())
-	require.NoError(t, err)
-	t.Cleanup(pool.Close)
-	return authtest.WithDeps(func(d *authkit.Deps) { d.Postgres = pool })
 }
 
 type linkMode int

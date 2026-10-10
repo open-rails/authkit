@@ -357,6 +357,7 @@ func newAccountFlow(t *testing.T, pool *pgxpool.Pool, cfg config.Config, deps co
 	f.engine = newTestEngine(t, cfg, deps)
 	service, err := httpapi.New(f.engine, f.engine.Config(), deps)
 	require.NoError(t, err)
+	t.Cleanup(service.Close)
 	mounted, err := httpapi.NewMount(service)
 	require.NoError(t, err)
 	f.server = httptest.NewServer(mounted)

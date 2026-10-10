@@ -1,6 +1,6 @@
 // Package redislimiter is the Redis-backed sliding-window rate limiter over
 // ratelimit.Limit buckets, shared by every replica. While Redis fails it
-// spends the budgets in its fallback, the PostgreSQL limiter.
+// limits in process instead.
 package redislimiter
 
 import (
@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/internal/ratelimit"
+	memorylimiter "github.com/open-rails/authkit/internal/ratelimit/memory"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -22,18 +23,18 @@ const (
 	// client's own timeouts, so an outage costs a request at most this.
 	commandTimeout = 250 * time.Millisecond
 	// While Redis fails, one request tries it again after a backoff that
-	// doubles from minBackoff to maxBackoff; the rest decide in the fallback.
+	// doubles from minBackoff to maxBackoff; the rest decide in process.
 	minBackoff = time.Second
 	maxBackoff = 30 * time.Second
 )
 
-// Limiter is a Redis sliding-window limiter using ZSETs, with a fallback
-// every replica shares holding the same limits.
+// Limiter is a Redis sliding-window limiter using ZSETs, with an in-process
+// fallback holding the same limits.
 type Limiter struct {
 	rdb      redis.UniversalClient
 	limits   map[string]ratelimit.Limit
 	prefix   string
-	fallback ratelimit.Limiter
+	fallback *memorylimiter.Limiter
 
 	down    atomic.Bool
 	mu      sync.Mutex // guards backoff and retryAt
@@ -42,22 +43,27 @@ type Limiter struct {
 }
 
 // New builds a Redis sliding-window limiter whose keys live under prefix (the
-// deployment namespace, #307): <prefix><key>:<bucket>. fallback decides while
-// Redis fails.
-func New(rdb redis.UniversalClient, limits map[string]ratelimit.Limit, prefix string, fallback ratelimit.Limiter) (*Limiter, error) {
-	if rdb == nil || fallback == nil {
-		return nil, fmt.Errorf("ratelimit: Redis client and fallback required")
+// deployment namespace, #307): <prefix><key>:<bucket>.
+func New(rdb redis.UniversalClient, limits map[string]ratelimit.Limit, prefix string) (*Limiter, error) {
+	if rdb == nil {
+		return nil, fmt.Errorf("ratelimit: Redis client required")
 	}
-	if err := ratelimit.ValidateLimits(limits); err != nil {
+	fallback, err := memorylimiter.New(limits)
+	if err != nil {
 		return nil, err
 	}
 	return &Limiter{rdb: rdb, limits: maps.Clone(limits), prefix: prefix, fallback: fallback}, nil
 }
 
-// Allow decides in Redis. When Redis fails it decides in the fallback with
-// the same limits, logs once, and lets one request try Redis again after each
-// backoff; the first success logs the recovery.
-func (l *Limiter) Allow(ctx context.Context, bucket, key string) (ratelimit.Result, error) {
+// StartCleanup sweeps the fallback's idle buckets until ctx is cancelled.
+func (l *Limiter) StartCleanup(ctx context.Context, interval time.Duration) {
+	l.fallback.StartCleanup(ctx, interval)
+}
+
+// Allow decides in Redis. When Redis fails it decides in process with the
+// same limits, logs once, and lets one request try Redis again after each
+// backoff; the first success logs the recovery and shares the budgets again.
+func (l *Limiter) Allow(ctx context.Context, bucket, key string) ratelimit.Result {
 	probe := false
 	if l.down.Load() {
 		if probe = l.claimProbe(); !probe {
@@ -67,7 +73,7 @@ func (l *Limiter) Allow(ctx context.Context, bucket, key string) (ratelimit.Resu
 	result, err := l.shared(ctx, bucket, key)
 	if err == nil {
 		l.recovered()
-		return result, nil
+		return result
 	}
 	if ctx.Err() == nil { // the caller giving up is no outage
 		l.failed(err, probe)
@@ -95,7 +101,7 @@ func (l *Limiter) failed(err error, probe bool) {
 	case !l.down.Load():
 		l.backoff = minBackoff
 		l.down.Store(true)
-		slog.Warn("authkit: Redis rate limiting failed; budgets are spent in PostgreSQL until Redis recovers", "error", err)
+		slog.Warn("authkit: Redis rate limiting failed; each process limits on its own until Redis recovers", "error", err)
 	case probe:
 		l.backoff = min(2*l.backoff, maxBackoff)
 	default:
@@ -111,7 +117,7 @@ func (l *Limiter) recovered() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.down.Swap(false) {
-		slog.Info("authkit: Redis rate limiting recovered")
+		slog.Info("authkit: Redis rate limiting recovered; budgets are shared again")
 	}
 }
 

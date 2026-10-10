@@ -78,9 +78,9 @@ type Deps struct {
 	// account creation and renames; an error refuses the name.
 	NameAdmission func(context.Context, iam.NameAdmissionRequest) error
 
-	// Redis optionally counts the rate-limit budgets, which are otherwise
-	// counted in Postgres; it holds no other AuthKit state. While it fails,
-	// budgets are counted in Postgres.
+	// Redis shares rate-limit counters across replicas; it holds no other
+	// AuthKit state. Without it, and while it fails, each process counts on
+	// its own with the same limits.
 	Redis redis.UniversalClient
 	// ClientIP extracts the client address, replacing the proxy handling of
 	// HTTPConfig.
