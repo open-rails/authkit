@@ -91,7 +91,7 @@ The only application data AuthKit keeps about an account is its public metadata,
 
 ## auth-ui
 
-`@openrails/auth-ui` is attached to each release as `openrails-auth-ui-<version>.tgz`, at the release's version: pair it with the AuthKit of the same version. Its generated wire types and route table follow the HTTP contract. Its components, hooks and styles are not covered, so pin the exact version.
+`@openrails/auth-ui` is published to npm at each release's version: pair it with the AuthKit of the same version. Its generated wire types and route table follow the HTTP contract. Its components, hooks and styles are not covered, so pin the exact version.
 
 ## Not covered
 
