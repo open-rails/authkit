@@ -53,7 +53,9 @@ func ClientIPFromForwardedHeaders(trusted, cloudflare []netip.Prefix) ClientIPFu
 		if !fromCloudflare && !inPrefixes(peerAddr, trusted) {
 			return peerAddr.String()
 		}
-		xff := forwardedForClient(r.Header.Get("X-Forwarded-For"), trusted, cloudflare)
+		// Every line counts (RFC 9110 §5.3): a proxy that appends its own line
+		// must not leave a client-written first line in charge.
+		xff := forwardedForClient(strings.Join(r.Header.Values("X-Forwarded-For"), ","), trusted, cloudflare)
 		var cf netip.Addr
 		if fromCloudflare {
 			if a, err := netip.ParseAddr(strings.TrimSpace(r.Header.Get("CF-Connecting-IP"))); err == nil && isPublicAddr(a) {

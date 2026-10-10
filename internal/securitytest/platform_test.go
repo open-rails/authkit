@@ -121,6 +121,26 @@ func TestSecurityClientAddressSpoofing(t *testing.T) {
 	}
 }
 
+// TestSecurityForwardedForReadsEveryLine: a declared proxy that appends its
+// own X-Forwarded-For line (HAProxy's option forwardfor) leaves the client's
+// line in front of it. Every line counts, walked right to left, so a client
+// cannot pick its own budget through the proxy.
+func TestSecurityForwardedForReadsEveryLine(t *testing.T) {
+	h := newHost(t, withHTTP(behindProxy), withHTTP(func(c *authkit.HTTPConfig) {
+		c.RateLimits = map[string]authkit.RateLimit{"password_login": {Limit: 3, Window: time.Hour}}
+	}))
+	for i := range 4 {
+		resp := h.do(request{method: http.MethodPost, path: "/password/login",
+			header: http.Header{"X-Forwarded-For": {fmt.Sprintf("198.51.100.%d", i+1), "203.0.113.60"}},
+			body:   map[string]string{"identifier": unique("nobody") + "@security.test", "password": "wrong-" + password}})
+		if i < 3 {
+			require.Equal(t, http.StatusUnauthorized, resp.status, resp.String())
+		} else {
+			require.Equal(t, http.StatusTooManyRequests, resp.status, "the client's own line picked its budget: %s", resp)
+		}
+	}
+}
+
 type rotatingKeys struct {
 	current atomic.Pointer[keys.Static]
 }
