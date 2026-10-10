@@ -40,10 +40,6 @@ const (
 	scimBulkPayload    = 1 << 20
 )
 
-// boundScope is a Verified bound to one scope: a trusted issuer's token, its
-// application's group (helpers/auth Bound).
-type boundScope interface{ BoundScope() auth.Scope }
-
 // scimDirectory serves a request to a group's directory. The credential is
 // authenticated as Client.Authenticator authenticates it, and names the
 // tenant (RFC 7644 §6.1): an API key bound to a remote application, or the
@@ -59,7 +55,7 @@ func scimDirectory(manage bool, f func(*Service, http.ResponseWriter, *http.Requ
 			return
 		}
 		bound := ""
-		if b, ok := v.(boundScope); ok && b.BoundScope().Authority == s.cfg.Token.Issuer {
+		if b, ok := v.(auth.Bound); ok && b.BoundScope().Authority == s.cfg.Token.Issuer {
 			bound = b.BoundScope().ID
 		}
 		t, err := s.svc.SCIMTenant(ctx, v.Identity(), bound)
