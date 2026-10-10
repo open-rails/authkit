@@ -10,7 +10,6 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 	"github.com/open-rails/helpers/auth"
-	"github.com/open-rails/helpers/contacts"
 )
 
 // Operations is every operation of the Client that a remote deployment could
@@ -88,8 +87,6 @@ type Operations interface {
 	ImportSolanaLinks(ctx context.Context, rows []iam.ImportSolanaLink, opts ...Option) (iam.ImportSolanaLinksResult, error)
 	LinkProvider(ctx context.Context, userID string, l iam.ProviderLink, opts ...Option) error
 
-	// SCIM provisioning and contacts (helpers/contacts.Source).
+	// SCIM provisioning.
 	ProvisioningTargets(ctx context.Context) ([]iam.ProvisioningTarget, error)
-	Contacts(ctx context.Context, ids []string) (map[string]contacts.Contact, error)
-	SearchContacts(ctx context.Context, query string, limit int) ([]contacts.Contact, error)
 }

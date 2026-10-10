@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.14.0
+
+The owner approved shipping this breaking change in a minor release. A library takes a read-only user lookup, not the whole Client, named after OIDC's UserInfo (helpers v1.5.0 replaces `helpers/contacts` with `helpers/userinfo`).
+
+### Breaking
+
+| Removed | Use instead |
+|---|---|
+| `Client.Contacts(ctx, ids)`, `Client.SearchContacts(ctx, query, limit)`: the Client as a `helpers/contacts.Source` | `Client.UserInfo()`, a `userinfo.Lookup`: `Get(ctx, ids)` and `Search(ctx, query, limit)`, with the same answers. An embedded OpenRails takes `Deps.UserInfo: auth.UserInfo()` |
+| `contactstest.Check(t, auth, contactstest.Fixtures{Contacts: …})` | `userinfotest.Check(t, auth.UserInfo(), userinfotest.Fixtures{Users: …})` |
+
 ## v1.13.0
 
 The owner approved shipping this breaking change in a minor release. Email goes through any SMTP server (#443): the provider is configuration, not code.

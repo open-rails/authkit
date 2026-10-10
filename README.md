@@ -360,4 +360,4 @@ The rest is ordinary app code (our channel and post handlers), not AuthKit. The 
 
 `Start` runs AuthKit's background jobs (account deletion, events, cleanup) on its own [River](https://riverqueue.com) client in `Config.Database.RiverSchema` (default `public`), whose tables `New` creates. An app that already runs a River fleet builds it in that schema with `riverhelpers.New(ctx, db, riverConfig, auth.RiverJobs(), …)` (`github.com/open-rails/helpers/river`) and calls `auth.Start(ctx, authkit.WithRiverClient(fleet))` instead; the app starts and stops that fleet, and `auth.Close` leaves it running.
 
-More: [keys](docs/keys.md), [tokens](docs/tokens.md), [SCIM provisioning and contacts](docs/scim.md), [subject, invoker, credential](docs/identity.md), [HTTP](docs/http.md), [RBAC](docs/rbac.md), [security](SECURITY.md), [v1 stability](docs/stability.md)
+More: [keys](docs/keys.md), [tokens](docs/tokens.md), [SCIM provisioning and user info](docs/scim.md), [subject, invoker, credential](docs/identity.md), [HTTP](docs/http.md), [RBAC](docs/rbac.md), [security](SECURITY.md), [v1 stability](docs/stability.md)

@@ -72,7 +72,7 @@ func TestProvisioningTriggersWatchWhatIsPushed(t *testing.T) {
 		default:
 			t.Fatalf("db.User.%s: teach this test to vary a %s", f.Name, f.Type)
 		}
-		if shown(changed) != shown(base) || accountContact(changed) != accountContact(base) {
+		if shown(changed) != shown(base) || accountUserInfo(changed) != accountUserInfo(base) {
 			read = append(read, snake(f.Name))
 		}
 	}

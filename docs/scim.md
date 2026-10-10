@@ -1,4 +1,4 @@
-# SCIM provisioning and contacts
+# SCIM provisioning and user info
 
 AuthKit is the directory: other services learn who a user is from it, four ways.
 
@@ -6,7 +6,7 @@ AuthKit is the directory: other services learn who a user is from it, four ways.
 |---|---|
 | [Push](#push) | a service that keeps its own copy (OpenRails' customer contacts): AuthKit sends every account to its SCIM 2.0 endpoint |
 | [Pull](#pull) | a service that reads on demand: AuthKit's read-only SCIM 2.0 endpoint |
-| [In process](#in-process) | a library embedded in the same binary: `*authkit.Client` is a `helpers/contacts.Source` |
+| [In process](#in-process) | a library embedded in the same binary: `Client.UserInfo()` is a `helpers/userinfo.Lookup` |
 | [Token claims](#token-claims) | a resource server that meets a user on the user's first request |
 
 What push, pull and in process show of an account: its id, its username (also the name; AuthKit keeps no other), its email **only once verified** (an unproven address may be someone else's), and whether it is active (neither deleted nor banned).
@@ -17,7 +17,7 @@ What push, pull and in process show of an account: its id, its username (also th
 cfg.Provisioning = authkit.ProvisioningConfig{
 	Targets: []authkit.ProvisioningTarget{{
 		Name:        "billing",
-		URL:         "https://billing.example.com/scim/v2",
+		URL:         "https://billing.example.com/billing/v1/app/scim/v2",
 		BearerToken: os.Getenv("BILLING_SCIM_TOKEN"),
 	}},
 }
@@ -58,7 +58,7 @@ Errors are SCIM's (`application/scim+json`): 401 and 403 with a `WWW-Authenticat
 
 ## In process
 
-`*authkit.Client` implements `contacts.Source` (`github.com/open-rails/helpers/contacts`): `Contacts(ctx, ids)` returns the live accounts among ids, and `SearchContacts(ctx, query, limit)` those whose verified email or username contains query. Each read is current; nothing is copied. An embedded OpenRails takes `Deps.Contacts: auth`.
+`Client.UserInfo()` returns a `userinfo.Lookup` (`github.com/open-rails/helpers/userinfo`): its `Get(ctx, ids)` returns the live accounts among ids, and `Search(ctx, query, limit)` those whose verified email or username contains query. Each read is current; nothing is copied. An embedded OpenRails takes `Deps.UserInfo: auth.UserInfo()`.
 
 ## Token claims
 

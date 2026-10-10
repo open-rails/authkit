@@ -75,7 +75,7 @@ func TestClientPublicSurface(t *testing.T) {
 		"DeviceKeys", "Sessions", "ListSessionEvents",
 		"Group", "Groups", "ListGroups", "ListGroupMembers", "ListMemberships", "GroupRoles", "KnownPermission",
 		"ListAPIKeys", "ResolveAPIKey", "ListInvitations", "RemoteApplication", "ListRemoteApplications",
-		"CheckSession", "CheckRecentSignIn", "ProvisioningTargets", "Contacts", "SearchContacts",
+		"CheckSession", "CheckRecentSignIn", "ProvisioningTargets",
 		// Names read at run time, resolved through Config.Roles.
 		"Persona", "Permission", "Role", "RolePermissions",
 	}
@@ -87,6 +87,8 @@ func TestClientPublicSurface(t *testing.T) {
 		"VerifyRequest", "Verify", "AuthenticateRequest", "NewVerifier",
 		// helpers/auth Auth: a merchant library's route gates.
 		"Required", "RequirePermission", "Sensitive", "Identity",
+		// helpers/userinfo Lookup: a library's directory reads.
+		"UserInfo",
 	}
 	noIdentity := append(append(append([]string{}, hostOperations...), reads...), embeddingOnly...)
 

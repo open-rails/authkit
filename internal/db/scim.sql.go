@@ -9,62 +9,6 @@ import (
 	"context"
 )
 
-const contactsSearch = `-- name: ContactsSearch :many
-SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at FROM users u
-WHERE u.deleted_at IS NULL
-  AND (u.username::text ILIKE $1::text
-       OR (u.email_verified AND u.email::text ILIKE $1::text))
-ORDER BY u.id
-LIMIT $2
-`
-
-type ContactsSearchParams struct {
-	Pattern string
-	MaxRows int64
-}
-
-// Live accounts whose username or verified email contains the pattern, in
-// any case (pg_trgm GIN on the columns as text, migration 0002).
-func (q *Queries) ContactsSearch(ctx context.Context, arg ContactsSearchParams) ([]User, error) {
-	rows, err := q.db.Query(ctx, contactsSearch, arg.Pattern, arg.MaxRows)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []User
-	for rows.Next() {
-		var i User
-		if err := rows.Scan(
-			&i.ID,
-			&i.Email,
-			&i.Username,
-			&i.EmailVerified,
-			&i.PhoneNumber,
-			&i.PhoneVerified,
-			&i.BannedAt,
-			&i.BannedUntil,
-			&i.BanReason,
-			&i.BannedBy,
-			&i.DeletedAt,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.LastLogin,
-			&i.PreferredLanguage,
-			&i.LastRenamedAt,
-			&i.CredentialVersion,
-			&i.PublicMetadata,
-			&i.ProfileUpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const sCIMUsersCount = `-- name: SCIMUsersCount :one
 SELECT count(*)::bigint FROM users
 `
@@ -144,6 +88,62 @@ type SCIMUsersPageParams struct {
 
 func (q *Queries) SCIMUsersPage(ctx context.Context, arg SCIMUsersPageParams) ([]User, error) {
 	rows, err := q.db.Query(ctx, sCIMUsersPage, arg.Skip, arg.PageSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []User
+	for rows.Next() {
+		var i User
+		if err := rows.Scan(
+			&i.ID,
+			&i.Email,
+			&i.Username,
+			&i.EmailVerified,
+			&i.PhoneNumber,
+			&i.PhoneVerified,
+			&i.BannedAt,
+			&i.BannedUntil,
+			&i.BanReason,
+			&i.BannedBy,
+			&i.DeletedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LastLogin,
+			&i.PreferredLanguage,
+			&i.LastRenamedAt,
+			&i.CredentialVersion,
+			&i.PublicMetadata,
+			&i.ProfileUpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const userInfoSearch = `-- name: UserInfoSearch :many
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at FROM users u
+WHERE u.deleted_at IS NULL
+  AND (u.username::text ILIKE $1::text
+       OR (u.email_verified AND u.email::text ILIKE $1::text))
+ORDER BY u.id
+LIMIT $2
+`
+
+type UserInfoSearchParams struct {
+	Pattern string
+	MaxRows int64
+}
+
+// Live accounts whose username or verified email contains the pattern, in
+// any case (pg_trgm GIN on the columns as text, migration 0002).
+func (q *Queries) UserInfoSearch(ctx context.Context, arg UserInfoSearchParams) ([]User, error) {
+	rows, err := q.db.Query(ctx, userInfoSearch, arg.Pattern, arg.MaxRows)
 	if err != nil {
 		return nil, err
 	}

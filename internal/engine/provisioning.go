@@ -360,8 +360,8 @@ func (s *Engine) ProvisioningTargets(ctx context.Context) ([]iam.ProvisioningTar
 	return out, nil
 }
 
-// scimUser is u as a SCIM User at asOf, externalId its id: its contact
-// (accountContact), userName its username or else its id, whether it is
+// scimUser is u as a SCIM User at asOf, externalId its id: its user info
+// (accountUserInfo), userName its username or else its id, whether it is
 // usable, and meta.lastModified, when that last changed (a target keeps the
 // newest of what it is told).
 func scimUser(u db.User, asOf time.Time) scim.User {
@@ -371,7 +371,7 @@ func scimUser(u db.User, asOf time.Time) scim.User {
 		modified = *u.BannedUntil // a temporary ban ended: active changed then
 	}
 	modified = modified.UTC()
-	c := accountContact(u)
+	c := accountUserInfo(u)
 	out := scim.User{
 		Schemas: []string{scim.SchemaUser}, ExternalID: u.ID, UserName: c.Username, Active: &active,
 		Meta: &scim.Meta{ResourceType: "User", LastModified: &modified},

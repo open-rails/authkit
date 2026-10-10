@@ -39,7 +39,7 @@ type ProvisioningTarget struct {
 	// which gets a full initial sync.
 	Name string
 	// URL is the SCIM base URL, beneath which /Users and /Bulk are served
-	// ("https://billing.example.com/scim/v2").
+	// ("https://billing.example.com/billing/v1/app/scim/v2").
 	URL string
 	// Handler serves the SCIM endpoints in process instead of URL, so an
 	// embedded service provider is called with no network. Requests reach it

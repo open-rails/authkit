@@ -25,7 +25,6 @@ pkg authkit, method (*Client) CheckRecentSignIn(context.Context, verify.Claims) 
 pkg authkit, method (*Client) CheckSession(context.Context, verify.Claims) error
 pkg authkit, method (*Client) CheckUsername(context.Context, string) error
 pkg authkit, method (*Client) Close(context.Context) error
-pkg authkit, method (*Client) Contacts(context.Context, []string) (map[string]contacts.Contact, error)
 pkg authkit, method (*Client) CreateAPIKey(context.Context, auth.Identity, iam.GroupRef, iam.NewAPIKey, ...Option) (iam.APIKeyCreated, error)
 pkg authkit, method (*Client) CreateGroup(context.Context, iam.NewGroup, ...Option) (iam.Group, error)
 pkg authkit, method (*Client) CreateInvitation(context.Context, auth.Identity, iam.GroupRef, iam.NewInvitation, ...Option) (iam.InvitationCreated, error)
@@ -83,7 +82,6 @@ pkg authkit, method (*Client) RolePermissions(iam.Role) ([]iam.Perm, error)
 pkg authkit, method (*Client) Routes() []iam.Route
 pkg authkit, method (*Client) SMSAvailable() bool
 pkg authkit, method (*Client) SMSHealth() (time.Time, error)
-pkg authkit, method (*Client) SearchContacts(context.Context, string, int) ([]contacts.Contact, error)
 pkg authkit, method (*Client) Sensitive() func(http.Handler) http.Handler
 pkg authkit, method (*Client) Sessions(context.Context, string) ([]iam.Session, error)
 pkg authkit, method (*Client) SetGroupRole(context.Context, auth.Identity, iam.GroupRef, iam.Subject, iam.Role, ...Option) (iam.GroupMember, error)
@@ -93,6 +91,7 @@ pkg authkit, method (*Client) Unban(context.Context, auth.Identity, string, ...O
 pkg authkit, method (*Client) UpdateUser(context.Context, auth.Identity, string, iam.UserUpdate, ...Option) (iam.User, error)
 pkg authkit, method (*Client) UpsertRemoteApplication(context.Context, auth.Identity, iam.GroupRef, iam.RemoteApplication, ...Option) (iam.RemoteApplication, error)
 pkg authkit, method (*Client) User(context.Context, iam.UserRef, ...Option) (iam.User, error)
+pkg authkit, method (*Client) UserInfo() userinfo.Lookup
 pkg authkit, method (*Client) Users(context.Context, []string) (map[string]iam.User, error)
 pkg authkit, method (*Client) Verify(context.Context, string) (verify.Claims, error)
 pkg authkit, method (*Client) VerifyRequest(*http.Request) (verify.Claims, error)

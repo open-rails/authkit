@@ -14,7 +14,7 @@ SELECT * FROM users ORDER BY id LIMIT sqlc.arg(page_size) OFFSET sqlc.arg(skip);
 -- name: SCIMUsersCount :one
 SELECT count(*)::bigint FROM users;
 
--- name: ContactsSearch :many
+-- name: UserInfoSearch :many
 -- Live accounts whose username or verified email contains the pattern, in
 -- any case (pg_trgm GIN on the columns as text, migration 0002).
 SELECT * FROM users u
