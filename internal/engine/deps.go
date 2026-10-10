@@ -11,6 +11,7 @@ import (
 
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/dpop"
 )
 
 func (s *Engine) applyDeps(d config.Deps) error {
@@ -36,6 +37,7 @@ func (s *Engine) applyDeps(d config.Deps) error {
 		s.ephemeral = &ephemeralKV{pool: ephemeralPool, q: db.New(ephemeralPool)}
 	}
 	s.redis = d.Redis
+	s.replays = dpop.NewReplays(d.Redis)
 	s.resourceHosts = d.ResourceHosts
 	s.providers = slices.Clone(d.Providers)
 	s.email, s.sms = d.Email, d.SMS

@@ -44,7 +44,7 @@ Every route lives beneath `HTTPConfig.BasePath`:
 - `DefaultRateLimits()` holds the defaults. `HTTPConfig.RateLimits` overrides buckets by name; an unknown name is an error.
 - Counters live in each process's memory. Set `Deps.Redis` when you run more than one replica, to share them.
 - If Redis fails, each process counts on its own with the same limits until Redis answers again, so no budget is ever lifted. A request waits on Redis for at most 250ms, and AuthKit logs the fallback and the recovery once each.
-- Spent DPoP proofs (the token endpoint, userinfo, SCIM and `Client.NewVerifier`) are kept the same way: in `Deps.Redis`, else in memory.
+- Spent DPoP proofs (the token endpoint, userinfo, SCIM and `Client.NewVerifier`) and spent JWT-bearer assertions (RFC 7523) are kept the same way: in `Deps.Redis`, else in memory. A capability's `jti` is a grant record and stays in PostgreSQL.
 - A 429 is `rate_limited` with `Retry-After`, the `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset` headers, and the budget in `metadata`.
 
 ## Sign-in limits

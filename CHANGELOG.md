@@ -1,15 +1,53 @@
 # Changelog
 
-## Unreleased
+## v1.18.0
 
-Additive. A group keeps a directory of its remote applications' users: AuthKit is a SCIM 2.0 service provider for them (#447, [docs/scim.md](docs/scim.md#directory)).
+The owner approved shipping these breaking changes in a minor release. AuthKit verifies every credential a service accepts: with `Config.Resource`, `Client.Authenticator()` admits its own sessions and API keys, the RFC 9068 access tokens its own authorization server mints and those its trusted issuers mint (#447, [docs/resource-server.md](docs/resource-server.md)). A group keeps a directory of its trusted issuers' users ([docs/scim.md](docs/scim.md#directory)).
+
+### Breaking
+
+| Removed or changed | Use instead |
+|---|---|
+| `RemoteApplicationConfig.RootRole` | `RemoteApplicationConfig.Role`, with `RoleMap` mapping the role names its tokens carry |
+| An access token's `client_id` as the invoker (`verify.Claims.Invoker`, the Identity's `Invoker`) | The invoker comes only from RFC 8693 `act`: `Invoker` is `act.sub`, and a token without `act` is its subject acting itself. Token exchange without an `actor_token` carries none |
+| auth-ui's issuer client binding tokens to a DPoP key by default | `createIssuerClient({ dpop: true })` and `createAuthClient({ dpop: true })` ask for it; bearer is the default, and the client binds anyway when the issuer requires it |
+| Upgrading from v1.16.0 or earlier: `verify.WithDPoP(replay func(ctx, key, ttl) (bool, error))` (v1.17.0) | `verify.WithDPoP(rdb)`: Redis, or nil for memory (one node) |
+
+- JWT-bearer workload tokens (Tensorhub's) keep `act`, so their `verify.Claims.Invoker` is still `act.sub`.
+
+### Resource server
+
+- `Config.Resource`: `id` (RFC 8707, an accepted token's `aud`), `public_url` (what a DPoP proof's `htu` names; default the id's origin) and `scopes`, each scope's permission ceiling (RFC 6749 §3.3).
+- A trusted issuer is a remote application: one issuer acts for one group, holding its role there. `Client.DeclareRemoteApplications(ctx, group, apps)` declares a group's issuers from configuration. Keys come from `PublicKeys`, `JWKSURI` or the issuer's RFC 8414 metadata.
+- `Verified.BoundScope()` (helpers v1.7.0 `auth.Bound`) is an API key's or a trusted issuer's group; `Can` is false outside it. The Authenticator lists its credential headers for CORS (`auth.Headers`).
+- `CheckRecentSignIn` reads a trusted token's `auth_time`: older than 15 minutes is RFC 9470's step-up.
+- Federated grants: a trusted issuer's user accepts a group's email invitation (`RemoteInvitations`, `AcceptRemoteInvitation`) and holds its role there (`RemoteUserRoles`, `RemoveRemoteUserRole`).
+- RFC 7523 §2.1: a trusted application without an authorization server signs an assertion for its user, and its frontend redeems it at the token endpoint for a customer token, DPoP-bound when it proves a key.
+
+### DPoP
+
+- `sign_in.dpop: optional | required`, default optional, sets how this instance issues tokens to its own users. It never changes how tokens are validated: a bound token needs its proof, an unbound token is a bearer token, whoever issued it. API keys, client credentials and service tokens are never covered.
+- Sign-in sessions bind to a DPoP key (RFC 9449 §5): password and passwordless sign-in, refresh, and OIDC through `dpop_jkt` (§10). `GET {api}/capabilities` reports `dpop`.
+- A resource server's nonces live in the replay store (`verify.WithStoredDPoPNonces`); `verify.WithPublicHosts` and `Deps.ResourceHosts` admit a proof naming a tenant's API host.
+- Spent JWT-bearer assertions (RFC 7523 §3) are kept with spent DPoP proofs, in `Deps.Redis` or memory, no longer in the PostgreSQL ephemeral store. A capability's `jti` stays in PostgreSQL. The Redis keys are `authkit:spent:`, formerly `authkit:dpop:`.
+
+### Directory
 
 - `{issuer}/directory/scim/v2`: `/Users` create, read, replace, patch and delete, `/Bulk`, filters on `externalId`, `userName`, `id` and `emails.value`, and discovery (RFC 7644). It takes Okta's and Entra's PATCH shapes, and answers RFC 7644 §3.12 errors.
-- The credential names the tenant (RFC 7644 §6.1): one issuer's users in one group. An API key bound to a remote application of its group (`iam.NewAPIKey.ProvisionsFor`, `provisions_for`) provisions that application's users; the application's own token will too, once the Authenticator accepts trusted issuers.
+- The credential names the tenant (RFC 7644 §6.1): one issuer's users in one group. An API key bound to a remote application of its group (`iam.NewAPIKey.ProvisionsFor`, `provisions_for`), or the application's own client-credentials token, provisions that application's users.
 - New built-ins with `RemoteApplications`: `<persona>:directory:read` and `<persona>:directory:manage` (`PersonaDef.Directory`). A host that declared a permission of that name must drop it.
 - `Client.RemoteUserInfo(ref, issuer)` reads the directory as a `helpers/userinfo.Lookup` keyed by the issuer's subject.
 - Another AuthKit's push reaches it unchanged: point a `Config.Provisioning` target at the URL with the bound key as its `BearerToken`.
-- Migration 0013: `remote_users`, keyed by group, issuer and subject, and `api_keys.provisions_for`.
+- A trusted issuer's user tokens record their contact claims (OIDC Core §5.1) as they are verified.
+
+### Configuration
+
+- `Config` decodes from YAML with snake_case keys, so a host passes its `auth:` section through.
+
+### Migrations
+
+- 0013: `remote_users`, keyed by group, issuer and subject, and `api_keys.provisions_for`.
+- 0014: `remote_applications.role_map`, `refresh_sessions.dpop_jkt`, `group_remote_user_roles`, and a jwks-mode application without a `jwks_uri`.
 
 ## v1.17.0
 

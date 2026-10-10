@@ -14,6 +14,7 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/dpop"
 	"github.com/open-rails/authkit/internal/password"
 	"github.com/open-rails/authkit/internal/rbac"
 	"github.com/open-rails/authkit/keys"
@@ -61,6 +62,9 @@ type Engine struct {
 	now       func() time.Time
 	ephemeral *ephemeralKV          // nil without Postgres
 	redis     redis.UniversalClient // Deps.Redis: DPoP proofs, else memory
+	// replays spends JWT-bearer assertions (RFC 7523 §3), in the store DPoP
+	// proofs are spent in: Deps.Redis, else memory.
+	replays *dpop.Replays
 	// resource verifies access tokens for Config.Resource.ID; nil admits
 	// none. resourceHosts is Deps.ResourceHosts.
 	resource      *resourceServer

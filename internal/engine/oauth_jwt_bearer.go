@@ -93,7 +93,7 @@ func (s *Engine) OAuthJWTBearer(ctx context.Context, in authflow.OAuthJWTBearer)
 		return authflow.OAuthTokens{}, err
 	}
 	// The assertion first: a lost race spends only what the workload remakes.
-	if err := s.spendJTI(ctx, keyOAuthAssertion, a.JKT, a.ID, a.ExpiresAt, now,
+	if err := s.spendAssertion(ctx, a.JKT, a.ID, a.ExpiresAt, now,
 		authflow.JWTBearerRefusal(authflow.ReasonAssertionReplayed, "the assertion was already used")); err != nil {
 		return authflow.OAuthTokens{}, err
 	}
@@ -145,12 +145,11 @@ func (s *Engine) verifyCapability(ctx context.Context, raw string, now time.Time
 	return c, nil
 }
 
-// spendJTI claims signer's jti until exp can no longer be accepted; a
-// second claim answers spent.
+// spendJTI claims signer's jti in Postgres until exp can no longer be
+// accepted, for a grant record whose spent state survives restarts (a
+// capability); a second claim answers spent.
 func (s *Engine) spendJTI(ctx context.Context, prefix, signer, jti string, exp, now time.Time, spent *authflow.OAuthError) error {
-	sum := sha256.Sum256([]byte(signer + "." + jti))
-	ttl := exp.Add(authflow.AssertionSkew).Sub(now).Truncate(time.Second) + time.Second
-	n, err := s.ephemIncr(ctx, prefix+base64.RawURLEncoding.EncodeToString(sum[:]), ttl)
+	n, err := s.ephemIncr(ctx, prefix+jtiKey(signer, jti), jtiTTL(exp, now))
 	switch {
 	case err != nil:
 		return err
@@ -158,6 +157,30 @@ func (s *Engine) spendJTI(ctx context.Context, prefix, signer, jti string, exp, 
 		return spent
 	}
 	return nil
+}
+
+// spendAssertion claims signer's assertion jti (RFC 7523 §3) in the replay
+// store DPoP proofs are spent in, until exp can no longer be accepted; a
+// second claim answers spent.
+func (s *Engine) spendAssertion(ctx context.Context, signer, jti string, exp, now time.Time, spent *authflow.OAuthError) error {
+	claimed, err := s.replays.Claim(ctx, keyOAuthAssertion+jtiKey(signer, jti), jtiTTL(exp, now))
+	switch {
+	case err != nil:
+		return &authflow.OAuthError{Code: authflow.OAuthTemporarilyUnavailable, Description: "the assertion cannot be checked now; retry later", Status: 503}
+	case !claimed:
+		return spent
+	}
+	return nil
+}
+
+func jtiKey(signer, jti string) string {
+	sum := sha256.Sum256([]byte(signer + "." + jti))
+	return base64.RawURLEncoding.EncodeToString(sum[:])
+}
+
+// jtiTTL is how long a jti expiring at exp can still be accepted.
+func jtiTTL(exp, now time.Time) time.Duration {
+	return exp.Add(authflow.AssertionSkew).Sub(now).Truncate(time.Second) + time.Second
 }
 
 // oauthTokenEndpoint is the token endpoint's URL, an assertion's aud.

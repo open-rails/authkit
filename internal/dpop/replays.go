@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	replayPrefix = "authkit:dpop:"
-	// maxSpent bounds the proofs held in memory; past it claims are refused
+	replayPrefix = "authkit:spent:"
+	// maxSpent bounds the keys held in memory; past it claims are refused
 	// until expired ones are swept.
 	maxSpent   = 100_000
 	sweepEvery = time.Minute
@@ -22,9 +22,10 @@ const (
 
 var errReplaysFull = errors.New("dpop: in-memory replay store is full")
 
-// Replays records spent proofs until they expire: in Redis when given, shared
-// by every replica, else in this process's memory (one node), which also
-// takes over while Redis fails. Never PostgreSQL.
+// Replays records spent single-use proofs (DPoP proofs, JWT-bearer
+// assertions) until they expire: in Redis when given, shared by every
+// replica, else in this process's memory (one node), which also takes over
+// while Redis fails. Never PostgreSQL.
 type Replays struct {
 	rdb   redis.UniversalClient
 	gate  *redisfallback.Gate
@@ -39,8 +40,8 @@ func NewReplays(rdb redis.UniversalClient) *Replays {
 		rdb = nil
 	}
 	return &Replays{rdb: rdb, spent: map[string]time.Time{}, swept: time.Now(), gate: redisfallback.New(
-		"authkit: Redis DPoP replay store failed; each process records spent proofs on its own until Redis recovers",
-		"authkit: Redis DPoP replay store recovered")}
+		"authkit: Redis replay store failed; each process records spent proofs on its own until Redis recovers",
+		"authkit: Redis replay store recovered")}
 }
 
 // Claim is a ReplayGuard: it records key as spent for ttl, and reports false

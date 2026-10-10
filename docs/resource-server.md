@@ -58,7 +58,7 @@ A trusted issuer's backend can mint a customer token for its user without runnin
    - `sub`: its user;
    - `aud`: AuthKit's token endpoint;
    - `exp`: at most 5 minutes ahead;
-   - `jti`: 16-128 characters, spent once;
+   - `jti`: 16-128 characters, spent once, where DPoP proofs are (`Deps.Redis`, else memory);
    - optionally `email`, `email_verified`, `name` and `preferred_username`.
 2. Its frontend posts the assertion to AuthKit's token endpoint, with no client: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer`, `assertion`, and optionally `scope` and a DPoP proof.
 3. The answer is an access token for `Resource.ID`:

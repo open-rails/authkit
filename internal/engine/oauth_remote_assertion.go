@@ -96,7 +96,7 @@ func (s *Engine) OAuthRemoteAssertion(ctx context.Context, in authflow.OAuthJWTB
 	if updated, ok := jose.Time(claims, "updated_at"); ok {
 		at["updated_at"] = updated.Unix()
 	}
-	if err := s.spendJTI(ctx, keyOAuthAssertion, app.ID, jti, exp, now, invalid("the assertion was already used")); err != nil {
+	if err := s.spendAssertion(ctx, app.ID, jti, exp, now, invalid("the assertion was already used")); err != nil {
 		return authflow.OAuthTokens{}, err
 	}
 	access, err := jose.Sign(ctx, signer, jose.ResourceAccessTokenType, at)

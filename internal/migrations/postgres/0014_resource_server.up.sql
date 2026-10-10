@@ -38,5 +38,6 @@ CREATE TABLE group_remote_user_roles (
   PRIMARY KEY (permission_group_id, remote_user_id)
 );
 CREATE INDEX group_remote_user_roles_user_idx ON group_remote_user_roles (remote_user_id);
+CREATE INDEX group_remote_user_roles_invitation_idx ON group_remote_user_roles (invitation_id) WHERE invitation_id IS NOT NULL;
 COMMENT ON TABLE group_remote_user_roles IS
   'Roles trusted issuers'' users hold in groups, from accepted email invitations; kept while the user and group are.';

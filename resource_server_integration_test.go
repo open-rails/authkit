@@ -21,6 +21,7 @@ import (
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/scim"
+	"github.com/open-rails/authkit/internal/testdb"
 	hauth "github.com/open-rails/helpers/auth"
 )
 
@@ -487,4 +488,45 @@ func TestResourceServerFederatedGrants(t *testing.T) {
 	require.NoError(t, d.auth.RemoveRemoteUserRole(ctx, iam.SystemIdentity(), d.a, roles[0].RemoteUserID))
 	require.False(t, can(t, verified(nil), d.scopeA, "merchant:subscriptions:read"), "removed")
 	require.ErrorIs(t, d.auth.RemoveRemoteUserRole(ctx, iam.SystemIdentity(), d.a, roles[0].RemoteUserID), iam.ErrUserNotFound)
+}
+
+// TestResourceServerAssertionReplay: an RFC 7523 assertion's jti is spent
+// once (§3), in the store DPoP proofs are spent in: this process's memory
+// without Redis, Redis across every instance with it.
+func TestResourceServerAssertionReplay(t *testing.T) {
+	endpoint := authtest.Issuer + iam.OAuthTokenPath
+	redeem := func(t *testing.T, auth *authkit.Client, assertion string) int {
+		form := url.Values{"grant_type": {"urn:ietf:params:oauth:grant-type:jwt-bearer"}, "assertion": {assertion}}
+		req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		auth.Handler().ServeHTTP(w, req)
+		return w.Code
+	}
+	setup := func(t *testing.T, opts ...authtest.Option) (resourceDeployment, func() string) {
+		f := newFakeIssuer(t)
+		d := newResourceDeployment(t, opts...)
+		require.NoError(t, d.auth.DeclareRemoteApplications(t.Context(), d.a, []iam.RemoteApplication{{Issuer: f.url, Enabled: true, Role: d.operator}}))
+		return d, func() string {
+			now := time.Now()
+			return f.token(t, "JWT", jwt.MapClaims{"aud": endpoint, "sub": "customer-42", "jti": uuid.NewString(), "iat": now.Unix(), "exp": now.Add(2 * time.Minute).Unix()})
+		}
+	}
+
+	t.Run("one instance without Redis", func(t *testing.T) {
+		d, assertion := setup(t)
+		spent := assertion()
+		require.Equal(t, http.StatusOK, redeem(t, d.auth, spent))
+		require.Equal(t, http.StatusBadRequest, redeem(t, d.auth, spent), "a replayed assertion")
+	})
+
+	t.Run("two instances sharing a Redis", func(t *testing.T) {
+		rdb := testdb.ScratchRedis(t)
+		d, assertion := setup(t, authtest.WithDeps(func(deps *authkit.Deps) { deps.Redis = rdb }))
+		replica := authtest.Replica(t, d.auth)
+		spent := assertion()
+		require.Equal(t, http.StatusOK, redeem(t, d.auth, spent))
+		require.Equal(t, http.StatusBadRequest, redeem(t, replica, spent), "replayed at another instance")
+		require.Equal(t, http.StatusOK, redeem(t, replica, assertion()))
+	})
 }
