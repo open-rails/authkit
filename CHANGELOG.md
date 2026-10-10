@@ -2,12 +2,18 @@
 
 ## v1.17.0
 
-Rate limits are counted in Redis or in memory, never in PostgreSQL (#446). This reverses v1.16.0's PostgreSQL limiter.
+The owner approved shipping this breaking change in a minor release. Rate limits and spent DPoP proofs are kept in Redis or in memory, never in PostgreSQL (#446), and a resource server no longer supplies its own DPoP replay store. This reverses v1.16.0's PostgreSQL limiter.
 
-- With `Deps.Redis`, every replica spends the same budgets there. Without it, each process counts its own in memory: one node only.
-- While a declared Redis fails, each process counts on its own with the same limits until Redis answers again; AuthKit logs the fallback and the recovery once each. A limited request is never refused 503.
-- The in-memory limiter keeps at most 100,000 buckets and sweeps expired ones every minute.
-- Migration 0012 drops `rate_limits`.
+### Breaking
+
+| Removed | Use instead |
+|---|---|
+| `verify.WithDPoP(replay func(ctx, key, ttl) (bool, error))` | `verify.WithDPoP(rdb)`: the verifier spends proofs in the given Redis, shared by every replica, or with nil in its process's memory (one node) |
+
+- With `Deps.Redis`, every replica spends the same rate-limit budgets and records the same spent DPoP proofs there (token endpoint, userinfo, SCIM, `Client.NewVerifier`). Without it, each process keeps its own in memory: one node only.
+- While a declared Redis fails, each process keeps its own with the same limits until Redis answers again; AuthKit logs the fallback and the recovery once each. A request is never refused 503 for it.
+- The in-memory limiter keeps at most 100,000 buckets and sweeps expired ones every minute; the in-memory proof store keeps at most 100,000 proofs and sweeps expired ones as it goes.
+- Migration 0012 drops `rate_limits`. AuthKit no longer records DPoP proofs in its PostgreSQL ephemeral store.
 
 ## v1.16.0
 

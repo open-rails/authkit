@@ -18,6 +18,7 @@ import (
 	"github.com/open-rails/authkit/internal/rbac"
 	"github.com/open-rails/authkit/keys"
 	"github.com/open-rails/authkit/provider"
+	"github.com/redis/go-redis/v9"
 )
 
 // Engine owns local business logic and resources behind Client.
@@ -58,7 +59,8 @@ type Engine struct {
 	sns               solanaSNS
 	// now is the engine clock for TTL/grace decisions (SetClock).
 	now           func() time.Time
-	ephemeral     *ephemeralKV // nil without Postgres
+	ephemeral     *ephemeralKV          // nil without Postgres
+	redis         redis.UniversalClient // Deps.Redis: DPoP proofs, else memory
 	nameAdmission func(context.Context, iam.NameAdmissionRequest) error
 	// cfg is the host configuration, normalized once (config.Normalize).
 	cfg config.Config

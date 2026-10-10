@@ -22,12 +22,13 @@ import (
 	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/internal/jwks"
 	"github.com/open-rails/authkit/keys"
+	"github.com/redis/go-redis/v9"
 )
 
 // Verifier verifies tokens from the issuers added with AddIssuer.
 type Verifier struct {
 	skew       time.Duration
-	dpopReplay dpop.ReplayGuard
+	replays    *dpop.Replays
 	dpopNonces *dpop.Nonces
 	publicURL  string
 	keys       *jwks.Cache
@@ -49,11 +50,12 @@ type issuer struct {
 type VerifierOption func(*verifierConfig)
 
 type verifierConfig struct {
-	skew       time.Duration
-	client     *http.Client
-	dpopReplay dpop.ReplayGuard
-	nonceKey   []byte
-	publicURL  string
+	skew      time.Duration
+	client    *http.Client
+	dpop      bool
+	redis     redis.UniversalClient
+	nonceKey  []byte
+	publicURL string
 }
 
 // WithSkew sets the clock skew allowed on exp, nbf and iat (default 60s).
@@ -67,12 +69,12 @@ func WithHTTPClient(client *http.Client) VerifierOption {
 	return func(c *verifierConfig) { c.client = client }
 }
 
-// WithDPoP accepts RFC 9449 DPoP-bound tokens, with WithPublicURL.
-// replay is the proof replay store: it atomically claims key until ttl and
-// returns true only for the first claim; every replica must share it, and
-// its errors fail closed. Client.NewVerifier wires AuthKit's own.
-func WithDPoP(replay func(ctx context.Context, key string, ttl time.Duration) (bool, error)) VerifierOption {
-	return func(c *verifierConfig) { c.dpopReplay = replay }
+// WithDPoP accepts RFC 9449 DPoP-bound tokens, with WithPublicURL. Each proof
+// is spent once: in rdb, shared by every replica, or with nil in this
+// process's memory, for one node only. While rdb fails, each process records
+// proofs on its own.
+func WithDPoP(rdb redis.UniversalClient) VerifierOption {
+	return func(c *verifierConfig) { c.dpop, c.redis = true, rdb }
 }
 
 // WithDPoPNonce requires every DPoP proof to carry a server nonce (RFC 9449
@@ -101,11 +103,13 @@ func NewVerifier(opts ...VerifierOption) *Verifier {
 		o(&cfg)
 	}
 	v := &Verifier{
-		skew:       cfg.skew,
-		dpopReplay: cfg.dpopReplay,
-		publicURL:  cfg.publicURL,
-		keys:       jwks.New(cfg.client),
-		issuers:    map[string]issuer{},
+		skew:      cfg.skew,
+		publicURL: cfg.publicURL,
+		keys:      jwks.New(cfg.client),
+		issuers:   map[string]issuer{},
+	}
+	if cfg.dpop {
+		v.replays = dpop.NewReplays(cfg.redis)
 	}
 	if cfg.nonceKey != nil {
 		nonces, err := dpop.NewNonces(cfg.nonceKey)

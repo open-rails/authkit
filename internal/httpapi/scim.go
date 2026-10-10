@@ -67,7 +67,7 @@ func scimRead(f func(*Service, http.ResponseWriter, *http.Request)) func(*Servic
 		jkt := ""
 		if isDPoP {
 			var err error
-			jkt, err = dpop.Verify(r, dpop.Check{URL: s.oauthURL(strings.TrimPrefix(r.URL.Path, s.http.BasePath)), AccessToken: token, Replay: s.svc.ClaimDPoPProof})
+			jkt, err = dpop.Verify(r, dpop.Check{URL: s.oauthURL(strings.TrimPrefix(r.URL.Path, s.http.BasePath)), AccessToken: token, Replay: s.replays.Claim})
 			switch {
 			case errors.Is(err, dpop.ErrReplayUnavailable):
 				scimFail(w, http.StatusServiceUnavailable, "", "the DPoP proof cannot be checked now")

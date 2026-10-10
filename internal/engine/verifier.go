@@ -37,7 +37,7 @@ func (s *Engine) newAuthenticator(audiences []string, own bool, opts ...verify.V
 	cfg := s.cfg
 	base := []verify.VerifierOption{
 		verify.WithSkew(5 * time.Second),
-		verify.WithDPoP(s.ClaimDPoPProof),
+		verify.WithDPoP(s.redis),
 		verify.WithPublicURL(issuerOrigin(cfg.Token.Issuer)),
 	}
 	a := &Authenticator{s: s, v: verify.NewVerifier(append(base, opts...)...), audiences: audiences, own: own}

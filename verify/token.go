@@ -197,10 +197,10 @@ func (v *Verifier) senderProof(token string, r *http.Request, cl *Claims) error 
 		}
 		cl.CertificateThumbprint = thumbprint
 	case jose.JWKThumbprintMember:
-		if !isDPoPRequest(r) || v.publicURL == "" || v.dpopReplay == nil {
+		if !isDPoPRequest(r) || v.publicURL == "" || v.replays == nil {
 			return errDPoPProofRequired
 		}
-		if _, err := dpop.Verify(r, dpop.Check{URL: v.publicURL + r.URL.EscapedPath(), AccessToken: token, Thumbprint: thumbprint, Replay: v.dpopReplay, Nonces: v.dpopNonces}); err != nil {
+		if _, err := dpop.Verify(r, dpop.Check{URL: v.publicURL + r.URL.EscapedPath(), AccessToken: token, Thumbprint: thumbprint, Replay: v.replays.Claim, Nonces: v.dpopNonces}); err != nil {
 			switch {
 			case errors.Is(err, dpop.ErrReplayUnavailable):
 				return errmodel.Internal("sender_proof_replay", fmt.Errorf("%w: %w", ErrSenderProofUnavailable, err))

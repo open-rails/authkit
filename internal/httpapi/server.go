@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/internal/config"
+	"github.com/open-rails/authkit/internal/dpop"
 	"github.com/open-rails/authkit/internal/ratelimit"
 
 	memorylimiter "github.com/open-rails/authkit/internal/ratelimit/memory"
@@ -43,6 +44,7 @@ func New(client Backend, cfg config.Config, deps config.Deps) (*Service, error) 
 		clientIPExplicit: deps.ClientIP != nil,
 		directPeerIP:     h.DirectPeerIP,
 		wrap:             deps.Wrap,
+		replays:          dpop.NewReplays(deps.Redis),
 	}
 	s.trustedProxies, _ = config.ParseCIDRs("trusted proxy", h.TrustedProxies)
 	s.cloudflareProxies, _ = config.ParseCIDRs("Cloudflare proxy", h.CloudflareProxies)

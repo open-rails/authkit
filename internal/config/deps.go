@@ -78,9 +78,9 @@ type Deps struct {
 	// account creation and renames; an error refuses the name.
 	NameAdmission func(context.Context, iam.NameAdmissionRequest) error
 
-	// Redis shares rate-limit counters across replicas; it holds no other
-	// AuthKit state. Without it, and while it fails, each process counts on
-	// its own with the same limits.
+	// Redis shares rate-limit counters and spent DPoP proofs across
+	// replicas; it holds no other AuthKit state. Without it, and while it
+	// fails, each process keeps its own: one node only.
 	Redis redis.UniversalClient
 	// ClientIP extracts the client address, replacing the proxy handling of
 	// HTTPConfig.

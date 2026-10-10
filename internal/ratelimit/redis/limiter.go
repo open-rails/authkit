@@ -6,26 +6,14 @@ package redislimiter
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"maps"
 	"strconv"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/open-rails/authkit/internal/ratelimit"
 	memorylimiter "github.com/open-rails/authkit/internal/ratelimit/memory"
+	"github.com/open-rails/authkit/internal/redisfallback"
 	"github.com/redis/go-redis/v9"
-)
-
-const (
-	// commandTimeout bounds what one decision waits on Redis, whatever the
-	// client's own timeouts, so an outage costs a request at most this.
-	commandTimeout = 250 * time.Millisecond
-	// While Redis fails, one request tries it again after a backoff that
-	// doubles from minBackoff to maxBackoff; the rest decide in process.
-	minBackoff = time.Second
-	maxBackoff = 30 * time.Second
 )
 
 // Limiter is a Redis sliding-window limiter using ZSETs, with an in-process
@@ -35,11 +23,7 @@ type Limiter struct {
 	limits   map[string]ratelimit.Limit
 	prefix   string
 	fallback *memorylimiter.Limiter
-
-	down    atomic.Bool
-	mu      sync.Mutex // guards backoff and retryAt
-	backoff time.Duration
-	retryAt time.Time
+	gate     *redisfallback.Gate
 }
 
 // New builds a Redis sliding-window limiter whose keys live under prefix (the
@@ -52,7 +36,9 @@ func New(rdb redis.UniversalClient, limits map[string]ratelimit.Limit, prefix st
 	if err != nil {
 		return nil, err
 	}
-	return &Limiter{rdb: rdb, limits: maps.Clone(limits), prefix: prefix, fallback: fallback}, nil
+	return &Limiter{rdb: rdb, limits: maps.Clone(limits), prefix: prefix, fallback: fallback, gate: redisfallback.New(
+		"authkit: Redis rate limiting failed; each process limits on its own until Redis recovers",
+		"authkit: Redis rate limiting recovered; budgets are shared again")}, nil
 }
 
 // StartCleanup sweeps the fallback's idle buckets until ctx is cancelled.
@@ -60,65 +46,15 @@ func (l *Limiter) StartCleanup(ctx context.Context, interval time.Duration) {
 	l.fallback.StartCleanup(ctx, interval)
 }
 
-// Allow decides in Redis. When Redis fails it decides in process with the
-// same limits, logs once, and lets one request try Redis again after each
-// backoff; the first success logs the recovery and shares the budgets again.
+// Allow decides in Redis. While Redis fails it decides in process with the
+// same limits (redisfallback).
 func (l *Limiter) Allow(ctx context.Context, bucket, key string) ratelimit.Result {
-	probe := false
-	if l.down.Load() {
-		if probe = l.claimProbe(); !probe {
-			return l.fallback.Allow(ctx, bucket, key)
-		}
-	}
-	result, err := l.shared(ctx, bucket, key)
-	if err == nil {
-		l.recovered()
+	if result, ok := redisfallback.Run(ctx, l.gate, func(ctx context.Context) (ratelimit.Result, error) {
+		return l.shared(ctx, bucket, key)
+	}); ok {
 		return result
 	}
-	if ctx.Err() == nil { // the caller giving up is no outage
-		l.failed(err, probe)
-	}
 	return l.fallback.Allow(ctx, bucket, key)
-}
-
-// claimProbe reports whether this request tries Redis again: the first one
-// after the backoff.
-func (l *Limiter) claimProbe() bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	now := time.Now()
-	if now.Before(l.retryAt) {
-		return false
-	}
-	l.retryAt = now.Add(l.backoff)
-	return true
-}
-
-func (l *Limiter) failed(err error, probe bool) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	switch {
-	case !l.down.Load():
-		l.backoff = minBackoff
-		l.down.Store(true)
-		slog.Warn("authkit: Redis rate limiting failed; each process limits on its own until Redis recovers", "error", err)
-	case probe:
-		l.backoff = min(2*l.backoff, maxBackoff)
-	default:
-		return
-	}
-	l.retryAt = time.Now().Add(l.backoff)
-}
-
-func (l *Limiter) recovered() {
-	if !l.down.Load() {
-		return
-	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.down.Swap(false) {
-		slog.Info("authkit: Redis rate limiting recovered; budgets are shared again")
-	}
 }
 
 // allowScript performs the entire sliding-window decision in a single atomic
@@ -189,7 +125,7 @@ redis.call('PEXPIRE', key, windowMs)
 return {allowed, count, retryAfter, reason}
 `)
 
-// shared decides in Redis, waiting at most commandTimeout.
+// shared decides in Redis.
 func (l *Limiter) shared(ctx context.Context, bucket, key string) (ratelimit.Result, error) {
 	lim, _ := ratelimit.LookupLimit(l.limits, bucket)
 	now := time.Now()
@@ -198,22 +134,8 @@ func (l *Limiter) shared(ctx context.Context, bucket, key string) (ratelimit.Res
 	limitKey := l.prefix + key + ":" + bucket
 	member := fmt.Sprintf("%d:%d", nowMs, now.UnixNano())
 
-	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
-	defer cancel()
-	// The client honors ctx only with ContextTimeoutEnabled, so the wait is
-	// bounded here; an abandoned command ends at the client's own timeout.
-	reply := make(chan *redis.Cmd, 1)
-	go func() {
-		reply <- allowScript.Run(ctx, l.rdb, []string{limitKey},
-			nowMs, start, lim.Limit, lim.Window.Milliseconds(), lim.Cooldown.Milliseconds(), member)
-	}()
-	var cmd *redis.Cmd
-	select {
-	case cmd = <-reply:
-	case <-ctx.Done():
-		return ratelimit.Result{}, ctx.Err()
-	}
-	vals, err := cmd.Slice()
+	vals, err := allowScript.Run(ctx, l.rdb, []string{limitKey},
+		nowMs, start, lim.Limit, lim.Window.Milliseconds(), lim.Cooldown.Milliseconds(), member).Slice()
 	if err != nil {
 		return ratelimit.Result{}, err
 	}

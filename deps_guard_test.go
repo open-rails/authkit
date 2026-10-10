@@ -28,18 +28,20 @@ var forbiddenDepPrefixes = []string{
 // sharedInternal are engine-free internal packages the verification surface
 // may share with the engine: one outbound/SSRF policy (ak#316), one key
 // policy, the JWT mechanics, one JWKS cache, one DPoP proof verifier and
-// the strict JWS parser it shares with jwt-bearer assertions, the
+// the strict JWS parser it shares with jwt-bearer assertions, the Redis
+// fallback its proof replay store shares with the rate limiter, the
 // 2FA-enrollment route marker, the error catalog (with its wire-form
 // normalizer) and the typed identifiers built from token claims.
 var sharedInternal = map[string]bool{
-	"github.com/open-rails/authkit/internal/netguard":   true,
-	"github.com/open-rails/authkit/internal/keypolicy":  true,
-	"github.com/open-rails/authkit/internal/jose":       true,
-	"github.com/open-rails/authkit/internal/jwks":       true,
-	"github.com/open-rails/authkit/internal/dpop":       true,
-	"github.com/open-rails/authkit/internal/jws":        true,
-	"github.com/open-rails/authkit/internal/enrollment": true,
-	"github.com/open-rails/authkit/internal/ident":      true,
+	"github.com/open-rails/authkit/internal/netguard":      true,
+	"github.com/open-rails/authkit/internal/keypolicy":     true,
+	"github.com/open-rails/authkit/internal/jose":          true,
+	"github.com/open-rails/authkit/internal/jwks":          true,
+	"github.com/open-rails/authkit/internal/dpop":          true,
+	"github.com/open-rails/authkit/internal/jws":           true,
+	"github.com/open-rails/authkit/internal/redisfallback": true,
+	"github.com/open-rails/authkit/internal/enrollment":    true,
+	"github.com/open-rails/authkit/internal/ident":         true,
 	errmodelPackage: true,
 	wireformPackage: true,
 }
@@ -117,9 +119,9 @@ func TestVerificationSurfaceIsDBLess(t *testing.T) {
 // The root is the public API over internal/engine: nothing below it imports
 // it back. Only binaries and test harnesses sit above the root.
 var rootImporters = map[string]bool{
-	rootPackage + "/examples/reddit":     true, // a host program, like any app
-	rootPackage + "/authtest":            true, // the host test kit
-	rootPackage + "/internal/testhttp":   true,
+	rootPackage + "/examples/reddit":   true, // a host program, like any app
+	rootPackage + "/authtest":          true, // the host test kit
+	rootPackage + "/internal/testhttp": true,
 }
 
 func TestNothingBelowRootImportsRoot(t *testing.T) {

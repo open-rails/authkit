@@ -334,7 +334,7 @@ func (s *Service) oauthTokenDPoP(r *http.Request, client config.OAuthClientConfi
 		}
 		return "", nil
 	}
-	jkt, err := dpop.Verify(r, dpop.Check{URL: s.oauthURL(iam.OAuthTokenPath), Replay: s.svc.ClaimDPoPProof})
+	jkt, err := dpop.Verify(r, dpop.Check{URL: s.oauthURL(iam.OAuthTokenPath), Replay: s.replays.Claim})
 	switch {
 	case errors.Is(err, dpop.ErrReplayUnavailable):
 		return "", err
@@ -440,7 +440,7 @@ func (s *Service) handleOAuthUserInfo(w http.ResponseWriter, r *http.Request) {
 	jkt := ""
 	if isDPoP {
 		var err error
-		jkt, err = dpop.Verify(r, dpop.Check{URL: s.oauthURL(iam.OAuthUserInfoPath), AccessToken: token, Replay: s.svc.ClaimDPoPProof})
+		jkt, err = dpop.Verify(r, dpop.Check{URL: s.oauthURL(iam.OAuthUserInfoPath), AccessToken: token, Replay: s.replays.Claim})
 		switch {
 		case errors.Is(err, dpop.ErrReplayUnavailable):
 			oauthFail(w, err)

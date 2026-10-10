@@ -2,29 +2,17 @@ package engine
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"slices"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
-	"github.com/open-rails/authkit/internal/errmodel"
-	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/testdb"
-	"github.com/open-rails/authkit/internal/testdpop"
-	"github.com/open-rails/authkit/verify"
 )
 
 func ephemeralEngine(t *testing.T) *Engine {
@@ -218,76 +206,4 @@ func TestEphemeralSweepRunsAsRiverMaintenance(t *testing.T) {
 	_, ok, err := core.ephemeral.Get(ctx, "live")
 	require.NoError(t, err)
 	require.True(t, ok, "the sweep must leave live rows")
-}
-
-// A failing DPoP replay claim is an operational failure, never an invalid
-// proof: the token endpoint and a resource verifier answer 500 without a
-// DPoP challenge, and once the store is back the same proofs are accepted.
-func TestDPoPReplayStoreOutageFailsClosed(t *testing.T) {
-	pg := testdb.ScratchPostgres(t)
-	const resource = "https://resource.example"
-	secret := strings.Repeat("s", 48)
-	sum := sha256.Sum256([]byte(secret))
-	cfg := testConfig()
-	cfg.HTTP = &config.HTTPConfig{DirectPeerIP: true}
-	cfg.AuthorizationServer = config.AuthorizationServerConfig{
-		Resources: []config.ResourceServerConfig{{ID: resource, Scopes: []string{"tasks"}, Permissions: []string{"resource:*"}}},
-		Clients: []config.OAuthClientConfig{{ID: "worker", SecretSHA256: hex.EncodeToString(sum[:]), Resources: []string{resource},
-			Permissions: []string{"resource:tasks:read"}, GrantTypes: []config.OAuthGrantType{config.GrantClientCredentials}}},
-	}
-	deps := config.Deps{Postgres: pg.Pool, KeySource: testKeys()}
-	e := newTestEngine(t, cfg, deps)
-	srv, err := httpapi.New(e, e.Config(), deps)
-	require.NoError(t, err)
-	t.Cleanup(srv.Close)
-	h, err := httpapi.NewMount(srv)
-	require.NoError(t, err)
-
-	key := testdpop.Key(t)
-	target := cfg.Token.Issuer + iam.OAuthTokenPath
-	mint := func(proof string) *httptest.ResponseRecorder {
-		r := httptest.NewRequest(http.MethodPost, iam.OAuthTokenPath, strings.NewReader("grant_type=client_credentials"))
-		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		r.SetBasicAuth("worker", secret)
-		r.Header.Set("DPoP", proof)
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, r)
-		return w
-	}
-	noATH := func(tok *jwt.Token) { delete(tok.Claims.(jwt.MapClaims), "ath") }
-	res := mint(testdpop.Proof(t, key, http.MethodPost, target, "", noATH))
-	require.Equal(t, http.StatusOK, res.Code, res.Body.String())
-	var minted struct {
-		AccessToken string `json:"access_token"`
-		TokenType   string `json:"token_type"`
-	}
-	require.NoError(t, json.Unmarshal(res.Body.Bytes(), &minted))
-	require.Equal(t, "DPoP", minted.TokenType)
-
-	v := verify.NewVerifier(verify.WithDPoP(e.ClaimDPoPProof), verify.WithPublicURL(resource))
-	require.NoError(t, v.AddIssuer(cfg.Token.Issuer, []string{resource}, verify.IssuerOptions{KeySource: deps.KeySource}))
-	req := httptest.NewRequest(http.MethodGet, resource+"/tasks", nil)
-	req.Header.Set("Authorization", "DPoP "+minted.AccessToken)
-	req.Header.Set("DPoP", testdpop.Proof(t, key, http.MethodGet, resource+"/tasks", minted.AccessToken, nil))
-
-	restore := failEphemeral(t, pg.Pool, "INSERT OR UPDATE", "NEW", "dpop:proof:")
-	mintProof := testdpop.Proof(t, key, http.MethodPost, target, "", noATH)
-	res = mint(mintProof)
-	require.Equal(t, http.StatusInternalServerError, res.Code, res.Body.String())
-	require.Contains(t, res.Body.String(), "server_error")
-	require.Empty(t, res.Header().Get("WWW-Authenticate"))
-	_, err = v.VerifyRequest(req)
-	require.Error(t, err)
-	require.Equal(t, errmodel.CodeInternalError, errmodel.CodeOf(err))
-	rejected := httptest.NewRecorder()
-	verify.Required(v)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("storage outage admitted request") })).ServeHTTP(rejected, req)
-	require.Equal(t, http.StatusInternalServerError, rejected.Code)
-	require.Empty(t, rejected.Header().Get("WWW-Authenticate"))
-
-	restore()
-	res = mint(mintProof)
-	require.Equal(t, http.StatusOK, res.Code, res.Body.String())
-	cl, err := v.VerifyRequest(req)
-	require.NoError(t, err)
-	require.NotEmpty(t, cl.JWKThumbprint)
 }

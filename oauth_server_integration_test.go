@@ -9,7 +9,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -183,7 +182,7 @@ func TestOAuthResourceServerVerifiesAccessTokens(t *testing.T) {
 	// The handler needs the server's URL (for DPoP proofs) before it starts.
 	resource := httptest.NewUnstartedServer(nil)
 	t.Cleanup(resource.Close)
-	v := verify.NewVerifier(verify.WithHTTPClient(as.HTTPClient()), verify.WithDPoP(memoryReplay()), verify.WithPublicURL("http://"+resource.Listener.Addr().String()))
+	v := verify.NewVerifier(verify.WithHTTPClient(as.HTTPClient()), verify.WithDPoP(nil), verify.WithPublicURL("http://"+resource.Listener.Addr().String()))
 	require.NoError(t, v.AddIssuer(as.URL, []string{oauthResource}, verify.IssuerOptions{JWKSURI: as.URL + iam.JWKSPath}))
 	resource.Config.Handler = verify.Required(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cl, _ := verify.ClaimsFromContext(r.Context())
@@ -671,20 +670,6 @@ func dpopJSON(t *testing.T, as *authtest.AuthorizationServer, method, u string, 
 }
 
 // memoryReplay is a single-process DPoP replay store.
-func memoryReplay() func(context.Context, string, time.Duration) (bool, error) {
-	var mu sync.Mutex
-	seen := map[string]bool{}
-	return func(_ context.Context, key string, _ time.Duration) (bool, error) {
-		mu.Lock()
-		defer mu.Unlock()
-		if seen[key] {
-			return false, nil
-		}
-		seen[key] = true
-		return true, nil
-	}
-}
-
 func getJSON(t *testing.T, as *authtest.AuthorizationServer, u string, out any) int {
 	t.Helper()
 	return bearerJSON(t, as, http.MethodGet, u, "", out)

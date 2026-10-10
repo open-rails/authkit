@@ -10,6 +10,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
+	"github.com/open-rails/authkit/internal/dpop"
 	"github.com/open-rails/authkit/internal/ratelimit"
 
 	"github.com/open-rails/authkit/provider"
@@ -22,7 +23,8 @@ type Service struct {
 	http                config.HTTPConfig // *cfg.HTTP
 	wrap                func(iam.Route, http.Handler) http.Handler
 	rl                  ratelimit.Limiter
-	closers             []func() // background work stopped by Close (#305)
+	replays             *dpop.Replays // spent DPoP proofs: Deps.Redis, else memory
+	closers             []func()      // background work stopped by Close (#305)
 	clientIP            ClientIPFunc
 	clientIPExplicit    bool                         // Deps.ClientIP: host owns the strategy; proxy sets are not composed
 	directPeerIP        bool                         // Config.DirectPeerIP: host asserts no proxy in front (ak#299)

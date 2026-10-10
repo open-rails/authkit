@@ -1444,7 +1444,7 @@ pkg authkit/verify, func Required(Authenticator) func(http.Handler) http.Handler
 pkg authkit/verify, func Sensitive(Authority) func(http.Handler) http.Handler
 pkg authkit/verify, func SetClaims(context.Context, Claims) context.Context
 pkg authkit/verify, func VerifiedIdentity(context.Context, Authenticator) (auth.Identity, bool)
-pkg authkit/verify, func WithDPoP(func(context.Context, string, time.Duration) (bool, error)) VerifierOption
+pkg authkit/verify, func WithDPoP(redis.UniversalClient) VerifierOption
 pkg authkit/verify, func WithDPoPNonce([]byte) VerifierOption
 pkg authkit/verify, func WithGroup(context.Context, iam.GroupRef) context.Context
 pkg authkit/verify, func WithHTTPClient(*http.Client) VerifierOption

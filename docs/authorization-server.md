@@ -127,7 +127,7 @@ A resource server trusts the issuer for its own resource ID, from the JWKS alone
 
 ```go
 v := verify.NewVerifier(
-	verify.WithDPoP(replay), // a replay store every replica shares
+	verify.WithDPoP(rdb), // spent proofs in Redis; nil keeps them in memory (one node)
 	verify.WithPublicURL("https://api.example.com"),
 	verify.WithDPoPNonce(nonceKey), // optional: RFC 9449 server nonces
 )
@@ -138,4 +138,4 @@ mux.Handle("/v1/", verify.Required(v)(api))
 ```
 
 - `Claims.Subject` is the user, `ClientID` the client, `DeviceKeyID` the device key a jwt-bearer token's capability stands on, `Scopes` (`HasScope`) and `Permissions` (`HasPermission`) what it was granted; `Roles` is for display. A token whose `sub` is its `client_id` is the client acting for itself (`Kind` `verify.TokenOAuthClient`). `AuthorizationDetails` is the raw RFC 9396 array, `Invoker` who acts for the user (RFC 8693's actor claim, `act.sub`: the client after token exchange, the workload after jwt-bearer), and `CustomClaims` the issuer's URI-named claims.
-- A `cnf.jkt` token needs a fresh, single-use DPoP proof of its key on every request. With `WithDPoPNonce`, a proof without a current nonce is 401 `use_dpop_nonce` carrying a `DPoP-Nonce` header to retry with. A host writing its own refusals calls `verify.DPoPChallenge` first for the `WWW-Authenticate` and `DPoP-Nonce` headers; browser clients need both exposed by CORS.
+- A `cnf.jkt` token needs a fresh, single-use DPoP proof of its key on every request. Spent proofs are kept in the Redis given to `WithDPoP`, shared by every replica, or with nil in the process's memory, for one node; while Redis fails, each process keeps its own. With `WithDPoPNonce`, a proof without a current nonce is 401 `use_dpop_nonce` carrying a `DPoP-Nonce` header to retry with. A host writing its own refusals calls `verify.DPoPChallenge` first for the `WWW-Authenticate` and `DPoP-Nonce` headers; browser clients need both exposed by CORS.

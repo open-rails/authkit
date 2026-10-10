@@ -12,7 +12,6 @@ type Backend interface {
 	sessionsBackend
 	groupsBackend
 	invitesBackend
-	appsBackend
 	flowsBackend
 	oauthBackend
 	scimBackend

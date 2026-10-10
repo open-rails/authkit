@@ -146,14 +146,7 @@ func TestTokenProfiles(t *testing.T) {
 // certificate; a DPoP-bound one only with a fresh proof of its key.
 func TestSenderBoundResourceTokens(t *testing.T) {
 	ctx := context.Background()
-	replay := map[string]bool{}
-	f := newFixture(t, WithDPoP(func(_ context.Context, key string, _ time.Duration) (bool, error) {
-		if replay[key] {
-			return false, nil
-		}
-		replay[key] = true
-		return true, nil
-	}), WithPublicURL("https://resource.example"))
+	f := newFixture(t, WithDPoP(nil), WithPublicURL("https://resource.example"))
 
 	leaf, other := leafCertificate(t), leafCertificate(t)
 	bound := sign(t, f.peer, jose.ResourceAccessTokenType, peerIssuer, map[string]any{

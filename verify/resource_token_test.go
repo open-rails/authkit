@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -114,24 +113,13 @@ func TestResourceAccessTokens(t *testing.T) {
 // with a fresh, single-use proof of its key carrying a current server nonce,
 // and tells the client how to recover from each refusal (RFC 9449 §7, §8).
 func TestDPoPBoundResourceTokenOverHTTP(t *testing.T) {
-	var mu sync.Mutex
-	spent := map[string]bool{}
-	replay := func(_ context.Context, key string, _ time.Duration) (bool, error) {
-		mu.Lock()
-		defer mu.Unlock()
-		if spent[key] {
-			return false, nil
-		}
-		spent[key] = true
-		return true, nil
-	}
 	nonceKey := make([]byte, 32)
 	_, _ = rand.Read(nonceKey)
 
 	server := httptest.NewUnstartedServer(nil)
 	t.Cleanup(server.Close)
 	base := "http://" + server.Listener.Addr().String()
-	v := NewVerifier(WithDPoP(replay), WithPublicURL(base), WithDPoPNonce(nonceKey))
+	v := NewVerifier(WithDPoP(nil), WithPublicURL(base), WithDPoPNonce(nonceKey))
 	peer := newFixture(t).peer
 	require.NoError(t, v.AddIssuer(peerIssuer, []string{audience}, IssuerOptions{Keys: []iam.RemoteApplicationKey{pemKey(t, peer)}}))
 	server.Config.Handler = Required(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

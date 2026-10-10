@@ -245,16 +245,6 @@ func (s *Engine) ephemDel(ctx context.Context, key string) error {
 	return s.ephemeral.Del(ctx, key)
 }
 
-// ClaimDPoPProof implements dpop.ReplayGuard using the configured shared
-// ephemeral store. Replay keys have a fixed length and expire within 121s.
-func (s *Engine) ClaimDPoPProof(ctx context.Context, key string, ttl time.Duration) (bool, error) {
-	if len(key) != 43 || ttl <= 0 || ttl > 121*time.Second {
-		return false, fmt.Errorf("invalid DPoP replay claim")
-	}
-	n, err := s.ephemIncr(ctx, "dpop:proof:"+key, ttl)
-	return n == 1 && err == nil, err
-}
-
 const (
 	keyOIDCState  = "oidc:state:"
 	oidcStateTTL  = 15 * time.Minute
