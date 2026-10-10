@@ -56,8 +56,8 @@ func TestResourceAccessTokens(t *testing.T) {
 		id, ok := cl.Identity()
 		require.True(t, ok)
 		require.Equal(t, auth.Identity{Issuer: peerIssuer, Subject: "user-1", SubjectKind: auth.SubjectUser,
-			Invoker: auth.Invoker{Issuer: peerIssuer, ID: "console"}, Credential: auth.Credential{Kind: auth.CredentialAccessToken, ID: "at-1"}}, id,
-			"the user is the subject, the client acting for them its invoker")
+			Invoker: auth.Invoker{Issuer: peerIssuer, ID: "user-1"}, Credential: auth.Credential{Kind: auth.CredentialAccessToken, ID: "at-1"}}, id,
+			"the user acts themself: the client is their agent, not an invoker (RFC 8693 act names one)")
 	}
 
 	cl, err := f.v.Verify(ctx, sign(t, f.local, jose.ResourceAccessTokenType, localIssuer, user))

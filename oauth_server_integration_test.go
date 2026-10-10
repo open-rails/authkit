@@ -226,13 +226,14 @@ func TestOAuthResourceServerVerifiesAccessTokens(t *testing.T) {
 	require.NotEmpty(t, got["sid"])
 	require.Equal(t, true, got["can_update"])
 	require.Equal(t, true, got["can_pay_out"])
-	// The user is the subject; the client acting for them is the invoker.
+	// The user is the subject and acts themself: the console is their agent
+	// (client_id), not an RFC 8693 actor.
 	require.Equal(t, owner.ID, got["subject"])
 	require.Equal(t, "user", got["subject_kind"])
-	require.Equal(t, oauthConsole, got["invoker"])
+	require.Equal(t, owner.ID, got["invoker"])
 	require.Equal(t, as.URL, got["invoker_issuer"])
 	require.Equal(t, "access_token", got["credential"])
-	require.Equal(t, false, got["self_invoked"])
+	require.Equal(t, true, got["self_invoked"])
 
 	agent := authtest.NewUser(t, as.Client)
 	authtest.GrantRole(t, as.Client, iam.RootGroup(), iam.UserSubject(agent.ID), support)

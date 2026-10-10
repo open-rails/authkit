@@ -324,8 +324,8 @@ type oauthMint struct {
 	amr       []string
 	acr       string
 	jkt       string
-	// invoker acts for the user (RFC 8693 act): the exchanging client, or
-	// the workload.
+	// invoker acts for the user (RFC 8693 act, delegation): the jwt-bearer
+	// workload.
 	invoker string
 	// workload is a jwt-bearer token: it stands on deviceKeyID's capability,
 	// which grantEnd ends; no sign-in stands behind it (no auth_time, amr or

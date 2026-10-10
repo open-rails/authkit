@@ -1,7 +1,6 @@
 package verify
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -180,7 +179,9 @@ func (c Claims) HasAMR(m string) bool {
 //
 //   - A user's token is the user, by its session or device key.
 //   - An OAuth client's client-credentials token is the client; its token
-//     for a user is the user, invoked by the client.
+//     for a user is the user acting themself, unless an RFC 8693 act claim
+//     names who acts for them (delegation). The client a token was issued
+//     to (client_id) is the user's agent, never an invoker.
 //   - An API key is a credential of its group's account, an application
 //     whose id is the group's, so rotating keys never changes the subject.
 //
@@ -201,8 +202,8 @@ func (c Claims) Identity() (auth.Identity, bool) {
 		}
 		switch {
 		case c.IsResourceToken():
-			if client := cmp.Or(c.Invoker, c.ClientID); client != "" {
-				invoker = &auth.Invoker{Issuer: c.Issuer, ID: client}
+			if c.Invoker != "" {
+				invoker = &auth.Invoker{Issuer: c.Issuer, ID: c.Invoker}
 			}
 		case c.DeviceKeyID != "":
 			i.Credential = auth.Credential{Kind: auth.CredentialDeviceKey, ID: c.DeviceKeyID}

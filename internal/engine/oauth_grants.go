@@ -191,7 +191,8 @@ func (s *Engine) RevokeOAuthToken(ctx context.Context, clientID, token string) e
 
 // ExchangeOAuthToken is RFC 8693 token exchange: the user's own AuthKit
 // access token (a sign-in of this deployment) for an access token to one of
-// the client's resources, standing on the same sign-in.
+// the client's resources, standing on the same sign-in. With no actor_token
+// it is impersonation (RFC 8693 §1.1): the token carries no act claim.
 func (s *Engine) ExchangeOAuthToken(ctx context.Context, in authflow.OAuthTokenExchange) (authflow.OAuthTokens, error) {
 	switch {
 	case in.SubjectToken == "":
@@ -224,7 +225,7 @@ func (s *Engine) ExchangeOAuthToken(ctx context.Context, in authflow.OAuthTokenE
 	}
 	tokens, err := s.mintOAuthTokens(ctx, oauthMint{
 		client: client, userID: cl.UserID, sessionID: cl.SessionID, scopes: scopes, resource: resource.ID,
-		authTime: authTime, amr: amr, acr: acr, jkt: in.JKT, invoker: client.ID,
+		authTime: authTime, amr: amr, acr: acr, jkt: in.JKT,
 	})
 	if err != nil {
 		return authflow.OAuthTokens{}, err

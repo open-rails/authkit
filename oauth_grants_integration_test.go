@@ -245,7 +245,7 @@ func TestOAuthTokenExchange(t *testing.T) {
 	require.Equal(t, []any{"merchant:*"}, at["permissions"])
 	require.Equal(t, owner.Email, at["email"])
 	require.Equal(t, map[string]any{"jkt": key.Thumbprint()}, at["cnf"])
-	require.Equal(t, map[string]any{"sub": oauthAdminUI}, at["act"], "the exchanging client acts for the user")
+	require.Nil(t, at["act"], "exchange without an actor_token is impersonation: no act (RFC 8693 §1.1)")
 	require.Nil(t, at["authorization_details"])
 
 	exchange := func(mutate func(url.Values), dpop *authtest.DPoPKey) (int, string) {

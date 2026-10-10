@@ -214,7 +214,7 @@ func TestSecurityAuthenticatorConformance(t *testing.T) {
 		require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
 		require.NoError(t, gateErr, "the gate's verification is reused")
 		require.Equal(t, staff.id, id.Subject)
-		require.Equal(t, hauth.Invoker{Issuer: issuer, ID: resourceClient}, id.Invoker, "a resource token's user acts through its client")
+		require.Equal(t, hauth.Invoker{Issuer: issuer, ID: staff.id}, id.Invoker, "a resource token's user acts themself; its client is no invoker")
 
 		r := proven()
 		_, err := a.Authenticate(r)
