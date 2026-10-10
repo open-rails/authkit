@@ -171,6 +171,9 @@ func (s *Engine) mintAccessTokenForUserWithAssurance(ctx context.Context, q *db.
 			claims["auth_time"] = authTime
 			claims["amr"] = amr
 			claims["acr"] = acr
+			if freshness.DPoPKey != "" {
+				claims["cnf"] = map[string]any{jose.JWKThumbprintMember: freshness.DPoPKey}
+			}
 		}
 	}
 	// mfa_enrolled lets the stateless Sensitive() gate require 2FA from users who

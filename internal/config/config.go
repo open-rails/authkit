@@ -171,7 +171,26 @@ type SignInConfig struct {
 	// owner's email or phone, or a second factor, needs no code. 0 defaults
 	// to 10; negative turns it off.
 	NewDevicesPerAccount int
+	// DPoP is how this deployment issues tokens to its own users (RFC 9449):
+	// their sign-in sessions and its authorization server's user grants.
+	// Optional, the default, lets each client choose at sign-in: a DPoP key
+	// binds the session for good, none gives bearer tokens. Required refuses
+	// a sign-in, a user grant or a refresh without a proof. It never changes
+	// how tokens are validated: a bound token needs its proof, an unbound one
+	// is a bearer token, whoever issued it. API keys, client credentials and
+	// service tokens are never covered.
+	DPoP DPoPMode
 }
+
+// DPoPMode is SignInConfig.DPoP.
+type DPoPMode string
+
+const (
+	// DPoPOptional lets each client choose at sign-in.
+	DPoPOptional DPoPMode = "optional"
+	// DPoPRequired refuses a sign-in without a DPoP key.
+	DPoPRequired DPoPMode = "required"
+)
 
 // KeysConfig controls signing-key resolution when Deps.KeySource is nil.
 // AuthKit reads no environment variables: binaries read their environment

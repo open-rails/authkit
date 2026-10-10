@@ -1,11 +1,11 @@
 -- Refresh-session queries.
 
 -- name: SessionInsert :exec
-INSERT INTO refresh_sessions (id, user_id, issuer, current_token_hash, expires_at, user_agent, ip_addr, last_authenticated_at, auth_methods, mfa_authenticated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, CASE WHEN 'mfa' = ANY($8::text[]) THEN now() END);
+INSERT INTO refresh_sessions (id, user_id, issuer, current_token_hash, expires_at, user_agent, ip_addr, last_authenticated_at, auth_methods, mfa_authenticated_at, dpop_jkt)
+VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, CASE WHEN 'mfa' = ANY($8::text[]) THEN now() END, sqlc.narg(dpop_jkt));
 
 -- name: SessionByCurrentTokenHash :one
-SELECT id::text, user_id, auth_methods
+SELECT id::text, user_id, auth_methods, dpop_jkt
 FROM refresh_sessions
 WHERE current_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL
   AND (expires_at IS NULL OR expires_at > now());
@@ -15,7 +15,7 @@ WHERE current_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL
 -- immediate predecessor can open the current grace seal; older hashes still
 -- identify the session for reuse detection.
 SELECT s.id::text AS id, s.user_id, s.auth_methods, s.expires_at,
-       s.current_token_hash, s.previous_successor_sealed, s.previous_rotated_at
+       s.current_token_hash, s.previous_successor_sealed, s.previous_rotated_at, s.dpop_jkt
 FROM refresh_token_history h
 JOIN refresh_sessions s ON s.id = h.session_id
 WHERE h.token_hash = $1 AND s.issuer = $2 AND s.revoked_at IS NULL;
@@ -57,7 +57,7 @@ WHERE user_id = $1 AND issuer = $2 AND (revoked_at IS NULL);
 
 -- name: SessionFreshSince :one
 SELECT COALESCE(last_authenticated_at, created_at)::timestamptz AS fresh_since,
-       auth_methods, mfa_authenticated_at
+       auth_methods, mfa_authenticated_at, dpop_jkt
 FROM refresh_sessions
 WHERE id = sqlc.arg(session_id)::uuid
   AND user_id = sqlc.arg(user_id)::uuid

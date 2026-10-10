@@ -130,7 +130,8 @@ func TestTokenProfiles(t *testing.T) {
 		"foreign audience":          {jose.AccessTokenType, map[string]any{"sub": "u", "aud": "elsewhere"}, errmodel.CodeBadAudience},
 		"unknown issuer":            {jose.AccessTokenType, map[string]any{"sub": "u", "iss": "https://nobody.example"}, errmodel.CodeInvalidToken},
 		"2FA-enrollment-only token": {jose.AccessTokenType, map[string]any{"sub": "u", "2fa_enrollment": true}, errmodel.CodeForbidden},
-		"cnf on an access token":    {jose.AccessTokenType, map[string]any{"sub": "u", "cnf": map[string]any{"jkt": jose.CertificateThumbprint([]byte("k"))}}, errmodel.CodeConfirmationWrongTokenType},
+		"x5t on an access token":    {jose.AccessTokenType, map[string]any{"sub": "u", "cnf": map[string]any{"x5t#S256": jose.CertificateThumbprint([]byte("k"))}}, errmodel.CodeConfirmationWrongTokenType},
+		"jkt without its proof":     {jose.AccessTokenType, map[string]any{"sub": "u", "cnf": map[string]any{"jkt": jose.CertificateThumbprint([]byte("k"))}}, errmodel.CodeSenderProofRequired},
 		"malformed cnf":             {jose.ResourceAccessTokenType, map[string]any{"sub": "u", "client_id": "c", "cnf": map[string]any{"jkt": "short"}}, errmodel.CodeInvalidConfirmation},
 		"two cnf members":           {jose.ResourceAccessTokenType, map[string]any{"sub": "u", "client_id": "c", "cnf": map[string]any{"jkt": jose.CertificateThumbprint([]byte("a")), "x5t#S256": jose.CertificateThumbprint([]byte("b"))}}, errmodel.CodeInvalidConfirmation},
 	} {

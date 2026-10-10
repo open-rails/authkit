@@ -44,4 +44,7 @@ type StateData struct {
 	PopupNonce      string // echoed in popup postMessage for opener validation
 	// Device began the flow; its sign-in counts against it (Config.SignIn).
 	Device authflow.SignInDevice
+	// DPoPKey is the thumbprint of the key a login's session is bound to
+	// (RFC 9449 §10 dpop_jkt, or the start request's proof); "" for bearer.
+	DPoPKey string
 }

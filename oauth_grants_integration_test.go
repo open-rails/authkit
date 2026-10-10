@@ -28,9 +28,10 @@ func tokenError(t *testing.T, as *authtest.AuthorizationServer, req authtest.Tok
 	return status, out.Error
 }
 
-// TestOAuthDPoPAtTheTokenEndpoint: a public client must prove a DPoP key,
-// each proof works once and only for the token endpoint, and a code bound
-// with dpop_jkt redeems only with that key.
+// TestOAuthDPoPAtTheTokenEndpoint: a public client chooses DPoP (bearer
+// tokens without a proof) unless SignIn.DPoP is required; each proof works
+// once and only for the token endpoint, and a code bound with dpop_jkt
+// redeems only with that key.
 func TestOAuthDPoPAtTheTokenEndpoint(t *testing.T) {
 	as, _, _ := newOAuthServer(t)
 	var meta map[string]any
@@ -51,14 +52,25 @@ func TestOAuthDPoPAtTheTokenEndpoint(t *testing.T) {
 		return url.Values{"grant_type": {"authorization_code"}, "code": {code}, "redirect_uri": {oauthConsoleCB}, "code_verifier": {verifier}}
 	}
 
-	_, errCode := tokenError(t, as, authtest.TokenRequest{ClientID: oauthConsole, Params: redeem(code(consoleFlow()))})
-	require.Equal(t, "invalid_dpop_proof", errCode, "a public client without a proof")
+	status, body := as.Token(t, authtest.TokenRequest{ClientID: oauthConsole, Params: redeem(code(consoleFlow()))})
+	require.Equal(t, http.StatusOK, status, string(body))
+	var plain authtest.OAuthTokens
+	require.NoError(t, json.Unmarshal(body, &plain))
+	require.Equal(t, "Bearer", plain.TokenType, "a public client without a proof gets bearer tokens")
+	require.NotEmpty(t, plain.RefreshToken, "protected by rotation")
+	require.Nil(t, verifyIssued(t, as, plain.AccessToken, "at+jwt")["cnf"])
+
+	required, _, _ := newOAuthServer(t, authtest.WithConfig(func(c *authkit.Config) { c.SignIn.DPoP = authkit.DPoPRequired }))
+	_, errCode := tokenError(t, required, authtest.TokenRequest{ClientID: oauthConsole, Params: redeem("any-code")})
+	require.Equal(t, "invalid_dpop_proof", errCode, "SignIn.DPoP required: a user grant without a proof")
+	worker := required.ClientCredentials(t, oauthWorker, oauthWorkerSecret, oauthResource, nil, nil)
+	require.Equal(t, "Bearer", worker.TokenType, "client credentials are never covered")
 
 	bound := consoleFlow()
 	bound.DPoP = key
 	_, errCode = tokenError(t, as, authtest.TokenRequest{ClientID: oauthConsole, DPoP: authtest.NewDPoPKey(t), Params: redeem(code(bound))})
 	require.Equal(t, "invalid_dpop_proof", errCode, "a code bound by dpop_jkt redeems only with that key")
-	status, body := as.Token(t, authtest.TokenRequest{ClientID: oauthConsole, DPoP: key, Params: redeem(code(bound))})
+	status, body = as.Token(t, authtest.TokenRequest{ClientID: oauthConsole, DPoP: key, Params: redeem(code(bound))})
 	require.Equal(t, http.StatusOK, status, string(body))
 
 	proof := key.Proof(t, http.MethodPost, as.URL+iam.OAuthTokenPath, "", "")
@@ -273,8 +285,8 @@ func TestOAuthTokenExchange(t *testing.T) {
 		_, code := exchange(tc.mutate, key)
 		require.Equal(t, tc.code, code, name)
 	}
-	_, code := exchange(func(url.Values) {}, nil)
-	require.Equal(t, "invalid_dpop_proof", code, "a public client proves a key")
+	status, code := exchange(func(url.Values) {}, nil)
+	require.Equal(t, http.StatusOK, status, "without a proof, a bearer token (SignIn.DPoP optional): %s", code)
 	_, code = tokenError(t, as, authtest.TokenRequest{ClientID: oauthConsole, DPoP: key, Params: url.Values{
 		"grant_type": {"urn:ietf:params:oauth:grant-type:token-exchange"}, "subject_token": {signedIn.AccessToken},
 		"subject_token_type": {"urn:ietf:params:oauth:token-type:access_token"},

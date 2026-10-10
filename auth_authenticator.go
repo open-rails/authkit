@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/engine"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/verify"
 	"github.com/open-rails/helpers/auth"
@@ -91,7 +92,7 @@ func (a authenticator) Authenticate(r *http.Request) (auth.Verified, error) {
 	if r == nil {
 		return nil, auth.ErrUnauthenticated
 	}
-	if a.authority == verify.Authority(a.client) && a.client.engine.ResourceEnabled() && resourceTokenRequest(r) {
+	if a.authority == verify.Authority(a.client) && a.client.engine.ResourceEnabled() && engine.IsResourceTokenRequest(r) {
 		return a.client.authenticateResource(r)
 	}
 	v, err := verify.AuthenticateSession(r.Context(), a.authority, r)

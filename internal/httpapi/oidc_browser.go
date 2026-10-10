@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/internal/oidcstate"
 	"github.com/open-rails/authkit/internal/secret"
 	"github.com/open-rails/authkit/provider"
@@ -27,6 +29,9 @@ type flowStart struct {
 // loginStart is a plain login's browser context.
 type loginStart struct {
 	ui, popupNonce, returnTo, accountInviteToken string
+	// dpopKey binds the session (RFC 9449 §10): a navigation's dpop_jkt, or
+	// a JSON start's proof.
+	dpopKey string
 }
 
 func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
@@ -39,7 +44,7 @@ func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
 		s.failBrowserFlow(w, r, nil, provider, errmodel.E(errmodel.CodeInvalidRequest))
 		return
 	}
-	s.startProviderFlow(w, r, provider, flowStart{login: &loginStart{ui: q.Get("ui"), popupNonce: q.Get("popup_nonce"), returnTo: q.Get("return_to")}})
+	s.startProviderFlow(w, r, provider, flowStart{login: &loginStart{ui: q.Get("ui"), popupNonce: q.Get("popup_nonce"), returnTo: q.Get("return_to"), dpopKey: q.Get("dpop_jkt")}})
 }
 
 // handleOIDCLoginStartPOST starts a login from the page's own origin and answers
@@ -58,7 +63,7 @@ func (s *Service) handleOIDCLoginStartPOST(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	s.startProviderFlow(w, r, r.PathValue("provider"), flowStart{login: &loginStart{
-		ui: req.UI, popupNonce: req.PopupNonce, returnTo: req.ReturnTo, accountInviteToken: req.InviteCode,
+		ui: req.UI, popupNonce: req.PopupNonce, returnTo: req.ReturnTo, accountInviteToken: req.InviteCode, dpopKey: authflow.DPoPKey(r.Context()),
 	}})
 }
 
@@ -99,6 +104,14 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 		login = *start.login
 		if login.ui != "" && login.ui != "popup" {
 			reject(errmodel.E(errmodel.CodeInvalidUI))
+			return
+		}
+		if login.dpopKey != "" && !jose.ValidThumbprint(login.dpopKey) {
+			reject(errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("dpop_jkt")))
+			return
+		}
+		if login.dpopKey == "" && s.cfg.SignIn.DPoP == config.DPoPRequired {
+			reject(errmodel.E(errmodel.CodeSenderProofRequired))
 			return
 		}
 	}
@@ -152,6 +165,7 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 			sd.ReturnTo = rt
 		}
 		sd.AccountInviteToken = strings.TrimSpace(login.accountInviteToken)
+		sd.DPoPKey = login.dpopKey
 	}
 	if start.stepUp != nil {
 		sd.StepUpUserID = start.stepUp.StepUpUserID
@@ -236,7 +250,8 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		link = &authflow.ExternalLinkAuthorization{UserID: sd.LinkUserID, SessionID: sd.LinkSessionID, AuthenticatedAt: sd.LinkAuthenticatedAt}
 	}
 	// The sign-in counts against the device that began it.
-	out, err := s.svc.CompleteExternalLogin(authflow.WithSignInDevice(r.Context(), sd.Device), authflow.ExternalLoginInput{
+	ctx := authflow.WithDPoPKey(authflow.WithSignInDevice(r.Context(), sd.Device), sd.DPoPKey)
+	out, err := s.svc.CompleteExternalLogin(ctx, authflow.ExternalLoginInput{
 		Identity: authflow.ExternalIdentity{
 			Provider: name, Issuer: p.Issuer(), Subject: identity.Subject,
 			Email: identity.Email, EmailVerified: identity.EmailVerified && p.TrustsEmailVerification(),

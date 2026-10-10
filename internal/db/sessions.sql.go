@@ -11,7 +11,7 @@ import (
 )
 
 const sessionByCurrentTokenHash = `-- name: SessionByCurrentTokenHash :one
-SELECT id::text, user_id, auth_methods
+SELECT id::text, user_id, auth_methods, dpop_jkt
 FROM refresh_sessions
 WHERE current_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL
   AND (expires_at IS NULL OR expires_at > now())
@@ -26,18 +26,24 @@ type SessionByCurrentTokenHashRow struct {
 	ID          string
 	UserID      string
 	AuthMethods []string
+	DpopJkt     *string
 }
 
 func (q *Queries) SessionByCurrentTokenHash(ctx context.Context, arg SessionByCurrentTokenHashParams) (SessionByCurrentTokenHashRow, error) {
 	row := q.db.QueryRow(ctx, sessionByCurrentTokenHash, arg.CurrentTokenHash, arg.Issuer)
 	var i SessionByCurrentTokenHashRow
-	err := row.Scan(&i.ID, &i.UserID, &i.AuthMethods)
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.AuthMethods,
+		&i.DpopJkt,
+	)
 	return i, err
 }
 
 const sessionByHistoricalTokenHash = `-- name: SessionByHistoricalTokenHash :one
 SELECT s.id::text AS id, s.user_id, s.auth_methods, s.expires_at,
-       s.current_token_hash, s.previous_successor_sealed, s.previous_rotated_at
+       s.current_token_hash, s.previous_successor_sealed, s.previous_rotated_at, s.dpop_jkt
 FROM refresh_token_history h
 JOIN refresh_sessions s ON s.id = h.session_id
 WHERE h.token_hash = $1 AND s.issuer = $2 AND s.revoked_at IS NULL
@@ -56,6 +62,7 @@ type SessionByHistoricalTokenHashRow struct {
 	CurrentTokenHash        []byte
 	PreviousSuccessorSealed []byte
 	PreviousRotatedAt       *time.Time
+	DpopJkt                 *string
 }
 
 // A consumed token stays attributable for 90 days (SessionRotate). Only the
@@ -72,13 +79,14 @@ func (q *Queries) SessionByHistoricalTokenHash(ctx context.Context, arg SessionB
 		&i.CurrentTokenHash,
 		&i.PreviousSuccessorSealed,
 		&i.PreviousRotatedAt,
+		&i.DpopJkt,
 	)
 	return i, err
 }
 
 const sessionFreshSince = `-- name: SessionFreshSince :one
 SELECT COALESCE(last_authenticated_at, created_at)::timestamptz AS fresh_since,
-       auth_methods, mfa_authenticated_at
+       auth_methods, mfa_authenticated_at, dpop_jkt
 FROM refresh_sessions
 WHERE id = $1::uuid
   AND user_id = $2::uuid
@@ -97,12 +105,18 @@ type SessionFreshSinceRow struct {
 	FreshSince         time.Time
 	AuthMethods        []string
 	MfaAuthenticatedAt *time.Time
+	DpopJkt            *string
 }
 
 func (q *Queries) SessionFreshSince(ctx context.Context, arg SessionFreshSinceParams) (SessionFreshSinceRow, error) {
 	row := q.db.QueryRow(ctx, sessionFreshSince, arg.SessionID, arg.UserID, arg.Issuer)
 	var i SessionFreshSinceRow
-	err := row.Scan(&i.FreshSince, &i.AuthMethods, &i.MfaAuthenticatedAt)
+	err := row.Scan(
+		&i.FreshSince,
+		&i.AuthMethods,
+		&i.MfaAuthenticatedAt,
+		&i.DpopJkt,
+	)
 	return i, err
 }
 
@@ -136,8 +150,8 @@ func (q *Queries) SessionFreshSinceForUpdate(ctx context.Context, arg SessionFre
 
 const sessionInsert = `-- name: SessionInsert :exec
 
-INSERT INTO refresh_sessions (id, user_id, issuer, current_token_hash, expires_at, user_agent, ip_addr, last_authenticated_at, auth_methods, mfa_authenticated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, CASE WHEN 'mfa' = ANY($8::text[]) THEN now() END)
+INSERT INTO refresh_sessions (id, user_id, issuer, current_token_hash, expires_at, user_agent, ip_addr, last_authenticated_at, auth_methods, mfa_authenticated_at, dpop_jkt)
+VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, CASE WHEN 'mfa' = ANY($8::text[]) THEN now() END, $9)
 `
 
 type SessionInsertParams struct {
@@ -149,6 +163,7 @@ type SessionInsertParams struct {
 	UserAgent        *string
 	IpAddr           *string
 	AuthMethods      []string
+	DpopJkt          *string
 }
 
 // Refresh-session queries.
@@ -162,6 +177,7 @@ func (q *Queries) SessionInsert(ctx context.Context, arg SessionInsertParams) er
 		arg.UserAgent,
 		arg.IpAddr,
 		arg.AuthMethods,
+		arg.DpopJkt,
 	)
 	return err
 }

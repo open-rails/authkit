@@ -337,6 +337,9 @@ type OIDCLoginQuery struct {
 	UI         string `query:"ui"`
 	PopupNonce string `query:"popup_nonce"`
 	ReturnTo   string `query:"return_to"`
+	// DPoPJKT binds the session to the key with this RFC 7638 thumbprint
+	// (RFC 9449 §10).
+	DPoPJKT string `query:"dpop_jkt"`
 }
 
 type OIDCCallbackQuery struct {
@@ -366,7 +369,10 @@ type Capabilities struct {
 	TwoFactor              TwoFactorCapabilities    `json:"two_factor"`
 	Invitations            InvitationCapabilities   `json:"invitations"`
 	Languages              []string                 `json:"languages"`
-	Paths                  MountPaths               `json:"paths"`
+	// DPoP is SignIn.DPoP: optional (each client chooses) or required (a
+	// sign-in proves a DPoP key, RFC 9449).
+	DPoP  string     `json:"dpop"`
+	Paths MountPaths `json:"paths"`
 }
 
 // MountPaths are the serving mount's anchors as full paths, so a client that

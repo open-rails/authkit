@@ -175,15 +175,16 @@ func isResourceType(typ string) bool {
 	return strings.EqualFold(typ, jose.ResourceAccessTokenType) || strings.EqualFold(typ, "application/"+jose.ResourceAccessTokenType)
 }
 
-// senderProof enforces a resource token's cnf binding against
-// r: the TLS peer certificate for x5t#S256, a fresh DPoP proof for jkt. A
-// DPoP request must carry a DPoP-bound token.
+// senderProof enforces a token's cnf binding against r: the TLS peer
+// certificate for a resource token's x5t#S256, a fresh DPoP proof for jkt
+// (a resource token's, or a bound sign-in session's access token, RFC 9449
+// §6.1). A DPoP request must carry a DPoP-bound token.
 func (v *Verifier) senderProof(token string, r *http.Request, cl *Claims) error {
 	member, thumbprint, err := jose.Confirmation(token)
 	if err != nil {
 		return ErrInvalidConfirmation
 	}
-	if member != "" && !cl.IsResourceToken() {
+	if member == jose.CertificateThumbprintMember && !cl.IsResourceToken() {
 		return ErrConfirmationWrongTokenType
 	}
 	if isDPoPRequest(r) && member != jose.JWKThumbprintMember {

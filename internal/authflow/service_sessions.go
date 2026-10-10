@@ -31,6 +31,9 @@ type SessionFreshness struct {
 	AuthMethods                   []string
 	// MFAAuthenticatedAt is when the session last proved a second factor.
 	MFAAuthenticatedAt time.Time
+	// DPoPKey is the thumbprint of the DPoP key the session is bound to; ""
+	// for a bearer session.
+	DPoPKey string
 }
 
 // AssuranceClaims are the token's auth_time, amr and acr. A token claims

@@ -16,6 +16,7 @@ type (
 	DatabaseConfig     = config.DatabaseConfig
 	TokenConfig        = config.TokenConfig
 	SignInConfig       = config.SignInConfig
+	DPoPMode           = config.DPoPMode
 	KeysConfig         = config.KeysConfig
 	FrontendConfig     = config.FrontendConfig
 	RegistrationConfig = config.RegistrationConfig
@@ -55,6 +56,12 @@ const (
 	GrantTokenExchange     = config.GrantTokenExchange
 	GrantClientCredentials = config.GrantClientCredentials
 	GrantJWTBearer         = config.GrantJWTBearer
+)
+
+// SignInConfig.DPoP modes.
+const (
+	DPoPOptional = config.DPoPOptional
+	DPoPRequired = config.DPoPRequired
 )
 
 // Former-name reservation modes.

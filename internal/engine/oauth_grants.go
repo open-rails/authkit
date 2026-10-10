@@ -106,6 +106,8 @@ func (s *Engine) RefreshOAuthTokens(ctx context.Context, in authflow.OAuthRefres
 		return authflow.OAuthTokens{}, invalid
 	case f.JKT != "" && !secret.Equal(f.JKT, in.JKT):
 		return authflow.OAuthTokens{}, authflow.NewOAuthError(authflow.OAuthInvalidDPoPProof, "the refresh token is bound to another DPoP key")
+	case f.JKT == "" && s.cfg.SignIn.DPoP == config.DPoPRequired:
+		return authflow.OAuthTokens{}, authflow.NewOAuthError(authflow.OAuthInvalidDPoPProof, "the refresh token is not bound to a DPoP key")
 	case in.Resource != "" && in.Resource != f.Resource:
 		return authflow.OAuthTokens{}, authflow.NewOAuthError(authflow.OAuthInvalidTarget, "resource does not match the refresh token's")
 	}

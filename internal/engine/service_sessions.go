@@ -17,8 +17,10 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/internal/secret"
 	"github.com/open-rails/authkit/verify"
 )
@@ -26,6 +28,10 @@ import (
 // insertRefreshSessionTx is the one session insert/cap operation. Its caller
 // owns the account lock, admission checks, commit and post-commit audit.
 func (s *Engine) insertRefreshSessionTx(ctx context.Context, q *db.Queries, userID, userAgent string, ip net.IP, authMethods []string) (string, string, *time.Time, []string, error) {
+	jkt := authflow.DPoPKey(ctx)
+	if jkt == "" && s.cfg.SignIn.DPoP == config.DPoPRequired {
+		return "", "", nil, nil, errmodel.E(errmodel.CodeSenderProofRequired)
+	}
 	rt := secret.Token(32)
 	var exp *time.Time
 	if s.cfg.Token.RefreshTokenDuration > 0 {
@@ -48,7 +54,7 @@ func (s *Engine) insertRefreshSessionTx(ctx context.Context, q *db.Queries, user
 			return "", "", nil, nil, err
 		}
 	}
-	err = q.SessionInsert(ctx, db.SessionInsertParams{ID: sid, UserID: userID, Issuer: s.cfg.Token.Issuer, CurrentTokenHash: s.hashRefresh(rt), ExpiresAt: exp, UserAgent: nullable(userAgent), IpAddr: ipText(ip), AuthMethods: authflow.NormalizeAuthMethods(authMethods)})
+	err = q.SessionInsert(ctx, db.SessionInsertParams{ID: sid, UserID: userID, Issuer: s.cfg.Token.Issuer, CurrentTokenHash: s.hashRefresh(rt), ExpiresAt: exp, UserAgent: nullable(userAgent), IpAddr: ipText(ip), AuthMethods: authflow.NormalizeAuthMethods(authMethods), DpopJkt: nullable(jkt)})
 	return sid, rt, exp, evicted, err
 }
 
@@ -81,6 +87,9 @@ func (s *Engine) ExchangeRefreshToken(ctx context.Context, refreshToken string, 
 		return "", authflow.IssuedSession{}, fmt.Errorf("find current refresh session: %w", err)
 	}
 	sid, uid := cur.ID, cur.UserID
+	if err := s.refreshProof(ctx, cur.DpopJkt); err != nil {
+		return "", authflow.IssuedSession{}, err
+	}
 
 	// Gate the identity and mint the new access token BEFORE rotating the refresh
 	// session (issueSessionAccessToken reads the user row and MFA status once each,
@@ -127,6 +136,22 @@ func (s *Engine) ExchangeRefreshToken(ctx context.Context, refreshToken string, 
 	return uid, authflow.IssuedSession{SessionID: sid, AccessToken: accessToken, AccessExpiresAt: exp, RefreshToken: newTok}, nil
 }
 
+// refreshProof checks a refresh request's DPoP proof against the session
+// (RFC 9449 §5): a bound session's refresh proves its key; an unbound one is
+// refused when SignIn.DPoP is required.
+func (s *Engine) refreshProof(ctx context.Context, bound *string) error {
+	presented := authflow.DPoPKey(ctx)
+	switch {
+	case bound != nil && *bound != "":
+		if presented != *bound {
+			return errmodel.E(errmodel.CodeSenderProofRequired)
+		}
+	case s.cfg.SignIn.DPoP == config.DPoPRequired:
+		return errmodel.E(errmodel.CodeSenderProofRequired)
+	}
+	return nil
+}
+
 // exchangeDemotedRefreshToken answers a token that is no longer `current`. Two
 // causes reach here and they are NOT the same event:
 //
@@ -153,6 +178,9 @@ func (s *Engine) exchangeDemotedRefreshToken(ctx context.Context, refreshToken s
 	}
 	if err != nil {
 		return "", authflow.IssuedSession{}, fmt.Errorf("find historical refresh session: %w", err)
+	}
+	if err := s.refreshProof(ctx, prev.DpopJkt); err != nil {
+		return "", authflow.IssuedSession{}, err
 	}
 	successor, ok := s.graceSuccessorFor(refreshToken, prev)
 	if !ok {
@@ -290,6 +318,9 @@ func (s *Engine) issueLoginSessionTx(ctx context.Context, q *db.Queries, user *d
 		extra[k] = v
 	}
 	extra["sid"] = sid
+	if jkt := authflow.DPoPKey(ctx); jkt != "" {
+		extra["cnf"] = map[string]any{jose.JWKThumbprintMember: jkt}
+	}
 	if hasAuthMethod(amr, "swk") && hasAuthMethod(amr, "mfa") {
 		mfa.Satisfied = true
 	}
@@ -350,6 +381,9 @@ func (s *Engine) SessionFreshness(ctx context.Context, userID, sessionID string,
 	}
 	out := sessionFreshness(fresh.FreshSince, fresh.AuthMethods, fresh.MfaAuthenticatedAt)
 	out.TimeUntilStepUpRequired, out.StepUpRequiredForSensitiveOps = remaining, remaining <= 0
+	if fresh.DpopJkt != nil {
+		out.DPoPKey = *fresh.DpopJkt
+	}
 	return out, nil
 }
 

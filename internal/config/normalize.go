@@ -62,6 +62,13 @@ func Normalize(c Config, d Deps) (Config, error) {
 		return Config{}, err
 	}
 	c.SignIn = NormalizeSignIn(c.SignIn)
+	switch c.SignIn.DPoP {
+	case "":
+		c.SignIn.DPoP = DPoPOptional
+	case DPoPOptional, DPoPRequired:
+	default:
+		return Config{}, fmt.Errorf("authkit: invalid SignIn.DPoP %q (want optional or required)", c.SignIn.DPoP)
+	}
 	switch c.SolanaNetwork {
 	case "", iam.SolanaMainnet, iam.SolanaTestnet, iam.SolanaDevnet:
 	default:

@@ -246,8 +246,10 @@ func (s *Service) validateAuthorization(client config.OAuthClientConfig, redirec
 }
 
 // handleOAuthToken is the token endpoint: one authenticated (or public)
-// client, one grant. A DPoP proof (RFC 9449) binds the tokens to its key; a
-// public client, and every jwt-bearer grant, must send one.
+// client, one grant. A DPoP proof (RFC 9449) binds the tokens to its key. A
+// jwt-bearer grant must send one, and so must a user grant (code, refresh,
+// token exchange) when SignIn.DPoP is required; otherwise a public client's
+// refresh tokens are protected by rotation (RFC 9700 §4.14.2).
 func (s *Service) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 	s.oauthCORS(w, r)
 	w.Header().Set("Cache-Control", "no-store")
@@ -284,7 +286,7 @@ func (s *Service) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 		oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidRequest, "authorization_details are granted only by a jwt-bearer capability"))
 		return
 	}
-	jkt, err := s.oauthTokenDPoP(r, client)
+	jkt, err := s.oauthTokenDPoP(r, grant)
 	if err != nil {
 		oauthFail(w, err)
 		return
@@ -325,12 +327,13 @@ func (s *Service) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 }
 
 // oauthTokenDPoP verifies the token request's DPoP proof (no ath at the
-// token endpoint) and returns its key's thumbprint: "" without one, which
-// only a confidential client may omit (the jwt-bearer grant refuses it).
-func (s *Service) oauthTokenDPoP(r *http.Request, client config.OAuthClientConfig) (string, error) {
+// token endpoint) and returns its key's thumbprint: "" without one, which a
+// user grant may omit unless SignIn.DPoP is required (the jwt-bearer grant
+// refuses it; client credentials never need one).
+func (s *Service) oauthTokenDPoP(r *http.Request, grant config.OAuthGrantType) (string, error) {
 	if len(r.Header.Values("DPoP")) == 0 {
-		if !config.OAuthClientConfidential(client) {
-			return "", authflow.NewOAuthError(authflow.OAuthInvalidDPoPProof, "a public client must send a DPoP proof")
+		if grant != config.GrantClientCredentials && grant != config.GrantJWTBearer && s.cfg.SignIn.DPoP == config.DPoPRequired {
+			return "", authflow.NewOAuthError(authflow.OAuthInvalidDPoPProof, "a DPoP proof is required")
 		}
 		return "", nil
 	}

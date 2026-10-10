@@ -33,6 +33,7 @@ func (s *Service) Capabilities() Capabilities {
 		channels = append(channels, "sms")
 	}
 	return Capabilities{
+		DPoP: string(cfg.SignIn.DPoP),
 		Registration: RegistrationCapabilities{
 			Mode:                string(cfg.Registration.NativeUserMode),
 			InviteTokenRequired: cfg.Registration.NativeUserMode == iam.RegistrationModeInviteOnly,
