@@ -5,9 +5,10 @@
 // proof (RFC 9449 §7), a bearer one as Bearer (RFC 6750 §2.1).
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { createAuthClient } from "./client.ts"
 import { createIssuerClient } from "./issuer.ts"
 import { createResourceTokens } from "./resource.ts"
-import { json } from "./testing.ts"
+import { authError, authResult, json } from "./testing.ts"
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -143,6 +144,88 @@ describe("resource tokens DPoP", () => {
       { url: "/oauth2/token", dpop: false, auth: "" },
       { url: "/oauth2/token", dpop: true, auth: "" },
       { url: "/api/thing", dpop: true, auth: "DPoP" },
+    ])
+  })
+})
+
+describe("sign-in sessions DPoP", () => {
+  const bearerToken = (sub: string, cnf?: string) =>
+    token({ sub, exp: 9_999_999_999, ...(cnf ? { cnf: { jkt: cnf } } : {}) })
+  const signedIn = (access: string) =>
+    authResult("complete", {
+      token_set: {
+        access_token: access,
+        token_type: "Bearer",
+        expires_in: 900,
+        refresh_token: null,
+      },
+    })
+
+  // An AuthKit that requires DPoP or not; it binds a session whose sign-in
+  // proves a key.
+  function authkit(requires: boolean) {
+    const seen: Seen[] = []
+    const fetch = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input), "https://app.example")
+        const headers = new Headers(init?.headers)
+        seen.push({
+          url: url.pathname,
+          dpop: headers.has("DPoP"),
+          auth: (headers.get("Authorization") ?? "").split(" ")[0],
+        })
+        if (
+          url.pathname === "/api/v1/password/login" ||
+          url.pathname === "/api/v1/token"
+        ) {
+          if (requires && !headers.has("DPoP"))
+            return authError(401, "sender_proof_required")
+          return json(
+            200,
+            signedIn(bearerToken("u1", headers.has("DPoP") ? "jkt" : undefined))
+          )
+        }
+        return json(200, {})
+      }
+    )
+    return { fetch, seen }
+  }
+
+  const run = async (requires: boolean, dpop?: boolean) => {
+    const { fetch, seen } = authkit(requires)
+    vi.stubGlobal("location", {
+      ...window.location,
+      href: "https://app.example/",
+    })
+    const client = createAuthClient({ fetch, dpop, sessionHint: false })
+    await client.signInWithPassword({ identifier: "a@b.c", password: "pw" })
+    await client.authFetch("https://app.example/api/thing")
+    await client.refresh()
+    return seen.filter((s) => s.url !== "/api/v1/capabilities")
+  }
+
+  it("is bearer by default", async () => {
+    expect(await run(false)).toEqual([
+      { url: "/api/v1/password/login", dpop: false, auth: "" },
+      { url: "/api/thing", dpop: false, auth: "Bearer" },
+      { url: "/api/v1/token", dpop: false, auth: "" },
+    ])
+  })
+
+  it("binds when the app asks", async () => {
+    expect(await run(false, true)).toEqual([
+      { url: "/api/v1/password/login", dpop: true, auth: "" },
+      { url: "/api/thing", dpop: true, auth: "DPoP" },
+      { url: "/api/v1/token", dpop: true, auth: "" },
+    ])
+  })
+
+  it("binds when the AuthKit requires it", async () => {
+    expect(await run(true)).toEqual([
+      { url: "/api/v1/password/login", dpop: false, auth: "" },
+      { url: "/api/v1/password/login", dpop: true, auth: "" },
+      { url: "/api/thing", dpop: true, auth: "DPoP" },
+      { url: "/api/v1/token", dpop: true, auth: "" },
     ])
   })
 })

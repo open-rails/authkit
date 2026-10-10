@@ -7,6 +7,7 @@ import {
   errorMetadata,
   readAuthKitError,
 } from "./errors.ts"
+import { deleteDPoPKey, loadDPoPKey, type DPoPKey } from "./dpop.ts"
 import { decodeAccessClaims } from "./jwt.ts"
 import type { AccessClaims } from "./jwt.ts"
 import { randomNonce, waitForPopup } from "./popup.ts"
@@ -101,6 +102,11 @@ export type AuthClientOptions = {
   // Enables getResourceToken and resourceFetch: the OAuth client this
   // frontend exchanges the session through for other services' APIs.
   resourceTokens?: ResourceTokenOptions
+  // Bind this browser's sign-in sessions to a DPoP key (RFC 9449): their
+  // access tokens then go with a proof of the key, never as bearer tokens.
+  // Default false. An AuthKit whose sign-ins require DPoP (capabilities
+  // dpop: required) refuses an unbound sign-in, and the client binds anyway.
+  dpop?: boolean
 }
 
 export type AuthSession =
@@ -221,6 +227,51 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     } catch {
       // storage unavailable (private mode, quota): the hint is optional
     }
+  }
+
+  // --- DPoP-bound sessions ----------------------------------------------------
+
+  const sessionKeyName = `authkit:session-key:${baseUrl}`
+  let bindSessions = options.dpop ?? false
+  const sessionKey = (): Promise<DPoPKey> => loadDPoPKey(sessionKeyName)
+  // A token is bound when it names a key (cnf.jkt, RFC 9449 §6.1).
+  const boundToken = (token: string | null): boolean => {
+    const cnf = token ? (decodeAccessClaims(token) as Rec | null)?.cnf : null
+    return typeof cnf === "object" && cnf !== null && "jkt" in cnf
+  }
+  // Whether a call with token (none: a sign-in, a refresh) carries a proof.
+  const needsProof = (token: string | null) =>
+    token ? boundToken(token) : bindSessions
+  // The credential headers of a call to target: a bound token goes as DPoP
+  // with a proof, a bearer one as Bearer; a call with no token proves the
+  // session key when sessions are bound. Callers await it only when
+  // needsProof, so an unbound call goes out synchronously.
+  const plainHeaders = (token: string | null): Record<string, string> =>
+    token ? { Authorization: `Bearer ${token}` } : {}
+  const credentialHeaders = async (
+    method: string,
+    target: string,
+    token: string | null
+  ): Promise<Record<string, string>> => {
+    if (!needsProof(token)) return plainHeaders(token)
+    const key = await sessionKey()
+    const proof = await key.proof(
+      method,
+      target,
+      token ? { accessToken: token } : {}
+    )
+    return token
+      ? { Authorization: `DPoP ${token}`, DPoP: proof }
+      : { DPoP: proof }
+  }
+  // A refusal that asks this call, sent without a proof, to prove a key: the
+  // AuthKit requires DPoP-bound sessions.
+  const asksForSessionKey = async (res: Response): Promise<boolean> => {
+    if (bindSessions || res.status !== 401) return false
+    const err = await readAuthKitError(res.clone()).catch(() => null)
+    if (err?.code !== "sender_proof_required") return false
+    bindSessions = true
+    return true
   }
 
   let generation = 0
@@ -369,17 +420,24 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     const body: Rec = { grant_type: "refresh_token" }
     const stored = storage?.get()
     if (stored) body.refresh_token = stored
-    let res: Response
-    try {
-      res = await cookieFetch(url(baseUrl, "/token"), {
+    const target = url(baseUrl, "/token")
+    const post = async () =>
+      cookieFetch(target, {
         method: "POST",
         credentials: "include",
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
+          ...(needsProof(null)
+            ? await credentialHeaders("POST", target, null)
+            : {}),
         },
         body: JSON.stringify(body),
       })
+    let res: Response
+    try {
+      res = await post()
+      if (await asksForSessionKey(res)) res = await post()
     } catch {
       if (gen === generation) backoff(gen)
       return false
@@ -557,15 +615,19 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     return handler({ identifier, channel: str(meta.channel) ?? "email" })
   }
 
-  const send = (
+  const send = async (
     method: string,
     target: string,
     opts: RequestOptions,
     bearer: string | null
   ) => {
-    const headers: Record<string, string> = { Accept: "application/json" }
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      ...(needsProof(bearer)
+        ? await credentialHeaders(method, target, bearer)
+        : plainHeaders(bearer)),
+    }
     if (opts.body !== undefined) headers["Content-Type"] = "application/json"
-    if (bearer) headers.Authorization = `Bearer ${bearer}`
     return cookieFetch(target, {
       method,
       headers,
@@ -595,6 +657,8 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     const requestGeneration = generation
     const bearer = explicit ? (opts.bearer ?? null) : accessToken()
     let res = await send(method, target, opts, bearer)
+    if (!bearer && (await asksForSessionKey(res)))
+      res = await send(method, target, opts, bearer)
     if (res.status === 401 && !explicit && bearer) {
       const err = await readAuthKitError(res.clone())
       if (STALE_BEARER.has(err.code as AuthErrorCode)) {
@@ -626,11 +690,21 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     init: RequestInit = {}
   ): Promise<Response> {
     const original = input instanceof Request ? input.clone() : input
-    const attempt = (token: string | null, source: RequestInfo | URL) => {
+    const attempt = async (token: string | null, source: RequestInfo | URL) => {
       const headers = new Headers(
         init.headers ?? (source instanceof Request ? source.headers : undefined)
       )
-      if (token) headers.set("Authorization", `Bearer ${token}`)
+      if (token) {
+        const target = source instanceof Request ? source.url : String(source)
+        const method =
+          init.method ?? (source instanceof Request ? source.method : "GET")
+        for (const [name, value] of Object.entries(
+          needsProof(token)
+            ? await credentialHeaders(method.toUpperCase(), target, token)
+            : plainHeaders(token)
+        ))
+          headers.set(name, value)
+      }
       return doFetch(source, { ...init, headers })
     }
     await ready()
@@ -729,17 +803,21 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     const bearer = accessToken()
     clear("signed_out")
     if (!bearer) return
-    const done = doFetch(url(baseUrl, "/logout"), {
-      method: "DELETE",
-      credentials: "include",
-      headers: { Authorization: `Bearer ${bearer}` },
-    }).then(
+    const target = url(baseUrl, "/logout")
+    const logout = (headers: Record<string, string>) =>
+      doFetch(target, { method: "DELETE", credentials: "include", headers })
+    const done = (
+      needsProof(bearer)
+        ? credentialHeaders("DELETE", target, bearer).then(logout)
+        : logout(plainHeaders(bearer))
+    ).then(
       () => undefined,
       () => undefined // local sign-out already happened
     )
     signingOut = done
     await done
     if (signingOut === done) signingOut = null
+    if (boundToken(bearer)) await deleteDPoPKey(sessionKeyName)
   }
 
   // --- OIDC ------------------------------------------------------------------
@@ -763,23 +841,24 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     provider: string,
     opts: { returnTo?: string; inviteCode?: string; popupNonce?: string } = {}
   ): Promise<string> {
-    const res = await cookieFetch(
-      url(baseUrl, `/oidc/${segment(provider)}/login/start`),
-      {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({
-          return_to: safeReturnTo(opts.returnTo) ?? undefined,
-          invite_code: opts.inviteCode,
-          ui: opts.popupNonce ? "popup" : undefined,
-          popup_nonce: opts.popupNonce,
-        }),
-      }
-    )
+    const target = url(baseUrl, `/oidc/${segment(provider)}/login/start`)
+    const res = await cookieFetch(target, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        ...(needsProof(null)
+          ? await credentialHeaders("POST", target, null)
+          : {}),
+      },
+      body: JSON.stringify({
+        return_to: safeReturnTo(opts.returnTo) ?? undefined,
+        invite_code: opts.inviteCode,
+        ui: opts.popupNonce ? "popup" : undefined,
+        popup_nonce: opts.popupNonce,
+      }),
+    })
     if (!res.ok) throw await readAuthKitError(res)
     const start = (await res.json()) as Partial<OIDCStart>
     if (!start.auth_url) throw new Error("AuthKit returned no auth_url")
@@ -796,8 +875,9 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     provider: string,
     opts: { returnTo?: string; inviteCode?: string } = {}
   ): Promise<void> {
+    // A bound session starts by POST, whose proof binds it.
     window.location.assign(
-      opts.inviteCode
+      opts.inviteCode || bindSessions
         ? await oidcLoginStart(provider, opts)
         : oidcLoginUrl(provider, opts)
     )
@@ -814,9 +894,10 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       window.location.origin,
       new URL(oidcBaseUrl, window.location.href).origin,
     ])
-    const target = opts.inviteCode
-      ? () => oidcLoginStart(provider, { ...opts, popupNonce: nonce })
-      : oidcLoginUrl(provider, { returnTo: opts.returnTo, popupNonce: nonce })
+    const target =
+      opts.inviteCode || bindSessions
+        ? () => oidcLoginStart(provider, { ...opts, popupNonce: nonce })
+        : oidcLoginUrl(provider, { returnTo: opts.returnTo, popupNonce: nonce })
     const waited = await waitForPopup(target, {
       nonce,
       allowedOrigins,

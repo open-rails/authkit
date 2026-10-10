@@ -45,6 +45,12 @@ const res = await auth.authFetch("/api/v1/things") // Bearer + one refresh retry
 
 - The access token lives in memory only. Refresh is `POST /token` with the
   `authkit_rt` cookie; pass `storage` for mounts without the cookie.
+- Sessions are bearer by default. `createAuthClient({ dpop: true })` binds
+  each sign-in's session to a non-extractable DPoP key in IndexedDB (RFC
+  9449): every sign-in and refresh proves it, and the access tokens go as
+  `DPoP` with a proof, never as bearer tokens. An AuthKit whose sign-ins
+  require DPoP (capabilities `dpop: "required"`) refuses an unbound sign-in,
+  and the client then binds anyway. Sign-out deletes the key.
 - Each session boundary (login, sign-out, expiry) bumps a generation. Late
   refreshes, profiles, popups and sign-ins from an older generation are dropped.
 - Every sign-in answers AuthKit's `AuthResult` (`SignInResult`, narrowed by
