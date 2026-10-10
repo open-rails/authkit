@@ -24,3 +24,19 @@ ALTER TABLE refresh_sessions ADD COLUMN dpop_jkt text
   CONSTRAINT refresh_sessions_dpop_jkt_chk CHECK (dpop_jkt IS NULL OR dpop_jkt ~ '^[A-Za-z0-9_-]{43}$');
 COMMENT ON COLUMN refresh_sessions.dpop_jkt IS
   'The RFC 7638 thumbprint of the DPoP key the session is bound to; NULL for a bearer session.';
+
+-- A role in a group held by a trusted issuer's user (its remote_users row),
+-- granted by an email invitation the user accepted with that verified
+-- address. Its tokens hold the role's permissions there, within their
+-- application's role as ever. Deleting the user or the group deletes it.
+CREATE TABLE group_remote_user_roles (
+  permission_group_id uuid NOT NULL REFERENCES permission_groups(id) ON DELETE CASCADE,
+  remote_user_id uuid NOT NULL REFERENCES remote_users(id) ON DELETE CASCADE,
+  role text NOT NULL CONSTRAINT grur_role_format_chk CHECK (role ~ '^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*$'),
+  invitation_id uuid REFERENCES account_registration_invites(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (permission_group_id, remote_user_id)
+);
+CREATE INDEX group_remote_user_roles_user_idx ON group_remote_user_roles (remote_user_id);
+COMMENT ON TABLE group_remote_user_roles IS
+  'Roles trusted issuers'' users hold in groups, from accepted email invitations; kept while the user and group are.';

@@ -428,3 +428,63 @@ func TestResourceServerSCIMPush(t *testing.T) {
 	status, _ = b.call(t, reader, http.MethodDelete, "/Users/"+created.ID, nil, &e)
 	require.Equal(t, http.StatusForbidden, status, "its token carries only directory:read")
 }
+
+// TestResourceServerFederatedGrants: a group's email invitation is accepted
+// by a trusted issuer's user whose token carries that verified address; the
+// user then holds its role in the group, so their tokens hold its
+// permissions there, within the application's role. The grant ends when
+// removed.
+func TestResourceServerFederatedGrants(t *testing.T) {
+	ctx := context.Background()
+	f := newFakeIssuer(t)
+	d := newResourceDeployment(t)
+	require.NoError(t, d.auth.DeclareRemoteApplications(ctx, d.a, []iam.RemoteApplication{{Issuer: f.url, Enabled: true, Role: d.operator}}))
+	a := d.auth.Authenticator()
+	verified := func(claims jwt.MapClaims) hauth.Verified {
+		t.Helper()
+		base := jwt.MapClaims{"sub": "staff-1", "scope": "api:merchant", "email": "Staff@Shop.example", "email_verified": true}
+		for k, v := range claims {
+			base[k] = v
+		}
+		r := httptest.NewRequest(http.MethodGet, oauthResource+"/v1/things", nil)
+		r.Header.Set("Authorization", "Bearer "+f.token(t, "at+jwt", base))
+		v, err := a.Authenticate(r)
+		require.NoError(t, err)
+		return v
+	}
+
+	require.False(t, can(t, verified(nil), d.scopeA, "merchant:subscriptions:read"), "no grant yet")
+	_, err := d.auth.CreateInvitation(ctx, iam.SystemIdentity(), d.a, iam.NewInvitation{Email: "staff@shop.example", Role: d.operator})
+	require.NoError(t, err)
+
+	none, err := d.auth.RemoteInvitations(ctx, verified(jwt.MapClaims{"email_verified": false}))
+	require.NoError(t, err)
+	require.Empty(t, none, "an unverified address")
+	none, err = d.auth.RemoteInvitations(ctx, verified(jwt.MapClaims{"email": "other@shop.example"}))
+	require.NoError(t, err)
+	require.Empty(t, none, "another address")
+
+	invites, err := d.auth.RemoteInvitations(ctx, verified(nil))
+	require.NoError(t, err)
+	require.Len(t, invites, 1)
+	require.Equal(t, d.operator, invites[0].Role)
+	role, err := d.auth.AcceptRemoteInvitation(ctx, verified(nil), invites[0].ID)
+	require.NoError(t, err)
+	require.Equal(t, d.operator, role)
+	_, err = d.auth.AcceptRemoteInvitation(ctx, verified(nil), invites[0].ID)
+	require.ErrorIs(t, err, iam.ErrInvitationNotFound, "once")
+
+	v := verified(nil)
+	require.True(t, can(t, v, d.scopeA, "merchant:subscriptions:update"), "the accepted role")
+	require.False(t, can(t, v, d.scopeA, "merchant:payments:refund"), "never beyond the application's role")
+	require.False(t, can(t, verified(jwt.MapClaims{"sub": "someone-else"}), d.scopeA, "merchant:subscriptions:read"), "only that user")
+
+	roles, err := d.auth.RemoteUserRoles(ctx, d.a)
+	require.NoError(t, err)
+	require.Len(t, roles, 1)
+	require.Equal(t, iam.RemoteUserRole{RemoteUserID: roles[0].RemoteUserID, Issuer: f.url, Subject: "staff-1", Email: "Staff@Shop.example", Role: d.operator, CreatedAt: roles[0].CreatedAt}, roles[0])
+
+	require.NoError(t, d.auth.RemoveRemoteUserRole(ctx, iam.SystemIdentity(), d.a, roles[0].RemoteUserID))
+	require.False(t, can(t, verified(nil), d.scopeA, "merchant:subscriptions:read"), "removed")
+	require.ErrorIs(t, d.auth.RemoveRemoteUserRole(ctx, iam.SystemIdentity(), d.a, roles[0].RemoteUserID), iam.ErrUserNotFound)
+}

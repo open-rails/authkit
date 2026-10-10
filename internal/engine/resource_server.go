@@ -148,6 +148,13 @@ func (rs *resourceServer) verify(r *http.Request) (ResourceAccess, error) {
 				}
 			}
 		}
+		if cl.Kind == verify.TokenUser {
+			granted, err := rs.s.remoteUserGrants(ctx, app.GroupID, app.Issuer, cl.Subject)
+			if err != nil {
+				return ResourceAccess{}, errmodel.Internal("resource_remote_user_role", err)
+			}
+			out.Permissions = append(out.Permissions, granted...)
+		}
 	}
 	out.Ceilings, out.Scoped = rs.ceilings(cl.Scopes)
 	return out, nil

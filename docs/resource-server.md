@@ -39,6 +39,16 @@ A trusted issuer is a [remote application](tokens.md#remote-applications): an is
 - The identity is the issuer's user, or the issuer's client acting for itself (`sub` = `client_id`, an application). The invoker is the user unless an RFC 8693 `act` claim names another. Contact claims (OIDC Core §5.1) fill the identity's email and username.
 - `CheckRecentSignIn` reads `auth_time`. A sign-in older than 15 minutes is RFC 9470's step-up: `WWW-Authenticate: Bearer error="insufficient_user_authentication", max_age=900`.
 
+## Federated grants
+
+A group may grant roles to a trusted issuer's users by email:
+
+1. An owner invites an address with a role: `CreateInvitation(ctx, who, group, iam.NewInvitation{Email: …, Role: …})`.
+2. The user signs in at their issuer. With a token whose verified email is the invitation's, `Client.RemoteInvitations(ctx, v)` lists the invitation and `Client.AcceptRemoteInvitation(ctx, v, id)` accepts it, once.
+3. The user (their record in the group's [directory](scim.md#directory)) then holds the role in the group. Their tokens hold its permissions there, within the application's role as always.
+
+`Client.RemoteUserRoles` lists these grants, and `Client.RemoveRemoteUserRole` ends one; ending one needs `<persona>:members:manage` and coverage of the role.
+
 ## A trusted application without an authorization server
 
 A trusted issuer's backend can mint a customer token for its user without running an authorization server (RFC 7523 §2.1):

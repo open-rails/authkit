@@ -62,19 +62,20 @@ func TestClientPublicSurface(t *testing.T) {
 		// Credentials and invitations.
 		"CreateAPIKey", "RevokeAPIKey", "CreateInvitation", "RevokeInvitation",
 		// Remote applications.
-		"UpsertRemoteApplication", "DeleteRemoteApplication",
+		"UpsertRemoteApplication", "DeleteRemoteApplication", "RemoveRemoteUserRole",
 	}
 	hostOperations := []string{
 		"CreateUser", "PurgeUsers", "ResetAccountMFA", "MintAccessToken",
 		"CreateGroup", "DeleteGroup", "PurgeGroup",
 		"ApplyBootstrapManifest", "EnsureUserRole", "ImportUsers", "ImportSolanaLinks", "LinkProvider",
+		"DeclareRemoteApplications",
 	}
 	reads := []string{
 		// The host is the trust boundary.
 		"User", "Users", "PublicUsers", "ListUsers", "ResolveUsername", "CheckUsername",
 		"DeviceKeys", "Sessions", "ListSessionEvents",
 		"Group", "Groups", "ListGroups", "ListGroupMembers", "ListMemberships", "GroupRoles", "KnownPermission",
-		"ListAPIKeys", "ResolveAPIKey", "ListInvitations", "RemoteApplication", "ListRemoteApplications",
+		"ListAPIKeys", "ResolveAPIKey", "ListInvitations", "RemoteApplication", "ListRemoteApplications", "RemoteUserRoles",
 		"CheckSession", "CheckRecentSignIn", "ProvisioningTargets",
 		// Names read at run time, resolved through Config.Roles.
 		"Persona", "Permission", "Role", "RolePermissions",
@@ -88,6 +89,9 @@ func TestClientPublicSurface(t *testing.T) {
 		// helpers/auth Authenticator: who a library's request is, and the
 		// scope its Can checks.
 		"Authenticator", "Scope",
+		// A trusted issuer's user, verified by the Authenticator, and the
+		// invitations its verified email may accept.
+		"RemoteInvitations", "AcceptRemoteInvitation",
 		// helpers/userinfo Lookup: a library's directory reads.
 		"UserInfo", "RemoteUserInfo",
 	}

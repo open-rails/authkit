@@ -19,6 +19,7 @@ pkg authkit, func NewRoles(...PersonaOption) *Roles
 pkg authkit, func ParseBootstrapManifestYAML([]byte) (iam.BootstrapManifest, error)
 pkg authkit, func WithRiverClient(*river.Client[pgx.Tx]) StartOption
 pkg authkit, method (*Client) APIBase() string
+pkg authkit, method (*Client) AcceptRemoteInvitation(context.Context, auth.Verified, string) (iam.Role, error)
 pkg authkit, method (*Client) ApplyBootstrapManifest(context.Context, iam.BootstrapManifest, iam.BootstrapOptions, ...Option) (iam.BootstrapResult, error)
 pkg authkit, method (*Client) AuthenticateRequest(context.Context, *http.Request) (auth.Verified, error)
 pkg authkit, method (*Client) Authenticator() auth.Authenticator
@@ -68,8 +69,11 @@ pkg authkit, method (*Client) PublicUsers(context.Context, []string) (map[string
 pkg authkit, method (*Client) PurgeGroup(context.Context, iam.GroupRef, ...Option) error
 pkg authkit, method (*Client) PurgeUsers(context.Context, []string, ...Option) ([]iam.OpResult, error)
 pkg authkit, method (*Client) RemoteApplication(context.Context, iam.AppRef) (iam.RemoteApplication, error)
+pkg authkit, method (*Client) RemoteInvitations(context.Context, auth.Verified) ([]iam.Invitation, error)
 pkg authkit, method (*Client) RemoteUserInfo(iam.GroupRef, string) userinfo.Lookup
+pkg authkit, method (*Client) RemoteUserRoles(context.Context, iam.GroupRef) ([]iam.RemoteUserRole, error)
 pkg authkit, method (*Client) RemoveGroupMember(context.Context, auth.Identity, iam.GroupRef, iam.Subject, ...Option) error
+pkg authkit, method (*Client) RemoveRemoteUserRole(context.Context, auth.Identity, iam.GroupRef, string, ...Option) error
 pkg authkit, method (*Client) ResetAccountMFA(context.Context, string, ...Option) error
 pkg authkit, method (*Client) ResolveAPIKey(context.Context, string) (iam.ResolvedAPIKey, error)
 pkg authkit, method (*Client) ResolveUsername(context.Context, string) (iam.NameResolution, error)
@@ -1207,6 +1211,13 @@ pkg authkit/iam, type RemoteApplicationKey struct, JWK *JWK `json:"jwk,omitempty
 pkg authkit/iam, type RemoteApplicationKey struct, KID string `json:"kid,omitempty" yaml:"kid,omitempty"`
 pkg authkit/iam, type RemoteApplicationKey struct, PublicKeyPEM string `json:"public_key_pem" yaml:"public_key_pem"`
 pkg authkit/iam, type RemoteApplicationMode string
+pkg authkit/iam, type RemoteUserRole struct
+pkg authkit/iam, type RemoteUserRole struct, CreatedAt time.Time `json:"created_at"`
+pkg authkit/iam, type RemoteUserRole struct, Email string `json:"email"`
+pkg authkit/iam, type RemoteUserRole struct, Issuer string `json:"issuer"`
+pkg authkit/iam, type RemoteUserRole struct, RemoteUserID string `json:"remote_user_id"`
+pkg authkit/iam, type RemoteUserRole struct, Role Role `json:"role"`
+pkg authkit/iam, type RemoteUserRole struct, Subject string `json:"subject"`
 pkg authkit/iam, type ResolvedAPIKey struct
 pkg authkit/iam, type ResolvedAPIKey struct, ExpiresAt *time.Time `json:"expires_at"`
 pkg authkit/iam, type ResolvedAPIKey struct, Group Group `json:"group"`
