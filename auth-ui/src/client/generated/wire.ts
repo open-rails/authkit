@@ -135,6 +135,7 @@ export type Capabilities = {
   two_factor: TwoFactorCapabilities
   invitations: InvitationCapabilities
   languages: string[]
+  dpop: string
   paths: MountPaths
 }
 

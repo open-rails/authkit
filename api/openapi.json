@@ -4284,6 +4284,13 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "dpop_jkt",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -4802,7 +4809,7 @@
         "security": [],
         "x-authkit-auth": "public",
         "x-authkit-rate-limit": "oauth_token",
-        "x-authkit-mounted-when": "authorization_server"
+        "x-authkit-mounted-when": "token_endpoint"
       },
       "options": {
         "tags": [
@@ -4826,7 +4833,7 @@
         "security": [],
         "x-authkit-auth": "public",
         "x-authkit-rate-limit": "oauth_token",
-        "x-authkit-mounted-when": "authorization_server"
+        "x-authkit-mounted-when": "token_endpoint"
       }
     },
     "/oauth2/revoke": {
@@ -6770,6 +6777,9 @@
               "type": "string"
             }
           },
+          "dpop": {
+            "type": "string"
+          },
           "paths": {
             "$ref": "#/components/schemas/MountPaths"
           }
@@ -6787,6 +6797,7 @@
           "two_factor",
           "invitations",
           "languages",
+          "dpop",
           "paths"
         ]
       },
