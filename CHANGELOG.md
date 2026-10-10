@@ -21,6 +21,7 @@ The owner approved shipping this breaking change in a minor release. A library t
 - `verify.AuthenticateRequest` and `AuthenticateSession` return an `*auth.Challenge` for a DPoP refusal, carrying the `WWW-Authenticate` and `DPoP-Nonce` that `verify.DPoPChallenge` writes. A missing DPoP nonce is `auth.ErrSenderProofRequired`.
 - Their `CheckRecentSignIn` returns an `*auth.Challenge` for a stale sign-in, with `MaxAge` and the step-up methods as `Metadata`.
 - auth-ui: `authFetch` does not refresh on a step-up 401, from AuthKit or a host.
+- auth-ui is published to npm as `@openrails/auth-ui@1.15.0`, with provenance, instead of attached to the release (#409).
 - The client IP reads every `X-Forwarded-For` line (#408). Behind a proxy that appends its own line (HAProxy's `option forwardfor`), only the first line was read, so a client could pick its own rate-limit key.
 - helpers v1.6.0.
 
