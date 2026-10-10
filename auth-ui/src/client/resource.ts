@@ -1,6 +1,7 @@
 // Access tokens for other services' APIs (resource servers), by RFC 8693
-// token exchange of the AuthKit session at the issuer's token endpoint,
-// bound to this browser's DPoP key. Tokens live in memory only.
+// token exchange of the AuthKit session at the issuer's token endpoint.
+// Bearer tokens unless the app asks for DPoP (RFC 9449) or the issuer
+// requires it. Tokens live in memory only.
 
 import { AuthKitError } from "./errors.ts"
 import {
@@ -16,6 +17,10 @@ export type ResourceTokenOptions = {
   clientId: string
   // Default "/oauth2/token": the issuer's token endpoint.
   tokenEndpoint?: string
+  // Bind the tokens to this browser's DPoP key. Default false: bearer
+  // tokens. An issuer that requires DPoP refuses an unbound exchange
+  // (invalid_dpop_proof), and the client then binds anyway.
+  dpop?: boolean
   // The IndexedDB name of this frontend's DPoP key. Default
   // "authkit:resource:<clientId>".
   keyName?: string
@@ -58,6 +63,8 @@ export function createResourceTokens(
   const cache = new Map<string, ResourceToken & { userId: string }>()
   const pending = new Map<string, Promise<ResourceToken>>()
   const key = (): Promise<DPoPKey> => loadDPoPKey(keyName)
+  // Whether exchanges are DPoP-bound: the app's choice, or the issuer's.
+  let bind = options.dpop ?? false
 
   async function exchange(
     r: ResourceRequest,
@@ -72,25 +79,30 @@ export function createResourceTokens(
       resource: r.resource,
     })
     if (scope.length) body.set("scope", scope.join(" "))
-    const res = await dpopFetch(
-      deps.fetch,
-      await key(),
-      nonces,
-      tokenEndpoint,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: body.toString(),
-      }
-    )
-    if (!res.ok) throw await readOAuthError(res)
+    const init: RequestInit = {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    }
+    const post = async () =>
+      bind
+        ? dpopFetch(deps.fetch, await key(), nonces, tokenEndpoint, init)
+        : deps.fetch(tokenEndpoint, init)
+    let res = await post()
+    if (!res.ok) {
+      const err = await readOAuthError(res)
+      if (bind || err.error !== "invalid_dpop_proof") throw err
+      bind = true
+      res = await post()
+      if (!res.ok) throw await readOAuthError(res)
+    }
     const out = (await res.json()) as Record<string, unknown>
     if (typeof out.access_token !== "string")
       throw new Error("token endpoint answered no access_token")
     const expiresIn = typeof out.expires_in === "number" ? out.expires_in : 60
     return {
       accessToken: out.access_token,
-      tokenType: typeof out.token_type === "string" ? out.token_type : "DPoP",
+      tokenType: typeof out.token_type === "string" ? out.token_type : "Bearer",
       resource: r.resource,
       scope: typeof out.scope === "string" ? scopes(out.scope) : scope,
       expiresAt: Date.now() + expiresIn * 1000,
@@ -126,9 +138,30 @@ export function createResourceTokens(
     return p
   }
 
-  // fetch for a resource server's API with its token and a DPoP proof. A
-  // 401 invalid_token is retried once with a freshly exchanged token. Never
-  // throws on HTTP status.
+  // fetch with token: a DPoP-bound one with a proof (RFC 9449 §7), else
+  // as a bearer token (RFC 6750 §2.1).
+  async function send(
+    input: string | URL,
+    init: RequestInit,
+    token: ResourceToken
+  ): Promise<Response> {
+    if (token.tokenType.toLowerCase() === "dpop")
+      return dpopFetch(
+        deps.fetch,
+        await key(),
+        nonces,
+        input,
+        init,
+        token.accessToken
+      )
+    const headers = new Headers(init.headers)
+    headers.set("Authorization", `Bearer ${token.accessToken}`)
+    return deps.fetch(input, { ...init, headers })
+  }
+
+  // fetch for a resource server's API with its token. A 401 invalid_token
+  // is retried once with a freshly exchanged token. Never throws on HTTP
+  // status.
   async function resourceFetch(
     input: string | URL,
     init: RequestInit & ResourceRequest
@@ -136,27 +169,13 @@ export function createResourceTokens(
     const { resource, scope, ...rest } = init
     const r = { resource, scope }
     let token = await getResourceToken(r)
-    let res = await dpopFetch(
-      deps.fetch,
-      await key(),
-      nonces,
-      input,
-      rest,
-      token.accessToken
-    )
+    let res = await send(input, rest, token)
     if (
       res.status === 401 &&
       /error="invalid_token"/.test(res.headers.get("WWW-Authenticate") ?? "")
     ) {
       token = await getResourceToken(r, { fresh: true })
-      res = await dpopFetch(
-        deps.fetch,
-        await key(),
-        nonces,
-        input,
-        rest,
-        token.accessToken
-      )
+      res = await send(input, rest, token)
     }
     return res
   }

@@ -28,7 +28,7 @@ async function loadClient(page: Page) {
     const w = window as unknown as Win
     w.mod = await import(/* @vite-ignore */ "/__auth-ui/client.js")
     w.auth = w.mod.createAuthClient({
-      resourceTokens: { clientId: "e2e-host" },
+      resourceTokens: { clientId: "e2e-host", dpop: true },
     })
     w.auth.start()
     await w.auth.ready()

@@ -9,6 +9,7 @@ const client = mod.createIssuerClient({
   resource: `${issuer}/__test/resource`,
   scope: "openid profile email e2e:read",
   postLogoutRedirectUri: "/signed-out.html",
+  dpop: true,
 })
 window.issuer = client
 window.callback = await client.completeSignIn().then(

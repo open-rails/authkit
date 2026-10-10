@@ -103,13 +103,15 @@ const res = await auth.resourceFetch(
 
 - `getResourceToken({ resource, scope })` trades the session's access token
   at the issuer's token endpoint (`tokenEndpoint`, default `/oauth2/token`;
-  RFC 8693 token exchange) for an access token bound to this browser's DPoP
-  key. Tokens stay in memory, cached until shortly before they expire, and
-  are dropped at sign-out.
-- The DPoP key is a non-extractable P-256 key in IndexedDB, so it survives a
-  reload. `resourceFetch` sends a fresh proof with every request, answers a
-  `use_dpop_nonce` challenge once, and retries once with a new token on a 401
-  `invalid_token`.
+  RFC 8693 token exchange) for an access token. Tokens stay in memory, cached
+  until shortly before they expire, and are dropped at sign-out.
+- Tokens are bearer tokens by default. `resourceTokens: { dpop: true }`
+  binds them to this browser's DPoP key (RFC 9449), and so does an issuer
+  that refuses an unbound exchange (`invalid_dpop_proof`). The key is a
+  non-extractable P-256 key in IndexedDB, so it survives a reload; a bound
+  token goes with a fresh proof on every request, and a `use_dpop_nonce`
+  challenge is answered once.
+- `resourceFetch` retries once with a new token on a 401 `invalid_token`.
 - Token endpoint refusals throw `OAuthError` (`error`, `description`).
 
 ### Signing in at another issuer
@@ -140,10 +142,12 @@ const res = await issuer.authFetch(
 
 - Authorization code with PKCE S256, `resource` (RFC 8707), `iss` checked
   (RFC 9207), the ID token's `nonce`, `aud` and `exp` checked.
-- Tokens are bound to a non-extractable DPoP key (`dpop: false` for an issuer
-  without DPoP). The access token stays in memory. The rotating refresh token
-  is kept in IndexedDB beside the key, so a reload restores the session
-  without a redirect, and tabs rotate it one at a time (Web Locks).
+- Tokens are bearer tokens by default. `dpop: true` binds the session to a
+  non-extractable DPoP key (RFC 9449), and so does an issuer that refuses an
+  unbound token request (`invalid_dpop_proof`). The access token stays in
+  memory. The rotating refresh token is kept in IndexedDB (with the key,
+  when bound), so a reload restores the session without a redirect, and
+  tabs rotate it one at a time (Web Locks).
 - `stepUp()` re-authenticates (`max_age=0`); `signOut()` revokes the refresh
   token and ends the issuer session (`end_session_endpoint`); with
   `{ redirect: false }` it signs out here only.

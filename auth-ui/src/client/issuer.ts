@@ -1,10 +1,11 @@
 // An OAuth 2.0 / OIDC client of an external issuer (#431): the app signs
 // users in at the issuer (authorization code + PKCE S256 + RFC 8707
-// resource + RFC 9449 DPoP) and calls APIs with the issuer's access tokens.
-// It works with any OIDC issuer; DPoP is optional for one without it.
+// resource) and calls APIs with the issuer's access tokens. It works with
+// any OIDC issuer. Tokens are bearer tokens unless the app asks for DPoP
+// (RFC 9449) or the issuer requires it.
 //
-// Access tokens stay in memory. The rotating refresh token, bound to the
-// DPoP key, is kept in IndexedDB beside that non-extractable key, so a
+// Access tokens stay in memory. The rotating refresh token (bound to the
+// non-extractable DPoP key when DPoP is used) is kept in IndexedDB, so a
 // reload restores the session without a redirect; never in localStorage.
 
 import type { AuthSession } from "./client.ts"
@@ -34,8 +35,9 @@ export type IssuerClientOptions = {
   // Default "openid profile email".
   scope?: string | string[]
   postLogoutRedirectUri?: string
-  // Bind tokens to a DPoP key. Default true; false for an issuer without
-  // DPoP (its tokens are then bearer tokens).
+  // Bind the session to a DPoP key (RFC 9449). Default false: bearer
+  // tokens. An issuer that requires DPoP refuses an unbound token request
+  // (invalid_dpop_proof), and the client then binds the session anyway.
   dpop?: boolean
   // Keep the refresh token across reloads (IndexedDB). Default true.
   persist?: boolean
@@ -87,7 +89,14 @@ type Pending = {
   returnTo?: string
 }
 
-type Stored = { refreshToken: string; idToken?: string; user?: IssuerUser }
+// bound: the session's tokens are DPoP-bound (token_type DPoP), so its
+// refresh token is redeemed with the same key (RFC 9449 §5).
+type Stored = {
+  refreshToken: string
+  idToken?: string
+  user?: IssuerUser
+  bound?: boolean
+}
 
 type TokenAnswer = {
   access_token: string
@@ -129,7 +138,7 @@ export type IssuerClient = ReturnType<typeof createIssuerClient>
 export function createIssuerClient(options: IssuerClientOptions) {
   const issuer = options.issuer.replace(/\/+$/, "")
   const id = `${issuer}|${options.clientId}`
-  const useDPoP = options.dpop ?? true
+  const prefer = options.dpop ?? false
   const persist = options.persist ?? true
   const leadMs = (options.refreshLeadSeconds ?? 60) * 1000
   const scope = (
@@ -149,6 +158,8 @@ export function createIssuerClient(options: IssuerClientOptions) {
   let user: IssuerUser | null = null
   let idToken: string | undefined
   let refreshToken: string | undefined
+  // Whether the session's tokens are DPoP-bound.
+  let bound = prefer
   let generation = 0
   let timer: ReturnType<typeof setTimeout> | null = null
   let refreshing: Promise<boolean> | null = null
@@ -188,7 +199,7 @@ export function createIssuerClient(options: IssuerClientOptions) {
   }
 
   const key = (): Promise<DPoPKey> | null =>
-    useDPoP ? loadDPoPKey(keyName) : null
+    bound ? loadDPoPKey(keyName) : null
 
   // --- persistence ------------------------------------------------------------
 
@@ -225,14 +236,25 @@ export function createIssuerClient(options: IssuerClientOptions) {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: body.toString(),
     }
-    const k = key()
-    const res = k
-      ? await dpopFetch(doFetch, await k, nonces, m.token_endpoint, init)
-      : await doFetch(m.token_endpoint, init)
-    if (!res.ok) throw await readOAuthError(res)
+    const post = async () => {
+      const k = key()
+      return k
+        ? dpopFetch(doFetch, await k, nonces, m.token_endpoint, init)
+        : doFetch(m.token_endpoint, init)
+    }
+    let res = await post()
+    if (!res.ok) {
+      const err = await readOAuthError(res)
+      // The issuer requires DPoP: bind the session and ask again.
+      if (bound || err.error !== "invalid_dpop_proof") throw err
+      bound = true
+      res = await post()
+      if (!res.ok) throw await readOAuthError(res)
+    }
     const out = (await res.json()) as TokenAnswer
     if (typeof out.access_token !== "string")
       throw new OAuthError(res.status, "server_error", "no access_token")
+    bound = out.token_type?.toLowerCase() === "dpop"
     return out
   }
 
@@ -249,7 +271,7 @@ export function createIssuerClient(options: IssuerClientOptions) {
         ? claims.exp * 1000
         : Date.now() + (t.expires_in ?? 300) * 1000
     if (refreshToken)
-      await save({ refreshToken, idToken, user: user ?? undefined })
+      await save({ refreshToken, idToken, user: user ?? undefined, bound })
     if (gen !== generation) return
     emit({
       status: "authenticated",
@@ -291,6 +313,7 @@ export function createIssuerClient(options: IssuerClientOptions) {
       const stored = await load()
       if (!stored?.refreshToken) return false
       refreshToken = stored.refreshToken
+      bound = stored.bound ?? false
       idToken = stored.idToken ?? idToken
       user = stored.user ?? user
       try {
@@ -347,6 +370,9 @@ export function createIssuerClient(options: IssuerClientOptions) {
     if (opts.prompt) q.set("prompt", opts.prompt)
     if (opts.maxAge !== undefined) q.set("max_age", String(opts.maxAge))
     if (opts.loginHint) q.set("login_hint", opts.loginHint)
+    // A new sign-in starts from the app's choice; dpop_jkt binds its code to
+    // the key (RFC 9449 §10).
+    bound = prefer
     const k = key()
     if (k) q.set("dpop_jkt", (await k).thumbprint)
     const url = new URL(m.authorization_endpoint)
@@ -593,7 +619,8 @@ export function createIssuerClient(options: IssuerClientOptions) {
           client_id: options.clientId,
         }).toString(),
       }).catch(() => undefined)
-    if (useDPoP) await deleteDPoPKey(keyName)
+    bound = prefer
+    await deleteDPoPKey(keyName)
     if ((opts.redirect ?? true) && m?.end_session_endpoint) {
       const url = new URL(m.end_session_endpoint)
       url.searchParams.set("client_id", options.clientId)
