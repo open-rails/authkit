@@ -167,7 +167,8 @@ func TestSolanaStepUp(t *testing.T) {
 		require.Equal(t, string(code), r.Error.Code, r.raw)
 	}
 
-	denied := f.expect(http.StatusForbidden, f.request(http.MethodDelete, "/me", session, nil))
+	denied := f.expect(http.StatusUnauthorized, f.request(http.MethodDelete, "/me", session, nil))
+	require.Equal(t, "step_up_required", denied.Error.Code, denied.raw)
 	var offer struct {
 		Error struct {
 			Metadata authflow.StepUpRequired `json:"metadata"`
