@@ -188,7 +188,7 @@ func TestDPoPBoundResourceTokenOverHTTP(t *testing.T) {
 	foreign, err := dpop.NewNonces(otherKey)
 	require.NoError(t, err)
 	for name, nonce := range map[string]string{
-		"another server's nonce": foreign.Issue(time.Now()),
+		"another server's nonce": foreign.Issue(t.Context()),
 		"tampered nonce":         strings.ToUpper(first.nonce),
 		"garbage nonce":          "nonce",
 	} {

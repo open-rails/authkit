@@ -46,7 +46,7 @@ type Check struct {
 	Thumbprint string
 	Replay     ReplayGuard
 	// Nonces, when set, requires a current server nonce.
-	Nonces *Nonces
+	Nonces NonceSource
 }
 
 // Verify verifies exactly one DPoP header against c and the request method,
@@ -105,7 +105,7 @@ func Verify(r *http.Request, c Check) (string, error) {
 	if c.Thumbprint != "" && c.Thumbprint != thumbprint {
 		return zero, ErrInvalidProof
 	}
-	if c.Nonces != nil && !c.Nonces.Valid(jws.String(claims["nonce"]), now) {
+	if c.Nonces != nil && !c.Nonces.Valid(r.Context(), jws.String(claims["nonce"])) {
 		return zero, ErrNonceRequired
 	}
 	if c.Replay == nil {

@@ -29,8 +29,9 @@ import (
 type Verifier struct {
 	skew       time.Duration
 	replays    *dpop.Replays
-	dpopNonces *dpop.Nonces
+	dpopNonces dpop.NonceSource
 	publicURL  string
+	hosts      func(ctx context.Context, host string) (bool, error)
 	keys       *jwks.Cache
 
 	mu      sync.RWMutex
@@ -52,10 +53,12 @@ type VerifierOption func(*verifierConfig)
 type verifierConfig struct {
 	skew      time.Duration
 	client    *http.Client
-	dpop      bool
-	redis     redis.UniversalClient
-	nonceKey  []byte
-	publicURL string
+	dpop         bool
+	redis        redis.UniversalClient
+	nonceKey     []byte
+	storedNonces bool
+	publicURL    string
+	hosts        func(ctx context.Context, host string) (bool, error)
 }
 
 // WithSkew sets the clock skew allowed on exp, nbf and iat (default 60s).
@@ -86,6 +89,20 @@ func WithDPoPNonce(key []byte) VerifierOption {
 	return func(c *verifierConfig) { c.nonceKey = append([]byte(nil), key...) }
 }
 
+// WithStoredDPoPNonces requires every DPoP proof to carry a server nonce
+// (RFC 9449 §9), like WithDPoPNonce, but with random nonces kept in
+// WithDPoP's store (Redis, else memory) instead of a configured key.
+func WithStoredDPoPNonces() VerifierOption {
+	return func(c *verifierConfig) { c.storedNonces = true }
+}
+
+// WithPublicHosts admits more hosts than WithPublicURL's: a DPoP proof may
+// name WithPublicURL with its host replaced by the request's Host when
+// hosts reports true for it. Only the hosts it vouches for are trusted.
+func WithPublicHosts(hosts func(ctx context.Context, host string) (bool, error)) VerifierOption {
+	return func(c *verifierConfig) { c.hosts = hosts }
+}
+
 // WithPublicURL is where clients reach the paths this verifier sees:
 // "https://api.example.com", or "https://example.com/api" when a proxy in
 // front strips /api. A DPoP proof must name it plus the request's path, the
@@ -105,11 +122,15 @@ func NewVerifier(opts ...VerifierOption) *Verifier {
 	v := &Verifier{
 		skew:      cfg.skew,
 		publicURL: cfg.publicURL,
+		hosts:     cfg.hosts,
 		keys:      jwks.New(cfg.client),
 		issuers:   map[string]issuer{},
 	}
 	if cfg.dpop {
 		v.replays = dpop.NewReplays(cfg.redis)
+		if cfg.storedNonces {
+			v.dpopNonces = dpop.NewStoredNonces(cfg.redis)
+		}
 	}
 	if cfg.nonceKey != nil {
 		nonces, err := dpop.NewNonces(cfg.nonceKey)

@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/dpop"
@@ -200,12 +199,12 @@ func (v *Verifier) senderProof(token string, r *http.Request, cl *Claims) error 
 		if !isDPoPRequest(r) || v.publicURL == "" || v.replays == nil {
 			return errDPoPProofRequired
 		}
-		if _, err := dpop.Verify(r, dpop.Check{URL: v.publicURL + r.URL.EscapedPath(), AccessToken: token, Thumbprint: thumbprint, Replay: v.replays.Claim, Nonces: v.dpopNonces}); err != nil {
+		if _, err := dpop.Verify(r, dpop.Check{URL: v.requestURL(r), AccessToken: token, Thumbprint: thumbprint, Replay: v.replays.Claim, Nonces: v.dpopNonces}); err != nil {
 			switch {
 			case errors.Is(err, dpop.ErrReplayUnavailable):
 				return errmodel.Internal("sender_proof_replay", fmt.Errorf("%w: %w", ErrSenderProofUnavailable, err))
 			case errors.Is(err, dpop.ErrNonceRequired):
-				return errmodel.E(errmodel.CodeUseDPoPNonce, errmodel.WithCause(dpopNonce(v.dpopNonces.Issue(time.Now()))))
+				return errmodel.E(errmodel.CodeUseDPoPNonce, errmodel.WithCause(dpopNonce(v.dpopNonces.Issue(r.Context()))))
 			}
 			return errDPoPProofRequired
 		}
@@ -263,4 +262,20 @@ func dpopChallenge(r *http.Request, err error) http.Header {
 func isDPoPRequest(r *http.Request) bool {
 	_, dpop := jose.RequestToken(r)
 	return dpop
+}
+
+// requestURL is the URL a DPoP proof for r must name (RFC 9449 §4.3):
+// WithPublicURL plus r's path, on r's Host when WithPublicHosts vouches for
+// it. A host it refuses, or fails on, falls back to WithPublicURL's.
+func (v *Verifier) requestURL(r *http.Request) string {
+	base := v.publicURL
+	if v.hosts != nil && r.Host != "" {
+		if ok, err := v.hosts(r.Context(), r.Host); err == nil && ok {
+			if u, err := url.Parse(base); err == nil {
+				u.Host = r.Host
+				base = u.String()
+			}
+		}
+	}
+	return base + r.URL.EscapedPath()
 }

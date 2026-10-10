@@ -1,6 +1,7 @@
 package dpop
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -8,6 +9,15 @@ import (
 	"errors"
 	"time"
 )
+
+// NonceSource issues server nonces and checks them (RFC 9449 §8 at a token
+// endpoint, §9 at a resource server).
+type NonceSource interface {
+	// Issue is a nonce current from now.
+	Issue(ctx context.Context) string
+	// Valid reports whether nonce is current.
+	Valid(ctx context.Context, nonce string) bool
+}
 
 // NonceLifetime is how long a server nonce stays current.
 const NonceLifetime = 5 * time.Minute
@@ -27,15 +37,18 @@ func NewNonces(key []byte) (*Nonces, error) {
 }
 
 // Issue is a nonce current from now.
-func (n *Nonces) Issue(now time.Time) string {
+func (n *Nonces) Issue(context.Context) string { return n.issue(time.Now()) }
+
+// Valid reports whether nonce was issued under this key within NonceLifetime.
+func (n *Nonces) Valid(_ context.Context, nonce string) bool { return n.valid(nonce, time.Now()) }
+
+func (n *Nonces) issue(now time.Time) string {
 	var b [8]byte
 	binary.BigEndian.PutUint64(b[:], uint64(now.Unix()))
 	return base64.RawURLEncoding.EncodeToString(append(b[:], n.mac(b[:])...))
 }
 
-// Valid reports whether nonce was issued under this key within
-// NonceLifetime of now.
-func (n *Nonces) Valid(nonce string, now time.Time) bool {
+func (n *Nonces) valid(nonce string, now time.Time) bool {
 	raw, err := base64.RawURLEncoding.Strict().DecodeString(nonce)
 	if err != nil || len(raw) != 24 || !hmac.Equal(raw[8:], n.mac(raw[:8])) {
 		return false

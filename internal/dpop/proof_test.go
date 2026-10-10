@@ -107,15 +107,15 @@ func TestNonces(t *testing.T) {
 	other, err := dpop.NewNonces(make([]byte, 32))
 	require.NoError(t, err)
 	now := time.Now()
-	require.True(t, nonces.Valid(nonces.Issue(now), now))
-	require.True(t, nonces.Valid(nonces.Issue(now.Add(-dpop.NonceLifetime+time.Second)), now))
-	require.False(t, nonces.Valid(nonces.Issue(now.Add(-dpop.NonceLifetime-time.Second)), now), "expired")
-	require.False(t, nonces.Valid(nonces.Issue(now.Add(2*time.Minute)), now), "from the future")
-	require.False(t, nonces.Valid(other.Issue(now), now), "another key")
-	require.False(t, nonces.Valid("", now))
-	tampered := []byte(nonces.Issue(now))
+	require.True(t, nonces.ValidAt(nonces.IssueAt(now), now))
+	require.True(t, nonces.ValidAt(nonces.IssueAt(now.Add(-dpop.NonceLifetime+time.Second)), now))
+	require.False(t, nonces.ValidAt(nonces.IssueAt(now.Add(-dpop.NonceLifetime-time.Second)), now), "expired")
+	require.False(t, nonces.ValidAt(nonces.IssueAt(now.Add(2*time.Minute)), now), "from the future")
+	require.False(t, nonces.ValidAt(other.IssueAt(now), now), "another key")
+	require.False(t, nonces.ValidAt("", now))
+	tampered := []byte(nonces.IssueAt(now))
 	tampered[3] ^= 1
-	require.False(t, nonces.Valid(string(tampered), now))
+	require.False(t, nonces.ValidAt(string(tampered), now))
 }
 
 func TestProofNonceAndTokenEndpoint(t *testing.T) {
@@ -136,7 +136,7 @@ func TestProofNonceAndTokenEndpoint(t *testing.T) {
 	_, err = dpop.Verify(request, dpop.Check{URL: target, AccessToken: "access-token", Replay: guard, Nonces: nonces})
 	require.ErrorIs(t, err, dpop.ErrNonceRequired)
 	request.Header.Set("DPoP", testdpop.Proof(t, key, "POST", target, "access-token", func(t *jwt.Token) {
-		t.Claims.(jwt.MapClaims)["nonce"] = nonces.Issue(time.Now())
+		t.Claims.(jwt.MapClaims)["nonce"] = nonces.Issue(context.Background())
 	}))
 	_, err = dpop.Verify(request, dpop.Check{URL: target, AccessToken: "access-token", Replay: guard, Nonces: nonces})
 	require.NoError(t, err)
