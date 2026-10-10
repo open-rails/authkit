@@ -363,4 +363,6 @@ The rest is ordinary app code (our channel and post handlers), not AuthKit. The 
 
 A library that serves its own routes in your app, such as [OpenRails](https://github.com/open-rails/openrails) billing, takes `auth.Authenticator()` (who a request is; the library decides what to admit) and `auth.Scope(ctx, iam.RootGroup())` (where your roles hold the permissions you give it): `openrails.Routes{Auth: auth.Authenticator(), Scope: staff, …}`. See [RBAC](docs/rbac.md#a-library-that-guards-its-own-routes).
 
-More: [keys](docs/keys.md), [tokens](docs/tokens.md), [SCIM provisioning and user info](docs/scim.md), [subject, invoker, credential](docs/identity.md), [HTTP](docs/http.md), [RBAC](docs/rbac.md), [security](SECURITY.md), [v1 stability](docs/stability.md)
+A service whose callers sign in elsewhere sets `Config.Resource`: `auth.Authenticator()` then also admits the access tokens its trusted issuers mint for it, bound to their group ([resource server](docs/resource-server.md)). `sign_in.dpop` sets how this instance issues tokens to its own users. It never changes how tokens are validated: a bound token needs its proof, an unbound token is a bearer token, whoever issued it.
+
+More: [resource server](docs/resource-server.md), [keys](docs/keys.md), [tokens](docs/tokens.md), [SCIM provisioning and user info](docs/scim.md), [subject, invoker, credential](docs/identity.md), [HTTP](docs/http.md), [RBAC](docs/rbac.md), [security](SECURITY.md), [v1 stability](docs/stability.md)

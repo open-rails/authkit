@@ -7,6 +7,7 @@ This page covers the credentials AuthKit issues, how long each lasts, and when a
 | Credential | Who holds it | Lifetime | Revocation |
 |---|---|---|---|
 | Access token (`access+jwt`) | a signed-in user | `TokenConfig.AccessTokenDuration`, 15 minutes by default | live gates refuse it at once; `Required` accepts it until it expires |
+| DPoP-bound session | a client that proved a key at sign-in (`SignIn.DPoP`, [resource server](resource-server.md#dpop)) | as its session | its access tokens carry `cnf.jkt` and need a proof of the key; each refresh proves it |
 | Refresh token | a signed-in user | until revoked, or for `TokenConfig.RefreshTokenDuration` | at once |
 | Device-key sign-in | a native client | each sign-in is signed by the device key, with no refresh token | like a session, when the key is revoked |
 | API key | a group's account | until revoked or its expiry (capped by `APIKeysConfig.MaxTTL`) | at once, since it is resolved on every request; also when its creator loses the authority to issue it |
@@ -61,7 +62,7 @@ mux.Handle("/api/", verify.Required(v)(api))
 
 ## Remote applications
 
-A remote application registers another issuer a resource server may trust: `Client.RemoteApplication` by issuer gives its keys (or JWKS URI) and, as `Permissions`, the ceiling its role in its group confers. AuthKit itself authenticates none of its tokens.
+A remote application registers another issuer a resource server may trust: `Client.RemoteApplication` by issuer gives its keys (or JWKS URI) and, as `Permissions`, the ceiling its role in its group confers. With `Config.Resource`, AuthKit's own `Client.Authenticator()` admits its tokens for the resource ([resource server](resource-server.md)); AuthKit's own API never does.
 
 `Config.RemoteApplications` declares root's remote applications as a whole set. `New` registers each one, and disables any that an earlier boot declared and this one doesn't. A removed application is disabled, not deleted: resource servers read it as disabled at once, and it keeps its roles for when it is declared again. `nil` leaves the stored applications alone, and applications registered through `Client.UpsertRemoteApplication` or the bootstrap manifest are never touched.
 

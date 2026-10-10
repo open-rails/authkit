@@ -31,7 +31,7 @@ cfg.AuthorizationServer = authkit.AuthorizationServerConfig{
 ```
 
 - There is no dynamic registration: every client is first-party, so sign-in needs no consent screen.
-- A confidential client sets `SecretSHA256`, the hex SHA-256 of a secret of at least 32 random bytes; AuthKit never holds the secret. A public client must prove a DPoP key (RFC 9449) at the token endpoint, so its tokens are always sender-bound; so must every jwt-bearer request.
+- A confidential client sets `SecretSHA256`, the hex SHA-256 of a secret of at least 32 random bytes; AuthKit never holds the secret. A public client chooses DPoP (RFC 9449): a proof at the token endpoint binds its tokens, and without one its refresh tokens rotate (RFC 9700 §4.14.2). `SignIn.DPoP` required refuses a user grant (code, refresh, token exchange) without a proof; client credentials are never covered. Every workload jwt-bearer request proves its key.
 - Redirect URIs match exactly: https, or http on a loopback host.
 
 ## Endpoints
