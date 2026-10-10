@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
@@ -26,7 +25,7 @@ func (s *Service) handleOAuthAuthorizationGET(w http.ResponseWriter, r *http.Req
 	client, _ := config.FindOAuthClient(s.cfg.AuthorizationServer, a.ClientID)
 	out := OAuthAuthorizationRequest{
 		ID: id, ClientID: a.ClientID, ClientName: client.Name, Scopes: a.Scopes,
-		Prompt: a.Prompt, MaxAgeSeconds: a.MaxAge, ExpiresAt: a.ExpiresAt, AuthorizationDetails: a.AuthorizationDetails,
+		Prompt: a.Prompt, MaxAgeSeconds: a.MaxAge, ExpiresAt: a.ExpiresAt,
 	}
 	if out.ClientName == "" {
 		out.ClientName = a.ClientID
@@ -49,16 +48,13 @@ func (s *Service) handleOAuthAuthorizationGET(w http.ResponseWriter, r *http.Req
 
 func (s *Service) handleOAuthAuthorizationApprovePOST(w http.ResponseWriter, r *http.Request) {
 	claims, _ := verify.ClaimsFromContext(r.Context())
-	if !claims.IsUser() || claims.SessionID == "" && claims.DeviceKeyID == "" {
-		// Only a user's own sign-in, a session or a device key, may approve.
+	if !claims.IsUser() || claims.SessionID == "" {
+		// Only a user's own session may approve: a device key stands on no
+		// session the code could carry.
 		fail(w, errmodel.CodeForbidden)
 		return
 	}
-	in := authflow.OAuthApprover{UserID: claims.UserID, SessionID: claims.SessionID, DeviceKeyID: claims.DeviceKeyID, AMR: claims.AMR, ACR: claims.ACR}
-	if !claims.AuthTime.IsZero() {
-		in.AuthTime = claims.AuthTime.Unix()
-	}
-	target, err := s.svc.ApproveOAuthAuthorization(r.Context(), in, r.PathValue("authorization_id"))
+	target, err := s.svc.ApproveOAuthAuthorization(r.Context(), claims.UserID, claims.SessionID, r.PathValue("authorization_id"))
 	if err != nil {
 		writeError(w, err)
 		return

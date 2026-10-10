@@ -537,12 +537,6 @@ export const de: AuthUiMessageBundle = {
   oauth: {
     signInTo: "Melden Sie sich an, um mit {client} fortzufahren",
     continuing: "Weiter zu {client}…",
-    consentTitle: "{client} Zugriff erlauben?",
-    offline:
-      "{client} behält den Zugriff auch nach dem Abmelden, bis Sie ihn widerrufen.",
-    details: "Angefragt wird:",
-    allow: "Erlauben",
-    deny: "Ablehnen",
   },
   solana: {
     provider: "Solana",

@@ -80,9 +80,7 @@ func (s *Engine) OAuthJWTBearer(ctx context.Context, in authflow.OAuthJWTBearer)
 		s.oauthAudit(ctx, "oauth_grant_refused", c.UserID, map[string]string{"client_id": client.ID, "grant_type": string(iam.OAuthGrantJWTBearer), "capability_jti": c.ID, "device_key_id": c.DeviceKeyID})
 		return authflow.OAuthTokens{}, authflow.JWTBearerRefusal(authflow.ReasonRefused, "the grant was refused")
 	case err != nil:
-		return authflow.OAuthTokens{}, oauthGrantFailure(err, authflow.OAuthInvalidGrant)
-	case decision == nil:
-		return authflow.OAuthTokens{}, errors.New("authkit: oauth: the jwt-bearer grant needs a grant authorizer")
+		return authflow.OAuthTokens{}, &authflow.OAuthError{Code: authflow.OAuthTemporarilyUnavailable, Description: "the grant cannot be decided now; retry later", Status: 503}
 	}
 	tokens, err := s.mintOAuthTokens(ctx, oauthMint{
 		client: client, userID: c.UserID, deviceKeyID: c.DeviceKeyID, resource: resource.ID,

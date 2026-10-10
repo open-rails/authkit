@@ -378,7 +378,6 @@ export type OAuthAuthorizationRequest = {
   max_age_seconds: number | null
   login_hint: string | null
   expires_at: string
-  authorization_details: unknown
 }
 
 export type OAuthAuthorizationResult = {

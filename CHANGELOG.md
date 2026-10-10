@@ -1,5 +1,29 @@
 # Changelog
 
+## v1.12.0
+
+The owner approved shipping this breaking change in a minor release. It deletes the OAuth grant extensions of v1.6.0–v1.6.1 (#433) that only Tensorhub's retired CLI grant flow used (#442). The JWT-bearer capability grant (v1.10.0) replaced that flow. These stay: the jwt-bearer grant and its authorizer (`Deps.OAuthGrants`), `authorization_details`, `act`, DPoP and `dpop_jkt`, the code flow with PKCE, refresh tokens, token exchange and client credentials.
+
+### Breaking
+
+| Removed | Use instead |
+|---|---|
+| `OAuthClientConfig.Offline`, offline grants, the `offline_access` scope (now `invalid_scope` again) | refresh tokens that stand on the session; a workload acting for a user without the user present uses a jwt-bearer capability |
+| `Client.RevokeOAuthGrant`, `iam.OAuthGrantRequest.GrantID` | `Client.RevokeSession` or `RevokeAccountSessions`; revoking a device key ends the tokens its capabilities minted |
+| `OAuthClientConfig.KeyBound` | `dpop_jkt` on the authorization request binds the code to a key; a public client always proves one; a jwt-bearer token is always bound to the workload key |
+| `OAuthClientConfig.AccessTokenTTL`, `OAuthClientConfig.RefreshTokenTTL` | `AuthorizationServerConfig.AccessTokenTTL` and `RefreshTokenTTL`; a jwt-bearer token lasts until its capability expires, or the decision's `MaxLifetime` |
+| approving an authorization request, or exchanging a token, with a device-key sign-in (now 403 and `invalid_grant`) | a session sign-in; a device key signs jwt-bearer capabilities |
+| the grant authorizer for consent, refresh, token exchange and client credentials: `iam.OAuthGrantConsent`, `OAuthGrantRefresh`, `OAuthGrantTokenExchange`, `OAuthGrantClientCredentials`; `OAuthGrantRequest.SessionID`, `Scopes`, `Offline`; `OAuthGrantDecision.Permissions` | `Deps.OAuthGrants` decides only `iam.OAuthGrantJWTBearer`. Token exchange and client credentials carry the user's (or the client's) permissions within the resource's ceiling |
+| `authorization_details` on the authorization request, token exchange and client credentials (now `invalid_request`), and in the pending request (`GET /oauth2/authorizations/{id}`) | the `authorization_details` of a jwt-bearer capability |
+| `OAuthClientConfig.AuthorizationDetailsTypes` on a client without the jwt-bearer grant | declare it on jwt-bearer clients only; `New` refuses it anywhere else |
+| `consent_required` for `prompt=none`; the consent step of auth-ui's `OAuthAuthorize` (unreleased) | nothing: every client is first-party |
+| error code `oauth_grant_authorizer_unavailable` | nothing: the token endpoint answers `temporarily_unavailable` |
+| `authtest`: `AuthorizationServer.Consent`, `RequestClientCredentials`, `ClientCredentialsRequest`; `CodeFlow.AuthorizationDetails`, `TokenExchange.AuthorizationDetails` | `AuthorizeAs`, or `BeginAuthorization` then `Approve`; `ClientCredentials`; `JWTBearer` with `DeviceKey.Capability` |
+
+Unchanged: `OAuthGrantDecision.AuthorizationDetails`, `MaxLifetime`, `Claims` and `Invoker`; `verify.Claims.AuthorizationDetails`, `Invoker` and `CustomClaims`.
+
+Host migration: remove any of these fields from your configuration and tests. A refresh family or code issued for an offline grant, or to a device-key sign-in, stops redeeming (`invalid_grant`). Its client signs in again.
+
 ## v1.11.0
 
 Additive. AuthKit is a SCIM 2.0 directory both ways (#441, [docs/scim.md](docs/scim.md)).

@@ -324,16 +324,17 @@ func TestOAuthCodeFlowRefusals(t *testing.T) {
 			edit func(url.Values)
 			code string
 		}{
-			"no PKCE":             {func(q url.Values) { q.Del("code_challenge"); q.Del("code_challenge_method") }, "invalid_request"},
-			"plain PKCE":          {func(q url.Values) { q.Set("code_challenge_method", "plain") }, "invalid_request"},
-			"implicit":            {func(q url.Values) { q.Set("response_type", "token") }, "unsupported_response_type"},
-			"unknown scope":       {func(q url.Values) { q.Set("scope", "openid admin:everything") }, "invalid_scope"},
-			"offline_access":      {func(q url.Values) { q.Set("scope", "openid offline_access") }, "invalid_scope"},
-			"unregistered target": {func(q url.Values) { q.Set("resource", "https://other.example") }, "invalid_target"},
-			"two targets":         {func(q url.Values) { q.Add("resource", "https://other.example") }, "invalid_target"},
-			"request object":      {func(q url.Values) { q.Set("request", "eyJ") }, "request_not_supported"},
-			"form_post":           {func(q url.Values) { q.Set("response_mode", "form_post") }, "invalid_request"},
-			"prompt none+login":   {func(q url.Values) { q.Set("prompt", "none login") }, "invalid_request"},
+			"no PKCE":               {func(q url.Values) { q.Del("code_challenge"); q.Del("code_challenge_method") }, "invalid_request"},
+			"plain PKCE":            {func(q url.Values) { q.Set("code_challenge_method", "plain") }, "invalid_request"},
+			"implicit":              {func(q url.Values) { q.Set("response_type", "token") }, "unsupported_response_type"},
+			"unknown scope":         {func(q url.Values) { q.Set("scope", "openid admin:everything") }, "invalid_scope"},
+			"offline_access":        {func(q url.Values) { q.Set("scope", "openid offline_access") }, "invalid_scope"},
+			"authorization_details": {func(q url.Values) { q.Set("authorization_details", `[{"type":"machine"}]`) }, "invalid_request"},
+			"unregistered target":   {func(q url.Values) { q.Set("resource", "https://other.example") }, "invalid_target"},
+			"two targets":           {func(q url.Values) { q.Add("resource", "https://other.example") }, "invalid_target"},
+			"request object":        {func(q url.Values) { q.Set("request", "eyJ") }, "request_not_supported"},
+			"form_post":             {func(q url.Values) { q.Set("response_mode", "form_post") }, "invalid_request"},
+			"prompt none+login":     {func(q url.Values) { q.Set("prompt", "none login") }, "invalid_request"},
 		} {
 			t.Run(name, func(t *testing.T) {
 				q := good()
@@ -482,6 +483,27 @@ func TestOAuthCodeFlowRefusals(t *testing.T) {
 			require.Contains(t, string(body), "step_up_required")
 		}
 	})
+}
+
+// TestOAuthDeviceKeyTokensGrantNothing: a device-key sign-in stands on no
+// session, so it neither approves an authorization request nor exchanges for
+// a resource token; a workload reaches a resource through jwt-bearer.
+func TestOAuthDeviceKeyTokensGrantNothing(t *testing.T) {
+	as, _, _ := newOAuthServer(t, authtest.WithConfig(func(c *authkit.Config) { c.DeviceKeys.Enabled = true }))
+	owner := authtest.NewUser(t, as.Client)
+	dk := authtest.EnrollDeviceKey(t, as.Client, as.Outbox, owner)
+
+	id := as.BeginAuthorization(t, consoleFlow(), strings.Repeat("v", 43), "state-dk")
+	status, body := postJSON(t, as, as.URL+as.Client.APIBase()+"/oauth2/authorizations/"+url.PathEscape(id)+"/approve", dk.AccessToken, nil)
+	require.Equal(t, http.StatusForbidden, status, string(body))
+	require.Contains(t, as.Approve(t, authtest.SignIn(t, as.Client, owner).AccessToken, id), "code=", "the request stays pending for a session")
+
+	status, code := tokenError(t, as, authtest.TokenRequest{ClientID: oauthAdminUI, DPoP: authtest.NewDPoPKey(t), Params: url.Values{
+		"grant_type": {"urn:ietf:params:oauth:grant-type:token-exchange"}, "subject_token": {dk.AccessToken},
+		"subject_token_type": {"urn:ietf:params:oauth:token-type:access_token"},
+	}})
+	require.Equal(t, http.StatusBadRequest, status)
+	require.Equal(t, "invalid_grant", code)
 }
 
 // TestOAuthEndSessionAndCORS: RP-initiated logout ends the sign-in the ID

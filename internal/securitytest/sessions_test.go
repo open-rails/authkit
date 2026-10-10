@@ -20,7 +20,6 @@ import (
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/httpapi"
-	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/testdpop"
 	"github.com/stretchr/testify/require"
 )
@@ -362,63 +361,5 @@ func TestSecurityTokenExchangeOutlivingRevocation(t *testing.T) {
 	}
 	t.Run("control: a live session exchanges", func(t *testing.T) {
 		require.NotEmpty(t, h.resourceToken(h.login(h.newAccount("exchangelive")).AccessToken, testdpop.Key(t)))
-	})
-}
-
-// TestSecurityGrantAuthorizerClamp: a grant authorizer's permissions may
-// carry AuthKit authority only when the user holds it at the root, and a
-// resource token carries none beyond its resource's ceiling.
-func TestSecurityGrantAuthorizerClamp(t *testing.T) {
-	const resource = "https://resource.security.test"
-	var mu sync.Mutex
-	var grant []string
-	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(withResourceClient(resource)), authtest.WithDeps(func(d *authkit.Deps) {
-		d.OAuthGrants = func(context.Context, iam.OAuthGrantRequest) (iam.OAuthGrantDecision, error) {
-			mu.Lock()
-			defer mu.Unlock()
-			return iam.OAuthGrantDecision{Permissions: append([]string(nil), grant...)}, nil
-		}
-	}))
-	manager, moderator := h.newAccount("grantmanager"), h.newAccount("grantmod")
-	group, _ := h.newOrg(h.newAccount("grantowner"))
-	h.grant(group, manager, "manager")
-	h.grant(iam.RootGroup(), moderator, "moderator")
-	exchange := func(a account, perms ...string) response {
-		mu.Lock()
-		grant = perms
-		mu.Unlock()
-		return h.exchangeToken(h.login(a).AccessToken, testdpop.Key(t))
-	}
-	for _, tc := range []struct {
-		name   string
-		who    account
-		perms  []string
-		status int
-		code   string
-	}{
-		{"group role as scope-free authority", manager, []string{"org:members:manage"}, http.StatusBadRequest, "invalid_grant"},
-		{"root authority the user lacks", manager, []string{ident.RootUsersBan.String()}, http.StatusBadRequest, "invalid_grant"},
-		{"a wildcard is no grant", moderator, []string{"*"}, http.StatusServiceUnavailable, "temporarily_unavailable"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			resp := exchange(tc.who, tc.perms...)
-			require.Equal(t, tc.status, resp.status, resp.String())
-			require.Contains(t, resp.String(), tc.code)
-		})
-	}
-	t.Run("control: host vocabulary and held root authority, within the ceiling", func(t *testing.T) {
-		for _, tc := range []struct {
-			who   account
-			perms []string
-		}{{manager, []string{"resource:tasks:read"}}, {moderator, []string{ident.RootUsersBan.String(), "resource:tasks:read"}}} {
-			resp := exchange(tc.who, tc.perms...)
-			require.Equal(t, http.StatusOK, resp.status, resp.String())
-			var out struct {
-				AccessToken string `json:"access_token"`
-			}
-			resp.json(t, &out)
-			_, claims := splitToken(t, out.AccessToken)
-			require.Equal(t, []any{"resource:tasks:read"}, claims["permissions"], "root authority passed the resource's ceiling")
-		}
 	})
 }

@@ -95,7 +95,6 @@ var (
 	CodeNoSession                       = def("no_session", 401, "No session is signed in.")
 	CodeNotFound                        = def("not_found", 404, "The requested resource was not found.")
 	CodeNotImplemented                  = def("not_implemented", 501, "Not implemented.")
-	CodeOAuthGrantAuthorizerUnavailable = def("oauth_grant_authorizer_unavailable", 503, "Authorization is unavailable right now. Try again shortly.")
 	CodeOAuthGrantRefused               = def("oauth_grant_refused", 403, "The authorization was refused.")
 	CodeOIDCBeginFailed                 = def("oidc_begin_failed", 400, "The provider sign-in could not be started.")
 	CodeOIDCExchangeFailed              = def("oidc_exchange_failed", 401, "The provider sign-in could not be completed.")

@@ -1,9 +1,7 @@
 package engine
 
-// The host's say in the authorization server's grants (#433): the grant
-// authorizer (Deps.OAuthGrants) decides consent, token exchange, client
-// credentials, jwt-bearer (#437) and every refresh; RFC 9396 authorization_details carry
-// structured grants; RevokeOAuthGrant ends a consented grant.
+// The host's say in the jwt-bearer grant (#437): the grant authorizer
+// (Deps.OAuthGrants) may refuse or narrow a workload's capability.
 
 import (
 	"context"
@@ -17,36 +15,23 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
-	"github.com/open-rails/authkit/internal/config"
-	"github.com/open-rails/authkit/internal/errmodel"
-	"github.com/open-rails/authkit/internal/ident"
-	"github.com/open-rails/authkit/internal/ops"
 	"github.com/open-rails/helpers/auth"
 )
 
-const (
-	keyOAuthGrant = "oauth:grant:" // +grant id → the refresh family's key
-	// +user id → when the account's offline grants were all ended
-	keyOAuthOfflineEnded = "oauth:offline-ended:"
+// maxGrantClaimsBytes bounds the host's extra access-token claims.
+const maxGrantClaimsBytes = 8 << 10
 
-	// maxGrantClaimsBytes bounds the host's extra access-token claims.
-	maxGrantClaimsBytes = 8 << 10
-)
-
-// errOAuthGrantRefused marks the host authorizer's refusal; the caller maps
-// it to the protocol's answer.
+// errOAuthGrantRefused marks the host authorizer's refusal, or a grant
+// whose end has passed; the caller maps it to the protocol's answer.
 var errOAuthGrantRefused = errors.New("authkit: oauth: the grant authorizer refused the grant")
 
 // decideOAuthGrant asks the host authorizer for req and checks its
-// decision: its authorization_details may use only the client's declared
-// types. Without an authorizer it returns nil: the defaults. A refusal is
-// errOAuthGrantRefused; any other failure is an outage.
+// decision: its authorization_details may only narrow the capability's,
+// using the client's declared types. A refusal is errOAuthGrantRefused; any
+// other failure is an outage.
 func (s *Engine) decideOAuthGrant(ctx context.Context, req iam.OAuthGrantRequest, detailTypes []string) (*authflow.OAuthGrantDecision, error) {
 	if s.oauthGrants == nil {
-		if len(req.AuthorizationDetails) > 0 {
-			return nil, errors.New("authkit: oauth: authorization_details without a grant authorizer")
-		}
-		return nil, nil
+		return nil, errors.New("authkit: oauth: the jwt-bearer grant needs a grant authorizer")
 	}
 	d, err := s.oauthGrants(ctx, req)
 	switch {
@@ -55,14 +40,9 @@ func (s *Engine) decideOAuthGrant(ctx context.Context, req iam.OAuthGrantRequest
 	case err != nil:
 		return nil, fmt.Errorf("authkit: oauth: grant authorizer: %w", err)
 	}
-	out := &authflow.OAuthGrantDecision{Permissions: d.Permissions, MaxLifetime: d.MaxLifetime, AuthorizationDetails: req.AuthorizationDetails}
+	out := &authflow.OAuthGrantDecision{MaxLifetime: d.MaxLifetime, AuthorizationDetails: req.AuthorizationDetails, Invoker: d.Invoker}
 	if d.MaxLifetime < 0 || d.MaxLifetime > 0 && d.MaxLifetime < time.Second {
 		return nil, errors.New("authkit: oauth: grant authorizer MaxLifetime must be 0 or at least a second")
-	}
-	for _, perm := range d.Permissions {
-		if err := ident.ValidateGrantPattern(perm); err != nil {
-			return nil, fmt.Errorf("authkit: oauth: grant authorizer permission %q: %w", perm, err)
-		}
 	}
 	if d.AuthorizationDetails != nil {
 		compact, oerr := authflow.ParseAuthorizationDetails(string(d.AuthorizationDetails), detailTypes)
@@ -77,25 +57,15 @@ func (s *Engine) decideOAuthGrant(ctx context.Context, req iam.OAuthGrantRequest
 		}
 		out.Claims = d.Claims
 	}
-	if req.Kind != iam.OAuthGrantJWTBearer {
-		if d.Invoker != "" {
-			return nil, errors.New("authkit: oauth: grant authorizer Invoker answers only a jwt_bearer grant")
-		}
-		return out, nil
-	}
-	invoker := d.Invoker
-	if invoker == "" {
-		invoker = req.JWKThumbprint
+	if out.Invoker == "" {
+		out.Invoker = req.JWKThumbprint
 	}
 	switch {
-	case d.Permissions != nil:
-		return nil, errors.New("authkit: oauth: a jwt_bearer token carries no permissions: its capability's authorization_details are its authority")
 	case !authflow.NarrowsAuthorizationDetails(req.AuthorizationDetails, out.AuthorizationDetails):
 		return nil, errors.New("authkit: oauth: grant authorizer may only narrow a capability's authorization_details: each entry must be one of the capability's")
-	case !validActor(invoker):
+	case !validActor(out.Invoker):
 		return nil, errors.New("authkit: oauth: grant authorizer Invoker must be 1-256 printable characters without spaces")
 	}
-	out.Invoker = invoker
 	return out, nil
 }
 
@@ -131,48 +101,21 @@ func checkGrantClaims(claims map[string]any) error {
 	return nil
 }
 
-// oauthGrantFailure answers a token request whose decision failed: a
-// refusal as code (invalid_grant, or unauthorized_client for a client acting
-// for itself), an outage as temporarily_unavailable.
-func oauthGrantFailure(err error, code string) error {
-	if errors.Is(err, errOAuthGrantRefused) {
-		return authflow.NewOAuthError(code, "the grant was refused")
-	}
-	return &authflow.OAuthError{Code: authflow.OAuthTemporarilyUnavailable, Description: "the grant cannot be decided now; retry later", Status: 503}
-}
-
-// grantPermissions is what m's access token carries: the authorizer's
-// permissions or the defaults (the user's live root grants, a client's own),
-// within the resource's ceiling. An authorizer permission in an AuthKit
-// persona's namespace the user does not hold now refuses the grant.
+// grantPermissions is what m's access token carries: the user's live root
+// grants (a client's own for client credentials) within the resource's
+// ceiling; none for a workload.
 func (s *Engine) grantPermissions(ctx context.Context, m oauthMint, ceiling []string) ([]string, error) {
 	if len(ceiling) == 0 || m.workload {
 		return []string{}, nil
 	}
 	if m.userID == "" {
-		held := m.client.Permissions
-		if m.decision != nil && m.decision.Permissions != nil {
-			held = m.decision.Permissions
-		}
-		return nonNil(intersectGrants(held, ceiling)), nil
+		return nonNil(intersectGrants(m.client.Permissions, ceiling)), nil
 	}
-	who := iam.UserIdentity(m.userID)
-	if !m.offline {
-		who = iam.InSession(who, iam.SessionRef{SessionID: m.sessionID, DeviceKeyID: m.deviceKeyID})
-	}
-	auth, err := s.rootAuthority(ctx, who)
+	auth, err := s.rootAuthority(ctx, iam.InSession(iam.UserIdentity(m.userID), iam.SessionRef{SessionID: m.sessionID}))
 	if err != nil {
 		return nil, err
 	}
-	if m.decision == nil || m.decision.Permissions == nil {
-		return nonNil(intersectGrants(auth.grants, ceiling)), nil
-	}
-	for _, perm := range m.decision.Permissions {
-		if !s.grantPermissionHeld(auth, perm) {
-			return nil, errOAuthGrantRefused
-		}
-	}
-	return nonNil(intersectGrants(m.decision.Permissions, ceiling)), nil
+	return nonNil(intersectGrants(auth.grants, ceiling)), nil
 }
 
 // rootAuthority is a's authority on the root group (rule IDENTITY).
@@ -188,73 +131,9 @@ func (s *Engine) rootAuthority(ctx context.Context, a auth.Identity) (authority,
 	return s.identityAuthority(ctx, st, a, groupTarget{ID: rootID, Persona: iam.RootPersona()})
 }
 
-// grantPermissionHeld is whether a grant may carry perm for auth: the
-// host's own vocabulary is the host's decision; a permission in an AuthKit
-// persona's namespace must be held live.
-func (s *Engine) grantPermissionHeld(auth authority, perm string) bool {
-	namespace, _, _ := strings.Cut(perm, ":")
-	sch := s.groupSchemaOrDefault()
-	if _, ok := sch.PersonaNamed(namespace); !ok && namespace != "*" {
-		return true
-	}
-	p, known := sch.Permission(perm)
-	return known && auth.covers(p)
-}
-
 func nonNil(perms []string) []string {
 	if perms == nil {
 		return []string{}
 	}
 	return perms
-}
-
-// RevokeOAuthGrant ends a consented grant (its id from the grant
-// authorizer's request): its refresh tokens stop working at once; access
-// tokens already minted expire on their own. An unknown or ended grant is
-// not an error.
-func (s *Engine) RevokeOAuthGrant(ctx context.Context, grantID string, opts ...ops.Option) error {
-	if err := noOptions("RevokeOAuthGrant", opts); err != nil {
-		return err
-	}
-	grantID = strings.TrimSpace(grantID)
-	if !isUUID(grantID) {
-		return errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("grant_id"))
-	}
-	if s.ephemeral == nil {
-		return s.requirePG()
-	}
-	var familyKey string
-	_, found, err := s.ephemReadJSON(ctx, keyOAuthGrant+grantID, &familyKey)
-	if err != nil || !found {
-		return err
-	}
-	var f oauthRefreshFamily
-	if _, ok, err := s.ephemReadJSON(ctx, familyKey, &f); err != nil {
-		return err
-	} else if ok && f.GrantID == grantID {
-		if err := s.ephemeral.Del(ctx, familyKey); err != nil {
-			return err
-		}
-		s.oauthAudit(ctx, "oauth_grant_revoked", f.UserID, map[string]string{"client_id": f.ClientID, "grant_id": grantID})
-	}
-	return s.ephemeral.Del(ctx, keyOAuthGrant+grantID)
-}
-
-// endOfflineGrants ends every offline grant of userID minted until now.
-func (s *Engine) endOfflineGrants(ctx context.Context, userID string) error {
-	if s.ephemeral == nil {
-		return nil
-	}
-	return s.ephemSetJSON(ctx, keyOAuthOfflineEnded+userID, s.nowTime().UTC(), config.MaxOAuthRefreshTokenTTL)
-}
-
-// grantExpiry is when a grant started at created ends: its family's
-// lifetime, capped by the decision's MaxLifetime.
-func grantExpiry(created, familyEnd time.Time, d *authflow.OAuthGrantDecision) time.Time {
-	if d != nil && d.MaxLifetime > 0 && !created.IsZero() {
-		if capped := created.Add(d.MaxLifetime); capped.Before(familyEnd) {
-			return capped
-		}
-	}
-	return familyEnd
 }
