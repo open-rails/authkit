@@ -38,10 +38,7 @@ func (s *Engine) EnsureUserRole(ctx context.Context, ref iam.GroupRef, u iam.Use
 	}
 	var out iam.User
 	err = s.withGroupMutationIn(ctx, iam.SystemIdentity(), host, ref, func(st *permissionGroupStore, g groupTarget) error {
-		if !s.validRoleForPersona(s.groupSchemaOrDefault(), g.Persona, role) {
-			return fmt.Errorf("role %q is not assignable in a %q group: %w", role, g.Persona, iam.ErrRoleNotAssignable)
-		}
-		if err := s.requireDefinedGroupRole(g.Persona, role); err != nil {
+		if err := s.requireDefinedGroupRole(ctx, st.q, g, role); err != nil {
 			return err
 		}
 		q := db.New(st.q)
@@ -185,14 +182,14 @@ func (s *Engine) roleHeld(ctx context.Context, st *permissionGroupStore, g group
 	case current == role, current.IsOwner():
 		return true, nil
 	}
-	have, err := s.roleGrants(g.Persona, current)
+	have, err := s.roleGrants(ctx, st.q, g, current)
 	if errors.Is(err, iam.ErrRoleNotAssignable) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	want, err := s.roleGrants(g.Persona, role)
+	want, err := s.roleGrants(ctx, st.q, g, role)
 	if err != nil {
 		return false, err
 	}

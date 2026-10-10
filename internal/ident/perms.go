@@ -30,6 +30,14 @@ func DirectoryRead(p iam.Persona) iam.Perm { return Perm(p.String() + ":director
 // with DirectoryRead.
 func DirectoryManage(p iam.Persona) iam.Perm { return Perm(p.String() + ":directory:manage") }
 
+// RolesRead gates reading what the group's roles grant. Registered only for
+// personas whose groups define custom roles.
+func RolesRead(p iam.Persona) iam.Perm { return Perm(p.String() + ":roles:read") }
+
+// RolesManage gates creating, changing and deleting the group's custom roles.
+// Registered with RolesRead.
+func RolesManage(p iam.Persona) iam.Perm { return Perm(p.String() + ":roles:manage") }
+
 // The intrinsic root permissions gating AuthKit's account administration.
 var (
 	RootUsersRead   = Perm("root:users:read")   // list and read accounts and their sign-ins

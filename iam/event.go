@@ -43,6 +43,13 @@ const (
 	EventGroupCreated EventKind = "group.created"
 	EventGroupDeleted EventKind = "group.deleted"
 	EventGroupPurged  EventKind = "group.purged"
+	// Group role events carry GroupID, Persona and Role, a custom role of the
+	// group, with its grants before and after, space-separated, as Previous
+	// and Current. Deleting one records a role.revoked event for each holder
+	// first.
+	EventGroupRoleCreated EventKind = "group.role_created"
+	EventGroupRoleUpdated EventKind = "group.role_updated"
+	EventGroupRoleDeleted EventKind = "group.role_deleted"
 )
 
 // Event is one committed account or group change. It is recorded in the
@@ -74,9 +81,11 @@ type Event struct {
 	Persona Persona `json:"persona"`
 	// ApplicationID is the remote-application subject of a role event.
 	ApplicationID string `json:"application_id"`
+	// Role is the custom role of a group role event.
+	Role Role `json:"role"`
 	// Previous and Current are the changed value before and after: the
-	// email, phone or username, or the role (`channel:moderator`); "" when
-	// none.
+	// email, phone or username, the role (`channel:moderator`), or a group
+	// role's grants; "" when none.
 	Previous string `json:"previous"`
 	Current  string `json:"current"`
 	// Reason and Until describe a ban; Until is nil for an indefinite one.

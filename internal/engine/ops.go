@@ -45,13 +45,25 @@ func (s *Engine) Permission(text string) (iam.Perm, error) {
 	return p, nil
 }
 
-// Role resolves role text `<persona>:<name>`: a declared role or a persona's
-// owner role, else iam.ErrRoleNotAssignable (iam.ErrUnknownGroupPersona for
-// an undeclared persona).
+// Role resolves role text `<persona>:<name>`: a declared role, a persona's
+// owner role, or a custom role name of a persona whose groups define them
+// (whether a group does is checked where it is used), else
+// iam.ErrRoleNotAssignable (iam.ErrUnknownGroupPersona for an undeclared
+// persona).
 func (s *Engine) Role(text string) (iam.Role, error) {
 	r := ident.RoleText(strings.TrimSpace(text))
 	if r.IsZero() {
 		return iam.Role{}, fmt.Errorf("role %q must be <persona>:<name>: %w", text, iam.ErrRoleNotAssignable)
+	}
+	if rbac.IsCustom(r) {
+		p, ok := s.groupSchemaOrDefault().Persona(r.Persona())
+		if !ok {
+			return iam.Role{}, fmt.Errorf("role %q: %w", r, iam.ErrUnknownGroupPersona)
+		}
+		if _, valid := rbac.CustomRole(r.Persona(), rbac.CustomName(r)); !p.CustomRoles || !valid {
+			return iam.Role{}, fmt.Errorf("%q is not a role of %q: %w", r, r.Persona(), iam.ErrRoleNotAssignable)
+		}
+		return r, nil
 	}
 	if _, err := s.catalogRole(r); err != nil {
 		return iam.Role{}, err
@@ -60,7 +72,8 @@ func (s *Engine) Role(text string) (iam.Role, error) {
 }
 
 // RolePermissions returns role's grants in the catalog, includes flattened:
-// permissions and patterns, in declaration order.
+// permissions and patterns, in declaration order. A custom role is a group's:
+// GroupRole reads it.
 func (s *Engine) RolePermissions(role iam.Role) ([]iam.Perm, error) {
 	def, err := s.catalogRole(role)
 	if err != nil {

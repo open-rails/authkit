@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/open-rails/authkit/internal/ident"
+	"github.com/open-rails/authkit/internal/rbac"
 )
 
 // rbacDriftReport counts orphaned authority rows: assigned group roles no
@@ -47,10 +48,18 @@ func (s *Engine) driftReport(ctx context.Context) (rbacDriftReport, error) {
 	return report, nil
 }
 
-// undefinedRoleCount is n when the persona's role is no longer defined, else 0.
+// undefinedRoleCount is n when the persona's role is no longer defined, else
+// 0. A custom role's assignments go with it, so they are drift only once the
+// persona stops defining custom roles.
 func (s *Engine) undefinedRoleCount(persona, role string, n int64) int {
-	p := ident.Persona(persona)
-	if _, ok := s.groupSchemaOrDefault().Role(p, ident.RoleText(role)); ok {
+	p, r := ident.Persona(persona), ident.RoleText(role)
+	if rbac.IsCustom(r) {
+		if def, ok := s.groupSchemaOrDefault().Persona(p); ok && def.CustomRoles {
+			return 0
+		}
+		return int(n)
+	}
+	if s.declaredRole(p, r) {
 		return 0
 	}
 	return int(n)

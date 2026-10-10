@@ -48,10 +48,7 @@ func (s *Engine) SetGroupRole(ctx context.Context, a auth.Identity, ref iam.Grou
 		return iam.GroupMember{}, err
 	}
 	err = s.withGroupMutationIn(ctx, a, tx, ref, func(st *permissionGroupStore, g groupTarget) error {
-		if !s.validRoleForPersona(s.groupSchemaOrDefault(), g.Persona, role) {
-			return fmt.Errorf("role %q is not assignable in a %q group: %w", role, g.Persona, iam.ErrRoleNotAssignable)
-		}
-		if err := s.requireDefinedGroupRole(g.Persona, role); err != nil {
+		if err := s.requireDefinedGroupRole(ctx, st.q, g, role); err != nil {
 			return err
 		}
 		auth, err := s.subjectCap(ctx, st, a, g, subject)
@@ -247,7 +244,11 @@ func (s *Engine) GroupRoles(ctx context.Context, ref iam.GroupRef, subjects []ia
 			valid = append(valid, subject)
 		}
 	}
-	held := map[iam.Subject]iam.Role{}
+	type heldRole struct {
+		role   iam.Role
+		custom []string
+	}
+	held := map[iam.Subject]heldRole{}
 	err = inBatches(valid, func(batch []iam.Subject) error {
 		var users, apps []string
 		for _, subject := range batch {
@@ -262,7 +263,7 @@ func (s *Engine) GroupRoles(ctx context.Context, ref iam.GroupRef, subjects []ia
 			return err
 		}
 		for _, r := range rows {
-			held[iam.Subject{Kind: iam.SubjectKind(r.Kind), ID: r.SubjectID}] = ident.RoleText(r.Role)
+			held[iam.Subject{Kind: iam.SubjectKind(r.Kind), ID: r.SubjectID}] = heldRole{ident.RoleText(r.Role), r.CustomPermissions}
 		}
 		return nil
 	})
@@ -272,12 +273,12 @@ func (s *Engine) GroupRoles(ctx context.Context, ref iam.GroupRef, subjects []ia
 	sch := s.groupSchemaOrDefault()
 	for _, subject := range subjects {
 		subject.ID = strings.TrimSpace(subject.ID)
-		role, ok := held[iam.Subject{Kind: subject.Kind, ID: strings.ToLower(subject.ID)}]
+		h, ok := held[iam.Subject{Kind: subject.Kind, ID: strings.ToLower(subject.ID)}]
 		if !ok {
 			continue
 		}
-		if _, catalog := sch.Role(g.Persona, role); catalog {
-			out[subject] = role
+		if _, defined := sch.AssignedRole(g.Persona, h.role, h.custom); defined {
+			out[subject] = h.role
 		}
 	}
 	return out, nil

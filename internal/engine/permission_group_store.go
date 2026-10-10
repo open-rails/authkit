@@ -179,7 +179,7 @@ func (st *permissionGroupStore) readAssignmentsForGroups(ctx context.Context, gr
 		}
 		for _, r := range rows {
 			persona := ident.Persona(r.Persona)
-			out[r.Target] = append(out[r.Target], rbac.Assignment{PermissionGroupID: r.GroupID, Persona: persona, Role: ident.RoleText(r.Role)})
+			out[r.Target] = append(out[r.Target], rbac.Assignment{PermissionGroupID: r.GroupID, Persona: persona, Role: ident.RoleText(r.Role), Custom: r.CustomPermissions})
 		}
 		return nil
 	})

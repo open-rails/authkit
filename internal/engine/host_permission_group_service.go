@@ -105,15 +105,6 @@ func (st *permissionGroupStore) ensureRootGroup(ctx context.Context) (string, er
 	return id, err
 }
 
-// validRoleForPersona reports whether role is a catalog role of persona.
-func (s *Engine) validRoleForPersona(sch *rbac.Schema, persona iam.Persona, role iam.Role) bool {
-	if role.IsZero() {
-		return false
-	}
-	_, ok := sch.Role(persona, role)
-	return ok
-}
-
 // Can reports whether a covers perm in the group ref addresses, live: a dead
 // identity, an unknown group or an identity bound to another group is false, and an
 // identity whose bound session was revoked is ErrSessionRevoked. The system is

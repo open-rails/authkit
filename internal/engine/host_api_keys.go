@@ -19,9 +19,9 @@ import (
 )
 
 // API keys (#111): long-lived, revocable bearer credentials owned by a
-// permission group, for machine callers. A key holds one catalog role of its
-// group; its permissions resolve from that role at use time, so editing the
-// role changes every key holding it. Issuance follows rule CRED
+// permission group, for machine callers. A key holds one role of its group,
+// declared or custom; its permissions resolve from that role at use time, so
+// editing the role changes every key holding it. Issuance follows rule CRED
 // (credential_issuers.go): the creator is recorded and the key dies with the
 // creator's authority. The system issues keys with no creator.
 
@@ -62,10 +62,7 @@ func (s *Engine) CreateAPIKey(ctx context.Context, a auth.Identity, ref iam.Grou
 		if p, ok := s.groupSchemaOrDefault().Persona(g.Persona); !ok || !p.APIKeys {
 			return fmt.Errorf("persona %q does not enable API keys: %w", g.Persona, iam.ErrInsufficientAuthority)
 		}
-		if err := s.requireDefinedGroupRole(g.Persona, role); err != nil {
-			return err
-		}
-		grants, err := s.roleGrants(g.Persona, role)
+		grants, err := s.roleGrants(ctx, st.q, g, role)
 		if err != nil {
 			return err
 		}
@@ -217,7 +214,7 @@ func (s *Engine) ResolveAPIKey(ctx context.Context, token string) (iam.ResolvedA
 	p.Role = ident.RoleText(k.Role)
 	sch := s.groupSchemaOrDefault()
 	grants := []string{}
-	if def, ok := sch.Role(p.Group.Persona, p.Role); ok {
+	if def, ok := sch.AssignedRole(p.Group.Persona, p.Role, k.CustomPermissions); ok {
 		grants = def.Permissions
 	}
 	p.Permissions = ident.Perms(grants)
@@ -251,7 +248,10 @@ func (s *Engine) loadAPIKeyPermissions(ctx context.Context, st *permissionGroupS
 	for i := range keys {
 		perms, ok := byRole[keys[i].Role]
 		if !ok {
-			grants, _ := s.roleGrants(g.Persona, keys[i].Role)
+			grants, err := s.roleGrants(ctx, st.q, g, keys[i].Role)
+			if err != nil && !errors.Is(err, iam.ErrRoleNotAssignable) {
+				return err
+			}
 			perms = ident.Perms(grants)
 			if perms == nil {
 				perms = []iam.Perm{}

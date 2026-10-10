@@ -103,8 +103,8 @@ func (s *Engine) AcceptRemoteInvitation(ctx context.Context, v auth.Verified, id
 			return err
 		}
 		role = ident.RoleText(*text)
-		if !s.validRoleForPersona(s.groupSchemaOrDefault(), g.Persona, role) {
-			return iam.ErrRoleNotAssignable
+		if err := s.requireDefinedGroupRole(ctx, st.q, g, role); err != nil {
+			return err
 		}
 		return q.RemoteUserRoleUpsert(ctx, db.RemoteUserRoleUpsertParams{PermissionGroupID: g.ID, RemoteUserID: user.ID, Role: role.String(), InvitationID: &id})
 	})
@@ -184,13 +184,13 @@ func (s *Engine) remoteUserGrants(ctx context.Context, groupID, issuer, subject 
 	if s.pg == nil {
 		return nil, nil
 	}
-	text, err := s.q.RemoteUserRoleBySubject(ctx, db.RemoteUserRoleBySubjectParams{PermissionGroupID: groupID, Issuer: issuer, Subject: subject})
+	held, err := s.q.RemoteUserRoleBySubject(ctx, db.RemoteUserRoleBySubjectParams{PermissionGroupID: groupID, Issuer: issuer, Subject: subject})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	role := ident.RoleText(text)
-	return s.roleGrants(role.Persona(), role)
+	r, _ := s.groupSchemaOrDefault().AssignedRole(ident.Persona(held.Persona), ident.RoleText(held.Role), held.CustomPermissions)
+	return r.Permissions, nil
 }

@@ -1,4 +1,5 @@
 pkg authkit, const APIKeys config.PersonaOption = 1
+pkg authkit, const CustomRoles config.PersonaOption = 3
 pkg authkit, const DPoPOptional config.DPoPMode = "optional"
 pkg authkit, const DPoPRequired config.DPoPMode = "required"
 pkg authkit, const FormerNamesFinite config.FormerNamesMode = "finite"
@@ -31,10 +32,12 @@ pkg authkit, method (*Client) CheckUsername(context.Context, string) error
 pkg authkit, method (*Client) Close(context.Context) error
 pkg authkit, method (*Client) CreateAPIKey(context.Context, auth.Identity, iam.GroupRef, iam.NewAPIKey, ...Option) (iam.APIKeyCreated, error)
 pkg authkit, method (*Client) CreateGroup(context.Context, iam.NewGroup, ...Option) (iam.Group, error)
+pkg authkit, method (*Client) CreateGroupRole(context.Context, auth.Identity, iam.GroupRef, iam.NewGroupRole, ...Option) (iam.GroupRole, error)
 pkg authkit, method (*Client) CreateInvitation(context.Context, auth.Identity, iam.GroupRef, iam.NewInvitation, ...Option) (iam.InvitationCreated, error)
 pkg authkit, method (*Client) CreateUser(context.Context, iam.NewUser, ...Option) (iam.User, error)
 pkg authkit, method (*Client) DeclareRemoteApplications(context.Context, iam.GroupRef, []iam.RemoteApplication, ...Option) error
 pkg authkit, method (*Client) DeleteGroup(context.Context, iam.GroupRef, ...Option) error
+pkg authkit, method (*Client) DeleteGroupRole(context.Context, auth.Identity, iam.GroupRef, iam.Role, ...Option) error
 pkg authkit, method (*Client) DeleteRemoteApplication(context.Context, auth.Identity, iam.GroupRef, string, ...Option) error
 pkg authkit, method (*Client) DeleteUsers(context.Context, auth.Identity, []string, ...Option) ([]iam.OpResult, error)
 pkg authkit, method (*Client) DeviceKeys(context.Context, string) ([]iam.DeviceKey, error)
@@ -43,6 +46,7 @@ pkg authkit, method (*Client) EmailAvailable() bool
 pkg authkit, method (*Client) EmailHealth() (time.Time, error)
 pkg authkit, method (*Client) EnsureUserRole(context.Context, iam.GroupRef, iam.UserRef, iam.Role, ...Option) (iam.User, error)
 pkg authkit, method (*Client) Group(context.Context, iam.GroupRef) (iam.Group, error)
+pkg authkit, method (*Client) GroupRole(context.Context, iam.GroupRef, iam.Role) (iam.GroupRole, error)
 pkg authkit, method (*Client) GroupRoles(context.Context, iam.GroupRef, []iam.Subject) (map[iam.Subject]iam.Role, error)
 pkg authkit, method (*Client) Groups(context.Context, []string) (map[string]iam.Group, error)
 pkg authkit, method (*Client) Handler() http.Handler
@@ -52,6 +56,7 @@ pkg authkit, method (*Client) KnownPermission(iam.Perm) bool
 pkg authkit, method (*Client) LinkProvider(context.Context, string, iam.ProviderLink, ...Option) error
 pkg authkit, method (*Client) ListAPIKeys(context.Context, iam.GroupRef, iam.PageRequest) (iam.ListPage[iam.APIKey], error)
 pkg authkit, method (*Client) ListGroupMembers(context.Context, iam.GroupRef, iam.MemberQuery) (iam.ListPage[iam.GroupMember], error)
+pkg authkit, method (*Client) ListGroupRoles(context.Context, iam.GroupRef) ([]iam.GroupRole, error)
 pkg authkit, method (*Client) ListGroups(context.Context, iam.GroupQuery) (iam.ListPage[iam.Group], error)
 pkg authkit, method (*Client) ListInvitations(context.Context, iam.GroupRef, iam.PageRequest) (iam.ListPage[iam.Invitation], error)
 pkg authkit, method (*Client) ListMemberships(context.Context, iam.Subject, iam.PageRequest) (iam.ListPage[iam.Membership], error)
@@ -94,6 +99,7 @@ pkg authkit, method (*Client) SetGroupRole(context.Context, auth.Identity, iam.G
 pkg authkit, method (*Client) Start(context.Context, ...StartOption) error
 pkg authkit, method (*Client) TwoFactorMethods() []iam.TwoFactorMethod
 pkg authkit, method (*Client) Unban(context.Context, auth.Identity, string, ...Option) error
+pkg authkit, method (*Client) UpdateGroupRole(context.Context, auth.Identity, iam.GroupRef, iam.Role, iam.GroupRoleUpdate, ...Option) (iam.GroupRole, error)
 pkg authkit, method (*Client) UpdateUser(context.Context, auth.Identity, string, iam.UserUpdate, ...Option) (iam.User, error)
 pkg authkit, method (*Client) UpsertRemoteApplication(context.Context, auth.Identity, iam.GroupRef, iam.RemoteApplication, ...Option) (iam.RemoteApplication, error)
 pkg authkit, method (*Client) User(context.Context, iam.UserRef, ...Option) (iam.User, error)
@@ -123,6 +129,7 @@ pkg authkit, method (DirectoryPerms) All() iam.Perm
 pkg authkit, method (MemberPerms) All() iam.Perm
 pkg authkit, method (Resource) All() iam.Perm
 pkg authkit, method (ResourceConfig) Enabled() bool
+pkg authkit, method (RolePerms) All() iam.Perm
 pkg authkit, method (RootDef) All() iam.Perm
 pkg authkit, method (RootDef) Declare(...string) []iam.Perm
 pkg authkit, method (RootDef) Expand([]iam.Perm) []iam.Perm
@@ -292,6 +299,7 @@ pkg authkit, type PersonaDef struct, Directory config.DirectoryPerms
 pkg authkit, type PersonaDef struct, Members config.MemberPerms
 pkg authkit, type PersonaDef struct, Owner iam.Role
 pkg authkit, type PersonaDef struct, Persona iam.Persona
+pkg authkit, type PersonaDef struct, Roles config.RolePerms
 pkg authkit, type PersonaOption = config.PersonaOption
 pkg authkit, type PersonaOption uint8
 pkg authkit, type ProvisioningClientCredentials = config.ProvisioningClientCredentials
@@ -347,6 +355,11 @@ pkg authkit, type ResourceServerConfig struct, ContactClaims bool `yaml:"contact
 pkg authkit, type ResourceServerConfig struct, ID string `yaml:"id"`
 pkg authkit, type ResourceServerConfig struct, Permissions []string `yaml:"permissions"`
 pkg authkit, type ResourceServerConfig struct, Scopes []string `yaml:"scopes"`
+pkg authkit, type RolePerms = config.RolePerms
+pkg authkit, type RolePerms struct
+pkg authkit, type RolePerms struct, Manage iam.Perm
+pkg authkit, type RolePerms struct, Read iam.Perm
+pkg authkit, type RolePerms struct, embedded config.Resource
 pkg authkit, type Roles = config.Roles
 pkg authkit, type Roles struct
 pkg authkit, type Roles struct, Root *config.RootDef
@@ -649,6 +662,9 @@ pkg authkit/iam, const DefaultPageLimit untyped int = 50
 pkg authkit/iam, const EventGroupCreated EventKind = "group.created"
 pkg authkit/iam, const EventGroupDeleted EventKind = "group.deleted"
 pkg authkit/iam, const EventGroupPurged EventKind = "group.purged"
+pkg authkit/iam, const EventGroupRoleCreated EventKind = "group.role_created"
+pkg authkit/iam, const EventGroupRoleDeleted EventKind = "group.role_deleted"
+pkg authkit/iam, const EventGroupRoleUpdated EventKind = "group.role_updated"
 pkg authkit/iam, const EventRoleChanged EventKind = "role.changed"
 pkg authkit/iam, const EventRoleGranted EventKind = "role.granted"
 pkg authkit/iam, const EventRoleRevoked EventKind = "role.revoked"
@@ -702,6 +718,7 @@ pkg authkit/iam, const ImportUsernameUnavailable ImportReason = "username_unavai
 pkg authkit/iam, const InsecureRefreshCookieName untyped string = "authkit_rt"
 pkg authkit/iam, const JWKSPath untyped string = "/.well-known/jwks.json"
 pkg authkit/iam, const MaxBatch untyped int = 500
+pkg authkit/iam, const MaxGroupRoles untyped int = 100
 pkg authkit/iam, const MaxPageLimit untyped int = 500
 pkg authkit/iam, const MessageContactChanged MessageKind = "contact_changed"
 pkg authkit/iam, const MessageDeviceKeyEnrolled MessageKind = "device_key_enrolled"
@@ -981,6 +998,7 @@ pkg authkit/iam, type Event struct, OccurredAt time.Time `json:"occurred_at"`
 pkg authkit/iam, type Event struct, Persona Persona `json:"persona"`
 pkg authkit/iam, type Event struct, Previous string `json:"previous"`
 pkg authkit/iam, type Event struct, Reason string `json:"reason"`
+pkg authkit/iam, type Event struct, Role Role `json:"role"`
 pkg authkit/iam, type Event struct, SubjectID string `json:"subject_id"`
 pkg authkit/iam, type Event struct, SubjectKind auth.SubjectKind `json:"subject_kind"`
 pkg authkit/iam, type Event struct, Until *time.Time `json:"until"`
@@ -1003,6 +1021,16 @@ pkg authkit/iam, type GroupQuery struct, Ownerless bool
 pkg authkit/iam, type GroupQuery struct, Page PageRequest
 pkg authkit/iam, type GroupQuery struct, Persona Persona
 pkg authkit/iam, type GroupRef struct
+pkg authkit/iam, type GroupRole struct
+pkg authkit/iam, type GroupRole struct, CreatedAt *time.Time `json:"created_at"`
+pkg authkit/iam, type GroupRole struct, Custom bool `json:"custom"`
+pkg authkit/iam, type GroupRole struct, Grants []Perm `json:"grants"`
+pkg authkit/iam, type GroupRole struct, Name Role `json:"name"`
+pkg authkit/iam, type GroupRole struct, Permissions []Perm `json:"permissions"`
+pkg authkit/iam, type GroupRole struct, RequiresMFA bool `json:"requires_mfa"`
+pkg authkit/iam, type GroupRole struct, UpdatedAt *time.Time `json:"updated_at"`
+pkg authkit/iam, type GroupRoleUpdate struct
+pkg authkit/iam, type GroupRoleUpdate struct, Permissions []Perm
 pkg authkit/iam, type HashAlgo string
 pkg authkit/iam, type ImportConflict string
 pkg authkit/iam, type ImportMatch string
@@ -1112,6 +1140,9 @@ pkg authkit/iam, type NewGroup struct
 pkg authkit/iam, type NewGroup struct, ID string
 pkg authkit/iam, type NewGroup struct, Owner *Subject
 pkg authkit/iam, type NewGroup struct, Persona Persona
+pkg authkit/iam, type NewGroupRole struct
+pkg authkit/iam, type NewGroupRole struct, Name string
+pkg authkit/iam, type NewGroupRole struct, Permissions []Perm
 pkg authkit/iam, type NewInvitation struct
 pkg authkit/iam, type NewInvitation struct, Email string
 pkg authkit/iam, type NewInvitation struct, ExpiresAt *time.Time
@@ -1358,7 +1389,11 @@ pkg authkit/iam, var ErrRenameRateLimited Error
 pkg authkit/iam, var ErrRenamesDisabled Error
 pkg authkit/iam, var ErrReservedIssuer Error
 pkg authkit/iam, var ErrRoleAssignmentEscalation Error
+pkg authkit/iam, var ErrRoleExists Error
+pkg authkit/iam, var ErrRoleLimitReached Error
 pkg authkit/iam, var ErrRoleNotAssignable Error
+pkg authkit/iam, var ErrRoleNotEditable Error
+pkg authkit/iam, var ErrRoleNotFound Error
 pkg authkit/iam, var ErrSessionRevoked Error
 pkg authkit/iam, var ErrSigningNotConfigured Error
 pkg authkit/iam, var ErrSubjectMFARequired Error

@@ -72,6 +72,18 @@ var (
 	ErrInvitationsDisabled Error = errmodel.E(errmodel.CodeInvitationsDisabled)
 )
 
+// Custom roles.
+var (
+	// ErrRoleNotFound: the group has no such role.
+	ErrRoleNotFound Error = errmodel.E(errmodel.CodeRoleNotFound)
+	// ErrRoleExists refuses a custom role whose name the group already uses.
+	ErrRoleExists Error = errmodel.E(errmodel.CodeRoleExists)
+	// ErrRoleNotEditable refuses to change or delete a declared role.
+	ErrRoleNotEditable Error = errmodel.E(errmodel.CodeRoleNotEditable)
+	// ErrRoleLimitReached refuses a custom role past MaxGroupRoles.
+	ErrRoleLimitReached Error = errmodel.E(errmodel.CodeRoleLimitReached)
+)
+
 // Users.
 var (
 	ErrEmailInUse             Error = errmodel.E(errmodel.CodeEmailInUse)

@@ -26,8 +26,9 @@ SELECT role, revoked_at FROM api_keys WHERE id = sqlc.arg(id) AND permission_gro
 -- name: APIKeyByLookupID :one
 SELECT k.id, k.secret_hash, k.role, k.expires_at, k.revoked_at,
   (k.created_by IS NULL OR EXISTS(SELECT 1 FROM usable_users WHERE id = k.created_by))::boolean AS creator_live,
-  g.id AS group_id, g.persona, g.created_at AS group_created_at
+  g.id AS group_id, g.persona, g.created_at AS group_created_at, cr.permissions AS custom_permissions
 FROM api_keys k JOIN permission_groups g ON g.id = k.permission_group_id
+LEFT JOIN group_custom_roles cr ON cr.permission_group_id = k.permission_group_id AND cr.role = k.role
 WHERE k.key_id = sqlc.arg(key_id) AND g.deleted_at IS NULL
   AND (k.catalog_issuer IS NULL OR k.catalog_issuer = sqlc.arg(issuer)::text);
 

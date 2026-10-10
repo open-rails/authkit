@@ -80,7 +80,15 @@ func (s *Service) GroupHandler(op GroupOp) http.HandlerFunc {
 		case OpMemberRemove:
 			s.groupMemberRemove(w, r, g, who)
 		case OpRolesList:
-			s.groupRolesList(w, g)
+			s.groupRolesList(w, r, g)
+		case OpRoleGet:
+			s.groupRoleGet(w, r, g)
+		case OpRoleCreate:
+			s.groupRoleCreate(w, r, g, who)
+		case OpRoleUpdate:
+			s.groupRoleUpdate(w, r, g, who)
+		case OpRoleDelete:
+			s.groupRoleDelete(w, r, g, who)
 		case OpAPIKeysList:
 			s.groupAPIKeyList(w, r, g)
 		case OpAPIKeyMint:

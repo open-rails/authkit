@@ -214,7 +214,7 @@ func (s *Engine) displayRootRole(ctx context.Context, q *db.Queries, userID stri
 		return ""
 	}
 	role := ident.RoleText(rows[0].Role)
-	if _, ok := s.groupSchemaOrDefault().Role(iam.RootPersona(), role); !ok {
+	if _, ok := s.groupSchemaOrDefault().AssignedRole(iam.RootPersona(), role, rows[0].CustomPermissions); !ok {
 		return ""
 	}
 	return role.String()

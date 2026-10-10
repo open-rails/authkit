@@ -43,6 +43,7 @@ const (
 	FeatureDeviceKeys   Feature = "device_keys"  // device keys on
 	FeatureGroups       Feature = "groups"       // a persona besides root
 	FeatureAPIKeys      Feature = "api_keys"     // a persona whose groups hold API keys
+	FeatureCustomRoles  Feature = "custom_roles" // a persona whose groups define roles
 	// FeatureRemoteApplications: a persona whose groups control remote
 	// applications, and so hold their users' directory.
 	FeatureRemoteApplications Feature = "remote_applications"
@@ -56,7 +57,7 @@ const (
 )
 
 // Features lists every Feature a route can be mounted under.
-var Features = []Feature{FeaturePasskeys, FeaturePasswordless, FeatureRegistration, FeatureTwoFactor, FeatureSolana, FeatureOIDC, FeatureDeviceKeys, FeatureGroups, FeatureAPIKeys, FeatureRemoteApplications, FeatureInvitations, FeatureNewDevices, FeatureAuthorizationServer, FeatureTokenEndpoint}
+var Features = []Feature{FeaturePasskeys, FeaturePasswordless, FeatureRegistration, FeatureTwoFactor, FeatureSolana, FeatureOIDC, FeatureDeviceKeys, FeatureGroups, FeatureAPIKeys, FeatureCustomRoles, FeatureRemoteApplications, FeatureInvitations, FeatureNewDevices, FeatureAuthorizationServer, FeatureTokenEndpoint}
 
 // Reply is one success outcome of a route: its status and body. Body is a
 // zero value of the body's type, nil for none.
@@ -362,8 +363,18 @@ func Catalog() []RouteSpec {
 			Request: MemberRoleRequest{}, Responses: replyOK(iam.GroupMember{}), serve: groupOp(OpMemberSet)},
 		{Method: DELETE, Path: "/groups/{group_id}/members/{kind}/{id}", Group: groups, Auth: permission, Perm: OpMemberRemove.catalogPermission(), Bucket: RLGroupWrite,
 			Responses: replyNoContent, serve: groupOp(OpMemberRemove)},
+		// The roles assignable in the group: declared, then its custom roles.
 		{Method: GET, Path: "/groups/{group_id}/roles", Group: groups, Auth: permission, Perm: OpRolesList.catalogPermission(), Bucket: RLGroupRead,
-			Responses: replyOK(iam.ListPage[RoleInfo]{}), serve: groupOp(OpRolesList)},
+			Responses: replyOK(iam.ListPage[iam.GroupRole]{}), serve: groupOp(OpRolesList)},
+		// {role} is role text, `<persona>:<name>`.
+		{Method: GET, Path: "/groups/{group_id}/roles/{role}", Group: groups, Auth: permission, Perm: OpRoleGet.catalogPermission(), Bucket: RLGroupRead,
+			Responses: replyOK(iam.GroupRole{}), serve: groupOp(OpRoleGet)},
+		{Method: POST, Path: "/groups/{group_id}/roles", Group: groups, Auth: permission, Perm: OpRoleCreate.catalogPermission(), Bucket: RLGroupWrite, MountedWhen: FeatureCustomRoles,
+			Request: GroupRoleCreateRequest{}, Responses: replyCreated(iam.GroupRole{}), serve: groupOp(OpRoleCreate)},
+		{Method: PATCH, Path: "/groups/{group_id}/roles/{role}", Group: groups, Auth: permission, Perm: OpRoleUpdate.catalogPermission(), Bucket: RLGroupWrite, MountedWhen: FeatureCustomRoles,
+			Request: GroupRoleUpdateRequest{}, Responses: replyOK(iam.GroupRole{}), serve: groupOp(OpRoleUpdate)},
+		{Method: DELETE, Path: "/groups/{group_id}/roles/{role}", Group: groups, Auth: permission, Perm: OpRoleDelete.catalogPermission(), Bucket: RLGroupWrite, MountedWhen: FeatureCustomRoles,
+			Responses: replyNoContent, serve: groupOp(OpRoleDelete)},
 		{Method: GET, Path: "/groups/{group_id}/invitations", Group: groups, Auth: permission, Perm: OpInvitationsList.catalogPermission(), Bucket: RLGroupRead, MountedWhen: FeatureInvitations,
 			Query: PageQuery{}, Responses: replyOK(iam.ListPage[iam.Invitation]{}), serve: groupOp(OpInvitationsList)},
 		// A link answers its code once (201); an emailed invitation answers

@@ -295,6 +295,18 @@ type MemberRoleRequest struct {
 	Role string `json:"role"`
 }
 
+// GroupRoleCreateRequest defines a custom role: name makes it
+// `<persona>:custom-<name>`.
+type GroupRoleCreateRequest struct {
+	Name        string   `json:"name"`
+	Permissions []string `json:"permissions"`
+}
+
+// GroupRoleUpdateRequest replaces what a custom role grants.
+type GroupRoleUpdateRequest struct {
+	Permissions []string `json:"permissions"`
+}
+
 type APIKeyCreateRequest struct {
 	Name      string     `json:"name"`
 	Role      string     `json:"role"`
@@ -631,13 +643,6 @@ type SolanaChallenge struct {
 	IssuedAt time.Time `json:"issued_at"`
 	// Message is the Sign-In-With-Solana text the wallet signs.
 	Message string `json:"message"`
-}
-
-// RoleInfo is one role of a group's persona and every permission it grants,
-// expanded from its patterns over the persona's catalog.
-type RoleInfo struct {
-	Name        iam.Role   `json:"name"`
-	Permissions []iam.Perm `json:"permissions"`
 }
 
 // PermissionSet is the caller's role and effective permissions in one group,

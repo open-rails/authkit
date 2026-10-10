@@ -27,6 +27,7 @@ type PersonaSpec struct {
 	RequireMFA         []iam.Perm // permissions or patterns of the catalog that need MFA
 	APIKeys            bool
 	RemoteApplications bool
+	CustomRoles        bool
 }
 
 // RoleSpec is one declared role.
@@ -46,6 +47,8 @@ type Persona struct {
 	// RemoteApplications: the persona's groups control remote applications
 	// and hold their users' directory.
 	RemoteApplications bool
+	// CustomRoles: the persona's groups define roles of their own.
+	CustomRoles bool
 }
 
 // Role is a compiled role: its grant patterns with includes flattened.
@@ -102,7 +105,7 @@ func New(personas []PersonaSpec, roles []RoleSpec) (*Schema, error) {
 }
 
 func (s *Schema) compilePersona(name iam.Persona, spec PersonaSpec) (Persona, error) {
-	p := Persona{Name: name, APIKeys: spec.APIKeys, RemoteApplications: spec.RemoteApplications}
+	p := Persona{Name: name, APIKeys: spec.APIKeys, RemoteApplications: spec.RemoteApplications, CustomRoles: spec.CustomRoles}
 	for _, perm := range spec.Permissions {
 		if perm.Persona() != name {
 			return Persona{}, fmt.Errorf("permission %q must start with %q", perm, name.String()+":")
@@ -145,7 +148,7 @@ func Catalog(spec PersonaSpec) []iam.Perm {
 	for _, perm := range spec.Permissions {
 		set[perm] = struct{}{}
 	}
-	for _, perm := range Builtins(spec.Name, spec.APIKeys || spec.RemoteApplications, spec.RemoteApplications) {
+	for _, perm := range Builtins(spec.Name, spec.APIKeys || spec.RemoteApplications, spec.RemoteApplications, spec.CustomRoles) {
 		set[perm] = struct{}{}
 	}
 	return slices.SortedFunc(maps.Keys(set), comparePerm)
@@ -165,15 +168,18 @@ func Expand(catalog, grants []iam.Perm) []iam.Perm {
 
 // Builtins returns the permissions AuthKit registers for a persona: members
 // always, credentials when it has API keys or remote applications, the
-// directory when it has remote applications, and on root its intrinsic
-// account permissions.
-func Builtins(name iam.Persona, credentials, directory bool) []iam.Perm {
+// directory when it has remote applications, roles when its groups define
+// their own, and on root its intrinsic account permissions.
+func Builtins(name iam.Persona, credentials, directory, roles bool) []iam.Perm {
 	out := []iam.Perm{ident.MembersRead(name), ident.MembersManage(name)}
 	if credentials {
 		out = append(out, ident.CredentialsRead(name), ident.CredentialsManage(name))
 	}
 	if directory {
 		out = append(out, ident.DirectoryRead(name), ident.DirectoryManage(name))
+	}
+	if roles {
+		out = append(out, ident.RolesRead(name), ident.RolesManage(name))
 	}
 	if name == iam.RootPersona() {
 		out = append(out, ident.IntrinsicRootPermissions()...)
@@ -193,6 +199,9 @@ func (s *Schema) compileRoles(specs []RoleSpec) error {
 		}
 		if _, dup := declared[persona][r.Name]; dup {
 			return fmt.Errorf("role %q declared twice", r.Name)
+		}
+		if IsCustom(r.Name) {
+			return fmt.Errorf("role %q: names starting %q are custom roles'", r.Name, CustomPrefix)
 		}
 		for _, g := range r.Grants {
 			if err := s.validRoleGrant(persona, g); err != nil {
@@ -387,11 +396,13 @@ func (s *Schema) RoleNamed(persona iam.Persona, name string) (Role, bool) {
 }
 
 // Assignment is a subject's single role in one permission group, tagged with
-// that group's persona.
+// that group's persona. Custom is what a custom role grants as the group
+// stores it, nil when the group defines no such role.
 type Assignment struct {
 	Persona           iam.Persona
 	PermissionGroupID string
 	Role              iam.Role
+	Custom            []string
 }
 
 // ResolveGrants returns the de-duplicated union of grant patterns a subject
@@ -412,7 +423,7 @@ func (s *Schema) ResolveGrants(target string, assignments []Assignment) []string
 		}
 	}
 	for _, a := range assignments {
-		if r, ok := s.Role(a.Persona, a.Role); ok && !a.Role.IsZero() {
+		if r, ok := s.AssignedRole(a.Persona, a.Role, a.Custom); ok {
 			add(a, r.Permissions)
 		}
 	}

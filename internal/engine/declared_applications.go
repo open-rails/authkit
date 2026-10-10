@@ -109,10 +109,12 @@ func (s *Engine) declareRemoteApplications(ctx context.Context, host pgx.Tx, ref
 // makes app.Role its role there: none when zero. A role of another persona,
 // or one needing a second factor (an application presents none), is refused.
 func (s *Engine) applyDeclaredApplication(ctx context.Context, st *permissionGroupStore, g groupTarget, app iam.RemoteApplication) error {
-	if !app.Role.IsZero() && !s.validRoleForPersona(s.groupSchemaOrDefault(), g.Persona, app.Role) {
-		return fmt.Errorf("%q is not a role of a %q group: %w", app.Role, g.Persona, iam.ErrRoleNotAssignable)
+	if !app.Role.IsZero() {
+		if err := s.requireDefinedGroupRole(ctx, st.q, g, app.Role); err != nil {
+			return err
+		}
 	}
-	if err := s.validRoleMap(g.Persona, app.RoleMap); err != nil {
+	if err := s.validRoleMap(ctx, st.q, g, app.RoleMap); err != nil {
 		return err
 	}
 	app.GroupID, app.TrustRoot = g.ID, iam.ApplicationTrustRootManual

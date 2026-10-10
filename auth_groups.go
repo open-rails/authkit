@@ -34,6 +34,47 @@ func (a *Client) GroupRoles(ctx context.Context, ref iam.GroupRef, subjects []ia
 	return a.ops.GroupRoles(ctx, ref, subjects)
 }
 
+// Custom roles. A group of a persona declared with CustomRoles defines roles of
+// its own, `<persona>:custom-<name>`, held only in that group and assigned
+// like declared ones. Checks read them live: a change applies at the next
+// request. Defining or changing one takes <persona>:roles:manage and covering
+// every permission it grants, before and after.
+
+// ListGroupRoles returns the roles assignable in the group: those its
+// persona declares, then the custom roles it defines, by name.
+func (a *Client) ListGroupRoles(ctx context.Context, ref iam.GroupRef) ([]iam.GroupRole, error) {
+	return a.ops.ListGroupRoles(ctx, ref)
+}
+
+// GroupRole returns one role assignable in the group; any other is
+// iam.ErrRoleNotFound.
+func (a *Client) GroupRole(ctx context.Context, ref iam.GroupRef, role iam.Role) (iam.GroupRole, error) {
+	return a.ops.GroupRole(ctx, ref, role)
+}
+
+// CreateGroupRole defines a custom role in the group. A name it already uses
+// is iam.ErrRoleExists; past iam.MaxGroupRoles, iam.ErrRoleLimitReached.
+func (a *Client) CreateGroupRole(ctx context.Context, who auth.Identity, ref iam.GroupRef, r iam.NewGroupRole, opts ...Option) (iam.GroupRole, error) {
+	return a.ops.CreateGroupRole(ctx, who, ref, r, opts...)
+}
+
+// UpdateGroupRole replaces what a custom role grants. While the role is held
+// it also takes <persona>:members:manage (members or invitations hold it) or
+// <persona>:credentials:manage (API keys or applications do); afterwards the
+// credentials whose issuers no longer cover their role are revoked. A
+// declared role is iam.ErrRoleNotEditable.
+func (a *Client) UpdateGroupRole(ctx context.Context, who auth.Identity, ref iam.GroupRef, role iam.Role, u iam.GroupRoleUpdate, opts ...Option) (iam.GroupRole, error) {
+	return a.ops.UpdateGroupRole(ctx, who, ref, role, u, opts...)
+}
+
+// DeleteGroupRole deletes a custom role, under UpdateGroupRole's authority,
+// after taking it from every holder: members and applications lose it and
+// the API keys and invitations carrying it are revoked. Deleting a role the
+// group does not define changes nothing.
+func (a *Client) DeleteGroupRole(ctx context.Context, who auth.Identity, ref iam.GroupRef, role iam.Role, opts ...Option) error {
+	return a.ops.DeleteGroupRole(ctx, who, ref, role, opts...)
+}
+
 // Groups. A persona is a type of permission group (channel, org, merchant); a
 // group is one instance of it, addressed by ID; root is the persona with
 // exactly one group, the whole site. Reads take no identity: the host is the
@@ -130,14 +171,17 @@ func (a *Client) Persona(name string) (iam.Persona, error) { return a.ops.Person
 func (a *Client) Permission(text string) (iam.Perm, error) { return a.ops.Permission(text) }
 
 // Role resolves role text `<persona>:<name>` (`channel:moderator`), the one
-// text form of a role: a declared role or a persona's owner role, else
-// iam.ErrRoleNotAssignable.
+// text form of a role: a declared role, a persona's owner role or a custom
+// role name (`channel:custom-helper`) of a persona with CustomRoles, else
+// iam.ErrRoleNotAssignable. Whether a group defines a custom role is checked
+// where it is used.
 func (a *Client) Role(text string) (iam.Role, error) { return a.ops.Role(text) }
 
 // RolePermissions returns role's grants in Config.Roles, includes flattened:
 // permissions and patterns (`channel:*`), matched with iam.Perm.Matches. A
 // role the catalog does not declare is iam.ErrRoleNotAssignable
-// (iam.ErrUnknownGroupPersona for an undeclared persona).
+// (iam.ErrUnknownGroupPersona for an undeclared persona); a custom role's
+// are its group's (GroupRole).
 func (a *Client) RolePermissions(role iam.Role) ([]iam.Perm, error) {
 	return a.ops.RolePermissions(role)
 }

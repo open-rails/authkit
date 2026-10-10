@@ -393,12 +393,12 @@ func TestSecurityRemoteApplicationPaging(t *testing.T) {
 }
 
 // TestSecurityRemovedRoutesAreGone: v1 serves no signed-document,
-// application self-registration, remote-application, delegated-token or
-// custom-role route, nor
-// the member, invite-link and root-role routes the member and invitation
-// resources replaced, even with every capability on. The catalog lists none,
-// and a signed-in owner gets 404 (405 where the path serves another method).
-// The Go operations on applications remain.
+// application self-registration, remote-application or delegated-token
+// route, nor the member, invite-link and root-role routes the member and
+// invitation resources replaced, even with every capability on; custom-role
+// changes only for a persona with CustomRoles. The catalog lists none, and a
+// signed-in owner gets 404 (405 where the path serves another method). The
+// Go operations on applications remain.
 func TestSecurityRemovedRoutesAreGone(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withApps))
 	ctx := context.Background()
@@ -429,7 +429,7 @@ func TestSecurityRemovedRoutesAreGone(t *testing.T) {
 		{request{method: http.MethodPut, path: base + "/remote-applications/cut-app/roles/org:owner", token: token}, http.StatusNotFound},
 		{request{method: http.MethodPost, path: base + "/roles", token: token,
 			body: map[string]any{"role": "curator", "permissions": []string{"org:catalog:read"}}}, http.StatusMethodNotAllowed},
-		{request{method: http.MethodDelete, path: base + "/roles/org:member", token: token}, http.StatusNotFound},
+		{request{method: http.MethodDelete, path: base + "/roles/org:member", token: token}, http.StatusMethodNotAllowed},
 		{request{method: http.MethodPost, path: base + "/members", token: token, body: map[string]string{"user_id": owner.id, "role": "org:member"}}, http.StatusMethodNotAllowed},
 		{request{method: http.MethodPut, path: base + "/members/" + owner.id + "/roles/org:member", token: token}, http.StatusNotFound},
 		{request{method: http.MethodPost, path: base + "/invites/links", token: token, body: map[string]string{"role": "org:member"}}, http.StatusNotFound},

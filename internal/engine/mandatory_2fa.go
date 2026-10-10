@@ -100,13 +100,6 @@ func (s *Engine) requireSessionMFAStateOn(ctx context.Context, q db.DBTX, userID
 	return nil
 }
 
-// roleRequiresMFA reports whether role (in persona) needs MFA: its permissions
-// reach one the schema marks as needing MFA (Persona.RequireMFA).
-func (s *Engine) roleRequiresMFA(persona iam.Persona, role iam.Role) bool {
-	def, ok := s.groupSchemaOrDefault().Role(persona, role)
-	return ok && def.RequiresMFA
-}
-
 // userHoldsMFARequiredRole reports whether userID currently holds at least one
 // role, in any permission group, whose permissions need MFA. Used only by
 // requireSessionMFAStateWith (login/refresh session establishment) — never
@@ -117,12 +110,18 @@ func (s *Engine) userHoldsMFARequiredRole(ctx context.Context, q db.DBTX, userID
 		return false, err
 	}
 	for _, a := range assignments {
-		persona := ident.Persona(a.Persona)
-		if s.roleRequiresMFA(persona, ident.RoleText(a.Role)) {
+		if s.assignedRoleRequiresMFA(ident.Persona(a.Persona), ident.RoleText(a.Role), a.CustomPermissions) {
 			return true, nil
 		}
 	}
 	return false, nil
+}
+
+// assignedRoleRequiresMFA reports whether a held role, read with its custom
+// definition, needs MFA.
+func (s *Engine) assignedRoleRequiresMFA(persona iam.Persona, role iam.Role, custom []string) bool {
+	r, ok := s.groupSchemaOrDefault().AssignedRole(persona, role, custom)
+	return ok && r.RequiresMFA
 }
 
 func (s *Engine) requireMFAForRoleAssignment(ctx context.Context, q db.DBTX, gid string, persona iam.Persona, subject iam.Subject, role iam.Role) error {
@@ -132,8 +131,9 @@ func (s *Engine) requireMFAForRoleAssignment(ctx context.Context, q db.DBTX, gid
 	if !s.TwoFactorEnabled() {
 		return nil
 	}
-	if !s.roleRequiresMFA(persona, role) {
-		return nil
+	needs, err := s.roleRequiresMFA(ctx, q, groupTarget{ID: gid, Persona: persona}, role)
+	if err != nil || !needs {
+		return err
 	}
 	// An application can never enroll a second factor.
 	if subject.Kind != iam.SubjectKindUser {
@@ -165,7 +165,7 @@ func (s *Engine) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, user
 	for _, a := range assignments {
 		persona := ident.Persona(a.Persona)
 		r := authflow.RemovedMFARoleAssignment{PermissionGroupID: a.PermissionGroupID, Persona: persona, Role: ident.RoleText(a.Role)}
-		if s.roleRequiresMFA(r.Persona, r.Role) {
+		if s.assignedRoleRequiresMFA(r.Persona, r.Role, a.CustomPermissions) {
 			r.RemovedAt = time.Now().UTC()
 			removals = append(removals, r)
 		}

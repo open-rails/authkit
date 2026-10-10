@@ -25,14 +25,6 @@ func lockPermissionGroup(ctx context.Context, q db.DBTX, groupID string) error {
 	return err
 }
 
-// requireDefinedGroupRole: a durable reference names a catalog role.
-func (s *Engine) requireDefinedGroupRole(persona iam.Persona, role iam.Role) error {
-	if _, ok := s.groupSchemaOrDefault().Role(persona, role); !ok {
-		return fmt.Errorf("role %q is not a role of a %q group: %w", role, persona, iam.ErrRoleNotAssignable)
-	}
-	return nil
-}
-
 // Group lifecycle: host operations. The host app owns the entity a group
 // guards (a channel), so it decides who may make or remove one. ops.InTx
 // runs them in the host's own transaction (withAuthorityMutationIn).

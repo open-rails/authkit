@@ -102,9 +102,11 @@ func (q *Queries) RemoteUserRoleByID(ctx context.Context, arg RemoteUserRoleByID
 
 const remoteUserRoleBySubject = `-- name: RemoteUserRoleBySubject :one
 
-SELECT r.role
+SELECT r.role, g.persona, cr.permissions AS custom_permissions
 FROM group_remote_user_roles r
 JOIN remote_users u ON u.id = r.remote_user_id
+JOIN permission_groups g ON g.id = r.permission_group_id
+LEFT JOIN group_custom_roles cr ON cr.permission_group_id = r.permission_group_id AND cr.role = r.role
 WHERE r.permission_group_id = $1::uuid
   AND u.issuer = $2 AND u.subject = $3
 `
@@ -115,12 +117,18 @@ type RemoteUserRoleBySubjectParams struct {
 	Subject           string
 }
 
+type RemoteUserRoleBySubjectRow struct {
+	Role              string
+	Persona           string
+	CustomPermissions []string
+}
+
 // Roles trusted issuers' users hold in groups (federated grants).
-func (q *Queries) RemoteUserRoleBySubject(ctx context.Context, arg RemoteUserRoleBySubjectParams) (string, error) {
+func (q *Queries) RemoteUserRoleBySubject(ctx context.Context, arg RemoteUserRoleBySubjectParams) (RemoteUserRoleBySubjectRow, error) {
 	row := q.db.QueryRow(ctx, remoteUserRoleBySubject, arg.PermissionGroupID, arg.Issuer, arg.Subject)
-	var role string
-	err := row.Scan(&role)
-	return role, err
+	var i RemoteUserRoleBySubjectRow
+	err := row.Scan(&i.Role, &i.Persona, &i.CustomPermissions)
+	return i, err
 }
 
 const remoteUserRoleDelete = `-- name: RemoteUserRoleDelete :execrows

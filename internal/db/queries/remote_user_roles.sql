@@ -1,9 +1,11 @@
 -- Roles trusted issuers' users hold in groups (federated grants).
 
 -- name: RemoteUserRoleBySubject :one
-SELECT r.role
+SELECT r.role, g.persona, cr.permissions AS custom_permissions
 FROM group_remote_user_roles r
 JOIN remote_users u ON u.id = r.remote_user_id
+JOIN permission_groups g ON g.id = r.permission_group_id
+LEFT JOIN group_custom_roles cr ON cr.permission_group_id = r.permission_group_id AND cr.role = r.role
 WHERE r.permission_group_id = sqlc.arg(permission_group_id)::uuid
   AND u.issuer = sqlc.arg(issuer) AND u.subject = sqlc.arg(subject);
 

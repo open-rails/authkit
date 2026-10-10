@@ -30,6 +30,40 @@ type GroupMember struct {
 	User    *PublicUser `json:"user"`
 }
 
+// GroupRole is a role assignable in a group: one its persona declares, or a
+// custom role the group defines (Custom), `<persona>:custom-<name>`. Grants
+// is what it holds as defined, permissions and patterns (includes
+// flattened); Permissions lists the catalog permissions they cover.
+// RequiresMFA: only users with a second factor hold it, never an API key or
+// application. A custom role's CreatedAt and UpdatedAt are set.
+type GroupRole struct {
+	Name        Role       `json:"name"`
+	Grants      []Perm     `json:"grants"`
+	Permissions []Perm     `json:"permissions"`
+	Custom      bool       `json:"custom"`
+	RequiresMFA bool       `json:"requires_mfa"`
+	CreatedAt   *time.Time `json:"created_at"`
+	UpdatedAt   *time.Time `json:"updated_at"`
+}
+
+// MaxGroupRoles is how many custom roles one group may define.
+const MaxGroupRoles = 100
+
+// NewGroupRole is a custom role for a group to define. Name, `[a-z][a-z0-9-]*`
+// of at most 64 characters, makes the role `<persona>:custom-<name>`.
+// Permissions are 1 to 256 permissions or patterns that a declared role of
+// the persona may hold: a persona's own, or on root any persona's.
+type NewGroupRole struct {
+	Name        string
+	Permissions []Perm
+}
+
+// GroupRoleUpdate replaces what a custom role grants, under NewGroupRole's
+// rules.
+type GroupRoleUpdate struct {
+	Permissions []Perm
+}
+
 // Membership is a group a subject holds a role in.
 type Membership struct {
 	Group Group `json:"group"`

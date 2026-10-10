@@ -125,7 +125,11 @@ export type AuthErrorCode =
   | "renames_disabled"
   | "reserved_issuer"
   | "role_assignment_escalation"
+  | "role_exists"
+  | "role_limit_reached"
   | "role_not_assignable"
+  | "role_not_editable"
+  | "role_not_found"
   | "sender_proof_required"
   | "server_busy"
   | "session_revoked"
@@ -282,7 +286,11 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   renames_disabled: 403,
   reserved_issuer: 400,
   role_assignment_escalation: 403,
+  role_exists: 409,
+  role_limit_reached: 409,
   role_not_assignable: 400,
+  role_not_editable: 409,
+  role_not_found: 404,
   sender_proof_required: 401,
   server_busy: 503,
   session_revoked: 401,
@@ -440,7 +448,11 @@ export const AUTH_ERROR_MESSAGES = {
   renames_disabled: "Username changes are disabled.",
   reserved_issuer: "That issuer is reserved.",
   role_assignment_escalation: "That role confers authority you do not hold.",
+  role_exists: "The group already has a role with that name.",
+  role_limit_reached: "The group defines as many roles as it may.",
   role_not_assignable: "The role cannot be assigned in this group.",
+  role_not_editable: "Only a role the group defined can be changed.",
+  role_not_found: "The role was not found.",
   sender_proof_required: "The token requires sender proof.",
   server_busy: "The server is busy. Try again in a moment.",
   session_revoked: "Your session has ended. Please sign in again.",

@@ -13,6 +13,7 @@ type (
 	MemberPerms     = config.MemberPerms
 	CredentialPerms = config.CredentialPerms
 	DirectoryPerms  = config.DirectoryPerms
+	RolePerms       = config.RolePerms
 	UserPerms       = config.UserPerms
 	PersonaOption   = config.PersonaOption
 )
@@ -24,6 +25,9 @@ const (
 	// RemoteApplications lets the persona's groups control remote
 	// applications. It registers Credentials.
 	RemoteApplications = config.RemoteApplications
+	// CustomRoles lets the persona's groups define roles of their own. It
+	// registers Roles.
+	CustomRoles = config.CustomRoles
 )
 
 // NewRoles starts a permission model holding only root; opts switch on root's

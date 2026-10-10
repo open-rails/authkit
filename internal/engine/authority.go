@@ -16,7 +16,6 @@ package engine
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
@@ -225,11 +224,10 @@ func (s *Engine) apiKeyAuthority(ctx context.Context, st *permissionGroupStore, 
 	if err != nil || key.PermissionGroupID != g.ID {
 		return out, err
 	}
-	out.grants, err = s.roleGrants(g.Persona, ident.RoleText(key.Role))
-	if errors.Is(err, iam.ErrRoleNotAssignable) {
-		return out, nil
+	if r, ok := s.groupSchemaOrDefault().AssignedRole(g.Persona, ident.RoleText(key.Role), key.CustomPermissions); ok {
+		out.grants = r.Permissions
 	}
-	return out.withoutMFAGrants(s), err
+	return out.withoutMFAGrants(s), nil
 }
 
 // subjectGrants is the subject's walk-up union of grants in gid.
@@ -241,21 +239,12 @@ func (s *Engine) subjectGrants(ctx context.Context, st *permissionGroupStore, su
 	return s.groupSchemaOrDefault().ResolveGrants(gid, asg), nil
 }
 
-// roleGrants returns what a catalog role of persona confers, else
-// ErrRoleNotAssignable.
-func (s *Engine) roleGrants(persona iam.Persona, role iam.Role) ([]string, error) {
-	if r, ok := s.groupSchemaOrDefault().Role(persona, role); ok {
-		return r.Permissions, nil
-	}
-	return nil, fmt.Errorf("role %q is not assignable in a %q group: %w", role, persona, iam.ErrRoleNotAssignable)
-}
-
 // requireRoleCover is rule COVER for a role in g.
 func (s *Engine) requireRoleCover(ctx context.Context, st *permissionGroupStore, a authority, g groupTarget, role iam.Role) error {
 	if a.system {
 		return nil
 	}
-	grants, err := s.roleGrants(g.Persona, role)
+	grants, err := s.roleGrants(ctx, st.q, g, role)
 	if err != nil {
 		return err
 	}

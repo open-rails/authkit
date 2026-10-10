@@ -54,7 +54,7 @@ func (s *Engine) UpsertRemoteApplication(ctx context.Context, who auth.Identity,
 	var out *iam.RemoteApplication
 	err = s.withGroupMutationIn(ctx, who, host, ref, func(st *permissionGroupStore, g groupTarget) error {
 		in.GroupID = g.ID
-		if err := s.validRoleMap(g.Persona, in.RoleMap); err != nil {
+		if err := s.validRoleMap(ctx, st.q, g, in.RoleMap); err != nil {
 			return err
 		}
 		row, err := db.New(st.q).RemoteApplicationByIssuer(ctx, in.Issuer)

@@ -44,6 +44,7 @@ type AccountEvent struct {
 	InvokerID      string
 	CredentialKind string
 	CredentialID   string
+	Role           string
 }
 
 // Enrolled 2FA factors per user (hard-deleted on removal); backup codes remain user-scoped on mfa_settings

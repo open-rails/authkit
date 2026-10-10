@@ -51,14 +51,6 @@ func (s *Engine) inviteURL(code string) string {
 	return s.authkitURL(s.cfg.Frontend.InvitePath, q)
 }
 
-// requireIssuableRole refuses a role that is not in the group's catalog.
-func (s *Engine) requireIssuableRole(g groupTarget, role iam.Role) ([]string, error) {
-	if err := s.requireDefinedGroupRole(g.Persona, role); err != nil {
-		return nil, err
-	}
-	return s.roleGrants(g.Persona, role)
-}
-
 // RedeemInvitation redeems code for the signed-in user a: a link must be
 // live (not revoked, expired or used) and its issuer live, and the redeemer
 // live. The role is assigned in the same transaction and the link consumed.

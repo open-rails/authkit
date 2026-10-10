@@ -177,8 +177,9 @@ type sweptCredential struct {
 func (s *Engine) credentialStands(ctx context.Context, st *permissionGroupStore, c sweptCredential) (bool, error) {
 	machine := c.table == "api_keys" || c.table == "group_remote_application_roles"
 	if machine && s.TwoFactorEnabled() {
-		if s.roleRequiresMFA(c.group.Persona, c.role) {
-			return false, nil
+		needs, err := s.roleRequiresMFA(ctx, st.q, c.group, c.role)
+		if err != nil || needs {
+			return false, err
 		}
 	}
 	if c.creator == "" {
@@ -393,11 +394,11 @@ func (s *Engine) assignInvitedRole(ctx context.Context, st *permissionGroupStore
 		return err
 	}
 	if !old.IsZero() && old != role {
-		oldGrants, err := s.roleGrants(g.Persona, old)
+		oldGrants, err := s.roleGrants(ctx, st.q, g, old)
 		if err != nil {
 			return err
 		}
-		offered, err := s.roleGrants(g.Persona, role)
+		offered, err := s.roleGrants(ctx, st.q, g, role)
 		if err != nil {
 			return err
 		}
@@ -408,7 +409,7 @@ func (s *Engine) assignInvitedRole(ctx context.Context, st *permissionGroupStore
 			return err
 		}
 	}
-	if err := s.requireDefinedGroupRole(persona, role); err != nil {
+	if err := s.requireDefinedGroupRole(ctx, st.q, g, role); err != nil {
 		return err
 	}
 	if err := s.requireMFAForRoleAssignment(ctx, st.q, gid, persona, subject, role); err != nil {

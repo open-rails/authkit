@@ -3840,7 +3840,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RoleInfoPage"
+                  "$ref": "#/components/schemas/GroupRolePage"
                 }
               }
             }
@@ -3864,6 +3864,228 @@
         "x-authkit-auth": "permission",
         "x-authkit-permission": "<persona>:members:read",
         "x-authkit-rate-limit": "group_read"
+      },
+      "post": {
+        "tags": [
+          "groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GroupRoleCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupRole"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:roles:manage",
+        "x-authkit-rate-limit": "group_write",
+        "x-authkit-mounted-when": "custom_roles"
+      }
+    },
+    "/api/v1/groups/{group_id}/roles/{role}": {
+      "get": {
+        "tags": [
+          "groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "role",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupRole"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:members:read",
+        "x-authkit-rate-limit": "group_read"
+      },
+      "patch": {
+        "tags": [
+          "groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "role",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GroupRoleUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupRole"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:roles:manage",
+        "x-authkit-rate-limit": "group_write",
+        "x-authkit-mounted-when": "custom_roles"
+      },
+      "delete": {
+        "tags": [
+          "groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "role",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:roles:manage",
+        "x-authkit-rate-limit": "group_write",
+        "x-authkit-mounted-when": "custom_roles"
       }
     },
     "/api/v1/groups/{group_id}/invitations": {
@@ -6345,6 +6567,9 @@
               "group.created",
               "group.deleted",
               "group.purged",
+              "group.role_created",
+              "group.role_deleted",
+              "group.role_updated",
               "role.changed",
               "role.granted",
               "role.revoked",
@@ -6406,6 +6631,9 @@
           "application_id": {
             "type": "string"
           },
+          "role": {
+            "type": "string"
+          },
           "previous": {
             "type": "string"
           },
@@ -6442,6 +6670,7 @@
           "group_id",
           "persona",
           "application_id",
+          "role",
           "previous",
           "current",
           "reason",
@@ -7222,6 +7451,90 @@
           "role",
           "user"
         ]
+      },
+      "GroupRole": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "grants": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "custom": {
+            "type": "boolean"
+          },
+          "requires_mfa": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "updated_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "grants",
+          "permissions",
+          "custom",
+          "requires_mfa",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "GroupRoleCreateRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "GroupRoleUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
       },
       "IdentifierPasswordRequest": {
         "type": "object",
@@ -8297,24 +8610,6 @@
             "type": "string"
           }
         }
-      },
-      "RoleInfo": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "permissions": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        },
-        "required": [
-          "name",
-          "permissions"
-        ]
       },
       "SCIMAttribute": {
         "type": "object",
@@ -10309,6 +10604,35 @@
           "total"
         ]
       },
+      "GroupRolePage": {
+        "type": "object",
+        "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GroupRole"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor",
+          "total"
+        ]
+      },
       "InvitationPage": {
         "type": "object",
         "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
@@ -10404,35 +10728,6 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/PublicUser"
-            }
-          },
-          "next_cursor": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "total": {
-            "type": [
-              "integer",
-              "null"
-            ]
-          }
-        },
-        "required": [
-          "data",
-          "next_cursor",
-          "total"
-        ]
-      },
-      "RoleInfoPage": {
-        "type": "object",
-        "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
-        "properties": {
-          "data": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/RoleInfo"
             }
           },
           "next_cursor": {
@@ -11184,9 +11479,25 @@
       "status": 403,
       "message": "That role confers authority you do not hold."
     },
+    "role_exists": {
+      "status": 409,
+      "message": "The group already has a role with that name."
+    },
+    "role_limit_reached": {
+      "status": 409,
+      "message": "The group defines as many roles as it may."
+    },
     "role_not_assignable": {
       "status": 400,
       "message": "The role cannot be assigned in this group."
+    },
+    "role_not_editable": {
+      "status": 409,
+      "message": "Only a role the group defined can be changed."
+    },
+    "role_not_found": {
+      "status": 404,
+      "message": "The role was not found."
     },
     "sender_proof_required": {
       "status": 401,

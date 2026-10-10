@@ -63,6 +63,13 @@ type Operations interface {
 	Role(text string) (iam.Role, error)
 	RolePermissions(role iam.Role) ([]iam.Perm, error)
 
+	// Custom roles.
+	ListGroupRoles(ctx context.Context, ref iam.GroupRef) ([]iam.GroupRole, error)
+	GroupRole(ctx context.Context, ref iam.GroupRef, role iam.Role) (iam.GroupRole, error)
+	CreateGroupRole(ctx context.Context, who auth.Identity, ref iam.GroupRef, r iam.NewGroupRole, opts ...Option) (iam.GroupRole, error)
+	UpdateGroupRole(ctx context.Context, who auth.Identity, ref iam.GroupRef, role iam.Role, u iam.GroupRoleUpdate, opts ...Option) (iam.GroupRole, error)
+	DeleteGroupRole(ctx context.Context, who auth.Identity, ref iam.GroupRef, role iam.Role, opts ...Option) error
+
 	// API keys.
 	CreateAPIKey(ctx context.Context, who auth.Identity, ref iam.GroupRef, k iam.NewAPIKey, opts ...Option) (iam.APIKeyCreated, error)
 	ListAPIKeys(ctx context.Context, ref iam.GroupRef, p iam.PageRequest) (iam.ListPage[iam.APIKey], error)

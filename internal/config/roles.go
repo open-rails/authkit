@@ -59,6 +59,9 @@ const (
 	// RemoteApplications lets the persona's groups control remote
 	// applications (Client.UpsertRemoteApplication). It registers Credentials.
 	RemoteApplications
+	// CustomRoles lets the persona's groups define roles of their own
+	// (Client.CreateGroupRole). It registers Roles.
+	CustomRoles
 )
 
 // Persona declares a persona and returns its definition. name is the first
@@ -81,13 +84,15 @@ func (r *Roles) Persona(name string, opts ...PersonaOption) *PersonaDef {
 }
 
 func (r *Roles) persona(p iam.Persona, opts []PersonaOption) *PersonaDef {
-	d := &PersonaDef{Persona: p, Owner: p.OwnerRole(), roles: r, spec: rbac.PersonaSpec{Name: p}, declared: map[iam.Perm]bool{}}
+	d := &PersonaDef{Persona: p, Owner: p.OwnerRole(), model: r, spec: rbac.PersonaSpec{Name: p}, declared: map[iam.Perm]bool{}}
 	for _, o := range opts {
 		switch o {
 		case APIKeys:
 			d.spec.APIKeys = true
 		case RemoteApplications:
 			d.spec.RemoteApplications = true
+		case CustomRoles:
+			d.spec.CustomRoles = true
 		default:
 			r.errorf("persona %q: unknown option %d", p, o)
 		}
@@ -95,6 +100,7 @@ func (r *Roles) persona(p iam.Persona, opts []PersonaOption) *PersonaDef {
 	d.Members = MemberPerms{Resource: d.Resource("members"), Read: ident.MembersRead(p), Manage: ident.MembersManage(p)}
 	d.Credentials = CredentialPerms{Resource: d.Resource("credentials"), Read: ident.CredentialsRead(p), Manage: ident.CredentialsManage(p)}
 	d.Directory = DirectoryPerms{Resource: d.Resource("directory"), Read: ident.DirectoryRead(p), Manage: ident.DirectoryManage(p)}
+	d.Roles = RolePerms{Resource: d.Resource("roles"), Read: ident.RolesRead(p), Manage: ident.RolesManage(p)}
 	r.personas = append(r.personas, d)
 	return d
 }
@@ -106,7 +112,8 @@ func (r *Roles) errorf(format string, args ...any) {
 // PersonaDef is one declared persona: the permissions and roles of its
 // groups. AuthKit registers the built-in permission fields: Members always,
 // Credentials with APIKeys or RemoteApplications, Directory with
-// RemoteApplications. A role holding one that is not registered fails New.
+// RemoteApplications, Roles with CustomRoles. A role holding one that is not
+// registered fails New.
 type PersonaDef struct {
 	Persona iam.Persona
 	// Owner is the role every persona has: it holds All(). Root's also holds
@@ -116,8 +123,9 @@ type PersonaDef struct {
 	Members     MemberPerms
 	Credentials CredentialPerms
 	Directory   DirectoryPerms
+	Roles       RolePerms
 
-	roles    *Roles
+	model    *Roles
 	spec     rbac.PersonaSpec
 	declared map[iam.Perm]bool
 }
@@ -128,12 +136,12 @@ func (p *PersonaDef) Permission(resource, action string) iam.Perm {
 	perm := ident.Perm(p.Persona.String() + ":" + resource + ":" + action)
 	switch {
 	case !ident.ValidSegment(resource) || !ident.ValidSegment(action):
-		p.roles.errorf("persona %q permission %q:%q: each segment must match [a-z][a-z0-9-]*", p.Persona, resource, action)
+		p.model.errorf("persona %q permission %q:%q: each segment must match [a-z][a-z0-9-]*", p.Persona, resource, action)
 		return iam.Perm{}
 	case p.builtIn(perm):
-		p.roles.errorf("permission %q is built in", perm)
+		p.model.errorf("permission %q is built in", perm)
 	case p.declared[perm]:
-		p.roles.errorf("permission %q declared twice", perm)
+		p.model.errorf("permission %q declared twice", perm)
 	default:
 		p.declared[perm] = true
 		p.spec.Permissions = append(p.spec.Permissions, perm)
@@ -151,7 +159,7 @@ func (p *PersonaDef) Declare(perms ...string) []iam.Perm {
 		resource, action, ok := strings.Cut(rest, ":")
 		switch {
 		case persona != p.Persona.String() || !ok:
-			p.roles.errorf("persona %q permission %q: want %s:<resource>:<action>", p.Persona, text, p.Persona)
+			p.model.errorf("persona %q permission %q: want %s:<resource>:<action>", p.Persona, text, p.Persona)
 			out = append(out, iam.Perm{})
 		case p.builtIn(ident.Perm(text)):
 			out = append(out, ident.Perm(text))
@@ -163,14 +171,14 @@ func (p *PersonaDef) Declare(perms ...string) []iam.Perm {
 }
 
 func (p *PersonaDef) builtIn(perm iam.Perm) bool {
-	return slices.Contains(rbac.Builtins(p.Persona, true, true), perm)
+	return slices.Contains(rbac.Builtins(p.Persona, true, true, true), perm)
 }
 
 // Resource is one resource of the persona, for the pattern over all its
 // actions.
 func (p *PersonaDef) Resource(name string) Resource {
 	if !ident.ValidSegment(name) {
-		p.roles.errorf("persona %q resource %q: name must match [a-z][a-z0-9-]*", p.Persona, name)
+		p.model.errorf("persona %q resource %q: name must match [a-z][a-z0-9-]*", p.Persona, name)
 	}
 	return Resource{persona: p.Persona, name: name}
 }
@@ -195,15 +203,16 @@ func (p *PersonaDef) Expand(grants []iam.Perm) []iam.Perm {
 // is a permission or pattern (Resource.All, All), or a role of this persona
 // whose permissions the new role includes. A persona role holds only its own
 // persona's permissions; a root role may hold any persona's, and applies in
-// every group of that persona.
+// every group of that persona. A name starting `custom-` is a custom role's,
+// never a declared one's.
 func (p *PersonaDef) Role(name string, grants ...iam.Grant) iam.Role {
 	role := ident.Role(p.Persona, name)
 	switch {
 	case role.IsZero():
-		p.roles.errorf("persona %q role %q: name must match [a-z][a-z0-9-]*", p.Persona, name)
+		p.model.errorf("persona %q role %q: name must match [a-z][a-z0-9-]*", p.Persona, name)
 		return iam.Role{}
 	case role == p.Owner:
-		p.roles.errorf("persona %q: the %q role is built in: use Owner", p.Persona, name)
+		p.model.errorf("persona %q: the %q role is built in: use Owner", p.Persona, name)
 		return role
 	}
 	def := rbac.RoleSpec{Name: role}
@@ -211,19 +220,19 @@ func (p *PersonaDef) Role(name string, grants ...iam.Grant) iam.Role {
 		switch g := g.(type) {
 		case iam.Perm:
 			if g.IsZero() {
-				p.roles.errorf("persona %q role %q: a grant is the zero permission", p.Persona, name)
+				p.model.errorf("persona %q role %q: a grant is the zero permission", p.Persona, name)
 				continue
 			}
 			def.Grants = append(def.Grants, g)
 		case iam.Role:
 			if g.Persona() != p.Persona {
-				p.roles.errorf("persona %q role %q includes %q, a role of another persona", p.Persona, name, g)
+				p.model.errorf("persona %q role %q includes %q, a role of another persona", p.Persona, name, g)
 				continue
 			}
 			def.Includes = append(def.Includes, g)
 		}
 	}
-	p.roles.roles = append(p.roles.roles, def)
+	p.model.roles = append(p.model.roles, def)
 	return role
 }
 
@@ -267,6 +276,13 @@ type CredentialPerms struct {
 	Resource
 	Read   iam.Perm // list the group's API keys
 	Manage iam.Perm // mint, revoke and re-role them
+}
+
+// RolePerms are the role permissions, registered with CustomRoles.
+type RolePerms struct {
+	Resource
+	Read   iam.Perm // read what the group's roles grant
+	Manage iam.Perm // create, change and delete the group's custom roles
 }
 
 // DirectoryPerms are the directory permissions, registered with

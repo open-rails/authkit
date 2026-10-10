@@ -783,7 +783,7 @@ func TestRootGroupHTTPWorkflow(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, a.get("/admin/users?root_role=owner", adminToken).status, "a bare role name is refused")
 }
 
-// apiRoleInfo is a RoleInfo as the wire carries it.
+// apiRoleInfo is a GroupRole as the wire carries it.
 type apiRoleInfo struct {
 	Name        string   `json:"name"`
 	Permissions []string `json:"permissions"`

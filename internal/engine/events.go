@@ -168,7 +168,7 @@ func (s *Engine) emitEvents(ctx context.Context, q db.DBTX, a auth.Identity, eve
 				SubjectKind: string(who.SubjectKind), SubjectID: who.SubjectID, InvokerIssuer: who.InvokerIssuer, InvokerID: who.InvokerID,
 				CredentialKind: string(who.CredentialKind), CredentialID: who.CredentialID,
 				UserID: nullable(e.UserID), GroupID: nullable(e.GroupID), Persona: e.Persona.String(), ApplicationID: nullable(e.ApplicationID),
-				PreviousValue: e.Previous, CurrentValue: e.Current, Reason: e.Reason, Until: e.Until,
+				PreviousValue: e.Previous, CurrentValue: e.Current, Reason: e.Reason, Until: e.Until, Role: e.Role.String(),
 			})
 			if err != nil {
 				return fmt.Errorf("authkit: record %s event: %w", e.Kind, err)
@@ -237,7 +237,7 @@ func (s *Engine) deliverEvent(ctx context.Context, row int64) error {
 		SubjectKind: auth.SubjectKind(rec.SubjectKind), SubjectID: rec.SubjectID, InvokerIssuer: rec.InvokerIssuer, InvokerID: rec.InvokerID,
 		CredentialKind: auth.CredentialKind(rec.CredentialKind), CredentialID: rec.CredentialID,
 		UserID: deref(rec.UserID), GroupID: deref(rec.GroupID), Persona: ident.Persona(rec.Persona), ApplicationID: deref(rec.ApplicationID),
-		Previous: rec.PreviousValue, Current: rec.CurrentValue, Reason: rec.Reason, Until: rec.Until,
+		Previous: rec.PreviousValue, Current: rec.CurrentValue, Reason: rec.Reason, Until: rec.Until, Role: ident.RoleText(rec.Role),
 	}
 	failures := int(rec.Attempts)
 	earlier, err := s.q.AccountEventEarlierPending(ctx, db.AccountEventEarlierPendingParams{Issuer: rec.Issuer, Stream: rec.Stream, ID: row})

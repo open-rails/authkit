@@ -27,6 +27,10 @@ const (
 	OpInvitationsList
 	OpInvitationCreate
 	OpInvitationRevoke
+	OpRoleGet
+	OpRoleCreate
+	OpRoleUpdate
+	OpRoleDelete
 )
 
 // Available reports whether groups of persona p have the operation. Every
@@ -37,6 +41,10 @@ func (op GroupOp) Available(p rbac.Persona) bool {
 		return true
 	case OpAPIKeysList, OpAPIKeyMint, OpAPIKeyRevoke:
 		return p.APIKeys
+	case OpRoleGet:
+		return true
+	case OpRoleCreate, OpRoleUpdate, OpRoleDelete:
+		return p.CustomRoles
 	}
 	return false
 }
@@ -44,7 +52,8 @@ func (op GroupOp) Available(p rbac.Persona) bool {
 // Mutates reports whether the operation changes the group.
 func (op GroupOp) Mutates() bool {
 	switch op {
-	case OpMemberSet, OpMemberRemove, OpAPIKeyMint, OpAPIKeyRevoke, OpInvitationCreate, OpInvitationRevoke:
+	case OpMemberSet, OpMemberRemove, OpAPIKeyMint, OpAPIKeyRevoke, OpInvitationCreate, OpInvitationRevoke,
+		OpRoleCreate, OpRoleUpdate, OpRoleDelete:
 		return true
 	}
 	return false
@@ -55,8 +64,15 @@ func (op GroupOp) Mutates() bool {
 // register (root:users:invite); the engine tells the two apart.
 func (op GroupOp) Perms(p rbac.Persona) []iam.Perm {
 	switch op {
-	case OpMembersList, OpRolesList, OpInvitationsList:
+	case OpMembersList, OpInvitationsList:
 		return []iam.Perm{ident.MembersRead(p.Name)}
+	case OpRolesList, OpRoleGet:
+		if p.CustomRoles {
+			return []iam.Perm{ident.MembersRead(p.Name), ident.RolesRead(p.Name)}
+		}
+		return []iam.Perm{ident.MembersRead(p.Name)}
+	case OpRoleCreate, OpRoleUpdate, OpRoleDelete:
+		return []iam.Perm{ident.RolesManage(p.Name)}
 	case OpMemberSet, OpMemberRemove:
 		return []iam.Perm{ident.MembersManage(p.Name)}
 	case OpInvitationCreate, OpInvitationRevoke:

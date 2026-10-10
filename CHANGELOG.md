@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.19.0
+
+Custom roles (#448): a group defines least-privilege roles of its own at run time, from its persona's permissions, and gives them to members, API keys and remote applications like declared roles ([docs/rbac.md](docs/rbac.md#custom-roles)).
+
+### Breaking
+
+| Removed or changed | Use instead |
+|---|---|
+| A declared role named `custom-…` | Another name: `<persona>:custom-<name>` is a group's custom role, so the two never clash |
+| A host-declared `<persona>:roles:read` or `<persona>:roles:manage` | The built-ins of those names, registered with `CustomRoles` |
+| auth-ui's generated `RoleInfo` | `GroupRole`: the same members, plus `grants`, `custom`, `requires_mfa`, `created_at` and `updated_at` |
+
+### Custom roles
+
+- `authkit.CustomRoles` on a persona, root included, lets its groups define roles. It registers `<persona>:roles:read` and `<persona>:roles:manage` (`PersonaDef.Roles`).
+- `Client.ListGroupRoles`, `GroupRole`, `CreateGroupRole`, `UpdateGroupRole` and `DeleteGroupRole`. `Client.Role` resolves a custom role's name.
+- HTTP: `GET /groups/{group_id}/roles/{role}`; with `CustomRoles`, `POST /groups/{group_id}/roles` and `PATCH` and `DELETE /groups/{group_id}/roles/{role}`. `GET /groups/{group_id}/roles` lists a group's custom roles after its declared ones.
+- A check reads a custom role in the same query as its assignment, so a change applies at the next request. Changing one is a grant: covering its permissions before and after, and handing it out while it is held. Deleting one takes it from every holder and revokes the keys and invitations carrying it.
+- Events `group.role_created`, `group.role_updated` and `group.role_deleted`, with `iam.Event.Role`.
+- Error codes `role_not_found`, `role_exists`, `role_not_editable` and `role_limit_reached`.
+
+### Migrations
+
+- 0015: `group_custom_roles`, and `account_events.role`.
+
 ## v1.18.0
 
 The owner approved shipping these breaking changes in a minor release. AuthKit verifies every credential a service accepts: with `Config.Resource`, `Client.Authenticator()` admits its own sessions and API keys, the RFC 9068 access tokens its own authorization server mints and those its trusted issuers mint (#447, [docs/resource-server.md](docs/resource-server.md)). A group keeps a directory of its trusted issuers' users ([docs/scim.md](docs/scim.md#directory)).

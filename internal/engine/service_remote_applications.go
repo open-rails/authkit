@@ -157,14 +157,14 @@ func encodeRoleMap(m map[string]iam.Role) []byte {
 }
 
 // validRoleMap refuses a role_map naming an empty role name or a role that
-// is not one of the group persona's.
-func (s *Engine) validRoleMap(persona iam.Persona, m map[string]iam.Role) error {
+// the group g does not hold.
+func (s *Engine) validRoleMap(ctx context.Context, q db.DBTX, g groupTarget, m map[string]iam.Role) error {
 	for name, role := range m {
 		if strings.TrimSpace(name) == "" || name != strings.TrimSpace(name) {
 			return fmt.Errorf("%w: role_map has an empty or padded role name", iam.ErrInvalidRemoteApplication)
 		}
-		if !s.validRoleForPersona(s.groupSchemaOrDefault(), persona, role) {
-			return fmt.Errorf("role_map %q: %q is not a role of a %q group: %w", name, role, persona, iam.ErrRoleNotAssignable)
+		if err := s.requireDefinedGroupRole(ctx, q, g, role); err != nil {
+			return fmt.Errorf("role_map %q: %w", name, err)
 		}
 	}
 	return nil
@@ -388,21 +388,23 @@ func (s *Engine) loadApplicationRoles(ctx context.Context, q db.DBTX, groupID st
 	if err != nil {
 		return err
 	}
-	roles := make(map[string]iam.Role, len(rows))
+	roles := make(map[string]db.GroupRolesForSubjectsRow, len(rows))
 	for _, r := range rows {
-		roles[r.SubjectID] = ident.RoleText(r.Role)
+		roles[r.SubjectID] = r
 	}
+	persona := ident.Persona(group.Persona)
 	for i := range apps {
-		apps[i].Role = roles[apps[i].ID]
+		held := roles[apps[i].ID]
+		apps[i].Role = ident.RoleText(held.Role)
 		apps[i].Permissions = []iam.Perm{}
 		if !apps[i].Enabled || group.DeletedAt != nil || apps[i].Role.IsZero() {
 			continue
 		}
-		if s.TwoFactorEnabled() && s.roleRequiresMFA(apps[i].Role.Persona(), apps[i].Role) {
+		r, ok := s.groupSchemaOrDefault().AssignedRole(persona, apps[i].Role, held.CustomPermissions)
+		if !ok || s.TwoFactorEnabled() && r.RequiresMFA {
 			continue
 		}
-		grants, _ := s.roleGrants(apps[i].Role.Persona(), apps[i].Role)
-		apps[i].Permissions = ident.Perms(grants)
+		apps[i].Permissions = ident.Perms(r.Permissions)
 	}
 	return nil
 }

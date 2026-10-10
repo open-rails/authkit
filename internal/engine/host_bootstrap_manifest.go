@@ -301,8 +301,8 @@ func (s *Engine) applyBootstrapUser(ctx context.Context, st *permissionGroupStor
 	if !seedsRole || current == role {
 		return m.id, revoked, nil
 	}
-	if err := s.requireDefinedGroupRole(iam.RootPersona(), role); err != nil {
-		return "", nil, err
+	if !s.declaredRole(iam.RootPersona(), role) {
+		return "", nil, fmt.Errorf("%q is not a root role: %w", role, iam.ErrRoleNotAssignable)
 	}
 	if !current.IsZero() {
 		if err := s.refuseOwnerLoss(ctx, st, rootID, subject); err != nil {
@@ -348,7 +348,7 @@ func (s *Engine) claimBootstrapApply(ctx context.Context, q *db.Queries, name st
 // requireRootRole refuses a role that is set but is not a root role of
 // Config.Roles.
 func (s *Engine) requireRootRole(role iam.Role) error {
-	if !role.IsZero() && !s.validRoleForPersona(s.groupSchemaOrDefault(), iam.RootPersona(), role) {
+	if !role.IsZero() && !s.declaredRole(iam.RootPersona(), role) {
 		return fmt.Errorf("%q is not a root role: %w", role, iam.ErrRoleNotAssignable)
 	}
 	return nil

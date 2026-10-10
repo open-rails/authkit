@@ -74,7 +74,7 @@ func (s *Engine) createInviteLink(ctx context.Context, a auth.Identity, host pgx
 	}
 	out := iam.InvitationCreated{Code: secret.Token(32)}
 	err := s.withGroupMutationIn(ctx, a, host, ref, func(st *permissionGroupStore, g groupTarget) error {
-		if _, err := s.requireIssuableRole(g, n.Role); err != nil {
+		if err := s.requireDefinedGroupRole(ctx, st.q, g, n.Role); err != nil {
 			return err
 		}
 		if err := s.requireRoleGrant(ctx, st, a, g, ident.MembersManage(g.Persona), n.Role); err != nil {
@@ -122,7 +122,7 @@ func (s *Engine) createEmailInvitation(ctx context.Context, a auth.Identity, ref
 				return err
 			}
 		} else {
-			if _, err := s.requireIssuableRole(g, role); err != nil {
+			if err := s.requireDefinedGroupRole(ctx, st.q, g, role); err != nil {
 				return err
 			}
 			if err := s.requireRoleGrant(ctx, st, a, g, ident.MembersManage(g.Persona), role); err != nil {

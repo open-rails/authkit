@@ -10,7 +10,6 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
-	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/rbac"
 	"github.com/open-rails/authkit/verify"
 	"github.com/open-rails/helpers/auth"
@@ -120,25 +119,6 @@ func (s *Service) groupMembersList(w http.ResponseWriter, r *http.Request, g iam
 		return
 	}
 	list(w, members)
-}
-
-// groupRolesList returns the role catalog declared for the group's persona:
-// schema data, read after the route's authorization.
-func (s *Service) groupRolesList(w http.ResponseWriter, g iam.Group) {
-	persona, ok := s.svc.PermissionGroupSchema().Persona(g.Persona)
-	if !ok {
-		fail(w, errmodel.CodeNotFound)
-		return
-	}
-	out := make([]RoleInfo, 0, len(persona.Roles))
-	for _, rd := range persona.Roles {
-		grants := make([]iam.Perm, 0, len(rd.Permissions))
-		for _, g := range rd.Permissions {
-			grants = append(grants, ident.Perm(g))
-		}
-		out = append(out, RoleInfo{Name: rd.Name, Permissions: rbac.Expand(persona.Permissions, grants)})
-	}
-	all(w, out)
 }
 
 // handleMeGroupsGET is the cross-persona discovery endpoint: the caller's group

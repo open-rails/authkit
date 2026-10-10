@@ -59,6 +59,7 @@ func TestClientPublicSurface(t *testing.T) {
 		"RevokeSession", "RevokeAccountSessions",
 		// Roles and checks.
 		"SetGroupRole", "RemoveGroupMember", "Can", "EffectivePermissions",
+		"CreateGroupRole", "UpdateGroupRole", "DeleteGroupRole",
 		// Credentials and invitations.
 		"CreateAPIKey", "RevokeAPIKey", "CreateInvitation", "RevokeInvitation",
 		// Remote applications.
@@ -75,6 +76,7 @@ func TestClientPublicSurface(t *testing.T) {
 		"User", "Users", "PublicUsers", "ListUsers", "ResolveUsername", "CheckUsername",
 		"DeviceKeys", "Sessions", "ListSessionEvents",
 		"Group", "Groups", "ListGroups", "ListGroupMembers", "ListMemberships", "GroupRoles", "KnownPermission",
+		"ListGroupRoles", "GroupRole",
 		"ListAPIKeys", "ResolveAPIKey", "ListInvitations", "RemoteApplication", "ListRemoteApplications", "RemoteUserRoles",
 		"CheckSession", "CheckRecentSignIn", "ProvisioningTargets",
 		// Names read at run time, resolved through Config.Roles.

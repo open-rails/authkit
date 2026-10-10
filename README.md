@@ -306,6 +306,7 @@ Sign-ins are limited per device over 24 hours (`Config.SignIn`): 5 accounts per 
 | `PUT /api/v1/groups/{group_id}/members/{kind}/{id}` | give someone a role, or change it (`{kind}` is `users`) |
 | `DELETE /api/v1/groups/{group_id}/members/{kind}/{id}` | take their role away |
 | `GET /api/v1/groups/{group_id}/roles` | the roles this group has |
+| `GET /api/v1/groups/{group_id}/roles/{role}` | one of them, and what it grants |
 | `GET /api/v1/groups/{group_id}/invitations` | its invitations |
 | `POST /api/v1/groups/{group_id}/invitations` | invite someone with a link, or by email |
 | `DELETE /api/v1/groups/{group_id}/invitations/{id}` | revoke one |

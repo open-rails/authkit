@@ -16,8 +16,9 @@ WITH targets AS (
 chain AS (
   SELECT id AS target, id, persona FROM targets
   UNION SELECT t.id, rg.id, rg.persona FROM targets t JOIN permission_groups rg ON rg.persona = 'root')
-SELECT c.target::text AS target, c.id::text AS group_id, c.persona::text AS persona, a.role
+SELECT c.target::text AS target, c.id::text AS group_id, c.persona::text AS persona, a.role, cr.permissions AS custom_permissions
 FROM chain c JOIN group_remote_application_roles a ON a.permission_group_id = c.id AND a.remote_application_id = $1::uuid
+LEFT JOIN group_custom_roles cr ON cr.permission_group_id = a.permission_group_id AND cr.role = a.role
 WHERE EXISTS(SELECT 1 FROM remote_applications app JOIN permission_groups control ON control.id = app.permission_group_id
   WHERE app.id = $1::uuid AND app.enabled AND control.deleted_at IS NULL)
 ORDER BY c.target, c.id
@@ -29,10 +30,11 @@ type GroupApplicationAssignmentsForGroupsParams struct {
 }
 
 type GroupApplicationAssignmentsForGroupsRow struct {
-	Target  string
-	GroupID string
-	Persona string
-	Role    string
+	Target            string
+	GroupID           string
+	Persona           string
+	Role              string
+	CustomPermissions []string
 }
 
 func (q *Queries) GroupApplicationAssignmentsForGroups(ctx context.Context, arg GroupApplicationAssignmentsForGroupsParams) ([]GroupApplicationAssignmentsForGroupsRow, error) {
@@ -49,6 +51,7 @@ func (q *Queries) GroupApplicationAssignmentsForGroups(ctx context.Context, arg 
 			&i.GroupID,
 			&i.Persona,
 			&i.Role,
+			&i.CustomPermissions,
 		); err != nil {
 			return nil, err
 		}
@@ -164,11 +167,13 @@ func (q *Queries) GroupMembersPage(ctx context.Context, arg GroupMembersPagePara
 }
 
 const groupRolesForSubjects = `-- name: GroupRolesForSubjects :many
-SELECT 'user'::text AS kind, user_id::text AS subject_id, role FROM group_user_roles
-WHERE permission_group_id = $1::uuid AND user_id = ANY($2::uuid[])
+SELECT 'user'::text AS kind, a.user_id::text AS subject_id, a.role, cr.permissions AS custom_permissions FROM group_user_roles a
+LEFT JOIN group_custom_roles cr ON cr.permission_group_id = a.permission_group_id AND cr.role = a.role
+WHERE a.permission_group_id = $1::uuid AND a.user_id = ANY($2::uuid[])
 UNION ALL
-SELECT 'remote_application'::text, remote_application_id::text, role FROM group_remote_application_roles
-WHERE permission_group_id = $1::uuid AND remote_application_id = ANY($3::uuid[])
+SELECT 'remote_application'::text, a.remote_application_id::text, a.role, cr.permissions FROM group_remote_application_roles a
+LEFT JOIN group_custom_roles cr ON cr.permission_group_id = a.permission_group_id AND cr.role = a.role
+WHERE a.permission_group_id = $1::uuid AND a.remote_application_id = ANY($3::uuid[])
 `
 
 type GroupRolesForSubjectsParams struct {
@@ -178,9 +183,10 @@ type GroupRolesForSubjectsParams struct {
 }
 
 type GroupRolesForSubjectsRow struct {
-	Kind      string
-	SubjectID string
-	Role      string
+	Kind              string
+	SubjectID         string
+	Role              string
+	CustomPermissions []string
 }
 
 func (q *Queries) GroupRolesForSubjects(ctx context.Context, arg GroupRolesForSubjectsParams) ([]GroupRolesForSubjectsRow, error) {
@@ -192,7 +198,12 @@ func (q *Queries) GroupRolesForSubjects(ctx context.Context, arg GroupRolesForSu
 	var items []GroupRolesForSubjectsRow
 	for rows.Next() {
 		var i GroupRolesForSubjectsRow
-		if err := rows.Scan(&i.Kind, &i.SubjectID, &i.Role); err != nil {
+		if err := rows.Scan(
+			&i.Kind,
+			&i.SubjectID,
+			&i.Role,
+			&i.CustomPermissions,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -209,8 +220,9 @@ WITH targets AS (
 chain AS (
   SELECT id AS target, id, persona FROM targets
   UNION SELECT t.id, rg.id, rg.persona FROM targets t JOIN permission_groups rg ON rg.persona = 'root')
-SELECT c.target::text AS target, c.id::text AS group_id, c.persona::text AS persona, a.role
+SELECT c.target::text AS target, c.id::text AS group_id, c.persona::text AS persona, a.role, cr.permissions AS custom_permissions
 FROM chain c JOIN group_user_roles a ON a.permission_group_id = c.id AND a.user_id = $1::uuid
+LEFT JOIN group_custom_roles cr ON cr.permission_group_id = a.permission_group_id AND cr.role = a.role
 ORDER BY c.target, c.id
 `
 
@@ -220,10 +232,11 @@ type GroupUserAssignmentsForGroupsParams struct {
 }
 
 type GroupUserAssignmentsForGroupsRow struct {
-	Target  string
-	GroupID string
-	Persona string
-	Role    string
+	Target            string
+	GroupID           string
+	Persona           string
+	Role              string
+	CustomPermissions []string
 }
 
 // GroupUserAssignmentsForGroups and GroupApplicationAssignmentsForGroups read,
@@ -244,6 +257,7 @@ func (q *Queries) GroupUserAssignmentsForGroups(ctx context.Context, arg GroupUs
 			&i.GroupID,
 			&i.Persona,
 			&i.Role,
+			&i.CustomPermissions,
 		); err != nil {
 			return nil, err
 		}
@@ -349,8 +363,9 @@ func (q *Queries) GroupUserRoleUpsert(ctx context.Context, arg GroupUserRoleUpse
 }
 
 const groupUserRolesForUsers = `-- name: GroupUserRolesForUsers :many
-SELECT user_id, role FROM group_user_roles
-WHERE permission_group_id = $1 AND user_id = ANY($2::uuid[])
+SELECT a.user_id, a.role, cr.permissions AS custom_permissions FROM group_user_roles a
+LEFT JOIN group_custom_roles cr ON cr.permission_group_id = a.permission_group_id AND cr.role = a.role
+WHERE a.permission_group_id = $1 AND a.user_id = ANY($2::uuid[])
 `
 
 type GroupUserRolesForUsersParams struct {
@@ -359,8 +374,9 @@ type GroupUserRolesForUsersParams struct {
 }
 
 type GroupUserRolesForUsersRow struct {
-	UserID string
-	Role   string
+	UserID            string
+	Role              string
+	CustomPermissions []string
 }
 
 func (q *Queries) GroupUserRolesForUsers(ctx context.Context, arg GroupUserRolesForUsersParams) ([]GroupUserRolesForUsersRow, error) {
@@ -372,7 +388,7 @@ func (q *Queries) GroupUserRolesForUsers(ctx context.Context, arg GroupUserRoles
 	var items []GroupUserRolesForUsersRow
 	for rows.Next() {
 		var i GroupUserRolesForUsersRow
-		if err := rows.Scan(&i.UserID, &i.Role); err != nil {
+		if err := rows.Scan(&i.UserID, &i.Role, &i.CustomPermissions); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

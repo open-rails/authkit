@@ -62,7 +62,7 @@ export type AdminUserUpdateRequest = {
 
 export type AuthKitEvent = {
   id: string
-  kind: "group.created" | "group.deleted" | "group.purged" | "role.changed" | "role.granted" | "role.revoked" | "user.banned" | "user.deleted" | "user.email_changed" | "user.phone_changed" | "user.purged" | "user.registered" | "user.restored" | "user.sessions_revoked" | "user.unbanned" | "user.username_changed"
+  kind: "group.created" | "group.deleted" | "group.purged" | "group.role_created" | "group.role_deleted" | "group.role_updated" | "role.changed" | "role.granted" | "role.revoked" | "user.banned" | "user.deleted" | "user.email_changed" | "user.phone_changed" | "user.purged" | "user.registered" | "user.restored" | "user.sessions_revoked" | "user.unbanned" | "user.username_changed"
   occurred_at: string
   subject_kind: "application" | "user"
   subject_id: string
@@ -74,6 +74,7 @@ export type AuthKitEvent = {
   group_id: string
   persona: string
   application_id: string
+  role: string
   previous: string
   current: string
   reason: string
@@ -259,6 +260,25 @@ export type GroupMember = {
   subject: Subject
   role: string
   user: PublicUser | null
+}
+
+export type GroupRole = {
+  name: string
+  grants: string[]
+  permissions: string[]
+  custom: boolean
+  requires_mfa: boolean
+  created_at: string | null
+  updated_at: string | null
+}
+
+export type GroupRoleCreateRequest = {
+  name?: string
+  permissions?: string[]
+}
+
+export type GroupRoleUpdateRequest = {
+  permissions?: string[]
 }
 
 export type IdentifierPasswordRequest = {
@@ -543,11 +563,6 @@ export type RetryAfter = {
 
 export type ReturnToRequest = {
   return_to?: string
-}
-
-export type RoleInfo = {
-  name: string
-  permissions: string[]
 }
 
 export type SCIMAttribute = {

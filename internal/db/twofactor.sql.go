@@ -288,8 +288,9 @@ func (q *Queries) MFAUsable(ctx context.Context, userID string) (bool, error) {
 }
 
 const userGroupRoles = `-- name: UserGroupRoles :many
-SELECT a.permission_group_id, g.persona, a.role
+SELECT a.permission_group_id, g.persona, a.role, cr.permissions AS custom_permissions
 FROM group_user_roles a JOIN permission_groups g ON g.id = a.permission_group_id
+LEFT JOIN group_custom_roles cr ON cr.permission_group_id = a.permission_group_id AND cr.role = a.role
 WHERE a.user_id = $1
 `
 
@@ -297,6 +298,7 @@ type UserGroupRolesRow struct {
 	PermissionGroupID string
 	Persona           string
 	Role              string
+	CustomPermissions []string
 }
 
 // Every role the user holds, with its group's persona.
@@ -309,7 +311,12 @@ func (q *Queries) UserGroupRoles(ctx context.Context, userID string) ([]UserGrou
 	var items []UserGroupRolesRow
 	for rows.Next() {
 		var i UserGroupRolesRow
-		if err := rows.Scan(&i.PermissionGroupID, &i.Persona, &i.Role); err != nil {
+		if err := rows.Scan(
+			&i.PermissionGroupID,
+			&i.Persona,
+			&i.Role,
+			&i.CustomPermissions,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

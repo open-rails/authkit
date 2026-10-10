@@ -9,7 +9,7 @@ import (
 )
 
 // rootRoles returns the root role of each account among ids that holds one.
-// A stored role no longer in Config.Roles confers nothing and is absent.
+// A stored role no longer defined confers nothing and is absent.
 func (s *Engine) rootRoles(ctx context.Context, ids []string) (map[string]iam.Role, error) {
 	out := make(map[string]iam.Role, len(ids))
 	ids = uuidsOnly(ids)
@@ -28,7 +28,7 @@ func (s *Engine) rootRoles(ctx context.Context, ids []string) (map[string]iam.Ro
 	sch := s.groupSchemaOrDefault()
 	for _, r := range rows {
 		role := ident.RoleText(r.Role)
-		if _, ok := sch.Role(iam.RootPersona(), role); ok {
+		if _, ok := sch.AssignedRole(iam.RootPersona(), role, r.CustomPermissions); ok {
 			out[r.UserID] = role
 		}
 	}

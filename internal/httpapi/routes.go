@@ -97,11 +97,12 @@ func (s *Service) mounts(f Feature) bool {
 		return config.AuthorizationServerEnabled(cfg.AuthorizationServer)
 	case FeatureTokenEndpoint:
 		return config.AuthorizationServerEnabled(cfg.AuthorizationServer) || cfg.Resource.Enabled()
-	case FeatureGroups, FeatureAPIKeys, FeatureRemoteApplications:
+	case FeatureGroups, FeatureAPIKeys, FeatureCustomRoles, FeatureRemoteApplications:
 		schema := s.svc.PermissionGroupSchema()
 		for _, name := range schema.Personas() {
 			p, _ := schema.Persona(name)
-			if f == FeatureGroups && name != iam.RootPersona() || f == FeatureAPIKeys && p.APIKeys || f == FeatureRemoteApplications && p.RemoteApplications {
+			if f == FeatureGroups && name != iam.RootPersona() || f == FeatureAPIKeys && p.APIKeys || f == FeatureCustomRoles && p.CustomRoles ||
+				f == FeatureRemoteApplications && p.RemoteApplications {
 				return true
 			}
 		}

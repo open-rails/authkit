@@ -8,7 +8,7 @@ How AuthKit decides who may do what. The [README](../README.md) shows the setup;
 - A **group** is one instance of a persona: an id and a persona. Your app creates one per entity (`Client.CreateGroup` for the channel `/c/golang`) and stores its id. The channel's name and data live in your tables, not AuthKit's.
 - **`root`** is the persona with exactly one group: the whole site. It always exists. HTTP routes address it as `root`, and Go code as `iam.RootGroup()`.
 - A **permission** is `<persona>:<resource>:<action>`, such as `channel:posts:edit`. A grant can be a pattern: `channel:posts:*` covers every action on posts, and `channel:*` covers every channel permission. The persona is never a wildcard.
-- A **role** is a named bundle of permissions, scoped to one persona. Its text is always qualified, as in `channel:moderator` and `root:admin`, in Go, on the wire and in the database. A role may include other roles of the same persona.
+- A **role** is a named bundle of permissions, scoped to one persona. Its text is always qualified, as in `channel:moderator` and `root:admin`, in Go, on the wire and in the database. A role may include other roles of the same persona. Your code declares roles; a persona can also let each group define [custom roles](#custom-roles) of its own.
 - A member holds **one role per group**. Giving someone a new role there replaces the old one.
 
 ### Owner
@@ -33,6 +33,8 @@ AuthKit registers these itself; you never declare them. `<persona>` means every 
 | `<persona>:credentials:manage` | with `APIKeys` or `RemoteApplications` | create and revoke API keys; give remote applications roles |
 | `<persona>:directory:read` | with `RemoteApplications` | read the group's [directory](scim.md#directory) of its remote applications' users |
 | `<persona>:directory:manage` | with `RemoteApplications` | provision that directory over SCIM |
+| `<persona>:roles:read` | with `CustomRoles` | see what each of the group's roles grants (the role list also admits `members:read`) |
+| `<persona>:roles:manage` | with `CustomRoles` | define, change and delete the group's custom roles |
 | `root:users:read` | always | look through accounts and their sign-in history |
 | `root:users:ban` | always | ban and unban |
 | `root:users:delete` | always | delete an account, or restore it within 30 days |
@@ -50,6 +52,37 @@ Handing out a role takes `members:manage` in that group, and the grantor's own g
 - is taken away from users who turn their own 2FA off.
 
 `root:members:manage` and `root:users:manage` always need MFA, so `root:owner` does too. The requirement is off while `TwoFactor.Mode` is disabled. `New` fails when a role needs MFA but no second factor can be enrolled.
+
+## Custom roles
+
+A persona declared with `authkit.CustomRoles` lets each of its groups define roles at run time, for least privilege your code didn't plan: a merchant's `storefront` role holding only `merchant:entitlements:read`, given to an API key.
+
+```go
+Merchant = rbac.Persona("merchant", authkit.APIKeys, authkit.CustomRoles)
+
+storefront, err := client.CreateGroupRole(ctx, who, iam.GroupByID(id), iam.NewGroupRole{
+	Name: "storefront", Permissions: []iam.Perm{EntitlementsRead},
+}) // storefront.Name is merchant:custom-storefront
+```
+
+- **Name.** `<persona>:custom-<name>`. No declared role may start with `custom-`, so the two never clash, even when a later deploy declares a name a group already uses. A custom role exists only in its group: no other group sees or holds it.
+- **Grants.** 1 to 256 permissions or patterns that a declared role of the persona may hold: its own persona's, and on root any persona's. No includes. A group defines at most 100 (`iam.MaxGroupRoles`).
+- **Holders.** Assign it like a declared role, in its group: members, API keys, remote applications, invitations and `role_map`. MFA follows its permissions, as for a declared role.
+- **Live.** A check reads the definition in the same query as the assignment, so a change applies to every holder at their next request. Resource access tokens keep the permissions they were minted with until they expire, as after any role change.
+- **Authority.** Creating one takes `roles:manage` and covering every grant. Changing or deleting one also takes covering its current grants and, while it is held, what hands it out: `members:manage` for members and invitations, `credentials:manage` for API keys and applications. A change needing MFA is refused while an API key or application holds the role (`role_not_assignable`) or a holder has no second factor (`subject_mfa_required`). Changes on root need a recent sign-in.
+- **Removing a permission** needs nothing more: holders lose it at their next request and, as after any demotion, the credentials whose issuers no longer cover their role are revoked (the credential sweep). Adding one can revoke too: a key, invitation or application holding the role whose issuer doesn't cover the addition.
+- **Deleting** takes the role from every holder in the same transaction: members and applications lose it (`role.revoked` events), the API keys and invitations carrying it are revoked and `role_map` entries naming it dropped. A later role of the same name starts with no holders.
+- **Audit.** `group.role_created`, `group.role_updated` and `group.role_deleted` events carry the role and its grants before and after.
+
+Over HTTP:
+
+| Route | Needs | Does |
+|---|---|---|
+| `GET /groups/{group_id}/roles` | `members:read` or `roles:read` | every role the group can assign: declared, then custom |
+| `GET /groups/{group_id}/roles/{role}` | `members:read` or `roles:read` | one, with its `grants` and the `permissions` they cover |
+| `POST /groups/{group_id}/roles` | `roles:manage` | `{name, permissions}` defines one: 201 |
+| `PATCH /groups/{group_id}/roles/{role}` | `roles:manage` | `{permissions}` replaces what it grants |
+| `DELETE /groups/{group_id}/roles/{role}` | `roles:manage` | deletes it: 204 |
 
 ## Declaring the catalog
 
@@ -70,11 +103,12 @@ Typed values are the point: `iam.Persona`, `iam.Perm` and `iam.Role` aren't stri
 | In Postgres | Only in your code |
 |---|---|
 | each group's id and persona name | the personas and their permissions |
-| who holds which role in each group, as role text (`channel:moderator`) | what each role grants |
+| who holds which role in each group, as role text (`channel:moderator`) | what each declared role grants |
 | the role each API key, invitation and remote application carries | which permissions need MFA |
 | per app: a fingerprint of the compiled catalog, and the role names it declares | |
+| each group's custom roles and what they grant | |
 
-Postgres never stores a permission or what a role grants.
+Postgres stores no permission, nor what a role grants, except a group's custom roles.
 
 A check (`Client.Can`, or `RequirePermission` in `verify` and the adapters) combines the two. Postgres answers "is this identity still signed in and usable, and which role does it hold in this group and on root?" The in-memory catalog answers "what do those roles allow?" This runs live on every gated request, so a role change, ban or sign-out applies at the next request. `Required` alone, meaning signed in with no permission check, verifies a user's token without the database.
 
@@ -86,6 +120,7 @@ A check (`Client.Can`, or `RequirePermission` in `verify` and the adapters) comb
 | Rename or remove a permission | code; the compiler finds every use | No stored data names a permission, so there's nothing to migrate. Resource access tokens carry permission text, so those minted earlier lack the new name until they expire. |
 | Change what a role grants | code | Every holder gets the new grants. No migration. |
 | Remove a role | code | Its assignments stay in Postgres but grant nothing. At startup AuthKit logs `authkit: rbac drift detected` with counts. The credential sweep revokes API keys and invitations users issued for it. Anyone with `members:manage` in a group can remove its holders there or give them another role. |
+| Turn `CustomRoles` off for a persona | code | Its groups' custom roles grant nothing, members' assignments count as drift, and the credential sweep revokes the keys and invitations carrying them. Turning it back on restores the roles and members' assignments. |
 | Rename a role or persona | code, plus a data fix | Stored rows keep the old text. Until they're fixed, the old name's holders hold nothing, as if the role were removed. AuthKit has no rename operation. |
 
 **The credential sweep.** AuthKit fingerprints the compiled catalog: every role's grants, the permissions that need MFA, and whether 2FA is on. Each app's fingerprint is stored. When `New` sees a different one, it re-checks every API key, invitation and application role that this app issued, against the creator's authority under the new catalog. It revokes what the creator no longer covers, plus any machine credential whose role now needs MFA, and logs each one. The sweep never fails startup. It is why renaming a permission or changing a role can revoke credentials.
@@ -132,11 +167,11 @@ A group API key holds its role only in its own group, so it acts where a library
 ## Related
 
 - **`verify.Claims.RootRole`** is the user's root role when the token was minted. It is for display only, can be stale for the token's lifetime, and must never authorize anything.
-- **`Client.RolePermissions(role)`** returns a role's grants, with includes flattened. `Client.EffectivePermissions` and `GET /api/v1/me/permissions` return what an identity holds, for UIs.
+- **`Client.RolePermissions(role)`** returns a declared role's grants, with includes flattened; `Client.GroupRole` and `Client.ListGroupRoles` read a group's roles, custom ones included. `Client.EffectivePermissions` and `GET /api/v1/me/permissions` return what an identity holds, for UIs.
 - **`PersonaDef.Permissions()`** lists a persona's catalog, built-ins included. **`PersonaDef.Expand(grants)`** lists the catalog permissions some grant covers, as `GET /api/v1/me/permissions` does, with no database read: `Roles.Root.Expand(grants)` over a token's `RootRole` and `Client.RolePermissions` shows a user's permissions.
 - **Members over HTTP:**
   - `PUT /api/v1/groups/{group_id}/members/users/{id}` with `{"role": "channel:moderator"}` gives a role.
   - `DELETE` on the same path takes it away.
-  - `GET /api/v1/groups/{group_id}/roles` lists the group's roles.
+  - `GET /api/v1/groups/{group_id}/roles` lists the group's roles, its [custom roles](#custom-roles) included.
 
   `{group_id}` may be `root`, and changes on root need a recent sign-in.

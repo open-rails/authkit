@@ -142,9 +142,12 @@ func (rs *resourceServer) verify(r *http.Request) (ResourceAccess, error) {
 		out.Permissions = append([]string(nil), cl.Permissions...)
 		for _, name := range cl.Roles {
 			if role, ok := app.RoleMap[name]; ok {
-				grants, err := rs.s.roleGrants(role.Persona(), role)
-				if err == nil {
+				grants, err := rs.s.roleGrants(ctx, rs.s.pg, groupTarget{ID: app.GroupID, Persona: role.Persona()}, role)
+				switch {
+				case err == nil:
 					out.Permissions = append(out.Permissions, grants...)
+				case !errors.Is(err, iam.ErrRoleNotAssignable):
+					return ResourceAccess{}, errmodel.Internal("resource_role_map", err)
 				}
 			}
 		}

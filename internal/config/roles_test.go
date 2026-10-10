@@ -83,7 +83,15 @@ func TestCompileRoles(t *testing.T) {
 		for _, perm := range []iam.Perm{ident.Perm("org:credentials:read"), ident.Perm("org:credentials:manage"), ident.Perm("root:credentials:manage")} {
 			require.True(t, s.KnownPermission(perm), perm)
 		}
-		require.False(t, s.KnownPermission(ident.Perm("org:roles:manage")), "there are no custom roles")
+		require.False(t, s.KnownPermission(ident.Perm("org:roles:manage")), "custom roles are opted into")
+
+		r = NewRoles(CustomRoles)
+		shop := r.Persona("shop", CustomRoles)
+		s, err = CompileRoles(r)
+		require.NoError(t, err)
+		for _, perm := range []iam.Perm{shop.Roles.Read, shop.Roles.Manage, ident.Perm("root:roles:manage")} {
+			require.True(t, s.KnownPermission(perm), perm)
+		}
 	})
 
 	// A role needs MFA when its grants reach a RequireMFA permission, however
@@ -154,6 +162,8 @@ func TestCompileRolesRejects(t *testing.T) {
 			return r
 		}, `unknown persona "channel"`},
 		"roles:manage needs custom roles": {withChannel(func(_ *Roles, c *PersonaDef) { c.Role("mod", ident.Perm("channel:roles:manage")) }), "matches no permission"},
+		"a custom role's name":            {withChannel(func(_ *Roles, c *PersonaDef) { c.Role("custom-mod", c.Permission("posts", "edit")) }), "custom roles'"},
+		"roles are built in":              {withChannel(func(_ *Roles, c *PersonaDef) { c.Permission("roles", "read") }), "built in"},
 		"credentials need a capability":   {withChannel(func(_ *Roles, c *PersonaDef) { c.Role("mod", c.Credentials.All()) }), "matches no permission"},
 		"no built-in self":                {func() *Roles { r := NewRoles(); r.Root.Role("admin", ident.Perm("root:self:read")); return r }, "matches no permission"},
 		"owner redefined": {withChannel(func(_ *Roles, c *PersonaDef) {

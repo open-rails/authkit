@@ -95,8 +95,9 @@ WITH targets AS (
 chain AS (
   SELECT id AS target, id, persona FROM targets
   UNION SELECT t.id, rg.id, rg.persona FROM targets t JOIN permission_groups rg ON rg.persona = 'root')
-SELECT c.target::text AS target, c.id::text AS group_id, c.persona::text AS persona, a.role
+SELECT c.target::text AS target, c.id::text AS group_id, c.persona::text AS persona, a.role, cr.permissions AS custom_permissions
 FROM chain c JOIN group_user_roles a ON a.permission_group_id = c.id AND a.user_id = sqlc.arg(subject_id)::uuid
+LEFT JOIN group_custom_roles cr ON cr.permission_group_id = a.permission_group_id AND cr.role = a.role
 ORDER BY c.target, c.id;
 
 -- name: GroupApplicationAssignmentsForGroups :many
@@ -105,22 +106,26 @@ WITH targets AS (
 chain AS (
   SELECT id AS target, id, persona FROM targets
   UNION SELECT t.id, rg.id, rg.persona FROM targets t JOIN permission_groups rg ON rg.persona = 'root')
-SELECT c.target::text AS target, c.id::text AS group_id, c.persona::text AS persona, a.role
+SELECT c.target::text AS target, c.id::text AS group_id, c.persona::text AS persona, a.role, cr.permissions AS custom_permissions
 FROM chain c JOIN group_remote_application_roles a ON a.permission_group_id = c.id AND a.remote_application_id = sqlc.arg(subject_id)::uuid
+LEFT JOIN group_custom_roles cr ON cr.permission_group_id = a.permission_group_id AND cr.role = a.role
 WHERE EXISTS(SELECT 1 FROM remote_applications app JOIN permission_groups control ON control.id = app.permission_group_id
   WHERE app.id = sqlc.arg(subject_id)::uuid AND app.enabled AND control.deleted_at IS NULL)
 ORDER BY c.target, c.id;
 
 -- name: GroupRolesForSubjects :many
-SELECT 'user'::text AS kind, user_id::text AS subject_id, role FROM group_user_roles
-WHERE permission_group_id = sqlc.arg(group_id)::uuid AND user_id = ANY(sqlc.arg(user_ids)::uuid[])
+SELECT 'user'::text AS kind, a.user_id::text AS subject_id, a.role, cr.permissions AS custom_permissions FROM group_user_roles a
+LEFT JOIN group_custom_roles cr ON cr.permission_group_id = a.permission_group_id AND cr.role = a.role
+WHERE a.permission_group_id = sqlc.arg(group_id)::uuid AND a.user_id = ANY(sqlc.arg(user_ids)::uuid[])
 UNION ALL
-SELECT 'remote_application'::text, remote_application_id::text, role FROM group_remote_application_roles
-WHERE permission_group_id = sqlc.arg(group_id)::uuid AND remote_application_id = ANY(sqlc.arg(application_ids)::uuid[]);
+SELECT 'remote_application'::text, a.remote_application_id::text, a.role, cr.permissions FROM group_remote_application_roles a
+LEFT JOIN group_custom_roles cr ON cr.permission_group_id = a.permission_group_id AND cr.role = a.role
+WHERE a.permission_group_id = sqlc.arg(group_id)::uuid AND a.remote_application_id = ANY(sqlc.arg(application_ids)::uuid[]);
 
 -- name: GroupUserRolesForUsers :many
-SELECT user_id, role FROM group_user_roles
-WHERE permission_group_id = sqlc.arg(group_id) AND user_id = ANY(sqlc.arg(user_ids)::uuid[]);
+SELECT a.user_id, a.role, cr.permissions AS custom_permissions FROM group_user_roles a
+LEFT JOIN group_custom_roles cr ON cr.permission_group_id = a.permission_group_id AND cr.role = a.role
+WHERE a.permission_group_id = sqlc.arg(group_id) AND a.user_id = ANY(sqlc.arg(user_ids)::uuid[]);
 
 -- name: GroupUserHasRole :one
 SELECT EXISTS(SELECT 1 FROM group_user_roles

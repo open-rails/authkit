@@ -108,7 +108,8 @@ func (s *Engine) declaredRoles() []string {
 func catalogRoleName(persona, role string) string { return persona + ":" + role }
 
 // roleCatalogFingerprint identifies everything the credential sweep reads from
-// the configuration: every role's grants and which permissions need MFA (no key or application holds one of those
+// the configuration: every role's grants, which personas define custom roles,
+// and which permissions need MFA (no key or application holds one of those
 // once 2FA is on).
 func (s *Engine) roleCatalogFingerprint() string {
 	sch := s.groupSchemaOrDefault()
@@ -120,6 +121,9 @@ func (s *Engine) roleCatalogFingerprint() string {
 	for _, name := range sch.Personas() {
 		p, _ := sch.Persona(name)
 		fmt.Fprintf(h, "persona %s\n", name)
+		if p.CustomRoles {
+			fmt.Fprintf(h, "custom roles\n")
+		}
 		roles := slices.Clone(p.Roles)
 		slices.SortFunc(roles, func(a, b rbac.Role) int { return strings.Compare(a.Name.Name(), b.Name.Name()) })
 		for _, r := range roles {
