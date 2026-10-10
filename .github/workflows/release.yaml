@@ -1,0 +1,87 @@
+name: Release
+
+# A published release attaches openrails-auth-ui-X.Y.Z.tgz, then publishes that
+# tarball to npm as @openrails/auth-ui@X.Y.Z (trusted publishing, provenance).
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to attach and publish (e.g. v1.14.0)
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
+jobs:
+  auth-ui:
+    name: Attach @openrails/auth-ui
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: auth-ui
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: auth-ui/package.json
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm check
+      - name: Version from tag
+        run: npm version "${TAG#v}" --no-git-tag-version --allow-same-version
+      - name: Build release archive
+        run: |
+          mkdir release
+          pnpm pack --pack-destination release
+          tar -tzf "release/openrails-auth-ui-${TAG#v}.tgz" | grep -q '^package/dist/index.js$'
+      - name: Upload release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" release/*.tgz --clobber --repo "$GITHUB_REPOSITORY"
+
+  npm:
+    name: Publish @openrails/auth-ui to npm
+    needs: auth-ui
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing; npm adds provenance
+    steps:
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+      - name: Publish the release's tarball
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PKG: '@openrails/auth-ui'
+        run: |
+          v="${TAG#v}"
+          if npm view "$PKG@$v" version >/dev/null 2>&1; then
+            echo "$PKG@$v is already on npm"
+            exit 0
+          fi
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "openrails-auth-ui-$v.tgz"
+          latest="$(npm view "$PKG" dist-tags.latest 2>/dev/null || true)"
+          if [[ "$v" == *-* ]]; then
+            dist_tag=next
+          elif [[ -n "$latest" && "$(printf '%s\n%s\n' "$latest" "$v" | sort -V | tail -1)" != "$v" ]]; then
+            dist_tag="release-${v%.*}"
+          else
+            dist_tag=latest
+          fi
+          npm publish "openrails-auth-ui-$v.tgz" --tag "$dist_tag"

@@ -17,10 +17,14 @@ holds no router, i18n or query-cache dependency.
 
 ## Install
 
-Each AuthKit GitHub release carries the package archive:
+Each AuthKit release `vX.Y.Z` publishes `@openrails/auth-ui@X.Y.Z` to npm, with
+provenance, and attaches the same tarball to the GitHub release. Pair it with
+the AuthKit of the same version:
 
-```json
-"@openrails/auth-ui": "https://github.com/open-rails/authkit/releases/download/v0.133.0/openrails-auth-ui-0.133.0.tgz"
+```sh
+pnpm add @openrails/auth-ui@X.Y.Z
+# or from the release
+pnpm add https://github.com/open-rails/authkit/releases/download/vX.Y.Z/openrails-auth-ui-X.Y.Z.tgz
 ```
 
 ## Client
@@ -424,4 +428,5 @@ runs `pnpm contract:check`, so an API change that moves the contract must
 regenerate it in the same PR. Captured email/SMS: `GET /__test/outbox`.
 
 `package.json` stays at `0.0.0`; publishing an AuthKit `vX.Y.Z` release stamps
-`X.Y.Z` and attaches `openrails-auth-ui-X.Y.Z.tgz` (`auth-ui-release.yaml`).
+`X.Y.Z`, attaches `openrails-auth-ui-X.Y.Z.tgz` and publishes that tarball to
+npm as `@openrails/auth-ui@X.Y.Z` (`.github/workflows/release.yaml`).

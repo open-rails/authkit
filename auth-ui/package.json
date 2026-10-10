@@ -69,7 +69,7 @@
   },
   "publishConfig": {
     "access": "public",
-    "provenance": false
+    "provenance": true
   },
   "peerDependencies": {
     "@solana/wallet-adapter-react": ">=0.15 <1",
