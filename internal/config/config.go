@@ -339,8 +339,10 @@ type APIKeysConfig struct {
 	MaxTTL time.Duration
 }
 
-// RemoteApplicationConfig declares one remote application of the root group,
-// keyed by Issuer. Only the system changes it (trust root manual).
+// RemoteApplicationConfig declares one remote application, keyed by Issuer:
+// an issuer whose access tokens this deployment accepts for the group that
+// declares it (root for Config.RemoteApplications), within Role. Only the
+// system changes it (trust root manual).
 type RemoteApplicationConfig struct {
 	// Issuer is the iss of the tokens it signs: an absolute http(s) URL.
 	Issuer string
@@ -350,8 +352,9 @@ type RemoteApplicationConfig struct {
 	PublicKeys []iam.RemoteApplicationKey
 	// Disabled keeps it registered and refuses its tokens.
 	Disabled bool
-	// RootRole, when set, is the role it holds on root.
-	RootRole iam.Role
+	// Role is the role it holds in its group: the ceiling of what its tokens
+	// may do there. Zero holds none.
+	Role iam.Role
 }
 
 // DatabaseConfig names the PostgreSQL schemas of AuthKit's tables. New

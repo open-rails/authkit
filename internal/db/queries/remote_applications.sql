@@ -57,14 +57,16 @@ WHERE r.remote_application_id = sqlc.arg(remote_application_id)::uuid AND g.dele
 ORDER BY g.id;
 
 -- name: RemoteApplicationsDeclare :exec
--- Config.RemoteApplications of declared_by declares these issuers.
+-- declared_by declares these issuers in the group.
 UPDATE remote_applications SET declared_by = sqlc.arg(declared_by)::text
-WHERE issuer = ANY(sqlc.arg(issuers)::text[]) AND declared_by IS DISTINCT FROM sqlc.arg(declared_by)::text;
+WHERE permission_group_id = sqlc.arg(permission_group_id)::uuid
+  AND issuer = ANY(sqlc.arg(issuers)::text[]) AND declared_by IS DISTINCT FROM sqlc.arg(declared_by)::text;
 
 -- name: RemoteApplicationsUndeclared :many
--- What declared_by declared at an earlier boot and no longer does.
+-- What declared_by declared in the group before and no longer does.
 SELECT * FROM remote_applications
-WHERE declared_by = sqlc.arg(declared_by)::text AND NOT (issuer = ANY(sqlc.arg(issuers)::text[]))
+WHERE declared_by = sqlc.arg(declared_by)::text AND permission_group_id = sqlc.arg(permission_group_id)::uuid
+  AND NOT (issuer = ANY(sqlc.arg(issuers)::text[]))
 ORDER BY issuer
 FOR UPDATE;
 

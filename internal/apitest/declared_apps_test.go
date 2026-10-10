@@ -32,7 +32,7 @@ func TestDeclaredRemoteApplications(t *testing.T) {
 	require.NoError(t, err)
 	der, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
 	require.NoError(t, err)
-	billingApp := authkit.RemoteApplicationConfig{Issuer: billing, RootRole: service,
+	billingApp := authkit.RemoteApplicationConfig{Issuer: billing, Role: service,
 		PublicKeys: []iam.RemoteApplicationKey{{KID: "billing-1", PublicKeyPEM: string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))}}}
 	searchApp := authkit.RemoteApplicationConfig{Issuer: search, JWKSURI: search + "/jwks.json"}
 	declare := func(apps ...authkit.RemoteApplicationConfig) authtest.Option {
@@ -119,10 +119,93 @@ func TestDeclaredRemoteApplications(t *testing.T) {
 		"an issuer twice":      {[]authkit.RemoteApplicationConfig{searchApp, searchApp}, "twice"},
 		"no trust source":      {[]authkit.RemoteApplicationConfig{{Issuer: search}}, "jwks_uri"},
 		"this deployment":      {[]authkit.RemoteApplicationConfig{{Issuer: authtest.Issuer, JWKSURI: search + "/jwks.json"}}, "reserved"},
-		"a role root does not": {[]authkit.RemoteApplicationConfig{{Issuer: search, JWKSURI: search + "/jwks.json", RootRole: authkit.NewRoles().Persona("channel").Role("member")}}, "not a root role"},
+		"a role root does not": {[]authkit.RemoteApplicationConfig{{Issuer: search, JWKSURI: search + "/jwks.json", Role: authkit.NewRoles().Persona("channel").Role("member")}}, "is not a role of a"},
 	} {
 		cfg.RemoteApplications = tc.apps
 		_, err := newClient(t, cfg, deps)
 		require.ErrorContains(t, err, tc.err, name)
 	}
+}
+
+// DeclareRemoteApplications is the same declared set for one group, made
+// after New: each application is registered in the group with its declared
+// role there, a later set disables what it no longer lists, and root's
+// Config.RemoteApplications and another group's set leave each other alone.
+func TestDeclaredGroupRemoteApplications(t *testing.T) {
+	const (
+		shop    = "https://shop.declared.test"
+		staging = "https://staging.shop.declared.test"
+		other   = "https://other.declared.test"
+		rootApp = "https://root.declared.test"
+	)
+	rbac := authkit.NewRoles()
+	merchant := rbac.Persona("merchant", authkit.RemoteApplications)
+	read := merchant.Permission("customers", "read")
+	owner, support, viewer := merchant.Persona.OwnerRole(), merchant.Role("support", read, merchant.Permission("customers", "update")), merchant.Role("viewer", read)
+	ctx := t.Context()
+	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
+		c.Roles = rbac
+		c.RemoteApplications = []authkit.RemoteApplicationConfig{{Issuer: rootApp, JWKSURI: rootApp + "/jwks.json"}}
+	}))
+	group := func() iam.GroupRef {
+		g, err := auth.CreateGroup(ctx, iam.NewGroup{Persona: merchant.Persona})
+		require.NoError(t, err)
+		return iam.GroupByID(g.ID)
+	}
+	a, b := group(), group()
+	app := func(issuer string) iam.RemoteApplication {
+		t.Helper()
+		got, err := auth.RemoteApplication(ctx, iam.AppByIssuer(issuer))
+		require.NoError(t, err, issuer)
+		return got
+	}
+	jwks := func(issuer string) iam.RemoteApplication {
+		return iam.RemoteApplication{Issuer: issuer, JWKSURI: issuer + "/jwks.json", Enabled: true}
+	}
+	withRole := func(app iam.RemoteApplication, role iam.Role) iam.RemoteApplication { app.Role = role; return app }
+
+	require.NoError(t, auth.DeclareRemoteApplications(ctx, a, []iam.RemoteApplication{withRole(jwks(shop), support), jwks(staging)}))
+	require.NoError(t, auth.DeclareRemoteApplications(ctx, b, []iam.RemoteApplication{withRole(jwks(other), owner)}))
+	got := app(shop)
+	require.Equal(t, a.ID(), got.GroupID)
+	require.Equal(t, iam.ApplicationTrustRootManual, got.TrustRoot)
+	require.Equal(t, support, got.Role)
+	require.NotEmpty(t, got.Permissions, "its role's grants are its tokens' ceiling")
+	require.True(t, app(staging).Role.IsZero(), "declared without a role, it holds none")
+
+	// The role follows the declaration: changed, then removed.
+	require.NoError(t, auth.DeclareRemoteApplications(ctx, a, []iam.RemoteApplication{withRole(jwks(shop), viewer), jwks(staging)}))
+	require.Equal(t, viewer, app(shop).Role)
+	require.NoError(t, auth.DeclareRemoteApplications(ctx, a, []iam.RemoteApplication{jwks(shop), jwks(staging)}))
+	require.True(t, app(shop).Role.IsZero())
+
+	// A later set disables what it no longer lists, in its group only.
+	require.NoError(t, auth.DeclareRemoteApplications(ctx, a, []iam.RemoteApplication{jwks(shop)}))
+	require.False(t, app(staging).Enabled)
+	for _, issuer := range []string{shop, other, rootApp} {
+		require.True(t, app(issuer).Enabled, issuer)
+	}
+	// Root's declared set at the next boot leaves the groups' alone.
+	next := restart(t, auth, authtest.WithConfig(func(c *authkit.Config) { c.RemoteApplications = []authkit.RemoteApplicationConfig{} }))
+	got, err := next.RemoteApplication(ctx, iam.AppByIssuer(shop))
+	require.NoError(t, err)
+	require.True(t, got.Enabled)
+	got, err = next.RemoteApplication(ctx, iam.AppByIssuer(rootApp))
+	require.NoError(t, err)
+	require.False(t, got.Enabled)
+
+	for name, tc := range map[string]struct {
+		apps []iam.RemoteApplication
+		err  error
+	}{
+		"another group's issuer":   {[]iam.RemoteApplication{jwks(other)}, iam.ErrRemoteApplicationIssuerConflict},
+		"a role of another persona": {[]iam.RemoteApplication{withRole(jwks(shop), iam.RootPersona().OwnerRole())}, iam.ErrRoleNotAssignable},
+		"an issuer twice":          {[]iam.RemoteApplication{jwks(shop), jwks(shop)}, iam.ErrInvalidRemoteApplication},
+		"this deployment":          {[]iam.RemoteApplication{jwks(authtest.Issuer)}, iam.ErrReservedIssuer},
+	} {
+		require.ErrorIs(t, next.DeclareRemoteApplications(ctx, a, tc.apps), tc.err, name)
+	}
+	got, err = next.RemoteApplication(ctx, iam.AppByIssuer(shop))
+	require.NoError(t, err)
+	require.True(t, got.Enabled, "a refused set changes nothing")
 }

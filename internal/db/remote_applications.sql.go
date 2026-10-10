@@ -281,17 +281,19 @@ func (q *Queries) RemoteApplicationsClearRegistrar(ctx context.Context, userID s
 
 const remoteApplicationsDeclare = `-- name: RemoteApplicationsDeclare :exec
 UPDATE remote_applications SET declared_by = $1::text
-WHERE issuer = ANY($2::text[]) AND declared_by IS DISTINCT FROM $1::text
+WHERE permission_group_id = $2::uuid
+  AND issuer = ANY($3::text[]) AND declared_by IS DISTINCT FROM $1::text
 `
 
 type RemoteApplicationsDeclareParams struct {
-	DeclaredBy string
-	Issuers    []string
+	DeclaredBy        string
+	PermissionGroupID string
+	Issuers           []string
 }
 
-// Config.RemoteApplications of declared_by declares these issuers.
+// declared_by declares these issuers in the group.
 func (q *Queries) RemoteApplicationsDeclare(ctx context.Context, arg RemoteApplicationsDeclareParams) error {
-	_, err := q.db.Exec(ctx, remoteApplicationsDeclare, arg.DeclaredBy, arg.Issuers)
+	_, err := q.db.Exec(ctx, remoteApplicationsDeclare, arg.DeclaredBy, arg.PermissionGroupID, arg.Issuers)
 	return err
 }
 
@@ -309,19 +311,21 @@ func (q *Queries) RemoteApplicationsRelease(ctx context.Context, ids []string) e
 
 const remoteApplicationsUndeclared = `-- name: RemoteApplicationsUndeclared :many
 SELECT id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by, catalog_issuer, declared_by FROM remote_applications
-WHERE declared_by = $1::text AND NOT (issuer = ANY($2::text[]))
+WHERE declared_by = $1::text AND permission_group_id = $2::uuid
+  AND NOT (issuer = ANY($3::text[]))
 ORDER BY issuer
 FOR UPDATE
 `
 
 type RemoteApplicationsUndeclaredParams struct {
-	DeclaredBy string
-	Issuers    []string
+	DeclaredBy        string
+	PermissionGroupID string
+	Issuers           []string
 }
 
-// What declared_by declared at an earlier boot and no longer does.
+// What declared_by declared in the group before and no longer does.
 func (q *Queries) RemoteApplicationsUndeclared(ctx context.Context, arg RemoteApplicationsUndeclaredParams) ([]RemoteApplication, error) {
-	rows, err := q.db.Query(ctx, remoteApplicationsUndeclared, arg.DeclaredBy, arg.Issuers)
+	rows, err := q.db.Query(ctx, remoteApplicationsUndeclared, arg.DeclaredBy, arg.PermissionGroupID, arg.Issuers)
 	if err != nil {
 		return nil, err
 	}

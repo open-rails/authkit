@@ -79,6 +79,7 @@ type Operations interface {
 	DeleteRemoteApplication(ctx context.Context, who auth.Identity, ref iam.GroupRef, id string, opts ...Option) error
 	RemoteApplication(ctx context.Context, ref iam.AppRef) (iam.RemoteApplication, error)
 	ListRemoteApplications(ctx context.Context, ref iam.GroupRef, p iam.PageRequest) (iam.ListPage[iam.RemoteApplication], error)
+	DeclareRemoteApplications(ctx context.Context, ref iam.GroupRef, apps []iam.RemoteApplication, opts ...Option) error
 
 	// Bootstrap, import and provider links.
 	ApplyBootstrapManifest(ctx context.Context, m iam.BootstrapManifest, o iam.BootstrapOptions, opts ...Option) (iam.BootstrapResult, error)

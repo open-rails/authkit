@@ -44,3 +44,13 @@ func (a *Client) RemoteApplication(ctx context.Context, ref iam.AppRef) (iam.Rem
 func (a *Client) ListRemoteApplications(ctx context.Context, ref iam.GroupRef, p iam.PageRequest) (iam.ListPage[iam.RemoteApplication], error) {
 	return a.ops.ListRemoteApplications(ctx, ref, p)
 }
+
+// DeclareRemoteApplications makes apps the group ref's declared remote
+// applications, as Config.RemoteApplications does for root: the system
+// registers each (Issuer, JWKSURI or PublicKeys, Enabled) in ref with Role as
+// its role there, none when zero, and disables the ones this deployment
+// declared in ref before and no longer lists. A host whose groups are made
+// after New (a merchant's) declares them once the group exists.
+func (a *Client) DeclareRemoteApplications(ctx context.Context, ref iam.GroupRef, apps []iam.RemoteApplication, opts ...Option) error {
+	return a.ops.DeclareRemoteApplications(ctx, ref, apps, opts...)
+}
