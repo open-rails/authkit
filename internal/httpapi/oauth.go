@@ -259,6 +259,10 @@ func (s *Service) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 		oauthFail(w, err)
 		return
 	}
+	if s.remoteAssertion(params, r) {
+		s.handleRemoteAssertion(w, r, params)
+		return
+	}
 	client, oerr := s.authenticateOAuthClient(r, params)
 	if oerr != nil {
 		oauthClientFail(w, r, oerr)
@@ -519,7 +523,46 @@ func (s *Service) oauthCORS(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
+// remoteAssertion reports a jwt-bearer request with no client: a trusted
+// application's assertion for a resource server (RFC 7521 §4.1 needs no
+// client authentication).
+func (s *Service) remoteAssertion(params url.Values, r *http.Request) bool {
+	_, _, basic := r.BasicAuth()
+	return s.cfg.Resource.Enabled() && config.OAuthGrantType(params.Get("grant_type")) == config.GrantJWTBearer &&
+		!params.Has("client_id") && !params.Has("client_secret") && !basic
+}
+
+// handleRemoteAssertion redeems a trusted application's RFC 7523 assertion
+// for an access token to Config.Resource.ID, bound by the request's DPoP
+// proof when it sends one.
+func (s *Service) handleRemoteAssertion(w http.ResponseWriter, r *http.Request, params url.Values) {
+	if len(params["resource"]) > 1 || params.Has("authorization_details") {
+		oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidRequest, "one resource, and no authorization_details"))
+		return
+	}
+	jkt, err := s.oauthTokenDPoP(r, config.GrantJWTBearer)
+	if err != nil {
+		oauthFail(w, err)
+		return
+	}
+	tokens, err := s.svc.OAuthRemoteAssertion(r.Context(), authflow.OAuthJWTBearer{
+		Assertion: params.Get("assertion"), Resource: params.Get("resource"), Scopes: strings.Fields(params.Get("scope")), JKT: jkt,
+	})
+	if err != nil {
+		oauthFail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, tokens)
+}
+
+// oauthOrigin reports whether origin may call the token endpoint: a
+// client's, or any when this deployment is a resource server, whose trusted
+// applications' frontends redeem assertions there. The endpoint takes no
+// cookies.
 func (s *Service) oauthOrigin(origin string) bool {
+	if s.cfg.Resource.Enabled() {
+		return true
+	}
 	for _, c := range s.cfg.AuthorizationServer.Clients {
 		if slices.Contains(c.Origins, origin) {
 			return true

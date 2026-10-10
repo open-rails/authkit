@@ -17,6 +17,7 @@ type oauthBackend interface {
 	ExchangeOAuthToken(ctx context.Context, in authflow.OAuthTokenExchange) (authflow.OAuthTokens, error)
 	OAuthClientCredentials(ctx context.Context, in authflow.OAuthClientCredentials) (authflow.OAuthTokens, error)
 	OAuthJWTBearer(ctx context.Context, in authflow.OAuthJWTBearer) (authflow.OAuthTokens, error)
+	OAuthRemoteAssertion(ctx context.Context, in authflow.OAuthJWTBearer) (authflow.OAuthTokens, error)
 	RevokeOAuthToken(ctx context.Context, clientID, token string) error
 	OAuthUserInfo(ctx context.Context, accessToken, jkt string) (map[string]any, error)
 	EndOAuthSession(ctx context.Context, in authflow.OAuthEndSession) (string, error)

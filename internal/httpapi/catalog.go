@@ -50,10 +50,13 @@ const (
 	FeatureNewDevices         Feature = "new_devices" // SignIn.NewDevicesPerAccount not off
 	// FeatureAuthorizationServer: AuthorizationServer declares clients.
 	FeatureAuthorizationServer Feature = "authorization_server"
+	// FeatureTokenEndpoint: an authorization server, or a resource server
+	// redeeming trusted applications' assertions (Config.Resource).
+	FeatureTokenEndpoint Feature = "token_endpoint"
 )
 
 // Features lists every Feature a route can be mounted under.
-var Features = []Feature{FeaturePasskeys, FeaturePasswordless, FeatureRegistration, FeatureTwoFactor, FeatureSolana, FeatureOIDC, FeatureDeviceKeys, FeatureGroups, FeatureAPIKeys, FeatureRemoteApplications, FeatureInvitations, FeatureNewDevices, FeatureAuthorizationServer}
+var Features = []Feature{FeaturePasskeys, FeaturePasswordless, FeatureRegistration, FeatureTwoFactor, FeatureSolana, FeatureOIDC, FeatureDeviceKeys, FeatureGroups, FeatureAPIKeys, FeatureRemoteApplications, FeatureInvitations, FeatureNewDevices, FeatureAuthorizationServer, FeatureTokenEndpoint}
 
 // Reply is one success outcome of a route: its status and body. Body is a
 // zero value of the body's type, nil for none.
@@ -402,9 +405,9 @@ func Catalog() []RouteSpec {
 			Query: OAuthAuthorizeParams{}, Responses: oauthRedirectReply, serve: handle((*Service).handleOAuthAuthorize)},
 		{Method: POST, Path: iam.OAuthAuthorizePath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthAuthorize, MountedWhen: FeatureAuthorizationServer,
 			Form: OAuthAuthorizeParams{}, Responses: oauthRedirectReply, serve: handle((*Service).handleOAuthAuthorize)},
-		{Method: POST, Path: iam.OAuthTokenPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthToken, MountedWhen: FeatureAuthorizationServer,
+		{Method: POST, Path: iam.OAuthTokenPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthToken, MountedWhen: FeatureTokenEndpoint,
 			Form: OAuthTokenParams{}, Responses: replyOK(authflow.OAuthTokens{}), serve: handle((*Service).handleOAuthToken)},
-		{Method: OPTIONS, Path: iam.OAuthTokenPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthToken, MountedWhen: FeatureAuthorizationServer,
+		{Method: OPTIONS, Path: iam.OAuthTokenPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthToken, MountedWhen: FeatureTokenEndpoint,
 			Responses: replyNoContent, serve: handle((*Service).handleOAuthPreflight)},
 		{Method: POST, Path: iam.OAuthRevocationPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthToken, MountedWhen: FeatureAuthorizationServer,
 			Form: OAuthRevokeParams{}, Responses: []Reply{{Status: http.StatusOK}}, serve: handle((*Service).handleOAuthRevoke)},

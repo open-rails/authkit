@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -290,5 +292,87 @@ func TestResourceServerIssuerProfile(t *testing.T) {
 	} {
 		_, err := a.Authenticate(bearer(token))
 		require.ErrorIs(t, err, hauth.ErrUnauthenticated, name)
+	}
+}
+
+// TestResourceServerRemoteAssertion: a trusted application's backend, with
+// no authorization server of its own, signs an RFC 7523 assertion for its
+// user (iss its issuer, sub the user, aud the token endpoint); its frontend
+// redeems it at this deployment's token endpoint for an access token acting
+// for that user in the application's group, holding no permissions: bound
+// when the frontend proves a DPoP key, bearer otherwise. An assertion is
+// spent once.
+func TestResourceServerRemoteAssertion(t *testing.T) {
+	ctx := context.Background()
+	f := newFakeIssuer(t)
+	d := newResourceDeployment(t)
+	require.NoError(t, d.auth.DeclareRemoteApplications(ctx, d.a, []iam.RemoteApplication{{Issuer: f.url, Enabled: true, Role: d.operator}}))
+	srv := httptest.NewServer(d.auth.Handler())
+	t.Cleanup(srv.Close)
+	endpoint := authtest.Issuer + iam.OAuthTokenPath
+
+	assertion := func(claims jwt.MapClaims) string {
+		now := time.Now()
+		base := jwt.MapClaims{"aud": endpoint, "sub": "customer-42", "jti": uuid.NewString(), "iat": now.Unix(), "exp": now.Add(2 * time.Minute).Unix(),
+			"email": "c42@shop.example", "email_verified": true, "name": "Ada"}
+		for k, v := range claims {
+			base[k] = v
+		}
+		return f.token(t, "JWT", base)
+	}
+	redeem := func(assertion string, key *authtest.DPoPKey, scope string) (int, map[string]any) {
+		form := url.Values{"grant_type": {"urn:ietf:params:oauth:grant-type:jwt-bearer"}, "assertion": {assertion}, "scope": {scope}}
+		req, err := http.NewRequest(http.MethodPost, srv.URL+iam.OAuthTokenPath, strings.NewReader(form.Encode()))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Origin", "https://shop.example")
+		if key != nil {
+			req.Header.Set("DPoP", key.Proof(t, http.MethodPost, endpoint, "", ""))
+		}
+		res, err := srv.Client().Do(req)
+		require.NoError(t, err)
+		defer res.Body.Close()
+		require.Equal(t, "https://shop.example", res.Header.Get("Access-Control-Allow-Origin"), "a trusted application's frontend")
+		var out map[string]any
+		require.NoError(t, json.NewDecoder(res.Body).Decode(&out))
+		return res.StatusCode, out
+	}
+
+	status, out := redeem(assertion(nil), nil, "api:self")
+	require.Equal(t, http.StatusOK, status, out)
+	require.Equal(t, "Bearer", out["token_type"])
+	r := httptest.NewRequest(http.MethodGet, oauthResource+"/v1/me", nil)
+	r.Header.Set("Authorization", "Bearer "+out["access_token"].(string))
+	v, err := d.auth.Authenticator().Authenticate(r)
+	require.NoError(t, err)
+	id := v.Identity()
+	require.Equal(t, hauth.Identity{
+		Issuer: f.url, Subject: "customer-42", SubjectKind: hauth.SubjectUser, Invoker: hauth.Invoker{Issuer: f.url, ID: "customer-42"},
+		Credential: hauth.Credential{Kind: hauth.CredentialAccessToken, ID: id.Credential.ID}, Email: "c42@shop.example", EmailVerified: true,
+	}, id, "the application's user, in its namespace, with the contact it vouched for")
+	require.Equal(t, d.scopeA, v.(hauth.Bound).BoundScope())
+	require.False(t, can(t, v, d.scopeA, "merchant:subscriptions:read"), "a customer token holds nothing")
+
+	key := authtest.NewDPoPKey(t)
+	status, out = redeem(assertion(nil), key, "api:self")
+	require.Equal(t, http.StatusOK, status, out)
+	require.Equal(t, "DPoP", out["token_type"], "bound when the frontend proves a key")
+
+	spent := assertion(nil)
+	status, _ = redeem(spent, nil, "")
+	require.Equal(t, http.StatusOK, status)
+	for name, tc := range map[string]struct {
+		assertion string
+		scope     string
+	}{
+		"a spent assertion":        {spent, ""},
+		"another audience":         {assertion(jwt.MapClaims{"aud": "https://elsewhere.example/token"}), ""},
+		"too long ahead":           {assertion(jwt.MapClaims{"exp": time.Now().Add(time.Hour).Unix()}), ""},
+		"a short jti":              {assertion(jwt.MapClaims{"jti": "short"}), ""},
+		"an unknown issuer":        {newFakeIssuer(t).token(t, "JWT", jwt.MapClaims{"aud": endpoint, "jti": uuid.NewString()}), ""},
+		"a scope it does not have": {assertion(nil), "api:everything"},
+	} {
+		status, out := redeem(tc.assertion, nil, tc.scope)
+		require.NotEqual(t, http.StatusOK, status, "%s: %v", name, out)
 	}
 }

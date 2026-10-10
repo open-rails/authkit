@@ -40,6 +40,10 @@ func (s *Engine) AuthenticateResource(r *http.Request) (auth.Verified, error) {
 	if !ok {
 		return nil, auth.ErrUnauthenticated
 	}
+	if access.Asserted {
+		// The application's user, in the application's namespace.
+		id.Issuer, id.Invoker = access.Application.Issuer, auth.Invoker{Issuer: access.Application.Issuer, ID: id.Subject}
+	}
 	v := resourceVerified{s: s, access: access, id: id, issuer: s.cfg.Token.Issuer}
 	if g := access.Group(); g != "" {
 		v.bound = auth.Scope{Authority: v.issuer, ID: g}

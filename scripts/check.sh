@@ -104,7 +104,7 @@ required = ('TestSecurityAccessTokenForgery', 'TestSecurityBearerTransport', 'Te
             'TestRoleCatalogChangesAtBoot', 'TestRemoteApplicationRegistry',
             'TestOAuthJWTBearerGrant', 'TestOAuthJWTBearerRefusals', 'TestOAuthDeviceKeyTokensGrantNothing',
             'TestResourceServerTrustedIssuer', 'TestResourceServerIssuerProfile', 'TestStoredDPoPNonces', 'TestPublicHosts',
-            'TestDeclaredGroupRemoteApplications', 'TestSecuritySignInDPoP', 'TestSecuritySignInDPoPRequired')
+            'TestDeclaredGroupRemoteApplications', 'TestSecuritySignInDPoP', 'TestSecuritySignInDPoPRequired', 'TestResourceServerRemoteAssertion')
 passed = {e['Test'] for e in events if e.get('Action') == 'pass' and e.get('Test')}
 missing = [name for name in required if name not in passed]
 if missing:

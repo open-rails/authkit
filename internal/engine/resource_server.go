@@ -34,8 +34,13 @@ import (
 type ResourceAccess struct {
 	Claims verify.Claims
 	// Application is the remote application the token acts through: the
-	// trusted issuer that minted it. Nil for this deployment's own tokens.
+	// trusted issuer that minted it, or the one whose assertion this
+	// deployment redeemed for it (Asserted, RFC 7523). Nil for this
+	// deployment's own users and clients.
 	Application *iam.RemoteApplication
+	// Asserted is a token this deployment minted for an application's user
+	// (OAuthRemoteAssertion): its sub is in the application's namespace.
+	Asserted bool
 	// Permissions are what a trusted issuer's token carries: its
 	// permissions claim and the grants of the roles its roles claim maps to
 	// (RoleMap). Its application's role bounds them.
@@ -57,6 +62,9 @@ func (a ResourceAccess) Group() string {
 type resourceServer struct {
 	s *Engine
 	v *verify.Verifier
+	// assertions verifies trusted issuers' RFC 7523 assertions, whose aud
+	// is the token endpoint.
+	assertions *verify.Verifier
 	// metadata fetches issuer metadata (RFC 8414) for applications without
 	// a jwks_uri, through the same guarded client as their keys.
 	metadata *http.Client
@@ -79,7 +87,7 @@ func (s *Engine) newResourceServer() (*resourceServer, error) {
 	if s.resourceHosts != nil {
 		opts = append(opts, verify.WithPublicHosts(s.resourceHosts))
 	}
-	rs := &resourceServer{s: s, v: verify.NewVerifier(opts...), metadata: client, registered: map[string]time.Time{}}
+	rs := &resourceServer{s: s, v: verify.NewVerifier(opts...), assertions: verify.NewVerifier(verify.WithHTTPClient(client)), metadata: client, registered: map[string]time.Time{}}
 	if err := rs.v.AddIssuer(s.cfg.Token.Issuer, []string{rc.ID}, verify.IssuerOptions{KeySource: s.keys, IsLocal: true}); err != nil {
 		return nil, err
 	}
@@ -125,9 +133,10 @@ func (rs *resourceServer) verify(r *http.Request) (ResourceAccess, error) {
 	}
 	out.Claims = cl
 	if out.Application == nil {
-		if err := rs.ownToken(ctx, cl); err != nil {
+		if out.Application, err = rs.ownToken(ctx, cl); err != nil {
 			return ResourceAccess{}, err
 		}
+		out.Asserted = out.Application != nil
 	}
 	if app := out.Application; app != nil {
 		out.Permissions = append([]string(nil), cl.Permissions...)
@@ -185,6 +194,11 @@ func (rs *resourceServer) register(ctx context.Context, app iam.RemoteApplicatio
 	}
 	if err := rs.v.AddIssuer(app.Issuer, []string{rs.s.cfg.Resource.ID}, keys); err != nil {
 		return errmodel.Internal("resource_issuer_keys", err)
+	}
+	if endpoint := rs.s.oauthTokenEndpoint(); endpoint != "" {
+		if err := rs.assertions.AddIssuer(app.Issuer, []string{endpoint}, keys); err != nil {
+			return errmodel.Internal("resource_issuer_keys", err)
+		}
 	}
 	rs.mu.Lock()
 	rs.registered[app.Issuer] = app.UpdatedAt
@@ -245,29 +259,35 @@ func (rs *resourceServer) jwksURI(ctx context.Context, issuer, metadata string) 
 }
 
 // ownToken checks a token of this deployment's authorization server: issued
-// to a registered client, and for a user, on a sign-in that still stands.
-func (rs *resourceServer) ownToken(ctx context.Context, cl verify.Claims) error {
+// to a registered client, and for a user, on a sign-in that still stands;
+// or redeemed for a trusted application's user (OAuthRemoteAssertion), whose
+// application, named by client_id, must still be trusted.
+func (rs *resourceServer) ownToken(ctx context.Context, cl verify.Claims) (*iam.RemoteApplication, error) {
 	if _, ok := config.FindOAuthClient(rs.s.cfg.AuthorizationServer, cl.ClientID); !ok {
-		return errmodel.E(errmodel.CodeInvalidToken)
+		app, err := rs.trusted(ctx, cl.ClientID)
+		if err != nil || cl.Kind != verify.TokenUser {
+			return nil, errmodel.E(errmodel.CodeInvalidToken)
+		}
+		return app, nil
 	}
 	if cl.Kind != verify.TokenUser {
-		return nil
+		return nil, nil
 	}
 	if err := rs.s.requirePG(); err != nil {
-		return err
+		return nil, err
 	}
 	ref := iam.SessionRef{SessionID: cl.SessionID, DeviceKeyID: cl.DeviceKeyID}
 	if ref.IsZero() {
-		return iam.ErrSessionRevoked
+		return nil, iam.ErrSessionRevoked
 	}
 	usable, signedIn, err := userLive(ctx, rs.s.pg, cl.Subject, ref)
 	switch {
 	case err != nil:
-		return errmodel.Internal("resource_session", err)
+		return nil, errmodel.Internal("resource_session", err)
 	case !usable || !signedIn:
-		return iam.ErrSessionRevoked
+		return nil, iam.ErrSessionRevoked
 	}
-	return nil
+	return nil, nil
 }
 
 // ceilings are the permission ceilings scopes grant, when Resource.Scopes
