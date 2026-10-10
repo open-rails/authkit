@@ -1,14 +1,15 @@
 name: Release
 
-# A published release attaches openrails-auth-ui-X.Y.Z.tgz, then publishes that
-# tarball to npm as @openrails/auth-ui@X.Y.Z (trusted publishing, provenance).
+# A published release publishes @openrails/auth-ui@X.Y.Z to npm, built from the
+# release's tag, with provenance. workflow_dispatch publishes an older release's
+# attached openrails-auth-ui-X.Y.Z.tgz.
 on:
   release:
     types: [published]
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing release tag to attach and publish (e.g. v1.14.0)
+        description: Release whose attached auth-ui tarball to publish to npm (e.g. v1.3.1)
         required: true
 
 permissions:
@@ -16,14 +17,14 @@ permissions:
 
 env:
   TAG: ${{ github.event.release.tag_name || inputs.tag }}
+  PKG: '@openrails/auth-ui'
 
 jobs:
   auth-ui:
-    name: Attach @openrails/auth-ui
+    name: Pack @openrails/auth-ui
+    if: github.event_name == 'release'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    permissions:
-      contents: write
     defaults:
       run:
         working-directory: auth-ui
@@ -42,40 +43,48 @@ jobs:
       - run: pnpm check
       - name: Version from tag
         run: npm version "${TAG#v}" --no-git-tag-version --allow-same-version
-      - name: Build release archive
+      - name: Pack
         run: |
           mkdir release
           pnpm pack --pack-destination release
           tar -tzf "release/openrails-auth-ui-${TAG#v}.tgz" | grep -q '^package/dist/index.js$'
-      - name: Upload release asset
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$TAG" release/*.tgz --clobber --repo "$GITHUB_REPOSITORY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: auth-ui
+          path: auth-ui/release/*.tgz
+          if-no-files-found: error
+          retention-days: 7
 
   npm:
     name: Publish @openrails/auth-ui to npm
     needs: auth-ui
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.auth-ui.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
-      id-token: write # npm trusted publishing; npm adds provenance
+      id-token: write # npm trusted publishing
     steps:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
           registry-url: https://registry.npmjs.org
-      - name: Publish the release's tarball
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: github.event_name == 'release'
+        with:
+          name: auth-ui
+      - name: Download the release's tarball
+        if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
-          PKG: '@openrails/auth-ui'
+        run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "openrails-auth-ui-${TAG#v}.tgz"
+      - name: Publish
         run: |
           v="${TAG#v}"
           if npm view "$PKG@$v" version >/dev/null 2>&1; then
             echo "$PKG@$v is already on npm"
             exit 0
           fi
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "openrails-auth-ui-$v.tgz"
           latest="$(npm view "$PKG" dist-tags.latest 2>/dev/null || true)"
           if [[ "$v" == *-* ]]; then
             dist_tag=next
@@ -84,4 +93,7 @@ jobs:
           else
             dist_tag=latest
           fi
-          npm publish "openrails-auth-ui-$v.tgz" --tag "$dist_tag"
+          # Provenance names this run's commit, so only a tarball built in it gets one.
+          provenance=true
+          [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]] && provenance=false
+          npm publish "openrails-auth-ui-$v.tgz" --tag "$dist_tag" --provenance="$provenance"
