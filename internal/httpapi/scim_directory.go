@@ -12,7 +12,6 @@ import (
 
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/scim"
-	"github.com/open-rails/authkit/verify"
 	"github.com/open-rails/helpers/auth"
 )
 
@@ -49,7 +48,7 @@ const (
 func scimDirectory(manage bool, f func(*Service, http.ResponseWriter, *http.Request, scim.Tenant)) func(*Service) http.Handler {
 	return handle(func(s *Service, w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		v, err := verify.AuthenticateSession(ctx, s.svc, r)
+		v, err := s.svc.Authenticate(r)
 		if err != nil {
 			s.scimRefuse(w, r, err)
 			return

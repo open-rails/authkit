@@ -36,14 +36,14 @@ type directoryService struct {
 	paths               []string
 }
 
-func newDirectoryService(t *testing.T) *directoryService {
+func newDirectoryService(t *testing.T, opts ...authtest.Option) *directoryService {
 	t.Helper()
 	roles := authkit.NewRoles()
 	merchant := roles.Persona("merchant", authkit.APIKeys, authkit.RemoteApplications)
 	d := &directoryService{merchant: merchant,
 		provisioner: merchant.Role("provisioner", merchant.Directory.All()),
 		viewer:      merchant.Role("viewer", merchant.Directory.Read)}
-	d.Client, _ = authtest.New(t, authtest.WithConfig(func(c *authkit.Config) { c.Roles = roles }))
+	d.Client, _ = authtest.New(t, append([]authtest.Option{authtest.WithConfig(func(c *authkit.Config) { c.Roles = roles })}, opts...)...)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		d.mu.Lock()
 		d.paths = append(d.paths, r.Method+" "+r.URL.Path)

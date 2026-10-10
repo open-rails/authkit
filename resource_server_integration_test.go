@@ -20,6 +20,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/scim"
 	hauth "github.com/open-rails/helpers/auth"
 )
 
@@ -352,6 +353,10 @@ func TestResourceServerRemoteAssertion(t *testing.T) {
 	}, id, "the application's user, in its namespace, with the contact it vouched for")
 	require.Equal(t, d.scopeA, v.(hauth.Bound).BoundScope())
 	require.False(t, can(t, v, d.scopeA, "merchant:subscriptions:read"), "a customer token holds nothing")
+	users, err := d.auth.RemoteUserInfo(d.a, f.url).Get(ctx, []string{"customer-42"})
+	require.NoError(t, err)
+	require.Equal(t, "c42@shop.example", users["customer-42"].Email, "the contact is recorded for the group's directory")
+	require.Equal(t, "Ada", users["customer-42"].Name)
 
 	key := authtest.NewDPoPKey(t)
 	status, out = redeem(assertion(nil), key, "api:self")
@@ -375,4 +380,51 @@ func TestResourceServerRemoteAssertion(t *testing.T) {
 		status, out := redeem(tc.assertion, nil, tc.scope)
 		require.NotEqual(t, http.StatusOK, status, "%s: %v", name, out)
 	}
+}
+
+// TestResourceServerSCIMPush: a trusted issuer pushes its users to this
+// deployment's SCIM directory (RFC 7644) with its own client-credentials
+// token, verified like any trusted issuer's token: bound to its
+// application's group and holding <persona>:directory:manage there only
+// when the token carries it within the application's role.
+func TestResourceServerSCIMPush(t *testing.T) {
+	const resource = "https://directory.example.com"
+	as := authtest.NewAuthorizationServer(t, authtest.WithConfig(func(c *authkit.Config) {
+		roles := authkit.NewRoles()
+		roles.Persona("merchant", authkit.RemoteApplications)
+		c.Roles = roles
+		c.AuthorizationServer = authkit.AuthorizationServerConfig{
+			Resources: []authkit.ResourceServerConfig{{ID: resource, Permissions: []string{"merchant:*"}}},
+			Clients: []authkit.OAuthClientConfig{
+				{ID: "pusher", SecretSHA256: authtest.ClientSecretSHA256(oauthWorkerSecret), Resources: []string{resource},
+					GrantTypes: []authkit.OAuthGrantType{authkit.GrantClientCredentials}, Permissions: []string{"merchant:directory:manage"}},
+				{ID: "reader", SecretSHA256: authtest.ClientSecretSHA256(oauthWorkerSecret), Resources: []string{resource},
+					GrantTypes: []authkit.OAuthGrantType{authkit.GrantClientCredentials}, Permissions: []string{"merchant:directory:read"}},
+			},
+		}
+	}))
+	b := newDirectoryService(t, authtest.WithConfig(func(c *authkit.Config) { c.Resource = authkit.ResourceConfig{ID: resource} }))
+	shop, err := b.CreateGroup(t.Context(), iam.NewGroup{Persona: b.merchant.Persona})
+	require.NoError(t, err)
+	require.NoError(t, b.DeclareRemoteApplications(t.Context(), iam.GroupByID(shop.ID), []iam.RemoteApplication{
+		{Issuer: as.URL, PublicKeys: jwksKeys(t, as), Enabled: true, Role: b.provisioner},
+	}))
+	pusher := as.ClientCredentials(t, "pusher", oauthWorkerSecret, resource, nil, nil).AccessToken
+	reader := as.ClientCredentials(t, "reader", oauthWorkerSecret, resource, nil, nil).AccessToken
+
+	active := true
+	user := scim.User{Schemas: []string{scim.SchemaUser}, ExternalID: "u-7", UserName: "seven", Active: &active,
+		Emails: []scim.Email{{Value: "seven@a.example", Primary: true}}}
+	var created scim.User
+	status, _ := b.call(t, pusher, http.MethodPost, "/Users", user, &created)
+	require.Equal(t, http.StatusCreated, status)
+	got, err := b.RemoteUserInfo(iam.GroupByID(shop.ID), as.URL).Get(t.Context(), []string{"u-7"})
+	require.NoError(t, err)
+	require.Equal(t, "seven@a.example", got["u-7"].Email)
+
+	status, _ = b.call(t, reader, http.MethodGet, "/Users/"+created.ID, nil, nil)
+	require.Equal(t, http.StatusOK, status)
+	var e scim.Error
+	status, _ = b.call(t, reader, http.MethodDelete, "/Users/"+created.ID, nil, &e)
+	require.Equal(t, http.StatusForbidden, status, "its token carries only directory:read")
 }

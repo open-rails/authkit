@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -47,6 +48,15 @@ func (s *Engine) AuthenticateResource(r *http.Request) (auth.Verified, error) {
 	v := resourceVerified{s: s, access: access, id: id, issuer: s.cfg.Token.Issuer}
 	if g := access.Group(); g != "" {
 		v.bound = auth.Scope{Authority: v.issuer, ID: g}
+	}
+	if app := access.Application; app != nil && cl.Kind == verify.TokenUser && (cl.Email != "" || cl.Username != "" || cl.Name != "") {
+		// The issuer's contact for its user (OIDC Core §5.1), newest wins
+		// over SCIM's copy; a failure never refuses the request.
+		if err := s.RecordRemoteUserClaims(r.Context(), app.GroupID, app.Issuer, cl.Subject, RemoteUserClaims{
+			Email: cl.Email, EmailVerified: cl.EmailVerified, Name: cl.Name, Username: cl.Username, UpdatedAt: cl.UpdatedAt,
+		}); err != nil {
+			slog.WarnContext(r.Context(), "authkit: recording a trusted issuer's contact claims failed", "issuer", app.Issuer, "error", err)
+		}
 	}
 	if access.Application == nil && cl.Kind == verify.TokenUser && id.SelfInvoked() && id.Email == "" && id.Username == "" {
 		if u, err := s.User(r.Context(), iam.UserByID(id.Subject)); err == nil {
