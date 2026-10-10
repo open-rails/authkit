@@ -250,18 +250,18 @@ func TestHTTPConfigValidation(t *testing.T) {
 	}
 }
 
-// forEachLimiter runs fn with the per-process limiter (rdb nil) and with the
-// shared Redis limiter.
+// forEachLimiter runs fn with the PostgreSQL limiter (rdb nil) and with the
+// Redis limiter.
 func forEachLimiter(t *testing.T, fn func(t *testing.T, rdb *redis.Client)) {
-	t.Run("memory", func(t *testing.T) { fn(t, nil) })
+	t.Run("postgres", func(t *testing.T) { fn(t, nil) })
 	t.Run("redis", func(t *testing.T) { fn(t, testdb.ScratchRedis(t)) })
 }
 
 // Password checks are limited per client address only, with each production
 // limiter: an exhausted address cannot sign in even with the correct password,
-// while the owner elsewhere is never locked out. While Redis fails, each
-// process keeps the same budgets on its own: never unlimited, and never
-// refusing everyone.
+// while the owner elsewhere is never locked out. While Redis fails, the same
+// budgets are spent in PostgreSQL: never unlimited, and never refusing
+// everyone.
 func TestWorkflowRateLimits(t *testing.T) {
 	forEachLimiter(t, testWorkflowRateLimits)
 }
@@ -350,7 +350,7 @@ func testWorkflowRateLimits(t *testing.T, rdb *redis.Client) {
 	require.Equal(t, "2", res.header.Get("RateLimit-Limit"))
 	require.Equal(t, 1, sessions(owner))
 	res = signIn(down, owner, owner.Password, "198.51.100.1")
-	require.Equal(t, http.StatusOK, res.status, "the process keeps its own budget for an address Redis saw exhausted: %s", res)
+	require.Equal(t, http.StatusOK, res.status, "PostgreSQL keeps its own budget for an address Redis saw exhausted: %s", res)
 	require.Equal(t, 2, sessions(owner))
 	for range 2 {
 		res = stepUp(down, outageToken, "wrong-password", "198.51.100.9")

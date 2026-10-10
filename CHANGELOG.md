@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.16.0
+
+Rate limits are shared by every replica without Redis (#445).
+
+- Budgets are counted in PostgreSQL (`rate_limits`, migration 0011, which `New` applies), so replicas spend the same ones with or without `Deps.Redis`. Before, without Redis each process counted on its own, and N replicas allowed N times each limit.
+- A declared Redis stays the fast path. While it fails, budgets are counted in PostgreSQL, not per process; AuthKit logs the fallback and the recovery once each.
+- If PostgreSQL fails too, a limited request is refused 503 `server_busy` with `Retry-After`.
+- The semantics are unchanged: at most `Limit` requests per sliding `Window`, `Cooldown` after each admitted one, and a refused request counts nothing.
+- A row is keyed by its bucket and a SHA-256 of the client key, so no address or identifier is stored. The maintenance job deletes dead rows in bounded batches.
+- The in-process limiter is deleted.
+
 ## v1.15.0
 
 The owner approved shipping this breaking change in a minor release. A library that guards its own routes takes a narrow `auth.Authenticator` that only says who a request is, and builds its own gates (helpers v1.6.0 replaces the `auth.Auth` middleware contract).

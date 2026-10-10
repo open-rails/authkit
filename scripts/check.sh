@@ -79,7 +79,7 @@ required = ('TestSecurityAccessTokenForgery', 'TestSecurityBearerTransport', 'Te
             'TestSecurityDeviceKeyClient', 'TestSecurityImportProviders', 'TestSecurityImportedDeletionLifecycle',
             'TestSecurityUsernameChecks', 'TestSecuritySessionEventHistory', 'TestSecurityBasePathConfinesSurface',
             'TestSecurityEventsRecordOnlyCommittedChanges', 'TestSecurityEventsCarryNoSecrets',
-            'TestSecurityGroupsJoinTheHostTransaction', 'TestSecurityLimiterOutageStaysLimited',
+            'TestSecurityGroupsJoinTheHostTransaction', 'TestSecurityLimiterOutageStaysLimited', 'TestSecurityReplicasShareRateLimits',
             'TestSecuritySecretsStayOutOfLogs', 'TestSecurityUnknownClientAddressIsLimited',
             'TestSecurityMutatingRoutesCheckTheSession', 'TestSecurityRevokedSessionAtLiveGates',
             'TestSecurityPerAppRoleCatalogs', 'TestSecurityPreRegistrationContactChange',

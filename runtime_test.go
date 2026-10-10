@@ -115,10 +115,9 @@ func TestRuntimeHTTPBuildFailureReleasesEverything(t *testing.T) {
 	require.Equal(t, user.ID, cl.UserID)
 }
 
-// The Client owns the HTTP layer's background workers: the sweep of the
-// in-process limiter (Redis's fallback included) stops at Close, however often
-// it runs, and a failed construction strands none. The host's pool and Redis
-// stay usable.
+// The Client owns what New starts: with either limiter, Close stops every
+// goroutine New started, however often it runs, and a failed construction
+// strands none. The host's pool and Redis stay usable.
 func TestRuntimeOwnsConfiguredHTTPWorkers(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
@@ -126,25 +125,19 @@ func TestRuntimeOwnsConfiguredHTTPWorkers(t *testing.T) {
 		configure func(*authkit.Config)
 		err       string
 	}{
-		{name: "memory limiter"},
+		{name: "postgres limiter"},
 		{name: "redis limiter", redis: true},
 		{name: "invalid prefix", configure: func(c *authkit.Config) { c.HTTP.APIPath = "invalid prefix" }, err: "APIPath"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			pg := testdb.ScratchPostgres(t)
 			const label = "authkit-runtime-http"
-			// labelled reports a goroutine New started whose stack names frame.
-			labelled := func(frame string) bool {
+			// hasWorkers reports a goroutine New started that still runs.
+			hasWorkers := func() bool {
 				var profile bytes.Buffer
 				require.NoError(t, pprof.Lookup("goroutine").WriteTo(&profile, 1))
-				for _, record := range strings.Split(profile.String(), "\n\n") {
-					if strings.Contains(record, strconv.Quote(label)+":"+strconv.Quote(t.Name())) && strings.Contains(record, frame) {
-						return true
-					}
-				}
-				return false
+				return strings.Contains(profile.String(), strconv.Quote(label)+":"+strconv.Quote(t.Name()))
 			}
-			hasWorkers := func() bool { return labelled("") }
 			cfg := testConfig(t)
 			cfg.HTTP = &authkit.HTTPConfig{DirectPeerIP: true}
 			deps := testDeps(pg.Pool)
@@ -166,7 +159,6 @@ func TestRuntimeOwnsConfiguredHTTPWorkers(t *testing.T) {
 				require.Nil(t, runtime)
 			} else {
 				require.NoError(t, err)
-				require.True(t, labelled("internal/ratelimit/memory."), "the in-process limiter sweeps idle buckets")
 				runtime.Close(context.Background())
 				runtime.Close(context.Background())
 			}

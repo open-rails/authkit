@@ -1,31 +1,12 @@
 package httpapi
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"log/slog"
-	"time"
 
 	"github.com/open-rails/authkit/internal/config"
-	"github.com/open-rails/authkit/internal/ratelimit"
-
-	memorylimiter "github.com/open-rails/authkit/internal/ratelimit/memory"
 	redislimiter "github.com/open-rails/authkit/internal/ratelimit/redis"
 )
-
-// Close stops the background work New started: the in-process limiter sweep.
-// The engine and Redis client are borrowed and remain owned by the host.
-// Idempotent; safe on a nil Service.
-func (s *Service) Close() {
-	if s == nil {
-		return
-	}
-	for _, stop := range s.closers {
-		stop()
-	}
-	s.closers = nil
-}
 
 // New assembles the HTTP layer over the engine, which also authenticates its
 // requests, from the normalized configuration. authkit.New is the only
@@ -69,22 +50,17 @@ func New(client Backend, cfg config.Config, deps config.Deps) (*Service, error) 
 		}
 		limits[bucket] = lim
 	}
-	var rl interface {
-		ratelimit.Limiter
-		StartCleanup(context.Context, time.Duration)
-	}
-	if deps.Redis != nil {
-		rl, err = redislimiter.New(deps.Redis, limits, h.RedisKeyPrefix+"ratelimit:")
-	} else {
-		rl, err = memorylimiter.New(limits)
-		slog.Warn("authkit: Redis not configured; rate limits are per-process, so each replica counts separately")
-	}
+	// PostgreSQL is the store of record every replica shares; a declared
+	// Redis is the fast path, and while it fails budgets are spent there.
+	rl, err := client.RateLimiter(limits)
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	rl.StartCleanup(ctx, time.Minute)
-	s.closers = append(s.closers, cancel)
+	if deps.Redis != nil {
+		if rl, err = redislimiter.New(deps.Redis, limits, h.RedisKeyPrefix+"ratelimit:", rl); err != nil {
+			return nil, err
+		}
+	}
 	s.rl = rl
 	return s, nil
 }

@@ -1,6 +1,9 @@
 package httpapi
 
-import "github.com/open-rails/authkit/internal/ops"
+import (
+	"github.com/open-rails/authkit/internal/ops"
+	"github.com/open-rails/authkit/internal/ratelimit"
+)
 
 // Backend is the engine capability the HTTP layer drives: the operations the
 // Client exposes (ops.Operations) plus the flows only the HTTP layer runs.
@@ -16,4 +19,6 @@ type Backend interface {
 	flowsBackend
 	oauthBackend
 	scimBackend
+	// RateLimiter is the limiter every replica shares, in PostgreSQL.
+	RateLimiter(limits map[string]ratelimit.Limit) (ratelimit.Limiter, error)
 }

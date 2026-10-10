@@ -39,7 +39,7 @@ func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {
 		},
 		HTTP: &authkit.HTTPConfig{
 			DirectPeerIP: true, // no proxy in front; otherwise set TrustedProxies
-			// Rate limits live in memory; set Deps.Redis when you run more than one copy of your server.
+			// Rate limits are counted in Postgres, shared by every copy of your server; Deps.Redis is optional.
 		},
 		Roles: rbac, // See below for our RBAC system
 	}

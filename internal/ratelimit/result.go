@@ -10,11 +10,11 @@ const (
 	ReasonLimitExceeded = "limit_exceeded"
 )
 
-// Limiter spends one request of key's budget in bucket. It has no error: a
-// limiter that loses its store decides in process instead, so no failure
-// lifts a budget.
+// Limiter spends one request of key's budget in bucket, in a store every
+// replica shares. An error means no store could decide, and the request is
+// refused: no failure lifts a budget or counts it per process.
 type Limiter interface {
-	Allow(ctx context.Context, bucket, key string) Result
+	Allow(ctx context.Context, bucket, key string) (Result, error)
 }
 
 // Result is one decision. A refusal always carries a positive RetryAfter.

@@ -10,6 +10,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ratelimit"
 
 	"github.com/open-rails/authkit/provider"
@@ -22,7 +23,6 @@ type Service struct {
 	http                config.HTTPConfig // *cfg.HTTP
 	wrap                func(iam.Route, http.Handler) http.Handler
 	rl                  ratelimit.Limiter
-	closers             []func() // background work stopped by Close (#305)
 	clientIP            ClientIPFunc
 	clientIPExplicit    bool                         // Deps.ClientIP: host owns the strategy; proxy sets are not composed
 	directPeerIP        bool                         // Config.DirectPeerIP: host asserts no proxy in front (ak#299)
@@ -54,9 +54,14 @@ func (s *Service) rateLimitedByIdentifier(w http.ResponseWriter, r *http.Request
 }
 
 // limited spends one request of key's budget in bucket; once it is spent it
-// writes the 429 with Retry-After and the budget.
+// writes the 429 with Retry-After and the budget. When no store can decide,
+// the request is refused 503.
 func (s *Service) limited(w http.ResponseWriter, r *http.Request, bucket, key string) bool {
-	result := s.rl.Allow(r.Context(), bucket, key)
+	result, err := s.rl.Allow(r.Context(), bucket, key)
+	if err != nil {
+		fail(w, errmodel.CodeServerBusy, errmodel.WithDetails(errmodel.RetryAfter{RetryAfterSeconds: 1}))
+		return true
+	}
 	if result.Allowed {
 		return false
 	}
