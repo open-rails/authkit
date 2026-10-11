@@ -6,10 +6,10 @@ package httpapi
 import (
 	"net/http"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
-	"github.com/open-rails/helpers/auth"
 )
 
 // OAuthClientSecret is a rotated client secret, shown this once.

@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
@@ -23,7 +24,6 @@ import (
 	"github.com/open-rails/authkit/internal/testdpop"
 	"github.com/open-rails/authkit/internal/testkeys"
 	"github.com/open-rails/authkit/keys"
-	"github.com/open-rails/helpers/auth"
 	"github.com/stretchr/testify/require"
 )
 
@@ -289,7 +289,7 @@ func TestMiddleware(t *testing.T) {
 	require.Panics(t, func() { RequirePermissionOn(nil, iam.GroupRef{}, ident.Perm("repo:read")) })
 }
 
-// A Verifier's helpers/auth Verified request is identity only: it checks no
+// A Verifier's authkit/auth Verified request is identity only: it checks no
 // permissions (the Client's does, live).
 func TestVerifiedIsIdentityOnly(t *testing.T) {
 	f := newFixture(t)

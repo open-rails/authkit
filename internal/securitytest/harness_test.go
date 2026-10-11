@@ -23,6 +23,7 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit"
+	hauth "github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/httpapi"
@@ -31,7 +32,6 @@ import (
 	"github.com/open-rails/authkit/internal/testkeys"
 	"github.com/open-rails/authkit/keys"
 	"github.com/open-rails/authkit/verify"
-	hauth "github.com/open-rails/helpers/auth"
 	"github.com/stretchr/testify/require"
 )
 

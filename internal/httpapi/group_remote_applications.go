@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
-	"github.com/open-rails/helpers/auth"
 )
 
 // RemoteApplication is one of the group's remote applications.

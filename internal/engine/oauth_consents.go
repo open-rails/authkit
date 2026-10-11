@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/config"
@@ -28,7 +29,6 @@ import (
 	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/internal/netguard"
 	"github.com/open-rails/authkit/internal/ops"
-	"github.com/open-rails/helpers/auth"
 )
 
 // scopeDescriptions describes scopes on the consent screen: a group-client

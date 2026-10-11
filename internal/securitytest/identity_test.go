@@ -7,11 +7,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	neutral "github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/verify"
-	neutral "github.com/open-rails/helpers/auth"
 	"github.com/stretchr/testify/require"
 )
 

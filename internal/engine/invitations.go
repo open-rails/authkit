@@ -17,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
@@ -24,7 +25,6 @@ import (
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/ops"
 	"github.com/open-rails/authkit/internal/secret"
-	"github.com/open-rails/helpers/auth"
 )
 
 // CreateInvitation creates an invite link (n.Email empty), or emails an

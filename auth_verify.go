@@ -4,10 +4,10 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/engine"
 	"github.com/open-rails/authkit/verify"
-	"github.com/open-rails/helpers/auth"
 )
 
 // Request authentication. The Client is a verify.Authority for
@@ -29,7 +29,7 @@ func (a *Client) Verify(ctx context.Context, token string) (verify.Claims, error
 	return a.engine.Verify(ctx, token)
 }
 
-// AuthenticateRequest is r's helpers/auth Verified request, whose Can checks
+// AuthenticateRequest is r's authkit/auth Verified request, whose Can checks
 // permissions live (verify.AuthenticateRequest: behind a gate over the
 // Client it reuses the gate's verification).
 func (a *Client) AuthenticateRequest(ctx context.Context, r *http.Request) (auth.Verified, error) {

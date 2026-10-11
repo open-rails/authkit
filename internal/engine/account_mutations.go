@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
@@ -21,7 +22,6 @@ import (
 	"github.com/open-rails/authkit/internal/naming"
 	"github.com/open-rails/authkit/internal/ops"
 	"github.com/open-rails/authkit/internal/password"
-	"github.com/open-rails/helpers/auth"
 )
 
 // Account mutations. Every one takes an identity and runs in one authority

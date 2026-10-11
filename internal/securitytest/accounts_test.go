@@ -7,11 +7,11 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/httpapi"
-	"github.com/open-rails/helpers/auth"
 	"github.com/stretchr/testify/require"
 )
 

@@ -12,11 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/open-rails/authkit"
+	hauth "github.com/open-rails/authkit/auth"
+	conformance "github.com/open-rails/authkit/auth/authtest"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdpop"
-	hauth "github.com/open-rails/helpers/auth"
-	conformance "github.com/open-rails/helpers/auth/authtest"
 )
 
 // withGroupBound is withBillingHost as its own resource server: tokens
@@ -76,7 +76,7 @@ func oauthError(t *testing.T, r response) string {
 // TestSecurityGroupBoundTokens (OpenRails #1197): a person's sign-in
 // exchanged for one group (RFC 8693, group_id) is bound to that group: it
 // holds there what the person holds, and keeps the person's root:
-// permissions on root and nothing else (helpers/auth Bound). Only a person
+// permissions on root and nothing else (authkit/auth Bound). Only a person
 // holding a role in the group, or a root role, gets one, for a live group
 // other than root; a DPoP-bound sign-in only with its own key. A host's
 // group-bound mint is a customer token: bound, sessionless, holding

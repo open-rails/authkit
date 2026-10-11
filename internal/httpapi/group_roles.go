@@ -6,10 +6,10 @@ package httpapi
 import (
 	"net/http"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
-	"github.com/open-rails/helpers/auth"
 )
 
 // groupRolesList returns the roles assignable in the group: those its

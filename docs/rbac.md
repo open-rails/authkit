@@ -133,7 +133,7 @@ Fingerprints and sweeps are per app. Each app judges only the API keys, invitati
 
 ## A library that guards its own routes
 
-A library that serves routes inside your app, such as OpenRails' billing routes, takes `client.Authenticator()`, a helpers/auth `Authenticator`. It says who a request is; the library decides what to admit and answers its own refusals. People and applications (API keys) both authenticate, checked live. The Client itself is not one.
+A library that serves routes inside your app, such as OpenRails' billing routes, takes `client.Authenticator()`, a authkit/auth `Authenticator`. It says who a request is; the library decides what to admit and answers its own refusals. People and applications (API keys) both authenticate, checked live. The Client itself is not one.
 
 | Method | Is |
 |---|---|
@@ -141,14 +141,14 @@ A library that serves routes inside your app, such as OpenRails' billing routes,
 | `Verified.Can(ctx, scope, p)` | `Client.Can`: exactly `p`, in the group `scope.ID` names, live |
 | `Verified.CheckRecentSignIn(ctx)` | `verify.Sensitive`'s check. A stale sign-in is an `*auth.Challenge` with `auth.ErrStepUpRequired`, `MaxAge` (15 minutes) and the account's step-up methods as `Metadata`; a credential with no sign-in of its own (an API key) is `auth.ErrForbidden` |
 | `KnownPermission(p)` | `p` is one registered permission, so the library refuses a misspelled one when it mounts |
-| `RootScope(ctx)` | `client.Scope(ctx, iam.RootGroup())` (helpers/auth `Root`): where root roles hold their `root:` permissions, which the library checks there |
+| `RootScope(ctx)` | `client.Scope(ctx, iam.RootGroup())` (authkit/auth `Root`): where root roles hold their `root:` permissions, which the library checks there |
 
 A user acting for themself carries their email and username, read from the account. A permission's persona says where the library checks it: a `root:` permission in the Authenticator's `RootScope`, so the host passes no scope; a group persona's in the group it serves, `client.Scope(ctx, ref)` (`{Authority: Config.Token.Issuer, ID: <the group's id>}`).
 
 A credential bound to a group (`BoundScope`) acts only there:
 
 - A group API key holds its role only in its own group; a root API key (`NewRoles(authkit.APIKeys)`) acts in root's.
-- A person's token exchanged for one group (RFC 8693 `group_id`, [authorization server](authorization-server.md#group-bound-tokens)) holds what the person holds in that group, and keeps the person's `root:` permissions on root: a person keeps their root role whatever group a token names (helpers/auth `Bound`).
+- A person's token exchanged for one group (RFC 8693 `group_id`, [authorization server](authorization-server.md#group-bound-tokens)) holds what the person holds in that group, and keeps the person's `root:` permissions on root: a person keeps their root role whatever group a token names (authkit/auth `Bound`).
 - A host's group-bound mint (`iam.AccessTokenOptions.Group`) is a customer token: bound, holding nothing.
 
 Like AuthKit's own API, `client.Authenticator()` refuses resource access tokens (`at+jwt`) unless `Config.Resource` names their resource. For a library that is also a resource server, `client.NewVerifier(audiences)` with its resource among them gives a `Verifier` whose `Authenticator()` takes them too: an OAuth client's own token (client credentials) authenticates as an application, holding nothing in a group (its `permissions` are the resource server's to read).

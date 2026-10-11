@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	hauth "github.com/open-rails/helpers/auth"
+	hauth "github.com/open-rails/authkit/auth"
 
 	"github.com/gofiber/fiber/v3"
 	authkitfiber "github.com/open-rails/authkit/adapters/fiber"

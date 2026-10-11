@@ -8,11 +8,11 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
-	"github.com/open-rails/helpers/auth"
 )
 
 // groupInvitationCreate makes an invite link (no email), whose code is

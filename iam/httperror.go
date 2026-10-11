@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/internal/errmodel"
-	"github.com/open-rails/helpers/auth"
 )
 
 // ErrorObject is the error detail under the envelope's "error" key: a stable

@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
-	"github.com/open-rails/helpers/auth"
 )
 
 // TokenKind is the class of credential verified Claims hold: which of their
@@ -173,7 +173,7 @@ func (c Claims) HasAMR(m string) bool {
 	return false
 }
 
-// Identity is the claims' provider-neutral identity (helpers/auth): the
+// Identity is the claims' provider-neutral identity (authkit/auth): the
 // Subject, native to Issuer, whose authority the credential uses; the
 // Invoker who actually acts, the subject itself unless someone acts on its
 // behalf; and the Credential that proved it, never the subject.

@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/scim"
-	"github.com/open-rails/helpers/auth"
 )
 
 // scimDirectoryBackend is a group's directory of its remote applications'

@@ -13,9 +13,9 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
-	"github.com/open-rails/helpers/auth"
 )
 
 // maxGrantClaimsBytes bounds the host's extra access-token claims.

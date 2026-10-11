@@ -29,7 +29,7 @@ resource:
 
 A trusted issuer is a [remote application](tokens.md#remote-applications): an issuer controlled by one group, holding a role there. Its tokens act only in that group.
 
-- `Verified.BoundScope()` (helpers/auth `Bound`) is the application's group. `Can` is false in any other scope.
+- `Verified.BoundScope()` (authkit/auth `Bound`) is the application's group. `Can` is false in any other scope.
 - In that group, `Can` grants a permission only when all three hold:
   - the token carries it, in its `permissions` claim or through a role its `roles` claim names (RFC 9068 §2.2.3.1), mapped by the application's `RoleMap`;
   - the application's live role covers it;
@@ -89,6 +89,6 @@ With `Config.Resource`, the token endpoint is mounted even without an authorizat
 
 ## For a library
 
-- `Client.Authenticator()` lists its credential headers (helpers/auth `Headers`): `Authorization` and `DPoP` allowed, `WWW-Authenticate` and `DPoP-Nonce` exposed. Merge them into CORS.
+- `Client.Authenticator()` lists its credential headers (authkit/auth `Headers`): `Authorization` and `DPoP` allowed, `WWW-Authenticate` and `DPoP-Nonce` exposed. Merge them into CORS.
 - API keys report their group as `BoundScope`.
 - `Authenticate` spends the request's DPoP proof, so call it once per request. Behind one of AuthKit's own gates, it reuses the gate's verification instead.

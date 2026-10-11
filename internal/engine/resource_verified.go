@@ -9,13 +9,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/verify"
-	"github.com/open-rails/helpers/auth"
 )
 
 // ResourceSignInWindow is how recent an access token's sign-in (auth_time,
@@ -30,7 +30,7 @@ func IsResourceTokenRequest(r *http.Request) bool {
 	return ok && resourceTokenType(typ)
 }
 
-// AuthenticateResource is r's helpers/auth Verified request for an access
+// AuthenticateResource is r's authkit/auth Verified request for an access
 // token minted for Config.Resource.ID (resourceVerified).
 func (s *Engine) AuthenticateResource(r *http.Request) (auth.Verified, error) {
 	access, err := s.VerifyResourceRequest(r)
@@ -70,7 +70,7 @@ func (s *Engine) AuthenticateResource(r *http.Request) (auth.Verified, error) {
 	return v, nil
 }
 
-// Authenticate is r's helpers/auth Verified request for AuthKit's own routes
+// Authenticate is r's authkit/auth Verified request for AuthKit's own routes
 // that admit every credential (SCIM): an access token for Config.Resource.ID,
 // else this deployment's own credentials (verify.AuthenticateSession).
 func (s *Engine) Authenticate(r *http.Request) (auth.Verified, error) {
@@ -88,7 +88,7 @@ func (s *Engine) Authenticate(r *http.Request) (auth.Verified, error) {
 //   - This deployment's own token for a user acts as that user, live, within
 //     the ceilings of its scopes and of the resource's registration. One
 //     exchanged for a group (group_id) acts there, and keeps the user's
-//     root: permissions on root (helpers/auth Bound).
+//     root: permissions on root (authkit/auth Bound).
 //   - A client's own token (client credentials) holds nothing.
 type resourceVerified struct {
 	s      *Engine

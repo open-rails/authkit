@@ -53,22 +53,25 @@ const (
 	wireformPackage = "github.com/open-rails/authkit/internal/wireform"
 )
 
-// helpersAuth is helpers/auth: the neutral Identity, itself standard library
-// only.
-const helpersAuth = "github.com/open-rails/helpers/auth"
+// authPackage holds the provider-neutral identity and request contracts.
+const authPackage = "github.com/open-rails/authkit/auth"
 
 // stdlibOnly packages depend on nothing outside the standard library, except
 // the listed packages. devicekey is linked into CLIs and machines.
 var stdlibOnly = map[string][]string{
-	"./devicekey":           {rootPackage + "/iam", errmodelPackage, wireformPackage, helpersAuth},
-	"./iam":                 {errmodelPackage, wireformPackage, helpersAuth},
-	"./internal/errmodel":   {wireformPackage},
-	"./internal/wireform":   nil,
-	"./internal/netguard":   nil,
-	"./internal/apikey":     nil,
-	"./internal/enrollment": nil,
-	"./internal/keypolicy":  nil,
-	"./internal/ident":      {rootPackage + "/iam", errmodelPackage, wireformPackage, helpersAuth},
+	"./auth":                  nil,
+	"./auth/authtest":         {authPackage},
+	"./userinfo":              nil,
+	"./userinfo/userinfotest": {rootPackage + "/userinfo"},
+	"./devicekey":             {rootPackage + "/iam", errmodelPackage, wireformPackage, authPackage},
+	"./iam":                   {errmodelPackage, wireformPackage, authPackage},
+	"./internal/errmodel":     {wireformPackage},
+	"./internal/wireform":     nil,
+	"./internal/netguard":     nil,
+	"./internal/apikey":       nil,
+	"./internal/enrollment":   nil,
+	"./internal/keypolicy":    nil,
+	"./internal/ident":        {rootPackage + "/iam", errmodelPackage, wireformPackage, authPackage},
 }
 
 func listDeps(t *testing.T, pkg string) []string {

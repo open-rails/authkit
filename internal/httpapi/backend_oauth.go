@@ -3,9 +3,9 @@ package httpapi
 import (
 	"context"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
-	"github.com/open-rails/helpers/auth"
 )
 
 // oauthBackend is the authorization server's state and minting (#430, #432, #437).

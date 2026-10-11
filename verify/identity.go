@@ -3,9 +3,9 @@ package verify
 import (
 	"context"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
-	"github.com/open-rails/helpers/auth"
 )
 
 // boundIdentity is the identity verified claims act as (Claims.Identity),

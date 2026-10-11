@@ -3,8 +3,8 @@ package authkit
 import (
 	"context"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/helpers/auth"
 )
 
 // Invitations into a group: single-use links, and invitations emailed to an

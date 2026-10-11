@@ -3,7 +3,7 @@ package iam
 import (
 	"time"
 
-	"github.com/open-rails/helpers/auth"
+	"github.com/open-rails/authkit/auth"
 )
 
 // EventKind names a committed change delivered to Deps.OnEvent. Hosts ignore

@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit"
+	hauth "github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/verify"
-	hauth "github.com/open-rails/helpers/auth"
 )
 
 // Identity is the identity a request bearing credential (an access token or

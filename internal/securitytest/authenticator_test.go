@@ -18,12 +18,12 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/open-rails/authkit"
+	hauth "github.com/open-rails/authkit/auth"
+	conformance "github.com/open-rails/authkit/auth/authtest"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testdpop"
 	"github.com/open-rails/authkit/verify"
-	hauth "github.com/open-rails/helpers/auth"
-	conformance "github.com/open-rails/helpers/auth/authtest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -76,9 +76,9 @@ func basic(user, password string) string {
 }
 
 // TestSecurityAuthenticatorConformance (#444): Client.Authenticator(), and a
-// Verifier's for a resource server's audiences, are the helpers/auth
+// Verifier's for a resource server's audiences, are the authkit/auth
 // Authenticator a library guards its own routes with. Against a real AuthKit
-// each passes helpers' conformance check (authtest.Check) in its RootScope,
+// each passes auth/authtest's conformance check (authtest.Check) in its RootScope,
 // the root group's Scope: staff holding a root role's permissions, a user holding none,
 // one-permission holders, a stale sign-in, a root API key, refused
 // credentials (expired, forged, signed out, banned, deleted, a revoked API

@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/open-rails/authkit"
+	hauth "github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/httpapi"
@@ -28,7 +29,6 @@ import (
 	"github.com/open-rails/authkit/keys"
 	"github.com/open-rails/authkit/provider"
 	"github.com/open-rails/authkit/verify"
-	hauth "github.com/open-rails/helpers/auth"
 )
 
 // api drives a Client's HTTP surface in process, as one client at one address.

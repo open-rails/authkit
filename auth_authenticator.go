@@ -5,11 +5,11 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/engine"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/verify"
-	"github.com/open-rails/helpers/auth"
 )
 
 // Authenticator is the Client as a library's auth.Authenticator (OpenRails'
@@ -44,7 +44,7 @@ import (
 //
 // Every credential is verified once per call: a DPoP proof is spent by the
 // first Authenticate of a request, so a library calls it once per request.
-// Its Verified reports BoundScope (helpers/auth Bound): an API key's group,
+// Its Verified reports BoundScope (authkit/auth Bound): an API key's group,
 // a trusted issuer's token's group, a group OAuth client's token's group;
 // zero for a person's own sign-in. A resource access token's Verified also
 // has ClientID() string and Scopes() []string, the client it was issued to

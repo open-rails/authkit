@@ -3,8 +3,8 @@ package httpapi
 import (
 	"net/http"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/internal/ops"
-	"github.com/open-rails/helpers/auth"
 )
 
 // Backend is the engine capability the HTTP layer drives: the operations the

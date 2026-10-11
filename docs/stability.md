@@ -21,6 +21,8 @@ The covered API is every exported identifier of the packages below, with its doc
 | `devicekey` | the device-key client, its signing domains and capabilities |
 | `adapters/gin`, `adapters/fiber` | mounting on Gin or Fiber, and the middleware |
 | `adapters/smtp`, `adapters/twilio` | the email (SMTP) and SMS (Twilio) senders |
+| `auth`, `userinfo` | provider-neutral authentication and user-directory contracts; standard library only |
+| `auth/authtest`, `userinfo/userinfotest` | conformance checks for custom host implementations |
 | `authtest` | test helpers for hosts |
 
 `internal/…`, `cmd/…` and `examples/…` are not covered. Some internal types are re-exported by alias (`authkit.Config`, `authkit.Deps`, `verify.IssuerKeyStatus`, …): the aliases and their members are covered, and `TestGoAPISurface` fails when the covered API reaches an internal type any other way.

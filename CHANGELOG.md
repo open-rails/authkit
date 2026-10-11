@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.24.0
+
+### Breaking
+
+- Authentication and user-directory contracts now live in `github.com/open-rails/authkit/auth` and `github.com/open-rails/authkit/userinfo`, including `auth/authtest` and `userinfo/userinfotest`. Replace the corresponding helpers import prefixes in every host and library and update them together: `Identity`, `Scope`, `Credential`, `User` and interfaces using them have new Go package identities. There are no forwarding aliases. Both contract packages depend only on the standard library; custom host implementations still work without initializing AuthKit. See [contract packages and migration](docs/contract-packages.md).
+
 ## v1.23.0
 
 - A resource access token's Verified at `Client.Authenticator()` has `Asserted() bool`: true when this deployment minted it from a remote application's RFC 7523 assertion (a backend's customer token), false for session tokens, API keys, exchanged tokens and a trusted issuer's own tokens. A library tells a customer token from a staff one without comparing `ClientID()` with the issuer.

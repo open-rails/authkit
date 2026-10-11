@@ -5,10 +5,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
-	"github.com/open-rails/helpers/auth"
 )
 
 // Account administration. Reads are gated by root:users:read at the route.

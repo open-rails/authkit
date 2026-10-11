@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/open-rails/helpers/userinfo"
+	"github.com/open-rails/authkit/userinfo"
 
 	"github.com/open-rails/authkit/internal/db"
 )

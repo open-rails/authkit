@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/open-rails/authkit"
+	hauth "github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
-	hauth "github.com/open-rails/helpers/auth"
 )
 
 // credentialOrg is an org persona with API keys and its group acme, owned by

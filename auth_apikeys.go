@@ -3,8 +3,8 @@ package authkit
 import (
 	"context"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/helpers/auth"
 )
 
 // API keys: long-lived machine credentials owned by a permission group. A key

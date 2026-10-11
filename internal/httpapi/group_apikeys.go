@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
-	"github.com/open-rails/helpers/auth"
 )
 
 // groupAPIKeyMint mints a key created by the caller and returns its token

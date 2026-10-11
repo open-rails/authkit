@@ -10,10 +10,10 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
-	"github.com/open-rails/helpers/auth"
 )
 
 // groupScopeCodes: a group-scoped route answers an unknown group as forbidden,

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-rails/helpers/userinfo"
-	"github.com/open-rails/helpers/userinfo/userinfotest"
+	"github.com/open-rails/authkit/userinfo"
+	"github.com/open-rails/authkit/userinfo/userinfotest"
 	"github.com/stretchr/testify/require"
 
 	"github.com/open-rails/authkit"

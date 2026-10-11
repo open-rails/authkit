@@ -16,12 +16,12 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/ops"
 	"github.com/open-rails/authkit/internal/rbac"
-	"github.com/open-rails/helpers/auth"
 )
 
 // grantsCoverAll reports whether identityGrants cover every permission in targetGrants.

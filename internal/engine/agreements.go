@@ -13,12 +13,12 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ops"
-	"github.com/open-rails/helpers/auth"
 )
 
 // agreement is the declared document key names.

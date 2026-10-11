@@ -14,13 +14,13 @@ import (
 	"github.com/open-rails/authkit"
 	authkitfiber "github.com/open-rails/authkit/adapters/fiber"
 	authkitgin "github.com/open-rails/authkit/adapters/gin"
+	hauth "github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/testidp"
 	"github.com/open-rails/authkit/provider"
 	"github.com/open-rails/authkit/verify"
-	hauth "github.com/open-rails/helpers/auth"
 	"github.com/stretchr/testify/require"
 )
 

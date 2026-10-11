@@ -30,11 +30,11 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/cursor"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/rbac"
-	"github.com/open-rails/helpers/auth"
 )
 
 // credentialIssuer is the creator a credential issued by a records: the user,

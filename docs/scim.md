@@ -6,7 +6,7 @@ AuthKit is the directory: other services learn who a user is from it, four ways.
 |---|---|
 | [Push](#push) | a service that keeps its own copy: AuthKit sends every account to its SCIM 2.0 endpoint, such as another AuthKit's [directory](#directory) |
 | [Pull](#pull) | a service that reads on demand: AuthKit's read-only SCIM 2.0 endpoint |
-| [In process](#in-process) | a library embedded in the same binary: `Client.UserInfo()` is a `helpers/userinfo.Lookup` |
+| [In process](#in-process) | a library embedded in the same binary: `Client.UserInfo()` is a `authkit/userinfo.Lookup` |
 | [Token claims](#token-claims) | a resource server that meets a user on the user's first request |
 
 What push, pull and in process show of an account: its id, its username (also the name; AuthKit keeps no other), its email **only once verified** (an unproven address may be someone else's), and whether it is active (neither deleted nor banned).
@@ -58,7 +58,7 @@ Errors are SCIM's (`application/scim+json`): 401 and 403 with a `WWW-Authenticat
 
 ## In process
 
-`Client.UserInfo()` returns a `userinfo.Lookup` (`github.com/open-rails/helpers/userinfo`): its `Get(ctx, ids)` returns the live accounts among ids, and `Search(ctx, query, limit)` those whose verified email or username contains query. Each read is current; nothing is copied. An embedded OpenRails takes `Deps.UserInfo: auth.UserInfo()`.
+`Client.UserInfo()` returns a `userinfo.Lookup` (`github.com/open-rails/authkit/userinfo`): its `Get(ctx, ids)` returns the live accounts among ids, and `Search(ctx, query, limit)` those whose verified email or username contains query. Each read is current; nothing is copied. An embedded OpenRails takes `Deps.UserInfo: auth.UserInfo()`.
 
 ## Token claims
 
@@ -101,6 +101,6 @@ key, err := ak.CreateAPIKey(ctx, iam.SystemIdentity(), group, iam.NewAPIKey{
 
 **Token claims.** With `Config.Resource`, a trusted issuer's user token carrying contact claims (`email` with `email_verified`, `name`, `preferred_username`, `updated_at`; OIDC Core §5.1) records them in its group's directory as it is verified, the newer of a token's claims and a push winning. A failure to record never refuses the request.
 
-`Client.RemoteUserInfo(ref, issuer)` is the group's users of issuer as a `helpers/userinfo.Lookup`, keyed by subject: the email, the name (`displayName`, else `name.formatted`, else the given and family names) and the username. An inactive user (`active: false`) is absent. A library reads a customer's contact through it by the issuer and subject of the customer's token.
+`Client.RemoteUserInfo(ref, issuer)` is the group's users of issuer as a `authkit/userinfo.Lookup`, keyed by subject: the email, the name (`displayName`, else `name.formatted`, else the given and family names) and the username. An inactive user (`active: false`) is absent. A library reads a customer's contact through it by the issuer and subject of the customer's token.
 
 Retention: a SCIM `DELETE` deletes the user, and deleting the group deletes its directory. Migration 0013 adds `remote_users` and `api_keys.provisions_for`.

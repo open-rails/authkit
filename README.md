@@ -32,7 +32,7 @@ import (
 	"github.com/open-rails/authkit/adapters/twilio"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
-	"github.com/open-rails/helpers/auth"
+	"github.com/open-rails/authkit/auth"
 )
 
 func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {

@@ -1,6 +1,6 @@
 # Subject, Invoker, Credential
 
-Every request AuthKit verifies has three parts, and its helpers/auth `Identity` (`verify.Claims.Identity`) names each one:
+Every request AuthKit verifies has three parts, and its authkit/auth `Identity` (`verify.Claims.Identity`) names each one:
 
 - **Subject**: the account, native to `Issuer`, whose authority and money the request uses. It is a `user` or an `application`.
 - **Invoker**: who actually acts. It is always set. It equals the subject (`{Issuer, Subject}`) unless someone acts on the subject's behalf: the actor an RFC 8693 `act` claim names (delegation), such as a workload acting for a user.

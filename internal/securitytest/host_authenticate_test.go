@@ -9,12 +9,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/open-rails/authkit"
 	authkitgin "github.com/open-rails/authkit/adapters/gin"
+	neutral "github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/testdpop"
 	"github.com/open-rails/authkit/verify"
-	neutral "github.com/open-rails/helpers/auth"
 	"github.com/stretchr/testify/require"
 )
 
@@ -32,7 +32,7 @@ func serveGin(t *testing.T, h *host, routes func(*gin.Engine)) {
 }
 
 // TestSecurityAuthenticateBehindGate: host code behind a gate authenticates
-// the request again, as helpers/auth code does, with verify.AuthenticateRequest
+// the request again, as authkit/auth code does, with verify.AuthenticateRequest
 // and then AuthenticateSession. Over real HTTP through the Gin adapter both
 // reuse the gate's verification, so a DPoP proof is spent and the request
 // verified once. AuthenticateSession refuses a credential whose sign-in was

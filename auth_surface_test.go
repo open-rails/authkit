@@ -9,9 +9,9 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/internal/apisurface"
 	"github.com/open-rails/authkit/internal/ops"
-	"github.com/open-rails/helpers/auth"
 	"github.com/stretchr/testify/require"
 )
 
@@ -91,13 +91,13 @@ func TestClientPublicSurface(t *testing.T) {
 		// HTTP surface and request verification.
 		"Handler", "APIBase", "Routes", "Mount",
 		"VerifyRequest", "Verify", "VerifyIDToken", "AuthenticateRequest", "NewVerifier",
-		// helpers/auth Authenticator: who a library's request is, and the
+		// authkit/auth Authenticator: who a library's request is, and the
 		// scope its Can checks.
 		"Authenticator", "Scope",
 		// A trusted issuer's user, verified by the Authenticator, and the
 		// invitations its verified email may accept.
 		"RemoteInvitations", "AcceptRemoteInvitation",
-		// helpers/userinfo Lookup: a library's directory reads.
+		// authkit/userinfo Lookup: a library's directory reads.
 		"UserInfo", "RemoteUserInfo",
 	}
 	noIdentity := append(append(append([]string{}, hostOperations...), reads...), embeddingOnly...)

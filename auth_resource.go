@@ -3,7 +3,7 @@ package authkit
 import (
 	"net/http"
 
-	"github.com/open-rails/helpers/auth"
+	"github.com/open-rails/authkit/auth"
 )
 
 // authenticateResource is Authenticate for an access token (at+jwt) minted

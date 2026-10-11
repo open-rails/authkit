@@ -15,8 +15,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/open-rails/helpers/auth"
-	"github.com/open-rails/helpers/userinfo"
+	"github.com/open-rails/authkit/auth"
+	"github.com/open-rails/authkit/userinfo"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"

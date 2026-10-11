@@ -20,13 +20,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/open-rails/authkit"
+	hauth "github.com/open-rails/authkit/auth"
+	conformance "github.com/open-rails/authkit/auth/authtest"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/scim"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/keys"
-	hauth "github.com/open-rails/helpers/auth"
-	conformance "github.com/open-rails/helpers/auth/authtest"
 )
 
 // resourceDeployment is a resource server for oauthResource whose merchant

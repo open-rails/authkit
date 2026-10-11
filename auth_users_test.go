@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit"
+	hauth "github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/testdb"
-	hauth "github.com/open-rails/helpers/auth"
 	"github.com/stretchr/testify/require"
 )
 

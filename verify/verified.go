@@ -5,20 +5,20 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
-	"github.com/open-rails/helpers/auth"
 )
 
-// AuthenticateRequest is r's helpers/auth Verified request, identity only: a
+// AuthenticateRequest is r's authkit/auth Verified request, identity only: a
 // Verifier checks no permissions.
 func (v *Verifier) AuthenticateRequest(ctx context.Context, r *http.Request) (auth.Verified, error) {
 	return AuthenticateRequest(ctx, v, r)
 }
 
-// AuthenticateRequest is r's helpers/auth Verified request, for code written against
-// helpers/auth providers. Behind a gate over a (Required, Optional,
+// AuthenticateRequest is r's authkit/auth Verified request, for code written against
+// authkit/auth providers. Behind a gate over a (Required, Optional,
 // RequireSession, RequirePermission or Sensitive, in any adapter) it reuses
 // the gate's verification, since verifying again would spend a DPoP proof
 // twice; otherwise it verifies r through a. When a is a PermissionChecker
@@ -72,7 +72,7 @@ func authenticate(ctx context.Context, a Authenticator, r *http.Request) (Claims
 	return cl, nil
 }
 
-// verifiedOf is verified claims' helpers/auth Verified request (see
+// verifiedOf is verified claims' authkit/auth Verified request (see
 // AuthenticateRequest for Can).
 func verifiedOf(a Authenticator, cl Claims) (auth.Verified, error) {
 	i, ok := cl.Identity()
@@ -143,7 +143,7 @@ func authorityOf(cl Claims) string {
 	return cl.Issuer
 }
 
-// Refusal maps a failed verification of r onto the helpers/auth taxonomy,
+// Refusal maps a failed verification of r onto the authkit/auth taxonomy,
 // for an Authenticator that verifies r itself. A DPoP refusal is a
 // *auth.Challenge carrying the headers DPoPChallenge writes
 // (WWW-Authenticate, DPoP-Nonce).
@@ -211,7 +211,7 @@ func (p sessionVerified) CheckRecentSignIn(ctx context.Context) error {
 	}
 }
 
-// stepUpChallenge is err, when it is step_up_required, as a helpers/auth
+// stepUpChallenge is err, when it is step_up_required, as a authkit/auth
 // step-up challenge: auth.ErrStepUpRequired with the error's max age and its
 // metadata (the account's step-up methods). Nil for any other error.
 func stepUpChallenge(err error) *auth.Challenge {

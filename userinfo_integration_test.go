@@ -4,15 +4,15 @@ import (
 	"context"
 	"testing"
 
-	"github.com/open-rails/helpers/userinfo"
-	"github.com/open-rails/helpers/userinfo/userinfotest"
+	"github.com/open-rails/authkit/userinfo"
+	"github.com/open-rails/authkit/userinfo/userinfotest"
 	"github.com/stretchr/testify/require"
 
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 )
 
-// TestUserInfoLookup: Client.UserInfo is a helpers/userinfo.Lookup reading the
+// TestUserInfoLookup: Client.UserInfo is a authkit/userinfo.Lookup reading the
 // accounts as they are now: verified email, username as the name; a deleted
 // account is absent.
 func TestUserInfoLookup(t *testing.T) {

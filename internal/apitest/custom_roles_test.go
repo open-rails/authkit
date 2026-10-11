@@ -14,11 +14,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/open-rails/authkit"
+	hauth "github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/internal/testkeys"
-	hauth "github.com/open-rails/helpers/auth"
 )
 
 const shopResource = "https://shop-api.test"

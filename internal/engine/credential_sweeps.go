@@ -14,8 +14,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/internal/db"
-	"github.com/open-rails/helpers/auth"
 )
 
 type credentialSweepArgs struct {

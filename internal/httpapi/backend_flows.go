@@ -7,12 +7,12 @@ import (
 	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/oidcstate"
 	"github.com/open-rails/authkit/internal/siws"
 	"github.com/open-rails/authkit/keys"
-	"github.com/open-rails/helpers/auth"
 )
 
 // flowsBackend is the login, registration, 2FA, passkey, SIWS, OIDC,

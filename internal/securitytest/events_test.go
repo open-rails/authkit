@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit"
+	hauth "github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
-	hauth "github.com/open-rails/helpers/auth"
 	"github.com/stretchr/testify/require"
 )
 

@@ -13,9 +13,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/httpapi"
-	"github.com/open-rails/helpers/auth"
 )
 
 // The wire model: every type a route's query, request or responses reach,
@@ -223,7 +223,7 @@ func fullPath(r httpapi.RouteSpec) string {
 	return r.Path
 }
 
-// neutralEnums are the helpers/auth string types AuthKit's wire carries, with
+// neutralEnums are the authkit/auth string types AuthKit's wire carries, with
 // every value it sends.
 var neutralEnums = map[reflect.Type][]string{
 	reflect.TypeFor[auth.SubjectKind](): {string(auth.SubjectUser), string(auth.SubjectApplication)},
@@ -232,7 +232,7 @@ var neutralEnums = map[reflect.Type][]string{
 }
 
 // enumValues are the string constants declared with an AuthKit string type,
-// or a helpers/auth one it sends, sorted: the values its wire field takes.
+// or a authkit/auth one it sends, sorted: the values its wire field takes.
 // None for any other type.
 func enumValues(t reflect.Type) []string {
 	if values, ok := neutralEnums[t]; ok {

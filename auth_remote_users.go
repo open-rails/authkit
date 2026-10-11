@@ -3,8 +3,8 @@ package authkit
 import (
 	"context"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/helpers/auth"
 )
 
 // Federated grants: a group's email invitation (CreateInvitation with Email

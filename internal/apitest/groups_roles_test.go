@@ -18,7 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	hostauth "github.com/open-rails/helpers/auth"
+	hostauth "github.com/open-rails/authkit/auth"
 	"github.com/stretchr/testify/require"
 
 	"github.com/open-rails/authkit"
@@ -995,7 +995,7 @@ func TestRuntimeVerifiedRequestUsesLiveAuthority(t *testing.T) {
 }
 
 // The Verified request proves a recent sign-in, Sensitive's check, to
-// helpers/auth code that moves money or grants access, without verifying the
+// authkit/auth code that moves money or grants access, without verifying the
 // request again. A stale sign-in is a step-up carrying the account's methods.
 func TestRuntimeVerifiedRequestChecksRecentSignIn(t *testing.T) {
 	auth, _ := authtest.New(t)

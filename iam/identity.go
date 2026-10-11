@@ -4,7 +4,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/open-rails/helpers/auth"
+	"github.com/open-rails/authkit/auth"
 )
 
 // CredentialSystem is AuthKit's credential for the host's own code:
