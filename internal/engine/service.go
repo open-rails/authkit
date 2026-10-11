@@ -16,6 +16,7 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/dpop"
 	"github.com/open-rails/authkit/internal/password"
+	"github.com/open-rails/authkit/internal/ratelimit"
 	"github.com/open-rails/authkit/internal/rbac"
 	"github.com/open-rails/authkit/keys"
 	"github.com/open-rails/authkit/provider"
@@ -30,6 +31,8 @@ type Engine struct {
 	maintenance *riverMaintenance
 	onEvent     func(context.Context, iam.Event) error
 	onPurge     func(context.Context, iam.UserDeletion) error
+	// deletionCheck is Deps.DeletionCheck: the host may refuse a self-deletion.
+	deletionCheck func(context.Context, string) error
 	// eventProducers are insert-only River clients for other issuers' fleets.
 	eventProducers sync.Map
 
@@ -62,6 +65,8 @@ type Engine struct {
 	now       func() time.Time
 	ephemeral *ephemeralKV          // nil without Postgres
 	redis     redis.UniversalClient // Deps.Redis: DPoP proofs, else memory
+	// smsLimiter spends text messages' send limits (SetSMSLimiter).
+	smsLimiter ratelimit.Limiter
 	// replays spends JWT-bearer assertions (RFC 7523 §3), in the store DPoP
 	// proofs are spent in: Deps.Redis, else memory.
 	replays *dpop.Replays

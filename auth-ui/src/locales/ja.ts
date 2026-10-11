@@ -93,6 +93,33 @@ export const ja: AuthUiMessageBundle = {
     accountUnavailable:
       "このアカウントではログインできません。閉鎖または制限されている可能性があります。誤りと思われる場合はサポートまでご連絡ください。",
   },
+  contactSignIn: {
+    title: "ログインまたは登録",
+    description:
+      "メールアドレスまたは電話番号を入力してください。コードをお送りします。",
+    codeTitle: "コードを入力",
+    codeSentTo: "{destination} に6桁のコードを送信しました。",
+    useDifferent: "別のメールアドレスまたは電話番号を使う",
+  },
+  agreements: {
+    signUpTitle: "アカウントを作成",
+    signUpDescription: "登録を完了するには、以下を読んで同意してください:",
+    dueTitle: "規約をご確認ください",
+    dueDescription: "続けるには、以下を読んで同意してください:",
+    accept: "内容を読み、同意します",
+    agreeTo: "以下を読み、同意します:",
+    required: "アカウントを作成するには同意が必要です",
+    createAccount: "アカウントを作成",
+    continue: "同意して続ける",
+    decline: "ログアウト",
+  },
+  passkeyOffer: {
+    title: "次回はもっと速くログイン",
+    description:
+      "パスキーを追加すると、コードなしで指紋、顔、画面ロックでログインできます。",
+    add: "パスキーを追加",
+    skip: "今はしない",
+  },
   register: {
     passwordHint: "{min}文字以上にしてください。",
     complete: "アカウントの準備ができました。ログインして続行してください。",
@@ -527,6 +554,9 @@ export const ja: AuthUiMessageBundle = {
     },
   },
   errors: {
+    agreement_required: "続けるには規約に同意してください。",
+    deletion_refused: "このアカウントはまだ削除できません。",
+    phone_country_not_allowed: "この国の番号にはSMSを送信できません。",
     authorization_request_not_found:
       "このログインリクエストは期限切れです。アプリに戻ってもう一度お試しください。",
     network_error: "ネットワークエラーです。接続を確認してください。",

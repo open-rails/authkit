@@ -87,10 +87,14 @@ func (s *Engine) ApproveOAuthAuthorization(ctx context.Context, userID, sessionI
 	if err != nil {
 		return "", err
 	}
-	if _, ok := config.FindOAuthClient(s.cfg.AuthorizationServer, a.ClientID); !ok {
+	client, ok := config.FindOAuthClient(s.cfg.AuthorizationServer, a.ClientID)
+	if !ok {
 		return "", errmodel.E(errmodel.CodeAuthorizationRequestNotFound)
 	}
 	if err := s.requireOAuthSignIn(ctx, userID, sessionID); err != nil {
+		return "", err
+	}
+	if err := s.requireAcceptedAgreements(ctx, userID, client.Agreements); err != nil {
 		return "", err
 	}
 	authTime, amr, acr, err := s.sessionAssurance(ctx, userID, sessionID)

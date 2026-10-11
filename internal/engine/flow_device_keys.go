@@ -373,6 +373,10 @@ func (s *Engine) enrollDeviceKey(ctx context.Context, record deviceKeyEnrollment
 		if !allowed {
 			return iam.DeviceKey{}, "", false, errmodel.ErrRegistrationDisabled
 		}
+		// A device-key enrollment carries no agreements.
+		if err := s.requireRegistrationAgreements(nil); err != nil {
+			return iam.DeviceKey{}, "", false, err
+		}
 	}
 
 	tx, err := s.pg.Begin(ctx)

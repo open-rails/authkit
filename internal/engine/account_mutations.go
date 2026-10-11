@@ -580,6 +580,9 @@ func (s *Engine) deleteUser(ctx context.Context, a auth.Identity, userID string)
 	if err != nil {
 		return err
 	}
+	if err := s.checkSelfDeletion(ctx, a, userID); err != nil {
+		return err
+	}
 	var revoked []revokedSession
 	err = s.withAccountMutation(ctx, a, userID, ident.RootUsersDelete, selfAllowed, func(at accountTx) error {
 		var err error
@@ -591,6 +594,27 @@ func (s *Engine) deleteUser(ctx context.Context, a auth.Identity, userID string)
 	}
 	s.logRevokedSessions(ctx, userID, revoked, string(authflow.SessionRevokeReasonSoftDeleted))
 	return nil
+}
+
+// checkSelfDeletion asks Deps.DeletionCheck before a user deletes their own
+// live account: a refusal is deletion_refused, any other failure fails closed.
+func (s *Engine) checkSelfDeletion(ctx context.Context, a auth.Identity, userID string) error {
+	by := subjectUserID(a)
+	id, ok := canonicalUUID(userID)
+	if s.deletionCheck == nil || by == nil || !ok || *by != id {
+		return nil
+	}
+	if u, err := s.q.UserByID(ctx, id); err != nil || u.DeletedAt != nil {
+		return nil
+	}
+	err := s.deletionCheck(ctx, id)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, iam.ErrDeletionRefused):
+		return err
+	}
+	return errmodel.Internal("deletion_check", err)
 }
 
 func (s *Engine) softDeleteTx(ctx context.Context, at accountTx, client *river.Client[pgx.Tx], userID string) ([]revokedSession, error) {

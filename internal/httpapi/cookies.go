@@ -22,7 +22,10 @@ const (
 	CookieRefresh   cookieKind = "refresh"
 	CookieOIDCState cookieKind = "oidc_state"
 	CookieDevice    cookieKind = "device"
-	OIDCStatePrefix            = "authkit_oauth_state_"
+	// CookieDevicePartitioned is the device cookie a third-party iframe keeps:
+	// SameSite=None, Partitioned (CHIPS), so it is per top-level site.
+	CookieDevicePartitioned cookieKind = "device_partitioned"
+	OIDCStatePrefix                    = "authkit_oauth_state_"
 )
 
 // CookieVariant is one cookie shape AuthKit issues. An OIDC state name is a
@@ -45,6 +48,7 @@ var CookieRegistry = []CookieVariant{
 	{Kind: CookieOIDCState, Name: "__Host-" + OIDCStatePrefix, Path: "/", Secure: true, Current: true},
 	{Kind: CookieDevice, Name: "authkit_device", Path: "/", Current: true},
 	{Kind: CookieDevice, Name: "__Host-authkit_device", Path: "/", Secure: true, Current: true},
+	{Kind: CookieDevicePartitioned, Name: "__Host-authkit_device_p", Path: "/", Secure: true, Current: true},
 }
 
 func CurrentCookie(kind cookieKind, secure bool) CookieVariant {

@@ -46,6 +46,7 @@ import {
   TextButton,
   TextField,
 } from "./parts.tsx"
+import { AgreementCheck } from "./NetworkSteps.tsx"
 import { ProviderButtons } from "./ProviderButtons.tsx"
 
 const IDENTIFIER_CODES = new Set([
@@ -271,6 +272,14 @@ function RegisterFields({
   )
   const { busy, error } = register
   const normalized = normalizeIdentifier(identifier, defaultPhoneCountry)
+  // The documents every sign-up accepts, at their current versions.
+  const required = (capabilities?.agreements ?? []).filter((a) =>
+    capabilities?.registration.agreements.includes(a.key)
+  )
+  const [agreed, setAgreed] = useState(false)
+  const accepted = agreed
+    ? required.map(({ key, version }) => ({ key, version }))
+    : undefined
 
   // Server errors stick to their field until that field changes.
   const serverField = error ? fieldOf(error.code) : null
@@ -331,9 +340,11 @@ function RegisterFields({
             identifier: normalized,
             username: username.trim(),
             password,
+            agreements: accepted,
           }
           setSubmitted(input)
           if (
+            (required.length > 0 && !agreed) ||
             !input.identifier ||
             identifierKind(input.identifier) === "other" ||
             !input.username ||
@@ -403,6 +414,15 @@ function RegisterFields({
             </InputGroupButton>
           }
         />
+        {required.length > 0 && (
+          <AgreementCheck
+            agreements={required}
+            checked={agreed}
+            disabled={busy}
+            invalid={touched && !agreed}
+            onChange={setAgreed}
+          />
+        )}
         <SubmitButton busy={busy}>{t("register.submit")}</SubmitButton>
       </form>
       {!hideProviders && (
@@ -413,7 +433,8 @@ function RegisterFields({
           onOutcome={login.resume}
           returnTo={returnTo}
           inviteCode={inviteCode}
-          disabled={busy}
+          agreements={accepted}
+          disabled={busy || (required.length > 0 && !agreed)}
         />
       )}
       {legal && (

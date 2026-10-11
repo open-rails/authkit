@@ -111,7 +111,11 @@ func (s *Engine) finishFirstFactor(ctx context.Context, proof loginProof) (authf
 		if proof.Input.Device == (authflow.SignInDevice{}) {
 			proof.Input.Device = authflow.SignInDeviceFrom(ctx)
 		}
-		needsCode, refused, err := s.admitSignIn(ctx, user.ID, proof.Input, needsChallenge)
+		phoneOnly, err := s.phoneOnly(ctx, tx, user)
+		if err != nil {
+			return authflow.LoginOutcome{}, err
+		}
+		needsCode, refused, err := s.admitSignIn(ctx, user.ID, proof.Input, needsChallenge, phoneOnly)
 		if err != nil {
 			return authflow.LoginOutcome{}, err
 		}

@@ -114,7 +114,7 @@ func (s *Engine) RequestPhonePasswordReset(ctx context.Context, phone string, tt
 		return nil
 	}
 
-	if err := s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessagePasswordReset, To: phone, Language: s.userLanguage(ctx, u.ID),
+	if err := s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessagePasswordReset, To: phone, UserID: u.ID, Language: s.userLanguage(ctx, u.ID),
 		Link: s.phonePasswordResetURL(token)}); err != nil {
 		return err
 	}

@@ -33,6 +33,7 @@ type Service struct {
 	trustedProxies      []netip.Prefix               // Config.TrustedProxies: X-Forwarded-For walk
 	cloudflareProxies   []netip.Prefix               // Config.CloudflareProxies: + CF-Connecting-IP fallback
 	providers           map[string]provider.Provider // validated, keyed by Name()
+	smsSender           bool                         // Deps.SMS set: phone-only accounts' devices are recognized
 }
 
 // rateLimited spends one request of bucket's budget for the client address
@@ -110,6 +111,9 @@ func (s *Service) undeclaredProxyTripwire(r *http.Request, ip string) {
 			slog.String("peer", ip))
 	})
 }
+
+// Limiter is the rate limiter the service's buckets are spent in.
+func (s *Service) Limiter() ratelimit.Limiter { return s.rl }
 
 // Backend returns the engine the service drives.
 func (s *Service) Backend() Backend { return s.svc }

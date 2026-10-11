@@ -6,3 +6,4 @@ oidc_state name=authkit_oauth_state_ path=/ domain="" secure=false
 oidc_state name=__Host-authkit_oauth_state_ path=/ domain="" secure=true
 device name=authkit_device path=/ domain="" secure=false
 device name=__Host-authkit_device path=/ domain="" secure=true
+device_partitioned name=__Host-authkit_device_p path=/ domain="" secure=true

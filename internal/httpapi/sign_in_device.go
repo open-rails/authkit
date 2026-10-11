@@ -3,7 +3,9 @@ package httpapi
 // The device cookie names a browser for Config.SignIn's limits: random,
 // HttpOnly, SameSite=Lax, granting nothing. The engine sees only its hash. A
 // client without one is known by its address (an IPv6 /64), and is issued one
-// for next time.
+// for next time. On HTTPS it is issued twice: also SameSite=None and
+// Partitioned (CHIPS), the one a sign-in inside a third-party iframe sends
+// back, so that iframe is recognized again under the same top-level site.
 
 import (
 	"encoding/base64"
@@ -19,10 +21,12 @@ import (
 // deviceCookieMaxAge is the longest lifetime browsers keep.
 const deviceCookieMaxAge = 400 * 24 * time.Hour
 
-// countsDevices reports whether any sign-in limit is on.
+// countsDevices reports whether sign-ins need their device: a sign-in limit
+// is on, or phone-only accounts can exist (an SMS sender), whose every new
+// device proves the phone again.
 func (s *Service) countsDevices() bool {
 	c := s.cfg.SignIn
-	return c.AccountsPerDevice > 0 || c.AccountsPerAddress > 0 || c.NewDevicesPerAccount > 0
+	return c.AccountsPerDevice > 0 || c.AccountsPerAddress > 0 || c.NewDevicesPerAccount > 0 || s.smsSender
 }
 
 // signsIn reports whether the route signs in (it answers an AuthResult) or
@@ -51,6 +55,14 @@ func (s *Service) withSignInDevice(next http.Handler) http.Handler {
 	})
 }
 
+// withClientAddress attaches the request's rate-limit address for the
+// engine's own limits (text messages).
+func (s *Service) withClientAddress(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r.WithContext(authflow.WithClientAddress(r.Context(), s.addressKey(r))))
+	})
+}
+
 // signInDevice is the request's device cookie, else its address, issuing the
 // cookie it lacks.
 func (s *Service) signInDevice(w http.ResponseWriter, r *http.Request) authflow.SignInDevice {
@@ -58,6 +70,11 @@ func (s *Service) signInDevice(w http.ResponseWriter, r *http.Request) authflow.
 	current := CurrentCookie(CookieDevice, secure)
 	if v, ok := deviceCookieValue(r, current.Name); ok {
 		return authflow.SignInDevice{ID: "cookie:" + secret.Hash(v)}
+	}
+	if secure {
+		if v, ok := deviceCookieValue(r, CurrentCookie(CookieDevicePartitioned, true).Name); ok {
+			return authflow.SignInDevice{ID: "cookie:" + secret.Hash(v)}
+		}
 	}
 	var d authflow.SignInDevice
 	if ip := strings.TrimSpace(s.requestIP(r)); ip != "" {
@@ -67,6 +84,10 @@ func (s *Service) signInDevice(w http.ResponseWriter, r *http.Request) authflow.
 	expireCookieVariants(w, r, CookieDevice, &current, secure, variantName, true)
 	http.SetCookie(w, &http.Cookie{Name: current.Name, Value: value, Path: "/", MaxAge: int(deviceCookieMaxAge.Seconds()),
 		HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode})
+	if secure {
+		http.SetCookie(w, &http.Cookie{Name: CurrentCookie(CookieDevicePartitioned, true).Name, Value: value, Path: "/", MaxAge: int(deviceCookieMaxAge.Seconds()),
+			HttpOnly: true, Secure: true, SameSite: http.SameSiteNoneMode, Partitioned: true})
+	}
 	d.Issued = "cookie:" + secret.Hash(value)
 	return d
 }

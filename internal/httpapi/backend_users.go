@@ -15,4 +15,6 @@ type usersBackend interface {
 	HasUsableMFA(ctx context.Context, userID string) (bool, error)
 	UserProfile(ctx context.Context, in authflow.ProfileInput) (authflow.UserProfile, error)
 	UserSecurity(ctx context.Context, in authflow.ProfileInput) (authflow.UserSecurity, error)
+	Agreements() []iam.Agreement
+	RecordAgreements(ctx context.Context, userID string, refs []iam.AgreementRef, channel iam.AgreementChannel, ip, userAgent string) error
 }

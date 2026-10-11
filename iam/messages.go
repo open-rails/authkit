@@ -75,6 +75,22 @@ type SMSMessage struct {
 	Link          string
 	Purpose       VerificationPurpose
 	ContactChange *ContactChange
+	// UserID is the account the message is for; empty before one exists.
+	UserID string
+	// Domain is the host a Code is entered on (Frontend.BaseURL's). A body
+	// whose last line is "@<Domain> #<Code>" lets browsers autofill the code
+	// on that origin only (WICG origin-bound one-time codes); the built-in
+	// templates end with it, and OriginBoundLine renders it.
+	Domain string
+}
+
+// OriginBoundLine is the line a code message ends with, "@<Domain>
+// #<Code>", or "" when either is missing.
+func (m SMSMessage) OriginBoundLine() string {
+	if m.Domain == "" || m.Code == "" {
+		return ""
+	}
+	return "@" + m.Domain + " #" + m.Code
 }
 
 // ContactChange is delivered to the PREVIOUS address after a recovery

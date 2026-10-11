@@ -54,6 +54,10 @@ type CodeOrLinkRequest struct {
 	Identifier string `json:"identifier"`
 	Code       string `json:"code"`
 	Token      string `json:"token"`
+	// Agreements are the documents a sign-up accepts: a code for a new
+	// contact answers agreement_required until they cover
+	// Registration.Agreements, and stays valid for that retry.
+	Agreements []iam.AgreementRef `json:"agreements"`
 }
 
 // VerifyConfirmRequest is POST /verify/confirm: {identifier, code} or {token,
@@ -107,6 +111,20 @@ type RegisterRequest struct {
 	Username   string `json:"username"`
 	Password   string `json:"password"`
 	InviteCode string `json:"invite_code"`
+	// Agreements are the documents the sign-up accepts (Config.Agreements).
+	Agreements []iam.AgreementRef `json:"agreements"`
+}
+
+// AgreementsRequest accepts documents at their current versions.
+type AgreementsRequest struct {
+	Agreements []iam.AgreementRef `json:"agreements"`
+}
+
+// UserAgreements is GET /me/agreements: every version the caller accepted,
+// and the documents due now (agreements_due).
+type UserAgreements struct {
+	Accepted []iam.AgreementAcceptance `json:"accepted"`
+	Due      []iam.Agreement           `json:"due"`
 }
 
 type AvailabilityQuery struct {
@@ -338,6 +356,8 @@ type OIDCLoginStartRequest struct {
 	InviteCode string `json:"invite_code"`
 	UI         string `json:"ui"`
 	PopupNonce string `json:"popup_nonce"`
+	// Agreements are the documents a sign-up through the provider accepts.
+	Agreements []iam.AgreementRef `json:"agreements"`
 }
 
 // OIDCExchangeRequest trades a browser OIDC result's one-time code.
@@ -381,6 +401,9 @@ type Capabilities struct {
 	TwoFactor              TwoFactorCapabilities    `json:"two_factor"`
 	Invitations            InvitationCapabilities   `json:"invitations"`
 	Languages              []string                 `json:"languages"`
+	// Agreements are the documents users accept, at their current versions.
+	Agreements []iam.Agreement `json:"agreements"`
+	SMS        SMSCapabilities `json:"sms"`
 	// DPoP is SignIn.DPoP: optional (each client chooses) or required (a
 	// sign-in proves a DPoP key, RFC 9449).
 	DPoP  string     `json:"dpop"`
@@ -398,6 +421,8 @@ type MountPaths struct {
 type RegistrationCapabilities struct {
 	Mode                string `json:"mode"`
 	InviteTokenRequired bool   `json:"invite_token_required"`
+	// Agreements are the keys of the documents a sign-up accepts.
+	Agreements []string `json:"agreements"`
 }
 
 // InvitationCapabilities says whether invitations are on
@@ -431,6 +456,13 @@ type UsernameCapabilities struct {
 type ChannelCapabilities struct {
 	Email bool `json:"email"`
 	SMS   bool `json:"sms"`
+}
+
+// SMSCapabilities is the text-message policy (Config.SMS).
+type SMSCapabilities struct {
+	// Countries are the regions messages may go to (ISO 3166-1 alpha-2);
+	// empty allows every region.
+	Countries []string `json:"countries"`
 }
 
 // TwoFactorCapabilities is the 2FA policy and the second factors a user can
@@ -514,6 +546,9 @@ type AuthResult struct {
 	Recovery     *authflow.AccountRecoveryConfirmation `json:"recovery"`
 	// DeviceVerification: a new device's code step.
 	DeviceVerification *DeviceVerificationStep `json:"device_verification"`
+	// AgreementsDue: on a completed sign-in, the documents the user is asked
+	// to accept now (POST /me/agreements); empty otherwise.
+	AgreementsDue []iam.Agreement `json:"agreements_due"`
 }
 
 // SecondFactorStep is a sign-in waiting on its second factor: the challenge
@@ -706,6 +741,9 @@ type OAuthAuthorizationRequest struct {
 	MaxAgeSeconds *int64    `json:"max_age_seconds"`
 	LoginHint     *string   `json:"login_hint"`
 	ExpiresAt     time.Time `json:"expires_at"`
+	// Agreements are the documents the client needs the user to have
+	// accepted (POST /me/agreements) before approval.
+	Agreements []iam.Agreement `json:"agreements"`
 }
 
 // OAuthAuthorizationResult is where the SPA sends the browser to finish:

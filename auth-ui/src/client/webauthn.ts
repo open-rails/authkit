@@ -98,11 +98,17 @@ export function assertionBody(credential: PublicKeyCredential): Rec {
   }
 }
 
-// Asks the browser's authenticator for an assertion over options (call from a
-// click).
-export async function getAssertion(options: unknown): Promise<Rec> {
+// Asks the browser's authenticator for an assertion over options: from a
+// click, or conditional (the page's autofill offers saved passkeys, WebAuthn
+// L3 conditional mediation) until signal aborts it.
+export async function getAssertion(
+  options: unknown,
+  opts: { conditional?: boolean; signal?: AbortSignal } = {}
+): Promise<Rec> {
   const credential = await navigator.credentials.get({
     publicKey: requestOptions(options),
+    ...(opts.conditional ? { mediation: "conditional" as const } : {}),
+    signal: opts.signal,
   })
   if (!(credential instanceof PublicKeyCredential))
     throw new Error("the browser returned no passkey")
@@ -116,3 +122,19 @@ export const webAuthnAvailable = () =>
 export const passkeyDismissed = (error: unknown) =>
   error instanceof DOMException &&
   (error.name === "NotAllowedError" || error.name === "AbortError")
+
+// Whether the browser can offer saved passkeys in a field's autofill
+// (autocomplete="username webauthn").
+export async function conditionalMediationAvailable(): Promise<boolean> {
+  if (!webAuthnAvailable()) return false
+  const check = (
+    PublicKeyCredential as unknown as {
+      isConditionalMediationAvailable?: () => Promise<boolean>
+    }
+  ).isConditionalMediationAvailable
+  try {
+    return check ? await check.call(PublicKeyCredential) : false
+  } catch {
+    return false
+  }
+}

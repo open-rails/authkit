@@ -442,7 +442,7 @@ func (s *Engine) send2FACodeForUser(ctx context.Context, user *db.User, scope st
 		}
 	} else { // sms
 		if s.sms != nil {
-			if err := s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessageLoginCode, To: destination, Language: language, Code: code}); err != nil {
+			if err := s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessageLoginCode, To: destination, UserID: userID, Language: language, Code: code}); err != nil {
 				return "", err
 			}
 		} else {

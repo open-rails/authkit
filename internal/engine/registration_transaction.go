@@ -16,6 +16,11 @@ type accountRegistration struct {
 	Language    string
 	InviteToken string
 	Provider    *authflow.ExternalIdentity
+	// Agreements are the documents the sign-up accepts: at least
+	// Registration.Agreements, recorded with the account.
+	Agreements []iam.AgreementRef
+	IP         string
+	UserAgent  string
 }
 
 type registeredAccount struct {
@@ -25,6 +30,13 @@ type registeredAccount struct {
 
 func (s *Engine) registerAccount(ctx context.Context, in accountRegistration) (registeredAccount, error) {
 	if err := s.requirePG(); err != nil {
+		return registeredAccount{}, err
+	}
+	agreements, err := s.acceptable(in.Agreements)
+	if err != nil {
+		return registeredAccount{}, err
+	}
+	if err := s.requireRegistrationAgreements(agreements); err != nil {
 		return registeredAccount{}, err
 	}
 	if err := s.admitNewAccount(ctx); err != nil {
@@ -71,6 +83,9 @@ func (s *Engine) registerAccount(ctx context.Context, in accountRegistration) (r
 		}
 	}
 	if err := s.applyRegistrationInvite(ctx, tx, invite, user.ID); err != nil {
+		return registeredAccount{}, err
+	}
+	if err := recordAgreements(ctx, q, user.ID, agreements, agreementInput{Channel: iam.AgreementAtRegistration, IP: in.IP, UserAgent: in.UserAgent}); err != nil {
 		return registeredAccount{}, err
 	}
 	version, err := q.UserCredentialVersion(ctx, user.ID)

@@ -21,6 +21,9 @@ type Operations interface {
 	Users(ctx context.Context, ids []string) (map[string]iam.User, error)
 	PublicUsers(ctx context.Context, ids []string) (map[string]iam.PublicUser, error)
 	ListUsers(ctx context.Context, q iam.UserQuery) (iam.ListPage[iam.UserEntry], error)
+	UserAgreements(ctx context.Context, userID string) ([]iam.AgreementAcceptance, error)
+	AgreementsDue(ctx context.Context, userID string) ([]iam.Agreement, error)
+	AcceptAgreements(ctx context.Context, userID string, refs []iam.AgreementRef, opts ...Option) error
 	ResolveUsername(ctx context.Context, name string) (iam.NameResolution, error)
 	CheckUsername(ctx context.Context, name string) error
 	DeviceKeys(ctx context.Context, userID string) ([]iam.DeviceKey, error)

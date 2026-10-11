@@ -85,6 +85,7 @@ func newHTTP(e *engine.Engine, deps Deps) (*httpapi.Service, *httpapi.Mount, err
 	if err != nil {
 		return nil, nil, err
 	}
+	e.SetSMSLimiter(svc.Limiter())
 	mount, err := httpapi.NewMount(svc)
 	if err != nil {
 		svc.Close()

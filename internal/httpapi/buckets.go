@@ -94,6 +94,14 @@ const (
 	RLGroupRead  = "group_read"
 	RLGroupWrite = "group_write"
 
+	// Every text message, whatever route sends it, against SMS pumping:
+	// per destination number, account, client address and destination
+	// country (SMSConfig).
+	RLSMSNumber  = "sms_number"
+	RLSMSAccount = "sms_account"
+	RLSMSAddress = "sms_address"
+	RLSMSCountry = "sms_country"
+
 	// Solana SIWS authentication
 	RLSolanaChallenge = "solana_challenge"
 	RLSolanaLogin     = "solana_login"
@@ -136,6 +144,11 @@ var buckets = map[string]ratelimit.Limit{
 	RLInviteCreate:         {Limit: 20, Window: time.Hour, Cooldown: time.Minute},
 	RLStepUp2FASend:        {Limit: 6, Window: 10 * time.Minute},
 	RLStepUpCodeSend:       {Limit: 6, Window: 10 * time.Minute},
+	// Every text message, beside its route's bucket.
+	RLSMSNumber:  {Limit: 10, Window: time.Hour},
+	RLSMSAccount: {Limit: 10, Window: time.Hour},
+	RLSMSAddress: {Limit: 20, Window: time.Hour},
+	RLSMSCountry: {Limit: 1000, Window: time.Hour},
 
 	// They issue a secret. An OIDC start issues the flow's state.
 	RL2FASetupTOTP:       {Limit: 6, Window: time.Hour},

@@ -89,6 +89,31 @@ export const zh: AuthUiMessageBundle = {
     accountUnavailable:
       "此账号无法用于登录。可能已被关闭或受限。如认为有误，请联系客服。",
   },
+  contactSignIn: {
+    title: "登录或注册",
+    description: "输入你的邮箱或手机号码，我们会向你发送验证码。",
+    codeTitle: "输入验证码",
+    codeSentTo: "我们已向 {destination} 发送了 6 位验证码。",
+    useDifferent: "使用其他邮箱或手机号码",
+  },
+  agreements: {
+    signUpTitle: "创建账户",
+    signUpDescription: "要完成注册，请阅读并接受：",
+    dueTitle: "请查看我们的条款",
+    dueDescription: "要继续，请阅读并接受：",
+    accept: "我已阅读并同意以上内容",
+    agreeTo: "我已阅读并同意：",
+    required: "接受后才能创建账户",
+    createAccount: "创建账户",
+    continue: "接受并继续",
+    decline: "退出登录",
+  },
+  passkeyOffer: {
+    title: "下次更快登录",
+    description: "添加通行密钥，无需验证码即可用指纹、面容或屏幕锁登录。",
+    add: "添加通行密钥",
+    skip: "以后再说",
+  },
   register: {
     passwordHint: "至少使用 {min} 个字符。",
     complete: "您的账户已就绪。请登录以继续。",
@@ -490,6 +515,9 @@ export const zh: AuthUiMessageBundle = {
     },
   },
   errors: {
+    agreement_required: "请接受条款以继续。",
+    deletion_refused: "此账户暂时无法删除。",
+    phone_country_not_allowed: "无法向该国家或地区的号码发送短信。",
     authorization_request_not_found: "此登录请求已过期。请返回应用并重试。",
     network_error: "网络错误，请检查您的连接。",
     popup_blocked: "登录窗口被拦截。请允许弹出窗口后重试。",

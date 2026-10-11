@@ -91,6 +91,32 @@ export const ko: AuthUiMessageBundle = {
     accountUnavailable:
       "이 계정으로 로그인할 수 없습니다. 계정이 종료되었거나 제한되었을 수 있습니다. 오류라고 생각되면 고객 지원에 문의하세요.",
   },
+  contactSignIn: {
+    title: "로그인 또는 가입",
+    description: "이메일 또는 전화번호를 입력하세요. 코드를 보내 드립니다.",
+    codeTitle: "코드 입력",
+    codeSentTo: "{destination}(으)로 6자리 코드를 보냈습니다.",
+    useDifferent: "다른 이메일 또는 전화번호 사용",
+  },
+  agreements: {
+    signUpTitle: "계정 만들기",
+    signUpDescription: "가입을 마치려면 다음을 읽고 동의하세요:",
+    dueTitle: "약관을 확인하세요",
+    dueDescription: "계속하려면 다음을 읽고 동의하세요:",
+    accept: "내용을 읽었으며 동의합니다",
+    agreeTo: "다음을 읽었으며 동의합니다:",
+    required: "계정을 만들려면 동의해야 합니다",
+    createAccount: "계정 만들기",
+    continue: "동의하고 계속",
+    decline: "로그아웃",
+  },
+  passkeyOffer: {
+    title: "다음에는 더 빠르게 로그인",
+    description:
+      "패스키를 추가하면 코드 없이 지문, 얼굴 또는 화면 잠금으로 로그인할 수 있습니다.",
+    add: "패스키 추가",
+    skip: "나중에",
+  },
   register: {
     passwordHint: "{min}자 이상 사용하세요.",
     complete: "계정이 준비되었습니다. 계속하려면 로그인하세요.",
@@ -521,6 +547,10 @@ export const ko: AuthUiMessageBundle = {
     },
   },
   errors: {
+    agreement_required: "계속하려면 약관에 동의하세요.",
+    deletion_refused: "이 계정은 아직 삭제할 수 없습니다.",
+    phone_country_not_allowed:
+      "이 국가의 번호로는 문자 메시지를 보낼 수 없습니다.",
     authorization_request_not_found:
       "이 로그인 요청이 만료되었습니다. 앱으로 돌아가 다시 시도하세요.",
     network_error: "네트워크 오류입니다. 연결을 확인하세요.",

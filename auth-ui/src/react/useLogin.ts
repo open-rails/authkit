@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
 import type { SignInResult } from "../client/authResult.ts"
-import { AuthKitError } from "../client/errors.ts"
-import { passkeyDismissed } from "../client/webauthn.ts"
+import { AuthKitError, errorMetadata } from "../client/errors.ts"
+import { passkeyDismissed, webAuthnAvailable } from "../client/webauthn.ts"
 import type {
   AccountRecoveryConfirmation,
+  Agreement,
   DeviceVerificationStep,
   EnrollmentStep,
   SecondFactorStep,
   TwoFactorMethod,
   VerificationStep,
 } from "../client/types.ts"
-import { useAuthClient } from "./context.ts"
-import { useTask } from "./task.ts"
+import { useAuthClient, useCapabilities } from "./context.ts"
+import { toAuthKitError, useTask } from "./task.ts"
 
 // returnTo: where the flow began, handed back after sign-in.
 export type LoginState =
@@ -43,6 +44,21 @@ export type LoginState =
       verification: VerificationStep
       returnTo?: string
     }
+  // A code went to identifier, an email or phone (contact-first sign-in).
+  | { step: "code"; identifier: string; returnTo?: string }
+  // The code proved a new contact: the sign-up accepts these first.
+  | {
+      step: "signup_agreements"
+      identifier: string
+      code: string
+      agreements: Agreement[]
+      returnTo?: string
+    }
+  // Signed in, and these documents are due: never accepted, or a new
+  // version to accept again.
+  | { step: "agreements"; agreements: Agreement[]; returnTo?: string }
+  // Signed up with a code: a passkey makes the next sign-in one tap.
+  | { step: "passkey_offer"; returnTo?: string }
   // Signed in, but newly issued backup codes must be shown first.
   | { step: "backup_codes"; codes: string[]; returnTo?: string }
   | { step: "done"; returnTo?: string }
@@ -52,9 +68,15 @@ export type LoginOptions = {
   onSignedIn?: (result: { returnTo?: string }) => void
 }
 
-// Password or passkey sign-in plus every step an AuthResult can name next.
+const refs = (agreements: Agreement[]) =>
+  agreements.map(({ key, version }) => ({ key, version }))
+
+// Password, passkey or contact-code sign-in plus every step an AuthResult
+// can name next.
 export function useLogin(options: LoginOptions = {}) {
   const client = useAuthClient()
+  const { capabilities } = useCapabilities()
+  const passkeys = !!capabilities?.passkeys.login
   const { busy, error, run, clearError } = useTask()
   const [state, setState] = useState<LoginState>({ step: "credentials" })
   // Kept so account recovery can sign straight back in.
@@ -63,6 +85,8 @@ export function useLogin(options: LoginOptions = {}) {
   )
   // Backup codes a forced enrollment issued, shown once signed in.
   const pendingCodes = useRef<string[]>([])
+  // A code sign-up offers a passkey once it is signed in.
+  const offerPasskey = useRef(false)
   const onSignedIn = useRef(options.onSignedIn)
   useEffect(() => {
     onSignedIn.current = options.onSignedIn
@@ -80,11 +104,33 @@ export function useLogin(options: LoginOptions = {}) {
     onSignedIn.current?.({ returnTo })
   }, [])
 
+  // After the documents due: the passkey offer, then finish.
+  const accepted = useCallback(
+    (returnTo?: string) => {
+      const offer = offerPasskey.current && passkeys && webAuthnAvailable()
+      offerPasskey.current = false
+      if (offer) return setState({ step: "passkey_offer", returnTo })
+      finish(returnTo)
+    },
+    [finish, passkeys]
+  )
+
+  const complete = useCallback(
+    (result: SignInResult, returnTo?: string) => {
+      offerPasskey.current = offerPasskey.current && result.created
+      const due = result.agreements_due ?? []
+      if (due.length)
+        return setState({ step: "agreements", agreements: due, returnTo })
+      accepted(returnTo)
+    },
+    [accepted]
+  )
+
   const apply = useCallback(
     (result: SignInResult, returnTo = result.return_to ?? undefined) => {
       switch (result.status) {
         case "complete":
-          return finish(returnTo)
+          return complete(result, returnTo)
         case "second_factor_required":
           return setState({
             step: "two_factor",
@@ -113,7 +159,7 @@ export function useLogin(options: LoginOptions = {}) {
           })
       }
     },
-    [finish]
+    [complete]
   )
 
   const signIn = useCallback(
@@ -123,6 +169,148 @@ export function useLogin(options: LoginOptions = {}) {
         pendingCodes.current = []
         apply(await client.signInWithPassword(input))
       }),
+    [client, run, apply]
+  )
+
+  // Sends a code to identifier (an email, or a phone in E.164) for a
+  // contact-first sign-in: a sign-up when nobody has it yet.
+  const sendCode = useCallback(
+    (
+      identifier: string,
+      opts: { returnTo?: string; inviteCode?: string } = {}
+    ) =>
+      run(async () => {
+        credentials.current = null
+        pendingCodes.current = []
+        await client.startPasswordless({
+          identifier,
+          mode: "code",
+          returnTo: opts.returnTo,
+          inviteCode: opts.inviteCode,
+        })
+        setState({ step: "code", identifier, returnTo: opts.returnTo })
+      }),
+    [client, run]
+  )
+
+  const resendCode = useCallback(
+    () =>
+      run(async () => {
+        if (state.step !== "code") return
+        await client.startPasswordless({
+          identifier: state.identifier,
+          mode: "code",
+          returnTo: state.returnTo,
+        })
+      }),
+    [client, run, state]
+  )
+
+  // A new contact's code answers agreement_required: the sign-up step.
+  const confirmCode = useCallback(
+    (code: string) =>
+      run(async () => {
+        if (state.step !== "code") return
+        const { identifier, returnTo } = state
+        offerPasskey.current = true
+        try {
+          apply(
+            await client.confirmPasswordless({ identifier, code: code.trim() }),
+            returnTo
+          )
+        } catch (err) {
+          const required = errorMetadata(err, "agreement_required")
+          if (!required) throw err
+          setState({
+            step: "signup_agreements",
+            identifier,
+            code: code.trim(),
+            agreements: required.agreements,
+            returnTo,
+          })
+        }
+      }),
+    [client, run, apply, state]
+  )
+
+  const acceptSignUp = useCallback(
+    () =>
+      run(async () => {
+        if (state.step !== "signup_agreements") return
+        const { identifier, code, agreements, returnTo } = state
+        offerPasskey.current = true
+        apply(
+          await client.confirmPasswordless({
+            identifier,
+            code,
+            agreements: refs(agreements),
+          }),
+          returnTo
+        )
+      }),
+    [client, run, apply, state]
+  )
+
+  // Accepts the documents a sign-in found due, then continues.
+  const acceptAgreements = useCallback(
+    () =>
+      run(async () => {
+        if (state.step !== "agreements") return
+        await client.acceptAgreements(refs(state.agreements))
+        accepted(state.returnTo)
+      }),
+    [client, run, accepted, state]
+  )
+
+  // Declining what is due signs out.
+  const declineAgreements = useCallback(
+    () =>
+      run(async () => {
+        if (state.step !== "agreements") return
+        await client.signOut()
+        setState({ step: "credentials" })
+      }),
+    [client, run, state]
+  )
+
+  // Adds a passkey after a code sign-up; closing the prompt keeps the offer.
+  const addPasskey = useCallback(
+    () =>
+      run(async () => {
+        if (state.step !== "passkey_offer") return
+        try {
+          await client.registerPasskey()
+        } catch (err) {
+          if (passkeyDismissed(err)) return
+          throw err
+        }
+        finish(state.returnTo)
+      }),
+    [client, run, finish, state]
+  )
+
+  const skipPasskey = useCallback(() => {
+    if (state.step !== "passkey_offer") return
+    finish(state.returnTo)
+  }, [finish, state])
+
+  // Waits for the contact field's autofill to offer a saved passkey
+  // (conditional mediation) until signal aborts. It never marks the form
+  // busy; a failure other than the user's dismissal shows as the error.
+  const autofillPasskey = useCallback(
+    async (signal: AbortSignal) => {
+      let result: SignInResult
+      try {
+        result = await client.signInWithPasskey({ conditional: true, signal })
+      } catch (err) {
+        if (signal.aborted || passkeyDismissed(err)) return
+        void run(() => Promise.reject(toAuthKitError(err)))
+        return
+      }
+      credentials.current = null
+      pendingCodes.current = []
+      apply(result)
+    },
     [client, run, apply]
   )
 
@@ -340,6 +528,7 @@ export function useLogin(options: LoginOptions = {}) {
   const reset = useCallback(() => {
     credentials.current = null
     pendingCodes.current = []
+    offerPasskey.current = false
     clearError()
     setState({ step: "credentials" })
   }, [clearError])
@@ -350,7 +539,16 @@ export function useLogin(options: LoginOptions = {}) {
     error,
     signIn,
     signInWithPasskey,
+    autofillPasskey,
     signInWithPopup,
+    sendCode,
+    resendCode,
+    confirmCode,
+    acceptSignUp,
+    acceptAgreements,
+    declineAgreements,
+    addPasskey,
+    skipPasskey,
     resume,
     verifyTwoFactor,
     sendTwoFactorCode,

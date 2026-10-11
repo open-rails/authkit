@@ -362,6 +362,34 @@ import { SolanaSignInButton } from "@openrails/auth-ui/solana"
   `<VerifyLink token={readLinkFragment(location.hash)?.token} navigate={(to) => router.replace(to)} />`
   confirms the emailed/texted link once; `useVerifyLink` is the headless hook.
 
+#### Contact-first sign-in
+
+```tsx
+import { ContactSignIn } from "@openrails/auth-ui"
+
+;<ContactSignIn
+  defaultPhoneCountry="US"
+  initialIdentifier={loginHint} // pre-fills; proves nothing
+  onSignedIn={() => router.navigate("/account")}
+/>
+```
+
+- One field for an email or phone, then the 6-digit code sent there
+  (AuthKit `Registration.PasswordlessLogin`). The field's autofill offers
+  saved passkeys (`autocomplete="username webauthn"`, WebAuthn conditional
+  mediation); a "Sign in with a passkey" button covers browsers without it.
+- A new contact signs up (`PasswordlessAutoRegistration`): when AuthKit
+  answers `agreement_required`, the user reads and accepts the documents and
+  the same code creates the account. A code sign-up then offers a passkey.
+- Any completed sign-in whose `agreements_due` is not empty asks the user to
+  accept them (`POST /me/agreements`) or sign out. `RegisterForm` shows an
+  "I agree" box when `/capabilities` lists `registration.agreements`, and a
+  provider sign-up started there carries them. `OAuthAuthorize` asks for an
+  OAuth client's agreements before approving it.
+- `useLogin()` exposes the same steps headless: `sendCode`, `confirmCode`,
+  `acceptSignUp`, `acceptAgreements`, `addPasskey`, `skipPasskey`, and
+  `autofillPasskey(signal)`.
+
 ### Account security
 
 ```tsx

@@ -1,5 +1,6 @@
 export { AuthCallback, type AuthCallbackProps } from "./AuthCallback.tsx"
 export { BackupCodes, type BackupCodesProps } from "./BackupCodes.tsx"
+export { ContactSignIn, type ContactSignInProps } from "./ContactSignIn.tsx"
 export {
   ForgotPasswordForm,
   type ForgotPasswordFormProps,

@@ -20,7 +20,9 @@ pkg authkit, func NewRoles(...PersonaOption) *Roles
 pkg authkit, func ParseBootstrapManifestYAML([]byte) (iam.BootstrapManifest, error)
 pkg authkit, func WithRiverClient(*river.Client[pgx.Tx]) StartOption
 pkg authkit, method (*Client) APIBase() string
+pkg authkit, method (*Client) AcceptAgreements(context.Context, string, []iam.AgreementRef, ...Option) error
 pkg authkit, method (*Client) AcceptRemoteInvitation(context.Context, auth.Verified, string) (iam.Role, error)
+pkg authkit, method (*Client) AgreementsDue(context.Context, string) ([]iam.Agreement, error)
 pkg authkit, method (*Client) ApplyBootstrapManifest(context.Context, iam.BootstrapManifest, iam.BootstrapOptions, ...Option) (iam.BootstrapResult, error)
 pkg authkit, method (*Client) AuthenticateRequest(context.Context, *http.Request) (auth.Verified, error)
 pkg authkit, method (*Client) Authenticator() auth.Authenticator
@@ -103,6 +105,7 @@ pkg authkit, method (*Client) UpdateGroupRole(context.Context, auth.Identity, ia
 pkg authkit, method (*Client) UpdateUser(context.Context, auth.Identity, string, iam.UserUpdate, ...Option) (iam.User, error)
 pkg authkit, method (*Client) UpsertRemoteApplication(context.Context, auth.Identity, iam.GroupRef, iam.RemoteApplication, ...Option) (iam.RemoteApplication, error)
 pkg authkit, method (*Client) User(context.Context, iam.UserRef, ...Option) (iam.User, error)
+pkg authkit, method (*Client) UserAgreements(context.Context, string) ([]iam.AgreementAcceptance, error)
 pkg authkit, method (*Client) UserInfo() userinfo.Lookup
 pkg authkit, method (*Client) Users(context.Context, []string) (map[string]iam.User, error)
 pkg authkit, method (*Client) Verify(context.Context, string) (verify.Claims, error)
@@ -143,6 +146,12 @@ pkg authkit, type APIKeysConfig = config.APIKeysConfig
 pkg authkit, type APIKeysConfig struct
 pkg authkit, type APIKeysConfig struct, MaxTTL time.Duration `yaml:"max_ttl"`
 pkg authkit, type APIKeysConfig struct, Prefix string `yaml:"prefix"`
+pkg authkit, type AgreementConfig = config.AgreementConfig
+pkg authkit, type AgreementConfig struct
+pkg authkit, type AgreementConfig struct, Key string `yaml:"key"`
+pkg authkit, type AgreementConfig struct, Reaccept bool `yaml:"reaccept"`
+pkg authkit, type AgreementConfig struct, URL string `yaml:"url"`
+pkg authkit, type AgreementConfig struct, Version string `yaml:"version"`
 pkg authkit, type AuthorizationServerConfig = config.AuthorizationServerConfig
 pkg authkit, type AuthorizationServerConfig struct
 pkg authkit, type AuthorizationServerConfig struct, AccessTokenTTL time.Duration `yaml:"access_token_ttl"`
@@ -153,6 +162,7 @@ pkg authkit, type Client struct
 pkg authkit, type Config = config.Config
 pkg authkit, type Config struct
 pkg authkit, type Config struct, APIKeys config.APIKeysConfig `yaml:"api_keys"`
+pkg authkit, type Config struct, Agreements []config.AgreementConfig `yaml:"agreements"`
 pkg authkit, type Config struct, AuthorizationServer config.AuthorizationServerConfig `yaml:"authorization_server"`
 pkg authkit, type Config struct, CleanupInterval time.Duration `yaml:"cleanup_interval"`
 pkg authkit, type Config struct, Database config.DatabaseConfig `yaml:"database"`
@@ -169,6 +179,7 @@ pkg authkit, type Config struct, Registration config.RegistrationConfig `yaml:"r
 pkg authkit, type Config struct, RemoteApplications []config.RemoteApplicationConfig `yaml:"remote_applications"`
 pkg authkit, type Config struct, Resource config.ResourceConfig `yaml:"resource"`
 pkg authkit, type Config struct, Roles *config.Roles `yaml:"-"`
+pkg authkit, type Config struct, SMS config.SMSConfig `yaml:"sms"`
 pkg authkit, type Config struct, SenderHealthInterval time.Duration `yaml:"sender_health_interval"`
 pkg authkit, type Config struct, SessionEventRetention time.Duration `yaml:"session_event_retention"`
 pkg authkit, type Config struct, SignIn config.SignInConfig `yaml:"sign_in"`
@@ -190,6 +201,7 @@ pkg authkit, type DatabaseConfig struct, Schema string `yaml:"schema"`
 pkg authkit, type Deps = config.Deps
 pkg authkit, type Deps struct
 pkg authkit, type Deps struct, ClientIP func(*http.Request) string
+pkg authkit, type Deps struct, DeletionCheck func(context.Context, string) error
 pkg authkit, type Deps struct, Email config.EmailSender
 pkg authkit, type Deps struct, EntitlementHolders func(context.Context, string) ([]string, error)
 pkg authkit, type Deps struct, Entitlements func(context.Context, []string) (map[string][]string, error)
@@ -263,6 +275,7 @@ pkg authkit, type MemberPerms struct, Read iam.Perm
 pkg authkit, type MemberPerms struct, embedded config.Resource
 pkg authkit, type OAuthClientConfig = config.OAuthClientConfig
 pkg authkit, type OAuthClientConfig struct
+pkg authkit, type OAuthClientConfig struct, Agreements []string `yaml:"agreements"`
 pkg authkit, type OAuthClientConfig struct, AuthorizationDetailsTypes []string `yaml:"authorization_details_types"`
 pkg authkit, type OAuthClientConfig struct, GrantTypes []config.OAuthGrantType `yaml:"grant_types"`
 pkg authkit, type OAuthClientConfig struct, ID string `yaml:"id"`
@@ -328,6 +341,7 @@ pkg authkit, type RateLimit struct, Limit int `yaml:"limit"`
 pkg authkit, type RateLimit struct, Window time.Duration `yaml:"window"`
 pkg authkit, type RegistrationConfig = config.RegistrationConfig
 pkg authkit, type RegistrationConfig struct
+pkg authkit, type RegistrationConfig struct, Agreements []string `yaml:"agreements"`
 pkg authkit, type RegistrationConfig struct, AllowMissingSenders bool `yaml:"allow_missing_senders"`
 pkg authkit, type RegistrationConfig struct, NativeUserMode iam.RegistrationMode `yaml:"native_user_mode"`
 pkg authkit, type RegistrationConfig struct, PasswordlessAutoRegistration bool `yaml:"passwordless_auto_registration"`
@@ -367,6 +381,9 @@ pkg authkit, type RootDef = config.RootDef
 pkg authkit, type RootDef struct
 pkg authkit, type RootDef struct, Users config.UserPerms
 pkg authkit, type RootDef struct, embedded *config.PersonaDef
+pkg authkit, type SMSConfig = config.SMSConfig
+pkg authkit, type SMSConfig struct
+pkg authkit, type SMSConfig struct, AllowedCountries []string `yaml:"allowed_countries"`
 pkg authkit, type SMSSender = config.SMSSender
 pkg authkit, type SMSSender interface
 pkg authkit, type SMSSender interface, CheckHealth(context.Context) error
@@ -567,12 +584,14 @@ pkg authkit/authtest, type Message struct, Channel string `json:"channel"`
 pkg authkit/authtest, type Message struct, Code string `json:"code,omitempty"`
 pkg authkit/authtest, type Message struct, ContactChange *iam.ContactChange `json:"contact_change,omitempty"`
 pkg authkit/authtest, type Message struct, DeviceKey *iam.DeviceKeyNotice `json:"device_key,omitempty"`
+pkg authkit/authtest, type Message struct, Domain string `json:"domain,omitempty"`
 pkg authkit/authtest, type Message struct, Kind iam.MessageKind `json:"kind"`
 pkg authkit/authtest, type Message struct, Language string `json:"language"`
 pkg authkit/authtest, type Message struct, Link string `json:"link,omitempty"`
 pkg authkit/authtest, type Message struct, Purpose iam.VerificationPurpose `json:"purpose,omitempty"`
 pkg authkit/authtest, type Message struct, To string `json:"to"`
 pkg authkit/authtest, type Message struct, Token string `json:"token,omitempty"`
+pkg authkit/authtest, type Message struct, UserID string `json:"user_id,omitempty"`
 pkg authkit/authtest, type OAuthTokens struct
 pkg authkit/authtest, type OAuthTokens struct, AccessToken string `json:"access_token"`
 pkg authkit/authtest, type OAuthTokens struct, AuthorizationDetails json.RawMessage `json:"authorization_details"`
@@ -645,6 +664,9 @@ pkg authkit/devicekey, type Session struct
 pkg authkit/devicekey, type Session struct, AccessToken string
 pkg authkit/devicekey, type Session struct, DeviceKey iam.DeviceKey
 pkg authkit/devicekey, type Session struct, ExpiresAt time.Time
+pkg authkit/iam, const AgreementAtRegistration AgreementChannel = "registration"
+pkg authkit/iam, const AgreementByHost AgreementChannel = "host"
+pkg authkit/iam, const AgreementInAccount AgreementChannel = "account"
 pkg authkit/iam, const ApplicationTrustRootManual ApplicationTrustRoot = "manual"
 pkg authkit/iam, const ApplicationTrustRootUser ApplicationTrustRoot = "user"
 pkg authkit/iam, const AssuranceLevelMFA untyped string = "urn:authkit:loa:2"
@@ -806,6 +828,7 @@ pkg authkit/iam, func GroupByID(string) GroupRef
 pkg authkit/iam, func InSession(auth.Identity, SessionRef) auth.Identity
 pkg authkit/iam, func PinnedTo(auth.Identity, string) auth.Identity
 pkg authkit/iam, func PublicDisplayName(map[string]PublicUser, string) string
+pkg authkit/iam, func RefuseDeletion(string) error
 pkg authkit/iam, func RemoteApplicationSubject(string) Subject
 pkg authkit/iam, func RootGroup() GroupRef
 pkg authkit/iam, func RootPersona() Persona
@@ -865,6 +888,7 @@ pkg authkit/iam, method (Role) Name() string
 pkg authkit/iam, method (Role) Persona() Persona
 pkg authkit/iam, method (Role) String() string
 pkg authkit/iam, method (Route) Pattern() string
+pkg authkit/iam, method (SMSMessage) OriginBoundLine() string
 pkg authkit/iam, method (SessionRef) IsZero() bool
 pkg authkit/iam, method (UserRef) IsZero() bool
 pkg authkit/iam, method (UserRef) Key() UserKey
@@ -895,6 +919,19 @@ pkg authkit/iam, type AccountSessionRevocation struct, Issuers []string `json:"i
 pkg authkit/iam, type AccountSessionRevocation struct, RevokedDeviceKeys int `json:"revoked_device_keys"`
 pkg authkit/iam, type AccountSessionRevocation struct, RevokedSessions map[string]int `json:"revoked_sessions"`
 pkg authkit/iam, type AccountSessionRevocation struct, UnlistedIssuerSessions int `json:"unlisted_issuer_sessions"`
+pkg authkit/iam, type Agreement struct
+pkg authkit/iam, type Agreement struct, Key string `json:"key"`
+pkg authkit/iam, type Agreement struct, URL string `json:"url"`
+pkg authkit/iam, type Agreement struct, Version string `json:"version"`
+pkg authkit/iam, type AgreementAcceptance struct
+pkg authkit/iam, type AgreementAcceptance struct, AcceptedAt time.Time `json:"accepted_at"`
+pkg authkit/iam, type AgreementAcceptance struct, Channel AgreementChannel `json:"channel"`
+pkg authkit/iam, type AgreementAcceptance struct, Key string `json:"key"`
+pkg authkit/iam, type AgreementAcceptance struct, Version string `json:"version"`
+pkg authkit/iam, type AgreementChannel string
+pkg authkit/iam, type AgreementRef struct
+pkg authkit/iam, type AgreementRef struct, Key string `json:"key"`
+pkg authkit/iam, type AgreementRef struct, Version string `json:"version"`
 pkg authkit/iam, type AppRef struct
 pkg authkit/iam, type ApplicationTrustRoot string
 pkg authkit/iam, type Ban struct
@@ -1269,11 +1306,13 @@ pkg authkit/iam, type RouteGroup string
 pkg authkit/iam, type SMSMessage struct
 pkg authkit/iam, type SMSMessage struct, Code string
 pkg authkit/iam, type SMSMessage struct, ContactChange *ContactChange
+pkg authkit/iam, type SMSMessage struct, Domain string
 pkg authkit/iam, type SMSMessage struct, Kind MessageKind
 pkg authkit/iam, type SMSMessage struct, Language string
 pkg authkit/iam, type SMSMessage struct, Link string
 pkg authkit/iam, type SMSMessage struct, Purpose VerificationPurpose
 pkg authkit/iam, type SMSMessage struct, To string
+pkg authkit/iam, type SMSMessage struct, UserID string
 pkg authkit/iam, type Session struct
 pkg authkit/iam, type Session struct, CreatedAt time.Time `json:"created_at"`
 pkg authkit/iam, type Session struct, Current bool `json:"current"`
@@ -1367,8 +1406,10 @@ pkg authkit/iam, var ErrAPIKeyNotFound Error
 pkg authkit/iam, var ErrAPIKeyRevoked Error
 pkg authkit/iam, var ErrAccountAuthorityEscalation Error
 pkg authkit/iam, var ErrAccountRecoveryExpired Error
+pkg authkit/iam, var ErrAgreementRequired Error
 pkg authkit/iam, var ErrCannotTargetSelf Error
 pkg authkit/iam, var ErrContactNotVerified Error
+pkg authkit/iam, var ErrDeletionRefused Error
 pkg authkit/iam, var ErrDeviceKeysDisabled Error
 pkg authkit/iam, var ErrEmailInUse Error
 pkg authkit/iam, var ErrEntitlementFilterUnavailable Error

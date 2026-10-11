@@ -63,7 +63,7 @@ func (s *Service) routes(surface Surface, groups []iam.RouteGroup, wrap func(Rou
 		if route.signsIn() && s.countsDevices() {
 			h = s.withSignInDevice(h)
 		}
-		route.Handler = s.languageMiddleware(wrap(route, h))
+		route.Handler = s.languageMiddleware(s.withClientAddress(wrap(route, h)))
 		out = append(out, route)
 	}
 	return out
@@ -92,7 +92,7 @@ func (s *Service) mounts(f Feature) bool {
 	case FeatureInvitations:
 		return !cfg.Invitations.Disabled
 	case FeatureNewDevices:
-		return cfg.SignIn.NewDevicesPerAccount > 0
+		return cfg.SignIn.NewDevicesPerAccount > 0 || s.smsSender
 	case FeatureAuthorizationServer:
 		return config.AuthorizationServerEnabled(cfg.AuthorizationServer)
 	case FeatureTokenEndpoint:

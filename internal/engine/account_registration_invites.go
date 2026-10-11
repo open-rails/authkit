@@ -29,6 +29,23 @@ func contextWithAccountRegistrationInviteToken(ctx context.Context, token string
 	return context.WithValue(ctx, accountInviteTokenContextKey{}, token)
 }
 
+type registrationAgreementsContextKey struct{}
+
+// contextWithRegistrationAgreements carries a sign-up's accepted documents
+// from its start to the pending registration it stores, as the invitation
+// token is carried.
+func contextWithRegistrationAgreements(ctx context.Context, refs []iam.AgreementRef) context.Context {
+	if len(refs) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, registrationAgreementsContextKey{}, refs)
+}
+
+func registrationAgreementsFromContext(ctx context.Context) []iam.AgreementRef {
+	refs, _ := ctx.Value(registrationAgreementsContextKey{}).([]iam.AgreementRef)
+	return refs
+}
+
 func accountRegistrationInviteTokenFromContext(ctx context.Context) string {
 	token, _ := ctx.Value(accountInviteTokenContextKey{}).(string)
 	return strings.TrimSpace(token)

@@ -25,6 +25,7 @@ require (
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/mr-tron/base58 v1.3.0 // indirect
 	github.com/muhlemmer/gu v0.3.1 // indirect
+	github.com/nyaruka/phonenumbers v1.8.1 // indirect
 	github.com/open-rails/helpers v1.7.0 // indirect
 	github.com/open-rails/migratekit v1.10.0 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
@@ -52,6 +53,7 @@ require (
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
+	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 

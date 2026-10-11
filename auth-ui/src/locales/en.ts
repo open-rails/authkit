@@ -100,6 +100,32 @@ export const en = {
     resetRequiredAction: "Reset your password",
     recovered: "Your account was restored. Sign in to continue.",
   },
+  contactSignIn: {
+    title: "Sign in or sign up",
+    description: "Enter your email or phone number. We'll send you a code.",
+    codeTitle: "Enter your code",
+    codeSentTo: "We sent a 6-digit code to {destination}.",
+    useDifferent: "Use a different email or phone",
+  },
+  agreements: {
+    signUpTitle: "Create your account",
+    signUpDescription: "To finish signing up, read and accept:",
+    dueTitle: "Review our terms",
+    dueDescription: "To continue, read and accept:",
+    accept: "I have read and agree to these",
+    agreeTo: "I have read and agree to:",
+    required: "Accept these to create your account",
+    createAccount: "Create account",
+    continue: "Accept and continue",
+    decline: "Sign out",
+  },
+  passkeyOffer: {
+    title: "Sign in faster next time",
+    description:
+      "Add a passkey to sign in with your fingerprint, face or screen lock, without a code.",
+    add: "Add a passkey",
+    skip: "Not now",
+  },
   register: {
     title: "Create account",
     submit: "Register",

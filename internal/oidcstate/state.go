@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"time"
 
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 )
 
@@ -34,6 +35,8 @@ type StateData struct {
 	LinkAuthenticatedAt time.Time
 	ReturnTo            string
 	AccountInviteToken  string
+	// Agreements a sign-up through the provider accepts.
+	Agreements []iam.AgreementRef
 	// StepUp* fields identify a step-up authentication flow for an existing
 	// session. Login/link flows leave these empty.
 	StepUpUserID    string

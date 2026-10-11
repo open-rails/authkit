@@ -84,3 +84,27 @@ type ContactProofRequired struct {
 	Channel    string `json:"channel"`
 	Reason     string `json:"reason"`
 }
+
+// AgreementsRequired is agreement_required's metadata: the documents, at
+// their current versions, still to accept.
+type AgreementsRequired struct {
+	Agreements []AgreementDocument `json:"agreements"`
+}
+
+// AgreementDocument is one document at one version.
+type AgreementDocument struct {
+	Key     string `json:"key"`
+	Version string `json:"version"`
+	URL     string `json:"url"`
+}
+
+// DeletionRefusal is deletion_refused's metadata: the host's reason code.
+type DeletionRefusal struct {
+	Reason string `json:"reason"`
+}
+
+// PhoneCountry is phone_country_not_allowed's metadata: the number's region
+// (ISO 3166-1 alpha-2; empty when unknown).
+type PhoneCountry struct {
+	Country string `json:"country"`
+}

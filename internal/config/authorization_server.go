@@ -74,6 +74,10 @@ type OAuthClientConfig struct {
 	// host's grant authorizer (Deps.OAuthGrants) decides each grant, so
 	// declaring any needs one.
 	AuthorizationDetailsTypes []string `yaml:"authorization_details_types"`
+	// Agreements are keys of Config.Agreements a user accepts, at their
+	// current versions, before approving the client's sign-in: approval
+	// answers agreement_required until they do.
+	Agreements []string `yaml:"agreements"`
 }
 
 // ResourceServerConfig registers one resource server: an API that accepts
@@ -251,6 +255,12 @@ func normalizeAuthorizationServer(a *AuthorizationServerConfig, c Config) error 
 		}
 		if slices.ContainsFunc(clients, func(o OAuthClientConfig) bool { return o.ID == cl.ID }) {
 			return fmt.Errorf("authkit: AuthorizationServer.Clients[%d]: client %q is declared twice", i, cl.ID)
+		}
+		cl.Agreements = dedup(cl.Agreements)
+		for _, key := range cl.Agreements {
+			if !slices.ContainsFunc(c.Agreements, func(a AgreementConfig) bool { return a.Key == key }) {
+				return fmt.Errorf("authkit: AuthorizationServer.Clients[%d]: client %q names agreement %q, which Agreements does not declare", i, cl.ID, key)
+			}
 		}
 		clients = append(clients, cl)
 	}

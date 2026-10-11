@@ -142,3 +142,25 @@ func (a *Client) PurgeUsers(ctx context.Context, ids []string, opts ...Option) (
 func (a *Client) ResetAccountMFA(ctx context.Context, userID string, opts ...Option) error {
 	return a.ops.ResetAccountMFA(ctx, userID, opts...)
 }
+
+// UserAgreements returns every version of a Config.Agreements document the
+// user accepted, with when and where (registration, their account, or the
+// host). Gate a feature on a document's current version: OpenRails' network
+// API on its network terms, say.
+func (a *Client) UserAgreements(ctx context.Context, userID string) ([]iam.AgreementAcceptance, error) {
+	return a.ops.UserAgreements(ctx, userID)
+}
+
+// AgreementsDue returns the documents the user is asked to accept now: one
+// Registration.Agreements names that the account never accepted, and one
+// marked Reaccept whose earlier version it accepted.
+func (a *Client) AgreementsDue(ctx context.Context, userID string) ([]iam.Agreement, error) {
+	return a.ops.AgreementsDue(ctx, userID)
+}
+
+// AcceptAgreements records the user's acceptance of documents at their
+// current versions, given in the host's own flow (a merchant sign-up's
+// terms, say); an earlier version is iam.ErrAgreementRequired.
+func (a *Client) AcceptAgreements(ctx context.Context, userID string, agreements []iam.AgreementRef, opts ...Option) error {
+	return a.ops.AcceptAgreements(ctx, userID, agreements, opts...)
+}

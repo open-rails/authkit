@@ -71,6 +71,10 @@ func (s *Engine) StartPasswordless(ctx context.Context, req authflow.Passwordles
 		return authflow.PasswordlessStartResult{}, errmodel.ErrEmailUnavailable
 	case channel == passwordlessChannelSMS && !s.SMSAvailable():
 		return authflow.PasswordlessStartResult{}, errmodel.ErrSMSUnavailable
+	case channel == passwordlessChannelSMS:
+		if _, err := s.smsRegion(identifier); err != nil {
+			return authflow.PasswordlessStartResult{}, err
+		}
 	}
 	ctx = contextWithAccountRegistrationInviteToken(ctx, req.AccountInviteToken)
 	mode := normalizePasswordlessMode(req.Mode)
@@ -195,7 +199,18 @@ func (s *Engine) PasswordlessLogin(ctx context.Context, in authflow.Passwordless
 	} else {
 		return authflow.LoginOutcome{}, jwt.ErrTokenInvalidClaims
 	}
-	account, err := s.consumePasswordlessChallenge(ctx, rec)
+	// A sign-up accepts its agreements before the code is spent, so the
+	// retry that accepts them reuses it.
+	var agreements []iam.AgreementRef
+	if rec.UserID == "" {
+		if agreements, err = s.acceptable(in.Agreements); err != nil {
+			return authflow.LoginOutcome{}, err
+		}
+		if err := s.requireRegistrationAgreements(agreements); err != nil {
+			return authflow.LoginOutcome{}, err
+		}
+	}
+	account, err := s.consumePasswordlessChallenge(ctx, rec, accountRegistration{Agreements: agreements, IP: in.IP, UserAgent: in.UserAgent})
 	if err != nil {
 		return authflow.LoginOutcome{}, err
 	}
@@ -265,7 +280,9 @@ func (s *Engine) clearPasswordlessCodeAttempts(ctx context.Context, identifier s
 	_ = s.ephemDel(ctx, keyPasswordlessAttempts+channel+":"+normalized)
 }
 
-func (s *Engine) consumePasswordlessChallenge(ctx context.Context, rec passwordlessChallenge) (registeredAccount, error) {
+// consumePasswordlessChallenge spends rec: a sign-in, or a sign-up with
+// signup's agreements and client.
+func (s *Engine) consumePasswordlessChallenge(ctx context.Context, rec passwordlessChallenge, signup accountRegistration) (registeredAccount, error) {
 	if err := s.claimProof(ctx, passwordlessKey(rec.Channel, rec.Identifier), rec.expected); err != nil {
 		return registeredAccount{}, err
 	}
@@ -276,7 +293,7 @@ func (s *Engine) consumePasswordlessChallenge(ctx context.Context, rec passwordl
 		if !s.passwordlessAutoRegistrationAllowed() {
 			return registeredAccount{}, jwt.ErrTokenUnverifiable
 		}
-		return s.createPasswordlessUser(ctx, rec)
+		return s.createPasswordlessUser(ctx, rec, signup)
 	}
 	return s.verifyContactProofWithRecovery(ctx, rec.UserID, rec.Version, rec.Channel, rec.Identifier, true, nil, 0)
 }
@@ -343,7 +360,7 @@ func (s *Engine) verifyContactProofWithRecovery(ctx context.Context, userID stri
 	return registeredAccount{ID: u.ID, Version: current.CredentialVersion}, nil
 }
 
-func (s *Engine) createPasswordlessUser(ctx context.Context, rec passwordlessChallenge) (registeredAccount, error) {
+func (s *Engine) createPasswordlessUser(ctx context.Context, rec passwordlessChallenge, signup accountRegistration) (registeredAccount, error) {
 	username := rec.GeneratedUsername
 	if username == "" || s.ValidateUsername(username) != nil {
 		username = s.derivePasswordlessUsername(ctx, rec.Channel, rec.Identifier)
@@ -361,7 +378,8 @@ func (s *Engine) createPasswordlessUser(ctx context.Context, rec passwordlessCha
 	}
 	// A signup proof stays a signup: a uniqueness race never changes it into
 	// an existing-account login that skips its invitation/admission checks.
-	user, err := s.registerAccount(ctx, accountRegistration{User: in, Language: rec.PreferredLanguage, InviteToken: rec.AccountInviteToken})
+	signup.User, signup.Language, signup.InviteToken = in, rec.PreferredLanguage, rec.AccountInviteToken
+	user, err := s.registerAccount(ctx, signup)
 	if err != nil {
 		return registeredAccount{}, err
 	}
@@ -375,7 +393,7 @@ func (s *Engine) sendPasswordlessChallenge(ctx context.Context, rec passwordless
 		return s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessageVerification, To: rec.Identifier, Username: rec.GeneratedUsername,
 			Language: language, Code: code, Link: linkURL, Purpose: iam.PurposePasswordlessLogin})
 	case passwordlessChannelSMS:
-		return s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessageVerification, To: rec.Identifier,
+		return s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessageVerification, To: rec.Identifier, UserID: rec.UserID,
 			Language: language, Code: code, Link: linkURL, Purpose: iam.PurposePasswordlessLogin})
 	default:
 		return jwt.ErrTokenInvalidClaims

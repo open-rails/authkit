@@ -80,6 +80,12 @@ func Normalize(c Config, d Deps) (Config, error) {
 	if err := normalizeRegistration(&c.Registration); err != nil {
 		return Config{}, err
 	}
+	if err := normalizeAgreements(&c); err != nil {
+		return Config{}, err
+	}
+	if err := normalizeSMS(&c.SMS); err != nil {
+		return Config{}, err
+	}
 	if c.Invitations.Disabled && c.Registration.NativeUserMode == iam.RegistrationModeInviteOnly {
 		return Config{}, errors.New("authkit: Registration.NativeUserMode \"invite_only\" needs invitations, but Invitations.Disabled is set")
 	}
@@ -335,6 +341,63 @@ func normalizeRegistration(r *RegistrationConfig) error {
 		r.VerificationSendTimeout = defaultVerificationSendTimeout
 	}
 	return nil
+}
+
+var agreementKey = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
+
+// normalizeAgreements trims the declared documents and refuses a malformed or
+// repeated key, a missing version or URL, and a registration requirement that
+// names no declared document.
+func normalizeAgreements(c *Config) error {
+	declared := map[string]bool{}
+	out := make([]AgreementConfig, 0, len(c.Agreements))
+	for _, a := range c.Agreements {
+		a.Key, a.Version, a.URL = strings.TrimSpace(a.Key), strings.TrimSpace(a.Version), strings.TrimSpace(a.URL)
+		switch {
+		case !agreementKey.MatchString(a.Key):
+			return fmt.Errorf("authkit: Agreements key %q must be 1-64 lowercase letters, digits, '-' or '_'", a.Key)
+		case declared[a.Key]:
+			return fmt.Errorf("authkit: Agreements declares %q twice", a.Key)
+		case a.Version == "" || len(a.Version) > 64:
+			return fmt.Errorf("authkit: Agreements %q needs a version of 1-64 characters", a.Key)
+		case !isHTTPURL(a.URL):
+			return fmt.Errorf("authkit: Agreements %q needs an absolute http(s) URL", a.Key)
+		}
+		declared[a.Key] = true
+		out = append(out, a)
+	}
+	if len(out) == 0 {
+		out = nil
+	}
+	c.Agreements = out
+	required := dedup(c.Registration.Agreements)
+	for _, key := range required {
+		if !declared[key] {
+			return fmt.Errorf("authkit: Registration.Agreements names %q, which Agreements does not declare", key)
+		}
+	}
+	c.Registration.Agreements = required
+	return nil
+}
+
+// normalizeSMS upper-cases the allowed regions and refuses one that is not
+// two letters.
+func normalizeSMS(s *SMSConfig) error {
+	regions := make([]string, 0, len(s.AllowedCountries))
+	for _, r := range s.AllowedCountries {
+		r = strings.ToUpper(strings.TrimSpace(r))
+		if len(r) != 2 || r[0] < 'A' || r[0] > 'Z' || r[1] < 'A' || r[1] > 'Z' {
+			return fmt.Errorf("authkit: SMS.AllowedCountries entry %q is not an ISO 3166-1 alpha-2 region", r)
+		}
+		regions = append(regions, r)
+	}
+	s.AllowedCountries = dedup(regions)
+	return nil
+}
+
+func isHTTPURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != ""
 }
 
 // NormalizePassword returns the policy with its zero lengths defaulted.

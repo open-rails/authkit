@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Network accounts (AuthKit #449): `ContactSignIn`, contact-first sign-in by
+  an emailed or texted code, with passkey autofill (conditional mediation),
+  the sign-up's agreements, and a passkey offer after a code sign-up.
+  `useLogin` gains the `code`, `signup_agreements`, `agreements` and
+  `passkey_offer` steps. `RegisterForm`, provider sign-up and
+  `OAuthAuthorize` carry the agreements AuthKit requires. Client:
+  `confirmPasswordless({ agreements })`, `register({ agreements })`,
+  `getAgreements`, `acceptAgreements`, `signInWithPasskey({ conditional,
+  signal })`; the wire types gain `agreements_due`, `agreements` and
+  `sms.countries`.
+
 - AuthKit answers `step_up_required` with 401 and RFC 9470's challenge
   (`error="insufficient_user_authentication"` with `max_age`), as OpenRails
   does. `readStepUpRequired` and `useStepUp` read the code, so they are

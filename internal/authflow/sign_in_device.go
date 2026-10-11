@@ -18,6 +18,20 @@ func (d SignInDevice) ByAddress() bool { return len(d.ID) > 3 && d.ID[:3] == "ip
 
 type signInDeviceKey struct{}
 
+type clientAddressKey struct{}
+
+// WithClientAddress attaches the request's client address, as its rate
+// limits key it (an IPv6 /64), for limits the engine applies.
+func WithClientAddress(ctx context.Context, address string) context.Context {
+	return context.WithValue(ctx, clientAddressKey{}, address)
+}
+
+// ClientAddressFrom is the address WithClientAddress attached, or "".
+func ClientAddressFrom(ctx context.Context) string {
+	a, _ := ctx.Value(clientAddressKey{}).(string)
+	return a
+}
+
 // WithSignInDevice attaches the request's device to ctx.
 func WithSignInDevice(ctx context.Context, d SignInDevice) context.Context {
 	return context.WithValue(ctx, signInDeviceKey{}, d)

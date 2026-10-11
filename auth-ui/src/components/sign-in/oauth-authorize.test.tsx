@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import "../../test/dom.ts"
 
-import { render, waitFor } from "@testing-library/react"
+import { render, screen, waitFor } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
 import { createAuthClient } from "../../client/client.ts"
-import { json, stubFetch } from "../../client/testing.ts"
+import { authError, json, stubFetch } from "../../client/testing.ts"
 import { memoryStorage } from "../../client/testing-storage.ts"
 import { AuthUiProvider } from "../../provider.tsx"
 import { AuthProvider } from "../../react/provider.tsx"
@@ -62,5 +63,39 @@ describe("OAuthAuthorize", () => {
     await waitFor(() =>
       expect(redirect).toHaveBeenCalledWith("https://c/cb?code=x")
     )
+  })
+
+  it("accepts the client's agreements, then approves", async () => {
+    const user = userEvent.setup()
+    const terms = {
+      key: "network-terms",
+      version: "1",
+      url: "https://openrails.test/terms",
+    }
+    const accepted: unknown[] = []
+    const redirect = renderAuthorize({
+      "GET /api/v1/oauth2/authorizations/a1": [
+        pending({ agreements: [terms] }),
+      ],
+      "POST /api/v1/oauth2/authorizations/a1/approve": [
+        authError(409, "agreement_required", { agreements: [terms] }),
+        json(200, { redirect_to: "https://c/cb?code=y" }),
+      ],
+      "POST /api/v1/me/agreements": (init) => {
+        accepted.push(JSON.parse(String(init.body)))
+        return json(200, { accepted: [], due: [] })
+      },
+    })
+    await screen.findByRole("heading", { name: "Review our terms" })
+    await user.click(screen.getByRole("checkbox"))
+    await user.click(
+      screen.getByRole("button", { name: "Accept and continue" })
+    )
+    await waitFor(() =>
+      expect(redirect).toHaveBeenCalledWith("https://c/cb?code=y")
+    )
+    expect(accepted).toEqual([
+      { agreements: [{ key: "network-terms", version: "1" }] },
+    ])
   })
 })

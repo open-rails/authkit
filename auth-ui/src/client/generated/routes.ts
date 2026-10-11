@@ -47,6 +47,8 @@ export const AUTHKIT_ROUTES: readonly AuthKitRoute[] = [
   { method: "GET", path: "/api/v1/me", group: "account", auth: "required", permission: null, stepUp: false, mountedWhen: null },
   { method: "PATCH", path: "/api/v1/me", group: "account", auth: "session", permission: null, stepUp: false, mountedWhen: null },
   { method: "DELETE", path: "/api/v1/me", group: "account", auth: "session", permission: null, stepUp: true, mountedWhen: null },
+  { method: "GET", path: "/api/v1/me/agreements", group: "account", auth: "required", permission: null, stepUp: false, mountedWhen: null },
+  { method: "POST", path: "/api/v1/me/agreements", group: "account", auth: "session", permission: null, stepUp: false, mountedWhen: null },
   { method: "GET", path: "/api/v1/me/security", group: "account", auth: "required", permission: null, stepUp: false, mountedWhen: null },
   { method: "PUT", path: "/api/v1/me/password", group: "account", auth: "session", permission: null, stepUp: true, mountedWhen: null },
   { method: "PUT", path: "/api/v1/me/email", group: "account", auth: "session", permission: null, stepUp: true, mountedWhen: null },

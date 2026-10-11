@@ -1,5 +1,7 @@
 package authflow
 
+import "github.com/open-rails/authkit/iam"
+
 // RegisterInput is a native-user registration attempt: Identifier is an email
 // or an E.164 phone; the account is password-backed.
 type RegisterInput struct {
@@ -8,8 +10,10 @@ type RegisterInput struct {
 	Password           string
 	PreferredLanguage  string
 	AccountInviteToken string
-	UserAgent          string
-	IP                 string
+	// Agreements are the documents the sign-up accepts (Config.Agreements).
+	Agreements []iam.AgreementRef
+	UserAgent  string
+	IP         string
 }
 
 // RegisterOutcomeKind is the closed set of ways a registration ends.

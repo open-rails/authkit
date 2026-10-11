@@ -20,6 +20,8 @@ type (
 	KeysConfig         = config.KeysConfig
 	FrontendConfig     = config.FrontendConfig
 	RegistrationConfig = config.RegistrationConfig
+	AgreementConfig    = config.AgreementConfig
+	SMSConfig          = config.SMSConfig
 	PasswordPolicy     = config.PasswordPolicy
 	UsernameConfig     = config.UsernameConfig
 	FormerNamesConfig  = config.FormerNamesConfig

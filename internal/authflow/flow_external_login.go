@@ -2,6 +2,8 @@ package authflow
 
 import (
 	"time"
+
+	"github.com/open-rails/authkit/iam"
 )
 
 // ExternalIdentity is a provider-verified identity.
@@ -21,6 +23,9 @@ type ExternalLoginInput struct {
 	// Link authorizes a provider mutation only; it never creates a session.
 	Link               *ExternalLinkAuthorization
 	AccountInviteToken string
+	// Agreements are the documents a sign-up through the provider accepts,
+	// chosen where the browser flow began.
+	Agreements []iam.AgreementRef
 	// ReturnTo is where the browser flow began; the sign-in's continuations
 	// carry it to their AuthResult.
 	ReturnTo  string

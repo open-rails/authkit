@@ -70,7 +70,7 @@ func (s *Engine) finalizeChangePhone(ctx context.Context, rec pendingChange, kee
 		return "", err
 	}
 	if u.PhoneNumber != nil && s.sms != nil {
-		s.notifyContactChanged(rec.UserID, s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessageContactChanged, To: *u.PhoneNumber,
+		s.notifyContactChanged(rec.UserID, s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessageContactChanged, To: *u.PhoneNumber, UserID: rec.UserID,
 			Language: s.userLanguage(ctx, rec.UserID), ContactChange: &iam.ContactChange{Field: iam.ContactPhone, NewValue: rec.Target}}))
 	}
 	return rec.UserID, nil

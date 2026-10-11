@@ -52,7 +52,7 @@ func (s *Engine) ConfirmVerification(ctx context.Context, in authflow.Verificati
 				input.PhoneNumber = rec.Target
 				input.PhoneVerified = true
 			}
-			account, err = s.registerAccount(ctx, accountRegistration{User: input, Language: rec.PreferredLanguage, InviteToken: rec.AccountInviteToken})
+			account, err = s.registerAccount(ctx, accountRegistration{User: input, Language: rec.PreferredLanguage, InviteToken: rec.AccountInviteToken, Agreements: rec.Agreements, IP: in.IP, UserAgent: in.UserAgent})
 		} else if kind == kindVerifyEmail || kind == kindVerifyPhone {
 			channel := passwordlessChannelEmail
 			if !kind.isEmail() {

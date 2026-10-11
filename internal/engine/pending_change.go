@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/secret"
 )
@@ -57,6 +58,8 @@ type pendingChange struct {
 	PreferredLanguage  string            `json:"preferred_language,omitempty"`
 	CodeHash           string            `json:"code_hash"`
 	LinkHash           string            `json:"link_hash,omitempty"`
+	// Agreements a pending sign-up accepted, recorded when it is proven.
+	Agreements []iam.AgreementRef `json:"agreements,omitempty"`
 }
 
 func (k pendingChangeKind) isRegister() bool {
@@ -123,6 +126,7 @@ func (s *Engine) storePendingChange(ctx context.Context, rec pendingChange, ttl 
 	rec.ID = secret.Token(16)
 	if rec.Kind.isRegister() {
 		rec.AccountInviteToken = accountRegistrationInviteTokenFromContext(ctx)
+		rec.Agreements = registrationAgreementsFromContext(ctx)
 	} else {
 		if err := s.requirePG(); err != nil {
 			return err

@@ -96,6 +96,33 @@ export const es: AuthUiMessageBundle = {
     accountUnavailable:
       "Esta cuenta no puede usarse para iniciar sesión. Puede haber sido cerrada o restringida. Si crees que es un error, contacta con soporte.",
   },
+  contactSignIn: {
+    title: "Inicia sesión o regístrate",
+    description:
+      "Escribe tu correo o número de teléfono. Te enviaremos un código.",
+    codeTitle: "Introduce tu código",
+    codeSentTo: "Enviamos un código de 6 dígitos a {destination}.",
+    useDifferent: "Usar otro correo o teléfono",
+  },
+  agreements: {
+    signUpTitle: "Crea tu cuenta",
+    signUpDescription: "Para terminar de registrarte, lee y acepta:",
+    dueTitle: "Revisa nuestros términos",
+    dueDescription: "Para continuar, lee y acepta:",
+    accept: "He leído y acepto estos documentos",
+    agreeTo: "He leído y acepto:",
+    required: "Acéptalos para crear tu cuenta",
+    createAccount: "Crear cuenta",
+    continue: "Aceptar y continuar",
+    decline: "Cerrar sesión",
+  },
+  passkeyOffer: {
+    title: "Inicia sesión más rápido la próxima vez",
+    description:
+      "Añade una llave de acceso para iniciar sesión con tu huella, tu cara o el bloqueo de pantalla, sin código.",
+    add: "Añadir una llave de acceso",
+    skip: "Ahora no",
+  },
   register: {
     passwordHint: "Usa al menos {min} caracteres.",
     complete: "Tu cuenta está lista. Inicia sesión para continuar.",
@@ -547,6 +574,10 @@ export const es: AuthUiMessageBundle = {
     },
   },
   errors: {
+    agreement_required: "Acepta los términos para continuar.",
+    deletion_refused: "Esta cuenta aún no se puede eliminar.",
+    phone_country_not_allowed:
+      "No se pueden enviar mensajes de texto a números de este país.",
     authorization_request_not_found:
       "Esta solicitud de inicio de sesión ha caducado. Vuelve a la aplicación e inténtalo de nuevo.",
     network_error: "Error de red. Comprueba tu conexión.",

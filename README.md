@@ -226,7 +226,7 @@ func run(ctx context.Context) error {
 }
 ```
 
-Mounting gives your users all of this: 71 routes under `/api/v1`, plus the public keys that let anyone verify AuthKit's tokens. Every request and response shape is in [`api/openapi.json`](api/openapi.json), generated from the route catalog.
+Mounting gives your users all of this: 73 routes under `/api/v1`, plus the public keys that let anyone verify AuthKit's tokens. Every request and response shape is in [`api/openapi.json`](api/openapi.json), generated from the route catalog.
 
 **Signing up and signing in** (every sign-in answers an `AuthResult`: signed in, or the one next step, such as a second factor)
 
@@ -248,6 +248,8 @@ Mounting gives your users all of this: 71 routes under `/api/v1`, plus the publi
 | `POST /api/v1/invitations/redeem` | accept an invitation |
 
 Sign-ins are limited per device over 24 hours (`Config.SignIn`): 5 accounts per browser (20 per address for a client without AuthKit's device cookie), and 10 new devices per account. Signing back into a counted account, or from a device the account used in the last 30 days, is never limited. Past the device limit, a new device enters a code sent to the owner's email or phone, which a posted password doesn't get you.
+
+With `Registration.PasswordlessLogin`, people sign in contact-first: an email or phone, then the 6-digit code sent there, or a passkey (the routes `/passwordless/start` and `/confirm`). `PasswordlessAutoRegistration` signs up whoever proves a new contact; with `Registration.Agreements` set, that sign-up, like every other, first accepts your terms (`agreement_required` names them, and the code stays good for the retry). An account whose only proof is a phone proves it again on every new device. Text messages go only to `SMS.AllowedCountries` and pass send limits per number, account, address and country; each code ends with an origin-bound line (`@example.com #123456`) so browsers autofill it only on your site. See [identity](docs/identity.md#network-accounts).
 
 **Sessions and tokens**
 
@@ -273,6 +275,8 @@ Sign-ins are limited per device over 24 hours (`Config.SignIn`): 5 accounts per 
 | `PATCH /api/v1/me` | change your username or language |
 | `DELETE /api/v1/me` | delete your account (30 days to change your mind) |
 | `GET /api/v1/me/security` | whether you need to step up and how, and your second factors |
+| `GET /api/v1/me/agreements` | the terms and policies you accepted, and any due now |
+| `POST /api/v1/me/agreements` | accept them |
 | `PUT /api/v1/me/password` | change your password |
 | `PUT /api/v1/me/email` | change your email (a code goes to the new one) |
 | `PUT /api/v1/me/phone` | change your phone number |

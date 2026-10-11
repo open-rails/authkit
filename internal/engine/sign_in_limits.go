@@ -151,9 +151,16 @@ func pruneAccounts(accounts deviceAccounts, now int64) deviceAccounts {
 // admitDeviceOnAccount records d on the account unless it is new past the
 // account's limit and the sign-in proved nothing the owner holds: then
 // needsCode is set, and refused is the error when no code can be sent.
-func (s *Engine) admitDeviceOnAccount(ctx context.Context, userID string, d authflow.SignInDevice, provesOwner bool) (needsCode bool, refused error, err error) {
+// everyNew makes every new device need the proof, whatever the limit (a
+// phone-only account).
+func (s *Engine) admitDeviceOnAccount(ctx context.Context, userID string, d authflow.SignInDevice, provesOwner, everyNew bool) (needsCode bool, refused error, err error) {
 	limit := s.cfg.SignIn.NewDevicesPerAccount
-	if limit <= 0 || d.ID == "" {
+	if everyNew {
+		limit = 0
+	} else if limit <= 0 {
+		return false, nil, nil
+	}
+	if d.ID == "" {
 		return false, nil, nil
 	}
 	now := time.Now().Unix()
@@ -176,6 +183,9 @@ func (s *Engine) admitDeviceOnAccount(ctx context.Context, userID string, d auth
 			if n >= limit && !provesOwner {
 				needsCode = true
 				refused = signInLimit(errmodel.CodeTooManyDevices, limit, time.Duration(oldest+int64(signInWindow.Seconds())-now)*time.Second)
+				if everyNew {
+					refused = errmodel.ErrSMSUnavailable
+				}
 				return false
 			}
 			seen.New = now
@@ -215,13 +225,32 @@ func pruneDevices(devices accountDevices, now int64) accountDevices {
 
 // admitSignIn runs both limits for a first factor on userID. A sign-in that
 // proved the owner's email or phone or a second factor, or will be asked for
-// a second factor next, needs no device code.
-func (s *Engine) admitSignIn(ctx context.Context, userID string, in loginSessionInput, secondFactorNext bool) (needsCode bool, refused error, err error) {
+// a second factor next, needs no device code. On a phone-only account
+// (phoneOnly) every new device needs that proof: a code to the phone or a
+// passkey, as a first factor or after it.
+func (s *Engine) admitSignIn(ctx context.Context, userID string, in loginSessionInput, secondFactorNext, phoneOnly bool) (needsCode bool, refused error, err error) {
 	if err := s.admitAccountOnDevice(ctx, userID, in.Device); err != nil {
 		return false, nil, err
 	}
 	provesOwner := secondFactorNext || hasAuthMethod(in.AuthMethods, "mfa") || hasAuthMethod(in.AuthMethods, "email") || hasAuthMethod(in.AuthMethods, "sms")
-	return s.admitDeviceOnAccount(ctx, userID, in.Device, provesOwner)
+	return s.admitDeviceOnAccount(ctx, userID, in.Device, provesOwner, phoneOnly)
+}
+
+// phoneOnly reports whether u's only proven contact is a phone and it holds
+// no passkey: SMS is all that proves it is the owner, so every new device
+// proves it again (#449).
+// TODO(#449 q1): reassigned numbers. Whether a dormant phone-only account
+// loses SMS sign-in, and who keeps a number a new person proves, awaits the
+// owner's ruling.
+func (s *Engine) phoneOnly(ctx context.Context, q db.DBTX, u *db.User) (bool, error) {
+	if _, phone := provenAddress(u, passwordlessChannelSMS); !phone {
+		return false, nil
+	}
+	if _, email := provenAddress(u, passwordlessChannelEmail); email {
+		return false, nil
+	}
+	held, err := s.holdsPasskey(ctx, q, u.ID)
+	return !held, err
 }
 
 // deviceCodeChannels are the account's proven channels that can deliver a
@@ -284,7 +313,7 @@ func (s *Engine) sendDeviceCode(ctx context.Context, u *db.User, nonceHash, chan
 	}
 	language := s.messageLanguage(ctx, deref(u.PreferredLanguage))
 	if channel == passwordlessChannelSMS {
-		return to, s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessageNewDeviceCode, To: to, Language: language, Code: code})
+		return to, s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessageNewDeviceCode, To: to, UserID: u.ID, Language: language, Code: code})
 	}
 	return to, s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessageNewDeviceCode, To: to, Username: deref(u.Username), Language: language, Code: code})
 }
@@ -356,7 +385,7 @@ func (s *Engine) ConfirmDeviceVerification(ctx context.Context, in authflow.Devi
 	if to, ok := provenAddress(u, sent.Method); !ok || to != sent.Destination {
 		return authflow.LoginOutcome{}, errmodel.ErrCodeExpired
 	}
-	if _, _, err := s.admitDeviceOnAccount(ctx, in.UserID, proof.Input.Device, true); err != nil {
+	if _, _, err := s.admitDeviceOnAccount(ctx, in.UserID, proof.Input.Device, true, true); err != nil {
 		return authflow.LoginOutcome{}, err
 	}
 	proof.Input.UserAgent, proof.Input.IP = in.UserAgent, in.IP

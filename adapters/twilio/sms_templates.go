@@ -8,8 +8,20 @@ import (
 	"github.com/open-rails/authkit/iam"
 )
 
-// smsTemplate is the built-in body for msg.Kind.
+// smsTemplate is the built-in body for msg.Kind; a code message ends with
+// its origin-bound line (msg.OriginBoundLine).
 func smsTemplate(app string, msg iam.SMSMessage) (string, error) {
+	body, err := smsBody(app, msg)
+	if err != nil {
+		return "", err
+	}
+	if line := msg.OriginBoundLine(); line != "" {
+		body += "\n\n" + line
+	}
+	return body, nil
+}
+
+func smsBody(app string, msg iam.SMSMessage) (string, error) {
 	es := msg.Language == "es"
 	switch msg.Kind {
 	case iam.MessageVerification:

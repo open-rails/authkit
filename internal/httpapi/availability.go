@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ratelimit"
 )
 
@@ -52,4 +53,10 @@ func actionForRateLimitBucket(bucket string) string {
 	default:
 		return bucket
 	}
+}
+
+// RateLimitError is rate_limited for a refusal of bucket, for a limit the
+// engine applies (SMSConfig's sends).
+func RateLimitError(bucket string, result ratelimit.Result) error {
+	return errmodel.E(errmodel.CodeRateLimited, errmodel.WithDetails(availabilityFromRateLimit(bucket, result, time.Now())))
 }

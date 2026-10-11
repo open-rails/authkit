@@ -3,7 +3,11 @@ import { expect, it } from "vitest"
 import { registrationAvailable, registrationMode } from "./registration.ts"
 
 const caps = (mode: string) => ({
-  registration: { mode, invite_token_required: mode === "invite_only" },
+  registration: {
+    mode,
+    invite_token_required: mode === "invite_only",
+    agreements: [],
+  },
 })
 
 it("reads the advertised mode, unknown values as closed", () => {

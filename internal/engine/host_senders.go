@@ -21,10 +21,21 @@ func (s *Engine) sendEmail(ctx context.Context, msg iam.EmailMessage) error {
 	return emailDeliveryError(s.withSendTimeout(ctx, func(ctx context.Context) error { return s.email.Send(ctx, msg) }))
 }
 
-// sendSMS is sendEmail for text messages.
+// sendSMS is sendEmail for text messages, within the SMS policy: an allowed
+// region, the send limits, and a code's origin.
 func (s *Engine) sendSMS(ctx context.Context, msg iam.SMSMessage) error {
 	if !s.SMSAvailable() {
 		return errmodel.ErrSMSUnavailable
+	}
+	region, err := s.smsRegion(msg.To)
+	if err != nil {
+		return err
+	}
+	if err := s.admitSMS(ctx, msg, region); err != nil {
+		return err
+	}
+	if msg.Domain == "" && msg.Code != "" {
+		msg.Domain = s.codeDomain()
 	}
 	return smsDeliveryError(s.withSendTimeout(ctx, func(ctx context.Context) error { return s.sms.Send(ctx, msg) }))
 }

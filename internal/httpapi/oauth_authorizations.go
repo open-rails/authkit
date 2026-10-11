@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
@@ -26,6 +27,14 @@ func (s *Service) handleOAuthAuthorizationGET(w http.ResponseWriter, r *http.Req
 	out := OAuthAuthorizationRequest{
 		ID: id, ClientID: a.ClientID, ClientName: client.Name, Scopes: a.Scopes,
 		Prompt: a.Prompt, MaxAgeSeconds: a.MaxAge, ExpiresAt: a.ExpiresAt,
+		Agreements: []iam.Agreement{},
+	}
+	for _, key := range client.Agreements {
+		for _, d := range s.cfg.Agreements {
+			if d.Key == key {
+				out.Agreements = append(out.Agreements, iam.Agreement{Key: d.Key, Version: d.Version, URL: d.URL})
+			}
+		}
 	}
 	if out.ClientName == "" {
 		out.ClientName = a.ClientID

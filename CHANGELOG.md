@@ -21,9 +21,22 @@ Custom roles (#448): a group defines least-privilege roles of its own at run tim
 - Events `group.role_created`, `group.role_updated` and `group.role_deleted`, with `iam.Event.Role`.
 - Error codes `role_not_found`, `role_exists`, `role_not_editable` and `role_limit_reached`.
 
+### Network accounts
+
+Accounts for a customer network such as openrails.dev (#449, [docs/identity.md](docs/identity.md#network-accounts)): contact-first sign-in by email or SMS code or passkey, agreements accepted at sign-up, phone-only accounts proving their phone on every new device, and SMS bound to allowed countries, send limits and its origin.
+
+- `Config.Agreements` declares documents; `Registration.Agreements` names those every sign-up accepts, by password, code or identity provider (`agreements` on `POST /register`, `POST /passwordless/confirm` and the JSON provider start). Without them: `agreement_required` (409), naming each with its version and URL; a passwordless code stays good for the retry. A Solana or device-key sign-up carries none, so it creates no account while they are set.
+- Acceptances are append-only (`user_agreements`): `Client.UserAgreements`, `AgreementsDue`, `AcceptAgreements`; `GET` and `POST /me/agreements`. A completed sign-in's `AuthResult.agreements_due` lists what is due: a required document never accepted, or a new version marked `reaccept`. `OAuthClientConfig.Agreements` must be accepted before the client's approval; `GET /oauth2/authorizations/{id}` lists them. `GET /capabilities` publishes `agreements`, `registration.agreements` and `sms.countries`.
+- A phone-only account (no proven email, no passkey) proves its phone on every new device, whatever `SignIn.NewDevicesPerAccount` says. With an SMS sender, sign-ins carry their device and the device-verification routes are mounted even with the sign-in limits off.
+- On HTTPS the device cookie is also issued `SameSite=None; Partitioned` (`__Host-authkit_device_p`), so a sign-in inside a third-party iframe is recognized again under that top-level site.
+- `SMS.AllowedCountries` refuses other regions with `phone_country_not_allowed` before any lookup or send. Every text message spends the new `sms_number`, `sms_account`, `sms_address` and `sms_country` buckets (`HTTPConfig.RateLimits`). `iam.SMSMessage` gains `UserID` and `Domain` (`Frontend.BaseURL`'s host) and `OriginBoundLine()`; the Twilio adapter's built-in code messages end with `@<domain> #<code>`.
+- `Deps.DeletionCheck` may refuse a user's own deletion with `iam.RefuseDeletion(reason)`: `deletion_refused` (409, `metadata.reason`). A failing check refuses too.
+- Error codes `agreement_required`, `deletion_refused` and `phone_country_not_allowed`.
+
 ### Migrations
 
 - 0015: `group_custom_roles`, and `account_events.role`.
+- 0016: `user_agreements`.
 
 ## v1.18.0
 

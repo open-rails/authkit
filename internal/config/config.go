@@ -32,6 +32,14 @@ type Config struct {
 	Frontend FrontendConfig `yaml:"frontend"`
 	// Registration controls verification policy and public self-registration.
 	Registration RegistrationConfig `yaml:"registration"`
+	// Agreements are the documents users accept, such as terms and a privacy
+	// policy, each at its current version. Registration.Agreements names the
+	// ones every sign-up accepts; the host reads acceptances with
+	// Client.UserAgreements and gates its own features on them. Published by
+	// GET {api}/capabilities.
+	Agreements []AgreementConfig `yaml:"agreements"`
+	// SMS is the text-message policy: where messages may go.
+	SMS SMSConfig `yaml:"sms"`
 	// Password is the rule every password write enforces. The zero value is
 	// the default policy: 8..128 characters, no composition rules, common
 	// passwords rejected. Published by GET {api}/capabilities.
@@ -262,6 +270,39 @@ type RegistrationConfig struct {
 	// VerificationSendTimeout bounds each in-line email or SMS send so an
 	// unreachable provider cannot hang the request. 0 defaults to 15s.
 	VerificationSendTimeout time.Duration `yaml:"verification_send_timeout"`
+	// Agreements are the keys of Config.Agreements every self-registration
+	// accepts at their current version: a sign-up by password, code or
+	// identity provider without them is refused with agreement_required, and
+	// a passwordless code stays valid for the retry that accepts them. A
+	// Solana or device-key sign-up carries none, so it creates no account
+	// while this is set. Host operations (CreateUser, imports, SCIM) record
+	// none.
+	Agreements []string `yaml:"agreements"`
+}
+
+// AgreementConfig is one document users accept (Config.Agreements).
+type AgreementConfig struct {
+	// Key names it: lowercase letters, digits, '-' and '_', such as "terms".
+	Key string `yaml:"key"`
+	// Version is its current version, such as its date. Accepting an
+	// earlier version does not accept this one.
+	Version string `yaml:"version"`
+	// URL is where it is read: an absolute http(s) URL.
+	URL string `yaml:"url"`
+	// Reaccept asks a user who accepted an earlier version to accept this one
+	// when they next sign in (AuthResult agreements_due).
+	Reaccept bool `yaml:"reaccept"`
+}
+
+// SMSConfig is the text-message policy. Every message also passes the send
+// limits of HTTPConfig.RateLimits' sms_* buckets (per number, account,
+// client address and destination country) when the HTTP surface is mounted.
+type SMSConfig struct {
+	// AllowedCountries are the ISO 3166-1 alpha-2 regions text messages may
+	// go to, such as "US" and "CA"; a number elsewhere is refused with
+	// phone_country_not_allowed before anything is sent. Empty allows every
+	// region.
+	AllowedCountries []string `yaml:"allowed_countries"`
 }
 
 // PasswordPolicy is the password rule, NIST SP 800-63B-style by default.

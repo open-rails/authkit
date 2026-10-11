@@ -172,6 +172,7 @@ func (s *Engine) resendRegistration(ctx context.Context, identifier string) (boo
 		return false, err
 	}
 	ctx = contextWithAccountRegistrationInviteToken(ctx, rec.AccountInviteToken)
+	ctx = contextWithRegistrationAgreements(ctx, rec.Agreements)
 	if kind == kindRegisterEmail {
 		_, err = s.issuePendingEmailRegistration(ctx, rec.Target, rec.Username, rec.PasswordHash, 0, rec.PreferredLanguage)
 	} else {

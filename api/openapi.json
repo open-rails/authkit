@@ -1329,6 +1329,86 @@
         "x-authkit-step-up": true
       }
     },
+    "/api/v1/me/agreements": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserAgreements"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "required",
+        "x-authkit-rate-limit": "me_read"
+      },
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgreementsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserAgreements"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "me_update"
+      }
+    },
     "/api/v1/me/security": {
       "get": {
         "tags": [
@@ -6555,6 +6635,110 @@
           }
         }
       },
+      "Agreement": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "version",
+          "url"
+        ]
+      },
+      "AgreementAcceptance": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "accepted_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "account",
+              "host",
+              "registration"
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "version",
+          "accepted_at",
+          "channel"
+        ]
+      },
+      "AgreementDocument": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "version",
+          "url"
+        ]
+      },
+      "AgreementRef": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "AgreementsRequest": {
+        "type": "object",
+        "properties": {
+          "agreements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgreementRef"
+            }
+          }
+        }
+      },
+      "AgreementsRequired": {
+        "type": "object",
+        "properties": {
+          "agreements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgreementDocument"
+            }
+          }
+        },
+        "required": [
+          "agreements"
+        ]
+      },
       "AuthKitEvent": {
         "type": "object",
         "properties": {
@@ -6793,6 +6977,12 @@
                 "type": "null"
               }
             ]
+          },
+          "agreements_due": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Agreement"
+            }
           }
         },
         "required": [
@@ -6807,7 +6997,8 @@
           "enrollment",
           "verification",
           "recovery",
-          "device_verification"
+          "device_verification",
+          "agreements_due"
         ]
       },
       "Availability": {
@@ -7006,6 +7197,15 @@
               "type": "string"
             }
           },
+          "agreements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Agreement"
+            }
+          },
+          "sms": {
+            "$ref": "#/components/schemas/SMSCapabilities"
+          },
           "dpop": {
             "type": "string"
           },
@@ -7026,6 +7226,8 @@
           "two_factor",
           "invitations",
           "languages",
+          "agreements",
+          "sms",
           "dpop",
           "paths"
         ]
@@ -7056,6 +7258,12 @@
           },
           "token": {
             "type": "string"
+          },
+          "agreements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgreementRef"
+            }
           }
         }
       },
@@ -7083,6 +7291,17 @@
         "required": [
           "identifier",
           "channel",
+          "reason"
+        ]
+      },
+      "DeletionRefusal": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
           "reason"
         ]
       },
@@ -8011,6 +8230,12 @@
             "type": "string",
             "format": "date-time",
             "description": "RFC 3339, UTC"
+          },
+          "agreements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Agreement"
+            }
           }
         },
         "required": [
@@ -8022,7 +8247,8 @@
           "prompt",
           "max_age_seconds",
           "login_hint",
-          "expires_at"
+          "expires_at",
+          "agreements"
         ]
       },
       "OAuthAuthorizationResult": {
@@ -8218,6 +8444,12 @@
           },
           "popup_nonce": {
             "type": "string"
+          },
+          "agreements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgreementRef"
+            }
           }
         }
       },
@@ -8409,6 +8641,17 @@
           }
         }
       },
+      "PhoneCountry": {
+        "type": "object",
+        "properties": {
+          "country": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "country"
+        ]
+      },
       "ProfileUpdateRequest": {
         "type": "object",
         "properties": {
@@ -8574,6 +8817,12 @@
           },
           "invite_code": {
             "type": "string"
+          },
+          "agreements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgreementRef"
+            }
           }
         }
       },
@@ -8585,11 +8834,18 @@
           },
           "invite_token_required": {
             "type": "boolean"
+          },
+          "agreements": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
           "mode",
-          "invite_token_required"
+          "invite_token_required",
+          "agreements"
         ]
       },
       "RetryAfter": {
@@ -9210,6 +9466,20 @@
           "startIndex",
           "itemsPerPage",
           "Resources"
+        ]
+      },
+      "SMSCapabilities": {
+        "type": "object",
+        "properties": {
+          "countries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "countries"
         ]
       },
       "SecondFactorStep": {
@@ -10109,6 +10379,27 @@
           "ban",
           "expired_ban",
           "public_metadata"
+        ]
+      },
+      "UserAgreements": {
+        "type": "object",
+        "properties": {
+          "accepted": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgreementAcceptance"
+            }
+          },
+          "due": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Agreement"
+            }
+          }
+        },
+        "required": [
+          "accepted",
+          "due"
         ]
       },
       "UserEntry": {
@@ -11014,6 +11305,13 @@
       "status": 400,
       "message": "An address is required."
     },
+    "agreement_required": {
+      "status": 409,
+      "message": "Accept the terms to continue.",
+      "metadata": {
+        "$ref": "#/components/schemas/AgreementsRequired"
+      }
+    },
     "api_key_expired": {
       "status": 401,
       "message": "The API key has expired."
@@ -11091,6 +11389,13 @@
       "message": "The email address or phone number is not verified.",
       "metadata": {
         "$ref": "#/components/schemas/ContactProofRequired"
+      }
+    },
+    "deletion_refused": {
+      "status": 409,
+      "message": "This account can't be deleted yet.",
+      "metadata": {
+        "$ref": "#/components/schemas/DeletionRefusal"
       }
     },
     "device_keys_disabled": {
@@ -11405,6 +11710,13 @@
     "phone_already_verified": {
       "status": 409,
       "message": "Your phone number is already verified."
+    },
+    "phone_country_not_allowed": {
+      "status": 400,
+      "message": "Text messages can't be sent to numbers in this country.",
+      "metadata": {
+        "$ref": "#/components/schemas/PhoneCountry"
+      }
     },
     "phone_in_use": {
       "status": 400,

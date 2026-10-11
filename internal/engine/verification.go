@@ -127,7 +127,7 @@ func (s *Engine) sendPhoneVerificationToUser(ctx context.Context, phone, userID 
 	}
 
 	if s.sms != nil {
-		return s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessageVerification, To: phone, Language: s.userLanguage(ctx, userID),
+		return s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessageVerification, To: phone, UserID: userID, Language: s.userLanguage(ctx, userID),
 			Code: code, Link: s.phoneVerificationURL(linkToken), Purpose: iam.PurposeContactVerify})
 	} else {
 		// In production, require SMS to be configured

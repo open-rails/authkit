@@ -123,6 +123,10 @@ func (s *Engine) VerifySIWSAndLogin(ctx context.Context, output siws.SignInOutpu
 		if !s.PublicNativeUserRegistrationEnabled() {
 			return authflow.LoginOutcome{}, errmodel.ErrRegistrationDisabled
 		}
+		// A wallet sign-up carries no agreements.
+		if err := s.requireRegistrationAgreements(nil); err != nil {
+			return authflow.LoginOutcome{}, err
+		}
 		if err := s.admitNewAccount(ctx); err != nil {
 			return authflow.LoginOutcome{}, err
 		}

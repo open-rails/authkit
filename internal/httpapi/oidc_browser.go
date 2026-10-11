@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/errmodel"
@@ -29,6 +30,7 @@ type flowStart struct {
 // loginStart is a plain login's browser context.
 type loginStart struct {
 	ui, popupNonce, returnTo, accountInviteToken string
+	agreements                                   []iam.AgreementRef
 	// dpopKey binds the session (RFC 9449 §10): a navigation's dpop_jkt, or
 	// a JSON start's proof.
 	dpopKey string
@@ -63,7 +65,7 @@ func (s *Service) handleOIDCLoginStartPOST(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	s.startProviderFlow(w, r, r.PathValue("provider"), flowStart{login: &loginStart{
-		ui: req.UI, popupNonce: req.PopupNonce, returnTo: req.ReturnTo, accountInviteToken: req.InviteCode, dpopKey: authflow.DPoPKey(r.Context()),
+		ui: req.UI, popupNonce: req.PopupNonce, returnTo: req.ReturnTo, accountInviteToken: req.InviteCode, agreements: req.Agreements, dpopKey: authflow.DPoPKey(r.Context()),
 	}})
 }
 
@@ -165,6 +167,7 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 			sd.ReturnTo = rt
 		}
 		sd.AccountInviteToken = strings.TrimSpace(login.accountInviteToken)
+		sd.Agreements = login.agreements
 		sd.DPoPKey = login.dpopKey
 	}
 	if start.stepUp != nil {
@@ -257,7 +260,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 			Email: identity.Email, EmailVerified: identity.EmailVerified && p.TrustsEmailVerification(),
 			PreferredUsername: identity.PreferredUsername, DisplayName: identity.DisplayName,
 		},
-		Link: link, AccountInviteToken: sd.AccountInviteToken, ReturnTo: sd.ReturnTo,
+		Link: link, AccountInviteToken: sd.AccountInviteToken, Agreements: sd.Agreements, ReturnTo: sd.ReturnTo,
 		Event: "oidc_login", UserAgent: r.UserAgent(), IP: s.requestIP(r),
 	})
 	if err != nil {

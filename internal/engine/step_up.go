@@ -129,7 +129,7 @@ func (s *Engine) SendStepUpCode(ctx context.Context, userID, sessionID, channel 
 	}
 	language := s.messageLanguage(ctx, deref(u.PreferredLanguage))
 	if channel == passwordlessChannelSMS {
-		return s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessageLoginCode, To: to, Language: language, Code: code})
+		return s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessageLoginCode, To: to, UserID: userID, Language: language, Code: code})
 	}
 	return s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessageLoginCode, To: to, Username: deref(u.Username), Language: language, Code: code})
 }

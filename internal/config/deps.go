@@ -68,6 +68,12 @@ type Deps struct {
 	// succeeded; a failure is retried. It must be idempotent and honor
 	// cancellation.
 	OnPurge func(context.Context, iam.UserDeletion) error
+	// DeletionCheck runs before a user deletes their own account: an
+	// iam.RefuseDeletion error refuses it with deletion_refused (409, the
+	// reason in metadata.reason), such as while the user's cards still pay
+	// subscriptions; any other error fails the request. Deleting someone
+	// else's account (staff, the host) does not run it.
+	DeletionCheck func(ctx context.Context, userID string) error
 
 	// OAuthGrants decides each jwt-bearer grant of the authorization
 	// server: it may refuse or narrow a workload's capability. Required

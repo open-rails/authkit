@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
 import type { PendingSignIn } from "../client/authResult.ts"
-import type { Availability } from "../client/types.ts"
+import type { AgreementRef, Availability } from "../client/types.ts"
 import { useAuthClient } from "./context.ts"
 import { useTask } from "./task.ts"
 
@@ -17,6 +17,8 @@ export type RegisterInput = {
   identifier: string
   username: string
   password: string
+  // The documents the sign-up accepts (capabilities' registration.agreements).
+  agreements?: AgreementRef[]
 }
 
 export type RegisterOptions = {

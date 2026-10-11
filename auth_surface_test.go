@@ -66,14 +66,14 @@ func TestClientPublicSurface(t *testing.T) {
 		"UpsertRemoteApplication", "DeleteRemoteApplication", "RemoveRemoteUserRole",
 	}
 	hostOperations := []string{
-		"CreateUser", "PurgeUsers", "ResetAccountMFA", "MintAccessToken",
+		"CreateUser", "PurgeUsers", "ResetAccountMFA", "MintAccessToken", "AcceptAgreements",
 		"CreateGroup", "DeleteGroup", "PurgeGroup",
 		"ApplyBootstrapManifest", "EnsureUserRole", "ImportUsers", "ImportSolanaLinks", "LinkProvider",
 		"DeclareRemoteApplications",
 	}
 	reads := []string{
 		// The host is the trust boundary.
-		"User", "Users", "PublicUsers", "ListUsers", "ResolveUsername", "CheckUsername",
+		"User", "Users", "PublicUsers", "ListUsers", "ResolveUsername", "CheckUsername", "UserAgreements", "AgreementsDue",
 		"DeviceKeys", "Sessions", "ListSessionEvents",
 		"Group", "Groups", "ListGroups", "ListGroupMembers", "ListMemberships", "GroupRoles", "KnownPermission",
 		"ListGroupRoles", "GroupRole",

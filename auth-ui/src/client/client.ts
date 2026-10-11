@@ -20,6 +20,7 @@ import {
 import { safeReturnTo } from "./returnTo.ts"
 import { asksForStepUp } from "./stepUp.ts"
 import type {
+  AgreementRef,
   Availability,
   BackupCodes,
   Capabilities,
@@ -41,6 +42,7 @@ import type {
   TwoFactorFactorCreated,
   TwoFactorMethod,
   TwoFactorSetup,
+  UserAgreements,
   UserProfile,
   UserSecurity,
 } from "./types.ts"
@@ -839,7 +841,12 @@ export function createAuthClient(options: AuthClientOptions = {}) {
   // answer sets the flow's state cookie, so it is credentialed.
   async function oidcLoginStart(
     provider: string,
-    opts: { returnTo?: string; inviteCode?: string; popupNonce?: string } = {}
+    opts: {
+      returnTo?: string
+      inviteCode?: string
+      popupNonce?: string
+      agreements?: AgreementRef[]
+    } = {}
   ): Promise<string> {
     const target = url(baseUrl, `/oidc/${segment(provider)}/login/start`)
     const res = await cookieFetch(target, {
@@ -857,6 +864,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
         invite_code: opts.inviteCode,
         ui: opts.popupNonce ? "popup" : undefined,
         popup_nonce: opts.popupNonce,
+        agreements: opts.agreements?.length ? opts.agreements : undefined,
       }),
     })
     if (!res.ok) throw await readAuthKitError(res)
@@ -873,11 +881,15 @@ export function createAuthClient(options: AuthClientOptions = {}) {
   // (completeRedirect).
   async function signInWithRedirect(
     provider: string,
-    opts: { returnTo?: string; inviteCode?: string } = {}
+    opts: {
+      returnTo?: string
+      inviteCode?: string
+      agreements?: AgreementRef[]
+    } = {}
   ): Promise<void> {
     // A bound session starts by POST, whose proof binds it.
     window.location.assign(
-      opts.inviteCode || bindSessions
+      opts.inviteCode || opts.agreements?.length || bindSessions
         ? await oidcLoginStart(provider, opts)
         : oidcLoginUrl(provider, opts)
     )
@@ -886,7 +898,12 @@ export function createAuthClient(options: AuthClientOptions = {}) {
   // Must be called from a user gesture: the window opens synchronously.
   async function signInWithPopup(
     provider: string,
-    opts: { returnTo?: string; inviteCode?: string; timeoutMs?: number } = {}
+    opts: {
+      returnTo?: string
+      inviteCode?: string
+      agreements?: AgreementRef[]
+      timeoutMs?: number
+    } = {}
   ): Promise<PopupResult> {
     const gen = generation
     const nonce = randomNonce()
@@ -895,7 +912,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       new URL(oidcBaseUrl, window.location.href).origin,
     ])
     const target =
-      opts.inviteCode || bindSessions
+      opts.inviteCode || opts.agreements?.length || bindSessions
         ? () => oidcLoginStart(provider, { ...opts, popupNonce: nonce })
         : oidcLoginUrl(provider, { returnTo: opts.returnTo, popupNonce: nonce })
     const waited = await waitForPopup(target, {
@@ -1033,16 +1050,20 @@ export function createAuthClient(options: AuthClientOptions = {}) {
         request("POST", "/password/login", { body: input, bearer: null })
       ),
 
-    // Signs in with a passkey the browser offers (call from a click).
-    signInWithPasskey: () =>
+    // Signs in with a passkey the browser offers: from a click, or with
+    // conditional set while the page waits for the contact field's
+    // autofill (WebAuthn conditional mediation; abort it with signal).
+    signInWithPasskey: (
+      opts: { conditional?: boolean; signal?: AbortSignal } = {}
+    ) =>
       completeSignIn(async () => {
         const options = await request<unknown>(
           "POST",
           "/passkeys/login/begin",
-          { bearer: null }
+          { bearer: null, signal: opts.signal }
         )
         return request("POST", "/passkeys/login/finish", {
-          body: await getAssertion(options),
+          body: await getAssertion(options, opts),
           bearer: null,
         })
       }),
@@ -1054,6 +1075,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       username: string
       password: string
       inviteCode?: string
+      agreements?: AgreementRef[]
     }): Promise<SignInResult | null> => {
       const gen = generation
       const { status, body } = await exchange("POST", "/register", {
@@ -1063,6 +1085,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
           username: input.username,
           password: input.password,
           invite_code: input.inviteCode,
+          agreements: input.agreements?.length ? input.agreements : undefined,
         },
       })
       return status === 200 ? signedIn(body, gen) : null
@@ -1548,14 +1571,32 @@ export function createAuthClient(options: AuthClientOptions = {}) {
         },
       }),
 
+    // A code for a new contact answers agreement_required until it carries
+    // the sign-up's agreements; the code stays good for that retry.
     confirmPasswordless: (
-      input:
+      input: (
         | { identifier: string; code: string }
         | { token: string; identifier?: string }
+      ) & { agreements?: AgreementRef[] }
     ) =>
       completeSignIn(() =>
-        request("POST", "/passwordless/confirm", { body: input, bearer: null })
+        request("POST", "/passwordless/confirm", {
+          body: {
+            ...input,
+            agreements: input.agreements?.length ? input.agreements : undefined,
+          },
+          bearer: null,
+        })
       ),
+
+    // The documents the user accepted, and those due now.
+    getAgreements: () => request<UserAgreements>("GET", "/me/agreements"),
+
+    // Accepts documents at their current versions.
+    acceptAgreements: (agreements: AgreementRef[]) =>
+      request<UserAgreements>("POST", "/me/agreements", {
+        body: { agreements },
+      }),
 
     // Links a Solana wallet from its signed SIWS output.
     linkSolanaWallet: (output: SolanaSignInOutput) =>

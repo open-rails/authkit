@@ -39,6 +39,13 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 	if identifier == "" || username == "" {
 		return authflow.RegisterOutcome{}, errmodel.ErrInvalidIdentifier
 	}
+	agreements, err := s.acceptable(in.Agreements)
+	if err != nil {
+		return authflow.RegisterOutcome{}, err
+	}
+	if err := s.requireRegistrationAgreements(agreements); err != nil {
+		return authflow.RegisterOutcome{}, err
+	}
 	if err := s.ValidatePassword(in.Password, username, identifier); err != nil {
 		return authflow.RegisterOutcome{}, err
 	}
@@ -60,6 +67,7 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 	requiresVerification := s.registrationVerificationRequired()
 
 	ctx = contextWithAccountRegistrationInviteToken(ctx, in.AccountInviteToken)
+	ctx = contextWithRegistrationAgreements(ctx, agreements)
 	if isPhone {
 		phone := contact.NormalizePhone(identifier)
 		if requiresVerification && !s.SMSAvailable() {
@@ -85,7 +93,7 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 		}
 		// Never verified without proof (ak#393): "none" only means proof is not
 		// required to use the account.
-		account, err := s.registerAccount(ctx, accountRegistration{User: newAccount{PhoneNumber: phone, Username: username, PasswordHash: phc, HashAlgo: "argon2id"}, Language: in.PreferredLanguage, InviteToken: in.AccountInviteToken})
+		account, err := s.registerAccount(ctx, accountRegistration{User: newAccount{PhoneNumber: phone, Username: username, PasswordHash: phc, HashAlgo: "argon2id"}, Language: in.PreferredLanguage, InviteToken: in.AccountInviteToken, Agreements: agreements, IP: in.IP, UserAgent: in.UserAgent})
 		if err != nil {
 			return authflow.RegisterOutcome{}, err
 		}
@@ -119,7 +127,7 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 		out.Kind = authflow.RegisterVerifyEmail
 		return out, nil
 	}
-	account, err := s.registerAccount(ctx, accountRegistration{User: newAccount{Email: email, Username: username, PasswordHash: phc, HashAlgo: "argon2id"}, Language: in.PreferredLanguage, InviteToken: in.AccountInviteToken})
+	account, err := s.registerAccount(ctx, accountRegistration{User: newAccount{Email: email, Username: username, PasswordHash: phc, HashAlgo: "argon2id"}, Language: in.PreferredLanguage, InviteToken: in.AccountInviteToken, Agreements: agreements, IP: in.IP, UserAgent: in.UserAgent})
 	if err != nil {
 		return authflow.RegisterOutcome{}, err
 	}

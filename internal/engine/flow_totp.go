@@ -246,7 +246,7 @@ func (s *Engine) sendPhone2FASetupCode(ctx context.Context, userID, phone, code 
 	}
 
 	if s.sms != nil {
-		return s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessageVerification, To: phone, Language: s.userLanguage(ctx, userID), Code: code, Purpose: iam.PurposeTwoFactorSetup})
+		return s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessageVerification, To: phone, UserID: userID, Language: s.userLanguage(ctx, userID), Code: code, Purpose: iam.PurposeTwoFactorSetup})
 	}
 	// In production, require SMS to be configured
 	if !s.cfg.Registration.AllowMissingSenders {

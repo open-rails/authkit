@@ -98,6 +98,34 @@ export const de: AuthUiMessageBundle = {
     accountUnavailable:
       "Dieses Konto kann nicht zur Anmeldung verwendet werden. Es wurde möglicherweise geschlossen oder eingeschränkt. Wenn Sie denken, dass dies ein Fehler ist, kontaktieren Sie bitte den Support.",
   },
+  contactSignIn: {
+    title: "Anmelden oder registrieren",
+    description:
+      "Gib deine E-Mail-Adresse oder Telefonnummer ein. Wir senden dir einen Code.",
+    codeTitle: "Code eingeben",
+    codeSentTo: "Wir haben einen 6-stelligen Code an {destination} gesendet.",
+    useDifferent: "Andere E-Mail-Adresse oder Telefonnummer verwenden",
+  },
+  agreements: {
+    signUpTitle: "Konto erstellen",
+    signUpDescription:
+      "Um die Registrierung abzuschließen, lies und akzeptiere:",
+    dueTitle: "Unsere Bedingungen",
+    dueDescription: "Um fortzufahren, lies und akzeptiere:",
+    accept: "Ich habe diese gelesen und stimme ihnen zu",
+    agreeTo: "Ich habe gelesen und stimme zu:",
+    required: "Akzeptiere diese, um dein Konto zu erstellen",
+    createAccount: "Konto erstellen",
+    continue: "Akzeptieren und fortfahren",
+    decline: "Abmelden",
+  },
+  passkeyOffer: {
+    title: "Nächstes Mal schneller anmelden",
+    description:
+      "Füge einen Passkey hinzu, um dich ohne Code mit Fingerabdruck, Gesicht oder Displaysperre anzumelden.",
+    add: "Passkey hinzufügen",
+    skip: "Nicht jetzt",
+  },
   register: {
     passwordHint: "Mindestens {min} Zeichen.",
     complete: "Ihr Konto ist bereit. Melden Sie sich an, um fortzufahren.",
@@ -549,6 +577,10 @@ export const de: AuthUiMessageBundle = {
     },
   },
   errors: {
+    agreement_required: "Akzeptiere die Bedingungen, um fortzufahren.",
+    deletion_refused: "Dieses Konto kann noch nicht gelöscht werden.",
+    phone_country_not_allowed:
+      "An Nummern in diesem Land können keine SMS gesendet werden.",
     authorization_request_not_found:
       "Diese Anmeldeanfrage ist abgelaufen. Kehren Sie zur App zurück und versuchen Sie es erneut.",
     network_error: "Netzwerkfehler. Bitte überprüfen Sie Ihre Verbindung.",

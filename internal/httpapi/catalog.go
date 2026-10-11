@@ -48,7 +48,7 @@ const (
 	// applications, and so hold their users' directory.
 	FeatureRemoteApplications Feature = "remote_applications"
 	FeatureInvitations        Feature = "invitations" // invitations not disabled
-	FeatureNewDevices         Feature = "new_devices" // SignIn.NewDevicesPerAccount not off
+	FeatureNewDevices         Feature = "new_devices" // SignIn.NewDevicesPerAccount not off, or an SMS sender (phone-only accounts)
 	// FeatureAuthorizationServer: AuthorizationServer declares clients.
 	FeatureAuthorizationServer Feature = "authorization_server"
 	// FeatureTokenEndpoint: an authorization server, or a resource server
@@ -227,6 +227,11 @@ func Catalog() []RouteSpec {
 			Request: ProfileUpdateRequest{}, Responses: replyOK(UserProfile{}), serve: handle((*Service).handleMePATCH)},
 		{Method: DELETE, Path: "/me", Group: account, Auth: session, StepUp: true, Bucket: RLMeDelete,
 			Responses: replyNoContent, serve: handle((*Service).handleMeDELETE)},
+		// Documents the caller accepted (Config.Agreements), and accepting more.
+		{Method: GET, Path: "/me/agreements", Group: account, Auth: required, Bucket: RLMeRead,
+			Responses: replyOK(UserAgreements{}), serve: handle((*Service).handleMeAgreementsGET)},
+		{Method: POST, Path: "/me/agreements", Group: account, Auth: session, Bucket: RLMeUpdate,
+			Request: AgreementsRequest{}, Responses: replyOK(UserAgreements{}), serve: handle((*Service).handleMeAgreementsPOST)},
 		{Method: GET, Path: "/me/security", Group: account, Auth: required, Bucket: RLMeRead,
 			Responses: replyOK(UserSecurity{}), serve: handle((*Service).handleMeSecurityGET)},
 		{Method: PUT, Path: "/me/password", Group: account, Auth: session, StepUp: true, Bucket: RLMePasswordChange,

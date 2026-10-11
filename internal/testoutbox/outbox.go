@@ -28,7 +28,11 @@ type Message struct {
 	Token         string               `json:"token,omitempty"`
 	ContactChange *iam.ContactChange   `json:"contact_change,omitempty"`
 	DeviceKey     *iam.DeviceKeyNotice `json:"device_key,omitempty"`
-	At            time.Time            `json:"at"`
+	// UserID and Domain are an SMS's account and the origin its code is
+	// bound to (iam.SMSMessage).
+	UserID string    `json:"user_id,omitempty"`
+	Domain string    `json:"domain,omitempty"`
+	At     time.Time `json:"at"`
 }
 
 // Outbox records every message in order; it is safe for concurrent use. The
@@ -79,7 +83,7 @@ type smsSender struct{ o *Outbox }
 
 func (s smsSender) Send(_ context.Context, m iam.SMSMessage) error {
 	return s.o.add(Message{Channel: "sms", Kind: m.Kind, To: m.To, Language: m.Language, Purpose: m.Purpose,
-		Code: m.Code, Link: m.Link, ContactChange: m.ContactChange})
+		Code: m.Code, Link: m.Link, ContactChange: m.ContactChange, UserID: m.UserID, Domain: m.Domain})
 }
 
 func (s smsSender) CheckHealth(context.Context) error {

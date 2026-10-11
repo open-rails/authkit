@@ -97,7 +97,7 @@ func (s *Engine) RequestPhoneChange(ctx context.Context, userID, newPhone string
 	if err != nil {
 		return err
 	}
-	msg := iam.SMSMessage{Kind: iam.MessageVerification, To: trimmed, Language: s.userLanguage(ctx, userID),
+	msg := iam.SMSMessage{Kind: iam.MessageVerification, To: trimmed, UserID: userID, Language: s.userLanguage(ctx, userID),
 		Code: code, Link: s.phoneVerificationURL(linkToken), Purpose: iam.PurposeContactChange}
 	return s.sendContactChangeVerification(s.sms != nil,
 		func() error { return s.sendSMS(ctx, msg) },

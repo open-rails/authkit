@@ -10,6 +10,7 @@ import { Button } from "#authui/ui/button"
 import { BackupCodes } from "./BackupCodes.tsx"
 import { useCooldown } from "./cooldown.ts"
 import type { LoginController } from "./labels.ts"
+import { AgreementsStep, ContactCode, PasskeyOffer } from "./NetworkSteps.tsx"
 import { NewDeviceVerification } from "./NewDeviceVerification.tsx"
 import {
   CodeField,
@@ -160,6 +161,13 @@ export function LoginSteps({
       return <VerificationRequired controller={controller} />
     case "new_device":
       return <NewDeviceVerification controller={controller} />
+    case "code":
+      return <ContactCode controller={controller} />
+    case "signup_agreements":
+    case "agreements":
+      return <AgreementsStep controller={controller} />
+    case "passkey_offer":
+      return <PasskeyOffer controller={controller} />
     case "backup_codes":
       return (
         <BackupCodes

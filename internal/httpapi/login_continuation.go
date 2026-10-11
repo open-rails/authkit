@@ -21,16 +21,20 @@ type authExtras struct {
 // route's extras. A session's refresh token goes through deliverRefreshToken,
 // so a cookie mount never puts it in the body. A rejected login is its error.
 func (s *Service) authResult(w http.ResponseWriter, r *http.Request, out authflow.LoginOutcome, extra authExtras) (AuthResult, error) {
-	res := AuthResult{ReturnTo: nullableString(out.ReturnTo)}
+	res := AuthResult{ReturnTo: nullableString(out.ReturnTo), AgreementsDue: []iam.Agreement{}}
 	switch out.Kind {
 	case authflow.LoginSessionIssued:
 		user, err := s.svc.User(r.Context(), iam.UserByID(out.UserID))
 		if err != nil {
 			return AuthResult{}, errmodel.Internal("user_lookup_failed", err)
 		}
+		due, err := s.svc.AgreementsDue(r.Context(), out.UserID)
+		if err != nil {
+			return AuthResult{}, errmodel.Internal("agreements_lookup_failed", err)
+		}
 		tokens := s.deliverRefreshToken(w, r, out.Session.TokenSet())
 		res.Status, res.TokenSet, res.User, res.Created = AuthComplete, &tokens, &user, out.Created
-		res.DeviceKey, res.FreshAuth = extra.deviceKey, extra.freshAuth
+		res.DeviceKey, res.FreshAuth, res.AgreementsDue = extra.deviceKey, extra.freshAuth, due
 	case authflow.LoginTwoFactorRequired:
 		res.Status = AuthSecondFactorRequired
 		res.SecondFactor = secondFactorStep(out.UserID, out.Challenge)

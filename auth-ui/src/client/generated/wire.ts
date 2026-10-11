@@ -60,6 +60,38 @@ export type AdminUserUpdateRequest = {
   preferred_language?: string | null
 }
 
+export type Agreement = {
+  key: string
+  version: string
+  url: string
+}
+
+export type AgreementAcceptance = {
+  key: string
+  version: string
+  accepted_at: string
+  channel: "account" | "host" | "registration"
+}
+
+export type AgreementDocument = {
+  key: string
+  version: string
+  url: string
+}
+
+export type AgreementRef = {
+  key?: string
+  version?: string
+}
+
+export type AgreementsRequest = {
+  agreements?: AgreementRef[]
+}
+
+export type AgreementsRequired = {
+  agreements: AgreementDocument[]
+}
+
 export type AuthKitEvent = {
   id: string
   kind: "group.created" | "group.deleted" | "group.purged" | "group.role_created" | "group.role_deleted" | "group.role_updated" | "role.changed" | "role.granted" | "role.revoked" | "user.banned" | "user.deleted" | "user.email_changed" | "user.phone_changed" | "user.purged" | "user.registered" | "user.restored" | "user.sessions_revoked" | "user.unbanned" | "user.username_changed"
@@ -94,6 +126,7 @@ export type AuthResult = {
   verification: VerificationStep | null
   recovery: AccountRecoveryConfirmation | null
   device_verification: DeviceVerificationStep | null
+  agreements_due: Agreement[]
 }
 
 export type Availability = {
@@ -136,6 +169,8 @@ export type Capabilities = {
   two_factor: TwoFactorCapabilities
   invitations: InvitationCapabilities
   languages: string[]
+  agreements: Agreement[]
+  sms: SMSCapabilities
   dpop: string
   paths: MountPaths
 }
@@ -149,6 +184,7 @@ export type CodeOrLinkRequest = {
   identifier?: string
   code?: string
   token?: string
+  agreements?: AgreementRef[]
 }
 
 export type CodeRequest = {
@@ -158,6 +194,10 @@ export type CodeRequest = {
 export type ContactProofRequired = {
   identifier: string
   channel: string
+  reason: string
+}
+
+export type DeletionRefusal = {
   reason: string
 }
 
@@ -401,6 +441,7 @@ export type OAuthAuthorizationRequest = {
   max_age_seconds: number | null
   login_hint: string | null
   expires_at: string
+  agreements: Agreement[]
 }
 
 export type OAuthAuthorizationResult = {
@@ -452,6 +493,7 @@ export type OIDCLoginStartRequest = {
   invite_code?: string
   ui?: string
   popup_nonce?: string
+  agreements?: AgreementRef[]
 }
 
 export type OIDCStart = {
@@ -518,6 +560,10 @@ export type PhoneChangeRequest = {
   phone_number?: string
 }
 
+export type PhoneCountry = {
+  country: string
+}
+
 export type ProfileUpdateRequest = {
   username?: string | null
   preferred_language?: string | null
@@ -550,11 +596,13 @@ export type RegisterRequest = {
   username?: string
   password?: string
   invite_code?: string
+  agreements?: AgreementRef[]
 }
 
 export type RegistrationCapabilities = {
   mode: string
   invite_token_required: boolean
+  agreements: string[]
 }
 
 export type RetryAfter = {
@@ -723,6 +771,10 @@ export type SCIMUserList = {
   startIndex: number
   itemsPerPage: number
   Resources: SCIMUser[]
+}
+
+export type SMSCapabilities = {
+  countries: string[]
 }
 
 export type SecondFactorStep = {
@@ -932,6 +984,11 @@ export type User = {
   ban: BanState | null
   expired_ban: BanState | null
   public_metadata: Record<string, unknown>
+}
+
+export type UserAgreements = {
+  accepted: AgreementAcceptance[]
+  due: Agreement[]
 }
 
 export type UserEntry = {

@@ -35,6 +35,7 @@ const NO_STEP = {
   verification: null,
   recovery: null,
   device_verification: null,
+  agreements_due: [],
 }
 
 // An AuthResult with every field present, as AuthKit sends it.

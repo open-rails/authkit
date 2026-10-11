@@ -12,6 +12,7 @@ import { useState } from "react"
 
 import type { SignInResult } from "#authui/client/authResult"
 import { AuthKitError } from "#authui/client/errors"
+import type { AgreementRef } from "#authui/client/types"
 import { useMessages } from "#authui/i18n/context"
 import { useAuthClient, useCapabilities } from "#authui/react/context"
 import { Button } from "#authui/ui/button"
@@ -40,6 +41,7 @@ export function ProviderButtons({
   onOutcome,
   returnTo,
   inviteCode,
+  agreements,
   disabled,
   onPasskey,
 }: {
@@ -49,6 +51,8 @@ export function ProviderButtons({
   onOutcome: (result: SignInResult) => void
   returnTo?: string
   inviteCode?: string
+  // The documents a sign-up through the provider accepts.
+  agreements?: AgreementRef[]
   disabled?: boolean
   // Passkey sign-in, offered first when set.
   onPasskey?: () => void
@@ -75,7 +79,7 @@ export function ProviderButtons({
     setError(null)
     setPending(id)
     try {
-      const opts = { returnTo, inviteCode }
+      const opts = { returnTo, inviteCode, agreements }
       const out = await client.signInWithPopup(id, opts)
       if (out.ok) return onOutcome(out.result)
       if (out.reason === "blocked") {

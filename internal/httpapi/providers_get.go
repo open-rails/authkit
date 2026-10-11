@@ -37,7 +37,9 @@ func (s *Service) Capabilities() Capabilities {
 		Registration: RegistrationCapabilities{
 			Mode:                string(cfg.Registration.NativeUserMode),
 			InviteTokenRequired: cfg.Registration.NativeUserMode == iam.RegistrationModeInviteOnly,
+			Agreements:          nonNil(cfg.Registration.Agreements),
 		},
+		Agreements:             s.svc.Agreements(),
 		ExternalLoginProviders: s.providerSummaries(),
 		Username: UsernameCapabilities{
 			MinLength:             cfg.Username.MinLength,
@@ -70,8 +72,17 @@ func (s *Service) Capabilities() Capabilities {
 			Registration: string(cfg.Registration.Verification),
 		},
 		Channels:    ChannelCapabilities{Email: email, SMS: sms},
+		SMS:         SMSCapabilities{Countries: nonNil(cfg.SMS.AllowedCountries)},
 		TwoFactor:   TwoFactorCapabilities{Mode: cfg.TwoFactor.Mode, Methods: s.svc.TwoFactorMethods()},
 		Invitations: InvitationCapabilities{Enabled: !cfg.Invitations.Disabled},
 		Languages:   cfg.Languages.Supported,
 	}
+}
+
+// nonNil is v, or an empty list for nil: the wire's lists are never null.
+func nonNil[T any](v []T) []T {
+	if v == nil {
+		return []T{}
+	}
+	return v
 }
