@@ -29,6 +29,10 @@ const (
 	// ConsoleClient is a public client on another origin (ConsoleOrigin)
 	// signing users in at this issuer.
 	ConsoleClient = "e2e-console"
+	// MerchantPersona's groups are what /__test/groups creates, giving the
+	// user MerchantRole there.
+	MerchantPersona = "merchant"
+	MerchantRole    = "staff"
 )
 
 // Resource is the test resource server's identifier (the tokens' aud).
@@ -69,7 +73,12 @@ func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
 		limits[bucket] = authkit.RateLimit{Limit: 10000, Window: time.Minute}
 	}
 	outbox := &authtest.Outbox{}
+	// Merchants: groups a resource token can be bound to (group_id).
+	roles := authkit.NewRoles()
+	merchant := roles.Persona(MerchantPersona)
+	merchant.Role(MerchantRole, merchant.Permission("billing", "read"))
 	cfg := authkit.Config{
+		Roles: roles,
 		HTTP: &authkit.HTTPConfig{
 			DirectPeerIP:  true,
 			RateLimits:    limits,

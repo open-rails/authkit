@@ -751,7 +751,11 @@ export function createAuthClient(options: AuthClientOptions = {}) {
             snap = session
           }
           return snap.status === "authenticated"
-            ? { token: snap.accessToken, userId: snap.userId }
+            ? {
+                token: snap.accessToken,
+                userId: snap.userId,
+                ...(boundToken(snap.accessToken) ? { key: sessionKey } : {}),
+              }
             : null
         },
       })

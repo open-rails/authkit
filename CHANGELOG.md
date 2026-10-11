@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.22.2
+
+- auth-ui: `ResourceRequest.group` asks for a token bound to one group (`group_id` in the token exchange), cached apart per group, for `getResourceToken` and `resourceFetch`. A DPoP-bound session is exchanged with its own key (AuthKit requires it since v1.22.0), and its resource tokens are bound to that key.
+
 ## v1.22.1
 
 - A remote application's static key without a kid is refused at registration with `invalid_remote_application`, as are a duplicate kid and a kid with surrounding whitespace. Before, such a key list was registered and never verified: every assertion was `invalid_grant` and every token failed as unavailable. Each of `PublicKeys` has a distinct kid, its `KID` or else its JWK's, so a PEM key needs `KID`; registration and the verifier check the list by one rule. An assertion or token naming no kid is still verified with the application's only key (RFC 7515 §4.1.4).

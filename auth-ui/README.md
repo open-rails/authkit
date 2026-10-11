@@ -111,12 +111,19 @@ const res = await auth.resourceFetch(
   at the issuer's token endpoint (`tokenEndpoint`, default `/oauth2/token`;
   RFC 8693 token exchange) for an access token. Tokens stay in memory, cached
   until shortly before they expire, and are dropped at sign-out.
+- `group` binds the token to one group, such as a merchant (`group_id`,
+  [group-bound tokens](../docs/authorization-server.md#group-bound-tokens)):
+  `getResourceToken({ resource, scope, group: merchantId })`. Each group's
+  token is cached apart, so switching groups never reuses another group's
+  token. AuthKit refuses a group the user holds no role in (`invalid_target`).
 - Tokens are bearer tokens by default. `resourceTokens: { dpop: true }`
   binds them to this browser's DPoP key (RFC 9449), and so does an issuer
   that refuses an unbound exchange (`invalid_dpop_proof`). The key is a
   non-extractable P-256 key in IndexedDB, so it survives a reload; a bound
   token goes with a fresh proof on every request, and a `use_dpop_nonce`
-  challenge is answered once.
+  challenge is answered once. A DPoP-bound session (`createAuthClient({
+  dpop: true })`) is exchanged with its own key, the only one AuthKit
+  accepts for it, and its resource tokens are bound to that key.
 - `resourceFetch` retries once with a new token on a 401 `invalid_token`.
 - Token endpoint refusals throw `OAuthError` (`error`, `description`).
 

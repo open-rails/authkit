@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Resource tokens bound to a group (AuthKit #451): `ResourceRequest.group`
+  sends `group_id` in the token exchange, so `getResourceToken` and
+  `resourceFetch` get a token for one group, such as a merchant. Each group's
+  token is cached apart. A DPoP-bound session is exchanged with its own key,
+  which AuthKit requires, and its resource tokens are bound to that key.
+
 - Group OAuth clients (AuthKit #450): `OAuthAuthorize` shows the consent
   screen a group's client needs (who asks, through which group, what each
   scope allows, where the browser returns) and approves with consent; with

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/auth-ui/e2e/server/harness"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -75,9 +76,11 @@ func run(addr, baseURL, dsn, static string, lifetime time.Duration) error {
 	whoami := verify.Required(resource)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cl, _ := verify.ClaimsFromContext(r.Context())
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"sub": cl.Subject, "client_id": cl.ClientID, "scopes": cl.Scopes, "jkt": cl.JWKThumbprint,
-		})
+		out := map[string]any{"sub": cl.Subject, "client_id": cl.ClientID, "scopes": cl.Scopes, "jkt": cl.JWKThumbprint}
+		if cl.Group != nil {
+			out["group_id"] = cl.Group.GroupID
+		}
+		_ = json.NewEncoder(w).Encode(out)
 	}))
 	// The console calls it from its own origin: CORS without credentials,
 	// exposing the DPoP challenge headers.
@@ -103,6 +106,17 @@ func run(addr, baseURL, dsn, static string, lifetime time.Duration) error {
 	mux.HandleFunc("GET /__test/outbox", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(rt.Outbox.Messages("", r.URL.Query().Get("to")))
+	})
+	// Creates a merchant group and gives the user its staff role there: a
+	// group a resource token can be bound to.
+	mux.HandleFunc("POST /__test/groups", func(w http.ResponseWriter, r *http.Request) {
+		id, err := staffGroup(r.Context(), rt, r.URL.Query().Get("email"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"id": id})
 	})
 	// Ages the user's sessions, and their second-factor proofs, past the
 	// sensitive-action window, so the next refreshed token demands a step-up.
@@ -134,4 +148,23 @@ func run(addr, baseURL, dsn, static string, lifetime time.Duration) error {
 	shutdown, done := context.WithTimeout(context.Background(), 5*time.Second)
 	defer done()
 	return srv.Shutdown(shutdown)
+}
+
+// staffGroup creates a merchant group and gives the user with email its
+// staff role there.
+func staffGroup(ctx context.Context, rt *harness.Runtime, email string) (string, error) {
+	persona, err := rt.Persona(harness.MerchantPersona)
+	if err != nil {
+		return "", err
+	}
+	role, err := rt.Role(harness.MerchantPersona + ":" + harness.MerchantRole)
+	if err != nil {
+		return "", err
+	}
+	g, err := rt.CreateGroup(ctx, iam.NewGroup{Persona: persona})
+	if err != nil {
+		return "", err
+	}
+	_, err = rt.EnsureUserRole(ctx, iam.GroupByID(g.ID), iam.UserByEmail(email), role)
+	return g.ID, err
 }

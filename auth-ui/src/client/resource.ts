@@ -1,7 +1,8 @@
 // Access tokens for other services' APIs (resource servers), by RFC 8693
 // token exchange of the AuthKit session at the issuer's token endpoint.
 // Bearer tokens unless the app asks for DPoP (RFC 9449) or the issuer
-// requires it. Tokens live in memory only.
+// requires it; a DPoP-bound session's tokens are bound to its key, the only
+// one the issuer exchanges it with. Tokens live in memory only.
 
 import { AuthKitError } from "./errors.ts"
 import {
@@ -31,6 +32,8 @@ export type ResourceToken = {
   tokenType: string
   resource: string
   scope: string[]
+  // The group the token is bound to, when one was asked for.
+  group?: string
   // Epoch ms.
   expiresAt: number
 }
@@ -38,9 +41,25 @@ export type ResourceToken = {
 export type ResourceRequest = {
   resource: string
   scope?: string | string[]
+  // Binds the token to one group, such as a merchant (group_id): it acts
+  // there only, and on root with the user's root permissions. The user must
+  // hold a role in the group, or a root role.
+  group?: string
 }
 
-type Session = { token: string; userId: string } | null
+// The current AuthKit access token, its user and, for a DPoP-bound session,
+// its key.
+type Session = {
+  token: string
+  userId: string
+  key?: () => Promise<DPoPKey>
+} | null
+
+// A cached token and the key its proofs use (null: a bearer token).
+type Entry = ResourceToken & {
+  userId: string
+  proofKey: (() => Promise<DPoPKey>) | null
+}
 
 const LEAD_MS = 30_000
 
@@ -60,8 +79,8 @@ export function createResourceTokens(
   const tokenEndpoint = options.tokenEndpoint ?? "/oauth2/token"
   const keyName = options.keyName ?? `authkit:resource:${options.clientId}`
   const nonces: DPoPNonces = new Map()
-  const cache = new Map<string, ResourceToken & { userId: string }>()
-  const pending = new Map<string, Promise<ResourceToken>>()
+  const cache = new Map<string, Entry>()
+  const pending = new Map<string, Promise<Entry>>()
   const key = (): Promise<DPoPKey> => loadDPoPKey(keyName)
   // Whether exchanges are DPoP-bound: the app's choice, or the issuer's.
   let bind = options.dpop ?? false
@@ -69,7 +88,7 @@ export function createResourceTokens(
   async function exchange(
     r: ResourceRequest,
     s: NonNullable<Session>
-  ): Promise<ResourceToken> {
+  ): Promise<Entry> {
     const scope = scopes(r.scope)
     const body = new URLSearchParams({
       grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
@@ -79,19 +98,26 @@ export function createResourceTokens(
       resource: r.resource,
     })
     if (scope.length) body.set("scope", scope.join(" "))
+    if (r.group) body.set("group_id", r.group)
     const init: RequestInit = {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: body.toString(),
     }
-    const post = async () =>
-      bind
-        ? dpopFetch(deps.fetch, await key(), nonces, tokenEndpoint, init)
+    // A bound session proves its own key; otherwise this frontend's, when
+    // bound.
+    const proofKey = (): (() => Promise<DPoPKey>) | null =>
+      s.key ?? (bind ? key : null)
+    const post = async () => {
+      const k = proofKey()
+      return k
+        ? dpopFetch(deps.fetch, await k(), nonces, tokenEndpoint, init)
         : deps.fetch(tokenEndpoint, init)
+    }
     let res = await post()
     if (!res.ok) {
       const err = await readOAuthError(res)
-      if (bind || err.error !== "invalid_dpop_proof") throw err
+      if (proofKey() || err.error !== "invalid_dpop_proof") throw err
       bind = true
       res = await post()
       if (!res.ok) throw await readOAuthError(res)
@@ -100,21 +126,35 @@ export function createResourceTokens(
     if (typeof out.access_token !== "string")
       throw new Error("token endpoint answered no access_token")
     const expiresIn = typeof out.expires_in === "number" ? out.expires_in : 60
+    const tokenType =
+      typeof out.token_type === "string" ? out.token_type : "Bearer"
     return {
       accessToken: out.access_token,
-      tokenType: typeof out.token_type === "string" ? out.token_type : "Bearer",
+      tokenType,
       resource: r.resource,
       scope: typeof out.scope === "string" ? scopes(out.scope) : scope,
+      ...(r.group ? { group: r.group } : {}),
       expiresAt: Date.now() + expiresIn * 1000,
+      userId: s.userId,
+      proofKey: tokenType.toLowerCase() === "dpop" ? (proofKey() ?? key) : null,
     }
   }
 
+  // The token as the app sees it, without the cache's bookkeeping.
+  const visible = (e: Entry): ResourceToken => {
+    const t: ResourceToken & Partial<Entry> = { ...e }
+    delete t.userId
+    delete t.proofKey
+    return t
+  }
+
   // An access token for r: cached until shortly before it expires, and
-  // only for the signed-in user it was exchanged for.
-  async function getResourceToken(
+  // only for the signed-in user, resource, scopes and group it was
+  // exchanged for.
+  async function entry(
     r: ResourceRequest,
     opts: { fresh?: boolean } = {}
-  ): Promise<ResourceToken> {
+  ): Promise<Entry> {
     const s = await deps.session()
     if (!s)
       throw new AuthKitError(401, {
@@ -122,14 +162,19 @@ export function createResourceTokens(
         code: "unauthenticated",
         message: "Sign in to get a resource token.",
       })
-    const id = `${s.userId} ${r.resource} ${scopes(r.scope).join(" ")}`
+    const id = JSON.stringify([
+      s.userId,
+      r.resource,
+      scopes(r.scope),
+      r.group ?? null,
+    ])
     const hit = cache.get(id)
     if (!opts.fresh && hit && hit.expiresAt - LEAD_MS > Date.now()) return hit
     let p = pending.get(id)
     if (!p) {
       p = exchange(r, s)
         .then((t) => {
-          cache.set(id, { ...t, userId: s.userId })
+          cache.set(id, t)
           return t
         })
         .finally(() => pending.delete(id))
@@ -138,17 +183,22 @@ export function createResourceTokens(
     return p
   }
 
-  // fetch with token: a DPoP-bound one with a proof (RFC 9449 §7), else
-  // as a bearer token (RFC 6750 §2.1).
+  const getResourceToken = async (
+    r: ResourceRequest,
+    opts: { fresh?: boolean } = {}
+  ): Promise<ResourceToken> => visible(await entry(r, opts))
+
+  // fetch with token: a DPoP-bound one with a proof of its key (RFC 9449
+  // §7), else as a bearer token (RFC 6750 §2.1).
   async function send(
     input: string | URL,
     init: RequestInit,
-    token: ResourceToken
+    token: Entry
   ): Promise<Response> {
-    if (token.tokenType.toLowerCase() === "dpop")
+    if (token.proofKey)
       return dpopFetch(
         deps.fetch,
-        await key(),
+        await token.proofKey(),
         nonces,
         input,
         init,
@@ -166,15 +216,15 @@ export function createResourceTokens(
     input: string | URL,
     init: RequestInit & ResourceRequest
   ): Promise<Response> {
-    const { resource, scope, ...rest } = init
-    const r = { resource, scope }
-    let token = await getResourceToken(r)
+    const { resource, scope, group, ...rest } = init
+    const r = { resource, scope, group }
+    let token = await entry(r)
     let res = await send(input, rest, token)
     if (
       res.status === 401 &&
       /error="invalid_token"/.test(res.headers.get("WWW-Authenticate") ?? "")
     ) {
-      token = await getResourceToken(r, { fresh: true })
+      token = await entry(r, { fresh: true })
       res = await send(input, rest, token)
     }
     return res
