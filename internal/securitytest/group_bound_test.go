@@ -143,6 +143,26 @@ func TestSecurityGroupBoundTokens(t *testing.T) {
 		require.NoError(t, v.(hauth.RecentSignInChecker).CheckRecentSignIn(ctx), "auth_time carried over")
 	})
 
+	t.Run("its recent sign-in is the person's: fresh passes, stale steps up", func(t *testing.T) {
+		person := h.newAccount("gbstepup")
+		h.grant(iam.RootGroup(), person, "billing")
+		v := verified(t, h.exchanged(h.login(person).AccessToken, m.ID(), nil))
+		require.NoError(t, v.(hauth.RecentSignInChecker).CheckRecentSignIn(ctx))
+
+		stale := authtest.StaleSession(t, h.auth, h.login(person).AccessToken)
+		token := h.exchanged(stale, m.ID(), nil)
+		r := bearerRequest(token)()
+		v, err := a.Authenticate(r)
+		require.NoError(t, err)
+		err = v.(hauth.RecentSignInChecker).CheckRecentSignIn(ctx)
+		require.ErrorIs(t, err, hauth.ErrStepUpRequired, "auth_time carried over from a stale sign-in")
+		require.Equal(t, http.StatusUnauthorized, hauth.Refuse(r, err).Status)
+
+		minted, err := h.auth.MintAccessToken(ctx, person.id, iam.AccessTokenOptions{Group: m})
+		require.NoError(t, err)
+		require.ErrorIs(t, verified(t, minted.Value).(hauth.RecentSignInChecker).CheckRecentSignIn(ctx), hauth.ErrForbidden, "a sessionless mint has no sign-in")
+	})
+
 	t.Run("a person's bound token keeps their root: permissions on root", func(t *testing.T) {
 		token := h.exchanged(operatorToken, m.ID(), nil)
 		v := verified(t, token)

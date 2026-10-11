@@ -465,8 +465,8 @@ func (s *Engine) CheckRecentSignIn(ctx context.Context, cl verify.Claims) error 
 	if err := s.CheckSession(ctx, cl); err != nil {
 		return err
 	}
-	if !cl.IsUser() || cl.Group != nil {
-		return errmodel.E(errmodel.CodeForbidden) // no sign-in of its own
+	if !cl.IsUser() || cl.Group != nil && cl.SessionID == "" && cl.DeviceKeyID == "" {
+		return errmodel.E(errmodel.CodeForbidden) // a group-bound mint: no sign-in of its own
 	}
 	mfa := cl.MFAEnrolled
 	if !mfa {

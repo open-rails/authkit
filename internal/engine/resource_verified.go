@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/jose"
@@ -175,16 +176,23 @@ func (v resourceVerified) authority() (auth.Identity, bool) {
 }
 
 // CheckRecentSignIn is nil when the token's user signed in within
-// ResourceSignInWindow (auth_time). A stale or unknown sign-in is an RFC 9470
+// ResourceSignInWindow (auth_time), and, for this deployment's own user on a
+// session (an exchanged token), with a second factor when the account has
+// one, as for the user's own token. A stale or unknown sign-in is an RFC 9470
 // step-up: insufficient_user_authentication with max_age. A token with no
 // sign-in of its own (a client's) is auth.ErrForbidden.
-func (v resourceVerified) CheckRecentSignIn(context.Context) error {
+func (v resourceVerified) CheckRecentSignIn(ctx context.Context) error {
 	cl := v.access.Claims
 	if cl.Kind != verify.TokenUser || !v.id.SelfInvoked() {
 		return auth.ErrForbidden
 	}
 	now := v.s.nowTime()
-	if !cl.AuthTime.IsZero() && !cl.AuthTime.After(now.Add(time.Minute)) && now.Sub(cl.AuthTime) <= ResourceSignInWindow {
+	fresh := !cl.AuthTime.IsZero() && !cl.AuthTime.After(now.Add(time.Minute)) && now.Sub(cl.AuthTime) <= ResourceSignInWindow
+	if fresh && v.access.Application == nil && cl.SessionID != "" {
+		enrolled, err := v.s.HasUsableMFA(ctx, cl.Subject)
+		fresh = authflow.RecentSignIn(cl.AuthTime, cl.AMR, enrolled || err != nil, now)
+	}
+	if fresh {
 		return nil
 	}
 	scheme := "Bearer"

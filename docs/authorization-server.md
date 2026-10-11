@@ -104,7 +104,7 @@ A DPoP-bound subject token (`cnf.jkt`) is exchanged only with a proof of its own
 A token exchange naming `group_id` binds its token to that group, such as a console acting at one merchant ([RBAC](rbac.md#a-library-that-guards-its-own-routes)):
 
 - The group must be live and not root, and the user must hold a role in it or a root role; anything else is `invalid_target` (RFC 8693 §2.2.2).
-- The token carries `group_id` and keeps `sid`, `auth_time`, `amr` and `acr`, so a recent sign-in carries over. It has no `act`: the person acts as itself.
+- The token carries `group_id` and keeps `sid`, `auth_time`, `amr` and `acr`. Its `CheckRecentSignIn` is the person's: a sign-in within 15 minutes, with a second factor when the account has one; a stale one is RFC 9470's step-up. It has no `act`: the person acts as itself.
 - At `Client.Authenticator()` (with `Config.Resource` its resource) its `BoundScope` is the group. Its `Can` holds what the person holds there, and on root the person's `root:` permissions; nothing elsewhere. It ends with its session or its group.
 
 A host serving several tenants in process mints a customer token bound to one instead: `client.MintAccessToken(ctx, userID, iam.AccessTokenOptions{Group: iam.GroupByID(id)})`. It is an `access+jwt` carrying `group_id` and no `sid`, at most 15 minutes (`iam.MaxGroupAccessTokenTTL`). It stands while its user is usable and its group live, holds no permissions, has no sign-in of its own (`CheckRecentSignIn` is `auth.ErrForbidden`), and AuthKit's own API refuses it.
