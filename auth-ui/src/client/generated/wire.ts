@@ -713,6 +713,44 @@ export type RegistrationCapabilities = {
   agreements: string[]
 }
 
+export type RemoteApplication = {
+  id: string
+  group_id: string
+  issuer: string
+  mode: "jwks" | "static"
+  jwks_uri: string | null
+  public_keys: RemoteApplicationPublicKey[]
+  enabled: boolean
+  trust_root: "manual" | "user"
+  role: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type RemoteApplicationCreateRequest = {
+  issuer?: string
+  jwks_uri?: string
+  public_keys?: RemoteApplicationKey[]
+  enabled?: boolean | null
+}
+
+export type RemoteApplicationKey = {
+  kid?: string
+  public_key_pem?: string
+  jwk?: JWK | null
+}
+
+export type RemoteApplicationPublicKey = {
+  kid: string
+  public_key_pem: string | null
+}
+
+export type RemoteApplicationUpdateRequest = {
+  jwks_uri?: string | null
+  public_keys?: RemoteApplicationKey[]
+  enabled?: boolean | null
+}
+
 export type RetryAfter = {
   retry_after_seconds: number
 }

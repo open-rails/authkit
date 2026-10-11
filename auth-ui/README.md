@@ -482,7 +482,13 @@ words under `admin`).
 ### Group admins
 
 ```tsx
-import { ApiKeysAdmin, MembersAdmin, OAuthClientsAdmin, RolesAdmin } from "@openrails/auth-ui/admin"
+import {
+  ApiKeysAdmin,
+  MembersAdmin,
+  OAuthClientsAdmin,
+  RemoteApplicationsAdmin,
+  RolesAdmin,
+} from "@openrails/auth-ui/admin"
 
 const guard = useStepUpGuard() // inside a StepUpProvider
 const nav = { pathname: location.pathname, search: location.search, navigate } // React Router
@@ -492,23 +498,30 @@ const nav = { pathname: location.pathname, search: location.search, navigate } /
   permissionHelp={{ "billing:read": "Read customers and payments" }} />
 <ApiKeysAdmin auth={auth} group={merchantId} basePath="/settings/keys" navigation={nav} guard={guard} />
 <OAuthClientsAdmin auth={auth} group={merchantId} basePath="/settings/apps" navigation={nav} guard={guard} />
+<RemoteApplicationsAdmin auth={auth} group={merchantId} basePath="/settings/backends" guard={guard} scope="openrails:self" />
 ```
 
-| Component           | Views                                 | Shows with                                                                         | Writes with          |
-| ------------------- | ------------------------------------- | ---------------------------------------------------------------------------------- | -------------------- |
-| `MembersAdmin`      | members (`?role=`), `invitations`     | `members:read` (the invite form: `members:manage`, or `root:users:invite` on root) | `members:manage`     |
-| `RolesAdmin`        | roles, `new`, `<role>`, `<role>/edit` | `roles:read` or `members:read`                                                     | `roles:manage`       |
-| `ApiKeysAdmin`      | keys (`?revoked=1`)                   | `credentials:read`                                                                 | `credentials:manage` |
-| `OAuthClientsAdmin` | clients, `new`, `<client_id>`         | `credentials:read`                                                                 | `credentials:manage` |
+| Component                 | Views                                 | Shows with                                                                         | Writes with          |
+| ------------------------- | ------------------------------------- | ---------------------------------------------------------------------------------- | -------------------- |
+| `MembersAdmin`            | members (`?role=`), `invitations`     | `members:read` (the invite form: `members:manage`, or `root:users:invite` on root) | `members:manage`     |
+| `RolesAdmin`              | roles, `new`, `<role>`, `<role>/edit` | `roles:read` or `members:read`                                                     | `roles:manage`       |
+| `ApiKeysAdmin`            | keys (`?revoked=1`)                   | `credentials:read`                                                                 | `credentials:manage` |
+| `OAuthClientsAdmin`       | clients, `new`, `<client_id>`         | `credentials:read`                                                                 | `credentials:manage` |
+| `RemoteApplicationsAdmin` | keys and the assertion to sign        | `credentials:read`                                                                 | `credentials:manage` |
 
 Permissions are the group persona's (`merchant:members:read`). Each component
 reads the caller's own with `GET /me/permissions`: without them it shows a
 no-access state, and with read alone no write controls. AuthKit still decides:
 a role beyond the caller's own, the group's last owner or a self-change on
 root is refused, and the refusal is shown. Writes that need a recent sign-in
-(root changes, OAuth clients) step up through `guard`, and replay after a
+(root changes, OAuth clients, signing keys) step up through `guard`, and replay after a
 provider step-up. A secret (an API key, a client secret, an invitation link)
 is shown once, at creation.
+
+`RemoteApplicationsAdmin` registers a backend's signing keys (a JWKS URL, or a
+PEM key with its kid) for the RFC 7523 assertions it trades for its users'
+tokens, and shows what to sign. `tokenEndpoint` (default `/oauth2/token`
+beside `baseUrl`) is the assertions' `aud`; `scope` adds one to the example.
 
 ## Solana
 

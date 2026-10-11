@@ -17,6 +17,12 @@
   delete), each taking `auth`, `group`, `basePath`, `navigation`, `guard`,
   `appearance`, `language` and `messages`.
 
+- `RemoteApplicationsAdmin` (AuthKit #453): a backend's signing keys for its
+  RFC 7523 assertions (register a JWKS URL or a PEM key, disable, delete) and
+  the assertion to sign; client `listRemoteApplications`,
+  `createRemoteApplication`, `updateRemoteApplication`,
+  `deleteRemoteApplication`.
+
 - Step-up resume: `guard(action, { resume: { kind, data } })` keeps the action
   across a provider step-up, and `guard.onResume(kind, resumer)` replays it
   once on return, after checking the person, the nonce and a 15-minute
@@ -34,7 +40,7 @@
   `prompt=none` it declines `consent_required`. `ConnectedAppsPanel` (and the
   `connectedApps` section of `AccountSecurity`) lists the apps a user signed
   in to and disconnects one. Client: `approveOAuthAuthorization(id, {
-  consent })`, `getOAuthConsents`, `revokeOAuthConsent`.
+consent })`, `getOAuthConsents`, `revokeOAuthConsent`.
 
 - Network accounts (AuthKit #449): `ContactSignIn`, contact-first sign-in by
   an emailed or texted code, with passkey autofill (conditional mediation),
@@ -44,7 +50,7 @@
   `OAuthAuthorize` carry the agreements AuthKit requires. Client:
   `confirmPasswordless({ agreements })`, `register({ agreements })`,
   `getAgreements`, `acceptAgreements`, `signInWithPasskey({ conditional,
-  signal })`; the wire types gain `agreements_due`, `agreements` and
+signal })`; the wire types gain `agreements_due`, `agreements` and
   `sms.countries`.
 
 - AuthKit answers `step_up_required` with 401 and RFC 9470's challenge

@@ -113,6 +113,14 @@ func (s *Service) GroupHandler(op GroupOp) http.HandlerFunc {
 			s.groupOAuthClientSecret(w, r, g, who)
 		case OpOAuthClientDelete:
 			s.groupOAuthClientDelete(w, r, g, who)
+		case OpRemoteAppsList:
+			s.groupRemoteAppsList(w, r, g)
+		case OpRemoteAppCreate:
+			s.groupRemoteAppCreate(w, r, g, who)
+		case OpRemoteAppUpdate:
+			s.groupRemoteAppUpdate(w, r, g, who)
+		case OpRemoteAppDelete:
+			s.groupRemoteAppDelete(w, r, g, who)
 		default:
 			fail(w, errmodel.CodeNotImplemented)
 		}

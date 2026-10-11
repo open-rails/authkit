@@ -89,7 +89,7 @@ func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
 	roles := authkit.NewRoles(authkit.CustomRoles)
 	root := roles.Root
 	root.Role("rolesadmin", root.Members.Read, root.Roles.Read, root.Roles.Manage)
-	merchant := roles.Persona(MerchantPersona, authkit.APIKeys, authkit.CustomRoles, authkit.OAuthClients)
+	merchant := roles.Persona(MerchantPersona, authkit.APIKeys, authkit.CustomRoles, authkit.OAuthClients, authkit.RemoteApplications)
 	billing := merchant.Permission("billing", "read")
 	merchant.Permission("billing", "manage")
 	merchant.Role(MerchantRole, billing)

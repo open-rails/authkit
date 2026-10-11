@@ -4919,6 +4919,237 @@
         "x-authkit-mounted-when": "api_keys"
       }
     },
+    "/api/v1/groups/{group_id}/remote-applications": {
+      "get": {
+        "tags": [
+          "groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoteApplicationPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:credentials:read",
+        "x-authkit-rate-limit": "group_read",
+        "x-authkit-mounted-when": "remote_applications"
+      },
+      "post": {
+        "tags": [
+          "groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoteApplicationCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoteApplication"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:credentials:manage",
+        "x-authkit-rate-limit": "group_write",
+        "x-authkit-mounted-when": "remote_applications"
+      }
+    },
+    "/api/v1/groups/{group_id}/remote-applications/{id}": {
+      "patch": {
+        "tags": [
+          "groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoteApplicationUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoteApplication"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:credentials:manage",
+        "x-authkit-rate-limit": "group_write",
+        "x-authkit-mounted-when": "remote_applications"
+      },
+      "delete": {
+        "tags": [
+          "groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:credentials:manage",
+        "x-authkit-rate-limit": "group_write",
+        "x-authkit-mounted-when": "remote_applications"
+      }
+    },
     "/api/v1/invitations/redeem": {
       "post": {
         "tags": [
@@ -9939,6 +10170,187 @@
           "agreements"
         ]
       },
+      "RemoteApplication": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "group_id": {
+            "type": "string"
+          },
+          "issuer": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "jwks",
+              "static"
+            ]
+          },
+          "jwks_uri": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "public_keys": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RemoteApplicationPublicKey"
+            }
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "trust_root": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "user"
+            ]
+          },
+          "role": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          }
+        },
+        "required": [
+          "id",
+          "group_id",
+          "issuer",
+          "mode",
+          "jwks_uri",
+          "public_keys",
+          "enabled",
+          "trust_root",
+          "role",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "RemoteApplicationCreateRequest": {
+        "type": "object",
+        "properties": {
+          "issuer": {
+            "type": "string"
+          },
+          "jwks_uri": {
+            "type": "string"
+          },
+          "public_keys": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RemoteApplicationKey"
+            }
+          },
+          "enabled": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "RemoteApplicationKey": {
+        "type": "object",
+        "properties": {
+          "kid": {
+            "type": "string"
+          },
+          "public_key_pem": {
+            "type": "string"
+          },
+          "jwk": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/JWK"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "RemoteApplicationPublicKey": {
+        "type": "object",
+        "properties": {
+          "kid": {
+            "type": "string"
+          },
+          "public_key_pem": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "kid",
+          "public_key_pem"
+        ]
+      },
+      "RemoteApplicationUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "jwks_uri": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "public_keys": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RemoteApplicationKey"
+            }
+          },
+          "enabled": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
       "RetryAfter": {
         "type": "object",
         "properties": {
@@ -12183,6 +12595,35 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/PublicUser"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor",
+          "total"
+        ]
+      },
+      "RemoteApplicationPage": {
+        "type": "object",
+        "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RemoteApplication"
             }
           },
           "next_cursor": {

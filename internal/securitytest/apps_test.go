@@ -393,12 +393,13 @@ func TestSecurityRemoteApplicationPaging(t *testing.T) {
 }
 
 // TestSecurityRemovedRoutesAreGone: v1 serves no signed-document,
-// application self-registration, remote-application or delegated-token
-// route, nor the member, invite-link and root-role routes the member and
-// invitation resources replaced, even with every capability on; custom-role
-// changes only for a persona with CustomRoles. The catalog lists none, and a
-// signed-in owner gets 404 (405 where the path serves another method). The
-// Go operations on applications remain.
+// application self-registration or delegated-token route, nor the member,
+// invite-link and root-role routes the member and invitation resources
+// replaced, even with every capability on; custom-role changes only for a
+// persona with CustomRoles. Remote applications are served only by id,
+// without the old slug body or role routes (#453). The catalog lists none,
+// and a signed-in owner gets 404 (405 where the path serves another method,
+// 400 for the old body). The Go operations on applications remain.
 func TestSecurityRemovedRoutesAreGone(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withApps))
 	ctx := context.Background()
@@ -408,7 +409,7 @@ func TestSecurityRemovedRoutesAreGone(t *testing.T) {
 	app := h.registerApp(group, owner, "cut-app", "member")
 
 	for _, pattern := range patterns(h.auth) {
-		for _, gone := range []string{"/.well-known/authkit/", "/applications/", "/remote-applications", "/delegated/"} {
+		for _, gone := range []string{"/.well-known/authkit/", "/applications/", "/remote-applications/{id}/roles", "/delegated/"} {
 			require.NotContains(t, pattern, gone)
 		}
 	}
@@ -422,9 +423,8 @@ func TestSecurityRemovedRoutesAreGone(t *testing.T) {
 		{request{method: http.MethodGet, path: "//.well-known/authkit/documents/sha256:" + strings.Repeat("0", 64), token: token}, http.StatusNotFound},
 		{request{method: http.MethodPost, path: "/delegated/token", token: token, body: map[string]any{"requested_grant": map[string]any{}}}, http.StatusNotFound},
 		{request{method: http.MethodPost, path: "/applications/register", body: map[string]string{"domain": "cut.security.test"}}, http.StatusNotFound},
-		{request{method: http.MethodGet, path: base + "/remote-applications", token: token}, http.StatusNotFound},
 		{request{method: http.MethodPost, path: base + "/remote-applications", token: token,
-			body: map[string]any{"slug": "cut-new", "issuer": "https://cut-new.security.test", "public_keys": []map[string]string{{"public_key_pem": publicKeyPEM(t)}}}}, http.StatusNotFound},
+			body: map[string]any{"slug": "cut-new", "issuer": "https://cut-new.security.test", "public_keys": []map[string]string{{"public_key_pem": publicKeyPEM(t)}}}}, http.StatusBadRequest},
 		{request{method: http.MethodDelete, path: base + "/remote-applications/cut-app", token: token}, http.StatusNotFound},
 		{request{method: http.MethodPut, path: base + "/remote-applications/cut-app/roles/org:owner", token: token}, http.StatusNotFound},
 		{request{method: http.MethodPost, path: base + "/roles", token: token,

@@ -13,6 +13,8 @@ import type {
   OAuthClientSecret,
   OAuthClientUpdate,
   PermissionSet,
+  RemoteApplication,
+  RemoteApplicationKey,
 } from "../client/generated/wire.ts"
 
 // Anything that sends the signed-in person's AuthKit credentials: auth-ui's
@@ -60,6 +62,16 @@ export const ADMIN_ROUTES = {
     "/groups/{group_id}/oauth-clients/{client_id}/secret",
   ],
   deleteOAuthClient: ["DELETE", "/groups/{group_id}/oauth-clients/{client_id}"],
+  listRemoteApplications: ["GET", "/groups/{group_id}/remote-applications"],
+  createRemoteApplication: ["POST", "/groups/{group_id}/remote-applications"],
+  updateRemoteApplication: [
+    "PATCH",
+    "/groups/{group_id}/remote-applications/{id}",
+  ],
+  deleteRemoteApplication: [
+    "DELETE",
+    "/groups/{group_id}/remote-applications/{id}",
+  ],
 } as const satisfies Record<string, readonly [Method, string]>
 
 export type AdminRoute = keyof typeof ADMIN_ROUTES
@@ -270,5 +282,52 @@ export function createAdminClient(options: AdminClientOptions) {
       call<void>("deleteOAuthClient", {
         params: g(group, { client_id: clientId }),
       }),
+
+    // A backend's signing keys for RFC 7523 assertions.
+    listRemoteApplications: (group: string, p?: Page, signal?: AbortSignal) =>
+      call<ListPage<RemoteApplication>>("listRemoteApplications", {
+        params: g(group),
+        query: page(p),
+        signal,
+      }),
+    // One trust source: a JWKS URL, or static keys each with a kid.
+    createRemoteApplication: (
+      group: string,
+      input: {
+        issuer: string
+        jwksUri?: string
+        publicKeys?: RemoteApplicationKey[]
+        enabled?: boolean
+      }
+    ) =>
+      call<RemoteApplication>("createRemoteApplication", {
+        params: g(group),
+        body: {
+          issuer: input.issuer,
+          jwks_uri: input.jwksUri,
+          public_keys: input.publicKeys,
+          enabled: input.enabled,
+        },
+      }),
+    // A JWKS URL or keys replace the trust source; what is not named stays.
+    updateRemoteApplication: (
+      group: string,
+      id: string,
+      input: {
+        jwksUri?: string
+        publicKeys?: RemoteApplicationKey[]
+        enabled?: boolean
+      }
+    ) =>
+      call<RemoteApplication>("updateRemoteApplication", {
+        params: g(group, { id }),
+        body: {
+          jwks_uri: input.jwksUri,
+          public_keys: input.publicKeys,
+          enabled: input.enabled,
+        },
+      }),
+    deleteRemoteApplication: (group: string, id: string) =>
+      call<void>("deleteRemoteApplication", { params: g(group, { id }) }),
   }
 }

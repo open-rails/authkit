@@ -20,6 +20,7 @@ import {
   createAdminClient,
   MembersAdmin,
   OAuthClientsAdmin,
+  RemoteApplicationsAdmin,
   RolesAdmin,
   type AdminNavigation,
 } from "../../dist/admin.js"
@@ -144,6 +145,7 @@ const VIEWS = {
   roles: RolesAdmin,
   "api-keys": ApiKeysAdmin,
   "oauth-clients": OAuthClientsAdmin,
+  "remote-applications": RemoteApplicationsAdmin,
 }
 
 function Admin({ navigation }: { navigation?: AdminNavigation }) {

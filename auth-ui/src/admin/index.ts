@@ -26,3 +26,7 @@ export {
   OAuthClientsAdmin,
   type OAuthClientsAdminProps,
 } from "./oauth-clients.tsx"
+export {
+  RemoteApplicationsAdmin,
+  type RemoteApplicationsAdminProps,
+} from "./remote-applications.tsx"

@@ -37,6 +37,10 @@ const (
 	OpOAuthClientUpdate
 	OpOAuthClientSecret
 	OpOAuthClientDelete
+	OpRemoteAppsList
+	OpRemoteAppCreate
+	OpRemoteAppUpdate
+	OpRemoteAppDelete
 )
 
 // Available reports whether groups of persona p have the operation. Every
@@ -53,15 +57,19 @@ func (op GroupOp) Available(p rbac.Persona) bool {
 		return p.CustomRoles
 	case OpOAuthClientsList, OpOAuthClientGet, OpOAuthClientCreate, OpOAuthClientUpdate, OpOAuthClientSecret, OpOAuthClientDelete:
 		return p.OAuthClients
+	case OpRemoteAppsList, OpRemoteAppCreate, OpRemoteAppUpdate, OpRemoteAppDelete:
+		return p.RemoteApplications
 	}
 	return false
 }
 
 // SignInFresh reports whether the operation also needs the caller's recent
-// sign-in, wherever the group: a change of the group's OAuth clients.
+// sign-in, wherever the group: a change of the group's OAuth clients or of
+// its remote applications' keys.
 func (op GroupOp) SignInFresh() bool {
 	switch op {
-	case OpOAuthClientCreate, OpOAuthClientUpdate, OpOAuthClientSecret, OpOAuthClientDelete:
+	case OpOAuthClientCreate, OpOAuthClientUpdate, OpOAuthClientSecret, OpOAuthClientDelete,
+		OpRemoteAppCreate, OpRemoteAppUpdate, OpRemoteAppDelete:
 		return true
 	}
 	return false
@@ -72,7 +80,8 @@ func (op GroupOp) Mutates() bool {
 	switch op {
 	case OpMemberSet, OpMemberRemove, OpAPIKeyMint, OpAPIKeyRevoke, OpInvitationCreate, OpInvitationRevoke,
 		OpRoleCreate, OpRoleUpdate, OpRoleDelete,
-		OpOAuthClientCreate, OpOAuthClientUpdate, OpOAuthClientSecret, OpOAuthClientDelete:
+		OpOAuthClientCreate, OpOAuthClientUpdate, OpOAuthClientSecret, OpOAuthClientDelete,
+		OpRemoteAppCreate, OpRemoteAppUpdate, OpRemoteAppDelete:
 		return true
 	}
 	return false
@@ -99,9 +108,10 @@ func (op GroupOp) Perms(p rbac.Persona) []iam.Perm {
 			return []iam.Perm{ident.MembersManage(p.Name), ident.RootUsersInvite}
 		}
 		return []iam.Perm{ident.MembersManage(p.Name)}
-	case OpAPIKeysList, OpOAuthClientsList, OpOAuthClientGet:
+	case OpAPIKeysList, OpOAuthClientsList, OpOAuthClientGet, OpRemoteAppsList:
 		return []iam.Perm{ident.CredentialsRead(p.Name)}
-	case OpAPIKeyMint, OpAPIKeyRevoke, OpOAuthClientCreate, OpOAuthClientUpdate, OpOAuthClientSecret, OpOAuthClientDelete:
+	case OpAPIKeyMint, OpAPIKeyRevoke, OpOAuthClientCreate, OpOAuthClientUpdate, OpOAuthClientSecret, OpOAuthClientDelete,
+		OpRemoteAppCreate, OpRemoteAppUpdate, OpRemoteAppDelete:
 		return []iam.Perm{ident.CredentialsManage(p.Name)}
 	}
 	return nil

@@ -413,6 +413,16 @@ func Catalog() []RouteSpec {
 			Request: APIKeyCreateRequest{}, Responses: replyCreated(iam.APIKeyCreated{}), serve: groupOp(OpAPIKeyMint)},
 		{Method: DELETE, Path: "/groups/{group_id}/api-keys/{id}", Group: groups, Auth: permission, Perm: OpAPIKeyRevoke.catalogPermission(), Bucket: RLGroupWrite, MountedWhen: FeatureAPIKeys,
 			Responses: replyNoContent, serve: groupOp(OpAPIKeyRevoke)},
+		// A backend's signing keys for RFC 7523 assertions (its customer
+		// tokens): a JWKS URL or static keys, each with a kid.
+		{Method: GET, Path: "/groups/{group_id}/remote-applications", Group: groups, Auth: permission, Perm: OpRemoteAppsList.catalogPermission(), Bucket: RLGroupRead, MountedWhen: FeatureRemoteApplications,
+			Query: PageQuery{}, Responses: replyOK(iam.ListPage[RemoteApplication]{}), serve: groupOp(OpRemoteAppsList)},
+		{Method: POST, Path: "/groups/{group_id}/remote-applications", Group: groups, Auth: permission, Perm: OpRemoteAppCreate.catalogPermission(), Bucket: RLGroupWrite, MountedWhen: FeatureRemoteApplications,
+			Request: RemoteApplicationCreateRequest{}, Responses: replyCreated(RemoteApplication{}), serve: groupOp(OpRemoteAppCreate)},
+		{Method: PATCH, Path: "/groups/{group_id}/remote-applications/{id}", Group: groups, Auth: permission, Perm: OpRemoteAppUpdate.catalogPermission(), Bucket: RLGroupWrite, MountedWhen: FeatureRemoteApplications,
+			Request: RemoteApplicationUpdateRequest{}, Responses: replyOK(RemoteApplication{}), serve: groupOp(OpRemoteAppUpdate)},
+		{Method: DELETE, Path: "/groups/{group_id}/remote-applications/{id}", Group: groups, Auth: permission, Perm: OpRemoteAppDelete.catalogPermission(), Bucket: RLGroupWrite, MountedWhen: FeatureRemoteApplications,
+			Responses: replyNoContent, serve: groupOp(OpRemoteAppDelete)},
 		{Method: POST, Path: "/invitations/redeem", Group: groups, Auth: session, Bucket: RLInviteRedeem, MountedWhen: FeatureInvitations,
 			Request: InvitationRedeemRequest{}, Responses: replyOK(iam.Membership{}), serve: handle((*Service).handleInvitationRedeemPOST)},
 
