@@ -114,6 +114,10 @@ func (v resourceVerified) ClientID() string { return v.access.Claims.ClientID }
 // Scopes are the scopes the token was granted.
 func (v resourceVerified) Scopes() []string { return append([]string(nil), v.access.Claims.Scopes...) }
 
+// Asserted reports whether this deployment minted the token from a remote
+// application's RFC 7523 assertion: its backend's token for one of its users.
+func (v resourceVerified) Asserted() bool { return v.access.Asserted }
+
 // Can checks permission live in the group scope.ID names, a scope of this
 // deployment's issuer, and for a bound token only its own group, but a
 // person's token exchanged for a group, which also holds the person's root:

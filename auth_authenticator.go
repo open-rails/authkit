@@ -47,9 +47,11 @@ import (
 // Its Verified reports BoundScope (helpers/auth Bound): an API key's group,
 // a trusted issuer's token's group, a group OAuth client's token's group;
 // zero for a person's own sign-in. A resource access token's Verified also
-// has ClientID() string and Scopes() []string: the client it was issued to
-// and the scopes it was granted. The Authenticator lists the headers its
-// credentials use (auth.Headers).
+// has ClientID() string and Scopes() []string, the client it was issued to
+// and the scopes it was granted, and Asserted() bool: whether this
+// deployment minted it from a remote application's RFC 7523 assertion (a
+// backend's token for one of its users). The Authenticator lists the headers
+// its credentials use (auth.Headers).
 //
 // The Client itself is not an auth.Authenticator.
 func (a *Client) Authenticator() auth.Authenticator { return authenticator{a, a} }

@@ -388,6 +388,66 @@ func TestResourceServerRemoteAssertion(t *testing.T) {
 	}
 }
 
+// TestResourceServerAssertedToken: at Client.Authenticator(), Asserted is
+// true only for a token this deployment minted from a remote application's
+// RFC 7523 assertion (a merchant backend's customer token); a user's own
+// session token, an API key, a token exchanged for the resource and the
+// trusted issuer's own token are not asserted.
+func TestResourceServerAssertedToken(t *testing.T) {
+	ctx := t.Context()
+	const exchanger, exchangerSecret = "console-backend", "console-secret-0123456789-abcdefghij-0123"
+	rbac := authkit.NewRoles()
+	merchant := rbac.Persona("merchant", authkit.RemoteApplications, authkit.APIKeys)
+	support := merchant.Role("support", merchant.Permission("payments", "refund"))
+	as := authtest.NewAuthorizationServer(t, authtest.WithConfig(func(c *authkit.Config) {
+		c.Roles = rbac
+		c.Resource = authkit.ResourceConfig{ID: oauthResource, Scopes: map[string][]string{"api:self": {}}}
+		c.AuthorizationServer = authkit.AuthorizationServerConfig{
+			Resources: []authkit.ResourceServerConfig{{ID: oauthResource, Scopes: []string{"api:self"}}},
+			Clients: []authkit.OAuthClientConfig{{ID: exchanger, SecretSHA256: authtest.ClientSecretSHA256(exchangerSecret),
+				Resources: []string{oauthResource}, GrantTypes: []authkit.OAuthGrantType{authkit.GrantTokenExchange}}},
+		}
+	}))
+	g, err := as.Client.CreateGroup(ctx, iam.NewGroup{Persona: merchant.Persona})
+	require.NoError(t, err)
+	group := iam.GroupByID(g.ID)
+	f := newFakeIssuer(t)
+	require.NoError(t, as.Client.DeclareRemoteApplications(ctx, group, []iam.RemoteApplication{{Issuer: f.url, Enabled: true, Role: support}}))
+
+	asserted := func(token string) bool {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodGet, oauthResource+"/v1/me", nil)
+		r.Header.Set("Authorization", "Bearer "+token)
+		v, err := as.Client.Authenticator().Authenticate(r)
+		require.NoError(t, err)
+		a, ok := v.(interface{ Asserted() bool })
+		return ok && a.Asserted()
+	}
+
+	now := time.Now()
+	assertion := f.token(t, "JWT", jwt.MapClaims{"aud": as.TokenEndpoint(), "sub": "customer-42", "client_id": nil, "exp": now.Add(time.Minute).Unix()})
+	res, err := as.HTTPClient().PostForm(as.TokenEndpoint(), url.Values{"grant_type": {"urn:ietf:params:oauth:grant-type:jwt-bearer"}, "assertion": {assertion}})
+	require.NoError(t, err)
+	var customer struct {
+		AccessToken string `json:"access_token"`
+	}
+	require.NoError(t, json.NewDecoder(res.Body).Decode(&customer))
+	res.Body.Close()
+	require.Equal(t, http.StatusOK, res.StatusCode)
+	require.True(t, asserted(customer.AccessToken), "a customer token minted from the backend's assertion")
+
+	user := authtest.NewUser(t, as.Client)
+	authtest.GrantRole(t, as.Client, group, iam.UserSubject(user.ID), support)
+	session := authtest.SignIn(t, as.Client, user)
+	require.False(t, asserted(session.AccessToken), "a user's own session token")
+	key, err := as.Client.CreateAPIKey(ctx, iam.SystemIdentity(), group, iam.NewAPIKey{Name: "backend", Role: support})
+	require.NoError(t, err)
+	require.False(t, asserted(key.Secret), "an API key")
+	exchanged := as.Exchange(t, authtest.TokenExchange{ClientID: exchanger, ClientSecret: exchangerSecret, SubjectToken: session.AccessToken, Resource: oauthResource, Scopes: []string{"api:self"}})
+	require.False(t, asserted(exchanged.AccessToken), "a session exchanged for the resource")
+	require.False(t, asserted(f.token(t, "at+jwt", nil)), "the trusted issuer's own token")
+}
+
 // TestResourceServerStaticKeyKid: a remote application's static keys are
 // registered only as its verifiers read them, each with a distinct kid (a PEM
 // key has none of its own), else invalid_remote_application. The kid header

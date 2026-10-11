@@ -64,7 +64,7 @@ A trusted issuer's backend can mint a customer token for its user without runnin
 2. Its frontend posts the assertion to AuthKit's token endpoint, with no client: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer`, `assertion`, and optionally `scope` and a DPoP proof.
 3. The answer is an access token for `Resource.ID`:
    - it acts for that user in the application's group and holds no permissions;
-   - its `client_id` is the application's issuer;
+   - its `client_id` is the application's issuer, and at `Client.Authenticator()` its Verified's `Asserted()` is true (false for every other credential), so a library tells a customer token from a staff one without comparing issuers;
    - it is DPoP-bound when the frontend proved a key, and a bearer token otherwise;
    - it lasts `AuthorizationServer.AccessTokenTTL` (5 minutes by default, at most 15), which a resource server may set without any clients.
 
