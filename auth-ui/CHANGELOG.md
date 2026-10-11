@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Admin foundations (AuthKit #453): the `@openrails/auth-ui/admin` entry with
+  `createAdminClient` (AuthKit's group routes and `GET /me/permissions`, over
+  any `authFetch`; `ADMIN_ROUTES` held to the route catalog),
+  `useGroupAdminAccess`, `useHistoryNavigation` and the admin message bundles
+  in six languages. A build test keeps admin code out of the customer
+  entries.
+
+- Step-up resume: `guard(action, { resume: { kind, data } })` keeps the action
+  across a provider step-up, and `guard.onResume(kind, resumer)` replays it
+  once on return, after checking the person, the nonce and a 15-minute
+  lifetime.
+
 - Resource tokens bound to a group (AuthKit #451): `ResourceRequest.group`
   sends `group_id` in the token exchange, so `getResourceToken` and
   `resourceFetch` get a token for one group, such as a merchant. Each group's

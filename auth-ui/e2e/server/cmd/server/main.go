@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -103,14 +104,15 @@ func run(addr, baseURL, dsn, static string, lifetime time.Duration) error {
 	}
 	mux.Handle("GET "+harness.ResourcePath+"/whoami", cors(whoami))
 	mux.Handle("OPTIONS "+harness.ResourcePath+"/whoami", cors(whoami))
+	rt.IdP.Mount(mux)
 	mux.HandleFunc("GET /__test/outbox", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(rt.Outbox.Messages("", r.URL.Query().Get("to")))
 	})
-	// Creates a merchant group and gives the user its staff role there: a
-	// group a resource token can be bound to.
+	// Creates a merchant group and gives the user a role there (?role=, the
+	// staff role by default): a group a resource token can be bound to.
 	mux.HandleFunc("POST /__test/groups", func(w http.ResponseWriter, r *http.Request) {
-		id, err := staffGroup(r.Context(), rt, r.URL.Query().Get("email"))
+		id, err := staffGroup(r.Context(), rt, r.URL.Query().Get("email"), r.URL.Query().Get("role"))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -134,6 +136,12 @@ func run(addr, baseURL, dsn, static string, lifetime time.Duration) error {
 	})
 	if static != "" {
 		mux.Handle("GET /", http.FileServer(http.Dir(static)))
+		// The admin fixture app answers its deep links, provider returns included.
+		for _, prefix := range []string{"/alone/", "/router/", "/stepup/"} {
+			mux.HandleFunc("GET "+prefix, func(w http.ResponseWriter, r *http.Request) {
+				http.ServeFile(w, r, filepath.Join(static, "admin.html"))
+			})
+		}
 	}
 
 	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
@@ -150,14 +158,17 @@ func run(addr, baseURL, dsn, static string, lifetime time.Duration) error {
 	return srv.Shutdown(shutdown)
 }
 
-// staffGroup creates a merchant group and gives the user with email its
-// staff role there.
-func staffGroup(ctx context.Context, rt *harness.Runtime, email string) (string, error) {
+// staffGroup creates a merchant group and gives the user with email role
+// there, the staff role when empty.
+func staffGroup(ctx context.Context, rt *harness.Runtime, email, role string) (string, error) {
 	persona, err := rt.Persona(harness.MerchantPersona)
 	if err != nil {
 		return "", err
 	}
-	role, err := rt.Role(harness.MerchantPersona + ":" + harness.MerchantRole)
+	if role == "" {
+		role = harness.MerchantRole
+	}
+	held, err := rt.Role(harness.MerchantPersona + ":" + role)
 	if err != nil {
 		return "", err
 	}
@@ -165,6 +176,6 @@ func staffGroup(ctx context.Context, rt *harness.Runtime, email string) (string,
 	if err != nil {
 		return "", err
 	}
-	_, err = rt.EnsureUserRole(ctx, iam.GroupByID(g.ID), iam.UserByEmail(email), role)
+	_, err = rt.EnsureUserRole(ctx, iam.GroupByID(g.ID), iam.UserByEmail(email), held)
 	return g.ID, err
 }

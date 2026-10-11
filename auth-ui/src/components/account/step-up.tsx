@@ -4,14 +4,25 @@ import {
   Wallet01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { useId, useState, type ReactNode } from "react"
+import { useEffect, useId, useState, type ReactNode } from "react"
 
 import type { StepUpChallenge } from "../../client/stepUp.ts"
+import {
+  consumeReturnNonce,
+  dropStepUpAction,
+  takeReturnNonce,
+  takeStepUpAction,
+} from "../../client/stepUpResume.ts"
 import type { TwoFactorFactor } from "../../client/types.ts"
 import { webAuthnAvailable } from "../../client/webauthn.ts"
 import { useMessages } from "../../i18n/context.ts"
 import type { MessageKey } from "../../i18n/messages.ts"
-import { useCapabilities, useUser } from "../../react/context.ts"
+import {
+  useAuthClient,
+  useCapabilities,
+  useSession,
+  useUser,
+} from "../../react/context.ts"
 import { useStepUpReturn } from "../../react/providers.ts"
 import {
   useStepUp,
@@ -67,16 +78,30 @@ export function StepUpProvider({
         returnTo={returnTo}
         acquireSolanaSigner={acquireSolanaSigner}
       />
-      <StepUpReturn />
+      <StepUpReturn controller={controller} />
     </StepUpContext.Provider>
   )
 }
 
-// Finishes an OIDC step-up redirect (#code= or #error= on its return page).
-function StepUpReturn() {
+// Finishes an OIDC step-up redirect (#code= or #error= on its return page)
+// and hands the action it returned with, checked, to the controller; a
+// failed or abandoned step-up drops it.
+function StepUpReturn({ controller }: { controller: StepUpController }) {
   const { t } = useMessages()
-  const { error } = useStepUpReturn()
+  const client = useAuthClient()
+  const session = useSession()
+  const { pending, freshAuth, error } = useStepUpReturn()
   const [dismissed, setDismissed] = useState(false)
+  const { resume } = controller
+  useEffect(() => {
+    const nonce = takeReturnNonce()
+    if (!nonce || pending || session.status === "loading") return
+    consumeReturnNonce()
+    const now = client.getSnapshot()
+    if (freshAuth && now.status === "authenticated")
+      resume(takeStepUpAction(now.userId, nonce))
+    else dropStepUpAction()
+  }, [client, session.status, pending, freshAuth, resume])
   return (
     <Dialog
       open={!!error && !dismissed}

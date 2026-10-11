@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.23.0
+
+- auth-ui: `@openrails/auth-ui/admin` (#453), the staff entry: `createAdminClient` over AuthKit's group routes and `GET /me/permissions`, `useGroupAdminAccess`, the router and theme conventions every admin component follows, and six languages. Step-up resume: `guard(action, { resume })` keeps a write across a provider step-up and `guard.onResume` replays it once on return, after checking the person, a nonce and a 15-minute lifetime.
+
 ## v1.22.3
 
 - One account per contact (#449, owner ruling): an email or phone is tied to one account at a time, as before by a unique constraint. Proving one an account holds signs into that account, never a second one; changing to another releases the old one at once, and another account may then sign up with it or move to it by proving it; of two accounts moving to one contact at once, exactly one gets it. A reassigned phone number stays its account's until the account changes it, as a mailbox would ([identity](docs/identity.md#network-accounts)). `TestSecurityContactOwnership` pins it for both kinds against PostgreSQL.

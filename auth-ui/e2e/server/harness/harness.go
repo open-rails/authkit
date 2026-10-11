@@ -44,10 +44,12 @@ func ConsoleOrigin(baseURL string) string {
 	return strings.Replace(baseURL, "://localhost:", "://127.0.0.1:", 1)
 }
 
-// Runtime is a started-or-not AuthKit instance plus its captured deliveries.
+// Runtime is a started-or-not AuthKit instance plus its captured deliveries
+// and the identity provider it trusts.
 type Runtime struct {
 	*authkit.Client
 	Outbox *authtest.Outbox
+	IdP    *IdP
 }
 
 // Open connects to dsn; New creates AuthKit's tables.
@@ -73,9 +75,14 @@ func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
 		limits[bucket] = authkit.RateLimit{Limit: 10000, Window: time.Minute}
 	}
 	outbox := &authtest.Outbox{}
-	// Merchants: groups a resource token can be bound to (group_id).
+	idp, err := NewIdP(baseURL)
+	if err != nil {
+		return nil, err
+	}
+	// Merchants: groups a resource token can be bound to (group_id), which
+	// register their own OAuth clients.
 	roles := authkit.NewRoles()
-	merchant := roles.Persona(MerchantPersona)
+	merchant := roles.Persona(MerchantPersona, authkit.OAuthClients)
 	merchant.Role(MerchantRole, merchant.Permission("billing", "read"))
 	cfg := authkit.Config{
 		Roles: roles,
@@ -123,14 +130,12 @@ func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
 			Active: signer,
 			Public: map[string]crypto.PublicKey{signer.KID(): signer.Public()},
 		},
-		// Dummy credentials: mounts the provider link/login routes for the
-		// contract; the upstream exchange is not exercised.
-		Providers: []provider.Provider{provider.GitHub("e2e", "e2e")},
+		Providers: []provider.Provider{idp.Provider()},
 		Email:     outbox.Email(),
 		SMS:       outbox.SMS(),
 	})
 	if err != nil {
 		return nil, err
 	}
-	return &Runtime{Client: rt, Outbox: outbox}, nil
+	return &Runtime{Client: rt, Outbox: outbox, IdP: idp}, nil
 }

@@ -21,8 +21,21 @@ export function toAuthKitError(error: unknown): AuthKitError {
 export const isStepUpCancelled = (error: unknown) =>
   error instanceof AuthKitError && error.code === "step_up_cancelled"
 
-// Wraps a sensitive call; useStepUp().guard fits.
-export type Guard = <T>(action: () => Promise<T>) => Promise<T>
+// What a step-up that leaves the page (an identity provider) replays on
+// return: the kind a resumer registered with guard.onResume, and its data.
+export type StepUpResume = { kind: string; data: unknown }
+
+export type StepUpResumer = (data: unknown) => unknown
+
+// Wraps a sensitive call; useStepUp().guard fits. With resume, a step-up
+// that leaves the page replays the action once on return.
+export type Guard = (<T>(
+  action: () => Promise<T>,
+  options?: { resume?: StepUpResume }
+) => Promise<T>) & {
+  // Registers the resumer of kind; returns its unregister.
+  onResume?: (kind: string, resumer: StepUpResumer) => () => void
+}
 export const unguarded: Guard = (action) => action()
 
 // Single-flight async runner: busy/error state, errors normalized, never throws.

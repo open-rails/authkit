@@ -24,7 +24,13 @@ export {
   useIssuerClient,
   type IssuerAuthState,
 } from "./issuerContext.ts"
-export { isStepUpCancelled, toAuthKitError, type Guard } from "./task.ts"
+export {
+  isStepUpCancelled,
+  toAuthKitError,
+  type Guard,
+  type StepUpResume,
+  type StepUpResumer,
+} from "./task.ts"
 export { useLogin, type LoginOptions, type LoginState } from "./useLogin.ts"
 export {
   useRegister,

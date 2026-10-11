@@ -434,6 +434,46 @@ retries the action. The wallet needs `acquireSolanaSigner` on
 use `useStepUpGuard()` for host actions. A panel outside any provider brings its
 own.
 
+A provider step-up leaves the page. To replay an action after it, pass a
+resume and register its resumer:
+
+```tsx
+const guard = useStepUpGuard()
+useEffect(
+  () => guard.onResume?.(`refund:${id}`, (data) => refund(data as Refund)),
+  [guard, id]
+)
+await guard(() => refund(input), { resume: { kind: `refund:${id}`, data: input } })
+```
+
+The action is kept in `sessionStorage` with the signed-in person's id, a nonce
+the return URL carries (`?authkit_step_up=`) and a 15-minute lifetime. On
+return, the `StepUpProvider` replays it once through its resumer; another
+person's, a stale one or a nonce that does not match is dropped.
+
+## Admin
+
+`@openrails/auth-ui/admin` is the staff side: a host composes its own admin
+area from its components. Customer entries never import it.
+
+```ts
+import { createAdminClient, useGroupAdminAccess } from "@openrails/auth-ui/admin"
+
+const admin = createAdminClient({ auth }) // auth: AuthClient, IssuerClient or anything with authFetch
+await admin.setMemberRole(group, userId, "merchant:admin") // AuthKit's own routes, no host proxy
+const access = useGroupAdminAccess({ auth, group }) // access.any hides a tab
+```
+
+The client covers AuthKit's group routes (members, invitations, roles, API
+keys, OAuth clients) and `GET /me/permissions`; `ADMIN_ROUTES` names each
+call's route. Every component takes `auth`, `baseUrl` (default `/api/v1`),
+`basePath` (its views are deep links beneath it), `navigation` (the host
+router as `{ pathname, search, navigate(to, { replace }) }`; the history API
+without it), `guard` (`useStepUpGuard()`, which runs every write; without it a
+stale sign-in fails the write with "sign in again"), `appearance` (default
+`theme: "inherit"`), `language` (`ADMIN_LANGUAGES`) and `messages` (the admin
+words under `admin`).
+
 ## Solana
 
 ```ts

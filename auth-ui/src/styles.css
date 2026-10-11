@@ -7,6 +7,7 @@
 @source not "./locales";
 @source not "./i18n";
 @source not "./client";
+@source not "./admin/locales";
 
 /* The build scopes every rule under `.authui` (tooling/css). Components read
    only `--authui-*` tokens, so host variables never collide with ours;

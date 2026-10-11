@@ -42,7 +42,7 @@ export default defineConfig({
       ],
       tsconfigPath: path.resolve(root, "tsconfig.json"),
     }),
-    authUiCssPlugin({ entries: ["index"] }),
+    authUiCssPlugin({ entries: ["index", "admin"] }),
   ],
   resolve: {
     alias: { "#authui": path.resolve(root, "src") },
@@ -54,6 +54,7 @@ export default defineConfig({
         provider: src("provider.tsx"),
         client: src("client/index.ts"),
         react: src("react/index.ts"),
+        admin: src("admin/index.ts"),
         solana: src("solana/index.ts"),
         ...Object.fromEntries(
           LOCALES.map((l) => [`locales/${l}`, src(`locales/${l}.ts`)])
