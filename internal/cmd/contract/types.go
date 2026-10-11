@@ -232,7 +232,7 @@ var neutralEnums = map[reflect.Type][]string{
 }
 
 // enumValues are the string constants declared with an AuthKit string type,
-// or a authkit/auth one it sends, sorted: the values its wire field takes.
+// or an authkit/auth one it sends, sorted: the values its wire field takes.
 // None for any other type.
 func enumValues(t reflect.Type) []string {
 	if values, ok := neutralEnums[t]; ok {

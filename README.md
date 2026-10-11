@@ -8,6 +8,8 @@ First install authkit into your Go project:
 go get github.com/open-rails/authkit
 ```
 
+Libraries and hosts that only need authentication or user-directory contracts import `github.com/open-rails/authkit/auth` and `github.com/open-rails/authkit/userinfo`. These packages use only the standard library and do not import or build AuthKit's service implementation. Custom host implementations can use their conformance tests. See [contract packages and migration](docs/contract-packages.md).
+
 Next let's build a client:
 
 ```go
@@ -30,9 +32,9 @@ import (
 	authkitgin "github.com/open-rails/authkit/adapters/gin"
 	"github.com/open-rails/authkit/adapters/smtp"
 	"github.com/open-rails/authkit/adapters/twilio"
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
-	"github.com/open-rails/authkit/auth"
 )
 
 func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {

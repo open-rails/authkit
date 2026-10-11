@@ -500,6 +500,89 @@ pkg authkit/adapters/twilio, type SMSConfig struct, Client *http.Client
 pkg authkit/adapters/twilio, type SMSConfig struct, DeliveryPollInterval time.Duration
 pkg authkit/adapters/twilio, type SMSConfig struct, MessagingServiceSID string
 pkg authkit/adapters/twilio, type SMSConfig struct, Render func(context.Context, iam.SMSMessage) (string, bool)
+pkg authkit/auth, const CredentialAPIKey CredentialKind = "api_key"
+pkg authkit/auth, const CredentialAccessToken CredentialKind = "access_token"
+pkg authkit/auth, const CredentialDeviceKey CredentialKind = "device_key"
+pkg authkit/auth, const CredentialSession CredentialKind = "session"
+pkg authkit/auth, const CredentialSignedToken CredentialKind = "signed_token"
+pkg authkit/auth, const SubjectApplication SubjectKind = "application"
+pkg authkit/auth, const SubjectUser SubjectKind = "user"
+pkg authkit/auth, func Refuse(*http.Request, error) Refusal
+pkg authkit/auth, method (*Challenge) Error() string
+pkg authkit/auth, method (*Challenge) Unwrap() error
+pkg authkit/auth, method (Credential) State() any
+pkg authkit/auth, method (Credential) WithState(any) Credential
+pkg authkit/auth, method (Identity) SelfInvoked() bool
+pkg authkit/auth, type Asserted interface
+pkg authkit/auth, type Asserted interface, Asserted() bool
+pkg authkit/auth, type Authenticator interface
+pkg authkit/auth, type Authenticator interface, Authenticate(*http.Request) (Verified, error)
+pkg authkit/auth, type Bound interface
+pkg authkit/auth, type Bound interface, BoundScope() Scope
+pkg authkit/auth, type Challenge struct
+pkg authkit/auth, type Challenge struct, Err error
+pkg authkit/auth, type Challenge struct, Header http.Header
+pkg authkit/auth, type Challenge struct, MaxAge time.Duration
+pkg authkit/auth, type Challenge struct, Metadata map[string]any
+pkg authkit/auth, type Credential struct
+pkg authkit/auth, type Credential struct, ID string
+pkg authkit/auth, type Credential struct, Kind CredentialKind
+pkg authkit/auth, type CredentialKind string
+pkg authkit/auth, type Headers interface
+pkg authkit/auth, type Headers interface, AllowedHeaders() []string
+pkg authkit/auth, type Headers interface, ExposedHeaders() []string
+pkg authkit/auth, type Identity struct
+pkg authkit/auth, type Identity struct, Credential Credential
+pkg authkit/auth, type Identity struct, Email string
+pkg authkit/auth, type Identity struct, EmailVerified bool
+pkg authkit/auth, type Identity struct, Invoker Invoker
+pkg authkit/auth, type Identity struct, Issuer string
+pkg authkit/auth, type Identity struct, Subject string
+pkg authkit/auth, type Identity struct, SubjectKind SubjectKind
+pkg authkit/auth, type Identity struct, Username string
+pkg authkit/auth, type Invoker struct
+pkg authkit/auth, type Invoker struct, ID string
+pkg authkit/auth, type Invoker struct, Issuer string
+pkg authkit/auth, type PermissionCatalog interface
+pkg authkit/auth, type PermissionCatalog interface, KnownPermission(string) bool
+pkg authkit/auth, type PermissionChecker interface
+pkg authkit/auth, type PermissionChecker interface, Can(context.Context, Scope, string) (bool, error)
+pkg authkit/auth, type RecentSignInChecker interface
+pkg authkit/auth, type RecentSignInChecker interface, CheckRecentSignIn(context.Context) error
+pkg authkit/auth, type Refusal struct
+pkg authkit/auth, type Refusal struct, Header http.Header
+pkg authkit/auth, type Refusal struct, Metadata map[string]any
+pkg authkit/auth, type Refusal struct, Status int
+pkg authkit/auth, type Root interface
+pkg authkit/auth, type Root interface, RootScope(context.Context) (Scope, error)
+pkg authkit/auth, type Scope struct
+pkg authkit/auth, type Scope struct, Authority string
+pkg authkit/auth, type Scope struct, ID string
+pkg authkit/auth, type SubjectKind string
+pkg authkit/auth, type Verified interface
+pkg authkit/auth, type Verified interface, Identity() Identity
+pkg authkit/auth, var ErrExpired error
+pkg authkit/auth, var ErrForbidden error
+pkg authkit/auth, var ErrRevoked error
+pkg authkit/auth, var ErrSenderProofRequired error
+pkg authkit/auth, var ErrStepUpRequired error
+pkg authkit/auth, var ErrUnauthenticated error
+pkg authkit/auth, var ErrUnavailable error
+pkg authkit/auth/authtest, func Check(testing.TB, auth.Authenticator, Cases)
+pkg authkit/auth/authtest, type Cases struct
+pkg authkit/auth/authtest, type Cases struct, Application func() *http.Request
+pkg authkit/auth/authtest, type Cases struct, Asserted func() *http.Request
+pkg authkit/auth/authtest, type Cases struct, Bound func() *http.Request
+pkg authkit/auth/authtest, type Cases struct, BoundStaff func() *http.Request
+pkg authkit/auth/authtest, type Cases struct, Foreign func() *http.Request
+pkg authkit/auth/authtest, type Cases struct, Holders map[string]func() *http.Request
+pkg authkit/auth/authtest, type Cases struct, Permissions []string
+pkg authkit/auth/authtest, type Cases struct, Refused map[string]func() *http.Request
+pkg authkit/auth/authtest, type Cases struct, Revoke func()
+pkg authkit/auth/authtest, type Cases struct, Scope auth.Scope
+pkg authkit/auth/authtest, type Cases struct, Staff func() *http.Request
+pkg authkit/auth/authtest, type Cases struct, Stale func() *http.Request
+pkg authkit/auth/authtest, type Cases struct, User func() *http.Request
 pkg authkit/authtest, const Audience untyped string = "authtest"
 pkg authkit/authtest, const Issuer untyped string = "https://example.com"
 pkg authkit/authtest, const Password untyped string = "Authtest-password-1"
@@ -1653,6 +1736,19 @@ pkg authkit/provider, type UserInfoFunc func(context.Context, *http.Client) (Ide
 pkg authkit/provider, var ErrInvalid error
 pkg authkit/provider, var ErrNonHTTPSURL error
 pkg authkit/provider, var ErrUnavailable error
+pkg authkit/userinfo, type Lookup interface
+pkg authkit/userinfo, type Lookup interface, Get(context.Context, []string) (map[string]User, error)
+pkg authkit/userinfo, type Lookup interface, Search(context.Context, string, int) ([]User, error)
+pkg authkit/userinfo, type User struct
+pkg authkit/userinfo, type User struct, Email string
+pkg authkit/userinfo, type User struct, ID string
+pkg authkit/userinfo, type User struct, Name string
+pkg authkit/userinfo, type User struct, Username string
+pkg authkit/userinfo/userinfotest, func Check(testing.TB, userinfo.Lookup, Fixtures)
+pkg authkit/userinfo/userinfotest, type Fixtures struct
+pkg authkit/userinfo/userinfotest, type Fixtures struct, Change func(userinfo.User) userinfo.User
+pkg authkit/userinfo/userinfotest, type Fixtures struct, Unknown []string
+pkg authkit/userinfo/userinfotest, type Fixtures struct, Users []userinfo.User
 pkg authkit/verify, const TokenAPIKey TokenKind = "api_key"
 pkg authkit/verify, const TokenOAuthClient TokenKind = "oauth_client"
 pkg authkit/verify, const TokenUser TokenKind = "user"

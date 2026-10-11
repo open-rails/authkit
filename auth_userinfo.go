@@ -4,10 +4,9 @@ import (
 	"context"
 	"errors"
 
-	"github.com/open-rails/authkit/userinfo"
-
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/engine"
+	"github.com/open-rails/authkit/userinfo"
 )
 
 // UserInfo is the directory as a library's userinfo.Lookup, read as it is
