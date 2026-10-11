@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -38,12 +39,26 @@ type network struct {
 	merchant iam.Persona
 	mu       sync.Mutex
 	events   []iam.Event
+	// consentCheck is Deps.ConsentRevocationCheck; nil allows.
+	consentCheck func(ctx context.Context, userID, clientID string) error
 }
 
+// newNetwork serves the deployment as a host does, its routes mounted in the
+// host's own handler on its own server, and attaches authtest to it.
 func newNetwork(t *testing.T) *network {
 	t.Helper()
 	n := &network{t: t}
-	n.AuthorizationServer = authtest.NewAuthorizationServer(t, authtest.WithConfig(func(c *authkit.Config) {
+	var handler atomic.Pointer[http.Handler]
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if h := handler.Load(); h != nil {
+			(*h).ServeHTTP(w, r)
+			return
+		}
+		http.Error(w, "starting", http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(server.Close)
+	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
+		c.Token.Issuer, c.Token.AllowPrivateNetworkJWKS = server.URL, true
 		withNetwork(c)
 		r := authkit.NewRoles()
 		merchant := r.Persona("merchant", authkit.OAuthClients)
@@ -66,7 +81,21 @@ func newNetwork(t *testing.T) *network {
 			n.events = append(n.events, e)
 			return nil
 		}
+		d.ConsentRevocationCheck = func(ctx context.Context, userID, clientID string) error {
+			n.mu.Lock()
+			check := n.consentCheck
+			n.mu.Unlock()
+			if check == nil {
+				return nil
+			}
+			return check(ctx, userID, clientID)
+		}
 	}))
+	mux := http.NewServeMux()
+	mux.Handle("/", auth.Handler())
+	var h http.Handler = mux
+	handler.Store(&h)
+	n.AuthorizationServer = authtest.Attach(t, auth, server)
 	n.merchant = ident.Persona("merchant")
 	require.NoError(t, n.Client.Start(context.Background()), "River delivers events and back-channel logouts")
 	return n
@@ -500,4 +529,112 @@ func must[T any](v T, err error) T {
 		panic(err)
 	}
 	return v
+}
+
+// TestSecurityNetworkLinkProofs: what a network host (OpenRails linking a
+// merchant's customer to a network account) checks in process: an ID token
+// of a group client's flow, verified live; the client and scopes an access
+// token was granted; and a withdrawal of consent it may refuse, which its own
+// unlink is not.
+func TestSecurityNetworkLinkProofs(t *testing.T) {
+	n := newNetwork(t)
+	ctx := context.Background()
+	require.NotNil(t, n.Outbox, "Attach finds authtest's outbox")
+	group, _, _ := n.group()
+	created, err := n.Client.CreateGroupOAuthClient(ctx, iam.SystemIdentity(), group, iam.NewOAuthClient{ClientName: "Shop",
+		RedirectURIs: []string{"https://shop.test/cb"}, TokenEndpointAuthMethod: iam.OAuthClientSecretBasic, Scope: "openid email openrails:link"})
+	require.NoError(t, err)
+	shopper := authtest.NewUser(t, n.Client)
+	require.NoError(t, n.Client.AcceptAgreements(ctx, shopper.ID, []iam.AgreementRef{termsV1}))
+	signedIn := authtest.SignIn(t, n.Client, shopper)
+	flow := authtest.CodeFlow{ClientID: created.ClientID, ClientSecret: *created.ClientSecret, RedirectURI: "https://shop.test/cb",
+		Scopes: []string{"openid", "openrails:link"}, Resource: merchantAPI, Nonce: "challenge-" + randomSuffix(), Consent: true}
+	tokens := n.AuthorizeAs(t, signedIn, flow)
+
+	t.Run("the ID token, verified in process", func(t *testing.T) {
+		id, err := n.Client.VerifyIDToken(ctx, tokens.IDToken)
+		require.NoError(t, err)
+		require.Equal(t, shopper.ID, id.Subject)
+		require.Equal(t, created.ClientID, id.ClientID)
+		require.Equal(t, group.ID(), id.GroupID)
+		require.Equal(t, flow.Nonce, id.Nonce)
+		require.NotEmpty(t, id.SessionID)
+		require.WithinDuration(t, time.Now(), id.AuthTime, time.Minute)
+		require.NotEmpty(t, id.AMR)
+		require.True(t, id.ExpiresAt.After(id.IssuedAt))
+
+		parts := strings.Split(tokens.IDToken, ".")
+		forged := parts[0] + "." + strings.Split(tokens.AccessToken, ".")[1] + "." + parts[2]
+		for name, raw := range map[string]string{"an access token": tokens.AccessToken, "a forged payload": forged, "garbage": "a.b.c", "nothing": ""} {
+			_, err := n.Client.VerifyIDToken(ctx, raw)
+			require.ErrorIs(t, err, iam.ErrInvalidIDToken, name)
+		}
+	})
+
+	t.Run("an access token names its client and granted scopes", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, merchantAPI+"/v1/me", nil)
+		req.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+		v, err := n.Client.Authenticator().Authenticate(req)
+		require.NoError(t, err)
+		granted, ok := v.(interface {
+			ClientID() string
+			Scopes() []string
+		})
+		require.True(t, ok)
+		require.Equal(t, created.ClientID, granted.ClientID())
+		require.ElementsMatch(t, []string{"openid", "openrails:link"}, granted.Scopes(), "openrails:self was not granted")
+		require.Equal(t, n.URL, v.Identity().Issuer)
+	})
+
+	t.Run("the host may refuse a user's withdrawal of consent, never its own", func(t *testing.T) {
+		var asked int
+		n.mu.Lock()
+		n.consentCheck = func(_ context.Context, userID, clientID string) error {
+			asked++
+			if userID == shopper.ID && clientID == created.ClientID {
+				return iam.RefuseConsentRevocation("subscriptions_active")
+			}
+			return nil
+		}
+		n.mu.Unlock()
+		s, b := n.api(http.MethodDelete, "/me/oauth-consents/"+created.ClientID, signedIn.AccessToken, nil)
+		require.Equal(t, http.StatusConflict, s, string(b))
+		require.Equal(t, "consent_revocation_refused", errorCode(t, b))
+		require.Contains(t, string(b), `"reason":"subscriptions_active"`)
+		require.Len(t, must(n.Client.OAuthConsents(ctx, shopper.ID)), 1)
+
+		s, b = n.api(http.MethodDelete, "/me/oauth-consents/goc_"+strings.Repeat("a", 26), signedIn.AccessToken, nil)
+		require.Equal(t, http.StatusNotFound, s, string(b))
+		require.Equal(t, 1, asked, "no consent, no question")
+
+		n.mu.Lock()
+		n.consentCheck = func(context.Context, string, string) error { return io.ErrUnexpectedEOF }
+		n.mu.Unlock()
+		s, b = n.api(http.MethodDelete, "/me/oauth-consents/"+created.ClientID, signedIn.AccessToken, nil)
+		require.Equal(t, http.StatusInternalServerError, s, "a failing check fails closed: %s", b)
+		require.Len(t, must(n.Client.OAuthConsents(ctx, shopper.ID)), 1)
+
+		require.NoError(t, n.Client.RevokeConsent(ctx, shopper.ID, created.ClientID), "the host's unlink is not asked")
+		require.Empty(t, must(n.Client.OAuthConsents(ctx, shopper.ID)))
+		n.mu.Lock()
+		n.consentCheck = nil
+		n.mu.Unlock()
+	})
+
+	t.Run("an ID token outlives neither its client nor its sign-in", func(t *testing.T) {
+		fresh := n.AuthorizeAs(t, signedIn, flow)
+		_, err := n.Client.VerifyIDToken(ctx, fresh.IDToken)
+		require.NoError(t, err)
+		_, err = n.Client.UpdateGroupOAuthClient(ctx, iam.SystemIdentity(), group, created.ClientID, iam.OAuthClientUpdate{Disabled: ptr(true)})
+		require.NoError(t, err)
+		_, err = n.Client.VerifyIDToken(ctx, fresh.IDToken)
+		require.ErrorIs(t, err, iam.ErrInvalidIDToken, "a disabled client")
+		_, err = n.Client.UpdateGroupOAuthClient(ctx, iam.SystemIdentity(), group, created.ClientID, iam.OAuthClientUpdate{Disabled: ptr(false)})
+		require.NoError(t, err)
+		id, err := n.Client.VerifyIDToken(ctx, fresh.IDToken)
+		require.NoError(t, err)
+		require.NoError(t, n.Client.RevokeSession(ctx, iam.SystemIdentity(), shopper.ID, id.SessionID))
+		_, err = n.Client.VerifyIDToken(ctx, fresh.IDToken)
+		require.ErrorIs(t, err, iam.ErrInvalidIDToken, "an ended sign-in")
+	})
 }

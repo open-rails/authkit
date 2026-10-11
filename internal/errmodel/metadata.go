@@ -98,8 +98,9 @@ type AgreementDocument struct {
 	URL     string `json:"url"`
 }
 
-// DeletionRefusal is deletion_refused's metadata: the host's reason code.
-type DeletionRefusal struct {
+// Refusal is the metadata of a refusal a host hook gave (deletion_refused,
+// consent_revocation_refused): its reason code.
+type Refusal struct {
 	Reason string `json:"reason"`
 }
 

@@ -94,7 +94,7 @@ export type AgreementsRequired = {
 
 export type AuthKitEvent = {
   id: string
-  kind: "group.created" | "group.deleted" | "group.purged" | "group.role_created" | "group.role_deleted" | "group.role_updated" | "oauth_client.created" | "oauth_client.deleted" | "oauth_client.updated" | "oauth_consent.revoked" | "role.changed" | "role.granted" | "role.revoked" | "user.banned" | "user.deleted" | "user.email_changed" | "user.phone_changed" | "user.purged" | "user.registered" | "user.restored" | "user.sessions_revoked" | "user.unbanned" | "user.username_changed"
+  kind: "group.created" | "group.deleted" | "group.purged" | "group.role_created" | "group.role_deleted" | "group.role_updated" | "oauth_client.created" | "oauth_client.deleted" | "oauth_client.updated" | "oauth_consent.revoked" | "role.changed" | "role.granted" | "role.revoked" | "user.agreement_accepted" | "user.banned" | "user.deleted" | "user.email_changed" | "user.phone_changed" | "user.purged" | "user.registered" | "user.restored" | "user.sessions_revoked" | "user.unbanned" | "user.username_changed"
   occurred_at: string
   subject_kind: "application" | "user"
   subject_id: string
@@ -108,6 +108,7 @@ export type AuthKitEvent = {
   application_id: string
   role: string
   client_id: string
+  agreement: string
   previous: string
   current: string
   reason: string
@@ -199,10 +200,6 @@ export type ConsentRequired = {
 export type ContactProofRequired = {
   identifier: string
   channel: string
-  reason: string
-}
-
-export type DeletionRefusal = {
   reason: string
 }
 
@@ -696,6 +693,10 @@ export type PublicUser = {
   created_at: string | null
   deleted: boolean
   public_metadata: Record<string, unknown>
+}
+
+export type Refusal = {
+  reason: string
 }
 
 export type RegisterRequest = {

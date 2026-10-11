@@ -92,3 +92,13 @@ func (v *Verifier) CheckSession(ctx context.Context, cl verify.Claims) error {
 func (v *Verifier) CheckRecentSignIn(ctx context.Context, cl verify.Claims) error {
 	return v.client.CheckRecentSignIn(ctx, cl)
 }
+
+// VerifyIDToken verifies an ID token this deployment's authorization server
+// issued (Config.AuthorizationServer), such as one a client hands back to
+// prove a fresh sign-in: its signature, issuer, single audience, lifetime,
+// a client still registered and enabled, and a sign-in that still stands.
+// The caller compares the audience, nonce and auth_time it expects. Any
+// refusal is iam.ErrInvalidIDToken.
+func (a *Client) VerifyIDToken(ctx context.Context, raw string) (iam.IDToken, error) {
+	return a.engine.VerifyIDToken(ctx, raw)
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -565,4 +566,33 @@ func authed(t *testing.T, method, target, token string) *http.Request {
 	require.NoError(t, err)
 	r.Header.Set("Authorization", "Bearer "+token)
 	return r
+}
+
+// TestSecurityAgreementEvents: each newly accepted version of a document is a
+// user.agreement_accepted event, from whichever surface accepted it, by whom
+// (a host links what its network terms cover on it); accepting one again
+// records nothing.
+func TestSecurityAgreementEvents(t *testing.T) {
+	log := newEventLog()
+	h := newNetworkHost(t, withEvents(log))
+	ctx := context.Background()
+	require.NoError(t, h.auth.Start(ctx))
+	res := authResult(t, h.codeSignIn(unique("events")+"@security.test", "203.0.113.90", termsV1, privacyV1))
+	userID := res.User.ID
+	merchantTerms := iam.AgreementRef{Key: "merchant-terms", Version: "1"}
+	require.NoError(t, h.auth.AcceptAgreements(ctx, userID, []iam.AgreementRef{merchantTerms}))
+	again := h.post("/me/agreements", map[string]any{"agreements": []iam.AgreementRef{merchantTerms, termsV1}}, res.TokenSet.AccessToken)
+	require.Equal(t, http.StatusOK, again.status, again.String())
+
+	var got []string
+	for _, e := range log.drained(h) {
+		if e.Kind == iam.EventUserAgreementAccepted && e.UserID == userID {
+			got = append(got, fmt.Sprintf("%s %s by=%s", e.Agreement, e.Current, e.SubjectID))
+		}
+	}
+	require.ElementsMatch(t, []string{
+		termsV1.Key + " " + termsV1.Version + " by=" + userID,
+		privacyV1.Key + " " + privacyV1.Version + " by=" + userID,
+		"merchant-terms 1 by=",
+	}, got)
 }

@@ -574,6 +574,7 @@ export const ko: AuthUiMessageBundle = {
   errors: {
     agreement_required: "계속하려면 약관에 동의하세요.",
     deletion_refused: "이 계정은 아직 삭제할 수 없습니다.",
+    consent_revocation_refused: "이 앱은 아직 연결을 해제할 수 없습니다.",
     phone_country_not_allowed:
       "이 국가의 번호로는 문자 메시지를 보낼 수 없습니다.",
     authorization_request_not_found:

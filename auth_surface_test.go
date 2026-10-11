@@ -90,7 +90,7 @@ func TestClientPublicSurface(t *testing.T) {
 		"Start", "Close", "RiverJobs", "EmailAvailable", "EmailHealth", "SMSAvailable", "SMSHealth", "TwoFactorMethods",
 		// HTTP surface and request verification.
 		"Handler", "APIBase", "Routes", "Mount",
-		"VerifyRequest", "Verify", "AuthenticateRequest", "NewVerifier",
+		"VerifyRequest", "Verify", "VerifyIDToken", "AuthenticateRequest", "NewVerifier",
 		// helpers/auth Authenticator: who a library's request is, and the
 		// scope its Can checks.
 		"Authenticator", "Scope",

@@ -51,7 +51,7 @@ var ErrAgreementRequired Error = errmodel.E(errmodel.CodeAgreementRequired)
 // own deletion: deletion_refused (409), with reason, a stable code the host's
 // interface explains, as metadata.reason.
 func RefuseDeletion(reason string) error {
-	return errmodel.E(errmodel.CodeDeletionRefused, errmodel.WithDetails(errmodel.DeletionRefusal{Reason: reason}))
+	return errmodel.E(errmodel.CodeDeletionRefused, errmodel.WithDetails(errmodel.Refusal{Reason: reason}))
 }
 
 // ErrDeletionRefused matches every RefuseDeletion error.

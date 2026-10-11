@@ -581,6 +581,7 @@ export const ja: AuthUiMessageBundle = {
   errors: {
     agreement_required: "続けるには規約に同意してください。",
     deletion_refused: "このアカウントはまだ削除できません。",
+    consent_revocation_refused: "このアプリはまだ連携を解除できません。",
     phone_country_not_allowed: "この国の番号にはSMSを送信できません。",
     authorization_request_not_found:
       "このログインリクエストは期限切れです。アプリに戻ってもう一度お試しください。",

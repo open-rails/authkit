@@ -118,6 +118,7 @@ pkg authkit, method (*Client) UserAgreements(context.Context, string) ([]iam.Agr
 pkg authkit, method (*Client) UserInfo() userinfo.Lookup
 pkg authkit, method (*Client) Users(context.Context, []string) (map[string]iam.User, error)
 pkg authkit, method (*Client) Verify(context.Context, string) (verify.Claims, error)
+pkg authkit, method (*Client) VerifyIDToken(context.Context, string) (iam.IDToken, error)
 pkg authkit, method (*Client) VerifyRequest(*http.Request) (verify.Claims, error)
 pkg authkit, method (*PersonaDef) All() iam.Perm
 pkg authkit, method (*PersonaDef) Declare(...string) []iam.Perm
@@ -211,6 +212,7 @@ pkg authkit, type DatabaseConfig struct, Schema string `yaml:"schema"`
 pkg authkit, type Deps = config.Deps
 pkg authkit, type Deps struct
 pkg authkit, type Deps struct, ClientIP func(*http.Request) string
+pkg authkit, type Deps struct, ConsentRevocationCheck func(context.Context, string, string) error
 pkg authkit, type Deps struct, DeletionCheck func(context.Context, string) error
 pkg authkit, type Deps struct, Email config.EmailSender
 pkg authkit, type Deps struct, EntitlementHolders func(context.Context, string) ([]string, error)
@@ -501,6 +503,7 @@ pkg authkit/adapters/twilio, type SMSConfig struct, Render func(context.Context,
 pkg authkit/authtest, const Audience untyped string = "authtest"
 pkg authkit/authtest, const Issuer untyped string = "https://example.com"
 pkg authkit/authtest, const Password untyped string = "Authtest-password-1"
+pkg authkit/authtest, func Attach(testing.TB, *authkit.Client, *httptest.Server) *AuthorizationServer
 pkg authkit/authtest, func ClientSecretSHA256(string) string
 pkg authkit/authtest, func EnrollDeviceKey(testing.TB, *authkit.Client, *Outbox, User) DeviceKey
 pkg authkit/authtest, func EnrollTOTP(testing.TB, *authkit.Client, User) *TOTP
@@ -522,6 +525,7 @@ pkg authkit/authtest, func TOTPOf(string) *TOTP
 pkg authkit/authtest, func WithConfig(func(*authkit.Config)) Option
 pkg authkit/authtest, func WithDeps(func(*authkit.Deps)) Option
 pkg authkit/authtest, method (*AuthorizationServer) Approve(testing.TB, string, string) string
+pkg authkit/authtest, method (*AuthorizationServer) ApproveConsent(testing.TB, string, string) string
 pkg authkit/authtest, method (*AuthorizationServer) Authorize(testing.TB, User, CodeFlow) OAuthTokens
 pkg authkit/authtest, method (*AuthorizationServer) AuthorizeAs(testing.TB, iam.TokenSet, CodeFlow) OAuthTokens
 pkg authkit/authtest, method (*AuthorizationServer) BeginAuthorization(testing.TB, CodeFlow, string, string) string
@@ -573,6 +577,7 @@ pkg authkit/authtest, type Capability struct, Workload *DPoPKey
 pkg authkit/authtest, type CodeFlow struct
 pkg authkit/authtest, type CodeFlow struct, ClientID string
 pkg authkit/authtest, type CodeFlow struct, ClientSecret string
+pkg authkit/authtest, type CodeFlow struct, Consent bool
 pkg authkit/authtest, type CodeFlow struct, DPoP *DPoPKey
 pkg authkit/authtest, type CodeFlow struct, MaxAge *int
 pkg authkit/authtest, type CodeFlow struct, Nonce string
@@ -714,6 +719,7 @@ pkg authkit/iam, const EventOAuthConsentRevoked EventKind = "oauth_consent.revok
 pkg authkit/iam, const EventRoleChanged EventKind = "role.changed"
 pkg authkit/iam, const EventRoleGranted EventKind = "role.granted"
 pkg authkit/iam, const EventRoleRevoked EventKind = "role.revoked"
+pkg authkit/iam, const EventUserAgreementAccepted EventKind = "user.agreement_accepted"
 pkg authkit/iam, const EventUserBanned EventKind = "user.banned"
 pkg authkit/iam, const EventUserDeleted EventKind = "user.deleted"
 pkg authkit/iam, const EventUserEmailChanged EventKind = "user.email_changed"
@@ -856,6 +862,7 @@ pkg authkit/iam, func GroupByID(string) GroupRef
 pkg authkit/iam, func InSession(auth.Identity, SessionRef) auth.Identity
 pkg authkit/iam, func PinnedTo(auth.Identity, string) auth.Identity
 pkg authkit/iam, func PublicDisplayName(map[string]PublicUser, string) string
+pkg authkit/iam, func RefuseConsentRevocation(string) error
 pkg authkit/iam, func RefuseDeletion(string) error
 pkg authkit/iam, func RemoteApplicationSubject(string) Subject
 pkg authkit/iam, func RootGroup() GroupRef
@@ -1050,6 +1057,7 @@ pkg authkit/iam, type ErrorObject struct, Metadata map[string]any `json:"metadat
 pkg authkit/iam, type ErrorObject struct, Param *string `json:"param"`
 pkg authkit/iam, type ErrorObject struct, Type string `json:"type"`
 pkg authkit/iam, type Event struct
+pkg authkit/iam, type Event struct, Agreement string `json:"agreement"`
 pkg authkit/iam, type Event struct, ApplicationID string `json:"application_id"`
 pkg authkit/iam, type Event struct, ClientID string `json:"client_id"`
 pkg authkit/iam, type Event struct, CredentialID string `json:"credential_id"`
@@ -1098,6 +1106,17 @@ pkg authkit/iam, type GroupRole struct, UpdatedAt *time.Time `json:"updated_at"`
 pkg authkit/iam, type GroupRoleUpdate struct
 pkg authkit/iam, type GroupRoleUpdate struct, Permissions []Perm
 pkg authkit/iam, type HashAlgo string
+pkg authkit/iam, type IDToken struct
+pkg authkit/iam, type IDToken struct, ACR string
+pkg authkit/iam, type IDToken struct, AMR []string
+pkg authkit/iam, type IDToken struct, AuthTime time.Time
+pkg authkit/iam, type IDToken struct, ClientID string
+pkg authkit/iam, type IDToken struct, ExpiresAt time.Time
+pkg authkit/iam, type IDToken struct, GroupID string
+pkg authkit/iam, type IDToken struct, IssuedAt time.Time
+pkg authkit/iam, type IDToken struct, Nonce string
+pkg authkit/iam, type IDToken struct, SessionID string
+pkg authkit/iam, type IDToken struct, Subject string
 pkg authkit/iam, type ImportConflict string
 pkg authkit/iam, type ImportMatch string
 pkg authkit/iam, type ImportOptions struct
@@ -1494,6 +1513,7 @@ pkg authkit/iam, var ErrAccountRecoveryExpired Error
 pkg authkit/iam, var ErrAgreementRequired Error
 pkg authkit/iam, var ErrCannotTargetSelf Error
 pkg authkit/iam, var ErrConsentRequired Error
+pkg authkit/iam, var ErrConsentRevocationRefused Error
 pkg authkit/iam, var ErrContactNotVerified Error
 pkg authkit/iam, var ErrDeletionRefused Error
 pkg authkit/iam, var ErrDeviceKeysDisabled Error
@@ -1503,6 +1523,7 @@ pkg authkit/iam, var ErrExternalInvitesDisabled Error
 pkg authkit/iam, var ErrGroupConflict Error
 pkg authkit/iam, var ErrGroupNotFound Error
 pkg authkit/iam, var ErrInsufficientAuthority Error
+pkg authkit/iam, var ErrInvalidIDToken Error
 pkg authkit/iam, var ErrInvalidOAuthClient Error
 pkg authkit/iam, var ErrInvalidRemoteApplication Error
 pkg authkit/iam, var ErrInvalidUntil Error

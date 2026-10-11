@@ -1,7 +1,7 @@
 -- Agreement acceptances (#449): append-only; a repeat of one version is kept
 -- as first given.
 
--- name: UserAgreementInsert :exec
+-- name: UserAgreementInsert :execrows
 INSERT INTO user_agreements (user_id, key, version, channel, ip_addr, user_agent)
 VALUES (sqlc.arg(user_id)::uuid, sqlc.arg(key), sqlc.arg(version), sqlc.arg(channel), sqlc.narg(ip_addr)::inet, sqlc.narg(user_agent))
 ON CONFLICT (user_id, key, version) DO NOTHING;

@@ -19,6 +19,7 @@ import (
 
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/testoutbox"
 )
 
 // AuthorizationServer is an AuthKit authorization server (Config.
@@ -64,6 +65,23 @@ func NewAuthorizationServer(t testing.TB, opts ...Option) *AuthorizationServer {
 	return &AuthorizationServer{Client: auth, Outbox: outbox, URL: issuer, server: server}
 }
 
+// Attach is an AuthorizationServer for client, which server already serves
+// (a host mounting AuthKit's routes in its own handler): client's
+// Token.Issuer must be server's URL. Outbox is authtest's when client sends
+// through it (New's, Replica's), else nil.
+func Attach(t testing.TB, client *authkit.Client, server *httptest.Server) *AuthorizationServer {
+	t.Helper()
+	cfg, deps := builtWith(t, client)
+	if cfg.Token.Issuer != server.URL {
+		t.Fatalf("authtest: attach: the client's issuer is %q, not the server's URL %q", cfg.Token.Issuer, server.URL)
+	}
+	outbox := testoutbox.Of(deps.Email)
+	if outbox == nil {
+		outbox = testoutbox.Of(deps.SMS)
+	}
+	return &AuthorizationServer{Client: client, Outbox: outbox, URL: server.URL, server: server}
+}
+
 // HTTPClient trusts the server's certificate and never follows a redirect,
 // so a test reads each Location itself.
 func (as *AuthorizationServer) HTTPClient() *http.Client {
@@ -88,6 +106,9 @@ type CodeFlow struct {
 	// sign-in: approving with an older one answers step_up_required.
 	Prompt string
 	MaxAge *int
+	// Consent approves a group OAuth client's consent screen too: the user
+	// consents to every scope it asks for.
+	Consent bool
 }
 
 // OAuthTokens is the token endpoint's answer. DPoP is the key the tokens
@@ -123,7 +144,7 @@ func (as *AuthorizationServer) AuthorizeAs(t testing.TB, signedIn iam.TokenSet, 
 	verifier := pkceVerifier()
 	state := pkceVerifier()[:16]
 	id := as.BeginAuthorization(t, f, verifier, state)
-	location := as.Approve(t, signedIn.AccessToken, id)
+	location := as.approve(t, signedIn.AccessToken, id, f.Consent)
 	callback, err := url.Parse(location)
 	if err != nil || callback.Query().Get("state") != state || callback.Query().Get("iss") != as.URL {
 		t.Fatalf("authtest: authorize: redirect %q does not answer the request", location)
@@ -314,11 +335,32 @@ func (as *AuthorizationServer) BeginAuthorization(t testing.TB, f CodeFlow, veri
 }
 
 // Approve approves the pending request id with the sign-in accessToken
-// belongs to, as the SPA does, and returns the client redirect.
+// belongs to, as the SPA does, and returns the client redirect. A group
+// OAuth client's request the user has not consented to fails the test: use
+// ApproveConsent.
 func (as *AuthorizationServer) Approve(t testing.TB, accessToken, id string) string {
 	t.Helper()
-	req, _ := http.NewRequest(http.MethodPost, as.URL+as.Client.APIBase()+"/oauth2/authorizations/"+url.PathEscape(id)+"/approve", nil)
+	return as.approve(t, accessToken, id, false)
+}
+
+// ApproveConsent is Approve on a group OAuth client's consent screen: the
+// user consents to every scope the request asks for.
+func (as *AuthorizationServer) ApproveConsent(t testing.TB, accessToken, id string) string {
+	t.Helper()
+	return as.approve(t, accessToken, id, true)
+}
+
+func (as *AuthorizationServer) approve(t testing.TB, accessToken, id string, consent bool) string {
+	t.Helper()
+	var payload io.Reader
+	if consent {
+		payload = strings.NewReader(`{"consent":true}`)
+	}
+	req, _ := http.NewRequest(http.MethodPost, as.URL+as.Client.APIBase()+"/oauth2/authorizations/"+url.PathEscape(id)+"/approve", payload)
 	req.Header.Set("Authorization", "Bearer "+accessToken)
+	if consent {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	res, err := as.HTTPClient().Do(req)
 	if err != nil {
 		t.Fatalf("authtest: approve: %v", err)

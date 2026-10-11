@@ -7175,6 +7175,7 @@
               "role.changed",
               "role.granted",
               "role.revoked",
+              "user.agreement_accepted",
               "user.banned",
               "user.deleted",
               "user.email_changed",
@@ -7239,6 +7240,9 @@
           "client_id": {
             "type": "string"
           },
+          "agreement": {
+            "type": "string"
+          },
           "previous": {
             "type": "string"
           },
@@ -7277,6 +7281,7 @@
           "application_id",
           "role",
           "client_id",
+          "agreement",
           "previous",
           "current",
           "reason",
@@ -7727,17 +7732,6 @@
         "required": [
           "identifier",
           "channel",
-          "reason"
-        ]
-      },
-      "DeletionRefusal": {
-        "type": "object",
-        "properties": {
-          "reason": {
-            "type": "string"
-          }
-        },
-        "required": [
           "reason"
         ]
       },
@@ -9884,6 +9878,17 @@
           "created_at",
           "deleted",
           "public_metadata"
+        ]
+      },
+      "Refusal": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
         ]
       },
       "RegisterRequest": {
@@ -12547,6 +12552,13 @@
         "$ref": "#/components/schemas/ConsentRequired"
       }
     },
+    "consent_revocation_refused": {
+      "status": 409,
+      "message": "This app can't be disconnected yet.",
+      "metadata": {
+        "$ref": "#/components/schemas/Refusal"
+      }
+    },
     "contact_not_verified": {
       "status": 409,
       "message": "The email address or phone number is not verified.",
@@ -12558,7 +12570,7 @@
       "status": 409,
       "message": "This account can't be deleted yet.",
       "metadata": {
-        "$ref": "#/components/schemas/DeletionRefusal"
+        "$ref": "#/components/schemas/Refusal"
       }
     },
     "device_keys_disabled": {
@@ -12648,6 +12660,10 @@
     "invalid_expiry": {
       "status": 400,
       "message": "The expiry is invalid."
+    },
+    "invalid_id_token": {
+      "status": 401,
+      "message": "The ID token is invalid or has expired."
     },
     "invalid_identifier": {
       "status": 400,

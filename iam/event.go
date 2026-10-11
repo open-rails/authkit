@@ -33,6 +33,11 @@ const (
 	// was revoked at once (Client.RevokeAccountSessions, DELETE
 	// /admin/users/{user_id}/sessions); the subject says whose call it was.
 	EventUserSessionsRevoked EventKind = "user.sessions_revoked"
+	// EventUserAgreementAccepted: the user accepted a version of a declared
+	// document, Agreement, the version as Current (at registration, POST
+	// /me/agreements or Client.AcceptAgreements); accepting it again
+	// records nothing.
+	EventUserAgreementAccepted EventKind = "user.agreement_accepted"
 	// Role events carry GroupID, Persona (RootPersona for root roles), the
 	// subject (UserID or ApplicationID) and the role as Previous → Current.
 	EventRoleGranted EventKind = "role.granted"
@@ -93,9 +98,11 @@ type Event struct {
 	Role Role `json:"role"`
 	// ClientID is the OAuth client of a client or consent event.
 	ClientID string `json:"client_id"`
+	// Agreement is the document key of an agreement event.
+	Agreement string `json:"agreement"`
 	// Previous and Current are the changed value before and after: the
-	// email, phone or username, the role (`channel:moderator`), or a group
-	// role's grants; "" when none.
+	// email, phone or username, the role (`channel:moderator`), a group
+	// role's grants, or an agreement's version; "" when none.
 	Previous string `json:"previous"`
 	Current  string `json:"current"`
 	// Reason and Until describe a ban; Until is nil for an indefinite one.

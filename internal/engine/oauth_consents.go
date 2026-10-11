@@ -153,6 +153,9 @@ func (s *Engine) WithdrawConsent(ctx context.Context, who auth.Identity, userID,
 	if !ok {
 		return iam.ErrUserNotFound
 	}
+	if err := s.checkConsentRevocation(ctx, who, userID, clientID); err != nil {
+		return err
+	}
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
 		return err
@@ -191,6 +194,28 @@ func (s *Engine) WithdrawConsent(ctx context.Context, who auth.Identity, userID,
 	}
 	s.oauthAudit(ctx, "oauth_consent_revoked", userID, map[string]string{"client_id": clientID})
 	return nil
+}
+
+// checkConsentRevocation asks Deps.ConsentRevocationCheck before a user
+// withdraws their own consent, one they hold: a refusal is
+// consent_revocation_refused, any other failure fails closed.
+func (s *Engine) checkConsentRevocation(ctx context.Context, who auth.Identity, userID, clientID string) error {
+	if by := subjectUserID(who); s.consentRevocationCheck == nil || by == nil || *by != userID {
+		return nil
+	}
+	if _, err := s.q.OAuthConsentByUserClient(ctx, db.OAuthConsentByUserClientParams{UserID: userID, ClientID: clientID}); errors.Is(err, pgx.ErrNoRows) {
+		return iam.ErrOAuthConsentNotFound
+	} else if err != nil {
+		return err
+	}
+	err := s.consentRevocationCheck(ctx, userID, clientID)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, iam.ErrConsentRevocationRefused):
+		return err
+	}
+	return errmodel.Internal("consent_revocation_check", err)
 }
 
 // backchannelLogoutArgs is one OIDC Back-Channel Logout 1.0 delivery.

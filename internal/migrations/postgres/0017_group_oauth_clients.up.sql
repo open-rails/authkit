@@ -40,5 +40,8 @@ CREATE INDEX oauth_consents_client_idx ON oauth_consents (client_id);
 COMMENT ON TABLE oauth_consents IS
   'Each user''s consent to a group OAuth client: the scopes it may ask without asking again. Withdrawing it ends the client''s refresh tokens for the user.';
 
--- The OAuth client a client or consent event names.
-ALTER TABLE account_events ADD COLUMN client_id text NOT NULL DEFAULT '';
+-- The OAuth client a client or consent event names, and the document an
+-- agreement event names.
+ALTER TABLE account_events
+  ADD COLUMN client_id text NOT NULL DEFAULT '',
+  ADD COLUMN agreement text NOT NULL DEFAULT '';

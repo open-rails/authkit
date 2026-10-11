@@ -41,8 +41,11 @@ import (
 // Every credential is verified once per call: a DPoP proof is spent by the
 // first Authenticate of a request, so a library calls it once per request.
 // Its Verified reports BoundScope (helpers/auth Bound): an API key's group,
-// a trusted issuer's token's group; zero for a person's own sign-in. The
-// Authenticator lists the headers its credentials use (auth.Headers).
+// a trusted issuer's token's group, a group OAuth client's token's group;
+// zero for a person's own sign-in. A resource access token's Verified also
+// has ClientID() string and Scopes() []string: the client it was issued to
+// and the scopes it was granted. The Authenticator lists the headers its
+// credentials use (auth.Headers).
 //
 // The Client itself is not an auth.Authenticator.
 func (a *Client) Authenticator() auth.Authenticator { return authenticator{a, a} }

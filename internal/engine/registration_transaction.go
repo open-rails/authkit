@@ -85,7 +85,7 @@ func (s *Engine) registerAccount(ctx context.Context, in accountRegistration) (r
 	if err := s.applyRegistrationInvite(ctx, tx, invite, user.ID); err != nil {
 		return registeredAccount{}, err
 	}
-	if err := recordAgreements(ctx, q, user.ID, agreements, agreementInput{Channel: iam.AgreementAtRegistration, IP: in.IP, UserAgent: in.UserAgent}); err != nil {
+	if err := s.recordAgreements(ctx, tx, iam.UserIdentity(user.ID), user.ID, agreements, agreementInput{Channel: iam.AgreementAtRegistration, IP: in.IP, UserAgent: in.UserAgent}); err != nil {
 		return registeredAccount{}, err
 	}
 	version, err := q.UserCredentialVersion(ctx, user.ID)

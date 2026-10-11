@@ -105,6 +105,12 @@ func (v resourceVerified) Identity() auth.Identity { return v.id }
 
 func (v resourceVerified) BoundScope() auth.Scope { return v.bound }
 
+// ClientID is the OAuth client the token was issued to.
+func (v resourceVerified) ClientID() string { return v.access.Claims.ClientID }
+
+// Scopes are the scopes the token was granted.
+func (v resourceVerified) Scopes() []string { return append([]string(nil), v.access.Claims.Scopes...) }
+
 // Can checks permission live in the group scope.ID names, a scope of this
 // deployment's issuer, and for a bound token only its own group.
 func (v resourceVerified) Can(ctx context.Context, scope auth.Scope, permission string) (bool, error) {

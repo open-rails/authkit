@@ -11,11 +11,14 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ops"
+	"github.com/open-rails/helpers/auth"
 )
 
 // agreement is the declared document key names.
@@ -103,17 +106,26 @@ type agreementInput struct {
 }
 
 // recordAgreements records userID's acceptance of refs, already checked
-// acceptable, in q's transaction.
-func recordAgreements(ctx context.Context, q *db.Queries, userID string, refs []iam.AgreementRef, in agreementInput) error {
+// acceptable, in tx, with a user.agreement_accepted event, as who, for each
+// version not accepted before.
+func (s *Engine) recordAgreements(ctx context.Context, tx pgx.Tx, who auth.Identity, userID string, refs []iam.AgreementRef, in agreementInput) error {
+	q := s.qtx(tx)
+	var events []iam.Event
 	for _, r := range refs {
-		if err := q.UserAgreementInsert(ctx, db.UserAgreementInsertParams{
+		n, err := q.UserAgreementInsert(ctx, db.UserAgreementInsertParams{
 			UserID: userID, Key: r.Key, Version: r.Version, Channel: string(in.Channel),
 			IpAddr: nullable(in.IP), UserAgent: nullable(truncate(in.UserAgent, 512)),
-		}); err != nil {
+		})
+		if err != nil {
 			return err
 		}
+		if n == 1 {
+			e := userEvent(iam.EventUserAgreementAccepted, userID)
+			e.Agreement, e.Current = r.Key, r.Version
+			events = append(events, e)
+		}
 	}
-	return nil
+	return s.emitEvents(ctx, tx, who, events...)
 }
 
 // AcceptAgreements records userID's acceptance of refs, each a declared
@@ -147,11 +159,14 @@ func (s *Engine) RecordAgreements(ctx context.Context, userID string, refs []iam
 		return err
 	}
 	defer tx.Rollback(ctx)
-	q := s.qtx(tx)
-	if u, err := q.UserCredentialVersionForUpdate(ctx, userID); err != nil || u.DeletedAt != nil {
+	if u, err := s.qtx(tx).UserCredentialVersionForUpdate(ctx, userID); err != nil || u.DeletedAt != nil {
 		return iam.ErrUserNotFound
 	}
-	if err := recordAgreements(ctx, q, userID, refs, agreementInput{Channel: channel, IP: ip, UserAgent: userAgent}); err != nil {
+	who := iam.UserIdentity(userID)
+	if channel == iam.AgreementByHost {
+		who = iam.SystemIdentity()
+	}
+	if err := s.recordAgreements(ctx, tx, who, userID, refs, agreementInput{Channel: channel, IP: ip, UserAgent: userAgent}); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

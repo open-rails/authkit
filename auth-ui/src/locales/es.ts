@@ -602,6 +602,7 @@ export const es: AuthUiMessageBundle = {
   errors: {
     agreement_required: "Acepta los términos para continuar.",
     deletion_refused: "Esta cuenta aún no se puede eliminar.",
+    consent_revocation_refused: "Esta aplicación aún no se puede desconectar.",
     phone_country_not_allowed:
       "No se pueden enviar mensajes de texto a números de este país.",
     authorization_request_not_found:

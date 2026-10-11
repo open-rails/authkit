@@ -124,4 +124,36 @@ var (
 	ErrConsentRequired Error = errmodel.E(errmodel.CodeConsentRequired)
 	// ErrOAuthConsentNotFound: the user holds no consent to that client.
 	ErrOAuthConsentNotFound Error = errmodel.E(errmodel.CodeOAuthConsentNotFound)
+	// ErrConsentRevocationRefused matches every RefuseConsentRevocation
+	// error.
+	ErrConsentRevocationRefused Error = errmodel.E(errmodel.CodeConsentRevocationRefused)
+	// ErrInvalidIDToken: not an ID token this deployment's authorization
+	// server issued, expired, or one whose client or sign-in has ended.
+	ErrInvalidIDToken Error = errmodel.E(errmodel.CodeInvalidIDToken)
 )
+
+// RefuseConsentRevocation is what Deps.ConsentRevocationCheck returns to
+// refuse a user's withdrawal of consent: consent_revocation_refused (409),
+// with reason, a stable code the host's interface explains, as
+// metadata.reason.
+func RefuseConsentRevocation(reason string) error {
+	return errmodel.E(errmodel.CodeConsentRevocationRefused, errmodel.WithDetails(errmodel.Refusal{Reason: reason}))
+}
+
+// IDToken is a verified ID token of this deployment's authorization server
+// (Client.VerifyIDToken): who signed in, to which client, and how.
+type IDToken struct {
+	// Subject is the user's id.
+	Subject string
+	// ClientID is the client it was issued to (its aud and azp); GroupID
+	// the group that owns it, "" for a client of Config.AuthorizationServer.
+	ClientID  string
+	GroupID   string
+	SessionID string
+	Nonce     string
+	AuthTime  time.Time
+	AMR       []string
+	ACR       string
+	IssuedAt  time.Time
+	ExpiresAt time.Time
+}

@@ -10,12 +10,12 @@ ORDER BY issuer FOR KEY SHARE;
 -- name: AccountEventInsert :one
 INSERT INTO account_events
     (issuer, stream, event_id, kind, subject_kind, subject_id, invoker_issuer, invoker_id, credential_kind, credential_id,
-     user_id, group_id, persona, application_id, previous_value, current_value, reason, until, role, client_id)
+     user_id, group_id, persona, application_id, previous_value, current_value, reason, until, role, client_id, agreement)
 VALUES
     (sqlc.arg(issuer), sqlc.arg(stream), sqlc.arg(event_id), sqlc.arg(kind), sqlc.arg(subject_kind), sqlc.arg(subject_id),
      sqlc.arg(invoker_issuer), sqlc.arg(invoker_id), sqlc.arg(credential_kind), sqlc.arg(credential_id),
      sqlc.narg(user_id), sqlc.narg(group_id), sqlc.arg(persona), sqlc.narg(application_id),
-     sqlc.arg(previous_value), sqlc.arg(current_value), sqlc.arg(reason), sqlc.narg(until), sqlc.arg(role), sqlc.arg(client_id))
+     sqlc.arg(previous_value), sqlc.arg(current_value), sqlc.arg(reason), sqlc.narg(until), sqlc.arg(role), sqlc.arg(client_id), sqlc.arg(agreement))
 RETURNING id;
 
 -- name: AccountEventByID :one

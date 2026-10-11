@@ -33,6 +33,9 @@ type Engine struct {
 	onPurge     func(context.Context, iam.UserDeletion) error
 	// deletionCheck is Deps.DeletionCheck: the host may refuse a self-deletion.
 	deletionCheck func(context.Context, string) error
+	// consentRevocationCheck is Deps.ConsentRevocationCheck: the host may
+	// refuse a user's withdrawal of consent.
+	consentRevocationCheck func(ctx context.Context, userID, clientID string) error
 	// groupNameHook is Deps.GroupName: a group's name on consent screens.
 	groupNameHook func(context.Context, string) (string, error)
 	// clientAssertions verifies group clients' RFC 7523 client assertions

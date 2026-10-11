@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-const userAgreementInsert = `-- name: UserAgreementInsert :exec
+const userAgreementInsert = `-- name: UserAgreementInsert :execrows
 
 INSERT INTO user_agreements (user_id, key, version, channel, ip_addr, user_agent)
 VALUES ($1::uuid, $2, $3, $4, $5::inet, $6)
@@ -28,8 +28,8 @@ type UserAgreementInsertParams struct {
 
 // Agreement acceptances (#449): append-only; a repeat of one version is kept
 // as first given.
-func (q *Queries) UserAgreementInsert(ctx context.Context, arg UserAgreementInsertParams) error {
-	_, err := q.db.Exec(ctx, userAgreementInsert,
+func (q *Queries) UserAgreementInsert(ctx context.Context, arg UserAgreementInsertParams) (int64, error) {
+	result, err := q.db.Exec(ctx, userAgreementInsert,
 		arg.UserID,
 		arg.Key,
 		arg.Version,
@@ -37,7 +37,10 @@ func (q *Queries) UserAgreementInsert(ctx context.Context, arg UserAgreementInse
 		arg.IpAddr,
 		arg.UserAgent,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const userAgreementsByUser = `-- name: UserAgreementsByUser :many

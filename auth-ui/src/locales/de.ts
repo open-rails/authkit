@@ -605,6 +605,7 @@ export const de: AuthUiMessageBundle = {
   errors: {
     agreement_required: "Akzeptiere die Bedingungen, um fortzufahren.",
     deletion_refused: "Dieses Konto kann noch nicht gelöscht werden.",
+    consent_revocation_refused: "Diese App kann noch nicht getrennt werden.",
     phone_country_not_allowed:
       "An Nummern in diesem Land können keine SMS gesendet werden.",
     authorization_request_not_found:

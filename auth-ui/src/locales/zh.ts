@@ -542,6 +542,7 @@ export const zh: AuthUiMessageBundle = {
   errors: {
     agreement_required: "请接受条款以继续。",
     deletion_refused: "此账户暂时无法删除。",
+    consent_revocation_refused: "暂时无法断开此应用。",
     phone_country_not_allowed: "无法向该国家或地区的号码发送短信。",
     authorization_request_not_found: "此登录请求已过期。请返回应用并重试。",
     network_error: "网络错误，请检查您的连接。",

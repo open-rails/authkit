@@ -46,6 +46,7 @@ type AccountEvent struct {
 	CredentialID   string
 	Role           string
 	ClientID       string
+	Agreement      string
 }
 
 // OAuth clients groups register at run time (RFC 7591 metadata): third-party clients whose users consent per scope, and whose tokens act only in their group. Deleted with the group.
