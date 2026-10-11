@@ -357,7 +357,20 @@ describe("useStepUp", () => {
     const fetch = stubFetch({
       "POST /api/v1/password/login": () => session({ sub: "u1", sid: "s1" }),
       "POST /api/v1/me/step-up/password": () =>
-        json(200, signedIn({ sub: "u1", sid: "s1", auth_time: 2 })),
+        json(
+          200,
+          signedIn(
+            { sub: "u1", sid: "s1", auth_time: 2 },
+            {
+              fresh_auth: {
+                last_authenticated_at: null,
+                step_up_required_for_sensitive_actions: false,
+                step_up_required_in_seconds: 900,
+                auth_methods: ["pwd"],
+              },
+            }
+          )
+        ),
     })
     const { result, client } = renderWithAuth(() => useStepUp(), fetch)
     await act(() =>
@@ -387,6 +400,7 @@ describe("useStepUp", () => {
     )
     expect(action).toHaveBeenCalledTimes(1)
     await act(() => result.current.withPassword("pw"))
+    expect(result.current.error).toBeNull()
     await act(async () => expect(await pending).toBe(receipt))
     expect(action).toHaveBeenCalledTimes(2)
     expect(result.current.state).toEqual({ step: "idle" })
