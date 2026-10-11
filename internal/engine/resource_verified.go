@@ -85,7 +85,9 @@ func (s *Engine) Authenticate(r *http.Request) (auth.Verified, error) {
 //     with what it carries, within the application's live role there and
 //     the ceilings of its scopes.
 //   - This deployment's own token for a user acts as that user, live, within
-//     the ceilings of its scopes and of the resource's registration.
+//     the ceilings of its scopes and of the resource's registration. One
+//     exchanged for a group (group_id) acts there, and keeps the user's
+//     root: permissions on root (helpers/auth Bound).
 //   - A client's own token (client credentials) holds nothing.
 type resourceVerified struct {
 	s      *Engine
@@ -112,12 +114,26 @@ func (v resourceVerified) ClientID() string { return v.access.Claims.ClientID }
 func (v resourceVerified) Scopes() []string { return append([]string(nil), v.access.Claims.Scopes...) }
 
 // Can checks permission live in the group scope.ID names, a scope of this
-// deployment's issuer, and for a bound token only its own group.
+// deployment's issuer, and for a bound token only its own group, but a
+// person's token exchanged for a group, which also holds the person's root:
+// permissions on root.
 func (v resourceVerified) Can(ctx context.Context, scope auth.Scope, permission string) (bool, error) {
-	if scope.ID == "" || permission == "" || scope.Authority != v.issuer || v.bound != (auth.Scope{}) && scope != v.bound {
+	if scope.ID == "" || permission == "" || scope.Authority != v.issuer {
 		return false, nil
 	}
 	perm := ident.Perm(permission)
+	if v.bound != (auth.Scope{}) && scope != v.bound {
+		if v.access.ExchangedGroup == "" || perm.Persona() != iam.RootPersona() {
+			return false, nil
+		}
+		root, err := v.s.RootGroupID(ctx)
+		if err != nil {
+			return false, errors.Join(auth.ErrUnavailable, err)
+		}
+		if scope.ID != root {
+			return false, nil
+		}
+	}
 	if !v.s.KnownPermission(perm) {
 		return false, nil
 	}

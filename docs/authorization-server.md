@@ -89,13 +89,25 @@ For `prompt=none` with nobody signed in, or when the user refuses, the SPA decli
 |---|---|---|
 | `authorization_code` | a browser or server client signing the user in, with PKCE; `dpop_jkt` on the authorize request binds the code to the key | access token, ID token with `openid`, refresh token with `refresh_token` |
 | `refresh_token` | the same client, proving the same DPoP key; `scope` may narrow | rotated tokens with live permissions |
-| `urn:ietf:params:oauth:grant-type:token-exchange` | a host frontend (RFC 8693): `subject_token` is the user's AuthKit session access token, `subject_token_type` `urn:ietf:params:oauth:token-type:access_token` | an access token for `resource`, on the same session; impersonation (RFC 8693 §1.1), so no `act` |
+| `urn:ietf:params:oauth:grant-type:token-exchange` | a host frontend (RFC 8693): `subject_token` is the user's AuthKit session access token, `subject_token_type` `urn:ietf:params:oauth:token-type:access_token`; optionally `group_id` ([group-bound tokens](#group-bound-tokens)) | an access token for `resource`, on the same session; impersonation (RFC 8693 §1.1), so no `act` |
 | `client_credentials` | a confidential client acting for itself | an access token with `sub` = `client_id` and the client's `Permissions` within the ceiling |
 | `urn:ietf:params:oauth:grant-type:jwt-bearer` | a [workload](#workloads) acting for a user (RFC 7523): `assertion` signed by its key, carrying the capability the user's device key signed, with a DPoP proof of the same key | an access token for the user, `act` the workload, bound to its key, carrying the capability's operations until it expires; no refresh token |
 
 Refresh tokens rotate on every use. A family stands on the session it was issued from and lasts `RefreshTokenTTL` (12 hours by default), which rotation never extends; then the client signs in again with `prompt=none`. Presenting a rotated-out token revokes the family, newest token included. `offline_access` is refused.
 
 `authorization_details` (RFC 9396) is granted only by a [workload's capability](#workloads): the authorize and token endpoints refuse the parameter.
+
+A DPoP-bound subject token (`cnf.jkt`) is exchanged only with a proof of its own key, and the new token is bound to it: a stolen bound token is never traded for a bearer one. A bearer subject token is bound to the proof it is exchanged with, if any.
+
+### Group-bound tokens
+
+A token exchange naming `group_id` binds its token to that group, such as a console acting at one merchant ([RBAC](rbac.md#a-library-that-guards-its-own-routes)):
+
+- The group must be live and not root, and the user must hold a role in it or a root role; anything else is `invalid_target` (RFC 8693 §2.2.2).
+- The token carries `group_id` and keeps `sid`, `auth_time`, `amr` and `acr`, so a recent sign-in carries over. It has no `act`: the person acts as itself.
+- At `Client.Authenticator()` (with `Config.Resource` its resource) its `BoundScope` is the group. Its `Can` holds what the person holds there, and on root the person's `root:` permissions; nothing elsewhere. It ends with its session or its group.
+
+A host serving several tenants in process mints a customer token bound to one instead: `client.MintAccessToken(ctx, userID, iam.AccessTokenOptions{Group: iam.GroupByID(id)})`. It is an `access+jwt` carrying `group_id` and no `sid`, at most 15 minutes (`iam.MaxGroupAccessTokenTTL`). It stands while its user is usable and its group live, holds no permissions, has no sign-in of its own (`CheckRecentSignIn` is `auth.ErrForbidden`), and AuthKit's own API refuses it.
 
 ## Workloads
 
@@ -138,7 +150,7 @@ In tests, `authtest.EnrollDeviceKey` enrolls a device key, `DeviceKey.Capability
 
 ## Tokens
 
-- The access token is an RFC 9068 `at+jwt` for the requested resource ([claims](stability.md#tokens)). Its `permissions` are the user's grants on the root group intersected with the resource's `Permissions`: a role that holds `merchant:*` gives `merchant:*` under that ceiling, so the issuer's role catalog decides what the user may do there. `roles` names the user's root role, for display only.
+- The access token is an RFC 9068 `at+jwt` for the requested resource ([claims](stability.md#tokens)), lasting `AccessTokenTTL` (5 minutes by default, at most 15). Its `permissions` are the user's grants on the root group intersected with the resource's `Permissions`: a role that holds `merchant:*` gives `merchant:*` under that ceiling, so the issuer's role catalog decides what the user may do there. A resource's `Permissions` may hold the app's own `root:` permissions (`root:billing:*`), never AuthKit's built-in ones. `roles` names the user's root role, for display only.
 - With the `openid` scope, the answer also carries an ID token for the client (`nonce`, `sid`, `auth_time`, `acr`, `amr`; `profile` and `email` claims by scope).
 - Codes last 60 seconds and redeem once; each grant re-checks that the user is live and the sign-in still stands. AuthKit's own API refuses an `at+jwt`.
 

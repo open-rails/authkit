@@ -307,7 +307,7 @@ func TestResourceServerIssuerProfile(t *testing.T) {
 func TestResourceServerRemoteAssertion(t *testing.T) {
 	ctx := context.Background()
 	f := newFakeIssuer(t)
-	d := newResourceDeployment(t)
+	d := newResourceDeployment(t, authtest.WithConfig(func(c *authkit.Config) { c.AuthorizationServer.AccessTokenTTL = 15 * time.Minute }))
 	require.NoError(t, d.auth.DeclareRemoteApplications(ctx, d.a, []iam.RemoteApplication{{Issuer: f.url, Enabled: true, Role: d.operator}}))
 	srv := httptest.NewServer(d.auth.Handler())
 	t.Cleanup(srv.Close)
@@ -343,6 +343,7 @@ func TestResourceServerRemoteAssertion(t *testing.T) {
 	status, out := redeem(assertion(nil), nil, "api:self")
 	require.Equal(t, http.StatusOK, status, out)
 	require.Equal(t, "Bearer", out["token_type"])
+	require.EqualValues(t, 900, out["expires_in"], "AccessTokenTTL, set on a resource server with no clients")
 	r := httptest.NewRequest(http.MethodGet, oauthResource+"/v1/me", nil)
 	r.Header.Set("Authorization", "Bearer "+out["access_token"].(string))
 	v, err := d.auth.Authenticator().Authenticate(r)
@@ -374,6 +375,7 @@ func TestResourceServerRemoteAssertion(t *testing.T) {
 		"a spent assertion":        {spent, ""},
 		"another audience":         {assertion(jwt.MapClaims{"aud": "https://elsewhere.example/token"}), ""},
 		"too long ahead":           {assertion(jwt.MapClaims{"exp": time.Now().Add(time.Hour).Unix()}), ""},
+		"over 2 minutes ahead":     {assertion(jwt.MapClaims{"exp": time.Now().Add(3 * time.Minute).Unix()}), ""},
 		"a short jti":              {assertion(jwt.MapClaims{"jti": "short"}), ""},
 		"an unknown issuer":        {newFakeIssuer(t).token(t, "JWT", jwt.MapClaims{"aud": endpoint, "jti": uuid.NewString()}), ""},
 		"a scope it does not have": {assertion(nil), "api:everything"},

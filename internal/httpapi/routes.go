@@ -6,6 +6,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/verify"
 )
@@ -121,6 +122,7 @@ func isOIDCPath(path string) bool {
 // AuthPermission's own check (requirePermission, GroupHandler) runs the same
 // check through the identity's session binding.
 func (s *Service) authenticate(tier iam.RouteAuthTier, h http.Handler) http.Handler {
+	h = notGroupBound(h)
 	switch tier {
 	case iam.AuthOptional:
 		return verify.Optional(s.svc)(h)
@@ -130,6 +132,18 @@ func (s *Service) authenticate(tier iam.RouteAuthTier, h http.Handler) http.Hand
 		return verify.Required(s.svc)(s.requireSession(h))
 	}
 	return h
+}
+
+// notGroupBound refuses a user's token bound to a group (a host's
+// group-bound mint): it is for a library's routes, never AuthKit's own API.
+func notGroupBound(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if cl, err := callerClaims(r); err == nil && cl.Kind == verify.TokenUser && cl.Group != nil {
+			writeError(w, errmodel.E(errmodel.CodeForbidden))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // requireRecentSignIn is RouteSpec.StepUp: the caller signed in recently

@@ -284,4 +284,12 @@ type AccessTokenOptions struct {
 	SessionID string
 	TTL       time.Duration // 0 = the configured access-token lifetime
 	Claims    map[string]any
+	// Group binds the token to one live group (its group_id claim), such as
+	// a customer token for one merchant: it stands on no sign-in, so it
+	// takes no SessionID, holds no permissions and lasts at most
+	// MaxGroupAccessTokenTTL.
+	Group GroupRef
 }
+
+// MaxGroupAccessTokenTTL is a group-bound mint's longest lifetime.
+const MaxGroupAccessTokenTTL = 15 * time.Minute

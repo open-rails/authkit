@@ -26,8 +26,9 @@ func boundIdentity(c Claims) (auth.Identity, bool) {
 		bound = iam.APIKeyIdentity(c.APIKeyID)
 	case TokenUser:
 		// A native token, including a device-key token. Another issuer's
-		// user (Subject without UserID) has no AuthKit authority.
-		if c.UserID != "" && !c.IsResourceToken() {
+		// user (Subject without UserID) has no AuthKit authority, nor does a
+		// host's group-bound mint (a customer token).
+		if c.UserID != "" && !c.IsResourceToken() && c.Group == nil {
 			bound = iam.InSession(iam.UserIdentity(c.UserID), c.session())
 		}
 	}

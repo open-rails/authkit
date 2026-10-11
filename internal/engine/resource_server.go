@@ -52,15 +52,21 @@ type ResourceAccess struct {
 	// ClientGroup is the group whose OAuth client the token was issued to
 	// (a third-party client): it acts only there.
 	ClientGroup string
+	// ExchangedGroup is the group a person's own token was exchanged for
+	// (group_id): it acts there, and keeps the person's root: permissions.
+	ExchangedGroup string
 }
 
-// Group is the group the token is bound to: its application's, or its
-// group client's.
+// Group is the group the token is bound to: its application's, its group
+// client's, or the one it was exchanged for.
 func (a ResourceAccess) Group() string {
-	if a.Application == nil {
+	switch {
+	case a.Application != nil:
+		return a.Application.GroupID
+	case a.ClientGroup != "":
 		return a.ClientGroup
 	}
-	return a.Application.GroupID
+	return a.ExchangedGroup
 }
 
 type resourceServer struct {
@@ -141,6 +147,9 @@ func (rs *resourceServer) verify(r *http.Request) (ResourceAccess, error) {
 			return ResourceAccess{}, err
 		}
 		out.Asserted = out.Application != nil
+		if out.ExchangedGroup, err = rs.exchangedGroup(ctx, out, cl); err != nil {
+			return ResourceAccess{}, err
+		}
 	}
 	if app := out.Application; app != nil {
 		out.Permissions = append([]string(nil), cl.Permissions...)
@@ -318,6 +327,25 @@ func (rs *resourceServer) ownToken(ctx context.Context, cl verify.Claims) (app *
 		return nil, "", iam.ErrSessionRevoked
 	}
 	return nil, group, nil
+}
+
+// exchangedGroup is the live group a person's own token was exchanged for
+// (group_id); "" for any other token. A token of a group since deleted is
+// refused, as its session ending would be.
+func (rs *resourceServer) exchangedGroup(ctx context.Context, out ResourceAccess, cl verify.Claims) (string, error) {
+	if cl.Group == nil || out.Application != nil || out.ClientGroup != "" || cl.Kind != verify.TokenUser {
+		return "", nil
+	}
+	g, err := rs.s.groupStore().groupByID(ctx, cl.Group.GroupID)
+	switch {
+	case errors.Is(err, iam.ErrGroupNotFound):
+		return "", iam.ErrSessionRevoked
+	case err != nil:
+		return "", errmodel.Internal("resource_group", err)
+	case g.DeletedAt != nil:
+		return "", iam.ErrSessionRevoked
+	}
+	return g.ID, nil
 }
 
 // ceilings are the permission ceilings scopes grant, when Resource.Scopes

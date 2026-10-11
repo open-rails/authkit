@@ -86,6 +86,7 @@ func TestNormalizeAuthorizationServerClients(t *testing.T) {
 		"exchange no target":            {OAuthClientConfig{ID: "c", GrantTypes: []OAuthGrantType{GrantTokenExchange}}, "needs Resources"},
 		"permissions without grant":     {OAuthClientConfig{ID: "c", RedirectURIs: []string{"https://c.example/cb"}, Permissions: []string{"merchant:*"}}, "client-credentials client's own grants"},
 		"root permissions":              {OAuthClientConfig{ID: "c", SecretSHA256: secret, Resources: []string{"https://api.example.com"}, Permissions: []string{"root:*"}, GrantTypes: []OAuthGrantType{GrantClientCredentials}}, "root namespace"},
+		"an app's root permission":      {OAuthClientConfig{ID: "c", SecretSHA256: secret, Resources: []string{"https://api.example.com"}, Permissions: []string{"root:billing:read"}, GrantTypes: []OAuthGrantType{GrantClientCredentials}}, "root namespace"},
 		"UUID client ID":                {OAuthClientConfig{ID: "0199b1a2-7c3d-7e4f-8a9b-0c1d2e3f4a5b", RedirectURIs: []string{"https://c.example/cb"}}, "looks like a user ID"},
 		"origin with a path":            {OAuthClientConfig{ID: "c", RedirectURIs: []string{"https://c.example/cb"}, Origins: []string{"https://admin.example.com/app"}}, "is not an origin"},
 		"plain-http origin":             {OAuthClientConfig{ID: "c", RedirectURIs: []string{"https://c.example/cb"}, Origins: []string{"http://admin.example.com"}}, "must use https"},
@@ -101,6 +102,26 @@ func TestNormalizeAuthorizationServerClients(t *testing.T) {
 	c.AuthorizationServer.RefreshTokenTTL = 31 * 24 * time.Hour
 	_, err := Normalize(c, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}})
 	require.ErrorContains(t, err, "RefreshTokenTTL")
+
+	// A resource's ceiling on users' authority may hold the app's own root
+	// permissions, never AuthKit's built-in ones; at most 15-minute tokens.
+	for perm, allowed := range map[string]bool{"root:billing:read": true, "root:billing:*": true, "root:*": false, "root:users:read": false, "root:members:*": false} {
+		c := base(ok[0])
+		c.AuthorizationServer.Resources[0].Permissions = []string{"merchant:*", perm}
+		_, err := Normalize(c, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}})
+		if allowed {
+			require.NoError(t, err, perm)
+		} else {
+			require.ErrorContains(t, err, "root namespace", perm)
+		}
+	}
+	c = base(ok[0])
+	c.AuthorizationServer.AccessTokenTTL = 15 * time.Minute
+	_, err = Normalize(c, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}})
+	require.NoError(t, err)
+	c.AuthorizationServer.AccessTokenTTL = 16 * time.Minute
+	_, err = Normalize(c, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}})
+	require.ErrorContains(t, err, "AccessTokenTTL")
 
 	grants := func(context.Context, iam.OAuthGrantRequest) (iam.OAuthGrantDecision, error) {
 		return iam.OAuthGrantDecision{}, nil

@@ -822,6 +822,9 @@ type OAuthTokenParams struct {
 	SubjectToken       *string `query:"subject_token"`
 	SubjectTokenType   *string `query:"subject_token_type"`
 	RequestedTokenType *string `query:"requested_token_type"`
+	// GroupID binds a token exchange's token to one group the user holds a
+	// role in, or any group for a root role.
+	GroupID *string `query:"group_id"`
 	// Assertion is the jwt-bearer grant's JWT, signed by the key its DPoP
 	// proof proves.
 	Assertion    *string  `query:"assertion"`

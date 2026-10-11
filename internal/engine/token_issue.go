@@ -19,7 +19,10 @@ import (
 
 // MintAccessToken mints an access token for a live account outside any login
 // flow; a host operation. o.Claims naming one of AuthKit's own claims is
-// invalid_request (param claims.<name>); o.SessionID becomes sid.
+// invalid_request (param claims.<name>); o.SessionID becomes sid. o.Group,
+// a live group other than root, becomes group_id: the token stands on no
+// sign-in and holds nothing (a customer token), for at most
+// iam.MaxGroupAccessTokenTTL.
 func (s *Engine) MintAccessToken(ctx context.Context, userID string, o iam.AccessTokenOptions, opts ...ops.Option) (iam.Token, error) {
 	if err := noOptions("MintAccessToken", opts); err != nil {
 		return iam.Token{}, err
@@ -44,11 +47,48 @@ func (s *Engine) MintAccessToken(ctx context.Context, userID string, o iam.Acces
 	if ttl <= 0 {
 		ttl = s.cfg.Token.AccessTokenDuration
 	}
+	if !o.Group.IsZero() {
+		gid, err := s.mintGroup(ctx, o)
+		if err != nil {
+			return iam.Token{}, err
+		}
+		extra["group_id"] = gid
+		ttl = min(ttl, iam.MaxGroupAccessTokenTTL)
+	}
 	token, exp, err := s.mintAccessToken(ctx, userID, extra, ttl)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return iam.Token{}, iam.ErrUserNotFound
 	}
 	return iam.Token{Value: token, ExpiresAt: exp}, err
+}
+
+// mintGroup is the live group, not root, o binds a host mint to; a token
+// standing on a session or living longer than iam.MaxGroupAccessTokenTTL is
+// invalid_request.
+func (s *Engine) mintGroup(ctx context.Context, o iam.AccessTokenOptions) (string, error) {
+	switch {
+	case strings.TrimSpace(o.SessionID) != "":
+		return "", errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("session_id"))
+	case o.TTL > iam.MaxGroupAccessTokenTTL:
+		return "", errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("ttl"))
+	case o.Group.IsRoot():
+		return "", iam.ErrGroupNotFound
+	}
+	if err := s.requirePG(); err != nil {
+		return "", err
+	}
+	gid, ok := canonicalUUID(o.Group.ID())
+	if !ok {
+		return "", iam.ErrGroupNotFound
+	}
+	g, err := s.groupStore().groupByID(ctx, gid)
+	switch {
+	case err != nil:
+		return "", err
+	case g.DeletedAt != nil:
+		return "", iam.ErrGroupNotFound
+	}
+	return g.ID, nil
 }
 
 // MintSessionAccessToken re-mints the access token of the caller's own
@@ -66,7 +106,7 @@ var authkitClaims = map[string]bool{
 	"iss": true, "sub": true, "aud": true, "iat": true, "nbf": true, "exp": true, "jti": true,
 	"sid": true, "device_key_id": true, "auth_time": true, "amr": true, "acr": true, "mfa_enrolled": true,
 	"root_role": true, "entitlements": true, "2fa_enrollment": true, "provider": true,
-	"permissions": true, "cnf": true,
+	"permissions": true, "cnf": true, "group_id": true,
 	"email": true, "email_verified": true, "username": true,
 }
 

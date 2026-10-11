@@ -52,8 +52,9 @@ type Claims struct {
 	DeviceKeyID string
 	// APIKeyID is the key an API-key credential resolved to.
 	APIKeyID string
-	// Group binds an API key's authority to the group it was granted in;
-	// nil otherwise.
+	// Group binds an API key's authority to the group it was granted in, or
+	// this deployment's token for a user to the group it was exchanged or
+	// minted for (group_id); nil otherwise.
 	Group *PermissionScope
 
 	// Permissions are the credential's permission strings: an API key's

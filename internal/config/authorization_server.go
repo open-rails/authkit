@@ -13,6 +13,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
+	"github.com/open-rails/authkit/internal/rbac"
 )
 
 // AuthorizationServerConfig declares the OAuth clients this deployment signs
@@ -26,8 +27,10 @@ type AuthorizationServerConfig struct {
 	// Resources are the resource servers access tokens may be minted for
 	// (RFC 8707 resource indicators).
 	Resources []ResourceServerConfig `yaml:"resources"`
-	// AccessTokenTTL is the lifetime of the RFC 9068 access tokens it mints.
-	// 0 defaults to 5 minutes, the most allowed.
+	// AccessTokenTTL is the lifetime of the RFC 9068 access tokens it mints,
+	// and those a resource server (Config.Resource) mints for its remote
+	// applications' assertions, which may set it with no Clients. 0
+	// defaults to 5 minutes; at most 15.
 	AccessTokenTTL time.Duration `yaml:"access_token_ttl"`
 	// RefreshTokenTTL bounds a refresh token family: rotation never extends
 	// it, and the client signs the user in again (prompt=none) after it.
@@ -155,8 +158,11 @@ const (
 )
 
 // DefaultOAuthAccessTokenTTL is AuthorizationServerConfig.AccessTokenTTL's
-// default and ceiling.
-const DefaultOAuthAccessTokenTTL = 5 * time.Minute
+// default; MaxOAuthAccessTokenTTL its ceiling.
+const (
+	DefaultOAuthAccessTokenTTL = 5 * time.Minute
+	MaxOAuthAccessTokenTTL     = 15 * time.Minute
+)
 
 // DefaultOAuthRefreshTokenTTL is AuthorizationServerConfig.RefreshTokenTTL's
 // default; MaxOAuthRefreshTokenTTL its ceiling.
@@ -243,8 +249,11 @@ func OIDCScope(scope string) bool { return slices.Contains(oidcScopes, scope) }
 func normalizeAuthorizationServer(a *AuthorizationServerConfig, c Config) error {
 	a.groupClients = c.Roles != nil && c.Roles.oauthClients()
 	if len(a.Clients) == 0 && !a.groupClients {
-		if len(a.Resources) > 0 || a.AccessTokenTTL != 0 || a.RefreshTokenTTL != 0 || len(a.GroupClients.Scopes) > 0 || len(a.GroupClients.Agreements) > 0 {
+		if len(a.Resources) > 0 || a.AccessTokenTTL != 0 && !c.Resource.Enabled() || a.RefreshTokenTTL != 0 || len(a.GroupClients.Scopes) > 0 || len(a.GroupClients.Agreements) > 0 {
 			return errors.New("authkit: AuthorizationServer has resources, a TTL or group-client policy but no Clients and no persona with OAuthClients — the authorization server is off")
+		}
+		if a.AccessTokenTTL < 0 || a.AccessTokenTTL > MaxOAuthAccessTokenTTL {
+			return fmt.Errorf("authkit: AuthorizationServer.AccessTokenTTL must be between 0 and %v, got %v", MaxOAuthAccessTokenTTL, a.AccessTokenTTL)
 		}
 		return nil
 	}
@@ -255,8 +264,8 @@ func normalizeAuthorizationServer(a *AuthorizationServerConfig, c Config) error 
 		return fmt.Errorf("authkit: AuthorizationServer needs Token.Issuer to be an absolute URL (issuer=%q)", c.Token.Issuer)
 	}
 	switch {
-	case a.AccessTokenTTL < 0 || a.AccessTokenTTL > DefaultOAuthAccessTokenTTL:
-		return fmt.Errorf("authkit: AuthorizationServer.AccessTokenTTL must be between 0 and %v, got %v", DefaultOAuthAccessTokenTTL, a.AccessTokenTTL)
+	case a.AccessTokenTTL < 0 || a.AccessTokenTTL > MaxOAuthAccessTokenTTL:
+		return fmt.Errorf("authkit: AuthorizationServer.AccessTokenTTL must be between 0 and %v, got %v", MaxOAuthAccessTokenTTL, a.AccessTokenTTL)
 	case a.AccessTokenTTL == 0:
 		a.AccessTokenTTL = DefaultOAuthAccessTokenTTL
 	}
@@ -281,7 +290,7 @@ func normalizeAuthorizationServer(a *AuthorizationServerConfig, c Config) error 
 			return fmt.Errorf("authkit: AuthorizationServer.Resources[%d] (%s): %w", i, r.ID, err)
 		}
 		r.Scopes = scopes
-		if r.Permissions, err = normalizeResourcePermissions(r.Permissions); err != nil {
+		if r.Permissions, err = normalizeResourcePermissions(r.Permissions, true); err != nil {
 			return fmt.Errorf("authkit: AuthorizationServer.Resources[%d] (%s): %w", i, r.ID, err)
 		}
 		resources = append(resources, r)
@@ -398,7 +407,7 @@ func normalizeOAuthClient(cl *OAuthClientConfig, resources []ResourceServerConfi
 			return fmt.Errorf("client %q: resource %q is not in AuthorizationServer.Resources", cl.ID, id)
 		}
 	}
-	if cl.Permissions, err = normalizeResourcePermissions(cl.Permissions); err != nil {
+	if cl.Permissions, err = normalizeResourcePermissions(cl.Permissions, false); err != nil {
 		return fmt.Errorf("client %q: Permissions: %w", cl.ID, err)
 	}
 	if cl.Origins, err = normalizeOrigins(cl.Origins); err != nil {
@@ -500,15 +509,19 @@ func normalizeScopes(scopes []string) ([]string, error) {
 	return out, nil
 }
 
-// normalizeResourcePermissions dedups a resource's permission ceiling and
-// refuses anything but grant patterns outside the root namespace.
-func normalizeResourcePermissions(perms []string) ([]string, error) {
+// normalizeResourcePermissions dedups a permission ceiling and refuses
+// anything but grant patterns. Root's are refused, but with appRoot (a
+// ceiling on users' authority) the app's own root permissions, which reach
+// none of AuthKit's built-in ones.
+func normalizeResourcePermissions(perms []string, appRoot bool) ([]string, error) {
 	out := dedup(perms)
+	builtins := rbac.Builtins(iam.RootPersona(), true, true, true)
 	for _, p := range out {
 		if err := ident.ValidateGrantPattern(p); err != nil {
 			return nil, err
 		}
-		if ident.Perm(p).Persona() == iam.RootPersona() {
+		pattern := ident.Perm(p)
+		if pattern.Persona() == iam.RootPersona() && (!appRoot || slices.ContainsFunc(builtins, func(b iam.Perm) bool { return b.Matches(pattern) })) {
 			return nil, fmt.Errorf("permission %q is AuthKit's own root namespace", p)
 		}
 	}

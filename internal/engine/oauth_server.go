@@ -366,6 +366,9 @@ type oauthMint struct {
 	invoker string
 	// consentAt is the consent a third-party client's grant stands on.
 	consentAt *time.Time
+	// group binds the token to one group (group_id claim): a token exchange
+	// naming it.
+	group string
 	// workload is a jwt-bearer token: it stands on deviceKeyID's capability,
 	// which grantEnd ends; no sign-in stands behind it (no auth_time, amr or
 	// acr) and it carries no permissions. decision is the host authorizer's.
@@ -432,6 +435,9 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 	}
 	if m.invoker != "" {
 		at["act"] = map[string]any{"sub": m.invoker}
+	}
+	if m.group != "" {
+		at["group_id"] = m.group
 	}
 	if m.workload {
 		at["device_key_id"] = m.deviceKeyID

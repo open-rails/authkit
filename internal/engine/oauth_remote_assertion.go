@@ -16,7 +16,8 @@ import (
 // OAuthRemoteAssertion is the RFC 7523 §2.1 JWT-bearer grant for a trusted
 // issuer's backend, with no authorization server of its own: it signs a
 // short assertion with its registered remote application's key (iss its
-// issuer, sub its user, aud the token endpoint, a jti spent once), and its
+// issuer, sub its user, aud the token endpoint, exp at most 2 minutes ahead,
+// a jti spent once), and its
 // frontend redeems it for an access token to Config.Resource.ID acting for
 // that user in the application's group. The token holds no permissions; its
 // client_id is the application's issuer, the namespace of its sub. A DPoP
@@ -48,7 +49,7 @@ func (s *Engine) OAuthRemoteAssertion(ctx context.Context, in authflow.OAuthJWTB
 		return authflow.OAuthTokens{}, invalid("the assertion names no subject")
 	case len(jti) < 16 || len(jti) > 128:
 		return authflow.OAuthTokens{}, invalid("the assertion's jti must be 16-128 characters")
-	case exp.After(now.Add(authflow.MaxAssertionLifetime + authflow.AssertionSkew)):
+	case exp.After(now.Add(authflow.MaxRemoteAssertionLifetime + authflow.AssertionSkew)):
 		return authflow.OAuthTokens{}, invalid("the assertion expires too far ahead")
 	case in.Resource != "" && in.Resource != s.cfg.Resource.ID:
 		return authflow.OAuthTokens{}, authflow.NewOAuthError(authflow.OAuthInvalidTarget, "resource must be this deployment's")

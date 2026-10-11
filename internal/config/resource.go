@@ -60,7 +60,7 @@ func normalizeResource(r *ResourceConfig) error {
 		if !scopePattern.MatchString(name) || OIDCScope(name) {
 			return fmt.Errorf("authkit: Resource.Scopes: invalid scope %q", name)
 		}
-		normalized, err := normalizeResourcePermissions(perms)
+		normalized, err := normalizeResourcePermissions(perms, true)
 		if err != nil {
 			return fmt.Errorf("authkit: Resource.Scopes[%q]: %w", name, err)
 		}

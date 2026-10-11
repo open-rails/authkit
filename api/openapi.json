@@ -5474,6 +5474,9 @@
                   "requested_token_type": {
                     "type": "string"
                   },
+                  "group_id": {
+                    "type": "string"
+                  },
                   "assertion": {
                     "type": "string"
                   },

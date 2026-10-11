@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/jose"
@@ -204,7 +205,9 @@ func (s *Engine) RevokeOAuthToken(ctx context.Context, clientID, token string) e
 // ExchangeOAuthToken is RFC 8693 token exchange: the user's own AuthKit
 // access token (a sign-in of this deployment) for an access token to one of
 // the client's resources, standing on the same sign-in. With no actor_token
-// it is impersonation (RFC 8693 §1.1): the token carries no act claim.
+// it is impersonation (RFC 8693 §1.1): the token carries no act claim. With
+// group_id the token is bound to that group (its group_id claim), which the
+// user holds a role in, or holds a root role.
 func (s *Engine) ExchangeOAuthToken(ctx context.Context, in authflow.OAuthTokenExchange) (authflow.OAuthTokens, error) {
 	switch {
 	case in.SubjectToken == "":
@@ -220,31 +223,106 @@ func (s *Engine) ExchangeOAuthToken(ctx context.Context, in authflow.OAuthTokenE
 	if err != nil {
 		return authflow.OAuthTokens{}, err
 	}
-	cl, err := s.auth.Verify(ctx, in.SubjectToken)
-	if err != nil || cl.Kind != verify.TokenUser || cl.UserID == "" || cl.SessionID == "" || !strings.EqualFold(cl.JOSEType, jose.AccessTokenType) {
-		return authflow.OAuthTokens{}, authflow.NewOAuthError(authflow.OAuthInvalidGrant, "subject_token is not a valid access token for a sign-in here")
+	userID, sessionID, oerr := s.exchangeSubject(ctx, in.SubjectToken, in.JKT)
+	if oerr != nil {
+		return authflow.OAuthTokens{}, oerr
 	}
 	scopes, oerr := grantScopes(in.Scopes, resource, "email", "profile")
 	if oerr != nil {
 		return authflow.OAuthTokens{}, oerr
 	}
-	if err := s.oauthSignInStands(ctx, cl.UserID, cl.SessionID, "the subject token's sign-in has ended"); err != nil {
+	if err := s.oauthSignInStands(ctx, userID, sessionID, "the subject token's sign-in has ended"); err != nil {
 		return authflow.OAuthTokens{}, err
 	}
-	authTime, amr, acr, err := s.sessionAssurance(ctx, cl.UserID, cl.SessionID)
+	var group string
+	if in.GroupID != "" {
+		if group, err = s.exchangeGroup(ctx, userID, in.GroupID); err != nil {
+			return authflow.OAuthTokens{}, err
+		}
+	}
+	authTime, amr, acr, err := s.sessionAssurance(ctx, userID, sessionID)
 	if err != nil {
 		return authflow.OAuthTokens{}, err
 	}
 	tokens, err := s.mintOAuthTokens(ctx, oauthMint{
-		client: authflow.OAuthClient{OAuthClientConfig: client}, userID: cl.UserID, sessionID: cl.SessionID, scopes: scopes, resource: resource.ID,
-		authTime: authTime, amr: amr, acr: acr, jkt: in.JKT,
+		client: authflow.OAuthClient{OAuthClientConfig: client}, userID: userID, sessionID: sessionID, scopes: scopes, resource: resource.ID,
+		authTime: authTime, amr: amr, acr: acr, jkt: in.JKT, group: group,
 	})
 	if err != nil {
 		return authflow.OAuthTokens{}, err
 	}
 	tokens.IssuedTokenType = authflow.TokenTypeAccessToken
-	s.oauthAudit(ctx, "oauth_token_exchanged", cl.UserID, map[string]string{"client_id": client.ID, "session_id": cl.SessionID, "resource": resource.ID})
+	s.oauthAudit(ctx, "oauth_token_exchanged", userID, map[string]string{"client_id": client.ID, "session_id": sessionID, "resource": resource.ID, "group_id": group})
 	return tokens, nil
+}
+
+// exchangeSubject is the user and sign-in a token exchange's subject_token,
+// this deployment's own access token for a session, stands on. A DPoP-bound
+// one (RFC 9449 cnf.jkt) needs the request's proof by the same key, so a
+// stolen bound token is never traded for a bearer one; its signature,
+// issuer, audience and expiry are checked here, its key by that proof.
+func (s *Engine) exchangeSubject(ctx context.Context, token, jkt string) (userID, sessionID string, _ *authflow.OAuthError) {
+	invalid := authflow.NewOAuthError(authflow.OAuthInvalidGrant, "subject_token is not a valid access token for a sign-in here")
+	member, bound, err := jose.Confirmation(token)
+	switch {
+	case err != nil || member == jose.CertificateThumbprintMember:
+		return "", "", invalid
+	case member == "":
+		cl, err := s.auth.Verify(ctx, token)
+		if err != nil || cl.Kind != verify.TokenUser || cl.UserID == "" || cl.SessionID == "" || cl.Group != nil || !strings.EqualFold(cl.JOSEType, jose.AccessTokenType) {
+			return "", "", invalid
+		}
+		return cl.UserID, cl.SessionID, nil
+	case bound != jkt:
+		return "", "", authflow.NewOAuthError(authflow.OAuthInvalidGrant, "the request does not prove the subject_token's DPoP key")
+	}
+	claims, err := s.verifyOwnToken(token, jose.AccessTokenType)
+	if err != nil {
+		return "", "", invalid
+	}
+	exp, ok := jose.Time(claims, "exp")
+	enrolled, _ := claims["mfa_enrolled"].(bool)
+	pending, _ := claims["2fa_enrollment"].(bool)
+	userID, sessionID = jose.String(claims, "sub"), jose.String(claims, "sid")
+	switch {
+	case !ok || !s.nowTime().Before(exp), !isUUID(userID), sessionID == "", pending, jose.String(claims, "group_id") != "",
+		!slices.ContainsFunc(jose.Audiences(claims), func(aud string) bool { return slices.Contains(s.cfg.Token.ExpectedAudiences, aud) }),
+		s.requireMFAEnrollment() && !enrolled:
+		return "", "", invalid
+	}
+	return userID, sessionID, nil
+}
+
+// exchangeGroup is the live group, not root, a token exchange binds its
+// token to: one userID holds a role in, or any group when userID holds a
+// root role. Anything else is invalid_target (RFC 8693 §2.2.2).
+func (s *Engine) exchangeGroup(ctx context.Context, userID, id string) (string, error) {
+	refused := authflow.NewOAuthError(authflow.OAuthInvalidTarget, "no role in that group")
+	gid, ok := canonicalUUID(id)
+	if !ok {
+		return "", refused
+	}
+	if err := s.requirePG(); err != nil {
+		return "", err
+	}
+	st := s.groupStore()
+	g, err := st.groupByID(ctx, gid)
+	switch {
+	case errors.Is(err, iam.ErrGroupNotFound):
+		return "", refused
+	case err != nil:
+		return "", err
+	case g.DeletedAt != nil || g.Persona == iam.RootPersona():
+		return "", refused
+	}
+	held, err := st.WalkAssignments(ctx, gid, iam.UserSubject(userID))
+	switch {
+	case err != nil:
+		return "", err
+	case len(held) == 0:
+		return "", refused
+	}
+	return gid, nil
 }
 
 // OAuthClientCredentials mints a client's own access token: sub is its

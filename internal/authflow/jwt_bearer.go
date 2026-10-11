@@ -34,6 +34,9 @@ type OAuthJWTBearer struct {
 const (
 	// MaxAssertionLifetime bounds an assertion's exp from now.
 	MaxAssertionLifetime = 5 * time.Minute
+	// MaxRemoteAssertionLifetime bounds a remote application's assertion
+	// (RFC 7523 §3: an exp unreasonably far ahead is refused).
+	MaxRemoteAssertionLifetime = 2 * time.Minute
 	// AssertionSkew is the clock skew allowed on exp, nbf and iat.
 	AssertionSkew = 30 * time.Second
 

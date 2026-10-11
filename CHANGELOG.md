@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.22.0
+
+Tokens bound to one group, for a library acting on one tenant at a time (OpenRails #1197: the merchant is the one the request's token is bound to). helpers v1.9.0.
+
+- **Token exchange naming a group** (RFC 8693): `group_id` on a token exchange binds the access token to that group (its `group_id` claim, `BoundScope` at `Client.Authenticator()`). The group must be live and not root, and the user must hold a role in it or a root role, else `invalid_target`. The token keeps `sid`, `auth_time`, `amr` and `acr`, has no `act`, and ends with its session or its group. Its `Can` holds what the person holds in the group and, on root, the person's `root:` permissions (helpers v1.9.0's `Bound` exception); nothing elsewhere. API keys and applications stay strictly bound ([authorization server](docs/authorization-server.md#group-bound-tokens)).
+- **DPoP-bound subject tokens** are exchanged only with a proof of their own key, and the new token is bound to it; before, they were refused.
+- **Group-bound mint**: `iam.AccessTokenOptions.Group` makes `MintAccessToken` a customer token for one group: an `access+jwt` with `group_id` and no session, holding no permissions, at most `iam.MaxGroupAccessTokenTTL` (15 minutes). It stands while its user is usable and its group live; `CheckRecentSignIn` is `auth.ErrForbidden`. `SessionID` with `Group` is refused, and AuthKit's own API refuses the token.
+- **Lifetimes**: `AuthorizationServer.AccessTokenTTL` may be up to 15 minutes (default still 5), and a resource server (`Config.Resource`) may set it with no clients, for the tokens it mints from remote applications' assertions. A remote application's RFC 7523 assertion may expire at most 2 minutes ahead (was 5).
+- **Resource ceilings**: a resource's `Permissions` and `Resource.Scopes` ceilings may hold the app's own `root:` permissions (`root:billing:*`), never AuthKit's built-in ones; a client's `Permissions` still hold none.
+- A revoked session behind a resource access token is `auth.ErrRevoked` (was only `auth.ErrUnauthenticated`).
+- [RBAC](docs/rbac.md#a-librarys-permissions-in-two-personas): a library's permissions in two personas, one role per persona from the library's constants.
+
 ## v1.21.0
 
 - `Client.Authenticator()` and `Verifier.Authenticator()` are helpers/auth `Root` (helpers v1.8.0): `RootScope(ctx)` is `Scope(ctx, iam.RootGroup())`, where root roles hold their `root:` permissions. A library given `root:` permissions checks them there, so the host passes only the Authenticator: `openrails.Routes{Auth: ak.Authenticator(), …}`, no scope ([RBAC](docs/rbac.md#a-library-that-guards-its-own-routes)).

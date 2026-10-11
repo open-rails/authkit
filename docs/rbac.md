@@ -143,22 +143,35 @@ A library that serves routes inside your app, such as OpenRails' billing routes,
 | `KnownPermission(p)` | `p` is one registered permission, so the library refuses a misspelled one when it mounts |
 | `RootScope(ctx)` | `client.Scope(ctx, iam.RootGroup())` (helpers/auth `Root`): where root roles hold their `root:` permissions, which the library checks there |
 
-A user acting for themself carries their email and username, read from the account. A permission's persona says where the library checks it: a `root:` permission in the Authenticator's `RootScope`, so the host passes no scope; a group persona's in the group it serves, `client.Scope(ctx, ref)` (`{Authority: Config.Token.Issuer, ID: <the group's id>}`). The library names no permissions: the host passes its own.
+A user acting for themself carries their email and username, read from the account. A permission's persona says where the library checks it: a `root:` permission in the Authenticator's `RootScope`, so the host passes no scope; a group persona's in the group it serves, `client.Scope(ctx, ref)` (`{Authority: Config.Token.Issuer, ID: <the group's id>}`).
+
+A credential bound to a group (`BoundScope`) acts only there:
+
+- A group API key holds its role only in its own group; a root API key (`NewRoles(authkit.APIKeys)`) acts in root's.
+- A person's token exchanged for one group (RFC 8693 `group_id`, [authorization server](authorization-server.md#group-bound-tokens)) holds what the person holds in that group, and keeps the person's `root:` permissions on root: a person keeps their root role whatever group a token names (helpers/auth `Bound`).
+- A host's group-bound mint (`iam.AccessTokenOptions.Group`) is a customer token: bound, holding nothing.
+
+Like AuthKit's own API, `client.Authenticator()` refuses resource access tokens (`at+jwt`) unless `Config.Resource` names their resource. For a library that is also a resource server, `client.NewVerifier(audiences)` with its resource among them gives a `Verifier` whose `Authenticator()` takes them too: an OAuth client's own token (client credentials) authenticates as an application, holding nothing in a group (its `permissions` are the resource server's to read).
+
+### A library's permissions in two personas
+
+A library acting on one tenant at a time, such as OpenRails acting on one merchant, checks each route's permission in two places: its `merchant:` name in that merchant's group, or its `root:` twin on root. The library exports both, full `persona:resource:action` names. A role belongs to one persona, so the host defines one role per persona, from the same constants:
 
 ```go
 rbac := authkit.NewRoles()
-customersRead := rbac.Root.Permission("customers", "read")
-customersUpdate := rbac.Root.Permission("customers", "update")
-rbac.Root.Role("support", customersRead, customersUpdate)
-
-err = openrailsgin.Mount(r, bill, openrails.Routes{
-	Auth:        client.Authenticator(), // says who a request is; OpenRails decides what to admit
-	RouteGroups: openrails.RouteGroups{Admin: true},
-	Permissions: openrails.Permissions{AdminRead: customersRead, AdminUpdate: customersUpdate},
-})
+Merchant := rbac.Persona("merchant", authkit.APIKeys)
+grants := func(perms []iam.Perm) (out []iam.Grant) {
+	for _, p := range perms {
+		out = append(out, p)
+	}
+	return out
+}
+// lib.MerchantPermissions: merchant:billing:read, …; lib.RootPermissions: root:billing:read, …
+Merchant.Role("billing", grants(Merchant.Declare(lib.MerchantPermissions...))...) // in a merchant's group: that merchant
+rbac.Root.Role("billing", grants(rbac.Root.Declare(lib.RootPermissions...))...)   // on root: every merchant
 ```
 
-A group API key holds its role only in its own group, so it acts where a library checks its group persona's permissions in that group's scope (one group per merchant: `client.Scope(ctx, iam.GroupByID(id))`); a root API key (`NewRoles(authkit.APIKeys)`) acts in root's. Like AuthKit's own API, `client.Authenticator()` refuses resource access tokens (`at+jwt`). For a library that is also a resource server, `client.NewVerifier(audiences)` with its resource among them gives a `Verifier` whose `Authenticator()` takes them too: an OAuth client's own token (client credentials) authenticates as an application, holding nothing in a group (its `permissions` are the resource server's to read).
+Staff of every merchant hold the `root:` names on root. A root role holding `merchant:` names also reaches every merchant group (above), but a library that checks `root:` on root, as OpenRails does, never relies on that.
 
 ## Related
 

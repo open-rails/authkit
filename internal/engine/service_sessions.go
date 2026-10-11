@@ -392,7 +392,8 @@ func (s *Engine) SessionFreshness(ctx context.Context, userID, sessionID string,
 // account usable. A user's token names one; so does this issuer's jwt-bearer
 // resource token, the device key that signed its capability (#437). A token
 // that names none, such as one the host minted, is refused too, since
-// nothing proves it still stands. Every refusal is ErrSessionRevoked; any
+// nothing proves it still stands, but a host's group-bound mint, which
+// stands while its user is usable and its group live. Every refusal is ErrSessionRevoked; any
 // other credential (an API key, a 2FA-enrollment token, another resource
 // token) is forbidden. Permission checks run the same query through the
 // identity's session binding.
@@ -405,7 +406,10 @@ func (s *Engine) CheckSession(ctx context.Context, cl verify.Claims) error {
 		return err
 	}
 	ref := iam.SessionRef{SessionID: cl.SessionID, DeviceKeyID: cl.DeviceKeyID}
-	if ref.IsZero() {
+	switch {
+	case ref.IsZero() && cl.Group != nil:
+		return s.groupTokenStands(ctx, userID, cl.Group.GroupID)
+	case ref.IsZero():
 		return iam.ErrSessionRevoked
 	}
 	usable, signedIn, err := userLive(ctx, s.pg, userID, ref)
@@ -413,6 +417,25 @@ func (s *Engine) CheckSession(ctx context.Context, cl verify.Claims) error {
 	case err != nil:
 		return err
 	case !usable || !signedIn:
+		return iam.ErrSessionRevoked
+	}
+	return nil
+}
+
+// groupTokenStands is CheckSession for a host's group-bound mint, which
+// stands on no sign-in: its user still usable and its group live.
+func (s *Engine) groupTokenStands(ctx context.Context, userID, groupID string) error {
+	usable, err := db.New(s.pg).UserUsable(ctx, userID)
+	if err != nil {
+		return err
+	}
+	g, err := s.groupStore().groupByID(ctx, groupID)
+	switch {
+	case errors.Is(err, iam.ErrGroupNotFound):
+		return iam.ErrSessionRevoked
+	case err != nil:
+		return err
+	case !usable || g.DeletedAt != nil:
 		return iam.ErrSessionRevoked
 	}
 	return nil
@@ -442,8 +465,8 @@ func (s *Engine) CheckRecentSignIn(ctx context.Context, cl verify.Claims) error 
 	if err := s.CheckSession(ctx, cl); err != nil {
 		return err
 	}
-	if !cl.IsUser() {
-		return errmodel.E(errmodel.CodeForbidden)
+	if !cl.IsUser() || cl.Group != nil {
+		return errmodel.E(errmodel.CodeForbidden) // no sign-in of its own
 	}
 	mfa := cl.MFAEnrolled
 	if !mfa {

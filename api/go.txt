@@ -770,6 +770,7 @@ pkg authkit/iam, const ImportUsernameUnavailable ImportReason = "username_unavai
 pkg authkit/iam, const InsecureRefreshCookieName untyped string = "authkit_rt"
 pkg authkit/iam, const JWKSPath untyped string = "/.well-known/jwks.json"
 pkg authkit/iam, const MaxBatch untyped int = 500
+pkg authkit/iam, const MaxGroupAccessTokenTTL time.Duration = 900000000000
 pkg authkit/iam, const MaxGroupOAuthClients untyped int = 10
 pkg authkit/iam, const MaxGroupRoles untyped int = 100
 pkg authkit/iam, const MaxPageLimit untyped int = 500
@@ -947,6 +948,7 @@ pkg authkit/iam, type APIKeyCreated struct, APIKey APIKey `json:"api_key"`
 pkg authkit/iam, type APIKeyCreated struct, Secret string `json:"secret"`
 pkg authkit/iam, type AccessTokenOptions struct
 pkg authkit/iam, type AccessTokenOptions struct, Claims map[string]any
+pkg authkit/iam, type AccessTokenOptions struct, Group GroupRef
 pkg authkit/iam, type AccessTokenOptions struct, SessionID string
 pkg authkit/iam, type AccessTokenOptions struct, TTL time.Duration
 pkg authkit/iam, type AccountSessionRevocation struct

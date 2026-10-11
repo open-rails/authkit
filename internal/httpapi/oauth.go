@@ -356,6 +356,10 @@ func (s *Service) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 		oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidTarget, "request one resource at a time"))
 		return
 	}
+	if len(params["group_id"]) > 1 || params.Has("group_id") && grant != config.GrantTokenExchange {
+		oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidRequest, "group_id names one group, in a token exchange"))
+		return
+	}
 	if params.Has("authorization_details") {
 		oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidRequest, "authorization_details are granted only by a jwt-bearer capability"))
 		return
@@ -381,7 +385,7 @@ func (s *Service) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 		tokens, err = s.svc.ExchangeOAuthToken(r.Context(), authflow.OAuthTokenExchange{
 			ClientID: client.ID, SubjectToken: params.Get("subject_token"), SubjectTokenType: params.Get("subject_token_type"),
 			RequestedTokenType: params.Get("requested_token_type"), Resource: params.Get("resource"),
-			Scopes: strings.Fields(params.Get("scope")), JKT: jkt,
+			Scopes: strings.Fields(params.Get("scope")), JKT: jkt, GroupID: params.Get("group_id"),
 		})
 	case config.GrantClientCredentials:
 		tokens, err = s.svc.OAuthClientCredentials(r.Context(), authflow.OAuthClientCredentials{

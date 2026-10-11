@@ -69,6 +69,10 @@ func (v *Verifier) verify(ctx context.Context, token string, r *http.Request) (C
 		// Only this deployment's device keys mean anything here (#437).
 		cl.DeviceKeyID = ""
 	}
+	if g := jose.String(mc, "group_id"); g != "" && is.local && cl.Kind == TokenUser {
+		// A user's token exchanged or minted for one group.
+		cl.Group = &PermissionScope{GroupID: g, AuthorityIssuer: cl.Issuer}
+	}
 	if cl.Kind == TokenUser && !cl.IsResourceToken() {
 		if is.local {
 			// Native tokens establish identity, never authority.

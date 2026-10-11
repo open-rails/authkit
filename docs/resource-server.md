@@ -57,14 +57,15 @@ A trusted issuer's backend can mint a customer token for its user without runnin
    - `iss`: its issuer;
    - `sub`: its user;
    - `aud`: AuthKit's token endpoint;
-   - `exp`: at most 5 minutes ahead;
+   - `exp`: at most 2 minutes ahead (RFC 7523 §3);
    - `jti`: 16-128 characters, spent once, where DPoP proofs are (`Deps.Redis`, else memory);
    - optionally `email`, `email_verified`, `name` and `preferred_username`.
 2. Its frontend posts the assertion to AuthKit's token endpoint, with no client: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer`, `assertion`, and optionally `scope` and a DPoP proof.
 3. The answer is an access token for `Resource.ID`:
    - it acts for that user in the application's group and holds no permissions;
    - its `client_id` is the application's issuer;
-   - it is DPoP-bound when the frontend proved a key, and a bearer token otherwise.
+   - it is DPoP-bound when the frontend proved a key, and a bearer token otherwise;
+   - it lasts `AuthorizationServer.AccessTokenTTL` (5 minutes by default, at most 15), which a resource server may set without any clients.
 
 With `Config.Resource`, the token endpoint is mounted even without an authorization server, and it answers any origin, since it takes no cookies.
 

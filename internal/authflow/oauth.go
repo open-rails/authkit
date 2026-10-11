@@ -93,6 +93,8 @@ type OAuthTokenExchange struct {
 	Resource           string
 	Scopes             []string
 	JKT                string
+	// GroupID binds the token to one group (group_id); "" binds none.
+	GroupID string
 }
 
 // OAuthClientCredentials is a client_credentials token request.

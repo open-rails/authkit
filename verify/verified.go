@@ -165,7 +165,7 @@ func classifyErr(err error) error {
 		return errors.Join(auth.ErrUnauthenticated, auth.ErrSenderProofRequired, err)
 	case errors.Is(err, iam.ErrAPIKeyExpired), errors.Is(err, iam.ErrTokenExpired):
 		return errors.Join(auth.ErrUnauthenticated, auth.ErrExpired, err)
-	case errors.Is(err, iam.ErrAPIKeyRevoked):
+	case errors.Is(err, iam.ErrAPIKeyRevoked), errors.Is(err, iam.ErrSessionRevoked):
 		return errors.Join(auth.ErrUnauthenticated, auth.ErrRevoked, err)
 	}
 	if e, ok := iam.AsError(err); ok {
