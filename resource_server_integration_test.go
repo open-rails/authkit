@@ -26,6 +26,7 @@ import (
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/keys"
 	hauth "github.com/open-rails/helpers/auth"
+	conformance "github.com/open-rails/helpers/auth/authtest"
 )
 
 // resourceDeployment is a resource server for oauthResource whose merchant
@@ -420,7 +421,7 @@ func TestResourceServerAssertedToken(t *testing.T) {
 		r.Header.Set("Authorization", "Bearer "+token)
 		v, err := as.Client.Authenticator().Authenticate(r)
 		require.NoError(t, err)
-		a, ok := v.(interface{ Asserted() bool })
+		a, ok := v.(hauth.Asserted)
 		return ok && a.Asserted()
 	}
 
@@ -446,6 +447,25 @@ func TestResourceServerAssertedToken(t *testing.T) {
 	exchanged := as.Exchange(t, authtest.TokenExchange{ClientID: exchanger, ClientSecret: exchangerSecret, SubjectToken: session.AccessToken, Resource: oauthResource, Scopes: []string{"api:self"}})
 	require.False(t, asserted(exchanged.AccessToken), "a session exchanged for the resource")
 	require.False(t, asserted(f.token(t, "at+jwt", nil)), "the trusted issuer's own token")
+
+	scope, err := as.Client.Scope(ctx, group)
+	require.NoError(t, err)
+	unprivileged := authtest.SignIn(t, as.Client, authtest.NewUser(t, as.Client))
+	request := func(token string) func() *http.Request {
+		return func() *http.Request {
+			r := httptest.NewRequest(http.MethodGet, oauthResource+"/v1/me", nil)
+			r.Header.Set("Authorization", "Bearer "+token)
+			return r
+		}
+	}
+	conformance.Check(t, as.Client.Authenticator(), conformance.Cases{
+		Scope:       scope,
+		Permissions: []string{"merchant:payments:refund"},
+		Staff:       request(session.AccessToken),
+		User:        request(unprivileged.AccessToken),
+		Application: request(key.Secret),
+		Asserted:    request(customer.AccessToken),
+	})
 }
 
 // TestResourceServerStaticKeyKid: a remote application's static keys are

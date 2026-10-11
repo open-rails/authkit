@@ -102,6 +102,7 @@ var (
 	_ auth.PermissionChecker   = resourceVerified{}
 	_ auth.RecentSignInChecker = resourceVerified{}
 	_ auth.Bound               = resourceVerified{}
+	_ auth.Asserted            = resourceVerified{}
 )
 
 func (v resourceVerified) Identity() auth.Identity { return v.id }
