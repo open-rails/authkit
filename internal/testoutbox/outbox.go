@@ -51,6 +51,17 @@ func (o *Outbox) Email() config.EmailSender { return emailSender{o} }
 // SMS is Email for Deps.SMS and SetSMSHealth.
 func (o *Outbox) SMS() config.SMSSender { return smsSender{o} }
 
+// Of is the Outbox behind a sender Email or SMS returned, else nil.
+func Of(sender any) *Outbox {
+	switch s := sender.(type) {
+	case emailSender:
+		return s.o
+	case smsSender:
+		return s.o
+	}
+	return nil
+}
+
 // SetEmailHealth sets what the email sender's CheckHealth returns; nil, the
 // default, is healthy.
 func (o *Outbox) SetEmailHealth(err error) {

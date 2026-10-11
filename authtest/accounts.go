@@ -25,6 +25,7 @@ import (
 	"github.com/open-rails/authkit/devicekey"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/httpapi"
+	"github.com/open-rails/authkit/internal/testoutbox"
 )
 
 // Password is the password NewUser gives every account.
@@ -62,7 +63,9 @@ func NewUser(t testing.TB, auth *authkit.Client) User {
 // the AuthResult to a session: a second factor is answered with u.TOTP (or
 // the account's remembered app, TOTPOf); an enrollment the deployment
 // requires adds an authenticator app with the enrollment token, which SignIn
-// remembers for the account's later sign-ins. It returns the session's tokens.
+// remembers for the account's later sign-ins; a new device's code (a
+// phone-only account's every sign-in from here) is read from New's Outbox.
+// It returns the session's tokens.
 func SignIn(t testing.TB, auth *authkit.Client, u User) iam.TokenSet {
 	t.Helper()
 	identifier := u.Email
@@ -92,6 +95,10 @@ func SignIn(t testing.TB, auth *authkit.Client, u User) iam.TokenSet {
 			}
 			u.TOTP = app
 			res = signInCall(t, auth, identifier, "/2fa/verify", "", map[string]string{"user_id": step.UserID, "challenge": step.Challenge, "factor_id": factorID, "code": app.Code(t)})
+		case httpapi.AuthDeviceVerificationRequired:
+			step := res.DeviceVerification
+			res = signInCall(t, auth, identifier, "/device-verification/confirm", "", map[string]string{
+				"user_id": step.UserID, "challenge": step.Challenge, "code": deviceCode(t, auth, step.UserID, u.Email)})
 		case httpapi.AuthEnrollmentRequired:
 			var created httpapi.TwoFactorFactorCreated
 			u.TOTP, created = addTOTP(t, auth, identifier, res.Enrollment.TokenSet.AccessToken)
@@ -364,4 +371,25 @@ func (tr handlerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	w := httptest.NewRecorder()
 	tr.h.ServeHTTP(w, in)
 	return w.Result(), nil
+}
+
+// deviceCode is the last new-device code auth sent userID (by SMS) or email,
+// through New's Outbox.
+func deviceCode(t testing.TB, auth *authkit.Client, userID, email string) string {
+	t.Helper()
+	_, deps := builtWith(t, auth)
+	for _, sender := range []any{deps.SMS, deps.Email} {
+		o := testoutbox.Of(sender)
+		if o == nil {
+			continue
+		}
+		msgs := o.Messages(iam.MessageNewDeviceCode, "")
+		for i := len(msgs) - 1; i >= 0; i-- {
+			if msgs[i].UserID == userID || email != "" && strings.EqualFold(msgs[i].To, email) {
+				return msgs[i].Code
+			}
+		}
+	}
+	t.Fatalf("authtest: no new-device code for %s in the Outbox", userID)
+	return ""
 }

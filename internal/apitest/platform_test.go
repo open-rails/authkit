@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -156,11 +157,17 @@ func TestMountCatalog(t *testing.T) {
 		require.NotEmpty(t, tokens["access_token"])
 		require.Contains(t, tokens, "refresh_token")
 		require.Nil(t, tokens["refresh_token"], "the cookie carries the refresh token")
-		require.Len(t, login.cookies, 1)
-		require.Equal(t, iam.RefreshCookieName, login.cookies[0].Name)
-		require.Equal(t, "/", login.cookies[0].Path)
-		require.True(t, login.cookies[0].HttpOnly)
-		require.Equal(t, http.SameSiteLaxMode, login.cookies[0].SameSite)
+		var refresh []*http.Cookie
+		for _, c := range login.cookies {
+			if strings.HasSuffix(c.Name, "authkit_rt") {
+				refresh = append(refresh, c)
+			}
+		}
+		require.Len(t, refresh, 1)
+		require.Equal(t, iam.RefreshCookieName, refresh[0].Name)
+		require.Equal(t, "/", refresh[0].Path)
+		require.True(t, refresh[0].HttpOnly)
+		require.Equal(t, http.SameSiteLaxMode, refresh[0].SameSite)
 	})
 
 	t.Run("custom prefix retains MFA enrollment exemptions", func(t *testing.T) {

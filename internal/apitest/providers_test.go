@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -74,8 +75,14 @@ func TestOIDCCallbackStateIsBoundAndSingleUse(t *testing.T) {
 	t.Run("forged state with a matching forged cookie", func(t *testing.T) {
 		a := newAPI(t, auth)
 		genuine := start(t, a)
-		require.Len(t, genuine.cookies, 1)
-		require.Equal(t, stateCookieName(idp.Authorize(t, genuine.authURL).State), genuine.cookies[0].Name,
+		var states []*http.Cookie
+		for _, c := range genuine.cookies {
+			if strings.Contains(c.Name, "authkit_oauth_state_") {
+				states = append(states, c)
+			}
+		}
+		require.Len(t, states, 1)
+		require.Equal(t, stateCookieName(idp.Authorize(t, genuine.authURL).State), states[0].Name,
 			"the forged cookie is named as AuthKit names one")
 		forged := "forged-state"
 		f := providerFlow{cookies: []*http.Cookie{{Name: stateCookieName(forged), Value: forged}}}

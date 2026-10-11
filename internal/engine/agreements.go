@@ -37,11 +37,6 @@ func (s *Engine) Agreements() []iam.Agreement {
 	return out
 }
 
-// RegistrationAgreements are the keys every self-registration accepts.
-func (s *Engine) RegistrationAgreements() []string {
-	return slices.Clone(s.cfg.Registration.Agreements)
-}
-
 // agreementRequired is agreement_required naming docs.
 func agreementRequired(docs []config.AgreementConfig) error {
 	meta := errmodel.AgreementsRequired{Agreements: make([]errmodel.AgreementDocument, 0, len(docs))}
