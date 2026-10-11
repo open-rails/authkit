@@ -74,6 +74,10 @@ type Deps struct {
 	// subscriptions; any other error fails the request. Deleting someone
 	// else's account (staff, the host) does not run it.
 	DeletionCheck func(ctx context.Context, userID string) error
+	// GroupName is a group's name, as the host knows it (a merchant's
+	// verified name): the consent screen and a user's connected apps show it
+	// beside a group OAuth client's own name. Nil shows the client's alone.
+	GroupName func(ctx context.Context, groupID string) (string, error)
 
 	// OAuthGrants decides each jwt-bearer grant of the authorization
 	// server: it may refuse or narrow a workload's capability. Required

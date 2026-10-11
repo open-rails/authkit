@@ -108,3 +108,16 @@ type DeletionRefusal struct {
 type PhoneCountry struct {
 	Country string `json:"country"`
 }
+
+// ConsentRequired is consent_required's metadata: the scopes, with what
+// each allows, the user has yet to consent to.
+type ConsentRequired struct {
+	Scopes []ScopeDescription `json:"scopes"`
+}
+
+// ScopeDescription is one OAuth scope and what consenting to it allows; ""
+// for OpenID's own, which the interface describes.
+type ScopeDescription struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}

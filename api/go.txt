@@ -10,6 +10,7 @@ pkg authkit, const GrantClientCredentials config.OAuthGrantType = "client_creden
 pkg authkit, const GrantJWTBearer config.OAuthGrantType = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 pkg authkit, const GrantRefreshToken config.OAuthGrantType = "refresh_token"
 pkg authkit, const GrantTokenExchange config.OAuthGrantType = "urn:ietf:params:oauth:grant-type:token-exchange"
+pkg authkit, const OAuthClients config.PersonaOption = 4
 pkg authkit, const RemoteApplications config.PersonaOption = 2
 pkg authkit, func DefaultRateLimits() map[string]RateLimit
 pkg authkit, func IfRole(iam.Role) Option
@@ -34,11 +35,13 @@ pkg authkit, method (*Client) CheckUsername(context.Context, string) error
 pkg authkit, method (*Client) Close(context.Context) error
 pkg authkit, method (*Client) CreateAPIKey(context.Context, auth.Identity, iam.GroupRef, iam.NewAPIKey, ...Option) (iam.APIKeyCreated, error)
 pkg authkit, method (*Client) CreateGroup(context.Context, iam.NewGroup, ...Option) (iam.Group, error)
+pkg authkit, method (*Client) CreateGroupOAuthClient(context.Context, auth.Identity, iam.GroupRef, iam.NewOAuthClient, ...Option) (iam.OAuthClientCreated, error)
 pkg authkit, method (*Client) CreateGroupRole(context.Context, auth.Identity, iam.GroupRef, iam.NewGroupRole, ...Option) (iam.GroupRole, error)
 pkg authkit, method (*Client) CreateInvitation(context.Context, auth.Identity, iam.GroupRef, iam.NewInvitation, ...Option) (iam.InvitationCreated, error)
 pkg authkit, method (*Client) CreateUser(context.Context, iam.NewUser, ...Option) (iam.User, error)
 pkg authkit, method (*Client) DeclareRemoteApplications(context.Context, iam.GroupRef, []iam.RemoteApplication, ...Option) error
 pkg authkit, method (*Client) DeleteGroup(context.Context, iam.GroupRef, ...Option) error
+pkg authkit, method (*Client) DeleteGroupOAuthClient(context.Context, auth.Identity, iam.GroupRef, string, ...Option) error
 pkg authkit, method (*Client) DeleteGroupRole(context.Context, auth.Identity, iam.GroupRef, iam.Role, ...Option) error
 pkg authkit, method (*Client) DeleteRemoteApplication(context.Context, auth.Identity, iam.GroupRef, string, ...Option) error
 pkg authkit, method (*Client) DeleteUsers(context.Context, auth.Identity, []string, ...Option) ([]iam.OpResult, error)
@@ -48,6 +51,8 @@ pkg authkit, method (*Client) EmailAvailable() bool
 pkg authkit, method (*Client) EmailHealth() (time.Time, error)
 pkg authkit, method (*Client) EnsureUserRole(context.Context, iam.GroupRef, iam.UserRef, iam.Role, ...Option) (iam.User, error)
 pkg authkit, method (*Client) Group(context.Context, iam.GroupRef) (iam.Group, error)
+pkg authkit, method (*Client) GroupOAuthClient(context.Context, iam.GroupRef, string) (iam.OAuthClient, error)
+pkg authkit, method (*Client) GroupOAuthClients(context.Context, iam.GroupRef) ([]iam.OAuthClient, error)
 pkg authkit, method (*Client) GroupRole(context.Context, iam.GroupRef, iam.Role) (iam.GroupRole, error)
 pkg authkit, method (*Client) GroupRoles(context.Context, iam.GroupRef, []iam.Subject) (map[iam.Subject]iam.Role, error)
 pkg authkit, method (*Client) Groups(context.Context, []string) (map[string]iam.Group, error)
@@ -68,6 +73,7 @@ pkg authkit, method (*Client) ListUsers(context.Context, iam.UserQuery) (iam.Lis
 pkg authkit, method (*Client) MintAccessToken(context.Context, string, iam.AccessTokenOptions, ...Option) (iam.Token, error)
 pkg authkit, method (*Client) Mount(*http.ServeMux) error
 pkg authkit, method (*Client) NewVerifier([]string, ...verify.VerifierOption) (*Verifier, error)
+pkg authkit, method (*Client) OAuthConsents(context.Context, string) ([]iam.OAuthConsent, error)
 pkg authkit, method (*Client) PatchPublicMetadata(context.Context, auth.Identity, string, map[string]any, ...Option) error
 pkg authkit, method (*Client) Permission(string) (iam.Perm, error)
 pkg authkit, method (*Client) Persona(string) (iam.Persona, error)
@@ -87,11 +93,13 @@ pkg authkit, method (*Client) ResolveUsername(context.Context, string) (iam.Name
 pkg authkit, method (*Client) RestoreUsers(context.Context, auth.Identity, []string, ...Option) ([]iam.OpResult, error)
 pkg authkit, method (*Client) RevokeAPIKey(context.Context, auth.Identity, iam.GroupRef, string, ...Option) error
 pkg authkit, method (*Client) RevokeAccountSessions(context.Context, auth.Identity, string, ...Option) (iam.AccountSessionRevocation, error)
+pkg authkit, method (*Client) RevokeConsent(context.Context, string, string, ...Option) error
 pkg authkit, method (*Client) RevokeInvitation(context.Context, auth.Identity, iam.GroupRef, string, ...Option) error
 pkg authkit, method (*Client) RevokeSession(context.Context, auth.Identity, string, string, ...Option) error
 pkg authkit, method (*Client) RiverJobs() river.Contribution
 pkg authkit, method (*Client) Role(string) (iam.Role, error)
 pkg authkit, method (*Client) RolePermissions(iam.Role) ([]iam.Perm, error)
+pkg authkit, method (*Client) RotateGroupOAuthClientSecret(context.Context, auth.Identity, iam.GroupRef, string, ...Option) (string, error)
 pkg authkit, method (*Client) Routes() []iam.Route
 pkg authkit, method (*Client) SMSAvailable() bool
 pkg authkit, method (*Client) SMSHealth() (time.Time, error)
@@ -101,6 +109,7 @@ pkg authkit, method (*Client) SetGroupRole(context.Context, auth.Identity, iam.G
 pkg authkit, method (*Client) Start(context.Context, ...StartOption) error
 pkg authkit, method (*Client) TwoFactorMethods() []iam.TwoFactorMethod
 pkg authkit, method (*Client) Unban(context.Context, auth.Identity, string, ...Option) error
+pkg authkit, method (*Client) UpdateGroupOAuthClient(context.Context, auth.Identity, iam.GroupRef, string, iam.OAuthClientUpdate, ...Option) (iam.OAuthClient, error)
 pkg authkit, method (*Client) UpdateGroupRole(context.Context, auth.Identity, iam.GroupRef, iam.Role, iam.GroupRoleUpdate, ...Option) (iam.GroupRole, error)
 pkg authkit, method (*Client) UpdateUser(context.Context, auth.Identity, string, iam.UserUpdate, ...Option) (iam.User, error)
 pkg authkit, method (*Client) UpsertRemoteApplication(context.Context, auth.Identity, iam.GroupRef, iam.RemoteApplication, ...Option) (iam.RemoteApplication, error)
@@ -156,6 +165,7 @@ pkg authkit, type AuthorizationServerConfig = config.AuthorizationServerConfig
 pkg authkit, type AuthorizationServerConfig struct
 pkg authkit, type AuthorizationServerConfig struct, AccessTokenTTL time.Duration `yaml:"access_token_ttl"`
 pkg authkit, type AuthorizationServerConfig struct, Clients []config.OAuthClientConfig `yaml:"clients"`
+pkg authkit, type AuthorizationServerConfig struct, GroupClients config.GroupClientsConfig `yaml:"group_clients"`
 pkg authkit, type AuthorizationServerConfig struct, RefreshTokenTTL time.Duration `yaml:"refresh_token_ttl"`
 pkg authkit, type AuthorizationServerConfig struct, Resources []config.ResourceServerConfig `yaml:"resources"`
 pkg authkit, type Client struct
@@ -205,6 +215,7 @@ pkg authkit, type Deps struct, DeletionCheck func(context.Context, string) error
 pkg authkit, type Deps struct, Email config.EmailSender
 pkg authkit, type Deps struct, EntitlementHolders func(context.Context, string) ([]string, error)
 pkg authkit, type Deps struct, Entitlements func(context.Context, []string) (map[string][]string, error)
+pkg authkit, type Deps struct, GroupName func(context.Context, string) (string, error)
 pkg authkit, type Deps struct, KeySource keys.Source
 pkg authkit, type Deps struct, NameAdmission func(context.Context, iam.NameAdmissionRequest) error
 pkg authkit, type Deps struct, OAuthGrants iam.OAuthGrantAuthorizer
@@ -243,6 +254,15 @@ pkg authkit, type FrontendConfig struct, OIDCReturnPath string `yaml:"oidc_retur
 pkg authkit, type FrontendConfig struct, PasswordResetPath string `yaml:"password_reset_path"`
 pkg authkit, type FrontendConfig struct, PasswordlessPath string `yaml:"passwordless_path"`
 pkg authkit, type FrontendConfig struct, VerifyPath string `yaml:"verify_path"`
+pkg authkit, type GroupClientScope = config.GroupClientScope
+pkg authkit, type GroupClientScope struct
+pkg authkit, type GroupClientScope struct, Description string `yaml:"description"`
+pkg authkit, type GroupClientScope struct, Name string `yaml:"name"`
+pkg authkit, type GroupClientScope struct, Resource string `yaml:"resource"`
+pkg authkit, type GroupClientsConfig = config.GroupClientsConfig
+pkg authkit, type GroupClientsConfig struct
+pkg authkit, type GroupClientsConfig struct, Agreements []string `yaml:"agreements"`
+pkg authkit, type GroupClientsConfig struct, Scopes []config.GroupClientScope `yaml:"scopes"`
 pkg authkit, type HTTPConfig = config.HTTPConfig
 pkg authkit, type HTTPConfig struct
 pkg authkit, type HTTPConfig struct, APIPath string `yaml:"api_path"`
@@ -687,6 +707,10 @@ pkg authkit/iam, const EventGroupPurged EventKind = "group.purged"
 pkg authkit/iam, const EventGroupRoleCreated EventKind = "group.role_created"
 pkg authkit/iam, const EventGroupRoleDeleted EventKind = "group.role_deleted"
 pkg authkit/iam, const EventGroupRoleUpdated EventKind = "group.role_updated"
+pkg authkit/iam, const EventOAuthClientCreated EventKind = "oauth_client.created"
+pkg authkit/iam, const EventOAuthClientDeleted EventKind = "oauth_client.deleted"
+pkg authkit/iam, const EventOAuthClientUpdated EventKind = "oauth_client.updated"
+pkg authkit/iam, const EventOAuthConsentRevoked EventKind = "oauth_consent.revoked"
 pkg authkit/iam, const EventRoleChanged EventKind = "role.changed"
 pkg authkit/iam, const EventRoleGranted EventKind = "role.granted"
 pkg authkit/iam, const EventRoleRevoked EventKind = "role.revoked"
@@ -740,6 +764,7 @@ pkg authkit/iam, const ImportUsernameUnavailable ImportReason = "username_unavai
 pkg authkit/iam, const InsecureRefreshCookieName untyped string = "authkit_rt"
 pkg authkit/iam, const JWKSPath untyped string = "/.well-known/jwks.json"
 pkg authkit/iam, const MaxBatch untyped int = 500
+pkg authkit/iam, const MaxGroupOAuthClients untyped int = 10
 pkg authkit/iam, const MaxGroupRoles untyped int = 100
 pkg authkit/iam, const MaxPageLimit untyped int = 500
 pkg authkit/iam, const MessageContactChanged MessageKind = "contact_changed"
@@ -754,6 +779,9 @@ pkg authkit/iam, const MessageWelcome MessageKind = "welcome"
 pkg authkit/iam, const NameCreate NameOperation = "create"
 pkg authkit/iam, const NameRename NameOperation = "rename"
 pkg authkit/iam, const OAuthAuthorizePath untyped string = "/oauth2/authorize"
+pkg authkit/iam, const OAuthClientNone OAuthClientAuthMethod = "none"
+pkg authkit/iam, const OAuthClientPrivateKeyJWT OAuthClientAuthMethod = "private_key_jwt"
+pkg authkit/iam, const OAuthClientSecretBasic OAuthClientAuthMethod = "client_secret_basic"
 pkg authkit/iam, const OAuthEndSessionPath untyped string = "/oauth2/end_session"
 pkg authkit/iam, const OAuthGrantJWTBearer OAuthGrantKind = "jwt_bearer"
 pkg authkit/iam, const OAuthRevocationPath untyped string = "/oauth2/revoke"
@@ -1023,6 +1051,7 @@ pkg authkit/iam, type ErrorObject struct, Param *string `json:"param"`
 pkg authkit/iam, type ErrorObject struct, Type string `json:"type"`
 pkg authkit/iam, type Event struct
 pkg authkit/iam, type Event struct, ApplicationID string `json:"application_id"`
+pkg authkit/iam, type Event struct, ClientID string `json:"client_id"`
 pkg authkit/iam, type Event struct, CredentialID string `json:"credential_id"`
 pkg authkit/iam, type Event struct, CredentialKind auth.CredentialKind `json:"credential_kind"`
 pkg authkit/iam, type Event struct, Current string `json:"current"`
@@ -1184,6 +1213,18 @@ pkg authkit/iam, type NewInvitation struct
 pkg authkit/iam, type NewInvitation struct, Email string
 pkg authkit/iam, type NewInvitation struct, ExpiresAt *time.Time
 pkg authkit/iam, type NewInvitation struct, Role Role
+pkg authkit/iam, type NewOAuthClient struct
+pkg authkit/iam, type NewOAuthClient struct, BackchannelLogoutURI string `json:"backchannel_logout_uri"`
+pkg authkit/iam, type NewOAuthClient struct, ClientName string `json:"client_name"`
+pkg authkit/iam, type NewOAuthClient struct, ClientURI string `json:"client_uri"`
+pkg authkit/iam, type NewOAuthClient struct, JWKSURI string `json:"jwks_uri"`
+pkg authkit/iam, type NewOAuthClient struct, LogoURI string `json:"logo_uri"`
+pkg authkit/iam, type NewOAuthClient struct, PolicyURI string `json:"policy_uri"`
+pkg authkit/iam, type NewOAuthClient struct, PostLogoutRedirectURIs []string `json:"post_logout_redirect_uris"`
+pkg authkit/iam, type NewOAuthClient struct, RedirectURIs []string `json:"redirect_uris"`
+pkg authkit/iam, type NewOAuthClient struct, Scope string `json:"scope"`
+pkg authkit/iam, type NewOAuthClient struct, TOSURI string `json:"tos_uri"`
+pkg authkit/iam, type NewOAuthClient struct, TokenEndpointAuthMethod OAuthClientAuthMethod `json:"token_endpoint_auth_method"`
 pkg authkit/iam, type NewUser struct
 pkg authkit/iam, type NewUser struct, Email string
 pkg authkit/iam, type NewUser struct, EmailVerified bool
@@ -1202,6 +1243,50 @@ pkg authkit/iam, type OAuthCapability struct, Claims map[string]json.RawMessage
 pkg authkit/iam, type OAuthCapability struct, ExpiresAt time.Time
 pkg authkit/iam, type OAuthCapability struct, ID string
 pkg authkit/iam, type OAuthCapability struct, IssuedAt time.Time
+pkg authkit/iam, type OAuthClient struct
+pkg authkit/iam, type OAuthClient struct, BackchannelLogoutURI *string `json:"backchannel_logout_uri"`
+pkg authkit/iam, type OAuthClient struct, ClientID string `json:"client_id"`
+pkg authkit/iam, type OAuthClient struct, ClientName string `json:"client_name"`
+pkg authkit/iam, type OAuthClient struct, ClientURI *string `json:"client_uri"`
+pkg authkit/iam, type OAuthClient struct, CreatedAt time.Time `json:"created_at"`
+pkg authkit/iam, type OAuthClient struct, Disabled bool `json:"disabled"`
+pkg authkit/iam, type OAuthClient struct, DisabledAt *time.Time `json:"disabled_at"`
+pkg authkit/iam, type OAuthClient struct, GroupID string `json:"group_id"`
+pkg authkit/iam, type OAuthClient struct, JWKSURI *string `json:"jwks_uri"`
+pkg authkit/iam, type OAuthClient struct, LogoURI *string `json:"logo_uri"`
+pkg authkit/iam, type OAuthClient struct, PolicyURI *string `json:"policy_uri"`
+pkg authkit/iam, type OAuthClient struct, PostLogoutRedirectURIs []string `json:"post_logout_redirect_uris"`
+pkg authkit/iam, type OAuthClient struct, RedirectURIs []string `json:"redirect_uris"`
+pkg authkit/iam, type OAuthClient struct, Scope string `json:"scope"`
+pkg authkit/iam, type OAuthClient struct, TOSURI *string `json:"tos_uri"`
+pkg authkit/iam, type OAuthClient struct, TokenEndpointAuthMethod OAuthClientAuthMethod `json:"token_endpoint_auth_method"`
+pkg authkit/iam, type OAuthClient struct, UpdatedAt time.Time `json:"updated_at"`
+pkg authkit/iam, type OAuthClientAuthMethod string
+pkg authkit/iam, type OAuthClientCreated struct
+pkg authkit/iam, type OAuthClientCreated struct, ClientSecret *string `json:"client_secret"`
+pkg authkit/iam, type OAuthClientCreated struct, embedded OAuthClient
+pkg authkit/iam, type OAuthClientUpdate struct
+pkg authkit/iam, type OAuthClientUpdate struct, BackchannelLogoutURI *string `json:"backchannel_logout_uri"`
+pkg authkit/iam, type OAuthClientUpdate struct, ClientName *string `json:"client_name"`
+pkg authkit/iam, type OAuthClientUpdate struct, ClientURI *string `json:"client_uri"`
+pkg authkit/iam, type OAuthClientUpdate struct, Disabled *bool `json:"disabled"`
+pkg authkit/iam, type OAuthClientUpdate struct, JWKSURI *string `json:"jwks_uri"`
+pkg authkit/iam, type OAuthClientUpdate struct, LogoURI *string `json:"logo_uri"`
+pkg authkit/iam, type OAuthClientUpdate struct, PolicyURI *string `json:"policy_uri"`
+pkg authkit/iam, type OAuthClientUpdate struct, PostLogoutRedirectURIs *[]string `json:"post_logout_redirect_uris"`
+pkg authkit/iam, type OAuthClientUpdate struct, RedirectURIs *[]string `json:"redirect_uris"`
+pkg authkit/iam, type OAuthClientUpdate struct, Scope *string `json:"scope"`
+pkg authkit/iam, type OAuthClientUpdate struct, TOSURI *string `json:"tos_uri"`
+pkg authkit/iam, type OAuthConsent struct
+pkg authkit/iam, type OAuthConsent struct, ClientID string `json:"client_id"`
+pkg authkit/iam, type OAuthConsent struct, ClientName string `json:"client_name"`
+pkg authkit/iam, type OAuthConsent struct, ClientURI *string `json:"client_uri"`
+pkg authkit/iam, type OAuthConsent struct, GrantedAt time.Time `json:"granted_at"`
+pkg authkit/iam, type OAuthConsent struct, GroupID string `json:"group_id"`
+pkg authkit/iam, type OAuthConsent struct, GroupName *string `json:"group_name"`
+pkg authkit/iam, type OAuthConsent struct, LogoURI *string `json:"logo_uri"`
+pkg authkit/iam, type OAuthConsent struct, Scopes []string `json:"scopes"`
+pkg authkit/iam, type OAuthConsent struct, UpdatedAt time.Time `json:"updated_at"`
 pkg authkit/iam, type OAuthGrantAuthorizer func(context.Context, OAuthGrantRequest) (OAuthGrantDecision, error)
 pkg authkit/iam, type OAuthGrantDecision struct
 pkg authkit/iam, type OAuthGrantDecision struct, AuthorizationDetails json.RawMessage
@@ -1408,6 +1493,7 @@ pkg authkit/iam, var ErrAccountAuthorityEscalation Error
 pkg authkit/iam, var ErrAccountRecoveryExpired Error
 pkg authkit/iam, var ErrAgreementRequired Error
 pkg authkit/iam, var ErrCannotTargetSelf Error
+pkg authkit/iam, var ErrConsentRequired Error
 pkg authkit/iam, var ErrContactNotVerified Error
 pkg authkit/iam, var ErrDeletionRefused Error
 pkg authkit/iam, var ErrDeviceKeysDisabled Error
@@ -1417,11 +1503,15 @@ pkg authkit/iam, var ErrExternalInvitesDisabled Error
 pkg authkit/iam, var ErrGroupConflict Error
 pkg authkit/iam, var ErrGroupNotFound Error
 pkg authkit/iam, var ErrInsufficientAuthority Error
+pkg authkit/iam, var ErrInvalidOAuthClient Error
 pkg authkit/iam, var ErrInvalidRemoteApplication Error
 pkg authkit/iam, var ErrInvalidUntil Error
 pkg authkit/iam, var ErrInvitationNotFound Error
 pkg authkit/iam, var ErrInvitationsDisabled Error
 pkg authkit/iam, var ErrLastOwner Error
+pkg authkit/iam, var ErrOAuthClientLimitReached Error
+pkg authkit/iam, var ErrOAuthClientNotFound Error
+pkg authkit/iam, var ErrOAuthConsentNotFound Error
 pkg authkit/iam, var ErrOAuthGrantRefused Error
 pkg authkit/iam, var ErrPhoneInUse Error
 pkg authkit/iam, var ErrRemoteApplicationIssuerConflict Error

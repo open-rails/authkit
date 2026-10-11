@@ -34,6 +34,36 @@ type AuthorizationServerConfig struct {
 	// 0 defaults to 12 hours; at most 30 days. A family also ends with the
 	// sign-in it was issued from.
 	RefreshTokenTTL time.Duration `yaml:"refresh_token_ttl"`
+	// GroupClients is the policy for the OAuth clients groups register at
+	// run time (personas declared with OAuthClients): third-party clients
+	// whose users consent to each scope.
+	GroupClients GroupClientsConfig `yaml:"group_clients"`
+
+	// groupClients: some persona registers group clients, so the
+	// authorization server is on (Normalize).
+	groupClients bool
+}
+
+// GroupClientsConfig is what a group's OAuth client may ask of a user.
+type GroupClientsConfig struct {
+	// Scopes are the scopes a group client may request beyond OpenID's
+	// (openid, email, phone, profile), each for one resource, with the
+	// description the consent screen shows.
+	Scopes []GroupClientScope `yaml:"scopes"`
+	// Agreements are keys of Config.Agreements a user accepts, at their
+	// current versions, before approving any group client.
+	Agreements []string `yaml:"agreements"`
+}
+
+// GroupClientScope is one scope a group client may request.
+type GroupClientScope struct {
+	// Name is the scope; one of Resource's Scopes.
+	Name string `yaml:"name"`
+	// Resource is the resource server (ResourceServerConfig.ID) a token
+	// carrying it is for.
+	Resource string `yaml:"resource"`
+	// Description says what consenting allows, on the consent screen.
+	Description string `yaml:"description"`
 }
 
 // OAuthClientConfig registers one OAuth client.
@@ -137,7 +167,7 @@ const (
 
 // oidcScopes are the scopes AuthKit defines itself; a resource may not
 // redefine one.
-var oidcScopes = []string{"openid", "profile", "email", "offline_access"}
+var oidcScopes = []string{"openid", "profile", "email", "phone", "offline_access"}
 
 var (
 	clientIDPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)
@@ -149,7 +179,27 @@ var (
 )
 
 // AuthorizationServerEnabled reports whether the authorization server is on.
-func AuthorizationServerEnabled(a AuthorizationServerConfig) bool { return len(a.Clients) > 0 }
+func AuthorizationServerEnabled(a AuthorizationServerConfig) bool {
+	return len(a.Clients) > 0 || a.groupClients
+}
+
+// GroupClientsEnabled reports whether some persona registers group OAuth
+// clients.
+func GroupClientsEnabled(a AuthorizationServerConfig) bool { return a.groupClients }
+
+// GroupClientIDPrefix starts every group client's id; a declared client's id
+// never does.
+const GroupClientIDPrefix = "goc_"
+
+// FindGroupClientScope returns the group-client scope named name.
+func FindGroupClientScope(a AuthorizationServerConfig, name string) (GroupClientScope, bool) {
+	for _, s := range a.GroupClients.Scopes {
+		if s.Name == name {
+			return s, true
+		}
+	}
+	return GroupClientScope{}, false
+}
 
 // FindOAuthClient returns the registered client with id.
 func FindOAuthClient(a AuthorizationServerConfig, id string) (OAuthClientConfig, bool) {
@@ -191,9 +241,10 @@ func SCIMResource(issuer string) string { return strings.TrimRight(issuer, "/") 
 func OIDCScope(scope string) bool { return slices.Contains(oidcScopes, scope) }
 
 func normalizeAuthorizationServer(a *AuthorizationServerConfig, c Config) error {
-	if len(a.Clients) == 0 {
-		if len(a.Resources) > 0 || a.AccessTokenTTL != 0 || a.RefreshTokenTTL != 0 {
-			return errors.New("authkit: AuthorizationServer has resources or a TTL but no Clients — the authorization server is off without a client")
+	a.groupClients = c.Roles != nil && c.Roles.oauthClients()
+	if len(a.Clients) == 0 && !a.groupClients {
+		if len(a.Resources) > 0 || a.AccessTokenTTL != 0 || a.RefreshTokenTTL != 0 || len(a.GroupClients.Scopes) > 0 || len(a.GroupClients.Agreements) > 0 {
+			return errors.New("authkit: AuthorizationServer has resources, a TTL or group-client policy but no Clients and no persona with OAuthClients — the authorization server is off")
 		}
 		return nil
 	}
@@ -256,6 +307,9 @@ func normalizeAuthorizationServer(a *AuthorizationServerConfig, c Config) error 
 		if slices.ContainsFunc(clients, func(o OAuthClientConfig) bool { return o.ID == cl.ID }) {
 			return fmt.Errorf("authkit: AuthorizationServer.Clients[%d]: client %q is declared twice", i, cl.ID)
 		}
+		if strings.HasPrefix(cl.ID, GroupClientIDPrefix) {
+			return fmt.Errorf("authkit: AuthorizationServer.Clients[%d]: client ids starting %q are groups' clients", i, GroupClientIDPrefix)
+		}
 		cl.Agreements = dedup(cl.Agreements)
 		for _, key := range cl.Agreements {
 			if !slices.ContainsFunc(c.Agreements, func(a AgreementConfig) bool { return a.Key == key }) {
@@ -265,6 +319,36 @@ func normalizeAuthorizationServer(a *AuthorizationServerConfig, c Config) error 
 		clients = append(clients, cl)
 	}
 	a.Clients = clients
+	return normalizeGroupClients(&a.GroupClients, a.Resources, c.Agreements)
+}
+
+// normalizeGroupClients checks each group-client scope names a resource
+// that defines it, and each agreement a declared document.
+func normalizeGroupClients(g *GroupClientsConfig, resources []ResourceServerConfig, agreements []AgreementConfig) error {
+	scopes := make([]GroupClientScope, 0, len(g.Scopes))
+	for i, sc := range g.Scopes {
+		sc.Name, sc.Resource, sc.Description = strings.TrimSpace(sc.Name), strings.TrimSpace(sc.Resource), strings.TrimSpace(sc.Description)
+		r, ok := FindResourceServer(AuthorizationServerConfig{Resources: resources}, sc.Resource)
+		switch {
+		case !ok || !slices.Contains(r.Scopes, sc.Name):
+			return fmt.Errorf("authkit: AuthorizationServer.GroupClients.Scopes[%d]: scope %q must be one of resource %q's Scopes", i, sc.Name, sc.Resource)
+		case sc.Description == "":
+			return fmt.Errorf("authkit: AuthorizationServer.GroupClients.Scopes[%d]: scope %q needs the description its consent screen shows", i, sc.Name)
+		case slices.ContainsFunc(scopes, func(o GroupClientScope) bool { return o.Name == sc.Name }):
+			return fmt.Errorf("authkit: AuthorizationServer.GroupClients.Scopes[%d]: scope %q is declared twice", i, sc.Name)
+		}
+		scopes = append(scopes, sc)
+	}
+	if len(scopes) == 0 {
+		scopes = nil
+	}
+	g.Scopes = scopes
+	g.Agreements = dedup(g.Agreements)
+	for _, key := range g.Agreements {
+		if !slices.ContainsFunc(agreements, func(a AgreementConfig) bool { return a.Key == key }) {
+			return fmt.Errorf("authkit: AuthorizationServer.GroupClients names agreement %q, which Agreements does not declare", key)
+		}
+	}
 	return nil
 }
 
@@ -438,3 +522,7 @@ func loopbackHost(host string) bool {
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
 }
+
+// NormalizeClientURIs is the redirect URI rule for a client registered at
+// run time: absolute https (http only on loopback), exact, no fragment.
+func NormalizeClientURIs(uris []string) ([]string, error) { return normalizeClientURIs(uris) }

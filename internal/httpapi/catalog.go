@@ -34,16 +34,17 @@ type Feature string
 
 const (
 	Always              Feature = ""
-	FeaturePasskeys     Feature = "passkeys"     // Passkeys.RPID set
-	FeaturePasswordless Feature = "passwordless" // passwordless login on
-	FeatureRegistration Feature = "registration" // registration not closed
-	FeatureTwoFactor    Feature = "two_factor"   // two-factor authentication not disabled
-	FeatureSolana       Feature = "solana"       // a Solana network set
-	FeatureOIDC         Feature = "oidc"         // an identity provider configured
-	FeatureDeviceKeys   Feature = "device_keys"  // device keys on
-	FeatureGroups       Feature = "groups"       // a persona besides root
-	FeatureAPIKeys      Feature = "api_keys"     // a persona whose groups hold API keys
-	FeatureCustomRoles  Feature = "custom_roles" // a persona whose groups define roles
+	FeaturePasskeys     Feature = "passkeys"      // Passkeys.RPID set
+	FeaturePasswordless Feature = "passwordless"  // passwordless login on
+	FeatureRegistration Feature = "registration"  // registration not closed
+	FeatureTwoFactor    Feature = "two_factor"    // two-factor authentication not disabled
+	FeatureSolana       Feature = "solana"        // a Solana network set
+	FeatureOIDC         Feature = "oidc"          // an identity provider configured
+	FeatureDeviceKeys   Feature = "device_keys"   // device keys on
+	FeatureGroups       Feature = "groups"        // a persona besides root
+	FeatureAPIKeys      Feature = "api_keys"      // a persona whose groups hold API keys
+	FeatureCustomRoles  Feature = "custom_roles"  // a persona whose groups define roles
+	FeatureOAuthClients Feature = "oauth_clients" // a persona whose groups register OAuth clients
 	// FeatureRemoteApplications: a persona whose groups control remote
 	// applications, and so hold their users' directory.
 	FeatureRemoteApplications Feature = "remote_applications"
@@ -57,7 +58,7 @@ const (
 )
 
 // Features lists every Feature a route can be mounted under.
-var Features = []Feature{FeaturePasskeys, FeaturePasswordless, FeatureRegistration, FeatureTwoFactor, FeatureSolana, FeatureOIDC, FeatureDeviceKeys, FeatureGroups, FeatureAPIKeys, FeatureCustomRoles, FeatureRemoteApplications, FeatureInvitations, FeatureNewDevices, FeatureAuthorizationServer, FeatureTokenEndpoint}
+var Features = []Feature{FeaturePasskeys, FeaturePasswordless, FeatureRegistration, FeatureTwoFactor, FeatureSolana, FeatureOIDC, FeatureDeviceKeys, FeatureGroups, FeatureAPIKeys, FeatureCustomRoles, FeatureOAuthClients, FeatureRemoteApplications, FeatureInvitations, FeatureNewDevices, FeatureAuthorizationServer, FeatureTokenEndpoint}
 
 // Reply is one success outcome of a route: its status and body. Body is a
 // zero value of the body's type, nil for none.
@@ -227,6 +228,12 @@ func Catalog() []RouteSpec {
 			Request: ProfileUpdateRequest{}, Responses: replyOK(UserProfile{}), serve: handle((*Service).handleMePATCH)},
 		{Method: DELETE, Path: "/me", Group: account, Auth: session, StepUp: true, Bucket: RLMeDelete,
 			Responses: replyNoContent, serve: handle((*Service).handleMeDELETE)},
+		// The group OAuth clients the caller connected (consented to), and
+		// disconnecting one.
+		{Method: GET, Path: "/me/oauth-consents", Group: account, Auth: required, Bucket: RLMeRead, MountedWhen: FeatureOAuthClients,
+			Responses: replyOK(iam.ListPage[iam.OAuthConsent]{}), serve: handle((*Service).handleMeOAuthConsentsGET)},
+		{Method: DELETE, Path: "/me/oauth-consents/{client_id}", Group: account, Auth: session, Bucket: RLMeUpdate, MountedWhen: FeatureOAuthClients,
+			Responses: replyNoContent, serve: handle((*Service).handleMeOAuthConsentDELETE)},
 		// Documents the caller accepted (Config.Agreements), and accepting more.
 		{Method: GET, Path: "/me/agreements", Group: account, Auth: required, Bucket: RLMeRead,
 			Responses: replyOK(UserAgreements{}), serve: handle((*Service).handleMeAgreementsGET)},
@@ -354,7 +361,7 @@ func Catalog() []RouteSpec {
 		{Method: GET, Path: "/oauth2/authorizations/{authorization_id}", Group: as, Auth: public, Bucket: RLOAuthAuthorization, MountedWhen: FeatureAuthorizationServer,
 			Responses: replyOK(OAuthAuthorizationRequest{}), serve: handle((*Service).handleOAuthAuthorizationGET)},
 		{Method: POST, Path: "/oauth2/authorizations/{authorization_id}/approve", Group: as, Auth: session, Bucket: RLOAuthAuthorization, MountedWhen: FeatureAuthorizationServer,
-			Responses: replyOK(OAuthAuthorizationResult{}), serve: handle((*Service).handleOAuthAuthorizationApprovePOST)},
+			Request: OAuthApproveRequest{}, Responses: replyOK(OAuthAuthorizationResult{}), serve: handle((*Service).handleOAuthAuthorizationApprovePOST)},
 		{Method: POST, Path: "/oauth2/authorizations/{authorization_id}/decline", Group: as, Auth: public, Bucket: RLOAuthAuthorization, MountedWhen: FeatureAuthorizationServer,
 			Request: OAuthAuthorizationDeclineRequest{}, Responses: replyOK(OAuthAuthorizationResult{}), serve: handle((*Service).handleOAuthAuthorizationDeclinePOST)},
 
@@ -388,6 +395,18 @@ func Catalog() []RouteSpec {
 			Request: InvitationCreateRequest{}, Responses: []Reply{{http.StatusCreated, iam.InvitationCreated{}}, {http.StatusAccepted, nil}}, serve: groupOp(OpInvitationCreate)},
 		{Method: DELETE, Path: "/groups/{group_id}/invitations/{id}", Group: groups, Auth: permission, Perm: OpInvitationRevoke.catalogPermission(), Bucket: RLGroupWrite, MountedWhen: FeatureInvitations,
 			Responses: replyNoContent, serve: groupOp(OpInvitationRevoke)},
+		{Method: GET, Path: "/groups/{group_id}/oauth-clients", Group: groups, Auth: permission, Perm: OpOAuthClientsList.catalogPermission(), Bucket: RLGroupRead, MountedWhen: FeatureOAuthClients,
+			Responses: replyOK(iam.ListPage[iam.OAuthClient]{}), serve: groupOp(OpOAuthClientsList)},
+		{Method: POST, Path: "/groups/{group_id}/oauth-clients", Group: groups, Auth: permission, Perm: OpOAuthClientCreate.catalogPermission(), Bucket: RLGroupWrite, MountedWhen: FeatureOAuthClients,
+			Request: iam.NewOAuthClient{}, Responses: replyCreated(iam.OAuthClientCreated{}), serve: groupOp(OpOAuthClientCreate)},
+		{Method: GET, Path: "/groups/{group_id}/oauth-clients/{client_id}", Group: groups, Auth: permission, Perm: OpOAuthClientGet.catalogPermission(), Bucket: RLGroupRead, MountedWhen: FeatureOAuthClients,
+			Responses: replyOK(iam.OAuthClient{}), serve: groupOp(OpOAuthClientGet)},
+		{Method: PATCH, Path: "/groups/{group_id}/oauth-clients/{client_id}", Group: groups, Auth: permission, Perm: OpOAuthClientUpdate.catalogPermission(), Bucket: RLGroupWrite, MountedWhen: FeatureOAuthClients,
+			Request: iam.OAuthClientUpdate{}, Responses: replyOK(iam.OAuthClient{}), serve: groupOp(OpOAuthClientUpdate)},
+		{Method: POST, Path: "/groups/{group_id}/oauth-clients/{client_id}/secret", Group: groups, Auth: permission, Perm: OpOAuthClientSecret.catalogPermission(), Bucket: RLGroupWrite, MountedWhen: FeatureOAuthClients,
+			Responses: replyCreated(OAuthClientSecret{}), serve: groupOp(OpOAuthClientSecret)},
+		{Method: DELETE, Path: "/groups/{group_id}/oauth-clients/{client_id}", Group: groups, Auth: permission, Perm: OpOAuthClientDelete.catalogPermission(), Bucket: RLGroupWrite, MountedWhen: FeatureOAuthClients,
+			Responses: replyNoContent, serve: groupOp(OpOAuthClientDelete)},
 		{Method: GET, Path: "/groups/{group_id}/api-keys", Group: groups, Auth: permission, Perm: OpAPIKeysList.catalogPermission(), Bucket: RLGroupRead, MountedWhen: FeatureAPIKeys,
 			Query: PageQuery{}, Responses: replyOK(iam.ListPage[iam.APIKey]{}), serve: groupOp(OpAPIKeysList)},
 		{Method: POST, Path: "/groups/{group_id}/api-keys", Group: groups, Auth: permission, Perm: OpAPIKeyMint.catalogPermission(), Bucket: RLAPIKeyCreate, MountedWhen: FeatureAPIKeys,

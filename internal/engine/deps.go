@@ -46,6 +46,7 @@ func (s *Engine) applyDeps(d config.Deps) error {
 	s.oauthGrants = d.OAuthGrants
 	s.nameAdmission = d.NameAdmission
 	s.deletionCheck = d.DeletionCheck
+	s.groupNameHook = d.GroupName
 	return nil
 }
 

@@ -45,6 +45,28 @@ type AccountEvent struct {
 	CredentialKind string
 	CredentialID   string
 	Role           string
+	ClientID       string
+}
+
+// OAuth clients groups register at run time (RFC 7591 metadata): third-party clients whose users consent per scope, and whose tokens act only in their group. Deleted with the group.
+type GroupOauthClient struct {
+	ClientID                string
+	PermissionGroupID       string
+	ClientName              string
+	LogoUri                 *string
+	ClientUri               *string
+	PolicyUri               *string
+	TosUri                  *string
+	RedirectUris            []string
+	PostLogoutRedirectUris  []string
+	TokenEndpointAuthMethod string
+	SecretHash              *string
+	JwksUri                 *string
+	Scopes                  []string
+	BackchannelLogoutUri    *string
+	DisabledAt              *time.Time
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
 }
 
 // Enrolled 2FA factors per user (hard-deleted on removal); backup codes remain user-scoped on mfa_settings

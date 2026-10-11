@@ -35,9 +35,13 @@ type (
 	// servers of the authorization server (Config.AuthorizationServer).
 	AuthorizationServerConfig = config.AuthorizationServerConfig
 	OAuthClientConfig         = config.OAuthClientConfig
-	ResourceServerConfig      = config.ResourceServerConfig
-	ResourceConfig            = config.ResourceConfig
-	OAuthGrantType            = config.OAuthGrantType
+	// GroupClientsConfig is what groups' OAuth clients may ask of a user
+	// (AuthorizationServer.GroupClients).
+	GroupClientsConfig   = config.GroupClientsConfig
+	GroupClientScope     = config.GroupClientScope
+	ResourceServerConfig = config.ResourceServerConfig
+	ResourceConfig       = config.ResourceConfig
+	OAuthGrantType       = config.OAuthGrantType
 	// RemoteApplicationConfig declares one remote application
 	// (Config.RemoteApplications).
 	RemoteApplicationConfig = config.RemoteApplicationConfig

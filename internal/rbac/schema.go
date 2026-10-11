@@ -28,6 +28,7 @@ type PersonaSpec struct {
 	APIKeys            bool
 	RemoteApplications bool
 	CustomRoles        bool
+	OAuthClients       bool
 }
 
 // RoleSpec is one declared role.
@@ -49,6 +50,8 @@ type Persona struct {
 	RemoteApplications bool
 	// CustomRoles: the persona's groups define roles of their own.
 	CustomRoles bool
+	// OAuthClients: the persona's groups register OAuth clients.
+	OAuthClients bool
 }
 
 // Role is a compiled role: its grant patterns with includes flattened.
@@ -105,7 +108,7 @@ func New(personas []PersonaSpec, roles []RoleSpec) (*Schema, error) {
 }
 
 func (s *Schema) compilePersona(name iam.Persona, spec PersonaSpec) (Persona, error) {
-	p := Persona{Name: name, APIKeys: spec.APIKeys, RemoteApplications: spec.RemoteApplications, CustomRoles: spec.CustomRoles}
+	p := Persona{Name: name, APIKeys: spec.APIKeys, RemoteApplications: spec.RemoteApplications, CustomRoles: spec.CustomRoles, OAuthClients: spec.OAuthClients}
 	for _, perm := range spec.Permissions {
 		if perm.Persona() != name {
 			return Persona{}, fmt.Errorf("permission %q must start with %q", perm, name.String()+":")
@@ -148,7 +151,7 @@ func Catalog(spec PersonaSpec) []iam.Perm {
 	for _, perm := range spec.Permissions {
 		set[perm] = struct{}{}
 	}
-	for _, perm := range Builtins(spec.Name, spec.APIKeys || spec.RemoteApplications, spec.RemoteApplications, spec.CustomRoles) {
+	for _, perm := range Builtins(spec.Name, spec.APIKeys || spec.RemoteApplications || spec.OAuthClients, spec.RemoteApplications, spec.CustomRoles) {
 		set[perm] = struct{}{}
 	}
 	return slices.SortedFunc(maps.Keys(set), comparePerm)

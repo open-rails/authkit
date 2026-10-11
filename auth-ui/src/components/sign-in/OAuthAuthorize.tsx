@@ -2,7 +2,11 @@ import { AlertCircleIcon } from "@hugeicons/core-free-icons"
 import { useEffect, useRef, useState, type ReactNode } from "react"
 
 import { errorMetadata } from "#authui/client/errors"
-import type { Agreement, OAuthAuthorizationRequest } from "#authui/client/types"
+import type {
+  Agreement,
+  OAuthAuthorizationRequest,
+  ScopeDescription,
+} from "#authui/client/types"
 import { StepUpProvider } from "#authui/components/account/step-up"
 import { useStepUpGuard } from "#authui/components/account/step-up-context"
 import { useMessages } from "#authui/i18n/context"
@@ -10,7 +14,7 @@ import { useAuthClient } from "#authui/react/context"
 import { useAuth } from "#authui/react/useAuth"
 import { AuthUiRoot } from "#authui/scope"
 import { Spinner } from "#authui/ui/spinner"
-import { AgreementsForm } from "./NetworkSteps.tsx"
+import { AgreementsForm, ConsentForm } from "./NetworkSteps.tsx"
 import { StepHeader } from "./parts.tsx"
 import { SignInPanel, type SignInPanelProps } from "./SignInPanel.tsx"
 
@@ -56,6 +60,8 @@ function Authorize({
   const [needed, setNeeded] = useState<Agreement[] | null>(null)
   const [accepting, setAccepting] = useState(false)
   const [acceptError, setAcceptError] = useState<unknown>(null)
+  // A group client's scopes the user has yet to consent to.
+  const [consent, setConsent] = useState<ScopeDescription[] | null>(null)
   const answered = useRef(false)
   const leave = useRef(redirect)
   useEffect(() => {
@@ -72,7 +78,7 @@ function Authorize({
 
   const status = auth.status
   useEffect(() => {
-    if (!request || needed || answered.current) return
+    if (!request || needed || consent || answered.current) return
     const none = request.prompt.includes("none")
     let answer: Promise<{ redirect_to: string }> | null = null
     if (status === "signed_in")
@@ -93,6 +99,12 @@ function Authorize({
             .declineOAuthAuthorization(id, "interaction_required")
             .then(({ redirect_to }) => leave.current(redirect_to), setFailure)
         answered.current = false
+        const asked = errorMetadata(err, "consent_required")
+        if (asked && !none) return setConsent(asked.scopes)
+        if (asked)
+          return client
+            .declineOAuthAuthorization(id, "consent_required")
+            .then(({ redirect_to }) => leave.current(redirect_to), setFailure)
         const required = errorMetadata(err, "agreement_required")
         if (required && !none) return setNeeded(required.agreements)
         if (required)
@@ -102,7 +114,22 @@ function Authorize({
         setFailure(err)
       }
     )
-  }, [request, needed, status, client, guard, id])
+  }, [request, needed, consent, status, client, guard, id])
+
+  const allow = () => {
+    setAccepting(true)
+    setAcceptError(null)
+    answered.current = true
+    guard(() => client.approveOAuthAuthorization(id, { consent: true }))
+      .then(
+        ({ redirect_to }) => leave.current(redirect_to),
+        (err: unknown) => {
+          answered.current = false
+          setAcceptError(err)
+        }
+      )
+      .finally(() => setAccepting(false))
+  }
 
   const accept = (agreements: Agreement[]) => {
     setAccepting(true)
@@ -120,7 +147,23 @@ function Authorize({
 
   const client_name = request?.client_name ?? ""
   let body: ReactNode
-  if (needed && !failure) {
+  if (consent && request && !failure) {
+    body = (
+      <ConsentForm
+        clientName={client_name}
+        thirdParty={request.third_party}
+        scopes={consent}
+        busy={accepting}
+        error={acceptError}
+        onAllow={allow}
+        onDeny={() =>
+          void client
+            .declineOAuthAuthorization(id, "access_denied")
+            .then(({ redirect_to }) => leave.current(redirect_to), setFailure)
+        }
+      />
+    )
+  } else if (needed && !failure) {
     body = (
       <AgreementsForm
         agreements={needed}

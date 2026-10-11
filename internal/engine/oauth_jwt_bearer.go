@@ -83,7 +83,7 @@ func (s *Engine) OAuthJWTBearer(ctx context.Context, in authflow.OAuthJWTBearer)
 		return authflow.OAuthTokens{}, &authflow.OAuthError{Code: authflow.OAuthTemporarilyUnavailable, Description: "the grant cannot be decided now; retry later", Status: 503}
 	}
 	tokens, err := s.mintOAuthTokens(ctx, oauthMint{
-		client: client, userID: c.UserID, deviceKeyID: c.DeviceKeyID, resource: resource.ID,
+		client: authflow.OAuthClient{OAuthClientConfig: client}, userID: c.UserID, deviceKeyID: c.DeviceKeyID, resource: resource.ID,
 		jkt: a.JKT, decision: decision, invoker: decision.Invoker, workload: true, grantEnd: c.ExpiresAt,
 	})
 	if errors.Is(err, errOAuthGrantRefused) {

@@ -53,6 +53,9 @@ type OAuthGrant struct {
 	AMR           []string `json:"amr"`
 	ACR           string   `json:"acr"`
 	DPoPJKT       string   `json:"dpop_jkt,omitempty"`
+	// ConsentAt is when the user's consent to a third-party client was
+	// granted: the code and its tokens end with that consent.
+	ConsentAt *time.Time `json:"consent_at,omitempty"`
 }
 
 // OAuthCodeExchange is an authorization_code token request from an
@@ -166,6 +169,7 @@ const (
 	OAuthAccessDenied            = "access_denied"
 	OAuthLoginRequired           = "login_required"
 	OAuthInteractionRequired     = "interaction_required"
+	OAuthConsentRequired         = "consent_required"
 	OAuthRequestNotSupported     = "request_not_supported"
 	OAuthRequestURINotSupported  = "request_uri_not_supported"
 	OAuthInvalidToken            = "invalid_token"

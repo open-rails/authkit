@@ -68,7 +68,7 @@ func (s *Service) GroupHandler(op GroupOp) http.HandlerFunc {
 			fail(w, errmodel.CodeForbidden)
 			return
 		}
-		if op.Mutates() && g.Persona == iam.RootPersona() && !s.recentUserSignIn(w, r, who) {
+		if op.Mutates() && (g.Persona == iam.RootPersona() || op.SignInFresh()) && !s.recentUserSignIn(w, r, who) {
 			return
 		}
 
@@ -101,6 +101,18 @@ func (s *Service) GroupHandler(op GroupOp) http.HandlerFunc {
 			s.groupInvitationCreate(w, r, g, who)
 		case OpInvitationRevoke:
 			s.groupInvitationRevoke(w, r, g, who, r.PathValue("id"))
+		case OpOAuthClientsList:
+			s.groupOAuthClientsList(w, r, g)
+		case OpOAuthClientGet:
+			s.groupOAuthClientGet(w, r, g)
+		case OpOAuthClientCreate:
+			s.groupOAuthClientCreate(w, r, g, who)
+		case OpOAuthClientUpdate:
+			s.groupOAuthClientUpdate(w, r, g, who)
+		case OpOAuthClientSecret:
+			s.groupOAuthClientSecret(w, r, g, who)
+		case OpOAuthClientDelete:
+			s.groupOAuthClientDelete(w, r, g, who)
 		default:
 			fail(w, errmodel.CodeNotImplemented)
 		}

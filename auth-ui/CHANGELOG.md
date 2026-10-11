@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Group OAuth clients (AuthKit #450): `OAuthAuthorize` shows the consent
+  screen a group's client needs (who asks, through which group, what each
+  scope allows, where the browser returns) and approves with consent; with
+  `prompt=none` it declines `consent_required`. `ConnectedAppsPanel` (and the
+  `connectedApps` section of `AccountSecurity`) lists the apps a user signed
+  in to and disconnects one. Client: `approveOAuthAuthorization(id, {
+  consent })`, `getOAuthConsents`, `revokeOAuthConsent`.
+
 - Network accounts (AuthKit #449): `ContactSignIn`, contact-first sign-in by
   an emailed or texted code, with passkey autofill (conditional mediation),
   the sign-up's agreements, and a passkey offer after a code sign-up.

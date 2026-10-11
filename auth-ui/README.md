@@ -390,6 +390,15 @@ import { ContactSignIn } from "@openrails/auth-ui"
   `acceptSignUp`, `acceptAgreements`, `addPasskey`, `skipPasskey`, and
   `autofillPasskey(signal)`.
 
+#### Consent to a group's app
+
+`OAuthAuthorize` handles a group client (AuthKit's group OAuth clients) by
+itself: when approval answers `consent_required` it shows the consent
+screen from the request's `third_party` and the error's scopes, then
+approves with `{ consent: true }`. Show `ConnectedAppsPanel` (or add
+`"connectedApps"` to `AccountSecurity`'s `sections`) so users can
+disconnect an app.
+
 ### Account security
 
 ```tsx

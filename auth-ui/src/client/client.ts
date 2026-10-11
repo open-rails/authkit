@@ -29,6 +29,7 @@ import type {
   Membership,
   OAuthAuthorizationRequest,
   OAuthAuthorizationResult,
+  OAuthConsent,
   OIDCStart,
   PermissionSet,
   PublicUser,
@@ -1531,14 +1532,21 @@ export function createAuthClient(options: AuthClientOptions = {}) {
         `/oauth2/authorizations/${segment(id)}`,
         { signal, bearer: null }
       ),
-    approveOAuthAuthorization: (id: string) =>
+    // consent answers a group client's consent_required: the user allowed
+    // the scopes the consent screen showed.
+    approveOAuthAuthorization: (id: string, opts: { consent?: boolean } = {}) =>
       request<OAuthAuthorizationResult>(
         "POST",
-        `/oauth2/authorizations/${segment(id)}/approve`
+        `/oauth2/authorizations/${segment(id)}/approve`,
+        opts.consent ? { body: { consent: true } } : {}
       ),
     declineOAuthAuthorization: (
       id: string,
-      error: "access_denied" | "login_required" | "interaction_required"
+      error:
+        | "access_denied"
+        | "login_required"
+        | "interaction_required"
+        | "consent_required"
     ) =>
       request<OAuthAuthorizationResult>(
         "POST",
@@ -1588,6 +1596,14 @@ export function createAuthClient(options: AuthClientOptions = {}) {
           bearer: null,
         })
       ),
+
+    // The group OAuth clients the user connected (consented to).
+    getOAuthConsents: (signal?: AbortSignal) =>
+      request<ListPage<OAuthConsent>>("GET", "/me/oauth-consents", { signal }),
+
+    // Disconnects one: its refresh tokens end and it hears of it.
+    revokeOAuthConsent: (clientId: string) =>
+      request<void>("DELETE", `/me/oauth-consents/${segment(clientId)}`),
 
     // The documents the user accepted, and those due now.
     getAgreements: () => request<UserAgreements>("GET", "/me/agreements"),

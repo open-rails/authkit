@@ -31,6 +31,12 @@ const (
 	OpRoleCreate
 	OpRoleUpdate
 	OpRoleDelete
+	OpOAuthClientsList
+	OpOAuthClientGet
+	OpOAuthClientCreate
+	OpOAuthClientUpdate
+	OpOAuthClientSecret
+	OpOAuthClientDelete
 )
 
 // Available reports whether groups of persona p have the operation. Every
@@ -45,6 +51,18 @@ func (op GroupOp) Available(p rbac.Persona) bool {
 		return true
 	case OpRoleCreate, OpRoleUpdate, OpRoleDelete:
 		return p.CustomRoles
+	case OpOAuthClientsList, OpOAuthClientGet, OpOAuthClientCreate, OpOAuthClientUpdate, OpOAuthClientSecret, OpOAuthClientDelete:
+		return p.OAuthClients
+	}
+	return false
+}
+
+// SignInFresh reports whether the operation also needs the caller's recent
+// sign-in, wherever the group: a change of the group's OAuth clients.
+func (op GroupOp) SignInFresh() bool {
+	switch op {
+	case OpOAuthClientCreate, OpOAuthClientUpdate, OpOAuthClientSecret, OpOAuthClientDelete:
+		return true
 	}
 	return false
 }
@@ -53,7 +71,8 @@ func (op GroupOp) Available(p rbac.Persona) bool {
 func (op GroupOp) Mutates() bool {
 	switch op {
 	case OpMemberSet, OpMemberRemove, OpAPIKeyMint, OpAPIKeyRevoke, OpInvitationCreate, OpInvitationRevoke,
-		OpRoleCreate, OpRoleUpdate, OpRoleDelete:
+		OpRoleCreate, OpRoleUpdate, OpRoleDelete,
+		OpOAuthClientCreate, OpOAuthClientUpdate, OpOAuthClientSecret, OpOAuthClientDelete:
 		return true
 	}
 	return false
@@ -80,9 +99,9 @@ func (op GroupOp) Perms(p rbac.Persona) []iam.Perm {
 			return []iam.Perm{ident.MembersManage(p.Name), ident.RootUsersInvite}
 		}
 		return []iam.Perm{ident.MembersManage(p.Name)}
-	case OpAPIKeysList:
+	case OpAPIKeysList, OpOAuthClientsList, OpOAuthClientGet:
 		return []iam.Perm{ident.CredentialsRead(p.Name)}
-	case OpAPIKeyMint, OpAPIKeyRevoke:
+	case OpAPIKeyMint, OpAPIKeyRevoke, OpOAuthClientCreate, OpOAuthClientUpdate, OpOAuthClientSecret, OpOAuthClientDelete:
 		return []iam.Perm{ident.CredentialsManage(p.Name)}
 	}
 	return nil

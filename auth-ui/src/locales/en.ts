@@ -119,6 +119,22 @@ export const en = {
     continue: "Accept and continue",
     decline: "Sign out",
   },
+  consent: {
+    title: "{client} wants to access your account",
+    through: "Through its app {client}.",
+    wants: "This will allow it to:",
+    scopes: {
+      openid: "Know who you are on this network",
+      email: "See your verified email address",
+      phone: "See your verified phone number",
+      profile: "See your public profile",
+    },
+    returnsTo: "You'll return to {host}.",
+    privacy: "Privacy policy",
+    terms: "Terms",
+    allow: "Allow",
+    deny: "Cancel",
+  },
   passkeyOffer: {
     title: "Sign in faster next time",
     description:
@@ -434,6 +450,15 @@ export const en = {
       regenerateTitle: "Generate new backup codes?",
       regenerateDescription:
         "Your existing backup codes will stop working immediately.",
+    },
+    connectedApps: {
+      title: "Connected apps",
+      description: "Sites and apps you sign in to with this account.",
+      since: "Connected {date}",
+      disconnect: "Disconnect",
+      confirmTitle: "Disconnect {app}?",
+      confirmDescription:
+        "{app} loses access to your account and is signed out. Your purchases there stay as they are.",
     },
     sessions: {
       title: "Active sessions",

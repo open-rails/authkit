@@ -4,13 +4,21 @@ import (
 	"context"
 
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/helpers/auth"
 )
 
 // oauthBackend is the authorization server's state and minting (#430, #432, #437).
 type oauthBackend interface {
 	BeginOAuthAuthorization(ctx context.Context, a authflow.OAuthAuthorization) (string, error)
 	OAuthAuthorization(ctx context.Context, id string) (authflow.OAuthAuthorization, error)
-	ApproveOAuthAuthorization(ctx context.Context, userID, sessionID, id string) (string, error)
+	ApproveOAuthAuthorization(ctx context.Context, userID, sessionID, id string, consented bool) (string, error)
+	OAuthClient(ctx context.Context, clientID string) (authflow.OAuthClient, bool, error)
+	OAuthClientOrigin(ctx context.Context, origin string) (bool, error)
+	AuthenticateClientAssertion(ctx context.Context, client authflow.OAuthClient, assertion string) error
+	ScopeDescriptions(scopes []string) []errmodel.ScopeDescription
+	GroupName(ctx context.Context, groupID string) *string
+	WithdrawConsent(ctx context.Context, who auth.Identity, userID, clientID string) error
 	DeclineOAuthAuthorization(ctx context.Context, id, code string) (string, error)
 	ExchangeOAuthCode(ctx context.Context, in authflow.OAuthCodeExchange) (authflow.OAuthTokens, error)
 	RefreshOAuthTokens(ctx context.Context, in authflow.OAuthRefresh) (authflow.OAuthTokens, error)

@@ -154,6 +154,9 @@ func (s *Engine) registerRiver(cfg *river.Config) error {
 	if err := river.AddWorkerSafely(workers, &credentialSweepWorker{engine: s}); err != nil {
 		return err
 	}
+	if err := river.AddWorkerSafely(workers, &backchannelLogoutWorker{engine: s}); err != nil {
+		return err
+	}
 	cfg.Workers = workers
 	if cfg.Queues == nil {
 		cfg.Queues = make(map[string]river.QueueConfig)

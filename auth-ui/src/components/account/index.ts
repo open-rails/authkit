@@ -4,6 +4,10 @@ export {
   type AccountSecuritySection,
 } from "./account-security.tsx"
 export {
+  ConnectedAppsPanel,
+  type ConnectedAppsPanelProps,
+} from "./connected-apps-panel.tsx"
+export {
   ContactPanel,
   type ContactChannel,
   type ContactPanelProps,

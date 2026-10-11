@@ -1329,6 +1329,83 @@
         "x-authkit-step-up": true
       }
     },
+    "/api/v1/me/oauth-consents": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthConsentPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "required",
+        "x-authkit-rate-limit": "me_read",
+        "x-authkit-mounted-when": "oauth_clients"
+      }
+    },
+    "/api/v1/me/oauth-consents/{client_id}": {
+      "delete": {
+        "tags": [
+          "account"
+        ],
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "me_update",
+        "x-authkit-mounted-when": "oauth_clients"
+      }
+    },
     "/api/v1/me/agreements": {
       "get": {
         "tags": [
@@ -3587,6 +3664,16 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OAuthApproveRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "OK",
@@ -4336,6 +4423,333 @@
         "x-authkit-permission": "<persona>:members:manage",
         "x-authkit-rate-limit": "group_write",
         "x-authkit-mounted-when": "invitations"
+      }
+    },
+    "/api/v1/groups/{group_id}/oauth-clients": {
+      "get": {
+        "tags": [
+          "groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthClientPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:credentials:read",
+        "x-authkit-rate-limit": "group_read",
+        "x-authkit-mounted-when": "oauth_clients"
+      },
+      "post": {
+        "tags": [
+          "groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewOAuthClient"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthClientCreated"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:credentials:manage",
+        "x-authkit-rate-limit": "group_write",
+        "x-authkit-mounted-when": "oauth_clients"
+      }
+    },
+    "/api/v1/groups/{group_id}/oauth-clients/{client_id}": {
+      "get": {
+        "tags": [
+          "groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthClient"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:credentials:read",
+        "x-authkit-rate-limit": "group_read",
+        "x-authkit-mounted-when": "oauth_clients"
+      },
+      "patch": {
+        "tags": [
+          "groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OAuthClientUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthClient"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:credentials:manage",
+        "x-authkit-rate-limit": "group_write",
+        "x-authkit-mounted-when": "oauth_clients"
+      },
+      "delete": {
+        "tags": [
+          "groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:credentials:manage",
+        "x-authkit-rate-limit": "group_write",
+        "x-authkit-mounted-when": "oauth_clients"
+      }
+    },
+    "/api/v1/groups/{group_id}/oauth-clients/{client_id}/secret": {
+      "post": {
+        "tags": [
+          "groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthClientSecret"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:credentials:manage",
+        "x-authkit-rate-limit": "group_write",
+        "x-authkit-mounted-when": "oauth_clients"
       }
     },
     "/api/v1/groups/{group_id}/api-keys": {
@@ -6754,6 +7168,10 @@
               "group.role_created",
               "group.role_deleted",
               "group.role_updated",
+              "oauth_client.created",
+              "oauth_client.deleted",
+              "oauth_client.updated",
+              "oauth_consent.revoked",
               "role.changed",
               "role.granted",
               "role.revoked",
@@ -6818,6 +7236,9 @@
           "role": {
             "type": "string"
           },
+          "client_id": {
+            "type": "string"
+          },
           "previous": {
             "type": "string"
           },
@@ -6855,6 +7276,7 @@
           "persona",
           "application_id",
           "role",
+          "client_id",
           "previous",
           "current",
           "reason",
@@ -7274,6 +7696,20 @@
             "type": "string"
           }
         }
+      },
+      "ConsentRequired": {
+        "type": "object",
+        "properties": {
+          "scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScopeDescription"
+            }
+          }
+        },
+        "required": [
+          "scopes"
+        ]
       },
       "ContactProofRequired": {
         "type": "object",
@@ -8164,6 +8600,63 @@
           "retry_after_seconds"
         ]
       },
+      "NewOAuthClient": {
+        "type": "object",
+        "properties": {
+          "client_name": {
+            "type": "string"
+          },
+          "logo_uri": {
+            "type": "string"
+          },
+          "client_uri": {
+            "type": "string"
+          },
+          "policy_uri": {
+            "type": "string"
+          },
+          "tos_uri": {
+            "type": "string"
+          },
+          "redirect_uris": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "post_logout_redirect_uris": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "token_endpoint_auth_method": {
+            "type": "string",
+            "enum": [
+              "client_secret_basic",
+              "none",
+              "private_key_jwt"
+            ]
+          },
+          "jwks_uri": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "backchannel_logout_uri": {
+            "type": "string"
+          }
+        }
+      },
+      "OAuthApproveRequest": {
+        "type": "object",
+        "properties": {
+          "consent": {
+            "type": "boolean"
+          }
+        }
+      },
       "OAuthAuthorizationDeclineRequest": {
         "type": "object",
         "properties": {
@@ -8236,6 +8729,16 @@
             "items": {
               "$ref": "#/components/schemas/Agreement"
             }
+          },
+          "third_party": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/OAuthThirdParty"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -8248,7 +8751,8 @@
           "max_age_seconds",
           "login_hint",
           "expires_at",
-          "agreements"
+          "agreements",
+          "third_party"
         ]
       },
       "OAuthAuthorizationResult": {
@@ -8260,6 +8764,502 @@
         },
         "required": [
           "redirect_to"
+        ]
+      },
+      "OAuthClient": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "string"
+          },
+          "group_id": {
+            "type": "string"
+          },
+          "client_name": {
+            "type": "string"
+          },
+          "logo_uri": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "client_uri": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "policy_uri": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tos_uri": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "redirect_uris": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "post_logout_redirect_uris": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "token_endpoint_auth_method": {
+            "type": "string",
+            "enum": [
+              "client_secret_basic",
+              "none",
+              "private_key_jwt"
+            ]
+          },
+          "jwks_uri": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scope": {
+            "type": "string"
+          },
+          "backchannel_logout_uri": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "disabled_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "client_id",
+          "group_id",
+          "client_name",
+          "logo_uri",
+          "client_uri",
+          "policy_uri",
+          "tos_uri",
+          "redirect_uris",
+          "post_logout_redirect_uris",
+          "token_endpoint_auth_method",
+          "jwks_uri",
+          "scope",
+          "backchannel_logout_uri",
+          "disabled",
+          "created_at",
+          "updated_at",
+          "disabled_at"
+        ]
+      },
+      "OAuthClientCreated": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "string"
+          },
+          "group_id": {
+            "type": "string"
+          },
+          "client_name": {
+            "type": "string"
+          },
+          "logo_uri": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "client_uri": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "policy_uri": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tos_uri": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "redirect_uris": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "post_logout_redirect_uris": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "token_endpoint_auth_method": {
+            "type": "string",
+            "enum": [
+              "client_secret_basic",
+              "none",
+              "private_key_jwt"
+            ]
+          },
+          "jwks_uri": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scope": {
+            "type": "string"
+          },
+          "backchannel_logout_uri": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "disabled_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "client_secret": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "client_id",
+          "group_id",
+          "client_name",
+          "logo_uri",
+          "client_uri",
+          "policy_uri",
+          "tos_uri",
+          "redirect_uris",
+          "post_logout_redirect_uris",
+          "token_endpoint_auth_method",
+          "jwks_uri",
+          "scope",
+          "backchannel_logout_uri",
+          "disabled",
+          "created_at",
+          "updated_at",
+          "disabled_at",
+          "client_secret"
+        ]
+      },
+      "OAuthClientSecret": {
+        "type": "object",
+        "properties": {
+          "client_secret": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "client_secret"
+        ]
+      },
+      "OAuthClientUpdate": {
+        "type": "object",
+        "properties": {
+          "client_name": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "logo_uri": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "client_uri": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "policy_uri": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tos_uri": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "redirect_uris": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "post_logout_redirect_uris": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "jwks_uri": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scope": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "backchannel_logout_uri": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "disabled": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "OAuthConsent": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "string"
+          },
+          "client_name": {
+            "type": "string"
+          },
+          "group_id": {
+            "type": "string"
+          },
+          "group_name": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "logo_uri": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "client_uri": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "granted_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          }
+        },
+        "required": [
+          "client_id",
+          "client_name",
+          "group_id",
+          "group_name",
+          "logo_uri",
+          "client_uri",
+          "scopes",
+          "granted_at",
+          "updated_at"
         ]
       },
       "OAuthServerMetadata": {
@@ -8366,6 +9366,15 @@
             "items": {
               "type": "string"
             }
+          },
+          "token_endpoint_auth_signing_alg_values_supported": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "backchannel_logout_supported": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -8387,7 +9396,81 @@
           "prompt_values_supported",
           "authorization_response_iss_parameter_supported",
           "request_parameter_supported",
-          "request_uri_parameter_supported"
+          "request_uri_parameter_supported",
+          "backchannel_logout_supported"
+        ]
+      },
+      "OAuthThirdParty": {
+        "type": "object",
+        "properties": {
+          "group_name": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "logo_uri": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "client_uri": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "policy_uri": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tos_uri": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "redirect_host": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScopeDescription"
+            }
+          }
+        },
+        "required": [
+          "group_name",
+          "logo_uri",
+          "client_uri",
+          "policy_uri",
+          "tos_uri",
+          "redirect_host",
+          "scopes"
         ]
       },
       "OAuthTokens": {
@@ -9480,6 +10563,21 @@
         },
         "required": [
           "countries"
+        ]
+      },
+      "ScopeDescription": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "description"
         ]
       },
       "SecondFactorStep": {
@@ -10982,6 +12080,64 @@
           "total"
         ]
       },
+      "OAuthClientPage": {
+        "type": "object",
+        "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OAuthClient"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor",
+          "total"
+        ]
+      },
+      "OAuthConsentPage": {
+        "type": "object",
+        "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OAuthConsent"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor",
+          "total"
+        ]
+      },
       "ProvisioningTargetPage": {
         "type": "object",
         "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
@@ -11384,6 +12540,13 @@
       "status": 401,
       "message": "This token type does not accept a confirmation claim."
     },
+    "consent_required": {
+      "status": 409,
+      "message": "Allow this app to continue.",
+      "metadata": {
+        "$ref": "#/components/schemas/ConsentRequired"
+      }
+    },
     "contact_not_verified": {
       "status": 409,
       "message": "The email address or phone number is not verified.",
@@ -11501,6 +12664,10 @@
     "invalid_message_encoding": {
       "status": 400,
       "message": "The message encoding is invalid."
+    },
+    "invalid_oauth_client": {
+      "status": 400,
+      "message": "The OAuth client's metadata is invalid."
     },
     "invalid_password": {
       "status": 401,
@@ -11637,6 +12804,18 @@
     "not_implemented": {
       "status": 501,
       "message": "Not implemented."
+    },
+    "oauth_client_limit_reached": {
+      "status": 409,
+      "message": "The group has registered as many OAuth clients as it may."
+    },
+    "oauth_client_not_found": {
+      "status": 404,
+      "message": "The OAuth client was not found."
+    },
+    "oauth_consent_not_found": {
+      "status": 404,
+      "message": "You have not connected that app."
     },
     "oauth_grant_refused": {
       "status": 403,

@@ -113,6 +113,22 @@ export const ja: AuthUiMessageBundle = {
     continue: "同意して続ける",
     decline: "ログアウト",
   },
+  consent: {
+    title: "{client} があなたのアカウントへのアクセスを求めています",
+    through: "アプリ {client} 経由です。",
+    wants: "許可すると次のことができます:",
+    scopes: {
+      openid: "このネットワークでのあなたを識別する",
+      email: "確認済みのメールアドレスを見る",
+      phone: "確認済みの電話番号を見る",
+      profile: "公開プロフィールを見る",
+    },
+    returnsTo: "{host} に戻ります。",
+    privacy: "プライバシーポリシー",
+    terms: "利用規約",
+    allow: "許可する",
+    deny: "キャンセル",
+  },
   passkeyOffer: {
     title: "次回はもっと速くログイン",
     description:
@@ -426,6 +442,15 @@ export const ja: AuthUiMessageBundle = {
       regenerateTitle: "新しいバックアップコードを生成しますか？",
       regenerateDescription:
         "現在のバックアップコードはすぐに使えなくなります。",
+    },
+    connectedApps: {
+      title: "接続済みのアプリ",
+      description: "このアカウントでログインしているサイトとアプリ。",
+      since: "{date} に接続",
+      disconnect: "接続を解除",
+      confirmTitle: "{app} の接続を解除しますか?",
+      confirmDescription:
+        "{app} はあなたのアカウントにアクセスできなくなり、ログアウトされます。そこでの購入はそのままです。",
     },
     sessions: {
       title: "アクティブなセッション",

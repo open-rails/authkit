@@ -2,6 +2,7 @@ import type { ReactNode } from "react"
 
 import { AuthUiRoot } from "../../scope.tsx"
 import type { SolanaSigner } from "../../solana/core.ts"
+import { ConnectedAppsPanel } from "./connected-apps-panel.tsx"
 import { ContactPanel, type ContactChannel } from "./contact-panel.tsx"
 import { DeleteAccountPanel } from "./delete-account-panel.tsx"
 import { LinkedProvidersPanel } from "./linked-providers-panel.tsx"
@@ -19,6 +20,7 @@ export type AccountSecuritySection =
   | "twoFactor"
   | "signInKeys"
   | "sessions"
+  | "connectedApps"
   | "delete"
 
 const ALL: AccountSecuritySection[] = [
@@ -32,7 +34,10 @@ const ALL: AccountSecuritySection[] = [
 ]
 
 export interface AccountSecurityProps {
-  /** Which panels to show, in order. Default all. */
+  /**
+   * Which panels to show, in order. Default all but "connectedApps" (a
+   * deployment whose groups register OAuth clients adds it).
+   */
   sections?: readonly AccountSecuritySection[]
   contactChannels?: readonly ContactChannel[]
   /** Extra linked-account rows, e.g. `<SolanaLinkRow>` from `./solana`. */
@@ -79,6 +84,8 @@ export function AccountSecurity({
         return <SignInKeysPanel key={section} />
       case "sessions":
         return <SessionsPanel key={section} />
+      case "connectedApps":
+        return <ConnectedAppsPanel key={section} />
       case "delete":
         return <DeleteAccountPanel key={section} onDeleted={onDeleted} />
     }

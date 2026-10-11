@@ -110,6 +110,22 @@ export const ko: AuthUiMessageBundle = {
     continue: "동의하고 계속",
     decline: "로그아웃",
   },
+  consent: {
+    title: "{client}에서 계정에 대한 액세스를 요청합니다",
+    through: "{client} 앱을 통해 요청합니다.",
+    wants: "허용하면 다음을 할 수 있습니다:",
+    scopes: {
+      openid: "이 네트워크에서 회원님을 식별",
+      email: "인증된 이메일 주소 보기",
+      phone: "인증된 전화번호 보기",
+      profile: "공개 프로필 보기",
+    },
+    returnsTo: "{host}(으)로 돌아갑니다.",
+    privacy: "개인정보처리방침",
+    terms: "약관",
+    allow: "허용",
+    deny: "취소",
+  },
   passkeyOffer: {
     title: "다음에는 더 빠르게 로그인",
     description:
@@ -420,6 +436,15 @@ export const ko: AuthUiMessageBundle = {
       regenerate: "새 코드 생성",
       regenerateTitle: "새 백업 코드를 생성할까요?",
       regenerateDescription: "기존 백업 코드는 즉시 사용할 수 없게 됩니다.",
+    },
+    connectedApps: {
+      title: "연결된 앱",
+      description: "이 계정으로 로그인하는 사이트와 앱입니다.",
+      since: "{date}에 연결됨",
+      disconnect: "연결 해제",
+      confirmTitle: "{app} 연결을 해제할까요?",
+      confirmDescription:
+        "{app}은(는) 계정에 액세스할 수 없게 되고 로그아웃됩니다. 그곳에서의 구매는 그대로 유지됩니다.",
     },
     sessions: {
       title: "활성 세션",

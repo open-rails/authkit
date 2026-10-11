@@ -8,6 +8,7 @@ package httpapi
 // tokens.
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -39,7 +40,8 @@ func (s *Service) oauthURL(path string) string {
 
 func (s *Service) handleOAuthMetadata(w http.ResponseWriter, _ *http.Request) {
 	as := s.cfg.AuthorizationServer
-	scopes := []string{"openid", "profile", "email"}
+	groups := config.GroupClientsEnabled(as)
+	scopes := []string{"openid", "profile", "email", "phone"}
 	for _, r := range as.Resources {
 		for _, scope := range r.Scopes {
 			if !slices.Contains(scopes, scope) {
@@ -64,11 +66,24 @@ func (s *Service) handleOAuthMetadata(w http.ResponseWriter, _ *http.Request) {
 		public = public || !config.OAuthClientConfidential(c)
 	}
 	authMethods := []string{}
-	if public {
+	if public || groups {
 		authMethods = append(authMethods, "none")
 	}
+	if confidential || groups {
+		authMethods = append(authMethods, "client_secret_basic")
+	}
 	if confidential {
-		authMethods = append(authMethods, "client_secret_basic", "client_secret_post")
+		authMethods = append(authMethods, "client_secret_post")
+	}
+	var assertionAlgs []string
+	if groups {
+		authMethods = append(authMethods, "private_key_jwt")
+		assertionAlgs = []string{"RS256", "ES256", "EdDSA"}
+		for _, g := range []config.OAuthGrantType{config.GrantAuthorizationCode, config.GrantRefreshToken} {
+			if !slices.Contains(grants, string(g)) {
+				grants = append(grants, string(g))
+			}
+		}
 	}
 	algs := []string{}
 	for _, k := range s.svc.JWKS().Keys {
@@ -95,13 +110,15 @@ func (s *Service) handleOAuthMetadata(w http.ResponseWriter, _ *http.Request) {
 		IDTokenSigningAlgValuesSupported: algs,
 		TokenEndpointAuthMethods:         authMethods,
 		CodeChallengeMethodsSupported:    []string{"S256"},
-		ClaimsSupported:                  []string{"sub", "iss", "aud", "exp", "iat", "auth_time", "nonce", "acr", "amr", "sid", "azp", "preferred_username", "email", "email_verified", "roles"},
-		PromptValuesSupported:            []string{"none", "login"},
+		ClaimsSupported:                  []string{"sub", "iss", "aud", "exp", "iat", "auth_time", "nonce", "acr", "amr", "sid", "azp", "preferred_username", "email", "email_verified", "phone_number", "phone_number_verified", "roles"},
+		PromptValuesSupported:            []string{"none", "login", "consent"},
 		DPoPSigningAlgValuesSupported:    []string{"ES256"},
 		AuthorizationResponseIss:         true,
 		RequestParameterSupported:        false,
 		RequestURIParameterSupported:     false,
 		AuthorizationDetailsTypes:        detailTypes,
+		TokenEndpointAuthSigningAlgs:     assertionAlgs,
+		BackchannelLogoutSupported:       groups,
 	})
 }
 
@@ -115,7 +132,11 @@ func (s *Service) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 		oauthFail(w, err)
 		return
 	}
-	client, ok := config.FindOAuthClient(s.cfg.AuthorizationServer, params.Get("client_id"))
+	client, ok, err := s.svc.OAuthClient(r.Context(), params.Get("client_id"))
+	if err != nil {
+		oauthFail(w, err)
+		return
+	}
 	if !ok {
 		oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidRequest, "unknown client_id"))
 		return
@@ -155,7 +176,7 @@ func (s *Service) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 
 // validateAuthorization applies RFC 6749 §4.1.1, RFC 7636 and RFC 8707 to a
 // request whose client and redirect URI already check out.
-func (s *Service) validateAuthorization(client config.OAuthClientConfig, redirectURI string, p url.Values) (authflow.OAuthAuthorization, *authflow.OAuthError) {
+func (s *Service) validateAuthorization(client authflow.OAuthClient, redirectURI string, p url.Values) (authflow.OAuthAuthorization, *authflow.OAuthError) {
 	fail := func(code, description string) (authflow.OAuthAuthorization, *authflow.OAuthError) {
 		return authflow.OAuthAuthorization{}, authflow.NewOAuthError(code, description)
 	}
@@ -168,7 +189,7 @@ func (s *Service) validateAuthorization(client config.OAuthClientConfig, redirec
 		return fail(authflow.OAuthUnsupportedResponseType, "response_type must be code")
 	case p.Get("response_mode") != "" && p.Get("response_mode") != "query":
 		return fail(authflow.OAuthInvalidRequest, "response_mode must be query")
-	case !config.OAuthClientAllows(client, config.GrantAuthorizationCode):
+	case !config.OAuthClientAllows(client.OAuthClientConfig, config.GrantAuthorizationCode):
 		return fail(authflow.OAuthUnauthorizedClient, "the client may not use the authorization code grant")
 	case p.Get("code_challenge_method") != "S256":
 		return fail(authflow.OAuthInvalidRequest, "PKCE is required: code_challenge_method must be S256")
@@ -176,6 +197,9 @@ func (s *Service) validateAuthorization(client config.OAuthClientConfig, redirec
 	challenge := p.Get("code_challenge")
 	if raw, err := base64.RawURLEncoding.Strict().DecodeString(challenge); err != nil || len(raw) != 32 {
 		return fail(authflow.OAuthInvalidRequest, "code_challenge must be a base64url SHA-256")
+	}
+	if client.ThirdParty() {
+		return s.validateThirdParty(client, redirectURI, challenge, p)
 	}
 	resources := p["resource"]
 	resource := ""
@@ -206,6 +230,52 @@ func (s *Service) validateAuthorization(client config.OAuthClientConfig, redirec
 		default:
 			return fail(authflow.OAuthInvalidScope, "unknown scope "+strconv.Quote(scope))
 		}
+	}
+	return finishAuthorization(client.ID, redirectURI, challenge, granted, resource, p)
+}
+
+// validateThirdParty is a group client's request: openid and only the
+// scopes it registered, whose group-client scopes name one resource, the
+// token's audience (a resource parameter must name it too).
+func (s *Service) validateThirdParty(client authflow.OAuthClient, redirectURI, challenge string, p url.Values) (authflow.OAuthAuthorization, *authflow.OAuthError) {
+	fail := func(code, description string) (authflow.OAuthAuthorization, *authflow.OAuthError) {
+		return authflow.OAuthAuthorization{}, authflow.NewOAuthError(code, description)
+	}
+	scopes := strings.Fields(p.Get("scope"))
+	granted := make([]string, 0, len(scopes))
+	resource := ""
+	for _, scope := range scopes {
+		switch {
+		case slices.Contains(granted, scope):
+			continue
+		case !slices.Contains(client.Group.Scopes, scope):
+			return fail(authflow.OAuthInvalidScope, "the client did not register scope "+strconv.Quote(scope))
+		}
+		if sc, ok := config.FindGroupClientScope(s.cfg.AuthorizationServer, scope); ok {
+			if resource != "" && resource != sc.Resource {
+				return fail(authflow.OAuthInvalidScope, "request the scopes of one resource at a time")
+			}
+			resource = sc.Resource
+		}
+		granted = append(granted, scope)
+	}
+	if !slices.Contains(granted, "openid") {
+		return fail(authflow.OAuthInvalidScope, "scope must include openid")
+	}
+	switch resources := p["resource"]; {
+	case len(resources) > 1:
+		return fail(authflow.OAuthInvalidTarget, "request one resource at a time")
+	case len(resources) == 1 && resources[0] != resource:
+		return fail(authflow.OAuthInvalidTarget, "resource must be the one the requested scopes are for")
+	}
+	return finishAuthorization(client.ID, redirectURI, challenge, granted, resource, p)
+}
+
+// finishAuthorization checks the parameters every authorization request
+// shares (prompt, max_age, lengths, dpop_jkt) and builds it.
+func finishAuthorization(clientID, redirectURI, challenge string, granted []string, resource string, p url.Values) (authflow.OAuthAuthorization, *authflow.OAuthError) {
+	fail := func(code, description string) (authflow.OAuthAuthorization, *authflow.OAuthError) {
+		return authflow.OAuthAuthorization{}, authflow.NewOAuthError(code, description)
 	}
 	prompt := strings.Fields(p.Get("prompt"))
 	for _, v := range prompt {
@@ -239,7 +309,7 @@ func (s *Service) validateAuthorization(client config.OAuthClientConfig, redirec
 		return fail(authflow.OAuthInvalidRequest, "authorization_details are granted only by a jwt-bearer capability")
 	}
 	return authflow.OAuthAuthorization{
-		ClientID: client.ID, RedirectURI: redirectURI, State: p.Get("state"), Nonce: p.Get("nonce"),
+		ClientID: clientID, RedirectURI: redirectURI, State: p.Get("state"), Nonce: p.Get("nonce"),
 		Scopes: granted, Resource: resource, CodeChallenge: challenge,
 		Prompt: prompt, MaxAge: maxAge, LoginHint: p.Get("login_hint"), DPoPJKT: jkt,
 	}, nil
@@ -278,7 +348,7 @@ func (s *Service) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 		oauthFail(w, authflow.NewOAuthError(authflow.OAuthUnsupportedGrantType, "unsupported grant_type"))
 		return
 	}
-	if !config.OAuthClientAllows(client, grant) {
+	if !config.OAuthClientAllows(client.OAuthClientConfig, grant) {
 		oauthFail(w, authflow.NewOAuthError(authflow.OAuthUnauthorizedClient, "the client may not use this grant"))
 		return
 	}
@@ -397,30 +467,63 @@ func oauthClientFail(w http.ResponseWriter, r *http.Request, oerr *authflow.OAut
 
 // authenticateOAuthClient applies RFC 6749 §2.3: a confidential client
 // authenticates with its secret (Basic or in the body, exactly one way); a
-// public client names itself and sends no secret.
-func (s *Service) authenticateOAuthClient(r *http.Request, params url.Values) (config.OAuthClientConfig, *authflow.OAuthError) {
+// public client names itself and sends no secret. A group client uses the
+// one method it registered: client_secret_basic, private_key_jwt (RFC 7523
+// §2.2) or none.
+func (s *Service) authenticateOAuthClient(r *http.Request, params url.Values) (authflow.OAuthClient, *authflow.OAuthError) {
 	invalid := &authflow.OAuthError{Code: authflow.OAuthInvalidClient, Description: "client authentication failed", Status: http.StatusUnauthorized}
 	id, secretValue, basic := r.BasicAuth()
+	if params.Has("client_assertion") || params.Has("client_assertion_type") {
+		if basic || params.Has("client_secret") || params.Get("client_assertion_type") != authflow.ClientAssertionType {
+			return authflow.OAuthClient{}, invalid
+		}
+		_, unverified, ok := jose.Unverified(params.Get("client_assertion"))
+		id = jose.String(unverified, "iss")
+		if !ok || id == "" || params.Has("client_id") && params.Get("client_id") != id {
+			return authflow.OAuthClient{}, invalid
+		}
+		client, found, err := s.svc.OAuthClient(r.Context(), id)
+		if err != nil || !found {
+			return authflow.OAuthClient{}, invalid
+		}
+		if err := s.svc.AuthenticateClientAssertion(r.Context(), client, params.Get("client_assertion")); err != nil {
+			return authflow.OAuthClient{}, invalid
+		}
+		return client, nil
+	}
 	if basic {
 		var err1, err2 error
 		id, err1 = url.QueryUnescape(id)
 		secretValue, err2 = url.QueryUnescape(secretValue)
 		if err1 != nil || err2 != nil || params.Has("client_secret") || (params.Has("client_id") && params.Get("client_id") != id) {
-			return config.OAuthClientConfig{}, invalid
+			return authflow.OAuthClient{}, invalid
 		}
 	} else {
 		id, secretValue = params.Get("client_id"), params.Get("client_secret")
 	}
-	client, ok := config.FindOAuthClient(s.cfg.AuthorizationServer, id)
+	client, ok, err := s.svc.OAuthClient(r.Context(), id)
 	switch {
-	case !ok:
-		return config.OAuthClientConfig{}, invalid
-	case config.OAuthClientConfidential(client):
+	case err != nil || !ok:
+		return authflow.OAuthClient{}, invalid
+	case client.ThirdParty():
+		switch client.Group.AuthMethod {
+		case iam.OAuthClientSecretBasic:
+			if !basic || secretValue == "" || !secret.Equal(secret.Hash(secretValue), client.SecretSHA256) {
+				return authflow.OAuthClient{}, invalid
+			}
+		case iam.OAuthClientNone:
+			if basic || secretValue != "" {
+				return authflow.OAuthClient{}, invalid
+			}
+		default:
+			return authflow.OAuthClient{}, invalid
+		}
+	case config.OAuthClientConfidential(client.OAuthClientConfig):
 		if secretValue == "" || !secret.Equal(secret.Hash(secretValue), client.SecretSHA256) {
-			return config.OAuthClientConfig{}, invalid
+			return authflow.OAuthClient{}, invalid
 		}
 	case secretValue != "":
-		return config.OAuthClientConfig{}, invalid
+		return authflow.OAuthClient{}, invalid
 	}
 	return client, nil
 }
@@ -515,7 +618,7 @@ func (s *Service) handleOAuthPreflight(w http.ResponseWriter, r *http.Request) {
 func (s *Service) oauthCORS(w http.ResponseWriter, r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	w.Header().Add("Vary", "Origin")
-	if origin == "" || !s.oauthOrigin(origin) {
+	if origin == "" || !s.oauthOrigin(r.Context(), origin) {
 		return false
 	}
 	w.Header().Set("Access-Control-Allow-Origin", origin)
@@ -559,8 +662,11 @@ func (s *Service) handleRemoteAssertion(w http.ResponseWriter, r *http.Request, 
 // client's, or any when this deployment is a resource server, whose trusted
 // applications' frontends redeem assertions there. The endpoint takes no
 // cookies.
-func (s *Service) oauthOrigin(origin string) bool {
+func (s *Service) oauthOrigin(ctx context.Context, origin string) bool {
 	if s.cfg.Resource.Enabled() {
+		return true
+	}
+	if ok, err := s.svc.OAuthClientOrigin(ctx, origin); err == nil && ok {
 		return true
 	}
 	for _, c := range s.cfg.AuthorizationServer.Clients {

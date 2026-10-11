@@ -82,12 +82,15 @@ func (s *Engine) oauthAuthorization(ctx context.Context, id string) (authflow.OA
 // client redirect carrying it. A request asking for a fresh sign-in
 // (prompt=login, max_age) that this one does not meet is StepUpRequired,
 // and stays pending for the retry.
-func (s *Engine) ApproveOAuthAuthorization(ctx context.Context, userID, sessionID, id string) (string, error) {
+func (s *Engine) ApproveOAuthAuthorization(ctx context.Context, userID, sessionID, id string, consented bool) (string, error) {
 	a, raw, err := s.oauthAuthorization(ctx, id)
 	if err != nil {
 		return "", err
 	}
-	client, ok := config.FindOAuthClient(s.cfg.AuthorizationServer, a.ClientID)
+	client, ok, err := s.OAuthClient(ctx, a.ClientID)
+	if err != nil {
+		return "", err
+	}
 	if !ok {
 		return "", errmodel.E(errmodel.CodeAuthorizationRequestNotFound)
 	}
@@ -108,6 +111,14 @@ func (s *Engine) ApproveOAuthAuthorization(ctx context.Context, userID, sessionI
 		// Carries the account's step-up methods, for the SPA's dialog.
 		return "", s.StepUpRequired(ctx, userID)
 	}
+	var consentAt *time.Time
+	if client.ThirdParty() {
+		at, err := s.consentFor(ctx, userID, client, a, consented)
+		if err != nil {
+			return "", err
+		}
+		consentAt = &at
+	}
 	claimed, err := s.ephemeral.CompareAndConsume(ctx, keyOAuthAuthorization+secret.Hash(strings.TrimSpace(id)), raw)
 	if err != nil {
 		return "", err
@@ -119,7 +130,7 @@ func (s *Engine) ApproveOAuthAuthorization(ctx context.Context, userID, sessionI
 	grant := authflow.OAuthGrant{
 		ClientID: a.ClientID, RedirectURI: a.RedirectURI, CodeChallenge: a.CodeChallenge,
 		Nonce: a.Nonce, Scopes: a.Scopes, Resource: a.Resource,
-		UserID: userID, SessionID: sessionID, AuthTime: authTime, AMR: amr, ACR: acr, DPoPJKT: a.DPoPJKT,
+		UserID: userID, SessionID: sessionID, AuthTime: authTime, AMR: amr, ACR: acr, DPoPJKT: a.DPoPJKT, ConsentAt: consentAt,
 	}
 	if err := s.ephemSetJSON(ctx, keyOAuthCode+secret.Hash(code), grant, oauthCodeTTL); err != nil {
 		return "", err
@@ -134,7 +145,7 @@ func (s *Engine) ApproveOAuthAuthorization(ctx context.Context, userID, sessionI
 // could not be met without the user.
 func (s *Engine) DeclineOAuthAuthorization(ctx context.Context, id, code string) (string, error) {
 	switch code {
-	case authflow.OAuthAccessDenied, authflow.OAuthLoginRequired, authflow.OAuthInteractionRequired:
+	case authflow.OAuthAccessDenied, authflow.OAuthLoginRequired, authflow.OAuthInteractionRequired, authflow.OAuthConsentRequired:
 	default:
 		return "", errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("error"))
 	}
@@ -171,22 +182,28 @@ func (s *Engine) ExchangeOAuthCode(ctx context.Context, in authflow.OAuthCodeExc
 	case g.DPoPJKT != "" && !secret.Equal(g.DPoPJKT, in.JKT):
 		return authflow.OAuthTokens{}, authflow.NewOAuthError(authflow.OAuthInvalidDPoPProof, "the DPoP key is not the one the authorization request named")
 	}
-	client, ok := config.FindOAuthClient(s.cfg.AuthorizationServer, g.ClientID)
+	client, ok, err := s.OAuthClient(ctx, g.ClientID)
+	if err != nil {
+		return authflow.OAuthTokens{}, err
+	}
 	if !ok {
 		return authflow.OAuthTokens{}, authflow.NewOAuthError(authflow.OAuthInvalidGrant, "the client is no longer registered")
 	}
 	if err := s.oauthSignInStands(ctx, g.UserID, g.SessionID, "the sign-in the code was issued for has ended"); err != nil {
 		return authflow.OAuthTokens{}, err
 	}
+	if err := s.consentHolds(ctx, client, g.UserID, g.ConsentAt); err != nil {
+		return authflow.OAuthTokens{}, err
+	}
 	m := oauthMint{
 		client: client, userID: g.UserID, sessionID: g.SessionID, scopes: g.Scopes, resource: g.Resource,
-		nonce: g.Nonce, authTime: g.AuthTime, amr: g.AMR, acr: g.ACR, jkt: in.JKT,
+		nonce: g.Nonce, authTime: g.AuthTime, amr: g.AMR, acr: g.ACR, jkt: in.JKT, consentAt: g.ConsentAt,
 	}
 	tokens, err := s.mintOAuthTokens(ctx, m)
 	if err != nil {
 		return authflow.OAuthTokens{}, err
 	}
-	if config.OAuthClientAllows(client, config.GrantRefreshToken) {
+	if config.OAuthClientAllows(client.OAuthClientConfig, config.GrantRefreshToken) {
 		if tokens.RefreshToken, err = s.startOAuthRefreshFamily(ctx, m); err != nil {
 			return authflow.OAuthTokens{}, err
 		}
@@ -234,8 +251,19 @@ func (s *Engine) OAuthUserInfo(ctx context.Context, accessToken, jkt string) (ma
 	if err != nil || u == nil {
 		return nil, authflow.NewOAuthError(authflow.OAuthInvalidToken, "the user no longer exists")
 	}
+	client, ok, err := s.OAuthClient(ctx, jose.String(claims, "client_id"))
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, authflow.NewOAuthError(authflow.OAuthInvalidToken, "the access token's client is no longer registered")
+	}
 	out := map[string]any{"sub": userID}
-	s.addProfileClaims(ctx, out, u, scopes)
+	if client.ThirdParty() {
+		addVerifiedContactClaims(out, u, scopes)
+	} else {
+		s.addProfileClaims(ctx, out, u, scopes)
+	}
 	return out, nil
 }
 
@@ -251,7 +279,10 @@ func (s *Engine) EndOAuthSession(ctx context.Context, in authflow.OAuthEndSessio
 		claims, err := s.verifyOwnToken(in.IDTokenHint, idTokenType)
 		azp := jose.String(claims, "azp")
 		audiences := jose.Audiences(claims)
-		_, registered := config.FindOAuthClient(s.cfg.AuthorizationServer, azp)
+		_, registered, lookupErr := s.OAuthClient(ctx, azp)
+		if lookupErr != nil {
+			return "", lookupErr
+		}
 		if err != nil || !registered || len(audiences) != 1 || audiences[0] != azp {
 			return "", authflow.NewOAuthError(authflow.OAuthInvalidRequest, "id_token_hint is not an ID token this server issued")
 		}
@@ -265,11 +296,13 @@ func (s *Engine) EndOAuthSession(ctx context.Context, in authflow.OAuthEndSessio
 	}
 	redirect := ""
 	if in.PostLogoutRedirectURI != "" {
-		client, ok := config.FindOAuthClient(s.cfg.AuthorizationServer, clientID)
+		client, ok, err := s.OAuthClient(ctx, clientID)
+		if err != nil {
+			return "", err
+		}
 		if !ok || !slices.Contains(client.PostLogoutRedirectURIs, in.PostLogoutRedirectURI) {
 			return "", authflow.NewOAuthError(authflow.OAuthInvalidRequest, "post_logout_redirect_uri is not registered for the client")
 		}
-		var err error
 		if redirect, err = oauthRedirect(in.PostLogoutRedirectURI, url.Values{"state": optional(in.State)}); err != nil {
 			return "", err
 		}
@@ -318,7 +351,7 @@ func (s *Engine) sessionAssurance(ctx context.Context, userID, sessionID string)
 // (userID, sessionID and its assurance), a workload's capability, or with no
 // userID the client itself; jkt binds the access token to a DPoP key.
 type oauthMint struct {
-	client    config.OAuthClientConfig
+	client    authflow.OAuthClient
 	userID    string
 	sessionID string
 	scopes    []string
@@ -331,6 +364,8 @@ type oauthMint struct {
 	// invoker acts for the user (RFC 8693 act, delegation): the jwt-bearer
 	// workload.
 	invoker string
+	// consentAt is the consent a third-party client's grant stands on.
+	consentAt *time.Time
 	// workload is a jwt-bearer token: it stands on deviceKeyID's capability,
 	// which grantEnd ends; no sign-in stands behind it (no auth_time, amr or
 	// acr) and it carries no permissions. decision is the host authorizer's.
@@ -401,9 +436,13 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 	if m.workload {
 		at["device_key_id"] = m.deviceKeyID
 	}
-	permissions, err := s.grantPermissions(ctx, m, resource.Permissions)
-	if err != nil {
-		return authflow.OAuthTokens{}, err
+	// A third-party client acts only for the user it signed in, in its own
+	// group: it carries no grants of this deployment's.
+	permissions := []string{}
+	if !m.client.ThirdParty() {
+		if permissions, err = s.grantPermissions(ctx, m, resource.Permissions); err != nil {
+			return authflow.OAuthTokens{}, err
+		}
 	}
 	at["permissions"] = permissions
 	if m.userID == "" {
@@ -421,7 +460,10 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 	if u == nil {
 		return authflow.OAuthTokens{}, iam.ErrUserNotFound
 	}
-	roles := s.oauthRoles(ctx, m.userID)
+	roles := []string{}
+	if !m.client.ThirdParty() {
+		roles = s.oauthRoles(ctx, m.userID)
+	}
 	at["sub"], at["roles"] = m.userID, roles
 	if !m.workload {
 		maps.Copy(at, map[string]any{"auth_time": m.authTime, "acr": m.acr, "amr": m.amr})
@@ -429,10 +471,12 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 	if m.sessionID != "" {
 		at["sid"] = m.sessionID
 	}
-	if (slices.Contains(m.scopes, "email") || resource.ContactClaims) && u.Email != nil {
+	if m.client.ThirdParty() {
+		addVerifiedContactClaims(at, u, m.scopes)
+	} else if (slices.Contains(m.scopes, "email") || resource.ContactClaims) && u.Email != nil {
 		at["email"], at["email_verified"] = *u.Email, u.EmailVerified
 	}
-	if resource.ContactClaims {
+	if resource.ContactClaims && !m.client.ThirdParty() {
 		if u.Username != nil {
 			at["preferred_username"], at["name"] = *u.Username, *u.Username
 		}
@@ -447,7 +491,10 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 		id := map[string]any{
 			"iss": issuer, "sub": m.userID, "aud": []string{m.client.ID}, "azp": m.client.ID,
 			"iat": now.Unix(), "exp": now.Add(oauthIDTokenTTL).Unix(),
-			"auth_time": m.authTime, "acr": m.acr, "amr": m.amr, "roles": roles,
+			"auth_time": m.authTime, "acr": m.acr, "amr": m.amr,
+		}
+		if !m.client.ThirdParty() {
+			id["roles"] = roles
 		}
 		if m.sessionID != "" {
 			id["sid"] = m.sessionID
@@ -455,7 +502,11 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 		if m.nonce != "" {
 			id["nonce"] = m.nonce
 		}
-		s.addProfileClaims(ctx, id, u, m.scopes)
+		if m.client.ThirdParty() {
+			addVerifiedContactClaims(id, u, m.scopes)
+		} else {
+			s.addProfileClaims(ctx, id, u, m.scopes)
+		}
 		if out.IDToken, err = jose.Sign(ctx, signer, idTokenType, id); err != nil {
 			return authflow.OAuthTokens{}, err
 		}
@@ -506,7 +557,8 @@ func intersectGrants(held, ceiling []string) []string {
 	return kept
 }
 
-// addProfileClaims sets the standard claims the granted scopes release.
+// addProfileClaims sets the standard claims the granted scopes release to a
+// first-party client.
 func (s *Engine) addProfileClaims(_ context.Context, claims map[string]any, u *db.User, scopes []string) {
 	if slices.Contains(scopes, "profile") && u.Username != nil {
 		claims["preferred_username"] = *u.Username
@@ -514,6 +566,40 @@ func (s *Engine) addProfileClaims(_ context.Context, claims map[string]any, u *d
 	if slices.Contains(scopes, "email") && u.Email != nil {
 		claims["email"], claims["email_verified"] = *u.Email, u.EmailVerified
 	}
+	if slices.Contains(scopes, "phone") && u.PhoneNumber != nil {
+		claims["phone_number"], claims["phone_number_verified"] = *u.PhoneNumber, u.PhoneVerified
+	}
+}
+
+// addVerifiedContactClaims sets what a third-party client's scopes release
+// (OIDC Core §5.4): a proven email or phone only, and nothing for profile,
+// since an account holds no name (a username may spell a phone number).
+func addVerifiedContactClaims(claims map[string]any, u *db.User, scopes []string) {
+	if slices.Contains(scopes, "email") && u.Email != nil && u.EmailVerified {
+		claims["email"], claims["email_verified"] = *u.Email, true
+	}
+	if slices.Contains(scopes, "phone") && u.PhoneNumber != nil && u.PhoneVerified {
+		claims["phone_number"], claims["phone_number_verified"] = *u.PhoneNumber, true
+	}
+}
+
+// consentHolds refuses a third-party client's grant once the consent it
+// stands on (consentAt) was withdrawn.
+func (s *Engine) consentHolds(ctx context.Context, client authflow.OAuthClient, userID string, consentAt *time.Time) error {
+	if !client.ThirdParty() {
+		return nil
+	}
+	if consentAt == nil {
+		return authflow.NewOAuthError(authflow.OAuthInvalidGrant, "the grant stands on no consent")
+	}
+	ok, err := s.consentStands(ctx, userID, client.ID, *consentAt)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return authflow.NewOAuthError(authflow.OAuthInvalidGrant, "the user withdrew consent to the client")
+	}
+	return nil
 }
 
 // oauthRoles are the user's root-group role names ("admin"), an

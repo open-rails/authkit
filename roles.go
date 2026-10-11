@@ -28,6 +28,9 @@ const (
 	// CustomRoles lets the persona's groups define roles of their own. It
 	// registers Roles.
 	CustomRoles = config.CustomRoles
+	// OAuthClients lets the persona's groups register OAuth clients that
+	// sign their users in, with consent. It registers Credentials.
+	OAuthClients = config.OAuthClients
 )
 
 // NewRoles starts a permission model holding only root; opts switch on root's

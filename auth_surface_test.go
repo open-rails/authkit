@@ -64,9 +64,11 @@ func TestClientPublicSurface(t *testing.T) {
 		"CreateAPIKey", "RevokeAPIKey", "CreateInvitation", "RevokeInvitation",
 		// Remote applications.
 		"UpsertRemoteApplication", "DeleteRemoteApplication", "RemoveRemoteUserRole",
+		// Group OAuth clients.
+		"CreateGroupOAuthClient", "UpdateGroupOAuthClient", "RotateGroupOAuthClientSecret", "DeleteGroupOAuthClient",
 	}
 	hostOperations := []string{
-		"CreateUser", "PurgeUsers", "ResetAccountMFA", "MintAccessToken", "AcceptAgreements",
+		"CreateUser", "PurgeUsers", "ResetAccountMFA", "MintAccessToken", "AcceptAgreements", "RevokeConsent",
 		"CreateGroup", "DeleteGroup", "PurgeGroup",
 		"ApplyBootstrapManifest", "EnsureUserRole", "ImportUsers", "ImportSolanaLinks", "LinkProvider",
 		"DeclareRemoteApplications",
@@ -74,6 +76,7 @@ func TestClientPublicSurface(t *testing.T) {
 	reads := []string{
 		// The host is the trust boundary.
 		"User", "Users", "PublicUsers", "ListUsers", "ResolveUsername", "CheckUsername", "UserAgreements", "AgreementsDue",
+		"GroupOAuthClients", "GroupOAuthClient", "OAuthConsents",
 		"DeviceKeys", "Sessions", "ListSessionEvents",
 		"Group", "Groups", "ListGroups", "ListGroupMembers", "ListMemberships", "GroupRoles", "KnownPermission",
 		"ListGroupRoles", "GroupRole",

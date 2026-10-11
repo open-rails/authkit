@@ -116,6 +116,22 @@ export const es: AuthUiMessageBundle = {
     continue: "Aceptar y continuar",
     decline: "Cerrar sesión",
   },
+  consent: {
+    title: "{client} quiere acceder a tu cuenta",
+    through: "A través de su aplicación {client}.",
+    wants: "Esto le permitirá:",
+    scopes: {
+      openid: "Saber quién eres en esta red",
+      email: "Ver tu correo verificado",
+      phone: "Ver tu teléfono verificado",
+      profile: "Ver tu perfil público",
+    },
+    returnsTo: "Volverás a {host}.",
+    privacy: "Política de privacidad",
+    terms: "Términos",
+    allow: "Permitir",
+    deny: "Cancelar",
+  },
   passkeyOffer: {
     title: "Inicia sesión más rápido la próxima vez",
     description:
@@ -442,6 +458,16 @@ export const es: AuthUiMessageBundle = {
       regenerateTitle: "¿Generar nuevos códigos de respaldo?",
       regenerateDescription:
         "Tus códigos de respaldo actuales dejarán de funcionar de inmediato.",
+    },
+    connectedApps: {
+      title: "Aplicaciones conectadas",
+      description:
+        "Sitios y aplicaciones en los que inicias sesión con esta cuenta.",
+      since: "Conectada el {date}",
+      disconnect: "Desconectar",
+      confirmTitle: "¿Desconectar {app}?",
+      confirmDescription:
+        "{app} pierde el acceso a tu cuenta y se cierra tu sesión allí. Tus compras allí no cambian.",
     },
     sessions: {
       title: "Sesiones activas",

@@ -38,6 +38,9 @@ type oauthRefreshFamily struct {
 	Generation uint64    `json:"generation"`
 	SecretHash string    `json:"secret_hash"`
 	ExpiresAt  time.Time `json:"expires_at"`
+	// ConsentAt: a third-party client's family ends with the consent it
+	// was issued under.
+	ConsentAt *time.Time `json:"consent_at,omitempty"`
 }
 
 // startOAuthRefreshFamily opens a family for m's sign-in and returns its
@@ -46,7 +49,7 @@ func (s *Engine) startOAuthRefreshFamily(ctx context.Context, m oauthMint) (stri
 	id := secret.Token(16)
 	f := oauthRefreshFamily{
 		ClientID: m.client.ID, UserID: m.userID, SessionID: m.sessionID, Scopes: m.scopes, Resource: m.resource,
-		JKT: m.jkt, ExpiresAt: s.nowTime().Add(s.cfg.AuthorizationServer.RefreshTokenTTL).UTC(),
+		JKT: m.jkt, ExpiresAt: s.nowTime().Add(s.cfg.AuthorizationServer.RefreshTokenTTL).UTC(), ConsentAt: m.consentAt,
 	}
 	token := f.rotate(id)
 	raw, err := json.Marshal(f)
@@ -120,12 +123,19 @@ func (s *Engine) RefreshOAuthTokens(ctx context.Context, in authflow.OAuthRefres
 		}
 		scopes = in.Scopes
 	}
-	client, ok := config.FindOAuthClient(s.cfg.AuthorizationServer, f.ClientID)
-	if !ok || !config.OAuthClientAllows(client, config.GrantRefreshToken) {
+	client, ok, err := s.OAuthClient(ctx, f.ClientID)
+	if err != nil {
+		return authflow.OAuthTokens{}, err
+	}
+	if !ok || !config.OAuthClientAllows(client.OAuthClientConfig, config.GrantRefreshToken) {
 		_ = s.ephemeral.Del(ctx, key)
 		return authflow.OAuthTokens{}, invalid
 	}
 	if err := s.oauthSignInStands(ctx, f.UserID, f.SessionID, "the sign-in the refresh token was issued for has ended"); err != nil {
+		_ = s.ephemeral.Del(ctx, key)
+		return authflow.OAuthTokens{}, err
+	}
+	if err := s.consentHolds(ctx, client, f.UserID, f.ConsentAt); err != nil {
 		_ = s.ephemeral.Del(ctx, key)
 		return authflow.OAuthTokens{}, err
 	}
@@ -153,7 +163,7 @@ func (s *Engine) RefreshOAuthTokens(ctx context.Context, in authflow.OAuthRefres
 	}
 	tokens, err := s.mintOAuthTokens(ctx, oauthMint{
 		client: client, userID: f.UserID, sessionID: f.SessionID, scopes: scopes, resource: f.Resource,
-		authTime: authTime, amr: amr, acr: acr, jkt: jkt,
+		authTime: authTime, amr: amr, acr: acr, jkt: jkt, consentAt: f.ConsentAt,
 	})
 	if err != nil {
 		return authflow.OAuthTokens{}, err
@@ -226,7 +236,7 @@ func (s *Engine) ExchangeOAuthToken(ctx context.Context, in authflow.OAuthTokenE
 		return authflow.OAuthTokens{}, err
 	}
 	tokens, err := s.mintOAuthTokens(ctx, oauthMint{
-		client: client, userID: cl.UserID, sessionID: cl.SessionID, scopes: scopes, resource: resource.ID,
+		client: authflow.OAuthClient{OAuthClientConfig: client}, userID: cl.UserID, sessionID: cl.SessionID, scopes: scopes, resource: resource.ID,
 		authTime: authTime, amr: amr, acr: acr, jkt: in.JKT,
 	})
 	if err != nil {
@@ -249,7 +259,7 @@ func (s *Engine) OAuthClientCredentials(ctx context.Context, in authflow.OAuthCl
 	if oerr != nil {
 		return authflow.OAuthTokens{}, oerr
 	}
-	tokens, err := s.mintOAuthTokens(ctx, oauthMint{client: client, scopes: scopes, resource: resource.ID, jkt: in.JKT})
+	tokens, err := s.mintOAuthTokens(ctx, oauthMint{client: authflow.OAuthClient{OAuthClientConfig: client}, scopes: scopes, resource: resource.ID, jkt: in.JKT})
 	if err != nil {
 		return authflow.OAuthTokens{}, err
 	}

@@ -14,9 +14,21 @@ Accounts for a customer network such as openrails.dev (#449, [docs/identity.md](
 - `Deps.DeletionCheck` may refuse a user's own deletion with `iam.RefuseDeletion(reason)`: `deletion_refused` (409, `metadata.reason`). A failing check refuses too.
 - Error codes `agreement_required`, `deletion_refused` and `phone_country_not_allowed`.
 
+### Group OAuth clients
+
+Merchants sign their customers in with the network (#450, [docs/authorization-server.md](docs/authorization-server.md#group-clients)): a group registers its own OAuth clients at run time, each user consents per scope, and the client's tokens act only in its group.
+
+- `authkit.OAuthClients` on a persona lets its groups register clients by RFC 7591 metadata under `<persona>:credentials:manage`: `Client.CreateGroupOAuthClient`, `GroupOAuthClients`, `GroupOAuthClient`, `UpdateGroupOAuthClient` (`Disabled`), `RotateGroupOAuthClientSecret`, `DeleteGroupOAuthClient`; HTTP `/groups/{group_id}/oauth-clients[/{client_id}]`, `POST .../secret`. At most 10 per group (`iam.MaxGroupOAuthClients`).
+- Authorization code with PKCE and refresh tokens; `client_secret_basic`, `private_key_jwt` (RFC 7523 assertions against the client's `jwks_uri`) or `none`. `AuthorizationServer.GroupClients` names the scopes beyond OpenID's they may request (each with its resource and consent text) and the agreements a user accepts before approving one.
+- Consent (`oauth_consents`): approving answers `consent_required` with the scopes still to consent to, and `{"consent": true}` gives it; later requests ask only for new scopes, `prompt=consent` asks again. `GET /oauth2/authorizations/{id}` adds `third_party`. `GET` and `DELETE /me/oauth-consents[/{client_id}]` and `Client.OAuthConsents`, `RevokeConsent`: withdrawing ends the client's refresh tokens for the user, sends its OIDC Back-Channel Logout token, and records `oauth_consent.revoked`.
+- Group clients get `sub`, `email` and `phone_number` only once proven, nothing for `profile`, and no `permissions` or `roles`. `Client.Authenticator()` binds their tokens to their group; a disabled or deleted client, or a deleted group, is refused at once. The `phone` scope and `phone_number` claims are new for every client.
+- `Deps.GroupName` names a group on the consent screen. Events `oauth_client.created`, `.updated`, `.deleted`, `oauth_consent.revoked`, with `iam.Event.ClientID`. Error codes `consent_required`, `invalid_oauth_client`, `oauth_client_limit_reached`, `oauth_client_not_found`, `oauth_consent_not_found`.
+- A declared client's id may not start with `goc_`, which group clients' ids do.
+
 ### Migrations
 
 - 0016: `user_agreements`.
+- 0017: `group_oauth_clients`, `oauth_consents`, and `account_events.client_id`.
 
 ## v1.19.0
 

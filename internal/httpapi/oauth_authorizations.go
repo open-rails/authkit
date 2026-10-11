@@ -8,10 +8,10 @@ package httpapi
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
 )
@@ -23,11 +23,22 @@ func (s *Service) handleOAuthAuthorizationGET(w http.ResponseWriter, r *http.Req
 		writeError(w, err)
 		return
 	}
-	client, _ := config.FindOAuthClient(s.cfg.AuthorizationServer, a.ClientID)
+	client, _, err := s.svc.OAuthClient(r.Context(), a.ClientID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	out := OAuthAuthorizationRequest{
 		ID: id, ClientID: a.ClientID, ClientName: client.Name, Scopes: a.Scopes,
 		Prompt: a.Prompt, MaxAgeSeconds: a.MaxAge, ExpiresAt: a.ExpiresAt,
 		Agreements: []iam.Agreement{},
+	}
+	if g := client.Group; g != nil {
+		out.ThirdParty = &OAuthThirdParty{
+			GroupName: s.svc.GroupName(r.Context(), g.GroupID), LogoURI: nullableString(g.LogoURI), ClientURI: nullableString(g.ClientURI),
+			PolicyURI: nullableString(g.PolicyURI), TOSURI: nullableString(g.TOSURI), RedirectHost: redirectHost(a.RedirectURI),
+			Scopes: s.svc.ScopeDescriptions(a.Scopes),
+		}
 	}
 	for _, key := range client.Agreements {
 		for _, d := range s.cfg.Agreements {
@@ -63,7 +74,12 @@ func (s *Service) handleOAuthAuthorizationApprovePOST(w http.ResponseWriter, r *
 		fail(w, errmodel.CodeForbidden)
 		return
 	}
-	target, err := s.svc.ApproveOAuthAuthorization(r.Context(), claims.UserID, claims.SessionID, r.PathValue("authorization_id"))
+	var req OAuthApproveRequest
+	if err := decodeOptionalJSON(r, &req); err != nil {
+		fail(w, errmodel.CodeInvalidRequest)
+		return
+	}
+	target, err := s.svc.ApproveOAuthAuthorization(r.Context(), claims.UserID, claims.SessionID, r.PathValue("authorization_id"), req.Consent)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -83,4 +99,14 @@ func (s *Service) handleOAuthAuthorizationDeclinePOST(w http.ResponseWriter, r *
 		return
 	}
 	writeJSON(w, http.StatusOK, OAuthAuthorizationResult{RedirectTo: target})
+}
+
+// redirectHost is where the browser goes back to: the host the consent
+// screen names.
+func redirectHost(uri string) string {
+	u, err := url.Parse(uri)
+	if err != nil {
+		return ""
+	}
+	return u.Host
 }

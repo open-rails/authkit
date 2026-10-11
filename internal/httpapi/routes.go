@@ -97,6 +97,8 @@ func (s *Service) mounts(f Feature) bool {
 		return config.AuthorizationServerEnabled(cfg.AuthorizationServer)
 	case FeatureTokenEndpoint:
 		return config.AuthorizationServerEnabled(cfg.AuthorizationServer) || cfg.Resource.Enabled()
+	case FeatureOAuthClients:
+		return config.GroupClientsEnabled(cfg.AuthorizationServer)
 	case FeatureGroups, FeatureAPIKeys, FeatureCustomRoles, FeatureRemoteApplications:
 		schema := s.svc.PermissionGroupSchema()
 		for _, name := range schema.Personas() {

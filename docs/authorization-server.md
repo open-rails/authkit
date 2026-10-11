@@ -30,9 +30,31 @@ cfg.AuthorizationServer = authkit.AuthorizationServerConfig{
 }
 ```
 
-- There is no dynamic registration: every client is first-party, so sign-in needs no consent screen.
+- Declared clients are first-party: sign-in needs no consent screen. Groups also register their own, third-party clients at run time ([group clients](#group-clients)).
 - A confidential client sets `SecretSHA256`, the hex SHA-256 of a secret of at least 32 random bytes; AuthKit never holds the secret. A public client chooses DPoP (RFC 9449): a proof at the token endpoint binds its tokens, and without one its refresh tokens rotate (RFC 9700 §4.14.2). `SignIn.DPoP` required refuses a user grant (code, refresh, token exchange) without a proof; client credentials are never covered. Every workload jwt-bearer request proves its key.
 - Redirect URIs match exactly: https, or http on a loopback host.
+
+## Group clients
+
+A group of a persona declared with `authkit.OAuthClients` registers OAuth clients at run time, such as a merchant's "Sign in with openrails.dev". There is no open registration endpoint: the group's staff manage them under `<persona>:credentials:manage` (reading under `:credentials:read`), with a recent sign-in for changes.
+
+```go
+roles := authkit.NewRoles()
+roles.Persona("merchant", authkit.OAuthClients)
+cfg.AuthorizationServer.Resources = []authkit.ResourceServerConfig{{ID: "https://api.example.com", Scopes: []string{"shop:self"}}}
+cfg.AuthorizationServer.GroupClients = authkit.GroupClientsConfig{
+	Scopes:     []authkit.GroupClientScope{{Name: "shop:self", Resource: "https://api.example.com", Description: "See and manage your orders here"}},
+	Agreements: []string{"network-terms"}, // accepted before approving any group client
+}
+deps.GroupName = func(ctx context.Context, groupID string) (string, error) { return shops.Name(ctx, groupID) } // the consent screen's name
+```
+
+- Metadata follows RFC 7591: `client_name`, `logo_uri`, `client_uri`, `policy_uri`, `tos_uri`, `redirect_uris` (exact, https; http on loopback), `post_logout_redirect_uris`, `token_endpoint_auth_method` (`private_key_jwt` with `jwks_uri`, `client_secret_basic`, or `none` for a public app), `scope` (`openid` and any of `email`, `phone`, `profile` and the `GroupClients.Scopes`) and `backchannel_logout_uri`. Go: `Client.CreateGroupOAuthClient`, `GroupOAuthClients`, `GroupOAuthClient`, `UpdateGroupOAuthClient` (`Disabled` too), `RotateGroupOAuthClientSecret`, `DeleteGroupOAuthClient`; HTTP: `/groups/{group_id}/oauth-clients[/{client_id}]` and `POST .../{client_id}/secret`. A client_secret_basic secret is shown once. A group holds at most 10.
+- They use the authorization code grant with PKCE and refresh tokens, nothing else. A `private_key_jwt` client authenticates with an RFC 7523 assertion: `iss` and `sub` its `client_id`, `aud` the issuer or the token endpoint, at most five minutes to live, its `jti` spent once, signed by a key its `jwks_uri` publishes (fetched through the SSRF guard and cached).
+- **Consent.** The first authorization of a group client asks the user (OIDC Core §3.1.2.4): approving answers `consent_required` (409) naming the scopes yet to consent to, each with its description (OpenID's own scopes have none: the interface describes them), and `GET /oauth2/authorizations/{id}`'s `third_party` carries the group's name, the client's links and where the browser returns. The SPA shows them and approves with `{"consent": true}`. Consent is remembered; a later request asks only for scopes it adds, and `prompt=consent` asks again. With `prompt=none` the SPA declines with `consent_required`.
+- **Claims.** `sub` is the user id, the same for every client (public subject type). `email` releases the email and `phone` the phone number only once proven; `profile` releases nothing (an account holds no name, and a username may spell a phone number). Its tokens carry no `permissions` or `roles`.
+- **Bound to the group.** A resource server built on `Client.Authenticator()` (`Config.Resource`) binds the client's tokens to its group (helpers/auth `Bound`): they act there only. A disabled or deleted client, or one of a deleted group, is refused at its next request, refresh or sign-in.
+- **Withdrawing consent.** `GET /me/oauth-consents` lists the user's connected apps and `DELETE /me/oauth-consents/{client_id}` disconnects one; `Client.RevokeConsent` does the same for the host. The client's refresh tokens for the user stop at their next use, its `backchannel_logout_uri` receives an OIDC Back-Channel Logout token (`logout+jwt`, through River, retried), and `oauth_consent.revoked` is recorded. Events `oauth_client.created`, `.updated` and `.deleted` record the clients' changes.
 
 ## Endpoints
 

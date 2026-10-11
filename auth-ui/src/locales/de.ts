@@ -119,6 +119,22 @@ export const de: AuthUiMessageBundle = {
     continue: "Akzeptieren und fortfahren",
     decline: "Abmelden",
   },
+  consent: {
+    title: "{client} möchte auf dein Konto zugreifen",
+    through: "Über die App {client}.",
+    wants: "Damit darf es:",
+    scopes: {
+      openid: "Wissen, wer du in diesem Netzwerk bist",
+      email: "Deine bestätigte E-Mail-Adresse sehen",
+      phone: "Deine bestätigte Telefonnummer sehen",
+      profile: "Dein öffentliches Profil sehen",
+    },
+    returnsTo: "Du kehrst zu {host} zurück.",
+    privacy: "Datenschutzerklärung",
+    terms: "Bedingungen",
+    allow: "Erlauben",
+    deny: "Abbrechen",
+  },
   passkeyOffer: {
     title: "Nächstes Mal schneller anmelden",
     description:
@@ -446,6 +462,16 @@ export const de: AuthUiMessageBundle = {
       regenerateTitle: "Neue Backup-Codes erzeugen?",
       regenerateDescription:
         "Deine bisherigen Backup-Codes funktionieren dann sofort nicht mehr.",
+    },
+    connectedApps: {
+      title: "Verbundene Apps",
+      description:
+        "Websites und Apps, bei denen du dich mit diesem Konto anmeldest.",
+      since: "Verbunden am {date}",
+      disconnect: "Trennen",
+      confirmTitle: "{app} trennen?",
+      confirmDescription:
+        "{app} verliert den Zugriff auf dein Konto und meldet dich ab. Deine Käufe dort bleiben, wie sie sind.",
     },
     sessions: {
       title: "Aktive Sitzungen",

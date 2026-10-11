@@ -6,6 +6,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/naming"
 )
 
@@ -724,6 +725,12 @@ type OAuthServerMetadata struct {
 	RequestURIParameterSupported     bool     `json:"request_uri_parameter_supported"`
 	// AuthorizationDetailsTypes are the RFC 9396 types the clients may request.
 	AuthorizationDetailsTypes []string `json:"authorization_details_types_supported,omitempty"`
+	// TokenEndpointAuthSigningAlgs are the algorithms a private_key_jwt
+	// client signs its assertion with.
+	TokenEndpointAuthSigningAlgs []string `json:"token_endpoint_auth_signing_alg_values_supported,omitempty"`
+	// BackchannelLogoutSupported: group clients may register a
+	// backchannel_logout_uri (OIDC Back-Channel Logout 1.0).
+	BackchannelLogoutSupported bool `json:"backchannel_logout_supported"`
 }
 
 // OAuthAuthorizationRequest is a pending OAuth sign-in request, as the SPA
@@ -744,6 +751,28 @@ type OAuthAuthorizationRequest struct {
 	// Agreements are the documents the client needs the user to have
 	// accepted (POST /me/agreements) before approval.
 	Agreements []iam.Agreement `json:"agreements"`
+	// ThirdParty is a group's client, which the user consents to: what the
+	// consent screen shows. Null for this deployment's own clients.
+	ThirdParty *OAuthThirdParty `json:"third_party"`
+}
+
+// OAuthThirdParty is a group client's consent screen: the group's name (as
+// the host knows it), the client's links, where the browser returns, and
+// each scope requested with what it allows ("" for OpenID's own).
+type OAuthThirdParty struct {
+	GroupName    *string                     `json:"group_name"`
+	LogoURI      *string                     `json:"logo_uri"`
+	ClientURI    *string                     `json:"client_uri"`
+	PolicyURI    *string                     `json:"policy_uri"`
+	TOSURI       *string                     `json:"tos_uri"`
+	RedirectHost string                      `json:"redirect_host"`
+	Scopes       []errmodel.ScopeDescription `json:"scopes"`
+}
+
+// OAuthApproveRequest approves a pending sign-in; Consent answers a group
+// client's consent_required.
+type OAuthApproveRequest struct {
+	Consent bool `json:"consent"`
 }
 
 // OAuthAuthorizationResult is where the SPA sends the browser to finish:

@@ -50,6 +50,14 @@ const (
 	EventGroupRoleCreated EventKind = "group.role_created"
 	EventGroupRoleUpdated EventKind = "group.role_updated"
 	EventGroupRoleDeleted EventKind = "group.role_deleted"
+	// OAuth client events carry GroupID, Persona and ClientID: a group's
+	// client registered, changed (metadata, secret, disabled) or deleted.
+	EventOAuthClientCreated EventKind = "oauth_client.created"
+	EventOAuthClientUpdated EventKind = "oauth_client.updated"
+	EventOAuthClientDeleted EventKind = "oauth_client.deleted"
+	// EventOAuthConsentRevoked: UserID withdrew consent to ClientID, of
+	// GroupID; the client's refresh tokens for the user ended.
+	EventOAuthConsentRevoked EventKind = "oauth_consent.revoked"
 )
 
 // Event is one committed account or group change. It is recorded in the
@@ -83,6 +91,8 @@ type Event struct {
 	ApplicationID string `json:"application_id"`
 	// Role is the custom role of a group role event.
 	Role Role `json:"role"`
+	// ClientID is the OAuth client of a client or consent event.
+	ClientID string `json:"client_id"`
 	// Previous and Current are the changed value before and after: the
 	// email, phone or username, the role (`channel:moderator`), or a group
 	// role's grants; "" when none.

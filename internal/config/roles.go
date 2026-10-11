@@ -62,6 +62,10 @@ const (
 	// CustomRoles lets the persona's groups define roles of their own
 	// (Client.CreateGroupRole). It registers Roles.
 	CustomRoles
+	// OAuthClients lets the persona's groups register OAuth clients that
+	// sign their users in here, with their consent
+	// (Client.CreateGroupOAuthClient). It registers Credentials.
+	OAuthClients
 )
 
 // Persona declares a persona and returns its definition. name is the first
@@ -93,6 +97,8 @@ func (r *Roles) persona(p iam.Persona, opts []PersonaOption) *PersonaDef {
 			d.spec.RemoteApplications = true
 		case CustomRoles:
 			d.spec.CustomRoles = true
+		case OAuthClients:
+			d.spec.OAuthClients = true
 		default:
 			r.errorf("persona %q: unknown option %d", p, o)
 		}
@@ -111,7 +117,7 @@ func (r *Roles) errorf(format string, args ...any) {
 
 // PersonaDef is one declared persona: the permissions and roles of its
 // groups. AuthKit registers the built-in permission fields: Members always,
-// Credentials with APIKeys or RemoteApplications, Directory with
+// Credentials with APIKeys, RemoteApplications or OAuthClients, Directory with
 // RemoteApplications, Roles with CustomRoles. A role holding one that is not
 // registered fails New.
 type PersonaDef struct {
@@ -270,12 +276,12 @@ type MemberPerms struct {
 	Manage iam.Perm // give someone a role, change it or take it away; invites
 }
 
-// CredentialPerms are the credential permissions, registered with APIKeys or
-// RemoteApplications.
+// CredentialPerms are the credential permissions, registered with APIKeys,
+// RemoteApplications or OAuthClients.
 type CredentialPerms struct {
 	Resource
-	Read   iam.Perm // list the group's API keys
-	Manage iam.Perm // mint, revoke and re-role them
+	Read   iam.Perm // list the group's API keys and OAuth clients
+	Manage iam.Perm // mint, revoke and re-role them; register and change clients
 }
 
 // RolePerms are the role permissions, registered with CustomRoles.
@@ -324,4 +330,14 @@ func CompileRoles(r *Roles) (*rbac.Schema, error) {
 		return nil, fmt.Errorf("authkit: Config.Roles: %w", err)
 	}
 	return s, nil
+}
+
+// oauthClients reports whether a persona registers group OAuth clients.
+func (r *Roles) oauthClients() bool {
+	for _, d := range r.personas {
+		if d.spec.OAuthClients {
+			return true
+		}
+	}
+	return false
 }

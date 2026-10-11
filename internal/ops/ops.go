@@ -24,6 +24,16 @@ type Operations interface {
 	UserAgreements(ctx context.Context, userID string) ([]iam.AgreementAcceptance, error)
 	AgreementsDue(ctx context.Context, userID string) ([]iam.Agreement, error)
 	AcceptAgreements(ctx context.Context, userID string, refs []iam.AgreementRef, opts ...Option) error
+	OAuthConsents(ctx context.Context, userID string) ([]iam.OAuthConsent, error)
+	RevokeConsent(ctx context.Context, userID, clientID string, opts ...Option) error
+
+	// Group OAuth clients.
+	CreateGroupOAuthClient(ctx context.Context, who auth.Identity, ref iam.GroupRef, n iam.NewOAuthClient, opts ...Option) (iam.OAuthClientCreated, error)
+	GroupOAuthClients(ctx context.Context, ref iam.GroupRef) ([]iam.OAuthClient, error)
+	GroupOAuthClient(ctx context.Context, ref iam.GroupRef, clientID string) (iam.OAuthClient, error)
+	UpdateGroupOAuthClient(ctx context.Context, who auth.Identity, ref iam.GroupRef, clientID string, u iam.OAuthClientUpdate, opts ...Option) (iam.OAuthClient, error)
+	RotateGroupOAuthClientSecret(ctx context.Context, who auth.Identity, ref iam.GroupRef, clientID string, opts ...Option) (string, error)
+	DeleteGroupOAuthClient(ctx context.Context, who auth.Identity, ref iam.GroupRef, clientID string, opts ...Option) error
 	ResolveUsername(ctx context.Context, name string) (iam.NameResolution, error)
 	CheckUsername(ctx context.Context, name string) error
 	DeviceKeys(ctx context.Context, userID string) ([]iam.DeviceKey, error)

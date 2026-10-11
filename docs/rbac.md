@@ -29,8 +29,8 @@ AuthKit registers these itself; you never declare them. `<persona>` means every 
 |---|---|---|
 | `<persona>:members:read` | always | see who holds which role, the group's roles and its invitations |
 | `<persona>:members:manage` | always | give someone a role, change it or take it away; invite people |
-| `<persona>:credentials:read` | with `APIKeys` or `RemoteApplications` | list the group's API keys |
-| `<persona>:credentials:manage` | with `APIKeys` or `RemoteApplications` | create and revoke API keys; give remote applications roles |
+| `<persona>:credentials:read` | with `APIKeys`, `RemoteApplications` or `OAuthClients` | list the group's API keys and [OAuth clients](authorization-server.md#group-clients) |
+| `<persona>:credentials:manage` | with `APIKeys`, `RemoteApplications` or `OAuthClients` | create and revoke API keys; give remote applications roles; register and change OAuth clients |
 | `<persona>:directory:read` | with `RemoteApplications` | read the group's [directory](scim.md#directory) of its remote applications' users |
 | `<persona>:directory:manage` | with `RemoteApplications` | provision that directory over SCIM |
 | `<persona>:roles:read` | with `CustomRoles` | see what each of the group's roles grants (the role list also admits `members:read`) |

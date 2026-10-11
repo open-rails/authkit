@@ -5,7 +5,11 @@ import {
 } from "@hugeicons/core-free-icons"
 import { useId, useState } from "react"
 
-import type { Agreement } from "#authui/client/types"
+import type {
+  Agreement,
+  OAuthThirdParty,
+  ScopeDescription,
+} from "#authui/client/types"
 import { useMessages } from "#authui/i18n/context"
 import { Button } from "#authui/ui/button"
 import { Checkbox } from "#authui/ui/checkbox"
@@ -288,6 +292,103 @@ export function AgreementCheck({
           {t("agreements.required")}
         </p>
       )}
+    </div>
+  )
+}
+
+// OpenID's own scopes, described by the interface; a deployment's scopes
+// carry their description.
+const STANDARD_SCOPES = ["openid", "email", "phone", "profile"] as const
+
+// A group client's consent screen (OIDC Core 3.1.2.4): who asks, through
+// which group, where the browser returns, and what each scope allows.
+export function ConsentForm({
+  clientName,
+  thirdParty,
+  scopes,
+  busy,
+  error,
+  onAllow,
+  onDeny,
+}: {
+  clientName: string
+  thirdParty: OAuthThirdParty | null
+  scopes: readonly ScopeDescription[]
+  busy: boolean
+  error: unknown
+  onAllow: () => void
+  onDeny: () => void
+}) {
+  const { t, error: describe } = useMessages()
+  const name = thirdParty?.group_name ?? clientName
+  const describeScope = (s: ScopeDescription) =>
+    s.description ||
+    ((STANDARD_SCOPES as readonly string[]).includes(s.name)
+      ? t(`consent.scopes.${s.name as (typeof STANDARD_SCOPES)[number]}`)
+      : s.name)
+  return (
+    <div className="flex flex-col gap-5">
+      {thirdParty?.logo_uri && (
+        <img
+          src={thirdParty.logo_uri}
+          alt=""
+          className="mx-auto size-12 rounded-lg object-contain"
+        />
+      )}
+      <StepHeader
+        title={t("consent.title", { client: name })}
+        description={
+          thirdParty?.group_name && thirdParty.group_name !== clientName
+            ? t("consent.through", { client: clientName })
+            : undefined
+        }
+      />
+      {!!error && <FormAlert>{describe(error)}</FormAlert>}
+      <div className="flex flex-col gap-2 text-sm">
+        <p className="font-medium">{t("consent.wants")}</p>
+        <ul className="flex list-disc flex-col gap-1 ps-5">
+          {scopes.map((s) => (
+            <li key={s.name}>{describeScope(s)}</li>
+          ))}
+        </ul>
+      </div>
+      {thirdParty && (
+        <p className="text-xs text-muted-foreground">
+          {t("consent.returnsTo", { host: thirdParty.redirect_host })}{" "}
+          {thirdParty.policy_uri && (
+            <a
+              href={thirdParty.policy_uri}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-3"
+            >
+              {t("consent.privacy")}
+            </a>
+          )}
+          {thirdParty.policy_uri && thirdParty.tos_uri && " · "}
+          {thirdParty.tos_uri && (
+            <a
+              href={thirdParty.tos_uri}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-3"
+            >
+              {t("consent.terms")}
+            </a>
+          )}
+        </p>
+      )}
+      <Button size="lg" className="w-full" disabled={busy} onClick={onAllow}>
+        {t("consent.allow")}
+      </Button>
+      <Button
+        variant="ghost"
+        className="w-full"
+        disabled={busy}
+        onClick={onDeny}
+      >
+        {t("consent.deny")}
+      </Button>
     </div>
   )
 }

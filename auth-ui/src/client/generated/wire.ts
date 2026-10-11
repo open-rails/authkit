@@ -94,7 +94,7 @@ export type AgreementsRequired = {
 
 export type AuthKitEvent = {
   id: string
-  kind: "group.created" | "group.deleted" | "group.purged" | "group.role_created" | "group.role_deleted" | "group.role_updated" | "role.changed" | "role.granted" | "role.revoked" | "user.banned" | "user.deleted" | "user.email_changed" | "user.phone_changed" | "user.purged" | "user.registered" | "user.restored" | "user.sessions_revoked" | "user.unbanned" | "user.username_changed"
+  kind: "group.created" | "group.deleted" | "group.purged" | "group.role_created" | "group.role_deleted" | "group.role_updated" | "oauth_client.created" | "oauth_client.deleted" | "oauth_client.updated" | "oauth_consent.revoked" | "role.changed" | "role.granted" | "role.revoked" | "user.banned" | "user.deleted" | "user.email_changed" | "user.phone_changed" | "user.purged" | "user.registered" | "user.restored" | "user.sessions_revoked" | "user.unbanned" | "user.username_changed"
   occurred_at: string
   subject_kind: "application" | "user"
   subject_id: string
@@ -107,6 +107,7 @@ export type AuthKitEvent = {
   persona: string
   application_id: string
   role: string
+  client_id: string
   previous: string
   current: string
   reason: string
@@ -189,6 +190,10 @@ export type CodeOrLinkRequest = {
 
 export type CodeRequest = {
   code?: string
+}
+
+export type ConsentRequired = {
+  scopes: ScopeDescription[]
 }
 
 export type ContactProofRequired = {
@@ -427,6 +432,24 @@ export type NamingState = {
   retry_after_seconds: number
 }
 
+export type NewOAuthClient = {
+  client_name?: string
+  logo_uri?: string
+  client_uri?: string
+  policy_uri?: string
+  tos_uri?: string
+  redirect_uris?: string[]
+  post_logout_redirect_uris?: string[]
+  token_endpoint_auth_method?: "client_secret_basic" | "none" | "private_key_jwt"
+  jwks_uri?: string
+  scope?: string
+  backchannel_logout_uri?: string
+}
+
+export type OAuthApproveRequest = {
+  consent?: boolean
+}
+
 export type OAuthAuthorizationDeclineRequest = {
   error?: string
 }
@@ -442,10 +465,82 @@ export type OAuthAuthorizationRequest = {
   login_hint: string | null
   expires_at: string
   agreements: Agreement[]
+  third_party: OAuthThirdParty | null
 }
 
 export type OAuthAuthorizationResult = {
   redirect_to: string
+}
+
+export type OAuthClient = {
+  client_id: string
+  group_id: string
+  client_name: string
+  logo_uri: string | null
+  client_uri: string | null
+  policy_uri: string | null
+  tos_uri: string | null
+  redirect_uris: string[]
+  post_logout_redirect_uris: string[]
+  token_endpoint_auth_method: "client_secret_basic" | "none" | "private_key_jwt"
+  jwks_uri: string | null
+  scope: string
+  backchannel_logout_uri: string | null
+  disabled: boolean
+  created_at: string
+  updated_at: string
+  disabled_at: string | null
+}
+
+export type OAuthClientCreated = {
+  client_id: string
+  group_id: string
+  client_name: string
+  logo_uri: string | null
+  client_uri: string | null
+  policy_uri: string | null
+  tos_uri: string | null
+  redirect_uris: string[]
+  post_logout_redirect_uris: string[]
+  token_endpoint_auth_method: "client_secret_basic" | "none" | "private_key_jwt"
+  jwks_uri: string | null
+  scope: string
+  backchannel_logout_uri: string | null
+  disabled: boolean
+  created_at: string
+  updated_at: string
+  disabled_at: string | null
+  client_secret: string | null
+}
+
+export type OAuthClientSecret = {
+  client_secret: string
+}
+
+export type OAuthClientUpdate = {
+  client_name?: string | null
+  logo_uri?: string | null
+  client_uri?: string | null
+  policy_uri?: string | null
+  tos_uri?: string | null
+  redirect_uris?: string[] | null
+  post_logout_redirect_uris?: string[] | null
+  jwks_uri?: string | null
+  scope?: string | null
+  backchannel_logout_uri?: string | null
+  disabled?: boolean | null
+}
+
+export type OAuthConsent = {
+  client_id: string
+  client_name: string
+  group_id: string
+  group_name: string | null
+  logo_uri: string | null
+  client_uri: string | null
+  scopes: string[]
+  granted_at: string
+  updated_at: string
 }
 
 export type OAuthServerMetadata = {
@@ -471,6 +566,18 @@ export type OAuthServerMetadata = {
   request_parameter_supported: boolean
   request_uri_parameter_supported: boolean
   authorization_details_types_supported?: string[]
+  token_endpoint_auth_signing_alg_values_supported?: string[]
+  backchannel_logout_supported: boolean
+}
+
+export type OAuthThirdParty = {
+  group_name: string | null
+  logo_uri: string | null
+  client_uri: string | null
+  policy_uri: string | null
+  tos_uri: string | null
+  redirect_host: string
+  scopes: ScopeDescription[]
 }
 
 export type OAuthTokens = {
@@ -775,6 +882,11 @@ export type SCIMUserList = {
 
 export type SMSCapabilities = {
   countries: string[]
+}
+
+export type ScopeDescription = {
+  name: string
+  description: string
 }
 
 export type SecondFactorStep = {

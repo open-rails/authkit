@@ -108,6 +108,22 @@ export const zh: AuthUiMessageBundle = {
     continue: "接受并继续",
     decline: "退出登录",
   },
+  consent: {
+    title: "{client} 请求访问你的账户",
+    through: "通过其应用 {client}。",
+    wants: "允许后，它可以：",
+    scopes: {
+      openid: "知道你在此网络上的身份",
+      email: "查看你已验证的邮箱",
+      phone: "查看你已验证的手机号码",
+      profile: "查看你的公开资料",
+    },
+    returnsTo: "你将返回 {host}。",
+    privacy: "隐私政策",
+    terms: "条款",
+    allow: "允许",
+    deny: "取消",
+  },
   passkeyOffer: {
     title: "下次更快登录",
     description: "添加通行密钥，无需验证码即可用指纹、面容或屏幕锁登录。",
@@ -395,6 +411,15 @@ export const zh: AuthUiMessageBundle = {
       regenerate: "生成新备用码",
       regenerateTitle: "生成新的备用码？",
       regenerateDescription: "现有备用码将立即失效。",
+    },
+    connectedApps: {
+      title: "已连接的应用",
+      description: "你用此账户登录的网站和应用。",
+      since: "连接于 {date}",
+      disconnect: "断开连接",
+      confirmTitle: "断开与 {app} 的连接？",
+      confirmDescription:
+        "{app} 将无法访问你的账户并退出登录。你在那里的购买不受影响。",
     },
     sessions: {
       title: "活跃会话",

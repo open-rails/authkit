@@ -49,12 +49,16 @@ type ResourceAccess struct {
 	// (Config.Resource.Scopes); nil when no scope ceiling applies.
 	Ceilings []iam.Perm
 	Scoped   bool
+	// ClientGroup is the group whose OAuth client the token was issued to
+	// (a third-party client): it acts only there.
+	ClientGroup string
 }
 
-// Group is the group the token is bound to: its application's.
+// Group is the group the token is bound to: its application's, or its
+// group client's.
 func (a ResourceAccess) Group() string {
 	if a.Application == nil {
-		return ""
+		return a.ClientGroup
 	}
 	return a.Application.GroupID
 }
@@ -133,7 +137,7 @@ func (rs *resourceServer) verify(r *http.Request) (ResourceAccess, error) {
 	}
 	out.Claims = cl
 	if out.Application == nil {
-		if out.Application, err = rs.ownToken(ctx, cl); err != nil {
+		if out.Application, out.ClientGroup, err = rs.ownToken(ctx, cl); err != nil {
 			return ResourceAccess{}, err
 		}
 		out.Asserted = out.Application != nil
@@ -160,6 +164,11 @@ func (rs *resourceServer) verify(r *http.Request) (ResourceAccess, error) {
 		}
 	}
 	out.Ceilings, out.Scoped = rs.ceilings(cl.Scopes)
+	if out.ClientGroup != "" && !out.Scoped {
+		// A group client's token holds only what its scopes grant: never
+		// the user's own authority in the group (its staff's, say).
+		out.Ceilings, out.Scoped = []iam.Perm{}, true
+	}
 	return out, nil
 }
 
@@ -269,35 +278,46 @@ func (rs *resourceServer) jwksURI(ctx context.Context, issuer, metadata string) 
 }
 
 // ownToken checks a token of this deployment's authorization server: issued
-// to a registered client, and for a user, on a sign-in that still stands;
-// or redeemed for a trusted application's user (OAuthRemoteAssertion), whose
-// application, named by client_id, must still be trusted.
-func (rs *resourceServer) ownToken(ctx context.Context, cl verify.Claims) (*iam.RemoteApplication, error) {
-	if _, ok := config.FindOAuthClient(rs.s.cfg.AuthorizationServer, cl.ClientID); !ok {
+// to a registered client, live (a disabled or deleted group client's is
+// refused), and for a user, on a sign-in that still stands; or redeemed for
+// a trusted application's user (OAuthRemoteAssertion), whose application,
+// named by client_id, must still be trusted. group is a group client's.
+func (rs *resourceServer) ownToken(ctx context.Context, cl verify.Claims) (app *iam.RemoteApplication, group string, err error) {
+	client, ok, err := rs.s.OAuthClient(ctx, cl.ClientID)
+	if err != nil {
+		return nil, "", errmodel.Internal("resource_client", err)
+	}
+	if !ok {
+		if strings.HasPrefix(cl.ClientID, config.GroupClientIDPrefix) {
+			return nil, "", errmodel.E(errmodel.CodeInvalidToken)
+		}
 		app, err := rs.trusted(ctx, cl.ClientID)
 		if err != nil || cl.Kind != verify.TokenUser {
-			return nil, errmodel.E(errmodel.CodeInvalidToken)
+			return nil, "", errmodel.E(errmodel.CodeInvalidToken)
 		}
-		return app, nil
+		return app, "", nil
+	}
+	if client.Group != nil {
+		group = client.Group.GroupID
 	}
 	if cl.Kind != verify.TokenUser {
-		return nil, nil
+		return nil, group, nil
 	}
 	if err := rs.s.requirePG(); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	ref := iam.SessionRef{SessionID: cl.SessionID, DeviceKeyID: cl.DeviceKeyID}
 	if ref.IsZero() {
-		return nil, iam.ErrSessionRevoked
+		return nil, "", iam.ErrSessionRevoked
 	}
 	usable, signedIn, err := userLive(ctx, rs.s.pg, cl.Subject, ref)
 	switch {
 	case err != nil:
-		return nil, errmodel.Internal("resource_session", err)
+		return nil, "", errmodel.Internal("resource_session", err)
 	case !usable || !signedIn:
-		return nil, iam.ErrSessionRevoked
+		return nil, "", iam.ErrSessionRevoked
 	}
-	return nil, nil
+	return nil, group, nil
 }
 
 // ceilings are the permission ceilings scopes grant, when Resource.Scopes
