@@ -120,6 +120,16 @@ func run(addr, baseURL, dsn, static string, lifetime time.Duration) error {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"id": id})
 	})
+	// Gives the user a role in a group (?group=, root for root; ?role= of
+	// the group's persona).
+	mux.HandleFunc("POST /__test/members", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if err := member(r.Context(), rt, q.Get("group"), q.Get("email"), q.Get("role")); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	// Ages the user's sessions, and their second-factor proofs, past the
 	// sensitive-action window, so the next refreshed token demands a step-up.
 	mux.HandleFunc("POST /__test/stale-sessions", func(w http.ResponseWriter, r *http.Request) {
@@ -178,4 +188,19 @@ func staffGroup(ctx context.Context, rt *harness.Runtime, email, role string) (s
 	}
 	_, err = rt.EnsureUserRole(ctx, iam.GroupByID(g.ID), iam.UserByEmail(email), held)
 	return g.ID, err
+}
+
+// member gives the user with email role in group: "root" or a merchant
+// group's id.
+func member(ctx context.Context, rt *harness.Runtime, group, email, role string) error {
+	ref, persona := iam.GroupByID(group), harness.MerchantPersona
+	if group == "root" {
+		ref, persona = iam.RootGroup(), "root"
+	}
+	held, err := rt.Role(persona + ":" + role)
+	if err != nil {
+		return err
+	}
+	_, err = rt.EnsureUserRole(ctx, ref, iam.UserByEmail(email), held)
+	return err
 }

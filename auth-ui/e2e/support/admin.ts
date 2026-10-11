@@ -1,8 +1,13 @@
 import path from "node:path"
 
-import { expect, type APIRequestContext, type Page } from "@playwright/test"
+import {
+  expect,
+  type APIRequestContext,
+  type Browser,
+  type Page,
+} from "@playwright/test"
 
-import { api } from "./api"
+import { api, registerVerified } from "./api"
 
 const app = path.resolve(import.meta.dirname, "../.react-app/admin.js")
 
@@ -77,3 +82,52 @@ export async function groupAPI(
 ) {
   return api(page, method, path, body, await accessTokenOf(page))
 }
+
+export type TestUser = { email: string; password: string }
+
+// A verified account, registered in a context of its own.
+export async function newUser(
+  browser: Browser,
+  request: APIRequestContext
+): Promise<TestUser> {
+  const context = await browser.newContext()
+  const page = await context.newPage()
+  await page.goto("/")
+  const { email, password } = await registerVerified(page, request)
+  await context.close()
+  return { email, password }
+}
+
+// Gives the user role in group (root, or a merchant group's id).
+export async function addMember(
+  request: APIRequestContext,
+  group: string,
+  email: string,
+  role: string
+) {
+  const res = await request.post(
+    `/__test/members?group=${group}&email=${encodeURIComponent(email)}&role=${role}`
+  )
+  expect(res.status(), await res.text()).toBe(204)
+}
+
+// A fresh browser signed in as user at the admin app's url.
+export async function signedInAt(
+  browser: Browser,
+  user: TestUser,
+  url: string
+): Promise<Page> {
+  const context = await browser.newContext()
+  const page = await context.newPage()
+  await routeAdminApp(page)
+  await openAdmin(page, url)
+  await expect(page.getByTestId("status")).toHaveText("anonymous")
+  await page.getByLabel("identifier").fill(user.email)
+  await page.getByLabel("password").fill(user.password)
+  await page.getByRole("button", { name: "sign in" }).click()
+  await expect(page.getByTestId("status")).toHaveText("authenticated")
+  return page
+}
+
+// The host router's location, in the router fixture.
+export const hostLocation = (page: Page) => page.getByTestId("host-location")

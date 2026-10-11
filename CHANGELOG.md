@@ -3,6 +3,7 @@
 ## v1.23.0
 
 - A resource access token's Verified at `Client.Authenticator()` has `Asserted() bool`: true when this deployment minted it from a remote application's RFC 7523 assertion (a backend's customer token), false for session tokens, API keys, exchanged tokens and a trusted issuer's own tokens. A library tells a customer token from a staff one without comparing `ClientID()` with the issuer.
+- auth-ui group admins (#453): `MembersAdmin`, `RolesAdmin`, `ApiKeysAdmin` and `OAuthClientsAdmin` in `@openrails/auth-ui/admin`, over AuthKit's own group routes. Each shows only what the caller's permissions allow, routes by the host's `navigation` (the history API without it), steps up through `guard` and inherits the host's theme.
 - auth-ui: `@openrails/auth-ui/admin` (#453), the staff entry: `createAdminClient` over AuthKit's group routes and `GET /me/permissions`, `useGroupAdminAccess`, the router and theme conventions every admin component follows, and six languages. Step-up resume: `guard(action, { resume })` keeps a write across a provider step-up and `guard.onResume` replays it once on return, after checking the person, a nonce and a 15-minute lifetime.
 
 ## v1.22.3

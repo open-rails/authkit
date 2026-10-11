@@ -122,7 +122,7 @@ const res = await auth.resourceFetch(
   non-extractable P-256 key in IndexedDB, so it survives a reload; a bound
   token goes with a fresh proof on every request, and a `use_dpop_nonce`
   challenge is answered once. A DPoP-bound session (`createAuthClient({
-  dpop: true })`) is exchanged with its own key, the only one AuthKit
+dpop: true })`) is exchanged with its own key, the only one AuthKit
   accepts for it, and its resource tokens are bound to that key.
 - `resourceFetch` retries once with a new token on a 401 `invalid_token`.
 - Token endpoint refusals throw `OAuthError` (`error`, `description`).
@@ -443,7 +443,9 @@ useEffect(
   () => guard.onResume?.(`refund:${id}`, (data) => refund(data as Refund)),
   [guard, id]
 )
-await guard(() => refund(input), { resume: { kind: `refund:${id}`, data: input } })
+await guard(() => refund(input), {
+  resume: { kind: `refund:${id}`, data: input },
+})
 ```
 
 The action is kept in `sessionStorage` with the signed-in person's id, a nonce
@@ -457,7 +459,10 @@ person's, a stale one or a nonce that does not match is dropped.
 area from its components. Customer entries never import it.
 
 ```ts
-import { createAdminClient, useGroupAdminAccess } from "@openrails/auth-ui/admin"
+import {
+  createAdminClient,
+  useGroupAdminAccess,
+} from "@openrails/auth-ui/admin"
 
 const admin = createAdminClient({ auth }) // auth: AuthClient, IssuerClient or anything with authFetch
 await admin.setMemberRole(group, userId, "merchant:admin") // AuthKit's own routes, no host proxy
@@ -473,6 +478,37 @@ without it), `guard` (`useStepUpGuard()`, which runs every write; without it a
 stale sign-in fails the write with "sign in again"), `appearance` (default
 `theme: "inherit"`), `language` (`ADMIN_LANGUAGES`) and `messages` (the admin
 words under `admin`).
+
+### Group admins
+
+```tsx
+import { ApiKeysAdmin, MembersAdmin, OAuthClientsAdmin, RolesAdmin } from "@openrails/auth-ui/admin"
+
+const guard = useStepUpGuard() // inside a StepUpProvider
+const nav = { pathname: location.pathname, search: location.search, navigate } // React Router
+
+<MembersAdmin auth={auth} group={merchantId} basePath="/settings/team" navigation={nav} guard={guard} />
+<RolesAdmin auth={auth} group="root" basePath="/settings/roles" navigation={nav} guard={guard}
+  permissionHelp={{ "billing:read": "Read customers and payments" }} />
+<ApiKeysAdmin auth={auth} group={merchantId} basePath="/settings/keys" navigation={nav} guard={guard} />
+<OAuthClientsAdmin auth={auth} group={merchantId} basePath="/settings/apps" navigation={nav} guard={guard} />
+```
+
+| Component           | Views                                 | Shows with                                                                         | Writes with          |
+| ------------------- | ------------------------------------- | ---------------------------------------------------------------------------------- | -------------------- |
+| `MembersAdmin`      | members (`?role=`), `invitations`     | `members:read` (the invite form: `members:manage`, or `root:users:invite` on root) | `members:manage`     |
+| `RolesAdmin`        | roles, `new`, `<role>`, `<role>/edit` | `roles:read` or `members:read`                                                     | `roles:manage`       |
+| `ApiKeysAdmin`      | keys (`?revoked=1`)                   | `credentials:read`                                                                 | `credentials:manage` |
+| `OAuthClientsAdmin` | clients, `new`, `<client_id>`         | `credentials:read`                                                                 | `credentials:manage` |
+
+Permissions are the group persona's (`merchant:members:read`). Each component
+reads the caller's own with `GET /me/permissions`: without them it shows a
+no-access state, and with read alone no write controls. AuthKit still decides:
+a role beyond the caller's own, the group's last owner or a self-change on
+root is refused, and the refusal is shown. Writes that need a recent sign-in
+(root changes, OAuth clients) step up through `guard`, and replay after a
+provider step-up. A secret (an API key, a client secret, an invitation link)
+is shown once, at creation.
 
 ## Solana
 

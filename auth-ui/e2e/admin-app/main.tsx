@@ -1,11 +1,28 @@
 /* eslint-disable react-refresh/only-export-components */
 // Host for the admin specs. The path picks the fixture:
 // /<mode>/<view>/<group>/…, the component's basePath being its first three
-// segments. stepup: a write through a resumable guard.
+// segments. alone: the component with its history default; router: mounted
+// in a React Router app through navigation; stepup: a write through a
+// resumable guard.
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { createRoot } from "react-dom/client"
 
-import { createAdminClient } from "../../dist/admin.js"
+import {
+  createBrowserRouter,
+  Link as HostLink,
+  RouterProvider,
+  useLocation,
+  useNavigate,
+} from "react-router"
+
+import {
+  ApiKeysAdmin,
+  createAdminClient,
+  MembersAdmin,
+  OAuthClientsAdmin,
+  RolesAdmin,
+  type AdminNavigation,
+} from "../../dist/admin.js"
 import { createAuthClient } from "../../dist/client.js"
 import {
   AuthUiProvider,
@@ -122,9 +139,72 @@ function StepUpProbe() {
   )
 }
 
+const VIEWS = {
+  members: MembersAdmin,
+  roles: RolesAdmin,
+  "api-keys": ApiKeysAdmin,
+  "oauth-clients": OAuthClientsAdmin,
+}
+
+function Admin({ navigation }: { navigation?: AdminNavigation }) {
+  const guard = useStepUpGuard()
+  const View = VIEWS[view as keyof typeof VIEWS]
+  if (!View) return <p>unknown view {view}</p>
+  return (
+    <View
+      auth={client}
+      group={group}
+      basePath={basePath}
+      navigation={navigation}
+      guard={guard}
+      language={params.get("lang") ?? undefined}
+      {...(view === "roles" && {
+        permissionHelp: {
+          "billing:read": "Read billing",
+          "billing:manage": "Change billing",
+        },
+      })}
+    />
+  )
+}
+
+// The host router: the component follows it and drives it.
+function RouterHost() {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const navigation = useMemo<AdminNavigation>(
+    () => ({
+      pathname: location.pathname,
+      search: location.search,
+      navigate: (to, options) => void navigate(to, options),
+    }),
+    [location, navigate]
+  )
+  return (
+    <>
+      <nav>
+        <HostLink to={basePath}>host: start</HostLink>{" "}
+        <HostLink to={`${basePath}/invitations`}>host: invitations</HostLink>{" "}
+        <HostLink to={`${basePath}/new`}>host: new</HostLink>
+      </nav>
+      <p data-testid="host-location">
+        {location.pathname}
+        {location.search}
+      </p>
+      <Admin navigation={navigation} />
+    </>
+  )
+}
+
+const hostRouter =
+  mode === "router"
+    ? createBrowserRouter([{ path: "*", element: <RouterHost /> }])
+    : null
+
 function App() {
   if (mode === "stepup") return <StepUpProbe />
-  return <p>unknown fixture {basePath}</p>
+  if (hostRouter) return <RouterProvider router={hostRouter} />
+  return <Admin />
 }
 
 const root = document.createElement("div")

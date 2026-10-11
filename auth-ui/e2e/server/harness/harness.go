@@ -35,6 +35,11 @@ const (
 	MerchantRole    = "staff"
 )
 
+// The admin specs' roles. In a merchant group: staff reads billing only,
+// viewer also sees members, roles and credentials, admin manages them but
+// holds no billing:manage, so the owner outranks it. On root, rolesadmin
+// reads members and defines custom roles.
+
 // Resource is the test resource server's identifier (the tokens' aud).
 func Resource(baseURL string) string { return baseURL + ResourcePath }
 
@@ -81,9 +86,16 @@ func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
 	}
 	// Merchants: groups a resource token can be bound to (group_id), which
 	// register their own OAuth clients.
-	roles := authkit.NewRoles()
-	merchant := roles.Persona(MerchantPersona, authkit.OAuthClients)
-	merchant.Role(MerchantRole, merchant.Permission("billing", "read"))
+	roles := authkit.NewRoles(authkit.CustomRoles)
+	root := roles.Root
+	root.Role("rolesadmin", root.Members.Read, root.Roles.Read, root.Roles.Manage)
+	merchant := roles.Persona(MerchantPersona, authkit.APIKeys, authkit.CustomRoles, authkit.OAuthClients)
+	billing := merchant.Permission("billing", "read")
+	merchant.Permission("billing", "manage")
+	merchant.Role(MerchantRole, billing)
+	merchant.Role("viewer", billing, merchant.Members.Read, merchant.Roles.Read, merchant.Credentials.Read)
+	merchant.Role("admin", billing, merchant.Members.Read, merchant.Members.Manage, merchant.Roles.Read,
+		merchant.Roles.Manage, merchant.Credentials.Read, merchant.Credentials.Manage)
 	cfg := authkit.Config{
 		Roles: roles,
 		HTTP: &authkit.HTTPConfig{

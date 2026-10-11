@@ -9,6 +9,14 @@
   in six languages. A build test keeps admin code out of the customer
   entries.
 
+- Group admins (AuthKit #453): `MembersAdmin` (members, role changes, the
+  `?role=` filter, invitations by email or link), `RolesAdmin` (declared and
+  custom roles, an editor that grants only what the editor holds,
+  `permissionHelp`), `ApiKeysAdmin` (mint with a role, secret shown once,
+  revoke) and `OAuthClientsAdmin` (register, edit, disable, rotate the secret,
+  delete), each taking `auth`, `group`, `basePath`, `navigation`, `guard`,
+  `appearance`, `language` and `messages`.
+
 - Step-up resume: `guard(action, { resume: { kind, data } })` keeps the action
   across a provider step-up, and `guard.onResume(kind, resumer)` replays it
   once on return, after checking the person, the nonce and a 15-minute

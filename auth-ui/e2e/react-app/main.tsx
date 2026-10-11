@@ -162,9 +162,7 @@ function Security() {
       <p data-testid="stepup-step">{stepUp.state.step}</p>
       {challenge && (
         <div role="dialog">
-          <p data-testid="stepup-methods">
-            {challenge.methods.join(",")}
-          </p>
+          <p data-testid="stepup-methods">{challenge.methods.join(",")}</p>
           <p data-testid="stepup-error">{stepUp.error?.code ?? ""}</p>
           <form
             onSubmit={(e) => {
