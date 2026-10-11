@@ -48,7 +48,7 @@ required = ('TestSecurityAccessTokenForgery', 'TestSecurityBearerTransport', 'Te
             'TestSecurityRemoteApplicationTakeover', 'TestSecurityRoleEscalation', 'TestSecurityMultiReplicaStores',
             'TestSecurityClientAddressSpoofing', 'TestSecurityKeyRotationIsPublished',
             'TestSecurityRefreshCookieCSRF', 'TestSecurityRequestBoundary', 'TestSecurityAccountEnumeration',
-            'TestSecurityUnprovenContactCannotAddLoginMethods', 'TestSecurityPreRegistrationTakeover',
+            'TestSecurityUnprovenContactCannotAddLoginMethods', 'TestSecurityPreRegistrationTakeover', 'TestSecurityContactOwnership',
             'TestSecurityRegistrationNeverSelfVerifies', 'TestSecurityProviderEmailTrust',
             'TestSecurityPasswordLimitIsPerAddress', 'TestSecurityDemotedCreatorCredentials',
             'TestSecurityRevokeAboveOwnRole', 'TestSecurityRemoteApplicationIssuerSquat',

@@ -238,10 +238,10 @@ func (s *Engine) admitSignIn(ctx context.Context, userID string, in loginSession
 
 // phoneOnly reports whether u's only proven contact is a phone and it holds
 // no passkey: SMS is all that proves it is the owner, so every new device
-// proves it again (#449).
-// TODO(#449 q1): reassigned numbers. Whether a dormant phone-only account
-// loses SMS sign-in, and who keeps a number a new person proves, awaits the
-// owner's ruling.
+// proves it again (#449). A phone is treated as an email is (#449 q1): it
+// belongs to one account at a time, so a reassigned number stays its
+// account's until the account changes it, and whoever proves it signs in
+// there.
 func (s *Engine) phoneOnly(ctx context.Context, q db.DBTX, u *db.User) (bool, error) {
 	if _, phone := provenAddress(u, passwordlessChannelSMS); !phone {
 		return false, nil

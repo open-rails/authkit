@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.22.3
+
+- One account per contact (#449, owner ruling): an email or phone is tied to one account at a time, as before by a unique constraint. Proving one an account holds signs into that account, never a second one; changing to another releases the old one at once, and another account may then sign up with it or move to it by proving it; of two accounts moving to one contact at once, exactly one gets it. A reassigned phone number stays its account's until the account changes it, as a mailbox would ([identity](docs/identity.md#network-accounts)). `TestSecurityContactOwnership` pins it for both kinds against PostgreSQL.
+
 ## v1.22.2
 
 - auth-ui: `ResourceRequest.group` asks for a token bound to one group (`group_id` in the token exchange), cached apart per group, for `getResourceToken` and `resourceFetch`. A DPoP-bound session is exchanged with its own key (AuthKit requires it since v1.22.0), and its resource tokens are bound to that key.
