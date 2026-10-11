@@ -52,6 +52,70 @@ it("types error metadata by code", () => {
   expect(errorMetadata(new Error("x"), "rate_limited")).toBeNull()
 })
 
+it("reads another API client's step-up challenge without its error class", () => {
+  const factors = [
+    {
+      id: "factor-1",
+      method: "email",
+      is_default: true,
+      destination: "a***@b.c",
+      future_field: true,
+    },
+  ]
+  const error = Object.assign(new Error("Confirm it's you"), {
+    name: "ApiError",
+    status: 401,
+    code: "step_up_required",
+    metadata: {
+      step_up_methods: [" Password ", "password", "2fa", "FutureProvider"],
+      max_age_seconds: 900,
+      factors,
+      future_field: true,
+    },
+  })
+  expect(readStepUpRequired(error)).toEqual({
+    methods: ["password", "2fa", "futureprovider"],
+    maxAgeSeconds: 900,
+    factors,
+  })
+  expect(
+    readStepUpRequired({
+      status: 401,
+      code: "step_up_required",
+      metadata: { step_up_methods: ["password"] },
+    })
+  ).toEqual({ methods: ["password"], maxAgeSeconds: undefined, factors: [] })
+  expect(errorMetadata(error, "step_up_required")).toBeNull()
+})
+
+it.each([
+  null,
+  new Error("step_up_required"),
+  { status: 403, code: "step_up_required" },
+  { status: "401", code: "step_up_required" },
+  { status: 401, code: "invalid_credentials" },
+  { status: 401, code: "step_up_required", metadata: null },
+  ...[
+    {},
+    { step_up_methods: "password" },
+    { step_up_methods: [] },
+    { step_up_methods: [" "] },
+    { step_up_methods: ["password", 1] },
+    { step_up_methods: ["password"], max_age_seconds: "900" },
+    { step_up_methods: ["password"], max_age_seconds: -1 },
+    { step_up_methods: ["password"], max_age_seconds: NaN },
+    { step_up_methods: ["password"], max_age_seconds: Infinity },
+    { step_up_methods: ["2fa"], factors: {} },
+    { step_up_methods: ["2fa"], factors: [null] },
+    {
+      step_up_methods: ["2fa"],
+      factors: [{ id: "f1", method: "totp", is_default: true }],
+    },
+  ].map((metadata) => ({ status: 401, code: "step_up_required", metadata })),
+])("ignores unrelated or malformed foreign challenges (%#)", (error) => {
+  expect(readStepUpRequired(error)).toBeNull()
+})
+
 it("accepts an AuthResult only with its status's step", () => {
   expect(toSignInResult(complete("u")).status).toBe("complete")
   expect(() => toSignInResult(authResult("complete"))).toThrow()
