@@ -24,3 +24,5 @@ There are no compatibility aliases or forwarding implementations. An application
 A library that previously rejected every AuthKit import can instead allow only these contract and conformance packages and verify their standard-library dependency closure. The AuthKit root package and implementation packages remain outside that boundary.
 
 The shared `helpers/api`, `helpers/api/gin`, `helpers/smtp`, `helpers/river` and `helpers/deps` packages are unaffected. Keep the helpers module requirement when using them. Removal of helpers' former auth and userinfo packages is a separate consumer-coordinated change.
+
+The relocated packages retain helpers' MIT copyright and permission notice in `auth/LICENSE` and `userinfo/LICENSE`, including their conformance subpackages. AuthKit also uses the MIT license.
