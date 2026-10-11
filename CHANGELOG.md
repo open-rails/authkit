@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.21.0
+
+- `Client.Authenticator()` and `Verifier.Authenticator()` are helpers/auth `Root` (helpers v1.8.0): `RootScope(ctx)` is `Scope(ctx, iam.RootGroup())`, where root roles hold their `root:` permissions. A library given `root:` permissions checks them there, so the host passes only the Authenticator: `openrails.Routes{Auth: ak.Authenticator(), …}`, no scope ([RBAC](docs/rbac.md#a-library-that-guards-its-own-routes)).
+
 ## v1.20.0
 
 ### Network accounts

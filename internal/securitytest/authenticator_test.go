@@ -78,8 +78,8 @@ func basic(user, password string) string {
 // TestSecurityAuthenticatorConformance (#444): Client.Authenticator(), and a
 // Verifier's for a resource server's audiences, are the helpers/auth
 // Authenticator a library guards its own routes with. Against a real AuthKit
-// each passes helpers' conformance check (authtest.Check) in the root group's
-// Scope: staff holding a root role's permissions, a user holding none,
+// each passes helpers' conformance check (authtest.Check) in its RootScope,
+// the root group's Scope: staff holding a root role's permissions, a user holding none,
 // one-permission holders, a stale sign-in, a root API key, refused
 // credentials (expired, forged, signed out, banned, deleted, a revoked API
 // key), and Staff signed out last. A stale sign-in is RFC 9470's step-up and
@@ -98,6 +98,11 @@ func TestSecurityAuthenticatorConformance(t *testing.T) {
 	root, err := h.auth.Group(ctx, iam.RootGroup())
 	require.NoError(t, err)
 	require.Equal(t, hauth.Scope{Authority: issuer, ID: root.ID}, scope)
+	for name, a := range authenticators {
+		rs, err := a.(hauth.Root).RootScope(ctx)
+		require.NoError(t, err)
+		require.Equal(t, scope, rs, "%s's RootScope is the root group's", name)
+	}
 
 	staff, user, stale := h.newAccount("akstaff"), h.newAccount("akuser"), h.newAccount("akstale")
 	reader, updater := h.newAccount("akreader"), h.newAccount("akupdater")
@@ -261,8 +266,7 @@ func TestSecurityAuthenticatorConformance(t *testing.T) {
 		t.Run("authtest.Check "+name, func(t *testing.T) {
 			staffToken := h.login(staff).AccessToken
 			conformance.Check(t, authenticators[name], conformance.Cases{
-				Scope:       scope,
-				Permissions: []string{customersRead, customersUpdate},
+				Permissions: []string{customersRead, customersUpdate}, // root:, held in RootScope
 				Staff:       bearerRequest(staffToken),
 				User:        bearerRequest(userToken),
 				Holders: map[string]func() *http.Request{

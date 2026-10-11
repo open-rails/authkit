@@ -2,6 +2,7 @@ package authkit
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/open-rails/authkit/iam"
@@ -31,6 +32,9 @@ import (
 //   - A user acting for themself carries their email and username, read from
 //     the account (access tokens carry none).
 //   - It is an auth.PermissionCatalog over Config.Roles.
+//   - It is an auth.Root: its RootScope is Scope(ctx, iam.RootGroup()),
+//     where root roles hold their root: permissions, so a library mounted
+//     with root: permissions needs no scope from its host.
 //
 // With Config.Resource it also admits the RFC 9068 access tokens (at+jwt)
 // minted for Resource.ID by this deployment's authorization server and by its
@@ -81,7 +85,19 @@ type authenticator struct {
 var (
 	_ auth.PermissionCatalog = authenticator{}
 	_ auth.Headers           = authenticator{}
+	_ auth.Root              = authenticator{}
 )
+
+// RootScope is the root group as Can checks it (Scope(ctx,
+// iam.RootGroup())), its id read once. auth.ErrUnavailable when it cannot be
+// read.
+func (a authenticator) RootScope(ctx context.Context) (auth.Scope, error) {
+	id, err := a.client.engine.RootGroupID(ctx)
+	if err != nil {
+		return auth.Scope{}, errors.Join(auth.ErrUnavailable, err)
+	}
+	return auth.Scope{Authority: a.client.engine.Config().Token.Issuer, ID: id}, nil
+}
 
 // AllowedHeaders are the request headers credentials travel in: a token
 // (RFC 6750 §2.1) and its DPoP proof (RFC 9449 §4.1).

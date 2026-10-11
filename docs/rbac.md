@@ -141,8 +141,9 @@ A library that serves routes inside your app, such as OpenRails' billing routes,
 | `Verified.Can(ctx, scope, p)` | `Client.Can`: exactly `p`, in the group `scope.ID` names, live |
 | `Verified.CheckRecentSignIn(ctx)` | `verify.Sensitive`'s check. A stale sign-in is an `*auth.Challenge` with `auth.ErrStepUpRequired`, `MaxAge` (15 minutes) and the account's step-up methods as `Metadata`; a credential with no sign-in of its own (an API key) is `auth.ErrForbidden` |
 | `KnownPermission(p)` | `p` is one registered permission, so the library refuses a misspelled one when it mounts |
+| `RootScope(ctx)` | `client.Scope(ctx, iam.RootGroup())` (helpers/auth `Root`): where root roles hold their `root:` permissions, which the library checks there |
 
-A user acting for themself carries their email and username, read from the account. `client.Scope(ctx, ref)` is the group where the library checks its permissions, `{Authority: Config.Token.Issuer, ID: <the group's id>}`; root roles hold theirs in `client.Scope(ctx, iam.RootGroup())`. The library names no permissions: the host passes its own.
+A user acting for themself carries their email and username, read from the account. A permission's persona says where the library checks it: a `root:` permission in the Authenticator's `RootScope`, so the host passes no scope; a group persona's in the group it serves, `client.Scope(ctx, ref)` (`{Authority: Config.Token.Issuer, ID: <the group's id>}`). The library names no permissions: the host passes its own.
 
 ```go
 rbac := authkit.NewRoles()
@@ -150,19 +151,14 @@ customersRead := rbac.Root.Permission("customers", "read")
 customersUpdate := rbac.Root.Permission("customers", "update")
 rbac.Root.Role("support", customersRead, customersUpdate)
 
-staff, err := client.Scope(ctx, iam.RootGroup()) // where the roles above are held
-if err != nil {
-	return err
-}
 err = openrailsgin.Mount(r, bill, openrails.Routes{
 	Auth:        client.Authenticator(), // says who a request is; OpenRails decides what to admit
-	Scope:       staff,
 	RouteGroups: openrails.RouteGroups{Admin: true},
 	Permissions: openrails.Permissions{AdminRead: customersRead, AdminUpdate: customersUpdate},
 })
 ```
 
-A group API key holds its role only in its own group, so it acts where a library is mounted with that group's scope (one group per merchant: `client.Scope(ctx, iam.GroupByID(id))`); a root API key (`NewRoles(authkit.APIKeys)`) acts in root's. Like AuthKit's own API, `client.Authenticator()` refuses resource access tokens (`at+jwt`). For a library that is also a resource server, `client.NewVerifier(audiences)` with its resource among them gives a `Verifier` whose `Authenticator()` takes them too: an OAuth client's own token (client credentials) authenticates as an application, holding nothing in a group (its `permissions` are the resource server's to read).
+A group API key holds its role only in its own group, so it acts where a library checks its group persona's permissions in that group's scope (one group per merchant: `client.Scope(ctx, iam.GroupByID(id))`); a root API key (`NewRoles(authkit.APIKeys)`) acts in root's. Like AuthKit's own API, `client.Authenticator()` refuses resource access tokens (`at+jwt`). For a library that is also a resource server, `client.NewVerifier(audiences)` with its resource among them gives a `Verifier` whose `Authenticator()` takes them too: an OAuth client's own token (client credentials) authenticates as an application, holding nothing in a group (its `permissions` are the resource server's to read).
 
 ## Related
 
