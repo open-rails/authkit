@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.22.1
+
+- A remote application's static key without a kid is refused at registration with `invalid_remote_application`, as are a duplicate kid and a kid with surrounding whitespace. Before, such a key list was registered and never verified: every assertion was `invalid_grant` and every token failed as unavailable. Each of `PublicKeys` has a distinct kid, its `KID` or else its JWK's, so a PEM key needs `KID`; registration and the verifier check the list by one rule. An assertion or token naming no kid is still verified with the application's only key (RFC 7515 §4.1.4).
+
 ## v1.22.0
 
 Tokens bound to one group, for a library acting on one tenant at a time (OpenRails #1197: the merchant is the one the request's token is bound to). helpers v1.9.0.

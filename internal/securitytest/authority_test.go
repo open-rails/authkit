@@ -423,7 +423,7 @@ func TestSecurityAccountPeerRemoteApplication(t *testing.T) {
 		for _, iss := range []string{issuer, "https://github.com/login/oauth"} {
 			enabled := true
 			_, err := h.auth.ApplyBootstrapManifest(ctx, iam.BootstrapManifest{RemoteApplications: []iam.BootstrapManifestRemoteApplication{
-				{Issuer: iss, PublicKeys: []iam.RemoteApplicationKey{{PublicKeyPEM: publicKeyPEM(t)}}, Enabled: &enabled},
+				{Issuer: iss, PublicKeys: []iam.RemoteApplicationKey{{KID: "k1", PublicKeyPEM: publicKeyPEM(t)}}, Enabled: &enabled},
 			}}, iam.BootstrapOptions{})
 			require.ErrorIs(t, err, iam.ErrReservedIssuer, iss)
 		}

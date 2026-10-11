@@ -64,10 +64,8 @@ func normalizeRemoteAppTrustSource(jwksURI string, mode iam.RemoteApplicationMod
 		if jwksURI != "" {
 			return "", fmt.Errorf("%w: jwks_uri and public_keys are mutually exclusive — register one trust source, never both", iam.ErrInvalidRemoteApplication)
 		}
-		for i, k := range keys {
-			if _, _, err := jose.StaticKey(k); err != nil {
-				return "", fmt.Errorf("%w: public_keys[%d]: %v", iam.ErrInvalidRemoteApplication, i, err)
-			}
+		if _, err := jose.StaticKeys(keys); err != nil {
+			return "", fmt.Errorf("%w: public_keys: %v", iam.ErrInvalidRemoteApplication, err)
 		}
 	default:
 		return "", fmt.Errorf("%w: unknown mode %q (want jwks|static)", iam.ErrInvalidRemoteApplication, mode)

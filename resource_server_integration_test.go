@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -22,6 +24,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/scim"
 	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/authkit/keys"
 	hauth "github.com/open-rails/helpers/auth"
 )
 
@@ -383,6 +386,80 @@ func TestResourceServerRemoteAssertion(t *testing.T) {
 		status, out := redeem(tc.assertion, nil, tc.scope)
 		require.NotEqual(t, http.StatusOK, status, "%s: %v", name, out)
 	}
+}
+
+// TestResourceServerStaticKeyKid: a remote application's static keys are
+// registered only as its verifiers read them, each with a distinct kid (a PEM
+// key has none of its own), else invalid_remote_application. The kid header
+// stays optional (RFC 7515 §4.1.4): an assertion or token naming no kid is
+// verified with the application's only key, one naming another kid is not.
+func TestResourceServerStaticKeyKid(t *testing.T) {
+	ctx := t.Context()
+	d := newResourceDeployment(t)
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	der, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	require.NoError(t, err)
+	keyPEM := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
+	jwk := keys.PublicJWK(&key.PublicKey, "", "RS256")
+	const issuer = "https://shop.example"
+	register := func(set ...iam.RemoteApplicationKey) error {
+		_, err := d.auth.UpsertRemoteApplication(ctx, iam.SystemIdentity(), d.a, iam.RemoteApplication{Issuer: issuer, Enabled: true, PublicKeys: set})
+		return err
+	}
+	for name, set := range map[string][]iam.RemoteApplicationKey{
+		"a PEM key without a kid": {{PublicKeyPEM: keyPEM}},
+		"a JWK without a kid":     {{JWK: &jwk}},
+		"a duplicate kid":         {{KID: "k1", PublicKeyPEM: keyPEM}, {KID: "k1", PublicKeyPEM: keyPEM}},
+		"a kid with whitespace":   {{KID: "k1 ", PublicKeyPEM: keyPEM}},
+	} {
+		require.ErrorIs(t, register(set...), iam.ErrInvalidRemoteApplication, name)
+	}
+	err = d.auth.DeclareRemoteApplications(ctx, d.a, []iam.RemoteApplication{{Issuer: issuer, Enabled: true, PublicKeys: []iam.RemoteApplicationKey{{PublicKeyPEM: keyPEM}}}})
+	require.ErrorIs(t, err, iam.ErrInvalidRemoteApplication, "a declared application too")
+	_, err = d.auth.RemoteApplication(ctx, iam.AppByIssuer(issuer))
+	require.ErrorIs(t, err, iam.ErrRemoteApplicationNotFound)
+	require.NoError(t, register(iam.RemoteApplicationKey{KID: "k1", PublicKeyPEM: keyPEM}))
+
+	srv := httptest.NewServer(d.auth.Handler())
+	t.Cleanup(srv.Close)
+	endpoint := authtest.Issuer + iam.OAuthTokenPath
+	sign := func(typ, kid string, claims jwt.MapClaims) string {
+		tok := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+		tok.Header["typ"] = typ
+		if kid != "" {
+			tok.Header["kid"] = kid
+		}
+		s, err := tok.SignedString(key)
+		require.NoError(t, err)
+		return s
+	}
+	redeem := func(kid string) (int, map[string]any) {
+		now := time.Now()
+		assertion := sign("JWT", kid, jwt.MapClaims{"iss": issuer, "aud": endpoint, "sub": "customer-42", "jti": uuid.NewString(), "iat": now.Unix(), "exp": now.Add(time.Minute).Unix()})
+		res, err := srv.Client().PostForm(srv.URL+iam.OAuthTokenPath, url.Values{"grant_type": {"urn:ietf:params:oauth:grant-type:jwt-bearer"}, "assertion": {assertion}})
+		require.NoError(t, err)
+		defer res.Body.Close()
+		var out map[string]any
+		require.NoError(t, json.NewDecoder(res.Body).Decode(&out))
+		return res.StatusCode, out
+	}
+	access := func(kid string) error {
+		now := time.Now()
+		r := httptest.NewRequest(http.MethodGet, oauthResource+"/v1/things", nil)
+		r.Header.Set("Authorization", "Bearer "+sign("at+jwt", kid, jwt.MapClaims{"iss": issuer, "aud": oauthResource, "sub": "u-1", "client_id": "shop", "jti": uuid.NewString(), "iat": now.Unix(), "exp": now.Add(time.Minute).Unix()}))
+		_, err := d.auth.Authenticator().Authenticate(r)
+		return err
+	}
+	for _, kid := range []string{"", "k1"} {
+		status, out := redeem(kid)
+		require.Equal(t, http.StatusOK, status, "kid %q: %v", kid, out)
+		require.NoError(t, access(kid), "kid %q", kid)
+	}
+	status, out := redeem("k2")
+	require.Equal(t, http.StatusBadRequest, status, out)
+	require.Equal(t, "invalid_grant", out["error"])
+	require.ErrorIs(t, access("k2"), hauth.ErrUnauthenticated)
 }
 
 // TestResourceServerSCIMPush: a trusted issuer pushes its users to this

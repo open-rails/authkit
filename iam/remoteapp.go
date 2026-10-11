@@ -25,7 +25,8 @@ const (
 
 // RemoteApplicationKey is one entry of a static-mode application's human-managed key list
 // (stored as jsonb; edited like an authorized_keys file): exactly one of
-// PublicKeyPEM and JWK. An empty KID takes the JWK's kid.
+// PublicKeyPEM and JWK. Each key has a distinct kid: KID, else the JWK's, so
+// a PEM key needs KID. A token naming no kid selects a list's only key.
 type RemoteApplicationKey struct {
 	KID          string `json:"kid,omitempty" yaml:"kid,omitempty"`
 	PublicKeyPEM string `json:"public_key_pem" yaml:"public_key_pem"`

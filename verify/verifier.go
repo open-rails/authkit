@@ -194,7 +194,7 @@ func (v *Verifier) AddIssuer(issuerID string, audiences []string, opts IssuerOpt
 	}
 	if len(opts.Keys) > 0 {
 		sources++
-		static, err := staticKeys(opts.Keys)
+		static, err := jose.StaticKeys(opts.Keys)
 		if err != nil {
 			return err
 		}
@@ -227,25 +227,6 @@ func (v *Verifier) RemoveIssuer(issuerID string) {
 	defer v.mu.Unlock()
 	delete(v.issuers, issuerID)
 	v.keys.Drop(issuerID)
-}
-
-// staticKeys parses and validates a complete static key set.
-func staticKeys(set []iam.RemoteApplicationKey) (map[string]crypto.PublicKey, error) {
-	out := make(map[string]crypto.PublicKey, len(set))
-	for _, k := range set {
-		kid, pub, err := jose.StaticKey(k)
-		if err != nil {
-			return nil, fmt.Errorf("key %q: %w", kid, err)
-		}
-		if kid == "" || kid != strings.TrimSpace(kid) {
-			return nil, errors.New("key ID required without surrounding whitespace")
-		}
-		if _, dup := out[kid]; dup {
-			return nil, fmt.Errorf("duplicate key ID %q", kid)
-		}
-		out[kid] = pub
-	}
-	return out, nil
 }
 
 func (v *Verifier) issuer(iss string) (issuer, bool) {

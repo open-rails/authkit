@@ -175,7 +175,7 @@ func (h *host) registerApp(group iam.GroupRef, registrar account, slug, role str
 // upsertGroupApp registers or updates a static-key application in group.
 func (h *host) upsertGroupApp(who hauth.Identity, group iam.GroupRef, iss, keyPEM string, enabled bool) (iam.RemoteApplication, error) {
 	return h.auth.UpsertRemoteApplication(h.t.Context(), who, group, iam.RemoteApplication{
-		Issuer: iss, PublicKeys: []iam.RemoteApplicationKey{{PublicKeyPEM: keyPEM}}, Enabled: enabled,
+		Issuer: iss, PublicKeys: []iam.RemoteApplicationKey{{KID: "k1", PublicKeyPEM: keyPEM}}, Enabled: enabled,
 	})
 }
 

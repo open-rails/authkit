@@ -36,6 +36,7 @@ A trusted issuer is a [remote application](tokens.md#remote-applications): an is
   - one of the token's scopes covers it (`Resource.Scopes`).
 - An issuer is trusted in exactly one group. `Client.DeclareRemoteApplications(ctx, group, apps)` declares a group's issuers from configuration; `UpsertRemoteApplication` registers one at run time.
 - Keys come from `PublicKeys`, from `JWKSURI`, or with neither from the issuer's RFC 8414 metadata (`/.well-known/oauth-authorization-server`, else `/.well-known/openid-configuration`). Disabling or deleting the application stops its tokens on the next request.
+- Each of `PublicKeys` has a distinct `kid`: its `KID`, else its JWK's, so a PEM key needs `KID`; registration refuses one without (`invalid_remote_application`). A token or assertion naming no `kid` is verified with the issuer's only key.
 - The identity is the issuer's user, or the issuer's client acting for itself (`sub` = `client_id`, an application). The invoker is the user unless an RFC 8693 `act` claim names another. Contact claims (OIDC Core §5.1) fill the identity's email and username.
 - `CheckRecentSignIn` reads `auth_time`. A sign-in older than 15 minutes is RFC 9470's step-up: `WWW-Authenticate: Bearer error="insufficient_user_authentication", max_age=900`.
 

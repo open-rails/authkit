@@ -371,7 +371,7 @@ func TestSecurityRemoteApplicationPaging(t *testing.T) {
 	group, _ := h.newOrg(owner)
 	for _, slug := range []string{"page-a", "page-b", "page-c"} {
 		_, err := h.auth.UpsertRemoteApplication(ctx, iam.UserIdentity(owner.id), group, iam.RemoteApplication{
-			Issuer: "https://" + slug + ".security.test", PublicKeys: []iam.RemoteApplicationKey{{PublicKeyPEM: publicKeyPEM(t)}}, Enabled: true,
+			Issuer: "https://" + slug + ".security.test", PublicKeys: []iam.RemoteApplicationKey{{KID: "k1", PublicKeyPEM: publicKeyPEM(t)}}, Enabled: true,
 		})
 		require.NoError(t, err)
 	}
