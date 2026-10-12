@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -114,6 +115,10 @@ func (v resourceVerified) ClientID() string { return v.access.Claims.ClientID }
 
 // Scopes are the scopes the token was granted.
 func (v resourceVerified) Scopes() []string { return append([]string(nil), v.access.Claims.Scopes...) }
+
+// Entitlements are the token's entitlements claim, its issuer's snapshot at
+// mint; none for a token without one.
+func (v resourceVerified) Entitlements() []string { return slices.Clone(v.access.Claims.Entitlements) }
 
 // Asserted reports whether this deployment minted the token from a remote
 // application's RFC 7523 assertion: its backend's token for one of its users.

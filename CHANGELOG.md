@@ -10,6 +10,7 @@
 
 - JWKS keys and OIDC discovery are cached by `github.com/open-rails/helpers/cache` (#454) instead of AuthKit's own refresh loops; bounds are unchanged: keys refresh after 10 minutes (an unknown kid or failed signature refetches at once, at most every 30 seconds), discovery after an hour, both fail closed 4 hours after the last success. A failing issuer or IdP is retried, at most every 5 seconds, by the next token or login that needs it or by its health probe (`CheckIssuerKeys`, a provider's `CheckHealth`), which reads through the same cache, rather than by a background loop.
 - `Verifier.Close` releases the issuer-key cache's background work; the engine closes its own on `Close`.
+- Every Verified of `Client.Authenticator()`, `Verifier.Authenticator()` and `verify.AuthenticateRequest` or `AuthenticateSession` has `Entitlements() []string` (#455): the verified token's `entitlements` claim, its issuer's snapshot at mint (`Token.EntitlementAllowlist` for this deployment's own tokens). A token without the claim, an API key and a client's own token have none. ContentKit's Gate reads it as `access.Entitled`, answering a token-claim tier without a billing read.
 
 ## v1.25.0
 
