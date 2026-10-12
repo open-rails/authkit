@@ -172,10 +172,10 @@ func TestOIDCProviderOutageIsServiceUnavailable(t *testing.T) {
 	unavailable(start())
 	require.ErrorIs(t, health.CheckHealth(ctx), provider.ErrUnavailable)
 
-	// Recovery is background; the next login after it simply works.
+	// The next login after the failure backoff rediscovers and simply works.
 	idp.SetOutage(testidp.Up)
-	require.Eventually(t, func() bool { return health.CheckHealth(ctx) == nil }, 10*time.Second, 20*time.Millisecond)
-	require.Equal(t, http.StatusFound, start().status)
+	require.Eventually(t, func() bool { return start().status == http.StatusFound }, 10*time.Second, 100*time.Millisecond)
+	require.NoError(t, health.CheckHealth(ctx))
 
 	// Cached discovery keeps logins starting; a token endpoint outage during
 	// the exchange is 503, not 401.
