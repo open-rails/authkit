@@ -1,4 +1,3 @@
--- parent: 8 sha256:8474d0027d3cc4a9bc395470fc7906321877d3e11097c3388fdda257825ab5be
 -- An event names who made the change by its subject, invoker and credential
 -- (docs/identity.md); its delivery order is per stream (the user, else the
 -- application or group). Undelivered events keep what their old columns

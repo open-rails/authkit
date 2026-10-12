@@ -1,4 +1,3 @@
--- parent: 15 sha256:7ad442e483d42e059d63284e1835a9c81de6982561474e79b7100040030df73f
 -- Agreements (#449): each version of a document a user accepted, append-only.
 SET LOCAL lock_timeout = '10s';
 

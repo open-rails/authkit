@@ -1,4 +1,3 @@
--- parent: 11 sha256:4e4adf56e47b117c1a83eee1b967d39f52895749b029381aad6cce9d5b2f16dd
 -- v1 drops signed documents, application self-registration and custom roles.
 DROP TABLE signed_documents;
 DROP TABLE group_custom_roles;

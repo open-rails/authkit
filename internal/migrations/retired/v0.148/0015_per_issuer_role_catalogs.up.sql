@@ -1,4 +1,3 @@
--- parent: 14 sha256:171ebced2e2f931c664b3181d37059a21334f6b76fccf5479ce9e89462b90176
 -- Apps sharing an account store (Token.AccountIssuers) share membership, and
 -- each declares its own role catalog. A credential records the app that issued
 -- it; only that app's catalog judges it. NULL predates this: every app judges

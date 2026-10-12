@@ -1,4 +1,3 @@
--- parent: 12 sha256:824bf58f8ec02f55bfdefbf5a29356d109d7f1d96a03a0571740d144f9c55496
 -- The one definition of a usable account: not deleted, not reserved, and no
 -- ban in force (an expired temporary ban is no ban). Credential issuers,
 -- registrars and group owners count only while usable. Queries use it as

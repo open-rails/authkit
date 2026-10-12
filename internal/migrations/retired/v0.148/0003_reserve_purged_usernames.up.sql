@@ -1,4 +1,3 @@
--- parent: 2 sha256:f224a2cb39a8134f5c869e27f16baadcaf964b56884f89f97cc6d9e33303c21e
 -- Reserve a purged user's username permanently, as deleted groups' slugs are.
 -- Explicit pg_temp keeps temporary tables from shadowing AuthKit relations
 -- inside the captured function search path (as in 0001).

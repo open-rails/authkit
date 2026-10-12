@@ -1,4 +1,3 @@
--- parent: 5 sha256:59294d27b4e878380a12e155e1666a37252a9b7ce80f53ff146ad65589ebab74
 -- A credential never outlives its issuer. The operator issues invitations with
 -- no inviter, as it already issues API keys with no creator; a purged
 -- creator's keys go with the account instead of becoming creator-less. Keys an

@@ -1,4 +1,3 @@
--- parent: 12 sha256:fbb0d9e9dd05d03f7b2d57eff79a49776ba3c2e3ba4b5b7d8c8656258c1134e4
 -- A group's directory of its remote applications' users (SCIM 2.0, RFC 7643
 -- and RFC 7644): each known by its issuer and subject, which only together
 -- identify a user (OpenID Connect Core §2, §5.7). A SCIM client provisions

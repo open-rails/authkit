@@ -1,4 +1,3 @@
--- parent: root
 -- AuthKit v1 fresh PostgreSQL 18+ schema. Earlier prerelease schemas are unsupported.
 -- Migration is transactional; it never drops or adopts existing AuthKit tables.
 DO $$

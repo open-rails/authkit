@@ -133,7 +133,8 @@ if [[ "$mode" != workflows ]]; then
   release=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD)
   last=0
   for path in $(git ls-tree --name-only "$release" -- "$migrations/" | grep '\.sql$'); do
-    blob=$(git rev-parse "$release:$path")
+    # Releases through v1.24.0 carry migratekit's dead `-- parent:` header, which no ledger hashed.
+    blob=$(git cat-file blob "$release:$path" | sed '1{/^-- parent: /d;}' | git hash-object --stdin)
     number=$(basename "$path")
     number=${number%%_*}
     if [[ -f $path && $(git hash-object "$path") == "$blob" ]]; then

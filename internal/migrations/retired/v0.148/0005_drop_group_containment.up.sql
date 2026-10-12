@@ -1,4 +1,3 @@
--- parent: 4 sha256:555ccaad5d712be979db5102a5ce2cc679a4e7efbd1365c283711a894bc47298
 -- Permission groups are flat: root plus one level of persona groups. A role
 -- held on root applies in every group, so no parent link is stored.
 DROP TRIGGER permission_group_containment ON permission_groups;

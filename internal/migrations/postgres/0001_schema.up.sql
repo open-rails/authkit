@@ -1,4 +1,3 @@
--- parent: root
 -- AuthKit's PostgreSQL 18+ schema. A table comes before every table that
 -- references it and is followed by its indexes, comments, functions and
 -- triggers. The migration is transactional and never drops or adopts existing

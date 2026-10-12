@@ -1,4 +1,3 @@
--- parent: 1 sha256:c5e953e22e2b79c840c691d5b80e440df4ab14b7df1a21e04d01e489762f51bd
 -- Retain inactive groups without changing existing hard-delete behavior.
 ALTER TABLE permission_groups ADD COLUMN deleted_at timestamptz;
 ALTER TABLE permission_groups ADD CONSTRAINT permission_groups_root_active CHECK (persona <> 'root' OR deleted_at IS NULL);
