@@ -266,3 +266,52 @@ func TestPeerJWKSStaleKeysCappedAtMaxStale(t *testing.T) {
 	require.False(t, st.Expired)
 	require.Less(t, st.Age, time.Minute)
 }
+
+// CheckIssuerKeys retries a failing issuer through the key cache, at most once
+// per failure backoff, so it turns healthy once the issuer recovers without
+// any token naming it.
+func TestPeerJWKSHealthProbeRecovers(t *testing.T) {
+	peer := newTestIssuer(t, "https://peer.example")
+	provider := newJWKSProvider(t, peer.signer)
+	clock := &testClock{}
+	backoff := 50 * time.Millisecond
+	v := testKeysVerifier(clock, 300*time.Millisecond, backoff)
+	require.NoError(t, v.AddIssuer(peer.url, []string{testAudience}, IssuerOptions{JWKSURI: provider.URL}))
+	verify := func() error {
+		_, err := v.Verify(t.Context(), peer.token(t, "peer-user"))
+		return err
+	}
+	probe := func() error { return v.CheckIssuerKeys(t.Context()) }
+	// probesFetchAtMostPerBackoff probes for a while and bounds the fetches.
+	probesFetchAtMostPerBackoff := func() {
+		hits, start := provider.hits.Load(), time.Now()
+		for time.Since(start) < 300*time.Millisecond {
+			require.Error(t, probe())
+		}
+		require.LessOrEqual(t, provider.hits.Load()-hits, 2*int32(time.Since(start)/backoff)+2, "thousands of probes, a few fetches")
+	}
+
+	require.NoError(t, probe(), "an issuer no token needed yet is not fetched")
+	require.Zero(t, provider.hits.Load())
+
+	// Down before its keys were ever fetched.
+	provider.mode.Store("503")
+	require.ErrorIs(t, verify(), errmodel.E(errmodel.CodeIssuerKeysUnavailable))
+	probesFetchAtMostPerBackoff()
+	provider.mode.Store("up")
+	require.Eventually(t, func() bool { return probe() == nil }, 5*time.Second, 10*time.Millisecond)
+	hits := provider.hits.Load()
+	require.NoError(t, verify())
+	require.Equal(t, hits, provider.hits.Load(), "the probe loaded the keys")
+
+	// Down after, with stale keys: probes alone see it fail and recover.
+	provider.mode.Store("503")
+	clock.advance(cachepolicy.IssuerKeys.RefreshAfter + time.Minute)
+	require.Eventually(t, func() bool { return probe() != nil }, 5*time.Second, 10*time.Millisecond)
+	require.ErrorContains(t, probe(), "stale")
+	probesFetchAtMostPerBackoff()
+	provider.mode.Store("up")
+	require.Eventually(t, func() bool { return probe() == nil }, 5*time.Second, 10*time.Millisecond)
+	require.True(t, v.IssuerKeyStatuses()[0].Fresh)
+	require.NoError(t, verify())
+}

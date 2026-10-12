@@ -57,7 +57,7 @@ mux.Handle("/api/", verify.Required(v)(api))
 ```
 
 - The verifier caches JWKS keys for 10 minutes, and refetches (at most every 30 seconds) when a token names an unknown `kid`, so key rotations need no restart ([keys](keys.md)).
-- While fetches fail, the cached keys keep verifying for up to 4 hours after the last success (`IssuerKeyStatus.MaxStale`). After that, the issuer's tokens fail with 503 `issuer_keys_unavailable`. `CheckIssuerKeys` reports this state for health probes; the next token naming a failing issuer retries it.
+- While fetches fail, the cached keys keep verifying for up to 4 hours after the last success (`IssuerKeyStatus.MaxStale`). After that, the issuer's tokens fail with 503 `issuer_keys_unavailable`. `CheckIssuerKeys` reports this state for health probes and retries a failing issuer (at most every 5 seconds), so it turns healthy once the issuer recovers.
 - Such a verifier can't check sessions or permissions, so only `Required` and `Optional` work with it. A service on the same database gets the live gates from `Client.NewVerifier(audiences)`.
 
 ## Remote applications

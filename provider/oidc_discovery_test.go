@@ -40,16 +40,23 @@ func TestOIDCDiscoveryServesStaleAndRecovers(t *testing.T) {
 	require.ErrorIs(t, err, ErrUnavailable)
 	require.ErrorIs(t, p.CheckHealth(t.Context()), ErrUnavailable)
 
-	// The next login after the failure backoff recovers it.
+	// The health probe rediscovers, at most once per failure backoff, so it
+	// turns healthy without a login.
+	start, calls := time.Now(), hits.Load()
+	for time.Since(start) < 200*time.Millisecond {
+		require.ErrorIs(t, p.CheckHealth(t.Context()), ErrUnavailable)
+	}
+	require.LessOrEqual(t, hits.Load()-calls, 2*int32(time.Since(start)/(20*time.Millisecond))+2)
 	down.Store(false)
-	require.Eventually(t, func() bool { _, err := authURL(); return err == nil }, 5*time.Second, 10*time.Millisecond)
-	require.NoError(t, p.CheckHealth(t.Context()))
+	require.Eventually(t, func() bool { return p.CheckHealth(t.Context()) == nil }, 5*time.Second, 10*time.Millisecond)
+	calls = hits.Load()
 	u, err := authURL()
 	require.NoError(t, err)
 	require.Contains(t, u, srv.URL+"/authorize")
 
+	require.Equal(t, calls, hits.Load(), "the probe cached discovery")
+
 	// Cached: no rediscovery before RefreshAfter.
-	calls := hits.Load()
 	for range 10 {
 		_, err = authURL()
 		require.NoError(t, err)
@@ -70,5 +77,5 @@ func TestOIDCDiscoveryServesStaleAndRecovers(t *testing.T) {
 	require.Eventually(t, func() bool { return errors.Is(p.CheckHealth(t.Context()), ErrUnavailable) }, 5*time.Second, 10*time.Millisecond)
 
 	down.Store(false)
-	require.Eventually(t, func() bool { _, _ = authURL(); return p.CheckHealth(t.Context()) == nil }, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return p.CheckHealth(t.Context()) == nil }, 5*time.Second, 10*time.Millisecond)
 }

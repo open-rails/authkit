@@ -351,13 +351,14 @@ func (v *Verifier) IssuerKeyStatuses() []IssuerKeyStatus {
 	return nil
 }
 
-// CheckIssuerKeys is a no-I/O health probe: it fails naming every JWKS
-// issuer whose last key fetch failed, with the age of its keys and whether
-// they are past MaxStale (its tokens then fail closed). Other issuers are
-// unaffected. A failing issuer is retried by the next token that names it.
-func (v *Verifier) CheckIssuerKeys(context.Context) error {
+// CheckIssuerKeys is a health probe: it fails naming every JWKS issuer whose
+// last key fetch failed, with the age of its keys and whether they are past
+// MaxStale (its tokens then fail closed). Other issuers are unaffected. It
+// retries a failing issuer through the key cache (at most every 5 seconds),
+// so the probe turns healthy once the issuer recovers, without token traffic.
+func (v *Verifier) CheckIssuerKeys(ctx context.Context) error {
 	if keys := v.jwks(); keys != nil {
-		return keys.Check()
+		return keys.Check(ctx)
 	}
 	return nil
 }

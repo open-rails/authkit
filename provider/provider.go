@@ -94,8 +94,9 @@ type Provider interface {
 }
 
 // HealthChecker is implemented by providers that cache remote state (OIDC
-// discovery). CheckHealth performs no I/O, so a host can register it as an
-// optional dependency probe.
+// discovery). CheckHealth retries a failing provider through its cache, at
+// most once per failure backoff, so a host can register it as a dependency
+// probe that turns healthy once the provider recovers.
 type HealthChecker interface {
 	CheckHealth(ctx context.Context) error
 }

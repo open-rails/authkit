@@ -335,10 +335,25 @@ func (c *Cache) Statuses() []Status {
 	return out
 }
 
-// Check is a no-I/O health probe: it fails naming every issuer whose last
-// fetch failed, with the age of its keys and whether they are past MaxStale.
-// A failing issuer is retried by the next token that names it.
-func (c *Cache) Check() error {
+// Check is a health probe. It reads each issuer a token has needed through
+// the cache, so a failing one is retried without token traffic (at most once
+// per failure backoff), then fails naming every issuer whose last fetch
+// failed, with the age of its keys and whether they are past MaxStale.
+func (c *Cache) Check(ctx context.Context) error {
+	c.mu.Lock()
+	var used []Issuer
+	for _, h := range c.health {
+		if !h.checkedAt.IsZero() {
+			used = append(used, h.is)
+		}
+	}
+	c.mu.Unlock()
+	var wg sync.WaitGroup
+	for _, is := range used {
+		wg.Go(func() { _, _ = c.keys.Get(ctx, []Issuer{is}) })
+	}
+	wg.Wait()
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	now := c.now()

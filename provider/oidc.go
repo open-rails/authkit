@@ -56,10 +56,17 @@ func (p *oidcProvider) SupportsStepUp() bool { return true }
 
 func (p *oidcProvider) Validate() error { return p.validate() }
 
-// CheckHealth reports the last discovery failure without network I/O; nil
-// once discovery has succeeded (or before it was first needed). A failing
-// provider is retried by the next login.
-func (p *oidcProvider) CheckHealth(context.Context) error {
+// CheckHealth reports the last discovery failure; nil once discovery has
+// succeeded (or before it was first needed). It reads discovery through the
+// cache, so a failing provider is retried without logins (at most once per
+// failure backoff).
+func (p *oidcProvider) CheckHealth(ctx context.Context) error {
+	p.mu.Lock()
+	used := !p.fetchedAt.IsZero() || p.lastErr != nil
+	p.mu.Unlock()
+	if used {
+		_, _ = p.disc.Get(ctx, []string{p.issuer})
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if !p.fetchedAt.IsZero() && cachepolicy.Now(p.opts).Sub(p.fetchedAt) > p.opts.MaxStale {
