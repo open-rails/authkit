@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.26.0
+
+### Breaking
+
+- `verify.IssuerOptions.CacheTTL` and `MaxStale` are removed (#454): AuthKit sets every read cache's policy in one place (`internal/cachepolicy`). A JWKS issuer's keys refresh every 10 minutes and keep verifying while fetches fail for up to 4 hours, as the defaults did; delete the fields from `AddIssuer` calls.
+
+### Changes
+
+- JWKS keys and OIDC discovery are cached by `github.com/open-rails/helpers/cache` (#454) instead of AuthKit's own refresh loops; bounds are unchanged: keys refresh after 10 minutes (an unknown kid or failed signature refetches at once, at most every 30 seconds), discovery after an hour, both fail closed 4 hours after the last success. A failing issuer or IdP is retried, at most every 5 seconds, by the next token or login that needs it or by its health probe (`CheckIssuerKeys`, a provider's `CheckHealth`), which reads through the same cache, rather than by a background loop.
+- `Verifier.Close` releases the issuer-key cache's background work; the engine closes its own on `Close`.
+
 ## v1.25.0
 
 - auth-ui `UsersAdmin` and `UserAccountSummary` (#453) in `@openrails/auth-ui/admin`, over AuthKit's existing account routes (`/admin/users…`) and the root group's membership: the user directory with its filters in the URL, and each account's page (profile edit, ban with an end, delete and restore, sessions, sign-in history, root role, root invitations). For hosts composing their own admin area and the standalone OpenRails server's console (its users tab), which add panels and ban or delete warnings through `userPanels` and `confirmWarnings`; `UserAccountSummary` is for another page, such as OpenRails' billing customer. No route changed.

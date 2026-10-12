@@ -23,10 +23,11 @@ require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
+	github.com/maypok86/otter/v2 v2.3.1-0.20261012174237-6b4979235160 // indirect
 	github.com/mr-tron/base58 v1.3.0 // indirect
 	github.com/muhlemmer/gu v0.3.1 // indirect
 	github.com/nyaruka/phonenumbers v1.8.1 // indirect
-	github.com/open-rails/helpers v1.9.0 // indirect
+	github.com/open-rails/helpers v1.12.0 // indirect
 	github.com/open-rails/migratekit v1.11.0 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/redis/go-redis/v9 v9.22.0 // indirect

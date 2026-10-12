@@ -1778,6 +1778,7 @@ pkg authkit/verify, func WithStoredDPoPNonces() VerifierOption
 pkg authkit/verify, method (*Verifier) AddIssuer(string, []string, IssuerOptions) error
 pkg authkit/verify, method (*Verifier) AuthenticateRequest(context.Context, *http.Request) (auth.Verified, error)
 pkg authkit/verify, method (*Verifier) CheckIssuerKeys(context.Context) error
+pkg authkit/verify, method (*Verifier) Close()
 pkg authkit/verify, method (*Verifier) IssuerKeyStatuses() []IssuerKeyStatus
 pkg authkit/verify, method (*Verifier) RemoveIssuer(string)
 pkg authkit/verify, method (*Verifier) Verify(context.Context, string) (Claims, error)
@@ -1844,12 +1845,10 @@ pkg authkit/verify, type IssuerKeyStatus struct, Keys int
 pkg authkit/verify, type IssuerKeyStatus struct, LastError string
 pkg authkit/verify, type IssuerKeyStatus struct, MaxStale time.Duration
 pkg authkit/verify, type IssuerOptions struct
-pkg authkit/verify, type IssuerOptions struct, CacheTTL time.Duration
 pkg authkit/verify, type IssuerOptions struct, IsLocal bool
 pkg authkit/verify, type IssuerOptions struct, JWKSURI string
 pkg authkit/verify, type IssuerOptions struct, KeySource keys.Source
 pkg authkit/verify, type IssuerOptions struct, Keys []iam.RemoteApplicationKey
-pkg authkit/verify, type IssuerOptions struct, MaxStale time.Duration
 pkg authkit/verify, type PermissionChecker interface
 pkg authkit/verify, type PermissionChecker interface, Can(context.Context, auth.Identity, iam.GroupRef, iam.Perm) (bool, error)
 pkg authkit/verify, type PermissionChecker interface, KnownPermission(iam.Perm) bool

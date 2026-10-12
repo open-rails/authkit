@@ -43,4 +43,4 @@ Across replicas, a new key reaches each one within 10 seconds. In that window, a
 
 ## Emergency rotation
 
-If a key may be compromised, do step 2 without keeping the old public key. Within 10 seconds AuthKit stops accepting tokens signed with it, and other verifiers stop when they next refetch; lower their `IssuerOptions.CacheTTL` to shorten that. Users with those tokens sign in again, or refresh: refresh tokens are opaque and not signed.
+If a key may be compromised, do step 2 without keeping the old public key. Within 10 seconds AuthKit stops accepting tokens signed with it, and other verifiers stop when they next refetch: at the first token signed with the new key, and within 10 minutes. Users with those tokens sign in again, or refresh: refresh tokens are opaque and not signed.

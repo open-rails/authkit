@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/cachepolicy"
 	"github.com/open-rails/authkit/internal/dpop"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/jose"
@@ -32,10 +33,11 @@ type Verifier struct {
 	dpopNonces dpop.NonceSource
 	publicURL  string
 	hosts      func(ctx context.Context, host string) (bool, error)
-	keys       *jwks.Cache
+	client     *http.Client
 
 	mu      sync.RWMutex
 	issuers map[string]issuer
+	keys    *jwks.Cache // built with the first JWKS issuer
 }
 
 // issuer is one trusted issuer: its audiences and exactly one key source.
@@ -123,7 +125,7 @@ func NewVerifier(opts ...VerifierOption) *Verifier {
 		skew:      cfg.skew,
 		publicURL: cfg.publicURL,
 		hosts:     cfg.hosts,
-		keys:      jwks.New(cfg.client),
+		client:    cfg.client,
 		issuers:   map[string]issuer{},
 	}
 	if cfg.dpop {
@@ -145,9 +147,11 @@ func NewVerifier(opts ...VerifierOption) *Verifier {
 // IssuerOptions is where an issuer's keys come from: exactly one of JWKSURI,
 // Keys and KeySource.
 type IssuerOptions struct {
-	// JWKSURI is fetched on first use and refreshed in the background when
-	// its keys expire or an unknown kid arrives. Expired keys keep verifying
-	// while refreshes fail, up to MaxStale.
+	// JWKSURI is fetched on first use, refreshed every 10 minutes and when an
+	// unknown kid arrives. Its keys keep verifying while refreshes fail, up to
+	// 4 hours after the last successful fetch; past that the issuer's tokens
+	// fail with 503 issuer_keys_unavailable, so blocking the fetch cannot keep
+	// a revoked key valid.
 	JWKSURI string
 	// Keys are static public keys (PEM or JWK), each with its kid. Replace
 	// them by calling AddIssuer again.
@@ -155,14 +159,6 @@ type IssuerOptions struct {
 	// KeySource is read live on every verification: a co-located, rotating
 	// key source such as AuthKit's own.
 	KeySource keys.Source
-
-	// CacheTTL is how long fetched JWKS keys are fresh (default 10m).
-	CacheTTL time.Duration
-	// MaxStale bounds how long after the last successful fetch JWKS keys
-	// keep verifying while refreshes fail, so a peer's key revocation cannot
-	// be suppressed by blocking the fetch. Past it the issuer's tokens fail
-	// with 503 issuer_keys_unavailable. Default 4h; never below CacheTTL.
-	MaxStale time.Duration
 
 	// IsLocal marks the issuer whose users are this host's own: only its
 	// access tokens set Claims.UserID (others set Subject).
@@ -190,7 +186,7 @@ func (v *Verifier) AddIssuer(issuerID string, audiences []string, opts IssuerOpt
 	sources := 0
 	if url := strings.TrimSpace(opts.JWKSURI); url != "" {
 		sources++
-		is.jwks = &jwks.Issuer{Issuer: issuerID, URL: url, TTL: opts.CacheTTL, MaxStale: opts.MaxStale}
+		is.jwks = &jwks.Issuer{Issuer: issuerID, URL: url}
 	}
 	if len(opts.Keys) > 0 {
 		sources++
@@ -214,7 +210,13 @@ func (v *Verifier) AddIssuer(issuerID string, audiences []string, opts IssuerOpt
 		return errors.New("refusing to overwrite local issuer with non-local registration")
 	}
 	v.issuers[issuerID] = is
-	if is.jwks == nil {
+	switch {
+	case is.jwks != nil:
+		if v.keys == nil {
+			v.keys = jwks.New(v.client, cachepolicy.IssuerKeys)
+		}
+		v.keys.Register(*is.jwks)
+	case v.keys != nil:
 		v.keys.Drop(issuerID)
 	}
 	return nil
@@ -226,7 +228,17 @@ func (v *Verifier) RemoveIssuer(issuerID string) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	delete(v.issuers, issuerID)
-	v.keys.Drop(issuerID)
+	if v.keys != nil {
+		v.keys.Drop(issuerID)
+	}
+}
+
+// Close releases the issuer-key cache's background work. The Verifier keeps
+// verifying.
+func (v *Verifier) Close() {
+	if keys := v.jwks(); keys != nil {
+		keys.Close()
+	}
 }
 
 func (v *Verifier) issuer(iss string) (issuer, bool) {
@@ -236,12 +248,18 @@ func (v *Verifier) issuer(iss string) (issuer, bool) {
 	return is, ok
 }
 
+func (v *Verifier) jwks() *jwks.Cache {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.keys
+}
+
 func (v *Verifier) key(ctx context.Context, is issuer, kid string) (crypto.PublicKey, error) {
 	switch {
 	case is.source != nil:
 		return jwks.Select(is.source.PublicKeys(), kid)
 	case is.jwks != nil:
-		return v.keys.Key(ctx, *is.jwks, kid)
+		return v.jwks().Key(ctx, *is.jwks, kid)
 	}
 	return jwks.Select(is.static, kid)
 }
@@ -273,7 +291,7 @@ func (v *Verifier) parse(ctx context.Context, token string) (string, map[string]
 	typ, claims, err := jose.Verify(token, keyFor)
 	// A signature failing under cached JWKS keys may be a rotated key that
 	// kept its kid: refetch once (throttled) and retry.
-	if errors.Is(err, jose.ErrSignature) && found && match.jwks != nil && v.keys.Refresh(ctx, *match.jwks) {
+	if errors.Is(err, jose.ErrSignature) && found && match.jwks != nil && v.jwks().Refresh(ctx, *match.jwks) {
 		typ, claims, err = jose.Verify(token, keyFor)
 	}
 	if errmodel.CodeOf(err) == errmodel.CodeIssuerKeysUnavailable {
@@ -326,10 +344,21 @@ func (v *Verifier) checkClaims(claims map[string]any, is issuer) error {
 type IssuerKeyStatus = jwks.Status
 
 // IssuerKeyStatuses reports every JWKS issuer's key state, sorted by issuer.
-func (v *Verifier) IssuerKeyStatuses() []IssuerKeyStatus { return v.keys.Statuses() }
+func (v *Verifier) IssuerKeyStatuses() []IssuerKeyStatus {
+	if keys := v.jwks(); keys != nil {
+		return keys.Statuses()
+	}
+	return nil
+}
 
-// CheckIssuerKeys is a no-I/O health probe: it fails naming every JWKS
-// issuer whose last key fetch failed, with the age of its keys and whether
-// they are past MaxStale (its tokens then fail closed). Other issuers are
-// unaffected.
-func (v *Verifier) CheckIssuerKeys(context.Context) error { return v.keys.Check() }
+// CheckIssuerKeys is a health probe: it fails naming every JWKS issuer whose
+// last key fetch failed, with the age of its keys and whether they are past
+// MaxStale (its tokens then fail closed). Other issuers are unaffected. It
+// retries a failing issuer through the key cache (at most every 5 seconds),
+// so the probe turns healthy once the issuer recovers, without token traffic.
+func (v *Verifier) CheckIssuerKeys(ctx context.Context) error {
+	if keys := v.jwks(); keys != nil {
+		return keys.Check(ctx)
+	}
+	return nil
+}

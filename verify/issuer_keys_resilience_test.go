@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/cachepolicy"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/jose"
+	"github.com/open-rails/authkit/internal/jwks"
 	"github.com/open-rails/authkit/internal/testkeys"
 	"github.com/open-rails/authkit/keys"
 	"github.com/stretchr/testify/assert"
@@ -20,6 +22,22 @@ import (
 )
 
 const testAudience = "test-app"
+
+// testClock is real time moved by offset.
+type testClock struct{ offset atomic.Int64 }
+
+func (c *testClock) Now() time.Time          { return time.Now().Add(time.Duration(c.offset.Load())) }
+func (c *testClock) advance(d time.Duration) { c.offset.Add(int64(d)) }
+
+// testKeysVerifier is a Verifier whose issuer-key cache runs the production
+// policy on clock, with a short load timeout and failure backoff.
+func testKeysVerifier(clock *testClock, loadTimeout, backoff time.Duration) *Verifier {
+	o := cachepolicy.IssuerKeys
+	o.Clock, o.LoadTimeout, o.FailureBackoff = clock, loadTimeout, backoff
+	v := NewVerifier()
+	v.keys = jwks.New(nil, o)
+	return v
+}
 
 // testIssuer is an issuer URL and the key its tokens are signed with.
 type testIssuer struct {
@@ -86,12 +104,12 @@ func TestPeerJWKSOutageFailsOnlyPeerTokens(t *testing.T) {
 	local, peer := newTestIssuer(t, "https://local.example"), newTestIssuer(t, "https://peer.example")
 	provider := newJWKSProvider(t, peer.signer)
 
-	v := NewVerifier()
-	v.keys.AttemptTimeout, v.keys.BackoffBase, v.keys.BackoffMax = 300*time.Millisecond, 20*time.Millisecond, 100*time.Millisecond
+	clock := &testClock{}
+	v := testKeysVerifier(clock, 300*time.Millisecond, 200*time.Millisecond)
 	require.NoError(t, v.AddIssuer(local.url, []string{testAudience}, IssuerOptions{
 		IsLocal: true, KeySource: testkeys.Source(local.signer),
 	}))
-	require.NoError(t, v.AddIssuer(peer.url, []string{testAudience}, IssuerOptions{JWKSURI: provider.URL, CacheTTL: 100 * time.Millisecond}))
+	require.NoError(t, v.AddIssuer(peer.url, []string{testAudience}, IssuerOptions{JWKSURI: provider.URL}))
 
 	h := Required(v)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 	call := func(token string) (int, string, time.Duration) {
@@ -113,36 +131,46 @@ func TestPeerJWKSOutageFailsOnlyPeerTokens(t *testing.T) {
 	}
 
 	// Peer unreachable before its keys were ever fetched: one bounded wait,
-	// then 503 issuer_keys_unavailable; later requests fail fast.
+	// then 503 issuer_keys_unavailable; within the failure backoff later
+	// requests fail fast without refetching.
 	provider.mode.Store("hang")
 	code, errCode, took := call(peerToken)
 	require.Equal(t, http.StatusServiceUnavailable, code)
 	require.Equal(t, string(errmodel.CodeIssuerKeysUnavailable), errCode)
 	require.Less(t, took, 2*time.Second)
 	provider.mode.Store("reset")
+	hits := provider.hits.Load()
 	for range 5 {
 		code, errCode, took = call(peerToken)
 		require.Equal(t, http.StatusServiceUnavailable, code)
 		require.Equal(t, string(errmodel.CodeIssuerKeysUnavailable), errCode)
 		require.Less(t, took, 200*time.Millisecond)
 	}
+	require.LessOrEqual(t, provider.hits.Load()-hits, int32(1), "an absent issuer's failed fetch must back off")
 	code, _, _ = call(localToken)
 	require.Equal(t, http.StatusOK, code)
 	require.Error(t, v.CheckIssuerKeys(t.Context()))
 	require.Positive(t, status().Failures)
 
-	// Recovery happens in the background, without request traffic.
+	// The next token naming the peer after the backoff recovers it.
 	provider.mode.Store("up")
-	require.Eventually(t, func() bool { return v.CheckIssuerKeys(t.Context()) == nil }, 5*time.Second, 10*time.Millisecond)
-	code, _, _ = call(peerToken)
-	require.Equal(t, http.StatusOK, code)
+	require.Eventually(t, func() bool { code, _, _ := call(peerToken); return code == http.StatusOK }, 5*time.Second, 10*time.Millisecond)
+	require.NoError(t, v.CheckIssuerKeys(t.Context()))
 	require.True(t, status().Fresh)
+
+	// Reads are cached: no fetch until the keys are due for refresh.
+	hits = provider.hits.Load()
+	for range 20 {
+		code, _, _ = call(peerToken)
+		require.Equal(t, http.StatusOK, code)
+	}
+	require.Equal(t, hits, provider.hits.Load())
 
 	// Peer down after keys were cached: stale keys keep serving without
 	// waiting on the (hanging) refresh, which is single-flighted.
 	provider.mode.Store("hang")
 	provider.maxConc.Store(0)
-	time.Sleep(150 * time.Millisecond) // past CacheTTL
+	clock.advance(cachepolicy.IssuerKeys.RefreshAfter + time.Minute)
 	var wg sync.WaitGroup
 	for range 20 {
 		wg.Go(func() {
@@ -161,15 +189,20 @@ func TestPeerJWKSOutageFailsOnlyPeerTokens(t *testing.T) {
 	require.Equal(t, http.StatusOK, code)
 	require.EqualValues(t, 1, provider.maxConc.Load(), "refresh must be single-flighted")
 
+	// A failing refresh backs off however many tokens arrive.
 	provider.mode.Store("503")
-	hits := provider.hits.Load()
-	time.Sleep(300 * time.Millisecond)
+	hits = provider.hits.Load()
+	for deadline := time.Now().Add(300 * time.Millisecond); time.Now().Before(deadline); {
+		code, _, _ = call(peerToken)
+		require.Equal(t, http.StatusOK, code)
+	}
 	require.Less(t, provider.hits.Load()-hits, int32(30), "failing refresh must back off")
 
 	provider.mode.Store("up")
-	require.Eventually(t, func() bool { return status().Fresh && v.CheckIssuerKeys(t.Context()) == nil }, 5*time.Second, 10*time.Millisecond)
-	code, _, _ = call(peerToken)
-	require.Equal(t, http.StatusOK, code)
+	require.Eventually(t, func() bool {
+		call(peerToken)
+		return status().Fresh && v.CheckIssuerKeys(t.Context()) == nil
+	}, 5*time.Second, 10*time.Millisecond)
 }
 
 // Stale peer keys verify only up to MaxStale after the last successful fetch;
@@ -179,14 +212,12 @@ func TestPeerJWKSStaleKeysCappedAtMaxStale(t *testing.T) {
 	local, peer := newTestIssuer(t, "https://local.example"), newTestIssuer(t, "https://peer.example")
 	provider := newJWKSProvider(t, peer.signer)
 
-	var offset atomic.Int64
-	v := NewVerifier()
-	v.keys.Now = func() time.Time { return time.Now().Add(time.Duration(offset.Load())) }
-	v.keys.AttemptTimeout, v.keys.BackoffBase, v.keys.BackoffMax = 300*time.Millisecond, 10*time.Millisecond, 50*time.Millisecond
+	clock := &testClock{}
+	v := testKeysVerifier(clock, 300*time.Millisecond, 20*time.Millisecond)
 	require.NoError(t, v.AddIssuer(local.url, []string{testAudience}, IssuerOptions{
 		IsLocal: true, KeySource: testkeys.Source(local.signer),
 	}))
-	require.NoError(t, v.AddIssuer(peer.url, []string{testAudience}, IssuerOptions{JWKSURI: provider.URL, CacheTTL: time.Minute, MaxStale: time.Hour}))
+	require.NoError(t, v.AddIssuer(peer.url, []string{testAudience}, IssuerOptions{JWKSURI: provider.URL}))
 
 	h := Required(v)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 	call := func(token string) (int, string) {
@@ -201,23 +232,25 @@ func TestPeerJWKSStaleKeysCappedAtMaxStale(t *testing.T) {
 	localToken := local.token(t, "local-user")
 	peerToken := peer.token(t, "peer-user")
 	status := func() IssuerKeyStatus { return v.IssuerKeyStatuses()[0] }
+	maxStale := cachepolicy.IssuerKeys.MaxStale
 
 	code, _ := call(peerToken)
 	require.Equal(t, http.StatusOK, code)
+	require.Equal(t, maxStale, status().MaxStale)
 
 	provider.mode.Store("503")
-	offset.Store(int64(30 * time.Minute)) // past CacheTTL, inside MaxStale
+	clock.advance(maxStale - time.Hour) // past RefreshAfter, inside MaxStale
 	code, _ = call(peerToken)
 	require.Equal(t, http.StatusOK, code)
 	require.Eventually(t, func() bool { return status().Failures > 0 }, 5*time.Second, 10*time.Millisecond)
 	st := status()
 	require.False(t, st.Expired)
-	require.GreaterOrEqual(t, st.Age, 30*time.Minute)
+	require.GreaterOrEqual(t, st.Age, maxStale-time.Hour)
 	require.ErrorContains(t, v.CheckIssuerKeys(t.Context()), "stale")
 	code, _ = call(peerToken)
 	require.Equal(t, http.StatusOK, code)
 
-	offset.Store(int64(61 * time.Minute)) // past MaxStale
+	clock.advance(time.Hour + time.Minute) // past MaxStale
 	code, errCode := call(peerToken)
 	require.Equal(t, http.StatusServiceUnavailable, code)
 	require.Equal(t, string(errmodel.CodeIssuerKeysUnavailable), errCode)
@@ -227,10 +260,58 @@ func TestPeerJWKSStaleKeysCappedAtMaxStale(t *testing.T) {
 	require.ErrorContains(t, v.CheckIssuerKeys(t.Context()), "failing closed")
 
 	provider.mode.Store("up")
-	require.Eventually(t, func() bool { return v.CheckIssuerKeys(t.Context()) == nil }, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { code, _ := call(peerToken); return code == http.StatusOK }, 5*time.Second, 10*time.Millisecond)
+	require.NoError(t, v.CheckIssuerKeys(t.Context()))
 	st = status()
 	require.False(t, st.Expired)
 	require.Less(t, st.Age, time.Minute)
-	code, _ = call(peerToken)
-	require.Equal(t, http.StatusOK, code)
+}
+
+// CheckIssuerKeys retries a failing issuer through the key cache, at most once
+// per failure backoff, so it turns healthy once the issuer recovers without
+// any token naming it.
+func TestPeerJWKSHealthProbeRecovers(t *testing.T) {
+	peer := newTestIssuer(t, "https://peer.example")
+	provider := newJWKSProvider(t, peer.signer)
+	clock := &testClock{}
+	backoff := 50 * time.Millisecond
+	v := testKeysVerifier(clock, 300*time.Millisecond, backoff)
+	require.NoError(t, v.AddIssuer(peer.url, []string{testAudience}, IssuerOptions{JWKSURI: provider.URL}))
+	verify := func() error {
+		_, err := v.Verify(t.Context(), peer.token(t, "peer-user"))
+		return err
+	}
+	probe := func() error { return v.CheckIssuerKeys(t.Context()) }
+	// probesFetchAtMostPerBackoff probes for a while and bounds the fetches.
+	probesFetchAtMostPerBackoff := func() {
+		hits, start := provider.hits.Load(), time.Now()
+		for time.Since(start) < 300*time.Millisecond {
+			require.Error(t, probe())
+		}
+		require.LessOrEqual(t, provider.hits.Load()-hits, 2*int32(time.Since(start)/backoff)+2, "thousands of probes, a few fetches")
+	}
+
+	require.NoError(t, probe(), "an issuer no token needed yet is not fetched")
+	require.Zero(t, provider.hits.Load())
+
+	// Down before its keys were ever fetched.
+	provider.mode.Store("503")
+	require.ErrorIs(t, verify(), errmodel.E(errmodel.CodeIssuerKeysUnavailable))
+	probesFetchAtMostPerBackoff()
+	provider.mode.Store("up")
+	require.Eventually(t, func() bool { return probe() == nil }, 5*time.Second, 10*time.Millisecond)
+	hits := provider.hits.Load()
+	require.NoError(t, verify())
+	require.Equal(t, hits, provider.hits.Load(), "the probe loaded the keys")
+
+	// Down after, with stale keys: probes alone see it fail and recover.
+	provider.mode.Store("503")
+	clock.advance(cachepolicy.IssuerKeys.RefreshAfter + time.Minute)
+	require.Eventually(t, func() bool { return probe() != nil }, 5*time.Second, 10*time.Millisecond)
+	require.ErrorContains(t, probe(), "stale")
+	probesFetchAtMostPerBackoff()
+	provider.mode.Store("up")
+	require.Eventually(t, func() bool { return probe() == nil }, 5*time.Second, 10*time.Millisecond)
+	require.True(t, v.IssuerKeyStatuses()[0].Fresh)
+	require.NoError(t, verify())
 }

@@ -13,6 +13,7 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/cachepolicy"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/internal/testkeys"
@@ -28,13 +29,13 @@ type peerFixture struct {
 	issuer   string
 	aud      string
 	serve    atomic.Value // http.HandlerFunc
-	offset   atomic.Int64
+	clock    testClock
 	local    keys.Signer
 	handler  http.Handler
 	jwksHits atomic.Int32
 }
 
-func newPeerFixture(t *testing.T, opts IssuerOptions) *peerFixture {
+func newPeerFixture(t *testing.T) *peerFixture {
 	f := &peerFixture{t: t, issuer: "https://peer.example", aud: "resource"}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.jwksHits.Add(1)
@@ -43,12 +44,9 @@ func newPeerFixture(t *testing.T, opts IssuerOptions) *peerFixture {
 	t.Cleanup(srv.Close)
 	local := testkeys.RSA("local")
 	f.local = local
-	f.v = NewVerifier()
-	f.v.keys.Now = func() time.Time { return time.Now().Add(time.Duration(f.offset.Load())) }
-	f.v.keys.AttemptTimeout, f.v.keys.BackoffBase, f.v.keys.BackoffMax = 500*time.Millisecond, 10*time.Millisecond, 50*time.Millisecond
+	f.v = testKeysVerifier(&f.clock, 500*time.Millisecond, 20*time.Millisecond)
 	require.NoError(t, f.v.AddIssuer("https://local.example", []string{f.aud}, IssuerOptions{IsLocal: true, KeySource: testkeys.Source(local)}))
-	opts.JWKSURI = srv.URL
-	require.NoError(t, f.v.AddIssuer(f.issuer, []string{f.aud}, opts))
+	require.NoError(t, f.v.AddIssuer(f.issuer, []string{f.aud}, IssuerOptions{JWKSURI: srv.URL}))
 	f.handler = Required(f.v)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 	return f
 }
@@ -66,7 +64,10 @@ func (f *peerFixture) serveStatus(status int, body string) {
 	}))
 }
 
-func (f *peerFixture) advance(d time.Duration) { f.offset.Add(int64(d)) }
+func (f *peerFixture) advance(d time.Duration) { f.clock.advance(d) }
+
+// pastRefresh moves the clock past the keys' refresh interval.
+func (f *peerFixture) pastRefresh() { f.advance(cachepolicy.IssuerKeys.RefreshAfter + time.Minute) }
 
 func (f *peerFixture) token(signer keys.Signer, iss string, claims jwt.MapClaims) string {
 	now := time.Now() // claim times are checked against the real clock
@@ -110,16 +111,16 @@ func TestPeerJWKSAuthoritativeResponses(t *testing.T) {
 	a, b := rsaSigner(t, "a"), rsaSigner(t, "b")
 	weak, err := rsa.GenerateKey(rand.Reader, 1024)
 	require.NoError(t, err)
-	f := newPeerFixture(t, IssuerOptions{CacheTTL: time.Minute})
+	f := newPeerFixture(t)
 	f.serveKeys(jwkOf(a))
 	code, _ := f.call(f.token(a, f.issuer, nil))
 	require.Equal(t, http.StatusOK, code)
 
-	// refresh moves past CacheTTL and waits for the background refresh a peer
+	// refresh moves past the refresh interval and waits for the reload a peer
 	// request triggers to record an attempt.
 	refresh := func() {
-		f.advance(2 * time.Minute)
-		mark := f.v.keys.Now()
+		f.pastRefresh()
+		mark := f.clock.Now()
 		f.call(f.token(a, f.issuer, nil))
 		require.Eventually(t, func() bool { return !f.status().CheckedAt.Before(mark) }, 5*time.Second, 5*time.Millisecond)
 	}
@@ -158,25 +159,20 @@ func TestPeerJWKSAuthoritativeResponses(t *testing.T) {
 	}
 }
 
-// Defaults: MaxStale is 4h, and never below CacheTTL — keys inside their TTL
-// always verify.
-func TestPeerJWKSMaxStaleDefaultsAndFloor(t *testing.T) {
+// Keys past their refresh interval but inside MaxStale verify while the
+// issuer is unreachable.
+func TestPeerJWKSServeStaleInsideMaxStale(t *testing.T) {
 	a := rsaSigner(t, "a")
-	f := newPeerFixture(t, IssuerOptions{})
+	f := newPeerFixture(t)
 	f.serveKeys(jwkOf(a))
 	code, _ := f.call(f.token(a, f.issuer, nil))
 	require.Equal(t, http.StatusOK, code)
-	require.Equal(t, 4*time.Hour, f.status().MaxStale)
-
-	g := newPeerFixture(t, IssuerOptions{CacheTTL: 2 * time.Hour, MaxStale: time.Hour})
-	g.serveKeys(jwkOf(a))
-	code, _ = g.call(g.token(a, g.issuer, nil))
-	require.Equal(t, http.StatusOK, code)
-	require.Equal(t, 2*time.Hour, g.status().MaxStale)
-	g.advance(90 * time.Minute)
+	require.Equal(t, cachepolicy.IssuerKeys.MaxStale, f.status().MaxStale)
+	f.serveStatus(http.StatusServiceUnavailable, "")
+	f.advance(cachepolicy.IssuerKeys.MaxStale - time.Minute)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	_, err := g.v.Verify(ctx, g.token(a, g.issuer, nil))
+	_, err := f.v.Verify(ctx, f.token(a, f.issuer, nil))
 	require.NoError(t, err)
 }
 
@@ -184,7 +180,7 @@ func TestPeerJWKSMaxStaleDefaultsAndFloor(t *testing.T) {
 // issuer's keys are unavailable; only an otherwise-valid token gets 503.
 func TestPeerJWKSUnavailableChecksClaimsFirst(t *testing.T) {
 	a := rsaSigner(t, "a")
-	f := newPeerFixture(t, IssuerOptions{})
+	f := newPeerFixture(t)
 	f.serveStatus(http.StatusServiceUnavailable, "")
 	code, errCode := f.call(f.token(a, f.issuer, jwt.MapClaims{"exp": time.Now().Add(-time.Hour).Unix()}))
 	require.Equal(t, http.StatusUnauthorized, code)
@@ -201,13 +197,13 @@ func TestPeerJWKSUnavailableChecksClaimsFirst(t *testing.T) {
 // read the key cache outside the lock the refresh writes under.
 func TestPeerJWKSCancelledWaitDoesNotRaceRefresh(t *testing.T) {
 	a := rsaSigner(t, "a")
-	f := newPeerFixture(t, IssuerOptions{CacheTTL: time.Minute, MaxStale: time.Hour})
+	f := newPeerFixture(t)
 	f.serveKeys(jwkOf(a))
 	code, _ := f.call(f.token(a, f.issuer, nil))
 	require.Equal(t, http.StatusOK, code)
 
 	for range 5 {
-		f.advance(2 * time.Hour) // past MaxStale, last fetch succeeded
+		f.advance(cachepolicy.IssuerKeys.MaxStale + time.Hour) // past MaxStale, last fetch succeeded
 		served := make(chan struct{})
 		f.serve.Store(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			time.Sleep(100 * time.Millisecond)
@@ -230,7 +226,7 @@ func TestPeerJWKSCancelledWaitDoesNotRaceRefresh(t *testing.T) {
 // longer lists a key revokes it.
 func TestPeerJWKSNonJWKSResponsesAreTransient(t *testing.T) {
 	a, b := rsaSigner(t, "a"), rsaSigner(t, "b")
-	f := newPeerFixture(t, IssuerOptions{CacheTTL: time.Minute})
+	f := newPeerFixture(t)
 	f.serveKeys(jwkOf(a))
 	code, _ := f.call(f.token(a, f.issuer, nil))
 	require.Equal(t, http.StatusOK, code)
@@ -245,8 +241,8 @@ func TestPeerJWKSNonJWKSResponsesAreTransient(t *testing.T) {
 		"array":       func() { f.serveStatus(http.StatusOK, `[]`) },
 	} {
 		serve()
-		f.advance(2 * time.Minute)
-		mark := f.v.keys.Now()
+		f.pastRefresh()
+		mark := f.clock.Now()
 		code, _ = f.call(f.token(a, f.issuer, nil))
 		require.Equal(t, http.StatusOK, code, name)
 		require.Eventually(t, func() bool { return !f.status().CheckedAt.Before(mark) }, 5*time.Second, 5*time.Millisecond, name)
@@ -261,15 +257,14 @@ func TestPeerJWKSNonJWKSResponsesAreTransient(t *testing.T) {
 	}
 
 	f.serveKeys(jwkOf(b))
-	require.Eventually(t, func() bool { return f.v.CheckIssuerKeys(t.Context()) == nil }, 5*time.Second, 10*time.Millisecond)
-	code, _ = f.call(f.token(b, f.issuer, nil))
-	require.Equal(t, http.StatusOK, code)
+	require.Eventually(t, func() bool { code, _ := f.call(f.token(b, f.issuer, nil)); return code == http.StatusOK }, 5*time.Second, 10*time.Millisecond)
+	require.NoError(t, f.v.CheckIssuerKeys(t.Context()))
 	code, _ = f.call(f.token(a, f.issuer, nil))
 	require.Equal(t, http.StatusUnauthorized, code)
 
 	// An empty keys array is still an authoritative answer: fail closed.
 	f.serveStatus(http.StatusOK, `{"keys":[]}`)
-	f.advance(2 * time.Minute)
+	f.pastRefresh()
 	f.call(f.token(b, f.issuer, nil))
 	require.Eventually(t, func() bool { return f.status().Keys == 0 }, 5*time.Second, 10*time.Millisecond)
 	code, errCode := f.call(f.token(b, f.issuer, nil))
