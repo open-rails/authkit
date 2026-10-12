@@ -470,8 +470,9 @@ const access = useGroupAdminAccess({ auth, group }) // access.any hides a tab
 ```
 
 The client covers AuthKit's group routes (members, invitations, roles, API
-keys, OAuth clients) and `GET /me/permissions`; `ADMIN_ROUTES` names each
-call's route. Every component takes `auth`, `baseUrl` (default `/api/v1`),
+keys, OAuth clients, remote applications), its account routes
+(`/admin/users…`) and `GET /me/permissions`; `ADMIN_ROUTES` names each call's
+route. Every component takes `auth`, `baseUrl` (default `/api/v1`),
 `basePath` (its views are deep links beneath it), `navigation` (the host
 router as `{ pathname, search, navigate(to, { replace }) }`; the history API
 without it), `guard` (`useStepUpGuard()`, which runs every write; without it a
@@ -522,6 +523,45 @@ is shown once, at creation.
 PEM key with its kid) for the RFC 7523 assertions it trades for its users'
 tokens, and shows what to sign. `tokenEndpoint` (default `/oauth2/token`
 beside `baseUrl`) is the assertions' `aud`; `scope` adds one to the example.
+
+### Users
+
+```tsx
+import { UserAccountSummary, UsersAdmin, useUsersAdminAccess } from "@openrails/auth-ui/admin"
+
+<UsersAdmin auth={auth} basePath="/admin/users" navigation={nav} guard={guard}
+  entitlements={["premium"]} // the directory's entitlement filter; needs Deps.EntitlementHolders
+  userPanels={(user) => <BillingCustomerSummary customer={user.id} … />}
+  confirmWarnings={async (user) => billingConfirmWarnings({ subscriptions: await subscriptionsOf(user.id) })} />
+<UserAccountSummary auth={auth} user={customerId} href={`/admin/users/${customerId}`} navigation={nav} />
+const access = useUsersAdminAccess({ auth }) // access.any hides the tab
+```
+
+`UsersAdmin` is the user directory and each account's page. Views: the
+directory at `basePath` (`?q=` search over usernames, emails, phones, ids and
+linked sign-ins; `?status=active|banned|deleted`, `?role=` a root role,
+`?entitlement=`, `?sort=` and `?order=`; a total and cursor pages), an
+account at `basePath/<user_id>` (`?kind=` filters its sign-in history), and
+root invitations at `basePath/invitations`.
+
+| Act                                     | Needs on root                                |
+| --------------------------------------- | -------------------------------------------- |
+| See the directory, sessions, history    | `root:users:read`                            |
+| Ban (reason, an end) and unban          | `root:users:ban`                             |
+| Delete and restore (typed confirmation) | `root:users:delete`                          |
+| Edit the profile, sign out everywhere   | `root:users:manage`                          |
+| See and change the root role (typed)    | `root:members:read`, `root:members:manage`   |
+| Invite people to create an account      | `root:users:invite` or `root:members:manage` |
+
+`root:users:manage` and `root:members:manage` need their holder to have a
+second factor. AuthKit still decides: an account the caller does not outrank,
+or the caller's own, is refused, and the refusal is shown. Every write steps
+up through `guard`. `userPanels(user)` adds the host's panels to an account's
+page; `confirmWarnings(user, "ban" | "delete")` adds warnings to those
+confirmations (an array is one per item, a promise is awaited), and the act
+still goes ahead. `UserAccountSummary` is one account's standing for another
+page, such as a billing customer: status, root role, entitlements, ban, last
+sign-in and a link.
 
 ## Solana
 

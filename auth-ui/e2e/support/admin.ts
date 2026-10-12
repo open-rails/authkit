@@ -7,7 +7,7 @@ import {
   type Page,
 } from "@playwright/test"
 
-import { api, registerVerified } from "./api"
+import { api, registerVerified, totp } from "./api"
 
 const app = path.resolve(import.meta.dirname, "../.react-app/admin.js")
 
@@ -111,6 +111,18 @@ export async function addMember(
   expect(res.status(), await res.text()).toBe(204)
 }
 
+// Grants the user an entitlement in the e2e host's store.
+export async function grantEntitlement(
+  request: APIRequestContext,
+  email: string,
+  name: string
+) {
+  const res = await request.post(
+    `/__test/entitlements?email=${encodeURIComponent(email)}&name=${name}`
+  )
+  expect(res.status(), await res.text()).toBe(204)
+}
+
 // A fresh browser signed in as user at the admin app's url.
 export async function signedInAt(
   browser: Browser,
@@ -131,3 +143,69 @@ export async function signedInAt(
 
 // The host router's location, in the router fixture.
 export const hostLocation = (page: Page) => page.getByTestId("host-location")
+
+type SignIn = {
+  signInWithPassword(input: {
+    identifier: string
+    password: string
+  }): Promise<{ second_factor: { user_id: string; challenge: string } }>
+  verifyTwoFactor(input: {
+    userId: string
+    challenge: string
+    code: string
+  }): Promise<unknown>
+}
+
+// A root owner, which needs a second factor: registered with TOTP and
+// signed in with it at the admin app's url.
+export async function rootOwnerAt(
+  browser: Browser,
+  request: APIRequestContext,
+  url: string
+): Promise<Page> {
+  const context = await browser.newContext()
+  const page = await context.newPage()
+  await routeAdminApp(page)
+  await openAdmin(page, url)
+  const { email, password, access } = await registerVerified(page, request)
+  // TOTP steps must increase: enroll with this step's code, sign in with
+  // the next one's.
+  const into = Date.now() % 30_000
+  if (into > 20_000) await page.waitForTimeout(30_500 - into)
+  const now = Date.now()
+  const setup = await api(
+    page,
+    "POST",
+    "/me/2fa/setup",
+    { method: "totp" },
+    access
+  )
+  expect(setup.status, JSON.stringify(setup.body)).toBe(200)
+  const secret = setup.body!.secret as string
+  const factor = await api(
+    page,
+    "POST",
+    "/me/2fa/factors",
+    { method: "totp", code: totp(secret, now) },
+    access
+  )
+  expect(factor.status, JSON.stringify(factor.body)).toBe(201)
+  await addMember(request, "root", email, "owner")
+  await page.evaluate(
+    async ({ email, password, code }) => {
+      const client = (window as unknown as { authClient: SignIn }).authClient
+      const { second_factor: step } = await client.signInWithPassword({
+        identifier: email,
+        password,
+      })
+      await client.verifyTwoFactor({
+        userId: step.user_id,
+        challenge: step.challenge,
+        code,
+      })
+    },
+    { email, password, code: totp(secret, now + 30_000) }
+  )
+  await expect(page.getByTestId("status")).toHaveText("authenticated")
+  return page
+}

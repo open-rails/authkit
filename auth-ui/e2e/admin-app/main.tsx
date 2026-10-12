@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 // Host for the admin specs. The path picks the fixture:
 // /<mode>/<view>/<group>/…, the component's basePath being its first three
-// segments. alone: the component with its history default; router: mounted
+// segments (users: /<mode>/users/root). alone: the component with its history default; router: mounted
 // in a React Router app through navigation; stepup: a write through a
 // resumable guard.
 import { useEffect, useMemo, useState, type ReactNode } from "react"
@@ -22,7 +22,10 @@ import {
   OAuthClientsAdmin,
   RemoteApplicationsAdmin,
   RolesAdmin,
+  UserAccountSummary,
+  UsersAdmin,
   type AdminNavigation,
+  type ConfirmWarnings,
 } from "../../dist/admin.js"
 import { createAuthClient } from "../../dist/client.js"
 import {
@@ -148,8 +151,43 @@ const VIEWS = {
   "remote-applications": RemoteApplicationsAdmin,
 }
 
+// A host's warning: its premium plan keeps running after a ban or deletion.
+const premiumWarning: ConfirmWarnings = async (user, action) =>
+  user.entitlements.includes("premium")
+    ? [`${user.username} has premium, which keeps running after a ${action}.`]
+    : []
+
 function Admin({ navigation }: { navigation?: AdminNavigation }) {
   const guard = useStepUpGuard()
+  const language = params.get("lang") ?? undefined
+  if (view === "users")
+    return (
+      <UsersAdmin
+        auth={client}
+        basePath={basePath}
+        navigation={navigation}
+        guard={guard}
+        language={language}
+        entitlements={["premium"]}
+        confirmWarnings={premiumWarning}
+        userPanels={(user) => (
+          <section aria-label="Host panel">
+            Host panel for {user.username}
+          </section>
+        )}
+      />
+    )
+  // The group segment is the account's id.
+  if (view === "user-summary")
+    return (
+      <UserAccountSummary
+        auth={client}
+        user={group}
+        href={`/${mode}/users/root/${group}`}
+        navigation={navigation}
+        language={language}
+      />
+    )
   const View = VIEWS[view as keyof typeof VIEWS]
   if (!View) return <p>unknown view {view}</p>
   return (

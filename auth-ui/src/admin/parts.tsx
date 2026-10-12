@@ -1,7 +1,13 @@
 import { Copy01Icon, Tick02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { cn } from "cn"
-import { useId, useState, type ComponentProps, type ReactNode } from "react"
+import {
+  useEffect,
+  useId,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+} from "react"
 
 import { ConfirmDialog, Notice } from "../components/account/shared.tsx"
 import { Button } from "../ui/button.tsx"
@@ -10,8 +16,9 @@ import { Input } from "../ui/input.tsx"
 import { Label } from "../ui/label.tsx"
 import { Spinner } from "../ui/spinner.tsx"
 import { useAdmin } from "./context.ts"
-import { useAdminMessages } from "./i18n.ts"
+import { useAdminMessages, type AdminMessageKey } from "./i18n.ts"
 import { Link } from "./link.tsx"
+import { en } from "./locales/en.ts"
 
 export function Section({
   title,
@@ -94,7 +101,8 @@ export function Empty({ children }: { children: ReactNode }) {
   )
 }
 
-// An AuthKit error as words; without a guard a step-up is "sign in again".
+// An AuthKit error as words, the admin's own where it has them; without a
+// guard a step-up is "sign in again".
 export function ErrorText({
   error,
   onRetry,
@@ -127,7 +135,9 @@ export function ErrorText({
     >
       {code === "step_up_required" && !guard
         ? t("common.signInAgain")
-        : message(error)}
+        : code && code in en.errors
+          ? t(`errors.${code}` as AdminMessageKey)
+          : message(error)}
     </Notice>
   )
 }
@@ -248,7 +258,9 @@ export function TypedConfirm({
   word,
   confirmLabel,
   busy,
+  disabled,
   onConfirm,
+  children,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -257,7 +269,9 @@ export function TypedConfirm({
   word: string
   confirmLabel: ReactNode
   busy?: boolean
+  disabled?: boolean
   onConfirm: () => void
+  children?: ReactNode
 }) {
   const { t } = useAdminMessages()
   const id = useId()
@@ -274,9 +288,10 @@ export function TypedConfirm({
       confirmLabel={confirmLabel}
       busy={busy}
       destructive
-      disabled={typed.trim() !== word}
+      disabled={disabled || typed.trim() !== word}
       onConfirm={onConfirm}
     >
+      {children}
       <div className="grid gap-1.5">
         <Label htmlFor={id}>{t("common.typeToConfirm", { word })}</Label>
         <Input
@@ -315,6 +330,78 @@ export function ViewTabs({
         </Link>
       ))}
     </nav>
+  )
+}
+
+// A value's inline copy button, ticked for a moment after a copy.
+export function CopyButton({ value, label }: { value: string; label: string }) {
+  const { t } = useAdminMessages()
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!copied) return
+    const id = setTimeout(() => setCopied(false), 1500)
+    return () => clearTimeout(id)
+  }, [copied])
+  if (!value) return null
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-xs"
+      className="text-muted-foreground"
+      aria-label={`${copied ? t("common.copied") : t("common.copy")}: ${label}`}
+      onClick={() =>
+        void navigator.clipboard?.writeText(value).then(
+          () => setCopied(true),
+          () => undefined
+        )
+      }
+    >
+      <HugeiconsIcon icon={copied ? Tick02Icon : Copy01Icon} strokeWidth={2} />
+    </Button>
+  )
+}
+
+// Previous and next over cursor pages.
+export function Pager({
+  page,
+  summary,
+  onPrevious,
+  onNext,
+  busy,
+}: {
+  page: number
+  summary?: ReactNode
+  onPrevious?: () => void
+  onNext?: () => void
+  busy?: boolean
+}) {
+  const { t } = useAdminMessages()
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 border-t px-5 py-3 sm:px-6">
+      <p aria-live="polite" className="text-xs text-muted-foreground">
+        {t("common.page", { page })}
+        {summary && <> · {summary}</>}
+      </p>
+      <div className="flex gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={busy || !onPrevious}
+          onClick={onPrevious}
+        >
+          {t("common.previous")}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={busy || !onNext}
+          onClick={onNext}
+        >
+          {t("common.next")}
+        </Button>
+      </div>
+    </div>
   )
 }
 

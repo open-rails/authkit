@@ -303,7 +303,7 @@ function invitationState(i: Invitation) {
   return "pending" as const
 }
 
-function Invitations({
+export function Invitations({
   group,
   access,
   roles,

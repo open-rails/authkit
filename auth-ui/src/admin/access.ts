@@ -101,3 +101,67 @@ export function useGroupAdminAccess(options: {
   )
   return useAccessWith(client, group)
 }
+
+/** What the signed-in person may do in the user directory, from their root permissions. */
+export type UsersAdminAccess = {
+  status: "loading" | "ready" | "error"
+  error: AuthKitError | null
+  users: {
+    read: boolean
+    /** Edit a profile, sign it out everywhere. */
+    manage: boolean
+    ban: boolean
+    /** Delete and restore. */
+    delete: boolean
+    /** Invite people to create an account. */
+    invite: boolean
+  }
+  /** Root roles: read with `root:members:read` or `root:roles:read`, change with `root:members:manage`. */
+  roles: { read: boolean; manage: boolean }
+  /** Anything to show: users.read or users.invite. */
+  any: boolean
+  reload(): void
+}
+
+export type UsersPermissions = Omit<
+  UsersAdminAccess,
+  "status" | "error" | "reload"
+>
+
+export function usersAccess(
+  root: Omit<GroupAdminAccess, "status" | "error" | "reload">
+): UsersPermissions {
+  const holds = (perm: string) => root.permissions.has(`root:users:${perm}`)
+  const users = {
+    read: holds("read"),
+    manage: holds("manage"),
+    ban: holds("ban"),
+    delete: holds("delete"),
+    invite: root.invite,
+  }
+  return {
+    users,
+    roles: { read: root.roles.read, manage: root.members.manage },
+    any: users.read || users.invite,
+  }
+}
+
+/**
+ * The signed-in person's access to `UsersAdmin`, for a host hiding its tab
+ * (`any`).
+ */
+export function useUsersAdminAccess(options: {
+  auth: AdminAuth
+  baseUrl?: string
+}): UsersAdminAccess {
+  const root = useGroupAdminAccess({ ...options, group: "root" })
+  return useMemo(
+    () => ({
+      ...usersAccess(root),
+      status: root.status,
+      error: root.error,
+      reload: root.reload,
+    }),
+    [root]
+  )
+}

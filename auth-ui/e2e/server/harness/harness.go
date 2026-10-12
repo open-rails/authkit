@@ -7,7 +7,9 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"errors"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -38,7 +40,8 @@ const (
 // The admin specs' roles. In a merchant group: staff reads billing only,
 // viewer also sees members, roles and credentials, admin manages them but
 // holds no billing:manage, so the owner outranks it. On root, rolesadmin
-// reads members and defines custom roles.
+// reads members and defines custom roles; support reads accounts, moderator
+// also bans, deletes and restores them (neither needs a second factor).
 
 // Resource is the test resource server's identifier (the tokens' aud).
 func Resource(baseURL string) string { return baseURL + ResourcePath }
@@ -53,8 +56,48 @@ func ConsoleOrigin(baseURL string) string {
 // and the identity provider it trusts.
 type Runtime struct {
 	*authkit.Client
-	Outbox *authtest.Outbox
-	IdP    *IdP
+	Outbox       *authtest.Outbox
+	IdP          *IdP
+	Entitlements *Entitlements
+}
+
+// Entitlements is the host's entitlement store, as a billing system would
+// answer it: what /__test/entitlements grants.
+type Entitlements struct {
+	mu   sync.Mutex
+	held map[string][]string
+}
+
+func (e *Entitlements) Grant(userID, name string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !slices.Contains(e.held[userID], name) {
+		e.held[userID] = append(e.held[userID], name)
+	}
+}
+
+func (e *Entitlements) of(_ context.Context, ids []string) (map[string][]string, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	out := map[string][]string{}
+	for _, id := range ids {
+		if names := e.held[id]; len(names) > 0 {
+			out[id] = slices.Clone(names)
+		}
+	}
+	return out, nil
+}
+
+func (e *Entitlements) holders(_ context.Context, name string) ([]string, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	var ids []string
+	for id, names := range e.held {
+		if slices.Contains(names, name) {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
 }
 
 // Open connects to dsn; New creates AuthKit's tables.
@@ -89,6 +132,8 @@ func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
 	roles := authkit.NewRoles(authkit.CustomRoles)
 	root := roles.Root
 	root.Role("rolesadmin", root.Members.Read, root.Roles.Read, root.Roles.Manage)
+	root.Role("support", root.Users.Read)
+	root.Role("moderator", root.Users.Read, root.Users.Ban, root.Users.Delete)
 	merchant := roles.Persona(MerchantPersona, authkit.APIKeys, authkit.CustomRoles, authkit.OAuthClients, authkit.RemoteApplications)
 	billing := merchant.Permission("billing", "read")
 	merchant.Permission("billing", "manage")
@@ -136,18 +181,21 @@ func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
 			}},
 		},
 	}
+	ents := &Entitlements{held: map[string][]string{}}
 	rt, err := authkit.New(context.Background(), cfg, authkit.Deps{
 		Postgres: pool,
 		KeySource: keys.Static{
 			Active: signer,
 			Public: map[string]crypto.PublicKey{signer.KID(): signer.Public()},
 		},
-		Providers: []provider.Provider{idp.Provider()},
-		Email:     outbox.Email(),
-		SMS:       outbox.SMS(),
+		Providers:          []provider.Provider{idp.Provider()},
+		Email:              outbox.Email(),
+		SMS:                outbox.SMS(),
+		Entitlements:       ents.of,
+		EntitlementHolders: ents.holders,
 	})
 	if err != nil {
 		return nil, err
 	}
-	return &Runtime{Client: rt, Outbox: outbox, IdP: idp}, nil
+	return &Runtime{Client: rt, Outbox: outbox, IdP: idp, Entitlements: ents}, nil
 }

@@ -15,6 +15,9 @@ import type {
   PermissionSet,
   RemoteApplication,
   RemoteApplicationKey,
+  Session,
+  SessionEvent,
+  UserEntry,
 } from "../client/generated/wire.ts"
 
 // Anything that sends the signed-in person's AuthKit credentials: auth-ui's
@@ -32,6 +35,36 @@ export type AdminClientOptions = {
 }
 
 export type Page = { cursor?: string; limit?: number }
+
+/** The user directory's query: `GET /admin/users`. */
+export type UserListQuery = Page & {
+  /** Username, email or phone text, an account id, or a linked sign-in's subject. */
+  search?: string
+  /** Default: not deleted. */
+  status?: "active" | "banned" | "deleted" | "any"
+  /** A root role (`root:admin`). */
+  rootRole?: string
+  /** Needs the host's Deps.EntitlementHolders. */
+  entitlement?: string
+  sort?: "created_at" | "last_login" | "username" | "email"
+  /** Default desc. */
+  order?: "asc" | "desc"
+  /** Counts every match into `total`. */
+  total?: boolean
+}
+
+/** PATCH /admin/users/{id}: an absent field is unchanged, an empty one clears it. */
+export type UserUpdate = {
+  email?: string
+  phoneNumber?: string
+  username?: string
+  preferredLanguage?: string
+}
+
+/** A ban in force from now; without `until` it never ends. */
+export type BanInput = { reason?: string; until?: string | null }
+
+export type SessionEventKind = SessionEvent["kind"]
 
 type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE"
 
@@ -72,6 +105,16 @@ export const ADMIN_ROUTES = {
     "DELETE",
     "/groups/{group_id}/remote-applications/{id}",
   ],
+  listUsers: ["GET", "/admin/users"],
+  getUser: ["GET", "/admin/users/{user_id}"],
+  updateUser: ["PATCH", "/admin/users/{user_id}"],
+  deleteUser: ["DELETE", "/admin/users/{user_id}"],
+  restoreUser: ["POST", "/admin/users/{user_id}/restore"],
+  banUser: ["PUT", "/admin/users/{user_id}/ban"],
+  unbanUser: ["DELETE", "/admin/users/{user_id}/ban"],
+  listUserSessions: ["GET", "/admin/users/{user_id}/sessions"],
+  revokeUserSessions: ["DELETE", "/admin/users/{user_id}/sessions"],
+  listUserSessionEvents: ["GET", "/admin/users/{user_id}/session-events"],
 } as const satisfies Record<string, readonly [Method, string]>
 
 export type AdminRoute = keyof typeof ADMIN_ROUTES
@@ -90,8 +133,8 @@ const MAX_PAGES = 50
 
 export type AdminClient = ReturnType<typeof createAdminClient>
 
-// AuthKit's group-administration routes, called with the person's own
-// credentials: no host proxy. Errors are AuthKitError.
+// AuthKit's group and account administration routes, called with the
+// person's own credentials: no host proxy. Errors are AuthKitError.
 export function createAdminClient(options: AdminClientOptions) {
   const base = (options.baseUrl ?? "/api/v1").replace(/\/+$/, "")
 
@@ -154,6 +197,7 @@ export function createAdminClient(options: AdminClientOptions) {
     ...more,
   })
   const page = (p: Page = {}) => ({ cursor: p.cursor, limit: p.limit })
+  const u = (id: string) => ({ user_id: id })
 
   return {
     // The caller's role and permissions in group ("root" for root).
@@ -329,5 +373,73 @@ export function createAdminClient(options: AdminClientOptions) {
       }),
     deleteRemoteApplication: (group: string, id: string) =>
       call<void>("deleteRemoteApplication", { params: g(group, { id }) }),
+
+    // The user directory; every entry carries its root role and entitlements.
+    listUsers: (q: UserListQuery = {}, signal?: AbortSignal) =>
+      call<ListPage<UserEntry>>("listUsers", {
+        query: {
+          ...page(q),
+          search: q.search,
+          status: q.status,
+          root_role: q.rootRole,
+          entitlement: q.entitlement,
+          sort: q.sort,
+          order: q.order,
+          total: q.total ? "true" : undefined,
+        },
+        signal,
+      }),
+    // Deleted accounts included.
+    getUser: (id: string, signal?: AbortSignal) =>
+      call<UserEntry>("getUser", { params: u(id), signal }),
+    updateUser: (id: string, input: UserUpdate) =>
+      call<UserEntry>("updateUser", {
+        params: u(id),
+        body: {
+          email: input.email,
+          phone_number: input.phoneNumber,
+          username: input.username,
+          preferred_language: input.preferredLanguage,
+        },
+      }),
+    // Starts the 30-day recovery window and signs the account out.
+    deleteUser: (id: string) => call<void>("deleteUser", { params: u(id) }),
+    restoreUser: (id: string) => call<void>("restoreUser", { params: u(id) }),
+    // Replaces any ban in force and signs the account out everywhere.
+    banUser: (id: string, input: BanInput = {}) =>
+      call<void>("banUser", {
+        params: u(id),
+        body: { reason: input.reason || null, until: input.until ?? null },
+      }),
+    unbanUser: (id: string) => call<void>("unbanUser", { params: u(id) }),
+    listUserSessions: async (id: string, signal?: AbortSignal) =>
+      (
+        await call<ListPage<Session>>("listUserSessions", {
+          params: u(id),
+          signal,
+        })
+      ).data,
+    // Ends every session and device key of the account.
+    revokeUserSessions: (id: string) =>
+      call<void>("revokeUserSessions", { params: u(id) }),
+    // Newest first; kinds filter (repeatable), every kind without.
+    listUserSessionEvents: (
+      id: string,
+      p: Page & { kind?: readonly SessionEventKind[] } = {},
+      signal?: AbortSignal
+    ) =>
+      call<ListPage<SessionEvent>>("listUserSessionEvents", {
+        params: u(id),
+        query: { ...page(p), kind: p.kind },
+        signal,
+      }),
+    // A root role is a membership of the root group.
+    setRootRole: (id: string, role: string) =>
+      call<GroupMember>("setMemberRole", {
+        params: g("root", { id }),
+        body: { role },
+      }),
+    removeRootRole: (id: string) =>
+      call<void>("removeMember", { params: g("root", { id }) }),
   }
 }

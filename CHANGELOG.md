@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.25.0
+
+- auth-ui `UsersAdmin` and `UserAccountSummary` (#453) in `@openrails/auth-ui/admin`, over AuthKit's existing account routes (`/admin/users…`) and the root group's membership: the user directory with its filters in the URL, and each account's page (profile edit, ban with an end, delete and restore, sessions, sign-in history, root role, root invitations). For hosts composing their own admin area and the standalone OpenRails server's console (its users tab), which add panels and ban or delete warnings through `userPanels` and `confirmWarnings`; `UserAccountSummary` is for another page, such as OpenRails' billing customer. No route changed.
+
 ## v1.24.0
 
 ### Breaking

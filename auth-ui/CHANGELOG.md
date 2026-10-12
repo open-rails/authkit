@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- `UsersAdmin` and `UserAccountSummary` (AuthKit #453): the user directory
+  (search, status, root-role and entitlement filters, sort and a total in the
+  URL, cursor pages) and each account's page: status, role and entitlement
+  badges, details with copy, profile edit, ban with a reason and an end,
+  unban, delete and restore by typed confirmation, live sessions and sign out
+  everywhere, sign-in history by kind, the root role, and root invitations.
+  `userPanels(user)` and `confirmWarnings(user, action)` take the host's
+  panels and warnings; `useUsersAdminAccess` hides the tab. Client:
+  `listUsers`, `getUser`, `updateUser`, `deleteUser`, `restoreUser`,
+  `banUser`, `unbanUser`, `listUserSessions`, `revokeUserSessions`,
+  `listUserSessionEvents`, `setRootRole`, `removeRootRole`. Admin words for
+  `account_authority_escalation`, `cannot_target_self` and `last_owner` in
+  six languages.
+
 - Admin foundations (AuthKit #453): the `@openrails/auth-ui/admin` entry with
   `createAdminClient` (AuthKit's group routes and `GET /me/permissions`, over
   any `authFetch`; `ADMIN_ROUTES` held to the route catalog),

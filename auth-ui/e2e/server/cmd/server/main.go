@@ -130,6 +130,16 @@ func run(addr, baseURL, dsn, static string, lifetime time.Duration) error {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+	// Grants the user an entitlement (?name=) in the host's store.
+	mux.HandleFunc("POST /__test/entitlements", func(w http.ResponseWriter, r *http.Request) {
+		u, err := rt.User(r.Context(), iam.UserByEmail(r.URL.Query().Get("email")))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		rt.Entitlements.Grant(u.ID, r.URL.Query().Get("name"))
+		w.WriteHeader(http.StatusNoContent)
+	})
 	// Ages the user's sessions, and their second-factor proofs, past the
 	// sensitive-action window, so the next refreshed token demands a step-up.
 	mux.HandleFunc("POST /__test/stale-sessions", func(w http.ResponseWriter, r *http.Request) {

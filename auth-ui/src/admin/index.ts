@@ -1,5 +1,5 @@
-// Staff components for AuthKit's group administration. Customer entries
-// never import this one.
+// Staff components for AuthKit's account and group administration.
+// Customer entries never import this one.
 export {
   ADMIN_ROUTES,
   createAdminClient,
@@ -7,9 +7,18 @@ export {
   type AdminClient,
   type AdminClientOptions,
   type AdminRoute,
+  type BanInput,
   type Page,
+  type SessionEventKind,
+  type UserListQuery,
+  type UserUpdate,
 } from "./client.ts"
-export { useGroupAdminAccess, type GroupAdminAccess } from "./access.ts"
+export {
+  useGroupAdminAccess,
+  useUsersAdminAccess,
+  type GroupAdminAccess,
+  type UsersAdminAccess,
+} from "./access.ts"
 export {
   ADMIN_LANGUAGES,
   type AdminMessageBundle,
@@ -30,3 +39,9 @@ export {
   RemoteApplicationsAdmin,
   type RemoteApplicationsAdminProps,
 } from "./remote-applications.tsx"
+export { UsersAdmin, type UsersAdminProps } from "./users.tsx"
+export {
+  UserAccountSummary,
+  type UserAccountSummaryProps,
+} from "./user-summary.tsx"
+export type { ConfirmWarnings, UserAction, UserPanels } from "./users-lib.ts"

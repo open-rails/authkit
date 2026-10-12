@@ -59,3 +59,48 @@ export function usePages<T>(
     reload,
   }
 }
+
+// Page by page over a cursor list: page i is read with the cursor page i-1
+// answered, so the pages seen and the one after are reachable. A new key
+// starts again at page one.
+export function useCursorPages<T>(
+  key: string | null,
+  page: (
+    cursor: string | undefined,
+    signal?: AbortSignal
+  ) => Promise<ListPage<T>>
+) {
+  const [state, setState] = useState<{
+    key: string | null
+    cursors: (string | undefined)[]
+    index: number
+  }>({ key, cursors: [undefined], index: 0 })
+  const current =
+    state.key === key ? state : { key, cursors: [undefined], index: 0 }
+  const cursor = current.cursors[current.index]
+  const loaded = useLoad(
+    key === null ? null : `${key}#${current.index}:${cursor ?? ""}`,
+    (signal) => page(cursor, signal)
+  )
+  const next = loaded.data?.next_cursor
+  return {
+    items: loaded.data?.data,
+    total: loaded.data?.total ?? null,
+    page: current.index + 1,
+    loading: loaded.loading,
+    error: loaded.error,
+    reload: loaded.reload,
+    next: next
+      ? () =>
+          setState({
+            key,
+            cursors: [...current.cursors.slice(0, current.index + 1), next],
+            index: current.index + 1,
+          })
+      : undefined,
+    previous:
+      current.index > 0
+        ? () => setState({ ...current, index: current.index - 1 })
+        : undefined,
+  }
+}
