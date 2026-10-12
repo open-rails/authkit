@@ -27,16 +27,17 @@ var forbiddenDepPrefixes = []string{
 
 // sharedInternal are engine-free internal packages the verification surface
 // may share with the engine: one outbound/SSRF policy (ak#316), one key
-// policy, the JWT mechanics, one JWKS cache, one DPoP proof verifier and
-// the strict JWS parser it shares with jwt-bearer assertions, the Redis
-// fallback its proof replay store shares with the rate limiter, the
-// 2FA-enrollment route marker, the error catalog (with its wire-form
-// normalizer) and the typed identifiers built from token claims.
+// policy, the JWT mechanics, one JWKS cache and its read-cache policy, one
+// DPoP proof verifier and the strict JWS parser it shares with jwt-bearer
+// assertions, the Redis fallback its proof replay store shares with the
+// rate limiter, the 2FA-enrollment route marker, the error catalog (with its
+// wire-form normalizer) and the typed identifiers built from token claims.
 var sharedInternal = map[string]bool{
 	"github.com/open-rails/authkit/internal/netguard":      true,
 	"github.com/open-rails/authkit/internal/keypolicy":     true,
 	"github.com/open-rails/authkit/internal/jose":          true,
 	"github.com/open-rails/authkit/internal/jwks":          true,
+	"github.com/open-rails/authkit/internal/cachepolicy":   true,
 	"github.com/open-rails/authkit/internal/dpop":          true,
 	"github.com/open-rails/authkit/internal/jws":           true,
 	"github.com/open-rails/authkit/internal/redisfallback": true,

@@ -1,7 +1,7 @@
-// Package jwks is the issuer key cache behind every AuthKit verifier: it
-// fetches an issuer's JWKS, serves it stale-while-revalidate up to a max
-// staleness, refetches on key rotation, and reports health. Public verify
-// uses it for the issuers a host adds; the engine for remote applications.
+// Package jwks is the issuer key cache behind every AuthKit verifier: an
+// issuer's JWKS read through helpers/cache under cachepolicy.IssuerKeys,
+// refetched on key rotation, with per-issuer health. Public verify uses it
+// for the issuers a host adds; the engine for remote applications.
 package jwks
 
 import (
@@ -18,146 +18,112 @@ import (
 	"sync"
 	"time"
 
+	"github.com/open-rails/authkit/internal/cachepolicy"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/keypolicy"
 	"github.com/open-rails/authkit/internal/netguard"
 	"github.com/open-rails/authkit/keys"
+	"github.com/open-rails/helpers/cache"
 )
 
-// Default cache policy.
-const (
-	DefaultTTL      = 10 * time.Minute
-	DefaultMaxStale = 4 * time.Hour
-)
-
-// Issuer is one issuer's JWKS endpoint and cache policy.
+// Issuer is one issuer's JWKS endpoint.
 type Issuer struct {
 	Issuer string
 	URL    string
-	// TTL is how long fetched keys are fresh (default 10m).
-	TTL time.Duration
-	// MaxStale bounds how long after the last successful fetch keys keep
-	// verifying while refreshes fail, so a peer's revocation cannot be
-	// suppressed by blocking the fetch (default 4h, never below TTL).
-	MaxStale time.Duration
 }
-
-func (is Issuer) ttl() time.Duration      { return cmp.Or(is.TTL, DefaultTTL) }
-func (is Issuer) maxStale() time.Duration { return max(cmp.Or(is.MaxStale, DefaultMaxStale), is.ttl()) }
 
 // Cache holds fetched keys per issuer. Every count in it is bounded by the
 // issuers its owner registered, never by request traffic.
 type Cache struct {
 	client *http.Client
+	opts   cache.Options
+	keys   *cache.Cache[Issuer, map[string]crypto.PublicKey]
 
-	mu      sync.RWMutex
-	entries map[string]*entry
-
-	// AttemptTimeout bounds one fetch; a failing issuer is retried in the
-	// background with capped full-jitter backoff. RefetchMin spaces the
-	// refetches an unknown kid or bad signature forces. Now is the clock.
-	AttemptTimeout          time.Duration
-	BackoffBase, BackoffMax time.Duration
-	RefetchMin              time.Duration
-	Now                     func() time.Time
+	mu     sync.Mutex
+	health map[string]*health
 }
 
-// entry is one issuer's keys: served past expiresAt while a single background
-// loop refetches them, until maxStale after fetchedAt.
-type entry struct {
-	is        Issuer
-	keys      map[string]crypto.PublicKey
-	expiresAt time.Time
-	fetchedAt time.Time
+// health is a registered issuer's fetch record.
+type health struct {
+	is                   Issuer
+	keys                 int
+	fetchedAt, checkedAt time.Time
+	failures             int
+	lastErr              error
 
-	// fetchSeq numbers fetches as they start; appliedSeq is the newest whose
-	// result was recorded, so a slower older fetch never overwrites it.
-	fetchSeq, appliedSeq uint64
+	refetchAt time.Time
+	refetch   *flight
+}
 
-	refreshing bool
-	attempted  chan struct{} // closed after the running loop's first attempt
-	checkedAt  time.Time
-	lastErr    error
-	failures   int
-
-	refetchAt     time.Time
-	refetchFlight chan struct{}
+// flight is a running refetch; its keys are set when done closes.
+type flight struct {
+	done chan struct{}
+	keys map[string]crypto.PublicKey
 }
 
 // New returns a cache fetching with client (nil: a timeout-bounded client
-// that may reach private addresses).
-func New(client *http.Client) *Cache {
+// that may reach private addresses) under policy o.
+func New(client *http.Client, o cache.Options) *Cache {
 	if client == nil {
 		client = netguard.Client(netguard.DefaultTimeout, true)
 	}
-	return &Cache{
-		client:         client,
-		entries:        map[string]*entry{},
-		AttemptTimeout: 3 * time.Second,
-		BackoffBase:    500 * time.Millisecond,
-		BackoffMax:     30 * time.Second,
-		RefetchMin:     30 * time.Second,
-		Now:            time.Now,
-	}
+	c := &Cache{client: client, opts: o, health: map[string]*health{}}
+	c.keys = cachepolicy.New(o, c.load)
+	return c
 }
+
+// Register trusts is.URL for is.Issuer's keys, forgetting keys fetched from
+// an earlier endpoint.
+func (c *Cache) Register(is Issuer) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if h := c.health[is.Issuer]; h != nil {
+		if h.is == is {
+			return
+		}
+		c.keys.Invalidate(h.is)
+	}
+	c.health[is.Issuer] = &health{is: is}
+}
+
+// Close stops the cache's background work; it keeps serving.
+func (c *Cache) Close() { c.keys.Close() }
 
 // Drop forgets iss's keys.
 func (c *Cache) Drop(iss string) {
 	c.mu.Lock()
-	delete(c.entries, iss)
-	c.mu.Unlock()
-}
-
-// entryLocked is iss's entry for is, replaced when its endpoint or policy
-// changed. Caller holds c.mu.
-func (c *Cache) entryLocked(is Issuer) *entry {
-	e := c.entries[is.Issuer]
-	if e == nil || e.is != is {
-		e = &entry{is: is}
-		c.entries[is.Issuer] = e
+	defer c.mu.Unlock()
+	if h := c.health[iss]; h != nil {
+		c.keys.Invalidate(h.is)
+		delete(c.health, iss)
 	}
-	return e
 }
 
 // Key returns the key kid names from is's JWKS. A request waits only when the
-// issuer has no usable keys, and then for at most one bounded attempt; an
+// issuer has no usable keys, and then for at most one bounded load; an
 // unknown kid on a healthy issuer forces one throttled refetch (rotation).
 func (c *Cache) Key(ctx context.Context, is Issuer, kid string) (crypto.PublicKey, error) {
-	c.mu.Lock()
-	e := c.entryLocked(is)
-	now := c.Now()
-	keys := e.usableLocked(now)
-	if len(keys) == 0 || now.After(e.expiresAt) {
-		c.startRefreshLocked(e)
+	m, err := c.keys.Get(ctx, []Issuer{is})
+	set, ok := m[is]
+	if !ok {
+		return nil, unavailable(cmp.Or(err, c.lastErr(is), errNoKeys))
 	}
-	attempted, lastErr := e.attempted, e.lastErr
-	c.mu.Unlock()
-	if len(keys) == 0 {
-		select {
-		case <-attempted:
-		case <-ctx.Done():
+	if len(set) == 0 {
+		// The issuer published no usable keys: fail closed until a refetch finds some.
+		if set, _ = c.refetch(ctx, is); len(set) == 0 {
+			return nil, unavailable(cmp.Or(c.lastErr(is), errNoKeys))
 		}
-		c.mu.RLock()
-		keys, lastErr = e.usableLocked(c.Now()), e.lastErr
-		c.mu.RUnlock()
-		if len(keys) == 0 {
-			return nil, unavailable(cmp.Or(lastErr, ctx.Err(), errPastMaxStale))
-		}
-		return Select(keys, kid)
 	}
-	key, err := Select(keys, kid)
+	key, err := Select(set, kid)
 	if err == nil || kid == "" {
 		return key, err
 	}
-	// While the issuer is failing, the background loop owns refetching.
-	if lastErr != nil {
+	// While the issuer is failing, its reloads own refetching.
+	if lastErr := c.lastErr(is); lastErr != nil {
 		return nil, unavailable(lastErr)
 	}
-	if c.refetch(ctx, e) {
-		c.mu.RLock()
-		keys = e.usableLocked(c.Now())
-		c.mu.RUnlock()
-		key, err = Select(keys, kid)
+	if set, ok := c.refetch(ctx, is); ok {
+		key, err = Select(set, kid)
 	}
 	return key, err
 }
@@ -166,129 +132,106 @@ func (c *Cache) Key(ctx context.Context, is Issuer, kid string) (crypto.PublicKe
 // signature failed under them: a rotated key that kept its kid. It reports
 // whether a refetch ran, so the caller retries once.
 func (c *Cache) Refresh(ctx context.Context, is Issuer) bool {
-	c.mu.RLock()
-	e := c.entries[is.Issuer]
-	healthy := e != nil && e.is == is && e.lastErr == nil
-	c.mu.RUnlock()
-	return healthy && c.refetch(ctx, e)
+	if c.lastErr(is) != nil {
+		return false
+	}
+	_, ok := c.refetch(ctx, is)
+	return ok
 }
 
-var errPastMaxStale = errors.New("cached keys exceed max stale")
+var errNoKeys = errors.New("issuer has no usable keys")
 
 func unavailable(cause error) error {
 	return errmodel.E(errmodel.CodeIssuerKeysUnavailable, errmodel.WithCause(cause))
 }
 
-func (e *entry) usableLocked(now time.Time) map[string]crypto.PublicKey {
-	if e.pastMaxStale(now) {
-		return nil
-	}
-	return e.keys
-}
-
-func (e *entry) pastMaxStale(now time.Time) bool {
-	return len(e.keys) > 0 && now.Sub(e.fetchedAt) > e.is.maxStale()
-}
-
-// startRefreshLocked starts e's background refresh loop unless one runs.
-func (c *Cache) startRefreshLocked(e *entry) {
-	if e.refreshing {
-		return
-	}
-	e.refreshing, e.attempted = true, make(chan struct{})
-	go c.refreshLoop(e, e.attempted)
-}
-
-// refreshLoop refetches until an attempt succeeds or e is replaced, sleeping
-// with capped full-jitter backoff between failures.
-func (c *Cache) refreshLoop(e *entry, attempted chan struct{}) {
-	for attempt := 0; ; attempt++ {
-		err := c.fetch(context.Background(), e)
-		if attempt == 0 {
-			close(attempted)
-		}
-		c.mu.Lock()
-		done := err == nil || c.entries[e.is.Issuer] != e
-		if done {
-			e.refreshing = false
-		}
-		c.mu.Unlock()
-		if done {
-			return
-		}
-		time.Sleep(netguard.Backoff(attempt, c.BackoffBase, c.BackoffMax))
-	}
-}
-
-// refetch runs one synchronous fetch, single-flighted and at most once per
-// RefetchMin, so a storm of bad kids or signatures cannot hammer the
-// endpoint. A failed refetch hands the issuer to the background loop.
-func (c *Cache) refetch(ctx context.Context, e *entry) bool {
-	c.mu.Lock()
-	if done := e.refetchFlight; done != nil {
-		c.mu.Unlock()
-		select {
-		case <-done:
-			return true
-		case <-ctx.Done():
-			return false
-		}
-	}
-	if !e.refetchAt.IsZero() && c.Now().Sub(e.refetchAt) < c.RefetchMin {
-		c.mu.Unlock()
-		return false
-	}
-	done := make(chan struct{})
-	e.refetchFlight = done
-	c.mu.Unlock()
-
-	err := c.fetch(context.WithoutCancel(ctx), e)
-
-	c.mu.Lock()
-	e.refetchAt, e.refetchFlight = c.Now(), nil
-	close(done)
-	if err != nil && c.entries[e.is.Issuer] == e {
-		c.startRefreshLocked(e)
-	}
-	c.mu.Unlock()
-	return true
-}
-
-// fetch runs one bounded fetch and records its outcome: a transient failure
-// keeps the cached keys (bounded by MaxStale); an authoritative JWKS replaces
-// them, and one with no usable keys drops them (fail closed).
-func (c *Cache) fetch(ctx context.Context, e *entry) error {
-	c.mu.Lock()
-	e.fetchSeq++
-	seq := e.fetchSeq
-	c.mu.Unlock()
-
-	ctx, cancel := context.WithTimeout(ctx, c.AttemptTimeout)
-	defer cancel()
-	keys, authoritative, err := c.get(ctx, e.is.URL)
-
+func (c *Cache) lastErr(is Issuer) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.entries[e.is.Issuer] != e {
-		// A replacement owns the issuer now; never publish an old endpoint's keys.
-		return errors.New("issuer keys changed during refresh")
+	if h := c.health[is.Issuer]; h != nil && h.is == is {
+		return h.lastErr
 	}
-	if seq < e.appliedSeq {
-		return e.lastErr // a newer fetch already recorded its result
+	return nil
+}
+
+// refetch reloads is's keys at most once per IssuerKeysRefetchMin, so a storm
+// of bad kids or signatures cannot hammer the endpoint; callers arriving
+// meanwhile share it. A failed reload keeps the cached keys.
+func (c *Cache) refetch(ctx context.Context, is Issuer) (map[string]crypto.PublicKey, bool) {
+	c.mu.Lock()
+	h := c.health[is.Issuer]
+	switch {
+	case h == nil || h.is != is:
+		c.mu.Unlock()
+		return nil, false
+	case h.refetch != nil:
+		f := h.refetch
+		c.mu.Unlock()
+		select {
+		case <-f.done:
+			return f.keys, true
+		case <-ctx.Done():
+			return nil, false
+		}
+	case !h.refetchAt.IsZero() && c.now().Sub(h.refetchAt) < cachepolicy.IssuerKeysRefetchMin:
+		c.mu.Unlock()
+		return nil, false
 	}
-	e.appliedSeq = seq
-	e.checkedAt, e.lastErr = c.Now(), err
+	f := &flight{done: make(chan struct{})}
+	h.refetch = f
+	c.mu.Unlock()
+
+	m, _ := c.keys.Refresh(context.WithoutCancel(ctx), []Issuer{is})
+	f.keys = m[is]
+
+	c.mu.Lock()
+	h.refetchAt, h.refetch = c.now(), nil
+	close(f.done)
+	c.mu.Unlock()
+	return f.keys, true
+}
+
+// load fetches each issuer's keys. A transient failure keeps the cached keys
+// (bounded by MaxStale); an authoritative JWKS without usable keys replaces
+// them with none (fail closed).
+func (c *Cache) load(ctx context.Context, issuers []Issuer) (map[Issuer]map[string]crypto.PublicKey, error) {
+	out := make(map[Issuer]map[string]crypto.PublicKey, len(issuers))
+	var errs []error
+	for _, is := range issuers {
+		set, authoritative, err := c.get(ctx, is.URL)
+		c.record(is, len(set), authoritative, err)
+		switch {
+		case err == nil:
+			out[is] = set
+		case authoritative:
+			out[is] = map[string]crypto.PublicKey{}
+		default:
+			errs = append(errs, err)
+		}
+	}
+	return out, errors.Join(errs...)
+}
+
+func (c *Cache) record(is Issuer, n int, authoritative bool, err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	h := c.health[is.Issuer]
+	if h == nil || h.is != is {
+		return
+	}
+	h.checkedAt, h.lastErr = c.now(), err
 	switch {
 	case err == nil:
-		e.keys, e.fetchedAt, e.expiresAt, e.failures = keys, e.checkedAt, e.checkedAt.Add(e.is.ttl()), 0
+		h.keys, h.fetchedAt, h.failures = n, h.checkedAt, 0
 	case authoritative:
-		e.keys = nil
-		e.failures++
+		h.keys = 0
+		h.failures++
 	default:
-		e.failures++
+		h.failures++
 	}
-	return err
 }
+
+func (c *Cache) now() time.Time { return cachepolicy.Now(c.opts) }
 
 // get fetches and parses a JWKS. Only a 200 JSON object with a "keys" array
 // is authoritative; transport errors, other statuses and bodies are
@@ -356,7 +299,7 @@ type Status struct {
 	Issuer    string
 	JWKSURI   string
 	Keys      int
-	Fresh     bool      // keys are within the cache TTL
+	Fresh     bool      // keys are within the refresh interval
 	FetchedAt time.Time // last successful fetch; zero before the first
 	Age       time.Duration
 	MaxStale  time.Duration
@@ -366,21 +309,25 @@ type Status struct {
 	LastError string
 }
 
-// Statuses reports every issuer, sorted by issuer.
+func (c *Cache) pastMaxStale(h *health, now time.Time) bool {
+	return h.keys > 0 && now.Sub(h.fetchedAt) > c.opts.MaxStale
+}
+
+// Statuses reports every registered issuer, sorted by issuer.
 func (c *Cache) Statuses() []Status {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	now := c.Now()
-	out := make([]Status, 0, len(c.entries))
-	for iss, e := range c.entries {
-		st := Status{Issuer: iss, JWKSURI: e.is.URL, Keys: len(e.keys),
-			Fresh: len(e.keys) > 0 && now.Before(e.expiresAt), FetchedAt: e.fetchedAt,
-			MaxStale: e.is.maxStale(), Expired: e.pastMaxStale(now), CheckedAt: e.checkedAt, Failures: e.failures}
-		if !e.fetchedAt.IsZero() {
-			st.Age = now.Sub(e.fetchedAt)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := c.now()
+	out := make([]Status, 0, len(c.health))
+	for iss, h := range c.health {
+		st := Status{Issuer: iss, JWKSURI: h.is.URL, Keys: h.keys,
+			Fresh: h.keys > 0 && now.Sub(h.fetchedAt) < c.opts.RefreshAfter, FetchedAt: h.fetchedAt,
+			MaxStale: c.opts.MaxStale, Expired: c.pastMaxStale(h, now), CheckedAt: h.checkedAt, Failures: h.failures}
+		if !h.fetchedAt.IsZero() {
+			st.Age = now.Sub(h.fetchedAt)
 		}
-		if e.lastErr != nil {
-			st.LastError = e.lastErr.Error()
+		if h.lastErr != nil {
+			st.LastError = h.lastErr.Error()
 		}
 		out = append(out, st)
 	}
@@ -390,22 +337,23 @@ func (c *Cache) Statuses() []Status {
 
 // Check is a no-I/O health probe: it fails naming every issuer whose last
 // fetch failed, with the age of its keys and whether they are past MaxStale.
+// A failing issuer is retried by the next token that names it.
 func (c *Cache) Check() error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	now := c.Now()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := c.now()
 	var errs []error
-	for iss, e := range c.entries {
+	for iss, h := range c.health {
 		switch {
-		case e.lastErr == nil:
-		case e.pastMaxStale(now):
+		case h.lastErr == nil:
+		case c.pastMaxStale(h, now):
 			errs = append(errs, fmt.Errorf("issuer %s keys expired (age %s > max stale %s), verification failing closed: %w",
-				iss, now.Sub(e.fetchedAt).Round(time.Second), e.is.maxStale(), e.lastErr))
-		case len(e.keys) > 0:
+				iss, now.Sub(h.fetchedAt).Round(time.Second), c.opts.MaxStale, h.lastErr))
+		case h.keys > 0:
 			errs = append(errs, fmt.Errorf("issuer %s keys stale (age %s, max stale %s): %w",
-				iss, now.Sub(e.fetchedAt).Round(time.Second), e.is.maxStale(), e.lastErr))
+				iss, now.Sub(h.fetchedAt).Round(time.Second), c.opts.MaxStale, h.lastErr))
 		default:
-			errs = append(errs, fmt.Errorf("issuer %s has no keys: %w", iss, e.lastErr))
+			errs = append(errs, fmt.Errorf("issuer %s has no keys: %w", iss, h.lastErr))
 		}
 	}
 	return errors.Join(errs...)

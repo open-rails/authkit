@@ -53,6 +53,11 @@ func (s *Engine) Close(ctx context.Context) error {
 
 func (s *Engine) close(ctx context.Context) error {
 	s.stopSenderHealth()
+	s.clientAssertionVerifier().v.Close()
+	if s.resource != nil {
+		s.resource.v.Close()
+		s.resource.assertions.Close()
+	}
 	riverPool, err := s.closeRiver(ctx)
 	if s.ownedKeySource != nil {
 		s.ownedKeySource.Close()

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/open-rails/authkit/internal/cachepolicy"
 	"github.com/open-rails/authkit/keys"
 	"github.com/stretchr/testify/require"
 )
@@ -83,12 +84,21 @@ func (f *keyIdP) set(signing idpKey, published ...idpKey) {
 	f.signing, f.published = signing, published
 }
 
-func clockedOIDC(t *testing.T, issuer string) (*oidcProvider, *atomic.Int64) {
-	var offset atomic.Int64
+// testClock is real time moved by offset.
+type testClock struct{ offset atomic.Int64 }
+
+func (c *testClock) Now() time.Time          { return time.Now().Add(time.Duration(c.offset.Load())) }
+func (c *testClock) advance(d time.Duration) { c.offset.Add(int64(d)) }
+
+// clockedOIDC is an OIDC provider whose discovery cache runs the production
+// policy on a movable clock, with a short failure backoff.
+func clockedOIDC(t *testing.T, issuer string) (*oidcProvider, *testClock) {
+	clock := &testClock{}
 	p := OIDC("idp", issuer, "client", "secret").(*oidcProvider)
-	p.now = func() time.Time { return time.Now().Add(time.Duration(offset.Load())) }
-	p.backoffBase, p.backoffMax = 10*time.Millisecond, 50*time.Millisecond
-	return p, &offset
+	o := cachepolicy.OIDCDiscovery
+	o.Clock, o.FailureBackoff = clock, 20*time.Millisecond
+	p.useCache(o)
+	return p, clock
 }
 
 // A key the IdP stops publishing stops verifying once discovery refreshes: the
@@ -97,7 +107,7 @@ func TestOIDCRediscoveryDropsRevokedKeys(t *testing.T) {
 	idp := newKeyIdP(t)
 	a, b := newIdPKey(t, "a"), newIdPKey(t, "b")
 	idp.set(a, a)
-	p, offset := clockedOIDC(t, idp.srv.URL)
+	p, clock := clockedOIDC(t, idp.srv.URL)
 	exchange := func() error {
 		_, err := p.Exchange(t.Context(), ExchangeRequest{Code: "code", RedirectURI: "https://app.example/cb"})
 		return err
@@ -105,14 +115,15 @@ func TestOIDCRediscoveryDropsRevokedKeys(t *testing.T) {
 	require.NoError(t, exchange())
 
 	idp.set(a, b) // a is revoked, but still signs (compromised)
-	offset.Add(int64(2 * time.Hour))
-	mark := p.now()
+	require.NoError(t, exchange(), "cached until rediscovery")
+	clock.advance(cachepolicy.OIDCDiscovery.RefreshAfter + time.Minute)
+	mark := clock.Now()
 	_, err := p.AuthCodeURL(t.Context(), AuthRequest{RedirectURI: "https://app.example/cb"})
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		p.mu.Lock()
 		defer p.mu.Unlock()
-		return !p.disc.fetchedAt.Before(mark)
+		return !p.fetchedAt.Before(mark)
 	}, 5*time.Second, 5*time.Millisecond)
 	require.Error(t, exchange(), "revoked key must not verify after rediscovery")
 
@@ -120,13 +131,14 @@ func TestOIDCRediscoveryDropsRevokedKeys(t *testing.T) {
 	require.NoError(t, exchange())
 }
 
-// Stale discovery serves logins up to MaxStale (4h default) after the last
-// successful discovery; past it the provider fails closed until it recovers.
+// Stale discovery serves logins up to MaxStale after the last successful
+// discovery; past it the provider fails closed until it recovers.
 func TestOIDCDiscoveryMaxStale(t *testing.T) {
 	idp := newKeyIdP(t)
 	a := newIdPKey(t, "a")
 	idp.set(a, a)
-	p, offset := clockedOIDC(t, idp.srv.URL)
+	p, clock := clockedOIDC(t, idp.srv.URL)
+	maxStale := cachepolicy.OIDCDiscovery.MaxStale
 	authURL := func() error {
 		_, err := p.AuthCodeURL(t.Context(), AuthRequest{RedirectURI: "https://app.example/cb"})
 		return err
@@ -134,12 +146,12 @@ func TestOIDCDiscoveryMaxStale(t *testing.T) {
 	require.NoError(t, authURL())
 
 	idp.down.Store(true)
-	offset.Add(int64(3 * time.Hour)) // past the 1h TTL, inside MaxStale
+	clock.advance(maxStale - time.Hour) // past RefreshAfter, inside MaxStale
 	require.NoError(t, authURL())
 	require.Eventually(t, func() bool { return p.CheckHealth(t.Context()) != nil }, 5*time.Second, 5*time.Millisecond)
 	require.NoError(t, authURL())
 
-	offset.Add(int64(2 * time.Hour)) // 5h since the last success
+	clock.advance(2 * time.Hour) // past MaxStale
 	require.ErrorIs(t, authURL(), ErrUnavailable)
 	require.ErrorIs(t, p.CheckHealth(t.Context()), ErrUnavailable)
 
