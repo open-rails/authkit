@@ -50,8 +50,11 @@ import (
 // has ClientID() string and Scopes() []string, the client it was issued to
 // and the scopes it was granted, and auth.Asserted: whether this
 // deployment minted it from a remote application's RFC 7523 assertion (a
-// backend's token for one of its users). The Authenticator lists the headers
-// its credentials use (auth.Headers).
+// backend's token for one of its users). Every Verified has Entitlements()
+// []string, the token's entitlements claim: its issuer's snapshot at mint
+// (this deployment's: Config.Token.EntitlementAllowlist), none for a
+// credential without one, such as an API key. The Authenticator lists the
+// headers its credentials use (auth.Headers).
 //
 // The Client itself is not an auth.Authenticator.
 func (a *Client) Authenticator() auth.Authenticator { return authenticator{a, a} }
@@ -139,6 +142,10 @@ func (a authenticator) KnownPermission(permission string) bool {
 	return a.client.KnownPermission(ident.Perm(permission))
 }
 
+// entitled is the Entitlements capability every Verified of an
+// Authenticator has (ContentKit's access.Entitled).
+type entitled interface{ Entitlements() []string }
+
 // contacted is a Verified whose identity carries the account's contact.
 type contacted struct {
 	auth.Verified
@@ -160,6 +167,13 @@ func (v contacted) BoundScope() auth.Scope {
 		return b.BoundScope()
 	}
 	return auth.Scope{}
+}
+
+func (v contacted) Entitlements() []string {
+	if e, ok := v.Verified.(entitled); ok {
+		return e.Entitlements()
+	}
+	return nil
 }
 
 func (v contacted) CheckRecentSignIn(ctx context.Context) error {

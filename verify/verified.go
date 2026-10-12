@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"slices"
 
 	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
@@ -23,7 +24,8 @@ func (v *Verifier) AuthenticateRequest(ctx context.Context, r *http.Request) (au
 // the gate's verification, since verifying again would spend a DPoP proof
 // twice; otherwise it verifies r through a. When a is a PermissionChecker
 // (*authkit.Client), its Can checks the credential's permissions
-// live, the session included; otherwise it is identity only.
+// live, the session included; otherwise it is identity only. Either way its
+// Entitlements() []string is the token's entitlements claim.
 func AuthenticateRequest(ctx context.Context, a Authenticator, r *http.Request) (auth.Verified, error) {
 	cl, err := authenticate(ctx, a, r)
 	if err != nil {
@@ -80,18 +82,26 @@ func verifiedOf(a Authenticator, cl Claims) (auth.Verified, error) {
 		return nil, auth.ErrUnauthenticated
 	}
 	cl.Permissions = append([]string(nil), cl.Permissions...)
+	id := identity{i, cl.Entitlements}
 	if authority, ok := a.(Authority); ok {
-		return sessionVerified{checkingVerified{identity{i}, cl, authority}, authority}, nil
+		return sessionVerified{checkingVerified{id, cl, authority}, authority}, nil
 	}
 	if checker, ok := a.(PermissionChecker); ok {
-		return checkingVerified{identity{i}, cl, checker}, nil
+		return checkingVerified{id, cl, checker}, nil
 	}
-	return identity{i}, nil
+	return id, nil
 }
 
-type identity struct{ id auth.Identity }
+type identity struct {
+	id           auth.Identity
+	entitlements []string
+}
 
 func (p identity) Identity() auth.Identity { return p.id }
+
+// Entitlements are the token's entitlements claim, its issuer's snapshot at
+// mint; none for a credential without one (an API key).
+func (p identity) Entitlements() []string { return slices.Clone(p.entitlements) }
 
 type checkingVerified struct {
 	identity
