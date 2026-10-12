@@ -1,4 +1,3 @@
--- parent: 10 sha256:f96c9a1ca80d63547d30d32c626d12847bf7474076f740fc85d0d41ad163a6d6
 -- A permission group is an id, a persona and its role holders. The entity it
 -- guards (a channel and its name) lives in the host app, keyed by group id, so
 -- groups lose their slug, display name, renames and former-name aliases.

@@ -1,4 +1,3 @@
--- parent: 5 sha256:b20e92c2a20fe237edbd2aba02c31f1e8653ae2f1b342266e51b97dd37d0c2f0
 -- The one application field AuthKit keeps is public metadata: a JSON object
 -- the host writes and anyone may read. A host keeps every other per-account
 -- datum in its own tables, keyed by users(id). The old metadata and

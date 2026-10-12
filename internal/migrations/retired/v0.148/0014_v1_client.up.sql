@@ -1,4 +1,3 @@
--- parent: 13 sha256:d807ac93bb7aeaa26f08d86c1a6788d2db6d5bf18ec7ddd7321b52775858ad2a
 -- A role has one text form everywhere, `<persona>:<name>` (`channel:moderator`):
 -- in rows as on the wire and in Go. Remote applications are addressed by id,
 -- so their slug goes.

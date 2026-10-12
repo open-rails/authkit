@@ -1,4 +1,3 @@
--- parent: 2 sha256:2537923d8db1b3fd706d48689cfd9c59c6899da983393804ae957ce928054ce2
 -- Account and group purges find every referencing row through an index,
 -- refresh-token history is kept 90 days, and a ban exists exactly while
 -- banned_at is set.

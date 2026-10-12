@@ -1,4 +1,3 @@
--- parent: 9 sha256:c1ca96944f64c319f2d9fa127c516cc9a6ad9f6cfc3ff7265f2b4eaddb2cb4f7
 -- Durable account and group events (Deps.OnEvent). A deployment that sets the
 -- hook subscribes its issuer when it binds its River fleet; a change records
 -- one row per subscribed issuer in its own transaction, and delivery deletes

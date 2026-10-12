@@ -1,4 +1,3 @@
--- parent: 16 sha256:97140311129487977c7fe845c39a75da58de7c9a2513ba1ef5e262fc65ba4153
 -- Group OAuth clients (#450): OAuth clients a group registers at run time
 -- (RFC 7591 metadata), and each user's consent to them.
 SET LOCAL lock_timeout = '10s';

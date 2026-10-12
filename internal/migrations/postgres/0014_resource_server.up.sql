@@ -1,4 +1,3 @@
--- parent: 13 sha256:086ec9dc2a8cd734b7b0f8b59fca164f8ab8f538d4dd40433e055f189783a5b0
 -- Resource-server mode (#447). A jwks-mode remote application without a
 -- jwks_uri has its keys discovered from its issuer's metadata (RFC 8414).
 -- role_map maps the role names its tokens carry (RFC 9068 §2.2.3.1) to

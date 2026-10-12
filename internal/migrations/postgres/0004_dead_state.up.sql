@@ -1,4 +1,3 @@
--- parent: 3 sha256:e5a1aac276d59f0d50ca1f9ffbbcde8df819693a7b17b121b05fb69d9c0d4ca7
 -- State earlier hard cuts left behind: the `reserved` flag, session families,
 -- the 2FA `enabled` flag, passkey tombstones, name-claim kinds, and columns and
 -- indexes nothing reads.

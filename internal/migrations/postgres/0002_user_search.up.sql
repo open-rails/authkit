@@ -1,4 +1,3 @@
--- parent: 1 sha256:b694d4995d77dbab392afb195ed055d58195fe73b7f665d85a44f30045fa0005
 -- The user directory's search (ListUsers). Username, email and phone match by
 -- substring through trigram indexes; the columns are indexed as text, so the
 -- search casts citext to text (citext's own ILIKE is no trigram operator). A

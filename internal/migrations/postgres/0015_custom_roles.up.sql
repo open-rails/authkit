@@ -1,4 +1,3 @@
--- parent: 14 sha256:89a4a0001bfe9bcae294b8899a357491880943a2912a662c8149c0c2b9c26266
 -- Custom roles (#448): roles a group defines at run time, held only in that
 -- group. Their names (`<persona>:custom-<name>`) never meet a declared role's.
 SET LOCAL lock_timeout = '10s';

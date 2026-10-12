@@ -1,4 +1,3 @@
--- parent: 10 sha256:40cc13373e7437ee107e8d26d7d15fde4c391a322a51f23c7dd1a237c802795c
 -- Rate-limit budgets (HTTPConfig.RateLimits) every replica spends: one row per
 -- bucket and client key, holding the times, in Unix milliseconds on the
 -- database clock, of the requests admitted within the bucket's window, oldest
