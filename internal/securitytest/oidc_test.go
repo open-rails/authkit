@@ -9,6 +9,7 @@ import (
 	"maps"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"regexp"
 	"slices"
@@ -59,11 +60,12 @@ func TestSecurityOIDCStateCookieIsHostPrefixed(t *testing.T) {
 }
 
 // TestSecurityProviderIssuerCollisions: provider links are keyed by issuer, so
-// two providers may not share one, and none may claim this deployment's own.
+// two providers sharing one, or one claiming this deployment's own, are never
+// served: each is disabled at New, its probe naming why, and the rest serve.
 func TestSecurityProviderIssuerCollisions(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	s := signer()
-	build := func(providers ...provider.Provider) error {
+	build := func(t *testing.T, providers ...provider.Provider) *authkit.Client {
 		runtime, err := authkit.New(context.Background(), authkit.Config{
 			Token:     authkit.TokenConfig{Issuer: issuer, IssuedAudiences: []string{audience}},
 			TwoFactor: authkit.TwoFactorConfig{Mode: iam.TwoFactorDisabled},
@@ -73,10 +75,30 @@ func TestSecurityProviderIssuerCollisions(t *testing.T) {
 			KeySource: testkeys.Source(s),
 			Providers: providers,
 		})
-		if runtime != nil {
-			runtime.Close(context.Background())
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+		return runtime
+	}
+	served := func(t *testing.T, runtime *authkit.Client, name string) bool {
+		w := httptest.NewRecorder()
+		runtime.Handler().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/capabilities", nil))
+		type listed struct {
+			ID string `json:"id"`
 		}
-		return err
+		var caps struct {
+			Providers []listed `json:"external_login_providers"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &caps), w.Body.String())
+		return slices.Contains(caps.Providers, listed{ID: name})
+	}
+	problem := func(t *testing.T, runtime *authkit.Client, name string) error {
+		for _, p := range runtime.Probes() {
+			if p.Name == "authkit_provider_"+name {
+				return p.Check(t.Context())
+			}
+		}
+		t.Fatalf("no probe for provider %q", name)
+		return nil
 	}
 	google := provider.Google("google-client", "google-secret")
 	for name, providers := range map[string][]provider.Provider{
@@ -85,11 +107,19 @@ func TestSecurityProviderIssuerCollisions(t *testing.T) {
 		"deployment issuer spelling": {provider.OIDC("self", strings.ToUpper(issuer)+"/", "self-client", "self-secret")},
 	} {
 		t.Run(name, func(t *testing.T) {
-			require.ErrorContains(t, build(providers...), "issuer")
+			runtime := build(t, append(providers, provider.GitHub("github-client", "github-secret"))...)
+			for _, p := range providers {
+				require.False(t, served(t, runtime, p.Name()), p.Name())
+				require.ErrorContains(t, problem(t, runtime, p.Name()), "issuer", p.Name())
+			}
+			require.True(t, served(t, runtime, "github"), "the others serve")
+			require.NoError(t, problem(t, runtime, "github"))
 		})
 	}
 	t.Run("control: distinct issuers", func(t *testing.T) {
-		require.NoError(t, build(google, provider.GitHub("github-client", "github-secret")))
+		runtime := build(t, google, provider.GitHub("github-client", "github-secret"))
+		require.True(t, served(t, runtime, "google"))
+		require.True(t, served(t, runtime, "github"))
 	})
 }
 

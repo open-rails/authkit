@@ -32,8 +32,8 @@ type Deps struct {
 	// Apple, Discord and GitHub, or provider.OIDC and OAuth2 for any other.
 	Providers []provider.Provider
 
-	// Email delivers email. Nil means no email: flows that need one fail
-	// unless Config.Registration.AllowMissingSenders is set. Start runs its
+	// Email delivers email. Nil means no email: flows that need one answer
+	// email_unavailable unless Config.Registration.AllowMissingSenders is set. Start runs its
 	// CheckHealth now and every Config.SenderHealthInterval; while it fails,
 	// email flows are unavailable (Client.EmailAvailable).
 	Email EmailSender

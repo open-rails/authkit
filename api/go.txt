@@ -77,10 +77,12 @@ pkg authkit, method (*Client) OAuthConsents(context.Context, string) ([]iam.OAut
 pkg authkit, method (*Client) PatchPublicMetadata(context.Context, auth.Identity, string, map[string]any, ...Option) error
 pkg authkit, method (*Client) Permission(string) (iam.Perm, error)
 pkg authkit, method (*Client) Persona(string) (iam.Persona, error)
+pkg authkit, method (*Client) Probes() []Probe
 pkg authkit, method (*Client) ProvisioningTargets(context.Context) ([]iam.ProvisioningTarget, error)
 pkg authkit, method (*Client) PublicUsers(context.Context, []string) (map[string]iam.PublicUser, error)
 pkg authkit, method (*Client) PurgeGroup(context.Context, iam.GroupRef, ...Option) error
 pkg authkit, method (*Client) PurgeUsers(context.Context, []string, ...Option) ([]iam.OpResult, error)
+pkg authkit, method (*Client) Ready(context.Context) error
 pkg authkit, method (*Client) RemoteApplication(context.Context, iam.AppRef) (iam.RemoteApplication, error)
 pkg authkit, method (*Client) RemoteInvitations(context.Context, auth.Verified) ([]iam.Invitation, error)
 pkg authkit, method (*Client) RemoteUserInfo(iam.GroupRef, string) userinfo.Lookup
@@ -337,6 +339,10 @@ pkg authkit, type PersonaDef struct, Persona iam.Persona
 pkg authkit, type PersonaDef struct, Roles config.RolePerms
 pkg authkit, type PersonaOption = config.PersonaOption
 pkg authkit, type PersonaOption uint8
+pkg authkit, type Probe = engine.Probe
+pkg authkit, type Probe struct
+pkg authkit, type Probe struct, Check func(context.Context) error
+pkg authkit, type Probe struct, Name string
 pkg authkit, type ProvisioningClientCredentials = config.ProvisioningClientCredentials
 pkg authkit, type ProvisioningClientCredentials struct
 pkg authkit, type ProvisioningClientCredentials struct, ClientID string `yaml:"client_id"`

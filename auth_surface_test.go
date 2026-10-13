@@ -87,7 +87,7 @@ func TestClientPublicSurface(t *testing.T) {
 	}
 	embeddingOnly := []string{
 		// Lifecycle: host wiring at boot and health probes.
-		"Start", "Close", "RiverJobs", "EmailAvailable", "EmailHealth", "SMSAvailable", "SMSHealth", "TwoFactorMethods",
+		"Start", "Close", "RiverJobs", "Ready", "Probes", "EmailAvailable", "EmailHealth", "SMSAvailable", "SMSHealth", "TwoFactorMethods",
 		// HTTP surface and request verification.
 		"Handler", "APIBase", "Routes", "Mount",
 		"VerifyRequest", "Verify", "VerifyIDToken", "AuthenticateRequest", "NewVerifier",

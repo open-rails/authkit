@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -144,4 +145,98 @@ func TestNormalizeAuthorizationServerClients(t *testing.T) {
 	withKeys.AuthorizationServer.Clients[0].AuthorizationDetailsTypes = []string{"has space"}
 	_, _, err = Normalize(withKeys, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}, OAuthGrants: grants})
 	require.ErrorContains(t, err, "invalid authorization_details type")
+}
+
+// A survivable problem defaults or switches off only what it concerns and is
+// reported, never fatal; normalizing the result again changes nothing and
+// reports only what the dependencies still lack.
+func TestNormalizeDegradesSurvivableProblems(t *testing.T) {
+	deps := Deps{Postgres: &pgxpool.Pool{}}
+	base := func(edit func(*Config)) Config {
+		c := Config{Token: TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"app"}}, HTTP: &HTTPConfig{DirectPeerIP: true}}
+		edit(&c)
+		return c
+	}
+	for name, tc := range map[string]struct {
+		edit    func(*Config)
+		problem string
+		check   func(*testing.T, Config)
+	}{
+		"an invalid language": {
+			edit:    func(c *Config) { c.Languages = LanguageConfig{Supported: []string{"es", "??"}, Default: "fr"} },
+			problem: `Languages.Supported "??"`,
+			check: func(t *testing.T, c Config) {
+				require.Equal(t, LanguageConfig{Supported: []string{"es"}, Default: "es"}, c.Languages)
+			},
+		},
+		"an absolute frontend path": {
+			edit:    func(c *Config) { c.Frontend.PasswordResetPath = "https://evil.example/reset" },
+			problem: "FrontendPasswordResetPath must be a relative absolute-path",
+			check:   func(t *testing.T, c Config) { require.Equal(t, "/reset", c.Frontend.PasswordResetPath) },
+		},
+		"an unknown Solana network": {
+			edit:    func(c *Config) { c.SolanaNetwork = "moonnet" },
+			problem: `invalid SolanaNetwork "moonnet"`,
+			check:   func(t *testing.T, c Config) { require.Empty(t, c.SolanaNetwork) },
+		},
+		"a sub-second cleanup": {
+			edit:    func(c *Config) { c.CleanupInterval = time.Millisecond },
+			problem: "CleanupInterval",
+			check:   func(t *testing.T, c Config) { require.Equal(t, time.Hour, c.CleanupInterval) },
+		},
+		"an invalid Redis key prefix": {
+			edit:    func(c *Config) { c.HTTP.RedisKeyPrefix = "Not Valid" },
+			problem: "RedisKeyPrefix",
+			check:   func(t *testing.T, c Config) { require.Equal(t, "authkit:profiles:", c.HTTP.RedisKeyPrefix) },
+		},
+		"required verification without senders": {
+			edit:    func(c *Config) { c.Registration.Verification = iam.RegistrationVerificationRequired },
+			problem: "no email or SMS sender is configured",
+			check: func(t *testing.T, c Config) {
+				require.Equal(t, iam.RegistrationVerificationRequired, c.Registration.Verification, "never relaxed")
+			},
+		},
+		"remote applications without an issuer or twice": {
+			edit: func(c *Config) {
+				c.RemoteApplications = []RemoteApplicationConfig{{Issuer: " "}, {Issuer: "https://a.example"}, {Issuer: "https://B.example/"}, {Issuer: "https://b.example"}}
+			},
+			problem: `declares "https://B.example/" 2 times`,
+			check: func(t *testing.T, c Config) {
+				require.Equal(t, []RemoteApplicationConfig{{Issuer: "https://a.example"}}, c.RemoteApplications, "only the sound one is declared")
+			},
+		},
+		"misconfigured provisioning targets": {
+			edit: func(c *Config) {
+				c.Provisioning = ProvisioningConfig{Targets: []ProvisioningTarget{
+					{Name: "Bad Name", URL: "https://x.example"},
+					{Name: "nourl"},
+					{Name: "twice", URL: "https://1.example"},
+					{Name: "twice", URL: "https://2.example"},
+					{Name: "fine", URL: "https://ok.example/"},
+				}}
+			},
+			problem: `invalid name "Bad Name"`,
+			check: func(t *testing.T, c Config) {
+				var names []string
+				for _, target := range c.Provisioning.Targets {
+					names = append(names, target.Name)
+					require.Equal(t, target.Name != "fine", TargetInvalid(target) != nil, target.Name)
+				}
+				require.Equal(t, []string{"nourl", "twice", "fine"}, names, "disabled targets stay registered")
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			once, degraded, err := Normalize(base(tc.edit), deps)
+			require.NoError(t, err)
+			require.ErrorContains(t, errors.Join(degraded...), tc.problem)
+			tc.check(t, once)
+			twice, again, err := Normalize(once, deps)
+			require.NoError(t, err)
+			require.Equal(t, once, twice)
+			for _, problem := range again {
+				require.ErrorContains(t, problem, "no email or SMS sender")
+			}
+		})
+	}
 }
