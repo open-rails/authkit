@@ -353,6 +353,75 @@ describe("useStepUp", () => {
       factors: [],
     })
 
+  it("retries another API client's action after successful step-up", async () => {
+    const fetch = stubFetch({
+      "POST /api/v1/password/login": () => session({ sub: "u1", sid: "s1" }),
+      "POST /api/v1/me/step-up/password": () =>
+        json(
+          200,
+          signedIn(
+            { sub: "u1", sid: "s1", auth_time: 2 },
+            {
+              fresh_auth: {
+                last_authenticated_at: null,
+                step_up_required_for_sensitive_actions: false,
+                step_up_required_in_seconds: 900,
+                auth_methods: ["pwd"],
+              },
+            }
+          )
+        ),
+    })
+    const { result, client } = renderWithAuth(() => useStepUp(), fetch)
+    await act(() =>
+      client.signInWithPassword({ identifier: "a", password: "pw" })
+    )
+    const receipt = { id: "updated-product" }
+    const action = vi
+      .fn()
+      .mockRejectedValueOnce(
+        Object.assign(new Error("Confirm it's you"), {
+          name: "ApiError",
+          status: 401,
+          code: "step_up_required",
+          metadata: { step_up_methods: ["password"], max_age_seconds: 900 },
+        })
+      )
+      .mockResolvedValueOnce(receipt)
+    let pending!: Promise<typeof receipt>
+    act(() => {
+      pending = result.current.guard(action)
+    })
+    await waitFor(() =>
+      expect(result.current.state).toMatchObject({
+        step: "required",
+        challenge: { methods: ["password"], maxAgeSeconds: 900 },
+      })
+    )
+    expect(action).toHaveBeenCalledTimes(1)
+    await act(() => result.current.withPassword("pw"))
+    expect(result.current.error).toBeNull()
+    await act(async () => expect(await pending).toBe(receipt))
+    expect(action).toHaveBeenCalledTimes(2)
+    expect(result.current.state).toEqual({ step: "idle" })
+    expect(client.getSnapshot()).toMatchObject({ claims: { auth_time: 2 } })
+  })
+
+  it("leaves an unrelated foreign failure with the caller", async () => {
+    const { result } = renderWithAuth(() => useStepUp(), stubFetch({}))
+    const error = Object.assign(new Error("Denied"), {
+      status: 403,
+      code: "step_up_required",
+      metadata: { step_up_methods: ["password"] },
+    })
+    const action = vi.fn().mockRejectedValue(error)
+    await act(async () => {
+      await expect(result.current.guard(action)).rejects.toBe(error)
+    })
+    expect(action).toHaveBeenCalledTimes(1)
+    expect(result.current.state).toEqual({ step: "idle" })
+  })
+
   it("guards a sensitive action: step up, then retry", async () => {
     const fetch = stubFetch({
       "POST /api/v1/password/login": () => session({ sub: "u1", sid: "s1" }),
