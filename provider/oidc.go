@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -165,8 +166,15 @@ func (p *oidcProvider) load(ctx context.Context, _ []string) (map[string]*discov
 	cfg, err := client.Discover(ctx, p.issuer, p.httpClient)
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	failing := p.lastErr != nil
 	if p.lastErr = err; err != nil {
+		if !failing {
+			slog.WarnContext(ctx, "authkit: identity provider discovery failed; its sign-ins answer provider_unavailable while it is retried", "provider", p.name, "error", err)
+		}
 		return nil, err
+	}
+	if failing {
+		slog.InfoContext(ctx, "authkit: identity provider discovery recovered", "provider", p.name)
 	}
 	p.fetchedAt = cachepolicy.Now(p.opts)
 	// A fresh key set per discovery: the library's set never drops keys, so

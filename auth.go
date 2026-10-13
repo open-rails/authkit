@@ -25,10 +25,9 @@ import (
 // verify's middleware takes: verify.Required(client),
 // verify.RequirePermission(client, perm).
 //
-// Start, Close, RiverJobs, EmailAvailable, EmailHealth, SMSAvailable,
-// SMSHealth, TwoFactorMethods, Handler, APIBase, Routes, Mount and the request
-// verification methods
-// (auth_verify.go) are embedding-only:
+// Start, Close, RiverJobs, Ready, Probes, EmailAvailable, EmailHealth,
+// SMSAvailable, SMSHealth, TwoFactorMethods, Handler, APIBase, Routes, Mount
+// and the request verification methods (auth_verify.go) are embedding-only:
 // they wire the in-process deployment, and a Client of a remote deployment
 // would not have them. Every other method is an operation a remote
 // deployment could serve.
@@ -57,9 +56,15 @@ var _ verify.Authority = (*Client)(nil)
 
 // New builds AuthKit from host configuration and dependencies. It first
 // creates or upgrades AuthKit's and River's tables (Config.Database) through
-// Deps.Postgres, whose role owns them; replicas booting together are safe,
-// and a schema a newer build already migrated boots unchanged. ctx bounds the
-// boot-time database work.
+// Deps.Postgres, whose role owns them, waiting up to 30 seconds for PostgreSQL
+// to answer; replicas booting together are safe, and a schema a newer build
+// already migrated boots unchanged. ctx bounds the boot-time database work.
+//
+// New fails only when AuthKit cannot run safely: PostgreSQL unreachable or
+// its migrations failing, no usable signing key, or configuration it cannot
+// interpret without risking a weaker posture. A misconfigured or unreachable
+// optional dependency (an identity provider, a remote application, a sender,
+// Redis) is logged and switches off only what needs it; Probes reports it.
 func New(ctx context.Context, cfg Config, deps Deps) (_ *Client, err error) {
 	e, err := engine.New(ctx, cfg, deps)
 	if err != nil {
@@ -79,8 +84,10 @@ func New(ctx context.Context, cfg Config, deps Deps) (_ *Client, err error) {
 	return a, nil
 }
 
-// newHTTP builds the HTTP layer and its one mounted handler.
+// newHTTP builds the HTTP layer and its one mounted handler, serving the
+// identity providers the engine kept.
 func newHTTP(e *engine.Engine, deps Deps) (*httpapi.Service, *httpapi.Mount, error) {
+	deps.Providers = e.Providers()
 	svc, err := httpapi.New(e, e.Config(), deps)
 	if err != nil {
 		return nil, nil, err
@@ -154,6 +161,29 @@ func (a *Client) SMSAvailable() bool { return a.engine.SMSAvailable() }
 
 // SMSHealth is EmailHealth for Deps.SMS.
 func (a *Client) SMSHealth() (checkedAt time.Time, err error) { return a.engine.SMSHealth() }
+
+// Probe checks one optional dependency or degraded feature (Client.Probes).
+type Probe = engine.Probe
+
+// Ready reports whether AuthKit can serve: PostgreSQL answers, River runs
+// (AuthKit's own since Start, or the host's fleet bound to RiverJobs), and a
+// signing deployment holds an active key. Optional dependencies never fail
+// it; see Probes.
+func (a *Client) Ready(ctx context.Context) error { return a.engine.Ready(ctx) }
+
+// Probes lists AuthKit's optional dependencies and degraded features for the
+// host's dependency supervisor. None fails Ready: while one fails, only the
+// features that need it are refused. authkit_config fails while a survivable
+// configuration problem is in force (each was logged at New and switched off
+// or defaulted only what it concerns); authkit_email and authkit_sms report
+// the senders' latest health checks; authkit_redis pings Deps.Redis (limits
+// and spent DPoP proofs are per process while it fails); authkit_two_factor
+// fails while someone must hold MFA but no second factor can be enrolled;
+// authkit_issuer_keys fails naming each remote issuer whose JWKS did not
+// load (only its tokens are refused); authkit_provider_<name> fails while
+// that identity provider is disabled by its configuration or its discovery
+// fails (only its sign-ins are refused).
+func (a *Client) Probes() []Probe { return a.engine.Probes() }
 
 // TwoFactorMethods are the second factors a user can enroll now, as GET
 // /capabilities lists them: enabled by Config.TwoFactor, with their

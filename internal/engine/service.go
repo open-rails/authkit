@@ -53,7 +53,16 @@ type Engine struct {
 	// Only resources allocated by New are closed with the client.
 	ownedKeySource *keys.FileSource
 
-	providers          []provider.Provider
+	// providers are the usable identity providers; configuredProviders all of
+	// Deps.Providers, whose issuers stay reserved; providerProblems why one
+	// is disabled (applyProviders).
+	providers           []provider.Provider
+	configuredProviders []provider.Provider
+	providerProblems    map[string]error
+	// signs reports whether the engine mints tokens (not Keys.VerifyOnly).
+	signs bool
+	// degraded are the survivable problems New handled (Probes).
+	degraded           []error
 	email              config.EmailSender
 	sms                config.SMSSender
 	emailHealth        senderHealth

@@ -37,6 +37,13 @@ func (s *Engine) reconcileRemoteApplications(ctx context.Context) error {
 	return s.declareRemoteApplications(ctx, nil, iam.RootGroup(), apps, "Config.RemoteApplications")
 }
 
+// survivable reports whether err refuses one declared application alone (an
+// invalid issuer, trust source or role), as opposed to a database failure.
+func survivable(err error) bool {
+	var e iam.Error
+	return errors.As(err, &e) && e.Status() < 500
+}
+
 // DeclareRemoteApplications makes apps the group ref's declared remote
 // applications (Issuer, JWKSURI or PublicKeys, Enabled and Role are read):
 // each is registered by the system in ref with Role, its role there (none
@@ -64,14 +71,32 @@ func (s *Engine) declareRemoteApplications(ctx context.Context, host pgx.Tx, ref
 			}
 		}
 	}
+	// At boot an application the configuration gets wrong is left out, so it
+	// is disabled like an undeclared one: only its tokens are refused.
+	tolerant := host == nil && source == "Config.RemoteApplications"
 	var disabled []string
+	var refused []error
 	err := s.withGroupMutationIn(ctx, iam.SystemIdentity(), host, ref, func(st *permissionGroupStore, g groupTarget) error {
-		disabled = nil
+		disabled, refused = nil, nil
+		declared := issuers[:0:0]
 		for _, app := range apps {
-			if err := s.applyDeclaredApplication(ctx, st, g, app); err != nil {
+			apply := func() error { return s.applyDeclaredApplication(ctx, st, g, app) }
+			var err error
+			if tolerant {
+				err = s.applyAlone(ctx, st, apply)
+			} else {
+				err = apply()
+			}
+			switch {
+			case err == nil:
+				declared = append(declared, app.Issuer)
+			case tolerant && survivable(err):
+				refused = append(refused, fmt.Errorf("authkit: %s %q is disabled, so its tokens are refused: %w", source, app.Issuer, err))
+			default:
 				return fmt.Errorf("authkit: %s %q: %w", source, app.Issuer, err)
 			}
 		}
+		issuers := declared
 		q := db.New(st.q)
 		by := s.cfg.Token.Issuer
 		if err := q.RemoteApplicationsDeclare(ctx, db.RemoteApplicationsDeclareParams{DeclaredBy: by, PermissionGroupID: g.ID, Issuers: issuers}); err != nil {
@@ -97,11 +122,39 @@ func (s *Engine) declareRemoteApplications(ctx context.Context, host pgx.Tx, ref
 		}
 		return q.RemoteApplicationsRelease(ctx, ids)
 	})
-	for _, issuer := range disabled {
-		if err == nil {
+	if err == nil {
+		for _, problem := range refused {
+			s.degrade(problem)
+		}
+		for _, issuer := range disabled {
 			slog.InfoContext(ctx, "authkit: disabled a remote application "+source+" no longer declares", "issuer", issuer)
 		}
 	}
+	return err
+}
+
+// applyAlone runs apply in a savepoint of st's transaction: a failure rolls
+// back its writes alone, so the transaction goes on.
+func (s *Engine) applyAlone(ctx context.Context, st *permissionGroupStore, apply func() error) error {
+	tx, ok := st.q.(pgx.Tx)
+	if !ok {
+		return apply()
+	}
+	sp, err := tx.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	touched := len(st.touched)
+	st.q = sp
+	err = apply()
+	st.q = tx
+	if err == nil {
+		return sp.Commit(ctx)
+	}
+	if rbErr := sp.Rollback(ctx); rbErr != nil {
+		return errors.Join(err, rbErr)
+	}
+	st.touched = st.touched[:touched]
 	return err
 }
 

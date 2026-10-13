@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -384,4 +385,42 @@ func TestProvisioningReconcileResumes(t *testing.T) {
 	require.GreaterOrEqual(t, len(starts), 4)
 	require.Equal(t, []string{"1", "6", "6", "11"}, starts[:4], "the next run resumed at the page that failed")
 	require.Equal(t, 11, server.Len())
+}
+
+// TestProvisioningMisconfiguredTargetWaits: a target the configuration gets
+// wrong never fails the boot or the other targets; it stays registered, so its
+// changes wait, and are delivered once a fixed configuration runs.
+func TestProvisioningMisconfiguredTargetWaits(t *testing.T) {
+	ctx := context.Background()
+	healthy, later := testscim.New(true, 10), testscim.New(true, 10)
+	healthy.Token, later.Token = pushToken, pushToken
+	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
+		c.Provisioning = authkit.ProvisioningConfig{Interval: time.Second, Targets: []authkit.ProvisioningTarget{
+			{Name: "embedded", Handler: healthy, BearerToken: pushToken},
+			{Name: "broken", Handler: later, ClientCredentials: &authkit.ProvisioningClientCredentials{TokenURL: "https://idp.example/token", ClientID: "c"}},
+		}}
+	}))
+	require.ErrorContains(t, probe(t, auth, "authkit_config"), "ClientCredentials needs a TokenURL, ClientID and ClientSecret")
+	alice := authtest.NewUser(t, auth)
+	require.NoError(t, auth.Start(ctx))
+	pushed(t, healthy, alice.ID, active)
+	targets, err := auth.ProvisioningTargets(ctx)
+	require.NoError(t, err)
+	i := slices.IndexFunc(targets, func(target iam.ProvisioningTarget) bool { return target.Name == "broken" })
+	require.GreaterOrEqual(t, i, 0)
+	require.NotNil(t, targets[i].LastError)
+	require.Contains(t, *targets[i].LastError, "ClientCredentials needs")
+	require.Positive(t, targets[i].Backlog, "its changes wait")
+	_, ok := later.User(alice.ID)
+	require.False(t, ok)
+
+	require.NoError(t, auth.Close(ctx))
+	fixed := authtest.Replica(t, auth, authtest.WithConfig(func(c *authkit.Config) {
+		c.Provisioning.Targets = []authkit.ProvisioningTarget{
+			{Name: "embedded", Handler: healthy, BearerToken: pushToken},
+			{Name: "broken", Handler: later, BearerToken: pushToken},
+		}
+	}))
+	require.NoError(t, fixed.Start(ctx))
+	pushed(t, later, alice.ID, active)
 }

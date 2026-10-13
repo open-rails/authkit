@@ -275,8 +275,8 @@ func (s *Engine) reservedIssuer(issuer string) bool {
 	if issuerKey(s.cfg.Token.Issuer) == key {
 		return true
 	}
-	for _, p := range s.providers {
-		if p != nil && issuerKey(p.Issuer()) == key {
+	for _, p := range s.configuredProviders {
+		if issuerKey(p.Issuer()) == key {
 			return true
 		}
 	}

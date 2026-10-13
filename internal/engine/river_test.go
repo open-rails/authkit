@@ -178,8 +178,11 @@ func TestRiverWithoutPostgresAndInvalidConfig(t *testing.T) {
 	require.ErrorContains(t, err, "RiverSchema")
 	cfg = maintenanceConfig()
 	cfg.CleanupInterval = -time.Hour
-	_, err = New(t.Context(), cfg, config.Deps{})
-	require.ErrorContains(t, err, "CleanupInterval")
+	degraded, err := New(t.Context(), cfg, config.Deps{})
+	require.NoError(t, err, "a nonsensical interval falls back to the default")
+	defer degraded.Close(context.Background())
+	require.Equal(t, time.Hour, degraded.Config().CleanupInterval)
+	require.ErrorContains(t, degraded.Probes()[0].Check(t.Context()), "CleanupInterval")
 }
 
 func TestRiverJobsFailureInvalidatesPartialBindingAndPreservesHostPool(t *testing.T) {

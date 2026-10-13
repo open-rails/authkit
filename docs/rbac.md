@@ -51,7 +51,7 @@ Handing out a role takes `members:manage` in that group, and the grantor's own g
 - is never held by an API key or a remote application;
 - is taken away from users who turn their own 2FA off.
 
-`root:members:manage` and `root:users:manage` always need MFA, so `root:owner` does too. The requirement is off while `TwoFactor.Mode` is disabled. `New` fails when a role needs MFA but no second factor can be enrolled.
+`root:members:manage` and `root:users:manage` always need MFA, so `root:owner` does too. The requirement is off while `TwoFactor.Mode` is disabled. When a role needs MFA but no second factor can be enrolled, `New` logs it and the `authkit_two_factor` probe fails: those accounts can't sign in until a method works.
 
 ## Custom roles
 

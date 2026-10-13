@@ -50,7 +50,14 @@ type ProvisioningTarget struct {
 	// ClientCredentials gets the access token from an OAuth 2.0 token
 	// endpoint instead.
 	ClientCredentials *ProvisioningClientCredentials `yaml:"client_credentials"`
+
+	// invalid disables a misconfigured target: it stays registered, so its
+	// pending changes wait for a fixed configuration.
+	invalid error
 }
+
+// TargetInvalid is why Normalize disabled t; nil when t is usable.
+func TargetInvalid(t ProvisioningTarget) error { return t.invalid }
 
 // ProvisioningClientCredentials is an OAuth 2.0 client-credentials client
 // (RFC 6749 §4.4) whose access tokens authenticate to a target.
@@ -73,56 +80,78 @@ const (
 
 var provisioningTargetName = regexp.MustCompile(`^[a-z0-9_-]{1,64}$`)
 
-func normalizeProvisioning(p *ProvisioningConfig, d Deps) error {
+// normalizeProvisioning refuses targets without Deps.Postgres. A target with an
+// invalid name is dropped; any other misconfigured one is disabled, keeping its
+// pending changes, and a name declared twice disables both.
+func normalizeProvisioning(p *ProvisioningConfig, d Deps, degrade func(error)) error {
 	if len(p.Targets) == 0 {
 		return nil
 	}
 	if d.Postgres == nil {
 		return errors.New("authkit: Provisioning needs Deps.Postgres")
 	}
-	switch {
-	case p.Interval == 0:
+	if p.Interval == 0 {
 		p.Interval = DefaultProvisioningInterval
-	case p.Interval < time.Second:
-		return errors.New("authkit: Provisioning.Interval must be at least one second")
+	}
+	if p.Interval < time.Second {
+		degrade(fmt.Errorf("authkit: Provisioning.Interval %s is under one second; using %s", p.Interval, DefaultProvisioningInterval))
+		p.Interval = DefaultProvisioningInterval
 	}
 	switch {
 	case p.ReconcileInterval == 0:
-		p.ReconcileInterval = DefaultProvisioningReconcileInterval
+		p.ReconcileInterval = max(DefaultProvisioningReconcileInterval, p.Interval)
 	case p.ReconcileInterval > 0 && p.ReconcileInterval < p.Interval:
-		return errors.New("authkit: Provisioning.ReconcileInterval must be at least Provisioning.Interval")
+		degrade(fmt.Errorf("authkit: Provisioning.ReconcileInterval %s is under Provisioning.Interval; using %s", p.ReconcileInterval, p.Interval))
+		p.ReconcileInterval = p.Interval
 	}
 	targets := make([]ProvisioningTarget, 0, len(p.Targets))
 	for i, t := range p.Targets {
 		t.Name = strings.TrimSpace(t.Name)
 		if !provisioningTargetName.MatchString(t.Name) {
-			return fmt.Errorf("authkit: Provisioning.Targets[%d]: invalid name %q (want 1-64 of a-z, 0-9, '-', '_')", i, t.Name)
+			degrade(fmt.Errorf("authkit: Provisioning.Targets[%d]: invalid name %q (want 1-64 of a-z, 0-9, '-', '_'); it is ignored", i, t.Name))
+			continue
 		}
-		if slices.ContainsFunc(targets, func(o ProvisioningTarget) bool { return o.Name == t.Name }) {
-			return fmt.Errorf("authkit: Provisioning.Targets[%d]: target %q is declared twice", i, t.Name)
-		}
-		t.URL = strings.TrimSuffix(strings.TrimSpace(t.URL), "/")
-		switch {
-		case (t.URL == "") == (t.Handler == nil):
-			return fmt.Errorf("authkit: Provisioning.Targets[%d] (%s): set exactly one of URL and Handler", i, t.Name)
-		case t.URL != "" && !httpURL(t.URL):
-			return fmt.Errorf("authkit: Provisioning.Targets[%d] (%s): URL %q must be an absolute http or https URL", i, t.Name, t.URL)
-		}
-		if t.BearerToken != "" && t.ClientCredentials != nil {
-			return fmt.Errorf("authkit: Provisioning.Targets[%d] (%s): set at most one of BearerToken and ClientCredentials", i, t.Name)
-		}
-		if cc := t.ClientCredentials; cc != nil {
-			c := *cc
-			c.TokenURL, c.ClientID, c.Resource = strings.TrimSpace(c.TokenURL), strings.TrimSpace(c.ClientID), strings.TrimSpace(c.Resource)
-			if !httpURL(c.TokenURL) || c.ClientID == "" || c.ClientSecret == "" {
-				return fmt.Errorf("authkit: Provisioning.Targets[%d] (%s): ClientCredentials needs a TokenURL, ClientID and ClientSecret", i, t.Name)
+		if j := slices.IndexFunc(targets, func(o ProvisioningTarget) bool { return o.Name == t.Name }); j >= 0 {
+			if targets[j].invalid == nil || !errors.Is(targets[j].invalid, errDeclaredTwice) {
+				targets[j].invalid = fmt.Errorf("authkit: Provisioning target %q: %w", t.Name, errDeclaredTwice)
+				degrade(targets[j].invalid)
 			}
-			c.Scopes = slices.Clone(c.Scopes)
-			t.ClientCredentials = &c
+			continue
+		}
+		if t.invalid == nil {
+			if t.invalid = validProvisioningTarget(&t); t.invalid != nil {
+				t.invalid = fmt.Errorf("authkit: Provisioning.Targets[%d] (%s): %w; its changes wait until it is fixed", i, t.Name, t.invalid)
+				degrade(t.invalid)
+			}
 		}
 		targets = append(targets, t)
 	}
 	p.Targets = targets
+	return nil
+}
+
+var errDeclaredTwice = errors.New("declared twice; its changes wait until it is declared once")
+
+func validProvisioningTarget(t *ProvisioningTarget) error {
+	t.URL = strings.TrimSuffix(strings.TrimSpace(t.URL), "/")
+	switch {
+	case (t.URL == "") == (t.Handler == nil):
+		return errors.New("set exactly one of URL and Handler")
+	case t.URL != "" && !httpURL(t.URL):
+		return fmt.Errorf("URL %q must be an absolute http or https URL", t.URL)
+	}
+	if t.BearerToken != "" && t.ClientCredentials != nil {
+		return errors.New("set at most one of BearerToken and ClientCredentials")
+	}
+	if cc := t.ClientCredentials; cc != nil {
+		c := *cc
+		c.TokenURL, c.ClientID, c.Resource = strings.TrimSpace(c.TokenURL), strings.TrimSpace(c.ClientID), strings.TrimSpace(c.Resource)
+		if !httpURL(c.TokenURL) || c.ClientID == "" || c.ClientSecret == "" {
+			return errors.New("ClientCredentials needs a TokenURL, ClientID and ClientSecret")
+		}
+		c.Scopes = slices.Clone(c.Scopes)
+		t.ClientCredentials = &c
+	}
 	return nil
 }
 

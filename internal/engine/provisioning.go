@@ -54,6 +54,9 @@ const (
 type provisioningTarget struct {
 	name   string
 	client *scim.Client
+	// invalid disables a misconfigured target (config.TargetInvalid): its
+	// changes stay pending.
+	invalid error
 }
 
 // initProvisioning builds the targets' clients and registers them, so the
@@ -63,7 +66,11 @@ func (s *Engine) initProvisioning(ctx context.Context) error {
 		return nil
 	}
 	for _, t := range s.cfg.Provisioning.Targets {
-		s.provisioning = append(s.provisioning, &provisioningTarget{name: t.Name, client: provisioningClient(t)})
+		pt := &provisioningTarget{name: t.Name, invalid: config.TargetInvalid(t)}
+		if pt.invalid == nil {
+			pt.client = provisioningClient(t)
+		}
+		s.provisioning = append(s.provisioning, pt)
 		if err := s.q.ProvisioningTargetRegister(ctx, db.ProvisioningTargetRegisterParams{Issuer: s.cfg.Token.Issuer, Name: t.Name}); err != nil {
 			return fmt.Errorf("authkit: register provisioning target %s: %w", t.Name, err)
 		}
@@ -239,8 +246,8 @@ func (w *provisioningWorker) Work(ctx context.Context, job *river.Job[provisioni
 		return river.JobCancel(errors.New("authkit: provisioning job routed to a different application"))
 	}
 	t := s.provisioningTarget(job.Args.Target)
-	if t == nil {
-		return nil // configured on another build of this issuer
+	if t == nil || t.invalid != nil {
+		return nil // configured on another build of this issuer, or disabled
 	}
 	return s.runProvisioning(ctx, t)
 }
@@ -352,10 +359,15 @@ func (s *Engine) ProvisioningTargets(ctx context.Context) ([]iam.ProvisioningTar
 		return nil, err
 	}
 	for _, r := range rows {
-		out = append(out, iam.ProvisioningTarget{
+		target := iam.ProvisioningTarget{
 			Name: r.Name, SyncedAt: r.SyncedAt, ReconciledAt: r.ReconciledAt, LastSuccessAt: r.LastSuccessAt,
 			FailingSince: r.FailingSince, LastError: r.LastError, Backlog: int(r.Backlog),
-		})
+		}
+		if t := s.provisioningTarget(r.Name); t != nil && t.invalid != nil {
+			msg := t.invalid.Error()
+			target.LastError = &msg
+		}
+		out = append(out, target)
 	}
 	return out, nil
 }

@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Changes
+
+- Survivable boot (#456): `New` fails only when AuthKit can't run safely: PostgreSQL unreachable after a bounded wait (30 seconds, or `ctx`; it is pinged with backoff first), migrations failing, no usable signing key (now also a `Deps.KeySource` without an active signer, unless `Keys.VerifyOnly`), token identity, and structural or security-posture configuration. Survivable problems are logged and switch off only what they concern: an identity provider that fails validation, repeats a name or issuer, claims an account issuer or needs HTTPS for `form_post` is disabled alone; a `Config.RemoteApplications` entry that is invalid is disabled (its tokens refused); a role needing MFA with no enrollable factor keeps the gate closed; registration verification without a sender, invalid languages, frontend paths, Solana network, Redis key prefix and intervals fall back to defaults; a misconfigured provisioning target keeps its changes pending.
+- `Client.Ready(ctx)` (PostgreSQL, River, signing key) and `Client.Probes()` (`authkit_config`, `authkit_email`, `authkit_sms`, `authkit_redis`, `authkit_two_factor`, `authkit_issuer_keys`, `authkit_provider_<name>`), in OpenRails' Ready/Probes shape. Hosts register the probes with their dependency supervisor instead of wrapping `EmailHealth`/`SMSHealth`.
+- A flow that must deliver with no sender configured answers 503 `email_unavailable` or `sms_unavailable` instead of an internal error; a password reset is refused before the account lookup.
+- An OIDC provider's discovery failure and recovery are logged once each.
+
 ## v1.26.0
 
 ### Breaking

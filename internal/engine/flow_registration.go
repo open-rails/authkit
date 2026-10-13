@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
@@ -52,7 +51,7 @@ func (s *Engine) issuePendingEmailRegistration(ctx context.Context, email, usern
 			return "", err
 		}
 	} else if !s.cfg.Registration.AllowMissingSenders {
-		return "", fmt.Errorf("registration verification unavailable: email sender not configured")
+		return "", errEmailNotConfigured
 	}
 
 	return code, nil
@@ -123,7 +122,7 @@ func (s *Engine) issuePendingPhoneRegistration(ctx context.Context, phone, usern
 			return "", err
 		}
 	} else if !s.cfg.Registration.AllowMissingSenders {
-		return "", fmt.Errorf("SMS verification unavailable: SMS sender not configured (phone registration requires SMS in production)")
+		return "", errSMSNotConfigured
 	}
 
 	return code, nil

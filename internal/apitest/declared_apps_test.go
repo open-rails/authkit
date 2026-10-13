@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -110,20 +111,35 @@ func TestDeclaredRemoteApplications(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, listed.Items, 4, "nothing is deleted")
 
+	// An application the configuration gets wrong is left out, so its
+	// tokens are refused; the boot and the rest of the set go on.
+	const fine = "https://fine.declared.test"
 	cfg, deps := bareConfig(t)
 	for name, tc := range map[string]struct {
 		apps []authkit.RemoteApplicationConfig
 		err  string
 	}{
 		"no issuer":            {[]authkit.RemoteApplicationConfig{{JWKSURI: search + "/jwks.json"}}, "no Issuer"},
-		"an issuer twice":      {[]authkit.RemoteApplicationConfig{searchApp, searchApp}, "twice"},
+		"an issuer twice":      {[]authkit.RemoteApplicationConfig{searchApp, searchApp}, "2 times"},
 		"two trust sources":    {[]authkit.RemoteApplicationConfig{{Issuer: search, JWKSURI: search + "/jwks.json", PublicKeys: billingApp.PublicKeys}}, "mutually exclusive"},
 		"this deployment":      {[]authkit.RemoteApplicationConfig{{Issuer: authtest.Issuer, JWKSURI: search + "/jwks.json"}}, "reserved"},
 		"a role root does not": {[]authkit.RemoteApplicationConfig{{Issuer: search, JWKSURI: search + "/jwks.json", Role: authkit.NewRoles().Persona("channel").Role("member")}}, "is not a role of a"},
 	} {
-		cfg.RemoteApplications = tc.apps
-		_, err := newClient(t, cfg, deps)
-		require.ErrorContains(t, err, tc.err, name)
+		cfg.RemoteApplications = append(tc.apps, authkit.RemoteApplicationConfig{Issuer: fine, JWKSURI: fine + "/jwks.json"})
+		auth, err := newClient(t, cfg, deps)
+		require.NoError(t, err, name)
+		var problems error
+		for _, p := range auth.Probes() {
+			if p.Name == "authkit_config" {
+				problems = p.Check(ctx)
+			}
+		}
+		require.ErrorContains(t, problems, tc.err, name)
+		require.True(t, app(auth, fine).Enabled, name)
+		for _, a := range tc.apps {
+			got, err := auth.RemoteApplication(ctx, iam.AppByIssuer(a.Issuer))
+			require.True(t, errors.Is(err, iam.ErrRemoteApplicationNotFound) || err == nil && !got.Enabled, "%s: %s is not trusted", name, a.Issuer)
+		}
 	}
 }
 

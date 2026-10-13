@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -77,7 +76,7 @@ func (s *Engine) sendEmailVerificationToUser(ctx context.Context, u *db.User, tt
 		return s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessageVerification, To: *u.Email, Username: deref(u.Username), Language: s.userLanguage(ctx, u.ID),
 			Code: code, Link: s.emailVerificationURL(linkToken), Purpose: iam.PurposeContactVerify})
 	} else if !s.cfg.Registration.AllowMissingSenders {
-		return fmt.Errorf("email verification unavailable: email sender not configured")
+		return errEmailNotConfigured
 	}
 	return nil
 }
@@ -132,7 +131,7 @@ func (s *Engine) sendPhoneVerificationToUser(ctx context.Context, phone, userID 
 	} else {
 		// In production, require SMS to be configured
 		if !s.cfg.Registration.AllowMissingSenders {
-			return fmt.Errorf("SMS verification unavailable: SMS sender not configured (phone verification requires SMS in production)")
+			return errSMSNotConfigured
 		}
 	}
 

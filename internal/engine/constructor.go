@@ -2,27 +2,29 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
+	"path/filepath"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/keys"
 )
 
-// New builds the engine: it normalizes cfg once (config.Normalize), creates or
-// upgrades the tables (Migrate), resolves keys, then builds the store, River,
-// the permission groups and the request authenticator. ctx bounds the
-// boot-time database work.
+// New builds the engine: it normalizes cfg once (config.Normalize), resolves
+// keys, waits for PostgreSQL (waitForPostgres), creates or upgrades the tables
+// (Migrate), then builds the store, River, the permission groups and the
+// request authenticator. ctx bounds the boot-time database work. It fails
+// only on what AuthKit cannot run safely with; a survivable problem switches
+// off the feature it concerns and is reported by Probes.
 func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, err error) {
-	norm, err := config.Normalize(cfg, deps)
+	norm, degraded, err := config.Normalize(cfg, deps)
 	if err != nil {
 		return nil, err
-	}
-	if deps.Postgres != nil {
-		if err := Migrate(ctx, deps.Postgres, norm.Database); err != nil {
-			return nil, err
-		}
 	}
 	gs, err := config.CompileRoles(norm.Roles)
 	if err != nil {
@@ -42,6 +44,7 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 		cfg:               norm,
 		keys:              src,
 		ownedKeySource:    owned,
+		signs:             deps.KeySource != nil || !norm.Keys.VerifyOnly,
 		schema:            norm.Database.Schema,
 		groupSchema:       gs,
 		solanaSNSResolver: newDefaultSolanaSNSResolver(),
@@ -52,11 +55,27 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 			_ = s.Close(context.WithoutCancel(ctx))
 		}
 	}()
+	if !norm.Keys.VerifyOnly && src.ActiveSigner() == nil {
+		return nil, errors.New("authkit: Deps.KeySource has no active signing key, so no token could be signed; give it one, or set Keys.VerifyOnly for a deployment that only verifies")
+	}
+	for _, problem := range degraded {
+		s.degrade(problem)
+	}
+	if deps.Postgres != nil {
+		if err := waitForPostgres(ctx, deps.Postgres); err != nil {
+			return nil, err
+		}
+		if err := Migrate(ctx, deps.Postgres, norm.Database); err != nil {
+			return nil, err
+		}
+	}
 	if err := s.applyDeps(deps); err != nil {
 		return nil, err
 	}
-	if err := s.requireEnrollableSecondFactor(deps.KeySource != nil || !norm.Keys.VerifyOnly); err != nil {
-		return nil, err
+	if problem := s.secondFactorProblem(); problem != nil {
+		s.degrade(problem)
+	} else if s.signs && s.twoFactorMethodConfigured(iam.TwoFactorTOTP) && len(s.cfg.TwoFactor.TOTPSecretKey) == 0 {
+		slog.Warn("authkit: TOTP is offered but has no key, so it is unavailable", "path", filepath.Join(totpKeysDir(s.cfg), totpKeyFilename))
 	}
 	if err := s.initRiver(ctx, deps.Postgres); err != nil {
 		return nil, err
@@ -89,6 +108,37 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 		}
 	}
 	return s, nil
+}
+
+// postgresBootWait bounds how long New waits for PostgreSQL to answer when
+// ctx sets no earlier deadline.
+const postgresBootWait = 30 * time.Second
+
+// waitForPostgres pings pool with backoff until it answers, ctx ends or
+// postgresBootWait passes: a database restarting beside AuthKit is waited
+// for, one that stays down fails the boot.
+func waitForPostgres(ctx context.Context, pool *pgxpool.Pool) error {
+	ctx, cancel := context.WithTimeout(ctx, postgresBootWait)
+	defer cancel()
+	start, wait := time.Now(), 250*time.Millisecond
+	for attempt := 1; ; attempt++ {
+		pingCtx, done := context.WithTimeout(ctx, 5*time.Second)
+		err := pool.Ping(pingCtx)
+		done()
+		if err == nil {
+			if attempt > 1 {
+				slog.Info("authkit: PostgreSQL answers", "attempts", attempt)
+			}
+			return nil
+		}
+		slog.Warn("authkit: PostgreSQL does not answer; retrying", "attempt", attempt, "error", err)
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("authkit: PostgreSQL unreachable after %d attempts over %s: %w", attempt, time.Since(start).Round(time.Millisecond), err)
+		case <-time.After(wait):
+		}
+		wait = min(2*wait, 4*time.Second)
+	}
 }
 
 // engineKeySource is the host's Deps.KeySource, or none (VerifyOnly), or
