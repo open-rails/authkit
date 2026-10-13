@@ -437,7 +437,7 @@ func (s *Engine) send2FACodeForUser(ctx context.Context, user *db.User, scope st
 		} else {
 			// In production, require email to be configured for email 2FA
 			if !s.cfg.Registration.AllowMissingSenders {
-				return "", fmt.Errorf("email 2FA unavailable: email sender not configured (email 2FA requires email in production)")
+				return "", errEmailNotConfigured
 			}
 		}
 	} else { // sms
@@ -448,7 +448,7 @@ func (s *Engine) send2FACodeForUser(ctx context.Context, user *db.User, scope st
 		} else {
 			// In production, require SMS to be configured for SMS 2FA
 			if !s.cfg.Registration.AllowMissingSenders {
-				return "", fmt.Errorf("SMS 2FA unavailable: SMS sender not configured (SMS 2FA requires delivery in production)")
+				return "", errSMSNotConfigured
 			}
 		}
 	}

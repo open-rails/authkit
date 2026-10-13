@@ -2,7 +2,6 @@ package engine
 
 import (
 	"fmt"
-	"log/slog"
 	"path/filepath"
 	"strings"
 
@@ -70,46 +69,38 @@ func (s *Engine) TwoFactorMethods() []iam.TwoFactorMethod {
 	return out
 }
 
-// requireEnrollableSecondFactor refuses, at New, a deployment where someone
-// must hold MFA but no second factor can be enrolled: its operators could
-// never enroll one or reach admin. A missing TOTP key is only a warning when
-// no one needs MFA or another method works. An engine that signs no one in
-// (Keys.VerifyOnly) has nothing to enroll.
-func (s *Engine) requireEnrollableSecondFactor(signs bool) error {
-	if !s.TwoFactorEnabled() || !signs {
+// secondFactorProblem is why someone must hold MFA but no second factor can be
+// enrolled now: the MFA gate then refuses them (fail closed) until a method's
+// dependency returns. New reports it as degraded and Probes as
+// authkit_two_factor. An engine that signs no one in (Keys.VerifyOnly) has
+// nothing to enroll.
+func (s *Engine) secondFactorProblem() error {
+	if !s.TwoFactorEnabled() || !s.signs || len(s.TwoFactorMethods()) > 0 {
 		return nil
 	}
-	totpKeyMissing := s.twoFactorMethodConfigured(iam.TwoFactorTOTP) && len(s.cfg.TwoFactor.TOTPSecretKey) == 0
-	totpKeyPath := filepath.Join(totpKeysDir(s.cfg), totpKeyFilename)
 	var need string
-	if len(s.TwoFactorMethods()) == 0 {
-		switch roles := s.mfaRequiredRoles(); {
-		case s.requireMFAEnrollment():
-			need = "TwoFactor.Mode is required, so every account needs MFA"
-		case len(roles) == 1:
-			need = "role " + roles[0] + " needs MFA"
-		case len(roles) > 1:
-			need = "roles " + strings.Join(roles, ", ") + " need MFA"
-		}
-	}
-	if need == "" {
-		if totpKeyMissing {
-			slog.Warn("authkit: TOTP is offered but has no key, so it is unavailable", "path", totpKeyPath)
-		}
+	switch roles := s.mfaRequiredRoles(); {
+	case s.requireMFAEnrollment():
+		need = "TwoFactor.Mode is required, so every account needs MFA"
+	case len(roles) == 1:
+		need = "role " + roles[0] + " needs MFA"
+	case len(roles) > 1:
+		need = "roles " + strings.Join(roles, ", ") + " need MFA"
+	default:
 		return nil
 	}
 	var fixes []string
-	if totpKeyMissing {
-		fixes = append(fixes, fmt.Sprintf("put a 16, 24 or 32-byte key at %s (or set TwoFactor.TOTPSecretKey)", totpKeyPath))
+	if s.twoFactorMethodConfigured(iam.TwoFactorTOTP) && len(s.cfg.TwoFactor.TOTPSecretKey) == 0 {
+		fixes = append(fixes, fmt.Sprintf("put a 16, 24 or 32-byte key at %s (or set TwoFactor.TOTPSecretKey)", filepath.Join(totpKeysDir(s.cfg), totpKeyFilename)))
 	}
 	if s.twoFactorMethodConfigured(iam.TwoFactorEmail) {
-		fixes = append(fixes, "set Deps.Email")
+		fixes = append(fixes, "set a healthy Deps.Email")
 	}
 	if s.twoFactorMethodConfigured(iam.TwoFactorSMS) {
-		fixes = append(fixes, "set Deps.SMS")
+		fixes = append(fixes, "set a healthy Deps.SMS")
 	}
 	fixes = append(fixes, "set TwoFactor.Mode to disabled")
-	return fmt.Errorf("authkit: %s, but no second factor can be enrolled: %s", need, strings.Join(fixes, ", or "))
+	return fmt.Errorf("authkit: %s, but no second factor can be enrolled, so those sign-ins are refused: %s", need, strings.Join(fixes, ", or "))
 }
 
 // mfaRequiredRoles lists every role, in every persona, whose permissions need

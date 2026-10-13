@@ -18,11 +18,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// New refuses a deployment where a role needs MFA but no second factor can be
-// enrolled (no totp.key, no email or SMS sender), naming the roles and the
-// fixes; it boots once one method works, or with 2FA disabled. The Client and
-// GET /capabilities report the methods a user can enroll.
-func TestNewRequiresAnEnrollableSecondFactor(t *testing.T) {
+// A deployment where a role needs MFA but no second factor can be enrolled
+// (no totp.key, no email or SMS sender) boots degraded: authkit_two_factor
+// names the roles and the fixes while the MFA gate stays closed, and clears
+// once one method works, or with 2FA disabled. The Client and GET
+// /capabilities report the methods a user can enroll.
+func TestNewDegradesWithoutAnEnrollableSecondFactor(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	noKey := t.TempDir()
 	rbac := authkit.NewRoles()
@@ -66,14 +67,14 @@ func TestNewRequiresAnEnrollableSecondFactor(t *testing.T) {
 	}
 	keyAt := filepath.Join(noKey, "totp.key")
 
-	t.Run("refused without an enrollable factor", func(t *testing.T) {
+	t.Run("degraded without an enrollable factor", func(t *testing.T) {
 		for name, tc := range map[string]struct {
 			edit func(*authkit.Config)
 			err  string
 		}{
 			"no key, no senders": {
-				err: "authkit: roles org:admin, org:owner, root:owner need MFA, but no second factor can be enrolled: " +
-					"put a 16, 24 or 32-byte key at " + keyAt + " (or set TwoFactor.TOTPSecretKey), or set Deps.Email, or set Deps.SMS, " +
+				err: "authkit: roles org:admin, org:owner, root:owner need MFA, but no second factor can be enrolled, so those sign-ins are refused: " +
+					"put a 16, 24 or 32-byte key at " + keyAt + " (or set TwoFactor.TOTPSecretKey), or set a healthy Deps.Email, or set a healthy Deps.SMS, " +
 					"or set TwoFactor.Mode to disabled",
 			},
 			"required mode, TOTP only": {
@@ -81,7 +82,7 @@ func TestNewRequiresAnEnrollableSecondFactor(t *testing.T) {
 					c.TwoFactor.Mode = iam.TwoFactorRequired
 					c.TwoFactor.Methods = []iam.TwoFactorMethod{iam.TwoFactorTOTP}
 				},
-				err: "authkit: TwoFactor.Mode is required, so every account needs MFA, but no second factor can be enrolled: " +
+				err: "authkit: TwoFactor.Mode is required, so every account needs MFA, but no second factor can be enrolled, so those sign-ins are refused: " +
 					"put a 16, 24 or 32-byte key at " + keyAt + " (or set TwoFactor.TOTPSecretKey), or set TwoFactor.Mode to disabled",
 			},
 			"a key, but TOTP not offered": {
@@ -89,20 +90,40 @@ func TestNewRequiresAnEnrollableSecondFactor(t *testing.T) {
 					c.TwoFactor.Methods = []iam.TwoFactorMethod{iam.TwoFactorEmail}
 					c.TwoFactor.TOTPSecretKey = testTOTPKey
 				},
-				err: "authkit: roles org:admin, org:owner, root:owner need MFA, but no second factor can be enrolled: " +
-					"set Deps.Email, or set TwoFactor.Mode to disabled",
-			},
-			"an unknown method": {
-				edit: func(c *authkit.Config) { c.TwoFactor.Methods = []iam.TwoFactorMethod{"push"} },
-				err:  `authkit: invalid TwoFactor.Methods entry "push" (want email, sms, or totp)`,
+				err: "authkit: roles org:admin, org:owner, root:owner need MFA, but no second factor can be enrolled, so those sign-ins are refused: " +
+					"set a healthy Deps.Email, or set TwoFactor.Mode to disabled",
 			},
 		} {
 			t.Run(name, func(t *testing.T) {
-				auth, err := authkit.New(t.Context(), config(tc.edit), testDeps(pg.Pool))
-				require.EqualError(t, err, tc.err)
-				require.Nil(t, auth)
+				auth := boot(t, config(tc.edit), testDeps(pg.Pool))
+				require.EqualError(t, probe(t, auth, "authkit_two_factor"), tc.err)
+				require.ErrorContains(t, probe(t, auth, "authkit_config"), tc.err)
+				require.Empty(t, auth.TwoFactorMethods())
 			})
 		}
+		auth := boot(t, config(func(c *authkit.Config) {
+			c.TwoFactor.Mode = iam.TwoFactorRequired
+			c.TwoFactor.Methods = []iam.TwoFactorMethod{iam.TwoFactorTOTP}
+		}), testDeps(pg.Pool))
+		u := authtest.NewUser(t, auth)
+		w := serve(auth, http.MethodPost, "/api/v1/password/login", `{"identifier":"`+u.Email+`","password":"`+u.Password+`"}`)
+		var res struct {
+			Status     string        `json:"status"`
+			TokenSet   *iam.TokenSet `json:"token_set"`
+			Enrollment struct {
+				AllowedMethods []iam.TwoFactorMethod `json:"allowed_methods"`
+			} `json:"enrollment"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &res), w.Body.String())
+		require.Equal(t, "enrollment_required", res.Status, "the gate stays closed")
+		require.Nil(t, res.TokenSet, "no session")
+		require.Empty(t, res.Enrollment.AllowedMethods)
+	})
+
+	t.Run("an unknown method is refused", func(t *testing.T) {
+		auth, err := authkit.New(t.Context(), config(func(c *authkit.Config) { c.TwoFactor.Methods = []iam.TwoFactorMethod{"push"} }), testDeps(pg.Pool))
+		require.EqualError(t, err, `authkit: invalid TwoFactor.Methods entry "push" (want email, sms, or totp)`)
+		require.Nil(t, auth)
 	})
 
 	t.Run("the key file enables TOTP", func(t *testing.T) {
@@ -111,6 +132,7 @@ func TestNewRequiresAnEnrollableSecondFactor(t *testing.T) {
 		_, _ = rand.Read(raw)
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "totp.key"), []byte(hex.EncodeToString(raw)), 0o600))
 		auth := boot(t, config(func(c *authkit.Config) { c.Keys.Path = dir }), testDeps(pg.Pool))
+		require.NoError(t, probe(t, auth, "authkit_two_factor"))
 		mode, methods := offered(t, auth)
 		require.Equal(t, iam.TwoFactorOptional, mode)
 		require.Equal(t, []iam.TwoFactorMethod{iam.TwoFactorTOTP}, methods)

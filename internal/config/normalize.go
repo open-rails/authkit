@@ -52,14 +52,16 @@ const (
 // Normalize applies every default and checks every rule of c and d, once:
 // authkit.New calls it and hands the result to the engine and the HTTP
 // layer. It returns a normalized copy; normalizing that copy again changes
-// nothing.
-func Normalize(c Config, d Deps) (Config, error) {
-	var err error
+// nothing. err is a problem AuthKit cannot run safely with; degraded lists
+// the survivable ones, each already handled by switching off or defaulting
+// only the feature it concerns.
+func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
+	degrade := func(err error) { degraded = append(degraded, err) }
 	if c.Database.Schema, err = NormalizeSchema(c.Database.Schema); err != nil {
-		return Config{}, err
+		return Config{}, nil, err
 	}
 	if err := normalizeToken(&c.Token); err != nil {
-		return Config{}, err
+		return Config{}, nil, err
 	}
 	c.SignIn = NormalizeSignIn(c.SignIn)
 	switch c.SignIn.DPoP {
@@ -67,71 +69,68 @@ func Normalize(c Config, d Deps) (Config, error) {
 		c.SignIn.DPoP = DPoPOptional
 	case DPoPOptional, DPoPRequired:
 	default:
-		return Config{}, fmt.Errorf("authkit: invalid SignIn.DPoP %q (want optional or required)", c.SignIn.DPoP)
+		return Config{}, nil, fmt.Errorf("authkit: invalid SignIn.DPoP %q (want optional or required)", c.SignIn.DPoP)
 	}
 	switch c.SolanaNetwork {
 	case "", iam.SolanaMainnet, iam.SolanaTestnet, iam.SolanaDevnet:
 	default:
-		return Config{}, fmt.Errorf("authkit: invalid SolanaNetwork %q (want mainnet, testnet or devnet)", c.SolanaNetwork)
+		degrade(fmt.Errorf("authkit: invalid SolanaNetwork %q (want mainnet, testnet or devnet); Sign In With Solana is off", c.SolanaNetwork))
+		c.SolanaNetwork = ""
 	}
-	if err := normalizeFrontend(&c.Frontend, c.Token.Issuer); err != nil {
-		return Config{}, err
+	if err := normalizeFrontend(&c.Frontend, c.Token.Issuer, degrade); err != nil {
+		return Config{}, nil, err
 	}
 	if err := normalizeRegistration(&c.Registration); err != nil {
-		return Config{}, err
+		return Config{}, nil, err
 	}
 	if err := normalizeAgreements(&c); err != nil {
-		return Config{}, err
+		return Config{}, nil, err
 	}
 	if err := normalizeSMS(&c.SMS); err != nil {
-		return Config{}, err
+		return Config{}, nil, err
 	}
 	if c.Invitations.Disabled && c.Registration.NativeUserMode == iam.RegistrationModeInviteOnly {
-		return Config{}, errors.New("authkit: Registration.NativeUserMode \"invite_only\" needs invitations, but Invitations.Disabled is set")
+		return Config{}, nil, errors.New("authkit: Registration.NativeUserMode \"invite_only\" needs invitations, but Invitations.Disabled is set")
 	}
 	if c.Password, err = NormalizePassword(c.Password); err != nil {
-		return Config{}, err
+		return Config{}, nil, err
 	}
 	if c.Username, err = NormalizeUsername(c.Username); err != nil {
-		return Config{}, err
+		return Config{}, nil, err
 	}
 	switch c.TwoFactor.Mode {
 	case "":
 		c.TwoFactor.Mode = iam.TwoFactorOptional
 	case iam.TwoFactorDisabled, iam.TwoFactorOptional, iam.TwoFactorRequired:
 	default:
-		return Config{}, fmt.Errorf("authkit: invalid TwoFactor.Mode %q (want disabled, optional, or required)", c.TwoFactor.Mode)
+		return Config{}, nil, fmt.Errorf("authkit: invalid TwoFactor.Mode %q (want disabled, optional, or required)", c.TwoFactor.Mode)
 	}
 	c.TwoFactor.Methods = slices.Clone(c.TwoFactor.Methods)
 	for _, m := range c.TwoFactor.Methods {
 		switch m {
 		case iam.TwoFactorEmail, iam.TwoFactorSMS, iam.TwoFactorTOTP:
 		default:
-			return Config{}, fmt.Errorf("authkit: invalid TwoFactor.Methods entry %q (want email, sms, or totp)", m)
+			return Config{}, nil, fmt.Errorf("authkit: invalid TwoFactor.Methods entry %q (want email, sms, or totp)", m)
 		}
 	}
 	if n := len(c.TwoFactor.TOTPSecretKey); n > 0 && n != 16 && n != 24 && n != 32 {
-		return Config{}, fmt.Errorf("authkit: TwoFactor.TOTPSecretKey must be 16, 24, or 32 bytes, got %d", n)
+		return Config{}, nil, fmt.Errorf("authkit: TwoFactor.TOTPSecretKey must be 16, 24, or 32 bytes, got %d", n)
 	}
 	if err := normalizePasskeys(&c.Passkeys, c.Frontend.BaseURL, c.Token.Issuer); err != nil {
-		return Config{}, err
+		return Config{}, nil, err
 	}
 	c.APIKeys.Prefix = strings.TrimSpace(c.APIKeys.Prefix)
 	if !validAPIKeyPrefix(c.APIKeys.Prefix) {
-		return Config{}, fmt.Errorf("authkit: invalid APIKeyPrefix %q (want lowercase alphanumeric, 1-16 chars, or empty)", c.APIKeys.Prefix)
+		return Config{}, nil, fmt.Errorf("authkit: invalid APIKeyPrefix %q (want lowercase alphanumeric, 1-16 chars, or empty)", c.APIKeys.Prefix)
 	}
 	if err := normalizeAuthorizationServer(&c.AuthorizationServer, c); err != nil {
-		return Config{}, err
+		return Config{}, nil, err
 	}
-	if c.RemoteApplications, err = normalizeRemoteApplications(c.RemoteApplications); err != nil {
-		return Config{}, err
-	}
+	c.RemoteApplications = normalizeRemoteApplications(c.RemoteApplications, degrade)
 	if err := normalizeResource(&c.Resource); err != nil {
-		return Config{}, err
+		return Config{}, nil, err
 	}
-	if err := normalizeLanguages(&c.Languages); err != nil {
-		return Config{}, err
-	}
+	normalizeLanguages(&c.Languages, degrade)
 	if c.SenderHealthInterval <= 0 {
 		c.SenderHealthInterval = 5 * time.Minute
 	}
@@ -139,47 +138,63 @@ func Normalize(c Config, d Deps) (Config, error) {
 		c.SessionEventRetention = 365 * 24 * time.Hour
 	}
 	if c.Database.RiverSchema, err = NormalizeRiverSchema(c.Database.RiverSchema); err != nil {
-		return Config{}, err
+		return Config{}, nil, err
 	}
 	if c.CleanupInterval == 0 {
 		c.CleanupInterval = time.Hour
 	}
 	if c.CleanupInterval < time.Second {
-		return Config{}, errors.New("authkit: CleanupInterval must be at least one second")
+		degrade(fmt.Errorf("authkit: CleanupInterval %s is under one second; using one hour", c.CleanupInterval))
+		c.CleanupInterval = time.Hour
 	}
-	if err := normalizeProvisioning(&c.Provisioning, d); err != nil {
-		return Config{}, err
+	if err := normalizeProvisioning(&c.Provisioning, d, degrade); err != nil {
+		return Config{}, nil, err
 	}
 	if d.OnEvent != nil && d.Postgres == nil {
-		return Config{}, errors.New("authkit: OnEvent requires Deps.Postgres")
+		return Config{}, nil, errors.New("authkit: OnEvent requires Deps.Postgres")
 	}
 	if c.HTTP != nil {
 		h := *c.HTTP
-		if err := normalizeHTTP(&h, c, d); err != nil {
-			return Config{}, err
+		if err := normalizeHTTP(&h, c, d, degrade); err != nil {
+			return Config{}, nil, err
 		}
 		c.HTTP = &h
 	}
-	return c, nil
+	return c, degraded, nil
 }
 
-// normalizeRemoteApplications trims the declared set and refuses a blank or
-// repeated issuer. Nil stays nil: an undeclared set. The engine checks each
-// trust source and role.
-func normalizeRemoteApplications(apps []RemoteApplicationConfig) ([]RemoteApplicationConfig, error) {
-	out := slices.Clone(apps)
-	seen := make(map[string]bool, len(out))
-	for i := range out {
-		out[i].Issuer, out[i].JWKSURI = strings.TrimSpace(out[i].Issuer), strings.TrimSpace(out[i].JWKSURI)
-		if out[i].Issuer == "" {
-			return nil, errors.New("authkit: Config.RemoteApplications contains an application with no Issuer")
-		}
-		if seen[out[i].Issuer] {
-			return nil, fmt.Errorf("authkit: Config.RemoteApplications declares %q twice", out[i].Issuer)
-		}
-		seen[out[i].Issuer] = true
+// normalizeRemoteApplications trims the declared set. An entry with no issuer,
+// or an issuer declared twice, is dropped: an issuer no entry declares is
+// disabled at boot, so its tokens are refused. Nil stays nil: an undeclared
+// set. The engine checks each trust source and role.
+func normalizeRemoteApplications(apps []RemoteApplicationConfig, degrade func(error)) []RemoteApplicationConfig {
+	if apps == nil {
+		return nil
 	}
-	return out, nil
+	// Issuers compare as the engine does: case-insensitively, ignoring a
+	// trailing slash.
+	key := func(issuer string) string { return strings.ToLower(strings.TrimSuffix(strings.TrimSpace(issuer), "/")) }
+	count, reported := map[string]int{}, map[string]bool{}
+	for i := range apps {
+		count[key(apps[i].Issuer)]++
+	}
+	out := make([]RemoteApplicationConfig, 0, len(apps))
+	for _, app := range apps {
+		app.Issuer, app.JWKSURI = strings.TrimSpace(app.Issuer), strings.TrimSpace(app.JWKSURI)
+		switch {
+		case app.Issuer == "":
+			degrade(errors.New("authkit: Config.RemoteApplications contains an application with no Issuer; it is ignored"))
+			continue
+		case count[key(app.Issuer)] > 1:
+			if k := key(app.Issuer); !reported[k] {
+				degrade(fmt.Errorf("authkit: Config.RemoteApplications declares %q %d times; its tokens are refused until it is declared once", app.Issuer, count[k]))
+				reported[k] = true
+			}
+			continue
+		}
+		out = append(out, app)
+	}
+	return out
 }
 
 // NormalizeSignIn applies the sign-in limit defaults; a negative limit is off
@@ -265,7 +280,7 @@ func normalizeEntitlementAllowlist(names []string) ([]string, error) {
 	return out, nil
 }
 
-func normalizeFrontend(f *FrontendConfig, issuer string) error {
+func normalizeFrontend(f *FrontendConfig, issuer string, degrade func(error)) error {
 	f.BaseURL = strings.TrimSpace(f.BaseURL)
 	if !isURL(issuer) {
 		slog.Warn("authkit: Issuer is not a well-formatted URL", "issuer", issuer)
@@ -290,7 +305,8 @@ func normalizeFrontend(f *FrontendConfig, issuer string) error {
 	} {
 		v, err := frontendPath(p.field, *p.value, p.def)
 		if err != nil {
-			return err
+			degrade(fmt.Errorf("%w; using %s", err, p.def))
+			v = p.def
 		}
 		*p.value = v
 	}
@@ -509,30 +525,38 @@ func validAPIKeyPrefix(p string) bool {
 	return true
 }
 
-func normalizeLanguages(l *LanguageConfig) error {
+// normalizeLanguages drops a Supported entry that is not a language code and
+// replaces an unusable Default with "en", or the first supported language.
+func normalizeLanguages(l *LanguageConfig, degrade func(error)) {
 	var supported []string
 	for _, raw := range l.Supported {
 		code := lang.Normalize(raw)
 		if code == "" {
-			return fmt.Errorf("authkit: Languages.Supported %q is not a language code", raw)
+			degrade(fmt.Errorf("authkit: Languages.Supported %q is not a language code; it is ignored", raw))
+			continue
 		}
 		if !slices.Contains(supported, code) {
 			supported = append(supported, code)
 		}
 	}
 	l.Supported = supported
+	fallback := lang.Default
+	if len(supported) > 0 && !slices.Contains(supported, fallback) {
+		fallback = supported[0]
+	}
 	if strings.TrimSpace(l.Default) == "" {
-		l.Default = lang.Default
+		l.Default = fallback
 	}
 	code := lang.Normalize(l.Default)
-	if code == "" {
-		return fmt.Errorf("authkit: Languages.Default %q is not a language code", l.Default)
-	}
-	if len(supported) > 0 && !slices.Contains(supported, code) {
-		return fmt.Errorf("authkit: Languages.Default %q is not in Languages.Supported", l.Default)
+	switch {
+	case code == "":
+		degrade(fmt.Errorf("authkit: Languages.Default %q is not a language code; using %q", l.Default, fallback))
+		code = fallback
+	case len(supported) > 0 && !slices.Contains(supported, code):
+		degrade(fmt.Errorf("authkit: Languages.Default %q is not in Languages.Supported; using %q", l.Default, fallback))
+		code = fallback
 	}
 	l.Default = code
-	return nil
 }
 
 // NormalizeSchema trims and validates a PostgreSQL schema name, defaulting to
@@ -561,7 +585,7 @@ func NormalizeRiverSchema(raw string) (string, error) {
 	return schema, nil
 }
 
-func normalizeHTTP(h *HTTPConfig, c Config, d Deps) error {
+func normalizeHTTP(h *HTTPConfig, c Config, d Deps, degrade func(error)) error {
 	if d.Postgres == nil {
 		return errors.New("authkit: HTTP requires Deps.Postgres")
 	}
@@ -597,13 +621,15 @@ func normalizeHTTP(h *HTTPConfig, c Config, d Deps) error {
 		return err
 	}
 	if h.RedisKeyPrefix, err = redisKeyPrefix(h.RedisKeyPrefix, c.Database.Schema); err != nil {
-		return err
+		degrade(err)
+		h.RedisKeyPrefix, _ = redisKeyPrefix("", c.Database.Schema)
 	}
 	if d.Email == nil && d.SMS == nil {
-		if c.Registration.Verification == iam.RegistrationVerificationRequired {
-			return fmt.Errorf("authkit: registration verification policy is %q but no email or SMS sender is configured", iam.RegistrationVerificationRequired)
+		if c.Registration.Verification == iam.RegistrationVerificationRequired && !c.Registration.AllowMissingSenders {
+			degrade(fmt.Errorf("authkit: registration verification policy is %q but no email or SMS sender is configured; registration answers email_unavailable until one is", iam.RegistrationVerificationRequired))
+		} else {
+			slog.Warn("authkit: no email or SMS sender configured; verification delivery is disabled")
 		}
-		slog.Warn("authkit: no email or SMS sender configured; verification delivery is disabled")
 	}
 	for _, cl := range c.AuthorizationServer.Clients {
 		if len(cl.AuthorizationDetailsTypes) > 0 && d.OAuthGrants == nil {

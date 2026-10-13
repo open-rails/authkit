@@ -101,7 +101,7 @@ func (s *Engine) RequestPhoneChange(ctx context.Context, userID, newPhone string
 		Code: code, Link: s.phoneVerificationURL(linkToken), Purpose: iam.PurposeContactChange}
 	return s.sendContactChangeVerification(s.sms != nil,
 		func() error { return s.sendSMS(ctx, msg) },
-		fmt.Errorf("phone change verification unavailable: SMS sender not configured"))
+		errSMSNotConfigured)
 }
 
 // RequestEmailChange initiates an email change by sending a verification code to the new email.
@@ -147,7 +147,7 @@ func (s *Engine) RequestEmailChange(ctx context.Context, userID, newEmail string
 		Code: code, Link: s.emailVerificationURL(linkToken), Purpose: iam.PurposeContactChange}
 	return s.sendContactChangeVerification(s.email != nil,
 		func() error { return s.sendEmail(ctx, msg) },
-		fmt.Errorf("email change verification unavailable: email sender not configured"))
+		errEmailNotConfigured)
 }
 
 // RemovePhone clears the account's phone number under ACCT(root:users:manage),

@@ -225,6 +225,9 @@ type capabilities struct {
 	Passwordless struct {
 		Channels []string `json:"channels"`
 	} `json:"passwordless"`
+	ExternalLoginProviders []struct {
+		ID string `json:"id"`
+	} `json:"external_login_providers"`
 }
 
 func capabilitiesOf(t *testing.T, auth *authkit.Client) capabilities {

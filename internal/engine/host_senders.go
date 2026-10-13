@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -10,6 +11,13 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/lang"
+)
+
+// A flow that must deliver with no sender configured answers email_unavailable
+// or sms_unavailable (503), never a silent success.
+var (
+	errEmailNotConfigured = errmodel.E(errmodel.CodeEmailUnavailable, errmodel.WithCause(errors.New("no email sender: set Deps.Email")))
+	errSMSNotConfigured   = errmodel.E(errmodel.CodeSMSUnavailable, errmodel.WithCause(errors.New("no SMS sender: set Deps.SMS")))
 )
 
 // sendEmail delivers msg under the per-send timeout. While the sender's

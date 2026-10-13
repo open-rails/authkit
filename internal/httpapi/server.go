@@ -56,14 +56,7 @@ func New(client Backend, cfg config.Config, deps config.Deps) (*Service, error) 
 		s.clientIP = ClientIPFromForwardedHeaders(s.trustedProxies, s.cloudflareProxies)
 	}
 
-	providers, err := providerRegistry(deps.Providers, cfg.Token.AccountIssuers)
-	if err != nil {
-		return nil, err
-	}
-	if err := requireHTTPSForFormPost(providers, cfg.Frontend.BaseURL); err != nil {
-		return nil, err
-	}
-	s.providers = providers
+	s.providers = providerRegistry(deps.Providers)
 
 	limits := DefaultRateLimits()
 	for bucket, lim := range h.RateLimits {
@@ -76,6 +69,7 @@ func New(client Backend, cfg config.Config, deps config.Deps) (*Service, error) 
 		ratelimit.Limiter
 		StartCleanup(context.Context, time.Duration)
 	}
+	var err error
 	if deps.Redis != nil {
 		rl, err = redislimiter.New(deps.Redis, limits, h.RedisKeyPrefix+"ratelimit:")
 	} else {

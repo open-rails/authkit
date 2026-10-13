@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
@@ -19,6 +18,10 @@ import (
 func (s *Engine) RequestPasswordReset(ctx context.Context, email string, ttl time.Duration, ip *string, ua *string) error {
 	if s.pg == nil {
 		return nil
+	}
+	// Refused before the lookup, so the answer never depends on the account.
+	if s.email == nil && !s.cfg.Registration.AllowMissingSenders {
+		return errEmailNotConfigured
 	}
 	u, err := s.getUserByEmail(ctx, email)
 	if err != nil || u == nil {
@@ -42,9 +45,6 @@ func (s *Engine) RequestPasswordReset(ctx context.Context, email string, ttl tim
 		return nil
 	}
 	if s.email == nil {
-		if !s.cfg.Registration.AllowMissingSenders {
-			return fmt.Errorf("email password reset unavailable: email sender not configured")
-		}
 		return nil
 	}
 
@@ -88,7 +88,9 @@ func resetGateError(err error) error {
 // RequestPhonePasswordReset creates a password reset token and sends a reset link via SMS.
 // Always returns nil for unknown phone numbers to prevent user enumeration (202-like behavior).
 func (s *Engine) RequestPhonePasswordReset(ctx context.Context, phone string, ttl time.Duration, ip *string, ua *string) error {
-	// Look up user by phone
+	if s.sms == nil && !s.cfg.Registration.AllowMissingSenders {
+		return errSMSNotConfigured
+	}
 	u, err := s.getUserByPhone(ctx, phone)
 	if err != nil || u == nil {
 		return nil // Don't reveal if phone exists
@@ -108,9 +110,6 @@ func (s *Engine) RequestPhonePasswordReset(ctx context.Context, phone string, tt
 	}
 
 	if s.sms == nil {
-		if !s.cfg.Registration.AllowMissingSenders {
-			return fmt.Errorf("SMS password reset unavailable: sms sender not configured")
-		}
 		return nil
 	}
 

@@ -39,9 +39,9 @@ func TestNormalizeIsIdempotent(t *testing.T) {
 			HTTP:       &HTTPConfig{DirectPeerIP: true, APIPath: "/"},
 		},
 	} {
-		once, err := Normalize(c, deps)
+		once, _, err := Normalize(c, deps)
 		require.NoError(t, err, name)
-		twice, err := Normalize(once, deps)
+		twice, _, err := Normalize(once, deps)
 		require.NoError(t, err, name)
 		require.Equal(t, once, twice, name)
 	}
@@ -72,7 +72,7 @@ func TestNormalizeAuthorizationServerClients(t *testing.T) {
 		{ID: "worker", SecretSHA256: secret, Resources: []string{"https://api.example.com"}, Permissions: []string{"merchant:payouts:read"}, GrantTypes: []OAuthGrantType{GrantClientCredentials}},
 	}
 	for _, cl := range ok {
-		once, err := Normalize(base(cl), Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}})
+		once, _, err := Normalize(base(cl), Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}})
 		require.NoError(t, err, cl.ID)
 		require.Equal(t, DefaultOAuthRefreshTokenTTL, once.AuthorizationServer.RefreshTokenTTL)
 	}
@@ -95,12 +95,12 @@ func TestNormalizeAuthorizationServerClients(t *testing.T) {
 		"jwt-bearer no operations":      {OAuthClientConfig{ID: "c", Resources: []string{"https://api.example.com"}, GrantTypes: []OAuthGrantType{GrantJWTBearer}}, "needs AuthorizationDetailsTypes"},
 		"operations without jwt-bearer": {OAuthClientConfig{ID: "c", RedirectURIs: []string{"https://c.example/cb"}, AuthorizationDetailsTypes: []string{"op"}}, "jwt-bearer client's capability operations"},
 	} {
-		_, err := Normalize(base(tc.client), Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}})
+		_, _, err := Normalize(base(tc.client), Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}})
 		require.ErrorContains(t, err, tc.want, name)
 	}
 	c := base(ok[0])
 	c.AuthorizationServer.RefreshTokenTTL = 31 * 24 * time.Hour
-	_, err := Normalize(c, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}})
+	_, _, err := Normalize(c, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}})
 	require.ErrorContains(t, err, "RefreshTokenTTL")
 
 	// A resource's ceiling on users' authority may hold the app's own root
@@ -108,7 +108,7 @@ func TestNormalizeAuthorizationServerClients(t *testing.T) {
 	for perm, allowed := range map[string]bool{"root:billing:read": true, "root:billing:*": true, "root:*": false, "root:users:read": false, "root:members:*": false} {
 		c := base(ok[0])
 		c.AuthorizationServer.Resources[0].Permissions = []string{"merchant:*", perm}
-		_, err := Normalize(c, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}})
+		_, _, err := Normalize(c, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}})
 		if allowed {
 			require.NoError(t, err, perm)
 		} else {
@@ -117,10 +117,10 @@ func TestNormalizeAuthorizationServerClients(t *testing.T) {
 	}
 	c = base(ok[0])
 	c.AuthorizationServer.AccessTokenTTL = 15 * time.Minute
-	_, err = Normalize(c, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}})
+	_, _, err = Normalize(c, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}})
 	require.NoError(t, err)
 	c.AuthorizationServer.AccessTokenTTL = 16 * time.Minute
-	_, err = Normalize(c, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}})
+	_, _, err = Normalize(c, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}})
 	require.ErrorContains(t, err, "AccessTokenTTL")
 
 	grants := func(context.Context, iam.OAuthGrantRequest) (iam.OAuthGrantDecision, error) {
@@ -131,17 +131,17 @@ func TestNormalizeAuthorizationServerClients(t *testing.T) {
 	workload := OAuthClientConfig{ID: "tensord", Resources: []string{"https://api.example.com"}, GrantTypes: []OAuthGrantType{GrantJWTBearer}, AuthorizationDetailsTypes: []string{"op"}}
 	withKeys := base(workload)
 	withKeys.DeviceKeys.Enabled = true
-	_, err = Normalize(base(workload), Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}, OAuthGrants: grants})
+	_, _, err = Normalize(base(workload), Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}, OAuthGrants: grants})
 	require.ErrorContains(t, err, "needs DeviceKeys.Enabled")
-	_, err = Normalize(withKeys, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}})
+	_, _, err = Normalize(withKeys, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}})
 	require.ErrorContains(t, err, "Deps.OAuthGrants")
-	_, err = Normalize(withKeys, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}, OAuthGrants: grants})
+	_, _, err = Normalize(withKeys, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}, OAuthGrants: grants})
 	require.NoError(t, err)
 	withKeys.AuthorizationServer.Clients[0].AuthorizationDetailsTypes = []string{"op", "op"}
-	once, err := Normalize(withKeys, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}, OAuthGrants: grants})
+	once, _, err := Normalize(withKeys, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}, OAuthGrants: grants})
 	require.NoError(t, err)
 	require.Equal(t, []string{"op"}, once.AuthorizationServer.Clients[0].AuthorizationDetailsTypes)
 	withKeys.AuthorizationServer.Clients[0].AuthorizationDetailsTypes = []string{"has space"}
-	_, err = Normalize(withKeys, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}, OAuthGrants: grants})
+	_, _, err = Normalize(withKeys, Deps{Postgres: &pgxpool.Pool{}, Email: nopEmail{}, OAuthGrants: grants})
 	require.ErrorContains(t, err, "invalid authorization_details type")
 }

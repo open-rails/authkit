@@ -250,7 +250,7 @@ func (s *Engine) sendPhone2FASetupCode(ctx context.Context, userID, phone, code 
 	}
 	// In production, require SMS to be configured
 	if !s.cfg.Registration.AllowMissingSenders {
-		return fmt.Errorf("SMS sender not configured")
+		return errSMSNotConfigured
 	}
 	return nil
 }
@@ -302,7 +302,7 @@ func (s *Engine) sendEmail2FASetupCode(ctx context.Context, userID string) (stri
 	}
 	_ = s.ephemDel(ctx, keyEmail2FASetupAttempts+userID)
 	if s.email == nil {
-		return "", fmt.Errorf("email sender not configured")
+		return "", errEmailNotConfigured
 	}
 	return email, s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessageVerification, To: email, Username: deref(user.Username),
 		Language: s.userLanguage(ctx, userID), Code: code, Purpose: iam.PurposeTwoFactorSetup})

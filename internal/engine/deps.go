@@ -2,8 +2,8 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -39,8 +39,11 @@ func (s *Engine) applyDeps(d config.Deps) error {
 	s.redis = d.Redis
 	s.replays = dpop.NewReplays(d.Redis)
 	s.resourceHosts = d.ResourceHosts
-	s.providers = slices.Clone(d.Providers)
+	s.applyProviders(d.Providers)
 	s.email, s.sms = d.Email, d.SMS
+	if d.Email == nil && s.cfg.HTTP != nil && !s.cfg.Registration.AllowMissingSenders {
+		s.degrade(errors.New("authkit: Deps.Email is not set, so email verification, password reset and email codes answer email_unavailable"))
+	}
 	s.entitlements, s.entitlementHolders = d.Entitlements, d.EntitlementHolders
 	s.onEvent, s.onPurge = d.OnEvent, d.OnPurge
 	s.oauthGrants = d.OAuthGrants
