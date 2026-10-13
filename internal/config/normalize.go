@@ -56,7 +56,7 @@ const (
 // the survivable ones, each already handled by switching off or defaulting
 // only the feature it concerns.
 func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
-	degrade := func(err error) { degraded = append(degraded, err) }
+	degrade := func(problem error) { degraded = append(degraded, problem) }
 	if c.Database.Schema, err = NormalizeSchema(c.Database.Schema); err != nil {
 		return Config{}, nil, err
 	}
