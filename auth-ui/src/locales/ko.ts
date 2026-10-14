@@ -579,14 +579,16 @@ export const ko: AuthUiMessageBundle = {
       "이 국가의 번호로는 문자 메시지를 보낼 수 없습니다.",
     authorization_request_not_found:
       "이 로그인 요청이 만료되었습니다. 앱으로 돌아가 다시 시도하세요.",
-    network_error: "네트워크 오류입니다. 연결을 확인하세요.",
+    network_error:
+      "서버에 연결할 수 없습니다. 연결을 확인하고 다시 시도해주세요.",
+    server_unavailable:
+      "서버가 지금 응답하지 않습니다. 잠시 후 다시 시도해주세요.",
     popup_blocked:
       "로그인 창이 차단되었습니다. 팝업을 허용하고 다시 시도하세요.",
     popup_closed: "로그인 창이 닫혔습니다.",
     popup_timeout: "로그인 창의 시간이 초과되었습니다. 다시 시도하세요.",
     session_changed: "다른 탭에서 세션이 변경되었습니다. 다시 시도하세요.",
     generic: "문제가 발생했습니다. 다시 시도해주세요.",
-    network: "네트워크 오류. 연결을 확인하세요.",
     "2fa_enrollment_required":
       "로그인을 완료하려면 2단계 인증을 설정해야 합니다.",
     "2fa_factor_exists":

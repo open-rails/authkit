@@ -1,3 +1,4 @@
+import { AuthKitError, transportFailure } from "../client/errors.ts"
 import { en } from "../locales/en.ts"
 
 type Widen<T> = {
@@ -103,8 +104,11 @@ function errorCode(error: unknown): string | undefined {
   return undefined
 }
 
-function isNetworkError(error: unknown): boolean {
-  return error instanceof TypeError && /fetch|network/i.test(error.message)
+// The message AuthKit itself sent with a code this bundle doesn't know.
+function serverMessage(error: unknown): string | undefined {
+  if (!(error instanceof AuthKitError) || error.status === 0) return undefined
+  if (error.type === "local" || error.code === "unknown_error") return undefined
+  return error.message || undefined
 }
 
 export function createTranslator(
@@ -121,8 +125,8 @@ export function createTranslator(
     messages,
     t: (key, vars) => translate(key, vars) ?? key,
     error(error, vars) {
-      const code = errorCode(error)
-      if (code && code !== "generic" && code !== "network") {
+      const code = transportFailure(error) ?? errorCode(error)
+      if (code && code !== "generic") {
         const metadata =
           error && typeof error === "object" && "metadata" in error
             ? (error as { metadata?: MessageVars }).metadata
@@ -130,10 +134,11 @@ export function createTranslator(
         const message = translate(`errors.${code}`, { ...metadata, ...vars })
         if (message) return message
       }
-      const fallback = isNetworkError(error)
-        ? "errors.network"
-        : "errors.generic"
-      return translate(fallback, vars) ?? messages.errors.generic
+      return (
+        serverMessage(error) ??
+        translate("errors.generic", vars) ??
+        messages.errors.generic
+      )
     },
   }
 }

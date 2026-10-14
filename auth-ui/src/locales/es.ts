@@ -607,14 +607,16 @@ export const es: AuthUiMessageBundle = {
       "No se pueden enviar mensajes de texto a números de este país.",
     authorization_request_not_found:
       "Esta solicitud de inicio de sesión ha caducado. Vuelve a la aplicación e inténtalo de nuevo.",
-    network_error: "Error de red. Comprueba tu conexión.",
+    network_error:
+      "No se pudo conectar con el servidor. Comprueba tu conexión e inténtalo de nuevo.",
+    server_unavailable:
+      "El servidor no responde en este momento. Inténtalo de nuevo en unos instantes.",
     popup_blocked:
       "Se bloqueó la ventana de inicio de sesión. Permite las ventanas emergentes e inténtalo de nuevo.",
     popup_closed: "Se cerró la ventana de inicio de sesión.",
     popup_timeout: "La ventana de inicio de sesión caducó. Inténtalo de nuevo.",
     session_changed: "Tu sesión cambió en otra pestaña. Inténtalo de nuevo.",
     generic: "Algo salió mal. Inténtalo de nuevo.",
-    network: "Error de red. Por favor verifica tu conexión.",
     "2fa_enrollment_required":
       "Debes configurar la autenticación de dos factores para terminar de iniciar sesión.",
     "2fa_factor_exists":
