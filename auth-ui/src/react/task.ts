@@ -1,17 +1,23 @@
 import { useCallback, useRef, useState } from "react"
 
-import { AuthKitError, AuthSessionChangedError } from "../client/errors.ts"
+import {
+  AuthKitError,
+  AuthSessionChangedError,
+  transportFailure,
+} from "../client/errors.ts"
 
 // Hook errors are always AuthKitError so hosts translate one thing: `code`.
-// Local failures use "session_changed", "step_up_cancelled", "network_error"
-// and "unknown_error".
+// Local failures use "session_changed", "step_up_cancelled", "network_error",
+// "server_unavailable" and "unknown_error".
 export function toAuthKitError(error: unknown): AuthKitError {
   if (error instanceof AuthKitError) return error
   const local = (code: string, message: string) =>
     new AuthKitError(0, { type: "local", code, message })
   if (error instanceof AuthSessionChangedError)
     return local("session_changed", error.message)
-  if (error instanceof TypeError) return local("network_error", error.message)
+  const transport = transportFailure(error)
+  if (transport)
+    return local(transport, error instanceof Error ? error.message : transport)
   return local(
     "unknown_error",
     error instanceof Error ? error.message : String(error)

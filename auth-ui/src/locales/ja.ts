@@ -585,7 +585,10 @@ export const ja: AuthUiMessageBundle = {
     phone_country_not_allowed: "この国の番号にはSMSを送信できません。",
     authorization_request_not_found:
       "このログインリクエストは期限切れです。アプリに戻ってもう一度お試しください。",
-    network_error: "ネットワークエラーです。接続を確認してください。",
+    network_error:
+      "サーバーに接続できませんでした。接続を確認して、もう一度お試しください。",
+    server_unavailable:
+      "サーバーが現在応答していません。しばらくしてからもう一度お試しください。",
     popup_blocked:
       "ログインウィンドウがブロックされました。ポップアップを許可してもう一度お試しください。",
     popup_closed: "ログインウィンドウが閉じられました。",
@@ -594,7 +597,6 @@ export const ja: AuthUiMessageBundle = {
     session_changed:
       "別のタブでセッションが変更されました。もう一度お試しください。",
     generic: "問題が発生しました。もう一度お試しください。",
-    network: "ネットワークエラーです。接続をご確認ください。",
     "2fa_enrollment_required":
       "ログインを完了するには二要素認証の設定が必要です。",
     "2fa_factor_exists":

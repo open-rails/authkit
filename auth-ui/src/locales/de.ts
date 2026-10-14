@@ -610,7 +610,10 @@ export const de: AuthUiMessageBundle = {
       "An Nummern in diesem Land können keine SMS gesendet werden.",
     authorization_request_not_found:
       "Diese Anmeldeanfrage ist abgelaufen. Kehren Sie zur App zurück und versuchen Sie es erneut.",
-    network_error: "Netzwerkfehler. Bitte überprüfen Sie Ihre Verbindung.",
+    network_error:
+      "Der Server ist nicht erreichbar. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+    server_unavailable:
+      "Der Server antwortet gerade nicht. Bitte versuchen Sie es gleich noch einmal.",
     popup_blocked:
       "Das Anmeldefenster wurde blockiert. Erlauben Sie Pop-ups und versuchen Sie es erneut.",
     popup_closed: "Das Anmeldefenster wurde geschlossen.",
@@ -619,7 +622,6 @@ export const de: AuthUiMessageBundle = {
     session_changed:
       "Ihre Sitzung hat sich in einem anderen Tab geändert. Bitte versuchen Sie es erneut.",
     generic: "Etwas ist schiefgelaufen. Bitte versuchen Sie es erneut.",
-    network: "Netzwerkfehler. Bitte überprüfen Sie Ihre Verbindung.",
     "2fa_enrollment_required":
       "Die Einrichtung der Zwei-Faktor-Authentifizierung ist erforderlich, um die Anmeldung abzuschließen.",
     "2fa_factor_exists":

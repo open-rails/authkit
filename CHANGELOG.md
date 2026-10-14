@@ -8,6 +8,7 @@
 - `Client.Ready(ctx)` (PostgreSQL, River, signing key) and `Client.Probes()` (`authkit_config`, `authkit_email`, `authkit_sms`, `authkit_redis`, `authkit_two_factor`, `authkit_issuer_keys`, `authkit_provider_<name>`), in OpenRails' Ready/Probes shape. Hosts register the probes with their dependency supervisor instead of wrapping `EmailHealth`/`SMSHealth`.
 - A flow that must deliver with no sender configured answers 503 `email_unavailable` or `sms_unavailable` instead of an internal error; a password reset is refused before the account lookup.
 - An OIDC provider's discovery failure and recovery are logged once each.
+- auth-ui names transport failures instead of "Something went wrong": a request that reached no server (a fetch rejection, offline) is `network_error`, "Couldn't reach the server. Check your connection and try again."; a gateway's 502, 503, 504 or 520–524 without AuthKit's error envelope, or a `TimeoutError`, is the new local code `server_unavailable`, "The server isn't responding right now. Please try again in a moment." Coded AuthKit errors are unchanged; a code the bundle doesn't know shows AuthKit's own message. The duplicate `errors.network` key is removed, and a `TypeError` that isn't a fetch failure is `unknown_error`.
 
 ## v1.26.0
 

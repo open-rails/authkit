@@ -4,7 +4,7 @@ import "../test/dom.ts"
 import { render, screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 
-import { AuthKitError } from "../client/errors.ts"
+import { AuthKitError, readAuthKitError } from "../client/errors.ts"
 import { AUTH_ERROR_STATUS } from "../client/generated/error-codes.ts"
 import { AuthUiProvider } from "../provider.tsx"
 import { de } from "../locales/de.ts"
@@ -13,6 +13,7 @@ import { es } from "../locales/es.ts"
 import { ja } from "../locales/ja.ts"
 import { ko } from "../locales/ko.ts"
 import { zh } from "../locales/zh.ts"
+import { toAuthKitError } from "../react/task.ts"
 import { useMessages } from "./context.ts"
 import {
   createTranslator,
@@ -104,9 +105,49 @@ describe("messages", () => {
     const tr = createTranslator(resolveMessages())
     expect(tr.error("no_such_code")).toBe(en.errors.generic)
     expect(tr.error(new Error("boom"))).toBe(en.errors.generic)
-    expect(tr.error(new TypeError("Failed to fetch"))).toBe(en.errors.network)
     expect(tr.error({ code: "invalid_credentials" })).toBe(
       en.errors.invalid_credentials
+    )
+  })
+
+  it("names an unreachable or unresponsive server", async () => {
+    const tr = createTranslator(resolveMessages())
+    expect(tr.error(new TypeError("Failed to fetch"))).toBe(
+      "Couldn't reach the server. Check your connection and try again."
+    )
+    expect(tr.error(toAuthKitError(new TypeError("Load failed")))).toBe(
+      en.errors.network_error
+    )
+    const gateway = await readAuthKitError(
+      new Response("<html>Service Unavailable</html>", { status: 503 })
+    )
+    expect(tr.error(gateway)).toBe(
+      "The server isn't responding right now. Please try again in a moment."
+    )
+    expect(
+      tr.error(toAuthKitError(new DOMException("timed out", "TimeoutError")))
+    ).toBe(en.errors.server_unavailable)
+    expect(createTranslator(resolveMessages(ja)).error(gateway)).toBe(
+      ja.errors?.server_unavailable
+    )
+  })
+
+  it("keeps coded API errors and the server's own message", () => {
+    const tr = createTranslator(resolveMessages())
+    const busy = new AuthKitError(503, {
+      type: "api_error",
+      code: "server_busy",
+      message: "busy",
+    })
+    expect(tr.error(busy)).toBe(en.errors.server_busy)
+    const unknown = new AuthKitError(400, {
+      type: "invalid_request_error",
+      code: "code_from_a_newer_authkit",
+      message: "That handle is reserved.",
+    })
+    expect(tr.error(unknown)).toBe("That handle is reserved.")
+    expect(tr.error(toAuthKitError(new TypeError("x is not a function")))).toBe(
+      en.errors.generic
     )
   })
 
@@ -142,11 +183,11 @@ describe("locale bundles", () => {
   )
 
   it("keys errors only by codes in the pinned AuthKit contract", () => {
-    // generic/network are local fallbacks; access_denied is the OIDC redirect error;
-    // popup_*, session_changed and network_error come from the client/hooks.
+    // generic is the local fallback; access_denied is the OIDC redirect error;
+    // popup_*, session_changed, network_error and server_unavailable come from the client/hooks.
     const local = new Set([
       "generic",
-      "network",
+      "server_unavailable",
       "access_denied",
       "network_error",
       "popup_blocked",

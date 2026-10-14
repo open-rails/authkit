@@ -590,8 +590,10 @@ export const en = {
   errors: {
     ...AUTH_ERROR_MESSAGES,
     generic: "Something went wrong. Please try again.",
-    network: "Network error. Please check your connection.",
-    network_error: "Network error. Please check your connection.",
+    network_error:
+      "Couldn't reach the server. Check your connection and try again.",
+    server_unavailable:
+      "The server isn't responding right now. Please try again in a moment.",
     popup_blocked:
       "The sign-in window was blocked. Allow pop-ups and try again.",
     popup_closed: "The sign-in window was closed.",
