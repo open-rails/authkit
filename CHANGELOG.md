@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.28.0
 
 ### Changes
 
