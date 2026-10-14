@@ -46,6 +46,7 @@ export {
   isAuthKitError,
   readAuthKitError,
   retryAfterSeconds,
+  transportFailure,
 } from "./errors.ts"
 export type { AuthKitErrorBody } from "./errors.ts"
 export { decodeAccessClaims } from "./jwt.ts"
