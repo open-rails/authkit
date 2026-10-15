@@ -41,10 +41,10 @@ func TestSchemaQualifiedWritesKeepAuthKitTriggerScope(t *testing.T) {
 			err = conn.QueryRowContext(ctx, `INSERT INTO `+s+`users(tenant_id,username) VALUES ($1::uuid,'host-user') RETURNING id::text`, testdb.DefaultTenantID.String()).Scan(&userID)
 			require.NoError(t, err)
 			var claims, shadowClaims int
+			require.NoError(t, conn.QueryRowContext(ctx, `SELECT count(*) FROM pg_temp.name_claims`).Scan(&shadowClaims))
+			require.Zero(t, shadowClaims, "the trigger must not write to a host's temporary table")
 			require.NoError(t, conn.QueryRowContext(ctx, `SELECT count(*) FROM `+s+`name_claims WHERE owner_id=$1::uuid`, userID).Scan(&claims))
 			require.Equal(t, 1, claims)
-			require.NoError(t, conn.QueryRowContext(ctx, `SELECT count(*) FROM pg_temp.name_claims`).Scan(&shadowClaims))
-			require.Zero(t, shadowClaims)
 
 			var credentialVersion int64
 			err = conn.QueryRowContext(ctx, `UPDATE `+s+`users SET email='host@example.test' WHERE id=$1::uuid RETURNING credential_version`, userID).Scan(&credentialVersion)

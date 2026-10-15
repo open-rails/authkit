@@ -2,6 +2,9 @@
 -- The runner supplies authkit.legacy_tenant_id only when explicitly configured.
 SET LOCAL lock_timeout = '10s';
 
+-- Capture this schema ahead of temporary tables in every function below.
+SELECT set_config('search_path', format('%I, public, pg_temp', current_schema()), true);
+
 CREATE TABLE tenants (
   id uuid PRIMARY KEY,
   created_at timestamptz NOT NULL DEFAULT now(),
