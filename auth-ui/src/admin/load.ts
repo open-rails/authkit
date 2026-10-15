@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useContext, useEffect, useRef, useState } from "react"
 
 import type { AuthKitError } from "../client/errors.ts"
 import { toAuthKitError } from "../react/task.ts"
+import { AdminContext } from "./context.ts"
 
 export type Loaded<T> = {
   data: T | undefined
@@ -13,9 +14,12 @@ export type Loaded<T> = {
 // Loads while key is set, again when it changes or on reload; a stale
 // answer is dropped.
 export function useLoad<T>(
-  key: string | null,
+  loadKey: string | null,
   load: (signal: AbortSignal) => Promise<T>
 ): Loaded<T> {
+  const scopeKey = useContext(AdminContext)?.scopeKey
+  const key =
+    loadKey === null ? null : JSON.stringify([scopeKey ?? null, loadKey])
   const [state, setState] = useState<{
     key: string
     data?: T
@@ -31,13 +35,18 @@ export function useLoad<T>(
     const ctl = new AbortController()
     fn.current(ctl.signal).then(
       (data) => !ctl.signal.aborted && setState({ key, data, error: null }),
-      (err: unknown) =>
-        !ctl.signal.aborted &&
+      (err: unknown) => {
+        if (ctl.signal.aborted) return
+        const error = toAuthKitError(err)
         setState((s) => ({
           key,
-          data: s?.key === key ? s.data : undefined,
-          error: toAuthKitError(err),
+          data:
+            s?.key === key && error.code !== "tenant_scope_mismatch"
+              ? s.data
+              : undefined,
+          error,
         }))
+      }
     )
     return () => ctl.abort()
   }, [key, nonce])

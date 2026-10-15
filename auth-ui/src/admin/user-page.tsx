@@ -41,7 +41,7 @@ import { roleTitle } from "./roles-lib.ts"
 import { useSearchParams } from "./router.ts"
 import type { Host } from "./users.tsx"
 import { BanLine, UserBadges } from "./user-parts.tsx"
-import { restorableUntil, userName } from "./users-lib.ts"
+import { directoryRole, restorableUntil, userName } from "./users-lib.ts"
 import { useWarnings } from "./warnings.tsx"
 import { useActions } from "./write.ts"
 
@@ -61,7 +61,7 @@ export function UserPage({
   host: Host
 }) {
   const { t } = useAdminMessages()
-  const { client } = useAdmin()
+  const { client, tenantId } = useAdmin()
   const loaded = useLoad(`user:${id}`, (s) => client.getUser(id, s))
   const sessions = useLoad(`sessions:${id}`, (s) =>
     client.listUserSessions(id, s)
@@ -70,6 +70,8 @@ export function UserPage({
   const [status, setStatus] = useState("")
   const [changes, setChanges] = useState(0)
   const user = loaded.data
+  const role = user ? directoryRole(user, tenantId) : null
+  const group = tenantId ?? "root"
   const name = user ? userName(user) : id
   const actions = useActions(
     `authkit.user:${id}`,
@@ -81,7 +83,9 @@ export function UserPage({
       restore: () => client.restoreUser(id),
       signOut: () => client.revokeUserSessions(id),
       role: (d: { role: string }) =>
-        d.role ? client.setRootRole(id, d.role) : client.removeRootRole(id),
+        d.role
+          ? client.setMemberRole(group, id, d.role)
+          : client.removeMember(group, id),
     },
     (kind, _result, data) => {
       const role = (data as { role?: string } | undefined)?.role
@@ -89,7 +93,9 @@ export function UserPage({
         kind === "role"
           ? role
             ? t("users.roleChanged", { name, role: roleTitle(role) })
-            : t("users.roleRemoved", { name })
+            : t(tenantId ? "users.tenantRoleRemoved" : "users.roleRemoved", {
+                name,
+              })
           : t(`users.done.${String(kind)}` as AdminMessageKey, { name })
       )
       setOpen(null)
@@ -212,7 +218,7 @@ export function UserPage({
         actions={buttons.length > 0 && buttons}
       >
         <Body>
-          <UserBadges user={user} />
+          <UserBadges user={user} role={role} />
           <BanLine user={user} />
           {user.deleted_at && (
             <p className="text-sm text-muted-foreground">
@@ -234,9 +240,10 @@ export function UserPage({
         }
       />
       {access.roles.read && (
-        <RootRole
-          key={user.root_role ?? ""}
-          user={user}
+        <DirectoryRole
+          key={role ?? ""}
+          current={role ?? ""}
+          tenant={Boolean(tenantId)}
           roles={roles}
           canManage={access.roles.manage && !deleted}
           busy={actions.busy}
@@ -338,11 +345,12 @@ export function UserPage({
       <TypedConfirm
         open={pendingRole !== null}
         onOpenChange={(o) => !o && setOpen(null)}
-        title={t("users.roleConfirmTitle", { name })}
+        title={t(
+          tenantId ? "users.tenantRoleConfirmTitle" : "users.roleConfirmTitle",
+          { name }
+        )}
         description={t("users.roleConfirmDescription", {
-          from: user.root_role
-            ? roleTitle(user.root_role)
-            : t("users.roleNone"),
+          from: role ? roleTitle(role) : t("users.roleNone"),
           to: pendingRole ? roleTitle(pendingRole) : t("users.roleNone"),
         })}
         word={name}
@@ -449,27 +457,30 @@ function Row({
   )
 }
 
-function RootRole({
-  user,
+function DirectoryRole({
+  current,
+  tenant,
   roles,
   canManage,
   busy,
   onSave,
 }: {
-  user: UserEntry
+  current: string
+  tenant: boolean
   roles: string[]
   canManage: boolean
   busy: boolean
   onSave: (role: string) => void
 }) {
   const { t } = useAdminMessages()
-  const current = user.root_role ?? ""
   const [value, setValue] = useState(current)
   const options = [...new Set([...(current ? [current] : []), ...roles])]
   return (
     <Section
-      title={t("users.roleTitle")}
-      description={t("users.roleDescription")}
+      title={t(tenant ? "users.tenantRoleTitle" : "users.roleTitle")}
+      description={t(
+        tenant ? "users.tenantRoleDescription" : "users.roleDescription"
+      )}
     >
       <Body>
         <form
@@ -480,7 +491,7 @@ function RootRole({
           }}
         >
           <Select
-            aria-label={t("users.role")}
+            aria-label={t(tenant ? "users.tenantRoleTitle" : "users.role")}
             className="min-w-48"
             value={value}
             disabled={!canManage}

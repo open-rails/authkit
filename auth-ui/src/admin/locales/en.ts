@@ -36,6 +36,8 @@ export const en = {
     next: "Next",
   },
   errors: {
+    tenant_scope_mismatch:
+      "The account response does not match the configured tenant. Check the admin API mount and try again.",
     account_authority_escalation:
       "You don't outrank this account: a peer or senior must be demoted first.",
     cannot_target_self: "You can't do this to your own account.",
@@ -315,6 +317,10 @@ export const en = {
       restore: "{name} was restored.",
       signOut: "{name} was signed out everywhere.",
     },
+    tenantRoleTitle: "Tenant role",
+    tenantRoleDescription: "This role grants permissions within this tenant.",
+    tenantRoleConfirmTitle: "Change the tenant role of {name}?",
+    tenantRoleRemoved: "{name} holds no tenant role now.",
     roleTitle: "Root role",
     roleDescription: "A root role holds its permissions across the whole site.",
     roleNone: "None",

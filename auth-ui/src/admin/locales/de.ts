@@ -36,6 +36,8 @@ export const de: AdminMessageTree = {
     next: "Weiter",
   },
   errors: {
+    tenant_scope_mismatch:
+      "Die Kontenantwort stimmt nicht mit dem konfigurierten Mandanten überein. Prüfen Sie den Admin-API-Pfad und versuchen Sie es erneut.",
     account_authority_escalation:
       "Du stehst nicht über diesem Konto: Ein gleichrangiges oder höheres Konto muss zuerst herabgestuft werden.",
     cannot_target_self: "Das kannst du nicht mit deinem eigenen Konto tun.",
@@ -326,6 +328,11 @@ export const de: AdminMessageTree = {
       restore: "{name} wurde wiederhergestellt.",
       signOut: "{name} wurde überall abgemeldet.",
     },
+    tenantRoleTitle: "Mandantenrolle",
+    tenantRoleDescription:
+      "Diese Rolle gewährt Berechtigungen innerhalb dieses Mandanten.",
+    tenantRoleConfirmTitle: "Mandantenrolle von {name} ändern?",
+    tenantRoleRemoved: "{name} hat jetzt keine Mandantenrolle.",
     roleTitle: "Root-Rolle",
     roleDescription:
       "Eine Root-Rolle gilt mit ihren Berechtigungen für die ganze Website.",

@@ -36,6 +36,8 @@ export const zh: AdminMessageTree = {
     next: "下一页",
   },
   errors: {
+    tenant_scope_mismatch:
+      "账户响应与配置的租户不匹配。请检查管理 API 路径后重试。",
     account_authority_escalation:
       "你的权限不高于此账号：需先降级同级或更高级的账号。",
     cannot_target_self: "不能对自己的账号执行此操作。",
@@ -305,6 +307,10 @@ export const zh: AdminMessageTree = {
       restore: "已恢复 {name}。",
       signOut: "已让 {name} 在所有地方退出登录。",
     },
+    tenantRoleTitle: "租户角色",
+    tenantRoleDescription: "此角色授予该租户内的权限。",
+    tenantRoleConfirmTitle: "更改 {name} 的租户角色？",
+    tenantRoleRemoved: "{name} 现在没有租户角色。",
     roleTitle: "根角色",
     roleDescription: "根角色的权限适用于整个站点。",
     roleNone: "无",

@@ -35,6 +35,9 @@ export function groupAccess(
 ): Omit<GroupAdminAccess, "status" | "error" | "reload"> {
   const permissions = new Set(set?.permissions ?? [])
   const persona =
+    (set && "persona" in set && typeof set.persona === "string"
+      ? set.persona
+      : undefined) ??
     set?.role?.split(":")[0] ??
     set?.permissions[0]?.split(":")[0] ??
     (group === "root" ? "root" : null)
@@ -71,7 +74,7 @@ export function useAccessWith(
   client: AdminClient,
   group: string
 ): GroupAdminAccess {
-  const loaded = useLoad(`access:${group}`, (signal) =>
+  const loaded = useLoad(`${client.scopeKey}:access:${group}`, (signal) =>
     client.permissions(group, signal)
   )
   return useMemo(
@@ -93,16 +96,17 @@ export function useGroupAdminAccess(options: {
   auth: AdminAuth
   baseUrl?: string
   group: string
+  tenantId?: string
 }): GroupAdminAccess {
-  const { auth, baseUrl, group } = options
+  const { auth, baseUrl, group, tenantId } = options
   const client = useMemo(
-    () => createAdminClient({ auth, baseUrl }),
-    [auth, baseUrl]
+    () => createAdminClient({ auth, baseUrl, tenantId }),
+    [auth, baseUrl, tenantId]
   )
   return useAccessWith(client, group)
 }
 
-/** What the signed-in person may do in the user directory, from their root permissions. */
+/** What the signed-in person may do in the selected account directory. */
 export type UsersAdminAccess = {
   status: "loading" | "ready" | "error"
   error: AuthKitError | null
@@ -129,15 +133,18 @@ export type UsersPermissions = Omit<
 >
 
 export function usersAccess(
-  root: Omit<GroupAdminAccess, "status" | "error" | "reload">
+  root: Omit<GroupAdminAccess, "status" | "error" | "reload">,
+  tenantId?: string
 ): UsersPermissions {
-  const holds = (perm: string) => root.permissions.has(`root:users:${perm}`)
+  const holds = (perm: string) =>
+    root.permissions.has(`root:users:${perm}`) ||
+    (Boolean(tenantId) && root.permissions.has(`tenant:users:${perm}`))
   const users = {
     read: holds("read"),
     manage: holds("manage"),
     ban: holds("ban"),
     delete: holds("delete"),
-    invite: root.invite,
+    invite: holds("invite") || root.invite,
   }
   return {
     users,
@@ -153,15 +160,20 @@ export function usersAccess(
 export function useUsersAdminAccess(options: {
   auth: AdminAuth
   baseUrl?: string
+  /** The canonical tenant group; omit for the existing root directory. */
+  tenantId?: string
 }): UsersAdminAccess {
-  const root = useGroupAdminAccess({ ...options, group: "root" })
+  const root = useGroupAdminAccess({
+    ...options,
+    group: options.tenantId ?? "root",
+  })
   return useMemo(
     () => ({
-      ...usersAccess(root),
+      ...usersAccess(root, options.tenantId),
       status: root.status,
       error: root.error,
       reload: root.reload,
     }),
-    [root]
+    [root, options.tenantId]
   )
 }

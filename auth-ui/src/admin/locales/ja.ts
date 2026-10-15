@@ -36,6 +36,8 @@ export const ja: AdminMessageTree = {
     next: "次へ",
   },
   errors: {
+    tenant_scope_mismatch:
+      "アカウントの応答が設定されたテナントと一致しません。管理 API のパスを確認して再試行してください。",
     account_authority_escalation:
       "このアカウントより上位ではありません。同格以上のアカウントは先に降格が必要です。",
     cannot_target_self: "自分のアカウントにはこの操作はできません。",
@@ -316,6 +318,10 @@ export const ja: AdminMessageTree = {
       restore: "{name} を復元しました。",
       signOut: "{name} をすべての場所でサインアウトしました。",
     },
+    tenantRoleTitle: "テナントロール",
+    tenantRoleDescription: "このロールはこのテナント内で権限を付与します。",
+    tenantRoleConfirmTitle: "{name} のテナントロールを変更しますか？",
+    tenantRoleRemoved: "{name} のテナントロールはなくなりました。",
     roleTitle: "ルートロール",
     roleDescription: "ルートロールの権限はサイト全体に及びます。",
     roleNone: "なし",

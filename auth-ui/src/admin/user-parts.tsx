@@ -17,14 +17,20 @@ export function StatusBadge({ user }: { user: UserEntry }) {
   )
 }
 
-// Status, root role and entitlements.
-export function UserBadges({ user }: { user: UserEntry }) {
+// Status, selected directory role (root by default) and entitlements.
+export function UserBadges({
+  user,
+  role = user.root_role,
+}: {
+  user: UserEntry
+  role?: string | null
+}) {
   return (
     <span className="flex flex-wrap items-center gap-1">
       <StatusBadge user={user} />
-      {user.root_role && (
-        <Badge variant="secondary" title={user.root_role}>
-          {roleTitle(user.root_role)}
+      {role && (
+        <Badge variant="secondary" title={role}>
+          {roleTitle(role)}
         </Badge>
       )}
       {user.entitlements.map((e) => (

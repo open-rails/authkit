@@ -56,8 +56,9 @@ export function AdminRoot({
   language,
   messages,
   className,
+  tenantId,
   children,
-}: AdminProps & { children: ReactNode }) {
+}: AdminProps & { tenantId?: string; children: ReactNode }) {
   const history = useHistoryNavigation()
   const nav = navigation ?? history
   const router = useMemo(
@@ -66,21 +67,25 @@ export function AdminRoot({
   )
   const translator = useAdminTranslator(language, messages)
   const client: AdminClient = useMemo(
-    () => createAdminClient({ auth, baseUrl, language }),
-    [auth, baseUrl, language]
+    () => createAdminClient({ auth, baseUrl, language, tenantId }),
+    [auth, baseUrl, language, tenantId]
   )
   const host = useContext(AppearanceContext)
   const look = useMemo(
     () => ({ ...host, ...appearance, theme: appearance?.theme ?? "inherit" }),
     [host, appearance]
   )
-  const context = useMemo(() => ({ client, guard }), [client, guard])
+  const scopeKey = JSON.stringify([baseUrl ?? "/api/v1", tenantId ?? null])
+  const context = useMemo(
+    () => ({ client, guard, tenantId, scopeKey }),
+    [client, guard, tenantId, scopeKey]
+  )
   return (
     <AppearanceContext.Provider value={look}>
       <MessagesContext.Provider value={translator}>
         <RouterProvider value={router}>
           <AdminContext.Provider value={context}>
-            <AuthUiRoot className={cn("grid gap-6", className)}>
+            <AuthUiRoot key={scopeKey} className={cn("grid gap-6", className)}>
               {children}
             </AuthUiRoot>
           </AdminContext.Provider>

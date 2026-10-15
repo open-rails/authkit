@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
-import type { AuthKitError } from "../client/errors.ts"
+import { AuthSessionChangedError, type AuthKitError } from "../client/errors.ts"
 import { isStepUpCancelled, toAuthKitError } from "../react/task.ts"
 import { useAdmin } from "./context.ts"
 
@@ -20,26 +20,37 @@ export function useActions<A extends Actions>(
   actions: A,
   done: Done<A>
 ) {
-  const { guard } = useAdmin()
+  const { guard, scopeKey } = useAdmin()
+  const active = useRef(true)
+  useEffect(() => {
+    active.current = true
+    return () => {
+      active.current = false
+    }
+  }, [])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<AuthKitError | null>(null)
   const latest = useRef({ actions, done })
   useEffect(() => {
     latest.current = { actions, done }
   })
-  const kindOf = useCallback((kind: string) => `${kind}:${scope}`, [scope])
+  const kindOf = useCallback(
+    (kind: string) => `${kind}:${scopeKey}:${scope}`,
+    [scopeKey, scope]
+  )
 
   useEffect(() => {
     const on = guard?.onResume
     if (!on) return
     const offs = Object.keys(latest.current.actions).map((kind) =>
       on(kindOf(kind), async (data) => {
+        if (!active.current) return
         const { actions, done } = latest.current
         try {
           const result = await actions[kind](data as never)
-          done(kind, result as never, data as never)
+          if (active.current) done(kind, result as never, data as never)
         } catch (err) {
-          setError(toAuthKitError(err))
+          if (active.current) setError(toAuthKitError(err))
         }
       })
     )
@@ -52,20 +63,25 @@ export function useActions<A extends Actions>(
       data: Parameters<A[K]>[0]
     ): Promise<boolean> => {
       const { actions } = latest.current
-      const action = () => actions[kind](data as never)
+      const action = () => {
+        if (!active.current) throw new AuthSessionChangedError()
+        return actions[kind](data as never)
+      }
       setBusy(true)
       setError(null)
       try {
         const result = await (guard
           ? guard(action, { resume: { kind: kindOf(kind), data } })
           : action())
+        if (!active.current) return false
         latest.current.done(kind, result as never, data)
         return true
       } catch (err) {
-        if (!isStepUpCancelled(err)) setError(toAuthKitError(err))
+        if (active.current && !isStepUpCancelled(err))
+          setError(toAuthKitError(err))
         return false
       } finally {
-        setBusy(false)
+        if (active.current) setBusy(false)
       }
     },
     [guard, kindOf]

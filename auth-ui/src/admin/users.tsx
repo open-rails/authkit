@@ -32,12 +32,16 @@ import { useRouter, useSearchParams } from "./router.ts"
 import { UserPage } from "./user-page.tsx"
 import { UserBadges } from "./user-parts.tsx"
 import {
+  directoryRole,
   restorableUntil,
   type ConfirmWarnings,
   type UserPanels,
 } from "./users-lib.ts"
 
 export interface UsersAdminProps extends AdminProps {
+  /** Canonical tenant group for a matching ForTenant handler at baseUrl.
+   * The source authentication session is unchanged. Omit for root/default. */
+  tenantId?: string
   /** The host's panels on a user's page (a billing summary, comment standing). */
   userPanels?: UserPanels
   /** Warnings in a ban or delete confirmation; the act still goes ahead. */
@@ -54,7 +58,7 @@ export type Host = Pick<
 /**
  * The user directory and each account's page: search and filters in the
  * URL, ban, delete and restore, profile edits, sessions, sign-in history and
- * the root role; root invitations. Views: `basePath` (`?q=`, `?status=`,
+ * the selected directory role and invitations. Views: `basePath` (`?q=`, `?status=`,
  * `?role=`, `?entitlement=`, `?sort=`, `?order=`), `basePath/invitations`,
  * `basePath/<user_id>` (`?kind=`).
  */
@@ -73,12 +77,13 @@ export function UsersAdmin({
 
 function Users({ host }: { host: Host }) {
   const { t } = useAdminMessages()
-  const { client } = useAdmin()
+  const { client, tenantId } = useAdmin()
   const { segments } = useRouter()
-  const root = useAccessWith(client, "root")
-  const access = useMemo(() => usersAccess(root), [root])
-  const roles = useLoad(root.roles.read ? "roles:root" : null, (s) =>
-    client.listRoles("root", s)
+  const group = tenantId ?? "root"
+  const root = useAccessWith(client, group)
+  const access = useMemo(() => usersAccess(root, tenantId), [root, tenantId])
+  const roles = useLoad(root.roles.read ? `roles:${group}` : null, (s) =>
+    client.listRoles(group, s)
   )
   if (root.status === "loading")
     return (
@@ -110,7 +115,7 @@ function Users({ host }: { host: Host }) {
         />
       )}
       {invitations ? (
-        <Invitations group="root" access={root} roles={roleNames} />
+        <Invitations group={group} access={root} roles={roleNames} />
       ) : (
         <Directory roles={roleNames} host={host} />
       )}
@@ -136,7 +141,7 @@ const PAGE_SIZE = 25
 
 function Directory({ roles, host }: { roles: string[]; host: Host }) {
   const { t } = useAdminMessages()
-  const { client } = useAdmin()
+  const { client, tenantId } = useAdmin()
   const ids = {
     search: useId(),
     status: useId(),
@@ -190,14 +195,16 @@ function Directory({ roles, host }: { roles: string[]; host: Host }) {
     return {
       search: q || undefined,
       status: status || undefined,
-      rootRole: role || undefined,
+      ...(tenantId
+        ? { tenantRole: role || undefined }
+        : { rootRole: role || undefined }),
       entitlement: entitlement || undefined,
       sort: by,
       order,
       total: true,
       limit: PAGE_SIZE,
     }
-  }, [q, status, role, entitlement, sort])
+  }, [q, status, role, entitlement, sort, tenantId])
   const load = useCallback(
     (cursor: string | undefined, signal?: AbortSignal) =>
       client.listUsers({ ...query, cursor }, signal),
@@ -244,7 +251,10 @@ function Directory({ roles, host }: { roles: string[]; host: Host }) {
             </Select>
           </FormField>
           {roles.length > 0 && (
-            <FormField label={t("users.role")} htmlFor={ids.role}>
+            <FormField
+              label={t(tenantId ? "users.tenantRoleTitle" : "users.role")}
+              htmlFor={ids.role}
+            >
               <Select
                 id={ids.role}
                 value={role}
@@ -323,6 +333,7 @@ function Directory({ roles, host }: { roles: string[]; host: Host }) {
 
 function UserTable({ users, status }: { users: UserEntry[]; status: string }) {
   const { t } = useAdminMessages()
+  const { tenantId } = useAdmin()
   return (
     <Table aria-label={t("users.title")}>
       <thead>
@@ -368,7 +379,7 @@ function UserTable({ users, status }: { users: UserEntry[]; status: string }) {
               </div>
             </Td>
             <Td>
-              <UserBadges user={u} />
+              <UserBadges user={u} role={directoryRole(u, tenantId)} />
             </Td>
             {status === "banned" ? (
               <>

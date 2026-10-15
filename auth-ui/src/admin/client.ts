@@ -1,4 +1,4 @@
-import { readAuthKitError } from "../client/errors.ts"
+import { AuthKitError, readAuthKitError } from "../client/errors.ts"
 import type {
   APIKey,
   APIKeyCreated,
@@ -32,6 +32,8 @@ export type AdminClientOptions = {
   baseUrl?: string
   // Sent as ?lang= for AuthKit's own messages.
   language?: string
+  /** Expected owner of account responses from a matching ForTenant mount. */
+  tenantId?: string
 }
 
 export type Page = { cursor?: string; limit?: number }
@@ -44,6 +46,8 @@ export type UserListQuery = Page & {
   status?: "active" | "banned" | "deleted" | "any"
   /** A root role (`root:admin`). */
   rootRole?: string
+  /** The role in the mounted tenant, independent of a global root role. */
+  tenantRole?: string
   /** Needs the host's Deps.EntitlementHolders. */
   entitlement?: string
   sort?: "created_at" | "last_login" | "username" | "email"
@@ -138,6 +142,22 @@ export type AdminClient = ReturnType<typeof createAdminClient>
 export function createAdminClient(options: AdminClientOptions) {
   const base = (options.baseUrl ?? "/api/v1").replace(/\/+$/, "")
 
+  const mismatch = () =>
+    new AuthKitError(0, {
+      type: "local",
+      code: "tenant_scope_mismatch",
+      message:
+        "The account response does not match the configured tenant. Check the admin API mount.",
+    })
+  const checkUser = (entry: UserEntry): UserEntry => {
+    if (
+      options.tenantId &&
+      (!("tenant_id" in entry) || entry.tenant_id !== options.tenantId)
+    )
+      throw mismatch()
+    return entry
+  }
+
   async function send(
     route: AdminRoute,
     opts: CallOptions = {}
@@ -200,12 +220,24 @@ export function createAdminClient(options: AdminClientOptions) {
   const u = (id: string) => ({ user_id: id })
 
   return {
+    /** The mounted API prefix, for cache keys outside an AdminRoot. */
+    scopeKey: JSON.stringify([base, options.tenantId ?? null]),
     // The caller's role and permissions in group ("root" for root).
-    permissions: (group: string, signal?: AbortSignal) =>
-      call<PermissionSet>("permissions", {
+    permissions: async (group: string, signal?: AbortSignal) => {
+      const result = await call<PermissionSet>("permissions", {
         query: { group_id: group },
         signal,
-      }),
+      })
+      if (
+        options.tenantId &&
+        (result.group_id !== group ||
+          (group === options.tenantId &&
+            "persona" in result &&
+            result.persona !== "tenant"))
+      )
+        throw mismatch()
+      return result
+    },
 
     // User members with their public profiles; role filters (repeatable).
     listMembers: (
@@ -375,23 +407,27 @@ export function createAdminClient(options: AdminClientOptions) {
       call<void>("deleteRemoteApplication", { params: g(group, { id }) }),
 
     // The user directory; every entry carries its root role and entitlements.
-    listUsers: (q: UserListQuery = {}, signal?: AbortSignal) =>
-      call<ListPage<UserEntry>>("listUsers", {
+    listUsers: async (q: UserListQuery = {}, signal?: AbortSignal) => {
+      const result = await call<ListPage<UserEntry>>("listUsers", {
         query: {
           ...page(q),
           search: q.search,
           status: q.status,
           root_role: q.rootRole,
+          tenant_role: q.tenantRole,
           entitlement: q.entitlement,
           sort: q.sort,
           order: q.order,
           total: q.total ? "true" : undefined,
         },
         signal,
-      }),
+      })
+      result.data.forEach(checkUser)
+      return result
+    },
     // Deleted accounts included.
     getUser: (id: string, signal?: AbortSignal) =>
-      call<UserEntry>("getUser", { params: u(id), signal }),
+      call<UserEntry>("getUser", { params: u(id), signal }).then(checkUser),
     updateUser: (id: string, input: UserUpdate) =>
       call<UserEntry>("updateUser", {
         params: u(id),
@@ -401,7 +437,7 @@ export function createAdminClient(options: AdminClientOptions) {
           username: input.username,
           preferred_language: input.preferredLanguage,
         },
-      }),
+      }).then(checkUser),
     // Starts the 30-day recovery window and signs the account out.
     deleteUser: (id: string) => call<void>("deleteUser", { params: u(id) }),
     restoreUser: (id: string) => call<void>("restoreUser", { params: u(id) }),

@@ -34,10 +34,13 @@ export interface AuthAdminProps extends AdminProps {
   group?: string
   /** Sections enabled by this host's AuthKit configuration; all by default. */
   sections?: readonly AuthAdminSection[]
-  /** Root account administration stays separate from the selected group. */
+  /** The account directory (root/default or a tenant) stays separate from the selected group. */
   users?:
     | false
-    | Pick<UsersAdminProps, "userPanels" | "confirmWarnings" | "entitlements">
+    | Pick<
+        UsersAdminProps,
+        "tenantId" | "userPanels" | "confirmWarnings" | "entitlements"
+      >
   permissionHelp?: RolesAdminProps["permissionHelp"]
   remoteApplications?: Pick<
     RemoteApplicationsAdminProps,
@@ -60,9 +63,14 @@ export function AuthAdmin({
   ...props
 }: AuthAdminProps) {
   return (
-    <AdminRoot {...props}>
+    <AdminRoot {...props} tenantId={users ? users.tenantId : undefined}>
       <Console
-        key={JSON.stringify([group, props.baseUrl, props.basePath])}
+        key={JSON.stringify([
+          group,
+          props.baseUrl,
+          props.basePath,
+          users && users.tenantId,
+        ])}
         shared={props}
         group={group}
         sections={sections}
@@ -92,9 +100,15 @@ function Console({
   const { client } = useAdmin()
   const { t } = useAdminMessages()
   const router = useRouter()
-  const root = useAccessWith(client, "root")
+  const root = useAccessWith(
+    client,
+    users ? (users.tenantId ?? "root") : "root"
+  )
   const scoped = useAccessWith(client, group)
-  const accounts = useMemo(() => usersAccess(root), [root])
+  const accounts = useMemo(
+    () => usersAccess(root, users ? users.tenantId : undefined),
+    [root, users]
+  )
   const enabled = new Set(sections)
   const permitted = {
     users: users !== false && accounts.any,
@@ -125,7 +139,13 @@ function Console({
     root.reload()
     scoped.reload()
   }
-  const error = selected === "users" ? root.error : scoped.error
+  const error =
+    selected === "users"
+      ? root.error
+      : selected
+        ? scoped.error
+        : ((enabled.has("users") && users !== false ? root.error : null) ??
+          scoped.error)
 
   const panel = () => {
     if (checking) return <Loading />

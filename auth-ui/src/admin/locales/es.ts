@@ -36,6 +36,8 @@ export const es: AdminMessageTree = {
     next: "Siguiente",
   },
   errors: {
+    tenant_scope_mismatch:
+      "La respuesta de la cuenta no coincide con el espacio configurado. Comprueba la ruta de la API de administración e inténtalo de nuevo.",
     account_authority_escalation:
       "No tienes más rango que esta cuenta: primero hay que degradar a un par o superior.",
     cannot_target_self: "No puedes hacer esto con tu propia cuenta.",
@@ -317,6 +319,10 @@ export const es: AdminMessageTree = {
       restore: "{name} fue restaurado.",
       signOut: "Se cerró la sesión de {name} en todas partes.",
     },
+    tenantRoleTitle: "Rol del espacio",
+    tenantRoleDescription: "Este rol concede permisos dentro de este espacio.",
+    tenantRoleConfirmTitle: "¿Cambiar el rol de {name} en este espacio?",
+    tenantRoleRemoved: "{name} ya no tiene un rol en este espacio.",
     roleTitle: "Rol raíz",
     roleDescription: "Un rol raíz tiene sus permisos en todo el sitio.",
     roleNone: "Ninguno",

@@ -36,6 +36,8 @@ export const ko: AdminMessageTree = {
     next: "다음",
   },
   errors: {
+    tenant_scope_mismatch:
+      "계정 응답이 설정된 테넌트와 일치하지 않습니다. 관리자 API 경로를 확인하고 다시 시도하세요.",
     account_authority_escalation:
       "이 계정보다 권한이 높지 않습니다. 동급 이상의 계정은 먼저 강등해야 합니다.",
     cannot_target_self: "자신의 계정에는 이 작업을 할 수 없습니다.",
@@ -315,6 +317,10 @@ export const ko: AdminMessageTree = {
       restore: "{name} 계정을 복원했습니다.",
       signOut: "{name} 계정을 모든 곳에서 로그아웃했습니다.",
     },
+    tenantRoleTitle: "테넌트 역할",
+    tenantRoleDescription: "이 역할은 이 테넌트 내에서 권한을 부여합니다.",
+    tenantRoleConfirmTitle: "{name}의 테넌트 역할을 변경할까요?",
+    tenantRoleRemoved: "이제 {name}에게 테넌트 역할이 없습니다.",
     roleTitle: "루트 역할",
     roleDescription: "루트 역할의 권한은 사이트 전체에 적용됩니다.",
     roleNone: "없음",

@@ -508,7 +508,7 @@ administration routes to AuthKit.
 ```tsx
 import { AuthAdmin } from "@openrails/auth-ui/admin"
 
-<AuthAdmin
+;<AuthAdmin
   key={user.id}
   auth={auth}
   basePath="/admin/accounts"
@@ -627,6 +627,36 @@ confirmations (an array is one per item, a promise is awaited), and the act
 still goes ahead. `UserAccountSummary` is one account's standing for another
 page, such as a billing customer: status, root role, entitlements, ban, last
 sign-in and a link.
+
+For one tenant's account directory, pass its canonical group ID and the API
+mount served by `Client.ForTenant(...).Handler`:
+
+```tsx
+;<UsersAdmin
+  auth={auth}
+  tenantId={tenantId}
+  baseUrl={tenantAdminApi}
+  basePath={`/admin/tenants/${tenantId}/users`}
+  navigation={nav}
+  guard={guard}
+/>
+const access = useUsersAdminAccess({ auth, tenantId, baseUrl: tenantAdminApi })
+```
+
+The `auth` client keeps the operator's original sign-in and refresh session.
+Only admin requests use `tenantAdminApi`; the host supplies that trusted mount,
+and AuthKit authorizes the target tenant. No tenant is inferred from an email
+or added as an ambient request header. In this mode the role filter, editor,
+and invitations use the tenant group and `tenant_role`; they never edit a
+global root role. Account controls use `tenant:users:*` or the server's allowed
+global root permissions. Omitting `tenantId` preserves the existing root UI.
+
+Changing the target clears prior data, pagination, open forms and registered
+action resumes. A returned account must have the expected `tenant_id`; a
+missing or different owner produces a configuration error with retry, without
+invalidating the operator's session. `createAdminClient` accepts the same
+optional `tenantId` when used directly. Continue keying the admin mount by the
+source account/session when that identity changes.
 
 ## Solana
 

@@ -18,6 +18,17 @@ export type ConfirmWarnings = (
 /** A user page's panels from the host, after AuthKit's own. */
 export type UserPanels = (user: UserEntry) => ReactNode
 
+/** The role in the selected directory; global root roles stay separate. */
+export const directoryRole = (
+  user: UserEntry,
+  tenantId?: string
+): string | null => {
+  if (!tenantId) return user.root_role
+  return "tenant_role" in user && typeof user.tenant_role === "string"
+    ? user.tenant_role
+    : null
+}
+
 export const userName = (u: UserEntry) => u.username || u.email || u.id
 
 export type UserState = "active" | "banned" | "deleted"
