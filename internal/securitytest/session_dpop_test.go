@@ -113,3 +113,28 @@ func TestSecuritySignInDPoPRequired(t *testing.T) {
 	require.NoError(t, err, "an API key is never covered")
 	require.Equal(t, "api_key", string(v.Identity().Credential.Kind))
 }
+
+// TestSecurityDPoPBehindAProxy: a deployment browsers reach on another origin
+// than its issuer's (HTTPConfig.PublicURL) checks proofs against that origin,
+// at its sign-ins and on the host's routes behind its Authenticator.
+func TestSecurityDPoPBehindAProxy(t *testing.T) {
+	const site = "https://site.security.test"
+	h := newHost(t, authtest.WithConfig(func(c *authkit.Config) { c.HTTP.PublicURL = site; c.SignIn.DPoP = authkit.DPoPRequired }))
+	a := h.newAccount("dpopproxy")
+	key := testdpop.Key(t)
+	proof := testdpop.Proof(t, key, http.MethodPost, site+apiPrefix+"/password/login", "", func(tok *jwt.Token) {
+		delete(tok.Claims.(jwt.MapClaims), "ath")
+	})
+	bound := session(t, h.do(request{method: http.MethodPost, path: "/password/login",
+		body: map[string]string{"identifier": a.email, "password": password}, header: http.Header{"DPoP": {proof}}}))
+	route := func(origin string) error {
+		r, err := http.NewRequest(http.MethodGet, "http://10.0.0.1/api/things", nil)
+		require.NoError(t, err)
+		r.Header.Set("Authorization", "DPoP "+bound.AccessToken)
+		r.Header.Set("DPoP", testdpop.Proof(t, key, http.MethodGet, origin+"/api/things", bound.AccessToken, nil))
+		_, err = h.auth.Authenticator().Authenticate(r)
+		return err
+	}
+	require.NoError(t, route(site), "the origin browsers reach")
+	require.Error(t, route(issuer), "the issuer's origin")
+}
