@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A refused cold-start refresh no longer invalidates an independent sign-in
+  already in flight. Explicit sign-out and account switches still invalidate
+  stale authentication results.
+
 - Account password changes authenticate before showing a single new-password
   field, preserving browser password-manager metadata and provider step-up.
 - Shared account profile and compact security panels, link-only social/wallet

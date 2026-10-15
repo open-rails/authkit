@@ -3,7 +3,86 @@ import { expect, it, vi } from "vitest"
 
 import { createAuthClient } from "./client.ts"
 import { AuthSessionChangedError } from "./errors.ts"
-import { authError, complete, deferred, json, tokens } from "./testing.ts"
+import {
+  authError,
+  complete,
+  deferred,
+  json,
+  stubFetch,
+  tokens,
+} from "./testing.ts"
+
+it.each([true, false])(
+  "accepts passwordless confirmation across a refused cold restore (restore first: %s)",
+  async (restoreFirst) => {
+    const restoring = deferred<Response>()
+    const confirming = deferred<Response>()
+    const fetch = stubFetch({
+      "POST /api/v1/token": () => restoring.promise,
+      "POST /api/v1/passwordless/confirm": () => confirming.promise,
+      "GET /api/v1/me": () => json(200, { id: "A", username: "reader" }),
+    })
+    const client = createAuthClient({ fetch, sessionHint: false })
+    const stop = client.start()
+    const initialRestore = client.refresh()
+    try {
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
+      const confirmation = client.confirmPasswordless({ token: "email-link" })
+      const accepted = expect(confirmation).resolves.toMatchObject({
+        status: "complete",
+      })
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))
+      if (restoreFirst) {
+        restoring.resolve(authError(401, "no_session"))
+        await client.ready()
+      }
+      confirming.resolve(tokens("A"))
+      await accepted
+      if (!restoreFirst) {
+        restoring.resolve(authError(401, "no_session"))
+        await initialRestore
+      }
+      expect(await client.getMe()).toMatchObject({ id: "A" })
+      expect(client.getSnapshot()).toMatchObject({
+        status: "authenticated",
+        userId: "A",
+      })
+      expect(fetch).toHaveBeenCalledTimes(3)
+    } finally {
+      stop()
+    }
+  }
+)
+
+it.each(["logout", "replacement"] as const)(
+  "a %s still invalidates passwordless confirmation during cold restore",
+  async (interruption) => {
+    const restoring = deferred<Response>()
+    const confirming = deferred<Response>()
+    const fetch = stubFetch({
+      "POST /api/v1/token": () => restoring.promise,
+      "POST /api/v1/passwordless/confirm": () => confirming.promise,
+    })
+    const client = createAuthClient({ fetch, sessionHint: false })
+    const stop = client.start()
+    try {
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
+      const confirmation = client.confirmPasswordless({ token: "email-link" })
+      const rejected = expect(confirmation).rejects.toBeInstanceOf(
+        AuthSessionChangedError
+      )
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))
+      if (interruption === "logout") await client.signOut()
+      else await client.completeSignIn(async () => complete("B"))
+      restoring.resolve(authError(401, "no_session"))
+      confirming.resolve(tokens("A"))
+      await rejected
+      expect(userId(client)).toBe(interruption === "logout" ? null : "B")
+    } finally {
+      stop()
+    }
+  }
+)
 
 const signedIn = async (fetch: typeof globalThis.fetch, sub: string) => {
   const client = createAuthClient({ fetch })

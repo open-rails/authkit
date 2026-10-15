@@ -381,17 +381,25 @@ export function createAuthClient(options: AuthClientOptions = {}) {
   let resources: ReturnType<typeof createResourceTokens> | null = null
 
   // keepHint: another tab already rewrote the hint.
+  const publishAnonymous = (
+    reason: "initial" | "signed_out" | "expired",
+    continuation: PendingSignIn | null = null,
+    keepHint = false
+  ) => {
+    storage?.set(null)
+    if (!keepHint) writeHint(null)
+    clearTimer()
+    resources?.clear()
+    emit({ status: "anonymous", reason, continuation })
+  }
+
   const clear = (
     reason: "initial" | "signed_out" | "expired",
     continuation: PendingSignIn | null = null,
     keepHint = false
   ) => {
     generation++
-    storage?.set(null)
-    if (!keepHint) writeHint(null)
-    clearTimer()
-    resources?.clear()
-    emit({ status: "anonymous", reason, continuation })
+    publishAnonymous(reason, continuation, keepHint)
   }
 
   // --- refresh --------------------------------------------------------------
@@ -416,13 +424,14 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     current: AuthSession | null,
     continuation: PendingSignIn | null
   ) => {
-    // Only a live session can expire; an anonymous cold boot just settles.
-    clear(
-      current
-        ? "expired"
-        : session.status === "anonymous"
-          ? session.reason
-          : "initial",
+    if (current) {
+      clear("expired", continuation)
+      return
+    }
+    // Discovering no session on cold boot does not invalidate an independent
+    // sign-in already in flight. Explicit logout and account changes still do.
+    publishAnonymous(
+      session.status === "anonymous" ? session.reason : "initial",
       continuation
     )
   }
