@@ -94,7 +94,8 @@ describe("new two-factor enrollment", () => {
     expect(screen.getByRole("radio", { name: /SMS/ })).toBeInTheDocument()
     expect(requested).toEqual([])
     await user.click(screen.getByRole("button", { name: "Continue" }))
-    await screen.findByText("JBSWY3DPEHPK3PXP")
+    await screen.findByRole("button", { name: "Show manual setup key" })
+    expect(screen.queryByText("JBSWY3DPEHPK3PXP")).not.toBeInTheDocument()
     expect(requested).toEqual([{ method: "totp" }])
   })
 

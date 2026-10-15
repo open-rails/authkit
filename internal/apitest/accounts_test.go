@@ -360,9 +360,9 @@ func TestLegacyHashStepUpRequiresReset(t *testing.T) {
 	a.post("/password/login", "", map[string]any{"identifier": email, "password": "Another-horse-battery-8"}).answer(t).signedIn(t)
 }
 
-// A username is one identity in every case: the owner's spelling is kept for
-// display, and registration, pending holds, login and availability all treat
-// other spellings as that same account. A change of case is not a rename.
+// A username is one identity in every case: display is lowercase, and
+// registration, pending holds, login and availability all treat other
+// spellings as that same account. A change of case is not a rename.
 func TestUsernameCaseWorkflow(t *testing.T) {
 	auth, outbox := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
 		withAppLinks(c)
@@ -384,7 +384,7 @@ func TestUsernameCaseWorkflow(t *testing.T) {
 	claims, err := auth.Verify(ctx, confirmed.AccessToken)
 	require.NoError(t, err)
 	userID := claims.UserID
-	require.Equal(t, name, a.me(t, confirmed.AccessToken).Username, "display keeps the chosen spelling")
+	require.Equal(t, lower, a.me(t, confirmed.AccessToken).Username, "display uses the canonical lowercase spelling")
 
 	// Three sign-ins fill the session cap and evict the confirmation's session;
 	// the last one's token is live.
@@ -543,25 +543,27 @@ func TestAccountPolicies(t *testing.T) {
 		require.Equal(t, bounds, policyError(t, rename, "username_too_short", "username"))
 	})
 
-	t.Run("username policy bounds derived and imported names and New", func(t *testing.T) {
+	t.Run("username policy bounds generated and imported names and New", func(t *testing.T) {
 		idp := testidp.New(t)
 		auth, a, _ := setup(t, func(c *authkit.Config) {
-			c.Username = authkit.UsernameConfig{MinLength: 8, MaxLength: 10}
+			c.Username = authkit.UsernameConfig{MinLength: 8, MaxLength: 10, RandomNames: []string{"anime"}}
 		}, withProviders(idp.OIDC("idp")))
 		ctx := t.Context()
-		// A provider sign-up derives its username from the email's local part,
-		// padded to the policy's minimum.
-		derived := func(subject, email string) string {
+		// Provider sign-up uses the application's name pool and three random
+		// digits, obeying the same policy without exposing the email address.
+		generated := func(subject, email string) string {
 			t.Helper()
 			expectAnswer(t, providerSignIn(t, a, idp, "idp", testidp.Identity{Subject: subject, Email: email, EmailVerified: true}, ""), http.StatusOK)
 			u, err := auth.User(ctx, iam.UserByEmail(email))
 			require.NoError(t, err)
 			return u.Username
 		}
-		require.Equal(t, "ab_user_us", derived("first", "ab@example.test"))
-		second := derived("second", "ab@example.org")
-		require.Equal(t, "ab_user_u1", second, "a taken name is suffixed within the maximum")
-		require.ErrorIs(t, auth.CheckUsername(ctx, second), iam.ErrUsernameInUse, "the suffixed name passes the policy; only its owner holds it")
+		first := generated("first", "ab@example.test")
+		second := generated("second", "ab@example.org")
+		require.Regexp(t, `^anime[0-9]{3}$`, first)
+		require.Regexp(t, `^anime[0-9]{3}$`, second)
+		require.NotEqual(t, first, second, "each account holds a distinct generated name")
+		require.ErrorIs(t, auth.CheckUsername(ctx, second), iam.ErrUsernameInUse, "the generated name passes the policy; only its owner holds it")
 
 		_, err := auth.CreateUser(ctx, iam.NewUser{Email: "short@example.test", Username: "shorty"})
 		e := requireIAMCode(t, err, "username_too_short")

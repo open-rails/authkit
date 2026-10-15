@@ -34,7 +34,7 @@ func TestGeneratedContractIsFresh(t *testing.T) {
 
 // clientCodes are auth-ui's own error keys: local fallbacks, the OIDC
 // redirect's access_denied, and the client's popup and session errors.
-var clientCodes = []string{"generic", "network", "network_error", "access_denied", "popup_blocked", "popup_closed", "popup_timeout", "session_changed"}
+var clientCodes = []string{"generic", "network_error", "server_unavailable", "access_denied", "popup_blocked", "popup_closed", "popup_timeout", "session_changed"}
 
 var (
 	errorsBlock = regexp.MustCompile(`(?s)\n  errors: \{\n(.*?)\n  \},?\n`)

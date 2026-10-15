@@ -99,7 +99,8 @@ describe("required two-factor enrollment", () => {
     await user.click(
       screen.getByRole("button", { name: "Set up authenticator" })
     )
-    await screen.findByText("JBSWY3DPEHPK3PXP")
+    await screen.findByRole("button", { name: "Show manual setup key" })
+    expect(screen.queryByText("JBSWY3DPEHPK3PXP")).not.toBeInTheDocument()
     expect(requested).toEqual([{ method: "totp" }])
   })
 

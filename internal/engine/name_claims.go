@@ -83,6 +83,10 @@ func (s *Engine) ResolveUsername(ctx context.Context, name string) (iam.NameReso
 // account's reservation, a pending registration), then NameAdmission. A claim
 // answers ErrUsernameInUse and nothing about its owner.
 func (s *Engine) CheckUsername(ctx context.Context, name string) error {
+	return s.checkUsername(ctx, s.q, name)
+}
+
+func (s *Engine) checkUsername(ctx context.Context, q *db.Queries, name string) error {
 	name = naming.Canonical(name)
 	if err := naming.Validate(s.cfg.Username, name); err != nil {
 		return err
@@ -90,7 +94,7 @@ func (s *Engine) CheckUsername(ctx context.Context, name string) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
-	taken, err := s.usernameTaken(ctx, name)
+	taken, err := q.NameClaimTaken(ctx, db.NameClaimTakenParams{Name: name, AtTime: s.namingNow()})
 	if err != nil {
 		return err
 	}

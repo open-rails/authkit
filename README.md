@@ -168,13 +168,11 @@ const channelsTable = `CREATE TABLE IF NOT EXISTS channels (
 
 var errChannelTaken = errors.New("that channel already exists")
 
-// Permission groups are created per channel atomically. The permission group is used to keep track of which users have
-// moderator status.
+// createChannel makes channel name, owned by ownerID: our row and AuthKit's permission group
+// commit together or not at all.
 func createChannel(ctx context.Context, db *pgxpool.Pool, auth *authkit.Client, name, ownerID string) error {
 	return pgx.BeginFunc(ctx, db, func(tx pgx.Tx) error {
-		// Fetch the owner from the invoker's ID
 		owner := iam.UserSubject(ownerID)
-		// creates a group within the transaction
 		g, err := auth.CreateGroup(ctx, iam.NewGroup{Persona: Channel.Persona, Owner: &owner}, authkit.InTx(tx))
 		if err != nil {
 			return err

@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 )
@@ -18,6 +19,10 @@ const generatedUsernameAttempts = 100
 // the app's name pool plus exactly three cryptographically random digits.
 // Assignment still checks the database's unique constraint.
 func (s *Engine) GenerateUsername(ctx context.Context) (string, error) {
+	return s.generateUsername(ctx, s.q)
+}
+
+func (s *Engine) generateUsername(ctx context.Context, q *db.Queries) (string, error) {
 	pool := s.cfg.Username.RandomNames
 	if pool == nil {
 		if s.cfg.Username.MaxLength < 4 {
@@ -39,7 +44,7 @@ func (s *Engine) GenerateUsername(ctx context.Context) (string, error) {
 			return "", err
 		}
 		candidate := fmt.Sprintf("%s%03d", strings.ToLower(pool[choice.Int64()]), suffix.Int64())
-		if err := s.CheckUsername(ctx, candidate); err != nil {
+		if err := s.checkUsername(ctx, q, candidate); err != nil {
 			if errors.Is(err, iam.ErrUsernameInUse) {
 				continue
 			}
@@ -52,26 +57,28 @@ func (s *Engine) GenerateUsername(ctx context.Context) (string, error) {
 
 // importGeneratedUser keeps the enclosing group mutation atomic while retrying
 // a generated-name race. The caller already holds its authority transaction.
-func (s *Engine) importGeneratedUser(ctx context.Context, tx db.DBTX, in newAccount) (*db.User, error) {
+func (s *Engine) importGeneratedUser(ctx context.Context, target db.DBTX, in newAccount) (*db.User, error) {
+	tx, ok := target.(pgx.Tx)
+	if !ok {
+		return nil, errors.New("authkit: generated user import requires a transaction")
+	}
+	q := db.New(tx)
 	for range generatedUsernameAttempts {
-		name, err := s.GenerateUsername(ctx)
+		name, err := s.generateUsername(ctx, q)
 		if err != nil {
 			return nil, err
 		}
 		in.Username = name
-		if _, err := tx.Exec(ctx, "SAVEPOINT authkit_generated_username"); err != nil {
+		sp, err := tx.Begin(ctx)
+		if err != nil {
 			return nil, err
 		}
-		user, err := s.importUser(ctx, db.New(tx), in)
+		user, err := s.importUser(ctx, db.New(sp), in)
 		if err == nil {
-			_, err = tx.Exec(ctx, "RELEASE SAVEPOINT authkit_generated_username")
-			return user, err
+			return user, sp.Commit(ctx)
 		}
-		if _, rollbackErr := tx.Exec(ctx, "ROLLBACK TO SAVEPOINT authkit_generated_username"); rollbackErr != nil {
+		if rollbackErr := sp.Rollback(ctx); rollbackErr != nil {
 			return nil, rollbackErr
-		}
-		if _, releaseErr := tx.Exec(ctx, "RELEASE SAVEPOINT authkit_generated_username"); releaseErr != nil {
-			return nil, releaseErr
 		}
 		if !errors.Is(mapUserUniqueViolation(err), iam.ErrUsernameInUse) {
 			return nil, mapUserUniqueViolation(err)
