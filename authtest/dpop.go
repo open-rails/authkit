@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
 	"net/http"
 	"net/url"
 	"sync"
@@ -177,12 +176,10 @@ func Authorize(t testing.TB, auth *authkit.Client, r *http.Request, token string
 	r.Header.Set("DPoP", key.Proof(t, r.Method, base.Scheme+"://"+base.Host+r.URL.EscapedPath(), token, ""))
 }
 
-// requiresDPoP reports whether auth's sign-ins need a DPoP key.
+// requiresDPoP reports whether auth's sign-ins need a DPoP key, from its
+// configuration: asking /capabilities would spend the caller's rate limit.
 func requiresDPoP(t testing.TB, auth *authkit.Client) bool {
 	t.Helper()
-	status, raw := call(t, auth, http.MethodGet, "/capabilities", "", nil, nil)
-	var caps struct {
-		DPoP string `json:"dpop"`
-	}
-	return status == http.StatusOK && json.Unmarshal(raw, &caps) == nil && caps.DPoP == "required"
+	cfg, _ := builtWith(t, auth)
+	return cfg.SignIn.DPoP == authkit.DPoPRequired
 }
