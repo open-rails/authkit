@@ -38,7 +38,7 @@ import (
 )
 
 // testSigner is one RSA key for the package's engines: explicit keys, since
-// AllowEphemeralDevKeys persists a keypair under the package directory.
+// AllowEphemeralDevKeys persists development key material to local state.
 var testSigner = sync.OnceValue(func() keys.Signer {
 	s := testkeys.RSA("test-kid")
 	return s

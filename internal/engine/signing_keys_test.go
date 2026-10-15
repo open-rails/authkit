@@ -31,18 +31,8 @@ func TestResolveKeySourcePersistsDevKeysUnderExplicitPath(t *testing.T) {
 	require.Equal(t, first.ActiveSigner().KID(), second.ActiveSigner().KID())
 }
 
-// Without a path a dev key stays in memory: nothing is written relative to
-// the working directory.
-func TestResolveKeySourceDevKeysStayInMemoryWithoutPath(t *testing.T) {
-	if _, err := os.Stat(filepath.Join(defaultKeysPath, "keys.json")); err == nil {
-		t.Skipf("%s/keys.json exists on this host; the file branch would win", defaultKeysPath)
-	}
-	cwd := t.TempDir()
-	t.Chdir(cwd)
-	ks, err := resolveKeySource("", true)
-	require.NoError(t, err)
-	require.IsType(t, keys.Static{}, ks)
-	entries, err := os.ReadDir(cwd)
-	require.NoError(t, err)
-	require.Empty(t, entries)
+// The constructor must bind development storage to its issuer first.
+func TestResolveKeySourceRequiresResolvedDevelopmentPath(t *testing.T) {
+	_, err := resolveKeySource("", true)
+	require.ErrorContains(t, err, "resolved for the issuer")
 }

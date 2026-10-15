@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"net/netip"
 	"net/url"
 	"regexp"
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/open-rails/authkit/iam"
@@ -106,6 +108,10 @@ func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 		return Config{}, nil, fmt.Errorf("authkit: invalid TwoFactor.Mode %q (want disabled, optional, or required)", c.TwoFactor.Mode)
 	}
 	c.TwoFactor.Methods = slices.Clone(c.TwoFactor.Methods)
+	c.TwoFactor.TOTPIssuer = strings.TrimSpace(c.TwoFactor.TOTPIssuer)
+	if strings.Contains(c.TwoFactor.TOTPIssuer, ":") || strings.IndexFunc(c.TwoFactor.TOTPIssuer, unicode.IsControl) >= 0 {
+		return Config{}, nil, errors.New("authkit: TwoFactor.TOTPIssuer must be a display name without colons or control characters")
+	}
 	for _, m := range c.TwoFactor.Methods {
 		switch m {
 		case iam.TwoFactorEmail, iam.TwoFactorSMS, iam.TwoFactorTOTP:
@@ -359,6 +365,8 @@ func normalizeRegistration(r *RegistrationConfig) error {
 	return nil
 }
 
+var randomUsernameBase = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
+
 var agreementKey = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
 // normalizeAgreements trims the declared documents and refuses a malformed or
@@ -440,6 +448,23 @@ func NormalizeUsername(u UsernameConfig) (UsernameConfig, error) {
 	}
 	if u.MinLength < 1 || u.MaxLength < u.MinLength || u.MaxLength > UsernameMaxLengthCeiling {
 		return u, fmt.Errorf("authkit: invalid username policy min_length=%d max_length=%d (want 1 <= min <= max <= %d)", u.MinLength, u.MaxLength, UsernameMaxLengthCeiling)
+	}
+	if u.RandomNames != nil {
+		if len(u.RandomNames) == 0 {
+			return u, errors.New("authkit: Username.RandomNames must not be empty")
+		}
+		seen := make(map[string]bool, len(u.RandomNames))
+		u.RandomNames = slices.Clone(u.RandomNames)
+		for _, name := range u.RandomNames {
+			canonical := strings.ToLower(name)
+			if !randomUsernameBase.MatchString(name) || len(name)+3 < u.MinLength || len(name)+3 > u.MaxLength {
+				return u, fmt.Errorf("authkit: Username.RandomNames entry %q must be a valid base whose length plus three fits %d..%d", name, u.MinLength, u.MaxLength)
+			}
+			if seen[canonical] {
+				return u, fmt.Errorf("authkit: Username.RandomNames repeats %q (case-insensitive)", name)
+			}
+			seen[canonical] = true
+		}
 	}
 	if u.RenameInterval == 0 {
 		u.RenameInterval = DefaultRenameInterval
@@ -586,6 +611,11 @@ func NormalizeRiverSchema(raw string) (string, error) {
 }
 
 func normalizeHTTP(h *HTTPConfig, c Config, d Deps, degrade func(error)) error {
+	if h.RefreshCookieName != "" {
+		if strings.HasPrefix(h.RefreshCookieName, "__Host-") || (&http.Cookie{Name: h.RefreshCookieName, Value: "valid"}).Valid() != nil {
+			return errors.New("authkit: HTTP.RefreshCookieName must be a valid base cookie name without __Host-")
+		}
+	}
 	if d.Postgres == nil {
 		return errors.New("authkit: HTTP requires Deps.Postgres")
 	}

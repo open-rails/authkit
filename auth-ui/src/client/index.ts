@@ -58,3 +58,5 @@ export { safeReturnTo } from "./returnTo.ts"
 export { readStepUpRequired } from "./stepUp.ts"
 export type { StepUpChallenge } from "./stepUp.ts"
 export type * from "./types.ts"
+
+export { validateUsername } from "./username.ts"

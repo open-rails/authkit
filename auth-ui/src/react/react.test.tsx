@@ -109,6 +109,7 @@ describe("AuthProvider", () => {
       "POST /api/v1/password/login": () => session({ sub: "u1", sid: "s1" }),
       "GET /api/v1/me/permissions": ({ url }) => {
         expect(url).toContain("group_id=g1")
+        expect(url).toContain("direct=true")
         return json(200, {
           group_id: "g1",
           role: "channel:moderator",
@@ -117,7 +118,7 @@ describe("AuthProvider", () => {
       },
     })
     const { result, client } = renderWithAuth(
-      () => usePermissions({ groupId: "g1" }),
+      () => usePermissions({ groupId: "g1", direct: true }),
       fetch
     )
     expect(result.current).toMatchObject({ permissions: null, loading: false })
@@ -523,6 +524,55 @@ describe("useSessions", () => {
 })
 
 describe("useAuth", () => {
+  it("keeps the signed-in shell through a failed restore and recovers without user-change events", async () => {
+    const storage = memoryStorage()
+    storage.setItem(
+      "authkit:session:/api/v1",
+      JSON.stringify({
+        userId: "u1",
+        username: "ann",
+        expiresAt: Date.now() + 60_000,
+      })
+    )
+    const fetch = stubFetch({
+      "POST /api/v1/token": [
+        new Response(null, { status: 503 }),
+        session({ sub: "u1", sid: "s1" }),
+      ],
+      "GET /api/v1/me": () => me("u1"),
+    })
+    const onUserChange = vi.fn()
+    const { result, client } = renderWithAuth(
+      () => useAuth(),
+      fetch,
+      { autoStart: true, onUserChange },
+      { sessionHint: { storage } }
+    )
+    await act(() => client.refresh())
+    expect(result.current).toMatchObject({
+      status: "restoring",
+      signedIn: true,
+      userId: "u1",
+      hint: { username: "ann" },
+    })
+    expect(onUserChange).not.toHaveBeenCalled()
+    // Reconnection can retry after the server's backoff has elapsed.
+    const now = Date.now()
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now + 6_000)
+    try {
+      await act(() => client.refresh())
+      await waitFor(() =>
+        expect(result.current).toMatchObject({
+          status: "signed_in",
+          user: { id: "u1" },
+        })
+      )
+      expect(onUserChange).not.toHaveBeenCalled()
+    } finally {
+      clock.mockRestore()
+    }
+  })
+
   it("renders the hinted user while restoring and reports user changes only", async () => {
     const storage = memoryStorage()
     storage.setItem(

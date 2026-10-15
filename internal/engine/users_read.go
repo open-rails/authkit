@@ -15,6 +15,7 @@ import (
 	"github.com/open-rails/authkit/internal/cursor"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/naming"
 	"github.com/open-rails/authkit/internal/ops"
 )
 
@@ -120,7 +121,7 @@ func (s *Engine) PublicUsers(ctx context.Context, ids []string) (map[string]iam.
 				continue
 			}
 			created := r.CreatedAt.UTC()
-			out[r.ID] = iam.PublicUser{ID: r.ID, Username: deref(r.Username), CreatedAt: &created, PublicMetadata: publicMetadata(r.PublicMetadata)}
+			out[r.ID] = iam.PublicUser{ID: r.ID, Username: naming.Canonical(deref(r.Username)), CreatedAt: &created, PublicMetadata: publicMetadata(r.PublicMetadata)}
 		}
 		return nil
 	})

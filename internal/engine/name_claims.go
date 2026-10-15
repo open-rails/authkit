@@ -66,7 +66,7 @@ func (s *Engine) resolveUsername(ctx context.Context, name string) (iam.NameReso
 		return iam.NameResolution{}, err
 	}
 	row, err := s.q.ResolveUsername(ctx, db.ResolveUsernameParams{Name: strings.TrimSpace(name), AtTime: s.namingNow()})
-	return iam.NameResolution{ID: row.ID, CanonicalName: row.CanonicalName, IsAlias: row.IsAlias, AliasExpiresAt: row.ExpiresAt}, err
+	return iam.NameResolution{ID: row.ID, CanonicalName: naming.Canonical(row.CanonicalName), IsAlias: row.IsAlias, AliasExpiresAt: row.ExpiresAt}, err
 }
 
 // ResolveUsername resolves a current username or live alias of a live account.
@@ -83,7 +83,7 @@ func (s *Engine) ResolveUsername(ctx context.Context, name string) (iam.NameReso
 // account's reservation, a pending registration), then NameAdmission. A claim
 // answers ErrUsernameInUse and nothing about its owner.
 func (s *Engine) CheckUsername(ctx context.Context, name string) error {
-	name = strings.TrimSpace(name)
+	name = naming.Canonical(name)
 	if err := naming.Validate(s.cfg.Username, name); err != nil {
 		return err
 	}
@@ -130,7 +130,7 @@ func (s *Engine) UserNamingState(ctx context.Context, id string) (naming.State, 
 		return state, err
 	}
 	for _, a := range aliases {
-		state.Aliases = append(state.Aliases, naming.Alias{Name: a.Name, ExpiresAt: a.ExpiresAt})
+		state.Aliases = append(state.Aliases, naming.Alias{Name: naming.Canonical(a.Name), ExpiresAt: a.ExpiresAt})
 	}
 	return state, nil
 }

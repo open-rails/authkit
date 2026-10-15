@@ -4,9 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
-	"errors"
 	"fmt"
-	"io/fs"
 	stdlog "log"
 	"os"
 	"path/filepath"
@@ -16,9 +14,9 @@ import (
 )
 
 // TOTP secret-encryption key as first-class vault key material (#148). The key
-// lives next to the JWT signing keys: <Keys.Path>/totp.key (empty Keys.Path
-// defaults to /vault/auth — identical resolution to keys.json; no env fallback,
-// #231). The file holds the AES key encoded as base64 or hex (raw bytes also
+// lives next to the JWT signing keys: <Keys.Path>/totp.key. New resolves the
+// persistent development path first; production defaults to /vault/auth.
+// The file holds the AES key encoded as base64 or hex (raw bytes also
 // accepted), decoding to exactly 16, 24, or 32 bytes (AES-128/192/256). Hosts do
 // not load or pass the secret manually on the normal path; the explicit
 // TwoFactorConfig.TOTPSecretKey []byte is an override for tests/custom key
@@ -41,38 +39,31 @@ func resolveTOTPSecretKey(cfg config.Config) ([]byte, error) {
 		}
 		return append([]byte(nil), cfg.TwoFactor.TOTPSecretKey...), nil
 	}
+	if cfg.Keys.AllowEphemeralDevKeys && strings.TrimSpace(cfg.Keys.Path) == "" {
+		return nil, fmt.Errorf("authkit: development key directory must be resolved for the issuer")
+	}
 	key, err := loadTOTPKey(filepath.Join(totpKeysDir(cfg), totpKeyFilename))
 	if key == nil && err == nil && cfg.Keys.AllowEphemeralDevKeys {
-		return ephemeralTOTPKey(cfg.Keys.Path)
+		return ephemeralTOTPKey(totpKeysDir(cfg))
 	}
 	return key, err
 }
 
-// ephemeralTOTPKey generates the TOTP key of a development deployment: in
-// memory, or written to <dir>/totp.key when Keys.Path is set, so restarts keep
-// authenticator enrollments.
+// ephemeralTOTPKey retains its historical name, but development keys are now
+// always persisted so restarts keep authenticator enrollments.
 func ephemeralTOTPKey(dir string) ([]byte, error) {
-	key := make([]byte, 32)
-	_, _ = rand.Read(key)
-	if dir = strings.TrimSpace(dir); dir == "" {
-		return key, nil
+	if strings.TrimSpace(dir) == "" {
+		return nil, fmt.Errorf("authkit: development TOTP key directory is required")
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, fmt.Errorf("authkit: persist dev TOTP key under %s: %w", dir, err)
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return nil, err
 	}
 	path := filepath.Join(dir, totpKeyFilename)
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if errors.Is(err, fs.ErrExist) {
-		return loadTOTPKey(path) // another replica wrote it first
-	}
-	if err == nil {
-		_, err = f.WriteString(base64.StdEncoding.EncodeToString(key))
-		err = errors.Join(err, f.Close())
-	}
-	if err != nil {
+	if err := createDevelopmentKey(path, []byte(base64.StdEncoding.EncodeToString(key))); err != nil {
 		return nil, fmt.Errorf("authkit: persist dev TOTP key %s: %w", path, err)
 	}
-	return key, nil
+	return loadTOTPKey(path)
 }
 
 // loadTOTPKey reads a totp.key file; a missing one is (nil, nil).

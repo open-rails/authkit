@@ -110,6 +110,16 @@ func (st *permissionGroupStore) ensureRootGroup(ctx context.Context) (string, er
 // identity whose bound session was revoked is ErrSessionRevoked. The system is
 // always true. An unregistered perm is ErrUnknownPermission.
 func (s *Engine) Can(ctx context.Context, a auth.Identity, ref iam.GroupRef, perm iam.Perm) (bool, error) {
+	return s.can(ctx, a, ref, perm, false)
+}
+
+// CanDirect preserves Can's credential checks but grants only assignments in
+// the exact requested group. Root roles do not become authority in every app.
+func (s *Engine) CanDirect(ctx context.Context, a auth.Identity, ref iam.GroupRef, perm iam.Perm) (bool, error) {
+	return s.can(ctx, a, ref, perm, true)
+}
+
+func (s *Engine) can(ctx context.Context, a auth.Identity, ref iam.GroupRef, perm iam.Perm, direct bool) (bool, error) {
 	if !s.KnownPermission(perm) {
 		return false, fmt.Errorf("%w: %q", iam.ErrUnknownPermission, perm)
 	}
@@ -134,7 +144,33 @@ func (s *Engine) Can(ctx context.Context, a auth.Identity, ref iam.GroupRef, per
 	if err != nil {
 		return false, err
 	}
-	return auth.covers(perm), nil
+	if !auth.covers(perm) {
+		return false, nil
+	}
+	state, _ := iam.StateOf(a)
+	if !direct || state.IsSystem() || state.IsAPIKey() {
+		return true, nil
+	}
+	var subject iam.Subject
+	switch {
+	case state.IsUser():
+		subject = iam.UserSubject(state.ID())
+	case state.IsApplication():
+		subject = iam.RemoteApplicationSubject(state.ID())
+	default:
+		return false, nil
+	}
+	assignments, err := st.WalkAssignments(ctx, g.ID, subject)
+	if err != nil {
+		return false, err
+	}
+	local := assignments[:0]
+	for _, assignment := range assignments {
+		if assignment.PermissionGroupID == g.ID {
+			local = append(local, assignment)
+		}
+	}
+	return rbac.Covers(s.groupSchemaOrDefault().ResolveGrants(g.ID, local), perm), nil
 }
 
 // EffectivePermissions returns a's effective grant patterns per group id, for

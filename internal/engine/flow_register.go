@@ -16,6 +16,7 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/naming"
 	"github.com/open-rails/authkit/internal/password"
 )
 
@@ -35,7 +36,7 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 	}
 	in.PreferredLanguage = language
 	identifier := strings.TrimSpace(in.Identifier)
-	username := strings.TrimSpace(in.Username)
+	username := naming.Canonical(in.Username)
 	if identifier == "" || username == "" {
 		return authflow.RegisterOutcome{}, errmodel.ErrInvalidIdentifier
 	}

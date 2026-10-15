@@ -158,7 +158,7 @@ describe("refresh", () => {
     stopOk()
 
     const anon = createAuthClient({
-      fetch: vi.fn().mockResolvedValue(authError(400, "invalid_request")),
+      fetch: vi.fn().mockResolvedValue(authError(401, "no_session")),
     })
     const listener = vi.fn()
     anon.subscribe(listener)
@@ -454,9 +454,7 @@ describe("flows", () => {
     const bodies: unknown[] = []
     const confirm = ({ body }: RequestInit) => {
       bodies.push(JSON.parse(String(body)))
-      return bodies.length === 1
-        ? authError(400, "invalid_code")
-        : tokens("u4")
+      return bodies.length === 1 ? authError(400, "invalid_code") : tokens("u4")
     }
     const client = createAuthClient({
       fetch: stubFetch({

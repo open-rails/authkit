@@ -1193,6 +1193,10 @@ export type UserSecurity = {
   two_factor: TwoFactorStatus
 }
 
+export type UsernameCandidate = {
+  username: string
+}
+
 export type UsernameCapabilities = {
   min_length: number
   max_length: number

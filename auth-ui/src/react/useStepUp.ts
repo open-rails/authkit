@@ -102,6 +102,17 @@ function createWaitingRoom(open: (challenge: StepUpChallenge) => void) {
   }
   return {
     guard,
+    wait(challenge: StepUpChallenge, resume?: StepUpResume): Promise<void> {
+      return new Promise<void>((resolve, reject) => {
+        waiters.push({
+          action: async () => undefined,
+          resume,
+          resolve: () => resolve(),
+          reject,
+        })
+        open(challenge)
+      })
+    },
     take() {
       const pending = waiters
       waiters = []
@@ -160,6 +171,22 @@ export function useStepUp(options: StepUpOptions = {}) {
       if (action) room.returned(action)
     },
     [room]
+  )
+
+  // Proves identity before showing a sensitive editor, without submitting any
+  // proposed new secret. Methods always come from the authenticated server.
+  const authenticate = useCallback(
+    async (options?: { resume?: StepUpResume }) => {
+      const security = await client.getSecurity()
+      await room.wait(
+        {
+          methods: security.step_up_methods,
+          factors: security.two_factor.factors,
+        },
+        options?.resume
+      )
+    },
+    [client, room]
   )
 
   // Opens the step-up without an action, e.g. from a known challenge.
@@ -303,6 +330,7 @@ export function useStepUp(options: StepUpOptions = {}) {
     busy,
     error,
     guard,
+    authenticate,
     open,
     withPassword,
     sendCode,

@@ -110,8 +110,9 @@ type checkingVerified struct {
 }
 
 var (
-	_ auth.PermissionChecker = checkingVerified{}
-	_ auth.Bound             = checkingVerified{}
+	_ auth.PermissionChecker       = checkingVerified{}
+	_ auth.DirectPermissionChecker = checkingVerified{}
+	_ auth.Bound                   = checkingVerified{}
 )
 
 // BoundScope is the group a credential is bound to (an API key's), as a
@@ -128,6 +129,15 @@ func (p checkingVerified) BoundScope() auth.Scope {
 // credential's own (the issuer of the groups it acts in). A revoked session
 // is auth.ErrRevoked.
 func (p checkingVerified) Can(ctx context.Context, scope auth.Scope, permission string) (bool, error) {
+	return p.can(ctx, scope, permission, false)
+}
+
+// CanDirect is Can without authority inherited from another scope.
+func (p checkingVerified) CanDirect(ctx context.Context, scope auth.Scope, permission string) (bool, error) {
+	return p.can(ctx, scope, permission, true)
+}
+
+func (p checkingVerified) can(ctx context.Context, scope auth.Scope, permission string, direct bool) (bool, error) {
 	if scope.ID == "" || permission == "" || scope.Authority == "" || scope.Authority != authorityOf(p.claims) {
 		return false, nil
 	}
@@ -135,7 +145,17 @@ func (p checkingVerified) Can(ctx context.Context, scope auth.Scope, permission 
 	if !ok {
 		return false, nil
 	}
-	allowed, err := p.checker.Can(ctx, identity, iam.GroupByID(scope.ID), ident.Perm(permission))
+	var allowed bool
+	var err error
+	if direct {
+		checker, ok := p.checker.(DirectPermissionChecker)
+		if !ok {
+			return false, nil
+		}
+		allowed, err = checker.CanDirect(ctx, identity, iam.GroupByID(scope.ID), ident.Perm(permission))
+	} else {
+		allowed, err = p.checker.Can(ctx, identity, iam.GroupByID(scope.ID), ident.Perm(permission))
+	}
 	switch {
 	case errors.Is(err, iam.ErrSessionRevoked):
 		return false, errors.Join(auth.ErrUnauthenticated, auth.ErrRevoked, err)

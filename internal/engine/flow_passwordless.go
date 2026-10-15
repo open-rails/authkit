@@ -126,7 +126,10 @@ func (s *Engine) StartPasswordless(ctx context.Context, req authflow.Passwordles
 		if !allowed {
 			return authflow.PasswordlessStartResult{}, errmodel.ErrRegistrationDisabled
 		}
-		rec.GeneratedUsername = s.derivePasswordlessUsername(ctx, channel, identifier)
+		rec.GeneratedUsername, err = s.GenerateUsername(ctx)
+		if err != nil {
+			return authflow.PasswordlessStartResult{}, err
+		}
 	}
 
 	code := ""
@@ -363,7 +366,11 @@ func (s *Engine) verifyContactProofWithRecovery(ctx context.Context, userID stri
 func (s *Engine) createPasswordlessUser(ctx context.Context, rec passwordlessChallenge, signup accountRegistration) (registeredAccount, error) {
 	username := rec.GeneratedUsername
 	if username == "" || s.ValidateUsername(username) != nil {
-		username = s.derivePasswordlessUsername(ctx, rec.Channel, rec.Identifier)
+		var err error
+		username, err = s.GenerateUsername(ctx)
+		if err != nil {
+			return registeredAccount{}, err
+		}
 	}
 	in := newAccount{Username: username}
 	switch rec.Channel {
@@ -378,7 +385,7 @@ func (s *Engine) createPasswordlessUser(ctx context.Context, rec passwordlessCha
 	}
 	// A signup proof stays a signup: a uniqueness race never changes it into
 	// an existing-account login that skips its invitation/admission checks.
-	signup.User, signup.Language, signup.InviteToken = in, rec.PreferredLanguage, rec.AccountInviteToken
+	signup.User, signup.Language, signup.InviteToken, signup.GeneratedUsername = in, rec.PreferredLanguage, rec.AccountInviteToken, true
 	user, err := s.registerAccount(ctx, signup)
 	if err != nil {
 		return registeredAccount{}, err
@@ -405,23 +412,6 @@ func (s *Engine) passwordlessAutoRegistrationAllowed() bool {
 		return false
 	}
 	return s.cfg.Registration.NativeUserMode != iam.RegistrationModeClosed
-}
-
-func (s *Engine) derivePasswordlessUsername(ctx context.Context, channel, identifier string) string {
-	base := "user"
-	if channel == passwordlessChannelEmail {
-		if at := strings.IndexByte(identifier, '@'); at > 0 {
-			base = identifier[:at]
-		}
-	} else if channel == passwordlessChannelSMS {
-		base = "u" + strings.TrimLeft(strings.Map(func(r rune) rune {
-			if r >= '0' && r <= '9' {
-				return r
-			}
-			return -1
-		}, identifier), "0")
-	}
-	return s.generateAvailableUsername(ctx, base)
 }
 
 func normalizePasswordlessIdentifier(identifier string) (channel, normalized string, err error) {

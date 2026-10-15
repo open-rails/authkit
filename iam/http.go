@@ -71,11 +71,13 @@ const (
 )
 
 const (
-	// RefreshCookieName is the refresh cookie on HTTPS deployments. Browsers
+	// RefreshCookieName is the legacy, unscoped HTTPS refresh-cookie name.
+	// New cookie mounts derive an issuer-specific name unless overridden.
+	// Browsers
 	// accept a __Host- cookie only when it is Secure, host-only and Path=/, so
 	// a sibling subdomain can neither plant nor shadow it.
 	RefreshCookieName = "__Host-authkit_rt"
-	// InsecureRefreshCookieName is used only on plain-HTTP deployments (local
-	// development), where browsers refuse __Host- cookies.
+	// InsecureRefreshCookieName is the legacy plain-HTTP cookie name, still
+	// accepted for migration after the token's issuer ownership is verified.
 	InsecureRefreshCookieName = "authkit_rt"
 )

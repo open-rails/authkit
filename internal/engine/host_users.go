@@ -26,7 +26,7 @@ import (
 // ExpiredBan, not Ban.
 func publicUser(r *db.User, now time.Time) iam.User {
 	u := iam.User{
-		ID: r.ID, Email: nullable(deref(r.Email)), Phone: nullable(deref(r.PhoneNumber)), Username: deref(r.Username),
+		ID: r.ID, Email: nullable(deref(r.Email)), Phone: nullable(deref(r.PhoneNumber)), Username: naming.Canonical(deref(r.Username)),
 		EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, PreferredLanguage: nullable(deref(r.PreferredLanguage)),
 		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin, DeletedAt: r.DeletedAt,
 		PublicMetadata: publicMetadata(r.PublicMetadata),
@@ -130,7 +130,7 @@ func (s *Engine) createUser(ctx context.Context, email, username string) (*db.Us
 	if s.pg == nil {
 		return nil, nil
 	}
-	username = strings.TrimSpace(username)
+	username = naming.Canonical(username)
 	if err := naming.ValidateImport(s.cfg.Username, username); err != nil {
 		return nil, err
 	}
@@ -174,7 +174,7 @@ func (s *Engine) normalizeImportUserInput(input newAccount) (email *string, phon
 		v := contact.NormalizePhone(trimmed)
 		phone = &v
 	}
-	username = strings.TrimSpace(input.Username)
+	username = naming.Canonical(input.Username)
 	if err := naming.ValidateImport(s.cfg.Username, username); err != nil {
 		return nil, nil, "", nil, "", time.Time{}, time.Time{}, err
 	}
@@ -263,6 +263,7 @@ const (
 )
 
 func (s *Engine) renameUsernameTx(ctx context.Context, tx pgx.Tx, id, username string, authority renameAuthority) error {
+	username = naming.Canonical(username)
 	q := s.qtx(tx)
 	current, err := q.UserNameForUpdate(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -273,10 +274,10 @@ func (s *Engine) renameUsernameTx(ctx context.Context, tx pgx.Tx, id, username s
 	}
 	oldName := deref(current.Username)
 	if strings.EqualFold(oldName, username) {
-		if oldName == username || authority == importRename {
+		if oldName == username {
 			return nil
 		}
-		// Same identity, new display spelling: no name claim, alias or cooldown.
+		// Same canonical identity: store lowercase without a new alias or cooldown.
 		return q.UserSetUsernameSpelling(ctx, db.UserSetUsernameSpellingParams{ID: id, Username: &username, AtTime: s.namingNow()})
 	}
 	if authority != importRename {

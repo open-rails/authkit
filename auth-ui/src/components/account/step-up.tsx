@@ -45,6 +45,7 @@ import { Spinner } from "../../ui/spinner.tsx"
 import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs.tsx"
 import { CodeStep, ErrorNotice } from "./shared.tsx"
 import { StepUpContext } from "./step-up-context.ts"
+import { PasswordUsername } from "./password-autofill.tsx"
 
 export interface StepUpProviderProps {
   children?: ReactNode
@@ -320,18 +321,24 @@ function PasswordStepUp({ controller }: { controller: StepUpController }) {
   const { busy } = controller
   return (
     <form
+      name="reauthenticate"
+      method="post"
+      autoComplete="on"
       className="grid gap-4"
       onSubmit={(e) => {
         e.preventDefault()
         if (password) void controller.withPassword(password)
       }}
     >
+      <PasswordUsername />
       <Field>
         <FieldLabel htmlFor={id}>{t("fields.password")}</FieldLabel>
         <Input
           id={id}
           type="password"
+          name="current-password"
           autoComplete="current-password"
+          required
           autoFocus
           value={password}
           disabled={busy}

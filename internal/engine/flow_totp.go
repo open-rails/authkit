@@ -72,7 +72,11 @@ func (s *Engine) startTOTPEnrollment(ctx context.Context, userID string) (secret
 	} else if user.Username != nil && strings.TrimSpace(*user.Username) != "" {
 		label = *user.Username
 	}
-	return secret, buildTOTPURI(s.cfg.Token.Issuer, label, secret), nil
+	issuer := s.cfg.TwoFactor.TOTPIssuer
+	if issuer == "" {
+		issuer = s.cfg.Token.Issuer
+	}
+	return secret, buildTOTPURI(issuer, label, secret), nil
 }
 
 // TOTPEnrollment completes a pending authenticator-app enrollment: Code is the
@@ -128,8 +132,19 @@ func generateTOTPSecret() (string, error) {
 }
 
 func buildTOTPURI(issuer, label, secret string) string {
-	if strings.TrimSpace(issuer) == "" {
+	issuer = strings.TrimSpace(issuer)
+	// Token.Issuer is often a URL. An otpauth label instead requires a
+	// human service name with no colon, matching the issuer query exactly.
+	if parsed, err := url.Parse(issuer); err == nil && parsed.Hostname() != "" {
+		issuer = parsed.Hostname()
+	}
+	issuer = strings.TrimSpace(strings.ReplaceAll(issuer, ":", " "))
+	if issuer == "" {
 		issuer = "AuthKit"
+	}
+	label = strings.TrimSpace(strings.ReplaceAll(label, ":", " "))
+	if label == "" {
+		label = "account"
 	}
 	v := url.Values{}
 	v.Set("secret", secret)
@@ -137,7 +152,7 @@ func buildTOTPURI(issuer, label, secret string) string {
 	v.Set("algorithm", "SHA1")
 	v.Set("digits", fmt.Sprint(totpDigits))
 	v.Set("period", fmt.Sprint(totpPeriod))
-	return "otpauth://totp/" + url.PathEscape(issuer+":"+label) + "?" + v.Encode()
+	return "otpauth://totp/" + url.PathEscape(issuer) + ":" + url.PathEscape(label) + "?" + v.Encode()
 }
 
 func matchingTOTPStep(secret, code string, now time.Time) (int64, bool, error) {

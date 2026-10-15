@@ -22,4 +22,7 @@ type sessionsBackend interface {
 	RevokeIssuerSessions(ctx context.Context, userID string, keepSessionID *string) error
 	RevokeOtherDeviceKeys(ctx context.Context, userID, currentID string) error
 	RevokeSessionByIDForUser(ctx context.Context, userID, sessionID string) error
+	// OwnsRefreshToken is a read-only legacy-cookie migration check. It never
+	// consumes, rotates, or revokes the credential.
+	OwnsRefreshToken(ctx context.Context, token string) (bool, error)
 }

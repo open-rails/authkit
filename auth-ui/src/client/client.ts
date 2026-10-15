@@ -113,7 +113,7 @@ export type AuthClientOptions = {
 }
 
 export type AuthSession =
-  // hint: this browser was signed in; the cookie restore is under way.
+  // hint: this browser was signed in; restore is pending, including outages.
   | { status: "loading"; hint?: SessionHint }
   | {
       status: "anonymous"
@@ -169,7 +169,17 @@ const STALE_BEARER = new Set<AuthErrorCode>([
   "unauthenticated",
   "unknown_kid",
 ])
-const TERMINAL_REFRESH = new Set([400, 401, 403])
+// A proxy failure, malformed response or generic rejection does not prove
+// the refresh credential is invalid. Only AuthKit's session refusals do.
+const TERMINAL_REFRESH = new Set<AuthErrorCode>([
+  "invalid_token",
+  "token_expired",
+  "session_revoked",
+  "unauthenticated",
+  "no_session",
+  "account_disabled",
+  "user_banned",
+])
 const MAX_TIMER = 2_147_483_647
 
 type Listener = () => void
@@ -346,7 +356,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     writeHint({
       userId,
       username:
-        str(claims.username) ??
+        str(claims.username)?.toLowerCase() ??
         (prior?.userId === userId ? prior.username : undefined),
       expiresAt: Date.now() + hintTtlMs,
     })
@@ -365,7 +375,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
   const rememberUsername = (userId: string, username: string) => {
     const hint = readHint()
     if (hint?.userId !== userId || hint.username === username) return
-    writeHint({ ...hint, username })
+    writeHint({ ...hint, username: username.toLowerCase() })
   }
 
   let resources: ReturnType<typeof createResourceTokens> | null = null
@@ -407,15 +417,14 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     continuation: PendingSignIn | null
   ) => {
     // Only a live session can expire; an anonymous cold boot just settles.
-    if (current) return clear("expired", continuation)
-    // A cold boot's hint was stale; a tab adopting another tab's sign-in
-    // leaves the hint to that tab.
-    if (session.status === "loading") writeHint(null)
-    emit({
-      status: "anonymous",
-      reason: session.status === "anonymous" ? session.reason : "initial",
-      continuation,
-    })
+    clear(
+      current
+        ? "expired"
+        : session.status === "anonymous"
+          ? session.reason
+          : "initial",
+      continuation
+    )
   }
 
   const refreshOnce = async (gen: number): Promise<boolean> => {
@@ -449,7 +458,11 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     if (!res.ok) {
       const err = await readAuthKitError(res)
       if (gen !== generation) return false
-      if (TERMINAL_REFRESH.has(res.status)) endRefresh(current, null)
+      if (
+        [400, 401, 403].includes(res.status) &&
+        TERMINAL_REFRESH.has(err.code as AuthErrorCode)
+      )
+        endRefresh(current, null)
       else backoff(gen, err.retryAfterSeconds)
       return false
     }
@@ -457,6 +470,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     try {
       result = toSignInResult(await res.json())
     } catch {
+      if (gen === generation) backoff(gen)
       return false
     }
     if (gen !== generation) return false
@@ -510,11 +524,10 @@ export function createAuthClient(options: AuthClientOptions = {}) {
   }
 
   async function tick() {
-    timer = null
+    clearTimer()
     const gen = generation
     if (await refresh()) return
-    if (!started || gen !== generation || session.status !== "authenticated")
-      return
+    if (!started || gen !== generation || session.status === "anonymous") return
     const retryAfter =
       notBefore.generation === gen ? notBefore.at - Date.now() : 0
     waitFor(Math.max(retryAfter, Math.min(5000 * 2 ** retries++, 300_000)))
@@ -526,6 +539,10 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       document.visibilityState === "hidden"
     )
       return
+    if (session.status === "loading") {
+      void tick()
+      return
+    }
     if (session.status !== "authenticated") return
     // Background tabs throttle timers; catch up if we are inside the lead window.
     if (session.expiresAt !== null && session.expiresAt - Date.now() < leadMs)
@@ -538,18 +555,20 @@ export function createAuthClient(options: AuthClientOptions = {}) {
   // because the other tab already ended the session.
   const onStorage = (e: StorageEvent) => {
     if (e.key !== hintKey && e.key !== null) return
-    if (session.status === "loading") return
     const hint = readHint()
-    const current = session.status === "authenticated" ? session.userId : null
+    const current =
+      session.status === "authenticated"
+        ? session.userId
+        : session.status === "loading"
+          ? (session.hint?.userId ?? null)
+          : null
     if (hint?.userId === current) return
-    if (current) clear("signed_out", null, true)
-    if (hint) void refresh()
-  }
-
-  const restore = async () => {
-    await refresh()
-    if (session.status === "loading")
-      emit({ status: "anonymous", reason: "initial", continuation: null })
+    // Invalidate an in-flight restore as well as an authenticated session.
+    clear("signed_out", null, true)
+    if (hint) {
+      emit({ status: "loading", hint })
+      void tick()
+    }
   }
 
   const stop = () => {
@@ -573,7 +592,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
         window.addEventListener("online", onWake)
         window.addEventListener("storage", onStorage)
       }
-      if (session.status === "loading") void restore()
+      if (session.status === "loading") void tick()
       else schedule()
     }
     return stop
@@ -1087,7 +1106,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
         bearer: null,
         body: {
           identifier: input.identifier,
-          username: input.username,
+          username: input.username?.trim().toLowerCase(),
           password: input.password,
           invite_code: input.inviteCode,
           agreements: input.agreements?.length ? input.agreements : undefined,
@@ -1104,11 +1123,29 @@ export function createAuthClient(options: AuthClientOptions = {}) {
         signal,
         bearer: null,
         query: {
-          username: input.username,
+          username: input.username?.trim().toLowerCase(),
           email: input.email,
           phone_number: input.phoneNumber,
         },
       }),
+
+    // A checked candidate, not a reservation; assignment can still race.
+    generateUsername: (signal?: AbortSignal) =>
+      request<{ username: string }>("GET", "/usernames/generate", {
+        signal,
+        bearer: null,
+      }).then((value) => value.username.toLowerCase()),
+
+    checkUsername: (username: string, signal?: AbortSignal) =>
+      request<import("./types.ts").AvailabilityField>(
+        "GET",
+        "/usernames/availability",
+        {
+          signal,
+          bearer: null,
+          query: { username: username.trim().toLowerCase() },
+        }
+      ),
 
     // Always 204: a wrong password leaves the pending registration in place.
     abandonRegistration: (input: { identifier: string; password: string }) =>
@@ -1473,20 +1510,24 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     }) => {
       const profile = await request<UserProfile>("PATCH", "/me", {
         body: {
-          username: input.username,
+          username: input.username?.trim().toLowerCase(),
           preferred_language: input.preferredLanguage,
         },
       })
+      profile.username = profile.username.toLowerCase()
       rememberUsername(profile.id, profile.username)
       return profile
     },
 
     // The caller's role and concrete permissions in one group; the root
     // group by default.
-    getPermissions: (input: { groupId?: string } = {}, signal?: AbortSignal) =>
+    getPermissions: (
+      input: { groupId?: string; direct?: boolean } = {},
+      signal?: AbortSignal
+    ) =>
       request<PermissionSet>("GET", "/me/permissions", {
         signal,
-        query: { group_id: input.groupId },
+        query: { group_id: input.groupId, direct: input.direct },
       }),
 
     // Public profiles, signed in or not: in request order, at most 100;
@@ -1514,7 +1555,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
         await request<ListPage<PublicUser>>("GET", "/users", {
           signal,
           bearer: null,
-          query: { username },
+          query: { username: username.trim().toLowerCase() },
         })
       ).data[0] ?? null,
 

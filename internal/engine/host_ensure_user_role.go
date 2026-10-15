@@ -51,13 +51,13 @@ func (s *Engine) EnsureUserRole(ctx context.Context, ref iam.GroupRef, u iam.Use
 			if key == iam.UserKeyID {
 				return iam.ErrUserNotFound
 			}
-			acct := newAccount{Username: s.derivePasswordlessUsername(ctx, ensureUserChannel(key), value)}
+			acct := newAccount{}
 			if key == iam.UserKeyEmail {
 				acct.Email = value
 			} else {
 				acct.PhoneNumber = value
 			}
-			u, err := s.importUser(ctx, q, acct)
+			u, err := s.importGeneratedUser(ctx, st.q, acct)
 			if err != nil {
 				return mapUserUniqueViolation(err)
 			}

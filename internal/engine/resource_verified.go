@@ -100,10 +100,11 @@ type resourceVerified struct {
 }
 
 var (
-	_ auth.PermissionChecker   = resourceVerified{}
-	_ auth.RecentSignInChecker = resourceVerified{}
-	_ auth.Bound               = resourceVerified{}
-	_ auth.Asserted            = resourceVerified{}
+	_ auth.PermissionChecker       = resourceVerified{}
+	_ auth.DirectPermissionChecker = resourceVerified{}
+	_ auth.RecentSignInChecker     = resourceVerified{}
+	_ auth.Bound                   = resourceVerified{}
+	_ auth.Asserted                = resourceVerified{}
 )
 
 func (v resourceVerified) Identity() auth.Identity { return v.id }
@@ -129,6 +130,15 @@ func (v resourceVerified) Asserted() bool { return v.access.Asserted }
 // person's token exchanged for a group, which also holds the person's root:
 // permissions on root.
 func (v resourceVerified) Can(ctx context.Context, scope auth.Scope, permission string) (bool, error) {
+	return v.can(ctx, scope, permission, false)
+}
+
+// CanDirect is Can restricted to assignments in scope itself.
+func (v resourceVerified) CanDirect(ctx context.Context, scope auth.Scope, permission string) (bool, error) {
+	return v.can(ctx, scope, permission, true)
+}
+
+func (v resourceVerified) can(ctx context.Context, scope auth.Scope, permission string, direct bool) (bool, error) {
 	if scope.ID == "" || permission == "" || scope.Authority != v.issuer {
 		return false, nil
 	}
@@ -152,7 +162,13 @@ func (v resourceVerified) Can(ctx context.Context, scope auth.Scope, permission 
 	if !ok {
 		return false, nil
 	}
-	allowed, err := v.s.Can(ctx, who, iam.GroupByID(scope.ID), perm)
+	var allowed bool
+	var err error
+	if direct {
+		allowed, err = v.s.CanDirect(ctx, who, iam.GroupByID(scope.ID), perm)
+	} else {
+		allowed, err = v.s.Can(ctx, who, iam.GroupByID(scope.ID), perm)
+	}
 	switch {
 	case errors.Is(err, iam.ErrSessionRevoked):
 		return false, errors.Join(auth.ErrUnauthenticated, auth.ErrRevoked, err)

@@ -1101,6 +1101,79 @@
         "x-authkit-rate-limit": "register_availability"
       }
     },
+    "/api/v1/usernames/generate": {
+      "get": {
+        "tags": [
+          "registration"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsernameCandidate"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "register_availability"
+      }
+    },
+    "/api/v1/usernames/availability": {
+      "get": {
+        "tags": [
+          "registration"
+        ],
+        "parameters": [
+          {
+            "name": "username",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvailabilityField"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "register_availability"
+      }
+    },
     "/api/v1/register/abandon": {
       "post": {
         "tags": [
@@ -2954,6 +3027,13 @@
             "in": "query",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "direct",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -12268,6 +12348,17 @@
           "auth_methods",
           "step_up_methods",
           "two_factor"
+        ]
+      },
+      "UsernameCandidate": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "username"
         ]
       },
       "UsernameCapabilities": {

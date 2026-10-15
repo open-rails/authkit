@@ -19,7 +19,7 @@ const attacker = process.env.AUTHKIT_BROWSER_ATTACKER_URL;
     assert.equal(login.result.status, 'complete');
     assert.ok(login.result.token_set.access_token);
     assert.equal(login.result.token_set.refresh_token, null);
-    const cookie = async () => (await context.cookies()).find(c => c.name === '__Host-authkit_rt');
+    const cookie = async () => (await context.cookies()).find(c => c.name.startsWith('__Host-authkit_rt_'));
     const original = await cookie();
     assert.ok(original && original.httpOnly && original.secure);
     assert.equal(original.sameSite, 'Lax');

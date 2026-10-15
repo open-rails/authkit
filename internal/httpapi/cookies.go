@@ -11,6 +11,8 @@ package httpapi
 // be removed.
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"strings"
@@ -42,13 +44,26 @@ type CookieVariant struct {
 
 // CookieRegistry is append-only.
 var CookieRegistry = []CookieVariant{
-	{Kind: CookieRefresh, Name: "authkit_rt", Path: "/", Current: true},
-	{Kind: CookieRefresh, Name: "__Host-authkit_rt", Path: "/", Secure: true, Current: true},
+	{Kind: CookieRefresh, Name: "authkit_rt", Path: "/"},
+	{Kind: CookieRefresh, Name: "__Host-authkit_rt", Path: "/", Secure: true},
 	{Kind: CookieOIDCState, Name: OIDCStatePrefix, Path: "/", Current: true},
 	{Kind: CookieOIDCState, Name: "__Host-" + OIDCStatePrefix, Path: "/", Secure: true, Current: true},
 	{Kind: CookieDevice, Name: "authkit_device", Path: "/", Current: true},
 	{Kind: CookieDevice, Name: "__Host-authkit_device", Path: "/", Secure: true, Current: true},
 	{Kind: CookieDevicePartitioned, Name: "__Host-authkit_device_p", Path: "/", Secure: true, Current: true},
+	{Kind: CookieRefresh, Name: "authkit_rt_{issuer}", Path: "/", Current: true},
+	{Kind: CookieRefresh, Name: "__Host-authkit_rt_{issuer}", Path: "/", Secure: true, Current: true},
+}
+
+// IssuerRefreshCookieName resolves the current default refresh-cookie shape.
+// Ports do not scope browser cookies; the complete issuer identifies its slot.
+func IssuerRefreshCookieName(issuer string, secure bool) string {
+	sum := sha256.Sum256([]byte(issuer))
+	name := "authkit_rt_" + hex.EncodeToString(sum[:16])
+	if secure {
+		name = "__Host-" + name
+	}
+	return name
 }
 
 func CurrentCookie(kind cookieKind, secure bool) CookieVariant {
@@ -92,25 +107,20 @@ func expireCookieVariants(w http.ResponseWriter, r *http.Request, kind cookieKin
 // The current variant wins; otherwise a lone value of the other scheme's
 // variant is accepted. More than one value of a name is a same-path duplicate
 // (cookie tossing) and is refused outright.
-func refreshCookieCandidate(r *http.Request, secure bool) (string, bool) {
-	current := CurrentCookie(CookieRefresh, secure)
+func refreshCookieCandidate(r *http.Request, variants ...CookieVariant) (string, bool) {
 	values := map[string][]string{}
 	for _, c := range r.Cookies() {
-		if isRefreshCookieName(c.Name) {
-			values[c.Name] = append(values[c.Name], strings.TrimSpace(c.Value))
-		}
+		values[c.Name] = append(values[c.Name], strings.TrimSpace(c.Value))
 	}
-	for _, vals := range values {
-		if len(vals) > 1 {
+	for _, v := range variants {
+		if len(values[v.Name]) > 1 {
 			return "", false
 		}
 	}
-	if vals := values[current.Name]; len(vals) == 1 {
-		return vals[0], vals[0] != ""
-	}
-	other := CurrentCookie(CookieRefresh, !secure)
-	if vals := values[other.Name]; len(vals) == 1 {
-		return vals[0], vals[0] != ""
+	for _, v := range variants {
+		if vals := values[v.Name]; len(vals) == 1 {
+			return vals[0], vals[0] != ""
+		}
 	}
 	return "", false
 }
@@ -118,7 +128,7 @@ func refreshCookieCandidate(r *http.Request, secure bool) (string, bool) {
 // isRefreshCookieName reports whether name is a registered refresh cookie.
 func isRefreshCookieName(name string) bool {
 	for _, v := range CookieRegistry {
-		if v.Kind == CookieRefresh && v.Name == name {
+		if v.Kind == CookieRefresh && !v.Current && v.Name == name {
 			return true
 		}
 	}

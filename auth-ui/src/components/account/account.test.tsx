@@ -21,6 +21,7 @@ import { AuthProvider } from "../../react/provider.tsx"
 import { noContent, session, signedIn } from "../../react/testing.tsx"
 import {
   AccountSecurity,
+  AccountProfile,
   ContactPanel,
   DeleteAccountPanel,
   LinkedProvidersPanel,
@@ -31,6 +32,7 @@ import {
   TwoFactorPanel,
 } from "./index.ts"
 import { SolanaLinkRow } from "../../solana/SolanaLinkRow.tsx"
+import { SignInDialog } from "../sign-in/SignInDialog.tsx"
 
 // input-otp probes password-manager overlays with it; jsdom lacks it.
 document.elementFromPoint ??= () => null
@@ -142,69 +144,295 @@ const security = (twoFactor: {
   })
 
 describe("PasswordPanel", () => {
-  it("validates against the advertised policy, steps up and retries", async () => {
-    const bodies: unknown[] = []
-    const { user } = await renderSignedIn(
-      <StepUpProvider>
-        <PasswordPanel />
-      </StepUpProvider>,
-      {
-        "GET /api/v1/capabilities": () => capabilities({ min_length: 12 }),
-        "PUT /api/v1/me/password": [
-          stepUpRequired({ step_up_methods: ["password"] }),
-          noContent(),
-        ],
-        "POST /api/v1/me/step-up/password": (init) => {
-          bodies.push(JSON.parse(String(init.body)))
-          return bodies.length === 1
-            ? authError(401, "invalid_password")
-            : fresh()
-        },
-      }
-    )
+  const securityWithoutFactors = () =>
+    security({
+      enabled: false,
+      factors: [],
+      allowed_methods: ["totp"],
+      backup_codes_remaining: 0,
+    })
+  const setup = (routes: Routes = {}) =>
+    renderSignedIn(<PasswordPanel />, {
+      "GET /api/v1/me/security": securityWithoutFactors,
+      "POST /api/v1/me/step-up/password": fresh,
+      ...routes,
+    })
+  const confirmPassword = async (user: ReturnType<typeof userEvent.setup>) => {
+    const dialog = await screen.findByRole("dialog", {
+      name: "Confirm it's you",
+    })
+    await user.type(within(dialog).getByLabelText("Password"), "pw")
+    await user.click(within(dialog).getByRole("button", { name: "Confirm" }))
+    return screen.findByRole("form", { name: "Change password" })
+  }
+
+  it("authenticates before showing any new-password field and retains failed authentication", async () => {
+    const saves: unknown[] = []
+    const { user } = await setup({
+      "POST /api/v1/me/step-up/password": [
+        authError(401, "invalid_password"),
+        fresh(),
+      ],
+      "PUT /api/v1/me/password": (init) => {
+        saves.push(JSON.parse(String(init.body)))
+        return noContent()
+      },
+    })
     await user.click(
       await screen.findByRole("button", { name: "Change password" })
     )
-    const dialog = screen.getByRole("dialog", { name: "Change password" })
-    expect(dialog).toHaveTextContent("Use at least 12 characters.")
-    await user.type(within(dialog).getByLabelText("New password"), "short-pw-1")
-    await user.click(
-      within(dialog).getByRole("button", { name: "Update password" })
-    )
-    expect(dialog).toHaveTextContent("Password must be at least 12 characters")
-
-    await user.clear(within(dialog).getByLabelText("New password"))
-    await user.type(
-      within(dialog).getByLabelText("New password"),
-      "long-enough-1"
-    )
-    await user.type(
-      within(dialog).getByLabelText("Confirm password"),
-      "long-enough-1"
-    )
-    await user.click(
-      within(dialog).getByRole("button", { name: "Update password" })
-    )
-
     const stepUp = await screen.findByRole("dialog", {
       name: "Confirm it's you",
     })
-    await user.type(within(stepUp).getByLabelText("Password"), "wrong")
+    expect(screen.queryByLabelText("New password")).toBeNull()
+    expect(screen.queryByLabelText("Confirm password")).toBeNull()
+    expect(saves).toEqual([])
+    const current = within(stepUp).getByLabelText("Password")
+    expect(current).toHaveAttribute("name", "current-password")
+    expect(current).toHaveAttribute("autocomplete", "current-password")
+    await user.type(current, "wrong")
     await user.click(within(stepUp).getByRole("button", { name: "Confirm" }))
     expect(await within(stepUp).findByRole("alert")).toHaveTextContent(
       "Incorrect password"
     )
-    await user.clear(within(stepUp).getByLabelText("Password"))
-    await user.type(within(stepUp).getByLabelText("Password"), "pw")
-    await user.click(within(stepUp).getByRole("button", { name: "Confirm" }))
-
+    expect(screen.queryByLabelText("New password")).toBeNull()
+    await user.clear(current)
+    const form = await confirmPassword(user)
     expect(
-      await screen.findByText("Password updated successfully!")
-    ).toBeInTheDocument()
-    expect(bodies).toEqual([{ password: "wrong" }, { password: "pw" }])
-    await waitFor(() =>
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+      form.querySelectorAll('input[autocomplete="new-password"]')
+    ).toHaveLength(1)
+    expect(within(form).queryByLabelText("Confirm password")).toBeNull()
+    await user.type(
+      within(form).getByLabelText("New password"),
+      "new-test-password-1"
     )
+    await user.click(
+      within(form).getByRole("button", { name: "Update password" })
+    )
+    await waitFor(() =>
+      expect(screen.queryByRole("form", { name: "Change password" })).toBeNull()
+    )
+    expect(saves).toEqual([{ new_password: "new-test-password-1" }])
+  })
+
+  it("retains Chrome password metadata and a failed save, then removes the successful form", async () => {
+    const { user } = await setup({
+      "PUT /api/v1/me/password": [authError(503, "server_busy"), noContent()],
+    })
+    await user.click(
+      await screen.findByRole("button", { name: "Change password" })
+    )
+    const form = await confirmPassword(user)
+    expect(form).toHaveAttribute("method", "post")
+    expect(form).toHaveAttribute("autocomplete", "on")
+    const account = form.querySelector('input[autocomplete="username"]')
+    expect(account).toHaveValue("a@x.test")
+    expect(account).toHaveAttribute("name", "username")
+    expect(account).toHaveClass("hidden")
+    const password = within(form).getByLabelText("New password")
+    expect(password).toHaveAttribute("name", "new-password")
+    expect(password).toHaveAttribute("autocomplete", "new-password")
+    await user.type(password, "new-test-password-1")
+    await user.click(
+      within(form).getByRole("button", { name: "Update password" })
+    )
+    await screen.findByText(/Server is busy|server_busy|busy/i)
+    expect(password).toHaveValue("new-test-password-1")
+    await user.click(
+      within(form).getByRole("button", { name: "Update password" })
+    )
+    await waitFor(() =>
+      expect(screen.queryByRole("form", { name: "Change password" })).toBeNull()
+    )
+    expect(screen.queryByDisplayValue("new-test-password-1")).toBeNull()
+  })
+
+  it("authenticates a passwordless account by email before showing the single set-password input", async () => {
+    const { user } = await setup({
+      "GET /api/v1/me": () => profile({ has_password: false }),
+      "GET /api/v1/me/security": () =>
+        json(200, {
+          step_up_methods: ["email"],
+          two_factor: { enabled: false, factors: [] },
+        }),
+      "POST /api/v1/me/step-up/code/send": noContent,
+      "POST /api/v1/me/step-up/code": fresh,
+      "PUT /api/v1/me/password": noContent,
+    })
+    await user.click(
+      await screen.findByRole("button", { name: "Set password" })
+    )
+    const dialog = await screen.findByRole("dialog", {
+      name: "Confirm it's you",
+    })
+    expect(screen.queryByLabelText("New password")).toBeNull()
+    await user.click(within(dialog).getByRole("button", { name: "Send code" }))
+    await user.type(
+      await within(dialog).findByRole("textbox", { name: "Verification code" }),
+      "123456"
+    )
+    const form = await screen.findByRole("form", { name: "Set password" })
+    expect(
+      form.querySelectorAll('input[autocomplete="new-password"]')
+    ).toHaveLength(1)
+    await user.type(
+      within(form).getByLabelText("New password"),
+      "new-test-password-1"
+    )
+    await user.click(
+      within(form).getByRole("button", { name: "Update password" })
+    )
+    await waitFor(() =>
+      expect(screen.queryByRole("form", { name: "Set password" })).toBeNull()
+    )
+  })
+
+  it("uses the existing authenticator factor before opening the editor", async () => {
+    const verified: unknown[] = []
+    const { user } = await setup({
+      "GET /api/v1/me/security": () =>
+        security({
+          enabled: true,
+          factors: [factor("totp", "totp", true)],
+          allowed_methods: ["totp"],
+          backup_codes_remaining: 5,
+        }),
+      "POST /api/v1/me/step-up/2fa": (init) => {
+        verified.push(JSON.parse(String(init.body)))
+        return fresh()
+      },
+    })
+    await user.click(
+      await screen.findByRole("button", { name: "Change password" })
+    )
+    const dialog = await screen.findByRole("dialog", {
+      name: "Confirm it's you",
+    })
+    expect(screen.queryByLabelText("New password")).toBeNull()
+    await user.type(
+      within(dialog).getByRole("textbox", { name: "Verification code" }),
+      "123456"
+    )
+    const form = await screen.findByRole("form", { name: "Change password" })
+    expect(
+      form.querySelectorAll('input[autocomplete="new-password"]')
+    ).toHaveLength(1)
+    expect(verified).toEqual([{ code: "123456", factor_id: "totp" }])
+  })
+
+  it("does not present an account UUID as an autofill username", async () => {
+    const { user } = await setup({
+      "GET /api/v1/me": () =>
+        profile({ email: null, username: "", phone_number: null }),
+    })
+    await user.click(
+      await screen.findByRole("button", { name: "Change password" })
+    )
+    const form = await confirmPassword(user)
+    expect(form.querySelector('input[autocomplete="username"]')).toBeNull()
+  })
+
+  it("keeps the editor closed when preflight fails or authentication is cancelled", async () => {
+    const { user } = await setup({
+      "GET /api/v1/me/security": [
+        authError(503, "server_busy"),
+        securityWithoutFactors(),
+      ],
+    })
+    await user.click(
+      await screen.findByRole("button", { name: "Change password" })
+    )
+    await screen.findByText(/Server is busy|server_busy|busy/i)
+    expect(screen.queryByLabelText("New password")).toBeNull()
+    await user.click(screen.getByRole("button", { name: "Change password" }))
+    await screen.findByRole("dialog", { name: "Confirm it's you" })
+    await user.keyboard("{Escape}")
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Change password" })
+      ).not.toBeDisabled()
+    )
+    expect(screen.queryByLabelText("New password")).toBeNull()
+  })
+
+  it("does not reopen a sensitive editor after signing in again as the same account", async () => {
+    let login = 0
+    const { user, client } = await setup({
+      "POST /api/v1/password/login": () =>
+        session({ sub: "u1", sid: ++login === 1 ? "s1" : "s2" }),
+      "DELETE /api/v1/logout": noContent,
+    })
+    await user.click(
+      await screen.findByRole("button", { name: "Change password" })
+    )
+    await confirmPassword(user)
+    await act(async () => {
+      await client.signOut()
+    })
+    await act(async () => {
+      await client.signInWithPassword({
+        identifier: "a@x.test",
+        password: "pw",
+      })
+    })
+    expect(screen.queryByLabelText("New password")).toBeNull()
+  })
+
+  it.each([true, false])(
+    "shows a single compact password row (set=%s)",
+    async (hasPassword) => {
+      await setup({
+        "GET /api/v1/me": () => profile({ has_password: hasPassword }),
+      })
+      expect(
+        await screen.findByText(hasPassword ? "----" : "none")
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole("button", {
+          name: hasPassword ? "Change password" : "Set password",
+        })
+      ).toBeInTheDocument()
+      expect(screen.queryByText("Set")).toBeNull()
+      expect(screen.queryByRole("heading", { name: "Password" })).toBeNull()
+    }
+  )
+
+  it("validates the new password policy after authentication and can re-authenticate if freshness expires", async () => {
+    let saves = 0
+    const { user } = await setup({
+      "GET /api/v1/capabilities": () => capabilities({ min_length: 12 }),
+      "PUT /api/v1/me/password": () =>
+        ++saves === 1
+          ? stepUpRequired({ step_up_methods: ["password"] })
+          : noContent(),
+    })
+    await user.click(
+      await screen.findByRole("button", { name: "Change password" })
+    )
+    const form = await confirmPassword(user)
+    await user.type(within(form).getByLabelText("New password"), "short-pw-1")
+    await user.click(
+      within(form).getByRole("button", { name: "Update password" })
+    )
+    expect(form).toHaveTextContent("Password must be at least 12 characters")
+    expect(saves).toBe(0)
+    await user.clear(within(form).getByLabelText("New password"))
+    await user.type(
+      within(form).getByLabelText("New password"),
+      "long-enough-1"
+    )
+    await user.click(
+      within(form).getByRole("button", { name: "Update password" })
+    )
+    const again = await screen.findByRole("dialog", {
+      name: "Confirm it's you",
+    })
+    await user.type(within(again).getByLabelText("Password"), "pw")
+    await user.click(within(again).getByRole("button", { name: "Confirm" }))
+    await waitFor(() =>
+      expect(screen.queryByRole("form", { name: "Change password" })).toBeNull()
+    )
+    expect(saves).toBe(2)
   })
 })
 
@@ -542,11 +770,15 @@ describe("TwoFactorPanel", () => {
       screen.getByRole("radio", { name: /Authenticator app/ })
     ).toBeChecked()
     await user.click(screen.getByRole("button", { name: "Continue" }))
-    expect(await screen.findByText(/Scan this with/)).toBeInTheDocument()
-    expect(screen.getByText("JBSWY3DPEHPK3PXP")).toBeInTheDocument()
     expect(
-      screen.getByText("Open in authenticator app").closest("a")
-    ).toHaveAttribute("href", "otpauth://totp/x:a?secret=JBSWY3DPEHPK3PXP")
+      await screen.findByText(/Open your authenticator app/)
+    ).toBeInTheDocument()
+    expect(screen.queryByText("JBSWY3DPEHPK3PXP")).toBeNull()
+    await user.click(
+      screen.getByRole("button", { name: "Show manual setup key" })
+    )
+    expect(screen.getByText("JBSWY3DPEHPK3PXP")).toBeInTheDocument()
+    expect(screen.queryByText("Set up on this device")).toBeNull()
     await user.type(
       screen.getByRole("textbox", { name: "Verification code" }),
       "123456"
@@ -603,6 +835,11 @@ describe("TwoFactorPanel", () => {
 })
 
 describe("ContactPanel", () => {
+  it("shows contact rows without the section heading", async () => {
+    await renderSignedIn(<ContactPanel />, {})
+    expect(await screen.findByText("a@x.test")).toBeInTheDocument()
+    expect(screen.queryByText("Contact details")).toBeNull()
+  })
   it("changes email with a code; a wrong code stays retryable", async () => {
     const requested: unknown[] = []
     let confirms = 0
@@ -758,7 +995,7 @@ describe("SessionsPanel", () => {
     ).toBeInTheDocument()
   })
 
-  it("signs out every other session in one call, or everywhere", async () => {
+  it("signs out everywhere else once while preserving the current session", async () => {
     const calls: string[] = []
     const row = (id: string) => ({
       id,
@@ -786,25 +1023,30 @@ describe("SessionsPanel", () => {
       },
     })
     const list = await screen.findByRole("list", { name: "Active sessions" })
+    expect(
+      screen.queryByRole("button", { name: "Sign out everywhere" })
+    ).toBeNull()
+    expect(
+      screen.queryByRole("button", { name: "Sign out of all other sessions" })
+    ).toBeNull()
     await user.click(
-      screen.getByRole("button", { name: "Sign out of all other sessions" })
+      screen.getByRole("button", { name: "Sign out everywhere else" })
     )
     await waitFor(() =>
       expect(within(list).getAllByRole("listitem")).toHaveLength(1)
     )
     expect(calls).toEqual(["others"])
-    expect(client.getSnapshot().status).toBe("authenticated")
-
-    await user.click(
-      screen.getByRole("button", { name: "Sign out everywhere" })
+    expect(client.getSnapshot()).toMatchObject({
+      status: "authenticated",
+      claims: { sid: "s1" },
+    })
+    expect(within(list).getAllByRole("listitem")[0]).toHaveTextContent(
+      "This device"
     )
-    await user.click(
-      within(screen.getByRole("alertdialog")).getByRole("button", {
-        name: "Sign out everywhere",
-      })
-    )
-    await waitFor(() => expect(client.getSnapshot().status).toBe("anonymous"))
-    expect(calls).toEqual(["others", "others", "logout"])
+    expect(screen.queryByRole("alertdialog")).toBeNull()
+    expect(
+      screen.queryByRole("button", { name: "Sign out everywhere else" })
+    ).toBeNull()
   })
 })
 
@@ -877,6 +1119,155 @@ describe("SignInKeysPanel", () => {
 })
 
 describe("LinkedProvidersPanel", () => {
+  it("never invokes the sign-in callback from a link-only dialog", async () => {
+    const onSignedIn = vi.fn()
+    const navigate = vi.fn()
+    const { user, client } = await renderSignedIn(
+      <SignInDialog
+        mode="link"
+        open
+        onOpenChange={() => {}}
+        onSignedIn={onSignedIn}
+        navigate={navigate}
+      />,
+      {
+        "POST /api/v1/oidc/github/link/start": () =>
+          json(200, { auth_url: "https://github.test/link" }),
+      }
+    )
+    await user.click(
+      await screen.findByRole("button", { name: "Link with GitHub" })
+    )
+    await waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith("https://github.test/link")
+    )
+    expect(onSignedIn).not.toHaveBeenCalled()
+    expect(client.getSnapshot()).toMatchObject({
+      status: "authenticated",
+      userId: "u1",
+    })
+  })
+
+  it("lists linked providers and opens only available linking choices", async () => {
+    const navigate = vi.fn()
+    const called: string[] = []
+    const { user, client } = await renderSignedIn(
+      <LinkedProvidersPanel navigate={navigate} />,
+      {
+        "GET /api/v1/me": () =>
+          profile({
+            providers: [
+              { provider: "github", email: null, linked_at: "2026-01-01" },
+              { provider: "solana", email: null, linked_at: "2026-01-01" },
+            ],
+            solana_wallet: { address: "wallet-address", verified: true },
+          }),
+        "GET /api/v1/capabilities": () =>
+          json(200, {
+            external_login_providers: [
+              {
+                id: "github",
+                name: "GitHub",
+                supports_login: true,
+                supports_link: true,
+              },
+              {
+                id: "google",
+                name: "Google",
+                supports_login: true,
+                supports_link: true,
+              },
+              {
+                id: "no-link",
+                name: "Sign-in only",
+                supports_login: true,
+                supports_link: false,
+              },
+            ],
+            solana: { login: true },
+          }),
+        "POST /api/v1/oidc/google/link/start": (init) => {
+          called.push(init.url)
+          expect(new Headers(init.headers).get("Authorization")).toBeTruthy()
+          return json(200, { auth_url: "https://google.test/link" })
+        },
+      }
+    )
+    expect(await screen.findByText("GitHub")).toBeInTheDocument()
+    expect(screen.getByText("Solana")).toBeInTheDocument()
+    expect(screen.queryByText("Google")).toBeNull()
+    await user.click(
+      screen.getByRole("button", { name: "Link a social login" })
+    )
+    const dialog = screen.getByRole("dialog", { name: "Link a social login" })
+    expect(
+      within(dialog).getByRole("button", { name: "Link with Google" })
+    ).toBeInTheDocument()
+    expect(within(dialog).queryByText(/GitHub|Sign-in only/)).toBeNull()
+    expect(within(dialog).queryByRole("textbox")).toBeNull()
+    expect(within(dialog).queryByLabelText("Password")).toBeNull()
+    expect(
+      within(dialog).queryByText(/Create account|Register|Forgot password/)
+    ).toBeNull()
+    await user.click(
+      within(dialog).getByRole("button", { name: "Link with Google" })
+    )
+    await waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith("https://google.test/link")
+    )
+    expect(called).toEqual(["/api/v1/oidc/google/link/start"])
+    expect(client.getSnapshot()).toMatchObject({
+      status: "authenticated",
+      userId: "u1",
+    })
+  })
+
+  it("links Solana from the link-only modal without signing in", async () => {
+    const acquireSolanaSigner = vi.fn(async () => ({
+      publicKey: "W",
+      signMessage: vi.fn(async () => new Uint8Array(64).fill(1)),
+    }))
+    let wallet: unknown = null
+    const calls: string[] = []
+    const { user, client } = await renderSignedIn(
+      <LinkedProvidersPanel acquireSolanaSigner={acquireSolanaSigner} />,
+      {
+        "GET /api/v1/me": () => profile({ solana_wallet: wallet }),
+        "GET /api/v1/capabilities": () =>
+          json(200, { external_login_providers: [], solana: { login: true } }),
+        "POST /api/v1/solana/challenge": (init) => {
+          calls.push(init.url)
+          return json(200, { message: "m" })
+        },
+        "PUT /api/v1/me/solana-wallet": (init) => {
+          calls.push(init.url)
+          expect(new Headers(init.headers).get("Authorization")).toBeTruthy()
+          wallet = { address: "W", verified: true }
+          return json(200, wallet)
+        },
+      }
+    )
+    await user.click(
+      await screen.findByRole("button", { name: "Link a social login" })
+    )
+    const dialog = screen.getByRole("dialog", { name: "Link a social login" })
+    await user.click(
+      within(dialog).getByRole("button", { name: "Link with Solana" })
+    )
+    await waitFor(() =>
+      expect(calls).toEqual([
+        "/api/v1/solana/challenge",
+        "/api/v1/me/solana-wallet",
+      ])
+    )
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    expect(await screen.findByText("Solana")).toBeInTheDocument()
+    expect(client.getSnapshot()).toMatchObject({
+      status: "authenticated",
+      userId: "u1",
+    })
+  })
+
   it("confirms unlinking and explains the last sign-in method", async () => {
     const { user } = await renderSignedIn(<LinkedProvidersPanel />, {
       "GET /api/v1/me": () =>
@@ -937,14 +1328,54 @@ describe("AccountSecurity", () => {
       />,
       {}
     )
-    for (const name of [
-      "Contact details",
-      "Password",
-      "Linked login options",
-      "Danger zone",
-    ])
+    for (const name of ["Social Logins", "Danger zone"])
       expect(await screen.findByText(name)).toBeInTheDocument()
+    expect(screen.queryByText("Contact details")).toBeNull()
+    expect(
+      screen.getByRole("button", { name: "Change password" })
+    ).toBeInTheDocument()
+    const card = screen
+      .getByRole("button", { name: "Change password" })
+      .closest('[data-slot="card"]')
+    expect(card?.parentElement).toHaveClass("grid", "gap-6")
+    expect(card?.parentElement).not.toHaveClass("authui")
     expect(screen.queryByText("Active sessions")).not.toBeInTheDocument()
+  })
+})
+
+describe("AccountProfile", () => {
+  it("keeps the avatar and edit slot beside the username with a red logout action", async () => {
+    const clientRef: { current: ReturnType<typeof createAuthClient> | null } = {
+      current: null,
+    }
+    const before: string[] = []
+    const onSignedOut = vi.fn()
+    const { user, client } = await renderSignedIn(
+      <AccountProfile
+        avatar={<span>Avatar editor</span>}
+        nameAction={<button>Edit username</button>}
+        onSignOut={() =>
+          before.push(clientRef.current?.getSnapshot().status ?? "unready")
+        }
+        onSignedOut={onSignedOut}
+      >
+        <span>Premium member</span>
+      </AccountProfile>,
+      { "DELETE /api/v1/logout": () => noContent() }
+    )
+    clientRef.current = client
+    const heading = await screen.findByRole("heading", { name: "u1" })
+    expect(heading.parentElement).toContainElement(
+      screen.getByRole("button", { name: "Edit username" })
+    )
+    const logout = screen.getByRole("button", { name: "Logout" })
+    expect(heading.parentElement).toContainElement(logout)
+    expect(logout).toHaveClass("bg-destructive", "text-white", "ml-auto")
+    expect(screen.getByText("Avatar editor")).toBeInTheDocument()
+    await user.click(logout)
+    await waitFor(() => expect(onSignedOut).toHaveBeenCalledOnce())
+    expect(before).toEqual(["authenticated"])
+    expect(client.getSnapshot().status).toBe("anonymous")
   })
 })
 

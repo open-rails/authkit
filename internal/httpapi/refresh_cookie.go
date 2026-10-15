@@ -24,7 +24,50 @@ import (
 type refreshCookiePolicy struct{}
 
 func (s *Service) refreshCookie(r *http.Request) CookieVariant {
-	return CurrentCookie(CookieRefresh, s.cookieSecure(r))
+	return s.refreshCookieVariant(s.cookieSecure(r))
+}
+
+func (s *Service) refreshCookieVariant(secure bool) CookieVariant {
+	v := CurrentCookie(CookieRefresh, secure)
+	v.Name = IssuerRefreshCookieName(s.cfg.Token.Issuer, secure)
+	if s.http.RefreshCookieName != "" {
+		v.Name = s.http.RefreshCookieName
+		if secure {
+			v.Name = "__Host-" + v.Name
+		}
+	}
+	return v
+}
+
+func (s *Service) expireRefreshVariants(w http.ResponseWriter, r *http.Request, keep *CookieVariant) {
+	secure := s.cookieSecure(r)
+	for _, mode := range []bool{secure, !secure} {
+		v := s.refreshCookieVariant(mode)
+		if keep != nil && keep.Name == v.Name {
+			continue
+		}
+		if keep != nil {
+			if _, err := r.Cookie(v.Name); err != nil {
+				continue
+			}
+		}
+		http.SetCookie(w, v.expired(v.Name, secure))
+	}
+	// Legacy names were shared by every issuer on a host. Only retire one
+	// after the database proves ownership; a failure or foreign token leaves
+	// it untouched. Unknown legacy values are never cleared on a 401.
+	for _, v := range CookieRegistry {
+		if v.Kind != CookieRefresh || v.Current || v.Name == s.refreshCookieVariant(secure).Name || v.Name == s.refreshCookieVariant(!secure).Name {
+			continue
+		}
+		c, err := r.Cookie(v.Name)
+		if err != nil || c.Value == "" {
+			continue
+		}
+		if owned, err := s.svc.OwnsRefreshToken(r.Context(), c.Value); err == nil && owned {
+			http.SetCookie(w, v.expired(v.Name, secure))
+		}
+	}
 }
 
 func variantName(v CookieVariant) string { return v.Name }
@@ -67,7 +110,7 @@ func (s *Service) setRefreshCookie(w http.ResponseWriter, r *http.Request, value
 		return
 	}
 	current := s.refreshCookie(r)
-	expireCookieVariants(w, r, CookieRefresh, &current, s.cookieSecure(r), variantName, true)
+	s.expireRefreshVariants(w, r, &current)
 	c := &http.Cookie{
 		Name:     current.Name,
 		Value:    value,
@@ -95,7 +138,7 @@ func (s *Service) clearRefreshCookie(w http.ResponseWriter, r *http.Request) {
 	if _, ok := refreshCookieEnabled(r); !ok {
 		return
 	}
-	expireCookieVariants(w, r, CookieRefresh, nil, s.cookieSecure(r), variantName, false)
+	s.expireRefreshVariants(w, r, nil)
 }
 
 // noRefreshCookie: a cookie mount's request carries no body token and no
@@ -105,7 +148,7 @@ func (s *Service) noRefreshCookie(r *http.Request, body string) bool {
 		return false
 	}
 	for _, c := range r.Cookies() {
-		if isRefreshCookieName(c.Name) {
+		if isRefreshCookieName(c.Name) || c.Name == s.refreshCookieVariant(false).Name || c.Name == s.refreshCookieVariant(true).Name {
 			return false
 		}
 	}
@@ -115,15 +158,48 @@ func (s *Service) noRefreshCookie(r *http.Request, body string) bool {
 // refreshTokenFromRequest follows the mount's declared transport. Cookie mounts
 // reject body tokens and same-path duplicate cookies and read the registry's
 // variants; native mounts require a body token.
-func (s *Service) refreshTokenFromRequest(r *http.Request, body string) (string, bool) {
+func (s *Service) refreshTokenFromRequest(r *http.Request, body string) (string, bool, error) {
 	body = strings.TrimSpace(body)
 	if _, cookies := refreshCookieEnabled(r); !cookies {
-		return body, body != ""
+		return body, body != "", nil
 	}
 	if body != "" || !s.cookieOriginAllowed(r) {
-		return "", false
+		return "", false, nil
 	}
-	return refreshCookieCandidate(r, s.cookieSecure(r))
+	secure := s.cookieSecure(r)
+	own := []CookieVariant{s.refreshCookieVariant(secure), s.refreshCookieVariant(!secure)}
+	for _, c := range r.Cookies() {
+		if c.Name == own[0].Name || c.Name == own[1].Name {
+			token, ok := refreshCookieCandidate(r, own...)
+			return token, ok, nil
+		}
+	}
+	var legacy []CookieVariant
+	for _, mode := range []bool{secure, !secure} {
+		for _, v := range CookieRegistry {
+			if v.Kind == CookieRefresh && !v.Current && v.Secure == mode {
+				legacy = append(legacy, v)
+			}
+		}
+	}
+	first, ok := refreshCookieCandidate(r, legacy...)
+	if !ok {
+		return "", false, nil
+	}
+	for _, v := range legacy {
+		cookie, err := r.Cookie(v.Name)
+		if err != nil || cookie.Value == "" {
+			continue
+		}
+		owned, err := s.svc.OwnsRefreshToken(r.Context(), cookie.Value)
+		if err != nil {
+			return "", false, err
+		}
+		if owned {
+			return cookie.Value, true, nil
+		}
+	}
+	return first, true, nil
 }
 
 // cookieOriginAllowed guards cookie consumption and session establishment.

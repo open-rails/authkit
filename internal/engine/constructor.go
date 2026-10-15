@@ -17,7 +17,8 @@ import (
 
 // New builds the engine: it normalizes cfg once (config.Normalize), resolves
 // keys, waits for PostgreSQL (waitForPostgres), creates or upgrades the tables
-// (Migrate), then builds the store, River, the permission groups and the
+// (Migrate, or validates them with SkipMigrations), then builds the store,
+// River, the permission groups and the
 // request authenticator. ctx bounds the boot-time database work. It fails
 // only on what AuthKit cannot run safely with; a survivable problem switches
 // off the feature it concerns and is reported by Probes.
@@ -28,6 +29,9 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 	}
 	gs, err := config.CompileRoles(norm.Roles)
 	if err != nil {
+		return nil, err
+	}
+	if norm.Keys, err = resolveDevelopmentKeys(norm.Keys, norm.Token.Issuer); err != nil {
 		return nil, err
 	}
 	// #232: the TOTP key is the explicit override or <Keys.Path>/totp.key;
@@ -65,7 +69,11 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 		if err := waitForPostgres(ctx, deps.Postgres); err != nil {
 			return nil, err
 		}
-		if err := Migrate(ctx, deps.Postgres, norm.Database); err != nil {
+		prepare := Migrate
+		if norm.Database.SkipMigrations {
+			prepare = validateMigrations
+		}
+		if err := prepare(ctx, deps.Postgres, norm.Database); err != nil {
 			return nil, err
 		}
 	}

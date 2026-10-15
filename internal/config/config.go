@@ -201,16 +201,18 @@ const (
 )
 
 // KeysConfig controls signing-key resolution when Deps.KeySource is nil.
-// AuthKit reads no environment variables: binaries read their environment
-// once and set these fields.
+// Explicit paths are host-owned. Development-only default paths use the local
+// state directory (XDG_STATE_HOME, otherwise ~/.local/state).
 type KeysConfig struct {
 	// Path is the directory holding keys.json (hot-reloaded on rotation) and
-	// totp.key. Empty defaults to /vault/auth. With no keys.json, New fails
-	// unless AllowEphemeralDevKeys or VerifyOnly is set.
+	// totp.key. Empty defaults to /vault/auth in production, or a stable
+	// per-issuer local state directory with AllowEphemeralDevKeys.
 	Path string `yaml:"path"`
 	// AllowEphemeralDevKeys generates an RSA signing key when Path holds no
-	// keys.json, and a TOTP key when it holds no totp.key: in memory, or
-	// written to Path when it is set so restarts reuse them. Development only.
+	// keys.json, and a TOTP key when it holds no totp.key. Despite the legacy
+	// name, both keys are always persisted and reused across restarts. Empty
+	// Path uses $XDG_STATE_HOME/authkit/development/<issuer SHA-256>, falling
+	// back to ~/.local/state. Development only; never enabled automatically.
 	AllowEphemeralDevKeys bool `yaml:"allow_ephemeral_dev_keys"`
 	// VerifyOnly builds AuthKit with no signer: minting returns
 	// iam.ErrSigningNotConfigured, verification and permission reads work, and
@@ -325,6 +327,12 @@ type PasswordPolicy struct {
 // UsernameConfig is the username rule. The characters are fixed: a letter,
 // then letters, digits and underscores.
 type UsernameConfig struct {
+	// RandomNames is the app's pool for generated usernames. A generated name
+	// is one literal entry plus exactly three random decimal digits. Nil uses
+	// a neutral "user" base fitted to the length policy; an explicit empty pool
+	// is invalid. Custom entries must fit the policy with the suffix intact.
+	RandomNames []string `yaml:"random_names"`
+
 	// MinLength and MaxLength bound the length; 0 defaults to 4 and 30, and
 	// MaxLength is at most 64.
 	MinLength int `yaml:"min_length"`
@@ -362,6 +370,10 @@ const (
 
 // TwoFactorConfig configures MFA.
 type TwoFactorConfig struct {
+	// TOTPIssuer is the human-readable service name in authenticator apps,
+	// such as "Example". Empty uses the token issuer's hostname. Unlike the
+	// cryptographic Token.Issuer, it must not contain a colon or control characters.
+	TOTPIssuer string `yaml:"totp_issuer"`
 	// Mode is the account-wide policy: iam.TwoFactorDisabled,
 	// iam.TwoFactorOptional (the default) or iam.TwoFactorRequired (every user
 	// enrolls before normal session use). Persona.RequireMFA enforces MFA per
@@ -428,8 +440,12 @@ type RemoteApplicationConfig struct {
 
 // DatabaseConfig names the PostgreSQL schemas of AuthKit's tables. New
 // creates them, and creates or upgrades the tables, before anything else
-// touches the database: the pool in Deps.Postgres owns and uses them.
+// touches the database, unless SkipMigrations requires existing schemas.
+// The pool in Deps.Postgres owns and uses them.
 type DatabaseConfig struct {
+	// SkipMigrations makes New validate existing schemas without applying DDL.
+	// Prepare them explicitly with authkit.Migrate before starting the app.
+	SkipMigrations bool `yaml:"skip_migrations"`
 	// Schema is the PostgreSQL schema AuthKit's tables live in. Empty
 	// defaults to "profiles". Deployments that must not share accounts on one
 	// database use different schemas; deployments that share accounts use the
@@ -503,6 +519,10 @@ type HTTPConfig struct {
 	// (iam.RefreshCookieName) instead of a JSON field. Browser mounts only:
 	// the SPA and this handler must share an origin.
 	RefreshCookie bool `yaml:"refresh_cookie"`
+	// RefreshCookieName overrides the issuer-derived base cookie name. Do not
+	// include __Host-: HTTPS adds that prefix automatically. Sharing a name
+	// across issuers on the same host intentionally shares one cookie slot.
+	RefreshCookieName string `yaml:"refresh_cookie_name"`
 
 	// RateLimits overlays bucket limits onto authkit.DefaultRateLimits;
 	// unknown buckets are refused. Limits are in memory and per process unless

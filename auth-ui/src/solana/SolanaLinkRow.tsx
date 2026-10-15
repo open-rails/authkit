@@ -21,6 +21,9 @@ import {
 } from "./core.ts"
 
 export interface SolanaLinkRowProps {
+  /** All controls (legacy default), linked-account row, or link-dialog option. */
+  display?: "all" | "linked" | "option"
+  onLinked?: () => void
   /** wallet-adapter's `useWallet()`, or any `WalletAdapterLike`. */
   wallet?: WalletAdapterLike | null
   /** Opens the host's wallet picker; linking resumes once it connects. */
@@ -39,6 +42,8 @@ export function SolanaLinkRow({
   wallet,
   onConnectRequest,
   acquireSigner,
+  display = "all",
+  onLinked,
 }: SolanaLinkRowProps) {
   const { t, error: message } = useMessages()
   const client = useAuthClient()
@@ -64,6 +69,7 @@ export function SolanaLinkRow({
     try {
       await guard(fn)
       await refetch()
+      if (kind === "link") onLinked?.()
     } catch (err) {
       const rejected = isSolanaWalletError(err) && err.reason === "rejected"
       const cancelled =
@@ -113,11 +119,39 @@ export function SolanaLinkRow({
           ? message(error)
           : null
 
+  if (display === "linked" && !address) return null
+  if (display === "option") {
+    if (address) return null
+    return (
+      <div className="grid gap-2">
+        <Button
+          variant="outline"
+          size="lg"
+          className="w-full"
+          disabled={!!busy || !user}
+          onClick={link}
+        >
+          {busy === "link" || awaiting ? <Spinner /> : null}
+          {busy === "link" || awaiting
+            ? t("account.wallet.linking")
+            : t("account.providers.linkWith", {
+                provider: t("solana.provider"),
+              })}
+        </Button>
+        {walletError && <Notice tone="error">{walletError}</Notice>}
+      </div>
+    )
+  }
+
   return (
     <>
       <SettingRow
         icon={Wallet01Icon}
-        title={t("account.wallet.title")}
+        title={
+          display === "linked"
+            ? t("solana.provider")
+            : t("account.wallet.title")
+        }
         badge={
           <StatusBadge on={!!address && !unverified}>
             {address && !unverified

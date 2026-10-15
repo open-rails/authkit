@@ -249,7 +249,7 @@ export const ja: AuthUiMessageBundle = {
     enable: "2FAを有効にする",
     disable: "2FAを無効にする",
     scanQr:
-      "認証アプリでスキャンするか、この端末にアプリがある場合は下のボタンをタップしてください。",
+      "認証アプリを開いて、このコードをスキャンしてください。Microsoft Authenticator では「+」→「その他のアカウント」を選びます。",
     openInAuthenticator: "認証アプリで開く",
     enterSecretManually: "またはキーを手動で入力",
     enabledTitle: "2要素認証を有効にしました",

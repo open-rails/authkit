@@ -65,6 +65,27 @@ func (s *Engine) logSessionEvictions(ctx context.Context, userID string, evicted
 	}
 }
 
+// OwnsRefreshToken attributes a live or historical credential to this issuer
+// without consuming it, for safe migration of formerly shared cookie names.
+func (s *Engine) OwnsRefreshToken(ctx context.Context, token string) (bool, error) {
+	if s.pg == nil || strings.TrimSpace(token) == "" {
+		return false, nil
+	}
+	hash := s.hashRefresh(token)
+	_, err := s.q.SessionByCurrentTokenHash(ctx, db.SessionByCurrentTokenHashParams{CurrentTokenHash: hash, Issuer: s.cfg.Token.Issuer})
+	if err == nil {
+		return true, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return false, err
+	}
+	_, err = s.q.SessionByHistoricalTokenHash(ctx, db.SessionByHistoricalTokenHashParams{TokenHash: hash, Issuer: s.cfg.Token.Issuer})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 // ExchangeRefreshToken rotates a refresh token: the session's user, and its
 // new access and refresh tokens.
 func (s *Engine) ExchangeRefreshToken(ctx context.Context, refreshToken string, ua string, ip net.IP) (userID string, session authflow.IssuedSession, err error) {
@@ -72,7 +93,7 @@ func (s *Engine) ExchangeRefreshToken(ctx context.Context, refreshToken string, 
 		return "", authflow.IssuedSession{}, errors.New("postgres not configured")
 	}
 	if strings.TrimSpace(refreshToken) == "" {
-		return "", authflow.IssuedSession{}, errors.New("invalid refresh token")
+		return "", authflow.IssuedSession{}, errmodel.E(errmodel.CodeInvalidToken)
 	}
 	h := s.hashRefresh(refreshToken)
 
@@ -174,7 +195,7 @@ func (s *Engine) exchangeDemotedRefreshToken(ctx context.Context, refreshToken s
 	if errors.Is(err, pgx.ErrNoRows) {
 		reason := "refresh_token_unknown"
 		s.LogSessionFailed(ctx, "", "", &reason, ipText(ip), nullable(ua))
-		return "", authflow.IssuedSession{}, errors.New("invalid refresh token")
+		return "", authflow.IssuedSession{}, errmodel.E(errmodel.CodeInvalidToken)
 	}
 	if err != nil {
 		return "", authflow.IssuedSession{}, fmt.Errorf("find historical refresh session: %w", err)
@@ -185,7 +206,7 @@ func (s *Engine) exchangeDemotedRefreshToken(ctx context.Context, refreshToken s
 	successor, ok := s.graceSuccessorFor(refreshToken, prev)
 	if !ok {
 		s.revokeReusedSessionEnsured(ctx, prev.ID, prev.UserID)
-		return "", authflow.IssuedSession{}, errors.New("refresh token reuse detected")
+		return "", authflow.IssuedSession{}, errmodel.E(errmodel.CodeInvalidToken)
 	}
 	accessToken, exp, err := s.issueSessionAccessToken(ctx, prev.UserID, prev.ID, prev.AuthMethods)
 	if err != nil {
@@ -234,8 +255,11 @@ func (s *Engine) graceSuccessorFor(presented string, prev db.SessionByHistorical
 // ErrUserBanned at exactly this point.
 func (s *Engine) issueSessionAccessToken(ctx context.Context, userID, sessionID string, authMethods []string) (string, time.Time, error) {
 	u, err := s.getUserByID(ctx, userID)
-	if err != nil || u == nil {
-		return "", time.Time{}, errOrUnauthorized(err)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && u == nil) {
+		return "", time.Time{}, errmodel.E(errmodel.CodeInvalidToken)
+	}
+	if err != nil {
+		return "", time.Time{}, err
 	}
 	if err := s.ensureUserAccess(ctx, u); err != nil {
 		return "", time.Time{}, err

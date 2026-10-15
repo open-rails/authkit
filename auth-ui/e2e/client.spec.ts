@@ -89,7 +89,7 @@ test("built client: register, TOTP login, refresh, restore, logout", async ({
     continuation: null,
   })
   expect(
-    (await context.cookies()).find((c) => c.name === "authkit_rt")
+    (await context.cookies()).find((c) => c.name.startsWith("authkit_rt_"))
   ).toBeUndefined()
 
   const pending = await page.evaluate(
@@ -116,12 +116,15 @@ test("built client: register, TOTP login, refresh, restore, logout", async ({
   const signedIn = await snapshot(page)
   expect(signedIn.status).toBe("authenticated")
 
-  const cookie = (await context.cookies()).find((c) => c.name === "authkit_rt")
+  const cookie = (await context.cookies()).find((c) =>
+    c.name.startsWith("authkit_rt_")
+  )
   expect(
     await page.evaluate(() => (window as unknown as Win).auth.refresh())
   ).toBe(true)
   expect(
-    (await context.cookies()).find((c) => c.name === "authkit_rt")?.value
+    (await context.cookies()).find((c) => c.name.startsWith("authkit_rt_"))
+      ?.value
   ).not.toBe(cookie?.value)
 
   const me = await page.evaluate(async () => {

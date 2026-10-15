@@ -131,18 +131,24 @@ func (s *Engine) VerifySIWSAndLogin(ctx context.Context, output siws.SignInOutpu
 			return authflow.LoginOutcome{}, err
 		}
 		username := strings.TrimSpace(challengeData.Username)
-		if username == "" || s.ValidateUsername(username) != nil || !s.usernameAvailable(ctx, username) {
-			if username == "" {
-				username = "u_" + output.Account.Address[:min(4, len(output.Account.Address))]
+		generated := username == "" || s.ValidateUsername(username) != nil
+		var u *db.User
+		for attempt := 0; ; attempt++ {
+			if generated {
+				username, err = s.GenerateUsername(ctx)
+				if err != nil {
+					return authflow.LoginOutcome{}, err
+				}
 			}
-			username = s.generateAvailableUsername(ctx, username)
+			u, err = s.createUser(ctx, "", username)
+			if !generated || !errors.Is(err, iam.ErrUsernameInUse) || attempt >= generatedUsernameAttempts-1 {
+				break
+			}
 		}
-
-		// Create user with no email/phone
-		u, err := s.createUser(ctx, "", username)
 		if err != nil {
 			return authflow.LoginOutcome{}, fmt.Errorf("failed to create user: %w", err)
 		}
+
 		userID = u.ID
 		created = true
 

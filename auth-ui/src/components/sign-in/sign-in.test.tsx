@@ -353,6 +353,9 @@ describe("SignInDialog", () => {
     await user.click(
       screen.getByRole("button", { name: "Set up authenticator" })
     )
+    await user.click(
+      await screen.findByRole("button", { name: "Show manual setup key" })
+    )
     await screen.findByText("S3CR3T")
     await user.type(screen.getByLabelText("Verification code"), "123456")
 

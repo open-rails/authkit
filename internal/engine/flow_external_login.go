@@ -46,7 +46,7 @@ func (s *Engine) CompleteExternalLogin(ctx context.Context, in authflow.External
 // account, or a newly registered one (created reports the last case).
 func (s *Engine) resolveExternalIdentity(ctx context.Context, in authflow.ExternalLoginInput) (userID string, created bool, err error) {
 	id := in.Identity
-	issuer, provider := id.Issuer, id.Provider
+	issuer := id.Issuer
 	var emailPtr *string
 	if e := strings.TrimSpace(id.Email); e != "" {
 		emailPtr = &e
@@ -87,8 +87,11 @@ func (s *Engine) resolveExternalIdentity(ctx context.Context, in authflow.Extern
 	if s.cfg.Registration.NativeUserMode == iam.RegistrationModeClosed {
 		return "", false, errmodel.ErrRegistrationDisabled
 	}
-	username := s.deriveUsernameForOAuth(ctx, provider, id.PreferredUsername, accountEmail, id.DisplayName)
-	u, err := s.registerAccount(ctx, accountRegistration{User: newAccount{Email: accountEmail, Username: username, EmailVerified: accountEmail != ""}, Provider: &id, InviteToken: in.AccountInviteToken, Agreements: in.Agreements, IP: in.IP, UserAgent: in.UserAgent})
+	username, err := s.GenerateUsername(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	u, err := s.registerAccount(ctx, accountRegistration{GeneratedUsername: true, User: newAccount{Email: accountEmail, Username: username, EmailVerified: accountEmail != ""}, Provider: &id, InviteToken: in.AccountInviteToken, Agreements: in.Agreements, IP: in.IP, UserAgent: in.UserAgent})
 	if err != nil {
 		return "", false, err
 	}

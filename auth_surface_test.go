@@ -58,7 +58,7 @@ func TestClientPublicSurface(t *testing.T) {
 		"UpdateUser", "PatchPublicMetadata", "Ban", "Unban", "DeleteUsers", "RestoreUsers",
 		"RevokeSession", "RevokeAccountSessions",
 		// Roles and checks.
-		"SetGroupRole", "RemoveGroupMember", "Can", "EffectivePermissions",
+		"SetGroupRole", "RemoveGroupMember", "Can", "CanDirect", "EffectivePermissions",
 		"CreateGroupRole", "UpdateGroupRole", "DeleteGroupRole",
 		// Credentials and invitations.
 		"CreateAPIKey", "RevokeAPIKey", "CreateInvitation", "RevokeInvitation",
@@ -132,7 +132,7 @@ func TestClientPublicSurface(t *testing.T) {
 
 	optionType := reflect.TypeFor[[]authkit.Option]()
 	for _, name := range append(append([]string{"User"}, takesIdentity...), hostOperations...) {
-		if name == "Can" || name == "EffectivePermissions" {
+		if name == "Can" || name == "CanDirect" || name == "EffectivePermissions" {
 			continue
 		}
 		m, _ := typ.MethodByName(name)

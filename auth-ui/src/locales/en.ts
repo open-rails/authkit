@@ -256,9 +256,14 @@ export const en = {
     enable: "Enable 2FA",
     disable: "Disable 2FA",
     scanQr:
-      "Scan this with your authenticator app, or tap below if it is on this device.",
-    openInAuthenticator: "Open in authenticator app",
-    enterSecretManually: "Or enter the secret manually",
+      "Open your authenticator app and scan this code. In Microsoft Authenticator, choose + → Other account.",
+    openInAuthenticator: "Set up on this device",
+    deviceSetupHint:
+      "Your device chooses which app opens. To use a specific authenticator, open it and scan the QR code.",
+    showSetupKey: "Show manual setup key",
+    hideSetupKey: "Hide manual setup key",
+    enterSecretManually:
+      "Enter this same setup key in your authenticator if you cannot scan the QR code.",
     enabledTitle: "Two-factor authentication enabled",
     enabledDescription:
       "Your verification method is confirmed and 2FA is now active.",
@@ -298,6 +303,7 @@ export const en = {
     submit: "Confirm",
   },
   account: {
+    logout: "Logout",
     security: {
       title: "Login & security",
       description: "Ways you can sign in to your account",
@@ -366,6 +372,7 @@ export const en = {
         "SMS delivery is currently unavailable, so changing your phone number is temporarily disabled.",
     },
     password: {
+      none: "none",
       title: "Password",
       isSet: "Set",
       notSet: "Not set",
@@ -382,7 +389,11 @@ export const en = {
       currentIncorrect: "Current password is incorrect",
     },
     providers: {
-      title: "Linked login options",
+      title: "Social Logins",
+      add: "Link a social login",
+      available: "Choose a login to link to your account.",
+      allLinked: "All available social logins are already linked.",
+      noneLinked: "No social logins linked yet.",
       description:
         "Link a social account to sign in faster and recover access.",
       linkWith: "Link with {provider}",
@@ -466,7 +477,7 @@ export const en = {
       current: "This device",
       lastActive: "Last active {time}",
       revoke: "Sign out",
-      revokeAll: "Sign out of all other sessions",
+      revokeAll: "Sign out everywhere else",
       revoked: "Session signed out",
       revokeSelected: "Sign out selected ({count})",
       revokeEverywhere: "Sign out everywhere",

@@ -49,7 +49,9 @@ test("register, verify, login, refresh via cookie, logout", async ({
   })
   const access = accessToken(login)
 
-  const cookie = (await context.cookies()).find((c) => c.name === "authkit_rt")
+  const cookie = (await context.cookies()).find((c) =>
+    c.name.startsWith("authkit_rt_")
+  )
   expect(cookie).toMatchObject({
     httpOnly: true,
     path: "/",
@@ -69,13 +71,15 @@ test("register, verify, login, refresh via cookie, logout", async ({
     token_set: { refresh_token: null },
   })
   const access2 = accessToken(refreshed)
-  const rotated = (await context.cookies()).find((c) => c.name === "authkit_rt")
+  const rotated = (await context.cookies()).find((c) =>
+    c.name.startsWith("authkit_rt_")
+  )
   expect(rotated?.value).not.toBe(cookie!.value)
 
   const logout = await api(page, "DELETE", "/logout", undefined, access2)
   expect(logout.status).toBe(204)
   expect(
-    (await context.cookies()).find((c) => c.name === "authkit_rt")
+    (await context.cookies()).find((c) => c.name.startsWith("authkit_rt_"))
   ).toBeUndefined()
 
   const afterLogout = await api(page, "POST", "/token", {

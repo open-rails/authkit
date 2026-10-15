@@ -60,6 +60,12 @@ func (a *Client) CheckUsername(ctx context.Context, name string) error {
 	return a.ops.CheckUsername(ctx, name)
 }
 
+// GenerateUsername returns a currently available name from Username.RandomNames
+// plus exactly three random decimal digits. It does not reserve the name.
+func (a *Client) GenerateUsername(ctx context.Context) (string, error) {
+	return a.ops.GenerateUsername(ctx)
+}
+
 // DeviceKeys returns the account's device keys in enrollment order, revoked
 // ones included. iam.ErrDeviceKeysDisabled without Config.DeviceKeys.Enabled.
 func (a *Client) DeviceKeys(ctx context.Context, userID string) ([]iam.DeviceKey, error) {

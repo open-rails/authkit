@@ -151,7 +151,7 @@ func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request)
 		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
-	var q GroupQuery
+	var q PermissionsQuery
 	if !readQuery(w, r, &q) {
 		return
 	}
@@ -170,15 +170,28 @@ func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	out.GroupID = g.ID
-	byGroup, err := s.svc.EffectivePermissions(r.Context(), who, []iam.GroupRef{iam.GroupByID(g.ID)})
-	if err != nil {
-		writeError(w, err)
-		return
-	}
 	if persona, ok := s.svc.PermissionGroupSchema().Persona(g.Persona); ok {
-		out.Permissions = rbac.Expand(persona.Permissions, byGroup[g.ID])
+		if q.Direct {
+			for _, permission := range persona.Permissions {
+				allowed, err := s.svc.CanDirect(r.Context(), who, iam.GroupByID(g.ID), permission)
+				if err != nil {
+					writeError(w, err)
+					return
+				}
+				if allowed {
+					out.Permissions = append(out.Permissions, permission)
+				}
+			}
+		} else {
+			byGroup, err := s.svc.EffectivePermissions(r.Context(), who, []iam.GroupRef{iam.GroupByID(g.ID)})
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+			out.Permissions = rbac.Expand(persona.Permissions, byGroup[g.ID])
+		}
 	}
-	if state(who).IsUser() {
+	if state(who).IsUser() && (!q.Direct || state(who).Group() == "" || state(who).Group() == g.ID) {
 		subject := iam.UserSubject(state(who).ID())
 		held, err := s.svc.GroupRoles(r.Context(), iam.GroupByID(g.ID), []iam.Subject{subject})
 		if err != nil {

@@ -29,6 +29,11 @@ type PermissionChecker interface {
 	KnownPermission(perm iam.Perm) bool
 }
 
+// DirectPermissionChecker is PermissionChecker without inherited root grants.
+type DirectPermissionChecker interface {
+	CanDirect(ctx context.Context, identity auth.Identity, ref iam.GroupRef, perm iam.Perm) (bool, error)
+}
+
 // SessionChecker checks the sign-in behind verified claims live;
 // *authkit.Client is one. Both return nil or the error to answer:
 // iam.ErrSessionRevoked, forbidden for a credential that carries no sign-in,

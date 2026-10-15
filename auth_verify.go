@@ -80,6 +80,11 @@ func (v *Verifier) Can(ctx context.Context, who auth.Identity, ref iam.GroupRef,
 	return v.client.Can(ctx, who, ref, perm)
 }
 
+// CanDirect is Client.CanDirect.
+func (v *Verifier) CanDirect(ctx context.Context, who auth.Identity, ref iam.GroupRef, perm iam.Perm) (bool, error) {
+	return v.client.CanDirect(ctx, who, ref, perm)
+}
+
 // KnownPermission is Client.KnownPermission.
 func (v *Verifier) KnownPermission(perm iam.Perm) bool { return v.client.KnownPermission(perm) }
 

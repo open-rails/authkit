@@ -7,13 +7,14 @@ import (
 	"github.com/open-rails/authkit/userinfo"
 
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/naming"
 )
 
 // accountUserInfo is u as the directory shows it: its verified email (an
 // unproven address may be someone else's), and its username, which is also
 // its display name. AuthKit keeps no other name.
 func accountUserInfo(u db.User) userinfo.User {
-	c := userinfo.User{ID: u.ID, Username: deref(u.Username)}
+	c := userinfo.User{ID: u.ID, Username: naming.Canonical(deref(u.Username))}
 	c.Name = c.Username
 	if u.Email != nil && u.EmailVerified {
 		c.Email = *u.Email

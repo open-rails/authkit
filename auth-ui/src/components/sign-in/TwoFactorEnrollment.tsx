@@ -26,7 +26,8 @@ import {
 } from "./parts.tsx"
 import { TotpSetup } from "./TotpSetup.tsx"
 
-const METHODS: readonly TwoFactorMethod[] = ["totp", "email", "sms"]
+// Email stays available to existing factors and recovery, not new enrollment.
+const METHODS: readonly TwoFactorMethod[] = ["totp", "sms"]
 
 export type TwoFactorEnrollmentProps = {
   // useLogin() in its enrollment step (AuthKit requires 2FA for this account).
@@ -64,7 +65,7 @@ export function TwoFactorEnrollment({
     void controller.confirmEnrollment(value)
   }
   const start = async () => {
-    if (!choice) return
+    if (!choice || !allowed.includes(choice)) return
     await controller.startEnrollment({
       method: choice,
       phoneNumber:

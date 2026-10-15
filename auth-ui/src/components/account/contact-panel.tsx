@@ -1,8 +1,4 @@
-import {
-  Mail01Icon,
-  SmartPhone01Icon,
-  UserAccountIcon,
-} from "@hugeicons/core-free-icons"
+import { Mail01Icon, SmartPhone01Icon } from "@hugeicons/core-free-icons"
 import { useId, useState } from "react"
 
 import { useMessages } from "../../i18n/context.ts"
@@ -10,6 +6,7 @@ import { useUser } from "../../react/context.ts"
 import { useContactVerification } from "../../react/providers.ts"
 import { Badge } from "../../ui/badge.tsx"
 import { Button } from "../../ui/button.tsx"
+import { Card } from "../../ui/card.tsx"
 import {
   Field,
   FieldDescription,
@@ -24,7 +21,6 @@ import {
   ConfirmDialog,
   ErrorNotice,
   Notice,
-  PanelCard,
   SettingRow,
 } from "./shared.tsx"
 import { useStepUpGuard } from "./step-up-context.ts"
@@ -50,17 +46,12 @@ export function ContactPanel({
 }
 
 function ContactCard({ channels }: { channels: readonly ContactChannel[] }) {
-  const { t } = useMessages()
   return (
-    <PanelCard
-      icon={UserAccountIcon}
-      title={t("account.contact.title")}
-      description={t("account.contact.description")}
-    >
+    <Card className="gap-0 divide-y py-0">
       {channels.map((c) => (
         <ContactRow key={c} channel={c} />
       ))}
-    </PanelCard>
+    </Card>
   )
 }
 

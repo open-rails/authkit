@@ -148,6 +148,13 @@ func (a *Client) Can(ctx context.Context, who auth.Identity, ref iam.GroupRef, p
 	return a.ops.Can(ctx, who, ref, perm)
 }
 
+// CanDirect is Can restricted to grants assigned directly in ref. It excludes
+// inherited root roles while keeping credential ceilings, group binding and
+// live account/session checks. API keys retain their own group's role.
+func (a *Client) CanDirect(ctx context.Context, who auth.Identity, ref iam.GroupRef, perm iam.Perm) (bool, error) {
+	return a.ops.CanDirect(ctx, who, ref, perm)
+}
+
 // EffectivePermissions returns identity's effective grant patterns per group id
 // (globs verbatim, glob-match with iam.Perm.Matches), for any number of groups.
 // Groups granting nothing are absent.

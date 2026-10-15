@@ -235,7 +235,7 @@ export const zh: AuthUiMessageBundle = {
     enable: "启用2FA",
     disable: "禁用2FA",
     scanQr:
-      "请使用您的身份验证器应用扫描，或者如果它就在此设备上，请点击下方。",
+      "打开身份验证器应用并扫描此代码。在 Microsoft Authenticator 中，选择 + → 其他帐户。",
     openInAuthenticator: "在身份验证器应用中打开",
     enterSecretManually: "或手动输入密钥",
     enabledTitle: "双重身份验证已启用",

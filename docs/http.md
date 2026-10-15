@@ -32,7 +32,7 @@ Every route lives beneath `HTTPConfig.BasePath`:
 
 ## Browsers
 
-- With `HTTPConfig.RefreshCookie`, the refresh token lives only in an `HttpOnly` `__Host-authkit_rt` cookie, and never in a response body.
+- With `HTTPConfig.RefreshCookie`, the refresh token lives only in an `HttpOnly` issuer-specific `__Host-authkit_rt_<issuer-hash>` cookie, and never in a response body.
 - The single-page app and AuthKit must then share an origin. Cookie mounts refuse cross-site requests (by `Origin` and `Sec-Fetch-Site`) and refresh tokens sent in bodies.
 - Links in emails and the OIDC return go to the host's frontend routes (`Config.Frontend`). `BaseURL` defaults to the issuer.
 - Register one redirect URI at each identity provider: `{BasePath}/oidc/{provider}/callback` as clients reach it (under `PublicURL` when set). Sign-in, linking and step-up all return there.
@@ -57,3 +57,5 @@ Every route lives beneath `HTTPConfig.BasePath`:
 - Both 429s carry `Retry-After`, and `limit` and `retry_after_seconds` in `metadata`. A negative value turns a limit off; with all three off, no device cookie is set.
 - The counts live in the short-lived store every replica shares (Postgres, with or without `Deps.Redis`). They hold only hashes of a device with an account, so they never list which accounts share a device, and they expire on their own.
 - `authtest.New` turns the limits off; set `Config.SignIn` in a test that exercises them.
+
+Refresh cookie names are derived from the complete token issuer, including its port, so multiple apps on one browser host keep independent sessions. `HTTPConfig.RefreshCookieName` overrides the base name (HTTPS adds `__Host-`). Legacy unscoped cookies are accepted and retired only after their token is attributed to this issuer; foreign legacy cookies are left untouched.

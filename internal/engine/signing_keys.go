@@ -1,12 +1,12 @@
 package engine
 
 import (
-	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,11 +21,13 @@ const defaultKeysPath = "/vault/auth"
 
 // resolveKeySource resolves the signing keys when the host passes no source:
 // <path>/keys.json (default /vault/auth), served through a hot-reloading
-// keys.Watch source; else, with allowDevKeys only, a generated RSA key that is
-// persisted to <path>/keys.json when path is set and lives in memory
-// otherwise; else an error. It reads no environment (#231).
+// keys.Watch source; else, with allowDevKeys only, atomically generates a
+// persistent RSA key. New resolves the per-issuer development path first.
 func resolveKeySource(path string, allowDevKeys bool) (keys.Source, error) {
 	path = strings.TrimSpace(path)
+	if path == "" && allowDevKeys {
+		return nil, errors.New("development key directory must be resolved for the issuer")
+	}
 	dir := path
 	if dir == "" {
 		dir = defaultKeysPath
@@ -36,6 +38,8 @@ func resolveKeySource(path string, allowDevKeys bool) (keys.Source, error) {
 			return nil, fmt.Errorf("failed to load keys from %s: %w", dir, err)
 		}
 		return src, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("read signing key directory %s: %w", dir, err)
 	}
 	if !allowDevKeys {
 		return nil, fmt.Errorf("no JWT signing keys: %s/keys.json not found and ephemeral dev keys are not enabled; mount keys.json, provide an explicit KeySource, or opt in with AllowEphemeralDevKeys for local development", dir)
@@ -45,13 +49,6 @@ func resolveKeySource(path string, allowDevKeys bool) (keys.Source, error) {
 		return nil, fmt.Errorf("failed to generate development keys: %w", err)
 	}
 	kid := fmt.Sprintf("dev-%d", time.Now().Unix())
-	if path == "" {
-		signer, err := keys.SignerFromKey(kid, key)
-		if err != nil {
-			return nil, err
-		}
-		return keys.Static{Active: signer, Public: map[string]crypto.PublicKey{kid: signer.Public()}}, nil
-	}
 	data, err := json.Marshal(map[string]any{
 		"active_key_id":          kid,
 		"active_private_key_pem": string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})),
@@ -60,10 +57,7 @@ func resolveKeySource(path string, allowDevKeys bool) (keys.Source, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(path, 0o700); err != nil {
-		return nil, fmt.Errorf("persist dev keys under %s: %w", path, err)
-	}
-	if err := os.WriteFile(filepath.Join(path, "keys.json"), data, 0o600); err != nil {
+	if err := createDevelopmentKey(filepath.Join(path, "keys.json"), data); err != nil {
 		return nil, fmt.Errorf("persist dev keys under %s: %w", path, err)
 	}
 	return keys.Watch(path)

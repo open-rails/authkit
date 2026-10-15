@@ -32,7 +32,7 @@ type Authenticator interface {
 
 // Verified is one request's verified credential. A consumer keeps it only
 // for that request: never for another request, nor after the credential,
-// method or signed URL changes. It may implement PermissionChecker,
+// method or signed URL changes. It may implement PermissionChecker, DirectPermissionChecker,
 // RecentSignInChecker, Bound and Asserted; an identity-only provider
 // implements none.
 type Verified interface {
@@ -61,6 +61,15 @@ type Scope struct {
 // verified (401); any other means the check could not run (503).
 type PermissionChecker interface {
 	Can(ctx context.Context, scope Scope, permission string) (bool, error)
+}
+
+// DirectPermissionChecker checks grants held directly in the requested scope.
+// It has the same live credential, session, ceiling and scope-binding checks
+// as PermissionChecker, but does not inherit grants from a wider root scope.
+// Consumers use it when tenants or apps must have explicit local authority.
+// The absence of this capability must fail closed, never fall back to Can.
+type DirectPermissionChecker interface {
+	CanDirect(ctx context.Context, scope Scope, permission string) (bool, error)
 }
 
 // RecentSignInChecker is an optional capability of a person's Verified

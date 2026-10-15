@@ -247,7 +247,7 @@ export const ko: AuthUiMessageBundle = {
     enable: "2FA 활성화",
     disable: "2FA 비활성화",
     scanQr:
-      "인증 앱으로 스캔하거나, 이 기기에 설치되어 있다면 아래를 누르세요.",
+      "인증 앱을 열어 이 코드를 스캔하세요. Microsoft Authenticator에서는 + → 기타 계정을 선택하세요.",
     openInAuthenticator: "인증 앱에서 열기",
     enterSecretManually: "또는 키를 직접 입력하세요",
     enabledTitle: "2단계 인증이 활성화되었습니다",

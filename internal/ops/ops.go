@@ -36,6 +36,7 @@ type Operations interface {
 	DeleteGroupOAuthClient(ctx context.Context, who auth.Identity, ref iam.GroupRef, clientID string, opts ...Option) error
 	ResolveUsername(ctx context.Context, name string) (iam.NameResolution, error)
 	CheckUsername(ctx context.Context, name string) error
+	GenerateUsername(ctx context.Context) (string, error)
 	DeviceKeys(ctx context.Context, userID string) ([]iam.DeviceKey, error)
 	CreateUser(ctx context.Context, u iam.NewUser, opts ...Option) (iam.User, error)
 	UpdateUser(ctx context.Context, who auth.Identity, userID string, u iam.UserUpdate, opts ...Option) (iam.User, error)
@@ -69,6 +70,7 @@ type Operations interface {
 	SetGroupRole(ctx context.Context, who auth.Identity, ref iam.GroupRef, subject iam.Subject, role iam.Role, opts ...Option) (iam.GroupMember, error)
 	RemoveGroupMember(ctx context.Context, who auth.Identity, ref iam.GroupRef, subject iam.Subject, opts ...Option) error
 	Can(ctx context.Context, who auth.Identity, ref iam.GroupRef, perm iam.Perm) (bool, error)
+	CanDirect(ctx context.Context, who auth.Identity, ref iam.GroupRef, perm iam.Perm) (bool, error)
 	EffectivePermissions(ctx context.Context, who auth.Identity, refs []iam.GroupRef) (map[string][]iam.Perm, error)
 	KnownPermission(perm iam.Perm) bool
 	Persona(name string) (iam.Persona, error)

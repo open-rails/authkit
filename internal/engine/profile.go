@@ -7,13 +7,13 @@ package engine
 import (
 	"context"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/naming"
 )
 
 // UserProfile builds the caller's profile. Errors: the user row is missing
@@ -31,7 +31,7 @@ func (s *Engine) UserProfile(ctx context.Context, in authflow.ProfileInput) (aut
 	}
 	user := publicUser(u, time.Now())
 	if user.Username == "" {
-		user.Username = strings.TrimSpace(in.ClaimsUsername)
+		user.Username = naming.Canonical(in.ClaimsUsername)
 	}
 	hasPassword, err := s.HasPassword(ctx, u.ID)
 	if err != nil {

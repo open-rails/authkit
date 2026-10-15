@@ -17,6 +17,10 @@ import (
 // `pattern`. Length is governed separately.
 const UsernamePattern = "^[A-Za-z][A-Za-z0-9_]*$"
 
+// Canonical is the one stored and displayed form of a local username.
+// Legacy mixed-case records still resolve through the case-insensitive claims.
+func Canonical(username string) string { return strings.ToLower(strings.TrimSpace(username)) }
+
 // Validate checks a trimmed username against the length rule and
 // UsernamePattern. Length failures carry min_length/max_length metadata.
 func Validate(c config.UsernameConfig, username string) error {

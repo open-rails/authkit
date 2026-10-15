@@ -16,6 +16,7 @@ pkg authkit, func DefaultRateLimits() map[string]RateLimit
 pkg authkit, func IfRole(iam.Role) Option
 pkg authkit, func InTx(pgx.Tx) Option
 pkg authkit, func IncludeDeleted() Option
+pkg authkit, func Migrate(context.Context, *pgxpool.Pool, DatabaseConfig) error
 pkg authkit, func New(context.Context, Config, Deps) (*Client, error)
 pkg authkit, func NewRoles(...PersonaOption) *Roles
 pkg authkit, func ParseBootstrapManifestYAML([]byte) (iam.BootstrapManifest, error)
@@ -29,6 +30,7 @@ pkg authkit, method (*Client) AuthenticateRequest(context.Context, *http.Request
 pkg authkit, method (*Client) Authenticator() auth.Authenticator
 pkg authkit, method (*Client) Ban(context.Context, auth.Identity, string, iam.Ban, ...Option) error
 pkg authkit, method (*Client) Can(context.Context, auth.Identity, iam.GroupRef, iam.Perm) (bool, error)
+pkg authkit, method (*Client) CanDirect(context.Context, auth.Identity, iam.GroupRef, iam.Perm) (bool, error)
 pkg authkit, method (*Client) CheckRecentSignIn(context.Context, verify.Claims) error
 pkg authkit, method (*Client) CheckSession(context.Context, verify.Claims) error
 pkg authkit, method (*Client) CheckUsername(context.Context, string) error
@@ -50,6 +52,7 @@ pkg authkit, method (*Client) EffectivePermissions(context.Context, auth.Identit
 pkg authkit, method (*Client) EmailAvailable() bool
 pkg authkit, method (*Client) EmailHealth() (time.Time, error)
 pkg authkit, method (*Client) EnsureUserRole(context.Context, iam.GroupRef, iam.UserRef, iam.Role, ...Option) (iam.User, error)
+pkg authkit, method (*Client) GenerateUsername(context.Context) (string, error)
 pkg authkit, method (*Client) Group(context.Context, iam.GroupRef) (iam.Group, error)
 pkg authkit, method (*Client) GroupOAuthClient(context.Context, iam.GroupRef, string) (iam.OAuthClient, error)
 pkg authkit, method (*Client) GroupOAuthClients(context.Context, iam.GroupRef) ([]iam.OAuthClient, error)
@@ -134,6 +137,7 @@ pkg authkit, method (*Roles) Persona(string, ...config.PersonaOption) *config.Pe
 pkg authkit, method (*Verifier) AuthenticateRequest(context.Context, *http.Request) (auth.Verified, error)
 pkg authkit, method (*Verifier) Authenticator() auth.Authenticator
 pkg authkit, method (*Verifier) Can(context.Context, auth.Identity, iam.GroupRef, iam.Perm) (bool, error)
+pkg authkit, method (*Verifier) CanDirect(context.Context, auth.Identity, iam.GroupRef, iam.Perm) (bool, error)
 pkg authkit, method (*Verifier) CheckRecentSignIn(context.Context, verify.Claims) error
 pkg authkit, method (*Verifier) CheckSession(context.Context, verify.Claims) error
 pkg authkit, method (*Verifier) KnownPermission(iam.Perm) bool
@@ -211,6 +215,7 @@ pkg authkit, type DatabaseConfig = config.DatabaseConfig
 pkg authkit, type DatabaseConfig struct
 pkg authkit, type DatabaseConfig struct, RiverSchema string `yaml:"river_schema"`
 pkg authkit, type DatabaseConfig struct, Schema string `yaml:"schema"`
+pkg authkit, type DatabaseConfig struct, SkipMigrations bool `yaml:"skip_migrations"`
 pkg authkit, type Deps = config.Deps
 pkg authkit, type Deps struct
 pkg authkit, type Deps struct, ClientIP func(*http.Request) string
@@ -279,6 +284,7 @@ pkg authkit, type HTTPConfig struct, PublicURL string `yaml:"public_url"`
 pkg authkit, type HTTPConfig struct, RateLimits map[string]config.RateLimit `yaml:"rate_limits"`
 pkg authkit, type HTTPConfig struct, RedisKeyPrefix string `yaml:"redis_key_prefix"`
 pkg authkit, type HTTPConfig struct, RefreshCookie bool `yaml:"refresh_cookie"`
+pkg authkit, type HTTPConfig struct, RefreshCookieName string `yaml:"refresh_cookie_name"`
 pkg authkit, type HTTPConfig struct, TrustedProxies []string `yaml:"trusted_proxies"`
 pkg authkit, type InvitationsConfig = config.InvitationsConfig
 pkg authkit, type InvitationsConfig struct
@@ -439,6 +445,7 @@ pkg authkit, type TwoFactorConfig = config.TwoFactorConfig
 pkg authkit, type TwoFactorConfig struct
 pkg authkit, type TwoFactorConfig struct, Methods []iam.TwoFactorMethod `yaml:"methods"`
 pkg authkit, type TwoFactorConfig struct, Mode iam.TwoFactorMode `yaml:"mode"`
+pkg authkit, type TwoFactorConfig struct, TOTPIssuer string `yaml:"totp_issuer"`
 pkg authkit, type TwoFactorConfig struct, TOTPSecretKey []byte `yaml:"totp_secret_key"`
 pkg authkit, type UserPerms = config.UserPerms
 pkg authkit, type UserPerms struct
@@ -453,9 +460,11 @@ pkg authkit, type UsernameConfig struct
 pkg authkit, type UsernameConfig struct, FormerNames config.FormerNamesConfig `yaml:"former_names"`
 pkg authkit, type UsernameConfig struct, MaxLength int `yaml:"max_length"`
 pkg authkit, type UsernameConfig struct, MinLength int `yaml:"min_length"`
+pkg authkit, type UsernameConfig struct, RandomNames []string `yaml:"random_names"`
 pkg authkit, type UsernameConfig struct, RenameInterval time.Duration `yaml:"rename_interval"`
 pkg authkit, type UsernameConfig struct, Renames bool `yaml:"renames"`
 pkg authkit, type Verifier struct
+pkg authkit, var ErrMigrationsRequired error
 pkg authkit/adapters/fiber, const RouteNamePrefix untyped string = "authkit."
 pkg authkit/adapters/fiber, func Mount(*fiber.App, Surface) error
 pkg authkit/adapters/fiber, func Optional(verify.Authenticator) fiber.Handler
@@ -534,6 +543,8 @@ pkg authkit/auth, type Credential struct
 pkg authkit/auth, type Credential struct, ID string
 pkg authkit/auth, type Credential struct, Kind CredentialKind
 pkg authkit/auth, type CredentialKind string
+pkg authkit/auth, type DirectPermissionChecker interface
+pkg authkit/auth, type DirectPermissionChecker interface, CanDirect(context.Context, Scope, string) (bool, error)
 pkg authkit/auth, type Headers interface
 pkg authkit/auth, type Headers interface, AllowedHeaders() []string
 pkg authkit/auth, type Headers interface, ExposedHeaders() []string
@@ -1837,6 +1848,8 @@ pkg authkit/verify, type Claims struct, TwoFAEnrollment bool
 pkg authkit/verify, type Claims struct, UpdatedAt time.Time
 pkg authkit/verify, type Claims struct, UserID string
 pkg authkit/verify, type Claims struct, Username string
+pkg authkit/verify, type DirectPermissionChecker interface
+pkg authkit/verify, type DirectPermissionChecker interface, CanDirect(context.Context, auth.Identity, iam.GroupRef, iam.Perm) (bool, error)
 pkg authkit/verify, type IssuerKeyStatus = jwks.Status
 pkg authkit/verify, type IssuerKeyStatus struct
 pkg authkit/verify, type IssuerKeyStatus struct, Age time.Duration

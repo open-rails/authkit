@@ -2,73 +2,80 @@ package engine
 
 import (
 	"context"
+	"crypto/rand"
+	"errors"
 	"fmt"
-	"math/rand"
+	"math/big"
 	"strings"
 
-	"github.com/open-rails/authkit/internal/naming"
+	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/db"
 )
 
-// generateAvailableUsername tries base, then minimal numeric suffixes, then a short fallback.
-func (s *Engine) generateAvailableUsername(ctx context.Context, base string) string {
-	base = naming.Derive(s.cfg.Username, base)
-	if base == "" {
-		base = "user"
-	}
-	// If available, return immediately.
-	if s.usernameAvailable(ctx, base) {
-		return base
-	}
-	// Try numbered suffixes
-	for i := 1; i <= 999; i++ {
-		candidate := naming.WithSuffix(s.cfg.Username, base, fmt.Sprintf("%d", i))
-		if s.usernameAvailable(ctx, candidate) {
-			return candidate
+const generatedUsernameAttempts = 100
+
+// GenerateUsername returns an unreserved, currently available username from
+// the app's name pool plus exactly three cryptographically random digits.
+// Assignment still checks the database's unique constraint.
+func (s *Engine) GenerateUsername(ctx context.Context) (string, error) {
+	pool := s.cfg.Username.RandomNames
+	if pool == nil {
+		if s.cfg.Username.MaxLength < 4 {
+			return "", errors.New("authkit: generated usernames require MaxLength >= 4")
 		}
-	}
-	// Fallback: base + random 4 digits (global rand is auto-seeded since Go 1.20)
-	for tries := 0; tries < 100; tries++ {
-		candidate := naming.WithSuffix(s.cfg.Username, base, fmt.Sprintf("%04d", rand.Intn(10000)))
-		if s.usernameAvailable(ctx, candidate) {
-			return candidate
+		base := "user"[:min(4, s.cfg.Username.MaxLength-3)]
+		for len(base)+3 < s.cfg.Username.MinLength {
+			base += "_"
 		}
+		pool = []string{base}
 	}
-	return naming.WithSuffix(s.cfg.Username, base, "_user")
+	for range generatedUsernameAttempts {
+		choice, err := rand.Int(rand.Reader, big.NewInt(int64(len(pool))))
+		if err != nil {
+			return "", err
+		}
+		suffix, err := rand.Int(rand.Reader, big.NewInt(1000))
+		if err != nil {
+			return "", err
+		}
+		candidate := fmt.Sprintf("%s%03d", strings.ToLower(pool[choice.Int64()]), suffix.Int64())
+		if err := s.CheckUsername(ctx, candidate); err != nil {
+			if errors.Is(err, iam.ErrUsernameInUse) {
+				continue
+			}
+			return "", err
+		}
+		return candidate, nil
+	}
+	return "", fmt.Errorf("generate username: %w", iam.ErrUsernameInUse)
 }
 
-// usernameAvailable reports whether username is free; a failed read is not.
-func (s *Engine) usernameAvailable(ctx context.Context, username string) bool {
-	if s.pg == nil {
-		return true
-	}
-	taken, err := s.usernameTaken(ctx, username)
-	return err == nil && !taken
-}
-
-// deriveUsernameForOAuth prefers provider-preferred usernames; falls back to email local part or display name.
-func (s *Engine) deriveUsernameForOAuth(ctx context.Context, provider, preferred, email, displayName string) string {
-	// Highest: preferred username from provider
-	if strings.TrimSpace(preferred) != "" {
-		return s.generateAvailableUsername(ctx, preferred)
-	}
-	// Next: email local part
-	if strings.TrimSpace(email) != "" {
-		local := email
-		if i := strings.IndexByte(local, '@'); i > 0 {
-			local = local[:i]
+// importGeneratedUser keeps the enclosing group mutation atomic while retrying
+// a generated-name race. The caller already holds its authority transaction.
+func (s *Engine) importGeneratedUser(ctx context.Context, tx db.DBTX, in newAccount) (*db.User, error) {
+	for range generatedUsernameAttempts {
+		name, err := s.GenerateUsername(ctx)
+		if err != nil {
+			return nil, err
 		}
-		if strings.TrimSpace(local) != "" {
-			return s.generateAvailableUsername(ctx, local)
+		in.Username = name
+		if _, err := tx.Exec(ctx, "SAVEPOINT authkit_generated_username"); err != nil {
+			return nil, err
+		}
+		user, err := s.importUser(ctx, db.New(tx), in)
+		if err == nil {
+			_, err = tx.Exec(ctx, "RELEASE SAVEPOINT authkit_generated_username")
+			return user, err
+		}
+		if _, rollbackErr := tx.Exec(ctx, "ROLLBACK TO SAVEPOINT authkit_generated_username"); rollbackErr != nil {
+			return nil, rollbackErr
+		}
+		if _, releaseErr := tx.Exec(ctx, "RELEASE SAVEPOINT authkit_generated_username"); releaseErr != nil {
+			return nil, releaseErr
+		}
+		if !errors.Is(mapUserUniqueViolation(err), iam.ErrUsernameInUse) {
+			return nil, mapUserUniqueViolation(err)
 		}
 	}
-	// Next: display name
-	if strings.TrimSpace(displayName) != "" {
-		return s.generateAvailableUsername(ctx, displayName)
-	}
-	// Last: provider-based generic
-	base := provider
-	if strings.TrimSpace(base) == "" {
-		base = "user"
-	}
-	return s.generateAvailableUsername(ctx, base+"_user")
+	return nil, iam.ErrUsernameInUse
 }

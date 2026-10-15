@@ -261,7 +261,7 @@ export const de: AuthUiMessageBundle = {
     enable: "2FA aktivieren",
     disable: "2FA deaktivieren",
     scanQr:
-      "Scannen Sie dies mit Ihrer Authenticator-App oder tippen Sie unten, wenn sie auf diesem Gerät ist.",
+      "Öffnen Sie Ihre Authenticator-App und scannen Sie diesen Code. Wählen Sie in Microsoft Authenticator + → Anderes Konto.",
     openInAuthenticator: "In Authenticator-App öffnen",
     enterSecretManually: "Oder den Schlüssel manuell eingeben",
     enabledTitle: "Zwei-Faktor-Authentifizierung aktiviert",

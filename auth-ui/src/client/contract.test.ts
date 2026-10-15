@@ -13,6 +13,28 @@ const routes = AUTHKIT_ROUTES.map(({ method, path }) => ({
 const inCatalog = (method: string, path: string) =>
   routes.some((r) => r.method === method && r.pattern.test(path))
 
+it("requests the direct permission view explicitly", async () => {
+  const urls: string[] = []
+  const fetch = vi.fn(async (input: RequestInfo | URL) => {
+    urls.push(String(input))
+    return new Response(
+      JSON.stringify({ group_id: "app-a", role: null, permissions: [] }),
+      {
+        headers: { "content-type": "application/json" },
+      }
+    )
+  })
+  const client = createAuthClient({ fetch })
+  await client.completeSignIn(async () => complete("u1"))
+  await client.getPermissions({ groupId: "app-a", direct: true })
+  const query = new URL(
+    urls.find((url) => url.includes("/me/permissions"))!,
+    "https://test.invalid"
+  ).searchParams
+  expect(query.get("group_id")).toBe("app-a")
+  expect(query.get("direct")).toBe("true")
+})
+
 it("calls only routes AuthKit mounts", async () => {
   const called = new Set<string>()
   const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -26,6 +48,8 @@ it("calls only routes AuthKit mounts", async () => {
     () => client.signInWithPassword({ identifier: "a", password: "b" }),
     () => client.register({ identifier: "a", username: "u", password: "p" }),
     () => client.checkAvailability({ username: "u" }),
+    () => client.generateUsername(),
+    () => client.checkUsername("Naruto001"),
     () => client.abandonRegistration({ identifier: "a", password: "p" }),
     () => client.requestVerification({ identifier: "a" }),
     () => client.confirmVerification({ identifier: "a", code: "c" }),

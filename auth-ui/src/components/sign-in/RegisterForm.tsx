@@ -11,11 +11,8 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import { useEffect, useState, type ReactNode } from "react"
 
-import type {
-  Availability,
-  AvailabilityField,
-  UsernameCapabilities,
-} from "#authui/client/types"
+import type { Availability, AvailabilityField } from "#authui/client/types"
+import { validateUsername } from "#authui/client/username"
 import { useMessages } from "#authui/i18n/context"
 import { useCapabilities } from "#authui/react/context"
 import { useRegistration } from "#authui/react/registration"
@@ -75,24 +72,6 @@ const fieldOf = (code: string) =>
       : PASSWORD_CODES.has(code)
         ? "password"
         : null
-
-function usernameIssue(
-  policy: UsernameCapabilities | undefined,
-  value: string
-) {
-  if (!policy || !value) return null
-  if (value.length < policy.min_length) return "username_too_short"
-  if (value.length > policy.max_length) return "username_too_long"
-  try {
-    if (!new RegExp(policy.pattern).test(value))
-      return /^\p{L}/u.test(value)
-        ? "username_invalid_characters"
-        : "username_must_start_with_letter"
-  } catch {
-    // an unparsable pattern is left to the server
-  }
-  return null
-}
 
 export type RegisterFormProps = SignInHostProps & {
   // A useRegister() owned by a parent; its onSignedIn is then the parent's.
@@ -305,7 +284,7 @@ function RegisterFields({
       : touched && identifierKind(identifier) === "other"
         ? t("validation.emailInvalid")
         : null)
-  const localUsername = usernameIssue(usernamePolicy, username.trim())
+  const localUsername = validateUsername(username, usernamePolicy)
   const localPassword = passwordPolicy.issue(
     password,
     username.trim(),
@@ -338,7 +317,7 @@ function RegisterFields({
           e.preventDefault()
           const input = {
             identifier: normalized,
-            username: username.trim(),
+            username: username.trim().toLowerCase(),
             password,
             agreements: accepted,
           }
@@ -385,7 +364,7 @@ function RegisterFields({
           value={username}
           error={usernameError}
           trailing={<StatusIcon status={availability.username} />}
-          onChange={(e) => setUsername(e.target.value)}
+          onChange={(e) => setUsername(e.target.value.toLowerCase())}
         />
         <PasswordField
           id="authui-register-password"

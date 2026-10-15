@@ -14,8 +14,16 @@ import type { SignInMode } from "./host.ts"
 import { SignInFlow, type SignInStep } from "./SignInFlow.tsx"
 import { entryText, isEntryStep } from "./labels.ts"
 import type { SignInPanelProps } from "./SignInPanel.tsx"
+import {
+  ProviderLinkOptions,
+  type ProviderLinkOptionsProps,
+} from "./ProviderLinkOptions.tsx"
 
 export type SignInDialogProps = Omit<SignInPanelProps, "initialTab"> & {
+  /** Link existing-account providers only; never offers sign-in or registration. */
+  mode?: "signIn" | "link"
+  acquireSolanaSigner?: ProviderLinkOptionsProps["acquireSolanaSigner"]
+  onLinked?: () => void
   open: boolean
   onOpenChange: (open: boolean) => void
   // Read each time the dialog opens.
@@ -28,6 +36,82 @@ export type SignInDialogProps = Omit<SignInPanelProps, "initialTab"> & {
 // Closes itself after sign-in (after backup codes are acknowledged); until
 // then it cannot be dismissed on the backup-codes screen.
 export function SignInDialog({
+  mode,
+  acquireSolanaSigner,
+  onLinked,
+  ...props
+}: SignInDialogProps) {
+  return mode === "link" ? (
+    <ProviderLinkDialog
+      {...props}
+      acquireSolanaSigner={acquireSolanaSigner}
+      onLinked={onLinked}
+    />
+  ) : (
+    <SessionSignInDialog {...props} />
+  )
+}
+
+function ProviderLinkDialog({
+  open,
+  onOpenChange,
+  modal = true,
+  title,
+  description,
+  logo,
+  header,
+  className,
+  navigate,
+  acquireSolanaSigner,
+  onLinked,
+}: SignInDialogProps) {
+  const { t } = useMessages()
+  const [walletOpen, setWalletOpen] = useState(false)
+  const acquire = acquireSolanaSigner
+    ? async () => {
+        setWalletOpen(true)
+        try {
+          return await acquireSolanaSigner()
+        } finally {
+          setWalletOpen(false)
+        }
+      }
+    : undefined
+  return (
+    <Dialog
+      open={open}
+      modal={modal && !walletOpen}
+      disablePointerDismissal={!modal || walletOpen}
+      onOpenChange={onOpenChange}
+    >
+      <DialogContent
+        className={cn(
+          "max-h-[calc(100dvh-2rem)] gap-5 overflow-y-auto sm:max-w-md",
+          className
+        )}
+      >
+        <DialogHeader className="gap-1.5 pr-8 text-left">
+          {logo}
+          <DialogTitle>{title ?? t("account.providers.add")}</DialogTitle>
+          <DialogDescription>
+            {description ?? t("account.providers.available")}
+          </DialogDescription>
+        </DialogHeader>
+        {header}
+        <ProviderLinkOptions
+          navigate={navigate}
+          acquireSolanaSigner={acquire}
+          onLinked={() => {
+            onLinked?.()
+            onOpenChange(false)
+          }}
+        />
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function SessionSignInDialog({
   open,
   onOpenChange,
   logo,

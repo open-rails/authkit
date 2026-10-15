@@ -352,6 +352,12 @@ type GroupQuery struct {
 	GroupID string `query:"group_id"`
 }
 
+// PermissionsQuery optionally excludes inherited authority for app UIs.
+type PermissionsQuery struct {
+	GroupID string `query:"group_id"`
+	Direct  bool   `query:"direct"`
+}
+
 type OIDCLoginStartRequest struct {
 	ReturnTo   string `json:"return_to"`
 	InviteCode string `json:"invite_code"`
@@ -848,4 +854,12 @@ type OAuthEndSessionParams struct {
 	ClientID              *string `query:"client_id"`
 	PostLogoutRedirectURI *string `query:"post_logout_redirect_uri"`
 	State                 *string `query:"state"`
+}
+
+// UsernameCandidate is a currently available name, not a reservation.
+type UsernameCandidate struct {
+	Username string `json:"username"`
+}
+type UsernameQuery struct {
+	Username string `query:"username"`
 }

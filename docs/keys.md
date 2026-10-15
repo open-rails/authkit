@@ -4,7 +4,15 @@ AuthKit signs tokens with asymmetric keys and publishes their public halves at `
 
 ## The key directory
 
-`KeysConfig.Path` (default `/vault/auth`) holds two files. Keep both readable only by your server.
+`KeysConfig.Path` holds two files. Production defaults to `/vault/auth`.
+With the development-only `AllowEphemeralDevKeys` opt-in and no explicit path,
+AuthKit uses `$XDG_STATE_HOME/authkit/development/<issuer SHA-256>`, or
+`~/.local/state/authkit/development/<issuer SHA-256>` when XDG_STATE_HOME is unset.
+The state directory must be absolute. Both files are persisted and reused on
+restart; the option retains its historical name for compatibility. Different
+issuers have separate default directories. An explicit path takes precedence,
+including an intentionally shared directory. Keep both files readable only by
+your server.
 
 `keys.json` holds the signing keys:
 
@@ -20,7 +28,7 @@ AuthKit signs tokens with asymmetric keys and publishes their public halves at `
 
 - The active key signs every new token, and its `kid` goes in the token header. RSA (2048–8192 bits) signs with RS256, P-256/384/521 with ES256/384/512, and Ed25519 with EdDSA.
 - `public_keys` are verify-only keys that JWKS keeps publishing, so tokens signed before a rotation keep verifying.
-- With no `keys.json`, `New` fails, unless `KeysConfig.VerifyOnly` is set (no signing) or `AllowEphemeralDevKeys` (development only: AuthKit generates a key, and writes it to `keys.json` when `Path` is set).
+- With no `keys.json`, `New` fails, unless `KeysConfig.VerifyOnly` is set (no signing) or `AllowEphemeralDevKeys` (development only: AuthKit generates and persists a key). Generation publishes each complete file atomically without replacing an existing key, so concurrent starters load the same material. Production never generates keys without that explicit opt-in.
 
 `totp.key` is the AES key (16, 24 or 32 bytes; hex, base64 or raw) that encrypts authenticator-app secrets; `TwoFactorConfig.TOTPSecretKey` overrides it. It can't be rotated: replacing it breaks every enrolled authenticator app, so back it up. Without it, authenticator apps can't be enrolled, unless `AllowEphemeralDevKeys` generates one the same way as `keys.json`. The file may be 0600, 0400 or 0440 (group-read, as a Kubernetes secret volume with `fsGroup` mounts it); world-read logs a warning and any group or world write bit refuses to boot.
 
@@ -44,3 +52,17 @@ Across replicas, a new key reaches each one within 10 seconds. In that window, a
 ## Emergency rotation
 
 If a key may be compromised, do step 2 without keeping the old public key. Within 10 seconds AuthKit stops accepting tokens signed with it, and other verifiers stop when they next refetch: at the first token signed with the new key, and within 10 minutes. Users with those tokens sign in again, or refresh: refresh tokens are opaque and not signed.
+
+## Authenticator app labels
+
+Set `TwoFactor.TOTPIssuer` (`two_factor.totp_issuer`) to the service name users
+should see in their authenticator, such as `Example`. This display label is
+separate from the cryptographic `Token.Issuer` URL. When omitted, AuthKit uses
+the token issuer's hostname. A display label cannot contain colons or control
+characters. New provisioning QR codes include the matching issuer prefix and
+query parameter, the account's email (or username), SHA-1, six digits, and a
+30-second period. This does not change existing factors or their secrets.
+
+Scan the QR from inside the chosen authenticator app. Opening an `otpauth:`
+link or scanning with a phone's Camera uses the operating system's registered
+handler; the QR does not select Microsoft Authenticator or another app.

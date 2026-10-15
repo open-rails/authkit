@@ -14,6 +14,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/testkeys"
 	"github.com/open-rails/authkit/keys"
@@ -195,12 +196,12 @@ func TestSecurityRefreshCookieCSRF(t *testing.T) {
 	}
 	var jar *http.Cookie
 	for _, c := range login(nil).cookies {
-		if c.Name == iam.RefreshCookieName {
+		if c.Name == httpapi.IssuerRefreshCookieName(issuer, true) {
 			jar = c
 		}
 	}
 	require.NotNil(t, jar, "no __Host- refresh cookie")
-	require.Equal(t, "__Host-authkit_rt", jar.Name)
+	require.Equal(t, httpapi.IssuerRefreshCookieName(issuer, true), jar.Name)
 	require.True(t, jar.Secure)
 	require.Equal(t, "/", jar.Path)
 	require.Empty(t, jar.Domain)
@@ -217,7 +218,7 @@ func TestSecurityRefreshCookieCSRF(t *testing.T) {
 		{"same-site sibling", http.Header{"Sec-Fetch-Site": {"same-site"}}, []*http.Cookie{jar}},
 		{"foreign Origin", http.Header{"Origin": {"https://evil.test"}}, []*http.Cookie{jar}},
 		{"opaque Origin", http.Header{"Origin": {"null"}}, []*http.Cookie{jar}},
-		{"tossed duplicate cookie", nil, []*http.Cookie{jar, {Name: iam.RefreshCookieName, Value: "attacker"}}},
+		{"tossed duplicate cookie", nil, []*http.Cookie{jar, {Name: jar.Name, Value: "attacker"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			resp := refresh(tc.header, tc.cookies...)
@@ -232,7 +233,7 @@ func TestSecurityRefreshCookieCSRF(t *testing.T) {
 	t.Run("cross-site login plants no cookie", func(t *testing.T) {
 		resp := login(http.Header{"Origin": {"https://evil.test"}, "Sec-Fetch-Site": {"cross-site"}})
 		for _, c := range resp.cookies {
-			require.NotEqual(t, iam.RefreshCookieName, c.Name)
+			require.NotEqual(t, jar.Name, c.Name)
 		}
 	})
 	t.Run("control: same-origin refresh", func(t *testing.T) {
@@ -247,15 +248,16 @@ func TestSecurityRefreshCookieCSRF(t *testing.T) {
 // every variant. Same-path duplicates are refused.
 func TestSecurityRefreshCookieUpgrade(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		jar  func(valid string) []*http.Cookie
+		name          string
+		jar           func(valid string) []*http.Cookie
+		preservePlain bool
 	}{
 		{"the plain cookie alone", func(valid string) []*http.Cookie {
 			return []*http.Cookie{{Name: "authkit_rt", Value: valid}}
-		}},
+		}, false},
 		{"a stale plain cookie beside the current one", func(valid string) []*http.Cookie {
 			return []*http.Cookie{{Name: "authkit_rt", Value: "stale-plain"}, {Name: "__Host-authkit_rt", Value: valid}}
-		}},
+		}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHost(t, withHTTP(generousLimits), withHTTP(func(c *authkit.HTTPConfig) { c.RefreshCookie = true }),
@@ -263,25 +265,30 @@ func TestSecurityRefreshCookieUpgrade(t *testing.T) {
 			a := h.newAccount("upgrade")
 			login := h.post("/password/login", map[string]string{"identifier": a.email, "password": password}, "")
 			require.Equal(t, http.StatusOK, login.status, login.String())
-			valid := cookieNamed(login.cookies, "__Host-authkit_rt", "/")
+			currentName := httpapi.IssuerRefreshCookieName(issuer, true)
+			valid := cookieNamed(login.cookies, currentName, "/")
 			require.NotNil(t, valid, "login set no __Host-authkit_rt cookie")
 
 			resp := h.do(request{method: http.MethodPost, path: "/token", cookies: tc.jar(valid.Value),
 				body: map[string]string{"grant_type": "refresh_token"}})
 			require.Equal(t, http.StatusOK, resp.status, "the browser was signed out: %s", resp)
 			require.Contains(t, resp.String(), "access_token")
-			next := cookieNamed(resp.cookies, "__Host-authkit_rt", "/")
+			next := cookieNamed(resp.cookies, currentName, "/")
 			require.NotNil(t, next, "the current cookie was not reissued")
 			require.NotEmpty(t, next.Value)
 			plain := cookieNamed(resp.cookies, "authkit_rt", "/")
-			require.NotNil(t, plain, "the plain cookie was not expired")
-			require.Less(t, plain.MaxAge, 0)
+			if tc.preservePlain {
+				require.Nil(t, plain, "unknown legacy cookie must be preserved")
+			} else {
+				require.NotNil(t, plain, "the owned legacy cookie was not expired")
+				require.Less(t, plain.MaxAge, 0)
+			}
 
 			access := session(t, resp)
 			require.Empty(t, access.RefreshToken, "the cookie carries the refresh token")
 			out := h.do(request{method: http.MethodDelete, path: "/logout", token: access.AccessToken, cookies: []*http.Cookie{next}})
 			require.Less(t, out.status, 300, out.String())
-			for _, name := range []string{"authkit_rt", "__Host-authkit_rt"} {
+			for _, name := range []string{httpapi.IssuerRefreshCookieName(issuer, false), currentName} {
 				c := cookieNamed(out.cookies, name, "/")
 				require.NotNil(t, c, "sign-out left %s", name)
 				require.Less(t, c.MaxAge, 0)
@@ -299,7 +306,7 @@ func TestSecurityRefreshCookieUpgrade(t *testing.T) {
 			authtest.WithConfig(func(c *authkit.Config) { c.Frontend.BaseURL = "http://app.security.test" }))
 		a := h.newAccount("upgradedup")
 		login := h.post("/password/login", map[string]string{"identifier": a.email, "password": password}, "")
-		valid := cookieNamed(login.cookies, "authkit_rt", "/")
+		valid := cookieNamed(login.cookies, httpapi.IssuerRefreshCookieName(issuer, false), "/")
 		require.NotNil(t, valid)
 		resp := h.do(request{method: http.MethodPost, path: "/token", body: map[string]string{"grant_type": "refresh_token"},
 			cookies: []*http.Cookie{{Name: "authkit_rt", Value: "a"}, {Name: "authkit_rt", Value: valid.Value}}})

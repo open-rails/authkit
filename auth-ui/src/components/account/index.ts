@@ -1,3 +1,4 @@
+export { AccountProfile, type AccountProfileProps } from "./account-profile.tsx"
 export {
   AccountSecurity,
   type AccountSecurityProps,

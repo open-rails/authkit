@@ -1,10 +1,16 @@
-import { LockPasswordIcon } from "@hugeicons/core-free-icons"
-import { useId, useState } from "react"
+import { useEffect, useId, useState } from "react"
 
 import { useMessages } from "../../i18n/context.ts"
 import { useChangePassword } from "../../react/account.ts"
-import { useUser } from "../../react/context.ts"
+import {
+  sessionIdentity,
+  useAuthClient,
+  useSession,
+  useUser,
+} from "../../react/context.ts"
+import { useTask } from "../../react/task.ts"
 import { Button } from "../../ui/button.tsx"
+import { Card } from "../../ui/card.tsx"
 import {
   Dialog,
   DialogContent,
@@ -23,14 +29,9 @@ import {
 import { Spinner } from "../../ui/spinner.tsx"
 import { usePasswordPolicy } from "../sign-in/password.ts"
 import { PanelRoot } from "./panel-root.tsx"
-import {
-  ErrorNotice,
-  Notice,
-  PanelCard,
-  PasswordInput,
-  StatusBadge,
-} from "./shared.tsx"
-import { useStepUpGuard } from "./step-up-context.ts"
+import { ErrorNotice, Notice, SettingRow, PasswordInput } from "./shared.tsx"
+import { useStepUpController } from "./step-up-context.ts"
+import { PasswordUsername } from "./password-autofill.tsx"
 
 export interface PasswordPanelProps {
   className?: string
@@ -48,44 +49,76 @@ export function PasswordPanel({ className }: PasswordPanelProps) {
 function PasswordCard() {
   const { t } = useMessages()
   const { user } = useUser()
-  const pw = useChangePassword({ guard: useStepUpGuard() })
-  const [open, setOpen] = useState(false)
+  const client = useAuthClient()
+  const session = useSession()
+  const stepUp = useStepUpController()
+  const pw = useChangePassword({ guard: stepUp?.guard })
+  const preparation = useTask()
+  const resetPassword = pw.reset
+  const [editorOwner, setEditorOwner] = useState<string | null>(null)
+  const principal = session.status === "authenticated" ? session.userId : null
+  const sessionKey = sessionIdentity(session)
+  const open = principal !== null && editorOwner === sessionKey
+  useEffect(
+    () =>
+      stepUp?.guard.onResume?.("password-editor", () => {
+        resetPassword()
+        const current = client.getSnapshot()
+        if (current.status === "authenticated")
+          setEditorOwner(sessionIdentity(current))
+      }),
+    [stepUp?.guard, resetPassword, client]
+  )
+  const begin = () =>
+    preparation.run(async () => {
+      pw.reset()
+      if (!stepUp || !principal)
+        throw new Error("Sign in again to change your password.")
+      await stepUp.authenticate({
+        resume: { kind: "password-editor", data: null },
+      })
+      const current = client.getSnapshot()
+      if (current.status === "authenticated" && current.userId === principal)
+        setEditorOwner(sessionIdentity(current))
+    })
   const hasPassword = !!user?.has_password
 
   return (
     <>
-      <PanelCard
-        icon={LockPasswordIcon}
-        title={t("account.password.title")}
-        badge={
-          user && (
-            <StatusBadge on={hasPassword}>
+      <Card className="gap-0 py-0">
+        <SettingRow
+          title={
+            <>
+              {t("account.password.title")}:{" "}
+              <span
+                className={hasPassword ? "font-mono" : "text-muted-foreground"}
+              >
+                {user
+                  ? hasPassword
+                    ? "----"
+                    : t("account.password.none")
+                  : t("common.loading")}
+              </span>
+            </>
+          }
+          actions={
+            <Button
+              variant="outline"
+              disabled={!user || preparation.busy}
+              onClick={() => void begin()}
+            >
+              {preparation.busy && <Spinner />}
               {hasPassword
-                ? t("account.password.isSet")
-                : t("account.password.notSet")}
-            </StatusBadge>
-          )
-        }
-        description={
-          hasPassword
-            ? t("account.password.changeDescription")
-            : t("account.password.setHint")
-        }
-        action={
-          <Button
-            variant="outline"
-            disabled={!user}
-            onClick={() => {
-              pw.reset()
-              setOpen(true)
-            }}
-          >
-            {hasPassword
-              ? t("account.password.changeTitle")
-              : t("account.password.setTitle")}
-          </Button>
-        }
-      >
+                ? t("account.password.changeTitle")
+                : t("account.password.setTitle")}
+            </Button>
+          }
+        />
+        {preparation.error && (
+          <div className="px-5 pb-4 sm:px-6">
+            <ErrorNotice error={preparation.error} />
+          </div>
+        )}
         {pw.state === "done" && (
           <div className="px-5 py-4 sm:px-6">
             <Notice tone="success">
@@ -95,19 +128,21 @@ function PasswordCard() {
             </Notice>
           </div>
         )}
-      </PanelCard>
+      </Card>
       <Dialog
         open={open && pw.state !== "done"}
-        onOpenChange={(next) => !pw.busy && setOpen(next)}
+        onOpenChange={(next) =>
+          !pw.busy && setEditorOwner(next ? sessionKey : null)
+        }
       >
         <DialogContent>
-          {open && (
+          {open && pw.state !== "done" && (
             <PasswordForm
               hasPassword={hasPassword}
               busy={pw.busy}
               error={pw.error}
               onSubmit={(newPassword) => pw.changePassword({ newPassword })}
-              onCancel={() => setOpen(false)}
+              onCancel={() => setEditorOwner(null)}
             />
           )}
         </DialogContent>
@@ -131,28 +166,32 @@ function PasswordForm({
 }) {
   const { t } = useMessages()
   const [password, setPassword] = useState("")
-  const [confirm, setConfirm] = useState("")
   const [touched, setTouched] = useState(false)
   const newId = useId()
-  const confirmId = useId()
 
   const policy = usePasswordPolicy()
   const issue = policy.issue(password)
-  const mismatch = confirm !== password
   const passwordError = touched ? issue : null
-  const confirmError =
-    touched && !issue && mismatch ? t("validation.passwordsDoNotMatch") : null
 
   return (
     <form
+      name={hasPassword ? "change-password" : "set-password"}
+      method="post"
+      autoComplete="on"
+      aria-label={
+        hasPassword
+          ? t("account.password.changeTitle")
+          : t("account.password.setTitle")
+      }
       className="grid gap-6"
       noValidate
       onSubmit={(e) => {
         e.preventDefault()
         setTouched(true)
-        if (!issue && !mismatch) void onSubmit(password)
+        if (!issue) void onSubmit(password)
       }}
     >
+      <PasswordUsername />
       <DialogHeader>
         <DialogTitle className="text-lg font-semibold">
           {hasPassword
@@ -170,7 +209,9 @@ function PasswordForm({
           <FieldLabel htmlFor={newId}>{t("fields.newPassword")}</FieldLabel>
           <PasswordInput
             id={newId}
+            name="new-password"
             autoComplete="new-password"
+            required
             autoFocus
             value={password}
             disabled={busy}
@@ -182,20 +223,6 @@ function PasswordForm({
           ) : (
             <FieldDescription>{policy.hint}</FieldDescription>
           )}
-        </Field>
-        <Field data-invalid={!!confirmError || undefined}>
-          <FieldLabel htmlFor={confirmId}>
-            {t("fields.confirmPassword")}
-          </FieldLabel>
-          <PasswordInput
-            id={confirmId}
-            autoComplete="new-password"
-            value={confirm}
-            disabled={busy}
-            aria-invalid={!!confirmError || undefined}
-            onChange={(e) => setConfirm(e.target.value)}
-          />
-          <FieldError>{confirmError}</FieldError>
         </Field>
       </FieldGroup>
       <ErrorNotice error={error} />

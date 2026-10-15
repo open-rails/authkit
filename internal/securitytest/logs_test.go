@@ -131,7 +131,7 @@ func (j *secretJar) all() map[string]string {
 	return maps.Clone(j.secrets)
 }
 
-func isRefreshCookie(c *http.Cookie) bool { return strings.HasSuffix(c.Name, "authkit_rt") }
+func isRefreshCookie(c *http.Cookie) bool { return strings.Contains(c.Name, "authkit_rt") }
 
 // observe serves next and records the secrets of every exchange.
 func (j *secretJar) observe(next http.Handler) http.Handler {

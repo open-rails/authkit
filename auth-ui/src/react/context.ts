@@ -130,14 +130,14 @@ export type PermissionsState = {
 // GET /me/permissions for one group (the root group by default), refetched
 // per session.
 export function usePermissions(
-  scope: { groupId?: string } = {}
+  scope: { groupId?: string; direct?: boolean } = {}
 ): PermissionsState {
   const client = useAuthClient()
   const key = sessionIdentity(useSession())
   const authed = key.startsWith("authenticated:")
-  const { groupId } = scope
+  const { groupId, direct } = scope
   const [nonce, setNonce] = useState(0)
-  const request = `${key}|${groupId ?? ""}|${nonce}`
+  const request = `${key}|${groupId ?? ""}|${Boolean(direct)}|${nonce}`
   const [state, setState] = useState<{
     request: string
     set: PermissionSet | null
@@ -147,7 +147,7 @@ export function usePermissions(
   useEffect(() => {
     if (!authed) return
     const ctl = new AbortController()
-    client.getPermissions({ groupId }, ctl.signal).then(
+    client.getPermissions({ groupId, direct }, ctl.signal).then(
       (set) => setState({ request, set, error: null }),
       (err: unknown) => {
         if (!ctl.signal.aborted)
@@ -155,7 +155,7 @@ export function usePermissions(
       }
     )
     return () => ctl.abort()
-  }, [client, authed, groupId, request])
+  }, [client, authed, groupId, direct, request])
 
   const current = authed && state?.request === request ? state : null
   const permissions = current?.set?.permissions ?? null

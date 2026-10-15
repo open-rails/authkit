@@ -162,6 +162,14 @@ func (v contacted) Can(ctx context.Context, scope auth.Scope, permission string)
 	return c.Can(ctx, scope, permission)
 }
 
+func (v contacted) CanDirect(ctx context.Context, scope auth.Scope, permission string) (bool, error) {
+	c, ok := v.Verified.(auth.DirectPermissionChecker)
+	if !ok {
+		return false, nil
+	}
+	return c.CanDirect(ctx, scope, permission)
+}
+
 func (v contacted) BoundScope() auth.Scope {
 	if b, ok := v.Verified.(auth.Bound); ok {
 		return b.BoundScope()

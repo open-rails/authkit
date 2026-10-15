@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
@@ -12,10 +13,13 @@ import (
 // accountRegistration is the one database operation behind public signup. The
 // caller has verified any contact/provider proof and supplies no existing user.
 type accountRegistration struct {
-	User        newAccount
-	Language    string
-	InviteToken string
-	Provider    *authflow.ExternalIdentity
+	// GeneratedUsername lets only automatic registrations retry username collisions.
+	// A manually chosen name must be reported as taken, never silently replaced.
+	GeneratedUsername bool
+	User              newAccount
+	Language          string
+	InviteToken       string
+	Provider          *authflow.ExternalIdentity
 	// Agreements are the documents the sign-up accepts: at least
 	// Registration.Agreements, recorded with the account.
 	Agreements []iam.AgreementRef
@@ -29,6 +33,19 @@ type registeredAccount struct {
 }
 
 func (s *Engine) registerAccount(ctx context.Context, in accountRegistration) (registeredAccount, error) {
+	for attempt := 0; ; attempt++ {
+		result, err := s.registerAccountOnce(ctx, in)
+		if !in.GeneratedUsername || !errors.Is(err, iam.ErrUsernameInUse) || attempt >= generatedUsernameAttempts-1 {
+			return result, err
+		}
+		in.User.Username, err = s.GenerateUsername(ctx)
+		if err != nil {
+			return registeredAccount{}, err
+		}
+	}
+}
+
+func (s *Engine) registerAccountOnce(ctx context.Context, in accountRegistration) (registeredAccount, error) {
 	if err := s.requirePG(); err != nil {
 		return registeredAccount{}, err
 	}

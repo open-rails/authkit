@@ -48,7 +48,7 @@ func TestBatchGroupReadsMatchSingleGroupReads(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 	cfg := maintenanceConfig()
-	cfg.Keys = config.KeysConfig{AllowEphemeralDevKeys: true}
+	cfg.Keys = config.KeysConfig{Path: t.TempDir(), AllowEphemeralDevKeys: true}
 	cfg.Token.ExpectedAudiences = []string{"test"}
 	roles := config.NewRoles()
 	channelDef, sectionDef := roles.Persona("channel"), roles.Persona("section")

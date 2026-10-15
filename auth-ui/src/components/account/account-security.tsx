@@ -1,4 +1,5 @@
 import type { ReactNode } from "react"
+import { cn } from "cn"
 
 import { AuthUiRoot } from "../../scope.tsx"
 import type { SolanaSigner } from "../../solana/core.ts"
@@ -76,6 +77,7 @@ export function AccountSecurity({
             key={section}
             navigate={navigate}
             extraRows={linkedAccountRows}
+            acquireSolanaSigner={acquireSolanaSigner}
           />
         )
       case "twoFactor":
@@ -91,8 +93,8 @@ export function AccountSecurity({
     }
   })
   const root = (
-    <AuthUiRoot className={["grid gap-6", className].filter(Boolean).join(" ")}>
-      {panels}
+    <AuthUiRoot>
+      <div className={cn("grid gap-6", className)}>{panels}</div>
     </AuthUiRoot>
   )
   return useStepUpController() ? (

@@ -138,13 +138,30 @@ export function useLinkedProviders(options: LinkedProvidersOptions = {}) {
 
   const providers: LinkedProvider[] = useMemo(() => {
     const linked = new Set(user?.providers.map((p) => p.provider) ?? [])
-    return (capabilities?.external_login_providers ?? []).map((p) => ({
-      id: p.id,
-      name: p.name,
-      linked: linked.has(p.id),
-      supportsLink: p.supports_link,
-      supportsLogin: p.supports_login,
-    }))
+    const available = (capabilities?.external_login_providers ?? []).map(
+      (p) => ({
+        id: p.id,
+        name: p.name,
+        linked: linked.has(p.id),
+        supportsLink: p.supports_link,
+        supportsLogin: p.supports_login,
+      })
+    )
+    // A disabled provider can still be linked to the account. Keep it in the
+    // account list while offering only the live catalog for new links.
+    for (const id of linked) {
+      // The dedicated wallet projection owns its address and verification UI.
+      if (id === "solana") continue
+      if (!available.some((p) => p.id === id))
+        available.push({
+          id,
+          name: id,
+          linked: true,
+          supportsLink: false,
+          supportsLogin: false,
+        })
+    }
+    return available
   }, [capabilities, user])
 
   // Leaves the page; the return lands as #flow=link (useOidcCallback).

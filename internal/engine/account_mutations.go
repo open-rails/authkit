@@ -161,7 +161,7 @@ func (s *Engine) CreateUser(ctx context.Context, n iam.NewUser, opts ...ops.Opti
 	if (email == nil && n.EmailVerified) || (phone == nil && n.PhoneVerified) {
 		return iam.User{}, errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("verified"))
 	}
-	username := strings.TrimSpace(n.Username)
+	username := naming.Canonical(n.Username)
 	if err := naming.ValidateImport(s.cfg.Username, username); err != nil {
 		return iam.User{}, err
 	}

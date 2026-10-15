@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Account password changes authenticate before showing a single new-password
+  field, preserving browser password-manager metadata and provider step-up.
+- Shared account profile and compact security panels, link-only social/wallet
+  sign-in dialogs, and a single "Sign out everywhere else" session action.
+- Session restore survives temporary backend outages; refresh cookies are
+  isolated by issuer while compatible legacy cookies migrate safely.
+- Server-generated usernames use app-owned name pools with three random digits;
+  validation and profile display use consistent lowercase usernames.
+
 - `UsersAdmin` and `UserAccountSummary` (AuthKit #453): the user directory
   (search, status, root-role and entitlement filters, sort and a total in the
   URL, cursor pages) and each account's page: status, role and entitlement

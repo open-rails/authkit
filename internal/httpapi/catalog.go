@@ -211,6 +211,10 @@ func Catalog() []RouteSpec {
 			Request: RegisterRequest{}, Responses: []Reply{{http.StatusOK, AuthResult{}}, {http.StatusAccepted, nil}}, serve: handle((*Service).handleRegisterUnifiedPOST)},
 		{Method: GET, Path: "/register/availability", Group: registration, Auth: public, Bucket: RLRegisterAvailability,
 			Query: AvailabilityQuery{}, Responses: replyOK(Availability{}), serve: handle((*Service).handleRegisterAvailabilityGET)},
+		{Method: GET, Path: "/usernames/generate", Group: registration, Auth: public, Bucket: RLRegisterAvailability,
+			Responses: replyOK(UsernameCandidate{}), serve: handle((*Service).handleUsernameGenerateGET)},
+		{Method: GET, Path: "/usernames/availability", Group: registration, Auth: public, Bucket: RLRegisterAvailability,
+			Query: UsernameQuery{}, Responses: replyOK(AvailabilityField{}), serve: handle((*Service).handleUsernameAvailabilityGET)},
 		{Method: POST, Path: "/register/abandon", Group: registration, Auth: public, Bucket: RLRegisterAbandon, MountedWhen: FeatureRegistration,
 			Request: IdentifierPasswordRequest{}, Responses: replyNoContent, serve: handle((*Service).handlePendingRegistrationAbandonPOST)},
 
@@ -320,7 +324,7 @@ func Catalog() []RouteSpec {
 		// The caller's role and permissions in one group (?group_id=; root by
 		// default), expanded.
 		{Method: GET, Path: "/me/permissions", Group: account, Auth: required, Bucket: RLMePermissionsRead,
-			Query: GroupQuery{}, Responses: replyOK(PermissionSet{}), serve: handle((*Service).handleMePermissionsGET)},
+			Query: PermissionsQuery{}, Responses: replyOK(PermissionSet{}), serve: handle((*Service).handleMePermissionsGET)},
 		// Other people, as anyone may see them, public metadata included:
 		// public profile pages need no sign-in.
 		{Method: GET, Path: "/users", Group: account, Auth: public, Bucket: RLUsersRead,

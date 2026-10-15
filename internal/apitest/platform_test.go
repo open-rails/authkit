@@ -14,6 +14,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/provider"
@@ -159,12 +160,12 @@ func TestMountCatalog(t *testing.T) {
 		require.Nil(t, tokens["refresh_token"], "the cookie carries the refresh token")
 		var refresh []*http.Cookie
 		for _, c := range login.cookies {
-			if strings.HasSuffix(c.Name, "authkit_rt") {
+			if strings.Contains(c.Name, "authkit_rt") {
 				refresh = append(refresh, c)
 			}
 		}
 		require.Len(t, refresh, 1)
-		require.Equal(t, iam.RefreshCookieName, refresh[0].Name)
+		require.Equal(t, httpapi.IssuerRefreshCookieName(authtest.Issuer, true), refresh[0].Name)
 		require.Equal(t, "/", refresh[0].Path)
 		require.True(t, refresh[0].HttpOnly)
 		require.Equal(t, http.SameSiteLaxMode, refresh[0].SameSite)

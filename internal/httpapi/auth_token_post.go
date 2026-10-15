@@ -21,7 +21,11 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 		fail(w, errmodel.CodeNoSession)
 		return
 	}
-	refreshToken, ok := s.refreshTokenFromRequest(r, body.RefreshToken)
+	refreshToken, ok, err := s.refreshTokenFromRequest(r, body.RefreshToken)
+	if err != nil {
+		serverErr(w, "read_legacy_refresh_cookie", err)
+		return
+	}
 	if !ok {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
@@ -45,11 +49,11 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 			fail(w, errmodel.CodeUserBanned)
 			return
 		}
-		// Deliberately NOT cleared here: an unknown token is indistinguishable
-		// from a stale one (a lost response after a committed rotation), and
-		// clearing would destroy a still-live jar value over a transient
-		// failure. The client re-authenticates; the cookie is overwritten then.
-		fail(w, errmodel.CodeInvalidToken)
+		// Only a known credential refusal is a 401. Database, pool and signer
+		// failures remain server errors so the client retains its session and
+		// retries. Never clear the cookie here: even a stale token can be a
+		// lost response after an already committed rotation.
+		writeError(w, err)
 		return
 	}
 	s.writeAuthResult(w, r, authflow.LoginOutcome{Kind: authflow.LoginSessionIssued, UserID: userID, Session: &session}, authExtras{})

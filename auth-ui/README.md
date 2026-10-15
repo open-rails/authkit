@@ -227,6 +227,10 @@ const load = () => auth.authFetch("/api/things")
   (`signedIn: true`) with that hint until the restore settles. The client
   option `sessionHint: false` turns it off; `{ storage, key, ttlSeconds }`
   adjusts it.
+- **Temporary outages:** network errors, timeouts and server failures keep the
+  current session or restoring hint and retry with backoff. Without a hint,
+  the state stays `loading` until the server can confirm the session. A known
+  invalid, revoked or absent session ends the restore; an outage does not.
 - **Requests while restoring** (`authFetch` and every client call) wait for
   the restore, so they carry the restored session; `await auth.ready()` does
   the same for other code.
@@ -409,18 +413,33 @@ disconnect an app.
 ### Account security
 
 ```tsx
-import { AccountSecurity } from "@openrails/auth-ui"
-import { SolanaLinkRow } from "@openrails/auth-ui/solana"
+import { AccountProfile, AccountSecurity } from "@openrails/auth-ui"
 
-;<AccountSecurity
-  linkedAccountRows={<SolanaLinkRow wallet={useWallet()} />}
-  onDeleted={() => navigate("/")}
-/>
+;<>
+  <AccountProfile
+    avatar={<AvatarEditor />}
+    nameAction={<EditUsername />}
+    onSignOut={() => navigate("/")}
+  >
+    <MembershipDetails />
+  </AccountProfile>
+  <AccountSecurity
+    acquireSolanaSigner={() => connectWallet()}
+    onDeleted={() => navigate("/")}
+  />
+</>
 ```
 
-A host that loads its wallet stack lazily passes
-`acquireSigner={() => connectWallet()}` (resolving a `SolanaSigner`) instead of
-`wallet`.
+`AccountProfile` owns the username row and red Logout action; avatar editing,
+name editing and membership details are host-provided slots. `onSignOut` runs
+before the local session is cleared, so a private page can navigate away first.
+
+Social Logins lists linked providers and Solana wallets. Its plus button opens
+`SignInDialog mode="link"`, offering only currently available, unlinked options
+and never a password, registration or ordinary sign-in form. A host with wallet
+support passes `acquireSolanaSigner` (resolving a `SolanaSigner`) to
+`AccountSecurity`; this serves both linking and step-up. The legacy
+`linkedAccountRows` slot remains available for custom rows.
 
 `AccountSecurity` stacks `ContactPanel`, `PasswordPanel`,
 `LinkedProvidersPanel`, `TwoFactorPanel`, `SignInKeysPanel` (passkeys and
@@ -610,3 +629,8 @@ regenerate it in the same PR. Captured email/SMS: `GET /__test/outbox`.
 `package.json` stays at `0.0.0`; publishing an AuthKit `vX.Y.Z` release stamps
 `X.Y.Z` and publishes it to npm as `@openrails/auth-ui@X.Y.Z`
 (`.github/workflows/release.yaml`).
+
+Password changes re-authenticate with the account's available sign-in methods
+before opening the editor. The editor asks for one new password, with standard
+username and `new-password` autocomplete metadata. If its authentication proof
+expires while editing, the normal step-up guard still protects submission.

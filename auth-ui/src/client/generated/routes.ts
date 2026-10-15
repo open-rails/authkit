@@ -41,6 +41,8 @@ export const AUTHKIT_ROUTES: readonly AuthKitRoute[] = [
   { method: "DELETE", path: "/api/v1/device-keys", group: "device_keys", auth: "session", permission: null, stepUp: false, mountedWhen: "device_keys" },
   { method: "POST", path: "/api/v1/register", group: "registration", auth: "public", permission: null, stepUp: false, mountedWhen: "registration" },
   { method: "GET", path: "/api/v1/register/availability", group: "registration", auth: "public", permission: null, stepUp: false, mountedWhen: null },
+  { method: "GET", path: "/api/v1/usernames/generate", group: "registration", auth: "public", permission: null, stepUp: false, mountedWhen: null },
+  { method: "GET", path: "/api/v1/usernames/availability", group: "registration", auth: "public", permission: null, stepUp: false, mountedWhen: null },
   { method: "POST", path: "/api/v1/register/abandon", group: "registration", auth: "public", permission: null, stepUp: false, mountedWhen: "registration" },
   { method: "POST", path: "/api/v1/verify/request", group: "account", auth: "public", permission: null, stepUp: false, mountedWhen: null },
   { method: "POST", path: "/api/v1/verify/confirm", group: "account", auth: "optional", permission: null, stepUp: false, mountedWhen: null },

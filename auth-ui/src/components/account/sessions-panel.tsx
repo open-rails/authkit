@@ -14,7 +14,7 @@ import { Checkbox } from "../../ui/checkbox.tsx"
 import { Spinner } from "../../ui/spinner.tsx"
 import { parseUserAgent, relativeTime } from "./lib.ts"
 import { PanelRoot } from "./panel-root.tsx"
-import { ConfirmDialog, ErrorNotice, PanelCard } from "./shared.tsx"
+import { ErrorNotice, PanelCard } from "./shared.tsx"
 import { useStepUpGuard } from "./step-up-context.ts"
 
 export interface SessionsPanelProps {
@@ -34,7 +34,6 @@ function SessionsCard() {
   const { t } = useMessages()
   const s = useSessions({ guard: useStepUpGuard() })
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
-  const [everywhere, setEverywhere] = useState(false)
   const sessions = [...(s.sessions ?? [])].sort(
     (a, b) =>
       Number(b.current) - Number(a.current) ||
@@ -94,9 +93,9 @@ function SessionsCard() {
           <ErrorNotice error={s.error} />
         </div>
       )}
-      {s.sessions && (
+      {s.sessions && others.length > 0 && (
         <div className="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:flex-wrap sm:px-6">
-          {chosen.length > 0 ? (
+          {chosen.length > 0 && (
             <Button
               variant="outline"
               disabled={s.busy}
@@ -105,44 +104,25 @@ function SessionsCard() {
               {s.busy && <Spinner />}
               {t("account.sessions.revokeSelected", { count: chosen.length })}
             </Button>
-          ) : (
-            others.length > 0 && (
-              <Button
-                variant="outline"
-                disabled={s.busy}
-                onClick={() => {
-                  setSelected(new Set())
-                  void s.revokeOthers()
-                }}
-              >
-                {s.busy && <Spinner />}
-                {t("account.sessions.revokeAll")}
-              </Button>
-            )
           )}
           <Button
-            variant="ghost"
-            className="text-destructive hover:text-destructive sm:ml-auto"
+            variant="outline"
+            className="sm:ml-auto"
             disabled={s.busy}
-            onClick={() => setEverywhere(true)}
+            onClick={() => {
+              setSelected(new Set())
+              void s.revokeOthers()
+            }}
           >
-            <HugeiconsIcon icon={Logout03Icon} strokeWidth={2} />
-            {t("account.sessions.revokeEverywhere")}
+            {s.busy ? (
+              <Spinner />
+            ) : (
+              <HugeiconsIcon icon={Logout03Icon} strokeWidth={2} />
+            )}
+            {t("account.sessions.revokeAll")}
           </Button>
         </div>
       )}
-      <ConfirmDialog
-        open={everywhere}
-        onOpenChange={setEverywhere}
-        title={t("account.sessions.revokeEverywhereTitle")}
-        description={t("account.sessions.revokeEverywhereDescription")}
-        confirmLabel={t("account.sessions.revokeEverywhere")}
-        destructive
-        onConfirm={() => {
-          setEverywhere(false)
-          void s.signOutEverywhere()
-        }}
-      />
     </PanelCard>
   )
 }

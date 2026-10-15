@@ -87,7 +87,11 @@ function TwoFactorCard() {
       isMethod(f.method)
   )
   const allowed = METHODS.filter(
-    (m) => !status?.allowed_methods || status.allowed_methods.includes(m)
+    // Existing email factors remain manageable, but email is not a new
+    // enrollment choice. Contact verification and recovery are separate.
+    (m) =>
+      m !== "email" &&
+      (!status?.allowed_methods || status.allowed_methods.includes(m))
   )
   const available = allowed.filter((m) => !factors.some((f) => f.method === m))
   const enrolling = enrollment.step !== "idle"
@@ -106,6 +110,37 @@ function TwoFactorCard() {
       icon={ShieldKeyIcon}
       title={t("account.twoFactor.title")}
       description={t("account.twoFactor.description")}
+      className="[&>[data-slot=card-header]]:flex-row [&>[data-slot=card-header]]:items-center [&>[data-slot=card-header]>:last-child]:w-auto"
+      action={
+        status && !enrolling && !adding ? (
+          <>
+            {available.length > 0 && (
+              <Button
+                variant={enabled ? "outline" : "default"}
+                disabled={tf.busy}
+                onClick={() => {
+                  tf.dismiss()
+                  setAdding(true)
+                }}
+              >
+                {enabled
+                  ? t("account.twoFactor.add")
+                  : t("account.twoFactor.enable")}
+              </Button>
+            )}
+            {enabled && (
+              <Button
+                variant="ghost"
+                className="text-destructive hover:text-destructive"
+                disabled={tf.busy}
+                onClick={() => setConfirm({ kind: "disable" })}
+              >
+                {t("account.twoFactor.disable")}
+              </Button>
+            )}
+          </>
+        ) : null
+      }
       badge={
         status && (
           <StatusBadge on={enabled}>
@@ -118,6 +153,12 @@ function TwoFactorCard() {
         <div className="flex justify-center px-6 py-6">
           <Spinner />
         </div>
+      )}
+
+      {status && !enabled && available.length === 0 && !enrolling && (
+        <p className="px-5 py-4 text-sm text-muted-foreground sm:px-6">
+          {t("enrollment.noMethod")}
+        </p>
       )}
 
       {enrollment.step === "backup_codes" && (
@@ -271,35 +312,6 @@ function TwoFactorCard() {
         </div>
       )}
 
-      {status && !enrolling && !adding && (
-        <div className="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:px-6">
-          {available.length > 0 && (
-            <Button
-              variant={enabled ? "outline" : "default"}
-              disabled={tf.busy}
-              onClick={() => {
-                tf.dismiss()
-                setAdding(true)
-              }}
-            >
-              {enabled
-                ? t("account.twoFactor.add")
-                : t("account.twoFactor.enable")}
-            </Button>
-          )}
-          {enabled && (
-            <Button
-              variant="ghost"
-              className="text-destructive hover:text-destructive sm:ml-auto"
-              disabled={tf.busy}
-              onClick={() => setConfirm({ kind: "disable" })}
-            >
-              {t("account.twoFactor.disable")}
-            </Button>
-          )}
-        </div>
-      )}
-
       <ConfirmDialog
         open={!!confirm}
         onOpenChange={(open) => !open && setConfirm(null)}
@@ -361,7 +373,7 @@ function MethodPicker({
       onSubmit={(e) => {
         e.preventDefault()
         setTouched(true)
-        if (phoneInvalid) return
+        if (phoneInvalid || !methods.includes(method)) return
         void onStart({
           method,
           phoneNumber: method === "sms" ? normalized : undefined,

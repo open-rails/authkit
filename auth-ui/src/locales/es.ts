@@ -258,7 +258,7 @@ export const es: AuthUiMessageBundle = {
     enable: "Activar 2FA",
     disable: "Desactivar 2FA",
     scanQr:
-      "Escanea esto con tu aplicación de autenticación, o toca abajo si la tienes en este dispositivo.",
+      "Abre tu aplicación de autenticación y escanea este código. En Microsoft Authenticator, elige + → Otra cuenta.",
     openInAuthenticator: "Abrir en la aplicación de autenticación",
     enterSecretManually: "O introduce la clave manualmente",
     enabledTitle: "Autenticación en dos pasos activada",

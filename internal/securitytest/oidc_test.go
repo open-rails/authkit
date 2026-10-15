@@ -330,7 +330,7 @@ func TestSecurityOIDCResultsCarryNoTokens(t *testing.T) {
 					}
 					var refreshCookie *http.Cookie
 					for _, c := range callback.cookies {
-						if strings.HasSuffix(c.Name, "authkit_rt") && c.MaxAge >= 0 {
+						if strings.Contains(c.Name, "authkit_rt") && c.MaxAge >= 0 {
 							refreshCookie = c
 						}
 					}
