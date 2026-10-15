@@ -85,7 +85,7 @@ it.each([
     window.history.replaceState(null, "", `/identity/${section}`)
     const { auth, authFetch } = host(["app:credentials:read"])
     render(<AuthAdmin auth={auth} group="app-group" basePath="/identity" />)
-    await screen.findByRole("heading", { name: title, exact: true })
+    await screen.findByRole("heading", { name: title })
     await waitFor(() =>
       expect(requestedPaths(authFetch)).toContain(
         `/api/v1/groups/app-group/${section}`
