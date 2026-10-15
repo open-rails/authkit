@@ -207,3 +207,27 @@ func TestIdPSignIn(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, u.EmailVerified)
 }
+
+// A deployment requiring DPoP gets bound sessions from SignIn, a second
+// factor's included; Authorize (and Identity) sign each request with the key,
+// and the same token as Bearer is refused.
+func TestSignInBindsWhenDPoPIsRequired(t *testing.T) {
+	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) { c.SignIn.DPoP = authkit.DPoPRequired }))
+	for _, u := range []authtest.User{authtest.NewUser(t, auth), func() authtest.User {
+		u := authtest.NewUser(t, auth)
+		u.TOTP = authtest.EnrollTOTP(t, auth, u)
+		return u
+	}()} {
+		tokens := authtest.SignIn(t, auth, u)
+		require.Equal(t, u.ID, authtest.Identity(t, auth, tokens.AccessToken).Subject)
+
+		bearer := httptest.NewRequest(http.MethodGet, "https://authtest/things", nil)
+		bearer.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+		_, err := auth.Authenticator().Authenticate(bearer)
+		require.Error(t, err, "a bound token as Bearer")
+		signed := httptest.NewRequest(http.MethodGet, "https://authtest/things", nil)
+		authtest.Authorize(t, auth, signed, tokens.AccessToken)
+		_, err = auth.Authenticator().Authenticate(signed)
+		require.NoError(t, err)
+	}
+}

@@ -89,7 +89,7 @@ func TestClientPublicSurface(t *testing.T) {
 		// Lifecycle: host wiring at boot and health probes.
 		"Start", "Close", "RiverJobs", "Ready", "Probes", "EmailAvailable", "EmailHealth", "SMSAvailable", "SMSHealth", "TwoFactorMethods",
 		// HTTP surface and request verification.
-		"Handler", "APIBase", "Routes", "Mount",
+		"Handler", "APIBase", "PublicAPIBase", "Routes", "Mount",
 		// Trusted tenant provisioning/views and explicit owner-only maintenance.
 		"CreateTenant", "ForTenant", "ResolveTenantActor", "MigrateGroupPersona",
 		"VerifyRequest", "Verify", "VerifyIDToken", "AuthenticateRequest", "NewVerifier",

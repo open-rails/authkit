@@ -85,6 +85,7 @@ pkg authkit, method (*Client) Permission(string) (iam.Perm, error)
 pkg authkit, method (*Client) Persona(string) (iam.Persona, error)
 pkg authkit, method (*Client) Probes() []Probe
 pkg authkit, method (*Client) ProvisioningTargets(context.Context) ([]iam.ProvisioningTarget, error)
+pkg authkit, method (*Client) PublicAPIBase() string
 pkg authkit, method (*Client) PublicUsers(context.Context, []string) (map[string]iam.PublicUser, error)
 pkg authkit, method (*Client) PurgeGroup(context.Context, iam.GroupRef, ...Option) error
 pkg authkit, method (*Client) PurgeUsers(context.Context, []string, ...Option) ([]iam.OpResult, error)
@@ -632,6 +633,7 @@ pkg authkit/authtest, const Audience untyped string = "authtest"
 pkg authkit/authtest, const Issuer untyped string = "https://example.com"
 pkg authkit/authtest, const Password untyped string = "Authtest-password-1"
 pkg authkit/authtest, func Attach(testing.TB, *authkit.Client, *httptest.Server) *AuthorizationServer
+pkg authkit/authtest, func Authorize(testing.TB, *authkit.Client, *http.Request, string)
 pkg authkit/authtest, func ClientSecretSHA256(string) string
 pkg authkit/authtest, func EnrollDeviceKey(testing.TB, *authkit.Client, *Outbox, User) DeviceKey
 pkg authkit/authtest, func EnrollTOTP(testing.TB, *authkit.Client, User) *TOTP

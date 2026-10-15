@@ -20,6 +20,8 @@
 ### Changes
 
 - DPoP proofs to the host's routes behind `Client.Authenticator()` are checked against `HTTPConfig.PublicURL`'s origin, where browsers reach the deployment, falling back to the issuer's origin as before. A site whose issuer origin differs from its public one (a dev server or proxy in front) can require DPoP-bound sessions.
+- `Client.PublicAPIBase()`: `APIBase` as clients reach it (`HTTPConfig.PublicURL`), what DPoP proofs to the API name.
+- authtest: `SignIn` binds the session to a DPoP key when the deployment requires one (capabilities `dpop: required`), as a browser does; `call`-based helpers sign with it. `authtest.Authorize(t, auth, r, token)` sets a request's credential as a browser sends it: a bound token as DPoP with a proof naming the public origin and the request's path, anything else as Bearer. `Identity` uses it.
 
 ## v1.28.0
 

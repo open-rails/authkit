@@ -7,8 +7,12 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"net/http"
+	"net/url"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/open-rails/authkit"
 
 	jwt "github.com/golang-jwt/jwt/v5"
 )
@@ -133,4 +137,49 @@ func (k *DPoPKey) Assertion(t testing.TB, a Assertion) string {
 func (k *DPoPKey) coordinates() (string, string) {
 	public, _ := k.key.PublicKey.Bytes()
 	return base64.RawURLEncoding.EncodeToString(public[1:33]), base64.RawURLEncoding.EncodeToString(public[33:])
+}
+
+// boundKeys remembers the DPoP key SignIn bound each session's tokens to.
+var boundKeys sync.Map
+
+func bindTokens(key *DPoPKey, tokens ...string) {
+	for _, token := range tokens {
+		if key != nil && token != "" {
+			boundKeys.Store(token, key)
+		}
+	}
+}
+
+func keyFor(token string) *DPoPKey {
+	if k, ok := boundKeys.Load(token); ok {
+		return k.(*DPoPKey)
+	}
+	return nil
+}
+
+// Authorize sets r's credential as a browser sends it: a token SignIn bound
+// to a DPoP key goes as DPoP with a fresh proof naming auth's public origin
+// and r's path, as the host's routes behind auth.Authenticator() check it;
+// any other token or API key as Bearer.
+func Authorize(t testing.TB, auth *authkit.Client, r *http.Request, token string) {
+	t.Helper()
+	key := keyFor(token)
+	if key == nil {
+		r.Header.Set("Authorization", "Bearer "+token)
+		return
+	}
+	base, err := url.Parse(auth.PublicAPIBase())
+	if err != nil || base.Host == "" {
+		t.Fatal("authtest: the Client serves no HTTP (Config.HTTP)")
+	}
+	r.Header.Set("Authorization", "DPoP "+token)
+	r.Header.Set("DPoP", key.Proof(t, r.Method, base.Scheme+"://"+base.Host+r.URL.EscapedPath(), token, ""))
+}
+
+// requiresDPoP reports whether auth's sign-ins need a DPoP key, from its
+// configuration: asking /capabilities would spend the caller's rate limit.
+func requiresDPoP(t testing.TB, auth *authkit.Client) bool {
+	t.Helper()
+	cfg, _ := builtWith(t, auth)
+	return cfg.SignIn.DPoP == authkit.DPoPRequired
 }
