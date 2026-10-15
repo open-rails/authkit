@@ -32,13 +32,13 @@ type Authenticator struct {
 }
 
 // newAuthenticator trusts this deployment's issuer for audiences; opts come
-// after the defaults (WithPublicURL overrides the issuer's origin).
+// after the defaults (WithPublicURL overrides the public origin).
 func (s *Engine) newAuthenticator(audiences []string, own bool, opts ...verify.VerifierOption) (*Authenticator, error) {
 	cfg := s.cfg
 	base := []verify.VerifierOption{
 		verify.WithSkew(5 * time.Second),
 		verify.WithDPoP(s.redis),
-		verify.WithPublicURL(issuerOrigin(cfg.Token.Issuer)),
+		verify.WithPublicURL(s.publicOrigin()),
 	}
 	a := &Authenticator{s: s, v: verify.NewVerifier(append(base, opts...)...), audiences: audiences, own: own}
 	if cfg.Token.Issuer != "" {
@@ -51,10 +51,20 @@ func (s *Engine) newAuthenticator(audiences []string, own bool, opts ...verify.V
 
 // NewAuthenticator builds an authenticator for a host resource server in this
 // process: this deployment's API keys and tokens, for audiences. DPoP proofs are spent in this
-// deployment's replay store and checked against the issuer's origin unless
+// deployment's replay store and checked against its public origin unless
 // opts say otherwise (verify.WithPublicURL). It applies no 2FA policy.
 func (s *Engine) NewAuthenticator(audiences []string, opts ...verify.VerifierOption) (*Authenticator, error) {
 	return s.newAuthenticator(audiences, false, opts...)
+}
+
+// publicOrigin is where browsers reach this deployment, which DPoP proofs
+// name: HTTPConfig.PublicURL's origin (a proxy in front may change it), else
+// the issuer's.
+func (s *Engine) publicOrigin() string {
+	if h := s.cfg.HTTP; h != nil && h.PublicURL != "" {
+		return issuerOrigin(h.PublicURL)
+	}
+	return issuerOrigin(s.cfg.Token.Issuer)
 }
 
 // issuerOrigin is scheme://host of the issuer; "" (no DPoP proof can match)

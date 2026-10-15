@@ -509,8 +509,9 @@ type HTTPConfig struct {
 	// PublicURL is where clients reach BasePath when a proxy in front changes
 	// the origin or the path, such as "https://shop.example.com/sso". DPoP
 	// proofs sent to the token endpoint, and jwt-bearer assertions' aud, must
-	// name PublicURL plus its path beneath BasePath. Empty defaults to Token.Issuer's origin plus
-	// BasePath.
+	// name PublicURL plus its path beneath BasePath; proofs to the host's
+	// routes behind Client.Authenticator name its origin. Empty defaults to
+	// Token.Issuer's origin plus BasePath.
 	PublicURL string `yaml:"public_url"`
 	// Exclude drops routes the host serves itself, named as iam.Route.Pattern
 	// names them ("GET /.well-known/jwks.json"). An entry matching no route is

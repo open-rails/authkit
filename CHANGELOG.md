@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.29.2
+
+### Changes
+
+- DPoP proofs to the host's routes behind `Client.Authenticator()` are checked against `HTTPConfig.PublicURL`'s origin, where browsers reach the deployment, falling back to the issuer's origin as before. A site whose issuer origin differs from its public one (a dev server or proxy in front) can require DPoP-bound sessions.
+
 ## v1.28.0
 
 ### Changes
