@@ -170,6 +170,7 @@ func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	out.GroupID = g.ID
+	out.Persona = g.Persona.String()
 	if persona, ok := s.svc.PermissionGroupSchema().Persona(g.Persona); ok {
 		if q.Direct {
 			for _, permission := range persona.Permissions {

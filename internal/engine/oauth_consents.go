@@ -112,6 +112,9 @@ func (s *Engine) GroupName(ctx context.Context, groupID string) *string {
 
 // OAuthConsents lists userID's consents, newest change first.
 func (s *Engine) OAuthConsents(ctx context.Context, userID string) ([]iam.OAuthConsent, error) {
+	if err := s.requireTenantUser(ctx, s.q, userID); err != nil {
+		return nil, err
+	}
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -146,6 +149,9 @@ func (s *Engine) RevokeConsent(ctx context.Context, userID, clientID string, opt
 // consent goes, the client's refresh tokens for the user end at their next
 // use, its back-channel logout is sent, and oauth_consent.revoked recorded.
 func (s *Engine) WithdrawConsent(ctx context.Context, who auth.Identity, userID, clientID string) error {
+	if err := s.requireTenantUser(ctx, s.q, userID); err != nil {
+		return err
+	}
 	if err := s.requirePG(); err != nil {
 		return err
 	}

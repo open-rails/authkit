@@ -78,7 +78,11 @@ type Invoker struct {
 // limits and budgets are per invoker within the subject; audit records all
 // three. Contact fields are optional metadata, not authority.
 type Identity struct {
-	Issuer        string
+	Issuer string
+	// TenantID is verified native-account or remote-directory ownership metadata.
+	// It does not imply a native account exists. Providers bind it to their
+	// credential state; changing this exported field grants nothing.
+	TenantID      string
 	Subject       string
 	SubjectKind   SubjectKind
 	Invoker       Invoker

@@ -75,7 +75,7 @@ func (s *Engine) importUnverifiedSolanaLink(ctx context.Context, in iam.ImportSo
 	if sourceID == "" {
 		return iam.ImportSolanaLinkRow{Status: iam.ImportRejected, Reason: iam.ImportMissingSourceID}, nil
 	}
-	if _, err := s.q.UserByID(ctx, userID); err != nil {
+	if _, err := s.q.TenantUserByID(ctx, db.TenantUserByIDParams{TenantID: s.tenantKey(ctx), ID: userID}); err != nil {
 		if err == pgx.ErrNoRows {
 			return iam.ImportSolanaLinkRow{Status: iam.ImportRejected, Reason: iam.ImportMissingUser}, nil
 		}
@@ -104,7 +104,7 @@ func (s *Engine) importUnverifiedSolanaLink(ctx context.Context, in iam.ImportSo
 		return out, err
 	}
 	providerSlug := solanaProviderSlug
-	_, err = s.q.UserProviderImportUnverified(ctx, db.UserProviderImportUnverifiedParams{
+	_, err = s.q.UserProviderImportUnverified(ctx, db.UserProviderImportUnverifiedParams{TenantID: s.tenantKey(ctx),
 		ID:           id,
 		UserID:       userID,
 		Issuer:       s.solanaIssuer(),
@@ -120,7 +120,7 @@ func (s *Engine) importUnverifiedSolanaLink(ctx context.Context, in iam.ImportSo
 		return out, fmt.Errorf("import unverified Solana link: %w", err)
 	}
 
-	byAddress, addressErr := s.q.ProviderLinkByIssuerAny(ctx, db.ProviderLinkByIssuerAnyParams{
+	byAddress, addressErr := s.q.ProviderLinkByIssuerAny(ctx, db.ProviderLinkByIssuerAnyParams{TenantID: s.tenantKey(ctx),
 		Issuer:  s.solanaIssuer(),
 		Subject: address,
 	})
@@ -166,7 +166,7 @@ func (s *Engine) verifyImportedSolanaLink(ctx context.Context, userID, address s
 }
 
 func (s *Engine) getSolanaProviderLinkAny(ctx context.Context, address string) (userID string, verified, found bool, err error) {
-	row, err := s.q.ProviderLinkByIssuerAny(ctx, db.ProviderLinkByIssuerAnyParams{
+	row, err := s.q.ProviderLinkByIssuerAny(ctx, db.ProviderLinkByIssuerAnyParams{TenantID: s.tenantKey(ctx),
 		Issuer:  s.solanaIssuer(),
 		Subject: strings.TrimSpace(address),
 	})

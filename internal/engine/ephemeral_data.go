@@ -132,7 +132,10 @@ func (s *Engine) storePhoneVerification(ctx context.Context, purpose, phone, use
 		return err
 	}
 	if linkHash != "" {
-		return s.ephemSetString(ctx, keyPhoneVerifyLink+linkHash, key, ttl)
+		if err := s.ephemSetString(ctx, keyPhoneVerifyLink+linkHash, key, ttl); err != nil {
+			return err
+		}
+		return s.rememberProofRoute(ctx, "verification-link", linkHash, ttl)
 	}
 	return nil
 }
@@ -186,7 +189,13 @@ func (s *Engine) storeEmailVerification(ctx context.Context, userID string, emai
 	if err := s.ephemSetJSON(ctx, key, data, ttl); err != nil {
 		return err
 	}
-	return s.ephemSetString(ctx, keyEmailVerifyLink+linkHash, key, ttl)
+	if linkHash != "" {
+		if err := s.ephemSetString(ctx, keyEmailVerifyLink+linkHash, key, ttl); err != nil {
+			return err
+		}
+		return s.rememberProofRoute(ctx, "verification-link", linkHash, ttl)
+	}
+	return nil
 }
 
 func (s *Engine) deleteEmailVerification(ctx context.Context, userID string) {
@@ -314,7 +323,10 @@ func (s *Engine) storePasswordReset(ctx context.Context, tokenHash, userID, chan
 		return jwt.ErrTokenInvalidClaims
 	}
 	data := passwordResetData{UserID: userID, Version: row.CredentialVersion, Channel: channel, Contact: contact}
-	return s.ephemSetJSON(ctx, keyPasswordReset+tokenHash, data, ttl)
+	if err := s.ephemSetJSON(ctx, keyPasswordReset+tokenHash, data, ttl); err != nil {
+		return err
+	}
+	return s.rememberProofRoute(ctx, "password-reset", tokenHash, ttl)
 }
 
 func (s *Engine) consumePasswordReset(ctx context.Context, tokenHash string) (passwordResetData, error) {

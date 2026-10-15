@@ -88,7 +88,7 @@ func New(personas []PersonaSpec, roles []RoleSpec) (*Schema, error) {
 		personas: map[iam.Persona]Persona{},
 		known:    map[iam.Perm]struct{}{},
 	}
-	specs := map[iam.Persona]PersonaSpec{iam.RootPersona(): {Name: iam.RootPersona()}}
+	specs := map[iam.Persona]PersonaSpec{iam.RootPersona(): {Name: iam.RootPersona()}, iam.TenantPersona(): {Name: iam.TenantPersona()}}
 	for _, spec := range personas {
 		specs[spec.Name] = spec
 	}
@@ -119,10 +119,10 @@ func (s *Schema) compilePersona(name iam.Persona, spec PersonaSpec) (Persona, er
 		s.known[perm] = struct{}{}
 	}
 	mfa := spec.RequireMFA
-	if name == iam.RootPersona() {
+	if name == iam.RootPersona() || name == iam.TenantPersona() {
 		// Handing out site-wide roles and editing other people's accounts
 		// always need MFA, so the root owner does.
-		mfa = append([]iam.Perm{ident.MembersManage(name), ident.RootUsersManage}, mfa...)
+		mfa = append([]iam.Perm{ident.MembersManage(name), ident.Perm(name.String() + ":users:manage")}, mfa...)
 	}
 	for _, pattern := range mfa {
 		if pattern.Persona() != name {
@@ -187,6 +187,11 @@ func Builtins(name iam.Persona, credentials, directory, roles bool) []iam.Perm {
 	if name == iam.RootPersona() {
 		out = append(out, ident.IntrinsicRootPermissions()...)
 	}
+	if name == iam.TenantPersona() {
+		for _, p := range ident.IntrinsicRootPermissions() {
+			out = append(out, ident.Perm(strings.Replace(p.String(), "root:", "tenant:", 1)))
+		}
+	}
 	return out
 }
 
@@ -246,9 +251,9 @@ func (s *Schema) compileRoles(specs []RoleSpec) error {
 // also holds every other persona's, so the site owner acts in every group.
 func (s *Schema) ownerGrants(persona iam.Persona) []iam.Perm {
 	out := []iam.Perm{persona.OwnerGrant()}
-	if persona == iam.RootPersona() {
+	if persona == iam.RootPersona() || persona == iam.TenantPersona() {
 		for _, p := range s.order {
-			if p != iam.RootPersona() {
+			if p != persona && p != iam.RootPersona() {
 				out = append(out, p.OwnerGrant())
 			}
 		}
@@ -305,7 +310,9 @@ func (s *Schema) validRoleGrant(persona iam.Persona, pattern iam.Perm) error {
 // mayHold is the one rule for which persona's permissions a role may hold. A
 // persona role holds only its own persona's. A root role may hold any
 // persona's, since a role held on root applies in every group.
-func mayHold(role, perm iam.Persona) bool { return role == iam.RootPersona() || role == perm }
+func mayHold(role, perm iam.Persona) bool {
+	return role == iam.RootPersona() || role == perm || role == iam.TenantPersona() && perm != iam.RootPersona()
+}
 
 // RequiresMFA reports whether grants reach a permission that needs MFA. MFA
 // follows permissions, not role names: a clone, an include or a root role
@@ -418,7 +425,7 @@ func (s *Schema) ResolveGrants(target string, assignments []Assignment) []string
 	var out []string
 	add := func(a Assignment, grants []string) {
 		for _, g := range grants {
-			if g == "" || seen[g] || a.PermissionGroupID != target && ident.Perm(g).Persona() == iam.RootPersona() {
+			if g == "" || seen[g] || a.PermissionGroupID != target && (ident.Perm(g).Persona() == iam.RootPersona() || a.Persona == iam.TenantPersona() && ident.Perm(g).Persona() == iam.TenantPersona()) {
 				continue
 			}
 			seen[g] = true

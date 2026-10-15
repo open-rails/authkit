@@ -10,6 +10,7 @@ import (
 // so render other people with PublicUser. A nil field is unset.
 type User struct {
 	ID                string     `json:"id"`
+	TenantID          TenantID   `json:"tenant_id"`
 	Email             *string    `json:"email"`
 	Phone             *string    `json:"phone_number"`
 	Username          string     `json:"username"`
@@ -186,6 +187,7 @@ type UserQuery struct {
 	Search           string
 	Status           UserStatus
 	RootRole         Role
+	TenantRole       Role
 	Entitlement      string
 	Sort             UserSort
 	Desc             bool
@@ -199,6 +201,7 @@ type UserQuery struct {
 type UserEntry struct {
 	User
 	RootRole     *Role    `json:"root_role"`
+	TenantRole   *Role    `json:"tenant_role"`
 	Entitlements []string `json:"entitlements"`
 }
 

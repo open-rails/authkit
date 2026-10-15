@@ -10,11 +10,11 @@ import (
 )
 
 const sCIMUsersCount = `-- name: SCIMUsersCount :one
-SELECT count(*)::bigint FROM users
+SELECT count(*)::bigint FROM users WHERE tenant_id=NULLIF($1::text,'')::uuid
 `
 
-func (q *Queries) SCIMUsersCount(ctx context.Context) (int64, error) {
-	row := q.db.QueryRow(ctx, sCIMUsersCount)
+func (q *Queries) SCIMUsersCount(ctx context.Context, tenantID string) (int64, error) {
+	row := q.db.QueryRow(ctx, sCIMUsersCount, tenantID)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -22,14 +22,15 @@ func (q *Queries) SCIMUsersCount(ctx context.Context) (int64, error) {
 
 const sCIMUsersMatching = `-- name: SCIMUsersMatching :many
 
-SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at FROM users
-WHERE id = ANY($1::uuid[])
-   OR username = ANY($2::text[]::public.citext[])
-   OR (email_verified AND email = ANY($3::text[]::public.citext[]))
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id FROM users
+WHERE tenant_id=NULLIF($1::text,'')::uuid AND (id = ANY($2::uuid[])
+   OR username = ANY($3::text[]::public.citext[])
+   OR (email_verified AND email = ANY($4::text[]::public.citext[])))
 ORDER BY id
 `
 
 type SCIMUsersMatchingParams struct {
+	TenantID  string
 	Ids       []string
 	Usernames []string
 	Emails    []string
@@ -38,7 +39,12 @@ type SCIMUsersMatchingParams struct {
 // The SCIM service provider's reads (GET /scim/v2/Users). An address
 // matches only once verified: a SCIM User shows no other.
 func (q *Queries) SCIMUsersMatching(ctx context.Context, arg SCIMUsersMatchingParams) ([]User, error) {
-	rows, err := q.db.Query(ctx, sCIMUsersMatching, arg.Ids, arg.Usernames, arg.Emails)
+	rows, err := q.db.Query(ctx, sCIMUsersMatching,
+		arg.TenantID,
+		arg.Ids,
+		arg.Usernames,
+		arg.Emails,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -66,6 +72,7 @@ func (q *Queries) SCIMUsersMatching(ctx context.Context, arg SCIMUsersMatchingPa
 			&i.CredentialVersion,
 			&i.PublicMetadata,
 			&i.ProfileUpdatedAt,
+			&i.TenantID,
 		); err != nil {
 			return nil, err
 		}
@@ -78,16 +85,17 @@ func (q *Queries) SCIMUsersMatching(ctx context.Context, arg SCIMUsersMatchingPa
 }
 
 const sCIMUsersPage = `-- name: SCIMUsersPage :many
-SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at FROM users ORDER BY id LIMIT $2 OFFSET $1
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id FROM users WHERE tenant_id=NULLIF($1::text,'')::uuid ORDER BY id LIMIT $3 OFFSET $2
 `
 
 type SCIMUsersPageParams struct {
+	TenantID string
 	Skip     int64
 	PageSize int64
 }
 
 func (q *Queries) SCIMUsersPage(ctx context.Context, arg SCIMUsersPageParams) ([]User, error) {
-	rows, err := q.db.Query(ctx, sCIMUsersPage, arg.Skip, arg.PageSize)
+	rows, err := q.db.Query(ctx, sCIMUsersPage, arg.TenantID, arg.Skip, arg.PageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -115,6 +123,7 @@ func (q *Queries) SCIMUsersPage(ctx context.Context, arg SCIMUsersPageParams) ([
 			&i.CredentialVersion,
 			&i.PublicMetadata,
 			&i.ProfileUpdatedAt,
+			&i.TenantID,
 		); err != nil {
 			return nil, err
 		}
@@ -127,23 +136,24 @@ func (q *Queries) SCIMUsersPage(ctx context.Context, arg SCIMUsersPageParams) ([
 }
 
 const userInfoSearch = `-- name: UserInfoSearch :many
-SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at FROM users u
-WHERE u.deleted_at IS NULL
-  AND (u.username::text ILIKE $1::text
-       OR (u.email_verified AND u.email::text ILIKE $1::text))
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id FROM users u
+WHERE u.tenant_id=NULLIF($1::text,'')::uuid AND u.deleted_at IS NULL
+  AND (u.username::text ILIKE $2::text
+       OR (u.email_verified AND u.email::text ILIKE $2::text))
 ORDER BY u.id
-LIMIT $2
+LIMIT $3
 `
 
 type UserInfoSearchParams struct {
-	Pattern string
-	MaxRows int64
+	TenantID string
+	Pattern  string
+	MaxRows  int64
 }
 
 // Live accounts whose username or verified email contains the pattern, in
 // any case (pg_trgm GIN on the columns as text, migration 0002).
 func (q *Queries) UserInfoSearch(ctx context.Context, arg UserInfoSearchParams) ([]User, error) {
-	rows, err := q.db.Query(ctx, userInfoSearch, arg.Pattern, arg.MaxRows)
+	rows, err := q.db.Query(ctx, userInfoSearch, arg.TenantID, arg.Pattern, arg.MaxRows)
 	if err != nil {
 		return nil, err
 	}
@@ -171,6 +181,7 @@ func (q *Queries) UserInfoSearch(ctx context.Context, arg UserInfoSearchParams) 
 			&i.CredentialVersion,
 			&i.PublicMetadata,
 			&i.ProfileUpdatedAt,
+			&i.TenantID,
 		); err != nil {
 			return nil, err
 		}

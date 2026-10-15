@@ -177,7 +177,7 @@ SELECT 'expired:' || i, '\x00', now() - interval '1 second' FROM generate_series
 // AuthKit's own River periodic job purges expired rows and leaves live ones.
 func TestEphemeralSweepRunsAsRiverMaintenance(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
-	require.NoError(t, Migrate(t.Context(), pg.Pool, config.DatabaseConfig{}))
+	require.NoError(t, Migrate(t.Context(), pg.Pool, config.DatabaseConfig{}, MigrationOptions{LegacyTenantID: testdb.DefaultTenantID}))
 	cfg := maintenanceConfig()
 	cfg.CleanupInterval = time.Second
 	core, err := New(t.Context(), cfg, config.Deps{Postgres: pg.Pool})

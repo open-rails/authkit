@@ -203,7 +203,7 @@ func (m bootstrapMatch) refusal(username string) error {
 func (s *Engine) findBootstrapAccount(ctx context.Context, q *db.Queries, user iam.BootstrapManifestUser) (bootstrapMatch, error) {
 	var m bootstrapMatch
 	find := func(key iam.UserKey, identifier string) error {
-		acct, err := lockBootstrapAccount(ctx, q, key, identifier)
+		acct, err := s.lockBootstrapAccount(ctx, q, key, identifier)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
@@ -234,7 +234,7 @@ func (s *Engine) findBootstrapAccount(ctx context.Context, q *db.Queries, user i
 		return m, nil
 	}
 	username := strings.TrimSpace(user.Username)
-	acct, err := q.BootstrapAccountByCanonicalNameForUpdate(ctx, username)
+	acct, err := q.BootstrapAccountByCanonicalNameForUpdate(ctx, db.BootstrapAccountByCanonicalNameForUpdateParams{TenantID: s.tenantKey(ctx), Username: username})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return bootstrapMatch{}, nil
 	}

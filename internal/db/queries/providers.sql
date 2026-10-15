@@ -15,9 +15,9 @@ SELECT EXISTS(SELECT 1 FROM user_passwords WHERE user_id = $1);
 DELETE FROM user_providers WHERE user_id = $1 AND provider_slug = $2;
 
 -- name: UserProviderUpsertByIssuer :one
-INSERT INTO user_providers (id, user_id, issuer, provider_slug, subject, email_at_provider)
-VALUES ($1, $2, $3, $4, $5, $6)
-ON CONFLICT (issuer, subject) DO UPDATE
+INSERT INTO user_providers (id,user_id,issuer,provider_slug,subject,email_at_provider,tenant_id)
+VALUES ($1,$2,$3,$4,$5,$6,NULLIF(sqlc.arg(tenant_id)::text,'')::uuid)
+ON CONFLICT (tenant_id,issuer,subject) DO UPDATE
 SET email_at_provider = EXCLUDED.email_at_provider,
     provider_slug = COALESCE(EXCLUDED.provider_slug, user_providers.provider_slug)
 WHERE user_providers.user_id = EXCLUDED.user_id
@@ -26,7 +26,7 @@ RETURNING id, user_id, verified_at;
 -- name: ProviderLinkByIssuer :one
 SELECT user_id, email_at_provider
 FROM user_providers
-WHERE issuer = $1 AND subject = $2 AND verified_at IS NOT NULL;
+WHERE tenant_id=NULLIF(sqlc.arg(tenant_id)::text,'')::uuid AND issuer = $1 AND subject = $2 AND verified_at IS NOT NULL;
 
 -- name: UserProviderSetUsername :exec
 UPDATE user_providers SET profile = jsonb_build_object('username', sqlc.arg(username)::text)
@@ -80,7 +80,7 @@ FOR UPDATE;
 -- name: ProviderLinkByIssuerAny :one
 SELECT user_id, email_at_provider, verified_at
 FROM user_providers
-WHERE issuer = $1 AND subject = $2;
+WHERE tenant_id=NULLIF(sqlc.arg(tenant_id)::text,'')::uuid AND issuer = $1 AND subject = $2;
 
 -- name: UserProviderByIssuerAny :one
 SELECT subject, verified_at
@@ -89,9 +89,9 @@ WHERE user_id = $1 AND issuer = $2;
 
 -- name: UserProviderImportUnverified :one
 INSERT INTO user_providers (
-  id, user_id, issuer, provider_slug, subject, profile, created_at, verified_at
+  id,user_id,issuer,provider_slug,subject,profile,created_at,verified_at,tenant_id
 )
-VALUES ($1, $2, $3, $4, $5, sqlc.arg(profile)::jsonb, $6, NULL)
+VALUES ($1, $2, $3, $4, $5, sqlc.arg(profile)::jsonb,$6,NULL,NULLIF(sqlc.arg(tenant_id)::text,'')::uuid)
 ON CONFLICT DO NOTHING
 RETURNING id, user_id;
 

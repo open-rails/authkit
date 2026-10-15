@@ -184,9 +184,12 @@ func (s *Engine) authorizeApplicationControl(ctx context.Context, st *permission
 		return err
 	}
 	for _, h := range held {
-		group := groupTarget{ID: h.GroupID, Persona: ident.Persona(h.Persona)}
+		group := g
 		in := auth
-		if group.ID != g.ID {
+		if h.GroupID != g.ID {
+			if group, err = s.resolveGroup(ctx, st, iam.GroupByID(h.GroupID)); err != nil {
+				return err
+			}
 			if in, err = s.identityAuthority(ctx, st, who, group); err != nil {
 				return err
 			}

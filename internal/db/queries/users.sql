@@ -5,13 +5,16 @@
 SELECT * FROM users WHERE id = $1;
 
 -- name: UserByEmail :one
-SELECT * FROM users WHERE email = lower(sqlc.arg(email)::text)::public.citext;
+SELECT * FROM users WHERE tenant_id=NULLIF(sqlc.arg(tenant_id)::text,'')::uuid AND email = lower(sqlc.arg(email)::text)::public.citext;
 
 -- name: UserByPhone :one
-SELECT * FROM users WHERE phone_number = $1;
+SELECT * FROM users WHERE tenant_id=NULLIF(sqlc.arg(tenant_id)::text,'')::uuid AND phone_number = sqlc.narg(phone)::text;
 
 -- name: UserByUsername :one
-SELECT * FROM users WHERE username = sqlc.arg(username)::text::public.citext;
+SELECT * FROM users WHERE tenant_id=NULLIF(sqlc.arg(tenant_id)::text,'')::uuid AND username = sqlc.arg(username)::text::public.citext;
+
+-- name: TenantUserByID :one
+SELECT * FROM users WHERE tenant_id=NULLIF(sqlc.arg(tenant_id)::text,'')::uuid AND id=sqlc.arg(id)::uuid;
 
 -- name: UsersByIDs :many
 SELECT * FROM users WHERE id = ANY(sqlc.arg(ids)::uuid[]);
@@ -23,13 +26,13 @@ WHERE id = $1 AND phone_number = $2;
 
 -- name: UserEmailOrUsernameTaken :one
 SELECT
-  EXISTS(SELECT 1 FROM users WHERE email = lower(sqlc.arg(email)::text)::public.citext)::boolean AS email_taken,
-  EXISTS(SELECT 1 FROM name_claims WHERE name=lower(sqlc.arg(username)::text) AND (canonical OR expires_at IS NULL OR expires_at>sqlc.arg(at_time)::timestamptz))::boolean AS username_taken;
+  EXISTS(SELECT 1 FROM users WHERE tenant_id=NULLIF(sqlc.arg(tenant_id)::text,'')::uuid AND email = lower(sqlc.arg(email)::text)::public.citext)::boolean AS email_taken,
+  EXISTS(SELECT 1 FROM name_claims WHERE tenant_id=NULLIF(sqlc.arg(tenant_id)::text,'')::uuid AND name=lower(sqlc.arg(username)::text) AND (canonical OR expires_at IS NULL OR expires_at>sqlc.arg(at_time)::timestamptz))::boolean AS username_taken;
 
 -- name: UserPhoneOrUsernameTaken :one
 SELECT
-  EXISTS(SELECT 1 FROM users WHERE phone_number = sqlc.arg(phone)::text)::boolean AS phone_taken,
-  EXISTS(SELECT 1 FROM name_claims WHERE name=lower(sqlc.arg(username)::text) AND (canonical OR expires_at IS NULL OR expires_at>sqlc.arg(at_time)::timestamptz))::boolean AS username_taken;
+  EXISTS(SELECT 1 FROM users WHERE tenant_id=NULLIF(sqlc.arg(tenant_id)::text,'')::uuid AND phone_number = sqlc.arg(phone)::text)::boolean AS phone_taken,
+  EXISTS(SELECT 1 FROM name_claims WHERE tenant_id=NULLIF(sqlc.arg(tenant_id)::text,'')::uuid AND name=lower(sqlc.arg(username)::text) AND (canonical OR expires_at IS NULL OR expires_at>sqlc.arg(at_time)::timestamptz))::boolean AS username_taken;
 
 -- name: UserSetPreferredLanguage :exec
 UPDATE users
@@ -44,22 +47,22 @@ WHERE id = sqlc.arg(id)::uuid;
 
 -- name: UserInsert :one
 WITH claim AS MATERIALIZED (
- SELECT claim_canonical_name(sqlc.arg(username)::text,sqlc.arg(id)::uuid,sqlc.arg(at_time)::timestamptz)
+ SELECT claim_canonical_name(NULLIF(sqlc.arg(tenant_id)::text,'')::uuid,sqlc.arg(username)::text,sqlc.arg(id)::uuid,sqlc.arg(at_time)::timestamptz)
 )
-INSERT INTO users (id, email, username)
-SELECT sqlc.arg(id)::uuid, NULLIF(lower(sqlc.arg(email)::text), ''), sqlc.arg(username) FROM claim
+INSERT INTO users (id,tenant_id,email,username)
+SELECT sqlc.arg(id)::uuid,NULLIF(sqlc.arg(tenant_id)::text,'')::uuid,NULLIF(lower(sqlc.arg(email)::text), ''),sqlc.arg(username) FROM claim
 RETURNING *;
 
 -- name: UserImportInsert :exec
 WITH claim AS MATERIALIZED (
- SELECT claim_canonical_name(sqlc.arg(username)::text,sqlc.arg(id)::uuid,sqlc.arg(at_time)::timestamptz)
+ SELECT claim_canonical_name(NULLIF(sqlc.arg(tenant_id)::text,'')::uuid,sqlc.arg(username)::text,sqlc.arg(id)::uuid,sqlc.arg(at_time)::timestamptz)
 )
 INSERT INTO users (
-  id, email, phone_number, username, email_verified, phone_verified,
+  id,tenant_id,email,phone_number,username,email_verified,phone_verified,
   banned_at, banned_until, ban_reason, banned_by, public_metadata, created_at, updated_at
 )
 SELECT
-  sqlc.arg(id)::uuid, sqlc.narg(email), sqlc.narg(phone_number), sqlc.arg(username), sqlc.arg(email_verified), sqlc.arg(phone_verified),
+  sqlc.arg(id)::uuid,NULLIF(sqlc.arg(tenant_id)::text,'')::uuid,sqlc.narg(email),sqlc.narg(phone_number),sqlc.arg(username),sqlc.arg(email_verified),sqlc.arg(phone_verified),
   sqlc.narg(banned_at), sqlc.narg(banned_until), sqlc.narg(ban_reason), sqlc.narg(banned_by)::uuid, sqlc.arg(public_metadata)::jsonb, sqlc.arg(created_at), sqlc.arg(updated_at)
 FROM claim;
 
@@ -189,4 +192,7 @@ UPDATE account_deletions SET deleted_by = sqlc.narg(deleted_by)::uuid WHERE user
 -- Closes the recovery window of a deleted account now.
 UPDATE account_deletions SET purge_at = statement_timestamp()
 WHERE user_id = $1 AND state = 'deleted'
-RETURNING id, user_id, deleted_at, purge_at;
+RETURNING *;
+
+-- name: TenantUsersByIDs :many
+SELECT * FROM users WHERE tenant_id=NULLIF(sqlc.arg(tenant_id)::text,'')::uuid AND id=ANY(sqlc.arg(ids)::uuid[]);

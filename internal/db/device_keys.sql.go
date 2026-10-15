@@ -52,17 +52,18 @@ func (q *Queries) DeviceKeyByPublicKey(ctx context.Context, publicKey []byte) (U
 }
 
 const deviceKeyEnrollUserInsert = `-- name: DeviceKeyEnrollUserInsert :execrows
-INSERT INTO users (id, email, email_verified) VALUES ($1, $2::text, true) ON CONFLICT DO NOTHING
+INSERT INTO users (id, tenant_id, email, email_verified) VALUES ($1, $2::uuid, $3::text, true) ON CONFLICT DO NOTHING
 `
 
 type DeviceKeyEnrollUserInsertParams struct {
-	ID    string
-	Email string
+	ID       string
+	TenantID string
+	Email    string
 }
 
 // The account a device-key enrollment creates; the emailed code proved its address.
 func (q *Queries) DeviceKeyEnrollUserInsert(ctx context.Context, arg DeviceKeyEnrollUserInsertParams) (int64, error) {
-	result, err := q.db.Exec(ctx, deviceKeyEnrollUserInsert, arg.ID, arg.Email)
+	result, err := q.db.Exec(ctx, deviceKeyEnrollUserInsert, arg.ID, arg.TenantID, arg.Email)
 	if err != nil {
 		return 0, err
 	}

@@ -5,7 +5,7 @@ SELECT * FROM user_device_keys WHERE public_key = $1;
 
 -- name: DeviceKeyEnrollUserInsert :execrows
 -- The account a device-key enrollment creates; the emailed code proved its address.
-INSERT INTO users (id, email, email_verified) VALUES ($1, sqlc.arg(email)::text, true) ON CONFLICT DO NOTHING;
+INSERT INTO users (id, tenant_id, email, email_verified) VALUES (sqlc.arg(id), sqlc.arg(tenant_id)::uuid, sqlc.arg(email)::text, true) ON CONFLICT DO NOTHING;
 
 -- name: DeviceKeyMarkMFAProven :exec
 UPDATE user_device_keys SET mfa_proven_at = now() WHERE id = $1;

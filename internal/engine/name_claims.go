@@ -25,12 +25,12 @@ func (s *Engine) namingNow() time.Time {
 
 // Name claims hold usernames and their former-name aliases.
 
-func lockNameClaims(ctx context.Context, q db.DBTX, names ...string) error {
-	return db.New(q).NameClaimsLock(ctx, names)
+func (s *Engine) lockNameClaims(ctx context.Context, q db.DBTX, names ...string) error {
+	return db.New(q).NameClaimsLock(ctx, db.NameClaimsLockParams{TenantID: s.tenantKey(ctx), Names: names})
 }
 
-func claimCanonicalName(ctx context.Context, q db.DBTX, name, id string, now time.Time) error {
-	err := db.New(q).NameClaimCanonical(ctx, db.NameClaimCanonicalParams{Name: name, OwnerID: id, AtTime: now})
+func (s *Engine) claimCanonicalName(ctx context.Context, q db.DBTX, name, id string, now time.Time) error {
+	err := db.New(q).NameClaimCanonical(ctx, db.NameClaimCanonicalParams{TenantID: s.tenantKey(ctx), Name: name, OwnerID: id, AtTime: now})
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "name_claims_pkey" {
 		return mapUserUniqueViolation(err)
@@ -41,23 +41,23 @@ func claimCanonicalName(ctx context.Context, q db.DBTX, name, id string, now tim
 // renameNameClaim requires the account row locked by its caller. Name locks
 // are sorted by stripe before either claim changes, so opposite renames do not
 // deadlock.
-func renameNameClaim(ctx context.Context, q db.DBTX, id, oldName, newName string, now time.Time, policy config.UsernameConfig) error {
-	if err := lockNameClaims(ctx, q, oldName, newName); err != nil {
+func (s *Engine) renameNameClaim(ctx context.Context, q db.DBTX, id, oldName, newName string, now time.Time, policy config.UsernameConfig) error {
+	if err := s.lockNameClaims(ctx, q, oldName, newName); err != nil {
 		return err
 	}
 	if oldName != "" {
 		queries := db.New(q)
 		var err error
 		if policy.FormerNames.Mode == config.FormerNamesImmediate {
-			err = queries.NameClaimDeleteOwned(ctx, db.NameClaimDeleteOwnedParams{Name: oldName, OwnerID: id})
+			err = queries.NameClaimDeleteOwned(ctx, db.NameClaimDeleteOwnedParams{TenantID: s.tenantKey(ctx), Name: oldName, OwnerID: id})
 		} else {
-			err = queries.NameClaimRetire(ctx, db.NameClaimRetireParams{Name: oldName, OwnerID: id, ExpiresAt: naming.FormerNameExpiresAt(policy, now)})
+			err = queries.NameClaimRetire(ctx, db.NameClaimRetireParams{TenantID: s.tenantKey(ctx), Name: oldName, OwnerID: id, ExpiresAt: naming.FormerNameExpiresAt(policy, now)})
 		}
 		if err != nil {
 			return err
 		}
 	}
-	return claimCanonicalName(ctx, q, newName, id, now)
+	return s.claimCanonicalName(ctx, q, newName, id, now)
 }
 
 // resolveUsername resolves current names and unexpired aliases directly to UUID.
@@ -65,7 +65,7 @@ func (s *Engine) resolveUsername(ctx context.Context, name string) (iam.NameReso
 	if err := s.requirePG(); err != nil {
 		return iam.NameResolution{}, err
 	}
-	row, err := s.q.ResolveUsername(ctx, db.ResolveUsernameParams{Name: strings.TrimSpace(name), AtTime: s.namingNow()})
+	row, err := s.q.ResolveUsername(ctx, db.ResolveUsernameParams{TenantID: s.tenantKey(ctx), Name: strings.TrimSpace(name), AtTime: s.namingNow()})
 	return iam.NameResolution{ID: row.ID, CanonicalName: naming.Canonical(row.CanonicalName), IsAlias: row.IsAlias, AliasExpiresAt: row.ExpiresAt}, err
 }
 
@@ -94,7 +94,7 @@ func (s *Engine) checkUsername(ctx context.Context, q *db.Queries, name string) 
 	if err := s.requirePG(); err != nil {
 		return err
 	}
-	taken, err := q.NameClaimTaken(ctx, db.NameClaimTakenParams{Name: name, AtTime: s.namingNow()})
+	taken, err := q.NameClaimTaken(ctx, db.NameClaimTakenParams{TenantID: s.tenantKey(ctx), Name: name, AtTime: s.namingNow()})
 	if err != nil {
 		return err
 	}
@@ -107,7 +107,7 @@ func (s *Engine) checkUsername(ctx context.Context, q *db.Queries, name string) 
 // usernameTaken reports whether any claim holds name: a canonical name, an
 // unexpired alias, or a purged account's permanent reservation.
 func (s *Engine) usernameTaken(ctx context.Context, name string) (bool, error) {
-	return s.q.NameClaimTaken(ctx, db.NameClaimTakenParams{Name: strings.TrimSpace(name), AtTime: s.namingNow()})
+	return s.q.NameClaimTaken(ctx, db.NameClaimTakenParams{TenantID: s.tenantKey(ctx), Name: strings.TrimSpace(name), AtTime: s.namingNow()})
 }
 
 func (s *Engine) admitName(ctx context.Context, request iam.NameAdmissionRequest) error {
@@ -129,7 +129,7 @@ func (s *Engine) UserNamingState(ctx context.Context, id string) (naming.State, 
 	}
 	now := s.namingNow()
 	state := naming.NewState(s.cfg.Username, last, now)
-	aliases, err := s.q.NameClaimAliasesByUser(ctx, db.NameClaimAliasesByUserParams{OwnerID: id, AtTime: now})
+	aliases, err := s.q.NameClaimAliasesByUser(ctx, db.NameClaimAliasesByUserParams{TenantID: s.tenantKey(ctx), OwnerID: id, AtTime: now})
 	if err != nil {
 		return state, err
 	}

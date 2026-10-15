@@ -411,7 +411,13 @@ func (s *Engine) OAuthClient(ctx context.Context, clientID string) (authflow.OAu
 	if err != nil {
 		return authflow.OAuthClient{}, false, err
 	}
-	return s.groupClient(row), true, nil
+	client := s.groupClient(row)
+	group, err := s.q.AuthorityGroup(ctx, row.PermissionGroupID)
+	if err != nil {
+		return authflow.OAuthClient{}, false, err
+	}
+	client.TenantID = groupTargetOf(group).TenantID
+	return client, true, nil
 }
 
 // groupClient is row as the authorization server sees it: the code and

@@ -150,10 +150,10 @@ func (s *Service) recoverCallbackState(w http.ResponseWriter, r *http.Request, p
 	if strings.TrimSpace(state) == "" || !s.stateCookieMatches(r, p, state) {
 		return nil
 	}
-	s.clearStateCookie(w, r, p, state)
 	sd, ok, err := s.svc.ConsumeOIDCState(r.Context(), state)
 	if err != nil || !ok || sd.Provider != p.Name() {
 		return nil
 	}
+	s.clearStateCookie(w, r, p, state)
 	return &sd
 }

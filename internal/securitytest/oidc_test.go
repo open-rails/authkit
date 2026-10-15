@@ -356,7 +356,8 @@ func TestSecurityOIDCResultsCarryNoTokens(t *testing.T) {
 // forged code is invalid_state.
 func TestSecurityOIDCExchangeCodeIsOneTime(t *testing.T) {
 	idp := testidp.New(t)
-	h := newHost(t, withHTTP(generousLimits), httpsFrontend, withProviders(idp.OIDC("idp")))
+	var tenant iam.TenantID
+	h := newHost(t, withHTTP(generousLimits), httpsFrontend, withProviders(idp.OIDC("idp")), authtest.WithConfig(func(c *authkit.Config) { tenant = c.DefaultTenantID }))
 	ctx := context.Background()
 	signIn := func() string {
 		t.Helper()
@@ -367,7 +368,7 @@ func TestSecurityOIDCExchangeCodeIsOneTime(t *testing.T) {
 	}
 	key := func(code string) string {
 		sum := sha256.Sum256([]byte(code))
-		return "oidc:result:" + hex.EncodeToString(sum[:])
+		return "tenant:" + tenant.String() + ":oidc:result:" + hex.EncodeToString(sum[:])
 	}
 	invalid := func(resp response) {
 		t.Helper()

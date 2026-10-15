@@ -15,7 +15,7 @@ import { AuthAdmin } from "./console.tsx"
 import { useActions } from "./write.ts"
 import { useLoad } from "./load.ts"
 
-const TENANT_A = "a7f636e8-6303-40ee-a323-4d66e0f8f59e"
+const TENANT_A = "11111111-1111-4111-8111-111111111111"
 const TENANT_B = "455ef246-f041-4ff3-9938-df4a3d0a059e"
 const allPermissions = [
   "tenant:users:read",
@@ -48,16 +48,17 @@ const user = (tenant = TENANT_A, username = "alice") => ({
   entitlements: [],
 })
 
-function host(permissions = allPermissions) {
+function host(permissions = allPermissions, rootPermissions: string[] = []) {
   const authFetch = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input), location.href)
       if (url.pathname.endsWith("/me/permissions")) {
+        const isRoot = url.searchParams.get("group_id") === "root"
         return Response.json({
           group_id: url.searchParams.get("group_id"),
-          persona: "tenant",
-          role: "root:owner",
-          permissions,
+          persona: isRoot ? "root" : "tenant",
+          role: isRoot ? "root:admin" : "tenant:admin",
+          permissions: isRoot ? rootPermissions : permissions,
         })
       }
       if (url.pathname.endsWith("/roles"))
@@ -216,7 +217,7 @@ it("uses the response persona instead of the global operator's role", () => {
   expect(access.roles.read).toBe(true)
 })
 
-it("uses tenant permissions, role filters and invitations without requesting root", async () => {
+it("uses tenant roles and invitations without requesting root membership", async () => {
   const { auth, authFetch } = host()
   render(
     <UsersAdmin
@@ -248,11 +249,57 @@ it("uses tenant permissions, role filters and invitations without requesting roo
   expect(
     urls.some((url) => url.includes(`/groups/${TENANT_A}/invitations`))
   ).toBe(true)
-  expect(
-    urls.some(
-      (url) => url.includes("group_id=root") || url.includes("/groups/root/")
+  expect(urls.some((url) => url.includes("/groups/root/"))).toBe(false)
+})
+
+it.each(["users", "console"])(
+  "allows a global account reader in a tenant %s without granting tenant role access",
+  async (panel) => {
+    const { auth, authFetch } = host(
+      [],
+      [
+        "root:users:read",
+        "root:members:read",
+        "root:members:manage",
+        "root:roles:read",
+        "root:credentials:manage",
+      ]
     )
-  ).toBe(false)
+    if (panel === "users") {
+      render(<UsersAdmin auth={auth} tenantId={TENANT_A} basePath="/users" />)
+    } else {
+      render(
+        <AuthAdmin
+          auth={auth}
+          basePath="/users"
+          sections={["users"]}
+          users={{ tenantId: TENANT_A }}
+        />
+      )
+    }
+    await screen.findByRole("link", { name: "alice" })
+    expect(
+      screen.queryByRole("combobox", { name: "Tenant role" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: "Invitations" })
+    ).not.toBeInTheDocument()
+    expect(
+      authFetch.mock.calls.some(([input]) => String(input).includes("/roles"))
+    ).toBe(false)
+  }
+)
+
+it("recognizes roleless tenant account invitations without membership powers", () => {
+  const access = groupAccess(TENANT_A, {
+    group_id: TENANT_A,
+    persona: "tenant",
+    role: "tenant:inviter",
+    permissions: ["tenant:users:invite"],
+  })
+  expect(access.invite).toBe(true)
+  expect(access.members.manage).toBe(false)
+  expect(access.roles.read).toBe(false)
 })
 
 it("edits only the tenant role and never presents the account's root role", async () => {

@@ -34,7 +34,7 @@ func (s *Engine) applyDeps(d config.Deps) error {
 			pool.Close()
 			return err
 		}
-		s.ephemeral = &ephemeralKV{pool: ephemeralPool, q: db.New(ephemeralPool)}
+		s.ephemeral = &ephemeralKV{pool: ephemeralPool, q: db.New(ephemeralPool), tenant: s.tenantID}
 	}
 	s.redis = d.Redis
 	s.replays = dpop.NewReplays(d.Redis)

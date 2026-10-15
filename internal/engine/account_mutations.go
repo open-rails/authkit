@@ -86,6 +86,11 @@ func (s *Engine) withAccountMutationIn(ctx context.Context, a auth.Identity, hos
 		return err
 	}
 	at := accountTx{tx: tx, q: s.qtx(tx), st: st, userID: userID, system: stateOf(a).IsSystem(), by: subjectUserID(a)}
+	if _, err := at.q.TenantUserByID(ctx, db.TenantUserByIDParams{TenantID: s.tenantKey(ctx), ID: userID}); errors.Is(err, pgx.ErrNoRows) {
+		return iam.ErrUserNotFound
+	} else if err != nil {
+		return err
+	}
 	at.self = at.by != nil && *at.by == userID
 	switch {
 	case at.self && rule&selfAllowed == 0:
@@ -136,6 +141,9 @@ func subjectUserID(a auth.Identity) *string {
 
 // CreateUser creates a native account: a host operation.
 func (s *Engine) CreateUser(ctx context.Context, n iam.NewUser, opts ...ops.Option) (iam.User, error) {
+	if _, err := s.tenantID(ctx); err != nil {
+		return iam.User{}, err
+	}
 	host, err := hostTx("CreateUser", opts)
 	if err != nil {
 		return iam.User{}, err
@@ -193,7 +201,7 @@ func (s *Engine) CreateUser(ctx context.Context, n iam.NewUser, opts ...ops.Opti
 	}
 	defer tx.Rollback(ctx)
 	now := time.Now().UTC()
-	err = s.qtx(tx).UserImportInsert(ctx, db.UserImportInsertParams{
+	err = s.qtx(tx).UserImportInsert(ctx, db.UserImportInsertParams{TenantID: s.tenantKey(ctx),
 		ID: userID, Email: email, PhoneNumber: phone, Username: &username, AtTime: s.namingNow(),
 		EmailVerified: n.EmailVerified, PhoneVerified: n.PhoneVerified, PublicMetadata: []byte(`{}`), CreatedAt: now, UpdatedAt: now,
 	})
@@ -692,7 +700,7 @@ func (s *Engine) PurgeUsers(ctx context.Context, ids []string, opts ...ops.Optio
 			if err != nil {
 				return err
 			}
-			return s.enqueueAccountFinalizer(ctx, at.tx, client, iam.UserDeletion(deletion), false)
+			return s.enqueueAccountFinalizer(ctx, at.tx, client, userDeletion(deletion), false)
 		})
 		if err == nil {
 			s.logRevokedSessions(ctx, id, revoked, string(authflow.SessionRevokeReasonSoftDeleted))

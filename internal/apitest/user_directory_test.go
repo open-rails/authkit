@@ -240,7 +240,7 @@ func (d *directorySQL) take() []directoryQuery {
 // explain plans q as the engine ran it, with sequential and plain index scans
 // disabled. A partial index a branch implies can serve it by a whole-index
 // scan, which a table of a dozen rows prefers to the branch's own index: with
-// status=any that is only users_email_uidx (email IS NOT NULL), dropped inside
+// status=any that is only users_tenant_email_uidx (email IS NOT NULL), dropped inside
 // the rolled-back transaction.
 func explain(t *testing.T, pool *pgxpool.Pool, q directoryQuery) string {
 	t.Helper()
@@ -252,7 +252,7 @@ func explain(t *testing.T, pool *pgxpool.Pool, q directoryQuery) string {
 	_, err = tx.Exec(ctx, `SELECT set_config('search_path', $1, true), set_config('enable_seqscan', 'off', true),
 		set_config('enable_indexscan', 'off', true), set_config('enable_indexonlyscan', 'off', true)`, q.searchPath)
 	require.NoError(t, err)
-	_, err = tx.Exec(ctx, `DROP INDEX users_email_uidx`)
+	_, err = tx.Exec(ctx, `DROP INDEX users_tenant_email_uidx`)
 	require.NoError(t, err)
 	rows, err := tx.Query(ctx, "EXPLAIN "+q.sql, q.args...)
 	require.NoError(t, err)

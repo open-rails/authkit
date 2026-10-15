@@ -36,6 +36,13 @@ func boundIdentity(c Claims) (auth.Identity, bool) {
 	if _, authority := iam.StateOf(bound); !ok || !authority {
 		return auth.Identity{}, false
 	}
+	if c.TenantID != "" {
+		tenant, err := iam.ParseTenantID(c.TenantID)
+		if err != nil {
+			return auth.Identity{}, false
+		}
+		bound = iam.InTenant(bound, tenant)
+	}
 	id.Credential = id.Credential.WithState(bound.Credential.State())
 	return id, true
 }

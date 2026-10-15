@@ -81,6 +81,16 @@ func verifiedOf(a Authenticator, cl Claims) (auth.Verified, error) {
 	if !ok {
 		return nil, auth.ErrUnauthenticated
 	}
+	// A native authority has verified these claims and will re-check the
+	// credential live. Expose the same sealed identity used by Can so trusted
+	// account-ownership resolution does not have to trust exported metadata.
+	// A standalone signature verifier and foreign resource tokens still carry
+	// no native AuthKit authority.
+	if _, native := a.(PermissionChecker); native {
+		if bound, ok := boundIdentity(cl); ok {
+			i = bound
+		}
+	}
 	cl.Permissions = append([]string(nil), cl.Permissions...)
 	id := identity{i, cl.Entitlements}
 	if authority, ok := a.(Authority); ok {

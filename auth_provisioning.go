@@ -10,5 +10,5 @@ import (
 // target: when it last delivered everything it sent, since when it has been
 // failing and why, and how many users wait to be sent.
 func (a *Client) ProvisioningTargets(ctx context.Context) ([]iam.ProvisioningTarget, error) {
-	return a.ops.ProvisioningTargets(ctx)
+	return a.ops.ProvisioningTargets(a.operationContext(ctx))
 }

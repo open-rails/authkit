@@ -249,8 +249,10 @@ func TestSecurityAuthenticatorConformance(t *testing.T) {
 		resp.json(t, &out)
 		v := authenticate(t, authenticators["Verifier"], bearerRequest(out.AccessToken)())
 		id := v.Identity()
+		source, err := h.auth.User(ctx, iam.UserByID(staff.id))
+		require.NoError(t, err)
 		require.Equal(t, hauth.Identity{
-			Issuer: issuer, Subject: billingBackend, SubjectKind: hauth.SubjectApplication,
+			Issuer: issuer, TenantID: source.TenantID.String(), Subject: billingBackend, SubjectKind: hauth.SubjectApplication,
 			Invoker:    hauth.Invoker{Issuer: issuer, ID: billingBackend},
 			Credential: hauth.Credential{Kind: hauth.CredentialAccessToken, ID: id.Credential.ID},
 		}, id)

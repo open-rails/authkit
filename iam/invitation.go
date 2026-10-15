@@ -16,8 +16,8 @@ var ErrInvitationNotFound Error = errmodel.E(errmodel.CodeInvitationNotFound)
 // it needs) to the signed-in account that redeems it. With Email, AuthKit
 // emails a registration invite to that address: with Role, registering also
 // grants it, and an existing account that has verified the address may
-// redeem it instead; without Role, in the root group, it only lets the
-// address register (root:users:invite).
+// redeem it instead; without Role, in the root or owning tenant group, it only
+// lets the address register (the corresponding users:invite permission).
 //
 // ExpiresAt nil is the default lifetime: 72 hours for a link, 7 days for an
 // email invite. A link lives at most 30 days.
@@ -30,6 +30,7 @@ type NewInvitation struct {
 // Invitation is an invitation's metadata, never its code. Email is "" for a
 // link.
 type Invitation struct {
+	TenantID   TenantID   `json:"tenant_id"`
 	ID         string     `json:"id"`
 	GroupID    string     `json:"group_id"`
 	Role       Role       `json:"role"`

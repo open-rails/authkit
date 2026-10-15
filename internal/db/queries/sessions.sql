@@ -5,10 +5,12 @@ INSERT INTO refresh_sessions (id, user_id, issuer, current_token_hash, expires_a
 VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, CASE WHEN 'mfa' = ANY($8::text[]) THEN now() END, sqlc.narg(dpop_jkt));
 
 -- name: SessionByCurrentTokenHash :one
-SELECT id::text, user_id, auth_methods, dpop_jkt
-FROM refresh_sessions
-WHERE current_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL
-  AND (expires_at IS NULL OR expires_at > now());
+SELECT s.id::text AS id, s.user_id, s.auth_methods, s.dpop_jkt
+FROM refresh_sessions s
+JOIN users u ON u.id = s.user_id
+WHERE s.current_token_hash = $1 AND s.issuer = $2 AND s.revoked_at IS NULL
+  AND u.tenant_id = NULLIF(sqlc.arg(tenant_id)::text, '')::uuid
+  AND (s.expires_at IS NULL OR s.expires_at > now());
 
 -- name: SessionByHistoricalTokenHash :one
 -- A consumed token stays attributable for 90 days (SessionRotate). Only the
@@ -18,7 +20,9 @@ SELECT s.id::text AS id, s.user_id, s.auth_methods, s.expires_at,
        s.current_token_hash, s.previous_successor_sealed, s.previous_rotated_at, s.dpop_jkt
 FROM refresh_token_history h
 JOIN refresh_sessions s ON s.id = h.session_id
-WHERE h.token_hash = $1 AND s.issuer = $2 AND s.revoked_at IS NULL;
+JOIN users u ON u.id = s.user_id
+WHERE h.token_hash = $1 AND s.issuer = $2 AND s.revoked_at IS NULL
+  AND u.tenant_id = NULLIF(sqlc.arg(tenant_id)::text, '')::uuid;
 
 -- name: SessionRotate :execrows
 -- Record the consumed hash and rotate in one statement. The CAS admits one

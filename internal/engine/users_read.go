@@ -25,6 +25,9 @@ import (
 // User returns one account. Soft-deleted accounts are excluded unless opts
 // include ops.IncludeDeleted(); a miss is iam.ErrUserNotFound.
 func (s *Engine) User(ctx context.Context, ref iam.UserRef, opts ...ops.Option) (iam.User, error) {
+	if _, err := s.tenantID(ctx); err != nil {
+		return iam.User{}, err
+	}
 	o, err := ops.Resolve("User", opts, ops.KindIncludeDeleted)
 	if err != nil {
 		return iam.User{}, err
@@ -42,19 +45,19 @@ func (s *Engine) User(ctx context.Context, ref iam.UserRef, opts ...ops.Option) 
 		if !isUUID(value) {
 			return iam.User{}, iam.ErrUserNotFound
 		}
-		r, err = s.q.UserByID(ctx, value)
+		r, err = s.q.TenantUserByID(ctx, db.TenantUserByIDParams{TenantID: s.tenantKey(ctx), ID: value})
 	case iam.UserKeyEmail:
 		if value = contact.NormalizeEmail(value); value == "" {
 			return iam.User{}, iam.ErrUserNotFound
 		}
-		r, err = s.q.UserByEmail(ctx, value)
+		r, err = s.q.UserByEmail(ctx, db.UserByEmailParams{TenantID: s.tenantKey(ctx), Email: value})
 	case iam.UserKeyPhone:
 		if value = contact.NormalizePhone(value); value == "" {
 			return iam.User{}, iam.ErrUserNotFound
 		}
-		r, err = s.q.UserByPhone(ctx, &value)
+		r, err = s.q.UserByPhone(ctx, db.UserByPhoneParams{TenantID: s.tenantKey(ctx), Phone: &value})
 	case iam.UserKeyUsername:
-		r, err = s.q.UserByUsername(ctx, value)
+		r, err = s.q.UserByUsername(ctx, db.UserByUsernameParams{TenantID: s.tenantKey(ctx), Username: value})
 	default:
 		return iam.User{}, iam.ErrUserNotFound
 	}
@@ -83,7 +86,7 @@ func (s *Engine) Users(ctx context.Context, ids []string) (map[string]iam.User, 
 	}
 	now := time.Now()
 	err := inBatches(ids, func(batch []string) error {
-		rows, err := s.q.UsersByIDs(ctx, batch)
+		rows, err := s.q.TenantUsersByIDs(ctx, db.TenantUsersByIDsParams{TenantID: s.tenantKey(ctx), Ids: batch})
 		if err != nil {
 			return err
 		}
@@ -111,7 +114,7 @@ func (s *Engine) PublicUsers(ctx context.Context, ids []string) (map[string]iam.
 		return nil, err
 	}
 	err := inBatches(ids, func(batch []string) error {
-		rows, err := s.q.IdentityPublicUsersByIDs(ctx, batch)
+		rows, err := s.q.IdentityPublicUsersByIDs(ctx, db.IdentityPublicUsersByIDsParams{TenantID: s.tenantKey(ctx), Ids: batch})
 		if err != nil {
 			return err
 		}
@@ -146,6 +149,9 @@ func uuidsOnly(ids []string) []string {
 
 // Sessions lists the account's live refresh sessions on this issuer.
 func (s *Engine) Sessions(ctx context.Context, userID string) ([]iam.Session, error) {
+	if err := s.requireTenantUser(ctx, s.q, userID); err != nil {
+		return nil, err
+	}
 	if !isUUID(strings.TrimSpace(userID)) {
 		return nil, iam.ErrUserNotFound
 	}
@@ -204,6 +210,10 @@ func (s *Engine) ListUsers(ctx context.Context, q iam.UserQuery) (iam.ListPage[i
 	if err := s.requirePG(); err != nil {
 		return page, err
 	}
+	tenant, err := s.tenantID(ctx)
+	if err != nil {
+		return page, err
+	}
 	col, cast, ok := userSortColumn(q.Sort)
 	if !ok {
 		return page, errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("sort"))
@@ -217,6 +227,7 @@ func (s *Engine) ListUsers(ctx context.Context, q iam.UserQuery) (iam.ListPage[i
 		args = append(args, v)
 		return fmt.Sprintf("$%d", len(args))
 	}
+	where = append(where, "u.tenant_id="+arg(tenant.String())+"::uuid")
 	switch q.Status {
 	case iam.UserStatusLive:
 		where = append(where, "u.deleted_at IS NULL")
@@ -236,6 +247,13 @@ func (s *Engine) ListUsers(ctx context.Context, q iam.UserQuery) (iam.ListPage[i
 		}
 		where = append(where, `EXISTS (SELECT 1 FROM group_user_roles r JOIN permission_groups g ON g.id=r.permission_group_id
  WHERE r.user_id=u.id AND g.persona='root' AND r.role=`+arg(role.String())+`)`)
+	}
+	if role := q.TenantRole; !role.IsZero() {
+		if role.Persona() != iam.TenantPersona() {
+			return page, fmt.Errorf("tenant role filter %q is not a tenant role: %w", role, iam.ErrRoleNotAssignable)
+		}
+		where = append(where, `EXISTS (SELECT 1 FROM group_user_roles r JOIN permission_groups g ON g.id=r.permission_group_id
+ WHERE r.user_id=u.id AND g.persona='tenant' AND g.id=u.tenant_id AND r.role=`+arg(role.String())+`)`)
 	}
 	if search := strings.TrimSpace(q.Search); search != "" {
 		where = append(where, userSearch(search, arg))
@@ -309,7 +327,7 @@ func (s *Engine) ListUsers(ctx context.Context, q iam.UserQuery) (iam.ListPage[i
 	for i, k := range keys {
 		ids[i] = k.ID
 	}
-	found, err := s.q.UsersByIDs(ctx, ids)
+	found, err := s.q.TenantUsersByIDs(ctx, db.TenantUsersByIDsParams{TenantID: tenant.String(), Ids: ids})
 	if err != nil {
 		return page, err
 	}
@@ -379,6 +397,10 @@ func (s *Engine) userEntries(ctx context.Context, users []iam.User, withEntitlem
 	if err != nil {
 		return nil, err
 	}
+	tenantRoles, err := s.tenantRoles(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
 	var ents map[string][]string
 	if withEntitlements {
 		if ents, err = s.entitlementsOf(ctx, ids); err != nil {
@@ -390,6 +412,9 @@ func (s *Engine) userEntries(ctx context.Context, users []iam.User, withEntitlem
 		out[i] = iam.UserEntry{User: u, Entitlements: ents[u.ID]}
 		if role := roles[u.ID]; !role.IsZero() {
 			out[i].RootRole = &role
+		}
+		if role := tenantRoles[u.ID]; !role.IsZero() {
+			out[i].TenantRole = &role
 		}
 		if withEntitlements && out[i].Entitlements == nil {
 			out[i].Entitlements = []string{}

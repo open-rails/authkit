@@ -12,6 +12,7 @@ import (
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/ops"
+	"github.com/open-rails/authkit/internal/tenancy"
 )
 
 // lockPermissionGroup is the shared lifecycle lock. The caller supplies a
@@ -42,6 +43,18 @@ func (s *Engine) CreateGroup(ctx context.Context, ng iam.NewGroup, opts ...ops.O
 	if _, ok := s.groupSchemaOrDefault().Persona(persona); !ok || persona == iam.RootPersona() {
 		return iam.Group{}, fmt.Errorf("unknown group persona %q: %w", persona, iam.ErrUnknownGroupPersona)
 	}
+	tenant := ng.TenantID
+	if tenant.IsZero() {
+		tenant, err = s.tenantID(ctx)
+		if err != nil {
+			return iam.Group{}, err
+		}
+	} else if selected, present := tenancy.From(ctx); present && selected != tenant {
+		return iam.Group{}, iam.ErrTenantMismatch
+	}
+	if _, err := s.Tenant(ctx, tenant); err != nil {
+		return iam.Group{}, err
+	}
 	id := strings.TrimSpace(ng.ID)
 	if id != "" {
 		var ok bool
@@ -63,7 +76,7 @@ func (s *Engine) CreateGroup(ctx context.Context, ng iam.NewGroup, opts ...ops.O
 		if id != "" {
 			existing, err := db.New(st.q).AuthorityGroupState(ctx, id)
 			switch {
-			case err == nil && existing.DeletedAt == nil && existing.Persona == persona.String():
+			case err == nil && existing.DeletedAt == nil && existing.Persona == persona.String() && existing.TenantID != nil && *existing.TenantID == tenant.String():
 				out = publicGroup(existing)
 				return nil
 			case err == nil:
@@ -77,7 +90,7 @@ func (s *Engine) CreateGroup(ctx context.Context, ng iam.NewGroup, opts ...ops.O
 				return err
 			}
 		}
-		gid, err := st.CreateGroup(ctx, id, persona)
+		gid, err := st.CreateGroup(ctx, id, persona, tenant)
 		if err != nil {
 			return err
 		}

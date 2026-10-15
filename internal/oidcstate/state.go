@@ -26,6 +26,8 @@ func GeneratePKCE() (verifier string, challenge string, err error) {
 
 // StateData is what we persist for a pending OIDC login.
 type StateData struct {
+	TenantID            iam.TenantID
+	Issuer              string
 	Provider            string
 	Verifier            string
 	Nonce               string

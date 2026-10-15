@@ -37,8 +37,10 @@ type Client struct {
 	http   *httpapi.Service
 	mount  *httpapi.Mount
 	// cfg and deps are what New was given (internal/builtwith).
-	cfg  Config
-	deps Deps
+	cfg      Config
+	deps     Deps
+	tenantID iam.TenantID
+	borrowed bool
 }
 
 func init() {
@@ -124,6 +126,9 @@ func WithRiverClient(fleet *river.Client[pgx.Tx]) StartOption {
 // WithRiverClient the jobs run on the host's fleet. Jobs queued before Start
 // wait for it. Call it once, before serving.
 func (a *Client) Start(ctx context.Context, opts ...StartOption) error {
+	if a.borrowed {
+		return errors.New("authkit: start the owning client, not a tenant view")
+	}
 	var o startOptions
 	for _, opt := range opts {
 		opt(&o)
@@ -143,6 +148,9 @@ func (a *Client) RiverJobs() riverhelpers.Contribution { return a.engine.RiverJo
 // open.
 func (a *Client) Close(ctx context.Context) error {
 	if a == nil {
+		return nil
+	}
+	if a.borrowed {
 		return nil
 	}
 	a.http.Close()
@@ -199,7 +207,9 @@ func (a *Client) Handler() http.Handler {
 	if a.mount == nil {
 		return nil
 	}
-	return a.mount
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		a.mount.ServeHTTP(w, r.WithContext(a.operationContext(r.Context())))
+	})
 }
 
 // APIBase is the path the JSON API is served at: {BasePath}{APIPath}/v1,
@@ -223,7 +233,7 @@ func (a *Client) Mount(mux *http.ServeMux) (err error) {
 	}()
 	for _, route := range a.mount.Routes() {
 		if route.Method != http.MethodHead {
-			mux.Handle(route.Pattern(), a.mount)
+			mux.Handle(route.Pattern(), a.Handler())
 		}
 	}
 	return nil

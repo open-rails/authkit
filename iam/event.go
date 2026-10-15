@@ -70,6 +70,9 @@ const (
 // records nothing, and delivered after commit, at least once. It names what
 // changed and never carries a credential, hash, token or code.
 type Event struct {
+	// TenantID is the affected tenant, not the acting operator's tenant.
+	// Zero identifies an authority-wide event with no tenant-owned target.
+	TenantID TenantID `json:"tenant_id"`
 	// ID is the same on every delivery: the host's idempotency key.
 	ID         string    `json:"id"`
 	Kind       EventKind `json:"kind"`

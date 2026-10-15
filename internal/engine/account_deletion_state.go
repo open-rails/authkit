@@ -16,7 +16,8 @@ import (
 
 // userDeletion is Deps.OnPurge's view of a deletion.
 func userDeletion(d db.AccountDeletion) iam.UserDeletion {
-	return iam.UserDeletion{ID: d.ID, UserID: d.UserID, DeletedAt: d.DeletedAt, PurgeAt: d.PurgeAt}
+	tenant, _ := iam.ParseTenantID(d.TenantID)
+	return iam.UserDeletion{TenantID: tenant, ID: d.ID, UserID: d.UserID, DeletedAt: d.DeletedAt, PurgeAt: d.PurgeAt}
 }
 
 // selfDeleted reports that the account deleted itself, so it may restore
@@ -84,6 +85,11 @@ func (s *Engine) finalizeAccountDeletion(ctx context.Context, id string, purge b
 	if err != nil {
 		return err
 	}
+	tenant, err := iam.ParseTenantID(record.TenantID)
+	if err != nil {
+		return err
+	}
+	ctx = WithTenant(ctx, tenant)
 	if record.State == "restored" || record.State == "purged" || (!missingUser && (user.DeletedAt == nil || !user.DeletedAt.Equal(record.DeletedAt))) {
 		return nil
 	}
@@ -139,7 +145,9 @@ func (s *Engine) finalizeAccountDeletion(ctx context.Context, id string, purge b
 	if err := q.AccountDeletionSetPurged(ctx, id); err != nil {
 		return err
 	}
-	if err := store.record(ctx, userEvent(iam.EventUserPurged, userID)); err != nil {
+	event := userEvent(iam.EventUserPurged, userID)
+	event.TenantID = tenant
+	if err := store.record(ctx, event); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

@@ -237,7 +237,7 @@ func TestInvitationsAreOneResource(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, link.Code)
 	require.Contains(t, link.URL, link.Code)
-	require.Equal(t, iam.Invitation{ID: link.Invitation.ID, GroupID: o.acmeID, Role: o.member, CreatedBy: &o.founder.ID,
+	require.Equal(t, iam.Invitation{TenantID: o.founder.TenantID, ID: link.Invitation.ID, GroupID: o.acmeID, Role: o.member, CreatedBy: &o.founder.ID,
 		CreatedAt: link.Invitation.CreatedAt, ExpiresAt: link.Invitation.ExpiresAt}, link.Invitation)
 	require.True(t, expires.Equal(*link.Invitation.ExpiresAt))
 	emailed, err := auth.CreateInvitation(ctx, founder, o.acme, iam.NewInvitation{Email: "Joiner@Example.test", Role: o.member})

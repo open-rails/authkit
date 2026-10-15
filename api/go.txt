@@ -16,7 +16,7 @@ pkg authkit, func DefaultRateLimits() map[string]RateLimit
 pkg authkit, func IfRole(iam.Role) Option
 pkg authkit, func InTx(pgx.Tx) Option
 pkg authkit, func IncludeDeleted() Option
-pkg authkit, func Migrate(context.Context, *pgxpool.Pool, DatabaseConfig) error
+pkg authkit, func Migrate(context.Context, *pgxpool.Pool, DatabaseConfig, ...MigrationOptions) error
 pkg authkit, func New(context.Context, Config, Deps) (*Client, error)
 pkg authkit, func NewRoles(...PersonaOption) *Roles
 pkg authkit, func ParseBootstrapManifestYAML([]byte) (iam.BootstrapManifest, error)
@@ -40,6 +40,7 @@ pkg authkit, method (*Client) CreateGroup(context.Context, iam.NewGroup, ...Opti
 pkg authkit, method (*Client) CreateGroupOAuthClient(context.Context, auth.Identity, iam.GroupRef, iam.NewOAuthClient, ...Option) (iam.OAuthClientCreated, error)
 pkg authkit, method (*Client) CreateGroupRole(context.Context, auth.Identity, iam.GroupRef, iam.NewGroupRole, ...Option) (iam.GroupRole, error)
 pkg authkit, method (*Client) CreateInvitation(context.Context, auth.Identity, iam.GroupRef, iam.NewInvitation, ...Option) (iam.InvitationCreated, error)
+pkg authkit, method (*Client) CreateTenant(context.Context, iam.Tenant) error
 pkg authkit, method (*Client) CreateUser(context.Context, iam.NewUser, ...Option) (iam.User, error)
 pkg authkit, method (*Client) DeclareRemoteApplications(context.Context, iam.GroupRef, []iam.RemoteApplication, ...Option) error
 pkg authkit, method (*Client) DeleteGroup(context.Context, iam.GroupRef, ...Option) error
@@ -52,6 +53,7 @@ pkg authkit, method (*Client) EffectivePermissions(context.Context, auth.Identit
 pkg authkit, method (*Client) EmailAvailable() bool
 pkg authkit, method (*Client) EmailHealth() (time.Time, error)
 pkg authkit, method (*Client) EnsureUserRole(context.Context, iam.GroupRef, iam.UserRef, iam.Role, ...Option) (iam.User, error)
+pkg authkit, method (*Client) ForTenant(context.Context, iam.TenantID) (*Client, error)
 pkg authkit, method (*Client) GenerateUsername(context.Context) (string, error)
 pkg authkit, method (*Client) Group(context.Context, iam.GroupRef) (iam.Group, error)
 pkg authkit, method (*Client) GroupOAuthClient(context.Context, iam.GroupRef, string) (iam.OAuthClient, error)
@@ -73,6 +75,7 @@ pkg authkit, method (*Client) ListMemberships(context.Context, iam.Subject, iam.
 pkg authkit, method (*Client) ListRemoteApplications(context.Context, iam.GroupRef, iam.PageRequest) (iam.ListPage[iam.RemoteApplication], error)
 pkg authkit, method (*Client) ListSessionEvents(context.Context, string, iam.SessionEventQuery) (iam.ListPage[iam.SessionEvent], error)
 pkg authkit, method (*Client) ListUsers(context.Context, iam.UserQuery) (iam.ListPage[iam.UserEntry], error)
+pkg authkit, method (*Client) MigrateGroupPersona(context.Context, iam.GroupPersonaMigration) (iam.GroupPersonaMigrationReport, error)
 pkg authkit, method (*Client) MintAccessToken(context.Context, string, iam.AccessTokenOptions, ...Option) (iam.Token, error)
 pkg authkit, method (*Client) Mount(*http.ServeMux) error
 pkg authkit, method (*Client) NewVerifier([]string, ...verify.VerifierOption) (*Verifier, error)
@@ -94,6 +97,7 @@ pkg authkit, method (*Client) RemoveGroupMember(context.Context, auth.Identity, 
 pkg authkit, method (*Client) RemoveRemoteUserRole(context.Context, auth.Identity, iam.GroupRef, string, ...Option) error
 pkg authkit, method (*Client) ResetAccountMFA(context.Context, string, ...Option) error
 pkg authkit, method (*Client) ResolveAPIKey(context.Context, string) (iam.ResolvedAPIKey, error)
+pkg authkit, method (*Client) ResolveTenantActor(context.Context, auth.Verified) (iam.TenantActor, error)
 pkg authkit, method (*Client) ResolveUsername(context.Context, string) (iam.NameResolution, error)
 pkg authkit, method (*Client) RestoreUsers(context.Context, auth.Identity, []string, ...Option) ([]iam.OpResult, error)
 pkg authkit, method (*Client) RevokeAPIKey(context.Context, auth.Identity, iam.GroupRef, string, ...Option) error
@@ -157,6 +161,14 @@ pkg authkit, method (RootDef) Permissions() []iam.Perm
 pkg authkit, method (RootDef) RequireMFA(...iam.Perm)
 pkg authkit, method (RootDef) Resource(string) config.Resource
 pkg authkit, method (RootDef) Role(string, ...iam.Grant) iam.Role
+pkg authkit, method (TenantDef) All() iam.Perm
+pkg authkit, method (TenantDef) Declare(...string) []iam.Perm
+pkg authkit, method (TenantDef) Expand([]iam.Perm) []iam.Perm
+pkg authkit, method (TenantDef) Permission(string, string) iam.Perm
+pkg authkit, method (TenantDef) Permissions() []iam.Perm
+pkg authkit, method (TenantDef) RequireMFA(...iam.Perm)
+pkg authkit, method (TenantDef) Resource(string) config.Resource
+pkg authkit, method (TenantDef) Role(string, ...iam.Grant) iam.Role
 pkg authkit, method (UserPerms) All() iam.Perm
 pkg authkit, type APIKeysConfig = config.APIKeysConfig
 pkg authkit, type APIKeysConfig struct
@@ -183,6 +195,7 @@ pkg authkit, type Config struct, Agreements []config.AgreementConfig `yaml:"agre
 pkg authkit, type Config struct, AuthorizationServer config.AuthorizationServerConfig `yaml:"authorization_server"`
 pkg authkit, type Config struct, CleanupInterval time.Duration `yaml:"cleanup_interval"`
 pkg authkit, type Config struct, Database config.DatabaseConfig `yaml:"database"`
+pkg authkit, type Config struct, DefaultTenantID iam.TenantID `yaml:"default_tenant_id"`
 pkg authkit, type Config struct, DeviceKeys config.DeviceKeysConfig `yaml:"device_keys"`
 pkg authkit, type Config struct, Frontend config.FrontendConfig `yaml:"frontend"`
 pkg authkit, type Config struct, HTTP *config.HTTPConfig `yaml:"http"`
@@ -303,6 +316,9 @@ pkg authkit, type MemberPerms struct
 pkg authkit, type MemberPerms struct, Manage iam.Perm
 pkg authkit, type MemberPerms struct, Read iam.Perm
 pkg authkit, type MemberPerms struct, embedded config.Resource
+pkg authkit, type MigrationOptions = engine.MigrationOptions
+pkg authkit, type MigrationOptions struct
+pkg authkit, type MigrationOptions struct, LegacyTenantID iam.TenantID
 pkg authkit, type OAuthClientConfig = config.OAuthClientConfig
 pkg authkit, type OAuthClientConfig struct
 pkg authkit, type OAuthClientConfig struct, Agreements []string `yaml:"agreements"`
@@ -316,6 +332,7 @@ pkg authkit, type OAuthClientConfig struct, PostLogoutRedirectURIs []string `yam
 pkg authkit, type OAuthClientConfig struct, RedirectURIs []string `yaml:"redirect_uris"`
 pkg authkit, type OAuthClientConfig struct, Resources []string `yaml:"resources"`
 pkg authkit, type OAuthClientConfig struct, SecretSHA256 string `yaml:"secret_sha256"`
+pkg authkit, type OAuthClientConfig struct, TenantID iam.TenantID `yaml:"tenant_id"`
 pkg authkit, type OAuthGrantType = config.OAuthGrantType
 pkg authkit, type OAuthGrantType string
 pkg authkit, type Option = ops.Option
@@ -367,6 +384,7 @@ pkg authkit, type ProvisioningTarget struct, BearerToken string `yaml:"bearer_to
 pkg authkit, type ProvisioningTarget struct, ClientCredentials *config.ProvisioningClientCredentials `yaml:"client_credentials"`
 pkg authkit, type ProvisioningTarget struct, Handler http.Handler `yaml:"-"`
 pkg authkit, type ProvisioningTarget struct, Name string `yaml:"name"`
+pkg authkit, type ProvisioningTarget struct, TenantID iam.TenantID `yaml:"tenant_id"`
 pkg authkit, type ProvisioningTarget struct, URL string `yaml:"url"`
 pkg authkit, type RateLimit = config.RateLimit
 pkg authkit, type RateLimit struct
@@ -411,6 +429,7 @@ pkg authkit, type RolePerms struct, embedded config.Resource
 pkg authkit, type Roles = config.Roles
 pkg authkit, type Roles struct
 pkg authkit, type Roles struct, Root *config.RootDef
+pkg authkit, type Roles struct, Tenant *config.TenantDef
 pkg authkit, type RootDef = config.RootDef
 pkg authkit, type RootDef struct
 pkg authkit, type RootDef struct, Users config.UserPerms
@@ -429,6 +448,10 @@ pkg authkit, type SignInConfig struct, AccountsPerDevice int `yaml:"accounts_per
 pkg authkit, type SignInConfig struct, DPoP config.DPoPMode `yaml:"dpop"`
 pkg authkit, type SignInConfig struct, NewDevicesPerAccount int `yaml:"new_devices_per_account"`
 pkg authkit, type StartOption func(*startOptions)
+pkg authkit, type TenantDef = config.TenantDef
+pkg authkit, type TenantDef struct
+pkg authkit, type TenantDef struct, Users config.UserPerms
+pkg authkit, type TenantDef struct, embedded *config.PersonaDef
 pkg authkit, type TokenConfig = config.TokenConfig
 pkg authkit, type TokenConfig struct
 pkg authkit, type TokenConfig struct, AccessTokenDuration time.Duration `yaml:"access_token_duration"`
@@ -441,6 +464,10 @@ pkg authkit, type TokenConfig struct, Issuer string `yaml:"issuer"`
 pkg authkit, type TokenConfig struct, RefreshRotationGrace time.Duration `yaml:"refresh_rotation_grace"`
 pkg authkit, type TokenConfig struct, RefreshTokenDuration time.Duration `yaml:"refresh_token_duration"`
 pkg authkit, type TokenConfig struct, SessionMaxPerUser int `yaml:"session_max_per_user"`
+pkg authkit, type TransactionalUserInfo interface
+pkg authkit, type TransactionalUserInfo interface, Get(context.Context, []string) (map[string]userinfo.User, error)
+pkg authkit, type TransactionalUserInfo interface, GetTx(context.Context, pgx.Tx, []string) (map[string]userinfo.User, error)
+pkg authkit, type TransactionalUserInfo interface, Search(context.Context, string, int) ([]userinfo.User, error)
 pkg authkit, type TwoFactorConfig = config.TwoFactorConfig
 pkg authkit, type TwoFactorConfig struct
 pkg authkit, type TwoFactorConfig struct, Methods []iam.TwoFactorMethod `yaml:"methods"`
@@ -556,6 +583,7 @@ pkg authkit/auth, type Identity struct, Invoker Invoker
 pkg authkit/auth, type Identity struct, Issuer string
 pkg authkit/auth, type Identity struct, Subject string
 pkg authkit/auth, type Identity struct, SubjectKind SubjectKind
+pkg authkit/auth, type Identity struct, TenantID string
 pkg authkit/auth, type Identity struct, Username string
 pkg authkit/auth, type Invoker struct
 pkg authkit/auth, type Invoker struct, ID string
@@ -808,6 +836,7 @@ pkg authkit/iam, const CredentialSystem auth.CredentialKind = "system"
 pkg authkit/iam, const DefaultPageLimit untyped int = 50
 pkg authkit/iam, const EventGroupCreated EventKind = "group.created"
 pkg authkit/iam, const EventGroupDeleted EventKind = "group.deleted"
+pkg authkit/iam, const EventGroupPersonaMigrated EventKind = "group.persona_migrated"
 pkg authkit/iam, const EventGroupPurged EventKind = "group.purged"
 pkg authkit/iam, const EventGroupRoleCreated EventKind = "group.role_created"
 pkg authkit/iam, const EventGroupRoleDeleted EventKind = "group.role_deleted"
@@ -961,6 +990,9 @@ pkg authkit/iam, func DecodeError(*http.Response) error
 pkg authkit/iam, func ErrorResponse(error) (int, ErrorEnvelope)
 pkg authkit/iam, func GroupByID(string) GroupRef
 pkg authkit/iam, func InSession(auth.Identity, SessionRef) auth.Identity
+pkg authkit/iam, func InTenant(auth.Identity, TenantID) auth.Identity
+pkg authkit/iam, func NewTenantID() TenantID
+pkg authkit/iam, func ParseTenantID(string) (TenantID, error)
 pkg authkit/iam, func PinnedTo(auth.Identity, string) auth.Identity
 pkg authkit/iam, func PublicDisplayName(map[string]PublicUser, string) string
 pkg authkit/iam, func RefuseConsentRevocation(string) error
@@ -970,6 +1002,7 @@ pkg authkit/iam, func RootGroup() GroupRef
 pkg authkit/iam, func RootPersona() Persona
 pkg authkit/iam, func StateOf(auth.Identity) (CredentialState, bool)
 pkg authkit/iam, func SystemIdentity() auth.Identity
+pkg authkit/iam, func TenantPersona() Persona
 pkg authkit/iam, func UserByEmail(string) UserRef
 pkg authkit/iam, func UserByID(string) UserRef
 pkg authkit/iam, func UserByPhone(string) UserRef
@@ -983,6 +1016,7 @@ pkg authkit/iam, method (*OpResult) UnmarshalJSON([]byte) error
 pkg authkit/iam, method (*Perm) UnmarshalText([]byte) error
 pkg authkit/iam, method (*Persona) UnmarshalText([]byte) error
 pkg authkit/iam, method (*Role) UnmarshalText([]byte) error
+pkg authkit/iam, method (*TenantID) UnmarshalText([]byte) error
 pkg authkit/iam, method (AppRef) ID() string
 pkg authkit/iam, method (AppRef) IsZero() bool
 pkg authkit/iam, method (AppRef) Issuer() string
@@ -999,6 +1033,7 @@ pkg authkit/iam, method (CredentialState) IsZero() bool
 pkg authkit/iam, method (CredentialState) Session() (SessionRef, bool)
 pkg authkit/iam, method (CredentialState) String() string
 pkg authkit/iam, method (CredentialState) SubjectKind() auth.SubjectKind
+pkg authkit/iam, method (CredentialState) TenantID() TenantID
 pkg authkit/iam, method (GroupRef) ID() string
 pkg authkit/iam, method (GroupRef) IsRoot() bool
 pkg authkit/iam, method (GroupRef) IsZero() bool
@@ -1026,6 +1061,9 @@ pkg authkit/iam, method (Role) String() string
 pkg authkit/iam, method (Route) Pattern() string
 pkg authkit/iam, method (SMSMessage) OriginBoundLine() string
 pkg authkit/iam, method (SessionRef) IsZero() bool
+pkg authkit/iam, method (TenantID) IsZero() bool
+pkg authkit/iam, method (TenantID) MarshalText() ([]byte, error)
+pkg authkit/iam, method (TenantID) String() string
 pkg authkit/iam, method (UserRef) IsZero() bool
 pkg authkit/iam, method (UserRef) Key() UserKey
 pkg authkit/iam, method (UserRef) String() string
@@ -1177,6 +1215,7 @@ pkg authkit/iam, type Event struct, Reason string `json:"reason"`
 pkg authkit/iam, type Event struct, Role Role `json:"role"`
 pkg authkit/iam, type Event struct, SubjectID string `json:"subject_id"`
 pkg authkit/iam, type Event struct, SubjectKind auth.SubjectKind `json:"subject_kind"`
+pkg authkit/iam, type Event struct, TenantID TenantID `json:"tenant_id"`
 pkg authkit/iam, type Event struct, Until *time.Time `json:"until"`
 pkg authkit/iam, type Event struct, UserID string `json:"user_id"`
 pkg authkit/iam, type EventKind string
@@ -1187,10 +1226,35 @@ pkg authkit/iam, type Group struct, CreatedAt time.Time `json:"created_at"`
 pkg authkit/iam, type Group struct, DeletedAt *time.Time `json:"deleted_at"`
 pkg authkit/iam, type Group struct, ID string `json:"id"`
 pkg authkit/iam, type Group struct, Persona Persona `json:"persona"`
+pkg authkit/iam, type Group struct, TenantID TenantID `json:"tenant_id"`
 pkg authkit/iam, type GroupMember struct
 pkg authkit/iam, type GroupMember struct, Role Role `json:"role"`
 pkg authkit/iam, type GroupMember struct, Subject Subject `json:"subject"`
 pkg authkit/iam, type GroupMember struct, User *PublicUser `json:"user"`
+pkg authkit/iam, type GroupPersonaMigration struct
+pkg authkit/iam, type GroupPersonaMigration struct, Apply bool
+pkg authkit/iam, type GroupPersonaMigration struct, ExpectedFingerprint string
+pkg authkit/iam, type GroupPersonaMigration struct, From Persona
+pkg authkit/iam, type GroupPersonaMigration struct, Group GroupRef
+pkg authkit/iam, type GroupPersonaMigration struct, Permissions map[Perm]Perm
+pkg authkit/iam, type GroupPersonaMigration struct, Roles map[Role]Role
+pkg authkit/iam, type GroupPersonaMigration struct, To Persona
+pkg authkit/iam, type GroupPersonaMigrationReport struct
+pkg authkit/iam, type GroupPersonaMigrationReport struct, AlreadyTarget bool `json:"already_target"`
+pkg authkit/iam, type GroupPersonaMigrationReport struct, Applied bool `json:"applied"`
+pkg authkit/iam, type GroupPersonaMigrationReport struct, Counts map[string]int `json:"counts"`
+pkg authkit/iam, type GroupPersonaMigrationReport struct, Fingerprint string `json:"fingerprint"`
+pkg authkit/iam, type GroupPersonaMigrationReport struct, From Persona `json:"from"`
+pkg authkit/iam, type GroupPersonaMigrationReport struct, GroupID string `json:"group_id"`
+pkg authkit/iam, type GroupPersonaMigrationReport struct, Issuers []string `json:"issuers"`
+pkg authkit/iam, type GroupPersonaMigrationReport struct, RequiresTokenReissue bool `json:"requires_token_reissue"`
+pkg authkit/iam, type GroupPersonaMigrationReport struct, Roles []GroupPersonaRoleChange `json:"roles"`
+pkg authkit/iam, type GroupPersonaMigrationReport struct, TenantID TenantID `json:"tenant_id"`
+pkg authkit/iam, type GroupPersonaMigrationReport struct, To Persona `json:"to"`
+pkg authkit/iam, type GroupPersonaRoleChange struct
+pkg authkit/iam, type GroupPersonaRoleChange struct, From Role `json:"from"`
+pkg authkit/iam, type GroupPersonaRoleChange struct, Permissions []Perm `json:"permissions"`
+pkg authkit/iam, type GroupPersonaRoleChange struct, To Role `json:"to"`
 pkg authkit/iam, type GroupQuery struct
 pkg authkit/iam, type GroupQuery struct, IncludeDeleted bool
 pkg authkit/iam, type GroupQuery struct, Ownerless bool
@@ -1278,6 +1342,7 @@ pkg authkit/iam, type Invitation struct, ID string `json:"id"`
 pkg authkit/iam, type Invitation struct, RedeemedAt *time.Time `json:"redeemed_at"`
 pkg authkit/iam, type Invitation struct, RevokedAt *time.Time `json:"revoked_at"`
 pkg authkit/iam, type Invitation struct, Role Role `json:"role"`
+pkg authkit/iam, type Invitation struct, TenantID TenantID `json:"tenant_id"`
 pkg authkit/iam, type InvitationCreated struct
 pkg authkit/iam, type InvitationCreated struct, Code string `json:"code"`
 pkg authkit/iam, type InvitationCreated struct, Invitation Invitation `json:"invitation"`
@@ -1327,6 +1392,7 @@ pkg authkit/iam, type NewGroup struct
 pkg authkit/iam, type NewGroup struct, ID string
 pkg authkit/iam, type NewGroup struct, Owner *Subject
 pkg authkit/iam, type NewGroup struct, Persona Persona
+pkg authkit/iam, type NewGroup struct, TenantID TenantID
 pkg authkit/iam, type NewGroupRole struct
 pkg authkit/iam, type NewGroupRole struct, Name string
 pkg authkit/iam, type NewGroupRole struct, Permissions []Perm
@@ -1458,6 +1524,7 @@ pkg authkit/iam, type ProvisioningTarget struct, LastSuccessAt *time.Time `json:
 pkg authkit/iam, type ProvisioningTarget struct, Name string `json:"name"`
 pkg authkit/iam, type ProvisioningTarget struct, ReconciledAt *time.Time `json:"reconciled_at"`
 pkg authkit/iam, type ProvisioningTarget struct, SyncedAt *time.Time `json:"synced_at"`
+pkg authkit/iam, type ProvisioningTarget struct, TenantID TenantID `json:"tenant_id"`
 pkg authkit/iam, type PublicUser struct
 pkg authkit/iam, type PublicUser struct, CreatedAt *time.Time `json:"created_at"`
 pkg authkit/iam, type PublicUser struct, Deleted bool `json:"deleted"`
@@ -1548,6 +1615,13 @@ pkg authkit/iam, type Subject struct
 pkg authkit/iam, type Subject struct, ID string `json:"id"`
 pkg authkit/iam, type Subject struct, Kind SubjectKind `json:"kind"`
 pkg authkit/iam, type SubjectKind string
+pkg authkit/iam, type Tenant struct
+pkg authkit/iam, type Tenant struct, CreatedAt time.Time `json:"created_at"`
+pkg authkit/iam, type Tenant struct, ID TenantID `json:"id"`
+pkg authkit/iam, type TenantActor struct
+pkg authkit/iam, type TenantActor struct, AccountID string `json:"account_id"`
+pkg authkit/iam, type TenantActor struct, TenantID TenantID `json:"tenant_id"`
+pkg authkit/iam, type TenantID [16]byte
 pkg authkit/iam, type Token struct
 pkg authkit/iam, type Token struct, ExpiresAt time.Time `json:"expires_at"`
 pkg authkit/iam, type Token struct, Value string `json:"value"`
@@ -1571,16 +1645,19 @@ pkg authkit/iam, type User struct, Phone *string `json:"phone_number"`
 pkg authkit/iam, type User struct, PhoneVerified bool `json:"phone_verified"`
 pkg authkit/iam, type User struct, PreferredLanguage *string `json:"preferred_language"`
 pkg authkit/iam, type User struct, PublicMetadata map[string]any `json:"public_metadata"`
+pkg authkit/iam, type User struct, TenantID TenantID `json:"tenant_id"`
 pkg authkit/iam, type User struct, UpdatedAt time.Time `json:"updated_at"`
 pkg authkit/iam, type User struct, Username string `json:"username"`
 pkg authkit/iam, type UserDeletion struct
 pkg authkit/iam, type UserDeletion struct, DeletedAt time.Time
 pkg authkit/iam, type UserDeletion struct, ID string
 pkg authkit/iam, type UserDeletion struct, PurgeAt time.Time
+pkg authkit/iam, type UserDeletion struct, TenantID TenantID
 pkg authkit/iam, type UserDeletion struct, UserID string
 pkg authkit/iam, type UserEntry struct
 pkg authkit/iam, type UserEntry struct, Entitlements []string `json:"entitlements"`
 pkg authkit/iam, type UserEntry struct, RootRole *Role `json:"root_role"`
+pkg authkit/iam, type UserEntry struct, TenantRole *Role `json:"tenant_role"`
 pkg authkit/iam, type UserEntry struct, embedded User
 pkg authkit/iam, type UserKey string
 pkg authkit/iam, type UserQuery struct
@@ -1591,6 +1668,7 @@ pkg authkit/iam, type UserQuery struct, RootRole Role
 pkg authkit/iam, type UserQuery struct, Search string
 pkg authkit/iam, type UserQuery struct, Sort UserSort
 pkg authkit/iam, type UserQuery struct, Status UserStatus
+pkg authkit/iam, type UserQuery struct, TenantRole Role
 pkg authkit/iam, type UserQuery struct, Total bool
 pkg authkit/iam, type UserQuery struct, WithEntitlements bool
 pkg authkit/iam, type UserRef struct
@@ -1624,6 +1702,8 @@ pkg authkit/iam, var ErrEntitlementFilterUnavailable Error
 pkg authkit/iam, var ErrExternalInvitesDisabled Error
 pkg authkit/iam, var ErrGroupConflict Error
 pkg authkit/iam, var ErrGroupNotFound Error
+pkg authkit/iam, var ErrGroupPersonaFingerprint error
+pkg authkit/iam, var ErrGroupPersonaMigration error
 pkg authkit/iam, var ErrInsufficientAuthority Error
 pkg authkit/iam, var ErrInvalidIDToken Error
 pkg authkit/iam, var ErrInvalidOAuthClient Error
@@ -1651,6 +1731,9 @@ pkg authkit/iam, var ErrRoleNotFound Error
 pkg authkit/iam, var ErrSessionRevoked Error
 pkg authkit/iam, var ErrSigningNotConfigured Error
 pkg authkit/iam, var ErrSubjectMFARequired Error
+pkg authkit/iam, var ErrTenantMismatch error
+pkg authkit/iam, var ErrTenantNotFound error
+pkg authkit/iam, var ErrTenantRequired error
 pkg authkit/iam, var ErrTokenExpired Error
 pkg authkit/iam, var ErrTooManyAccounts Error
 pkg authkit/iam, var ErrTooManyDevices Error
@@ -1844,6 +1927,7 @@ pkg authkit/verify, type Claims struct, RootRole string
 pkg authkit/verify, type Claims struct, Scopes []string
 pkg authkit/verify, type Claims struct, SessionID string
 pkg authkit/verify, type Claims struct, Subject string
+pkg authkit/verify, type Claims struct, TenantID string
 pkg authkit/verify, type Claims struct, TwoFAEnrollment bool
 pkg authkit/verify, type Claims struct, UpdatedAt time.Time
 pkg authkit/verify, type Claims struct, UserID string

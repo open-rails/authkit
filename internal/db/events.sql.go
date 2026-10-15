@@ -11,7 +11,7 @@ import (
 )
 
 const accountEventByID = `-- name: AccountEventByID :one
-SELECT id, issuer, stream, event_id, kind, occurred_at, user_id, group_id, persona, application_id, previous_value, current_value, reason, until, attempts, retry_at, subject_kind, subject_id, invoker_issuer, invoker_id, credential_kind, credential_id, role, client_id, agreement FROM account_events WHERE id = $1
+SELECT id, issuer, stream, event_id, kind, occurred_at, user_id, group_id, persona, application_id, previous_value, current_value, reason, until, attempts, retry_at, subject_kind, subject_id, invoker_issuer, invoker_id, credential_kind, credential_id, role, client_id, agreement, tenant_id FROM account_events WHERE id = $1
 `
 
 func (q *Queries) AccountEventByID(ctx context.Context, id int64) (AccountEvent, error) {
@@ -43,6 +43,7 @@ func (q *Queries) AccountEventByID(ctx context.Context, id int64) (AccountEvent,
 		&i.Role,
 		&i.ClientID,
 		&i.Agreement,
+		&i.TenantID,
 	)
 	return i, err
 }
@@ -121,12 +122,12 @@ func (q *Queries) AccountEventFleetsForShare(ctx context.Context, issuers []stri
 const accountEventInsert = `-- name: AccountEventInsert :one
 INSERT INTO account_events
     (issuer, stream, event_id, kind, subject_kind, subject_id, invoker_issuer, invoker_id, credential_kind, credential_id,
-     user_id, group_id, persona, application_id, previous_value, current_value, reason, until, role, client_id, agreement)
+     user_id, group_id, persona, application_id, previous_value, current_value, reason, until, role, client_id, agreement, tenant_id)
 VALUES
     ($1, $2, $3, $4, $5, $6,
      $7, $8, $9, $10,
      $11, $12, $13, $14,
-     $15, $16, $17, $18, $19, $20, $21)
+     $15, $16, $17, $18, $19, $20, $21, $22::uuid)
 RETURNING id
 `
 
@@ -152,6 +153,7 @@ type AccountEventInsertParams struct {
 	Role           string
 	ClientID       string
 	Agreement      string
+	TenantID       *string
 }
 
 func (q *Queries) AccountEventInsert(ctx context.Context, arg AccountEventInsertParams) (int64, error) {
@@ -177,6 +179,7 @@ func (q *Queries) AccountEventInsert(ctx context.Context, arg AccountEventInsert
 		arg.Role,
 		arg.ClientID,
 		arg.Agreement,
+		arg.TenantID,
 	)
 	var id int64
 	err := row.Scan(&id)

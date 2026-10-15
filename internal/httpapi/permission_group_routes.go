@@ -13,6 +13,7 @@ import (
 	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -56,6 +57,11 @@ func (s *Service) GroupHandler(op GroupOp) http.HandlerFunc {
 				break
 			}
 		}
+		globalAccountInvite := false
+		if !allowed && err == nil && g.Persona == iam.TenantPersona() && (op == OpInvitationCreate || op == OpInvitationRevoke) {
+			allowed, err = s.svc.Can(r.Context(), who, iam.RootGroup(), ident.RootUsersInvite)
+			globalAccountInvite = allowed
+		}
 		if errors.Is(err, iam.ErrSessionRevoked) {
 			writeError(w, err)
 			return
@@ -68,7 +74,7 @@ func (s *Service) GroupHandler(op GroupOp) http.HandlerFunc {
 			fail(w, errmodel.CodeForbidden)
 			return
 		}
-		if op.Mutates() && (g.Persona == iam.RootPersona() || op.SignInFresh()) && !s.recentUserSignIn(w, r, who) {
+		if op.Mutates() && (g.Persona == iam.RootPersona() || op.SignInFresh() || globalAccountInvite) && !s.recentUserSignIn(w, r, who) {
 			return
 		}
 

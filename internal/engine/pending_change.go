@@ -158,6 +158,9 @@ func (s *Engine) storePendingChange(ctx context.Context, rec pendingChange, ttl 
 		if err := s.ephemSetString(ctx, pendingChangeLinkKey(rec.Kind, rec.LinkHash), key, ttl); err != nil {
 			return err
 		}
+		if err := s.rememberProofRoute(ctx, "verification-link", rec.LinkHash, ttl); err != nil {
+			return err
+		}
 	}
 	if rec.Kind.isRegister() && rec.Username != "" {
 		_ = s.ephemSetJSON(ctx, pendingChangeUserKey(rec.Kind, rec.Username), pendingChangeIndex{Key: key, ID: rec.ID}, ttl)

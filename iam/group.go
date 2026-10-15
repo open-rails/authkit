@@ -15,7 +15,9 @@ var ErrGroupConflict Error = errmodel.E(errmodel.CodeGroupConflict)
 // it guards (a channel, /c/golang) lives in the host app, which stores the
 // group's ID.
 type Group struct {
-	ID        string    `json:"id"`
+	ID string `json:"id"`
+	// TenantID owns this group; only the global root group has zero ownership.
+	TenantID  TenantID  `json:"tenant_id"`
 	Persona   Persona   `json:"persona"`
 	CreatedAt time.Time `json:"created_at"`
 	// DeletedAt is set on a soft-deleted group.
@@ -77,9 +79,12 @@ type Membership struct {
 // seeded with the owner role of a new group: a live account, or an enabled
 // remote application.
 type NewGroup struct {
-	ID      string
-	Persona Persona
-	Owner   *Subject
+	ID string
+	// TenantID is required for unbound trusted provisioning. A tenant view
+	// supplies its own ID and refuses a different one.
+	TenantID TenantID
+	Persona  Persona
+	Owner    *Subject
 }
 
 // GroupQuery lists the groups of a persona (zero = every persona but root),

@@ -15,6 +15,7 @@ import (
 	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/internal/oidcstate"
 	"github.com/open-rails/authkit/internal/secret"
+	"github.com/open-rails/authkit/internal/tenancy"
 	"github.com/open-rails/authkit/provider"
 )
 
@@ -222,8 +223,8 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	// set at flow start. This blocks login CSRF, where an attacker supplies a
 	// valid state+code captured from their own login.
 	cookieOK := s.stateCookieMatches(r, p, state)
-	s.clearStateCookie(w, r, p, state)
 	if !cookieOK {
+		s.clearStateCookie(w, r, p, state)
 		s.failBrowserFlow(w, r, nil, name, errmodel.E(errmodel.CodeInvalidState))
 		return
 	}
@@ -232,6 +233,8 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		s.failBrowserFlow(w, r, nil, name, errmodel.E(errmodel.CodeInvalidState))
 		return
 	}
+	s.clearStateCookie(w, r, p, state)
+	r = r.WithContext(tenancy.With(r.Context(), sd.TenantID))
 
 	identity, err := p.Exchange(r.Context(), provider.ExchangeRequest{
 		Code: code, CodeVerifier: sd.Verifier, Nonce: sd.Nonce, RedirectURI: sd.RedirectURI,

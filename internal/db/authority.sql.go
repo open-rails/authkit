@@ -97,7 +97,7 @@ func (q *Queries) AuthorityApplicationOwnsGroup(ctx context.Context, arg Authori
 }
 
 const authorityGroup = `-- name: AuthorityGroup :one
-SELECT id, persona, created_at, deleted_at FROM permission_groups WHERE id = $1 AND deleted_at IS NULL
+SELECT id, persona, created_at, deleted_at, tenant_id FROM permission_groups WHERE id = $1 AND deleted_at IS NULL
 `
 
 func (q *Queries) AuthorityGroup(ctx context.Context, id string) (PermissionGroup, error) {
@@ -108,12 +108,13 @@ func (q *Queries) AuthorityGroup(ctx context.Context, id string) (PermissionGrou
 		&i.Persona,
 		&i.CreatedAt,
 		&i.DeletedAt,
+		&i.TenantID,
 	)
 	return i, err
 }
 
 const authorityGroupState = `-- name: AuthorityGroupState :one
-SELECT id, persona, created_at, deleted_at FROM permission_groups WHERE id = $1
+SELECT id, persona, created_at, deleted_at, tenant_id FROM permission_groups WHERE id = $1
 `
 
 func (q *Queries) AuthorityGroupState(ctx context.Context, id string) (PermissionGroup, error) {
@@ -124,6 +125,7 @@ func (q *Queries) AuthorityGroupState(ctx context.Context, id string) (Permissio
 		&i.Persona,
 		&i.CreatedAt,
 		&i.DeletedAt,
+		&i.TenantID,
 	)
 	return i, err
 }
@@ -159,7 +161,7 @@ func (q *Queries) AuthorityOutsideApplicationOwnerGroups(ctx context.Context, gr
 const authorityUncoveredCredentials = `-- name: AuthorityUncoveredCredentials :many
 WITH scope AS (
   SELECT g.id, g.persona FROM permission_groups t JOIN permission_groups g
-    ON g.id = t.id OR (t.persona = 'root' AND g.deleted_at IS NULL)
+    ON g.id = t.id OR (g.deleted_at IS NULL AND (t.persona = 'root' OR (t.persona = 'tenant' AND g.tenant_id = t.tenant_id)))
   WHERE t.id = $1::uuid)
 SELECT 'group_invite_links'::text AS kind, l.id::text AS id, l.permission_group_id::text AS group_id, t.persona, l.role,
        COALESCE(l.invited_by::text, '')::text AS creator, false AS needs_creator
@@ -168,7 +170,7 @@ SELECT 'group_invite_links'::text AS kind, l.id::text AS id, l.permission_group_
    AND l.invited_by IS NOT NULL AND ($2::text = '' OR l.invited_by = NULLIF($2::text, '')::uuid)
    AND (l.catalog_issuer IS NULL OR l.catalog_issuer = $3::text)
 UNION ALL
-SELECT 'account_registration_invites', a.id::text, a.permission_group_id::text, t.persona, a.role, a.invited_by::text, false
+SELECT 'account_registration_invites', a.id::text, a.permission_group_id::text, t.persona, COALESCE(a.role,''), a.invited_by::text, false
   FROM account_registration_invites a JOIN scope t ON t.id = a.permission_group_id
  WHERE a.revoked_at IS NULL AND a.consumed_at IS NULL AND a.expires_at > now()
    AND a.invited_by IS NOT NULL AND ($2::text = '' OR a.invited_by = NULLIF($2::text, '')::uuid)
@@ -243,7 +245,7 @@ func (q *Queries) AuthorityUncoveredCredentials(ctx context.Context, arg Authori
 }
 
 const authorityUserGroups = `-- name: AuthorityUserGroups :many
-SELECT g.id, g.persona, g.created_at, g.deleted_at FROM group_user_roles r JOIN permission_groups g ON g.id = r.permission_group_id
+SELECT g.id, g.persona, g.created_at, g.deleted_at, g.tenant_id FROM group_user_roles r JOIN permission_groups g ON g.id = r.permission_group_id
 WHERE r.user_id = $1 AND g.id <> $2 AND g.deleted_at IS NULL
 ORDER BY g.id
 `
@@ -268,6 +270,7 @@ func (q *Queries) AuthorityUserGroups(ctx context.Context, arg AuthorityUserGrou
 			&i.Persona,
 			&i.CreatedAt,
 			&i.DeletedAt,
+			&i.TenantID,
 		); err != nil {
 			return nil, err
 		}

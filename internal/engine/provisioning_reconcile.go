@@ -147,7 +147,7 @@ func (r *provisioningRun) compare(ctx context.Context, q *db.Queries, remote []s
 	for id := range byUser {
 		ids = append(ids, id)
 	}
-	accounts, err := q.UsersByIDs(ctx, ids)
+	accounts, err := q.TenantUsersByIDs(ctx, db.TenantUsersByIDsParams{TenantID: r.target.tenant.String(), Ids: ids})
 	if err != nil {
 		return err
 	}

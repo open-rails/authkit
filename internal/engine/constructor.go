@@ -69,16 +69,23 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 		if err := waitForPostgres(ctx, deps.Postgres); err != nil {
 			return nil, err
 		}
-		prepare := Migrate
 		if norm.Database.SkipMigrations {
-			prepare = validateMigrations
-		}
-		if err := prepare(ctx, deps.Postgres, norm.Database); err != nil {
-			return nil, err
+			if err := validateMigrations(ctx, deps.Postgres, norm.Database); err != nil {
+				return nil, err
+			}
+		} else {
+			if err := Migrate(ctx, deps.Postgres, norm.Database, MigrationOptions{LegacyTenantID: norm.DefaultTenantID}); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if err := s.applyDeps(deps); err != nil {
 		return nil, err
+	}
+	if s.pg != nil && !norm.DefaultTenantID.IsZero() {
+		if _, err := s.Tenant(ctx, norm.DefaultTenantID); err != nil {
+			return nil, fmt.Errorf("authkit: configured default tenant: %w", err)
+		}
 	}
 	if problem := s.secondFactorProblem(); problem != nil {
 		s.degrade(problem)

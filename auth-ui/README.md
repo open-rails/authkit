@@ -526,8 +526,9 @@ interface does not expose an identity, so the console cannot detect that change
 itself. Changes to `group`, `baseUrl` or `basePath` reset it automatically.
 
 The host chooses the group (`root` by default); the console does not discover or
-switch groups. The Users view always requires root account permissions, even
-when another group is selected. Group selection grants no access. Each view
+switch groups. The Users view uses root account permissions by default, or the
+selected directory's account permissions when `users.tenantId` is supplied.
+Group selection grants no access. Each view
 uses the existing permission checks, and each write retains its panel's guard
 and server authorization.
 
@@ -648,8 +649,10 @@ Only admin requests use `tenantAdminApi`; the host supplies that trusted mount,
 and AuthKit authorizes the target tenant. No tenant is inferred from an email
 or added as an ambient request header. In this mode the role filter, editor,
 and invitations use the tenant group and `tenant_role`; they never edit a
-global root role. Account controls use `tenant:users:*` or the server's allowed
-global root permissions. Omitting `tenantId` preserves the existing root UI.
+global root role. Account controls use `tenant:users:*` and separately load
+`root:users:*` for global account administrators. Root membership, role and
+credential permissions do not grant tenant role-management powers. Omitting
+`tenantId` preserves the existing root UI.
 
 Changing the target clears prior data, pagination, open forms and registered
 action resumes. A returned account must have the expected `tenant_id`; a

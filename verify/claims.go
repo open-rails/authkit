@@ -37,6 +37,8 @@ type Claims struct {
 	JOSEType string
 	// Issuer is the validated iss.
 	Issuer string
+	// TenantID is the signed account owner, never a requested target scope.
+	TenantID string
 
 	// UserID is a local user: set only for an issuer registered IsLocal.
 	UserID string
@@ -188,7 +190,7 @@ func (c Claims) HasAMR(m string) bool {
 //
 // ok is false when they name no subject under an issuer.
 func (c Claims) Identity() (auth.Identity, bool) {
-	i := auth.Identity{Issuer: c.Issuer, SubjectKind: auth.SubjectUser, Email: c.Email, EmailVerified: c.EmailVerified, Username: c.Username,
+	i := auth.Identity{Issuer: c.Issuer, TenantID: c.TenantID, SubjectKind: auth.SubjectUser, Email: c.Email, EmailVerified: c.EmailVerified, Username: c.Username,
 		Credential: auth.Credential{Kind: auth.CredentialAccessToken, ID: c.JTI}}
 	authority := c.Issuer
 	if c.Group != nil {

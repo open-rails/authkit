@@ -16,6 +16,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/open-rails/authkit/iam"
 )
 
 // refreshCookiePolicy marks a mount that opted into the refresh cookie. It
@@ -24,25 +26,49 @@ import (
 type refreshCookiePolicy struct{}
 
 func (s *Service) refreshCookie(r *http.Request) CookieVariant {
-	return s.refreshCookieVariant(s.cookieSecure(r))
+	return s.refreshCookieVariant(r, s.cookieSecure(r))
 }
 
-func (s *Service) refreshCookieVariant(secure bool) CookieVariant {
+func (s *Service) refreshCookieVariant(r *http.Request, secure bool) CookieVariant {
 	v := CurrentCookie(CookieRefresh, secure)
-	v.Name = IssuerRefreshCookieName(s.cfg.Token.Issuer, secure)
-	if s.http.RefreshCookieName != "" {
-		v.Name = s.http.RefreshCookieName
-		if secure {
-			v.Name = "__Host-" + v.Name
+	tenant := s.cfg.DefaultTenantID
+	if group, err := s.svc.AccountScope(r.Context()); err == nil {
+		if id, err := iam.ParseTenantID(group.ID()); err == nil {
+			tenant = id
 		}
 	}
+	v.Name = TenantRefreshCookieName(s.cfg.Token.Issuer, tenant, s.http.RefreshCookieName, secure)
 	return v
+}
+
+func (s *Service) legacyRefreshVariants() []CookieVariant {
+	var out []CookieVariant
+	for _, v := range CookieRegistry {
+		if v.Kind != CookieRefresh || v.Current {
+			continue
+		}
+		if strings.Contains(v.Name, "{issuer}") {
+			v.Name = IssuerRefreshCookieName(s.cfg.Token.Issuer, v.Secure)
+		}
+		out = append(out, v)
+	}
+	if s.http.RefreshCookieName != "" {
+		for _, secure := range []bool{false, true} {
+			v := CurrentCookie(CookieRefresh, secure)
+			v.Name = s.http.RefreshCookieName
+			if secure {
+				v.Name = "__Host-" + v.Name
+			}
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 func (s *Service) expireRefreshVariants(w http.ResponseWriter, r *http.Request, keep *CookieVariant) {
 	secure := s.cookieSecure(r)
 	for _, mode := range []bool{secure, !secure} {
-		v := s.refreshCookieVariant(mode)
+		v := s.refreshCookieVariant(r, mode)
 		if keep != nil && keep.Name == v.Name {
 			continue
 		}
@@ -56,8 +82,8 @@ func (s *Service) expireRefreshVariants(w http.ResponseWriter, r *http.Request, 
 	// Legacy names were shared by every issuer on a host. Only retire one
 	// after the database proves ownership; a failure or foreign token leaves
 	// it untouched. Unknown legacy values are never cleared on a 401.
-	for _, v := range CookieRegistry {
-		if v.Kind != CookieRefresh || v.Current || v.Name == s.refreshCookieVariant(secure).Name || v.Name == s.refreshCookieVariant(!secure).Name {
+	for _, v := range s.legacyRefreshVariants() {
+		if v.Name == s.refreshCookieVariant(r, secure).Name || v.Name == s.refreshCookieVariant(r, !secure).Name {
 			continue
 		}
 		c, err := r.Cookie(v.Name)
@@ -125,6 +151,7 @@ func (s *Service) setRefreshCookie(w http.ResponseWriter, r *http.Request, value
 		c.MaxAge = int(d.Seconds())
 	}
 	http.SetCookie(w, c)
+	s.setActiveTenantCookie(w, r)
 }
 
 // clearRefreshCookie expires every refresh cookie variant.
@@ -148,8 +175,13 @@ func (s *Service) noRefreshCookie(r *http.Request, body string) bool {
 		return false
 	}
 	for _, c := range r.Cookies() {
-		if isRefreshCookieName(c.Name) || c.Name == s.refreshCookieVariant(false).Name || c.Name == s.refreshCookieVariant(true).Name {
+		if isRefreshCookieName(c.Name) || c.Name == s.refreshCookieVariant(r, false).Name || c.Name == s.refreshCookieVariant(r, true).Name {
 			return false
+		}
+		for _, v := range s.legacyRefreshVariants() {
+			if c.Name == v.Name {
+				return false
+			}
 		}
 	}
 	return true
@@ -167,7 +199,7 @@ func (s *Service) refreshTokenFromRequest(r *http.Request, body string) (string,
 		return "", false, nil
 	}
 	secure := s.cookieSecure(r)
-	own := []CookieVariant{s.refreshCookieVariant(secure), s.refreshCookieVariant(!secure)}
+	own := []CookieVariant{s.refreshCookieVariant(r, secure), s.refreshCookieVariant(r, !secure)}
 	for _, c := range r.Cookies() {
 		if c.Name == own[0].Name || c.Name == own[1].Name {
 			token, ok := refreshCookieCandidate(r, own...)
@@ -176,8 +208,8 @@ func (s *Service) refreshTokenFromRequest(r *http.Request, body string) (string,
 	}
 	var legacy []CookieVariant
 	for _, mode := range []bool{secure, !secure} {
-		for _, v := range CookieRegistry {
-			if v.Kind == CookieRefresh && !v.Current && v.Secure == mode {
+		for _, v := range s.legacyRefreshVariants() {
+			if v.Secure == mode {
 				legacy = append(legacy, v)
 			}
 		}

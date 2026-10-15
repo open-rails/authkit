@@ -278,6 +278,7 @@ type UserListQuery struct {
 	PageQuery
 	Search      string `query:"search"`
 	RootRole    string `query:"root_role"`
+	TenantRole  string `query:"tenant_role"`
 	Status      string `query:"status"`
 	Sort        string `query:"sort"`
 	Order       string `query:"order"`
@@ -691,6 +692,7 @@ type SolanaChallenge struct {
 // expanded over the persona's catalog: set membership, no pattern matching.
 type PermissionSet struct {
 	GroupID     string     `json:"group_id"`
+	Persona     string     `json:"persona"`
 	Role        *iam.Role  `json:"role"`
 	Permissions []iam.Perm `json:"permissions"`
 }

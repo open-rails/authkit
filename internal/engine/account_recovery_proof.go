@@ -76,15 +76,24 @@ func (s *Engine) finishRecoveryProof(ctx context.Context, tx pgx.Tx, proof login
 	if err := s.ephemSetJSON(ctx, "account-recovery:"+secret.Hash(token), record, expires.Sub(now)); err != nil {
 		return authflow.LoginOutcome{}, err
 	}
+	if err := s.rememberProofRoute(ctx, "account-recovery", secret.Hash(token), expires.Sub(now)); err != nil {
+		return authflow.LoginOutcome{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return authflow.LoginOutcome{}, err
 	}
-	return authflow.LoginOutcome{Kind: authflow.LoginRecoveryRequired, UserID: proof.Input.UserID, ReturnTo: proof.ReturnTo, Recovery: &authflow.AccountRecoveryConfirmation{Token: token, ExpiresAt: expires, PurgeAt: purgeAt}}, nil
+	tenant, _ := s.tenantID(ctx)
+	return authflow.LoginOutcome{TenantID: tenant, Kind: authflow.LoginRecoveryRequired, UserID: proof.Input.UserID, ReturnTo: proof.ReturnTo, Recovery: &authflow.AccountRecoveryConfirmation{Token: token, ExpiresAt: expires, PurgeAt: purgeAt}}, nil
 }
 
 func (s *Engine) ConfirmAccountRecovery(ctx context.Context, token string) error {
 	if len(token) < 32 || len(token) > 256 || strings.TrimSpace(token) != token {
 		return jwt.ErrTokenUnverifiable
+	}
+	var routeErr error
+	ctx, routeErr = s.proofContext(ctx, "account-recovery", secret.Hash(token))
+	if routeErr != nil {
+		return routeErr
 	}
 	key := "account-recovery:" + secret.Hash(token)
 	var proof accountRecoveryProof

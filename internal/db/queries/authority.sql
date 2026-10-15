@@ -102,7 +102,7 @@ WHERE a.permission_group_id = sqlc.arg(group_id)::uuid AND a.enabled AND r.role 
 -- group registration, which confers nothing without its registrar).
 WITH scope AS (
   SELECT g.id, g.persona FROM permission_groups t JOIN permission_groups g
-    ON g.id = t.id OR (t.persona = 'root' AND g.deleted_at IS NULL)
+    ON g.id = t.id OR (g.deleted_at IS NULL AND (t.persona = 'root' OR (t.persona = 'tenant' AND g.tenant_id = t.tenant_id)))
   WHERE t.id = sqlc.arg(group_id)::uuid)
 SELECT 'group_invite_links'::text AS kind, l.id::text AS id, l.permission_group_id::text AS group_id, t.persona, l.role,
        COALESCE(l.invited_by::text, '')::text AS creator, false AS needs_creator
@@ -111,7 +111,7 @@ SELECT 'group_invite_links'::text AS kind, l.id::text AS id, l.permission_group_
    AND l.invited_by IS NOT NULL AND (sqlc.arg(user_id)::text = '' OR l.invited_by = NULLIF(sqlc.arg(user_id)::text, '')::uuid)
    AND (l.catalog_issuer IS NULL OR l.catalog_issuer = sqlc.arg(issuer)::text)
 UNION ALL
-SELECT 'account_registration_invites', a.id::text, a.permission_group_id::text, t.persona, a.role, a.invited_by::text, false
+SELECT 'account_registration_invites', a.id::text, a.permission_group_id::text, t.persona, COALESCE(a.role,''), a.invited_by::text, false
   FROM account_registration_invites a JOIN scope t ON t.id = a.permission_group_id
  WHERE a.revoked_at IS NULL AND a.consumed_at IS NULL AND a.expires_at > now()
    AND a.invited_by IS NOT NULL AND (sqlc.arg(user_id)::text = '' OR a.invited_by = NULLIF(sqlc.arg(user_id)::text, '')::uuid)

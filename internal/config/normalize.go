@@ -153,6 +153,15 @@ func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 		degrade(fmt.Errorf("authkit: CleanupInterval %s is under one second; using one hour", c.CleanupInterval))
 		c.CleanupInterval = time.Hour
 	}
+	c.Provisioning.Targets = slices.Clone(c.Provisioning.Targets)
+	for i := range c.Provisioning.Targets {
+		if c.Provisioning.Targets[i].TenantID.IsZero() {
+			c.Provisioning.Targets[i].TenantID = c.DefaultTenantID
+		}
+		if c.Provisioning.Targets[i].TenantID.IsZero() {
+			return c, nil, fmt.Errorf("authkit: Provisioning.Targets[%d] requires TenantID in an unbound deployment", i)
+		}
+	}
 	if err := normalizeProvisioning(&c.Provisioning, d, degrade); err != nil {
 		return Config{}, nil, err
 	}

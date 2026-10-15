@@ -46,6 +46,8 @@ type CredentialState struct {
 	ceilings [][]Perm
 	// group pins authority to one group; "" = unpinned.
 	group string
+	// tenant is verified source-account ownership, not a target selector.
+	tenant TenantID
 }
 
 // StateOf is AuthKit's state of id's credential; false when it has none.
@@ -58,8 +60,22 @@ func StateOf(id auth.Identity) (CredentialState, bool) {
 }
 
 func (s CredentialState) bind(id auth.Identity) auth.Identity {
+	id.TenantID = s.tenant.String()
 	id.Credential = id.Credential.WithState(&s)
 	return id
+}
+
+func (s CredentialState) TenantID() TenantID { return s.tenant }
+
+// InTenant records source-account ownership on a trusted identity. Like the
+// other native identity constructors, it must never consume unverified input.
+func InTenant(id auth.Identity, tenant TenantID) auth.Identity {
+	s, ok := StateOf(id)
+	if !ok {
+		return auth.Identity{}
+	}
+	s.tenant = tenant
+	return s.bind(id)
 }
 
 // SystemIdentity is your application's own code acting, with no user: trusted host

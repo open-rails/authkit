@@ -53,6 +53,7 @@ const (
 // provisioningTarget is a configured target and its client.
 type provisioningTarget struct {
 	name   string
+	tenant iam.TenantID
 	client *scim.Client
 	// invalid disables a misconfigured target (config.TargetInvalid): its
 	// changes stay pending.
@@ -66,12 +67,15 @@ func (s *Engine) initProvisioning(ctx context.Context) error {
 		return nil
 	}
 	for _, t := range s.cfg.Provisioning.Targets {
-		pt := &provisioningTarget{name: t.Name, invalid: config.TargetInvalid(t)}
+		if _, err := s.Tenant(ctx, t.TenantID); err != nil {
+			return fmt.Errorf("authkit: provisioning target %s tenant: %w", t.Name, err)
+		}
+		pt := &provisioningTarget{name: t.Name, tenant: t.TenantID, invalid: config.TargetInvalid(t)}
 		if pt.invalid == nil {
 			pt.client = provisioningClient(t)
 		}
 		s.provisioning = append(s.provisioning, pt)
-		if err := s.q.ProvisioningTargetRegister(ctx, db.ProvisioningTargetRegisterParams{Issuer: s.cfg.Token.Issuer, Name: t.Name}); err != nil {
+		if _, err := s.q.ProvisioningTargetRegister(ctx, db.ProvisioningTargetRegisterParams{Issuer: s.cfg.Token.Issuer, Name: t.Name, TenantID: t.TenantID.String()}); err != nil {
 			return fmt.Errorf("authkit: register provisioning target %s: %w", t.Name, err)
 		}
 	}
@@ -83,8 +87,8 @@ func (s *Engine) initProvisioning(ctx context.Context) error {
 // built for something else never forgets a target.
 func (s *Engine) pruneProvisioningTargets(ctx context.Context) error {
 	names := make([]string, 0, len(s.provisioning))
-	for _, t := range s.provisioning {
-		names = append(names, t.name)
+	for _, target := range s.provisioning {
+		names = append(names, target.name)
 	}
 	pruned, err := s.q.ProvisioningTargetsPrune(ctx, db.ProvisioningTargetsPruneParams{Issuer: s.cfg.Token.Issuer, Names: names})
 	for _, name := range pruned {
@@ -257,17 +261,21 @@ func (w *provisioningWorker) Work(ctx context.Context, job *river.Job[provisioni
 // reconciliation when one is due. A failure to reach the target is recorded
 // on it, and only a database error fails the job.
 func (s *Engine) runProvisioning(ctx context.Context, t *provisioningTarget) error {
+	ctx = WithTenant(ctx, t.tenant)
 	key := db.ProvisioningTargetParams{Issuer: s.cfg.Token.Issuer, Name: t.name}
 	row, err := s.q.ProvisioningTarget(ctx, key)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Pruned by a replica running an older configuration.
-		if err := s.q.ProvisioningTargetRegister(ctx, db.ProvisioningTargetRegisterParams(key)); err != nil {
+		if _, err := s.q.ProvisioningTargetRegister(ctx, db.ProvisioningTargetRegisterParams{Issuer: key.Issuer, Name: key.Name, TenantID: t.tenant.String()}); err != nil {
 			return err
 		}
 		row, err = s.q.ProvisioningTarget(ctx, key)
 	}
 	if err != nil {
 		return err
+	}
+	if row.TenantID != t.tenant.String() {
+		return iam.ErrTenantMismatch
 	}
 	start := s.nowTime()
 	if row.RetryAt != nil && start.Before(*row.RetryAt) {
@@ -350,17 +358,31 @@ func (s *Engine) ProvisioningTargets(ctx context.Context) ([]iam.ProvisioningTar
 	if len(s.provisioning) == 0 {
 		return out, nil
 	}
+	selected, scopeErr := s.tenantID(ctx)
+	if scopeErr != nil && !errors.Is(scopeErr, iam.ErrTenantRequired) {
+		return nil, scopeErr
+	}
 	names := make([]string, 0, len(s.provisioning))
 	for _, t := range s.provisioning {
+		if scopeErr == nil && t.tenant != selected {
+			continue
+		}
 		names = append(names, t.name)
+	}
+	if len(names) == 0 {
+		return out, nil
 	}
 	rows, err := s.q.ProvisioningTargetStatuses(ctx, db.ProvisioningTargetStatusesParams{Issuer: s.cfg.Token.Issuer, Names: names})
 	if err != nil {
 		return nil, err
 	}
 	for _, r := range rows {
+		configured := s.provisioningTarget(r.Name)
+		if configured == nil {
+			continue
+		}
 		target := iam.ProvisioningTarget{
-			Name: r.Name, SyncedAt: r.SyncedAt, ReconciledAt: r.ReconciledAt, LastSuccessAt: r.LastSuccessAt,
+			TenantID: configured.tenant, Name: r.Name, SyncedAt: r.SyncedAt, ReconciledAt: r.ReconciledAt, LastSuccessAt: r.LastSuccessAt,
 			FailingSince: r.FailingSince, LastError: r.LastError, Backlog: int(r.Backlog),
 		}
 		if t := s.provisioningTarget(r.Name); t != nil && t.invalid != nil {

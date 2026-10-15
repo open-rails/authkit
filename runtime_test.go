@@ -200,9 +200,10 @@ func TestRuntimeConstructorHTTPFailureKeepsBorrowedPool(t *testing.T) {
 func testConfig(t *testing.T) authkit.Config {
 	t.Helper()
 	return authkit.Config{
-		Token:        authkit.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}},
-		Registration: authkit.RegistrationConfig{Verification: iam.RegistrationVerificationNone},
-		TwoFactor:    authkit.TwoFactorConfig{TOTPSecretKey: testTOTPKey},
+		DefaultTenantID: testdb.DefaultTenantID,
+		Token:           authkit.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}},
+		Registration:    authkit.RegistrationConfig{Verification: iam.RegistrationVerificationNone},
+		TwoFactor:       authkit.TwoFactorConfig{TOTPSecretKey: testTOTPKey},
 	}
 }
 

@@ -20,6 +20,13 @@ func (s *Engine) ConfirmVerification(ctx context.Context, in authflow.Verificati
 	if in.Token != "" && in.Code != "" || in.Token == "" && (in.Identifier == "" || in.Code == "") {
 		return authflow.LoginOutcome{}, jwt.ErrTokenInvalidClaims
 	}
+	if in.Token != "" {
+		var err error
+		ctx, err = s.proofContext(ctx, "verification-link", secret.Hash(in.Token))
+		if err != nil {
+			return authflow.LoginOutcome{}, err
+		}
+	}
 	kinds := []pendingChangeKind{kindRegisterEmail, kindRegisterPhone, kindVerifyEmail, kindVerifyPhone, kindChangeEmail, kindChangePhone}
 	for _, kind := range kinds {
 		if in.Identifier != "" && kind.isEmail() != strings.Contains(in.Identifier, "@") {

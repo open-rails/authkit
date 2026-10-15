@@ -30,10 +30,13 @@ import (
 // CreateInvitation creates an invite link (n.Email empty), or emails an
 // invitation to n.Email. A link, and an email invitation carrying a role, need
 // CAP(<p>:members:manage) plus COVER(role) in ref; a plain email invitation
-// (no role) is issued in the root group and needs CAP(root:users:invite).
+// (no role) is issued in the root or owning tenant group and needs its users:invite permission.
 // Only a user or the system issues credentials. The code is returned once.
 // ops.InTx applies to links only: an email is sent at once.
 func (s *Engine) CreateInvitation(ctx context.Context, a auth.Identity, ref iam.GroupRef, n iam.NewInvitation, opts ...ops.Option) (iam.InvitationCreated, error) {
+	if _, err := s.tenantID(ctx); err != nil {
+		return iam.InvitationCreated{}, err
+	}
 	host, err := hostTx("CreateInvitation", opts)
 	if err != nil {
 		return iam.InvitationCreated{}, err
@@ -59,6 +62,7 @@ func (s *Engine) CreateInvitation(ctx context.Context, a auth.Identity, ref iam.
 }
 
 func (s *Engine) createInviteLink(ctx context.Context, a auth.Identity, host pgx.Tx, ref iam.GroupRef, n iam.NewInvitation, creator string, now time.Time) (iam.InvitationCreated, error) {
+	tenant, _ := s.tenantID(ctx)
 	if !s.externalInvitesEnabled() {
 		return iam.InvitationCreated{}, iam.ErrExternalInvitesDisabled
 	}
@@ -74,27 +78,34 @@ func (s *Engine) createInviteLink(ctx context.Context, a auth.Identity, host pgx
 	}
 	out := iam.InvitationCreated{Code: secret.Token(32)}
 	err := s.withGroupMutationIn(ctx, a, host, ref, func(st *permissionGroupStore, g groupTarget) error {
+		if g.Persona != iam.RootPersona() && g.TenantID != tenant {
+			return iam.ErrTenantMismatch
+		}
 		if err := s.requireDefinedGroupRole(ctx, st.q, g, n.Role); err != nil {
 			return err
 		}
 		if err := s.requireRoleGrant(ctx, st, a, g, ident.MembersManage(g.Persona), n.Role); err != nil {
 			return err
 		}
-		row, err := db.New(st.q).InviteLinkInsert(ctx, db.InviteLinkInsertParams{
+		row, err := db.New(st.q).InviteLinkInsert(ctx, db.InviteLinkInsertParams{TenantID: s.tenantKey(ctx),
 			GroupID: g.ID, Role: n.Role.String(), InvitedBy: nullable(creator), CodeHash: secret.Hash(out.Code), ExpiresAt: expiresAt,
 			CatalogIssuer: s.cfg.Token.Issuer,
 		})
-		out.Invitation = iam.Invitation{ID: row.ID, GroupID: g.ID, Role: n.Role, CreatedBy: nullable(creator), CreatedAt: row.CreatedAt, ExpiresAt: &expiresAt}
+		out.Invitation = iam.Invitation{TenantID: tenant, ID: row.ID, GroupID: g.ID, Role: n.Role, CreatedBy: nullable(creator), CreatedAt: row.CreatedAt, ExpiresAt: &expiresAt}
 		return err
 	})
 	if err != nil {
 		return iam.InvitationCreated{}, err
 	}
 	out.URL = s.inviteURL(out.Code)
+	if err := s.rememberProofRoute(ctx, "invitation", secret.Hash(out.Code), time.Until(expiresAt)); err != nil {
+		return iam.InvitationCreated{}, err
+	}
 	return out, nil
 }
 
 func (s *Engine) createEmailInvitation(ctx context.Context, a auth.Identity, ref iam.GroupRef, n iam.NewInvitation, creator string, now time.Time) (iam.InvitationCreated, error) {
+	tenant, _ := s.tenantID(ctx)
 	email := contact.NormalizeEmail(n.Email)
 	if err := contact.ValidateEmail(email); err != nil {
 		return iam.InvitationCreated{}, err
@@ -109,17 +120,19 @@ func (s *Engine) createEmailInvitation(ctx context.Context, a auth.Identity, ref
 	}
 	out := iam.InvitationCreated{Code: secret.Token(32)}
 	err := s.withGroupMutation(ctx, a, ref, func(st *permissionGroupStore, g groupTarget) error {
+		if g.Persona != iam.RootPersona() && g.TenantID != tenant {
+			return iam.ErrTenantMismatch
+		}
 		var groupID, roleText *string
 		if role.IsZero() {
-			if g.Persona != iam.RootPersona() {
+			if g.Persona != iam.RootPersona() && g.Persona != iam.TenantPersona() {
 				return errmodel.ErrInvalidInvite
 			}
-			auth, err := s.identityAuthority(ctx, st, a, g)
-			if err != nil {
+			if err := s.requireAccountInvitation(ctx, st, a, g); err != nil {
 				return err
 			}
-			if err := auth.requireCap(ident.RootUsersInvite); err != nil {
-				return err
+			if g.Persona == iam.TenantPersona() {
+				groupID = &g.ID
 			}
 		} else {
 			if err := s.requireDefinedGroupRole(ctx, st.q, g, role); err != nil {
@@ -131,17 +144,23 @@ func (s *Engine) createEmailInvitation(ctx context.Context, a auth.Identity, ref
 			text := role.String()
 			groupID, roleText = &g.ID, &text
 		}
-		row, err := db.New(st.q).AccountInviteInsert(ctx, db.AccountInviteInsertParams{
+		row, err := db.New(st.q).AccountInviteInsert(ctx, db.AccountInviteInsertParams{TenantID: s.tenantKey(ctx),
 			Email: email, InvitedBy: nullable(creator), CodeHash: secret.Hash(out.Code), ExpiresAt: expiresAt, GroupID: groupID, Role: roleText,
 			CatalogIssuer: s.cfg.Token.Issuer,
 		})
-		out.Invitation = iam.Invitation{ID: row.ID, GroupID: g.ID, Role: role, Email: nullable(email), CreatedBy: nullable(creator), CreatedAt: row.CreatedAt, ExpiresAt: &expiresAt}
+		out.Invitation = iam.Invitation{TenantID: tenant, ID: row.ID, GroupID: g.ID, Role: role, Email: nullable(email), CreatedBy: nullable(creator), CreatedAt: row.CreatedAt, ExpiresAt: &expiresAt}
 		return err
 	})
 	if err != nil {
 		return iam.InvitationCreated{}, err
 	}
 	out.URL = s.accountRegistrationInviteURL(out.Code)
+	if err := s.rememberProofRoute(ctx, "invitation", secret.Hash(out.Code), time.Until(expiresAt)); err != nil {
+		return iam.InvitationCreated{}, err
+	}
+	if err := s.rememberProofRoute(ctx, "registration-invite", secret.Hash(out.Code), time.Until(expiresAt)); err != nil {
+		return iam.InvitationCreated{}, err
+	}
 	s.sendAccountRegistrationInviteEmail(ctx, email, out.URL)
 	return out, nil
 }
@@ -150,6 +169,10 @@ func (s *Engine) createEmailInvitation(ctx context.Context, a auth.Identity, ref
 // invitations, newest first, active or not; never a code. Root's include the
 // plain email invitations.
 func (s *Engine) ListInvitations(ctx context.Context, ref iam.GroupRef, p iam.PageRequest) (iam.ListPage[iam.Invitation], error) {
+	tenant, err := s.tenantID(ctx)
+	if err != nil {
+		return iam.ListPage[iam.Invitation]{}, err
+	}
 	if err := s.requirePG(); err != nil {
 		return iam.ListPage[iam.Invitation]{}, err
 	}
@@ -162,7 +185,7 @@ func (s *Engine) ListInvitations(ctx context.Context, ref iam.GroupRef, p iam.Pa
 	if err != nil {
 		return iam.ListPage[iam.Invitation]{}, err
 	}
-	rows, err := db.New(st.q).InvitationsByGroup(ctx, db.InvitationsByGroupParams{
+	rows, err := db.New(st.q).InvitationsByGroup(ctx, db.InvitationsByGroupParams{TenantID: s.tenantKey(ctx),
 		GroupID: g.ID, Root: g.Persona == iam.RootPersona(), After: after, PageLimit: int64(p.PageLimit() + 1),
 	})
 	if err != nil {
@@ -171,7 +194,7 @@ func (s *Engine) ListInvitations(ctx context.Context, ref iam.GroupRef, p iam.Pa
 	items := make([]iam.Invitation, len(rows))
 	for i, r := range rows {
 		items[i] = iam.Invitation{
-			ID: r.ID, GroupID: g.ID, Role: ident.RoleText(r.Role), Email: nullable(r.Email), CreatedBy: nullable(r.CreatedBy),
+			TenantID: tenant, ID: r.ID, GroupID: g.ID, Role: ident.RoleText(r.Role), Email: nullable(r.Email), CreatedBy: nullable(r.CreatedBy),
 			CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt, RedeemedAt: r.RedeemedAt, RevokedAt: r.RevokedAt,
 		}
 	}
@@ -180,10 +203,13 @@ func (s *Engine) ListInvitations(ctx context.Context, ref iam.GroupRef, p iam.Pa
 
 // RevokeInvitation revokes the group's invitation id. It needs the authority
 // to issue it: CAP(<p>:members:manage) plus COVER of its role, or
-// CAP(root:users:invite) for a plain email invitation. A revoked or redeemed
+// users:invite in the root or owning tenant group for a plain email invitation. A revoked or redeemed
 // invitation is a no-op; an id unknown in the group is
 // iam.ErrInvitationNotFound.
 func (s *Engine) RevokeInvitation(ctx context.Context, a auth.Identity, ref iam.GroupRef, id string, opts ...ops.Option) error {
+	if _, err := s.tenantID(ctx); err != nil {
+		return err
+	}
 	host, err := hostTx("RevokeInvitation", opts)
 	if err != nil {
 		return err
@@ -197,7 +223,7 @@ func (s *Engine) RevokeInvitation(ctx context.Context, a auth.Identity, ref iam.
 			return iam.ErrInvitationNotFound
 		}
 		q := db.New(st.q)
-		link, err := q.InviteLinkForRevoke(ctx, db.InviteLinkForRevokeParams{ID: id, GroupID: g.ID})
+		link, err := q.InviteLinkForRevoke(ctx, db.InviteLinkForRevokeParams{TenantID: s.tenantKey(ctx), ID: id, GroupID: g.ID})
 		switch {
 		case err == nil:
 			if link.RevokedAt != nil || link.RedeemedAt != nil {
@@ -210,7 +236,7 @@ func (s *Engine) RevokeInvitation(ctx context.Context, a auth.Identity, ref iam.
 		case !errors.Is(err, pgx.ErrNoRows):
 			return err
 		}
-		invite, err := q.AccountInviteForRevoke(ctx, db.AccountInviteForRevokeParams{ID: id, GroupID: g.ID, Root: g.Persona == iam.RootPersona()})
+		invite, err := q.AccountInviteForRevoke(ctx, db.AccountInviteForRevokeParams{TenantID: s.tenantKey(ctx), ID: id, GroupID: g.ID, Root: g.Persona == iam.RootPersona()})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return iam.ErrInvitationNotFound
 		}
@@ -218,11 +244,7 @@ func (s *Engine) RevokeInvitation(ctx context.Context, a auth.Identity, ref iam.
 			return err
 		}
 		if invite.Role == "" {
-			auth, err := s.identityAuthority(ctx, st, a, g)
-			if err != nil {
-				return err
-			}
-			if err := auth.requireCap(ident.RootUsersInvite); err != nil {
+			if err := s.requireAccountInvitation(ctx, st, a, g); err != nil {
 				return err
 			}
 		} else if err := s.requireCredentialRevoke(ctx, st, a, g, ident.MembersManage(g.Persona), ident.RoleText(invite.Role)); err != nil {

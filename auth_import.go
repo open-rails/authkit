@@ -17,7 +17,7 @@ import (
 // applications. See iam.BootstrapManifestUser for how existing accounts are
 // found; nothing runs it implicitly.
 func (a *Client) ApplyBootstrapManifest(ctx context.Context, m iam.BootstrapManifest, o iam.BootstrapOptions, opts ...Option) (iam.BootstrapResult, error) {
-	return a.ops.ApplyBootstrapManifest(ctx, m, o, opts...)
+	return a.ops.ApplyBootstrapManifest(a.operationContext(ctx), m, o, opts...)
 }
 
 // EnsureUserRole makes the account u names hold role in group, and is safe
@@ -30,7 +30,7 @@ func (a *Client) ApplyBootstrapManifest(ctx context.Context, m iam.BootstrapMani
 // earlier call created). Any other account gets iam.ErrContactNotVerified,
 // so a pre-registered account is never adopted. A username never finds one.
 func (a *Client) EnsureUserRole(ctx context.Context, group iam.GroupRef, u iam.UserRef, role iam.Role, opts ...Option) (iam.User, error) {
-	return a.ops.EnsureUserRole(ctx, group, u, role, opts...)
+	return a.ops.EnsureUserRole(a.operationContext(ctx), group, u, role, opts...)
 }
 
 // ImportUsers imports accounts in bulk (hundreds of thousands per call), in
@@ -38,20 +38,20 @@ func (a *Client) EnsureUserRole(ctx context.Context, group iam.GroupRef, u iam.U
 // and iam.ImportConflict. Invalid rows are rejected alone; a database error
 // stops the import and the rows of committed chunks are still reported.
 func (a *Client) ImportUsers(ctx context.Context, rows []iam.ImportUser, o iam.ImportOptions, opts ...Option) (iam.ImportResult, error) {
-	return a.ops.ImportUsers(ctx, rows, o, opts...)
+	return a.ops.ImportUsers(a.operationContext(ctx), rows, o, opts...)
 }
 
 // ImportSolanaLinks reserves legacy wallet addresses for their accounts
 // without making them login methods; only a later Sign-In with Solana proof
 // verifies one.
 func (a *Client) ImportSolanaLinks(ctx context.Context, rows []iam.ImportSolanaLink, opts ...Option) (iam.ImportSolanaLinksResult, error) {
-	return a.ops.ImportSolanaLinks(ctx, rows, opts...)
+	return a.ops.ImportSolanaLinks(a.operationContext(ctx), rows, opts...)
 }
 
 // LinkProvider links an external identity to an account as a login method.
 // Browser flows link through the provider login instead.
 func (a *Client) LinkProvider(ctx context.Context, userID string, l iam.ProviderLink, opts ...Option) error {
-	return a.ops.LinkProvider(ctx, userID, l, opts...)
+	return a.ops.LinkProvider(a.operationContext(ctx), userID, l, opts...)
 }
 
 // ParseBootstrapManifestYAML parses a bootstrap manifest without a Client or

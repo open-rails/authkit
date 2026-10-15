@@ -150,6 +150,13 @@ func (s *Engine) emitEvents(ctx context.Context, q db.DBTX, a auth.Identity, eve
 	if err != nil || len(subscribers) == 0 {
 		return err
 	}
+	for i := range events {
+		tenant, err := s.eventTenant(ctx, txq, events[i])
+		if err != nil {
+			return err
+		}
+		events[i].TenantID = tenant
+	}
 	who := eventIdentity(a)
 	ids := make([]string, len(events))
 	for i := range events {
@@ -164,7 +171,7 @@ func (s *Engine) emitEvents(ctx context.Context, q db.DBTX, a auth.Identity, eve
 		}
 		for i, e := range events {
 			row, err := txq.AccountEventInsert(ctx, db.AccountEventInsertParams{
-				Issuer: sub.Issuer, Stream: eventStream(e), EventID: ids[i], Kind: string(e.Kind),
+				Issuer: sub.Issuer, Stream: eventStream(e), EventID: ids[i], Kind: string(e.Kind), TenantID: nullable(e.TenantID.String()),
 				SubjectKind: string(who.SubjectKind), SubjectID: who.SubjectID, InvokerIssuer: who.InvokerIssuer, InvokerID: who.InvokerID,
 				CredentialKind: string(who.CredentialKind), CredentialID: who.CredentialID,
 				UserID: nullable(e.UserID), GroupID: nullable(e.GroupID), Persona: e.Persona.String(), ApplicationID: nullable(e.ApplicationID),
@@ -232,8 +239,18 @@ func (s *Engine) deliverEvent(ctx context.Context, row int64) error {
 	if rec.Issuer != s.cfg.Token.Issuer {
 		return river.JobCancel(errors.New("authkit: account event issuer mismatch"))
 	}
+	tenant := iam.TenantID{}
+	if rec.TenantID != nil {
+		tenant, err = iam.ParseTenantID(*rec.TenantID)
+		if err != nil {
+			return err
+		}
+	}
+	// A global event also clears any ambient target from the caller. It must
+	// not accidentally inherit this worker's default account directory.
+	ctx = WithTenant(ctx, tenant)
 	e := iam.Event{
-		ID: rec.EventID, Kind: iam.EventKind(rec.Kind), OccurredAt: rec.OccurredAt,
+		TenantID: tenant, ID: rec.EventID, Kind: iam.EventKind(rec.Kind), OccurredAt: rec.OccurredAt,
 		SubjectKind: auth.SubjectKind(rec.SubjectKind), SubjectID: rec.SubjectID, InvokerIssuer: rec.InvokerIssuer, InvokerID: rec.InvokerID,
 		CredentialKind: auth.CredentialKind(rec.CredentialKind), CredentialID: rec.CredentialID,
 		UserID: deref(rec.UserID), GroupID: deref(rec.GroupID), Persona: ident.Persona(rec.Persona), ApplicationID: deref(rec.ApplicationID),
@@ -269,4 +286,51 @@ func invokeEventHook(ctx context.Context, hook func(context.Context, iam.Event) 
 		}
 	}()
 	return hook(ctx, e)
+}
+
+// eventTenant snapshots the target owner while it is still available. A root
+// operator's source account is never substituted for an affected account.
+func (s *Engine) eventTenant(ctx context.Context, q *db.Queries, e iam.Event) (iam.TenantID, error) {
+	if e.UserID != "" {
+		u, err := q.UserByID(ctx, e.UserID)
+		if err == nil {
+			return iam.ParseTenantID(u.TenantID)
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return iam.TenantID{}, err
+		}
+		// A final purge emits after DELETE with its retained receipt owner.
+		if !e.TenantID.IsZero() {
+			return e.TenantID, nil
+		}
+		return iam.TenantID{}, iam.ErrUserNotFound
+	}
+	if e.GroupID != "" {
+		g, err := q.AuthorityGroupState(ctx, e.GroupID)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) && !e.TenantID.IsZero() {
+				return e.TenantID, nil
+			}
+			return iam.TenantID{}, err
+		}
+		if g.TenantID == nil {
+			return iam.TenantID{}, nil
+		}
+		return iam.ParseTenantID(*g.TenantID)
+	}
+	if e.ApplicationID != "" {
+		a, err := q.RemoteApplicationByID(ctx, e.ApplicationID)
+		if err != nil {
+			return iam.TenantID{}, err
+		}
+		g, err := q.AuthorityGroupState(ctx, a.PermissionGroupID)
+		if err != nil {
+			return iam.TenantID{}, err
+		}
+		if g.TenantID == nil {
+			return iam.TenantID{}, nil
+		}
+		return iam.ParseTenantID(*g.TenantID)
+	}
+	return iam.TenantID{}, nil
 }

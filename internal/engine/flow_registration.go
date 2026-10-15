@@ -64,7 +64,7 @@ func (s *Engine) CheckPendingRegistrationConflict(ctx context.Context, email, us
 	email = contact.NormalizeEmail(email)
 	username = strings.TrimSpace(username)
 	if s.pg != nil {
-		taken, err := s.q.UserEmailOrUsernameTaken(ctx, db.UserEmailOrUsernameTakenParams{Email: email, Username: username, AtTime: s.namingNow()})
+		taken, err := s.q.UserEmailOrUsernameTaken(ctx, db.UserEmailOrUsernameTakenParams{TenantID: s.tenantKey(ctx), Email: email, Username: username, AtTime: s.namingNow()})
 		if err != nil {
 			return false, false, err
 		}
@@ -136,7 +136,7 @@ func (s *Engine) CheckPhoneRegistrationConflict(ctx context.Context, phone, user
 	username = strings.TrimSpace(username)
 
 	if s.pg != nil {
-		taken, err := s.q.UserPhoneOrUsernameTaken(ctx, db.UserPhoneOrUsernameTakenParams{Phone: phone, Username: username, AtTime: s.namingNow()})
+		taken, err := s.q.UserPhoneOrUsernameTaken(ctx, db.UserPhoneOrUsernameTakenParams{TenantID: s.tenantKey(ctx), Phone: phone, Username: username, AtTime: s.namingNow()})
 		if err != nil {
 			return false, false, err
 		}

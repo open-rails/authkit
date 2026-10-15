@@ -11,7 +11,7 @@ import (
 )
 
 const accountDeletionDelivery = `-- name: AccountDeletionDelivery :one
-SELECT d.id, d.user_id, d.deleted_at, d.purge_at, d.state, d.recipients, d.restored_at, d.purged_at, d.deleted_by, e.issuer, e.stage, e.completed_at
+SELECT d.id, d.user_id, d.deleted_at, d.purge_at, d.state, d.recipients, d.restored_at, d.purged_at, d.deleted_by, d.tenant_id, e.issuer, e.stage, e.completed_at
 FROM account_deletion_deliveries e JOIN account_deletions d ON d.id = e.deletion_id
 WHERE e.id = $1
 `
@@ -36,6 +36,7 @@ func (q *Queries) AccountDeletionDelivery(ctx context.Context, id int64) (Accoun
 		&i.AccountDeletion.RestoredAt,
 		&i.AccountDeletion.PurgedAt,
 		&i.AccountDeletion.DeletedBy,
+		&i.AccountDeletion.TenantID,
 		&i.Issuer,
 		&i.Stage,
 		&i.CompletedAt,
@@ -114,7 +115,7 @@ func (q *Queries) AccountDeletionDeliveryUser(ctx context.Context, id int64) (st
 }
 
 const accountDeletionForUpdate = `-- name: AccountDeletionForUpdate :one
-SELECT id, user_id, deleted_at, purge_at, state, recipients, restored_at, purged_at, deleted_by FROM account_deletions WHERE id = $1 FOR UPDATE
+SELECT id, user_id, deleted_at, purge_at, state, recipients, restored_at, purged_at, deleted_by, tenant_id FROM account_deletions WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) AccountDeletionForUpdate(ctx context.Context, id string) (AccountDeletion, error) {
@@ -130,6 +131,7 @@ func (q *Queries) AccountDeletionForUpdate(ctx context.Context, id string) (Acco
 		&i.RestoredAt,
 		&i.PurgedAt,
 		&i.DeletedBy,
+		&i.TenantID,
 	)
 	return i, err
 }
@@ -148,10 +150,10 @@ func (q *Queries) AccountDeletionHardDeliveriesPending(ctx context.Context, dele
 }
 
 const accountDeletionInsert = `-- name: AccountDeletionInsert :one
-INSERT INTO account_deletions (user_id, deleted_at, purge_at, recipients, deleted_by)
-SELECT id, deleted_at, deleted_at + interval '720 hours', $1::text[], $2::uuid
+INSERT INTO account_deletions (user_id, tenant_id, deleted_at, purge_at, recipients, deleted_by)
+SELECT id, tenant_id, deleted_at, deleted_at + interval '720 hours', $1::text[], $2::uuid
 FROM users WHERE id = $3::uuid
-RETURNING id, user_id, deleted_at, purge_at, state, recipients, restored_at, purged_at, deleted_by
+RETURNING id, user_id, deleted_at, purge_at, state, recipients, restored_at, purged_at, deleted_by, tenant_id
 `
 
 type AccountDeletionInsertParams struct {
@@ -174,6 +176,7 @@ func (q *Queries) AccountDeletionInsert(ctx context.Context, arg AccountDeletion
 		&i.RestoredAt,
 		&i.PurgedAt,
 		&i.DeletedBy,
+		&i.TenantID,
 	)
 	return i, err
 }
@@ -212,7 +215,7 @@ func (q *Queries) AccountDeletionPurgeWindow(ctx context.Context, arg AccountDel
 }
 
 const accountDeletionRecoverable = `-- name: AccountDeletionRecoverable :one
-SELECT id, user_id, deleted_at, purge_at, state, recipients, restored_at, purged_at, deleted_by FROM account_deletions
+SELECT id, user_id, deleted_at, purge_at, state, recipients, restored_at, purged_at, deleted_by, tenant_id FROM account_deletions
 WHERE user_id = $1 AND state = 'deleted' AND deleted_at = $2
   AND purge_at > statement_timestamp()
 `
@@ -236,6 +239,7 @@ func (q *Queries) AccountDeletionRecoverable(ctx context.Context, arg AccountDel
 		&i.RestoredAt,
 		&i.PurgedAt,
 		&i.DeletedBy,
+		&i.TenantID,
 	)
 	return i, err
 }

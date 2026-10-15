@@ -150,7 +150,7 @@ func TestGroupOperationsWorkflow(t *testing.T) {
 		}
 	}
 	require.ElementsMatch(t, []string{golang.ID, announcements.ID, rust, python}, ids(iam.GroupQuery{Persona: channel.Persona, Page: iam.PageRequest{Limit: 3}}))
-	require.ElementsMatch(t, []string{golang.ID, announcements.ID, acme.ID, rust, python}, ids(iam.GroupQuery{Page: iam.PageRequest{Limit: 1}}))
+	require.ElementsMatch(t, []string{golang.ID, announcements.ID, acme.ID, rust, python, bob.TenantID.String()}, ids(iam.GroupQuery{Page: iam.PageRequest{Limit: 1}}))
 	_, err = auth.ListGroups(ctx, iam.GroupQuery{Page: iam.PageRequest{Cursor: "garbage"}})
 	requireIAMCode(t, err, "invalid_request")
 	_, err = auth.ListGroups(ctx, iam.GroupQuery{Persona: wire[iam.Persona](t, "nope")})
@@ -380,7 +380,7 @@ func TestGroupRoutesAddressGroupsByID(t *testing.T) {
 	require.JSONEq(t, `{"subject":{"kind":"user","id":"`+member.ID+`"},"role":"org:member","user":null}`, res.String())
 	res = a.get("/me/permissions?group_id="+gid, memberToken)
 	require.Equal(t, http.StatusOK, res.status, res.String())
-	require.JSONEq(t, `{"group_id":"`+gid+`","role":"org:member","permissions":["org:catalog:read"]}`, res.String())
+	require.JSONEq(t, `{"group_id":"`+gid+`","persona":"org","role":"org:member","permissions":["org:catalog:read"]}`, res.String())
 	res = a.get("/me/groups", memberToken)
 	require.Equal(t, http.StatusOK, res.status, res.String())
 	require.Contains(t, res.String(), `"id":"`+gid+`"`)
@@ -650,7 +650,7 @@ func TestRoleOwnerHTTPWorkflow(t *testing.T) {
 func TestRootGroupHTTPWorkflow(t *testing.T) {
 	m := newOrgModel(authkit.APIKeys)
 	adminRole := m.rbac.Root.Role("admin", m.rbac.Root.Members.All(), m.rbac.Root.Users.Read)
-	superRole := m.rbac.Root.Role("super", m.rbac.Root.All(), m.org.All())
+	superRole := m.rbac.Root.Role("super", m.rbac.Root.All(), m.rbac.Tenant.All(), m.org.All())
 	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) {
 		m.config(c)
 		// root:members:manage needs MFA; this test is about identity kinds, not MFA.

@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit/iam"
 
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/oidcstate"
@@ -24,8 +26,35 @@ import (
 // what is live. Expired rows are invisible to reads and purged by the
 // maintenance job.
 type ephemeralKV struct {
-	pool *pgxpool.Pool
-	q    *db.Queries
+	pool   *pgxpool.Pool
+	q      *db.Queries
+	tenant func(context.Context) (iam.TenantID, error)
+}
+
+// Login proofs and account recovery state belong to one tenant. Fleet-wide
+// abuse/replay keys intentionally stay global (notably signin:device and OAuth
+// assertion/capability replay protection). Keys remain private to this store.
+func (k *ephemeralKV) scopedKey(ctx context.Context, key string) (string, error) {
+	for _, prefix := range tenantProofPrefixes {
+		if strings.HasPrefix(key, prefix) {
+			if k.tenant == nil {
+				return "", iam.ErrTenantRequired
+			}
+			id, err := k.tenant(ctx)
+			if err != nil {
+				return "", err
+			}
+			return "tenant:" + id.String() + ":" + key, nil
+		}
+	}
+	return key, nil
+}
+
+var tenantProofPrefixes = []string{
+	"email_verify:", "phone_verify:", "password_reset:", "password_proof:",
+	"passwordless:", "2fa:", "passkey:", "pending_change:", "oidc:", "siws:",
+	"device-key:", "step-up:", "account-recovery:", "signin:account:",
+	"signin:device-code:", "signin:device-sent:", "oauth:authz:", "oauth:code:", "oauth:refresh:",
 }
 
 // ephemeralSweepBatch bounds each purge statement so it never holds many row
@@ -40,11 +69,19 @@ func ephemeralTTL(ttl time.Duration) (int64, error) {
 }
 
 func (k *ephemeralKV) Get(ctx context.Context, key string) ([]byte, bool, error) {
+	key, err := k.scopedKey(ctx, key)
+	if err != nil {
+		return nil, false, err
+	}
 	v, err := k.q.EphemeralGet(ctx, key)
 	return ephemeralValue(v, err)
 }
 
 func (k *ephemeralKV) Set(ctx context.Context, key string, value []byte, ttl time.Duration) error {
+	key, err := k.scopedKey(ctx, key)
+	if err != nil {
+		return err
+	}
 	us, err := ephemeralTTL(ttl)
 	if err != nil {
 		return err
@@ -56,6 +93,10 @@ func (k *ephemeralKV) Set(ctx context.Context, key string, value []byte, ttl tim
 }
 
 func (k *ephemeralKV) Del(ctx context.Context, key string) error {
+	key, err := k.scopedKey(ctx, key)
+	if err != nil {
+		return err
+	}
 	return k.q.EphemeralDelete(ctx, key)
 }
 
@@ -64,6 +105,10 @@ func (k *ephemeralKV) Del(ctx context.Context, key string) error {
 // whose key is the secret (passkey challenge, reset token) must use it, never
 // Get+Del.
 func (k *ephemeralKV) Consume(ctx context.Context, key string) ([]byte, bool, error) {
+	key, err := k.scopedKey(ctx, key)
+	if err != nil {
+		return nil, false, err
+	}
 	v, err := k.q.EphemeralConsume(ctx, key)
 	return ephemeralValue(v, err)
 }
@@ -71,6 +116,10 @@ func (k *ephemeralKV) Consume(ctx context.Context, key string) ([]byte, bool, er
 // CompareAndConsume deletes a live key only while it still holds expected, so
 // an old reader can neither win twice nor consume a newer issuance.
 func (k *ephemeralKV) CompareAndConsume(ctx context.Context, key string, expected []byte) (bool, error) {
+	key, err := k.scopedKey(ctx, key)
+	if err != nil {
+		return false, err
+	}
 	n, err := k.q.EphemeralCompareAndConsume(ctx, db.EphemeralCompareAndConsumeParams{Key: key, Expected: expected})
 	return n == 1, err
 }
@@ -78,6 +127,10 @@ func (k *ephemeralKV) CompareAndConsume(ctx context.Context, key string, expecte
 // Incr returns distinct consecutive values to concurrent callers. The TTL is
 // set when the counter starts and never extended; attempt caps must use it.
 func (k *ephemeralKV) Incr(ctx context.Context, key string, ttl time.Duration) (int64, error) {
+	key, err := k.scopedKey(ctx, key)
+	if err != nil {
+		return 0, err
+	}
 	us, err := ephemeralTTL(ttl)
 	if err != nil {
 		return 0, err
@@ -88,6 +141,10 @@ func (k *ephemeralKV) Incr(ctx context.Context, key string, ttl time.Duration) (
 // Swap writes value with a fresh ttl only while key still holds expected (nil:
 // while it is absent), reporting whether it did.
 func (k *ephemeralKV) Swap(ctx context.Context, key string, expected, value []byte, ttl time.Duration) (bool, error) {
+	key, err := k.scopedKey(ctx, key)
+	if err != nil {
+		return false, err
+	}
 	us, err := ephemeralTTL(ttl)
 	if err != nil {
 		return false, err
@@ -254,26 +311,59 @@ const (
 
 // PutOIDCState records a pending browser login for the provider callback.
 func (s *Engine) PutOIDCState(ctx context.Context, state string, data oidcstate.StateData) error {
-	return s.ephemSetJSON(ctx, keyOIDCState+state, data, oidcStateTTL)
+	id, err := s.tenantID(ctx)
+	if err != nil {
+		return err
+	}
+	data.TenantID, data.Issuer = id, s.cfg.Token.Issuer
+	if err := s.ephemSetJSON(ctx, keyOIDCState+state, data, oidcStateTTL); err != nil {
+		return err
+	}
+	// Random-state routing is global only so the shared callback can recover
+	// its issuing tenant after the browser's state-cookie proof succeeds.
+	return s.rememberProofRoute(ctx, "oidc-state", secret.Hash(state), oidcStateTTL)
 }
 
 // ConsumeOIDCState claims a pending browser login once; concurrent callbacks
 // cannot both win it.
 func (s *Engine) ConsumeOIDCState(ctx context.Context, state string) (oidcstate.StateData, bool, error) {
 	var d oidcstate.StateData
-	ok, err := s.ephemConsumeJSON(ctx, keyOIDCState+state, &d)
-	return d, ok, err
+	ctx, err := s.proofContext(ctx, "oidc-state", secret.Hash(state))
+	if err != nil {
+		return d, false, err
+	}
+	id, _ := s.tenantID(ctx)
+	raw, ok, err := s.ephemReadJSON(ctx, keyOIDCState+state, &d)
+	if err != nil || !ok {
+		return d, false, err
+	}
+	legacy := d.TenantID.IsZero() && d.Issuer == "" && id == s.cfg.DefaultTenantID
+	if !legacy && (d.TenantID != id || d.Issuer != s.cfg.Token.Issuer) {
+		return d, false, nil
+	}
+	d.TenantID = id
+	if err := s.claimProof(ctx, keyOIDCState+state, raw); err != nil {
+		return d, false, err
+	}
+	return d, true, nil
 }
 
 // PutOIDCResult keeps a browser OIDC result for its one-time code; the key is
 // the code's hash, so the store never holds a usable code.
 func (s *Engine) PutOIDCResult(ctx context.Context, code string, result json.RawMessage) error {
-	return s.ephemSetJSON(ctx, keyOIDCResult+secret.Hash(code), result, oidcResultTTL)
+	if err := s.ephemSetJSON(ctx, keyOIDCResult+secret.Hash(code), result, oidcResultTTL); err != nil {
+		return err
+	}
+	return s.rememberProofRoute(ctx, "oidc-result", secret.Hash(code), oidcResultTTL)
 }
 
 // ConsumeOIDCResult trades a one-time code for its result, once.
 func (s *Engine) ConsumeOIDCResult(ctx context.Context, code string) (json.RawMessage, bool, error) {
 	var result json.RawMessage
+	ctx, err := s.proofContext(ctx, "oidc-result", secret.Hash(code))
+	if err != nil {
+		return nil, false, err
+	}
 	ok, err := s.ephemConsumeJSON(ctx, keyOIDCResult+secret.Hash(code), &result)
 	return result, ok, err
 }

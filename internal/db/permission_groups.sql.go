@@ -12,9 +12,10 @@ import (
 
 const groupApplicationAssignmentsForGroups = `-- name: GroupApplicationAssignmentsForGroups :many
 WITH targets AS (
-  SELECT id, persona FROM permission_groups WHERE id = ANY($2::uuid[]) AND deleted_at IS NULL),
+  SELECT id, persona, tenant_id FROM permission_groups WHERE id = ANY($2::uuid[]) AND deleted_at IS NULL),
 chain AS (
   SELECT id AS target, id, persona FROM targets
+  UNION SELECT t.id, tg.id, tg.persona FROM targets t JOIN permission_groups tg ON tg.id=t.tenant_id AND tg.persona='tenant' AND tg.deleted_at IS NULL
   UNION SELECT t.id, rg.id, rg.persona FROM targets t JOIN permission_groups rg ON rg.persona = 'root')
 SELECT c.target::text AS target, c.id::text AS group_id, c.persona::text AS persona, a.role, cr.permissions AS custom_permissions
 FROM chain c JOIN group_remote_application_roles a ON a.permission_group_id = c.id AND a.remote_application_id = $1::uuid
@@ -216,9 +217,10 @@ func (q *Queries) GroupRolesForSubjects(ctx context.Context, arg GroupRolesForSu
 
 const groupUserAssignmentsForGroups = `-- name: GroupUserAssignmentsForGroups :many
 WITH targets AS (
-  SELECT id, persona FROM permission_groups WHERE id = ANY($2::uuid[]) AND deleted_at IS NULL),
+  SELECT id, persona, tenant_id FROM permission_groups WHERE id = ANY($2::uuid[]) AND deleted_at IS NULL),
 chain AS (
   SELECT id AS target, id, persona FROM targets
+  UNION SELECT t.id, tg.id, tg.persona FROM targets t JOIN permission_groups tg ON tg.id=t.tenant_id AND tg.persona='tenant' AND tg.deleted_at IS NULL
   UNION SELECT t.id, rg.id, rg.persona FROM targets t JOIN permission_groups rg ON rg.persona = 'root')
 SELECT c.target::text AS target, c.id::text AS group_id, c.persona::text AS persona, a.role, cr.permissions AS custom_permissions
 FROM chain c JOIN group_user_roles a ON a.permission_group_id = c.id AND a.user_id = $1::uuid
@@ -400,7 +402,7 @@ func (q *Queries) GroupUserRolesForUsers(ctx context.Context, arg GroupUserRoles
 }
 
 const groupsOfApplicationPage = `-- name: GroupsOfApplicationPage :many
-SELECT g.id, g.persona, g.created_at, g.deleted_at, a.role
+SELECT g.id, g.persona, g.created_at, g.deleted_at, g.tenant_id, a.role
 FROM group_remote_application_roles a JOIN permission_groups g ON g.id = a.permission_group_id
 WHERE a.remote_application_id = $1 AND g.deleted_at IS NULL
   AND ($2::text = '' OR (g.persona, g.id) > ($2::text, NULLIF($3::text, '')::uuid))
@@ -439,6 +441,7 @@ func (q *Queries) GroupsOfApplicationPage(ctx context.Context, arg GroupsOfAppli
 			&i.PermissionGroup.Persona,
 			&i.PermissionGroup.CreatedAt,
 			&i.PermissionGroup.DeletedAt,
+			&i.PermissionGroup.TenantID,
 			&i.Role,
 		); err != nil {
 			return nil, err
@@ -452,7 +455,7 @@ func (q *Queries) GroupsOfApplicationPage(ctx context.Context, arg GroupsOfAppli
 }
 
 const groupsOfUserPage = `-- name: GroupsOfUserPage :many
-SELECT g.id, g.persona, g.created_at, g.deleted_at, a.role
+SELECT g.id, g.persona, g.created_at, g.deleted_at, g.tenant_id, a.role
 FROM group_user_roles a JOIN permission_groups g ON g.id = a.permission_group_id
 WHERE a.user_id = $1 AND g.deleted_at IS NULL
   AND ($2::text = '' OR (g.persona, g.id) > ($2::text, NULLIF($3::text, '')::uuid))
@@ -493,6 +496,7 @@ func (q *Queries) GroupsOfUserPage(ctx context.Context, arg GroupsOfUserPagePara
 			&i.PermissionGroup.Persona,
 			&i.PermissionGroup.CreatedAt,
 			&i.PermissionGroup.DeletedAt,
+			&i.PermissionGroup.TenantID,
 			&i.Role,
 		); err != nil {
 			return nil, err
@@ -515,7 +519,7 @@ func (q *Queries) PermissionGroupDelete(ctx context.Context, id string) error {
 }
 
 const permissionGroupForUpdate = `-- name: PermissionGroupForUpdate :one
-SELECT id, persona, created_at, deleted_at FROM permission_groups WHERE id = $1 FOR UPDATE
+SELECT id, persona, created_at, deleted_at, tenant_id FROM permission_groups WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) PermissionGroupForUpdate(ctx context.Context, id string) (PermissionGroup, error) {
@@ -526,42 +530,49 @@ func (q *Queries) PermissionGroupForUpdate(ctx context.Context, id string) (Perm
 		&i.Persona,
 		&i.CreatedAt,
 		&i.DeletedAt,
+		&i.TenantID,
 	)
 	return i, err
 }
 
 const permissionGroupInsert = `-- name: PermissionGroupInsert :one
 
-INSERT INTO permission_groups (persona) VALUES ($1) RETURNING id
+INSERT INTO permission_groups (persona,tenant_id) VALUES ($1,NULLIF($2::text,'')::uuid) RETURNING id
 `
+
+type PermissionGroupInsertParams struct {
+	Persona  string
+	TenantID string
+}
 
 // Permission groups and their role assignments. A group read selects the whole
 // row, so every group read returns db.PermissionGroup. Role tables are one per
 // subject kind, so every assignment statement has a user and an application
 // variant.
-func (q *Queries) PermissionGroupInsert(ctx context.Context, persona string) (string, error) {
-	row := q.db.QueryRow(ctx, permissionGroupInsert, persona)
+func (q *Queries) PermissionGroupInsert(ctx context.Context, arg PermissionGroupInsertParams) (string, error) {
+	row := q.db.QueryRow(ctx, permissionGroupInsert, arg.Persona, arg.TenantID)
 	var id string
 	err := row.Scan(&id)
 	return id, err
 }
 
 const permissionGroupInsertWithID = `-- name: PermissionGroupInsertWithID :exec
-INSERT INTO permission_groups (id, persona) VALUES ($1::uuid, $2)
+INSERT INTO permission_groups (id,persona,tenant_id) VALUES ($1::uuid,$2,NULLIF($3::text,'')::uuid)
 `
 
 type PermissionGroupInsertWithIDParams struct {
-	ID      string
-	Persona string
+	ID       string
+	Persona  string
+	TenantID string
 }
 
 func (q *Queries) PermissionGroupInsertWithID(ctx context.Context, arg PermissionGroupInsertWithIDParams) error {
-	_, err := q.db.Exec(ctx, permissionGroupInsertWithID, arg.ID, arg.Persona)
+	_, err := q.db.Exec(ctx, permissionGroupInsertWithID, arg.ID, arg.Persona, arg.TenantID)
 	return err
 }
 
 const permissionGroupLiveForUpdate = `-- name: PermissionGroupLiveForUpdate :one
-SELECT id, persona, created_at, deleted_at FROM permission_groups WHERE id = $1 AND deleted_at IS NULL FOR UPDATE
+SELECT id, persona, created_at, deleted_at, tenant_id FROM permission_groups WHERE id = $1 AND deleted_at IS NULL FOR UPDATE
 `
 
 // PermissionGroupLiveForUpdate is the shared lifecycle lock of a live group.
@@ -573,6 +584,7 @@ func (q *Queries) PermissionGroupLiveForUpdate(ctx context.Context, id string) (
 		&i.Persona,
 		&i.CreatedAt,
 		&i.DeletedAt,
+		&i.TenantID,
 	)
 	return i, err
 }
@@ -619,7 +631,7 @@ func (q *Queries) PermissionGroupSoftDelete(ctx context.Context, arg PermissionG
 }
 
 const permissionGroupsByIDs = `-- name: PermissionGroupsByIDs :many
-SELECT id, persona, created_at, deleted_at FROM permission_groups WHERE id = ANY($1::uuid[])
+SELECT id, persona, created_at, deleted_at, tenant_id FROM permission_groups WHERE id = ANY($1::uuid[])
 `
 
 func (q *Queries) PermissionGroupsByIDs(ctx context.Context, ids []string) ([]PermissionGroup, error) {
@@ -636,6 +648,7 @@ func (q *Queries) PermissionGroupsByIDs(ctx context.Context, ids []string) ([]Pe
 			&i.Persona,
 			&i.CreatedAt,
 			&i.DeletedAt,
+			&i.TenantID,
 		); err != nil {
 			return nil, err
 		}
@@ -648,7 +661,7 @@ func (q *Queries) PermissionGroupsByIDs(ctx context.Context, ids []string) ([]Pe
 }
 
 const permissionGroupsPage = `-- name: PermissionGroupsPage :many
-SELECT g.id, g.persona, g.created_at, g.deleted_at FROM permission_groups g
+SELECT g.id, g.persona, g.created_at, g.deleted_at, g.tenant_id FROM permission_groups g
 WHERE g.persona <> 'root' AND ($1::text = '' OR g.persona = $1::text)
   AND (($2::boolean AND NOT $3::boolean) OR g.deleted_at IS NULL)
   AND ($4::text = '' OR g.id > $4::text::uuid)
@@ -700,6 +713,7 @@ func (q *Queries) PermissionGroupsPage(ctx context.Context, arg PermissionGroups
 			&i.Persona,
 			&i.CreatedAt,
 			&i.DeletedAt,
+			&i.TenantID,
 		); err != nil {
 			return nil, err
 		}

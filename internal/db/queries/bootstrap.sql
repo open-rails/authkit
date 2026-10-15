@@ -4,21 +4,21 @@
 
 -- name: BootstrapAccountByIDForUpdate :one
 SELECT id::text AS id, true AS verified, (deleted_at IS NOT NULL)::boolean AS deleted
-FROM users WHERE id = sqlc.arg(id)::uuid FOR UPDATE;
+FROM users WHERE tenant_id=NULLIF(sqlc.arg(tenant_id)::text,'')::uuid AND id = sqlc.arg(id)::uuid FOR UPDATE;
 
 -- name: BootstrapAccountByEmailForUpdate :one
 SELECT id::text AS id, email_verified AS verified, (deleted_at IS NOT NULL)::boolean AS deleted
-FROM users WHERE email = sqlc.arg(email)::text::public.citext FOR UPDATE;
+FROM users WHERE tenant_id=NULLIF(sqlc.arg(tenant_id)::text,'')::uuid AND email = sqlc.arg(email)::text::public.citext FOR UPDATE;
 
 -- name: BootstrapAccountByPhoneForUpdate :one
 SELECT id::text AS id, phone_verified AS verified, (deleted_at IS NOT NULL)::boolean AS deleted
-FROM users WHERE phone_number = sqlc.arg(phone)::text FOR UPDATE;
+FROM users WHERE tenant_id=NULLIF(sqlc.arg(tenant_id)::text,'')::uuid AND phone_number = sqlc.arg(phone)::text FOR UPDATE;
 
 -- name: BootstrapAccountByCanonicalNameForUpdate :one
 -- A canonical username only; an alias is never followed.
 SELECT u.id::text AS id, (u.deleted_at IS NOT NULL)::boolean AS deleted
 FROM name_claims c JOIN users u ON u.id = c.owner_id
-WHERE c.name = lower(sqlc.arg(username)::text) AND c.canonical
+WHERE c.tenant_id=NULLIF(sqlc.arg(tenant_id)::text,'')::uuid AND u.tenant_id=c.tenant_id AND c.name = lower(sqlc.arg(username)::text) AND c.canonical
 FOR UPDATE OF u;
 
 -- name: BootstrapApplyState :one

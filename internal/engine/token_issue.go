@@ -103,7 +103,7 @@ func (s *Engine) MintSessionAccessToken(ctx context.Context, userID, sessionID s
 // from authenticated state or not at all, so a host forwarding
 // request-influenced data can never forge identity, session or assurance.
 var authkitClaims = map[string]bool{
-	"iss": true, "sub": true, "aud": true, "iat": true, "nbf": true, "exp": true, "jti": true,
+	"iss": true, "sub": true, "tenant_id": true, "aud": true, "iat": true, "nbf": true, "exp": true, "jti": true,
 	"sid": true, "device_key_id": true, "auth_time": true, "amr": true, "acr": true, "mfa_enrolled": true,
 	"root_role": true, "entitlements": true, "2fa_enrollment": true, "provider": true,
 	"permissions": true, "cnf": true, "group_id": true,
@@ -186,6 +186,9 @@ func (s *Engine) mintAccessTokenForUserWithAssurance(ctx context.Context, q *db.
 		"aud": s.cfg.Token.IssuedAudiences,
 		"iat": now.Unix(),
 		"exp": expiresAt.Unix(),
+	}
+	if u.TenantID != "" {
+		claims["tenant_id"] = u.TenantID
 	}
 	if len(ents) > 0 {
 		claims["entitlements"] = ents

@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/open-rails/authkit/iam"
 	pgmigrations "github.com/open-rails/authkit/internal/migrations/postgres"
 	"github.com/open-rails/migratekit"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
@@ -27,6 +28,16 @@ type Postgres struct {
 	URL      string
 	Database string
 }
+
+// DefaultTenantID is the explicit owner of the legacy single-directory test
+// fixtures. Production migration callers must supply their own canonical ID.
+var DefaultTenantID = func() iam.TenantID {
+	id, err := iam.ParseTenantID("00000000-0000-4000-8000-000000000001")
+	if err != nil {
+		panic(err)
+	}
+	return id
+}()
 
 // URL returns the shared, already-migrated integration database named by
 // AUTHKIT_TEST_DATABASE_URL, or skips the test when it is unset.
@@ -126,6 +137,14 @@ func scratchPostgres(t testing.TB, migrate bool) *Postgres {
 // ApplyMigrations applies AuthKit's embedded Postgres migrations to dbURL.
 func ApplyMigrations(t testing.TB, ctx context.Context, dbURL string) {
 	t.Helper()
+	u, err := url.Parse(dbURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	params := u.Query()
+	params.Set("authkit.legacy_tenant_id", DefaultTenantID.String())
+	u.RawQuery = params.Encode()
+	dbURL = u.String()
 	sqlDB, err := sql.Open("pgx", dbURL)
 	if err != nil {
 		t.Fatalf("open sql db: %v", err)

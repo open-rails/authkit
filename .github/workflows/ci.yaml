@@ -1,11 +1,9 @@
 name: Validate
 
-# Master only changes through pull requests, so master pushes only refresh the
-# Go cache PRs restore (keyed by go.sum).
+# Direct master pushes and pull requests receive the same validation.
 on:
   push:
     branches: [master]
-    paths: [go.sum]
   pull_request:
     branches: [master]
   workflow_dispatch: {}
@@ -24,19 +22,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  go-cache:
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
-        with:
-          go-version: '1.26.9'
-          cache: true
-      - run: go test -count=1 -run '^$' ./...
-
   workflows:
-    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -75,7 +61,6 @@ jobs:
       - run: scripts/check.sh workflows
 
   contracts:
-    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -104,7 +89,6 @@ jobs:
   # the repositories that carry those build surfaces.
   security:
     name: Required Security
-    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

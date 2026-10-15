@@ -13,8 +13,13 @@ import (
 const identityPublicUsersByIDs = `-- name: IdentityPublicUsersByIDs :many
 SELECT id, username, created_at, deleted_at, public_metadata
 FROM users
-WHERE id = ANY($1::uuid[])
+WHERE tenant_id=NULLIF($1::text,'')::uuid AND id = ANY($2::uuid[])
 `
+
+type IdentityPublicUsersByIDsParams struct {
+	TenantID string
+	Ids      []string
+}
 
 type IdentityPublicUsersByIDsRow struct {
 	ID             string
@@ -28,8 +33,8 @@ type IdentityPublicUsersByIDsRow struct {
 // caller cannot leak one by forgetting a tag. Soft-deleted rows ARE returned —
 // the Go layer tombstones them — so a reference to a deleted author resolves to
 // a stable placeholder instead of silently vanishing.
-func (q *Queries) IdentityPublicUsersByIDs(ctx context.Context, ids []string) ([]IdentityPublicUsersByIDsRow, error) {
-	rows, err := q.db.Query(ctx, identityPublicUsersByIDs, ids)
+func (q *Queries) IdentityPublicUsersByIDs(ctx context.Context, arg IdentityPublicUsersByIDsParams) ([]IdentityPublicUsersByIDsRow, error) {
+	rows, err := q.db.Query(ctx, identityPublicUsersByIDs, arg.TenantID, arg.Ids)
 	if err != nil {
 		return nil, err
 	}

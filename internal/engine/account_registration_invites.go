@@ -80,7 +80,7 @@ func (s *Engine) hasValidAccountRegistrationInvite(ctx context.Context, email st
 		return false, nil
 	}
 	_ = email
-	return s.q.AccountInviteValid(ctx, secret.Hash(token))
+	return s.q.AccountInviteValid(ctx, db.AccountInviteValidParams{TenantID: s.tenantKey(ctx), CodeHash: secret.Hash(token)})
 }
 
 func (s *Engine) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token string) (*db.AccountInviteForUpdateRow, error) {
@@ -103,7 +103,7 @@ func (s *Engine) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token st
 	}
 	q := db.New(tx)
 	codeHash := secret.Hash(token)
-	groupID, err := q.AccountInviteGroupLive(ctx, codeHash)
+	groupID, err := q.AccountInviteGroupLive(ctx, db.AccountInviteGroupLiveParams{TenantID: s.tenantKey(ctx), CodeHash: codeHash})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, iam.ErrInvitationNotFound
 	}
@@ -115,7 +115,7 @@ func (s *Engine) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token st
 			return nil, err
 		}
 	}
-	invite, err := q.AccountInviteForUpdate(ctx, db.AccountInviteForUpdateParams{CodeHash: codeHash, GroupID: groupID})
+	invite, err := q.AccountInviteForUpdate(ctx, db.AccountInviteForUpdateParams{TenantID: s.tenantKey(ctx), CodeHash: codeHash, GroupID: groupID})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, iam.ErrInvitationNotFound
 	}

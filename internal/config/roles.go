@@ -29,6 +29,7 @@ type Roles struct {
 	// Root is the persona with exactly one group, the whole site. A role held
 	// on root applies in every group and may hold any persona's permissions.
 	Root     *RootDef
+	Tenant   *TenantDef
 	personas []*PersonaDef
 	roles    []rbac.RoleSpec
 	errs     []error
@@ -46,6 +47,15 @@ func NewRoles(opts ...PersonaOption) *Roles {
 		Delete:   ident.RootUsersDelete,
 		Manage:   ident.RootUsersManage,
 		Invite:   ident.RootUsersInvite,
+	}
+	r.Tenant = &TenantDef{PersonaDef: r.persona(iam.TenantPersona(), opts)}
+	r.Tenant.Users = UserPerms{
+		Resource: r.Tenant.Resource("users"),
+		Read:     ident.Perm("tenant:users:read"),
+		Ban:      ident.Perm("tenant:users:ban"),
+		Delete:   ident.Perm("tenant:users:delete"),
+		Manage:   ident.Perm("tenant:users:manage"),
+		Invite:   ident.Perm("tenant:users:invite"),
 	}
 	return r
 }
@@ -77,6 +87,8 @@ func (r *Roles) Persona(name string, opts ...PersonaOption) *PersonaDef {
 		r.errorf("persona %q: name must match [a-z][a-z0-9-]*", name)
 	case p == iam.RootPersona():
 		r.errorf("persona %q always exists: use Roles.Root", name)
+	case p == iam.TenantPersona():
+		r.errorf("persona %q always exists: use Roles.Tenant", name)
 	default:
 		for _, d := range r.personas {
 			if d.Persona == p {
@@ -254,6 +266,13 @@ func (p *PersonaDef) RequireMFA(perms ...iam.Perm) {
 // RootDef is root: a persona, plus the account administration permissions
 // AuthKit registers on it.
 type RootDef struct {
+	*PersonaDef
+	Users UserPerms
+}
+
+// TenantDef is business-scoped account administration. Its owner also covers
+// the non-root personas of groups belonging to that same tenant.
+type TenantDef struct {
 	*PersonaDef
 	Users UserPerms
 }

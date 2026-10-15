@@ -23,7 +23,7 @@ import (
 // AuthorizeSCIM accepts a client-credentials access token this deployment
 // issued for its SCIM resource with scope scim:read, from a client still
 // allowed it; jkt is the DPoP key the request proved, if any.
-func (s *Engine) AuthorizeSCIM(_ context.Context, accessToken, jkt string) error {
+func (s *Engine) AuthorizeSCIM(ctx context.Context, accessToken, jkt string) error {
 	invalid := func(description string) error {
 		return &authflow.OAuthError{Code: authflow.OAuthInvalidToken, Description: description, Status: 401}
 	}
@@ -46,6 +46,10 @@ func (s *Engine) AuthorizeSCIM(_ context.Context, accessToken, jkt string) error
 	if !ok || jose.String(claims, "sub") != clientID || !config.OAuthClientAllows(client, config.GrantClientCredentials) || !slices.Contains(client.Resources, resource) {
 		return invalid("the access token is not a client's own")
 	}
+	selected, err := s.tenantID(ctx)
+	if err != nil || client.TenantID.IsZero() || selected != client.TenantID || jose.String(claims, "tenant_id") != client.TenantID.String() {
+		return invalid("the access token belongs to another account directory")
+	}
 	if !slices.Contains(strings.Fields(jose.String(claims, "scope")), config.SCIMReadScope) {
 		return &authflow.OAuthError{Code: "insufficient_scope", Description: "the access token was not granted the " + config.SCIMReadScope + " scope", Status: 403}
 	}
@@ -61,7 +65,7 @@ func (s *Engine) SCIMUser(ctx context.Context, id string) (scim.User, error) {
 	if !ok {
 		return scim.User{}, iam.ErrUserNotFound
 	}
-	u, err := s.q.UserByID(ctx, id)
+	u, err := s.q.TenantUserByID(ctx, db.TenantUserByIDParams{TenantID: s.tenantKey(ctx), ID: id})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return scim.User{}, iam.ErrUserNotFound
 	}
@@ -81,13 +85,13 @@ func (s *Engine) SCIMUsers(ctx context.Context, filter string, startIndex, count
 	count = min(max(count, 0), scim.MaxResults)
 	var rows []db.User
 	if strings.TrimSpace(filter) == "" {
-		total, err := s.q.SCIMUsersCount(ctx)
+		total, err := s.q.SCIMUsersCount(ctx, s.tenantKey(ctx))
 		if err != nil {
 			return out, err
 		}
 		out.TotalResults = int(total)
 		if count > 0 {
-			if rows, err = s.q.SCIMUsersPage(ctx, db.SCIMUsersPageParams{PageSize: int64(count), Skip: int64(out.StartIndex - 1)}); err != nil {
+			if rows, err = s.q.SCIMUsersPage(ctx, db.SCIMUsersPageParams{TenantID: s.tenantKey(ctx), PageSize: int64(count), Skip: int64(out.StartIndex - 1)}); err != nil {
 				return out, err
 			}
 		}
@@ -102,7 +106,7 @@ func (s *Engine) SCIMUsers(ctx context.Context, filter string, startIndex, count
 				ids = append(ids, id)
 			}
 		}
-		matched, err := s.q.SCIMUsersMatching(ctx, db.SCIMUsersMatchingParams{Ids: ids, Usernames: nonNil(f.UserNames), Emails: nonNil(f.Emails)})
+		matched, err := s.q.SCIMUsersMatching(ctx, db.SCIMUsersMatchingParams{TenantID: s.tenantKey(ctx), Ids: ids, Usernames: nonNil(f.UserNames), Emails: nonNil(f.Emails)})
 		if err != nil {
 			return out, err
 		}

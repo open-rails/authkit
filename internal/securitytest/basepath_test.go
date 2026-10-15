@@ -39,10 +39,11 @@ func TestSecurityBasePathConfinesSurface(t *testing.T) {
 	s := signer()
 	src := testkeys.Source(s)
 	cfg := authkit.Config{
-		Token:        authkit.TokenConfig{Issuer: iss, IssuedAudiences: []string{audience}, ExpectedAudiences: []string{audience}},
-		Registration: authkit.RegistrationConfig{NativeUserMode: iam.RegistrationModeOpen, Verification: iam.RegistrationVerificationOptional},
-		TwoFactor:    authkit.TwoFactorConfig{Mode: iam.TwoFactorOptional, Methods: []iam.TwoFactorMethod{iam.TwoFactorTOTP}, TOTPSecretKey: bytes.Repeat([]byte{7}, 32)},
-		HTTP:         testhttp.HTTP(),
+		DefaultTenantID: testdb.DefaultTenantID,
+		Token:           authkit.TokenConfig{Issuer: iss, IssuedAudiences: []string{audience}, ExpectedAudiences: []string{audience}},
+		Registration:    authkit.RegistrationConfig{NativeUserMode: iam.RegistrationModeOpen, Verification: iam.RegistrationVerificationOptional},
+		TwoFactor:       authkit.TwoFactorConfig{Mode: iam.TwoFactorOptional, Methods: []iam.TwoFactorMethod{iam.TwoFactorTOTP}, TOTPSecretKey: bytes.Repeat([]byte{7}, 32)},
+		HTTP:            testhttp.HTTP(),
 	}
 	withApps(&cfg)
 	auth, _ := authtest.New(t, authtest.WithConfig(func(c *authkit.Config) { *c = cfg }),

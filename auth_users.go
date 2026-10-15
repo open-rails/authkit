@@ -21,34 +21,34 @@ import (
 // account unless EmailVerified or PhoneVerified is set: never grant authority
 // to an account found by an unverified address.
 func (a *Client) User(ctx context.Context, ref iam.UserRef, opts ...Option) (iam.User, error) {
-	return a.ops.User(ctx, ref, opts...)
+	return a.ops.User(a.operationContext(ctx), ref, opts...)
 }
 
 // Users returns the accounts among any number of ids, deleted ones included;
 // unknown ids are absent. It carries contact details: render other
 // people with PublicUsers.
 func (a *Client) Users(ctx context.Context, ids []string) (map[string]iam.User, error) {
-	return a.ops.Users(ctx, ids)
+	return a.ops.Users(a.operationContext(ctx), ids)
 }
 
 // PublicUsers returns what other people may see of any number of ids: deleted
 // accounts are tombstones, unknown ids are absent.
 func (a *Client) PublicUsers(ctx context.Context, ids []string) (map[string]iam.PublicUser, error) {
-	return a.ops.PublicUsers(ctx, ids)
+	return a.ops.PublicUsers(a.operationContext(ctx), ids)
 }
 
 // ListUsers pages through the user directory. Each entry carries the
 // account's root role and, with q.WithEntitlements, its entitlements; q.Total
 // counts every match.
 func (a *Client) ListUsers(ctx context.Context, q iam.UserQuery) (iam.ListPage[iam.UserEntry], error) {
-	return a.ops.ListUsers(ctx, q)
+	return a.ops.ListUsers(a.operationContext(ctx), q)
 }
 
 // ResolveUsername resolves a username, current or a live alias of a renamed
 // account, to its account. An expired alias, a deleted account and a name
 // kept for a purged account are iam.ErrUserNotFound.
 func (a *Client) ResolveUsername(ctx context.Context, name string) (iam.NameResolution, error) {
-	return a.ops.ResolveUsername(ctx, name)
+	return a.ops.ResolveUsername(a.operationContext(ctx), name)
 }
 
 // CheckUsername reports whether a new account could take name: nil, the
@@ -57,24 +57,24 @@ func (a *Client) ResolveUsername(ctx context.Context, name string) (iam.NameReso
 // name or a live alias, including its own; the answer says nothing more
 // about that account. Serve it to untrusted callers only rate-limited.
 func (a *Client) CheckUsername(ctx context.Context, name string) error {
-	return a.ops.CheckUsername(ctx, name)
+	return a.ops.CheckUsername(a.operationContext(ctx), name)
 }
 
 // GenerateUsername returns a currently available name from Username.RandomNames
 // plus exactly three random decimal digits. It does not reserve the name.
 func (a *Client) GenerateUsername(ctx context.Context) (string, error) {
-	return a.ops.GenerateUsername(ctx)
+	return a.ops.GenerateUsername(a.operationContext(ctx))
 }
 
 // DeviceKeys returns the account's device keys in enrollment order, revoked
 // ones included. iam.ErrDeviceKeysDisabled without Config.DeviceKeys.Enabled.
 func (a *Client) DeviceKeys(ctx context.Context, userID string) ([]iam.DeviceKey, error) {
-	return a.ops.DeviceKeys(ctx, userID)
+	return a.ops.DeviceKeys(a.operationContext(ctx), userID)
 }
 
 // CreateUser creates a native account. Host operation: your code decides.
 func (a *Client) CreateUser(ctx context.Context, u iam.NewUser, opts ...Option) (iam.User, error) {
-	return a.ops.CreateUser(ctx, u, opts...)
+	return a.ops.CreateUser(a.operationContext(ctx), u, opts...)
 }
 
 // UpdateUser changes an account under ACCT(root:users:manage). An account may
@@ -85,7 +85,7 @@ func (a *Client) CreateUser(ctx context.Context, u iam.NewUser, opts ...Option) 
 // addresses the flags don't cover. An email change never moves the account's
 // email factor.
 func (a *Client) UpdateUser(ctx context.Context, who auth.Identity, userID string, u iam.UserUpdate, opts ...Option) (iam.User, error) {
-	return a.ops.UpdateUser(ctx, who, userID, u, opts...)
+	return a.ops.UpdateUser(a.operationContext(ctx), who, userID, u, opts...)
 }
 
 // PatchPublicMetadata applies patch to the account's public metadata
@@ -98,19 +98,19 @@ func (a *Client) UpdateUser(ctx context.Context, who auth.Identity, userID strin
 // /me, GET /users and PublicUsers return it whole. Keep private data in your
 // own tables, keyed by the account id.
 func (a *Client) PatchPublicMetadata(ctx context.Context, who auth.Identity, userID string, patch map[string]any, opts ...Option) error {
-	return a.ops.PatchPublicMetadata(ctx, who, userID, patch, opts...)
+	return a.ops.PatchPublicMetadata(a.operationContext(ctx), who, userID, patch, opts...)
 }
 
 // Ban bans an account under ACCT(root:users:ban) and revokes its sessions,
 // device keys, and the API keys and invitations it issued. Nobody bans
 // themselves.
 func (a *Client) Ban(ctx context.Context, who auth.Identity, userID string, b iam.Ban, opts ...Option) error {
-	return a.ops.Ban(ctx, who, userID, b, opts...)
+	return a.ops.Ban(a.operationContext(ctx), who, userID, b, opts...)
 }
 
 // Unban lifts a ban under ACCT(root:users:ban). Nobody lifts their own ban.
 func (a *Client) Unban(ctx context.Context, who auth.Identity, userID string, opts ...Option) error {
-	return a.ops.Unban(ctx, who, userID, opts...)
+	return a.ops.Unban(a.operationContext(ctx), who, userID, opts...)
 }
 
 // DeleteUsers soft-deletes accounts under ACCT(root:users:delete), starting
@@ -118,13 +118,13 @@ func (a *Client) Unban(ctx context.Context, who auth.Identity, userID string, op
 // self-deletion is undone by signing in; any other comes back through
 // RestoreUsers. Results are per item; the error is a whole-call failure.
 func (a *Client) DeleteUsers(ctx context.Context, who auth.Identity, ids []string, opts ...Option) ([]iam.OpResult, error) {
-	return a.ops.DeleteUsers(ctx, who, ids, opts...)
+	return a.ops.DeleteUsers(a.operationContext(ctx), who, ids, opts...)
 }
 
 // RestoreUsers restores soft-deleted accounts within their recovery window
 // under ACCT(root:users:delete).
 func (a *Client) RestoreUsers(ctx context.Context, who auth.Identity, ids []string, opts ...Option) ([]iam.OpResult, error) {
-	return a.ops.RestoreUsers(ctx, who, ids, opts...)
+	return a.ops.RestoreUsers(a.operationContext(ctx), who, ids, opts...)
 }
 
 // PurgeUsers ends the recovery window of accounts now; the rows go once the
@@ -135,7 +135,7 @@ func (a *Client) RestoreUsers(ctx context.Context, who auth.Identity, ids []stri
 // the account row exists, through the recovery window, and removes them with
 // it at purge. Every other AuthKit table is private.
 func (a *Client) PurgeUsers(ctx context.Context, ids []string, opts ...Option) ([]iam.OpResult, error) {
-	return a.ops.PurgeUsers(ctx, ids, opts...)
+	return a.ops.PurgeUsers(a.operationContext(ctx), ids, opts...)
 }
 
 // ResetAccountMFA recovers an account that lost its second factors, such as a
@@ -146,7 +146,7 @@ func (a *Client) PurgeUsers(ctx context.Context, ids []string, opts ...Option) (
 // Host operation: your code decides, so verify who is asking before calling
 // it.
 func (a *Client) ResetAccountMFA(ctx context.Context, userID string, opts ...Option) error {
-	return a.ops.ResetAccountMFA(ctx, userID, opts...)
+	return a.ops.ResetAccountMFA(a.operationContext(ctx), userID, opts...)
 }
 
 // UserAgreements returns every version of a Config.Agreements document the
@@ -154,19 +154,19 @@ func (a *Client) ResetAccountMFA(ctx context.Context, userID string, opts ...Opt
 // host). Gate a feature on a document's current version: OpenRails' network
 // API on its network terms, say.
 func (a *Client) UserAgreements(ctx context.Context, userID string) ([]iam.AgreementAcceptance, error) {
-	return a.ops.UserAgreements(ctx, userID)
+	return a.ops.UserAgreements(a.operationContext(ctx), userID)
 }
 
 // AgreementsDue returns the documents the user is asked to accept now: one
 // Registration.Agreements names that the account never accepted, and one
 // marked Reaccept whose earlier version it accepted.
 func (a *Client) AgreementsDue(ctx context.Context, userID string) ([]iam.Agreement, error) {
-	return a.ops.AgreementsDue(ctx, userID)
+	return a.ops.AgreementsDue(a.operationContext(ctx), userID)
 }
 
 // AcceptAgreements records the user's acceptance of documents at their
 // current versions, given in the host's own flow (a merchant sign-up's
 // terms, say); an earlier version is iam.ErrAgreementRequired.
 func (a *Client) AcceptAgreements(ctx context.Context, userID string, agreements []iam.AgreementRef, opts ...Option) error {
-	return a.ops.AcceptAgreements(ctx, userID, agreements, opts...)
+	return a.ops.AcceptAgreements(a.operationContext(ctx), userID, agreements, opts...)
 }

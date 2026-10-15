@@ -66,7 +66,7 @@ func TestCookieRegistry(t *testing.T) {
 			login := serve(http.MethodPost, config.DefaultAPIPath+config.APIVersion+"/password/login", `{"identifier":"`+u.Email+`","password":"`+u.Password+`"}`)
 			require.Equal(t, http.StatusOK, login.StatusCode)
 			refresh := httpapi.CurrentCookie(httpapi.CookieRefresh, secure)
-			refresh.Name = httpapi.IssuerRefreshCookieName(authtest.Issuer, secure)
+			refresh.Name = httpapi.TenantRefreshCookieName(authtest.Issuer, u.TenantID, "", secure)
 			requireIssued(t, login.Cookies(), refresh, secure, func(name string) bool {
 				return strings.Contains(name, "authkit_rt")
 			})

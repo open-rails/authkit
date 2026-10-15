@@ -53,6 +53,10 @@ func (s *Engine) RemoteInvitations(ctx context.Context, v auth.Verified) ([]iam.
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
+	ctx, owner, err := s.remoteDirectoryContext(ctx, u.app.GroupID)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := s.q.RemoteInvitationsPending(ctx, db.RemoteInvitationsPendingParams{PermissionGroupID: u.app.GroupID, Email: u.email})
 	if err != nil {
 		return nil, err
@@ -60,7 +64,7 @@ func (s *Engine) RemoteInvitations(ctx context.Context, v auth.Verified) ([]iam.
 	out := make([]iam.Invitation, 0, len(rows))
 	for _, row := range rows {
 		email, expires := row.Email, row.ExpiresAt
-		inv := iam.Invitation{ID: row.ID, GroupID: row.PermissionGroupID, Email: &email, CreatedAt: row.CreatedAt, ExpiresAt: &expires}
+		inv := iam.Invitation{TenantID: owner, ID: row.ID, GroupID: row.PermissionGroupID, Email: &email, CreatedAt: row.CreatedAt, ExpiresAt: &expires}
 		if row.Role != nil {
 			inv.Role = ident.RoleText(*row.Role)
 		}
@@ -81,6 +85,11 @@ func (s *Engine) AcceptRemoteInvitation(ctx context.Context, v auth.Verified, id
 	}
 	if err := s.requirePG(); err != nil {
 		return iam.Role{}, err
+	}
+	var bindingErr error
+	ctx, _, bindingErr = s.remoteDirectoryContext(ctx, u.app.GroupID)
+	if bindingErr != nil {
+		return iam.Role{}, bindingErr
 	}
 	cl := u.claims
 	if err := s.RecordRemoteUserClaims(ctx, u.app.GroupID, u.app.Issuer, u.subject, RemoteUserClaims{

@@ -63,6 +63,11 @@ func (s *Engine) ConfirmPasswordReset(ctx context.Context, token, newPassword st
 	if s.pg == nil {
 		return "", jwt.ErrTokenUnverifiable
 	}
+	var err error
+	ctx, err = s.proofContext(ctx, "password-reset", secret.Hash(token))
+	if err != nil {
+		return "", err
+	}
 	rt, err := s.consumePasswordReset(ctx, secret.Hash(token))
 	if err != nil {
 		return "", err

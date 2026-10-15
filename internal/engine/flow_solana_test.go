@@ -185,7 +185,9 @@ func TestSolanaStepUp(t *testing.T) {
 	begin(session)
 	rejected(stepUp(session, signed(stranger)), errmodel.CodeInvalidSignature)
 	begin(session)
-	_, err = pg.Pool.Exec(t.Context(), `UPDATE ephemeral_kv SET expires_at = now() - interval '1 second' WHERE key = 'siws:step-up:' || $1`, challenge.Nonce)
+	key, err := f.engine.ephemeral.scopedKey(t.Context(), "siws:step-up:"+challenge.Nonce)
+	require.NoError(t, err)
+	_, err = pg.Pool.Exec(t.Context(), `UPDATE ephemeral_kv SET expires_at = now() - interval '1 second' WHERE key = $1`, key)
 	require.NoError(t, err)
 	rejected(stepUp(session, signed(priv)), errmodel.CodeChallengeNotFound)
 

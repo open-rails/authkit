@@ -134,6 +134,9 @@ func (s *Engine) ImportUsers(ctx context.Context, rows []iam.ImportUser, opts ia
 	if err := s.requirePG(); err != nil {
 		return iam.ImportResult{}, err
 	}
+	if _, err := s.tenantID(ctx); err != nil {
+		return iam.ImportResult{}, err
+	}
 	type duplicate struct {
 		idx int
 		of  *importRow
@@ -321,20 +324,20 @@ func (s *Engine) importChunk(ctx context.Context, chunk []*importRow, merge bool
 	}
 	// Hold the names' claim locks so a matched-free name stays free until the
 	// insert, and drop expired aliases so they neither match nor block.
-	if err = lockNameClaims(ctx, tx, names...); err != nil {
+	if err = s.lockNameClaims(ctx, tx, names...); err != nil {
 		return err
 	}
-	if err = q.ImportReleaseAliases(ctx, db.ImportReleaseAliasesParams{Names: names, Now: s.namingNow()}); err != nil {
+	if err = q.ImportReleaseAliases(ctx, db.ImportReleaseAliasesParams{TenantID: s.tenantKey(ctx), Names: names, Now: s.namingNow()}); err != nil {
 		return err
 	}
 	fresh, err := s.resolveImportRows(ctx, st, chunk, merge)
 	if err != nil {
 		return err
 	}
-	if fresh, err = rejectHeldProviders(ctx, q, fresh); err != nil {
+	if fresh, err = s.rejectHeldProviders(ctx, q, fresh); err != nil {
 		return err
 	}
-	inserted, err := insertImportRows(ctx, q, fresh)
+	inserted, err := s.insertImportRows(ctx, q, fresh)
 	if err != nil {
 		return err
 	}
@@ -362,10 +365,10 @@ func (s *Engine) importChunk(ctx context.Context, chunk []*importRow, merge bool
 			p.out = importRejected(p.idx, iam.ImportIdentifierConflict)
 		}
 	}
-	if err = insertImportPasswords(ctx, q, passwords); err != nil {
+	if err = s.insertImportPasswords(ctx, q, passwords); err != nil {
 		return err
 	}
-	if err = insertImportProviders(ctx, q, providers); err != nil {
+	if err = s.insertImportProviders(ctx, q, providers); err != nil {
 		return err
 	}
 	for _, p := range fresh {
@@ -465,7 +468,7 @@ func (s *Engine) importHits(ctx context.Context, q *db.Queries, rows []*importRo
 		out[importKey{match, r.Key}] = importHit{match: match, userID: r.UserID, deleted: r.Deleted, missing: r.Missing}
 	}
 	if len(ids) > 0 {
-		hits, err := q.ImportHitsByID(ctx, ids)
+		hits, err := q.ImportHitsByID(ctx, db.ImportHitsByIDParams{TenantID: s.tenantKey(ctx), Ids: ids})
 		if err != nil {
 			return nil, err
 		}
@@ -474,7 +477,7 @@ func (s *Engine) importHits(ctx context.Context, q *db.Queries, rows []*importRo
 		}
 	}
 	if len(emails) > 0 {
-		hits, err := q.ImportHitsByEmail(ctx, emails)
+		hits, err := q.ImportHitsByEmail(ctx, db.ImportHitsByEmailParams{TenantID: s.tenantKey(ctx), Emails: emails})
 		if err != nil {
 			return nil, err
 		}
@@ -483,7 +486,7 @@ func (s *Engine) importHits(ctx context.Context, q *db.Queries, rows []*importRo
 		}
 	}
 	if len(phones) > 0 {
-		hits, err := q.ImportHitsByPhone(ctx, phones)
+		hits, err := q.ImportHitsByPhone(ctx, db.ImportHitsByPhoneParams{TenantID: s.tenantKey(ctx), Phones: phones})
 		if err != nil {
 			return nil, err
 		}
@@ -491,7 +494,7 @@ func (s *Engine) importHits(ctx context.Context, q *db.Queries, rows []*importRo
 			add(iam.ImportMatchPhone, db.ImportHitsByIDRow(r))
 		}
 	}
-	hits, err := q.ImportHitsByName(ctx, db.ImportHitsByNameParams{Names: names, Now: s.namingNow()})
+	hits, err := q.ImportHitsByName(ctx, db.ImportHitsByNameParams{TenantID: s.tenantKey(ctx), Names: names, Now: s.namingNow()})
 	if err != nil {
 		return nil, err
 	}
@@ -507,21 +510,21 @@ func (s *Engine) importHits(ctx context.Context, q *db.Queries, rows []*importRo
 // contacts, verification, bans and deletion stay as they are.
 func (s *Engine) mergeImportRow(ctx context.Context, st *permissionGroupStore, p *importRow, userID string) error {
 	q := db.New(st.q)
-	if err := q.ImportMergeUser(ctx, db.ImportMergeUserParams{
+	if err := q.ImportMergeUser(ctx, db.ImportMergeUserParams{TenantID: s.tenantKey(ctx),
 		ID: userID, PublicMetadata: []byte(p.metadata), CreatedAt: p.createdAt, LastLogin: p.lastLogin,
 		PreferredLanguage: p.language,
 	}); err != nil {
 		return err
 	}
 	for _, l := range p.providers {
-		if _, err := linkProviderByIssuer(ctx, q, userID, l.Issuer, l.Provider, l.Subject, nullable(l.Email)); err != nil {
+		if _, err := s.linkProviderByIssuer(ctx, q, userID, l.Issuer, l.Provider, l.Subject, nullable(l.Email)); err != nil {
 			return err
 		}
 	}
 	if p.in.HashAlgo == "" {
 		return nil
 	}
-	return q.ImportMergePassword(ctx, db.ImportMergePasswordParams{UserID: userID, PasswordHash: p.in.PasswordHash, HashAlgo: p.in.HashAlgo})
+	return q.ImportMergePassword(ctx, db.ImportMergePasswordParams{TenantID: s.tenantKey(ctx), UserID: userID, PasswordHash: p.in.PasswordHash, HashAlgo: p.in.HashAlgo})
 }
 
 // importUserColumns is one users row for ImportInsertUsers, keyed by column.
@@ -545,7 +548,7 @@ type importUserColumns struct {
 // importBannedBy records who banned the inserted rows, once every chunk has
 // committed, so a banner imported later in the batch counts too.
 func (s *Engine) importBannedBy(ctx context.Context, rows []*importRow) error {
-	var arg db.ImportSetBannedByParams
+	arg := db.ImportSetBannedByParams{TenantID: s.tenantKey(ctx)}
 	for _, p := range rows {
 		if p.out.Status == iam.ImportInserted && p.in.BannedBy != nil {
 			arg.UserIds, arg.BannedBy = append(arg.UserIds, p.id), append(arg.BannedBy, *p.in.BannedBy)
@@ -559,7 +562,7 @@ func (s *Engine) importBannedBy(ctx context.Context, rows []*importRow) error {
 
 // insertImportRows inserts rows in one statement and returns the ids that
 // landed; a row losing a uniqueness race to another writer does not.
-func insertImportRows(ctx context.Context, q *db.Queries, rows []*importRow) (map[string]bool, error) {
+func (s *Engine) insertImportRows(ctx context.Context, q *db.Queries, rows []*importRow) (map[string]bool, error) {
 	inserted := map[string]bool{}
 	if len(rows) == 0 {
 		return inserted, nil
@@ -577,7 +580,7 @@ func insertImportRows(ctx context.Context, q *db.Queries, rows []*importRow) (ma
 	if err != nil {
 		return nil, err
 	}
-	ids, err := q.ImportInsertUsers(ctx, users)
+	ids, err := q.ImportInsertUsers(ctx, db.ImportInsertUsersParams{TenantID: s.tenantKey(ctx), Users: users})
 	if err != nil {
 		return nil, err
 	}
@@ -588,11 +591,11 @@ func insertImportRows(ctx context.Context, q *db.Queries, rows []*importRow) (ma
 }
 
 // insertImportPasswords stores the validated hashes of freshly inserted rows.
-func insertImportPasswords(ctx context.Context, q *db.Queries, rows []*importRow) error {
+func (s *Engine) insertImportPasswords(ctx context.Context, q *db.Queries, rows []*importRow) error {
 	if len(rows) == 0 {
 		return nil
 	}
-	var arg db.ImportInsertPasswordsParams
+	arg := db.ImportInsertPasswordsParams{TenantID: s.tenantKey(ctx)}
 	for _, r := range rows {
 		arg.UserIds = append(arg.UserIds, r.id)
 		arg.PasswordHashes = append(arg.PasswordHashes, r.in.PasswordHash)
@@ -603,8 +606,8 @@ func insertImportPasswords(ctx context.Context, q *db.Queries, rows []*importRow
 
 // rejectHeldProviders rejects the rows naming an identity some account holds,
 // verified or not, and returns the rest.
-func rejectHeldProviders(ctx context.Context, q *db.Queries, rows []*importRow) ([]*importRow, error) {
-	var arg db.ImportHeldProvidersParams
+func (s *Engine) rejectHeldProviders(ctx context.Context, q *db.Queries, rows []*importRow) ([]*importRow, error) {
+	arg := db.ImportHeldProvidersParams{TenantID: s.tenantKey(ctx)}
 	for _, p := range rows {
 		for _, l := range p.providers {
 			arg.Issuers, arg.Subjects = append(arg.Issuers, l.Issuer), append(arg.Subjects, l.Subject)
@@ -639,8 +642,8 @@ func rejectHeldProviders(ctx context.Context, q *db.Queries, rows []*importRow) 
 // insertImportProviders links the providers of freshly inserted rows. An
 // identity a concurrent writer took since rejectHeldProviders fails the chunk
 // with errImportProviderRaced, to be retried.
-func insertImportProviders(ctx context.Context, q *db.Queries, rows []*importRow) error {
-	var arg db.ImportInsertProvidersParams
+func (s *Engine) insertImportProviders(ctx context.Context, q *db.Queries, rows []*importRow) error {
+	arg := db.ImportInsertProvidersParams{TenantID: s.tenantKey(ctx)}
 	for _, p := range rows {
 		for _, l := range p.providers {
 			arg.UserIds, arg.Issuers, arg.Subjects = append(arg.UserIds, p.id), append(arg.Issuers, l.Issuer), append(arg.Subjects, l.Subject)

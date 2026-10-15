@@ -5,7 +5,8 @@ import "time"
 // ProvisioningTarget is the delivery status of one SCIM target
 // (Config.Provisioning).
 type ProvisioningTarget struct {
-	Name string `json:"name"`
+	TenantID TenantID `json:"tenant_id"`
+	Name     string   `json:"name"`
 	// SyncedAt is when the initial sync queued every account; nil until then.
 	SyncedAt *time.Time `json:"synced_at"`
 	// ReconciledAt is when the target's users were last compared with the

@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.30.0
+
+### Coordinated upgrade
+
+- Accounts belong to one canonical `TenantID` in shared tables. Configure `DefaultTenantID` for fixed-tenant deployments and pass the explicit original owner as `MigrationOptions.LegacyTenantID` when migrating existing data. An empty default is now an unbound authority, not an implicit shared directory. Account operations require a trusted `ForTenant` view. Coordinate all writers; older unscoped binaries must not write the migrated schema. Existing account IDs, passwords, MFA material, and explicitly mapped sessions are retained. See [tenant directories](docs/tenant-directories.md).
+
+### Changes
+
+- Per-tenant identifier uniqueness and lookup for email, phone, username, provider links, registration, imports, recovery, and sessions. Trusted native tenant views and fixed HTTP mounts select account ownership; request data never grants access to another tenant.
+- Built-in tenant roles inherit into that tenant's app and merchant groups. Root authority remains global within the configured authority; every session, key, and remote-application credential keeps its scope and permission ceiling.
+- Tenant-bound cookies, shared proof callbacks, OIDC, MFA, provisioning, lifecycle events and deletion receipts retain the actual target owner, including after purge. An unbound central portal can restore its last active directory using a non-authoritative cookie hint plus a valid refresh proof; fixed app mounts ignore that hint.
+- Optional `AuthAdmin` composition and tenant-targeted `UsersAdmin` reuse the existing guarded panels. Explicit tenant transport, cache and resumed-action scopes prevent stale account data or actions crossing directory changes.
+- `MigrateGroupPersona` offers a read-only plan and fingerprinted explicit apply, retaining IDs/secrets while refusing expanded grants and stale plans. No automatic role renaming or owner promotion. See [group persona migration](docs/group-persona-migration.md).
+- Optional `TransactionalUserInfo.GetTx` lets native and remote lookups share the host's transaction while retaining their fixed directory and restoring its search path.
+
+## v1.29.2
+
+### Changes
+
+- DPoP proofs to the host's routes behind `Client.Authenticator()` are checked against `HTTPConfig.PublicURL`'s origin, where browsers reach the deployment, falling back to the issuer's origin as before. A site whose issuer origin differs from its public one (a dev server or proxy in front) can require DPoP-bound sessions.
+
 ## v1.28.0
 
 ### Changes

@@ -85,12 +85,12 @@ func newPermissionGroupStore(q db.DBTX) *permissionGroupStore {
 }
 
 // CreateGroup inserts a non-root permission group and returns its id.
-func (st *permissionGroupStore) CreateGroup(ctx context.Context, id string, persona iam.Persona) (string, error) {
+func (st *permissionGroupStore) CreateGroup(ctx context.Context, id string, persona iam.Persona, tenant iam.TenantID) (string, error) {
 	var err error
 	if id == "" {
-		id, err = db.New(st.q).PermissionGroupInsert(ctx, persona.String())
+		id, err = db.New(st.q).PermissionGroupInsert(ctx, db.PermissionGroupInsertParams{Persona: persona.String(), TenantID: tenant.String()})
 	} else {
-		err = db.New(st.q).PermissionGroupInsertWithID(ctx, db.PermissionGroupInsertWithIDParams{ID: id, Persona: persona.String()})
+		err = db.New(st.q).PermissionGroupInsertWithID(ctx, db.PermissionGroupInsertWithIDParams{ID: id, Persona: persona.String(), TenantID: tenant.String()})
 	}
 	if err != nil {
 		return "", fmt.Errorf("create %q group: %w", persona, err)
@@ -120,10 +120,16 @@ func (st *permissionGroupStore) DeleteGroup(ctx context.Context, groupID string)
 	if err != nil {
 		return err
 	}
+	group, err := st.groupByID(ctx, groupID)
+	if err != nil {
+		return err
+	}
 	if err := db.New(st.q).PermissionGroupDelete(ctx, groupID); err != nil {
 		return err
 	}
-	return st.record(ctx, groupEvent(iam.EventGroupPurged, groupID, persona))
+	event := groupEvent(iam.EventGroupPurged, groupID, persona)
+	event.TenantID = group.TenantID
+	return st.record(ctx, event)
 }
 
 // RootGroupID returns the singleton root group's internal id (ErrGroupNotFound
@@ -228,6 +234,18 @@ func (st *permissionGroupStore) AssignRole(ctx context.Context, groupID string, 
 		return err
 	}
 	persona := ident.Persona(group.Persona)
+	if persona != iam.RootPersona() && subject.Kind == iam.SubjectKindUser {
+		user, err := q.UserByID(ctx, subject.ID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return iam.ErrUserNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if group.TenantID == nil || user.TenantID != *group.TenantID {
+			return iam.ErrTenantMismatch
+		}
+	}
 	if role.Persona() != persona {
 		return fmt.Errorf("role %q is not a role of a %q group: %w", role, persona, iam.ErrRoleNotAssignable)
 	}
@@ -359,5 +377,6 @@ func (st *permissionGroupStore) groupByID(ctx context.Context, groupID string) (
 
 // publicGroup projects a permission_groups row.
 func publicGroup(r db.PermissionGroup) iam.Group {
-	return iam.Group{ID: r.ID, Persona: ident.Persona(r.Persona), CreatedAt: r.CreatedAt, DeletedAt: r.DeletedAt}
+	tenant, _ := iam.ParseTenantID(deref(r.TenantID))
+	return iam.Group{ID: r.ID, TenantID: tenant, Persona: ident.Persona(r.Persona), CreatedAt: r.CreatedAt, DeletedAt: r.DeletedAt}
 }

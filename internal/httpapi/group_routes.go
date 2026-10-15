@@ -104,8 +104,8 @@ func (op GroupOp) Perms(p rbac.Persona) []iam.Perm {
 	case OpMemberSet, OpMemberRemove:
 		return []iam.Perm{ident.MembersManage(p.Name)}
 	case OpInvitationCreate, OpInvitationRevoke:
-		if p.Name == iam.RootPersona() {
-			return []iam.Perm{ident.MembersManage(p.Name), ident.RootUsersInvite}
+		if p.Name == iam.RootPersona() || p.Name == iam.TenantPersona() {
+			return []iam.Perm{ident.MembersManage(p.Name), ident.Perm(p.Name.String() + ":users:invite")}
 		}
 		return []iam.Perm{ident.MembersManage(p.Name)}
 	case OpAPIKeysList, OpOAuthClientsList, OpOAuthClientGet, OpRemoteAppsList:

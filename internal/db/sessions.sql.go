@@ -11,15 +11,18 @@ import (
 )
 
 const sessionByCurrentTokenHash = `-- name: SessionByCurrentTokenHash :one
-SELECT id::text, user_id, auth_methods, dpop_jkt
-FROM refresh_sessions
-WHERE current_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL
-  AND (expires_at IS NULL OR expires_at > now())
+SELECT s.id::text AS id, s.user_id, s.auth_methods, s.dpop_jkt
+FROM refresh_sessions s
+JOIN users u ON u.id = s.user_id
+WHERE s.current_token_hash = $1 AND s.issuer = $2 AND s.revoked_at IS NULL
+  AND u.tenant_id = NULLIF($3::text, '')::uuid
+  AND (s.expires_at IS NULL OR s.expires_at > now())
 `
 
 type SessionByCurrentTokenHashParams struct {
 	CurrentTokenHash []byte
 	Issuer           string
+	TenantID         string
 }
 
 type SessionByCurrentTokenHashRow struct {
@@ -30,7 +33,7 @@ type SessionByCurrentTokenHashRow struct {
 }
 
 func (q *Queries) SessionByCurrentTokenHash(ctx context.Context, arg SessionByCurrentTokenHashParams) (SessionByCurrentTokenHashRow, error) {
-	row := q.db.QueryRow(ctx, sessionByCurrentTokenHash, arg.CurrentTokenHash, arg.Issuer)
+	row := q.db.QueryRow(ctx, sessionByCurrentTokenHash, arg.CurrentTokenHash, arg.Issuer, arg.TenantID)
 	var i SessionByCurrentTokenHashRow
 	err := row.Scan(
 		&i.ID,
@@ -46,12 +49,15 @@ SELECT s.id::text AS id, s.user_id, s.auth_methods, s.expires_at,
        s.current_token_hash, s.previous_successor_sealed, s.previous_rotated_at, s.dpop_jkt
 FROM refresh_token_history h
 JOIN refresh_sessions s ON s.id = h.session_id
+JOIN users u ON u.id = s.user_id
 WHERE h.token_hash = $1 AND s.issuer = $2 AND s.revoked_at IS NULL
+  AND u.tenant_id = NULLIF($3::text, '')::uuid
 `
 
 type SessionByHistoricalTokenHashParams struct {
 	TokenHash []byte
 	Issuer    string
+	TenantID  string
 }
 
 type SessionByHistoricalTokenHashRow struct {
@@ -69,7 +75,7 @@ type SessionByHistoricalTokenHashRow struct {
 // immediate predecessor can open the current grace seal; older hashes still
 // identify the session for reuse detection.
 func (q *Queries) SessionByHistoricalTokenHash(ctx context.Context, arg SessionByHistoricalTokenHashParams) (SessionByHistoricalTokenHashRow, error) {
-	row := q.db.QueryRow(ctx, sessionByHistoricalTokenHash, arg.TokenHash, arg.Issuer)
+	row := q.db.QueryRow(ctx, sessionByHistoricalTokenHash, arg.TokenHash, arg.Issuer, arg.TenantID)
 	var i SessionByHistoricalTokenHashRow
 	err := row.Scan(
 		&i.ID,

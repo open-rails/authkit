@@ -10,6 +10,7 @@ import (
 
 // usersBackend is the admin account view and the caller's own account view.
 type usersBackend interface {
+	AccountScope(ctx context.Context) (iam.GroupRef, error)
 	UserEntry(ctx context.Context, userID string) (iam.UserEntry, error)
 	UserNamingState(ctx context.Context, id string) (naming.State, error)
 	HasUsableMFA(ctx context.Context, userID string) (bool, error)

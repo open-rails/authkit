@@ -114,6 +114,7 @@ func profile(typ string, mc map[string]any) (Claims, error) {
 		Kind:         TokenUser,
 		JOSEType:     typ,
 		Issuer:       jose.String(mc, "iss"),
+		TenantID:     jose.String(mc, "tenant_id"),
 		Subject:      sub,
 		SessionID:    jose.String(mc, "sid"),
 		DeviceKeyID:  jose.String(mc, "device_key_id"),
@@ -125,6 +126,11 @@ func profile(typ string, mc map[string]any) (Claims, error) {
 		AMR:          jose.Strings(mc, "amr"),
 		ACR:          jose.String(mc, "acr"),
 		JTI:          jose.String(mc, "jti"),
+	}
+	if cl.TenantID != "" {
+		if _, err := iam.ParseTenantID(cl.TenantID); err != nil {
+			return Claims{}, errmodel.E(errmodel.CodeInvalidToken)
+		}
 	}
 	cl.EmailVerified, _ = mc["email_verified"].(bool)
 	if cl.Username == "" && isResource {

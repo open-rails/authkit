@@ -76,6 +76,8 @@ type TwoFactorChallenge struct {
 // LoginOutcome is the result of a password login. Exactly one of Session,
 // Verification and Challenge is set, per Kind; Reason is set for LoginRejected.
 type LoginOutcome struct {
+	// TenantID is recovered from the proven account/flow, never a request selector.
+	TenantID       iam.TenantID
 	Recovery       *AccountRecoveryConfirmation
 	Enrollment     *iam.TokenSet
 	AllowedMethods []iam.TwoFactorMethod

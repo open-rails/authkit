@@ -19,19 +19,19 @@ import (
 // SetGroupRole makes subject hold role in ref, replacing the role it holds.
 // Holding role already changes nothing.
 func (a *Client) SetGroupRole(ctx context.Context, who auth.Identity, ref iam.GroupRef, subject iam.Subject, role iam.Role, opts ...Option) (iam.GroupMember, error) {
-	return a.ops.SetGroupRole(ctx, who, ref, subject, role, opts...)
+	return a.ops.SetGroupRole(a.operationContext(ctx), who, ref, subject, role, opts...)
 }
 
 // RemoveGroupMember takes subject's role in ref away; removing a non-member
 // changes nothing. With IfRole, a subject holding another role keeps it.
 func (a *Client) RemoveGroupMember(ctx context.Context, who auth.Identity, ref iam.GroupRef, subject iam.Subject, opts ...Option) error {
-	return a.ops.RemoveGroupMember(ctx, who, ref, subject, opts...)
+	return a.ops.RemoveGroupMember(a.operationContext(ctx), who, ref, subject, opts...)
 }
 
 // GroupRoles returns the direct role of each subject holding one in the group,
 // for any number of subjects. Subjects without a role are absent.
 func (a *Client) GroupRoles(ctx context.Context, ref iam.GroupRef, subjects []iam.Subject) (map[iam.Subject]iam.Role, error) {
-	return a.ops.GroupRoles(ctx, ref, subjects)
+	return a.ops.GroupRoles(a.operationContext(ctx), ref, subjects)
 }
 
 // Custom roles. A group of a persona declared with CustomRoles defines roles of
@@ -43,19 +43,19 @@ func (a *Client) GroupRoles(ctx context.Context, ref iam.GroupRef, subjects []ia
 // ListGroupRoles returns the roles assignable in the group: those its
 // persona declares, then the custom roles it defines, by name.
 func (a *Client) ListGroupRoles(ctx context.Context, ref iam.GroupRef) ([]iam.GroupRole, error) {
-	return a.ops.ListGroupRoles(ctx, ref)
+	return a.ops.ListGroupRoles(a.operationContext(ctx), ref)
 }
 
 // GroupRole returns one role assignable in the group; any other is
 // iam.ErrRoleNotFound.
 func (a *Client) GroupRole(ctx context.Context, ref iam.GroupRef, role iam.Role) (iam.GroupRole, error) {
-	return a.ops.GroupRole(ctx, ref, role)
+	return a.ops.GroupRole(a.operationContext(ctx), ref, role)
 }
 
 // CreateGroupRole defines a custom role in the group. A name it already uses
 // is iam.ErrRoleExists; past iam.MaxGroupRoles, iam.ErrRoleLimitReached.
 func (a *Client) CreateGroupRole(ctx context.Context, who auth.Identity, ref iam.GroupRef, r iam.NewGroupRole, opts ...Option) (iam.GroupRole, error) {
-	return a.ops.CreateGroupRole(ctx, who, ref, r, opts...)
+	return a.ops.CreateGroupRole(a.operationContext(ctx), who, ref, r, opts...)
 }
 
 // UpdateGroupRole replaces what a custom role grants. While the role is held
@@ -64,7 +64,7 @@ func (a *Client) CreateGroupRole(ctx context.Context, who auth.Identity, ref iam
 // credentials whose issuers no longer cover their role are revoked. A
 // declared role is iam.ErrRoleNotEditable.
 func (a *Client) UpdateGroupRole(ctx context.Context, who auth.Identity, ref iam.GroupRef, role iam.Role, u iam.GroupRoleUpdate, opts ...Option) (iam.GroupRole, error) {
-	return a.ops.UpdateGroupRole(ctx, who, ref, role, u, opts...)
+	return a.ops.UpdateGroupRole(a.operationContext(ctx), who, ref, role, u, opts...)
 }
 
 // DeleteGroupRole deletes a custom role, under UpdateGroupRole's authority,
@@ -72,7 +72,7 @@ func (a *Client) UpdateGroupRole(ctx context.Context, who auth.Identity, ref iam
 // the API keys and invitations carrying it are revoked. Deleting a role the
 // group does not define changes nothing.
 func (a *Client) DeleteGroupRole(ctx context.Context, who auth.Identity, ref iam.GroupRef, role iam.Role, opts ...Option) error {
-	return a.ops.DeleteGroupRole(ctx, who, ref, role, opts...)
+	return a.ops.DeleteGroupRole(a.operationContext(ctx), who, ref, role, opts...)
 }
 
 // Groups. A persona is a type of permission group (channel, org, merchant); a
@@ -83,30 +83,30 @@ func (a *Client) DeleteGroupRole(ctx context.Context, who auth.Identity, ref iam
 // Group reads one group, a soft-deleted one included, with DeletedAt set.
 // Absence is iam.ErrGroupNotFound.
 func (a *Client) Group(ctx context.Context, ref iam.GroupRef) (iam.Group, error) {
-	return a.ops.Group(ctx, ref)
+	return a.ops.Group(a.operationContext(ctx), ref)
 }
 
 // Groups reads any number of groups by id, soft-deleted ones included.
 // Unknown ids are absent.
 func (a *Client) Groups(ctx context.Context, ids []string) (map[string]iam.Group, error) {
-	return a.ops.Groups(ctx, ids)
+	return a.ops.Groups(a.operationContext(ctx), ids)
 }
 
 // ListGroups lists the groups of a persona, oldest first, a page at a time.
 func (a *Client) ListGroups(ctx context.Context, q iam.GroupQuery) (iam.ListPage[iam.Group], error) {
-	return a.ops.ListGroups(ctx, q)
+	return a.ops.ListGroups(a.operationContext(ctx), q)
 }
 
 // ListGroupMembers lists the subjects holding a role in a group, a page at a
 // time.
 func (a *Client) ListGroupMembers(ctx context.Context, ref iam.GroupRef, q iam.MemberQuery) (iam.ListPage[iam.GroupMember], error) {
-	return a.ops.ListGroupMembers(ctx, ref, q)
+	return a.ops.ListGroupMembers(a.operationContext(ctx), ref, q)
 }
 
 // ListMemberships lists the live groups a subject holds a role in, a page at
 // a time.
 func (a *Client) ListMemberships(ctx context.Context, s iam.Subject, p iam.PageRequest) (iam.ListPage[iam.Membership], error) {
-	return a.ops.ListMemberships(ctx, s, p)
+	return a.ops.ListMemberships(a.operationContext(ctx), s, p)
 }
 
 // Group lifecycle. A group guards an entity of your app (a channel); the app
@@ -122,20 +122,20 @@ func (a *Client) ListMemberships(ctx context.Context, s iam.Subject, p iam.PageR
 // same persona returns it unchanged, while a deleted group or one of another
 // persona under that id is iam.ErrGroupConflict.
 func (a *Client) CreateGroup(ctx context.Context, g iam.NewGroup, opts ...Option) (iam.Group, error) {
-	return a.ops.CreateGroup(ctx, g, opts...)
+	return a.ops.CreateGroup(a.operationContext(ctx), g, opts...)
 }
 
 // DeleteGroup soft-deletes a group: it stops resolving and granting at once,
 // while its rows stay until PurgeGroup. Deleting a deleted group is a no-op.
 func (a *Client) DeleteGroup(ctx context.Context, ref iam.GroupRef, opts ...Option) error {
-	return a.ops.DeleteGroup(ctx, ref, opts...)
+	return a.ops.DeleteGroup(a.operationContext(ctx), ref, opts...)
 }
 
 // PurgeGroup permanently deletes a group, live or soft-deleted, with every
 // role, API key, invitation and application in it. Purging an unknown group
 // is a no-op.
 func (a *Client) PurgeGroup(ctx context.Context, ref iam.GroupRef, opts ...Option) error {
-	return a.ops.PurgeGroup(ctx, ref, opts...)
+	return a.ops.PurgeGroup(a.operationContext(ctx), ref, opts...)
 }
 
 // Can reports whether identity holds perm in the group, checked live: a banned
@@ -145,21 +145,21 @@ func (a *Client) PurgeGroup(ctx context.Context, ref iam.GroupRef, opts ...Optio
 // device key is revoked, Can is iam.ErrSessionRevoked. An unregistered perm is
 // iam.ErrUnknownPermission, never a silent false.
 func (a *Client) Can(ctx context.Context, who auth.Identity, ref iam.GroupRef, perm iam.Perm) (bool, error) {
-	return a.ops.Can(ctx, who, ref, perm)
+	return a.ops.Can(a.operationContext(ctx), who, ref, perm)
 }
 
 // CanDirect is Can restricted to grants assigned directly in ref. It excludes
 // inherited root roles while keeping credential ceilings, group binding and
 // live account/session checks. API keys retain their own group's role.
 func (a *Client) CanDirect(ctx context.Context, who auth.Identity, ref iam.GroupRef, perm iam.Perm) (bool, error) {
-	return a.ops.CanDirect(ctx, who, ref, perm)
+	return a.ops.CanDirect(a.operationContext(ctx), who, ref, perm)
 }
 
 // EffectivePermissions returns identity's effective grant patterns per group id
 // (globs verbatim, glob-match with iam.Perm.Matches), for any number of groups.
 // Groups granting nothing are absent.
 func (a *Client) EffectivePermissions(ctx context.Context, who auth.Identity, refs []iam.GroupRef) (map[string][]iam.Perm, error) {
-	return a.ops.EffectivePermissions(ctx, who, refs)
+	return a.ops.EffectivePermissions(a.operationContext(ctx), who, refs)
 }
 
 // KnownPermission reports whether perm is registered in a persona catalog of

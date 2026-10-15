@@ -169,7 +169,7 @@ func TestMountCatalog(t *testing.T) {
 			}
 		}
 		require.Len(t, refresh, 1)
-		require.Equal(t, httpapi.IssuerRefreshCookieName(authtest.Issuer, true), refresh[0].Name)
+		require.Equal(t, httpapi.TenantRefreshCookieName(authtest.Issuer, u.TenantID, "", true), refresh[0].Name)
 		require.Equal(t, "/", refresh[0].Path)
 		require.True(t, refresh[0].HttpOnly)
 		require.Equal(t, http.SameSiteLaxMode, refresh[0].SameSite)

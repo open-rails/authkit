@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
+	"github.com/open-rails/authkit/internal/tenancy"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -16,10 +18,68 @@ import (
 // in its gate, rate limit and language middleware.
 func (s *Service) APIRoutes(groups ...iam.RouteGroup) []RouteSpec {
 	return s.routes(SurfaceAPI, groups, func(route RouteSpec, h http.Handler) http.Handler {
+		personalAccount := route.Group == iam.RouteAccount && route.Path != "/me/permissions" && route.Path != "/me/groups"
+		if route.Auth != iam.AuthPublic && (personalAccount || route.Group == iam.RouteDeviceKeys || route.Group == iam.RouteAuth) {
+			h = s.requireTenantAccount(h, route.Auth == iam.AuthOptional)
+		}
 		if route.StepUp {
 			h = s.requireRecentSignIn(h)
 		}
 		return s.rateLimitedRoute(route.Bucket, s.authenticate(route.Auth, h))
+	})
+}
+
+// Personal endpoints never reinterpret a global operator as a member of the
+// selected tenant. Administration routes instead evaluate target permissions.
+func (s *Service) requireTenantAccount(next http.Handler, allowAnonymous bool) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		claims, ok := verify.ClaimsFromContext(r.Context())
+		// Optional verification accepts a delivered signup proof before an
+		// account/session exists. A supplied verified identity is still bound
+		// to its own directory by the checks below.
+		if !ok && allowAnonymous {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if !ok || !claims.IsUser() {
+			fail(w, errmodel.CodeForbidden)
+			return
+		}
+		group, err := s.svc.AccountScope(r.Context())
+		if errors.Is(err, iam.ErrTenantRequired) && claims.TenantID != "" {
+			// A central, unbound personal endpoint may recover only the
+			// signed source owner. This never chooses an administrative target.
+			id, parseErr := iam.ParseTenantID(claims.TenantID)
+			if parseErr != nil {
+				fail(w, errmodel.CodeForbidden)
+				return
+			}
+			ctx := tenancy.With(r.Context(), id)
+			user, lookupErr := s.svc.User(ctx, iam.UserByID(claims.UserID))
+			if lookupErr != nil && !errors.Is(lookupErr, iam.ErrUserNotFound) {
+				writeError(w, lookupErr)
+				return
+			}
+			if lookupErr != nil || user.Ban != nil {
+				fail(w, errmodel.CodeForbidden)
+				return
+			}
+			r = r.WithContext(ctx)
+			group, err = s.svc.AccountScope(ctx)
+		}
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		owner := claims.TenantID
+		if owner == "" {
+			owner = s.cfg.DefaultTenantID.String()
+		}
+		if owner == "" || owner != group.ID() {
+			fail(w, errmodel.CodeForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 

@@ -23,6 +23,10 @@ type failedRefreshBackend struct {
 	err error
 }
 
+func (b failedRefreshBackend) AccountScope(context.Context) (iam.GroupRef, error) {
+	return iam.GroupRef{}, iam.ErrTenantRequired
+}
+
 func (b failedRefreshBackend) ExchangeRefreshToken(context.Context, string, string, net.IP) (string, authflow.IssuedSession, error) {
 	return "", authflow.IssuedSession{}, b.err
 }

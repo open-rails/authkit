@@ -19,7 +19,7 @@ export type GroupAdminAccess = {
   role: string | null
   permissions: ReadonlySet<string>
   members: { read: boolean; manage: boolean }
-  /** Invite: `members:manage`, or `root:users:invite` on root. */
+  /** Invite: `members:manage`, or account invitations on root/tenant. */
   invite: boolean
   /** The role list reads with `members:read` or `roles:read`. */
   roles: { read: boolean; manage: boolean }
@@ -57,7 +57,7 @@ export function groupAccess(
   }
   const invite =
     members.manage ||
-    (persona === "root" && permissions.has("root:users:invite"))
+    ((persona === "root" || persona === "tenant") && holds("users:invite"))
   return {
     persona,
     role: set?.role ?? null,
@@ -86,6 +86,42 @@ export function useAccessWith(
     }),
     [group, loaded.data, loaded.error, loaded.reload]
   )
+}
+
+/** Account powers may come from root; group membership powers remain local. */
+export function useUsersAccessWith(
+  client: AdminClient,
+  tenantId?: string
+): GroupAdminAccess {
+  const selected = useAccessWith(client, tenantId ?? "root")
+  const { data: rootData, error: rootError, reload: reloadRoot } = useLoad(
+    tenantId ? `${client.scopeKey}:access:root` : null,
+    (signal) => client.permissions("root", signal)
+  )
+  return useMemo(() => {
+    if (!tenantId) return selected
+    const permissions = new Set(selected.permissions)
+    for (const permission of rootData?.permissions ?? []) {
+      if (permission.startsWith("root:users:")) permissions.add(permission)
+    }
+    return {
+      ...selected,
+      permissions,
+      invite: selected.invite || permissions.has("root:users:invite"),
+      any: selected.any || permissions.has("root:users:invite"),
+      status:
+        selected.status === "error" || rootError
+          ? "error"
+          : selected.status === "loading" || !rootData
+            ? "loading"
+            : "ready",
+      error: selected.error ?? rootError,
+      reload: () => {
+        selected.reload()
+        reloadRoot()
+      },
+    }
+  }, [selected, tenantId, rootData, rootError, reloadRoot])
 }
 
 /**
@@ -120,7 +156,7 @@ export type UsersAdminAccess = {
     /** Invite people to create an account. */
     invite: boolean
   }
-  /** Root roles: read with `root:members:read` or `root:roles:read`, change with `root:members:manage`. */
+  /** Roles in the selected directory, never inherited from another group. */
   roles: { read: boolean; manage: boolean }
   /** Anything to show: users.read or users.invite. */
   any: boolean
@@ -163,10 +199,12 @@ export function useUsersAdminAccess(options: {
   /** The canonical tenant group; omit for the existing root directory. */
   tenantId?: string
 }): UsersAdminAccess {
-  const root = useGroupAdminAccess({
-    ...options,
-    group: options.tenantId ?? "root",
-  })
+  const { auth, baseUrl, tenantId } = options
+  const client = useMemo(
+    () => createAdminClient({ auth, baseUrl, tenantId }),
+    [auth, baseUrl, tenantId]
+  )
+  const root = useUsersAccessWith(client, tenantId)
   return useMemo(
     () => ({
       ...usersAccess(root, options.tenantId),

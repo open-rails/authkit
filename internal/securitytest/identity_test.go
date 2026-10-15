@@ -32,7 +32,10 @@ func TestSecurityIdentitySubjectInvokerCredential(t *testing.T) {
 		t.Helper()
 		v, err := authenticate(credential)
 		require.NoError(t, err)
-		return v.Identity()
+		id := v.Identity()
+		_, sealed := iam.StateOf(id)
+		require.True(t, sealed, "native authentication retains private credential state")
+		return id
 	}
 	refused := func(t *testing.T, credential string, want error) {
 		t.Helper()
@@ -58,12 +61,18 @@ func TestSecurityIdentitySubjectInvokerCredential(t *testing.T) {
 	t.Run("browser session", func(t *testing.T) {
 		token := h.login(user).AccessToken
 		id := identityOf(t, token)
+		source, err := h.auth.User(ctx, iam.UserByID(user.id))
+		require.NoError(t, err)
+		state, _ := iam.StateOf(id)
+		require.Equal(t, source.TenantID, state.TenantID())
+		public := id
+		public.Credential = neutral.Credential{Kind: id.Credential.Kind, ID: id.Credential.ID}
 		require.Equal(t, neutral.Identity{
-			Issuer: issuer, Subject: user.id, SubjectKind: neutral.SubjectUser,
+			Issuer: issuer, TenantID: source.TenantID.String(), Subject: user.id, SubjectKind: neutral.SubjectUser,
 			Invoker:    neutral.Invoker{Issuer: issuer, ID: user.id},
 			Credential: neutral.Credential{Kind: neutral.CredentialSession, ID: sessionOf(t, token)},
 			Email:      user.email, Username: user.username, EmailVerified: true,
-		}, id)
+		}, public)
 	})
 
 	t.Run("device key: the owning user is the subject", func(t *testing.T) {
@@ -76,7 +85,7 @@ func TestSecurityIdentitySubjectInvokerCredential(t *testing.T) {
 		id := identityOf(t, device.AccessToken)
 		require.Equal(t, user.id, id.Subject)
 		require.Equal(t, neutral.SubjectUser, id.SubjectKind)
-		require.Equal(t, neutral.Credential{Kind: neutral.CredentialDeviceKey, ID: device.DeviceKey.ID}, id.Credential)
+		require.Equal(t, neutral.Credential{Kind: neutral.CredentialDeviceKey, ID: device.DeviceKey.ID}, neutral.Credential{Kind: id.Credential.Kind, ID: id.Credential.ID})
 		self(t, id)
 	})
 
@@ -93,8 +102,8 @@ func TestSecurityIdentitySubjectInvokerCredential(t *testing.T) {
 		a, b := identityOf(t, firstSecret), identityOf(t, secondSecret)
 		require.Equal(t, group.ID(), a.Subject)
 		require.Equal(t, neutral.SubjectApplication, a.SubjectKind)
-		require.Equal(t, neutral.Credential{Kind: neutral.CredentialAPIKey, ID: first.ID}, a.Credential)
-		require.Equal(t, neutral.Credential{Kind: neutral.CredentialAPIKey, ID: second.ID}, b.Credential)
+		require.Equal(t, neutral.Credential{Kind: neutral.CredentialAPIKey, ID: first.ID}, neutral.Credential{Kind: a.Credential.Kind, ID: a.Credential.ID})
+		require.Equal(t, neutral.Credential{Kind: neutral.CredentialAPIKey, ID: second.ID}, neutral.Credential{Kind: b.Credential.Kind, ID: b.Credential.ID})
 		require.Equal(t, a.Subject, b.Subject, "rotating keys keeps the subject")
 		self(t, a)
 

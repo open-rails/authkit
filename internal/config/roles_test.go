@@ -36,7 +36,7 @@ func TestCompileRoles(t *testing.T) {
 	rootOwner, ok := s.Role(iam.RootPersona(), iam.RootPersona().OwnerRole())
 	require.True(t, ok)
 	require.True(t, rootOwner.RequiresMFA)
-	require.Equal(t, []string{"root:*", "channel:*"}, rootOwner.Permissions, "the root owner holds every persona")
+	require.Equal(t, []string{"root:*", "channel:*", "tenant:*"}, rootOwner.Permissions, "the root owner holds every persona")
 	for perm, known := range map[iam.Perm]bool{
 		ident.Perm("channel:posts:edit"):       true,
 		ident.Perm("channel:members:manage"):   true,
@@ -69,10 +69,10 @@ func TestCompileRoles(t *testing.T) {
 		require.Equal(t, known, s.KnownPermission(perm), perm)
 	}
 
-	t.Run("nil is root-only", func(t *testing.T) {
+	t.Run("nil includes built-in scopes", func(t *testing.T) {
 		s, err := CompileRoles(nil)
 		require.NoError(t, err)
-		require.Equal(t, []iam.Persona{iam.RootPersona()}, s.Personas())
+		require.Equal(t, []iam.Persona{iam.RootPersona(), iam.TenantPersona()}, s.Personas())
 	})
 
 	t.Run("capability built-ins", func(t *testing.T) {

@@ -46,10 +46,27 @@ const (
 // BeginOAuthAuthorization stores a validated authorization request for its
 // user and returns its id: a secret the SPA approves or declines it by.
 func (s *Engine) BeginOAuthAuthorization(ctx context.Context, a authflow.OAuthAuthorization) (string, error) {
+	client, ok, err := s.OAuthClient(ctx, a.ClientID)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", authflow.NewOAuthError(authflow.OAuthInvalidClient, "unknown client")
+	}
+	ctx, err = s.oauthClientContext(ctx, client)
+	if err != nil {
+		return "", err
+	}
+	if _, err = s.tenantID(ctx); err != nil {
+		return "", err
+	}
 	now := s.nowTime()
 	a.CreatedAt, a.ExpiresAt = now.UTC(), now.Add(oauthAuthorizationTTL).UTC()
 	id := secret.Token(32)
 	if err := s.ephemSetJSON(ctx, keyOAuthAuthorization+secret.Hash(id), a, oauthAuthorizationTTL); err != nil {
+		return "", err
+	}
+	if err := s.rememberProofRoute(ctx, "oauth-authorization", secret.Hash(id), oauthAuthorizationTTL); err != nil {
 		return "", err
 	}
 	return id, nil
@@ -67,6 +84,11 @@ func (s *Engine) oauthAuthorization(ctx context.Context, id string) (authflow.OA
 	if id == "" || len(id) > 128 {
 		return a, nil, errmodel.E(errmodel.CodeAuthorizationRequestNotFound)
 	}
+	var err error
+	ctx, err = s.proofContext(ctx, "oauth-authorization", secret.Hash(id))
+	if err != nil {
+		return a, nil, err
+	}
 	raw, ok, err := s.ephemReadJSON(ctx, keyOAuthAuthorization+secret.Hash(id), &a)
 	switch {
 	case err != nil:
@@ -83,6 +105,11 @@ func (s *Engine) oauthAuthorization(ctx context.Context, id string) (authflow.OA
 // (prompt=login, max_age) that this one does not meet is StepUpRequired,
 // and stays pending for the retry.
 func (s *Engine) ApproveOAuthAuthorization(ctx context.Context, userID, sessionID, id string, consented bool) (string, error) {
+	var routeErr error
+	ctx, routeErr = s.proofContext(ctx, "oauth-authorization", secret.Hash(strings.TrimSpace(id)))
+	if routeErr != nil {
+		return "", routeErr
+	}
 	a, raw, err := s.oauthAuthorization(ctx, id)
 	if err != nil {
 		return "", err
@@ -135,6 +162,9 @@ func (s *Engine) ApproveOAuthAuthorization(ctx context.Context, userID, sessionI
 	if err := s.ephemSetJSON(ctx, keyOAuthCode+secret.Hash(code), grant, oauthCodeTTL); err != nil {
 		return "", err
 	}
+	if err := s.rememberProofRoute(ctx, "oauth-code", secret.Hash(code), oauthCodeTTL); err != nil {
+		return "", err
+	}
 	s.oauthAudit(ctx, "oauth_authorization_approved", userID, map[string]string{"client_id": a.ClientID, "session_id": sessionID})
 	return oauthRedirect(a.RedirectURI, url.Values{"code": {code}, "state": optional(a.State), "iss": {s.cfg.Token.Issuer}})
 }
@@ -144,6 +174,11 @@ func (s *Engine) ApproveOAuthAuthorization(ctx context.Context, userID, sessionI
 // user refused, login_required or interaction_required when prompt=none
 // could not be met without the user.
 func (s *Engine) DeclineOAuthAuthorization(ctx context.Context, id, code string) (string, error) {
+	var routeErr error
+	ctx, routeErr = s.proofContext(ctx, "oauth-authorization", secret.Hash(strings.TrimSpace(id)))
+	if routeErr != nil {
+		return "", routeErr
+	}
 	switch code {
 	case authflow.OAuthAccessDenied, authflow.OAuthLoginRequired, authflow.OAuthInteractionRequired, authflow.OAuthConsentRequired:
 	default:
@@ -164,6 +199,11 @@ func (s *Engine) DeclineOAuthAuthorization(ctx context.Context, id, code string)
 // RFC 7636 §4.6): the client, redirect URI and PKCE verifier must match the
 // approval, and the user's sign-in must still stand.
 func (s *Engine) ExchangeOAuthCode(ctx context.Context, in authflow.OAuthCodeExchange) (authflow.OAuthTokens, error) {
+	var routeErr error
+	ctx, routeErr = s.proofContext(ctx, "oauth-code", secret.Hash(in.Code))
+	if routeErr != nil {
+		return authflow.OAuthTokens{}, authflow.NewOAuthError(authflow.OAuthInvalidGrant, "the authorization code is invalid, expired or already used")
+	}
 	var g authflow.OAuthGrant
 	ok, err := s.ephemConsumeJSON(ctx, keyOAuthCode+secret.Hash(in.Code), &g)
 	switch {
@@ -243,6 +283,10 @@ func (s *Engine) OAuthUserInfo(ctx context.Context, accessToken, jkt string) (ma
 	if !slices.Contains(scopes, "openid") {
 		return nil, &authflow.OAuthError{Code: "insufficient_scope", Description: "the access token was not granted the openid scope", Status: 403}
 	}
+	ctx, err = s.oauthAccountContext(ctx, claims)
+	if err != nil {
+		return nil, authflow.NewOAuthError(authflow.OAuthInvalidToken, "the access token belongs to another account directory")
+	}
 	userID, sessionID := jose.String(claims, "sub"), jose.String(claims, "sid")
 	if err := s.requireOAuthSignIn(ctx, userID, sessionID); err != nil {
 		return nil, authflow.NewOAuthError(authflow.OAuthInvalidToken, "the sign-in the access token was issued for has ended")
@@ -292,6 +336,10 @@ func (s *Engine) EndOAuthSession(ctx context.Context, in authflow.OAuthEndSessio
 		if clientID != azp {
 			return "", authflow.NewOAuthError(authflow.OAuthInvalidRequest, "id_token_hint was issued to another client")
 		}
+		ctx, err = s.oauthAccountContext(ctx, claims)
+		if err != nil {
+			return "", authflow.NewOAuthError(authflow.OAuthInvalidRequest, "id_token_hint belongs to another account directory")
+		}
 		userID, sessionID = jose.String(claims, "sub"), jose.String(claims, "sid")
 	}
 	redirect := ""
@@ -324,6 +372,9 @@ func (s *Engine) requireOAuthSignIn(ctx context.Context, userID, sessionID strin
 	}
 	if userID == "" || sessionID == "" {
 		return iam.ErrSessionRevoked
+	}
+	if err := s.requireTenantUser(ctx, s.q, userID); err != nil {
+		return err
 	}
 	usable, signedIn, err := userLive(ctx, s.pg, userID, iam.SessionRef{SessionID: sessionID})
 	switch {
@@ -383,6 +434,11 @@ type oauthMint struct {
 // permissions are read live: the user's root grants, or the client's own,
 // within the resource's ceiling.
 func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAuthTokens, error) {
+	var bindingErr error
+	ctx, bindingErr = s.oauthClientContext(ctx, m.client)
+	if bindingErr != nil {
+		return authflow.OAuthTokens{}, bindingErr
+	}
 	signer := s.keys.ActiveSigner()
 	if signer == nil {
 		return authflow.OAuthTokens{}, iam.ErrSigningNotConfigured
@@ -452,6 +508,9 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 	}
 	at["permissions"] = permissions
 	if m.userID == "" {
+		if !m.client.TenantID.IsZero() {
+			at["tenant_id"] = m.client.TenantID.String()
+		}
 		at["sub"] = m.client.ID
 		access, err := jose.Sign(ctx, signer, jose.ResourceAccessTokenType, at)
 		if err != nil {
@@ -466,6 +525,7 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 	if u == nil {
 		return authflow.OAuthTokens{}, iam.ErrUserNotFound
 	}
+	at["tenant_id"] = u.TenantID
 	roles := []string{}
 	if !m.client.ThirdParty() {
 		roles = s.oauthRoles(ctx, m.userID)
@@ -495,7 +555,7 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 	out := oauthAnswer(access, m, ttl, details)
 	if slices.Contains(m.scopes, "openid") {
 		id := map[string]any{
-			"iss": issuer, "sub": m.userID, "aud": []string{m.client.ID}, "azp": m.client.ID,
+			"iss": issuer, "sub": m.userID, "aud": []string{m.client.ID}, "azp": m.client.ID, "tenant_id": u.TenantID,
 			"iat": now.Unix(), "exp": now.Add(oauthIDTokenTTL).Unix(),
 			"auth_time": m.authTime, "acr": m.acr, "amr": m.amr,
 		}

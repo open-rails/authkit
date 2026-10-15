@@ -80,8 +80,9 @@ func (q *Queries) ProvisioningDueWindow(ctx context.Context, arg ProvisioningDue
 }
 
 const provisioningEnqueue = `-- name: ProvisioningEnqueue :exec
-INSERT INTO provisioning_changes (issuer, target, user_id)
-SELECT $1::text, $2::text, u FROM unnest($3::uuid[]) AS u
+INSERT INTO provisioning_changes (issuer, target, user_id, tenant_id)
+SELECT $1::text, $2::text, u,t.tenant_id FROM unnest($3::uuid[]) AS u
+CROSS JOIN provisioning_targets t WHERE t.issuer=$1 AND t.name=$2
 `
 
 type ProvisioningEnqueueParams struct {
@@ -190,9 +191,10 @@ func (q *Queries) ProvisioningReconcileListed(ctx context.Context, arg Provision
 }
 
 const provisioningReconcileUnlinked = `-- name: ProvisioningReconcileUnlinked :exec
-INSERT INTO provisioning_changes (issuer, target, user_id)
-SELECT $1::text, $2::text, u.id FROM users u
-WHERE NOT EXISTS (SELECT 1 FROM provisioning_resources r WHERE r.issuer = $1 AND r.target = $2 AND r.user_id = u.id)
+INSERT INTO provisioning_changes (issuer, target, user_id,tenant_id)
+SELECT $1::text, $2::text, u.id,u.tenant_id FROM users u
+WHERE u.tenant_id=(SELECT tenant_id FROM provisioning_targets WHERE issuer=$1 AND name=$2)
+AND NOT EXISTS (SELECT 1 FROM provisioning_resources r WHERE r.issuer = $1 AND r.target = $2 AND r.user_id = u.id)
   AND NOT EXISTS (SELECT 1 FROM provisioning_changes c WHERE c.issuer = $1 AND c.target = $2 AND c.user_id = u.id)
 `
 
@@ -241,8 +243,9 @@ func (q *Queries) ProvisioningResourceDelete(ctx context.Context, arg Provisioni
 }
 
 const provisioningResourceUpsert = `-- name: ProvisioningResourceUpsert :exec
-INSERT INTO provisioning_resources (issuer, target, user_id, remote_id, state_digest)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO provisioning_resources (issuer, target, user_id, remote_id, state_digest,tenant_id)
+SELECT $1, $2, $3, $4, $5,t.tenant_id
+FROM provisioning_targets t WHERE t.issuer=$1 AND t.name=$2
 ON CONFLICT (issuer, target, user_id) DO UPDATE
 SET remote_id = EXCLUDED.remote_id, state_digest = EXCLUDED.state_digest, synced_at = statement_timestamp()
 `
@@ -267,7 +270,7 @@ func (q *Queries) ProvisioningResourceUpsert(ctx context.Context, arg Provisioni
 }
 
 const provisioningResources = `-- name: ProvisioningResources :many
-SELECT issuer, target, user_id, remote_id, state_digest, synced_at, seen_at FROM provisioning_resources
+SELECT issuer, target, user_id, remote_id, state_digest, synced_at, seen_at, tenant_id FROM provisioning_resources
 WHERE issuer = $1 AND target = $2 AND user_id = ANY($3::uuid[])
 `
 
@@ -294,6 +297,7 @@ func (q *Queries) ProvisioningResources(ctx context.Context, arg ProvisioningRes
 			&i.StateDigest,
 			&i.SyncedAt,
 			&i.SeenAt,
+			&i.TenantID,
 		); err != nil {
 			return nil, err
 		}
@@ -306,9 +310,10 @@ func (q *Queries) ProvisioningResources(ctx context.Context, arg ProvisioningRes
 }
 
 const provisioningResourcesSeen = `-- name: ProvisioningResourcesSeen :exec
-INSERT INTO provisioning_resources (issuer, target, user_id, remote_id, state_digest, seen_at)
-SELECT $1::text, $2::text, s.user_id, s.remote_id, s.state_digest, $3::timestamptz
+INSERT INTO provisioning_resources (issuer, target, user_id, remote_id, state_digest, seen_at, tenant_id)
+SELECT $1::text, $2::text, s.user_id, s.remote_id, s.state_digest, $3::timestamptz,t.tenant_id
 FROM unnest($4::uuid[], $5::text[], $6::text[]) AS s(user_id, remote_id, state_digest)
+CROSS JOIN provisioning_targets t WHERE t.issuer=$1 AND t.name=$2
 ON CONFLICT (issuer, target, user_id) DO UPDATE
 SET seen_at = EXCLUDED.seen_at, remote_id = EXCLUDED.remote_id, state_digest = EXCLUDED.state_digest
 `
@@ -372,9 +377,10 @@ func (q *Queries) ProvisioningRetry(ctx context.Context, arg ProvisioningRetryPa
 }
 
 const provisioningSchedule = `-- name: ProvisioningSchedule :exec
-INSERT INTO provisioning_changes (issuer, target, user_id, due_at)
-SELECT $1, $2, $3, $4
-WHERE NOT EXISTS (
+INSERT INTO provisioning_changes (issuer, target, user_id, due_at, tenant_id)
+SELECT $1, $2, $3, $4,t.tenant_id
+FROM provisioning_targets t
+WHERE t.issuer=$1 AND t.name=$2 AND NOT EXISTS (
   SELECT 1 FROM provisioning_changes
   WHERE issuer = $1 AND target = $2 AND user_id = $3 AND due_at = $4
 )
@@ -430,9 +436,10 @@ func (q *Queries) ProvisioningSyncDone(ctx context.Context, arg ProvisioningSync
 }
 
 const provisioningSyncPage = `-- name: ProvisioningSyncPage :many
-INSERT INTO provisioning_changes (issuer, target, user_id)
-SELECT $1::text, $2::text, u.id FROM users u
-WHERE $3::uuid IS NULL OR u.id > $3::uuid
+INSERT INTO provisioning_changes (issuer, target, user_id, tenant_id)
+SELECT $1::text, $2::text, u.id,u.tenant_id FROM users u
+WHERE u.tenant_id=(SELECT tenant_id FROM provisioning_targets WHERE issuer=$1 AND name=$2)
+AND ($3::uuid IS NULL OR u.id > $3::uuid)
 ORDER BY u.id
 LIMIT $4
 RETURNING user_id
@@ -472,7 +479,7 @@ func (q *Queries) ProvisioningSyncPage(ctx context.Context, arg ProvisioningSync
 }
 
 const provisioningTarget = `-- name: ProvisioningTarget :one
-SELECT issuer, name, created_at, sync_after, synced_at, reconciled_at, reconcile_started_at, reconcile_next_index, reconcile_listed_at, last_success_at, failing_since, failures, retry_at, last_error FROM provisioning_targets WHERE issuer = $1 AND name = $2
+SELECT issuer, name, created_at, sync_after, synced_at, reconciled_at, reconcile_started_at, reconcile_next_index, reconcile_listed_at, last_success_at, failing_since, failures, retry_at, last_error, tenant_id FROM provisioning_targets WHERE issuer = $1 AND name = $2
 `
 
 type ProvisioningTargetParams struct {
@@ -498,6 +505,7 @@ func (q *Queries) ProvisioningTarget(ctx context.Context, arg ProvisioningTarget
 		&i.Failures,
 		&i.RetryAt,
 		&i.LastError,
+		&i.TenantID,
 	)
 	return i, err
 }
@@ -562,22 +570,27 @@ func (q *Queries) ProvisioningTargetRan(ctx context.Context, arg ProvisioningTar
 	return err
 }
 
-const provisioningTargetRegister = `-- name: ProvisioningTargetRegister :exec
+const provisioningTargetRegister = `-- name: ProvisioningTargetRegister :one
 
-INSERT INTO provisioning_targets (issuer, name) VALUES ($1, $2)
-ON CONFLICT DO NOTHING
+INSERT INTO provisioning_targets (issuer, name, tenant_id) VALUES ($1, $2,$3)
+ON CONFLICT (issuer,name) DO UPDATE SET name=EXCLUDED.name
+WHERE provisioning_targets.tenant_id=EXCLUDED.tenant_id
+RETURNING tenant_id::text
 `
 
 type ProvisioningTargetRegisterParams struct {
-	Issuer string
-	Name   string
+	Issuer   string
+	Name     string
+	TenantID string
 }
 
 // SCIM provisioning (Config.Provisioning): targets, the outbox the users
 // triggers write, and what each target holds.
-func (q *Queries) ProvisioningTargetRegister(ctx context.Context, arg ProvisioningTargetRegisterParams) error {
-	_, err := q.db.Exec(ctx, provisioningTargetRegister, arg.Issuer, arg.Name)
-	return err
+func (q *Queries) ProvisioningTargetRegister(ctx context.Context, arg ProvisioningTargetRegisterParams) (string, error) {
+	row := q.db.QueryRow(ctx, provisioningTargetRegister, arg.Issuer, arg.Name, arg.TenantID)
+	var tenant_id string
+	err := row.Scan(&tenant_id)
+	return tenant_id, err
 }
 
 const provisioningTargetStatuses = `-- name: ProvisioningTargetStatuses :many

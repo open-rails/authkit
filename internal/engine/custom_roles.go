@@ -94,15 +94,18 @@ func (s *Engine) groupRoleOut(persona iam.Persona, r rbac.Role, row *db.CustomRo
 }
 
 // expandGrants lists the catalog permissions grants cover in groups of
-// persona: its own catalog, and on root every persona's.
+// persona: its own catalog, every non-root catalog on a tenant, or all on root.
 func (s *Engine) expandGrants(persona iam.Persona, grants []iam.Perm) []iam.Perm {
 	sch := s.groupSchemaOrDefault()
 	names := []iam.Persona{persona}
-	if persona == iam.RootPersona() {
+	if persona == iam.RootPersona() || persona == iam.TenantPersona() {
 		names = sch.Personas()
 	}
 	out := []iam.Perm{}
 	for _, name := range names {
+		if persona == iam.TenantPersona() && name == iam.RootPersona() {
+			continue
+		}
 		p, _ := sch.Persona(name)
 		out = append(out, rbac.Expand(p.Permissions, grants)...)
 	}

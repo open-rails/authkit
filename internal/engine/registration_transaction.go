@@ -90,7 +90,7 @@ func (s *Engine) registerAccountOnce(ctx context.Context, in accountRegistration
 		}
 	}
 	if id := in.Provider; id != nil {
-		if _, err := linkProviderByIssuer(ctx, q, user.ID, id.Issuer, id.Provider, id.Subject, nullable(strings.TrimSpace(id.Email))); err != nil {
+		if _, err := s.linkProviderByIssuer(ctx, q, user.ID, id.Issuer, id.Provider, id.Subject, nullable(strings.TrimSpace(id.Email))); err != nil {
 			return registeredAccount{}, err
 		}
 		if id.PreferredUsername != "" {

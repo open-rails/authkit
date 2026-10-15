@@ -33,6 +33,7 @@ import (
 // groups trust issuers: an operator role holding subscriptions and payouts,
 // not refunds, and scopes capping what each grants.
 type resourceDeployment struct {
+	tenant   iam.TenantID
 	auth     *authkit.Client
 	operator iam.Role
 	a, b     iam.GroupRef
@@ -60,6 +61,7 @@ func newResourceDeployment(t *testing.T, opts ...authtest.Option) resourceDeploy
 		created, err := auth.CreateGroup(ctx, iam.NewGroup{Persona: merchant.Persona})
 		require.NoError(t, err)
 		*g = iam.GroupByID(created.ID)
+		d.tenant = created.TenantID
 	}
 	var err error
 	d.scopeA, err = auth.Scope(ctx, d.a)
@@ -141,7 +143,7 @@ func TestResourceServerTrustedIssuer(t *testing.T) {
 	require.NoError(t, err)
 	id := v.Identity()
 	require.Equal(t, hauth.Identity{
-		Issuer: as.URL, Subject: owner.ID, SubjectKind: hauth.SubjectUser,
+		Issuer: as.URL, TenantID: d.tenant.String(), Subject: owner.ID, SubjectKind: hauth.SubjectUser,
 		Invoker: hauth.Invoker{Issuer: as.URL, ID: owner.ID}, Credential: hauth.Credential{Kind: hauth.CredentialAccessToken, ID: id.Credential.ID},
 		Email: owner.Email, EmailVerified: true,
 	}, id, "the issuer's user acts themself; contact from the token")
@@ -354,7 +356,7 @@ func TestResourceServerRemoteAssertion(t *testing.T) {
 	require.NoError(t, err)
 	id := v.Identity()
 	require.Equal(t, hauth.Identity{
-		Issuer: f.url, Subject: "customer-42", SubjectKind: hauth.SubjectUser, Invoker: hauth.Invoker{Issuer: f.url, ID: "customer-42"},
+		Issuer: f.url, TenantID: d.tenant.String(), Subject: "customer-42", SubjectKind: hauth.SubjectUser, Invoker: hauth.Invoker{Issuer: f.url, ID: "customer-42"},
 		Credential: hauth.Credential{Kind: hauth.CredentialAccessToken, ID: id.Credential.ID}, Email: "c42@shop.example", EmailVerified: true,
 	}, id, "the application's user, in its namespace, with the contact it vouched for")
 	require.Equal(t, d.scopeA, v.(hauth.Bound).BoundScope())

@@ -131,6 +131,9 @@ func (s *Engine) recordAgreements(ctx context.Context, tx pgx.Tx, who auth.Ident
 // AcceptAgreements records userID's acceptance of refs, each a declared
 // document at its current version.
 func (s *Engine) AcceptAgreements(ctx context.Context, userID string, refs []iam.AgreementRef, opts ...ops.Option) error {
+	if err := s.requireTenantUser(ctx, s.q, userID); err != nil {
+		return err
+	}
 	if err := noOptions("AcceptAgreements", opts); err != nil {
 		return err
 	}
@@ -140,6 +143,9 @@ func (s *Engine) AcceptAgreements(ctx context.Context, userID string, refs []iam
 // RecordAgreements is AcceptAgreements on channel, with the client that gave
 // it.
 func (s *Engine) RecordAgreements(ctx context.Context, userID string, refs []iam.AgreementRef, channel iam.AgreementChannel, ip, userAgent string) error {
+	if err := s.requireTenantUser(ctx, s.q, userID); err != nil {
+		return err
+	}
 	if err := s.requirePG(); err != nil {
 		return err
 	}
@@ -174,6 +180,9 @@ func (s *Engine) RecordAgreements(ctx context.Context, userID string, refs []iam
 
 // UserAgreements returns userID's acceptances, every version, by key.
 func (s *Engine) UserAgreements(ctx context.Context, userID string) ([]iam.AgreementAcceptance, error) {
+	if err := s.requireTenantUser(ctx, s.q, userID); err != nil {
+		return nil, err
+	}
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -197,6 +206,9 @@ func (s *Engine) UserAgreements(ctx context.Context, userID string) ([]iam.Agree
 // before it was required, or by the host), and one marked Reaccept whose
 // earlier version it accepted.
 func (s *Engine) AgreementsDue(ctx context.Context, userID string) ([]iam.Agreement, error) {
+	if err := s.requireTenantUser(ctx, s.q, userID); err != nil {
+		return nil, err
+	}
 	out := []iam.Agreement{}
 	if len(s.cfg.Agreements) == 0 {
 		return out, nil

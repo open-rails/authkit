@@ -144,8 +144,8 @@ func TestAccountDeletionRollsBackWhenRiverInsertFails(t *testing.T) {
 // deployment was offline throughout.
 func TestAccountDeletionDeliveryAcrossSeparateRiverFleets(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
-	require.NoError(t, Migrate(t.Context(), pg.Pool, config.DatabaseConfig{}))
-	require.NoError(t, Migrate(t.Context(), pg.Pool, config.DatabaseConfig{RiverSchema: "sibling_jobs"}))
+	require.NoError(t, Migrate(t.Context(), pg.Pool, config.DatabaseConfig{}, MigrationOptions{LegacyTenantID: testdb.DefaultTenantID}))
+	require.NoError(t, Migrate(t.Context(), pg.Pool, config.DatabaseConfig{RiverSchema: "sibling_jobs"}, MigrationOptions{LegacyTenantID: testdb.DefaultTenantID}))
 	issuers := []string{"https://first.example.test", "https://second.example.test"}
 	var mu sync.Mutex
 	events := map[string][]string{}
@@ -215,7 +215,7 @@ func TestAccountDeletionDeliveryAcrossSeparateRiverFleets(t *testing.T) {
 
 func TestAccountFleetRebindRequiresQuiescenceAndFencesOldProducer(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	require.NoError(t, Migrate(t.Context(), pg.Pool, config.DatabaseConfig{RiverSchema: "replacement_jobs"}))
+	require.NoError(t, Migrate(t.Context(), pg.Pool, config.DatabaseConfig{RiverSchema: "replacement_jobs"}, MigrationOptions{LegacyTenantID: testdb.DefaultTenantID}))
 	cfg := maintenanceConfig()
 	old, err := New(context.Background(), cfg, config.Deps{Postgres: pg.Pool, OnEvent: func(context.Context, iam.Event) error { return nil }})
 	require.NoError(t, err)

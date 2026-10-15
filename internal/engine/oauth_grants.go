@@ -64,6 +64,9 @@ func (s *Engine) startOAuthRefreshFamily(ctx context.Context, m oauthMint) (stri
 	case !ok:
 		return "", errors.New("authkit: oauth: refresh family id collision")
 	}
+	if err := s.rememberProofRoute(ctx, "oauth-refresh", secret.Hash(id), time.Until(f.ExpiresAt)); err != nil {
+		return "", err
+	}
 	return token, nil
 }
 
@@ -94,6 +97,11 @@ func (s *Engine) RefreshOAuthTokens(ctx context.Context, in authflow.OAuthRefres
 	invalid := authflow.NewOAuthError(authflow.OAuthInvalidGrant, "the refresh token is invalid, expired or revoked")
 	id, generation, value, ok := parseRefreshToken(in.RefreshToken)
 	if !ok {
+		return authflow.OAuthTokens{}, invalid
+	}
+	var routeErr error
+	ctx, routeErr = s.proofContext(ctx, "oauth-refresh", secret.Hash(id))
+	if routeErr != nil {
 		return authflow.OAuthTokens{}, invalid
 	}
 	key := keyOAuthRefresh + secret.Hash(id)
@@ -187,6 +195,11 @@ func (s *Engine) revokeReusedFamily(ctx context.Context, key string, f oauthRefr
 func (s *Engine) RevokeOAuthToken(ctx context.Context, clientID, token string) error {
 	id, _, _, ok := parseRefreshToken(token)
 	if !ok {
+		return nil
+	}
+	var routeErr error
+	ctx, routeErr = s.proofContext(ctx, "oauth-refresh", secret.Hash(id))
+	if routeErr != nil {
 		return nil
 	}
 	key := keyOAuthRefresh + secret.Hash(id)

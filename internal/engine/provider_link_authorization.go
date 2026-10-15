@@ -55,7 +55,7 @@ func (s *Engine) completeProviderLink(ctx context.Context, link authflow.Externa
 	if s.TwoFactorEnabled() && enrolled && (session.MfaAuthenticatedAt == nil || now.Sub(*session.MfaAuthenticatedAt) >= authflow.SensitiveActionFreshAuthWindow) {
 		return errmodel.ErrStepUpRequired
 	}
-	if _, err := linkProviderByIssuer(ctx, q, link.UserID, id.Issuer, id.Provider, id.Subject, email); err != nil {
+	if _, err := s.linkProviderByIssuer(ctx, q, link.UserID, id.Issuer, id.Provider, id.Subject, email); err != nil {
 		return err
 	}
 	if id.PreferredUsername != "" {

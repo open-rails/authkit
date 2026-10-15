@@ -25,8 +25,9 @@ import (
 // publicUser projects r. An expired temporary ban is no ban: it is
 // ExpiredBan, not Ban.
 func publicUser(r *db.User, now time.Time) iam.User {
+	tenant, _ := iam.ParseTenantID(r.TenantID)
 	u := iam.User{
-		ID: r.ID, Email: nullable(deref(r.Email)), Phone: nullable(deref(r.PhoneNumber)), Username: naming.Canonical(deref(r.Username)),
+		ID: r.ID, TenantID: tenant, Email: nullable(deref(r.Email)), Phone: nullable(deref(r.PhoneNumber)), Username: naming.Canonical(deref(r.Username)),
 		EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, PreferredLanguage: nullable(deref(r.PreferredLanguage)),
 		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin, DeletedAt: r.DeletedAt,
 		PublicMetadata: publicMetadata(r.PublicMetadata),
@@ -67,7 +68,7 @@ func (s *Engine) getUserByEmail(ctx context.Context, email string) (*db.User, er
 	if s.pg == nil {
 		return nil, nil
 	}
-	r, err := s.q.UserByEmail(ctx, email)
+	r, err := s.q.UserByEmail(ctx, db.UserByEmailParams{TenantID: s.tenantKey(ctx), Email: email})
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +90,7 @@ func (s *Engine) getUserByID(ctx context.Context, id string) (*db.User, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
-	r, err := s.q.UserByID(ctx, id)
+	r, err := s.q.TenantUserByID(ctx, db.TenantUserByIDParams{TenantID: s.tenantKey(ctx), ID: id})
 	if err != nil {
 		return nil, err
 	}
@@ -116,11 +117,11 @@ func mapUserUniqueViolation(err error) error {
 	switch {
 	case err == nil:
 		return nil
-	case isUniqueViolation(err, "users_username_key"), isUniqueViolation(err, "name_claims_pkey"):
+	case isUniqueViolation(err, "users_username_key"), isUniqueViolation(err, "users_tenant_username_uidx"), isUniqueViolation(err, "name_claims_pkey"):
 		return iam.ErrUsernameInUse
-	case isUniqueViolation(err, "users_email_uidx"):
+	case isUniqueViolation(err, "users_email_uidx"), isUniqueViolation(err, "users_tenant_email_uidx"):
 		return iam.ErrEmailInUse
-	case isUniqueViolation(err, "users_phone_number_key"):
+	case isUniqueViolation(err, "users_phone_number_key"), isUniqueViolation(err, "users_tenant_phone_uidx"):
 		return iam.ErrPhoneInUse
 	}
 	return err
@@ -146,7 +147,7 @@ func (s *Engine) createUser(ctx context.Context, email, username string) (*db.Us
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
-	ins, err := s.qtx(tx).UserInsert(ctx, db.UserInsertParams{ID: userID, Email: email, Username: &username, AtTime: s.namingNow()})
+	ins, err := s.qtx(tx).UserInsert(ctx, db.UserInsertParams{TenantID: s.tenantKey(ctx), ID: userID, Email: email, Username: &username, AtTime: s.namingNow()})
 	if err != nil {
 		return nil, mapUserUniqueViolation(err)
 	}
@@ -211,7 +212,7 @@ func (s *Engine) importUser(ctx context.Context, q *db.Queries, input newAccount
 	if err != nil {
 		return nil, err
 	}
-	err = q.UserImportInsert(ctx, db.UserImportInsertParams{
+	err = q.UserImportInsert(ctx, db.UserImportInsertParams{TenantID: s.tenantKey(ctx),
 		ID:             userID,
 		Email:          email,
 		PhoneNumber:    phone,
@@ -295,7 +296,7 @@ func (s *Engine) renameUsernameTx(ctx context.Context, tx pgx.Tx, id, username s
 	if err := s.admitName(ctx, iam.NameAdmissionRequest{UserID: id, SubjectID: id, CurrentName: oldName, RequestedName: username, Operation: iam.NameRename}); err != nil {
 		return err
 	}
-	if err := renameNameClaim(ctx, tx, id, oldName, username, now, policy); err != nil {
+	if err := s.renameNameClaim(ctx, tx, id, oldName, username, now, policy); err != nil {
 		return err
 	}
 	return q.UserRename(ctx, db.UserRenameParams{ID: id, Username: &username, AtTime: now})

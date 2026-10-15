@@ -18,7 +18,7 @@ func (s *Engine) getUserByPhone(ctx context.Context, phone string) (*db.User, er
 	if s.pg == nil {
 		return nil, nil
 	}
-	r, err := s.q.UserByPhone(ctx, &phone)
+	r, err := s.q.UserByPhone(ctx, db.UserByPhoneParams{TenantID: s.tenantKey(ctx), Phone: &phone})
 	if err != nil {
 		return nil, err
 	}

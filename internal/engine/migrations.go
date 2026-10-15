@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
 	sqlc "github.com/open-rails/authkit/internal/db"
 	internalmigrations "github.com/open-rails/authkit/internal/migrations/postgres"
@@ -23,9 +24,33 @@ import (
 // advisory locks, so it is safe to run concurrently. A schema a newer build
 // already migrated passes unchanged: migrations this build does not know are
 // left as they are.
-func Migrate(ctx context.Context, pool *pgxpool.Pool, db config.DatabaseConfig) error {
+type MigrationOptions struct {
+	// LegacyTenantID explicitly adopts an existing single directory into this
+	// canonical business tenant. It never invents a tenant or merges directories.
+	LegacyTenantID iam.TenantID
+}
+
+func Migrate(ctx context.Context, pool *pgxpool.Pool, db config.DatabaseConfig, options ...MigrationOptions) error {
 	if pool == nil {
 		return errors.New("authkit: migrating needs Deps.Postgres")
+	}
+	if len(options) > 1 {
+		return errors.New("authkit: Migrate accepts at most one MigrationOptions")
+	}
+	if len(options) == 1 && !options[0].LegacyTenantID.IsZero() {
+		// The migration setting belongs only to this owned handle. Never mutate
+		// the host pool or interpolate a configured ID into migration SQL.
+		cfg := pool.Config().Copy()
+		if cfg.ConnConfig.RuntimeParams == nil {
+			cfg.ConnConfig.RuntimeParams = map[string]string{}
+		}
+		cfg.ConnConfig.RuntimeParams["authkit.legacy_tenant_id"] = options[0].LegacyTenantID.String()
+		owned, err := pgxpool.NewWithConfig(ctx, cfg)
+		if err != nil {
+			return fmt.Errorf("authkit: prepare tenant migration connection: %w", err)
+		}
+		defer owned.Close()
+		pool = owned
 	}
 	normalized, err := config.NormalizeSchema(db.Schema)
 	if err != nil {

@@ -68,7 +68,7 @@ func (s *Engine) SCIMTenant(ctx context.Context, who auth.Identity, boundGroup s
 		case !row.Enabled || !row.SameGroup:
 			return scim.Tenant{}, scim.ErrNoTenant
 		}
-		return s.scimTenant(row.GroupID, row.Persona, row.Issuer)
+		return s.scimTenant(ctx, row.GroupID, row.Persona, row.Issuer)
 	case who.SubjectKind == auth.SubjectApplication && boundGroup != "" && who.Issuer != "" && who.Issuer != s.cfg.Token.Issuer:
 		row, err := s.q.SCIMTenantByIssuer(ctx, who.Issuer)
 		switch {
@@ -79,13 +79,16 @@ func (s *Engine) SCIMTenant(ctx context.Context, who auth.Identity, boundGroup s
 		case !row.Enabled || row.GroupID != boundGroup:
 			return scim.Tenant{}, scim.ErrNoTenant
 		}
-		return s.scimTenant(row.GroupID, row.Persona, row.Issuer)
+		return s.scimTenant(ctx, row.GroupID, row.Persona, row.Issuer)
 	}
 	return scim.Tenant{}, scim.ErrNoTenant
 }
 
 // scimTenant is the tenant of a persona that still has remote applications.
-func (s *Engine) scimTenant(group, persona, issuer string) (scim.Tenant, error) {
+func (s *Engine) scimTenant(ctx context.Context, group, persona, issuer string) (scim.Tenant, error) {
+	if _, _, err := s.remoteDirectoryContext(ctx, group); err != nil {
+		return scim.Tenant{}, err
+	}
 	if p, ok := s.groupSchemaOrDefault().Persona(ident.Persona(persona)); !ok || !p.RemoteApplications {
 		return scim.Tenant{}, scim.ErrNoTenant
 	}
@@ -96,6 +99,11 @@ var errNoUser = scim.Fail(http.StatusNotFound, "", "no such user")
 
 // DirectoryUser is the tenant's provisioned user id.
 func (s *Engine) DirectoryUser(ctx context.Context, t scim.Tenant, id string) (scim.User, error) {
+	var bindingErr error
+	ctx, _, bindingErr = s.remoteDirectoryContext(ctx, t.GroupID)
+	if bindingErr != nil {
+		return scim.User{}, bindingErr
+	}
 	if err := s.requirePG(); err != nil {
 		return scim.User{}, err
 	}
@@ -117,6 +125,11 @@ func (s *Engine) DirectoryUser(ctx context.Context, t scim.Tenant, id string) (s
 // filter matches (scim.ParseFilter), or all, in id order, from the 1-based
 // startIndex (RFC 7644 §3.4.2).
 func (s *Engine) DirectoryUsers(ctx context.Context, t scim.Tenant, filter string, startIndex, count int) (scim.ListResponse[scim.User], error) {
+	var bindingErr error
+	ctx, _, bindingErr = s.remoteDirectoryContext(ctx, t.GroupID)
+	if bindingErr != nil {
+		return scim.ListResponse[scim.User]{}, bindingErr
+	}
 	out := scim.ListResponse[scim.User]{Schemas: []string{scim.SchemaListResponse}, StartIndex: max(startIndex, 1), Resources: []scim.User{}}
 	if err := s.requirePG(); err != nil {
 		return out, err
@@ -167,6 +180,11 @@ func (s *Engine) DirectoryUsers(ctx context.Context, t scim.Tenant, filter strin
 // token claims recorded becomes provisioned; one already provisioned, or a
 // userName another holds, is 409 uniqueness.
 func (s *Engine) CreateDirectoryUser(ctx context.Context, t scim.Tenant, u scim.User) (scim.User, error) {
+	var bindingErr error
+	ctx, _, bindingErr = s.remoteDirectoryContext(ctx, t.GroupID)
+	if bindingErr != nil {
+		return scim.User{}, bindingErr
+	}
 	if err := s.requirePG(); err != nil {
 		return scim.User{}, err
 	}
@@ -191,6 +209,11 @@ func (s *Engine) CreateDirectoryUser(ctx context.Context, t scim.Tenant, u scim.
 // ReplaceDirectoryUser replaces the tenant's user id with u (RFC 7644
 // §3.5.1): what u omits is cleared, id and meta are ignored.
 func (s *Engine) ReplaceDirectoryUser(ctx context.Context, t scim.Tenant, id string, u scim.User) (scim.User, error) {
+	var bindingErr error
+	ctx, _, bindingErr = s.remoteDirectoryContext(ctx, t.GroupID)
+	if bindingErr != nil {
+		return scim.User{}, bindingErr
+	}
 	if err := s.requirePG(); err != nil {
 		return scim.User{}, err
 	}
@@ -215,6 +238,11 @@ func (s *Engine) ReplaceDirectoryUser(ctx context.Context, t scim.Tenant, id str
 // PatchDirectoryUser applies req to the tenant's user id (RFC 7644 §3.5.2),
 // all operations or none.
 func (s *Engine) PatchDirectoryUser(ctx context.Context, t scim.Tenant, id string, req scim.PatchRequest) (scim.User, error) {
+	var bindingErr error
+	ctx, _, bindingErr = s.remoteDirectoryContext(ctx, t.GroupID)
+	if bindingErr != nil {
+		return scim.User{}, bindingErr
+	}
 	if err := s.requirePG(); err != nil {
 		return scim.User{}, err
 	}
@@ -253,6 +281,11 @@ func (s *Engine) PatchDirectoryUser(ctx context.Context, t scim.Tenant, id strin
 // DeleteDirectoryUser deletes the tenant's user id and everything kept of it
 // (RFC 7644 §3.6).
 func (s *Engine) DeleteDirectoryUser(ctx context.Context, t scim.Tenant, id string) error {
+	var bindingErr error
+	ctx, _, bindingErr = s.remoteDirectoryContext(ctx, t.GroupID)
+	if bindingErr != nil {
+		return bindingErr
+	}
 	if err := s.requirePG(); err != nil {
 		return err
 	}
@@ -270,6 +303,11 @@ func (s *Engine) DeleteDirectoryUser(ctx context.Context, t scim.Tenant, id stri
 // RemoteUser is the group's user of issuer known by subject, provisioned or
 // recorded from claims; iam.ErrUserNotFound when there is none.
 func (s *Engine) RemoteUser(ctx context.Context, groupID, issuer, subject string) (RemoteUser, error) {
+	var bindingErr error
+	ctx, _, bindingErr = s.remoteDirectoryContext(ctx, groupID)
+	if bindingErr != nil {
+		return RemoteUser{}, bindingErr
+	}
 	if err := s.requirePG(); err != nil {
 		return RemoteUser{}, err
 	}
@@ -298,6 +336,11 @@ func (s *Engine) RemoteUser(ctx context.Context, groupID, issuer, subject string
 // verified; a claim that is empty or too long is absent and keeps the held
 // value.
 func (s *Engine) RecordRemoteUserClaims(ctx context.Context, groupID, issuer, subject string, c RemoteUserClaims) error {
+	var bindingErr error
+	ctx, _, bindingErr = s.remoteDirectoryContext(ctx, groupID)
+	if bindingErr != nil {
+		return bindingErr
+	}
 	if err := s.requirePG(); err != nil {
 		return err
 	}
@@ -328,14 +371,20 @@ func (s *Engine) RecordRemoteUserClaims(ctx context.Context, groupID, issuer, su
 // directory of issuer, keyed by subject; an inactive or unknown one is
 // absent.
 func (s *Engine) RemoteUserInfo(ctx context.Context, groupID, issuer string, subjects []string) (map[string]userinfo.User, error) {
-	out := map[string]userinfo.User{}
-	if err := s.requirePG(); err != nil {
-		return out, err
+	var bindingErr error
+	ctx, _, bindingErr = s.remoteLookupContext(ctx, groupID)
+	if bindingErr != nil {
+		return nil, bindingErr
 	}
+	return remoteUserInfoFrom(ctx, s.q, groupID, issuer, subjects)
+}
+
+func remoteUserInfoFrom(ctx context.Context, q *db.Queries, groupID, issuer string, subjects []string) (map[string]userinfo.User, error) {
+	out := map[string]userinfo.User{}
 	if len(subjects) == 0 {
 		return out, nil
 	}
-	rows, err := s.q.RemoteUsersBySubjects(ctx, db.RemoteUsersBySubjectsParams{GroupID: groupID, Issuer: issuer, Subjects: subjects})
+	rows, err := q.RemoteUsersBySubjects(ctx, db.RemoteUsersBySubjectsParams{GroupID: groupID, Issuer: issuer, Subjects: subjects})
 	if err != nil {
 		return nil, err
 	}
@@ -349,6 +398,11 @@ func (s *Engine) RemoteUserInfo(ctx context.Context, groupID, issuer string, sub
 // directory of issuer whose username, email or name contains query, ignoring
 // case.
 func (s *Engine) SearchRemoteUserInfo(ctx context.Context, groupID, issuer, query string, limit int) ([]userinfo.User, error) {
+	var bindingErr error
+	ctx, _, bindingErr = s.remoteLookupContext(ctx, groupID)
+	if bindingErr != nil {
+		return nil, bindingErr
+	}
 	out := []userinfo.User{}
 	if query == "" || limit < 1 {
 		return out, nil

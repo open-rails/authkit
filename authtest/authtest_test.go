@@ -124,9 +124,10 @@ func TestReplicaAndStaleSessionOfAHostClient(t *testing.T) {
 	totpKey := make([]byte, 32)
 	_, _ = rand.Read(totpKey)
 	auth, err := authkit.New(t.Context(), authkit.Config{
-		Token:     authkit.TokenConfig{Issuer: "https://host.example", IssuedAudiences: []string{"host"}},
-		TwoFactor: authkit.TwoFactorConfig{TOTPSecretKey: totpKey}, // the root owner's MFA must be enrollable
-		HTTP:      &authkit.HTTPConfig{DirectPeerIP: true},
+		DefaultTenantID: testdb.DefaultTenantID,
+		Token:           authkit.TokenConfig{Issuer: "https://host.example", IssuedAudiences: []string{"host"}},
+		TwoFactor:       authkit.TwoFactorConfig{TOTPSecretKey: totpKey}, // the root owner's MFA must be enrollable
+		HTTP:            &authkit.HTTPConfig{DirectPeerIP: true},
 	}, authkit.Deps{Postgres: pg.Pool, KeySource: testkeys.Source(testkeys.RSA("host-built"))})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = auth.Close(context.Background()) })

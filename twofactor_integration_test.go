@@ -73,7 +73,7 @@ func TestNewDegradesWithoutAnEnrollableSecondFactor(t *testing.T) {
 			err  string
 		}{
 			"no key, no senders": {
-				err: "authkit: roles org:admin, org:owner, root:owner need MFA, but no second factor can be enrolled, so those sign-ins are refused: " +
+				err: "authkit: roles org:admin, org:owner, root:owner, tenant:owner need MFA, but no second factor can be enrolled, so those sign-ins are refused: " +
 					"put a 16, 24 or 32-byte key at " + keyAt + " (or set TwoFactor.TOTPSecretKey), or set a healthy Deps.Email, or set a healthy Deps.SMS, " +
 					"or set TwoFactor.Mode to disabled",
 			},
@@ -90,7 +90,7 @@ func TestNewDegradesWithoutAnEnrollableSecondFactor(t *testing.T) {
 					c.TwoFactor.Methods = []iam.TwoFactorMethod{iam.TwoFactorEmail}
 					c.TwoFactor.TOTPSecretKey = testTOTPKey
 				},
-				err: "authkit: roles org:admin, org:owner, root:owner need MFA, but no second factor can be enrolled, so those sign-ins are refused: " +
+				err: "authkit: roles org:admin, org:owner, root:owner, tenant:owner need MFA, but no second factor can be enrolled, so those sign-ins are refused: " +
 					"set a healthy Deps.Email, or set TwoFactor.Mode to disabled",
 			},
 		} {

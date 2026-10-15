@@ -122,9 +122,9 @@ SET auto_explain.log_nested_statements = on; SET auto_explain.log_level = notice
 
 	group, err := seedGroup(ctx, e, ident.Persona("org"), "")
 	require.NoError(t, err)
-	exec(`INSERT INTO group_invite_links (permission_group_id, role, code_hash) VALUES ($1, 'org:owner', $2)`, group, uniqueSuffix())
-	exec(`INSERT INTO account_registration_invites (email, code_hash, expires_at, permission_group_id, role)
- VALUES ('invited@example.test', $2, now() + interval '1 day', $1, 'org:owner')`, group, uniqueSuffix())
+	exec(`INSERT INTO group_invite_links (permission_group_id, tenant_id, role, code_hash) VALUES ($1, $3::uuid, 'org:owner', $2)`, group, uniqueSuffix(), testdb.DefaultTenantID.String())
+	exec(`INSERT INTO account_registration_invites (email, tenant_id, code_hash, expires_at, permission_group_id, role)
+ VALUES ('invited@example.test', $3::uuid, $2, now() + interval '1 day', $1, 'org:owner')`, group, uniqueSuffix(), testdb.DefaultTenantID.String())
 	tables = purged(func() { require.NoError(t, e.PurgeGroup(ctx, iam.GroupByID(group))) })
 	require.Subset(t, tables, []string{"group_user_roles", "api_keys", "remote_applications", "group_invite_links", "account_registration_invites"})
 }

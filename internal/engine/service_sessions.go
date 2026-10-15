@@ -72,14 +72,14 @@ func (s *Engine) OwnsRefreshToken(ctx context.Context, token string) (bool, erro
 		return false, nil
 	}
 	hash := s.hashRefresh(token)
-	_, err := s.q.SessionByCurrentTokenHash(ctx, db.SessionByCurrentTokenHashParams{CurrentTokenHash: hash, Issuer: s.cfg.Token.Issuer})
+	_, err := s.q.SessionByCurrentTokenHash(ctx, db.SessionByCurrentTokenHashParams{TenantID: s.tenantKey(ctx), CurrentTokenHash: hash, Issuer: s.cfg.Token.Issuer})
 	if err == nil {
 		return true, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return false, err
 	}
-	_, err = s.q.SessionByHistoricalTokenHash(ctx, db.SessionByHistoricalTokenHashParams{TokenHash: hash, Issuer: s.cfg.Token.Issuer})
+	_, err = s.q.SessionByHistoricalTokenHash(ctx, db.SessionByHistoricalTokenHashParams{TenantID: s.tenantKey(ctx), TokenHash: hash, Issuer: s.cfg.Token.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -98,7 +98,7 @@ func (s *Engine) ExchangeRefreshToken(ctx context.Context, refreshToken string, 
 	h := s.hashRefresh(refreshToken)
 
 	// Try current hash
-	cur, err := s.q.SessionByCurrentTokenHash(ctx, db.SessionByCurrentTokenHashParams{CurrentTokenHash: h, Issuer: s.cfg.Token.Issuer})
+	cur, err := s.q.SessionByCurrentTokenHash(ctx, db.SessionByCurrentTokenHashParams{TenantID: s.tenantKey(ctx), CurrentTokenHash: h, Issuer: s.cfg.Token.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
 		// No longer current: either a concurrent refresh demoted it a moment ago
 		// (grace re-delivery) or it is genuine reuse (session revoke).
@@ -191,7 +191,7 @@ func (s *Engine) refreshProof(ctx context.Context, bound *string) error {
 // the same successor. Older consumed hashes identify the session but cannot open
 // the seal for the current successor, so advancing twice does not hide reuse.
 func (s *Engine) exchangeDemotedRefreshToken(ctx context.Context, refreshToken string, h []byte, ua string, ip net.IP) (string, authflow.IssuedSession, error) {
-	prev, err := s.q.SessionByHistoricalTokenHash(ctx, db.SessionByHistoricalTokenHashParams{TokenHash: h, Issuer: s.cfg.Token.Issuer})
+	prev, err := s.q.SessionByHistoricalTokenHash(ctx, db.SessionByHistoricalTokenHashParams{TenantID: s.tenantKey(ctx), TokenHash: h, Issuer: s.cfg.Token.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
 		reason := "refresh_token_unknown"
 		s.LogSessionFailed(ctx, "", "", &reason, ipText(ip), nullable(ua))
@@ -372,7 +372,7 @@ func (s *Engine) lockAuthenticationAccount(ctx context.Context, q *db.Queries, u
 	if expectedVersion > 0 && account.CredentialVersion != expectedVersion {
 		return nil, jwt.ErrTokenUnverifiable
 	}
-	row, err := q.UserByID(ctx, userID)
+	row, err := q.TenantUserByID(ctx, db.TenantUserByIDParams{TenantID: s.tenantKey(ctx), ID: userID})
 	if err != nil {
 		return nil, err
 	}
@@ -427,6 +427,12 @@ func (s *Engine) CheckSession(ctx context.Context, cl verify.Claims) error {
 		return errmodel.E(errmodel.CodeForbidden)
 	}
 	if err := s.requirePG(); err != nil {
+		return err
+	}
+	if _, err := s.credentialTenant(ctx, s.q, userID, cl.TenantID); err != nil {
+		if errors.Is(err, iam.ErrTenantMismatch) || errors.Is(err, pgx.ErrNoRows) {
+			return iam.ErrSessionRevoked
+		}
 		return err
 	}
 	ref := iam.SessionRef{SessionID: cl.SessionID, DeviceKeyID: cl.DeviceKeyID}

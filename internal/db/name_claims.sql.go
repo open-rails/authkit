@@ -12,14 +12,15 @@ import (
 
 const nameClaimAliasesByUser = `-- name: NameClaimAliasesByUser :many
 SELECT name, expires_at FROM name_claims
-WHERE owner_id = $1 AND NOT canonical
-  AND (expires_at IS NULL OR expires_at > $2::timestamptz)
+WHERE tenant_id=NULLIF($1::text,'')::uuid AND owner_id = $2 AND NOT canonical
+  AND (expires_at IS NULL OR expires_at > $3::timestamptz)
 ORDER BY name
 `
 
 type NameClaimAliasesByUserParams struct {
-	OwnerID string
-	AtTime  time.Time
+	TenantID string
+	OwnerID  string
+	AtTime   time.Time
 }
 
 type NameClaimAliasesByUserRow struct {
@@ -28,7 +29,7 @@ type NameClaimAliasesByUserRow struct {
 }
 
 func (q *Queries) NameClaimAliasesByUser(ctx context.Context, arg NameClaimAliasesByUserParams) ([]NameClaimAliasesByUserRow, error) {
-	rows, err := q.db.Query(ctx, nameClaimAliasesByUser, arg.OwnerID, arg.AtTime)
+	rows, err := q.db.Query(ctx, nameClaimAliasesByUser, arg.TenantID, arg.OwnerID, arg.AtTime)
 	if err != nil {
 		return nil, err
 	}
@@ -48,64 +49,78 @@ func (q *Queries) NameClaimAliasesByUser(ctx context.Context, arg NameClaimAlias
 }
 
 const nameClaimCanonical = `-- name: NameClaimCanonical :exec
-SELECT claim_canonical_name($1::text, $2::uuid, $3::timestamptz)
+SELECT claim_canonical_name(NULLIF($1::text,'')::uuid,$2::text, $3::uuid, $4::timestamptz)
 `
 
 type NameClaimCanonicalParams struct {
-	Name    string
-	OwnerID string
-	AtTime  time.Time
+	TenantID string
+	Name     string
+	OwnerID  string
+	AtTime   time.Time
 }
 
 func (q *Queries) NameClaimCanonical(ctx context.Context, arg NameClaimCanonicalParams) error {
-	_, err := q.db.Exec(ctx, nameClaimCanonical, arg.Name, arg.OwnerID, arg.AtTime)
+	_, err := q.db.Exec(ctx, nameClaimCanonical,
+		arg.TenantID,
+		arg.Name,
+		arg.OwnerID,
+		arg.AtTime,
+	)
 	return err
 }
 
 const nameClaimDeleteOwned = `-- name: NameClaimDeleteOwned :exec
 DELETE FROM name_claims
-WHERE name = lower($1::text) AND owner_id = $2 AND canonical
+WHERE tenant_id=NULLIF($1::text,'')::uuid AND name = lower($2::text) AND owner_id = $3 AND canonical
 `
 
 type NameClaimDeleteOwnedParams struct {
-	Name    string
-	OwnerID string
+	TenantID string
+	Name     string
+	OwnerID  string
 }
 
 func (q *Queries) NameClaimDeleteOwned(ctx context.Context, arg NameClaimDeleteOwnedParams) error {
-	_, err := q.db.Exec(ctx, nameClaimDeleteOwned, arg.Name, arg.OwnerID)
+	_, err := q.db.Exec(ctx, nameClaimDeleteOwned, arg.TenantID, arg.Name, arg.OwnerID)
 	return err
 }
 
 const nameClaimRetire = `-- name: NameClaimRetire :exec
 UPDATE name_claims SET canonical = false, expires_at = $1
-WHERE name = lower($2::text) AND owner_id = $3 AND canonical
+WHERE tenant_id=NULLIF($2::text,'')::uuid AND name = lower($3::text) AND owner_id = $4 AND canonical
 `
 
 type NameClaimRetireParams struct {
 	ExpiresAt *time.Time
+	TenantID  string
 	Name      string
 	OwnerID   string
 }
 
 // The canonical name becomes an alias until expires_at (NULL: kept for good).
 func (q *Queries) NameClaimRetire(ctx context.Context, arg NameClaimRetireParams) error {
-	_, err := q.db.Exec(ctx, nameClaimRetire, arg.ExpiresAt, arg.Name, arg.OwnerID)
+	_, err := q.db.Exec(ctx, nameClaimRetire,
+		arg.ExpiresAt,
+		arg.TenantID,
+		arg.Name,
+		arg.OwnerID,
+	)
 	return err
 }
 
 const nameClaimTaken = `-- name: NameClaimTaken :one
-SELECT EXISTS(SELECT 1 FROM name_claims WHERE name = lower($1::text)
-  AND (canonical OR expires_at IS NULL OR expires_at > $2::timestamptz))
+SELECT EXISTS(SELECT 1 FROM name_claims WHERE tenant_id=NULLIF($1::text,'')::uuid AND name = lower($2::text)
+  AND (canonical OR expires_at IS NULL OR expires_at > $3::timestamptz))
 `
 
 type NameClaimTakenParams struct {
-	Name   string
-	AtTime time.Time
+	TenantID string
+	Name     string
+	AtTime   time.Time
 }
 
 func (q *Queries) NameClaimTaken(ctx context.Context, arg NameClaimTakenParams) (bool, error) {
-	row := q.db.QueryRow(ctx, nameClaimTaken, arg.Name, arg.AtTime)
+	row := q.db.QueryRow(ctx, nameClaimTaken, arg.TenantID, arg.Name, arg.AtTime)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
@@ -113,12 +128,12 @@ func (q *Queries) NameClaimTaken(ctx context.Context, arg NameClaimTakenParams) 
 
 const nameClaimsDeleteExpired = `-- name: NameClaimsDeleteExpired :execrows
 WITH expired AS (
- SELECT name FROM name_claims
+ SELECT tenant_id,name FROM name_claims
  WHERE NOT canonical AND expires_at <= $1::timestamptz
  ORDER BY expires_at LIMIT 5000 FOR UPDATE SKIP LOCKED
 )
 DELETE FROM name_claims c USING expired e
-WHERE c.name=e.name
+WHERE c.tenant_id=e.tenant_id AND c.name=e.name
  AND NOT c.canonical AND c.expires_at <= $1::timestamptz
 `
 
@@ -131,26 +146,32 @@ func (q *Queries) NameClaimsDeleteExpired(ctx context.Context, atTime time.Time)
 }
 
 const nameClaimsLock = `-- name: NameClaimsLock :exec
-SELECT lock_name_claims($1::text[])
+SELECT lock_name_claims(NULLIF($1::text,'')::uuid,$2::text[])
 `
 
+type NameClaimsLockParams struct {
+	TenantID string
+	Names    []string
+}
+
 // Takes the names' stripe locks in stripe order, so opposite renames cannot deadlock.
-func (q *Queries) NameClaimsLock(ctx context.Context, names []string) error {
-	_, err := q.db.Exec(ctx, nameClaimsLock, names)
+func (q *Queries) NameClaimsLock(ctx context.Context, arg NameClaimsLockParams) error {
+	_, err := q.db.Exec(ctx, nameClaimsLock, arg.TenantID, arg.Names)
 	return err
 }
 
 const resolveUsername = `-- name: ResolveUsername :one
 SELECT u.id::text AS id, u.username::text AS canonical_name, COALESCE(NOT c.canonical,false)::boolean AS is_alias, c.expires_at
 FROM name_claims c JOIN users u ON u.id=c.owner_id
-WHERE c.name=lower($1::text)
- AND (c.canonical OR c.expires_at IS NULL OR c.expires_at>$2::timestamptz)
+WHERE c.tenant_id=NULLIF($1::text,'')::uuid AND c.name=lower($2::text)
+ AND (c.canonical OR c.expires_at IS NULL OR c.expires_at>$3::timestamptz)
  AND u.deleted_at IS NULL
 `
 
 type ResolveUsernameParams struct {
-	Name   string
-	AtTime time.Time
+	TenantID string
+	Name     string
+	AtTime   time.Time
 }
 
 type ResolveUsernameRow struct {
@@ -161,7 +182,7 @@ type ResolveUsernameRow struct {
 }
 
 func (q *Queries) ResolveUsername(ctx context.Context, arg ResolveUsernameParams) (ResolveUsernameRow, error) {
-	row := q.db.QueryRow(ctx, resolveUsername, arg.Name, arg.AtTime)
+	row := q.db.QueryRow(ctx, resolveUsername, arg.TenantID, arg.Name, arg.AtTime)
 	var i ResolveUsernameRow
 	err := row.Scan(
 		&i.ID,

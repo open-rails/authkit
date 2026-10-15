@@ -5,4 +5,4 @@
 -- a stable placeholder instead of silently vanishing.
 SELECT id, username, created_at, deleted_at, public_metadata
 FROM users
-WHERE id = ANY(sqlc.arg(ids)::uuid[]);
+WHERE tenant_id=NULLIF(sqlc.arg(tenant_id)::text,'')::uuid AND id = ANY(sqlc.arg(ids)::uuid[]);

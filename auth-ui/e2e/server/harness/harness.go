@@ -141,8 +141,15 @@ func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
 	merchant.Role("viewer", billing, merchant.Members.Read, merchant.Roles.Read, merchant.Credentials.Read)
 	merchant.Role("admin", billing, merchant.Members.Read, merchant.Members.Manage, merchant.Roles.Read,
 		merchant.Roles.Manage, merchant.Credentials.Read, merchant.Credentials.Manage)
+	// The reusable browser fixture owns one stable account directory across
+	// restarts; it is never an unbound production tenant selector.
+	tenant, err := iam.ParseTenantID("00000000-0000-4000-8000-000000000001")
+	if err != nil {
+		return nil, err
+	}
 	cfg := authkit.Config{
-		Roles: roles,
+		DefaultTenantID: tenant,
+		Roles:           roles,
 		HTTP: &authkit.HTTPConfig{
 			DirectPeerIP:  true,
 			RateLimits:    limits,

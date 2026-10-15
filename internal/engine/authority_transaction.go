@@ -132,11 +132,11 @@ func (s *Engine) revokeUncoveredCredentials(ctx context.Context, st *permissionG
 			return err
 		}
 		for _, r := range rows {
-			persona := ident.Persona(r.Persona)
-			creds = append(creds, sweptCredential{
-				table: r.Kind, id: r.ID, creator: r.Creator, needsCreator: r.NeedsCreator,
-				group: groupTarget{ID: r.GroupID, Persona: persona}, role: ident.RoleText(r.Role),
-			})
+			group, err := db.New(st.q).AuthorityGroupState(ctx, r.GroupID)
+			if err != nil {
+				return err
+			}
+			creds = append(creds, sweptCredential{table: r.Kind, id: r.ID, creator: r.Creator, needsCreator: r.NeedsCreator, group: groupTargetOf(group), role: ident.RoleText(r.Role)})
 		}
 	}
 	revoked := map[string]bool{}
@@ -190,7 +190,10 @@ func (s *Engine) credentialStands(ctx context.Context, st *permissionGroupStore,
 	case machine:
 		capability = ident.CredentialsManage(c.group.Persona)
 	case c.role.IsZero():
-		capability = ident.RootUsersInvite
+		if c.group.Persona != iam.RootPersona() && c.group.Persona != iam.TenantPersona() {
+			return false, nil
+		}
+		capability = ident.Perm(c.group.Persona.String() + ":users:invite")
 	}
 	err := s.creatorCovers(ctx, st, c.creator, c.group, capability, c.role)
 	if errors.Is(err, iam.ErrInsufficientAuthority) || errors.Is(err, iam.ErrRoleAssignmentEscalation) || errors.Is(err, iam.ErrRoleNotAssignable) {
@@ -246,11 +249,10 @@ func (s *Engine) retireCredential(ctx context.Context, st *permissionGroupStore,
 // registration invite carries no role, so it needs capability only.
 func (s *Engine) creatorCovers(ctx context.Context, st *permissionGroupStore, creator string, g groupTarget, capability iam.Perm, role iam.Role) error {
 	if role.IsZero() {
-		auth, err := s.identityAuthority(ctx, st, iam.UserIdentity(creator), g)
-		if err != nil {
-			return err
+		if g.Persona == iam.RootPersona() || g.Persona == iam.TenantPersona() {
+			return s.requireAccountInvitation(ctx, st, iam.UserIdentity(creator), g)
 		}
-		return auth.requireCap(capability)
+		return iam.ErrInsufficientAuthority
 	}
 	return s.requireRoleGrant(ctx, st, iam.UserIdentity(creator), g, capability, role)
 }

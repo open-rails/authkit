@@ -53,7 +53,15 @@ func (s *Service) rateLimitedByIdentifier(w http.ResponseWriter, r *http.Request
 	if identifier == "" {
 		return false
 	}
-	return s.limited(w, r, bucket, bucket+":id:"+identifier)
+	key := bucket + ":id:" + identifier
+	// Unbound pre-proof requests retain the stricter deployment-wide key.
+	// A trusted fixed or verified account scope separates independent tenants.
+	if s.svc != nil {
+		if scope, err := s.svc.AccountScope(r.Context()); err == nil {
+			key = bucket + ":tenant:" + scope.ID() + ":id:" + identifier
+		}
+	}
+	return s.limited(w, r, bucket, key)
 }
 
 // limited spends one request of key's budget in bucket; once it is spent it

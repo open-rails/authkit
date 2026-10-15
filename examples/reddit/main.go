@@ -1,7 +1,7 @@
 // Command reddit is the example from the README: a tiny Reddit-like forum where
 // channels live in the app and AuthKit keeps who may do what in each of them.
 //
-// It needs DATABASE_URL, ADMIN_EMAIL, and signing keys at /vault/auth (see docs/keys.md).
+// It needs DATABASE_URL, TENANT_ID, ADMIN_EMAIL, and signing keys at /vault/auth (see docs/keys.md).
 package main
 
 import (
@@ -27,8 +27,13 @@ import (
 )
 
 func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {
+	tenantID, err := iam.ParseTenantID(os.Getenv("TENANT_ID")) // persist this business UUID in configuration
+	if err != nil {
+		return nil, err
+	}
 	cfg := authkit.Config{
-		Database: authkit.DatabaseConfig{Schema: "profiles"}, // the Postgres schema AuthKit's tables go in
+		DefaultTenantID: tenantID,
+		Database:        authkit.DatabaseConfig{Schema: "profiles"}, // the Postgres schema AuthKit's tables go in
 		// Configure JWTs; authkit issues these to users; users then send them back with requests to prove who they are!
 		Token: authkit.TokenConfig{
 			Issuer:          "https://myapp.com", // who issued this; that's you!

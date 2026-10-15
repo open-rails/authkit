@@ -16,14 +16,17 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/open-rails/authkit/iam"
 )
 
 type cookieKind string
 
 const (
-	CookieRefresh   cookieKind = "refresh"
-	CookieOIDCState cookieKind = "oidc_state"
-	CookieDevice    cookieKind = "device"
+	CookieRefresh      cookieKind = "refresh"
+	CookieActiveTenant cookieKind = "active_tenant"
+	CookieOIDCState    cookieKind = "oidc_state"
+	CookieDevice       cookieKind = "device"
 	// CookieDevicePartitioned is the device cookie a third-party iframe keeps:
 	// SameSite=None, Partitioned (CHIPS), so it is per top-level site.
 	CookieDevicePartitioned cookieKind = "device_partitioned"
@@ -51,8 +54,12 @@ var CookieRegistry = []CookieVariant{
 	{Kind: CookieDevice, Name: "authkit_device", Path: "/", Current: true},
 	{Kind: CookieDevice, Name: "__Host-authkit_device", Path: "/", Secure: true, Current: true},
 	{Kind: CookieDevicePartitioned, Name: "__Host-authkit_device_p", Path: "/", Secure: true, Current: true},
-	{Kind: CookieRefresh, Name: "authkit_rt_{issuer}", Path: "/", Current: true},
-	{Kind: CookieRefresh, Name: "__Host-authkit_rt_{issuer}", Path: "/", Secure: true, Current: true},
+	{Kind: CookieRefresh, Name: "authkit_rt_{issuer}", Path: "/"},
+	{Kind: CookieRefresh, Name: "__Host-authkit_rt_{issuer}", Path: "/", Secure: true},
+	{Kind: CookieRefresh, Name: "authkit_rt_{issuer_tenant}", Path: "/", Current: true},
+	{Kind: CookieRefresh, Name: "__Host-authkit_rt_{issuer_tenant}", Path: "/", Secure: true, Current: true},
+	{Kind: CookieActiveTenant, Name: "authkit_tenant_{issuer}", Path: "/", Current: true},
+	{Kind: CookieActiveTenant, Name: "__Host-authkit_tenant_{issuer}", Path: "/", Secure: true, Current: true},
 }
 
 // IssuerRefreshCookieName resolves the current default refresh-cookie shape.
@@ -60,6 +67,31 @@ var CookieRegistry = []CookieVariant{
 func IssuerRefreshCookieName(issuer string, secure bool) string {
 	sum := sha256.Sum256([]byte(issuer))
 	name := "authkit_rt_" + hex.EncodeToString(sum[:16])
+	if secure {
+		name = "__Host-" + name
+	}
+	return name
+}
+
+// TenantRefreshCookieName isolates browser sessions for one issuer and tenant.
+// An optional configured base changes the label, never the isolation boundary.
+func TenantRefreshCookieName(issuer string, tenant iam.TenantID, base string, secure bool) string {
+	if base == "" {
+		base = "authkit_rt"
+	}
+	sum := sha256.Sum256([]byte(issuer + "\x00" + tenant.String()))
+	name := base + "_" + hex.EncodeToString(sum[:16])
+	if secure {
+		name = "__Host-" + name
+	}
+	return name
+}
+
+// ActiveTenantCookieName is a routing hint for the unbound central portal.
+// It is not a credential and is ignored by a fixed tenant mount.
+func ActiveTenantCookieName(issuer string, secure bool) string {
+	sum := sha256.Sum256([]byte(issuer))
+	name := "authkit_tenant_" + hex.EncodeToString(sum[:16])
 	if secure {
 		name = "__Host-" + name
 	}

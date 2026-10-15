@@ -18,6 +18,7 @@ import (
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/naming"
 	"github.com/open-rails/authkit/internal/password"
+	"github.com/open-rails/authkit/internal/secret"
 )
 
 // Register runs the registration decision tree. Input problems come back as
@@ -27,6 +28,13 @@ import (
 // ErrSMSUnavailable; engine failures carry a stage prefix
 // and, for sends, the delivery sentinel.
 func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authflow.RegisterOutcome, error) {
+	if token := strings.TrimSpace(in.AccountInviteToken); token != "" {
+		var err error
+		ctx, err = s.proofContext(ctx, "registration-invite", secret.Hash(token))
+		if err != nil {
+			return authflow.RegisterOutcome{}, err
+		}
+	}
 	if s.cfg.Registration.NativeUserMode == iam.RegistrationModeClosed {
 		return authflow.RegisterOutcome{}, errmodel.ErrRegistrationDisabled
 	}

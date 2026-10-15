@@ -19,6 +19,7 @@ type AccountDeletion struct {
 	PurgedAt   *time.Time
 	// The user who deleted the account; NULL = the operator.
 	DeletedBy *string
+	TenantID  string
 }
 
 type AccountEvent struct {
@@ -47,6 +48,7 @@ type AccountEvent struct {
 	Role           string
 	ClientID       string
 	Agreement      string
+	TenantID       *string
 }
 
 // OAuth clients groups register at run time (RFC 7591 metadata): third-party clients whose users consent per scope, and whose tokens act only in their group. Deleted with the group.
@@ -100,6 +102,7 @@ type PermissionGroup struct {
 	CreatedAt time.Time
 	// Retained inactive group state; the trusted host owns retention and purge.
 	DeletedAt *time.Time
+	TenantID  *string
 }
 
 type ProvisioningResource struct {
@@ -111,7 +114,8 @@ type ProvisioningResource struct {
 	StateDigest string
 	SyncedAt    time.Time
 	// When reconciliation last found the resource at the target
-	SeenAt *time.Time
+	SeenAt   *time.Time
+	TenantID string
 }
 
 // SCIM targets of each issuer's Config.Provisioning; a target no longer configured is deleted at its issuer's Start.
@@ -130,6 +134,7 @@ type ProvisioningTarget struct {
 	Failures           int32
 	RetryAt            *time.Time
 	LastError          *string
+	TenantID           string
 }
 
 // Registered applications: external systems that authenticate by signing JWTs verified against configured keys.
@@ -193,6 +198,12 @@ type SessionEvent struct {
 	UserAgent  *string
 }
 
+// Canonical business identities shared with ContentKit; accounts of different tenants are independent.
+type Tenant struct {
+	ID        string
+	CreatedAt time.Time
+}
+
 type User struct {
 	ID            string
 	Email         *string
@@ -222,6 +233,7 @@ type User struct {
 	PublicMetadata []byte
 	// When email, its verification, username, deletion or ban last changed
 	ProfileUpdatedAt time.Time
+	TenantID         string
 }
 
 // Ed25519 public keys for native clients. Revoked rows remain tombstones and cannot be re-enrolled.

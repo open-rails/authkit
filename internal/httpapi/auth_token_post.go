@@ -15,6 +15,12 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
+	var selected bool
+	r, selected = s.activeTenantRefresh(r, body.RefreshToken)
+	if !selected {
+		fail(w, errmodel.CodeNoSession)
+		return
+	}
 	// A browser with no refresh cookie is simply signed out: a quiet 401 the
 	// client settles on, not a malformed request.
 	if s.noRefreshCookie(r, body.RefreshToken) {

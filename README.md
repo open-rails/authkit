@@ -10,6 +10,10 @@ go get github.com/open-rails/authkit
 
 Libraries and hosts that only need authentication or user-directory contracts import `github.com/open-rails/authkit/auth` and `github.com/open-rails/authkit/userinfo`. These packages use only the standard library and do not import or build AuthKit's service implementation. Custom host implementations can use their conformance tests. See [contract packages and migration](docs/contract-packages.md).
 
+Apps of one business can share an account directory while other businesses
+keep separate accounts in the same database. Use a stable tenant ID; see
+[tenant directories, scoped permissions and migration](docs/tenant-directories.md).
+
 Next let's build a client:
 
 ```go
@@ -38,8 +42,13 @@ import (
 )
 
 func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {
+	tenantID, err := iam.ParseTenantID(os.Getenv("TENANT_ID")) // persist this business UUID in configuration
+	if err != nil {
+		return nil, err
+	}
 	cfg := authkit.Config{
-		Database: authkit.DatabaseConfig{Schema: "profiles"}, // the Postgres schema AuthKit's tables go in
+		DefaultTenantID: tenantID,
+		Database:        authkit.DatabaseConfig{Schema: "profiles"}, // the Postgres schema AuthKit's tables go in
 		// Configure JWTs; authkit issues these to users; users then send them back with requests to prove who they are!
 		Token: authkit.TokenConfig{
 			Issuer:          "https://myapp.com", // who issued this; that's you!

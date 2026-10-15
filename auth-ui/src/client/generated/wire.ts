@@ -93,8 +93,9 @@ export type AgreementsRequired = {
 }
 
 export type AuthKitEvent = {
+  tenant_id: string
   id: string
-  kind: "group.created" | "group.deleted" | "group.purged" | "group.role_created" | "group.role_deleted" | "group.role_updated" | "oauth_client.created" | "oauth_client.deleted" | "oauth_client.updated" | "oauth_consent.revoked" | "role.changed" | "role.granted" | "role.revoked" | "user.agreement_accepted" | "user.banned" | "user.deleted" | "user.email_changed" | "user.phone_changed" | "user.purged" | "user.registered" | "user.restored" | "user.sessions_revoked" | "user.unbanned" | "user.username_changed"
+  kind: "group.created" | "group.deleted" | "group.persona_migrated" | "group.purged" | "group.role_created" | "group.role_deleted" | "group.role_updated" | "oauth_client.created" | "oauth_client.deleted" | "oauth_client.updated" | "oauth_consent.revoked" | "role.changed" | "role.granted" | "role.revoked" | "user.agreement_accepted" | "user.banned" | "user.deleted" | "user.email_changed" | "user.phone_changed" | "user.purged" | "user.registered" | "user.restored" | "user.sessions_revoked" | "user.unbanned" | "user.username_changed"
   occurred_at: string
   subject_kind: "application" | "user"
   subject_id: string
@@ -293,6 +294,7 @@ export type FreshAuth = {
 
 export type Group = {
   id: string
+  tenant_id: string
   persona: string
   created_at: string
   deleted_at: string | null
@@ -333,6 +335,7 @@ export type IdentifierRequest = {
 }
 
 export type Invitation = {
+  tenant_id: string
   id: string
   group_id: string
   role: string
@@ -656,6 +659,7 @@ export type PasswordlessStartRequest = {
 
 export type PermissionSet = {
   group_id: string
+  persona: string
   role: string | null
   permissions: string[]
 }
@@ -678,6 +682,7 @@ export type ProviderError = {
 }
 
 export type ProvisioningTarget = {
+  tenant_id: string
   name: string
   synced_at: string | null
   reconciled_at: string | null
@@ -1122,6 +1127,7 @@ export type TwoFactorVerifyRequest = {
 
 export type User = {
   id: string
+  tenant_id: string
   email: string | null
   phone_number: string | null
   username: string
@@ -1144,6 +1150,7 @@ export type UserAgreements = {
 
 export type UserEntry = {
   id: string
+  tenant_id: string
   email: string | null
   phone_number: string | null
   username: string
@@ -1158,11 +1165,13 @@ export type UserEntry = {
   expired_ban: BanState | null
   public_metadata: Record<string, unknown>
   root_role: string | null
+  tenant_role: string | null
   entitlements: string[]
 }
 
 export type UserProfile = {
   id: string
+  tenant_id: string
   email: string | null
   phone_number: string | null
   username: string

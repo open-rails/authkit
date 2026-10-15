@@ -48,7 +48,8 @@ func (h *host) passwordless(email string) string {
 }
 
 // expire ends an ephemeral record now, as its TTL would.
-func (h *host) expire(key string) {
+func (h *host) expire(tenant iam.TenantID, key string) {
+	key = "tenant:" + tenant.String() + ":" + key
 	h.t.Helper()
 	tag, err := h.pool.Exec(context.Background(), `UPDATE profiles.ephemeral_kv SET expires_at = now() - interval '1 second' WHERE key = $1`, key)
 	require.NoError(h.t, err)
@@ -106,7 +107,7 @@ func TestSecurityStepUpByCode(t *testing.T) {
 	t.Run("an expired code", func(t *testing.T) {
 		require.Equal(t, http.StatusAccepted, send(stale, "email").status)
 		code := h.mail.Last(t, iam.MessageLoginCode, email).Code
-		h.expire(codeKey)
+		h.expire(u.TenantID, codeKey)
 		requireCode(stepUp(stale, code), "code_expired")
 	})
 
@@ -184,7 +185,9 @@ func TestSecurityStepUpByPasskey(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, resp.status, "a step-up ceremony signed in: %s", resp)
 	require.NotContains(t, resp.String(), "access_token")
 	expired := begin(stale)
-	h.expire("passkey:" + expired.Response.Challenge.String())
+	owner, err := h.auth.User(context.Background(), iam.UserByID(a.id))
+	require.NoError(t, err)
+	h.expire(owner.TenantID, "passkey:"+expired.Response.Challenge.String())
 	requireCode(stepUp(stale, authn.Assert(t, expired, 1)), "challenge_not_found")
 
 	assertion := authn.Assert(t, begin(stale), 2)

@@ -1,9 +1,11 @@
 -- SCIM provisioning (Config.Provisioning): targets, the outbox the users
 -- triggers write, and what each target holds.
 
--- name: ProvisioningTargetRegister :exec
-INSERT INTO provisioning_targets (issuer, name) VALUES (sqlc.arg(issuer), sqlc.arg(name))
-ON CONFLICT DO NOTHING;
+-- name: ProvisioningTargetRegister :one
+INSERT INTO provisioning_targets (issuer, name, tenant_id) VALUES (sqlc.arg(issuer), sqlc.arg(name),sqlc.arg(tenant_id))
+ON CONFLICT (issuer,name) DO UPDATE SET name=EXCLUDED.name
+WHERE provisioning_targets.tenant_id=EXCLUDED.tenant_id
+RETURNING tenant_id::text;
 
 -- name: ProvisioningTargetsPrune :many
 -- The issuer's targets no longer configured, deleted with their outbox.
@@ -23,9 +25,10 @@ ORDER BY t.name;
 
 -- name: ProvisioningSyncPage :many
 -- The initial sync's next page: every account after sync_after, in id order.
-INSERT INTO provisioning_changes (issuer, target, user_id)
-SELECT sqlc.arg(issuer)::text, sqlc.arg(target)::text, u.id FROM users u
-WHERE sqlc.narg(after)::uuid IS NULL OR u.id > sqlc.narg(after)::uuid
+INSERT INTO provisioning_changes (issuer, target, user_id, tenant_id)
+SELECT sqlc.arg(issuer)::text, sqlc.arg(target)::text, u.id,u.tenant_id FROM users u
+WHERE u.tenant_id=(SELECT tenant_id FROM provisioning_targets WHERE issuer=sqlc.arg(issuer) AND name=sqlc.arg(target))
+AND (sqlc.narg(after)::uuid IS NULL OR u.id > sqlc.narg(after)::uuid)
 ORDER BY u.id
 LIMIT sqlc.arg(page_size)
 RETURNING user_id;
@@ -73,24 +76,27 @@ WHERE issuer = sqlc.arg(issuer) AND target = sqlc.arg(target) AND user_id = sqlc
 
 -- name: ProvisioningSchedule :exec
 -- A change due at due_at (a temporary ban's end), unless one is queued.
-INSERT INTO provisioning_changes (issuer, target, user_id, due_at)
-SELECT sqlc.arg(issuer), sqlc.arg(target), sqlc.arg(user_id), sqlc.arg(due_at)
-WHERE NOT EXISTS (
+INSERT INTO provisioning_changes (issuer, target, user_id, due_at, tenant_id)
+SELECT sqlc.arg(issuer), sqlc.arg(target), sqlc.arg(user_id), sqlc.arg(due_at),t.tenant_id
+FROM provisioning_targets t
+WHERE t.issuer=sqlc.arg(issuer) AND t.name=sqlc.arg(target) AND NOT EXISTS (
   SELECT 1 FROM provisioning_changes
   WHERE issuer = sqlc.arg(issuer) AND target = sqlc.arg(target) AND user_id = sqlc.arg(user_id) AND due_at = sqlc.arg(due_at)
 );
 
 -- name: ProvisioningEnqueue :exec
-INSERT INTO provisioning_changes (issuer, target, user_id)
-SELECT sqlc.arg(issuer)::text, sqlc.arg(target)::text, u FROM unnest(sqlc.arg(users)::uuid[]) AS u;
+INSERT INTO provisioning_changes (issuer, target, user_id, tenant_id)
+SELECT sqlc.arg(issuer)::text, sqlc.arg(target)::text, u,t.tenant_id FROM unnest(sqlc.arg(users)::uuid[]) AS u
+CROSS JOIN provisioning_targets t WHERE t.issuer=sqlc.arg(issuer) AND t.name=sqlc.arg(target);
 
 -- name: ProvisioningResources :many
 SELECT * FROM provisioning_resources
 WHERE issuer = sqlc.arg(issuer) AND target = sqlc.arg(target) AND user_id = ANY(sqlc.arg(users)::uuid[]);
 
 -- name: ProvisioningResourceUpsert :exec
-INSERT INTO provisioning_resources (issuer, target, user_id, remote_id, state_digest)
-VALUES (sqlc.arg(issuer), sqlc.arg(target), sqlc.arg(user_id), sqlc.arg(remote_id), sqlc.arg(state_digest))
+INSERT INTO provisioning_resources (issuer, target, user_id, remote_id, state_digest,tenant_id)
+SELECT sqlc.arg(issuer), sqlc.arg(target), sqlc.arg(user_id), sqlc.arg(remote_id), sqlc.arg(state_digest),t.tenant_id
+FROM provisioning_targets t WHERE t.issuer=sqlc.arg(issuer) AND t.name=sqlc.arg(target)
 ON CONFLICT (issuer, target, user_id) DO UPDATE
 SET remote_id = EXCLUDED.remote_id, state_digest = EXCLUDED.state_digest, synced_at = statement_timestamp();
 
@@ -101,9 +107,10 @@ WHERE issuer = sqlc.arg(issuer) AND target = sqlc.arg(target) AND user_id = sqlc
 -- name: ProvisioningResourcesSeen :exec
 -- Reconciliation found these resources at the target; an empty digest makes
 -- the next batch replace a drifted one.
-INSERT INTO provisioning_resources (issuer, target, user_id, remote_id, state_digest, seen_at)
-SELECT sqlc.arg(issuer)::text, sqlc.arg(target)::text, s.user_id, s.remote_id, s.state_digest, sqlc.arg(as_of)::timestamptz
+INSERT INTO provisioning_resources (issuer, target, user_id, remote_id, state_digest, seen_at, tenant_id)
+SELECT sqlc.arg(issuer)::text, sqlc.arg(target)::text, s.user_id, s.remote_id, s.state_digest, sqlc.arg(as_of)::timestamptz,t.tenant_id
 FROM unnest(sqlc.arg(users)::uuid[], sqlc.arg(remote_ids)::text[], sqlc.arg(digests)::text[]) AS s(user_id, remote_id, state_digest)
+CROSS JOIN provisioning_targets t WHERE t.issuer=sqlc.arg(issuer) AND t.name=sqlc.arg(target)
 ON CONFLICT (issuer, target, user_id) DO UPDATE
 SET seen_at = EXCLUDED.seen_at, remote_id = EXCLUDED.remote_id, state_digest = EXCLUDED.state_digest;
 
@@ -131,9 +138,10 @@ LIMIT sqlc.arg(max_rows);
 
 -- name: ProvisioningReconcileUnlinked :exec
 -- Accounts the target holds no resource for, and none is pending for.
-INSERT INTO provisioning_changes (issuer, target, user_id)
-SELECT sqlc.arg(issuer)::text, sqlc.arg(target)::text, u.id FROM users u
-WHERE NOT EXISTS (SELECT 1 FROM provisioning_resources r WHERE r.issuer = sqlc.arg(issuer) AND r.target = sqlc.arg(target) AND r.user_id = u.id)
+INSERT INTO provisioning_changes (issuer, target, user_id,tenant_id)
+SELECT sqlc.arg(issuer)::text, sqlc.arg(target)::text, u.id,u.tenant_id FROM users u
+WHERE u.tenant_id=(SELECT tenant_id FROM provisioning_targets WHERE issuer=sqlc.arg(issuer) AND name=sqlc.arg(target))
+AND NOT EXISTS (SELECT 1 FROM provisioning_resources r WHERE r.issuer = sqlc.arg(issuer) AND r.target = sqlc.arg(target) AND r.user_id = u.id)
   AND NOT EXISTS (SELECT 1 FROM provisioning_changes c WHERE c.issuer = sqlc.arg(issuer) AND c.target = sqlc.arg(target) AND c.user_id = u.id);
 
 -- name: ProvisioningReconciled :exec

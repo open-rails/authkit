@@ -390,7 +390,7 @@ func (s *Engine) enrollDeviceKey(ctx context.Context, record deviceKeyEnrollment
 		if err != nil {
 			return iam.DeviceKey{}, "", false, err
 		}
-		inserted, err := q.DeviceKeyEnrollUserInsert(ctx, db.DeviceKeyEnrollUserInsertParams{ID: userID, Email: record.Email})
+		inserted, err := q.DeviceKeyEnrollUserInsert(ctx, db.DeviceKeyEnrollUserInsertParams{ID: userID, TenantID: s.tenantKey(ctx), Email: record.Email})
 		if err != nil {
 			return iam.DeviceKey{}, "", false, err
 		}
@@ -400,7 +400,7 @@ func (s *Engine) enrollDeviceKey(ctx context.Context, record deviceKeyEnrollment
 			}
 		}
 	}
-	account, err := q.UserByEmail(ctx, record.Email)
+	account, err := q.UserByEmail(ctx, db.UserByEmailParams{TenantID: s.tenantKey(ctx), Email: record.Email})
 	if err != nil {
 		return iam.DeviceKey{}, "", false, err
 	}
@@ -487,7 +487,11 @@ func (s *Engine) BeginDeviceKeyLogin(ctx context.Context, deviceKeyID string) (a
 	}
 	record := deviceKeyLogin{DeviceKeyID: deviceKeyID}
 	if key, err := s.q.DeviceKeyActive(ctx, deviceKeyID); err == nil {
-		record.UserID, record.PublicKey = key.UserID, base64.RawURLEncoding.EncodeToString(key.PublicKey)
+		if err := s.requireTenantUser(ctx, s.q, key.UserID); err == nil {
+			record.UserID, record.PublicKey = key.UserID, base64.RawURLEncoding.EncodeToString(key.PublicKey)
+		} else if !errors.Is(err, iam.ErrUserNotFound) {
+			return authflow.DeviceKeyChallenge{}, err
+		}
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return authflow.DeviceKeyChallenge{}, err
 	}
@@ -508,6 +512,9 @@ func (s *Engine) FinishDeviceKeyLogin(ctx context.Context, challengeID, signatur
 	var record deviceKeyLogin
 	ok, err := s.ephemGetJSON(ctx, keyDeviceKeyLogin+strings.TrimSpace(challengeID), &record)
 	if err != nil || !ok || record.UserID == "" || record.PublicKey == "" {
+		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
+	}
+	if err := s.requireTenantUser(ctx, s.q, record.UserID); err != nil {
 		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
 	publicKey, err := decodeDeviceKey(record.PublicKey)
@@ -550,6 +557,9 @@ func (s *Engine) FinishDeviceKeyLogin(ctx context.Context, challengeID, signatur
 // ones included. ErrDeviceKeysDisabled without Config.DeviceKeys.Enabled.
 func (s *Engine) DeviceKeys(ctx context.Context, userID string) ([]iam.DeviceKey, error) {
 	if err := s.deviceKeysEnabled(); err != nil {
+		return nil, err
+	}
+	if err := s.requireTenantUser(ctx, s.q, userID); err != nil {
 		return nil, err
 	}
 	if !isUUID(strings.TrimSpace(userID)) {

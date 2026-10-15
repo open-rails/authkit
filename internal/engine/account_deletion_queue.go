@@ -261,6 +261,10 @@ func (s *Engine) deliverAccountEvent(ctx context.Context, id int64) error {
 		return errors.New("authkit: account delivery issuer mismatch")
 	}
 	deletion := userDeletion(delivery.AccountDeletion)
+	if deletion.TenantID.IsZero() {
+		return iam.ErrTenantRequired
+	}
+	ctx = WithTenant(ctx, deletion.TenantID)
 	preceding, err := s.q.AccountDeletionDeliveryEarlierPending(ctx, db.AccountDeletionDeliveryEarlierPendingParams{UserID: deletion.UserID, Issuer: delivery.Issuer, ID: id})
 	if err != nil {
 		return err

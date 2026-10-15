@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/open-rails/authkit/iam"
 )
 
 // ProvisioningConfig pushes the accounts to SCIM 2.0 service providers
@@ -34,6 +36,9 @@ type ProvisioningConfig struct {
 // ProvisioningTarget is one SCIM service provider: its base URL or an
 // in-process handler, and how AuthKit authenticates to it.
 type ProvisioningTarget struct {
+	// TenantID is the canonical account owner sent to this target. An omitted
+	// value uses Config.DefaultTenantID; an unbound deployment must set it.
+	TenantID iam.TenantID `yaml:"tenant_id"`
 	// Name identifies the target in its status and logs: 1-64 lowercase
 	// letters, digits, '-' and '_'. Renaming a target makes a new one,
 	// which gets a full initial sync.

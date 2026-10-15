@@ -3151,6 +3151,13 @@
             }
           },
           {
+            "name": "tenant_role",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "status",
             "in": "query",
             "schema": {
@@ -7470,6 +7477,9 @@
       "AuthKitEvent": {
         "type": "object",
         "properties": {
+          "tenant_id": {
+            "type": "string"
+          },
           "id": {
             "type": "string"
           },
@@ -7478,6 +7488,7 @@
             "enum": [
               "group.created",
               "group.deleted",
+              "group.persona_migrated",
               "group.purged",
               "group.role_created",
               "group.role_deleted",
@@ -7580,6 +7591,7 @@
           }
         },
         "required": [
+          "tenant_id",
           "id",
           "kind",
           "occurred_at",
@@ -8361,6 +8373,9 @@
           "id": {
             "type": "string"
           },
+          "tenant_id": {
+            "type": "string"
+          },
           "persona": {
             "type": "string"
           },
@@ -8384,6 +8399,7 @@
         },
         "required": [
           "id",
+          "tenant_id",
           "persona",
           "created_at",
           "deleted_at"
@@ -8521,6 +8537,9 @@
       "Invitation": {
         "type": "object",
         "properties": {
+          "tenant_id": {
+            "type": "string"
+          },
           "id": {
             "type": "string"
           },
@@ -8593,6 +8612,7 @@
           }
         },
         "required": [
+          "tenant_id",
           "id",
           "group_id",
           "role",
@@ -10001,6 +10021,9 @@
           "group_id": {
             "type": "string"
           },
+          "persona": {
+            "type": "string"
+          },
           "role": {
             "oneOf": [
               {
@@ -10020,6 +10043,7 @@
         },
         "required": [
           "group_id",
+          "persona",
           "role",
           "permissions"
         ]
@@ -10082,6 +10106,9 @@
       "ProvisioningTarget": {
         "type": "object",
         "properties": {
+          "tenant_id": {
+            "type": "string"
+          },
           "name": {
             "type": "string"
           },
@@ -10148,6 +10175,7 @@
           }
         },
         "required": [
+          "tenant_id",
           "name",
           "synced_at",
           "reconciled_at",
@@ -11864,6 +11892,9 @@
           "id": {
             "type": "string"
           },
+          "tenant_id": {
+            "type": "string"
+          },
           "email": {
             "oneOf": [
               {
@@ -11964,6 +11995,7 @@
         },
         "required": [
           "id",
+          "tenant_id",
           "email",
           "phone_number",
           "username",
@@ -12004,6 +12036,9 @@
         "type": "object",
         "properties": {
           "id": {
+            "type": "string"
+          },
+          "tenant_id": {
             "type": "string"
           },
           "email": {
@@ -12113,6 +12148,16 @@
               }
             ]
           },
+          "tenant_role": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "entitlements": {
             "type": "array",
             "items": {
@@ -12122,6 +12167,7 @@
         },
         "required": [
           "id",
+          "tenant_id",
           "email",
           "phone_number",
           "username",
@@ -12136,6 +12182,7 @@
           "expired_ban",
           "public_metadata",
           "root_role",
+          "tenant_role",
           "entitlements"
         ]
       },
@@ -12143,6 +12190,9 @@
         "type": "object",
         "properties": {
           "id": {
+            "type": "string"
+          },
+          "tenant_id": {
             "type": "string"
           },
           "email": {
@@ -12283,6 +12333,7 @@
         },
         "required": [
           "id",
+          "tenant_id",
           "email",
           "phone_number",
           "username",

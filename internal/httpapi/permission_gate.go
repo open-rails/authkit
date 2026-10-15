@@ -3,9 +3,11 @@ package httpapi
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -27,6 +29,16 @@ func (s *Service) requirePermission(group iam.GroupRef, perm iam.Perm, next http
 			return
 		}
 		allowed, err := s.svc.Can(r.Context(), who, group, perm)
+		if err == nil && !allowed && group.IsRoot() && strings.HasPrefix(perm.String(), "root:users:") {
+			// Account reads may be held on the selected tenant. Resolving the
+			// target from trusted dispatch never changes the source identity.
+			tenant, scopeErr := s.svc.AccountScope(r.Context())
+			if scopeErr != nil {
+				err = scopeErr
+			} else {
+				allowed, err = s.svc.Can(r.Context(), who, tenant, ident.Perm("tenant:"+strings.TrimPrefix(perm.String(), "root:")))
+			}
+		}
 		if errors.Is(err, iam.ErrSessionRevoked) {
 			writeError(w, err)
 			return

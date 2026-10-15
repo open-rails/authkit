@@ -17,24 +17,24 @@ import (
 // with a verified email, may accept in its group; none for any other
 // credential.
 func (a *Client) RemoteInvitations(ctx context.Context, v auth.Verified) ([]iam.Invitation, error) {
-	return a.engine.RemoteInvitations(ctx, v)
+	return a.engine.RemoteInvitations(a.operationContext(ctx), v)
 }
 
 // AcceptRemoteInvitation redeems one of v's RemoteInvitations and answers
 // the role v's user now holds in the group; iam.ErrInvitationNotFound for
 // any other id.
 func (a *Client) AcceptRemoteInvitation(ctx context.Context, v auth.Verified, id string) (iam.Role, error) {
-	return a.engine.AcceptRemoteInvitation(ctx, v, id)
+	return a.engine.AcceptRemoteInvitation(a.operationContext(ctx), v, id)
 }
 
 // RemoteUserRoles are the roles trusted issuers' users hold in the group
 // ref.
 func (a *Client) RemoteUserRoles(ctx context.Context, ref iam.GroupRef) ([]iam.RemoteUserRole, error) {
-	return a.ops.RemoteUserRoles(ctx, ref)
+	return a.ops.RemoteUserRoles(a.operationContext(ctx), ref)
 }
 
 // RemoveRemoteUserRole ends the role a trusted issuer's user holds in the
 // group ref, as who: <persona>:members:manage and coverage of the role.
 func (a *Client) RemoveRemoteUserRole(ctx context.Context, who auth.Identity, ref iam.GroupRef, remoteUserID string, opts ...Option) error {
-	return a.ops.RemoveRemoteUserRole(ctx, who, ref, remoteUserID, opts...)
+	return a.ops.RemoveRemoteUserRole(a.operationContext(ctx), who, ref, remoteUserID, opts...)
 }

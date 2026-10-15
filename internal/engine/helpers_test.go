@@ -31,6 +31,7 @@ import (
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/ops"
 	"github.com/open-rails/authkit/internal/ratelimit"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/testidp"
 	"github.com/open-rails/authkit/internal/testkeys"
 	"github.com/open-rails/authkit/internal/testoutbox"
@@ -54,6 +55,7 @@ var testTOTPKey = []byte("0123456789abcdef0123456789abcdef")
 // serves HTTP and can enroll TOTP.
 func testConfig() config.Config {
 	return config.Config{
+		DefaultTenantID: testdb.DefaultTenantID,
 		Token: config.TokenConfig{
 			Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}, ExpectedAudiences: []string{"test-app"},
 			// The fake IdPs and JWKS endpoints are loopback servers.
@@ -68,9 +70,10 @@ func testConfig() config.Config {
 // lifecycle tests.
 func maintenanceConfig() config.Config {
 	return config.Config{
-		Keys:      config.KeysConfig{VerifyOnly: true},
-		Token:     config.TokenConfig{Issuer: "https://maintenance.test", IssuedAudiences: []string{"test"}},
-		TwoFactor: config.TwoFactorConfig{Mode: iam.TwoFactorDisabled},
+		DefaultTenantID: testdb.DefaultTenantID,
+		Keys:            config.KeysConfig{VerifyOnly: true},
+		Token:           config.TokenConfig{Issuer: "https://maintenance.test", IssuedAudiences: []string{"test"}},
+		TwoFactor:       config.TwoFactorConfig{Mode: iam.TwoFactorDisabled},
 	}
 }
 

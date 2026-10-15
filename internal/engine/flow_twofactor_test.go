@@ -107,8 +107,10 @@ func TestTwoFactorCodeExpiresByDatabaseClock(t *testing.T) {
 		wrong = "1" + code[1:]
 	}
 	require.Equal(t, "invalid_code", f.expect(401, stepUp(wrong)).Error.Code)
+	pattern, err := f.engine.ephemeral.scopedKey(ctx, keyTwoFactorStepUp+user.ID+":%")
+	require.NoError(t, err)
 	tag, err := f.engine.pg.Exec(ctx, `UPDATE ephemeral_kv SET expires_at = now() - interval '1 second' WHERE key LIKE $1 AND expires_at > now()`,
-		keyTwoFactorStepUp+user.ID+":%")
+		pattern)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, tag.RowsAffected())
 	require.Equal(t, "code_expired", f.expect(401, stepUp(code)).Error.Code)

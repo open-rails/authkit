@@ -6,8 +6,8 @@ SELECT statement_timestamp()::timestamptz AS now;
 
 -- name: AccountDeletionInsert :one
 -- Starts the recovery window from the account's own deleted_at.
-INSERT INTO account_deletions (user_id, deleted_at, purge_at, recipients, deleted_by)
-SELECT id, deleted_at, deleted_at + interval '720 hours', sqlc.arg(recipients)::text[], sqlc.narg(deleted_by)::uuid
+INSERT INTO account_deletions (user_id, tenant_id, deleted_at, purge_at, recipients, deleted_by)
+SELECT id, tenant_id, deleted_at, deleted_at + interval '720 hours', sqlc.arg(recipients)::text[], sqlc.narg(deleted_by)::uuid
 FROM users WHERE id = sqlc.arg(user_id)::uuid
 RETURNING *;
 

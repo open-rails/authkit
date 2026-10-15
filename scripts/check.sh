@@ -22,7 +22,8 @@ export SQLC_DATABASE_URL="${AUTHKIT_TEST_DATABASE_URL}${sqlc_sep}options=-csearc
 export GOMAXPROCS=${GOMAXPROCS:-2}
 export GOWORK=off
 go run ./internal/cmd/migrate \
-	-dsn "$AUTHKIT_TEST_DATABASE_URL" -schema profiles
+	-dsn "$AUTHKIT_TEST_DATABASE_URL" -schema profiles \
+ -legacy-tenant-id 00000000-0000-4000-8000-000000000001
 
 if [[ "$mode" != contracts ]]; then
   mkdir -p .reports

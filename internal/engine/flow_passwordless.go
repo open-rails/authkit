@@ -51,6 +51,13 @@ type passwordlessChallenge struct {
 }
 
 func (s *Engine) StartPasswordless(ctx context.Context, req authflow.PasswordlessStartRequest) (authflow.PasswordlessStartResult, error) {
+	if token := strings.TrimSpace(req.AccountInviteToken); token != "" {
+		var err error
+		ctx, err = s.proofContext(ctx, "registration-invite", secret.Hash(token))
+		if err != nil {
+			return authflow.PasswordlessStartResult{}, err
+		}
+	}
 	if s == nil || !s.cfg.Registration.PasswordlessLogin {
 		return authflow.PasswordlessStartResult{}, errmodel.ErrPasswordlessDisabled
 	}
@@ -165,6 +172,10 @@ func (s *Engine) PasswordlessLogin(ctx context.Context, in authflow.Passwordless
 	var err error
 	if in.Token != "" && in.Code == "" {
 		hash := secret.Hash(in.Token)
+		ctx, err = s.proofContext(ctx, "passwordless-link", hash)
+		if err != nil {
+			return authflow.LoginOutcome{}, err
+		}
 		key, found, lookupErr := s.ephemGetString(ctx, keyPasswordlessLink+hash)
 		if lookupErr != nil {
 			return authflow.LoginOutcome{}, lookupErr
@@ -236,7 +247,10 @@ func (s *Engine) storePasswordlessChallenge(ctx context.Context, rec passwordles
 		return err
 	}
 	if rec.LinkHash != "" {
-		return s.ephemSetString(ctx, keyPasswordlessLink+rec.LinkHash, key, defaultPasswordlessTTL)
+		if err := s.ephemSetString(ctx, keyPasswordlessLink+rec.LinkHash, key, defaultPasswordlessTTL); err != nil {
+			return err
+		}
+		return s.rememberProofRoute(ctx, "passwordless-link", rec.LinkHash, defaultPasswordlessTTL)
 	}
 	return nil
 }

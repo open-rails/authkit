@@ -25,7 +25,7 @@ func TestSkipMigrations(t *testing.T) {
 	require.NoError(t, pg.Pool.QueryRow(ctx, "SELECT to_regclass('public.migrations') IS NOT NULL OR to_regclass('profiles.users') IS NOT NULL OR to_regclass('auth_jobs.river_job') IS NOT NULL").Scan(&exists))
 	require.False(t, exists, "failed startup created schema objects")
 	// Explicit migration works even when the runtime configuration opts out.
-	require.NoError(t, Migrate(ctx, pg.Pool, cfg.Database))
+	require.NoError(t, Migrate(ctx, pg.Pool, cfg.Database, MigrationOptions{LegacyTenantID: testdb.DefaultTenantID}))
 	readonlyConfig := pg.Pool.Config()
 	readonlyConfig.ConnConfig.RuntimeParams["default_transaction_read_only"] = "on"
 	readonly, err := pgxpool.NewWithConfig(ctx, readonlyConfig)

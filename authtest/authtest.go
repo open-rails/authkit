@@ -96,10 +96,11 @@ func New(t testing.TB, opts ...Option) (*authkit.Client, *Outbox) {
 	key := make([]byte, 32)
 	_, _ = rand.Read(key)
 	cfg := authkit.Config{
-		Token:     authkit.TokenConfig{Issuer: Issuer, IssuedAudiences: []string{Audience}},
-		TwoFactor: authkit.TwoFactorConfig{TOTPSecretKey: key},
-		HTTP:      &authkit.HTTPConfig{DirectPeerIP: true, RateLimits: unlimited()},
-		SignIn:    authkit.SignInConfig{AccountsPerDevice: -1, AccountsPerAddress: -1, NewDevicesPerAccount: -1},
+		DefaultTenantID: iam.NewTenantID(),
+		Token:           authkit.TokenConfig{Issuer: Issuer, IssuedAudiences: []string{Audience}},
+		TwoFactor:       authkit.TwoFactorConfig{TOTPSecretKey: key},
+		HTTP:            &authkit.HTTPConfig{DirectPeerIP: true, RateLimits: unlimited()},
+		SignIn:          authkit.SignInConfig{AccountsPerDevice: -1, AccountsPerAddress: -1, NewDevicesPerAccount: -1},
 	}
 	deps := authkit.Deps{KeySource: signingKeys(), Email: outbox.Email(), SMS: outbox.SMS()}
 	for _, fn := range s.config {

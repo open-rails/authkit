@@ -6,6 +6,8 @@ import "time"
 // Hooks are delivered at least once. Use ID together with the hook name as an
 // idempotency key; deleting again after restoration creates a new ID.
 type UserDeletion struct {
+	// TenantID is the retained target owner, including after final purge.
+	TenantID  TenantID
 	ID        string
 	UserID    string
 	DeletedAt time.Time

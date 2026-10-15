@@ -9,6 +9,7 @@ type (
 	Roles           = config.Roles
 	PersonaDef      = config.PersonaDef
 	RootDef         = config.RootDef
+	TenantDef       = config.TenantDef
 	Resource        = config.Resource
 	MemberPerms     = config.MemberPerms
 	CredentialPerms = config.CredentialPerms

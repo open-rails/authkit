@@ -246,7 +246,7 @@ func (s *Engine) linkVerifiedSolanaWallet(ctx context.Context, userID, address s
 	}
 	providerSlug := solanaProviderSlug
 
-	linked, err := s.q.UserProviderUpsertByIssuer(ctx, db.UserProviderUpsertByIssuerParams{
+	linked, err := s.q.UserProviderUpsertByIssuer(ctx, db.UserProviderUpsertByIssuerParams{TenantID: s.tenantKey(ctx),
 		ID:           providerID,
 		UserID:       userID,
 		Issuer:       s.solanaIssuer(),

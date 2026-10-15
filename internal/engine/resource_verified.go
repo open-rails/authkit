@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -39,9 +40,37 @@ func (s *Engine) AuthenticateResource(r *http.Request) (auth.Verified, error) {
 		return nil, verify.Refusal(r, err)
 	}
 	cl := access.Claims
+	if access.Application == nil && cl.Kind == verify.TokenUser {
+		if err := s.requirePG(); err != nil {
+			return nil, errors.Join(auth.ErrUnavailable, err)
+		}
+		owner, err := s.credentialTenant(r.Context(), s.q, cl.Subject, cl.TenantID)
+		if err != nil {
+			if errors.Is(err, iam.ErrTenantMismatch) || errors.Is(err, pgx.ErrNoRows) {
+				return nil, errors.Join(auth.ErrUnauthenticated, err)
+			}
+			return nil, errors.Join(auth.ErrUnavailable, err)
+		}
+		cl.TenantID = owner.String()
+		access.Claims = cl
+	}
 	id, ok := cl.Identity()
 	if !ok {
 		return nil, auth.ErrUnauthenticated
+	}
+	if app := access.Application; app != nil {
+		ctx, owner, err := s.remoteDirectoryContext(r.Context(), app.GroupID)
+		if err != nil {
+			if errors.Is(err, iam.ErrTenantMismatch) || errors.Is(err, iam.ErrGroupNotFound) {
+				return nil, errors.Join(auth.ErrForbidden, err)
+			}
+			return nil, errors.Join(auth.ErrUnavailable, err)
+		}
+		r = r.WithContext(ctx)
+		id.TenantID = ""
+		if !owner.IsZero() {
+			id.TenantID = owner.String()
+		}
 	}
 	if access.Asserted {
 		// The application's user, in the application's namespace.
@@ -188,6 +217,9 @@ func (v resourceVerified) authority() (auth.Identity, bool) {
 		who = iam.Within(iam.PinnedTo(iam.ApplicationIdentity(app.ID), app.GroupID), ident.Perms(v.access.Permissions)...)
 	case cl.Kind == verify.TokenUser:
 		who = iam.InSession(iam.UserIdentity(cl.Subject), iam.SessionRef{SessionID: cl.SessionID, DeviceKeyID: cl.DeviceKeyID})
+		if tenant, err := iam.ParseTenantID(cl.TenantID); err == nil {
+			who = iam.InTenant(who, tenant)
+		}
 		if rc, ok := config.FindResourceServer(v.s.cfg.AuthorizationServer, v.s.cfg.Resource.ID); ok {
 			who = iam.Within(who, ident.Perms(rc.Permissions)...)
 		}

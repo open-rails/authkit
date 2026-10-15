@@ -61,7 +61,7 @@ func TestRefreshCookiesIsolateIssuersInOneBrowser(t *testing.T) {
 	call(sb.URL, "POST", "/password/login", credentials, "", 200)
 	ua, _ := url.Parse(sa.URL)
 	ub, _ := url.Parse(sb.URL)
-	for _, name := range []string{httpapi.IssuerRefreshCookieName(issuerA, false), httpapi.IssuerRefreshCookieName(issuerB, false)} {
+	for _, name := range []string{httpapi.TenantRefreshCookieName(issuerA, user.TenantID, "", false), httpapi.TenantRefreshCookieName(issuerB, user.TenantID, "", false)} {
 		found := false
 		for _, c := range jar.Cookies(ua) {
 			found = found || c.Name == name
@@ -80,7 +80,7 @@ func TestRefreshCookiesIsolateIssuersInOneBrowser(t *testing.T) {
 	// A legacy cookie belonging to B survives A's rejection, login and logout.
 	var bCookie *http.Cookie
 	for _, c := range jar.Cookies(ub) {
-		if c.Name == httpapi.IssuerRefreshCookieName(issuerB, false) {
+		if c.Name == httpapi.TenantRefreshCookieName(issuerB, user.TenantID, "", false) {
 			bCookie = c
 		}
 	}
@@ -119,7 +119,7 @@ func TestRefreshCookieExplicitName(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var found bool
 	for _, c := range w.Result().Cookies() {
-		if c.Name == "intentional-shared-session" {
+		if c.Name == httpapi.TenantRefreshCookieName(authtest.Issuer, u.TenantID, "intentional-shared-session", false) {
 			found = true
 		}
 	}

@@ -16,8 +16,9 @@ import (
 // second factor root's owner can enroll.
 func minimalConfig() authkit.Config {
 	return authkit.Config{
-		Token:     authkit.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"app"}},
-		TwoFactor: authkit.TwoFactorConfig{TOTPSecretKey: testTOTPKey},
+		DefaultTenantID: testdb.DefaultTenantID,
+		Token:           authkit.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"app"}},
+		TwoFactor:       authkit.TwoFactorConfig{TOTPSecretKey: testTOTPKey},
 	}
 }
 

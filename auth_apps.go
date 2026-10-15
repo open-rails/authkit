@@ -23,26 +23,26 @@ import (
 // or updates it there. TrustRoot is the system's to set; other identities
 // register at trust root user.
 func (a *Client) UpsertRemoteApplication(ctx context.Context, who auth.Identity, ref iam.GroupRef, app iam.RemoteApplication, opts ...Option) (iam.RemoteApplication, error) {
-	return a.ops.UpsertRemoteApplication(ctx, who, ref, app, opts...)
+	return a.ops.UpsertRemoteApplication(a.operationContext(ctx), who, ref, app, opts...)
 }
 
 // DeleteRemoteApplication deletes the application id that ref controls; an
 // id unknown in ref is iam.ErrRemoteApplicationNotFound. Only the system
 // deletes a system-registered application.
 func (a *Client) DeleteRemoteApplication(ctx context.Context, who auth.Identity, ref iam.GroupRef, id string, opts ...Option) error {
-	return a.ops.DeleteRemoteApplication(ctx, who, ref, id, opts...)
+	return a.ops.DeleteRemoteApplication(a.operationContext(ctx), who, ref, id, opts...)
 }
 
 // RemoteApplication returns one application, disabled ones included
 // (Enabled), with its role in its group and the permissions that role confers
 // now; else iam.ErrRemoteApplicationNotFound.
 func (a *Client) RemoteApplication(ctx context.Context, ref iam.AppRef) (iam.RemoteApplication, error) {
-	return a.ops.RemoteApplication(ctx, ref)
+	return a.ops.RemoteApplication(a.operationContext(ctx), ref)
 }
 
 // ListRemoteApplications lists the applications ref controls, newest first.
 func (a *Client) ListRemoteApplications(ctx context.Context, ref iam.GroupRef, p iam.PageRequest) (iam.ListPage[iam.RemoteApplication], error) {
-	return a.ops.ListRemoteApplications(ctx, ref, p)
+	return a.ops.ListRemoteApplications(a.operationContext(ctx), ref, p)
 }
 
 // DeclareRemoteApplications makes apps the group ref's declared remote
@@ -52,5 +52,5 @@ func (a *Client) ListRemoteApplications(ctx context.Context, ref iam.GroupRef, p
 // declared in ref before and no longer lists. A host whose groups are made
 // after New (a merchant's) declares them once the group exists.
 func (a *Client) DeclareRemoteApplications(ctx context.Context, ref iam.GroupRef, apps []iam.RemoteApplication, opts ...Option) error {
-	return a.ops.DeclareRemoteApplications(ctx, ref, apps, opts...)
+	return a.ops.DeclareRemoteApplications(a.operationContext(ctx), ref, apps, opts...)
 }

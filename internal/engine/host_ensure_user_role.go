@@ -42,7 +42,7 @@ func (s *Engine) EnsureUserRole(ctx context.Context, ref iam.GroupRef, u iam.Use
 			return err
 		}
 		q := db.New(st.q)
-		id, bound, err := lockEnsureUser(ctx, q, key, value)
+		id, bound, err := s.lockEnsureUser(ctx, q, key, value)
 		if err != nil {
 			return err
 		}
@@ -141,8 +141,8 @@ func ensureUserChannel(key iam.UserKey) string {
 // lockEnsureUser locks the live account key names. bound reports whether key
 // proves who holds it: the id itself, or a verified contact. A deleted
 // account is ErrUserNotFound: its contact cannot be reused while it exists.
-func lockEnsureUser(ctx context.Context, q *db.Queries, key iam.UserKey, value string) (id string, bound bool, err error) {
-	acct, err := lockBootstrapAccount(ctx, q, key, value)
+func (s *Engine) lockEnsureUser(ctx context.Context, q *db.Queries, key iam.UserKey, value string) (id string, bound bool, err error) {
+	acct, err := s.lockBootstrapAccount(ctx, q, key, value)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return "", false, nil
@@ -160,15 +160,15 @@ type keyedAccount = db.BootstrapAccountByIDForUpdateRow
 
 // lockBootstrapAccount locks the account an id, email or phone names
 // (pgx.ErrNoRows: none). Verified reports whether key proves who holds it.
-func lockBootstrapAccount(ctx context.Context, q *db.Queries, key iam.UserKey, value string) (keyedAccount, error) {
+func (s *Engine) lockBootstrapAccount(ctx context.Context, q *db.Queries, key iam.UserKey, value string) (keyedAccount, error) {
 	switch key {
 	case iam.UserKeyID:
-		return q.BootstrapAccountByIDForUpdate(ctx, value)
+		return q.BootstrapAccountByIDForUpdate(ctx, db.BootstrapAccountByIDForUpdateParams{TenantID: s.tenantKey(ctx), ID: value})
 	case iam.UserKeyEmail:
-		acct, err := q.BootstrapAccountByEmailForUpdate(ctx, value)
+		acct, err := q.BootstrapAccountByEmailForUpdate(ctx, db.BootstrapAccountByEmailForUpdateParams{TenantID: s.tenantKey(ctx), Email: value})
 		return keyedAccount(acct), err
 	default:
-		acct, err := q.BootstrapAccountByPhoneForUpdate(ctx, value)
+		acct, err := q.BootstrapAccountByPhoneForUpdate(ctx, db.BootstrapAccountByPhoneForUpdateParams{TenantID: s.tenantKey(ctx), Phone: value})
 		return keyedAccount(acct), err
 	}
 }

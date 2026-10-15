@@ -45,6 +45,13 @@ func (s *Service) userQuery(r *http.Request) (iam.UserQuery, error) {
 		}
 		out.RootRole = role
 	}
+	if text := q.TenantRole; text != "" {
+		role, err := s.groupRole(iam.TenantPersona(), text)
+		if err != nil {
+			return iam.UserQuery{}, err
+		}
+		out.TenantRole = role
+	}
 	return out, nil
 }
 

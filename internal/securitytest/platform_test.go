@@ -196,12 +196,12 @@ func TestSecurityRefreshCookieCSRF(t *testing.T) {
 	}
 	var jar *http.Cookie
 	for _, c := range login(nil).cookies {
-		if c.Name == httpapi.IssuerRefreshCookieName(issuer, true) {
+		if c.Name == tenantRefreshName(h, a, true) {
 			jar = c
 		}
 	}
 	require.NotNil(t, jar, "no __Host- refresh cookie")
-	require.Equal(t, httpapi.IssuerRefreshCookieName(issuer, true), jar.Name)
+	require.Equal(t, tenantRefreshName(h, a, true), jar.Name)
 	require.True(t, jar.Secure)
 	require.Equal(t, "/", jar.Path)
 	require.Empty(t, jar.Domain)
@@ -265,7 +265,7 @@ func TestSecurityRefreshCookieUpgrade(t *testing.T) {
 			a := h.newAccount("upgrade")
 			login := h.post("/password/login", map[string]string{"identifier": a.email, "password": password}, "")
 			require.Equal(t, http.StatusOK, login.status, login.String())
-			currentName := httpapi.IssuerRefreshCookieName(issuer, true)
+			currentName := tenantRefreshName(h, a, true)
 			valid := cookieNamed(login.cookies, currentName, "/")
 			require.NotNil(t, valid, "login set no __Host-authkit_rt cookie")
 
@@ -288,7 +288,7 @@ func TestSecurityRefreshCookieUpgrade(t *testing.T) {
 			require.Empty(t, access.RefreshToken, "the cookie carries the refresh token")
 			out := h.do(request{method: http.MethodDelete, path: "/logout", token: access.AccessToken, cookies: []*http.Cookie{next}})
 			require.Less(t, out.status, 300, out.String())
-			for _, name := range []string{httpapi.IssuerRefreshCookieName(issuer, false), currentName} {
+			for _, name := range []string{tenantRefreshName(h, a, false), currentName} {
 				c := cookieNamed(out.cookies, name, "/")
 				require.NotNil(t, c, "sign-out left %s", name)
 				require.Less(t, c.MaxAge, 0)
@@ -306,7 +306,7 @@ func TestSecurityRefreshCookieUpgrade(t *testing.T) {
 			authtest.WithConfig(func(c *authkit.Config) { c.Frontend.BaseURL = "http://app.security.test" }))
 		a := h.newAccount("upgradedup")
 		login := h.post("/password/login", map[string]string{"identifier": a.email, "password": password}, "")
-		valid := cookieNamed(login.cookies, httpapi.IssuerRefreshCookieName(issuer, false), "/")
+		valid := cookieNamed(login.cookies, tenantRefreshName(h, a, false), "/")
 		require.NotNil(t, valid)
 		resp := h.do(request{method: http.MethodPost, path: "/token", body: map[string]string{"grant_type": "refresh_token"},
 			cookies: []*http.Cookie{{Name: "authkit_rt", Value: "a"}, {Name: "authkit_rt", Value: valid.Value}}})
@@ -470,4 +470,11 @@ func TestSecurityRegistrationResendRevealsNothing(t *testing.T) {
 	resp = h.post("/verify/confirm", map[string]string{"identifier": pending, "code": h.verificationCode(pending)}, "")
 	require.Equal(t, http.StatusOK, resp.status, "the resent code did not complete the registration: %s", resp)
 	session(t, resp)
+}
+
+func tenantRefreshName(h *host, a account, secure bool) string {
+	h.t.Helper()
+	user, err := h.auth.User(h.t.Context(), iam.UserByID(a.id))
+	require.NoError(h.t, err)
+	return httpapi.TenantRefreshCookieName(issuer, user.TenantID, "", secure)
 }

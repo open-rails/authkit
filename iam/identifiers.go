@@ -22,6 +22,9 @@ type Persona struct{ name string }
 // always exists.
 func RootPersona() Persona { return Persona{"root"} }
 
+// TenantPersona is the built-in business account and administration scope.
+func TenantPersona() Persona { return Persona{"tenant"} }
+
 // String is the persona's name, "" for the zero Persona.
 func (p Persona) String() string { return p.name }
 

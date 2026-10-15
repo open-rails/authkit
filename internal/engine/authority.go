@@ -30,8 +30,9 @@ import (
 // groupTarget is a GroupRef resolved to a live group. Persona is the stored
 // persona; capability permissions derive from it, never from the caller.
 type groupTarget struct {
-	ID      string
-	Persona iam.Persona
+	ID       string
+	Persona  iam.Persona
+	TenantID iam.TenantID
 }
 
 // resolveGroup resolves ref to a live group through st (call it inside the
@@ -52,7 +53,17 @@ func (s *Engine) resolveGroup(ctx context.Context, st *permissionGroupStore, ref
 }
 
 func groupTargetOf(g db.PermissionGroup) groupTarget {
-	return groupTarget{ID: g.ID, Persona: ident.Persona(g.Persona)}
+	var tenant iam.TenantID
+	if g.TenantID != nil {
+		tenant, _ = iam.ParseTenantID(*g.TenantID)
+	}
+	return groupTarget{ID: g.ID, Persona: ident.Persona(g.Persona), TenantID: tenant}
+}
+
+func inheritsGroup(target, source groupTarget) bool {
+	return source.ID == target.ID || source.Persona == iam.RootPersona() ||
+		source.Persona == iam.TenantPersona() && target.Persona != iam.RootPersona() &&
+			!source.TenantID.IsZero() && source.TenantID == target.TenantID
 }
 
 // rootGroup returns the root group id, cached once read. A root created here
@@ -96,9 +107,10 @@ func (s *Engine) withGroupMutationIn(ctx context.Context, a auth.Identity, host 
 
 // authority is an identity's live authority in one group.
 type authority struct {
-	who    auth.Identity
-	system bool
-	grants []string // base grants in the group; none when bound elsewhere
+	who             auth.Identity
+	system          bool
+	grants          []string // base grants in the group; none when bound elsewhere
+	credentialGroup string   // actual controlling group for a machine credential
 }
 
 // covers is the effective-coverage check: the base grants cover p and every
@@ -171,6 +183,18 @@ func (s *Engine) identityAuthority(ctx context.Context, st *permissionGroupStore
 // userAuthority is a usable user's grants in g, refused when the sign-in the
 // identity is bound to no longer stands.
 func (s *Engine) userAuthority(ctx context.Context, st *permissionGroupStore, out authority, userID string, session iam.SessionRef, g groupTarget) (authority, error) {
+	state, _ := iam.StateOf(out.who)
+	if !state.TenantID().IsZero() || !session.IsZero() {
+		if _, err := s.credentialTenant(ctx, db.New(st.q), userID, state.TenantID().String()); err != nil {
+			if errors.Is(err, iam.ErrTenantMismatch) || errors.Is(err, pgx.ErrNoRows) {
+				if !session.IsZero() {
+					return authority{}, iam.ErrSessionRevoked
+				}
+				return authority{}, iam.ErrInsufficientAuthority
+			}
+			return authority{}, err
+		}
+	}
 	usable, signedIn, err := userLive(ctx, st.q, userID, session)
 	switch {
 	case err != nil:
@@ -194,9 +218,17 @@ func (s *Engine) applicationAuthority(ctx context.Context, st *permissionGroupSt
 	if errors.Is(err, pgx.ErrNoRows) {
 		return authority{}, iam.ErrInsufficientAuthority
 	}
-	if err != nil || control != g.ID {
+	if err != nil {
 		return out, err
 	}
+	controller, err := s.resolveGroup(ctx, st, iam.GroupByID(control))
+	if err != nil {
+		return out, err
+	}
+	if !inheritsGroup(g, controller) {
+		return out, nil
+	}
+	out.credentialGroup = control
 	out.grants, err = s.subjectGrants(ctx, st, iam.RemoteApplicationSubject(appID), g.ID)
 	return out.withoutMFAGrants(s), err
 }
@@ -221,12 +253,18 @@ func (s *Engine) apiKeyAuthority(ctx context.Context, st *permissionGroupStore, 
 	if errors.Is(err, pgx.ErrNoRows) {
 		return authority{}, iam.ErrInsufficientAuthority
 	}
-	if err != nil || key.PermissionGroupID != g.ID {
+	if err != nil {
 		return out, err
 	}
-	if r, ok := s.groupSchemaOrDefault().AssignedRole(g.Persona, ident.RoleText(key.Role), key.CustomPermissions); ok {
-		out.grants = r.Permissions
+	controller, err := s.resolveGroup(ctx, st, iam.GroupByID(key.PermissionGroupID))
+	if err != nil {
+		return out, err
 	}
+	if !inheritsGroup(g, controller) {
+		return out, nil
+	}
+	out.credentialGroup = controller.ID
+	out.grants = s.groupSchemaOrDefault().ResolveGrants(g.ID, []rbac.Assignment{{PermissionGroupID: controller.ID, Persona: controller.Persona, Role: ident.RoleText(key.Role), Custom: key.CustomPermissions}})
 	return out.withoutMFAGrants(s), nil
 }
 
@@ -295,8 +333,31 @@ func (s *Engine) requireAccount(ctx context.Context, st *permissionGroupStore, a
 	if err != nil {
 		return err
 	}
-	if err := auth.requireCap(p); err != nil {
-		return err
+	if !auth.covers(p) {
+		// Account administration may also be held on the canonical tenant
+		// group. Root grants are still checked separately below, so a tenant
+		// owner cannot take over a global operator's account.
+		if !strings.HasPrefix(p.String(), "root:users:") {
+			return iam.ErrInsufficientAuthority
+		}
+		tenant, err := s.tenantID(ctx)
+		if err != nil {
+			return err
+		}
+		target, err := s.resolveGroup(ctx, st, iam.GroupByID(tenant.String()))
+		if err != nil {
+			return err
+		}
+		if target.Persona != iam.TenantPersona() {
+			return iam.ErrInsufficientAuthority
+		}
+		auth, err = s.identityAuthority(ctx, st, a, target)
+		if err != nil {
+			return err
+		}
+		if err := auth.requireCap(ident.Perm("tenant:" + strings.TrimPrefix(p.String(), "root:"))); err != nil {
+			return err
+		}
 	}
 	held, err := db.New(st.q).AuthorityUserGroups(ctx, db.AuthorityUserGroupsParams{UserID: targetUserID, RootID: rootID})
 	if err != nil {
@@ -319,7 +380,7 @@ func (s *Engine) requireAccount(ctx context.Context, st *permissionGroupStore, a
 		if !auth.coversAll(target) {
 			return iam.ErrAccountAuthorityEscalation
 		}
-		if g.ID == rootID && !peers && len(target) > 0 && rbac.CoversAll(target, auth.grants) {
+		if (g.ID == rootID || g.Persona == iam.TenantPersona()) && !peers && len(target) > 0 && rbac.CoversAll(target, auth.grants) {
 			return iam.ErrAccountAuthorityEscalation // a peer
 		}
 	}

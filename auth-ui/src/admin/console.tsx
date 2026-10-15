@@ -1,7 +1,7 @@
 import { useMemo } from "react"
 
 import { cn } from "cn"
-import { useAccessWith, usersAccess } from "./access.ts"
+import { useAccessWith, useUsersAccessWith, usersAccess } from "./access.ts"
 import { ApiKeysAdmin } from "./api-keys.tsx"
 import { useAdmin } from "./context.ts"
 import { useAdminMessages } from "./i18n.ts"
@@ -100,10 +100,7 @@ function Console({
   const { client } = useAdmin()
   const { t } = useAdminMessages()
   const router = useRouter()
-  const root = useAccessWith(
-    client,
-    users ? (users.tenantId ?? "root") : "root"
-  )
+  const root = useUsersAccessWith(client, users ? users.tenantId : undefined)
   const scoped = useAccessWith(client, group)
   const accounts = useMemo(
     () => usersAccess(root, users ? users.tenantId : undefined),

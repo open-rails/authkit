@@ -13,12 +13,13 @@ import (
 const providerLinkByIssuer = `-- name: ProviderLinkByIssuer :one
 SELECT user_id, email_at_provider
 FROM user_providers
-WHERE issuer = $1 AND subject = $2 AND verified_at IS NOT NULL
+WHERE tenant_id=NULLIF($3::text,'')::uuid AND issuer = $1 AND subject = $2 AND verified_at IS NOT NULL
 `
 
 type ProviderLinkByIssuerParams struct {
-	Issuer  string
-	Subject string
+	Issuer   string
+	Subject  string
+	TenantID string
 }
 
 type ProviderLinkByIssuerRow struct {
@@ -27,7 +28,7 @@ type ProviderLinkByIssuerRow struct {
 }
 
 func (q *Queries) ProviderLinkByIssuer(ctx context.Context, arg ProviderLinkByIssuerParams) (ProviderLinkByIssuerRow, error) {
-	row := q.db.QueryRow(ctx, providerLinkByIssuer, arg.Issuer, arg.Subject)
+	row := q.db.QueryRow(ctx, providerLinkByIssuer, arg.Issuer, arg.Subject, arg.TenantID)
 	var i ProviderLinkByIssuerRow
 	err := row.Scan(&i.UserID, &i.EmailAtProvider)
 	return i, err
@@ -36,12 +37,13 @@ func (q *Queries) ProviderLinkByIssuer(ctx context.Context, arg ProviderLinkByIs
 const providerLinkByIssuerAny = `-- name: ProviderLinkByIssuerAny :one
 SELECT user_id, email_at_provider, verified_at
 FROM user_providers
-WHERE issuer = $1 AND subject = $2
+WHERE tenant_id=NULLIF($3::text,'')::uuid AND issuer = $1 AND subject = $2
 `
 
 type ProviderLinkByIssuerAnyParams struct {
-	Issuer  string
-	Subject string
+	Issuer   string
+	Subject  string
+	TenantID string
 }
 
 type ProviderLinkByIssuerAnyRow struct {
@@ -51,7 +53,7 @@ type ProviderLinkByIssuerAnyRow struct {
 }
 
 func (q *Queries) ProviderLinkByIssuerAny(ctx context.Context, arg ProviderLinkByIssuerAnyParams) (ProviderLinkByIssuerAnyRow, error) {
-	row := q.db.QueryRow(ctx, providerLinkByIssuerAny, arg.Issuer, arg.Subject)
+	row := q.db.QueryRow(ctx, providerLinkByIssuerAny, arg.Issuer, arg.Subject, arg.TenantID)
 	var i ProviderLinkByIssuerAnyRow
 	err := row.Scan(&i.UserID, &i.EmailAtProvider, &i.VerifiedAt)
 	return i, err
@@ -136,9 +138,9 @@ func (q *Queries) UserProviderDeleteBySlug(ctx context.Context, arg UserProvider
 
 const userProviderImportUnverified = `-- name: UserProviderImportUnverified :one
 INSERT INTO user_providers (
-  id, user_id, issuer, provider_slug, subject, profile, created_at, verified_at
+  id,user_id,issuer,provider_slug,subject,profile,created_at,verified_at,tenant_id
 )
-VALUES ($1, $2, $3, $4, $5, $7::jsonb, $6, NULL)
+VALUES ($1, $2, $3, $4, $5, $7::jsonb,$6,NULL,NULLIF($8::text,'')::uuid)
 ON CONFLICT DO NOTHING
 RETURNING id, user_id
 `
@@ -151,6 +153,7 @@ type UserProviderImportUnverifiedParams struct {
 	Subject      string
 	CreatedAt    time.Time
 	Profile      []byte
+	TenantID     string
 }
 
 type UserProviderImportUnverifiedRow struct {
@@ -167,6 +170,7 @@ func (q *Queries) UserProviderImportUnverified(ctx context.Context, arg UserProv
 		arg.Subject,
 		arg.CreatedAt,
 		arg.Profile,
+		arg.TenantID,
 	)
 	var i UserProviderImportUnverifiedRow
 	err := row.Scan(&i.ID, &i.UserID)
@@ -349,9 +353,9 @@ func (q *Queries) UserProviderUnverifiedForUpdate(ctx context.Context, arg UserP
 }
 
 const userProviderUpsertByIssuer = `-- name: UserProviderUpsertByIssuer :one
-INSERT INTO user_providers (id, user_id, issuer, provider_slug, subject, email_at_provider)
-VALUES ($1, $2, $3, $4, $5, $6)
-ON CONFLICT (issuer, subject) DO UPDATE
+INSERT INTO user_providers (id,user_id,issuer,provider_slug,subject,email_at_provider,tenant_id)
+VALUES ($1,$2,$3,$4,$5,$6,NULLIF($7::text,'')::uuid)
+ON CONFLICT (tenant_id,issuer,subject) DO UPDATE
 SET email_at_provider = EXCLUDED.email_at_provider,
     provider_slug = COALESCE(EXCLUDED.provider_slug, user_providers.provider_slug)
 WHERE user_providers.user_id = EXCLUDED.user_id
@@ -365,6 +369,7 @@ type UserProviderUpsertByIssuerParams struct {
 	ProviderSlug    *string
 	Subject         string
 	EmailAtProvider *string
+	TenantID        string
 }
 
 type UserProviderUpsertByIssuerRow struct {
@@ -381,6 +386,7 @@ func (q *Queries) UserProviderUpsertByIssuer(ctx context.Context, arg UserProvid
 		arg.ProviderSlug,
 		arg.Subject,
 		arg.EmailAtProvider,
+		arg.TenantID,
 	)
 	var i UserProviderUpsertByIssuerRow
 	err := row.Scan(&i.ID, &i.UserID, &i.VerifiedAt)

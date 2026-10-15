@@ -9,6 +9,7 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/tenancy"
 )
 
 // authExtras are the parts of an AuthResult a login outcome does not carry.
@@ -21,6 +22,12 @@ type authExtras struct {
 // route's extras. A session's refresh token goes through deliverRefreshToken,
 // so a cookie mount never puts it in the body. A rejected login is its error.
 func (s *Service) authResult(w http.ResponseWriter, r *http.Request, out authflow.LoginOutcome, extra authExtras) (AuthResult, error) {
+	if !out.TenantID.IsZero() {
+		if selected, ok := tenancy.From(r.Context()); ok && selected != out.TenantID {
+			return AuthResult{}, iam.ErrTenantMismatch
+		}
+		r = r.WithContext(tenancy.With(r.Context(), out.TenantID))
+	}
 	res := AuthResult{ReturnTo: nullableString(out.ReturnTo), AgreementsDue: []iam.Agreement{}}
 	switch out.Kind {
 	case authflow.LoginSessionIssued:

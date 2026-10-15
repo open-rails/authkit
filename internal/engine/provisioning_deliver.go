@@ -137,7 +137,7 @@ func (r *provisioningRun) batch(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	accounts, err := s.q.UsersByIDs(ctx, users)
+	accounts, err := s.q.TenantUsersByIDs(ctx, db.TenantUsersByIDsParams{TenantID: r.target.tenant.String(), Ids: users})
 	if err != nil {
 		return 0, err
 	}

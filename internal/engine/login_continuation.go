@@ -128,7 +128,8 @@ func (s *Engine) finishFirstFactor(ctx context.Context, proof loginProof) (authf
 	if gateErr != nil && !errors.Is(gateErr, iam.ErrTwoFAEnrollmentRequired) && !errors.Is(gateErr, errTwoFARequired) {
 		return authflow.LoginOutcome{}, gateErr
 	}
-	out := authflow.LoginOutcome{UserID: user.ID, ReturnTo: proof.ReturnTo, Created: proof.Created}
+	tenant, _ := iam.ParseTenantID(user.TenantID)
+	out := authflow.LoginOutcome{TenantID: tenant, UserID: user.ID, ReturnTo: proof.ReturnTo, Created: proof.Created}
 	if needsChallenge || gateErr != nil {
 		// Enrollment JWTs authorize account mutations. A deleted account may
 		// complete an existing factor, but never receives an enrollment token.
@@ -153,6 +154,9 @@ func (s *Engine) finishFirstFactor(ctx context.Context, proof loginProof) (authf
 			proof.AuthenticatedAt = time.Now().UTC()
 		}
 		if err := s.ephemSetJSON(ctx, keyTwoFactorChallenge+user.ID, proof, 10*time.Minute); err != nil {
+			return authflow.LoginOutcome{}, err
+		}
+		if err := s.rememberProofRoute(ctx, "login-challenge", proof.NonceHash, 10*time.Minute); err != nil {
 			return authflow.LoginOutcome{}, err
 		}
 		if needsChallenge {
@@ -240,6 +244,11 @@ func (s *Engine) sendLoginFactor(ctx context.Context, user *db.User, proof login
 // ResendLoginChallenge changes the selected independent factor while retaining
 // the first-factor proof and its original expiry.
 func (s *Engine) ResendLoginChallenge(ctx context.Context, userID, nonce, factorID string) (*authflow.TwoFactorChallenge, error) {
+	var routeErr error
+	ctx, routeErr = s.proofContext(ctx, "login-challenge", secret.Hash(nonce))
+	if routeErr != nil {
+		return nil, routeErr
+	}
 	proof, err := s.loadLoginProof(ctx, userID, nonce)
 	if err != nil || proof.Enrollment || proof.DeviceCode {
 		return nil, jwt.ErrTokenUnverifiable
@@ -274,6 +283,11 @@ func (s *Engine) ResendLoginChallenge(ctx context.Context, userID, nonce, factor
 // CompleteLoginChallenge gives one current first-factor grant one successful
 // second-factor completion and commits its session while holding the account lock.
 func (s *Engine) CompleteLoginChallenge(ctx context.Context, in authflow.LoginChallengeInput) (authflow.LoginOutcome, error) {
+	var routeErr error
+	ctx, routeErr = s.proofContext(ctx, "login-challenge", secret.Hash(in.Challenge))
+	if routeErr != nil {
+		return authflow.LoginOutcome{}, routeErr
+	}
 	proof, err := s.loadLoginProof(ctx, in.UserID, in.Challenge)
 	if err != nil || proof.Enrollment || proof.DeviceCode {
 		return authflow.LoginOutcome{}, jwt.ErrTokenUnverifiable
@@ -361,7 +375,8 @@ func (s *Engine) CompleteLoginChallenge(ctx context.Context, in authflow.LoginCh
 	}
 	s.logSessionEvictions(ctx, user.ID, evicted)
 	s.logSessionCreated(ctx, user.ID, proof.Input.Event, session.SessionID, nullable(in.IP), nullable(in.UserAgent))
-	return authflow.LoginOutcome{Kind: authflow.LoginSessionIssued, UserID: user.ID, Session: &session, ReturnTo: proof.ReturnTo}, nil
+	tenant, _ := iam.ParseTenantID(user.TenantID)
+	return authflow.LoginOutcome{TenantID: tenant, Kind: authflow.LoginSessionIssued, UserID: user.ID, Session: &session, ReturnTo: proof.ReturnTo}, nil
 }
 
 type loginEnrollmentKey struct{}

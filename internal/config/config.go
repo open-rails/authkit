@@ -16,6 +16,12 @@ import (
 // reaches outside the process (the pool, senders, keys, providers, hooks) is
 // in Deps. authkit.New normalizes it once.
 type Config struct {
+	// DefaultTenantID binds ordinary account operations and HTTP authentication
+	// when no explicit trusted tenant resolver/view is used. Zero leaves this
+	// deployment available for root provisioning, but does not select an account
+	// directory. Use the same canonical ID as ContentKit, never a derived ID.
+	DefaultTenantID iam.TenantID `yaml:"default_tenant_id"`
+
 	// Database names the PostgreSQL schemas AuthKit's and River's tables live
 	// in. New creates or upgrades them.
 	Database DatabaseConfig `yaml:"database"`
@@ -509,8 +515,9 @@ type HTTPConfig struct {
 	// PublicURL is where clients reach BasePath when a proxy in front changes
 	// the origin or the path, such as "https://shop.example.com/sso". DPoP
 	// proofs sent to the token endpoint, and jwt-bearer assertions' aud, must
-	// name PublicURL plus its path beneath BasePath. Empty defaults to Token.Issuer's origin plus
-	// BasePath.
+	// name PublicURL plus its path beneath BasePath; proofs to the host's
+	// routes behind Client.Authenticator name its origin. Empty defaults to
+	// Token.Issuer's origin plus BasePath.
 	PublicURL string `yaml:"public_url"`
 	// Exclude drops routes the host serves itself, named as iam.Route.Pattern
 	// names them ("GET /.well-known/jwks.json"). An entry matching no route is
@@ -520,9 +527,10 @@ type HTTPConfig struct {
 	// (iam.RefreshCookieName) instead of a JSON field. Browser mounts only:
 	// the SPA and this handler must share an origin.
 	RefreshCookie bool `yaml:"refresh_cookie"`
-	// RefreshCookieName overrides the issuer-derived base cookie name. Do not
-	// include __Host-: HTTPS adds that prefix automatically. Sharing a name
-	// across issuers on the same host intentionally shares one cookie slot.
+	// RefreshCookieName overrides the base label. AuthKit appends a stable
+	// issuer/tenant qualifier so tenant sessions never share one cookie slot.
+	// Do not include __Host-: HTTPS adds that prefix automatically. Existing
+	// unqualified cookies migrate after their owner is verified.
 	RefreshCookieName string `yaml:"refresh_cookie_name"`
 
 	// RateLimits overlays bucket limits onto authkit.DefaultRateLimits;

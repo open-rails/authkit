@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/open-rails/authkit/internal/config"
 	pgmigrations "github.com/open-rails/authkit/internal/migrations/postgres"
@@ -97,11 +98,11 @@ func TestRetiredChainConvertsInPlace(t *testing.T) {
 		require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM profiles.`+table).Scan(&n))
 		require.Positive(t, n, table)
 	}
-	requireRowsKept := keepRows(t, db, "profiles")
+	requireRowsKept := keepRows(t, db, "profiles", testdb.DefaultTenantID.String())
 
 	cfg := config.Config{Database: config.DatabaseConfig{Schema: "profiles"}}
-	require.NoError(t, Migrate(ctx, pg.Pool, cfg.Database))
-	require.NoError(t, Migrate(ctx, pg.Pool, cfg.Database), "a second boot converts nothing")
+	require.NoError(t, Migrate(ctx, pg.Pool, cfg.Database, MigrationOptions{LegacyTenantID: testdb.DefaultTenantID}))
+	require.NoError(t, Migrate(ctx, pg.Pool, cfg.Database, MigrationOptions{LegacyTenantID: testdb.DefaultTenantID}), "a second boot converts nothing")
 	requireRowsKept()
 
 	requireTree(t, pg, db, "profiles", true)
@@ -144,8 +145,8 @@ func TestRetiredChainPrefixConvertsInPlace(t *testing.T) {
 	seed(`INSERT INTO refresh_sessions(user_id, issuer, current_token_hash, auth_methods) VALUES ($1, $2, $3, '{pwd}'), ($1, $2, $4, '{pwd,mfa}')`, owner, issuer, tokenHash[:], mfaTokenHash[:])
 
 	cfg := config.Config{Database: config.DatabaseConfig{Schema: "profiles"}}
-	require.NoError(t, Migrate(ctx, pg.Pool, cfg.Database))
-	require.NoError(t, Migrate(ctx, pg.Pool, cfg.Database), "a second boot converts nothing")
+	require.NoError(t, Migrate(ctx, pg.Pool, cfg.Database, MigrationOptions{LegacyTenantID: testdb.DefaultTenantID}))
+	require.NoError(t, Migrate(ctx, pg.Pool, cfg.Database, MigrationOptions{LegacyTenantID: testdb.DefaultTenantID}), "a second boot converts nothing")
 	requireTree(t, pg, db, "profiles", true)
 
 	// 0006 revoked the creator-less key, 0008 dated the MFA session's proof,
@@ -177,7 +178,7 @@ func TestRetiredChainReleasePointsConvert(t *testing.T) {
 			pg := testdb.EmptyScratchPostgres(t)
 			db := sqlDB(t, pg.URL)
 			require.NoError(t, migratekit.NewPostgres(db, "authkit").WithSchema("profiles").ApplyMigrations(t.Context(), retired.Chain()[:n]))
-			require.NoError(t, Migrate(t.Context(), pg.Pool, config.DatabaseConfig{Schema: "profiles"}))
+			require.NoError(t, Migrate(t.Context(), pg.Pool, config.DatabaseConfig{Schema: "profiles"}, MigrationOptions{LegacyTenantID: testdb.DefaultTenantID}))
 			requireTree(t, pg, db, "profiles", true)
 		})
 	}
@@ -247,7 +248,15 @@ func requireTree(t *testing.T, pg *testdb.Postgres, db *sql.DB, schema string, c
 		require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM public.migration_repairs WHERE app = 'authkit' AND schema = $1 AND verb = 'convert'`, s).Scan(&audits))
 		require.Equal(t, converted, audits > 0, s)
 	}
-	require.Empty(t, testdb.CatalogDiff(testdb.SchemaCatalog(t, db, schema), testdb.SchemaCatalog(t, db, fresh)))
+	// Deparse both schemas with the same catalog-only search path. Otherwise
+	// PostgreSQL abbreviates references to the connection's current schema in
+	// one snapshot while qualifying those same references in the other.
+	catalogConfig, err := pgx.ParseConfig(pg.URL)
+	require.NoError(t, err)
+	catalogConfig.RuntimeParams["search_path"] = "pg_catalog, public"
+	catalogDB := stdlib.OpenDB(*catalogConfig)
+	t.Cleanup(func() { _ = catalogDB.Close() })
+	require.Empty(t, testdb.CatalogDiff(testdb.SchemaCatalog(t, catalogDB, schema), testdb.SchemaCatalog(t, catalogDB, fresh)))
 }
 
 // A database v1.0.2 built, or one converted from the retired chain, migrates
@@ -297,8 +306,8 @@ func TestUpgradeKeepsAndNormalizesRows(t *testing.T) {
  SELECT id, 'solana', 'wallet', '{"verification_required": true, "migration_source": "legacy"}', NULL FROM users WHERE username = 'unreserved'`)
 
 			cfg := config.Config{Database: config.DatabaseConfig{Schema: "profiles"}}
-			require.NoError(t, Migrate(ctx, pg.Pool, cfg.Database))
-			require.NoError(t, Migrate(ctx, pg.Pool, cfg.Database), "a second boot changes nothing")
+			require.NoError(t, Migrate(ctx, pg.Pool, cfg.Database, MigrationOptions{LegacyTenantID: testdb.DefaultTenantID}))
+			require.NoError(t, Migrate(ctx, pg.Pool, cfg.Database, MigrationOptions{LegacyTenantID: testdb.DefaultTenantID}), "a second boot changes nothing")
 			requireTree(t, pg, db, "profiles", name == "retired chain")
 
 			rows, err := pg.Pool.Query(ctx, `SELECT username || ' ' || (banned_at IS NOT NULL) || ' ' || COALESCE(ban_reason, '-') || ' ' ||
@@ -349,7 +358,7 @@ func TestUpgradeDropsAppMetadata(t *testing.T) {
 	_, err = pg.Pool.Exec(ctx, `INSERT INTO user_passwords (user_id, password_hash) VALUES ($1::uuid, $2)`, id, hash)
 	require.NoError(t, err)
 
-	require.NoError(t, Migrate(ctx, pg.Pool, config.DatabaseConfig{Schema: "profiles"}))
+	require.NoError(t, Migrate(ctx, pg.Pool, config.DatabaseConfig{Schema: "profiles"}, MigrationOptions{LegacyTenantID: testdb.DefaultTenantID}))
 	rows, err := pg.Pool.Query(ctx, `SELECT column_name FROM information_schema.columns
  WHERE table_schema = 'profiles' AND table_name = 'users' AND column_name IN ('metadata', 'avatar_url', 'verified_elsewhere', 'public_metadata')`)
 	require.NoError(t, err)
@@ -387,8 +396,9 @@ func ledger(t *testing.T, db *sql.DB, schema string) []string {
 }
 
 // keepRows copies every table of schema aside and returns a check that each
-// still holds exactly those rows, compared on the columns it kept.
-func keepRows(t *testing.T, db *sql.DB, schema string) func() {
+// still holds exactly those rows, compared on the columns it kept. The one
+// optional addition is an explicitly identified new canonical tenant group.
+func keepRows(t *testing.T, db *sql.DB, schema string, addedTenant ...string) func() {
 	t.Helper()
 	ctx := t.Context()
 	snap := schema + "_before"
@@ -410,6 +420,14 @@ func keepRows(t *testing.T, db *sql.DB, schema string) func() {
 	}
 	return func() {
 		t.Helper()
+		require.LessOrEqual(t, len(addedTenant), 1)
+		if len(addedTenant) == 1 {
+			var existed, canonical bool
+			require.NoError(t, db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM `+pgx.Identifier{snap, "permission_groups"}.Sanitize()+` WHERE id::text = $1)`, addedTenant[0]).Scan(&existed))
+			require.False(t, existed, "the permitted tenant group must be new")
+			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) = 1 AND bool_and(persona = 'tenant' AND tenant_id = id AND deleted_at IS NULL) FROM `+pgx.Identifier{schema, "permission_groups"}.Sanitize()+` WHERE id::text = $1`, addedTenant[0]).Scan(&canonical))
+			require.True(t, canonical, "only the configured live canonical tenant group may be added")
+		}
 		for _, table := range tables {
 			var cols string
 			require.NoError(t, db.QueryRowContext(ctx, `SELECT string_agg(quote_ident(a.attname), ', ' ORDER BY a.attnum)
@@ -418,8 +436,13 @@ func keepRows(t *testing.T, db *sql.DB, schema string) func() {
 				pgx.Identifier{snap, table}.Sanitize(), pgx.Identifier{schema, table}.Sanitize()).Scan(&cols))
 			before := `SELECT ` + cols + ` FROM ` + pgx.Identifier{snap, table}.Sanitize()
 			after := `SELECT ` + cols + ` FROM ` + pgx.Identifier{schema, table}.Sanitize()
+			var args []any
+			if table == "permission_groups" && len(addedTenant) == 1 {
+				after += ` WHERE id::text <> $1`
+				args = append(args, addedTenant[0])
+			}
 			var changed int
-			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM ((`+before+` EXCEPT ALL `+after+`) UNION ALL (`+after+` EXCEPT ALL `+before+`)) d`).Scan(&changed))
+			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM ((`+before+` EXCEPT ALL `+after+`) UNION ALL (`+after+` EXCEPT ALL `+before+`)) d`, args...).Scan(&changed))
 			require.Zero(t, changed, "rows of %s changed", table)
 		}
 	}

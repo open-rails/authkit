@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 
 import type { UserEntry } from "../client/generated/wire.ts"
 import { Input } from "../ui/input.tsx"
-import { useAccessWith, usersAccess } from "./access.ts"
+import { useUsersAccessWith, usersAccess } from "./access.ts"
 import type { UserListQuery } from "./client.ts"
 import { useAdmin } from "./context.ts"
 import { dateTime } from "./format.ts"
@@ -80,7 +80,7 @@ function Users({ host }: { host: Host }) {
   const { client, tenantId } = useAdmin()
   const { segments } = useRouter()
   const group = tenantId ?? "root"
-  const root = useAccessWith(client, group)
+  const root = useUsersAccessWith(client, tenantId)
   const access = useMemo(() => usersAccess(root, tenantId), [root, tenantId])
   const roles = useLoad(root.roles.read ? `roles:${group}` : null, (s) =>
     client.listRoles(group, s)

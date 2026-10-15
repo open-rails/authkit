@@ -25,7 +25,14 @@ func accountUserInfo(u db.User) userinfo.User {
 // UserInfo returns the live accounts among ids, keyed by id; a deleted,
 // purged, unknown or malformed id is absent.
 func (s *Engine) UserInfo(ctx context.Context, ids []string) (map[string]userinfo.User, error) {
+	return s.userInfo(ctx, s.q, ids)
+}
+
+func (s *Engine) userInfo(ctx context.Context, q *db.Queries, ids []string) (map[string]userinfo.User, error) {
 	out := map[string]userinfo.User{}
+	if _, err := s.tenantID(ctx); err != nil {
+		return out, err
+	}
 	if err := s.requirePG(); err != nil {
 		return out, err
 	}
@@ -38,7 +45,7 @@ func (s *Engine) UserInfo(ctx context.Context, ids []string) (map[string]userinf
 	if len(valid) == 0 {
 		return out, nil
 	}
-	users, err := s.q.UsersByIDs(ctx, valid)
+	users, err := q.TenantUsersByIDs(ctx, db.TenantUsersByIDsParams{TenantID: s.tenantKey(ctx), Ids: valid})
 	if err != nil {
 		return nil, err
 	}
@@ -54,13 +61,16 @@ func (s *Engine) UserInfo(ctx context.Context, ids []string) (map[string]userinf
 // username contains query, ignoring case.
 func (s *Engine) SearchUserInfo(ctx context.Context, query string, limit int) ([]userinfo.User, error) {
 	out := []userinfo.User{}
+	if _, err := s.tenantID(ctx); err != nil {
+		return out, err
+	}
 	if query == "" || limit < 1 {
 		return out, nil
 	}
 	if err := s.requirePG(); err != nil {
 		return out, err
 	}
-	users, err := s.q.UserInfoSearch(ctx, db.UserInfoSearchParams{Pattern: "%" + likeEscaper.Replace(strings.ToLower(query)) + "%", MaxRows: int64(min(limit, 1000))})
+	users, err := s.q.UserInfoSearch(ctx, db.UserInfoSearchParams{TenantID: s.tenantKey(ctx), Pattern: "%" + likeEscaper.Replace(strings.ToLower(query)) + "%", MaxRows: int64(min(limit, 1000))})
 	if err != nil {
 		return nil, err
 	}

@@ -69,7 +69,7 @@ func TestGeneratedUsernameConfiguredPoolAndCollision(t *testing.T) {
 func TestGeneratedUsernameExhaustionAndStoreFailure(t *testing.T) {
 	e := usernameEngine(t, []string{"Naruto"})
 	// Occupy the entire configured pool in this disposable database.
-	_, err := e.pg.Exec(t.Context(), `INSERT INTO users (id, username) SELECT gen_random_uuid(), 'Naruto' || lpad(n::text,3,'0') FROM generate_series(0,999) n`)
+	_, err := e.pg.Exec(t.Context(), `INSERT INTO users (id, tenant_id, username) SELECT gen_random_uuid(), $1::uuid, 'Naruto' || lpad(n::text,3,'0') FROM generate_series(0,999) n`, testdb.DefaultTenantID.String())
 	require.NoError(t, err)
 	_, err = e.GenerateUsername(t.Context())
 	require.ErrorIs(t, err, iam.ErrUsernameInUse)

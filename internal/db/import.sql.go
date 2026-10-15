@@ -14,11 +14,13 @@ const importHeldProviders = `-- name: ImportHeldProviders :many
 SELECT p.issuer, p.subject FROM user_providers p
 JOIN unnest($1::text[], $2::text[]) AS k(issuer, subject)
   ON p.issuer = k.issuer AND p.subject = k.subject
+WHERE p.tenant_id=$3::uuid
 `
 
 type ImportHeldProvidersParams struct {
 	Issuers  []string
 	Subjects []string
+	TenantID string
 }
 
 type ImportHeldProvidersRow struct {
@@ -28,7 +30,7 @@ type ImportHeldProvidersRow struct {
 
 // The identities some account holds, verified or not.
 func (q *Queries) ImportHeldProviders(ctx context.Context, arg ImportHeldProvidersParams) ([]ImportHeldProvidersRow, error) {
-	rows, err := q.db.Query(ctx, importHeldProviders, arg.Issuers, arg.Subjects)
+	rows, err := q.db.Query(ctx, importHeldProviders, arg.Issuers, arg.Subjects, arg.TenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -49,8 +51,13 @@ func (q *Queries) ImportHeldProviders(ctx context.Context, arg ImportHeldProvide
 
 const importHitsByEmail = `-- name: ImportHitsByEmail :many
 SELECT lower(email::text)::text AS key, id::text AS user_id, (deleted_at IS NOT NULL)::boolean AS deleted, false AS missing
-FROM users WHERE email = ANY($1::text[]::public.citext[])
+FROM users WHERE tenant_id=$1::uuid AND email = ANY($2::text[]::public.citext[])
 `
+
+type ImportHitsByEmailParams struct {
+	TenantID string
+	Emails   []string
+}
 
 type ImportHitsByEmailRow struct {
 	Key     string
@@ -59,8 +66,8 @@ type ImportHitsByEmailRow struct {
 	Missing bool
 }
 
-func (q *Queries) ImportHitsByEmail(ctx context.Context, emails []string) ([]ImportHitsByEmailRow, error) {
-	rows, err := q.db.Query(ctx, importHitsByEmail, emails)
+func (q *Queries) ImportHitsByEmail(ctx context.Context, arg ImportHitsByEmailParams) ([]ImportHitsByEmailRow, error) {
+	rows, err := q.db.Query(ctx, importHitsByEmail, arg.TenantID, arg.Emails)
 	if err != nil {
 		return nil, err
 	}
@@ -87,8 +94,13 @@ func (q *Queries) ImportHitsByEmail(ctx context.Context, emails []string) ([]Imp
 const importHitsByID = `-- name: ImportHitsByID :many
 
 SELECT id::text AS key, id::text AS user_id, (deleted_at IS NOT NULL)::boolean AS deleted, false AS missing
-FROM users WHERE id = ANY($1::uuid[])
+FROM users WHERE tenant_id=$1::uuid AND id = ANY($2::uuid[])
 `
+
+type ImportHitsByIDParams struct {
+	TenantID string
+	Ids      []string
+}
 
 type ImportHitsByIDRow struct {
 	Key     string
@@ -99,8 +111,8 @@ type ImportHitsByIDRow struct {
 
 // The ImportHits* reads share one row shape: the matched key, the account,
 // and whether it is deleted or a name reserved for a purged account.
-func (q *Queries) ImportHitsByID(ctx context.Context, ids []string) ([]ImportHitsByIDRow, error) {
-	rows, err := q.db.Query(ctx, importHitsByID, ids)
+func (q *Queries) ImportHitsByID(ctx context.Context, arg ImportHitsByIDParams) ([]ImportHitsByIDRow, error) {
+	rows, err := q.db.Query(ctx, importHitsByID, arg.TenantID, arg.Ids)
 	if err != nil {
 		return nil, err
 	}
@@ -127,14 +139,15 @@ func (q *Queries) ImportHitsByID(ctx context.Context, ids []string) ([]ImportHit
 const importHitsByName = `-- name: ImportHitsByName :many
 SELECT c.name AS key, c.owner_id::text AS user_id, COALESCE(u.deleted_at IS NOT NULL, false)::boolean AS deleted,
        (u.id IS NULL)::boolean AS missing
-FROM name_claims c LEFT JOIN users u ON u.id = c.owner_id
-WHERE c.name = ANY($1::text[])
-  AND (c.canonical OR c.expires_at IS NULL OR c.expires_at > $2::timestamptz)
+FROM name_claims c LEFT JOIN users u ON u.id = c.owner_id AND u.tenant_id=c.tenant_id
+WHERE c.tenant_id=$1::uuid AND c.name = ANY($2::text[])
+  AND (c.canonical OR c.expires_at IS NULL OR c.expires_at > $3::timestamptz)
 `
 
 type ImportHitsByNameParams struct {
-	Names []string
-	Now   time.Time
+	TenantID string
+	Names    []string
+	Now      time.Time
 }
 
 type ImportHitsByNameRow struct {
@@ -146,7 +159,7 @@ type ImportHitsByNameRow struct {
 
 // A canonical name or a live alias.
 func (q *Queries) ImportHitsByName(ctx context.Context, arg ImportHitsByNameParams) ([]ImportHitsByNameRow, error) {
-	rows, err := q.db.Query(ctx, importHitsByName, arg.Names, arg.Now)
+	rows, err := q.db.Query(ctx, importHitsByName, arg.TenantID, arg.Names, arg.Now)
 	if err != nil {
 		return nil, err
 	}
@@ -172,8 +185,13 @@ func (q *Queries) ImportHitsByName(ctx context.Context, arg ImportHitsByNamePara
 
 const importHitsByPhone = `-- name: ImportHitsByPhone :many
 SELECT COALESCE(phone_number, '')::text AS key, id::text AS user_id, (deleted_at IS NOT NULL)::boolean AS deleted, false AS missing
-FROM users WHERE phone_number = ANY($1::text[])
+FROM users WHERE tenant_id=$1::uuid AND phone_number = ANY($2::text[])
 `
+
+type ImportHitsByPhoneParams struct {
+	TenantID string
+	Phones   []string
+}
 
 type ImportHitsByPhoneRow struct {
 	Key     string
@@ -182,8 +200,8 @@ type ImportHitsByPhoneRow struct {
 	Missing bool
 }
 
-func (q *Queries) ImportHitsByPhone(ctx context.Context, phones []string) ([]ImportHitsByPhoneRow, error) {
-	rows, err := q.db.Query(ctx, importHitsByPhone, phones)
+func (q *Queries) ImportHitsByPhone(ctx context.Context, arg ImportHitsByPhoneParams) ([]ImportHitsByPhoneRow, error) {
+	rows, err := q.db.Query(ctx, importHitsByPhone, arg.TenantID, arg.Phones)
 	if err != nil {
 		return nil, err
 	}
@@ -212,6 +230,7 @@ INSERT INTO user_passwords (user_id, password_hash, hash_algo)
 SELECT k.user_id, k.password_hash, k.hash_algo
 FROM unnest($1::uuid[], $2::text[], $3::text[])
   AS k(user_id, password_hash, hash_algo)
+JOIN users u ON u.id=k.user_id AND u.tenant_id=$4::uuid
 ON CONFLICT (user_id) DO NOTHING
 `
 
@@ -219,23 +238,31 @@ type ImportInsertPasswordsParams struct {
 	UserIds        []string
 	PasswordHashes []string
 	HashAlgos      []string
+	TenantID       string
 }
 
 func (q *Queries) ImportInsertPasswords(ctx context.Context, arg ImportInsertPasswordsParams) error {
-	_, err := q.db.Exec(ctx, importInsertPasswords, arg.UserIds, arg.PasswordHashes, arg.HashAlgos)
+	_, err := q.db.Exec(ctx, importInsertPasswords,
+		arg.UserIds,
+		arg.PasswordHashes,
+		arg.HashAlgos,
+		arg.TenantID,
+	)
 	return err
 }
 
 const importInsertProviders = `-- name: ImportInsertProviders :execrows
-INSERT INTO user_providers (user_id, issuer, provider_slug, subject, email_at_provider)
-SELECT k.user_id, k.issuer, NULLIF(k.provider_slug, ''), k.subject, NULLIF(k.email_at_provider, '')
-FROM unnest($1::uuid[], $2::text[], $3::text[],
-            $4::text[], $5::text[])
+INSERT INTO user_providers (user_id,tenant_id,issuer, provider_slug, subject, email_at_provider)
+SELECT k.user_id,$1::uuid,k.issuer, NULLIF(k.provider_slug, ''), k.subject, NULLIF(k.email_at_provider, '')
+FROM unnest($2::uuid[], $3::text[], $4::text[],
+            $5::text[], $6::text[])
   AS k(user_id, issuer, provider_slug, subject, email_at_provider)
+JOIN users u ON u.id=k.user_id AND u.tenant_id=$1::uuid
 ON CONFLICT DO NOTHING
 `
 
 type ImportInsertProvidersParams struct {
+	TenantID         string
 	UserIds          []string
 	Issuers          []string
 	ProviderSlugs    []string
@@ -246,6 +273,7 @@ type ImportInsertProvidersParams struct {
 // An empty provider slug or provider email is stored as NULL.
 func (q *Queries) ImportInsertProviders(ctx context.Context, arg ImportInsertProvidersParams) (int64, error) {
 	result, err := q.db.Exec(ctx, importInsertProviders,
+		arg.TenantID,
 		arg.UserIds,
 		arg.Issuers,
 		arg.ProviderSlugs,
@@ -259,19 +287,24 @@ func (q *Queries) ImportInsertProviders(ctx context.Context, arg ImportInsertPro
 }
 
 const importInsertUsers = `-- name: ImportInsertUsers :many
-INSERT INTO users (id, email, phone_number, username, banned_at, banned_until,
+INSERT INTO users (id,tenant_id,email, phone_number, username, banned_at, banned_until,
                    ban_reason, public_metadata, created_at, updated_at, last_login, preferred_language, deleted_at)
-SELECT r.id, r.email, r.phone_number, r.username, r.banned_at, r.banned_until,
+SELECT r.id,$1::uuid,r.email, r.phone_number, r.username, r.banned_at, r.banned_until,
        r.ban_reason, r.public_metadata, r.created_at, r.updated_at, r.last_login, r.preferred_language, r.deleted_at
-FROM jsonb_populate_recordset(NULL::users, $1::jsonb) AS r
+FROM jsonb_populate_recordset(NULL::users, $2::jsonb) AS r
 ON CONFLICT DO NOTHING
 RETURNING id::text
 `
 
+type ImportInsertUsersParams struct {
+	TenantID string
+	Users    []byte
+}
+
 // users is a JSON array of users rows (column-named keys; a missing key is
 // NULL). A row losing a uniqueness race to another writer is not returned.
-func (q *Queries) ImportInsertUsers(ctx context.Context, users []byte) ([]string, error) {
-	rows, err := q.db.Query(ctx, importInsertUsers, users)
+func (q *Queries) ImportInsertUsers(ctx context.Context, arg ImportInsertUsersParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, importInsertUsers, arg.TenantID, arg.Users)
 	if err != nil {
 		return nil, err
 	}
@@ -292,18 +325,25 @@ func (q *Queries) ImportInsertUsers(ctx context.Context, users []byte) ([]string
 
 const importMergePassword = `-- name: ImportMergePassword :exec
 INSERT INTO user_passwords (user_id, password_hash, hash_algo)
-VALUES ($1::uuid, $2, $3)
+SELECT id,$1,$2 FROM users
+WHERE tenant_id=$3::uuid AND id=$4::uuid
 ON CONFLICT (user_id) DO NOTHING
 `
 
 type ImportMergePasswordParams struct {
-	UserID       string
 	PasswordHash string
 	HashAlgo     string
+	TenantID     string
+	UserID       string
 }
 
 func (q *Queries) ImportMergePassword(ctx context.Context, arg ImportMergePasswordParams) error {
-	_, err := q.db.Exec(ctx, importMergePassword, arg.UserID, arg.PasswordHash, arg.HashAlgo)
+	_, err := q.db.Exec(ctx, importMergePassword,
+		arg.PasswordHash,
+		arg.HashAlgo,
+		arg.TenantID,
+		arg.UserID,
+	)
 	return err
 }
 
@@ -314,7 +354,7 @@ UPDATE users SET
   last_login = GREATEST(last_login, $3),
   preferred_language = COALESCE(preferred_language, $4),
   updated_at = now()
-WHERE id = $5::uuid
+WHERE tenant_id=$5::uuid AND id = $6::uuid
 `
 
 type ImportMergeUserParams struct {
@@ -322,6 +362,7 @@ type ImportMergeUserParams struct {
 	CreatedAt         time.Time
 	LastLogin         *time.Time
 	PreferredLanguage *string
+	TenantID          string
 	ID                string
 }
 
@@ -331,6 +372,7 @@ func (q *Queries) ImportMergeUser(ctx context.Context, arg ImportMergeUserParams
 		arg.CreatedAt,
 		arg.LastLogin,
 		arg.PreferredLanguage,
+		arg.TenantID,
 		arg.ID,
 	)
 	return err
@@ -339,30 +381,32 @@ func (q *Queries) ImportMergeUser(ctx context.Context, arg ImportMergeUserParams
 const importReleaseAliases = `-- name: ImportReleaseAliases :exec
 
 DELETE FROM name_claims
-WHERE name = ANY($1::text[])
-  AND NOT canonical AND expires_at <= $2::timestamptz
+WHERE tenant_id=$1::uuid AND name = ANY($2::text[])
+  AND NOT canonical AND expires_at <= $3::timestamptz
 `
 
 type ImportReleaseAliasesParams struct {
-	Names []string
-	Now   time.Time
+	TenantID string
+	Names    []string
+	Now      time.Time
 }
 
 // ImportUsers: bulk account import, one chunk per transaction.
 // Expired aliases of the chunk's names neither match nor block.
 func (q *Queries) ImportReleaseAliases(ctx context.Context, arg ImportReleaseAliasesParams) error {
-	_, err := q.db.Exec(ctx, importReleaseAliases, arg.Names, arg.Now)
+	_, err := q.db.Exec(ctx, importReleaseAliases, arg.TenantID, arg.Names, arg.Now)
 	return err
 }
 
 const importSetBannedBy = `-- name: ImportSetBannedBy :exec
 UPDATE users u SET banned_by = k.banned_by
-FROM unnest($1::uuid[], $2::uuid[]) AS k(user_id, banned_by)
-WHERE u.id = k.user_id AND u.banned_at IS NOT NULL AND u.banned_by IS NULL
+FROM unnest($2::uuid[], $3::uuid[]) AS k(user_id, banned_by)
+WHERE u.tenant_id=$1::uuid AND u.id = k.user_id AND u.banned_at IS NOT NULL AND u.banned_by IS NULL
   AND EXISTS(SELECT 1 FROM users b WHERE b.id = k.banned_by)
 `
 
 type ImportSetBannedByParams struct {
+	TenantID string
 	UserIds  []string
 	BannedBy []string
 }
@@ -370,6 +414,6 @@ type ImportSetBannedByParams struct {
 // Records who banned imported accounts; a banner that is no account leaves
 // banned_by NULL.
 func (q *Queries) ImportSetBannedBy(ctx context.Context, arg ImportSetBannedByParams) error {
-	_, err := q.db.Exec(ctx, importSetBannedBy, arg.UserIds, arg.BannedBy)
+	_, err := q.db.Exec(ctx, importSetBannedBy, arg.TenantID, arg.UserIds, arg.BannedBy)
 	return err
 }

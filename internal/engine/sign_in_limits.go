@@ -285,12 +285,16 @@ func (s *Engine) challengeNewDevice(ctx context.Context, user *db.User, proof lo
 	if err := s.ephemSetJSON(ctx, keyTwoFactorChallenge+user.ID, proof, 10*time.Minute); err != nil {
 		return authflow.LoginOutcome{}, err
 	}
+	if err := s.rememberProofRoute(ctx, "login-challenge", proof.NonceHash, 10*time.Minute); err != nil {
+		return authflow.LoginOutcome{}, err
+	}
 	to, err := s.sendDeviceCode(ctx, user, proof.NonceHash, channels[0])
 	if err != nil {
 		return authflow.LoginOutcome{}, err
 	}
+	tenant, _ := iam.ParseTenantID(user.TenantID)
 	return authflow.LoginOutcome{
-		Kind: authflow.LoginDeviceVerificationRequired, UserID: user.ID, ReturnTo: proof.ReturnTo, Created: proof.Created,
+		TenantID: tenant, Kind: authflow.LoginDeviceVerificationRequired, UserID: user.ID, ReturnTo: proof.ReturnTo, Created: proof.Created,
 		Device: &authflow.DeviceChallenge{Challenge: nonce, Channel: channels[0], Destination: to, Channels: channels},
 	}, nil
 }
@@ -331,6 +335,11 @@ func (s *Engine) loadDeviceProof(ctx context.Context, userID, challenge string) 
 // SendDeviceVerification sends the waiting sign-in a new code, on channel
 // ("email" or "sms"; empty: the first available).
 func (s *Engine) SendDeviceVerification(ctx context.Context, userID, challenge, channel string) (*authflow.DeviceChallenge, error) {
+	var routeErr error
+	ctx, routeErr = s.proofContext(ctx, "login-challenge", secret.Hash(challenge))
+	if routeErr != nil {
+		return nil, routeErr
+	}
 	proof, err := s.loadDeviceProof(ctx, userID, challenge)
 	if err != nil {
 		return nil, err
@@ -357,6 +366,11 @@ func (s *Engine) SendDeviceVerification(ctx context.Context, userID, challenge, 
 // to the account and continues the sign-in: a session, or its second factor.
 // ErrInvalidCode is a wrong code; ErrCodeExpired, no live one.
 func (s *Engine) ConfirmDeviceVerification(ctx context.Context, in authflow.DeviceVerificationInput) (authflow.LoginOutcome, error) {
+	var routeErr error
+	ctx, routeErr = s.proofContext(ctx, "login-challenge", secret.Hash(in.Challenge))
+	if routeErr != nil {
+		return authflow.LoginOutcome{}, routeErr
+	}
 	proof, err := s.loadDeviceProof(ctx, in.UserID, in.Challenge)
 	if err != nil {
 		return authflow.LoginOutcome{}, err

@@ -9,3 +9,7 @@ device name=__Host-authkit_device path=/ domain="" secure=true
 device_partitioned name=__Host-authkit_device_p path=/ domain="" secure=true
 refresh name=authkit_rt_{issuer} path=/ domain="" secure=false
 refresh name=__Host-authkit_rt_{issuer} path=/ domain="" secure=true
+refresh name=authkit_rt_{issuer_tenant} path=/ domain="" secure=false
+refresh name=__Host-authkit_rt_{issuer_tenant} path=/ domain="" secure=true
+active_tenant name=authkit_tenant_{issuer} path=/ domain="" secure=false
+active_tenant name=__Host-authkit_tenant_{issuer} path=/ domain="" secure=true

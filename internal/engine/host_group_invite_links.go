@@ -71,9 +71,17 @@ func (s *Engine) RedeemInvitation(ctx context.Context, a auth.Identity, code str
 	}
 	redeemer := iam.UserSubject(stateOf(a).ID())
 	codeHash := secret.Hash(code)
-	err := s.withAuthorityMutation(ctx, a, func(st *permissionGroupStore) error {
+	var err error
+	ctx, err = s.proofContext(ctx, "invitation", codeHash)
+	if err != nil {
+		return out, err
+	}
+	if err := s.requireTenantUser(ctx, s.q, redeemer.ID); err != nil {
+		return out, err
+	}
+	err = s.withAuthorityMutation(ctx, a, func(st *permissionGroupStore) error {
 		q := db.New(st.q)
-		groupID, err := q.InviteLinkGroupByCode(ctx, codeHash)
+		groupID, err := q.InviteLinkGroupByCode(ctx, db.InviteLinkGroupByCodeParams{TenantID: s.tenantKey(ctx), CodeHash: codeHash})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return s.acceptAccountInvite(ctx, st, redeemer, codeHash, &out)
 		}
@@ -83,7 +91,7 @@ func (s *Engine) RedeemInvitation(ctx context.Context, a auth.Identity, code str
 		if err := lockPermissionGroup(ctx, st.q, groupID); err != nil {
 			return err
 		}
-		link, err := q.InviteLinkByCodeForUpdate(ctx, db.InviteLinkByCodeForUpdateParams{CodeHash: codeHash, GroupID: groupID})
+		link, err := q.InviteLinkByCodeForUpdate(ctx, db.InviteLinkByCodeForUpdateParams{TenantID: s.tenantKey(ctx), CodeHash: codeHash, GroupID: groupID})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return iam.ErrInvitationNotFound
 		}
@@ -129,7 +137,7 @@ func (s *Engine) RedeemInvitation(ctx context.Context, a auth.Identity, code str
 // is ErrInvitationNotFound, never a hint about the invitation.
 func (s *Engine) acceptAccountInvite(ctx context.Context, st *permissionGroupStore, redeemer iam.Subject, codeHash string, out *authflow.InviteRedemption) error {
 	q := db.New(st.q)
-	groupID, err := q.AccountInviteGroupByCode(ctx, codeHash)
+	groupID, err := q.AccountInviteGroupByCode(ctx, db.AccountInviteGroupByCodeParams{TenantID: s.tenantKey(ctx), CodeHash: codeHash})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return iam.ErrInvitationNotFound
 	}
@@ -139,7 +147,7 @@ func (s *Engine) acceptAccountInvite(ctx context.Context, st *permissionGroupSto
 	if err := lockPermissionGroup(ctx, st.q, groupID); err != nil {
 		return err
 	}
-	invite, err := q.AccountInviteByCodeForUpdate(ctx, db.AccountInviteByCodeForUpdateParams{CodeHash: codeHash, GroupID: groupID, UserID: redeemer.ID})
+	invite, err := q.AccountInviteByCodeForUpdate(ctx, db.AccountInviteByCodeForUpdateParams{TenantID: s.tenantKey(ctx), CodeHash: codeHash, GroupID: groupID, UserID: redeemer.ID})
 	if errors.Is(err, pgx.ErrNoRows) || err == nil && !invite.Addressed {
 		return iam.ErrInvitationNotFound
 	}
@@ -160,6 +168,12 @@ func (s *Engine) acceptAccountInvite(ctx context.Context, st *permissionGroupSto
 	}
 	if !live {
 		return iam.ErrInsufficientAuthority
+	}
+	if out.Role.IsZero() {
+		if invite.ConsumedAt != nil {
+			return iam.ErrInvitationNotFound
+		}
+		return q.AccountInviteConsume(ctx, invite.ID)
 	}
 	already, err := subjectHasRole(ctx, st.q, groupID, redeemer.ID, out.Role)
 	if err != nil || already {

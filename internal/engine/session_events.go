@@ -27,6 +27,9 @@ const sessionEventsPruneBatchSize = 5000
 // SessionEvents pages an account's session history, newest first.
 func (s *Engine) ListSessionEvents(ctx context.Context, userID string, q iam.SessionEventQuery) (iam.ListPage[iam.SessionEvent], error) {
 	out := iam.ListPage[iam.SessionEvent]{Items: []iam.SessionEvent{}}
+	if err := s.requireTenantUser(ctx, s.q, userID); err != nil {
+		return out, err
+	}
 	userID, ok := canonicalUUID(userID)
 	if !ok {
 		return out, iam.ErrUserNotFound

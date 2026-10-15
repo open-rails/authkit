@@ -71,6 +71,10 @@ type GroupClientScope struct {
 
 // OAuthClientConfig registers one OAuth client.
 type OAuthClientConfig struct {
+	// TenantID binds this client to one native account directory. Empty uses
+	// Config.DefaultTenantID; a client that reads native SCIM accounts needs an
+	// explicit resulting tenant. The client identifier never grants authority.
+	TenantID iam.TenantID `yaml:"tenant_id"`
 	// ID is the client_id: 1-128 characters of letters, digits, '.', '_',
 	// '-' and ':'.
 	ID string `yaml:"id"`
@@ -307,6 +311,12 @@ func normalizeAuthorizationServer(a *AuthorizationServerConfig, c Config) error 
 
 	clients := make([]OAuthClientConfig, 0, len(a.Clients))
 	for i, cl := range a.Clients {
+		if cl.TenantID.IsZero() {
+			cl.TenantID = c.DefaultTenantID
+		}
+		if slices.Contains(cl.Resources, scim.ID) && cl.TenantID.IsZero() {
+			return fmt.Errorf("authkit: AuthorizationServer.Clients[%d]: SCIM client needs TenantID or DefaultTenantID", i)
+		}
 		if err := normalizeOAuthClient(&cl, a.Resources); err != nil {
 			return fmt.Errorf("authkit: AuthorizationServer.Clients[%d]: %w", i, err)
 		}

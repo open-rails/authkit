@@ -47,6 +47,9 @@ func (s *Engine) ProviderSlugs(ctx context.Context, userID string) ([]string, er
 // it always goes. The check and the delete hold the account lock every
 // credential change takes, so two unlinks cannot each leave the other last.
 func (s *Engine) UnlinkProvider(ctx context.Context, userID, provider string) error {
+	if err := s.requireTenantUser(ctx, s.q, userID); err != nil {
+		return err
+	}
 	if err := s.requirePG(); err != nil {
 		return err
 	}
@@ -128,6 +131,9 @@ func (s *Engine) GetProviderLinkByIssuer(ctx context.Context, issuer, subject st
 // method, as a host operation. Browser flows use ExternalLoginInput.Link, whose
 // initiating session is checked at commit.
 func (s *Engine) LinkProvider(ctx context.Context, userID string, l iam.ProviderLink, opts ...ops.Option) error {
+	if err := s.requireTenantUser(ctx, s.q, userID); err != nil {
+		return err
+	}
 	if err := noOptions("LinkProvider", opts); err != nil {
 		return err
 	}
@@ -154,7 +160,7 @@ func (s *Engine) LinkProvider(ctx context.Context, userID string, l iam.Provider
 
 // linkProvider links l to userID, for a caller that proved it.
 func (s *Engine) linkProvider(ctx context.Context, userID string, l iam.ProviderLink) error {
-	verified, err := linkProviderByIssuer(ctx, s.q, userID, l.Issuer, l.Provider, l.Subject, nullable(strings.TrimSpace(l.Email)))
+	verified, err := s.linkProviderByIssuer(ctx, s.q, userID, l.Issuer, l.Provider, l.Subject, nullable(strings.TrimSpace(l.Email)))
 	if err != nil {
 		return err
 	}
@@ -164,7 +170,7 @@ func (s *Engine) linkProvider(ctx context.Context, userID string, l iam.Provider
 	return nil
 }
 
-func linkProviderByIssuer(ctx context.Context, q *db.Queries, userID, issuer, providerSlug, subject string, email *string) (bool, error) {
+func (s *Engine) linkProviderByIssuer(ctx context.Context, q *db.Queries, userID, issuer, providerSlug, subject string, email *string) (bool, error) {
 	providerID, err := newUUIDV7String()
 	if err != nil {
 		return false, err
@@ -173,7 +179,7 @@ func linkProviderByIssuer(ctx context.Context, q *db.Queries, userID, issuer, pr
 	if providerSlug != "" {
 		slug = &providerSlug
 	}
-	linked, err := q.UserProviderUpsertByIssuer(ctx, db.UserProviderUpsertByIssuerParams{
+	linked, err := q.UserProviderUpsertByIssuer(ctx, db.UserProviderUpsertByIssuerParams{TenantID: s.tenantKey(ctx),
 		ID:              providerID,
 		UserID:          userID,
 		Issuer:          issuer,
@@ -197,7 +203,7 @@ func (s *Engine) getProviderLinkByIssuerInternal(ctx context.Context, issuer, su
 	if s.pg == nil {
 		return "", nil, nil
 	}
-	row, err := s.q.ProviderLinkByIssuer(ctx, db.ProviderLinkByIssuerParams{Issuer: issuer, Subject: subject})
+	row, err := s.q.ProviderLinkByIssuer(ctx, db.ProviderLinkByIssuerParams{TenantID: s.tenantKey(ctx), Issuer: issuer, Subject: subject})
 	if err != nil {
 		return "", nil, err
 	}

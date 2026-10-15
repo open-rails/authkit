@@ -26,7 +26,7 @@ func TestSchemaQualifiedWritesKeepAuthKitTriggerScope(t *testing.T) {
 
 	for _, schema := range []string{"profiles", "custom_identity"} {
 		t.Run(schema, func(t *testing.T) {
-			require.NoError(t, engine.Migrate(ctx, pg.Pool, config.DatabaseConfig{Schema: schema}))
+			require.NoError(t, engine.Migrate(ctx, pg.Pool, config.DatabaseConfig{Schema: schema}, engine.MigrationOptions{LegacyTenantID: testdb.DefaultTenantID}))
 			conn, err := db.Conn(ctx)
 			require.NoError(t, err)
 			defer conn.Close()
@@ -38,7 +38,7 @@ func TestSchemaQualifiedWritesKeepAuthKitTriggerScope(t *testing.T) {
 			defer conn.ExecContext(ctx, `DROP TABLE pg_temp.name_claims`)
 
 			var userID string
-			err = conn.QueryRowContext(ctx, `INSERT INTO `+s+`users(username) VALUES ('host-user') RETURNING id::text`).Scan(&userID)
+			err = conn.QueryRowContext(ctx, `INSERT INTO `+s+`users(tenant_id,username) VALUES ($1::uuid,'host-user') RETURNING id::text`, testdb.DefaultTenantID.String()).Scan(&userID)
 			require.NoError(t, err)
 			var claims, shadowClaims int
 			require.NoError(t, conn.QueryRowContext(ctx, `SELECT count(*) FROM `+s+`name_claims WHERE owner_id=$1::uuid`, userID).Scan(&claims))
@@ -53,7 +53,7 @@ func TestSchemaQualifiedWritesKeepAuthKitTriggerScope(t *testing.T) {
 			_, err = conn.ExecContext(ctx, `INSERT INTO `+s+`permission_groups(persona) VALUES ('root')`)
 			require.NoError(t, err)
 			var groupID string
-			err = conn.QueryRowContext(ctx, `INSERT INTO `+s+`permission_groups(persona) VALUES ('merchant') RETURNING id::text`).Scan(&groupID)
+			err = conn.QueryRowContext(ctx, `INSERT INTO `+s+`permission_groups(tenant_id,persona) VALUES ($1::uuid,'merchant') RETURNING id::text`, testdb.DefaultTenantID.String()).Scan(&groupID)
 			require.NoError(t, err)
 			_, err = conn.ExecContext(ctx, `UPDATE `+s+`permission_groups SET persona='team' WHERE id=$1::uuid`, groupID)
 			var refusal *pgconn.PgError

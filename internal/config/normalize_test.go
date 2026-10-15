@@ -207,6 +207,7 @@ func TestNormalizeDegradesSurvivableProblems(t *testing.T) {
 		},
 		"misconfigured provisioning targets": {
 			edit: func(c *Config) {
+				c.DefaultTenantID = iam.NewTenantID()
 				c.Provisioning = ProvisioningConfig{Targets: []ProvisioningTarget{
 					{Name: "Bad Name", URL: "https://x.example"},
 					{Name: "nourl"},

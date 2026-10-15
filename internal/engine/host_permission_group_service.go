@@ -148,8 +148,11 @@ func (s *Engine) can(ctx context.Context, a auth.Identity, ref iam.GroupRef, per
 		return false, nil
 	}
 	state, _ := iam.StateOf(a)
-	if !direct || state.IsSystem() || state.IsAPIKey() {
+	if !direct || state.IsSystem() {
 		return true, nil
+	}
+	if state.IsAPIKey() {
+		return auth.credentialGroup == g.ID, nil
 	}
 	var subject iam.Subject
 	switch {
@@ -240,7 +243,7 @@ func (s *Engine) EffectivePermissions(ctx context.Context, a auth.Identity, refs
 		if g.DeletedAt != nil {
 			continue
 		}
-		t := groupTarget{ID: g.ID, Persona: g.Persona}
+		t := groupTarget{ID: g.ID, Persona: g.Persona, TenantID: g.TenantID}
 		auth, err := s.identityAuthority(ctx, st, a, t)
 		if errors.Is(err, iam.ErrInsufficientAuthority) {
 			return map[string][]iam.Perm{}, nil

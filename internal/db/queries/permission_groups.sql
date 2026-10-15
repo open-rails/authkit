@@ -4,10 +4,10 @@
 -- variant.
 
 -- name: PermissionGroupInsert :one
-INSERT INTO permission_groups (persona) VALUES (sqlc.arg(persona)) RETURNING id;
+INSERT INTO permission_groups (persona,tenant_id) VALUES (sqlc.arg(persona),NULLIF(sqlc.arg(tenant_id)::text,'')::uuid) RETURNING id;
 
 -- name: PermissionGroupInsertWithID :exec
-INSERT INTO permission_groups (id, persona) VALUES (sqlc.arg(id)::uuid, sqlc.arg(persona));
+INSERT INTO permission_groups (id,persona,tenant_id) VALUES (sqlc.arg(id)::uuid,sqlc.arg(persona),NULLIF(sqlc.arg(tenant_id)::text,'')::uuid);
 
 -- name: PermissionGroupsByIDs :many
 SELECT * FROM permission_groups WHERE id = ANY(sqlc.arg(ids)::uuid[]);
@@ -91,9 +91,10 @@ LIMIT sqlc.arg(page_limit)::bigint;
 -- group is live.
 -- name: GroupUserAssignmentsForGroups :many
 WITH targets AS (
-  SELECT id, persona FROM permission_groups WHERE id = ANY(sqlc.arg(group_ids)::uuid[]) AND deleted_at IS NULL),
+  SELECT id, persona, tenant_id FROM permission_groups WHERE id = ANY(sqlc.arg(group_ids)::uuid[]) AND deleted_at IS NULL),
 chain AS (
   SELECT id AS target, id, persona FROM targets
+  UNION SELECT t.id, tg.id, tg.persona FROM targets t JOIN permission_groups tg ON tg.id=t.tenant_id AND tg.persona='tenant' AND tg.deleted_at IS NULL
   UNION SELECT t.id, rg.id, rg.persona FROM targets t JOIN permission_groups rg ON rg.persona = 'root')
 SELECT c.target::text AS target, c.id::text AS group_id, c.persona::text AS persona, a.role, cr.permissions AS custom_permissions
 FROM chain c JOIN group_user_roles a ON a.permission_group_id = c.id AND a.user_id = sqlc.arg(subject_id)::uuid
@@ -102,9 +103,10 @@ ORDER BY c.target, c.id;
 
 -- name: GroupApplicationAssignmentsForGroups :many
 WITH targets AS (
-  SELECT id, persona FROM permission_groups WHERE id = ANY(sqlc.arg(group_ids)::uuid[]) AND deleted_at IS NULL),
+  SELECT id, persona, tenant_id FROM permission_groups WHERE id = ANY(sqlc.arg(group_ids)::uuid[]) AND deleted_at IS NULL),
 chain AS (
   SELECT id AS target, id, persona FROM targets
+  UNION SELECT t.id, tg.id, tg.persona FROM targets t JOIN permission_groups tg ON tg.id=t.tenant_id AND tg.persona='tenant' AND tg.deleted_at IS NULL
   UNION SELECT t.id, rg.id, rg.persona FROM targets t JOIN permission_groups rg ON rg.persona = 'root')
 SELECT c.target::text AS target, c.id::text AS group_id, c.persona::text AS persona, a.role, cr.permissions AS custom_permissions
 FROM chain c JOIN group_remote_application_roles a ON a.permission_group_id = c.id AND a.remote_application_id = sqlc.arg(subject_id)::uuid

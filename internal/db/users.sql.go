@@ -13,25 +13,24 @@ import (
 const accountDeletionPurgeNow = `-- name: AccountDeletionPurgeNow :one
 UPDATE account_deletions SET purge_at = statement_timestamp()
 WHERE user_id = $1 AND state = 'deleted'
-RETURNING id, user_id, deleted_at, purge_at
+RETURNING id, user_id, deleted_at, purge_at, state, recipients, restored_at, purged_at, deleted_by, tenant_id
 `
 
-type AccountDeletionPurgeNowRow struct {
-	ID        string
-	UserID    string
-	DeletedAt time.Time
-	PurgeAt   time.Time
-}
-
 // Closes the recovery window of a deleted account now.
-func (q *Queries) AccountDeletionPurgeNow(ctx context.Context, userID string) (AccountDeletionPurgeNowRow, error) {
+func (q *Queries) AccountDeletionPurgeNow(ctx context.Context, userID string) (AccountDeletion, error) {
 	row := q.db.QueryRow(ctx, accountDeletionPurgeNow, userID)
-	var i AccountDeletionPurgeNowRow
+	var i AccountDeletion
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
 		&i.DeletedAt,
 		&i.PurgeAt,
+		&i.State,
+		&i.Recipients,
+		&i.RestoredAt,
+		&i.PurgedAt,
+		&i.DeletedBy,
+		&i.TenantID,
 	)
 	return i, err
 }
@@ -101,6 +100,93 @@ DELETE FROM mfa_settings WHERE user_id = $1
 func (q *Queries) MFASettingsDelete(ctx context.Context, userID string) error {
 	_, err := q.db.Exec(ctx, mFASettingsDelete, userID)
 	return err
+}
+
+const tenantUserByID = `-- name: TenantUserByID :one
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id FROM users WHERE tenant_id=NULLIF($1::text,'')::uuid AND id=$2::uuid
+`
+
+type TenantUserByIDParams struct {
+	TenantID string
+	ID       string
+}
+
+func (q *Queries) TenantUserByID(ctx context.Context, arg TenantUserByIDParams) (User, error) {
+	row := q.db.QueryRow(ctx, tenantUserByID, arg.TenantID, arg.ID)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.Username,
+		&i.EmailVerified,
+		&i.PhoneNumber,
+		&i.PhoneVerified,
+		&i.BannedAt,
+		&i.BannedUntil,
+		&i.BanReason,
+		&i.BannedBy,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastLogin,
+		&i.PreferredLanguage,
+		&i.LastRenamedAt,
+		&i.CredentialVersion,
+		&i.PublicMetadata,
+		&i.ProfileUpdatedAt,
+		&i.TenantID,
+	)
+	return i, err
+}
+
+const tenantUsersByIDs = `-- name: TenantUsersByIDs :many
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id FROM users WHERE tenant_id=NULLIF($1::text,'')::uuid AND id=ANY($2::uuid[])
+`
+
+type TenantUsersByIDsParams struct {
+	TenantID string
+	Ids      []string
+}
+
+func (q *Queries) TenantUsersByIDs(ctx context.Context, arg TenantUsersByIDsParams) ([]User, error) {
+	rows, err := q.db.Query(ctx, tenantUsersByIDs, arg.TenantID, arg.Ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []User
+	for rows.Next() {
+		var i User
+		if err := rows.Scan(
+			&i.ID,
+			&i.Email,
+			&i.Username,
+			&i.EmailVerified,
+			&i.PhoneNumber,
+			&i.PhoneVerified,
+			&i.BannedAt,
+			&i.BannedUntil,
+			&i.BanReason,
+			&i.BannedBy,
+			&i.DeletedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LastLogin,
+			&i.PreferredLanguage,
+			&i.LastRenamedAt,
+			&i.CredentialVersion,
+			&i.PublicMetadata,
+			&i.ProfileUpdatedAt,
+			&i.TenantID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const userAdvanceCredentialVersion = `-- name: UserAdvanceCredentialVersion :exec
@@ -178,11 +264,16 @@ func (q *Queries) UserBanInForce(ctx context.Context, id string) (bool, error) {
 }
 
 const userByEmail = `-- name: UserByEmail :one
-SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at FROM users WHERE email = lower($1::text)::public.citext
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id FROM users WHERE tenant_id=NULLIF($1::text,'')::uuid AND email = lower($2::text)::public.citext
 `
 
-func (q *Queries) UserByEmail(ctx context.Context, email string) (User, error) {
-	row := q.db.QueryRow(ctx, userByEmail, email)
+type UserByEmailParams struct {
+	TenantID string
+	Email    string
+}
+
+func (q *Queries) UserByEmail(ctx context.Context, arg UserByEmailParams) (User, error) {
+	row := q.db.QueryRow(ctx, userByEmail, arg.TenantID, arg.Email)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -204,13 +295,14 @@ func (q *Queries) UserByEmail(ctx context.Context, email string) (User, error) {
 		&i.CredentialVersion,
 		&i.PublicMetadata,
 		&i.ProfileUpdatedAt,
+		&i.TenantID,
 	)
 	return i, err
 }
 
 const userByID = `-- name: UserByID :one
 
-SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at FROM users WHERE id = $1
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id FROM users WHERE id = $1
 `
 
 // User-row queries. A user read selects the whole row, so every read returns
@@ -238,16 +330,22 @@ func (q *Queries) UserByID(ctx context.Context, id string) (User, error) {
 		&i.CredentialVersion,
 		&i.PublicMetadata,
 		&i.ProfileUpdatedAt,
+		&i.TenantID,
 	)
 	return i, err
 }
 
 const userByPhone = `-- name: UserByPhone :one
-SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at FROM users WHERE phone_number = $1
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id FROM users WHERE tenant_id=NULLIF($1::text,'')::uuid AND phone_number = $2::text
 `
 
-func (q *Queries) UserByPhone(ctx context.Context, phoneNumber *string) (User, error) {
-	row := q.db.QueryRow(ctx, userByPhone, phoneNumber)
+type UserByPhoneParams struct {
+	TenantID string
+	Phone    *string
+}
+
+func (q *Queries) UserByPhone(ctx context.Context, arg UserByPhoneParams) (User, error) {
+	row := q.db.QueryRow(ctx, userByPhone, arg.TenantID, arg.Phone)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -269,16 +367,22 @@ func (q *Queries) UserByPhone(ctx context.Context, phoneNumber *string) (User, e
 		&i.CredentialVersion,
 		&i.PublicMetadata,
 		&i.ProfileUpdatedAt,
+		&i.TenantID,
 	)
 	return i, err
 }
 
 const userByUsername = `-- name: UserByUsername :one
-SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at FROM users WHERE username = $1::text::public.citext
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id FROM users WHERE tenant_id=NULLIF($1::text,'')::uuid AND username = $2::text::public.citext
 `
 
-func (q *Queries) UserByUsername(ctx context.Context, username string) (User, error) {
-	row := q.db.QueryRow(ctx, userByUsername, username)
+type UserByUsernameParams struct {
+	TenantID string
+	Username string
+}
+
+func (q *Queries) UserByUsername(ctx context.Context, arg UserByUsernameParams) (User, error) {
+	row := q.db.QueryRow(ctx, userByUsername, arg.TenantID, arg.Username)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -300,6 +404,7 @@ func (q *Queries) UserByUsername(ctx context.Context, username string) (User, er
 		&i.CredentialVersion,
 		&i.PublicMetadata,
 		&i.ProfileUpdatedAt,
+		&i.TenantID,
 	)
 	return i, err
 }
@@ -371,11 +476,12 @@ func (q *Queries) UserDeleteHard(ctx context.Context, id string) error {
 
 const userEmailOrUsernameTaken = `-- name: UserEmailOrUsernameTaken :one
 SELECT
-  EXISTS(SELECT 1 FROM users WHERE email = lower($1::text)::public.citext)::boolean AS email_taken,
-  EXISTS(SELECT 1 FROM name_claims WHERE name=lower($2::text) AND (canonical OR expires_at IS NULL OR expires_at>$3::timestamptz))::boolean AS username_taken
+  EXISTS(SELECT 1 FROM users WHERE tenant_id=NULLIF($1::text,'')::uuid AND email = lower($2::text)::public.citext)::boolean AS email_taken,
+  EXISTS(SELECT 1 FROM name_claims WHERE tenant_id=NULLIF($1::text,'')::uuid AND name=lower($3::text) AND (canonical OR expires_at IS NULL OR expires_at>$4::timestamptz))::boolean AS username_taken
 `
 
 type UserEmailOrUsernameTakenParams struct {
+	TenantID string
 	Email    string
 	Username string
 	AtTime   time.Time
@@ -387,7 +493,12 @@ type UserEmailOrUsernameTakenRow struct {
 }
 
 func (q *Queries) UserEmailOrUsernameTaken(ctx context.Context, arg UserEmailOrUsernameTakenParams) (UserEmailOrUsernameTakenRow, error) {
-	row := q.db.QueryRow(ctx, userEmailOrUsernameTaken, arg.Email, arg.Username, arg.AtTime)
+	row := q.db.QueryRow(ctx, userEmailOrUsernameTaken,
+		arg.TenantID,
+		arg.Email,
+		arg.Username,
+		arg.AtTime,
+	)
 	var i UserEmailOrUsernameTakenRow
 	err := row.Scan(&i.EmailTaken, &i.UsernameTaken)
 	return i, err
@@ -395,20 +506,21 @@ func (q *Queries) UserEmailOrUsernameTaken(ctx context.Context, arg UserEmailOrU
 
 const userImportInsert = `-- name: UserImportInsert :exec
 WITH claim AS MATERIALIZED (
- SELECT claim_canonical_name($4::text,$1::uuid,$14::timestamptz)
+ SELECT claim_canonical_name(NULLIF($2::text,'')::uuid,$5::text,$1::uuid,$15::timestamptz)
 )
 INSERT INTO users (
-  id, email, phone_number, username, email_verified, phone_verified,
+  id,tenant_id,email,phone_number,username,email_verified,phone_verified,
   banned_at, banned_until, ban_reason, banned_by, public_metadata, created_at, updated_at
 )
 SELECT
-  $1::uuid, $2, $3, $4, $5, $6,
-  $7, $8, $9, $10::uuid, $11::jsonb, $12, $13
+  $1::uuid,NULLIF($2::text,'')::uuid,$3,$4,$5,$6,$7,
+  $8, $9, $10, $11::uuid, $12::jsonb, $13, $14
 FROM claim
 `
 
 type UserImportInsertParams struct {
 	ID             string
+	TenantID       string
 	Email          *string
 	PhoneNumber    *string
 	Username       *string
@@ -427,6 +539,7 @@ type UserImportInsertParams struct {
 func (q *Queries) UserImportInsert(ctx context.Context, arg UserImportInsertParams) error {
 	_, err := q.db.Exec(ctx, userImportInsert,
 		arg.ID,
+		arg.TenantID,
 		arg.Email,
 		arg.PhoneNumber,
 		arg.Username,
@@ -446,15 +559,16 @@ func (q *Queries) UserImportInsert(ctx context.Context, arg UserImportInsertPara
 
 const userInsert = `-- name: UserInsert :one
 WITH claim AS MATERIALIZED (
- SELECT claim_canonical_name($3::text,$1::uuid,$4::timestamptz)
+ SELECT claim_canonical_name(NULLIF($2::text,'')::uuid,$4::text,$1::uuid,$5::timestamptz)
 )
-INSERT INTO users (id, email, username)
-SELECT $1::uuid, NULLIF(lower($2::text), ''), $3 FROM claim
-RETURNING id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at
+INSERT INTO users (id,tenant_id,email,username)
+SELECT $1::uuid,NULLIF($2::text,'')::uuid,NULLIF(lower($3::text), ''),$4 FROM claim
+RETURNING id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id
 `
 
 type UserInsertParams struct {
 	ID       string
+	TenantID string
 	Email    string
 	Username *string
 	AtTime   time.Time
@@ -463,6 +577,7 @@ type UserInsertParams struct {
 func (q *Queries) UserInsert(ctx context.Context, arg UserInsertParams) (User, error) {
 	row := q.db.QueryRow(ctx, userInsert,
 		arg.ID,
+		arg.TenantID,
 		arg.Email,
 		arg.Username,
 		arg.AtTime,
@@ -488,6 +603,7 @@ func (q *Queries) UserInsert(ctx context.Context, arg UserInsertParams) (User, e
 		&i.CredentialVersion,
 		&i.PublicMetadata,
 		&i.ProfileUpdatedAt,
+		&i.TenantID,
 	)
 	return i, err
 }
@@ -585,11 +701,12 @@ func (q *Queries) UserPasswordUpsert(ctx context.Context, arg UserPasswordUpsert
 
 const userPhoneOrUsernameTaken = `-- name: UserPhoneOrUsernameTaken :one
 SELECT
-  EXISTS(SELECT 1 FROM users WHERE phone_number = $1::text)::boolean AS phone_taken,
-  EXISTS(SELECT 1 FROM name_claims WHERE name=lower($2::text) AND (canonical OR expires_at IS NULL OR expires_at>$3::timestamptz))::boolean AS username_taken
+  EXISTS(SELECT 1 FROM users WHERE tenant_id=NULLIF($1::text,'')::uuid AND phone_number = $2::text)::boolean AS phone_taken,
+  EXISTS(SELECT 1 FROM name_claims WHERE tenant_id=NULLIF($1::text,'')::uuid AND name=lower($3::text) AND (canonical OR expires_at IS NULL OR expires_at>$4::timestamptz))::boolean AS username_taken
 `
 
 type UserPhoneOrUsernameTakenParams struct {
+	TenantID string
 	Phone    string
 	Username string
 	AtTime   time.Time
@@ -601,7 +718,12 @@ type UserPhoneOrUsernameTakenRow struct {
 }
 
 func (q *Queries) UserPhoneOrUsernameTaken(ctx context.Context, arg UserPhoneOrUsernameTakenParams) (UserPhoneOrUsernameTakenRow, error) {
-	row := q.db.QueryRow(ctx, userPhoneOrUsernameTaken, arg.Phone, arg.Username, arg.AtTime)
+	row := q.db.QueryRow(ctx, userPhoneOrUsernameTaken,
+		arg.TenantID,
+		arg.Phone,
+		arg.Username,
+		arg.AtTime,
+	)
 	var i UserPhoneOrUsernameTakenRow
 	err := row.Scan(&i.PhoneTaken, &i.UsernameTaken)
 	return i, err
@@ -818,7 +940,7 @@ func (q *Queries) UserSoftDelete(ctx context.Context, id string) error {
 }
 
 const usersByIDs = `-- name: UsersByIDs :many
-SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at FROM users WHERE id = ANY($1::uuid[])
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id FROM users WHERE id = ANY($1::uuid[])
 `
 
 func (q *Queries) UsersByIDs(ctx context.Context, ids []string) ([]User, error) {
@@ -850,6 +972,7 @@ func (q *Queries) UsersByIDs(ctx context.Context, ids []string) ([]User, error) 
 			&i.CredentialVersion,
 			&i.PublicMetadata,
 			&i.ProfileUpdatedAt,
+			&i.TenantID,
 		); err != nil {
 			return nil, err
 		}

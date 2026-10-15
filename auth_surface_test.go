@@ -90,6 +90,8 @@ func TestClientPublicSurface(t *testing.T) {
 		"Start", "Close", "RiverJobs", "Ready", "Probes", "EmailAvailable", "EmailHealth", "SMSAvailable", "SMSHealth", "TwoFactorMethods",
 		// HTTP surface and request verification.
 		"Handler", "APIBase", "Routes", "Mount",
+		// Trusted tenant provisioning/views and explicit owner-only maintenance.
+		"CreateTenant", "ForTenant", "ResolveTenantActor", "MigrateGroupPersona",
 		"VerifyRequest", "Verify", "VerifyIDToken", "AuthenticateRequest", "NewVerifier",
 		// authkit/auth Authenticator: who a library's request is, and the
 		// scope its Can checks.

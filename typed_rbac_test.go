@@ -139,7 +139,7 @@ func TestRolePermissions(t *testing.T) {
 	}
 	require.Equal(t, []iam.Perm{postsEdit, channel.Members.Read, postsRead}, grants(moderator), "own grants, then includes")
 	require.Equal(t, []iam.Perm{channel.All()}, grants(channel.Owner))
-	require.Equal(t, []iam.Perm{rbac.Root.All(), channel.All()}, grants(rbac.Root.Owner), "the root owner holds every persona")
+	require.Equal(t, []iam.Perm{rbac.Root.All(), channel.All(), rbac.Tenant.All()}, grants(rbac.Root.Owner), "the root owner holds every persona")
 	parsed, err := auth.Role("channel:reader")
 	require.NoError(t, err)
 	require.Equal(t, []iam.Perm{postsRead}, grants(parsed))

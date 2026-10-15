@@ -34,3 +34,25 @@ func (s *Engine) rootRoles(ctx context.Context, ids []string) (map[string]iam.Ro
 	}
 	return out, nil
 }
+
+func (s *Engine) tenantRoles(ctx context.Context, ids []string) (map[string]iam.Role, error) {
+	out := make(map[string]iam.Role, len(ids))
+	if len(ids) == 0 || s.pg == nil {
+		return out, nil
+	}
+	tenant, err := s.tenantID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.q.GroupUserRolesForUsers(ctx, db.GroupUserRolesForUsersParams{GroupID: tenant.String(), UserIds: ids})
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		role := ident.RoleText(row.Role)
+		if _, ok := s.groupSchemaOrDefault().AssignedRole(iam.TenantPersona(), role, row.CustomPermissions); ok {
+			out[row.UserID] = role
+		}
+	}
+	return out, nil
+}
