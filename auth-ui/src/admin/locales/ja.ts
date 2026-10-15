@@ -1,6 +1,7 @@
 import type { AdminMessageTree } from "../i18n.ts"
 
 export const ja: AdminMessageTree = {
+  console: { title: "アカウント管理" },
   common: {
     loading: "読み込み中…",
     loadMore: "さらに読み込む",

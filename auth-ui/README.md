@@ -499,6 +499,52 @@ stale sign-in fails the write with "sign in again"), `appearance` (default
 `theme: "inherit"`), `language` (`ADMIN_LANGUAGES`) and `messages` (the admin
 words under `admin`).
 
+### Embedded console
+
+`AuthAdmin` combines the existing panels into an optional reference console.
+Import it from the separate admin entry; it does not start a server or add
+administration routes to AuthKit.
+
+```tsx
+import { AuthAdmin } from "@openrails/auth-ui/admin"
+
+<AuthAdmin
+  key={user.id}
+  auth={auth}
+  basePath="/admin/accounts"
+  group={groupId}
+  navigation={nav}
+  guard={guard}
+  sections={["users", "members", "roles", "api-keys"]}
+  users={{ entitlements: ["premium"], userPanels, confirmWarnings }}
+/>
+```
+
+**Key the console by the signed-in account id**, as above, so switching accounts
+discards permission results, data and unfinished forms. The generic `authFetch`
+interface does not expose an identity, so the console cannot detect that change
+itself. Changes to `group`, `baseUrl` or `basePath` reset it automatically.
+
+The host chooses the group (`root` by default); the console does not discover or
+switch groups. The Users view always requires root account permissions, even
+when another group is selected. Group selection grants no access. Each view
+uses the existing permission checks, and each write retains its panel's guard
+and server authorization.
+
+At `basePath`, the first permitted section opens. Section links are beneath it:
+`users`, `members`, `roles`, `api-keys`, `oauth-clients` and `remote-applications`.
+Their existing detail routes and query filters remain deep links, and browser
+back/forward works with either the host's `navigation` or the history API. An
+excluded or unauthorized deep link shows no access. Only the active panel is
+mounted.
+
+Omit `sections` to offer every permitted section, or select those enabled by your
+deployment. `users={false}` excludes account administration entirely. `users`
+otherwise accepts `userPanels`, `confirmWarnings` and `entitlements` from
+`UsersAdmin`; `permissionHelp` is passed to `RolesAdmin`, and
+`remoteApplications={{ scope, tokenEndpoint }}` configures
+`RemoteApplicationsAdmin`. All the panels below remain independently usable.
+
 ### Group admins
 
 ```tsx

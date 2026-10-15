@@ -1,6 +1,7 @@
 import type { AdminMessageTree } from "../i18n.ts"
 
 export const ko: AdminMessageTree = {
+  console: { title: "계정 관리" },
   common: {
     loading: "불러오는 중…",
     loadMore: "더 불러오기",

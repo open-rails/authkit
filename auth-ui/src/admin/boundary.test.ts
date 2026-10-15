@@ -34,9 +34,9 @@ function resolve(from: string, spec: string): string | null {
   return null
 }
 
-it("customer entries import no admin module", () => {
+function importsOf(entries: string[]) {
   const seen = new Set<string>()
-  const queue = CUSTOMER_ENTRIES.map((e) => path.join(src, e))
+  const queue = entries.map((e) => path.join(src, e))
   while (queue.length) {
     const file = queue.pop()!
     if (seen.has(file)) continue
@@ -46,6 +46,26 @@ it("customer entries import no admin module", () => {
       if (next) queue.push(next)
     }
   }
+  return seen
+}
+
+it("customer entries import no admin module", () => {
+  const seen = importsOf(CUSTOMER_ENTRIES)
   expect(seen.size).toBeGreaterThan(50)
   expect([...seen].filter((f) => f.startsWith(admin + path.sep))).toEqual([])
+})
+
+it("the explicit admin entry includes the console and its existing panels", () => {
+  const seen = importsOf(["admin/index.ts"])
+  for (const file of [
+    "console.tsx",
+    "users.tsx",
+    "members.tsx",
+    "roles.tsx",
+    "api-keys.tsx",
+    "oauth-clients.tsx",
+    "remote-applications.tsx",
+  ]) {
+    expect(seen.has(path.join(admin, file))).toBe(true)
+  }
 })

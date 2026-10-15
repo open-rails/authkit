@@ -1,6 +1,7 @@
 import type { AdminMessageTree } from "../i18n.ts"
 
 export const es: AdminMessageTree = {
+  console: { title: "Administración de cuentas" },
   common: {
     loading: "Cargando…",
     loadMore: "Cargar más",

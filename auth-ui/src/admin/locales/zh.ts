@@ -1,6 +1,7 @@
 import type { AdminMessageTree } from "../i18n.ts"
 
 export const zh: AdminMessageTree = {
+  console: { title: "账户管理" },
   common: {
     loading: "加载中…",
     loadMore: "加载更多",

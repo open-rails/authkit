@@ -1,6 +1,7 @@
 // Source of truth for the admin components' words; every other locale
 // covers each key.
 export const en = {
+  console: { title: "Account administration" },
   common: {
     loading: "Loading…",
     loadMore: "Load more",
