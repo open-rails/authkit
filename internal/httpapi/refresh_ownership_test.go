@@ -9,6 +9,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 )
 
 type cookieOwnershipBackend struct {
@@ -16,8 +19,20 @@ type cookieOwnershipBackend struct {
 	err error
 }
 
+var cookieOwnershipTenant = iam.TenantID{6: 0x40, 8: 0x80, 15: 1}
+
+// These fixtures exercise a fixed tenant's legacy-cookie migration, not the
+// central portal's active-tenant routing hint.
+func (cookieOwnershipBackend) AccountScope(context.Context) (iam.GroupRef, error) {
+	return iam.GroupByID(cookieOwnershipTenant.String()), nil
+}
+
+func cookieOwnershipService(err error) *Service {
+	return &Service{svc: cookieOwnershipBackend{err: err}, cfg: config.Config{DefaultTenantID: cookieOwnershipTenant}}
+}
+
 func TestLegacyRefreshOwnershipOutageReturnsServerError(t *testing.T) {
-	s := &Service{svc: cookieOwnershipBackend{err: errors.New("database unavailable")}}
+	s := cookieOwnershipService(errors.New("database unavailable"))
 	r := httptest.NewRequest("POST", "http://localhost/token", strings.NewReader(`{"grant_type":"refresh_token"}`))
 	r.Header.Set("Content-Type", "application/json")
 	r = r.WithContext(context.WithValue(r.Context(), refreshCookieCtxKey{}, refreshCookiePolicy{}))
@@ -35,7 +50,7 @@ func (b cookieOwnershipBackend) OwnsRefreshToken(_ context.Context, token string
 
 func TestLegacyRefreshOwnershipSelection(t *testing.T) {
 	for _, outage := range []bool{false, true} {
-		s := &Service{svc: cookieOwnershipBackend{}}
+		s := cookieOwnershipService(nil)
 		if outage {
 			s.svc = cookieOwnershipBackend{err: errors.New("database unavailable")}
 		}

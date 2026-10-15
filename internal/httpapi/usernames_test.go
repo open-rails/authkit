@@ -7,12 +7,17 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/naming"
 	"github.com/stretchr/testify/require"
 )
 
 type usernameBackend struct{ Backend }
+
+func (usernameBackend) AccountScope(context.Context) (iam.GroupRef, error) {
+	return iam.GroupRef{}, iam.ErrTenantRequired
+}
 
 func (usernameBackend) CheckUsername(_ context.Context, name string) error {
 	return naming.Validate(config.UsernameConfig{MinLength: 4, MaxLength: 30}, name)
