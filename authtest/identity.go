@@ -22,7 +22,7 @@ func Identity(t testing.TB, auth *authkit.Client, credential string) hauth.Ident
 		id, ok = verify.VerifiedIdentity(r.Context(), auth)
 	}))
 	r := httptest.NewRequest(http.MethodGet, "https://authtest/identity", nil)
-	r.Header.Set("Authorization", "Bearer "+credential)
+	Authorize(t, auth, r, credential)
 	w := httptest.NewRecorder()
 	gate.ServeHTTP(w, r)
 	if !ok {

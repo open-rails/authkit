@@ -206,6 +206,15 @@ func (a *Client) Handler() http.Handler {
 // "/api/v1" by default. It is "" without Config.HTTP.
 func (a *Client) APIBase() string { return a.mount.APIBase() }
 
+// PublicAPIBase is APIBase as clients reach it (HTTPConfig.PublicURL): what
+// DPoP proofs to the API name. "" without HTTP.
+func (a *Client) PublicAPIBase() string {
+	if a.http == nil || a.mount == nil {
+		return ""
+	}
+	return a.http.PublicURL(a.mount.APIBase())
+}
+
 // Routes returns the mounted route catalog, with a HEAD entry per GET route;
 // Route.Pattern is its net/http ServeMux pattern.
 func (a *Client) Routes() []iam.Route { return a.mount.Routes() }

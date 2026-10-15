@@ -72,11 +72,20 @@ func SignIn(t testing.TB, auth *authkit.Client, u User) iam.TokenSet {
 	if identifier == "" {
 		identifier = u.Username
 	}
-	res := signInCall(t, auth, identifier, "/password/login", "", map[string]string{"identifier": identifier, "password": u.Password})
+	// A deployment requiring DPoP binds the session to a key, as a browser's.
+	var key *DPoPKey
+	if requiresDPoP(t, auth) {
+		key = NewDPoPKey(t)
+	}
+	res := signInCall(t, auth, identifier, "/password/login", key, map[string]string{"identifier": identifier, "password": u.Password})
 	for range 3 {
 		switch res.Status {
 		case httpapi.AuthComplete:
 			remember(t, res.User.ID, u.TOTP)
+			bindTokens(key, res.TokenSet.AccessToken)
+			if res.TokenSet.RefreshToken != nil {
+				bindTokens(key, *res.TokenSet.RefreshToken)
+			}
 			return *res.TokenSet
 		case httpapi.AuthSecondFactorRequired:
 			step := res.SecondFactor
@@ -94,13 +103,14 @@ func SignIn(t testing.TB, auth *authkit.Client, u User) iam.TokenSet {
 				t.Fatalf("authtest: %s needs a second factor and has no TOTP", identifier)
 			}
 			u.TOTP = app
-			res = signInCall(t, auth, identifier, "/2fa/verify", "", map[string]string{"user_id": step.UserID, "challenge": step.Challenge, "factor_id": factorID, "code": app.Code(t)})
+			res = signInCall(t, auth, identifier, "/2fa/verify", key, map[string]string{"user_id": step.UserID, "challenge": step.Challenge, "factor_id": factorID, "code": app.Code(t)})
 		case httpapi.AuthDeviceVerificationRequired:
 			step := res.DeviceVerification
-			res = signInCall(t, auth, identifier, "/device-verification/confirm", "", map[string]string{
+			res = signInCall(t, auth, identifier, "/device-verification/confirm", key, map[string]string{
 				"user_id": step.UserID, "challenge": step.Challenge, "code": deviceCode(t, auth, step.UserID, u.Email)})
 		case httpapi.AuthEnrollmentRequired:
 			var created httpapi.TwoFactorFactorCreated
+			bindTokens(key, res.Enrollment.TokenSet.AccessToken)
 			u.TOTP, created = addTOTP(t, auth, identifier, res.Enrollment.TokenSet.AccessToken)
 			if created.Auth == nil {
 				t.Fatalf("authtest: enroll TOTP for %s: no sign-in", identifier)
@@ -114,9 +124,9 @@ func SignIn(t testing.TB, auth *authkit.Client, u User) iam.TokenSet {
 	return iam.TokenSet{}
 }
 
-func signInCall(t testing.TB, auth *authkit.Client, identifier, path, token string, body any) httpapi.AuthResult {
+func signInCall(t testing.TB, auth *authkit.Client, identifier, path string, key *DPoPKey, body any) httpapi.AuthResult {
 	t.Helper()
-	status, raw := call(t, auth, http.MethodPost, path, token, body)
+	status, raw := call(t, auth, http.MethodPost, path, "", key, body)
 	var res httpapi.AuthResult
 	if status != http.StatusOK || json.Unmarshal(raw, &res) != nil {
 		t.Fatalf("authtest: sign in %s: %s: %d %s", identifier, path, status, raw)
@@ -195,13 +205,13 @@ func EnrollTOTP(t testing.TB, auth *authkit.Client, u User) *TOTP {
 // token: POST /me/2fa/setup, then /me/2fa/factors with its first code.
 func addTOTP(t testing.TB, auth *authkit.Client, who, token string) (*TOTP, httpapi.TwoFactorFactorCreated) {
 	t.Helper()
-	status, body := call(t, auth, http.MethodPost, "/me/2fa/setup", token, map[string]string{"method": "totp"})
+	status, body := call(t, auth, http.MethodPost, "/me/2fa/setup", token, nil, map[string]string{"method": "totp"})
 	var setup httpapi.TwoFactorSetup
 	if status != http.StatusOK || json.Unmarshal(body, &setup) != nil || setup.Secret == nil || *setup.Secret == "" {
 		t.Fatalf("authtest: start TOTP for %s: %d %s", who, status, body)
 	}
 	app := &TOTP{Secret: *setup.Secret}
-	status, body = call(t, auth, http.MethodPost, "/me/2fa/factors", token, map[string]string{"method": "totp", "code": app.Code(t)})
+	status, body = call(t, auth, http.MethodPost, "/me/2fa/factors", token, nil, map[string]string{"method": "totp", "code": app.Code(t)})
 	var created httpapi.TwoFactorFactorCreated
 	if status != http.StatusCreated || json.Unmarshal(body, &created) != nil {
 		t.Fatalf("authtest: confirm TOTP for %s: %d %s", who, status, body)
@@ -322,7 +332,9 @@ func (k DeviceKey) Capability(t testing.TB, c Capability) string {
 }
 
 // call sends a JSON request to auth's API in process.
-func call(t testing.TB, auth *authkit.Client, method, path, token string, body any) (int, []byte) {
+// call sends body to auth's API at path with token: as DPoP when SignIn
+// bound it, else as Bearer. key proves a sign-in, which carries no token.
+func call(t testing.TB, auth *authkit.Client, method, path, token string, key *DPoPKey, body any) (int, []byte) {
 	t.Helper()
 	raw, err := json.Marshal(body)
 	if err != nil {
@@ -333,8 +345,13 @@ func call(t testing.TB, auth *authkit.Client, method, path, token string, body a
 		t.Fatal(err)
 	}
 	r.Header.Set("Content-Type", "application/json")
-	if token != "" {
+	if bound := keyFor(token); token != "" && bound != nil {
+		r.Header.Set("Authorization", "DPoP "+token)
+		r.Header.Set("DPoP", bound.Proof(t, method, auth.PublicAPIBase()+path, token, ""))
+	} else if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
+	} else if key != nil {
+		r.Header.Set("DPoP", key.Proof(t, method, auth.PublicAPIBase()+path, "", ""))
 	}
 	resp, err := handlerTransport{auth.Handler()}.RoundTrip(r)
 	if err != nil {
