@@ -370,9 +370,10 @@ const (
 
 // TwoFactorConfig configures MFA.
 type TwoFactorConfig struct {
-	// TOTPIssuer is the human-readable service name in authenticator apps,
-	// such as "Example". Empty uses the token issuer's hostname. Unlike the
-	// cryptographic Token.Issuer, it must not contain a colon or control characters.
+	// TOTPIssuer is the service label in authenticator apps. For websites, use
+	// the public sign-in hostname, such as "example.com", so password managers
+	// can match saved credentials. Empty uses the token issuer's hostname.
+	// Unlike Token.Issuer, it must not contain a colon or control characters.
 	TOTPIssuer string `yaml:"totp_issuer"`
 	// Mode is the account-wide policy: iam.TwoFactorDisabled,
 	// iam.TwoFactorOptional (the default) or iam.TwoFactorRequired (every user

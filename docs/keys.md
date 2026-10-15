@@ -55,13 +55,17 @@ If a key may be compromised, do step 2 without keeping the old public key. Withi
 
 ## Authenticator app labels
 
-Set `TwoFactor.TOTPIssuer` (`two_factor.totp_issuer`) to the service name users
-should see in their authenticator, such as `Example`. This display label is
-separate from the cryptographic `Token.Issuer` URL. When omitted, AuthKit uses
-the token issuer's hostname. A display label cannot contain colons or control
-characters. New provisioning QR codes include the matching issuer prefix and
-query parameter, the account's email (or username), SHA-1, six digits, and a
-30-second period. This does not change existing factors or their secrets.
+For websites, set `TwoFactor.TOTPIssuer` (`two_factor.totp_issuer`) to the public
+sign-in hostname, such as `example.com`. Apple Passwords uses the issuer domain
+to suggest matching saved credentials ([Apple's setup guidance](https://developer.apple.com/documentation/authenticationservices/securing-logins-with-icloud-keychain-verification-codes)).
+Use the hostname from trusted deployment configuration. This service label is
+separate from the cryptographic `Token.Issuer` URL, which can still identify an
+API endpoint. When omitted, AuthKit uses the token issuer's hostname.
+
+A service label cannot contain colons or control characters. New provisioning
+QR codes include the matching issuer prefix and query parameter, the account's
+email (or username), SHA-1, six digits, and a 30-second period. This does not
+change existing factors or their secrets.
 
 Scan the QR from inside the chosen authenticator app. Opening an `otpauth:`
 link or scanning with a phone's Camera uses the operating system's registered
