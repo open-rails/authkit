@@ -186,6 +186,33 @@ func TestAdminUserDirectory(t *testing.T) {
 	// Sequential and plain index scans are off, so a search branch no index
 	// serves would force a disabled scan into the plan (see explain).
 	t.Run("every search branch is indexed", func(t *testing.T) {
+		// With only a dozen accounts, scanning the tenant's covering index is
+		// legitimately cheaper than combining the search indexes. Give this
+		// tenant an unrelated population so the actual query's search branches
+		// are selective, without removing its tenant predicate or any indexes.
+		traced.take()
+		list("status=any&search=" + alice)
+		sample := traced.take()
+		require.NotEmpty(t, sample)
+		tx, err := pool.Begin(ctx)
+		require.NoError(t, err)
+		defer tx.Rollback(ctx)
+		_, err = tx.Exec(ctx, `SELECT set_config('search_path', $1, true)`, sample[0].searchPath)
+		require.NoError(t, err)
+		_, err = tx.Exec(ctx, `INSERT INTO users (tenant_id, username, email, phone_number)
+SELECT $1::uuid, 'indexprobe' || lpad(n::text, 5, '0'), 'indexprobe' || n || '@example.test',
+       '+1556' || lpad(n::text, 7, '0')
+FROM generate_series(1, 20000) n`, staff.TenantID.String())
+		require.NoError(t, err)
+		// Bulk insertion leaves GIN entries pending; make the fixture match a
+		// maintained directory before comparing the planner's index choices.
+		_, err = tx.Exec(ctx, `SELECT gin_clean_pending_list('users_username_trgm_idx'::regclass),
+			gin_clean_pending_list('users_email_trgm_idx'::regclass),
+			gin_clean_pending_list('users_phone_number_trgm_idx'::regclass)`)
+		require.NoError(t, err)
+		_, err = tx.Exec(ctx, `ANALYZE users; ANALYZE user_providers`)
+		require.NoError(t, err)
+		require.NoError(t, tx.Commit(ctx))
 		traced.take()
 		list("status=any&total=true&search=" + alice)
 		list("status=any&search=al")
@@ -238,10 +265,8 @@ func (d *directorySQL) take() []directoryQuery {
 }
 
 // explain plans q as the engine ran it, with sequential and plain index scans
-// disabled. A partial index a branch implies can serve it by a whole-index
-// scan, which a table of a dozen rows prefers to the branch's own index: with
-// status=any that is only users_tenant_email_uidx (email IS NOT NULL), dropped inside
-// the rolled-back transaction.
+// disabled. The search fixture supplies enough same-tenant rows for its search
+// branches to be selective; all tenant predicates and catalog indexes remain.
 func explain(t *testing.T, pool *pgxpool.Pool, q directoryQuery) string {
 	t.Helper()
 	ctx := t.Context()
@@ -251,8 +276,6 @@ func explain(t *testing.T, pool *pgxpool.Pool, q directoryQuery) string {
 	defer func() { _ = tx.Rollback(ctx) }()
 	_, err = tx.Exec(ctx, `SELECT set_config('search_path', $1, true), set_config('enable_seqscan', 'off', true),
 		set_config('enable_indexscan', 'off', true), set_config('enable_indexonlyscan', 'off', true)`, q.searchPath)
-	require.NoError(t, err)
-	_, err = tx.Exec(ctx, `DROP INDEX users_tenant_email_uidx`)
 	require.NoError(t, err)
 	rows, err := tx.Query(ctx, "EXPLAIN "+q.sql, q.args...)
 	require.NoError(t, err)
