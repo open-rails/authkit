@@ -642,6 +642,28 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     })
   }
 
+  // Capture before ready(): even an already-resolved promise yields, allowing
+  // another account to sign in before this request attaches its credential.
+  // A cold restore may discover its first account, or confirm the saved hint.
+  const requestOwner = () => ({
+    generation,
+    userId:
+      session.status === "authenticated"
+        ? session.userId
+        : session.status === "loading"
+          ? session.hint?.userId
+          : undefined,
+  })
+  const checkRequestOwner = (owner: ReturnType<typeof requestOwner>) => {
+    if (
+      owner.generation !== generation ||
+      (owner.userId !== undefined &&
+        session.status === "authenticated" &&
+        owner.userId !== session.userId)
+    )
+      throw new AuthSessionChangedError()
+  }
+
   // --- transport ------------------------------------------------------------
 
   let proveContact: ContactProofHandler | null = null
@@ -703,9 +725,13 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     path: string,
     opts: RequestOptions
   ): Promise<{ status: number; body: unknown }> {
+    const owner = requestOwner()
     const target = url(baseUrl, path, opts.query)
     const explicit = opts.bearer !== undefined
-    if (!explicit) await ready()
+    if (!explicit) {
+      await ready()
+      checkRequestOwner(owner)
+    }
     if (
       opts.expectedUserId !== undefined &&
       (session.status !== "authenticated" ||
@@ -713,7 +739,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     ) {
       throw new AuthSessionChangedError()
     }
-    const requestGeneration = generation
+    const requestGeneration = owner.generation
     const bearer = explicit ? (opts.bearer ?? null) : accessToken()
     let res = await send(method, target, opts, bearer)
     if (!bearer && (await asksForSessionKey(res)))
@@ -748,6 +774,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     input: RequestInfo | URL,
     init: RequestInit = {}
   ): Promise<Response> {
+    const owner = requestOwner()
     const original = input instanceof Request ? input.clone() : input
     const attempt = async (token: string | null, source: RequestInfo | URL) => {
       const headers = new Headers(
@@ -767,7 +794,8 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       return doFetch(source, { ...init, headers })
     }
     await ready()
-    const requestGeneration = generation
+    checkRequestOwner(owner)
+    const requestGeneration = owner.generation
     const bearer = accessToken()
     let res = await attempt(bearer, input)
     if (res.status === 401 && bearer && !(await asksForStepUp(res))) {

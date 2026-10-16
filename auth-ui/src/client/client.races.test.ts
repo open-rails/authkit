@@ -3,11 +3,13 @@ import { expect, it, vi } from "vitest"
 
 import { createAuthClient } from "./client.ts"
 import { AuthSessionChangedError } from "./errors.ts"
+import { memoryStorage } from "./testing-storage.ts"
 import {
   authError,
   complete,
   deferred,
   json,
+  jwt,
   stubFetch,
   tokens,
 } from "./testing.ts"
@@ -97,6 +99,106 @@ const userId = (client: ReturnType<typeof createAuthClient>) => {
   const s = client.getSnapshot()
   return s.status === "authenticated" ? s.userId : null
 }
+
+it.each(["authkit", "host"] as const)(
+  "%s does not adopt another account while awaiting readiness",
+  async (transport) => {
+    const fetch = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+    const client = await signedIn(fetch, "A")
+    // Queue B's commit ahead of the request's resolved ready() continuation.
+    const replacement = login(client, "B")
+    expect(userId(client)).toBe("A")
+    const request =
+      transport === "host"
+        ? client.authFetch("/host/settings", { method: "PUT" })
+        : client.request("PUT", "/me/preferences", { body: { value: "A" } })
+    const rejected = expect(request).rejects.toBeInstanceOf(
+      AuthSessionChangedError
+    )
+    await replacement
+    await rejected
+    expect(fetch).not.toHaveBeenCalled()
+    expect(userId(client)).toBe("B")
+  }
+)
+
+it.each(["authkit", "host"] as const)(
+  "%s accepts its initial cookie restore with or without an account hint",
+  async (transport) => {
+    for (const hinted of [true, false]) {
+      const restoring = deferred<Response>()
+      const storage = memoryStorage()
+      if (hinted)
+        storage.setItem(
+          "authkit:session:/api/v1",
+          JSON.stringify({ userId: "A", expiresAt: Date.now() + 60_000 })
+        )
+      const fetch = stubFetch({
+        "POST /api/v1/token": () => restoring.promise,
+        "GET /api/v1/me/preferences": ({ headers }) =>
+          json(200, {
+            authorization: new Headers(headers).get("Authorization"),
+          }),
+        "GET /host/settings": ({ headers }) =>
+          json(200, {
+            authorization: new Headers(headers).get("Authorization"),
+          }),
+      })
+      const client = createAuthClient({ fetch, sessionHint: { storage } })
+      const stop = client.start()
+      try {
+        const request =
+          transport === "host"
+            ? client.authFetch("/host/settings").then((r) => r.json())
+            : client.request("GET", "/me/preferences")
+        expect(fetch).toHaveBeenCalledTimes(1)
+        restoring.resolve(tokens("A"))
+        await expect(request).resolves.toEqual({
+          authorization: `Bearer ${jwt("A")}`,
+        })
+        expect(fetch).toHaveBeenCalledTimes(2)
+      } finally {
+        stop()
+      }
+    }
+  }
+)
+
+it.each(["authkit", "host"] as const)(
+  "%s refuses a different account restored under the original account hint",
+  async (transport) => {
+    const restoring = deferred<Response>()
+    const storage = memoryStorage()
+    storage.setItem(
+      "authkit:session:/api/v1",
+      JSON.stringify({ userId: "A", expiresAt: Date.now() + 60_000 })
+    )
+    const fetch = vi
+      .fn()
+      .mockImplementation((input: RequestInfo | URL) =>
+        String(input).endsWith("/token")
+          ? restoring.promise
+          : Promise.resolve(json(200, {}))
+      )
+    const client = createAuthClient({ fetch, sessionHint: { storage } })
+    const stop = client.start()
+    try {
+      const request =
+        transport === "host"
+          ? client.authFetch("/host/settings", { method: "PUT" })
+          : client.request("PUT", "/me/preferences", { body: { value: "A" } })
+      const rejected = expect(request).rejects.toBeInstanceOf(
+        AuthSessionChangedError
+      )
+      restoring.resolve(tokens("B"))
+      await rejected
+      expect(fetch).toHaveBeenCalledTimes(1)
+      expect(userId(client)).toBe("B")
+    } finally {
+      stop()
+    }
+  }
+)
 
 it.each([
   ["authkit", 401],
