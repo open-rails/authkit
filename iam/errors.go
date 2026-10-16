@@ -49,8 +49,9 @@ var (
 	ErrLastOwner                  Error = errmodel.E(errmodel.CodeLastOwner)
 	ErrCannotTargetSelf           Error = errmodel.E(errmodel.CodeCannotTargetSelf)
 	ErrTwoFAEnrollmentRequired    Error = errmodel.E(errmodel.CodeTwoFAEnrollmentRequired)
-	// ErrSubjectMFARequired refuses a role that needs MFA for an account with
-	// no usable second factor.
+	ErrTwoFARequiredByPolicy      Error = errmodel.E(errmodel.CodeTwoFARequiredByPolicy)
+	// ErrSubjectMFARequired is the legacy pre-enrollment assignment refusal.
+	// Deprecated: human role grants now defer enrollment to authentication.
 	ErrSubjectMFARequired Error = errmodel.E(errmodel.CodeSubjectMFARequired)
 	// ErrSessionRevoked refuses an identity bound to a session or device key
 	// (InSession) that was revoked or expired, as logout, revoke-all, a

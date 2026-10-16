@@ -35,10 +35,17 @@ func TestTenantMigrationRetainsDeletedTargetsAndInvitations(t *testing.T) {
 	})
 	all, err := migratekit.LoadFromFS(pgmigrations.FS)
 	require.NoError(t, err)
-	require.True(t, strings.HasPrefix(all[len(all)-1].Name, "0018_"))
+	tenantMigration := 0
+	for i, migration := range all {
+		if strings.HasPrefix(migration.Name, "0018_") {
+			tenantMigration = i
+			break
+		}
+	}
+	require.Positive(t, tenantMigration, "tenant migration must remain in the migration chain")
 	m, err := migratekit.NewPostgresFromPGXPool(pool, "authkit")
 	require.NoError(t, err)
-	require.NoError(t, m.WithSchema(schema).ApplyMigrations(t.Context(), all[:len(all)-1]))
+	require.NoError(t, m.WithSchema(schema).ApplyMigrations(t.Context(), all[:tenantMigration]))
 	require.NoError(t, m.Close())
 	owner := iam.NewTenantID()
 	rootID, appID, deletedUser := uuid.NewString(), uuid.NewString(), uuid.NewString()

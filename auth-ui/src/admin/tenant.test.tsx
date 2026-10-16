@@ -37,6 +37,7 @@ const user = (tenant = TENANT_A, username = "alice") => ({
   phone_number: null,
   email_verified: true,
   phone_verified: false,
+  mfa_required: false,
   preferred_language: "en",
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
@@ -390,6 +391,33 @@ it("hides old data immediately and ignores late responses when the target change
   )
   expect(screen.queryByText("old-tenant-secret")).not.toBeInTheDocument()
   expect(screen.getByRole("link", { name: "alice" })).toBeInTheDocument()
+})
+
+it("sets an individual MFA requirement through the scoped user editor", async () => {
+  window.history.replaceState(null, "", "/users/account-id")
+  const h = host()
+  const normal = h.auth.authFetch
+  let update: unknown
+  h.auth.authFetch = vi.fn(async (input, init) => {
+    if (
+      init?.method === "PATCH" &&
+      String(input).endsWith("/admin/users/account-id")
+    ) {
+      update = JSON.parse(String(init.body))
+      return Response.json({ ...user(), mfa_required: true })
+    }
+    return normal(input, init)
+  })
+  render(<UsersAdmin auth={h.auth} tenantId={TENANT_A} basePath="/users" />)
+  const actions = userEvent.setup()
+  await actions.click(
+    await screen.findByRole("button", { name: "Edit profile" })
+  )
+  await actions.click(
+    screen.getByRole("checkbox", { name: "Require two-factor authentication" })
+  )
+  await actions.click(screen.getByRole("button", { name: "Save" }))
+  await waitFor(() => expect(update).toEqual({ mfa_required: true }))
 })
 
 it("resets a loaded account and an open editor even if only tenantId changes", async () => {

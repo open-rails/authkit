@@ -78,7 +78,9 @@ func (a *Client) CreateUser(ctx context.Context, u iam.NewUser, opts ...Option) 
 }
 
 // UpdateUser changes an account under ACCT(root:users:manage). An account may
-// change its own Username and PreferredLanguage. Password,
+// change its own Username and PreferredLanguage. MFARequired is an
+// administrator's persistent requirement; role and deployment requirements
+// remain effective when it is false. Password,
 // PasswordHash and the verified flags are system-only. A verified flag
 // asserts a proof, so never set one on another system's word: on an account
 // with no proven contact it first retires the pre-proof credentials and the

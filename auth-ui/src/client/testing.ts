@@ -32,6 +32,7 @@ const NO_STEP = {
   device_key: null,
   second_factor: null,
   enrollment: null,
+  reauthentication: null,
   verification: null,
   recovery: null,
   device_verification: null,

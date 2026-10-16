@@ -58,6 +58,7 @@ export type AdminUserUpdateRequest = {
   phone_number?: string | null
   username?: string | null
   preferred_language?: string | null
+  mfa_required?: boolean | null
 }
 
 export type Agreement = {
@@ -117,7 +118,7 @@ export type AuthKitEvent = {
 }
 
 export type AuthResult = {
-  status: "account_recovery_required" | "complete" | "device_verification_required" | "enrollment_required" | "second_factor_required" | "verification_required"
+  status: "account_recovery_required" | "complete" | "device_verification_required" | "enrollment_required" | "reauthentication_required" | "second_factor_required" | "verification_required"
   token_set: TokenSet | null
   user: User | null
   created: boolean
@@ -126,6 +127,7 @@ export type AuthResult = {
   device_key: DeviceKey | null
   second_factor: SecondFactorStep | null
   enrollment: EnrollmentStep | null
+  reauthentication: ReauthenticationStep | null
   verification: VerificationStep | null
   recovery: AccountRecoveryConfirmation | null
   device_verification: DeviceVerificationStep | null
@@ -700,6 +702,11 @@ export type PublicUser = {
   public_metadata: Record<string, unknown>
 }
 
+export type ReauthenticationStep = {
+  user_id: string
+  reason: string
+}
+
 export type Refusal = {
   reason: string
 }
@@ -1106,6 +1113,7 @@ export type TwoFactorSetupRequest = {
 
 export type TwoFactorStatus = {
   enabled: boolean
+  required: boolean
   factors: TwoFactorFactor[]
   allowed_methods: ("email" | "sms" | "totp")[]
   backup_codes_remaining: number
@@ -1133,6 +1141,7 @@ export type User = {
   username: string
   email_verified: boolean
   phone_verified: boolean
+  mfa_required: boolean
   preferred_language: string | null
   created_at: string
   updated_at: string
@@ -1156,6 +1165,7 @@ export type UserEntry = {
   username: string
   email_verified: boolean
   phone_verified: boolean
+  mfa_required: boolean
   preferred_language: string | null
   created_at: string
   updated_at: string
@@ -1177,6 +1187,7 @@ export type UserProfile = {
   username: string
   email_verified: boolean
   phone_verified: boolean
+  mfa_required: boolean
   preferred_language: string | null
   created_at: string
   updated_at: string

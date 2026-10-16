@@ -198,8 +198,8 @@ func TestSecurityEnsureUserRole(t *testing.T) {
 		require.True(t, emailVerified)
 		// admin edits accounts, which needs MFA.
 		_, err = h.auth.EnsureUserRole(ctx, root, iam.UserByEmail(email), h.role(iam.RootPersona(), "admin"))
-		require.ErrorIs(t, err, iam.ErrSubjectMFARequired)
-		h.enrollEmail2FA(account{id: first.ID, email: email})
+		require.NoError(t, err)
+		h.login(account{id: first.ID, email: email})
 		promoted, err := h.auth.EnsureUserRole(ctx, root, iam.UserByEmail(email), h.role(iam.RootPersona(), "admin"))
 		require.NoError(t, err)
 		require.Equal(t, first.ID, promoted.ID)

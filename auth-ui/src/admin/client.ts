@@ -63,6 +63,7 @@ export type UserUpdate = {
   phoneNumber?: string
   username?: string
   preferredLanguage?: string
+  mfaRequired?: boolean
 }
 
 /** A ban in force from now; without `until` it never ends. */
@@ -436,6 +437,7 @@ export function createAdminClient(options: AdminClientOptions) {
           phone_number: input.phoneNumber,
           username: input.username,
           preferred_language: input.preferredLanguage,
+          mfa_required: input.mfaRequired,
         },
       }).then(checkUser),
     // Starts the 30-day recovery window and signs the account out.

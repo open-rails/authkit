@@ -45,6 +45,13 @@ SELECT COALESCE(preferred_language, '')::text AS language
 FROM users
 WHERE id = sqlc.arg(id)::uuid;
 
+-- name: UserMFARequirement :one
+SELECT mfa_required FROM users WHERE id = sqlc.arg(id)::uuid;
+
+-- name: UserSetMFARequirement :exec
+UPDATE users SET mfa_required = sqlc.arg(mfa_required), updated_at = now()
+WHERE id = sqlc.arg(id)::uuid;
+
 -- name: UserInsert :one
 WITH claim AS MATERIALIZED (
  SELECT claim_canonical_name(NULLIF(sqlc.arg(tenant_id)::text,'')::uuid,sqlc.arg(username)::text,sqlc.arg(id)::uuid,sqlc.arg(at_time)::timestamptz)

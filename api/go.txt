@@ -1643,6 +1643,7 @@ pkg authkit/iam, type User struct, EmailVerified bool `json:"email_verified"`
 pkg authkit/iam, type User struct, ExpiredBan *BanState `json:"expired_ban"`
 pkg authkit/iam, type User struct, ID string `json:"id"`
 pkg authkit/iam, type User struct, LastLogin *time.Time `json:"last_login"`
+pkg authkit/iam, type User struct, MFARequired bool `json:"mfa_required"`
 pkg authkit/iam, type User struct, Phone *string `json:"phone_number"`
 pkg authkit/iam, type User struct, PhoneVerified bool `json:"phone_verified"`
 pkg authkit/iam, type User struct, PreferredLanguage *string `json:"preferred_language"`
@@ -1679,6 +1680,7 @@ pkg authkit/iam, type UserStatus string
 pkg authkit/iam, type UserUpdate struct
 pkg authkit/iam, type UserUpdate struct, Email *string
 pkg authkit/iam, type UserUpdate struct, EmailVerified *bool
+pkg authkit/iam, type UserUpdate struct, MFARequired *bool
 pkg authkit/iam, type UserUpdate struct, Password *string
 pkg authkit/iam, type UserUpdate struct, PasswordHash *PasswordHash
 pkg authkit/iam, type UserUpdate struct, Phone *string
@@ -1740,6 +1742,7 @@ pkg authkit/iam, var ErrTokenExpired Error
 pkg authkit/iam, var ErrTooManyAccounts Error
 pkg authkit/iam, var ErrTooManyDevices Error
 pkg authkit/iam, var ErrTwoFAEnrollmentRequired Error
+pkg authkit/iam, var ErrTwoFARequiredByPolicy Error
 pkg authkit/iam, var ErrUnknownGroupPersona Error
 pkg authkit/iam, var ErrUnknownPermission error
 pkg authkit/iam, var ErrUserNotFound Error

@@ -52,6 +52,72 @@ const fresh = {
   auth_methods: ["pwd"],
 }
 
+describe("MFA policy upgrades", () => {
+  it.each(["auth", "host"])(
+    "starts enrollment after an existing %s request is refused",
+    async (surface) => {
+      const fetch = stubFetch({
+        "GET /api/v1/me": () => authError(403, "2fa_enrollment_required"),
+        "GET /host/account": () => authError(403, "2fa_enrollment_required"),
+        "POST /api/v1/token": () => json(200, enrollment),
+      })
+      const client = createAuthClient({ fetch })
+      await signIn(client)
+      if (surface === "auth") {
+        await expect(client.getMe()).rejects.toMatchObject({
+          code: "2fa_enrollment_required",
+        })
+      } else {
+        expect((await client.authFetch("/host/account")).status).toBe(403)
+      }
+      expect(client.getSnapshot()).toMatchObject({
+        status: "anonymous",
+        continuation: enrollment,
+      })
+      expect(
+        fetch.mock.calls.filter(([url]) => String(url).endsWith("/token"))
+      ).toHaveLength(1)
+    }
+  )
+
+  it("carries a stale session's reauthentication step to the UI", async () => {
+    const next = authResult("reauthentication_required", {
+      reauthentication: { user_id: "u1", reason: "mfa_required" },
+    })
+    const client = createAuthClient({
+      fetch: stubFetch({
+        "GET /api/v1/me": () => authError(403, "2fa_enrollment_required"),
+        "POST /api/v1/token": () => json(200, next),
+      }),
+    })
+    await signIn(client)
+    await expect(client.getMe()).rejects.toMatchObject({
+      code: "2fa_enrollment_required",
+    })
+    expect(client.getSnapshot()).toMatchObject({
+      status: "anonymous",
+      continuation: next,
+    })
+  })
+
+  it("preserves the session if resolving the policy requirement hits an outage", async () => {
+    const client = createAuthClient({
+      fetch: stubFetch({
+        "GET /api/v1/me": () => authError(403, "2fa_enrollment_required"),
+        "POST /api/v1/token": () => authError(503, "unavailable"),
+      }),
+    })
+    await signIn(client)
+    await expect(client.getMe()).rejects.toMatchObject({
+      code: "2fa_enrollment_required",
+    })
+    expect(client.getSnapshot()).toMatchObject({
+      status: "authenticated",
+      userId: "u1",
+    })
+  })
+})
+
 describe("refresh", () => {
   it("rotates through the refresh cookie without sending token material", async () => {
     const fetch = vi.fn().mockResolvedValue(tokens("u1"))
@@ -141,7 +207,7 @@ describe("refresh", () => {
     expect(await client.refresh()).toBe(false)
     expect(client.getSnapshot()).toMatchObject({
       status: "anonymous",
-      reason: "expired",
+      reason: "verification_required",
       continuation: { status: "enrollment_required" },
     })
   })

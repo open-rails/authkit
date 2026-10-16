@@ -18,10 +18,17 @@ func TestTenantMigrationRequiresExplicitLegacyOwnerAndPreservesCredentials(t *te
 	ctx := t.Context()
 	all, err := migratekit.LoadFromFS(pgmigrations.FS)
 	require.NoError(t, err)
-	require.True(t, strings.HasPrefix(all[len(all)-1].Name, "0018_"))
+	tenantMigration := 0
+	for i, migration := range all {
+		if strings.HasPrefix(migration.Name, "0018_") {
+			tenantMigration = i
+			break
+		}
+	}
+	require.Positive(t, tenantMigration, "tenant migration must remain in the migration chain")
 	m, err := migratekit.NewPostgresFromPGXPool(pg.Pool, "authkit")
 	require.NoError(t, err)
-	require.NoError(t, m.WithSchema("profiles").ApplyMigrations(ctx, all[:len(all)-1]))
+	require.NoError(t, m.WithSchema("profiles").ApplyMigrations(ctx, all[:tenantMigration]))
 	require.NoError(t, m.Close())
 	owner := iam.NewTenantID()
 	userID, factorID := uuid.NewString(), uuid.NewString()

@@ -712,17 +712,17 @@ func TestSoleRootOwnerCannotDisable2FA(t *testing.T) {
 	first.TOTP = authtest.EnrollTOTP(t, auth, first)
 	authtest.GrantRole(t, auth, iam.RootGroup(), iam.UserSubject(first.ID), owner)
 	token := authtest.SignIn(t, auth, first).AccessToken
-	refused := f.expect(http.StatusConflict, f.request(http.MethodDelete, "/me/2fa", token, nil))
-	require.Equal(t, "last_owner", refused.Error.Code)
+	refused := f.expect(http.StatusForbidden, f.request(http.MethodDelete, "/me/2fa", token, nil))
+	require.Equal(t, "2fa_required_by_policy", refused.Error.Code)
 	require.True(t, f.security(token).TwoFactor.Enabled, "the sole owner's 2FA stays on after a refused disable")
 	require.True(t, can(first), "the sole owner keeps root:* after a refused disable")
 
 	second := authtest.NewUser(t, auth)
 	second.TOTP = authtest.EnrollTOTP(t, auth, second)
 	authtest.GrantRole(t, auth, iam.RootGroup(), iam.UserSubject(second.ID), owner)
-	f.expect(http.StatusNoContent, f.request(http.MethodDelete, "/me/2fa", token, nil))
-	require.True(t, roleOfIn(t, auth, iam.RootGroup(), iam.UserSubject(first.ID)).IsZero(), "the owner role goes with the 2FA")
+	f.expect(http.StatusForbidden, f.request(http.MethodDelete, "/me/2fa", token, nil))
+	require.Equal(t, owner, roleOfIn(t, auth, iam.RootGroup(), iam.UserSubject(first.ID)), "required MFA and owner authority are retained")
 	require.Equal(t, owner, roleOfIn(t, auth, iam.RootGroup(), iam.UserSubject(second.ID)))
-	require.False(t, can(first), "the first owner lost root:* with its 2FA")
+	require.True(t, can(first), "the first owner retains root:* and its required factor")
 	require.True(t, can(second), "the second owner is unaffected")
 }

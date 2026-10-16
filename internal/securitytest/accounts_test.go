@@ -589,17 +589,15 @@ func TestSecurityUserManagementNeedsMFA(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withAccountRoles))
 	ctx := context.Background()
 	staff, target := h.newAccount("cstaff"), h.newAccount("ctarget")
-	require.ErrorIs(t, setRole(h.auth, ctx, iam.SystemIdentity(), iam.RootGroup(), iam.UserSubject(staff.id), h.role(iam.RootPersona(), "staff")), iam.ErrSubjectMFARequired, "a root:users:manage role went to an account without MFA")
-	// A role granted while 2FA was off: signing in yields only an enrollment token.
-	_, err := h.pool.Exec(ctx, `INSERT INTO profiles.group_user_roles(permission_group_id,user_id,role) VALUES($1::uuid,$2::uuid,'root:staff')`, h.rootGroupID(), staff.id)
-	require.NoError(t, err)
+	require.NoError(t, setRole(h.auth, ctx, iam.SystemIdentity(), iam.RootGroup(), iam.UserSubject(staff.id), h.role(iam.RootPersona(), "staff")))
+	// Promotion is saved immediately; signing in yields only enrollment access.
 	resp := h.post("/password/login", map[string]string{"identifier": staff.email, "password": password}, "")
 	require.Equal(t, httpapi.AuthEnrollmentRequired, authResult(t, resp).Status, resp.String())
 
 	admin := h.newAccount("cadmin")
 	h.grant(iam.RootGroup(), admin, "siteadmin")
 	chosen := "Staff-chosen-passphrase-9"
-	_, err = h.auth.UpdateUser(ctx, iam.UserIdentity(admin.id), target.id, iam.UserUpdate{Password: &chosen})
+	_, err := h.auth.UpdateUser(ctx, iam.UserIdentity(admin.id), target.id, iam.UserUpdate{Password: &chosen})
 	require.ErrorIs(t, err, iam.ErrInsufficientAuthority)
 	h.login(target)
 

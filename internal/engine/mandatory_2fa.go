@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/open-rails/authkit/iam"
 
@@ -66,27 +65,11 @@ func (s *Engine) requireSessionMFAStateOn(ctx context.Context, q db.DBTX, userID
 		return nil
 	}
 	if !status.Enabled {
-		// Global policy: when 2FA enrollment is mandatory, a user without usable
-		// 2FA cannot establish or refresh a session — they must enroll first.
-		if s.requireMFAEnrollment() {
-			return iam.ErrTwoFAEnrollmentRequired
-		}
-		// #249 follow-up: Mode==Optional otherwise lets an unenrolled user
-		// through — EXCEPT a user holding a role whose Role.RequiresMFA is
-		// true. That combination arises when a role was assigned while
-		// Mode==Disabled (requireMFAForRoleAssignment short-circuits there so
-		// bootstrap can't brick itself) and the host later re-enables 2FA,
-		// leaving an MFA-required role holder with no enrollment and no gate
-		// to catch it. Reached only here — not enrolled, and Mode isn't
-		// already Required — so an enrolled user or a Required deployment
-		// never pays for the extra query.
-		holds, err := s.userHoldsMFARequiredRole(ctx, q, userID)
+		required, err := s.userRequiresMFA(ctx, q, userID)
 		if err != nil {
-			// Fail closed: a role-lookup error denies session establishment,
-			// it does not silently skip the check.
 			return err
 		}
-		if holds {
+		if required {
 			return iam.ErrTwoFAEnrollmentRequired
 		}
 		return nil
@@ -100,10 +83,55 @@ func (s *Engine) requireSessionMFAStateOn(ctx context.Context, q db.DBTX, userID
 	return nil
 }
 
+// A requirement is effective policy, not a delayed role mutation. Reading it
+// live makes both existing sessions and subsequent logins see policy changes.
+func (s *Engine) userRequiresMFA(ctx context.Context, q db.DBTX, userID string) (bool, error) {
+	if !s.TwoFactorEnabled() {
+		return false, nil
+	}
+	if s.requireMFAEnrollment() {
+		return true, nil
+	}
+	if s.pg == nil {
+		return false, nil
+	}
+	required, err := db.New(q).UserMFARequirement(ctx, userID)
+	if err != nil || required {
+		return required, err
+	}
+	return s.userHoldsMFARequiredRole(ctx, q, userID)
+}
+
+// Trusted Go callers still cannot turn a pending human role into usable
+// authority. Request authenticators additionally require a proven MFA session.
+func (s *Engine) requireUserMFAEnrollment(ctx context.Context, q db.DBTX, userID string, resolvedGrants ...[]string) error {
+	required, err := s.userRequiresMFA(ctx, q, userID)
+	if err != nil {
+		return err
+	}
+	// Recheck the actual grants being returned: a concurrent role assignment
+	// may have landed after the policy lookup above.
+	if s.TwoFactorEnabled() {
+		for _, grants := range resolvedGrants {
+			required = required || s.groupSchemaOrDefault().RequiresMFA(grants)
+		}
+	}
+	if !required {
+		return nil
+	}
+	usable, err := db.New(q).MFAUsable(ctx, userID)
+	if err != nil || usable {
+		return err
+	}
+	hasPasskey, err := s.holdsPasskey(ctx, q, userID)
+	if err != nil || hasPasskey {
+		return err
+	}
+	return iam.ErrTwoFAEnrollmentRequired
+}
+
 // userHoldsMFARequiredRole reports whether userID currently holds at least one
-// role, in any permission group, whose permissions need MFA. Used only by
-// requireSessionMFAStateWith (login/refresh session establishment) — never
-// per-request middleware — since it hits the database.
+// role, in any live permission group, whose permissions need MFA.
 func (s *Engine) userHoldsMFARequiredRole(ctx context.Context, q db.DBTX, userID string) (bool, error) {
 	assignments, err := db.New(q).UserGroupRoles(ctx, userID)
 	if err != nil {
@@ -139,59 +167,9 @@ func (s *Engine) requireMFAForRoleAssignment(ctx context.Context, q db.DBTX, gid
 	if subject.Kind != iam.SubjectKindUser {
 		return fmt.Errorf("role %q requires MFA, which an application cannot hold: %w", role, iam.ErrRoleNotAssignable)
 	}
-	ok, err := db.New(q).MFAUsable(ctx, strings.TrimSpace(subject.ID))
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return iam.ErrSubjectMFARequired
-	}
+	// Assign the human's role now. Authentication and live authorization
+	// enforce enrollment before its permissions can be used.
 	return nil
-}
-
-// removeMFARequiredUserRoles strips a user's MFA-required role assignments when
-// THEY disable their own 2FA. This is a user decision, not app-level
-// enforcement — unlike requireMFAForRoleAssignment (which the host's TwoFactor
-// Mode gates), this runs regardless of Mode: holding a role that requires MFA
-// without MFA enrolled is inconsistent independent of whether the app is
-// currently enforcing it, and application-mode toggles must never themselves
-// mutate role/2FA state (only gate checks).
-func (s *Engine) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, userID string) ([]authflow.RemovedMFARoleAssignment, error) {
-	assignments, err := db.New(q).UserGroupRoles(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	var removals []authflow.RemovedMFARoleAssignment
-	for _, a := range assignments {
-		persona := ident.Persona(a.Persona)
-		r := authflow.RemovedMFARoleAssignment{PermissionGroupID: a.PermissionGroupID, Persona: persona, Role: ident.RoleText(a.Role)}
-		if s.assignedRoleRequiresMFA(r.Persona, r.Role, a.CustomPermissions) {
-			r.RemovedAt = time.Now().UTC()
-			removals = append(removals, r)
-		}
-	}
-	st := s.groupStoreFor(q)
-	st.who = iam.UserIdentity(userID)
-	if s.TwoFactorEnabled() && s.requireMFAEnrollment() {
-		if err := s.refuseSubjectOwnerLoss(ctx, st, iam.UserSubject(userID)); err != nil {
-			return nil, err
-		}
-	}
-	for _, r := range removals {
-		if err := s.refuseOwnerLoss(ctx, st, r.PermissionGroupID, iam.UserSubject(userID)); err != nil {
-			return nil, err
-		}
-	}
-
-	for _, r := range removals {
-		if err := st.UnassignRole(ctx, r.PermissionGroupID, iam.UserSubject(userID), r.Role); err != nil {
-			return nil, err
-		}
-	}
-	if err := s.revokeUncoveredCredentials(ctx, st, st.touched...); err != nil {
-		return nil, err
-	}
-	return removals, nil
 }
 
 func hasAuthMethod(methods []string, want string) bool {

@@ -291,7 +291,7 @@ const userGroupRoles = `-- name: UserGroupRoles :many
 SELECT a.permission_group_id, g.persona, a.role, cr.permissions AS custom_permissions
 FROM group_user_roles a JOIN permission_groups g ON g.id = a.permission_group_id
 LEFT JOIN group_custom_roles cr ON cr.permission_group_id = a.permission_group_id AND cr.role = a.role
-WHERE a.user_id = $1
+WHERE a.user_id = $1 AND g.deleted_at IS NULL
 `
 
 type UserGroupRolesRow struct {

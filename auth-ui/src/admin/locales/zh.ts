@@ -277,6 +277,9 @@ export const zh: AdminMessageTree = {
     phoneHint: "包含国家区号，例如 +861012345678。",
     language: "语言",
     languageHint: "语言标签，例如 zh 或 pt-BR。",
+    mfaRequired: "要求双重验证",
+    mfaRequiredHint:
+      "此账户须在下次登录或进行需认证的操作时完成设置。关闭此项不会取消角色或网站的其他要求。",
     updated: "更新时间",
     verified: "已验证",
     unverified: "未验证",

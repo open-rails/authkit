@@ -170,8 +170,7 @@ func (s *Engine) markEnrollingSessionTx(ctx context.Context, q *db.Queries, user
 	return n > 0, err
 }
 
-// Disable2FA removes every second factor of the account, and the roles that
-// require MFA it held.
+// Disable2FA removes every second factor unless current policy requires one.
 func (s *Engine) Disable2FA(ctx context.Context, userID string) error {
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
@@ -188,8 +187,10 @@ func (s *Engine) Disable2FA(ctx context.Context, userID string) error {
 	if _, err := qtx.MFALockUser(ctx, userID); err != nil {
 		return err
 	}
-	if _, err := s.removeMFARequiredUserRoles(ctx, tx, strings.TrimSpace(userID)); err != nil {
+	if required, err := s.userRequiresMFA(ctx, tx, userID); err != nil {
 		return err
+	} else if required {
+		return iam.ErrTwoFARequiredByPolicy
 	}
 	if err := qtx.MFADeleteAllFactors(ctx, userID); err != nil {
 		return err
@@ -234,8 +235,10 @@ func (s *Engine) Disable2FAFactor(ctx context.Context, userID, factorID string) 
 		return err
 	}
 	if len(factors) == 0 {
-		if _, err := s.removeMFARequiredUserRoles(ctx, tx, strings.TrimSpace(userID)); err != nil {
+		if required, err := s.userRequiresMFA(ctx, tx, userID); err != nil {
 			return err
+		} else if required {
+			return iam.ErrTwoFARequiredByPolicy
 		}
 		if err := qtx.MFASettingsDelete(ctx, userID); err != nil {
 			return err

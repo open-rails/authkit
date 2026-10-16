@@ -135,7 +135,7 @@ func signInCall(t testing.TB, auth *authkit.Client, identifier, path string, key
 }
 
 // GrantRole gives subject role in group with system authority. A role that
-// requires MFA needs the account's second factor first (EnrollTOTP).
+// requires MFA makes the account finish enrollment at its next SignIn.
 func GrantRole(t testing.TB, auth *authkit.Client, group iam.GroupRef, subject iam.Subject, role iam.Role) {
 	t.Helper()
 	if _, err := auth.SetGroupRole(context.Background(), iam.SystemIdentity(), group, subject, role); err != nil {
@@ -196,7 +196,11 @@ func TOTPCode(t testing.TB, secret string, at time.Time) string {
 // works too.
 func EnrollTOTP(t testing.TB, auth *authkit.Client, u User) *TOTP {
 	t.Helper()
-	app, _ := addTOTP(t, auth, u.Email, SignIn(t, auth, u).AccessToken)
+	session := SignIn(t, auth, u)
+	if app := TOTPOf(u.ID); app != nil {
+		return app // A mandatory enrollment may have happened during SignIn.
+	}
+	app, _ := addTOTP(t, auth, u.Email, session.AccessToken)
 	remember(t, u.ID, app)
 	return app
 }

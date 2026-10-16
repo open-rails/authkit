@@ -117,7 +117,7 @@ export type AuthSession =
   | { status: "loading"; hint?: SessionHint }
   | {
       status: "anonymous"
-      reason: "initial" | "signed_out" | "expired"
+      reason: "initial" | "signed_out" | "expired" | "verification_required"
       // A refresh that now needs another step (a second factor, enrollment).
       continuation: PendingSignIn | null
     }
@@ -175,6 +175,10 @@ const STALE_BEARER = new Set<AuthErrorCode>([
   "session_revoked",
   "unauthenticated",
   "unknown_kid",
+])
+const MFA_POLICY_REFUSALS = new Set<AuthErrorCode>([
+  "2fa_enrollment_required",
+  "2fa_required",
 ])
 // A proxy failure, malformed response or generic rejection does not prove
 // the refresh credential is invalid. Only AuthKit's session refusals do.
@@ -403,7 +407,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
 
   // keepHint: another tab already rewrote the hint.
   const publishAnonymous = (
-    reason: "initial" | "signed_out" | "expired",
+    reason: "initial" | "signed_out" | "expired" | "verification_required",
     continuation: PendingSignIn | null = null,
     keepHint = false
   ) => {
@@ -415,7 +419,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
   }
 
   const clear = (
-    reason: "initial" | "signed_out" | "expired",
+    reason: "initial" | "signed_out" | "expired" | "verification_required",
     continuation: PendingSignIn | null = null,
     keepHint = false
   ) => {
@@ -446,7 +450,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     continuation: PendingSignIn | null
   ) => {
     if (current) {
-      clear("expired", continuation)
+      clear(continuation ? "verification_required" : "expired", continuation)
       return
     }
     // Discovering no session on cold boot does not invalidate an independent
@@ -744,9 +748,13 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     let res = await send(method, target, opts, bearer)
     if (!bearer && (await asksForSessionKey(res)))
       res = await send(method, target, opts, bearer)
-    if (res.status === 401 && !explicit && bearer) {
+    if ((res.status === 401 || res.status === 403) && !explicit && bearer) {
       const err = await readAuthKitError(res.clone())
-      if (STALE_BEARER.has(err.code as AuthErrorCode)) {
+      if (
+        (res.status === 401 && STALE_BEARER.has(err.code as AuthErrorCode)) ||
+        (res.status === 403 &&
+          MFA_POLICY_REFUSALS.has(err.code as AuthErrorCode))
+      ) {
         if (requestGeneration !== generation)
           throw new AuthSessionChangedError()
         if (await refresh()) {
@@ -798,7 +806,16 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     const requestGeneration = owner.generation
     const bearer = accessToken()
     let res = await attempt(bearer, input)
-    if (res.status === 401 && bearer && !(await asksForStepUp(res))) {
+    const mfaPolicy =
+      res.status === 403 && bearer
+        ? MFA_POLICY_REFUSALS.has(
+            (await readAuthKitError(res.clone())).code as AuthErrorCode
+          )
+        : false
+    if (
+      bearer &&
+      ((res.status === 401 && !(await asksForStepUp(res))) || mfaPolicy)
+    ) {
       if (requestGeneration !== generation) throw new AuthSessionChangedError()
       if (await refresh()) {
         if (requestGeneration !== generation)

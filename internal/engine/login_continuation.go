@@ -467,7 +467,7 @@ func (s *Engine) ContinueRefreshMFA(ctx context.Context, userID, sessionID strin
 		return authflow.LoginOutcome{}, err
 	}
 	if time.Since(fresh.LastAuthenticatedAt) > 10*time.Minute {
-		return authflow.LoginOutcome{}, errmodel.ErrStepUpRequired
+		return authflow.LoginOutcome{Kind: authflow.LoginReauthenticationRequired, UserID: userID}, nil
 	}
 	version, err := s.q.UserCredentialVersion(ctx, userID)
 	if err != nil {

@@ -225,6 +225,13 @@ func (s *Engine) EffectivePermissions(ctx context.Context, a auth.Identity, refs
 		if err != nil {
 			return nil, err
 		}
+		resolved := make([][]string, 0, len(byGroup))
+		for _, grants := range byGroup {
+			resolved = append(resolved, grants)
+		}
+		if err := s.requireUserMFAEnrollment(ctx, st.q, userID, resolved...); err != nil {
+			return nil, err
+		}
 		for gid, grants := range byGroup {
 			if pin := stateOf(a).Group(); pin != "" && pin != gid {
 				continue

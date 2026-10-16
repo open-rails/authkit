@@ -294,6 +294,9 @@ export const de: AdminMessageTree = {
     phoneHint: "Mit Ländervorwahl, etwa +4930123456.",
     language: "Sprache",
     languageHint: "Ein Sprach-Tag, etwa de oder pt-BR.",
+    mfaRequired: "Zwei-Faktor-Authentifizierung verlangen",
+    mfaRequiredHint:
+      "Das Konto muss die Einrichtung bei der nächsten Anmeldung oder authentifizierten Nutzung abschließen. Andere Rollen- oder Website-Anforderungen gelten auch bei deaktivierter Option.",
     updated: "Geändert",
     verified: "Bestätigt",
     unverified: "Nicht bestätigt",

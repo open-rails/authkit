@@ -130,6 +130,7 @@ const factor = (id: string, method: string, isDefault: boolean) => ({
 // GET /me/security with these second factors.
 const security = (twoFactor: {
   enabled: boolean
+  required?: boolean
   factors: ReturnType<typeof factor>[]
   allowed_methods: string[]
   backup_codes_remaining: number
@@ -735,6 +736,26 @@ describe("StepUpProvider return", () => {
 })
 
 describe("TwoFactorPanel", () => {
+  it("shows a policy requirement and protects the last factor", async () => {
+    await renderSignedIn(<TwoFactorPanel />, {
+      "GET /api/v1/me/security": () =>
+        security({
+          enabled: true,
+          required: true,
+          factors: [factor("f1", "totp", true)],
+          allowed_methods: ["totp"],
+          backup_codes_remaining: 5,
+        }),
+    })
+    await screen.findByText(
+      "Your account policy requires two-factor authentication. Keep at least one verification method."
+    )
+    expect(screen.queryByRole("button", { name: "Turn off" })).toBeNull()
+    expect(
+      screen.getByRole("button", { name: "Remove Authenticator app" })
+    ).toBeDisabled()
+  })
+
   it("enrolls TOTP with a QR code and shows the backup codes once", async () => {
     let enabled = false
     const { user } = await renderSignedIn(<TwoFactorPanel />, {

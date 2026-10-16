@@ -9,6 +9,7 @@ var (
 	CodeTwoFAFactorExists               = def("2fa_factor_exists", 409, "A two-factor method is already enrolled. Remove it before adding another.")
 	CodeTwoFAMethodUnavailable          = def("2fa_method_unavailable", 400, "That two-factor method is unavailable.")
 	CodeTwoFARequired                   = def("2fa_required", 403, "Two-factor authentication is required.")
+	CodeTwoFARequiredByPolicy           = def("2fa_required_by_policy", 403, "Your account policy requires two-factor authentication. Keep at least one second factor enrolled.")
 	CodeAccountAuthorityEscalation      = def("account_authority_escalation", 403, "You do not outrank that account.")
 	CodeAccountDisabled                 = def("account_disabled", 401, "This account is disabled.")
 	CodeAccountExistsLinkRequired       = def("account_exists_link_required", 409, "An account with this email already exists. Sign in, then link the provider from your account page.")

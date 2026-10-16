@@ -280,6 +280,18 @@ func (h *host) verifyEmail(id string) {
 func (h *host) login(a account) tokens {
 	h.t.Helper()
 	resp := h.post("/password/login", map[string]string{"identifier": a.email, "password": password}, "")
+	if res := authResult(h.t, resp); res.Status == httpapi.AuthEnrollmentRequired {
+		token := res.Enrollment.TokenSet.AccessToken
+		setup := h.post("/me/2fa/setup", map[string]string{"method": "email"}, token)
+		require.Equal(h.t, http.StatusOK, setup.status, setup.String())
+		resp = h.post("/me/2fa/factors", map[string]string{"method": "email", "code": h.mail.Last(h.t, iam.MessageVerification, a.email).Code}, token)
+		require.Equal(h.t, http.StatusCreated, resp.status, resp.String())
+		var enrolled httpapi.TwoFactorFactorCreated
+		resp.json(h.t, &enrolled)
+		require.NotNil(h.t, enrolled.Auth)
+		require.NotNil(h.t, enrolled.Auth.TokenSet)
+		return tokens{AccessToken: enrolled.Auth.TokenSet.AccessToken, RefreshToken: *enrolled.Auth.TokenSet.RefreshToken}
+	}
 	if res := authResult(h.t, resp); res.Status == httpapi.AuthSecondFactorRequired {
 		resp = h.post("/2fa/verify", map[string]string{"user_id": a.id, "challenge": res.SecondFactor.Challenge,
 			"code": h.mail.Last(h.t, iam.MessageLoginCode, a.email).Code}, "")

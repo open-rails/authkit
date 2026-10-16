@@ -12,7 +12,7 @@ import (
 // Only out-of-band database repair can empty the root owner set (the rest of
 // the bootstrap workflow is apitest's TestBootstrapWorkflow). Bootstrap then
 // appoints the MFA-required owner role again, to a new account, which enrolls
-// at its first sign-in; an existing account needs MFA first.
+// at its first sign-in, whether that account is new or already exists.
 func TestBootstrapRepairsAnEmptyOwnerSet(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	ctx := t.Context()
@@ -32,14 +32,21 @@ func TestBootstrapRepairsAnEmptyOwnerSet(t *testing.T) {
 	_, err = pg.Pool.Exec(ctx, `DELETE FROM group_user_roles WHERE user_id=$1::uuid`, user.ID)
 	require.NoError(t, err)
 	_, err = svc.ApplyBootstrapManifest(ctx, recovery, iam.BootstrapOptions{})
-	require.ErrorIs(t, err, iam.ErrSubjectMFARequired)
+	require.NoError(t, err)
+	existing, err := svc.getUserByUsername(ctx, "recovery-owner")
+	require.NoError(t, err)
+	roles, err := svc.GroupRoles(ctx, iam.RootGroup(), []iam.Subject{iam.UserSubject(existing.ID)})
+	require.NoError(t, err)
+	require.Equal(t, owner, roles[iam.UserSubject(existing.ID)])
+	_, err = pg.Pool.Exec(ctx, `DELETE FROM group_user_roles WHERE user_id=$1::uuid`, existing.ID)
+	require.NoError(t, err)
 	recovery.Users[0] = iam.BootstrapManifestUser{Username: "recovery-owner-2", Email: "recovery2@example.test", EmailVerified: true, RootRole: owner}
 	result, err := svc.ApplyBootstrapManifest(ctx, recovery, iam.BootstrapOptions{})
 	require.NoError(t, err)
 	require.Equal(t, iam.BootstrapResult{UsersCreated: 1, RootRoleAssignments: 1}, result)
 	recoveryUser, err := svc.getUserByUsername(ctx, "recovery-owner-2")
 	require.NoError(t, err)
-	roles, err := svc.GroupRoles(ctx, iam.RootGroup(), []iam.Subject{iam.UserSubject(recoveryUser.ID)})
+	roles, err = svc.GroupRoles(ctx, iam.RootGroup(), []iam.Subject{iam.UserSubject(recoveryUser.ID)})
 	require.NoError(t, err)
 	require.Equal(t, owner, roles[iam.UserSubject(recoveryUser.ID)])
 }

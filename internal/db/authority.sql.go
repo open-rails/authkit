@@ -298,45 +298,56 @@ func (q *Queries) GroupApplicationRoleName(ctx context.Context, arg GroupApplica
 	return role, err
 }
 
-const groupHasOtherUsableOwner = `-- name: GroupHasOtherUsableOwner :one
-SELECT EXISTS(
-  SELECT 1 FROM group_user_roles r JOIN usable_users u ON u.id = r.user_id
-  WHERE r.permission_group_id = $1::uuid AND r.role LIKE '%:owner'
-    AND NOT ($2::text = 'user' AND u.id = $3::uuid)
-    AND (NOT $4::boolean OR EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id = u.id))
-  UNION ALL
-  SELECT 1 FROM group_remote_application_roles r JOIN remote_applications a ON a.id = r.remote_application_id
-  WHERE NOT $4::boolean AND r.permission_group_id = $1::uuid AND r.role LIKE '%:owner'
-    AND NOT ($2::text = 'remote_application' AND a.id = $3::uuid)
-    AND NOT ($2::text = 'user' AND a.registered_by IS NOT DISTINCT FROM $3::uuid)
-    AND a.enabled AND a.permission_group_id = r.permission_group_id
-    AND (a.trust_root <> 'user' OR EXISTS(SELECT 1 FROM usable_users WHERE id = a.registered_by))
-    AND EXISTS(SELECT 1 FROM permission_groups control WHERE control.id = a.permission_group_id AND control.deleted_at IS NULL)
-)::boolean AS remains
+const groupOtherUsableOwners = `-- name: GroupOtherUsableOwners :many
+SELECT u.id, 'user'::text AS subject_kind, ''::text AS registrar_id
+FROM group_user_roles r JOIN usable_users u ON u.id = r.user_id
+WHERE r.permission_group_id = $1::uuid AND r.role LIKE '%:owner'
+  AND NOT ($2::text = 'user' AND u.id = $3::uuid)
+UNION ALL
+SELECT a.id, 'remote_application'::text AS subject_kind,
+  CASE WHEN a.trust_root = 'user' THEN coalesce(a.registered_by::text, '') ELSE '' END::text AS registrar_id
+FROM group_remote_application_roles r JOIN remote_applications a ON a.id = r.remote_application_id
+WHERE r.permission_group_id = $1::uuid AND r.role LIKE '%:owner'
+  AND NOT ($2::text = 'remote_application' AND a.id = $3::uuid)
+  AND NOT ($2::text = 'user' AND a.registered_by IS NOT DISTINCT FROM $3::uuid)
+  AND a.enabled AND a.permission_group_id = r.permission_group_id
+  AND (a.trust_root <> 'user' OR EXISTS(SELECT 1 FROM usable_users WHERE id = a.registered_by))
+  AND EXISTS(SELECT 1 FROM permission_groups control WHERE control.id = a.permission_group_id AND control.deleted_at IS NULL)
 `
 
-type GroupHasOtherUsableOwnerParams struct {
+type GroupOtherUsableOwnersParams struct {
 	GroupID       string
 	ExcludingKind string
 	ExcludingID   *string
-	NeedsMfa      bool
 }
 
-// Whether the group has an owner that counts, other than the subject
-// (excluding_kind, excluding_id): a usable user, MFA-enrolled when needs_mfa,
-// or, when owners need no MFA, an enabled application of the group itself
-// whose registrar is usable. An application a departing user registered
-// never stands in for that user: its authority ends with theirs (R1).
-func (q *Queries) GroupHasOtherUsableOwner(ctx context.Context, arg GroupHasOtherUsableOwnerParams) (bool, error) {
-	row := q.db.QueryRow(ctx, groupHasOtherUsableOwner,
-		arg.GroupID,
-		arg.ExcludingKind,
-		arg.ExcludingID,
-		arg.NeedsMfa,
-	)
-	var remains bool
-	err := row.Scan(&remains)
-	return remains, err
+type GroupOtherUsableOwnersRow struct {
+	ID          string
+	SubjectKind string
+	RegistrarID string
+}
+
+// Live owner candidates other than the departing subject. The engine checks
+// each candidate against current role, deployment and individual MFA policy.
+// A departing user's application cannot stand in for that same user.
+func (q *Queries) GroupOtherUsableOwners(ctx context.Context, arg GroupOtherUsableOwnersParams) ([]GroupOtherUsableOwnersRow, error) {
+	rows, err := q.db.Query(ctx, groupOtherUsableOwners, arg.GroupID, arg.ExcludingKind, arg.ExcludingID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GroupOtherUsableOwnersRow
+	for rows.Next() {
+		var i GroupOtherUsableOwnersRow
+		if err := rows.Scan(&i.ID, &i.SubjectKind, &i.RegistrarID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const groupUserRoleName = `-- name: GroupUserRoleName :one

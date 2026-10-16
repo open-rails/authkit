@@ -82,6 +82,7 @@ function TwoFactorCard() {
   const [confirm, setConfirm] = useState<Confirm | null>(null)
   const { status, enrollment } = tf
   const enabled = !!status?.enabled
+  const required = !!status?.required
   const factors = (status?.factors ?? []).filter(
     (f): f is TwoFactorFactor & { method: TwoFactorMethod } =>
       isMethod(f.method)
@@ -128,7 +129,7 @@ function TwoFactorCard() {
                   : t("account.twoFactor.enable")}
               </Button>
             )}
-            {enabled && (
+            {enabled && !required && (
               <Button
                 variant="ghost"
                 className="text-destructive hover:text-destructive"
@@ -149,6 +150,11 @@ function TwoFactorCard() {
         )
       }
     >
+      {required && (
+        <p className="px-5 py-3 text-sm text-muted-foreground sm:px-6">
+          {t("account.twoFactor.requiredByPolicy")}
+        </p>
+      )}
       {!status && tf.loading && (
         <div className="flex justify-center px-6 py-6">
           <Spinner />
@@ -271,7 +277,7 @@ function TwoFactorCard() {
               <Button
                 variant="outline"
                 size="sm"
-                disabled={tf.busy}
+                disabled={tf.busy || (required && factors.length === 1)}
                 aria-label={`${t("account.twoFactor.remove")} ${label(f.method)}`}
                 onClick={() => setConfirm({ kind: "remove", factor: f })}
               >

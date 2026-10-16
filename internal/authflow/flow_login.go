@@ -47,6 +47,9 @@ const (
 	// LoginTwoFAEnrollmentRequired: the password verified but the deployment
 	// requires a second factor the user has not enrolled yet.
 	LoginTwoFAEnrollmentRequired LoginOutcomeKind = "2fa_enrollment_required"
+	// LoginReauthenticationRequired: an old session must prove a first factor
+	// again before it can enroll a newly required second factor.
+	LoginReauthenticationRequired LoginOutcomeKind = "reauthentication_required"
 	// LoginDeviceVerificationRequired: a new device past the account's limit;
 	// Device carries the code's challenge.
 	LoginDeviceVerificationRequired LoginOutcomeKind = "device_verification_required"

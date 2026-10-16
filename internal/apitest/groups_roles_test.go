@@ -272,12 +272,12 @@ func TestMFAFollowsPermissions(t *testing.T) {
 	keeper.TOTP = authtest.EnrollTOTP(t, auth, keeper)
 	ref := newGroup(t, auth, channel.Persona, keeper.ID)
 	_, err := createGroup(auth, channel.Persona, plain.ID)
-	require.ErrorIs(t, err, iam.ErrSubjectMFARequired, "the owner role reaches the MFA permission")
+	require.NoError(t, err, "an owner may enroll after the role is assigned")
 
 	op := iam.SystemIdentity()
-	require.ErrorIs(t, assign(auth, op, ref, iam.UserSubject(plain.ID), moderator), iam.ErrSubjectMFARequired)
-	require.ErrorIs(t, assign(auth, op, ref, iam.UserSubject(plain.ID), senior), iam.ErrSubjectMFARequired, "an include carries MFA")
-	require.ErrorIs(t, assign(auth, op, iam.RootGroup(), iam.UserSubject(plain.ID), staff), iam.ErrSubjectMFARequired, "a root role covering the owner's permissions needs MFA")
+	require.NoError(t, assign(auth, op, ref, iam.UserSubject(plain.ID), moderator))
+	require.NoError(t, assign(auth, op, ref, iam.UserSubject(plain.ID), senior))
+	require.NoError(t, assign(auth, op, iam.RootGroup(), iam.UserSubject(plain.ID), staff))
 	require.NoError(t, assign(auth, op, ref, iam.UserSubject(plain.ID), editor))
 
 	_, _, err = createKey(auth, ctx, iam.UserIdentity(keeper.ID), ref, iam.NewAPIKey{Name: "mod-key", Role: moderator})
@@ -285,17 +285,18 @@ func TestMFAFollowsPermissions(t *testing.T) {
 	_, _, err = createKey(auth, ctx, iam.UserIdentity(keeper.ID), ref, iam.NewAPIKey{Name: "editor-key", Role: editor})
 	require.NoError(t, err)
 
-	// With MFA the same roles are held; dropping MFA drops them.
+	// With MFA the same roles are usable; required factors cannot be disabled.
 	require.NoError(t, assign(auth, op, iam.RootGroup(), iam.UserSubject(secure.ID), staff))
 	ok, err := auth.Can(ctx, iam.UserIdentity(secure.ID), ref, postsDelete)
 	require.NoError(t, err)
 	require.True(t, ok)
 	res := newAPI(t, auth).do(request{method: http.MethodDelete, path: "/me/2fa", token: authtest.SignIn(t, auth, secure).AccessToken})
-	require.Equal(t, http.StatusNoContent, res.status, res.String())
-	require.True(t, roleOfIn(t, auth, iam.RootGroup(), iam.UserSubject(secure.ID)).IsZero(), "the MFA-required role goes with the MFA")
+	require.Equal(t, http.StatusForbidden, res.status, res.String())
+	require.Equal(t, "2fa_required_by_policy", res.code())
+	require.Equal(t, staff, roleOfIn(t, auth, iam.RootGroup(), iam.UserSubject(secure.ID)))
 	ok, err = auth.Can(ctx, iam.UserIdentity(secure.ID), ref, postsDelete)
 	require.NoError(t, err)
-	require.False(t, ok, "no subject without MFA keeps an MFA permission")
+	require.True(t, ok, "the factor and role are both retained")
 
 	t.Run("the HTTP assignment gate", func(t *testing.T) {
 		a := newAPI(t, auth)
@@ -303,8 +304,7 @@ func TestMFAFollowsPermissions(t *testing.T) {
 		subject := authtest.NewUser(t, auth)
 		put := request{method: http.MethodPut, path: "/groups/" + ref.ID() + "/members/users/" + subject.ID, body: map[string]string{"role": "channel:moderator"}, token: token}
 		res := a.do(put)
-		require.Equal(t, http.StatusConflict, res.status, res.String())
-		require.Equal(t, "subject_mfa_required", res.code(), "the subject, not the caller, must enroll")
+		require.Equal(t, http.StatusOK, res.status, res.String())
 		authtest.EnrollTOTP(t, auth, subject)
 		res = a.do(put)
 		require.Equal(t, http.StatusOK, res.status, "the same assignment once enrolled: %s", res)

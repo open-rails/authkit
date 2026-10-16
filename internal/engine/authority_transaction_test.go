@@ -190,6 +190,30 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 		require.Equal(t, "editor", role(gid, other))
 		require.Equal(t, "owner", role(gid, human))
 	})
+	t.Run("pending_mfa_owner_cannot_replace_ready_owner", func(t *testing.T) {
+		for _, policy := range []string{"individual", "other_role"} {
+			t.Run(policy, func(t *testing.T) {
+				one, two := user(), user()
+				g, _ := group(one)
+				cfg := svc.cfg
+				cfg.TwoFactor.Mode = iam.TwoFactorOptional
+				cfg.Token.Issuer = "https://pending-" + strings.ReplaceAll(policy, "_", "-") + ".test"
+				cfg.Token.AccountIssuers = nil
+				active, err := New(ctx, cfg, config.Deps{Postgres: hostPool})
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = active.Close(context.Background()) })
+				require.NoError(t, assignRole(ctx, active, iam.SystemIdentity(), g, iam.UserSubject(two), "owner"))
+				if policy == "individual" {
+					required := true
+					_, err = active.UpdateUser(ctx, iam.SystemIdentity(), two, iam.UserUpdate{MFARequired: &required})
+					require.NoError(t, err)
+				} else {
+					require.NoError(t, assignRole(ctx, active, iam.SystemIdentity(), iam.RootGroup(), iam.UserSubject(two), "owner"))
+				}
+				require.ErrorIs(t, removeMember(ctx, active, iam.SystemIdentity(), g, iam.UserSubject(one)), iam.ErrLastOwner)
+			})
+		}
+	})
 	t.Run("concurrent_owner_departures", func(t *testing.T) {
 		for _, op := range []string{"remove", "unassign", "replace", "ban", "soft-delete", "mfa", "mfa-factor"} {
 			t.Run(op, func(t *testing.T) {
@@ -255,18 +279,24 @@ func TestRoleOwnerWorkflow(t *testing.T) {
 				close(start)
 				wg.Wait()
 				close(results)
+				wantErr, wantSuccess, wantOwners := iam.ErrLastOwner, 1, 1
+				if strings.HasPrefix(op, "mfa") {
+					// Required factors cannot be disabled, even when another
+					// owner exists. Neither concurrent request removes a role.
+					wantErr, wantSuccess, wantOwners = iam.ErrTwoFARequiredByPolicy, 0, 2
+				}
 				success := 0
 				for err := range results {
 					if err == nil {
 						success++
 					} else {
-						require.ErrorIs(t, err, iam.ErrLastOwner)
+						require.ErrorIs(t, err, wantErr)
 					}
 				}
-				require.Equal(t, 1, success)
+				require.Equal(t, wantSuccess, success)
 				remaining, err := svc.groupStore().OwnerCount(ctx, gid)
 				require.NoError(t, err)
-				require.Equal(t, 1, remaining)
+				require.Equal(t, wantOwners, remaining)
 			})
 		}
 	})

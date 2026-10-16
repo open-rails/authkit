@@ -85,9 +85,15 @@ func (s *Engine) UserSecurity(ctx context.Context, in authflow.ProfileInput) (au
 	if err != nil {
 		return authflow.UserSecurity{}, stageErr("load_step_up_methods", err)
 	}
+	required, err := s.userRequiresMFA(ctx, s.pg, in.UserID)
+	if err != nil {
+		return authflow.UserSecurity{}, stageErr("load_mfa_policy", err)
+	}
+	status := authflow.NewTwoFactorStatus(settings, s.TwoFactorMethods())
+	status.Required = required
 	return authflow.UserSecurity{
 		FreshAuth:     fresh,
 		StepUpMethods: methods,
-		TwoFactor:     authflow.NewTwoFactorStatus(settings, s.TwoFactorMethods()),
+		TwoFactor:     status,
 	}, nil
 }

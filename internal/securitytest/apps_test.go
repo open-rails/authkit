@@ -277,7 +277,11 @@ func TestSecurityApplicationRegistrar(t *testing.T) {
 // service token, even signed with this deployment's key or a registered
 // application's, verifies nowhere.
 func TestSecurityTokenMatrix(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
+	// This matrix isolates token type, issuer and subject validation. Live
+	// MFA-policy enforcement is covered by the enrollment/session tests.
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(func(c *authkit.Config) {
+		c.TwoFactor.Mode = iam.TwoFactorDisabled
+	}))
 	ctx := context.Background()
 	user := h.newAccount("matrixuser")
 	h.grant(iam.RootGroup(), user, "admin")

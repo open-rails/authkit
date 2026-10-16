@@ -29,7 +29,8 @@ func publicUser(r *db.User, now time.Time) iam.User {
 	u := iam.User{
 		ID: r.ID, TenantID: tenant, Email: nullable(deref(r.Email)), Phone: nullable(deref(r.PhoneNumber)), Username: naming.Canonical(deref(r.Username)),
 		EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, PreferredLanguage: nullable(deref(r.PreferredLanguage)),
-		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin, DeletedAt: r.DeletedAt,
+		MFARequired: r.MfaRequired,
+		CreatedAt:   r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin, DeletedAt: r.DeletedAt,
 		PublicMetadata: publicMetadata(r.PublicMetadata),
 	}
 	if r.BannedAt != nil {

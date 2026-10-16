@@ -60,6 +60,98 @@ async function signOut(page: Page) {
   await expect(page.getByTestId("status")).toHaveText("anonymous")
 }
 
+for (const policy of ["role", "individual"] as const) {
+  test(`requires MFA after a ${policy} policy change on an active account`, async ({
+    page,
+    request,
+  }) => {
+    await loadApp(page)
+    const account = await registerVerified(page, request)
+    await loadApp(page)
+    await expect(page.getByTestId("status")).toHaveText("authenticated")
+    if (policy === "individual") {
+      expect(
+        (
+          await request.post(
+            `/__test/stale-sessions?email=${encodeURIComponent(account.email)}`
+          )
+        ).status()
+      ).toBe(204)
+      expect(
+        (
+          await request.post(
+            `/__test/mfa-policy?email=${encodeURIComponent(account.email)}`
+          )
+        ).status()
+      ).toBe(204)
+    } else {
+      expect(
+        (
+          await request.post(
+            `/__test/members?group=root&role=owner&email=${encodeURIComponent(account.email)}`
+          )
+        ).status()
+      ).toBe(204)
+    }
+    await page.evaluate(async () => {
+      const client = (
+        window as unknown as { authClient: { getMe(): Promise<unknown> } }
+      ).authClient
+      await client.getMe().catch(() => undefined)
+    })
+    if (policy === "individual") {
+      await expect(
+        dialog(page).getByText(
+          /Your account now requires two-factor authentication/
+        )
+      ).toBeVisible()
+      await panel(page).getByLabel("Email or phone number").fill(account.email)
+      await panel(page)
+        .getByLabel("Password", { exact: true })
+        .fill(account.password)
+      await panel(page)
+        .getByRole("button", { name: "Sign in", exact: true })
+        .click()
+    }
+    await expect(
+      dialog(page).getByRole("heading", {
+        name: "Set up two-factor authentication",
+      })
+    ).toBeVisible()
+    const setupResponse = page.waitForResponse(
+      (r) =>
+        r.url().endsWith("/me/2fa/setup") && r.request().method() === "POST"
+    )
+    await dialog(page)
+      .getByRole("button", { name: "Set up authenticator", exact: true })
+      .click()
+    const setup = await (await setupResponse).json()
+    expect(setup.secret).toBeTruthy()
+    await codeInput(page).fill(totp(setup.secret))
+    await expect(
+      dialog(page).getByRole("heading", { name: "Save your backup codes" })
+    ).toBeVisible()
+    await dialog(page)
+      .getByRole("button", { name: "I've saved my backup codes" })
+      .click()
+    await expect(dialog(page)).toBeHidden()
+    await expect(page.getByTestId("status")).toHaveText("authenticated")
+    await expect(page.getByTestId("email")).toHaveText(account.email)
+    expect(
+      await page.evaluate(async () => {
+        const client = (
+          window as unknown as {
+            authClient: {
+              getSecurity(): Promise<{ two_factor: { required: boolean } }>
+            }
+          }
+        ).authClient
+        return (await client.getSecurity()).two_factor.required
+      })
+    ).toBe(true)
+  })
+}
+
 test("register, verify, then TOTP and backup-code sign-in", async ({
   page,
   request,

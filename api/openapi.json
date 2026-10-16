@@ -7367,6 +7367,16 @@
                 "type": "null"
               }
             ]
+          },
+          "mfa_required": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -7624,6 +7634,7 @@
               "complete",
               "device_verification_required",
               "enrollment_required",
+              "reauthentication_required",
               "second_factor_required",
               "verification_required"
             ]
@@ -7701,6 +7712,16 @@
               }
             ]
           },
+          "reauthentication": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ReauthenticationStep"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "verification": {
             "oneOf": [
               {
@@ -7748,6 +7769,7 @@
           "device_key",
           "second_factor",
           "enrollment",
+          "reauthentication",
           "verification",
           "recovery",
           "device_verification",
@@ -10222,6 +10244,21 @@
           "public_metadata"
         ]
       },
+      "ReauthenticationStep": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "reason"
+        ]
+      },
       "Refusal": {
         "type": "object",
         "properties": {
@@ -11824,6 +11861,9 @@
           "enabled": {
             "type": "boolean"
           },
+          "required": {
+            "type": "boolean"
+          },
           "factors": {
             "type": "array",
             "items": {
@@ -11847,6 +11887,7 @@
         },
         "required": [
           "enabled",
+          "required",
           "factors",
           "allowed_methods",
           "backup_codes_remaining"
@@ -11922,6 +11963,9 @@
             "type": "boolean"
           },
           "phone_verified": {
+            "type": "boolean"
+          },
+          "mfa_required": {
             "type": "boolean"
           },
           "preferred_language": {
@@ -12001,6 +12045,7 @@
           "username",
           "email_verified",
           "phone_verified",
+          "mfa_required",
           "preferred_language",
           "created_at",
           "updated_at",
@@ -12068,6 +12113,9 @@
             "type": "boolean"
           },
           "phone_verified": {
+            "type": "boolean"
+          },
+          "mfa_required": {
             "type": "boolean"
           },
           "preferred_language": {
@@ -12173,6 +12221,7 @@
           "username",
           "email_verified",
           "phone_verified",
+          "mfa_required",
           "preferred_language",
           "created_at",
           "updated_at",
@@ -12222,6 +12271,9 @@
             "type": "boolean"
           },
           "phone_verified": {
+            "type": "boolean"
+          },
+          "mfa_required": {
             "type": "boolean"
           },
           "preferred_language": {
@@ -12339,6 +12391,7 @@
           "username",
           "email_verified",
           "phone_verified",
+          "mfa_required",
           "preferred_language",
           "created_at",
           "updated_at",
@@ -13023,6 +13076,10 @@
       "metadata": {
         "$ref": "#/components/schemas/TwoFactorRequired"
       }
+    },
+    "2fa_required_by_policy": {
+      "status": 403,
+      "message": "Your account policy requires two-factor authentication. Keep at least one second factor enrolled."
     },
     "account_authority_escalation": {
       "status": 403,

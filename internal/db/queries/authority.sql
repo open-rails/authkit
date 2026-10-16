@@ -66,26 +66,24 @@ SELECT (a.permission_group_id = sqlc.arg(group_id)::uuid)::boolean AS controls, 
 FROM remote_applications a JOIN permission_groups g ON g.id = sqlc.arg(group_id)::uuid
 WHERE a.id = sqlc.arg(application_id)::uuid;
 
--- name: GroupHasOtherUsableOwner :one
--- Whether the group has an owner that counts, other than the subject
--- (excluding_kind, excluding_id): a usable user, MFA-enrolled when needs_mfa,
--- or, when owners need no MFA, an enabled application of the group itself
--- whose registrar is usable. An application a departing user registered
--- never stands in for that user: its authority ends with theirs (R1).
-SELECT EXISTS(
-  SELECT 1 FROM group_user_roles r JOIN usable_users u ON u.id = r.user_id
-  WHERE r.permission_group_id = sqlc.arg(group_id)::uuid AND r.role LIKE '%:owner'
-    AND NOT (sqlc.arg(excluding_kind)::text = 'user' AND u.id = sqlc.narg(excluding_id)::uuid)
-    AND (NOT sqlc.arg(needs_mfa)::boolean OR EXISTS(SELECT 1 FROM mfa_factors f WHERE f.user_id = u.id))
-  UNION ALL
-  SELECT 1 FROM group_remote_application_roles r JOIN remote_applications a ON a.id = r.remote_application_id
-  WHERE NOT sqlc.arg(needs_mfa)::boolean AND r.permission_group_id = sqlc.arg(group_id)::uuid AND r.role LIKE '%:owner'
-    AND NOT (sqlc.arg(excluding_kind)::text = 'remote_application' AND a.id = sqlc.narg(excluding_id)::uuid)
-    AND NOT (sqlc.arg(excluding_kind)::text = 'user' AND a.registered_by IS NOT DISTINCT FROM sqlc.narg(excluding_id)::uuid)
-    AND a.enabled AND a.permission_group_id = r.permission_group_id
-    AND (a.trust_root <> 'user' OR EXISTS(SELECT 1 FROM usable_users WHERE id = a.registered_by))
-    AND EXISTS(SELECT 1 FROM permission_groups control WHERE control.id = a.permission_group_id AND control.deleted_at IS NULL)
-)::boolean AS remains;
+-- name: GroupOtherUsableOwners :many
+-- Live owner candidates other than the departing subject. The engine checks
+-- each candidate against current role, deployment and individual MFA policy.
+-- A departing user's application cannot stand in for that same user.
+SELECT u.id, 'user'::text AS subject_kind, ''::text AS registrar_id
+FROM group_user_roles r JOIN usable_users u ON u.id = r.user_id
+WHERE r.permission_group_id = sqlc.arg(group_id)::uuid AND r.role LIKE '%:owner'
+  AND NOT (sqlc.arg(excluding_kind)::text = 'user' AND u.id = sqlc.narg(excluding_id)::uuid)
+UNION ALL
+SELECT a.id, 'remote_application'::text AS subject_kind,
+  CASE WHEN a.trust_root = 'user' THEN coalesce(a.registered_by::text, '') ELSE '' END::text AS registrar_id
+FROM group_remote_application_roles r JOIN remote_applications a ON a.id = r.remote_application_id
+WHERE r.permission_group_id = sqlc.arg(group_id)::uuid AND r.role LIKE '%:owner'
+  AND NOT (sqlc.arg(excluding_kind)::text = 'remote_application' AND a.id = sqlc.narg(excluding_id)::uuid)
+  AND NOT (sqlc.arg(excluding_kind)::text = 'user' AND a.registered_by IS NOT DISTINCT FROM sqlc.narg(excluding_id)::uuid)
+  AND a.enabled AND a.permission_group_id = r.permission_group_id
+  AND (a.trust_root <> 'user' OR EXISTS(SELECT 1 FROM usable_users WHERE id = a.registered_by))
+  AND EXISTS(SELECT 1 FROM permission_groups control WHERE control.id = a.permission_group_id AND control.deleted_at IS NULL);
 
 -- name: AuthorityOutsideApplicationOwnerGroups :many
 -- The other groups owned by enabled applications that group_id controls.

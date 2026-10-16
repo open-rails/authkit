@@ -9,13 +9,16 @@ import (
 // User is an account. It is the privileged view: it carries contact details,
 // so render other people with PublicUser. A nil field is unset.
 type User struct {
-	ID                string     `json:"id"`
-	TenantID          TenantID   `json:"tenant_id"`
-	Email             *string    `json:"email"`
-	Phone             *string    `json:"phone_number"`
-	Username          string     `json:"username"`
-	EmailVerified     bool       `json:"email_verified"`
-	PhoneVerified     bool       `json:"phone_verified"`
+	ID            string   `json:"id"`
+	TenantID      TenantID `json:"tenant_id"`
+	Email         *string  `json:"email"`
+	Phone         *string  `json:"phone_number"`
+	Username      string   `json:"username"`
+	EmailVerified bool     `json:"email_verified"`
+	PhoneVerified bool     `json:"phone_verified"`
+	// MFARequired is an administrator's explicit requirement, independent of
+	// deployment or role policy. An unenrolled account must complete setup.
+	MFARequired       bool       `json:"mfa_required"`
 	PreferredLanguage *string    `json:"preferred_language"`
 	CreatedAt         time.Time  `json:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at"`
@@ -125,7 +128,9 @@ type NewUser struct {
 type UserUpdate struct {
 	Email, Phone, Username, PreferredLanguage, Password *string
 	EmailVerified, PhoneVerified                        *bool
-	PasswordHash                                        *PasswordHash
+	// MFARequired may be changed by account administrators, never self-service.
+	MFARequired  *bool
+	PasswordHash *PasswordHash
 }
 
 // PasswordHash is a password hash made elsewhere (an import, a bootstrap

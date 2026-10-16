@@ -249,11 +249,15 @@ func TestSecurityCredentialSweepNeverBlocksBoot(t *testing.T) {
 		require.NoError(t, err)
 		group, err := h.createOrg(ctx, account{id: u.ID})
 		require.NoError(t, err)
-		app, err := h.auth.UpsertRemoteApplication(ctx, iam.UserIdentity(u.ID), group, iam.RemoteApplication{
+		app, err := h.auth.UpsertRemoteApplication(ctx, iam.SystemIdentity(), group, iam.RemoteApplication{
 			Issuer: "https://p2d-app.security.test", PublicKeys: staticKeys(t, newSigner(t, "p2d-kid")), Enabled: true,
 		})
 		require.NoError(t, err)
-		require.NoError(t, setRole(h.auth, ctx, iam.UserIdentity(u.ID), group, iam.RemoteApplicationSubject(app.ID), orgPersona.OwnerRole()))
+		require.NoError(t, setRole(h.auth, ctx, iam.SystemIdentity(), group, iam.RemoteApplicationSubject(app.ID), orgPersona.OwnerRole()))
+		// Reconstruct the historical row: current user-authorized writes
+		// correctly refuse this unenrolled registrar under Required policy.
+		_, err = h.pool.Exec(ctx, `UPDATE profiles.remote_applications SET registered_by=$1::uuid, trust_root='user' WHERE id=$2::uuid`, u.ID, app.ID)
+		require.NoError(t, err)
 		require.Less(t, h.post("/password/reset/request", map[string]string{"identifier": email}, "").status, 300)
 		token := h.mail.Last(t, iam.MessagePasswordReset, email).Token
 		resp := h.post("/password/reset/confirm", map[string]string{"token": token, "new_password": "Founder-proves-the-address-4"}, "")

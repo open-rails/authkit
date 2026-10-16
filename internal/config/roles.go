@@ -256,8 +256,9 @@ func (p *PersonaDef) Role(name string, grants ...iam.Grant) iam.Role {
 
 // RequireMFA marks permissions, or patterns over the persona's catalog, that
 // need a second factor: a subject holding a grant that reaches one, through
-// any role, include or root role, must have MFA enrolled, and no API key or
-// application may hold it. root:members:manage and root:users:manage always
+// any role, include or root role, must enroll MFA before using authenticated
+// access. Human assignments may precede enrollment; no API key or application
+// may hold it. root:members:manage and root:users:manage always
 // need MFA.
 func (p *PersonaDef) RequireMFA(perms ...iam.Perm) {
 	p.spec.RequireMFA = append(p.spec.RequireMFA, perms...)

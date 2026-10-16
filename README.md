@@ -264,6 +264,17 @@ Sign-ins are limited per device over 24 hours (`Config.SignIn`): 5 accounts per 
 
 With `Registration.PasswordlessLogin`, people sign in contact-first: an email or phone, then the 6-digit code sent there, or a passkey (the routes `/passwordless/start` and `/confirm`). `PasswordlessAutoRegistration` signs up whoever proves a new contact; with `Registration.Agreements` set, that sign-up, like every other, first accepts your terms (`agreement_required` names them, and the code stays good for the retry). An account whose only proof is a phone proves it again on every new device. Text messages go only to `SMS.AllowedCountries` and pass send limits per number, account, address and country; each code ends with an origin-bound line (`@example.com #123456`) so browsers autofill it only on your site. See [identity](docs/identity.md#network-accounts).
 
+**MFA upgrades after promotion**
+
+Granting an MFA-protected role succeeds before its recipient enrolls. AuthKit
+requires setup on the next sign-in or authenticated visit, and blocks protected
+access until it is complete. Administrators can also set an individual
+requirement with `UpdateUser(..., iam.UserUpdate{MFARequired: &required})` or
+`PATCH /api/v1/admin/users/{user_id}` with `{"mfa_required":true}`. Clearing that
+flag does not bypass role or deployment policy. The shared user editor and
+sign-in UI support this flow, including fresh sign-in when an old session cannot
+safely enroll a new factor. See [the MFA policy guide](docs/rbac.md#requiring-mfa-after-a-promotion).
+
 **Sessions and tokens**
 
 | Route | What it does |

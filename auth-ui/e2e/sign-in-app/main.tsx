@@ -80,6 +80,13 @@ function Home() {
   const session = useSession()
   const { user } = useUser()
   const [open, setOpen] = useState(params.get("open") === "1")
+  const pending = session.status === "anonymous" ? session.continuation : null
+  const [seen, setSeen] = useState<typeof pending>(null)
+  const [continuation, setContinuation] = useState<typeof pending>(null)
+  if (pending && pending !== seen) {
+    setSeen(pending)
+    setContinuation(pending)
+  }
   const tab = params.get("tab") === "register" ? "register" : "login"
   return (
     <main>
@@ -91,8 +98,12 @@ function Home() {
       </header>
       <Backdrop />
       <SignInDialog
-        open={open}
-        onOpenChange={setOpen}
+        open={open || continuation !== null}
+        continuation={continuation}
+        onOpenChange={(next) => {
+          setOpen(next)
+          if (!next) setContinuation(null)
+        }}
         initialTab={tab}
         termsUrl="/terms"
         privacyUrl="/privacy"

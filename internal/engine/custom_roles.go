@@ -277,8 +277,8 @@ func (s *Engine) CreateGroupRole(ctx context.Context, who auth.Identity, ref iam
 // COVER of the grants before and after, it takes <p>:members:manage while
 // members or invitations hold the role and <p>:credentials:manage while API
 // keys or applications do. A change that needs MFA is refused while an API
-// key or application holds the role (iam.ErrRoleNotAssignable) or a holder
-// has no second factor (iam.ErrSubjectMFARequired). Afterwards every
+// key or application holds the role (iam.ErrRoleNotAssignable). Human holders
+// without a second factor must enroll on their next authenticated visit. Afterwards every
 // credential in the group (root: everywhere) whose issuer no longer covers
 // its role is revoked (rule CRED).
 func (s *Engine) UpdateGroupRole(ctx context.Context, who auth.Identity, ref iam.GroupRef, role iam.Role, u iam.GroupRoleUpdate, opts ...ops.Option) (iam.GroupRole, error) {
@@ -317,8 +317,6 @@ func (s *Engine) UpdateGroupRole(ctx context.Context, who auth.Identity, ref iam
 			switch {
 			case holders.Machines:
 				return fmt.Errorf("role %q would need MFA, which the API keys and applications holding it cannot provide: %w", role, iam.ErrRoleNotAssignable)
-			case holders.UsersWithoutMfa:
-				return iam.ErrSubjectMFARequired
 			}
 		}
 		r, _ := s.groupSchemaOrDefault().AssignedRole(g.Persona, role, grants)

@@ -11,6 +11,7 @@ export type SignInResult =
   | With<"complete", "token_set">
   | With<"second_factor_required", "second_factor">
   | With<"enrollment_required", "enrollment">
+  | With<"reauthentication_required", "reauthentication">
   | With<"verification_required", "verification">
   | With<"account_recovery_required", "recovery">
   | With<"device_verification_required", "device_verification">
@@ -22,6 +23,7 @@ const STEP = {
   complete: "token_set",
   second_factor_required: "second_factor",
   enrollment_required: "enrollment",
+  reauthentication_required: "reauthentication",
   verification_required: "verification",
   account_recovery_required: "recovery",
   device_verification_required: "device_verification",

@@ -234,6 +234,8 @@ type User struct {
 	// When email, its verification, username, deletion or ban last changed
 	ProfileUpdatedAt time.Time
 	TenantID         string
+	// Administrator-required MFA; enrollment may be completed after the policy is set
+	MfaRequired bool
 }
 
 // Ed25519 public keys for native clients. Revoked rows remain tombstones and cannot be re-enrolled.

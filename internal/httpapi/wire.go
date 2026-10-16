@@ -299,6 +299,7 @@ type AdminUserUpdateRequest struct {
 	PhoneNumber       *string `json:"phone_number"`
 	Username          *string `json:"username"`
 	PreferredLanguage *string `json:"preferred_language"`
+	MFARequired       *bool   `json:"mfa_required"`
 }
 
 // MemberListQuery filters a group's members; kind and role repeat, and
@@ -521,6 +522,9 @@ const (
 	// AuthEnrollmentRequired: the account must add a second factor first;
 	// enrollment.token_set reaches only POST /me/2fa/setup and /me/2fa/factors.
 	AuthEnrollmentRequired AuthStatus = "enrollment_required"
+	// AuthReauthenticationRequired: a valid but old session must repeat a
+	// first factor before satisfying newly required MFA.
+	AuthReauthenticationRequired AuthStatus = "reauthentication_required"
 	// AuthVerificationRequired: a code went to verification.identifier; confirm
 	// it at POST /verify/confirm.
 	AuthVerificationRequired AuthStatus = "verification_required"
@@ -547,11 +551,12 @@ type AuthResult struct {
 	// FreshAuth: the session's step-up state after a re-authentication.
 	FreshAuth *FreshAuth `json:"fresh_auth"`
 	// DeviceKey: a device-key sign-in's key.
-	DeviceKey    *iam.DeviceKey                        `json:"device_key"`
-	SecondFactor *SecondFactorStep                     `json:"second_factor"`
-	Enrollment   *EnrollmentStep                       `json:"enrollment"`
-	Verification *VerificationStep                     `json:"verification"`
-	Recovery     *authflow.AccountRecoveryConfirmation `json:"recovery"`
+	DeviceKey        *iam.DeviceKey                        `json:"device_key"`
+	SecondFactor     *SecondFactorStep                     `json:"second_factor"`
+	Enrollment       *EnrollmentStep                       `json:"enrollment"`
+	Reauthentication *ReauthenticationStep                 `json:"reauthentication"`
+	Verification     *VerificationStep                     `json:"verification"`
+	Recovery         *authflow.AccountRecoveryConfirmation `json:"recovery"`
 	// DeviceVerification: a new device's code step.
 	DeviceVerification *DeviceVerificationStep `json:"device_verification"`
 	// AgreementsDue: on a completed sign-in, the documents the user is asked
@@ -584,6 +589,12 @@ type DeviceVerificationStep struct {
 type EnrollmentStep struct {
 	TokenSet       iam.TokenSet          `json:"token_set"`
 	AllowedMethods []iam.TwoFactorMethod `json:"allowed_methods"`
+}
+
+// ReauthenticationStep preserves the account identity, but grants no access.
+type ReauthenticationStep struct {
+	UserID string `json:"user_id"`
+	Reason string `json:"reason"`
 }
 
 // VerificationStep is a sign-in waiting on a contact proof; the code went to

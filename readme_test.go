@@ -78,6 +78,9 @@ func TestReadmeRolesBlock(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.HTTP = &authkit.HTTPConfig{DirectPeerIP: true}
 	cfg.Roles = rbac
+	// This fixture checks role composition using trusted Go identities;
+	// deferred MFA enrollment is exercised by the authentication workflows.
+	cfg.TwoFactor.Mode = iam.TwoFactorDisabled
 	auth, err := authkit.New(ctx, cfg, testDeps(pg.Pool))
 	require.NoError(t, err, "README roles block: authkit.New must accept it")
 	t.Cleanup(func() { _ = auth.Close(context.Background()) })

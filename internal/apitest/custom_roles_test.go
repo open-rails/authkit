@@ -511,7 +511,7 @@ func TestCustomRoleRemoteApplication(t *testing.T) {
 }
 
 // A custom role needs MFA when its permissions do: never a machine's, and a
-// change to one held without a second factor is refused.
+// change to one held without a second factor requires enrollment on use.
 func TestCustomRoleMFA(t *testing.T) {
 	rbac := authkit.NewRoles()
 	merchant := rbac.Persona("merchant", authkit.APIKeys, authkit.CustomRoles)
@@ -536,7 +536,7 @@ func TestCustomRoleMFA(t *testing.T) {
 	require.ErrorIs(t, err, iam.ErrRoleNotAssignable, "a key presents no second factor")
 	plain := authtest.NewUser(t, auth)
 	_, err = auth.SetGroupRole(ctx, sys, g, iam.UserSubject(plain.ID), refunds.Name)
-	require.ErrorIs(t, err, iam.ErrSubjectMFARequired)
+	require.NoError(t, err)
 
 	reader := define("reader", entitlements)
 	_, _, err = createKey(auth, ctx, sys, g, iam.NewAPIKey{Name: "reader", Role: reader.Name})
@@ -547,7 +547,9 @@ func TestCustomRoleMFA(t *testing.T) {
 	staff := define("staff", entitlements)
 	authtest.GrantRole(t, auth, g, iam.UserSubject(plain.ID), staff.Name)
 	_, err = auth.UpdateGroupRole(ctx, sys, g, staff.Name, iam.GroupRoleUpdate{Permissions: []iam.Perm{refund}})
-	require.ErrorIs(t, err, iam.ErrSubjectMFARequired, "a holder has no second factor")
+	require.NoError(t, err, "policy changes may require existing holders to enroll")
+	_, err = auth.Can(ctx, iam.UserIdentity(plain.ID), g, refund)
+	require.ErrorIs(t, err, iam.ErrTwoFAEnrollmentRequired)
 	authtest.EnrollTOTP(t, auth, plain)
 	updated, err := auth.UpdateGroupRole(ctx, sys, g, staff.Name, iam.GroupRoleUpdate{Permissions: []iam.Perm{refund}})
 	require.NoError(t, err)

@@ -130,6 +130,20 @@ func run(addr, baseURL, dsn, static string, lifetime time.Duration) error {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+	// Changes individual MFA policy without impersonating the account.
+	mux.HandleFunc("POST /__test/mfa-policy", func(w http.ResponseWriter, r *http.Request) {
+		u, err := rt.User(r.Context(), iam.UserByEmail(r.URL.Query().Get("email")))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		required := r.URL.Query().Get("required") != "false"
+		if _, err := rt.UpdateUser(r.Context(), iam.SystemIdentity(), u.ID, iam.UserUpdate{MFARequired: &required}); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	// Grants the user an entitlement (?name=) in the host's store.
 	mux.HandleFunc("POST /__test/entitlements", func(w http.ResponseWriter, r *http.Request) {
 		u, err := rt.User(r.Context(), iam.UserByEmail(r.URL.Query().Get("email")))

@@ -53,7 +53,8 @@ func (s *Engine) newAuthenticator(audiences []string, own bool, opts ...verify.V
 // NewAuthenticator builds an authenticator for a host resource server in this
 // process: this deployment's API keys and tokens, for audiences. DPoP proofs are spent in this
 // deployment's replay store and checked against its public origin unless
-// opts say otherwise (verify.WithPublicURL). It applies no 2FA policy.
+// opts say otherwise (verify.WithPublicURL). Local user tokens retain this
+// deployment's enrollment policy, including later account and role changes.
 func (s *Engine) NewAuthenticator(audiences []string, opts ...verify.VerifierOption) (*Authenticator, error) {
 	return s.newAuthenticator(audiences, false, opts...)
 }
@@ -125,10 +126,30 @@ func (a *Authenticator) authenticate(ctx context.Context, token string, r *http.
 		// resource server, never a sign-in to this deployment's API.
 		return verify.Claims{}, errmodel.E(errmodel.CodeUnsupportedTokenTyp)
 	}
-	// Under a Required 2FA policy a user not yet enrolled reaches only the
-	// enrollment routes (#148).
-	if a.own && a.s.requireMFAEnrollment() && cl.IsUser() && !cl.MFAEnrolled && !enrollment.IsRoute(ctx) {
-		return verify.Claims{}, errmodel.E(errmodel.CodeTwoFAEnrollmentRequired)
+	// A token issued before a promotion or account-policy change must not
+	// keep using ordinary routes until its user completes MFA. An existing
+	// MFA proof still satisfies the policy; a UV passkey needs no TOTP row.
+	if cl.IsUser() && a.s.TwoFactorEnabled() && !enrollment.IsRoute(ctx) &&
+		!(cl.HasAMR("mfa") && (cl.MFAEnrolled || cl.HasAMR("swk"))) {
+		required, err := a.s.userRequiresMFA(ctx, a.s.pg, cl.UserID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return verify.Claims{}, errmodel.E(errmodel.CodeInvalidToken)
+		}
+		if err != nil {
+			return verify.Claims{}, err
+		}
+		if required {
+			if a.s.pg == nil {
+				if !cl.MFAEnrolled {
+					return verify.Claims{}, iam.ErrTwoFAEnrollmentRequired
+				}
+				return verify.Claims{}, errTwoFARequired
+			}
+			status, err := a.s.mfaStatus(ctx, cl.UserID)
+			if gate := a.s.requireSessionMFAStateWith(ctx, cl.UserID, cl.AMR, status, err); gate != nil {
+				return verify.Claims{}, gate
+			}
+		}
 	}
 	return cl, nil
 }

@@ -370,7 +370,11 @@ import { SolanaSignInButton } from "@openrails/auth-ui/solana"
 - `providers` replaces (array) or edits (function) the `/capabilities` list.
 - `continuation` opens on a pending step: pass `session.continuation` (set
   when a refresh answered with a next step) so the user finishes signing in
-  there. `inviteCode` carries an invitation into registration.
+  there. A policy change uses session reason `verification_required`, rather
+  than `expired`. Capture the continuation in local state and keep the dialog
+  open until `onOpenChange(false)`; it must not close merely because the
+  session becomes authenticated before backup-code acknowledgement.
+  `inviteCode` carries an invitation into registration.
 - `modal={false}` while a host overlay (e.g. a wallet picker) is open above
   the dialog, so it stays clickable and does not dismiss the dialog.
 - A host that loads its wallet stack lazily passes `SolanaSignInButton`

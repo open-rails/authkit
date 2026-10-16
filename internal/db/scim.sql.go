@@ -22,7 +22,7 @@ func (q *Queries) SCIMUsersCount(ctx context.Context, tenantID string) (int64, e
 
 const sCIMUsersMatching = `-- name: SCIMUsersMatching :many
 
-SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id FROM users
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id, mfa_required FROM users
 WHERE tenant_id=NULLIF($1::text,'')::uuid AND (id = ANY($2::uuid[])
    OR username = ANY($3::text[]::public.citext[])
    OR (email_verified AND email = ANY($4::text[]::public.citext[])))
@@ -73,6 +73,7 @@ func (q *Queries) SCIMUsersMatching(ctx context.Context, arg SCIMUsersMatchingPa
 			&i.PublicMetadata,
 			&i.ProfileUpdatedAt,
 			&i.TenantID,
+			&i.MfaRequired,
 		); err != nil {
 			return nil, err
 		}
@@ -85,7 +86,7 @@ func (q *Queries) SCIMUsersMatching(ctx context.Context, arg SCIMUsersMatchingPa
 }
 
 const sCIMUsersPage = `-- name: SCIMUsersPage :many
-SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id FROM users WHERE tenant_id=NULLIF($1::text,'')::uuid ORDER BY id LIMIT $3 OFFSET $2
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id, mfa_required FROM users WHERE tenant_id=NULLIF($1::text,'')::uuid ORDER BY id LIMIT $3 OFFSET $2
 `
 
 type SCIMUsersPageParams struct {
@@ -124,6 +125,7 @@ func (q *Queries) SCIMUsersPage(ctx context.Context, arg SCIMUsersPageParams) ([
 			&i.PublicMetadata,
 			&i.ProfileUpdatedAt,
 			&i.TenantID,
+			&i.MfaRequired,
 		); err != nil {
 			return nil, err
 		}
@@ -136,7 +138,7 @@ func (q *Queries) SCIMUsersPage(ctx context.Context, arg SCIMUsersPageParams) ([
 }
 
 const userInfoSearch = `-- name: UserInfoSearch :many
-SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id FROM users u
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id, mfa_required FROM users u
 WHERE u.tenant_id=NULLIF($1::text,'')::uuid AND u.deleted_at IS NULL
   AND (u.username::text ILIKE $2::text
        OR (u.email_verified AND u.email::text ILIKE $2::text))
@@ -182,6 +184,7 @@ func (q *Queries) UserInfoSearch(ctx context.Context, arg UserInfoSearchParams) 
 			&i.PublicMetadata,
 			&i.ProfileUpdatedAt,
 			&i.TenantID,
+			&i.MfaRequired,
 		); err != nil {
 			return nil, err
 		}

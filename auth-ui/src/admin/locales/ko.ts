@@ -283,6 +283,9 @@ export const ko: AdminMessageTree = {
     phoneHint: "국가 코드 포함, 예: +82212345678.",
     language: "언어",
     languageHint: "언어 태그, 예: ko 또는 pt-BR.",
+    mfaRequired: "2단계 인증 필수",
+    mfaRequiredHint:
+      "다음 로그인 또는 인증된 접근 시 설정을 완료해야 합니다. 이 옵션을 꺼도 역할이나 사이트의 다른 요구 사항은 계속 적용됩니다.",
     updated: "수정일",
     verified: "인증됨",
     unverified: "인증 안 됨",

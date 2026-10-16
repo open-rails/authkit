@@ -99,6 +99,8 @@ export const en = {
     tabsLabel: "Sign in or create an account",
     resetRequiredAction: "Reset your password",
     recovered: "Your account was restored. Sign in to continue.",
+    mfaReauthentication:
+      "Your account now requires two-factor authentication. Sign in again to finish setting it up.",
   },
   contactSignIn: {
     title: "Sign in or sign up",
@@ -438,6 +440,8 @@ export const en = {
         "Require a second step when you sign in, so a stolen password isn't enough.",
       on: "On",
       off: "Off",
+      requiredByPolicy:
+        "Your account policy requires two-factor authentication. Keep at least one verification method.",
       default: "Default",
       makeDefault: "Make default",
       remove: "Remove",

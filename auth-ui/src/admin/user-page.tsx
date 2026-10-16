@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "../ui/dialog.tsx"
 import { Input } from "../ui/input.tsx"
+import { Checkbox } from "../ui/checkbox.tsx"
 import type { UsersPermissions } from "./access.ts"
 import type { BanInput, SessionEventKind, UserUpdate } from "./client.ts"
 import { useAdmin } from "./context.ts"
@@ -678,15 +679,19 @@ function EditForm({
     email: useId(),
     phone: useId(),
     lang: useId(),
+    mfa: useId(),
   }
   const [form, setForm] = useState({
     username: user.username,
     email: user.email ?? "",
     phone: user.phone_number ?? "",
     language: user.preferred_language ?? "",
+    mfaRequired: user.mfa_required ?? false,
   })
-  const set = (k: keyof typeof form) => (e: { target: { value: string } }) =>
-    setForm((f) => ({ ...f, [k]: e.target.value }))
+  const set =
+    (k: Exclude<keyof typeof form, "mfaRequired">) =>
+    (e: { target: { value: string } }) =>
+      setForm((f) => ({ ...f, [k]: e.target.value }))
   const changed = (now: string, was: string | null) =>
     now.trim() !== (was ?? "") ? now.trim() : undefined
   const update: UserUpdate = {
@@ -694,6 +699,10 @@ function EditForm({
     email: changed(form.email, user.email),
     phoneNumber: changed(form.phone, user.phone_number),
     preferredLanguage: changed(form.language, user.preferred_language),
+    mfaRequired:
+      form.mfaRequired !== (user.mfa_required ?? false)
+        ? form.mfaRequired
+        : undefined,
   }
   const any = Object.values(update).some((v) => v !== undefined)
   return (
@@ -747,6 +756,19 @@ function EditForm({
             autoComplete="off"
             value={form.language}
             onChange={set("language")}
+          />
+        </FormField>
+        <FormField
+          label={t("users.mfaRequired")}
+          hint={t("users.mfaRequiredHint")}
+          htmlFor={ids.mfa}
+        >
+          <Checkbox
+            id={ids.mfa}
+            checked={form.mfaRequired}
+            onCheckedChange={(checked) =>
+              setForm((f) => ({ ...f, mfaRequired: checked }))
+            }
           />
         </FormField>
         <ErrorText error={error} />

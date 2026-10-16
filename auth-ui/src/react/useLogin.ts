@@ -17,7 +17,7 @@ import { toAuthKitError, useTask } from "./task.ts"
 
 // returnTo: where the flow began, handed back after sign-in.
 export type LoginState =
-  | { step: "credentials"; recovered?: boolean }
+  | { step: "credentials"; recovered?: boolean; mfaReauthentication?: boolean }
   // challenge.factor is the factor codes are checked against;
   // sendTwoFactorCode(id) switches it.
   | { step: "two_factor"; challenge: SecondFactorStep; returnTo?: string }
@@ -143,6 +143,8 @@ export function useLogin(options: LoginOptions = {}) {
             enrollment: result.enrollment,
             returnTo,
           })
+        case "reauthentication_required":
+          return setState({ step: "credentials", mfaReauthentication: true })
         case "account_recovery_required":
           return setState({ step: "recovery", recovery: result.recovery })
         case "verification_required":

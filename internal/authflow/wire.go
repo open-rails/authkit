@@ -48,6 +48,7 @@ type TwoFactorFactor struct {
 // enroll.
 type TwoFactorStatus struct {
 	Enabled              bool                  `json:"enabled"`
+	Required             bool                  `json:"required"`
 	Factors              []TwoFactorFactor     `json:"factors"`
 	AllowedMethods       []iam.TwoFactorMethod `json:"allowed_methods"`
 	BackupCodesRemaining int                   `json:"backup_codes_remaining"`

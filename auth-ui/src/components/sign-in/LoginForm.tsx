@@ -111,6 +111,9 @@ function Credentials({
         {state.step === "credentials" && state.recovered && !error && (
           <FormAlert tone="success">{t("signIn.recovered")}</FormAlert>
         )}
+        {state.step === "credentials" &&
+          state.mfaReauthentication &&
+          !error && <FormAlert>{t("signIn.mfaReauthentication")}</FormAlert>}
         {error && (
           <FormAlert
             action={

@@ -103,7 +103,7 @@ func (q *Queries) MFASettingsDelete(ctx context.Context, userID string) error {
 }
 
 const tenantUserByID = `-- name: TenantUserByID :one
-SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id FROM users WHERE tenant_id=NULLIF($1::text,'')::uuid AND id=$2::uuid
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id, mfa_required FROM users WHERE tenant_id=NULLIF($1::text,'')::uuid AND id=$2::uuid
 `
 
 type TenantUserByIDParams struct {
@@ -135,12 +135,13 @@ func (q *Queries) TenantUserByID(ctx context.Context, arg TenantUserByIDParams) 
 		&i.PublicMetadata,
 		&i.ProfileUpdatedAt,
 		&i.TenantID,
+		&i.MfaRequired,
 	)
 	return i, err
 }
 
 const tenantUsersByIDs = `-- name: TenantUsersByIDs :many
-SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id FROM users WHERE tenant_id=NULLIF($1::text,'')::uuid AND id=ANY($2::uuid[])
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id, mfa_required FROM users WHERE tenant_id=NULLIF($1::text,'')::uuid AND id=ANY($2::uuid[])
 `
 
 type TenantUsersByIDsParams struct {
@@ -178,6 +179,7 @@ func (q *Queries) TenantUsersByIDs(ctx context.Context, arg TenantUsersByIDsPara
 			&i.PublicMetadata,
 			&i.ProfileUpdatedAt,
 			&i.TenantID,
+			&i.MfaRequired,
 		); err != nil {
 			return nil, err
 		}
@@ -264,7 +266,7 @@ func (q *Queries) UserBanInForce(ctx context.Context, id string) (bool, error) {
 }
 
 const userByEmail = `-- name: UserByEmail :one
-SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id FROM users WHERE tenant_id=NULLIF($1::text,'')::uuid AND email = lower($2::text)::public.citext
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id, mfa_required FROM users WHERE tenant_id=NULLIF($1::text,'')::uuid AND email = lower($2::text)::public.citext
 `
 
 type UserByEmailParams struct {
@@ -296,13 +298,14 @@ func (q *Queries) UserByEmail(ctx context.Context, arg UserByEmailParams) (User,
 		&i.PublicMetadata,
 		&i.ProfileUpdatedAt,
 		&i.TenantID,
+		&i.MfaRequired,
 	)
 	return i, err
 }
 
 const userByID = `-- name: UserByID :one
 
-SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id FROM users WHERE id = $1
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id, mfa_required FROM users WHERE id = $1
 `
 
 // User-row queries. A user read selects the whole row, so every read returns
@@ -331,12 +334,13 @@ func (q *Queries) UserByID(ctx context.Context, id string) (User, error) {
 		&i.PublicMetadata,
 		&i.ProfileUpdatedAt,
 		&i.TenantID,
+		&i.MfaRequired,
 	)
 	return i, err
 }
 
 const userByPhone = `-- name: UserByPhone :one
-SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id FROM users WHERE tenant_id=NULLIF($1::text,'')::uuid AND phone_number = $2::text
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id, mfa_required FROM users WHERE tenant_id=NULLIF($1::text,'')::uuid AND phone_number = $2::text
 `
 
 type UserByPhoneParams struct {
@@ -368,12 +372,13 @@ func (q *Queries) UserByPhone(ctx context.Context, arg UserByPhoneParams) (User,
 		&i.PublicMetadata,
 		&i.ProfileUpdatedAt,
 		&i.TenantID,
+		&i.MfaRequired,
 	)
 	return i, err
 }
 
 const userByUsername = `-- name: UserByUsername :one
-SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id FROM users WHERE tenant_id=NULLIF($1::text,'')::uuid AND username = $2::text::public.citext
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id, mfa_required FROM users WHERE tenant_id=NULLIF($1::text,'')::uuid AND username = $2::text::public.citext
 `
 
 type UserByUsernameParams struct {
@@ -405,6 +410,7 @@ func (q *Queries) UserByUsername(ctx context.Context, arg UserByUsernameParams) 
 		&i.PublicMetadata,
 		&i.ProfileUpdatedAt,
 		&i.TenantID,
+		&i.MfaRequired,
 	)
 	return i, err
 }
@@ -563,7 +569,7 @@ WITH claim AS MATERIALIZED (
 )
 INSERT INTO users (id,tenant_id,email,username)
 SELECT $1::uuid,NULLIF($2::text,'')::uuid,NULLIF(lower($3::text), ''),$4 FROM claim
-RETURNING id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id
+RETURNING id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id, mfa_required
 `
 
 type UserInsertParams struct {
@@ -604,8 +610,20 @@ func (q *Queries) UserInsert(ctx context.Context, arg UserInsertParams) (User, e
 		&i.PublicMetadata,
 		&i.ProfileUpdatedAt,
 		&i.TenantID,
+		&i.MfaRequired,
 	)
 	return i, err
+}
+
+const userMFARequirement = `-- name: UserMFARequirement :one
+SELECT mfa_required FROM users WHERE id = $1::uuid
+`
+
+func (q *Queries) UserMFARequirement(ctx context.Context, id string) (bool, error) {
+	row := q.db.QueryRow(ctx, userMFARequirement, id)
+	var mfa_required bool
+	err := row.Scan(&mfa_required)
+	return mfa_required, err
 }
 
 const userNameForUpdate = `-- name: UserNameForUpdate :one
@@ -832,6 +850,21 @@ func (q *Queries) UserSetLastLogin(ctx context.Context, arg UserSetLastLoginPara
 	return err
 }
 
+const userSetMFARequirement = `-- name: UserSetMFARequirement :exec
+UPDATE users SET mfa_required = $1, updated_at = now()
+WHERE id = $2::uuid
+`
+
+type UserSetMFARequirementParams struct {
+	MfaRequired bool
+	ID          string
+}
+
+func (q *Queries) UserSetMFARequirement(ctx context.Context, arg UserSetMFARequirementParams) error {
+	_, err := q.db.Exec(ctx, userSetMFARequirement, arg.MfaRequired, arg.ID)
+	return err
+}
+
 const userSetPhone = `-- name: UserSetPhone :exec
 UPDATE users SET phone_number = $1, phone_verified = false, updated_at = now()
 WHERE id = $2 AND phone_number IS DISTINCT FROM $1
@@ -940,7 +973,7 @@ func (q *Queries) UserSoftDelete(ctx context.Context, id string) error {
 }
 
 const usersByIDs = `-- name: UsersByIDs :many
-SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id FROM users WHERE id = ANY($1::uuid[])
+SELECT id, email, username, email_verified, phone_number, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, last_renamed_at, credential_version, public_metadata, profile_updated_at, tenant_id, mfa_required FROM users WHERE id = ANY($1::uuid[])
 `
 
 func (q *Queries) UsersByIDs(ctx context.Context, ids []string) ([]User, error) {
@@ -973,6 +1006,7 @@ func (q *Queries) UsersByIDs(ctx context.Context, ids []string) ([]User, error) 
 			&i.PublicMetadata,
 			&i.ProfileUpdatedAt,
 			&i.TenantID,
+			&i.MfaRequired,
 		); err != nil {
 			return nil, err
 		}

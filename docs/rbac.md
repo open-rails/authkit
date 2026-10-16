@@ -47,11 +47,42 @@ Handing out a role takes `members:manage` in that group, and the grantor's own g
 
 `PersonaDef.RequireMFA(perms...)` marks permissions that need a second factor. A role needs MFA when its grants reach one of them, whether directly, through an include or through a root role. Such a role:
 
-- goes only to users with a second factor enrolled;
+- can be assigned before a user enrolls, but its holder must finish MFA before using authenticated access;
 - is never held by an API key or a remote application;
-- is taken away from users who turn their own 2FA off.
+- prevents its holder from removing their last second factor while the requirement applies.
 
 `root:members:manage` and `root:users:manage` always need MFA, so `root:owner` does too. The requirement is off while `TwoFactor.Mode` is disabled. When a role needs MFA but no second factor can be enrolled, `New` logs it and the `authkit_two_factor` probe fails: those accounts can't sign in until a method works.
+
+## Requiring MFA after a promotion
+
+Role assignment and MFA enrollment are separate. `SetGroupRole`, `EnsureUserRole`,
+invitation acceptance and custom role changes may assign a protected role to an
+unenrolled user. Their next sign-in returns `enrollment_required`; an already
+issued token cannot keep using protected access. The role remains assigned.
+
+For an individual account, an account administrator may set or clear an explicit
+requirement:
+
+```go
+required := true
+_, err := client.UpdateUser(ctx, administrator, userID, iam.UserUpdate{
+    MFARequired: &required,
+})
+```
+
+The HTTP equivalent is `PATCH /admin/users/{user_id}` with
+`{"mfa_required":true}`. The shared UsersAdmin editor exposes the same control.
+This field is administrator-only; clearing it does not waive a deployment or
+role requirement. `GET /me/security` returns the effective requirement as
+`two_factor.required`.
+
+Requirements use current policy rather than a queued job. Existing sessions are
+checked when used: a recent first-factor proof can continue into enrollment; an
+older session returns `reauthentication_required` and must sign in again first.
+AuthUI handles both continuations. An enrollment token grants only enrollment
+access, and a verified user-verifying passkey already satisfies MFA. A required
+last factor cannot be removed (`2fa_required_by_policy`); enroll its replacement
+first, or use the system's account-recovery operation for a lost factor.
 
 ## Custom roles
 
@@ -69,7 +100,7 @@ storefront, err := client.CreateGroupRole(ctx, who, iam.GroupByID(id), iam.NewGr
 - **Grants.** 1 to 256 permissions or patterns that a declared role of the persona may hold: its own persona's, and on root any persona's. No includes. A group defines at most 100 (`iam.MaxGroupRoles`).
 - **Holders.** Assign it like a declared role, in its group: members, API keys, remote applications, invitations and `role_map`. MFA follows its permissions, as for a declared role.
 - **Live.** A check reads the definition in the same query as the assignment, so a change applies to every holder at their next request. Resource access tokens keep the permissions they were minted with until they expire, as after any role change.
-- **Authority.** Creating one takes `roles:manage` and covering every grant. Changing or deleting one also takes covering its current grants and, while it is held, what hands it out: `members:manage` for members and invitations, `credentials:manage` for API keys and applications. A change needing MFA is refused while an API key or application holds the role (`role_not_assignable`) or a holder has no second factor (`subject_mfa_required`). Changes on root need a recent sign-in.
+- **Authority.** Creating one takes `roles:manage` and covering every grant. Changing or deleting one also takes covering its current grants and, while it is held, what hands it out: `members:manage` for members and invitations, `credentials:manage` for API keys and applications. A change needing MFA is refused while an API key or application holds the role (`role_not_assignable`). Human holders without a second factor must finish enrollment on their next sign-in or authenticated request. Changes on root need a recent sign-in.
 - **Removing a permission** needs nothing more: holders lose it at their next request and, as after any demotion, the credentials whose issuers no longer cover their role are revoked (the credential sweep). Adding one can revoke too: a key, invitation or application holding the role whose issuer doesn't cover the addition.
 - **Deleting** takes the role from every holder in the same transaction: members and applications lose it (`role.revoked` events), the API keys and invitations carrying it are revoked and `role_map` entries naming it dropped. A later role of the same name starts with no holders.
 - **Audit.** `group.role_created`, `group.role_updated` and `group.role_deleted` events carry the role and its grants before and after.

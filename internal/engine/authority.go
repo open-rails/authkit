@@ -205,6 +205,9 @@ func (s *Engine) userAuthority(ctx context.Context, st *permissionGroupStore, ou
 		return authority{}, iam.ErrInsufficientAuthority
 	}
 	out.grants, err = s.subjectGrants(ctx, st, iam.UserSubject(userID), g.ID)
+	if err == nil {
+		err = s.requireUserMFAEnrollment(ctx, st.q, userID, out.grants)
+	}
 	return out, err
 }
 

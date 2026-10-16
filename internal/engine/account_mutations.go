@@ -225,7 +225,7 @@ func (s *Engine) CreateUser(ctx context.Context, n iam.NewUser, opts ...ops.Opti
 
 // selfEditable are the UserUpdate fields an account may change on itself.
 func selfEditable(u iam.UserUpdate) bool {
-	return u.Email == nil && u.Phone == nil && u.Password == nil && u.EmailVerified == nil && u.PhoneVerified == nil && u.PasswordHash == nil
+	return u.Email == nil && u.Phone == nil && u.Password == nil && u.EmailVerified == nil && u.PhoneVerified == nil && u.PasswordHash == nil && u.MFARequired == nil
 }
 
 // UpdateUser changes an account under ACCT(root:users:manage). An account may
@@ -350,6 +350,11 @@ func (s *Engine) applyUserUpdate(ctx context.Context, at accountTx, userID strin
 			return revoked, err
 		}
 	}
+	if u.MFARequired != nil {
+		if err := at.q.UserSetMFARequirement(ctx, db.UserSetMFARequirementParams{ID: userID, MfaRequired: *u.MFARequired}); err != nil {
+			return revoked, err
+		}
+	}
 	if u.PreferredLanguage != nil {
 		var language *string
 		if v := strings.TrimSpace(*u.PreferredLanguage); v != "" {
@@ -402,7 +407,7 @@ func (s *Engine) keepMFAHolderProven(ctx context.Context, tx pgx.Tx, userID stri
 		return err
 	}
 	if !enrolled {
-		holds, err := s.userHoldsMFARequiredRole(ctx, tx, userID)
+		holds, err := s.userRequiresMFA(ctx, tx, userID)
 		if err != nil || !holds {
 			return err
 		}

@@ -352,16 +352,30 @@ func (s *Engine) requireRemainingOwner(ctx context.Context, st *permissionGroupS
 	if g.DeletedAt != nil {
 		return nil
 	}
-	remains, err := q.GroupHasOtherUsableOwner(ctx, db.GroupHasOtherUsableOwnerParams{
-		GroupID: gid, ExcludingKind: string(excluding.Kind), ExcludingID: nullable(excluding.ID), NeedsMfa: s.ownersNeedMFA(ident.Persona(g.Persona)),
+	owners, err := q.GroupOtherUsableOwners(ctx, db.GroupOtherUsableOwnersParams{
+		GroupID: gid, ExcludingKind: string(excluding.Kind), ExcludingID: nullable(excluding.ID),
 	})
 	if err != nil {
 		return err
 	}
-	if !remains {
-		return iam.ErrLastOwner
+	for _, owner := range owners {
+		userID := owner.ID
+		if owner.SubjectKind == string(iam.SubjectKindRemoteApplication) {
+			if s.ownersNeedMFA(ident.Persona(g.Persona)) {
+				continue
+			}
+			userID = owner.RegistrarID
+			if userID == "" {
+				return nil
+			}
+		}
+		if err := s.requireUserMFAEnrollment(ctx, st.q, userID); err == nil {
+			return nil
+		} else if !errors.Is(err, iam.ErrTwoFAEnrollmentRequired) {
+			return err
+		}
 	}
-	return nil
+	return iam.ErrLastOwner
 }
 
 func (s *Engine) refuseSubjectOwnerLoss(ctx context.Context, st *permissionGroupStore, subject iam.Subject) error {

@@ -283,6 +283,9 @@ export const en = {
     phoneHint: "With the country code, such as +14155550123.",
     language: "Language",
     languageHint: "A language tag, such as en or pt-BR.",
+    mfaRequired: "Require two-factor authentication",
+    mfaRequiredHint:
+      "The account must finish setup on its next sign-in or authenticated visit. Other role or site requirements still apply when this is off.",
     updated: "Updated",
     verified: "Verified",
     unverified: "Not verified",

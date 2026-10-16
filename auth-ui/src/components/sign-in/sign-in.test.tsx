@@ -378,6 +378,41 @@ describe("SignInDialog", () => {
 })
 
 describe("SignInDialog continuation", () => {
+  it("explains a required MFA upgrade after an older session and resumes sign-in", async () => {
+    const user = userEvent.setup()
+    const fetch = stubFetch({
+      "GET /api/v1/capabilities": capabilities,
+      "POST /api/v1/password/login": () =>
+        json(
+          200,
+          authResult("enrollment_required", {
+            enrollment: {
+              token_set: tokenSet("u1"),
+              allowed_methods: ["totp"],
+            },
+          })
+        ),
+    })
+    const continuation = toSignInResult(
+      authResult("reauthentication_required", {
+        reauthentication: { user_id: "u1", reason: "mfa_required" },
+      })
+    ) as PendingSignIn
+    renderUi(
+      <SignInDialog open onOpenChange={() => {}} continuation={continuation} />,
+      fetch
+    )
+    await screen.findByText(
+      "Your account now requires two-factor authentication. Sign in again to finish setting it up."
+    )
+    await submitCredentials(
+      user,
+      within(screen.getByRole("tabpanel", { name: "Sign in" }))
+    )
+    await screen.findByText("Authenticator app")
+    expect(screen.queryByLabelText("Password")).toBeNull()
+  })
+
   it("finishes a session continuation from a refresh in place", async () => {
     const user = userEvent.setup()
     const onSignedIn = vi.fn()

@@ -52,16 +52,18 @@ func newSecurityModel(root ...authkit.PersonaOption) securityModel {
 func withRBAC(c *authkit.Config) { c.Roles = newSecurityModel().Roles }
 
 // grant assigns the role name of group's persona with system authority. The
-// holder of an MFA-required role enrolls the email second factor first.
+// holder of an MFA-required role completes enrollment so fixture operators
+// are ready to exercise authorization. Pending-enrollment tests assign directly.
 func (h *host) grant(group iam.GroupRef, a account, name string) {
 	h.t.Helper()
 	err := setRole(h.auth, h.t.Context(), iam.SystemIdentity(), group, iam.UserSubject(a.id), roleIn(h.t, h.auth, group, name))
-	if errors.Is(err, iam.ErrSubjectMFARequired) {
-		h.enrollEmail2FA(a)
-		grantRole(h.t, h.auth, group, iam.UserSubject(a.id), name)
-		return
-	}
 	require.NoError(h.t, err)
+	_, err = h.auth.EffectivePermissions(h.t.Context(), iam.UserIdentity(a.id), []iam.GroupRef{group})
+	if errors.Is(err, iam.ErrTwoFAEnrollmentRequired) {
+		h.login(a)
+	} else {
+		require.NoError(h.t, err)
+	}
 }
 
 func publicKeyPEM(t *testing.T) string {

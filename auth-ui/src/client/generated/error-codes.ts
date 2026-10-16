@@ -7,6 +7,7 @@ export type AuthErrorCode =
   | "2fa_factor_exists"
   | "2fa_method_unavailable"
   | "2fa_required"
+  | "2fa_required_by_policy"
   | "account_authority_escalation"
   | "account_disabled"
   | "account_exists_link_required"
@@ -178,6 +179,7 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   "2fa_factor_exists": 409,
   "2fa_method_unavailable": 400,
   "2fa_required": 403,
+  "2fa_required_by_policy": 403,
   account_authority_escalation: 403,
   account_disabled: 401,
   account_exists_link_required: 409,
@@ -350,6 +352,7 @@ export const AUTH_ERROR_MESSAGES = {
   "2fa_factor_exists": "A two-factor method is already enrolled. Remove it before adding another.",
   "2fa_method_unavailable": "That two-factor method is unavailable.",
   "2fa_required": "Two-factor authentication is required.",
+  "2fa_required_by_policy": "Your account policy requires two-factor authentication. Keep at least one second factor enrolled.",
   account_authority_escalation: "You do not outrank that account.",
   account_disabled: "This account is disabled.",
   account_exists_link_required: "An account with this email already exists. Sign in, then link the provider from your account page.",
