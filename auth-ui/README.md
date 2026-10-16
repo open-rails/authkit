@@ -238,6 +238,16 @@ const load = () => auth.authFetch("/api/things")
   others (the `storage` event on the hint).
 - **Events:** `onUserChange(userId, previous)` fires only when the user
   changes; `onSessionChange` also fires on a same-user session rotation.
+  `onRegistered({ userId })` fires only when the server confirms a newly
+  created account's completed sign-in, including provider, wallet and MFA
+  continuations. Credentials are ready, and this runs before ordinary
+  session subscribers and `onUserChange`, so a host can stage guest settings
+  for inheritance. Existing-account login, refresh and restore never fire
+  it. Use the `AuthProvider` prop or `auth.onRegistered(listener)` (returns an
+  unsubscribe function); the event is local and is not replayed.
+  Bind deferred profile writes to their intended account with
+  `auth.updateProfile({ preferredLanguage: "ja", expectedUserId: userId })`;
+  a restore or account switch to someone else rejects before sending.
 - **Contact proof:** AuthKit refuses new sign-in methods while no address is
   proven (`403 verification_required`, `reason: "contact_unproven"`).
   `<ContactProofDialog />` sends a code, confirms it and retries the refused

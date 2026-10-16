@@ -9,6 +9,7 @@ export type {
   PopupResult,
   RedirectResult,
   RefreshTokenStorage,
+  RegistrationEvent,
   RequestOptions,
   SessionHint,
   SessionHintOptions,

@@ -130,6 +130,10 @@ export type AuthSession =
       expiresAt: number | null
     }
 
+// The server confirmed that this completed sign-in created the account.
+// Delivered after its credentials are available, before session subscribers.
+export type RegistrationEvent = { userId: string }
+
 // A browser OIDC redirect result, read from the page's fragment.
 export type RedirectResult =
   | { kind: "sign_in"; result: SignInResult; provider?: string }
@@ -147,6 +151,9 @@ export type RequestOptions = {
   signal?: AbortSignal
   // Override the session bearer (e.g. an enrollment token); null sends none.
   bearer?: string | null
+  // After restore, refuse before sending unless this is still the account.
+  // Local guard only: never serialized into a request.
+  expectedUserId?: string
 }
 
 // A factor enrollment's answer; auth is the sign-in it finished, if any.
@@ -293,6 +300,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     ? { status: "loading", hint: initialHint }
     : { status: "loading" }
   const listeners = new Set<Listener>()
+  const registrationListeners = new Set<(event: RegistrationEvent) => void>()
   let refreshing: { generation: number; promise: Promise<boolean> } | null =
     null
   let notBefore = { generation: -1, at: 0 }
@@ -300,8 +308,17 @@ export function createAuthClient(options: AuthClientOptions = {}) {
   let retries = 0
   let started = false
 
-  const emit = (next: AuthSession) => {
+  const emit = (next: AuthSession, registration?: RegistrationEvent) => {
     session = next
+    if (registration) {
+      for (const listener of registrationListeners) {
+        try {
+          listener(registration)
+        } catch {
+          // A host callback cannot invalidate a successful sign-in.
+        }
+      }
+    }
     for (const listener of listeners) {
       try {
         listener()
@@ -331,7 +348,8 @@ export function createAuthClient(options: AuthClientOptions = {}) {
   const commit = (
     tokens: TokenSet,
     expected: number,
-    mode: "login" | "refresh"
+    mode: "login" | "refresh",
+    created = false
   ) => {
     if (expected !== generation) throw new AuthSessionChangedError()
     const claims = decodeAccessClaims(tokens.access_token) ?? {}
@@ -360,13 +378,16 @@ export function createAuthClient(options: AuthClientOptions = {}) {
         (prior?.userId === userId ? prior.username : undefined),
       expiresAt: Date.now() + hintTtlMs,
     })
-    emit({
-      status: "authenticated",
-      accessToken: tokens.access_token,
-      userId,
-      claims,
-      expiresAt,
-    })
+    emit(
+      {
+        status: "authenticated",
+        accessToken: tokens.access_token,
+        userId,
+        claims,
+        expiresAt,
+      },
+      mode === "login" && created === true && userId ? { userId } : undefined
+    )
     schedule()
   }
 
@@ -685,6 +706,13 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     const target = url(baseUrl, path, opts.query)
     const explicit = opts.bearer !== undefined
     if (!explicit) await ready()
+    if (
+      opts.expectedUserId !== undefined &&
+      (session.status !== "authenticated" ||
+        session.userId !== opts.expectedUserId)
+    ) {
+      throw new AuthSessionChangedError()
+    }
     const requestGeneration = generation
     const bearer = explicit ? (opts.bearer ?? null) : accessToken()
     let res = await send(method, target, opts, bearer)
@@ -816,7 +844,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       }
       return result
     }
-    commit(result.token_set, gen, "login")
+    commit(result.token_set, gen, "login", result.created)
     if (result.user) rememberUsername(result.user.id, result.user.username)
     return result
   }
@@ -1340,7 +1368,12 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       )
       const auth = created.auth ? toSignInResult(created.auth) : null
       if (auth?.status === "complete") {
-        commit(auth.token_set, gen, opts.enrollmentToken ? "login" : "refresh")
+        commit(
+          auth.token_set,
+          gen,
+          opts.enrollmentToken ? "login" : "refresh",
+          auth.created
+        )
       } else if (auth && gen !== generation) {
         throw new AuthSessionChangedError()
       }
@@ -1516,8 +1549,11 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     updateProfile: async (input: {
       username?: string
       preferredLanguage?: string
+      // Bind a deferred change (e.g. guest settings) to its intended account.
+      expectedUserId?: string
     }) => {
       const profile = await request<UserProfile>("PATCH", "/me", {
+        expectedUserId: input.expectedUserId,
         body: {
           username: input.username?.trim().toLowerCase(),
           preferred_language: input.preferredLanguage,
@@ -1697,6 +1733,14 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     subscribe(listener: Listener): () => void {
       listeners.add(listener)
       return () => listeners.delete(listener)
+    },
+    // First sign-in of a server-confirmed new account, including provider,
+    // wallet and MFA continuations. Not replayed on restore or refresh.
+    // The authenticated snapshot is installed before this runs; ordinary
+    // session subscribers run afterward so hosts can stage guest data first.
+    onRegistered(listener: (event: RegistrationEvent) => void): () => void {
+      registrationListeners.add(listener)
+      return () => registrationListeners.delete(listener)
     },
     getSnapshot: (): AuthSession => session,
     getAccessToken: accessToken,

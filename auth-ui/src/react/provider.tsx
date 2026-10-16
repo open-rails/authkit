@@ -6,7 +6,11 @@ import {
   type ReactNode,
 } from "react"
 
-import type { AuthClient, AuthSession } from "../client/client.ts"
+import type {
+  AuthClient,
+  AuthSession,
+  RegistrationEvent,
+} from "../client/client.ts"
 import {
   AuthContext,
   createAuthContextValue,
@@ -26,6 +30,10 @@ export type AuthProviderProps = {
   // another tab): the host's hook to reset user data. A restore of the user
   // the session hint names is not a change.
   onUserChange?: (userId: string | null, previous: string | null) => void
+  // A server-confirmed new account's completed sign-in. Credentials are
+  // ready; this runs before onUserChange and other session subscribers.
+  // Refreshes, restores and existing-account sign-ins never fire it.
+  onRegistered?: (event: RegistrationEvent) => void
   // Call client.start() while mounted. Default true.
   autoStart?: boolean
   children?: ReactNode
@@ -35,6 +43,7 @@ export function AuthProvider({
   client,
   onSessionChange,
   onUserChange,
+  onRegistered,
   autoStart = true,
   children,
 }: AuthProviderProps) {
@@ -43,10 +52,17 @@ export function AuthProvider({
 
   const onChange = useRef(onSessionChange)
   const onUser = useRef(onUserChange)
+  const onRegistration = useRef(onRegistered)
   useEffect(() => {
     onChange.current = onSessionChange
     onUser.current = onUserChange
+    onRegistration.current = onRegistered
   })
+
+  useStartEffect(
+    () => client.onRegistered((event) => onRegistration.current?.(event)),
+    [client]
+  )
 
   useEffect(() => {
     let previous = client.getSnapshot()
