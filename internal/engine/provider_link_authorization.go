@@ -50,6 +50,19 @@ func (s *Engine) completeProviderLink(ctx context.Context, link authflow.Externa
 	if err != nil {
 		return err
 	}
+	required, err := s.userRequiresMFA(ctx, tx, link.UserID)
+	if err != nil {
+		return err
+	}
+	if required {
+		enrolled, err = s.policyMFAEnrolled(ctx, tx, link.UserID)
+		if err != nil {
+			return err
+		}
+		if !enrolled || !policyMFAProof(session.AuthMethods) {
+			return errmodel.ErrStepUpRequired
+		}
+	}
 	// The second factor must be fresh too: a password re-auth refreshes the
 	// session but never its MFA.
 	if s.TwoFactorEnabled() && enrolled && (session.MfaAuthenticatedAt == nil || now.Sub(*session.MfaAuthenticatedAt) >= authflow.SensitiveActionFreshAuthWindow) {
