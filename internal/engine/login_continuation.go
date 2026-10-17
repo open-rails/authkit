@@ -301,6 +301,12 @@ func (s *Engine) ResendLoginChallenge(ctx context.Context, userID, nonce, factor
 	if err != nil {
 		return nil, err
 	}
+	// A role or per-account policy may have tightened since this challenge
+	// was issued. A stale email challenge must not remain a strong option.
+	proof.StrongMFA, err = s.userRequiresMFA(ctx, tx, userID)
+	if err != nil {
+		return nil, err
+	}
 	return s.sendLoginFactor(ctx, user, proof, nonce, settings, factorID)
 }
 
@@ -343,6 +349,10 @@ func (s *Engine) CompleteLoginChallenge(ctx context.Context, in authflow.LoginCh
 	if err != nil {
 		return authflow.LoginOutcome{}, err
 	}
+	proof.StrongMFA, err = s.userRequiresMFA(ctx, tx, in.UserID)
+	if err != nil {
+		return authflow.LoginOutcome{}, err
+	}
 	method := "backup_code"
 	var valid bool
 	if in.BackupCode {
@@ -376,15 +386,18 @@ func (s *Engine) CompleteLoginChallenge(ctx context.Context, in authflow.LoginCh
 	if !valid {
 		return authflow.LoginOutcome{}, errmodel.ErrInvalidCode
 	}
-	if err := s.claimProof(ctx, keyTwoFactorChallenge+in.UserID, proof.expected); err != nil {
-		return authflow.LoginOutcome{}, err
-	}
 	methods := append(append([]string(nil), proof.Input.AuthMethods...), method, "otp", "mfa")
 	proof.Input.AuthMethods = authflow.NormalizeAuthMethods(methods)
 	proof.Input.IP = in.IP
 	proof.Input.UserAgent = in.UserAgent
 	status, err := s.mfaStatusWith(settings, nil)
 	if err != nil {
+		return authflow.LoginOutcome{}, err
+	}
+	if err := s.requireSessionMFAStateOn(ctx, tx, in.UserID, proof.Input.AuthMethods, status, nil); err != nil {
+		return authflow.LoginOutcome{}, err
+	}
+	if err := s.claimProof(ctx, keyTwoFactorChallenge+in.UserID, proof.expected); err != nil {
 		return authflow.LoginOutcome{}, err
 	}
 	if proof.DeletionID != "" {

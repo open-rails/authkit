@@ -133,3 +133,27 @@ func TestMFACatalogFingerprintUsesConfiguredPolicyNotDeliveryHealth(t *testing.T
 	engine.smsHealth.set(time.Now(), errors.New("provider outage"))
 	require.Equal(t, configured, engine.roleCatalogFingerprint(), "delivery failures must not change enrollment policy or revoke delegations")
 }
+
+// Policy is read again at completion, not only when a challenge is sent.
+func TestPendingEmailChallengeCannotSatisfyLaterMFARequirement(t *testing.T) {
+	cfg := testConfig()
+	cfg.TwoFactor.Mode = iam.TwoFactorOptional
+	cfg.TwoFactor.Methods = []iam.TwoFactorMethod{iam.TwoFactorEmail, iam.TwoFactorTOTP}
+	f := newAccountFlow(t, testdb.ScratchPostgres(t).Pool, cfg, config.Deps{})
+	user := newUser(t, f.engine, "pendingemail")
+	_, err := f.engine.enableFactor(t.Context(), user.ID, "email", nil, authflow.FirstFactorOnly)
+	require.NoError(t, err)
+	pending := f.expect(http.StatusOK, f.post("/password/login", map[string]any{"identifier": *user.Email, "password": testPassword}))
+	require.Equal(t, httpapi.AuthSecondFactorRequired, pending.Status)
+	code := sentCode(t, f.email, iam.MessageLoginCode)
+	_, err = f.engine.pg.Exec(t.Context(), `UPDATE users SET mfa_required=true WHERE id=$1`, user.ID)
+	require.NoError(t, err)
+	_, err = f.engine.ResendLoginChallenge(t.Context(), user.ID, pending.challenge(t), pending.SecondFactor.Factor.ID)
+	require.Error(t, err, "a newly required account cannot resend its old email factor")
+	refused := f.post("/2fa/verify", map[string]any{"user_id": user.ID, "challenge": pending.challenge(t), "code": code})
+	require.GreaterOrEqual(t, refused.status, 400)
+	require.Empty(t, refused.tokens().AccessToken)
+	var active int
+	require.NoError(t, f.engine.pg.QueryRow(t.Context(), `SELECT count(*) FROM refresh_sessions WHERE user_id=$1 AND revoked_at IS NULL`, user.ID).Scan(&active))
+	require.Zero(t, active, "a stale weak challenge must not issue even an unusable full session")
+}

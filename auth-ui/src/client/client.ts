@@ -1,4 +1,5 @@
 import { toSignInResult } from "./authResult.ts"
+import type { AuthResult } from "./generated/wire.ts"
 import type { PendingSignIn, SignInResult } from "./authResult.ts"
 import type { AuthErrorCode } from "./codes.ts"
 import {
