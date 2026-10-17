@@ -152,6 +152,75 @@ for (const policy of ["role", "individual"] as const) {
   })
 }
 
+// Real browser ceremonies exercise the restricted first-key path with both
+// a platform authenticator and a PIN/biometric-capable FIDO2 security key.
+for (const transport of ["internal", "usb"] as const) {
+  test(`required MFA: ${transport} passkey enrollment and sign-in need no OTP`, async ({
+    page,
+    request,
+    context,
+  }) => {
+    await loadApp(page)
+    const account = await registerVerified(page, request)
+    await context.clearCookies()
+    expect(
+      (
+        await request.post(
+          `/__test/mfa-policy?email=${encodeURIComponent(account.email)}`
+        )
+      ).status()
+    ).toBe(204)
+    await loadApp(page)
+    const cdp = await context.newCDPSession(page)
+    await cdp.send("WebAuthn.enable")
+    await cdp.send("WebAuthn.addVirtualAuthenticator", {
+      options: {
+        protocol: "ctap2",
+        transport,
+        hasResidentKey: true,
+        hasUserVerification: true,
+        isUserVerified: true,
+        automaticPresenceSimulation: true,
+      },
+    })
+    const codeRequests: string[] = []
+    page.on("request", (r) => {
+      if (r.method() === "POST" && /\/2fa\//.test(r.url()))
+        codeRequests.push(r.url())
+    })
+    await signIn(page, account.email, account.password)
+    await expect(
+      dialog(page).getByRole("heading", {
+        name: "Set up two-factor authentication",
+      })
+    ).toBeVisible()
+    await dialog(page)
+      .getByRole("button", { name: "Set up a passkey or security key" })
+      .click()
+    await expect(dialog(page)).toBeHidden()
+    await expect(page.getByTestId("status")).toHaveText("authenticated")
+    const security = await page.evaluate(async () => {
+      const c = (
+        window as unknown as { authClient: { getSecurity(): Promise<unknown> } }
+      ).authClient
+      return c.getSecurity()
+    })
+    expect(security).toMatchObject({
+      two_factor: { required: true, passkeys_enrolled: true, enabled: false },
+    })
+    await signOut(page)
+    await openDialog(page)
+    await dialog(page)
+      .getByRole("button", { name: "Sign in with a passkey" })
+      .first()
+      .click()
+    await expect(dialog(page)).toBeHidden()
+    await expect(page.getByTestId("status")).toHaveText("authenticated")
+    await expect(page.getByTestId("email")).toHaveText(account.email)
+    expect(codeRequests).toEqual([])
+  })
+}
+
 test("register, verify, then TOTP and backup-code sign-in", async ({
   page,
   request,

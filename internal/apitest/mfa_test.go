@@ -133,20 +133,21 @@ func TestEnrollmentVerifiesEnrollingSession(t *testing.T) {
 		require.Equal(t, "backup_code", challenged.Factor.Method)
 	})
 
-	t.Run("forced email enrollment issues a verified session", func(t *testing.T) {
+	t.Run("required enrollment issues a verified strong-factor session", func(t *testing.T) {
 		forced := authtest.Replica(t, auth, authtest.WithConfig(func(c *authkit.Config) { c.TwoFactor.Mode = iam.TwoFactorRequired }))
 		f := newFactorFlow(t, forced, outbox)
 		u := authtest.NewUser(t, forced)
 		grant := f.post("/password/login", map[string]any{"identifier": u.Email, "password": u.Password}).enrollment(t)
-		require.Contains(t, grant.AllowedMethods, iam.TwoFactorEmail)
+		require.NotContains(t, grant.AllowedMethods, iam.TwoFactorEmail, "email does not satisfy required MFA")
+		require.Contains(t, grant.AllowedMethods, iam.TwoFactorTOTP)
 		restricted := grant.TokenSet.AccessToken
-		f.expect(http.StatusOK, f.request(http.MethodPost, "/me/2fa/setup", restricted, map[string]any{"method": "email"}))
+		setup := f.expect(http.StatusOK, f.request(http.MethodPost, "/me/2fa/setup", restricted, map[string]any{"method": "totp"}))
 		enabled := f.expect(http.StatusCreated, f.request(http.MethodPost, "/me/2fa/factors", restricted,
-			map[string]any{"method": "email", "code": f.code(iam.MessageVerification, u.Email)}))
+			map[string]any{"method": "totp", "code": authtest.TOTPCode(t, setup.Secret, time.Now())}))
 		require.NotEmpty(t, enabled.BackupCodes)
-		f.session(enabled.tokens(), "pwd", "email", "otp", "mfa")
+		f.session(enabled.tokens(), "pwd", "totp", "otp", "mfa")
 		refreshed := refresh(f, *enabled.tokens().RefreshToken).signedIn(t)
-		f.session(refreshed, "pwd", "email", "otp", "mfa")
+		f.session(refreshed, "pwd", "totp", "otp", "mfa")
 	})
 }
 
