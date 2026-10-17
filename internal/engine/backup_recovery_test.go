@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"sync"
@@ -9,10 +10,12 @@ import (
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/passkeytest"
 	"github.com/open-rails/authkit/internal/secret"
@@ -200,4 +203,34 @@ func TestRequiredPasskeySessionCannotRefreshMFAWithLegacyEmail(t *testing.T) {
 	methods, err := f.engine.stepUpMethods(t.Context(), user.ID, nil)
 	require.NoError(t, err)
 	require.Equal(t, []string{"passkey"}, methods)
+}
+
+func TestRecoveryAndDeliveredStepUpUseOnePoolConnection(t *testing.T) {
+	f := newAccountFlow(t, testdb.ScratchPostgres(t).Pool, testConfig(), config.Deps{})
+	user := newUser(t, f.engine, "recoverypool")
+	tokens := f.expect(http.StatusOK, f.post("/password/login", map[string]any{"identifier": *user.Email, "password": testPassword})).tokens()
+	claims, err := f.engine.Verify(t.Context(), tokens.AccessToken)
+	require.NoError(t, err)
+	_, err = f.engine.enableFactor(t.Context(), user.ID, "email", nil, authflow.FirstFactorOnly)
+	require.NoError(t, err)
+	require.NoError(t, f.engine.Send2FAStepUpCode(t.Context(), user.ID, claims.SessionID, ""))
+	code := sentCode(t, f.email, iam.MessageLoginCode)
+	cfg := f.engine.pg.Config()
+	cfg.MaxConns = 1
+	pool, err := pgxpool.NewWithConfig(t.Context(), cfg)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	// Exercise the operation bodies against initialized state, with the same
+	// tenant/catalog and one connection for both account and ephemeral queries.
+	narrow := &Engine{cfg: f.engine.cfg, pg: pool, q: db.New(pool), groupSchema: f.engine.groupSchema}
+	narrow.ephemeral = &ephemeralKV{pool: pool, q: narrow.q, tenant: narrow.tenantID}
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	require.NoError(t, narrow.CompleteTwoFactorStepUp(ctx, user.ID, claims.SessionID, "", code, false))
+	_, err = narrow.RegenerateBackupCodesForSession(ctx, user.ID, claims.SessionID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE refresh_sessions SET mfa_authenticated_at=now()-interval '1 hour' WHERE id=$1`, claims.SessionID)
+	require.NoError(t, err)
+	_, err = narrow.RegenerateBackupCodesForSession(ctx, user.ID, claims.SessionID)
+	require.Equal(t, errmodel.CodeStepUpRequired, errmodel.CodeOf(err), "the stale proof returns a challenge instead of checking out a second connection")
 }
