@@ -64,14 +64,33 @@ func (s *Engine) requireSessionMFAStateOn(ctx context.Context, q db.DBTX, userID
 	if hasAuthMethod(authMethods, "swk") && hasAuthMethod(authMethods, "mfa") {
 		return nil
 	}
-	if !status.Enabled {
-		required, err := s.userRequiresMFA(ctx, q, userID)
+	required, err := s.userRequiresMFA(ctx, q, userID)
+	if err != nil {
+		return err
+	}
+	if required {
+		if s.pg == nil {
+			if !status.Enabled || !status.Satisfied {
+				return iam.ErrTwoFAEnrollmentRequired
+			}
+			if !policyMFAProof(authMethods) {
+				return errTwoFARequired
+			}
+			return nil
+		}
+		enrolled, err := s.policyMFAEnrolled(ctx, q, userID)
 		if err != nil {
 			return err
 		}
-		if required {
+		if !enrolled {
 			return iam.ErrTwoFAEnrollmentRequired
 		}
+		if !policyMFAProof(authMethods) {
+			return errTwoFARequired
+		}
+		return nil
+	}
+	if !status.Enabled {
 		return nil
 	}
 	if !status.Satisfied {
@@ -119,12 +138,8 @@ func (s *Engine) requireUserMFAEnrollment(ctx context.Context, q db.DBTX, userID
 	if !required {
 		return nil
 	}
-	usable, err := db.New(q).MFAUsable(ctx, userID)
+	usable, err := s.policyMFAEnrolled(ctx, q, userID)
 	if err != nil || usable {
-		return err
-	}
-	hasPasskey, err := s.holdsPasskey(ctx, q, userID)
-	if err != nil || hasPasskey {
 		return err
 	}
 	return iam.ErrTwoFAEnrollmentRequired
@@ -179,4 +194,51 @@ func hasAuthMethod(methods []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func strongFactorMethod(method string) bool { return method == "totp" || method == "sms" }
+
+func policyMFAProof(methods []string) bool {
+	if !hasAuthMethod(methods, "mfa") {
+		return false
+	}
+	for _, method := range []string{"swk", "totp", "sms", "backup_code", "device_key"} {
+		if hasAuthMethod(methods, method) {
+			return true
+		}
+	}
+	return false
+}
+
+// Enrolled and configured is distinct from deliverable right now. An SMS
+// outage cannot turn an enrolled account into a password-only setup account.
+func (s *Engine) policyMFAEnrolled(ctx context.Context, source db.DBTX, userID string) (bool, error) {
+	factors, err := db.New(source).MFAListFactorsByUser(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	for _, factor := range factors {
+		if strongFactorMethod(factor.Method) && s.twoFactorMethodConfigured(iam.TwoFactorMethod(factor.Method)) {
+			return true, nil
+		}
+	}
+	if !s.PasskeysEnabled() {
+		return false, nil
+	}
+	return s.holdsAnyPasskey(ctx, source, userID)
+}
+
+func policyFactorSettings(settings *authflow.TwoFactorSettings) *authflow.TwoFactorSettings {
+	if settings == nil {
+		return nil
+	}
+	out := *settings
+	out.Factors = nil
+	for _, factor := range settings.Factors {
+		if strongFactorMethod(factor.Method) {
+			out.Factors = append(out.Factors, factor)
+		}
+	}
+	out.Enabled = len(out.Factors) > 0
+	return &out
 }

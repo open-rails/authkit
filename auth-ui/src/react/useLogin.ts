@@ -465,6 +465,19 @@ export function useLogin(options: LoginOptions = {}) {
     [client, run, state]
   )
 
+  const enrollPasskey = useCallback(
+    () => run(async () => {
+      if (state.step !== "enrollment") return
+      try {
+        const result = await client.enrollPasskey(state.enrollment.token_set)
+        apply(result, result.return_to ?? state.returnTo)
+      } catch (error) {
+        if (!passkeyDismissed(error)) throw error
+      }
+    }),
+    [client, run, apply, state]
+  )
+
   const confirmEnrollment = useCallback(
     (code: string) =>
       run(async () => {
@@ -558,6 +571,7 @@ export function useLogin(options: LoginOptions = {}) {
     sendNewDeviceCode,
     startEnrollment,
     confirmEnrollment,
+    enrollPasskey,
     confirmRecovery,
     resendVerification,
     confirmVerification,

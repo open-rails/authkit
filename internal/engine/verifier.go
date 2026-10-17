@@ -130,7 +130,7 @@ func (a *Authenticator) authenticate(ctx context.Context, token string, r *http.
 	// keep using ordinary routes until its user completes MFA. An existing
 	// MFA proof still satisfies the policy; a UV passkey needs no TOTP row.
 	if cl.IsUser() && a.s.TwoFactorEnabled() && !enrollment.IsRoute(ctx) &&
-		!(cl.HasAMR("mfa") && (cl.MFAEnrolled || cl.HasAMR("swk"))) {
+		!(policyMFAProof(cl.AMR) && (cl.MFAEnrolled || cl.HasAMR("swk"))) {
 		required, err := a.s.userRequiresMFA(ctx, a.s.pg, cl.UserID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return verify.Claims{}, errmodel.E(errmodel.CodeInvalidToken)

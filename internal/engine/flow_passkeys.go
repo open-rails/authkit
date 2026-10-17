@@ -27,9 +27,10 @@ const passkeyCeremonyTTL = 10 * time.Minute
 // so a verification challenge can never be turned into a session mint and an
 // account-bootstrap challenge can never attach a credential to an existing user.
 const (
-	passkeyPurposeRegister = "register"
-	passkeyPurposeLogin    = "login"
-	passkeyPurposeStepUp   = "step_up"
+	passkeyPurposeRegister      = "register"
+	passkeyPurposeMFAEnrollment = "mfa_enrollment"
+	passkeyPurposeLogin         = "login"
+	passkeyPurposeStepUp        = "step_up"
 )
 
 // PasskeysEnabled reports whether passkey (WebAuthn) support is configured.
@@ -66,7 +67,7 @@ func (u passkeyUser) WebAuthnDisplayName() string                { return u.disp
 func (u passkeyUser) WebAuthnCredentials() []webauthn.Credential { return u.credentials }
 
 func (s *Engine) passkeyUserVerification() protocol.UserVerificationRequirement {
-	return protocol.UserVerificationRequirement(s.cfg.Passkeys.UserVerification)
+	return protocol.VerificationRequired
 }
 
 func (s *Engine) webAuthn() (*webauthn.WebAuthn, error) {
@@ -85,8 +86,7 @@ func (s *Engine) webAuthn() (*webauthn.WebAuthn, error) {
 }
 
 // BeginPasskeyRegistration starts adding a passkey to an already identified
-// user. The same ceremony finishes as either FinishPasskeyRegistration (add)
-// or FinishPasskeyReplacement (replace all).
+// user. Mandatory first-factor enrollment uses its own nonce-bound purpose.
 func (s *Engine) BeginPasskeyRegistration(ctx context.Context, userID string) (*protocol.CredentialCreation, error) {
 	if err := s.RequireProvenContact(ctx, strings.TrimSpace(userID)); err != nil {
 		return nil, err
@@ -95,10 +95,10 @@ func (s *Engine) BeginPasskeyRegistration(ctx context.Context, userID string) (*
 	if err != nil {
 		return nil, err
 	}
-	return s.beginPasskeyCreation(ctx, u, passkeyPurposeRegister, s.passkeyUserVerification())
+	return s.beginPasskeyCreation(ctx, u, passkeyPurposeRegister, "")
 }
 
-func (s *Engine) beginPasskeyCreation(ctx context.Context, u passkeyUser, purpose string, uv protocol.UserVerificationRequirement) (*protocol.CredentialCreation, error) {
+func (s *Engine) beginPasskeyCreation(ctx context.Context, u passkeyUser, purpose, loginChallenge string) (*protocol.CredentialCreation, error) {
 	wa, err := s.webAuthn()
 	if err != nil {
 		return nil, err
@@ -109,7 +109,7 @@ func (s *Engine) beginPasskeyCreation(ctx context.Context, u passkeyUser, purpos
 		webauthn.WithAuthenticatorSelection(protocol.AuthenticatorSelection{
 			RequireResidentKey: &required,
 			ResidentKey:        protocol.ResidentKeyRequirementRequired,
-			UserVerification:   uv,
+			UserVerification:   protocol.VerificationRequired,
 		}),
 		webauthn.WithExclusions(webauthn.Credentials(u.credentials).CredentialDescriptors()),
 		webauthn.WithConveyancePreference(protocol.PreferNoAttestation),
@@ -117,38 +117,59 @@ func (s *Engine) beginPasskeyCreation(ctx context.Context, u passkeyUser, purpos
 	if err != nil {
 		return nil, err
 	}
-	return creation, s.storePasskeySession(ctx, session, purpose, u.id, "")
+	encoded, err := json.Marshal(session)
+	if err != nil {
+		return nil, err
+	}
+	return creation, s.storePasskeyCeremony(ctx, session.Challenge, passkeyCeremonyData{
+		Purpose: purpose, UserID: u.id, CredentialVersion: u.credentialVersion,
+		LoginChallenge: loginChallenge, Session: encoded,
+	}, passkeyCeremonyTTL)
 }
 
 func (s *Engine) FinishPasskeyRegistration(ctx context.Context, userID string, response []byte) (iam.Passkey, error) {
 	if err := s.RequireProvenContact(ctx, strings.TrimSpace(userID)); err != nil {
 		return iam.Passkey{}, err
 	}
-	cred, err := s.finishPasskeyCreation(ctx, userID, response)
+	cred, version, err := s.finishPasskeyCreation(ctx, userID, response)
 	if err != nil {
 		return iam.Passkey{}, err
 	}
-	return s.insertPasskey(ctx, strings.TrimSpace(userID), cred, nil)
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return iam.Passkey{}, err
+	}
+	defer tx.Rollback(ctx)
+	q := s.qtx(tx)
+	if _, err := s.lockLoginAccount(ctx, q, strings.TrimSpace(userID), version); err != nil {
+		return iam.Passkey{}, err
+	}
+	key, err := s.insertPasskeyOn(ctx, q, strings.TrimSpace(userID), cred, nil)
+	if err != nil {
+		return iam.Passkey{}, err
+	}
+	return key, tx.Commit(ctx)
 }
 
-func (s *Engine) finishPasskeyCreation(ctx context.Context, userID string, response []byte) (*webauthn.Credential, error) {
+func (s *Engine) finishPasskeyCreation(ctx context.Context, userID string, response []byte) (*webauthn.Credential, int64, error) {
 	userID = strings.TrimSpace(userID)
 	parsed, err := protocol.ParseCredentialCreationResponseBytes(response)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	data, session, err := s.consumePasskeySession(ctx, parsed.Response.CollectedClientData.Challenge)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	if data.Purpose != passkeyPurposeRegister || userID == "" || data.UserID != userID {
-		return nil, errmodel.ErrPasskeyNotFound
+	if data.CredentialVersion <= 0 || data.Purpose != passkeyPurposeRegister || userID == "" || data.UserID != userID {
+		return nil, 0, errmodel.ErrPasskeyNotFound
 	}
 	u, err := s.passkeyUser(ctx, userID, true)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return s.createCredential(u, session, parsed)
+	cred, err := s.createCredential(u, session, parsed)
+	return cred, data.CredentialVersion, err
 }
 
 func (s *Engine) createCredential(u passkeyUser, session webauthn.SessionData, parsed *protocol.ParsedCredentialCreationData) (*webauthn.Credential, error) {
@@ -286,14 +307,34 @@ func (s *Engine) DeletePasskey(ctx context.Context, userID, id string) error {
 	if !isUUID(strings.TrimSpace(id)) {
 		return errmodel.ErrPasskeyNotFound
 	}
-	n, err := s.q.PasskeyDelete(ctx, db.PasskeyDeleteParams{ID: strings.TrimSpace(id), UserID: strings.TrimSpace(userID)})
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	q := s.qtx(tx)
+	if _, err := q.MFALockUser(ctx, userID); err != nil {
+		return err
+	}
+	n, err := q.PasskeyDelete(ctx, db.PasskeyDeleteParams{ID: strings.TrimSpace(id), UserID: strings.TrimSpace(userID)})
 	if err != nil {
 		return err
 	}
 	if n == 0 {
 		return errmodel.ErrPasskeyNotFound
 	}
-	return nil
+	if required, err := s.userRequiresMFA(ctx, tx, userID); err != nil {
+		return err
+	} else if required {
+		usable, err := s.policyMFAEnrolled(ctx, tx, userID)
+		if err != nil {
+			return err
+		}
+		if !usable {
+			return iam.ErrTwoFARequiredByPolicy
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 // storePasskeySession stores a ceremony begun for purpose, by userID and, for
@@ -348,7 +389,7 @@ func (s *Engine) passkeyUserForProof(ctx context.Context, userID string, createH
 	} else if u.Username != nil && *u.Username != "" {
 		name = *u.Username
 	}
-	return passkeyUser{id: userID, handle: handle, name: name, displayName: name, credentials: creds}, nil
+	return passkeyUser{credentialVersion: u.CredentialVersion, id: userID, handle: handle, name: name, displayName: name, credentials: creds}, nil
 }
 
 func (s *Engine) passkeyUserByHandle(ctx context.Context, handle []byte, allowRecovery bool) (passkeyUser, error) {
@@ -436,8 +477,8 @@ func webAuthnCredential(p db.UserPasskey) webauthn.Credential {
 	}
 }
 
-func (s *Engine) insertPasskey(ctx context.Context, userID string, cred *webauthn.Credential, label *string) (iam.Passkey, error) {
-	p, err := s.q.PasskeyInsert(ctx, db.PasskeyInsertParams{
+func (s *Engine) insertPasskeyOn(ctx context.Context, q *db.Queries, userID string, cred *webauthn.Credential, label *string) (iam.Passkey, error) {
+	p, err := q.PasskeyInsert(ctx, db.PasskeyInsertParams{
 		UserID: userID, Rpid: s.cfg.Passkeys.RPID, CredentialID: cred.ID, PublicKey: cred.PublicKey,
 		SignCount: int64(cred.Authenticator.SignCount), CloneWarning: cred.Authenticator.CloneWarning, Aaguid: nullBytes(cred.Authenticator.AAGUID),
 		Transports: transportStrings(cred.Transport), AuthenticatorAttachment: string(cred.Authenticator.Attachment),

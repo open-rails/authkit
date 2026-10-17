@@ -92,15 +92,25 @@ func (s *Engine) enable2FA(ctx context.Context, in factorEnable) (authflow.TwoFa
 		return authflow.TwoFactorEnrollOutcome{}, err
 	}
 	firstFactor := len(factors) == 0
+	upgrade := false
 	if mode == authflow.FirstFactorOnly && !firstFactor {
-		return authflow.TwoFactorEnrollOutcome{}, errmodel.ErrTwoFAFactorExists
+		_, pending := ctx.Value(loginEnrollmentKey{}).(loginProof)
+		upgrade = pending && strongFactorMethod(method)
+		for _, factor := range factors {
+			if strongFactorMethod(factor.Method) {
+				upgrade = false
+			}
+		}
+		if !upgrade {
+			return authflow.TwoFactorEnrollOutcome{}, errmodel.ErrTwoFAFactorExists
+		}
 	}
 	for _, factor := range factors {
 		if factor.Method == method {
 			return authflow.TwoFactorEnrollOutcome{}, errmodel.ErrTwoFAFactorExists
 		}
 	}
-	makeDefault = makeDefault || firstFactor
+	makeDefault = makeDefault || firstFactor || upgrade
 
 	plaintextCodes := []string(nil)
 	if len(currentBackupCodes) == 0 {
@@ -190,7 +200,13 @@ func (s *Engine) Disable2FA(ctx context.Context, userID string) error {
 	if required, err := s.userRequiresMFA(ctx, tx, userID); err != nil {
 		return err
 	} else if required {
-		return iam.ErrTwoFARequiredByPolicy
+		held, err := s.holdsAnyPasskey(ctx, tx, userID)
+		if err != nil {
+			return err
+		}
+		if !s.PasskeysEnabled() || !held {
+			return iam.ErrTwoFARequiredByPolicy
+		}
 	}
 	if err := qtx.MFADeleteAllFactors(ctx, userID); err != nil {
 		return err
@@ -234,12 +250,18 @@ func (s *Engine) Disable2FAFactor(ctx context.Context, userID, factorID string) 
 	if err != nil {
 		return err
 	}
-	if len(factors) == 0 {
-		if required, err := s.userRequiresMFA(ctx, tx, userID); err != nil {
+	if required, err := s.userRequiresMFA(ctx, tx, userID); err != nil {
+		return err
+	} else if required {
+		usable, err := s.policyMFAEnrolled(ctx, tx, userID)
+		if err != nil {
 			return err
-		} else if required {
+		}
+		if !usable {
 			return iam.ErrTwoFARequiredByPolicy
 		}
+	}
+	if len(factors) == 0 {
 		if err := qtx.MFASettingsDelete(ctx, userID); err != nil {
 			return err
 		}

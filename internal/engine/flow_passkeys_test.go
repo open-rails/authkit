@@ -38,6 +38,12 @@ func TestPasskeyLoginCompletesWhileItsPasskeyIsDeleted(t *testing.T) {
 	require.NoError(t, err)
 	created, err := f.engine.FinishPasskeyRegistration(ctx, user.ID, authn.Register(t, creation))
 	require.NoError(t, err)
+	// A required account keeps another verified credential when removing this one.
+	spare := passkeytest.New(t, "https://app.example")
+	second, err := f.engine.BeginPasskeyRegistration(ctx, user.ID)
+	require.NoError(t, err)
+	_, err = f.engine.FinishPasskeyRegistration(ctx, user.ID, spare.Register(t, second))
+	require.NoError(t, err)
 
 	start := f.expect(200, f.post("/passkeys/login/begin", map[string]any{}))
 	var assertion protocol.CredentialAssertion

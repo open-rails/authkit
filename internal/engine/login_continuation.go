@@ -35,6 +35,7 @@ type loginProof struct {
 	AuthenticatedAt time.Time         `json:"authenticated_at"`
 	NonceHash       string            `json:"nonce_hash"`
 	Enrollment      bool              `json:"enrollment"`
+	StrongMFA       bool              `json:"strong_mfa,omitempty"`
 	// DeviceCode: the sign-in waits on a new-device code (Config.SignIn).
 	DeviceCode bool `json:"device_code,omitempty"`
 	expected   []byte
@@ -64,7 +65,7 @@ func (s *Engine) loginFactors(proof loginProof, settings *authflow.TwoFactorSett
 		return factors
 	}
 	for _, f := range settings.Factors {
-		if f.Enabled && s.twoFactorMethodAvailable(f.Method) && independentFactor(proof, f) {
+		if f.Enabled && (!proof.StrongMFA || strongFactorMethod(f.Method)) && s.twoFactorMethodAvailable(f.Method) && independentFactor(proof, f) {
 			factors = append(factors, f)
 		}
 	}
@@ -80,6 +81,15 @@ func (s *Engine) finishFirstFactor(ctx context.Context, proof loginProof) (authf
 		return authflow.LoginOutcome{}, err
 	}
 	defer tx.Rollback(ctx)
+	return s.finishFirstFactorTx(ctx, tx, proof)
+}
+
+// The caller may insert a newly proved credential under this same account
+// lock; claiming the pending proof and committing the session remain one flow.
+func (s *Engine) finishFirstFactorTx(ctx context.Context, tx pgx.Tx, proof loginProof) (authflow.LoginOutcome, error) {
+	if proof.Version <= 0 || len(proof.Input.AuthMethods) == 0 {
+		return authflow.LoginOutcome{}, jwt.ErrTokenUnverifiable
+	}
 	q := s.qtx(tx)
 	user, err := s.lockAuthenticationAccount(ctx, q, proof.Input.UserID, proof.Version, proof.SessionID == "")
 	if err != nil {
@@ -92,6 +102,14 @@ func (s *Engine) finishFirstFactor(ctx context.Context, proof loginProof) (authf
 		return authflow.LoginOutcome{}, err
 	}
 	settings, settingsErr := s.get2FASettings(ctx, q, user.ID)
+	required, err := s.userRequiresMFA(ctx, tx, user.ID)
+	if err != nil {
+		return authflow.LoginOutcome{}, err
+	}
+	proof.StrongMFA = required
+	if required {
+		settings = policyFactorSettings(settings)
+	}
 	status, statusErr := s.mfaStatusWith(settings, settingsErr)
 	if statusErr != nil {
 		return authflow.LoginOutcome{}, statusErr
@@ -103,7 +121,7 @@ func (s *Engine) finishFirstFactor(ctx context.Context, proof loginProof) (authf
 	}
 	// Enrollment/challenge selection is shared by password, passwordless and
 	// providers. A verified UV passkey has already completed MFA itself.
-	completedMFA := hasAuthMethod(proof.Input.AuthMethods, "mfa")
+	completedMFA := hasAuthMethod(proof.Input.AuthMethods, "mfa") && (!required || policyMFAProof(proof.Input.AuthMethods))
 	needsChallenge := s.TwoFactorEnabled() && status.Enabled && status.Satisfied && !completedMFA
 	// A new sign-in passes the sign-in limits; a session's own continuation
 	// and an account recovery do not.
@@ -139,7 +157,7 @@ func (s *Engine) finishFirstFactor(ctx context.Context, proof loginProof) (authf
 		// An account holding a passkey proves MFA with it; a weaker first
 		// factor never enrolls a new second factor over it (P7).
 		if !needsChallenge {
-			if held, err := s.holdsPasskey(ctx, tx, user.ID); err != nil || held {
+			if held, err := s.holdsAnyPasskey(ctx, tx, user.ID); err != nil || held {
 				if err == nil {
 					err = errmodel.ErrPasskeyRequired
 				}
@@ -168,7 +186,7 @@ func (s *Engine) finishFirstFactor(ctx context.Context, proof loginProof) (authf
 		} else {
 			out.Kind = authflow.LoginTwoFAEnrollmentRequired
 			for _, method := range s.TwoFactorMethods() {
-				if (method != iam.TwoFactorEmail || user.Email != nil && strings.TrimSpace(*user.Email) != "") && independentFactor(proof, authflow.MFAFactor{Method: string(method)}) {
+				if method != iam.TwoFactorEmail && independentFactor(proof, authflow.MFAFactor{Method: string(method)}) {
 					out.AllowedMethods = append(out.AllowedMethods, method)
 				}
 			}
@@ -203,6 +221,12 @@ func (s *Engine) finishFirstFactor(ctx context.Context, proof loginProof) (authf
 	out.Kind = authflow.LoginSessionIssued
 	out.Session = &session
 	return out, nil
+}
+
+// Enrollment protection is account-wide even when another app uses a
+// different RP. A password cannot add a new key over an existing MFA key.
+func (s *Engine) holdsAnyPasskey(ctx context.Context, q db.DBTX, userID string) (bool, error) {
+	return db.New(q).PasskeyExistsByUser(ctx, userID)
 }
 
 // holdsPasskey reports whether the account has a live passkey for this

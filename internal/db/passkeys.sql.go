@@ -26,6 +26,17 @@ func (q *Queries) PasskeyDelete(ctx context.Context, arg PasskeyDeleteParams) (i
 	return result.RowsAffected(), nil
 }
 
+const passkeyExistsByUser = `-- name: PasskeyExistsByUser :one
+SELECT EXISTS(SELECT 1 FROM user_passkeys WHERE user_id = $1)
+`
+
+func (q *Queries) PasskeyExistsByUser(ctx context.Context, userID string) (bool, error) {
+	row := q.db.QueryRow(ctx, passkeyExistsByUser, userID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const passkeyExistsForRP = `-- name: PasskeyExistsForRP :one
 SELECT EXISTS(SELECT 1 FROM user_passkeys WHERE user_id = $1 AND rpid = $2)
 `

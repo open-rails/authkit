@@ -91,6 +91,10 @@ func (s *Engine) UserSecurity(ctx context.Context, in authflow.ProfileInput) (au
 	}
 	status := authflow.NewTwoFactorStatus(settings, s.TwoFactorMethods())
 	status.Required = required
+	status.PasskeysEnrolled, err = s.holdsAnyPasskey(ctx, s.pg, in.UserID)
+	if err != nil {
+		return authflow.UserSecurity{}, stageErr("load_passkeys", err)
+	}
 	return authflow.UserSecurity{
 		FreshAuth:     fresh,
 		StepUpMethods: methods,

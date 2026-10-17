@@ -473,7 +473,7 @@ export const ja: AuthUiMessageBundle = {
     },
     signInKeys: {
       title: "パスキーとデバイスキー",
-      description: "パスワードなしでサインインできるキーです。",
+      description: "端末のパスキーまたはFIDO2セキュリティキーを使えます。PINまたは生体認証で本人確認します。",
       addPasskey: "パスキーを追加",
       none: "パスキーやデバイスキーはまだありません。",
       passkey: "パスキー",
@@ -538,6 +538,8 @@ export const ja: AuthUiMessageBundle = {
       "このデバイスでのサインインを完了するには、{destination} に送信したコードを入力してください。",
   },
   enrollment: {
+    startPasskey: "パスキーまたはセキュリティキーを設定",
+    passkeyHint: "端末やセキュリティキーのPINまたは生体認証で確認します。追加のログインコードは不要です。",
     title: "2段階認証を設定",
     chooseMethod: "ログインコードの受け取り方法を選択してください。",
     startTotp: "認証アプリを設定",

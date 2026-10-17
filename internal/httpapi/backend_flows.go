@@ -21,6 +21,8 @@ type flowsBackend interface {
 	RequireProvenContact(ctx context.Context, userID string) error
 	BeginDeviceKeyEnrollment(ctx context.Context, email, publicKey, label string) (authflow.DeviceKeyChallenge, error)
 	BeginDeviceKeyLogin(ctx context.Context, deviceKeyID string) (authflow.DeviceKeyChallenge, error)
+	BeginPasskeyMFAEnrollment(ctx context.Context, in authflow.TwoFactorEnrollInput) (*protocol.CredentialCreation, error)
+	FinishPasskeyMFAEnrollment(ctx context.Context, in authflow.TwoFactorEnrollInput, response []byte) (authflow.LoginOutcome, error)
 	BeginPasskeyLogin(ctx context.Context) (*protocol.CredentialAssertion, error)
 	BeginPasskeyRegistration(ctx context.Context, userID string) (*protocol.CredentialCreation, error)
 	BeginPasskeyStepUp(ctx context.Context, userID, sessionID string) (*protocol.CredentialAssertion, error)

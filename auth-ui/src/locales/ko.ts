@@ -467,7 +467,7 @@ export const ko: AuthUiMessageBundle = {
     },
     signInKeys: {
       title: "패스키 및 기기 키",
-      description: "비밀번호 없이 로그인하는 키입니다.",
+      description: "기기의 패스키 또는 FIDO2 보안 키를 사용할 수 있습니다. PIN이나 생체 인증으로 본인을 확인합니다.",
       addPasskey: "패스키 추가",
       none: "아직 패스키나 기기 키가 없습니다.",
       passkey: "패스키",
@@ -531,6 +531,8 @@ export const ko: AuthUiMessageBundle = {
       "이 기기에서 로그인을 마치려면 {destination}(으)로 보낸 코드를 입력하세요.",
   },
   enrollment: {
+    startPasskey: "패스키 또는 보안 키 설정",
+    passkeyHint: "기기 또는 보안 키의 PIN이나 생체 인증으로 확인합니다. 추가 로그인 코드는 필요하지 않습니다.",
     title: "2단계 인증 설정",
     chooseMethod: "로그인 코드를 받을 방법을 선택하세요.",
     startTotp: "인증 앱 설정",

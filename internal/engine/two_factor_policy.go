@@ -75,7 +75,7 @@ func (s *Engine) TwoFactorMethods() []iam.TwoFactorMethod {
 // authkit_two_factor. An engine that signs no one in (Keys.VerifyOnly) has
 // nothing to enroll.
 func (s *Engine) secondFactorProblem() error {
-	if !s.TwoFactorEnabled() || !s.signs || len(s.TwoFactorMethods()) > 0 {
+	if !s.TwoFactorEnabled() || !s.signs || s.PasskeysEnabled() || len(s.TwoFactorMethods()) > 0 {
 		return nil
 	}
 	var need string

@@ -3,7 +3,7 @@ import { expect, it, vi } from "vitest"
 
 import { createAuthClient } from "./client.ts"
 import { AUTHKIT_ROUTES } from "./generated/routes.ts"
-import { complete } from "./testing.ts"
+import { complete, tokenSet } from "./testing.ts"
 
 const routes = AUTHKIT_ROUTES.map(({ method, path }) => ({
   method,
@@ -87,6 +87,7 @@ it("calls only routes AuthKit mounts", async () => {
     () => client.renameSignInKey("k", "laptop"),
     () => client.revokeSignInKey("k"),
     () => client.registerPasskey(),
+    () => client.enrollPasskey(tokenSet("u1")),
     () => client.getMe(),
     () => client.updateProfile({ username: "u" }),
     () => client.getPermissions(),

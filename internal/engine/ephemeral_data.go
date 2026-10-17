@@ -72,10 +72,12 @@ type twoFactorData struct {
 }
 
 type passkeyCeremonyData struct {
-	Purpose   string `json:"purpose"`
-	UserID    string `json:"user_id,omitempty"`
-	SessionID string `json:"session_id,omitempty"`
-	Session   []byte `json:"session"`
+	CredentialVersion int64  `json:"credential_version,omitempty"`
+	LoginChallenge    string `json:"login_challenge,omitempty"`
+	Purpose           string `json:"purpose"`
+	UserID            string `json:"user_id,omitempty"`
+	SessionID         string `json:"session_id,omitempty"`
+	Session           []byte `json:"session"`
 }
 
 // DeletePendingRegistrationByEmail removes a pending email registration for the

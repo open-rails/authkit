@@ -500,7 +500,9 @@ func NormalizeUsername(u UsernameConfig) (UsernameConfig, error) {
 // Passkey relying-party identity derives from the BaseURL origin; without a
 // usable BaseURL passkeys stay unconfigured unless RPID is set.
 func normalizePasskeys(p *PasskeyConfig, baseURL, issuer string) error {
-	p.UserVerification = passkeyUserVerification(p.UserVerification)
+	// Every accepted credential/assertion already requires UV; advertise that
+	// requirement to the authenticator instead of requesting presence-only.
+	p.UserVerification = "required"
 	if baseURL == "" {
 		return nil
 	}
@@ -535,15 +537,6 @@ func normalizePasskeys(p *PasskeyConfig, baseURL, issuer string) error {
 	}
 	p.Origins = origins
 	return nil
-}
-
-func passkeyUserVerification(value string) string {
-	switch v := strings.ToLower(strings.TrimSpace(value)); v {
-	case "required", "discouraged":
-		return v
-	default:
-		return "preferred"
-	}
 }
 
 // validAPIKeyPrefix: empty, or 1-16 lowercase alphanumeric characters.

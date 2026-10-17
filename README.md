@@ -324,7 +324,30 @@ safely enroll a new factor. See [the MFA policy guide](docs/rbac.md#requiring-mf
 | `GET /api/v1/me/sign-in-keys` | your passkeys and device keys |
 | `PATCH /api/v1/me/sign-in-keys/{id}` | rename one |
 | `DELETE /api/v1/me/sign-in-keys/{id}` | revoke one |
-| `POST /api/v1/me/passkeys/register/begin`, `/finish` | add a passkey |
+| `POST /api/v1/me/passkeys/register/begin`, `/finish` | add a passkey after step-up |
+| `POST /api/v1/me/passkeys/enroll/begin`, `/finish` | use a restricted enrollment token to create the first passkey and complete mandatory MFA sign-in |
+
+Passkeys on a platform authenticator or FIDO2 security key require PIN/biometric
+user verification on every creation and assertion. A verified passkey sign-in
+already supplies MFA; it needs no extra password or OTP. Presence-only key touch
+does not qualify. See the [FIDO passkey guidance](https://fidoalliance.org/passkeys/).
+The shared `SignInKeysPanel` manages keys, and required-enrollment UI offers a
+passkey alongside TOTP and available SMS. Code factors remain a separate store;
+`GET /me/security` reports `passkeys_enrolled` as well as their status.
+
+Required MFA accepts configured TOTP/SMS, UV passkeys, or a backup-code second
+proof after a primary sign-in. Email alone is not privileged MFA. Delivery
+outages do not erase enrollment or authorize password-only replacement.
+Existing passkeys protect the account across RPs, though each browser ceremony
+is bound to its own RP/origin. Register another app's key from an already-MFA
+session; a password cannot enroll over an established key on another RP.
+
+An emailed password reset on a verified account preserves its factors and
+passkeys, issues no session, and still requires MFA at sign-in. First contact
+proof for an unproven registration instead retires the claimant's credentials.
+Backup codes remain single-use recovery for a primary proof, not standalone
+sign-in credentials. Removing a required last strong factor/key is refused;
+adding a verified replacement first permits removing the old factor.
 
 **Groups** (each channel's permission group; `root` is the site-wide group, where roles like `root:admin` live)
 

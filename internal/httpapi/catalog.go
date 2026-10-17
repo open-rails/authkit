@@ -304,6 +304,10 @@ func Catalog() []RouteSpec {
 		// Second factors, listed by GET /me/security. An enrollment token
 		// (AuthResult enrollment_required) reaches setup and factors, with no
 		// step-up.
+		{Method: POST, Path: "/me/passkeys/enroll/begin", Group: account, Auth: session, Bucket: RLPasskeyRegister, MountedWhen: FeaturePasskeys, MFAEnrollmentExempt: true,
+			Responses: replyOK(creation{}), serve: handle((*Service).handlePasskeyMFAEnrollBeginPOST)},
+		{Method: POST, Path: "/me/passkeys/enroll/finish", Group: account, Auth: session, Bucket: RLPasskeyRegister, MountedWhen: FeaturePasskeys, MFAEnrollmentExempt: true,
+			Request: WebAuthnCredential{}, Responses: signedIn, serve: handle((*Service).handlePasskeyMFAEnrollFinishPOST)},
 		{Method: POST, Path: "/me/2fa/setup", Group: account, Auth: session, Bucket: RL2FAEnable, MountedWhen: FeatureTwoFactor, MFAEnrollmentExempt: true,
 			Request: TwoFactorSetupRequest{}, Responses: replyOK(TwoFactorSetup{}), serve: handle((*Service).handleMe2FASetupPOST)},
 		{Method: POST, Path: "/me/2fa/factors", Group: account, Auth: session, Bucket: RL2FAEnable, MountedWhen: FeatureTwoFactor, MFAEnrollmentExempt: true,

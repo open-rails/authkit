@@ -400,10 +400,11 @@ type TwoFactorConfig struct {
 // PasskeyConfig configures the WebAuthn relying party. Empty fields derive
 // from Frontend.BaseURL.
 type PasskeyConfig struct {
-	RPID             string   `yaml:"rp_id"`
-	RPDisplayName    string   `yaml:"rp_display_name"`
-	Origins          []string `yaml:"origins"`
-	UserVerification string   `yaml:"user_verification"`
+	RPID          string   `yaml:"rp_id"`
+	RPDisplayName string   `yaml:"rp_display_name"`
+	Origins       []string `yaml:"origins"`
+	// Normalized to required: passkey sign-in supplies MFA only with PIN/biometric UV.
+	UserVerification string `yaml:"user_verification"`
 }
 
 // DeviceKeysConfig controls the native-client device-key surface.

@@ -30,7 +30,15 @@ func (s *Engine) BeginTwoFactorEnrollment(ctx context.Context, userID string, en
 	scope := authflow.TwoFactorEnrollmentScope{Mode: authflow.AllowAdditionalFactors, HasFactors: len(factors) > 0}
 	if enrollmentToken {
 		scope.Mode = authflow.FirstFactorOnly
-		if sessionID != "" || scope.HasFactors {
+		scope.HasFactors = false
+		for _, factor := range factors {
+			scope.HasFactors = scope.HasFactors || strongFactorMethod(factor.Method)
+		}
+		held, err := s.holdsAnyPasskey(ctx, s.pg, userID)
+		if err != nil {
+			return scope, err
+		}
+		if sessionID != "" || scope.HasFactors || held {
 			return scope, errmodel.ErrTwoFAFactorExists
 		}
 	}

@@ -1562,6 +1562,29 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     revokeSignInKey: (id: string) =>
       request<void>("DELETE", `/me/sign-in-keys/${segment(id)}`),
 
+    // A mandatory MFA upgrade has only a nonce-bound enrollment token. The
+    // server commits the verified key and full session atomically.
+    enrollPasskey: async (enrollmentToken: TokenSet): Promise<SignInResult> => {
+      const gen = generation
+      const options = await request<unknown>("POST", "/me/passkeys/enroll/begin", {
+        bearer: enrollmentToken.access_token,
+      })
+      if (gen !== generation) throw new AuthSessionChangedError()
+      const credential = await navigator.credentials.create({
+        publicKey: creationOptions(options),
+      })
+      if (gen !== generation) throw new AuthSessionChangedError()
+      if (!(credential instanceof PublicKeyCredential))
+        throw new Error("the browser created no passkey")
+      const result = toSignInResult(await request<AuthResult>("POST", "/me/passkeys/enroll/finish", {
+        bearer: enrollmentToken.access_token,
+        body: registrationBody(credential),
+      }))
+      if (result.status === "complete") commit(result.token_set, gen, "login", result.created)
+      else if (gen !== generation) throw new AuthSessionChangedError()
+      return result
+    },
+
     // Creates a passkey with the browser's authenticator (call from a click).
     registerPasskey: async (): Promise<SignInKey> => {
       const options = await request<unknown>(

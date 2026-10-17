@@ -80,7 +80,14 @@ Requirements use current policy rather than a queued job. Existing sessions are
 checked when used: a recent first-factor proof can continue into enrollment; an
 older session returns `reauthentication_required` and must sign in again first.
 AuthUI handles both continuations. An enrollment token grants only enrollment
-access, and a verified user-verifying passkey already satisfies MFA. A required
+access, and a verified user-verifying passkey already satisfies MFA. Required
+policy accepts configured TOTP/SMS or UV passkeys; email does not qualify for
+privileged authority. A delivery outage does not erase a registered factor or
+allow a weaker proof to replace it. Required first-passkey enrollment uses the
+short-lived pending primary proof and never grants a full session first.
+Creation is bound to account, tenant, RP, nonce and credential generation;
+key insertion and its UV-authenticated session commit together. Existing keys
+on another RP still protect the account against password-only enrollment. A required
 last factor cannot be removed (`2fa_required_by_policy`); enroll its replacement
 first, or use the system's account-recovery operation for a lost factor.
 

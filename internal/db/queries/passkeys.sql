@@ -37,6 +37,9 @@ SET sign_count = $1, clone_warning = $2, flags = $3, last_used_at = now()
 WHERE user_id = $4 AND rpid = $5 AND credential_id = $6
 RETURNING id;
 
+-- name: PasskeyExistsByUser :one
+SELECT EXISTS(SELECT 1 FROM user_passkeys WHERE user_id = $1);
+
 -- name: PasskeyExistsForRP :one
 SELECT EXISTS(SELECT 1 FROM user_passkeys WHERE user_id = $1 AND rpid = $2);
 
