@@ -867,7 +867,12 @@ it("uses a text recovery field and backup-code verification for a key-only chall
           second_factor: {
             user_id: "u1",
             challenge: "key-recovery",
-            factor: { id: "", method: "backup_code", is_default: false },
+            factor: {
+              id: "",
+              method: "backup_code",
+              is_default: false,
+              destination: null,
+            },
             factors: [],
           },
         })
@@ -887,7 +892,7 @@ it("uses a text recovery field and backup-code verification for a key-only chall
     screen.queryByRole("textbox", { name: "Verification code" })
   ).toBeNull()
   await user.type(input, "ABCDEFGH")
-  await user.click(screen.getByRole("button", { name: "Verify", exact: true }))
+  await user.click(screen.getByRole("button", { name: /^Verify$/ }))
   await waitFor(() => expect(client.getSnapshot().status).toBe("authenticated"))
   expect(verify).toHaveBeenCalledOnce()
 })
