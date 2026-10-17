@@ -1,5 +1,5 @@
--- Two-factor queries. 2FA is on while the account has a factor; mfa_settings
--- holds its backup codes and goes with its last factor.
+-- Code-factor and account recovery queries. mfa_settings holds recovery
+-- hashes while any code factor or passkey remains; it does not enable MFA.
 
 -- name: MFASettingsByUser :one
 SELECT user_id, backup_codes, created_at, updated_at

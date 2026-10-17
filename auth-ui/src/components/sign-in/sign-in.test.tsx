@@ -854,3 +854,40 @@ describe("normalizeIdentifier", () => {
     expect(normalizeIdentifier("someone")).toBe("someone")
   })
 })
+
+it("uses a text recovery field and backup-code verification for a key-only challenge", async () => {
+  const user = userEvent.setup()
+  const verify = vi.fn(() => json(200, signedIn({ sub: "u1", sid: "s1" })))
+  const fetch = stubFetch({
+    "GET /api/v1/capabilities": capabilities,
+    "POST /api/v1/password/login": () =>
+      json(
+        200,
+        authResult("second_factor_required", {
+          second_factor: {
+            user_id: "u1",
+            challenge: "key-recovery",
+            factor: { id: "", method: "backup_code", is_default: false },
+            factors: [],
+          },
+        })
+      ),
+    "POST /api/v1/2fa/verify": verify,
+    "GET /api/v1/me": () =>
+      json(200, { id: "u1", username: "reader", entitlements: [] }),
+  })
+  const { client } = renderUi(
+    <SignInDialog open onOpenChange={() => {}} />,
+    fetch
+  )
+  await screen.findByRole("button", { name: "Continue with GitHub" })
+  await submitCredentials(user, within(screen.getByRole("tabpanel")))
+  const input = await screen.findByLabelText("Backup codes", { exact: true })
+  expect(
+    screen.queryByRole("textbox", { name: "Verification code" })
+  ).toBeNull()
+  await user.type(input, "ABCDEFGH")
+  await user.click(screen.getByRole("button", { name: "Verify", exact: true }))
+  await waitFor(() => expect(client.getSnapshot().status).toBe("authenticated"))
+  expect(verify).toHaveBeenCalledOnce()
+})

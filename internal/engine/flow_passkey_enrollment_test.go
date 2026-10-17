@@ -80,8 +80,9 @@ func TestRequiredPasskeyEnrollmentCompletesUVSessionWithoutOTP(t *testing.T) {
 		require.NoError(t, f.engine.Disable2FA(t.Context(), user.ID))
 		require.ErrorIs(t, f.engine.DeletePasskey(t.Context(), user.ID, keys[0].ID), iam.ErrTwoFARequiredByPolicy)
 		again := f.post("/password/login", map[string]any{"identifier": *user.Email, "password": testPassword})
-		require.GreaterOrEqual(t, again.status, 400)
-		require.Empty(t, again.tokens().AccessToken)
+		require.Equal(t, httpapi.AuthSecondFactorRequired, again.Status, again.raw)
+		require.Equal(t, "backup_code", again.SecondFactor.Factor.Method)
+		require.Empty(t, again.tokens().AccessToken, "password-only login still cannot issue a session")
 		start := f.expect(http.StatusOK, f.post("/passkeys/login/begin", nil))
 		var assertion protocol.CredentialAssertion
 		require.NoError(t, json.Unmarshal([]byte(start.raw), &assertion))

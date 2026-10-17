@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Required MFA accepts UV passkeys/security keys, TOTP, or SMS. Presence-only keys and email do not satisfy privileged policy. Restricted first-passkey enrollment binds the primary proof, account, tenant, RP, nonce, and credential generation; key creation and sign-in commit together.
+- Passkey-only accounts can generate hashed single-use backup codes after strong step-up and recover through an independent primary proof plus a code. Recovery sets are account-scoped and survive individual factor replacement while MFA remains. Migration 0020 removes detached historical sets; removing the final factor/key clears its set, and later enrollment cannot revive it.
+- Second-factor step-up checks live policy and records the proven method under the account lock. Recovery-code consumption commits with session freshness. Verified-account password reset preserves enrolled MFA; first-contact-proof protection for unproven registrations remains intact.
+
 ## v1.30.0
 
 ### Coordinated upgrade

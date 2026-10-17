@@ -33,10 +33,11 @@ export function TwoFactorChallenge({
   const { t, error: describe } = useMessages()
   const { state, busy, error } = controller
   const [code, setCode] = useState("")
-  const [backup, setBackup] = useState(false)
+  const [requestedBackup, setBackup] = useState(false)
   const [resent, setResent] = useState(false)
   const method =
     state.step === "two_factor" ? state.challenge.factor.method : ""
+  const backup = method === "backup_code" || requestedBackup
   const cooldown = useCooldown(RESEND_SECONDS, sendsCode(method))
   const spentCode = useSpentCode(error)
   if (state.step !== "two_factor") return null
@@ -153,14 +154,16 @@ export function TwoFactorChallenge({
                 : t("common.resendCode")}
             </TextButton>
           )}
-          <TextButton
-            onClick={() => {
-              setBackup((b) => !b)
-              setCode("")
-            }}
-          >
-            {backup ? t("twoFactor.useCode") : t("twoFactor.useBackup")}
-          </TextButton>
+          {method !== "backup_code" && (
+            <TextButton
+              onClick={() => {
+                setBackup((b) => !b)
+                setCode("")
+              }}
+            >
+              {backup ? t("twoFactor.useCode") : t("twoFactor.useBackup")}
+            </TextButton>
+          )}
           {others.map((f) => (
             <TextButton
               key={f.id}

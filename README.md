@@ -345,8 +345,10 @@ session; a password cannot enroll over an established key on another RP.
 An emailed password reset on a verified account preserves its factors and
 passkeys, issues no session, and still requires MFA at sign-in. First contact
 proof for an unproven registration instead retires the claimant's credentials.
-Backup codes remain single-use recovery for a primary proof, not standalone
-sign-in credentials. Removing a required last strong factor/key is refused;
+Passkey-only accounts can generate or replace backup codes after strong
+step-up. A valid primary sign-in plus one backup code recovers access when a
+key is unavailable; the code alone never signs in. Codes remain hashed and
+single-use, are replaced atomically, and disappear with the last factor/key. Removing a required last strong factor/key is refused;
 adding a verified replacement first permits removing the old factor.
 
 **Groups** (each channel's permission group; `root` is the site-wide group, where roles like `root:admin` live)

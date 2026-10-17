@@ -79,6 +79,9 @@ func (s *Engine) FinishPasskeyMFAEnrollment(ctx context.Context, in authflow.Two
 	if err := s.firstPasskeySlot(ctx, tx, in.UserID); err != nil {
 		return authflow.LoginOutcome{}, err
 	}
+	if err := s.preparePasskeyRecovery(ctx, q, in.UserID); err != nil {
+		return authflow.LoginOutcome{}, err
+	}
 	key, err := s.insertPasskeyOn(ctx, q, in.UserID, credential, nil)
 	if err != nil {
 		return authflow.LoginOutcome{}, err

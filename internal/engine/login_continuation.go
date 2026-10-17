@@ -123,6 +123,19 @@ func (s *Engine) finishFirstFactorTx(ctx context.Context, tx pgx.Tx, proof login
 	// providers. A verified UV passkey has already completed MFA itself.
 	completedMFA := hasAuthMethod(proof.Input.AuthMethods, "mfa") && (!required || policyMFAProof(proof.Input.AuthMethods))
 	needsChallenge := s.TwoFactorEnabled() && status.Enabled && status.Satisfied && !completedMFA
+	if required && !completedMFA && !needsChallenge {
+		available, err := recoveryCodesAvailable(settings, settingsErr)
+		if err != nil {
+			return authflow.LoginOutcome{}, err
+		}
+		if available {
+			held, err := s.holdsAnyPasskey(ctx, tx, user.ID)
+			if err != nil {
+				return authflow.LoginOutcome{}, err
+			}
+			needsChallenge = held
+		}
+	}
 	// A new sign-in passes the sign-in limits; a session's own continuation
 	// and an account recovery do not.
 	if proof.SessionID == "" && proof.DeletionID == "" {
@@ -393,6 +406,9 @@ func (s *Engine) CompleteLoginChallenge(ctx context.Context, in authflow.LoginCh
 	status, err := s.mfaStatusWith(settings, nil)
 	if err != nil {
 		return authflow.LoginOutcome{}, err
+	}
+	if method == "backup_code" {
+		status.Satisfied = true
 	}
 	if err := s.requireSessionMFAStateOn(ctx, tx, in.UserID, proof.Input.AuthMethods, status, nil); err != nil {
 		return authflow.LoginOutcome{}, err

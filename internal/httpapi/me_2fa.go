@@ -186,12 +186,13 @@ func (s *Service) handleMe2FABackupCodesPOST(w http.ResponseWriter, r *http.Requ
 		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
-	if !s.requireSecondFactor(w, r, claims.UserID) {
+	if claims.SessionID == "" {
+		fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
-	backupCodes, err := s.svc.RegenerateBackupCodes(r.Context(), claims.UserID)
+	backupCodes, err := s.svc.RegenerateBackupCodesForSession(r.Context(), claims.UserID, claims.SessionID)
 	if err != nil {
-		serverErr(w, "regenerate_codes_failed", err)
+		writeError(w, err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")

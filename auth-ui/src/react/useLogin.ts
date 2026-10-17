@@ -371,12 +371,14 @@ export function useLogin(options: LoginOptions = {}) {
       run(async () => {
         if (state.step !== "two_factor") return
         const { challenge, returnTo } = state
+        const backupCode =
+          opts.backupCode || challenge.factor.method === "backup_code"
         const result = await client.verifyTwoFactor({
           userId: challenge.user_id,
           challenge: challenge.challenge,
           code: code.trim(),
-          factorId: opts.backupCode ? undefined : challenge.factor.id,
-          backupCode: opts.backupCode || undefined,
+          factorId: backupCode ? undefined : challenge.factor.id,
+          backupCode: backupCode || undefined,
         })
         apply(result, result.return_to ?? returnTo)
       }),

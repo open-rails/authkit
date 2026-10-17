@@ -90,28 +90,11 @@ func (s *Service) handleTwoFactorStepUpPOST(w http.ResponseWriter, r *http.Reque
 		fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("code"))
 		return
 	}
-	if !s.requireSecondFactor(w, r, claims.UserID) {
-		return
-	}
-	var valid bool
-	var err error
-	if body.BackupCode {
-		valid, err = s.svc.VerifyBackupCode(r.Context(), claims.UserID, code)
-	} else {
-		valid, err = s.svc.Verify2FAStepUpCode(r.Context(), claims.UserID, claims.SessionID, body.FactorID, code)
-	}
-	if errmodel.CodeOf(err) == errmodel.CodeNotFound {
+	if err := s.svc.CompleteTwoFactorStepUp(r.Context(), claims.UserID, claims.SessionID, body.FactorID, code, body.BackupCode); err != nil {
 		writeError(w, err)
 		return
 	}
-	if err != nil || !valid {
-		fail(w, codeRejection(err))
-		return
-	}
-	if err := s.svc.MarkSessionAuthenticatedWithMethods(r.Context(), claims.UserID, claims.SessionID, []string{"otp", "mfa"}); err != nil {
-		serverErr(w, "step_up_failed", err)
-		return
-	}
+
 	s.writeFresh(w, r, claims.UserID, claims.SessionID)
 }
 

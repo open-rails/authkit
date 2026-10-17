@@ -73,6 +73,8 @@ type flowsBackend interface {
 	PutOIDCResult(ctx context.Context, code string, result json.RawMessage) error
 	ConsumeOIDCResult(ctx context.Context, code string) (json.RawMessage, bool, error)
 	RegenerateBackupCodes(ctx context.Context, userID string) ([]string, error)
+	CompleteTwoFactorStepUp(ctx context.Context, userID, sessionID, factorID, code string, backup bool) error
+	RegenerateBackupCodesForSession(ctx context.Context, userID, sessionID string) ([]string, error)
 	RemovePhone(ctx context.Context, who auth.Identity, userID string) error
 	Register(ctx context.Context, in authflow.RegisterInput) (authflow.RegisterOutcome, error)
 	RegistrationVerificationEnabled() bool

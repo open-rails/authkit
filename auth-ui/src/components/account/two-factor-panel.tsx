@@ -298,7 +298,7 @@ function TwoFactorCard() {
         />
       ))}
 
-      {status?.enabled && (
+      {(status?.enabled || status?.passkeys_enrolled) && (
         <SettingRow
           icon={Key01Icon}
           title={t("account.twoFactor.backupTitle")}

@@ -144,6 +144,9 @@ func (s *Engine) FinishPasskeyRegistration(ctx context.Context, userID string, r
 	if _, err := s.lockLoginAccount(ctx, q, strings.TrimSpace(userID), version); err != nil {
 		return iam.Passkey{}, err
 	}
+	if err := s.preparePasskeyRecovery(ctx, q, strings.TrimSpace(userID)); err != nil {
+		return iam.Passkey{}, err
+	}
 	key, err := s.insertPasskeyOn(ctx, q, strings.TrimSpace(userID), cred, nil)
 	if err != nil {
 		return iam.Passkey{}, err
@@ -333,6 +336,9 @@ func (s *Engine) DeletePasskey(ctx context.Context, userID, id string) error {
 		if !usable {
 			return iam.ErrTwoFARequiredByPolicy
 		}
+	}
+	if err := s.pruneRecoveryCodes(ctx, q, userID); err != nil {
+		return err
 	}
 	return tx.Commit(ctx)
 }

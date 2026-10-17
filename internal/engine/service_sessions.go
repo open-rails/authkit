@@ -513,6 +513,11 @@ func (s *Engine) CheckRecentSignIn(ctx context.Context, cl verify.Claims) error 
 // account can step up: its methods, the window, and its second factors.
 func (s *Engine) StepUpRequired(ctx context.Context, userID string) error {
 	settings, _ := s.Get2FASettings(ctx, userID)
+	if required, err := s.userRequiresMFA(ctx, s.pg, userID); err != nil {
+		return err
+	} else if required {
+		settings = policyFactorSettings(settings)
+	}
 	methods, err := s.stepUpMethods(ctx, userID, settings)
 	if err != nil {
 		return errmodel.Internal("step_up_methods", err)

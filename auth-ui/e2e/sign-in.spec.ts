@@ -218,6 +218,41 @@ for (const transport of ["internal", "usb"] as const) {
     await expect(page.getByTestId("status")).toHaveText("authenticated")
     await expect(page.getByTestId("email")).toHaveText(account.email)
     expect(codeRequests).toEqual([])
+    const recoveryCodes = await page.evaluate(async () => {
+      const c = (
+        window as unknown as {
+          authClient: {
+            regenerateBackupCodes(): Promise<string[]>
+          }
+        }
+      ).authClient
+      return c.regenerateBackupCodes()
+    })
+    expect(recoveryCodes).toHaveLength(10)
+    await signOut(page)
+    await signIn(page, account.email, account.password)
+    await expect(
+      dialog(page).getByLabel("Backup codes", { exact: true })
+    ).toBeVisible()
+    await dialog(page)
+      .getByLabel("Backup codes", { exact: true })
+      .fill(recoveryCodes[0])
+    await dialog(page)
+      .getByRole("button", { name: "Verify", exact: true })
+      .click()
+    await expect(dialog(page)).toBeHidden()
+    await expect(page.getByTestId("status")).toHaveText("authenticated")
+    expect(codeRequests).toHaveLength(1)
+    await signOut(page)
+    await signIn(page, account.email, account.password)
+    await dialog(page)
+      .getByLabel("Backup codes", { exact: true })
+      .fill(recoveryCodes[0])
+    await dialog(page)
+      .getByRole("button", { name: "Verify", exact: true })
+      .click()
+    await expect(dialog(page).getByRole("alert")).toBeVisible()
+    await expect(page.getByTestId("status")).toHaveText("anonymous")
   })
 }
 

@@ -162,8 +162,10 @@ describe("new two-factor enrollment", () => {
   })
 })
 
-it("shows required UV-passkey MFA as on without forcing an OTP or unusable backup-code controls", async () => {
-  await renderPanel({
+it("shows required UV-passkey MFA as on and offers backup-code recovery without an OTP", async () => {
+  const user = await renderPanel({
+    "POST /api/v1/me/2fa/backup-codes": () =>
+      json(200, { backup_codes: ["KEYRECOVERY"] }),
     "GET /api/v1/me/security": () =>
       security({
         enabled: false,
@@ -179,6 +181,15 @@ it("shows required UV-passkey MFA as on without forcing an OTP or unusable backu
   expect(
     screen.getByRole("button", { name: "Add a method" })
   ).toBeInTheDocument()
-  expect(screen.queryByRole("button", { name: /regenerate/i })).toBeNull()
+  expect(
+    screen.getByRole("button", { name: "Generate new codes" })
+  ).toBeInTheDocument()
   expect(screen.queryByRole("button", { name: "Turn off" })).toBeNull()
+  await user.click(screen.getByRole("button", { name: "Generate new codes" }))
+  await user.click(
+    within(screen.getByRole("alertdialog")).getByRole("button", {
+      name: "Generate new codes",
+    })
+  )
+  expect(await screen.findByText("KEYRECOVERY")).toBeInTheDocument()
 })

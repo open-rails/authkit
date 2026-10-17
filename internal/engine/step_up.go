@@ -40,13 +40,27 @@ type siwsStepUp struct {
 
 // stepUpMethods lists how userID can step up now.
 func (s *Engine) stepUpMethods(ctx context.Context, userID string, settings *authflow.TwoFactorSettings) ([]string, error) {
+	required, err := s.userRequiresMFA(ctx, s.pg, userID)
+	if err != nil {
+		return nil, err
+	}
+	if required {
+		settings = policyFactorSettings(settings)
+	}
 	c := authflow.StepUpCredentials{SecondFactor: len(authflow.StepUpFactors(settings)) > 0}
-	var err error
 	if c.Password, err = s.HasPassword(ctx, userID); err != nil {
 		return nil, err
 	}
 	if c.Passkey, err = s.holdsPasskey(ctx, s.pg, userID); err != nil {
 		return nil, err
+	}
+	if required && !c.SecondFactor {
+		// Password/contact possession cannot replace a required key. Recovery
+		// uses a fresh primary sign-in and a backup code through login.
+		if c.Passkey {
+			return []string{"passkey"}, nil
+		}
+		return []string{}, nil
 	}
 	u, err := s.getUserByID(ctx, userID)
 	if err != nil {

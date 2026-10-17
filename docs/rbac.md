@@ -222,3 +222,8 @@ Staff of every merchant hold the `root:` names on root. A root role holding `mer
   - `GET /api/v1/groups/{group_id}/roles` lists the group's roles, its [custom roles](#custom-roles) included.
 
   `{group_id}` may be `root`, and changes on root need a recent sign-in.
+
+Passkey-only accounts use the same account-scoped backup-code store as OTP
+accounts. Generation requires a recent strong session; recovery still needs
+a live independent primary proof plus one single-use code. Removing the final
+factor/key removes that set, so registering a later key cannot revive it.

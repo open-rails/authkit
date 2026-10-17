@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Required enrollment offers platform passkeys and FIDO2 security keys with PIN/biometric user verification. Passkey sign-in requires no redundant OTP. Passkey-only account settings expose backup-code generation; recovery-only login challenges use a text code field and the backup-proof protocol.
+
 - A refused cold-start refresh no longer invalidates an independent sign-in
   already in flight. Explicit sign-out and account switches still invalidate
   stale authentication results.

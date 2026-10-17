@@ -211,7 +211,7 @@ func (s *Engine) Disable2FA(ctx context.Context, userID string) error {
 	if err := qtx.MFADeleteAllFactors(ctx, userID); err != nil {
 		return err
 	}
-	if err := qtx.MFASettingsDelete(ctx, userID); err != nil {
+	if err := s.pruneRecoveryCodes(ctx, qtx, userID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -262,7 +262,7 @@ func (s *Engine) Disable2FAFactor(ctx context.Context, userID, factorID string) 
 		}
 	}
 	if len(factors) == 0 {
-		if err := qtx.MFASettingsDelete(ctx, userID); err != nil {
+		if err := s.pruneRecoveryCodes(ctx, qtx, userID); err != nil {
 			return err
 		}
 		return tx.Commit(ctx)
@@ -554,9 +554,8 @@ func (s *Engine) verifyBackupCode(ctx context.Context, q *db.Queries, userID, ba
 	// Atomic single-use consume in one statement: the DB removes the hashed code
 	// and reports whether THIS call was the one that removed it. This replaces the
 	// former read-filter-rewrite, which let two concurrent submissions of the same
-	// code both succeed. The query's `enabled = true` predicate also subsumes the
-	// old "2FA not enabled" check (callers treat (false, nil) and that error
-	// identically — both reject the code).
+	// code both succeed. Recovery rows are removed with the account's final
+	// code factor/passkey, so a detached code set never becomes a credential.
 	hash := secret.Hash(backupCode)
 	rows, err := q.MFAConsumeBackupCode(ctx, db.MFAConsumeBackupCodeParams{CodeHash: hash, UserID: userID})
 	if err != nil {
@@ -568,22 +567,7 @@ func (s *Engine) verifyBackupCode(ctx context.Context, q *db.Queries, userID, ba
 // RegenerateBackupCodes generates new backup codes for a user (invalidating old ones).
 // Returns the plaintext codes (caller must show these to user ONCE).
 func (s *Engine) RegenerateBackupCodes(ctx context.Context, userID string) ([]string, error) {
-	if s.pg == nil {
-		return nil, fmt.Errorf("postgres not configured")
-	}
-
-	// Verify 2FA is enabled
-	settings, err := s.Get2FASettings(ctx, userID)
-	if err != nil || !settings.Enabled {
-		return nil, fmt.Errorf("2FA not enabled")
-	}
-
-	plaintextCodes, hashedCodes := generateBackupCodes()
-	if err := s.q.MFASetBackupCodes(ctx, db.MFASetBackupCodesParams{BackupCodes: hashedCodes, UserID: userID}); err != nil {
-		return nil, err
-	}
-
-	return plaintextCodes, nil
+	return s.regenerateRecoveryCodes(ctx, userID, "")
 }
 
 // stepUpFactor is the account's factor factorID, or its default factor when
@@ -594,6 +578,13 @@ func (s *Engine) stepUpFactor(ctx context.Context, userID, factorID string) (aut
 		return authflow.MFAFactor{}, err
 	}
 	factorID = strings.TrimSpace(factorID)
+	required, err := s.userRequiresMFA(ctx, s.pg, userID)
+	if err != nil {
+		return authflow.MFAFactor{}, err
+	}
+	if required {
+		factors = slices.DeleteFunc(factors, func(f authflow.MFAFactor) bool { return !strongFactorMethod(f.Method) })
+	}
 	for _, f := range factors {
 		if factorID == f.ID || factorID == "" && f.IsDefault {
 			return f, nil

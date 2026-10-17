@@ -174,7 +174,15 @@ func (s *Engine) HasUsableMFA(ctx context.Context, userID string) (bool, error) 
 	if err := s.requirePG(); err != nil {
 		return false, err
 	}
-	return s.q.MFAUsable(ctx, userID)
+	held, err := s.q.MFAUsable(ctx, userID)
+	if err != nil || held {
+		return held, err
+	}
+	required, err := s.userRequiresMFA(ctx, s.pg, userID)
+	if err != nil || !required {
+		return false, err
+	}
+	return s.policyMFAEnrolled(ctx, s.pg, userID)
 }
 
 // userCursor is ListUsers' keyset position: the last row's sort value and id,
