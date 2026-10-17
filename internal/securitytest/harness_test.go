@@ -65,6 +65,7 @@ type host struct {
 	pool   *pgxpool.Pool
 	server *httptest.Server
 	mail   *authtest.Outbox
+	apps   *sync.Map // account id -> authenticator app; shared by replicas
 }
 
 // withHTTP edits the host's HTTPConfig.
@@ -124,7 +125,7 @@ func newHost(t *testing.T, opts ...authtest.Option) *host {
 			}
 		}))
 	auth, mail := authtest.New(t, opts...)
-	return (&host{t: t, pool: pg.Pool, mail: mail}).fork(auth)
+	return (&host{t: t, pool: pg.Pool, mail: mail, apps: &sync.Map{}}).fork(auth)
 }
 
 // replica is another replica of h's deployment (authtest.Replica), opts
@@ -275,17 +276,14 @@ func (h *host) verifyEmail(id string) {
 	require.NoError(h.t, err)
 }
 
-// login signs a in with its password and, when the account has one, the
-// email second factor.
+// login signs a in with its password and enrolled factor. Required enrollment
+// uses an authenticator app: email alone never satisfies staff MFA policy.
 func (h *host) login(a account) tokens {
 	h.t.Helper()
 	resp := h.post("/password/login", map[string]string{"identifier": a.email, "password": password}, "")
 	if res := authResult(h.t, resp); res.Status == httpapi.AuthEnrollmentRequired {
 		token := res.Enrollment.TokenSet.AccessToken
-		setup := h.post("/me/2fa/setup", map[string]string{"method": "email"}, token)
-		require.Equal(h.t, http.StatusOK, setup.status, setup.String())
-		resp = h.post("/me/2fa/factors", map[string]string{"method": "email", "code": h.mail.Last(h.t, iam.MessageVerification, a.email).Code}, token)
-		require.Equal(h.t, http.StatusCreated, resp.status, resp.String())
+		_, resp = h.enrollTOTP(token)
 		var enrolled httpapi.TwoFactorFactorCreated
 		resp.json(h.t, &enrolled)
 		require.NotNil(h.t, enrolled.Auth)
@@ -293,8 +291,22 @@ func (h *host) login(a account) tokens {
 		return tokens{AccessToken: enrolled.Auth.TokenSet.AccessToken, RefreshToken: *enrolled.Auth.TokenSet.RefreshToken}
 	}
 	if res := authResult(h.t, resp); res.Status == httpapi.AuthSecondFactorRequired {
-		resp = h.post("/2fa/verify", map[string]string{"user_id": a.id, "challenge": res.SecondFactor.Challenge,
-			"code": h.mail.Last(h.t, iam.MessageLoginCode, a.email).Code}, "")
+		step := res.SecondFactor
+		factor, code := step.Factor.ID, ""
+		if app, ok := h.apps.Load(a.id); ok {
+			for _, f := range append([]httpapi.TwoFactorFactor{step.Factor}, step.Factors...) {
+				if f.Method == "totp" {
+					factor, code = f.ID, app.(*authtest.TOTP).Code(h.t)
+					break
+				}
+			}
+		}
+		if code == "" {
+			require.Equal(h.t, "email", step.Factor.Method, "fixture has no authenticator secret for this second factor")
+			code = h.mail.Last(h.t, iam.MessageLoginCode, a.email).Code
+		}
+		resp = h.post("/2fa/verify", map[string]string{"user_id": a.id, "challenge": step.Challenge,
+			"factor_id": factor, "code": code}, "")
 	}
 	return session(h.t, resp)
 }

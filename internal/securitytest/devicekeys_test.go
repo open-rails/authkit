@@ -106,7 +106,7 @@ func TestSecurityDeviceKeyMFAGate(t *testing.T) {
 	}
 
 	// The victim enables 2FA and is made an MFA-required root role holder.
-	backup := h.enrollEmail2FA(victim)
+	backup := h.enrollAuthenticator2FA(victim)
 	h.grant(iam.RootGroup(), victim, "security")
 	for _, k := range []*deviceKey{stolen, laptop} {
 		resp := h.deviceLogin(k)

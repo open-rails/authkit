@@ -183,7 +183,7 @@ func TestSecurityContactChangeKeepsMFARoles(t *testing.T) {
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withAccountRoles))
 	ctx := context.Background()
 	holder := h.newAccount("mfaholder")
-	h.enrollEmail2FA(holder)
+	h.enrollAuthenticator2FA(holder)
 	h.grant(iam.RootGroup(), holder, "security")
 	attacker := unique("takeover") + "@security.test"
 	_, err := h.auth.UpdateUser(ctx, iam.SystemIdentity(), holder.id, iam.UserUpdate{Email: &attacker})

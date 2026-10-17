@@ -54,9 +54,22 @@ func (h *host) enrollTOTP(token string) (string, response) {
 	}
 	resp.json(h.t, &start)
 	require.NotEmpty(h.t, start.Secret)
-	resp = h.post("/me/2fa/factors", map[string]string{"method": "totp", "code": authtest.TOTPCode(h.t, start.Secret, time.Now())}, token)
+	app := &authtest.TOTP{Secret: start.Secret}
+	resp = h.post("/me/2fa/factors", map[string]string{"method": "totp", "code": app.Code(h.t)}, token)
 	require.Equal(h.t, http.StatusCreated, resp.status, resp.String())
+	_, claims := splitToken(h.t, token)
+	h.apps.Store(claims["sub"].(string), app)
 	return start.Secret, resp
+}
+
+// enrollAuthenticator2FA returns the backup codes from a real TOTP enrollment.
+// These stay valid when the account is later granted an MFA-required role.
+func (h *host) enrollAuthenticator2FA(a account) []string {
+	h.t.Helper()
+	_, resp := h.enrollTOTP(h.login(a).AccessToken)
+	var enrolled httpapi.TwoFactorFactorCreated
+	resp.json(h.t, &enrolled)
+	return enrolled.BackupCodes
 }
 
 // enrollSMS adds an SMS factor for phone with token.

@@ -179,7 +179,7 @@ func TestSecurityDeviceKeyClient(t *testing.T) {
 		a := h.newAccount("dkbefore")
 		pub, priv := ed25519Key(t)
 		s := enroll(t, a.email, pub, priv)
-		backup := h.enrollEmail2FA(a)
+		backup := h.enrollAuthenticator2FA(a)
 		h.grant(iam.RootGroup(), a, "security")
 		_, err := c.Login(ctx, s.DeviceKey.ID, priv)
 		requireRefusal(t, err, http.StatusForbidden, "2fa_required")
