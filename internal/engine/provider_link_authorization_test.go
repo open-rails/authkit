@@ -86,8 +86,8 @@ func TestPendingProviderLinkRechecksPasskeyOnlyPolicy(t *testing.T) {
 				require.ErrorIs(t, err, errmodel.ErrStepUpRequired)
 				_, _, lookupErr := f.engine.GetProviderLinkByIssuer(t.Context(), p.Issuer(), input.Identity.Subject)
 				require.Error(t, lookupErr, "a pending weak link cannot attach a new credential after the policy changes")
-				assertion, err := f.engine.BeginPasskeyStepUp(t.Context(), user.ID, claims.SessionID)
-				require.NoError(t, err)
+				assertion, stepErr := f.engine.BeginPasskeyStepUp(t.Context(), user.ID, claims.SessionID)
+				require.NoError(t, stepErr)
 				require.NoError(t, f.engine.StepUpWithPasskey(t.Context(), user.ID, claims.SessionID, key.Assert(t, assertion, 1)))
 				result, err = f.engine.CompleteExternalLogin(t.Context(), input)
 			}
