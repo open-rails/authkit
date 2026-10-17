@@ -16,6 +16,19 @@ jobs:
   generate:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      GOWORK: off
+      GOMAXPROCS: '2'
+      AUTHKIT_TEST_DATABASE_URL: postgres://admin:authkit_ci@127.0.0.1:5432/authkit_ci?sslmode=disable
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: admin
+          POSTGRES_PASSWORD: authkit_ci
+          POSTGRES_DB: authkit_ci
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -36,6 +49,8 @@ jobs:
       - run: pnpm --dir auth-ui install --frozen-lockfile --ignore-scripts
       - name: Generate canonical contracts and format UI source
         run: |
+          go run ./internal/cmd/migrate -dsn "$AUTHKIT_TEST_DATABASE_URL" -schema profiles -legacy-tenant-id 00000000-0000-4000-8000-000000000001
+          export SQLC_DATABASE_URL="${AUTHKIT_TEST_DATABASE_URL}&options=-csearch_path%3Dprofiles%2Cpublic"
           go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate -f internal/db/sqlc.yaml
           go generate ./internal/httpapi
           pnpm --dir auth-ui exec prettier --write src

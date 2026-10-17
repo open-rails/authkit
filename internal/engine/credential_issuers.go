@@ -114,7 +114,10 @@ func catalogRoleName(persona, role string) string { return persona + ":" + role 
 func (s *Engine) roleCatalogFingerprint() string {
 	sch := s.groupSchemaOrDefault()
 	h := sha256.New()
-	fmt.Fprintf(h, "twofactor=%t\n", s.TwoFactorEnabled())
+	fmt.Fprintf(h, "mfa-policy=2 mode=%s passkeys=%t\n", s.cfg.TwoFactor.Mode, s.PasskeysEnabled())
+	for _, method := range []iam.TwoFactorMethod{iam.TwoFactorTOTP, iam.TwoFactorSMS} {
+		fmt.Fprintf(h, "factor %s=%t\n", method, s.twoFactorMethodConfigured(method))
+	}
 	for _, p := range sch.MFAPermissions() {
 		fmt.Fprintf(h, "mfa %s\n", p)
 	}

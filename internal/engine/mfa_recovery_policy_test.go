@@ -2,6 +2,7 @@ package engine
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -105,4 +106,30 @@ func TestEmailOnlyFactorCannotSatisfyRequiredMFAAndCanUpgradeToUVPasskey(t *test
 	status := authflow.MFAStatus{Enabled: true, Satisfied: true}
 	require.Error(t, f.engine.requireSessionMFAStateOn(t.Context(), f.engine.pg, user.ID, []string{"pwd", "email", "otp", "mfa"}, status, nil), "a legacy email-MFA token cannot use newly privileged authority")
 	require.NoError(t, f.engine.requireSessionMFAStateOn(t.Context(), f.engine.pg, user.ID, []string{"swk", "mfa"}, status, nil))
+}
+
+func TestStrongerMFAPolicyRetiresLegacyDelegationsWithoutRefusingStartup(t *testing.T) {
+	f := newCredentialFixture(t)
+	require.NoError(t, f.e.markEmailVerified(t.Context(), f.founder.ID))
+	_, err := f.e.enableFactor(t.Context(), f.founder.ID, "email", nil, authflow.FirstFactorOnly)
+	require.NoError(t, err)
+	issued := f.issue(t, f.founder, "member", false)
+	cfg := credentialConfig(credentialRoles(false))
+	cfg.TwoFactor.Mode = iam.TwoFactorRequired
+	cfg.TwoFactor.Methods = []iam.TwoFactorMethod{iam.TwoFactorTOTP, iam.TwoFactorSMS}
+	current := newTestEngine(t, cfg, config.Deps{Postgres: f.pool})
+	requireCredentialsCovered(t, current)
+	f.requireDead(t, issued)
+}
+
+func TestMFACatalogFingerprintUsesConfiguredPolicyNotDeliveryHealth(t *testing.T) {
+	engine := &Engine{cfg: testConfig()}
+	engine.cfg.TwoFactor.Mode = iam.TwoFactorOptional
+	engine.cfg.TwoFactor.Methods = []iam.TwoFactorMethod{iam.TwoFactorTOTP}
+	original := engine.roleCatalogFingerprint()
+	engine.cfg.TwoFactor.Methods = []iam.TwoFactorMethod{iam.TwoFactorSMS}
+	configured := engine.roleCatalogFingerprint()
+	require.NotEqual(t, original, configured)
+	engine.smsHealth.set(time.Now(), errors.New("provider outage"))
+	require.Equal(t, configured, engine.roleCatalogFingerprint(), "delivery failures must not change enrollment policy or revoke delegations")
 }

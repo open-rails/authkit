@@ -196,7 +196,7 @@ func (s *Engine) credentialStands(ctx context.Context, st *permissionGroupStore,
 		capability = ident.Perm(c.group.Persona.String() + ":users:invite")
 	}
 	err := s.creatorCovers(ctx, st, c.creator, c.group, capability, c.role)
-	if errors.Is(err, iam.ErrInsufficientAuthority) || errors.Is(err, iam.ErrRoleAssignmentEscalation) || errors.Is(err, iam.ErrRoleNotAssignable) {
+	if errors.Is(err, iam.ErrInsufficientAuthority) || errors.Is(err, iam.ErrRoleAssignmentEscalation) || errors.Is(err, iam.ErrRoleNotAssignable) || errors.Is(err, iam.ErrTwoFAEnrollmentRequired) {
 		return false, nil
 	}
 	return err == nil, err
