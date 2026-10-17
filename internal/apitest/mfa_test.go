@@ -280,7 +280,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	verified, password := true, pass
 	_, err = optional.UpdateUser(ctx, iam.SystemIdentity(), u.ID, iam.UserUpdate{EmailVerified: &verified, Password: &password})
 	require.NoError(t, err)
-	grant := f.post("/password/login", credentials).enrollment(t).TokenSet.AccessToken
+	grant := f.post("/password/login", credentials).signedIn(t).AccessToken
 	f.expect(http.StatusOK, f.request(http.MethodPost, "/me/2fa/setup", grant, map[string]any{"method": "email"}))
 	backups := f.expect(http.StatusCreated, f.request(http.MethodPost, "/me/2fa/factors", grant,
 		map[string]any{"method": "email", "code": f.code(iam.MessageVerification, email)})).BackupCodes
