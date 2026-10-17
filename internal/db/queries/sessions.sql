@@ -70,13 +70,16 @@ WHERE id = sqlc.arg(session_id)::uuid
   AND (expires_at IS NULL OR expires_at > now());
 
 -- name: SessionMarkAuthenticated :execrows
--- Re-proving identity refreshes the freshness window and UNIONS the methods
--- just used into what the session proved, so its refresh assurance never
--- drops. MFA freshness moves only when these methods include the second factor.
+-- Retain proven methods, but an email-only MFA refresh cannot carry an old
+-- strong-factor marker into new privileged freshness. MFA time moves only
+-- when the current ceremony proves a second factor.
 UPDATE refresh_sessions
 SET last_authenticated_at = now(),
     auth_methods = ARRAY(
-      SELECT DISTINCT unnest(auth_methods || sqlc.arg(auth_methods)::text[])
+      SELECT DISTINCT proof.method
+      FROM unnest(auth_methods || sqlc.arg(auth_methods)::text[]) AS proof(method)
+      WHERE NOT ('email' = ANY(sqlc.arg(auth_methods)::text[]) AND 'mfa' = ANY(sqlc.arg(auth_methods)::text[]))
+         OR proof.method NOT IN ('swk', 'totp', 'sms', 'backup_code', 'device_key')
     ),
     mfa_authenticated_at = CASE WHEN 'mfa' = ANY(sqlc.arg(auth_methods)::text[]) THEN now() ELSE mfa_authenticated_at END
 WHERE id = sqlc.arg(session_id)::uuid

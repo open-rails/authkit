@@ -179,6 +179,12 @@ func TestRequiredPasskeySessionCannotRefreshMFAWithLegacyEmail(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, f.engine.Send2FAStepUpCode(t.Context(), user.ID, claims.SessionID, ""))
 	code := sentCode(t, f.email, iam.MessageLoginCode)
+	require.NoError(t, f.engine.CompleteTwoFactorStepUp(t.Context(), user.ID, claims.SessionID, "", code, false))
+	var methodsBefore []string
+	require.NoError(t, f.engine.pg.QueryRow(t.Context(), `SELECT auth_methods FROM refresh_sessions WHERE id=$1`, claims.SessionID).Scan(&methodsBefore))
+	require.NotContains(t, methodsBefore, "swk", "a current email proof cannot recycle an older UV marker")
+	require.NoError(t, f.engine.Send2FAStepUpCode(t.Context(), user.ID, claims.SessionID, ""))
+	code = sentCode(t, f.email, iam.MessageLoginCode)
 	_, err = f.engine.pg.Exec(t.Context(), `UPDATE users SET mfa_required=true WHERE id=$1`, user.ID)
 	require.NoError(t, err)
 	_, err = f.engine.pg.Exec(t.Context(), `UPDATE refresh_sessions SET mfa_authenticated_at=now()-interval '1 hour' WHERE id=$1`, claims.SessionID)

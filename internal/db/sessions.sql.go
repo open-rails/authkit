@@ -192,7 +192,10 @@ const sessionMarkAuthenticated = `-- name: SessionMarkAuthenticated :execrows
 UPDATE refresh_sessions
 SET last_authenticated_at = now(),
     auth_methods = ARRAY(
-      SELECT DISTINCT unnest(auth_methods || $1::text[])
+      SELECT DISTINCT proof.method
+      FROM unnest(auth_methods || $1::text[]) AS proof(method)
+      WHERE NOT ('email' = ANY($1::text[]) AND 'mfa' = ANY($1::text[]))
+         OR proof.method NOT IN ('swk', 'totp', 'sms', 'backup_code', 'device_key')
     ),
     mfa_authenticated_at = CASE WHEN 'mfa' = ANY($1::text[]) THEN now() ELSE mfa_authenticated_at END
 WHERE id = $2::uuid
@@ -209,9 +212,9 @@ type SessionMarkAuthenticatedParams struct {
 	Issuer      string
 }
 
-// Re-proving identity refreshes the freshness window and UNIONS the methods
-// just used into what the session proved, so its refresh assurance never
-// drops. MFA freshness moves only when these methods include the second factor.
+// Retain proven methods, but an email-only MFA refresh cannot carry an old
+// strong-factor marker into new privileged freshness. MFA time moves only
+// when the current ceremony proves a second factor.
 func (q *Queries) SessionMarkAuthenticated(ctx context.Context, arg SessionMarkAuthenticatedParams) (int64, error) {
 	result, err := q.db.Exec(ctx, sessionMarkAuthenticated,
 		arg.AuthMethods,
