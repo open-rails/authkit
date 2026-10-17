@@ -185,7 +185,12 @@ for (const transport of ["internal", "usb"] as const) {
     })
     const codeRequests: string[] = []
     page.on("request", (r) => {
-      if (r.method() === "POST" && /\/2fa\//.test(r.url()))
+      if (
+        r.method() === "POST" &&
+        /\/2fa\/(setup|factors|verify|challenge)$/.test(
+          new URL(r.url()).pathname
+        )
+      )
         codeRequests.push(r.url())
     })
     await signIn(page, account.email, account.password)
