@@ -70,6 +70,9 @@ func TestPasskeyOnlyBackupRecoveryIsPrimaryBoundRotatableAndSingleUse(t *testing
 	body["code"] = replacement[0]
 	done := f.expect(http.StatusOK, f.post("/2fa/verify", body))
 	f.session(done.tokens(), "pwd", "backup_code", "otp", "mfa")
+	verified, err := f.engine.Verify(t.Context(), done.tokens().AccessToken)
+	require.NoError(t, err)
+	require.True(t, verified.MFAEnrolled, "recovery proof carries the same MFA assurance as the key")
 	f.expect(http.StatusUnauthorized, f.post("/2fa/verify", map[string]any{"user_id": user.ID, "code": replacement[1], "backup_code": true}))
 	replay := recoveryChallenge(t, f, user)
 	body["challenge"] = replay.challenge(t)

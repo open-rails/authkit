@@ -224,7 +224,7 @@ func (s *Engine) mintAccessTokenForUserWithAssurance(ctx context.Context, q *db.
 	// when true (absent ⇒ false). Reflects state at mint, so it's at most one
 	// token-TTL stale after enroll/disable.
 	amr, _ := claims["amr"].([]string)
-	if mfa != nil && mfa.Satisfied || hasAuthMethod(amr, "swk") && hasAuthMethod(amr, "mfa") {
+	if mfa != nil && mfa.Satisfied || policyMFAProof(amr) {
 		claims["mfa_enrolled"] = true
 	}
 	// extra fills gaps and never overrides a claim set above. AuthKit's flows

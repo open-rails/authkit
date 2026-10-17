@@ -345,7 +345,7 @@ func (s *Engine) issueLoginSessionTx(ctx context.Context, q *db.Queries, user *d
 	if jkt := authflow.DPoPKey(ctx); jkt != "" {
 		extra["cnf"] = map[string]any{jose.JWKThumbprintMember: jkt}
 	}
-	if hasAuthMethod(amr, "swk") && hasAuthMethod(amr, "mfa") {
+	if policyMFAProof(amr) {
 		mfa.Satisfied = true
 	}
 	token, accessExp, err := s.mintAccessTokenForUserWithAssurance(ctx, q, user, &mfa, extra, s.cfg.Token.AccessTokenDuration, &accessTokenAssurance{AuthTime: authTime, AMR: amr, ACR: acr})
