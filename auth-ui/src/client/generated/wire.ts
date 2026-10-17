@@ -1112,7 +1112,7 @@ export type TwoFactorSetupRequest = {
 }
 
 export type TwoFactorStatus = {
-  passkeys_enrolled?: boolean
+  passkeys_enrolled: boolean
   enabled: boolean
   required: boolean
   factors: TwoFactorFactor[]

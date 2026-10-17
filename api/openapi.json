@@ -11974,6 +11974,7 @@
           }
         },
         "required": [
+          "passkeys_enrolled",
           "enabled",
           "required",
           "factors",
