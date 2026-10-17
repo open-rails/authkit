@@ -84,12 +84,7 @@ func (s *Engine) regenerateRecoveryCodes(ctx context.Context, userID, sessionID 
 		recent := fresh.MfaAuthenticatedAt != nil && !fresh.MfaAuthenticatedAt.After(time.Now()) && time.Since(*fresh.MfaAuthenticatedAt) < authflow.SensitiveActionFreshAuthWindow
 		strong := policyMFAProof(fresh.AuthMethods)
 		if !recent || (required || len(factors) == 0) && !strong {
-			// A key-only account must not turn a password-only step-up into recovery
-			// credentials. Its UV key or an already-recovered MFA session is required.
-			if len(factors) == 0 {
-				return nil, errmodel.E(errmodel.CodeStepUpRequired, errmodel.WithDetails(authflow.StepUpRequired{StepUpMethods: []string{"passkey"}, MaxAgeSeconds: int64(authflow.SensitiveActionFreshAuthWindow.Seconds()), Factors: []authflow.TwoFactorFactor{}}))
-			}
-			return nil, s.StepUpRequired(ctx, userID)
+			return nil, s.recoveryStepUpRequired(ctx, q, userID, factors, required)
 		}
 	}
 	plaintext, hashes := generateBackupCodes()
@@ -120,6 +115,30 @@ func recoveryCodesAvailable(settings *authflow.TwoFactorSettings, err error) (bo
 func (s *Engine) CompleteTwoFactorStepUp(ctx context.Context, userID, sessionID, factorID, code string, backup bool) error {
 	if err := s.requirePG(); err != nil {
 		return err
+	}
+	// Delivery-code attempt counters intentionally commit outside the account
+	// transaction. Charge/consume before taking its connection, then recheck
+	// the exact factor and policy under the account lock before any freshness
+	// mutation. This also works with a one-connection pool.
+	var delivered authflow.MFAFactor
+	if !backup {
+		selected, err := s.stepUpFactor(ctx, userID, factorID)
+		if err != nil {
+			return err
+		}
+		if !s.twoFactorMethodConfigured(iam.TwoFactorMethod(selected.Method)) {
+			return errmodel.ErrInvalidTwoFAMethod
+		}
+		if selected.Method != "totp" {
+			valid, err := s.consumeMFAStepUpCode(ctx, userID, sessionID, secret.Hash(code), selected.Method)
+			if err != nil {
+				return err
+			}
+			if !valid {
+				return errmodel.ErrInvalidCode
+			}
+			delivered = selected
+		}
 	}
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
@@ -177,7 +196,7 @@ func (s *Engine) CompleteTwoFactorStepUp(ctx context.Context, userID, sessionID,
 		if method == "totp" {
 			valid, err = s.verifyTOTPFactorCodeOn(ctx, q, *selected, code)
 		} else {
-			valid, err = s.consumeMFAStepUpCode(ctx, userID, sessionID, secret.Hash(code), method)
+			valid = delivered.ID == selected.ID && delivered.Method == method
 		}
 		if err != nil {
 			return err
@@ -202,4 +221,29 @@ func (s *Engine) CompleteTwoFactorStepUp(ctx context.Context, userID, sessionID,
 		return errmodel.E(errmodel.CodeInvalidToken)
 	}
 	return tx.Commit(ctx)
+}
+
+// Build this error from the transaction's reads: consulting the pool again
+// while holding the only connection would deadlock a minimal deployment.
+func (s *Engine) recoveryStepUpRequired(ctx context.Context, q *db.Queries, userID string, factors []db.MfaFactor, required bool) error {
+	wire := []authflow.TwoFactorFactor{}
+	for _, factor := range factors {
+		if !required || strongFactorMethod(factor.Method) {
+			wire = append(wire, authflow.WireFactor(twoFactorFactorFromFields(factor)))
+		}
+	}
+	methods := []string{}
+	if len(wire) > 0 {
+		methods = append(methods, "2fa")
+	}
+	if s.PasskeysEnabled() {
+		held, err := q.PasskeyExistsForRP(ctx, db.PasskeyExistsForRPParams{UserID: userID, Rpid: s.cfg.Passkeys.RPID})
+		if err != nil {
+			return err
+		}
+		if held {
+			methods = append(methods, "passkey")
+		}
+	}
+	return errmodel.E(errmodel.CodeStepUpRequired, errmodel.WithDetails(authflow.StepUpRequired{StepUpMethods: methods, MaxAgeSeconds: int64(authflow.SensitiveActionFreshAuthWindow.Seconds()), Factors: wire}))
 }

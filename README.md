@@ -348,7 +348,9 @@ proof for an unproven registration instead retires the claimant's credentials.
 Passkey-only accounts can generate or replace backup codes after strong
 step-up. A valid primary sign-in plus one backup code recovers access when a
 key is unavailable; the code alone never signs in. Codes remain hashed and
-single-use, are replaced atomically, and disappear with the last factor/key. Removing a required last strong factor/key is refused;
+single-use, are replaced atomically, and disappear with the last factor/key.
+Upgrading legacy email-only enrollment to its first required passkey retires
+the old recovery set; generate a new set from the UV-proven session. Removing a required last strong factor/key is refused;
 adding a verified replacement first permits removing the old factor.
 
 **Groups** (each channel's permission group; `root` is the site-wide group, where roles like `root:admin` live)

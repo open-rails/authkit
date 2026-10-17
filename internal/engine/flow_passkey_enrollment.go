@@ -79,6 +79,11 @@ func (s *Engine) FinishPasskeyMFAEnrollment(ctx context.Context, in authflow.Two
 	if err := s.firstPasskeySlot(ctx, tx, in.UserID); err != nil {
 		return authflow.LoginOutcome{}, err
 	}
+	// This is the first policy-qualifying factor. Recovery material from an
+	// older email-only enrollment cannot become strong merely by adding a key.
+	if err := q.MFASetBackupCodes(ctx, db.MFASetBackupCodesParams{UserID: in.UserID, BackupCodes: []string{}}); err != nil {
+		return authflow.LoginOutcome{}, err
+	}
 	if err := s.preparePasskeyRecovery(ctx, q, in.UserID); err != nil {
 		return authflow.LoginOutcome{}, err
 	}
