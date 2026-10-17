@@ -145,9 +145,20 @@ func (s *Engine) enable2FA(ctx context.Context, in factorEnable) (authflow.TwoFa
 	}); err != nil {
 		return authflow.TwoFactorEnrollOutcome{}, err
 	}
-	verified, err := s.markEnrollingSessionTx(ctx, qtx, userID, in.ProvenSessionID, method)
-	if err != nil {
-		return authflow.TwoFactorEnrollOutcome{}, err
+	verified := false
+	qualifies := true
+	if method == "email" {
+		required, err := s.userRequiresMFA(ctx, tx, userID)
+		if err != nil {
+			return authflow.TwoFactorEnrollOutcome{}, err
+		}
+		qualifies = !required
+	}
+	if qualifies {
+		verified, err = s.markEnrollingSessionTx(ctx, qtx, userID, in.ProvenSessionID, method)
+		if err != nil {
+			return authflow.TwoFactorEnrollOutcome{}, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return authflow.TwoFactorEnrollOutcome{}, err

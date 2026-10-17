@@ -48,7 +48,7 @@ type TwoFactorFactor struct {
 // enroll.
 type TwoFactorStatus struct {
 	// Passkeys are account-owned MFA credentials; Enabled describes code factors.
-	PasskeysEnrolled     bool                  `json:"passkeys_enrolled,omitempty"`
+	PasskeysEnrolled     bool                  `json:"passkeys_enrolled"`
 	Enabled              bool                  `json:"enabled"`
 	Required             bool                  `json:"required"`
 	Factors              []TwoFactorFactor     `json:"factors"`

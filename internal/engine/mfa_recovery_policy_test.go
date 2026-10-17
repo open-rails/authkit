@@ -82,7 +82,7 @@ func TestEmailedPasswordResetPreservesProvenMFAAndRetiresUnprovenCredentials(t *
 			require.Equal(t, httpapi.AuthSecondFactorRequired, repeated.Status, repeated.raw)
 			body["challenge"] = repeated.SecondFactor.Challenge
 			f.expect(http.StatusUnauthorized, f.post("/2fa/verify", body))
-			start := f.expect(http.StatusOK, f.post("/passkeys/login/begin", nil))
+			start := f.expect(http.StatusOK, f.post("/passkeys/login/begin", map[string]any{}))
 			var assertion protocol.CredentialAssertion
 			require.NoError(t, json.Unmarshal([]byte(start.raw), &assertion))
 			passkey := f.expect(http.StatusOK, f.post("/passkeys/login/finish", json.RawMessage(authenticator.Assert(t, &assertion, 1))))

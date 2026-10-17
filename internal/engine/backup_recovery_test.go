@@ -76,7 +76,7 @@ func TestPasskeyOnlyBackupRecoveryIsPrimaryBoundRotatableAndSingleUse(t *testing
 	verified, err := f.engine.Verify(t.Context(), done.tokens().AccessToken)
 	require.NoError(t, err)
 	require.True(t, verified.MFAEnrolled, "recovery proof carries the same MFA assurance as the key")
-	f.expect(http.StatusUnauthorized, f.post("/2fa/verify", map[string]any{"user_id": user.ID, "code": replacement[1], "backup_code": true}))
+	f.expect(http.StatusBadRequest, f.post("/2fa/verify", map[string]any{"user_id": user.ID, "code": replacement[1], "backup_code": true}))
 	replay := recoveryChallenge(t, f, user)
 	body["challenge"] = replay.challenge(t)
 	f.expect(http.StatusUnauthorized, f.post("/2fa/verify", body))
@@ -119,7 +119,7 @@ func TestPasskeyRecoveryRequiresStrongSessionAndClearsWithFinalKey(t *testing.T)
 	key, err := f.engine.FinishPasskeyRegistration(t.Context(), user.ID, authn.Register(t, creation))
 	require.NoError(t, err)
 	refused := f.request(http.MethodPost, "/me/2fa/backup-codes", primary.AccessToken, nil)
-	require.Equal(t, http.StatusForbidden, refused.status, refused.raw)
+	require.Equal(t, http.StatusUnauthorized, refused.status, refused.raw)
 	require.Contains(t, refused.raw, "step_up_required")
 	_, err = f.engine.Get2FASettings(t.Context(), user.ID)
 	require.ErrorIs(t, err, pgx.ErrNoRows)
@@ -175,7 +175,7 @@ func TestRequiredPasskeySessionCannotRefreshMFAWithLegacyEmail(t *testing.T) {
 	require.NoError(t, err)
 	_, err = f.engine.FinishPasskeyRegistration(t.Context(), user.ID, authn.Register(t, creation))
 	require.NoError(t, err)
-	begun := f.expect(http.StatusOK, f.post("/passkeys/login/begin", nil))
+	begun := f.expect(http.StatusOK, f.post("/passkeys/login/begin", map[string]any{}))
 	var assertion protocol.CredentialAssertion
 	require.NoError(t, json.Unmarshal([]byte(begun.raw), &assertion))
 	tokens := f.expect(http.StatusOK, f.post("/passkeys/login/finish", json.RawMessage(authn.Assert(t, &assertion, 1)))).tokens()
@@ -233,4 +233,30 @@ func TestRecoveryAndDeliveredStepUpUseOnePoolConnection(t *testing.T) {
 	require.NoError(t, err)
 	_, err = narrow.RegenerateBackupCodesForSession(ctx, user.ID, claims.SessionID)
 	require.Equal(t, errmodel.CodeStepUpRequired, errmodel.CodeOf(err), "the stale proof returns a challenge instead of checking out a second connection")
+}
+
+func TestAddingLegacyEmailFactorDoesNotReplaceRequiredStrongFreshness(t *testing.T) {
+	cfg := testConfig()
+	cfg.TwoFactor.Mode = iam.TwoFactorRequired
+	cfg.TwoFactor.Methods = []iam.TwoFactorMethod{iam.TwoFactorEmail, iam.TwoFactorTOTP}
+	cfg.Passkeys = config.PasskeyConfig{RPID: "app.example", Origins: []string{"https://app.example"}}
+	f := newAccountFlow(t, testdb.ScratchPostgres(t).Pool, cfg, config.Deps{})
+	user := newUser(t, f.engine, "additionalemail")
+	_, tokens := recoveryKey(t, f, user)
+	claims, err := f.engine.Verify(t.Context(), tokens.AccessToken)
+	require.NoError(t, err)
+	before, err := f.engine.SessionFreshness(t.Context(), user.ID, claims.SessionID, time.Now())
+	require.NoError(t, err)
+	f.expect(http.StatusOK, f.request(http.MethodPost, "/me/2fa/setup", tokens.AccessToken, map[string]any{"method": "email"}))
+	code := sentCode(t, f.email, iam.MessageVerification)
+	added := f.expect(http.StatusCreated, f.request(http.MethodPost, "/me/2fa/factors", tokens.AccessToken, map[string]any{"method": "email", "code": code}))
+	var result httpapi.TwoFactorFactorCreated
+	require.NoError(t, json.Unmarshal([]byte(added.raw), &result))
+	require.Nil(t, result.Auth, "supplemental email proof does not mint stronger assurance")
+	after, err := f.engine.SessionFreshness(t.Context(), user.ID, claims.SessionID, time.Now())
+	require.NoError(t, err)
+	require.Equal(t, before.MFAAuthenticatedAt, after.MFAAuthenticatedAt)
+	require.ElementsMatch(t, before.AuthMethods, after.AuthMethods)
+	require.Contains(t, after.AuthMethods, "swk")
+	recoverySet(t, f, tokens)
 }

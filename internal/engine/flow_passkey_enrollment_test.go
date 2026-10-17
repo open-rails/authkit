@@ -83,7 +83,7 @@ func TestRequiredPasskeyEnrollmentCompletesUVSessionWithoutOTP(t *testing.T) {
 		require.Equal(t, httpapi.AuthSecondFactorRequired, again.Status, again.raw)
 		require.Equal(t, "backup_code", again.SecondFactor.Factor.Method)
 		require.Empty(t, again.tokens().AccessToken, "password-only login still cannot issue a session")
-		start := f.expect(http.StatusOK, f.post("/passkeys/login/begin", nil))
+		start := f.expect(http.StatusOK, f.post("/passkeys/login/begin", map[string]any{}))
 		var assertion protocol.CredentialAssertion
 		require.NoError(t, json.Unmarshal([]byte(start.raw), &assertion))
 		require.Equal(t, protocol.VerificationRequired, assertion.Response.UserVerification)
@@ -131,7 +131,7 @@ func TestPasskeyEnrollmentRejectsPresenceOnlyAndStaleNormalCreation(t *testing.T
 	authenticator.UserVerified = true
 	creation = beginMandatoryKey(t, f, grant)
 	done := f.expect(http.StatusOK, f.request(http.MethodPost, "/me/passkeys/enroll/finish", grant.AccessToken, json.RawMessage(authenticator.Register(t, creation))))
-	start := f.expect(http.StatusOK, f.post("/passkeys/login/begin", nil))
+	start := f.expect(http.StatusOK, f.post("/passkeys/login/begin", map[string]any{}))
 	var assertion protocol.CredentialAssertion
 	require.NoError(t, json.Unmarshal([]byte(start.raw), &assertion))
 	authenticator.UserVerified = false
