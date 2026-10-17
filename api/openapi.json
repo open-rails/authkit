@@ -2654,6 +2654,91 @@
         "x-authkit-mounted-when": "oidc"
       }
     },
+    "/api/v1/me/passkeys/enroll/begin": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Defined outside AuthKit: protocol.CredentialCreation"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "passkey_register",
+        "x-authkit-mounted-when": "passkeys",
+        "x-authkit-mfa-enrollment-exempt": true
+      }
+    },
+    "/api/v1/me/passkeys/enroll/finish": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "passkey_register",
+        "x-authkit-mounted-when": "passkeys",
+        "x-authkit-mfa-enrollment-exempt": true
+      }
+    },
     "/api/v1/me/2fa/setup": {
       "post": {
         "tags": [
@@ -11858,6 +11943,9 @@
       "TwoFactorStatus": {
         "type": "object",
         "properties": {
+          "passkeys_enrolled": {
+            "type": "boolean"
+          },
           "enabled": {
             "type": "boolean"
           },

@@ -490,7 +490,8 @@ export const es: AuthUiMessageBundle = {
     },
     signInKeys: {
       title: "Llaves de acceso y claves de dispositivo",
-      description: "Usa una llave de acceso en tu dispositivo o una llave de seguridad FIDO2. Verifica tu identidad con PIN o biometría.",
+      description:
+        "Usa una llave de acceso en tu dispositivo o una llave de seguridad FIDO2. Verifica tu identidad con PIN o biometría.",
       addPasskey: "Agregar llave de acceso",
       none: "Aún no hay llaves de acceso ni claves de dispositivo.",
       passkey: "Llave de acceso",
@@ -558,7 +559,8 @@ export const es: AuthUiMessageBundle = {
   },
   enrollment: {
     startPasskey: "Configurar una llave de acceso o de seguridad",
-    passkeyHint: "Usa tu dispositivo o una llave de seguridad con PIN o biometría. No hace falta otro código de inicio de sesión.",
+    passkeyHint:
+      "Usa tu dispositivo o una llave de seguridad con PIN o biometría. No hace falta otro código de inicio de sesión.",
     title: "Configura la autenticación en dos pasos",
     chooseMethod: "Elige cómo recibirás los códigos de inicio de sesión.",
     startTotp: "Configurar autenticador",

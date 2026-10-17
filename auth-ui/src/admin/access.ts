@@ -94,9 +94,12 @@ export function useUsersAccessWith(
   tenantId?: string
 ): GroupAdminAccess {
   const selected = useAccessWith(client, tenantId ?? "root")
-  const { data: rootData, error: rootError, reload: reloadRoot } = useLoad(
-    tenantId ? `${client.scopeKey}:access:root` : null,
-    (signal) => client.permissions("root", signal)
+  const {
+    data: rootData,
+    error: rootError,
+    reload: reloadRoot,
+  } = useLoad(tenantId ? `${client.scopeKey}:access:root` : null, (signal) =>
+    client.permissions("root", signal)
   )
   return useMemo(() => {
     if (!tenantId) return selected

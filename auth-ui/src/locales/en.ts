@@ -496,7 +496,8 @@ export const en = {
     },
     signInKeys: {
       title: "Passkeys and device keys",
-      description: "Use a passkey on your device or a FIDO2 security key. Passkeys verify you with a PIN or biometrics.",
+      description:
+        "Use a passkey on your device or a FIDO2 security key. Passkeys verify you with a PIN or biometrics.",
       addPasskey: "Add a passkey",
       none: "No passkeys or device keys yet.",
       passkey: "Passkey",
@@ -563,7 +564,8 @@ export const en = {
   },
   enrollment: {
     startPasskey: "Set up a passkey or security key",
-    passkeyHint: "Use your device or a security key with a PIN or biometrics. No extra sign-in code is needed.",
+    passkeyHint:
+      "Use your device or a security key with a PIN or biometrics. No extra sign-in code is needed.",
     title: "Set up two-factor authentication",
     chooseMethod: "Choose how you'll get sign-in codes.",
     startTotp: "Set up authenticator",

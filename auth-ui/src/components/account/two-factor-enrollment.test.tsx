@@ -163,10 +163,22 @@ describe("new two-factor enrollment", () => {
 })
 
 it("shows required UV-passkey MFA as on without forcing an OTP or unusable backup-code controls", async () => {
-  await renderPanel({ "GET /api/v1/me/security": () => security({ enabled: false, required: true, passkeys_enrolled: true, factors: [], allowed_methods: ["totp"], backup_codes_remaining: 0 }) })
+  await renderPanel({
+    "GET /api/v1/me/security": () =>
+      security({
+        enabled: false,
+        required: true,
+        passkeys_enrolled: true,
+        factors: [],
+        allowed_methods: ["totp"],
+        backup_codes_remaining: 0,
+      }),
+  })
   await screen.findByText("On")
   expect(screen.queryByText("Off")).toBeNull()
-  expect(screen.getByRole("button", { name: "Add a method" })).toBeInTheDocument()
+  expect(
+    screen.getByRole("button", { name: "Add a method" })
+  ).toBeInTheDocument()
   expect(screen.queryByRole("button", { name: /regenerate/i })).toBeNull()
   expect(screen.queryByRole("button", { name: "Turn off" })).toBeNull()
 })

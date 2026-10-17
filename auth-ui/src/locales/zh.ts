@@ -441,7 +441,8 @@ export const zh: AuthUiMessageBundle = {
     },
     signInKeys: {
       title: "通行密钥和设备密钥",
-      description: "可使用设备上的通行密钥或FIDO2安全密钥，通过PIN或生物识别验证身份。",
+      description:
+        "可使用设备上的通行密钥或FIDO2安全密钥，通过PIN或生物识别验证身份。",
       addPasskey: "添加通行密钥",
       none: "还没有通行密钥或设备密钥。",
       passkey: "通行密钥",
@@ -502,7 +503,8 @@ export const zh: AuthUiMessageBundle = {
   },
   enrollment: {
     startPasskey: "设置通行密钥或安全密钥",
-    passkeyHint: "使用设备或安全密钥的PIN或生物识别验证，无需额外的登录验证码。",
+    passkeyHint:
+      "使用设备或安全密钥的PIN或生物识别验证，无需额外的登录验证码。",
     title: "设置双重验证",
     chooseMethod: "选择接收登录验证码的方式。",
     startTotp: "设置验证器",

@@ -79,6 +79,8 @@ export const AUTHKIT_ROUTES: readonly AuthKitRoute[] = [
   { method: "POST", path: "/api/v1/me/step-up/passkey", group: "account", auth: "session", permission: null, stepUp: false, mountedWhen: "passkeys" },
   { method: "POST", path: "/api/v1/oidc/{provider}/link/start", group: "account", auth: "session", permission: null, stepUp: true, mountedWhen: "oidc" },
   { method: "POST", path: "/api/v1/oidc/{provider}/step-up/start", group: "account", auth: "session", permission: null, stepUp: false, mountedWhen: "oidc" },
+  { method: "POST", path: "/api/v1/me/passkeys/enroll/begin", group: "account", auth: "session", permission: null, stepUp: false, mountedWhen: "passkeys" },
+  { method: "POST", path: "/api/v1/me/passkeys/enroll/finish", group: "account", auth: "session", permission: null, stepUp: false, mountedWhen: "passkeys" },
   { method: "POST", path: "/api/v1/me/2fa/setup", group: "account", auth: "session", permission: null, stepUp: false, mountedWhen: "two_factor" },
   { method: "POST", path: "/api/v1/me/2fa/factors", group: "account", auth: "session", permission: null, stepUp: false, mountedWhen: "two_factor" },
   { method: "PATCH", path: "/api/v1/me/2fa/factors/{id}", group: "account", auth: "session", permission: null, stepUp: true, mountedWhen: "two_factor" },

@@ -7,7 +7,14 @@ import { describe, expect, it, vi } from "vitest"
 
 import { createAuthClient } from "../../client/client.ts"
 import type { TwoFactorMethod } from "../../client/types.ts"
-import { authResult, complete, json, stubFetch, stubPasskey, tokenSet } from "../../client/testing.ts"
+import {
+  authResult,
+  complete,
+  json,
+  stubFetch,
+  stubPasskey,
+  tokenSet,
+} from "../../client/testing.ts"
 import { AuthUiProvider } from "../../provider.tsx"
 import { AuthProvider } from "../../react/provider.tsx"
 import { useLogin } from "../../react/useLogin.ts"
@@ -62,11 +69,25 @@ async function renderEnrollment(methods: TwoFactorMethod[], passkeys = false) {
         })
       ),
     "POST /api/v1/me/passkeys/enroll/begin": (request) => {
-      keyRequests.push({ path: "begin", bearer: new Headers(request.headers).get("Authorization") })
-      return json(200, { publicKey: { challenge: "AQID", rp: { id: "x.test", name: "X" }, user: { id: "AQI", name: "reader", displayName: "Reader" }, pubKeyCredParams: [{ type: "public-key", alg: -7 }], authenticatorSelection: { userVerification: "required" } } })
+      keyRequests.push({
+        path: "begin",
+        bearer: new Headers(request.headers).get("Authorization"),
+      })
+      return json(200, {
+        publicKey: {
+          challenge: "AQID",
+          rp: { id: "x.test", name: "X" },
+          user: { id: "AQI", name: "reader", displayName: "Reader" },
+          pubKeyCredParams: [{ type: "public-key", alg: -7 }],
+          authenticatorSelection: { userVerification: "required" },
+        },
+      })
     },
     "POST /api/v1/me/passkeys/enroll/finish": (request) => {
-      keyRequests.push({ path: "finish", bearer: new Headers(request.headers).get("Authorization") })
+      keyRequests.push({
+        path: "finish",
+        bearer: new Headers(request.headers).get("Authorization"),
+      })
       return json(200, complete("u1"))
     },
     "POST /api/v1/me/2fa/setup": (request) => {
@@ -130,22 +151,50 @@ describe("required two-factor enrollment", () => {
 it("offers a passkey/security key even without code methods and completes without requesting OTP", async () => {
   stubPasskey()
   const create = vi.fn(async (_options: CredentialCreationOptions) => {
-    const Credential = globalThis.PublicKeyCredential as unknown as new () => object
-    return Object.assign(new Credential(), { response: { clientDataJSON: new Uint8Array([1]).buffer, attestationObject: new Uint8Array([2]).buffer, getTransports: () => ["usb"] } })
+    const Credential =
+      globalThis.PublicKeyCredential as unknown as new () => object
+    return Object.assign(new Credential(), {
+      response: {
+        clientDataJSON: new Uint8Array([1]).buffer,
+        attestationObject: new Uint8Array([2]).buffer,
+        getTransports: () => ["usb"],
+      },
+    })
   })
   create.mockRejectedValueOnce(new DOMException("dismissed", "NotAllowedError"))
   Object.assign(navigator.credentials, { create })
-  const { user, requested, keyRequests, client } = await renderEnrollment([], true)
-  const button = await screen.findByRole("button", { name: "Set up a passkey or security key" })
+  const { user, requested, keyRequests, client } = await renderEnrollment(
+    [],
+    true
+  )
+  const button = await screen.findByRole("button", {
+    name: "Set up a passkey or security key",
+  })
   expect(screen.queryByRole("alert")).toBeNull()
   expect(screen.queryByRole("radio")).toBeNull()
   await user.click(button)
   await waitFor(() => expect(create).toHaveBeenCalledOnce())
   expect(screen.queryByRole("alert")).toBeNull()
   await user.click(button)
-  await waitFor(() => expect(client.getSnapshot()).toMatchObject({ status: "authenticated", userId: "u1" }))
+  await waitFor(() =>
+    expect(client.getSnapshot()).toMatchObject({
+      status: "authenticated",
+      userId: "u1",
+    })
+  )
   expect(requested).toEqual([])
-  expect(keyRequests.map((request) => request.path)).toEqual(["begin", "begin", "finish"])
-  expect(keyRequests.every((request) => request.bearer === `Bearer ${tokenSet("enrollment").access_token}`)).toBe(true)
-  expect(create.mock.calls.at(-1)?.[0]).toMatchObject({ publicKey: { authenticatorSelection: { userVerification: "required" } } })
+  expect(keyRequests.map((request) => request.path)).toEqual([
+    "begin",
+    "begin",
+    "finish",
+  ])
+  expect(
+    keyRequests.every(
+      (request) =>
+        request.bearer === `Bearer ${tokenSet("enrollment").access_token}`
+    )
+  ).toBe(true)
+  expect(create.mock.calls.at(-1)?.[0]).toMatchObject({
+    publicKey: { authenticatorSelection: { userVerification: "required" } },
+  })
 })

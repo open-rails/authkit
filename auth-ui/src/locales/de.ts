@@ -494,7 +494,8 @@ export const de: AuthUiMessageBundle = {
     },
     signInKeys: {
       title: "Passkeys und Geräteschlüssel",
-      description: "Nutze einen Passkey auf deinem Gerät oder einen FIDO2-Sicherheitsschlüssel. Passkeys bestätigen dich per PIN oder Biometrie.",
+      description:
+        "Nutze einen Passkey auf deinem Gerät oder einen FIDO2-Sicherheitsschlüssel. Passkeys bestätigen dich per PIN oder Biometrie.",
       addPasskey: "Passkey hinzufügen",
       none: "Noch keine Passkeys oder Geräteschlüssel.",
       passkey: "Passkey",
@@ -562,7 +563,8 @@ export const de: AuthUiMessageBundle = {
   },
   enrollment: {
     startPasskey: "Passkey oder Sicherheitsschlüssel einrichten",
-    passkeyHint: "Nutze dein Gerät oder einen Sicherheitsschlüssel mit PIN oder Biometrie. Ein zusätzlicher Anmeldecode ist nicht nötig.",
+    passkeyHint:
+      "Nutze dein Gerät oder einen Sicherheitsschlüssel mit PIN oder Biometrie. Ein zusätzlicher Anmeldecode ist nicht nötig.",
     title: "Zwei-Faktor-Authentifizierung einrichten",
     chooseMethod: "Wählen Sie, wie Sie Anmeldecodes erhalten.",
     startTotp: "Authenticator einrichten",

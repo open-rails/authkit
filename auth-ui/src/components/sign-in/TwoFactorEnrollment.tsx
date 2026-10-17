@@ -1,4 +1,8 @@
-import { FingerPrintIcon, ShieldKeyIcon, SmartPhone01Icon } from "@hugeicons/core-free-icons"
+import {
+  FingerPrintIcon,
+  ShieldKeyIcon,
+  SmartPhone01Icon,
+} from "@hugeicons/core-free-icons"
 import { useState } from "react"
 
 import type { TwoFactorMethod } from "#authui/client/types"
@@ -125,15 +129,28 @@ export function TwoFactorEnrollment({
           ) : (
             <FormAlert>{describe(error)}</FormAlert>
           ))}
-        {!allowed.length && !passkeys && <FormAlert>{t("enrollment.noMethod")}</FormAlert>}
+        {!allowed.length && !passkeys && (
+          <FormAlert>{t("enrollment.noMethod")}</FormAlert>
+        )}
 
         {!started && passkeys && (
           <div className="grid gap-2">
-            <Button type="button" variant="outline" disabled={busy} onClick={() => void controller.enrollPasskey()}>
-              <HugeiconsIcon icon={FingerPrintIcon} className="size-5" aria-hidden="true" />
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={() => void controller.enrollPasskey()}
+            >
+              <HugeiconsIcon
+                icon={FingerPrintIcon}
+                className="size-5"
+                aria-hidden="true"
+              />
               {t("enrollment.startPasskey")}
             </Button>
-            <p className="text-sm text-muted-foreground">{t("enrollment.passkeyHint")}</p>
+            <p className="text-sm text-muted-foreground">
+              {t("enrollment.passkeyHint")}
+            </p>
           </div>
         )}
 

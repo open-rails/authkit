@@ -1566,9 +1566,13 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     // server commits the verified key and full session atomically.
     enrollPasskey: async (enrollmentToken: TokenSet): Promise<SignInResult> => {
       const gen = generation
-      const options = await request<unknown>("POST", "/me/passkeys/enroll/begin", {
-        bearer: enrollmentToken.access_token,
-      })
+      const options = await request<unknown>(
+        "POST",
+        "/me/passkeys/enroll/begin",
+        {
+          bearer: enrollmentToken.access_token,
+        }
+      )
       if (gen !== generation) throw new AuthSessionChangedError()
       const credential = await navigator.credentials.create({
         publicKey: creationOptions(options),
@@ -1576,11 +1580,14 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       if (gen !== generation) throw new AuthSessionChangedError()
       if (!(credential instanceof PublicKeyCredential))
         throw new Error("the browser created no passkey")
-      const result = toSignInResult(await request<AuthResult>("POST", "/me/passkeys/enroll/finish", {
-        bearer: enrollmentToken.access_token,
-        body: registrationBody(credential),
-      }))
-      if (result.status === "complete") commit(result.token_set, gen, "login", result.created)
+      const result = toSignInResult(
+        await request<AuthResult>("POST", "/me/passkeys/enroll/finish", {
+          bearer: enrollmentToken.access_token,
+          body: registrationBody(credential),
+        })
+      )
+      if (result.status === "complete")
+        commit(result.token_set, gen, "login", result.created)
       else if (gen !== generation) throw new AuthSessionChangedError()
       return result
     },

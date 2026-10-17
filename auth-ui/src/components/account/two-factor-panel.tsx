@@ -67,7 +67,8 @@ const HINT: Record<TwoFactorMethod, MessageKey> = {
   email: "twoFactor.hints.email",
   sms: "twoFactor.hints.sms",
 }
-const strongFactor = (method: TwoFactorMethod) => method === "totp" || method === "sms"
+const strongFactor = (method: TwoFactorMethod) =>
+  method === "totp" || method === "sms"
 const E164 = /^\+[1-9]\d{6,14}$/
 
 type Confirm =
@@ -82,7 +83,8 @@ function TwoFactorCard() {
   const [adding, setAdding] = useState(false)
   const [confirm, setConfirm] = useState<Confirm | null>(null)
   const { status, enrollment } = tf
-  const enabled = !!status?.enabled || (!!status?.required && !!status?.passkeys_enrolled)
+  const enabled =
+    !!status?.enabled || (!!status?.required && !!status?.passkeys_enrolled)
   const required = !!status?.required
   const factors = (status?.factors ?? []).filter(
     (f): f is TwoFactorFactor & { method: TwoFactorMethod } =>
@@ -278,7 +280,14 @@ function TwoFactorCard() {
               <Button
                 variant="outline"
                 size="sm"
-                disabled={tf.busy || (required && !status?.passkeys_enrolled && strongFactor(f.method) && factors.filter((factor) => strongFactor(factor.method)).length <= 1)}
+                disabled={
+                  tf.busy ||
+                  (required &&
+                    !status?.passkeys_enrolled &&
+                    strongFactor(f.method) &&
+                    factors.filter((factor) => strongFactor(factor.method))
+                      .length <= 1)
+                }
                 aria-label={`${t("account.twoFactor.remove")} ${label(f.method)}`}
                 onClick={() => setConfirm({ kind: "remove", factor: f })}
               >
