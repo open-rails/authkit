@@ -151,7 +151,9 @@ describe("required two-factor enrollment", () => {
 it("offers a passkey/security key even without code methods and completes without requesting OTP", async () => {
   stubPasskey()
   const create = vi.fn(async (options: CredentialCreationOptions) => {
-    expect(options.publicKey?.authenticatorSelection?.userVerification).toBe("required")
+    expect(options.publicKey?.authenticatorSelection?.userVerification).toBe(
+      "required"
+    )
     const Credential =
       globalThis.PublicKeyCredential as unknown as new () => object
     return Object.assign(new Credential(), {

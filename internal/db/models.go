@@ -87,7 +87,7 @@ type MfaFactor struct {
 	Email     *string
 }
 
-// Backup codes of an account with a second factor; the row goes with its last factor.
+// Account recovery-code hashes; retained while a code factor or passkey exists. This row does not enable MFA.
 type MfaSetting struct {
 	UserID string
 	// Hashed backup codes for account recovery

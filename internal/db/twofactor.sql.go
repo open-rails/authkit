@@ -243,8 +243,8 @@ FROM mfa_settings
 WHERE user_id = $1
 `
 
-// Two-factor queries. 2FA is on while the account has a factor; mfa_settings
-// holds its backup codes and goes with its last factor.
+// Code-factor and account recovery queries. mfa_settings holds recovery
+// hashes while any code factor or passkey remains; it does not enable MFA.
 func (q *Queries) MFASettingsByUser(ctx context.Context, userID string) (MfaSetting, error) {
 	row := q.db.QueryRow(ctx, mFASettingsByUser, userID)
 	var i MfaSetting
