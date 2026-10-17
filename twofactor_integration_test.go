@@ -18,12 +18,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A deployment where a role needs MFA but no second factor can be enrolled
-// (no totp.key, no email or SMS sender) boots degraded: authkit_two_factor
-// names the roles and the fixes while the MFA gate stays closed, and clears
-// once one method works, or with 2FA disabled. The Client and GET
-// /capabilities report the methods a user can enroll.
-func TestNewDegradesWithoutAnEnrollableSecondFactor(t *testing.T) {
+// A UV passkey is an enrollable MFA alternative even without a TOTP key
+// or healthy code sender. Code-method capabilities remain accurate, and no
+// code-factor availability grants a session before mandatory enrollment.
+func TestNewSupportsPasskeysWithoutAnEnrollableCodeFactor(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	noKey := t.TempDir()
 	rbac := authkit.NewRoles()
@@ -65,40 +63,32 @@ func TestNewDegradesWithoutAnEnrollableSecondFactor(t *testing.T) {
 		require.Equal(t, auth.TwoFactorMethods(), caps.TwoFactor.Methods)
 		return caps.TwoFactor.Mode, caps.TwoFactor.Methods
 	}
-	keyAt := filepath.Join(noKey, "totp.key")
-
-	t.Run("degraded without an enrollable factor", func(t *testing.T) {
-		for name, tc := range map[string]struct {
-			edit func(*authkit.Config)
-			err  string
-		}{
-			"no key, no senders": {
-				err: "authkit: roles org:admin, org:owner, root:owner, tenant:owner need MFA, but no second factor can be enrolled, so those sign-ins are refused: " +
-					"put a 16, 24 or 32-byte key at " + keyAt + " (or set TwoFactor.TOTPSecretKey), or set a healthy Deps.Email, or set a healthy Deps.SMS, " +
-					"or set TwoFactor.Mode to disabled",
+	t.Run("passkeys remain available without code factors", func(t *testing.T) {
+		for name, edit := range map[string]func(*authkit.Config){
+			"no key, no senders": nil,
+			"required mode, TOTP only": func(c *authkit.Config) {
+				c.TwoFactor.Mode = iam.TwoFactorRequired
+				c.TwoFactor.Methods = []iam.TwoFactorMethod{iam.TwoFactorTOTP}
 			},
-			"required mode, TOTP only": {
-				edit: func(c *authkit.Config) {
-					c.TwoFactor.Mode = iam.TwoFactorRequired
-					c.TwoFactor.Methods = []iam.TwoFactorMethod{iam.TwoFactorTOTP}
-				},
-				err: "authkit: TwoFactor.Mode is required, so every account needs MFA, but no second factor can be enrolled, so those sign-ins are refused: " +
-					"put a 16, 24 or 32-byte key at " + keyAt + " (or set TwoFactor.TOTPSecretKey), or set TwoFactor.Mode to disabled",
-			},
-			"a key, but TOTP not offered": {
-				edit: func(c *authkit.Config) {
-					c.TwoFactor.Methods = []iam.TwoFactorMethod{iam.TwoFactorEmail}
-					c.TwoFactor.TOTPSecretKey = testTOTPKey
-				},
-				err: "authkit: roles org:admin, org:owner, root:owner, tenant:owner need MFA, but no second factor can be enrolled, so those sign-ins are refused: " +
-					"set a healthy Deps.Email, or set TwoFactor.Mode to disabled",
+			"a key, but TOTP not offered": func(c *authkit.Config) {
+				c.TwoFactor.Methods = []iam.TwoFactorMethod{iam.TwoFactorEmail}
+				c.TwoFactor.TOTPSecretKey = testTOTPKey
 			},
 		} {
 			t.Run(name, func(t *testing.T) {
-				auth := boot(t, config(tc.edit), testDeps(pg.Pool))
-				require.EqualError(t, probe(t, auth, "authkit_two_factor"), tc.err)
-				require.ErrorContains(t, probe(t, auth, "authkit_config"), tc.err)
+				auth := boot(t, config(edit), testDeps(pg.Pool))
+				require.NoError(t, probe(t, auth, "authkit_two_factor"))
 				require.Empty(t, auth.TwoFactorMethods())
+				rec := httptest.NewRecorder()
+				auth.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/capabilities", nil))
+				require.Equal(t, http.StatusOK, rec.Code)
+				var caps struct {
+					Passkeys struct {
+						Login bool `json:"login"`
+					} `json:"passkeys"`
+				}
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &caps))
+				require.True(t, caps.Passkeys.Login, "mandatory enrollment can use a verified passkey")
 			})
 		}
 		auth := boot(t, config(func(c *authkit.Config) {

@@ -261,11 +261,13 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	f.session(phoneSession.tokens(), "sms", "totp", "otp", "mfa")
 	require.True(t, phoneSession.Auth.Created, "the passwordless proof created the account")
 
-	// Email-first plus email-only MFA offers a recovery key, never another code
-	// to the same mailbox. A password first factor may use that email factor.
+	// Optional legacy email factors retain their existing independent-proof
+	// behavior. They do not satisfy the required policy exercised above.
+	optional := authtest.Replica(t, auth, authtest.WithConfig(func(c *authkit.Config) { c.TwoFactor.Mode = iam.TwoFactorOptional }))
+	f = newFactorFlow(t, optional, outbox)
 	const email = "same-channel@example.com"
 	credentials := map[string]any{"identifier": email, "password": pass}
-	u, err := auth.CreateUser(ctx, iam.NewUser{Email: email, Username: "samechannel", Password: pass})
+	u, err := optional.CreateUser(ctx, iam.NewUser{Email: email, Username: "samechannel", Password: pass})
 	require.NoError(t, err)
 	sent := len(outbox.Messages(iam.MessageVerification, ""))
 	f.expect(http.StatusUnauthorized, f.post("/password/login", map[string]any{"identifier": email, "password": "wrong"}))
@@ -276,7 +278,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	// Proving the address without that proof retires the password set before
 	// it; the owner sets it again.
 	verified, password := true, pass
-	_, err = auth.UpdateUser(ctx, iam.SystemIdentity(), u.ID, iam.UserUpdate{EmailVerified: &verified, Password: &password})
+	_, err = optional.UpdateUser(ctx, iam.SystemIdentity(), u.ID, iam.UserUpdate{EmailVerified: &verified, Password: &password})
 	require.NoError(t, err)
 	grant := f.post("/password/login", credentials).enrollment(t).TokenSet.AccessToken
 	f.expect(http.StatusOK, f.request(http.MethodPost, "/me/2fa/setup", grant, map[string]any{"method": "email"}))
@@ -297,6 +299,7 @@ func TestAuthenticationContinuationWorkflow(t *testing.T) {
 	signed = f.post("/2fa/verify", map[string]any{"user_id": u.ID, "challenge": ch.Challenge, "code": f.code(iam.MessageLoginCode, email)})
 	f.session(signed.signedIn(t), "pwd", "email", "otp", "mfa")
 
+	f = newFactorFlow(t, auth, outbox)
 	// A fresh user-verifying passkey satisfies required 2FA and an
 	// MFA-required role without a second traditional factor: the role came
 	// while 2FA was off (a sibling deployment with 2FA disabled).
