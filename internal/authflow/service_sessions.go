@@ -8,14 +8,21 @@ import (
 	"github.com/open-rails/authkit/iam"
 )
 
-const SensitiveActionFreshAuthWindow = 15 * time.Minute
+const (
+	SensitiveActionFreshAuthWindow = 15 * time.Minute
+
+	// AccessTokenClockSkew is the leeway for this deployment's access token
+	// and recent sign-in timestamps.
+	AccessTokenClockSkew = 5 * time.Second
+)
 
 // RecentSignIn reports whether a token's assurance clears the sensitive-action
-// gate: signed in within SensitiveActionFreshAuthWindow and, for an account
-// with a usable second factor (mfa), with that factor (amr otp or mfa). An
-// account without one is never blocked for lacking it.
+// gate: signed in within SensitiveActionFreshAuthWindow, allowing
+// AccessTokenClockSkew for a future auth_time, and, for an account with a usable
+// second factor (mfa), with that factor (amr otp or mfa). An account without one
+// is never blocked for lacking it.
 func RecentSignIn(authTime time.Time, amr []string, mfa bool, now time.Time) bool {
-	if authTime.IsZero() || authTime.After(now) || now.Sub(authTime) > SensitiveActionFreshAuthWindow {
+	if authTime.IsZero() || authTime.After(now.Add(AccessTokenClockSkew)) || now.Sub(authTime) > SensitiveActionFreshAuthWindow {
 		return false
 	}
 	return !mfa || slices.ContainsFunc(amr, func(m string) bool {

@@ -7,11 +7,11 @@ import (
 	"net/url"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/apikey"
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/enrollment"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
@@ -37,7 +37,7 @@ type Authenticator struct {
 func (s *Engine) newAuthenticator(audiences []string, own bool, opts ...verify.VerifierOption) (*Authenticator, error) {
 	cfg := s.cfg
 	base := []verify.VerifierOption{
-		verify.WithSkew(5 * time.Second),
+		verify.WithSkew(authflow.AccessTokenClockSkew),
 		verify.WithDPoP(s.redis),
 		verify.WithPublicURL(s.publicOrigin()),
 	}
