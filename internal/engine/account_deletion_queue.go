@@ -16,14 +16,6 @@ import (
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 )
 
-type accountFinalizeArgs struct {
-	Schema     string `json:"schema"`
-	DeletionID string `json:"deletion_id"`
-	Purge      bool   `json:"purge,omitempty"`
-}
-
-func (accountFinalizeArgs) Kind() string { return "authkit_account_finalize" }
-
 type accountDeliveryArgs struct {
 	Schema     string `json:"schema"`
 	Issuer     string `json:"issuer"`
@@ -35,11 +27,6 @@ func (accountDeliveryArgs) Kind() string { return "authkit_account_delivery" }
 func accountDeliveryQueue(schema, issuer string) string {
 	digest := sha256.Sum256([]byte(schema + "\x00" + issuer))
 	return "authkit_accounts-" + hex.EncodeToString(digest[:20])
-}
-
-func accountFinalizerQueue(schema string) string {
-	digest := sha256.Sum256([]byte(schema))
-	return "authkit_finalization-" + hex.EncodeToString(digest[:20])
 }
 
 func (s *Engine) deletionRiver() (*river.Client[pgx.Tx], error) {
@@ -56,18 +43,6 @@ func (s *Engine) deletionRiver() (*river.Client[pgx.Tx], error) {
 		return nil, errors.New("authkit: River composition failed; recreate the client")
 	}
 	return m.producer, nil
-}
-
-func (s *Engine) enqueueAccountFinalizer(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], deletion iam.UserDeletion, purge bool) error {
-	if err := s.requireAccountProducerOn(ctx, tx, client); err != nil {
-		return err
-	}
-	scheduled := deletion.PurgeAt
-	if purge {
-		scheduled = time.Time{}
-	}
-	_, err := client.InsertTx(ctx, tx, accountFinalizeArgs{Schema: s.dbSchema(), DeletionID: deletion.ID, Purge: purge}, &river.InsertOpts{Queue: accountFinalizerQueue(s.dbSchema()), ScheduledAt: scheduled})
-	return err
 }
 
 // The delivery receipt and River row are one transaction. An existing receipt
@@ -283,10 +258,6 @@ func (s *Engine) deliverAccountEvent(ctx context.Context, id int64) error {
 			return err
 		}
 	}
-	client, err := s.deletionRiver()
-	if err != nil {
-		return err
-	}
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
 		return err
@@ -301,18 +272,25 @@ func (s *Engine) deliverAccountEvent(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	if stage == "hard" && state == "finalizing" && completed == 1 {
+	ready := false
+	if state == "finalizing" && completed == 1 {
 		pending, err := q.AccountDeletionHardDeliveriesPending(ctx, deletion.ID)
 		if err != nil {
 			return err
 		}
-		if !pending {
-			if err := s.enqueueAccountFinalizer(ctx, tx, client, deletion, true); err != nil {
-				return err
-			}
+		ready = !pending
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	if ready {
+		// The receipt is durable before the account goes. A failed purge remains
+		// visible to the daily sweep; do not replay the successful host callback.
+		if err := s.finalizeAccountDeletion(ctx, deletion.ID, true); err != nil {
+			slog.ErrorContext(ctx, "authkit: account purge deferred to daily sweep", "deletion_id", deletion.ID, "error", err)
 		}
 	}
-	return tx.Commit(ctx)
+	return nil
 }
 
 func invokeAccountHook(ctx context.Context, hook func(context.Context, iam.UserDeletion) error, deletion iam.UserDeletion) (err error) {
@@ -322,25 +300,4 @@ func invokeAccountHook(ctx context.Context, hook func(context.Context, iam.UserD
 		}
 	}()
 	return hook(ctx, deletion)
-}
-
-type accountFinalizeWorker struct {
-	river.WorkerDefaults[accountFinalizeArgs]
-	engine *Engine
-}
-
-func (w *accountFinalizeWorker) Work(ctx context.Context, job *river.Job[accountFinalizeArgs]) error {
-	if job.Args.Schema != w.engine.dbSchema() {
-		return river.JobCancel(errors.New("authkit: account finalizer schema mismatch"))
-	}
-	err := w.engine.finalizeAccountDeletion(ctx, job.Args.DeletionID, job.Args.Purge)
-	if err == nil {
-		return nil
-	}
-	var snooze *river.JobSnoozeError
-	if errors.As(err, &snooze) {
-		return err
-	}
-	slog.ErrorContext(ctx, "authkit: account finalization will retry", "deletion_id", job.Args.DeletionID, "error", err)
-	return river.JobSnooze(time.Minute)
 }

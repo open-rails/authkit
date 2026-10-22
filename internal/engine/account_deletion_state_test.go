@@ -78,9 +78,9 @@ func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 	remove()
 	first := current()
 	require.Equal(t, iam.UserRecoveryPeriod, first.PurgeAt.Sub(first.DeletedAt))
-	var scheduled time.Time
-	require.NoError(t, pg.Pool.QueryRow(t.Context(), `SELECT scheduled_at FROM public.river_job WHERE kind='authkit_account_finalize' AND args->>'deletion_id'=$1`, first.ID).Scan(&scheduled))
-	require.True(t, first.PurgeAt.Equal(scheduled), "each account has its own exact deadline job")
+	var timers int
+	require.NoError(t, pg.Pool.QueryRow(t.Context(), `SELECT count(*) FROM public.river_job WHERE kind='authkit_account_finalize'`).Scan(&timers))
+	require.Zero(t, timers, "the deadline is durable in account_deletions without a future job")
 	remove()
 	require.Equal(t, first, current(), "repeated deletion must not reset the deadline/generation")
 	results, err := client.RestoreUsers(t.Context(), iam.SystemIdentity(), []string{user.ID})
@@ -125,7 +125,7 @@ func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 	require.NoError(t, err)
 	require.Error(t, results[0].Err, "finalization cannot be restored after deadline")
 	// Run the real River client. Delivered events are receipt-idempotent, then
-	// the purge callback commits and schedules the private purge job, whose
+	// the purge callback commits before the account is removed and its
 	// user.purged event follows.
 	require.NoError(t, runtime.Start(t.Context(), nil))
 	require.Eventually(t, func() bool {

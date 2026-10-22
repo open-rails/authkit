@@ -415,6 +415,8 @@ func mountForum(r *gin.Engine, auth *authkit.Client, db *pgxpool.Pool) {
 
 The rest is ordinary app code (our channel and post handlers), not AuthKit. The whole program is one file: [examples/reddit/main.go](examples/reddit/main.go).
 
+Account deletion uses one daily `authkit_account_delete_due` database sweep rather than a future River job per account. The 30-day recovery deadline remains authoritative; issuer cleanup callbacks must finish before the account row is removed. See [account deletion](docs/identity.md) for timing and upgrades.
+
 `Start` runs AuthKit's background jobs (account deletion, events, cleanup) on its own [River](https://riverqueue.com) client in `Config.Database.RiverSchema` (default `public`), whose tables `New` creates. An app that already runs a River fleet builds it in that schema with `riverhelpers.New(ctx, db, riverConfig, auth.RiverJobs(), …)` (`github.com/open-rails/helpers/river`) and calls `auth.Start(ctx, authkit.WithRiverClient(fleet))` instead; the app starts and stops that fleet, and `auth.Close` leaves it running.
 
 `New` fails only when AuthKit can't run safely: PostgreSQL still unreachable after 30 seconds (or `ctx`), migrations failing, no usable signing key, or configuration it can't read without weakening auth. A misconfigured or unreachable optional dependency switches off only what needs it: an identity provider is disabled (its sign-ins answer `provider_unavailable`), a remote application's tokens are refused, email flows answer `email_unavailable`, and limits stay per process while Redis is down. `auth.Ready(ctx)` is the readiness check (PostgreSQL, River, signing key); `auth.Probes()` lists the optional dependencies and degraded features for your dependency supervisor, none of which fails readiness.

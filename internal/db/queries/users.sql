@@ -196,8 +196,8 @@ DELETE FROM mfa_settings WHERE user_id = $1;
 UPDATE account_deletions SET deleted_by = sqlc.narg(deleted_by)::uuid WHERE user_id = sqlc.arg(user_id) AND state = 'deleted';
 
 -- name: AccountDeletionPurgeNow :one
--- Closes the recovery window of a deleted account now.
-UPDATE account_deletions SET purge_at = statement_timestamp()
+-- Closes the recovery window without extending an already-expired deadline.
+UPDATE account_deletions SET purge_at = LEAST(purge_at, statement_timestamp())
 WHERE user_id = $1 AND state = 'deleted'
 RETURNING *;
 

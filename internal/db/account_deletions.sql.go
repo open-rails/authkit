@@ -318,6 +318,59 @@ func (q *Queries) AccountDeletionsDeleteTerminalBatch(ctx context.Context, arg A
 	return result.RowsAffected(), nil
 }
 
+const accountDeletionsDue = `-- name: AccountDeletionsDue :many
+SELECT id, purge_at, state FROM account_deletions d
+WHERE d.state IN ('deleted', 'finalizing') AND d.purge_at <= $1::timestamptz
+  AND (d.purge_at, d.id) > ($2::timestamptz, $3::uuid)
+  AND (d.state = 'deleted' OR NOT EXISTS (
+    SELECT 1 FROM account_deletion_deliveries e
+    WHERE e.deletion_id = d.id AND e.stage = 'hard' AND e.completed_at IS NULL
+  ))
+ORDER BY d.purge_at, d.id
+LIMIT $4::bigint
+`
+
+type AccountDeletionsDueParams struct {
+	DueAt        time.Time
+	AfterPurgeAt time.Time
+	AfterID      string
+	BatchSize    int64
+}
+
+type AccountDeletionsDueRow struct {
+	ID      string
+	PurgeAt time.Time
+	State   string
+}
+
+// Failed accounts remain discoverable without a duplicate per-account timer.
+// Callback receipts own their immediate retries; the sweep retries a final
+// database purge only once every issuer's cleanup receipt is complete.
+func (q *Queries) AccountDeletionsDue(ctx context.Context, arg AccountDeletionsDueParams) ([]AccountDeletionsDueRow, error) {
+	rows, err := q.db.Query(ctx, accountDeletionsDue,
+		arg.DueAt,
+		arg.AfterPurgeAt,
+		arg.AfterID,
+		arg.BatchSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AccountDeletionsDueRow
+	for rows.Next() {
+		var i AccountDeletionsDueRow
+		if err := rows.Scan(&i.ID, &i.PurgeAt, &i.State); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const accountDeliveryFleetBusy = `-- name: AccountDeliveryFleetBusy :one
 SELECT (
     EXISTS (SELECT 1 FROM account_deletion_deliveries WHERE issuer = $1::text AND completed_at IS NULL)

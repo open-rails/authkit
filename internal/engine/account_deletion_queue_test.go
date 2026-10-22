@@ -116,27 +116,28 @@ func TestAccountCallbackCanObserveBindingDuringManagedShutdown(t *testing.T) {
 	require.NoError(t, pg.Pool.Ping(t.Context()))
 }
 
-func TestAccountDeletionRollsBackWhenRiverInsertFails(t *testing.T) {
+func TestAccountDeletionDoesNotNeedPerAccountRiverInsert(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
 	cfg := maintenanceConfig()
 	cfg.Database.RiverSchema = "broken_jobs"
 	runtime, err := New(context.Background(), cfg, config.Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
-	// The deletion's River insert fails.
+	// No event hook is configured, so a recoverable deletion needs only its
+	// database record. It must not insert a separate future timer.
 	_, err = pg.Pool.Exec(t.Context(), "DROP TABLE broken_jobs.river_job CASCADE")
 	require.NoError(t, err)
 	user, err := runtime.createUser(t.Context(), "rollback@example.test", "rollback")
 	require.NoError(t, err)
 	results, err := runtime.DeleteUsers(t.Context(), iam.SystemIdentity(), []string{user.ID})
 	require.NoError(t, err)
-	require.Error(t, results[0].Err)
+	require.NoError(t, results[0].Err)
 	var deleted *time.Time
 	var cycles int
 	require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT deleted_at FROM profiles.users WHERE id=$1::uuid", user.ID).Scan(&deleted))
-	require.Nil(t, deleted, "a deletion without its durable job must not commit")
+	require.NotNil(t, deleted, "the database deletion record owns the deadline")
 	require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT count(*) FROM profiles.account_deletions WHERE user_id=$1::uuid", user.ID).Scan(&cycles))
-	require.Zero(t, cycles)
+	require.Equal(t, 1, cycles)
 }
 
 // Deletion and recovery reach every account issuer through its own River
@@ -243,7 +244,7 @@ func TestAccountFleetRebindRequiresQuiescenceAndFencesOldProducer(t *testing.T) 
 	require.NoError(t, replacement.softDelete(t.Context(), user.ID))
 	var jobs int
 	require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT count(*) FROM replacement_jobs.river_job WHERE kind='authkit_account_finalize'").Scan(&jobs))
-	require.Equal(t, 1, jobs, "the deletion's durable work lands in the current fleet")
+	require.Zero(t, jobs, "account deadlines no longer create one job per account")
 }
 
 // Building a client without OnEvent never unsubscribes its issuer: before or

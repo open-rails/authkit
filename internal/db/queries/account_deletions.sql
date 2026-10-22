@@ -119,3 +119,17 @@ WHERE issuer = sqlc.arg(issuer) AND river_schema = sqlc.arg(river_schema) AND ev
 SELECT coalesce(array_agg(i ORDER BY i), '{}')::text[] AS unbound
 FROM unnest(sqlc.arg(issuers)::text[]) i
 WHERE NOT EXISTS (SELECT 1 FROM account_delivery_fleets f WHERE f.issuer = i);
+
+-- name: AccountDeletionsDue :many
+-- Failed accounts remain discoverable without a duplicate per-account timer.
+-- Callback receipts own their immediate retries; the sweep retries a final
+-- database purge only once every issuer's cleanup receipt is complete.
+SELECT id, purge_at, state FROM account_deletions d
+WHERE d.state IN ('deleted', 'finalizing') AND d.purge_at <= sqlc.arg(due_at)::timestamptz
+  AND (d.purge_at, d.id) > (sqlc.arg(after_purge_at)::timestamptz, sqlc.arg(after_id)::uuid)
+  AND (d.state = 'deleted' OR NOT EXISTS (
+    SELECT 1 FROM account_deletion_deliveries e
+    WHERE e.deletion_id = d.id AND e.stage = 'hard' AND e.completed_at IS NULL
+  ))
+ORDER BY d.purge_at, d.id
+LIMIT sqlc.arg(batch_size)::bigint;

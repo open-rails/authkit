@@ -142,7 +142,7 @@ func (s *Engine) registerRiver(cfg *river.Config) error {
 	if err := river.AddWorkerSafely(workers, &cleanupAuthStateWorker{client: s}); err != nil {
 		return fmt.Errorf("authkit: register cleanup worker: %w", err)
 	}
-	if err := river.AddWorkerSafely(workers, &accountFinalizeWorker{engine: s}); err != nil {
+	if err := river.AddWorkerSafely(workers, &accountDeleteDueWorker{engine: s}); err != nil {
 		return err
 	}
 	if err := river.AddWorkerSafely(workers, &accountDeliveryWorker{engine: s}); err != nil {
@@ -188,13 +188,12 @@ func (s *Engine) registerRiver(cfg *river.Config) error {
 	if _, ok := cfg.Queues[sweepQueue]; !ok {
 		cfg.Queues[sweepQueue] = river.QueueConfig{MaxWorkers: 1}
 	}
-	finalizerQueue := accountFinalizerQueue(s.dbSchema())
-	if existing, ok := cfg.Queues[finalizerQueue]; ok && existing.MaxWorkers < 1 {
-		return fmt.Errorf("authkit: account finalization queue %q requires workers", finalizerQueue)
-	}
-	if _, ok := cfg.Queues[finalizerQueue]; !ok {
-		cfg.Queues[finalizerQueue] = river.QueueConfig{MaxWorkers: 1}
-	}
+	cfg.PeriodicJobs = append(cfg.PeriodicJobs, river.NewPeriodicJob(
+		river.PeriodicInterval(24*time.Hour),
+		func() (river.JobArgs, *river.InsertOpts) {
+			return accountDeleteDueArgs{Schema: s.dbSchema()}, nil
+		}, &river.PeriodicJobOpts{ID: "authkit_account_delete_due_" + s.dbSchema(), RunOnStart: true},
+	))
 	interval := s.cfg.CleanupInterval
 	cfg.PeriodicJobs = append(cfg.PeriodicJobs, river.NewPeriodicJob(
 		river.PeriodicInterval(interval),

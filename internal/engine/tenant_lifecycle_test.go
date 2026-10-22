@@ -96,8 +96,8 @@ func TestTenantLifecycleRetainsTargetAcrossRestartAndPurge(t *testing.T) {
 	FROM expired WHERE account_deletions.id=$2`, userID, deletionID)
 	require.NoError(t, err)
 	wrong := WithTenant(ctx, cfg.DefaultTenantID)
-	finalize := &accountFinalizeWorker{engine: e}
-	require.NoError(t, finalize.Work(wrong, &river.Job[accountFinalizeArgs]{Args: accountFinalizeArgs{Schema: schema, DeletionID: deletionID}}))
+	sweep := &accountDeleteDueWorker{engine: e}
+	require.NoError(t, sweep.Work(wrong, &river.Job[accountDeleteDueArgs]{Args: accountDeleteDueArgs{Schema: schema}}))
 	var deliveryID int64
 	require.NoError(t, e.pg.QueryRow(ctx, `SELECT id FROM account_deletion_deliveries WHERE deletion_id=$1 AND stage='hard'`, deletionID).Scan(&deliveryID))
 	delivery := &accountDeliveryWorker{engine: e}
@@ -111,11 +111,11 @@ func TestTenantLifecycleRetainsTargetAcrossRestartAndPurge(t *testing.T) {
 	require.NoError(t, e.Close(ctx))
 	e = newTestEngine(t, cfg, deps)
 	retryPurge = false
-	delivery.engine, finalize.engine = e, e
+	delivery.engine, sweep.engine = e, e
 	require.NoError(t, delivery.Work(wrong, job))
 	require.Len(t, purges, 2)
 	require.Equal(t, purges[0], purges[1])
-	require.NoError(t, finalize.Work(wrong, &river.Job[accountFinalizeArgs]{Args: accountFinalizeArgs{Schema: schema, DeletionID: deletionID, Purge: true}}))
+	require.NoError(t, sweep.Work(wrong, &river.Job[accountDeleteDueArgs]{Args: accountDeleteDueArgs{Schema: schema}}))
 	var exists bool
 	require.NoError(t, e.pg.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1)`, userID).Scan(&exists))
 	require.False(t, exists)

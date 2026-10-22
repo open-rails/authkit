@@ -705,7 +705,16 @@ func (s *Engine) PurgeUsers(ctx context.Context, ids []string, opts ...ops.Optio
 			if err != nil {
 				return err
 			}
-			return s.enqueueAccountFinalizer(ctx, at.tx, client, userDeletion(deletion), false)
+			// An explicit host purge is due immediately. Check ownership even
+			// when the account was already soft-deleted before starting any
+			// irreversible callback, just as the daily sweep does.
+			if err := s.requireOwnersAfterAccountPurge(ctx, at.st, id); err != nil {
+				return err
+			}
+			if err := at.q.AccountDeletionSetFinalizing(ctx, deletion.ID); err != nil {
+				return err
+			}
+			return s.enqueueAccountDeliveries(ctx, at.tx, client, userDeletion(deletion), deletion.Recipients, "hard")
 		})
 		if err == nil {
 			s.logRevokedSessions(ctx, id, revoked, string(authflow.SessionRevokeReasonSoftDeleted))

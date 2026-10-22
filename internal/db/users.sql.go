@@ -11,12 +11,12 @@ import (
 )
 
 const accountDeletionPurgeNow = `-- name: AccountDeletionPurgeNow :one
-UPDATE account_deletions SET purge_at = statement_timestamp()
+UPDATE account_deletions SET purge_at = LEAST(purge_at, statement_timestamp())
 WHERE user_id = $1 AND state = 'deleted'
 RETURNING id, user_id, deleted_at, purge_at, state, recipients, restored_at, purged_at, deleted_by, tenant_id
 `
 
-// Closes the recovery window of a deleted account now.
+// Closes the recovery window without extending an already-expired deadline.
 func (q *Queries) AccountDeletionPurgeNow(ctx context.Context, userID string) (AccountDeletion, error) {
 	row := q.db.QueryRow(ctx, accountDeletionPurgeNow, userID)
 	var i AccountDeletion
