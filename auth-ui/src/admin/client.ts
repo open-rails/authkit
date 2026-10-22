@@ -231,7 +231,10 @@ export function createAdminClient(options: AdminClientOptions) {
       })
       if (
         options.tenantId &&
-        (result.group_id !== group ||
+        // "root" is an alias: the reply carries the root group's own id.
+        ((group === "root"
+          ? result.persona !== "root"
+          : result.group_id !== group) ||
           (group === options.tenantId &&
             "persona" in result &&
             result.persona !== "tenant"))
