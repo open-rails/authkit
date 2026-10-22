@@ -204,10 +204,18 @@ func TestProvisioningWithoutBulk(t *testing.T) {
 	require.NoError(t, auth.Start(ctx))
 	pushed(t, server, alice.ID, active)
 	require.NoError(t, auth.Ban(ctx, iam.SystemIdentity(), alice.ID, iam.Ban{Reason: "spam"}))
-	pushed(t, server, alice.ID, func(u scim.User) bool { return !active(u) })
-	_, err := auth.DeleteUsers(ctx, iam.SystemIdentity(), []string{alice.ID})
+	banned := pushed(t, server, alice.ID, func(u scim.User) bool { return !active(u) })
+	require.NotNil(t, banned.Meta.LastModified)
+	res, err := auth.DeleteUsers(ctx, iam.SystemIdentity(), []string{alice.ID})
 	require.NoError(t, err)
-	res, err := auth.PurgeUsers(ctx, []string{alice.ID})
+	require.NoError(t, res[0].Err)
+	// SCIM intentionally coalesces pending changes to the latest account
+	// state. Observe this distinct soft-deletion update before purging, or
+	// a fast purge may correctly replace both pending changes with DELETE.
+	pushed(t, server, alice.ID, func(u scim.User) bool {
+		return !active(u) && u.Meta.LastModified != nil && u.Meta.LastModified.After(*banned.Meta.LastModified)
+	})
+	res, err = auth.PurgeUsers(ctx, []string{alice.ID})
 	require.NoError(t, err)
 	require.NoError(t, res[0].Err)
 	pushed(t, server, alice.ID, nil)
