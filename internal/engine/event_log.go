@@ -107,6 +107,11 @@ func (s *Engine) ListEvents(ctx context.Context, query iam.EventQuery) (iam.Even
 			return tx.Commit(ctx)
 		},
 	}
+	// Existing Kinds cursors bind exact strings, including outer whitespace.
+	// New Types requests use the shared normalization policy.
+	if len(query.Types) == 0 {
+		log.NormalizeQuery = legacyEventQuery
+	}
 	page, err := log.ListEvents(ctx, eventlog.Query{After: query.After, Types: types, Limit: query.Limit})
 	if errors.Is(err, eventlog.ErrExpiredCursor) {
 		return out, iam.ErrEventCursorExpired
@@ -134,6 +139,17 @@ func (s *Engine) ListEvents(ctx context.Context, query iam.EventQuery) (iam.Even
 		out.Events = append(out.Events, event)
 	}
 	return out, nil
+}
+
+func legacyEventQuery(q eventlog.Query) (eventlog.Query, error) {
+	normalized, err := eventlog.Normalize(q)
+	if err != nil {
+		return normalized, err
+	}
+	normalized.Types = slices.Clone(q.Types)
+	slices.Sort(normalized.Types)
+	normalized.Types = slices.Compact(normalized.Types)
+	return normalized, nil
 }
 
 type authEventCursor struct{}
