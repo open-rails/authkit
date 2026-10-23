@@ -353,6 +353,7 @@ export function UserPage({
 
       <EditDialog
         user={user}
+        languages={host.languages}
         open={open === "edit"}
         onOpenChange={(o) => !o && setOpen(null)}
         busy={actions.busy}
@@ -693,8 +694,13 @@ type DialogProps = {
 function EditDialog({
   user,
   onSave,
+  languages,
   ...props
-}: DialogProps & { user: UserEntry; onSave: (u: UserUpdate) => void }) {
+}: DialogProps & {
+  user: UserEntry
+  onSave: (u: UserUpdate) => void
+  languages?: readonly string[]
+}) {
   const { t } = useAdminMessages()
   return (
     <Dialog
@@ -708,7 +714,12 @@ function EditDialog({
           </DialogTitle>
           <DialogDescription>{t("users.editDescription")}</DialogDescription>
         </DialogHeader>
-        <EditForm user={user} onSave={onSave} {...props} />
+        <EditForm
+          user={user}
+          onSave={onSave}
+          languages={languages}
+          {...props}
+        />
       </DialogContent>
     </Dialog>
   )
@@ -721,7 +732,12 @@ function EditForm({
   busy,
   error,
   onOpenChange,
-}: DialogProps & { user: UserEntry; onSave: (u: UserUpdate) => void }) {
+  languages,
+}: DialogProps & {
+  user: UserEntry
+  onSave: (u: UserUpdate) => void
+  languages?: readonly string[]
+}) {
   const { t } = useAdminMessages()
   const formId = useId()
   const ids = {
@@ -798,15 +814,36 @@ function EditForm({
         </FormField>
         <FormField
           label={t("users.language")}
-          hint={t("users.languageHint")}
+          hint={languages?.length ? undefined : t("users.languageHint")}
           htmlFor={ids.lang}
         >
-          <Input
-            id={ids.lang}
-            autoComplete="off"
-            value={form.language}
-            onChange={set("language")}
-          />
+          {languages?.length ? (
+            <Select
+              id={ids.lang}
+              value={form.language}
+              onChange={set("language")}
+            >
+              <option value="">—</option>
+              {/* Keep a tag the host no longer offers selectable. */}
+              {[
+                ...languages,
+                ...(form.language && !languages.includes(form.language)
+                  ? [form.language]
+                  : []),
+              ].map((tag) => (
+                <option key={tag} value={tag}>
+                  {languageName(tag)}
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <Input
+              id={ids.lang}
+              autoComplete="off"
+              value={form.language}
+              onChange={set("language")}
+            />
+          )}
         </FormField>
         <FormField
           label={t("users.mfaRequired")}
