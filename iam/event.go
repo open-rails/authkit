@@ -80,6 +80,8 @@ type Event struct {
 	ID         string    `json:"id"`
 	Kind       EventKind `json:"kind"`
 	OccurredAt time.Time `json:"occurred_at"`
+	// RecordedAt is the retained log storage time, independent of occurrence time.
+	RecordedAt time.Time `json:"recorded_at"`
 	// Who made the change (docs/identity.md): the account whose authority
 	// it used (SubjectKind, SubjectID), who acted (InvokerIssuer, InvokerID)
 	// and how it was proven (CredentialKind, CredentialID). Your own code
@@ -122,6 +124,8 @@ type Event struct {
 type EventQuery struct {
 	After string
 	Limit int
+	// Types contains exact event type names. Kinds is the legacy spelling.
+	Types []string
 	Kinds []EventKind
 	// Authority selects only events without a tenant-owned target. Otherwise
 	// the client's selected tenant is required. HTTP enforces root permission.
