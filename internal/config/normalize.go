@@ -171,9 +171,6 @@ func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 	if err := normalizeProvisioning(&c.Provisioning, d, degrade); err != nil {
 		return Config{}, nil, err
 	}
-	if d.OnEvent != nil && d.Postgres == nil {
-		return Config{}, nil, errors.New("authkit: OnEvent requires Deps.Postgres")
-	}
 	if c.HTTP != nil {
 		h := *c.HTTP
 		if err := normalizeHTTP(&h, c, d, degrade); err != nil {

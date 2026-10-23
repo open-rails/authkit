@@ -29,7 +29,6 @@ type Engine struct {
 	closeErr  error
 
 	maintenance *riverMaintenance
-	onEvent     func(context.Context, iam.Event) error
 	onPurge     func(context.Context, iam.UserDeletion) error
 	// deletionCheck is Deps.DeletionCheck: the host may refuse a self-deletion.
 	deletionCheck func(context.Context, string) error
@@ -42,8 +41,8 @@ type Engine struct {
 	// against their jwks_uri.
 	clientAssertions     *clientAssertionVerifier
 	clientAssertionsOnce sync.Once
-	// eventProducers are insert-only River clients for other issuers' fleets.
-	eventProducers sync.Map
+	// fleetProducers route credential and protocol work to another issuer's fleet.
+	fleetProducers sync.Map
 
 	// keys is read per-operation (ActiveSigner/PublicKeys), never snapshotted:
 	// a live keys.Source (e.g. the reloadable file source) hot-swaps keys

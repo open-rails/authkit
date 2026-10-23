@@ -12,7 +12,9 @@ import (
 	"github.com/open-rails/authkit/internal/config"
 	pgmigrations "github.com/open-rails/authkit/internal/migrations/postgres"
 	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/migratekit"
 	"github.com/stretchr/testify/require"
+	"strings"
 )
 
 func eventLogTestEngine(t *testing.T) *Engine {
@@ -46,11 +48,12 @@ func TestEventLogRecordsWithoutSubscriberOrDeliveryJob(t *testing.T) {
 	require.Equal(t, 1, page.Events[0].Version)
 	require.NotEmpty(t, page.NextCursor)
 	require.Equal(t, int64(90*24*60*60), page.RetentionSeconds)
-	var jobs, legacy int
+	var jobs int
+	var legacy *string
 	require.NoError(t, e.pg.QueryRow(t.Context(), "SELECT count(*) FROM public.river_job WHERE kind='authkit_account_event'").Scan(&jobs))
-	require.NoError(t, e.pg.QueryRow(t.Context(), "SELECT count(*) FROM account_events").Scan(&legacy))
+	require.NoError(t, e.pg.QueryRow(t.Context(), "SELECT to_regclass('profiles.account_events')::text").Scan(&legacy))
 	require.Zero(t, jobs)
-	require.Zero(t, legacy)
+	require.Nil(t, legacy)
 }
 
 func TestEventLogRollbackAndCommitOrder(t *testing.T) {
@@ -224,26 +227,38 @@ func TestEventLogHTTPRequiresCurrentScopedPermission(t *testing.T) {
 }
 
 func TestEventLogMigrationKeepsOneCopyOfPendingDeliveries(t *testing.T) {
-	e := eventLogTestEngine(t)
+	pg := testdb.EmptyScratchPostgres(t)
 	ctx := t.Context()
-	_, err := e.pg.Exec(ctx, "DROP TABLE event_log,event_log_scopes,event_log_instance")
+	all, err := migratekit.LoadFromFS(pgmigrations.FS)
 	require.NoError(t, err)
+	split := 0
+	for i, m := range all {
+		if strings.HasPrefix(m.Name, "0022_") {
+			split = i
+			break
+		}
+	}
+	require.Positive(t, split)
+	migrator, err := migratekit.NewPostgresFromPGXPool(pg.Pool, "authkit")
+	require.NoError(t, err)
+	defer migrator.Close()
+	require.NoError(t, migrator.WithSchema("profiles").ApplyMigrations(ctx, all[:split]))
 	id := uuid.NewString()
-	_, err = e.pg.Exec(ctx, `INSERT INTO account_events(issuer,stream,event_id,kind,previous_value,current_value)
+	_, err = pg.Pool.Exec(ctx, `INSERT INTO account_events(issuer,stream,event_id,kind,previous_value,current_value)
 VALUES('issuer-a','group:root',$1,'group.created','before','after'),
       ('issuer-b','group:root',$1,'group.created','before','after')`, id)
 	require.NoError(t, err)
-	sql, err := pgmigrations.FS.ReadFile("0022_event_log.up.sql")
-	require.NoError(t, err)
-	_, err = e.pg.Exec(ctx, string(sql))
-	require.NoError(t, err)
+	require.NoError(t, migrator.WithSchema("profiles").ApplyMigrations(ctx, all[split:]))
+	cfg := maintenanceConfig()
+	cfg.DefaultTenantID = iam.TenantID{} // This migration fixture contains authority events, no tenant directory.
+	e := newTestEngine(t, cfg, config.Deps{Postgres: pg.Pool})
 	page, err := e.ListEvents(ctx, iam.EventQuery{Authority: true})
 	require.NoError(t, err)
 	require.Equal(t, []string{id}, eventIDs(page.Events))
 	require.Equal(t, "after", page.Events[0].Current)
-	var pending int
-	require.NoError(t, e.pg.QueryRow(ctx, "SELECT count(*) FROM account_events").Scan(&pending))
-	require.Equal(t, 2, pending, "the migration must not drop existing delivery obligations")
+	var legacy *string
+	require.NoError(t, e.pg.QueryRow(ctx, "SELECT to_regclass('profiles.account_events')::text").Scan(&legacy))
+	require.Nil(t, legacy, "legacy per-issuer event copies are retired after the log copy")
 }
 
 func TestEventLogPrunesBoundedBatches(t *testing.T) {

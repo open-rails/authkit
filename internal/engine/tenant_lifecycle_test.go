@@ -37,19 +37,6 @@ func TestTenantLifecycleRetainsTargetAcrossRestartAndPurge(t *testing.T) {
 	retryPurge := true
 	deps := config.Deps{
 		Postgres: pool,
-		OnEvent: func(ctx context.Context, event iam.Event) error {
-			owner, bound := tenancy.From(ctx)
-			require.True(t, bound, "event delivery must choose or explicitly clear its target")
-			require.Equal(t, event.TenantID, owner)
-			if event.UserID == userID || event.GroupID == groupID {
-				require.Equal(t, target, event.TenantID)
-			}
-			if event.GroupID == rootID && event.UserID == "" {
-				require.True(t, owner.IsZero(), "global events must not inherit the worker's default tenant")
-			}
-			received = append(received, event)
-			return nil
-		},
 		OnPurge: func(ctx context.Context, deletion iam.UserDeletion) error {
 			owner, bound := tenancy.From(ctx)
 			require.True(t, bound)
@@ -115,14 +102,11 @@ func TestTenantLifecycleRetainsTargetAcrossRestartAndPurge(t *testing.T) {
 	var retained string
 	require.NoError(t, e.pg.QueryRow(ctx, `SELECT tenant_id::text FROM account_deletions WHERE id=$1 AND state='purged'`, deletionID).Scan(&retained))
 	require.Equal(t, target.String(), retained)
-	rows, err := e.pg.Query(ctx, `SELECT id FROM account_events ORDER BY id`)
+	tenantEvents, err := e.ListEvents(WithTenant(ctx, target), iam.EventQuery{})
 	require.NoError(t, err)
-	ids, err := pgx.CollectRows(rows, pgx.RowTo[int64])
+	authorityEvents, err := e.ListEvents(wrong, iam.EventQuery{Authority: true})
 	require.NoError(t, err)
-	worker := &accountEventWorker{engine: e}
-	for _, id := range ids {
-		require.NoError(t, worker.Work(wrong, &river.Job[accountEventArgs]{Args: accountEventArgs{Schema: schema, Issuer: cfg.Token.Issuer, Row: id}}))
-	}
+	received = append(tenantEvents.Events, authorityEvents.Events...)
 	foundDeleted, foundPurged, foundGroup, foundGlobal := false, false, false, false
 	for _, event := range received {
 		if event.UserID == userID && event.Kind == iam.EventUserDeleted {

@@ -1,21 +1,13 @@
 package engine
 
-// Durable account and group events (Deps.OnEvent) on the account lifecycle
-// machinery. A change records its events in its own transaction: one
-// account_events row per subscribed account issuer plus a River job in that
-// issuer's fleet. A refused or rolled-back change records nothing; a committed
-// one is delivered at least once. Delivery is ordered per subject (the user,
-// else the application or group): a failing hook holds back that subject's
-// later events and is retried with backoff, never exhausting.
+// Committed account and group changes are appended once to the retained log.
+// Consumers read with their own cursor; AuthKit never registers or invokes them.
 
 import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
-	"log/slog"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
@@ -24,33 +16,11 @@ import (
 	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
-	"github.com/open-rails/authkit/internal/ident"
 )
-
-type accountEventArgs struct {
-	Schema string `json:"schema"`
-	Issuer string `json:"issuer"`
-	Row    int64  `json:"row"`
-}
-
-func (accountEventArgs) Kind() string { return "authkit_account_event" }
-
-func accountEventQueue(schema, issuer string) string {
-	return accountScopedQueue("authkit_events-", schema, issuer)
-}
 
 func accountScopedQueue(prefix, schema, issuer string) string {
 	digest := sha256.Sum256([]byte(schema + "\x00" + issuer))
 	return prefix + hex.EncodeToString(digest[:20])
-}
-
-// maxEventRetryDelay caps the backoff of a failing hook.
-const maxEventRetryDelay = time.Hour
-
-// eventRetryDelay is the wait before attempt n+1 after n failures: 2s, 4s, …
-// up to an hour.
-func eventRetryDelay(failures int) time.Duration {
-	return min(time.Second<<min(failures, 12), maxEventRetryDelay)
 }
 
 func userEvent(kind iam.EventKind, userID string) iam.Event {
@@ -84,18 +54,6 @@ func roleEvent(groupID string, persona iam.Persona, subject iam.Subject, previou
 		e.ApplicationID = canonicalID(subject.ID)
 	}
 	return e
-}
-
-// eventStream is the delivery ordering key of e.
-func eventStream(e iam.Event) string {
-	switch {
-	case e.UserID != "":
-		return "user:" + e.UserID
-	case e.ApplicationID != "":
-		return "application:" + e.ApplicationID
-	default:
-		return "group:" + e.GroupID
-	}
 }
 
 // eventIdentity is who made a change, as an event records it: the identity's
@@ -138,9 +96,8 @@ func identityChanges(ctx context.Context, q db.DBTX, userID string, before accou
 	return out, nil
 }
 
-// emitEvents records events a made in q, the change's transaction, for every
-// account issuer subscribed to events. The fleet rows stay share-locked until
-// commit, so a fleet cannot be rebound under a pending event.
+// emitEvents snapshots target ownership and actor facts in the transaction
+// which changes state, then appends once regardless of whether readers exist.
 func (s *Engine) emitEvents(ctx context.Context, q db.DBTX, a auth.Identity, events ...iam.Event) error {
 	if len(events) == 0 {
 		return nil
@@ -158,49 +115,17 @@ func (s *Engine) emitEvents(ctx context.Context, q db.DBTX, a auth.Identity, eve
 		events[i].TenantID = tenant
 	}
 	who := eventIdentity(a)
-	var err error
-	ids := make([]string, len(events))
 	for i := range events {
-		if ids[i], err = newUUIDV7String(); err != nil {
+		id, err := newUUIDV7String()
+		if err != nil {
 			return err
 		}
-		events[i].ID, events[i].Version, events[i].OccurredAt = ids[i], 1, s.nowTime().UTC()
+		events[i].ID, events[i].Version, events[i].OccurredAt = id, 1, s.nowTime().UTC()
 		events[i].SubjectKind, events[i].SubjectID = who.SubjectKind, who.SubjectID
 		events[i].InvokerIssuer, events[i].InvokerID = who.InvokerIssuer, who.InvokerID
 		events[i].CredentialKind, events[i].CredentialID = who.CredentialKind, who.CredentialID
 	}
-	if err := s.appendEventLog(ctx, tx, events); err != nil {
-		return err
-	}
-	// Transitional callback transport for hosts not yet migrated to ListEvents.
-	// Its delivery rows/jobs are separate from the retained log and removable
-	// after those hosts store their own cursor. New readers register nothing.
-	subscribers, err := txq.AccountEventFleetsForShare(ctx, s.accountIssuers())
-	if err != nil || len(subscribers) == 0 {
-		return err
-	}
-	for _, sub := range subscribers {
-		client, err := s.fleetProducer(sub.RiverSchema)
-		if err != nil {
-			return err
-		}
-		for i, e := range events {
-			row, err := txq.AccountEventInsert(ctx, db.AccountEventInsertParams{
-				Issuer: sub.Issuer, Stream: eventStream(e), EventID: ids[i], Kind: string(e.Kind), TenantID: nullable(e.TenantID.String()),
-				SubjectKind: string(who.SubjectKind), SubjectID: who.SubjectID, InvokerIssuer: who.InvokerIssuer, InvokerID: who.InvokerID,
-				CredentialKind: string(who.CredentialKind), CredentialID: who.CredentialID,
-				UserID: nullable(e.UserID), GroupID: nullable(e.GroupID), Persona: e.Persona.String(), ApplicationID: nullable(e.ApplicationID),
-				PreviousValue: e.Previous, CurrentValue: e.Current, Reason: e.Reason, Until: e.Until, Role: e.Role.String(), ClientID: e.ClientID, Agreement: e.Agreement,
-			})
-			if err != nil {
-				return fmt.Errorf("authkit: record %s event: %w", e.Kind, err)
-			}
-			if _, err := client.InsertTx(ctx, tx, accountEventArgs{Schema: s.dbSchema(), Issuer: sub.Issuer, Row: row}, &river.InsertOpts{Queue: accountEventQueue(s.dbSchema(), sub.Issuer)}); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
+	return s.appendEventLog(ctx, tx, events)
 }
 
 // fleetProducer is a producer for the River fleet in schema: this runtime's,
@@ -210,97 +135,15 @@ func (s *Engine) fleetProducer(schema string) (*river.Client[pgx.Tx], error) {
 	if m := s.maintenance; m != nil && m.producer.Schema() == schema {
 		return m.producer, nil
 	}
-	if c, ok := s.eventProducers.Load(schema); ok {
+	if c, ok := s.fleetProducers.Load(schema); ok {
 		return c.(*river.Client[pgx.Tx]), nil
 	}
 	c, err := river.NewClient(riverpgxv5.New(s.pg), riverConfig(schema))
 	if err != nil {
 		return nil, err
 	}
-	actual, _ := s.eventProducers.LoadOrStore(schema, c)
+	actual, _ := s.fleetProducers.LoadOrStore(schema, c)
 	return actual.(*river.Client[pgx.Tx]), nil
-}
-
-type accountEventWorker struct {
-	river.WorkerDefaults[accountEventArgs]
-	engine *Engine
-}
-
-func (w *accountEventWorker) Work(ctx context.Context, job *river.Job[accountEventArgs]) error {
-	if job.Args.Schema != w.engine.dbSchema() || job.Args.Issuer != w.engine.cfg.Token.Issuer {
-		return river.JobCancel(errors.New("authkit: account event routed to a different application"))
-	}
-	err := w.engine.deliverEvent(ctx, job.Args.Row)
-	var snooze *river.JobSnoozeError
-	if err == nil || errors.As(err, &snooze) {
-		return err
-	}
-	// Never exhaust River's attempts: the row stays pending until delivered.
-	slog.ErrorContext(ctx, "authkit: account event delivery will retry", "row", job.Args.Row, "error", err)
-	return river.JobSnooze(time.Minute)
-}
-
-// deliverEvent runs the hook for one recorded event, once every earlier event
-// of its subject is delivered, and deletes the row. No transaction or pool
-// connection is held while the hook runs.
-func (s *Engine) deliverEvent(ctx context.Context, row int64) error {
-	rec, err := s.q.AccountEventByID(ctx, row)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil // delivered
-	}
-	if err != nil {
-		return err
-	}
-	if rec.Issuer != s.cfg.Token.Issuer {
-		return river.JobCancel(errors.New("authkit: account event issuer mismatch"))
-	}
-	tenant := iam.TenantID{}
-	if rec.TenantID != nil {
-		tenant, err = iam.ParseTenantID(*rec.TenantID)
-		if err != nil {
-			return err
-		}
-	}
-	// A global event also clears any ambient target from the caller. It must
-	// not accidentally inherit this worker's default account directory.
-	ctx = WithTenant(ctx, tenant)
-	e := iam.Event{
-		TenantID: tenant, ID: rec.EventID, Version: 1, Kind: iam.EventKind(rec.Kind), OccurredAt: rec.OccurredAt,
-		SubjectKind: auth.SubjectKind(rec.SubjectKind), SubjectID: rec.SubjectID, InvokerIssuer: rec.InvokerIssuer, InvokerID: rec.InvokerID,
-		CredentialKind: auth.CredentialKind(rec.CredentialKind), CredentialID: rec.CredentialID,
-		UserID: deref(rec.UserID), GroupID: deref(rec.GroupID), Persona: ident.Persona(rec.Persona), ApplicationID: deref(rec.ApplicationID),
-		Previous: rec.PreviousValue, Current: rec.CurrentValue, Reason: rec.Reason, Until: rec.Until, Role: ident.RoleText(rec.Role),
-		ClientID: rec.ClientID, Agreement: rec.Agreement,
-	}
-	failures := int(rec.Attempts)
-	earlier, err := s.q.AccountEventEarlierPending(ctx, db.AccountEventEarlierPendingParams{Issuer: rec.Issuer, Stream: rec.Stream, ID: row})
-	if err != nil {
-		return err
-	}
-	if earlier.Blocked {
-		// Wake after the earliest failed predecessor's next attempt.
-		return river.JobSnooze(time.Second + max(time.Duration(earlier.Wait*float64(time.Second)), 0))
-	}
-	if s.onEvent != nil {
-		if err := invokeEventHook(ctx, s.onEvent, e); err != nil {
-			delay := eventRetryDelay(failures + 1)
-			if uerr := s.q.AccountEventRetry(ctx, db.AccountEventRetryParams{ID: row, DelaySeconds: delay.Seconds()}); uerr != nil {
-				return errors.Join(err, uerr)
-			}
-			slog.WarnContext(ctx, "authkit: event hook failed; will retry", "event_id", e.ID, "kind", e.Kind, "attempt", failures+1, "retry_in", delay, "error", err)
-			return river.JobSnooze(delay)
-		}
-	}
-	return s.q.AccountEventDelete(ctx, row)
-}
-
-func invokeEventHook(ctx context.Context, hook func(context.Context, iam.Event) error, e iam.Event) (err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("event hook panicked: %v", recovered)
-		}
-	}()
-	return hook(ctx, e)
 }
 
 // eventTenant snapshots the target owner while it is still available. A root

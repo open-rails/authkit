@@ -145,9 +145,6 @@ func (s *Engine) registerRiver(cfg *river.Config) error {
 	if err := river.AddWorkerSafely(workers, &accountDeleteDueWorker{engine: s}); err != nil {
 		return err
 	}
-	if err := river.AddWorkerSafely(workers, &accountEventWorker{engine: s}); err != nil {
-		return err
-	}
 	if err := river.AddWorkerSafely(workers, &credentialSweepWorker{engine: s}); err != nil {
 		return err
 	}
@@ -170,13 +167,6 @@ func (s *Engine) registerRiver(cfg *river.Config) error {
 	}
 	if _, ok := cfg.Queues[dueQueue]; !ok {
 		cfg.Queues[dueQueue] = river.QueueConfig{MaxWorkers: 1}
-	}
-	eventQueue := accountEventQueue(s.dbSchema(), s.cfg.Token.Issuer)
-	if existing, ok := cfg.Queues[eventQueue]; ok && existing.MaxWorkers < 1 {
-		return fmt.Errorf("authkit: account event queue %q requires workers", eventQueue)
-	}
-	if _, ok := cfg.Queues[eventQueue]; !ok {
-		cfg.Queues[eventQueue] = river.QueueConfig{MaxWorkers: 1}
 	}
 	sweepQueue := credentialSweepQueue(s.dbSchema(), s.cfg.Token.Issuer)
 	if existing, ok := cfg.Queues[sweepQueue]; ok && existing.MaxWorkers < 1 {
@@ -209,8 +199,7 @@ func (s *Engine) registerRiver(cfg *river.Config) error {
 // and starts AuthKit's own River client in RiverSchema; with one it requires
 // the fleet RiverJobs is bound to and leaves its start to the host. It runs no
 // DDL. A client without PostgreSQL (for example verify-only tests) has no jobs.
-// The client running its issuer's fleet sets whether the issuer records
-// account events (Deps.OnEvent).
+// Each issuer runs its own required account-cleanup batches.
 func (s *Engine) Start(ctx context.Context, fleet *river.Client[pgx.Tx]) error {
 	m := s.maintenance
 	if m == nil {
@@ -240,9 +229,6 @@ func (s *Engine) Start(ctx context.Context, fleet *river.Client[pgx.Tx]) error {
 	}
 	m.started = true
 	m.mu.Unlock()
-	if err := s.syncEventSubscription(ctx); err != nil {
-		return fmt.Errorf("authkit: account event subscription: %w", err)
-	}
 	if err := s.pruneProvisioningTargets(ctx); err != nil {
 		return fmt.Errorf("authkit: provisioning targets: %w", err)
 	}

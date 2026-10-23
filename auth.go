@@ -120,8 +120,8 @@ func WithRiverClient(fleet *river.Client[pgx.Tx]) StartOption {
 	return func(o *startOptions) { o.fleet, o.hostOwns = fleet, true }
 }
 
-// Start starts AuthKit's background work: River (account lifecycle, events,
-// auth-state cleanup) and the senders' health checks. With no options it
+// Start starts AuthKit's background work: River (required account cleanup and
+// auth-state maintenance) and the senders' health checks. With no options it
 // builds and runs AuthKit's own River client in Config.Database.RiverSchema; with
 // WithRiverClient the jobs run on the host's fleet. Jobs queued before Start
 // wait for it. Call it once, before serving.

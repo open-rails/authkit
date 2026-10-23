@@ -34,7 +34,7 @@ Behind a gate (`verify.Required`, `RequireSession`, `RequirePermission`, `Sensit
 
 A library that guards its own routes takes `client.Authenticator()` instead ([RBAC](rbac.md#a-library-that-guards-its-own-routes)): its `Authenticate(r)` returns the request's `Verified`, whose `Identity()` this is. Access tokens carry no contact details, so it reads a local user's email and username from the account when the user is the subject and acts for itself.
 
-Events (`Deps.OnEvent`) record who made a change the same way: `subject_kind` and `subject_id`, `invoker_issuer` and `invoker_id`, `credential_kind` and `credential_id`.
+Events (`Client.ListEvents`) record who made a change the same way: `subject_kind` and `subject_id`, `invoker_issuer` and `invoker_id`, `credential_kind` and `credential_id`.
 
 ## Network accounts
 

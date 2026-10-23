@@ -6,7 +6,7 @@ import (
 	"github.com/open-rails/authkit/auth"
 )
 
-// EventKind names a committed change delivered to Deps.OnEvent. Hosts ignore
+// EventKind names a committed change returned by ListEvents. Hosts ignore
 // kinds they do not know: later versions add kinds.
 type EventKind string
 
@@ -67,7 +67,7 @@ const (
 
 // Event is one committed account or group change. It is recorded in the
 // transaction that makes the change, so a refused or rolled-back change
-// records nothing, and delivered after commit, at least once. It names what
+// records nothing, and read after commit. It names what
 // changed and never carries a credential, hash, token or code.
 type Event struct {
 	// Version identifies the payload schema. Unknown additive fields and event
@@ -76,7 +76,7 @@ type Event struct {
 	// TenantID is the affected tenant, not the acting operator's tenant.
 	// Zero identifies an authority-wide event with no tenant-owned target.
 	TenantID TenantID `json:"tenant_id"`
-	// ID is the same on every delivery: the host's idempotency key.
+	// ID is stable on every read: the application's idempotency key.
 	ID         string    `json:"id"`
 	Kind       EventKind `json:"kind"`
 	OccurredAt time.Time `json:"occurred_at"`

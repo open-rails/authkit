@@ -600,6 +600,8 @@ func TestSecurityImportProviders(t *testing.T) {
 // kept. Like every import it records no event of its own; a restore records
 // user.restored.
 func TestSecurityImportedDeletionLifecycle(t *testing.T) {
+	var h *host
+	reader := newEventLog()
 	var mu sync.Mutex
 	stages := map[string][]string{}
 	note := func(userID, stage string) {
@@ -609,17 +611,16 @@ func TestSecurityImportedDeletionLifecycle(t *testing.T) {
 	}
 	stagesOf := func(id string) []string {
 		mu.Lock()
-		defer mu.Unlock()
-		return slices.Clone(stages[id])
-	}
-	h := newHost(t, withHTTP(generousLimits), authtest.WithDeps(func(d *authkit.Deps) {
-		d.OnEvent = func(_ context.Context, e iam.Event) error {
-			switch e.Kind {
-			case iam.EventUserDeleted, iam.EventUserRestored, iam.EventUserPurged:
-				note(e.UserID, string(e.Kind))
+		out := slices.Clone(stages[id])
+		mu.Unlock()
+		for _, e := range reader.drained(h) {
+			if e.UserID == id && (e.Kind == iam.EventUserDeleted || e.Kind == iam.EventUserRestored || e.Kind == iam.EventUserPurged) {
+				out = append(out, string(e.Kind))
 			}
-			return nil
 		}
+		return out
+	}
+	h = newHost(t, withHTTP(generousLimits), authtest.WithDeps(func(d *authkit.Deps) {
 		d.OnPurge = func(_ context.Context, del iam.UserDeletion) error {
 			note(del.UserID, "purge")
 			return nil

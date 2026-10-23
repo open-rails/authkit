@@ -574,7 +574,7 @@ func authed(t *testing.T, method, target, token string) *http.Request {
 // records nothing.
 func TestSecurityAgreementEvents(t *testing.T) {
 	log := newEventLog()
-	h := newNetworkHost(t, withEvents(log))
+	h := newNetworkHost(t)
 	ctx := context.Background()
 	require.NoError(t, h.auth.Start(ctx))
 	res := authResult(t, h.codeSignIn(unique("events")+"@security.test", "203.0.113.90", termsV1, privacyV1))

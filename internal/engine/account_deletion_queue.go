@@ -47,7 +47,7 @@ func (s *Engine) recordAccountCleanup(ctx context.Context, tx pgx.Tx, client *ri
 
 // New records the configured issuer before accepting account mutations.
 // Required cleanup remains in account_deletion_deliveries while an issuer is
-// offline. RiverSchema still routes the temporary legacy ordinary-event path.
+// offline. RiverSchema routes required cleanup and credential operations.
 func (s *Engine) registerAccountDeliveryFleet(ctx context.Context, schema string) error {
 	if s.cfg.Token.Issuer == "" {
 		return nil
@@ -77,31 +77,11 @@ func (s *Engine) registerAccountDeliveryFleet(ctx context.Context, schema string
 			return err
 		}
 	}
-	// A client that handles events subscribes its issuer from now on, so
-	// changes are recorded even before its fleet starts. A client without
-	// OnEvent changes nothing here: only the fleet's Start unsubscribes.
-	if s.onEvent != nil {
-		if err := q.AccountDeliveryFleetSetEvents(ctx, db.AccountDeliveryFleetSetEventsParams{Issuer: issuer, RiverSchema: schema, Events: true}); err != nil {
-			return err
-		}
-	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
 	s.warnUnboundAccountIssuers(ctx)
 	return nil
-}
-
-// syncEventSubscription runs at Start: the client running the issuer's bound
-// fleet sets whether the issuer records events. One without OnEvent
-// unsubscribes it, and its fleet drains what is pending.
-func (s *Engine) syncEventSubscription(ctx context.Context) error {
-	if s.cfg.Token.Issuer == "" {
-		return nil
-	}
-	return s.q.AccountDeliveryFleetSetEvents(ctx, db.AccountDeliveryFleetSetEventsParams{
-		Issuer: s.cfg.Token.Issuer, RiverSchema: s.cfg.Database.RiverSchema, Events: s.onEvent != nil,
-	})
 }
 
 // Account deletion fails closed until every account issuer has started once

@@ -59,8 +59,14 @@ reuse a stream epoch merely because numeric positions happen to match.
 
 The migration copies any still-retained legacy event once, deduplicated across
 issuer deliveries. Previously delivered/deleted history is unavailable and is
-not invented. `Deps.OnEvent` is a temporary compatibility transport while hosts
-migrate; it still owns its old delivery records/jobs. It will be removed after
-all hosts adopt reader-owned cursors. Required `OnPurge` cleanup is separate:
-each issuer’s daily/startup sweep runs its required cleanup before hard deletion, while the subsequent `user.purged` event describes
-what committed. Reading the log never satisfies or delays that cleanup.
+not invented. It removes the old ordinary-event table and subscriber flag,
+and retires pending ordinary-event and account-cleanup River jobs while
+preserving their required domain cleanup receipts. Stop old account writers
+before migrating every participating fleet; migration refuses active legacy
+workers. `Deps.OnEvent` is removed: migrate hosts to `ListEvents` before adopting
+this version.
+
+Required `OnPurge` cleanup is separate. Each issuer's daily/startup sweep runs
+its required cleanup before hard deletion, while the subsequent `user.purged`
+event describes what committed. Reading the log never satisfies or delays
+that cleanup.

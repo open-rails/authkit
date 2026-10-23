@@ -103,7 +103,7 @@ type contract struct {
 
 func newContract() (*contract, error) {
 	c := &contract{routes: httpapi.Catalog(), objects: map[string]*object{}}
-	// The committed changes Deps.OnEvent delivers: the payload of the
+	// The committed changes ListEvents returns: the payload of the
 	// event vocabulary, kinds included.
 	if err := c.reach(reflect.TypeFor[iam.Event](), false); err != nil {
 		return nil, err

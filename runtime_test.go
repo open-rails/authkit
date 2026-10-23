@@ -221,9 +221,7 @@ var testKeys = sync.OnceValue(func() keys.Static { return testkeys.Source(testke
 // or stops it. WithRiverClient(nil) is refused, not read as "run your own".
 func TestStartWithRiverClient(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
-	events := make(chan iam.Event, 8)
 	deps := testDeps(pg.Pool)
-	deps.OnEvent = func(_ context.Context, e iam.Event) error { events <- e; return nil }
 	auth, err := authkit.New(t.Context(), testConfig(t), deps)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = auth.Close(context.Background()) })
@@ -238,15 +236,10 @@ func TestStartWithRiverClient(t *testing.T) {
 	require.NoError(t, results[0].Err)
 	require.NoError(t, fleet.Start(t.Context()), "jobs queued before the fleet starts wait for it")
 	t.Cleanup(func() { require.NoError(t, fleet.StopAndCancel(context.Background())) })
-	deadline := time.After(15 * time.Second)
-	for deleted := false; !deleted; {
-		select {
-		case e := <-events:
-			deleted = e.Kind == iam.EventUserDeleted && e.UserID == user.ID
-		case <-deadline:
-			t.Fatal("the host fleet did not deliver user.deleted")
-		}
-	}
+	page, err := auth.ListEvents(t.Context(), iam.EventQuery{Kinds: []iam.EventKind{iam.EventUserDeleted}})
+	require.NoError(t, err)
+	require.Len(t, page.Events, 1)
+	require.Equal(t, user.ID, page.Events[0].UserID, "committed events can be read without a delivery worker")
 	require.NoError(t, auth.Close(t.Context()))
 	select {
 	case <-fleet.Stopped():

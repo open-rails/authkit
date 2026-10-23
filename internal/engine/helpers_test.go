@@ -200,24 +200,6 @@ func prepareExpiredDeletion(t *testing.T, s *Engine, userID string) string {
 	return generation
 }
 
-// deliverEvents delivers the pending events of s's issuer through its OnEvent,
-// oldest first, and returns their kinds.
-func deliverEvents(t *testing.T, s *Engine) []iam.EventKind {
-	t.Helper()
-	rows, err := s.pg.Query(t.Context(), "SELECT id FROM account_events WHERE issuer=$1 ORDER BY id", s.cfg.Token.Issuer)
-	require.NoError(t, err)
-	ids, err := pgx.CollectRows(rows, pgx.RowTo[int64])
-	require.NoError(t, err)
-	var kinds []iam.EventKind
-	for _, id := range ids {
-		rec, err := s.q.AccountEventByID(t.Context(), id)
-		require.NoError(t, err)
-		kinds = append(kinds, iam.EventKind(rec.Kind))
-		require.NoError(t, s.deliverEvent(t.Context(), id))
-	}
-	return kinds
-}
-
 // seedGroup creates a group as the host does, owned by the user ownerID ("" =
 // no owner), and returns its id.
 func seedGroup(ctx context.Context, e *Engine, persona iam.Persona, ownerID string) (string, error) {

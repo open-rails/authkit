@@ -244,7 +244,6 @@ pkg authkit, type Deps struct, GroupName func(context.Context, string) (string, 
 pkg authkit, type Deps struct, KeySource keys.Source
 pkg authkit, type Deps struct, NameAdmission func(context.Context, iam.NameAdmissionRequest) error
 pkg authkit, type Deps struct, OAuthGrants iam.OAuthGrantAuthorizer
-pkg authkit, type Deps struct, OnEvent func(context.Context, iam.Event) error
 pkg authkit, type Deps struct, OnPurge func(context.Context, iam.UserDeletion) error
 pkg authkit, type Deps struct, Postgres *pgxpool.Pool
 pkg authkit, type Deps struct, Providers []provider.Provider

@@ -103,16 +103,10 @@ SELECT river_schema FROM account_delivery_fleets WHERE issuer = $1 FOR SHARE;
 SELECT (
     EXISTS (SELECT 1 FROM account_deletion_deliveries WHERE issuer = sqlc.arg(issuer)::text AND completed_at IS NULL)
     OR EXISTS (SELECT 1 FROM account_deletions WHERE state IN ('deleted', 'finalizing') AND sqlc.arg(issuer)::text = ANY(recipients))
-    OR EXISTS (SELECT 1 FROM account_events WHERE issuer = sqlc.arg(issuer)::text)
 )::boolean AS busy;
 
 -- name: AccountDeliveryFleetSetSchema :exec
 UPDATE account_delivery_fleets SET river_schema = sqlc.arg(river_schema) WHERE issuer = sqlc.arg(issuer);
-
--- name: AccountDeliveryFleetSetEvents :exec
--- Only the issuer's bound fleet sets whether it records events.
-UPDATE account_delivery_fleets SET events = sqlc.arg(events)
-WHERE issuer = sqlc.arg(issuer) AND river_schema = sqlc.arg(river_schema) AND events <> sqlc.arg(events);
 
 -- name: AccountDeliveryFleetsUnbound :one
 -- The issuers, sorted, with no fleet bound yet.

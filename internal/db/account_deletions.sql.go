@@ -437,7 +437,6 @@ const accountDeliveryFleetBusy = `-- name: AccountDeliveryFleetBusy :one
 SELECT (
     EXISTS (SELECT 1 FROM account_deletion_deliveries WHERE issuer = $1::text AND completed_at IS NULL)
     OR EXISTS (SELECT 1 FROM account_deletions WHERE state IN ('deleted', 'finalizing') AND $1::text = ANY(recipients))
-    OR EXISTS (SELECT 1 FROM account_events WHERE issuer = $1::text)
 )::boolean AS busy
 `
 
@@ -483,23 +482,6 @@ func (q *Queries) AccountDeliveryFleetSchemaForUpdate(ctx context.Context, issue
 	var river_schema string
 	err := row.Scan(&river_schema)
 	return river_schema, err
-}
-
-const accountDeliveryFleetSetEvents = `-- name: AccountDeliveryFleetSetEvents :exec
-UPDATE account_delivery_fleets SET events = $1
-WHERE issuer = $2 AND river_schema = $3 AND events <> $1
-`
-
-type AccountDeliveryFleetSetEventsParams struct {
-	Events      bool
-	Issuer      string
-	RiverSchema string
-}
-
-// Only the issuer's bound fleet sets whether it records events.
-func (q *Queries) AccountDeliveryFleetSetEvents(ctx context.Context, arg AccountDeliveryFleetSetEventsParams) error {
-	_, err := q.db.Exec(ctx, accountDeliveryFleetSetEvents, arg.Events, arg.Issuer, arg.RiverSchema)
-	return err
 }
 
 const accountDeliveryFleetSetSchema = `-- name: AccountDeliveryFleetSetSchema :exec

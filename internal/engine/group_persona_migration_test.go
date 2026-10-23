@@ -66,13 +66,13 @@ func newPersonaMigrationEngine(t *testing.T, cfg config.Config) *Engine {
 		_, err = pool.Exec(ctx, "DELETE FROM public.migrations WHERE app='authkit' AND schema=$1", schema)
 		require.NoError(t, err)
 	})
-	return newTestEngine(t, cfg, config.Deps{Postgres: pool, OnEvent: func(context.Context, iam.Event) error { return nil }})
+	return newTestEngine(t, cfg, config.Deps{Postgres: pool})
 }
 
 func migrationEventCount(t *testing.T, f personaMigrationFixture) int {
 	t.Helper()
 	var count int
-	require.NoError(t, f.e.pg.QueryRow(t.Context(), `SELECT count(*) FROM account_events WHERE kind=$1 AND group_id=$2`, string(iam.EventGroupPersonaMigrated), f.in.Group.ID()).Scan(&count))
+	require.NoError(t, f.e.pg.QueryRow(t.Context(), `SELECT count(*) FROM event_log WHERE kind=$1 AND payload->>'group_id'=$2`, string(iam.EventGroupPersonaMigrated), f.in.Group.ID()).Scan(&count))
 	return count
 }
 
@@ -138,7 +138,7 @@ func TestGroupPersonaMigrationRetainsBindingsAndSecrets(t *testing.T) {
 	require.True(t, applied.Applied)
 	require.Equal(t, 1, migrationEventCount(t, f))
 	var eventTenant, eventPersona, previous, current, reason string
-	require.NoError(t, f.e.pg.QueryRow(ctx, `SELECT tenant_id::text,persona,previous_value,current_value,reason FROM account_events WHERE kind=$1 AND group_id=$2`, string(iam.EventGroupPersonaMigrated), f.in.Group.ID()).Scan(&eventTenant, &eventPersona, &previous, &current, &reason))
+	require.NoError(t, f.e.pg.QueryRow(ctx, `SELECT payload->>'tenant_id',payload->>'persona',payload->>'previous',payload->>'current',payload->>'reason' FROM event_log WHERE kind=$1 AND payload->>'group_id'=$2`, string(iam.EventGroupPersonaMigrated), f.in.Group.ID()).Scan(&eventTenant, &eventPersona, &previous, &current, &reason))
 	require.Equal(t, applied.TenantID.String(), eventTenant)
 	require.Equal(t, f.in.To.String(), eventPersona)
 	require.Equal(t, f.in.From.String(), previous)

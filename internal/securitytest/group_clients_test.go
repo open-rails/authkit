@@ -38,7 +38,6 @@ type network struct {
 	t        *testing.T
 	merchant iam.Persona
 	mu       sync.Mutex
-	events   []iam.Event
 	// consentCheck is Deps.ConsentRevocationCheck; nil allows.
 	consentCheck func(ctx context.Context, userID, clientID string) error
 }
@@ -75,12 +74,6 @@ func newNetwork(t *testing.T) *network {
 		c.Resource = authkit.ResourceConfig{ID: merchantAPI}
 	}), authtest.WithDeps(func(d *authkit.Deps) {
 		d.GroupName = func(_ context.Context, groupID string) (string, error) { return "Merchant " + groupID[:8], nil }
-		d.OnEvent = func(_ context.Context, e iam.Event) error {
-			n.mu.Lock()
-			defer n.mu.Unlock()
-			n.events = append(n.events, e)
-			return nil
-		}
 		d.ConsentRevocationCheck = func(ctx context.Context, userID, clientID string) error {
 			n.mu.Lock()
 			check := n.consentCheck
@@ -97,7 +90,7 @@ func newNetwork(t *testing.T) *network {
 	handler.Store(&h)
 	n.AuthorizationServer = authtest.Attach(t, auth, server)
 	n.merchant = ident.Persona("merchant")
-	require.NoError(t, n.Client.Start(context.Background()), "River delivers events and back-channel logouts")
+	require.NoError(t, n.Client.Start(context.Background()), "River delivers back-channel logouts")
 	return n
 }
 
@@ -407,9 +400,11 @@ func TestSecurityGroupOAuthClients(t *testing.T) {
 			t.Fatal("no back-channel logout")
 		}
 		require.Eventually(t, func() bool {
-			n.mu.Lock()
-			defer n.mu.Unlock()
-			for _, e := range n.events {
+			page, err := n.Client.ListEvents(ctx, iam.EventQuery{Kinds: []iam.EventKind{iam.EventOAuthConsentRevoked}})
+			if err != nil {
+				return false
+			}
+			for _, e := range page.Events {
 				if e.Kind == iam.EventOAuthConsentRevoked && e.UserID == shopper.ID && e.ClientID == created.ClientID && e.GroupID == groupA.ID() {
 					return true
 				}
