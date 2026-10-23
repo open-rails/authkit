@@ -373,6 +373,11 @@ it("shows sign-in methods, end reasons, devices and the language in words", asyn
               reason: "logout",
               method: "future_method",
             },
+            {
+              kind: "session_created",
+              occurred_at: "2026-01-01T00:00:00Z",
+              method: "constructor",
+            },
           ],
           next_cursor: null,
         })
@@ -387,6 +392,7 @@ it("shows sign-in methods, end reasons, devices and the language in words", asyn
   expect(within(history).getByText(/Contact confirmed/)).toBeInTheDocument()
   // Unknown values show as sent; a plain sign-out adds no reason.
   expect(within(history).getByText("future_method")).toBeInTheDocument()
+  expect(within(history).getByText("constructor")).toBeInTheDocument()
   expect(within(history).queryByText(/logout/)).not.toBeInTheDocument()
   expect(within(history).getAllByText("Chrome on macOS")[0]).toHaveAttribute(
     "title",

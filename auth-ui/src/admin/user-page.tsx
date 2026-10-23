@@ -648,7 +648,7 @@ function History({ id, changes }: { id: string; changes: number }) {
                     {e.reason && e.reason !== "logout" && (
                       <span className="text-muted-foreground">
                         {" · "}
-                        {e.reason in END_REASONS
+                        {Object.hasOwn(END_REASONS, e.reason)
                           ? t(`users.endReasons.${e.reason as EndReason}`)
                           : e.reason}
                       </span>
@@ -656,7 +656,7 @@ function History({ id, changes }: { id: string; changes: number }) {
                   </Td>
                   <Td>
                     {e.method
-                      ? e.method in METHODS
+                      ? Object.hasOwn(METHODS, e.method)
                         ? t(`users.methods.${e.method as Method}`)
                         : e.method
                       : "—"}
