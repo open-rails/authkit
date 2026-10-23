@@ -62,5 +62,5 @@ issuer deliveries. Previously delivered/deleted history is unavailable and is
 not invented. `Deps.OnEvent` is a temporary compatibility transport while hosts
 migrate; it still owns its old delivery records/jobs. It will be removed after
 all hosts adopt reader-owned cursors. Required `OnPurge` cleanup is separate:
-it runs before hard deletion, while the subsequent `user.purged` event describes
+each issuer’s daily/startup sweep runs its required cleanup before hard deletion, while the subsequent `user.purged` event describes
 what committed. Reading the log never satisfies or delays that cleanup.

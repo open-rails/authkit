@@ -12,7 +12,6 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/testdb"
-	"github.com/riverqueue/river"
 	"github.com/stretchr/testify/require"
 )
 
@@ -45,15 +44,12 @@ func TestAccountCallbackFailureAndConcurrentRescue(t *testing.T) {
 	user, err := runtime.createUser(t.Context(), "callback-retry@example.test", "callbackretry")
 	require.NoError(t, err)
 	// OnPurge is the one receipt-backed account callback; finalizing an
-	// expired deletion queues it.
+	// expired deletion records its pending domain obligation.
 	require.NoError(t, runtime.finalizeAccountDeletion(t.Context(), expireDeletion(t, runtime, user.ID), false))
 	var id int64
 	require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT id FROM profiles.account_deletion_deliveries WHERE user_id=$1::uuid", user.ID).Scan(&id))
-	worker := accountDeliveryWorker{engine: runtime}
-	job := &river.Job[accountDeliveryArgs]{Args: accountDeliveryArgs{Schema: "profiles", Issuer: runtime.cfg.Token.Issuer, DeliveryID: id}}
 	for range 2 {
-		var snooze *river.JobSnoozeError
-		require.ErrorAs(t, worker.Work(t.Context(), job), &snooze, "callback failure remains durable without exhausting attempts")
+		require.Error(t, runtime.runAccountCleanup(t.Context(), id), "callback failure leaves the receipt for a later sweep")
 		var completed *time.Time
 		require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT completed_at FROM profiles.account_deletion_deliveries WHERE id=$1", id).Scan(&completed))
 		require.Nil(t, completed)
@@ -63,7 +59,7 @@ func TestAccountCallbackFailureAndConcurrentRescue(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, 2)
 	for range 2 {
-		wg.Go(func() { errs <- runtime.deliverAccountEvent(ctx, id) })
+		wg.Go(func() { errs <- runtime.runAccountCleanup(ctx, id) })
 	}
 	select {
 	case <-entered:

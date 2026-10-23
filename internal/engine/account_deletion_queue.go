@@ -2,8 +2,6 @@ package engine
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -13,21 +11,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/riverqueue/river"
-	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 )
-
-type accountDeliveryArgs struct {
-	Schema     string `json:"schema"`
-	Issuer     string `json:"issuer"`
-	DeliveryID int64  `json:"delivery_id"`
-}
-
-func (accountDeliveryArgs) Kind() string { return "authkit_account_delivery" }
-
-func accountDeliveryQueue(schema, issuer string) string {
-	digest := sha256.Sum256([]byte(schema + "\x00" + issuer))
-	return "authkit_accounts-" + hex.EncodeToString(digest[:20])
-}
 
 func (s *Engine) deletionRiver() (*river.Client[pgx.Tx], error) {
 	m := s.maintenance
@@ -45,36 +29,25 @@ func (s *Engine) deletionRiver() (*river.Client[pgx.Tx], error) {
 	return m.producer, nil
 }
 
-// The delivery receipt and River row are one transaction. An existing receipt
-// therefore already has its durable job; no independent polling queue exists.
-func (s *Engine) enqueueAccountDeliveries(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], deletion iam.UserDeletion, issuers []string, stage string) error {
+// recordAccountCleanup preserves the required per-issuer domain obligations.
+// Daily/startup sweeps read these receipts directly; no per-account River job
+// or remote-fleet insertion is needed.
+func (s *Engine) recordAccountCleanup(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], deletion iam.UserDeletion, issuers []string) error {
 	if err := s.requireAccountProducerOn(ctx, tx, client); err != nil {
 		return err
 	}
 	for _, issuer := range issuers {
-		target, err := s.accountDeliveryClient(ctx, tx, client, issuer)
-		if err != nil {
-			return err
-		}
-		id, err := s.qtx(tx).AccountDeletionDeliveryInsert(ctx, db.AccountDeletionDeliveryInsertParams{DeletionID: deletion.ID, UserID: deletion.UserID, Issuer: issuer, Stage: stage})
-		if errors.Is(err, pgx.ErrNoRows) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		_, err = target.InsertTx(ctx, tx, accountDeliveryArgs{Schema: s.dbSchema(), Issuer: issuer, DeliveryID: id}, &river.InsertOpts{Queue: accountDeliveryQueue(s.dbSchema(), issuer)})
-		if err != nil {
+		_, err := s.qtx(tx).AccountDeletionDeliveryInsert(ctx, db.AccountDeletionDeliveryInsertParams{DeletionID: deletion.ID, UserID: deletion.UserID, Issuer: issuer, Stage: "hard"})
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
 	}
 	return nil
 }
 
-// New registers RiverSchema as the issuer's durable destination before it
-// accepts account mutations. Every configured account issuer must have been
-// built once against this database before deletion can affect it. An offline
-// registered application still receives durable jobs in its own fleet.
+// New records the configured issuer before accepting account mutations.
+// Required cleanup remains in account_deletion_deliveries while an issuer is
+// offline. RiverSchema still routes the temporary legacy ordinary-event path.
 func (s *Engine) registerAccountDeliveryFleet(ctx context.Context, schema string) error {
 	if s.cfg.Token.Issuer == "" {
 		return nil
@@ -155,49 +128,7 @@ func (s *Engine) requireAccountProducerOn(ctx context.Context, tx pgx.Tx, local 
 	return nil
 }
 
-func (s *Engine) accountDeliveryClient(ctx context.Context, tx pgx.Tx, local *river.Client[pgx.Tx], issuer string) (*river.Client[pgx.Tx], error) {
-	if issuer == s.cfg.Token.Issuer {
-		return local, nil // requireAccountProducerOn already locked this mapping.
-	}
-	schema, err := s.qtx(tx).AccountDeliveryFleetSchemaForShare(ctx, issuer)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("authkit: account issuer %q must boot against this database before account deletion", issuer)
-		}
-		return nil, err
-	}
-	if schema == local.Schema() {
-		return local, nil
-	}
-	// Insert-only client: no worker registry, start/stop, polling or owned pool.
-	// InsertTx writes into this fleet's schema using the same account transaction.
-	return river.NewClient(riverpgxv5.New(s.pg), riverConfig(schema))
-}
-
-type accountDeliveryWorker struct {
-	river.WorkerDefaults[accountDeliveryArgs]
-	engine *Engine
-}
-
-func (w *accountDeliveryWorker) Work(ctx context.Context, job *river.Job[accountDeliveryArgs]) error {
-	if job.Args.Schema != w.engine.dbSchema() || job.Args.Issuer != w.engine.cfg.Token.Issuer {
-		return river.JobCancel(errors.New("authkit: account delivery routed to a different application"))
-	}
-	err := w.engine.deliverAccountEvent(ctx, job.Args.DeliveryID)
-	if err == nil {
-		return nil
-	}
-	var snooze *river.JobSnoozeError
-	if errors.As(err, &snooze) {
-		return err
-	}
-	// Lifecycle callback failure never exhausts the attempt budget and drops
-	// cleanup. River owns the scheduled retry; the receipt remains pending.
-	slog.ErrorContext(ctx, "authkit: account callback will retry", "delivery_id", job.Args.DeliveryID, "error", err)
-	return river.JobSnooze(time.Minute)
-}
-
-func (s *Engine) deliverAccountEvent(ctx context.Context, id int64) error {
+func (s *Engine) runAccountCleanup(ctx context.Context, id int64) error {
 	userID, err := s.q.AccountDeletionDeliveryUser(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil

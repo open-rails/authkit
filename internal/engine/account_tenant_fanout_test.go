@@ -3,25 +3,29 @@ package engine
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/testdb"
-	"github.com/riverqueue/river"
 	"github.com/stretchr/testify/require"
 )
 
 func TestAccountPurgeWaitsForEveryTenantApp(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
 	issuers := []string{"https://app-a.test", "https://app-b.test"}
-	makeApp := func(index int, fail bool) *Engine {
+	var calls [2]atomic.Int32
+	var failSecond atomic.Bool
+	failSecond.Store(true)
+	makeApp := func(i int) *Engine {
 		cfg := maintenanceConfig()
-		cfg.Token.Issuer = issuers[index]
+		cfg.Token.Issuer = issuers[i]
 		cfg.Token.AccountIssuers = issuers
 		app, err := New(t.Context(), cfg, config.Deps{Postgres: pg.Pool, OnPurge: func(context.Context, iam.UserDeletion) error {
-			if fail {
+			calls[i].Add(1)
+			if i == 1 && failSecond.Load() {
 				return errors.New("app storage unavailable")
 			}
 			return nil
@@ -30,29 +34,49 @@ func TestAccountPurgeWaitsForEveryTenantApp(t *testing.T) {
 		t.Cleanup(func() { _ = app.Close(context.Background()) })
 		return app
 	}
-	a, b := makeApp(0, false), makeApp(1, true)
+	a, b := makeApp(0), makeApp(1)
 	user, err := a.createUser(t.Context(), "fanout@example.test", "fanout")
 	require.NoError(t, err)
 	deletion := expireDeletion(t, a, user.ID)
-	require.NoError(t, a.finalizeAccountDeletion(t.Context(), deletion, false))
-	ids := make([]int64, 2)
-	for i, issuer := range issuers {
-		require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT id FROM profiles.account_deletion_deliveries WHERE deletion_id=$1 AND issuer=$2 AND stage='hard'", deletion, issuer).Scan(&ids[i]))
+	exists := func() bool {
+		var v bool
+		require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT EXISTS(SELECT 1 FROM profiles.users WHERE id=$1)", user.ID).Scan(&v))
+		return v
 	}
-	require.NoError(t, a.deliverAccountEvent(t.Context(), ids[0]))
-	require.Error(t, b.deliverAccountEvent(t.Context(), ids[1]))
-	var snooze *river.JobSnoozeError
-	require.ErrorAs(t, a.finalizeAccountDeletion(t.Context(), deletion, true), &snooze)
-	var exists bool
-	require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT EXISTS(SELECT 1 FROM profiles.users WHERE id=$1)", user.ID).Scan(&exists))
-	require.True(t, exists, "account purged while one app still retained data")
-	var completed *time.Time
-	require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT completed_at FROM profiles.account_deletion_deliveries WHERE id=$1", ids[1]).Scan(&completed))
-	require.Nil(t, completed)
-	require.NoError(t, b.Close(t.Context()))
-	b = makeApp(1, false)
-	require.NoError(t, b.deliverAccountEvent(t.Context(), ids[1]), "durable obligation was not retryable after restart")
-	require.NoError(t, a.finalizeAccountDeletion(t.Context(), deletion, true))
-	require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT EXISTS(SELECT 1 FROM profiles.users WHERE id=$1)", user.ID).Scan(&exists))
-	require.False(t, exists)
+	completed := func(issuer string) bool {
+		var n int
+		err := pg.Pool.QueryRow(t.Context(), "SELECT count(*) FROM public.river_job WHERE kind='authkit_account_delete_due' AND args->>'issuer'=$1 AND state='completed'", issuer).Scan(&n)
+		return err == nil && n > 0
+	}
+	// Both issuers intentionally share a River schema: scoped queue/unique args
+	// must keep the first running client from swallowing the second's catch-up.
+	require.NoError(t, a.Start(t.Context(), nil))
+	require.Eventually(t, func() bool { return completed(issuers[0]) }, 10*time.Second, 25*time.Millisecond)
+	require.EqualValues(t, 1, calls[0].Load())
+	require.Zero(t, calls[1].Load())
+	require.True(t, exists(), "offline required issuer prevents purge")
+	require.Eventually(t, func() bool {
+		var n int
+		err := pg.Pool.QueryRow(t.Context(), "SELECT count(*) FROM public.river_job WHERE kind='authkit_account_delete_due' AND args->>'issuer'=$1 AND state IN ('available','pending','retryable','scheduled')", issuers[1]).Scan(&n)
+		return err == nil && n == 1
+	}, 10*time.Second, 25*time.Millisecond, "the elected leader schedules the offline sibling's coalesced batch")
+	require.NoError(t, a.deleteDueAccounts(t.Context()))
+	require.EqualValues(t, 1, calls[0].Load(), "successful cleanup is not replayed")
+	require.NoError(t, b.Start(t.Context(), nil))
+	require.Eventually(t, func() bool { return completed(issuers[1]) }, 10*time.Second, 25*time.Millisecond)
+	require.EqualValues(t, 1, calls[1].Load())
+	require.True(t, exists(), "failed cleanup remains durable")
+	var pending bool
+	require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT completed_at IS NULL FROM profiles.account_deletion_deliveries WHERE deletion_id=$1 AND issuer=$2", deletion, issuers[1]).Scan(&pending))
+	require.True(t, pending)
+	failSecond.Store(false)
+	require.NoError(t, b.deleteDueAccounts(t.Context()))
+	require.False(t, exists(), "last required issuer completes the purge")
+	require.NoError(t, a.deleteDueAccounts(t.Context()))
+	require.NoError(t, b.deleteDueAccounts(t.Context()))
+	require.EqualValues(t, 1, calls[0].Load())
+	require.EqualValues(t, 2, calls[1].Load())
+	var queued int
+	require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT count(*) FROM public.river_job WHERE kind='authkit_account_delivery'").Scan(&queued))
+	require.Zero(t, queued, "cleanup has no per-account delivery jobs")
 }

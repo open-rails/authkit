@@ -28,7 +28,7 @@ func TestAccountDeletionDailySweepSeparatesDueAndRecoverable(t *testing.T) {
 	require.NoError(t, e.deleteDueAccounts(t.Context()))
 	var state string
 	require.NoError(t, e.pg.QueryRow(t.Context(), `SELECT state FROM account_deletions WHERE id=$1`, dueID).Scan(&state))
-	require.Equal(t, "finalizing", state)
+	require.Equal(t, "purged", state, "the same due pass completes local no-op cleanup")
 	var deliveries, timers int
 	require.NoError(t, e.pg.QueryRow(t.Context(), `SELECT count(*) FROM account_deletion_deliveries WHERE user_id=$1`, future.ID).Scan(&deliveries))
 	require.Zero(t, deliveries, "recoverable accounts must not start irreversible host cleanup")
@@ -38,7 +38,7 @@ func TestAccountDeletionDailySweepSeparatesDueAndRecoverable(t *testing.T) {
 
 	var id int64
 	require.NoError(t, e.pg.QueryRow(t.Context(), `SELECT id FROM account_deletion_deliveries WHERE deletion_id=$1`, dueID).Scan(&id))
-	require.NoError(t, e.deliverAccountEvent(t.Context(), id))
+	require.NoError(t, e.runAccountCleanup(t.Context(), id))
 	var exists bool
 	require.NoError(t, e.pg.QueryRow(t.Context(), `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1)`, due.ID).Scan(&exists))
 	require.False(t, exists, "the last successful callback purges inline without another River job")
@@ -126,7 +126,7 @@ func TestAccountDeletionDailyConcurrentSweeps(t *testing.T) {
 		t.Cleanup(func() { _ = e.Close(context.Background()) })
 		engines[i] = e
 	}
-	a, b := engines[0], engines[1]
+	a := engines[0]
 	user := newUser(t, a, "parallelpurge")
 	id := expireDeletion(t, a, user.ID)
 	var wg sync.WaitGroup
@@ -142,16 +142,10 @@ func TestAccountDeletionDailyConcurrentSweeps(t *testing.T) {
 	var deliveries int
 	require.NoError(t, a.pg.QueryRow(t.Context(), `SELECT count(*) FROM account_deletion_deliveries WHERE deletion_id=$1`, id).Scan(&deliveries))
 	require.Equal(t, 2, deliveries, "concurrent fleets create exactly one cleanup receipt per issuer")
-	var first, second int64
-	require.NoError(t, a.pg.QueryRow(t.Context(), `SELECT id FROM account_deletion_deliveries WHERE deletion_id=$1 AND issuer=$2`, id, issuers[0]).Scan(&first))
-	require.NoError(t, b.pg.QueryRow(t.Context(), `SELECT id FROM account_deletion_deliveries WHERE deletion_id=$1 AND issuer=$2`, id, issuers[1]).Scan(&second))
-	require.NoError(t, a.deliverAccountEvent(t.Context(), first))
 	var exists bool
 	require.NoError(t, a.pg.QueryRow(t.Context(), `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1)`, user.ID).Scan(&exists))
-	require.True(t, exists, "the first issuer cannot purge before its sibling cleans up")
-	require.NoError(t, b.deliverAccountEvent(t.Context(), second))
-	require.NoError(t, a.pg.QueryRow(t.Context(), `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1)`, user.ID).Scan(&exists))
-	require.False(t, exists)
+	require.False(t, exists, "the two issuers each complete only their own cleanup")
+
 }
 
 func TestAccountDeletionDailyWorkerRegistration(t *testing.T) {
@@ -186,6 +180,14 @@ type legacyAccountFinalizeArgs struct {
 
 func (legacyAccountFinalizeArgs) Kind() string { return "authkit_account_finalize" }
 
+type legacyAccountDeliveryArgs struct {
+	Schema     string `json:"schema"`
+	Issuer     string `json:"issuer"`
+	DeliveryID int64  `json:"delivery_id"`
+}
+
+func (legacyAccountDeliveryArgs) Kind() string { return "authkit_account_delivery" }
+
 func TestAccountDeletionTimerMigrationKeepsLifecycleAndOtherFleets(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
 	cfg := maintenanceConfig()
@@ -212,6 +214,10 @@ func TestAccountDeletionTimerMigrationKeepsLifecycleAndOtherFleets(t *testing.T)
 	sibling, err := river.NewClient(riverpgxv5.New(pg.Pool), &river.Config{Schema: "untouched_jobs"})
 	require.NoError(t, err)
 	siblingJob, err := sibling.Insert(t.Context(), legacyAccountFinalizeArgs{Schema: "profiles", DeletionID: deletion.ID}, &river.InsertOpts{ScheduledAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
+	var cleanupID int64
+	require.NoError(t, e.pg.QueryRow(t.Context(), `INSERT INTO account_deletion_deliveries(deletion_id,user_id,issuer,stage) VALUES($1,$2,$3,'hard') RETURNING id`, deletion.ID, user.ID, cfg.Token.Issuer).Scan(&cleanupID))
+	legacy, err := client.Insert(t.Context(), legacyAccountDeliveryArgs{Schema: "profiles", Issuer: cfg.Token.Issuer, DeliveryID: cleanupID}, &river.InsertOpts{ScheduledAt: time.Now().Add(time.Hour)})
 	require.NoError(t, err)
 	retired, foreign, running := add("profiles"), add("other_identity"), add("profiles")
 	_, err = pg.Pool.Exec(t.Context(), `UPDATE public.river_job SET state='running',attempted_at=statement_timestamp(),attempt=1 WHERE id=$1`, running)
@@ -246,6 +252,11 @@ func TestAccountDeletionTimerMigrationKeepsLifecycleAndOtherFleets(t *testing.T)
 	require.Equal(t, []int64{foreign}, retained)
 	require.NotContains(t, retained, retired)
 	require.NotContains(t, retained, stale, "purged accounts need no future finalizer")
+	var jobExists, pending bool
+	require.NoError(t, pg.Pool.QueryRow(t.Context(), `SELECT EXISTS(SELECT 1 FROM public.river_job WHERE id=$1)`, legacy.Job.ID).Scan(&jobExists))
+	require.False(t, jobExists)
+	require.NoError(t, e.pg.QueryRow(t.Context(), `SELECT completed_at IS NULL FROM account_deletion_deliveries WHERE id=$1`, cleanupID).Scan(&pending))
+	require.True(t, pending, "retiring a job preserves its cleanup obligation")
 	var got db.AccountDeletion
 	require.NoError(t, e.pg.QueryRow(t.Context(), `SELECT id::text,user_id::text,purge_at,state FROM account_deletions WHERE id=$1`, deletion.ID).Scan(&got.ID, &got.UserID, &got.PurgeAt, &got.State))
 	require.Equal(t, deletion, got, "migration removes timers, never authoritative deletion state")
@@ -283,10 +294,16 @@ func TestAccountDeletionDailyRestartCatchesUp(t *testing.T) {
 
 	producer, err := river.NewClient(riverpgxv5.New(pg.Pool), &river.Config{Schema: "public"})
 	require.NoError(t, err)
-	args := accountDeleteDueArgs{Schema: "profiles"}
+	args := accountDeleteDueArgs{Schema: "profiles", Issuer: maintenanceConfig().Token.Issuer}
 	one, err := producer.Insert(t.Context(), args, nil)
 	require.NoError(t, err)
 	two, err := producer.Insert(t.Context(), args, nil)
 	require.NoError(t, err)
 	require.Equal(t, one.Job.ID, two.Job.ID, "pending scans coalesce even after completed history exists")
+	other := args
+	other.Issuer = "https://other-issuer.test"
+	three, err := producer.Insert(t.Context(), other, nil)
+	require.NoError(t, err)
+	require.NotEqual(t, one.Job.ID, three.Job.ID, "one issuer cannot suppress another issuer's sweep")
+	require.NotEqual(t, one.Job.Queue, three.Job.Queue, "one issuer's worker cannot claim another issuer's cleanup")
 }

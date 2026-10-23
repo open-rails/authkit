@@ -108,13 +108,13 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, db config.DatabaseConfig, 
 	if _, err := riverMigrator.Migrate(ctx, rivermigrate.DirectionUp, nil); err != nil {
 		return fmt.Errorf("authkit: migrate River: %w", err)
 	}
-	return retireAccountDeletionTimers(ctx, pool, normalized, riverSchema)
+	return retireAccountDeletionJobs(ctx, pool, normalized, riverSchema)
 }
 
-// The lifecycle rows are authoritative before a timer is retired. Upgrade each
+// Lifecycle and required cleanup receipts are authoritative before jobs retire. Upgrade each
 // fleet while old writers are stopped; an active old worker or an orphan timer
 // fails closed rather than abandoning unverified work.
-func retireAccountDeletionTimers(ctx context.Context, pool *pgxpool.Pool, schema, riverSchema string) error {
+func retireAccountDeletionJobs(ctx context.Context, pool *pgxpool.Pool, schema, riverSchema string) error {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -129,7 +129,7 @@ func retireAccountDeletionTimers(ctx context.Context, pool *pgxpool.Pool, schema
 	}
 	var running, orphan bool
 	err = tx.QueryRow(ctx, `SELECT
-		EXISTS (SELECT 1 FROM `+jobs+` j WHERE j.kind='authkit_account_finalize' AND j.args->>'schema'=$1 AND j.state='running'),
+		EXISTS (SELECT 1 FROM `+jobs+` j WHERE j.kind IN ('authkit_account_finalize','authkit_account_delivery') AND j.args->>'schema'=$1 AND j.state='running'),
 		EXISTS (SELECT 1 FROM `+jobs+` j WHERE j.kind='authkit_account_finalize' AND j.args->>'schema'=$1
 		  AND j.state IN ('available','pending','retryable','scheduled')
 		  AND NOT EXISTS (SELECT 1 FROM `+deletions+` d WHERE d.id::text=j.args->>'deletion_id'))`, schema).Scan(&running, &orphan)
@@ -137,13 +137,13 @@ func retireAccountDeletionTimers(ctx context.Context, pool *pgxpool.Pool, schema
 		return err
 	}
 	if running {
-		return fmt.Errorf("authkit: account deletion timer is running in River schema %q; stop old account workers and retry migration", riverSchema)
+		return fmt.Errorf("authkit: legacy account deletion job is running in River schema %q; stop old account workers and retry migration", riverSchema)
 	}
 	if orphan {
 		return fmt.Errorf("authkit: account deletion timer has no canonical deletion record in schema %q; repair its lifecycle state before migrating", schema)
 	}
 	_, err = tx.Exec(ctx, "DELETE FROM "+jobs+`
-		WHERE kind='authkit_account_finalize' AND args->>'schema'=$1
+		WHERE kind IN ('authkit_account_finalize','authkit_account_delivery') AND args->>'schema'=$1
 		AND state IN ('available','pending','retryable','scheduled')`, schema)
 	if err != nil {
 		return fmt.Errorf("authkit: retire account deletion timers: %w", err)

@@ -97,13 +97,7 @@ func TestTenantLifecycleRetainsTargetAcrossRestartAndPurge(t *testing.T) {
 	require.NoError(t, err)
 	wrong := WithTenant(ctx, cfg.DefaultTenantID)
 	sweep := &accountDeleteDueWorker{engine: e}
-	require.NoError(t, sweep.Work(wrong, &river.Job[accountDeleteDueArgs]{Args: accountDeleteDueArgs{Schema: schema}}))
-	var deliveryID int64
-	require.NoError(t, e.pg.QueryRow(ctx, `SELECT id FROM account_deletion_deliveries WHERE deletion_id=$1 AND stage='hard'`, deletionID).Scan(&deliveryID))
-	delivery := &accountDeliveryWorker{engine: e}
-	job := &river.Job[accountDeliveryArgs]{Args: accountDeliveryArgs{Schema: schema, Issuer: cfg.Token.Issuer, DeliveryID: deliveryID}}
-	var snooze *river.JobSnoozeError
-	require.ErrorAs(t, delivery.Work(wrong, job), &snooze)
+	require.NoError(t, sweep.Work(wrong, &river.Job[accountDeleteDueArgs]{Args: accountDeleteDueArgs{Schema: schema, Issuer: cfg.Token.Issuer}}))
 	require.Len(t, purges, 1)
 
 	// No target is carried in the job args. A new default-A worker must recover
@@ -111,11 +105,10 @@ func TestTenantLifecycleRetainsTargetAcrossRestartAndPurge(t *testing.T) {
 	require.NoError(t, e.Close(ctx))
 	e = newTestEngine(t, cfg, deps)
 	retryPurge = false
-	delivery.engine, sweep.engine = e, e
-	require.NoError(t, delivery.Work(wrong, job))
+	sweep.engine = e
+	require.NoError(t, sweep.Work(wrong, &river.Job[accountDeleteDueArgs]{Args: accountDeleteDueArgs{Schema: schema, Issuer: cfg.Token.Issuer}}))
 	require.Len(t, purges, 2)
 	require.Equal(t, purges[0], purges[1])
-	require.NoError(t, sweep.Work(wrong, &river.Job[accountDeleteDueArgs]{Args: accountDeleteDueArgs{Schema: schema}}))
 	var exists bool
 	require.NoError(t, e.pg.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1)`, userID).Scan(&exists))
 	require.False(t, exists)

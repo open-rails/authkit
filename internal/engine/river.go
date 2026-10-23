@@ -145,9 +145,6 @@ func (s *Engine) registerRiver(cfg *river.Config) error {
 	if err := river.AddWorkerSafely(workers, &accountDeleteDueWorker{engine: s}); err != nil {
 		return err
 	}
-	if err := river.AddWorkerSafely(workers, &accountDeliveryWorker{engine: s}); err != nil {
-		return err
-	}
 	if err := river.AddWorkerSafely(workers, &accountEventWorker{engine: s}); err != nil {
 		return err
 	}
@@ -167,12 +164,12 @@ func (s *Engine) registerRiver(cfg *river.Config) error {
 	if _, ok := cfg.Queues[queue]; !ok {
 		cfg.Queues[queue] = river.QueueConfig{MaxWorkers: 1}
 	}
-	deliveryQueue := accountDeliveryQueue(s.dbSchema(), s.cfg.Token.Issuer)
-	if existing, ok := cfg.Queues[deliveryQueue]; ok && existing.MaxWorkers < 1 {
-		return fmt.Errorf("authkit: account callback queue %q requires workers", deliveryQueue)
+	dueQueue := accountDeleteDueQueue(s.dbSchema(), s.cfg.Token.Issuer)
+	if existing, ok := cfg.Queues[dueQueue]; ok && existing.MaxWorkers < 1 {
+		return fmt.Errorf("authkit: account cleanup queue %q requires workers", dueQueue)
 	}
-	if _, ok := cfg.Queues[deliveryQueue]; !ok {
-		cfg.Queues[deliveryQueue] = river.QueueConfig{MaxWorkers: 1}
+	if _, ok := cfg.Queues[dueQueue]; !ok {
+		cfg.Queues[dueQueue] = river.QueueConfig{MaxWorkers: 1}
 	}
 	eventQueue := accountEventQueue(s.dbSchema(), s.cfg.Token.Issuer)
 	if existing, ok := cfg.Queues[eventQueue]; ok && existing.MaxWorkers < 1 {
@@ -248,6 +245,11 @@ func (s *Engine) Start(ctx context.Context, fleet *river.Client[pgx.Tx]) error {
 	}
 	if err := s.pruneProvisioningTargets(ctx); err != nil {
 		return fmt.Errorf("authkit: provisioning targets: %w", err)
+	}
+	// A non-leader still needs its startup catch-up, even when another issuer
+	// already owns periodic scheduling in this shared River schema.
+	if err := s.scheduleAccountCleanup(ctx, s.cfg.Token.Issuer); err != nil {
+		return fmt.Errorf("authkit: schedule account cleanup: %w", err)
 	}
 	if fleet == nil {
 		if err := s.startOwnRiver(ctx); err != nil {

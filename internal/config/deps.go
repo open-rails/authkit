@@ -65,10 +65,10 @@ type Deps struct {
 	// This legacy transport remains only while existing hosts migrate.
 	OnEvent func(context.Context, iam.Event) error
 	// OnPurge erases the host's data of a deleted account before AuthKit
-	// purges the account, 30 days after its deletion. It runs durably through
-	// River on every account issuer, and the purge waits until each has
-	// succeeded; a failure is retried. It must be idempotent and honor
-	// cancellation.
+	// purges the account, 30 days after its deletion. Every issuer's daily
+	// startup/catch-up sweep runs its own pending cleanup receipts, and the
+	// purge waits until all required issuers succeed. A failed callback stays
+	// due for that issuer's next sweep. It must be idempotent and honor cancellation.
 	OnPurge func(context.Context, iam.UserDeletion) error
 	// DeletionCheck runs before a user deletes their own account: an
 	// iam.RefuseDeletion error refuses it with deletion_refused (409, the

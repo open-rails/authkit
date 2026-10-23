@@ -110,7 +110,7 @@ func (s *Engine) finalizeAccountDeletion(ctx context.Context, id string, purge b
 		if err := q.AccountDeletionSetFinalizing(ctx, id); err != nil {
 			return err
 		}
-		if err := s.enqueueAccountDeliveries(ctx, tx, client, userDeletion(record), record.Recipients, "hard"); err != nil {
+		if err := s.recordAccountCleanup(ctx, tx, client, userDeletion(record), record.Recipients); err != nil {
 			return err
 		}
 		if err := tx.Commit(ctx); err != nil {

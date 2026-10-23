@@ -36,8 +36,12 @@ type accountEventArgs struct {
 func (accountEventArgs) Kind() string { return "authkit_account_event" }
 
 func accountEventQueue(schema, issuer string) string {
+	return accountScopedQueue("authkit_events-", schema, issuer)
+}
+
+func accountScopedQueue(prefix, schema, issuer string) string {
 	digest := sha256.Sum256([]byte(schema + "\x00" + issuer))
-	return "authkit_events-" + hex.EncodeToString(digest[:20])
+	return prefix + hex.EncodeToString(digest[:20])
 }
 
 // maxEventRetryDelay caps the backoff of a failing hook.
