@@ -21,7 +21,7 @@ An API key/identity's existing capability ceiling still applies. The explicit
 requires `root:users:read`; it does not merge every tenant's log.
 
 The response has `events`, `next_cursor`, `has_more`, and `retention_seconds`.
-Events use the existing typed `iam.Event` shape (`kind`, `id`, `tenant_id`, actor
+Events use the existing typed `iam.Event` shape (`type`, legacy `kind`, `id`, `tenant_id`, actor
 and affected-subject fields) with payload `version: 1`. Unknown kinds and
 additive payload fields may appear. `kind` is an optional repeated/comma-separated
 filter; the cursor is bound to its normalized kind set and scope. The browser
@@ -102,3 +102,8 @@ methods include trusted actor, transaction options, tenant dispatch and native
 operations without an equivalent authorized HTTP route. Completing that facade
 requires explicit mappings and authorization/error parity tests for each supported
 operation. No general remote client with silent unsupported methods is provided.
+
+`iam.Event.Type` is the discriminator for new code. `Kind` remains a compatible
+alias: JSON reads accept either spelling, writes emit both with the same value,
+and conflicting nonempty values are rejected. Historical kind-only records and
+older HTTP responses therefore retain their exact event type.

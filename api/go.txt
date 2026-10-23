@@ -1033,6 +1033,7 @@ pkg authkit/iam, func UserIdentity(string) auth.Identity
 pkg authkit/iam, func UserSubject(string) Subject
 pkg authkit/iam, func Within(auth.Identity, ...Perm) auth.Identity
 pkg authkit/iam, func WriteError(http.ResponseWriter, error)
+pkg authkit/iam, method (*Event) UnmarshalJSON([]byte) error
 pkg authkit/iam, method (*ListPage[T]) UnmarshalJSON([]byte) error
 pkg authkit/iam, method (*OpResult) UnmarshalJSON([]byte) error
 pkg authkit/iam, method (*Perm) UnmarshalText([]byte) error
@@ -1057,6 +1058,7 @@ pkg authkit/iam, method (CredentialState) Session() (SessionRef, bool)
 pkg authkit/iam, method (CredentialState) String() string
 pkg authkit/iam, method (CredentialState) SubjectKind() auth.SubjectKind
 pkg authkit/iam, method (CredentialState) TenantID() TenantID
+pkg authkit/iam, method (Event) MarshalJSON() ([]byte, error)
 pkg authkit/iam, method (GroupRef) ID() string
 pkg authkit/iam, method (GroupRef) IsRoot() bool
 pkg authkit/iam, method (GroupRef) IsZero() bool
@@ -1240,6 +1242,7 @@ pkg authkit/iam, type Event struct, Role Role `json:"role"`
 pkg authkit/iam, type Event struct, SubjectID string `json:"subject_id"`
 pkg authkit/iam, type Event struct, SubjectKind auth.SubjectKind `json:"subject_kind"`
 pkg authkit/iam, type Event struct, TenantID TenantID `json:"tenant_id"`
+pkg authkit/iam, type Event struct, Type EventKind `json:"type"`
 pkg authkit/iam, type Event struct, Until *time.Time `json:"until"`
 pkg authkit/iam, type Event struct, UserID string `json:"user_id"`
 pkg authkit/iam, type Event struct, Version int `json:"version"`

@@ -55,6 +55,9 @@ func (s *Engine) appendEventLog(ctx context.Context, tx pgx.Tx, events []iam.Eve
 		positions[scope] = state.Position
 	}
 	for _, e := range events {
+		if e.Kind == "" {
+			e.Kind = e.Type
+		}
 		scope := eventLogScope(e.TenantID)
 		positions[scope]++
 		payload, err := json.Marshal(e)
@@ -204,7 +207,10 @@ func (s *authEventSnapshot) Events(ctx context.Context, after int64, types []str
 		if err := json.Unmarshal(row.Payload, &payload); err != nil {
 			return nil, fmt.Errorf("authkit: decode retained event %s: %w", row.EventID, err)
 		}
-		records = append(records, eventlog.Record{Position: row.Position, Event: eventlog.Event{ID: row.EventID, Source: "authkit", Scope: s.scope, Type: string(payload.Kind), Version: payload.Version, OccurredAt: payload.OccurredAt, RecordedAt: row.RecordedAt.UTC(), Data: row.Payload}})
+		if string(payload.Kind) != row.Kind {
+			return nil, fmt.Errorf("authkit: retained event %s kind differs from payload", row.EventID)
+		}
+		records = append(records, eventlog.Record{Position: row.Position, Event: eventlog.Event{ID: row.EventID, Source: "authkit", Scope: s.scope, Type: row.Kind, Version: payload.Version, OccurredAt: payload.OccurredAt, RecordedAt: row.RecordedAt.UTC(), Data: row.Payload}})
 	}
 	return records, nil
 }
