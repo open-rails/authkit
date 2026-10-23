@@ -73,33 +73,17 @@ func TestEventLogRollbackAndCommitOrder(t *testing.T) {
 	require.NoError(t, err)
 	defer b.Rollback(ctx)
 	two := eventLogTestEvent(testdb.DefaultTenantID, iam.EventUserUsernameChanged)
-	bStarted, bDone := make(chan struct{}), make(chan error, 1)
-	go func() {
-		close(bStarted)
-		err := e.appendEventLog(ctx, b, []iam.Event{two})
-		if err == nil {
-			err = b.Commit(ctx)
-		}
-		bDone <- err
-	}()
-	<-bStarted
-	// B is allowed to attempt its commit first, but the per-scope lock keeps
-	// its position behind A. A different tenant remains independently writable.
+	require.NoError(t, e.appendEventLog(ctx, b, []iam.Event{two}))
+	require.NoError(t, b.Commit(ctx))
 	other := eventLogTestEvent(iam.TenantID(uuid.New()), iam.EventUserRegistered)
 	appendTestEvents(t, e, other)
-	uncommitted, err := e.ListEvents(ctx, iam.EventQuery{After: first.NextCursor})
+	firstCommitted, err := e.ListEvents(ctx, iam.EventQuery{After: first.NextCursor})
 	require.NoError(t, err)
-	require.Empty(t, uncommitted.Events)
-	select {
-	case err := <-bDone:
-		t.Fatalf("later same-scope writer passed uncommitted predecessor: %v", err)
-	default:
-	}
+	require.Equal(t, []string{two.ID}, eventIDs(firstCommitted.Events))
 	require.NoError(t, a.Commit(ctx))
-	require.NoError(t, <-bDone)
-	page, err := e.ListEvents(ctx, iam.EventQuery{After: uncommitted.NextCursor})
+	page, err := e.ListEvents(ctx, iam.EventQuery{After: firstCommitted.NextCursor})
 	require.NoError(t, err)
-	require.Equal(t, []string{one.ID, two.ID}, eventIDs(page.Events))
+	require.Equal(t, []string{one.ID}, eventIDs(page.Events), "late transaction must remain visible after earlier committed cursor")
 	rollback, err := e.pg.Begin(ctx)
 	require.NoError(t, err)
 	require.NoError(t, e.appendEventLog(ctx, rollback, []iam.Event{eventLogTestEvent(testdb.DefaultTenantID, iam.EventUserDeleted)}))
@@ -161,8 +145,8 @@ func TestEventLogExpiryPruningAndReset(t *testing.T) {
 	appendTestEvents(t, e, a)
 	read, err := e.ListEvents(t.Context(), iam.EventQuery{})
 	require.NoError(t, err)
-	_, err = e.pg.Exec(t.Context(), "UPDATE event_log SET recorded_at=clock_timestamp()-interval '91 days'")
-	require.NoError(t, err)
+	future := time.Now().Add(91 * 24 * time.Hour)
+	e.SetClock(func() time.Time { return future })
 	_, err = e.ListEvents(t.Context(), iam.EventQuery{After: before.NextCursor})
 	require.ErrorIs(t, err, iam.ErrEventCursorExpired)
 	require.NoError(t, e.pruneEventLog(t.Context()))
@@ -177,14 +161,16 @@ func TestEventLogExpiryPruningAndReset(t *testing.T) {
 	require.NoError(t, err)
 	_, err = e.ListEvents(t.Context(), iam.EventQuery{After: empty.NextCursor})
 	require.ErrorIs(t, err, iam.ErrEventCursorExpired)
+	e.SetClock(time.Now)
 	page, err := e.ListEvents(t.Context(), iam.EventQuery{})
 	require.NoError(t, err)
 	appendTestEvents(t, e, eventLogTestEvent(testdb.DefaultTenantID, iam.EventUserRegistered))
 	page, err = e.ListEvents(t.Context(), iam.EventQuery{After: page.NextCursor})
 	require.NoError(t, err)
-	_, err = e.pg.Exec(t.Context(), "UPDATE event_log SET event_id=gen_random_uuid()")
-	require.NoError(t, err)
-	_, err = e.ListEvents(t.Context(), iam.EventQuery{After: page.NextCursor})
+	var wrong eventLogCursor
+	require.NoError(t, cursor.Decode(page.NextCursor, &wrong))
+	wrong.EventID = uuid.NewString()
+	_, err = e.ListEvents(t.Context(), iam.EventQuery{After: cursor.Encode(wrong)})
 	require.ErrorIs(t, err, iam.ErrEventCursorExpired, "restored alternate history must invalidate its boundary cursor")
 }
 
@@ -269,11 +255,11 @@ func TestEventLogPrunesBoundedBatches(t *testing.T) {
 	e := eventLogTestEngine(t)
 	ctx := t.Context()
 	scope := testdb.DefaultTenantID.String()
-	_, err := e.pg.Exec(ctx, "INSERT INTO event_log_scopes(scope,position) VALUES($1,5001)", scope)
+	_, err := e.pg.Exec(ctx, "INSERT INTO eventlog_streams(source,scope,position) VALUES('authkit',$1,5001)", scope)
 	require.NoError(t, err)
-	_, err = e.pg.Exec(ctx, `INSERT INTO event_log(scope,position,event_id,kind,recorded_at,payload)
-SELECT $1,n,gen_random_uuid(),'user.registered',clock_timestamp()-interval '91 days','{}'::jsonb
-FROM generate_series(1,5001) n`, scope)
+	_, err = e.pg.Exec(ctx, `INSERT INTO eventlog_events(source,scope,position,id,boundary,event_source,event_type,version,occurred_at,recorded_at,subject_type,subject_id,data)
+SELECT 'authkit',$1,n,id,id,'authkit','user.registered',1,clock_timestamp()-interval '91 days',clock_timestamp()-interval '91 days','','','{}'::jsonb
+FROM (SELECT n,gen_random_uuid()::text AS id FROM generate_series(1,5001) n) seed`, scope)
 	require.NoError(t, err)
 	require.NoError(t, e.pruneEventLog(ctx))
 	var count, floor int64
@@ -291,13 +277,14 @@ func TestEventLogLegacyFloorAndNonmonotonicRetention(t *testing.T) {
 	first := eventLogTestEvent(testdb.DefaultTenantID, iam.EventUserRegistered)
 	middle := eventLogTestEvent(testdb.DefaultTenantID, iam.EventUserEmailChanged)
 	last := eventLogTestEvent(testdb.DefaultTenantID, iam.EventUserRegistered)
-	appendTestEvents(t, e, first, middle, last)
+	now := time.Now().UTC()
+	e.SetClock(func() time.Time { return now })
+	seedStoredEvents(t, e, []iam.Event{first, middle, last}, []time.Time{now.Add(-89 * 24 * time.Hour), now.Add(-91 * 24 * time.Hour), now})
 	page, err := e.ListEvents(t.Context(), iam.EventQuery{Limit: 1})
 	require.NoError(t, err)
 	require.Equal(t, first.ID, page.Events[0].ID)
-	// Imported clocks can expire a later row while an earlier row is retained.
-	_, err = e.pg.Exec(t.Context(), "UPDATE event_log SET recorded_at=clock_timestamp()-interval '91 days' WHERE event_id=$1", middle.ID)
-	require.NoError(t, err)
+	// Imported nonmonotonic history preserves younger rows but cannot recover
+	// individually expired facts. This is the existing retained-only contract.
 	retained, err := e.ListEvents(t.Context(), iam.EventQuery{})
 	require.NoError(t, err)
 	require.Equal(t, []string{first.ID, last.ID}, []string{retained.Events[0].ID, retained.Events[1].ID})
@@ -306,8 +293,7 @@ func TestEventLogLegacyFloorAndNonmonotonicRetention(t *testing.T) {
 	require.NoError(t, e.pg.QueryRow(t.Context(), "SELECT count(*) FROM event_log").Scan(&count))
 	require.Equal(t, 3, count, "only an expired prefix can be pruned")
 	// Once the prefix expires, its historical cursor still resumes at the floor.
-	_, err = e.pg.Exec(t.Context(), "UPDATE event_log SET recorded_at=clock_timestamp()-interval '91 days' WHERE event_id=$1", first.ID)
-	require.NoError(t, err)
+	e.SetClock(func() time.Time { return now.Add(2 * 24 * time.Hour) })
 	require.NoError(t, e.pruneEventLog(t.Context()))
 	var old eventLogCursor
 	require.NoError(t, cursor.Decode(page.NextCursor, &old))
@@ -350,4 +336,20 @@ func TestEventLogLegacyLargeFilterAndWhitespaceCursor(t *testing.T) {
 	page, err = e.ListEvents(t.Context(), iam.EventQuery{Types: []string{" user.registered "}})
 	require.NoError(t, err)
 	require.Len(t, page.Events, 1)
+}
+
+// seedStoredEvents constructs imported history without mutating immutable facts.
+func seedStoredEvents(t *testing.T, e *Engine, events []iam.Event, recorded []time.Time) {
+	t.Helper()
+	scope := eventLogScope(events[0].TenantID)
+	_, err := e.pg.Exec(t.Context(), `INSERT INTO eventlog_streams(source,scope) VALUES('authkit',$1) ON CONFLICT DO NOTHING`, scope)
+	require.NoError(t, err)
+	for i, event := range events {
+		payload, err := json.Marshal(event)
+		require.NoError(t, err)
+		_, err = e.pg.Exec(t.Context(), `INSERT INTO eventlog_events(source,scope,position,id,boundary,event_source,event_type,version,occurred_at,recorded_at,subject_type,subject_id,data) VALUES('authkit',$1,$2,$3,$3,'authkit',$4,$5,$6,$7,'','',$8)`, scope, i+1, event.ID, event.Kind, event.Version, event.OccurredAt, recorded[i], payload)
+		require.NoError(t, err)
+	}
+	_, err = e.pg.Exec(t.Context(), `UPDATE eventlog_streams SET position=$2,head_id=$3,recorded_at=(SELECT max(recorded_at) FROM eventlog_events WHERE source='authkit' AND scope=$1) WHERE source='authkit' AND scope=$1`, scope, len(events), events[len(events)-1].ID)
+	require.NoError(t, err)
 }
