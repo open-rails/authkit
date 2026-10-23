@@ -429,6 +429,15 @@ func keepRows(t *testing.T, db *sql.DB, schema string, addedTenant ...string) fu
 			require.True(t, canonical, "only the configured live canonical tenant group may be added")
 		}
 		for _, table := range tables {
+			if table == "account_events" {
+				// Delivery copies become one retained event, rather than keeping
+				// the obsolete transport table. Other tests verify the payload.
+				var missing int
+				require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM `+pgx.Identifier{snap, table}.Sanitize()+` old
+ WHERE NOT EXISTS(SELECT 1 FROM `+pgx.Identifier{schema, "event_log"}.Sanitize()+` current WHERE current.event_id=old.event_id::uuid)`).Scan(&missing))
+				require.Zero(t, missing, "pending historical events must survive transport retirement")
+				continue
+			}
 			var cols string
 			require.NoError(t, db.QueryRowContext(ctx, `SELECT string_agg(quote_ident(a.attname), ', ' ORDER BY a.attnum)
  FROM pg_attribute a JOIN pg_attribute b ON b.attname = a.attname AND b.attrelid = $2::regclass AND b.attnum > 0 AND NOT b.attisdropped

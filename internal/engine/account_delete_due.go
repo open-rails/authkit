@@ -2,10 +2,13 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
@@ -16,6 +19,7 @@ import (
 type accountDeleteDueArgs struct {
 	Schema string `json:"schema"`
 	Issuer string `json:"issuer"`
+	After  int64  `json:"after,omitempty"`
 }
 
 func (accountDeleteDueArgs) Kind() string { return "authkit_account_delete_due" }
@@ -58,6 +62,15 @@ func (w *accountDeleteDueWorker) Work(ctx context.Context, job *river.Job[accoun
 	if job.Args.Issuer != w.engine.cfg.Token.Issuer {
 		return river.JobCancel(fmt.Errorf("authkit: account cleanup issuer mismatch"))
 	}
+	if job.Args.After != 0 {
+		previous, err := river.ClientFromContext[pgx.Tx](ctx).JobGet(ctx, job.Args.After)
+		if err != nil && !errors.Is(err, river.ErrNotFound) {
+			return err
+		}
+		if err == nil && previous.State == rivertype.JobStateRunning {
+			return river.JobSnooze(time.Second)
+		}
+	}
 	return w.engine.deleteDueAccounts(ctx)
 }
 
@@ -69,7 +82,7 @@ func (s *Engine) scheduleAccountCleanups(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	for _, issuer := range issuers {
+	for _, issuer := range slices.Sorted(slices.Values(issuers)) {
 		if err := s.scheduleAccountCleanup(ctx, issuer); err != nil {
 			return err
 		}
@@ -78,8 +91,44 @@ func (s *Engine) scheduleAccountCleanups(ctx context.Context) error {
 }
 
 func (s *Engine) scheduleAccountCleanup(ctx context.Context, issuer string) error {
-	_, err := s.maintenance.producer.Insert(ctx, accountDeleteDueArgs{Schema: s.dbSchema(), Issuer: issuer}, nil)
-	return err
+	return s.insertAccountCleanup(ctx, nil, s.maintenance.producer, issuer)
+}
+
+func (s *Engine) insertAccountCleanup(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], issuer string) error {
+	args := accountDeleteDueArgs{Schema: s.dbSchema(), Issuer: issuer}
+	for {
+		var result *rivertype.JobInsertResult
+		var err error
+		if tx == nil {
+			result, err = client.Insert(ctx, args, nil)
+		} else {
+			result, err = client.InsertTx(ctx, tx, args, nil)
+		}
+		if err != nil || !result.UniqueSkippedAsDuplicate || result.Job.State != rivertype.JobStateRunning {
+			return err
+		}
+		args.After = result.Job.ID
+	}
+}
+
+// An explicit hard-purge request should not wait for tomorrow's sweep. Its
+// transaction queues a bounded batch per issuer, never a job per account.
+// A running scan may have passed the new receipt, so retain one follow-up.
+func (s *Engine) scheduleAccountCleanupTx(ctx context.Context, tx pgx.Tx, issuers []string) error {
+	for _, issuer := range slices.Sorted(slices.Values(issuers)) {
+		schema, err := s.qtx(tx).AccountDeliveryFleetSchemaForShare(ctx, issuer)
+		if err != nil {
+			return err
+		}
+		client, err := s.fleetProducer(schema)
+		if err != nil {
+			return err
+		}
+		if err := s.insertAccountCleanup(ctx, tx, client, issuer); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Engine) deleteDueAccounts(ctx context.Context) error {

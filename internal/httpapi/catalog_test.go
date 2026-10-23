@@ -96,7 +96,13 @@ func TestCatalogResponseShapes(t *testing.T) {
 				at := path + "." + typ.Name() + "." + f.Name
 				require.NotContains(t, f.Tag, "omitempty", "%s: every member is always present", at)
 				require.NotContains(t, f.Tag, "omitzero", "%s: every member is always present", at)
-				require.NotContains(t, []string{"object", "data", "next_cursor"}, f.Name, "%s: lists are iam.ListPage", at)
+				// An event stream always returns a continuation cursor, even on
+				// an empty page; ordinary item listings use iam.ListPage.
+				reserved := []string{"object", "data", "next_cursor"}
+				if typ == reflect.TypeFor[iam.EventPage]() {
+					reserved = []string{"object", "data"}
+				}
+				require.NotContains(t, reserved, f.Name, "%s: lists are iam.ListPage", at)
 				base := f.Type
 				if base.Kind() == reflect.Pointer {
 					base = base.Elem()

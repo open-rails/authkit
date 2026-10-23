@@ -714,7 +714,10 @@ func (s *Engine) PurgeUsers(ctx context.Context, ids []string, opts ...ops.Optio
 			if err := at.q.AccountDeletionSetFinalizing(ctx, deletion.ID); err != nil {
 				return err
 			}
-			return s.recordAccountCleanup(ctx, at.tx, client, userDeletion(deletion), deletion.Recipients)
+			if err := s.recordAccountCleanup(ctx, at.tx, client, userDeletion(deletion), deletion.Recipients); err != nil {
+				return err
+			}
+			return s.scheduleAccountCleanupTx(ctx, at.tx, deletion.Recipients)
 		})
 		if err == nil {
 			s.logRevokedSessions(ctx, id, revoked, string(authflow.SessionRevokeReasonSoftDeleted))

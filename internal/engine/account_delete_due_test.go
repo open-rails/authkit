@@ -2,11 +2,13 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
@@ -146,6 +148,41 @@ func TestAccountDeletionDailyConcurrentSweeps(t *testing.T) {
 	require.NoError(t, a.pg.QueryRow(t.Context(), `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1)`, user.ID).Scan(&exists))
 	require.False(t, exists, "the two issuers each complete only their own cleanup")
 
+}
+
+func TestExplicitPurgeQueuesOneFollowUpPerIssuer(t *testing.T) {
+	pg := testdb.EmptyScratchPostgres(t)
+	issuers := []string{"https://purge-a.test", "https://purge-b.test"}
+	apps := make([]*Engine, 2)
+	for i, schema := range []string{"purge_a_jobs", "purge_b_jobs"} {
+		cfg := maintenanceConfig()
+		cfg.Token.Issuer, cfg.Token.AccountIssuers = issuers[i], issuers
+		cfg.Database.RiverSchema = schema
+		var err error
+		apps[i], err = New(t.Context(), cfg, config.Deps{Postgres: pg.Pool})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = apps[i].Close(context.Background()) })
+		// A completed startup pass found nothing. A later explicit purge
+		// must enqueue a new pass, not wait for tomorrow.
+		require.NoError(t, apps[i].deleteDueAccounts(t.Context()))
+	}
+	for n := range 3 {
+		u := newUser(t, apps[0], fmt.Sprintf("immediatepurge%d", n))
+		require.NoError(t, itemErr(apps[0].PurgeUsers(t.Context(), []string{u.ID})))
+		for _, schema := range []string{"purge_a_jobs", "purge_b_jobs"} {
+			table := pgx.Identifier{schema, "river_job"}.Sanitize()
+			var count int
+			require.NoError(t, pg.Pool.QueryRow(t.Context(), `SELECT count(*) FROM `+table+` WHERE kind='authkit_account_delete_due'`).Scan(&count))
+			require.Equal(t, min(n+1, 2), count, "one active pass and one coalesced follow-up per issuer")
+			if n == 0 {
+				_, err := pg.Pool.Exec(t.Context(), `UPDATE `+table+` SET state='running',attempted_at=now() WHERE kind='authkit_account_delete_due'`)
+				require.NoError(t, err)
+			}
+			var withAccountID int
+			require.NoError(t, pg.Pool.QueryRow(t.Context(), `SELECT count(*) FROM `+table+` WHERE kind='authkit_account_delete_due' AND (args ? 'user_id' OR args ? 'deletion_id')`).Scan(&withAccountID))
+			require.Zero(t, withAccountID)
+		}
+	}
 }
 
 func TestAccountDeletionDailyWorkerRegistration(t *testing.T) {

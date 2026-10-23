@@ -237,7 +237,7 @@ func run(ctx context.Context) error {
 }
 ```
 
-Mounting gives your users all of this: 73 routes under `/api/v1`, plus the public keys that let anyone verify AuthKit's tokens. Every request and response shape is in [`api/openapi.json`](api/openapi.json), generated from the route catalog.
+Mounting gives your users the routes below under `/api/v1`, plus the public keys that let anyone verify AuthKit's tokens. Every request and response shape is in [`api/openapi.json`](api/openapi.json), generated from the route catalog.
 
 **Signing up and signing in** (every sign-in answers an `AuthResult`: signed in, or the one next step, such as a second factor)
 
@@ -310,6 +310,7 @@ safely enroll a new factor. See [the MFA policy guide](docs/rbac.md#requiring-mf
 | `GET /api/v1/me/permissions` | your role and permissions in one group (`?group_id=`) |
 | `GET /api/v1/users` | anyone's public profile (`?ids=` or `?username=`), no sign-in needed |
 | `GET /api/v1/capabilities` | what this server offers, for your UI |
+| `GET /api/v1/events` | retained events in an authorized tenant or authority scope; readers keep their own cursor |
 
 **Two-factor, passkeys and device keys**
 
