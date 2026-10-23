@@ -24,7 +24,7 @@ SELECT epoch,
 FROM event_log_instance WHERE singleton;
 
 -- name: EventLogItems :many
-SELECT position, event_id, recorded_at, payload FROM event_log
+SELECT position, event_id, kind, recorded_at, payload FROM event_log
 WHERE scope=sqlc.arg(scope) AND position>sqlc.arg(after_position)
   AND recorded_at>=sqlc.arg(cutoff)
   AND (cardinality(sqlc.arg(kinds)::text[])=0 OR kind=ANY(sqlc.arg(kinds)::text[]))

@@ -7803,6 +7803,36 @@
           "id": {
             "type": "string"
           },
+          "type": {
+            "type": "string",
+            "enum": [
+              "group.created",
+              "group.deleted",
+              "group.persona_migrated",
+              "group.purged",
+              "group.role_created",
+              "group.role_deleted",
+              "group.role_updated",
+              "oauth_client.created",
+              "oauth_client.deleted",
+              "oauth_client.updated",
+              "oauth_consent.revoked",
+              "role.changed",
+              "role.granted",
+              "role.revoked",
+              "user.agreement_accepted",
+              "user.banned",
+              "user.deleted",
+              "user.email_changed",
+              "user.phone_changed",
+              "user.purged",
+              "user.registered",
+              "user.restored",
+              "user.sessions_revoked",
+              "user.unbanned",
+              "user.username_changed"
+            ]
+          },
           "kind": {
             "type": "string",
             "enum": [
@@ -7920,6 +7950,7 @@
           "version",
           "tenant_id",
           "id",
+          "type",
           "kind",
           "occurred_at",
           "recorded_at",

@@ -40,6 +40,9 @@ func (a *Client) EventReader(authority ...bool) eventlog.Reader {
 func sharedEventPage(page iam.EventPage) (eventlog.Page, error) {
 	out := eventlog.Page{Events: []eventlog.Event{}, NextCursor: page.NextCursor, HasMore: page.HasMore, RetentionSeconds: page.RetentionSeconds}
 	for _, event := range page.Events {
+		if event.Type == "" {
+			event.Type = event.Kind
+		}
 		event.OccurredAt = event.OccurredAt.UTC()
 		event.RecordedAt = event.RecordedAt.UTC()
 		data, err := json.Marshal(event)
@@ -59,7 +62,7 @@ func sharedEventPage(page iam.EventPage) (eventlog.Page, error) {
 		case event.GroupID != "":
 			subject = eventlog.Subject{Type: "group", ID: event.GroupID}
 		}
-		out.Events = append(out.Events, eventlog.Event{ID: event.ID, Source: "authkit", Scope: scope, Type: string(event.Kind), Version: event.Version, OccurredAt: event.OccurredAt, RecordedAt: event.RecordedAt, Subject: subject, Data: data})
+		out.Events = append(out.Events, eventlog.Event{ID: event.ID, Source: "authkit", Scope: scope, Type: string(event.Type), Version: event.Version, OccurredAt: event.OccurredAt, RecordedAt: event.RecordedAt, Subject: subject, Data: data})
 	}
 	return out, nil
 }

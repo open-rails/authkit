@@ -1,6 +1,8 @@
 package iam
 
 import (
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/open-rails/authkit/auth"
@@ -77,7 +79,9 @@ type Event struct {
 	// Zero identifies an authority-wide event with no tenant-owned target.
 	TenantID TenantID `json:"tenant_id"`
 	// ID is stable on every read: the application's idempotency key.
-	ID         string    `json:"id"`
+	ID string `json:"id"`
+	// Type is the event discriminator. Kind is its legacy spelling.
+	Type       EventKind `json:"type"`
 	Kind       EventKind `json:"kind"`
 	OccurredAt time.Time `json:"occurred_at"`
 	// RecordedAt is the retained log storage time, independent of occurrence time.
@@ -139,4 +143,40 @@ type EventPage struct {
 	NextCursor       string  `json:"next_cursor"`
 	HasMore          bool    `json:"has_more"`
 	RetentionSeconds int64   `json:"retention_seconds"`
+}
+
+// MarshalJSON emits matching type/kind aliases for old and new consumers.
+func (e Event) MarshalJSON() ([]byte, error) {
+	if err := e.normalizeType(); err != nil {
+		return nil, err
+	}
+	type wire Event
+	return json.Marshal(wire(e))
+}
+
+// UnmarshalJSON accepts either discriminator spelling but refuses ambiguity.
+func (e *Event) UnmarshalJSON(data []byte) error {
+	type wire Event
+	var value wire
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	normalized := Event(value)
+	if err := normalized.normalizeType(); err != nil {
+		return err
+	}
+	*e = normalized
+	return nil
+}
+func (e *Event) normalizeType() error {
+	if e.Type == "" {
+		e.Type = e.Kind
+	}
+	if e.Kind == "" {
+		e.Kind = e.Type
+	}
+	if e.Type != e.Kind {
+		return fmt.Errorf("authkit: conflicting event type %q and kind %q", e.Type, e.Kind)
+	}
+	return nil
 }
