@@ -331,6 +331,70 @@ it("recognizes roleless tenant account invitations without membership powers", (
   expect(access.roles.read).toBe(false)
 })
 
+it("shows sign-in methods, end reasons, devices and the language in words", async () => {
+  window.history.replaceState(null, "", "/users/account-id")
+  const mac =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
+  const { auth: base } = host(allPermissions, ["root:users:read"])
+  const authFetch = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input), location.href).pathname
+      if (path.endsWith("/account-id/sessions"))
+        return Response.json({
+          data: [
+            {
+              id: "s1",
+              created_at: "2026-01-02T00:00:00Z",
+              last_used_at: "2026-01-02T00:00:00Z",
+              ip: "127.0.0.1",
+              user_agent: mac,
+            },
+          ],
+          next_cursor: null,
+        })
+      if (path.endsWith("/account-id/session-events"))
+        return Response.json({
+          data: [
+            {
+              kind: "session_created",
+              occurred_at: "2026-01-02T00:00:00Z",
+              method: "password_login",
+              ip: "127.0.0.1",
+              user_agent: mac,
+            },
+            {
+              kind: "session_revoked",
+              occurred_at: "2026-01-01T00:00:00Z",
+              reason: "contact_proven",
+            },
+            {
+              kind: "session_revoked",
+              occurred_at: "2026-01-01T00:00:00Z",
+              reason: "logout",
+              method: "future_method",
+            },
+          ],
+          next_cursor: null,
+        })
+      return base.authFetch(input, init)
+    }
+  )
+  render(
+    <UsersAdmin auth={{ authFetch }} tenantId={TENANT_A} basePath="/users" />
+  )
+  const history = await screen.findByRole("table", { name: "Sign-in history" })
+  expect(within(history).getByText("Password")).toBeInTheDocument()
+  expect(within(history).getByText(/Contact confirmed/)).toBeInTheDocument()
+  // Unknown values show as sent; a plain sign-out adds no reason.
+  expect(within(history).getByText("future_method")).toBeInTheDocument()
+  expect(within(history).queryByText(/logout/)).not.toBeInTheDocument()
+  expect(within(history).getAllByText("Chrome on macOS")[0]).toHaveAttribute(
+    "title",
+    mac
+  )
+  expect(screen.getByText("English")).toBeInTheDocument()
+})
+
 it("edits only the tenant role and never presents the account's root role", async () => {
   window.history.replaceState(null, "", "/users/account-id")
   const { auth, authFetch } = host()
