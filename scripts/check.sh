@@ -93,7 +93,7 @@ required = ('TestSecurityAccessTokenForgery', 'TestSecurityBearerTransport', 'Te
             'TestAccountEventsAcrossSeparateRiverFleets',
             'TestAccountDeletionDoesNotNeedPerAccountRiverInsert', 'TestAccountRecoveryAndFinalizerSerializeAtDeadline',
             'TestAccountDeletionDailySweepSeparatesDueAndRecoverable', 'TestAccountDeletionDailySweepContinuesAfterFailureAcrossBatches',
-            'TestAccountDeletionDailySweepKeepsLastOwner', 'TestAccountDeletionDailyConcurrentSweeps', 'TestAccountDeletionDailyWorkerRegistration', 'TestAccountDeletionDailyRestartCatchesUp',
+            'TestAccountDeletionDailySweepKeepsLastOwner', 'TestAccountDeletionDailyConcurrentSweeps', 'TestAccountDeletionDailyWorkerRegistration', 'TestAccountDeletionDailyRestartOnlyCatchesUpWhenDue', 'TestAccountDeletionStartupGateSerializesReplicas',
             'TestAccountDeletionTimerMigrationKeepsLifecycleAndOtherFleets',
             'TestAccountCallbackFailureAndConcurrentRescue', 'TestAccountPurgeWaitsForEveryTenantApp',
             'TestEventLogRecordsWithoutSubscriberOrDeliveryJob', 'TestEventLogRollbackAndCommitOrder',
