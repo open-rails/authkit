@@ -17,7 +17,7 @@ import { Checkbox } from "../ui/checkbox.tsx"
 import type { UsersPermissions } from "./access.ts"
 import type { BanInput, SessionEventKind, UserUpdate } from "./client.ts"
 import { useAdmin } from "./context.ts"
-import { dateTime } from "./format.ts"
+import { browserAndOS, dateTime, languageName } from "./format.ts"
 import { useAdminMessages, type AdminMessageKey } from "./i18n.ts"
 import { Link } from "./link.tsx"
 import { useLoad } from "./load.ts"
@@ -41,10 +41,49 @@ import {
 import { roleTitle } from "./roles-lib.ts"
 import { useSearchParams } from "./router.ts"
 import type { Host } from "./users.tsx"
+
+type Method = keyof typeof METHODS
+const END_REASONS = {
+  user_revoke: 1,
+  user_revoke_all: 1,
+  admin_revoke: 1,
+  admin_revoke_all: 1,
+  password_change: 1,
+  admin_set_password: 1,
+  contact_change: 1,
+  contact_proven: 1,
+  mfa_reset: 1,
+  banned: 1,
+  soft_deleted: 1,
+  evicted: 1,
+  refresh_reuse_detected: 1,
+}
+type EndReason = keyof typeof END_REASONS
+
+/** "Chrome on macOS" for a known user agent; the full string stays in the cell's title. */
+function Device({ ua }: { ua: string | null | undefined }) {
+  const { t } = useAdminMessages()
+  const known = browserAndOS(ua)
+  return <>{known ? t("users.deviceOn", known) : (ua ?? "—")}</>
+}
 import { BanLine, UserBadges } from "./user-parts.tsx"
 import { directoryRole, restorableUntil, userName } from "./users-lib.ts"
 import { useWarnings } from "./warnings.tsx"
 import { useActions } from "./write.ts"
+
+// Sign-in methods and sign-out reasons the server records; others show as sent.
+const METHODS = {
+  password_login: 1,
+  passkey_login: 1,
+  oidc_login: 1,
+  solana_login: 1,
+  registration: 1,
+  email_verification: 1,
+  phone_verification: 1,
+  refresh_mfa: 1,
+  passwordless_email: 1,
+  passwordless_sms: 1,
+}
 
 type Open =
   "edit" | "ban" | "delete" | "restore" | "signOut" | { role: string } | null
@@ -302,7 +341,7 @@ export function UserPage({
                   </Td>
                   <Td className="font-mono text-xs">{s.ip ?? "—"}</Td>
                   <Td className="max-w-72 truncate" title={s.user_agent ?? ""}>
-                    {s.user_agent ?? "—"}
+                    <Device ua={s.user_agent} />
                   </Td>
                 </tr>
               ))}
@@ -423,7 +462,10 @@ function Details({ user, onEdit }: { user: UserEntry; onEdit?: () => void }) {
           copy
           extra={user.phone_number && verified(user.phone_verified)}
         />
-        <Row label={t("users.language")} value={user.preferred_language} />
+        <Row
+          label={t("users.language")}
+          value={languageName(user.preferred_language)}
+        />
         <Row label={t("users.joined")} value={dateTime(user.created_at)} />
         <Row label={t("users.updated")} value={dateTime(user.updated_at)} />
         <Row
@@ -606,17 +648,25 @@ function History({ id, changes }: { id: string; changes: number }) {
                   </Td>
                   <Td className="whitespace-nowrap">
                     {t(`users.kinds.${e.kind}`)}
-                    {e.reason && (
+                    {e.reason && e.reason !== "logout" && (
                       <span className="text-muted-foreground">
                         {" · "}
-                        {e.reason}
+                        {Object.hasOwn(END_REASONS, e.reason)
+                          ? t(`users.endReasons.${e.reason as EndReason}`)
+                          : e.reason}
                       </span>
                     )}
                   </Td>
-                  <Td>{e.method ?? "—"}</Td>
+                  <Td>
+                    {e.method
+                      ? Object.hasOwn(METHODS, e.method)
+                        ? t(`users.methods.${e.method as Method}`)
+                        : e.method
+                      : "—"}
+                  </Td>
                   <Td className="font-mono text-xs">{e.ip ?? "—"}</Td>
                   <Td className="max-w-72 truncate" title={e.user_agent ?? ""}>
-                    {e.user_agent ?? "—"}
+                    <Device ua={e.user_agent} />
                   </Td>
                 </tr>
               ))}
