@@ -17,6 +17,8 @@ import { useLoad } from "./load.ts"
 
 const TENANT_A = "11111111-1111-4111-8111-111111111111"
 const TENANT_B = "455ef246-f041-4ff3-9938-df4a3d0a059e"
+// The server answers group_id=root with the root group's own id.
+const ROOT_ID = "019a0000-0000-7000-8000-000000000001"
 const allPermissions = [
   "tenant:users:read",
   "tenant:users:manage",
@@ -56,7 +58,7 @@ function host(permissions = allPermissions, rootPermissions: string[] = []) {
       if (url.pathname.endsWith("/me/permissions")) {
         const isRoot = url.searchParams.get("group_id") === "root"
         return Response.json({
-          group_id: url.searchParams.get("group_id"),
+          group_id: isRoot ? ROOT_ID : url.searchParams.get("group_id"),
           persona: isRoot ? "root" : "tenant",
           role: isRoot ? "root:admin" : "tenant:admin",
           permissions: isRoot ? rootPermissions : permissions,
@@ -111,6 +113,32 @@ it("keeps the source auth transport and scopes directory requests to the supplie
       ([, init]) => !new Headers(init?.headers).has("tenant_id")
     )
   ).toBe(true)
+})
+
+it("accepts the root group's own id for a root permissions read in a tenant client", async () => {
+  const { auth } = host(allPermissions, ["root:users:read"])
+  const client = createAdminClient({ auth, tenantId: TENANT_A })
+  await expect(client.permissions("root")).resolves.toMatchObject({
+    group_id: ROOT_ID,
+    persona: "root",
+  })
+})
+
+it("refuses a non-root reply to a root permissions read", async () => {
+  const auth = {
+    authFetch: vi.fn(async () =>
+      Response.json({
+        group_id: TENANT_A,
+        persona: "tenant",
+        role: null,
+        permissions: [],
+      })
+    ),
+  }
+  const client = createAdminClient({ auth, tenantId: TENANT_A })
+  await expect(client.permissions("root")).rejects.toMatchObject({
+    code: "tenant_scope_mismatch",
+  })
 })
 
 it("gives different tenant clients distinct cache identities even at the same base URL", () => {
