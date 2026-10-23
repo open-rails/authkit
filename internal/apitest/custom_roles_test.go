@@ -280,7 +280,7 @@ func TestCustomRoleEscalation(t *testing.T) {
 	_, err = s.auth.UpdateGroupRole(ctx, iam.UserIdentity(s.owner.ID), s.a, narrow, iam.GroupRoleUpdate{Permissions: []iam.Perm{s.catalog, s.entitlements}})
 	require.NoError(t, err)
 	_, err = s.auth.ResolveAPIKey(ctx, managerKey)
-	require.ErrorIs(t, err, iam.ErrAPIKeyRevoked)
+	require.NoError(t, err, "authorized role edits apply to organization keys independently of their creator")
 
 	// Removing a permission from a role revokes what its holders issued and
 	// no longer cover.
@@ -292,7 +292,7 @@ func TestCustomRoleEscalation(t *testing.T) {
 	_, err = s.auth.UpdateGroupRole(ctx, iam.UserIdentity(s.owner.ID), s.a, keymaster, iam.GroupRoleUpdate{Permissions: []iam.Perm{s.credentialsManage}})
 	require.NoError(t, err)
 	_, err = s.auth.ResolveAPIKey(ctx, kmKey)
-	require.ErrorIs(t, err, iam.ErrAPIKeyRevoked)
+	require.NoError(t, err, "organization keys survive the creator's role reduction")
 }
 
 // roleText reads role text.

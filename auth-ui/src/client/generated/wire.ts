@@ -103,7 +103,7 @@ export type AuthKitEvent = {
   subject_id: string
   invoker_issuer: string
   invoker_id: string
-  credential_kind: "access_token" | "api_key" | "device_key" | "session" | "system"
+  credential_kind: "access_token" | "api_key" | "device_key" | "personal_access_token" | "session" | "system"
   credential_id: string
   user_id: string
   group_id: string
@@ -672,6 +672,30 @@ export type PermissionSet = {
   persona: string
   role: string | null
   permissions: string[]
+}
+
+export type PersonalAccessToken = {
+  id: string
+  name: string
+  owner_user_id: string
+  group_id: string
+  permissions: string[]
+  created_at: string
+  last_used_at: string | null
+  expires_at: string
+  revoked_at: string | null
+}
+
+export type PersonalAccessTokenCreated = {
+  token: PersonalAccessToken
+  secret: string
+}
+
+export type PersonalTokenCreateRequest = {
+  name?: string
+  group_id?: string
+  permissions?: string[]
+  expires_at?: string | null
 }
 
 export type PhoneChangeRequest = {

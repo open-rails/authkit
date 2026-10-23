@@ -199,7 +199,7 @@ func TestAccountPurgeSweepsCredentialsBeforeTheRowGoes(t *testing.T) {
 	issued := key("issued")
 
 	require.NoError(t, itemErr(runtime.PurgeUsers(ctx, []string{user.ID})))
-	require.True(t, revoked(issued), "the soft delete sweeps the account's keys")
+	require.False(t, revoked(issued), "organization keys survive the creator's soft deletion")
 	restore, err := runtime.RestoreUsers(ctx, iam.SystemIdentity(), []string{user.ID})
 	require.NoError(t, err)
 	require.Error(t, restore[0].Err, "a purge closes the recovery window")
@@ -212,10 +212,10 @@ func TestAccountPurgeSweepsCredentialsBeforeTheRowGoes(t *testing.T) {
 		err := pg.Pool.QueryRow(context.Background(), "SELECT EXISTS(SELECT 1 FROM profiles.users WHERE id=$1::uuid)", user.ID).Scan(&exists)
 		return err == nil && !exists
 	}, 15*time.Second, 25*time.Millisecond)
-	require.True(t, revoked(leftover), "purge left a live key with no creator")
+	require.False(t, revoked(leftover), "organization key stays live after creator audit is cleared")
 	var live int
 	require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT count(*) FROM profiles.api_keys WHERE created_by IS NULL AND revoked_at IS NULL`).Scan(&live))
-	require.Zero(t, live)
+	require.Equal(t, 2, live)
 }
 
 func TestAccountRecoveryAndFinalizerSerializeAtDeadline(t *testing.T) {

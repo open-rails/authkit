@@ -161,6 +161,12 @@ func (a *Authenticator) credential(ctx context.Context, token string, r *http.Re
 		}
 		return a.s.apiKeyClaims(ctx, token)
 	}
+	if strings.HasPrefix(token, personalTokenMarker) {
+		if dpop {
+			return verify.Claims{}, verify.ErrSenderProofRequired
+		}
+		return a.s.personalTokenClaims(ctx, token)
+	}
 	var cl verify.Claims
 	var err error
 	if r != nil {

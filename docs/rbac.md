@@ -108,7 +108,7 @@ storefront, err := client.CreateGroupRole(ctx, who, iam.GroupByID(id), iam.NewGr
 - **Holders.** Assign it like a declared role, in its group: members, API keys, remote applications, invitations and `role_map`. MFA follows its permissions, as for a declared role.
 - **Live.** A check reads the definition in the same query as the assignment, so a change applies to every holder at their next request. Resource access tokens keep the permissions they were minted with until they expire, as after any role change.
 - **Authority.** Creating one takes `roles:manage` and covering every grant. Changing or deleting one also takes covering its current grants and, while it is held, what hands it out: `members:manage` for members and invitations, `credentials:manage` for API keys and applications. A change needing MFA is refused while an API key or application holds the role (`role_not_assignable`). Human holders without a second factor must finish enrollment on their next sign-in or authenticated request. Changes on root need a recent sign-in.
-- **Removing a permission** needs nothing more: holders lose it at their next request and, as after any demotion, the credentials whose issuers no longer cover their role are revoked (the credential sweep). Adding one can revoke too: a key, invitation or application holding the role whose issuer doesn't cover the addition.
+- **Removing a permission** takes it from every holder at the next request. Delegated invitations and applications are retired if their issuers no longer cover them. Organization keys follow their own role, independently of their creator; personal tokens retain only the intersection with their user's current grants.
 - **Deleting** takes the role from every holder in the same transaction: members and applications lose it (`role.revoked` events), the API keys and invitations carrying it are revoked and `role_map` entries naming it dropped. A later role of the same name starts with no holders.
 - **Audit.** `group.role_created`, `group.role_updated` and `group.role_deleted` events carry the role and its grants before and after.
 
@@ -146,7 +146,9 @@ Typed values are the point: `iam.Persona`, `iam.Perm` and `iam.Role` aren't stri
 | per app: a fingerprint of the compiled catalog, and the role names it declares | |
 | each group's custom roles and what they grant | |
 
-Postgres stores no permission, nor what a role grants, except a group's custom roles.
+Postgres stores no role policy except a group's custom roles. Optional personal
+tokens also store their requested permission ceiling, which never grants more
+than the current in-memory catalog and owner assignments allow.
 
 A check (`Client.Can`, or `RequirePermission` in `verify` and the adapters) combines the two. Postgres answers "is this identity still signed in and usable, and which role does it hold in this group and on root?" The in-memory catalog answers "what do those roles allow?" This runs live on every gated request, so a role change, ban or sign-out applies at the next request. `Required` alone, meaning signed in with no permission check, verifies a user's token without the database.
 
@@ -161,7 +163,11 @@ A check (`Client.Can`, or `RequirePermission` in `verify` and the adapters) comb
 | Turn `CustomRoles` off for a persona | code | Its groups' custom roles grant nothing, members' assignments count as drift, and the credential sweep revokes the keys and invitations carrying them. Turning it back on restores the roles and members' assignments. |
 | Rename a role or persona | code, plus a data fix | Stored rows keep the old text. Until they're fixed, the old name's holders hold nothing, as if the role were removed. AuthKit has no rename operation. |
 
-**The credential sweep.** AuthKit fingerprints the compiled catalog: every role's grants, the permissions that need MFA, and whether 2FA is on. Each app's fingerprint is stored. When `New` sees a different one, it re-checks every API key, invitation and application role that this app issued, against the creator's authority under the new catalog. It revokes what the creator no longer covers, plus any machine credential whose role now needs MFA, and logs each one. The sweep never fails startup. It is why renaming a permission or changing a role can revoke credentials.
+**The credential sweep.** AuthKit fingerprints each app's compiled catalog.
+On change, it retires delegated invitations and application roles whose creators
+no longer cover them, and machine credentials whose role disappeared or now
+requires MFA. Organization API keys do not depend on creator authority. Use-time
+checks enforce current authority even before a peer's cleanup runs.
 
 ## Apps sharing an account store
 

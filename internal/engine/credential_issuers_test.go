@@ -105,12 +105,12 @@ func (f *credentialFixture) issue(t *testing.T, creator iam.Subject, keyRole str
 	return out
 }
 
-// requireDead asserts none of c works any more.
+// User-delegated invitations end with the creator; organization keys do not.
 func (f *credentialFixture) requireDead(t *testing.T, c issued) {
 	t.Helper()
 	ctx := t.Context()
 	_, err := f.e.ResolveAPIKey(ctx, c.token)
-	require.ErrorIs(t, err, iam.ErrAPIKeyRevoked, "API key")
+	require.NoError(t, err, "the organization still owns its API key")
 	_, err = f.e.RedeemInvitation(ctx, iam.UserIdentity(f.user("redeemer").ID), c.link.Code)
 	require.ErrorIs(t, err, errmodel.ErrInvitationRevoked, "invite link")
 	require.ErrorIs(t, f.e.consumeRegistrationInvite(ctx, c.inviteEmail, f.user("registrant").ID, c.invite.Code), iam.ErrInvitationNotFound, "registration invite")
@@ -127,9 +127,6 @@ func requireCredentialsCovered(t *testing.T, e *Engine) {
 	ctx := t.Context()
 	st := e.groupStore()
 	rows, err := st.q.Query(ctx, `
-SELECT 'api_keys', k.id::text, g.id::text, g.persona, k.role, k.created_by::text FROM api_keys k JOIN permission_groups g ON g.id=k.permission_group_id
- WHERE k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>now()) AND k.created_by IS NOT NULL AND g.deleted_at IS NULL
-UNION ALL
 SELECT 'group_invite_links', l.id::text, g.id::text, g.persona, l.role, l.invited_by::text FROM group_invite_links l JOIN permission_groups g ON g.id=l.permission_group_id
  WHERE l.revoked_at IS NULL AND l.redeemed_at IS NULL AND (l.expires_at IS NULL OR l.expires_at>now()) AND l.invited_by IS NOT NULL AND g.deleted_at IS NULL
 UNION ALL
@@ -224,7 +221,7 @@ func TestNoCredentialOutlivesItsIssuer(t *testing.T) {
 				_, err := f.e.pg.Exec(ctx, end.sql, creator.ID)
 				require.NoError(t, err)
 				f.requireDead(t, c)
-				require.ErrorIs(t, assignRole(ctx, f.e, iam.APIKeyIdentity(c.key.ID), f.acme, f.user("target"), "member"), iam.ErrInsufficientAuthority)
+				require.NoError(t, assignRole(ctx, f.e, iam.APIKeyIdentity(c.key.ID), f.acme, f.user("target"), "member"), "group-owned authority is independent of its creator")
 			})
 		}
 	})
@@ -245,15 +242,15 @@ func TestNoCredentialOutlivesItsIssuer(t *testing.T) {
 		require.NoError(t, f.e.finalizeAccountDeletion(ctx, generation, true))
 		var rows int
 		require.NoError(t, f.e.pg.QueryRow(ctx, `SELECT (SELECT count(*) FROM api_keys WHERE id=$1::uuid)+(SELECT count(*) FROM group_invite_links WHERE id=$2::uuid)`, c.key.ID, c.link.Invitation.ID).Scan(&rows))
-		require.Zero(t, rows, "the purged creator's credentials remain")
+		require.Equal(t, 1, rows, "the organization key remains but the personal invitation is gone")
 		_, err = f.e.ResolveAPIKey(ctx, c.token)
-		require.ErrorIs(t, err, iam.ErrAPIKeyInvalid)
+		require.NoError(t, err)
 		_, err = f.e.ResolveAPIKey(ctx, opToken)
 		require.NoError(t, err)
 		var creatorless, deadCreator int
 		require.NoError(t, f.e.pg.QueryRow(ctx, `SELECT count(*) FILTER (WHERE created_by IS NULL), count(*) FILTER (WHERE NOT (k.created_by IS NULL OR EXISTS(SELECT 1 FROM usable_users WHERE id=k.created_by)))
  FROM api_keys k WHERE revoked_at IS NULL`).Scan(&creatorless, &deadCreator))
-		require.Equal(t, 1, creatorless, "only the system's key has no creator")
+		require.Equal(t, 2, creatorless, "system-issued and purged-creator audit fields are nil")
 		require.Zero(t, deadCreator)
 		requireCredentialsCovered(t, f.e)
 	})
@@ -276,7 +273,7 @@ func TestNoCredentialOutlivesItsIssuer(t *testing.T) {
 		f.requireDead(t, c)
 		keys, err := f.e.ListAPIKeys(ctx, f.acme, iam.PageRequest{})
 		require.NoError(t, err)
-		require.NotNil(t, keys.Items[0].RevokedAt, "revoked in storage, not only refused")
+		require.Nil(t, keys.Items[0].RevokedAt, "bootstrap demotion does not revoke organization keys")
 	})
 }
 

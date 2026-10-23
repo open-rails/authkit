@@ -40,6 +40,7 @@ pkg authkit, method (*Client) CreateGroup(context.Context, iam.NewGroup, ...Opti
 pkg authkit, method (*Client) CreateGroupOAuthClient(context.Context, auth.Identity, iam.GroupRef, iam.NewOAuthClient, ...Option) (iam.OAuthClientCreated, error)
 pkg authkit, method (*Client) CreateGroupRole(context.Context, auth.Identity, iam.GroupRef, iam.NewGroupRole, ...Option) (iam.GroupRole, error)
 pkg authkit, method (*Client) CreateInvitation(context.Context, auth.Identity, iam.GroupRef, iam.NewInvitation, ...Option) (iam.InvitationCreated, error)
+pkg authkit, method (*Client) CreatePersonalAccessToken(context.Context, auth.Identity, iam.NewPersonalAccessToken, ...Option) (iam.PersonalAccessTokenCreated, error)
 pkg authkit, method (*Client) CreateTenant(context.Context, iam.Tenant) error
 pkg authkit, method (*Client) CreateUser(context.Context, iam.NewUser, ...Option) (iam.User, error)
 pkg authkit, method (*Client) DeclareRemoteApplications(context.Context, iam.GroupRef, []iam.RemoteApplication, ...Option) error
@@ -73,6 +74,7 @@ pkg authkit, method (*Client) ListGroupRoles(context.Context, iam.GroupRef) ([]i
 pkg authkit, method (*Client) ListGroups(context.Context, iam.GroupQuery) (iam.ListPage[iam.Group], error)
 pkg authkit, method (*Client) ListInvitations(context.Context, iam.GroupRef, iam.PageRequest) (iam.ListPage[iam.Invitation], error)
 pkg authkit, method (*Client) ListMemberships(context.Context, iam.Subject, iam.PageRequest) (iam.ListPage[iam.Membership], error)
+pkg authkit, method (*Client) ListPersonalAccessTokens(context.Context, auth.Identity, iam.PageRequest) (iam.ListPage[iam.PersonalAccessToken], error)
 pkg authkit, method (*Client) ListRemoteApplications(context.Context, iam.GroupRef, iam.PageRequest) (iam.ListPage[iam.RemoteApplication], error)
 pkg authkit, method (*Client) ListSessionEvents(context.Context, string, iam.SessionEventQuery) (iam.ListPage[iam.SessionEvent], error)
 pkg authkit, method (*Client) ListUsers(context.Context, iam.UserQuery) (iam.ListPage[iam.UserEntry], error)
@@ -99,6 +101,7 @@ pkg authkit, method (*Client) RemoveGroupMember(context.Context, auth.Identity, 
 pkg authkit, method (*Client) RemoveRemoteUserRole(context.Context, auth.Identity, iam.GroupRef, string, ...Option) error
 pkg authkit, method (*Client) ResetAccountMFA(context.Context, string, ...Option) error
 pkg authkit, method (*Client) ResolveAPIKey(context.Context, string) (iam.ResolvedAPIKey, error)
+pkg authkit, method (*Client) ResolvePersonalAccessToken(context.Context, string) (iam.ResolvedPersonalAccessToken, error)
 pkg authkit, method (*Client) ResolveTenantActor(context.Context, auth.Verified) (iam.TenantActor, error)
 pkg authkit, method (*Client) ResolveUsername(context.Context, string) (iam.NameResolution, error)
 pkg authkit, method (*Client) RestoreUsers(context.Context, auth.Identity, []string, ...Option) ([]iam.OpResult, error)
@@ -106,6 +109,7 @@ pkg authkit, method (*Client) RevokeAPIKey(context.Context, auth.Identity, iam.G
 pkg authkit, method (*Client) RevokeAccountSessions(context.Context, auth.Identity, string, ...Option) (iam.AccountSessionRevocation, error)
 pkg authkit, method (*Client) RevokeConsent(context.Context, string, string, ...Option) error
 pkg authkit, method (*Client) RevokeInvitation(context.Context, auth.Identity, iam.GroupRef, string, ...Option) error
+pkg authkit, method (*Client) RevokePersonalAccessToken(context.Context, auth.Identity, string, ...Option) error
 pkg authkit, method (*Client) RevokeSession(context.Context, auth.Identity, string, string, ...Option) error
 pkg authkit, method (*Client) RiverJobs() river.Contribution
 pkg authkit, method (*Client) Role(string) (iam.Role, error)
@@ -207,6 +211,7 @@ pkg authkit, type Config struct, Keys config.KeysConfig `yaml:"keys"`
 pkg authkit, type Config struct, Languages config.LanguageConfig `yaml:"languages"`
 pkg authkit, type Config struct, Passkeys config.PasskeyConfig `yaml:"passkeys"`
 pkg authkit, type Config struct, Password config.PasswordPolicy `yaml:"password"`
+pkg authkit, type Config struct, PersonalAccessTokens config.PersonalAccessTokensConfig `yaml:"personal_access_tokens"`
 pkg authkit, type Config struct, Provisioning config.ProvisioningConfig `yaml:"provisioning"`
 pkg authkit, type Config struct, Registration config.RegistrationConfig `yaml:"registration"`
 pkg authkit, type Config struct, RemoteApplications []config.RemoteApplicationConfig `yaml:"remote_applications"`
@@ -364,6 +369,11 @@ pkg authkit, type PersonaDef struct, Persona iam.Persona
 pkg authkit, type PersonaDef struct, Roles config.RolePerms
 pkg authkit, type PersonaOption = config.PersonaOption
 pkg authkit, type PersonaOption uint8
+pkg authkit, type PersonalAccessTokensConfig = config.PersonalAccessTokensConfig
+pkg authkit, type PersonalAccessTokensConfig struct
+pkg authkit, type PersonalAccessTokensConfig struct, DefaultTTL time.Duration `yaml:"default_ttl"`
+pkg authkit, type PersonalAccessTokensConfig struct, Enabled bool `yaml:"enabled"`
+pkg authkit, type PersonalAccessTokensConfig struct, MaxTTL time.Duration `yaml:"max_ttl"`
 pkg authkit, type Probe = engine.Probe
 pkg authkit, type Probe struct
 pkg authkit, type Probe struct, Check func(context.Context) error
@@ -547,6 +557,7 @@ pkg authkit/adapters/twilio, type SMSConfig struct, Render func(context.Context,
 pkg authkit/auth, const CredentialAPIKey CredentialKind = "api_key"
 pkg authkit/auth, const CredentialAccessToken CredentialKind = "access_token"
 pkg authkit/auth, const CredentialDeviceKey CredentialKind = "device_key"
+pkg authkit/auth, const CredentialPersonalAccessToken CredentialKind = "personal_access_token"
 pkg authkit/auth, const CredentialSession CredentialKind = "session"
 pkg authkit/auth, const CredentialSignedToken CredentialKind = "signed_token"
 pkg authkit/auth, const SubjectApplication SubjectKind = "application"
@@ -996,6 +1007,7 @@ pkg authkit/iam, func InSession(auth.Identity, SessionRef) auth.Identity
 pkg authkit/iam, func InTenant(auth.Identity, TenantID) auth.Identity
 pkg authkit/iam, func NewTenantID() TenantID
 pkg authkit/iam, func ParseTenantID(string) (TenantID, error)
+pkg authkit/iam, func PersonalAccessTokenIdentity(string) auth.Identity
 pkg authkit/iam, func PinnedTo(auth.Identity, string) auth.Identity
 pkg authkit/iam, func PublicDisplayName(map[string]PublicUser, string) string
 pkg authkit/iam, func RefuseConsentRevocation(string) error
@@ -1030,6 +1042,7 @@ pkg authkit/iam, method (CredentialState) Group() string
 pkg authkit/iam, method (CredentialState) ID() string
 pkg authkit/iam, method (CredentialState) IsAPIKey() bool
 pkg authkit/iam, method (CredentialState) IsApplication() bool
+pkg authkit/iam, method (CredentialState) IsPersonalAccessToken() bool
 pkg authkit/iam, method (CredentialState) IsSystem() bool
 pkg authkit/iam, method (CredentialState) IsUser() bool
 pkg authkit/iam, method (CredentialState) IsZero() bool
@@ -1426,6 +1439,11 @@ pkg authkit/iam, type NewOAuthClient struct, RedirectURIs []string `json:"redire
 pkg authkit/iam, type NewOAuthClient struct, Scope string `json:"scope"`
 pkg authkit/iam, type NewOAuthClient struct, TOSURI string `json:"tos_uri"`
 pkg authkit/iam, type NewOAuthClient struct, TokenEndpointAuthMethod OAuthClientAuthMethod `json:"token_endpoint_auth_method"`
+pkg authkit/iam, type NewPersonalAccessToken struct
+pkg authkit/iam, type NewPersonalAccessToken struct, ExpiresAt *time.Time
+pkg authkit/iam, type NewPersonalAccessToken struct, GroupID string
+pkg authkit/iam, type NewPersonalAccessToken struct, Name string
+pkg authkit/iam, type NewPersonalAccessToken struct, Permissions []Perm
 pkg authkit/iam, type NewUser struct
 pkg authkit/iam, type NewUser struct, Email string
 pkg authkit/iam, type NewUser struct, EmailVerified bool
@@ -1525,6 +1543,19 @@ pkg authkit/iam, type PasswordHash struct, Algo HashAlgo `json:"algo" yaml:"algo
 pkg authkit/iam, type PasswordHash struct, Hash string `json:"hash" yaml:"hash"`
 pkg authkit/iam, type Perm struct
 pkg authkit/iam, type Persona struct
+pkg authkit/iam, type PersonalAccessToken struct
+pkg authkit/iam, type PersonalAccessToken struct, CreatedAt time.Time `json:"created_at"`
+pkg authkit/iam, type PersonalAccessToken struct, ExpiresAt time.Time `json:"expires_at"`
+pkg authkit/iam, type PersonalAccessToken struct, GroupID string `json:"group_id"`
+pkg authkit/iam, type PersonalAccessToken struct, ID string `json:"id"`
+pkg authkit/iam, type PersonalAccessToken struct, LastUsedAt *time.Time `json:"last_used_at"`
+pkg authkit/iam, type PersonalAccessToken struct, Name string `json:"name"`
+pkg authkit/iam, type PersonalAccessToken struct, OwnerUserID string `json:"owner_user_id"`
+pkg authkit/iam, type PersonalAccessToken struct, Permissions []Perm `json:"permissions"`
+pkg authkit/iam, type PersonalAccessToken struct, RevokedAt *time.Time `json:"revoked_at"`
+pkg authkit/iam, type PersonalAccessTokenCreated struct
+pkg authkit/iam, type PersonalAccessTokenCreated struct, Secret string `json:"secret"`
+pkg authkit/iam, type PersonalAccessTokenCreated struct, Token PersonalAccessToken `json:"token"`
 pkg authkit/iam, type ProviderLink struct
 pkg authkit/iam, type ProviderLink struct, Email string
 pkg authkit/iam, type ProviderLink struct, Issuer string
@@ -1581,6 +1612,13 @@ pkg authkit/iam, type ResolvedAPIKey struct, Issuer string `json:"issuer"`
 pkg authkit/iam, type ResolvedAPIKey struct, LookupID string `json:"lookup_id"`
 pkg authkit/iam, type ResolvedAPIKey struct, Permissions []Perm `json:"permissions"`
 pkg authkit/iam, type ResolvedAPIKey struct, Role Role `json:"role"`
+pkg authkit/iam, type ResolvedPersonalAccessToken struct
+pkg authkit/iam, type ResolvedPersonalAccessToken struct, Group Group `json:"group"`
+pkg authkit/iam, type ResolvedPersonalAccessToken struct, ID string `json:"id"`
+pkg authkit/iam, type ResolvedPersonalAccessToken struct, Issuer string `json:"issuer"`
+pkg authkit/iam, type ResolvedPersonalAccessToken struct, OwnerUserID string `json:"owner_user_id"`
+pkg authkit/iam, type ResolvedPersonalAccessToken struct, Permissions []Perm `json:"permissions"`
+pkg authkit/iam, type ResolvedPersonalAccessToken struct, TenantID TenantID `json:"tenant_id"`
 pkg authkit/iam, type Role struct
 pkg authkit/iam, type Route struct
 pkg authkit/iam, type Route struct, Auth RouteAuthTier
@@ -1733,6 +1771,7 @@ pkg authkit/iam, var ErrOAuthClientLimitReached Error
 pkg authkit/iam, var ErrOAuthClientNotFound Error
 pkg authkit/iam, var ErrOAuthConsentNotFound Error
 pkg authkit/iam, var ErrOAuthGrantRefused Error
+pkg authkit/iam, var ErrPersonalAccessTokenInvalid Error
 pkg authkit/iam, var ErrPhoneInUse Error
 pkg authkit/iam, var ErrRemoteApplicationIssuerConflict Error
 pkg authkit/iam, var ErrRemoteApplicationNotFound Error
@@ -1869,6 +1908,7 @@ pkg authkit/userinfo/userinfotest, type Fixtures struct, Unknown []string
 pkg authkit/userinfo/userinfotest, type Fixtures struct, Users []userinfo.User
 pkg authkit/verify, const TokenAPIKey TokenKind = "api_key"
 pkg authkit/verify, const TokenOAuthClient TokenKind = "oauth_client"
+pkg authkit/verify, const TokenPersonalAccessToken TokenKind = "personal_access_token"
 pkg authkit/verify, const TokenUser TokenKind = "user"
 pkg authkit/verify, func AuthenticateRequest(context.Context, Authenticator, *http.Request) (auth.Verified, error)
 pkg authkit/verify, func AuthenticateSession(context.Context, Authority, *http.Request) (auth.Verified, error)
@@ -1940,6 +1980,7 @@ pkg authkit/verify, type Claims struct, Kind TokenKind
 pkg authkit/verify, type Claims struct, MFAEnrolled bool
 pkg authkit/verify, type Claims struct, Name string
 pkg authkit/verify, type Claims struct, Permissions []string
+pkg authkit/verify, type Claims struct, PersonalAccessTokenID string
 pkg authkit/verify, type Claims struct, Roles []string
 pkg authkit/verify, type Claims struct, RootRole string
 pkg authkit/verify, type Claims struct, Scopes []string

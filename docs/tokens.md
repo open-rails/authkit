@@ -10,7 +10,8 @@ This page covers the credentials AuthKit issues, how long each lasts, and when a
 | DPoP-bound session | a client that proved a key at sign-in (`SignIn.DPoP`, [resource server](resource-server.md#dpop)) | as its session | its access tokens carry `cnf.jkt` and need a proof of the key; each refresh proves it |
 | Refresh token | a signed-in user | until revoked, or for `TokenConfig.RefreshTokenDuration` | at once |
 | Device-key sign-in | a native client | each sign-in is signed by the device key, with no refresh token | like a session, when the key is revoked |
-| API key | a group's account | until revoked or its expiry (capped by `APIKeysConfig.MaxTTL`) | at once, since it is resolved on every request; also when its creator loses the authority to issue it |
+| Organization API key | a group's account | until revoked or its expiry (capped by `APIKeysConfig.MaxTTL`) | at once; the creator's departure does not revoke the group's key |
+| Personal access token | a user, limited to one group's explicit permission ceiling | 30 days by default, capped at 90 days by default | explicit revocation and current owner authority checked on every use; no sign-in or MFA assurance |
 | Resource access token (`at+jwt`) | an OAuth client, for a resource server | `AuthorizationServerConfig.AccessTokenTTL` (5 minutes by default, at most 15) | at expiry; each grant re-checks the session it stands on ([authorization server](authorization-server.md)) |
 | Workload token (`at+jwt`, jwt-bearer) | a workload, for a resource server | until its capability expires (at most 24 hours) | at once for a resource server that checks its device key (`verify.RequireSession`); revoking the device key revokes it ([workloads](authorization-server.md#workloads)) |
 

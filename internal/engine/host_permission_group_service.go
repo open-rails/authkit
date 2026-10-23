@@ -154,7 +154,7 @@ func (s *Engine) can(ctx context.Context, a auth.Identity, ref iam.GroupRef, per
 	if !direct || state.IsSystem() {
 		return true, nil
 	}
-	if state.IsAPIKey() {
+	if state.IsAPIKey() || state.IsPersonalAccessToken() {
 		return auth.credentialGroup == g.ID, nil
 	}
 	var subject iam.Subject

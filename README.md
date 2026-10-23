@@ -385,6 +385,10 @@ adding a verified replacement first permits removing the old factor.
 
 Switch on social logins (Google, Apple, GitHub, Discord) or API keys, and AuthKit mounts their routes too. Set `Invitations.Disabled`, and the invitation routes go.
 
+Group API keys belong to the organization; their creator is audit information.
+Optional [personal access tokens](docs/personal-access-tokens.md) are a separate,
+user-owned credential, disabled unless `PersonalAccessTokens.Enabled` is set.
+
 Now for our application-specific routes, we can check user permissions using middleware, to enforce that certain actions are moderator or admin-only:
 
 ```go

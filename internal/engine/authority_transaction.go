@@ -182,6 +182,15 @@ func (s *Engine) credentialStands(ctx context.Context, st *permissionGroupStore,
 			return false, err
 		}
 	}
+	if c.table == "api_keys" {
+		// The role is the organization's authorization. The creator is audit
+		// information, but removal of the role must not later revive a key.
+		_, err := s.roleGrants(ctx, st.q, c.group, c.role)
+		if errors.Is(err, iam.ErrRoleNotAssignable) {
+			return false, nil
+		}
+		return err == nil, err
+	}
 	if c.creator == "" {
 		return !c.needsCreator, nil
 	}

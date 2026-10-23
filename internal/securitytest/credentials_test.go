@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/open-rails/authkit"
 	hauth "github.com/open-rails/authkit/auth"
@@ -57,7 +56,7 @@ func TestSecurityDeadCreatorCredentials(t *testing.T) {
 
 			resp := h.do(end.req(creator.id))
 			require.Less(t, resp.status, 300, resp.String())
-			require.Equal(t, http.StatusUnauthorized, hostRoute(key.Secret))
+			require.Equal(t, http.StatusNoContent, hostRoute(key.Secret), "the organization key is independent of its creator")
 			stranger := h.newAccount("stranger")
 			resp = h.post("/invitations/redeem", map[string]string{"code": link.Code}, h.login(stranger).AccessToken)
 			require.GreaterOrEqual(t, resp.status, 400, resp.String())
@@ -73,7 +72,9 @@ func TestSecurityDeadCreatorCredentials(t *testing.T) {
 // proves the address, the invite links and account invitations the squatter
 // minted with that role die with the squatter's other credentials.
 func TestSecurityFirstProofRevokesSquatterInvitations(t *testing.T) {
-	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(func(c *authkit.Config) {
+		c.PersonalAccessTokens.Enabled = true
+	}))
 	ctx := context.Background()
 	founder := h.newAccount("n4founder")
 	group, base := h.newOrg(founder)
@@ -81,12 +82,28 @@ func TestSecurityFirstProofRevokesSquatterInvitations(t *testing.T) {
 	squatter := h.register(victim)
 	squatterID := h.userID(victim)
 	h.grant(group, account{id: squatterID}, "manager")
+	var personal iam.PersonalAccessTokenCreated
+	issued := h.post("/me/personal-access-tokens", map[string]any{"name": "pre-proof", "group_id": group.ID(), "permissions": []string{"org:catalog:read"}}, squatter.AccessToken)
+	require.Equal(t, http.StatusCreated, issued.status, issued.String())
+	issued.json(t, &personal)
+	request := httptest.NewRequest(http.MethodGet, "https://host.security.test/read", nil)
+	request.Header.Set("Authorization", "Bearer "+personal.Secret)
+	verified, err := verify.AuthenticateRequest(ctx, h.auth, request)
+	require.NoError(t, err)
+	key := h.issue(base+"/api-keys", squatter.AccessToken, map[string]any{"name": "pre-proof organization key", "role": "org:member"})
 	link := h.issue(base+"/invitations", squatter.AccessToken, map[string]any{"role": "org:member"})
 	resp := h.post(base+"/invitations", map[string]string{"email": unique("sockpuppet") + "@security.test", "role": "org:member"}, squatter.AccessToken)
 	require.Equal(t, http.StatusAccepted, resp.status, resp.String())
 	require.True(t, liveLink(t, h, group, link.ID), "control: the squatter's link is live before the proof")
 
 	h.proveEmail(victim, "Owner-proves-the-address-1")
+	_, err = h.auth.ResolvePersonalAccessToken(ctx, personal.Secret)
+	require.ErrorIs(t, err, iam.ErrPersonalAccessTokenInvalid)
+	allowed, err := verified.(hauth.PermissionChecker).Can(ctx, hauth.Scope{Authority: issuer, ID: group.ID()}, "org:catalog:read")
+	require.NoError(t, err)
+	require.False(t, allowed, "first contact proof invalidates a retained attacker PAT")
+	_, err = h.auth.ResolveAPIKey(ctx, key.Secret)
+	require.ErrorIs(t, err, iam.ErrAPIKeyRevoked, "explicit first-proof cleanup still revokes untrusted organization keys")
 	require.False(t, liveLink(t, h, group, link.ID), "the squatter's link survived the owner's proof")
 	var live int
 	require.NoError(t, h.pool.QueryRow(ctx, `SELECT count(*) FROM profiles.account_registration_invites WHERE invited_by=$1::uuid AND revoked_at IS NULL`, squatterID).Scan(&live))
@@ -365,18 +382,7 @@ func TestSecurityPerAppRoleCatalogs(t *testing.T) {
 	require.NoError(t, a.pool.QueryRow(ctx, `SELECT count(*) FROM public.river_job WHERE kind = 'authkit_credential_sweep' AND args->>'issuer' = $1 AND state = 'available'`, peerIssuer).Scan(&pending))
 	require.Equal(t, 1, pending, "the demotion enqueued B's sweep")
 	require.NoError(t, b.auth.Start(ctx))
-	require.Eventually(t, func() bool {
-		keys, err := b.auth.ListAPIKeys(ctx, group, iam.PageRequest{Limit: iam.MaxPageLimit})
-		if err != nil {
-			return false
-		}
-		for _, k := range keys.Items {
-			if k.ID == keyB.ID {
-				return k.RevokedAt != nil
-			}
-		}
-		return false
-	}, time.Minute, 50*time.Millisecond, "B kept a key its demoted creator no longer covers")
+	require.True(t, liveKey(t, b, group, keyB.ID), "a peer sweep never retires organization-owned keys on creator demotion")
 	require.True(t, liveKey(t, b, group, keyA.ID), "alice's authority is unchanged")
 }
 

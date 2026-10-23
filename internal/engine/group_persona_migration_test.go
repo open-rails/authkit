@@ -243,7 +243,7 @@ func TestGroupPersonaMigrationKeepsIssuerCoverage(t *testing.T) {
 	key, err := f.e.CreateAPIKey(ctx, iam.UserIdentity(creator.ID), f.in.Group, iam.NewAPIKey{Name: "issued", Role: f.oldRole})
 	require.NoError(t, err)
 	_, err = f.e.MigrateGroupPersona(ctx, f.in)
-	require.ErrorIs(t, err, iam.ErrGroupPersonaMigration)
+	require.NoError(t, err, "organization key migration does not require its historical creator's authority")
 	_, err = f.e.ResolveAPIKey(ctx, key.Secret)
 	require.NoError(t, err, "dry-run must not revoke a key")
 	_, err = f.e.SetGroupRole(ctx, iam.SystemIdentity(), iam.RootGroup(), iam.UserSubject(creator.ID), ident.Role(iam.RootPersona(), "migration-issuer"))

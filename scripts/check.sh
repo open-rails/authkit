@@ -102,6 +102,8 @@ required = ('TestSecurityAccessTokenForgery', 'TestSecurityBearerTransport', 'Te
             'TestEventLogMigrationKeepsOneCopyOfPendingDeliveries', 'TestEventLogPrunesBoundedBatches',
             'TestInvitationsAndApplicationsRejectPeerRevocationBeforeSweep',
             'TestExplicitPurgeQueuesOneFollowUpPerIssuer',
+            'TestPersonalTokensStayWithinLiveOwnerAuthority', 'TestOrganizationKeysSurviveCreatorDeparture',
+            'TestPersonalTokenHTTPHasNoAccountOrCredentialPrivileges', 'TestPersonalTokensAreDisabledByDefault',
             'TestAccountLifecycleTerminalGCIsBoundedAndPreservesPendingWork',
             'TestAccountFleetRebindRequiresQuiescenceAndFencesOldProducer',
             'TestAccountCallbackCanObserveBindingDuringManagedShutdown',

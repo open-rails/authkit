@@ -8,7 +8,7 @@ import (
 )
 
 // API keys: long-lived machine credentials owned by a permission group. A key
-// holds one role of its group and dies with its creator's authority.
+// holds one role of its group. Its creator is audit metadata, not its owner.
 
 // CreateAPIKey issues a key holding k.Role in ref. The identity needs
 // <persona>:credentials:manage and must cover the role; only a user or the
@@ -32,7 +32,7 @@ func (a *Client) RevokeAPIKey(ctx context.Context, who auth.Identity, ref iam.Gr
 }
 
 // ResolveAPIKey authenticates a presented token: iam.ErrAPIKeyInvalid,
-// iam.ErrAPIKeyRevoked (also when its creator is banned or deleted) or
+// iam.ErrAPIKeyRevoked or
 // iam.ErrAPIKeyExpired. The verifier resolves API keys through it.
 func (a *Client) ResolveAPIKey(ctx context.Context, token string) (iam.ResolvedAPIKey, error) {
 	return a.ops.ResolveAPIKey(a.operationContext(ctx), token)

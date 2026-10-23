@@ -172,6 +172,8 @@ func (s *Engine) identityAuthority(ctx context.Context, st *permissionGroupStore
 		return out, nil // pinned to another group
 	case cs.IsAPIKey():
 		return s.apiKeyAuthority(ctx, st, out, cs.ID(), g)
+	case cs.IsPersonalAccessToken():
+		return s.personalTokenAuthority(ctx, st, out, cs.ID(), g)
 	case cs.IsApplication():
 		return s.applicationAuthority(ctx, st, out, cs.ID(), g)
 	case cs.IsUser():

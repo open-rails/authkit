@@ -69,6 +69,9 @@ func (s *Engine) cleanupExpiredAuthState(ctx context.Context) error {
 	if err := s.q.APIKeysDeleteExpiredBatch(ctx, db.APIKeysDeleteExpiredBatchParams{Cutoff: cutoff, BatchSize: sessionsGCBatchSize}); err != nil {
 		return err
 	}
+	if err := s.q.PersonalTokensDeleteExpiredBatch(ctx, db.PersonalTokensDeleteExpiredBatchParams{Cutoff: cutoff, BatchSize: sessionsGCBatchSize}); err != nil {
+		return err
+	}
 	if err := s.pruneSessionEvents(ctx); err != nil {
 		return err
 	}

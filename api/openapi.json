@@ -1595,6 +1595,146 @@
         "x-authkit-rate-limit": "me_read"
       }
     },
+    "/api/v1/me/personal-access-tokens": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalAccessTokenPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "me_read",
+        "x-authkit-mounted-when": "personal_access_tokens"
+      },
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonalTokenCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalAccessTokenCreated"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "api_key_create",
+        "x-authkit-mounted-when": "personal_access_tokens",
+        "x-authkit-step-up": true
+      }
+    },
+    "/api/v1/me/personal-access-tokens/{id}": {
+      "delete": {
+        "tags": [
+          "account"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "me_update",
+        "x-authkit-mounted-when": "personal_access_tokens",
+        "x-authkit-step-up": true
+      }
+    },
     "/api/v1/me/password": {
       "put": {
         "tags": [
@@ -7709,6 +7849,7 @@
               "access_token",
               "api_key",
               "device_key",
+              "personal_access_token",
               "session",
               "system"
             ]
@@ -10255,6 +10396,118 @@
           "role",
           "permissions"
         ]
+      },
+      "PersonalAccessToken": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner_user_id": {
+            "type": "string"
+          },
+          "group_id": {
+            "type": "string"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "last_used_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "revoked_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "owner_user_id",
+          "group_id",
+          "permissions",
+          "created_at",
+          "last_used_at",
+          "expires_at",
+          "revoked_at"
+        ]
+      },
+      "PersonalAccessTokenCreated": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "$ref": "#/components/schemas/PersonalAccessToken"
+          },
+          "secret": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "secret"
+        ]
+      },
+      "PersonalTokenCreateRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "group_id": {
+            "type": "string"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expires_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
       },
       "PhoneChangeRequest": {
         "type": "object",
@@ -12922,6 +13175,35 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/OAuthConsent"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor",
+          "total"
+        ]
+      },
+      "PersonalAccessTokenPage": {
+        "type": "object",
+        "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PersonalAccessToken"
             }
           },
           "next_cursor": {

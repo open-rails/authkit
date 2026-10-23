@@ -1,10 +1,10 @@
 package engine
 
-// Rule CRED: a credential (API key, invite link, registration invite, and the
-// roles of a group-registered application) records who issued it, and never
-// outlives that issuer's authority. The issuer is a user, or the system
-// (NULL, never auto-revoked); machine identities cannot issue credentials. An
-// application's issuer is its registrar, the user who supplied its keys.
+// Delegated invitations and group-registered applications never outlive their
+// issuer's authority. Organization API keys instead hold their own group role;
+// their creator is audit metadata. Personal tokens use the owner's live grants.
+// Machine identities cannot create any of these credentials. An application's
+// issuer is its registrar, the user who supplied its keys.
 // Apps sharing an account store (Token.AccountIssuers) share membership but
 // not role catalogs: a credential also records the app it was issued through
 // (catalog_issuer), and only that app judges it, under its own catalog.
@@ -14,8 +14,9 @@ package engine
 //     boot (reconcileRoleCatalog); a change made through one app has every
 //     other account issuer sweep its own (credential_sweeps.go);
 //   - invitation and application use re-check current issuer capability and
-//     role coverage; API-key ownership remains a separate policy;
-//   - a purge deletes the creator's keys and links with the account.
+//     role coverage; personal tokens intersect the owner's live grants;
+//   - a purge deletes personal credentials and clears organization-key audit
+//     references without revoking the group's keys.
 // An API key or application can present no second factor, so neither ever
 // holds a role that needs one, whoever issued it.
 

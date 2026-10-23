@@ -147,6 +147,7 @@ func (s *Engine) retirePreProofCredentials(ctx context.Context, tx pgx.Tx, a aut
 		q.MFADeleteAllFactors,
 		q.MFASettingsDelete,
 		q.APIKeysRevokeCreatedBy,
+		q.PersonalTokensRevokeOwnedBy,
 		q.InviteLinksRevokeInvitedBy,
 		q.AccountInvitesRevokeInvitedBy,
 		q.RemoteApplicationsClearRegistrar,

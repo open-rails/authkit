@@ -12,25 +12,26 @@ import (
 type (
 	// Config is the host configuration: plain data. Everything that reaches
 	// outside the process is in Deps.
-	Config             = config.Config
-	DatabaseConfig     = config.DatabaseConfig
-	TokenConfig        = config.TokenConfig
-	SignInConfig       = config.SignInConfig
-	DPoPMode           = config.DPoPMode
-	KeysConfig         = config.KeysConfig
-	FrontendConfig     = config.FrontendConfig
-	RegistrationConfig = config.RegistrationConfig
-	AgreementConfig    = config.AgreementConfig
-	SMSConfig          = config.SMSConfig
-	PasswordPolicy     = config.PasswordPolicy
-	UsernameConfig     = config.UsernameConfig
-	FormerNamesConfig  = config.FormerNamesConfig
-	FormerNamesMode    = config.FormerNamesMode
-	TwoFactorConfig    = config.TwoFactorConfig
-	PasskeyConfig      = config.PasskeyConfig
-	DeviceKeysConfig   = config.DeviceKeysConfig
-	APIKeysConfig      = config.APIKeysConfig
-	InvitationsConfig  = config.InvitationsConfig
+	Config                     = config.Config
+	DatabaseConfig             = config.DatabaseConfig
+	TokenConfig                = config.TokenConfig
+	SignInConfig               = config.SignInConfig
+	DPoPMode                   = config.DPoPMode
+	KeysConfig                 = config.KeysConfig
+	FrontendConfig             = config.FrontendConfig
+	RegistrationConfig         = config.RegistrationConfig
+	AgreementConfig            = config.AgreementConfig
+	SMSConfig                  = config.SMSConfig
+	PasswordPolicy             = config.PasswordPolicy
+	UsernameConfig             = config.UsernameConfig
+	FormerNamesConfig          = config.FormerNamesConfig
+	FormerNamesMode            = config.FormerNamesMode
+	TwoFactorConfig            = config.TwoFactorConfig
+	PasskeyConfig              = config.PasskeyConfig
+	DeviceKeysConfig           = config.DeviceKeysConfig
+	APIKeysConfig              = config.APIKeysConfig
+	PersonalAccessTokensConfig = config.PersonalAccessTokensConfig
+	InvitationsConfig          = config.InvitationsConfig
 	// AuthorizationServerConfig declares the OAuth clients and resource
 	// servers of the authorization server (Config.AuthorizationServer).
 	AuthorizationServerConfig = config.AuthorizationServerConfig

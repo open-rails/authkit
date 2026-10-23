@@ -12,7 +12,6 @@ import (
 
 const aPIKeyByLookupID = `-- name: APIKeyByLookupID :one
 SELECT k.id, k.secret_hash, k.role, k.expires_at, k.revoked_at,
-  (k.created_by IS NULL OR EXISTS(SELECT 1 FROM usable_users WHERE id = k.created_by))::boolean AS creator_live,
   g.id AS group_id, g.persona, g.created_at AS group_created_at, cr.permissions AS custom_permissions
 FROM api_keys k JOIN permission_groups g ON g.id = k.permission_group_id
 LEFT JOIN group_custom_roles cr ON cr.permission_group_id = k.permission_group_id AND cr.role = k.role
@@ -31,7 +30,6 @@ type APIKeyByLookupIDRow struct {
 	Role              string
 	ExpiresAt         *time.Time
 	RevokedAt         *time.Time
-	CreatorLive       bool
 	GroupID           string
 	Persona           string
 	GroupCreatedAt    time.Time
@@ -39,8 +37,7 @@ type APIKeyByLookupIDRow struct {
 }
 
 // APIKeyByLookupID reads a key of a live group issued through issuer's app,
-// or before per-app catalogs. creator_live: the key's creator is the system
-// (NULL) or a usable account.
+// or before per-app catalogs. Its creator is audit information only.
 func (q *Queries) APIKeyByLookupID(ctx context.Context, arg APIKeyByLookupIDParams) (APIKeyByLookupIDRow, error) {
 	row := q.db.QueryRow(ctx, aPIKeyByLookupID, arg.KeyID, arg.Issuer)
 	var i APIKeyByLookupIDRow
@@ -50,7 +47,6 @@ func (q *Queries) APIKeyByLookupID(ctx context.Context, arg APIKeyByLookupIDPara
 		&i.Role,
 		&i.ExpiresAt,
 		&i.RevokedAt,
-		&i.CreatorLive,
 		&i.GroupID,
 		&i.Persona,
 		&i.GroupCreatedAt,

@@ -24,6 +24,8 @@ func boundIdentity(c Claims) (auth.Identity, bool) {
 	switch c.Kind {
 	case TokenAPIKey:
 		bound = iam.APIKeyIdentity(c.APIKeyID)
+	case TokenPersonalAccessToken:
+		bound = iam.PersonalAccessTokenIdentity(c.PersonalAccessTokenID)
 	case TokenUser:
 		// A native token, including a device-key token. Another issuer's
 		// user (Subject without UserID) has no AuthKit authority, nor does a

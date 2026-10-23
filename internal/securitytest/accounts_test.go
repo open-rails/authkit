@@ -303,7 +303,7 @@ func TestSecurityAccountLifecycleRevokesCredentials(t *testing.T) {
 			link := h.issue(base+"/invitations", token, map[string]any{"role": "org:owner"})
 			key := h.issue(base+"/api-keys", token, map[string]any{"name": unique("key"), "role": "org:owner"})
 			tc.end(creator)
-			require.False(t, liveKey(t, h, group, key.ID))
+			require.True(t, liveKey(t, h, group, key.ID), "organization-owned key survives creator account lifecycle")
 			require.False(t, liveLink(t, h, group, link.ID))
 			fresh := h.newAccount("h1fresh")
 			resp := h.post("/invitations/redeem", map[string]string{"code": link.Code}, h.login(fresh).AccessToken)
