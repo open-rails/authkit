@@ -96,6 +96,7 @@ var (
 	// ErrEntitlementFilterUnavailable refuses UserQuery.Entitlement when the
 	// host set no Deps.EntitlementHolders.
 	ErrEntitlementFilterUnavailable Error = errmodel.E(errmodel.CodeEntitlementFilterUnavailable)
+	ErrEventCursorExpired           Error = errmodel.E(errmodel.CodeEventCursorExpired)
 )
 
 // Sign-in limits (Config.SignIn), both 429 with Retry-After.

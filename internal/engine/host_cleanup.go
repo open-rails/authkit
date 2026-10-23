@@ -69,7 +69,10 @@ func (s *Engine) cleanupExpiredAuthState(ctx context.Context) error {
 	if err := s.q.APIKeysDeleteExpiredBatch(ctx, db.APIKeysDeleteExpiredBatchParams{Cutoff: cutoff, BatchSize: sessionsGCBatchSize}); err != nil {
 		return err
 	}
-	return s.pruneSessionEvents(ctx)
+	if err := s.pruneSessionEvents(ctx); err != nil {
+		return err
+	}
+	return s.pruneEventLog(ctx)
 }
 
 // Lifecycle history shares the existing private 90-day terminal retention.

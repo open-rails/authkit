@@ -94,6 +94,7 @@ export type AgreementsRequired = {
 }
 
 export type AuthKitEvent = {
+  version: number
   tenant_id: string
   id: string
   kind: "group.created" | "group.deleted" | "group.persona_migrated" | "group.purged" | "group.role_created" | "group.role_deleted" | "group.role_updated" | "oauth_client.created" | "oauth_client.deleted" | "oauth_client.updated" | "oauth_consent.revoked" | "role.changed" | "role.granted" | "role.revoked" | "user.agreement_accepted" | "user.banned" | "user.deleted" | "user.email_changed" | "user.phone_changed" | "user.purged" | "user.registered" | "user.restored" | "user.sessions_revoked" | "user.unbanned" | "user.username_changed"
@@ -277,6 +278,13 @@ export type EmailChangeRequest = {
 export type EnrollmentStep = {
   token_set: TokenSet
   allowed_methods: ("email" | "sms" | "totp")[]
+}
+
+export type EventPage = {
+  events: AuthKitEvent[]
+  next_cursor: string
+  has_more: boolean
+  retention_seconds: number
 }
 
 export type ExternalLoginProvider = {

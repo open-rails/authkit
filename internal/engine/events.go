@@ -146,10 +146,6 @@ func (s *Engine) emitEvents(ctx context.Context, q db.DBTX, a auth.Identity, eve
 		return errors.New("authkit: events are recorded only in the transaction of their change")
 	}
 	txq := s.qtx(tx)
-	subscribers, err := txq.AccountEventFleetsForShare(ctx, s.accountIssuers())
-	if err != nil || len(subscribers) == 0 {
-		return err
-	}
 	for i := range events {
 		tenant, err := s.eventTenant(ctx, txq, events[i])
 		if err != nil {
@@ -158,11 +154,26 @@ func (s *Engine) emitEvents(ctx context.Context, q db.DBTX, a auth.Identity, eve
 		events[i].TenantID = tenant
 	}
 	who := eventIdentity(a)
+	var err error
 	ids := make([]string, len(events))
 	for i := range events {
 		if ids[i], err = newUUIDV7String(); err != nil {
 			return err
 		}
+		events[i].ID, events[i].Version, events[i].OccurredAt = ids[i], 1, s.nowTime().UTC()
+		events[i].SubjectKind, events[i].SubjectID = who.SubjectKind, who.SubjectID
+		events[i].InvokerIssuer, events[i].InvokerID = who.InvokerIssuer, who.InvokerID
+		events[i].CredentialKind, events[i].CredentialID = who.CredentialKind, who.CredentialID
+	}
+	if err := s.appendEventLog(ctx, tx, events); err != nil {
+		return err
+	}
+	// Transitional callback transport for hosts not yet migrated to ListEvents.
+	// Its delivery rows/jobs are separate from the retained log and removable
+	// after those hosts store their own cursor. New readers register nothing.
+	subscribers, err := txq.AccountEventFleetsForShare(ctx, s.accountIssuers())
+	if err != nil || len(subscribers) == 0 {
+		return err
 	}
 	for _, sub := range subscribers {
 		client, err := s.fleetProducer(sub.RiverSchema)
@@ -250,7 +261,7 @@ func (s *Engine) deliverEvent(ctx context.Context, row int64) error {
 	// not accidentally inherit this worker's default account directory.
 	ctx = WithTenant(ctx, tenant)
 	e := iam.Event{
-		TenantID: tenant, ID: rec.EventID, Kind: iam.EventKind(rec.Kind), OccurredAt: rec.OccurredAt,
+		TenantID: tenant, ID: rec.EventID, Version: 1, Kind: iam.EventKind(rec.Kind), OccurredAt: rec.OccurredAt,
 		SubjectKind: auth.SubjectKind(rec.SubjectKind), SubjectID: rec.SubjectID, InvokerIssuer: rec.InvokerIssuer, InvokerID: rec.InvokerID,
 		CredentialKind: auth.CredentialKind(rec.CredentialKind), CredentialID: rec.CredentialID,
 		UserID: deref(rec.UserID), GroupID: deref(rec.GroupID), Persona: ident.Persona(rec.Persona), ApplicationID: deref(rec.ApplicationID),

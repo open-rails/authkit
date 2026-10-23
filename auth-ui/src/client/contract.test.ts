@@ -83,6 +83,7 @@ it("calls only routes AuthKit mounts", async () => {
     () => client.revokeSessions(["s1"]),
     () => client.revokeOtherSessions(),
     () => client.listSessionEvents({ kind: ["session_created"] }),
+    () => client.listEvents({ kind: ["user.registered"], limit: 1 }),
     () => client.listSignInKeys(),
     () => client.renameSignInKey("k", "laptop"),
     () => client.revokeSignInKey("k"),

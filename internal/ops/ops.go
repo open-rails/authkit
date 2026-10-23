@@ -16,6 +16,7 @@ import (
 // serve: everything but the embedding-only methods (New, Start, Close,
 // Handler, Routes, Mount, verifiers, River).
 type Operations interface {
+	ListEvents(ctx context.Context, q iam.EventQuery) (iam.EventPage, error)
 	// Accounts.
 	User(ctx context.Context, ref iam.UserRef, opts ...Option) (iam.User, error)
 	Users(ctx context.Context, ids []string) (map[string]iam.User, error)

@@ -108,6 +108,10 @@ type Config struct {
 	// kept. 0 defaults to 365 days; a negative value keeps them forever.
 	SessionEventRetention time.Duration `yaml:"session_event_retention"`
 
+	// EventRetention keeps committed account/group events independently of
+	// readers. Zero defaults to 90 days; it must be positive after defaulting.
+	EventRetention time.Duration `yaml:"event_retention"`
+
 	// CleanupInterval is how often expired auth state is cleaned up; 0
 	// defaults to one hour.
 	CleanupInterval time.Duration `yaml:"cleanup_interval"`

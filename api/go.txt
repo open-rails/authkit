@@ -67,6 +67,7 @@ pkg authkit, method (*Client) ImportUsers(context.Context, []iam.ImportUser, iam
 pkg authkit, method (*Client) KnownPermission(iam.Perm) bool
 pkg authkit, method (*Client) LinkProvider(context.Context, string, iam.ProviderLink, ...Option) error
 pkg authkit, method (*Client) ListAPIKeys(context.Context, iam.GroupRef, iam.PageRequest) (iam.ListPage[iam.APIKey], error)
+pkg authkit, method (*Client) ListEvents(context.Context, iam.EventQuery) (iam.EventPage, error)
 pkg authkit, method (*Client) ListGroupMembers(context.Context, iam.GroupRef, iam.MemberQuery) (iam.ListPage[iam.GroupMember], error)
 pkg authkit, method (*Client) ListGroupRoles(context.Context, iam.GroupRef) ([]iam.GroupRole, error)
 pkg authkit, method (*Client) ListGroups(context.Context, iam.GroupQuery) (iam.ListPage[iam.Group], error)
@@ -198,6 +199,7 @@ pkg authkit, type Config struct, CleanupInterval time.Duration `yaml:"cleanup_in
 pkg authkit, type Config struct, Database config.DatabaseConfig `yaml:"database"`
 pkg authkit, type Config struct, DefaultTenantID iam.TenantID `yaml:"default_tenant_id"`
 pkg authkit, type Config struct, DeviceKeys config.DeviceKeysConfig `yaml:"device_keys"`
+pkg authkit, type Config struct, EventRetention time.Duration `yaml:"event_retention"`
 pkg authkit, type Config struct, Frontend config.FrontendConfig `yaml:"frontend"`
 pkg authkit, type Config struct, HTTP *config.HTTPConfig `yaml:"http"`
 pkg authkit, type Config struct, Invitations config.InvitationsConfig `yaml:"invitations"`
@@ -1220,7 +1222,18 @@ pkg authkit/iam, type Event struct, SubjectKind auth.SubjectKind `json:"subject_
 pkg authkit/iam, type Event struct, TenantID TenantID `json:"tenant_id"`
 pkg authkit/iam, type Event struct, Until *time.Time `json:"until"`
 pkg authkit/iam, type Event struct, UserID string `json:"user_id"`
+pkg authkit/iam, type Event struct, Version int `json:"version"`
 pkg authkit/iam, type EventKind string
+pkg authkit/iam, type EventPage struct
+pkg authkit/iam, type EventPage struct, Events []Event `json:"events"`
+pkg authkit/iam, type EventPage struct, HasMore bool `json:"has_more"`
+pkg authkit/iam, type EventPage struct, NextCursor string `json:"next_cursor"`
+pkg authkit/iam, type EventPage struct, RetentionSeconds int64 `json:"retention_seconds"`
+pkg authkit/iam, type EventQuery struct
+pkg authkit/iam, type EventQuery struct, After string
+pkg authkit/iam, type EventQuery struct, Authority bool
+pkg authkit/iam, type EventQuery struct, Kinds []EventKind
+pkg authkit/iam, type EventQuery struct, Limit int
 pkg authkit/iam, type Grant interface
 pkg authkit/iam, type Grant interface, unexported methods
 pkg authkit/iam, type Group struct
@@ -1703,6 +1716,7 @@ pkg authkit/iam, var ErrDeletionRefused Error
 pkg authkit/iam, var ErrDeviceKeysDisabled Error
 pkg authkit/iam, var ErrEmailInUse Error
 pkg authkit/iam, var ErrEntitlementFilterUnavailable Error
+pkg authkit/iam, var ErrEventCursorExpired Error
 pkg authkit/iam, var ErrExternalInvitesDisabled Error
 pkg authkit/iam, var ErrGroupConflict Error
 pkg authkit/iam, var ErrGroupNotFound Error

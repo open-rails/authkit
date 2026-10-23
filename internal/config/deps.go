@@ -61,6 +61,8 @@ type Deps struct {
 	// then on, even while no fleet runs. Clients without it change nothing
 	// until one starts the issuer's fleet: that unsubscribes the issuer, and
 	// its fleet drains what is pending.
+	// Deprecated: read Client.ListEvents and store progress in the application.
+	// This legacy transport remains only while existing hosts migrate.
 	OnEvent func(context.Context, iam.Event) error
 	// OnPurge erases the host's data of a deleted account before AuthKit
 	// purges the account, 30 days after its deletion. It runs durably through

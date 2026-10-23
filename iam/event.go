@@ -70,6 +70,9 @@ const (
 // records nothing, and delivered after commit, at least once. It names what
 // changed and never carries a credential, hash, token or code.
 type Event struct {
+	// Version identifies the payload schema. Unknown additive fields and event
+	// kinds may appear; readers should ignore what they do not understand.
+	Version int `json:"version"`
 	// TenantID is the affected tenant, not the acting operator's tenant.
 	// Zero identifies an authority-wide event with no tenant-owned target.
 	TenantID TenantID `json:"tenant_id"`
@@ -111,4 +114,25 @@ type Event struct {
 	// Reason and Until describe a ban; Until is nil for an indefinite one.
 	Reason string     `json:"reason"`
 	Until  *time.Time `json:"until"`
+}
+
+// EventQuery reads one retained log. An empty After starts at its oldest
+// retained event. Kinds is an optional exact-match filter bound to the cursor.
+// Limit defaults to 100 and must be between 1 and 500 when specified.
+type EventQuery struct {
+	After string
+	Limit int
+	Kinds []EventKind
+	// Authority selects only events without a tenant-owned target. Otherwise
+	// the client's selected tenant is required. HTTP enforces root permission.
+	Authority bool
+}
+
+// EventPage contains a continuation even when Events is empty. A reader saves
+// NextCursor only after processing every event in the page successfully.
+type EventPage struct {
+	Events           []Event `json:"events"`
+	NextCursor       string  `json:"next_cursor"`
+	HasMore          bool    `json:"has_more"`
+	RetentionSeconds int64   `json:"retention_seconds"`
 }

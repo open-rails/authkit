@@ -26,6 +26,7 @@ import type {
   BackupCodes,
   Capabilities,
   FreshAuth,
+  EventPage,
   ListPage,
   Membership,
   OAuthAuthorizationRequest,
@@ -1546,6 +1547,27 @@ export function createAuthClient(options: AuthClientOptions = {}) {
           kind: input.kind?.join(","),
           cursor: input.cursor,
           limit: input.limit,
+        },
+      }),
+
+    // The caller owns cursor persistence. This starts no polling or delivery
+    // worker; every call independently rechecks the current permission.
+    listEvents: (
+      input: {
+        after?: string
+        limit?: number
+        kind?: string[]
+        authority?: boolean
+      } = {},
+      signal?: AbortSignal
+    ) =>
+      request<EventPage>("GET", "/events", {
+        signal,
+        query: {
+          after: input.after,
+          limit: input.limit,
+          kind: input.kind?.join(","),
+          authority: input.authority,
         },
       }),
 

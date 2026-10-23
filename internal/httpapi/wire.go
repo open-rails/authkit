@@ -26,6 +26,15 @@ type PageQuery struct {
 	Limit  *int   `query:"limit"`
 }
 
+// EventQuery reads one retained log; after is opaque and kind repeats.
+// authority=true selects only authority-wide events and requires root access.
+type EventQuery struct {
+	After     string   `query:"after"`
+	Limit     *int     `query:"limit"`
+	Kind      []string `query:"kind"`
+	Authority bool     `query:"authority"`
+}
+
 // Requests.
 
 type TokenRefreshRequest struct {

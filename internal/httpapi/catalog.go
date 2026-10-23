@@ -339,6 +339,9 @@ func Catalog() []RouteSpec {
 		// (rule ACCT).
 		{Method: GET, Path: "/admin/users", Group: admin, Auth: permission, Perm: usersRead, Bucket: RLAdminRead,
 			Query: UserListQuery{}, Responses: replyOK(iam.ListPage[iam.UserEntry]{}), serve: handle((*Service).handleAdminUsersListGET)},
+		// Dynamic authority/tenant permission is checked for every page.
+		{Method: GET, Path: "/events", Group: admin, Auth: permission, Perm: usersRead, Bucket: RLAdminRead,
+			Query: EventQuery{}, Responses: replyOK(iam.EventPage{}), serve: handle((*Service).handleEventsGET)},
 		{Method: GET, Path: "/admin/users/{user_id}", Group: admin, Auth: permission, Perm: usersRead, Bucket: RLAdminRead,
 			Responses: replyOK(iam.UserEntry{}), serve: handle((*Service).handleAdminUserGET)},
 		{Method: PATCH, Path: "/admin/users/{user_id}", Group: admin, Auth: session, StepUp: true, Perm: ident.RootUsersManage.String(), Bucket: RLAdminWrite,

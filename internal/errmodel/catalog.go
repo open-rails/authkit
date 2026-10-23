@@ -46,6 +46,7 @@ var (
 	CodeEmailInUse                      = def("email_in_use", 400, "This email is already in use.")
 	CodeEmailUnavailable                = def("email_unavailable", 503, "Email is unavailable right now.")
 	CodeEntitlementFilterUnavailable    = def("entitlement_filter_unavailable", 400, "Entitlement filtering is unavailable.")
+	CodeEventCursorExpired              = def("event_cursor_expired", 410, "This event cursor is no longer retained. Resynchronize from current state.")
 	CodeExternalInvitesDisabled         = def("external_invites_disabled", 403, "Invite links are disabled.")
 	CodeForbidden                       = def("forbidden", 403, "You don't have permission to do that.")
 	CodeGroupConflict                   = def("group_conflict", 409, "The group id is taken by a deleted group or a group of another persona.")

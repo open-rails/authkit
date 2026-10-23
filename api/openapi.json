@@ -3310,6 +3310,77 @@
         "x-authkit-rate-limit": "admin_read"
       }
     },
+    "/api/v1/events": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "explode": true
+          },
+          {
+            "name": "authority",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "root:users:read",
+        "x-authkit-rate-limit": "admin_read"
+      }
+    },
     "/api/v1/admin/users/{user_id}": {
       "get": {
         "tags": [
@@ -7572,6 +7643,9 @@
       "AuthKitEvent": {
         "type": "object",
         "properties": {
+          "version": {
+            "type": "integer"
+          },
           "tenant_id": {
             "type": "string"
           },
@@ -7686,6 +7760,7 @@
           }
         },
         "required": [
+          "version",
           "tenant_id",
           "id",
           "kind",
@@ -8410,6 +8485,32 @@
         "required": [
           "token_set",
           "allowed_methods"
+        ]
+      },
+      "EventPage": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuthKitEvent"
+            }
+          },
+          "next_cursor": {
+            "type": "string"
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "retention_seconds": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "events",
+          "next_cursor",
+          "has_more",
+          "retention_seconds"
         ]
       },
       "ExternalLoginProvider": {
@@ -13328,6 +13429,10 @@
     "entitlement_filter_unavailable": {
       "status": 400,
       "message": "Entitlement filtering is unavailable."
+    },
+    "event_cursor_expired": {
+      "status": 410,
+      "message": "This event cursor is no longer retained. Resynchronize from current state."
     },
     "external_invites_disabled": {
       "status": 403,
