@@ -85,7 +85,9 @@ contains the complete original `iam.Event`; actor identity stays in that payload
 `RecordedAt` is the log's storage timestamp and is also returned additively in
 `iam.Event`. `Types`/HTTP `type` are the common filter spelling; legacy
 `Kinds`/HTTP `kind` remain accepted. Filters are combined, normalized and bound
-to the cursor, with at most 32 supplied types and a 100 default/500 maximum page.
+to the cursor, with at most 100 supplied types and a 100 default/500 maximum page.
+Native Kinds-only queries retain their historical exact strings, including outer
+whitespace; Types queries use the common trimmed normalization.
 
 This adoption retains the existing tables, writer transaction, recorded times,
 positions, IDs and deployment epoch. Shared paging uses the historical AuthKit

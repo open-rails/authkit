@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -316,4 +317,37 @@ func TestEventLogLegacyFloorAndNonmonotonicRetention(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, resumed.Events, 1)
 	require.Equal(t, last.ID, resumed.Events[0].ID)
+}
+
+func TestEventLogLegacyLargeFilterAndWhitespaceCursor(t *testing.T) {
+	e := eventLogTestEngine(t)
+	event := eventLogTestEvent(testdb.DefaultTenantID, iam.EventUserRegistered)
+	appendTestEvents(t, e, event)
+	kinds := make([]iam.EventKind, 100)
+	for i := range kinds {
+		kinds[i] = iam.EventKind(fmt.Sprintf("future.%03d", i))
+	}
+	kinds[0] = iam.EventUserRegistered
+	page, err := e.ListEvents(t.Context(), iam.EventQuery{Kinds: kinds})
+	require.NoError(t, err)
+	require.Len(t, page.Events, 1)
+	// A pre-adoption cursor used this same v/e/s/k/p/i envelope and full filter.
+	var old eventLogCursor
+	require.NoError(t, cursor.Decode(page.NextCursor, &old))
+	require.Len(t, old.Kinds, 100)
+	next, err := e.ListEvents(t.Context(), iam.EventQuery{Kinds: kinds, After: cursor.Encode(old)})
+	require.NoError(t, err)
+	require.Empty(t, next.Events)
+	spaced := []iam.EventKind{" user.registered "}
+	page, err = e.ListEvents(t.Context(), iam.EventQuery{Kinds: spaced})
+	require.NoError(t, err)
+	require.Empty(t, page.Events)
+	require.NoError(t, cursor.Decode(page.NextCursor, &old))
+	require.Equal(t, []string{" user.registered "}, old.Kinds)
+	_, err = e.ListEvents(t.Context(), iam.EventQuery{Kinds: spaced, After: cursor.Encode(old)})
+	require.NoError(t, err)
+	// The new Types API retains common trim/sort normalization.
+	page, err = e.ListEvents(t.Context(), iam.EventQuery{Types: []string{" user.registered "}})
+	require.NoError(t, err)
+	require.Len(t, page.Events, 1)
 }
