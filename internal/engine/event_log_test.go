@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
+	"github.com/open-rails/authkit/internal/cursor"
 	pgmigrations "github.com/open-rails/authkit/internal/migrations/postgres"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/migratekit"
@@ -193,6 +194,8 @@ func TestEventLogAppendPayloadMatchesCommittedEvent(t *testing.T) {
 	appendTestEvents(t, e, event)
 	page, err := e.ListEvents(t.Context(), iam.EventQuery{})
 	require.NoError(t, err)
+	require.False(t, page.Events[0].RecordedAt.IsZero())
+	event.RecordedAt = page.Events[0].RecordedAt
 	a, err := json.Marshal(event)
 	require.NoError(t, err)
 	b, err := json.Marshal(page.Events[0])
@@ -280,4 +283,37 @@ FROM generate_series(1,5001) n`, scope)
 	require.NoError(t, e.pruneEventLog(ctx))
 	require.NoError(t, e.pg.QueryRow(ctx, "SELECT count(*) FROM event_log").Scan(&count))
 	require.Zero(t, count)
+}
+
+func TestEventLogLegacyFloorAndNonmonotonicRetention(t *testing.T) {
+	e := eventLogTestEngine(t)
+	first := eventLogTestEvent(testdb.DefaultTenantID, iam.EventUserRegistered)
+	middle := eventLogTestEvent(testdb.DefaultTenantID, iam.EventUserEmailChanged)
+	last := eventLogTestEvent(testdb.DefaultTenantID, iam.EventUserRegistered)
+	appendTestEvents(t, e, first, middle, last)
+	page, err := e.ListEvents(t.Context(), iam.EventQuery{Limit: 1})
+	require.NoError(t, err)
+	require.Equal(t, first.ID, page.Events[0].ID)
+	// Imported clocks can expire a later row while an earlier row is retained.
+	_, err = e.pg.Exec(t.Context(), "UPDATE event_log SET recorded_at=clock_timestamp()-interval '91 days' WHERE event_id=$1", middle.ID)
+	require.NoError(t, err)
+	retained, err := e.ListEvents(t.Context(), iam.EventQuery{})
+	require.NoError(t, err)
+	require.Equal(t, []string{first.ID, last.ID}, []string{retained.Events[0].ID, retained.Events[1].ID})
+	require.NoError(t, e.pruneEventLog(t.Context()))
+	var count int
+	require.NoError(t, e.pg.QueryRow(t.Context(), "SELECT count(*) FROM event_log").Scan(&count))
+	require.Equal(t, 3, count, "only an expired prefix can be pruned")
+	// Once the prefix expires, its historical cursor still resumes at the floor.
+	_, err = e.pg.Exec(t.Context(), "UPDATE event_log SET recorded_at=clock_timestamp()-interval '91 days' WHERE event_id=$1", first.ID)
+	require.NoError(t, err)
+	require.NoError(t, e.pruneEventLog(t.Context()))
+	var old eventLogCursor
+	require.NoError(t, cursor.Decode(page.NextCursor, &old))
+	old.Position = 2 // the now-pruned prefix endpoint has no retained boundary ID
+	old.EventID = middle.ID
+	resumed, err := e.ListEvents(t.Context(), iam.EventQuery{After: cursor.Encode(old)})
+	require.NoError(t, err)
+	require.Len(t, resumed.Events, 1)
+	require.Equal(t, last.ID, resumed.Events[0].ID)
 }

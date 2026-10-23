@@ -103,6 +103,8 @@ func TestClientPublicSurface(t *testing.T) {
 		"RemoteInvitations", "AcceptRemoteInvitation",
 		// authkit/userinfo Lookup: a library's directory reads.
 		"UserInfo", "RemoteUserInfo",
+		// Reader adapters do not introduce an operation.
+		"EventReader",
 	}
 	noIdentity := append(append(append([]string{}, hostOperations...), reads...), embeddingOnly...)
 

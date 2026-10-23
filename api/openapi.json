@@ -3482,6 +3482,17 @@
             "explode": true
           },
           {
+            "name": "type",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "explode": true
+          },
+          {
             "name": "authority",
             "in": "query",
             "schema": {
@@ -7827,6 +7838,11 @@
             "format": "date-time",
             "description": "RFC 3339, UTC"
           },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
           "subject_kind": {
             "type": "string",
             "enum": [
@@ -7906,6 +7922,7 @@
           "id",
           "kind",
           "occurred_at",
+          "recorded_at",
           "subject_kind",
           "subject_id",
           "invoker_issuer",

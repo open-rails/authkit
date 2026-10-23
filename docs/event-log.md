@@ -70,3 +70,33 @@ Required `OnPurge` cleanup is separate. Each issuer's daily/startup sweep runs
 its required cleanup before hard deletion, while the subsequent `user.purged`
 event describes what committed. Reading the log never satisfies or delays
 that cleanup.
+
+Libraries can consume the common `github.com/open-rails/helpers/eventlog.Reader`
+through `client.EventReader()` (or `client.EventReader(true)` for authority-wide
+facts). `NewRemoteEventReader(RemoteEventConfig{BaseURL: apiURL, HTTPClient: httpClient,
+Headers: headers})` reads the same events over HTTP; configure a tenant-routed
+API URL and authenticated transport. Both expose `eventlog.Query{After, Types,
+Limit}` and the same cursor/expiry semantics. Remote errors retain AuthKit's
+`iam.Error` codes and `errors.Is(err, iam.ErrEventCursorExpired)` identity.
+
+The shared envelope uses source `authkit`, scope equal to the tenant UUID or
+`authority`, and the affected user/application/group as its subject. `Data`
+contains the complete original `iam.Event`; actor identity stays in that payload.
+`RecordedAt` is the log's storage timestamp and is also returned additively in
+`iam.Event`. `Types`/HTTP `type` are the common filter spelling; legacy
+`Kinds`/HTTP `kind` remain accepted. Filters are combined, normalized and bound
+to the cursor, with at most 32 supplied types and a 100 default/500 maximum page.
+
+This adoption retains the existing tables, writer transaction, recorded times,
+positions, IDs and deployment epoch. Shared paging uses the historical AuthKit
+cursor codec and its floor-boundary behavior; it does not reissue historical
+facts. AuthKit's legacy retention adapter also handles nonmonotonic imported
+recorded times by pruning only an expired prefix.
+
+The remote constructor is deliberately an event reader, not a general remote
+`*Client`. Full public-client transport parity is still open: the route catalog
+has HTTP request/response shapes but no operation-to-route mapping, and domain
+methods include trusted actor, transaction options, tenant dispatch and native
+operations without an equivalent authorized HTTP route. Completing that facade
+requires explicit mappings and authorization/error parity tests for each supported
+operation. No general remote client with silent unsupported methods is provided.

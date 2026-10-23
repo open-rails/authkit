@@ -32,6 +32,7 @@ type EventQuery struct {
 	After     string   `query:"after"`
 	Limit     *int     `query:"limit"`
 	Kind      []string `query:"kind"`
+	Types     []string `query:"type"`
 	Authority bool     `query:"authority"`
 }
 

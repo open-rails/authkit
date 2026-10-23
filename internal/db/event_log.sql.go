@@ -85,7 +85,7 @@ func (q *Queries) EventLogInsert(ctx context.Context, arg EventLogInsertParams) 
 }
 
 const eventLogItems = `-- name: EventLogItems :many
-SELECT position, event_id, payload FROM event_log
+SELECT position, event_id, recorded_at, payload FROM event_log
 WHERE scope=$1 AND position>$2
   AND recorded_at>=$3
   AND (cardinality($4::text[])=0 OR kind=ANY($4::text[]))
@@ -101,9 +101,10 @@ type EventLogItemsParams struct {
 }
 
 type EventLogItemsRow struct {
-	Position int64
-	EventID  string
-	Payload  []byte
+	Position   int64
+	EventID    string
+	RecordedAt time.Time
+	Payload    []byte
 }
 
 func (q *Queries) EventLogItems(ctx context.Context, arg EventLogItemsParams) ([]EventLogItemsRow, error) {
@@ -121,7 +122,12 @@ func (q *Queries) EventLogItems(ctx context.Context, arg EventLogItemsParams) ([
 	var items []EventLogItemsRow
 	for rows.Next() {
 		var i EventLogItemsRow
-		if err := rows.Scan(&i.Position, &i.EventID, &i.Payload); err != nil {
+		if err := rows.Scan(
+			&i.Position,
+			&i.EventID,
+			&i.RecordedAt,
+			&i.Payload,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

@@ -124,6 +124,8 @@ github.com/open-rails/helpers v1.12.0 h1:/Lb6PWslc80wdtxfzL+0hhvDk5BryAGMV5y9U2v
 github.com/open-rails/helpers v1.12.0/go.mod h1:/q4zZNSZJ9pKH2BAROYACeaGecD7nWNL7jIRMPZbDa8=
 github.com/open-rails/helpers v1.13.0 h1:D5HwPo+kYBMdR+QQtgzjqzWHzRN9t1GpWH8sUHdBKpA=
 github.com/open-rails/helpers v1.13.0/go.mod h1:/q4zZNSZJ9pKH2BAROYACeaGecD7nWNL7jIRMPZbDa8=
+github.com/open-rails/helpers v1.14.2-0.20261023054030-7d8663008503 h1:ACIlxAzH7uXL9g6ltMs0YIazeYotlkj1e70VNyvNW4g=
+github.com/open-rails/helpers v1.14.2-0.20261023054030-7d8663008503/go.mod h1:/q4zZNSZJ9pKH2BAROYACeaGecD7nWNL7jIRMPZbDa8=
 github.com/open-rails/migratekit v1.11.0 h1:kcpTyoiqDNUVDHc0lnBQ/q6USpjYRpi95tV1PiAGS5c=
 github.com/open-rails/migratekit v1.11.0/go.mod h1:ONDMUycRcwAB+eKlPvho6mnNAZf9gf9+yqwCKDRuO9g=
 github.com/pelletier/go-toml/v2 v2.2.4 h1:mye9XuhQ6gvn5h28+VilKrrPoQVanw5PMw/TB0t5Ec4=

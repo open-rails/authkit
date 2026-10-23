@@ -119,7 +119,7 @@ type Event struct {
 }
 
 // EventQuery reads one retained log. An empty After starts at its oldest
-// retained event. Kinds is an optional exact-match filter bound to the cursor.
+// retained event. Types (or legacy Kinds) is an optional exact-match filter bound to the cursor.
 // Limit defaults to 100 and must be between 1 and 500 when specified.
 type EventQuery struct {
 	After string
