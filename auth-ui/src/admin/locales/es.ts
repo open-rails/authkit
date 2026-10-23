@@ -285,6 +285,7 @@ export const es: AdminMessageTree = {
     phoneHint: "Con el prefijo del país, como +34912345678.",
     language: "Idioma",
     languageHint: "Una etiqueta de idioma, como es o pt-BR.",
+    languageNone: "Sin idioma",
     mfaRequired: "Exigir autenticación de dos factores",
     mfaRequiredHint:
       "La cuenta deberá completar la configuración en su próximo inicio de sesión o acceso autenticado. Las exigencias de los roles o del sitio siguen vigentes al desactivar esta opción.",

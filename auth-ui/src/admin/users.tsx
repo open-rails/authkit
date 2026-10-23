@@ -51,7 +51,7 @@ export interface UsersAdminProps extends AdminProps {
   confirmWarnings?: ConfirmWarnings
   /** Entitlements the directory filters by; needs AuthKit's `Deps.EntitlementHolders`. */
   entitlements?: readonly string[]
-  /** Language tags the profile editor offers by name; omit for a free-text tag. */
+  /** Language tags, in the canonical form AuthKit stores, the profile editor offers by name; omit for a free-text tag. */
   languages?: readonly string[]
 }
 

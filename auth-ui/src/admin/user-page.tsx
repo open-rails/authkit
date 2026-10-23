@@ -725,6 +725,17 @@ function EditDialog({
   )
 }
 
+/** The host's tags once each, plus the account's own tag if the host no longer offers it. */
+function languageChoices(offered: readonly string[], current: string) {
+  const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
+  // The account's own spelling stands in for the host's, so it stays selected.
+  const tags = offered.map((tag) =>
+    current && same(tag, current) ? current : tag
+  )
+  if (current && !tags.includes(current)) tags.push(current)
+  return tags.filter((tag, i) => tags.findIndex((t) => same(t, tag)) === i)
+}
+
 // Sends only the fields that changed; an emptied email or phone is removed.
 function EditForm({
   user,
@@ -823,14 +834,8 @@ function EditForm({
               value={form.language}
               onChange={set("language")}
             >
-              <option value="">—</option>
-              {/* Keep a tag the host no longer offers selectable. */}
-              {[
-                ...languages,
-                ...(form.language && !languages.includes(form.language)
-                  ? [form.language]
-                  : []),
-              ].map((tag) => (
+              <option value="">{t("users.languageNone")}</option>
+              {languageChoices(languages, form.language).map((tag) => (
                 <option key={tag} value={tag}>
                   {languageName(tag)}
                 </option>
