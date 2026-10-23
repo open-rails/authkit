@@ -1,5 +1,5 @@
 -- Account deletion lifecycle: the recovery window (account_deletions), the
--- per-issuer delivery receipts River works off, and each issuer's River fleet.
+-- per-issuer required cleanup receipts, and each issuer's River fleet.
 
 -- name: StatementTimestamp :one
 SELECT statement_timestamp()::timestamptz AS now;
@@ -103,19 +103,41 @@ SELECT river_schema FROM account_delivery_fleets WHERE issuer = $1 FOR SHARE;
 SELECT (
     EXISTS (SELECT 1 FROM account_deletion_deliveries WHERE issuer = sqlc.arg(issuer)::text AND completed_at IS NULL)
     OR EXISTS (SELECT 1 FROM account_deletions WHERE state IN ('deleted', 'finalizing') AND sqlc.arg(issuer)::text = ANY(recipients))
-    OR EXISTS (SELECT 1 FROM account_events WHERE issuer = sqlc.arg(issuer)::text)
 )::boolean AS busy;
 
 -- name: AccountDeliveryFleetSetSchema :exec
 UPDATE account_delivery_fleets SET river_schema = sqlc.arg(river_schema) WHERE issuer = sqlc.arg(issuer);
-
--- name: AccountDeliveryFleetSetEvents :exec
--- Only the issuer's bound fleet sets whether it records events.
-UPDATE account_delivery_fleets SET events = sqlc.arg(events)
-WHERE issuer = sqlc.arg(issuer) AND river_schema = sqlc.arg(river_schema) AND events <> sqlc.arg(events);
 
 -- name: AccountDeliveryFleetsUnbound :one
 -- The issuers, sorted, with no fleet bound yet.
 SELECT coalesce(array_agg(i ORDER BY i), '{}')::text[] AS unbound
 FROM unnest(sqlc.arg(issuers)::text[]) i
 WHERE NOT EXISTS (SELECT 1 FROM account_delivery_fleets f WHERE f.issuer = i);
+
+-- name: AccountDeletionsDue :many
+-- Failed accounts remain discoverable without a duplicate per-account timer.
+-- Each issuer separately scans its pending cleanup receipts below. A final
+-- database purge is retried once every required receipt is complete.
+SELECT id, purge_at, state FROM account_deletions d
+WHERE d.state IN ('deleted', 'finalizing') AND d.purge_at <= sqlc.arg(due_at)::timestamptz
+  AND (d.purge_at, d.id) > (sqlc.arg(after_purge_at)::timestamptz, sqlc.arg(after_id)::uuid)
+  AND (d.state = 'deleted' OR NOT EXISTS (
+    SELECT 1 FROM account_deletion_deliveries e
+    WHERE e.deletion_id = d.id AND e.stage = 'hard' AND e.completed_at IS NULL
+  ))
+ORDER BY d.purge_at, d.id
+LIMIT sqlc.arg(batch_size)::bigint;
+
+-- name: AccountCleanupsDue :many
+-- Required domain cleanup for this issuer only, independent of event readers.
+SELECT e.id FROM account_deletion_deliveries e
+JOIN account_deletions d ON d.id=e.deletion_id
+WHERE e.issuer=sqlc.arg(issuer) AND e.stage='hard' AND e.completed_at IS NULL
+  AND d.state='finalizing' AND d.purge_at<=sqlc.arg(due_at)::timestamptz
+  AND e.id>sqlc.arg(after_id)::bigint
+ORDER BY e.id LIMIT 100;
+
+-- name: AccountCleanupFleetIssuers :many
+-- The daily dispatcher schedules each application only in its bound fleet.
+SELECT issuer FROM account_delivery_fleets WHERE river_schema=sqlc.arg(river_schema)
+ORDER BY issuer;

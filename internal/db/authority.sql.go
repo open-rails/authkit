@@ -32,7 +32,6 @@ SELECT k.permission_group_id, k.role, cr.permissions AS custom_permissions
 FROM api_keys k JOIN permission_groups g ON g.id = k.permission_group_id
 LEFT JOIN group_custom_roles cr ON cr.permission_group_id = k.permission_group_id AND cr.role = k.role
 WHERE k.id = $1 AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at > now()) AND g.deleted_at IS NULL
-  AND (k.created_by IS NULL OR EXISTS(SELECT 1 FROM usable_users WHERE id = k.created_by))
   AND (k.catalog_issuer IS NULL OR k.catalog_issuer = $2::text)
 `
 
@@ -47,9 +46,8 @@ type AuthorityAPIKeyRoleRow struct {
 	CustomPermissions []string
 }
 
-// The group and role of a live key in a live group whose creator is the
-// system (NULL) or usable, issued through issuer's app or before per-app
-// catalogs.
+// The group and role of a live organization key, issued through issuer's app
+// or before per-app catalogs. The creator is audit information only.
 func (q *Queries) AuthorityAPIKeyRole(ctx context.Context, arg AuthorityAPIKeyRoleParams) (AuthorityAPIKeyRoleRow, error) {
 	row := q.db.QueryRow(ctx, authorityAPIKeyRole, arg.ID, arg.Issuer)
 	var i AuthorityAPIKeyRoleRow
@@ -182,7 +180,7 @@ SELECT 'account_registration_invites', a.id::text, t.id::text, t.persona, '', a.
    AND a.invited_by IS NOT NULL AND ($2::text = '' OR a.invited_by = NULLIF($2::text, '')::uuid)
    AND (a.catalog_issuer IS NULL OR a.catalog_issuer = $3::text)
 UNION ALL
-SELECT 'api_keys', k.id::text, k.permission_group_id::text, t.persona, k.role, COALESCE(k.created_by::text, ''), false
+SELECT 'api_keys', k.id::text, k.permission_group_id::text, t.persona, k.role, ''::text, false
   FROM api_keys k JOIN scope t ON t.id = k.permission_group_id
  WHERE k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at > now())
    AND ($2::text = '' OR k.created_by = NULLIF($2::text, '')::uuid)

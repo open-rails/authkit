@@ -45,6 +45,7 @@ var inlineSQL = map[string]inlineSQLSite{
 	"authtest/authtest.go StaleSession":                                     {1, "ages a session in a generated schema; identifiers cannot be bind parameters"},
 	"authtest/authtest.go scratchSchema":                                    {1, "DDL on a generated schema name; identifiers cannot be bind parameters"},
 	"internal/engine/migrations.go Migrate":                                 {1, "CREATE SCHEMA names the River schema; identifiers cannot be bind parameters"},
+	"internal/engine/migrations.go retireAccountDeletionJobs":               {3, "atomically locks, validates and retires legacy jobs across runtime-selected AuthKit and River schemas; identifiers cannot be bind parameters"},
 	"internal/engine/users_read.go Engine.ListUsers":                        {1, "filters, sort column and keyset cursor are chosen at runtime; it pages ids and loads rows with UsersByIDs"},
 	"internal/engine/users_read.go Engine.countUsers":                       {1, "counts ListUsers' runtime-chosen filters"},
 }

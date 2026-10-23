@@ -10,6 +10,68 @@ import (
 	"time"
 )
 
+const accountCleanupFleetIssuers = `-- name: AccountCleanupFleetIssuers :many
+SELECT issuer FROM account_delivery_fleets WHERE river_schema=$1
+ORDER BY issuer
+`
+
+// The daily dispatcher schedules each application only in its bound fleet.
+func (q *Queries) AccountCleanupFleetIssuers(ctx context.Context, riverSchema string) ([]string, error) {
+	rows, err := q.db.Query(ctx, accountCleanupFleetIssuers, riverSchema)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var issuer string
+		if err := rows.Scan(&issuer); err != nil {
+			return nil, err
+		}
+		items = append(items, issuer)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const accountCleanupsDue = `-- name: AccountCleanupsDue :many
+SELECT e.id FROM account_deletion_deliveries e
+JOIN account_deletions d ON d.id=e.deletion_id
+WHERE e.issuer=$1 AND e.stage='hard' AND e.completed_at IS NULL
+  AND d.state='finalizing' AND d.purge_at<=$2::timestamptz
+  AND e.id>$3::bigint
+ORDER BY e.id LIMIT 100
+`
+
+type AccountCleanupsDueParams struct {
+	Issuer  string
+	DueAt   time.Time
+	AfterID int64
+}
+
+// Required domain cleanup for this issuer only, independent of event readers.
+func (q *Queries) AccountCleanupsDue(ctx context.Context, arg AccountCleanupsDueParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, accountCleanupsDue, arg.Issuer, arg.DueAt, arg.AfterID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const accountDeletionDelivery = `-- name: AccountDeletionDelivery :one
 SELECT d.id, d.user_id, d.deleted_at, d.purge_at, d.state, d.recipients, d.restored_at, d.purged_at, d.deleted_by, d.tenant_id, e.issuer, e.stage, e.completed_at
 FROM account_deletion_deliveries e JOIN account_deletions d ON d.id = e.deletion_id
@@ -318,11 +380,63 @@ func (q *Queries) AccountDeletionsDeleteTerminalBatch(ctx context.Context, arg A
 	return result.RowsAffected(), nil
 }
 
+const accountDeletionsDue = `-- name: AccountDeletionsDue :many
+SELECT id, purge_at, state FROM account_deletions d
+WHERE d.state IN ('deleted', 'finalizing') AND d.purge_at <= $1::timestamptz
+  AND (d.purge_at, d.id) > ($2::timestamptz, $3::uuid)
+  AND (d.state = 'deleted' OR NOT EXISTS (
+    SELECT 1 FROM account_deletion_deliveries e
+    WHERE e.deletion_id = d.id AND e.stage = 'hard' AND e.completed_at IS NULL
+  ))
+ORDER BY d.purge_at, d.id
+LIMIT $4::bigint
+`
+
+type AccountDeletionsDueParams struct {
+	DueAt        time.Time
+	AfterPurgeAt time.Time
+	AfterID      string
+	BatchSize    int64
+}
+
+type AccountDeletionsDueRow struct {
+	ID      string
+	PurgeAt time.Time
+	State   string
+}
+
+// Failed accounts remain discoverable without a duplicate per-account timer.
+// Each issuer separately scans its pending cleanup receipts below. A final
+// database purge is retried once every required receipt is complete.
+func (q *Queries) AccountDeletionsDue(ctx context.Context, arg AccountDeletionsDueParams) ([]AccountDeletionsDueRow, error) {
+	rows, err := q.db.Query(ctx, accountDeletionsDue,
+		arg.DueAt,
+		arg.AfterPurgeAt,
+		arg.AfterID,
+		arg.BatchSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AccountDeletionsDueRow
+	for rows.Next() {
+		var i AccountDeletionsDueRow
+		if err := rows.Scan(&i.ID, &i.PurgeAt, &i.State); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const accountDeliveryFleetBusy = `-- name: AccountDeliveryFleetBusy :one
 SELECT (
     EXISTS (SELECT 1 FROM account_deletion_deliveries WHERE issuer = $1::text AND completed_at IS NULL)
     OR EXISTS (SELECT 1 FROM account_deletions WHERE state IN ('deleted', 'finalizing') AND $1::text = ANY(recipients))
-    OR EXISTS (SELECT 1 FROM account_events WHERE issuer = $1::text)
 )::boolean AS busy
 `
 
@@ -368,23 +482,6 @@ func (q *Queries) AccountDeliveryFleetSchemaForUpdate(ctx context.Context, issue
 	var river_schema string
 	err := row.Scan(&river_schema)
 	return river_schema, err
-}
-
-const accountDeliveryFleetSetEvents = `-- name: AccountDeliveryFleetSetEvents :exec
-UPDATE account_delivery_fleets SET events = $1
-WHERE issuer = $2 AND river_schema = $3 AND events <> $1
-`
-
-type AccountDeliveryFleetSetEventsParams struct {
-	Events      bool
-	Issuer      string
-	RiverSchema string
-}
-
-// Only the issuer's bound fleet sets whether it records events.
-func (q *Queries) AccountDeliveryFleetSetEvents(ctx context.Context, arg AccountDeliveryFleetSetEventsParams) error {
-	_, err := q.db.Exec(ctx, accountDeliveryFleetSetEvents, arg.Events, arg.Issuer, arg.RiverSchema)
-	return err
 }
 
 const accountDeliveryFleetSetSchema = `-- name: AccountDeliveryFleetSetSchema :exec
@@ -445,7 +542,7 @@ SELECT statement_timestamp()::timestamptz AS now
 `
 
 // Account deletion lifecycle: the recovery window (account_deletions), the
-// per-issuer delivery receipts River works off, and each issuer's River fleet.
+// per-issuer required cleanup receipts, and each issuer's River fleet.
 func (q *Queries) StatementTimestamp(ctx context.Context) (time.Time, error) {
 	row := q.db.QueryRow(ctx, statementTimestamp)
 	var now time.Time

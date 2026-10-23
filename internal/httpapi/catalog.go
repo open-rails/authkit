@@ -33,18 +33,19 @@ const (
 type Feature string
 
 const (
-	Always              Feature = ""
-	FeaturePasskeys     Feature = "passkeys"      // Passkeys.RPID set
-	FeaturePasswordless Feature = "passwordless"  // passwordless login on
-	FeatureRegistration Feature = "registration"  // registration not closed
-	FeatureTwoFactor    Feature = "two_factor"    // two-factor authentication not disabled
-	FeatureSolana       Feature = "solana"        // a Solana network set
-	FeatureOIDC         Feature = "oidc"          // an identity provider configured
-	FeatureDeviceKeys   Feature = "device_keys"   // device keys on
-	FeatureGroups       Feature = "groups"        // a persona besides root
-	FeatureAPIKeys      Feature = "api_keys"      // a persona whose groups hold API keys
-	FeatureCustomRoles  Feature = "custom_roles"  // a persona whose groups define roles
-	FeatureOAuthClients Feature = "oauth_clients" // a persona whose groups register OAuth clients
+	Always                      Feature = ""
+	FeaturePasskeys             Feature = "passkeys"     // Passkeys.RPID set
+	FeaturePasswordless         Feature = "passwordless" // passwordless login on
+	FeatureRegistration         Feature = "registration" // registration not closed
+	FeatureTwoFactor            Feature = "two_factor"   // two-factor authentication not disabled
+	FeatureSolana               Feature = "solana"       // a Solana network set
+	FeatureOIDC                 Feature = "oidc"         // an identity provider configured
+	FeatureDeviceKeys           Feature = "device_keys"  // device keys on
+	FeatureGroups               Feature = "groups"       // a persona besides root
+	FeatureAPIKeys              Feature = "api_keys"     // a persona whose groups hold API keys
+	FeaturePersonalAccessTokens Feature = "personal_access_tokens"
+	FeatureCustomRoles          Feature = "custom_roles"  // a persona whose groups define roles
+	FeatureOAuthClients         Feature = "oauth_clients" // a persona whose groups register OAuth clients
 	// FeatureRemoteApplications: a persona whose groups control remote
 	// applications, and so hold their users' directory.
 	FeatureRemoteApplications Feature = "remote_applications"
@@ -58,7 +59,7 @@ const (
 )
 
 // Features lists every Feature a route can be mounted under.
-var Features = []Feature{FeaturePasskeys, FeaturePasswordless, FeatureRegistration, FeatureTwoFactor, FeatureSolana, FeatureOIDC, FeatureDeviceKeys, FeatureGroups, FeatureAPIKeys, FeatureCustomRoles, FeatureOAuthClients, FeatureRemoteApplications, FeatureInvitations, FeatureNewDevices, FeatureAuthorizationServer, FeatureTokenEndpoint}
+var Features = []Feature{FeaturePasskeys, FeaturePasswordless, FeatureRegistration, FeatureTwoFactor, FeatureSolana, FeatureOIDC, FeatureDeviceKeys, FeatureGroups, FeatureAPIKeys, FeaturePersonalAccessTokens, FeatureCustomRoles, FeatureOAuthClients, FeatureRemoteApplications, FeatureInvitations, FeatureNewDevices, FeatureAuthorizationServer, FeatureTokenEndpoint}
 
 // Reply is one success outcome of a route: its status and body. Body is a
 // zero value of the body's type, nil for none.
@@ -245,6 +246,12 @@ func Catalog() []RouteSpec {
 			Request: AgreementsRequest{}, Responses: replyOK(UserAgreements{}), serve: handle((*Service).handleMeAgreementsPOST)},
 		{Method: GET, Path: "/me/security", Group: account, Auth: required, Bucket: RLMeRead,
 			Responses: replyOK(UserSecurity{}), serve: handle((*Service).handleMeSecurityGET)},
+		{Method: GET, Path: "/me/personal-access-tokens", Group: account, Auth: session, Bucket: RLMeRead, MountedWhen: FeaturePersonalAccessTokens,
+			Query: PageQuery{}, Responses: replyOK(iam.ListPage[iam.PersonalAccessToken]{}), serve: handle((*Service).handlePersonalTokensGET)},
+		{Method: POST, Path: "/me/personal-access-tokens", Group: account, Auth: session, StepUp: true, Bucket: RLAPIKeyCreate, MountedWhen: FeaturePersonalAccessTokens,
+			Request: PersonalTokenCreateRequest{}, Responses: replyCreated(iam.PersonalAccessTokenCreated{}), serve: handle((*Service).handlePersonalTokensPOST)},
+		{Method: DELETE, Path: "/me/personal-access-tokens/{id}", Group: account, Auth: session, StepUp: true, Bucket: RLMeUpdate, MountedWhen: FeaturePersonalAccessTokens,
+			Responses: replyNoContent, serve: handle((*Service).handlePersonalTokensDELETE)},
 		{Method: PUT, Path: "/me/password", Group: account, Auth: session, StepUp: true, Bucket: RLMePasswordChange,
 			Request: PasswordChangeRequest{}, Responses: replyNoContent, serve: handle((*Service).handleMePasswordPUT)},
 		{Method: PUT, Path: "/me/email", Group: account, Auth: session, StepUp: true, Bucket: RLMeContactChange,
@@ -339,6 +346,9 @@ func Catalog() []RouteSpec {
 		// (rule ACCT).
 		{Method: GET, Path: "/admin/users", Group: admin, Auth: permission, Perm: usersRead, Bucket: RLAdminRead,
 			Query: UserListQuery{}, Responses: replyOK(iam.ListPage[iam.UserEntry]{}), serve: handle((*Service).handleAdminUsersListGET)},
+		// Dynamic authority/tenant permission is checked for every page.
+		{Method: GET, Path: "/events", Group: admin, Auth: permission, Perm: usersRead, Bucket: RLAdminRead,
+			Query: EventQuery{}, Responses: replyOK(iam.EventPage{}), serve: handle((*Service).handleEventsGET)},
 		{Method: GET, Path: "/admin/users/{user_id}", Group: admin, Auth: permission, Perm: usersRead, Bucket: RLAdminRead,
 			Responses: replyOK(iam.UserEntry{}), serve: handle((*Service).handleAdminUserGET)},
 		{Method: PATCH, Path: "/admin/users/{user_id}", Group: admin, Auth: session, StepUp: true, Perm: ident.RootUsersManage.String(), Bucket: RLAdminWrite,

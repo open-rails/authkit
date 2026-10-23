@@ -11,8 +11,7 @@ var (
 	// has a bad secret, or whose owning permission group is gone: one answer so
 	// callers learn nothing from the error.
 	ErrAPIKeyInvalid Error = errmodel.E(errmodel.CodeAPIKeyInvalid)
-	// ErrAPIKeyRevoked indicates the API key was revoked, or its creator
-	// can no longer act (banned or deleted).
+	// ErrAPIKeyRevoked indicates the organization API key was revoked.
 	ErrAPIKeyRevoked Error = errmodel.E(errmodel.CodeAPIKeyRevoked)
 	// ErrAPIKeyExpired indicates the API key is past its expires_at.
 	ErrAPIKeyExpired Error = errmodel.E(errmodel.CodeAPIKeyExpired)
@@ -30,7 +29,7 @@ type APIKey struct {
 	Name        string     `json:"name"`
 	Role        Role       `json:"role"`
 	Permissions []Perm     `json:"permissions"`
-	CreatedBy   *string    `json:"created_by"` // nil = issued by the system
+	CreatedBy   *string    `json:"created_by"` // audit only; nil = system or purged creator
 	CreatedAt   time.Time  `json:"created_at"`
 	LastUsedAt  *time.Time `json:"last_used_at"`
 	ExpiresAt   *time.Time `json:"expires_at"`

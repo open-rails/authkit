@@ -238,7 +238,10 @@ func TestSecuritySecretsStayOutOfLogs(t *testing.T) {
 	var mailDown atomic.Bool
 	jar := &secretJar{}
 	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBAC), authtest.WithConfig(withDeviceKeys), authtest.WithConfig(strictRotation),
-		authtest.WithConfig(func(c *authkit.Config) { c.Registration.PasswordlessLogin = true }),
+		authtest.WithConfig(func(c *authkit.Config) {
+			c.Registration.PasswordlessLogin = true
+			c.PersonalAccessTokens.Enabled = true
+		}),
 		authtest.WithDeps(func(d *authkit.Deps) { d.Email = flakyEmail{d.Email, &mailDown} }))
 	h = h.observed(jar)
 	// AuthKit's River runs through every flow below and logs to the same place.
@@ -306,10 +309,18 @@ func TestSecuritySecretsStayOutOfLogs(t *testing.T) {
 	// API keys and invitations.
 	owner := h.newAccount("logsowner")
 	ownerToken := h.login(owner).AccessToken
-	_, base := h.newOrg(owner)
+	group, base := h.newOrg(owner)
 	key := h.issue(base+"/api-keys", ownerToken, map[string]any{"name": "ci", "role": "org:manager"})
 	ok(h.get(base+"/members", key.Secret))
 	h.get(base+"/members", key.Secret+"x")
+	var personal iam.PersonalAccessTokenCreated
+	ok(h.post("/me/personal-access-tokens", map[string]any{"name": "log-safe", "group_id": group.ID(), "permissions": []string{"org:catalog:read"}}, ownerToken)).json(t, &personal)
+	require.NotEmpty(t, personal.Secret)
+	listed := ok(h.get("/me/personal-access-tokens", ownerToken))
+	require.NotContains(t, string(listed.body), personal.Secret)
+	var tokenHash string
+	require.NoError(t, h.pool.QueryRow(context.Background(), `SELECT secret_hash::text FROM profiles.personal_access_tokens WHERE id=$1`, personal.Token.ID).Scan(&tokenHash))
+	jar.add("a personal token's stored hash", tokenHash)
 	link := h.issue(base+"/invitations", ownerToken, map[string]any{"role": "org:member"})
 	ok(h.post("/invitations/redeem", map[string]string{"code": link.Code}, h.login(h.newAccount("logsmember")).AccessToken))
 	invited := unique("logsinvited") + "@security.test"

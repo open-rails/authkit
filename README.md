@@ -237,7 +237,7 @@ func run(ctx context.Context) error {
 }
 ```
 
-Mounting gives your users all of this: 73 routes under `/api/v1`, plus the public keys that let anyone verify AuthKit's tokens. Every request and response shape is in [`api/openapi.json`](api/openapi.json), generated from the route catalog.
+Mounting gives your users the routes below under `/api/v1`, plus the public keys that let anyone verify AuthKit's tokens. Every request and response shape is in [`api/openapi.json`](api/openapi.json), generated from the route catalog.
 
 **Signing up and signing in** (every sign-in answers an `AuthResult`: signed in, or the one next step, such as a second factor)
 
@@ -310,6 +310,7 @@ safely enroll a new factor. See [the MFA policy guide](docs/rbac.md#requiring-mf
 | `GET /api/v1/me/permissions` | your role and permissions in one group (`?group_id=`) |
 | `GET /api/v1/users` | anyone's public profile (`?ids=` or `?username=`), no sign-in needed |
 | `GET /api/v1/capabilities` | what this server offers, for your UI |
+| `GET /api/v1/events` | retained events in an authorized tenant or authority scope; readers keep their own cursor |
 
 **Two-factor, passkeys and device keys**
 
@@ -366,7 +367,7 @@ adding a verified replacement first permits removing the old factor.
 | `POST /api/v1/groups/{group_id}/invitations` | invite someone with a link, or by email |
 | `DELETE /api/v1/groups/{group_id}/invitations/{id}` | revoke one |
 
-**Site admins** (need the matching `root:` permission, and a recent sign-in for changes; staff change only accounts they outrank, so demote a peer first. Bans, deletions, sign-outs and contact changes reach `Deps.OnEvent` with who made them, for your audit log.)
+**Site admins** (need the matching `root:` permission, and a recent sign-in for changes; staff change only accounts they outrank, so demote a peer first. Bans, deletions, sign-outs and contact changes are recorded with who made them in `Client.ListEvents`, for your audit log.)
 
 | Route | What it does |
 |---|---|
@@ -383,6 +384,10 @@ adding a verified replacement first permits removing the old factor.
 | `GET /api/v1/admin/provisioning/targets` | how each [SCIM](docs/scim.md) target's sync is doing |
 
 Switch on social logins (Google, Apple, GitHub, Discord) or API keys, and AuthKit mounts their routes too. Set `Invitations.Disabled`, and the invitation routes go.
+
+Group API keys belong to the organization; their creator is audit information.
+Optional [personal access tokens](docs/personal-access-tokens.md) are a separate,
+user-owned credential, disabled unless `PersonalAccessTokens.Enabled` is set.
 
 Now for our application-specific routes, we can check user permissions using middleware, to enforce that certain actions are moderator or admin-only:
 
@@ -415,6 +420,8 @@ func mountForum(r *gin.Engine, auth *authkit.Client, db *pgxpool.Pool) {
 
 The rest is ordinary app code (our channel and post handlers), not AuthKit. The whole program is one file: [examples/reddit/main.go](examples/reddit/main.go).
 
+Account deletion uses daily `authkit_account_delete_due` database sweeps, coalesced per issuer, rather than a future River job per account. The 30-day recovery deadline remains authoritative; issuer cleanup callbacks must finish before the account row is removed. See [account deletion](docs/identity.md) for timing and upgrades.
+
 `Start` runs AuthKit's background jobs (account deletion, events, cleanup) on its own [River](https://riverqueue.com) client in `Config.Database.RiverSchema` (default `public`), whose tables `New` creates. An app that already runs a River fleet builds it in that schema with `riverhelpers.New(ctx, db, riverConfig, auth.RiverJobs(), …)` (`github.com/open-rails/helpers/river`) and calls `auth.Start(ctx, authkit.WithRiverClient(fleet))` instead; the app starts and stops that fleet, and `auth.Close` leaves it running.
 
 `New` fails only when AuthKit can't run safely: PostgreSQL still unreachable after 30 seconds (or `ctx`), migrations failing, no usable signing key, or configuration it can't read without weakening auth. A misconfigured or unreachable optional dependency switches off only what needs it: an identity provider is disabled (its sign-ins answer `provider_unavailable`), a remote application's tokens are refused, email flows answer `email_unavailable`, and limits stay per process while Redis is down. `auth.Ready(ctx)` is the readiness check (PostgreSQL, River, signing key); `auth.Probes()` lists the optional dependencies and degraded features for your dependency supervisor, none of which fails readiness.
@@ -422,3 +429,5 @@ The rest is ordinary app code (our channel and post handlers), not AuthKit. The 
 A service whose callers sign in elsewhere sets `Config.Resource`: `auth.Authenticator()` then also admits the access tokens its trusted issuers mint for it, bound to their group ([resource server](docs/resource-server.md)). `sign_in.dpop` sets how this instance issues tokens to its own users. It never changes how tokens are validated: a bound token needs its proof, an unbound token is a bearer token, whoever issued it.
 
 More: [resource server](docs/resource-server.md), [keys](docs/keys.md), [tokens](docs/tokens.md), [SCIM provisioning and user info](docs/scim.md), [subject, invoker, credential](docs/identity.md), [HTTP](docs/http.md), [RBAC](docs/rbac.md), [security](SECURITY.md), [v1 stability](docs/stability.md)
+
+See [the retained event log](docs/event-log.md) for native and HTTP readers, independent cursors, and migration from removed `OnEvent` callbacks.

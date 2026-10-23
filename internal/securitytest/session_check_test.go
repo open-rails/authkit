@@ -226,7 +226,7 @@ func TestSecurityRevokedSessionAtLiveGates(t *testing.T) {
 	}
 	// manager signs up an account holding catalog read and member management
 	// in the org (not its owner, so a ban or deletion is not refused), with an
-	// API key of its own.
+	// organization API key it created.
 	manager := func(t *testing.T) (account, issued) {
 		t.Helper()
 		a := h.newAccount("scmanager")
@@ -237,39 +237,38 @@ func TestSecurityRevokedSessionAtLiveGates(t *testing.T) {
 
 	for _, tc := range []struct {
 		name string
-		// revoke ends stolen's session; keepsKeys is whether the account's
-		// API keys outlive it (a ban or deletion sweeps them).
-		revoke    func(t *testing.T, a account, stolen tokens)
-		keepsKeys bool
+		// revoke ends the user's session. The organization key is a separate
+		// principal and survives changes to its creator's account.
+		revoke func(t *testing.T, a account, stolen tokens)
 	}{
 		{"logout", func(t *testing.T, _ account, stolen tokens) {
 			require.Equal(t, http.StatusNoContent, h.do(request{method: http.MethodDelete, path: "/logout", token: stolen.AccessToken}).status)
-		}, true},
+		}},
 		{"revoke one session", func(t *testing.T, a account, stolen tokens) {
 			_, claims := splitToken(t, stolen.AccessToken)
 			sid, _ := claims["sid"].(string)
 			require.NotEmpty(t, sid)
 			resp := h.do(request{method: http.MethodDelete, path: "/me/sessions/" + sid, token: h.login(a).AccessToken})
 			require.Equal(t, http.StatusNoContent, resp.status, resp.String())
-		}, true},
+		}},
 		{"sign out every other session", func(t *testing.T, a account, _ tokens) {
 			resp := h.do(request{method: http.MethodDelete, path: "/me/sessions", token: h.login(a).AccessToken})
 			require.Equal(t, http.StatusNoContent, resp.status, resp.String())
-		}, true},
+		}},
 		{"password change", func(t *testing.T, a account, _ tokens) {
 			resp := h.do(request{method: http.MethodPut, path: "/me/password", body: map[string]string{"new_password": "Another-long-passphrase-7"}, token: h.login(a).AccessToken})
 			require.Less(t, resp.status, 300, resp.String())
-		}, true},
+		}},
 		{"account-wide revocation", func(t *testing.T, a account, _ tokens) {
 			_, err := h.auth.RevokeAccountSessions(ctx, iam.SystemIdentity(), a.id)
 			require.NoError(t, err)
-		}, true},
+		}},
 		{"ban", func(t *testing.T, a account, _ tokens) {
 			require.NoError(t, h.auth.Ban(ctx, iam.SystemIdentity(), a.id, iam.Ban{}))
-		}, false},
+		}},
 		{"deletion", func(t *testing.T, a account, _ tokens) {
 			require.NoError(t, opErr(h.auth.DeleteUsers(ctx, iam.SystemIdentity(), []string{a.id})))
-		}, false},
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a, key := manager(t)
@@ -279,11 +278,7 @@ func TestSecurityRevokedSessionAtLiveGates(t *testing.T) {
 			requireRevoked(t, stolen.AccessToken)
 			require.Equal(t, http.StatusUnauthorized, h.refresh(stolen.RefreshToken).status, "the session mints no more tokens")
 			keyStatus := permissionGates["net/http RequirePermission"](t, key.Secret).status
-			if tc.keepsKeys {
-				require.Equal(t, http.StatusNoContent, keyStatus, "an API key is not a session")
-			} else {
-				require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, keyStatus, "a banned or deleted creator's keys die with it")
-			}
+			require.Equal(t, http.StatusNoContent, keyStatus, "an organization key is independent of its creator's session and account lifecycle")
 		})
 	}
 

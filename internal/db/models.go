@@ -22,33 +22,10 @@ type AccountDeletion struct {
 	TenantID  string
 }
 
-type AccountEvent struct {
-	ID             int64
-	Issuer         string
-	Stream         string
-	EventID        string
-	Kind           string
-	OccurredAt     time.Time
-	UserID         *string
-	GroupID        *string
-	Persona        string
-	ApplicationID  *string
-	PreviousValue  string
-	CurrentValue   string
-	Reason         string
-	Until          *time.Time
-	Attempts       int32
-	RetryAt        *time.Time
-	SubjectKind    string
-	SubjectID      string
-	InvokerIssuer  string
-	InvokerID      string
-	CredentialKind string
-	CredentialID   string
-	Role           string
-	ClientID       string
-	Agreement      string
-	TenantID       *string
+// Configured account issuer destinations for required cleanup and credential operations; not event readers.
+type AccountDeliveryFleet struct {
+	Issuer      string
+	RiverSchema string
 }
 
 // OAuth clients groups register at run time (RFC 7591 metadata): third-party clients whose users consent per scope, and whose tokens act only in their group. Deleted with the group.

@@ -398,6 +398,13 @@ func (s *Engine) loadApplicationRoles(ctx context.Context, q db.DBTX, groupID st
 		if !apps[i].Enabled || group.DeletedAt != nil || apps[i].Role.IsZero() {
 			continue
 		}
+		standing, err := s.credentialUseStands(ctx, s.groupStoreFor(q), "group_remote_application_roles", apps[i].ID, groupID)
+		if err != nil {
+			return err
+		}
+		if !standing {
+			continue
+		}
 		r, ok := s.groupSchemaOrDefault().AssignedRole(persona, apps[i].Role, held.CustomPermissions)
 		if !ok || s.TwoFactorEnabled() && r.RequiresMFA {
 			continue

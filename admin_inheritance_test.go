@@ -155,9 +155,9 @@ func TestExplicitContentAdminInheritance(t *testing.T) {
 		}
 		require.NoError(t, client.RemoveGroupMember(ctx, iam.SystemIdentity(), iam.RootGroup(), iam.UserSubject(u.ID)))
 		_, err = client.ResolveAPIKey(ctx, key.Secret)
-		require.ErrorIs(t, err, iam.ErrAPIKeyRevoked)
+		require.NoError(t, err, "the app owns its key after the creating administrator leaves")
 		allowed, _ := client.Can(ctx, v.Identity(), apps[0], write)
-		require.False(t, allowed)
+		require.True(t, allowed)
 	})
 
 	t.Run("remote application remains app scoped", func(t *testing.T) {

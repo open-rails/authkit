@@ -18,6 +18,9 @@ import (
 // in its gate, rate limit and language middleware.
 func (s *Service) APIRoutes(groups ...iam.RouteGroup) []RouteSpec {
 	return s.routes(SurfaceAPI, groups, func(route RouteSpec, h http.Handler) http.Handler {
+		if route.Auth != iam.AuthPermission {
+			h = rejectPersonalToken(h)
+		}
 		personalAccount := route.Group == iam.RouteAccount && route.Path != "/me/permissions" && route.Path != "/me/groups"
 		if route.Auth != iam.AuthPublic && (personalAccount || route.Group == iam.RouteDeviceKeys || route.Group == iam.RouteAuth) {
 			h = s.requireTenantAccount(h, route.Auth == iam.AuthOptional)
@@ -26,6 +29,18 @@ func (s *Service) APIRoutes(groups ...iam.RouteGroup) []RouteSpec {
 			h = s.requireRecentSignIn(h)
 		}
 		return s.rateLimitedRoute(route.Bucket, s.authenticate(route.Auth, h))
+	})
+}
+
+// Identity alone never grants a personal token access to account/session
+// endpoints. Only routes with an explicit permission gate admit this kind.
+func rejectPersonalToken(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if claims, err := callerClaims(r); err == nil && claims.Kind == verify.TokenPersonalAccessToken {
+			fail(w, errmodel.CodeForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 
@@ -150,6 +165,8 @@ func (s *Service) mounts(f Feature) bool {
 		return len(s.providers) > 0
 	case FeatureDeviceKeys:
 		return cfg.DeviceKeys.Enabled
+	case FeaturePersonalAccessTokens:
+		return cfg.PersonalAccessTokens.Enabled
 	case FeatureInvitations:
 		return !cfg.Invitations.Disabled
 	case FeatureNewDevices:

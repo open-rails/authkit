@@ -80,7 +80,14 @@ func (s *Engine) hasValidAccountRegistrationInvite(ctx context.Context, email st
 		return false, nil
 	}
 	_ = email
-	return s.q.AccountInviteValid(ctx, db.AccountInviteValidParams{TenantID: s.tenantKey(ctx), CodeHash: secret.Hash(token)})
+	id, err := s.q.AccountInviteLiveID(ctx, db.AccountInviteLiveIDParams{TenantID: s.tenantKey(ctx), CodeHash: secret.Hash(token)})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return s.credentialUseStands(ctx, s.groupStore(), "account_registration_invites", id, "")
 }
 
 func (s *Engine) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token string) (*db.AccountInviteForUpdateRow, error) {
@@ -120,6 +127,9 @@ func (s *Engine) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token st
 		return nil, iam.ErrInvitationNotFound
 	}
 	if err != nil {
+		return nil, err
+	}
+	if err := s.requireCredentialUse(ctx, s.groupStoreFor(tx), "account_registration_invites", invite.ID, "", iam.ErrInvitationNotFound); err != nil {
 		return nil, err
 	}
 	return &invite, nil

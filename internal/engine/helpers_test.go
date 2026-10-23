@@ -181,8 +181,10 @@ func expireDeletion(t *testing.T, s *Engine, userID string) string {
 	return generation
 }
 
-// prepareExpiredDeletion expires the account's deletion, finalizes it and
-// delivers its purge callbacks, returning the deletion's generation.
+// prepareExpiredDeletion leaves a due account at the recovery point after
+// every cleanup acknowledgement committed but before the final database purge.
+// Production performs that purge inline; these tests deliberately simulate a
+// crash at that boundary to exercise purge-time guards and recovery races.
 func prepareExpiredDeletion(t *testing.T, s *Engine, userID string) string {
 	t.Helper()
 	generation := expireDeletion(t, s, userID)
@@ -192,27 +194,10 @@ func prepareExpiredDeletion(t *testing.T, s *Engine, userID string) string {
 	ids, err := pgx.CollectRows(rows, pgx.RowTo[int64])
 	require.NoError(t, err)
 	for _, id := range ids {
-		require.NoError(t, s.deliverAccountEvent(t.Context(), id))
+		_, err := s.q.AccountDeletionDeliveryComplete(t.Context(), id)
+		require.NoError(t, err)
 	}
 	return generation
-}
-
-// deliverEvents delivers the pending events of s's issuer through its OnEvent,
-// oldest first, and returns their kinds.
-func deliverEvents(t *testing.T, s *Engine) []iam.EventKind {
-	t.Helper()
-	rows, err := s.pg.Query(t.Context(), "SELECT id FROM account_events WHERE issuer=$1 ORDER BY id", s.cfg.Token.Issuer)
-	require.NoError(t, err)
-	ids, err := pgx.CollectRows(rows, pgx.RowTo[int64])
-	require.NoError(t, err)
-	var kinds []iam.EventKind
-	for _, id := range ids {
-		rec, err := s.q.AccountEventByID(t.Context(), id)
-		require.NoError(t, err)
-		kinds = append(kinds, iam.EventKind(rec.Kind))
-		require.NoError(t, s.deliverEvent(t.Context(), id))
-	}
-	return kinds
 }
 
 // seedGroup creates a group as the host does, owned by the user ownerID ("" =

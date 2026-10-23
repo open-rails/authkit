@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
@@ -49,14 +48,7 @@ func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 	}
 	runtime, err = New(context.Background(), cfg, config.Deps{
 		Postgres: pool,
-		OnEvent: func(ctx context.Context, e iam.Event) error {
-			if e.Kind == iam.EventUserPurged {
-				record(string(e.Kind))
-				return nil
-			}
-			return observe(ctx, string(e.Kind), e.UserID)
-		},
-		OnPurge: func(ctx context.Context, d iam.UserDeletion) error { return observe(ctx, "purge:"+d.ID, d.UserID) },
+		OnPurge:  func(ctx context.Context, d iam.UserDeletion) error { return observe(ctx, "purge:"+d.ID, d.UserID) },
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
@@ -78,9 +70,9 @@ func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 	remove()
 	first := current()
 	require.Equal(t, iam.UserRecoveryPeriod, first.PurgeAt.Sub(first.DeletedAt))
-	var scheduled time.Time
-	require.NoError(t, pg.Pool.QueryRow(t.Context(), `SELECT scheduled_at FROM public.river_job WHERE kind='authkit_account_finalize' AND args->>'deletion_id'=$1`, first.ID).Scan(&scheduled))
-	require.True(t, first.PurgeAt.Equal(scheduled), "each account has its own exact deadline job")
+	var timers int
+	require.NoError(t, pg.Pool.QueryRow(t.Context(), `SELECT count(*) FROM public.river_job WHERE kind='authkit_account_finalize'`).Scan(&timers))
+	require.Zero(t, timers, "the deadline is durable in account_deletions without a future job")
 	remove()
 	require.Equal(t, first, current(), "repeated deletion must not reset the deadline/generation")
 	results, err := client.RestoreUsers(t.Context(), iam.SystemIdentity(), []string{user.ID})
@@ -96,21 +88,15 @@ func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 	var deliveries int
 	require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT count(*) FROM profiles.account_deletion_deliveries WHERE user_id=$1::uuid", user.ID).Scan(&deliveries))
 	require.Zero(t, deliveries, "deletion and recovery are events; only the purge has a callback receipt")
-	rows, err := pg.Pool.Query(t.Context(), "SELECT id FROM profiles.account_events WHERE user_id=$1::uuid ORDER BY id", user.ID)
+	page, err := runtime.ListEvents(t.Context(), iam.EventQuery{})
 	require.NoError(t, err)
-	pending, err := pgx.CollectRows(rows, pgx.RowTo[int64])
-	require.NoError(t, err)
-	require.Len(t, pending, 4, "registered, deleted, restored, deleted")
-	require.ErrorAs(t, runtime.deliverEvent(t.Context(), pending[2]), &snooze, "restore waits for the earlier deletion")
-	for _, id := range pending {
-		require.NoError(t, runtime.deliverEvent(t.Context(), id))
+	var lifecycle []string
+	for _, event := range page.Events {
+		if event.UserID == user.ID {
+			lifecycle = append(lifecycle, string(event.Kind))
+		}
 	}
-	require.NoError(t, runtime.deliverEvent(t.Context(), pending[1]), "a delivered deletion is never replayed after restore")
-	mu.Lock()
-	recorded := append([]string(nil), events...)
-	mu.Unlock()
-	lifecycle := []string{string(iam.EventUserRegistered), string(iam.EventUserDeleted), string(iam.EventUserRestored), string(iam.EventUserDeleted)}
-	require.Equal(t, lifecycle, recorded)
+	require.Equal(t, []string{string(iam.EventUserRegistered), string(iam.EventUserDeleted), string(iam.EventUserRestored), string(iam.EventUserDeleted)}, lifecycle)
 	// Advance the stored deadline in this disposable fixture. No production
 	// API permits shortening the recovery window.
 	tx, err := pg.Pool.Begin(t.Context())
@@ -125,7 +111,7 @@ func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 	require.NoError(t, err)
 	require.Error(t, results[0].Err, "finalization cannot be restored after deadline")
 	// Run the real River client. Delivered events are receipt-idempotent, then
-	// the purge callback commits and schedules the private purge job, whose
+	// the purge callback commits before the account is removed and its
 	// user.purged event follows.
 	require.NoError(t, runtime.Start(t.Context(), nil))
 	require.Eventually(t, func() bool {
@@ -133,16 +119,19 @@ func TestAccountDeletionGenerationOrderingAndFinalization(t *testing.T) {
 		err := pg.Pool.QueryRow(context.Background(), "SELECT EXISTS(SELECT 1 FROM profiles.users WHERE id=$1::uuid)", user.ID).Scan(&exists)
 		return err == nil && !exists
 	}, 15*time.Second, 25*time.Millisecond)
-	want := append(lifecycle, "purge:"+second.ID, string(iam.EventUserPurged))
-	require.Eventually(t, func() bool {
-		mu.Lock()
-		defer mu.Unlock()
-		return len(events) >= len(want)
-	}, 15*time.Second, 25*time.Millisecond)
 	mu.Lock()
-	recorded = append([]string(nil), events...)
+	recorded := append([]string(nil), events...)
 	mu.Unlock()
-	require.Equal(t, want, recorded)
+	require.Equal(t, []string{"purge:" + second.ID}, recorded)
+	page, err = runtime.ListEvents(t.Context(), iam.EventQuery{})
+	require.NoError(t, err)
+	var final []string
+	for _, event := range page.Events {
+		if event.UserID == user.ID {
+			final = append(final, string(event.Kind))
+		}
+	}
+	require.Equal(t, append(lifecycle, string(iam.EventUserPurged)), final)
 	require.NoError(t, pool.Ping(t.Context()), "host pool remains owned by the caller")
 }
 
@@ -210,7 +199,7 @@ func TestAccountPurgeSweepsCredentialsBeforeTheRowGoes(t *testing.T) {
 	issued := key("issued")
 
 	require.NoError(t, itemErr(runtime.PurgeUsers(ctx, []string{user.ID})))
-	require.True(t, revoked(issued), "the soft delete sweeps the account's keys")
+	require.False(t, revoked(issued), "organization keys survive the creator's soft deletion")
 	restore, err := runtime.RestoreUsers(ctx, iam.SystemIdentity(), []string{user.ID})
 	require.NoError(t, err)
 	require.Error(t, restore[0].Err, "a purge closes the recovery window")
@@ -223,10 +212,10 @@ func TestAccountPurgeSweepsCredentialsBeforeTheRowGoes(t *testing.T) {
 		err := pg.Pool.QueryRow(context.Background(), "SELECT EXISTS(SELECT 1 FROM profiles.users WHERE id=$1::uuid)", user.ID).Scan(&exists)
 		return err == nil && !exists
 	}, 15*time.Second, 25*time.Millisecond)
-	require.True(t, revoked(leftover), "purge left a live key with no creator")
+	require.False(t, revoked(leftover), "organization key stays live after creator audit is cleared")
 	var live int
 	require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT count(*) FROM profiles.api_keys WHERE created_by IS NULL AND revoked_at IS NULL`).Scan(&live))
-	require.Zero(t, live)
+	require.Equal(t, 2, live)
 }
 
 func TestAccountRecoveryAndFinalizerSerializeAtDeadline(t *testing.T) {

@@ -8,11 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/testdb"
-	"github.com/riverqueue/river"
 	"github.com/stretchr/testify/require"
 )
 
@@ -45,15 +43,12 @@ func TestAccountCallbackFailureAndConcurrentRescue(t *testing.T) {
 	user, err := runtime.createUser(t.Context(), "callback-retry@example.test", "callbackretry")
 	require.NoError(t, err)
 	// OnPurge is the one receipt-backed account callback; finalizing an
-	// expired deletion queues it.
+	// expired deletion records its pending domain obligation.
 	require.NoError(t, runtime.finalizeAccountDeletion(t.Context(), expireDeletion(t, runtime, user.ID), false))
 	var id int64
 	require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT id FROM profiles.account_deletion_deliveries WHERE user_id=$1::uuid", user.ID).Scan(&id))
-	worker := accountDeliveryWorker{engine: runtime}
-	job := &river.Job[accountDeliveryArgs]{Args: accountDeliveryArgs{Schema: "profiles", Issuer: runtime.cfg.Token.Issuer, DeliveryID: id}}
 	for range 2 {
-		var snooze *river.JobSnoozeError
-		require.ErrorAs(t, worker.Work(t.Context(), job), &snooze, "callback failure remains durable without exhausting attempts")
+		require.Error(t, runtime.runAccountCleanup(t.Context(), id), "callback failure leaves the receipt for a later sweep")
 		var completed *time.Time
 		require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT completed_at FROM profiles.account_deletion_deliveries WHERE id=$1", id).Scan(&completed))
 		require.Nil(t, completed)
@@ -63,7 +58,7 @@ func TestAccountCallbackFailureAndConcurrentRescue(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, 2)
 	for range 2 {
-		wg.Go(func() { errs <- runtime.deliverAccountEvent(ctx, id) })
+		wg.Go(func() { errs <- runtime.runAccountCleanup(ctx, id) })
 	}
 	select {
 	case <-entered:
@@ -116,100 +111,62 @@ func TestAccountCallbackCanObserveBindingDuringManagedShutdown(t *testing.T) {
 	require.NoError(t, pg.Pool.Ping(t.Context()))
 }
 
-func TestAccountDeletionRollsBackWhenRiverInsertFails(t *testing.T) {
+func TestAccountDeletionDoesNotNeedPerAccountRiverInsert(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
 	cfg := maintenanceConfig()
 	cfg.Database.RiverSchema = "broken_jobs"
 	runtime, err := New(context.Background(), cfg, config.Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
-	// The deletion's River insert fails.
+	// No event hook is configured, so a recoverable deletion needs only its
+	// database record. It must not insert a separate future timer.
 	_, err = pg.Pool.Exec(t.Context(), "DROP TABLE broken_jobs.river_job CASCADE")
 	require.NoError(t, err)
 	user, err := runtime.createUser(t.Context(), "rollback@example.test", "rollback")
 	require.NoError(t, err)
 	results, err := runtime.DeleteUsers(t.Context(), iam.SystemIdentity(), []string{user.ID})
 	require.NoError(t, err)
-	require.Error(t, results[0].Err)
+	require.NoError(t, results[0].Err)
 	var deleted *time.Time
 	var cycles int
 	require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT deleted_at FROM profiles.users WHERE id=$1::uuid", user.ID).Scan(&deleted))
-	require.Nil(t, deleted, "a deletion without its durable job must not commit")
+	require.NotNil(t, deleted, "the database deletion record owns the deadline")
 	require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT count(*) FROM profiles.account_deletions WHERE user_id=$1::uuid", user.ID).Scan(&cycles))
-	require.Zero(t, cycles)
+	require.Equal(t, 1, cycles)
 }
 
-// Deletion and recovery reach every account issuer through its own River
-// fleet as user.deleted and user.restored events, in order, even when that
-// deployment was offline throughout.
-func TestAccountDeletionDeliveryAcrossSeparateRiverFleets(t *testing.T) {
+// Two applications read the same committed history with independent cursors,
+// even when neither application has started its River fleet.
+func TestAccountEventsAcrossSeparateRiverFleets(t *testing.T) {
 	pg := testdb.EmptyScratchPostgres(t)
-	require.NoError(t, Migrate(t.Context(), pg.Pool, config.DatabaseConfig{}, MigrationOptions{LegacyTenantID: testdb.DefaultTenantID}))
-	require.NoError(t, Migrate(t.Context(), pg.Pool, config.DatabaseConfig{RiverSchema: "sibling_jobs"}, MigrationOptions{LegacyTenantID: testdb.DefaultTenantID}))
 	issuers := []string{"https://first.example.test", "https://second.example.test"}
-	var mu sync.Mutex
-	events := map[string][]string{}
-	makeRuntime := func(issuer, schema string) *Engine {
-		t.Helper()
+	apps := make([]*Engine, 2)
+	for i, schema := range []string{"public", "sibling_jobs"} {
 		cfg := maintenanceConfig()
-		cfg.Token.Issuer = issuer
+		cfg.Token.Issuer = issuers[i]
 		cfg.Token.AccountIssuers = issuers
 		cfg.Database.RiverSchema = schema
-		record := func(entry string) {
-			mu.Lock()
-			defer mu.Unlock()
-			events[issuer] = append(events[issuer], entry)
-		}
-		runtime, err := New(context.Background(), cfg, config.Deps{
-			Postgres: pg.Pool,
-			OnEvent: func(_ context.Context, e iam.Event) error {
-				if e.Kind == iam.EventUserDeleted || e.Kind == iam.EventUserRestored {
-					record(string(e.Kind) + ":" + e.UserID)
-				}
-				return nil
-			},
-			OnPurge: func(_ context.Context, d iam.UserDeletion) error { record("purge:" + d.ID); return nil },
-		})
+		e, err := New(t.Context(), cfg, config.Deps{Postgres: pg.Pool})
 		require.NoError(t, err)
-		t.Cleanup(func() { _ = runtime.Close(context.Background()) })
-		return runtime
+		t.Cleanup(func() { _ = e.Close(context.Background()) })
+		apps[i] = e
 	}
-	first := makeRuntime(issuers[0], "public")
-	second := makeRuntime(issuers[1], "sibling_jobs")
-	user, err := first.createUser(t.Context(), "two-fleets@example.test", "twofleets")
+	before, err := apps[1].ListEvents(t.Context(), iam.EventQuery{})
 	require.NoError(t, err)
-	results, err := first.DeleteUsers(t.Context(), iam.SystemIdentity(), []string{user.ID})
+	u, err := apps[0].CreateUser(t.Context(), iam.NewUser{Username: "twofleets"})
 	require.NoError(t, err)
-	require.NoError(t, results[0].Err)
-	for _, pair := range [][2]string{{"public", issuers[0]}, {"sibling_jobs", issuers[1]}} {
-		var count int
-		require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT count(*) FROM "+pgx.Identifier{pair[0], "river_job"}.Sanitize()+` j
- JOIN profiles.account_events e ON e.id=(j.args->>'row')::bigint
- WHERE j.kind='authkit_account_event' AND j.args->>'issuer'=$1 AND e.issuer=$1 AND e.kind='user.deleted'`, pair[1]).Scan(&count))
-		require.Equal(t, 1, count, "each event is queued in its recipient's actual fleet")
-	}
-	require.NoError(t, first.Start(t.Context(), nil))
-	require.Eventually(t, func() bool {
-		mu.Lock()
-		defer mu.Unlock()
-		return len(events[issuers[0]]) == 1 && len(events[issuers[1]]) == 0
-	}, 10*time.Second, 25*time.Millisecond)
-	results, err = first.RestoreUsers(t.Context(), iam.SystemIdentity(), []string{user.ID})
-	require.NoError(t, err)
-	require.NoError(t, results[0].Err)
-	// The second deployment was offline throughout deletion and recovery. Its
-	// own fleet must replay the events in order when it eventually starts.
-	require.NoError(t, second.Start(t.Context(), nil))
-	require.Eventually(t, func() bool {
-		mu.Lock()
-		defer mu.Unlock()
-		return len(events[issuers[0]]) == 2 && len(events[issuers[1]]) == 2
-	}, 10*time.Second, 25*time.Millisecond)
-	mu.Lock()
-	recorded := map[string][]string{issuers[0]: append([]string(nil), events[issuers[0]]...), issuers[1]: append([]string(nil), events[issuers[1]]...)}
-	mu.Unlock()
-	for _, issuer := range issuers {
-		require.Equal(t, []string{"user.deleted:" + user.ID, "user.restored:" + user.ID}, recorded[issuer])
+	require.NoError(t, itemErr(apps[0].DeleteUsers(t.Context(), iam.SystemIdentity(), []string{u.ID})))
+	require.NoError(t, itemErr(apps[0].RestoreUsers(t.Context(), iam.SystemIdentity(), []string{u.ID})))
+	for _, e := range apps {
+		page, err := e.ListEvents(t.Context(), iam.EventQuery{After: before.NextCursor})
+		require.NoError(t, err)
+		var kinds []iam.EventKind
+		for _, event := range page.Events {
+			if event.UserID == u.ID {
+				kinds = append(kinds, event.Kind)
+			}
+		}
+		require.Equal(t, []iam.EventKind{iam.EventUserRegistered, iam.EventUserDeleted, iam.EventUserRestored}, kinds)
 	}
 }
 
@@ -217,7 +174,7 @@ func TestAccountFleetRebindRequiresQuiescenceAndFencesOldProducer(t *testing.T) 
 	pg := testdb.ScratchPostgres(t)
 	require.NoError(t, Migrate(t.Context(), pg.Pool, config.DatabaseConfig{RiverSchema: "replacement_jobs"}, MigrationOptions{LegacyTenantID: testdb.DefaultTenantID}))
 	cfg := maintenanceConfig()
-	old, err := New(context.Background(), cfg, config.Deps{Postgres: pg.Pool, OnEvent: func(context.Context, iam.Event) error { return nil }})
+	old, err := New(context.Background(), cfg, config.Deps{Postgres: pg.Pool})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = old.Close(context.Background()) })
 	user, err := old.createUser(t.Context(), "rebind@example.test", "rebind")
@@ -229,9 +186,6 @@ func TestAccountFleetRebindRequiresQuiescenceAndFencesOldProducer(t *testing.T) 
 	results, err := old.RestoreUsers(t.Context(), iam.SystemIdentity(), []string{user.ID})
 	require.NoError(t, err)
 	require.NoError(t, results[0].Err)
-	_, err = New(context.Background(), cfg, config.Deps{Postgres: pg.Pool})
-	require.ErrorContains(t, err, "active account lifecycle work", "pending restore events must also block a move")
-	require.Equal(t, []iam.EventKind{iam.EventUserRegistered, iam.EventUserDeleted, iam.EventUserRestored}, deliverEvents(t, old))
 	replacement, err := New(context.Background(), cfg, config.Deps{Postgres: pg.Pool})
 	require.NoError(t, err, "quiescent history does not permanently pin a schema")
 	t.Cleanup(func() { _ = replacement.Close(context.Background()) })
@@ -243,87 +197,5 @@ func TestAccountFleetRebindRequiresQuiescenceAndFencesOldProducer(t *testing.T) 
 	require.NoError(t, replacement.softDelete(t.Context(), user.ID))
 	var jobs int
 	require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT count(*) FROM replacement_jobs.river_job WHERE kind='authkit_account_finalize'").Scan(&jobs))
-	require.Equal(t, 1, jobs, "the deletion's durable work lands in the current fleet")
-}
-
-// Building a client without OnEvent never unsubscribes its issuer: before or
-// after the client that handles events, and while that client runs, changes
-// either one makes are recorded and delivered.
-func TestClientWithoutOnEventKeepsEventSubscription(t *testing.T) {
-	for name, handlerFirst := range map[string]bool{"handler first": true, "handler last": false} {
-		t.Run(name, func(t *testing.T) {
-			pg := testdb.ScratchPostgres(t)
-			var mu sync.Mutex
-			delivered := map[string]bool{}
-			hook := func(_ context.Context, e iam.Event) error {
-				mu.Lock()
-				defer mu.Unlock()
-				delivered[string(e.Kind)+":"+e.UserID] = true
-				return nil
-			}
-			build := func(onEvent func(context.Context, iam.Event) error) *Engine {
-				t.Helper()
-				e, err := New(context.Background(), maintenanceConfig(), config.Deps{Postgres: pg.Pool, OnEvent: onEvent})
-				require.NoError(t, err)
-				t.Cleanup(func() { _ = e.Close(context.Background()) })
-				return e
-			}
-			var handler, other *Engine
-			if handlerFirst {
-				handler, other = build(hook), build(nil)
-			} else {
-				other, handler = build(nil), build(hook)
-			}
-			awaitDelivered := func(userID string) {
-				t.Helper()
-				require.Eventually(t, func() bool {
-					mu.Lock()
-					defer mu.Unlock()
-					return delivered[string(iam.EventUserRegistered)+":"+userID]
-				}, 10*time.Second, 25*time.Millisecond)
-			}
-
-			before, err := other.createUser(t.Context(), "before-start@example.test", "beforestart")
-			require.NoError(t, err)
-			var recorded int
-			require.NoError(t, handler.pg.QueryRow(t.Context(), "SELECT count(*) FROM account_events WHERE user_id=$1::uuid", before.ID).Scan(&recorded))
-			require.Equal(t, 1, recorded, "recorded before any fleet runs")
-			require.NoError(t, handler.Start(t.Context(), nil))
-			awaitDelivered(before.ID)
-
-			late := build(nil)
-			after, err := late.createUser(t.Context(), "after-start@example.test", "afterstart")
-			require.NoError(t, err)
-			awaitDelivered(after.ID)
-		})
-	}
-}
-
-// The client that starts the issuer's fleet sets whether it records events:
-// one without OnEvent unsubscribes it, one with OnEvent subscribes it again.
-func TestFleetStartSetsEventSubscription(t *testing.T) {
-	pg := testdb.ScratchPostgres(t)
-	subscribed := func() bool {
-		t.Helper()
-		var events bool
-		require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT events FROM profiles.account_delivery_fleets WHERE issuer=$1", maintenanceConfig().Token.Issuer).Scan(&events))
-		return events
-	}
-	build := func(onEvent func(context.Context, iam.Event) error) *Engine {
-		t.Helper()
-		e, err := New(context.Background(), maintenanceConfig(), config.Deps{Postgres: pg.Pool, OnEvent: onEvent})
-		require.NoError(t, err)
-		t.Cleanup(func() { _ = e.Close(context.Background()) })
-		return e
-	}
-	handles := func(context.Context, iam.Event) error { return nil }
-	handler := build(handles)
-	require.True(t, subscribed())
-	without := build(nil)
-	require.True(t, subscribed(), "building a client without OnEvent changes nothing")
-	require.NoError(t, without.Start(t.Context(), nil))
-	require.False(t, subscribed(), "the fleet runs without a handler")
-	require.NoError(t, without.Close(t.Context()))
-	require.NoError(t, handler.Start(t.Context(), nil))
-	require.True(t, subscribed())
+	require.Zero(t, jobs, "account deadlines no longer create one job per account")
 }

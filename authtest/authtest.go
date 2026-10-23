@@ -84,7 +84,7 @@ func WithDeps(fn func(*authkit.Deps)) Option {
 //   - Database.Schema and Database.RiverSchema: the scratch schema, unless set.
 //
 // The Client is not started: call Start when a test needs River's work, such
-// as Deps.OnEvent or the deletion hooks. Cleanup closes the Client and drops
+// as account deletion cleanup. Cleanup closes the Client and drops
 // the scratch schema.
 func New(t testing.TB, opts ...Option) (*authkit.Client, *Outbox) {
 	t.Helper()

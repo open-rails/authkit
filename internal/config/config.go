@@ -64,6 +64,9 @@ type Config struct {
 	DeviceKeys DeviceKeysConfig `yaml:"device_keys"`
 	// APIKeys configures opaque permission-group-owned machine credentials.
 	APIKeys APIKeysConfig `yaml:"api_keys"`
+	// PersonalAccessTokens enables optional user-owned, noninteractive tokens.
+	// Disabled by default; organization API keys are configured separately.
+	PersonalAccessTokens PersonalAccessTokensConfig `yaml:"personal_access_tokens"`
 	// AuthorizationServer makes this deployment an OAuth 2.0 authorization
 	// server and OpenID provider for its registered clients: they sign users
 	// in here and receive tokens for registered resource servers. The zero
@@ -107,6 +110,10 @@ type Config struct {
 	// (sign-ins and revocations, with IP and user agent: personal data) are
 	// kept. 0 defaults to 365 days; a negative value keeps them forever.
 	SessionEventRetention time.Duration `yaml:"session_event_retention"`
+
+	// EventRetention keeps committed account/group events independently of
+	// readers. Zero defaults to 90 days; it must be positive after defaulting.
+	EventRetention time.Duration `yaml:"event_retention"`
 
 	// CleanupInterval is how often expired auth state is cleaned up; 0
 	// defaults to one hour.
@@ -422,6 +429,12 @@ type APIKeysConfig struct {
 	// MaxTTL caps how far ahead a key may expire; a later or absent expiry is
 	// capped at creation. 0 means no cap.
 	MaxTTL time.Duration `yaml:"max_ttl"`
+}
+
+type PersonalAccessTokensConfig struct {
+	Enabled    bool          `yaml:"enabled"`
+	DefaultTTL time.Duration `yaml:"default_ttl"`
+	MaxTTL     time.Duration `yaml:"max_ttl"`
 }
 
 // RemoteApplicationConfig declares one remote application, keyed by Issuer:

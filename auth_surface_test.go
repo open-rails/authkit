@@ -62,6 +62,7 @@ func TestClientPublicSurface(t *testing.T) {
 		"CreateGroupRole", "UpdateGroupRole", "DeleteGroupRole",
 		// Credentials and invitations.
 		"CreateAPIKey", "RevokeAPIKey", "CreateInvitation", "RevokeInvitation",
+		"CreatePersonalAccessToken", "ListPersonalAccessTokens", "RevokePersonalAccessToken",
 		// Remote applications.
 		"UpsertRemoteApplication", "DeleteRemoteApplication", "RemoveRemoteUserRole",
 		// Group OAuth clients.
@@ -77,10 +78,11 @@ func TestClientPublicSurface(t *testing.T) {
 		// The host is the trust boundary.
 		"User", "Users", "PublicUsers", "ListUsers", "ResolveUsername", "CheckUsername", "GenerateUsername", "UserAgreements", "AgreementsDue",
 		"GroupOAuthClients", "GroupOAuthClient", "OAuthConsents",
-		"DeviceKeys", "Sessions", "ListSessionEvents",
+		"DeviceKeys", "Sessions", "ListSessionEvents", "ListEvents",
 		"Group", "Groups", "ListGroups", "ListGroupMembers", "ListMemberships", "GroupRoles", "KnownPermission",
 		"ListGroupRoles", "GroupRole",
 		"ListAPIKeys", "ResolveAPIKey", "ListInvitations", "RemoteApplication", "ListRemoteApplications", "RemoteUserRoles",
+		"ResolvePersonalAccessToken",
 		"CheckSession", "CheckRecentSignIn", "ProvisioningTargets",
 		// Names read at run time, resolved through Config.Roles.
 		"Persona", "Permission", "Role", "RolePermissions",
@@ -101,6 +103,8 @@ func TestClientPublicSurface(t *testing.T) {
 		"RemoteInvitations", "AcceptRemoteInvitation",
 		// authkit/userinfo Lookup: a library's directory reads.
 		"UserInfo", "RemoteUserInfo",
+		// Reader adapters do not introduce an operation.
+		"EventReader",
 	}
 	noIdentity := append(append(append([]string{}, hostOperations...), reads...), embeddingOnly...)
 
@@ -134,7 +138,7 @@ func TestClientPublicSurface(t *testing.T) {
 
 	optionType := reflect.TypeFor[[]authkit.Option]()
 	for _, name := range append(append([]string{"User"}, takesIdentity...), hostOperations...) {
-		if name == "Can" || name == "CanDirect" || name == "EffectivePermissions" {
+		if name == "Can" || name == "CanDirect" || name == "EffectivePermissions" || name == "ListPersonalAccessTokens" {
 			continue
 		}
 		m, _ := typ.MethodByName(name)

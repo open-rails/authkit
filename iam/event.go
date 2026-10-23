@@ -1,12 +1,14 @@
 package iam
 
 import (
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/open-rails/authkit/auth"
 )
 
-// EventKind names a committed change delivered to Deps.OnEvent. Hosts ignore
+// EventKind names a committed change returned by ListEvents. Hosts ignore
 // kinds they do not know: later versions add kinds.
 type EventKind string
 
@@ -67,16 +69,23 @@ const (
 
 // Event is one committed account or group change. It is recorded in the
 // transaction that makes the change, so a refused or rolled-back change
-// records nothing, and delivered after commit, at least once. It names what
+// records nothing, and read after commit. It names what
 // changed and never carries a credential, hash, token or code.
 type Event struct {
+	// Version identifies the payload schema. Unknown additive fields and event
+	// kinds may appear; readers should ignore what they do not understand.
+	Version int `json:"version"`
 	// TenantID is the affected tenant, not the acting operator's tenant.
 	// Zero identifies an authority-wide event with no tenant-owned target.
 	TenantID TenantID `json:"tenant_id"`
-	// ID is the same on every delivery: the host's idempotency key.
-	ID         string    `json:"id"`
+	// ID is stable on every read: the application's idempotency key.
+	ID string `json:"id"`
+	// Type is the event discriminator. Kind is its legacy spelling.
+	Type       EventKind `json:"type"`
 	Kind       EventKind `json:"kind"`
 	OccurredAt time.Time `json:"occurred_at"`
+	// RecordedAt is the retained log storage time, independent of occurrence time.
+	RecordedAt time.Time `json:"recorded_at"`
 	// Who made the change (docs/identity.md): the account whose authority
 	// it used (SubjectKind, SubjectID), who acted (InvokerIssuer, InvokerID)
 	// and how it was proven (CredentialKind, CredentialID). Your own code
@@ -111,4 +120,63 @@ type Event struct {
 	// Reason and Until describe a ban; Until is nil for an indefinite one.
 	Reason string     `json:"reason"`
 	Until  *time.Time `json:"until"`
+}
+
+// EventQuery reads one retained log. An empty After starts at its oldest
+// retained event. Types (or legacy Kinds) is an optional exact-match filter bound to the cursor.
+// Limit defaults to 100 and must be between 1 and 500 when specified.
+type EventQuery struct {
+	After string
+	Limit int
+	// Types contains exact event type names. Kinds is the legacy spelling.
+	Types []string
+	Kinds []EventKind
+	// Authority selects only events without a tenant-owned target. Otherwise
+	// the client's selected tenant is required. HTTP enforces root permission.
+	Authority bool
+}
+
+// EventPage contains a continuation even when Events is empty. A reader saves
+// NextCursor only after processing every event in the page successfully.
+type EventPage struct {
+	Events           []Event `json:"events"`
+	NextCursor       string  `json:"next_cursor"`
+	HasMore          bool    `json:"has_more"`
+	RetentionSeconds int64   `json:"retention_seconds"`
+}
+
+// MarshalJSON emits matching type/kind aliases for old and new consumers.
+func (e Event) MarshalJSON() ([]byte, error) {
+	if err := e.normalizeType(); err != nil {
+		return nil, err
+	}
+	type wire Event
+	return json.Marshal(wire(e))
+}
+
+// UnmarshalJSON accepts either discriminator spelling but refuses ambiguity.
+func (e *Event) UnmarshalJSON(data []byte) error {
+	type wire Event
+	var value wire
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	normalized := Event(value)
+	if err := normalized.normalizeType(); err != nil {
+		return err
+	}
+	*e = normalized
+	return nil
+}
+func (e *Event) normalizeType() error {
+	if e.Type == "" {
+		e.Type = e.Kind
+	}
+	if e.Kind == "" {
+		e.Kind = e.Type
+	}
+	if e.Type != e.Kind {
+		return fmt.Errorf("authkit: conflicting event type %q and kind %q", e.Type, e.Kind)
+	}
+	return nil
 }

@@ -44,11 +44,11 @@ func (s *Engine) createAccountDeletion(ctx context.Context, tx pgx.Tx, client *r
 			return err
 		}
 	}
-	deletion, err := s.qtx(tx).AccountDeletionInsert(ctx, db.AccountDeletionInsertParams{UserID: userID, Recipients: issuers, DeletedBy: deletedBy})
-	if err != nil {
+	if err := s.requireAccountProducerOn(ctx, tx, client); err != nil {
 		return err
 	}
-	return s.enqueueAccountFinalizer(ctx, tx, client, userDeletion(deletion), false)
+	_, err := s.qtx(tx).AccountDeletionInsert(ctx, db.AccountDeletionInsertParams{UserID: userID, Recipients: issuers, DeletedBy: deletedBy})
+	return err
 }
 
 func (s *Engine) finalizeAccountDeletion(ctx context.Context, id string, purge bool) error {
@@ -110,15 +110,16 @@ func (s *Engine) finalizeAccountDeletion(ctx context.Context, id string, purge b
 		if err := q.AccountDeletionSetFinalizing(ctx, id); err != nil {
 			return err
 		}
-		if err := s.enqueueAccountDeliveries(ctx, tx, client, userDeletion(record), record.Recipients, "hard"); err != nil {
+		if err := s.recordAccountCleanup(ctx, tx, client, userDeletion(record), record.Recipients); err != nil {
+			return err
+		}
+		if err := tx.Commit(ctx); err != nil {
 			return err
 		}
 		if len(record.Recipients) == 0 {
-			if err := s.enqueueAccountFinalizer(ctx, tx, client, userDeletion(record), true); err != nil {
-				return err
-			}
+			return s.finalizeAccountDeletion(ctx, id, true)
 		}
-		return tx.Commit(ctx)
+		return nil
 	}
 	if record.State != "finalizing" {
 		return nil

@@ -23,6 +23,8 @@ const (
 	TokenUser TokenKind = "user"
 	// TokenAPIKey is one of this deployment's API keys (*authkit.Client).
 	TokenAPIKey TokenKind = "api_key"
+	// TokenPersonalAccessToken acts as a user within an explicit permission ceiling.
+	TokenPersonalAccessToken TokenKind = "personal_access_token"
 	// TokenOAuthClient is an OAuth client's own resource access token
 	// (at+jwt) whose sub is its client_id. It carries no AuthKit authority.
 	TokenOAuthClient TokenKind = "oauth_client"
@@ -54,6 +56,8 @@ type Claims struct {
 	DeviceKeyID string
 	// APIKeyID is the key an API-key credential resolved to.
 	APIKeyID string
+	// PersonalAccessTokenID is the stored user-owned noninteractive credential.
+	PersonalAccessTokenID string
 	// Group binds an API key's authority to the group it was granted in, or
 	// this deployment's token for a user to the group it was exchanged or
 	// minted for (group_id); nil otherwise.
@@ -219,6 +223,9 @@ func (c Claims) Identity() (auth.Identity, bool) {
 		}
 		i.Issuer, i.SubjectKind = authority, auth.SubjectApplication
 		i.Credential = auth.Credential{Kind: auth.CredentialAPIKey, ID: c.APIKeyID}
+	case TokenPersonalAccessToken:
+		i.Subject, i.SubjectKind = c.UserID, auth.SubjectUser
+		i.Credential = auth.Credential{Kind: auth.CredentialPersonalAccessToken, ID: c.PersonalAccessTokenID}
 	case TokenOAuthClient:
 		i.Subject, i.SubjectKind = c.ClientID, auth.SubjectApplication
 	default:

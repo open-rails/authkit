@@ -94,15 +94,18 @@ export type AgreementsRequired = {
 }
 
 export type AuthKitEvent = {
+  version: number
   tenant_id: string
   id: string
+  type: "group.created" | "group.deleted" | "group.persona_migrated" | "group.purged" | "group.role_created" | "group.role_deleted" | "group.role_updated" | "oauth_client.created" | "oauth_client.deleted" | "oauth_client.updated" | "oauth_consent.revoked" | "role.changed" | "role.granted" | "role.revoked" | "user.agreement_accepted" | "user.banned" | "user.deleted" | "user.email_changed" | "user.phone_changed" | "user.purged" | "user.registered" | "user.restored" | "user.sessions_revoked" | "user.unbanned" | "user.username_changed"
   kind: "group.created" | "group.deleted" | "group.persona_migrated" | "group.purged" | "group.role_created" | "group.role_deleted" | "group.role_updated" | "oauth_client.created" | "oauth_client.deleted" | "oauth_client.updated" | "oauth_consent.revoked" | "role.changed" | "role.granted" | "role.revoked" | "user.agreement_accepted" | "user.banned" | "user.deleted" | "user.email_changed" | "user.phone_changed" | "user.purged" | "user.registered" | "user.restored" | "user.sessions_revoked" | "user.unbanned" | "user.username_changed"
   occurred_at: string
+  recorded_at: string
   subject_kind: "application" | "user"
   subject_id: string
   invoker_issuer: string
   invoker_id: string
-  credential_kind: "access_token" | "api_key" | "device_key" | "session" | "system"
+  credential_kind: "access_token" | "api_key" | "device_key" | "personal_access_token" | "session" | "system"
   credential_id: string
   user_id: string
   group_id: string
@@ -277,6 +280,13 @@ export type EmailChangeRequest = {
 export type EnrollmentStep = {
   token_set: TokenSet
   allowed_methods: ("email" | "sms" | "totp")[]
+}
+
+export type EventPage = {
+  events: AuthKitEvent[]
+  next_cursor: string
+  has_more: boolean
+  retention_seconds: number
 }
 
 export type ExternalLoginProvider = {
@@ -664,6 +674,30 @@ export type PermissionSet = {
   persona: string
   role: string | null
   permissions: string[]
+}
+
+export type PersonalAccessToken = {
+  id: string
+  name: string
+  owner_user_id: string
+  group_id: string
+  permissions: string[]
+  created_at: string
+  last_used_at: string | null
+  expires_at: string
+  revoked_at: string | null
+}
+
+export type PersonalAccessTokenCreated = {
+  token: PersonalAccessToken
+  secret: string
+}
+
+export type PersonalTokenCreateRequest = {
+  name?: string
+  group_id?: string
+  permissions?: string[]
+  expires_at?: string | null
 }
 
 export type PhoneChangeRequest = {

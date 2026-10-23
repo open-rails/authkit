@@ -103,7 +103,7 @@ type contract struct {
 
 func newContract() (*contract, error) {
 	c := &contract{routes: httpapi.Catalog(), objects: map[string]*object{}}
-	// The committed changes Deps.OnEvent delivers: the payload of the
+	// The committed changes ListEvents returns: the payload of the
 	// event vocabulary, kinds included.
 	if err := c.reach(reflect.TypeFor[iam.Event](), false); err != nil {
 		return nil, err
@@ -227,7 +227,7 @@ func fullPath(r httpapi.RouteSpec) string {
 // every value it sends.
 var neutralEnums = map[reflect.Type][]string{
 	reflect.TypeFor[auth.SubjectKind](): {string(auth.SubjectUser), string(auth.SubjectApplication)},
-	reflect.TypeFor[auth.CredentialKind](): {string(auth.CredentialSession), string(auth.CredentialDeviceKey), string(auth.CredentialAPIKey),
+	reflect.TypeFor[auth.CredentialKind](): {string(auth.CredentialSession), string(auth.CredentialDeviceKey), string(auth.CredentialAPIKey), string(auth.CredentialPersonalAccessToken),
 		string(auth.CredentialAccessToken), string(iam.CredentialSystem)},
 }
 

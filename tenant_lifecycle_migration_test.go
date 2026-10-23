@@ -80,9 +80,9 @@ func TestTenantMigrationRetainsDeletedTargetsAndInvitations(t *testing.T) {
 	require.NoError(t, pool.QueryRow(t.Context(), `SELECT tenant_id::text FROM account_deletions WHERE user_id=$1`, deletedUser).Scan(&actual))
 	require.Equal(t, owner.String(), actual)
 	var wrong int
-	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM account_events WHERE persona<>'root' AND tenant_id IS DISTINCT FROM $1::uuid`, owner.String()).Scan(&wrong))
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM event_log WHERE payload->>'persona'<>'root' AND NULLIF(payload->>'tenant_id','')::uuid IS DISTINCT FROM $1::uuid`, owner.String()).Scan(&wrong))
 	require.Zero(t, wrong)
-	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM account_events WHERE persona='root' AND tenant_id IS NOT NULL`).Scan(&wrong))
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM event_log WHERE payload->>'persona'='root' AND NULLIF(payload->>'tenant_id','') IS NOT NULL`).Scan(&wrong))
 	require.Zero(t, wrong)
 	for _, table := range []string{"account_registration_invites", "group_invite_links"} {
 		require.NoError(t, pool.QueryRow(t.Context(), "SELECT tenant_id::text FROM "+table).Scan(&actual))

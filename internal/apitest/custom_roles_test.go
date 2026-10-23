@@ -1,12 +1,10 @@
 package apitest_test
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -282,7 +280,7 @@ func TestCustomRoleEscalation(t *testing.T) {
 	_, err = s.auth.UpdateGroupRole(ctx, iam.UserIdentity(s.owner.ID), s.a, narrow, iam.GroupRoleUpdate{Permissions: []iam.Perm{s.catalog, s.entitlements}})
 	require.NoError(t, err)
 	_, err = s.auth.ResolveAPIKey(ctx, managerKey)
-	require.ErrorIs(t, err, iam.ErrAPIKeyRevoked)
+	require.NoError(t, err, "authorized role edits apply to organization keys independently of their creator")
 
 	// Removing a permission from a role revokes what its holders issued and
 	// no longer cover.
@@ -294,7 +292,7 @@ func TestCustomRoleEscalation(t *testing.T) {
 	_, err = s.auth.UpdateGroupRole(ctx, iam.UserIdentity(s.owner.ID), s.a, keymaster, iam.GroupRoleUpdate{Permissions: []iam.Perm{s.credentialsManage}})
 	require.NoError(t, err)
 	_, err = s.auth.ResolveAPIKey(ctx, kmKey)
-	require.ErrorIs(t, err, iam.ErrAPIKeyRevoked)
+	require.NoError(t, err, "organization keys survive the creator's role reduction")
 }
 
 // roleText reads role text.
@@ -355,30 +353,24 @@ func TestCustomRoleStaysInItsGroup(t *testing.T) {
 	require.True(t, s.libraryCan(t, keyA, s.a, s.entitlements))
 }
 
-// eventSink is a host's Deps.OnEvent.
-type eventSink struct {
-	mu     sync.Mutex
-	events []iam.Event
-}
-
-func (e *eventSink) hook(_ context.Context, ev iam.Event) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.events = append(e.events, ev)
-	return nil
-}
+// eventSink explicitly reads retained events; no publisher subscription exists.
+type eventSink struct{ client *authkit.Client }
 
 func (e *eventSink) await(t *testing.T, match func(iam.Event) bool, what string) iam.Event {
 	t.Helper()
 	var found iam.Event
 	require.Eventually(t, func() bool {
-		e.mu.Lock()
-		defer e.mu.Unlock()
-		i := slices.IndexFunc(e.events, match)
-		if i >= 0 {
-			found = e.events[i]
+		for _, authority := range []bool{false, true} {
+			page, err := e.client.ListEvents(t.Context(), iam.EventQuery{Authority: authority})
+			if err != nil {
+				return false
+			}
+			if i := slices.IndexFunc(page.Events, match); i >= 0 {
+				found = page.Events[i]
+				return true
+			}
 		}
-		return i >= 0
+		return false
 	}, time.Minute, 50*time.Millisecond, "no %s event", what)
 	return found
 }
@@ -386,8 +378,8 @@ func (e *eventSink) await(t *testing.T, match func(iam.Event) bool, what string)
 // Deleting a custom role takes it from every holder at once; a role later
 // given the same name starts with none.
 func TestCustomRoleDeleteRevokes(t *testing.T) {
-	sink := &eventSink{}
-	s := newShop(t, authtest.WithDeps(func(d *authkit.Deps) { d.OnEvent = sink.hook }))
+	s := newShop(t)
+	sink := &eventSink{client: s.auth}
 	ctx := t.Context()
 	require.NoError(t, s.auth.Start(ctx))
 	owner := iam.UserIdentity(s.owner.ID)

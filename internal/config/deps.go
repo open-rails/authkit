@@ -50,23 +50,11 @@ type Deps struct {
 	// iam.ErrEntitlementFilterUnavailable.
 	EntitlementHolders func(ctx context.Context, entitlement string) ([]string, error)
 
-	// OnEvent receives account and group changes (iam.Event) durably through
-	// River: recorded in the change's transaction, delivered after commit at
-	// least once, in order per user (per group for group events). A failure
-	// is retried with backoff up to an hour apart and holds back that
-	// subject's later events. It must be idempotent on Event.ID, ignore kinds
-	// it does not know and never run in the change's transaction. Every
-	// account issuer with OnEvent receives the account events. Building a
-	// client with OnEvent subscribes its issuer: changes are recorded from
-	// then on, even while no fleet runs. Clients without it change nothing
-	// until one starts the issuer's fleet: that unsubscribes the issuer, and
-	// its fleet drains what is pending.
-	OnEvent func(context.Context, iam.Event) error
 	// OnPurge erases the host's data of a deleted account before AuthKit
-	// purges the account, 30 days after its deletion. It runs durably through
-	// River on every account issuer, and the purge waits until each has
-	// succeeded; a failure is retried. It must be idempotent and honor
-	// cancellation.
+	// purges the account, 30 days after its deletion. Every issuer's daily
+	// startup/catch-up sweep runs its own pending cleanup receipts, and the
+	// purge waits until all required issuers succeed. A failed callback stays
+	// due for that issuer's next sweep. It must be idempotent and honor cancellation.
 	OnPurge func(context.Context, iam.UserDeletion) error
 	// DeletionCheck runs before a user deletes their own account: an
 	// iam.RefuseDeletion error refuses it with deletion_refused (409, the

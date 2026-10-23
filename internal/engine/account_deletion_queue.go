@@ -2,8 +2,6 @@ package engine
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -13,34 +11,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/riverqueue/river"
-	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 )
-
-type accountFinalizeArgs struct {
-	Schema     string `json:"schema"`
-	DeletionID string `json:"deletion_id"`
-	Purge      bool   `json:"purge,omitempty"`
-}
-
-func (accountFinalizeArgs) Kind() string { return "authkit_account_finalize" }
-
-type accountDeliveryArgs struct {
-	Schema     string `json:"schema"`
-	Issuer     string `json:"issuer"`
-	DeliveryID int64  `json:"delivery_id"`
-}
-
-func (accountDeliveryArgs) Kind() string { return "authkit_account_delivery" }
-
-func accountDeliveryQueue(schema, issuer string) string {
-	digest := sha256.Sum256([]byte(schema + "\x00" + issuer))
-	return "authkit_accounts-" + hex.EncodeToString(digest[:20])
-}
-
-func accountFinalizerQueue(schema string) string {
-	digest := sha256.Sum256([]byte(schema))
-	return "authkit_finalization-" + hex.EncodeToString(digest[:20])
-}
 
 func (s *Engine) deletionRiver() (*river.Client[pgx.Tx], error) {
 	m := s.maintenance
@@ -58,48 +29,25 @@ func (s *Engine) deletionRiver() (*river.Client[pgx.Tx], error) {
 	return m.producer, nil
 }
 
-func (s *Engine) enqueueAccountFinalizer(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], deletion iam.UserDeletion, purge bool) error {
-	if err := s.requireAccountProducerOn(ctx, tx, client); err != nil {
-		return err
-	}
-	scheduled := deletion.PurgeAt
-	if purge {
-		scheduled = time.Time{}
-	}
-	_, err := client.InsertTx(ctx, tx, accountFinalizeArgs{Schema: s.dbSchema(), DeletionID: deletion.ID, Purge: purge}, &river.InsertOpts{Queue: accountFinalizerQueue(s.dbSchema()), ScheduledAt: scheduled})
-	return err
-}
-
-// The delivery receipt and River row are one transaction. An existing receipt
-// therefore already has its durable job; no independent polling queue exists.
-func (s *Engine) enqueueAccountDeliveries(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], deletion iam.UserDeletion, issuers []string, stage string) error {
+// recordAccountCleanup preserves the required per-issuer domain obligations.
+// Daily/startup sweeps read these receipts directly; no per-account River job
+// or remote-fleet insertion is needed.
+func (s *Engine) recordAccountCleanup(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], deletion iam.UserDeletion, issuers []string) error {
 	if err := s.requireAccountProducerOn(ctx, tx, client); err != nil {
 		return err
 	}
 	for _, issuer := range issuers {
-		target, err := s.accountDeliveryClient(ctx, tx, client, issuer)
-		if err != nil {
-			return err
-		}
-		id, err := s.qtx(tx).AccountDeletionDeliveryInsert(ctx, db.AccountDeletionDeliveryInsertParams{DeletionID: deletion.ID, UserID: deletion.UserID, Issuer: issuer, Stage: stage})
-		if errors.Is(err, pgx.ErrNoRows) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		_, err = target.InsertTx(ctx, tx, accountDeliveryArgs{Schema: s.dbSchema(), Issuer: issuer, DeliveryID: id}, &river.InsertOpts{Queue: accountDeliveryQueue(s.dbSchema(), issuer)})
-		if err != nil {
+		_, err := s.qtx(tx).AccountDeletionDeliveryInsert(ctx, db.AccountDeletionDeliveryInsertParams{DeletionID: deletion.ID, UserID: deletion.UserID, Issuer: issuer, Stage: "hard"})
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
 	}
 	return nil
 }
 
-// New registers RiverSchema as the issuer's durable destination before it
-// accepts account mutations. Every configured account issuer must have been
-// built once against this database before deletion can affect it. An offline
-// registered application still receives durable jobs in its own fleet.
+// New records the configured issuer before accepting account mutations.
+// Required cleanup remains in account_deletion_deliveries while an issuer is
+// offline. RiverSchema routes required cleanup and credential operations.
 func (s *Engine) registerAccountDeliveryFleet(ctx context.Context, schema string) error {
 	if s.cfg.Token.Issuer == "" {
 		return nil
@@ -129,31 +77,11 @@ func (s *Engine) registerAccountDeliveryFleet(ctx context.Context, schema string
 			return err
 		}
 	}
-	// A client that handles events subscribes its issuer from now on, so
-	// changes are recorded even before its fleet starts. A client without
-	// OnEvent changes nothing here: only the fleet's Start unsubscribes.
-	if s.onEvent != nil {
-		if err := q.AccountDeliveryFleetSetEvents(ctx, db.AccountDeliveryFleetSetEventsParams{Issuer: issuer, RiverSchema: schema, Events: true}); err != nil {
-			return err
-		}
-	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
 	s.warnUnboundAccountIssuers(ctx)
 	return nil
-}
-
-// syncEventSubscription runs at Start: the client running the issuer's bound
-// fleet sets whether the issuer records events. One without OnEvent
-// unsubscribes it, and its fleet drains what is pending.
-func (s *Engine) syncEventSubscription(ctx context.Context) error {
-	if s.cfg.Token.Issuer == "" {
-		return nil
-	}
-	return s.q.AccountDeliveryFleetSetEvents(ctx, db.AccountDeliveryFleetSetEventsParams{
-		Issuer: s.cfg.Token.Issuer, RiverSchema: s.cfg.Database.RiverSchema, Events: s.onEvent != nil,
-	})
 }
 
 // Account deletion fails closed until every account issuer has started once
@@ -180,49 +108,7 @@ func (s *Engine) requireAccountProducerOn(ctx context.Context, tx pgx.Tx, local 
 	return nil
 }
 
-func (s *Engine) accountDeliveryClient(ctx context.Context, tx pgx.Tx, local *river.Client[pgx.Tx], issuer string) (*river.Client[pgx.Tx], error) {
-	if issuer == s.cfg.Token.Issuer {
-		return local, nil // requireAccountProducerOn already locked this mapping.
-	}
-	schema, err := s.qtx(tx).AccountDeliveryFleetSchemaForShare(ctx, issuer)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("authkit: account issuer %q must boot against this database before account deletion", issuer)
-		}
-		return nil, err
-	}
-	if schema == local.Schema() {
-		return local, nil
-	}
-	// Insert-only client: no worker registry, start/stop, polling or owned pool.
-	// InsertTx writes into this fleet's schema using the same account transaction.
-	return river.NewClient(riverpgxv5.New(s.pg), riverConfig(schema))
-}
-
-type accountDeliveryWorker struct {
-	river.WorkerDefaults[accountDeliveryArgs]
-	engine *Engine
-}
-
-func (w *accountDeliveryWorker) Work(ctx context.Context, job *river.Job[accountDeliveryArgs]) error {
-	if job.Args.Schema != w.engine.dbSchema() || job.Args.Issuer != w.engine.cfg.Token.Issuer {
-		return river.JobCancel(errors.New("authkit: account delivery routed to a different application"))
-	}
-	err := w.engine.deliverAccountEvent(ctx, job.Args.DeliveryID)
-	if err == nil {
-		return nil
-	}
-	var snooze *river.JobSnoozeError
-	if errors.As(err, &snooze) {
-		return err
-	}
-	// Lifecycle callback failure never exhausts the attempt budget and drops
-	// cleanup. River owns the scheduled retry; the receipt remains pending.
-	slog.ErrorContext(ctx, "authkit: account callback will retry", "delivery_id", job.Args.DeliveryID, "error", err)
-	return river.JobSnooze(time.Minute)
-}
-
-func (s *Engine) deliverAccountEvent(ctx context.Context, id int64) error {
+func (s *Engine) runAccountCleanup(ctx context.Context, id int64) error {
 	userID, err := s.q.AccountDeletionDeliveryUser(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
@@ -283,10 +169,6 @@ func (s *Engine) deliverAccountEvent(ctx context.Context, id int64) error {
 			return err
 		}
 	}
-	client, err := s.deletionRiver()
-	if err != nil {
-		return err
-	}
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
 		return err
@@ -301,18 +183,25 @@ func (s *Engine) deliverAccountEvent(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	if stage == "hard" && state == "finalizing" && completed == 1 {
+	ready := false
+	if state == "finalizing" && completed == 1 {
 		pending, err := q.AccountDeletionHardDeliveriesPending(ctx, deletion.ID)
 		if err != nil {
 			return err
 		}
-		if !pending {
-			if err := s.enqueueAccountFinalizer(ctx, tx, client, deletion, true); err != nil {
-				return err
-			}
+		ready = !pending
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	if ready {
+		// The receipt is durable before the account goes. A failed purge remains
+		// visible to the daily sweep; do not replay the successful host callback.
+		if err := s.finalizeAccountDeletion(ctx, deletion.ID, true); err != nil {
+			slog.ErrorContext(ctx, "authkit: account purge deferred to daily sweep", "deletion_id", deletion.ID, "error", err)
 		}
 	}
-	return tx.Commit(ctx)
+	return nil
 }
 
 func invokeAccountHook(ctx context.Context, hook func(context.Context, iam.UserDeletion) error, deletion iam.UserDeletion) (err error) {
@@ -322,25 +211,4 @@ func invokeAccountHook(ctx context.Context, hook func(context.Context, iam.UserD
 		}
 	}()
 	return hook(ctx, deletion)
-}
-
-type accountFinalizeWorker struct {
-	river.WorkerDefaults[accountFinalizeArgs]
-	engine *Engine
-}
-
-func (w *accountFinalizeWorker) Work(ctx context.Context, job *river.Job[accountFinalizeArgs]) error {
-	if job.Args.Schema != w.engine.dbSchema() {
-		return river.JobCancel(errors.New("authkit: account finalizer schema mismatch"))
-	}
-	err := w.engine.finalizeAccountDeletion(ctx, job.Args.DeletionID, job.Args.Purge)
-	if err == nil {
-		return nil
-	}
-	var snooze *river.JobSnoozeError
-	if errors.As(err, &snooze) {
-		return err
-	}
-	slog.ErrorContext(ctx, "authkit: account finalization will retry", "deletion_id", job.Args.DeletionID, "error", err)
-	return river.JobSnooze(time.Minute)
 }

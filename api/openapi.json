@@ -1595,6 +1595,146 @@
         "x-authkit-rate-limit": "me_read"
       }
     },
+    "/api/v1/me/personal-access-tokens": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalAccessTokenPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "me_read",
+        "x-authkit-mounted-when": "personal_access_tokens"
+      },
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonalTokenCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalAccessTokenCreated"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "api_key_create",
+        "x-authkit-mounted-when": "personal_access_tokens",
+        "x-authkit-step-up": true
+      }
+    },
+    "/api/v1/me/personal-access-tokens/{id}": {
+      "delete": {
+        "tags": [
+          "account"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "me_update",
+        "x-authkit-mounted-when": "personal_access_tokens",
+        "x-authkit-step-up": true
+      }
+    },
     "/api/v1/me/password": {
       "put": {
         "tags": [
@@ -3285,6 +3425,88 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/UserEntryPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "root:users:read",
+        "x-authkit-rate-limit": "admin_read"
+      }
+    },
+    "/api/v1/events": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "explode": true
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "explode": true
+          },
+          {
+            "name": "authority",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventPage"
                 }
               }
             }
@@ -7572,11 +7794,44 @@
       "AuthKitEvent": {
         "type": "object",
         "properties": {
+          "version": {
+            "type": "integer"
+          },
           "tenant_id": {
             "type": "string"
           },
           "id": {
             "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "group.created",
+              "group.deleted",
+              "group.persona_migrated",
+              "group.purged",
+              "group.role_created",
+              "group.role_deleted",
+              "group.role_updated",
+              "oauth_client.created",
+              "oauth_client.deleted",
+              "oauth_client.updated",
+              "oauth_consent.revoked",
+              "role.changed",
+              "role.granted",
+              "role.revoked",
+              "user.agreement_accepted",
+              "user.banned",
+              "user.deleted",
+              "user.email_changed",
+              "user.phone_changed",
+              "user.purged",
+              "user.registered",
+              "user.restored",
+              "user.sessions_revoked",
+              "user.unbanned",
+              "user.username_changed"
+            ]
           },
           "kind": {
             "type": "string",
@@ -7613,6 +7868,11 @@
             "format": "date-time",
             "description": "RFC 3339, UTC"
           },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
           "subject_kind": {
             "type": "string",
             "enum": [
@@ -7635,6 +7895,7 @@
               "access_token",
               "api_key",
               "device_key",
+              "personal_access_token",
               "session",
               "system"
             ]
@@ -7686,10 +7947,13 @@
           }
         },
         "required": [
+          "version",
           "tenant_id",
           "id",
+          "type",
           "kind",
           "occurred_at",
+          "recorded_at",
           "subject_kind",
           "subject_id",
           "invoker_issuer",
@@ -8410,6 +8674,32 @@
         "required": [
           "token_set",
           "allowed_methods"
+        ]
+      },
+      "EventPage": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuthKitEvent"
+            }
+          },
+          "next_cursor": {
+            "type": "string"
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "retention_seconds": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "events",
+          "next_cursor",
+          "has_more",
+          "retention_seconds"
         ]
       },
       "ExternalLoginProvider": {
@@ -10154,6 +10444,118 @@
           "role",
           "permissions"
         ]
+      },
+      "PersonalAccessToken": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner_user_id": {
+            "type": "string"
+          },
+          "group_id": {
+            "type": "string"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "last_used_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "revoked_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "owner_user_id",
+          "group_id",
+          "permissions",
+          "created_at",
+          "last_used_at",
+          "expires_at",
+          "revoked_at"
+        ]
+      },
+      "PersonalAccessTokenCreated": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "$ref": "#/components/schemas/PersonalAccessToken"
+          },
+          "secret": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "secret"
+        ]
+      },
+      "PersonalTokenCreateRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "group_id": {
+            "type": "string"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expires_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
       },
       "PhoneChangeRequest": {
         "type": "object",
@@ -12842,6 +13244,35 @@
           "total"
         ]
       },
+      "PersonalAccessTokenPage": {
+        "type": "object",
+        "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PersonalAccessToken"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor",
+          "total"
+        ]
+      },
       "ProvisioningTargetPage": {
         "type": "object",
         "description": "One page of a list. next_cursor is null on the last page; total is null unless asked for.",
@@ -13328,6 +13759,10 @@
     "entitlement_filter_unavailable": {
       "status": 400,
       "message": "Entitlement filtering is unavailable."
+    },
+    "event_cursor_expired": {
+      "status": 410,
+      "message": "This event cursor is no longer retained. Resynchronize from current state."
     },
     "external_invites_disabled": {
       "status": 403,

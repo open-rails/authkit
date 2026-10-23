@@ -182,6 +182,15 @@ func (s *Engine) credentialStands(ctx context.Context, st *permissionGroupStore,
 			return false, err
 		}
 	}
+	if c.table == "api_keys" {
+		// The role is the organization's authorization. The creator is audit
+		// information, but removal of the role must not later revive a key.
+		_, err := s.roleGrants(ctx, st.q, c.group, c.role)
+		if errors.Is(err, iam.ErrRoleNotAssignable) {
+			return false, nil
+		}
+		return err == nil, err
+	}
 	if c.creator == "" {
 		return !c.needsCreator, nil
 	}
@@ -400,8 +409,8 @@ func (s *Engine) refuseSubjectOwnerLoss(ctx context.Context, st *permissionGroup
 	return nil
 }
 
-// An invitation is a bounded bearer grant, not the inviter's current authority.
-// Redemption can retain or increase its recipient's role, never strip grants.
+// Redemption first checks the inviter still covers the invitation. It can
+// retain or increase its recipient's role, never strip existing grants.
 func (s *Engine) assignInvitedRole(ctx context.Context, st *permissionGroupStore, gid string, persona iam.Persona, userID string, role iam.Role) error {
 	subject := iam.UserSubject(userID)
 	g := groupTarget{ID: gid, Persona: persona}

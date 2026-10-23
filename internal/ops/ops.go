@@ -16,6 +16,7 @@ import (
 // serve: everything but the embedding-only methods (New, Start, Close,
 // Handler, Routes, Mount, verifiers, River).
 type Operations interface {
+	ListEvents(ctx context.Context, q iam.EventQuery) (iam.EventPage, error)
 	// Accounts.
 	User(ctx context.Context, ref iam.UserRef, opts ...Option) (iam.User, error)
 	Users(ctx context.Context, ids []string) (map[string]iam.User, error)
@@ -90,6 +91,10 @@ type Operations interface {
 	ListAPIKeys(ctx context.Context, ref iam.GroupRef, p iam.PageRequest) (iam.ListPage[iam.APIKey], error)
 	RevokeAPIKey(ctx context.Context, who auth.Identity, ref iam.GroupRef, id string, opts ...Option) error
 	ResolveAPIKey(ctx context.Context, token string) (iam.ResolvedAPIKey, error)
+	CreatePersonalAccessToken(ctx context.Context, who auth.Identity, in iam.NewPersonalAccessToken, opts ...Option) (iam.PersonalAccessTokenCreated, error)
+	ListPersonalAccessTokens(ctx context.Context, who auth.Identity, page iam.PageRequest) (iam.ListPage[iam.PersonalAccessToken], error)
+	RevokePersonalAccessToken(ctx context.Context, who auth.Identity, id string, opts ...Option) error
+	ResolvePersonalAccessToken(ctx context.Context, token string) (iam.ResolvedPersonalAccessToken, error)
 
 	// Invitations.
 	CreateInvitation(ctx context.Context, who auth.Identity, ref iam.GroupRef, n iam.NewInvitation, opts ...Option) (iam.InvitationCreated, error)

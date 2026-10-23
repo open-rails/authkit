@@ -239,14 +239,17 @@ func (s *Engine) importUser(ctx context.Context, q *db.Queries, input newAccount
 	return &row, nil
 }
 
-// revokeCredentialsTx revokes every refresh session (all account issuers) and
-// device key of userID inside tx, returning sessions for post-commit audit.
+// Ban and account deletion retire all personal credentials atomically.
+// Password changes and web-session logout use their narrower paths instead.
 func (s *Engine) revokeCredentialsTx(ctx context.Context, tx pgx.Tx, userID string) ([]revokedSession, error) {
 	revoked, err := revokeSessionsTx(ctx, s.qtx(tx), userID, s.accountIssuers(), nil)
 	if err != nil {
 		return nil, err
 	}
 	if _, err := s.revokeAllDeviceKeys(ctx, tx, userID); err != nil {
+		return nil, err
+	}
+	if err := s.qtx(tx).PersonalTokensRevokeOwnedBy(ctx, userID); err != nil {
 		return nil, err
 	}
 	return revoked, nil

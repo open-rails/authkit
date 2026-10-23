@@ -84,7 +84,7 @@ The only application data AuthKit keeps about an account is its public metadata,
 
 ## Events and hooks
 
-- `Deps.OnEvent` receives `iam.Event`. The kinds, the members and the delivery guarantees in `OnEvent`'s doc (recorded with the change, delivered after commit at least once, in order per subject, idempotent on `Event.ID`) are covered. New kinds and members may be added; ignore kinds you don't know.
+- `Client.ListEvents` returns committed `iam.Event` records in scoped order. Event IDs, scope boundaries, cursor/retention behavior and versioned payloads are covered. Readers own their progress; unknown additive fields and kinds may be ignored.
 - The other hooks in `Deps` (`OnPurge`, `NameAdmission`, `OAuthGrants`, `Entitlements`, `EntitlementHolders`, `ClientIP`, `Wrap`) and the senders keep their signatures and documented call semantics. Senders may receive new `iam.MessageKind` values.
 
 ## Roles

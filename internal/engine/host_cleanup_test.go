@@ -55,6 +55,6 @@ func TestAccountLifecycleTerminalGCIsBoundedAndPreservesPendingWork(t *testing.T
 	var remaining int
 	require.NoError(t, pg.Pool.QueryRow(t.Context(), "SELECT count(*) FROM profiles.account_deletions").Scan(&remaining))
 	require.Equal(t, 3, remaining, "pending callbacks, active cycles and recent history are retained")
-	require.NoError(t, runtime.deliverAccountEvent(t.Context(), completedReceipt), "old retries no-op after completed receipts expire")
+	require.NoError(t, runtime.runAccountCleanup(t.Context(), completedReceipt), "old retries no-op after completed receipts expire")
 	require.NoError(t, runtime.finalizeAccountDeletion(t.Context(), ids[1], true))
 }

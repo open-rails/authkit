@@ -37,19 +37,6 @@ func TestTenantLifecycleRetainsTargetAcrossRestartAndPurge(t *testing.T) {
 	retryPurge := true
 	deps := config.Deps{
 		Postgres: pool,
-		OnEvent: func(ctx context.Context, event iam.Event) error {
-			owner, bound := tenancy.From(ctx)
-			require.True(t, bound, "event delivery must choose or explicitly clear its target")
-			require.Equal(t, event.TenantID, owner)
-			if event.UserID == userID || event.GroupID == groupID {
-				require.Equal(t, target, event.TenantID)
-			}
-			if event.GroupID == rootID && event.UserID == "" {
-				require.True(t, owner.IsZero(), "global events must not inherit the worker's default tenant")
-			}
-			received = append(received, event)
-			return nil
-		},
 		OnPurge: func(ctx context.Context, deletion iam.UserDeletion) error {
 			owner, bound := tenancy.From(ctx)
 			require.True(t, bound)
@@ -96,14 +83,8 @@ func TestTenantLifecycleRetainsTargetAcrossRestartAndPurge(t *testing.T) {
 	FROM expired WHERE account_deletions.id=$2`, userID, deletionID)
 	require.NoError(t, err)
 	wrong := WithTenant(ctx, cfg.DefaultTenantID)
-	finalize := &accountFinalizeWorker{engine: e}
-	require.NoError(t, finalize.Work(wrong, &river.Job[accountFinalizeArgs]{Args: accountFinalizeArgs{Schema: schema, DeletionID: deletionID}}))
-	var deliveryID int64
-	require.NoError(t, e.pg.QueryRow(ctx, `SELECT id FROM account_deletion_deliveries WHERE deletion_id=$1 AND stage='hard'`, deletionID).Scan(&deliveryID))
-	delivery := &accountDeliveryWorker{engine: e}
-	job := &river.Job[accountDeliveryArgs]{Args: accountDeliveryArgs{Schema: schema, Issuer: cfg.Token.Issuer, DeliveryID: deliveryID}}
-	var snooze *river.JobSnoozeError
-	require.ErrorAs(t, delivery.Work(wrong, job), &snooze)
+	sweep := &accountDeleteDueWorker{engine: e}
+	require.NoError(t, sweep.Work(wrong, &river.Job[accountDeleteDueArgs]{Args: accountDeleteDueArgs{Schema: schema, Issuer: cfg.Token.Issuer}}))
 	require.Len(t, purges, 1)
 
 	// No target is carried in the job args. A new default-A worker must recover
@@ -111,25 +92,21 @@ func TestTenantLifecycleRetainsTargetAcrossRestartAndPurge(t *testing.T) {
 	require.NoError(t, e.Close(ctx))
 	e = newTestEngine(t, cfg, deps)
 	retryPurge = false
-	delivery.engine, finalize.engine = e, e
-	require.NoError(t, delivery.Work(wrong, job))
+	sweep.engine = e
+	require.NoError(t, sweep.Work(wrong, &river.Job[accountDeleteDueArgs]{Args: accountDeleteDueArgs{Schema: schema, Issuer: cfg.Token.Issuer}}))
 	require.Len(t, purges, 2)
 	require.Equal(t, purges[0], purges[1])
-	require.NoError(t, finalize.Work(wrong, &river.Job[accountFinalizeArgs]{Args: accountFinalizeArgs{Schema: schema, DeletionID: deletionID, Purge: true}}))
 	var exists bool
 	require.NoError(t, e.pg.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1)`, userID).Scan(&exists))
 	require.False(t, exists)
 	var retained string
 	require.NoError(t, e.pg.QueryRow(ctx, `SELECT tenant_id::text FROM account_deletions WHERE id=$1 AND state='purged'`, deletionID).Scan(&retained))
 	require.Equal(t, target.String(), retained)
-	rows, err := e.pg.Query(ctx, `SELECT id FROM account_events ORDER BY id`)
+	tenantEvents, err := e.ListEvents(WithTenant(ctx, target), iam.EventQuery{})
 	require.NoError(t, err)
-	ids, err := pgx.CollectRows(rows, pgx.RowTo[int64])
+	authorityEvents, err := e.ListEvents(wrong, iam.EventQuery{Authority: true})
 	require.NoError(t, err)
-	worker := &accountEventWorker{engine: e}
-	for _, id := range ids {
-		require.NoError(t, worker.Work(wrong, &river.Job[accountEventArgs]{Args: accountEventArgs{Schema: schema, Issuer: cfg.Token.Issuer, Row: id}}))
-	}
+	received = append(tenantEvents.Events, authorityEvents.Events...)
 	foundDeleted, foundPurged, foundGroup, foundGlobal := false, false, false, false
 	for _, event := range received {
 		if event.UserID == userID && event.Kind == iam.EventUserDeleted {

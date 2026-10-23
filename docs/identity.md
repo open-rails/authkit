@@ -4,7 +4,7 @@ Every request AuthKit verifies has three parts, and its authkit/auth `Identity` 
 
 - **Subject**: the account, native to `Issuer`, whose authority and money the request uses. It is a `user` or an `application`.
 - **Invoker**: who actually acts. It is always set. It equals the subject (`{Issuer, Subject}`) unless someone acts on the subject's behalf: the actor an RFC 8693 `act` claim names (delegation), such as a workload acting for a user.
-- **Credential**: how the request was proven: `session`, `device_key`, `api_key` or `access_token`, with its id (the session, device key or API key, or the token's `jti`). A credential is never the subject, so rotating keys or signing in on another device never changes who the subject is.
+- **Credential**: how the request was proven: `session`, `device_key`, `api_key`, `personal_access_token` or `access_token`, with its own id. A credential is never the subject, so rotating keys or signing in on another device never changes who the subject is.
 
 Authorization is the subject's grants, narrowed by what the credential carries (a token's permissions within its resource's ceiling). Limits and budgets are per invoker within the subject. Audit records all three.
 
@@ -13,10 +13,11 @@ Authorization is the subject's grants, narrowed by what the credential carries (
 | a user signed in (browser) | the user | user | the subject | `session` |
 | a user's device key | the owning user | user | the subject | `device_key` |
 | a group API key | the group's account (its id) | application | the subject | `api_key` |
+| a personal access token | its owning user | user | the subject | `personal_access_token` |
 | an OAuth client's client-credentials token | the client | application | the subject | `access_token` |
 | an OAuth client's token for a user (`at+jwt`) | the user | user | the subject; the `act` actor when it names one | `access_token` |
 
-A group API key belongs to its group's account for now: every key of a group has the group's id as its subject, and the key is the credential. API keys owned by a user or an application come next.
+A group API key belongs to its group's account: every key of a group has the group's id as its subject, and the key is the credential. A personal token is a separate, optional user credential with a live permission ceiling; it carries no interactive sign-in or MFA assurance.
 
 `Identity.SelfInvoked` reports whether the subject acts for itself. Only RFC 8693's actor claim (`act.sub`) names another invoker; the client a token was issued to (`client_id`) is the user's agent, not an invoker. Token exchange without an `actor_token` is impersonation (RFC 8693 §1.1) and carries no `act`; a jwt-bearer workload is named in `act`.
 
@@ -34,7 +35,7 @@ Behind a gate (`verify.Required`, `RequireSession`, `RequirePermission`, `Sensit
 
 A library that guards its own routes takes `client.Authenticator()` instead ([RBAC](rbac.md#a-library-that-guards-its-own-routes)): its `Authenticate(r)` returns the request's `Verified`, whose `Identity()` this is. Access tokens carry no contact details, so it reads a local user's email and username from the account when the user is the subject and acts for itself.
 
-Events (`Deps.OnEvent`) record who made a change the same way: `subject_kind` and `subject_id`, `invoker_issuer` and `invoker_id`, `credential_kind` and `credential_id`.
+Events (`Client.ListEvents`) record who made a change the same way: `subject_kind` and `subject_id`, `invoker_issuer` and `invoker_id`, `credential_kind` and `credential_id`.
 
 ## Network accounts
 
@@ -52,4 +53,6 @@ A network account, such as a shopper's at openrails.dev, is an ordinary user who
 
 **Text messages.** `SMS.AllowedCountries` (ISO 3166-1 alpha-2, by the number's real region: `+1 876` is Jamaica, not the US) refuses any other number with `phone_country_not_allowed` before anything is looked up or sent. Every message also spends the `sms_number`, `sms_account`, `sms_address` and `sms_country` rate-limit buckets (`HTTPConfig.RateLimits`; Redis when configured), whatever route sends it. A code message carries `Domain`, `Frontend.BaseURL`'s host: the Twilio adapter's built-in bodies end with the origin-bound line `@<domain> #<code>` (WICG origin-bound one-time codes), and a host's own `Render` adds `SMSMessage.OriginBoundLine()`.
 
-**Deletion.** `DELETE /me` is recoverable deletion: 30 days, then `Deps.OnPurge` on every account issuer, then the purge. `Deps.DeletionCheck` runs first and may refuse with `iam.RefuseDeletion(reason)`, such as while the user's cards still pay subscriptions: `deletion_refused` (409) with `metadata.reason`. It is never asked about a staff or host deletion. A network host revokes what the account linked (merchant links, wallet cards) in `OnPurge`, idempotently on the deletion's `ID`.
+**Deletion.** `DELETE /me` is recoverable deletion: 30 days, then `Deps.OnPurge` on every account issuer, then the purge. Deadlines live in the account database. One `authkit_account_delete_due` sweep per issuer runs daily (and on fleet startup), reads due records in batches of 100, and performs that issuer’s pending required cleanup. Each issuer has a separate queue and deduplication identity, including when issuers share River tables. One daily dispatcher schedules the issuer batches, and each issuer also schedules its own startup catch-up; this works when another process holds River leadership. A failed or offline issuer leaves its receipt pending, preventing hard deletion. The final completed cleanup purges the account; a failed database purge remains due for the next daily sweep. Accounts are never purged before their deadline, and each failed account is isolated from the rest of the batch. Permanent deletion may therefore begin up to 24 hours after the recovery window closes. `Deps.DeletionCheck` runs first and may refuse with `iam.RefuseDeletion(reason)`, such as while the user's cards still pay subscriptions: `deletion_refused` (409) with `metadata.reason`. It is never asked about a staff or host deletion. A network host revokes what the account linked (merchant links, wallet cards) in `OnPurge`, idempotently on the deletion's `ID`.
+
+When upgrading from per-account `authkit_account_finalize` timers or `authkit_account_delivery` jobs, stop older account-writing workers before migrating each configured River fleet. `Migrate` retires that AuthKit schema’s non-running legacy jobs while preserving deletion records and required cleanup receipts. It refuses while an old worker is running, or when a pending finalizer has no canonical deletion record. Other AuthKit schemas and other River fleets remain untouched; no per-account timer is created by the new code.

@@ -19,7 +19,7 @@ import (
 // transactions join.
 func TestSecurityGroupsJoinTheHostTransaction(t *testing.T) {
 	events := newEventLog()
-	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBACNoMFA), withEvents(events))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBACNoMFA))
 	ctx := context.Background()
 	require.NoError(t, h.auth.Start(ctx))
 	cfg := h.pool.Config().Copy()
@@ -66,7 +66,7 @@ func TestSecurityGroupsJoinTheHostTransaction(t *testing.T) {
 		_, err = h.auth.Group(ctx, iam.GroupByID(g.ID))
 		require.ErrorIs(t, err, iam.ErrGroupNotFound)
 		require.Zero(t, count(`SELECT count(*) FROM group_user_roles WHERE permission_group_id=$1::uuid`, g.ID))
-		require.Zero(t, count(`SELECT count(*) FROM account_events WHERE group_id=$1::uuid`, g.ID))
+		require.Zero(t, count(`SELECT count(*) FROM event_log WHERE payload->>'group_id'=$1`, g.ID))
 		require.False(t, delivered(iam.EventGroupCreated, g.ID))
 	})
 

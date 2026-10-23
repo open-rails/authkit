@@ -18,17 +18,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// eventLog is a host's Deps.OnEvent. The first delivery of a kind in
-// failFirst fails, as a host store outage would.
+// eventLog is a reader-owned cursor and idempotent sink. The first handling
+// of a kind in failFirst fails, as an application store outage would.
 type eventLog struct {
 	mu        sync.Mutex
 	failFirst map[iam.EventKind]bool
 	calls     map[string]int
 	delivered []iam.Event
+	cursors   map[bool]string
+	seen      map[string]bool
 }
 
 func newEventLog(failFirst ...iam.EventKind) *eventLog {
-	l := &eventLog{failFirst: map[iam.EventKind]bool{}, calls: map[string]int{}}
+	l := &eventLog{failFirst: map[iam.EventKind]bool{}, calls: map[string]int{}, cursors: map[bool]string{}, seen: map[string]bool{}}
 	for _, k := range failFirst {
 		l.failFirst[k] = true
 	}
@@ -38,16 +40,16 @@ func newEventLog(failFirst ...iam.EventKind) *eventLog {
 func (l *eventLog) hook(_ context.Context, e iam.Event) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.seen[e.ID] {
+		return nil // the application already committed this replayed event
+	}
 	l.calls[e.ID]++
 	if l.failFirst[e.Kind] && l.calls[e.ID] == 1 {
 		return errors.New("host event store unavailable")
 	}
 	l.delivered = append(l.delivered, e)
+	l.seen[e.ID] = true
 	return nil
-}
-
-func withEvents(l *eventLog) authtest.Option {
-	return authtest.WithDeps(func(d *authkit.Deps) { d.OnEvent = l.hook })
 }
 
 // withRBACNoMFA is withRBAC without second factors in the way.
@@ -56,34 +58,45 @@ func withRBACNoMFA(c *authkit.Config) {
 	c.TwoFactor.Mode = iam.TwoFactorDisabled
 }
 
-// drained waits until every recorded event is delivered and its job done,
-// then returns the deliveries in order.
+// drained explicitly pulls both independent scopes. A failed page is replayed
+// from the application's saved cursor; successful writes are idempotent.
 func (l *eventLog) drained(h *host) []iam.Event {
 	h.t.Helper()
 	require.Eventually(h.t, func() bool {
-		var pending int
-		err := h.pool.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM account_events)
- + (SELECT count(*) FROM public.river_job WHERE kind='authkit_account_event' AND state NOT IN ('completed','cancelled','discarded'))`).Scan(&pending)
-		return err == nil && pending == 0
-	}, time.Minute, 50*time.Millisecond, "events stay undelivered")
+		for _, authority := range []bool{false, true} {
+			for {
+				page, err := h.auth.ListEvents(context.Background(), iam.EventQuery{After: l.cursors[authority], Authority: authority})
+				if err != nil {
+					return false
+				}
+				for _, e := range page.Events {
+					if err := l.hook(context.Background(), e); err != nil {
+						return false
+					}
+				}
+				l.cursors[authority] = page.NextCursor
+				if !page.HasMore {
+					break
+				}
+			}
+		}
+		return true
+	}, time.Minute, 10*time.Millisecond, "reader could not finish an event page")
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return append([]iam.Event(nil), l.delivered...)
 }
 
-// await waits for a delivery of kind about userID.
-func (l *eventLog) await(t *testing.T, kind iam.EventKind, userID string) {
-	t.Helper()
-	require.Eventually(t, func() bool {
-		l.mu.Lock()
-		defer l.mu.Unlock()
-		for _, e := range l.delivered {
+func (l *eventLog) await(h *host, kind iam.EventKind, userID string) {
+	h.t.Helper()
+	require.Eventually(h.t, func() bool {
+		for _, e := range l.drained(h) {
 			if e.Kind == kind && e.UserID == userID {
 				return true
 			}
 		}
 		return false
-	}, time.Minute, 50*time.Millisecond, "no %s event", kind)
+	}, time.Minute, 20*time.Millisecond, "no %s event", kind)
 }
 
 // proveOwnEmail verifies a registrant's address from its own session, which
@@ -109,9 +122,8 @@ func sig(e iam.Event) string {
 // events.
 func TestSecurityEventsRecordOnlyCommittedChanges(t *testing.T) {
 	events := newEventLog(iam.EventUserBanned)
-	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBACNoMFA), withEvents(events))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBACNoMFA))
 	ctx := context.Background()
-	require.NoError(t, h.auth.Start(ctx))
 	system := iam.SystemIdentity()
 	root := iam.RootGroup()
 	rootGroup, err := h.auth.Group(ctx, root)
@@ -238,7 +250,8 @@ func TestSecurityEventsRecordOnlyCommittedChanges(t *testing.T) {
 	require.NoError(t, purged[0].Err)
 	expect(bySystem(iam.Event{Kind: iam.EventUserDeleted, UserID: alice.id}))
 	expect(iam.Event{Kind: iam.EventUserPurged, UserID: alice.id})
-	events.await(t, iam.EventUserPurged, alice.id)
+	require.NoError(t, h.auth.Start(ctx))
+	events.await(h, iam.EventUserPurged, alice.id)
 
 	delivered := events.drained(h)
 	got := make([]string, len(delivered))
@@ -285,7 +298,7 @@ func TestSecurityEventsRecordOnlyCommittedChanges(t *testing.T) {
 // event.
 func TestSecurityEventsCarryNoSecrets(t *testing.T) {
 	events := newEventLog()
-	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBACNoMFA), withEvents(events))
+	h := newHost(t, withHTTP(generousLimits), authtest.WithConfig(withRBACNoMFA))
 	ctx := context.Background()
 	secrets := []string{password, "argon2"}
 
@@ -315,7 +328,7 @@ func TestSecurityEventsCarryNoSecrets(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, h.role(orgPersona, "member"), roles[iam.UserSubject(user.id)])
 
-	rows, err := h.pool.Query(ctx, `SELECT row_to_json(e)::text FROM account_events e`)
+	rows, err := h.pool.Query(ctx, `SELECT payload::text FROM event_log`)
 	require.NoError(t, err)
 	var stored []string
 	for rows.Next() {
@@ -324,7 +337,7 @@ func TestSecurityEventsCarryNoSecrets(t *testing.T) {
 		stored = append(stored, row)
 	}
 	require.NoError(t, rows.Err())
-	require.NotEmpty(t, stored, "nothing is delivered before Start")
+	require.NotEmpty(t, stored, "committed events exist before any worker starts")
 
 	require.NoError(t, h.auth.Start(ctx))
 	delivered := events.drained(h)

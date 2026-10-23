@@ -404,6 +404,9 @@ func (s *Engine) personaMigrationCreators(ctx context.Context, st *permissionGro
 		if machine && s.TwoFactorEnabled() && role.RequiresMFA {
 			return migrationRefusal("a retained machine credential would require MFA")
 		}
+		if binding.Kind == "api_keys" {
+			continue // organization-owned; the creator is audit metadata
+		}
 		if binding.Creator == "" {
 			if binding.NeedsCreator {
 				return migrationRefusal("a retained application lacks its required registrar")

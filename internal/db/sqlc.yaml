@@ -12,7 +12,9 @@ version: "2"
 sql:
   - engine: "postgresql"
     queries: "queries"
-    schema: "../migrations/postgres"
+    schema:
+      - "eventlog_schema.sql"
+      - "../migrations/postgres"
     database:
       uri: "${SQLC_DATABASE_URL}"
     rules:

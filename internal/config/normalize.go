@@ -129,6 +129,15 @@ func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 	if !validAPIKeyPrefix(c.APIKeys.Prefix) {
 		return Config{}, nil, fmt.Errorf("authkit: invalid APIKeyPrefix %q (want lowercase alphanumeric, 1-16 chars, or empty)", c.APIKeys.Prefix)
 	}
+	if c.PersonalAccessTokens.DefaultTTL == 0 {
+		c.PersonalAccessTokens.DefaultTTL = 30 * 24 * time.Hour
+	}
+	if c.PersonalAccessTokens.MaxTTL == 0 {
+		c.PersonalAccessTokens.MaxTTL = 90 * 24 * time.Hour
+	}
+	if c.PersonalAccessTokens.DefaultTTL < time.Second || c.PersonalAccessTokens.MaxTTL < c.PersonalAccessTokens.DefaultTTL {
+		return Config{}, nil, errors.New("authkit: personal token TTLs must be positive and default_ttl must not exceed max_ttl")
+	}
 	if err := normalizeAuthorizationServer(&c.AuthorizationServer, c); err != nil {
 		return Config{}, nil, err
 	}
@@ -142,6 +151,12 @@ func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 	}
 	if c.SessionEventRetention == 0 {
 		c.SessionEventRetention = 365 * 24 * time.Hour
+	}
+	if c.EventRetention == 0 {
+		c.EventRetention = 90 * 24 * time.Hour
+	}
+	if c.EventRetention < time.Second {
+		return Config{}, nil, errors.New("authkit: EventRetention must be at least one second")
 	}
 	if c.Database.RiverSchema, err = NormalizeRiverSchema(c.Database.RiverSchema); err != nil {
 		return Config{}, nil, err
@@ -164,9 +179,6 @@ func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 	}
 	if err := normalizeProvisioning(&c.Provisioning, d, degrade); err != nil {
 		return Config{}, nil, err
-	}
-	if d.OnEvent != nil && d.Postgres == nil {
-		return Config{}, nil, errors.New("authkit: OnEvent requires Deps.Postgres")
 	}
 	if c.HTTP != nil {
 		h := *c.HTTP

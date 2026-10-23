@@ -45,7 +45,7 @@ func (s *Engine) applyDeps(d config.Deps) error {
 		s.degrade(errors.New("authkit: Deps.Email is not set, so email verification, password reset and email codes answer email_unavailable"))
 	}
 	s.entitlements, s.entitlementHolders = d.Entitlements, d.EntitlementHolders
-	s.onEvent, s.onPurge = d.OnEvent, d.OnPurge
+	s.onPurge = d.OnPurge
 	s.oauthGrants = d.OAuthGrants
 	s.nameAdmission = d.NameAdmission
 	s.deletionCheck = d.DeletionCheck

@@ -44,6 +44,7 @@ export type AuthErrorCode =
   | "email_in_use"
   | "email_unavailable"
   | "entitlement_filter_unavailable"
+  | "event_cursor_expired"
   | "external_invites_disabled"
   | "forbidden"
   | "group_conflict"
@@ -216,6 +217,7 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   email_in_use: 400,
   email_unavailable: 503,
   entitlement_filter_unavailable: 400,
+  event_cursor_expired: 410,
   external_invites_disabled: 403,
   forbidden: 403,
   group_conflict: 409,
@@ -389,6 +391,7 @@ export const AUTH_ERROR_MESSAGES = {
   email_in_use: "This email is already in use.",
   email_unavailable: "Email is unavailable right now.",
   entitlement_filter_unavailable: "Entitlement filtering is unavailable.",
+  event_cursor_expired: "This event cursor is no longer retained. Resynchronize from current state.",
   external_invites_disabled: "Invite links are disabled.",
   forbidden: "You don't have permission to do that.",
   group_conflict: "The group id is taken by a deleted group or a group of another persona.",

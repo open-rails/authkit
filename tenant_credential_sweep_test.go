@@ -51,7 +51,7 @@ func TestTenantAuthorityChangesSweepOnlyItsIssuedAppCredentials(t *testing.T) {
 	authtest.GrantRole(t, views[0], tenant, iam.UserSubject(backup.ID), iam.TenantPersona().OwnerRole())
 	require.NoError(t, views[0].RemoveGroupMember(t.Context(), iam.SystemIdentity(), tenant, iam.UserSubject(owners[0].ID)))
 	_, err = shared.ResolveAPIKey(t.Context(), keys[0].Secret)
-	require.ErrorIs(t, err, iam.ErrAPIKeyRevoked, "removing the tenant role must retire descendant credentials")
+	require.NoError(t, err, "removing a creator's tenant role does not retire organization keys")
 	_, err = shared.ResolveAPIKey(t.Context(), keys[1].Secret)
 	require.NoError(t, err, "another tenant's key must survive")
 	role, err := views[1].GroupRole(t.Context(), iam.GroupByID(owners[1].TenantID.String()), iam.TenantPersona().OwnerRole())

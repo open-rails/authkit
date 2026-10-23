@@ -21,9 +21,9 @@ import (
 // API keys (#111): long-lived, revocable bearer credentials owned by a
 // permission group, for machine callers. A key holds one role of its group,
 // declared or custom; its permissions resolve from that role at use time, so
-// editing the role changes every key holding it. Issuance follows rule CRED
-// (credential_issuers.go): the creator is recorded and the key dies with the
-// creator's authority. The system issues keys with no creator.
+// editing the role changes every key holding it. Creation requires current
+// authority; the creator is audit metadata and later departure does not revoke
+// the organization's key. The system issues keys with no creator.
 
 // CreateAPIKey issues a key holding role in ref: CAP(<p>:credentials:manage)
 // plus COVER(role). Only a user or the system issues credentials. The token
@@ -180,8 +180,8 @@ func (s *Engine) RevokeAPIKey(ctx context.Context, a auth.Identity, ref iam.Grou
 
 // ResolveAPIKey authenticates a presented token: the key must exist with a
 // matching secret, be neither revoked nor expired, belong to a live group, and
-// have a live creator (a banned or deleted creator's keys are
-// refused even before any sweep revokes them). Permissions are the role's now.
+// use the organization's current role policy. The creator's status does not
+// change the key's authority.
 // It is verify's API-key resolver.
 func (s *Engine) ResolveAPIKey(ctx context.Context, token string) (iam.ResolvedAPIKey, error) {
 	if err := s.requirePG(); err != nil {
@@ -203,7 +203,7 @@ func (s *Engine) ResolveAPIKey(ctx context.Context, token string) (iam.ResolvedA
 	if !apikey.Matches(k.SecretHash, secret) {
 		return iam.ResolvedAPIKey{}, iam.ErrAPIKeyInvalid
 	}
-	if k.RevokedAt != nil || !k.CreatorLive {
+	if k.RevokedAt != nil {
 		return iam.ResolvedAPIKey{}, iam.ErrAPIKeyRevoked
 	}
 	if k.ExpiresAt != nil && !k.ExpiresAt.After(time.Now().UTC()) {

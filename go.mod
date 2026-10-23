@@ -75,7 +75,7 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2
 	github.com/muhlemmer/gu v0.3.1 // indirect
-	github.com/open-rails/helpers v1.13.0
+	github.com/open-rails/helpers v1.14.2-0.20261023055349-0636028b685e
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/riverqueue/river/riverdriver v0.47.0 // indirect
 	github.com/riverqueue/river/rivershared v0.47.0 // indirect

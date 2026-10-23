@@ -98,6 +98,12 @@ func APIKeyIdentity(apiKeyID string) auth.Identity {
 	return asserted(auth.SubjectApplication, auth.CredentialAPIKey, apiKeyID)
 }
 
+// PersonalAccessTokenIdentity names a stored personal token. Its owner and
+// current authority are resolved from the database on every use.
+func PersonalAccessTokenIdentity(id string) auth.Identity {
+	return asserted(auth.SubjectUser, auth.CredentialPersonalAccessToken, id)
+}
+
 // ApplicationIdentity is your code acting as a registered remote application.
 func ApplicationIdentity(appID string) auth.Identity {
 	return asserted(auth.SubjectApplication, CredentialSystem, appID)
@@ -109,7 +115,7 @@ func asserted(subject auth.SubjectKind, credential auth.CredentialKind, id strin
 		return auth.Identity{}
 	}
 	out := auth.Identity{SubjectKind: subject, Credential: auth.Credential{Kind: credential}}
-	if credential == auth.CredentialAPIKey {
+	if credential == auth.CredentialAPIKey || credential == auth.CredentialPersonalAccessToken {
 		out.Credential.ID = id
 	} else {
 		out.Subject, out.Invoker = id, auth.Invoker{ID: id}
@@ -176,11 +182,18 @@ func (s CredentialState) IsSystem() bool { return s.system }
 // SubjectKind is the kind of account s acts as; "" for the system.
 func (s CredentialState) SubjectKind() auth.SubjectKind { return s.subject }
 
-// ID is the user's or application's id, or the API key's; "" for the system.
+// ID is the user's, application's, API key's or personal token's id; empty for the system.
 func (s CredentialState) ID() string { return s.id }
 
-// IsUser reports whether s acts as a user.
-func (s CredentialState) IsUser() bool { return s.subject == auth.SubjectUser }
+// IsUser reports a native user identity, excluding noninteractive personal tokens.
+func (s CredentialState) IsUser() bool {
+	return s.subject == auth.SubjectUser && !s.IsPersonalAccessToken()
+}
+
+// IsPersonalAccessToken reports a user-owned noninteractive credential.
+func (s CredentialState) IsPersonalAccessToken() bool {
+	return s.credential == auth.CredentialPersonalAccessToken
+}
 
 // IsAPIKey reports whether s is an API key's.
 func (s CredentialState) IsAPIKey() bool { return s.credential == auth.CredentialAPIKey }
@@ -220,6 +233,8 @@ func (s CredentialState) String() string {
 		return "invalid"
 	case s.IsAPIKey():
 		return string(auth.CredentialAPIKey) + ":" + s.id
+	case s.IsPersonalAccessToken():
+		return string(auth.CredentialPersonalAccessToken) + ":" + s.id
 	}
 	return string(s.subject) + ":" + s.id
 }

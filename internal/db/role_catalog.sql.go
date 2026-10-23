@@ -15,21 +15,16 @@ WHERE issuer = ANY($1::text[])
 ORDER BY issuer FOR KEY SHARE
 `
 
-type CredentialSweepFleetsForShareRow struct {
-	Issuer      string
-	RiverSchema string
-}
-
 // The fleets of issuers, key-share locked until the change commits.
-func (q *Queries) CredentialSweepFleetsForShare(ctx context.Context, issuers []string) ([]CredentialSweepFleetsForShareRow, error) {
+func (q *Queries) CredentialSweepFleetsForShare(ctx context.Context, issuers []string) ([]AccountDeliveryFleet, error) {
 	rows, err := q.db.Query(ctx, credentialSweepFleetsForShare, issuers)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []CredentialSweepFleetsForShareRow
+	var items []AccountDeliveryFleet
 	for rows.Next() {
-		var i CredentialSweepFleetsForShareRow
+		var i AccountDeliveryFleet
 		if err := rows.Scan(&i.Issuer, &i.RiverSchema); err != nil {
 			return nil, err
 		}

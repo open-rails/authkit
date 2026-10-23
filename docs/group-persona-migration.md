@@ -46,9 +46,11 @@ and consent identities. Historical account events are not rewritten. One
 `group.persona_migrated` event records a successful transition in its own
 transaction; dry-runs, retries already at the target, and rollbacks emit none.
 A retained
-credential's issuer must still cover its translated role; the migration refuses
+delegated credential's issuer must still cover its translated role; the migration refuses
 instead of silently revoking that credential. Keep the returned report with
 the host's maintenance audit.
+Organization API keys retain their translated group role independently of the
+creator's current grants; the role must still be valid and suitable for a machine.
 
 Signed tokens may carry old permission ceilings. Their claims are never
 rewritten or broadened; refresh or reissue them as indicated by the report.

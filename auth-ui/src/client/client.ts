@@ -26,6 +26,9 @@ import type {
   BackupCodes,
   Capabilities,
   FreshAuth,
+  EventPage,
+  PersonalAccessToken,
+  PersonalAccessTokenCreated,
   ListPage,
   Membership,
   OAuthAuthorizationRequest,
@@ -1548,6 +1551,61 @@ export function createAuthClient(options: AuthClientOptions = {}) {
           limit: input.limit,
         },
       }),
+
+    // The caller owns cursor persistence. This starts no polling or delivery
+    // worker; every call independently rechecks the current permission.
+    listEvents: (
+      input: {
+        after?: string
+        limit?: number
+        kind?: string[]
+        authority?: boolean
+      } = {},
+      signal?: AbortSignal
+    ) =>
+      request<EventPage>("GET", "/events", {
+        signal,
+        query: {
+          after: input.after,
+          limit: input.limit,
+          kind: input.kind?.join(","),
+          authority: input.authority,
+        },
+      }),
+
+    // Optional self-service tokens; these calls never create an interactive
+    // sign-in or enable the feature on the server.
+    listPersonalAccessTokens: (
+      input: { cursor?: string; limit?: number } = {},
+      signal?: AbortSignal
+    ) =>
+      request<ListPage<PersonalAccessToken>>(
+        "GET",
+        "/me/personal-access-tokens",
+        { signal, query: input }
+      ),
+
+    createPersonalAccessToken: (input: {
+      name: string
+      group_id: string
+      permissions: string[]
+      expires_at?: string | null
+    }) =>
+      request<PersonalAccessTokenCreated>(
+        "POST",
+        "/me/personal-access-tokens",
+        {
+          body: {
+            name: input.name,
+            group_id: input.group_id,
+            permissions: input.permissions,
+            expires_at: input.expires_at ?? null,
+          },
+        }
+      ),
+
+    revokePersonalAccessToken: (id: string) =>
+      request<void>("DELETE", `/me/personal-access-tokens/${segment(id)}`),
 
     // Passkeys and device keys.
     listSignInKeys: (signal?: AbortSignal) =>

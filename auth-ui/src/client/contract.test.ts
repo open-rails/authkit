@@ -83,6 +83,15 @@ it("calls only routes AuthKit mounts", async () => {
     () => client.revokeSessions(["s1"]),
     () => client.revokeOtherSessions(),
     () => client.listSessionEvents({ kind: ["session_created"] }),
+    () => client.listEvents({ kind: ["user.registered"], limit: 1 }),
+    () => client.listPersonalAccessTokens({ limit: 5 }),
+    () =>
+      client.createPersonalAccessToken({
+        name: "script",
+        group_id: "g",
+        permissions: ["org:posts:read"],
+      }),
+    () => client.revokePersonalAccessToken("personal-id"),
     () => client.listSignInKeys(),
     () => client.renameSignInKey("k", "laptop"),
     () => client.revokeSignInKey("k"),

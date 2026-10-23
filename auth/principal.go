@@ -27,6 +27,9 @@ const (
 	CredentialDeviceKey CredentialKind = "device_key"
 	// CredentialAPIKey is an API key.
 	CredentialAPIKey CredentialKind = "api_key"
+	// CredentialPersonalAccessToken is a user-owned noninteractive token. It
+	// proves no interactive sign-in or second factor.
+	CredentialPersonalAccessToken CredentialKind = "personal_access_token"
 	// CredentialSignedToken is a token an application signed with its own
 	// registered keys.
 	CredentialSignedToken CredentialKind = "signed_token"

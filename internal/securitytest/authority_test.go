@@ -328,7 +328,7 @@ func TestSecurityDemotedCreatorCredentials(t *testing.T) {
 		require.False(t, liveLink(t, h, group, link.ID))
 	})
 	t.Run("demoted creator's owner API key", func(t *testing.T) {
-		require.False(t, liveKey(t, h, group, key.ID))
+		require.True(t, liveKey(t, h, group, key.ID), "the key belongs to the organization")
 	})
 	t.Run("control: credentials the creator can still issue survive", func(t *testing.T) {
 		require.True(t, liveKey(t, h, group, memberKey.ID))
@@ -560,7 +560,7 @@ func TestSecurityGroupRoleIDsAreCanonical(t *testing.T) {
 	resp := h.do(request{method: http.MethodDelete, path: base + "/members/users/" + strings.ToUpper(manager.id), token: token})
 	require.Less(t, resp.status, 300, resp.String())
 	require.Empty(t, h.roleOf(group, iam.UserSubject(manager.id)), "control: the membership is gone")
-	require.False(t, liveKey(t, h, group, key.ID), "the API key outlived its issuer's membership")
+	require.True(t, liveKey(t, h, group, key.ID), "organization automation survives an administrator's departure")
 	require.False(t, liveLink(t, h, group, link.ID), "the invite link outlived its issuer's membership")
 	require.Empty(t, h.roleOf(group, iam.RemoteApplicationSubject(app.ID)), "the application kept its role")
 

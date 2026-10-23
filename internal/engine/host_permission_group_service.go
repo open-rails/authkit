@@ -52,6 +52,9 @@ func (s *Engine) groupStoreFor(q db.DBTX) *permissionGroupStore {
 	st.emit = func(ctx context.Context, a auth.Identity, events ...iam.Event) error {
 		return s.emitEvents(ctx, q, a, events...)
 	}
+	st.applicationRole = func(ctx context.Context, appID, groupID string) (bool, error) {
+		return s.credentialUseStands(ctx, st, "group_remote_application_roles", appID, groupID)
+	}
 	return st
 }
 
@@ -151,7 +154,7 @@ func (s *Engine) can(ctx context.Context, a auth.Identity, ref iam.GroupRef, per
 	if !direct || state.IsSystem() {
 		return true, nil
 	}
-	if state.IsAPIKey() {
+	if state.IsAPIKey() || state.IsPersonalAccessToken() {
 		return auth.credentialGroup == g.ID, nil
 	}
 	var subject iam.Subject
