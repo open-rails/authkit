@@ -1,5 +1,19 @@
 # Remote client parity
 
+**DESIGN ONLY / DEFERRED — 2026-10-23.** The owner explicitly stopped general
+remote AuthKit implementation. The runtime prototype is preserved on
+`feat/remote-client-parity` for reference, not approved for merging or release.
+The narrow event reader remains separate in PR #445.
+
+Prototype source through `ef69c26c` includes 24 internal methods. The first
+17-method tests passed, but the later group-operation tranche and lossless
+remote-application result have not been compiled or validated. Generated
+contracts currently cover the earlier tranche and must be regenerated if
+runtime implementation is explicitly authorized again. No compiler is running.
+
+Do not treat the source-call matrix or preserved prototype as a requirement
+to implement a general remote client now. The remaining work is design only.
+
 This map starts from `internal/ops/ops.go` and traces HTTP handlers in
 `internal/httpapi/catalog.go`. A route that calls an operation is evidence of a
 possible transport, not proof of equivalent semantics. Handlers may expose only
