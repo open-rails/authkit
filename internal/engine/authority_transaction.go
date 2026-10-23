@@ -400,8 +400,8 @@ func (s *Engine) refuseSubjectOwnerLoss(ctx context.Context, st *permissionGroup
 	return nil
 }
 
-// An invitation is a bounded bearer grant, not the inviter's current authority.
-// Redemption can retain or increase its recipient's role, never strip grants.
+// Redemption first checks the inviter still covers the invitation. It can
+// retain or increase its recipient's role, never strip existing grants.
 func (s *Engine) assignInvitedRole(ctx context.Context, st *permissionGroupStore, gid string, persona iam.Persona, userID string, role iam.Role) error {
 	subject := iam.UserSubject(userID)
 	g := groupTarget{ID: gid, Persona: persona}

@@ -13,8 +13,8 @@ package engine
 //     covers after any authority change, including a changed role catalog at
 //     boot (reconcileRoleCatalog); a change made through one app has every
 //     other account issuer sweep its own (credential_sweeps.go);
-//   - every use re-checks the creator is usable (the usable_users view), so
-//     a banned or deleted creator's credentials fail even where no sweep ran;
+//   - invitation and application use re-check current issuer capability and
+//     role coverage; API-key ownership remains a separate policy;
 //   - a purge deletes the creator's keys and links with the account.
 // An API key or application can present no second factor, so neither ever
 // holds a role that needs one, whoever issued it.

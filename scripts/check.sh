@@ -100,6 +100,7 @@ required = ('TestSecurityAccessTokenForgery', 'TestSecurityBearerTransport', 'Te
             'TestEventLogIndependentReadersFilteringAndScope', 'TestEventLogExpiryPruningAndReset',
             'TestEventLogAppendPayloadMatchesCommittedEvent', 'TestEventLogHTTPRequiresCurrentScopedPermission',
             'TestEventLogMigrationKeepsOneCopyOfPendingDeliveries', 'TestEventLogPrunesBoundedBatches',
+            'TestInvitationsAndApplicationsRejectPeerRevocationBeforeSweep',
             'TestAccountLifecycleTerminalGCIsBoundedAndPreservesPendingWork',
             'TestAccountFleetRebindRequiresQuiescenceAndFencesOldProducer',
             'TestAccountCallbackCanObserveBindingDuringManagedShutdown',

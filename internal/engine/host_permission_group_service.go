@@ -52,6 +52,9 @@ func (s *Engine) groupStoreFor(q db.DBTX) *permissionGroupStore {
 	st.emit = func(ctx context.Context, a auth.Identity, events ...iam.Event) error {
 		return s.emitEvents(ctx, q, a, events...)
 	}
+	st.applicationRole = func(ctx context.Context, appID, groupID string) (bool, error) {
+		return s.credentialUseStands(ctx, st, "group_remote_application_roles", appID, groupID)
+	}
 	return st
 }
 

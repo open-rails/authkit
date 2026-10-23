@@ -103,6 +103,9 @@ func (s *Engine) RedeemInvitation(ctx context.Context, a auth.Identity, code str
 		if link.RevokedAt != nil || !link.IssuerLive {
 			return errmodel.ErrInvitationRevoked
 		}
+		if err := s.requireCredentialUse(ctx, st, "group_invite_links", link.ID, groupID, errmodel.ErrInvitationRevoked); err != nil {
+			return err
+		}
 		if link.ExpiresAt != nil && !link.ExpiresAt.After(time.Now().UTC()) {
 			return errmodel.ErrInvitationExpired
 		}
@@ -158,6 +161,9 @@ func (s *Engine) acceptAccountInvite(ctx context.Context, st *permissionGroupSto
 	out.Role = ident.RoleText(invite.Role)
 	if invite.RevokedAt != nil || !invite.IssuerLive {
 		return errmodel.ErrInvitationRevoked
+	}
+	if err := s.requireCredentialUse(ctx, st, "account_registration_invites", invite.ID, groupID, errmodel.ErrInvitationRevoked); err != nil {
+		return err
 	}
 	if !invite.ExpiresAt.After(time.Now().UTC()) {
 		return errmodel.ErrInvitationExpired

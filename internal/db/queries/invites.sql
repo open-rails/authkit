@@ -60,13 +60,6 @@ INSERT INTO account_registration_invites (email, invited_by, code_hash, expires_
 VALUES (sqlc.arg(email), sqlc.narg(invited_by)::uuid, sqlc.arg(code_hash), sqlc.arg(expires_at), sqlc.narg(group_id)::uuid, sqlc.narg(role)::text, sqlc.arg(catalog_issuer)::text, sqlc.arg(tenant_id)::uuid)
 RETURNING id, created_at;
 
--- AccountInviteValid: code_hash names a live registration invite.
--- name: AccountInviteValid :one
-SELECT EXISTS(
-  SELECT 1 FROM account_registration_invites i
-  WHERE i.tenant_id=NULLIF(sqlc.arg(tenant_id)::text,'')::uuid AND i.code_hash = sqlc.arg(code_hash) AND i.revoked_at IS NULL AND i.consumed_at IS NULL AND i.expires_at > now()
-    AND (i.invited_by IS NULL OR EXISTS(SELECT 1 FROM usable_users WHERE id = i.invited_by)))::boolean;
-
 -- name: AccountInviteGroupLive :one
 SELECT i.permission_group_id FROM account_registration_invites i
 WHERE i.tenant_id=NULLIF(sqlc.arg(tenant_id)::text,'')::uuid AND i.code_hash = sqlc.arg(code_hash) AND i.revoked_at IS NULL AND i.consumed_at IS NULL AND i.expires_at > now()

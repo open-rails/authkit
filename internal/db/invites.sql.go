@@ -212,26 +212,6 @@ func (q *Queries) AccountInviteInsert(ctx context.Context, arg AccountInviteInse
 	return i, err
 }
 
-const accountInviteValid = `-- name: AccountInviteValid :one
-SELECT EXISTS(
-  SELECT 1 FROM account_registration_invites i
-  WHERE i.tenant_id=NULLIF($1::text,'')::uuid AND i.code_hash = $2 AND i.revoked_at IS NULL AND i.consumed_at IS NULL AND i.expires_at > now()
-    AND (i.invited_by IS NULL OR EXISTS(SELECT 1 FROM usable_users WHERE id = i.invited_by)))::boolean
-`
-
-type AccountInviteValidParams struct {
-	TenantID string
-	CodeHash string
-}
-
-// AccountInviteValid: code_hash names a live registration invite.
-func (q *Queries) AccountInviteValid(ctx context.Context, arg AccountInviteValidParams) (bool, error) {
-	row := q.db.QueryRow(ctx, accountInviteValid, arg.TenantID, arg.CodeHash)
-	var column_1 bool
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
 const accountInvitesRevokeInvitedBy = `-- name: AccountInvitesRevokeInvitedBy :exec
 UPDATE account_registration_invites SET revoked_at = now()
 WHERE invited_by = $1::uuid AND revoked_at IS NULL AND consumed_at IS NULL

@@ -51,6 +51,9 @@ type permissionGroupStore struct {
 	// records their events in it. Only Engine.groupStoreFor sets emit.
 	who  auth.Identity
 	emit func(context.Context, auth.Identity, ...iam.Event) error
+	// applicationRole checks the registrar's current authority under this
+	// engine's catalog. Pure database stores leave it nil; engine stores bind it.
+	applicationRole func(context.Context, string, string) (bool, error)
 }
 
 // record records events of the store's identity in its transaction.
@@ -177,6 +180,15 @@ func (st *permissionGroupStore) readAssignmentsForGroups(ctx context.Context, gr
 			var apps []db.GroupApplicationAssignmentsForGroupsRow
 			apps, err = q.GroupApplicationAssignmentsForGroups(ctx, db.GroupApplicationAssignmentsForGroupsParams(arg))
 			for _, r := range apps {
+				if st.applicationRole != nil {
+					ok, err := st.applicationRole(ctx, subject.ID, r.GroupID)
+					if err != nil {
+						return err
+					}
+					if !ok {
+						continue
+					}
+				}
 				rows = append(rows, db.GroupUserAssignmentsForGroupsRow(r))
 			}
 		}
