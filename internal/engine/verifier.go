@@ -136,7 +136,7 @@ func (a *Authenticator) authenticate(ctx context.Context, token string, r *http.
 			return verify.Claims{}, errmodel.E(errmodel.CodeInvalidToken)
 		}
 		if err != nil {
-			return verify.Claims{}, err
+			return verify.Claims{}, errmodel.Internal("verify MFA policy", err)
 		}
 		if required {
 			if a.s.pg == nil {
@@ -147,6 +147,9 @@ func (a *Authenticator) authenticate(ctx context.Context, token string, r *http.
 			}
 			status, err := a.s.mfaStatus(ctx, cl.UserID)
 			if gate := a.s.requireSessionMFAStateWith(ctx, cl.UserID, cl.AMR, status, err); gate != nil {
+				if errmodel.As(gate) == nil {
+					return verify.Claims{}, errmodel.Internal("verify MFA state", gate)
+				}
 				return verify.Claims{}, gate
 			}
 		}

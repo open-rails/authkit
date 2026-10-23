@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Live MFA-policy and enrollment-state database failures remain server errors during request verification. Embedded authenticators report authentication unavailable rather than incorrectly challenging a valid session to sign in again.
 - Recent sign-in checks allow up to five seconds of future `auth_time` for small database/application clock differences. The 15-minute freshness window and second-factor requirements are unchanged (#462).
 - Required MFA accepts UV passkeys/security keys, TOTP, or SMS. Presence-only keys and email do not satisfy privileged policy. Restricted first-passkey enrollment binds the primary proof, account, tenant, RP, nonce, and credential generation; key creation and sign-in commit together.
 - Passkey-only accounts can generate hashed single-use backup codes after strong step-up and recover through an independent primary proof plus a code. Recovery sets are account-scoped and survive individual factor replacement while MFA remains. Migration 0020 removes detached historical sets; removing the final factor/key clears its set, and later enrollment cannot revive it.
