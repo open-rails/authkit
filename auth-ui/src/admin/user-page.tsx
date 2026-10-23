@@ -353,6 +353,7 @@ export function UserPage({
 
       <EditDialog
         user={user}
+        languages={host.languages}
         open={open === "edit"}
         onOpenChange={(o) => !o && setOpen(null)}
         busy={actions.busy}
@@ -693,8 +694,13 @@ type DialogProps = {
 function EditDialog({
   user,
   onSave,
+  languages,
   ...props
-}: DialogProps & { user: UserEntry; onSave: (u: UserUpdate) => void }) {
+}: DialogProps & {
+  user: UserEntry
+  onSave: (u: UserUpdate) => void
+  languages?: readonly string[]
+}) {
   const { t } = useAdminMessages()
   return (
     <Dialog
@@ -708,10 +714,26 @@ function EditDialog({
           </DialogTitle>
           <DialogDescription>{t("users.editDescription")}</DialogDescription>
         </DialogHeader>
-        <EditForm user={user} onSave={onSave} {...props} />
+        <EditForm
+          user={user}
+          onSave={onSave}
+          languages={languages}
+          {...props}
+        />
       </DialogContent>
     </Dialog>
   )
+}
+
+/** The host's tags once each, plus the account's own tag if the host no longer offers it. */
+function languageChoices(offered: readonly string[], current: string) {
+  const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
+  // The account's own spelling stands in for the host's, so it stays selected.
+  const tags = offered.map((tag) =>
+    current && same(tag, current) ? current : tag
+  )
+  if (current && !tags.includes(current)) tags.push(current)
+  return tags.filter((tag, i) => tags.findIndex((t) => same(t, tag)) === i)
 }
 
 // Sends only the fields that changed; an emptied email or phone is removed.
@@ -721,7 +743,12 @@ function EditForm({
   busy,
   error,
   onOpenChange,
-}: DialogProps & { user: UserEntry; onSave: (u: UserUpdate) => void }) {
+  languages,
+}: DialogProps & {
+  user: UserEntry
+  onSave: (u: UserUpdate) => void
+  languages?: readonly string[]
+}) {
   const { t } = useAdminMessages()
   const formId = useId()
   const ids = {
@@ -798,15 +825,30 @@ function EditForm({
         </FormField>
         <FormField
           label={t("users.language")}
-          hint={t("users.languageHint")}
+          hint={languages?.length ? undefined : t("users.languageHint")}
           htmlFor={ids.lang}
         >
-          <Input
-            id={ids.lang}
-            autoComplete="off"
-            value={form.language}
-            onChange={set("language")}
-          />
+          {languages?.length ? (
+            <Select
+              id={ids.lang}
+              value={form.language}
+              onChange={set("language")}
+            >
+              <option value="">{t("users.languageNone")}</option>
+              {languageChoices(languages, form.language).map((tag) => (
+                <option key={tag} value={tag}>
+                  {languageName(tag)}
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <Input
+              id={ids.lang}
+              autoComplete="off"
+              value={form.language}
+              onChange={set("language")}
+            />
+          )}
         </FormField>
         <FormField
           label={t("users.mfaRequired")}

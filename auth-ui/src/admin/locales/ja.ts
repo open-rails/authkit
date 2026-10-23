@@ -284,6 +284,7 @@ export const ja: AdminMessageTree = {
     phoneHint: "国番号付きで、例：+81312345678。",
     language: "言語",
     languageHint: "言語タグ、例：ja や pt-BR。",
+    languageNone: "言語なし",
     mfaRequired: "二要素認証を必須にする",
     mfaRequiredHint:
       "次回のログインまたは認証が必要な操作で設定を完了する必要があります。オフにしても、ロールやサイトの他の要件は適用されます。",

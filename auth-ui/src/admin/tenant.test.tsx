@@ -407,6 +407,73 @@ it("shows sign-in methods, end reasons, devices and the language in words", asyn
   expect(within(history).getByText("Email sign-in code")).toBeInTheDocument()
 })
 
+it("offers the host's languages by name in the profile editor", async () => {
+  window.history.replaceState(null, "", "/users/account-id")
+  const { auth, authFetch } = host(allPermissions, [
+    "root:users:read",
+    "root:users:manage",
+  ])
+  render(
+    <UsersAdmin
+      auth={auth}
+      tenantId={TENANT_A}
+      basePath="/users"
+      languages={["ja", "de"]}
+    />
+  )
+  const actions = userEvent.setup()
+  await actions.click(
+    await screen.findByRole("button", { name: "Edit profile" })
+  )
+  const language = await screen.findByRole("combobox", { name: "Language" })
+  // The account's "en" stays selectable beside the host's languages.
+  expect(
+    within(language)
+      .getAllByRole("option")
+      .map((o) => o.textContent)
+  ).toEqual(["No language", "Japanese", "German", "English"])
+  expect(language).toHaveValue("en")
+  await actions.selectOptions(language, "ja")
+  await actions.click(screen.getByRole("button", { name: "Save" }))
+  await waitFor(() =>
+    expect(
+      authFetch.mock.calls.some(
+        ([input, init]) =>
+          init?.method === "PATCH" &&
+          String(input).endsWith("/admin/users/account-id") &&
+          JSON.parse(String(init.body)).preferred_language === "ja"
+      )
+    ).toBe(true)
+  )
+})
+
+it("keeps the account's own spelling of a host language once", async () => {
+  window.history.replaceState(null, "", "/users/account-id")
+  const { auth } = host(allPermissions, [
+    "root:users:read",
+    "root:users:manage",
+  ])
+  render(
+    <UsersAdmin
+      auth={auth}
+      tenantId={TENANT_A}
+      basePath="/users"
+      languages={["EN", "de", "de"]}
+    />
+  )
+  const actions = userEvent.setup()
+  await actions.click(
+    await screen.findByRole("button", { name: "Edit profile" })
+  )
+  const language = await screen.findByRole("combobox", { name: "Language" })
+  expect(
+    within(language)
+      .getAllByRole("option")
+      .map((o) => o.getAttribute("value"))
+  ).toEqual(["", "en", "de"])
+  expect(language).toHaveValue("en")
+})
+
 it("edits only the tenant role and never presents the account's root role", async () => {
   window.history.replaceState(null, "", "/users/account-id")
   const { auth, authFetch } = host()

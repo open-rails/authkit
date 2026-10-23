@@ -38,6 +38,9 @@ import {
   type UserPanels,
 } from "./users-lib.ts"
 
+// On a phone the directory keeps the account and its status; dates are on its page.
+const DESKTOP = "hidden sm:table-cell"
+
 export interface UsersAdminProps extends AdminProps {
   /** Canonical tenant group for a matching ForTenant handler at baseUrl.
    * The source authentication session is unchanged. Omit for root/default. */
@@ -48,11 +51,13 @@ export interface UsersAdminProps extends AdminProps {
   confirmWarnings?: ConfirmWarnings
   /** Entitlements the directory filters by; needs AuthKit's `Deps.EntitlementHolders`. */
   entitlements?: readonly string[]
+  /** Language tags, in the canonical form AuthKit stores, the profile editor offers by name; omit for a free-text tag. */
+  languages?: readonly string[]
 }
 
 export type Host = Pick<
   UsersAdminProps,
-  "userPanels" | "confirmWarnings" | "entitlements"
+  "userPanels" | "confirmWarnings" | "entitlements" | "languages"
 >
 
 /**
@@ -66,11 +71,12 @@ export function UsersAdmin({
   userPanels,
   confirmWarnings,
   entitlements,
+  languages,
   ...props
 }: UsersAdminProps) {
   return (
     <AdminRoot {...props}>
-      <Users host={{ userPanels, confirmWarnings, entitlements }} />
+      <Users host={{ userPanels, confirmWarnings, entitlements, languages }} />
     </AdminRoot>
   )
 }
@@ -342,18 +348,18 @@ function UserTable({ users, status }: { users: UserEntry[]; status: string }) {
           <Th>{t("users.status")}</Th>
           {status === "banned" ? (
             <>
-              <Th>{t("users.until")}</Th>
-              <Th>{t("users.reason")}</Th>
+              <Th className={DESKTOP}>{t("users.until")}</Th>
+              <Th className={DESKTOP}>{t("users.reason")}</Th>
             </>
           ) : status === "deleted" ? (
             <>
-              <Th>{t("users.deletedAt")}</Th>
-              <Th>{t("users.restorableUntil")}</Th>
+              <Th className={DESKTOP}>{t("users.deletedAt")}</Th>
+              <Th className={DESKTOP}>{t("users.restorableUntil")}</Th>
             </>
           ) : (
             <>
-              <Th>{t("users.joined")}</Th>
-              <Th>{t("users.lastLogin")}</Th>
+              <Th className={DESKTOP}>{t("users.joined")}</Th>
+              <Th className={DESKTOP}>{t("users.lastLogin")}</Th>
             </>
           )}
         </tr>
@@ -383,24 +389,31 @@ function UserTable({ users, status }: { users: UserEntry[]; status: string }) {
             </Td>
             {status === "banned" ? (
               <>
-                <Td className="whitespace-nowrap">
+                <Td className={`whitespace-nowrap ${DESKTOP}`}>
                   {u.ban?.until ? dateTime(u.ban.until) : t("users.permanent")}
                 </Td>
-                <Td className="max-w-80 truncate" title={u.ban?.reason ?? ""}>
+                <Td
+                  className={`max-w-80 truncate ${DESKTOP}`}
+                  title={u.ban?.reason ?? ""}
+                >
                   {u.ban?.reason || "—"}
                 </Td>
               </>
             ) : status === "deleted" ? (
               <>
-                <Td className="whitespace-nowrap">{dateTime(u.deleted_at)}</Td>
-                <Td className="whitespace-nowrap">
+                <Td className={`whitespace-nowrap ${DESKTOP}`}>
+                  {dateTime(u.deleted_at)}
+                </Td>
+                <Td className={`whitespace-nowrap ${DESKTOP}`}>
                   {u.deleted_at ? dateTime(restorableUntil(u.deleted_at)) : ""}
                 </Td>
               </>
             ) : (
               <>
-                <Td className="whitespace-nowrap">{dateTime(u.created_at)}</Td>
-                <Td className="whitespace-nowrap">
+                <Td className={`whitespace-nowrap ${DESKTOP}`}>
+                  {dateTime(u.created_at)}
+                </Td>
+                <Td className={`whitespace-nowrap ${DESKTOP}`}>
                   {dateTime(u.last_login) || t("common.never")}
                 </Td>
               </>
