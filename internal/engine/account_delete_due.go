@@ -109,7 +109,7 @@ func (s *Engine) scheduleAccountCleanup(ctx context.Context, issuer string) erro
 	jobs := pgx.Identifier{s.cfg.Database.RiverSchema, "river_job"}.Sanitize()
 	if err := tx.QueryRow(ctx, `SELECT EXISTS (
 		SELECT 1 FROM `+jobs+`
-		WHERE kind='authkit_account_delete_due' AND args->>'schema'=$1 AND args->>'issuer'=$2
+		WHERE kind='authkit_account_delete_due' AND args->>'schema'=$1 AND args->>'issuer'=$2 AND state <> 'cancelled'
 		AND (state IN ('available','pending','running','retryable','scheduled')
 			OR greatest(created_at,attempted_at) > statement_timestamp() - $3 * interval '1 second'))`,
 		s.dbSchema(), issuer, accountCleanupInterval.Seconds()).Scan(&recent); err != nil {

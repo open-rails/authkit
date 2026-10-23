@@ -379,4 +379,11 @@ func TestAccountDeletionStartupGateSerializesReplicas(t *testing.T) {
 	require.NoError(t, pg.Pool.QueryRow(t.Context(), `SELECT count(*) FROM public.river_job
 		WHERE kind='authkit_account_delete_due' AND args->>'issuer'=$1`, e.cfg.Token.Issuer).Scan(&count))
 	require.Equal(t, 1, count, "replicas must share one due-check-and-insert decision")
+	_, err = pg.Pool.Exec(t.Context(), `UPDATE public.river_job SET state='cancelled',finalized_at=statement_timestamp()
+		WHERE kind='authkit_account_delete_due' AND args->>'issuer'=$1`, e.cfg.Token.Issuer)
+	require.NoError(t, err)
+	require.NoError(t, e.scheduleAccountCleanup(t.Context(), e.cfg.Token.Issuer))
+	require.NoError(t, pg.Pool.QueryRow(t.Context(), `SELECT count(*) FROM public.river_job
+		WHERE kind='authkit_account_delete_due' AND args->>'issuer'=$1 AND state='available'`, e.cfg.Token.Issuer).Scan(&count))
+	require.Equal(t, 1, count, "cancelling a queued scan must not postpone the next due check")
 }
