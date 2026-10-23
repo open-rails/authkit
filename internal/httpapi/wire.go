@@ -286,14 +286,15 @@ type SolanaAccount struct {
 // match into the page's total, at the price of a count.
 type UserListQuery struct {
 	PageQuery
-	Search      string `query:"search"`
-	RootRole    string `query:"root_role"`
-	TenantRole  string `query:"tenant_role"`
-	Status      string `query:"status"`
-	Sort        string `query:"sort"`
-	Order       string `query:"order"`
-	Entitlement string `query:"entitlement"`
-	Total       bool   `query:"total"`
+	WithEntitlements *bool  `query:"with_entitlements"`
+	Search           string `query:"search"`
+	RootRole         string `query:"root_role"`
+	TenantRole       string `query:"tenant_role"`
+	Status           string `query:"status"`
+	Sort             string `query:"sort"`
+	Order            string `query:"order"`
+	Entitlement      string `query:"entitlement"`
+	Total            bool   `query:"total"`
 }
 
 // BanRequest is the ban to put in force; a null until bans indefinitely.

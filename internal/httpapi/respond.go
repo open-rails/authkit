@@ -22,7 +22,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 // decodeQuery reads the query string into dst, a pointer to a struct whose
 // `query` tags name the parameters: a string takes the value, a bool true or
-// false (false when absent), a *int the integer (nil when absent), a []string
+// false (false when absent), *bool and *int keep nil when absent, and []string
 // every value. Embedded structs contribute their fields. A malformed bool or
 // integer is 400 invalid_request on its param.
 func decodeQuery(r *http.Request, dst any) error {
@@ -53,6 +53,15 @@ func decodeQuery(r *http.Request, dst any) error {
 				default:
 					return errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam(name))
 				}
+			case *bool:
+				if value == "" {
+					continue
+				}
+				if value != "true" && value != "false" {
+					return errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam(name))
+				}
+				flag := value == "true"
+				field.Set(reflect.ValueOf(&flag))
 			case *int:
 				if value == "" {
 					continue

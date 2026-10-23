@@ -36,7 +36,7 @@ func (s *Service) userQuery(r *http.Request) (iam.UserQuery, error) {
 		Total:       q.Total,
 		Page:        page,
 		// The admin views show every account's entitlements.
-		WithEntitlements: true,
+		WithEntitlements: q.WithEntitlements == nil || *q.WithEntitlements,
 	}
 	if text := q.RootRole; text != "" {
 		role, err := s.groupRole(iam.RootPersona(), text)

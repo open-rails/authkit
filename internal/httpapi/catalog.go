@@ -72,10 +72,12 @@ type Reply struct {
 // that mounts it, gates it and documents it. Paths are prefix-neutral, with
 // ServeMux wildcards.
 type RouteSpec struct {
-	Method  string
-	Path    string
-	Surface Surface
-	Group   iam.RouteGroup
+	// ExpectedActor requires the authenticated-actor precondition on an operation route.
+	ExpectedActor bool
+	Method        string
+	Path          string
+	Surface       Surface
+	Group         iam.RouteGroup
 	// Auth is the tier the route enforces before its handler runs.
 	Auth iam.RouteAuthTier
 	// Perm is the permission the route requires; `<persona>` stands for the
@@ -144,7 +146,7 @@ func Catalog() []RouteSpec {
 	scimGroup := iam.RouteSCIM
 	signedIn := replyOK(AuthResult{})
 	usersRead := ident.RootUsersRead.String()
-	return []RouteSpec{
+	routes := []RouteSpec{
 		{Method: GET, Path: iam.JWKSPath, Surface: SurfaceBase, Group: auth, Auth: public, Bucket: RLJWKSRead,
 			Responses: replyOK(keys.JWKS{}), serve: func(s *Service) http.Handler { return s.JWKSHandler() }},
 
@@ -544,6 +546,20 @@ func Catalog() []RouteSpec {
 		{Method: POST, Path: "/directory/scim/v2/Bulk", Surface: SurfaceSCIM, Group: scimGroup, Auth: public, Bucket: RLSCIMWrite, MountedWhen: FeatureRemoteApplications,
 			Request: scim.BulkRequest{}, Responses: replyOK(scim.BulkResponse{}), serve: scimDirectory(true, (*Service).handleDirectoryBulk)},
 	}
+	// Constrained mutations use a distinct route namespace. An older server
+	// cannot silently ignore the actor precondition and execute the mutation.
+	for _, route := range routes {
+		if route.Method == http.MethodGet {
+			continue
+		}
+		switch route.Path {
+		case "/groups/{group_id}/oauth-clients", "/groups/{group_id}/oauth-clients/{client_id}", "/groups/{group_id}/oauth-clients/{client_id}/secret":
+			route.Path = "/operations" + route.Path
+			route.ExpectedActor = true
+			routes = append(routes, route)
+		}
+	}
+	return routes
 }
 
 // oauthRedirectReply: the browser endpoints answer 303 See Other.

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/actorconstraint"
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/httpapi"
@@ -258,6 +259,11 @@ func (c *contract) operation(r httpapi.RouteSpec) *obj {
 			p.set("explode", true)
 		}
 		params = append(params, p)
+	}
+	if r.ExpectedActor {
+		params = append(params, newObj("name", actorconstraint.Header, "in", "header", "required", true,
+			"description", "Base64url JSON expected actor. It must match the independently authenticated subject, tenant, invoker and credential; it grants no authority.",
+			"schema", newObj("type", "string")))
 	}
 	if len(params) > 0 {
 		op.set("parameters", params)

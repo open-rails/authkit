@@ -28,6 +28,9 @@ func (s *Service) APIRoutes(groups ...iam.RouteGroup) []RouteSpec {
 		if route.StepUp {
 			h = s.requireRecentSignIn(h)
 		}
+		if route.ExpectedActor {
+			h = requireExpectedActor(h)
+		}
 		return s.rateLimitedRoute(route.Bucket, s.authenticate(route.Auth, h))
 	})
 }

@@ -11,81 +11,81 @@ transport, error, scope and authorization tests; engine lifecycle stays local.
 
 | Native operation | Existing HTTP call paths | Status |
 |---|---|---|
-| `ListEvents` | `GET /events` | Implemented event reader |
-| `User` | `POST /token`<br>`POST /password/login`<br>`POST /2fa/verify`<br>`POST /device-verification/confirm`<br>`POST /passwordless/confirm`<br>`POST /passkeys/login/finish`<br>`POST /solana/login`<br>`POST /device-keys/enroll/finish`<br>`POST /device-keys/login/finish`<br>`POST /register`<br>`POST /verify/confirm`<br>`POST /me/step-up/password`<br>`POST /me/step-up/2fa`<br>`POST /me/step-up/code`<br>`POST /me/step-up/solana`<br>`POST /me/step-up/passkey`<br>`POST /me/passkeys/enroll/finish`<br>`POST /me/2fa/factors`<br>`GET /{provider}/callback`<br>`POST /{provider}/callback` | Mapping and parity test required |
-| `Users` | — | No direct catalog path; inspect projection/native semantics |
+| `ListEvents` | `GET /events` | Internal transport implemented; real HTTP tests |
+| `User` | `POST /token`<br>`POST /password/login`<br>`POST /2fa/verify`<br>`POST /device-verification/confirm`<br>`POST /passwordless/confirm`<br>`POST /passkeys/login/finish`<br>`POST /solana/login`<br>`POST /device-keys/enroll/finish`<br>`POST /device-keys/login/finish`<br>`POST /register`<br>`POST /verify/confirm`<br>`POST /me/step-up/password`<br>`POST /me/step-up/2fa`<br>`POST /me/step-up/code`<br>`POST /me/step-up/solana`<br>`POST /me/step-up/passkey`<br>`POST /me/passkeys/enroll/finish`<br>`POST /me/2fa/factors`<br>`GET /{provider}/callback`<br>`POST /{provider}/callback` | By-ID admin route returns UserEntry; email/phone/username reference mapping still missing |
+| `Users` | — | No sensitive bulk-user route; public users are not equivalent |
 | `PublicUsers` | `GET /users` | Mapping and parity test required |
-| `ListUsers` | `GET /admin/users` | Mapping and parity test required |
-| `UserAgreements` | `GET /me/agreements`<br>`POST /me/agreements` | Mapping and parity test required |
-| `AgreementsDue` | `POST /token`<br>`POST /password/login`<br>`POST /2fa/verify`<br>`POST /device-verification/confirm`<br>`POST /passwordless/confirm`<br>`POST /passkeys/login/finish`<br>`POST /solana/login`<br>`POST /device-keys/enroll/finish`<br>`POST /device-keys/login/finish`<br>`POST /register`<br>`POST /verify/confirm`<br>`GET /me/agreements`<br>`POST /me/agreements`<br>`POST /me/step-up/password`<br>`POST /me/step-up/2fa`<br>`POST /me/step-up/code`<br>`POST /me/step-up/solana`<br>`POST /me/step-up/passkey`<br>`POST /me/passkeys/enroll/finish`<br>`POST /me/2fa/factors`<br>`GET /{provider}/callback`<br>`POST /{provider}/callback` | Mapping and parity test required |
+| `ListUsers` | `GET /admin/users` | Internal transport implemented; real HTTP tests |
+| `UserAgreements` | `GET /me/agreements`<br>`POST /me/agreements` | Existing endpoint is self-only; arbitrary target ownership mapping missing |
+| `AgreementsDue` | `POST /token`<br>`POST /password/login`<br>`POST /2fa/verify`<br>`POST /device-verification/confirm`<br>`POST /passwordless/confirm`<br>`POST /passkeys/login/finish`<br>`POST /solana/login`<br>`POST /device-keys/enroll/finish`<br>`POST /device-keys/login/finish`<br>`POST /register`<br>`POST /verify/confirm`<br>`GET /me/agreements`<br>`POST /me/agreements`<br>`POST /me/step-up/password`<br>`POST /me/step-up/2fa`<br>`POST /me/step-up/code`<br>`POST /me/step-up/solana`<br>`POST /me/step-up/passkey`<br>`POST /me/passkeys/enroll/finish`<br>`POST /me/2fa/factors`<br>`GET /{provider}/callback`<br>`POST /{provider}/callback` | Internal sign-in response calls and self-only view are not arbitrary-target reads |
 | `AcceptAgreements` | — | No direct catalog path; inspect projection/native semantics |
-| `OAuthConsents` | `GET /me/oauth-consents` | Mapping and parity test required |
+| `OAuthConsents` | `GET /me/oauth-consents` | Self-only route; arbitrary native target needs explicit contract |
 | `RevokeConsent` | — | No direct catalog path; inspect projection/native semantics |
 | `CreateGroupOAuthClient` | `POST /groups/{group_id}/oauth-clients` | Mapping and parity test required |
-| `GroupOAuthClients` | `GET /groups/{group_id}/oauth-clients` | Mapping and parity test required |
-| `GroupOAuthClient` | `GET /groups/{group_id}/oauth-clients/{client_id}` | Mapping and parity test required |
+| `GroupOAuthClients` | `GET /groups/{group_id}/oauth-clients` | Internal transport implemented; real HTTP tests |
+| `GroupOAuthClient` | `GET /groups/{group_id}/oauth-clients/{client_id}` | Internal transport implemented; real HTTP tests |
 | `UpdateGroupOAuthClient` | `PATCH /groups/{group_id}/oauth-clients/{client_id}` | Mapping and parity test required |
 | `RotateGroupOAuthClientSecret` | `POST /groups/{group_id}/oauth-clients/{client_id}/secret` | Mapping and parity test required |
 | `DeleteGroupOAuthClient` | `DELETE /groups/{group_id}/oauth-clients/{client_id}` | Mapping and parity test required |
 | `ResolveUsername` | `GET /users` | Mapping and parity test required |
 | `CheckUsername` | `GET /usernames/availability` | Mapping and parity test required |
-| `GenerateUsername` | `GET /usernames/generate` | Mapping and parity test required |
-| `DeviceKeys` | `GET /me/sign-in-keys` | Mapping and parity test required |
-| `CreateUser` | — | No direct catalog path; inspect projection/native semantics |
-| `UpdateUser` | `PATCH /me`<br>`PATCH /admin/users/{user_id}` | Mapping and parity test required |
+| `GenerateUsername` | `GET /usernames/generate` | Internal transport implemented; real HTTP tests |
+| `DeviceKeys` | `GET /me/sign-in-keys` | Self-only sign-in-key projection differs from native DeviceKey list |
+| `CreateUser` | — | Public registration is not trusted native account creation |
+| `UpdateUser` | `PATCH /me`<br>`PATCH /admin/users/{user_id}` | Admin wire omits native password/hash and verified-contact flags |
 | `PatchPublicMetadata` | — | No direct catalog path; inspect projection/native semantics |
 | `Ban` | `PUT /admin/users/{user_id}/ban` | Mapping and parity test required |
 | `Unban` | `DELETE /admin/users/{user_id}/ban` | Mapping and parity test required |
-| `DeleteUsers` | `DELETE /me`<br>`DELETE /admin/users/{user_id}` | Mapping and parity test required |
-| `RestoreUsers` | `POST /admin/users/{user_id}/restore` | Mapping and parity test required |
+| `DeleteUsers` | `DELETE /me`<br>`DELETE /admin/users/{user_id}` | HTTP is one target and rejects self; native bulk result mapping needs review |
+| `RestoreUsers` | `POST /admin/users/{user_id}/restore` | HTTP is one target; native bulk result mapping needs review |
 | `PurgeUsers` | — | No direct catalog path; inspect projection/native semantics |
 | `ResetAccountMFA` | — | No direct catalog path; inspect projection/native semantics |
-| `Sessions` | `GET /me/sessions`<br>`GET /admin/users/{user_id}/sessions` | Mapping and parity test required |
-| `ListSessionEvents` | `GET /me/session-events`<br>`GET /admin/users/{user_id}/session-events` | Mapping and parity test required |
+| `Sessions` | `GET /me/sessions`<br>`GET /admin/users/{user_id}/sessions` | Internal transport implemented; real HTTP tests |
+| `ListSessionEvents` | `GET /me/session-events`<br>`GET /admin/users/{user_id}/session-events` | Internal transport implemented; real HTTP tests |
 | `RevokeSession` | — | No direct catalog path; inspect projection/native semantics |
-| `RevokeAccountSessions` | `DELETE /admin/users/{user_id}/sessions` | Mapping and parity test required |
+| `RevokeAccountSessions` | `DELETE /admin/users/{user_id}/sessions` | HTTP returns204; native method returns issuer/count report |
 | `MintAccessToken` | — | No direct catalog path; inspect projection/native semantics |
 | `CheckSession` | — | No direct catalog path; inspect projection/native semantics |
 | `CheckRecentSignIn` | `POST /me/2fa/setup`<br>`POST /me/2fa/factors` | Mapping and parity test required |
-| `Group` | `GET /me/permissions`<br>`POST /invitations/redeem` | Mapping and parity test required |
+| `Group` | `GET /me/permissions`<br>`POST /invitations/redeem` | Only internal group-gate calls; no group-detail result endpoint |
 | `Groups` | — | No direct catalog path; inspect projection/native semantics |
 | `ListGroups` | — | No direct catalog path; inspect projection/native semantics |
 | `ListGroupMembers` | `GET /groups/{group_id}/members` | Mapping and parity test required |
-| `ListMemberships` | `GET /me/groups` | Mapping and parity test required |
-| `GroupRoles` | `GET /me/permissions` | Mapping and parity test required |
+| `ListMemberships` | `GET /me/groups` | Existing endpoint is self-only; native subject can differ |
+| `GroupRoles` | `GET /me/permissions` | Self permission projection is not arbitrary subject-role map |
 | `CreateGroup` | — | No direct catalog path; inspect projection/native semantics |
 | `DeleteGroup` | — | No direct catalog path; inspect projection/native semantics |
 | `PurgeGroup` | — | No direct catalog path; inspect projection/native semantics |
-| `SetGroupRole` | `PUT /groups/{group_id}/members/{kind}/{id}` | Mapping and parity test required |
-| `RemoveGroupMember` | `DELETE /groups/{group_id}/members/{kind}/{id}` | Mapping and parity test required |
-| `Can` | `GET /events` | Mapping and parity test required |
-| `CanDirect` | `GET /me/permissions` | Mapping and parity test required |
-| `EffectivePermissions` | `GET /me/permissions` | Mapping and parity test required |
+| `SetGroupRole` | `PUT /groups/{group_id}/members/{kind}/{id}` | HTTP path currently supports user subjects only; native also supports applications |
+| `RemoveGroupMember` | `DELETE /groups/{group_id}/members/{kind}/{id}` | HTTP path currently supports user subjects only; native also supports applications |
+| `Can` | `GET /events` | Internal authorization calls are not an authorization-query endpoint |
+| `CanDirect` | `GET /me/permissions` | Self permissions do not expose arbitrary actor direct-grant checks |
+| `EffectivePermissions` | `GET /me/permissions` | Self-only projection; arbitrary actor/group-list contract missing |
 | `KnownPermission` | — | No direct catalog path; inspect projection/native semantics |
 | `Persona` | — | No direct catalog path; inspect projection/native semantics |
 | `Permission` | — | No direct catalog path; inspect projection/native semantics |
-| `Role` | `GET /admin/users`<br>`GET /groups/{group_id}/members`<br>`PUT /groups/{group_id}/members/{kind}/{id}`<br>`POST /groups/{group_id}/invitations`<br>`POST /groups/{group_id}/api-keys` | Mapping and parity test required |
+| `Role` | `GET /admin/users`<br>`GET /groups/{group_id}/members`<br>`PUT /groups/{group_id}/members/{kind}/{id}`<br>`POST /groups/{group_id}/invitations`<br>`POST /groups/{group_id}/api-keys` | Internal parsing only; remote declared-catalog lookup missing |
 | `RolePermissions` | — | No direct catalog path; inspect projection/native semantics |
-| `ListGroupRoles` | `GET /groups/{group_id}/roles` | Mapping and parity test required |
-| `GroupRole` | `GET /groups/{group_id}/roles/{role}` | Mapping and parity test required |
+| `ListGroupRoles` | `GET /groups/{group_id}/roles` | Internal transport implemented; real HTTP tests |
+| `GroupRole` | `GET /groups/{group_id}/roles/{role}` | Internal transport implemented; real HTTP tests |
 | `CreateGroupRole` | `POST /groups/{group_id}/roles` | Mapping and parity test required |
 | `UpdateGroupRole` | `PATCH /groups/{group_id}/roles/{role}` | Mapping and parity test required |
 | `DeleteGroupRole` | `DELETE /groups/{group_id}/roles/{role}` | Mapping and parity test required |
 | `CreateAPIKey` | `POST /groups/{group_id}/api-keys` | Mapping and parity test required |
-| `ListAPIKeys` | `GET /groups/{group_id}/api-keys` | Mapping and parity test required |
-| `RevokeAPIKey` | `DELETE /groups/{group_id}/api-keys/{id}` | Mapping and parity test required |
+| `ListAPIKeys` | `GET /groups/{group_id}/api-keys` | Internal transport implemented; real HTTP tests |
+| `RevokeAPIKey` | `DELETE /groups/{group_id}/api-keys/{id}` | HTTP intentionally hides not-found; native error identity differs |
 | `ResolveAPIKey` | — | No direct catalog path; inspect projection/native semantics |
 | `CreatePersonalAccessToken` | `POST /me/personal-access-tokens` | Mapping and parity test required |
 | `ListPersonalAccessTokens` | `GET /me/personal-access-tokens` | Mapping and parity test required |
 | `RevokePersonalAccessToken` | `DELETE /me/personal-access-tokens/{id}` | Mapping and parity test required |
 | `ResolvePersonalAccessToken` | — | No direct catalog path; inspect projection/native semantics |
-| `CreateInvitation` | `POST /groups/{group_id}/invitations` | Mapping and parity test required |
-| `ListInvitations` | `GET /groups/{group_id}/invitations` | Mapping and parity test required |
-| `RevokeInvitation` | `DELETE /groups/{group_id}/invitations/{id}` | Mapping and parity test required |
+| `CreateInvitation` | `POST /groups/{group_id}/invitations` | Email mode returns202 without native creation result; link mode differs |
+| `ListInvitations` | `GET /groups/{group_id}/invitations` | Internal transport implemented; real HTTP tests |
+| `RevokeInvitation` | `DELETE /groups/{group_id}/invitations/{id}` | HTTP intentionally hides not-found; native error identity differs |
 | `UpsertRemoteApplication` | `POST /groups/{group_id}/remote-applications`<br>`PATCH /groups/{group_id}/remote-applications/{id}` | Mapping and parity test required |
 | `DeleteRemoteApplication` | `DELETE /groups/{group_id}/remote-applications/{id}` | Mapping and parity test required |
 | `RemoteApplication` | `POST /groups/{group_id}/remote-applications`<br>`PATCH /groups/{group_id}/remote-applications/{id}` | Mapping and parity test required |
-| `ListRemoteApplications` | `GET /groups/{group_id}/remote-applications` | Mapping and parity test required |
+| `ListRemoteApplications` | `GET /groups/{group_id}/remote-applications` | Internal transport implemented; real HTTP tests |
 | `DeclareRemoteApplications` | — | No direct catalog path; inspect projection/native semantics |
 | `RemoteUserRoles` | — | No direct catalog path; inspect projection/native semantics |
 | `RemoveRemoteUserRole` | — | No direct catalog path; inspect projection/native semantics |
@@ -94,7 +94,7 @@ transport, error, scope and authorization tests; engine lifecycle stays local.
 | `ImportUsers` | — | No direct catalog path; inspect projection/native semantics |
 | `ImportSolanaLinks` | — | No direct catalog path; inspect projection/native semantics |
 | `LinkProvider` | — | No direct catalog path; inspect projection/native semantics |
-| `ProvisioningTargets` | `GET /admin/provisioning/targets` | Mapping and parity test required |
+| `ProvisioningTargets` | `GET /admin/provisioning/targets` | Internal transport implemented; real HTTP tests |
 
 ## Implementation boundary
 
@@ -104,3 +104,23 @@ server. Native `InTx` cannot cross HTTP. Tenant selection must use the host’s
 actual tenant dispatch contract, never a cursor or a new client-invented header.
 A missing route requires a separately reviewed server endpoint or an explicit
 local-only classification before a general remote constructor is exposed.
+
+## Actor-bearing mutations
+
+The remote OAuth-client mutation adapter sends `AuthKit-Expected-Actor` as a
+post-authentication precondition on distinct `/operations/groups/...` routes.
+Older servers return 404 instead of silently ignoring the constraint and
+executing a mutation. The header is mandatory on these new routes; ordinary
+existing routes remain unchanged. Its subject, issuer, tenant, invoker and
+credential identity must exactly match the identity independently verified by
+the server. A mismatch is 403. Credential state, roles and contact metadata are
+never transferred as authority. Credentials must represent the expected actor;
+there is no automatic service-account impersonation or delegation. Existing
+permission, MFA and recent-sign-in gates still run on the actual credential.
+Native operation options are refused until explicitly mapped; a local
+transaction cannot cross HTTP.
+
+The directory adapter passes `with_entitlements` explicitly. Omitting that
+HTTP parameter retains the admin UI's existing behavior (include entitlements),
+while a native query requesting no enrichment causes no provider work through
+either transport.
