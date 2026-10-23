@@ -23,7 +23,8 @@ concurrency:
 
 jobs:
   workflows:
-    runs-on: ubuntu-latest
+    # Playwright cannot install Chromium on ubuntu-26.04 yet.
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:18-alpine
