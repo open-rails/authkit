@@ -10,29 +10,6 @@ import (
 	"time"
 )
 
-const eventLogAdvanceScope = `-- name: EventLogAdvanceScope :exec
-UPDATE event_log_scopes SET position=$1 WHERE scope=$2
-`
-
-type EventLogAdvanceScopeParams struct {
-	Position int64
-	Scope    string
-}
-
-func (q *Queries) EventLogAdvanceScope(ctx context.Context, arg EventLogAdvanceScopeParams) error {
-	_, err := q.db.Exec(ctx, eventLogAdvanceScope, arg.Position, arg.Scope)
-	return err
-}
-
-const eventLogCreateScope = `-- name: EventLogCreateScope :exec
-INSERT INTO event_log_scopes(scope) VALUES($1) ON CONFLICT DO NOTHING
-`
-
-func (q *Queries) EventLogCreateScope(ctx context.Context, scope string) error {
-	_, err := q.db.Exec(ctx, eventLogCreateScope, scope)
-	return err
-}
-
 const eventLogDueScopes = `-- name: EventLogDueScopes :many
 SELECT scope FROM event_log_scopes s
 WHERE EXISTS (SELECT 1 FROM event_log e WHERE e.scope=s.scope AND e.recorded_at<$1)
@@ -57,31 +34,6 @@ func (q *Queries) EventLogDueScopes(ctx context.Context, cutoff time.Time) ([]st
 		return nil, err
 	}
 	return items, nil
-}
-
-const eventLogInsert = `-- name: EventLogInsert :exec
-INSERT INTO event_log(scope, position, event_id, kind, recorded_at, payload)
-VALUES($1, $2, $3::uuid,
-       $4, clock_timestamp(), $5::jsonb)
-`
-
-type EventLogInsertParams struct {
-	Scope    string
-	Position int64
-	EventID  string
-	Kind     string
-	Payload  []byte
-}
-
-func (q *Queries) EventLogInsert(ctx context.Context, arg EventLogInsertParams) error {
-	_, err := q.db.Exec(ctx, eventLogInsert,
-		arg.Scope,
-		arg.Position,
-		arg.EventID,
-		arg.Kind,
-		arg.Payload,
-	)
-	return err
 }
 
 const eventLogItems = `-- name: EventLogItems :many
@@ -140,22 +92,6 @@ func (q *Queries) EventLogItems(ctx context.Context, arg EventLogItemsParams) ([
 	return items, nil
 }
 
-const eventLogLockScope = `-- name: EventLogLockScope :one
-SELECT position, retained_after FROM event_log_scopes WHERE scope=$1 FOR UPDATE
-`
-
-type EventLogLockScopeRow struct {
-	Position      int64
-	RetainedAfter int64
-}
-
-func (q *Queries) EventLogLockScope(ctx context.Context, scope string) (EventLogLockScopeRow, error) {
-	row := q.db.QueryRow(ctx, eventLogLockScope, scope)
-	var i EventLogLockScopeRow
-	err := row.Scan(&i.Position, &i.RetainedAfter)
-	return i, err
-}
-
 const eventLogPosition = `-- name: EventLogPosition :one
 SELECT event_id FROM event_log WHERE scope=$1 AND position=$2
 `
@@ -170,33 +106,6 @@ func (q *Queries) EventLogPosition(ctx context.Context, arg EventLogPositionPara
 	var event_id string
 	err := row.Scan(&event_id)
 	return event_id, err
-}
-
-const eventLogPrune = `-- name: EventLogPrune :one
-WITH chosen AS (
-    SELECT position FROM event_log WHERE scope=$1
-      AND position<coalesce((SELECT min(position) FROM event_log WHERE scope=$1
-                            AND recorded_at>=$2), 9223372036854775807)
-      AND recorded_at<$2
-    ORDER BY position LIMIT 5000
-), removed AS (
-    DELETE FROM event_log WHERE scope=$1 AND position IN (SELECT position FROM chosen)
-    RETURNING position
-)
-UPDATE event_log_scopes SET retained_after=greatest(retained_after, coalesce((SELECT max(position) FROM removed), 0))
-WHERE scope=$1 RETURNING retained_after
-`
-
-type EventLogPruneParams struct {
-	Scope  *string
-	Cutoff *time.Time
-}
-
-func (q *Queries) EventLogPrune(ctx context.Context, arg EventLogPruneParams) (int64, error) {
-	row := q.db.QueryRow(ctx, eventLogPrune, arg.Scope, arg.Cutoff)
-	var retained_after int64
-	err := row.Scan(&retained_after)
-	return retained_after, err
 }
 
 const eventLogSnapshot = `-- name: EventLogSnapshot :one

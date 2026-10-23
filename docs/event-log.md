@@ -109,12 +109,11 @@ writer storage and must be coordinated across the fleet; rolling back the binary
 alone does not restore the retired writer tables.
 
 The remote constructor is deliberately an event reader, not a general remote
-`*Client`. Full public-client transport parity is still open: the route catalog
-has HTTP request/response shapes but no operation-to-route mapping, and domain
-methods include trusted actor, transaction options, tenant dispatch and native
-operations without an equivalent authorized HTTP route. Completing that facade
-requires explicit mappings and authorization/error parity tests for each supported
-operation. No general remote client with silent unsupported methods is provided.
+`*Client`. General client transport readiness is design-only for future work,
+tracked in [AuthKit #468](https://github.com/open-rails/tracker/blob/master/authkit/future/468-remote-client-transport-parity.md).
+The current task adds no general remote operation facade or new operation routes.
+Future work must map actor/tenant semantics to credential-authorized requests and
+preserve domain errors without exposing trusted host functions implicitly.
 
 `iam.Event.Type` is the discriminator for new code. `Kind` remains a compatible
 alias: JSON reads accept either spelling, writes emit both with the same value,

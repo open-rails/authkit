@@ -92,7 +92,7 @@ BEGIN
 END
 $epoch$;
 ALTER TABLE eventlog_streams ALTER COLUMN epoch SET DEFAULT event_log_default_epoch();
-CREATE UNIQUE INDEX eventlog_authkit_event_identity ON eventlog_events(id) WHERE source='authkit';
+CREATE UNIQUE INDEX eventlog_authkit_event_identity ON eventlog_events((id::uuid)) WHERE source='authkit';
 CREATE INDEX eventlog_authkit_retention ON eventlog_events(recorded_at,scope,position) WHERE source='authkit';
 
 INSERT INTO eventlog_streams(source,scope,epoch,position,head_id,pruned_through,pruned_id,recorded_at)

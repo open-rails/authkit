@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/cursor"
@@ -41,6 +42,10 @@ func (s *Engine) appendEventLog(ctx context.Context, tx pgx.Tx, events []iam.Eve
 		if e.Kind == "" {
 			e.Kind = e.Type
 		}
+		id, err := uuid.Parse(e.ID)
+		if err != nil {
+			return fmt.Errorf("authkit: invalid event ID: %w", err)
+		}
 		payload, err := json.Marshal(e)
 		if err != nil {
 			return err
@@ -49,7 +54,7 @@ func (s *Engine) appendEventLog(ctx context.Context, tx pgx.Tx, events []iam.Eve
 		if err != nil {
 			return err
 		}
-		if err = store.AppendTx(ctx, tx, eventlog.Event{ID: e.ID, Source: "authkit", Type: string(e.Kind), Version: e.Version, OccurredAt: e.OccurredAt, Subject: eventlog.Subject{Type: string(e.SubjectKind), ID: e.SubjectID}, Data: payload}); err != nil {
+		if err = store.AppendTx(ctx, tx, eventlog.Event{ID: id.String(), Source: "authkit", Type: string(e.Kind), Version: e.Version, OccurredAt: e.OccurredAt, Subject: eventlog.Subject{Type: string(e.SubjectKind), ID: e.SubjectID}, Data: payload}); err != nil {
 			return err
 		}
 	}

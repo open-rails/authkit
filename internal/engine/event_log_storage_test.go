@@ -28,6 +28,10 @@ func TestEventLogSharedSchemaIsCanonical(t *testing.T) {
 	want, err := sharedpg.MigrationSQL("__authkit_eventlog_schema__", 1)
 	require.NoError(t, err)
 	require.Equal(t, want, got)
+	catalog, err := os.ReadFile("../db/eventlog_schema.sql")
+	require.NoError(t, err)
+	expectedCatalog := "-- Generated SQLC catalog only. Runtime installs this engine in migration0025.\n" + strings.ReplaceAll(want, `"__authkit_eventlog_schema__".`, "")
+	require.Equal(t, expectedCatalog, string(catalog), "SQLC catalog must remain verbatim shared engine schema")
 }
 
 func TestEventLogSharedStorageMigrationPreservesHistory(t *testing.T) {
@@ -49,6 +53,10 @@ func TestEventLogSharedStorageMigrationPreservesHistory(t *testing.T) {
 	var epoch string
 	require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT epoch::text FROM event_log_instance`).Scan(&epoch))
 	scope := testdb.DefaultTenantID.String()
+	_, err = pg.Pool.Exec(ctx, `INSERT INTO tenants(id) VALUES($1);`, scope)
+	require.NoError(t, err)
+	_, err = pg.Pool.Exec(ctx, `INSERT INTO permission_groups(id,persona,tenant_id) VALUES($1,'tenant',$1)`, scope)
+	require.NoError(t, err)
 	floorID := uuid.NewString()
 	_, err = pg.Pool.Exec(ctx, `INSERT INTO event_log_scopes(scope,position,retained_after) VALUES($1,4,1)`, scope)
 	require.NoError(t, err)
@@ -93,6 +101,9 @@ func TestEventLogSharedStorageMigrationPreservesHistory(t *testing.T) {
 	authorityPage, err := e.ListEvents(ctx, iam.EventQuery{Authority: true, After: emptyAuthority})
 	require.NoError(t, err)
 	require.Equal(t, []string{authority.ID}, eventIDs(authorityPage.Events))
+	var streamEpoch string
+	require.NoError(t, e.pg.QueryRow(ctx, `SELECT epoch FROM eventlog_streams WHERE source='authkit' AND scope='authority'`).Scan(&streamEpoch))
+	require.Equal(t, epoch, streamEpoch, "new scope uses retained singleton epoch, not a new random one")
 }
 
 func TestEventLogOppositeScopeAppendCalls(t *testing.T) {
@@ -118,4 +129,29 @@ func TestEventLogOppositeScopeAppendCalls(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, page.Events, 2)
 	}
+}
+
+func TestEventLogSharedStorageCustomSchemaAndGlobalIdentity(t *testing.T) {
+	pg := testdb.ScratchPostgres(t)
+	cfg := maintenanceConfig()
+	cfg.Database.Schema = "alternate_events"
+	e := newTestEngine(t, cfg, config.Deps{Postgres: pg.Pool})
+	tx, err := e.pg.Begin(t.Context())
+	require.NoError(t, err)
+	defer tx.Rollback(t.Context())
+	one := eventLogTestEvent(testdb.DefaultTenantID, iam.EventUserRegistered)
+	duplicate := one
+	duplicate.ID = strings.ToUpper(one.ID)
+	duplicate.TenantID = iam.TenantID{}
+	require.NoError(t, e.appendEventLog(t.Context(), tx, []iam.Event{one, duplicate}))
+	require.Error(t, tx.Commit(t.Context()), "legacy global event identity must not be weakened to per-scope uniqueness")
+	var count int
+	require.NoError(t, e.pg.QueryRow(t.Context(), `SELECT count(*) FROM alternate_events.eventlog_events`).Scan(&count))
+	require.Zero(t, count)
+	appendTestEvents(t, e, one)
+	got, err := e.ListEvents(t.Context(), iam.EventQuery{})
+	require.NoError(t, err)
+	require.Equal(t, []string{one.ID}, eventIDs(got.Events))
+	require.NoError(t, e.pg.QueryRow(t.Context(), `SELECT count(*) FROM profiles.eventlog_events`).Scan(&count))
+	require.Zero(t, count, "alternate schema writes never leak into default schema")
 }
