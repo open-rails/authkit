@@ -120,8 +120,8 @@ github.com/muhlemmer/httpforwarded v0.1.0 h1:x4DLrzXdliq8mprgUMR0olDvHGkou5BJsK/
 github.com/muhlemmer/httpforwarded v0.1.0/go.mod h1:yo9czKedo2pdZhoXe+yDkGVbU0TJ0q9oQ90BVoDEtw0=
 github.com/nyaruka/phonenumbers v1.8.1 h1:2K9YMQuv1dCGqjjzB1DwmdCe89khT4KPBQb2CxAMMlU=
 github.com/nyaruka/phonenumbers v1.8.1/go.mod h1:fsKPJ70O9JetEA4ggnJadYTFWwtGPvu/lETTXNXq6Cs=
-github.com/open-rails/helpers v1.16.0 h1:ZHiys6hCCLTQPyQOcjOmSNzThnT2zWLt9fxabjFAoL0=
-github.com/open-rails/helpers v1.16.0/go.mod h1:Olub8akvlMMb6wxdVX15+9sTETLvNnyyJytioFxj83o=
+github.com/open-rails/helpers v1.16.1 h1:Cz8zD1dOPSIjZHY4aOMPNgPC5eKR+DqzdQR5b4D+LtQ=
+github.com/open-rails/helpers v1.16.1/go.mod h1:Olub8akvlMMb6wxdVX15+9sTETLvNnyyJytioFxj83o=
 github.com/open-rails/migratekit v1.11.0 h1:kcpTyoiqDNUVDHc0lnBQ/q6USpjYRpi95tV1PiAGS5c=
 github.com/open-rails/migratekit v1.11.0/go.mod h1:ONDMUycRcwAB+eKlPvho6mnNAZf9gf9+yqwCKDRuO9g=
 github.com/pelletier/go-toml/v2 v2.2.4 h1:mye9XuhQ6gvn5h28+VilKrrPoQVanw5PMw/TB0t5Ec4=
