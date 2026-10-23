@@ -66,7 +66,7 @@ before migrating every participating fleet; migration refuses active legacy
 workers. `Deps.OnEvent` is removed: migrate hosts to `ListEvents` before adopting
 this version.
 
-Required `OnPurge` cleanup is separate. Each issuer's daily/startup sweep runs
+Required `OnPurge` cleanup is separate. Each issuer's daily sweep (or overdue startup catch-up) runs
 its required cleanup before hard deletion, while the subsequent `user.purged`
 event describes what committed. Reading the log never satisfies or delays
 that cleanup.

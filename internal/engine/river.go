@@ -175,15 +175,15 @@ func (s *Engine) registerRiver(cfg *river.Config) error {
 	if _, ok := cfg.Queues[sweepQueue]; !ok {
 		cfg.Queues[sweepQueue] = river.QueueConfig{MaxWorkers: 1}
 	}
-	cfg.PeriodicJobs = append(cfg.PeriodicJobs, river.NewPeriodicJob(
-		river.PeriodicInterval(24*time.Hour),
+	cfg.PeriodicJobs = append(cfg.PeriodicJobs, riverhelpers.NewPeriodicJob(
+		cfg, accountCleanupInterval,
 		func() (river.JobArgs, *river.InsertOpts) {
 			return accountDeleteDueArgs{Schema: s.dbSchema()}, nil
 		}, &river.PeriodicJobOpts{ID: "authkit_account_delete_due_" + s.dbSchema(), RunOnStart: true},
 	))
 	interval := s.cfg.CleanupInterval
-	cfg.PeriodicJobs = append(cfg.PeriodicJobs, river.NewPeriodicJob(
-		river.PeriodicInterval(interval),
+	cfg.PeriodicJobs = append(cfg.PeriodicJobs, riverhelpers.NewPeriodicJob(
+		cfg, interval,
 		func() (river.JobArgs, *river.InsertOpts) {
 			return cleanupAuthStateArgs{Schema: s.dbSchema()}, &river.InsertOpts{
 				Queue:      queue,
@@ -232,8 +232,8 @@ func (s *Engine) Start(ctx context.Context, fleet *river.Client[pgx.Tx]) error {
 	if err := s.pruneProvisioningTargets(ctx); err != nil {
 		return fmt.Errorf("authkit: provisioning targets: %w", err)
 	}
-	// A non-leader still needs its startup catch-up, even when another issuer
-	// already owns periodic scheduling in this shared River schema.
+	// A non-leader still catches up when its own daily scan is overdue, even
+	// when another issuer owns periodic scheduling in this shared River schema.
 	if err := s.scheduleAccountCleanup(ctx, s.cfg.Token.Issuer); err != nil {
 		return fmt.Errorf("authkit: schedule account cleanup: %w", err)
 	}

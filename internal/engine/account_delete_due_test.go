@@ -302,10 +302,11 @@ func TestAccountDeletionTimerMigrationKeepsLifecycleAndOtherFleets(t *testing.T)
 	require.True(t, siblingRetained, "each fleet is migrated explicitly; this pass must not touch another River schema")
 }
 
-// A completed daily job must not prevent RunOnStart from catching up after a
-// restart on the same day. Unfinished scans still coalesce into one job.
-func TestAccountDeletionDailyRestartCatchesUp(t *testing.T) {
+// Restarts preserve an issuer's daily deadline, while explicit purge requests
+// can still queue work immediately. Unfinished scans coalesce into one job.
+func TestAccountDeletionDailyRestartOnlyCatchesUpWhenDue(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
+	issuer := maintenanceConfig().Token.Issuer
 	start := func() *Engine {
 		t.Helper()
 		e, err := New(t.Context(), maintenanceConfig(), config.Deps{Postgres: pg.Pool})
@@ -314,20 +315,33 @@ func TestAccountDeletionDailyRestartCatchesUp(t *testing.T) {
 		require.NoError(t, e.Start(t.Context(), nil))
 		return e
 	}
-	awaitCompleted := func(want int) {
+	awaitCompletedAfter := func(after int64) int64 {
 		t.Helper()
+		var id int64
 		require.Eventually(t, func() bool {
-			var count int
-			err := pg.Pool.QueryRow(t.Context(), `SELECT count(*) FROM public.river_job WHERE kind='authkit_account_delete_due' AND state='completed'`).Scan(&count)
-			return err == nil && count >= want
+			err := pg.Pool.QueryRow(t.Context(), `SELECT coalesce(max(id),0) FROM public.river_job
+				WHERE kind='authkit_account_delete_due' AND args->>'issuer'=$1 AND state='completed' AND id>$2`, issuer, after).Scan(&id)
+			return err == nil && id > after
 		}, 10*time.Second, 25*time.Millisecond)
+		return id
 	}
 	first := start()
-	awaitCompleted(1)
+	firstID := awaitCompletedAfter(0)
 	require.NoError(t, first.Close(t.Context()))
 	second := start()
-	awaitCompleted(2)
 	require.NoError(t, second.Close(t.Context()))
+	var recent int
+	require.NoError(t, pg.Pool.QueryRow(t.Context(), `SELECT count(*) FROM public.river_job
+		WHERE kind='authkit_account_delete_due' AND args->>'issuer'=$1 AND id>$2`, issuer, firstID).Scan(&recent))
+	require.Zero(t, recent, "restarting inside the daily interval must not queue another issuer scan")
+	_, err := pg.Pool.Exec(t.Context(), `UPDATE public.river_job
+		SET created_at=statement_timestamp()-interval '25 hours', attempted_at=statement_timestamp()-interval '25 hours',
+		finalized_at=statement_timestamp()-interval '25 hours'
+		WHERE kind='authkit_account_delete_due' AND args->>'issuer'=$1`, issuer)
+	require.NoError(t, err)
+	third := start()
+	awaitCompletedAfter(firstID)
+	require.NoError(t, third.Close(t.Context()))
 
 	producer, err := river.NewClient(riverpgxv5.New(pg.Pool), &river.Config{Schema: "public"})
 	require.NoError(t, err)
@@ -343,4 +357,26 @@ func TestAccountDeletionDailyRestartCatchesUp(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, one.Job.ID, three.Job.ID, "one issuer cannot suppress another issuer's sweep")
 	require.NotEqual(t, one.Job.Queue, three.Job.Queue, "one issuer's worker cannot claim another issuer's cleanup")
+}
+
+func TestAccountDeletionStartupGateSerializesReplicas(t *testing.T) {
+	pg := testdb.ScratchPostgres(t)
+	e, err := New(t.Context(), maintenanceConfig(), config.Deps{Postgres: pg.Pool})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = e.Close(context.Background()) })
+	const replicas = 12
+	errors := make(chan error, replicas)
+	var wg sync.WaitGroup
+	for range replicas {
+		wg.Go(func() { errors <- e.scheduleAccountCleanup(t.Context(), e.cfg.Token.Issuer) })
+	}
+	wg.Wait()
+	close(errors)
+	for err := range errors {
+		require.NoError(t, err)
+	}
+	var count int
+	require.NoError(t, pg.Pool.QueryRow(t.Context(), `SELECT count(*) FROM public.river_job
+		WHERE kind='authkit_account_delete_due' AND args->>'issuer'=$1`, e.cfg.Token.Issuer).Scan(&count))
+	require.Equal(t, 1, count, "replicas must share one due-check-and-insert decision")
 }

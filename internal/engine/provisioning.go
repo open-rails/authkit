@@ -32,6 +32,7 @@ import (
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/scim"
+	riverhelpers "github.com/open-rails/helpers/river"
 )
 
 const (
@@ -225,8 +226,8 @@ func (s *Engine) registerProvisioning(cfg *river.Config) error {
 	for _, t := range s.cfg.Provisioning.Targets {
 		args := provisioningArgs{Schema: s.dbSchema(), Issuer: s.cfg.Token.Issuer, Target: t.Name}
 		digest := sha256.Sum256([]byte(args.Schema + "\x00" + args.Issuer + "\x00" + args.Target))
-		cfg.PeriodicJobs = append(cfg.PeriodicJobs, river.NewPeriodicJob(
-			river.PeriodicInterval(s.cfg.Provisioning.Interval),
+		cfg.PeriodicJobs = append(cfg.PeriodicJobs, riverhelpers.NewPeriodicJob(
+			cfg, s.cfg.Provisioning.Interval,
 			func() (river.JobArgs, *river.InsertOpts) {
 				return args, &river.InsertOpts{Queue: queue, UniqueOpts: unique}
 			}, &river.PeriodicJobOpts{ID: "authkit_provisioning_" + hex.EncodeToString(digest[:16]), RunOnStart: true},

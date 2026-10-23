@@ -14,6 +14,8 @@ import (
 	"github.com/riverqueue/river/rivertype"
 )
 
+const accountCleanupInterval = 24 * time.Hour
+
 // Account deletion deadlines live in account_deletions, not in one future
 // River row per account. Each issuer's daily job catches up after downtime too.
 type accountDeleteDueArgs struct {
@@ -35,7 +37,7 @@ func (a accountDeleteDueArgs) InsertOpts() river.InsertOpts {
 	}
 	return river.InsertOpts{
 		Queue: queue,
-		// A completed run must never suppress a restart's catch-up scan.
+		// Explicit hard-purge requests can follow a recent completed scan.
 		UniqueOpts: river.UniqueOpts{ByArgs: true, ByQueue: true, ByState: []rivertype.JobState{
 			rivertype.JobStateAvailable, rivertype.JobStatePending, rivertype.JobStateRunning,
 			rivertype.JobStateRetryable, rivertype.JobStateScheduled,
@@ -91,7 +93,35 @@ func (s *Engine) scheduleAccountCleanups(ctx context.Context) error {
 }
 
 func (s *Engine) scheduleAccountCleanup(ctx context.Context, issuer string) error {
-	return s.insertAccountCleanup(ctx, nil, s.maintenance.producer, issuer)
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	// Startup runs on every replica, including followers. Serialize this
+	// issuer's due check and insert so concurrent starts cannot create work
+	// between another replica's completed check and insert.
+	key := "authkit.account-cleanup." + s.cfg.Database.RiverSchema + "." + s.dbSchema() + "." + issuer
+	if err := db.New(tx).AdvisoryXactLock(ctx, key); err != nil {
+		return err
+	}
+	var recent bool
+	jobs := pgx.Identifier{s.cfg.Database.RiverSchema, "river_job"}.Sanitize()
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1 FROM `+jobs+`
+		WHERE kind='authkit_account_delete_due' AND args->>'schema'=$1 AND args->>'issuer'=$2
+		AND (state IN ('available','pending','running','retryable','scheduled')
+			OR greatest(created_at,attempted_at) > statement_timestamp() - $3 * interval '1 second'))`,
+		s.dbSchema(), issuer, accountCleanupInterval.Seconds()).Scan(&recent); err != nil {
+		return err
+	}
+	if recent {
+		return nil
+	}
+	if err := s.insertAccountCleanup(ctx, tx, s.maintenance.producer, issuer); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Engine) insertAccountCleanup(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], issuer string) error {
