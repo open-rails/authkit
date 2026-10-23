@@ -187,3 +187,25 @@ func (s *Service) groupRemoteApp(w http.ResponseWriter, r *http.Request, g iam.G
 	}
 	return app, true
 }
+
+// NativeRemoteApplication is the lossless operation result, separate from the browser summary.
+type NativeRemoteApplication iam.RemoteApplication
+
+// groupRemoteAppsNativeList retains the native public-key and grant fields;
+// the browser list above keeps its established presentation projection.
+func (s *Service) groupRemoteAppsNativeList(w http.ResponseWriter, r *http.Request, g iam.Group) {
+	p, ok := readPage(w, r)
+	if !ok {
+		return
+	}
+	page, err := s.svc.ListRemoteApplications(r.Context(), iam.GroupByID(g.ID), p)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	out := iam.ListPage[NativeRemoteApplication]{Items: make([]NativeRemoteApplication, 0, len(page.Items)), Next: page.Next, Total: page.Total}
+	for _, app := range page.Items {
+		out.Items = append(out.Items, NativeRemoteApplication(app))
+	}
+	list(w, out)
+}

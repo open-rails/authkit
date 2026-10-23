@@ -169,7 +169,7 @@ func (c *Client) ListRemoteApplications(ctx context.Context, ref iam.GroupRef, p
 	if err != nil {
 		return out, err
 	}
-	err = c.get(ctx, path+"/remote-applications", pageQuery(p), &out)
+	err = c.get(ctx, "/operations"+path+"/remote-applications", pageQuery(p), &out)
 	return out, err
 }
 func (c *Client) ProvisioningTargets(ctx context.Context) ([]iam.ProvisioningTarget, error) {
@@ -183,4 +183,25 @@ func (c *Client) GenerateUsername(ctx context.Context) (string, error) {
 	}
 	err := c.get(ctx, "/usernames/generate", nil, &out)
 	return out.Username, err
+}
+
+func (c *Client) ListGroupMembers(ctx context.Context, ref iam.GroupRef, q iam.MemberQuery) (iam.ListPage[iam.GroupMember], error) {
+	var out iam.ListPage[iam.GroupMember]
+	path, err := groupPath(ref)
+	if err != nil {
+		return out, err
+	}
+	v := pageQuery(q.Page)
+	v.Set("live_only", strconv.FormatBool(q.LiveOnly))
+	if q.WithUsers {
+		v.Add("expand", "user")
+	}
+	for _, kind := range q.Kinds {
+		v.Add("kind", string(kind))
+	}
+	for _, role := range q.Roles {
+		v.Add("role", role.String())
+	}
+	err = c.get(ctx, path+"/members", v, &out)
+	return out, err
 }

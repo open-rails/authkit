@@ -94,7 +94,7 @@ func (s *Service) groupMembersList(w http.ResponseWriter, r *http.Request, g iam
 		writeError(w, err)
 		return
 	}
-	q := iam.MemberQuery{Page: page}
+	q := iam.MemberQuery{Page: page, LiveOnly: query.LiveOnly}
 	for _, e := range query.Expand {
 		if e != "user" {
 			fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("expand"))

@@ -16,6 +16,7 @@ import (
 	"github.com/open-rails/authkit/internal/remote"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/internal/wireform"
+	"github.com/open-rails/authkit/keys"
 	"github.com/stretchr/testify/require"
 )
 
@@ -71,6 +72,9 @@ func TestRemoteDomainReadsUseRealAuthorization(t *testing.T) {
 	token := authtest.SignIn(t, native, user).AccessToken
 	_ = authtest.SignIn(t, native, target)
 	oauth, err := native.CreateGroupOAuthClient(t.Context(), iam.SystemIdentity(), iam.RootGroup(), iam.NewOAuthClient{ClientName: "Remote parity", RedirectURIs: []string{"https://example.test/callback"}, TokenEndpointAuthMethod: iam.OAuthClientSecretBasic, Scope: "openid"})
+	require.NoError(t, err)
+	jwk := keys.PublicJWK(testKeys().Active.Public(), "remote-parity", "")
+	_, err = native.UpsertRemoteApplication(t.Context(), iam.SystemIdentity(), iam.RootGroup(), iam.RemoteApplication{Issuer: "https://remote-parity.example.test", Enabled: true, PublicKeys: []iam.RemoteApplicationKey{{JWK: &jwk}}, RoleMap: map[string]iam.Role{"reader": readRole}})
 	require.NoError(t, err)
 	server := httptest.NewServer(native.Handler())
 	t.Cleanup(server.Close)
@@ -132,6 +136,15 @@ func TestRemoteDomainReadsUseRealAuthorization(t *testing.T) {
 		require.NoError(t, err)
 		assertWireEqual(t, want, got)
 	})
+	t.Run("members", func(t *testing.T) {
+		q := iam.MemberQuery{WithUsers: true, LiveOnly: true, Roles: []iam.Role{readRole}, Page: iam.PageRequest{Limit: 1}}
+		want, err := native.ListGroupMembers(t.Context(), iam.RootGroup(), q)
+		require.NoError(t, err)
+		got, err := transport.ListGroupMembers(t.Context(), iam.RootGroup(), q)
+		require.NoError(t, err)
+		assertWireEqual(t, want, got)
+		require.NotEmpty(t, got.Items)
+	})
 	t.Run("roles", func(t *testing.T) {
 		want, err := native.ListGroupRoles(t.Context(), iam.RootGroup())
 		require.NoError(t, err)
@@ -166,6 +179,9 @@ func TestRemoteDomainReadsUseRealAuthorization(t *testing.T) {
 		require.NoError(t, err)
 		got, err := transport.ListRemoteApplications(t.Context(), iam.RootGroup(), iam.PageRequest{})
 		require.NoError(t, err)
+		require.Len(t, got.Items, 1)
+		require.NotNil(t, got.Items[0].PublicKeys[0].JWK)
+		require.NotEmpty(t, got.Items[0].RoleMap)
 		assertWireEqual(t, want, got)
 	})
 	t.Run("provisioning", func(t *testing.T) {

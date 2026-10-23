@@ -18,9 +18,10 @@ import (
 	"github.com/open-rails/authkit/internal/actorconstraint"
 )
 
-// ErrActorProtocolUnsupported means the authority has no constrained-mutation
-// endpoint. The client never retries an unconstrained endpoint.
-var ErrActorProtocolUnsupported = errors.New("authkit: authority does not support expected-actor operations")
+// ErrOperationProtocolUnsupported means the authority has no matching operation
+// endpoint (an older server or disabled feature). The client never retries
+// a lossy or unconstrained endpoint.
+var ErrOperationProtocolUnsupported = errors.New("authkit: authority does not support this operation protocol")
 
 type Config struct {
 	BaseURL    string
@@ -81,10 +82,10 @@ func (c *Client) request(ctx context.Context, method, path string, query url.Val
 	}
 	defer resp.Body.Close()
 	if err := iam.DecodeError(resp); err != nil {
-		if who != nil && resp.StatusCode == http.StatusNotFound {
+		if strings.HasPrefix(path, "/operations/") && resp.StatusCode == http.StatusNotFound {
 			detail, ok := iam.AsError(err)
 			if !ok || detail.Code() == "" || detail.Code() == "not_found" {
-				return fmt.Errorf("%w: %w", ErrActorProtocolUnsupported, err)
+				return fmt.Errorf("%w: %w", ErrOperationProtocolUnsupported, err)
 			}
 		}
 		return err

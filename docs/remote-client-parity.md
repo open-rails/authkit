@@ -124,3 +124,29 @@ The directory adapter passes `with_entitlements` explicitly. Omitting that
 HTTP parameter retains the admin UI's existing behavior (include entitlements),
 while a native query requesting no enrichment causes no provider work through
 either transport.
+
+## Group-operation tranche
+
+The next tranche adds ListGroupMembers (including LiveOnly), custom-role
+create/update/delete, API-key create/revoke and remote-application deletion.
+API-key revocation uses a distinct native-result operation so a missing key
+retains its native error; the existing browser route remains idempotent.
+Remote-application listing uses a lossless authenticated operation result,
+because the browser projection omits JWK, role-map and permission fields.
+Nonempty fixtures cover these differences before qualification.
+
+## Host-extension boundary awaiting owner decision
+
+The disputed operations are `ApplyBootstrapManifest`, `EnsureUserRole`,
+`ImportUsers`, `ImportSolanaLinks`, `LinkProvider`, `DeclareRemoteApplications`,
+`MintAccessToken`, `ResolveAPIKey`, `ResolvePersonalAccessToken`, `CheckSession`
+and `CheckRecentSignIn`. They accept trusted host assertions, import/issuance
+capabilities, raw credentials or verified claims rather than an ordinary
+actor-bound domain request. No new remote privilege is invented for them here.
+
+`CreateUser` verified-contact flags and `UpdateUser` password-hash/verified-contact
+fields also require an explicit capability boundary; the existing admin wire
+does not expose them. Ordinary account/group administration is not automatically
+classified as local-only. The pending decision is whether the domain facade has
+explicit local host extensions or these capabilities get separately authorized
+remote endpoints. The final public remote facade must have no unsupported stubs.

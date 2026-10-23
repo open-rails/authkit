@@ -435,6 +435,10 @@ func Catalog() []RouteSpec {
 			Responses: replyNoContent, serve: groupOp(OpAPIKeyRevoke)},
 		// A backend's signing keys for RFC 7523 assertions (its customer
 		// tokens): a JWKS URL or static keys, each with a kid.
+		{Method: GET, Path: "/operations/groups/{group_id}/remote-applications", Group: groups, Auth: permission, Perm: OpRemoteAppsNativeList.catalogPermission(), Bucket: RLGroupRead, MountedWhen: FeatureRemoteApplications,
+			Query: PageQuery{}, Responses: replyOK(iam.ListPage[NativeRemoteApplication]{}), serve: groupOp(OpRemoteAppsNativeList)},
+		{Method: DELETE, Path: "/operations/groups/{group_id}/api-keys/{id}", ExpectedActor: true, Group: groups, Auth: permission, Perm: OpAPIKeyNativeRevoke.catalogPermission(), Bucket: RLGroupWrite, MountedWhen: FeatureAPIKeys,
+			Responses: replyNoContent, serve: groupOp(OpAPIKeyNativeRevoke)},
 		{Method: GET, Path: "/groups/{group_id}/remote-applications", Group: groups, Auth: permission, Perm: OpRemoteAppsList.catalogPermission(), Bucket: RLGroupRead, MountedWhen: FeatureRemoteApplications,
 			Query: PageQuery{}, Responses: replyOK(iam.ListPage[RemoteApplication]{}), serve: groupOp(OpRemoteAppsList)},
 		{Method: POST, Path: "/groups/{group_id}/remote-applications", Group: groups, Auth: permission, Perm: OpRemoteAppCreate.catalogPermission(), Bucket: RLGroupWrite, MountedWhen: FeatureRemoteApplications,
@@ -553,7 +557,11 @@ func Catalog() []RouteSpec {
 			continue
 		}
 		switch route.Path {
-		case "/groups/{group_id}/oauth-clients", "/groups/{group_id}/oauth-clients/{client_id}", "/groups/{group_id}/oauth-clients/{client_id}/secret":
+		case "/groups/{group_id}/oauth-clients", "/groups/{group_id}/oauth-clients/{client_id}", "/groups/{group_id}/oauth-clients/{client_id}/secret",
+			"/groups/{group_id}/roles", "/groups/{group_id}/roles/{role}", "/groups/{group_id}/api-keys", "/groups/{group_id}/remote-applications/{id}":
+			if route.Path == "/groups/{group_id}/remote-applications/{id}" && route.Method != http.MethodDelete {
+				continue
+			}
 			route.Path = "/operations" + route.Path
 			route.ExpectedActor = true
 			routes = append(routes, route)

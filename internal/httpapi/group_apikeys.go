@@ -64,3 +64,11 @@ func (s *Service) groupAPIKeyRevoke(w http.ResponseWriter, r *http.Request, g ia
 	}
 	noContent(w)
 }
+
+func (s *Service) groupAPIKeyNativeRevoke(w http.ResponseWriter, r *http.Request, g iam.Group, who auth.Identity, id string) {
+	if err := s.svc.RevokeAPIKey(r.Context(), who, iam.GroupByID(g.ID), id); err != nil {
+		writeError(w, err)
+		return
+	}
+	noContent(w)
+}

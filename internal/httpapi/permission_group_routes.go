@@ -99,6 +99,8 @@ func (s *Service) GroupHandler(op GroupOp) http.HandlerFunc {
 			s.groupAPIKeyList(w, r, g)
 		case OpAPIKeyMint:
 			s.groupAPIKeyMint(w, r, g, who)
+		case OpAPIKeyNativeRevoke:
+			s.groupAPIKeyNativeRevoke(w, r, g, who, r.PathValue("id"))
 		case OpAPIKeyRevoke:
 			s.groupAPIKeyRevoke(w, r, g, who, r.PathValue("id"))
 		case OpInvitationsList:
@@ -119,6 +121,8 @@ func (s *Service) GroupHandler(op GroupOp) http.HandlerFunc {
 			s.groupOAuthClientSecret(w, r, g, who)
 		case OpOAuthClientDelete:
 			s.groupOAuthClientDelete(w, r, g, who)
+		case OpRemoteAppsNativeList:
+			s.groupRemoteAppsNativeList(w, r, g)
 		case OpRemoteAppsList:
 			s.groupRemoteAppsList(w, r, g)
 		case OpRemoteAppCreate:

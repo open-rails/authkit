@@ -174,4 +174,8 @@ export const AUTHKIT_ROUTES: readonly AuthKitRoute[] = [
   { method: "PATCH", path: "/directory/scim/v2/Users/{id}", group: "scim", auth: "public", permission: null, stepUp: false, mountedWhen: "remote_applications" },
   { method: "DELETE", path: "/directory/scim/v2/Users/{id}", group: "scim", auth: "public", permission: null, stepUp: false, mountedWhen: "remote_applications" },
   { method: "POST", path: "/directory/scim/v2/Bulk", group: "scim", auth: "public", permission: null, stepUp: false, mountedWhen: "remote_applications" },
+  { method: "POST", path: "/api/v1/operations/groups/{group_id}/oauth-clients", group: "groups", auth: "permission", permission: "<persona>:credentials:manage", stepUp: false, mountedWhen: "oauth_clients" },
+  { method: "PATCH", path: "/api/v1/operations/groups/{group_id}/oauth-clients/{client_id}", group: "groups", auth: "permission", permission: "<persona>:credentials:manage", stepUp: false, mountedWhen: "oauth_clients" },
+  { method: "POST", path: "/api/v1/operations/groups/{group_id}/oauth-clients/{client_id}/secret", group: "groups", auth: "permission", permission: "<persona>:credentials:manage", stepUp: false, mountedWhen: "oauth_clients" },
+  { method: "DELETE", path: "/api/v1/operations/groups/{group_id}/oauth-clients/{client_id}", group: "groups", auth: "permission", permission: "<persona>:credentials:manage", stepUp: false, mountedWhen: "oauth_clients" },
 ]

@@ -8,12 +8,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/remote"
 	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/authkit/keys"
 	"github.com/stretchr/testify/require"
 )
 
@@ -22,8 +24,8 @@ func TestRemoteMutationActorIsOnlyAPrecondition(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.HTTP = testHTTPConfig()
 	cfg.TwoFactor.Mode = iam.TwoFactorDisabled
-	cfg.Roles = authkit.NewRoles(authkit.OAuthClients)
-	managerRole := cfg.Roles.Root.Role("client-manager", cfg.Roles.Root.Credentials.Manage, cfg.Roles.Root.Credentials.Read)
+	cfg.Roles = authkit.NewRoles(authkit.OAuthClients, authkit.APIKeys, authkit.CustomRoles, authkit.RemoteApplications)
+	managerRole := cfg.Roles.Root.Role("client-manager", cfg.Roles.Root.Credentials.Manage, cfg.Roles.Root.Credentials.Read, cfg.Roles.Root.Roles.Manage, cfg.Roles.Root.Members.Read)
 	readerRole := cfg.Roles.Root.Role("client-reader", cfg.Roles.Root.Credentials.Read)
 	native := newPublicRuntime(t, cfg, pg.Pool)
 	t.Cleanup(func() { _ = native.Close(t.Context()) })
@@ -89,7 +91,7 @@ func TestRemoteMutationActorIsOnlyAPrecondition(t *testing.T) {
 	oldClient, err := remote.New(remote.Config{BaseURL: oldServer.URL + "/api/v1", HTTPClient: oldServer.Client(), Headers: http.Header{"Authorization": []string{"Bearer " + managerToken}}})
 	require.NoError(t, err)
 	_, err = oldClient.CreateGroupOAuthClient(t.Context(), actor, iam.RootGroup(), input)
-	require.ErrorIs(t, err, remote.ErrActorProtocolUnsupported)
+	require.ErrorIs(t, err, remote.ErrOperationProtocolUnsupported)
 	refusal, ok := iam.AsError(err)
 	require.True(t, ok)
 	require.Equal(t, http.StatusNotFound, refusal.Status())
@@ -115,6 +117,32 @@ func TestRemoteMutationActorIsOnlyAPrecondition(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, secret)
 	require.NotEqual(t, *created.ClientSecret, secret)
+	// Group role and API-key mutations use the same constrained actor protocol.
+	role, err := transport.CreateGroupRole(t.Context(), actor, iam.RootGroup(), iam.NewGroupRole{Name: "remote-reader", Permissions: []iam.Perm{cfg.Roles.Root.Credentials.Read}})
+	require.NoError(t, err)
+	role, err = transport.UpdateGroupRole(t.Context(), actor, iam.RootGroup(), role.Name, iam.GroupRoleUpdate{Permissions: []iam.Perm{cfg.Roles.Root.Credentials.Read, cfg.Roles.Root.Members.Read}})
+	require.NoError(t, err)
+	storedRole, err := native.GroupRole(t.Context(), iam.RootGroup(), role.Name)
+	require.NoError(t, err)
+	assertWireEqual(t, storedRole, role)
+	key, err := transport.CreateAPIKey(t.Context(), actor, iam.RootGroup(), iam.NewAPIKey{Name: "Remote-created", Role: readerRole})
+	require.NoError(t, err)
+	require.NotEmpty(t, key.Secret)
+	_, err = native.ResolveAPIKey(t.Context(), key.Secret)
+	require.NoError(t, err)
+	require.NoError(t, transport.RevokeAPIKey(t.Context(), actor, iam.RootGroup(), key.APIKey.ID))
+	_, err = native.ResolveAPIKey(t.Context(), key.Secret)
+	require.ErrorIs(t, err, iam.ErrAPIKeyRevoked)
+	missing := uuid.NewString()
+	nativeErr := native.RevokeAPIKey(t.Context(), iam.SystemIdentity(), iam.RootGroup(), missing)
+	require.ErrorIs(t, nativeErr, iam.ErrAPIKeyNotFound)
+	require.ErrorIs(t, transport.RevokeAPIKey(t.Context(), actor, iam.RootGroup(), missing), iam.ErrAPIKeyNotFound)
+	require.NoError(t, transport.DeleteGroupRole(t.Context(), actor, iam.RootGroup(), role.Name))
+	jwk := keys.PublicJWK(testKeys().Active.Public(), "delete-remote", "")
+	app, err := native.UpsertRemoteApplication(t.Context(), actor, iam.RootGroup(), iam.RemoteApplication{Issuer: "https://delete-remote.example.test", Enabled: true, PublicKeys: []iam.RemoteApplicationKey{{JWK: &jwk}}})
+	require.NoError(t, err)
+	require.NoError(t, transport.DeleteRemoteApplication(t.Context(), actor, iam.RootGroup(), app.ID))
+	require.ErrorIs(t, transport.DeleteRemoteApplication(t.Context(), actor, iam.RootGroup(), app.ID), iam.ErrRemoteApplicationNotFound)
 	// Native transaction options are refused before an HTTP request, not ignored.
 	tx, err := pg.Pool.Begin(t.Context())
 	require.NoError(t, err)

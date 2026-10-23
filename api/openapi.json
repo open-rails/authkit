@@ -3362,6 +3362,13 @@
             }
           },
           {
+            "name": "with_entitlements",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
             "name": "search",
             "in": "query",
             "schema": {
@@ -7375,6 +7382,269 @@
         "x-authkit-auth": "public",
         "x-authkit-rate-limit": "scim_write",
         "x-authkit-mounted-when": "remote_applications"
+      }
+    },
+    "/api/v1/operations/groups/{group_id}/oauth-clients": {
+      "post": {
+        "tags": [
+          "groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "AuthKit-Expected-Actor",
+            "in": "header",
+            "required": true,
+            "description": "Base64url JSON expected actor. It must match the independently authenticated subject, tenant, invoker and credential; it grants no authority.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewOAuthClient"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthClientCreated"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:credentials:manage",
+        "x-authkit-rate-limit": "group_write",
+        "x-authkit-mounted-when": "oauth_clients"
+      }
+    },
+    "/api/v1/operations/groups/{group_id}/oauth-clients/{client_id}": {
+      "patch": {
+        "tags": [
+          "groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "AuthKit-Expected-Actor",
+            "in": "header",
+            "required": true,
+            "description": "Base64url JSON expected actor. It must match the independently authenticated subject, tenant, invoker and credential; it grants no authority.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OAuthClientUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthClient"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:credentials:manage",
+        "x-authkit-rate-limit": "group_write",
+        "x-authkit-mounted-when": "oauth_clients"
+      },
+      "delete": {
+        "tags": [
+          "groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "AuthKit-Expected-Actor",
+            "in": "header",
+            "required": true,
+            "description": "Base64url JSON expected actor. It must match the independently authenticated subject, tenant, invoker and credential; it grants no authority.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:credentials:manage",
+        "x-authkit-rate-limit": "group_write",
+        "x-authkit-mounted-when": "oauth_clients"
+      }
+    },
+    "/api/v1/operations/groups/{group_id}/oauth-clients/{client_id}/secret": {
+      "post": {
+        "tags": [
+          "groups"
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "AuthKit-Expected-Actor",
+            "in": "header",
+            "required": true,
+            "description": "Base64url JSON expected actor. It must match the independently authenticated subject, tenant, invoker and credential; it grants no authority.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthClientSecret"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-permission": "<persona>:credentials:manage",
+        "x-authkit-rate-limit": "group_write",
+        "x-authkit-mounted-when": "oauth_clients"
       }
     }
   },

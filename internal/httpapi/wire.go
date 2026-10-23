@@ -317,9 +317,10 @@ type AdminUserUpdateRequest struct {
 // expand=user adds each user member's PublicUser.
 type MemberListQuery struct {
 	PageQuery
-	Kind   []string `query:"kind"`
-	Role   []string `query:"role"`
-	Expand []string `query:"expand"`
+	LiveOnly bool     `query:"live_only"`
+	Kind     []string `query:"kind"`
+	Role     []string `query:"role"`
+	Expand   []string `query:"expand"`
 }
 
 // MemberRoleRequest is the role a member holds in the group.
