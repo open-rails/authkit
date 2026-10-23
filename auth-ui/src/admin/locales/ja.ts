@@ -370,6 +370,8 @@ export const ja: AdminMessageTree = {
       email_verification: "メールのコード",
       phone_verification: "電話のコード",
       refresh_mfa: "2段階認証の更新",
+      passwordless_email: "メールのサインインコード",
+      passwordless_sms: "SMS のサインインコード",
     },
     endReasons: {
       user_revoke: "ユーザーがサインアウト",

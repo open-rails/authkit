@@ -357,6 +357,8 @@ export const zh: AdminMessageTree = {
       email_verification: "邮件验证码",
       phone_verification: "短信验证码",
       refresh_mfa: "两步验证刷新",
+      passwordless_email: "邮件登录验证码",
+      passwordless_sms: "短信登录验证码",
     },
     endReasons: {
       user_revoke: "用户退出",

@@ -372,6 +372,8 @@ export const es: AdminMessageTree = {
       email_verification: "Código por correo",
       phone_verification: "Código por teléfono",
       refresh_mfa: "Renovación de dos factores",
+      passwordless_email: "Código de acceso por correo",
+      passwordless_sms: "Código de acceso por SMS",
     },
     endReasons: {
       user_revoke: "Cerrada por el usuario",

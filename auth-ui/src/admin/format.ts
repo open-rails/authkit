@@ -11,14 +11,15 @@ export const dateTime = (
 
 /** A user agent as its browser and operating system, or null when unknown. */
 export const browserAndOS = (ua: string | null | undefined) => {
-  if (!ua) return null
-  const browser = /Edg\//.test(ua)
+  // Automation keeps its full user agent in view.
+  if (!ua || /HeadlessChrome/.test(ua)) return null
+  const browser = /Edg\/|EdgiOS\//.test(ua)
     ? "Edge"
     : /OPR\//.test(ua)
       ? "Opera"
-      : /Firefox\//.test(ua)
+      : /Firefox\/|FxiOS\//.test(ua)
         ? "Firefox"
-        : /Chrome\//.test(ua)
+        : /Chrome\/|CriOS\//.test(ua)
           ? "Chrome"
           : /Safari\//.test(ua)
             ? "Safari"

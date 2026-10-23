@@ -378,6 +378,11 @@ it("shows sign-in methods, end reasons, devices and the language in words", asyn
               occurred_at: "2026-01-01T00:00:00Z",
               method: "constructor",
             },
+            {
+              kind: "session_created",
+              occurred_at: "2026-01-01T00:00:00Z",
+              method: "passwordless_email",
+            },
           ],
           next_cursor: null,
         })
@@ -399,6 +404,7 @@ it("shows sign-in methods, end reasons, devices and the language in words", asyn
     mac
   )
   expect(screen.getByText("English")).toBeInTheDocument()
+  expect(within(history).getByText("Email sign-in code")).toBeInTheDocument()
 })
 
 it("edits only the tenant role and never presents the account's root role", async () => {

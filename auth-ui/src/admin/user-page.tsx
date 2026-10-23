@@ -42,17 +42,6 @@ import { roleTitle } from "./roles-lib.ts"
 import { useSearchParams } from "./router.ts"
 import type { Host } from "./users.tsx"
 
-// Sign-in methods and sign-out reasons the server records; others show as sent.
-const METHODS = {
-  password_login: 1,
-  passkey_login: 1,
-  oidc_login: 1,
-  solana_login: 1,
-  registration: 1,
-  email_verification: 1,
-  phone_verification: 1,
-  refresh_mfa: 1,
-}
 type Method = keyof typeof METHODS
 const END_REASONS = {
   user_revoke: 1,
@@ -81,6 +70,20 @@ import { BanLine, UserBadges } from "./user-parts.tsx"
 import { directoryRole, restorableUntil, userName } from "./users-lib.ts"
 import { useWarnings } from "./warnings.tsx"
 import { useActions } from "./write.ts"
+
+// Sign-in methods and sign-out reasons the server records; others show as sent.
+const METHODS = {
+  password_login: 1,
+  passkey_login: 1,
+  oidc_login: 1,
+  solana_login: 1,
+  registration: 1,
+  email_verification: 1,
+  phone_verification: 1,
+  refresh_mfa: 1,
+  passwordless_email: 1,
+  passwordless_sms: 1,
+}
 
 type Open =
   "edit" | "ban" | "delete" | "restore" | "signOut" | { role: string } | null

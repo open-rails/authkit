@@ -368,6 +368,8 @@ export const en = {
       email_verification: "Email code",
       phone_verification: "Phone code",
       refresh_mfa: "Two-factor refresh",
+      passwordless_email: "Email sign-in code",
+      passwordless_sms: "Text sign-in code",
     },
     endReasons: {
       user_revoke: "Signed out by the user",

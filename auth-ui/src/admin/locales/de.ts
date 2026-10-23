@@ -383,6 +383,8 @@ export const de: AdminMessageTree = {
       email_verification: "E-Mail-Code",
       phone_verification: "Telefoncode",
       refresh_mfa: "Zwei-Faktor-Erneuerung",
+      passwordless_email: "Anmeldecode per E-Mail",
+      passwordless_sms: "Anmeldecode per SMS",
     },
     endReasons: {
       user_revoke: "Vom Nutzer abgemeldet",

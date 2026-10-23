@@ -367,6 +367,8 @@ export const ko: AdminMessageTree = {
       email_verification: "이메일 코드",
       phone_verification: "전화 코드",
       refresh_mfa: "2단계 인증 갱신",
+      passwordless_email: "이메일 로그인 코드",
+      passwordless_sms: "문자 로그인 코드",
     },
     endReasons: {
       user_revoke: "사용자가 로그아웃",
