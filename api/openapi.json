@@ -3482,6 +3482,17 @@
             "explode": true
           },
           {
+            "name": "type",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "explode": true
+          },
+          {
             "name": "authority",
             "in": "query",
             "schema": {
@@ -7792,6 +7803,36 @@
           "id": {
             "type": "string"
           },
+          "type": {
+            "type": "string",
+            "enum": [
+              "group.created",
+              "group.deleted",
+              "group.persona_migrated",
+              "group.purged",
+              "group.role_created",
+              "group.role_deleted",
+              "group.role_updated",
+              "oauth_client.created",
+              "oauth_client.deleted",
+              "oauth_client.updated",
+              "oauth_consent.revoked",
+              "role.changed",
+              "role.granted",
+              "role.revoked",
+              "user.agreement_accepted",
+              "user.banned",
+              "user.deleted",
+              "user.email_changed",
+              "user.phone_changed",
+              "user.purged",
+              "user.registered",
+              "user.restored",
+              "user.sessions_revoked",
+              "user.unbanned",
+              "user.username_changed"
+            ]
+          },
           "kind": {
             "type": "string",
             "enum": [
@@ -7823,6 +7864,11 @@
             ]
           },
           "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "recorded_at": {
             "type": "string",
             "format": "date-time",
             "description": "RFC 3339, UTC"
@@ -7904,8 +7950,10 @@
           "version",
           "tenant_id",
           "id",
+          "type",
           "kind",
           "occurred_at",
+          "recorded_at",
           "subject_kind",
           "subject_id",
           "invoker_issuer",

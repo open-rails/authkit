@@ -40,7 +40,7 @@ func (s *Service) handleEventsGET(w http.ResponseWriter, r *http.Request) {
 		fail(w, errmodel.CodeForbidden)
 		return
 	}
-	q := iam.EventQuery{After: query.After, Authority: query.Authority}
+	q := iam.EventQuery{After: query.After, Authority: query.Authority, Types: query.Types}
 	if query.Limit != nil {
 		q.Limit = *query.Limit
 		if q.Limit == 0 {

@@ -97,8 +97,10 @@ export type AuthKitEvent = {
   version: number
   tenant_id: string
   id: string
+  type: "group.created" | "group.deleted" | "group.persona_migrated" | "group.purged" | "group.role_created" | "group.role_deleted" | "group.role_updated" | "oauth_client.created" | "oauth_client.deleted" | "oauth_client.updated" | "oauth_consent.revoked" | "role.changed" | "role.granted" | "role.revoked" | "user.agreement_accepted" | "user.banned" | "user.deleted" | "user.email_changed" | "user.phone_changed" | "user.purged" | "user.registered" | "user.restored" | "user.sessions_revoked" | "user.unbanned" | "user.username_changed"
   kind: "group.created" | "group.deleted" | "group.persona_migrated" | "group.purged" | "group.role_created" | "group.role_deleted" | "group.role_updated" | "oauth_client.created" | "oauth_client.deleted" | "oauth_client.updated" | "oauth_consent.revoked" | "role.changed" | "role.granted" | "role.revoked" | "user.agreement_accepted" | "user.banned" | "user.deleted" | "user.email_changed" | "user.phone_changed" | "user.purged" | "user.registered" | "user.restored" | "user.sessions_revoked" | "user.unbanned" | "user.username_changed"
   occurred_at: string
+  recorded_at: string
   subject_kind: "application" | "user"
   subject_id: string
   invoker_issuer: string

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -14,6 +13,7 @@ import (
 	"github.com/open-rails/authkit/internal/cursor"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/helpers/eventlog"
 )
 
 type eventLogCursor struct {
@@ -55,6 +55,9 @@ func (s *Engine) appendEventLog(ctx context.Context, tx pgx.Tx, events []iam.Eve
 		positions[scope] = state.Position
 	}
 	for _, e := range events {
+		if e.Kind == "" {
+			e.Kind = e.Type
+		}
 		scope := eventLogScope(e.TenantID)
 		positions[scope]++
 		payload, err := json.Marshal(e)
@@ -74,24 +77,8 @@ func (s *Engine) appendEventLog(ctx context.Context, tx pgx.Tx, events []iam.Eve
 	return nil
 }
 
-func eventKinds(kinds []iam.EventKind) ([]string, error) {
-	out := make([]string, 0, len(kinds))
-	if len(kinds) > 100 {
-		return nil, errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("kind"))
-	}
-	for _, kind := range kinds {
-		if strings.TrimSpace(string(kind)) == "" || len(kind) > 128 {
-			return nil, errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("kind"))
-		}
-		out = append(out, string(kind))
-	}
-	slices.Sort(out)
-	return slices.Compact(out), nil
-}
-
-// ListEvents is a read-only snapshot of one scope's retained committed log.
-// The embedded caller is trusted, like ListUsers; HTTP checks permissions
-// separately on every request. An empty result still has a usable cursor.
+// ListEvents reads one authorized scope using shared paging and the historical
+// AuthKit cursor codec. Storage and producer transactions remain unchanged.
 func (s *Engine) ListEvents(ctx context.Context, query iam.EventQuery) (iam.EventPage, error) {
 	out := iam.EventPage{Events: []iam.Event{}, RetentionSeconds: int64(s.cfg.EventRetention / time.Second)}
 	if err := s.requirePG(); err != nil {
@@ -105,75 +92,127 @@ func (s *Engine) ListEvents(ctx context.Context, query iam.EventQuery) (iam.Even
 		}
 		scope = tenant.String()
 	}
-	limit := query.Limit
-	if limit == 0 {
-		limit = 100
+	types := append([]string(nil), query.Types...)
+	for _, kind := range query.Kinds {
+		types = append(types, string(kind))
 	}
-	if limit < 1 || limit > 500 {
-		return out, errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("limit"))
+	log := eventlog.Log{Source: "authkit", Scope: scope, Retention: s.cfg.EventRetention,
+		Now: s.nowTime, Codec: authEventCursor{}, SkipFloorBoundary: true,
+		ReadSnapshot: func(ctx context.Context, read func(eventlog.Snapshot) error) error {
+			tx, err := s.pg.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+			if err != nil {
+				return err
+			}
+			defer tx.Rollback(ctx)
+			if err := read(&authEventSnapshot{q: s.qtx(tx), scope: scope}); err != nil {
+				return err
+			}
+			return tx.Commit(ctx)
+		},
 	}
-	kinds, err := eventKinds(query.Kinds)
-	if err != nil {
-		return out, err
+	// Existing Kinds cursors bind exact strings, including outer whitespace.
+	// New Types requests use the shared normalization policy.
+	if len(query.Types) == 0 {
+		log.NormalizeQuery = legacyEventQuery
 	}
-	position := eventLogCursor{Version: 1, Scope: scope, Kinds: kinds}
-	if query.After != "" {
-		if len(query.After) > 32768 || cursor.Decode(query.After, &position) != nil || position.Version != 1 ||
-			position.Scope != scope || !slices.Equal(position.Kinds, kinds) || position.Position < 0 {
-			return out, errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("after"))
-		}
-	}
-	// The retention floor, head and payload rows must come from one snapshot;
-	// concurrent pruning or appends cannot manufacture a skipped page.
-	tx, err := s.pg.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
-	if err != nil {
-		return out, err
-	}
-	defer tx.Rollback(ctx)
-	q := s.qtx(tx)
-	cutoff := s.nowTime().Add(-s.cfg.EventRetention)
-	state, err := q.EventLogSnapshot(ctx, db.EventLogSnapshotParams{Scope: &scope, Cutoff: &cutoff})
-	if err != nil {
-		return out, err
-	}
-	if query.After == "" {
-		position.Epoch, position.Position = state.Epoch, state.RetainedAfter
-	} else if position.Epoch != state.Epoch || position.Position < state.RetainedAfter || position.Position > state.Head {
+	page, err := log.ListEvents(ctx, eventlog.Query{After: query.After, Types: types, Limit: query.Limit})
+	if errors.Is(err, eventlog.ErrExpiredCursor) {
 		return out, iam.ErrEventCursorExpired
-	} else if position.Position > state.RetainedAfter && position.Position > 0 {
-		id, err := q.EventLogPosition(ctx, db.EventLogPositionParams{Scope: scope, Position: position.Position})
-		if errors.Is(err, pgx.ErrNoRows) || err == nil && id != position.EventID {
-			return out, iam.ErrEventCursorExpired
+	}
+	if errors.Is(err, eventlog.ErrInvalidCursor) {
+		return out, errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("after"))
+	}
+	if errors.Is(err, eventlog.ErrInvalidQuery) {
+		param := "type"
+		if query.Limit < 0 || query.Limit > eventlog.MaxLimit {
+			param = "limit"
 		}
-		if err != nil {
+		return out, errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam(param))
+	}
+	if err != nil {
+		return out, err
+	}
+	out.NextCursor, out.HasMore, out.RetentionSeconds = page.NextCursor, page.HasMore, page.RetentionSeconds
+	for _, record := range page.Events {
+		var event iam.Event
+		if err := json.Unmarshal(record.Data, &event); err != nil {
 			return out, err
 		}
-	}
-	rows, err := q.EventLogItems(ctx, db.EventLogItemsParams{Scope: scope, AfterPosition: position.Position,
-		Cutoff: cutoff, Kinds: kinds, PageLimit: int64(limit + 1)})
-	if err != nil {
-		return out, err
-	}
-	out.HasMore = len(rows) > limit
-	for _, row := range rows[:min(len(rows), limit)] {
-		var event iam.Event
-		if err := json.Unmarshal(row.Payload, &event); err != nil {
-			return out, fmt.Errorf("authkit: decode retained event %s: %w", row.EventID, err)
-		}
+		event.RecordedAt = record.RecordedAt
 		out.Events = append(out.Events, event)
-		position.Position, position.EventID = row.Position, row.EventID
 	}
-	if !out.HasMore {
-		position.Position, position.EventID = state.Head, ""
-		if state.Head > state.RetainedAfter {
-			position.EventID, err = q.EventLogPosition(ctx, db.EventLogPositionParams{Scope: scope, Position: state.Head})
-			if err != nil {
-				return out, err
-			}
+	return out, nil
+}
+
+func legacyEventQuery(q eventlog.Query) (eventlog.Query, error) {
+	normalized, err := eventlog.Normalize(q)
+	if err != nil {
+		return normalized, err
+	}
+	normalized.Types = slices.Clone(q.Types)
+	slices.Sort(normalized.Types)
+	normalized.Types = slices.Compact(normalized.Types)
+	return normalized, nil
+}
+
+type authEventCursor struct{}
+
+func (authEventCursor) Encode(c eventlog.Cursor) string {
+	return cursor.Encode(eventLogCursor{Version: 1, Epoch: c.Epoch, Scope: c.Scope, Kinds: c.Types, Position: c.Position, EventID: c.Boundary})
+}
+func (authEventCursor) Decode(raw string) (eventlog.Cursor, error) {
+	var c eventLogCursor
+	if len(raw) > 32768 || cursor.Decode(raw, &c) != nil || c.Version != 1 || c.Position < 0 {
+		return eventlog.Cursor{}, eventlog.ErrInvalidCursor
+	}
+	return eventlog.Cursor{Version: c.Version, Source: "authkit", Scope: c.Scope, Epoch: c.Epoch, Types: c.Kinds, Position: c.Position, Boundary: c.EventID}, nil
+}
+
+type authEventSnapshot struct {
+	q      *db.Queries
+	scope  string
+	cutoff time.Time
+}
+
+func (s *authEventSnapshot) Stream(ctx context.Context, cutoff time.Time) (eventlog.Stream, error) {
+	s.cutoff = cutoff
+	state, err := s.q.EventLogSnapshot(ctx, db.EventLogSnapshotParams{Scope: &s.scope, Cutoff: &cutoff})
+	if err != nil {
+		return eventlog.Stream{}, err
+	}
+	stream := eventlog.Stream{Epoch: state.Epoch, Head: eventlog.Position{Number: state.Head}, Floor: eventlog.Position{Number: state.RetainedAfter}}
+	if state.Head > state.RetainedAfter {
+		stream.Head.ID, err = s.Boundary(ctx, state.Head)
+	}
+	return stream, err
+}
+func (s *authEventSnapshot) Boundary(ctx context.Context, position int64) (string, error) {
+	id, err := s.q.EventLogPosition(ctx, db.EventLogPositionParams{Scope: s.scope, Position: position})
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = eventlog.ErrExpiredCursor
+	}
+	return id, err
+}
+func (s *authEventSnapshot) Events(ctx context.Context, after int64, types []string, limit int) ([]eventlog.Record, error) {
+	if types == nil {
+		types = []string{}
+	}
+	rows, err := s.q.EventLogItems(ctx, db.EventLogItemsParams{Scope: s.scope, AfterPosition: after, Cutoff: s.cutoff, Kinds: types, PageLimit: int64(limit)})
+	if err != nil {
+		return nil, err
+	}
+	records := make([]eventlog.Record, 0, len(rows))
+	for _, row := range rows {
+		var payload iam.Event
+		if err := json.Unmarshal(row.Payload, &payload); err != nil {
+			return nil, fmt.Errorf("authkit: decode retained event %s: %w", row.EventID, err)
 		}
+		if string(payload.Kind) != row.Kind {
+			return nil, fmt.Errorf("authkit: retained event %s kind differs from payload", row.EventID)
+		}
+		records = append(records, eventlog.Record{Position: row.Position, Event: eventlog.Event{ID: row.EventID, Source: "authkit", Scope: s.scope, Type: row.Kind, Version: payload.Version, OccurredAt: payload.OccurredAt, RecordedAt: row.RecordedAt.UTC(), Data: row.Payload}})
 	}
-	out.NextCursor = cursor.Encode(position)
-	return out, tx.Commit(ctx)
+	return records, nil
 }
 
 // pruneEventLog uses the existing auth maintenance tick, at most 100 scopes

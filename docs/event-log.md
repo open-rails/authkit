@@ -21,7 +21,7 @@ An API key/identity's existing capability ceiling still applies. The explicit
 requires `root:users:read`; it does not merge every tenant's log.
 
 The response has `events`, `next_cursor`, `has_more`, and `retention_seconds`.
-Events use the existing typed `iam.Event` shape (`kind`, `id`, `tenant_id`, actor
+Events use the existing typed `iam.Event` shape (`type`, legacy `kind`, `id`, `tenant_id`, actor
 and affected-subject fields) with payload `version: 1`. Unknown kinds and
 additive payload fields may appear. `kind` is an optional repeated/comma-separated
 filter; the cursor is bound to its normalized kind set and scope. The browser
@@ -70,3 +70,39 @@ Required `OnPurge` cleanup is separate. Each issuer's daily/startup sweep runs
 its required cleanup before hard deletion, while the subsequent `user.purged`
 event describes what committed. Reading the log never satisfies or delays
 that cleanup.
+
+Libraries can consume the common `github.com/open-rails/helpers/eventlog.Reader`
+through `client.EventReader()` (or `client.EventReader(true)` for authority-wide
+facts). `NewRemoteEventReader(RemoteEventConfig{BaseURL: apiURL, HTTPClient: httpClient,
+Headers: headers})` reads the same events over HTTP; configure a tenant-routed
+API URL and authenticated transport. Both expose `eventlog.Query{After, Types,
+Limit}` and the same cursor/expiry semantics. Remote errors retain AuthKit's
+`iam.Error` codes and `errors.Is(err, iam.ErrEventCursorExpired)` identity.
+
+The shared envelope uses source `authkit`, scope equal to the tenant UUID or
+`authority`, and the affected user/application/group as its subject. `Data`
+contains the complete original `iam.Event`; actor identity stays in that payload.
+`RecordedAt` is the log's storage timestamp and is also returned additively in
+`iam.Event`. `Types`/HTTP `type` are the common filter spelling; legacy
+`Kinds`/HTTP `kind` remain accepted. Filters are combined, normalized and bound
+to the cursor, with at most 100 supplied types and a 100 default/500 maximum page.
+Native Kinds-only queries retain their historical exact strings, including outer
+whitespace; Types queries use the common trimmed normalization.
+
+This adoption retains the existing tables, writer transaction, recorded times,
+positions, IDs and deployment epoch. Shared paging uses the historical AuthKit
+cursor codec and its floor-boundary behavior; it does not reissue historical
+facts. AuthKit's legacy retention adapter also handles nonmonotonic imported
+recorded times by pruning only an expired prefix.
+
+The remote constructor is deliberately an event reader, not a general remote
+`*Client`. General client transport readiness is design-only for future work,
+tracked in [AuthKit #468](https://github.com/open-rails/tracker/blob/master/authkit/future/468-remote-client-transport-parity.md).
+The current task adds no general remote operation facade or new operation routes.
+Future work must map actor/tenant semantics to credential-authorized requests and
+preserve domain errors without exposing trusted host functions implicitly.
+
+`iam.Event.Type` is the discriminator for new code. `Kind` remains a compatible
+alias: JSON reads accept either spelling, writes emit both with the same value,
+and conflicting nonempty values are rejected. Historical kind-only records and
+older HTTP responses therefore retain their exact event type.
