@@ -180,7 +180,7 @@ test("UsersAdmin alone: sign out everywhere, the history filter, a profile edit,
   ).toBeVisible()
   const details = page.getByRole("region", { name: "Details" })
   await expect(details.getByText(renamed, { exact: true })).toBeVisible()
-  await expect(details.getByText("de", { exact: true })).toBeVisible()
+  await expect(details.getByText("German", { exact: true })).toBeVisible()
 
   // Delete needs the name typed; the host's warning shows first.
   const header = page.getByRole("region", { name: renamed })
