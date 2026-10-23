@@ -14,6 +14,7 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/helpers/eventlog"
+	eventpg "github.com/open-rails/helpers/eventlog/postgres"
 )
 
 type eventLogCursor struct {
@@ -32,45 +33,23 @@ func eventLogScope(tenant iam.TenantID) string {
 	return tenant.String()
 }
 
-// appendEventLog locks all affected scopes in stable order before assigning
-// positions. Each lock survives until the caller's mutation commits or rolls
-// back: a reader can never advance past an allocated but uncommitted position.
+// appendEventLog queues immutable facts in the mutation transaction. Shared
+// deferred flush locks all touched scopes in order and allocates positions only
+// at commit, including when a transaction appends in several calls.
 func (s *Engine) appendEventLog(ctx context.Context, tx pgx.Tx, events []iam.Event) error {
-	q := s.qtx(tx)
-	scopes := make([]string, 0, len(events))
-	for _, e := range events {
-		scopes = append(scopes, eventLogScope(e.TenantID))
-	}
-	slices.Sort(scopes)
-	scopes = slices.Compact(scopes)
-	positions := make(map[string]int64, len(scopes))
-	for _, scope := range scopes {
-		if err := q.EventLogCreateScope(ctx, scope); err != nil {
-			return err
-		}
-		state, err := q.EventLogLockScope(ctx, scope)
-		if err != nil {
-			return err
-		}
-		positions[scope] = state.Position
-	}
 	for _, e := range events {
 		if e.Kind == "" {
 			e.Kind = e.Type
 		}
-		scope := eventLogScope(e.TenantID)
-		positions[scope]++
 		payload, err := json.Marshal(e)
 		if err != nil {
 			return err
 		}
-		if err := q.EventLogInsert(ctx, db.EventLogInsertParams{Scope: scope, Position: positions[scope],
-			EventID: e.ID, Kind: string(e.Kind), Payload: payload}); err != nil {
+		store, err := eventpg.New(s.pg, eventpg.Config{Schema: s.dbSchema(), Source: "authkit", Scope: eventLogScope(e.TenantID)})
+		if err != nil {
 			return err
 		}
-	}
-	for _, scope := range scopes {
-		if err := q.EventLogAdvanceScope(ctx, db.EventLogAdvanceScopeParams{Scope: scope, Position: positions[scope]}); err != nil {
+		if err = store.AppendTx(ctx, tx, eventlog.Event{ID: e.ID, Source: "authkit", Type: string(e.Kind), Version: e.Version, OccurredAt: e.OccurredAt, Subject: eventlog.Subject{Type: string(e.SubjectKind), ID: e.SubjectID}, Data: payload}); err != nil {
 			return err
 		}
 	}
@@ -78,7 +57,7 @@ func (s *Engine) appendEventLog(ctx context.Context, tx pgx.Tx, events []iam.Eve
 }
 
 // ListEvents reads one authorized scope using shared paging and the historical
-// AuthKit cursor codec. Storage and producer transactions remain unchanged.
+// AuthKit cursor codec. Product authorization remains outside shared storage.
 func (s *Engine) ListEvents(ctx context.Context, query iam.EventQuery) (iam.EventPage, error) {
 	out := iam.EventPage{Events: []iam.Event{}, RetentionSeconds: int64(s.cfg.EventRetention / time.Second)}
 	if err := s.requirePG(); err != nil {
@@ -218,28 +197,16 @@ func (s *authEventSnapshot) Events(ctx context.Context, after int64, types []str
 // pruneEventLog uses the existing auth maintenance tick, at most 100 scopes
 // and 5,000 rows per scope. It never examines or stores reader progress.
 func (s *Engine) pruneEventLog(ctx context.Context) error {
-	cutoff := s.nowTime().Add(-s.cfg.EventRetention)
-	scopes, err := s.q.EventLogDueScopes(ctx, cutoff)
+	scopes, err := s.q.EventLogDueScopes(ctx, s.nowTime().Add(-s.cfg.EventRetention))
 	if err != nil {
 		return err
 	}
 	for _, scope := range scopes {
-		err := func() error {
-			tx, err := s.pg.Begin(ctx)
-			if err != nil {
-				return err
-			}
-			defer tx.Rollback(ctx)
-			q := s.qtx(tx)
-			if _, err := q.EventLogLockScope(ctx, scope); err != nil {
-				return err
-			}
-			if _, err := q.EventLogPrune(ctx, db.EventLogPruneParams{Scope: &scope, Cutoff: &cutoff}); err != nil {
-				return err
-			}
-			return tx.Commit(ctx)
-		}()
+		store, err := eventpg.New(s.pg, eventpg.Config{Schema: s.dbSchema(), Source: "authkit", Scope: scope, Retention: s.cfg.EventRetention, Now: s.nowTime})
 		if err != nil {
+			return err
+		}
+		if _, err = store.Prune(ctx, 5000); err != nil {
 			return err
 		}
 	}

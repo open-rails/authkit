@@ -32,8 +32,8 @@ a usable cursor. A reader may poll it at its own interval; AuthKit starts no
 poller. Save the returned cursor only after processing the page. The publisher
 does not store reader identities, progress, retries or dead letters.
 
-Positions are allocated under a per-scope transaction lock, held through commit.
-Multi-scope mutations lock scopes in sorted order. Other scopes remain
+Facts queue inside the domain transaction. The shared deferred flush locks every
+affected scope in sorted order at commit and then allocates positions. Other scopes remain
 independent. A read uses one repeatable-read snapshot, including the committed
 head and retention floor. This prevents a faster transaction from causing a
 reader to skip an earlier transaction that has not committed yet.
@@ -89,11 +89,24 @@ to the cursor, with at most 100 supplied types and a 100 default/500 maximum pag
 Native Kinds-only queries retain their historical exact strings, including outer
 whitespace; Types queries use the common trimmed normalization.
 
-This adoption retains the existing tables, writer transaction, recorded times,
-positions, IDs and deployment epoch. Shared paging uses the historical AuthKit
-cursor codec and its floor-boundary behavior; it does not reissue historical
-facts. AuthKit's legacy retention adapter also handles nonmonotonic imported
-recorded times by pruning only an expired prefix.
+Migration0025 moves the existing facts into the shared PostgreSQL engine,
+keeping recorded times, positions, IDs and deployment epoch unchanged. Old read
+names remain compatibility views; the former allocator/write queries are gone.
+Shared paging uses the historical AuthKit cursor codec and missing-floor-ID
+compatibility; it does not reissue historical facts. Existing empty-scope cursors
+retain the singleton epoch when their first shared stream is created. There is
+no new tenant foreign key that could delete retained historical facts.
+
+Imported recording times may be nonmonotonic. Retention preserves every younger
+row and excludes individually expired rows, even when they appear after a younger
+position. This is the existing retained-only contract, not lossless catch-up of
+expired history; migration copies the physical rows and timestamps unchanged.
+Pruning deletes only an expired prefix. New shared writes have monotonic recording
+timestamps, so this historical gap case does not arise for them.
+
+Stop older writers and keep a database backup before applying0025. It changes
+writer storage and must be coordinated across the fleet; rolling back the binary
+alone does not restore the retired writer tables.
 
 The remote constructor is deliberately an event reader, not a general remote
 `*Client`. Full public-client transport parity is still open: the route catalog
