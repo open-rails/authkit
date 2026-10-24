@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest"
 import { validateUsername } from "./username.ts"
-import { createAuthClient } from "./client.ts"
-import { json, stubFetch } from "./testing.ts"
 
 const policy = {
   min_length: 4,
@@ -22,20 +20,5 @@ describe("usernames", () => {
     expect(validateUsername("abcde", { ...policy!, pattern: "[" })).toBe(
       "invalid_username"
     )
-  })
-  it("uses the shared generation and validation endpoints", async () => {
-    const client = createAuthClient({
-      fetch: stubFetch({
-        "GET /api/v1/usernames/generate": () =>
-          json(200, { username: "sakura007" }),
-        "GET /api/v1/usernames/availability": () =>
-          json(200, { available: false, error: "username_invalid_characters" }),
-      }),
-    })
-    expect(await client.generateUsername()).toBe("sakura007")
-    expect(await client.checkUsername("Paul Fidika")).toMatchObject({
-      available: false,
-      error: "username_invalid_characters",
-    })
   })
 })

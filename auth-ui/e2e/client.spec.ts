@@ -42,11 +42,26 @@ test("built client: register, TOTP login, refresh, restore, logout", async ({
   const id = `${Date.now()}${Math.floor(Math.random() * 1e6)}`
   const email = `client-${id}@example.test`
   const password = "Correct-horse-battery-9"
+  const username = await page.evaluate(() =>
+    (window as unknown as Win).auth.generateUsername()
+  )
+  expect(username).not.toBe("")
+  expect(
+    await page.evaluate(
+      (name) => (window as unknown as Win).auth.checkUsername(name),
+      username
+    )
+  ).toMatchObject({ available: true })
+  expect(
+    await page.evaluate(() =>
+      (window as unknown as Win).auth.checkUsername("Invalid Username")
+    )
+  ).toMatchObject({ available: false, error: "username_invalid_characters" })
 
   // 202: a code went to the address, no session yet.
   const reg = await page.evaluate(
     (input) => (window as unknown as Win).auth.register(input),
-    { identifier: email, username: `c${id}`, password }
+    { identifier: email, username, password }
   )
   expect(reg).toBeNull()
 
@@ -60,6 +75,12 @@ test("built client: register, TOTP login, refresh, restore, logout", async ({
     )
   ).toMatchObject({ status: "complete", user: { email } })
   expect(await snapshot(page)).toMatchObject({ status: "authenticated" })
+  expect(
+    await page.evaluate(
+      (name) => (window as unknown as Win).auth.checkUsername(name),
+      username
+    )
+  ).toMatchObject({ available: false })
 
   // TOTP codes must come from increasing steps; start early in a step.
   const into = Date.now() % 30_000
