@@ -10,6 +10,7 @@ const report = JSON.parse(
 )
 const methods = new Set(),
   cases = new Set(),
+  executableCases = new Map(),
   failures = []
 let count = 0
 function walk(suite) {
@@ -17,6 +18,10 @@ function walk(suite) {
   for (const spec of suite.specs ?? [])
     for (const test of spec.tests ?? []) {
       count++
+      const ids = spec.title.match(/\bAK-UI-\d{2}\b/g) ?? []
+      if (ids.length !== 1)
+        failures.push(`Missing or ambiguous case ID: ${spec.title}`)
+      else executableCases.set(ids[0], (executableCases.get(ids[0]) ?? 0) + 1)
       if (
         test.expectedStatus !== "passed" ||
         !test.results?.length ||
@@ -37,26 +42,60 @@ function walk(suite) {
     }
 }
 for (const suite of report.suites ?? []) walk(suite)
+for (const error of report.errors ?? [])
+  failures.push(error.message ?? String(error))
+const requiredExecutableCases = new Set(manifest.requiredExecutableCaseIDs)
+if (requiredExecutableCases.size !== manifest.requiredExecutableCaseIDs.length)
+  failures.push("Duplicate executable case ID in manifest")
+const missingExecutableCases = [...requiredExecutableCases].filter(
+  (id) => !executableCases.has(id)
+)
+const unexpectedExecutableCases = [...executableCases.keys()].filter(
+  (id) => !requiredExecutableCases.has(id)
+)
+const duplicateExecutableCases = [...executableCases]
+  .filter(([, n]) => n !== 1)
+  .map(([id]) => id)
 const missingCases = manifest.requiredScenarioIDs.filter((x) => !cases.has(x))
 const missingMethods = manifest.requiredClientMethods.filter(
   (x) => !methods.has(x)
 )
 const outcome = {
   tests: count,
+  executableCases: [...executableCases.keys()].sort(),
   scenarios: [...cases].sort(),
   methods: [...methods].sort(),
   failures,
   missingCases,
   missingMethods,
+  missingExecutableCases,
+  unexpectedExecutableCases,
+  duplicateExecutableCases,
 }
 fs.writeFileSync(
   new URL("../test-results/critical-coverage.json", import.meta.url),
   JSON.stringify(outcome, null, 2) + "\n"
 )
-if (!count || failures.length || missingCases.length || missingMethods.length) {
+if (
+  !count ||
+  failures.length ||
+  missingCases.length ||
+  missingMethods.length ||
+  missingExecutableCases.length ||
+  unexpectedExecutableCases.length ||
+  duplicateExecutableCases.length
+) {
   console.error(
     JSON.stringify(
-      { tests: count, failures, missingCases, missingMethods },
+      {
+        tests: count,
+        failures,
+        missingCases,
+        missingMethods,
+        missingExecutableCases,
+        unexpectedExecutableCases,
+        duplicateExecutableCases,
+      },
       null,
       2
     )

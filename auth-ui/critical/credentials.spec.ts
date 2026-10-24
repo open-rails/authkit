@@ -11,7 +11,7 @@ import {
   seed,
 } from "./browser"
 
-test("TS contract: pending registration availability and authenticated abandonment have observable effects", async ({
+test("AK-UI-11: TS contract: pending registration availability and authenticated abandonment have observable effects", async ({
   page,
 }) => {
   const who = identity()
@@ -78,7 +78,7 @@ test("TS contract: pending registration availability and authenticated abandonme
   await expect(page.getByTestId("session-status")).toHaveText("anonymous")
 })
 
-test("TS contract: reset, password change, contact proof, passwordless and self-recovery round trip", async ({
+test("AK-UI-12: TS contract: reset, password change, contact proof, passwordless and self-recovery round trip", async ({
   page,
   request,
 }) => {
@@ -198,7 +198,7 @@ test("TS contract: reset, password change, contact proof, passwordless and self-
   await page.evaluate(() => window.ak.client.signOut())
 })
 
-test("TS contract: phone-only login completes its actual new-device proof", async ({
+test("AK-UI-13: TS contract: phone-only login completes its actual new-device proof", async ({
   page,
   request,
 }) => {

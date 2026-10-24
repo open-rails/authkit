@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -19,6 +20,34 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 )
+
+// cutoffBarrier pauses the real deletion scan at the PostgreSQL driver boundary.
+// It changes no query or result. The test can then age only its owned timestamp
+// fixtures relative to the exact cutoff the worker actually obtained from PG.
+// A wall-clock sample before starting the worker cannot exercise equality.
+type cutoffBarrier struct {
+	arrived chan time.Time
+	release chan struct{}
+	claimed atomic.Bool
+}
+
+func (b *cutoffBarrier) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+	if !strings.HasPrefix(data.SQL, "-- name: AccountDeletionsDue :many") || !b.claimed.CompareAndSwap(false, true) {
+		return ctx
+	}
+	select {
+	case b.arrived <- data.Args[0].(time.Time):
+	case <-ctx.Done():
+		return ctx
+	}
+	select {
+	case <-b.release:
+	case <-ctx.Done():
+	}
+	return ctx
+}
+
+func (*cutoffBarrier) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
 
 func (f *fixture) startFleet(t *testing.T) *river.Client[pgx.Tx] {
 	t.Helper()
@@ -159,10 +188,19 @@ func TestCriticalAccountLifecycle(t *testing.T) {
 			t.Fatal("restore revived old credentials")
 		}
 	})
-	t.Run("AK-J25-C03_due_boundary_and_startup_catchup_preserve_recoverable_accounts", func(t *testing.T) {
+	t.Run("AK-J25-C03_due_boundary_and_startup_catchup_respect_scan_cutoff", func(t *testing.T) {
 		var mu sync.Mutex
 		seen := map[string]iam.UserDeletion{}
+		barrier := &cutoffBarrier{arrived: make(chan time.Time, 1), release: make(chan struct{})}
+		var release sync.Once
+		t.Cleanup(func() { release.Do(func() { close(barrier.release) }) })
 		f := newFixture(t, authtest.WithDeps(func(d *authkit.Deps) {
+			cfg := d.Postgres.Config()
+			cfg.ConnConfig.Tracer = barrier
+			pool, err := pgxpool.NewWithConfig(t.Context(), cfg)
+			noError(t, err)
+			t.Cleanup(pool.Close)
+			d.Postgres = pool
 			d.OnPurge = func(_ context.Context, deletion iam.UserDeletion) error {
 				mu.Lock()
 				seen[deletion.UserID] = deletion
@@ -170,23 +208,41 @@ func TestCriticalAccountLifecycle(t *testing.T) {
 				return nil
 			}
 		}))
-		anchor := time.Now().UTC().Truncate(time.Microsecond)
-		created := anchor.Add(-60 * 24 * time.Hour)
-		future := anchor.Add(-30*24*time.Hour + time.Hour)
-		due := anchor.Add(-30 * 24 * time.Hour)
-		past := due.Add(-time.Hour)
-		imported, err := f.auth.ImportUsers(t.Context(), []iam.ImportUser{{Username: "beforedue", CreatedAt: &created, DeletedAt: &future}, {Username: "atdue", CreatedAt: &created, DeletedAt: &due}, {Username: "pastdue", CreatedAt: &created, DeletedAt: &past}}, iam.ImportOptions{})
+		created := time.Now().UTC().Add(-60 * 24 * time.Hour)
+		deleted := created.Add(29 * 24 * time.Hour)
+		imported, err := f.auth.ImportUsers(t.Context(), []iam.ImportUser{{Username: "beforedue", CreatedAt: &created, DeletedAt: &deleted}, {Username: "atdue", CreatedAt: &created, DeletedAt: &deleted}, {Username: "pastdue", CreatedAt: &created, DeletedAt: &deleted}}, iam.ImportOptions{})
 		noError(t, err)
 		if imported.Inserted != 3 {
 			t.Fatalf("due fixture rejected: %+v", imported)
 		}
 		f.startFleet(t)
+		var anchor time.Time
+		select {
+		case anchor = <-barrier.arrived:
+		case <-time.After(10 * time.Second):
+			t.Fatal("real deletion sweep did not reach its database cutoff")
+		}
+		// Only these imported fixture timestamps are adjusted. Lifecycle state,
+		// recipients, receipts and all purge effects still come from AuthKit.
+		tx, err := f.pool.Begin(t.Context())
+		noError(t, err)
+		defer tx.Rollback(context.Background())
+		for i, offset := range []time.Duration{time.Microsecond, 0, -time.Microsecond} {
+			purgeAt := anchor.Add(offset)
+			deletedAt := purgeAt.Add(-30 * 24 * time.Hour)
+			_, err = tx.Exec(t.Context(), "UPDATE "+pgx.Identifier{f.schema, "users"}.Sanitize()+" SET deleted_at=$2 WHERE id=$1", imported.Rows[i].UserID, deletedAt)
+			noError(t, err)
+			_, err = tx.Exec(t.Context(), "UPDATE "+pgx.Identifier{f.schema, "account_deletions"}.Sanitize()+" SET deleted_at=$2, purge_at=$3 WHERE user_id=$1", imported.Rows[i].UserID, deletedAt, purgeAt)
+			noError(t, err)
+		}
+		noError(t, tx.Commit(t.Context()))
+		release.Do(func() { close(barrier.release) })
 		f.purged(t, imported.Rows[1].UserID)
 		f.purged(t, imported.Rows[2].UserID)
 		still, err := f.auth.User(t.Context(), iam.UserByID(imported.Rows[0].UserID), authkit.IncludeDeleted())
 		noError(t, err)
 		if still.DeletedAt == nil {
-			t.Fatal("recoverable account changed before its deadline")
+			t.Fatal("account beyond the fixed scan cutoff was purged")
 		}
 		mu.Lock()
 		defer mu.Unlock()

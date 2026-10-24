@@ -2,7 +2,7 @@ import { test } from "./browser"
 import { expect } from "@playwright/test"
 import { enrollRequired, login, open, seed } from "./browser"
 
-test("TS contract: group role mutations and API-key/PAT ceilings use the real permission store", async ({
+test("AK-UI-08: TS contract: group role mutations and API-key/PAT ceilings use the real permission store", async ({
   page,
   request,
 }) => {
@@ -204,7 +204,7 @@ test("TS contract: group role mutations and API-key/PAT ceilings use the real pe
   ).toBe(401)
 })
 
-test("TS contract: own-session revocation preserves the caller and records the actual other session", async ({
+test("AK-UI-09: TS contract: own-session revocation preserves the caller and records the actual other session", async ({
   browser,
   page,
   request,
@@ -260,7 +260,7 @@ test("TS contract: own-session revocation preserves the caller and records the a
   }
 })
 
-test("TS contract: administrator user lifecycle, session containment and retained event reads", async ({
+test("AK-UI-10: TS contract: administrator user lifecycle, session containment and retained event reads", async ({
   page,
   request,
   browser,

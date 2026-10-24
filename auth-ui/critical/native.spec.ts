@@ -2,7 +2,7 @@ import { test } from "./browser"
 import { expect } from "@playwright/test"
 import { code, deliveries, identity, nextCode, open } from "./browser"
 
-test("AK-J29-C05: native signup, contact change, MFA login and confirmed deletion use real service state", async ({
+test("AK-UI-07: AK-J29-C05: native signup, contact change, MFA login and confirmed deletion use real service state", async ({
   page,
   request,
 }) => {

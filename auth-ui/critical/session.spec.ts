@@ -2,7 +2,7 @@ import { test } from "./browser"
 import { expect } from "@playwright/test"
 import { identity, login, open, register, seed } from "./browser"
 
-test("AK-J29-C01: start, stop, subscribe and browser restore retain only the current identity", async ({
+test("AK-UI-01: AK-J29-C01: start, stop, subscribe and browser restore retain only the current identity", async ({
   page,
   request,
 }) => {
@@ -69,7 +69,7 @@ test("AK-J29-C01: start, stop, subscribe and browser restore retain only the cur
   await expect(page.getByTestId("session-status")).toHaveText("anonymous")
 })
 
-test("AK-J29-C04: registration callback follows real contact proof and does not replay on refresh", async ({
+test("AK-UI-02: AK-J29-C04: registration callback follows real contact proof and does not replay on refresh", async ({
   page,
   request,
 }) => {
@@ -109,7 +109,7 @@ test("AK-J29-C04: registration callback follows real contact proof and does not 
   ).toHaveLength(1)
 })
 
-test("AK-J29-C02: concurrent refresh coalesces and a real network outage preserves the account", async ({
+test("AK-UI-03: AK-J29-C02: concurrent refresh coalesces and a real network outage preserves the account", async ({
   page,
   request,
 }) => {
@@ -169,7 +169,7 @@ test("AK-J29-C02: concurrent refresh coalesces and a real network outage preserv
   await expect(page.getByTestId("session-user")).toHaveText(who.id)
 })
 
-test("AK-J29-C03: a delayed real profile response cannot cross logout and account switch", async ({
+test("AK-UI-04: AK-J29-C03: a delayed real profile response cannot cross logout and account switch", async ({
   page,
   request,
 }) => {
@@ -240,7 +240,7 @@ test("AK-J29-C03: a delayed real profile response cannot cross logout and accoun
   expect(crossed).toBe(false)
 })
 
-test("AK-J29-C06: real auth errors, rate limits and abort preserve their public meaning", async ({
+test("AK-UI-05: AK-J29-C06: real auth errors, rate limits and abort preserve their public meaning", async ({
   page,
   request,
 }) => {
@@ -317,7 +317,7 @@ test("AK-J29-C06: real auth errors, rate limits and abort preserve their public 
   expect(await page.evaluate(() => document.cookie)).not.toContain("refresh")
 })
 
-test("AK-J29-C04: contact proof cannot replay a mutation across a replacement sign-in", async ({
+test("AK-UI-06: AK-J29-C04: contact proof cannot replay a mutation across a replacement sign-in", async ({
   page,
 }) => {
   const who = identity()

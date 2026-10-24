@@ -2,7 +2,7 @@ import { test } from "./browser"
 import { expect } from "@playwright/test"
 import { deliveries, login, nextCode, open, seed, totp } from "./browser"
 
-test("TS contract: strong-factor lifecycle, backup replacement and fresh proof use actual challenges", async ({
+test("AK-UI-14: TS contract: strong-factor lifecycle, backup replacement and fresh proof use actual challenges", async ({
   page,
   request,
 }) => {
@@ -181,7 +181,7 @@ test("TS contract: strong-factor lifecycle, backup replacement and fresh proof u
   expect(disabled.two_factor.backup_codes_remaining).toBe(0)
 })
 
-test("TS contract: browser-bound access is usable only with its real DPoP proof and not replayable", async ({
+test("AK-UI-15: TS contract: browser-bound access is usable only with its real DPoP proof and not replayable", async ({
   page,
   request,
 }) => {

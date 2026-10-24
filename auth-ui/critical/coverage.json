@@ -1,4 +1,21 @@
 {
+  "requiredExecutableCaseIDs": [
+    "AK-UI-01",
+    "AK-UI-02",
+    "AK-UI-03",
+    "AK-UI-04",
+    "AK-UI-05",
+    "AK-UI-06",
+    "AK-UI-07",
+    "AK-UI-08",
+    "AK-UI-09",
+    "AK-UI-10",
+    "AK-UI-11",
+    "AK-UI-12",
+    "AK-UI-13",
+    "AK-UI-14",
+    "AK-UI-15"
+  ],
   "requiredScenarioIDs": [
     "AK-J29-C01",
     "AK-J29-C02",
