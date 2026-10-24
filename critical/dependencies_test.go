@@ -7,6 +7,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -16,6 +18,7 @@ import (
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/provider"
+	"github.com/redis/go-redis/v9"
 )
 
 // One representative of each bucket used by the selected functional routes.
@@ -27,6 +30,45 @@ var rateBucketRows []byte
 
 func criticalDependencyBoundaries(t *testing.T) {
 	t.Helper()
+	t.Run("Redis_disconnect_keeps_a_bounded_process_local_budget", func(t *testing.T) {
+		if os.Getenv("AUTHKIT_TEST_REDIS_URL") == "" {
+			t.Fatal("Redis fixture required")
+		}
+		u, err := url.Parse(os.Getenv("AUTHKIT_TEST_REDIS_URL"))
+		noError(t, err)
+		link := newDatabaseLink(t, u.Host)
+		u.Host = link.listener.Addr().String()
+		opts, err := redis.ParseURL(u.String())
+		noError(t, err)
+		opts.MaxRetries = -1
+		opts.DialTimeout = time.Second
+		opts.ReadTimeout = time.Second
+		opts.WriteTimeout = time.Second
+		rdb := redis.NewClient(opts)
+		t.Cleanup(func() { _ = rdb.Close() })
+		noError(t, rdb.Ping(t.Context()).Err())
+		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
+			c.HTTP.RateLimits = map[string]authkit.RateLimit{"capabilities_read": {Limit: 1, Window: time.Minute}}
+		}), authtest.WithDeps(func(d *authkit.Deps) { d.Redis = rdb }))
+		f.call(t, "GET", "/capabilities", "", nil).want(t, 200, "")
+		link.cut()
+		// The fallback has its own counters: shared history is not copied.
+		// It allows its one local request, then keeps the configured limit.
+		f.call(t, "GET", "/capabilities", "", nil).want(t, 200, "")
+		f.call(t, "GET", "/capabilities", "", nil).want(t, 429, "rate_limited")
+		found := false
+		for _, probe := range f.auth.Probes() {
+			if probe.Name == "authkit_redis" {
+				found = true
+				if probe.Check(t.Context()) == nil {
+					t.Fatal("Redis probe hid the actual connection failure")
+				}
+			}
+		}
+		if !found {
+			t.Fatal("configured Redis omitted its public probe")
+		}
+	})
 	t.Run("each_selected_route_bucket_limits_before_authentication", func(t *testing.T) {
 		f := fullSurfaceFixture(t)
 		var rows []struct{ Bucket, Method, Path string }
