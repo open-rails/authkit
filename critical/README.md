@@ -1,6 +1,6 @@
 AuthKit's critical suite exercises the public embedded Go client, the mounted HTTP server, real Gin/Fiber adapters, PostgreSQL, Redis, and River. Email/SMS delivery is captured at the external sender boundary. External issuer failures use local TLS servers; storage outages cut a real owned TCP connection. No AuthKit service or authorization result is mocked.
 
-`scenarios.json` names the 102 Go scenarios selected by tracker #1290. The six browser/TypeScript scenarios run in the separate `auth-ui` suite. The required result checker rejects failures, skips, missing scenario passes, and duplicate scenario IDs; a passing nested branch cannot qualify a failed parent scenario.
+`scenarios.json` names the 102 Go scenarios selected by tracker #1290. The separate `auth-ui` suite requires six J29 scenario IDs, exercised with the selected client methods in 15 browser/client cases. The required result checker rejects failures, skips, missing scenario passes, and duplicate scenario IDs; a passing nested branch cannot qualify a failed parent scenario.
 
 Run the backend suite with `scripts/check.sh workflows`, or select a journey locally with `go test -run 'TestCriticalSessions' -v ./critical`. Set `AUTHKIT_TEST_DATABASE_URL` and `AUTHKIT_TEST_REDIS_URL` to disposable services. Each journey owns a PostgreSQL schema; no test skips because a service is missing. `scripts/check.sh contracts` retains compiler/vet, sqlc generation/validation, and released migration checks.
 
