@@ -205,8 +205,13 @@ func (s *Engine) apiKeyClaims(ctx context.Context, token string) (verify.Claims,
 		return verify.Claims{}, iam.ErrAPIKeyRevoked
 	case errors.Is(err, iam.ErrAPIKeyExpired):
 		return verify.Claims{}, iam.ErrAPIKeyExpired
-	case err != nil:
+	case errors.Is(err, iam.ErrAPIKeyInvalid):
 		return verify.Claims{}, iam.ErrAPIKeyInvalid
+	case err != nil:
+		// A failed lookup does not establish that the credential is invalid.
+		// Preserve an unavailable authority for consumers while keeping the
+		// storage error out of the public response.
+		return verify.Claims{}, errmodel.Internal("api_key_lookup", err)
 	}
 	return verify.Claims{
 		Kind:        verify.TokenAPIKey,
