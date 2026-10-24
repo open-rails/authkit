@@ -30,6 +30,9 @@ jobs:
       root: ${{ steps.suites.outputs.root }}
       ui: ${{ steps.suites.outputs.ui }}
       workflow: ${{ steps.suites.outputs.workflow }}
+      security: ${{ steps.suites.outputs.security }}
+      base_ref: ${{ steps.source.outputs.base_ref }}
+      base_sha: ${{ steps.source.outputs.base_sha }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -37,13 +40,17 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Verify tested merge
+        id: source
         env:
+          GH_TOKEN: ${{ github.token }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           python3 - <<'CHECK'
-          import os, subprocess
+          import os, re, subprocess
           from pathlib import Path
+          from urllib.parse import quote
           tested = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
           if tested != os.environ['GITHUB_SHA']:
               raise SystemExit('checkout differs from workflow test commit')
@@ -54,6 +61,15 @@ jobs:
               expected = [os.environ['PR_BASE_SHA'], os.environ['PR_HEAD_SHA']]
               if parents != expected:
                   raise SystemExit(f'expected PR merge parents {expected}, got {parents}')
+              ref = os.environ['PR_BASE_REF']
+              if not ref:
+                  raise SystemExit('missing PR base ref')
+              endpoint = f'repos/{os.environ["GITHUB_REPOSITORY"]}/git/ref/heads/{quote(ref, safe="/")}'
+              current = subprocess.check_output(['gh', 'api', endpoint, '--jq', '.object.sha'], text=True).strip()
+              if not re.fullmatch(r'[0-9a-f]{40}', current) or current != expected[0]:
+                  raise SystemExit('base changed; update the PR and rerun')
+              with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
+                  output.write(f'base_ref={ref}\nbase_sha={current}\n')
               lines += [f'Base: `{expected[0]}`', f'PR head: `{expected[1]}`']
           with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as summary:
               summary.write('\n'.join(lines) + '\n')
@@ -169,7 +185,7 @@ jobs:
   # the repositories that carry those build surfaces.
   security:
     needs: changes
-    if: needs.changes.outputs.root == 'true'
+    if: needs.changes.outputs.security == 'true'
     name: Required Security
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -209,11 +225,40 @@ jobs:
     needs: [changes, workflow-lint, workflows, contracts, security, auth-ui]
     if: always() && github.event.pull_request.draft != true
     runs-on: ubuntu-24.04
-    timeout-minutes: 2
+    timeout-minutes: 5
     steps:
-      - env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
+      - name: Require selected suites and current base
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+          GH_TOKEN: ${{ github.token }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          for result in $RESULTS; do
-            [[ "$result" == success || "$result" == skipped ]] || exit 1
-          done
+          python3 - <<'CHECK'
+          import json, os, re, subprocess
+          from urllib.parse import quote
+          result = json.loads(os.environ['RESULTS'])
+          if result['changes']['result'] != 'success':
+              raise SystemExit('suite selection failed or did not run')
+          plan = result['changes']['outputs']
+          for flag in ('root', 'ui', 'workflow', 'security'):
+              if plan.get(flag) not in ('true', 'false'):
+                  raise SystemExit(f'missing or invalid suite selection: {flag}')
+          required = {'workflows': 'root', 'contracts': 'root', 'security': 'security',
+                      'auth-ui': 'ui', 'workflow-lint': 'workflow'}
+          for job, flag in required.items():
+              expected = 'success' if plan[flag] == 'true' else 'skipped'
+              actual = result[job]['result']
+              if actual != expected:
+                  raise SystemExit(f'{job}: {actual}; expected {expected}')
+          if os.environ['GITHUB_EVENT_NAME'] == 'pull_request':
+              ref, base = os.environ['PR_BASE_REF'], os.environ['PR_BASE_SHA']
+              if not ref or not re.fullmatch(r'[0-9a-f]{40}', base):
+                  raise SystemExit('missing PR base identity')
+              if plan.get('base_ref') != ref or plan.get('base_sha') != base:
+                  raise SystemExit('tested base is missing or differs from the event')
+              endpoint = f'repos/{os.environ["GITHUB_REPOSITORY"]}/git/ref/heads/{quote(ref, safe="/")}'
+              current = subprocess.check_output(['gh', 'api', endpoint, '--jq', '.object.sha'], text=True).strip()
+              if current != base:
+                  raise SystemExit('base changed during tests; update the PR and rerun')
+          CHECK

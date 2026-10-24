@@ -53,7 +53,7 @@ def select(changes: list[tuple[str, tuple[str, ...]]]) -> dict[str, bool]:
         else:
             # Shared/API/dependency/schema/CI inputs and unknown paths are full.
             root = ui = True
-    return {"root": root, "ui": ui, "workflow": workflow}
+    return {"root": root, "ui": ui, "workflow": workflow, "security": bool(changes)}
 
 
 def main() -> None:
@@ -64,7 +64,7 @@ def main() -> None:
     parser.add_argument("--github-output", type=Path)
     args = parser.parse_args()
     if args.full:
-        result = {"root": True, "ui": True, "workflow": True}
+        result = {"root": True, "ui": True, "workflow": True, "security": True}
     else:
         if not args.base or not args.head:
             parser.error("--base and --head are required without --full")
