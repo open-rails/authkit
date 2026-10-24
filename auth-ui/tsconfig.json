@@ -14,16 +14,10 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "types": ["vite/client", "vitest/globals"],
+    "types": ["vite/client"],
     "paths": {
       "#authui/*": ["./src/*"]
     }
   },
-  "include": [
-    "src",
-    "tooling",
-    "vite.config.ts",
-    "vitest.config.ts",
-    "eslint.config.js"
-  ]
+  "include": ["src", "tooling", "vite.config.ts", "eslint.config.js"]
 }

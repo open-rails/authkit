@@ -1,4 +1,4 @@
-// Package harness builds the AuthKit runtime the e2e server serves.
+// Package harness supplies real AuthKit runtimes for the critical browser suite.
 package harness
 
 import (
@@ -6,10 +6,6 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
-	"errors"
-	"slices"
-	"strings"
-	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -17,192 +13,71 @@ import (
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/keys"
-	"github.com/open-rails/authkit/provider"
 )
 
-const (
-	Schema   = "profiles"
-	Audience = "auth-ui-e2e"
-	// HostClient is the token-exchange client the page gets resource tokens
-	// through.
-	HostClient = "e2e-host"
-	// ResourcePath is the test resource server, beneath the origin.
-	ResourcePath = "/__test/resource"
-	// ConsoleClient is a public client on another origin (ConsoleOrigin)
-	// signing users in at this issuer.
-	ConsoleClient = "e2e-console"
-	// MerchantPersona's groups are what /__test/groups creates, giving the
-	// user MerchantRole there.
-	MerchantPersona = "merchant"
-	MerchantRole    = "staff"
-)
+const Persona = "project"
 
-// The admin specs' roles. In a merchant group: staff reads billing only,
-// viewer also sees members, roles and credentials, admin manages them but
-// holds no billing:manage, so the owner outranks it. On root, rolesadmin
-// reads members and defines custom roles; support reads accounts, moderator
-// also bans, deletes and restores them (neither needs a second factor).
-
-// Resource is the test resource server's identifier (the tokens' aud).
-func Resource(baseURL string) string { return baseURL + ResourcePath }
-
-// ConsoleOrigin is the console's origin: the same server reached as
-// 127.0.0.1, so the browser treats it as cross-origin to localhost.
-func ConsoleOrigin(baseURL string) string {
-	return strings.Replace(baseURL, "://localhost:", "://127.0.0.1:", 1)
-}
-
-// Runtime is a started-or-not AuthKit instance plus its captured deliveries
-// and the identity provider it trusts.
+// Runtime contains the real service and a capture of its external deliveries.
 type Runtime struct {
 	*authkit.Client
-	Outbox       *authtest.Outbox
-	IdP          *IdP
-	Entitlements *Entitlements
+	Outbox *authtest.Outbox
 }
 
-// Entitlements is the host's entitlement store, as a billing system would
-// answer it: what /__test/entitlements grants.
-type Entitlements struct {
-	mu   sync.Mutex
-	held map[string][]string
-}
-
-func (e *Entitlements) Grant(userID, name string) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if !slices.Contains(e.held[userID], name) {
-		e.held[userID] = append(e.held[userID], name)
-	}
-}
-
-func (e *Entitlements) of(_ context.Context, ids []string) (map[string][]string, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	out := map[string][]string{}
-	for _, id := range ids {
-		if names := e.held[id]; len(names) > 0 {
-			out[id] = slices.Clone(names)
-		}
-	}
-	return out, nil
-}
-
-func (e *Entitlements) holders(_ context.Context, name string) ([]string, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	var ids []string
-	for id, names := range e.held {
-		if slices.Contains(names, name) {
-			ids = append(ids, id)
-		}
-	}
-	return ids, nil
-}
-
-// Open connects to dsn; New creates AuthKit's tables.
-func Open(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
-	if dsn == "" {
-		return nil, errors.New("harness: Postgres DSN is required")
-	}
-	return pgxpool.New(ctx, dsn)
-}
-
-// New builds the runtime for baseURL (the single same-origin SPA+API origin).
-func New(baseURL string, pool *pgxpool.Pool) (*Runtime, error) {
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
+func New(ctx context.Context, origin, schema string, pool *pgxpool.Pool, profile string) (*Runtime, error) {
+	private, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return nil, err
 	}
-	signer, err := keys.SignerFromKey("e2e-1", key)
+	signer, err := keys.SignerFromKey("critical-browser", private)
 	if err != nil {
 		return nil, err
 	}
+	roles := authkit.NewRoles(authkit.CustomRoles)
+	root := roles.Root
+	root.Role("reader", root.Users.Read)
+	root.Role("operator", root.Users.Read, root.Users.Manage, root.Users.Ban, root.Users.Delete, root.Members.Read, root.Members.Manage, root.Roles.Read, root.Roles.Manage)
+	project := roles.Persona(Persona, authkit.APIKeys, authkit.CustomRoles)
+	read := project.Permission("records", "read")
+	write := project.Permission("records", "write")
+	project.Role("viewer", read)
+	project.Role("manager", read, write, project.Members.Read, project.Members.Manage, project.Roles.Read, project.Roles.Manage, project.Credentials.Read, project.Credentials.Manage)
 	limits := authkit.DefaultRateLimits()
 	for bucket := range limits {
 		limits[bucket] = authkit.RateLimit{Limit: 10000, Window: time.Minute}
 	}
+	if profile == "limited" {
+		limits["capabilities_read"] = authkit.RateLimit{Limit: 1, Window: time.Minute}
+	}
+	tenant, err := iam.ParseTenantID("00000000-0000-4000-8000-000000001290")
+	if err != nil {
+		return nil, err
+	}
+	totpKey := make([]byte, 32)
+	if _, err := rand.Read(totpKey); err != nil {
+		return nil, err
+	}
 	outbox := &authtest.Outbox{}
-	idp, err := NewIdP(baseURL)
-	if err != nil {
-		return nil, err
-	}
-	// Merchants: groups a resource token can be bound to (group_id), which
-	// register their own OAuth clients.
-	roles := authkit.NewRoles(authkit.CustomRoles)
-	root := roles.Root
-	root.Role("rolesadmin", root.Members.Read, root.Roles.Read, root.Roles.Manage)
-	root.Role("support", root.Users.Read)
-	root.Role("moderator", root.Users.Read, root.Users.Ban, root.Users.Delete)
-	merchant := roles.Persona(MerchantPersona, authkit.APIKeys, authkit.CustomRoles, authkit.OAuthClients, authkit.RemoteApplications)
-	billing := merchant.Permission("billing", "read")
-	merchant.Permission("billing", "manage")
-	merchant.Role(MerchantRole, billing)
-	merchant.Role("viewer", billing, merchant.Members.Read, merchant.Roles.Read, merchant.Credentials.Read)
-	merchant.Role("admin", billing, merchant.Members.Read, merchant.Members.Manage, merchant.Roles.Read,
-		merchant.Roles.Manage, merchant.Credentials.Read, merchant.Credentials.Manage)
-	// The reusable browser fixture owns one stable account directory across
-	// restarts; it is never an unbound production tenant selector.
-	tenant, err := iam.ParseTenantID("00000000-0000-4000-8000-000000000001")
-	if err != nil {
-		return nil, err
-	}
 	cfg := authkit.Config{
-		DefaultTenantID: tenant,
-		Roles:           roles,
-		HTTP: &authkit.HTTPConfig{
-			DirectPeerIP:  true,
-			RateLimits:    limits,
-			RefreshCookie: true,
-		},
-		Database: authkit.DatabaseConfig{Schema: Schema},
-		Token: authkit.TokenConfig{
-			Issuer:          baseURL,
-			IssuedAudiences: []string{Audience},
-		},
-		Frontend: authkit.FrontendConfig{BaseURL: baseURL, AuthorizePath: "/authorize.html"},
-		Registration: authkit.RegistrationConfig{
-			Verification:      iam.RegistrationVerificationRequired,
-			PasswordlessLogin: true,
-		},
-		TwoFactor: authkit.TwoFactorConfig{
-			Mode:          iam.TwoFactorOptional,
-			TOTPSecretKey: []byte("auth-ui-e2e-totp-key-32-bytes!!!"),
-		},
-		Passkeys: authkit.PasskeyConfig{
-			RPID:          "localhost",
-			RPDisplayName: "auth-ui e2e",
-			Origins:       []string{baseURL},
-		},
-		SolanaNetwork: "devnet",
-		AuthorizationServer: authkit.AuthorizationServerConfig{
-			Resources: []authkit.ResourceServerConfig{{ID: Resource(baseURL), Scopes: []string{"e2e:read"}}},
-			Clients: []authkit.OAuthClientConfig{{
-				ID: HostClient, Resources: []string{Resource(baseURL)},
-				GrantTypes: []authkit.OAuthGrantType{authkit.GrantTokenExchange},
-			}, {
-				ID: ConsoleClient, Name: "E2E Console", Resources: []string{Resource(baseURL)},
-				RedirectURIs:           []string{ConsoleOrigin(baseURL) + "/console.html"},
-				PostLogoutRedirectURIs: []string{ConsoleOrigin(baseURL) + "/signed-out.html"},
-				GrantTypes:             []authkit.OAuthGrantType{authkit.GrantAuthorizationCode, authkit.GrantRefreshToken},
-			}},
-		},
+		DefaultTenantID:      tenant,
+		Roles:                roles,
+		HTTP:                 &authkit.HTTPConfig{DirectPeerIP: true, RefreshCookie: true, RateLimits: limits},
+		Database:             authkit.DatabaseConfig{Schema: schema},
+		Token:                authkit.TokenConfig{Issuer: origin, IssuedAudiences: []string{"critical-browser"}, SessionMaxPerUser: 10},
+		Frontend:             authkit.FrontendConfig{BaseURL: origin},
+		Registration:         authkit.RegistrationConfig{Verification: iam.RegistrationVerificationRequired, PasswordlessLogin: true},
+		TwoFactor:            authkit.TwoFactorConfig{Mode: iam.TwoFactorOptional, TOTPSecretKey: totpKey},
+		PersonalAccessTokens: authkit.PersonalAccessTokensConfig{Enabled: true},
 	}
-	ents := &Entitlements{held: map[string][]string{}}
-	rt, err := authkit.New(context.Background(), cfg, authkit.Deps{
-		Postgres: pool,
-		KeySource: keys.Static{
-			Active: signer,
-			Public: map[string]crypto.PublicKey{signer.KID(): signer.Public()},
-		},
-		Providers:          []provider.Provider{idp.Provider()},
-		Email:              outbox.Email(),
-		SMS:                outbox.SMS(),
-		Entitlements:       ents.of,
-		EntitlementHolders: ents.holders,
+	if profile == "unproved" {
+		cfg.Registration.Verification = iam.RegistrationVerificationOptional
+	}
+	client, err := authkit.New(ctx, cfg, authkit.Deps{
+		Postgres:  pool,
+		KeySource: keys.Static{Active: signer, Public: map[string]crypto.PublicKey{signer.KID(): signer.Public()}},
+		Email:     outbox.Email(), SMS: outbox.SMS(),
 	})
 	if err != nil {
 		return nil, err
 	}
-	return &Runtime{Client: rt, Outbox: outbox, IdP: idp, Entitlements: ents}, nil
+	return &Runtime{Client: client, Outbox: outbox}, nil
 }

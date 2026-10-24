@@ -1,230 +1,187 @@
-// Command server runs a real AuthKit HTTP surface on Postgres for auth-ui's
-// Playwright suite. Test-only: it exposes captured email/SMS at /__test/outbox.
+// Command server is a loopback-only real AuthKit fixture, never a deployment entrypoint.
 package main
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/auth-ui/e2e/server/harness"
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/verify"
 )
 
 func main() {
-	addr := flag.String("addr", "127.0.0.1:4780", "listen address")
-	baseURL := flag.String("base-url", "", "public origin (default http://localhost:<port>)")
-	dsn := flag.String("dsn", os.Getenv("DATABASE_URL"), "Postgres DSN")
-	static := flag.String("static", "", "directory served at /")
-	lifetime := flag.Duration("lifetime", 30*time.Minute, "exit after this long")
+	addr := flag.String("addr", "127.0.0.1:4780", "loopback listener")
+	origin := flag.String("origin", "http://localhost:4780", "browser origin")
+	dist := flag.String("dist", "", "built auth-ui package")
+	app := flag.String("app", "", "built critical host application")
 	flag.Parse()
-	if *baseURL == "" {
-		_, port, err := net.SplitHostPort(*addr)
-		if err != nil {
-			log.Fatal(err)
-		}
-		*baseURL = "http://localhost:" + port
+	host, _, err := net.SplitHostPort(*addr)
+	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
+		log.Fatal("critical fixture requires a loopback listener")
 	}
-	if err := run(*addr, *baseURL, *dsn, *static, *lifetime); err != nil {
+	if err := run(*addr, *origin, *dist, *app); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(addr, baseURL, dsn, static string, lifetime time.Duration) error {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	ctx, cancel := context.WithTimeout(ctx, lifetime)
+func run(addr, origin, dist, app string) error {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-
-	pool, err := harness.Open(ctx, dsn)
+	pool, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
-	rt, err := harness.New(baseURL, pool)
+	rt, err := harness.New(ctx, origin, "critical_ui", pool, "main")
 	if err != nil {
 		return err
 	}
 	defer rt.Close(context.WithoutCancel(ctx))
-	if err := rt.Start(ctx); err != nil {
+	if err = rt.Start(ctx); err != nil {
 		return err
 	}
-
-	mux := http.NewServeMux()
-	if err := rt.Mount(mux); err != nil {
-		return err
-	}
-	// A resource server accepting the issuer's DPoP-bound access tokens,
-	// with server nonces, as another service's API would.
-	nonceKey := make([]byte, 32)
-	if _, err := rand.Read(nonceKey); err != nil {
-		return err
-	}
-	resource, err := rt.NewVerifier([]string{harness.Resource(baseURL)}, verify.WithPublicURL(baseURL), verify.WithDPoPNonce(nonceKey))
+	limited, err := harness.New(ctx, origin+"/limited", "critical_ui_limited", pool, "limited")
 	if err != nil {
 		return err
 	}
-	whoami := verify.Required(resource)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cl, _ := verify.ClaimsFromContext(r.Context())
-		w.Header().Set("Content-Type", "application/json")
-		out := map[string]any{"sub": cl.Subject, "client_id": cl.ClientID, "scopes": cl.Scopes, "jkt": cl.JWKThumbprint}
-		if cl.Group != nil {
-			out["group_id"] = cl.Group.GroupID
-		}
-		_ = json.NewEncoder(w).Encode(out)
-	}))
-	// The console calls it from its own origin: CORS without credentials,
-	// exposing the DPoP challenge headers.
-	console := harness.ConsoleOrigin(baseURL)
-	cors := func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Add("Vary", "Origin")
-			if r.Header.Get("Origin") == console {
-				w.Header().Set("Access-Control-Allow-Origin", console)
-				w.Header().Set("Access-Control-Expose-Headers", "DPoP-Nonce, WWW-Authenticate")
-			}
-			if r.Method == http.MethodOptions {
-				w.Header().Set("Access-Control-Allow-Headers", "Authorization, DPoP")
-				w.Header().Set("Access-Control-Allow-Methods", "GET")
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-	mux.Handle("GET "+harness.ResourcePath+"/whoami", cors(whoami))
-	mux.Handle("OPTIONS "+harness.ResourcePath+"/whoami", cors(whoami))
-	rt.IdP.Mount(mux)
-	mux.HandleFunc("GET /__test/outbox", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(rt.Outbox.Messages("", r.URL.Query().Get("to")))
-	})
-	// Creates a merchant group and gives the user a role there (?role=, the
-	// staff role by default): a group a resource token can be bound to.
-	mux.HandleFunc("POST /__test/groups", func(w http.ResponseWriter, r *http.Request) {
-		id, err := staffGroup(r.Context(), rt, r.URL.Query().Get("email"), r.URL.Query().Get("role"))
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"id": id})
-	})
-	// Gives the user a role in a group (?group=, root for root; ?role= of
-	// the group's persona).
-	mux.HandleFunc("POST /__test/members", func(w http.ResponseWriter, r *http.Request) {
-		q := r.URL.Query()
-		if err := member(r.Context(), rt, q.Get("group"), q.Get("email"), q.Get("role")); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})
-	// Changes individual MFA policy without impersonating the account.
-	mux.HandleFunc("POST /__test/mfa-policy", func(w http.ResponseWriter, r *http.Request) {
-		u, err := rt.User(r.Context(), iam.UserByEmail(r.URL.Query().Get("email")))
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		required := r.URL.Query().Get("required") != "false"
-		if _, err := rt.UpdateUser(r.Context(), iam.SystemIdentity(), u.ID, iam.UserUpdate{MFARequired: &required}); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})
-	// Grants the user an entitlement (?name=) in the host's store.
-	mux.HandleFunc("POST /__test/entitlements", func(w http.ResponseWriter, r *http.Request) {
-		u, err := rt.User(r.Context(), iam.UserByEmail(r.URL.Query().Get("email")))
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		rt.Entitlements.Grant(u.ID, r.URL.Query().Get("name"))
-		w.WriteHeader(http.StatusNoContent)
-	})
-	// Ages the user's sessions, and their second-factor proofs, past the
-	// sensitive-action window, so the next refreshed token demands a step-up.
-	mux.HandleFunc("POST /__test/stale-sessions", func(w http.ResponseWriter, r *http.Request) {
-		_, err := pool.Exec(r.Context(), `UPDATE `+harness.Schema+`.refresh_sessions
-			SET last_authenticated_at = now() - interval '1 hour',
-			    mfa_authenticated_at = CASE WHEN mfa_authenticated_at IS NULL THEN NULL ELSE now() - interval '1 hour' END
-			WHERE user_id = (SELECT id FROM `+harness.Schema+`.users WHERE email = $1)`,
-			r.URL.Query().Get("email"))
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})
-	if static != "" {
-		mux.Handle("GET /", http.FileServer(http.Dir(static)))
-		// The admin fixture app answers its deep links, provider returns included.
-		for _, prefix := range []string{"/alone/", "/router/", "/stepup/"} {
-			mux.HandleFunc("GET "+prefix, func(w http.ResponseWriter, r *http.Request) {
-				http.ServeFile(w, r, filepath.Join(static, "admin.html"))
-			})
-		}
-	}
-
-	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
-	errc := make(chan error, 1)
-	go func() { errc <- srv.ListenAndServe() }()
-	log.Printf("auth-ui e2e server on %s (%s)", addr, baseURL)
-	select {
-	case err := <-errc:
+	defer limited.Close(context.WithoutCancel(ctx))
+	if err = limited.Start(ctx); err != nil {
 		return err
+	}
+	unproved, err := harness.New(ctx, origin+"/unproved", "critical_ui_unproved", pool, "unproved")
+	if err != nil {
+		return err
+	}
+	defer unproved.Close(context.WithoutCancel(ctx))
+	if err = unproved.Start(ctx); err != nil {
+		return err
+	}
+	mux := http.NewServeMux()
+	if err = rt.Mount(mux); err != nil {
+		return err
+	}
+	if err = limited.Mount(mux); err != nil {
+		return err
+	}
+	if err = unproved.Mount(mux); err != nil {
+		return err
+	}
+	fixture(mux, rt, unproved)
+	mux.Handle("GET /__package/", http.StripPrefix("/__package/", http.FileServer(http.Dir(dist))))
+	mux.Handle("GET /__app/", http.StripPrefix("/__app/", http.FileServer(http.Dir(app))))
+	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = fmt.Fprint(w, `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/__package/styles.css"><title>AuthKit critical integration</title></head><body><div id="root"></div><script type="module" src="/__app/app.js"></script></body></html>`)
+	})
+	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	failed := make(chan error, 1)
+	go func() { failed <- srv.ListenAndServe() }()
+	select {
+	case err := <-failed:
+		if !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
 	case <-ctx.Done():
 	}
-	shutdown, done := context.WithTimeout(context.Background(), 5*time.Second)
+	stop, done := context.WithTimeout(context.Background(), 5*time.Second)
 	defer done()
-	return srv.Shutdown(shutdown)
+	return srv.Shutdown(stop)
 }
 
-// staffGroup creates a merchant group and gives the user with email role
-// there, the staff role when empty.
-func staffGroup(ctx context.Context, rt *harness.Runtime, email, role string) (string, error) {
-	persona, err := rt.Persona(harness.MerchantPersona)
-	if err != nil {
-		return "", err
+func reply(w http.ResponseWriter, status int, value any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if value != nil {
+		_ = json.NewEncoder(w).Encode(value)
 	}
-	if role == "" {
-		role = harness.MerchantRole
-	}
-	held, err := rt.Role(harness.MerchantPersona + ":" + role)
-	if err != nil {
-		return "", err
-	}
-	g, err := rt.CreateGroup(ctx, iam.NewGroup{Persona: persona})
-	if err != nil {
-		return "", err
-	}
-	_, err = rt.EnsureUserRole(ctx, iam.GroupByID(g.ID), iam.UserByEmail(email), held)
-	return g.ID, err
 }
 
-// member gives the user with email role in group: "root" or a merchant
-// group's id.
-func member(ctx context.Context, rt *harness.Runtime, group, email, role string) error {
-	ref, persona := iam.GroupByID(group), harness.MerchantPersona
-	if group == "root" {
-		ref, persona = iam.RootGroup(), "root"
-	}
-	held, err := rt.Role(persona + ":" + role)
-	if err != nil {
-		return err
-	}
-	_, err = rt.EnsureUserRole(ctx, ref, iam.UserByEmail(email), held)
-	return err
+// All controls seed through trusted public host methods. Outcomes under test are
+// observed through the real SDK/HTTP surface; no direct table mutations exist.
+func fixture(mux *http.ServeMux, rt, unproved *harness.Runtime) {
+	mux.HandleFunc("GET /__fixture/deliveries", func(w http.ResponseWriter, r *http.Request) {
+		outbox := rt.Outbox
+		if r.URL.Query().Get("profile") == "unproved" {
+			outbox = unproved.Outbox
+		}
+		reply(w, 200, outbox.Messages("", r.URL.Query().Get("to")))
+	})
+	mux.HandleFunc("POST /__fixture/user", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Email, Phone, Username, Password, RootRole string
+			Verified                                   bool
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&in); err != nil {
+			reply(w, 400, map[string]string{"error": err.Error()})
+			return
+		}
+		u, err := rt.CreateUser(r.Context(), iam.NewUser{Email: in.Email, Phone: in.Phone, Username: in.Username, Password: in.Password, EmailVerified: in.Verified && in.Email != "", PhoneVerified: in.Verified && in.Phone != ""})
+		if err == nil && in.RootRole != "" {
+			var role iam.Role
+			role, err = rt.Role("root:" + in.RootRole)
+			if err == nil {
+				_, err = rt.EnsureUserRole(r.Context(), iam.RootGroup(), iam.UserByID(u.ID), role)
+			}
+		}
+		if err != nil {
+			reply(w, 400, map[string]string{"error": err.Error()})
+			return
+		}
+		reply(w, 201, u)
+	})
+	mux.HandleFunc("POST /__fixture/group", func(w http.ResponseWriter, r *http.Request) {
+		var in struct{ UserID, Role string }
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			reply(w, 400, map[string]string{"error": err.Error()})
+			return
+		}
+		persona, err := rt.Persona(harness.Persona)
+		if err != nil {
+			reply(w, 500, map[string]string{"error": err.Error()})
+			return
+		}
+		g, err := rt.CreateGroup(r.Context(), iam.NewGroup{Persona: persona})
+		if err == nil && in.UserID != "" {
+			if in.Role == "" {
+				in.Role = "manager"
+			}
+			var role iam.Role
+			role, err = rt.Role(harness.Persona + ":" + in.Role)
+			if err == nil {
+				_, err = rt.EnsureUserRole(r.Context(), iam.GroupByID(g.ID), iam.UserByID(in.UserID), role)
+			}
+		}
+		if err != nil {
+			reply(w, 400, map[string]string{"error": err.Error()})
+			return
+		}
+		reply(w, 201, g)
+	})
+	mux.HandleFunc("POST /__fixture/mfa-required", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			UserID   string
+			Required bool
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			reply(w, 400, map[string]string{"error": err.Error()})
+			return
+		}
+		u, err := rt.UpdateUser(r.Context(), iam.SystemIdentity(), in.UserID, iam.UserUpdate{MFARequired: &in.Required})
+		if err != nil {
+			reply(w, 400, map[string]string{"error": err.Error()})
+			return
+		}
+		reply(w, 200, u)
+	})
 }
