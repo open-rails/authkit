@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `adapters/smtp`: every built-in email has an HTML layout (the app's name over a card and a short footer; tables and inline styles only, following the client's light or dark scheme) beside a concise text part. Code emails show the code large and monospaced, say what it is for and close with "If you didn't request this, you can ignore this email." A device-key enrollment or passwordless code is a login code ("Your <App> login code"), not "Verify your <App> account"; contact-change and two-step setup codes have their own subject. Every built-in email is in Spanish for `es`.
 - Live MFA-policy and enrollment-state database failures remain server errors during request verification. Embedded authenticators report authentication unavailable rather than incorrectly challenging a valid session to sign in again.
 - Recent sign-in checks allow up to five seconds of future `auth_time` for small database/application clock differences. The 15-minute freshness window and second-factor requirements are unchanged (#462).
 - Required MFA accepts UV passkeys/security keys, TOTP, or SMS. Presence-only keys and email do not satisfy privileged policy. Restricted first-passkey enrollment binds the primary proof, account, tenant, RP, nonce, and credential generation; key creation and sign-in commit together.
