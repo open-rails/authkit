@@ -8,9 +8,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/auth"
@@ -34,6 +36,14 @@ type fixture struct {
 	tenant     iam.TenantID
 	pool       *pgxpool.Pool
 	rootReader iam.Role
+	schema     string
+	cfg        authkit.Config
+	deps       authkit.Deps
+	team       *authkit.PersonaDef
+	teamRead   iam.Perm
+	teamWrite  iam.Perm
+	teamReader iam.Role
+	teamWriter iam.Role
 }
 
 func newFixture(t *testing.T, options ...authtest.Option) *fixture {
@@ -48,18 +58,33 @@ func newFixture(t *testing.T, options ...authtest.Option) *fixture {
 	f.rootReader = roles.Root.Role("auditor", roles.Root.Users.Read)
 	f.reader = shop.Role("reader", read)
 	f.writer = shop.Role("writer", read, write)
+	f.team = roles.Persona("team", authkit.APIKeys, authkit.CustomRoles, authkit.RemoteApplications)
+	f.teamRead, f.teamWrite = f.team.Permission("orders", "read"), f.team.Permission("orders", "write")
+	f.teamReader = f.team.Role("reader", f.teamRead)
+	f.teamWriter = f.team.Role("writer", f.teamRead, f.teamWrite)
 	var err error
 	f.pool, err = pgxpool.New(t.Context(), os.Getenv("AUTHKIT_TEST_DATABASE_URL"))
 	noError(t, err)
 	t.Cleanup(f.pool.Close)
+	f.schema = "critical_" + strings.ReplaceAll(iam.NewTenantID().String(), "-", "")
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if _, err := f.pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+pgx.Identifier{f.schema}.Sanitize()+" CASCADE"); err != nil {
+			t.Error(err)
+		}
+	})
 	base := authtest.WithConfig(func(c *authkit.Config) {
+		c.Database = authkit.DatabaseConfig{Schema: f.schema, RiverSchema: f.schema}
 		c.DefaultTenantID = f.tenant
 		c.Roles = roles
 		c.TwoFactor.Mode = iam.TwoFactorDisabled
 		c.Registration.PasswordlessLogin = true
 		c.PersonalAccessTokens.Enabled = true
 	})
-	f.auth, f.out = authtest.New(t, append([]authtest.Option{base, authtest.WithDeps(func(d *authkit.Deps) { d.Postgres = f.pool })}, options...)...)
+	opts := append([]authtest.Option{base, authtest.WithDeps(func(d *authkit.Deps) { d.Postgres = f.pool })}, options...)
+	opts = append(opts, authtest.WithConfig(func(c *authkit.Config) { f.cfg = *c }), authtest.WithDeps(func(d *authkit.Deps) { f.deps = *d }))
+	f.auth, f.out = authtest.New(t, opts...)
 	f.server = httptest.NewServer(f.auth.Handler())
 	t.Cleanup(f.server.Close)
 	return f
@@ -73,27 +98,67 @@ type response struct {
 
 func (f *fixture) call(t *testing.T, method, path, credential string, body any) response {
 	t.Helper()
+	r, err := f.request(t.Context(), method, path, credential, body)
+	noError(t, err)
+	return r
+}
+
+// request returns errors to the caller so concurrent public requests never
+// call testing.Fatal from a worker goroutine.
+func (f *fixture) request(ctx context.Context, method, path, credential string, body any) (response, error) {
+	return f.requestHeaders(ctx, method, path, credential, body, nil)
+}
+
+func (f *fixture) requestHeaders(ctx context.Context, method, path, credential string, body any, headers http.Header) (response, error) {
 	var data []byte
 	var err error
 	if body != nil {
 		data, err = json.Marshal(body)
-		noError(t, err)
+		if err != nil {
+			return response{}, err
+		}
 	}
-	r, err := http.NewRequestWithContext(t.Context(), method, f.server.URL+f.auth.APIBase()+path, bytes.NewReader(data))
-	noError(t, err)
+	r, err := http.NewRequestWithContext(ctx, method, f.server.URL+f.auth.APIBase()+path, bytes.NewReader(data))
+	if err != nil {
+		return response{}, err
+	}
 	if body != nil {
 		r.Header.Set("Content-Type", "application/json")
 	}
 	if credential != "" {
 		r.Header.Set("Authorization", "Bearer "+credential)
 	}
+	for k, values := range headers {
+		r.Header[k] = append([]string(nil), values...)
+	}
 	c := &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
 	res, err := c.Do(r)
-	noError(t, err)
+	if err != nil {
+		return response{}, err
+	}
 	defer res.Body.Close()
 	data, err = io.ReadAll(io.LimitReader(res.Body, 1<<20))
-	noError(t, err)
-	return response{status: res.StatusCode, header: res.Header, body: data}
+	if err != nil {
+		return response{}, err
+	}
+	return response{status: res.StatusCode, header: res.Header, body: data}, nil
+}
+
+type signInResult struct {
+	Status string        `json:"status"`
+	Tokens *iam.TokenSet `json:"token_set"`
+	User   *iam.User     `json:"user"`
+}
+
+func tokensFrom(t *testing.T, r response, userID string) iam.TokenSet {
+	t.Helper()
+	r.want(t, http.StatusOK, "")
+	var result signInResult
+	decode(t, r.body, &result)
+	if result.Status != "complete" || result.Tokens == nil || result.User == nil || result.User.ID != userID || result.Tokens.AccessToken == "" {
+		t.Fatalf("response did not establish the expected account session: %s", r.body)
+	}
+	return *result.Tokens
 }
 
 func (r response) want(t *testing.T, status int, code string) {
