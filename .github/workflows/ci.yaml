@@ -1,11 +1,10 @@
 name: Validate
 
-# Direct master pushes and pull requests receive the same validation.
+# One conservative suite selection on the tested PR merge; no duplicate master run.
 on:
-  push:
-    branches: [master]
   pull_request:
     branches: [master]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch: {}
 
 permissions:
@@ -18,11 +17,84 @@ env:
   AUTHKIT_TEST_REDIS_URL: redis://127.0.0.1:6379/0
 
 concurrency:
-  group: validate-${{ github.ref }}
+  group: validate-${{ github.event.pull_request.draft && format('draft-{0}', github.run_id) || github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Suite selection
+    if: github.event.pull_request.draft != true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      root: ${{ steps.suites.outputs.root }}
+      ui: ${{ steps.suites.outputs.ui }}
+      workflow: ${{ steps.suites.outputs.workflow }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify tested merge
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 - <<'CHECK'
+          import os, subprocess
+          from pathlib import Path
+          tested = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          if tested != os.environ['GITHUB_SHA']:
+              raise SystemExit('checkout differs from workflow test commit')
+          lines = [f'Tested commit: `{tested}`']
+          if os.environ['GITHUB_EVENT_NAME'] == 'pull_request':
+              raw = subprocess.check_output(['git', 'cat-file', '-p', 'HEAD'], text=True)
+              parents = [line.split()[1] for line in raw.splitlines() if line.startswith('parent ')]
+              expected = [os.environ['PR_BASE_SHA'], os.environ['PR_HEAD_SHA']]
+              if parents != expected:
+                  raise SystemExit(f'expected PR merge parents {expected}, got {parents}')
+              lines += [f'Base: `{expected[0]}`', f'PR head: `{expected[1]}`']
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as summary:
+              summary.write('\n'.join(lines) + '\n')
+          CHECK
+      - name: Test conservative selection
+        run: python3 scripts/test_ci_suites.py
+      - name: Select complete suites
+        id: suites
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            python3 scripts/ci_suites.py --full --github-output "$GITHUB_OUTPUT"
+          else
+            python3 scripts/ci_suites.py --base "$PR_BASE_SHA" --head "$PR_HEAD_SHA" --github-output "$GITHUB_OUTPUT"
+          fi
+
+  workflow-lint:
+    name: Workflow lint
+    needs: changes
+    if: needs.changes.outputs.workflow == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Validate workflows
+        run: |
+          curl --fail --silent --show-error --location \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz \
+            --output "$RUNNER_TEMP/actionlint.tar.gz"
+          printf '%s  %s\n' 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8 "$RUNNER_TEMP/actionlint.tar.gz" | sha256sum --check --status
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -color -shellcheck= -pyflakes=
+
   workflows:
+    needs: changes
+    if: needs.changes.outputs.root == 'true'
     # Playwright cannot install Chromium on ubuntu-26.04 yet.
     runs-on: ubuntu-24.04
     services:
@@ -45,6 +117,9 @@ jobs:
     steps:
       # Use exact release tags for action references in this workflow.
       - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - uses: actions/setup-go@v7.0.0
         with:
           # Build and security scans run on the latest patched Go 1.26 toolchain;
@@ -62,6 +137,8 @@ jobs:
       - run: scripts/check.sh workflows
 
   contracts:
+    needs: changes
+    if: needs.changes.outputs.root == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -77,6 +154,8 @@ jobs:
         with:
           # Release tags: released migrations are compared with the last one.
           fetch-depth: 0
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - uses: actions/setup-go@v7.0.0
         with:
           go-version: '1.26.10'
@@ -89,6 +168,8 @@ jobs:
   # misconfiguration findings. The injected-build-config detector stays with
   # the repositories that carry those build surfaces.
   security:
+    needs: changes
+    if: needs.changes.outputs.root == 'true'
     name: Required Security
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -97,6 +178,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/setup-go@v7.0.0
         with:
@@ -116,3 +198,22 @@ jobs:
           ignore-unfixed: true
           scanners: vuln,secret,misconfig
           skip-dirs: '**/.runtime'
+
+  auth-ui:
+    needs: changes
+    if: needs.changes.outputs.ui == 'true'
+    uses: ./.github/workflows/auth-ui.yaml
+
+  gate:
+    name: ${{ github.event.pull_request.draft && 'Draft PR (CI not requested)' || 'CI Gate' }}
+    needs: [changes, workflow-lint, workflows, contracts, security, auth-ui]
+    if: always() && github.event.pull_request.draft != true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for result in $RESULTS; do
+            [[ "$result" == success || "$result" == skipped ]] || exit 1
+          done
