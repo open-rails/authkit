@@ -10,7 +10,6 @@ package httpapi
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -162,9 +161,4 @@ func isRefreshCookieName(name string) bool {
 		}
 	}
 	return false
-}
-
-// Identity describes a cookie variant for diagnostics.
-func (v CookieVariant) Identity() string {
-	return fmt.Sprintf("%s name=%s path=%s domain=%q secure=%v", v.Kind, v.Name, v.Path, v.Domain, v.Secure)
 }

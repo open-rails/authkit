@@ -1,43 +1,11 @@
-// Package testdb owns AuthKit's Postgres integration-test harness.
+// Package testdb supplies the environment contract used by public authtest.
 package testdb
 
 import (
-	"context"
-	"database/sql"
-	"fmt"
-	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"testing"
-	"time"
-
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/open-rails/authkit/iam"
-	pgmigrations "github.com/open-rails/authkit/internal/migrations/postgres"
-	"github.com/open-rails/migratekit"
-	"github.com/riverqueue/river/riverdriver/riverpgxv5"
-	"github.com/riverqueue/river/rivermigrate"
 )
-
-// Postgres is an isolated migrated database for integration tests.
-type Postgres struct {
-	Pool     *pgxpool.Pool
-	URL      string
-	Database string
-}
-
-// DefaultTenantID is the explicit owner of the legacy single-directory test
-// fixtures. Production migration callers must supply their own canonical ID.
-var DefaultTenantID = func() iam.TenantID {
-	id, err := iam.ParseTenantID("00000000-0000-4000-8000-000000000001")
-	if err != nil {
-		panic(err)
-	}
-	return id
-}()
 
 // URL returns the shared, already-migrated integration database named by
 // AUTHKIT_TEST_DATABASE_URL, or skips the test when it is unset.
@@ -62,116 +30,6 @@ func requireEnv(t testing.TB, keys ...string) string {
 	return ""
 }
 
-// ScratchPostgres creates, migrates, and cleans up a scratch database on the
-// server named by AUTHKIT_TEST_DATABASE_URL or SQLC_DATABASE_URL, kept when
-// AUTHKIT_TEST_KEEP_DB is set. It skips (or fails under
-// AUTHKIT_TEST_REQUIRE_DB=1) when no URL is provided so ordinary go test runs
-// do not start integration infrastructure by accident.
-func ScratchPostgres(t testing.TB) *Postgres {
-	t.Helper()
-	return scratchPostgres(t, true)
-}
-
-// EmptyScratchPostgres is ScratchPostgres without the migrations, for tests
-// that seed a ledger of their own before migrating.
-func EmptyScratchPostgres(t testing.TB) *Postgres {
-	t.Helper()
-	return scratchPostgres(t, false)
-}
-
-func scratchPostgres(t testing.TB, migrate bool) *Postgres {
-	t.Helper()
-	baseURL := requireEnv(t, "AUTHKIT_TEST_DATABASE_URL", "SQLC_DATABASE_URL")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	t.Cleanup(cancel)
-
-	dbName := scratchDBName()
-	adminURL, err := withDatabase(baseURL, "postgres")
-	if err != nil {
-		t.Fatalf("parse postgres URL: %v", err)
-	}
-	testURL, err := withDatabase(baseURL, dbName)
-	if err != nil {
-		t.Fatalf("parse test URL: %v", err)
-	}
-
-	admin, err := pgxpool.New(ctx, adminURL)
-	if err != nil {
-		t.Fatalf("connect postgres admin database: %v", err)
-	}
-	defer admin.Close()
-
-	if _, err := admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{dbName}.Sanitize()); err != nil {
-		t.Fatalf("create scratch database %s: %v", dbName, err)
-	}
-
-	poolConfig, err := pgxpool.ParseConfig(testURL)
-	if err != nil {
-		dropDatabase(context.Background(), adminURL, dbName)
-		t.Fatalf("parse scratch database URL: %v", err)
-	}
-	poolConfig.ConnConfig.RuntimeParams["search_path"] = `"profiles", public`
-	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
-	if err != nil {
-		dropDatabase(context.Background(), adminURL, dbName)
-		t.Fatalf("connect scratch database: %v", err)
-	}
-
-	pg := &Postgres{Pool: pool, URL: testURL, Database: dbName}
-	t.Cleanup(func() {
-		pool.Close()
-		if os.Getenv("AUTHKIT_TEST_KEEP_DB") == "" {
-			dropDatabase(context.Background(), adminURL, dbName)
-		} else {
-			t.Logf("kept scratch database %s", dbName)
-		}
-	})
-
-	if migrate {
-		ApplyMigrations(t, ctx, testURL)
-	}
-	return pg
-}
-
-// ApplyMigrations applies AuthKit's embedded Postgres migrations to dbURL.
-func ApplyMigrations(t testing.TB, ctx context.Context, dbURL string) {
-	t.Helper()
-	u, err := url.Parse(dbURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	params := u.Query()
-	params.Set("authkit.legacy_tenant_id", DefaultTenantID.String())
-	u.RawQuery = params.Encode()
-	dbURL = u.String()
-	sqlDB, err := sql.Open("pgx", dbURL)
-	if err != nil {
-		t.Fatalf("open sql db: %v", err)
-	}
-	defer sqlDB.Close()
-
-	ms, err := migratekit.LoadFromFS(pgmigrations.FS)
-	if err != nil {
-		t.Fatalf("load authkit migrations: %v", err)
-	}
-	if err := migratekit.NewPostgres(sqlDB, "authkit").WithSchema("profiles").ApplyMigrations(ctx, ms); err != nil {
-		t.Fatalf("apply authkit migrations: %v", err)
-	}
-	pool, err := pgxpool.New(ctx, dbURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
-	migrator, err := rivermigrate.New(riverpgxv5.New(pool), &rivermigrate.Config{Schema: "public"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := migrator.Migrate(ctx, rivermigrate.DirectionUp, nil); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func firstEnv(keys ...string) string {
 	for _, key := range keys {
 		if v := os.Getenv(key); v != "" {
@@ -179,32 +37,4 @@ func firstEnv(keys ...string) string {
 		}
 	}
 	return ""
-}
-
-func scratchDBName() string {
-	return "authkit_qtest_" + strconv.Itoa(os.Getpid()) + "_" + strconv.FormatInt(time.Now().UnixNano(), 36)
-}
-
-func withDatabase(raw, database string) (string, error) {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return "", err
-	}
-	if u.Scheme == "" || u.Host == "" {
-		return "", fmt.Errorf("expected postgres URL, got %q", raw)
-	}
-	u.Path = "/" + database
-	return u.String(), nil
-}
-
-func dropDatabase(ctx context.Context, adminURL, dbName string) {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	admin, err := pgxpool.New(ctx, adminURL)
-	if err != nil {
-		return
-	}
-	defer admin.Close()
-	_, _ = admin.Exec(ctx, `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1`, dbName)
-	_, _ = admin.Exec(ctx, "DROP DATABASE IF EXISTS "+pgx.Identifier{dbName}.Sanitize())
 }
