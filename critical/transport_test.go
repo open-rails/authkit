@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -24,6 +25,7 @@ import (
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testclock"
+	"github.com/open-rails/authkit/keys"
 )
 
 func wire(t *testing.T, client *http.Client, method, address, credential, mediaType, body string, headers http.Header) response {
@@ -129,7 +131,27 @@ func TestCriticalTransport(t *testing.T) {
 		if len(head.body) != 0 || head.header.Get("Content-Type") != get.header.Get("Content-Type") {
 			t.Fatal("HEAD did not retain GET headers with an empty body")
 		}
-		wire(t, client, "GET", f.server.URL+"/identity/.well-known/jwks.json", "", "", "", nil).want(t, 200, "")
+		jwks := wire(t, client, "GET", f.server.URL+"/identity/.well-known/jwks.json", "", "", "", nil)
+		jwks.want(t, 200, "")
+		var published keys.JWKS
+		decode(t, jwks.body, &published)
+		public, err := keys.PublicKeys(published)
+		noError(t, err)
+		signer := f.deps.KeySource.ActiveSigner()
+		if !reflect.DeepEqual(public[signer.KID()], signer.Public()) {
+			t.Fatal("published JWKS cannot identify the configured signing key")
+		}
+		var raw struct {
+			Keys []map[string]json.RawMessage `json:"keys"`
+		}
+		decode(t, jwks.body, &raw)
+		for _, key := range raw.Keys {
+			for _, secret := range []string{"d", "p", "q", "dp", "dq", "qi", "k"} {
+				if _, ok := key[secret]; ok {
+					t.Fatalf("JWKS published private key material %s", secret)
+				}
+			}
+		}
 		for _, p := range []string{"/api/v1/capabilities", "/service/v1/capabilities", "/.well-known/jwks.json"} {
 			wire(t, client, "GET", f.server.URL+p, "", "", "", nil).want(t, 404, "")
 		}

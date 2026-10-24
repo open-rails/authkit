@@ -4,6 +4,8 @@ AuthKit's critical suite exercises the public embedded Go client, the mounted HT
 
 Run the backend suite with `scripts/check.sh workflows`, or select a journey locally with `go test -run 'TestCriticalSessions' -v ./critical`. Set `AUTHKIT_TEST_DATABASE_URL` and `AUTHKIT_TEST_REDIS_URL` to disposable services. Each journey owns a PostgreSQL schema; no test skips because a service is missing. `scripts/check.sh contracts` retains compiler/vet, sqlc generation/validation, and released migration checks.
 
+[http-methods.tsv](http-methods.tsv) maps all 160 logical HTTP operations: 64 selected functional bindings, 68 admission/privacy-only rows, and 28 deferred operations. It combines explicit Go assertions with the browser method semantic map; a wrapper invocation alone is not qualification. These are the selected initial contracts, not exhaustive combinations of permissions and errors.
+
 The fixed route admission table checks selected protected contracts with missing, malformed, expired, revoked, and wrong-scope credentials. It comes from reviewed API contracts, not the running router. Optional features are mounted for their refusal probes. Successful state transitions belong to the named journeys and shipped TypeScript flows: denial probes alone do not qualify a feature's full functionality.
 
 [go-methods.tsv](go-methods.tsv) maps the 79 selected root Go methods to their primary scenario and direct call evidence; 36 methods remain deferred. This does not count every SDK helper as a service operation.
