@@ -39,9 +39,11 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
-      - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Version from tag
         run: npm version "${TAG#v}" --no-git-tag-version --allow-same-version
+      # pnpm records the package identity at install time. Set the release
+      # version first so its before-run dependency check sees the same package.
+      - run: pnpm install --frozen-lockfile --ignore-scripts
       # Source tests run before merge; the release builds and verifies its artifact.
       - run: pnpm build
       - name: Pack
