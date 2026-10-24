@@ -225,11 +225,12 @@ test("account panels: password, TOTP, backup codes, email, sessions, delete", as
   await confirm.getByLabel("Confirmation").fill("DELETE")
   await confirm.getByRole("button", { name: "Delete account" }).click()
   await expect(page.getByTestId("status")).toHaveText("anonymous")
-  expect(
-    await page.evaluate(
-      () => (window as unknown as { authEvents: string[] }).authEvents
+  const deletedEvents = await page.evaluate(() =>
+    (window as unknown as { authEvents: string[] }).authEvents.filter(
+      (event) => event === "deleted"
     )
-  ).toContain("deleted")
+  )
+  expect(deletedEvents).toHaveLength(1)
 })
 
 // Enrolling a factor verifies the enrolling session (AuthKit v0.131): a reload
