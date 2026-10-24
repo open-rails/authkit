@@ -40,14 +40,39 @@ jobs:
         with:
           node-version: '24'
       - run: pnpm install --frozen-lockfile --ignore-scripts
-      - run: pnpm check
       - name: Version from tag
         run: npm version "${TAG#v}" --no-git-tag-version --allow-same-version
+      # Source tests run before merge; the release builds and verifies its artifact.
+      - run: pnpm build
       - name: Pack
         run: |
           mkdir release
           pnpm pack --pack-destination release
-          tar -tzf "release/openrails-auth-ui-${TAG#v}.tgz" | grep -q '^package/dist/index.js$'
+          python3 - <<'VERIFY'
+          import json, os, tarfile
+          from pathlib import Path
+          version = os.environ['TAG'].removeprefix('v')
+          path = Path('release') / f'openrails-auth-ui-{version}.tgz'
+          with tarfile.open(path) as archive:
+              names = set(archive.getnames())
+              package = json.load(archive.extractfile('package/package.json'))
+              assert package['name'] == os.environ['PKG'] and package['version'] == version
+              def check(value):
+                  if isinstance(value, dict):
+                      for target in value.values(): check(target)
+                  elif isinstance(value, str) and value.startswith('./'):
+                      target = 'package/' + value[2:]
+                      if '*' in target:
+                          from fnmatch import fnmatchcase
+                          assert any(fnmatchcase(name, target) for name in names), target
+                      else:
+                          assert target in names, target
+              assert 'types' in package['exports']['.']
+              check(package['exports'])
+              check(package.get('types'))
+              assert 'package/dist/index.js' in names
+          print(f'Packed {package["name"]}@{version}: exports and types exist in the tarball')
+          VERIFY
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: auth-ui
