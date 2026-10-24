@@ -503,7 +503,7 @@ func (s *Engine) CheckRecentSignIn(ctx context.Context, cl verify.Claims) error 
 		enrolled, err := s.HasUsableMFA(ctx, cl.UserID)
 		mfa = enrolled || err != nil // an unknown MFA state counts as enrolled
 	}
-	if authflow.RecentSignIn(cl.AuthTime, cl.AMR, mfa, time.Now()) {
+	if authflow.RecentSignIn(cl.AuthTime, cl.AMR, mfa, s.nowTime()) {
 		return nil
 	}
 	return s.StepUpRequired(ctx, cl.UserID)
