@@ -705,10 +705,12 @@ describe("VerifyLink", () => {
       fetch
     )
     await screen.findByText("Verified and signed in.")
-    expect(onVerified).toHaveBeenCalledWith({
-      signedIn: true,
-      returnTo: undefined,
-    })
+    await waitFor(() =>
+      expect(onVerified).toHaveBeenCalledWith({
+        signedIn: true,
+        returnTo: undefined,
+      })
+    )
     expect(confirm).toHaveBeenCalledOnce()
     const body = fetch.mock.calls.find(([url]) =>
       String(url).endsWith("/verify/confirm")
