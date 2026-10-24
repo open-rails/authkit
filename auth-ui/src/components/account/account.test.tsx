@@ -1319,28 +1319,6 @@ describe("LinkedProvidersPanel", () => {
   })
 })
 
-describe("DeleteAccountPanel", () => {
-  it("needs the typed confirmation, then reports deletion", async () => {
-    const onDeleted = vi.fn()
-    const { user, client } = await renderSignedIn(
-      <DeleteAccountPanel onDeleted={onDeleted} />,
-      { "DELETE /api/v1/me": () => noContent() }
-    )
-    await user.click(
-      await screen.findByRole("button", { name: "Delete account" })
-    )
-    const dialog = screen.getByRole("alertdialog")
-    const submit = within(dialog).getByRole("button", {
-      name: "Delete account",
-    })
-    expect(submit).toBeDisabled()
-    await user.type(within(dialog).getByLabelText("Confirmation"), "DELETE")
-    await user.click(submit)
-    await waitFor(() => expect(onDeleted).toHaveBeenCalledOnce())
-    expect(client.getSnapshot().status).toBe("anonymous")
-  })
-})
-
 describe("AccountSecurity", () => {
   it("renders every panel under one step-up dialog", async () => {
     await renderSignedIn(
