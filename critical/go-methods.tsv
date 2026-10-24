@@ -1,0 +1,116 @@
+id	method	status	primary_scenario	direct_call_evidence	scope
+AK-GO-001	Client.Start	included	AK-J01-C02	login_test.go:34;passwordless_test.go:154;dependencies_test.go:77;recovery_test.go:148;api_key_test.go:183;lifecycle_test.go:33;runtime_test.go:98	Selected critical contract, not every possible input
+AK-GO-002	Client.RiverJobs	included	AK-J25-C04	lifecycle_test.go:25;runtime_test.go:90	Selected critical contract, not every possible input
+AK-GO-003	Client.Close	included	AK-J01-C04	maintenance_test.go:154;runtime_test.go:39;runtime_test.go:107	Selected critical contract, not every possible input
+AK-GO-004	Client.EmailAvailable	included	AK-J31-C06	dependencies_test.go:68;dependencies_test.go:78	Selected critical contract, not every possible input
+AK-GO-005	Client.EmailHealth	included	AK-J31-C06	dependencies_test.go:79	Selected critical contract, not every possible input
+AK-GO-006	Client.SMSAvailable	included	AK-J31-C06	dependencies_test.go:68;dependencies_test.go:78	Selected critical contract, not every possible input
+AK-GO-007	Client.SMSHealth	included	AK-J31-C06	dependencies_test.go:79	Selected critical contract, not every possible input
+AK-GO-008	Client.Ready	included	AK-J01-C02	runtime_test.go:99;runtime_test.go:103	Selected critical contract, not every possible input
+AK-GO-009	Client.Probes	included	AK-J31-C06	dependencies_test.go:86	Selected critical contract, not every possible input
+AK-GO-010	Client.TwoFactorMethods	included	AK-J31-C06	dependencies_test.go:71	Selected critical contract, not every possible input
+AK-GO-011	Client.Handler	included	AK-J31-C01	transport_test.go:178;harness_test.go:90	Selected critical contract, not every possible input
+AK-GO-012	Client.APIBase	included	AK-J31-C03	transport_test.go:79;transport_test.go:118;transport_test.go:119;transport_test.go:125;transport_test.go:127;transport_test.go:160;transport_test.go:182;transport_test.go:210;transport_test.go:211;dpop_test.go:31;events_test.go:101;harness_test.go:123	Selected critical contract, not every possible input
+AK-GO-013	Client.PublicAPIBase	included	AK-J31-C03	transport_test.go:122	Selected critical contract, not every possible input
+AK-GO-014	Client.Routes	included	AK-J31-C01	admission_matrix_test.go:62	Selected critical contract, not every possible input
+AK-GO-015	Client.Mount	included	AK-J31-C03	transport_test.go:115	Selected critical contract, not every possible input
+AK-GO-016	Client.CreateAPIKey	included	AK-J16-C01	maintenance_test.go:61;maintenance_test.go:126;authority_test.go:103;api_key_test.go:31;api_key_test.go:169;api_key_test.go:171;api_key_test.go:200;lifecycle_test.go:321	Selected critical contract, not every possible input
+AK-GO-017	Client.ListAPIKeys	included	AK-J16-C01	maintenance_test.go:71;maintenance_test.go:77;maintenance_test.go:132;api_key_test.go:69;api_key_test.go:175	Selected critical contract, not every possible input
+AK-GO-018	Client.RevokeAPIKey	included	AK-J16-C01	maintenance_test.go:64;maintenance_test.go:128;api_key_test.go:86	Selected critical contract, not every possible input
+AK-GO-019	Client.ResolveAPIKey	included	AK-J16-C01	maintenance_test.go:50;maintenance_test.go:103;maintenance_test.go:139	Selected critical contract, not every possible input
+AK-GO-020	Client.UpsertRemoteApplication	deferred			Deferred functional expansion
+AK-GO-021	Client.DeleteRemoteApplication	deferred			Deferred functional expansion
+AK-GO-022	Client.RemoteApplication	deferred			Deferred functional expansion
+AK-GO-023	Client.ListRemoteApplications	deferred			Deferred functional expansion
+AK-GO-024	Client.DeclareRemoteApplications	deferred			Deferred functional expansion
+AK-GO-025	Client.Authenticator	included	AK-J05-C04	tenant_test.go:180;session_test.go:123;api_key_test.go:41;harness_test.go:235	Selected critical contract, not every possible input
+AK-GO-026	Client.Scope	included	AK-J16-C02	personal_token_test.go:84;authority_test.go:107;authority_test.go:127;authority_test.go:254;api_key_test.go:53;api_key_test.go:118;api_key_test.go:141	Selected critical contract, not every possible input
+AK-GO-027	Client.ListEvents	included	AK-J26-C01	tenant_test.go:103;maintenance_test.go:210;events_test.go:23;events_test.go:34;events_test.go:40;events_test.go:51;events_test.go:69;events_test.go:89;events_test.go:132;events_test.go:145;events_test.go:150;events_test.go:155;events_test.go:159;events_test.go:167;events_test.go:169;lifecycle_test.go:306	Selected critical contract, not every possible input
+AK-GO-028	Client.EventReader	included	AK-J26-C03	events_test.go:104	Selected critical contract, not every possible input
+AK-GO-029	Client.SetGroupRole	included	AK-J15-C01	personal_token_test.go:147;authority_test.go:29;authority_test.go:99;authority_test.go:279;authority_test.go:287	Selected critical contract, not every possible input
+AK-GO-030	Client.RemoveGroupMember	included	AK-J15-C06	tenant_test.go:77;events_test.go:138;authority_test.go:184;authority_test.go:270;api_key_test.go:188	Selected critical contract, not every possible input
+AK-GO-031	Client.GroupRoles	included	AK-J15-C06	tenant_test.go:81;tenant_test.go:137;authority_test.go:247;authority_test.go:271;authority_test.go:282;authority_test.go:289;lifecycle_test.go:116	Selected critical contract, not every possible input
+AK-GO-032	Client.ListGroupRoles	included	AK-J15-C01	authority_test.go:82	Selected critical contract, not every possible input
+AK-GO-033	Client.GroupRole	included	AK-J15-C03	authority_test.go:155;authority_test.go:166	Selected critical contract, not every possible input
+AK-GO-034	Client.CreateGroupRole	included	AK-J15-C03	authority_test.go:144;api_key_test.go:165;api_key_test.go:198;api_key_test.go:203	Selected critical contract, not every possible input
+AK-GO-035	Client.UpdateGroupRole	included	AK-J15-C03	authority_test.go:151;authority_test.go:160	Selected critical contract, not every possible input
+AK-GO-036	Client.DeleteGroupRole	included	AK-J15-C03	authority_test.go:164;api_key_test.go:202	Selected critical contract, not every possible input
+AK-GO-037	Client.Group	included	AK-J15-C05	authority_test.go:224;authority_test.go:241;authority_test.go:259	Selected critical contract, not every possible input
+AK-GO-038	Client.Groups	included	AK-J15-C01	authority_test.go:67	Selected critical contract, not every possible input
+AK-GO-039	Client.ListGroups	included	AK-J15-C01	authority_test.go:72	Selected critical contract, not every possible input
+AK-GO-040	Client.ListGroupMembers	included	AK-J15-C04	authority_test.go:202	Selected critical contract, not every possible input
+AK-GO-041	Client.ListMemberships	included	AK-J15-C01	authority_test.go:77	Selected critical contract, not every possible input
+AK-GO-042	Client.CreateGroup	included	AK-J15-C05	admission_matrix_test.go:47;authority_test.go:23;api_key_test.go:29	Selected critical contract, not every possible input
+AK-GO-043	Client.DeleteGroup	included	AK-J15-C05	authority_test.go:252	Selected critical contract, not every possible input
+AK-GO-044	Client.PurgeGroup	included	AK-J15-C05	authority_test.go:258	Selected critical contract, not every possible input
+AK-GO-045	Client.Can	included	AK-J15-C01	authority_test.go:34	Selected critical contract, not every possible input
+AK-GO-046	Client.CanDirect	included	AK-J15-C07	authority_test.go:302;authority_test.go:308	Selected critical contract, not every possible input
+AK-GO-047	Client.EffectivePermissions	included	AK-J15-C01	authority_test.go:94	Selected critical contract, not every possible input
+AK-GO-048	Client.KnownPermission	included	AK-J15-C01	authority_test.go:91	Selected critical contract, not every possible input
+AK-GO-049	Client.Persona	included	AK-J15-C01	authority_test.go:52;authority_test.go:61	Selected critical contract, not every possible input
+AK-GO-050	Client.Permission	included	AK-J15-C01	authority_test.go:56;authority_test.go:135	Selected critical contract, not every possible input
+AK-GO-051	Client.Role	included	AK-J15-C01	authority_test.go:54;authority_test.go:64	Selected critical contract, not every possible input
+AK-GO-052	Client.RolePermissions	included	AK-J15-C01	authority_test.go:89	Selected critical contract, not every possible input
+AK-GO-053	Client.ApplyBootstrapManifest	included	AK-J02-C02	tenant_test.go:65;tenant_test.go:72;tenant_test.go:133	Selected critical contract, not every possible input
+AK-GO-054	Client.EnsureUserRole	included	AK-J02-C04	tenant_test.go:129;tenant_test.go:143;tenant_test.go:148	Selected critical contract, not every possible input
+AK-GO-055	Client.ImportUsers	included	AK-J02-C04	tenant_test.go:119;maintenance_test.go:149;lifecycle_test.go:178	Selected critical contract, not every possible input
+AK-GO-056	Client.ImportSolanaLinks	included	AK-J02-C04	tenant_test.go:159;tenant_test.go:164	Selected critical contract, not every possible input
+AK-GO-057	Client.LinkProvider	included	AK-J02-C04	tenant_test.go:154;tenant_test.go:155;tenant_test.go:156	Selected critical contract, not every possible input
+AK-GO-058	Client.CreateInvitation	deferred		maintenance_test.go:67	Deferred functional expansion
+AK-GO-059	Client.ListInvitations	deferred		maintenance_test.go:82	Deferred functional expansion
+AK-GO-060	Client.RevokeInvitation	deferred		maintenance_test.go:69	Deferred functional expansion
+AK-GO-061	Client.MigrateGroupPersona	included	AK-J15-C05	authority_test.go:219;authority_test.go:231;authority_test.go:236	Selected critical contract, not every possible input
+AK-GO-062	Client.CreateGroupOAuthClient	deferred			Deferred functional expansion
+AK-GO-063	Client.GroupOAuthClients	deferred			Deferred functional expansion
+AK-GO-064	Client.GroupOAuthClient	deferred			Deferred functional expansion
+AK-GO-065	Client.UpdateGroupOAuthClient	deferred			Deferred functional expansion
+AK-GO-066	Client.RotateGroupOAuthClientSecret	deferred			Deferred functional expansion
+AK-GO-067	Client.DeleteGroupOAuthClient	deferred			Deferred functional expansion
+AK-GO-068	Client.OAuthConsents	deferred			Deferred functional expansion
+AK-GO-069	Client.RevokeConsent	deferred			Deferred functional expansion
+AK-GO-070	Client.CreatePersonalAccessToken	included	AK-J17-C01	personal_token_test.go:20;personal_token_test.go:44;personal_token_test.go:66;lifecycle_test.go:319	Selected critical contract, not every possible input
+AK-GO-071	Client.ListPersonalAccessTokens	included	AK-J17-C01	personal_token_test.go:34;personal_token_test.go:72;personal_token_test.go:94	Selected critical contract, not every possible input
+AK-GO-072	Client.RevokePersonalAccessToken	included	AK-J17-C01	personal_token_test.go:39;personal_token_test.go:91	Selected critical contract, not every possible input
+AK-GO-073	Client.ResolvePersonalAccessToken	included	AK-J17-C01	personal_token_test.go:29;personal_token_test.go:40;personal_token_test.go:46;personal_token_test.go:55;personal_token_test.go:92;personal_token_test.go:149;personal_token_test.go:155;personal_token_test.go:160;maintenance_test.go:105;lifecycle_test.go:330	Selected critical contract, not every possible input
+AK-GO-074	Client.ProvisioningTargets	deferred			Deferred functional expansion
+AK-GO-075	Client.RemoteInvitations	deferred			Deferred functional expansion
+AK-GO-076	Client.AcceptRemoteInvitation	deferred			Deferred functional expansion
+AK-GO-077	Client.RemoteUserRoles	deferred			Deferred functional expansion
+AK-GO-078	Client.RemoveRemoteUserRole	deferred			Deferred functional expansion
+AK-GO-079	Client.Sessions	included	AK-J05-C01	login_test.go:22;passwordless_test.go:117;passwordless_test.go:169;session_test.go:50;session_test.go:79;dependencies_test.go:97	Selected critical contract, not every possible input
+AK-GO-080	Client.ListSessionEvents	included	AK-J32-C06	maintenance_test.go:192;maintenance_test.go:205	Selected critical contract, not every possible input
+AK-GO-081	Client.RevokeSession	included	AK-J05-C02	admission_matrix_test.go:58;transport_test.go:100;session_test.go:111;token_test.go:249	Selected critical contract, not every possible input
+AK-GO-082	Client.RevokeAccountSessions	included	AK-J05-C02	session_test.go:70	Selected critical contract, not every possible input
+AK-GO-083	Client.MintAccessToken	included	AK-J13-C06	step_up_test.go:125;step_up_test.go:132;personal_token_test.go:129;token_test.go:261;token_test.go:267;token_test.go:278;token_test.go:282;api_key_test.go:213	Selected critical contract, not every possible input
+AK-GO-084	Client.CheckSession	included	AK-J05-C04	session_test.go:75;session_test.go:97;session_test.go:116;maintenance_test.go:40;maintenance_test.go:109;maintenance_test.go:217;lifecycle_test.go:113;lifecycle_test.go:158	Selected critical contract, not every possible input
+AK-GO-085	Client.CheckRecentSignIn	included	AK-J08-C01	step_up_test.go:33;step_up_test.go:36;step_up_test.go:39;step_up_test.go:60;step_up_test.go:121;step_up_test.go:129;personal_token_test.go:121	Selected critical contract, not every possible input
+AK-GO-086	Client.CreateTenant	included	AK-J02-C01	tenant_test.go:19;tenant_test.go:174;passwordless_test.go:130;events_test.go:125;registration_test.go:125	Selected critical contract, not every possible input
+AK-GO-087	Client.ForTenant	included	AK-J02-C05	tenant_test.go:20;tenant_test.go:175;passwordless_test.go:131;events_test.go:126;registration_test.go:126;runtime_test.go:100	Selected critical contract, not every possible input
+AK-GO-088	Client.ResolveTenantActor	included	AK-J02-C05	tenant_test.go:182 (borrowed public Client view)	Selected critical contract, not every possible input
+AK-GO-089	Client.UserInfo	deferred			Deferred functional expansion
+AK-GO-090	Client.RemoteUserInfo	deferred			Deferred functional expansion
+AK-GO-091	Client.User	deferred		step_up_test.go:108;tenant_test.go:70;tenant_test.go:94;tenant_test.go:99;tenant_test.go:112;tenant_test.go:124;admission_matrix_test.go:147;transport_test.go:165;passwordless_test.go:59;passwordless_test.go:70;session_test.go:126;dpop_test.go:192;dpop_test.go:202;maintenance_test.go:110;recovery_test.go:76;recovery_test.go:89;recovery_test.go:96;recovery_test.go:128;recovery_test.go:173;recovery_test.go:192;registration_test.go:92;registration_test.go:111;registration_test.go:138;lifecycle_test.go:83;lifecycle_test.go:129;lifecycle_test.go:133;lifecycle_test.go:151;lifecycle_test.go:186;lifecycle_test.go:274;lifecycle_test.go:294	Deferred functional expansion
+AK-GO-092	Client.Users	deferred			Deferred functional expansion
+AK-GO-093	Client.PublicUsers	deferred		lifecycle_test.go:138	Deferred functional expansion
+AK-GO-094	Client.ListUsers	deferred			Deferred functional expansion
+AK-GO-095	Client.ResolveUsername	deferred		maintenance_test.go:187;maintenance_test.go:200	Deferred functional expansion
+AK-GO-096	Client.CheckUsername	deferred			Deferred functional expansion
+AK-GO-097	Client.GenerateUsername	deferred			Deferred functional expansion
+AK-GO-098	Client.DeviceKeys	deferred			Deferred functional expansion
+AK-GO-099	Client.CreateUser	included	AK-J02-C01	tenant_test.go:23;tenant_test.go:92;tenant_test.go:110;login_test.go:42;passwordless_test.go:27;events_test.go:28;events_test.go:32;events_test.go:48;recovery_test.go:37;recovery_test.go:186	Selected critical contract, not every possible input
+AK-GO-100	Client.UpdateUser	deferred		step_up_test.go:104;dpop_test.go:179;maintenance_test.go:185;mfa_test.go:145	Deferred functional expansion
+AK-GO-101	Client.PatchPublicMetadata	deferred		tenant_test.go:30	Deferred functional expansion
+AK-GO-102	Client.Ban	included	AK-J25-C01	login_test.go:31;passwordless_test.go:152;personal_token_test.go:154;session_test.go:94;lifecycle_test.go:96;lifecycle_test.go:99;lifecycle_test.go:105;lifecycle_test.go:108	Selected critical contract, not every possible input
+AK-GO-103	Client.Unban	included	AK-J25-C01	personal_token_test.go:159;lifecycle_test.go:109	Selected critical contract, not every possible input
+AK-GO-104	Client.DeleteUsers	included	AK-J25-C02	login_test.go:36;passwordless_test.go:155;maintenance_test.go:99;recovery_test.go:167;api_key_test.go:191;lifecycle_test.go:127;lifecycle_test.go:289;lifecycle_test.go:324	Selected critical contract, not every possible input
+AK-GO-105	Client.RestoreUsers	included	AK-J25-C02	recovery_test.go:177;lifecycle_test.go:144;lifecycle_test.go:149;lifecycle_test.go:233;lifecycle_test.go:291	Selected critical contract, not every possible input
+AK-GO-106	Client.PurgeUsers	included	AK-J25-C04	lifecycle_test.go:226;lifecycle_test.go:271;lifecycle_test.go:299	Selected critical contract, not every possible input
+AK-GO-107	Client.ResetAccountMFA	included	AK-J07-C06	mfa_test.go:225	Selected critical contract, not every possible input
+AK-GO-108	Client.UserAgreements	deferred		passwordless_test.go:70	Deferred functional expansion
+AK-GO-109	Client.AgreementsDue	deferred			Deferred functional expansion
+AK-GO-110	Client.AcceptAgreements	deferred			Deferred functional expansion
+AK-GO-111	Client.VerifyRequest	included	AK-J13-C01	token_test.go:86	Selected critical contract, not every possible input
+AK-GO-112	Client.Verify	included	AK-J13-C03	step_up_test.go:31;step_up_test.go:58;step_up_test.go:119;step_up_test.go:127;admission_matrix_test.go:56;transport_test.go:98;personal_token_test.go:119;session_test.go:43;session_test.go:45;session_test.go:64;session_test.go:73;session_test.go:95;session_test.go:105;session_test.go:114;session_test.go:143;session_test.go:145;token_test.go:78;token_test.go:121;token_test.go:129;token_test.go:140;token_test.go:145;token_test.go:159;token_test.go:165;token_test.go:247;token_test.go:258;maintenance_test.go:36;maintenance_test.go:107;maintenance_test.go:215;lifecycle_test.go:111;lifecycle_test.go:156	Selected critical contract, not every possible input
+AK-GO-113	Client.AuthenticateRequest	included	AK-J13-C01	token_test.go:91	Selected critical contract, not every possible input
+AK-GO-114	Client.NewVerifier	included	AK-J14-C01	dpop_test.go:47	Selected critical contract, not every possible input
+AK-GO-115	Client.VerifyIDToken	included	AK-J13-C05	token_test.go:96;token_test.go:238;token_test.go:243;token_test.go:250	Selected critical contract, not every possible input

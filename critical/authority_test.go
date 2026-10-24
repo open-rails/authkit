@@ -3,6 +3,7 @@ package critical_test
 import (
 	"errors"
 	"net/http"
+	"slices"
 	"sync"
 	"testing"
 
@@ -48,7 +49,54 @@ func TestCriticalGroupAuthority(t *testing.T) {
 		f.can(t, owner, g, f.write, true)
 		f.can(t, who, g, f.read, true)
 		f.can(t, who, g, f.write, false)
-		_, err := f.auth.SetGroupRole(t.Context(), who, iam.GroupByID(g.ID), iam.UserSubject(member.ID), f.shop.Owner)
+		persona, err := f.auth.Persona("shop")
+		noError(t, err)
+		role, err := f.auth.Role("shop:reader")
+		noError(t, err)
+		permission, err := f.auth.Permission("shop:orders:read")
+		noError(t, err)
+		if persona != g.Persona || role != f.reader || permission != f.read {
+			t.Fatal("public role catalog resolved a different declared grant")
+		}
+		if _, err := f.auth.Persona("unknown-persona"); !errors.Is(err, iam.ErrUnknownGroupPersona) {
+			t.Fatalf("unknown persona resolution:%v", err)
+		}
+		if _, err := f.auth.Role("shop:unknown"); !errors.Is(err, iam.ErrRoleNotAssignable) {
+			t.Fatalf("unknown role resolution:%v", err)
+		}
+		groups, err := f.auth.Groups(t.Context(), []string{g.ID, iam.NewTenantID().String()})
+		noError(t, err)
+		if len(groups) != 1 || groups[g.ID].Persona != f.shop.Persona {
+			t.Fatal("batch group lookup lost its known group or invented an unknown one")
+		}
+		page, err := f.auth.ListGroups(t.Context(), iam.GroupQuery{Persona: f.shop.Persona})
+		noError(t, err)
+		if !slices.ContainsFunc(page.Items, func(row iam.Group) bool { return row.ID == g.ID }) {
+			t.Fatal("persona directory omitted its created group")
+		}
+		memberships, err := f.auth.ListMemberships(t.Context(), iam.UserSubject(member.ID), iam.PageRequest{})
+		noError(t, err)
+		if len(memberships.Items) != 1 || memberships.Items[0].Group.ID != g.ID || memberships.Items[0].Role != f.reader {
+			t.Fatal("membership directory disagrees with the live member grant")
+		}
+		catalog, err := f.auth.ListGroupRoles(t.Context(), iam.GroupByID(g.ID))
+		noError(t, err)
+		if !slices.ContainsFunc(catalog, func(row iam.GroupRole) bool {
+			return row.Name == f.reader && slices.Contains(row.Permissions, f.read) && !slices.Contains(row.Permissions, f.write)
+		}) {
+			t.Fatal("role catalog widened or omitted the declared reader")
+		}
+		expanded, err := f.auth.RolePermissions(f.reader)
+		noError(t, err)
+		if !slices.Contains(expanded, f.read) || slices.Contains(expanded, f.write) || !f.auth.KnownPermission(f.read) {
+			t.Fatal("declared reader permission expansion is wrong")
+		}
+		effective, err := f.auth.EffectivePermissions(t.Context(), who, []iam.GroupRef{iam.GroupByID(g.ID)})
+		noError(t, err)
+		if !slices.Contains(effective[g.ID], f.read) || slices.Contains(effective[g.ID], f.write) {
+			t.Fatal("effective member permissions widened the declared grant")
+		}
+		_, err = f.auth.SetGroupRole(t.Context(), who, iam.GroupByID(g.ID), iam.UserSubject(member.ID), f.shop.Owner)
 		if !errors.Is(err, iam.ErrInsufficientAuthority) {
 			t.Fatalf("member escalated its role: %v", err)
 		}

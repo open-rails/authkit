@@ -80,6 +80,19 @@ func TestCriticalTokenProfiles(t *testing.T) {
 		if native.UserID != u.ID || native.SessionID == "" {
 			t.Fatal("native access profile lost its real sign-in")
 		}
+		request, err := http.NewRequestWithContext(t.Context(), "GET", f.server.URL+"/resource", nil)
+		noError(t, err)
+		request.Header.Set("Authorization", "Bearer "+session.AccessToken)
+		fromRequest, err := f.auth.VerifyRequest(request)
+		noError(t, err)
+		if fromRequest.UserID != u.ID || fromRequest.SessionID != native.SessionID {
+			t.Fatal("request verifier changed the signed subject or session")
+		}
+		verified, err := f.auth.AuthenticateRequest(t.Context(), request)
+		noError(t, err)
+		if verified.Identity().Subject != u.ID {
+			t.Fatal("public request authentication changed subject")
+		}
 		id, err := f.auth.VerifyIDToken(t.Context(), fixtureIDToken(t, f, session.AccessToken))
 		noError(t, err)
 		if id.Subject != u.ID || id.ClientID != authtest.Audience || id.SessionID != native.SessionID || id.Nonce != "critical-expected-nonce" {
@@ -208,9 +221,7 @@ func TestCriticalTokenProfiles(t *testing.T) {
 		down = true
 		mu.Unlock()
 		clock.Advance(11 * time.Minute)
-		if err := v.CheckIssuerKeys(t.Context()); err == nil {
-			t.Fatal("key health hid an unreachable issuer")
-		}
+		eventually(t, "failed asynchronous JWKS refresh", func() bool { return v.CheckIssuerKeys(t.Context()) != nil })
 		_, err = v.Verify(t.Context(), rotated)
 		noError(t, err)
 		clock.Advance(4 * time.Hour)
@@ -264,7 +275,11 @@ func TestCriticalTokenProfiles(t *testing.T) {
 			t.Fatal("host mint lost its independent custom claim or changed identity")
 		}
 		g, _, _ := f.ownedGroup(t)
-		bound, err := f.auth.MintAccessToken(t.Context(), u.ID, iam.AccessTokenOptions{Group: iam.GroupByID(g.ID), TTL: 24 * time.Hour})
+		_, err = f.auth.MintAccessToken(t.Context(), u.ID, iam.AccessTokenOptions{Group: iam.GroupByID(g.ID), TTL: 24 * time.Hour})
+		if e, ok := iam.AsError(err); !ok || e.Code() != "invalid_request" {
+			t.Fatalf("oversized group lifetime accepted: %v", err)
+		}
+		bound, err := f.auth.MintAccessToken(t.Context(), u.ID, iam.AccessTokenOptions{Group: iam.GroupByID(g.ID), TTL: 15 * time.Minute})
 		noError(t, err)
 		if bound.ExpiresAt.After(time.Now().Add(15*time.Minute + time.Second)) {
 			t.Fatal("group-bound mint exceeded its documented lifetime cap")

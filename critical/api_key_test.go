@@ -130,6 +130,7 @@ func TestCriticalAPIKeyAuthority(t *testing.T) {
 		// The host's independent database connection is still healthy. The
 		// fixture interrupted AuthKit's actual transport, not the whole server.
 		noError(t, f.pool.Ping(t.Context()))
+		criticalDependencyBoundaries(t)
 	})
 	t.Run("AK-J16-C02_key_is_bound_to_its_group_and_issuing_app", func(t *testing.T) {
 		f := newFixture(t)

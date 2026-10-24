@@ -1,0 +1,187 @@
+[
+  {
+    "bucket": "jwks_read",
+    "method": "GET",
+    "path": "/.well-known/jwks.json"
+  },
+  {
+    "bucket": "capabilities_read",
+    "method": "GET",
+    "path": "/api/v1/capabilities"
+  },
+  {
+    "bucket": "token_refresh",
+    "method": "POST",
+    "path": "/api/v1/token"
+  },
+  {
+    "bucket": "session_logout",
+    "method": "DELETE",
+    "path": "/api/v1/logout"
+  },
+  {
+    "bucket": "password_login",
+    "method": "POST",
+    "path": "/api/v1/password/login"
+  },
+  {
+    "bucket": "2fa_verify",
+    "method": "POST",
+    "path": "/api/v1/2fa/challenge"
+  },
+  {
+    "bucket": "step_up_code_send",
+    "method": "POST",
+    "path": "/api/v1/device-verification/send"
+  },
+  {
+    "bucket": "step_up_code",
+    "method": "POST",
+    "path": "/api/v1/device-verification/confirm"
+  },
+  {
+    "bucket": "passwordless_start",
+    "method": "POST",
+    "path": "/api/v1/passwordless/start"
+  },
+  {
+    "bucket": "passwordless_confirm",
+    "method": "POST",
+    "path": "/api/v1/passwordless/confirm"
+  },
+  {
+    "bucket": "password_reset_request",
+    "method": "POST",
+    "path": "/api/v1/password/reset/request"
+  },
+  {
+    "bucket": "password_reset_confirm",
+    "method": "POST",
+    "path": "/api/v1/password/reset/confirm"
+  },
+  {
+    "bucket": "register_create",
+    "method": "POST",
+    "path": "/api/v1/register"
+  },
+  {
+    "bucket": "register_availability",
+    "method": "GET",
+    "path": "/api/v1/register/availability"
+  },
+  {
+    "bucket": "register_abandon",
+    "method": "POST",
+    "path": "/api/v1/register/abandon"
+  },
+  {
+    "bucket": "verify_request",
+    "method": "POST",
+    "path": "/api/v1/verify/request"
+  },
+  {
+    "bucket": "verify_confirm",
+    "method": "POST",
+    "path": "/api/v1/verify/confirm"
+  },
+  {
+    "bucket": "me_delete",
+    "method": "DELETE",
+    "path": "/api/v1/me"
+  },
+  {
+    "bucket": "me_read",
+    "method": "GET",
+    "path": "/api/v1/me/security"
+  },
+  {
+    "bucket": "api_key_create",
+    "method": "POST",
+    "path": "/api/v1/me/personal-access-tokens"
+  },
+  {
+    "bucket": "me_update",
+    "method": "DELETE",
+    "path": "/api/v1/me/personal-access-tokens/{id}"
+  },
+  {
+    "bucket": "me_password_change",
+    "method": "PUT",
+    "path": "/api/v1/me/password"
+  },
+  {
+    "bucket": "me_contact_change",
+    "method": "PUT",
+    "path": "/api/v1/me/email"
+  },
+  {
+    "bucket": "session_list",
+    "method": "GET",
+    "path": "/api/v1/me/sessions"
+  },
+  {
+    "bucket": "session_revoke_all",
+    "method": "DELETE",
+    "path": "/api/v1/me/sessions"
+  },
+  {
+    "bucket": "session_revoke",
+    "method": "DELETE",
+    "path": "/api/v1/me/sessions/{id}"
+  },
+  {
+    "bucket": "step_up_password",
+    "method": "POST",
+    "path": "/api/v1/me/step-up/password"
+  },
+  {
+    "bucket": "step_up_2fa_send",
+    "method": "POST",
+    "path": "/api/v1/me/step-up/2fa/send"
+  },
+  {
+    "bucket": "2fa_enable",
+    "method": "POST",
+    "path": "/api/v1/me/2fa/setup"
+  },
+  {
+    "bucket": "2fa_disable",
+    "method": "DELETE",
+    "path": "/api/v1/me/2fa/factors/{id}"
+  },
+  {
+    "bucket": "2fa_regenerate_codes",
+    "method": "POST",
+    "path": "/api/v1/me/2fa/backup-codes"
+  },
+  {
+    "bucket": "me_groups_read",
+    "method": "GET",
+    "path": "/api/v1/me/groups"
+  },
+  {
+    "bucket": "me_permissions_read",
+    "method": "GET",
+    "path": "/api/v1/me/permissions"
+  },
+  {
+    "bucket": "admin_read",
+    "method": "GET",
+    "path": "/api/v1/events"
+  },
+  {
+    "bucket": "admin_write",
+    "method": "DELETE",
+    "path": "/api/v1/admin/users/{user_id}"
+  },
+  {
+    "bucket": "group_read",
+    "method": "GET",
+    "path": "/api/v1/groups/{group_id}/members"
+  },
+  {
+    "bucket": "group_write",
+    "method": "PUT",
+    "path": "/api/v1/groups/{group_id}/members/{kind}/{id}"
+  }
+]

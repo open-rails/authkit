@@ -3,7 +3,7 @@ name: Validate
 # One conservative suite selection on the tested PR merge; no duplicate master run.
 on:
   pull_request:
-    branches: [master]
+    branches: [master, "release/**"]
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch: {}
 
@@ -75,7 +75,7 @@ jobs:
               summary.write('\n'.join(lines) + '\n')
           CHECK
       - name: Test conservative selection
-        run: python3 scripts/test_ci_suites.py
+        run: python3 scripts/check_ci_selection.py
       - name: Select complete suites
         id: suites
         env:
@@ -111,7 +111,6 @@ jobs:
   workflows:
     needs: changes
     if: needs.changes.outputs.root == 'true'
-    # Playwright cannot install Chromium on ubuntu-26.04 yet.
     runs-on: ubuntu-24.04
     services:
       postgres:
@@ -142,14 +141,6 @@ jobs:
           # the module also requires Go 1.26.6 as its consumer floor.
           go-version: '1.26.10'
           cache: true
-      - uses: pnpm/action-setup@v6.1.0
-        with:
-          package_json_file: internal/apitest/testdata/package.json
-      - uses: actions/setup-node@v7.0.0
-        with:
-          node-version: '24'
-      - run: pnpm --dir internal/apitest/testdata install --frozen-lockfile
-      - run: pnpm --dir internal/apitest/testdata exec playwright install --with-deps chromium
       - run: scripts/check.sh workflows
 
   contracts:

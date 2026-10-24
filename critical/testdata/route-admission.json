@@ -1,0 +1,858 @@
+[
+  {
+    "id": "AK-HTTP-004",
+    "method": "DELETE",
+    "path": "/api/v1/logout",
+    "gate": "required",
+    "coverage": "included",
+    "owner": "AK-J05"
+  },
+  {
+    "id": "AK-HTTP-025",
+    "method": "DELETE",
+    "path": "/api/v1/device-keys",
+    "gate": "session",
+    "coverage": "partial",
+    "owner": "AK-J10"
+  },
+  {
+    "id": "AK-HTTP-032",
+    "method": "POST",
+    "path": "/api/v1/verify/confirm",
+    "gate": "optional",
+    "coverage": "included",
+    "owner": "AK-J03"
+  },
+  {
+    "id": "AK-HTTP-033",
+    "method": "GET",
+    "path": "/api/v1/me",
+    "gate": "required",
+    "coverage": "partial",
+    "owner": "AK-J27"
+  },
+  {
+    "id": "AK-HTTP-034",
+    "method": "PATCH",
+    "path": "/api/v1/me",
+    "gate": "session",
+    "coverage": "partial",
+    "owner": "AK-J27"
+  },
+  {
+    "id": "AK-HTTP-035",
+    "method": "DELETE",
+    "path": "/api/v1/me",
+    "gate": "session",
+    "coverage": "included",
+    "owner": "AK-J25"
+  },
+  {
+    "id": "AK-HTTP-036",
+    "method": "GET",
+    "path": "/api/v1/me/oauth-consents",
+    "gate": "required",
+    "coverage": "partial",
+    "owner": "AK-J19"
+  },
+  {
+    "id": "AK-HTTP-037",
+    "method": "DELETE",
+    "path": "/api/v1/me/oauth-consents/{client_id}",
+    "gate": "session",
+    "coverage": "partial",
+    "owner": "AK-J19"
+  },
+  {
+    "id": "AK-HTTP-038",
+    "method": "GET",
+    "path": "/api/v1/me/agreements",
+    "gate": "required",
+    "coverage": "partial",
+    "owner": "AK-J28"
+  },
+  {
+    "id": "AK-HTTP-039",
+    "method": "POST",
+    "path": "/api/v1/me/agreements",
+    "gate": "session",
+    "coverage": "partial",
+    "owner": "AK-J28"
+  },
+  {
+    "id": "AK-HTTP-040",
+    "method": "GET",
+    "path": "/api/v1/me/security",
+    "gate": "required",
+    "coverage": "included",
+    "owner": "AK-J07"
+  },
+  {
+    "id": "AK-HTTP-041",
+    "method": "GET",
+    "path": "/api/v1/me/personal-access-tokens",
+    "gate": "session",
+    "coverage": "included",
+    "owner": "AK-J17"
+  },
+  {
+    "id": "AK-HTTP-042",
+    "method": "POST",
+    "path": "/api/v1/me/personal-access-tokens",
+    "gate": "session",
+    "coverage": "included",
+    "owner": "AK-J17"
+  },
+  {
+    "id": "AK-HTTP-043",
+    "method": "DELETE",
+    "path": "/api/v1/me/personal-access-tokens/{id}",
+    "gate": "session",
+    "coverage": "included",
+    "owner": "AK-J17"
+  },
+  {
+    "id": "AK-HTTP-044",
+    "method": "PUT",
+    "path": "/api/v1/me/password",
+    "gate": "session",
+    "coverage": "included",
+    "owner": "AK-J06"
+  },
+  {
+    "id": "AK-HTTP-045",
+    "method": "PUT",
+    "path": "/api/v1/me/email",
+    "gate": "session",
+    "coverage": "included",
+    "owner": "AK-J06"
+  },
+  {
+    "id": "AK-HTTP-046",
+    "method": "PUT",
+    "path": "/api/v1/me/phone",
+    "gate": "session",
+    "coverage": "included",
+    "owner": "AK-J06"
+  },
+  {
+    "id": "AK-HTTP-047",
+    "method": "DELETE",
+    "path": "/api/v1/me/phone",
+    "gate": "session",
+    "coverage": "included",
+    "owner": "AK-J06"
+  },
+  {
+    "id": "AK-HTTP-048",
+    "method": "GET",
+    "path": "/api/v1/me/sessions",
+    "gate": "required",
+    "coverage": "included",
+    "owner": "AK-J05"
+  },
+  {
+    "id": "AK-HTTP-049",
+    "method": "DELETE",
+    "path": "/api/v1/me/sessions",
+    "gate": "session",
+    "coverage": "included",
+    "owner": "AK-J05"
+  },
+  {
+    "id": "AK-HTTP-050",
+    "method": "DELETE",
+    "path": "/api/v1/me/sessions/{id}",
+    "gate": "session",
+    "coverage": "included",
+    "owner": "AK-J05"
+  },
+  {
+    "id": "AK-HTTP-051",
+    "method": "GET",
+    "path": "/api/v1/me/session-events",
+    "gate": "required",
+    "coverage": "included",
+    "owner": "AK-J05"
+  },
+  {
+    "id": "AK-HTTP-052",
+    "method": "DELETE",
+    "path": "/api/v1/me/providers/{provider}",
+    "gate": "session",
+    "coverage": "partial",
+    "owner": "AK-J12"
+  },
+  {
+    "id": "AK-HTTP-053",
+    "method": "GET",
+    "path": "/api/v1/me/sign-in-keys",
+    "gate": "required",
+    "coverage": "partial",
+    "owner": "AK-J10"
+  },
+  {
+    "id": "AK-HTTP-054",
+    "method": "PATCH",
+    "path": "/api/v1/me/sign-in-keys/{id}",
+    "gate": "session",
+    "coverage": "partial",
+    "owner": "AK-J10"
+  },
+  {
+    "id": "AK-HTTP-055",
+    "method": "DELETE",
+    "path": "/api/v1/me/sign-in-keys/{id}",
+    "gate": "session",
+    "coverage": "partial",
+    "owner": "AK-J10"
+  },
+  {
+    "id": "AK-HTTP-056",
+    "method": "POST",
+    "path": "/api/v1/me/passkeys/register/begin",
+    "gate": "session",
+    "coverage": "partial",
+    "owner": "AK-J09"
+  },
+  {
+    "id": "AK-HTTP-057",
+    "method": "POST",
+    "path": "/api/v1/me/passkeys/register/finish",
+    "gate": "session",
+    "coverage": "partial",
+    "owner": "AK-J09"
+  },
+  {
+    "id": "AK-HTTP-058",
+    "method": "POST",
+    "path": "/api/v1/me/step-up/password",
+    "gate": "session",
+    "coverage": "included",
+    "owner": "AK-J08"
+  },
+  {
+    "id": "AK-HTTP-059",
+    "method": "POST",
+    "path": "/api/v1/me/step-up/2fa/send",
+    "gate": "session",
+    "coverage": "included",
+    "owner": "AK-J08"
+  },
+  {
+    "id": "AK-HTTP-060",
+    "method": "POST",
+    "path": "/api/v1/me/step-up/2fa",
+    "gate": "session",
+    "coverage": "included",
+    "owner": "AK-J08"
+  },
+  {
+    "id": "AK-HTTP-061",
+    "method": "POST",
+    "path": "/api/v1/me/step-up/code/send",
+    "gate": "session",
+    "coverage": "included",
+    "owner": "AK-J08"
+  },
+  {
+    "id": "AK-HTTP-062",
+    "method": "POST",
+    "path": "/api/v1/me/step-up/code",
+    "gate": "session",
+    "coverage": "included",
+    "owner": "AK-J08"
+  },
+  {
+    "id": "AK-HTTP-063",
+    "method": "POST",
+    "path": "/api/v1/me/step-up/solana/challenge",
+    "gate": "session",
+    "coverage": "partial",
+    "owner": "AK-J11"
+  },
+  {
+    "id": "AK-HTTP-064",
+    "method": "POST",
+    "path": "/api/v1/me/step-up/solana",
+    "gate": "session",
+    "coverage": "partial",
+    "owner": "AK-J11"
+  },
+  {
+    "id": "AK-HTTP-065",
+    "method": "POST",
+    "path": "/api/v1/me/step-up/passkey/begin",
+    "gate": "session",
+    "coverage": "partial",
+    "owner": "AK-J09"
+  },
+  {
+    "id": "AK-HTTP-066",
+    "method": "POST",
+    "path": "/api/v1/me/step-up/passkey",
+    "gate": "session",
+    "coverage": "partial",
+    "owner": "AK-J09"
+  },
+  {
+    "id": "AK-HTTP-067",
+    "method": "POST",
+    "path": "/api/v1/oidc/{provider}/link/start",
+    "gate": "session",
+    "coverage": "partial",
+    "owner": "AK-J12"
+  },
+  {
+    "id": "AK-HTTP-068",
+    "method": "POST",
+    "path": "/api/v1/oidc/{provider}/step-up/start",
+    "gate": "session",
+    "coverage": "partial",
+    "owner": "AK-J12"
+  },
+  {
+    "id": "AK-HTTP-069",
+    "method": "POST",
+    "path": "/api/v1/me/passkeys/enroll/begin",
+    "gate": "session",
+    "coverage": "partial",
+    "owner": "AK-J09"
+  },
+  {
+    "id": "AK-HTTP-070",
+    "method": "POST",
+    "path": "/api/v1/me/passkeys/enroll/finish",
+    "gate": "session",
+    "coverage": "partial",
+    "owner": "AK-J09"
+  },
+  {
+    "id": "AK-HTTP-071",
+    "method": "POST",
+    "path": "/api/v1/me/2fa/setup",
+    "gate": "session",
+    "coverage": "included",
+    "owner": "AK-J07"
+  },
+  {
+    "id": "AK-HTTP-072",
+    "method": "POST",
+    "path": "/api/v1/me/2fa/factors",
+    "gate": "session",
+    "coverage": "included",
+    "owner": "AK-J07"
+  },
+  {
+    "id": "AK-HTTP-073",
+    "method": "PATCH",
+    "path": "/api/v1/me/2fa/factors/{id}",
+    "gate": "session",
+    "coverage": "included",
+    "owner": "AK-J07"
+  },
+  {
+    "id": "AK-HTTP-074",
+    "method": "DELETE",
+    "path": "/api/v1/me/2fa/factors/{id}",
+    "gate": "session",
+    "coverage": "included",
+    "owner": "AK-J07"
+  },
+  {
+    "id": "AK-HTTP-075",
+    "method": "DELETE",
+    "path": "/api/v1/me/2fa",
+    "gate": "session",
+    "coverage": "included",
+    "owner": "AK-J07"
+  },
+  {
+    "id": "AK-HTTP-076",
+    "method": "POST",
+    "path": "/api/v1/me/2fa/backup-codes",
+    "gate": "session",
+    "coverage": "included",
+    "owner": "AK-J07"
+  },
+  {
+    "id": "AK-HTTP-077",
+    "method": "PUT",
+    "path": "/api/v1/me/solana-wallet",
+    "gate": "session",
+    "coverage": "partial",
+    "owner": "AK-J11"
+  },
+  {
+    "id": "AK-HTTP-078",
+    "method": "GET",
+    "path": "/api/v1/me/groups",
+    "gate": "required",
+    "coverage": "included",
+    "owner": "AK-J15"
+  },
+  {
+    "id": "AK-HTTP-079",
+    "method": "GET",
+    "path": "/api/v1/me/permissions",
+    "gate": "required",
+    "coverage": "included",
+    "owner": "AK-J15"
+  },
+  {
+    "id": "AK-HTTP-081",
+    "method": "GET",
+    "path": "/api/v1/admin/users",
+    "gate": "permission",
+    "coverage": "partial",
+    "owner": "AK-J27"
+  },
+  {
+    "id": "AK-HTTP-082",
+    "method": "GET",
+    "path": "/api/v1/events",
+    "gate": "permission",
+    "coverage": "included",
+    "owner": "AK-J26"
+  },
+  {
+    "id": "AK-HTTP-083",
+    "method": "GET",
+    "path": "/api/v1/admin/users/{user_id}",
+    "gate": "permission",
+    "coverage": "partial",
+    "owner": "AK-J27"
+  },
+  {
+    "id": "AK-HTTP-084",
+    "method": "PATCH",
+    "path": "/api/v1/admin/users/{user_id}",
+    "gate": "session",
+    "coverage": "partial",
+    "owner": "AK-J27"
+  },
+  {
+    "id": "AK-HTTP-085",
+    "method": "DELETE",
+    "path": "/api/v1/admin/users/{user_id}",
+    "gate": "session",
+    "coverage": "included",
+    "owner": "AK-J25"
+  },
+  {
+    "id": "AK-HTTP-086",
+    "method": "POST",
+    "path": "/api/v1/admin/users/{user_id}/restore",
+    "gate": "session",
+    "coverage": "included",
+    "owner": "AK-J25"
+  },
+  {
+    "id": "AK-HTTP-087",
+    "method": "PUT",
+    "path": "/api/v1/admin/users/{user_id}/ban",
+    "gate": "session",
+    "coverage": "included",
+    "owner": "AK-J25"
+  },
+  {
+    "id": "AK-HTTP-088",
+    "method": "DELETE",
+    "path": "/api/v1/admin/users/{user_id}/ban",
+    "gate": "session",
+    "coverage": "included",
+    "owner": "AK-J25"
+  },
+  {
+    "id": "AK-HTTP-089",
+    "method": "GET",
+    "path": "/api/v1/admin/users/{user_id}/sessions",
+    "gate": "permission",
+    "coverage": "included",
+    "owner": "AK-J05"
+  },
+  {
+    "id": "AK-HTTP-090",
+    "method": "DELETE",
+    "path": "/api/v1/admin/users/{user_id}/sessions",
+    "gate": "session",
+    "coverage": "included",
+    "owner": "AK-J05"
+  },
+  {
+    "id": "AK-HTTP-091",
+    "method": "GET",
+    "path": "/api/v1/admin/users/{user_id}/session-events",
+    "gate": "permission",
+    "coverage": "included",
+    "owner": "AK-J05"
+  },
+  {
+    "id": "AK-HTTP-092",
+    "method": "GET",
+    "path": "/api/v1/admin/provisioning/targets",
+    "gate": "permission",
+    "coverage": "partial",
+    "owner": "AK-J24"
+  },
+  {
+    "id": "AK-HTTP-094",
+    "method": "POST",
+    "path": "/api/v1/oauth2/authorizations/{authorization_id}/approve",
+    "gate": "session",
+    "coverage": "partial",
+    "owner": "AK-J20"
+  },
+  {
+    "id": "AK-HTTP-096",
+    "method": "GET",
+    "path": "/api/v1/groups/{group_id}/members",
+    "gate": "permission",
+    "coverage": "included",
+    "owner": "AK-J15"
+  },
+  {
+    "id": "AK-HTTP-097",
+    "method": "PUT",
+    "path": "/api/v1/groups/{group_id}/members/{kind}/{id}",
+    "gate": "permission",
+    "coverage": "included",
+    "owner": "AK-J15"
+  },
+  {
+    "id": "AK-HTTP-098",
+    "method": "DELETE",
+    "path": "/api/v1/groups/{group_id}/members/{kind}/{id}",
+    "gate": "permission",
+    "coverage": "included",
+    "owner": "AK-J15"
+  },
+  {
+    "id": "AK-HTTP-099",
+    "method": "GET",
+    "path": "/api/v1/groups/{group_id}/roles",
+    "gate": "permission",
+    "coverage": "included",
+    "owner": "AK-J15"
+  },
+  {
+    "id": "AK-HTTP-100",
+    "method": "POST",
+    "path": "/api/v1/groups/{group_id}/roles",
+    "gate": "permission",
+    "coverage": "included",
+    "owner": "AK-J15"
+  },
+  {
+    "id": "AK-HTTP-101",
+    "method": "GET",
+    "path": "/api/v1/groups/{group_id}/roles/{role}",
+    "gate": "permission",
+    "coverage": "included",
+    "owner": "AK-J15"
+  },
+  {
+    "id": "AK-HTTP-102",
+    "method": "PATCH",
+    "path": "/api/v1/groups/{group_id}/roles/{role}",
+    "gate": "permission",
+    "coverage": "included",
+    "owner": "AK-J15"
+  },
+  {
+    "id": "AK-HTTP-103",
+    "method": "DELETE",
+    "path": "/api/v1/groups/{group_id}/roles/{role}",
+    "gate": "permission",
+    "coverage": "included",
+    "owner": "AK-J15"
+  },
+  {
+    "id": "AK-HTTP-104",
+    "method": "GET",
+    "path": "/api/v1/groups/{group_id}/invitations",
+    "gate": "permission",
+    "coverage": "partial",
+    "owner": "AK-J18"
+  },
+  {
+    "id": "AK-HTTP-105",
+    "method": "POST",
+    "path": "/api/v1/groups/{group_id}/invitations",
+    "gate": "permission",
+    "coverage": "partial",
+    "owner": "AK-J18"
+  },
+  {
+    "id": "AK-HTTP-106",
+    "method": "DELETE",
+    "path": "/api/v1/groups/{group_id}/invitations/{id}",
+    "gate": "permission",
+    "coverage": "partial",
+    "owner": "AK-J18"
+  },
+  {
+    "id": "AK-HTTP-107",
+    "method": "GET",
+    "path": "/api/v1/groups/{group_id}/oauth-clients",
+    "gate": "permission",
+    "coverage": "partial",
+    "owner": "AK-J19"
+  },
+  {
+    "id": "AK-HTTP-108",
+    "method": "POST",
+    "path": "/api/v1/groups/{group_id}/oauth-clients",
+    "gate": "permission",
+    "coverage": "partial",
+    "owner": "AK-J19"
+  },
+  {
+    "id": "AK-HTTP-109",
+    "method": "GET",
+    "path": "/api/v1/groups/{group_id}/oauth-clients/{client_id}",
+    "gate": "permission",
+    "coverage": "partial",
+    "owner": "AK-J19"
+  },
+  {
+    "id": "AK-HTTP-110",
+    "method": "PATCH",
+    "path": "/api/v1/groups/{group_id}/oauth-clients/{client_id}",
+    "gate": "permission",
+    "coverage": "partial",
+    "owner": "AK-J19"
+  },
+  {
+    "id": "AK-HTTP-111",
+    "method": "DELETE",
+    "path": "/api/v1/groups/{group_id}/oauth-clients/{client_id}",
+    "gate": "permission",
+    "coverage": "partial",
+    "owner": "AK-J19"
+  },
+  {
+    "id": "AK-HTTP-112",
+    "method": "POST",
+    "path": "/api/v1/groups/{group_id}/oauth-clients/{client_id}/secret",
+    "gate": "permission",
+    "coverage": "partial",
+    "owner": "AK-J19"
+  },
+  {
+    "id": "AK-HTTP-113",
+    "method": "GET",
+    "path": "/api/v1/groups/{group_id}/api-keys",
+    "gate": "permission",
+    "coverage": "included",
+    "owner": "AK-J16"
+  },
+  {
+    "id": "AK-HTTP-114",
+    "method": "POST",
+    "path": "/api/v1/groups/{group_id}/api-keys",
+    "gate": "permission",
+    "coverage": "included",
+    "owner": "AK-J16"
+  },
+  {
+    "id": "AK-HTTP-115",
+    "method": "DELETE",
+    "path": "/api/v1/groups/{group_id}/api-keys/{id}",
+    "gate": "permission",
+    "coverage": "included",
+    "owner": "AK-J16"
+  },
+  {
+    "id": "AK-HTTP-116",
+    "method": "GET",
+    "path": "/api/v1/groups/{group_id}/remote-applications",
+    "gate": "permission",
+    "coverage": "partial",
+    "owner": "AK-J21"
+  },
+  {
+    "id": "AK-HTTP-117",
+    "method": "POST",
+    "path": "/api/v1/groups/{group_id}/remote-applications",
+    "gate": "permission",
+    "coverage": "partial",
+    "owner": "AK-J21"
+  },
+  {
+    "id": "AK-HTTP-118",
+    "method": "PATCH",
+    "path": "/api/v1/groups/{group_id}/remote-applications/{id}",
+    "gate": "permission",
+    "coverage": "partial",
+    "owner": "AK-J21"
+  },
+  {
+    "id": "AK-HTTP-119",
+    "method": "DELETE",
+    "path": "/api/v1/groups/{group_id}/remote-applications/{id}",
+    "gate": "permission",
+    "coverage": "partial",
+    "owner": "AK-J21"
+  },
+  {
+    "id": "AK-HTTP-120",
+    "method": "POST",
+    "path": "/api/v1/invitations/redeem",
+    "gate": "session",
+    "coverage": "partial",
+    "owner": "AK-J18"
+  },
+  {
+    "id": "AK-HTTP-137",
+    "method": "GET",
+    "path": "/scim/v2/ServiceProviderConfig",
+    "gate": "scim",
+    "coverage": "partial",
+    "owner": "AK-J22"
+  },
+  {
+    "id": "AK-HTTP-138",
+    "method": "GET",
+    "path": "/scim/v2/ResourceTypes",
+    "gate": "scim",
+    "coverage": "partial",
+    "owner": "AK-J22"
+  },
+  {
+    "id": "AK-HTTP-139",
+    "method": "GET",
+    "path": "/scim/v2/ResourceTypes/{id}",
+    "gate": "scim",
+    "coverage": "partial",
+    "owner": "AK-J22"
+  },
+  {
+    "id": "AK-HTTP-140",
+    "method": "GET",
+    "path": "/scim/v2/Schemas",
+    "gate": "scim",
+    "coverage": "partial",
+    "owner": "AK-J22"
+  },
+  {
+    "id": "AK-HTTP-141",
+    "method": "GET",
+    "path": "/scim/v2/Schemas/{id}",
+    "gate": "scim",
+    "coverage": "partial",
+    "owner": "AK-J22"
+  },
+  {
+    "id": "AK-HTTP-142",
+    "method": "GET",
+    "path": "/scim/v2/Users",
+    "gate": "scim",
+    "coverage": "partial",
+    "owner": "AK-J22"
+  },
+  {
+    "id": "AK-HTTP-143",
+    "method": "POST",
+    "path": "/scim/v2/Users",
+    "gate": "scim",
+    "coverage": "partial",
+    "owner": "AK-J22"
+  },
+  {
+    "id": "AK-HTTP-144",
+    "method": "GET",
+    "path": "/scim/v2/Users/{id}",
+    "gate": "scim",
+    "coverage": "partial",
+    "owner": "AK-J22"
+  },
+  {
+    "id": "AK-HTTP-145",
+    "method": "PUT",
+    "path": "/scim/v2/Users/{id}",
+    "gate": "scim",
+    "coverage": "partial",
+    "owner": "AK-J22"
+  },
+  {
+    "id": "AK-HTTP-146",
+    "method": "PATCH",
+    "path": "/scim/v2/Users/{id}",
+    "gate": "scim",
+    "coverage": "partial",
+    "owner": "AK-J22"
+  },
+  {
+    "id": "AK-HTTP-147",
+    "method": "DELETE",
+    "path": "/scim/v2/Users/{id}",
+    "gate": "scim",
+    "coverage": "partial",
+    "owner": "AK-J22"
+  },
+  {
+    "id": "AK-HTTP-148",
+    "method": "POST",
+    "path": "/scim/v2/Bulk",
+    "gate": "scim",
+    "coverage": "partial",
+    "owner": "AK-J22"
+  },
+  {
+    "id": "AK-HTTP-154",
+    "method": "GET",
+    "path": "/directory/scim/v2/Users",
+    "gate": "scim",
+    "coverage": "partial",
+    "owner": "AK-J23"
+  },
+  {
+    "id": "AK-HTTP-155",
+    "method": "POST",
+    "path": "/directory/scim/v2/Users",
+    "gate": "scim",
+    "coverage": "partial",
+    "owner": "AK-J23"
+  },
+  {
+    "id": "AK-HTTP-156",
+    "method": "GET",
+    "path": "/directory/scim/v2/Users/{id}",
+    "gate": "scim",
+    "coverage": "partial",
+    "owner": "AK-J23"
+  },
+  {
+    "id": "AK-HTTP-157",
+    "method": "PUT",
+    "path": "/directory/scim/v2/Users/{id}",
+    "gate": "scim",
+    "coverage": "partial",
+    "owner": "AK-J23"
+  },
+  {
+    "id": "AK-HTTP-158",
+    "method": "PATCH",
+    "path": "/directory/scim/v2/Users/{id}",
+    "gate": "scim",
+    "coverage": "partial",
+    "owner": "AK-J23"
+  },
+  {
+    "id": "AK-HTTP-159",
+    "method": "DELETE",
+    "path": "/directory/scim/v2/Users/{id}",
+    "gate": "scim",
+    "coverage": "partial",
+    "owner": "AK-J23"
+  },
+  {
+    "id": "AK-HTTP-160",
+    "method": "POST",
+    "path": "/directory/scim/v2/Bulk",
+    "gate": "scim",
+    "coverage": "partial",
+    "owner": "AK-J23"
+  }
+]

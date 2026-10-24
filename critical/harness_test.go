@@ -24,26 +24,27 @@ import (
 // Outbox captures only the external email/SMS boundary; no AuthKit service or
 // authorization result is replaced. Every journey owns its schema and server.
 type fixture struct {
-	auth       *authkit.Client
-	out        *authtest.Outbox
-	server     *httptest.Server
-	roles      *authkit.Roles
-	shop       *authkit.PersonaDef
-	read       iam.Perm
-	write      iam.Perm
-	reader     iam.Role
-	writer     iam.Role
-	tenant     iam.TenantID
-	pool       *pgxpool.Pool
-	rootReader iam.Role
-	schema     string
-	cfg        authkit.Config
-	deps       authkit.Deps
-	team       *authkit.PersonaDef
-	teamRead   iam.Perm
-	teamWrite  iam.Perm
-	teamReader iam.Role
-	teamWriter iam.Role
+	auth         *authkit.Client
+	out          *authtest.Outbox
+	server       *httptest.Server
+	roles        *authkit.Roles
+	shop         *authkit.PersonaDef
+	read         iam.Perm
+	write        iam.Perm
+	reader       iam.Role
+	writer       iam.Role
+	tenant       iam.TenantID
+	pool         *pgxpool.Pool
+	rootReader   iam.Role
+	tenantReader iam.Role
+	schema       string
+	cfg          authkit.Config
+	deps         authkit.Deps
+	team         *authkit.PersonaDef
+	teamRead     iam.Perm
+	teamWrite    iam.Perm
+	teamReader   iam.Role
+	teamWriter   iam.Role
 }
 
 func newFixture(t *testing.T, options ...authtest.Option) *fixture {
@@ -56,6 +57,7 @@ func newFixture(t *testing.T, options ...authtest.Option) *fixture {
 	read, write := shop.Permission("orders", "read"), shop.Permission("orders", "write")
 	f := &fixture{roles: roles, shop: shop, read: read, write: write, tenant: iam.NewTenantID()}
 	f.rootReader = roles.Root.Role("auditor", roles.Root.Users.Read)
+	f.tenantReader = roles.Tenant.Role("directoryreader", roles.Tenant.Users.Read)
 	f.reader = shop.Role("reader", read)
 	f.writer = shop.Role("writer", read, write)
 	f.team = roles.Persona("team", authkit.APIKeys, authkit.CustomRoles, authkit.RemoteApplications)
@@ -185,6 +187,26 @@ func noError(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Wait for an observable asynchronous outcome, not for an assumed processing
+// duration. A missing transition fails with its own bounded deadline.
+func eventually(t *testing.T, description string, ready func() bool) {
+	t.Helper()
+	deadline := time.NewTimer(10 * time.Second)
+	defer deadline.Stop()
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		if ready() {
+			return
+		}
+		select {
+		case <-deadline.C:
+			t.Fatalf("timed out observing %s", description)
+		case <-tick.C:
+		}
 	}
 }
 

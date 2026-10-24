@@ -126,6 +126,10 @@ func TestCriticalTenantAuthority(t *testing.T) {
 		if user.EmailVerified {
 			t.Fatal("import fabricated contact verification")
 		}
+		_, err = f.auth.EnsureUserRole(t.Context(), iam.RootGroup(), iam.UserByEmail("unproved-import@example.com"), f.rootReader)
+		if !errors.Is(err, iam.ErrContactNotVerified) {
+			t.Fatalf("EnsureUserRole adopted an unproved contact: %v", err)
+		}
 		_, err = f.auth.ApplyBootstrapManifest(t.Context(), iam.BootstrapManifest{Users: []iam.BootstrapManifestUser{{Email: "unproved-import@example.com", Username: "unprovedimport", EmailVerified: true, RootRole: f.rootReader}}}, iam.BootstrapOptions{})
 		if err == nil {
 			t.Fatal("unproved imported contact was accepted as permission-granting proof")
@@ -134,6 +138,33 @@ func TestCriticalTenantAuthority(t *testing.T) {
 		noError(t, err)
 		if !roles[iam.UserSubject(user.ID)].IsZero() {
 			t.Fatal("refused bootstrap still granted root authority")
+		}
+		verified := f.user(t)
+		ensured, err := f.auth.EnsureUserRole(t.Context(), iam.RootGroup(), iam.UserByEmail(verified.Email), f.rootReader)
+		noError(t, err)
+		if ensured.ID != verified.ID {
+			t.Fatal("verified contact provisioning reidentified the user")
+		}
+		ensured, err = f.auth.EnsureUserRole(t.Context(), iam.RootGroup(), iam.UserByEmail(verified.Email), f.rootReader)
+		noError(t, err)
+		if ensured.ID != verified.ID {
+			t.Fatal("replayed provisioning did not converge")
+		}
+		link := iam.ProviderLink{Issuer: "https://legacy-idp.example", Subject: "legacy-subject", Provider: "legacy", Email: verified.Email}
+		noError(t, f.auth.LinkProvider(t.Context(), verified.ID, link))
+		noError(t, f.auth.LinkProvider(t.Context(), verified.ID, link))
+		if err := f.auth.LinkProvider(t.Context(), user.ID, link); err == nil {
+			t.Fatal("trusted import moved an already-linked external identity to another user")
+		}
+		wallets, err := f.auth.ImportSolanaLinks(t.Context(), []iam.ImportSolanaLink{{UserID: verified.ID, Address: "11111111111111111111111111111111", Source: "legacy", SourceID: "reserved-wallet"}})
+		noError(t, err)
+		if wallets.Inserted != 1 {
+			t.Fatalf("wallet reservation import:%+v", wallets)
+		}
+		conflict, err := f.auth.ImportSolanaLinks(t.Context(), []iam.ImportSolanaLink{{UserID: user.ID, Address: "11111111111111111111111111111111", Source: "legacy", SourceID: "reserved-wallet"}})
+		noError(t, err)
+		if conflict.Rejected != 1 {
+			t.Fatal("legacy wallet reservation was reassigned to another account")
 		}
 	})
 	t.Run("AK-J02-C05_borrowed_tenant_view_does_not_reidentify_actor", func(t *testing.T) {
