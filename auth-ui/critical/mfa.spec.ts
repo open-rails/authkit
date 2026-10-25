@@ -257,7 +257,7 @@ test("AK-UI-15: TS contract: browser-bound access is usable only with its real D
     await expect(page.getByTestId("session-user")).toHaveText(who.id)
     expect(
       await page.evaluate(() =>
-        window.ak.client.getMe().then((user) => user.id)
+        window.ak.client.getMe().then((user) => user?.id)
       )
     ).toBe(who.id)
     expect(privateClaims.cnf.jkt).not.toBe(claims.cnf!.jkt)
