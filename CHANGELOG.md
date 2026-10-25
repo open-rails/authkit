@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- When verification is required, a password sign-in for an account with no proven email or phone is refused with the new `verification_unavailable` (503) while no channel can send its code, and the refusal is logged. Before, a missing or unhealthy sender let such an account sign in on its password alone. Accounts with a proven contact are unaffected. auth-ui shows "We couldn't send your verification code. Please try again shortly."
 - **Breaking (coordinated notification upgrade):** account notification types and PostgreSQL storage now live in `github.com/open-rails/authkit/notify` and `notify/postgres`. `Client.Notifications` and remote delivery factories return one `notify.Publisher` with `Publish(ctx, []Publication, tx...)` and `Withdraw(ctx, []Withdrawal, tx...)`; replace producer `Apply`/`ApplyTx` calls and let the configured AuthKit publisher bind origin, tenant and app visibility. Remote operations always enqueue in the source database, including when no transaction is supplied. Existing SQL, receipt identities and wire envelopes remain unchanged. A previously revisioned envelope with workflow status or source-subject metadata still requires a higher source revision for a semantic change; same-revision content conflicts are not waived.
 - AuthKit UI owns the account inbox and notification bell, with shared refresh, cursor pagination, read/archive actions and identity-switch fencing. See the notification configuration and migration guide before replacing an older writer cohort.
 

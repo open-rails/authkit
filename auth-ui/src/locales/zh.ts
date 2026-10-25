@@ -665,6 +665,7 @@ export const zh: AuthUiMessageBundle = {
     username_too_long: "用户名最多可为 30 个字符。",
     username_too_short: "用户名至少需要 4 个字符。",
     verification_required: "请验证你的联系方式以继续。",
+    verification_unavailable: "无法发送验证码。请稍后再试。",
     wallet_already_linked: "该钱包已关联到其他账户。",
     wallet_change_requires_unlink: "请先解绑当前钱包，再连接其他钱包。",
   },

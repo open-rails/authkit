@@ -14901,6 +14901,10 @@
         "$ref": "#/components/schemas/ContactProofRequired"
       }
     },
+    "verification_unavailable": {
+      "status": 503,
+      "message": "We couldn't send your verification code. Please try again shortly."
+    },
     "wallet_already_linked": {
       "status": 409,
       "message": "That wallet is already linked to another account."

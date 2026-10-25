@@ -759,6 +759,8 @@ export const es: AuthUiMessageBundle = {
     username_too_short:
       "El nombre de usuario debe tener al menos 4 caracteres.",
     verification_required: "Verifica tus datos de contacto para continuar.",
+    verification_unavailable:
+      "No pudimos enviar tu código de verificación. Inténtalo de nuevo en unos minutos.",
     wallet_already_linked: "Esa billetera ya está vinculada a otra cuenta.",
     wallet_change_requires_unlink:
       "Desvincula tu billetera actual antes de conectar otra.",

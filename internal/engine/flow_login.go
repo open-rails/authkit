@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -143,7 +144,9 @@ func (s *Engine) recoverPendingLogin(ctx context.Context, in authflow.PasswordLo
 // verificationGate parks an unverified account: the password must verify
 // first (no OTP for the unauthenticated), then a fresh code goes out over the
 // unverified channel and the login ends in LoginVerificationRequired with a
-// password proof.
+// password proof. An account with no proven contact whose code no channel can
+// send now is refused with ErrVerificationUnavailable, never signed in on the
+// password alone.
 func (s *Engine) verificationGate(ctx context.Context, in authflow.PasswordLoginInput, u *db.User) (authflow.LoginOutcome, bool, error) {
 	needsEmail := !u.EmailVerified && u.Email != nil
 	needsPhone := !u.PhoneVerified && u.PhoneNumber != nil
@@ -169,7 +172,14 @@ func (s *Engine) verificationGate(ctx context.Context, in authflow.PasswordLogin
 		s.loginFailed(ctx, in, u.ID, "phone_not_verified")
 		return s.verificationRequired(ctx, u.ID, *u.PhoneNumber, "phone", defaultPhoneVerificationTTL)
 	}
-	return authflow.LoginOutcome{}, false, nil
+	// An account that already proved one contact signs in as before, so a site
+	// without SMS does not lock out a verified email beside an unverified phone.
+	if u.EmailVerified && u.Email != nil || u.PhoneVerified && u.PhoneNumber != nil {
+		return authflow.LoginOutcome{}, false, nil
+	}
+	slog.Warn("password sign-in refused: no channel can send the required verification code", "user_id", u.ID, "email_available", s.EmailAvailable(), "sms_available", s.SMSAvailable())
+	s.loginFailed(ctx, in, u.ID, "verification_unavailable")
+	return authflow.LoginOutcome{}, true, errmodel.ErrVerificationUnavailable
 }
 
 // verificationRequired parks a login that proved userID's password at the code
