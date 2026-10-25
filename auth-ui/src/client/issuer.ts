@@ -21,6 +21,7 @@ import {
 import { idbDelete, idbGet, idbPut } from "./idb.ts"
 import { decodeAccessClaims, type AccessClaims } from "./jwt.ts"
 import { OAuthError, readOAuthError } from "./oauthError.ts"
+import { POPUP_CLOSE_GRACE_MS } from "./popup.ts"
 import { asksForStepUp } from "./stepUp.ts"
 
 export type IssuerClientOptions = {
@@ -425,10 +426,12 @@ export function createIssuerClient(options: IssuerClientOptions) {
       throw err
     }
     const href = await new Promise<string>((resolve, reject) => {
+      let closing: ReturnType<typeof setTimeout> | undefined
       const done = (fn: () => void) => {
         window.removeEventListener("message", onMessage)
         clearInterval(poll)
         clearTimeout(deadline)
+        clearTimeout(closing)
         fn()
       }
       // Only this app's own callback page, in the popup we opened, for the
@@ -447,8 +450,15 @@ export function createIssuerClient(options: IssuerClientOptions) {
         done(() => resolve(data.url as string))
       }
       window.addEventListener("message", onMessage)
+      // The callback page posts its answer and then closes itself, so a
+      // closed popup may still have that answer queued for this window.
       const poll = setInterval(() => {
-        if (popup.closed) done(() => reject(new OAuthError(0, "popup_closed")))
+        if (!popup.closed) return
+        clearInterval(poll)
+        closing = setTimeout(
+          () => done(() => reject(new OAuthError(0, "popup_closed"))),
+          POPUP_CLOSE_GRACE_MS
+        )
       }, 500)
       const deadline = setTimeout(
         () => done(() => reject(new OAuthError(0, "popup_timeout"))),
