@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useSyncExternalStore } from "react"
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react"
 import type { AuthClient, NotificationListOptions } from "../client/client.ts"
 import type { NotificationItem, NotificationPage } from "../client/types.ts"
 import { sessionIdentity, useAuthClient, useSession } from "./context.ts"
@@ -42,7 +42,7 @@ export function useNotifications(options: NotificationListOptions = {}) {
     nextCursor: current ? (snapshot.data?.next_cursor ?? "") : "",
     loading: current && snapshot.loading,
     error: current ? snapshot.error : null,
-    refresh: client.notifications.refresh,
+    refresh: useCallback(() => resource.reload(), [resource]),
     setRead: client.notifications.setRead,
     setDismissed: client.notifications.setDismissed,
   }
