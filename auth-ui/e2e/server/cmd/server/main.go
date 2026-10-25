@@ -45,16 +45,24 @@ func run(addr, origin, dist, app string) error {
 		return err
 	}
 	defer pool.Close()
-	rt, err := harness.New(ctx, origin, "critical_ui", pool, "main")
+	isolatedID, err := iam.ParseTenantID("00000000-0000-4000-8000-000000001291")
+	if err != nil {
+		return err
+	}
+	// This loopback fixture maps one host-known selector to one provisioned
+	// directory. Selection runs through the same public mount as platform login.
+	requestTenant := func(r *http.Request) (iam.TenantID, error) {
+		if r.Header.Get("X-Critical-Tenant") == "isolated" {
+			return isolatedID, nil
+		}
+		return iam.TenantID{}, nil
+	}
+	rt, err := harness.New(ctx, origin, "critical_ui", pool, "main", requestTenant)
 	if err != nil {
 		return err
 	}
 	defer rt.Close(context.WithoutCancel(ctx))
 	if err = rt.Start(ctx); err != nil {
-		return err
-	}
-	isolatedID, err := iam.ParseTenantID("00000000-0000-4000-8000-000000001291")
-	if err != nil {
 		return err
 	}
 	if err = rt.CreateTenant(ctx, iam.Tenant{ID: isolatedID}); err != nil {
@@ -64,7 +72,7 @@ func run(addr, origin, dist, app string) error {
 	if err != nil {
 		return err
 	}
-	limited, err := harness.New(ctx, origin+"/limited", "critical_ui_limited", pool, "limited")
+	limited, err := harness.New(ctx, origin+"/limited", "critical_ui_limited", pool, "limited", nil)
 	if err != nil {
 		return err
 	}
@@ -72,7 +80,7 @@ func run(addr, origin, dist, app string) error {
 	if err = limited.Start(ctx); err != nil {
 		return err
 	}
-	unproved, err := harness.New(ctx, origin+"/unproved", "critical_ui_unproved", pool, "unproved")
+	unproved, err := harness.New(ctx, origin+"/unproved", "critical_ui_unproved", pool, "unproved", nil)
 	if err != nil {
 		return err
 	}
@@ -97,16 +105,7 @@ func run(addr, origin, dist, app string) error {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = fmt.Fprint(w, `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/__package/styles.css"><title>AuthKit critical integration</title></head><body><div id="root"></div><script type="module" src="/__app/app.js"></script></body></html>`)
 	})
-	// A trusted host selects a directory without changing the public URL or
-	// DPoP target. Both views borrow the same real AuthKit runtime.
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Critical-Tenant") == "isolated" {
-			isolated.Handler().ServeHTTP(w, r)
-			return
-		}
-		mux.ServeHTTP(w, r)
-	})
-	srv := &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 5 * time.Second}
+	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	failed := make(chan error, 1)
 	go func() { failed <- srv.ListenAndServe() }()
 	select {

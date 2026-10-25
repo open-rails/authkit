@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `Deps.RequestTenant` lets a host select an existing native account directory before HTTP guards consume DPoP proofs. Unknown directories and lookup failures refuse the request, fixed tenant views cannot be redirected, and omitted selectors preserve existing behavior.
+
 - **Breaking (coordinated notification upgrade):** account notification types and PostgreSQL storage now live in `github.com/open-rails/authkit/notify` and `notify/postgres`. `Client.Notifications` and remote delivery factories return one `notify.Publisher` with `Publish(ctx, []Publication, tx...)` and `Withdraw(ctx, []Withdrawal, tx...)`; replace producer `Apply`/`ApplyTx` calls and let the configured AuthKit publisher bind origin, tenant and app visibility. Remote operations always enqueue in the source database, including when no transaction is supplied. Existing SQL, receipt identities and wire envelopes remain unchanged. A previously revisioned envelope with workflow status or source-subject metadata still requires a higher source revision for a semantic change; same-revision content conflicts are not waived.
 - AuthKit UI owns the account inbox and notification bell, with shared refresh, cursor pagination, read/archive actions and identity-switch fencing. See the notification configuration and migration guide before replacing an older writer cohort.
 
