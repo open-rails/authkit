@@ -968,6 +968,7 @@ pkg authkit/iam, const MaxGroupAccessTokenTTL time.Duration = 900000000000
 pkg authkit/iam, const MaxGroupOAuthClients untyped int = 10
 pkg authkit/iam, const MaxGroupRoles untyped int = 100
 pkg authkit/iam, const MaxPageLimit untyped int = 500
+pkg authkit/iam, const MessageAccountExists MessageKind = "account_exists"
 pkg authkit/iam, const MessageContactChanged MessageKind = "contact_changed"
 pkg authkit/iam, const MessageDeviceKeyEnrolled MessageKind = "device_key_enrolled"
 pkg authkit/iam, const MessageInvite MessageKind = "invite"

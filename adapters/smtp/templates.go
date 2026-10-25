@@ -11,7 +11,7 @@ import (
 // emailCopy is the built-in wording in one language; {app}, {field},
 // {value}, {device} and {date} are filled in.
 type emailCopy struct {
-	verify, change, twoFactor, login, reset, invite action
+	verify, change, twoFactor, login, reset, invite, exists action
 
 	deviceSubject, deviceIntro, deviceWarning string
 	ignore, footer                            string
@@ -19,6 +19,7 @@ type emailCopy struct {
 	changedSubject, changedBody, email, phone string
 	enrolledSubject, enrolledBody, newDevice  string
 	mfaResetSubject, mfaResetBody             string
+	existsNote                                string
 }
 
 // action is a message asking for one step: its subject, the line saying what
@@ -32,6 +33,7 @@ var english = emailCopy{
 	login:     action{"Your {app} login code", "Use this code to sign in to {app}.", "Sign in"},
 	reset:     action{"Reset your {app} password", "Use this link to reset your {app} password.", "Reset password"},
 	invite:    action{"You're invited to {app}", "You've been invited to join {app}. Follow the link to create your account.", "Create account"},
+	exists:    action{"Someone tried to use your {app} email address", "Someone just tried to use this email address for another {app} account. It already belongs to your account, so nothing was changed. If it was you, sign in with this address, or choose a new password with this link.", "Reset password"},
 
 	deviceSubject:   "New device signing in to your {app} account",
 	deviceIntro:     "Someone is signing in to your {app} account from a new device. If it's you, enter this code:",
@@ -49,6 +51,7 @@ var english = emailCopy{
 	newDevice:       "A new device",
 	mfaResetSubject: "Two-step verification on your {app} account was reset",
 	mfaResetBody:    "An administrator removed the passkeys, second factors, backup codes and device keys of your {app} account and signed it out everywhere. Set up two-step verification again when you next sign in. If you did not ask for this, contact support now.",
+	existsNote:      "If it wasn't you, you can ignore this email. Your account is unchanged.",
 }
 
 var spanish = emailCopy{
@@ -58,6 +61,7 @@ var spanish = emailCopy{
 	login:     action{"Tu código de inicio de sesión de {app}", "Usa este código para iniciar sesión en {app}.", "Iniciar sesión"},
 	reset:     action{"Restablece tu contraseña de {app}", "Usa este enlace para restablecer tu contraseña de {app}.", "Restablecer contraseña"},
 	invite:    action{"Te han invitado a {app}", "Te han invitado a unirte a {app}. Sigue el enlace para crear tu cuenta.", "Crear cuenta"},
+	exists:    action{"Alguien intentó usar tu correo de {app}", "Alguien acaba de intentar usar este correo electrónico para otra cuenta de {app}. Ya pertenece a tu cuenta, así que no se cambió nada. Si fuiste tú, inicia sesión con este correo o elige una nueva contraseña con este enlace.", "Restablecer contraseña"},
 
 	deviceSubject:   "Nuevo dispositivo en tu cuenta de {app}",
 	deviceIntro:     "Alguien está iniciando sesión en tu cuenta de {app} desde un dispositivo nuevo. Si eres tú, introduce este código:",
@@ -75,6 +79,7 @@ var spanish = emailCopy{
 	newDevice:       "Un dispositivo nuevo",
 	mfaResetSubject: "Se restableció la verificación en dos pasos de tu cuenta de {app}",
 	mfaResetBody:    "Un administrador eliminó las llaves de acceso, los segundos factores, los códigos de respaldo y las llaves de dispositivo de tu cuenta de {app} y cerró todas sus sesiones. Vuelve a configurar la verificación en dos pasos la próxima vez que inicies sesión. Si no lo pediste, contacta con soporte ahora.",
+	existsNote:      "Si no fuiste tú, puedes ignorar este correo. Tu cuenta no ha cambiado.",
 }
 
 // email is one message before layout: a line saying what it is for, an
@@ -110,6 +115,8 @@ func emailTemplate(app string, msg iam.EmailMessage) (Content, error) {
 		e = email{c.reset.subject, c.reset.intro, "", c.reset.button, link, c.ignore}
 	case iam.MessageInvite:
 		e = email{subject: c.invite.subject, intro: c.invite.intro, button: c.invite.button, link: link}
+	case iam.MessageAccountExists:
+		e = email{c.exists.subject, c.exists.intro, "", c.exists.button, link, c.existsNote}
 	case iam.MessageWelcome:
 		e = email{subject: c.welcomeSubject, intro: c.welcomeBody}
 	case iam.MessageContactChanged:

@@ -33,6 +33,12 @@ const (
 	// MessageMFAReset tells an account that the system removed its passkeys,
 	// second factors and device keys and signed it out everywhere (email only).
 	MessageMFAReset MessageKind = "mfa_reset"
+	// MessageAccountExists goes to an address or number that already has an
+	// account when someone tries to register it or move another account onto
+	// it; the attempt itself is answered as if the address were free. Link
+	// resets the password. When the sender refuses this kind, AuthKit sends
+	// MessagePasswordReset with the same Link instead.
+	MessageAccountExists MessageKind = "account_exists"
 )
 
 // VerificationPurpose says what a MessageVerification proves the contact for.

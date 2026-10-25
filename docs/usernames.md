@@ -38,7 +38,8 @@ claims, and returns the same unavailable answer for current names, aliases,
 and reserved former names. These public endpoints share the registration
 availability rate limit. Registration availability additionally checks whether
 new registration is enabled; the username-only check supports renames on a
-site whose registration is closed.
+site whose registration is closed. Neither says whether an email address or
+phone number has an account.
 
 The browser SDK exposes `generateUsername`, `checkUsername`, and
 `validateUsername(value, capabilities.username)`. Client syntax checks are

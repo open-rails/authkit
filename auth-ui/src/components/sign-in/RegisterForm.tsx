@@ -26,12 +26,7 @@ import { Spinner } from "#authui/ui/spinner"
 import { useCooldown } from "./cooldown.ts"
 import { useSignedIn, type SignInHostProps } from "./host.ts"
 import { usePasswordPolicy } from "./password.ts"
-import {
-  identifierKind,
-  isE164,
-  isEmail,
-  normalizeIdentifier,
-} from "./identifier.ts"
+import { identifierKind, normalizeIdentifier } from "./identifier.ts"
 import type { LoginController, RegisterController } from "./labels.ts"
 import { LoginSteps } from "./LoginSteps.tsx"
 import {
@@ -133,17 +128,10 @@ export function RegisterForm(props: RegisterFormProps) {
 type Check = { key: string; out: Availability }
 type Status = "checking" | "available" | { code: string } | null
 
-function useAvailability(
-  register: RegisterController,
-  identifier: string,
-  username: string,
-  defaultPhoneCountry?: string
-) {
-  const kind = identifierKind(identifier)
-  const normalized = normalizeIdentifier(identifier, defaultPhoneCountry)
-  const query: { username?: string; email?: string; phoneNumber?: string } = {}
-  if (kind === "email" && isEmail(normalized)) query.email = normalized
-  if (kind === "phone" && isE164(normalized)) query.phoneNumber = normalized
+// Only the username is checked as you type: the server never says whether an
+// email or phone number has an account.
+function useAvailability(register: RegisterController, username: string) {
+  const query: { username?: string } = {}
   if (username.trim()) query.username = username.trim()
   const key = JSON.stringify(query)
   const [check, setCheck] = useState<Check | null>(null)
@@ -170,11 +158,6 @@ function useAvailability(
     return { code: field.error || fallback }
   }
   return {
-    identifier: status(
-      !!(query.email || query.phoneNumber),
-      query.email ? current?.email : current?.phone_number,
-      query.email ? "email_in_use" : "phone_in_use"
-    ),
     username: status(!!query.username, current?.username, "username_in_use"),
   }
 }
@@ -243,12 +226,7 @@ function RegisterFields({
   const [password, setPassword] = useState("")
   const [revealed, setRevealed] = useState(false)
   const [submitted, setSubmitted] = useState<RegisterInput | null>(null)
-  const availability = useAvailability(
-    register,
-    identifier,
-    username,
-    defaultPhoneCountry
-  )
+  const availability = useAvailability(register, username)
   const { busy, error } = register
   const normalized = normalizeIdentifier(identifier, defaultPhoneCountry)
   // The documents every sign-up accepts, at their current versions.
@@ -278,7 +256,6 @@ function RegisterFields({
   const touched = submitted !== null
   const identifierError =
     server("identifier") ??
-    unavailable(availability.identifier) ??
     (touched && !identifier.trim()
       ? t("validation.emailOrPhoneRequired")
       : touched && identifierKind(identifier) === "other"
@@ -329,7 +306,6 @@ function RegisterFields({
             !input.username ||
             localUsername ||
             localPassword ||
-            unavailable(availability.identifier) ||
             unavailable(availability.username)
           )
             return
@@ -350,7 +326,6 @@ function RegisterFields({
           placeholder={t("fields.emailPlaceholder")}
           value={identifier}
           error={identifierError}
-          trailing={<StatusIcon status={availability.identifier} />}
           onChange={(e) => setIdentifier(e.target.value)}
         />
         <TextField

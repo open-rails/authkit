@@ -88,9 +88,12 @@ func (s *Engine) RequestPhoneChange(ctx context.Context, userID, newPhone string
 		return err
 	}
 	// Check if new phone is already in use by another user.
+	// Answered like a free number; only its owner hears of the attempt.
 	existing, _ := s.getUserByPhone(ctx, trimmed)
 	if existing != nil && existing.ID != userID {
-		return iam.ErrPhoneInUse
+		return s.sendContactChangeVerification(s.sms != nil,
+			func() error { return s.notifyAccountExists(ctx, "sms", trimmed) },
+			errSMSNotConfigured)
 	}
 
 	code, linkToken, err := s.newPendingContactChange(ctx, kindChangePhone, trimmed, userID, defaultPhoneVerificationTTL)
@@ -134,9 +137,12 @@ func (s *Engine) RequestEmailChange(ctx context.Context, userID, newEmail string
 		return err
 	}
 	// Check if new email is already in use by another user.
+	// Answered like a free address; only its owner hears of the attempt.
 	existing, _ := s.getUserByEmail(ctx, trimmed)
 	if existing != nil && existing.ID != userID {
-		return iam.ErrEmailInUse
+		return s.sendContactChangeVerification(s.email != nil,
+			func() error { return s.notifyAccountExists(ctx, "email", trimmed) },
+			errEmailNotConfigured)
 	}
 
 	code, linkToken, err := s.newPendingContactChange(ctx, kindChangeEmail, trimmed, userID, defaultEmailVerificationTTL)

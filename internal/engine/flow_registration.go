@@ -71,17 +71,12 @@ func (s *Engine) CheckPendingRegistrationConflict(ctx context.Context, email, us
 		emailTaken, usernameTaken = taken.EmailTaken, taken.UsernameTaken
 	}
 
-	if emailTaken || usernameTaken {
-		return emailTaken, usernameTaken, nil
-	}
-
+	// Both answers are always worked out in full: one must not depend on the
+	// other, or a taken username would reveal whether the email is taken.
 	if s.useEphemeralStore() {
-		if s.pendingChangeTargetTaken(ctx, kindRegisterEmail, email) {
-			emailTaken = true
-		}
-		if s.pendingChangeUsernameTaken(ctx, username) {
-			usernameTaken = true
-		}
+		pendingEmail := s.pendingChangeTargetTaken(ctx, kindRegisterEmail, email)
+		pendingUsername := s.pendingChangeUsernameTaken(ctx, username)
+		emailTaken, usernameTaken = emailTaken || pendingEmail, usernameTaken || pendingUsername
 	}
 	return emailTaken, usernameTaken, nil
 }
@@ -143,18 +138,10 @@ func (s *Engine) CheckPhoneRegistrationConflict(ctx context.Context, phone, user
 		phoneTaken, usernameTaken = taken.PhoneTaken, taken.UsernameTaken
 	}
 
-	if phoneTaken || usernameTaken {
-		return phoneTaken, usernameTaken, nil
-	}
-
 	if s.useEphemeralStore() {
-		if s.pendingChangeTargetTaken(ctx, kindRegisterPhone, phone) {
-			phoneTaken = true
-		}
-		if s.pendingChangeUsernameTaken(ctx, username) {
-			usernameTaken = true
-		}
-		return phoneTaken, usernameTaken, nil
+		pendingPhone := s.pendingChangeTargetTaken(ctx, kindRegisterPhone, phone)
+		pendingUsername := s.pendingChangeUsernameTaken(ctx, username)
+		phoneTaken, usernameTaken = phoneTaken || pendingPhone, usernameTaken || pendingUsername
 	}
 	return phoneTaken, usernameTaken, nil
 }
