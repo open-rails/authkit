@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `readStepUpRequired` (and so `useStepUpGuard`) also recognizes another API client's step-up error: status 401, code `step_up_required` and valid `step_up_methods` metadata, as OpenRails billing-ui throws. Re-authenticating retries the original write.
+
 - Required enrollment offers platform passkeys and FIDO2 security keys with PIN/biometric user verification. Passkey sign-in requires no redundant OTP. Passkey-only account settings expose backup-code generation; recovery-only login challenges use a text code field and the backup-proof protocol.
 
 - A refused cold-start refresh no longer invalidates an independent sign-in
