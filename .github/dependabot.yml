@@ -1,7 +1,7 @@
 version: 2
 updates:
   - package-ecosystem: gomod
-    directory: "/"
+    directories: ["/", "/auth-ui/e2e/server"]
     schedule:
       interval: weekly
     groups:
