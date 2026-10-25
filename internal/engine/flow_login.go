@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
@@ -20,6 +21,7 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/password"
+	"github.com/open-rails/authkit/internal/secret"
 )
 
 // stageErr prefixes an engine failure with the stage it happened in, for the
@@ -68,6 +70,9 @@ func (s *Engine) PasswordLogin(ctx context.Context, in authflow.PasswordLoginInp
 	default:
 		u, err = s.getUserByUsername(ctx, identifier)
 		if err != nil || u == nil {
+			if err := spendPasswordCheck(ctx, in.Password); err != nil {
+				return authflow.LoginOutcome{}, err
+			}
 			return s.rejectLogin(ctx, in, "", errmodel.ErrInvalidCredentials), nil
 		}
 	}
@@ -85,7 +90,7 @@ func (s *Engine) PasswordLogin(ctx context.Context, in authflow.PasswordLoginInp
 		return authflow.LoginOutcome{}, err
 	}
 	if err != nil {
-		return s.rejectLogin(ctx, in, u.ID, loginRejection(err)), nil
+		return s.passwordRejected(ctx, in, u.ID, err)
 	}
 	out, err := s.finishFirstFactor(ctx, loginProof{Version: version, AuthenticatedAt: time.Now().UTC(), Input: loginSessionInput{UserID: u.ID, AuthMethods: []string{"pwd"}, Event: "password_login", UserAgent: in.UserAgent, IP: in.IP}})
 	if errors.Is(err, errmodel.ErrUserBanned) || errors.Is(err, jwt.ErrTokenUnverifiable) {
@@ -115,10 +120,83 @@ func (s *Engine) loginFailed(ctx context.Context, in authflow.PasswordLoginInput
 	s.LogSessionFailed(ctx, userID, "", &reason, nullable(in.IP), nullable(in.UserAgent))
 }
 
+// pendingResendsPerHour caps the re-sends that signing in with a pending
+// sign-up's password triggers for one address, so it cannot flood an inbox.
+const pendingResendsPerHour = 6
+
+const keyPendingResend = "pending_change:resend:"
+
+func (s *Engine) pendingResendAllowed(ctx context.Context, kind pendingChangeKind, target string) bool {
+	n, err := s.ephemIncr(ctx, keyPendingResend+string(kind)+":"+normalizePendingTarget(kind, target), time.Hour)
+	return err == nil && n <= pendingResendsPerHour
+}
+
+var dummyPasswordHash = sync.OnceValue(func() string {
+	hash, _ := password.HashArgon2id(context.Background(), secret.Token(32))
+	return hash
+})
+
+// spendPasswordCheck costs what one password check costs, so a sign-in that
+// finds no account answers in the same time as one that does.
+func spendPasswordCheck(ctx context.Context, pw string) error {
+	if _, err := password.VerifyArgon2id(ctx, dummyPasswordHash(), pw); errors.Is(err, password.ErrBusy) {
+		return err
+	}
+	return nil
+}
+
+// passwordRejected answers a wrong password for an account found by email or
+// phone. A sign-up attempt on that address left a pending record
+// (registerTakenContact); its password answers as a pending sign-up's does
+// where no account exists, and the owner is notified again, so the answer
+// never shows that an account holds the address.
+func (s *Engine) passwordRejected(ctx context.Context, in authflow.PasswordLoginInput, userID string, err error) (authflow.LoginOutcome, error) {
+	reason := loginRejection(err)
+	identifier := strings.TrimSpace(in.Identifier)
+	kind := kindRegisterEmail
+	if !strings.Contains(identifier, "@") {
+		kind = kindRegisterPhone
+	}
+	if !errors.Is(reason, errmodel.ErrInvalidCredentials) || !s.registrationVerificationRequired() ||
+		!strings.Contains(identifier, "@") && !strings.HasPrefix(identifier, "+") {
+		return s.rejectLogin(ctx, in, userID, reason), nil
+	}
+	pending, ok, perr := s.pendingChangeByTarget(ctx, kind, identifier)
+	if perr != nil || !ok {
+		return s.rejectLogin(ctx, in, userID, reason), nil
+	}
+	valid, verr := password.VerifyArgon2id(ctx, pending.PasswordHash, in.Password)
+	if errors.Is(verr, password.ErrBusy) {
+		return authflow.LoginOutcome{}, verr
+	}
+	if verr != nil || !valid {
+		return s.rejectLogin(ctx, in, userID, reason), nil
+	}
+	s.loginFailed(ctx, in, userID, reason.Error())
+	if s.pendingResendAllowed(ctx, kind, pending.Target) {
+		if err := s.renewTakenRegistration(ctx, kind, pending.Target); err != nil {
+			return authflow.LoginOutcome{}, err
+		}
+		if err := s.notifyAccountExists(ctx, notifyChannel(kind), pending.Target); err != nil {
+			return authflow.LoginOutcome{}, err
+		}
+	}
+	channel := "email"
+	if kind == kindRegisterPhone {
+		channel = "phone"
+	}
+	return authflow.LoginOutcome{Kind: authflow.LoginVerificationRequired, Verification: &authflow.VerificationRequired{Identifier: identifier, Channel: channel}}, nil
+}
+
 // recoverPendingLogin resends the same pending signup after checking its password.
 func (s *Engine) recoverPendingLogin(ctx context.Context, in authflow.PasswordLoginInput, kind pendingChangeKind, identifier string) (authflow.LoginOutcome, error) {
 	pending, ok, err := s.pendingChangeByTarget(ctx, kind, identifier)
 	if err != nil {
+		return authflow.LoginOutcome{}, err
+	}
+	// One check here stands for the account's; a pending record adds its own,
+	// as a placeholder does beside an account (passwordRejected).
+	if err := spendPasswordCheck(ctx, in.Password); err != nil {
 		return authflow.LoginOutcome{}, err
 	}
 	if !ok {
@@ -131,8 +209,10 @@ func (s *Engine) recoverPendingLogin(ctx context.Context, in authflow.PasswordLo
 	if err != nil || !valid {
 		return s.rejectLogin(ctx, in, "", errmodel.ErrInvalidCredentials), nil
 	}
-	if _, err := s.resendRegistration(ctx, identifier); err != nil {
-		return authflow.LoginOutcome{}, err
+	if s.pendingResendAllowed(ctx, kind, identifier) {
+		if _, err := s.resendRegistration(ctx, identifier); err != nil {
+			return authflow.LoginOutcome{}, err
+		}
 	}
 	channel := "email"
 	if kind == kindRegisterPhone {
@@ -156,7 +236,8 @@ func (s *Engine) verificationGate(ctx context.Context, in authflow.PasswordLogin
 	if err := s.CheckUserPassword(ctx, u.ID, in.Password); errors.Is(err, password.ErrBusy) {
 		return authflow.LoginOutcome{}, true, err
 	} else if err != nil {
-		return s.rejectLogin(ctx, in, u.ID, loginRejection(err)), true, nil
+		out, err := s.passwordRejected(ctx, in, u.ID, err)
+		return out, true, err
 	}
 	if needsEmail && s.EmailAvailable() {
 		if err := s.RequestEmailVerification(ctx, *u.Email, 0); err != nil {

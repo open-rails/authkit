@@ -3,12 +3,14 @@ package engine
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
+	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/secret"
 )
@@ -126,4 +128,67 @@ func (s *Engine) RequestPhonePasswordReset(ctx context.Context, phone string, tt
 	s.logPasswordRecovery(ctx, u.ID, "sms", "", ip, ua)
 
 	return nil
+}
+
+// notifyAccountExists tells the owner of an email address or phone number
+// that someone tried to register it, or to move another account onto it,
+// with a reset link. The attempt is answered as if the address were free, so
+// only the owner learns it is taken. A sender that refuses
+// MessageAccountExists gets MessagePasswordReset with the same link. A holder
+// that cannot sign in (a pending sign-up, a deleted or banned account) gets
+// nothing.
+func (s *Engine) notifyAccountExists(ctx context.Context, channel, target string) error {
+	var (
+		u   *db.User
+		err error
+	)
+	if channel == "email" {
+		u, err = s.getUserByEmail(ctx, target)
+	} else {
+		u, err = s.getUserByPhone(ctx, target)
+	}
+	if err != nil || u == nil || s.ensureUserAccess(ctx, u) != nil {
+		return nil
+	}
+	stored := deref(u.Email)
+	if channel != "email" {
+		stored = deref(u.PhoneNumber)
+	}
+	if stored == "" {
+		return nil
+	}
+	token := secret.Token(32)
+	if err := s.storePasswordReset(ctx, secret.Hash(token), u.ID, channel, stored, time.Hour); err != nil {
+		return err
+	}
+	language := s.userLanguage(ctx, u.ID)
+	if channel == "email" {
+		if s.email == nil {
+			return nil
+		}
+		msg := iam.EmailMessage{Kind: iam.MessageAccountExists, To: stored, Username: deref(u.Username), Language: language, Link: s.emailPasswordResetURL(token)}
+		if err := s.sendEmail(ctx, msg); !senderRefused(err, errmodel.ErrEmailDeliveryFailed) {
+			return err
+		}
+		slog.Warn("account_exists email refused by the sender, sending password_reset instead", "user_id", u.ID)
+		msg.Kind = iam.MessagePasswordReset
+		return s.sendEmail(ctx, msg)
+	}
+	if s.sms == nil {
+		return nil
+	}
+	msg := iam.SMSMessage{Kind: iam.MessageAccountExists, To: stored, UserID: u.ID, Language: language, Link: s.phonePasswordResetURL(token)}
+	if err := s.sendSMS(ctx, msg); !senderRefused(err, errmodel.ErrSMSDeliveryFailed) {
+		return err
+	}
+	slog.Warn("account_exists SMS refused by the sender, sending password_reset instead", "user_id", u.ID)
+	msg.Kind = iam.MessagePasswordReset
+	return s.sendSMS(ctx, msg)
+}
+
+// senderRefused reports a send the host's sender itself failed without timing
+// out, as one with no copy for a kind does. Admission refusals (rate, region,
+// health) and timeouts are not retried as another kind.
+func senderRefused(err, delivery error) bool {
+	return errors.Is(err, delivery) && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled)
 }
