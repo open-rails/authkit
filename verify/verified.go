@@ -237,6 +237,32 @@ type sessionVerified struct {
 
 var _ auth.RecentSignInChecker = sessionVerified{}
 
+// CheckCredential checks the original verified user credential, without a
+// permission or recent-sign-in requirement. The authority must support the
+// explicit liveness operation; a session-only implementation is insufficient.
+func (p sessionVerified) CheckCredential(ctx context.Context) error {
+	if err := credentialExpiry(p.claims); err != nil {
+		return err
+	}
+	checker, ok := p.sessions.(CredentialChecker)
+	if !ok {
+		return auth.ErrForbidden
+	}
+	err := checker.CheckCredential(ctx, p.claims)
+	switch {
+	case err == nil:
+		return credentialExpiry(p.claims)
+	case errors.Is(err, iam.ErrTokenExpired):
+		return errors.Join(auth.ErrUnauthenticated, auth.ErrExpired, err)
+	case errors.Is(err, iam.ErrSessionRevoked):
+		return errors.Join(auth.ErrUnauthenticated, auth.ErrRevoked, err)
+	case errmodel.CodeOf(err) == errmodel.CodeForbidden:
+		return errors.Join(auth.ErrForbidden, err)
+	default:
+		return errors.Join(auth.ErrUnavailable, err)
+	}
+}
+
 // CheckRecentSignIn is Sensitive's check, live and without verifying the
 // request again: the user's own token, signed in within the last 15 minutes,
 // with the second factor when the account has one. A stale sign-in is a

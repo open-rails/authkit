@@ -49,6 +49,14 @@ type SessionChecker interface {
 	CheckRecentSignIn(ctx context.Context, cl Claims) error
 }
 
+// CredentialChecker rechecks previously verified user claims without verifying
+// their original request again. Native authorities provide live account, sign-in
+// and bound-group checks; unsupported credential forms return forbidden. It is
+// separate from SessionChecker so existing authorities gain no new requirement.
+type CredentialChecker interface {
+	CheckCredential(ctx context.Context, cl Claims) error
+}
+
 // Authority authenticates requests and checks sessions and permissions live:
 // what the live gates need. *authkit.Client is one.
 type Authority interface {

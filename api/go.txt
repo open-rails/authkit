@@ -36,6 +36,7 @@ pkg authkit, method (*Client) Authenticator() auth.Authenticator
 pkg authkit, method (*Client) Ban(context.Context, auth.Identity, string, iam.Ban, ...Option) error
 pkg authkit, method (*Client) Can(context.Context, auth.Identity, iam.GroupRef, iam.Perm) (bool, error)
 pkg authkit, method (*Client) CanDirect(context.Context, auth.Identity, iam.GroupRef, iam.Perm) (bool, error)
+pkg authkit, method (*Client) CheckCredential(context.Context, verify.Claims) error
 pkg authkit, method (*Client) CheckRecentSignIn(context.Context, verify.Claims) error
 pkg authkit, method (*Client) CheckSession(context.Context, verify.Claims) error
 pkg authkit, method (*Client) CheckUsername(context.Context, string) error
@@ -162,6 +163,7 @@ pkg authkit, method (*Verifier) AuthenticateRequest(context.Context, *http.Reque
 pkg authkit, method (*Verifier) Authenticator() auth.Authenticator
 pkg authkit, method (*Verifier) Can(context.Context, auth.Identity, iam.GroupRef, iam.Perm) (bool, error)
 pkg authkit, method (*Verifier) CanDirect(context.Context, auth.Identity, iam.GroupRef, iam.Perm) (bool, error)
+pkg authkit, method (*Verifier) CheckCredential(context.Context, verify.Claims) error
 pkg authkit, method (*Verifier) CheckRecentSignIn(context.Context, verify.Claims) error
 pkg authkit, method (*Verifier) CheckSession(context.Context, verify.Claims) error
 pkg authkit, method (*Verifier) KnownPermission(iam.Perm) bool
@@ -627,6 +629,8 @@ pkg authkit/auth, type Challenge struct, Metadata map[string]any
 pkg authkit/auth, type Credential struct
 pkg authkit/auth, type Credential struct, ID string
 pkg authkit/auth, type Credential struct, Kind CredentialKind
+pkg authkit/auth, type CredentialChecker interface
+pkg authkit/auth, type CredentialChecker interface, CheckCredential(context.Context) error
 pkg authkit/auth, type CredentialKind string
 pkg authkit/auth, type DirectPermissionChecker interface
 pkg authkit/auth, type DirectPermissionChecker interface, CanDirect(context.Context, Scope, string) (bool, error)
@@ -2045,6 +2049,8 @@ pkg authkit/verify, type Claims struct, UpdatedAt time.Time
 pkg authkit/verify, type Claims struct, UserID string
 pkg authkit/verify, type Claims struct, Username string
 pkg authkit/verify, type Claims struct, ValidUntil time.Time
+pkg authkit/verify, type CredentialChecker interface
+pkg authkit/verify, type CredentialChecker interface, CheckCredential(context.Context, Claims) error
 pkg authkit/verify, type DirectPermissionChecker interface
 pkg authkit/verify, type DirectPermissionChecker interface, CanDirect(context.Context, auth.Identity, iam.GroupRef, iam.Perm) (bool, error)
 pkg authkit/verify, type IssuerKeyStatus = jwks.Status
