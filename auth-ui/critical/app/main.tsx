@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { createRoot } from "react-dom/client"
 import {
   createAuthClient,
+  createIssuerClient,
   transportFailure,
   readAuthKitError,
 } from "@openrails/auth-ui/client"
@@ -46,6 +47,20 @@ const client = observe(
   }),
   "AuthClient"
 )
+const issuer = observe(
+  createIssuerClient({
+    issuer: location.origin,
+    clientId: "critical-issuer",
+    redirectUri: "/issuer-return",
+    scope: "openid profile email",
+    persist: false,
+    dpop: true,
+  }),
+  "IssuerClient"
+)
+if (location.pathname === "/issuer-return") {
+  void issuer.completeSignIn()
+}
 const events: {
   kind: string
   userId?: string
@@ -72,6 +87,7 @@ const admin = observe(
 Object.assign(window, {
   ak: {
     client,
+    issuer,
     admin,
     events,
     createAuthClient,
