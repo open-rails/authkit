@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -26,6 +27,15 @@ import (
 )
 
 const notificationApp = "00000000-0000-4000-8000-000000000470"
+
+// This is the already-released source job envelope, intentionally independent
+// of the new producer structs. The current worker must still decode it.
+type legacyNotificationDeliveryArgs struct {
+	Destination string            `json:"destination"`
+	Mutations   []notify.Mutation `json:"mutations"`
+}
+
+func (legacyNotificationDeliveryArgs) Kind() string { return "authkit_notification_delivery" }
 
 func notificationFixture(t *testing.T, options ...authtest.Option) (*fixture, notify.Publisher, iam.Role) {
 	t.Helper()
@@ -73,6 +83,62 @@ func publishNotificationBatch(ctx context.Context, publisher notify.Publisher, c
 }
 
 func TestCriticalAccountNotifications(t *testing.T) {
+	t.Run("AK-J34-C16_legacy_queued_envelopes_preserve_full_content_and_hash_conflicts", func(t *testing.T) {
+		f, publisher, role := notificationFixture(t)
+		u := f.user(t)
+		key, err := f.auth.CreateAPIKey(t.Context(), iam.SystemIdentity(), iam.GroupByID(f.tenant.String()), iam.NewAPIKey{Name: "legacy queue delivery", Role: role})
+		noError(t, err)
+		delivery, err := authkit.NewNotificationDelivery(f.pool, f.schema, map[string]authkit.RemoteNotificationConfig{"accounts": {BaseURL: f.server.URL + f.auth.APIBase(), Producer: "application", Token: func(context.Context) (string, error) { return key.Secret, nil }}})
+		noError(t, err)
+		canonical := notificationChange(u.ID, "legacy:canonical", 1)
+		withProvenance := notificationChange(u.ID, "legacy:provenance", 1)
+		withProvenance.Origin.Subject = "source-customer"
+		withProvenance.Status = notify.StatusOpen
+		withProvenance.ActionRequested = true
+		producer, err := river.NewClient(riverpgxv5.New(f.pool), &river.Config{Schema: f.schema})
+		noError(t, err)
+		queued, err := producer.Insert(t.Context(), legacyNotificationDeliveryArgs{Destination: "accounts", Mutations: []notify.Mutation{canonical, withProvenance}}, &river.InsertOpts{Queue: authkit.NotificationDeliveryQueue})
+		noError(t, err)
+		fleet, err := riverhelpers.New(t.Context(), f.pool, &river.Config{Schema: f.schema}, delivery.RiverJobs())
+		noError(t, err)
+		noError(t, fleet.Start(context.Background()))
+		t.Cleanup(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			noError(t, fleet.Stop(ctx))
+		})
+		eventually(t, "old serialized job completes through new worker", func() bool {
+			job, err := fleet.JobGet(t.Context(), queued.Job.ID)
+			noError(t, err)
+			return job.State == rivertype.JobStateCompleted
+		})
+		page, err := f.auth.ListNotifications(t.Context(), u.ID, notify.ListOptions{})
+		noError(t, err)
+		if len(page.Items) != 2 {
+			t.Fatal("old envelope was not delivered intact")
+		}
+		for _, item := range page.Items {
+			_, err = f.auth.SetNotificationRead(t.Context(), u.ID, item.ID, true)
+			noError(t, err)
+			before, err := f.auth.SetNotificationDismissed(t.Context(), u.ID, item.ID, true)
+			noError(t, err)
+			if item.Origin.ID == canonical.Origin.ID {
+				noError(t, publishNotificationBatch(t.Context(), publisher, []notify.Mutation{canonical}))
+			} else {
+				if item.Origin.Subject != withProvenance.Origin.Subject || item.Status != notify.StatusOpen {
+					t.Fatal("worker discarded legacy provenance or workflow state")
+				}
+				if err = publishNotificationBatch(t.Context(), publisher, []notify.Mutation{withProvenance}); !errors.Is(err, notify.ErrConflict) {
+					t.Fatalf("same-revision semantic change accepted: %v", err)
+				}
+			}
+			after, err := f.auth.GetNotification(t.Context(), u.ID, item.ID)
+			noError(t, err)
+			if !reflect.DeepEqual(before, after) {
+				t.Fatal("same-revision retry or rejected conflict changed the full receipt")
+			}
+		}
+	})
 	t.Run("AK-J34-C15_remote_acceptance_never_needs_destination_availability", func(t *testing.T) {
 		f, _, _ := notificationFixture(t)
 		u := f.user(t)
@@ -364,11 +430,14 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		current.Origin.System, current.Origin.Scope = "openrails", "merchant"
 		current.Visibility, current.AppID = notify.VisibilityTenant, ""
 		current.Kind = "payment_method_failed"
+		current.ActionRequested = true
 		older := current.Input
+		older.Origin.Subject, older.Status = "legacy-customer", notify.StatusOpen
 		older.Visibility = ""
 		older.Origin.ID = "ntf_older"
 		older.CreatedAt = current.CreatedAt.Add(-time.Hour)
 		newest := current.Input
+		newest.Origin.Subject, newest.Status = "legacy-customer", notify.StatusOpen
 		newest.Visibility = ""
 		newest.Origin.ID = "ntf_newest"
 		newest.CreatedAt = current.CreatedAt.Add(-time.Minute)
@@ -383,6 +452,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		mapping := notify.Adoption{Previous: []notify.Origin{newest.Origin, older.Origin}, Current: current}
 		noError(t, f.auth.AdoptNotifications(t.Context(), "application", []notify.Adoption{mapping}))
 		noError(t, f.auth.AdoptNotifications(t.Context(), "application", []notify.Adoption{mapping}))
+		noError(t, publishNotificationBatch(t.Context(), sink, []notify.Mutation{current}))
 		adopted, err := f.auth.GetNotification(t.Context(), u.ID, item.ID)
 		noError(t, err)
 		if adopted.Origin.ID != current.Origin.ID || adopted.ReadAt == nil || adopted.DismissedAt == nil {

@@ -138,3 +138,19 @@ AuthKit and application code can obtain their own declared native publisher with
 `accounts.Notifications("authkit")` or `accounts.Notifications("application")`.
 The channel does not invent new security notices or mirror every email; concrete
 notification policy remains explicit in the producer.
+
+## Existing revisioned producer envelopes
+
+Previously queued AuthKit delivery jobs retain their full mutation envelopes.
+The worker forwards their existing origin subject and workflow status unchanged;
+the destination still applies the complete content hash. The new narrow
+publication contract emits notices with no origin-subject override.
+
+A previously revisioned receipt with nonempty source subject or workflow status
+therefore cannot be rewritten by a minimal publication at the same revision.
+That is a semantic change and still returns `ErrConflict`; producers must
+deliberately advance their durable revision and drain old obligations during
+cutover. Canonical notice envelopes replay unchanged. Explicit adoption of
+unversioned legacy receipts sets the chosen canonical current envelope before
+new publishers resume, preserving receipt ID/read/archive state. The package
+move alone does not waive ordering or content-conflict checks.
