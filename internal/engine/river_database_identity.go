@@ -90,13 +90,13 @@ func riverIdentityWitness(ctx context.Context, tx pgx.Tx) (db.RiverIdentityProbe
 }
 
 // CheckNotificationTransactionDatabase proves the supplied transaction belongs
-// to the configured source database before it accepts a delivery obligation.
+// to the configured database before an inbox write or delivery obligation.
 // A separate short-lived probe avoids borrowing from a one-slot pool whose
 // only connection is already held by the caller. The savepoint rollback releases
 // its random advisory witnesses without changing the caller's transaction.
 func CheckNotificationTransactionDatabase(ctx context.Context, tx pgx.Tx, pool *pgxpool.Pool) (err error) {
 	if tx == nil || pool == nil {
-		return errors.New("authkit: notification delivery needs a source transaction and pool")
+		return errors.New("authkit: notification publication needs a transaction and pool")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -139,7 +139,7 @@ func CheckNotificationTransactionDatabase(ctx context.Context, tx pgx.Tx, pool *
 		return err
 	}
 	if !same {
-		return errors.New("authkit: notification transaction is not on its delivery source database")
+		return errors.New("authkit: notification transaction is not on its configured database")
 	}
 	return nil
 }

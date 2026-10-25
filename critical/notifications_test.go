@@ -460,8 +460,8 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		}
 	})
 
-	t.Run("AK-J34-C10_remote_queue_rejects_foreign_database_transaction", func(t *testing.T) {
-		f, _, _ := notificationFixture(t)
+	t.Run("AK-J34-C10_local_and_remote_publishers_reject_foreign_database_transaction", func(t *testing.T) {
+		f, accountSink, _ := notificationFixture(t)
 		u := f.user(t)
 		destination := map[string]authkit.RemoteNotificationConfig{"accounts": {BaseURL: f.server.URL + f.auth.APIBase(), Producer: "application", Token: func(context.Context) (string, error) { return "not-needed-for-queue", nil }}}
 		delivery, err := authkit.NewNotificationDelivery(f.pool, f.schema, destination)
@@ -497,6 +497,31 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		noError(t, err)
 		if len(jobs.Jobs) != 0 {
 			t.Fatal("refused foreign transaction stranded a delivery job")
+		}
+		// A restored database can have the exact same tenant, account UUID,
+		// schema and inbox ownership rows. Those rows cannot prove that the
+		// caller's transaction belongs to the configured account database.
+		clonedDeps := f.deps
+		clonedDeps.Postgres = other
+		clone, err := authkit.New(t.Context(), f.cfg, clonedDeps)
+		noError(t, err)
+		defer clone.Close(context.Background())
+		imported, err := clone.ImportUsers(t.Context(), []iam.ImportUser{{ID: u.ID, Username: "clonedaccount"}}, iam.ImportOptions{})
+		noError(t, err)
+		if imported.Inserted != 1 {
+			t.Fatalf("restore control account: %+v", imported)
+		}
+		tx, err = other.Begin(t.Context())
+		noError(t, err)
+		defer tx.Rollback(context.Background())
+		refused := accountSink.ApplyTx(t.Context(), tx, []notify.Mutation{notificationChange(u.ID, "foreign:inbox", 1)})
+		noError(t, tx.Commit(t.Context()))
+		foreignInbox, err := clone.ListNotifications(t.Context(), u.ID, notify.ListOptions{})
+		noError(t, err)
+		accountInbox, err := f.auth.ListNotifications(t.Context(), u.ID, notify.ListOptions{})
+		noError(t, err)
+		if refused == nil || len(foreignInbox.Items) != 0 || len(accountInbox.Items) != 0 {
+			t.Fatalf("local publisher accepted a cloned foreign database: error=%v, foreign=%d, configured=%d", refused, len(foreignInbox.Items), len(accountInbox.Items))
 		}
 		oneConfig := f.pool.Config()
 		oneConfig.MaxConns = 1

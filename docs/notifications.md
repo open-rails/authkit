@@ -29,6 +29,9 @@ The embedded AuthKit client exposes a producer handle implementing
 `notify.Sink.Apply` and `notify/postgres.TxSink.ApplyTx`. Ordinary `Apply` returns
 after the inbox commit. `ApplyTx` joins the caller's same-database transaction,
 so the domain mutation and notification are committed or rolled back together.
+The publisher verifies the actual transaction database; matching schema names,
+tenant IDs and account rows in a restored copy are insufficient. Its short-lived
+identity probe does not borrow a second connection from the caller's pool.
 
 A narrow remote notification publisher uses the same mutation interface over an
 authenticated AuthKit endpoint. Its `Apply` succeeds after the destination commit.
