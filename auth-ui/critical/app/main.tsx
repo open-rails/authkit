@@ -9,6 +9,8 @@ import {
 import { createAdminClient } from "@openrails/auth-ui/admin"
 import {
   AccountSecurity,
+  NotificationBell,
+  NotificationInbox,
   AuthUiProvider,
   SignInDialog,
 } from "@openrails/auth-ui"
@@ -140,6 +142,17 @@ export function App() {
         {session.status === "authenticated" ? session.userId : ""}
       </output>
       {params.has("notifications") && <NotificationProbe />}
+      {params.has("notification-widgets") && (
+        <>
+          <NotificationBell renderItem={(item) => <p>{item.origin.id}</p>} />
+          <div data-testid="notification-inbox">
+            <NotificationInbox
+              pageSize={1}
+              renderItem={(item) => <p>{item.origin.id}</p>}
+            />
+          </div>
+        </>
+      )}
       <output data-testid="profile-email">{user?.email ?? ""}</output>
       <button onClick={() => setOpen(true)}>Open sign in</button>
       <button onClick={() => void client.signOut()}>Sign out</button>

@@ -2,6 +2,30 @@ import { AUTH_ERROR_MESSAGES } from "../client/generated/error-codes.ts"
 
 // Source of truth: every other locale is a partial of this tree.
 export const en = {
+  notifications: {
+    newNotice: "You have a new notification",
+    archived: "Archived",
+    dismiss: "Dismiss",
+    restore: "Restore to inbox",
+    dismissed: "Dismissed",
+    title: "Notifications",
+    filter: "Notification filter",
+    all: "All",
+    unread: "Unread",
+    refresh: "Refresh notifications",
+    signInHint: "Sign in to see your notifications.",
+    signIn: "Sign in",
+    loadFailed: "Notifications could not be loaded.",
+    loading: "Loading notifications…",
+    empty: "No notifications yet.",
+    emptyUnread: "You're all caught up.",
+    loadMore: "Show more",
+    open: "Needs action",
+    resolved: "Resolved",
+    markRead: "Mark read",
+    markUnread: "Mark unread",
+    unreadLabel: "Notifications, unread items",
+  },
   contactProof: {
     titleEmail: "Verify your email first",
     titlePhone: "Verify your phone number first",

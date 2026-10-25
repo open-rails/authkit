@@ -26,3 +26,10 @@ export {
 export * from "./components/sign-in/index.ts"
 export * from "./components/account/index.ts"
 export * from "./components/contact-proof/index.ts"
+
+export {
+  NotificationInbox,
+  NotificationBell,
+  type NotificationInboxProps,
+  type NotificationBellProps,
+} from "./components/notifications.tsx"

@@ -733,3 +733,25 @@ Password changes re-authenticate with the account's available sign-in methods
 before opening the editor. The editor asks for one new password, with standard
 username and `new-password` autocomplete metadata. If its authentication proof
 expires while editing, the normal step-up guard still protects submission.
+
+
+### Account notifications
+
+Enable the inbox on the AuthKit backend, then render the widgets under the
+existing `AuthProvider` and `AuthUiProvider`. They use that same client's
+notification API and session; no ContentKit client or transport adapter is needed.
+
+```tsx
+import { NotificationBell, NotificationInbox } from "@openrails/auth-ui"
+
+<NotificationBell />
+<NotificationInbox />
+```
+
+The default renderer shows plain-text `data.title` / `data.message`, with a
+localized fallback for an unknown payload. Use `renderItem(item)` and
+`renderActions(item)` for domain-specific wording and approved destination links.
+The inbox handles read/unread, archive/restore, cursor pagination and refresh;
+producer withdrawal remains separate from those user actions. The bell reports
+whether unread items exist, and all mounted views refresh after an inbox change.
+Both widgets hide data immediately when the active session changes.
