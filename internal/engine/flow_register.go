@@ -26,7 +26,10 @@ import (
 // ErrInvalidIdentifier / ErrEmailInUse / ErrPhoneInUse / ErrUsernameInUse /
 // ErrRegistrationDisabled / ErrEmailUnavailable /
 // ErrSMSUnavailable; engine failures carry a stage prefix
-// and, for sends, the delivery sentinel.
+// and, for sends, the delivery sentinel. When verification is required, a
+// taken email or phone answers like a fresh one and its owner is notified
+// (notifyAccountExists), so ErrEmailInUse and ErrPhoneInUse only come back
+// when it is not.
 func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authflow.RegisterOutcome, error) {
 	if token := strings.TrimSpace(in.AccountInviteToken); token != "" {
 		var err error
@@ -86,19 +89,24 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 		if err != nil {
 			return authflow.RegisterOutcome{}, stageErr("check_phone_conflict", err)
 		}
-		if phoneTaken {
-			return authflow.RegisterOutcome{}, iam.ErrPhoneInUse
-		}
 		if usernameTaken {
 			return authflow.RegisterOutcome{}, iam.ErrUsernameInUse
 		}
 		out := authflow.RegisterOutcome{Username: username, Phone: &phone}
 		if requiresVerification {
-			if _, err := s.issuePendingPhoneRegistration(ctx, phone, username, phc, in.PreferredLanguage); err != nil {
+			if phoneTaken {
+				err = s.registerTakenContact(ctx, "sms", phone)
+			} else {
+				_, err = s.issuePendingPhoneRegistration(ctx, phone, username, phc, in.PreferredLanguage)
+			}
+			if err != nil {
 				return authflow.RegisterOutcome{}, registrationErr("send_phone_verification", err)
 			}
 			out.Kind = authflow.RegisterVerifyPhone
 			return out, nil
+		}
+		if phoneTaken {
+			return authflow.RegisterOutcome{}, iam.ErrPhoneInUse
 		}
 		// Never verified without proof (ak#393): "none" only means proof is not
 		// required to use the account.
@@ -122,19 +130,26 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 	if err != nil {
 		return authflow.RegisterOutcome{}, stageErr("check_email_conflict", err)
 	}
-	if emailTaken {
-		return authflow.RegisterOutcome{}, iam.ErrEmailInUse
-	}
 	if usernameTaken {
 		return authflow.RegisterOutcome{}, iam.ErrUsernameInUse
 	}
 	out := authflow.RegisterOutcome{Username: username, Email: &email}
 	if requiresVerification {
-		if _, err := s.issuePendingEmailRegistration(ctx, email, username, phc, 0, in.PreferredLanguage); err != nil {
+		if emailTaken {
+			err = s.registerTakenContact(ctx, "email", email)
+		} else {
+			_, err = s.issuePendingEmailRegistration(ctx, email, username, phc, 0, in.PreferredLanguage)
+		}
+		if err != nil {
 			return authflow.RegisterOutcome{}, registrationErr("send_email_verification", err)
 		}
 		out.Kind = authflow.RegisterVerifyEmail
 		return out, nil
+	}
+	// Without required proof a fresh sign-up signs in, which a taken address
+	// cannot imitate.
+	if emailTaken {
+		return authflow.RegisterOutcome{}, iam.ErrEmailInUse
 	}
 	account, err := s.registerAccount(ctx, accountRegistration{User: newAccount{Email: email, Username: username, PasswordHash: phc, HashAlgo: "argon2id"}, Language: in.PreferredLanguage, InviteToken: in.AccountInviteToken, Agreements: agreements, IP: in.IP, UserAgent: in.UserAgent})
 	if err != nil {
@@ -146,6 +161,20 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 		}
 	}
 	return s.registeredSession(ctx, in, out, account)
+}
+
+// registerTakenContact is a fresh sign-up's pending step for a taken
+// address: the same admission check, then the owner's notice instead of a
+// code.
+func (s *Engine) registerTakenContact(ctx context.Context, channel, target string) error {
+	allowed, err := s.registrationAllowedForEmail(ctx, target)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return errmodel.ErrRegistrationDisabled
+	}
+	return s.notifyAccountExists(ctx, channel, target)
 }
 
 // registrationErr keeps the typed conflicts, validation codes, delivery

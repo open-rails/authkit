@@ -244,7 +244,7 @@ Mounting gives your users the routes below under `/api/v1`, plus the public keys
 | Route | What it does |
 |---|---|
 | `POST /api/v1/register` | create an account |
-| `GET /api/v1/register/availability` | validate registration identifiers and availability |
+| `GET /api/v1/register/availability` | validate a registration username and its availability; never answers for an email or phone number |
 | `GET /api/v1/usernames/availability` | validate username syntax and availability, including on sites with closed registration |
 | `GET /api/v1/usernames/generate` | one available generated username; not a reservation |
 | `POST /api/v1/register/abandon` | cancel a sign-up that was never confirmed |

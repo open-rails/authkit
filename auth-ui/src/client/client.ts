@@ -1256,6 +1256,8 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       return status === 200 ? signedIn(body, gen) : null
     },
 
+    // The server answers for the username only; email and phoneNumber are
+    // ignored, so it never reveals whether an address has an account.
     checkAvailability: (
       input: { username?: string; email?: string; phoneNumber?: string },
       signal?: AbortSignal

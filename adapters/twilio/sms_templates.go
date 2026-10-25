@@ -62,6 +62,11 @@ func smsBody(app string, msg iam.SMSMessage) (string, error) {
 			return fmt.Sprintf("%s restablecer contrasena: %s", app, strings.TrimSpace(msg.Link)), nil
 		}
 		return fmt.Sprintf("%s password reset: %s", app, strings.TrimSpace(msg.Link)), nil
+	case iam.MessageAccountExists:
+		if es {
+			return fmt.Sprintf("%s: alguien intento usar este numero para otra cuenta. Ya es de tu cuenta. Inicia sesion o restablece tu contrasena: %s", app, strings.TrimSpace(msg.Link)), nil
+		}
+		return fmt.Sprintf("%s: someone tried to use this number for another account. It already belongs to yours. Sign in, or reset your password: %s", app, strings.TrimSpace(msg.Link)), nil
 	case iam.MessageContactChanged:
 		ch := msg.ContactChange
 		if ch == nil {
