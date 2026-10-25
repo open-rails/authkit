@@ -312,21 +312,30 @@ func (rs *resourceServer) ownToken(ctx context.Context, cl verify.Claims) (app *
 	if cl.Kind != verify.TokenUser {
 		return nil, group, nil
 	}
-	if err := rs.s.requirePG(); err != nil {
+	if err := rs.userTokenStands(ctx, cl); err != nil {
 		return nil, "", err
+	}
+	return nil, group, nil
+}
+
+// userTokenStands rechecks an already registered client's native user session.
+// It performs no issuer registration, key retrieval or signature verification.
+func (rs *resourceServer) userTokenStands(ctx context.Context, cl verify.Claims) error {
+	if err := rs.s.requirePG(); err != nil {
+		return err
 	}
 	ref := iam.SessionRef{SessionID: cl.SessionID, DeviceKeyID: cl.DeviceKeyID}
 	if ref.IsZero() {
-		return nil, "", iam.ErrSessionRevoked
+		return iam.ErrSessionRevoked
 	}
 	usable, signedIn, err := userLive(ctx, rs.s.pg, cl.Subject, ref)
 	switch {
 	case err != nil:
-		return nil, "", errmodel.Internal("resource_session", err)
+		return errmodel.Internal("resource_session", err)
 	case !usable || !signedIn:
-		return nil, "", iam.ErrSessionRevoked
+		return iam.ErrSessionRevoked
 	}
-	return nil, group, nil
+	return nil
 }
 
 // exchangedGroup is the live group a person's own token was exchanged for

@@ -101,5 +101,6 @@
   "AK-J33-C04": "wrong tenant/account/purpose/expired proof",
   "AK-J33-C05": "ban/delete/contact reset while pending",
   "AK-J33-C06": "MFA/new-device continuation and delayed browser answer",
-  "AK-J13-C08": "retained verified credential expiry and source-account resolution preserve native, resource and configured skew without replaying sender proofs"
+  "AK-J13-C08": "retained verified credential expiry and source-account resolution preserve native, resource and configured skew without replaying sender proofs",
+  "AK-J13-C09": "explicit live user-credential checks preserve current source authority after waits without permissions, step-up or another sender proof"
 }

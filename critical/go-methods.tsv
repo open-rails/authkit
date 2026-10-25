@@ -114,3 +114,4 @@ AK-GO-112	Client.Verify	included	AK-J13-C03	step_up_test.go:31;step_up_test.go:5
 AK-GO-113	Client.AuthenticateRequest	included	AK-J13-C01	token_test.go:91	Selected critical contract, not every possible input
 AK-GO-114	Client.NewVerifier	included	AK-J14-C01	dpop_test.go:47	Selected critical contract, not every possible input
 AK-GO-115	Client.VerifyIDToken	included	AK-J13-C05	token_test.go:96;token_test.go:238;token_test.go:243;token_test.go:250	Selected critical contract, not every possible input
+AK-GO-116	Client.CheckCredential	included	AK-J13-C09	credential_liveness_test.go	Trusted verified-claims liveness, no permission grant

@@ -31,6 +31,10 @@ import (
 //     sign-in of its own is auth.ErrForbidden.
 //   - A user acting for themself carries their email and username, read from
 //     the account (access tokens carry none).
+//   - Its user Verified supports auth.CredentialChecker: original effective
+//     expiry and live native or resource-user authority, without permissions,
+//     recent sign-in or another verification. API keys, personal tokens and
+//     client-credentials tokens are unsupported by this optional check.
 //   - It is an auth.PermissionCatalog over Config.Roles.
 //   - It is an auth.Root: its RootScope is Scope(ctx, iam.RootGroup()),
 //     where root roles hold their root: permissions, so a library mounted
@@ -153,6 +157,14 @@ type contacted struct {
 }
 
 func (v contacted) Identity() auth.Identity { return v.id }
+
+func (v contacted) CheckCredential(ctx context.Context) error {
+	checker, ok := v.Verified.(auth.CredentialChecker)
+	if !ok {
+		return auth.ErrForbidden
+	}
+	return checker.CheckCredential(ctx)
+}
 
 func (v contacted) Can(ctx context.Context, scope auth.Scope, permission string) (bool, error) {
 	c, ok := v.Verified.(auth.PermissionChecker)

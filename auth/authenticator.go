@@ -32,7 +32,7 @@ type Authenticator interface {
 
 // Verified is one request's verified credential. A consumer keeps it only
 // for that request: never for another request, nor after the credential,
-// method or signed URL changes. It may implement PermissionChecker, DirectPermissionChecker,
+// method or signed URL changes. It may implement CredentialChecker, PermissionChecker, DirectPermissionChecker,
 // RecentSignInChecker, Bound and Asserted; an identity-only provider
 // implements none.
 type Verified interface {
@@ -51,8 +51,8 @@ type Verified interface {
 // that exposes this capability must forward it to its original Verified.
 //
 // ErrExpired or ErrRevoked joined with ErrUnauthenticated means the credential
-// ended. ErrUnavailable means its live authority could not be checked. No error
-// grants authority; consumers must still apply their own resource policy.
+// ended. ErrUnavailable means its live authority could not be checked. A
+// successful check grants no permissions; consumers still apply resource policy.
 type CredentialChecker interface {
 	CheckCredential(ctx context.Context) error
 }
