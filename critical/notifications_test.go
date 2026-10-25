@@ -17,8 +17,8 @@ import (
 	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/helpers/notify"
-	notifypg "github.com/open-rails/helpers/notify/postgres"
+	"github.com/open-rails/authkit/notify"
+	notifypg "github.com/open-rails/authkit/notify/postgres"
 	riverhelpers "github.com/open-rails/helpers/river"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
@@ -27,7 +27,7 @@ import (
 
 const notificationApp = "00000000-0000-4000-8000-000000000470"
 
-func notificationFixture(t *testing.T, options ...authtest.Option) (*fixture, notifypg.TxSink, iam.Role) {
+func notificationFixture(t *testing.T, options ...authtest.Option) (*fixture, notify.Publisher, iam.Role) {
 	t.Helper()
 	roles := authkit.NewRoles(authkit.APIKeys, authkit.CustomRoles)
 	permission := roles.Tenant.Permission("notifications", "publish")
@@ -49,21 +49,82 @@ func notificationChange(user, id string, revision int64) notify.Mutation {
 	return notify.Mutation{Input: notify.Input{Recipient: notify.Recipient{Audience: notify.AudienceUser, ID: user}, Origin: notify.Origin{System: "application", Scope: "app", ID: id}, Kind: "export.ready", Data: json.RawMessage(`{"export_id":"owned"}`), CreatedAt: time.Now().UTC(), Visibility: notify.VisibilityApp, AppID: notificationApp}, Revision: revision}
 }
 
+// Existing migration/wire fixtures retain their full legacy envelopes; runtime
+// acceptance exercises the narrow public producer interface in one atomic call.
+func publishNotificationBatch(ctx context.Context, publisher notify.Publisher, changes []notify.Mutation, tx ...pgx.Tx) error {
+	if len(changes) > 0 && changes[0].Withdrawn {
+		batch := make([]notify.Withdrawal, len(changes))
+		for i, m := range changes {
+			if !m.Withdrawn {
+				return errors.New("test batch mixes publisher operations")
+			}
+			batch[i] = notify.Withdrawal{RecipientID: m.Recipient.ID, ID: m.Origin.ID, Revision: m.Revision}
+		}
+		return publisher.Withdraw(ctx, batch, tx...)
+	}
+	batch := make([]notify.Publication, len(changes))
+	for i, m := range changes {
+		if m.Withdrawn {
+			return errors.New("test batch mixes publisher operations")
+		}
+		batch[i] = notify.Publication{RecipientID: m.Recipient.ID, ID: m.Origin.ID, Revision: m.Revision, Kind: m.Kind, Data: m.Data, CreatedAt: m.CreatedAt, ActionRequested: m.ActionRequested || m.Status == notify.StatusOpen, Severity: m.Severity}
+	}
+	return publisher.Publish(ctx, batch, tx...)
+}
+
 func TestCriticalAccountNotifications(t *testing.T) {
+	t.Run("AK-J34-C15_remote_acceptance_never_needs_destination_availability", func(t *testing.T) {
+		f, _, _ := notificationFixture(t)
+		u := f.user(t)
+		var credentials atomic.Int32
+		delivery, err := authkit.NewNotificationDelivery(f.pool, f.schema, map[string]authkit.RemoteNotificationConfig{"offline": {
+			BaseURL: "http://127.0.0.1:1/auth/v1", Producer: "application",
+			Token: func(context.Context) (string, error) {
+				credentials.Add(1)
+				return "", errors.New("destination credential is offline")
+			},
+		}})
+		noError(t, err)
+		publisher, err := delivery.Publisher("offline")
+		noError(t, err)
+		publication := notify.Publication{RecipientID: u.ID, ID: "offline:one", Revision: 1, Kind: "export.ready", CreatedAt: time.Now().UTC()}
+		noError(t, publisher.Publish(t.Context(), []notify.Publication{publication}))
+		noError(t, publisher.Withdraw(t.Context(), []notify.Withdrawal{{RecipientID: u.ID, ID: publication.ID, Revision: 2}}))
+		if credentials.Load() != 0 {
+			t.Fatal("producer acceptance attempted remote delivery")
+		}
+		fleet, err := riverhelpers.New(t.Context(), f.pool, &river.Config{Schema: f.schema}, delivery.RiverJobs())
+		noError(t, err)
+		jobs, err := fleet.JobList(t.Context(), river.NewJobListParams().Kinds("authkit_notification_delivery").First(10))
+		noError(t, err)
+		if len(jobs.Jobs) != 2 {
+			t.Fatal("implicit source transactions did not durably queue both operations")
+		}
+		for _, job := range jobs.Jobs {
+			if job.State != rivertype.JobStateAvailable || strings.Contains(string(job.EncodedArgs), "credential") || strings.Contains(string(job.EncodedArgs), "127.0.0.1") {
+				t.Fatal("source obligation is unavailable or contains transport credentials/configuration")
+			}
+		}
+		page, err := f.auth.ListNotifications(t.Context(), u.ID, notify.ListOptions{})
+		noError(t, err)
+		if len(page.Items) != 0 {
+			t.Fatal("remote producer wrote an inbox before worker delivery")
+		}
+	})
 	t.Run("AK-J34-C01_transactional_publication_and_revisioned_withdrawal", func(t *testing.T) {
 		f, sink, _ := notificationFixture(t)
 		u := f.user(t)
 		m := notificationChange(u.ID, "export:one", 1)
 		tx, err := f.pool.Begin(t.Context())
 		noError(t, err)
-		noError(t, sink.ApplyTx(t.Context(), tx, []notify.Mutation{m}))
+		noError(t, publishNotificationBatch(t.Context(), sink, []notify.Mutation{m}, tx))
 		page, err := f.auth.ListNotifications(t.Context(), u.ID, notify.ListOptions{})
 		noError(t, err)
 		if len(page.Items) != 0 {
 			t.Fatal("uncommitted notification escaped its domain transaction")
 		}
 		noError(t, tx.Rollback(t.Context()))
-		noError(t, sink.Apply(t.Context(), []notify.Mutation{m}))
+		noError(t, publishNotificationBatch(t.Context(), sink, []notify.Mutation{m}))
 		page, err = f.auth.ListNotifications(t.Context(), u.ID, notify.ListOptions{})
 		noError(t, err)
 		if len(page.Items) != 1 {
@@ -72,7 +133,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		id := page.Items[0].ID
 		_, err = f.auth.SetNotificationRead(t.Context(), u.ID, id, true)
 		noError(t, err)
-		noError(t, sink.Apply(t.Context(), []notify.Mutation{m}))
+		noError(t, publishNotificationBatch(t.Context(), sink, []notify.Mutation{m}))
 		item, err := f.auth.GetNotification(t.Context(), u.ID, id)
 		noError(t, err)
 		if item.ReadAt == nil {
@@ -81,8 +142,8 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		withdrawn := m
 		withdrawn.Revision = 2
 		withdrawn.Withdrawn = true
-		noError(t, sink.Apply(t.Context(), []notify.Mutation{withdrawn}))
-		noError(t, sink.Apply(t.Context(), []notify.Mutation{m}))
+		noError(t, publishNotificationBatch(t.Context(), sink, []notify.Mutation{withdrawn}))
+		noError(t, publishNotificationBatch(t.Context(), sink, []notify.Mutation{m}))
 		page, err = f.auth.ListNotifications(t.Context(), u.ID, notify.ListOptions{UnreadOnly: true})
 		noError(t, err)
 		if len(page.Items) != 0 {
@@ -93,7 +154,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 			t.Fatalf("withdrawn receipt remained addressable: %v", err)
 		}
 		m.Revision = 3
-		noError(t, sink.Apply(t.Context(), []notify.Mutation{m}))
+		noError(t, publishNotificationBatch(t.Context(), sink, []notify.Mutation{m}))
 		item, err = f.auth.GetNotification(t.Context(), u.ID, id)
 		noError(t, err)
 		if item.ReadAt != nil {
@@ -101,15 +162,15 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		}
 		conflict := m
 		conflict.Data = json.RawMessage(`{"export_id":"conflict"}`)
-		if err = sink.Apply(t.Context(), []notify.Mutation{conflict}); !errors.Is(err, notify.ErrConflict) {
+		if err = publishNotificationBatch(t.Context(), sink, []notify.Mutation{conflict}); !errors.Is(err, notify.ErrConflict) {
 			t.Fatalf("same-revision conflict accepted: %v", err)
 		}
 		late := notificationChange(u.ID, "export:late", 1)
 		first := late
 		first.Withdrawn = true
 		first.Revision = 2
-		noError(t, sink.Apply(t.Context(), []notify.Mutation{first}))
-		noError(t, sink.Apply(t.Context(), []notify.Mutation{late}))
+		noError(t, publishNotificationBatch(t.Context(), sink, []notify.Mutation{first}))
+		noError(t, publishNotificationBatch(t.Context(), sink, []notify.Mutation{late}))
 		page, err = f.auth.ListNotifications(t.Context(), u.ID, notify.ListOptions{})
 		noError(t, err)
 		if len(page.Items) != 1 || page.Items[0].ID != id {
@@ -120,7 +181,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		f, sink, role := notificationFixture(t)
 		alice, bob := f.user(t), f.user(t)
 		m := notificationChange(alice.ID, "private:one", 1)
-		noError(t, sink.Apply(t.Context(), []notify.Mutation{m}))
+		noError(t, publishNotificationBatch(t.Context(), sink, []notify.Mutation{m}))
 		a, b := f.signIn(t, alice), f.signIn(t, bob)
 		f.call(t, "GET", "/me/notifications", "", nil).want(t, http.StatusUnauthorized, "")
 		listed := f.call(t, "GET", "/me/notifications?recipient="+alice.ID, b.AccessToken, nil)
@@ -191,11 +252,11 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		m := notificationChange(u.ID, "queued:one", 1)
 		rollback, err := f.pool.Begin(t.Context())
 		noError(t, err)
-		noError(t, sink.ApplyTx(t.Context(), rollback, []notify.Mutation{m}))
+		noError(t, publishNotificationBatch(t.Context(), sink, []notify.Mutation{m}, rollback))
 		noError(t, rollback.Rollback(t.Context()))
 		tx, err := f.pool.Begin(t.Context())
 		noError(t, err)
-		noError(t, sink.ApplyTx(t.Context(), tx, []notify.Mutation{m}))
+		noError(t, publishNotificationBatch(t.Context(), sink, []notify.Mutation{m}, tx))
 		noError(t, tx.Commit(t.Context()))
 		// Reconstruct the publisher/worker from configuration after the transaction
 		// committed; queued work must not depend on the original Go object.
@@ -280,7 +341,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		sink, err := adopted.Notifications("application")
 		noError(t, err)
 		m.Revision = 2
-		noError(t, sink.Apply(t.Context(), []notify.Mutation{m}))
+		noError(t, publishNotificationBatch(t.Context(), sink, []notify.Mutation{m}))
 		page, err := adopted.ListNotifications(t.Context(), u.ID, notify.ListOptions{})
 		noError(t, err)
 		if len(page.Items) != 0 {
@@ -342,7 +403,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		newer := current
 		newer.Revision = 2
 		newer.Withdrawn = true
-		noError(t, sink.Apply(t.Context(), []notify.Mutation{newer}))
+		noError(t, publishNotificationBatch(t.Context(), sink, []notify.Mutation{newer}))
 		noError(t, f.auth.AdoptNotifications(t.Context(), "application", []notify.Adoption{mapping}))
 		_, err = f.auth.GetNotification(t.Context(), u.ID, item.ID)
 		if !errors.Is(err, notify.ErrNotFound) {
@@ -390,13 +451,13 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		f.startFleet(t)
 		u := f.user(t)
 		m := notificationChange(u.ID, "account:purged", 1)
-		noError(t, sink.Apply(t.Context(), []notify.Mutation{m}))
+		noError(t, publishNotificationBatch(t.Context(), sink, []notify.Mutation{m}))
 		scope, err := f.auth.NotificationScope()
 		noError(t, err)
 		rows, err := f.auth.PurgeUsers(t.Context(), []string{u.ID})
 		goodBatch(t, rows, err)
 		f.purged(t, u.ID)
-		noError(t, sink.Apply(t.Context(), []notify.Mutation{m}))
+		noError(t, publishNotificationBatch(t.Context(), sink, []notify.Mutation{m}))
 		store, err := notifypg.New(f.pool, notifypg.Config{Schema: f.schema, Scope: scope})
 		noError(t, err)
 		page, err := store.List(t.Context(), m.Recipient, notify.ListOptions{})
@@ -412,16 +473,16 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		f, sink, _ := notificationFixture(t)
 		u := f.user(t)
 		m := notificationChange(u.ID, "account:restore", 1)
-		noError(t, sink.Apply(t.Context(), []notify.Mutation{m}))
+		noError(t, publishNotificationBatch(t.Context(), sink, []notify.Mutation{m}))
 		results, err := f.auth.DeleteUsers(t.Context(), iam.SystemIdentity(), []string{u.ID})
 		goodBatch(t, results, err)
 		withdrawn := m
 		withdrawn.Revision = 2
 		withdrawn.Withdrawn = true
-		noError(t, sink.Apply(t.Context(), []notify.Mutation{withdrawn}))
+		noError(t, publishNotificationBatch(t.Context(), sink, []notify.Mutation{withdrawn}))
 		results, err = f.auth.RestoreUsers(t.Context(), iam.SystemIdentity(), []string{u.ID})
 		goodBatch(t, results, err)
-		noError(t, sink.Apply(t.Context(), []notify.Mutation{m}))
+		noError(t, publishNotificationBatch(t.Context(), sink, []notify.Mutation{m}))
 		page, err := f.auth.ListNotifications(t.Context(), u.ID, notify.ListOptions{})
 		noError(t, err)
 		if len(page.Items) != 0 {
@@ -446,7 +507,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		m := notificationChange(u.ID, "transaction:created", 1)
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 		defer cancel()
-		noError(t, sink.ApplyTx(ctx, tx, []notify.Mutation{m}))
+		noError(t, publishNotificationBatch(ctx, sink, []notify.Mutation{m}, tx))
 		var searchPath string
 		noError(t, tx.QueryRow(t.Context(), `SELECT current_setting('search_path')`).Scan(&searchPath))
 		if searchPath != "pg_catalog" {
@@ -486,7 +547,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		tx, err := other.Begin(t.Context())
 		noError(t, err)
 		defer tx.Rollback(context.Background())
-		err = sink.ApplyTx(t.Context(), tx, []notify.Mutation{notificationChange(u.ID, "foreign:queue", 1)})
+		err = publishNotificationBatch(t.Context(), sink, []notify.Mutation{notificationChange(u.ID, "foreign:queue", 1)}, tx)
 		if err == nil {
 			t.Fatal("delivery accepted an obligation in another database")
 		}
@@ -514,7 +575,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		tx, err = other.Begin(t.Context())
 		noError(t, err)
 		defer tx.Rollback(context.Background())
-		refused := accountSink.ApplyTx(t.Context(), tx, []notify.Mutation{notificationChange(u.ID, "foreign:inbox", 1)})
+		refused := publishNotificationBatch(t.Context(), accountSink, []notify.Mutation{notificationChange(u.ID, "foreign:inbox", 1)}, tx)
 		noError(t, tx.Commit(t.Context()))
 		foreignInbox, err := clone.ListNotifications(t.Context(), u.ID, notify.ListOptions{})
 		noError(t, err)
@@ -534,7 +595,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		noError(t, err)
 		tx, err = one.Begin(t.Context())
 		noError(t, err)
-		noError(t, localSink.ApplyTx(t.Context(), tx, []notify.Mutation{notificationChange(u.ID, "local:queue", 1)}))
+		noError(t, publishNotificationBatch(t.Context(), localSink, []notify.Mutation{notificationChange(u.ID, "local:queue", 1)}, tx))
 		noError(t, tx.Rollback(t.Context()))
 	})
 	t.Run("AK-J34-C11_maximum_HTML_batch_delivers_and_oversize_is_not_queued", func(t *testing.T) {
@@ -552,8 +613,28 @@ func TestCriticalAccountNotifications(t *testing.T) {
 			batch[i] = notificationChange(u.ID, fmt.Sprintf("large:%d", i), 1)
 			batch[i].Data = payload
 		}
-		noError(t, sink.Apply(t.Context(), batch))
+		noError(t, publishNotificationBatch(t.Context(), sink, batch))
+		// Omitted transactions still enqueue remote work. Nothing reaches the
+		// destination until its ordinary source fleet executes the obligation.
 		page, err := f.auth.ListNotifications(t.Context(), u.ID, notify.ListOptions{Limit: 100})
+		noError(t, err)
+		if len(page.Items) != 0 {
+			t.Fatal("remote publication bypassed its durable source queue")
+		}
+		fleet, err := riverhelpers.New(t.Context(), f.pool, &river.Config{Schema: f.schema}, delivery.RiverJobs())
+		noError(t, err)
+		noError(t, fleet.Start(context.Background()))
+		t.Cleanup(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			noError(t, fleet.Stop(ctx))
+		})
+		eventually(t, "maximum batch arrives through the durable worker", func() bool {
+			page, err = f.auth.ListNotifications(t.Context(), u.ID, notify.ListOptions{Limit: 100})
+			noError(t, err)
+			return len(page.Items) == notify.MaxMutations
+		})
+		page, err = f.auth.ListNotifications(t.Context(), u.ID, notify.ListOptions{Limit: 100})
 		noError(t, err)
 		if len(page.Items) != notify.MaxMutations {
 			t.Fatal("valid maximum batch was truncated or rejected")
@@ -561,15 +642,62 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		tx, err := f.pool.Begin(t.Context())
 		noError(t, err)
 		excessive := append(append([]notify.Mutation(nil), batch...), batch[0])
-		if err = sink.ApplyTx(t.Context(), tx, excessive); !errors.Is(err, notify.ErrInvalid) {
+		if err = publishNotificationBatch(t.Context(), sink, excessive, tx); !errors.Is(err, notify.ErrInvalid) {
 			t.Fatalf("over-bound batch accepted for durable retry: %v", err)
 		}
 		oversized := batch[0]
 		oversized.Data = json.RawMessage(`{"html":"` + strings.Repeat("<", 64<<10) + `"}`)
-		if err = sink.ApplyTx(t.Context(), tx, []notify.Mutation{oversized}); !errors.Is(err, notify.ErrInvalid) {
+		if err = publishNotificationBatch(t.Context(), sink, []notify.Mutation{oversized}, tx); !errors.Is(err, notify.ErrInvalid) {
 			t.Fatalf("over-bound payload accepted for durable retry: %v", err)
 		}
 		noError(t, tx.Commit(t.Context()))
+	})
+	t.Run("AK-J34-C14_public_publisher_operations_share_transactions_and_reject_partial_batches", func(t *testing.T) {
+		f, publisher, _ := notificationFixture(t)
+		u := f.user(t)
+		publication := notify.Publication{RecipientID: u.ID, ID: "batch:seed", Revision: 1, Kind: "export.ready", Data: json.RawMessage(`{"ready":true}`), CreatedAt: time.Now().UTC()}
+		noError(t, publisher.Publish(t.Context(), []notify.Publication{publication}))
+		tx, err := f.pool.Begin(t.Context())
+		noError(t, err)
+		if err := publisher.Publish(t.Context(), nil, nil); !errors.Is(err, notify.ErrInvalid) {
+			t.Fatalf("explicit nil transaction accepted: %v", err)
+		}
+		if err := publisher.Withdraw(t.Context(), nil, tx, tx); !errors.Is(err, notify.ErrInvalid) {
+			t.Fatalf("multiple transactions accepted: %v", err)
+		}
+		other := publication
+		other.ID = "batch:rollback"
+		noError(t, publisher.Publish(t.Context(), []notify.Publication{other}, tx))
+		noError(t, publisher.Withdraw(t.Context(), []notify.Withdrawal{{RecipientID: u.ID, ID: publication.ID, Revision: 2}}, tx))
+		noError(t, tx.Rollback(t.Context()))
+		page, err := f.auth.ListNotifications(t.Context(), u.ID, notify.ListOptions{})
+		noError(t, err)
+		if len(page.Items) != 1 || page.Items[0].Origin.ID != publication.ID {
+			t.Fatal("publish and withdrawal escaped their shared rollback")
+		}
+		noError(t, pgx.BeginFunc(t.Context(), f.pool, func(tx pgx.Tx) error {
+			_, err := tx.Exec(t.Context(), "CREATE TABLE "+pgx.Identifier{f.schema, "notification_domain_marker"}.Sanitize()+" (id integer PRIMARY KEY)")
+			if err != nil {
+				return err
+			}
+			_, err = tx.Exec(t.Context(), "INSERT INTO "+pgx.Identifier{f.schema, "notification_domain_marker"}.Sanitize()+" VALUES (1)")
+			if err != nil {
+				return err
+			}
+			conflict := publication
+			conflict.Data = json.RawMessage(`{"ready":false}`)
+			if err = publisher.Publish(t.Context(), []notify.Publication{other, conflict}, tx); !errors.Is(err, notify.ErrConflict) {
+				return fmt.Errorf("conflicting batch returned %v", err)
+			}
+			return nil
+		}))
+		var markers int
+		noError(t, f.pool.QueryRow(t.Context(), "SELECT count(*) FROM "+pgx.Identifier{f.schema, "notification_domain_marker"}.Sanitize()).Scan(&markers))
+		page, err = f.auth.ListNotifications(t.Context(), u.ID, notify.ListOptions{})
+		noError(t, err)
+		if markers != 1 || len(page.Items) != 1 || page.Items[0].Origin.ID != publication.ID {
+			t.Fatal("failed batch leaked an item or aborted the caller's independent work")
+		}
 	})
 	t.Run("AK-J34-C12_app_erasure_does_not_suppress_tenant_billing_notices", func(t *testing.T) {
 		f, app, _ := notificationFixture(t, authtest.WithConfig(func(c *authkit.Config) {
@@ -584,7 +712,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		// An old origin-only fence remains authoritative for its newly classified
 		// application, but cannot withdraw unrelated tenant-wide billing notices.
 		noError(t, store.EraseAppRecipient(t.Context(), recipient, "", notify.OriginScope{System: "application", Scope: "app"}))
-		noError(t, app.Apply(t.Context(), []notify.Mutation{notificationChange(u.ID, "app:erased", 1)}))
+		noError(t, publishNotificationBatch(t.Context(), app, []notify.Mutation{notificationChange(u.ID, "app:erased", 1)}))
 		billing, err := f.auth.Notifications("billing")
 		noError(t, err)
 		notice := notificationChange(u.ID, "billing:active", 1)
@@ -592,14 +720,14 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		notice.Origin.Scope = "merchant"
 		notice.Visibility = notify.VisibilityTenant
 		notice.AppID = ""
-		noError(t, billing.Apply(t.Context(), []notify.Mutation{notice}))
+		noError(t, publishNotificationBatch(t.Context(), billing, []notify.Mutation{notice}))
 		page, err := f.auth.ListNotifications(t.Context(), u.ID, notify.ListOptions{})
 		noError(t, err)
 		if len(page.Items) != 1 || page.Items[0].Origin.System != "billing" {
 			t.Fatal("legacy app erasure hid billing or allowed its own app to republish")
 		}
 		noError(t, store.EraseAppRecipient(t.Context(), recipient, notificationApp, notify.OriginScope{}))
-		noError(t, app.Apply(t.Context(), []notify.Mutation{notificationChange(u.ID, "app:explicit-erased", 1)}))
+		noError(t, publishNotificationBatch(t.Context(), app, []notify.Mutation{notificationChange(u.ID, "app:explicit-erased", 1)}))
 		page, err = f.auth.ListNotifications(t.Context(), u.ID, notify.ListOptions{})
 		noError(t, err)
 		if len(page.Items) != 1 || page.Items[0].Origin.System != "billing" {
@@ -612,7 +740,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 			c.Notifications.Scopes = map[string]string{c.DefaultTenantID.String(): "contentkit:accounts"}
 		}))
 		alice := f.user(t)
-		noError(t, sink.Apply(t.Context(), []notify.Mutation{notificationChange(alice.ID, "ownership:alice", 1)}))
+		noError(t, publishNotificationBatch(t.Context(), sink, []notify.Mutation{notificationChange(alice.ID, "ownership:alice", 1)}))
 		other := iam.NewTenantID()
 		noError(t, f.auth.CreateTenant(t.Context(), iam.Tenant{ID: other}))
 		cfg := f.cfg
@@ -643,7 +771,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		bob := authtest.NewUser(t, allowed)
 		otherSink, err := allowed.Notifications("application")
 		noError(t, err)
-		noError(t, otherSink.Apply(t.Context(), []notify.Mutation{notificationChange(bob.ID, "ownership:bob", 1)}))
+		noError(t, publishNotificationBatch(t.Context(), otherSink, []notify.Mutation{notificationChange(bob.ID, "ownership:bob", 1)}))
 		page, err := f.auth.ListNotifications(t.Context(), alice.ID, notify.ListOptions{})
 		noError(t, err)
 		if len(page.Items) != 1 || page.Items[0].Recipient.ID != alice.ID {

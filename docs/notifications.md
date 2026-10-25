@@ -25,21 +25,32 @@ or not the user saw them.
 
 ## Embedded and remote delivery
 
-The embedded AuthKit client exposes a producer handle implementing
-`notify.Sink.Apply` and `notify/postgres.TxSink.ApplyTx`. Ordinary `Apply` returns
-after the inbox commit. `ApplyTx` joins the caller's same-database transaction,
-so the domain mutation and notification are committed or rolled back together.
-The publisher verifies the actual transaction database; matching schema names,
-tenant IDs and account rows in a restored copy are insufficient. Its short-lived
-identity probe does not borrow a second connection from the caller's pool.
+The embedded AuthKit client returns `notify.Publisher` from
+`accounts.Notifications("contentkit")`. Producers use only two operations:
 
-A narrow remote notification publisher uses the same mutation interface over an
-authenticated AuthKit endpoint. Its `Apply` succeeds after the destination commit.
-Its transactional `ApplyTx` records a River delivery obligation in the producer's
-database. A common worker sends available obligations immediately and retries
-failures; it never scans the general event log. The stable identity/revision
-makes response loss and replay safe. Credentials and destination URLs remain in
-trusted configuration, not in queued notification payloads.
+```go
+err := publisher.Publish(ctx, []notify.Publication{{
+    RecipientID: userID, ID: "comment.reply:" + replyID, Revision: revision,
+    Kind: "comment.reply", Data: replyReferences, CreatedAt: createdAt,
+}})
+err = publisher.Withdraw(ctx, []notify.Withdrawal{{
+    RecipientID: userID, ID: "comment.reply:" + replyID, Revision: nextRevision,
+}}, sourceTx)
+```
+
+AuthKit fixes origin, tenant and application visibility in the configured producer.
+Each batch accepts at most100 exact identities. Omit the transaction to commit
+acceptance in a new transaction, or supply exactly one non-nil `pgx.Tx` to join
+source writes. Local publishers write the inbox; a failed batch rolls back to a
+savepoint without discarding the caller's independent work. The database witness
+checks the actual transaction database and requires no second pool connection.
+
+Remote publishers use the same two operations and always insert a source River
+delivery obligation, including when no transaction is supplied. Only the worker
+sends authenticated HTTP to AuthKit. An unavailable destination cannot turn a
+successful producer mutation into lost delivery. Response loss/restart/replay are
+safe through stable exact IDs and producer revisions. Credentials and destination
+URLs stay in trusted configuration, never in queued notification payloads.
 
 ## Account interface
 
@@ -50,13 +61,13 @@ configuration. Producer publication has a distinct authenticated machine surface
 it cannot select arbitrary producer identities or publish outside its declared
 account tenant/application. Domain resolution remains producer-owned.
 
-Permanent account erasure removes inbox data and retains the Helpers recipient
+Permanent account erasure removes inbox data and retains the AuthKit recipient
 fence before the account row is removed. Delayed delivery cannot recreate it.
 Soft deletion continues AuthKit's existing recovery policy.
 
 ## Migration and qualification
 
-Enabling the add-on installs/validates the Helpers notification schema using the
+Enabling the add-on installs/validates the AuthKit notification schema using the
 host's PostgreSQL pool. Existing `account_notifications` data is adopted in place using an explicit
 `Scopes` mapping from canonical account tenant UUID to the existing logical scope
 (for example `contentkit:accounts`). Notification IDs, read/archive state and

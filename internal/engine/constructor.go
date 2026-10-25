@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	notifypg "github.com/open-rails/helpers/notify/postgres"
+	notifypg "github.com/open-rails/authkit/notify/postgres"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"

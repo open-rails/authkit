@@ -18,7 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/auth-ui/e2e/server/harness"
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/helpers/notify"
+	"github.com/open-rails/authkit/notify"
 )
 
 func main() {
@@ -123,7 +123,11 @@ func fixture(mux *http.ServeMux, rt, unproved *harness.Runtime) {
 		}
 		publisher, err := rt.Notifications("application")
 		if err == nil {
-			err = publisher.Apply(r.Context(), []notify.Mutation{{Input: notify.Input{Recipient: notify.Recipient{Audience: notify.AudienceUser, ID: in.UserID}, Origin: notify.Origin{ID: in.ID}, Kind: "export.ready", Data: json.RawMessage(`{"export_id":"browser"}`), CreatedAt: time.Unix(1700000000, 0)}, Revision: in.Revision, Withdrawn: in.Withdrawn}})
+			if in.Withdrawn {
+				err = publisher.Withdraw(r.Context(), []notify.Withdrawal{{RecipientID: in.UserID, ID: in.ID, Revision: in.Revision}})
+			} else {
+				err = publisher.Publish(r.Context(), []notify.Publication{{RecipientID: in.UserID, ID: in.ID, Revision: in.Revision, Kind: "export.ready", Data: json.RawMessage(`{"export_id":"browser"}`), CreatedAt: time.Unix(1700000000, 0)}})
+			}
 		}
 		if err != nil {
 			reply(w, 400, map[string]string{"error": err.Error()})

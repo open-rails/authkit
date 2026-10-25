@@ -77,7 +77,7 @@ func KindOf(t reflect.Type) WireKind {
 	case reflect.Interface:
 		return WireAny
 	case reflect.Struct:
-		if !strings.HasPrefix(t.PkgPath(), module) && t.PkgPath() != "github.com/open-rails/helpers/notify" {
+		if !strings.HasPrefix(t.PkgPath(), module) && t.PkgPath() != "github.com/open-rails/authkit/notify" {
 			return WireOpaque
 		}
 		return WireObject

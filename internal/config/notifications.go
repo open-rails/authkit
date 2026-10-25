@@ -9,7 +9,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ident"
-	"github.com/open-rails/helpers/notify"
+	"github.com/open-rails/authkit/notify"
 )
 
 // NotificationsConfig enables the account inbox. Nil leaves its schema and

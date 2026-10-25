@@ -2,7 +2,7 @@ package httpapi
 
 import (
 	"context"
-	"github.com/open-rails/helpers/notify"
+	"github.com/open-rails/authkit/notify"
 	"net/http"
 
 	"github.com/open-rails/authkit/auth"

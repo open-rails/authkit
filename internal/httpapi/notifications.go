@@ -10,7 +10,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
-	"github.com/open-rails/helpers/notify"
+	"github.com/open-rails/authkit/notify"
 )
 
 // NotificationQuery selects only the authenticated account's receipts.

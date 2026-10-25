@@ -10,7 +10,7 @@ import (
 	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
-	"github.com/open-rails/helpers/notify"
+	"github.com/open-rails/authkit/notify"
 )
 
 // Operations is every operation of the Client that a remote deployment could

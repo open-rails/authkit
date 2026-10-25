@@ -12,7 +12,7 @@ import (
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/scim"
 	"github.com/open-rails/authkit/keys"
-	"github.com/open-rails/helpers/notify"
+	"github.com/open-rails/authkit/notify"
 )
 
 // Surface is where a route is anchored beneath the mount's base path.

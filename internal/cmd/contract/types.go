@@ -63,12 +63,12 @@ func fieldsOf(t reflect.Type) []field {
 // wireNames names the wire types whose Go name only reads well qualified by
 // its package.
 var wireNames = map[string]string{
-	"github.com/open-rails/helpers/notify.Item":      "NotificationItem",
-	"github.com/open-rails/helpers/notify.Input":     "NotificationInput",
-	"github.com/open-rails/helpers/notify.Page":      "NotificationPage",
-	"github.com/open-rails/helpers/notify.Mutation":  "NotificationMutation",
-	"github.com/open-rails/helpers/notify.Recipient": "NotificationRecipient",
-	"github.com/open-rails/helpers/notify.Origin":    "NotificationOrigin",
+	"github.com/open-rails/authkit/notify.Item":      "NotificationItem",
+	"github.com/open-rails/authkit/notify.Input":     "NotificationInput",
+	"github.com/open-rails/authkit/notify.Page":      "NotificationPage",
+	"github.com/open-rails/authkit/notify.Mutation":  "NotificationMutation",
+	"github.com/open-rails/authkit/notify.Recipient": "NotificationRecipient",
+	"github.com/open-rails/authkit/notify.Origin":    "NotificationOrigin",
 
 	module + "/internal/naming.State":      "NamingState",
 	module + "/internal/naming.Alias":      "NamingAlias",

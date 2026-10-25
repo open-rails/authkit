@@ -13,8 +13,8 @@ import (
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/ident"
-	"github.com/open-rails/helpers/notify"
-	notifypg "github.com/open-rails/helpers/notify/postgres"
+	"github.com/open-rails/authkit/notify"
+	notifypg "github.com/open-rails/authkit/notify/postgres"
 )
 
 var ErrNotificationsDisabled = errors.New("authkit: account notifications are disabled")

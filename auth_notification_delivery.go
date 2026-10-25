@@ -16,8 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/engine"
-	"github.com/open-rails/helpers/notify"
-	notifypg "github.com/open-rails/helpers/notify/postgres"
+	"github.com/open-rails/authkit/notify"
 	riverhelpers "github.com/open-rails/helpers/river"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
@@ -35,7 +34,7 @@ type RemoteNotificationConfig struct {
 
 // NotificationDelivery supplies one source-database worker for all configured
 // remote inbox destinations. It owns no pool or background goroutine. Compose
-// RiverJobs into the host fleet before using Publisher.ApplyTx.
+// RiverJobs into the host fleet before accepting publications or withdrawals.
 type NotificationDelivery struct {
 	pool     *pgxpool.Pool
 	schema   string
@@ -80,7 +79,7 @@ func NewNotificationDelivery(pool *pgxpool.Pool, riverSchema string, destination
 	return d, nil
 }
 
-func (d *NotificationDelivery) Publisher(name string) (notifypg.TxSink, error) {
+func (d *NotificationDelivery) Publisher(name string) (notify.Publisher, error) {
 	if d == nil {
 		return nil, errors.New("authkit: notification delivery is nil")
 	}
@@ -124,17 +123,9 @@ func checkNotificationDeliveryDatabase(ctx context.Context, source, worker *pgxp
 
 const notificationRequestLimit = 8 << 20
 
-func prepareNotificationBatch(changes []notify.Mutation) ([]notify.Mutation, []byte, error) {
+func encodeNotificationBatch(changes []notify.Mutation) ([]byte, error) {
 	if len(changes) > notify.MaxMutations {
-		return nil, nil, fmt.Errorf("%w: too many notification mutations", notify.ErrInvalid)
-	}
-	normalized := make([]notify.Mutation, len(changes))
-	for i, m := range changes {
-		var err error
-		normalized[i], err = notify.ValidateMutation(m)
-		if err != nil {
-			return nil, nil, err
-		}
+		return nil, fmt.Errorf("%w: too many notification mutations", notify.ErrInvalid)
 	}
 	var body bytes.Buffer
 	encoder := json.NewEncoder(&body)
@@ -143,18 +134,19 @@ func prepareNotificationBatch(changes []notify.Mutation) ([]notify.Mutation, []b
 	encoder.SetEscapeHTML(false)
 	if err := encoder.Encode(struct {
 		Mutations []notify.Mutation `json:"mutations"`
-	}{normalized}); err != nil {
-		return nil, nil, err
+	}{changes}); err != nil {
+		return nil, err
 	}
 	if body.Len() > notificationRequestLimit {
-		return nil, nil, fmt.Errorf("%w: notification batch exceeds request bound", notify.ErrInvalid)
+		return nil, fmt.Errorf("%w: notification batch exceeds request bound", notify.ErrInvalid)
 	}
-	return normalized, body.Bytes(), nil
+	return body.Bytes(), nil
 }
 
-// Apply returns only after the destination has durably committed the batch.
-func (p *remoteNotificationPublisher) Apply(ctx context.Context, changes []notify.Mutation) error {
-	_, data, err := prepareNotificationBatch(changes)
+// deliver is worker-only. Public producer operations always commit a source
+// delivery obligation, including when the caller omits an explicit transaction.
+func (p *remoteNotificationPublisher) deliver(ctx context.Context, changes []notify.Mutation) error {
+	data, err := encodeNotificationBatch(changes)
 	if err != nil {
 		return err
 	}
@@ -186,26 +178,48 @@ func (p *remoteNotificationPublisher) Apply(ctx context.Context, changes []notif
 	return nil
 }
 
-// ApplyTx records an available delivery obligation in the source transaction.
-// A successful return means queued durably when the caller commits, not that
-// the remote inbox has already accepted the message.
-func (p *remoteNotificationPublisher) ApplyTx(ctx context.Context, tx pgx.Tx, changes []notify.Mutation) error {
-	normalized, _, err := prepareNotificationBatch(changes)
+var _ notify.Publisher = (*remoteNotificationPublisher)(nil)
+
+func (p *remoteNotificationPublisher) Publish(ctx context.Context, batch []notify.Publication, tx ...pgx.Tx) error {
+	changes, err := notificationPublications(batch)
 	if err != nil {
 		return err
 	}
-	if len(normalized) == 0 {
+	return p.accept(ctx, changes, tx)
+}
+
+func (p *remoteNotificationPublisher) Withdraw(ctx context.Context, batch []notify.Withdrawal, tx ...pgx.Tx) error {
+	changes, err := notificationWithdrawals(batch)
+	if err != nil {
+		return err
+	}
+	return p.accept(ctx, changes, tx)
+}
+
+func (p *remoteNotificationPublisher) accept(ctx context.Context, changes []notify.Mutation, transactions []pgx.Tx) error {
+	if err := notificationTransaction(transactions); err != nil {
+		return err
+	}
+	if _, err := encodeNotificationBatch(changes); err != nil {
+		return err
+	}
+	if len(changes) == 0 {
 		return nil
 	}
-	if tx == nil {
-		return fmt.Errorf("%w: notification source transaction required", notify.ErrInvalid)
+	if len(transactions) == 0 {
+		return pgx.BeginFunc(ctx, p.delivery.pool, func(tx pgx.Tx) error { return p.enqueue(ctx, tx, changes) })
 	}
+	return p.enqueue(ctx, transactions[0], changes)
+}
+
+func (p *remoteNotificationPublisher) enqueue(ctx context.Context, tx pgx.Tx, changes []notify.Mutation) error {
 	if err := engine.CheckNotificationTransactionDatabase(ctx, tx, p.delivery.pool); err != nil {
 		return err
 	}
-
-	_, err = p.delivery.producer.InsertTx(ctx, tx, notificationDeliveryArgs{Destination: p.name, Mutations: normalized}, &river.InsertOpts{Queue: NotificationDeliveryQueue, MaxAttempts: 100})
-	return err
+	return pgx.BeginFunc(ctx, tx, func(batch pgx.Tx) error {
+		_, err := p.delivery.producer.InsertTx(ctx, batch, notificationDeliveryArgs{Destination: p.name, Mutations: changes}, &river.InsertOpts{Queue: NotificationDeliveryQueue, MaxAttempts: 100})
+		return err
+	})
 }
 
 type notificationDeliveryWorker struct {
@@ -221,5 +235,5 @@ func (w *notificationDeliveryWorker) Work(ctx context.Context, job *river.Job[no
 	if !ok {
 		return fmt.Errorf("authkit: notification destination %q is not configured", job.Args.Destination)
 	}
-	return p.Apply(ctx, job.Args.Mutations)
+	return p.deliver(ctx, job.Args.Mutations)
 }

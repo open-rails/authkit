@@ -7,7 +7,7 @@ import (
 	"sort"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/open-rails/helpers/notify"
+	"github.com/open-rails/authkit/notify"
 )
 
 // AdoptNotifications is explicit native maintenance for stopped old writers.
