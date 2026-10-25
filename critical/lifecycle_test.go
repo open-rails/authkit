@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -149,6 +150,7 @@ func TestCriticalAccountLifecycle(t *testing.T) {
 		}
 	})
 	t.Run("AK-J25-C02_soft_delete_tombstones_and_authorized_restore", func(t *testing.T) {
+		checkNativeCallbackTenants(t)
 		f := newFixture(t)
 		f.startFleet(t)
 		u := f.user(t)
@@ -391,4 +393,104 @@ func TestCriticalAccountLifecycle(t *testing.T) {
 		_, err = f.authenticate(t, key.Secret)
 		noError(t, err)
 	})
+}
+
+// One AuthKit runtime serves two explicitly selected account directories. The
+// application's policy callback observes the resolved target, not a user-ID
+// guess or the default tenant of its construction.
+func checkNativeCallbackTenants(t *testing.T) {
+	t.Helper()
+	if tenant, ok := authkit.TenantFromContext(context.Background()); ok || !tenant.IsZero() {
+		t.Fatal("unscoped context invented a target")
+	}
+	type observed struct {
+		tenant       iam.TenantID
+		present      bool
+		user, client string
+	}
+	deletion, consent := make(chan observed, 4), make(chan observed, 4)
+	var selected atomic.Pointer[http.Handler]
+	front := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if h := selected.Load(); h != nil {
+			(*h).ServeHTTP(w, r)
+			return
+		}
+		http.Error(w, "starting", http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(front.Close)
+	var persona iam.Persona
+	f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
+		c.Token.Issuer = front.URL
+		persona = c.Roles.Persona("callbackshop", authkit.OAuthClients).Persona
+	}), authtest.WithDeps(func(d *authkit.Deps) {
+		d.DeletionCheck = func(ctx context.Context, user string) error {
+			tenant, ok := authkit.TenantFromContext(ctx)
+			deletion <- observed{tenant: tenant, present: ok, user: user}
+			return iam.RefuseDeletion("callback policy")
+		}
+		d.ConsentRevocationCheck = func(ctx context.Context, user, client string) error {
+			tenant, ok := authkit.TenantFromContext(ctx)
+			consent <- observed{tenant: tenant, present: ok, user: user, client: client}
+			return iam.RefuseConsentRevocation("callback policy")
+		}
+	}))
+	f.startFleet(t)
+	other := iam.NewTenantID()
+	noError(t, f.auth.CreateTenant(t.Context(), iam.Tenant{ID: other}))
+	var firstToken string
+	for _, tenant := range []iam.TenantID{f.tenant, other} {
+		view, err := f.auth.ForTenant(t.Context(), tenant)
+		noError(t, err)
+		handler := view.Handler()
+		selected.Store(&handler)
+		caller := &fixture{auth: view, server: front}
+		user := authtest.NewUser(t, view)
+		session := caller.signIn(t, user)
+		if firstToken == "" {
+			firstToken = session.AccessToken
+		} else {
+			caller.call(t, "DELETE", "/me", firstToken, nil).want(t, http.StatusForbidden, "forbidden")
+			select {
+			case <-deletion:
+				t.Fatal("foreign token reached callback")
+			default:
+			}
+		}
+		owner := iam.UserSubject(user.ID)
+		group, err := view.CreateGroup(t.Context(), iam.NewGroup{Persona: persona, Owner: &owner})
+		noError(t, err)
+		client, err := view.CreateGroupOAuthClient(t.Context(), iam.SystemIdentity(), iam.GroupByID(group.ID), iam.NewOAuthClient{ClientName: "Callback", RedirectURIs: []string{"https://client.example/callback"}, TokenEndpointAuthMethod: iam.OAuthClientSecretBasic, Scope: "openid"})
+		noError(t, err)
+		as := authtest.Attach(t, view, front)
+		as.AuthorizeAs(t, session, authtest.CodeFlow{ClientID: client.ClientID, ClientSecret: *client.ClientSecret, RedirectURI: "https://client.example/callback", Scopes: []string{"openid"}, Consent: true})
+		caller.call(t, "DELETE", "/me/oauth-consents/"+client.ClientID, session.AccessToken, nil).want(t, http.StatusConflict, "consent_revocation_refused")
+		var got observed
+		select {
+		case got = <-consent:
+		default:
+			t.Fatal("consent HTTP refusal did not invoke the host callback")
+		}
+		if !got.present || got.tenant != tenant || got.user != user.ID || got.client != client.ClientID {
+			t.Fatalf("consent callback target: %+v, want tenant%s user%s", got, tenant, user.ID)
+		}
+		caller.call(t, "DELETE", "/me", session.AccessToken, nil).want(t, http.StatusConflict, "deletion_refused")
+		select {
+		case got = <-deletion:
+		default:
+			t.Fatal("deletion HTTP refusal did not invoke the host callback")
+		}
+		if !got.present || got.tenant != tenant || got.user != user.ID {
+			t.Fatalf("deletion callback target: %+v, want tenant%s user%s", got, tenant, user.ID)
+		}
+		retained, err := view.User(t.Context(), iam.UserByID(user.ID))
+		noError(t, err)
+		if retained.DeletedAt != nil {
+			t.Fatal("refused deletion changed the account")
+		}
+		kept, err := view.OAuthConsents(t.Context(), user.ID)
+		noError(t, err)
+		if len(kept) != 1 || kept[0].ClientID != client.ClientID {
+			t.Fatal("refused revocation changed consent")
+		}
+	}
 }

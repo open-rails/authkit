@@ -1,7 +1,7 @@
 import { expect } from "@playwright/test"
 import { test, seed, open, login } from "./browser"
 
-test("AK-UI-16: AK-J29-C07: account inbox receipts and withdrawals stay with the current identity", async ({
+test("AK-UI-17: AK-J29-C08: account inbox receipts and withdrawals stay with the current identity", async ({
   page,
   request,
 }) => {

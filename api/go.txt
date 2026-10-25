@@ -24,6 +24,7 @@ pkg authkit, func NewNotificationDelivery(*pgxpool.Pool, string, map[string]Remo
 pkg authkit, func NewRemoteEventReader(RemoteEventConfig) (eventlog.Reader, error)
 pkg authkit, func NewRoles(...PersonaOption) *Roles
 pkg authkit, func ParseBootstrapManifestYAML([]byte) (iam.BootstrapManifest, error)
+pkg authkit, func TenantFromContext(context.Context) (iam.TenantID, bool)
 pkg authkit, func WithRiverClient(*river.Client[pgx.Tx]) StartOption
 pkg authkit, method (*Client) APIBase() string
 pkg authkit, method (*Client) AcceptAgreements(context.Context, string, []iam.AgreementRef, ...Option) error

@@ -56,6 +56,9 @@ export type IssuerUser = {
 }
 
 export type IssuerSignInOptions = {
+  // A nonce from the receiving server's proof challenge. Omit to generate one.
+  // State and PKCE remain independently random. Empty values are refused.
+  nonce?: string
   prompt?: "none" | "login"
   // 0 asks for a fresh sign-in (a step-up).
   maxAge?: number
@@ -264,6 +267,9 @@ export function createIssuerClient(options: IssuerClientOptions) {
     if (t.id_token) {
       idToken = t.id_token
       user = userOf(decode(t.id_token) ?? {})
+    } else if (claims.sub !== user?.sub) {
+      idToken = undefined
+      user = null
     }
     if (t.refresh_token) refreshToken = t.refresh_token
     const expiresAt =
@@ -311,6 +317,7 @@ export function createIssuerClient(options: IssuerClientOptions) {
     const gen = generation
     refreshing = locked(async () => {
       const stored = await load()
+      if (gen !== generation) return false
       if (!stored?.refreshToken) return false
       refreshToken = stored.refreshToken
       bound = stored.bound ?? false
@@ -346,11 +353,23 @@ export function createIssuerClient(options: IssuerClientOptions) {
     opts: IssuerSignInOptions,
     popup: boolean
   ): Promise<{ url: string; pending: Pending }> {
+    const nonce = opts.nonce === undefined ? random(16) : opts.nonce
+    if (
+      typeof nonce !== "string" ||
+      nonce.length === 0 ||
+      nonce.length > 1024 ||
+      /[\p{Cc}\s]/u.test(nonce)
+    )
+      throw new OAuthError(
+        400,
+        "invalid_request",
+        "nonce must be a nonempty value without whitespace or control characters"
+      )
     const m = await metadata()
     const pending: Pending = {
       state: `${popup ? "p" : "r"}.${random(16)}`,
       verifier: random(32),
-      nonce: random(16),
+      nonce,
       redirectUri: redirectUri(),
       returnTo: opts.returnTo,
     }
@@ -506,6 +525,7 @@ export function createIssuerClient(options: IssuerClientOptions) {
     if (!code) throw new OAuthError(400, "invalid_request", "no code")
     exchanging = true
     const gen = ++generation
+    idToken = undefined // A previous sign-in is not proof of this exchange.
     try {
       const t = await token({
         grant_type: "authorization_code",
@@ -641,6 +661,17 @@ export function createIssuerClient(options: IssuerClientOptions) {
     },
     getSnapshot: (): AuthSession => session,
     getAccessToken: accessToken,
+    // This is proof for the receiving server to verify, never an API access token.
+    getIDToken: (): string | null => {
+      if (session.status !== "authenticated" || exchanging || !idToken)
+        return null
+      const claims = decode(idToken)
+      return claims?.sub === session.userId &&
+        typeof claims.exp === "number" &&
+        claims.exp * 1000 > Date.now()
+        ? idToken
+        : null
+    },
     getUser: (): IssuerUser | null =>
       session.status === "authenticated" ? user : null,
     start,
