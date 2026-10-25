@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/auth-ui/e2e/server/harness"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/helpers/notify"
 )
 
 func main() {
@@ -110,6 +111,27 @@ func reply(w http.ResponseWriter, status int, value any) {
 // All controls seed through trusted public host methods. Outcomes under test are
 // observed through the real SDK/HTTP surface; no direct table mutations exist.
 func fixture(mux *http.ServeMux, rt, unproved *harness.Runtime) {
+	mux.HandleFunc("POST /__fixture/notification", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			UserID, ID string
+			Revision   int64
+			Withdrawn  bool
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&in); err != nil {
+			reply(w, 400, map[string]string{"error": err.Error()})
+			return
+		}
+		publisher, err := rt.Notifications("application")
+		if err == nil {
+			err = publisher.Apply(r.Context(), []notify.Mutation{{Input: notify.Input{Recipient: notify.Recipient{Audience: notify.AudienceUser, ID: in.UserID}, Origin: notify.Origin{ID: in.ID}, Kind: "export.ready", Data: json.RawMessage(`{"export_id":"browser"}`), CreatedAt: time.Unix(1700000000, 0)}, Revision: in.Revision, Withdrawn: in.Withdrawn}})
+		}
+		if err != nil {
+			reply(w, 400, map[string]string{"error": err.Error()})
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
 	mux.HandleFunc("GET /__fixture/deliveries", func(w http.ResponseWriter, r *http.Request) {
 		outbox := rt.Outbox
 		if r.URL.Query().Get("profile") == "unproved" {

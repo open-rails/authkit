@@ -165,6 +165,7 @@ export type BanState = {
 }
 
 export type Capabilities = {
+  notifications: boolean
   registration: RegistrationCapabilities
   external_login_providers: ExternalLoginProvider[]
   username: UsernameCapabilities
@@ -456,6 +457,63 @@ export type NewOAuthClient = {
   jwks_uri?: string
   scope?: string
   backchannel_logout_uri?: string
+}
+
+export type NotificationItem = {
+  id: string
+  recipient: NotificationRecipient
+  origin: NotificationOrigin
+  kind: string
+  data: unknown
+  created_at: string
+  visibility?: string
+  app_id?: string
+  status?: string
+  action_requested?: boolean
+  severity?: string
+  read_at: string | null
+  dismissed_at: string | null
+  resolved_at: string | null
+  updated_at: string
+  revision: number
+  producer_revision?: number
+  withdrawn?: boolean
+}
+
+export type NotificationMutation = {
+  recipient?: NotificationRecipient
+  origin?: NotificationOrigin
+  kind?: string
+  data?: unknown
+  created_at?: string
+  visibility?: string
+  app_id?: string
+  status?: string
+  action_requested?: boolean
+  severity?: string
+  revision?: number
+  withdrawn?: boolean
+}
+
+export type NotificationMutations = {
+  mutations?: NotificationMutation[]
+}
+
+export type NotificationOrigin = {
+  system: string
+  scope: string
+  id: string
+  subject?: string
+}
+
+export type NotificationPage = {
+  items: NotificationItem[]
+  next_cursor?: string
+}
+
+export type NotificationRecipient = {
+  audience: string
+  id: string
 }
 
 export type OAuthApproveRequest = {

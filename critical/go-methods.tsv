@@ -114,3 +114,10 @@ AK-GO-112	Client.Verify	included	AK-J13-C03	step_up_test.go:31;step_up_test.go:5
 AK-GO-113	Client.AuthenticateRequest	included	AK-J13-C01	token_test.go:91	Selected critical contract, not every possible input
 AK-GO-114	Client.NewVerifier	included	AK-J14-C01	dpop_test.go:47	Selected critical contract, not every possible input
 AK-GO-115	Client.VerifyIDToken	included	AK-J13-C05	token_test.go:96;token_test.go:238;token_test.go:243;token_test.go:250	Selected critical contract, not every possible input
+AK-GO-116	Client.Notifications	included	AK-J32-C01	notifications_test.go	Optional account notification contract
+AK-GO-117	Client.NotificationScope	included	AK-J32-C04	notifications_test.go	Optional account notification contract
+AK-GO-118	Client.ListNotifications	included	AK-J32-C01	notifications_test.go	Optional account notification contract
+AK-GO-119	Client.GetNotification	included	AK-J32-C02	notifications_test.go	Optional account notification contract
+AK-GO-120	Client.SetNotificationRead	included	AK-J32-C01	notifications_test.go	Optional account notification contract
+AK-GO-121	Client.SetNotificationDismissed	included	AK-J32-C04	notifications_test.go	Optional account notification contract
+AK-GO-122	Client.AdoptNotifications	included	AK-J32-C06	notifications_test.go	Optional account notification contract

@@ -12,6 +12,7 @@ import (
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/scim"
 	"github.com/open-rails/authkit/keys"
+	"github.com/open-rails/helpers/notify"
 )
 
 // Surface is where a route is anchored beneath the mount's base path.
@@ -33,6 +34,7 @@ const (
 type Feature string
 
 const (
+	FeatureNotifications        Feature = "notifications"
 	Always                      Feature = ""
 	FeaturePasskeys             Feature = "passkeys"     // Passkeys.RPID set
 	FeaturePasswordless         Feature = "passwordless" // passwordless login on
@@ -59,7 +61,7 @@ const (
 )
 
 // Features lists every Feature a route can be mounted under.
-var Features = []Feature{FeaturePasskeys, FeaturePasswordless, FeatureRegistration, FeatureTwoFactor, FeatureSolana, FeatureOIDC, FeatureDeviceKeys, FeatureGroups, FeatureAPIKeys, FeaturePersonalAccessTokens, FeatureCustomRoles, FeatureOAuthClients, FeatureRemoteApplications, FeatureInvitations, FeatureNewDevices, FeatureAuthorizationServer, FeatureTokenEndpoint}
+var Features = []Feature{FeatureNotifications, FeaturePasskeys, FeaturePasswordless, FeatureRegistration, FeatureTwoFactor, FeatureSolana, FeatureOIDC, FeatureDeviceKeys, FeatureGroups, FeatureAPIKeys, FeaturePersonalAccessTokens, FeatureCustomRoles, FeatureOAuthClients, FeatureRemoteApplications, FeatureInvitations, FeatureNewDevices, FeatureAuthorizationServer, FeatureTokenEndpoint}
 
 // Reply is one success outcome of a route: its status and body. Body is a
 // zero value of the body's type, nil for none.
@@ -336,6 +338,24 @@ func Catalog() []RouteSpec {
 		// default), expanded.
 		{Method: GET, Path: "/me/permissions", Group: account, Auth: required, Bucket: RLMePermissionsRead,
 			Query: PermissionsQuery{}, Responses: replyOK(PermissionSet{}), serve: handle((*Service).handleMePermissionsGET)},
+
+		// Optional account inbox: current native account only. No arbitrary
+		// recipient or application selector is accepted on this surface.
+		{Method: GET, Path: "/me/notifications", Group: account, Auth: session, Bucket: RLNotificationsRead, MountedWhen: FeatureNotifications,
+			Query: NotificationQuery{}, Responses: replyOK(notify.Page{}), serve: handle((*Service).handleNotificationsList)},
+		{Method: GET, Path: "/me/notifications/{notification_id}", Group: account, Auth: session, Bucket: RLNotificationsRead, MountedWhen: FeatureNotifications,
+			Responses: replyOK(notify.Item{}), serve: handle((*Service).handleNotificationGet)},
+		{Method: PUT, Path: "/me/notifications/{notification_id}/read", Group: account, Auth: session, Bucket: RLNotificationsWrite, MountedWhen: FeatureNotifications,
+			Responses: replyOK(notify.Item{}), serve: handle((*Service).handleNotificationRead)},
+		{Method: DELETE, Path: "/me/notifications/{notification_id}/read", Group: account, Auth: session, Bucket: RLNotificationsWrite, MountedWhen: FeatureNotifications,
+			Responses: replyOK(notify.Item{}), serve: handle((*Service).handleNotificationRead)},
+		{Method: PUT, Path: "/me/notifications/{notification_id}/dismiss", Group: account, Auth: session, Bucket: RLNotificationsWrite, MountedWhen: FeatureNotifications,
+			Responses: replyOK(notify.Item{}), serve: handle((*Service).handleNotificationDismiss)},
+		{Method: DELETE, Path: "/me/notifications/{notification_id}/dismiss", Group: account, Auth: session, Bucket: RLNotificationsWrite, MountedWhen: FeatureNotifications,
+			Responses: replyOK(notify.Item{}), serve: handle((*Service).handleNotificationDismiss)},
+		// Producer-specific authority is checked live by the operation.
+		{Method: POST, Path: "/notifications/{producer}", Group: admin, Auth: permission, Bucket: RLNotificationsPublish, MountedWhen: FeatureNotifications,
+			Request: NotificationMutations{}, Responses: replyNoContent, serve: handle((*Service).handleNotificationsApply)},
 		// Other people, as anyone may see them, public metadata included:
 		// public profile pages need no sign-in.
 		{Method: GET, Path: "/users", Group: account, Auth: public, Bucket: RLUsersRead,

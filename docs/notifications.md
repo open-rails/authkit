@@ -1,6 +1,6 @@
 # Account notification inbox (AuthKit #470)
 
-This optional add-on is under implementation. It moves the authenticated account
+This optional add-on moves the authenticated account
 inbox from ContentKit to AuthKit while retaining Helpers' shared storage model.
 The general retained event log remains an independent host-integration interface.
 
@@ -54,10 +54,61 @@ Soft deletion continues AuthKit's existing recovery policy.
 ## Migration and qualification
 
 Enabling the add-on installs/validates the Helpers notification schema using the
-host's PostgreSQL pool. Existing `account_notifications` data must be explicitly
-adopted without changing notification IDs, read/archive state, producer identity,
-or recipient/app erasure fences. Migration is operator-invoked with writers
-stopped; it never silently merges account namespaces during startup.
+host's PostgreSQL pool. Existing `account_notifications` data is adopted in place using an explicit
+`Scopes` mapping from canonical account tenant UUID to the existing logical scope
+(for example `contentkit:accounts`). Notification IDs, read/archive state and
+recipient/app erasure fences remain in the same rows. Unmapped tenants use
+`authkit:<tenant UUID>`. The addon persists scope ownership (canonical tenant plus account schema) in
+`account_inbox_scopes`, with a unique tenant home within that notification
+schema. Two separately configured replicas cannot map different account
+directories to the same scope. Startup validates the persisted claim; explicit
+migration claims existing legacy scopes, and tenant creation binds new canonical
+scopes transactionally. Changing an already-bound tenant home is refused. The add-on never
+silently merges account namespaces during startup.
+
+`Client.AdoptNotifications` performs a separate, operator-invoked exact-identity
+migration for producers changing legacy event IDs to stable issue IDs. Each
+`notify.Adoption` contains exact `Previous` origins and one `Current` mutation.
+Run it with old writers stopped. An existing canonical receipt wins; otherwise
+the newest matching previous receipt (created_at, ID descending) retains its ID,
+read/archive state and becomes canonical. Redundant prior receipts remain hidden.
+Conflicting visibility or producer scope refuses the batch. Replay cannot lower
+a canonical producer revision. An active current issue with no previous/current
+receipt is skipped; a withdrawn issue can create a hidden ordering tombstone.
+This never replays unconsumed history into a new visible inbox.
+
+## Host wiring
+
+```go
+cfg.Notifications = &authkit.NotificationsConfig{
+    Schema: "account_notifications",
+    AppID: appID,
+    Scopes: map[string]string{tenantID.String(): "contentkit:accounts"},
+    Producers: []authkit.NotificationProducer{{
+        Name: "contentkit", TenantID: tenantID,
+        Origin: notify.OriginScope{System: "contentkit", Scope: catalogKey},
+        Visibility: notify.VisibilityApp, AppID: appID,
+    }},
+}
+// With SkipMigrations, call MigrateNotifications during explicit migration.
+publisher, err := accounts.Notifications("contentkit")
+// Pass publisher as the producer module's notification dependency.
+```
+
+A remote-enabled producer additionally declares `PermissionGroupID` and a
+concrete `Permission` from the host's existing role model. The HTTP operation
+requires a live direct grant in that group and verifies it belongs to the bound
+tenant. An in-process-only producer omits both. Source origin and visibility are
+fixed by this binding; a request cannot broaden them.
+
+The browser client exposes `client.notifications.list`, `get`, `setRead`,
+`setDismissed`, `subscribe`, and `refresh`. The React `useNotifications` hook
+loads an account-scoped page and hides prior-account state on a session switch.
+The HTTP endpoints are `GET /me/notifications`, `GET /me/notifications/{id}`,
+`PUT/DELETE /me/notifications/{id}/read` and `PUT/DELETE
+/me/notifications/{id}/dismiss`. Producer batches use `POST
+/notifications/{producer}`. All paths are below the configured AuthKit API base.
+
 
 Required qualification covers local transaction rollback, authenticated HTTP
 isolation, producer/source spoofing denial, stale and out-of-order mutations,
@@ -65,3 +116,8 @@ withdrawal before publication, account erasure, preserved migrated inbox state,
 and durable remote delivery/retry. Frontend coverage must exercise listing and
 receipt state independently from domain resolution. Optional-disabled
 installations retain their existing AuthKit interface and worker inventory.
+
+AuthKit and application code can obtain their own declared native publisher with
+`accounts.Notifications("authkit")` or `accounts.Notifications("application")`.
+The channel does not invent new security notices or mirror every email; concrete
+notification policy remains explicit in the producer.

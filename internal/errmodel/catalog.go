@@ -101,6 +101,7 @@ var (
 	CodeMissingTokenTyp                 = def("missing_token_typ", 401, "The token carries no type.")
 	CodeNameAdmissionRefused            = def("name_admission_refused", 403, "That name was refused.")
 	CodeNoSession                       = def("no_session", 401, "No session is signed in.")
+	CodeNotificationConflict            = def("notification_conflict", 409, "The notification revision conflicts with its stored state.")
 	CodeNotFound                        = def("not_found", 404, "The requested resource was not found.")
 	CodeNotImplemented                  = def("not_implemented", 501, "Not implemented.")
 	CodeOAuthClientLimitReached         = def("oauth_client_limit_reached", 409, "The group has registered as many OAuth clients as it may.")

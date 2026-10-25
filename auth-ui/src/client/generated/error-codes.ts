@@ -101,6 +101,7 @@ export type AuthErrorCode =
   | "no_session"
   | "not_found"
   | "not_implemented"
+  | "notification_conflict"
   | "oauth_client_limit_reached"
   | "oauth_client_not_found"
   | "oauth_consent_not_found"
@@ -274,6 +275,7 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   no_session: 401,
   not_found: 404,
   not_implemented: 501,
+  notification_conflict: 409,
   oauth_client_limit_reached: 409,
   oauth_client_not_found: 404,
   oauth_consent_not_found: 404,
@@ -448,6 +450,7 @@ export const AUTH_ERROR_MESSAGES = {
   no_session: "No session is signed in.",
   not_found: "The requested resource was not found.",
   not_implemented: "Not implemented.",
+  notification_conflict: "The notification revision conflicts with its stored state.",
   oauth_client_limit_reached: "The group has registered as many OAuth clients as it may.",
   oauth_client_not_found: "The OAuth client was not found.",
   oauth_consent_not_found: "You have not connected that app.",

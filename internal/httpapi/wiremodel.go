@@ -42,7 +42,8 @@ var (
 	textMarshalerType = reflect.TypeFor[encoding.TextMarshaler]()
 )
 
-// KindOf is t's JSON form. A struct defined outside AuthKit is opaque.
+// KindOf is t's JSON form. External structs are opaque except the shared
+// Helpers notification model, which is an explicit account-inbox contract.
 func KindOf(t reflect.Type) WireKind {
 	switch {
 	case t == timeType:
@@ -76,7 +77,7 @@ func KindOf(t reflect.Type) WireKind {
 	case reflect.Interface:
 		return WireAny
 	case reflect.Struct:
-		if !strings.HasPrefix(t.PkgPath(), module) {
+		if !strings.HasPrefix(t.PkgPath(), module) && t.PkgPath() != "github.com/open-rails/helpers/notify" {
 			return WireOpaque
 		}
 		return WireObject

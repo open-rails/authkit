@@ -21,6 +21,8 @@ import {
 import { safeReturnTo } from "./returnTo.ts"
 import { asksForStepUp } from "./stepUp.ts"
 import type {
+  NotificationItem,
+  NotificationPage,
   AgreementRef,
   Availability,
   BackupCodes,
@@ -196,6 +198,14 @@ const TERMINAL_REFRESH = new Set<AuthErrorCode>([
   "user_banned",
 ])
 const MAX_TIMER = 2_147_483_647
+
+export type NotificationListOptions = {
+  signal?: AbortSignal
+  limit?: number
+  cursor?: string
+  unread?: boolean
+  dismissed?: boolean
+}
 
 type Listener = () => void
 type Rec = Record<string, unknown>
@@ -1149,9 +1159,54 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     return result.fresh_auth
   }
 
+  // Account inbox mutations notify every mounted view. Session guards on
+  // request() ensure responses from a previous account cannot enter a new view.
+  const notificationListeners = new Set<Listener>()
+  const refreshNotifications = () => {
+    for (const listener of notificationListeners) listener()
+  }
+  const notificationMutation = async (
+    id: string,
+    operation: "read" | "dismiss",
+    value: boolean,
+    signal?: AbortSignal
+  ): Promise<NotificationItem> => {
+    const item = await request<NotificationItem>(
+      value ? "PUT" : "DELETE",
+      `/me/notifications/${segment(id)}/${operation}`,
+      { signal }
+    )
+    refreshNotifications()
+    return item
+  }
+
   // --- AuthKit routes ----------------------------------------------------------
 
   const api = {
+    notifications: {
+      list: (options: NotificationListOptions = {}, signal?: AbortSignal) => {
+        const { signal: requestedSignal, ...query } = options
+        return request<NotificationPage>("GET", "/me/notifications", {
+          query,
+          signal: signal ?? requestedSignal,
+        })
+      },
+      get: (id: string, signal?: AbortSignal) =>
+        request<NotificationItem>("GET", `/me/notifications/${segment(id)}`, {
+          signal,
+        }),
+      setRead: (id: string, read = true, signal?: AbortSignal) =>
+        notificationMutation(id, "read", read, signal),
+      setDismissed: (id: string, dismissed = true, signal?: AbortSignal) =>
+        notificationMutation(id, "dismiss", dismissed, signal),
+      subscribe(listener: Listener) {
+        notificationListeners.add(listener)
+        return () => {
+          notificationListeners.delete(listener)
+        }
+      },
+      refresh: refreshNotifications,
+    },
     getCapabilities: (signal?: AbortSignal) =>
       request<Capabilities>("GET", "/capabilities", { signal, bearer: null }),
 

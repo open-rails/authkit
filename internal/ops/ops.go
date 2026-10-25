@@ -10,12 +10,17 @@ import (
 	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
+	"github.com/open-rails/helpers/notify"
 )
 
 // Operations is every operation of the Client that a remote deployment could
 // serve: everything but the embedding-only methods (New, Start, Close,
 // Handler, Routes, Mount, verifiers, River).
 type Operations interface {
+	ListNotifications(context.Context, string, notify.ListOptions) (notify.Page, error)
+	GetNotification(context.Context, string, string) (notify.Item, error)
+	SetNotificationRead(context.Context, string, string, bool) (notify.Item, error)
+	SetNotificationDismissed(context.Context, string, string, bool) (notify.Item, error)
 	ListEvents(ctx context.Context, q iam.EventQuery) (iam.EventPage, error)
 	// Accounts.
 	User(ctx context.Context, ref iam.UserRef, opts ...Option) (iam.User, error)

@@ -3293,6 +3293,354 @@
         "x-authkit-rate-limit": "me_permissions_read"
       }
     },
+    "/api/v1/me/notifications": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "unread",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "dismissed",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "notifications_read",
+        "x-authkit-mounted-when": "notifications"
+      }
+    },
+    "/api/v1/me/notifications/{notification_id}": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "parameters": [
+          {
+            "name": "notification_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationItem"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "notifications_read",
+        "x-authkit-mounted-when": "notifications"
+      }
+    },
+    "/api/v1/me/notifications/{notification_id}/read": {
+      "put": {
+        "tags": [
+          "account"
+        ],
+        "parameters": [
+          {
+            "name": "notification_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationItem"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "notifications_write",
+        "x-authkit-mounted-when": "notifications"
+      },
+      "delete": {
+        "tags": [
+          "account"
+        ],
+        "parameters": [
+          {
+            "name": "notification_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationItem"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "notifications_write",
+        "x-authkit-mounted-when": "notifications"
+      }
+    },
+    "/api/v1/me/notifications/{notification_id}/dismiss": {
+      "put": {
+        "tags": [
+          "account"
+        ],
+        "parameters": [
+          {
+            "name": "notification_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationItem"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "notifications_write",
+        "x-authkit-mounted-when": "notifications"
+      },
+      "delete": {
+        "tags": [
+          "account"
+        ],
+        "parameters": [
+          {
+            "name": "notification_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationItem"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "session",
+        "x-authkit-rate-limit": "notifications_write",
+        "x-authkit-mounted-when": "notifications"
+      }
+    },
+    "/api/v1/notifications/{producer}": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "name": "producer",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationMutations"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "x-authkit-auth": "permission",
+        "x-authkit-rate-limit": "notifications_publish",
+        "x-authkit-mounted-when": "notifications"
+      }
+    },
     "/api/v1/users": {
       "get": {
         "tags": [
@@ -8279,6 +8627,9 @@
       "Capabilities": {
         "type": "object",
         "properties": {
+          "notifications": {
+            "type": "boolean"
+          },
           "registration": {
             "$ref": "#/components/schemas/RegistrationCapabilities"
           },
@@ -8338,6 +8689,7 @@
           }
         },
         "required": [
+          "notifications",
           "registration",
           "external_login_providers",
           "username",
@@ -9373,6 +9725,213 @@
             "type": "string"
           }
         }
+      },
+      "NotificationItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "recipient": {
+            "$ref": "#/components/schemas/NotificationRecipient"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/NotificationOrigin"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "data": {},
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "visibility": {
+            "type": "string"
+          },
+          "app_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "action_requested": {
+            "type": "boolean"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "read_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dismissed_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resolved_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC 3339, UTC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "producer_revision": {
+            "type": "integer"
+          },
+          "withdrawn": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "recipient",
+          "origin",
+          "kind",
+          "data",
+          "created_at",
+          "read_at",
+          "dismissed_at",
+          "resolved_at",
+          "updated_at",
+          "revision"
+        ]
+      },
+      "NotificationMutation": {
+        "type": "object",
+        "properties": {
+          "recipient": {
+            "$ref": "#/components/schemas/NotificationRecipient"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/NotificationOrigin"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "data": {},
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339, UTC"
+          },
+          "visibility": {
+            "type": "string"
+          },
+          "app_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "action_requested": {
+            "type": "boolean"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "withdrawn": {
+            "type": "boolean"
+          }
+        }
+      },
+      "NotificationMutations": {
+        "type": "object",
+        "properties": {
+          "mutations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotificationMutation"
+            }
+          }
+        }
+      },
+      "NotificationOrigin": {
+        "type": "object",
+        "properties": {
+          "system": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "system",
+          "scope",
+          "id"
+        ]
+      },
+      "NotificationPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotificationItem"
+            }
+          },
+          "next_cursor": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "NotificationRecipient": {
+        "type": "object",
+        "properties": {
+          "audience": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "audience",
+          "id"
+        ]
       },
       "OAuthApproveRequest": {
         "type": "object",
@@ -13987,6 +14546,10 @@
     "not_implemented": {
       "status": 501,
       "message": "Not implemented."
+    },
+    "notification_conflict": {
+      "status": 409,
+      "message": "The notification revision conflicts with its stored state."
     },
     "oauth_client_limit_reached": {
       "status": 409,

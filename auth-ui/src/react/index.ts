@@ -72,3 +72,4 @@ export {
   type LinkedProvidersOptions,
   type VerifyLinkState,
 } from "./providers.ts"
+export { useNotifications } from "./notifications.ts"
