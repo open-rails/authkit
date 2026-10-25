@@ -28,7 +28,7 @@ test("AK-UI-16: AK-J29-C07: issuer proof binds a server nonce and retains only t
   for (const nonce of ["", " ", "\u0000"]) {
     const error = await page.evaluate(async (nonce) => {
       try {
-        await window.ak.issuer.signIn({ nonce } as never)
+        await window.ak.issuer.signIn({ nonce })
         return null
       } catch (error) {
         return (error as { error?: string }).error
@@ -39,7 +39,8 @@ test("AK-UI-16: AK-J29-C07: issuer proof binds a server nonce and retains only t
   async function signIn(
     who: typeof alice,
     nonce?: string,
-    waitForExchange = false
+    waitForExchange = false,
+    observedNonce = nonce
   ) {
     const authorization = context.waitForEvent(
       "request",
@@ -76,7 +77,7 @@ test("AK-UI-16: AK-J29-C07: issuer proof binds a server nonce and retains only t
       requested.searchParams.get("nonce")
     )
     if (nonce !== undefined)
-      expect(requested.searchParams.get("nonce")).toBe(nonce)
+      expect(requested.searchParams.get("nonce")).toBe(observedNonce)
     await popup.waitForURL(
       (url) =>
         url.pathname === "/authorize" && url.searchParams.has("authorization")
@@ -106,7 +107,7 @@ test("AK-UI-16: AK-J29-C07: issuer proof binds a server nonce and retains only t
       const answer = await window.ak.client.approveOAuthAuthorization(id, {
         consent: true,
       })
-      location.assign(answer.redirect_uri)
+      location.assign(answer.redirect_to)
     })
     if (waitForExchange) {
       await pending
@@ -144,7 +145,14 @@ test("AK-UI-16: AK-J29-C07: issuer proof binds a server nonce and retains only t
     },
     { times: 1 }
   )
-  expect(await signIn(bob, "expected-proof-nonce")).toEqual({
+  expect(
+    await signIn(
+      bob,
+      "expected-proof-nonce",
+      false,
+      "different-real-issued-nonce"
+    )
+  ).toEqual({
     ok: false,
     error: "invalid_grant",
   })
