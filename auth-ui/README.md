@@ -161,6 +161,12 @@ const res = await issuer.authFetch(
   memory. The rotating refresh token is kept in IndexedDB (with the key,
   when bound), so a reload restores the session without a redirect, and
   tabs rotate it one at a time (Web Locks).
+- For a server-issued proof challenge, `signIn({ nonce: challenge.nonce })`
+  binds the ID token to that nonce while state and PKCE remain independently
+  random. `getIDToken()` returns the current unexpired ID token or `null`, and
+  clears across new exchanges, identity changes and logout. The receiving server
+  must verify the token and its expected nonce/client; an ID token is not an API
+  access token. Use `persist: false` for a one-off proof flow.
 - `stepUp()` re-authenticates (`max_age=0`); `signOut()` revokes the refresh
   token and ends the issuer session (`end_session_endpoint`); with
   `{ redirect: false }` it signs out here only.

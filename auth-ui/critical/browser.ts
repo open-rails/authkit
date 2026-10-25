@@ -5,13 +5,15 @@ import {
   type APIRequestContext,
   type Page,
 } from "@playwright/test"
-import type { AuthClient } from "@openrails/auth-ui/client"
+import type { AuthClient, IssuerClient } from "@openrails/auth-ui/client"
 import type { AdminClient } from "@openrails/auth-ui/admin"
 
 declare global {
   interface Window {
     __criticalMethod?: (method: string) => Promise<void>
     ak: {
+      issuer: IssuerClient
+      issuerResult?: { ok: boolean; error?: string }
       client: AuthClient
       admin: AdminClient
       refresh?: Promise<boolean>

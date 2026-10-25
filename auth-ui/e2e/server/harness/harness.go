@@ -68,6 +68,11 @@ func New(ctx context.Context, origin, schema string, pool *pgxpool.Pool, profile
 		TwoFactor:            authkit.TwoFactorConfig{Mode: iam.TwoFactorOptional, TOTPSecretKey: totpKey},
 		PersonalAccessTokens: authkit.PersonalAccessTokensConfig{Enabled: true},
 	}
+	if profile == "main" {
+		cfg.AuthorizationServer = authkit.AuthorizationServerConfig{Clients: []authkit.OAuthClientConfig{{
+			ID: "critical-issuer", Name: "Critical issuer proof", RedirectURIs: []string{origin + "/issuer-return"},
+		}}}
+	}
 	if profile == "unproved" {
 		cfg.Registration.Verification = iam.RegistrationVerificationOptional
 	}

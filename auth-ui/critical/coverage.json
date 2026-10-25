@@ -14,7 +14,8 @@
     "AK-UI-12",
     "AK-UI-13",
     "AK-UI-14",
-    "AK-UI-15"
+    "AK-UI-15",
+    "AK-UI-16"
   ],
   "requiredScenarioIDs": [
     "AK-J29-C01",
@@ -22,7 +23,8 @@
     "AK-J29-C03",
     "AK-J29-C04",
     "AK-J29-C05",
-    "AK-J29-C06"
+    "AK-J29-C06",
+    "AK-J29-C07"
   ],
   "requiredClientMethods": [
     "AdminClient.banUser",
@@ -101,7 +103,10 @@
     "AuthClient.stepUpWithTwoFactor",
     "AuthClient.stop",
     "AuthClient.subscribe",
-    "AuthClient.verifyTwoFactor"
+    "AuthClient.verifyTwoFactor",
+    "IssuerClient.getIDToken",
+    "IssuerClient.signIn",
+    "IssuerClient.signOut"
   ],
   "meaning": "Runtime invocation is necessary, not sufficient. Each method is owned by an independently asserted real-service journey; incidental requests do not replace semantic review. Only passing tests contribute."
 }
