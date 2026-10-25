@@ -2020,6 +2020,7 @@ pkg authkit/verify, type Claims struct, DeviceKeyID string
 pkg authkit/verify, type Claims struct, Email string
 pkg authkit/verify, type Claims struct, EmailVerified bool
 pkg authkit/verify, type Claims struct, Entitlements []string
+pkg authkit/verify, type Claims struct, ExpiresAt time.Time
 pkg authkit/verify, type Claims struct, Group *PermissionScope
 pkg authkit/verify, type Claims struct, Invoker string
 pkg authkit/verify, type Claims struct, Issuer string
@@ -2041,6 +2042,7 @@ pkg authkit/verify, type Claims struct, TwoFAEnrollment bool
 pkg authkit/verify, type Claims struct, UpdatedAt time.Time
 pkg authkit/verify, type Claims struct, UserID string
 pkg authkit/verify, type Claims struct, Username string
+pkg authkit/verify, type Claims struct, ValidUntil time.Time
 pkg authkit/verify, type DirectPermissionChecker interface
 pkg authkit/verify, type DirectPermissionChecker interface, CanDirect(context.Context, auth.Identity, iam.GroupRef, iam.Perm) (bool, error)
 pkg authkit/verify, type IssuerKeyStatus = jwks.Status

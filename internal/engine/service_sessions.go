@@ -422,6 +422,9 @@ func (s *Engine) SessionFreshness(ctx context.Context, userID, sessionID string,
 // token) is forbidden. Permission checks run the same query through the
 // identity's session binding.
 func (s *Engine) CheckSession(ctx context.Context, cl verify.Claims) error {
+	if !cl.ValidUntil.IsZero() && time.Now().After(cl.ValidUntil) {
+		return iam.ErrTokenExpired
+	}
 	userID, ok := s.signedInUser(cl)
 	if !ok {
 		return errmodel.E(errmodel.CodeForbidden)

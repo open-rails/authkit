@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"time"
 
 	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
@@ -48,6 +49,8 @@ func AuthenticateSession(ctx context.Context, a Authority, r *http.Request) (aut
 	}
 	switch err := a.CheckSession(ctx, cl); {
 	case err == nil, errmodel.CodeOf(err) == errmodel.CodeForbidden:
+	case errors.Is(err, iam.ErrTokenExpired):
+		return nil, errors.Join(auth.ErrUnauthenticated, auth.ErrExpired, err)
 	case errors.Is(err, iam.ErrSessionRevoked):
 		return nil, errors.Join(auth.ErrUnauthenticated, auth.ErrRevoked, err)
 	default:
@@ -64,7 +67,7 @@ func authenticate(ctx context.Context, a Authenticator, r *http.Request) (Claims
 	}
 	for _, c := range []context.Context{ctx, r.Context()} {
 		if cl, ok := verifiedBy(c, r, a); ok {
-			return cl, nil
+			return cl, credentialExpiry(cl)
 		}
 	}
 	cl, err := a.VerifyRequest(r.WithContext(ctx))
@@ -77,6 +80,9 @@ func authenticate(ctx context.Context, a Authenticator, r *http.Request) (Claims
 // verifiedOf is verified claims' authkit/auth Verified request (see
 // AuthenticateRequest for Can).
 func verifiedOf(a Authenticator, cl Claims) (auth.Verified, error) {
+	if err := credentialExpiry(cl); err != nil {
+		return nil, err
+	}
 	i, ok := cl.Identity()
 	if !ok {
 		return nil, auth.ErrUnauthenticated
@@ -148,6 +154,9 @@ func (p checkingVerified) CanDirect(ctx context.Context, scope auth.Scope, permi
 }
 
 func (p checkingVerified) can(ctx context.Context, scope auth.Scope, permission string, direct bool) (bool, error) {
+	if err := credentialExpiry(p.claims); err != nil {
+		return false, err
+	}
 	if scope.ID == "" || permission == "" || scope.Authority == "" || scope.Authority != authorityOf(p.claims) {
 		return false, nil
 	}
@@ -236,6 +245,9 @@ var _ auth.RecentSignInChecker = sessionVerified{}
 // credential with no sign-in of its own (an API key) is auth.ErrForbidden,
 // and a revoked session auth.ErrRevoked.
 func (p sessionVerified) CheckRecentSignIn(ctx context.Context) error {
+	if err := credentialExpiry(p.claims); err != nil {
+		return err
+	}
 	err := p.sessions.CheckRecentSignIn(ctx, p.claims)
 	switch code := errmodel.CodeOf(err); {
 	case err == nil:
@@ -244,11 +256,22 @@ func (p sessionVerified) CheckRecentSignIn(ctx context.Context) error {
 		return stepUpChallenge(err)
 	case errors.Is(err, iam.ErrSessionRevoked):
 		return errors.Join(auth.ErrUnauthenticated, auth.ErrRevoked, err)
+	case errors.Is(err, iam.ErrTokenExpired):
+		return errors.Join(auth.ErrUnauthenticated, auth.ErrExpired, err)
 	case code == errmodel.CodeForbidden:
 		return errors.Join(auth.ErrForbidden, err)
 	default:
 		return errors.Join(auth.ErrUnavailable, err)
 	}
+}
+
+// Retained claims use the same wall clock and effective deadline as the JWT
+// verifier. A live recheck does not verify or consume the sender proof again.
+func credentialExpiry(cl Claims) error {
+	if !cl.ValidUntil.IsZero() && time.Now().After(cl.ValidUntil) {
+		return errors.Join(auth.ErrUnauthenticated, auth.ErrExpired, iam.ErrTokenExpired)
+	}
+	return nil
 }
 
 // stepUpChallenge is err, when it is step_up_required, as a authkit/auth

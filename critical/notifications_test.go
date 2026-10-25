@@ -50,7 +50,7 @@ func notificationChange(user, id string, revision int64) notify.Mutation {
 }
 
 func TestCriticalAccountNotifications(t *testing.T) {
-	t.Run("AK-J32-C01_transactional_publication_and_revisioned_withdrawal", func(t *testing.T) {
+	t.Run("AK-J34-C01_transactional_publication_and_revisioned_withdrawal", func(t *testing.T) {
 		f, sink, _ := notificationFixture(t)
 		u := f.user(t)
 		m := notificationChange(u.ID, "export:one", 1)
@@ -116,7 +116,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 			t.Fatal("withdraw-before-publish lost its tombstone")
 		}
 	})
-	t.Run("AK-J32-C02_HTTP_receipts_are_private_and_producers_are_bound", func(t *testing.T) {
+	t.Run("AK-J34-C02_HTTP_receipts_are_private_and_producers_are_bound", func(t *testing.T) {
 		f, sink, role := notificationFixture(t)
 		alice, bob := f.user(t), f.user(t)
 		m := notificationChange(alice.ID, "private:one", 1)
@@ -175,7 +175,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 			t.Fatalf("producer escaped selected tenant: %v", err)
 		}
 	})
-	t.Run("AK-J32-C03_remote_delivery_survives_rollback_restart_and_lost_response", func(t *testing.T) {
+	t.Run("AK-J34-C03_remote_delivery_survives_rollback_restart_and_lost_response", func(t *testing.T) {
 		f, _, role := notificationFixture(t)
 		u := f.user(t)
 		key, err := f.auth.CreateAPIKey(t.Context(), iam.SystemIdentity(), iam.GroupByID(f.tenant.String()), iam.NewAPIKey{Name: "notification delivery", Role: role})
@@ -244,7 +244,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		}
 	})
 
-	t.Run("AK-J32-C04_existing_scope_adoption_preserves_receipts_and_erasure", func(t *testing.T) {
+	t.Run("AK-J34-C04_existing_scope_adoption_preserves_receipts_and_erasure", func(t *testing.T) {
 		f := newFixture(t)
 		u := f.user(t)
 		m := notificationChange(u.ID, "migration:one", 1)
@@ -288,18 +288,27 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		}
 	})
 
-	t.Run("AK-J32-C06_exact_legacy_adoption_preserves_identity_and_never_replays_history", func(t *testing.T) {
-		f, sink, _ := notificationFixture(t)
+	t.Run("AK-J34-C06_exact_legacy_adoption_preserves_identity_and_never_replays_history", func(t *testing.T) {
+		f, sink, _ := notificationFixture(t, authtest.WithConfig(func(c *authkit.Config) {
+			c.Notifications.Producers[0].Origin = notify.OriginScope{System: "openrails", Scope: "merchant"}
+			c.Notifications.Producers[0].Visibility = notify.VisibilityTenant
+			c.Notifications.Producers[0].AppID = ""
+		}))
 		u := f.user(t)
 		scope, err := f.auth.NotificationScope()
 		noError(t, err)
 		store, err := notifypg.New(f.pool, notifypg.Config{Schema: f.schema, Scope: scope})
 		noError(t, err)
 		current := notificationChange(u.ID, "issue:payment-method", 1)
+		current.Origin.System, current.Origin.Scope = "openrails", "merchant"
+		current.Visibility, current.AppID = notify.VisibilityTenant, ""
+		current.Kind = "payment_method_failed"
 		older := current.Input
+		older.Visibility = ""
 		older.Origin.ID = "ntf_older"
 		older.CreatedAt = current.CreatedAt.Add(-time.Hour)
 		newest := current.Input
+		newest.Visibility = ""
 		newest.Origin.ID = "ntf_newest"
 		newest.CreatedAt = current.CreatedAt.Add(-time.Minute)
 		oldItem, err := store.Publish(t.Context(), older)
@@ -322,7 +331,8 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		if !errors.Is(err, notify.ErrNotFound) {
 			t.Fatal("redundant legacy receipt remained visible")
 		}
-		absent := notificationChange(u.ID, "unconsumed:history", 1)
+		absent := current
+		absent.Origin.ID = "unconsumed:history"
 		noError(t, f.auth.AdoptNotifications(t.Context(), "application", []notify.Adoption{{Current: absent}}))
 		page, err := f.auth.ListNotifications(t.Context(), u.ID, notify.ListOptions{})
 		noError(t, err)
@@ -338,8 +348,26 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		if !errors.Is(err, notify.ErrNotFound) {
 			t.Fatal("migration replay lowered a canonical producer revision")
 		}
+		foreign := current.Input
+		foreign.Origin.ID = "ntf_foreign_app"
+		foreign.Visibility = notify.VisibilityApp
+		foreign.AppID = "another-app"
+		foreignItem, err := store.Publish(t.Context(), foreign)
+		noError(t, err)
+		attempted := current
+		attempted.Origin.ID = "issue:foreign"
+		err = f.auth.AdoptNotifications(t.Context(), "application", []notify.Adoption{{Previous: []notify.Origin{foreign.Origin}, Current: attempted}})
+		if !errors.Is(err, notify.ErrConflict) {
+			t.Fatalf("adoption relabeled an explicit foreign app: %v", err)
+		}
+		retained, err := store.Get(t.Context(), foreign.Recipient, foreignItem.ID)
+		noError(t, err)
+		if retained.Origin.ID != foreign.Origin.ID || retained.Visibility != notify.VisibilityApp || retained.AppID != foreign.AppID {
+			t.Fatal("refused adoption changed a foreign receipt")
+		}
+
 	})
-	t.Run("AK-J32-C07_account_purge_fences_delayed_delivery", func(t *testing.T) {
+	t.Run("AK-J34-C07_account_purge_fences_delayed_delivery", func(t *testing.T) {
 		f, sink, _ := notificationFixture(t)
 		f.startFleet(t)
 		u := f.user(t)
@@ -362,7 +390,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 			t.Fatalf("account purge failed to fence a legacy producer: %v", err)
 		}
 	})
-	t.Run("AK-J32-C08_withdrawal_during_recoverable_deletion_survives_restore", func(t *testing.T) {
+	t.Run("AK-J34-C08_withdrawal_during_recoverable_deletion_survives_restore", func(t *testing.T) {
 		f, sink, _ := notificationFixture(t)
 		u := f.user(t)
 		m := notificationChange(u.ID, "account:restore", 1)
@@ -383,7 +411,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		}
 	})
 
-	t.Run("AK-J32-C09_source_transaction_keeps_its_search_path_and_uncommitted_account", func(t *testing.T) {
+	t.Run("AK-J34-C09_source_transaction_keeps_its_search_path_and_uncommitted_account", func(t *testing.T) {
 		f, sink, _ := notificationFixture(t)
 		cfg := f.pool.Config()
 		cfg.MaxConns = 1
@@ -414,7 +442,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		}
 	})
 
-	t.Run("AK-J32-C10_remote_queue_rejects_foreign_database_transaction", func(t *testing.T) {
+	t.Run("AK-J34-C10_remote_queue_rejects_foreign_database_transaction", func(t *testing.T) {
 		f, _, _ := notificationFixture(t)
 		u := f.user(t)
 		destination := map[string]authkit.RemoteNotificationConfig{"accounts": {BaseURL: f.server.URL + f.auth.APIBase(), Producer: "application", Token: func(context.Context) (string, error) { return "not-needed-for-queue", nil }}}
@@ -466,7 +494,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		noError(t, localSink.ApplyTx(t.Context(), tx, []notify.Mutation{notificationChange(u.ID, "local:queue", 1)}))
 		noError(t, tx.Rollback(t.Context()))
 	})
-	t.Run("AK-J32-C11_maximum_HTML_batch_delivers_and_oversize_is_not_queued", func(t *testing.T) {
+	t.Run("AK-J34-C11_maximum_HTML_batch_delivers_and_oversize_is_not_queued", func(t *testing.T) {
 		f, _, role := notificationFixture(t)
 		u := f.user(t)
 		key, err := f.auth.CreateAPIKey(t.Context(), iam.SystemIdentity(), iam.GroupByID(f.tenant.String()), iam.NewAPIKey{Name: "large batch sender", Role: role})
@@ -500,7 +528,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		}
 		noError(t, tx.Commit(t.Context()))
 	})
-	t.Run("AK-J32-C12_app_erasure_does_not_suppress_tenant_billing_notices", func(t *testing.T) {
+	t.Run("AK-J34-C12_app_erasure_does_not_suppress_tenant_billing_notices", func(t *testing.T) {
 		f, app, _ := notificationFixture(t, authtest.WithConfig(func(c *authkit.Config) {
 			c.Notifications.Producers = append(c.Notifications.Producers, authkit.NotificationProducer{Name: "billing", TenantID: c.DefaultTenantID, Origin: notify.OriginScope{System: "billing", Scope: "merchant"}, Visibility: notify.VisibilityTenant})
 		}))
@@ -536,7 +564,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		}
 	})
 
-	t.Run("AK-J32-C13_separate_instances_cannot_alias_another_tenants_inbox", func(t *testing.T) {
+	t.Run("AK-J34-C13_separate_instances_cannot_alias_another_tenants_inbox", func(t *testing.T) {
 		f, sink, _ := notificationFixture(t, authtest.WithConfig(func(c *authkit.Config) {
 			c.Notifications.Scopes = map[string]string{c.DefaultTenantID.String(): "contentkit:accounts"}
 		}))
@@ -582,7 +610,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 			t.Fatalf("separate tenant read existing account inbox: %v", err)
 		}
 	})
-	t.Run("AK-J32-C05_disabled_addon_has_no_inbox_or_delivery_worker", func(t *testing.T) {
+	t.Run("AK-J34-C05_disabled_addon_has_no_inbox_or_delivery_worker", func(t *testing.T) {
 		f := newFixture(t)
 		if _, err := f.auth.Notifications("application"); !errors.Is(err, authkit.ErrNotificationsDisabled) {
 			t.Fatalf("disabled addon published: %v", err)
