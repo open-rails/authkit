@@ -18,8 +18,10 @@
 //	deps := authkit.Deps{Postgres: db, Email: email}
 //
 // Each message kind renders from a built-in template in the message's
-// Language (Spanish for "es", else English). Set Render to supply your own
-// content for some kinds; returning false falls back to the built-in one.
+// Language (Spanish for "es", else English): a plain-text part and an HTML
+// part in one layout, AppName over a card, safe for email clients and their
+// light and dark schemes. Set Render to supply your own content for some
+// kinds; returning false falls back to the built-in one.
 package smtp
 
 import (
