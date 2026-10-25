@@ -313,7 +313,7 @@ export function Invitations({
   roles: string[]
 }) {
   const { t } = useAdminMessages()
-  const { client } = useAdmin()
+  const { client, language } = useAdmin()
   const emailId = useId()
   const roleId = useId()
   const root = access.persona === "root"
@@ -455,10 +455,10 @@ export function Invitations({
                         <Td>{i.email ?? t("invitations.anyone")}</Td>
                         <Td>{i.role ? roleTitle(i.role) : "—"}</Td>
                         <Td className="whitespace-nowrap">
-                          {dateTime(i.created_at)}
+                          {dateTime(i.created_at, language)}
                         </Td>
                         <Td className="whitespace-nowrap">
-                          {dateTime(i.expires_at) || "—"}
+                          {dateTime(i.expires_at, language) || "—"}
                         </Td>
                         <Td>
                           <Badge

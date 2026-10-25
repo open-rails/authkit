@@ -33,6 +33,7 @@ import { UserPage } from "./user-page.tsx"
 import { UserBadges } from "./user-parts.tsx"
 import {
   directoryRole,
+  entitlementTitle,
   restorableUntil,
   type ConfirmWarnings,
   type UserPanels,
@@ -287,7 +288,7 @@ function Directory({ roles, host }: { roles: string[]; host: Host }) {
                 <option value="">{t("users.anyEntitlement")}</option>
                 {host.entitlements.map((e) => (
                   <option key={e} value={e}>
-                    {e}
+                    {entitlementTitle(e)}
                   </option>
                 ))}
               </Select>
@@ -339,7 +340,7 @@ function Directory({ roles, host }: { roles: string[]; host: Host }) {
 
 function UserTable({ users, status }: { users: UserEntry[]; status: string }) {
   const { t } = useAdminMessages()
-  const { tenantId } = useAdmin()
+  const { tenantId, language } = useAdmin()
   return (
     <Table aria-label={t("users.title")}>
       <thead>
@@ -390,7 +391,9 @@ function UserTable({ users, status }: { users: UserEntry[]; status: string }) {
             {status === "banned" ? (
               <>
                 <Td className={`whitespace-nowrap ${DESKTOP}`}>
-                  {u.ban?.until ? dateTime(u.ban.until) : t("users.permanent")}
+                  {u.ban?.until
+                    ? dateTime(u.ban.until, language)
+                    : t("users.permanent")}
                 </Td>
                 <Td
                   className={`max-w-80 truncate ${DESKTOP}`}
@@ -402,19 +405,21 @@ function UserTable({ users, status }: { users: UserEntry[]; status: string }) {
             ) : status === "deleted" ? (
               <>
                 <Td className={`whitespace-nowrap ${DESKTOP}`}>
-                  {dateTime(u.deleted_at)}
+                  {dateTime(u.deleted_at, language)}
                 </Td>
                 <Td className={`whitespace-nowrap ${DESKTOP}`}>
-                  {u.deleted_at ? dateTime(restorableUntil(u.deleted_at)) : ""}
+                  {u.deleted_at
+                    ? dateTime(restorableUntil(u.deleted_at), language)
+                    : ""}
                 </Td>
               </>
             ) : (
               <>
                 <Td className={`whitespace-nowrap ${DESKTOP}`}>
-                  {dateTime(u.created_at)}
+                  {dateTime(u.created_at, language)}
                 </Td>
                 <Td className={`whitespace-nowrap ${DESKTOP}`}>
-                  {dateTime(u.last_login) || t("common.never")}
+                  {dateTime(u.last_login, language) || t("common.never")}
                 </Td>
               </>
             )}

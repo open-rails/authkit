@@ -101,7 +101,7 @@ export function UserPage({
   host: Host
 }) {
   const { t } = useAdminMessages()
-  const { client, tenantId } = useAdmin()
+  const { client, tenantId, language } = useAdmin()
   const loaded = useLoad(`user:${id}`, (s) => client.getUser(id, s))
   const sessions = useLoad(`sessions:${id}`, (s) =>
     client.listUserSessions(id, s)
@@ -263,8 +263,8 @@ export function UserPage({
           {user.deleted_at && (
             <p className="text-sm text-muted-foreground">
               {t("users.deletedOn", {
-                date: dateTime(user.deleted_at),
-                until: dateTime(restorableUntil(user.deleted_at)),
+                date: dateTime(user.deleted_at, language),
+                until: dateTime(restorableUntil(user.deleted_at), language),
               })}
             </p>
           )}
@@ -334,10 +334,10 @@ export function UserPage({
               {sessions.data.map((s) => (
                 <tr key={s.id}>
                   <Td className="whitespace-nowrap">
-                    {dateTime(s.created_at)}
+                    {dateTime(s.created_at, language)}
                   </Td>
                   <Td className="whitespace-nowrap">
-                    {dateTime(s.last_used_at)}
+                    {dateTime(s.last_used_at, language)}
                   </Td>
                   <Td className="font-mono text-xs">{s.ip ?? "—"}</Td>
                   <Td className="max-w-72 truncate" title={s.user_agent ?? ""}>
@@ -433,6 +433,7 @@ export function UserPage({
 
 function Details({ user, onEdit }: { user: UserEntry; onEdit?: () => void }) {
   const { t } = useAdminMessages()
+  const { language } = useAdmin()
   const verified = (yes: boolean) => (
     <Badge variant="outline" className={yes ? "text-success" : undefined}>
       {yes ? t("users.verified") : t("users.unverified")}
@@ -465,13 +466,19 @@ function Details({ user, onEdit }: { user: UserEntry; onEdit?: () => void }) {
         />
         <Row
           label={t("users.language")}
-          value={languageName(user.preferred_language)}
+          value={languageName(user.preferred_language, language)}
         />
-        <Row label={t("users.joined")} value={dateTime(user.created_at)} />
-        <Row label={t("users.updated")} value={dateTime(user.updated_at)} />
+        <Row
+          label={t("users.joined")}
+          value={dateTime(user.created_at, language)}
+        />
+        <Row
+          label={t("users.updated")}
+          value={dateTime(user.updated_at, language)}
+        />
         <Row
           label={t("users.lastLogin")}
-          value={dateTime(user.last_login) || t("common.never")}
+          value={dateTime(user.last_login, language) || t("common.never")}
         />
       </dl>
     </Section>
@@ -575,7 +582,7 @@ const KINDS: readonly SessionEventKind[] = [
 
 function History({ id, changes }: { id: string; changes: number }) {
   const { t } = useAdminMessages()
-  const { client } = useAdmin()
+  const { client, language } = useAdmin()
   const filterId = useId()
   const [search, setSearch] = useSearchParams()
   const raw = search.get("kind") ?? ""
@@ -645,7 +652,7 @@ function History({ id, changes }: { id: string; changes: number }) {
               {list.items.map((e, i) => (
                 <tr key={`${e.occurred_at}:${e.session_id ?? ""}:${i}`}>
                   <Td className="whitespace-nowrap">
-                    {dateTime(e.occurred_at)}
+                    {dateTime(e.occurred_at, language)}
                   </Td>
                   <Td className="whitespace-nowrap">
                     {t(`users.kinds.${e.kind}`)}
@@ -750,6 +757,7 @@ function EditForm({
   languages?: readonly string[]
 }) {
   const { t } = useAdminMessages()
+  const { language } = useAdmin()
   const formId = useId()
   const ids = {
     username: useId(),
@@ -837,7 +845,7 @@ function EditForm({
               <option value="">{t("users.languageNone")}</option>
               {languageChoices(languages, form.language).map((tag) => (
                 <option key={tag} value={tag}>
-                  {languageName(tag)}
+                  {languageName(tag, language)}
                 </option>
               ))}
             </Select>
