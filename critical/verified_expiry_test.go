@@ -70,6 +70,11 @@ func TestCriticalVerifiedCredentialExpiry(t *testing.T) {
 				direct := verified.(auth.DirectPermissionChecker)
 				recent := verified.(auth.RecentSignInChecker)
 				for range 2 {
+					actor, err := f.auth.ResolveTenantActor(t.Context(), verified)
+					noError(t, err)
+					if actor.AccountID != user.ID || actor.TenantID != f.tenant {
+						t.Fatalf("retained credential resolved wrong source account: %+v", actor)
+					}
 					allowed, err := can.Can(t.Context(), scope, f.read.String())
 					noError(t, err)
 					if !allowed {
@@ -89,6 +94,10 @@ func TestCriticalVerifiedCredentialExpiry(t *testing.T) {
 				}
 				if remaining := time.Until(deadline.Add(25 * time.Millisecond)); remaining > 0 {
 					time.Sleep(remaining)
+				}
+				actor, err := f.auth.ResolveTenantActor(t.Context(), verified)
+				if actor != (iam.TenantActor{}) || !errors.Is(err, auth.ErrUnauthenticated) || !errors.Is(err, auth.ErrExpired) {
+					t.Errorf("source actor survived verified deadline: actor=%+v err=%v", actor, err)
 				}
 				for _, target := range []auth.Scope{scope, {}} {
 					for name, check := range map[string]func() (bool, error){
