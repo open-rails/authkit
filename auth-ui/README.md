@@ -51,6 +51,12 @@ const res = await auth.authFetch("/api/v1/things") // Bearer + one refresh retry
   `DPoP` with a proof, never as bearer tokens. An AuthKit whose sign-ins
   require DPoP (capabilities `dpop: "required"`) refuses an unbound sign-in,
   and the client then binds anyway. Sign-out deletes the key.
+- When a host routes multiple account directories at one API URL, give each
+  client a stable, distinct `sessionKeyName` and `sessionHint.key`, alongside
+  its directory-specific refresh credentials. This prevents one directory's
+  sign-out from deleting another directory's DPoP key. The default key name
+  remains `authkit:session-key:<baseUrl>`; changing it requires a new sign-in.
+  The option selects browser storage, not the server's account directory.
 - Each session boundary (login, sign-out, expiry) bumps a generation. Late
   refreshes, profiles, popups and sign-ins from an older generation are dropped.
 - Every sign-in answers AuthKit's `AuthResult` (`SignInResult`, narrowed by

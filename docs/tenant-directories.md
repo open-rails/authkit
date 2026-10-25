@@ -73,6 +73,27 @@ refresh cookie from overwriting another's, including when they share a
 configured cookie basename. A wrong directory cannot redeem another tenant's
 refresh, recovery or verification proof.
 
+For one HTTP mount serving host-selected directories, set
+`Deps.RequestTenant` to a function with signature
+`func(*http.Request) (iam.TenantID, error)`. Resolve only registered host-owned
+assignments, such as a ready merchant's immutable tenant ID. The callback runs
+before credentials, DPoP proofs and rate limits are consumed, including when a
+framework mounts the route catalog. The original URL and headers stay intact.
+`Deps.Wrap` runs inside those guards and must not recursively dispatch to a
+tenant handler.
+
+Return zero when no selector is present: this keeps `DefaultTenantID` or an
+explicit `ForTenant` view. Unknown nonzero IDs return 404; an attempt to select
+a different directory on a fixed view returns 403. `auth.ErrForbidden` refuses
+a host selector with 403, and other errors use AuthKit's error envelope without
+falling back to the default. A zero default remains an unbound authority.
+
+Native browser clients sharing a URL must use distinct, stable
+`sessionKeyName` and `sessionHint.key` values per account directory. These
+isolate the browser's DPoP keys and cross-tab session state; the trusted host
+callback still chooses the directory. Clients omitting those options retain
+the existing storage names.
+
 A shared, unbound frontend can remember the last successfully authenticated
 directory for cookie-only refresh. This routing hint grants no authority: the
 selected refresh secret still has to belong to that directory. Bind an

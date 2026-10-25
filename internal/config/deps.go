@@ -94,7 +94,16 @@ type Deps struct {
 	// ClientIP extracts the client address, replacing the proxy handling of
 	// HTTPConfig.
 	ClientIP func(*http.Request) string
-	// Wrap decorates every API and browser-OIDC handler at mount time.
+	// RequestTenant selects an existing native account directory before HTTP
+	// guards consume credentials, sender proofs or rate limits. It must resolve
+	// only host-trusted assignments; request headers alone grant no authority.
+	// Zero preserves the default directory (or a ForTenant view's fixed target).
+	// A nonzero selection cannot change a ForTenant view's target. Errors fail
+	// closed; auth.ErrForbidden refuses selection with 403. Nil keeps the
+	// existing dispatch behavior. The original URL and headers are preserved.
+	RequestTenant func(*http.Request) (iam.TenantID, error)
+	// Wrap decorates every API and browser-OIDC handler at mount time, inside
+	// the request guards. Use RequestTenant for directory selection.
 	Wrap func(iam.Route, http.Handler) http.Handler
 }
 

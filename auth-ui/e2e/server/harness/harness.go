@@ -6,6 +6,7 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
+	"net/http"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -24,7 +25,7 @@ type Runtime struct {
 	Outbox *authtest.Outbox
 }
 
-func New(ctx context.Context, origin, schema string, pool *pgxpool.Pool, profile string) (*Runtime, error) {
+func New(ctx context.Context, origin, schema string, pool *pgxpool.Pool, profile string, requestTenant func(*http.Request) (iam.TenantID, error)) (*Runtime, error) {
 	private, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return nil, err
@@ -79,9 +80,10 @@ func New(ctx context.Context, origin, schema string, pool *pgxpool.Pool, profile
 		cfg.Registration.Verification = iam.RegistrationVerificationOptional
 	}
 	client, err := authkit.New(ctx, cfg, authkit.Deps{
-		Postgres:  pool,
-		KeySource: keys.Static{Active: signer, Public: map[string]crypto.PublicKey{signer.KID(): signer.Public()}},
-		Email:     outbox.Email(), SMS: outbox.SMS(),
+		Postgres:      pool,
+		KeySource:     keys.Static{Active: signer, Public: map[string]crypto.PublicKey{signer.KID(): signer.Public()}},
+		RequestTenant: requestTenant,
+		Email:         outbox.Email(), SMS: outbox.SMS(),
 	})
 	if err != nil {
 		return nil, err

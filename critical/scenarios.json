@@ -8,6 +8,7 @@
   "AK-J02-C03": "failed import/transaction rollback and retry",
   "AK-J02-C04": "verified imported contact versus unproved imported contact",
   "AK-J02-C05": "ForTenant actor binding and borrower behavior",
+  "AK-J02-C06": "trusted pre-guard HTTP directory selection, wrong-realm sessions, failed selection without proof consumption, and pinned tenant views",
   "AK-J03-C01": "email and SMS registration plus verify",
   "AK-J03-C02": "duplicate canonical username/contact race",
   "AK-J03-C03": "invite-only and closed admission",

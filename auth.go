@@ -208,7 +208,12 @@ func (a *Client) Handler() http.Handler {
 		return nil
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		a.mount.ServeHTTP(w, r.WithContext(a.operationContext(r.Context())))
+		ctx, err := a.requestContext(r)
+		if err != nil {
+			iam.WriteError(w, err)
+			return
+		}
+		a.mount.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
