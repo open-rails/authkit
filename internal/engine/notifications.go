@@ -19,7 +19,7 @@ import (
 
 var ErrNotificationsDisabled = errors.New("authkit: account notifications are disabled")
 
-// MigrateNotifications installs only the optional Helpers inbox. It never moves
+// MigrateNotifications installs only the optional AuthKit inbox. It never moves
 // or merges account scopes. Explicit Config.Scopes mappings adopt existing rows.
 func MigrateNotifications(ctx context.Context, pool *pgxpool.Pool, database config.DatabaseConfig, cfg *config.NotificationsConfig, defaultTenant ...iam.TenantID) error {
 	if cfg == nil {
@@ -159,7 +159,7 @@ func bindNotifications(p config.NotificationProducer, changes []notify.Mutation)
 
 // ApplyNotificationsTx validates recipient ownership inside the source
 // transaction and joins the durable inbox write. Account erasure and delayed
-// publication serialize through Helpers' recipient guard.
+// publication serialize through the inbox recipient guard.
 func (s *Engine) ApplyNotificationsTx(ctx context.Context, host pgx.Tx, name string, changes []notify.Mutation) error {
 	p, err := s.NotificationProducer(ctx, name)
 	if err != nil {
@@ -243,7 +243,7 @@ AND $3='app' AND ((app_id<>'' AND app_id=$4) OR (source<>'' AND source=$5 AND so
 		return err
 	}
 	batch = slices.DeleteFunc(batch, func(m notify.Mutation) bool { return slices.Contains(erased, m.Recipient.ID) })
-	// Erasure may overtake the user snapshot. Helpers guards reject it; retrying
+	// Erasure may overtake the user snapshot. Inbox guards reject it; retrying
 	// the batch then observes the missing account and completes without delivery.
 	if err := store.ApplyTx(ctx, tx, batch); err != nil {
 		return err

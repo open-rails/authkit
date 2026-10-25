@@ -1,13 +1,14 @@
 # Account notification inbox (AuthKit #470)
 
-This optional add-on moves the authenticated account
-inbox from ContentKit to AuthKit while retaining Helpers' shared storage model.
+This optional add-on owns the authenticated account inbox in AuthKit, including
+its types, PostgreSQL persistence, producer client and frontend API. Existing
+inbox tables and receipt identities are adopted in place.
 The general retained event log remains an independent host-integration interface.
 
 ## Ownership and publication
 
-AuthKit owns the inbox alongside the account directory. Helpers owns the generic
-mutation/storage contract. Producers decide which facts deserve a user notice;
+AuthKit owns the inbox alongside the account directory and provides its publisher
+contract. Producers decide which facts deserve a user notice;
 the frontend owns presentation and action destinations.
 
 A configured producer handle is bound to an account tenant, source system/scope,
