@@ -26,10 +26,10 @@ import (
 // ErrInvalidIdentifier / ErrEmailInUse / ErrPhoneInUse / ErrUsernameInUse /
 // ErrRegistrationDisabled / ErrEmailUnavailable /
 // ErrSMSUnavailable; engine failures carry a stage prefix
-// and, for sends, the delivery sentinel. When verification is required, a
-// taken email or phone answers like a fresh one and its owner is notified
-// (notifyAccountExists), so ErrEmailInUse and ErrPhoneInUse only come back
-// when it is not.
+// and, for sends, the delivery sentinel. When verification is required, an
+// email or phone that an account holds answers like a free one and its owner
+// is notified (registerTakenContact); ErrEmailInUse and ErrPhoneInUse then
+// only mean a pending sign-up holds it.
 func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authflow.RegisterOutcome, error) {
 	if token := strings.TrimSpace(in.AccountInviteToken); token != "" {
 		var err error
@@ -94,10 +94,13 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 		}
 		out := authflow.RegisterOutcome{Username: username, Phone: &phone}
 		if requiresVerification {
-			if phoneTaken {
-				err = s.registerTakenContact(ctx, "sms", phone)
-			} else {
+			switch {
+			case !phoneTaken:
 				_, err = s.issuePendingPhoneRegistration(ctx, phone, username, phc, in.PreferredLanguage)
+			case s.pendingChangeTargetTaken(ctx, kindRegisterPhone, phone):
+				return authflow.RegisterOutcome{}, iam.ErrPhoneInUse
+			default:
+				err = s.registerTakenContact(ctx, kindRegisterPhone, phone, username, phc, in.PreferredLanguage)
 			}
 			if err != nil {
 				return authflow.RegisterOutcome{}, registrationErr("send_phone_verification", err)
@@ -135,10 +138,15 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 	}
 	out := authflow.RegisterOutcome{Username: username, Email: &email}
 	if requiresVerification {
-		if emailTaken {
-			err = s.registerTakenContact(ctx, "email", email)
-		} else {
+		switch {
+		case !emailTaken:
 			_, err = s.issuePendingEmailRegistration(ctx, email, username, phc, 0, in.PreferredLanguage)
+		case s.pendingChangeTargetTaken(ctx, kindRegisterEmail, email):
+			// Every attempt leaves a pending sign-up, taken address or not, so
+			// this says nothing about an account.
+			return authflow.RegisterOutcome{}, iam.ErrEmailInUse
+		default:
+			err = s.registerTakenContact(ctx, kindRegisterEmail, email, username, phc, in.PreferredLanguage)
 		}
 		if err != nil {
 			return authflow.RegisterOutcome{}, registrationErr("send_email_verification", err)
@@ -163,10 +171,12 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 	return s.registeredSession(ctx, in, out, account)
 }
 
-// registerTakenContact is a fresh sign-up's pending step for a taken
-// address: the same admission check, then the owner's notice instead of a
-// code.
-func (s *Engine) registerTakenContact(ctx context.Context, channel, target string) error {
+// registerTakenContact is a fresh sign-up's pending step for an address an
+// account holds. It runs the same admission check and leaves the same pending
+// record, so the attempt holds its username, can be abandoned, and recovers by
+// its password at sign-in (passwordRejected) like a fresh one. Its code is
+// never sent and cannot match; the account's owner is notified instead.
+func (s *Engine) registerTakenContact(ctx context.Context, kind pendingChangeKind, target, username, passwordHash, preferredLanguage string) error {
 	allowed, err := s.registrationAllowedForEmail(ctx, target)
 	if err != nil {
 		return err
@@ -174,7 +184,29 @@ func (s *Engine) registerTakenContact(ctx context.Context, channel, target strin
 	if !allowed {
 		return errmodel.ErrRegistrationDisabled
 	}
-	return s.notifyAccountExists(ctx, channel, target)
+	language, err := authflow.NormalizePreferredLanguage(preferredLanguage)
+	if err != nil {
+		return err
+	}
+	if err := s.storePendingChange(ctx, pendingChange{
+		Kind:              kind,
+		Target:            target,
+		Username:          username,
+		PasswordHash:      passwordHash,
+		PreferredLanguage: language,
+		CodeHash:          secret.Hash(secret.Token(32)),
+		LinkHash:          secret.Hash(secret.Token(32)),
+	}, kind.defaultTTL()); err != nil {
+		return err
+	}
+	return s.notifyAccountExists(ctx, notifyChannel(kind), target)
+}
+
+func notifyChannel(kind pendingChangeKind) string {
+	if kind.isEmail() {
+		return "email"
+	}
+	return "sms"
 }
 
 // registrationErr keeps the typed conflicts, validation codes, delivery

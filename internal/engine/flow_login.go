@@ -84,7 +84,7 @@ func (s *Engine) PasswordLogin(ctx context.Context, in authflow.PasswordLoginInp
 		return authflow.LoginOutcome{}, err
 	}
 	if err != nil {
-		return s.rejectLogin(ctx, in, u.ID, loginRejection(err)), nil
+		return s.passwordRejected(ctx, in, u.ID, err)
 	}
 	out, err := s.finishFirstFactor(ctx, loginProof{Version: version, AuthenticatedAt: time.Now().UTC(), Input: loginSessionInput{UserID: u.ID, AuthMethods: []string{"pwd"}, Event: "password_login", UserAgent: in.UserAgent, IP: in.IP}})
 	if errors.Is(err, errmodel.ErrUserBanned) || errors.Is(err, jwt.ErrTokenUnverifiable) {
@@ -112,6 +112,44 @@ func (s *Engine) rejectLogin(ctx context.Context, in authflow.PasswordLoginInput
 
 func (s *Engine) loginFailed(ctx context.Context, in authflow.PasswordLoginInput, userID, reason string) {
 	s.LogSessionFailed(ctx, userID, "", &reason, nullable(in.IP), nullable(in.UserAgent))
+}
+
+// passwordRejected answers a wrong password for an account found by email or
+// phone. A sign-up attempt on that address left a pending record
+// (registerTakenContact); its password answers as a pending sign-up's does
+// where no account exists, and the owner is notified again, so the answer
+// never shows that an account holds the address.
+func (s *Engine) passwordRejected(ctx context.Context, in authflow.PasswordLoginInput, userID string, err error) (authflow.LoginOutcome, error) {
+	reason := loginRejection(err)
+	identifier := strings.TrimSpace(in.Identifier)
+	kind := kindRegisterEmail
+	if !strings.Contains(identifier, "@") {
+		kind = kindRegisterPhone
+	}
+	if !errors.Is(reason, errmodel.ErrInvalidCredentials) || !s.registrationVerificationRequired() ||
+		!strings.Contains(identifier, "@") && !strings.HasPrefix(identifier, "+") {
+		return s.rejectLogin(ctx, in, userID, reason), nil
+	}
+	pending, ok, perr := s.pendingChangeByTarget(ctx, kind, identifier)
+	if perr != nil || !ok {
+		return s.rejectLogin(ctx, in, userID, reason), nil
+	}
+	valid, verr := password.VerifyArgon2id(ctx, pending.PasswordHash, in.Password)
+	if errors.Is(verr, password.ErrBusy) {
+		return authflow.LoginOutcome{}, verr
+	}
+	if verr != nil || !valid {
+		return s.rejectLogin(ctx, in, userID, reason), nil
+	}
+	s.loginFailed(ctx, in, userID, reason.Error())
+	if err := s.notifyAccountExists(ctx, notifyChannel(kind), pending.Target); err != nil {
+		return authflow.LoginOutcome{}, err
+	}
+	channel := "email"
+	if kind == kindRegisterPhone {
+		channel = "phone"
+	}
+	return authflow.LoginOutcome{Kind: authflow.LoginVerificationRequired, Verification: &authflow.VerificationRequired{Identifier: identifier, Channel: channel}}, nil
 }
 
 // recoverPendingLogin resends the same pending signup after checking its password.
@@ -153,7 +191,8 @@ func (s *Engine) verificationGate(ctx context.Context, in authflow.PasswordLogin
 	if err := s.CheckUserPassword(ctx, u.ID, in.Password); errors.Is(err, password.ErrBusy) {
 		return authflow.LoginOutcome{}, true, err
 	} else if err != nil {
-		return s.rejectLogin(ctx, in, u.ID, loginRejection(err)), true, nil
+		out, err := s.passwordRejected(ctx, in, u.ID, err)
+		return out, true, err
 	}
 	if needsEmail && s.EmailAvailable() {
 		if err := s.RequestEmailVerification(ctx, *u.Email, 0); err != nil {

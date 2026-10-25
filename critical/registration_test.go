@@ -179,6 +179,43 @@ func TestCriticalRegistration(t *testing.T) {
 		f.register(t, "free-address@example.com", "pendingname").want(t, http.StatusBadRequest, "username_in_use")
 		f.register(t, other.Email, "pendingname").want(t, http.StatusBadRequest, "username_in_use")
 
+		// Every follow-up to a sign-up looks the same for a free and a taken
+		// address, and a second sign-up never reaches a pending one's code.
+		const attempt = "Attempt-password-42"
+		holder := f.user(t)
+		for i, address := range []string{"never-registered@example.com", holder.Email} {
+			name := fmt.Sprintf("probename%d", i)
+			signUp := func(username string) response {
+				return f.call(t, "POST", "/register", "", map[string]string{"identifier": address, "username": username, "password": attempt})
+			}
+			held := func() bool {
+				var a struct {
+					Username struct {
+						Available bool `json:"available"`
+					} `json:"username"`
+				}
+				decode(t, f.call(t, "GET", "/register/availability?username="+name, "", nil).body, &a)
+				return !a.Username.Available
+			}
+			signUp(name).want(t, http.StatusAccepted, "")
+			if !held() {
+				t.Fatalf("sign-up %d left its username free", i)
+			}
+			signUp(name+"x").want(t, http.StatusBadRequest, "email_in_use")
+			r := f.call(t, "POST", "/password/login", "", map[string]string{"identifier": address, "password": attempt})
+			r.want(t, http.StatusOK, "")
+			var login signInResult
+			decode(t, r.body, &login)
+			if login.Status != "verification_required" || login.Tokens != nil {
+				t.Fatalf("sign-up %d password answered %s", i, r.body)
+			}
+			f.call(t, "POST", "/register/abandon", "", map[string]string{"identifier": address, "password": attempt}).want(t, http.StatusNoContent, "")
+			if held() {
+				t.Fatalf("abandoned sign-up %d kept its username", i)
+			}
+		}
+		f.signIn(t, holder)
+
 		session := f.signIn(t, other)
 		f.call(t, "PUT", "/me/email", session.AccessToken, map[string]string{"email": owner.Email}).want(t, http.StatusAccepted, "")
 		if got := f.out.Messages(iam.MessageAccountExists, owner.Email); len(got) != 2 {

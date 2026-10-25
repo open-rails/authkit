@@ -167,21 +167,28 @@ func (s *Engine) notifyAccountExists(ctx context.Context, channel, target string
 			return nil
 		}
 		msg := iam.EmailMessage{Kind: iam.MessageAccountExists, To: stored, Username: deref(u.Username), Language: language, Link: s.emailPasswordResetURL(token)}
-		if err := s.sendEmail(ctx, msg); err != nil {
-			slog.Warn("account_exists email refused, sending password_reset instead", "user_id", u.ID, "error", err)
-			msg.Kind = iam.MessagePasswordReset
-			return s.sendEmail(ctx, msg)
+		if err := s.sendEmail(ctx, msg); !senderRefused(err, errmodel.ErrEmailDeliveryFailed) {
+			return err
 		}
-		return nil
+		slog.Warn("account_exists email refused by the sender, sending password_reset instead", "user_id", u.ID)
+		msg.Kind = iam.MessagePasswordReset
+		return s.sendEmail(ctx, msg)
 	}
 	if s.sms == nil {
 		return nil
 	}
 	msg := iam.SMSMessage{Kind: iam.MessageAccountExists, To: stored, UserID: u.ID, Language: language, Link: s.phonePasswordResetURL(token)}
-	if err := s.sendSMS(ctx, msg); err != nil {
-		slog.Warn("account_exists SMS refused, sending password_reset instead", "user_id", u.ID, "error", err)
-		msg.Kind = iam.MessagePasswordReset
-		return s.sendSMS(ctx, msg)
+	if err := s.sendSMS(ctx, msg); !senderRefused(err, errmodel.ErrSMSDeliveryFailed) {
+		return err
 	}
-	return nil
+	slog.Warn("account_exists SMS refused by the sender, sending password_reset instead", "user_id", u.ID)
+	msg.Kind = iam.MessagePasswordReset
+	return s.sendSMS(ctx, msg)
+}
+
+// senderRefused reports a send the host's sender itself failed without timing
+// out, as one with no copy for a kind does. Admission refusals (rate, region,
+// health) and timeouts are not retried as another kind.
+func senderRefused(err, delivery error) bool {
+	return errors.Is(err, delivery) && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled)
 }
