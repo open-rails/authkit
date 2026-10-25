@@ -1,6 +1,7 @@
 package critical_test
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"testing"
@@ -12,6 +13,21 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 )
+
+// This is the forwarding shape of ContentKit's gate memo: preserve Identity
+// and the documented request capabilities, without knowing private methods on
+// the provider's concrete verified credential.
+type actorForwardingVerified struct{ auth.Verified }
+
+func (v actorForwardingVerified) Can(ctx context.Context, scope auth.Scope, permission string) (bool, error) {
+	return v.Verified.(auth.PermissionChecker).Can(ctx, scope, permission)
+}
+func (v actorForwardingVerified) BoundScope() auth.Scope {
+	return v.Verified.(auth.Bound).BoundScope()
+}
+func (v actorForwardingVerified) CheckRecentSignIn(ctx context.Context) error {
+	return v.Verified.(auth.RecentSignInChecker).CheckRecentSignIn(ctx)
+}
 
 func TestCriticalVerifiedCredentialExpiry(t *testing.T) {
 	t.Run("AK-J13-C08_retained_verified_credentials_end_at_their_verified_deadline", func(t *testing.T) {
@@ -66,14 +82,55 @@ func TestCriticalVerifiedCredentialExpiry(t *testing.T) {
 				}
 				verified, err := sample.provider.Authenticate(request)
 				noError(t, err)
+				actors := []auth.Verified{verified}
+				if !sample.resource {
+					actors = append(actors, actorForwardingVerified{verified})
+					state, ok := iam.StateOf(verified.Identity())
+					if !ok || !state.ValidUntil().Equal(deadline) {
+						t.Fatalf("native credential lost its accepting verifier deadline: %v", state.ValidUntil())
+					}
+					// Until is a narrowing constructor: neither zero nor a later
+					// deadline can erase the original bound or revive an expired one.
+					preserved := iam.Until(iam.Until(verified.Identity(), time.Time{}), deadline.Add(time.Hour))
+					preservedState, ok := iam.StateOf(preserved)
+					if !ok || !preservedState.ValidUntil().Equal(deadline) {
+						t.Fatal("zero or later deadline extended a verified credential")
+					}
+					earlier := deadline.Add(-time.Hour)
+					constrained := iam.PinnedTo(iam.Within(verified.Identity(), f.read), group.ID)
+					narrowed := iam.Until(constrained, earlier)
+					narrowed = iam.Until(iam.Until(narrowed, time.Time{}), deadline.Add(time.Hour))
+					narrowedState, ok := iam.StateOf(narrowed)
+					beforeSession, beforeHasSession := state.Session()
+					afterSession, afterHasSession := narrowedState.Session()
+					if !ok || !narrowedState.ValidUntil().Equal(earlier) || narrowedState.ID() != state.ID() ||
+						narrowedState.TenantID() != state.TenantID() || beforeSession != afterSession || beforeHasSession != afterHasSession ||
+						narrowedState.Group() != group.ID || !narrowedState.CeilingCovers(f.read) || narrowedState.CeilingCovers(f.write) {
+						t.Fatal("deadline narrowing changed source identity, session, group or permission ceilings")
+					}
+					if _, err := f.auth.ResolveTenantActor(t.Context(), actorIdentityOnly{narrowed}); !errors.Is(err, auth.ErrExpired) {
+						t.Fatalf("narrowed expired credential regained actor authority: %v", err)
+					}
+				} else {
+					// Resource provenance must not become native IAM permission
+					// authority merely to support Identity-preserving wrappers.
+					if _, ok := iam.StateOf(verified.Identity()); ok {
+						t.Fatal("resource credential acquired native IAM authority state")
+					}
+					if _, err := f.auth.ResolveTenantActor(t.Context(), actorForwardingVerified{verified}); !errors.Is(err, auth.ErrForbidden) {
+						t.Fatalf("wrapped resource credential acquired native source authority: %v", err)
+					}
+				}
 				can := verified.(auth.PermissionChecker)
 				direct := verified.(auth.DirectPermissionChecker)
 				recent := verified.(auth.RecentSignInChecker)
 				for range 2 {
-					actor, err := f.auth.ResolveTenantActor(t.Context(), verified)
-					noError(t, err)
-					if actor.AccountID != user.ID || actor.TenantID != f.tenant {
-						t.Fatalf("retained credential resolved wrong source account: %+v", actor)
+					for _, credential := range actors {
+						actor, err := f.auth.ResolveTenantActor(t.Context(), credential)
+						noError(t, err)
+						if actor.AccountID != user.ID || actor.TenantID != f.tenant {
+							t.Fatalf("retained credential resolved wrong source account: %+v", actor)
+						}
 					}
 					allowed, err := can.Can(t.Context(), scope, f.read.String())
 					noError(t, err)
@@ -95,9 +152,11 @@ func TestCriticalVerifiedCredentialExpiry(t *testing.T) {
 				if remaining := time.Until(deadline.Add(25 * time.Millisecond)); remaining > 0 {
 					time.Sleep(remaining)
 				}
-				actor, err := f.auth.ResolveTenantActor(t.Context(), verified)
-				if actor != (iam.TenantActor{}) || !errors.Is(err, auth.ErrUnauthenticated) || !errors.Is(err, auth.ErrExpired) {
-					t.Errorf("source actor survived verified deadline: actor=%+v err=%v", actor, err)
+				for _, credential := range actors {
+					actor, err := f.auth.ResolveTenantActor(t.Context(), credential)
+					if actor != (iam.TenantActor{}) || !errors.Is(err, auth.ErrUnauthenticated) || !errors.Is(err, auth.ErrExpired) {
+						t.Errorf("source actor survived verified deadline: actor=%+v err=%v", actor, err)
+					}
 				}
 				for _, target := range []auth.Scope{scope, {}} {
 					for name, check := range map[string]func() (bool, error){

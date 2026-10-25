@@ -35,6 +35,9 @@ func (a *Client) ForTenant(ctx context.Context, id iam.TenantID) (*Client, error
 // deliberately independent of ForTenant's target and performs no target grant.
 // A retained native credential must still be within its original verified
 // lifetime; resolving it does not verify the request or spend a sender proof again.
+// Native Identity-preserving wrappers retain this lifetime in sealed state.
+// Resource credentials require the original verified value; their source-only
+// provenance is deliberately not native IAM permission authority.
 func (a *Client) ResolveTenantActor(ctx context.Context, verified auth.Verified) (iam.TenantActor, error) {
 	return a.engine.ResolveTenantActor(ctx, verified)
 }

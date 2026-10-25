@@ -13,8 +13,10 @@ import (
 	"github.com/open-rails/authkit/iam"
 )
 
-// An identity-only adapter cannot preserve a native credential's lifetime.
-type actorIdentityOnly struct{ auth.Verified }
+// An identity-only adapter preserves the original provider's sealed state.
+type actorIdentityOnly struct{ id auth.Identity }
+
+func (v actorIdentityOnly) Identity() auth.Identity { return v.id }
 
 func TestCriticalTenantAuthority(t *testing.T) {
 	f := newFixture(t)
@@ -188,11 +190,16 @@ func TestCriticalTenantAuthority(t *testing.T) {
 		if actor.AccountID != u.ID || actor.TenantID != f.tenant {
 			t.Fatal("target selection changed source identity")
 		}
-		for _, invalid := range []auth.Verified{nil, actorIdentityOnly{}, actorIdentityOnly{verified}} {
+		for _, invalid := range []auth.Verified{nil, actorIdentityOnly{}} {
 			actor, err := view.ResolveTenantActor(t.Context(), invalid)
 			if err == nil || actor != (iam.TenantActor{}) {
 				t.Fatalf("identity without verified lifetime resolved an actor: %+v, %v", actor, err)
 			}
+		}
+		forwarded, err := view.ResolveTenantActor(t.Context(), actorIdentityOnly{verified.Identity()})
+		noError(t, err)
+		if forwarded != actor {
+			t.Fatalf("identity-preserving adapter changed native source account: %+v", forwarded)
 		}
 		foreign := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
 			c.Token.Issuer = "https://different-actor-issuer.example"

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/auth"
@@ -138,15 +139,6 @@ func (s *Engine) ResolveTenantActor(ctx context.Context, verified auth.Verified)
 	if verified == nil {
 		return iam.TenantActor{}, auth.ErrUnauthenticated
 	}
-	// Native verified credentials retain the accepting verifier's deadline.
-	// A sealed identity alone cannot prove that its request is still current.
-	lifetime, ok := verified.(interface{ CheckCredentialExpiry() error })
-	if !ok {
-		return iam.TenantActor{}, auth.ErrForbidden
-	}
-	if err := lifetime.CheckCredentialExpiry(); err != nil {
-		return iam.TenantActor{}, err
-	}
 	if err := s.requirePG(); err != nil {
 		return iam.TenantActor{}, err
 	}
@@ -154,6 +146,9 @@ func (s *Engine) ResolveTenantActor(ctx context.Context, verified auth.Verified)
 		cl := resource.access.Claims
 		if cl.Kind != verify.TokenUser || cl.Issuer != s.cfg.Token.Issuer {
 			return iam.TenantActor{}, auth.ErrForbidden
+		}
+		if !cl.ValidUntil.IsZero() && time.Now().After(cl.ValidUntil) {
+			return iam.TenantActor{}, errors.Join(auth.ErrUnauthenticated, auth.ErrExpired, iam.ErrTokenExpired)
 		}
 		owner, err := s.credentialTenant(ctx, s.q, cl.Subject, cl.TenantID)
 		if err != nil {
@@ -173,6 +168,9 @@ func (s *Engine) ResolveTenantActor(ctx context.Context, verified auth.Verified)
 	if !ok || !state.IsUser() || id.SubjectKind != auth.SubjectUser ||
 		(id.Issuer != s.cfg.Token.Issuer && !slices.Contains(s.cfg.Token.AccountIssuers, id.Issuer)) {
 		return iam.TenantActor{}, auth.ErrForbidden
+	}
+	if deadline := state.ValidUntil(); !deadline.IsZero() && time.Now().After(deadline) {
+		return iam.TenantActor{}, errors.Join(auth.ErrUnauthenticated, auth.ErrExpired, iam.ErrTokenExpired)
 	}
 	if err := s.requirePG(); err != nil {
 		return iam.TenantActor{}, err
