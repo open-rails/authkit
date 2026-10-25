@@ -72,7 +72,9 @@ migration for producers changing legacy event IDs to stable issue IDs. Each
 Run it with old writers stopped. An existing canonical receipt wins; otherwise
 the newest matching previous receipt (created_at, ID descending) retains its ID,
 read/archive state and becomes canonical. Redundant prior receipts remain hidden.
-Conflicting visibility or producer scope refuses the batch. Replay cannot lower
+Conflicting visibility or producer scope refuses the batch. Only unversioned
+legacy receipts may acquire classification; versioned unclassified records are
+refused rather than silently changing their producer identity/hash. Replay cannot lower
 a canonical producer revision. An active current issue with no previous/current
 receipt is skipped; a withdrawn issue can create a hidden ordering tombstone.
 This never replays unconsumed history into a new visible inbox.

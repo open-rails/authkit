@@ -365,6 +365,24 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		if retained.Origin.ID != foreign.Origin.ID || retained.Visibility != notify.VisibilityApp || retained.AppID != foreign.AppID {
 			t.Fatal("refused adoption changed a foreign receipt")
 		}
+		versioned := current
+		versioned.Origin.ID = "issue:versioned-unclassified"
+		versioned.Visibility = ""
+		old, err := store.Publish(t.Context(), versioned.Input)
+		noError(t, err)
+		noError(t, store.Apply(t.Context(), []notify.Mutation{versioned}))
+		classified := versioned
+		classified.Visibility = notify.VisibilityTenant
+		classified.Revision = 2
+		err = f.auth.AdoptNotifications(t.Context(), "application", []notify.Adoption{{Current: classified}})
+		if !errors.Is(err, notify.ErrConflict) {
+			t.Fatalf("adoption changed a versioned unclassified identity: %v", err)
+		}
+		unchanged, err := store.Get(t.Context(), old.Recipient, old.ID)
+		noError(t, err)
+		if unchanged.Visibility != "" || unchanged.ProducerRevision != 1 {
+			t.Fatal("refused classification changed producer state")
+		}
 
 	})
 	t.Run("AK-J34-C07_account_purge_fences_delayed_delivery", func(t *testing.T) {

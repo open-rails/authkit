@@ -91,6 +91,9 @@ ORDER BY (source_id=$6) DESC,created_at DESC,id DESC FOR UPDATE`, scope, m.Recip
 				return err
 			}
 			for _, r := range priorRows {
+				if r.visibility == "" && r.revision > 0 {
+					return fmt.Errorf("%w: versioned unclassified receipt requires explicit producer migration", notify.ErrConflict)
+				}
 				if r.sourceID != m.Origin.ID && r.revision > 0 && !r.withdrawn {
 					return fmt.Errorf("%w: versioned legacy identity is still active", notify.ErrConflict)
 				}

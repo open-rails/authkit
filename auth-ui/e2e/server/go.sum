@@ -69,8 +69,8 @@ github.com/muhlemmer/httpforwarded v0.1.0 h1:x4DLrzXdliq8mprgUMR0olDvHGkou5BJsK/
 github.com/muhlemmer/httpforwarded v0.1.0/go.mod h1:yo9czKedo2pdZhoXe+yDkGVbU0TJ0q9oQ90BVoDEtw0=
 github.com/nyaruka/phonenumbers v1.8.1 h1:2K9YMQuv1dCGqjjzB1DwmdCe89khT4KPBQb2CxAMMlU=
 github.com/nyaruka/phonenumbers v1.8.1/go.mod h1:fsKPJ70O9JetEA4ggnJadYTFWwtGPvu/lETTXNXq6Cs=
-github.com/open-rails/helpers v1.16.2-0.20261025024957-47f4de657abc h1:wB9AN0SC51vUU8LjCy4Z2F1Xh93nRgSjIxVs/CpzHVI=
-github.com/open-rails/helpers v1.16.2-0.20261025024957-47f4de657abc/go.mod h1:Olub8akvlMMb6wxdVX15+9sTETLvNnyyJytioFxj83o=
+github.com/open-rails/helpers v1.16.2-0.20261025033036-8c93ee4139d4 h1:Awi52sqUfflg00bO3wMwti+r3x1UWzpHZ4/+dhYsV34=
+github.com/open-rails/helpers v1.16.2-0.20261025033036-8c93ee4139d4/go.mod h1:Olub8akvlMMb6wxdVX15+9sTETLvNnyyJytioFxj83o=
 github.com/open-rails/migratekit v1.11.2 h1:QTtn8i/Yj62SiGv6b7FnQ/mKudSDfLjnlmPSQN0NA7k=
 github.com/open-rails/migratekit v1.11.2/go.mod h1:ONDMUycRcwAB+eKlPvho6mnNAZf9gf9+yqwCKDRuO9g=
 github.com/philhofer/fwd v1.2.0 h1:e6DnBTl7vGY+Gz322/ASL4Gyp1FspeMvx1RNDoToZuM=
