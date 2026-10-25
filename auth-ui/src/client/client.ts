@@ -114,6 +114,11 @@ export type AuthClientOptions = {
   // Default false. An AuthKit whose sign-ins require DPoP (capabilities
   // dpop: required) refuses an unbound sign-in, and the client binds anyway.
   dpop?: boolean
+  // IndexedDB name for this native session's DPoP key. Default
+  // "authkit:session-key:<baseUrl>". Hosts routing separate account directories
+  // at one URL must use stable distinct names and sessionHint keys. This only
+  // selects browser key storage; the host still selects the account directory.
+  sessionKeyName?: string
 }
 
 export type AuthSession =
@@ -259,7 +264,8 @@ export function createAuthClient(options: AuthClientOptions = {}) {
 
   // --- DPoP-bound sessions ----------------------------------------------------
 
-  const sessionKeyName = `authkit:session-key:${baseUrl}`
+  const sessionKeyName =
+    options.sessionKeyName ?? `authkit:session-key:${baseUrl}`
   let bindSessions = options.dpop ?? false
   const sessionKey = (): Promise<DPoPKey> => loadDPoPKey(sessionKeyName)
   // A token is bound when it names a key (cnf.jkt, RFC 9449 §6.1).
