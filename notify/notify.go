@@ -1,8 +1,7 @@
-// Package notify defines notices and actionable inbox items shared by host
-// applications. Authentication, rendering, delivery channels and the action
-// that remedies a problem belong to the application. Reading never resolves
-// an item. Existing domain records can be projected as Items without copying
-// their authoritative state into another queue.
+// Package notify defines AuthKit account inbox data and the scoped producer
+// interface. AuthKit owns storage and authorization; producers own the domain
+// action that remedies a problem. Reading never resolves that action. Legacy
+// envelopes remain available for explicit data adoption and durable wire replay.
 package notify
 
 import (
