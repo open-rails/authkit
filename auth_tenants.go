@@ -55,3 +55,11 @@ func (a *Client) operationContext(ctx context.Context) context.Context {
 	}
 	return ctx
 }
+
+// TenantFromContext reports the account directory selected by AuthKit's trusted
+// native tenant view or HTTP dispatch. Host callbacks use it to select their
+// policy for that exact operation target. It is not the caller's identity and
+// grants no permission. An unscoped context returns false.
+func TenantFromContext(ctx context.Context) (iam.TenantID, bool) {
+	return tenancy.From(ctx)
+}
