@@ -39,6 +39,24 @@ type Verified interface {
 	Identity() Identity
 }
 
+// CredentialChecker is an optional capability for consumers that retain one
+// verified user credential while waiting inside its original request. It checks
+// that credential's original effective expiry and live account/session or
+// application/client/group registration, without authenticating again, consuming
+// another sender proof, granting permissions or requiring a recent sign-in.
+//
+// Unsupported credentials must fail closed with ErrForbidden. AuthKit initially
+// supports native user and resource-user credentials; the presence of this method
+// does not imply support for API keys, PATs or client-credentials tokens. A wrapper
+// that exposes this capability must forward it to its original Verified.
+//
+// ErrExpired or ErrRevoked joined with ErrUnauthenticated means the credential
+// ended. ErrUnavailable means its live authority could not be checked. No error
+// grants authority; consumers must still apply their own resource policy.
+type CredentialChecker interface {
+	CheckCredential(ctx context.Context) error
+}
+
 // Scope names an authority-owned immutable resource, such as the group
 // whose members administer a merchant: Authority is the issuer whose groups
 // it is in, ID its id there. The consumer keeps it beside the resource, or

@@ -82,6 +82,10 @@ func TestCriticalVerifiedCredentialExpiry(t *testing.T) {
 				}
 				verified, err := sample.provider.Authenticate(request)
 				noError(t, err)
+				credential, ok := verified.(auth.CredentialChecker)
+				if !ok {
+					t.Fatal("live user credential does not expose CredentialChecker")
+				}
 				actors := []auth.Verified{verified}
 				if !sample.resource {
 					actors = append(actors, actorForwardingVerified{verified})
@@ -125,6 +129,7 @@ func TestCriticalVerifiedCredentialExpiry(t *testing.T) {
 				direct := verified.(auth.DirectPermissionChecker)
 				recent := verified.(auth.RecentSignInChecker)
 				for range 2 {
+					noError(t, credential.CheckCredential(t.Context()))
 					for _, credential := range actors {
 						actor, err := f.auth.ResolveTenantActor(t.Context(), credential)
 						noError(t, err)
@@ -151,6 +156,9 @@ func TestCriticalVerifiedCredentialExpiry(t *testing.T) {
 				}
 				if remaining := time.Until(deadline.Add(25 * time.Millisecond)); remaining > 0 {
 					time.Sleep(remaining)
+				}
+				if err := credential.CheckCredential(t.Context()); !errors.Is(err, auth.ErrUnauthenticated) || !errors.Is(err, auth.ErrExpired) {
+					t.Errorf("credential checker survived original verified expiry: %v", err)
 				}
 				for _, credential := range actors {
 					actor, err := f.auth.ResolveTenantActor(t.Context(), credential)
@@ -187,6 +195,7 @@ func TestCriticalVerifiedCredentialExpiry(t *testing.T) {
 		}
 		actor, err := f.auth.ResolveTenantActor(t.Context(), verified)
 		noError(t, err)
+		noError(t, verified.(auth.CredentialChecker).CheckCredential(t.Context()))
 		if actor.AccountID != user.ID || actor.TenantID != f.tenant {
 			t.Fatalf("valid credential with old sign-in lost its source account: %+v", actor)
 		}
