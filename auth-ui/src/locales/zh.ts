@@ -1,6 +1,30 @@
 import type { AuthUiMessageBundle } from "../i18n/messages.ts"
 
 export const zh: AuthUiMessageBundle = {
+  notifications: {
+    newNotice: "您有一条新通知",
+    archived: "已归档",
+    dismiss: "归档",
+    restore: "恢复到收件箱",
+    dismissed: "已关闭",
+    title: "通知",
+    filter: "通知筛选",
+    all: "全部",
+    unread: "未读",
+    refresh: "刷新通知",
+    signInHint: "登录后可查看通知。",
+    signIn: "登录",
+    loadFailed: "无法加载通知。",
+    loading: "正在加载通知…",
+    empty: "暂无通知。",
+    emptyUnread: "没有未读通知。",
+    loadMore: "显示更多",
+    open: "需要处理",
+    resolved: "已解决",
+    markRead: "标为已读",
+    markUnread: "标为未读",
+    unreadLabel: "通知，有未读内容",
+  },
   common: {
     continue: "继续",
     cancel: "取消",

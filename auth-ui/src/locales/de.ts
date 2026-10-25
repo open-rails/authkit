@@ -1,6 +1,30 @@
 import type { AuthUiMessageBundle } from "../i18n/messages.ts"
 
 export const de: AuthUiMessageBundle = {
+  notifications: {
+    newNotice: "Du hast eine neue Benachrichtigung",
+    archived: "Archiviert",
+    dismiss: "Archivieren",
+    restore: "In den Posteingang verschieben",
+    dismissed: "Verworfen",
+    title: "Benachrichtigungen",
+    filter: "Benachrichtigungsfilter",
+    all: "Alle",
+    unread: "Ungelesen",
+    refresh: "Benachrichtigungen aktualisieren",
+    signInHint: "Melde dich an, um deine Benachrichtigungen zu sehen.",
+    signIn: "Anmelden",
+    loadFailed: "Benachrichtigungen konnten nicht geladen werden.",
+    loading: "Benachrichtigungen werden geladen…",
+    empty: "Noch keine Benachrichtigungen.",
+    emptyUnread: "Du bist auf dem neuesten Stand.",
+    loadMore: "Mehr anzeigen",
+    open: "Aktion erforderlich",
+    resolved: "Erledigt",
+    markRead: "Als gelesen markieren",
+    markUnread: "Als ungelesen markieren",
+    unreadLabel: "Benachrichtigungen, ungelesene Einträge",
+  },
   common: {
     continue: "Weiter",
     cancel: "Abbrechen",

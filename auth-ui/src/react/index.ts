@@ -72,4 +72,9 @@ export {
   type LinkedProvidersOptions,
   type VerifyLinkState,
 } from "./providers.ts"
-export { useNotifications } from "./notifications.ts"
+export {
+  useNotifications,
+  useNotificationInbox,
+  useNotificationUnread,
+  type NotificationInboxOptions,
+} from "./notifications.ts"
