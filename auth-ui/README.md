@@ -751,6 +751,7 @@ import { NotificationBell, NotificationInbox } from "@openrails/auth-ui"
 The default renderer shows plain-text `data.title` / `data.message`, with a
 localized fallback for an unknown payload. Use `renderItem(item)` and
 `renderActions(item)` for domain-specific wording and approved destination links.
+Return null/undefined from `renderItem` to retain the default for other kinds.
 The inbox handles read/unread, archive/restore, cursor pagination and refresh;
 producer withdrawal remains separate from those user actions. The bell reports
 whether unread items exist, and all mounted views refresh after an inbox change.

@@ -21,7 +21,7 @@ import { Spinner } from "../ui/spinner.tsx"
 import { relativeTime } from "./account/lib.ts"
 
 export interface NotificationInboxProps {
-  /** Host-owned rendering for every kind, including unknown future kinds. */
+  /** Custom content for known kinds; null/undefined uses the plain-text default. */
   renderItem?: (item: Item) => ReactNode
   /** Domain actions/links; the inbox itself never executes a source's workflow. */
   renderActions?: (item: Item) => ReactNode
@@ -236,7 +236,7 @@ function NotificationRow({
         </time>
       </div>
       <div id={label} className="min-w-0 break-words">
-        {renderItem ? renderItem(item) : <NotificationMessage item={item} />}
+        {renderItem?.(item) ?? <NotificationMessage item={item} />}
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {renderActions?.(item)}

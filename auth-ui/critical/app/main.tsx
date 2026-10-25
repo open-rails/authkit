@@ -148,7 +148,7 @@ export function App() {
           <div data-testid="notification-inbox">
             <NotificationInbox
               pageSize={1}
-              renderItem={(item) => <p>{item.origin.id}</p>}
+              renderItem={params.has("notification-default") ? () => null : (item) => <p>{item.origin.id}</p>}
             />
           </div>
         </>
