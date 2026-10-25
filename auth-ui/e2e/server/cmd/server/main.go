@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/auth-ui/e2e/server/harness"
 	"github.com/open-rails/authkit/iam"
 )
@@ -51,6 +52,17 @@ func run(addr, origin, dist, app string) error {
 	if err = rt.Start(ctx); err != nil {
 		return err
 	}
+	isolatedID, err := iam.ParseTenantID("00000000-0000-4000-8000-000000001291")
+	if err != nil {
+		return err
+	}
+	if err = rt.CreateTenant(ctx, iam.Tenant{ID: isolatedID}); err != nil {
+		return err
+	}
+	isolated, err := rt.ForTenant(ctx, isolatedID)
+	if err != nil {
+		return err
+	}
 	limited, err := harness.New(ctx, origin+"/limited", "critical_ui_limited", pool, "limited")
 	if err != nil {
 		return err
@@ -77,14 +89,23 @@ func run(addr, origin, dist, app string) error {
 	if err = unproved.Mount(mux); err != nil {
 		return err
 	}
-	fixture(mux, rt, unproved)
+	fixture(mux, rt, unproved, isolated)
 	mux.Handle("GET /__package/", http.StripPrefix("/__package/", http.FileServer(http.Dir(dist))))
 	mux.Handle("GET /__app/", http.StripPrefix("/__app/", http.FileServer(http.Dir(app))))
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = fmt.Fprint(w, `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/__package/styles.css"><title>AuthKit critical integration</title></head><body><div id="root"></div><script type="module" src="/__app/app.js"></script></body></html>`)
 	})
-	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	// A trusted host selects a directory without changing the public URL or
+	// DPoP target. Both views borrow the same real AuthKit runtime.
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Critical-Tenant") == "isolated" {
+			isolated.Handler().ServeHTTP(w, r)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
+	srv := &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 5 * time.Second}
 	failed := make(chan error, 1)
 	go func() { failed <- srv.ListenAndServe() }()
 	select {
@@ -109,7 +130,7 @@ func reply(w http.ResponseWriter, status int, value any) {
 
 // All controls seed through trusted public host methods. Outcomes under test are
 // observed through the real SDK/HTTP surface; no direct table mutations exist.
-func fixture(mux *http.ServeMux, rt, unproved *harness.Runtime) {
+func fixture(mux *http.ServeMux, rt, unproved *harness.Runtime, isolated *authkit.Client) {
 	mux.HandleFunc("GET /__fixture/deliveries", func(w http.ResponseWriter, r *http.Request) {
 		outbox := rt.Outbox
 		if r.URL.Query().Get("profile") == "unproved" {
@@ -120,18 +141,22 @@ func fixture(mux *http.ServeMux, rt, unproved *harness.Runtime) {
 	mux.HandleFunc("POST /__fixture/user", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			Email, Phone, Username, Password, RootRole string
-			Verified                                   bool
+			Verified, Isolated                         bool
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&in); err != nil {
 			reply(w, 400, map[string]string{"error": err.Error()})
 			return
 		}
-		u, err := rt.CreateUser(r.Context(), iam.NewUser{Email: in.Email, Phone: in.Phone, Username: in.Username, Password: in.Password, EmailVerified: in.Verified && in.Email != "", PhoneVerified: in.Verified && in.Phone != ""})
+		client := rt.Client
+		if in.Isolated {
+			client = isolated
+		}
+		u, err := client.CreateUser(r.Context(), iam.NewUser{Email: in.Email, Phone: in.Phone, Username: in.Username, Password: in.Password, EmailVerified: in.Verified && in.Email != "", PhoneVerified: in.Verified && in.Phone != ""})
 		if err == nil && in.RootRole != "" {
 			var role iam.Role
-			role, err = rt.Role("root:" + in.RootRole)
+			role, err = client.Role("root:" + in.RootRole)
 			if err == nil {
-				_, err = rt.EnsureUserRole(r.Context(), iam.RootGroup(), iam.UserByID(u.ID), role)
+				_, err = client.EnsureUserRole(r.Context(), iam.RootGroup(), iam.UserByID(u.ID), role)
 			}
 		}
 		if err != nil {
