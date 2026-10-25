@@ -228,4 +228,47 @@ test("AK-UI-15: TS contract: browser-bound access is usable only with its real D
     headers: { Authorization: headers.authorization, DPoP: headers.dpop },
   })
   expect(replay.status()).toBe(401)
+
+  // Same-origin native directories have separate cookies and session hints.
+  // Their DPoP storage must also remain independent across logout/reload.
+  const privateUser = await seed(request, { email: who.email, isolated: true })
+  expect(privateUser.id).not.toBe(who.id)
+  const privatePage = await page.context().newPage()
+  try {
+    await open(privatePage, "?bound&isolated")
+    expect((await login(privatePage, privateUser)).status).toBe("complete")
+    const privateClaims = await privatePage.evaluate(() => {
+      const token = window.ak.client.getAccessToken()!
+      return JSON.parse(
+        atob(token.split(".")[1].replaceAll("-", "+").replaceAll("_", "/"))
+      ) as {
+        sub: string
+        cnf: { jkt: string }
+      }
+    })
+    expect(privateClaims.sub).toBe(privateUser.id)
+    expect(privateClaims.cnf.jkt).toBeTruthy()
+    await privatePage.evaluate(() => window.ak.client.signOut())
+    await expect(privatePage.getByTestId("session-status")).toHaveText(
+      "anonymous"
+    )
+
+    await page.reload()
+    await expect(page.getByTestId("session-user")).toHaveText(who.id)
+    expect(
+      await page.evaluate(() =>
+        window.ak.client.getMe().then((user) => user?.id)
+      )
+    ).toBe(who.id)
+    expect(privateClaims.cnf.jkt).not.toBe(claims.cnf!.jkt)
+    await page.evaluate(() => window.ak.client.signOut())
+    await page.reload()
+    await expect(page.getByTestId("session-status")).toHaveText("anonymous")
+    await privatePage.reload()
+    await expect(privatePage.getByTestId("session-status")).toHaveText(
+      "anonymous"
+    )
+  } finally {
+    await privatePage.close()
+  }
 })

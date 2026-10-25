@@ -271,6 +271,7 @@ pkg authkit, type Deps struct, OnPurge func(context.Context, iam.UserDeletion) e
 pkg authkit, type Deps struct, Postgres *pgxpool.Pool
 pkg authkit, type Deps struct, Providers []provider.Provider
 pkg authkit, type Deps struct, Redis redis.UniversalClient
+pkg authkit, type Deps struct, RequestTenant func(*http.Request) (iam.TenantID, error)
 pkg authkit, type Deps struct, ResourceHosts func(context.Context, string) (bool, error)
 pkg authkit, type Deps struct, SMS config.SMSSender
 pkg authkit, type Deps struct, Wrap func(iam.Route, http.Handler) http.Handler

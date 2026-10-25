@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/auth-ui/e2e/server/harness"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/notify"
@@ -44,7 +45,19 @@ func run(addr, origin, dist, app string) error {
 		return err
 	}
 	defer pool.Close()
-	rt, err := harness.New(ctx, origin, "critical_ui", pool, "main")
+	isolatedID, err := iam.ParseTenantID("00000000-0000-4000-8000-000000001291")
+	if err != nil {
+		return err
+	}
+	// This loopback fixture maps one host-known selector to one provisioned
+	// directory. Selection runs through the same public mount as platform login.
+	requestTenant := func(r *http.Request) (iam.TenantID, error) {
+		if r.Header.Get("X-Critical-Tenant") == "isolated" {
+			return isolatedID, nil
+		}
+		return iam.TenantID{}, nil
+	}
+	rt, err := harness.New(ctx, origin, "critical_ui", pool, "main", requestTenant)
 	if err != nil {
 		return err
 	}
@@ -52,7 +65,14 @@ func run(addr, origin, dist, app string) error {
 	if err = rt.Start(ctx); err != nil {
 		return err
 	}
-	limited, err := harness.New(ctx, origin+"/limited", "critical_ui_limited", pool, "limited")
+	if err = rt.CreateTenant(ctx, iam.Tenant{ID: isolatedID}); err != nil {
+		return err
+	}
+	isolated, err := rt.ForTenant(ctx, isolatedID)
+	if err != nil {
+		return err
+	}
+	limited, err := harness.New(ctx, origin+"/limited", "critical_ui_limited", pool, "limited", nil)
 	if err != nil {
 		return err
 	}
@@ -60,7 +80,7 @@ func run(addr, origin, dist, app string) error {
 	if err = limited.Start(ctx); err != nil {
 		return err
 	}
-	unproved, err := harness.New(ctx, origin+"/unproved", "critical_ui_unproved", pool, "unproved")
+	unproved, err := harness.New(ctx, origin+"/unproved", "critical_ui_unproved", pool, "unproved", nil)
 	if err != nil {
 		return err
 	}
@@ -78,7 +98,7 @@ func run(addr, origin, dist, app string) error {
 	if err = unproved.Mount(mux); err != nil {
 		return err
 	}
-	fixture(mux, rt, unproved)
+	fixture(mux, rt, unproved, isolated)
 	mux.Handle("GET /__package/", http.StripPrefix("/__package/", http.FileServer(http.Dir(dist))))
 	mux.Handle("GET /__app/", http.StripPrefix("/__app/", http.FileServer(http.Dir(app))))
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
@@ -110,7 +130,7 @@ func reply(w http.ResponseWriter, status int, value any) {
 
 // All controls seed through trusted public host methods. Outcomes under test are
 // observed through the real SDK/HTTP surface; no direct table mutations exist.
-func fixture(mux *http.ServeMux, rt, unproved *harness.Runtime) {
+func fixture(mux *http.ServeMux, rt, unproved *harness.Runtime, isolated *authkit.Client) {
 	mux.HandleFunc("POST /__fixture/notification", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			UserID, ID string
@@ -146,18 +166,22 @@ func fixture(mux *http.ServeMux, rt, unproved *harness.Runtime) {
 	mux.HandleFunc("POST /__fixture/user", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			Email, Phone, Username, Password, RootRole string
-			Verified                                   bool
+			Verified, Isolated                         bool
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&in); err != nil {
 			reply(w, 400, map[string]string{"error": err.Error()})
 			return
 		}
-		u, err := rt.CreateUser(r.Context(), iam.NewUser{Email: in.Email, Phone: in.Phone, Username: in.Username, Password: in.Password, EmailVerified: in.Verified && in.Email != "", PhoneVerified: in.Verified && in.Phone != ""})
+		client := rt.Client
+		if in.Isolated {
+			client = isolated
+		}
+		u, err := client.CreateUser(r.Context(), iam.NewUser{Email: in.Email, Phone: in.Phone, Username: in.Username, Password: in.Password, EmailVerified: in.Verified && in.Email != "", PhoneVerified: in.Verified && in.Phone != ""})
 		if err == nil && in.RootRole != "" {
 			var role iam.Role
-			role, err = rt.Role("root:" + in.RootRole)
+			role, err = client.Role("root:" + in.RootRole)
 			if err == nil {
-				_, err = rt.EnsureUserRole(r.Context(), iam.RootGroup(), iam.UserByID(u.ID), role)
+				_, err = client.EnsureUserRole(r.Context(), iam.RootGroup(), iam.UserByID(u.ID), role)
 			}
 		}
 		if err != nil {

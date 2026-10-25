@@ -56,6 +56,20 @@ const client = observe(
     baseUrl,
     dpop: params.has("bound"),
     refreshLeadSeconds: 5,
+    ...(params.has("isolated")
+      ? {
+          sessionKeyName: "critical:isolated-session-key",
+          sessionHint: { key: "critical:isolated-session-hint" },
+          fetch: (input: RequestInfo | URL, init?: RequestInit) => {
+            const request = new Request(
+              new URL(String(input), location.href),
+              init
+            )
+            request.headers.set("X-Critical-Tenant", "isolated")
+            return fetch(request)
+          },
+        }
+      : {}),
   }),
   "AuthClient"
 )

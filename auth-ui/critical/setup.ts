@@ -47,7 +47,7 @@ export default async function setup() {
       },
     })
     const bin = path.join(temp, "authkit-critical-ui")
-    execFileSync("go", ["build", "-p", "2", "-o", bin, "./cmd/server"], {
+    execFileSync("go", ["build", "-p", "1", "-o", bin, "./cmd/server"], {
       cwd: path.join(root, "e2e/server"),
       env: { ...process.env, GOWORK: "off", GOMAXPROCS: "2" },
       stdio: "inherit",

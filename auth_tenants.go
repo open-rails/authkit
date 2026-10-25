@@ -3,10 +3,12 @@ package authkit
 import (
 	"context"
 	"errors"
+	"net/http"
 
 	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/engine"
+	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/tenancy"
 )
 
@@ -54,6 +56,29 @@ func (a *Client) operationContext(ctx context.Context) context.Context {
 		return engine.WithTenant(ctx, id)
 	}
 	return ctx
+}
+
+// requestContext selects once, outside the mount's proof-consuming guards.
+func (a *Client) requestContext(r *http.Request) (context.Context, error) {
+	ctx := a.operationContext(r.Context())
+	if a.deps.RequestTenant == nil {
+		return ctx, nil
+	}
+	id, err := a.deps.RequestTenant(r)
+	if err == nil && !id.IsZero() {
+		if !a.tenantID.IsZero() && id != a.tenantID {
+			err = iam.ErrTenantMismatch
+		} else if _, err = a.engine.Tenant(ctx, id); err == nil {
+			ctx = engine.WithTenant(ctx, id)
+		}
+	}
+	switch {
+	case errors.Is(err, iam.ErrTenantNotFound):
+		err = errmodel.E(errmodel.CodeNotFound)
+	case errors.Is(err, iam.ErrTenantMismatch), errors.Is(err, auth.ErrForbidden):
+		err = errmodel.E(errmodel.CodeForbidden)
+	}
+	return ctx, err
 }
 
 // TenantFromContext reports the account directory selected by AuthKit's trusted
