@@ -149,6 +149,8 @@ func (s *Service) routes(surface Surface, groups []iam.RouteGroup, wrap func(Rou
 func (s *Service) mounts(f Feature) bool {
 	cfg := s.cfg
 	switch f {
+	case FeatureNotifications:
+		return cfg.Notifications != nil
 	case Always:
 		return true
 	case FeaturePasskeys:

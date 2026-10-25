@@ -77,8 +77,8 @@ export function AdminRoot({
   )
   const scopeKey = JSON.stringify([baseUrl ?? "/api/v1", tenantId ?? null])
   const context = useMemo(
-    () => ({ client, guard, tenantId, scopeKey }),
-    [client, guard, tenantId, scopeKey]
+    () => ({ client, guard, tenantId, language, scopeKey }),
+    [client, guard, tenantId, language, scopeKey]
   )
   return (
     <AppearanceContext.Provider value={look}>

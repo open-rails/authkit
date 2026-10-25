@@ -26,6 +26,9 @@ type Config struct {
 	// in. New creates or upgrades them.
 	Database DatabaseConfig `yaml:"database"`
 
+	// Notifications enables the optional durable account inbox.
+	Notifications *NotificationsConfig `yaml:"notifications"`
+
 	// Token is the JWT issuing/verification contract and session limits.
 	Token TokenConfig `yaml:"token"`
 	// SignIn limits how sign-ins spread across accounts and devices: one

@@ -10,6 +10,7 @@ pkg authkit, const GrantClientCredentials config.OAuthGrantType = "client_creden
 pkg authkit, const GrantJWTBearer config.OAuthGrantType = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 pkg authkit, const GrantRefreshToken config.OAuthGrantType = "refresh_token"
 pkg authkit, const GrantTokenExchange config.OAuthGrantType = "urn:ietf:params:oauth:grant-type:token-exchange"
+pkg authkit, const NotificationDeliveryQueue untyped string = "authkit_notifications"
 pkg authkit, const OAuthClients config.PersonaOption = 4
 pkg authkit, const RemoteApplications config.PersonaOption = 2
 pkg authkit, func DefaultRateLimits() map[string]RateLimit
@@ -17,7 +18,9 @@ pkg authkit, func IfRole(iam.Role) Option
 pkg authkit, func InTx(pgx.Tx) Option
 pkg authkit, func IncludeDeleted() Option
 pkg authkit, func Migrate(context.Context, *pgxpool.Pool, DatabaseConfig, ...MigrationOptions) error
+pkg authkit, func MigrateNotifications(context.Context, *pgxpool.Pool, Config) error
 pkg authkit, func New(context.Context, Config, Deps) (*Client, error)
+pkg authkit, func NewNotificationDelivery(*pgxpool.Pool, string, map[string]RemoteNotificationConfig) (*NotificationDelivery, error)
 pkg authkit, func NewRemoteEventReader(RemoteEventConfig) (eventlog.Reader, error)
 pkg authkit, func NewRoles(...PersonaOption) *Roles
 pkg authkit, func ParseBootstrapManifestYAML([]byte) (iam.BootstrapManifest, error)
@@ -26,6 +29,7 @@ pkg authkit, func WithRiverClient(*river.Client[pgx.Tx]) StartOption
 pkg authkit, method (*Client) APIBase() string
 pkg authkit, method (*Client) AcceptAgreements(context.Context, string, []iam.AgreementRef, ...Option) error
 pkg authkit, method (*Client) AcceptRemoteInvitation(context.Context, auth.Verified, string) (iam.Role, error)
+pkg authkit, method (*Client) AdoptNotifications(context.Context, string, []notify.Adoption) error
 pkg authkit, method (*Client) AgreementsDue(context.Context, string) ([]iam.Agreement, error)
 pkg authkit, method (*Client) ApplyBootstrapManifest(context.Context, iam.BootstrapManifest, iam.BootstrapOptions, ...Option) (iam.BootstrapResult, error)
 pkg authkit, method (*Client) AuthenticateRequest(context.Context, *http.Request) (auth.Verified, error)
@@ -60,6 +64,7 @@ pkg authkit, method (*Client) EnsureUserRole(context.Context, iam.GroupRef, iam.
 pkg authkit, method (*Client) EventReader(...bool) eventlog.Reader
 pkg authkit, method (*Client) ForTenant(context.Context, iam.TenantID) (*Client, error)
 pkg authkit, method (*Client) GenerateUsername(context.Context) (string, error)
+pkg authkit, method (*Client) GetNotification(context.Context, string, string) (notify.Item, error)
 pkg authkit, method (*Client) Group(context.Context, iam.GroupRef) (iam.Group, error)
 pkg authkit, method (*Client) GroupOAuthClient(context.Context, iam.GroupRef, string) (iam.OAuthClient, error)
 pkg authkit, method (*Client) GroupOAuthClients(context.Context, iam.GroupRef) ([]iam.OAuthClient, error)
@@ -78,6 +83,7 @@ pkg authkit, method (*Client) ListGroupRoles(context.Context, iam.GroupRef) ([]i
 pkg authkit, method (*Client) ListGroups(context.Context, iam.GroupQuery) (iam.ListPage[iam.Group], error)
 pkg authkit, method (*Client) ListInvitations(context.Context, iam.GroupRef, iam.PageRequest) (iam.ListPage[iam.Invitation], error)
 pkg authkit, method (*Client) ListMemberships(context.Context, iam.Subject, iam.PageRequest) (iam.ListPage[iam.Membership], error)
+pkg authkit, method (*Client) ListNotifications(context.Context, string, notify.ListOptions) (notify.Page, error)
 pkg authkit, method (*Client) ListPersonalAccessTokens(context.Context, auth.Identity, iam.PageRequest) (iam.ListPage[iam.PersonalAccessToken], error)
 pkg authkit, method (*Client) ListRemoteApplications(context.Context, iam.GroupRef, iam.PageRequest) (iam.ListPage[iam.RemoteApplication], error)
 pkg authkit, method (*Client) ListSessionEvents(context.Context, string, iam.SessionEventQuery) (iam.ListPage[iam.SessionEvent], error)
@@ -86,6 +92,8 @@ pkg authkit, method (*Client) MigrateGroupPersona(context.Context, iam.GroupPers
 pkg authkit, method (*Client) MintAccessToken(context.Context, string, iam.AccessTokenOptions, ...Option) (iam.Token, error)
 pkg authkit, method (*Client) Mount(*http.ServeMux) error
 pkg authkit, method (*Client) NewVerifier([]string, ...verify.VerifierOption) (*Verifier, error)
+pkg authkit, method (*Client) NotificationScope() (string, error)
+pkg authkit, method (*Client) Notifications(string) (notify.Publisher, error)
 pkg authkit, method (*Client) OAuthConsents(context.Context, string) ([]iam.OAuthConsent, error)
 pkg authkit, method (*Client) PatchPublicMetadata(context.Context, auth.Identity, string, map[string]any, ...Option) error
 pkg authkit, method (*Client) Permission(string) (iam.Perm, error)
@@ -125,6 +133,8 @@ pkg authkit, method (*Client) SMSHealth() (time.Time, error)
 pkg authkit, method (*Client) Scope(context.Context, iam.GroupRef) (auth.Scope, error)
 pkg authkit, method (*Client) Sessions(context.Context, string) ([]iam.Session, error)
 pkg authkit, method (*Client) SetGroupRole(context.Context, auth.Identity, iam.GroupRef, iam.Subject, iam.Role, ...Option) (iam.GroupMember, error)
+pkg authkit, method (*Client) SetNotificationDismissed(context.Context, string, string, bool) (notify.Item, error)
+pkg authkit, method (*Client) SetNotificationRead(context.Context, string, string, bool) (notify.Item, error)
 pkg authkit, method (*Client) Start(context.Context, ...StartOption) error
 pkg authkit, method (*Client) TwoFactorMethods() []iam.TwoFactorMethod
 pkg authkit, method (*Client) Unban(context.Context, auth.Identity, string, ...Option) error
@@ -139,6 +149,8 @@ pkg authkit, method (*Client) Users(context.Context, []string) (map[string]iam.U
 pkg authkit, method (*Client) Verify(context.Context, string) (verify.Claims, error)
 pkg authkit, method (*Client) VerifyIDToken(context.Context, string) (iam.IDToken, error)
 pkg authkit, method (*Client) VerifyRequest(*http.Request) (verify.Claims, error)
+pkg authkit, method (*NotificationDelivery) Publisher(string) (notify.Publisher, error)
+pkg authkit, method (*NotificationDelivery) RiverJobs() river.Contribution
 pkg authkit, method (*PersonaDef) All() iam.Perm
 pkg authkit, method (*PersonaDef) Declare(...string) []iam.Perm
 pkg authkit, method (*PersonaDef) Expand([]iam.Perm) []iam.Perm
@@ -214,6 +226,7 @@ pkg authkit, type Config struct, HTTP *config.HTTPConfig `yaml:"http"`
 pkg authkit, type Config struct, Invitations config.InvitationsConfig `yaml:"invitations"`
 pkg authkit, type Config struct, Keys config.KeysConfig `yaml:"keys"`
 pkg authkit, type Config struct, Languages config.LanguageConfig `yaml:"languages"`
+pkg authkit, type Config struct, Notifications *config.NotificationsConfig `yaml:"notifications"`
 pkg authkit, type Config struct, Passkeys config.PasskeyConfig `yaml:"passkeys"`
 pkg authkit, type Config struct, Password config.PasswordPolicy `yaml:"password"`
 pkg authkit, type Config struct, PersonalAccessTokens config.PersonalAccessTokensConfig `yaml:"personal_access_tokens"`
@@ -331,6 +344,24 @@ pkg authkit, type MemberPerms struct, embedded config.Resource
 pkg authkit, type MigrationOptions = engine.MigrationOptions
 pkg authkit, type MigrationOptions struct
 pkg authkit, type MigrationOptions struct, LegacyTenantID iam.TenantID
+pkg authkit, type NotificationAdoption = notify.Adoption
+pkg authkit, type NotificationDelivery struct
+pkg authkit, type NotificationProducer = config.NotificationProducer
+pkg authkit, type NotificationProducer struct
+pkg authkit, type NotificationProducer struct, AppID string `yaml:"app_id"`
+pkg authkit, type NotificationProducer struct, Name string `yaml:"name"`
+pkg authkit, type NotificationProducer struct, Origin notify.OriginScope `yaml:"origin"`
+pkg authkit, type NotificationProducer struct, Permission string `yaml:"permission"`
+pkg authkit, type NotificationProducer struct, PermissionGroupID string `yaml:"permission_group_id"`
+pkg authkit, type NotificationProducer struct, TenantID iam.TenantID `yaml:"tenant_id"`
+pkg authkit, type NotificationProducer struct, Visibility notify.Visibility `yaml:"visibility"`
+pkg authkit, type NotificationsConfig = config.NotificationsConfig
+pkg authkit, type NotificationsConfig struct
+pkg authkit, type NotificationsConfig struct, AppID string `yaml:"app_id"`
+pkg authkit, type NotificationsConfig struct, LegacyOrigins []notify.OriginScope `yaml:"legacy_origins"`
+pkg authkit, type NotificationsConfig struct, Producers []config.NotificationProducer `yaml:"producers"`
+pkg authkit, type NotificationsConfig struct, Schema string `yaml:"schema"`
+pkg authkit, type NotificationsConfig struct, Scopes map[string]string `yaml:"scopes"`
 pkg authkit, type OAuthClientConfig = config.OAuthClientConfig
 pkg authkit, type OAuthClientConfig struct
 pkg authkit, type OAuthClientConfig struct, Agreements []string `yaml:"agreements"`
@@ -430,6 +461,11 @@ pkg authkit, type RemoteEventConfig struct, Authority bool
 pkg authkit, type RemoteEventConfig struct, BaseURL string
 pkg authkit, type RemoteEventConfig struct, HTTPClient *http.Client
 pkg authkit, type RemoteEventConfig struct, Headers http.Header
+pkg authkit, type RemoteNotificationConfig struct
+pkg authkit, type RemoteNotificationConfig struct, BaseURL string
+pkg authkit, type RemoteNotificationConfig struct, HTTPClient *http.Client
+pkg authkit, type RemoteNotificationConfig struct, Producer string
+pkg authkit, type RemoteNotificationConfig struct, Token func(context.Context) (string, error)
 pkg authkit, type Resource = config.Resource
 pkg authkit, type Resource struct
 pkg authkit, type ResourceConfig = config.ResourceConfig
@@ -514,6 +550,8 @@ pkg authkit, type UsernameConfig struct, RenameInterval time.Duration `yaml:"ren
 pkg authkit, type UsernameConfig struct, Renames bool `yaml:"renames"`
 pkg authkit, type Verifier struct
 pkg authkit, var ErrMigrationsRequired error
+pkg authkit, var ErrNotificationScopeConflict error
+pkg authkit, var ErrNotificationsDisabled error
 pkg authkit/adapters/fiber, const RouteNamePrefix untyped string = "authkit."
 pkg authkit/adapters/fiber, func Mount(*fiber.App, Surface) error
 pkg authkit/adapters/fiber, func Optional(verify.Authenticator) fiber.Handler
@@ -1847,6 +1885,96 @@ pkg authkit/keys, type Source interface, PublicKeys() map[string]crypto.PublicKe
 pkg authkit/keys, type Static struct
 pkg authkit/keys, type Static struct, Active Signer
 pkg authkit/keys, type Static struct, Public map[string]crypto.PublicKey
+pkg authkit/notify, const AudienceOperator Audience = "operator"
+pkg authkit/notify, const AudienceUser Audience = "user"
+pkg authkit/notify, const MaxMutations untyped int = 100
+pkg authkit/notify, const StatusDismissed Status = "dismissed"
+pkg authkit/notify, const StatusNotice Status = ""
+pkg authkit/notify, const StatusOpen Status = "open"
+pkg authkit/notify, const StatusResolved Status = "resolved"
+pkg authkit/notify, const VisibilityApp Visibility = "app"
+pkg authkit/notify, const VisibilityTenant Visibility = "tenant"
+pkg authkit/notify, func Validate(Input) (Input, error)
+pkg authkit/notify, func ValidateMutation(Mutation) (Mutation, error)
+pkg authkit/notify, func ValidatePublication(Publication) (Publication, error)
+pkg authkit/notify, func ValidateRecipient(Recipient) error
+pkg authkit/notify, func ValidateWithdrawal(Withdrawal) error
+pkg authkit/notify, type Adoption struct
+pkg authkit/notify, type Adoption struct, Current Mutation `json:"current"`
+pkg authkit/notify, type Adoption struct, Previous []Origin `json:"previous"`
+pkg authkit/notify, type AppView struct
+pkg authkit/notify, type AppView struct, AppID string
+pkg authkit/notify, type AppView struct, LegacyOrigins []OriginScope
+pkg authkit/notify, type Audience string
+pkg authkit/notify, type Input struct
+pkg authkit/notify, type Input struct, ActionRequested bool `json:"action_requested,omitempty"`
+pkg authkit/notify, type Input struct, AppID string `json:"app_id,omitempty"`
+pkg authkit/notify, type Input struct, CreatedAt time.Time `json:"created_at"`
+pkg authkit/notify, type Input struct, Data json.RawMessage `json:"data"`
+pkg authkit/notify, type Input struct, Kind string `json:"kind"`
+pkg authkit/notify, type Input struct, Origin Origin `json:"origin"`
+pkg authkit/notify, type Input struct, Recipient Recipient `json:"recipient"`
+pkg authkit/notify, type Input struct, Severity string `json:"severity,omitempty"`
+pkg authkit/notify, type Input struct, Status Status `json:"status,omitempty"`
+pkg authkit/notify, type Input struct, Visibility Visibility `json:"visibility,omitempty"`
+pkg authkit/notify, type Item struct
+pkg authkit/notify, type Item struct, DismissedAt *time.Time `json:"dismissed_at"`
+pkg authkit/notify, type Item struct, ID string `json:"id"`
+pkg authkit/notify, type Item struct, ProducerRevision int64 `json:"producer_revision,omitempty"`
+pkg authkit/notify, type Item struct, ReadAt *time.Time `json:"read_at"`
+pkg authkit/notify, type Item struct, ResolvedAt *time.Time `json:"resolved_at"`
+pkg authkit/notify, type Item struct, Revision int64 `json:"revision"`
+pkg authkit/notify, type Item struct, UpdatedAt time.Time `json:"updated_at"`
+pkg authkit/notify, type Item struct, Withdrawn bool `json:"withdrawn,omitempty"`
+pkg authkit/notify, type Item struct, embedded Input
+pkg authkit/notify, type ListOptions struct
+pkg authkit/notify, type ListOptions struct, Cursor string
+pkg authkit/notify, type ListOptions struct, Dismissed bool
+pkg authkit/notify, type ListOptions struct, Limit int
+pkg authkit/notify, type ListOptions struct, Status *Status
+pkg authkit/notify, type ListOptions struct, UnreadOnly bool
+pkg authkit/notify, type Mutation struct
+pkg authkit/notify, type Mutation struct, Revision int64 `json:"revision"`
+pkg authkit/notify, type Mutation struct, Withdrawn bool `json:"withdrawn,omitempty"`
+pkg authkit/notify, type Mutation struct, embedded Input
+pkg authkit/notify, type Origin struct
+pkg authkit/notify, type Origin struct, ID string `json:"id"`
+pkg authkit/notify, type Origin struct, Scope string `json:"scope"`
+pkg authkit/notify, type Origin struct, Subject string `json:"subject,omitempty"`
+pkg authkit/notify, type Origin struct, System string `json:"system"`
+pkg authkit/notify, type OriginScope struct
+pkg authkit/notify, type OriginScope struct, Scope string `json:"scope" yaml:"scope"`
+pkg authkit/notify, type OriginScope struct, System string `json:"system" yaml:"system"`
+pkg authkit/notify, type Page struct
+pkg authkit/notify, type Page struct, Items []Item `json:"items"`
+pkg authkit/notify, type Page struct, NextCursor string `json:"next_cursor,omitempty"`
+pkg authkit/notify, type Publication struct
+pkg authkit/notify, type Publication struct, ActionRequested bool
+pkg authkit/notify, type Publication struct, CreatedAt time.Time
+pkg authkit/notify, type Publication struct, Data json.RawMessage
+pkg authkit/notify, type Publication struct, ID string
+pkg authkit/notify, type Publication struct, Kind string
+pkg authkit/notify, type Publication struct, RecipientID string
+pkg authkit/notify, type Publication struct, Revision int64
+pkg authkit/notify, type Publication struct, Severity string
+pkg authkit/notify, type Publisher interface
+pkg authkit/notify, type Publisher interface, Publish(context.Context, []Publication, ...pgx.Tx) error
+pkg authkit/notify, type Publisher interface, Withdraw(context.Context, []Withdrawal, ...pgx.Tx) error
+pkg authkit/notify, type Reader interface
+pkg authkit/notify, type Reader interface, List(context.Context, Recipient, ListOptions) (Page, error)
+pkg authkit/notify, type Recipient struct
+pkg authkit/notify, type Recipient struct, Audience Audience `json:"audience"`
+pkg authkit/notify, type Recipient struct, ID string `json:"id"`
+pkg authkit/notify, type Status string
+pkg authkit/notify, type Visibility string
+pkg authkit/notify, type Withdrawal struct
+pkg authkit/notify, type Withdrawal struct, ID string
+pkg authkit/notify, type Withdrawal struct, RecipientID string
+pkg authkit/notify, type Withdrawal struct, Revision int64
+pkg authkit/notify, var ErrConflict error
+pkg authkit/notify, var ErrInvalid error
+pkg authkit/notify, var ErrNotFound error
+pkg authkit/notify, var ErrRecipientErased error
 pkg authkit/provider, func Apple(string, AppleSecret, ...Option) Provider
 pkg authkit/provider, func Discord(string, string, ...Option) Provider
 pkg authkit/provider, func GitHub(string, string, ...Option) Provider

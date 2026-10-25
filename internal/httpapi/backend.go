@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"context"
+	"github.com/open-rails/authkit/notify"
 	"net/http"
 
 	"github.com/open-rails/authkit/auth"
@@ -22,10 +24,17 @@ type Backend interface {
 	scimBackend
 	scimDirectoryBackend
 	resourceBackend
+	notificationsBackend
 }
 
 // resourceBackend authenticates every credential the deployment accepts:
 // its own, and with Config.Resource the access tokens minted for it.
 type resourceBackend interface {
 	Authenticate(r *http.Request) (auth.Verified, error)
+}
+
+// notificationsBackend is the trusted producer surface beside personal inbox reads.
+type notificationsBackend interface {
+	AuthorizeNotifications(context.Context, auth.Identity, string) error
+	ApplyNotifications(context.Context, string, []notify.Mutation) error
 }

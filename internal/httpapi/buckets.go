@@ -67,10 +67,13 @@ const (
 	// A directory's writes: a client provisioning its users one request each.
 	RLSCIMWrite = "scim_write"
 
-	RLMePasswordChange = "me_password_change"
-	RLMeRead           = "me_read"
-	RLMeUpdate         = "me_update"
-	RLStepUp2FASend    = "step_up_2fa_send"
+	RLMePasswordChange     = "me_password_change"
+	RLNotificationsRead    = "notifications_read"
+	RLNotificationsWrite   = "notifications_write"
+	RLNotificationsPublish = "notifications_publish"
+	RLMeRead               = "me_read"
+	RLMeUpdate             = "me_update"
+	RLStepUp2FASend        = "step_up_2fa_send"
 	// Step-up by a code to a proven address, a wallet or a passkey.
 	RLStepUpCodeSend  = "step_up_code_send"
 	RLStepUpCode      = "step_up_code"
@@ -170,6 +173,9 @@ var buckets = map[string]ratelimit.Limit{
 	RLSessionRevoke:        {Limit: 60, Window: 10 * time.Minute},
 	RLSessionRevokeAll:     {Limit: 20, Window: time.Hour},
 	RLMePasswordChange:     {Limit: 6, Window: time.Hour},
+	RLNotificationsRead:    {Limit: 120, Window: time.Minute},
+	RLNotificationsWrite:   {Limit: 120, Window: time.Minute},
+	RLNotificationsPublish: {Limit: 300, Window: time.Minute},
 	RLMeRead:               {Limit: 120, Window: time.Minute},
 	RLUsersRead:            {Limit: 120, Window: time.Minute},
 	RLMeUpdate:             {Limit: 24, Window: time.Hour},

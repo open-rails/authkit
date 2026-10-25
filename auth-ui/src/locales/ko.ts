@@ -1,6 +1,30 @@
 import type { AuthUiMessageBundle } from "../i18n/messages.ts"
 
 export const ko: AuthUiMessageBundle = {
+  notifications: {
+    newNotice: "새 알림이 있습니다",
+    archived: "보관됨",
+    dismiss: "보관",
+    restore: "받은 알림으로 복원",
+    dismissed: "취소됨",
+    title: "알림",
+    filter: "알림 필터",
+    all: "전체",
+    unread: "읽지 않음",
+    refresh: "알림 새로고침",
+    signInHint: "알림을 보려면 로그인하세요.",
+    signIn: "로그인",
+    loadFailed: "알림을 불러오지 못했습니다.",
+    loading: "알림을 불러오는 중…",
+    empty: "아직 알림이 없습니다.",
+    emptyUnread: "모든 알림을 확인했습니다.",
+    loadMore: "더 보기",
+    open: "조치 필요",
+    resolved: "해결됨",
+    markRead: "읽음으로 표시",
+    markUnread: "읽지 않음으로 표시",
+    unreadLabel: "알림, 읽지 않은 항목 있음",
+  },
   common: {
     continue: "계속",
     cancel: "취소",

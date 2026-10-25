@@ -1,13 +1,17 @@
+/** A date and time in the reader's language, or the browser's for a tag it can't read. */
 export const dateTime = (
   value: string | null | undefined,
   language?: string
-) =>
-  value
-    ? new Date(value).toLocaleString(language, {
-        dateStyle: "medium",
-        timeStyle: "short",
-      })
-    : ""
+) => {
+  if (!value) return ""
+  const date = new Date(value)
+  const style = { dateStyle: "medium", timeStyle: "short" } as const
+  try {
+    return date.toLocaleString(language, style)
+  } catch {
+    return date.toLocaleString(undefined, style)
+  }
+}
 
 /** A user agent as its browser and operating system, or null when unknown. */
 export const browserAndOS = (ua: string | null | undefined) => {

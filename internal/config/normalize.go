@@ -62,6 +62,9 @@ func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 	if c.Database.Schema, err = NormalizeSchema(c.Database.Schema); err != nil {
 		return Config{}, nil, err
 	}
+	if err := normalizeNotifications(&c); err != nil {
+		return Config{}, nil, err
+	}
 	if err := normalizeToken(&c.Token); err != nil {
 		return Config{}, nil, err
 	}

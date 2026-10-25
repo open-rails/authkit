@@ -15,7 +15,9 @@
     "AK-UI-13",
     "AK-UI-14",
     "AK-UI-15",
-    "AK-UI-16"
+    "AK-UI-16",
+    "AK-UI-17",
+    "AK-UI-18"
   ],
   "requiredScenarioIDs": [
     "AK-J29-C01",
@@ -24,7 +26,9 @@
     "AK-J29-C04",
     "AK-J29-C05",
     "AK-J29-C06",
-    "AK-J29-C07"
+    "AK-J29-C07",
+    "AK-J29-C08",
+    "AK-J29-C09"
   ],
   "requiredClientMethods": [
     "AdminClient.banUser",
@@ -104,6 +108,12 @@
     "AuthClient.stop",
     "AuthClient.subscribe",
     "AuthClient.verifyTwoFactor",
+    "AuthClient.notifications.list",
+    "AuthClient.notifications.get",
+    "AuthClient.notifications.setRead",
+    "AuthClient.notifications.setDismissed",
+    "AuthClient.notifications.subscribe",
+    "AuthClient.notifications.refresh",
     "IssuerClient.getIDToken",
     "IssuerClient.signIn",
     "IssuerClient.signOut"

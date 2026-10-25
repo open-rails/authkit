@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Admin dates and language names follow the admin root's `language` instead of the browser locale, and entitlements read as titles ("Premium"), the way roles do.
+
+- Native account notification inbox and bell components, plus the shared inbox hook, use the AuthKit notification client directly. Cursor pagination, keyboard handling, read/archive state, unseen withdrawal and account-switch invalidation are covered by the real-service browser suite. The existing notification-page hook retains its awaited refresh contract.
+
 - `readStepUpRequired` (and so `useStepUpGuard`) also recognizes another API client's step-up error: status 401, code `step_up_required` and valid `step_up_methods` metadata, as OpenRails billing-ui throws. Re-authenticating retries the original write.
 
 - Required enrollment offers platform passkeys and FIDO2 security keys with PIN/biometric user verification. Passkey sign-in requires no redundant OTP. Passkey-only account settings expose backup-code generation; recovery-only login challenges use a text code field and the backup-proof protocol.

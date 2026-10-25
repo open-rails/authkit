@@ -408,6 +408,7 @@ type WebAuthnCredential = json.RawMessage
 
 // Capabilities is the public, static feature discovery.
 type Capabilities struct {
+	Notifications          bool                     `json:"notifications"`
 	Registration           RegistrationCapabilities `json:"registration"`
 	ExternalLoginProviders []ExternalLoginProvider  `json:"external_login_providers"`
 	Username               UsernameCapabilities     `json:"username"`

@@ -13,6 +13,7 @@ import (
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/keys"
+	"github.com/open-rails/authkit/notify"
 )
 
 const Persona = "project"
@@ -59,6 +60,7 @@ func New(ctx context.Context, origin, schema string, pool *pgxpool.Pool, profile
 	outbox := &authtest.Outbox{}
 	cfg := authkit.Config{
 		DefaultTenantID:      tenant,
+		Notifications:        &authkit.NotificationsConfig{Schema: schema, AppID: "critical-browser", Producers: []authkit.NotificationProducer{{Name: "application", TenantID: tenant, Origin: notify.OriginScope{System: "application", Scope: "critical-browser"}, Visibility: notify.VisibilityApp, AppID: "critical-browser"}}},
 		Roles:                roles,
 		HTTP:                 &authkit.HTTPConfig{DirectPeerIP: true, RefreshCookie: true, RateLimits: limits},
 		Database:             authkit.DatabaseConfig{Schema: schema},

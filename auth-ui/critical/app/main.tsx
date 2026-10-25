@@ -9,10 +9,17 @@ import {
 import { createAdminClient } from "@openrails/auth-ui/admin"
 import {
   AccountSecurity,
+  NotificationBell,
+  NotificationInbox,
   AuthUiProvider,
   SignInDialog,
 } from "@openrails/auth-ui"
-import { AuthProvider, useSession, useUser } from "@openrails/auth-ui/react"
+import {
+  AuthProvider,
+  useSession,
+  useUser,
+  useNotifications,
+} from "@openrails/auth-ui/react"
 
 const params = new URLSearchParams(location.search)
 const baseUrl = params.has("limited")
@@ -27,6 +34,11 @@ function observe<T extends object>(target: T, boundary: string): T {
   return new Proxy(target, {
     get(object, property, receiver) {
       const value = Reflect.get(object, property, receiver)
+      if (property === "notifications" && value && typeof value === "object") {
+        if (!wrappers.has(property))
+          wrappers.set(property, observe(value, `${boundary}.notifications`))
+        return wrappers.get(property)
+      }
       if (typeof value !== "function") return value
       if (!wrappers.has(property))
         wrappers.set(property, (...args: unknown[]) => {
@@ -111,6 +123,18 @@ Object.assign(window, {
   },
 })
 
+function NotificationProbe() {
+  const inbox = useNotifications()
+  return (
+    <>
+      <output data-testid="notification-count">{inbox.items.length}</output>
+      <output data-testid="notification-first">
+        {inbox.items[0]?.id ?? ""}
+      </output>
+    </>
+  )
+}
+
 export function App() {
   const session = useSession()
   const { user } = useUser()
@@ -131,6 +155,18 @@ export function App() {
       <output data-testid="session-user">
         {session.status === "authenticated" ? session.userId : ""}
       </output>
+      {params.has("notifications") && <NotificationProbe />}
+      {params.has("notification-widgets") && (
+        <>
+          <NotificationBell renderItem={(item) => <p>{item.origin.id}</p>} />
+          <div data-testid="notification-inbox">
+            <NotificationInbox
+              pageSize={1}
+              renderItem={params.has("notification-default") ? () => null : (item) => <p>{item.origin.id}</p>}
+            />
+          </div>
+        </>
+      )}
       <output data-testid="profile-email">{user?.email ?? ""}</output>
       <button onClick={() => setOpen(true)}>Open sign in</button>
       <button onClick={() => void client.signOut()}>Sign out</button>

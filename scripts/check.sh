@@ -11,6 +11,7 @@ if [[ -z "${AUTHKIT_TEST_DATABASE_URL:-}" ]]; then
 fi
 export AUTHKIT_TEST_REDIS_URL=${AUTHKIT_TEST_REDIS_URL:-redis://127.0.0.1:36379/0}
 export AUTHKIT_TEST_REQUIRE_DB=1
+export NOTIFY_TEST_DATABASE_URL="$AUTHKIT_TEST_DATABASE_URL"
 # AuthKit's SQL is schema-neutral; sqlc's live PREPARE checks must resolve it
 # against the same default namespace used by the integration pool.
 if [[ "$AUTHKIT_TEST_DATABASE_URL" == *\?* ]]; then
@@ -27,7 +28,7 @@ go run ./internal/cmd/migrate \
 
 if [[ "$mode" != contracts ]]; then
   mkdir -p .reports
-  go test -race -count=1 -p 1 -json ./critical \
+  go test -race -count=1 -p 1 -json ./critical ./notify/... \
     | tee .reports/go-test.json | jq -rj 'select(.Output != null) | .Output'
   python3 scripts/check_critical_results.py .reports/go-test.json
 fi

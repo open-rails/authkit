@@ -118,6 +118,9 @@ func (s *Engine) CreateTenant(ctx context.Context, tenant iam.Tenant) error {
 		if _, err := db.New(st.q).TenantCreate(ctx, tenant.ID.String()); err != nil {
 			return err
 		}
+		if err := bindNotificationScope(ctx, st.q, s.cfg.Database, s.cfg.Notifications, tenant.ID, true); err != nil {
+			return err
+		}
 		g, err := st.groupByID(ctx, tenant.ID.String())
 		if err == nil {
 			if g.Persona != iam.TenantPersona() || g.TenantID != tenant.ID {

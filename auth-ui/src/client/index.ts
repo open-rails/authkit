@@ -2,6 +2,7 @@ export { createAuthClient, readLinkFragment } from "./client.ts"
 export type {
   AuthClient,
   AuthClientOptions,
+  NotificationListOptions,
   AuthSession,
   ContactProofHandler,
   ContactProofRequest,
