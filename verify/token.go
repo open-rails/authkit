@@ -65,6 +65,7 @@ func (v *Verifier) verify(ctx context.Context, token string, r *http.Request) (C
 	if err != nil {
 		return Claims{}, err
 	}
+	cl.ValidUntil = cl.ExpiresAt.Add(v.skew)
 	if cl.IsResourceToken() && !is.local {
 		// Only this deployment's device keys mean anything here (#437).
 		cl.DeviceKeyID = ""
@@ -133,6 +134,7 @@ func profile(typ string, mc map[string]any) (Claims, error) {
 		}
 	}
 	cl.EmailVerified, _ = mc["email_verified"].(bool)
+	cl.ExpiresAt, _ = jose.Time(mc, "exp") // parse already required and validated exp
 	if cl.Username == "" && isResource {
 		cl.Username = jose.String(mc, "preferred_username")
 	}

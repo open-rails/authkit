@@ -39,6 +39,11 @@ type Claims struct {
 	JOSEType string
 	// Issuer is the validated iss.
 	Issuer string
+	// ExpiresAt is the signature-verified JWT exp claim. ValidUntil includes
+	// the accepting verifier's clock-skew allowance. Both are zero for API
+	// keys and personal tokens, whose stored lifetime is checked live.
+	ExpiresAt  time.Time
+	ValidUntil time.Time
 	// TenantID is the signed account owner, never a requested target scope.
 	TenantID string
 
