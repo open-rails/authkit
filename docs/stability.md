@@ -19,6 +19,7 @@ The covered API is every exported identifier of the packages below, with its doc
 | `keys` | signing keys: `Source`, `Signer`, `Watch`, JWK and JWKS |
 | `provider` | social sign-in providers |
 | `devicekey` | the device-key client, its signing domains and capabilities |
+| `notify` | account notification types and the scoped `Publisher` contract |
 | `adapters/gin`, `adapters/fiber` | mounting on Gin or Fiber, and the middleware |
 | `adapters/smtp`, `adapters/twilio` | the email (SMTP) and SMS (Twilio) senders |
 | `auth`, `userinfo` | provider-neutral authentication and user-directory contracts; standard library only |

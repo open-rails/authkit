@@ -1885,6 +1885,96 @@ pkg authkit/keys, type Source interface, PublicKeys() map[string]crypto.PublicKe
 pkg authkit/keys, type Static struct
 pkg authkit/keys, type Static struct, Active Signer
 pkg authkit/keys, type Static struct, Public map[string]crypto.PublicKey
+pkg authkit/notify, const AudienceOperator Audience = "operator"
+pkg authkit/notify, const AudienceUser Audience = "user"
+pkg authkit/notify, const MaxMutations untyped int = 100
+pkg authkit/notify, const StatusDismissed Status = "dismissed"
+pkg authkit/notify, const StatusNotice Status = ""
+pkg authkit/notify, const StatusOpen Status = "open"
+pkg authkit/notify, const StatusResolved Status = "resolved"
+pkg authkit/notify, const VisibilityApp Visibility = "app"
+pkg authkit/notify, const VisibilityTenant Visibility = "tenant"
+pkg authkit/notify, func Validate(Input) (Input, error)
+pkg authkit/notify, func ValidateMutation(Mutation) (Mutation, error)
+pkg authkit/notify, func ValidatePublication(Publication) (Publication, error)
+pkg authkit/notify, func ValidateRecipient(Recipient) error
+pkg authkit/notify, func ValidateWithdrawal(Withdrawal) error
+pkg authkit/notify, type Adoption struct
+pkg authkit/notify, type Adoption struct, Current Mutation `json:"current"`
+pkg authkit/notify, type Adoption struct, Previous []Origin `json:"previous"`
+pkg authkit/notify, type AppView struct
+pkg authkit/notify, type AppView struct, AppID string
+pkg authkit/notify, type AppView struct, LegacyOrigins []OriginScope
+pkg authkit/notify, type Audience string
+pkg authkit/notify, type Input struct
+pkg authkit/notify, type Input struct, ActionRequested bool `json:"action_requested,omitempty"`
+pkg authkit/notify, type Input struct, AppID string `json:"app_id,omitempty"`
+pkg authkit/notify, type Input struct, CreatedAt time.Time `json:"created_at"`
+pkg authkit/notify, type Input struct, Data json.RawMessage `json:"data"`
+pkg authkit/notify, type Input struct, Kind string `json:"kind"`
+pkg authkit/notify, type Input struct, Origin Origin `json:"origin"`
+pkg authkit/notify, type Input struct, Recipient Recipient `json:"recipient"`
+pkg authkit/notify, type Input struct, Severity string `json:"severity,omitempty"`
+pkg authkit/notify, type Input struct, Status Status `json:"status,omitempty"`
+pkg authkit/notify, type Input struct, Visibility Visibility `json:"visibility,omitempty"`
+pkg authkit/notify, type Item struct
+pkg authkit/notify, type Item struct, DismissedAt *time.Time `json:"dismissed_at"`
+pkg authkit/notify, type Item struct, ID string `json:"id"`
+pkg authkit/notify, type Item struct, ProducerRevision int64 `json:"producer_revision,omitempty"`
+pkg authkit/notify, type Item struct, ReadAt *time.Time `json:"read_at"`
+pkg authkit/notify, type Item struct, ResolvedAt *time.Time `json:"resolved_at"`
+pkg authkit/notify, type Item struct, Revision int64 `json:"revision"`
+pkg authkit/notify, type Item struct, UpdatedAt time.Time `json:"updated_at"`
+pkg authkit/notify, type Item struct, Withdrawn bool `json:"withdrawn,omitempty"`
+pkg authkit/notify, type Item struct, embedded Input
+pkg authkit/notify, type ListOptions struct
+pkg authkit/notify, type ListOptions struct, Cursor string
+pkg authkit/notify, type ListOptions struct, Dismissed bool
+pkg authkit/notify, type ListOptions struct, Limit int
+pkg authkit/notify, type ListOptions struct, Status *Status
+pkg authkit/notify, type ListOptions struct, UnreadOnly bool
+pkg authkit/notify, type Mutation struct
+pkg authkit/notify, type Mutation struct, Revision int64 `json:"revision"`
+pkg authkit/notify, type Mutation struct, Withdrawn bool `json:"withdrawn,omitempty"`
+pkg authkit/notify, type Mutation struct, embedded Input
+pkg authkit/notify, type Origin struct
+pkg authkit/notify, type Origin struct, ID string `json:"id"`
+pkg authkit/notify, type Origin struct, Scope string `json:"scope"`
+pkg authkit/notify, type Origin struct, Subject string `json:"subject,omitempty"`
+pkg authkit/notify, type Origin struct, System string `json:"system"`
+pkg authkit/notify, type OriginScope struct
+pkg authkit/notify, type OriginScope struct, Scope string `json:"scope" yaml:"scope"`
+pkg authkit/notify, type OriginScope struct, System string `json:"system" yaml:"system"`
+pkg authkit/notify, type Page struct
+pkg authkit/notify, type Page struct, Items []Item `json:"items"`
+pkg authkit/notify, type Page struct, NextCursor string `json:"next_cursor,omitempty"`
+pkg authkit/notify, type Publication struct
+pkg authkit/notify, type Publication struct, ActionRequested bool
+pkg authkit/notify, type Publication struct, CreatedAt time.Time
+pkg authkit/notify, type Publication struct, Data json.RawMessage
+pkg authkit/notify, type Publication struct, ID string
+pkg authkit/notify, type Publication struct, Kind string
+pkg authkit/notify, type Publication struct, RecipientID string
+pkg authkit/notify, type Publication struct, Revision int64
+pkg authkit/notify, type Publication struct, Severity string
+pkg authkit/notify, type Publisher interface
+pkg authkit/notify, type Publisher interface, Publish(context.Context, []Publication, ...pgx.Tx) error
+pkg authkit/notify, type Publisher interface, Withdraw(context.Context, []Withdrawal, ...pgx.Tx) error
+pkg authkit/notify, type Reader interface
+pkg authkit/notify, type Reader interface, List(context.Context, Recipient, ListOptions) (Page, error)
+pkg authkit/notify, type Recipient struct
+pkg authkit/notify, type Recipient struct, Audience Audience `json:"audience"`
+pkg authkit/notify, type Recipient struct, ID string `json:"id"`
+pkg authkit/notify, type Status string
+pkg authkit/notify, type Visibility string
+pkg authkit/notify, type Withdrawal struct
+pkg authkit/notify, type Withdrawal struct, ID string
+pkg authkit/notify, type Withdrawal struct, RecipientID string
+pkg authkit/notify, type Withdrawal struct, Revision int64
+pkg authkit/notify, var ErrConflict error
+pkg authkit/notify, var ErrInvalid error
+pkg authkit/notify, var ErrNotFound error
+pkg authkit/notify, var ErrRecipientErased error
 pkg authkit/provider, func Apple(string, AppleSecret, ...Option) Provider
 pkg authkit/provider, func Discord(string, string, ...Option) Provider
 pkg authkit/provider, func GitHub(string, string, ...Option) Provider
