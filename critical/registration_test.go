@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit"
@@ -183,7 +184,8 @@ func TestCriticalRegistration(t *testing.T) {
 		// address, and a second sign-up never reaches a pending one's code.
 		const attempt = "Attempt-password-42"
 		holder := f.user(t)
-		for i, address := range []string{"never-registered@example.com", holder.Email} {
+		free := fmt.Sprintf("never-registered-%d@example.com", time.Now().UnixNano())
+		for i, address := range []string{free, holder.Email} {
 			name := fmt.Sprintf("probename%d", i)
 			signUp := func(username string) response {
 				return f.call(t, "POST", "/register", "", map[string]string{"identifier": address, "username": username, "password": attempt})
@@ -208,6 +210,17 @@ func TestCriticalRegistration(t *testing.T) {
 			decode(t, r.body, &login)
 			if login.Status != "verification_required" || login.Tokens != nil {
 				t.Fatalf("sign-up %d password answered %s", i, r.body)
+			}
+			for range 6 {
+				f.call(t, "POST", "/password/login", "", map[string]string{"identifier": address, "password": attempt}).want(t, http.StatusOK, "")
+			}
+			sent := iam.MessageVerification
+			if i == 1 {
+				sent = iam.MessageAccountExists
+			}
+			// The sign-up's message plus six re-sends; the seventh sign-in sends nothing.
+			if got := len(f.out.Messages(sent, address)); got != 7 {
+				t.Fatalf("sign-up %d sent %d messages to its address, want 7", i, got)
 			}
 			f.call(t, "POST", "/register/abandon", "", map[string]string{"identifier": address, "password": attempt}).want(t, http.StatusNoContent, "")
 			if held() {

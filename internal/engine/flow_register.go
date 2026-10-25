@@ -202,6 +202,27 @@ func (s *Engine) registerTakenContact(ctx context.Context, kind pendingChangeKin
 	return s.notifyAccountExists(ctx, notifyChannel(kind), target)
 }
 
+// renewTakenRegistration gives a placeholder a fresh lifetime wherever a
+// re-send renews a real pending sign-up, so its expiry matches one. It does
+// nothing when no pending record holds the target.
+func (s *Engine) renewTakenRegistration(ctx context.Context, kind pendingChangeKind, target string) error {
+	rec, ok, err := s.pendingChangeByTarget(ctx, kind, target)
+	if err != nil || !ok {
+		return err
+	}
+	return s.storePendingChange(ctx, pendingChange{
+		Kind:               kind,
+		Target:             rec.Target,
+		Username:           rec.Username,
+		PasswordHash:       rec.PasswordHash,
+		PreferredLanguage:  rec.PreferredLanguage,
+		AccountInviteToken: rec.AccountInviteToken,
+		Agreements:         rec.Agreements,
+		CodeHash:           secret.Hash(secret.Token(32)),
+		LinkHash:           secret.Hash(secret.Token(32)),
+	}, kind.defaultTTL())
+}
+
 func notifyChannel(kind pendingChangeKind) string {
 	if kind.isEmail() {
 		return "email"

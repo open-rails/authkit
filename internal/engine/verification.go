@@ -39,6 +39,9 @@ func (s *Engine) RequestEmailVerification(ctx context.Context, email string, ttl
 			return err
 		}
 		if u != nil {
+			if err := s.renewTakenRegistration(ctx, kindRegisterEmail, email); err != nil {
+				return err
+			}
 			if u.EmailVerified {
 				return nil
 			}
@@ -95,6 +98,9 @@ func (s *Engine) RequestPhoneVerification(ctx context.Context, phone string, ttl
 			return err
 		}
 		if u != nil {
+			if err := s.renewTakenRegistration(ctx, kindRegisterPhone, phone); err != nil {
+				return err
+			}
 			if u.PhoneVerified || u.PhoneNumber == nil {
 				return nil
 			}
