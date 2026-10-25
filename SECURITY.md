@@ -17,7 +17,7 @@ The critical suite uses real PostgreSQL, Redis, HTTP servers and public clients.
 | Contract | Critical regression coverage |
 |---|---|
 | Host operations such as bootstrap/import are trusted embedded capabilities. A fabricated identity does not gain request authority; unverified imported contacts cannot be adopted for privileged provisioning. | AK-J02, AK-J15 |
-| With verification required, an account with no proven contact never signs in on its password alone: while no channel can send its code the sign-in is refused and logged. | AK-J04-C06 |
+| With verification required, an account whose email or phone is unproven, and which has no proven contact, never signs in on its password alone: while no channel can send its code the sign-in is refused and logged. | AK-J04-C06 |
 | Public identity projections exclude private contact and credential data. Tenant-bound lookups retain the selected directory and do not reidentify an actor. | AK-J02-C01/C05 |
 | Permissions come from live authority, not role claims supplied by the caller. Group and personal credentials stay within their issuer, scope and permission ceiling. | AK-J15, AK-J16, AK-J17 |
 | Asymmetric JWT verification rejects wrong keys, algorithms, token profiles, issuer, audience and expired/future time bounds. DPoP binds proofs to key, request and token, with replay protection. | AK-J13, AK-J14 |
