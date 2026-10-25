@@ -45,6 +45,7 @@ func boundIdentity(c Claims) (auth.Identity, bool) {
 		}
 		bound = iam.InTenant(bound, tenant)
 	}
+	bound = iam.Until(bound, c.ValidUntil)
 	id.Credential = id.Credential.WithState(bound.Credential.State())
 	return id, true
 }

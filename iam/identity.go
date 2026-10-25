@@ -3,6 +3,7 @@ package iam
 import (
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/open-rails/authkit/auth"
 )
@@ -48,6 +49,9 @@ type CredentialState struct {
 	group string
 	// tenant is verified source-account ownership, not a target selector.
 	tenant TenantID
+	// validUntil is a verified credential's effective deadline, including the
+	// accepting verifier's clock skew. Zero means no deadline was recorded.
+	validUntil time.Time
 }
 
 // StateOf is AuthKit's state of id's credential; false when it has none.
@@ -66,6 +70,27 @@ func (s CredentialState) bind(id auth.Identity) auth.Identity {
 }
 
 func (s CredentialState) TenantID() TenantID { return s.tenant }
+
+// ValidUntil is the effective deadline retained from credential verification.
+// A zero value means the trusted identity has no recorded credential deadline.
+func (s CredentialState) ValidUntil() time.Time { return s.validUntil }
+
+// Until records a verified credential's effective deadline on a trusted native
+// identity. It only narrows an existing deadline: zero or a later deadline never
+// removes or extends one. The sealed state survives Identity-preserving request
+// wrappers, so native source-account resolution can enforce it without verifying
+// a request again. Like InTenant, this constructor must not consume unverified
+// input. An identity without AuthKit's credential state remains unauthorized.
+func Until(id auth.Identity, deadline time.Time) auth.Identity {
+	s, ok := StateOf(id)
+	if !ok {
+		return auth.Identity{}
+	}
+	if !deadline.IsZero() && (s.validUntil.IsZero() || deadline.Before(s.validUntil)) {
+		s.validUntil = deadline
+	}
+	return s.bind(id)
+}
 
 // InTenant records source-account ownership on a trusted identity. Like the
 // other native identity constructors, it must never consume unverified input.

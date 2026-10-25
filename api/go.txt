@@ -1063,6 +1063,7 @@ pkg authkit/iam, func RootPersona() Persona
 pkg authkit/iam, func StateOf(auth.Identity) (CredentialState, bool)
 pkg authkit/iam, func SystemIdentity() auth.Identity
 pkg authkit/iam, func TenantPersona() Persona
+pkg authkit/iam, func Until(auth.Identity, time.Time) auth.Identity
 pkg authkit/iam, func UserByEmail(string) UserRef
 pkg authkit/iam, func UserByID(string) UserRef
 pkg authkit/iam, func UserByPhone(string) UserRef
@@ -1096,6 +1097,7 @@ pkg authkit/iam, method (CredentialState) Session() (SessionRef, bool)
 pkg authkit/iam, method (CredentialState) String() string
 pkg authkit/iam, method (CredentialState) SubjectKind() auth.SubjectKind
 pkg authkit/iam, method (CredentialState) TenantID() TenantID
+pkg authkit/iam, method (CredentialState) ValidUntil() time.Time
 pkg authkit/iam, method (Event) MarshalJSON() ([]byte, error)
 pkg authkit/iam, method (GroupRef) ID() string
 pkg authkit/iam, method (GroupRef) IsRoot() bool
