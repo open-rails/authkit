@@ -466,9 +466,9 @@ export type NotificationItem = {
   kind: string
   data: unknown
   created_at: string
-  visibility?: string
+  visibility?: "app" | "tenant"
   app_id?: string
-  status?: string
+  status?: "" | "dismissed" | "open" | "resolved"
   action_requested?: boolean
   severity?: string
   read_at: string | null
@@ -486,9 +486,9 @@ export type NotificationMutation = {
   kind?: string
   data?: unknown
   created_at?: string
-  visibility?: string
+  visibility?: "app" | "tenant"
   app_id?: string
-  status?: string
+  status?: "" | "dismissed" | "open" | "resolved"
   action_requested?: boolean
   severity?: string
   revision?: number
@@ -512,7 +512,7 @@ export type NotificationPage = {
 }
 
 export type NotificationRecipient = {
-  audience: string
+  audience: "operator" | "user"
   id: string
 }
 

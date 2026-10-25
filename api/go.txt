@@ -93,7 +93,7 @@ pkg authkit, method (*Client) MintAccessToken(context.Context, string, iam.Acces
 pkg authkit, method (*Client) Mount(*http.ServeMux) error
 pkg authkit, method (*Client) NewVerifier([]string, ...verify.VerifierOption) (*Verifier, error)
 pkg authkit, method (*Client) NotificationScope() (string, error)
-pkg authkit, method (*Client) Notifications(string) (postgres.TxSink, error)
+pkg authkit, method (*Client) Notifications(string) (notify.Publisher, error)
 pkg authkit, method (*Client) OAuthConsents(context.Context, string) ([]iam.OAuthConsent, error)
 pkg authkit, method (*Client) PatchPublicMetadata(context.Context, auth.Identity, string, map[string]any, ...Option) error
 pkg authkit, method (*Client) Permission(string) (iam.Perm, error)
@@ -149,7 +149,7 @@ pkg authkit, method (*Client) Users(context.Context, []string) (map[string]iam.U
 pkg authkit, method (*Client) Verify(context.Context, string) (verify.Claims, error)
 pkg authkit, method (*Client) VerifyIDToken(context.Context, string) (iam.IDToken, error)
 pkg authkit, method (*Client) VerifyRequest(*http.Request) (verify.Claims, error)
-pkg authkit, method (*NotificationDelivery) Publisher(string) (postgres.TxSink, error)
+pkg authkit, method (*NotificationDelivery) Publisher(string) (notify.Publisher, error)
 pkg authkit, method (*NotificationDelivery) RiverJobs() river.Contribution
 pkg authkit, method (*PersonaDef) All() iam.Perm
 pkg authkit, method (*PersonaDef) Declare(...string) []iam.Perm

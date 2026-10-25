@@ -9748,13 +9748,23 @@
             "description": "RFC 3339, UTC"
           },
           "visibility": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "app",
+              "tenant"
+            ]
           },
           "app_id": {
             "type": "string"
           },
           "status": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "",
+              "dismissed",
+              "open",
+              "resolved"
+            ]
           },
           "action_requested": {
             "type": "boolean"
@@ -9846,13 +9856,23 @@
             "description": "RFC 3339, UTC"
           },
           "visibility": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "app",
+              "tenant"
+            ]
           },
           "app_id": {
             "type": "string"
           },
           "status": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "",
+              "dismissed",
+              "open",
+              "resolved"
+            ]
           },
           "action_requested": {
             "type": "boolean"
@@ -9922,7 +9942,11 @@
         "type": "object",
         "properties": {
           "audience": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "operator",
+              "user"
+            ]
           },
           "id": {
             "type": "string"
