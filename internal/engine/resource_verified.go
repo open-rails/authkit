@@ -138,6 +138,15 @@ var (
 
 func (v resourceVerified) Identity() auth.Identity { return v.id }
 
+// CheckCredentialExpiry preserves the accepting verifier's effective deadline
+// for native source-account resolution without spending another sender proof.
+func (v resourceVerified) CheckCredentialExpiry() error {
+	if !v.access.Claims.ValidUntil.IsZero() && time.Now().After(v.access.Claims.ValidUntil) {
+		return errors.Join(auth.ErrUnauthenticated, auth.ErrExpired, iam.ErrTokenExpired)
+	}
+	return nil
+}
+
 func (v resourceVerified) BoundScope() auth.Scope { return v.bound }
 
 // ClientID is the OAuth client the token was issued to.
@@ -168,8 +177,8 @@ func (v resourceVerified) CanDirect(ctx context.Context, scope auth.Scope, permi
 }
 
 func (v resourceVerified) can(ctx context.Context, scope auth.Scope, permission string, direct bool) (bool, error) {
-	if !v.access.Claims.ValidUntil.IsZero() && time.Now().After(v.access.Claims.ValidUntil) {
-		return false, errors.Join(auth.ErrUnauthenticated, auth.ErrExpired, iam.ErrTokenExpired)
+	if err := v.CheckCredentialExpiry(); err != nil {
+		return false, err
 	}
 	if scope.ID == "" || permission == "" || scope.Authority != v.issuer {
 		return false, nil
@@ -244,8 +253,8 @@ func (v resourceVerified) authority() (auth.Identity, bool) {
 // sign-in of its own (a client's) is auth.ErrForbidden.
 func (v resourceVerified) CheckRecentSignIn(ctx context.Context) error {
 	cl := v.access.Claims
-	if !cl.ValidUntil.IsZero() && time.Now().After(cl.ValidUntil) {
-		return errors.Join(auth.ErrUnauthenticated, auth.ErrExpired, iam.ErrTokenExpired)
+	if err := v.CheckCredentialExpiry(); err != nil {
+		return err
 	}
 	if cl.Kind != verify.TokenUser || !v.id.SelfInvoked() {
 		return auth.ErrForbidden

@@ -115,5 +115,21 @@ func TestCriticalVerifiedCredentialExpiry(t *testing.T) {
 				}
 			})
 		}
+		// Lifetime checks do not impose a new recent-sign-in requirement on
+		// ordinary source-account resolution.
+		stale := authtest.StaleSession(t, f.auth, session.AccessToken)
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, proofOrigin+"/account", nil)
+		noError(t, err)
+		request.Header.Set("Authorization", "Bearer "+stale)
+		verified, err := f.auth.Authenticator().Authenticate(request)
+		noError(t, err)
+		if err := verified.(auth.RecentSignInChecker).CheckRecentSignIn(t.Context()); !errors.Is(err, auth.ErrStepUpRequired) {
+			t.Fatalf("stale sign-in control did not require step-up: %v", err)
+		}
+		actor, err := f.auth.ResolveTenantActor(t.Context(), verified)
+		noError(t, err)
+		if actor.AccountID != user.ID || actor.TenantID != f.tenant {
+			t.Fatalf("valid credential with old sign-in lost its source account: %+v", actor)
+		}
 	})
 }

@@ -138,6 +138,15 @@ func (s *Engine) ResolveTenantActor(ctx context.Context, verified auth.Verified)
 	if verified == nil {
 		return iam.TenantActor{}, auth.ErrUnauthenticated
 	}
+	// Native verified credentials retain the accepting verifier's deadline.
+	// A sealed identity alone cannot prove that its request is still current.
+	lifetime, ok := verified.(interface{ CheckCredentialExpiry() error })
+	if !ok {
+		return iam.TenantActor{}, auth.ErrForbidden
+	}
+	if err := lifetime.CheckCredentialExpiry(); err != nil {
+		return iam.TenantActor{}, err
+	}
 	if err := s.requirePG(); err != nil {
 		return iam.TenantActor{}, err
 	}

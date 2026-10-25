@@ -154,6 +154,15 @@ type contacted struct {
 
 func (v contacted) Identity() auth.Identity { return v.id }
 
+// Preserve the native verified credential's lifetime across contact enrichment.
+func (v contacted) CheckCredentialExpiry() error {
+	c, ok := v.Verified.(interface{ CheckCredentialExpiry() error })
+	if !ok {
+		return auth.ErrForbidden
+	}
+	return c.CheckCredentialExpiry()
+}
+
 func (v contacted) Can(ctx context.Context, scope auth.Scope, permission string) (bool, error) {
 	c, ok := v.Verified.(auth.PermissionChecker)
 	if !ok {

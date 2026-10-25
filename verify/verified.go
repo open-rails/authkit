@@ -140,6 +140,12 @@ func (p checkingVerified) BoundScope() auth.Scope {
 	return auth.Scope{}
 }
 
+// CheckCredentialExpiry is the internal lifetime capability used by native
+// source-account resolution. It preserves this verifier's original deadline.
+func (p checkingVerified) CheckCredentialExpiry() error {
+	return credentialExpiry(p.claims)
+}
+
 // Can checks the credential's authority in the group scope.ID names, live
 // and without verifying the request again. The scope's authority must be the
 // credential's own (the issuer of the groups it acts in). A revoked session

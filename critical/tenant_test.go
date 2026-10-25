@@ -8,9 +8,13 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 )
+
+// An identity-only adapter cannot preserve a native credential's lifetime.
+type actorIdentityOnly struct{ auth.Verified }
 
 func TestCriticalTenantAuthority(t *testing.T) {
 	f := newFixture(t)
@@ -184,6 +188,25 @@ func TestCriticalTenantAuthority(t *testing.T) {
 		if actor.AccountID != u.ID || actor.TenantID != f.tenant {
 			t.Fatal("target selection changed source identity")
 		}
+		for _, invalid := range []auth.Verified{nil, actorIdentityOnly{}, actorIdentityOnly{verified}} {
+			actor, err := view.ResolveTenantActor(t.Context(), invalid)
+			if err == nil || actor != (iam.TenantActor{}) {
+				t.Fatalf("identity without verified lifetime resolved an actor: %+v, %v", actor, err)
+			}
+		}
+		foreign := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
+			c.Token.Issuer = "https://different-actor-issuer.example"
+		}))
+		foreignUser := foreign.user(t)
+		foreignTokens := foreign.signIn(t, foreignUser)
+		foreignRequest, err := http.NewRequestWithContext(t.Context(), "GET", foreign.server.URL+"/source", nil)
+		noError(t, err)
+		foreignRequest.Header.Set("Authorization", "Bearer "+foreignTokens.AccessToken)
+		foreignVerified, err := foreign.auth.Authenticator().Authenticate(foreignRequest)
+		noError(t, err)
+		if actor, err := view.ResolveTenantActor(t.Context(), foreignVerified); !errors.Is(err, auth.ErrForbidden) || actor != (iam.TenantActor{}) {
+			t.Fatalf("foreign verified credential acquired native actor authority: %+v, %v", actor, err)
+		}
 		otherServer := httptest.NewServer(view.Handler())
 		t.Cleanup(otherServer.Close)
 		otherFixture := &fixture{auth: view, server: otherServer}
@@ -193,5 +216,10 @@ func TestCriticalTenantAuthority(t *testing.T) {
 		}
 		noError(t, view.Close(t.Context()))
 		f.call(t, "GET", "/me", tokens.AccessToken, nil).want(t, http.StatusOK, "")
+		_, err = f.auth.RevokeAccountSessions(t.Context(), iam.UserIdentity(u.ID), u.ID)
+		noError(t, err)
+		if actor, err := f.auth.ResolveTenantActor(t.Context(), verified); !errors.Is(err, auth.ErrUnauthenticated) || actor != (iam.TenantActor{}) {
+			t.Fatalf("revoked credential retained source-account authority: %+v, %v", actor, err)
+		}
 	})
 }
