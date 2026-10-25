@@ -8,6 +8,8 @@ export type AdminContextValue = {
   guard?: Guard
   /** The account directory being administered; never the source session. */
   tenantId?: string
+  /** The page language, for dates and language names. */
+  language?: string
   /** Isolates cached reads and resumable writes by mounted authority/target. */
   scopeKey: string
 }

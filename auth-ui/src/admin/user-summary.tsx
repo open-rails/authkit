@@ -45,7 +45,7 @@ function Summary({
   navigate?: (to: string) => void
 }) {
   const { t } = useAdminMessages()
-  const { client } = useAdmin()
+  const { client, language } = useAdmin()
   const loaded = useLoad(`user:${id}`, (s) => client.getUser(id, s))
   const title = t("summary.title")
   if (loaded.loading)
@@ -94,9 +94,9 @@ function Summary({
           <dt className="text-muted-foreground">{t("users.email")}</dt>
           <dd className="truncate">{u.email || u.phone_number || "—"}</dd>
           <dt className="text-muted-foreground">{t("users.lastLogin")}</dt>
-          <dd>{dateTime(u.last_login) || t("common.never")}</dd>
+          <dd>{dateTime(u.last_login, language) || t("common.never")}</dd>
           <dt className="text-muted-foreground">{t("users.joined")}</dt>
-          <dd>{dateTime(u.created_at)}</dd>
+          <dd>{dateTime(u.created_at, language)}</dd>
         </dl>
       </Body>
     </Section>

@@ -41,3 +41,7 @@ const RECOVERY_DAYS = 30
 
 export const restorableUntil = (deletedAt: string) =>
   new Date(Date.parse(deletedAt) + RECOVERY_DAYS * 86_400_000).toISOString()
+
+/** An entitlement as a label, the way roles are titled ("premium" → "Premium"). */
+export const entitlementTitle = (key: string) =>
+  key.charAt(0).toUpperCase() + key.slice(1)

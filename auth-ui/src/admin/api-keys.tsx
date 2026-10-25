@@ -59,7 +59,7 @@ const expired = (k: APIKey) =>
 
 function ApiKeys({ group }: { group: string }) {
   const { t } = useAdminMessages()
-  const { client } = useAdmin()
+  const { client, language } = useAdmin()
   const access = useAccessWith(client, group)
   const [search, setSearch] = useSearchParams()
   const showRevoked = search.get("revoked") === "1"
@@ -195,13 +195,13 @@ function ApiKeys({ group }: { group: string }) {
                   <Td className="font-mono text-xs">{k.lookup_id}</Td>
                   <Td>{roleTitle(k.role)}</Td>
                   <Td className="whitespace-nowrap">
-                    {dateTime(k.created_at)}
+                    {dateTime(k.created_at, language)}
                   </Td>
                   <Td className="whitespace-nowrap">
-                    {dateTime(k.last_used_at) || t("common.never")}
+                    {dateTime(k.last_used_at, language) || t("common.never")}
                   </Td>
                   <Td className="whitespace-nowrap">
-                    {dateTime(k.expires_at) || "—"}
+                    {dateTime(k.expires_at, language) || "—"}
                   </Td>
                   {access.credentials.manage && (
                     <Td className="text-right">
