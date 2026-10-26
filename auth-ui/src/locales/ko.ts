@@ -720,6 +720,8 @@ export const ko: AuthUiMessageBundle = {
     username_too_long: "사용자 이름은 최대 30자 이하여야 합니다.",
     username_too_short: "사용자 이름은 최소 4자 이상이어야 합니다.",
     verification_required: "계속하려면 연락처 정보를 인증하세요.",
+    verification_unavailable:
+      "인증 코드를 보낼 수 없습니다. 잠시 후 다시 시도하세요.",
     wallet_already_linked: "이 지갑은 이미 다른 계정에 연결되어 있습니다.",
     wallet_change_requires_unlink:
       "다른 지갑을 연결하려면 먼저 현재 지갑의 연결을 해제하세요.",

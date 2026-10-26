@@ -736,6 +736,8 @@ export const ja: AuthUiMessageBundle = {
     username_too_long: "ユーザー名は30文字以内で入力してください。",
     username_too_short: "ユーザー名は4文字以上で入力してください。",
     verification_required: "続行するには連絡先情報を認証してください。",
+    verification_unavailable:
+      "認証コードを送信できませんでした。しばらくしてからもう一度お試しください。",
     wallet_already_linked:
       "そのウォレットはすでに別のアカウントに連携されています。",
     wallet_change_requires_unlink:

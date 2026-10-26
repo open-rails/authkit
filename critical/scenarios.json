@@ -20,6 +20,7 @@
   "AK-J04-C03": "device limit and confirmation",
   "AK-J04-C04": "wrong-device proof, expiry and replay",
   "AK-J04-C05": "per-IP and per-identifier throttling",
+  "AK-J04-C06": "unproven sign-in refused while no channel can send its code",
   "AK-J05-C01": "refresh rotation and concurrent callers",
   "AK-J05-C02": "revoked current/other/all sessions",
   "AK-J05-C03": "ban/password change invalidation",

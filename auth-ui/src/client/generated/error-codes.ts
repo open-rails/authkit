@@ -173,6 +173,7 @@ export type AuthErrorCode =
   | "username_too_long"
   | "username_too_short"
   | "verification_required"
+  | "verification_unavailable"
   | "wallet_already_linked"
   | "wallet_change_requires_unlink"
 
@@ -347,6 +348,7 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   username_too_long: 400,
   username_too_short: 400,
   verification_required: 403,
+  verification_unavailable: 503,
   wallet_already_linked: 409,
   wallet_change_requires_unlink: 409,
 }
@@ -522,6 +524,7 @@ export const AUTH_ERROR_MESSAGES = {
   username_too_long: "Username is too long.",
   username_too_short: "Username is too short.",
   verification_required: "Verify your contact details to continue.",
+  verification_unavailable: "We couldn't send your verification code. Please try again shortly.",
   wallet_already_linked: "That wallet is already linked to another account.",
   wallet_change_requires_unlink: "Unlink your current wallet before connecting another.",
 } as const satisfies Record<AuthErrorCode, string>
