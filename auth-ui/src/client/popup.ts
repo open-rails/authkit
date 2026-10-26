@@ -1,9 +1,5 @@
 // AuthKit's popup result: a one-time `code` for POST /oidc/exchange, or an
 // `error` code. It never carries a token.
-// How long a closed popup's already-posted answer has to arrive before the
-// wait reports the window as closed.
-export const POPUP_CLOSE_GRACE_MS = 1_000
-
 export type PopupMessage = {
   type: "AUTHKIT_OIDC_RESULT" | "AUTHKIT_OIDC_ERROR"
   nonce: string
@@ -16,6 +12,10 @@ export type PopupWait =
   | { ok: true; message: PopupMessage }
   | { ok: false; reason: "blocked" | "closed" | "timeout" }
   | { ok: false; reason: "start_failed"; error: unknown }
+
+// How long a closed popup's already-posted answer has to arrive before the
+// wait reports the window as closed.
+export const POPUP_CLOSE_GRACE_MS = 1_000
 
 type Options = {
   nonce: string
@@ -82,8 +82,8 @@ export function waitForPopup(
       () => finish({ ok: false, reason: "timeout" }),
       opts.timeoutMs
     )
-    // AuthKit's result page posts and then closes itself, so a closed popup
-    // may still have its result queued for this window.
+    // A result page that posts and then closes itself can leave its result
+    // queued for this window after the popup reads as closed.
     const poll = setInterval(() => {
       if (!popup.closed) return
       clearInterval(poll)
