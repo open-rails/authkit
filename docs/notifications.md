@@ -42,9 +42,12 @@ err = publisher.Withdraw(ctx, []notify.Withdrawal{{
 AuthKit fixes origin, tenant and application visibility in the configured producer.
 Each batch accepts at most100 exact identities. Omit the transaction to commit
 acceptance in a new transaction, or supply exactly one non-nil `pgx.Tx` to join
-source writes. Local publishers write the inbox; a failed batch rolls back to a
-savepoint without discarding the caller's independent work. The database witness
-checks the actual transaction database and requires no second pool connection.
+source writes. The host must supply a transaction from the account database for
+a local publisher, or the configured source database for a remote publisher.
+Passing a transaction from another database is unsupported. Local publishers
+write the inbox; a failed batch rolls back to a savepoint without discarding the
+caller's independent work. Publication uses the supplied transaction without
+opening another database connection.
 
 Remote publishers use the same two operations and always insert a source River
 delivery obligation, including when no transaction is supplied. Only the worker

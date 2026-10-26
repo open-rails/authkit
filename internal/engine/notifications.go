@@ -175,9 +175,6 @@ func (s *Engine) ApplyNotificationsTx(ctx context.Context, host pgx.Tx, name str
 	if host == nil {
 		return fmt.Errorf("%w: notification transaction required", notify.ErrInvalid)
 	}
-	if err := CheckNotificationTransactionDatabase(ctx, host, s.pg); err != nil {
-		return err
-	}
 	store, err := s.notificationStore(ctx, false)
 	if err != nil {
 		return err

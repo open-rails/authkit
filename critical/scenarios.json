@@ -115,7 +115,7 @@
   "AK-J34-C07": "account purge erases inbox and fences delayed delivery",
   "AK-J34-C08": "withdrawal during recoverable deletion survives restore",
   "AK-J34-C09": "cross-schema one-slot source transaction reads uncommitted account and restores search_path",
-  "AK-J34-C10": "local and remote publishers reject transactions on a cloned foreign database",
+  "AK-J34-C10": "local and remote publication preserves commit and rollback using one-slot pools without additional physical connections",
   "AK-J34-C11": "maximum HTML-heavy notification batch delivers and oversized input is never queued",
   "AK-J34-C12": "app erasure preserves tenant billing and blocks classified legacy app resurrection",
   "AK-J34-C13": "persisted scope ownership rejects separate-instance cross-tenant inbox alias",

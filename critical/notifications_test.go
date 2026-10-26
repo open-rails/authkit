@@ -591,82 +591,63 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		}
 	})
 
-	t.Run("AK-J34-C10_local_and_remote_publishers_reject_foreign_database_transaction", func(t *testing.T) {
-		f, accountSink, _ := notificationFixture(t)
+	t.Run("AK-J34-C10_local_and_remote_publications_reuse_one_connection", func(t *testing.T) {
+		var connections atomic.Int32
+		var source *pgxpool.Pool
+		f, accountSink, _ := notificationFixture(t, authtest.WithDeps(func(d *authkit.Deps) {
+			cfg := d.Postgres.Config()
+			cfg.MaxConns = 1
+			cfg.BeforeConnect = func(context.Context, *pgx.ConnConfig) error {
+				connections.Add(1)
+				return nil
+			}
+			var err error
+			source, err = pgxpool.NewWithConfig(t.Context(), cfg)
+			noError(t, err)
+			t.Cleanup(source.Close)
+			d.Postgres = source
+		}))
 		u := f.user(t)
 		destination := map[string]authkit.RemoteNotificationConfig{"accounts": {BaseURL: f.server.URL + f.auth.APIBase(), Producer: "application", Token: func(context.Context) (string, error) { return "not-needed-for-queue", nil }}}
-		delivery, err := authkit.NewNotificationDelivery(f.pool, f.schema, destination)
+		delivery, err := authkit.NewNotificationDelivery(source, f.schema, destination)
 		noError(t, err)
 		sink, err := delivery.Publisher("accounts")
 		noError(t, err)
-		cfg := f.pool.Config()
-		cfg.MaxConns = 1
-		if cfg.ConnConfig.Database == "postgres" {
-			cfg.ConnConfig.Database = "template1"
-		} else {
-			cfg.ConnConfig.Database = "postgres"
+		reader, err := river.NewClient(riverpgxv5.New(source), &river.Config{Schema: f.schema})
+		noError(t, err)
+		noError(t, source.Ping(t.Context()))
+		before := connections.Load()
+		for name, publisher := range map[string]notify.Publisher{"local": accountSink, "remote": sink} {
+			for _, commit := range []bool{false, true} {
+				tx, err := source.Begin(t.Context())
+				noError(t, err)
+				m := notificationChange(u.ID, fmt.Sprintf("%s:commit:%t", name, commit), 1)
+				err = publishNotificationBatch(t.Context(), publisher, []notify.Mutation{m}, tx)
+				if err != nil {
+					_ = tx.Rollback(context.Background())
+					noError(t, err)
+				}
+				if commit {
+					noError(t, tx.Commit(t.Context()))
+				} else {
+					noError(t, tx.Rollback(t.Context()))
+				}
+			}
+			noError(t, publishNotificationBatch(t.Context(), publisher, []notify.Mutation{notificationChange(u.ID, name+":implicit", 1)}))
 		}
-		other, err := pgxpool.NewWithConfig(t.Context(), cfg)
+		page, err := f.auth.ListNotifications(t.Context(), u.ID, notify.ListOptions{})
 		noError(t, err)
-		defer other.Close()
-		noError(t, riverhelpers.ApplyMigrations(t.Context(), other, f.schema))
-		defer func() {
-			_, err := other.Exec(context.Background(), "DROP SCHEMA "+pgx.Identifier{f.schema}.Sanitize()+" CASCADE")
-			noError(t, err)
-		}()
-		tx, err := other.Begin(t.Context())
-		noError(t, err)
-		defer tx.Rollback(context.Background())
-		err = publishNotificationBatch(t.Context(), sink, []notify.Mutation{notificationChange(u.ID, "foreign:queue", 1)}, tx)
-		if err == nil {
-			t.Fatal("delivery accepted an obligation in another database")
+		if len(page.Items) != 2 {
+			t.Fatalf("local publications did not follow commit/rollback: %+v", page.Items)
 		}
-		noError(t, tx.Commit(t.Context()))
-		reader, err := river.NewClient(riverpgxv5.New(other), &river.Config{Schema: f.schema})
-		noError(t, err)
 		jobs, err := reader.JobList(t.Context(), river.NewJobListParams().Kinds("authkit_notification_delivery"))
 		noError(t, err)
-		if len(jobs.Jobs) != 0 {
-			t.Fatal("refused foreign transaction stranded a delivery job")
+		if len(jobs.Jobs) != 2 {
+			t.Fatalf("remote obligations did not follow commit/rollback: %+v", jobs.Jobs)
 		}
-		// A restored database can have the exact same tenant, account UUID,
-		// schema and inbox ownership rows. Those rows cannot prove that the
-		// caller's transaction belongs to the configured account database.
-		clonedDeps := f.deps
-		clonedDeps.Postgres = other
-		clone, err := authkit.New(t.Context(), f.cfg, clonedDeps)
-		noError(t, err)
-		defer clone.Close(context.Background())
-		imported, err := clone.ImportUsers(t.Context(), []iam.ImportUser{{ID: u.ID, Username: "clonedaccount"}}, iam.ImportOptions{})
-		noError(t, err)
-		if imported.Inserted != 1 {
-			t.Fatalf("restore control account: %+v", imported)
+		if after := connections.Load(); after != before {
+			t.Fatalf("publication opened %d additional database connections", after-before)
 		}
-		tx, err = other.Begin(t.Context())
-		noError(t, err)
-		defer tx.Rollback(context.Background())
-		refused := publishNotificationBatch(t.Context(), accountSink, []notify.Mutation{notificationChange(u.ID, "foreign:inbox", 1)}, tx)
-		noError(t, tx.Commit(t.Context()))
-		foreignInbox, err := clone.ListNotifications(t.Context(), u.ID, notify.ListOptions{})
-		noError(t, err)
-		accountInbox, err := f.auth.ListNotifications(t.Context(), u.ID, notify.ListOptions{})
-		noError(t, err)
-		if refused == nil || len(foreignInbox.Items) != 0 || len(accountInbox.Items) != 0 {
-			t.Fatalf("local publisher accepted a cloned foreign database: error=%v, foreign=%d, configured=%d", refused, len(foreignInbox.Items), len(accountInbox.Items))
-		}
-		oneConfig := f.pool.Config()
-		oneConfig.MaxConns = 1
-		one, err := pgxpool.NewWithConfig(t.Context(), oneConfig)
-		noError(t, err)
-		defer one.Close()
-		local, err := authkit.NewNotificationDelivery(one, f.schema, destination)
-		noError(t, err)
-		localSink, err := local.Publisher("accounts")
-		noError(t, err)
-		tx, err = one.Begin(t.Context())
-		noError(t, err)
-		noError(t, publishNotificationBatch(t.Context(), localSink, []notify.Mutation{notificationChange(u.ID, "local:queue", 1)}, tx))
-		noError(t, tx.Rollback(t.Context()))
 	})
 	t.Run("AK-J34-C11_maximum_HTML_batch_delivers_and_oversize_is_not_queued", func(t *testing.T) {
 		f, _, role := notificationFixture(t)

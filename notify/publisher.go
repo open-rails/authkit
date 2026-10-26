@@ -18,6 +18,8 @@ import (
 //
 // Omit tx to durably accept the batch in a new transaction. Supplying one
 // non-nil transaction joins the batch to the producer's database mutation.
+// The host must use the account database for a local publisher, or the configured
+// source database for a remote publisher; other databases are unsupported.
 // Remote publishers enqueue delivery in their source database in both cases;
 // successful acceptance does not require the destination to be online.
 type Publisher interface {

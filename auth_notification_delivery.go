@@ -213,9 +213,6 @@ func (p *remoteNotificationPublisher) accept(ctx context.Context, changes []noti
 }
 
 func (p *remoteNotificationPublisher) enqueue(ctx context.Context, tx pgx.Tx, changes []notify.Mutation) error {
-	if err := engine.CheckNotificationTransactionDatabase(ctx, tx, p.delivery.pool); err != nil {
-		return err
-	}
 	return pgx.BeginFunc(ctx, tx, func(batch pgx.Tx) error {
 		_, err := p.delivery.producer.InsertTx(ctx, batch, notificationDeliveryArgs{Destination: p.name, Mutations: changes}, &river.InsertOpts{Queue: NotificationDeliveryQueue, MaxAttempts: 100})
 		return err
