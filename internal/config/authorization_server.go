@@ -111,6 +111,13 @@ type OAuthClientConfig struct {
 	// host's grant authorizer (Deps.OAuthGrants) decides each grant, so
 	// declaring any needs one.
 	AuthorizationDetailsTypes []string `yaml:"authorization_details_types"`
+	// RenewableCapabilities lets the workload a jwt-bearer capability binds
+	// redeem it again, each time with a fresh assertion and DPoP proof of
+	// that key, until it expires (RFC 7523 §2.1's repeated assertions). Each
+	// redemption is a whole grant: the device key live, the user usable, the
+	// grant authorizer deciding, so its MaxLifetime sets how often it is asked
+	// again. Without it a capability redeems once.
+	RenewableCapabilities bool `yaml:"renewable_capabilities"`
 	// Agreements are keys of Config.Agreements a user accepts, at their
 	// current versions, before approving the client's sign-in: approval
 	// answers agreement_required until they do.
@@ -446,6 +453,8 @@ func normalizeOAuthClient(cl *OAuthClientConfig, resources []ResourceServerConfi
 		return fmt.Errorf("client %q: the jwt-bearer grant needs AuthorizationDetailsTypes: its capabilities' operations", cl.ID)
 	case len(cl.AuthorizationDetailsTypes) > 0 && !OAuthClientAllows(*cl, GrantJWTBearer):
 		return fmt.Errorf("client %q: AuthorizationDetailsTypes are a jwt-bearer client's capability operations", cl.ID)
+	case cl.RenewableCapabilities && !OAuthClientAllows(*cl, GrantJWTBearer):
+		return fmt.Errorf("client %q: RenewableCapabilities are a jwt-bearer client's", cl.ID)
 	case len(cl.Permissions) > 0 && !OAuthClientAllows(*cl, GrantClientCredentials):
 		return fmt.Errorf("client %q: Permissions are a client-credentials client's own grants", cl.ID)
 	}
