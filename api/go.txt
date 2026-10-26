@@ -374,6 +374,7 @@ pkg authkit, type OAuthClientConfig struct, Origins []string `yaml:"origins"`
 pkg authkit, type OAuthClientConfig struct, Permissions []string `yaml:"permissions"`
 pkg authkit, type OAuthClientConfig struct, PostLogoutRedirectURIs []string `yaml:"post_logout_redirect_uris"`
 pkg authkit, type OAuthClientConfig struct, RedirectURIs []string `yaml:"redirect_uris"`
+pkg authkit, type OAuthClientConfig struct, RenewableCapabilities bool `yaml:"renewable_capabilities"`
 pkg authkit, type OAuthClientConfig struct, Resources []string `yaml:"resources"`
 pkg authkit, type OAuthClientConfig struct, SecretSHA256 string `yaml:"secret_sha256"`
 pkg authkit, type OAuthClientConfig struct, TenantID iam.TenantID `yaml:"tenant_id"`
