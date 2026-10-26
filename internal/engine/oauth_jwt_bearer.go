@@ -5,7 +5,8 @@ package engine
 // user signed offline with a live device key: the operations the workload
 // may do for the user on one resource. The host's grant authorizer may
 // refuse or narrow them. AuthKit keeps nothing per workload but the spent
-// jtis.
+// jtis. A renewable client's capability redeems again by its key, each time
+// a whole grant.
 
 import (
 	"context"
@@ -97,9 +98,12 @@ func (s *Engine) OAuthJWTBearer(ctx context.Context, in authflow.OAuthJWTBearer)
 		authflow.JWTBearerRefusal(authflow.ReasonAssertionReplayed, "the assertion was already used")); err != nil {
 		return authflow.OAuthTokens{}, err
 	}
-	if err := s.spendJTI(ctx, keyOAuthCapability, c.DeviceKeyID, c.ID, c.ExpiresAt, now,
-		authflow.JWTBearerRefusal(authflow.ReasonCapabilityReplayed, "the capability was already redeemed")); err != nil {
-		return authflow.OAuthTokens{}, err
+	// A renewable client's capability redeems again by its key until it expires.
+	if !client.RenewableCapabilities {
+		if err := s.spendJTI(ctx, keyOAuthCapability, c.DeviceKeyID, c.ID, c.ExpiresAt, now,
+			authflow.JWTBearerRefusal(authflow.ReasonCapabilityReplayed, "the capability was already redeemed")); err != nil {
+			return authflow.OAuthTokens{}, err
+		}
 	}
 	s.oauthAudit(ctx, "oauth_jwt_bearer", c.UserID, map[string]string{
 		"client_id": client.ID, "resource": resource.ID, "invoker": decision.Invoker, "jkt": a.JKT,
