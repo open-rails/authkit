@@ -14,6 +14,7 @@ pkg authkit, const NotificationDeliveryQueue untyped string = "authkit_notificat
 pkg authkit, const OAuthClients config.PersonaOption = 4
 pkg authkit, const RemoteApplications config.PersonaOption = 2
 pkg authkit, func DefaultRateLimits() map[string]RateLimit
+pkg authkit, func EnsureGroups(context.Context, *pgxpool.Pool, Config, []iam.NewGroup) ([]iam.Group, error)
 pkg authkit, func IfRole(iam.Role) Option
 pkg authkit, func InTx(pgx.Tx) Option
 pkg authkit, func IncludeDeleted() Option
