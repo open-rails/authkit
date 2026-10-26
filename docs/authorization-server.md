@@ -91,7 +91,7 @@ For `prompt=none` with nobody signed in, or when the user refuses, the SPA decli
 | `refresh_token` | the same client, proving the same DPoP key; `scope` may narrow | rotated tokens with live permissions |
 | `urn:ietf:params:oauth:grant-type:token-exchange` | a host frontend (RFC 8693): `subject_token` is the user's AuthKit session access token, `subject_token_type` `urn:ietf:params:oauth:token-type:access_token`; optionally `group_id` ([group-bound tokens](#group-bound-tokens)) | an access token for `resource`, on the same session; impersonation (RFC 8693 §1.1), so no `act` |
 | `client_credentials` | a confidential client acting for itself | an access token with `sub` = `client_id` and the client's `Permissions` within the ceiling |
-| `urn:ietf:params:oauth:grant-type:jwt-bearer` | a [workload](#workloads) acting for a user (RFC 7523): `assertion` signed by its key, carrying the capability the user's device key signed, with a DPoP proof of the same key | an access token for the user, `act` the workload, bound to its key, carrying the capability's operations until it expires; no refresh token |
+| `urn:ietf:params:oauth:grant-type:jwt-bearer` | a [workload](#workloads) acting for a user (RFC 7523): `assertion` signed by its key, carrying the capability the user's device key signed, with a DPoP proof of the same key | an access token for the user, `act` the workload, bound to its key, carrying the capability's operations until it expires (a renewable client's: until the authorizer's `MaxLifetime`, then it redeems the capability again); no refresh token |
 
 Refresh tokens rotate on every use. A family stands on the session it was issued from and lasts `RefreshTokenTTL` (12 hours by default), which rotation never extends; then the client signs in again with `prompt=none`. Presenting a rotated-out token revokes the family, newest token included. `offline_access` is refused.
 
@@ -141,6 +141,14 @@ deps.OAuthGrants = func(ctx context.Context, r iam.OAuthGrantRequest) (iam.OAuth
 4. The token is an `at+jwt` with `sub` the user, `act` `{"sub": <Invoker>}`, `cnf.jkt` the workload key, `device_key_id` the capability's key, `authorization_details` as decided, and `permissions` empty; no `scope`, `sid`, `auth_time`, `acr` or `amr`. It lasts until the capability expires (or `MaxLifetime`), not `AccessTokenTTL`, and has no refresh token: one exchange per capability.
 
 Each `jti` redeems once: the assertion's per workload key, the capability's per device key. A spent assertion is kept with spent DPoP proofs (`Deps.Redis`, else memory); a spent capability is a grant record, kept in PostgreSQL. Nothing is spent until the token is minted, so a failed request may be retried with the same capability.
+
+A client with `RenewableCapabilities` lets the workload keep working without the user (RFC 7523's repeated assertions): the key a capability binds redeems it again, each time with a fresh assertion and DPoP proof, until it expires. Every redemption is a whole grant: the device key must still be live and the user usable, and the authorizer decides again, so a host that stops granting (a machine that is gone, say) ends the workload at its next redemption, and the decision's `MaxLifetime` is how often it asks. The capability is never spent; the assertion still is. Another key cannot redeem it (`key_mismatch`).
+
+```go
+authkit.OAuthClientConfig{ID: "tensord", Resources: []string{"https://hub.example.com"}, AuthorizationDetailsTypes: []string{"hub_operation"},
+	GrantTypes: []authkit.OAuthGrantType{authkit.GrantJWTBearer}, RenewableCapabilities: true}
+// the authorizer: iam.OAuthGrantDecision{MaxLifetime: 15 * time.Minute}
+```
 
 The client may be public: the assertion and the DPoP proof prove the workload key and the user's signature authorizes it, so a secret shared by a fleet would add only a secret to leak. A stolen token is useless without the workload key, and a stolen capability is useless without the key and its unspent `jti`.
 

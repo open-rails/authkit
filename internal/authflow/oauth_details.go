@@ -13,7 +13,7 @@ import (
 // RFC 9396 authorization_details bounds, as requested and as decided.
 const (
 	MaxAuthorizationDetailsBytes = 8 << 10
-	maxAuthorizationDetails      = 16
+	maxAuthorizationDetails      = 64
 )
 
 // ParseAuthorizationDetails validates an authorization_details parameter
