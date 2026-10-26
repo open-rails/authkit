@@ -157,4 +157,29 @@ test("AK-UI-16: AK-J29-C07: issuer proof binds a server nonce and retains only t
     error: "invalid_grant",
   })
   expect(await idToken()).toBeNull()
+
+  // A popup the user really closes still settles as closed once the grace
+  // for an already-posted answer has passed.
+  const closing = page.waitForEvent("popup")
+  await page.evaluate(() => {
+    window.ak.issuerResult = undefined
+    void window.ak.issuer.signIn({ popup: true }).then(
+      () => {
+        window.ak.issuerResult = { ok: true }
+      },
+      (error) => {
+        window.ak.issuerResult = {
+          ok: false,
+          error: (error as { error?: string }).error,
+        }
+      }
+    )
+  })
+  const abandoned = await closing
+  await abandoned.waitForURL((url) => url.pathname === "/authorize")
+  await abandoned.close()
+  await expect
+    .poll(() => page.evaluate(() => window.ak.issuerResult))
+    .toEqual({ ok: false, error: "popup_closed" })
+  expect(await idToken()).toBeNull()
 })

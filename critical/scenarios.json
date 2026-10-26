@@ -124,5 +124,9 @@
   "AK-J34-C16": "old serialized remote job envelopes preserve provenance and workflow content; canonical new-publisher replay is exact while same-revision semantic changes still conflict",
   "AK-J35-C01": "a renewable workload capability redeems again by its bound key, each redemption a whole grant; assertions stay single-use and a non-renewable client still redeems once",
   "AK-J35-C02": "a capability carries 64 operations and refuses a 65th",
-  "AK-J35-C03": "workload renewal ends when the authorizer refuses or the device key is revoked"
+  "AK-J35-C03": "workload renewal ends when the authorizer refuses or the device key is revoked",
+  "AK-J36-C01": "keyless configured groups with one connection preserve identities, members and events on replay",
+  "AK-J36-C02": "configured group inputs and tenants are validated before any batch writes",
+  "AK-J36-C03": "configured groups reject foreign persona/tenant and never revive deleted groups",
+  "AK-J36-C04": "concurrent configured group migrations and retry converge without duplicate events"
 }
