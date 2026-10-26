@@ -420,6 +420,16 @@ func mountForum(r *gin.Engine, auth *authkit.Client, db *pgxpool.Pool) {
 
 The rest is ordinary app code (our channel and post handlers), not AuthKit. The whole program is one file: [examples/reddit/main.go](examples/reddit/main.go).
 
+For groups declared by application configuration, an explicit migration command
+can call `authkit.EnsureGroups(ctx, pool, cfg, groups)` after `authkit.Migrate`.
+Supply the usual database, roles and default tenant in `cfg`, and stable IDs in
+`[]iam.NewGroup`. It creates missing ownerless groups without an AuthKit runtime,
+signing keys, senders or workers. Existing live groups and their assignments stay
+unchanged; deleted groups and conflicting tenants/personas are refused. Each
+group and its event commit together; after an interrupted batch, repeat the same
+input. Assign users through the normal client separately. ContentKit's configured
+channel provisioning uses this operation through its AuthKit migration adapter.
+
 Account deletion uses daily `authkit_account_delete_due` database sweeps, coalesced per issuer, rather than a future River job per account. The 30-day recovery deadline remains authoritative; issuer cleanup callbacks must finish before the account row is removed. See [account deletion](docs/identity.md) for timing and upgrades.
 
 `Start` runs AuthKit's background jobs (account deletion, events, cleanup) on its own [River](https://riverqueue.com) client in `Config.Database.RiverSchema` (default `public`), whose tables `New` creates. An app that already runs a River fleet builds it in that schema with `riverhelpers.New(ctx, db, riverConfig, auth.RiverJobs(), …)` (`github.com/open-rails/helpers/river`) and calls `auth.Start(ctx, authkit.WithRiverClient(fleet))` instead; the app starts and stops that fleet, and `auth.Close` leaves it running.

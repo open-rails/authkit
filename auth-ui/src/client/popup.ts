@@ -13,6 +13,10 @@ export type PopupWait =
   | { ok: false; reason: "blocked" | "closed" | "timeout" }
   | { ok: false; reason: "start_failed"; error: unknown }
 
+// How long a closed popup's already-posted answer has to arrive before the
+// wait reports the window as closed.
+export const POPUP_CLOSE_GRACE_MS = 1_000
+
 type Options = {
   nonce: string
   allowedOrigins: ReadonlySet<string>
@@ -50,9 +54,11 @@ export function waitForPopup(
   )
   if (!popup) return Promise.resolve({ ok: false, reason: "blocked" })
   return new Promise((resolve) => {
+    let closing: ReturnType<typeof setTimeout> | undefined
     const finish = (result: PopupWait) => {
       clearTimeout(timer)
       clearInterval(poll)
+      clearTimeout(closing)
       window.removeEventListener("message", onMessage)
       try {
         popup.close()
@@ -76,8 +82,15 @@ export function waitForPopup(
       () => finish({ ok: false, reason: "timeout" }),
       opts.timeoutMs
     )
+    // A result page that posts and then closes itself can leave its result
+    // queued for this window after the popup reads as closed.
     const poll = setInterval(() => {
-      if (popup.closed) finish({ ok: false, reason: "closed" })
+      if (!popup.closed) return
+      clearInterval(poll)
+      closing = setTimeout(
+        () => finish({ ok: false, reason: "closed" }),
+        POPUP_CLOSE_GRACE_MS
+      )
     }, 500)
     window.addEventListener("message", onMessage)
     if (typeof target !== "string") {
