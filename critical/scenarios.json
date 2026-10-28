@@ -26,6 +26,7 @@
   "AK-J05-C03": "ban/password change invalidation",
   "AK-J05-C04": "old JWT stateless versus live distinction",
   "AK-J05-C05": "late refresh after logout or account switch",
+  "AK-J05-C06": "tenant member, EffectivePermissions and Can read the account tenant and sign-in once per call, and still refuse signed-out, revoked, expired, banned, deleted and other-tenant credentials",
   "AK-J06-C01": "password reset email and SMS",
   "AK-J06-C02": "wrong/past/used reset proof",
   "AK-J06-C03": "change password/email/phone and remove phone",

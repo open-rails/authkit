@@ -10,6 +10,37 @@ import (
 	"time"
 )
 
+const accountSessionLive = `-- name: AccountSessionLive :one
+SELECT COALESCE((SELECT tenant_id::text FROM users WHERE id = $1::uuid AND deleted_at IS NULL), '')::text AS tenant_id,
+  EXISTS(SELECT 1 FROM usable_users WHERE id = $1::uuid)::boolean AS usable,
+  ($2::text = '' AND $3::text = ''
+   OR EXISTS(SELECT 1 FROM refresh_sessions WHERE id = NULLIF($2::text, '')::uuid AND user_id = $1::uuid
+     AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()))
+   OR EXISTS(SELECT 1 FROM user_device_keys WHERE id = NULLIF($3::text, '')::uuid AND user_id = $1::uuid
+     AND revoked_at IS NULL))::boolean AS signed_in
+`
+
+type AccountSessionLiveParams struct {
+	UserID      string
+	SessionID   string
+	DeviceKeyID string
+}
+
+type AccountSessionLiveRow struct {
+	TenantID string
+	Usable   bool
+	SignedIn bool
+}
+
+// AccountTenant and UserSessionLive in one statement: the account's tenant
+// (” when it is deleted or missing) and the session check.
+func (q *Queries) AccountSessionLive(ctx context.Context, arg AccountSessionLiveParams) (AccountSessionLiveRow, error) {
+	row := q.db.QueryRow(ctx, accountSessionLive, arg.UserID, arg.SessionID, arg.DeviceKeyID)
+	var i AccountSessionLiveRow
+	err := row.Scan(&i.TenantID, &i.Usable, &i.SignedIn)
+	return i, err
+}
+
 const sessionByCurrentTokenHash = `-- name: SessionByCurrentTokenHash :one
 SELECT s.id::text AS id, s.user_id, s.auth_methods, s.dpop_jkt
 FROM refresh_sessions s

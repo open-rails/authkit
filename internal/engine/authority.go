@@ -186,8 +186,15 @@ func (s *Engine) identityAuthority(ctx context.Context, st *permissionGroupStore
 // identity is bound to no longer stands.
 func (s *Engine) userAuthority(ctx context.Context, st *permissionGroupStore, out authority, userID string, session iam.SessionRef, g groupTarget) (authority, error) {
 	state, _ := iam.StateOf(out.who)
+	var usable, signedIn bool
+	var err error
 	if !state.TenantID().IsZero() || !session.IsZero() {
-		if _, err := s.credentialTenant(ctx, db.New(st.q), userID, state.TenantID().String()); err != nil {
+		var owner string
+		owner, usable, signedIn, err = accountLive(ctx, st.q, userID, session)
+		if err == nil {
+			_, err = s.ownedTenant(owner, state.TenantID().String())
+		}
+		if err != nil {
 			if errors.Is(err, iam.ErrTenantMismatch) || errors.Is(err, pgx.ErrNoRows) {
 				if !session.IsZero() {
 					return authority{}, iam.ErrSessionRevoked
@@ -196,8 +203,9 @@ func (s *Engine) userAuthority(ctx context.Context, st *permissionGroupStore, ou
 			}
 			return authority{}, err
 		}
+	} else {
+		usable, signedIn, err = userLive(ctx, st.q, userID, session)
 	}
-	usable, signedIn, err := userLive(ctx, st.q, userID, session)
 	switch {
 	case err != nil:
 		return authority{}, err

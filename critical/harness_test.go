@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -90,6 +91,50 @@ func newFixture(t *testing.T, options ...authtest.Option) *fixture {
 	f.server = httptest.NewServer(f.auth.Handler())
 	t.Cleanup(f.server.Close)
 	return f
+}
+
+// queryLog names the statements AuthKit sends during one call. A context
+// marker picks them out, so background workers on the pool are not counted.
+type queryLog struct {
+	mu   sync.Mutex
+	sent []string
+}
+
+type queryLogKey struct{}
+
+func (l *queryLog) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+	if ctx.Value(queryLogKey{}) == l {
+		name, _, _ := strings.Cut(strings.TrimPrefix(data.SQL, "-- name: "), " ")
+		l.mu.Lock()
+		l.sent = append(l.sent, name)
+		l.mu.Unlock()
+	}
+	return ctx
+}
+
+func (*queryLog) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
+
+func (l *queryLog) during(ctx context.Context, call func(context.Context)) []string {
+	l.mu.Lock()
+	l.sent = nil
+	l.mu.Unlock()
+	call(context.WithValue(ctx, queryLogKey{}, l))
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]string(nil), l.sent...)
+}
+
+// newTracedFixture is newFixture whose Client pool reports to a queryLog.
+func newTracedFixture(t *testing.T) (*fixture, *queryLog) {
+	t.Helper()
+	log := &queryLog{}
+	cfg, err := pgxpool.ParseConfig(os.Getenv("AUTHKIT_TEST_DATABASE_URL"))
+	noError(t, err)
+	cfg.ConnConfig.Tracer = log
+	pool, err := pgxpool.NewWithConfig(t.Context(), cfg)
+	noError(t, err)
+	t.Cleanup(pool.Close)
+	return newFixture(t, authtest.WithDeps(func(d *authkit.Deps) { d.Postgres = pool })), log
 }
 
 type response struct {
