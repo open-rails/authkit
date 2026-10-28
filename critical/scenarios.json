@@ -136,7 +136,12 @@
   "AK-J37-C05": "concurrent creates and renames for one name have exactly one winner, and a name being vacated is never handed out",
   "AK-J37-C06": "HTTP tenant create, read, rename and name resolution with native parity under root:tenants:read and root:tenants:manage",
   "AK-J38-C01": "account event jobs reconcile once from an empty host cursor, then apply the tenant and authority logs in log order",
-  "AK-J38-C02": "a failed account event is retried as its own River job on the 1, 5, 15 minute then hourly schedule and parked after its attempts, while later events and a recovering retry are applied",
+  "AK-J38-C02": "a failed account event is parked in the host table, retried after 1, 5 and 15 minutes then hourly without a limit, logged at Warn on parking and on each failed retry, flagged by the probe after four failures, and applied once it succeeds",
   "AK-J38-C03": "account event jobs resume from an existing host auth_event_cursors row without replaying or skipping an event",
-  "AK-J38-C04": "two River fleets composing the same account event jobs apply each event exactly once"
+  "AK-J38-C04": "two River fleets composing the same account event jobs apply each event exactly once",
+  "AK-J38-C05": "a cursor written by an operator reset or the old loop during a pass is kept: the pass fails at Error and the next pass honours the reset",
+  "AK-J38-C06": "across two fleets, a parked retry and new events for the same account never run Handle at the same time",
+  "AK-J38-C07": "a lease left by a killed pod blocks ticks while live and is taken over once it is older than the handler limit plus one minute",
+  "AK-J38-C08": "a handler that hangs past its time limit parks its event and later events are applied",
+  "AK-J38-C09": "an expired cursor is kept unchanged, logged at Error and reported by the probe"
 }

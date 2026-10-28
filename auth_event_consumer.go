@@ -2,6 +2,9 @@ package authkit
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,23 +15,30 @@ import (
 	"github.com/open-rails/authkit/iam"
 	riverhelpers "github.com/open-rails/helpers/river"
 	"github.com/riverqueue/river"
-	"github.com/riverqueue/river/rivertype"
 )
 
-// AccountEventsQueue is the host River queue that reads and retries account events.
+// AccountEventsQueue is the host River queue of the account event reader's tick.
 const AccountEventsQueue = "authkit_account_events"
 
-// AccountEventAttempts is how often a failed event is retried before River discards (parks) it.
-const AccountEventAttempts = 10
+const (
+	accountEventLease  = "reader:lease"
+	accountEventPassed = "reader:passed"
+)
 
-// AccountEventConsumer applies a tenant's retained account events to the host.
-// Schema holds the host's auth_event_cursors(stream text primary key, cursor text, updated_at timestamptz).
-// Handle must be idempotent and act on current state: a failed event is retried after later ones.
+// AccountEventConsumer applies a tenant's retained account events to the host,
+// one Handle at a time. Schema holds the host's tables:
+//
+//	auth_event_cursors(stream text PRIMARY KEY, cursor text NOT NULL, updated_at timestamptz NOT NULL DEFAULT clock_timestamp())
+//	auth_event_parked(event_id text PRIMARY KEY, event jsonb NOT NULL, attempts integer NOT NULL,
+//	    due_at timestamptz NOT NULL, last_error text NOT NULL, parked_at timestamptz NOT NULL DEFAULT clock_timestamp())
+//
+// Handle must be idempotent and act on current state: a parked event is retried after later ones.
 type AccountEventConsumer struct {
-	Schema    string
-	Handle    func(context.Context, iam.Event) error
-	Reconcile func(context.Context) error // before reading the tenant stream from an empty cursor
-	Interval  time.Duration               // zero is thirty seconds
+	Schema        string
+	Handle        func(context.Context, iam.Event) error
+	Reconcile     func(context.Context) error // before reading the tenant stream from an empty cursor
+	Interval      time.Duration               // zero is thirty seconds
+	HandleTimeout time.Duration               // per Handle or Reconcile call; zero is AuthKit's five minute deletion budget
 }
 
 type accountEventsArgs struct {
@@ -38,26 +48,20 @@ type accountEventsArgs struct {
 
 func (accountEventsArgs) Kind() string { return "authkit_account_events" }
 
-type accountEventArgs struct {
-	Schema string    `json:"schema"`
-	Tenant string    `json:"tenant"`
-	Event  iam.Event `json:"event"`
-}
-
-func (accountEventArgs) Kind() string { return "authkit_account_event" }
-
 type accountEventConsumer struct {
 	AccountEventConsumer
 	source *Client
 	tenant string
 	pool   *pgxpool.Pool
-	fleet  *river.Client[pgx.Tx]
 }
 
 // AccountEventJobs reads this tenant's and the authority's account events on the host's River fleet.
-// One unique reader runs at a time; a failed event is retried as its own job and later events go on.
+// A periodic tick takes a lease row; the holder retries due parked events, then reads new ones in order.
 func (a *Client) AccountEventJobs(c AccountEventConsumer) riverhelpers.Contribution {
 	consumer := &accountEventConsumer{AccountEventConsumer: c, source: a}
+	if consumer.HandleTimeout <= 0 {
+		consumer.HandleTimeout = 5 * time.Minute
+	}
 	return riverhelpers.NewContribution("authkit-account-events", func(_ context.Context, cfg *river.Config) error {
 		if a == nil || c.Schema == "" || c.Handle == nil {
 			return errors.New("authkit: account events need a client, host schema and handler")
@@ -73,12 +77,9 @@ func (a *Client) AccountEventJobs(c AccountEventConsumer) riverhelpers.Contribut
 		if q, ok := cfg.Queues[AccountEventsQueue]; ok && q.MaxWorkers < 1 {
 			return errors.New("authkit: account events queue requires workers")
 		} else if !ok {
-			cfg.Queues[AccountEventsQueue] = river.QueueConfig{MaxWorkers: 2}
+			cfg.Queues[AccountEventsQueue] = river.QueueConfig{MaxWorkers: 1}
 		}
 		if err := river.AddWorkerSafely(cfg.Workers, &accountEventsWorker{c: consumer}); err != nil {
-			return err
-		}
-		if err := river.AddWorkerSafely(cfg.Workers, &accountEventWorker{c: consumer}); err != nil {
 			return err
 		}
 		every := c.Interval
@@ -88,23 +89,43 @@ func (a *Client) AccountEventJobs(c AccountEventConsumer) riverhelpers.Contribut
 		args := accountEventsArgs{Schema: c.Schema, Tenant: consumer.tenant}
 		cfg.PeriodicJobs = append(cfg.PeriodicJobs, riverhelpers.NewPeriodicJob(cfg, every,
 			func() (river.JobArgs, *river.InsertOpts) {
-				return args, &river.InsertOpts{Queue: AccountEventsQueue, UniqueOpts: river.UniqueOpts{ByArgs: true,
-					ByState: []rivertype.JobState{rivertype.JobStateAvailable, rivertype.JobStatePending, rivertype.JobStateRunning, rivertype.JobStateRetryable, rivertype.JobStateScheduled}}}
+				return args, &river.InsertOpts{Queue: AccountEventsQueue, MaxAttempts: 1}
 			}, &river.PeriodicJobOpts{ID: "authkit_account_events_" + c.Schema, RunOnStart: true}))
 		return nil
 	}, func(_ context.Context, b riverhelpers.Binding) error {
-		consumer.pool, consumer.fleet = b.Pool, b.Client
+		consumer.pool = b.Pool
 		return nil
 	}, func() error { return nil })
 }
 
-func (c *accountEventConsumer) handle(ctx context.Context, event iam.Event) (err error) {
-	defer func() {
-		if p := recover(); p != nil {
-			err = fmt.Errorf("account event handler panic: %v", p)
+// AccountEventsProbe fails when no reader pass has succeeded for five minutes, or a parked
+// event has failed four times or is overdue by fifteen minutes. Any host process can run it.
+func AccountEventsProbe(pool *pgxpool.Pool, schema string) func(context.Context) error {
+	return func(ctx context.Context) error {
+		cursors := pgx.Identifier{schema, "auth_event_cursors"}.Sanitize()
+		var passed time.Time
+		err := pool.QueryRow(ctx, "SELECT updated_at FROM "+cursors+" WHERE stream=$1", accountEventPassed).Scan(&passed)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errors.New("account events: no reader pass has succeeded yet")
 		}
-	}()
-	return c.Handle(ctx, event)
+		if err != nil {
+			return err
+		}
+		if time.Since(passed) > 5*time.Minute {
+			return fmt.Errorf("account events: no successful reader pass since %s", passed.UTC().Format(time.RFC3339))
+		}
+		var id string
+		var attempts int
+		err = pool.QueryRow(ctx, "SELECT event_id, attempts FROM "+pgx.Identifier{schema, "auth_event_parked"}.Sanitize()+
+			" WHERE attempts >= 4 OR due_at < now() - interval '15 minutes' ORDER BY parked_at LIMIT 1").Scan(&id, &attempts)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("account events: parked event %s failed %d times or is overdue", id, attempts)
+	}
 }
 
 type accountEventsWorker struct {
@@ -112,38 +133,135 @@ type accountEventsWorker struct {
 	c *accountEventConsumer
 }
 
-// Timeout matches AuthKit's deletion budget: one handler may anonymize several tables.
-func (*accountEventsWorker) Timeout(*river.Job[accountEventsArgs]) time.Duration {
-	return 5 * time.Minute
-}
+// Timeout is unlimited: the lease bounds each step and a lost lease ends the pass.
+func (*accountEventsWorker) Timeout(*river.Job[accountEventsArgs]) time.Duration { return -1 }
 
-func (*accountEventsWorker) NextRetry(*river.Job[accountEventsArgs]) time.Time {
-	return time.Now().Add(30 * time.Second)
-}
-
-func (w *accountEventsWorker) Work(ctx context.Context, _ *river.Job[accountEventsArgs]) error {
-	for _, authority := range []bool{false, true} {
-		if err := w.c.read(ctx, authority); err != nil {
-			return err
-		}
+func (w *accountEventsWorker) Work(ctx context.Context, job *river.Job[accountEventsArgs]) error {
+	if job.Args.Schema != w.c.Schema || job.Args.Tenant != w.c.tenant {
+		err := fmt.Errorf("authkit: account events tick for %s/%s reached the reader for %s/%s", job.Args.Schema, job.Args.Tenant, w.c.Schema, w.c.tenant)
+		slog.Error(err.Error())
+		return river.JobCancel(err)
+	}
+	if err := w.c.pass(ctx); err != nil && ctx.Err() == nil {
+		slog.Error("authkit: account event pass failed; cursors kept", "schema", w.c.Schema, "tenant", w.c.tenant, "error", err)
 	}
 	return nil
 }
 
-func (c *accountEventConsumer) read(ctx context.Context, authority bool) error {
+func (c *accountEventConsumer) table(name string) string {
+	return pgx.Identifier{c.Schema, name}.Sanitize()
+}
+
+// pass runs only while it holds the lease, which expires a minute after the longest step.
+func (c *accountEventConsumer) pass(ctx context.Context) error {
+	token := make([]byte, 16)
+	_, _ = rand.Read(token)
+	lease := hex.EncodeToString(token)
+	expiry := c.HandleTimeout + time.Minute
+	tag, err := c.pool.Exec(ctx, "INSERT INTO "+c.table("auth_event_cursors")+" AS held (stream, cursor) VALUES ($1, $2)"+
+		" ON CONFLICT (stream) DO UPDATE SET cursor=EXCLUDED.cursor, updated_at=clock_timestamp()"+
+		" WHERE held.cursor='' OR held.updated_at < clock_timestamp() - make_interval(secs => $3)", accountEventLease, lease, expiry.Seconds())
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return nil
+	}
+	defer func() {
+		release, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		_, _ = c.pool.Exec(release, "UPDATE "+c.table("auth_event_cursors")+" SET cursor='' WHERE stream=$1 AND cursor=$2", accountEventLease, lease)
+	}()
+	renew := func() error {
+		tag, err := c.pool.Exec(ctx, "UPDATE "+c.table("auth_event_cursors")+" SET updated_at=clock_timestamp() WHERE stream=$1 AND cursor=$2", accountEventLease, lease)
+		if err == nil && tag.RowsAffected() != 1 {
+			err = errors.New("auth events: reader lease lost")
+		}
+		return err
+	}
+	if err := c.retryParked(ctx, renew); err != nil {
+		return err
+	}
+	for _, authority := range []bool{false, true} {
+		if err := c.read(ctx, authority, renew); err != nil {
+			return err
+		}
+	}
+	_, err = c.pool.Exec(ctx, "INSERT INTO "+c.table("auth_event_cursors")+" AS passed (stream, cursor) VALUES ($1, '')"+
+		" ON CONFLICT (stream) DO UPDATE SET updated_at=clock_timestamp()", accountEventPassed)
+	return err
+}
+
+func (c *accountEventConsumer) call(ctx context.Context, f func(context.Context) error) (err error) {
+	step, cancel := context.WithTimeout(ctx, c.HandleTimeout)
+	defer cancel()
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("account event handler panic: %v", p)
+		}
+	}()
+	return f(step)
+}
+
+func (c *accountEventConsumer) retryParked(ctx context.Context, renew func() error) error {
+	parked := c.table("auth_event_parked")
+	rows, err := c.pool.Query(ctx, "SELECT event, attempts FROM "+parked+" WHERE due_at <= now() ORDER BY due_at, event_id LIMIT 100")
+	if err != nil {
+		return err
+	}
+	type due struct {
+		Event    iam.Event
+		Attempts int
+	}
+	pending, err := pgx.CollectRows(rows, pgx.RowToStructByPos[due])
+	if err != nil {
+		return err
+	}
+	for _, p := range pending {
+		if err := renew(); err != nil {
+			return err
+		}
+		err := c.call(ctx, func(ctx context.Context) error { return c.Handle(ctx, p.Event) })
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err == nil {
+			if _, err := c.pool.Exec(ctx, "DELETE FROM "+parked+" WHERE event_id=$1", p.Event.ID); err != nil {
+				return err
+			}
+			slog.Info("authkit: parked account event applied", "event_id", p.Event.ID, "kind", string(p.Event.Kind), "user_id", p.Event.UserID, "attempts", p.Attempts+1)
+			continue
+		}
+		next := time.Now().Add(parkedDelay(p.Attempts + 1))
+		if _, err := c.pool.Exec(ctx, "UPDATE "+parked+" SET attempts=attempts+1, due_at=$2, last_error=left($3, 500) WHERE event_id=$1", p.Event.ID, next, err.Error()); err != nil {
+			return err
+		}
+		slog.Warn("authkit: parked account event failed again", "event_id", p.Event.ID, "kind", string(p.Event.Kind), "user_id", p.Event.UserID, "attempts", p.Attempts+1, "next", next, "error", err)
+	}
+	return nil
+}
+
+type parkedEvent struct {
+	event iam.Event
+	err   error
+}
+
+func (c *accountEventConsumer) read(ctx context.Context, authority bool, renew func() error) error {
 	stream := "tenant:" + c.tenant
 	if authority {
 		stream = "authority"
 	}
-	table := pgx.Identifier{c.Schema, "auth_event_cursors"}.Sanitize()
 	var after string
-	if err := c.pool.QueryRow(ctx, "SELECT cursor FROM "+table+" WHERE stream=$1", stream).Scan(&after); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	if err := c.pool.QueryRow(ctx, "SELECT cursor FROM "+c.table("auth_event_cursors")+" WHERE stream=$1", stream).Scan(&after); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
 	for batch := 0; batch < 10; batch++ {
 		// Replay cannot recover expired history, so the host reconciles current state first.
 		if after == "" && !authority && c.Reconcile != nil {
-			if err := c.Reconcile(ctx); err != nil {
+			if err := renew(); err != nil {
+				return err
+			}
+			if err := c.call(ctx, c.Reconcile); err != nil {
 				return err
 			}
 		}
@@ -157,22 +275,21 @@ func (c *accountEventConsumer) read(ctx context.Context, authority bool) error {
 		if page.NextCursor == "" {
 			return errors.New("auth events: source omitted continuation cursor")
 		}
-		var failed []river.InsertManyParams
+		var failed []parkedEvent
 		for _, event := range page.Events {
-			err := c.handle(ctx, event)
-			if err == nil {
-				continue
-			}
-			if ctx.Err() != nil {
+			if err := renew(); err != nil {
 				return err
 			}
-			slog.Warn("authkit: account event failed; retrying it as its own job", "event_id", event.ID, "kind", string(event.Kind), "user_id", event.UserID, "error", err)
-			failed = append(failed, river.InsertManyParams{Args: accountEventArgs{Schema: c.Schema, Tenant: c.tenant, Event: event},
-				InsertOpts: &river.InsertOpts{Queue: AccountEventsQueue, MaxAttempts: AccountEventAttempts,
-					ScheduledAt: time.Now().Add(accountEventDelay(0)), UniqueOpts: river.UniqueOpts{ByArgs: true}}})
+			err := c.call(ctx, func(ctx context.Context) error { return c.Handle(ctx, event) })
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if err != nil {
+				failed = append(failed, parkedEvent{event, err})
+			}
 		}
 		if page.NextCursor != after {
-			if err := advance(ctx, c.pool, c.fleet, table, stream, after, page.NextCursor, failed); err != nil {
+			if err := c.advance(ctx, stream, after, page.NextCursor, failed); err != nil {
 				return err
 			}
 		}
@@ -184,53 +301,50 @@ func (c *accountEventConsumer) read(ctx context.Context, authority bool) error {
 	return nil
 }
 
-// advance moves the cursor only from the position this pass read, with the page's retry jobs.
-func advance(ctx context.Context, pool *pgxpool.Pool, fleet *river.Client[pgx.Tx], table, stream, previous, next string, failed []river.InsertManyParams) error {
-	tx, err := pool.Begin(ctx)
+// advance moves the cursor only from the position this pass read, with the page's parked events.
+func (c *accountEventConsumer) advance(ctx context.Context, stream, previous, next string, failed []parkedEvent) error {
+	tx, err := c.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
-	tag, err := tx.Exec(ctx, "INSERT INTO "+table+" AS current (stream, cursor) VALUES ($1, $3) ON CONFLICT (stream) DO UPDATE SET cursor=EXCLUDED.cursor, updated_at=clock_timestamp() WHERE current.cursor=$2", stream, previous, next)
+	tag, err := tx.Exec(ctx, "INSERT INTO "+c.table("auth_event_cursors")+" AS current (stream, cursor) VALUES ($1, $3)"+
+		" ON CONFLICT (stream) DO UPDATE SET cursor=EXCLUDED.cursor, updated_at=clock_timestamp() WHERE current.cursor=$2", stream, previous, next)
 	if err != nil {
 		return err
 	}
 	if tag.RowsAffected() != 1 {
 		return fmt.Errorf("auth events: cursor for %s moved during the pass", stream)
 	}
-	if len(failed) > 0 {
-		if _, err := fleet.InsertManyTx(ctx, tx, failed); err != nil {
+	due := time.Now().Add(parkedDelay(1))
+	for _, f := range failed {
+		data, err := json.Marshal(f.event)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, "INSERT INTO "+c.table("auth_event_parked")+" (event_id, event, attempts, due_at, last_error) VALUES ($1, $2, 1, $3, left($4, 500))"+
+			" ON CONFLICT (event_id) DO NOTHING", f.event.ID, data, due, f.err.Error()); err != nil {
 			return err
 		}
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	for _, f := range failed {
+		slog.Warn("authkit: account event parked; later events go on", "event_id", f.event.ID, "kind", string(f.event.Kind), "user_id", f.event.UserID, "next", due, "error", f.err)
+	}
+	return nil
 }
 
-func accountEventDelay(retried int) time.Duration {
-	switch retried {
-	case 0:
-		return time.Minute
+// parkedDelay is Doujins' former schedule: 1, 5 and 15 minutes, then hourly without a limit.
+func parkedDelay(attempts int) time.Duration {
+	switch attempts {
 	case 1:
-		return 5 * time.Minute
+		return time.Minute
 	case 2:
+		return 5 * time.Minute
+	case 3:
 		return 15 * time.Minute
 	}
 	return time.Hour
-}
-
-type accountEventWorker struct {
-	river.WorkerDefaults[accountEventArgs]
-	c *accountEventConsumer
-}
-
-func (*accountEventWorker) Timeout(*river.Job[accountEventArgs]) time.Duration {
-	return 5 * time.Minute
-}
-
-func (*accountEventWorker) NextRetry(job *river.Job[accountEventArgs]) time.Time {
-	return time.Now().Add(accountEventDelay(job.Attempt))
-}
-
-func (w *accountEventWorker) Work(ctx context.Context, job *river.Job[accountEventArgs]) error {
-	return w.c.handle(ctx, job.Args.Event)
 }

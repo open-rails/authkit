@@ -81,15 +81,31 @@ Limit}` and the same cursor/expiry semantics. Remote errors retain AuthKit's
 
 Hosts that apply account events to their own data can compose
 `tenantClient.AccountEventJobs(AccountEventConsumer{Schema, Handle, Reconcile})`
-into the same River fleet as `RiverJobs`. River's leader enqueues one unique
-reader every thirty seconds. It reads the tenant stream, then the authority
-stream, from the host's `<Schema>.auth_event_cursors` rows (`tenant:<tenant UUID>`
-and `authority`), calls `Handle` in log order and moves each cursor only from
-the position it read. An event whose `Handle` fails becomes its own job in
-`authkit_account_events`, retried after 1, 5 and 15 minutes and then hourly, and
-discarded (parked) after `AccountEventAttempts`; later events carry on. `Handle`
-must therefore be idempotent and act on current state. An expired cursor stops
-the stream and is reported as the job's error.
+into the same River fleet as `RiverJobs`. The host migrates two tables in
+`Schema`; the exact SQL is on `AccountEventConsumer`:
+`auth_event_cursors(stream, cursor, updated_at)` and
+`auth_event_parked(event_id, event, attempts, due_at, last_error, parked_at)`.
+
+A periodic tick (every thirty seconds) tries to take the `reader:lease` row in
+`auth_event_cursors`. Only the holder works, so one `Handle` runs at a time for
+the whole stream. The holder renews the lease before every `Handle` or
+`Reconcile` call, and a lease not renewed for `HandleTimeout` plus one minute
+(six minutes by default) is taken over, so a killed pod delays the stream by
+minutes, not by River's stuck-job rescue time. Each pass first retries due parked
+events, then reads the tenant stream and the authority stream from the
+`tenant:<tenant UUID>` and `authority` rows, calling `Handle` in log order. The
+cursor moves only from the value the pass read; if anything else wrote it, the
+pass fails and the next one starts from the written value.
+
+A `Handle` that fails or exceeds `HandleTimeout` (five minutes by default, the
+deletion budget) parks its event in `auth_event_parked` in the same transaction
+as the cursor move. Parked events are retried after 1, 5 and 15 minutes and
+then hourly, without a limit, and removed once applied. `Handle` must therefore
+be idempotent and act on current state. Parking and every failed retry log at
+Warn; a failed pass, including an expired cursor, logs at Error and keeps the
+cursor. `AccountEventsProbe(pool, schema)` fails when no pass has succeeded for
+five minutes or a parked event has failed four times or is fifteen minutes
+overdue; it reads only the host tables, so any process can run it.
 
 The shared envelope uses source `authkit`, scope equal to the tenant UUID or
 `authority`, and the affected user/application/group as its subject. `Data`
