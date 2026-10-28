@@ -432,27 +432,36 @@ func (s *Engine) CheckSession(ctx context.Context, cl verify.Claims) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
-	if _, err := s.credentialTenant(ctx, s.q, userID, cl.TenantID); err != nil {
-		if errors.Is(err, iam.ErrTenantMismatch) || errors.Is(err, pgx.ErrNoRows) {
-			return iam.ErrSessionRevoked
-		}
-		return err
-	}
 	ref := iam.SessionRef{SessionID: cl.SessionID, DeviceKeyID: cl.DeviceKeyID}
-	switch {
-	case ref.IsZero() && cl.Group != nil:
-		return s.groupTokenStands(ctx, userID, cl.Group.GroupID)
-	case ref.IsZero():
+	if ref.IsZero() {
+		if err := sessionTenant(s.credentialTenant(ctx, s.q, userID, cl.TenantID)); err != nil {
+			return err
+		}
+		if cl.Group != nil {
+			return s.groupTokenStands(ctx, userID, cl.Group.GroupID)
+		}
 		return iam.ErrSessionRevoked
 	}
-	usable, signedIn, err := userLive(ctx, s.pg, userID, ref)
-	switch {
-	case err != nil:
+	owner, usable, signedIn, err := accountLive(ctx, s.pg, userID, ref)
+	if err != nil {
 		return err
-	case !usable || !signedIn:
+	}
+	if err := sessionTenant(s.ownedTenant(owner, cl.TenantID)); err != nil {
+		return err
+	}
+	if !usable || !signedIn {
 		return iam.ErrSessionRevoked
 	}
 	return nil
+}
+
+// sessionTenant is CheckSession's reading of a tenant check: another
+// tenant's account, or none, is a revoked session.
+func sessionTenant(_ iam.TenantID, err error) error {
+	if errors.Is(err, iam.ErrTenantMismatch) || errors.Is(err, pgx.ErrNoRows) {
+		return iam.ErrSessionRevoked
+	}
+	return err
 }
 
 // groupTokenStands is CheckSession for a host's group-bound mint, which
