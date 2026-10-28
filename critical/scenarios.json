@@ -141,7 +141,13 @@
   "AK-J38-C04": "two River fleets composing the same account event jobs apply each event exactly once",
   "AK-J38-C05": "a cursor written by an operator reset or the old loop during a pass is kept: the pass fails at Error and the next pass honours the reset",
   "AK-J38-C06": "across two fleets, a parked retry and new events for the same account never run Handle at the same time",
-  "AK-J38-C07": "a lease left by a killed pod blocks ticks while live and is taken over once it is older than the handler limit plus one minute",
+  "AK-J38-C07": "a lease kept live by another pod's heartbeat blocks ticks, and once it misses four renewals it is taken over and released",
   "AK-J38-C08": "a handler that hangs past its time limit parks its event and later events are applied",
-  "AK-J38-C09": "an expired cursor is kept unchanged, logged at Error and reported by the probe"
+  "AK-J38-C09": "an expired cursor is kept unchanged, logged at Error and reported by the probe",
+  "AK-J38-C10": "a holder whose lease is taken during a pass stops at Error without applying later events or moving the cursor, and the stream resumes after takeover",
+  "AK-J38-C11": "a callback that ignores its context past its limit keeps the lease by heartbeat, so a second fleet never runs Handle beside it",
+  "AK-J38-C12": "a checkpoint blocked by a locked cursor row fails the pass at Error within the statement limit and succeeds once the row is free",
+  "AK-J38-C13": "a cursor row deleted during a pass is not recreated; the next pass treats it as a reset and reconciles",
+  "AK-J38-C14": "parked retries stop after their per-pass budget so new events are applied before every due retry has run",
+  "AK-J38-C15": "the probe measures the five minute no-pass and fifteen minute overdue rules with database time"
 }

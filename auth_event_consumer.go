@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
 	riverhelpers "github.com/open-rails/helpers/river"
@@ -37,7 +38,7 @@ type AccountEventConsumer struct {
 	Schema        string
 	Handle        func(context.Context, iam.Event) error
 	Reconcile     func(context.Context) error // before reading the tenant stream from an empty cursor
-	Interval      time.Duration               // zero is thirty seconds
+	Interval      time.Duration               // zero is thirty seconds; also the lease heartbeat and the statement limit
 	HandleTimeout time.Duration               // per Handle or Reconcile call; zero is AuthKit's five minute deletion budget
 }
 
@@ -53,7 +54,10 @@ type accountEventConsumer struct {
 	source *Client
 	tenant string
 	pool   *pgxpool.Pool
+	every  time.Duration
 }
+
+var errLeaseLost = errors.New("auth events: reader lease lost")
 
 // AccountEventJobs reads this tenant's and the authority's account events on the host's River fleet.
 // A periodic tick takes a lease row; the holder retries due parked events, then reads new ones in order.
@@ -61,6 +65,10 @@ func (a *Client) AccountEventJobs(c AccountEventConsumer) riverhelpers.Contribut
 	consumer := &accountEventConsumer{AccountEventConsumer: c, source: a}
 	if consumer.HandleTimeout <= 0 {
 		consumer.HandleTimeout = 5 * time.Minute
+	}
+	consumer.every = c.Interval
+	if consumer.every <= 0 {
+		consumer.every = 30 * time.Second
 	}
 	return riverhelpers.NewContribution("authkit-account-events", func(_ context.Context, cfg *river.Config) error {
 		if a == nil || c.Schema == "" || c.Handle == nil {
@@ -82,12 +90,8 @@ func (a *Client) AccountEventJobs(c AccountEventConsumer) riverhelpers.Contribut
 		if err := river.AddWorkerSafely(cfg.Workers, &accountEventsWorker{c: consumer}); err != nil {
 			return err
 		}
-		every := c.Interval
-		if every <= 0 {
-			every = 30 * time.Second
-		}
 		args := accountEventsArgs{Schema: c.Schema, Tenant: consumer.tenant}
-		cfg.PeriodicJobs = append(cfg.PeriodicJobs, riverhelpers.NewPeriodicJob(cfg, every,
+		cfg.PeriodicJobs = append(cfg.PeriodicJobs, riverhelpers.NewPeriodicJob(cfg, consumer.every,
 			func() (river.JobArgs, *river.InsertOpts) {
 				return args, &river.InsertOpts{Queue: AccountEventsQueue, MaxAttempts: 1}
 			}, &river.PeriodicJobOpts{ID: "authkit_account_events_" + c.Schema, RunOnStart: true}))
@@ -104,20 +108,21 @@ func AccountEventsProbe(pool *pgxpool.Pool, schema string) func(context.Context)
 	return func(ctx context.Context) error {
 		cursors := pgx.Identifier{schema, "auth_event_cursors"}.Sanitize()
 		var passed time.Time
-		err := pool.QueryRow(ctx, "SELECT updated_at FROM "+cursors+" WHERE stream=$1", accountEventPassed).Scan(&passed)
+		var stale bool
+		err := pool.QueryRow(ctx, "SELECT updated_at, updated_at < clock_timestamp() - interval '5 minutes' FROM "+cursors+" WHERE stream=$1", accountEventPassed).Scan(&passed, &stale)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return errors.New("account events: no reader pass has succeeded yet")
 		}
 		if err != nil {
 			return err
 		}
-		if time.Since(passed) > 5*time.Minute {
+		if stale {
 			return fmt.Errorf("account events: no successful reader pass since %s", passed.UTC().Format(time.RFC3339))
 		}
 		var id string
 		var attempts int
 		err = pool.QueryRow(ctx, "SELECT event_id, attempts FROM "+pgx.Identifier{schema, "auth_event_parked"}.Sanitize()+
-			" WHERE attempts >= 4 OR due_at < now() - interval '15 minutes' ORDER BY parked_at LIMIT 1").Scan(&id, &attempts)
+			" WHERE attempts >= 4 OR due_at < clock_timestamp() - interval '15 minutes' ORDER BY parked_at LIMIT 1").Scan(&id, &attempts)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
@@ -133,7 +138,7 @@ type accountEventsWorker struct {
 	c *accountEventConsumer
 }
 
-// Timeout is unlimited: the lease bounds each step and a lost lease ends the pass.
+// Timeout is unlimited: statements and callbacks have their own limits and a lost lease ends the pass.
 func (*accountEventsWorker) Timeout(*river.Job[accountEventsArgs]) time.Duration { return -1 }
 
 func (w *accountEventsWorker) Work(ctx context.Context, job *river.Job[accountEventsArgs]) error {
@@ -152,15 +157,22 @@ func (c *accountEventConsumer) table(name string) string {
 	return pgx.Identifier{c.Schema, name}.Sanitize()
 }
 
-// pass runs only while it holds the lease, which expires a minute after the longest step.
+// limit bounds one of the reader's own statements, as the old loops did.
+func (c *accountEventConsumer) limit(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, c.every)
+}
+
+// pass runs only while it holds the lease. The holder renews it every Interval;
+// another pod takes it over after four missed renewals.
 func (c *accountEventConsumer) pass(ctx context.Context) error {
 	token := make([]byte, 16)
 	_, _ = rand.Read(token)
 	lease := hex.EncodeToString(token)
-	expiry := c.HandleTimeout + time.Minute
-	tag, err := c.pool.Exec(ctx, "INSERT INTO "+c.table("auth_event_cursors")+" AS held (stream, cursor) VALUES ($1, $2)"+
+	take, cancel := c.limit(ctx)
+	tag, err := c.pool.Exec(take, "INSERT INTO "+c.table("auth_event_cursors")+" AS held (stream, cursor) VALUES ($1, $2)"+
 		" ON CONFLICT (stream) DO UPDATE SET cursor=EXCLUDED.cursor, updated_at=clock_timestamp()"+
-		" WHERE held.cursor='' OR held.updated_at < clock_timestamp() - make_interval(secs => $3)", accountEventLease, lease, expiry.Seconds())
+		" WHERE held.cursor='' OR held.updated_at < clock_timestamp() - make_interval(secs => $3)", accountEventLease, lease, (4 * c.every).Seconds())
+	cancel()
 	if err != nil {
 		return err
 	}
@@ -168,14 +180,16 @@ func (c *accountEventConsumer) pass(ctx context.Context) error {
 		return nil
 	}
 	defer func() {
-		release, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		release, cancel := c.limit(context.WithoutCancel(ctx))
 		defer cancel()
 		_, _ = c.pool.Exec(release, "UPDATE "+c.table("auth_event_cursors")+" SET cursor='' WHERE stream=$1 AND cursor=$2", accountEventLease, lease)
 	}()
 	renew := func() error {
-		tag, err := c.pool.Exec(ctx, "UPDATE "+c.table("auth_event_cursors")+" SET updated_at=clock_timestamp() WHERE stream=$1 AND cursor=$2", accountEventLease, lease)
+		statement, cancel := c.limit(ctx)
+		defer cancel()
+		tag, err := c.pool.Exec(statement, "UPDATE "+c.table("auth_event_cursors")+" SET updated_at=clock_timestamp() WHERE stream=$1 AND cursor=$2", accountEventLease, lease)
 		if err == nil && tag.RowsAffected() != 1 {
-			err = errors.New("auth events: reader lease lost")
+			err = errLeaseLost
 		}
 		return err
 	}
@@ -187,25 +201,60 @@ func (c *accountEventConsumer) pass(ctx context.Context) error {
 			return err
 		}
 	}
-	_, err = c.pool.Exec(ctx, "INSERT INTO "+c.table("auth_event_cursors")+" AS passed (stream, cursor) VALUES ($1, '')"+
+	statement, cancel := c.limit(ctx)
+	defer cancel()
+	_, err = c.pool.Exec(statement, "INSERT INTO "+c.table("auth_event_cursors")+" AS passed (stream, cursor) VALUES ($1, '')"+
 		" ON CONFLICT (stream) DO UPDATE SET updated_at=clock_timestamp()", accountEventPassed)
 	return err
 }
 
-func (c *accountEventConsumer) call(ctx context.Context, f func(context.Context) error) (err error) {
+// call runs one host callback under HandleTimeout, renewing the lease while it runs so a
+// callback that ignores its context stalls the stream instead of letting another pod in.
+func (c *accountEventConsumer) call(ctx context.Context, renew func() error, f func(context.Context) error) error {
+	if err := renew(); err != nil {
+		return err
+	}
 	step, cancel := context.WithTimeout(ctx, c.HandleTimeout)
 	defer cancel()
-	defer func() {
-		if p := recover(); p != nil {
-			err = fmt.Errorf("account event handler panic: %v", p)
+	done, lost := make(chan struct{}), make(chan struct{})
+	go func() {
+		tick := time.NewTicker(c.every)
+		defer tick.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-tick.C:
+				if errors.Is(renew(), errLeaseLost) {
+					close(lost)
+					cancel()
+					return
+				}
+			}
 		}
 	}()
-	return f(step)
+	err := func() (err error) {
+		defer func() {
+			if p := recover(); p != nil {
+				err = fmt.Errorf("account event handler panic: %v", p)
+			}
+		}()
+		return f(step)
+	}()
+	close(done)
+	select {
+	case <-lost:
+		return errLeaseLost
+	default:
+		return err
+	}
 }
 
 func (c *accountEventConsumer) retryParked(ctx context.Context, renew func() error) error {
 	parked := c.table("auth_event_parked")
-	rows, err := c.pool.Query(ctx, "SELECT event, attempts FROM "+parked+" WHERE due_at <= now() ORDER BY due_at, event_id LIMIT 100")
+	statement, cancel := c.limit(ctx)
+	defer cancel()
+	rows, err := c.pool.Query(statement, "SELECT event, attempts FROM "+parked+" WHERE due_at <= now() ORDER BY due_at, event_id LIMIT 100")
 	if err != nil {
 		return err
 	}
@@ -217,24 +266,33 @@ func (c *accountEventConsumer) retryParked(ctx context.Context, renew func() err
 	if err != nil {
 		return err
 	}
+	budget := time.Now().Add(2 * c.every)
 	for _, p := range pending {
-		if err := renew(); err != nil {
-			return err
+		if time.Now().After(budget) {
+			break
 		}
-		err := c.call(ctx, func(ctx context.Context) error { return c.Handle(ctx, p.Event) })
+		err := c.call(ctx, renew, func(ctx context.Context) error { return c.Handle(ctx, p.Event) })
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+		if errors.Is(err, errLeaseLost) {
+			return err
+		}
+		statement, cancel := c.limit(ctx)
 		if err == nil {
-			if _, err := c.pool.Exec(ctx, "DELETE FROM "+parked+" WHERE event_id=$1", p.Event.ID); err != nil {
+			_, err := c.pool.Exec(statement, "DELETE FROM "+parked+" WHERE event_id=$1", p.Event.ID)
+			cancel()
+			if err != nil {
 				return err
 			}
 			slog.Info("authkit: parked account event applied", "event_id", p.Event.ID, "kind", string(p.Event.Kind), "user_id", p.Event.UserID, "attempts", p.Attempts+1)
 			continue
 		}
 		next := time.Now().Add(parkedDelay(p.Attempts + 1))
-		if _, err := c.pool.Exec(ctx, "UPDATE "+parked+" SET attempts=attempts+1, due_at=$2, last_error=left($3, 500) WHERE event_id=$1", p.Event.ID, next, err.Error()); err != nil {
-			return err
+		_, failed := c.pool.Exec(statement, "UPDATE "+parked+" SET attempts=attempts+1, due_at=$2, last_error=left($3, 500) WHERE event_id=$1", p.Event.ID, next, err.Error())
+		cancel()
+		if failed != nil {
+			return failed
 		}
 		slog.Warn("authkit: parked account event failed again", "event_id", p.Event.ID, "kind", string(p.Event.Kind), "user_id", p.Event.UserID, "attempts", p.Attempts+1, "next", next, "error", err)
 	}
@@ -252,20 +310,22 @@ func (c *accountEventConsumer) read(ctx context.Context, authority bool, renew f
 		stream = "authority"
 	}
 	var after string
-	if err := c.pool.QueryRow(ctx, "SELECT cursor FROM "+c.table("auth_event_cursors")+" WHERE stream=$1", stream).Scan(&after); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	statement, cancel := c.limit(ctx)
+	err := c.pool.QueryRow(statement, "SELECT cursor FROM "+c.table("auth_event_cursors")+" WHERE stream=$1", stream).Scan(&after)
+	cancel()
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
 	for batch := 0; batch < 10; batch++ {
 		// Replay cannot recover expired history, so the host reconciles current state first.
 		if after == "" && !authority && c.Reconcile != nil {
-			if err := renew(); err != nil {
-				return err
-			}
-			if err := c.call(ctx, c.Reconcile); err != nil {
+			if err := c.call(ctx, renew, c.Reconcile); err != nil {
 				return err
 			}
 		}
-		page, err := c.source.ListEvents(ctx, iam.EventQuery{After: after, Limit: 100, Authority: authority})
+		statement, cancel := c.limit(ctx)
+		page, err := c.source.ListEvents(statement, iam.EventQuery{After: after, Limit: 100, Authority: authority})
+		cancel()
 		if errors.Is(err, iam.ErrEventCursorExpired) {
 			return fmt.Errorf("auth event history expired for %s; account lifecycle recovery required: %w", stream, err)
 		}
@@ -277,12 +337,12 @@ func (c *accountEventConsumer) read(ctx context.Context, authority bool, renew f
 		}
 		var failed []parkedEvent
 		for _, event := range page.Events {
-			if err := renew(); err != nil {
-				return err
-			}
-			err := c.call(ctx, func(ctx context.Context) error { return c.Handle(ctx, event) })
+			err := c.call(ctx, renew, func(ctx context.Context) error { return c.Handle(ctx, event) })
 			if ctx.Err() != nil {
 				return ctx.Err()
+			}
+			if errors.Is(err, errLeaseLost) {
+				return err
 			}
 			if err != nil {
 				failed = append(failed, parkedEvent{event, err})
@@ -303,13 +363,21 @@ func (c *accountEventConsumer) read(ctx context.Context, authority bool, renew f
 
 // advance moves the cursor only from the position this pass read, with the page's parked events.
 func (c *accountEventConsumer) advance(ctx context.Context, stream, previous, next string, failed []parkedEvent) error {
-	tx, err := c.pool.Begin(ctx)
+	statement, cancel := c.limit(ctx)
+	defer cancel()
+	tx, err := c.pool.Begin(statement)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
-	tag, err := tx.Exec(ctx, "INSERT INTO "+c.table("auth_event_cursors")+" AS current (stream, cursor) VALUES ($1, $3)"+
-		" ON CONFLICT (stream) DO UPDATE SET cursor=EXCLUDED.cursor, updated_at=clock_timestamp() WHERE current.cursor=$2", stream, previous, next)
+	cursors := c.table("auth_event_cursors")
+	var tag pgconn.CommandTag
+	if previous == "" {
+		tag, err = tx.Exec(statement, "INSERT INTO "+cursors+" AS current (stream, cursor) VALUES ($1, $2)"+
+			" ON CONFLICT (stream) DO UPDATE SET cursor=EXCLUDED.cursor, updated_at=clock_timestamp() WHERE current.cursor=''", stream, next)
+	} else {
+		tag, err = tx.Exec(statement, "UPDATE "+cursors+" SET cursor=$3, updated_at=clock_timestamp() WHERE stream=$1 AND cursor=$2", stream, previous, next)
+	}
 	if err != nil {
 		return err
 	}
@@ -322,12 +390,12 @@ func (c *accountEventConsumer) advance(ctx context.Context, stream, previous, ne
 		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, "INSERT INTO "+c.table("auth_event_parked")+" (event_id, event, attempts, due_at, last_error) VALUES ($1, $2, 1, $3, left($4, 500))"+
+		if _, err := tx.Exec(statement, "INSERT INTO "+c.table("auth_event_parked")+" (event_id, event, attempts, due_at, last_error) VALUES ($1, $2, 1, $3, left($4, 500))"+
 			" ON CONFLICT (event_id) DO NOTHING", f.event.ID, data, due, f.err.Error()); err != nil {
 			return err
 		}
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := tx.Commit(statement); err != nil {
 		return err
 	}
 	for _, f := range failed {

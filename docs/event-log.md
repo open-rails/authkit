@@ -86,16 +86,24 @@ into the same River fleet as `RiverJobs`. The host migrates two tables in
 `auth_event_cursors(stream, cursor, updated_at)` and
 `auth_event_parked(event_id, event, attempts, due_at, last_error, parked_at)`.
 
-A periodic tick (every thirty seconds) tries to take the `reader:lease` row in
-`auth_event_cursors`. Only the holder works, so one `Handle` runs at a time for
-the whole stream. The holder renews the lease before every `Handle` or
-`Reconcile` call, and a lease not renewed for `HandleTimeout` plus one minute
-(six minutes by default) is taken over, so a killed pod delays the stream by
-minutes, not by River's stuck-job rescue time. Each pass first retries due parked
-events, then reads the tenant stream and the authority stream from the
-`tenant:<tenant UUID>` and `authority` rows, calling `Handle` in log order. The
-cursor moves only from the value the pass read; if anything else wrote it, the
-pass fails and the next one starts from the written value.
+A periodic tick (every `Interval`, thirty seconds by default) tries to take the
+`reader:lease` row in `auth_event_cursors`. Only the holder works, so one
+`Handle` runs at a time for the whole stream. The holder renews the lease before
+every `Handle` or `Reconcile` call and every `Interval` while one runs, so even a
+callback that ignores its context keeps the lease and stalls the stream rather
+than letting a second pod in. A lease that misses four renewals (two minutes by
+default) is taken over, so a killed pod delays the stream by about two minutes.
+A holder that finds its lease taken stops at once. Each of the reader's own
+statements, including `ListEvents` and the cursor transaction, is limited to
+`Interval`; a blocked statement fails the pass.
+
+Each pass first retries due parked events for at most two intervals, then reads
+the tenant stream and the authority stream from the `tenant:<tenant UUID>` and
+`authority` rows, calling `Handle` in log order. The cursor moves only from the
+value the pass read. A row read as empty may be created; a row read with a value
+is only updated, never recreated. If anything else wrote or deleted it, the pass
+fails and the next one starts from what is there now (an empty or missing row
+reconciles first).
 
 A `Handle` that fails or exceeds `HandleTimeout` (five minutes by default, the
 deletion budget) parks its event in `auth_event_parked` in the same transaction
@@ -103,9 +111,16 @@ as the cursor move. Parked events are retried after 1, 5 and 15 minutes and
 then hourly, without a limit, and removed once applied. `Handle` must therefore
 be idempotent and act on current state. Parking and every failed retry log at
 Warn; a failed pass, including an expired cursor, logs at Error and keeps the
-cursor. `AccountEventsProbe(pool, schema)` fails when no pass has succeeded for
-five minutes or a parked event has failed four times or is fifteen minutes
-overdue; it reads only the host tables, so any process can run it.
+cursor. AuthKit logs through Go's default `slog` logger, so hosts whose alerting
+reads JSON levels should install a `slog` handler. `AccountEventsProbe(pool,
+schema)` fails when no pass has succeeded for five minutes, or a parked event has
+failed four times or is fifteen minutes overdue. It measures ages with database
+time and reads only the host tables, so any process can run it.
+
+While a host rolls from its own polling loop to these jobs, both run for a
+while. Each time the old loop writes a cursor during a pass, the new reader logs
+"cursor moved during the pass" at Error and retries on the next tick; events in
+that window may be applied twice, never skipped.
 
 The shared envelope uses source `authkit`, scope equal to the tenant UUID or
 `authority`, and the affected user/application/group as its subject. `Data`

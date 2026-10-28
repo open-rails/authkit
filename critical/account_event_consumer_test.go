@@ -23,10 +23,12 @@ import (
 type consumerLog struct {
 	mu       sync.Mutex
 	seen     []string
+	calls    []string
 	by       map[string][]string
 	attempts map[string]int
-	fail     map[string]int // remaining failures per event ID; negative fails forever
-	hang     map[string]bool
+	fail     map[string]int           // remaining failures per event ID; negative fails forever
+	hang     map[string]bool          // waits for its context
+	ignore   map[string]time.Duration // sleeps once, ignoring its context
 	gate     map[string]chan struct{}
 	entered  chan string
 	slow     time.Duration
@@ -35,7 +37,7 @@ type consumerLog struct {
 }
 
 func newConsumerLog() *consumerLog {
-	return &consumerLog{by: map[string][]string{}, attempts: map[string]int{}, fail: map[string]int{}, hang: map[string]bool{},
+	return &consumerLog{by: map[string][]string{}, attempts: map[string]int{}, fail: map[string]int{}, hang: map[string]bool{}, ignore: map[string]time.Duration{},
 		gate: map[string]chan struct{}{}, entered: make(chan string, 16)}
 }
 
@@ -45,9 +47,12 @@ func (l *consumerLog) handler(fleet string) func(context.Context, iam.Event) err
 		l.running++
 		l.most = max(l.most, l.running)
 		l.attempts[e.ID]++
-		gate, hang := l.gate[e.ID], l.hang[e.ID]
+		l.calls = append(l.calls, e.ID)
+		gate, hang, ignore := l.gate[e.ID], l.hang[e.ID], l.ignore[e.ID]
 		delete(l.gate, e.ID)
+		delete(l.ignore, e.ID)
 		l.mu.Unlock()
+		time.Sleep(ignore)
 		defer func() { l.mu.Lock(); l.running--; l.mu.Unlock() }()
 		if gate != nil {
 			l.entered <- e.ID
@@ -452,16 +457,31 @@ func TestCriticalAccountEventConsumer(t *testing.T) {
 		f := newFixture(t)
 		f.createHostTables(t)
 		member := f.eventFor(t, iam.EventUserRegistered, f.registered(t, "leasemember").ID)
-		// A pod killed mid-pass left its lease; HandleTimeout one second makes it expire after 61 seconds.
-		_, err := f.pool.Exec(t.Context(), "INSERT INTO "+f.hostTable("auth_event_cursors")+" (stream, cursor, updated_at) VALUES ('reader:lease', 'killed-pod', now() - interval '50 seconds')")
+		cursors := f.hostTable("auth_event_cursors")
+		_, err := f.pool.Exec(t.Context(), "INSERT INTO "+cursors+" (stream, cursor) VALUES ('reader:lease', 'other-pod')")
 		noError(t, err)
+		// Another pod's heartbeat keeps its lease live; with Interval one second it goes stale after four.
+		stop := make(chan struct{})
+		var beat sync.WaitGroup
+		beat.Go(func() {
+			for {
+				select {
+				case <-stop:
+					return
+				case <-time.After(300 * time.Millisecond):
+					_, _ = f.pool.Exec(context.Background(), "UPDATE "+cursors+" SET updated_at=clock_timestamp() WHERE stream='reader:lease'")
+				}
+			}
+		})
 		log := newConsumerLog()
 		fleet := f.eventFleet(t, log, "a", time.Second)
-		eventually(t, "two ticks while the lease is live", func() bool { return readerTicks(t, fleet) >= 2 })
+		eventually(t, "three ticks while the lease is live", func() bool { return readerTicks(t, fleet) >= 3 })
+		close(stop)
+		beat.Wait()
 		if seen, _ := log.snapshot(); len(seen) != 0 || f.cursor(t, tenantStream(f)) != "" {
 			t.Fatalf("a tick ran under another pod's live lease: %v", seen)
 		}
-		_, err = f.pool.Exec(t.Context(), "UPDATE "+f.hostTable("auth_event_cursors")+" SET updated_at=now() - interval '62 seconds' WHERE stream='reader:lease'")
+		_, err = f.pool.Exec(t.Context(), "UPDATE "+cursors+" SET updated_at=clock_timestamp() - interval '5 seconds' WHERE stream='reader:lease'")
 		noError(t, err)
 		eventually(t, "stale lease taken over", func() bool { _, counts := log.snapshot(); return counts[member] == 1 })
 		eventually(t, "lease released", func() bool { return f.cursor(t, "reader:lease") == "" })
@@ -508,6 +528,163 @@ func TestCriticalAccountEventConsumer(t *testing.T) {
 		}
 		if err := authkit.AccountEventsProbe(f.pool, f.schema)(t.Context()); err == nil {
 			t.Fatal("probe passed with an expired stream")
+		}
+	})
+
+	t.Run("AK-J38-C10_holder_that_loses_its_lease_mid_pass_stops", func(t *testing.T) {
+		f := newFixture(t)
+		f.createHostTables(t)
+		logs := captureLogs(t)
+		f.registered(t, "lostbefore")
+		_, start := f.drain(t, "", false)
+		f.setCursor(t, tenantStream(f), start)
+		f.setCursor(t, "authority", "")
+		gated := f.eventFor(t, iam.EventUserRegistered, f.registered(t, "lostgated").ID)
+		after := f.eventFor(t, iam.EventUserRegistered, f.registered(t, "lostafter").ID)
+		log := newConsumerLog()
+		log.gate[gated] = make(chan struct{})
+		release := log.gate[gated]
+		f.eventFleet(t, log, "a", 5*time.Second)
+		<-log.entered
+		_, err := f.pool.Exec(t.Context(), "UPDATE "+f.hostTable("auth_event_cursors")+" SET cursor='other-pod', updated_at=clock_timestamp() WHERE stream='reader:lease'")
+		noError(t, err)
+		close(release)
+		eventually(t, "lost lease logged at Error", func() bool { return logs.has(slog.LevelError, "account event pass failed", "lease lost") })
+		if _, counts := log.snapshot(); counts[after] != 0 || f.cursor(t, tenantStream(f)) != start {
+			t.Fatalf("the pass went on without its lease: later event applied %d times", counts[after])
+		}
+		eventually(t, "stale lease taken over and the stream resumed", func() bool { _, counts := log.snapshot(); return counts[after] == 1 })
+	})
+
+	t.Run("AK-J38-C11_callback_ignoring_its_context_keeps_the_lease", func(t *testing.T) {
+		f := newFixture(t)
+		f.createHostTables(t)
+		f.registered(t, "ignorebefore")
+		_, start := f.drain(t, "", false)
+		f.setCursor(t, tenantStream(f), start)
+		f.setCursor(t, "authority", "")
+		slow := f.eventFor(t, iam.EventUserRegistered, f.registered(t, "ignoreslow").ID)
+		f.registered(t, "ignoreafter")
+		log := newConsumerLog()
+		log.ignore[slow] = 6 * time.Second // past the one second limit and the four second lease
+		f.eventFleet(t, log, "a", time.Second)
+		f.eventFleet(t, log, "b", time.Second)
+		_, end := f.drain(t, "", false)
+		eventually(t, "stream applied after the slow callback", func() bool { return f.cursor(t, tenantStream(f)) == end })
+		log.mu.Lock()
+		defer log.mu.Unlock()
+		if log.most != 1 || len(log.by[slow]) != 1 {
+			t.Fatalf("%d handlers ran at once and the slow event was applied %d times", log.most, len(log.by[slow]))
+		}
+	})
+
+	t.Run("AK-J38-C12_blocked_checkpoint_fails_the_pass_at_error", func(t *testing.T) {
+		f := newFixture(t)
+		f.createHostTables(t)
+		logs := captureLogs(t)
+		_, start := f.drain(t, "", false)
+		f.setCursor(t, tenantStream(f), start)
+		f.setCursor(t, "authority", "")
+		member := f.eventFor(t, iam.EventUserRegistered, f.registered(t, "blockedmember").ID)
+		tx, err := f.pool.Begin(t.Context())
+		noError(t, err)
+		t.Cleanup(func() { _ = tx.Rollback(context.Background()) })
+		_, err = tx.Exec(t.Context(), "SELECT cursor FROM "+f.hostTable("auth_event_cursors")+" WHERE stream=$1 FOR UPDATE", tenantStream(f))
+		noError(t, err)
+		log := newConsumerLog()
+		f.eventFleet(t, log, "a", 5*time.Second)
+		eventually(t, "blocked checkpoint logged at Error", func() bool {
+			return logs.has(slog.LevelError, "account event pass failed", "deadline exceeded")
+		})
+		noError(t, tx.Rollback(t.Context()))
+		_, end := f.drain(t, "", false)
+		eventually(t, "checkpoint written once the row is free", func() bool { return f.cursor(t, tenantStream(f)) == end })
+		if _, counts := log.snapshot(); counts[member] < 1 {
+			t.Fatal("event was never applied")
+		}
+	})
+
+	t.Run("AK-J38-C13_cursor_row_deleted_during_a_pass_is_not_recreated", func(t *testing.T) {
+		f := newFixture(t)
+		f.createHostTables(t)
+		f.registered(t, "deletedbefore")
+		_, start := f.drain(t, "", false)
+		f.setCursor(t, tenantStream(f), start)
+		f.setCursor(t, "authority", "")
+		gated := f.eventFor(t, iam.EventUserRegistered, f.registered(t, "deletedgated").ID)
+		log := newConsumerLog()
+		log.gate[gated] = make(chan struct{})
+		release := log.gate[gated]
+		f.eventFleet(t, log, "a", 5*time.Second)
+		<-log.entered
+		_, err := f.pool.Exec(t.Context(), "DELETE FROM "+f.hostTable("auth_event_cursors")+" WHERE stream=$1", tenantStream(f))
+		noError(t, err)
+		close(release)
+		_, end := f.drain(t, "", false)
+		eventually(t, "deleted row treated as a reset: reconcile and full replay", func() bool {
+			seen, _ := log.snapshot()
+			return slices.Contains(seen, "reconcile") && f.cursor(t, tenantStream(f)) == end
+		})
+	})
+
+	t.Run("AK-J38-C14_parked_retries_yield_to_new_events_after_their_budget", func(t *testing.T) {
+		f := newFixture(t)
+		f.createHostTables(t)
+		log := newConsumerLog()
+		var hung []string
+		for i := range 5 {
+			id := f.eventFor(t, iam.EventUserRegistered, f.registered(t, fmt.Sprintf("budgethung%d", i)).ID)
+			hung = append(hung, id)
+			log.hang[id] = true
+		}
+		f.eventFleet(t, log, "a", time.Second)
+		eventually(t, "five hanging events parked", func() bool {
+			for _, id := range hung {
+				if _, ok := f.parked(t, id); !ok {
+					return false
+				}
+			}
+			return true
+		})
+		for _, id := range hung {
+			f.makeDue(t, id)
+		}
+		fresh := f.eventFor(t, iam.EventUserRegistered, f.registered(t, "budgetfresh").ID)
+		eventually(t, "new event applied", func() bool { _, counts := log.snapshot(); return counts[fresh] == 1 })
+		log.mu.Lock()
+		defer log.mu.Unlock()
+		before := 0
+		for _, id := range log.calls[:slices.Index(log.calls, fresh)] {
+			if id == hung[4] {
+				before++
+			}
+		}
+		if before != 1 {
+			t.Fatalf("the last parked event was called %d times before the new event, want only its first attempt: %v", before, log.calls)
+		}
+	})
+
+	t.Run("AK-J38-C15_probe_measures_ages_in_the_database", func(t *testing.T) {
+		f := newFixture(t)
+		f.createHostTables(t)
+		probe := authkit.AccountEventsProbe(f.pool, f.schema)
+		if err := probe(t.Context()); err == nil || !strings.Contains(err.Error(), "no reader pass") {
+			t.Fatalf("probe before any pass = %v", err)
+		}
+		cursors, parked := f.hostTable("auth_event_cursors"), f.hostTable("auth_event_parked")
+		exec := func(sql string, args ...any) { _, err := f.pool.Exec(t.Context(), sql, args...); noError(t, err) }
+		exec("INSERT INTO " + cursors + " (stream, cursor, updated_at) VALUES ('reader:passed', '', clock_timestamp() - interval '4 minutes 50 seconds')")
+		noError(t, probe(t.Context()))
+		exec("UPDATE " + cursors + " SET updated_at=clock_timestamp() - interval '5 minutes 10 seconds' WHERE stream='reader:passed'")
+		if err := probe(t.Context()); err == nil || !strings.Contains(err.Error(), "no successful reader pass") {
+			t.Fatalf("probe five minutes after the last pass = %v", err)
+		}
+		exec("UPDATE " + cursors + " SET updated_at=clock_timestamp() WHERE stream='reader:passed'")
+		exec("INSERT INTO " + parked + " (event_id, event, attempts, due_at, last_error) VALUES ('overdue', '{}', 1, clock_timestamp() - interval '14 minutes 50 seconds', 'refused')")
+		noError(t, probe(t.Context()))
+		exec("UPDATE " + parked + " SET due_at=clock_timestamp() - interval '15 minutes 10 seconds' WHERE event_id='overdue'")
+		if err := probe(t.Context()); err == nil || !strings.Contains(err.Error(), "overdue") {
+			t.Fatalf("probe with a parked event fifteen minutes overdue = %v", err)
 		}
 	})
 }
