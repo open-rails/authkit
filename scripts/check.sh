@@ -43,9 +43,7 @@ if [[ "$mode" != workflows ]]; then
   git diff --exit-code -- internal/db
   test -z "$(git ls-files --others --exclude-standard -- internal/db)"
 
-  # Released migrations are immutable and new ones are numbered after them. A
-  # squash keeps the released chain verbatim under internal/migrations/retired
-  # (its conversion reads it) and restarts the numbering.
+  # Released migrations are immutable and new ones are numbered after them.
   migrations=internal/migrations/postgres
   release=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD)
   last=0
@@ -56,8 +54,8 @@ if [[ "$mode" != workflows ]]; then
     number=${number%%_*}
     if [[ -f $path && $(git hash-object "$path") == "$blob" ]]; then
       if (( 10#$number > last )); then last=$((10#$number)); fi
-    elif ! git hash-object internal/migrations/retired/*/"$(basename "$path")" 2>/dev/null | grep -qx "$blob"; then
-      echo "migration $path released in $release was changed or removed; a squash keeps it verbatim under internal/migrations/retired" >&2
+    else
+      echo "migration $path released in $release was changed or removed" >&2
       exit 1
     fi
   done
