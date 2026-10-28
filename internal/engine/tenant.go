@@ -76,6 +76,15 @@ func (s *Engine) credentialTenant(ctx context.Context, q *db.Queries, userID, cl
 	if err != nil {
 		return iam.TenantID{}, err
 	}
+	return s.ownedTenant(owner, claim)
+}
+
+// ownedTenant is credentialTenant's check of owner, the account's tenant as
+// read; "" is no live account (pgx.ErrNoRows).
+func (s *Engine) ownedTenant(owner, claim string) (iam.TenantID, error) {
+	if owner == "" {
+		return iam.TenantID{}, pgx.ErrNoRows
+	}
 	actual, err := iam.ParseTenantID(owner)
 	if err != nil {
 		return iam.TenantID{}, err
@@ -242,11 +251,11 @@ func (s *Engine) ResolveTenantActor(ctx context.Context, verified auth.Verified)
 		if !cl.ValidUntil.IsZero() && time.Now().After(cl.ValidUntil) {
 			return iam.TenantActor{}, errors.Join(auth.ErrUnauthenticated, auth.ErrExpired, iam.ErrTokenExpired)
 		}
-		owner, err := s.credentialTenant(ctx, s.q, cl.Subject, cl.TenantID)
+		account, usable, live, err := accountLive(ctx, s.pg, cl.Subject, iam.SessionRef{SessionID: cl.SessionID, DeviceKeyID: cl.DeviceKeyID})
 		if err != nil {
 			return iam.TenantActor{}, err
 		}
-		usable, live, err := userLive(ctx, s.pg, cl.Subject, iam.SessionRef{SessionID: cl.SessionID, DeviceKeyID: cl.DeviceKeyID})
+		owner, err := s.ownedTenant(account, cl.TenantID)
 		if err != nil {
 			return iam.TenantActor{}, err
 		}
@@ -268,16 +277,18 @@ func (s *Engine) ResolveTenantActor(ctx context.Context, verified auth.Verified)
 		return iam.TenantActor{}, err
 	}
 	session, _ := state.Session()
-	usable, signedIn, err := userLive(ctx, s.pg, state.ID(), session)
+	if !isUUID(state.ID()) || malformedSession(session) {
+		return iam.TenantActor{}, auth.ErrUnauthenticated
+	}
+	owner, usable, signedIn, err := accountLive(ctx, s.pg, state.ID(), session)
 	if err != nil {
 		return iam.TenantActor{}, err
 	}
 	if !usable || !signedIn {
 		return iam.TenantActor{}, auth.ErrUnauthenticated
 	}
-	owner, err := s.q.AccountTenant(ctx, state.ID())
-	if err != nil {
-		return iam.TenantActor{}, err
+	if owner == "" {
+		return iam.TenantActor{}, pgx.ErrNoRows
 	}
 	tenant, err := iam.ParseTenantID(owner)
 	if err != nil {

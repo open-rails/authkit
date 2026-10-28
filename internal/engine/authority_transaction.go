@@ -307,11 +307,36 @@ func userLive(ctx context.Context, q db.DBTX, userID string, r iam.SessionRef) (
 	switch {
 	case !isUUID(userID):
 		return false, true, nil // no such account: the account check refuses
-	case r.SessionID != "" && !isUUID(r.SessionID), r.DeviceKeyID != "" && !isUUID(r.DeviceKeyID):
+	case malformedSession(r):
 		return true, false, nil
 	}
 	live, err := db.New(q).UserSessionLive(ctx, db.UserSessionLiveParams{UserID: userID, SessionID: r.SessionID, DeviceKeyID: r.DeviceKeyID})
 	return live.Usable, live.SignedIn, err
+}
+
+func malformedSession(r iam.SessionRef) bool {
+	return r.SessionID != "" && !isUUID(r.SessionID) || r.DeviceKeyID != "" && !isUUID(r.DeviceKeyID)
+}
+
+// accountLive is the account's tenant lookup (AccountTenant, "" when deleted
+// or missing) followed by userLive, in one round trip. Like the tenant
+// lookup it always queries; userLive's answers for an id or sign-in that is
+// not a hyphenated uuid stand, though PostgreSQL would read other spellings.
+func accountLive(ctx context.Context, q db.DBTX, userID string, r iam.SessionRef) (tenant string, usable, signedIn bool, err error) {
+	account, malformed := isUUID(userID), malformedSession(r)
+	if !account || malformed {
+		r = iam.SessionRef{}
+	}
+	live, err := db.New(q).AccountSessionLive(ctx, db.AccountSessionLiveParams{UserID: userID, SessionID: r.SessionID, DeviceKeyID: r.DeviceKeyID})
+	switch {
+	case err != nil:
+		return "", false, false, err
+	case !account:
+		return live.TenantID, false, true, nil
+	case malformed:
+		return live.TenantID, true, false, nil
+	}
+	return live.TenantID, live.Usable, live.SignedIn, nil
 }
 
 func subjectUsable(ctx context.Context, q db.DBTX, subject iam.Subject) (bool, error) {

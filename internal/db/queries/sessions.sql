@@ -164,3 +164,14 @@ SELECT EXISTS(SELECT 1 FROM usable_users WHERE id = sqlc.arg(user_id)::uuid)::bo
      AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()))
    OR EXISTS(SELECT 1 FROM user_device_keys WHERE id = NULLIF(sqlc.arg(device_key_id)::text, '')::uuid AND user_id = sqlc.arg(user_id)::uuid
      AND revoked_at IS NULL))::boolean AS signed_in;
+
+-- name: AccountSessionLive :one
+-- AccountTenant and UserSessionLive in one statement: the account's tenant
+-- ('' when it is deleted or missing) and the session check.
+SELECT COALESCE((SELECT tenant_id::text FROM users WHERE id = sqlc.arg(user_id)::uuid AND deleted_at IS NULL), '')::text AS tenant_id,
+  EXISTS(SELECT 1 FROM usable_users WHERE id = sqlc.arg(user_id)::uuid)::boolean AS usable,
+  (sqlc.arg(session_id)::text = '' AND sqlc.arg(device_key_id)::text = ''
+   OR EXISTS(SELECT 1 FROM refresh_sessions WHERE id = NULLIF(sqlc.arg(session_id)::text, '')::uuid AND user_id = sqlc.arg(user_id)::uuid
+     AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()))
+   OR EXISTS(SELECT 1 FROM user_device_keys WHERE id = NULLIF(sqlc.arg(device_key_id)::text, '')::uuid AND user_id = sqlc.arg(user_id)::uuid
+     AND revoked_at IS NULL))::boolean AS signed_in;
