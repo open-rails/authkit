@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -286,6 +287,57 @@ func TestCriticalSessions(t *testing.T) {
 			}
 			if ok, err := f.auth.Can(t.Context(), verified.Identity(), iam.GroupByID(g.ID), f.read); err != nil || ok {
 				t.Fatalf("banned account kept Can %v: %v", ok, err)
+			}
+		})
+		// A sign-in stands only for its own account.
+		t.Run("session_of_another_account", func(t *testing.T) {
+			_, ownerToken, _ := signedIn(t)
+			owner, err := f.auth.Verify(t.Context(), ownerToken)
+			noError(t, err)
+			intruder, _, _ := signedIn(t)
+			claims := owner
+			claims.UserID, claims.Subject = intruder, intruder
+			if err := f.auth.CheckSession(t.Context(), claims); !errors.Is(err, iam.ErrSessionRevoked) {
+				t.Fatalf("another account's sign-in kept a live session: %v", err)
+			}
+			minted, err := f.auth.MintAccessToken(t.Context(), intruder, iam.AccessTokenOptions{SessionID: owner.SessionID})
+			noError(t, err)
+			if actor, err := member(t.Context(), minted.Value); !errors.Is(err, auth.ErrRevoked) || actor != (iam.TenantActor{}) {
+				t.Fatalf("tenant member gate admitted another account's sign-in: %+v, %v", actor, err)
+			}
+			who := iam.InSession(iam.UserIdentity(intruder), iam.SessionRef{SessionID: owner.SessionID})
+			if ok, err := f.auth.Can(t.Context(), who, iam.GroupByID(g.ID), f.read); !errors.Is(err, iam.ErrSessionRevoked) || ok {
+				t.Fatalf("another account's sign-in kept Can %v: %v", ok, err)
+			}
+			noError(t, f.auth.CheckSession(t.Context(), owner))
+		})
+		// PostgreSQL reads other spellings of a uuid; AuthKit compares ids only
+		// in the hyphenated form and refuses the rest as no usable account.
+		t.Run("non_standard_account_id", func(t *testing.T) {
+			id, token, _ := signedIn(t)
+			claims, err := f.auth.Verify(t.Context(), token)
+			noError(t, err)
+			session := iam.SessionRef{SessionID: claims.SessionID}
+			hex := strings.ReplaceAll(id, "-", "")
+			moved := strings.Join([]string{hex[:4], hex[4:8], hex[8:12], hex[12:16], hex[16:20], hex[20:24], hex[24:28], hex[28:]}, "-")
+			for _, form := range []string{hex, "{" + id + "}", moved} {
+				odd := claims
+				odd.UserID, odd.Subject = form, form
+				if err := f.auth.CheckSession(t.Context(), odd); !errors.Is(err, iam.ErrSessionRevoked) {
+					t.Fatalf("%s kept a live session: %v", form, err)
+				}
+				for _, who := range []auth.Identity{
+					iam.InSession(iam.UserIdentity(form), session),
+					iam.InTenant(iam.UserIdentity(form), f.tenant),
+				} {
+					if ok, err := f.auth.Can(t.Context(), who, iam.GroupByID(g.ID), f.read); err != nil || ok {
+						t.Fatalf("%s kept Can %v: %v", form, ok, err)
+					}
+				}
+			}
+			noError(t, f.auth.CheckSession(t.Context(), claims))
+			if ok, err := f.auth.Can(t.Context(), iam.InSession(iam.UserIdentity(id), session), iam.GroupByID(g.ID), f.read); err != nil || !ok {
+				t.Fatalf("the hyphenated id lost Can %v: %v", ok, err)
 			}
 		})
 		other := iam.NewTenantID()

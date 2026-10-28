@@ -320,14 +320,23 @@ func malformedSession(r iam.SessionRef) bool {
 
 // accountLive is the account's tenant lookup (AccountTenant, "" when deleted
 // or missing) followed by userLive, in one round trip. Like the tenant
-// lookup it always queries; a malformed sign-in is not signed in.
+// lookup it always queries; userLive's answers for an id or sign-in that is
+// not a hyphenated uuid stand, though PostgreSQL would read other spellings.
 func accountLive(ctx context.Context, q db.DBTX, userID string, r iam.SessionRef) (tenant string, usable, signedIn bool, err error) {
-	malformed := malformedSession(r)
-	if malformed {
+	account, malformed := isUUID(userID), malformedSession(r)
+	if !account || malformed {
 		r = iam.SessionRef{}
 	}
 	live, err := db.New(q).AccountSessionLive(ctx, db.AccountSessionLiveParams{UserID: userID, SessionID: r.SessionID, DeviceKeyID: r.DeviceKeyID})
-	return live.TenantID, live.Usable, live.SignedIn && !malformed, err
+	switch {
+	case err != nil:
+		return "", false, false, err
+	case !account:
+		return live.TenantID, false, true, nil
+	case malformed:
+		return live.TenantID, true, false, nil
+	}
+	return live.TenantID, live.Usable, live.SignedIn, nil
 }
 
 func subjectUsable(ctx context.Context, q db.DBTX, subject iam.Subject) (bool, error) {
