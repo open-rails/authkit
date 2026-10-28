@@ -294,7 +294,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		noError(t, f.auth.RevokeAPIKey(t.Context(), iam.SystemIdentity(), iam.GroupByID(f.tenant.String()), key.APIKey.ID))
 		f.call(t, "POST", "/notifications/application", key.Secret, body).want(t, http.StatusUnauthorized, "")
 		otherID := iam.NewTenantID()
-		noError(t, f.auth.CreateTenant(t.Context(), iam.Tenant{ID: otherID}))
+		noError(t, f.auth.CreateTenant(t.Context(), iam.Tenant{ID: otherID, Slug: "inbox-other"}))
 		other, err := f.auth.ForTenant(t.Context(), otherID)
 		noError(t, err)
 		_, err = other.Notifications("application")
@@ -793,7 +793,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		alice := f.user(t)
 		noError(t, publishNotificationBatch(t.Context(), sink, []notify.Mutation{notificationChange(alice.ID, "ownership:alice", 1)}))
 		other := iam.NewTenantID()
-		noError(t, f.auth.CreateTenant(t.Context(), iam.Tenant{ID: other}))
+		noError(t, f.auth.CreateTenant(t.Context(), iam.Tenant{ID: other, Slug: "inbox-foreign"}))
 		cfg := f.cfg
 		cfg.DefaultTenantID = other
 		n := *cfg.Notifications

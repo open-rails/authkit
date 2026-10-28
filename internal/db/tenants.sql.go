@@ -20,26 +20,128 @@ func (q *Queries) AccountTenant(ctx context.Context, id string) (string, error) 
 	return tenant_id, err
 }
 
+const insertTenantSlugAlias = `-- name: InsertTenantSlugAlias :exec
+INSERT INTO tenant_slug_aliases(slug, tenant_id, expires_at)
+VALUES (
+  $1::text, $2::uuid,
+  CASE WHEN $3::boolean THEN NULL
+       ELSE now() + $4::float8 * interval '1 second' END
+)
+`
+
+type InsertTenantSlugAliasParams struct {
+	Slug             string
+	TenantID         string
+	Forever          bool
+	RetentionSeconds float64
+}
+
+func (q *Queries) InsertTenantSlugAlias(ctx context.Context, arg InsertTenantSlugAliasParams) error {
+	_, err := q.db.Exec(ctx, insertTenantSlugAlias,
+		arg.Slug,
+		arg.TenantID,
+		arg.Forever,
+		arg.RetentionSeconds,
+	)
+	return err
+}
+
+const lockTenantForRename = `-- name: LockTenantForRename :one
+SELECT id, created_at, slug, slug_changed_at FROM tenants WHERE id=$1::uuid FOR UPDATE
+`
+
+func (q *Queries) LockTenantForRename(ctx context.Context, id string) (Tenant, error) {
+	row := q.db.QueryRow(ctx, lockTenantForRename, id)
+	var i Tenant
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.Slug,
+		&i.SlugChangedAt,
+	)
+	return i, err
+}
+
+const renameTenant = `-- name: RenameTenant :one
+UPDATE tenants SET slug=$1::text, slug_changed_at=now()
+WHERE id=$2::uuid
+RETURNING id, created_at, slug, slug_changed_at
+`
+
+type RenameTenantParams struct {
+	Slug string
+	ID   string
+}
+
+func (q *Queries) RenameTenant(ctx context.Context, arg RenameTenantParams) (Tenant, error) {
+	row := q.db.QueryRow(ctx, renameTenant, arg.Slug, arg.ID)
+	var i Tenant
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.Slug,
+		&i.SlugChangedAt,
+	)
+	return i, err
+}
+
 const tenantByID = `-- name: TenantByID :one
-SELECT id, created_at FROM tenants WHERE id=$1::uuid
+SELECT id, created_at, slug, slug_changed_at FROM tenants WHERE id=$1::uuid
 `
 
 func (q *Queries) TenantByID(ctx context.Context, id string) (Tenant, error) {
 	row := q.db.QueryRow(ctx, tenantByID, id)
 	var i Tenant
-	err := row.Scan(&i.ID, &i.CreatedAt)
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.Slug,
+		&i.SlugChangedAt,
+	)
+	return i, err
+}
+
+const tenantBySlugOrAlias = `-- name: TenantBySlugOrAlias :one
+SELECT t.id, t.created_at, t.slug, t.slug_changed_at FROM tenants t WHERE t.slug=$1::text
+UNION ALL
+SELECT t.id, t.created_at, t.slug, t.slug_changed_at FROM tenant_slug_aliases a JOIN tenants t ON t.id=a.tenant_id
+WHERE a.slug=$1::text AND (a.expires_at IS NULL OR a.expires_at > now())
+LIMIT 1
+`
+
+// A live name or an unexpired former name; the row is the tenant as it is now.
+func (q *Queries) TenantBySlugOrAlias(ctx context.Context, slug string) (Tenant, error) {
+	row := q.db.QueryRow(ctx, tenantBySlugOrAlias, slug)
+	var i Tenant
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.Slug,
+		&i.SlugChangedAt,
+	)
 	return i, err
 }
 
 const tenantCreate = `-- name: TenantCreate :one
-INSERT INTO tenants(id) VALUES($1::uuid)
+INSERT INTO tenants(id, slug) VALUES($1::uuid, $2::text)
 ON CONFLICT(id) DO UPDATE SET id=EXCLUDED.id
-RETURNING id, created_at
+RETURNING id, created_at, slug, slug_changed_at
 `
 
-func (q *Queries) TenantCreate(ctx context.Context, id string) (Tenant, error) {
-	row := q.db.QueryRow(ctx, tenantCreate, id)
+type TenantCreateParams struct {
+	ID   string
+	Slug string
+}
+
+// An existing id returns its row unchanged; the caller compares its name.
+func (q *Queries) TenantCreate(ctx context.Context, arg TenantCreateParams) (Tenant, error) {
+	row := q.db.QueryRow(ctx, tenantCreate, arg.ID, arg.Slug)
 	var i Tenant
-	err := row.Scan(&i.ID, &i.CreatedAt)
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.Slug,
+		&i.SlugChangedAt,
+	)
 	return i, err
 }

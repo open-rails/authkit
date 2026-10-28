@@ -112,9 +112,11 @@ pkg authkit, method (*Client) RemoteUserInfo(iam.GroupRef, string) userinfo.Look
 pkg authkit, method (*Client) RemoteUserRoles(context.Context, iam.GroupRef) ([]iam.RemoteUserRole, error)
 pkg authkit, method (*Client) RemoveGroupMember(context.Context, auth.Identity, iam.GroupRef, iam.Subject, ...Option) error
 pkg authkit, method (*Client) RemoveRemoteUserRole(context.Context, auth.Identity, iam.GroupRef, string, ...Option) error
+pkg authkit, method (*Client) RenameTenant(context.Context, iam.TenantID, string) (iam.Tenant, error)
 pkg authkit, method (*Client) ResetAccountMFA(context.Context, string, ...Option) error
 pkg authkit, method (*Client) ResolveAPIKey(context.Context, string) (iam.ResolvedAPIKey, error)
 pkg authkit, method (*Client) ResolvePersonalAccessToken(context.Context, string) (iam.ResolvedPersonalAccessToken, error)
+pkg authkit, method (*Client) ResolveTenant(context.Context, string) (iam.Tenant, error)
 pkg authkit, method (*Client) ResolveTenantActor(context.Context, auth.Verified) (iam.TenantActor, error)
 pkg authkit, method (*Client) ResolveUsername(context.Context, string) (iam.NameResolution, error)
 pkg authkit, method (*Client) RestoreUsers(context.Context, auth.Identity, []string, ...Option) ([]iam.OpResult, error)
@@ -137,6 +139,7 @@ pkg authkit, method (*Client) SetGroupRole(context.Context, auth.Identity, iam.G
 pkg authkit, method (*Client) SetNotificationDismissed(context.Context, string, string, bool) (notify.Item, error)
 pkg authkit, method (*Client) SetNotificationRead(context.Context, string, string, bool) (notify.Item, error)
 pkg authkit, method (*Client) Start(context.Context, ...StartOption) error
+pkg authkit, method (*Client) Tenant(context.Context, iam.TenantID) (iam.Tenant, error)
 pkg authkit, method (*Client) TwoFactorMethods() []iam.TwoFactorMethod
 pkg authkit, method (*Client) Unban(context.Context, auth.Identity, string, ...Option) error
 pkg authkit, method (*Client) UpdateGroupOAuthClient(context.Context, auth.Identity, iam.GroupRef, string, iam.OAuthClientUpdate, ...Option) (iam.OAuthClient, error)
@@ -193,6 +196,7 @@ pkg authkit, method (TenantDef) Permissions() []iam.Perm
 pkg authkit, method (TenantDef) RequireMFA(...iam.Perm)
 pkg authkit, method (TenantDef) Resource(string) config.Resource
 pkg authkit, method (TenantDef) Role(string, ...iam.Grant) iam.Role
+pkg authkit, method (TenantPerms) All() iam.Perm
 pkg authkit, method (UserPerms) All() iam.Perm
 pkg authkit, type APIKeysConfig = config.APIKeysConfig
 pkg authkit, type APIKeysConfig struct
@@ -241,6 +245,7 @@ pkg authkit, type Config struct, SenderHealthInterval time.Duration `yaml:"sende
 pkg authkit, type Config struct, SessionEventRetention time.Duration `yaml:"session_event_retention"`
 pkg authkit, type Config struct, SignIn config.SignInConfig `yaml:"sign_in"`
 pkg authkit, type Config struct, SolanaNetwork iam.SolanaNetwork `yaml:"solana_network"`
+pkg authkit, type Config struct, Tenants config.TenantsConfig `yaml:"tenants"`
 pkg authkit, type Config struct, Token config.TokenConfig `yaml:"token"`
 pkg authkit, type Config struct, TwoFactor config.TwoFactorConfig `yaml:"two_factor"`
 pkg authkit, type Config struct, Username config.UsernameConfig `yaml:"username"`
@@ -493,6 +498,7 @@ pkg authkit, type Roles struct, Root *config.RootDef
 pkg authkit, type Roles struct, Tenant *config.TenantDef
 pkg authkit, type RootDef = config.RootDef
 pkg authkit, type RootDef struct
+pkg authkit, type RootDef struct, Tenants config.TenantPerms
 pkg authkit, type RootDef struct, Users config.UserPerms
 pkg authkit, type RootDef struct, embedded *config.PersonaDef
 pkg authkit, type SMSConfig = config.SMSConfig
@@ -513,6 +519,14 @@ pkg authkit, type TenantDef = config.TenantDef
 pkg authkit, type TenantDef struct
 pkg authkit, type TenantDef struct, Users config.UserPerms
 pkg authkit, type TenantDef struct, embedded *config.PersonaDef
+pkg authkit, type TenantPerms = config.TenantPerms
+pkg authkit, type TenantPerms struct
+pkg authkit, type TenantPerms struct, Manage iam.Perm
+pkg authkit, type TenantPerms struct, Read iam.Perm
+pkg authkit, type TenantPerms struct, embedded config.Resource
+pkg authkit, type TenantsConfig = config.TenantsConfig
+pkg authkit, type TenantsConfig struct
+pkg authkit, type TenantsConfig struct, FormerNames config.FormerNamesConfig `yaml:"former_names"`
 pkg authkit, type TokenConfig = config.TokenConfig
 pkg authkit, type TokenConfig struct
 pkg authkit, type TokenConfig struct, AccessTokenDuration time.Duration `yaml:"access_token_duration"`
@@ -1060,6 +1074,7 @@ pkg authkit/iam, func GroupByID(string) GroupRef
 pkg authkit/iam, func InSession(auth.Identity, SessionRef) auth.Identity
 pkg authkit/iam, func InTenant(auth.Identity, TenantID) auth.Identity
 pkg authkit/iam, func NewTenantID() TenantID
+pkg authkit/iam, func NormalizeTenantSlug(string) string
 pkg authkit/iam, func ParseTenantID(string) (TenantID, error)
 pkg authkit/iam, func PersonalAccessTokenIdentity(string) auth.Identity
 pkg authkit/iam, func PinnedTo(auth.Identity, string) auth.Identity
@@ -1079,6 +1094,7 @@ pkg authkit/iam, func UserByPhone(string) UserRef
 pkg authkit/iam, func UserByUsername(string) UserRef
 pkg authkit/iam, func UserIdentity(string) auth.Identity
 pkg authkit/iam, func UserSubject(string) Subject
+pkg authkit/iam, func ValidateTenantSlug(string) error
 pkg authkit/iam, func Within(auth.Identity, ...Perm) auth.Identity
 pkg authkit/iam, func WriteError(http.ResponseWriter, error)
 pkg authkit/iam, method (*Event) UnmarshalJSON([]byte) error
@@ -1731,6 +1747,8 @@ pkg authkit/iam, type SubjectKind string
 pkg authkit/iam, type Tenant struct
 pkg authkit/iam, type Tenant struct, CreatedAt time.Time `json:"created_at"`
 pkg authkit/iam, type Tenant struct, ID TenantID `json:"id"`
+pkg authkit/iam, type Tenant struct, Slug string `json:"slug"`
+pkg authkit/iam, type Tenant struct, SlugChangedAt *time.Time `json:"slug_changed_at"`
 pkg authkit/iam, type TenantActor struct
 pkg authkit/iam, type TenantActor struct, AccountID string `json:"account_id"`
 pkg authkit/iam, type TenantActor struct, TenantID TenantID `json:"tenant_id"`
@@ -1824,6 +1842,7 @@ pkg authkit/iam, var ErrInsufficientAuthority Error
 pkg authkit/iam, var ErrInvalidIDToken Error
 pkg authkit/iam, var ErrInvalidOAuthClient Error
 pkg authkit/iam, var ErrInvalidRemoteApplication Error
+pkg authkit/iam, var ErrInvalidTenantSlug Error
 pkg authkit/iam, var ErrInvalidUntil Error
 pkg authkit/iam, var ErrInvitationNotFound Error
 pkg authkit/iam, var ErrInvitationsDisabled Error
@@ -1848,7 +1867,9 @@ pkg authkit/iam, var ErrRoleNotFound Error
 pkg authkit/iam, var ErrSessionRevoked Error
 pkg authkit/iam, var ErrSigningNotConfigured Error
 pkg authkit/iam, var ErrSubjectMFARequired Error
+pkg authkit/iam, var ErrTenantConflict Error
 pkg authkit/iam, var ErrTenantMismatch error
+pkg authkit/iam, var ErrTenantNameTaken Error
 pkg authkit/iam, var ErrTenantNotFound error
 pkg authkit/iam, var ErrTenantRequired error
 pkg authkit/iam, var ErrTokenExpired Error

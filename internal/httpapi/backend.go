@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/open-rails/authkit/auth"
+	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ops"
 )
 
@@ -25,6 +26,15 @@ type Backend interface {
 	scimDirectoryBackend
 	resourceBackend
 	notificationsBackend
+	tenantsBackend
+}
+
+// tenantsBackend is the tenant directory: root-authorized at the route.
+type tenantsBackend interface {
+	CreateTenant(context.Context, iam.Tenant) error
+	Tenant(context.Context, iam.TenantID) (iam.Tenant, error)
+	RenameTenant(context.Context, iam.TenantID, string) (iam.Tenant, error)
+	ResolveTenant(context.Context, string) (iam.Tenant, error)
 }
 
 // resourceBackend authenticates every credential the deployment accepts:

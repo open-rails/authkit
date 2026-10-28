@@ -117,7 +117,7 @@ func TestCriticalConfiguredGroups(t *testing.T) {
 		groups, err := ensure(t.Context(), input)
 		noError(t, err)
 		otherTenant := iam.NewTenantID()
-		noError(t, f.auth.CreateTenant(t.Context(), iam.Tenant{ID: otherTenant}))
+		noError(t, f.auth.CreateTenant(t.Context(), iam.Tenant{ID: otherTenant, Slug: "provisioning-other"}))
 		wrong := input
 		wrong.TenantID = otherTenant
 		if _, err := ensure(t.Context(), wrong); !errors.Is(err, iam.ErrGroupConflict) {

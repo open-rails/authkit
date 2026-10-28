@@ -854,5 +854,37 @@
     "gate": "scim",
     "coverage": "partial",
     "owner": "AK-J23"
+  },
+  {
+    "id": "AK-HTTP-168",
+    "method": "POST",
+    "path": "/api/v1/admin/tenants",
+    "gate": "permission",
+    "coverage": "included",
+    "owner": "AK-J37"
+  },
+  {
+    "id": "AK-HTTP-169",
+    "method": "GET",
+    "path": "/api/v1/admin/tenants/{tenant_id}",
+    "gate": "permission",
+    "coverage": "included",
+    "owner": "AK-J37"
+  },
+  {
+    "id": "AK-HTTP-170",
+    "method": "PATCH",
+    "path": "/api/v1/admin/tenants/{tenant_id}",
+    "gate": "permission",
+    "coverage": "included",
+    "owner": "AK-J37"
+  },
+  {
+    "id": "AK-HTTP-171",
+    "method": "GET",
+    "path": "/api/v1/admin/tenants/by-slug/{slug}",
+    "gate": "permission",
+    "coverage": "included",
+    "owner": "AK-J37"
   }
 ]

@@ -47,8 +47,16 @@ var (
 	RootUsersInvite = Perm("root:users:invite") // invite someone to create an account
 )
 
-// IntrinsicRootPermissions are the root permissions every deployment
-// registers besides the members built-ins.
+// The root permissions gating the tenant directory. Unlike the account
+// permissions, the tenant persona has no counterpart.
+var (
+	RootTenantsRead   = Perm("root:tenants:read")   // look tenants up by ID, name or former name
+	RootTenantsManage = Perm("root:tenants:manage") // create and rename tenants
+)
+
+// IntrinsicRootPermissions are the account permissions every deployment
+// registers on root besides the members built-ins, and on the tenant persona
+// as tenant:users:*.
 func IntrinsicRootPermissions() []iam.Perm {
 	return []iam.Perm{RootUsersRead, RootUsersBan, RootUsersDelete, RootUsersManage, RootUsersInvite}
 }

@@ -1132,6 +1132,22 @@ export type Subject = {
   kind: "remote_application" | "user"
 }
 
+export type Tenant = {
+  id: string
+  slug: string
+  slug_changed_at: string | null
+  created_at: string
+}
+
+export type TenantCreateRequest = {
+  id?: string
+  slug?: string
+}
+
+export type TenantRenameRequest = {
+  slug?: string
+}
+
 export type TokenRefreshRequest = {
   grant_type?: string
   refresh_token?: string

@@ -5,14 +5,28 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
+
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
 var (
 	ErrTenantRequired = errors.New("authkit: a tenant must be selected")
 	ErrTenantNotFound = errors.New("authkit: tenant not found")
 	ErrTenantMismatch = errors.New("authkit: tenant does not own this account or resource")
+)
+
+var (
+	// ErrInvalidTenantSlug refuses a name ValidateTenantSlug rejects.
+	ErrInvalidTenantSlug Error = errmodel.E(errmodel.CodeInvalidTenantSlug)
+	// ErrTenantNameTaken refuses a name another tenant holds, now or as an
+	// unexpired former name.
+	ErrTenantNameTaken Error = errmodel.E(errmodel.CodeTenantNameTaken)
+	// ErrTenantConflict refuses to create a tenant whose ID already has
+	// another name.
+	ErrTenantConflict Error = errmodel.E(errmodel.CodeTenantConflict)
 )
 
 // TenantID is the canonical business identity, shared with ContentKit. It is
@@ -82,10 +96,29 @@ func (id *TenantID) UnmarshalText(text []byte) error {
 }
 
 // Tenant is one independently registered business account directory. Its ID
-// is supplied by trusted provisioning and never changes with a display name.
+// is supplied by trusted provisioning and never changes. Slug is its public
+// name: renamable, so tokens, scopes, keys and storage paths use the ID.
 type Tenant struct {
-	ID        TenantID  `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
+	ID            TenantID   `json:"id"`
+	Slug          string     `json:"slug"`
+	SlugChangedAt *time.Time `json:"slug_changed_at"`
+	CreatedAt     time.Time  `json:"created_at"`
+}
+
+var tenantSlugRe = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
+
+// NormalizeTenantSlug is the stored form of a tenant name: trimmed and
+// lowercased.
+func NormalizeTenantSlug(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
+
+// ValidateTenantSlug reports whether the normalized s is a legal tenant name:
+// lowercase a-z, 0-9 and hyphens, no leading or trailing hyphen, at most 63
+// characters. Names a product reserves are the caller's policy.
+func ValidateTenantSlug(s string) error {
+	if !tenantSlugRe.MatchString(NormalizeTenantSlug(s)) {
+		return ErrInvalidTenantSlug
+	}
+	return nil
 }
 
 // TenantActor identifies the live source account of a verified actor. It does

@@ -26,6 +26,7 @@ type (
 	SMSConfig                  = config.SMSConfig
 	PasswordPolicy             = config.PasswordPolicy
 	UsernameConfig             = config.UsernameConfig
+	TenantsConfig              = config.TenantsConfig
 	FormerNamesConfig          = config.FormerNamesConfig
 	FormerNamesMode            = config.FormerNamesMode
 	TwoFactorConfig            = config.TwoFactorConfig

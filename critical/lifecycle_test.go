@@ -436,7 +436,7 @@ func checkNativeCallbackTenants(t *testing.T) {
 	}))
 	f.startFleet(t)
 	other := iam.NewTenantID()
-	noError(t, f.auth.CreateTenant(t.Context(), iam.Tenant{ID: other}))
+	noError(t, f.auth.CreateTenant(t.Context(), iam.Tenant{ID: other, Slug: "lifecycle-other"}))
 	var firstToken string
 	for _, tenant := range []iam.TenantID{f.tenant, other} {
 		view, err := f.auth.ForTenant(t.Context(), tenant)

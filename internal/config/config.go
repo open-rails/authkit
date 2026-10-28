@@ -56,6 +56,8 @@ type Config struct {
 	// Username is the username rule: length, and whether and how often users
 	// may rename themselves. Published by GET {api}/capabilities.
 	Username UsernameConfig `yaml:"username"`
+	// Tenants is the tenant name policy.
+	Tenants TenantsConfig `yaml:"tenants"`
 	// TwoFactor configures MFA.
 	TwoFactor TwoFactorConfig `yaml:"two_factor"`
 	// Passkeys configures WebAuthn/FIDO2 passkey ceremonies.
@@ -362,7 +364,14 @@ type UsernameConfig struct {
 	FormerNames FormerNamesConfig `yaml:"former_names"`
 }
 
-// FormerNamesConfig keeps a renamed-away username reserved for its owner, and
+// TenantsConfig is the tenant name policy.
+type TenantsConfig struct {
+	// FormerNames is what happens to a name a tenant was renamed away from:
+	// it forwards to the tenant, and no other tenant may claim it.
+	FormerNames FormerNamesConfig `yaml:"former_names"`
+}
+
+// FormerNamesConfig keeps a renamed-away name reserved for its owner, and
 // resolving to them, for a while.
 type FormerNamesConfig struct {
 	// Mode is FormerNamesFinite (the default), FormerNamesForever or
@@ -372,7 +381,7 @@ type FormerNamesConfig struct {
 	Duration time.Duration `yaml:"duration"`
 }
 
-// FormerNamesMode says how long a former username stays reserved.
+// FormerNamesMode says how long a former name stays reserved.
 type FormerNamesMode string
 
 const (

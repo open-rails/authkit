@@ -16,6 +16,7 @@ type (
 	DirectoryPerms  = config.DirectoryPerms
 	RolePerms       = config.RolePerms
 	UserPerms       = config.UserPerms
+	TenantPerms     = config.TenantPerms
 	PersonaOption   = config.PersonaOption
 )
 

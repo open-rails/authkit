@@ -392,6 +392,17 @@ func Catalog() []RouteSpec {
 		{Method: GET, Path: "/admin/provisioning/targets", Group: admin, Auth: permission, Perm: usersRead, Bucket: RLAdminRead,
 			Responses: replyOK(iam.ListPage[iam.ProvisioningTarget]{}), serve: handle((*Service).handleAdminProvisioningTargetsGET)},
 
+		// The tenant directory (#471). A tenant's ID is stable; its slug is a
+		// renamable public name, and a former name keeps resolving for a while.
+		{Method: POST, Path: "/admin/tenants", Group: admin, Auth: permission, Perm: ident.RootTenantsManage.String(), Bucket: RLAdminWrite,
+			Request: TenantCreateRequest{}, Responses: replyCreated(iam.Tenant{}), serve: handle((*Service).handleAdminTenantCreatePOST)},
+		{Method: GET, Path: "/admin/tenants/{tenant_id}", Group: admin, Auth: permission, Perm: ident.RootTenantsRead.String(), Bucket: RLAdminRead,
+			Responses: replyOK(iam.Tenant{}), serve: handle((*Service).handleAdminTenantGET)},
+		{Method: PATCH, Path: "/admin/tenants/{tenant_id}", Group: admin, Auth: permission, Perm: ident.RootTenantsManage.String(), Bucket: RLAdminWrite,
+			Request: TenantRenameRequest{}, Responses: replyOK(iam.Tenant{}), serve: handle((*Service).handleAdminTenantPATCH)},
+		{Method: GET, Path: "/admin/tenants/by-slug/{slug}", Group: admin, Auth: permission, Perm: ident.RootTenantsRead.String(), Bucket: RLAdminRead,
+			Responses: replyOK(iam.Tenant{}), serve: handle((*Service).handleAdminTenantBySlugGET)},
+
 		// #430: the SPA's half of an OAuth sign-in. The authorize endpoint
 		// stores the request and sends the browser to Frontend.AuthorizePath;
 		// the SPA signs the user in, then approves it for that sign-in (a

@@ -32,7 +32,7 @@ A deployment serving several tenants can leave `DefaultTenantID` zero, create
 tenants explicitly, and select an existing directory for each operation:
 
 ```go
-if err := authority.CreateTenant(ctx, iam.Tenant{ID: tenantID}); err != nil {
+if err := authority.CreateTenant(ctx, iam.Tenant{ID: tenantID, Slug: "acme"}); err != nil {
 	return err
 }
 directory, err := authority.ForTenant(ctx, tenantID)
@@ -44,7 +44,8 @@ user, err := directory.User(ctx, iam.UserByEmail(email))
 
 `CreateTenant` creates the tenant and its canonical permission group, without
 an account, owner assignment, app or key. Repeating matching provisioning is
-safe; conflicting group ownership or persona is an error. `ForTenant` requires
+safe; the same ID under another name (`iam.ErrTenantConflict`) and conflicting
+group ownership or persona are errors. `ForTenant` requires
 an existing tenant and returns a lightweight view that borrows the original
 engine, pools, keys and workers. Closing the view does not close the authority.
 Start and stop shared workers through their owning client.
@@ -108,6 +109,38 @@ reader merely because several tenants share an issuer. Dynamic group clients
 use their group's recorded ownership. Shared callbacks recover their tenant
 from immutable proof state; an explicitly mounted directory still rejects a
 proof belonging to another tenant.
+
+## Tenant names
+
+A tenant's `Slug` is its public name for display, URLs and operator lookup,
+following the OpenRails merchant-name rules. It is stored trimmed and
+lowercased and must match `^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`
+(`iam.ValidateTenantSlug`). Names a hosted product reserves, such as `www` or
+`admin`, are that product's policy; AuthKit accepts them.
+
+The name is never an identity. Tokens, scopes, keys, grants and storage paths
+use the UUID, so a rename changes none of them.
+
+```go
+renamed, err := authority.RenameTenant(ctx, tenantID, "acme-labs")
+tenant, err := authority.ResolveTenant(ctx, "acme") // tenant.ID == tenantID, tenant.Slug == "acme-labs"
+```
+
+The old name becomes a former name. It keeps resolving to the tenant, and no
+other tenant may claim it, until it expires. `Config.Tenants.FormerNames` sets
+the lifetime: 90 days by default (`FormerNamesFinite`), `FormerNamesForever`,
+or `FormerNamesImmediate` for none. A tenant may take its own former name back.
+A name another tenant holds, live or former, is `iam.ErrTenantNameTaken`, and
+concurrent claims of one name have exactly one winner. Tenants are permanent;
+AuthKit has no tenant deletion, so nothing else releases a name.
+
+`root:tenants:read` and `root:tenants:manage` gate the same operations over
+HTTP: `POST /admin/tenants`, `GET` and `PATCH /admin/tenants/{tenant_id}`, and
+`GET /admin/tenants/by-slug/{slug}`.
+
+Migration 0026 names each existing tenant `tenant-<its UUID's 32 hex digits>`.
+Rename it to its real name once; the placeholder then forwards like any
+former name.
 
 ## Permissions and ownership
 

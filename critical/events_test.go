@@ -122,7 +122,7 @@ func TestCriticalRetainedEvents(t *testing.T) {
 		f.call(t, "GET", "/events", session.AccessToken, nil).want(t, http.StatusOK, "")
 		f.call(t, "GET", "/events?authority=true", session.AccessToken, nil).want(t, http.StatusForbidden, "forbidden")
 		otherID := iam.NewTenantID()
-		noError(t, f.auth.CreateTenant(t.Context(), iam.Tenant{ID: otherID}))
+		noError(t, f.auth.CreateTenant(t.Context(), iam.Tenant{ID: otherID, Slug: "events-other"}))
 		other, err := f.auth.ForTenant(t.Context(), otherID)
 		noError(t, err)
 		server := httptest.NewServer(other.Handler())

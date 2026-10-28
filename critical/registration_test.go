@@ -126,7 +126,7 @@ func TestCriticalRegistration(t *testing.T) {
 		message := g.out.Last(t, iam.MessageVerification, email)
 		g.call(t, "POST", "/verify/confirm", "", map[string]string{"identifier": "wrong-person@example.com", "code": message.Code}).want(t, http.StatusUnauthorized, "invalid_code")
 		id := iam.NewTenantID()
-		noError(t, g.auth.CreateTenant(t.Context(), iam.Tenant{ID: id}))
+		noError(t, g.auth.CreateTenant(t.Context(), iam.Tenant{ID: id, Slug: "registration-other"}))
 		view, err := g.auth.ForTenant(t.Context(), id)
 		noError(t, err)
 		server := httptest.NewServer(view.Handler())
