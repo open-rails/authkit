@@ -103,6 +103,9 @@ func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 	if c.Username, err = NormalizeUsername(c.Username); err != nil {
 		return Config{}, nil, err
 	}
+	if c.Tenants.FormerNames, err = normalizeFormerNames("Tenants", c.Tenants.FormerNames); err != nil {
+		return Config{}, nil, err
+	}
 	switch c.TwoFactor.Mode {
 	case "":
 		c.TwoFactor.Mode = iam.TwoFactorOptional
@@ -493,23 +496,29 @@ func NormalizeUsername(u UsernameConfig) (UsernameConfig, error) {
 	if u.RenameInterval == 0 {
 		u.RenameInterval = DefaultRenameInterval
 	}
-	switch u.FormerNames.Mode {
+	var err error
+	u.FormerNames, err = normalizeFormerNames("Username", u.FormerNames)
+	return u, err
+}
+
+func normalizeFormerNames(field string, f FormerNamesConfig) (FormerNamesConfig, error) {
+	switch f.Mode {
 	case "", FormerNamesFinite:
-		u.FormerNames.Mode = FormerNamesFinite
-		if u.FormerNames.Duration < 0 {
-			return u, errors.New("authkit: Username.FormerNames.Duration must not be negative")
+		f.Mode = FormerNamesFinite
+		if f.Duration < 0 {
+			return f, fmt.Errorf("authkit: %s.FormerNames.Duration must not be negative", field)
 		}
-		if u.FormerNames.Duration == 0 {
-			u.FormerNames.Duration = DefaultFormerNameRetention
+		if f.Duration == 0 {
+			f.Duration = DefaultFormerNameRetention
 		}
 	case FormerNamesForever, FormerNamesImmediate:
-		if u.FormerNames.Duration != 0 {
-			return u, fmt.Errorf("authkit: Username.FormerNames.Duration needs Mode %q", FormerNamesFinite)
+		if f.Duration != 0 {
+			return f, fmt.Errorf("authkit: %s.FormerNames.Duration needs Mode %q", field, FormerNamesFinite)
 		}
 	default:
-		return u, fmt.Errorf("authkit: invalid Username.FormerNames.Mode %q", u.FormerNames.Mode)
+		return f, fmt.Errorf("authkit: invalid %s.FormerNames.Mode %q", field, f.Mode)
 	}
-	return u, nil
+	return f, nil
 }
 
 // Passkey relying-party identity derives from the BaseURL origin; without a

@@ -128,5 +128,11 @@
   "AK-J36-C01": "keyless configured groups with one connection preserve identities, members and events on replay",
   "AK-J36-C02": "configured group inputs and tenants are validated before any batch writes",
   "AK-J36-C03": "configured groups reject foreign persona/tenant and never revive deleted groups",
-  "AK-J36-C04": "concurrent configured group migrations and retry converge without duplicate events"
+  "AK-J36-C04": "concurrent configured group migrations and retry converge without duplicate events",
+  "AK-J37-C01": "tenant creation normalizes and validates one name per stable ID; retries are idempotent, another name for the ID and another tenant's name are refused, and migration names adopted tenants with a UUID placeholder",
+  "AK-J37-C02": "a rename keeps the tenant's ID, accounts, sessions and token claims; its former name forwards and blocks other tenants' claims",
+  "AK-J37-C03": "a tenant takes its own former name back",
+  "AK-J37-C04": "an expired former name stops forwarding and another tenant may claim it; immediate and forever former-name policies",
+  "AK-J37-C05": "concurrent creates and renames for one name have exactly one winner, and a name being vacated is never handed out",
+  "AK-J37-C06": "HTTP tenant create, read, rename and name resolution with native parity under root:tenants:read and root:tenants:manage"
 }

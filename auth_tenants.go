@@ -12,11 +12,36 @@ import (
 	"github.com/open-rails/authkit/internal/tenancy"
 )
 
-// CreateTenant explicitly provisions one canonical tenant. It creates no
-// account, role assignment, credential, or application. Native calls are a
-// trusted host interface; HTTP provisioning must separately authorize root.
+// CreateTenant explicitly provisions one canonical tenant under its ID and
+// name (Slug, normalized by iam.NormalizeTenantSlug). It creates no account,
+// role assignment, credential, or application. Repeating it with the same ID
+// and name is safe; the ID under another name is iam.ErrTenantConflict, and a
+// name another tenant holds, now or as an unexpired former name, is
+// iam.ErrTenantNameTaken. Native calls are a trusted host interface; HTTP
+// provisioning requires root:tenants:manage.
 func (a *Client) CreateTenant(ctx context.Context, tenant iam.Tenant) error {
 	return a.engine.CreateTenant(ctx, tenant)
+}
+
+// Tenant reads one tenant by its ID.
+func (a *Client) Tenant(ctx context.Context, id iam.TenantID) (iam.Tenant, error) {
+	return a.engine.Tenant(ctx, id)
+}
+
+// RenameTenant gives a tenant a new name. Its ID, and so its accounts,
+// tokens, keys and grants, are unchanged. The old name keeps resolving to it,
+// and no other tenant may claim it, as Config.Tenants.FormerNames says; the
+// tenant may take a former name of its own back. A name another tenant holds
+// is iam.ErrTenantNameTaken.
+func (a *Client) RenameTenant(ctx context.Context, id iam.TenantID, slug string) (iam.Tenant, error) {
+	return a.engine.RenameTenant(ctx, id, slug)
+}
+
+// ResolveTenant finds the tenant a name belongs to: its current name, or a
+// former name that still forwards. The returned Slug is the current name. An
+// unknown name is iam.ErrTenantNotFound.
+func (a *Client) ResolveTenant(ctx context.Context, slug string) (iam.Tenant, error) {
+	return a.engine.ResolveTenant(ctx, slug)
 }
 
 // ForTenant selects an existing tenant for native account operations and HTTP

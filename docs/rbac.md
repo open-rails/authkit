@@ -40,6 +40,8 @@ AuthKit registers these itself; you never declare them. `<persona>` means every 
 | `root:users:delete` | always | delete an account, or restore it within 30 days |
 | `root:users:manage` | always | edit someone else's account and sign them out everywhere |
 | `root:users:invite` | always | invite someone to create an account |
+| `root:tenants:read` | always | look tenants up by ID, name or former name |
+| `root:tenants:manage` | always | create tenants and rename them |
 
 Handing out a role takes `members:manage` in that group, and the grantor's own grants must cover every permission of the role being given and of the role it replaces. A removed role grants nothing, so taking it away or replacing it needs no cover. Account actions (`root:users:*`) also require covering every role the target holds in each of their groups and, on root, outranking it: staff can't ban, delete or edit a peer or anyone above them, so demote first. Signing someone out everywhere needs only cover, so a peer can contain a compromised account.
 

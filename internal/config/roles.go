@@ -48,6 +48,11 @@ func NewRoles(opts ...PersonaOption) *Roles {
 		Manage:   ident.RootUsersManage,
 		Invite:   ident.RootUsersInvite,
 	}
+	r.Root.Tenants = TenantPerms{
+		Resource: r.Root.Resource("tenants"),
+		Read:     ident.RootTenantsRead,
+		Manage:   ident.RootTenantsManage,
+	}
 	r.Tenant = &TenantDef{PersonaDef: r.persona(iam.TenantPersona(), opts)}
 	r.Tenant.Users = UserPerms{
 		Resource: r.Tenant.Resource("users"),
@@ -264,11 +269,12 @@ func (p *PersonaDef) RequireMFA(perms ...iam.Perm) {
 	p.spec.RequireMFA = append(p.spec.RequireMFA, perms...)
 }
 
-// RootDef is root: a persona, plus the account administration permissions
-// AuthKit registers on it.
+// RootDef is root: a persona, plus the account administration and tenant
+// directory permissions AuthKit registers on it.
 type RootDef struct {
 	*PersonaDef
-	Users UserPerms
+	Users   UserPerms
+	Tenants TenantPerms
 }
 
 // TenantDef is business-scoped account administration. Its owner also covers
@@ -318,6 +324,13 @@ type DirectoryPerms struct {
 	Resource
 	Read   iam.Perm // read the directory
 	Manage iam.Perm // provision it: create, replace, patch and delete users
+}
+
+// TenantPerms are root's tenant directory permissions.
+type TenantPerms struct {
+	Resource
+	Read   iam.Perm // look tenants up by ID, name or former name
+	Manage iam.Perm // create tenants and rename them
 }
 
 // UserPerms are root's account administration permissions.

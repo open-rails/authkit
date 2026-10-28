@@ -76,6 +76,7 @@ export type AuthErrorCode =
   | "invalid_signature"
   | "invalid_signature_encoding"
   | "invalid_state"
+  | "invalid_tenant_slug"
   | "invalid_timestamp"
   | "invalid_token"
   | "invalid_ui"
@@ -150,6 +151,8 @@ export type AuthErrorCode =
   | "sms_unavailable"
   | "step_up_required"
   | "subject_mfa_required"
+  | "tenant_conflict"
+  | "tenant_name_taken"
   | "token_expired"
   | "token_not_yet_valid"
   | "too_many_accounts"
@@ -251,6 +254,7 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   invalid_signature: 401,
   invalid_signature_encoding: 400,
   invalid_state: 400,
+  invalid_tenant_slug: 400,
   invalid_timestamp: 401,
   invalid_token: 401,
   invalid_ui: 400,
@@ -325,6 +329,8 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   sms_unavailable: 503,
   step_up_required: 401,
   subject_mfa_required: 409,
+  tenant_conflict: 409,
+  tenant_name_taken: 409,
   token_expired: 401,
   token_not_yet_valid: 401,
   too_many_accounts: 429,
@@ -427,6 +433,7 @@ export const AUTH_ERROR_MESSAGES = {
   invalid_signature: "The wallet signature is invalid.",
   invalid_signature_encoding: "The signature encoding is invalid.",
   invalid_state: "The sign-in session is invalid. Please try again.",
+  invalid_tenant_slug: "A tenant name uses lowercase letters, digits and hyphens, starts and ends with a letter or digit, and has at most 63 characters.",
   invalid_timestamp: "Your verification session has expired. Start again.",
   invalid_token: "The authentication token is invalid.",
   invalid_ui: "The ui parameter is invalid.",
@@ -501,6 +508,8 @@ export const AUTH_ERROR_MESSAGES = {
   sms_unavailable: "SMS is currently unavailable. Please use email instead.",
   step_up_required: "Please confirm it's you to continue.",
   subject_mfa_required: "The account must enroll two-factor authentication before it can hold this role.",
+  tenant_conflict: "A tenant with this ID already has another name.",
+  tenant_name_taken: "That tenant name is taken.",
   token_expired: "Your session has expired. Please sign in again.",
   token_not_yet_valid: "The token is not yet valid.",
   too_many_accounts: "Too many accounts have signed in from this device today. Try again later.",

@@ -186,6 +186,7 @@ func Builtins(name iam.Persona, credentials, directory, roles bool) []iam.Perm {
 	}
 	if name == iam.RootPersona() {
 		out = append(out, ident.IntrinsicRootPermissions()...)
+		out = append(out, ident.RootTenantsRead, ident.RootTenantsManage)
 	}
 	if name == iam.TenantPersona() {
 		for _, p := range ident.IntrinsicRootPermissions() {

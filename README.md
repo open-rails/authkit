@@ -152,6 +152,7 @@ For the root persona (single-isntance only), they get these, defined by authkit:
 | `root:users:delete` | delete an account, or restore it within its 30 days |
 | `root:users:manage` | edit someone else's account and sign them out everywhere |
 | `root:users:invite` | invite someone to create an account |
+| `root:tenants:read`, `root:tenants:manage` | look tenants up, or create and rename them |
 | `root:members:read`, `root:members:manage` | see or hand out site-wide roles |
 
 The only built-in role for every permission group is just `owner`. When owner is assigned to a user, that user automatically gets `<persona>:*` permissions, which is full permission over the entire channel, or root (entire site).
@@ -367,7 +368,7 @@ adding a verified replacement first permits removing the old factor.
 | `POST /api/v1/groups/{group_id}/invitations` | invite someone with a link, or by email |
 | `DELETE /api/v1/groups/{group_id}/invitations/{id}` | revoke one |
 
-**Site admins** (need the matching `root:` permission, and a recent sign-in for changes; staff change only accounts they outrank, so demote a peer first. Bans, deletions, sign-outs and contact changes are recorded with who made them in `Client.ListEvents`, for your audit log.)
+**Site admins** (need the matching `root:` permission, and a recent sign-in for account changes; staff change only accounts they outrank, so demote a peer first. Bans, deletions, sign-outs and contact changes are recorded with who made them in `Client.ListEvents`, for your audit log.)
 
 | Route | What it does |
 |---|---|
@@ -382,6 +383,10 @@ adding a verified replacement first permits removing the old factor.
 | `DELETE /api/v1/admin/users/{user_id}/sessions` | sign them out everywhere |
 | `GET /api/v1/admin/users/{user_id}/session-events` | their sign-in history |
 | `GET /api/v1/admin/provisioning/targets` | how each [SCIM](docs/scim.md) target's sync is doing |
+| `POST /api/v1/admin/tenants` | create a tenant: its UUID and name (`root:tenants:manage`) |
+| `GET /api/v1/admin/tenants/{tenant_id}` | one tenant (`root:tenants:read`) |
+| `PATCH /api/v1/admin/tenants/{tenant_id}` | [rename](docs/tenant-directories.md#tenant-names) it (`root:tenants:manage`) |
+| `GET /api/v1/admin/tenants/by-slug/{slug}` | the tenant a current or former name belongs to (`root:tenants:read`) |
 
 Switch on social logins (Google, Apple, GitHub, Discord) or API keys, and AuthKit mounts their routes too. Set `Invitations.Disabled`, and the invitation routes go.
 

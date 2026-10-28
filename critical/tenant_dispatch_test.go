@@ -37,7 +37,7 @@ func TestCriticalTenantDispatch(t *testing.T) {
 				}
 			}))
 		platformID = f.tenant
-		noError(t, f.auth.CreateTenant(t.Context(), iam.Tenant{ID: isolatedID}))
+		noError(t, f.auth.CreateTenant(t.Context(), iam.Tenant{ID: isolatedID, Slug: "isolated"}))
 		isolated, err := f.auth.ForTenant(t.Context(), isolatedID)
 		noError(t, err)
 		platform := f.user(t)

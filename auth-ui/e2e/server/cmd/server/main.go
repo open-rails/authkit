@@ -65,7 +65,7 @@ func run(addr, origin, dist, app string) error {
 	if err = rt.Start(ctx); err != nil {
 		return err
 	}
-	if err = rt.CreateTenant(ctx, iam.Tenant{ID: isolatedID}); err != nil {
+	if err = rt.CreateTenant(ctx, iam.Tenant{ID: isolatedID, Slug: "isolated"}); err != nil {
 		return err
 	}
 	isolated, err := rt.ForTenant(ctx, isolatedID)

@@ -127,7 +127,7 @@ func TestCriticalPasswordless(t *testing.T) {
 		proof := f.passwordlessProof(t, u.Email, "code")
 		f.call(t, "POST", "/passwordless/confirm", "", map[string]string{"identifier": other.Email, "code": proof.Code}).want(t, http.StatusUnauthorized, "invalid_code")
 		id := iam.NewTenantID()
-		noError(t, f.auth.CreateTenant(t.Context(), iam.Tenant{ID: id}))
+		noError(t, f.auth.CreateTenant(t.Context(), iam.Tenant{ID: id, Slug: "passwordless-other"}))
 		view, err := f.auth.ForTenant(t.Context(), id)
 		noError(t, err)
 		server := httptest.NewServer(view.Handler())

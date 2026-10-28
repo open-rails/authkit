@@ -67,7 +67,7 @@ func TestCriticalHTTPAdmission(t *testing.T) {
 				if !mounted[row.Method+" "+row.Path] {
 					t.Fatalf("contract route is not mounted: %s %s", row.Method, row.Path)
 				}
-				path := strings.NewReplacer("{group_id}", group.ID, "{user_id}", target.ID, "{id}", target.ID, "{kind}", "users", "{role}", f.reader.String(), "{provider}", "google", "{client_id}", "browser", "{authorization_id}", target.ID).Replace(row.Path)
+				path := strings.NewReplacer("{group_id}", group.ID, "{user_id}", target.ID, "{id}", target.ID, "{kind}", "users", "{role}", f.reader.String(), "{provider}", "google", "{client_id}", "browser", "{authorization_id}", target.ID, "{tenant_id}", f.tenant.String(), "{slug}", "probe").Replace(row.Path)
 				if strings.Contains(row.Path, "/oauth-clients") {
 					path = strings.Replace(path, group.ID, oauthGroup.ID, 1)
 				}

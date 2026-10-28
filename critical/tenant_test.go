@@ -22,7 +22,7 @@ func TestCriticalTenantAuthority(t *testing.T) {
 	f := newFixture(t)
 	t.Run("AK-J02-C01_public_identity_is_scoped_and_redacted", func(t *testing.T) {
 		otherID := iam.NewTenantID()
-		noError(t, f.auth.CreateTenant(t.Context(), iam.Tenant{ID: otherID}))
+		noError(t, f.auth.CreateTenant(t.Context(), iam.Tenant{ID: otherID, Slug: "scoped-other"}))
 		other, err := f.auth.ForTenant(t.Context(), otherID)
 		noError(t, err)
 		in := iam.NewUser{Email: "shared-person@example.com", Username: "sharedperson", Password: authtest.Password, EmailVerified: true}
@@ -177,7 +177,7 @@ func TestCriticalTenantAuthority(t *testing.T) {
 		u := f.user(t)
 		tokens := f.signIn(t, u)
 		id := iam.NewTenantID()
-		noError(t, f.auth.CreateTenant(t.Context(), iam.Tenant{ID: id}))
+		noError(t, f.auth.CreateTenant(t.Context(), iam.Tenant{ID: id, Slug: "borrowed-view"}))
 		view, err := f.auth.ForTenant(t.Context(), id)
 		noError(t, err)
 		r, err := http.NewRequestWithContext(t.Context(), "GET", f.server.URL+"/source", nil)

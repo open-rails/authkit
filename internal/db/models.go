@@ -179,6 +179,10 @@ type SessionEvent struct {
 type Tenant struct {
 	ID        string
 	CreatedAt time.Time
+	// The tenant's public name: unique, renamable, and never equal to another tenant's unexpired former name (tenant_slug_aliases). Never a key, scope, claim or storage path; those use id.
+	Slug string
+	// When the tenant was last renamed; NULL if never.
+	SlugChangedAt *time.Time
 }
 
 type User struct {

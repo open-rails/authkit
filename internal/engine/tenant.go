@@ -3,12 +3,15 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/tenancy"
 	"github.com/open-rails/authkit/verify"
@@ -97,26 +100,29 @@ func (s *Engine) Tenant(ctx context.Context, id iam.TenantID) (iam.Tenant, error
 	if err := s.requirePG(); err != nil {
 		return iam.Tenant{}, err
 	}
-	row, err := s.q.TenantByID(ctx, id.String())
-	if errors.Is(err, pgx.ErrNoRows) {
-		return iam.Tenant{}, iam.ErrTenantNotFound
-	}
-	if err != nil {
-		return iam.Tenant{}, err
-	}
-	return iam.Tenant{ID: id, CreatedAt: row.CreatedAt}, nil
+	return tenantRow(s.q.TenantByID(ctx, id.String()))
 }
 
+// CreateTenant is idempotent for the same ID and name; the same ID under
+// another name is iam.ErrTenantConflict.
 func (s *Engine) CreateTenant(ctx context.Context, tenant iam.Tenant) error {
 	if tenant.ID.IsZero() {
 		return iam.ErrTenantRequired
 	}
+	slug := iam.NormalizeTenantSlug(tenant.Slug)
+	if err := iam.ValidateTenantSlug(slug); err != nil {
+		return err
+	}
 	if err := s.requirePG(); err != nil {
 		return err
 	}
-	return s.withAuthorityMutation(ctx, iam.SystemIdentity(), func(st *permissionGroupStore) error {
-		if _, err := db.New(st.q).TenantCreate(ctx, tenant.ID.String()); err != nil {
+	err := s.withAuthorityMutation(ctx, iam.SystemIdentity(), func(st *permissionGroupStore) error {
+		row, err := db.New(st.q).TenantCreate(ctx, db.TenantCreateParams{ID: tenant.ID.String(), Slug: slug})
+		if err != nil {
 			return err
+		}
+		if row.Slug != slug {
+			return iam.ErrTenantConflict
 		}
 		if err := bindNotificationScope(ctx, st.q, s.cfg.Database, s.cfg.Notifications, tenant.ID, true); err != nil {
 			return err
@@ -134,6 +140,89 @@ func (s *Engine) CreateTenant(ctx context.Context, tenant iam.Tenant) error {
 		_, err = st.CreateGroup(ctx, tenant.ID.String(), iam.TenantPersona(), tenant.ID)
 		return err
 	})
+	return tenantNameError(err)
+}
+
+// RenameTenant gives a tenant a new name. Under Tenants.FormerNames the old
+// name forwards to it and blocks other claims; a name the tenant held before
+// is taken back.
+func (s *Engine) RenameTenant(ctx context.Context, id iam.TenantID, slug string) (iam.Tenant, error) {
+	if id.IsZero() {
+		return iam.Tenant{}, iam.ErrTenantRequired
+	}
+	slug = iam.NormalizeTenantSlug(slug)
+	if err := iam.ValidateTenantSlug(slug); err != nil {
+		return iam.Tenant{}, err
+	}
+	if err := s.requirePG(); err != nil {
+		return iam.Tenant{}, err
+	}
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return iam.Tenant{}, err
+	}
+	defer tx.Rollback(ctx)
+	q := db.New(tx)
+	current, err := q.LockTenantForRename(ctx, id.String())
+	if err != nil || current.Slug == slug {
+		return tenantRow(current, err)
+	}
+	renamed, err := q.RenameTenant(ctx, db.RenameTenantParams{ID: id.String(), Slug: slug})
+	if err != nil {
+		return iam.Tenant{}, tenantNameError(err)
+	}
+	if policy := s.cfg.Tenants.FormerNames; policy.Mode != config.FormerNamesImmediate {
+		err = q.InsertTenantSlugAlias(ctx, db.InsertTenantSlugAliasParams{
+			Slug: current.Slug, TenantID: id.String(),
+			Forever:          policy.Mode == config.FormerNamesForever,
+			RetentionSeconds: policy.Duration.Seconds(),
+		})
+		if err != nil {
+			return iam.Tenant{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return iam.Tenant{}, err
+	}
+	return tenantRow(renamed, nil)
+}
+
+// ResolveTenant finds the tenant a live name or an unexpired former name
+// belongs to. The returned Slug is its current name.
+func (s *Engine) ResolveTenant(ctx context.Context, slug string) (iam.Tenant, error) {
+	slug = iam.NormalizeTenantSlug(slug)
+	if err := iam.ValidateTenantSlug(slug); err != nil {
+		return iam.Tenant{}, iam.ErrTenantNotFound
+	}
+	if err := s.requirePG(); err != nil {
+		return iam.Tenant{}, err
+	}
+	return tenantRow(s.q.TenantBySlugOrAlias(ctx, slug))
+}
+
+func tenantRow(row db.Tenant, err error) (iam.Tenant, error) {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return iam.Tenant{}, iam.ErrTenantNotFound
+	}
+	if err != nil {
+		return iam.Tenant{}, err
+	}
+	id, err := iam.ParseTenantID(row.ID)
+	if err != nil {
+		return iam.Tenant{}, err
+	}
+	return iam.Tenant{ID: id, Slug: row.Slug, SlugChangedAt: row.SlugChangedAt, CreatedAt: row.CreatedAt}, nil
+}
+
+// tenantNameError maps the live-name index and the former-name guard to one
+// refusal.
+func tenantNameError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" &&
+		(pgErr.ConstraintName == "tenants_slug_key" || pgErr.ConstraintName == "tenant_slug_aliases_pkey") {
+		return fmt.Errorf("%w: %w", iam.ErrTenantNameTaken, err)
+	}
+	return err
 }
 
 // ResolveTenantActor resolves the live source account, independently of the

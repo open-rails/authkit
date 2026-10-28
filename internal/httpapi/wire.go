@@ -302,6 +302,19 @@ type BanRequest struct {
 	Until  *time.Time `json:"until"`
 }
 
+// TenantCreateRequest is POST /admin/tenants: the tenant's stable UUID, chosen
+// by the provisioning caller so a retry repeats the same request, and its name.
+type TenantCreateRequest struct {
+	ID   iam.TenantID `json:"id"`
+	Slug string       `json:"slug"`
+}
+
+// TenantRenameRequest is PATCH /admin/tenants/{tenant_id}: the tenant's new
+// name.
+type TenantRenameRequest struct {
+	Slug string `json:"slug"`
+}
+
 // AdminUserUpdateRequest is PATCH /admin/users/{user_id}: an absent field is
 // unchanged.
 type AdminUserUpdateRequest struct {
