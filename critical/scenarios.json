@@ -134,5 +134,9 @@
   "AK-J37-C03": "a tenant takes its own former name back",
   "AK-J37-C04": "an expired former name stops forwarding and another tenant may claim it; immediate and forever former-name policies",
   "AK-J37-C05": "concurrent creates and renames for one name have exactly one winner, and a name being vacated is never handed out",
-  "AK-J37-C06": "HTTP tenant create, read, rename and name resolution with native parity under root:tenants:read and root:tenants:manage"
+  "AK-J37-C06": "HTTP tenant create, read, rename and name resolution with native parity under root:tenants:read and root:tenants:manage",
+  "AK-J38-C01": "account event jobs reconcile once from an empty host cursor, then apply the tenant and authority logs in log order",
+  "AK-J38-C02": "a failed account event is retried as its own River job on the 1, 5, 15 minute then hourly schedule and parked after its attempts, while later events and a recovering retry are applied",
+  "AK-J38-C03": "account event jobs resume from an existing host auth_event_cursors row without replaying or skipping an event",
+  "AK-J38-C04": "two River fleets composing the same account event jobs apply each event exactly once"
 }

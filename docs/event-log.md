@@ -79,6 +79,18 @@ API URL and authenticated transport. Both expose `eventlog.Query{After, Types,
 Limit}` and the same cursor/expiry semantics. Remote errors retain AuthKit's
 `iam.Error` codes and `errors.Is(err, iam.ErrEventCursorExpired)` identity.
 
+Hosts that apply account events to their own data can compose
+`tenantClient.AccountEventJobs(AccountEventConsumer{Schema, Handle, Reconcile})`
+into the same River fleet as `RiverJobs`. River's leader enqueues one unique
+reader every thirty seconds. It reads the tenant stream, then the authority
+stream, from the host's `<Schema>.auth_event_cursors` rows (`tenant:<tenant UUID>`
+and `authority`), calls `Handle` in log order and moves each cursor only from
+the position it read. An event whose `Handle` fails becomes its own job in
+`authkit_account_events`, retried after 1, 5 and 15 minutes and then hourly, and
+discarded (parked) after `AccountEventAttempts`; later events carry on. `Handle`
+must therefore be idempotent and act on current state. An expired cursor stops
+the stream and is reported as the job's error.
+
 The shared envelope uses source `authkit`, scope equal to the tenant UUID or
 `authority`, and the affected user/application/group as its subject. `Data`
 contains the complete original `iam.Event`; actor identity stays in that payload.
