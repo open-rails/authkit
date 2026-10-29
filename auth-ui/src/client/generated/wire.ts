@@ -435,6 +435,8 @@ export type NamingPolicy = {
   enabled: boolean
   former_name_retention_mode: "finite" | "forever" | "immediate"
   former_name_retention_seconds: number
+  deleted_name_retention_mode: "finite" | "forever" | "immediate"
+  deleted_name_retention_seconds: number
 }
 
 export type NamingState = {

@@ -118,7 +118,7 @@ FROM users WHERE id = $1;
 
 -- name: UserCredentialVersionForUpdate :one
 -- All credential changes acquire this account lock before credential/session rows.
-SELECT credential_version, email, phone_number, deleted_at, banned_at, banned_until
+SELECT credential_version, email, phone_number, username, deleted_at, banned_at, banned_until
 FROM users WHERE id = $1 FOR UPDATE;
 
 -- name: UserAdvanceCredentialVersion :exec

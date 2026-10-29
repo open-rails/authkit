@@ -443,7 +443,7 @@ func (q *Queries) UserCredentialVersion(ctx context.Context, id string) (UserCre
 }
 
 const userCredentialVersionForUpdate = `-- name: UserCredentialVersionForUpdate :one
-SELECT credential_version, email, phone_number, deleted_at, banned_at, banned_until
+SELECT credential_version, email, phone_number, username, deleted_at, banned_at, banned_until
 FROM users WHERE id = $1 FOR UPDATE
 `
 
@@ -451,6 +451,7 @@ type UserCredentialVersionForUpdateRow struct {
 	CredentialVersion int64
 	Email             *string
 	PhoneNumber       *string
+	Username          *string
 	DeletedAt         *time.Time
 	BannedAt          *time.Time
 	BannedUntil       *time.Time
@@ -464,6 +465,7 @@ func (q *Queries) UserCredentialVersionForUpdate(ctx context.Context, id string)
 		&i.CredentialVersion,
 		&i.Email,
 		&i.PhoneNumber,
+		&i.Username,
 		&i.DeletedAt,
 		&i.BannedAt,
 		&i.BannedUntil,

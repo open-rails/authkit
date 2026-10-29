@@ -176,7 +176,7 @@ func TestCriticalTenantNames(t *testing.T) {
 		resolves(t, "new-brand", old, "new-brand")
 
 		immediate := authtest.Replica(t, f.auth, authtest.WithConfig(func(c *authkit.Config) {
-			c.Tenants.FormerNames = authkit.FormerNamesConfig{Mode: authkit.FormerNamesImmediate}
+			c.Tenants.FormerNames = authkit.NameRetention{Mode: authkit.NameRetentionImmediate}
 		}))
 		fleeting := create(t, "fleeting")
 		_, err = immediate.RenameTenant(ctx, fleeting, "lasting")
@@ -185,7 +185,7 @@ func TestCriticalTenantNames(t *testing.T) {
 		create(t, "fleeting")
 
 		forever := authtest.Replica(t, f.auth, authtest.WithConfig(func(c *authkit.Config) {
-			c.Tenants.FormerNames = authkit.FormerNamesConfig{Mode: authkit.FormerNamesForever}
+			c.Tenants.FormerNames = authkit.NameRetention{Mode: authkit.NameRetentionForever}
 		}))
 		kept := create(t, "kept-name")
 		_, err = forever.RenameTenant(ctx, kept, "kept-new")

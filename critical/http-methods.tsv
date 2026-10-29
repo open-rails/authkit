@@ -27,7 +27,7 @@ AK-HTTP-025	DELETE	/api/v1/device-keys	partial		malformed; expired; anonymous; r
 AK-HTTP-026	POST	/api/v1/register	included	AuthClient.register		auth-ui/critical/credentials.spec.ts: TS contract pending registration	Selected public positive binding plus named journey; not every input combination
 AK-HTTP-027	GET	/api/v1/register/availability	included	AuthClient.checkAvailability		auth-ui/critical/credentials.spec.ts: TS contract pending registration	Selected public positive binding plus named journey; not every input combination
 AK-HTTP-028	GET	/api/v1/usernames/generate	deferred				Full functional expansion deferred
-AK-HTTP-029	GET	/api/v1/usernames/availability	deferred				Full functional expansion deferred
+AK-HTTP-029	GET	/api/v1/usernames/availability	included	free; taken; reserved after purge answers like a live name		critical/deleted_names_test.go: AK-J38-C01, AK-J38-C02	Selected public positive binding plus named journey; not every input combination
 AK-HTTP-030	POST	/api/v1/register/abandon	included	AuthClient.abandonRegistration		auth-ui/critical/credentials.spec.ts: TS contract pending registration	Selected public positive binding plus named journey; not every input combination
 AK-HTTP-031	POST	/api/v1/verify/request	included	AuthClient.requestVerification		auth-ui/critical/session.spec.ts: AK-J29-C04 contact proof	Selected public positive binding plus named journey; not every input combination
 AK-HTTP-032	POST	/api/v1/verify/confirm	included	AuthClient.confirmVerification	malformed; expired	critical/admission_matrix_test.go: AK-J31-C01; auth-ui/critical/native.spec.ts: AK-J29-C05	Selected public positive binding plus named journey; not every input combination

@@ -45,19 +45,31 @@ func (s *Engine) renameNameClaim(ctx context.Context, q db.DBTX, id, oldName, ne
 	if err := s.lockNameClaims(ctx, q, oldName, newName); err != nil {
 		return err
 	}
-	if oldName != "" {
-		queries := db.New(q)
-		var err error
-		if policy.FormerNames.Mode == config.FormerNamesImmediate {
-			err = queries.NameClaimDeleteOwned(ctx, db.NameClaimDeleteOwnedParams{TenantID: s.tenantKey(ctx), Name: oldName, OwnerID: id})
-		} else {
-			err = queries.NameClaimRetire(ctx, db.NameClaimRetireParams{TenantID: s.tenantKey(ctx), Name: oldName, OwnerID: id, ExpiresAt: naming.FormerNameExpiresAt(policy, now)})
-		}
-		if err != nil {
-			return err
-		}
+	if err := s.retireNameClaim(ctx, q, id, oldName, policy.FormerNames, now); err != nil {
+		return err
 	}
 	return s.claimCanonicalName(ctx, q, newName, id, now)
+}
+
+// releaseDeletedName applies Username.DeletedNames to the canonical name of an
+// account being purged, whose row its caller holds locked.
+func (s *Engine) releaseDeletedName(ctx context.Context, q db.DBTX, id, name string) error {
+	if err := s.lockNameClaims(ctx, q, name); err != nil {
+		return err
+	}
+	return s.retireNameClaim(ctx, q, id, name, s.cfg.Username.DeletedNames, s.namingNow())
+}
+
+// retireNameClaim makes id's canonical name a reservation that lasts as
+// retention says, or frees it when immediate. The caller holds its lock.
+func (s *Engine) retireNameClaim(ctx context.Context, q db.DBTX, id, name string, retention config.NameRetention, now time.Time) error {
+	if name == "" {
+		return nil
+	}
+	if retention.Mode == config.NameRetentionImmediate {
+		return db.New(q).NameClaimDeleteOwned(ctx, db.NameClaimDeleteOwnedParams{TenantID: s.tenantKey(ctx), Name: name, OwnerID: id})
+	}
+	return db.New(q).NameClaimRetire(ctx, db.NameClaimRetireParams{TenantID: s.tenantKey(ctx), Name: name, OwnerID: id, ExpiresAt: naming.ExpiresAt(retention, now)})
 }
 
 // resolveUsername resolves current names and unexpired aliases directly to UUID.
@@ -79,9 +91,9 @@ func (s *Engine) ResolveUsername(ctx context.Context, name string) (iam.NameReso
 }
 
 // CheckUsername reports whether a new account could take name: the username
-// policy, then any claim on it (a canonical name, a live alias, a purged
-// account's reservation, a pending registration), then NameAdmission. A claim
-// answers ErrUsernameInUse and nothing about its owner.
+// policy, then any claim on it (a canonical name, a live alias, an unexpired
+// purged account's reservation, a pending registration), then NameAdmission.
+// A claim answers ErrUsernameInUse and nothing about its owner.
 func (s *Engine) CheckUsername(ctx context.Context, name string) error {
 	return s.checkUsername(ctx, s.q, name)
 }
@@ -105,7 +117,7 @@ func (s *Engine) checkUsername(ctx context.Context, q *db.Queries, name string) 
 }
 
 // usernameTaken reports whether any claim holds name: a canonical name, an
-// unexpired alias, or a purged account's permanent reservation.
+// unexpired alias, or an unexpired purged account's reservation.
 func (s *Engine) usernameTaken(ctx context.Context, name string) (bool, error) {
 	return s.q.NameClaimTaken(ctx, db.NameClaimTakenParams{TenantID: s.tenantKey(ctx), Name: strings.TrimSpace(name), AtTime: s.namingNow()})
 }

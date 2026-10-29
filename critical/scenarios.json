@@ -135,5 +135,9 @@
   "AK-J37-C03": "a tenant takes its own former name back",
   "AK-J37-C04": "an expired former name stops forwarding and another tenant may claim it; immediate and forever former-name policies",
   "AK-J37-C05": "concurrent creates and renames for one name have exactly one winner, and a name being vacated is never handed out",
-  "AK-J37-C06": "HTTP tenant create, read, rename and name resolution with native parity under root:tenants:read and root:tenants:manage"
+  "AK-J37-C06": "HTTP tenant create, read, rename and name resolution with native parity under root:tenants:read and root:tenants:manage",
+  "AK-J38-C01": "by default a purged account's name is reserved forever, resolves to no one, answers like a live name, and a later policy does not rewrite it; invalid policies refuse startup",
+  "AK-J38-C02": "finite deleted-name retention writes the expiry at purge and frees the name after it for a new account",
+  "AK-J38-C03": "immediate deleted-name retention frees the name at purge while the account's former names keep their rename expiry",
+  "AK-J38-C04": "the recovery window, a due sweep inside it, and restore keep the name; only the purge frees it"
 }

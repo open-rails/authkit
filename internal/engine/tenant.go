@@ -180,10 +180,10 @@ func (s *Engine) RenameTenant(ctx context.Context, id iam.TenantID, slug string)
 	if err != nil {
 		return iam.Tenant{}, tenantNameError(err)
 	}
-	if policy := s.cfg.Tenants.FormerNames; policy.Mode != config.FormerNamesImmediate {
+	if policy := s.cfg.Tenants.FormerNames; policy.Mode != config.NameRetentionImmediate {
 		err = q.InsertTenantSlugAlias(ctx, db.InsertTenantSlugAliasParams{
 			Slug: current.Slug, TenantID: id.String(),
-			Forever:          policy.Mode == config.FormerNamesForever,
+			Forever:          policy.Mode == config.NameRetentionForever,
 			RetentionSeconds: policy.Duration.Seconds(),
 		})
 		if err != nil {

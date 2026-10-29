@@ -360,37 +360,45 @@ type UsernameConfig struct {
 	// RenameInterval is the least time between two renames of one account. 0
 	// defaults to 72 hours; a negative value means no wait.
 	RenameInterval time.Duration `yaml:"rename_interval"`
-	// FormerNames is what happens to a username its owner renamed away from.
-	FormerNames FormerNamesConfig `yaml:"former_names"`
+	// FormerNames is what happens to a username its owner renamed away from:
+	// it forwards to the owner, and nobody else may claim it. The default is
+	// finite, 90 days.
+	FormerNames NameRetention `yaml:"former_names"`
+	// DeletedNames is what happens to a deleted account's username when the
+	// account is purged at the end of its recovery window: nobody may claim
+	// it, and it resolves to no one. The default is forever. Names the account
+	// had renamed away from keep their own expiry.
+	DeletedNames NameRetention `yaml:"deleted_names"`
 }
 
 // TenantsConfig is the tenant name policy.
 type TenantsConfig struct {
 	// FormerNames is what happens to a name a tenant was renamed away from:
-	// it forwards to the tenant, and no other tenant may claim it.
-	FormerNames FormerNamesConfig `yaml:"former_names"`
+	// it forwards to the tenant, and no other tenant may claim it. The default
+	// is finite, 90 days.
+	FormerNames NameRetention `yaml:"former_names"`
 }
 
-// FormerNamesConfig keeps a renamed-away name reserved for its owner, and
-// resolving to them, for a while.
-type FormerNamesConfig struct {
-	// Mode is FormerNamesFinite (the default), FormerNamesForever or
-	// FormerNamesImmediate.
-	Mode FormerNamesMode `yaml:"mode"`
+// NameRetention is how long a name its owner let go of stays reserved.
+type NameRetention struct {
+	// Mode is NameRetentionFinite, NameRetentionForever or
+	// NameRetentionImmediate. Empty takes the field's default, or finite when
+	// Duration is set.
+	Mode NameRetentionMode `yaml:"mode"`
 	// Duration is how long a finite reservation lasts; 0 defaults to 90 days.
 	Duration time.Duration `yaml:"duration"`
 }
 
-// FormerNamesMode says how long a former name stays reserved.
-type FormerNamesMode string
+// NameRetentionMode says how long a name stays reserved.
+type NameRetentionMode string
 
 const (
-	// FormerNamesFinite reserves it for FormerNamesConfig.Duration.
-	FormerNamesFinite FormerNamesMode = "finite"
-	// FormerNamesForever reserves it for good.
-	FormerNamesForever FormerNamesMode = "forever"
-	// FormerNamesImmediate frees it at once.
-	FormerNamesImmediate FormerNamesMode = "immediate"
+	// NameRetentionFinite reserves it for NameRetention.Duration.
+	NameRetentionFinite NameRetentionMode = "finite"
+	// NameRetentionForever reserves it for good.
+	NameRetentionForever NameRetentionMode = "forever"
+	// NameRetentionImmediate frees it at once.
+	NameRetentionImmediate NameRetentionMode = "immediate"
 )
 
 // TwoFactorConfig configures MFA.
