@@ -2,14 +2,14 @@ pkg authkit, const APIKeys config.PersonaOption = 1
 pkg authkit, const CustomRoles config.PersonaOption = 3
 pkg authkit, const DPoPOptional config.DPoPMode = "optional"
 pkg authkit, const DPoPRequired config.DPoPMode = "required"
-pkg authkit, const FormerNamesFinite config.FormerNamesMode = "finite"
-pkg authkit, const FormerNamesForever config.FormerNamesMode = "forever"
-pkg authkit, const FormerNamesImmediate config.FormerNamesMode = "immediate"
 pkg authkit, const GrantAuthorizationCode config.OAuthGrantType = "authorization_code"
 pkg authkit, const GrantClientCredentials config.OAuthGrantType = "client_credentials"
 pkg authkit, const GrantJWTBearer config.OAuthGrantType = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 pkg authkit, const GrantRefreshToken config.OAuthGrantType = "refresh_token"
 pkg authkit, const GrantTokenExchange config.OAuthGrantType = "urn:ietf:params:oauth:grant-type:token-exchange"
+pkg authkit, const NameRetentionFinite config.NameRetentionMode = "finite"
+pkg authkit, const NameRetentionForever config.NameRetentionMode = "forever"
+pkg authkit, const NameRetentionImmediate config.NameRetentionMode = "immediate"
 pkg authkit, const NotificationDeliveryQueue untyped string = "authkit_notifications"
 pkg authkit, const OAuthClients config.PersonaOption = 4
 pkg authkit, const RemoteApplications config.PersonaOption = 2
@@ -293,12 +293,6 @@ pkg authkit, type EmailSender = config.EmailSender
 pkg authkit, type EmailSender interface
 pkg authkit, type EmailSender interface, CheckHealth(context.Context) error
 pkg authkit, type EmailSender interface, Send(context.Context, iam.EmailMessage) error
-pkg authkit, type FormerNamesConfig = config.FormerNamesConfig
-pkg authkit, type FormerNamesConfig struct
-pkg authkit, type FormerNamesConfig struct, Duration time.Duration `yaml:"duration"`
-pkg authkit, type FormerNamesConfig struct, Mode config.FormerNamesMode `yaml:"mode"`
-pkg authkit, type FormerNamesMode = config.FormerNamesMode
-pkg authkit, type FormerNamesMode string
 pkg authkit, type FrontendConfig = config.FrontendConfig
 pkg authkit, type FrontendConfig struct
 pkg authkit, type FrontendConfig struct, AuthorizePath string `yaml:"authorize_path"`
@@ -351,6 +345,12 @@ pkg authkit, type MemberPerms struct, embedded config.Resource
 pkg authkit, type MigrationOptions = engine.MigrationOptions
 pkg authkit, type MigrationOptions struct
 pkg authkit, type MigrationOptions struct, LegacyTenantID iam.TenantID
+pkg authkit, type NameRetention = config.NameRetention
+pkg authkit, type NameRetention struct
+pkg authkit, type NameRetention struct, Duration time.Duration `yaml:"duration"`
+pkg authkit, type NameRetention struct, Mode config.NameRetentionMode `yaml:"mode"`
+pkg authkit, type NameRetentionMode = config.NameRetentionMode
+pkg authkit, type NameRetentionMode string
 pkg authkit, type NotificationAdoption = notify.Adoption
 pkg authkit, type NotificationDelivery struct
 pkg authkit, type NotificationProducer = config.NotificationProducer
@@ -526,7 +526,7 @@ pkg authkit, type TenantPerms struct, Read iam.Perm
 pkg authkit, type TenantPerms struct, embedded config.Resource
 pkg authkit, type TenantsConfig = config.TenantsConfig
 pkg authkit, type TenantsConfig struct
-pkg authkit, type TenantsConfig struct, FormerNames config.FormerNamesConfig `yaml:"former_names"`
+pkg authkit, type TenantsConfig struct, FormerNames config.NameRetention `yaml:"former_names"`
 pkg authkit, type TokenConfig = config.TokenConfig
 pkg authkit, type TokenConfig struct
 pkg authkit, type TokenConfig struct, AccessTokenDuration time.Duration `yaml:"access_token_duration"`
@@ -559,7 +559,8 @@ pkg authkit, type UserPerms struct, Read iam.Perm
 pkg authkit, type UserPerms struct, embedded config.Resource
 pkg authkit, type UsernameConfig = config.UsernameConfig
 pkg authkit, type UsernameConfig struct
-pkg authkit, type UsernameConfig struct, FormerNames config.FormerNamesConfig `yaml:"former_names"`
+pkg authkit, type UsernameConfig struct, DeletedNames config.NameRetention `yaml:"deleted_names"`
+pkg authkit, type UsernameConfig struct, FormerNames config.NameRetention `yaml:"former_names"`
 pkg authkit, type UsernameConfig struct, MaxLength int `yaml:"max_length"`
 pkg authkit, type UsernameConfig struct, MinLength int `yaml:"min_length"`
 pkg authkit, type UsernameConfig struct, RandomNames []string `yaml:"random_names"`

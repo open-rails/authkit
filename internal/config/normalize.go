@@ -35,7 +35,7 @@ const (
 	DefaultUsernameMaxLength       = 30
 	UsernameMaxLengthCeiling       = 64
 	DefaultRenameInterval          = 72 * time.Hour
-	DefaultFormerNameRetention     = 90 * 24 * time.Hour
+	DefaultNameRetention           = 90 * 24 * time.Hour
 	defaultOIDCReturnPath          = "/login/callback"
 	defaultVerifyPath              = "/verify"
 	defaultPasswordResetPath       = "/reset"
@@ -103,7 +103,7 @@ func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 	if c.Username, err = NormalizeUsername(c.Username); err != nil {
 		return Config{}, nil, err
 	}
-	if c.Tenants.FormerNames, err = normalizeFormerNames("Tenants", c.Tenants.FormerNames); err != nil {
+	if c.Tenants.FormerNames, err = normalizeNameRetention("Tenants.FormerNames", c.Tenants.FormerNames, NameRetentionFinite); err != nil {
 		return Config{}, nil, err
 	}
 	switch c.TwoFactor.Mode {
@@ -497,28 +497,38 @@ func NormalizeUsername(u UsernameConfig) (UsernameConfig, error) {
 		u.RenameInterval = DefaultRenameInterval
 	}
 	var err error
-	u.FormerNames, err = normalizeFormerNames("Username", u.FormerNames)
+	if u.FormerNames, err = normalizeNameRetention("Username.FormerNames", u.FormerNames, NameRetentionFinite); err != nil {
+		return u, err
+	}
+	u.DeletedNames, err = normalizeNameRetention("Username.DeletedNames", u.DeletedNames, NameRetentionForever)
 	return u, err
 }
 
-func normalizeFormerNames(field string, f FormerNamesConfig) (FormerNamesConfig, error) {
-	switch f.Mode {
-	case "", FormerNamesFinite:
-		f.Mode = FormerNamesFinite
-		if f.Duration < 0 {
-			return f, fmt.Errorf("authkit: %s.FormerNames.Duration must not be negative", field)
+// normalizeNameRetention gives an empty Mode the field's fallback, or finite
+// when a Duration is set.
+func normalizeNameRetention(field string, r NameRetention, fallback NameRetentionMode) (NameRetention, error) {
+	if r.Mode == "" {
+		r.Mode = fallback
+		if r.Duration != 0 {
+			r.Mode = NameRetentionFinite
 		}
-		if f.Duration == 0 {
-			f.Duration = DefaultFormerNameRetention
+	}
+	switch r.Mode {
+	case NameRetentionFinite:
+		if r.Duration < 0 {
+			return r, fmt.Errorf("authkit: %s.Duration must not be negative", field)
 		}
-	case FormerNamesForever, FormerNamesImmediate:
-		if f.Duration != 0 {
-			return f, fmt.Errorf("authkit: %s.FormerNames.Duration needs Mode %q", field, FormerNamesFinite)
+		if r.Duration == 0 {
+			r.Duration = DefaultNameRetention
+		}
+	case NameRetentionForever, NameRetentionImmediate:
+		if r.Duration != 0 {
+			return r, fmt.Errorf("authkit: %s.Duration needs Mode %q", field, NameRetentionFinite)
 		}
 	default:
-		return f, fmt.Errorf("authkit: invalid %s.FormerNames.Mode %q", field, f.Mode)
+		return r, fmt.Errorf("authkit: invalid %s.Mode %q", field, r.Mode)
 	}
-	return f, nil
+	return r, nil
 }
 
 // Passkey relying-party identity derives from the BaseURL origin; without a

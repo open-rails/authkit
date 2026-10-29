@@ -35,7 +35,7 @@ provider username, or display name.
 
 `GET /usernames/availability?username=...` validates syntax before checking
 claims, and returns the same unavailable answer for current names, aliases,
-and reserved former names. These public endpoints share the registration
+and purged accounts' reserved names. These public endpoints share the registration
 availability rate limit. Registration availability additionally checks whether
 new registration is enabled; the username-only check supports renames on a
 site whose registration is closed. Neither says whether an email address or
@@ -45,3 +45,28 @@ The browser SDK exposes `generateUsername`, `checkUsername`, and
 `validateUsername(value, capabilities.username)`. Client syntax checks are
 immediate feedback; the server remains authoritative. A successful availability
 check is not a guarantee against a concurrent claim before submission.
+
+## Former and deleted names
+
+`Username.FormerNames` and `Username.DeletedNames` (YAML `former_names`,
+`deleted_names`) are each an `authkit.NameRetention`: `finite` for `Duration`
+(90 days when unset), `forever`, or `immediate`.
+
+- A name its owner renamed away from forwards to the owner and blocks other
+  claims. Default: finite, 90 days.
+- A deleted account keeps its name through the 30-day recovery window. When
+  the account is purged, the name resolves to no one and blocks every claim.
+  Default: forever. `finite` frees it after the duration, `immediate` at the
+  purge. The account's former names keep their own expiry.
+
+```go
+Username: authkit.UsernameConfig{
+    DeletedNames: authkit.NameRetention{Mode: authkit.NameRetentionFinite, Duration: 365 * 24 * time.Hour},
+},
+```
+
+The expiry is fixed when the name is let go: a later policy applies only to
+later renames and purges. A reused name belongs to a new account; nothing tied
+to the old account's ID moves with it. `GET /capabilities`
+(`username.former_names`) and the account profile (`naming.policy`) report
+both policies.

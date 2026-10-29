@@ -139,6 +139,9 @@ func (s *Engine) finalizeAccountDeletion(ctx context.Context, id string, purge b
 	if err := s.eraseNotificationsTx(ctx, tx, userID); err != nil {
 		return err
 	}
+	if err := s.releaseDeletedName(ctx, tx, userID, deref(user.Username)); err != nil {
+		return err
+	}
 	if err := q.UserDeleteHard(ctx, userID); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {

@@ -94,7 +94,7 @@ AK-GO-092	Client.Users	deferred			Deferred functional expansion
 AK-GO-093	Client.PublicUsers	deferred		lifecycle_test.go:138	Deferred functional expansion
 AK-GO-094	Client.ListUsers	deferred			Deferred functional expansion
 AK-GO-095	Client.ResolveUsername	deferred		maintenance_test.go:187;maintenance_test.go:200	Deferred functional expansion
-AK-GO-096	Client.CheckUsername	deferred			Deferred functional expansion
+AK-GO-096	Client.CheckUsername	included	AK-J38-C01	deleted_names_test.go:31;deleted_names_test.go:44;deleted_names_test.go:109;deleted_names_test.go:179	Selected critical contract, not every possible input
 AK-GO-097	Client.GenerateUsername	deferred			Deferred functional expansion
 AK-GO-098	Client.DeviceKeys	deferred			Deferred functional expansion
 AK-GO-099	Client.CreateUser	included	AK-J02-C01	tenant_test.go:23;tenant_test.go:92;tenant_test.go:110;login_test.go:42;passwordless_test.go:27;events_test.go:28;events_test.go:32;events_test.go:48;recovery_test.go:37;recovery_test.go:186	Selected critical contract, not every possible input

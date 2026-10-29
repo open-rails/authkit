@@ -128,8 +128,8 @@ tenant, err := authority.ResolveTenant(ctx, "acme") // tenant.ID == tenantID, te
 
 The old name becomes a former name. It keeps resolving to the tenant, and no
 other tenant may claim it, until it expires. `Config.Tenants.FormerNames` sets
-the lifetime: 90 days by default (`FormerNamesFinite`), `FormerNamesForever`,
-or `FormerNamesImmediate` for none. A tenant may take its own former name back.
+the lifetime: 90 days by default (`NameRetentionFinite`), `NameRetentionForever`,
+or `NameRetentionImmediate` for none. A tenant may take its own former name back.
 A name another tenant holds, live or former, is `iam.ErrTenantNameTaken`, and
 concurrent claims of one name have exactly one winner. Tenants are permanent;
 AuthKit has no tenant deletion, so nothing else releases a name.

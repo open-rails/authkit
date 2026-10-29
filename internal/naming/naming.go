@@ -1,5 +1,5 @@
 // Package naming applies the username rule of a normalized
-// config.UsernameConfig: validation, derivation, renames and former names.
+// config.UsernameConfig: validation, derivation, renames and name retention.
 package naming
 
 import (
@@ -118,17 +118,17 @@ func nextRename(c config.UsernameConfig, last *time.Time) (time.Time, bool) {
 // Cooldown is the least time between two renames.
 func Cooldown(c config.UsernameConfig) time.Duration { return max(c.RenameInterval, 0) }
 
-// FormerNameExpiresAt is the promise made at rename time: nil means forever,
+// ExpiresAt is the promise made when a name is let go of: nil means forever,
 // and immediate returns now (lookups and claims use the same strict
 // now.Before(deadline)). Later policy changes never rewrite it.
-func FormerNameExpiresAt(c config.UsernameConfig, now time.Time) *time.Time {
-	switch c.FormerNames.Mode {
-	case config.FormerNamesForever:
+func ExpiresAt(r config.NameRetention, now time.Time) *time.Time {
+	switch r.Mode {
+	case config.NameRetentionForever:
 		return nil
-	case config.FormerNamesImmediate:
+	case config.NameRetentionImmediate:
 		return &now
 	}
-	deadline := now.Add(c.FormerNames.Duration)
+	deadline := now.Add(r.Duration)
 	return &deadline
 }
 
@@ -138,12 +138,16 @@ type Alias struct {
 	ExpiresAt *time.Time `json:"expires_at"`
 }
 
-// PolicyInfo is the rename policy account UIs show. Timing is reported by
-// State.NextRenameAt and RetryAfterSeconds.
+// PolicyInfo is the naming policy account UIs show: renames, and how long a
+// renamed-away or purged account's name stays reserved (seconds are 0 unless
+// the mode is finite). Rename timing is reported by State.NextRenameAt and
+// RetryAfterSeconds.
 type PolicyInfo struct {
-	Enabled                    bool                   `json:"enabled"`
-	FormerNameRetentionMode    config.FormerNamesMode `json:"former_name_retention_mode"`
-	FormerNameRetentionSeconds int64                  `json:"former_name_retention_seconds"`
+	Enabled                     bool                     `json:"enabled"`
+	FormerNameRetentionMode     config.NameRetentionMode `json:"former_name_retention_mode"`
+	FormerNameRetentionSeconds  int64                    `json:"former_name_retention_seconds"`
+	DeletedNameRetentionMode    config.NameRetentionMode `json:"deleted_name_retention_mode"`
+	DeletedNameRetentionSeconds int64                    `json:"deleted_name_retention_seconds"`
 }
 
 // State is an account's rename state.
@@ -157,13 +161,12 @@ type State struct {
 
 // NewState is the rename state of an account last renamed at last.
 func NewState(c config.UsernameConfig, last *time.Time, now time.Time) State {
-	retention := c.FormerNames.Duration
-	if c.FormerNames.Mode != config.FormerNamesFinite {
-		retention = 0
-	}
 	out := State{Policy: PolicyInfo{
-		Enabled: c.Renames, FormerNameRetentionMode: c.FormerNames.Mode,
-		FormerNameRetentionSeconds: int64(retention / time.Second),
+		Enabled:                     c.Renames,
+		FormerNameRetentionMode:     c.FormerNames.Mode,
+		FormerNameRetentionSeconds:  retentionSeconds(c.FormerNames),
+		DeletedNameRetentionMode:    c.DeletedNames.Mode,
+		DeletedNameRetentionSeconds: retentionSeconds(c.DeletedNames),
 	}, Allowed: c.Renames}
 	if next, ok := nextRename(c, last); ok {
 		out.NextRenameAt = &next
@@ -177,4 +180,11 @@ func NewState(c config.UsernameConfig, last *time.Time, now time.Time) State {
 		}
 	}
 	return out
+}
+
+func retentionSeconds(r config.NameRetention) int64 {
+	if r.Mode != config.NameRetentionFinite {
+		return 0
+	}
+	return int64(r.Duration / time.Second)
 }

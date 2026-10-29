@@ -27,8 +27,8 @@ type (
 	PasswordPolicy             = config.PasswordPolicy
 	UsernameConfig             = config.UsernameConfig
 	TenantsConfig              = config.TenantsConfig
-	FormerNamesConfig          = config.FormerNamesConfig
-	FormerNamesMode            = config.FormerNamesMode
+	NameRetention              = config.NameRetention
+	NameRetentionMode          = config.NameRetentionMode
 	TwoFactorConfig            = config.TwoFactorConfig
 	PasskeyConfig              = config.PasskeyConfig
 	DeviceKeysConfig           = config.DeviceKeysConfig
@@ -74,11 +74,11 @@ const (
 	DPoPRequired = config.DPoPRequired
 )
 
-// Former-name reservation modes.
+// Name reservation modes (NameRetention.Mode).
 const (
-	FormerNamesFinite    = config.FormerNamesFinite
-	FormerNamesForever   = config.FormerNamesForever
-	FormerNamesImmediate = config.FormerNamesImmediate
+	NameRetentionFinite    = config.NameRetentionFinite
+	NameRetentionForever   = config.NameRetentionForever
+	NameRetentionImmediate = config.NameRetentionImmediate
 )
 
 // DefaultRateLimits returns AuthKit's built-in per-endpoint limits, keyed by

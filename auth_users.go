@@ -130,7 +130,8 @@ func (a *Client) RestoreUsers(ctx context.Context, who auth.Identity, ids []stri
 }
 
 // PurgeUsers ends the recovery window of accounts now; the rows go once the
-// host deletion callbacks complete. Host operation: your code decides.
+// host deletion callbacks complete, and each username stays reserved as
+// Config.Username.DeletedNames says. Host operation: your code decides.
 //
 // <schema>.users(id) is the one AuthKit column a host table may reference: a
 // foreign key ON DELETE CASCADE (or SET NULL) keeps host rows for as long as

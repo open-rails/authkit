@@ -170,7 +170,7 @@ func TestCriticalMaintenance(t *testing.T) {
 		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
 			c.Username.Renames = true
 			c.Username.RenameInterval = -1
-			c.Username.FormerNames = authkit.FormerNamesConfig{Mode: authkit.FormerNamesFinite, Duration: time.Hour}
+			c.Username.FormerNames = authkit.NameRetention{Mode: authkit.NameRetentionFinite, Duration: time.Hour}
 			c.EventRetention = time.Hour
 			c.SessionEventRetention = time.Hour
 		}))

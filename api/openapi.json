@@ -9826,12 +9826,25 @@
           },
           "former_name_retention_seconds": {
             "type": "integer"
+          },
+          "deleted_name_retention_mode": {
+            "type": "string",
+            "enum": [
+              "finite",
+              "forever",
+              "immediate"
+            ]
+          },
+          "deleted_name_retention_seconds": {
+            "type": "integer"
           }
         },
         "required": [
           "enabled",
           "former_name_retention_mode",
-          "former_name_retention_seconds"
+          "former_name_retention_seconds",
+          "deleted_name_retention_mode",
+          "deleted_name_retention_seconds"
         ]
       },
       "NamingState": {
