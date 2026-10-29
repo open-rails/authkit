@@ -161,11 +161,12 @@ func (a *Client) Close(ctx context.Context) error {
 // and its health verdict (EmailHealth) is not a failure.
 func (a *Client) EmailAvailable() bool { return a.engine.EmailAvailable() }
 
-// EmailHealth is the Deps.Email health verdict and when the check or send
-// behind it started; a zero time means neither has happened. Start runs
-// CheckHealth every Config.SenderHealthInterval, and Config.SenderHealthRecheck
-// after a failed check or a failed real send. The verdict fails after two
-// failed checks in a row and clears when a check or a real send succeeds.
+// EmailHealth is the Deps.Email health verdict and when the check behind it
+// started; a zero time means no check has run. Start runs CheckHealth every
+// Config.SenderHealthInterval, and once after Config.SenderHealthRecheck
+// following a first failed check or a failed real send. The verdict fails
+// after two failed checks in a row and clears when a check passes; real sends
+// never change it.
 func (a *Client) EmailHealth() (checkedAt time.Time, err error) { return a.engine.EmailHealth() }
 
 // SMSAvailable is EmailAvailable for Deps.SMS and phone flows.

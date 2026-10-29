@@ -72,10 +72,10 @@ func (s *Engine) userLanguage(ctx context.Context, userID string) string {
 	return s.messageLanguage(ctx, preferred)
 }
 
-// senderHealth is a sender's health verdict. It turns unhealthy only after
-// two failed checks in a row, so one blip never hides the sender's flows, and
-// a passing check or a successful real send clears it at once. A sender
-// counts as healthy until then, so startup never waits on the provider.
+// senderHealth is a sender's latest health verdict. Only checks decide it: it
+// turns unhealthy after two failed checks in a row, so one blip never hides
+// the sender's flows, and the next passing check clears it. A sender counts
+// as healthy until then, so startup never waits on the provider.
 type senderHealth struct {
 	mu        sync.Mutex
 	checkedAt time.Time
@@ -91,8 +91,8 @@ func (h *senderHealth) get() (time.Time, error) {
 	return h.checkedAt, h.err
 }
 
-// record notes the outcome of a check, or a successful send, that started at
-// at, and reports whether the sender is now unhealthy.
+// record notes the outcome of a check that started at at, and reports
+// whether the sender is now unhealthy.
 func (h *senderHealth) record(at time.Time, err error) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -108,8 +108,8 @@ func (h *senderHealth) record(at time.Time, err error) bool {
 	return h.err != nil
 }
 
-// EmailHealth is the Deps.Email health verdict and when the check or send
-// behind it started; a zero time means neither has happened.
+// EmailHealth is the Deps.Email health verdict and when the check behind it
+// started; a zero time means no check has run.
 func (s *Engine) EmailHealth() (time.Time, error) { return s.emailHealth.get() }
 
 // SMSHealth is EmailHealth for Deps.SMS.
@@ -129,8 +129,8 @@ func (s *Engine) SMSAvailable() bool {
 }
 
 // startSenderHealth runs each sender's CheckHealth now and then every
-// Config.SenderHealthInterval until Close, or Config.SenderHealthRecheck after
-// a failed check or send.
+// Config.SenderHealthInterval until Close. After the first failed check, or a
+// failed send, the next check comes after Config.SenderHealthRecheck instead.
 func (s *Engine) startSenderHealth() {
 	s.healthMu.Lock()
 	defer s.healthMu.Unlock()
@@ -159,8 +159,10 @@ func (s *Engine) watchSender(ctx context.Context, channel string, check func(con
 		closed := h.record(started, err)
 		wait := s.cfg.SenderHealthInterval
 		if err != nil {
-			slog.WarnContext(ctx, "authkit: "+channel+" health check failed; a second failed check in a row closes its flows until a check or send succeeds", "error", err, "flows_closed", closed)
-			wait = s.cfg.SenderHealthRecheck
+			slog.WarnContext(ctx, "authkit: "+channel+" health check failed; a second failed check in a row closes its flows until a check passes", "error", err, "flows_closed", closed)
+			if !closed {
+				wait = s.cfg.SenderHealthRecheck
+			}
 		}
 		select {
 		case <-ctx.Done():
@@ -199,19 +201,15 @@ func smsDeliveryError(err error) error {
 }
 
 // deliver runs one provider send under Registration.VerificationSendTimeout,
-// so an unreachable provider cannot hang the request that triggered it. A
-// success clears h. A failure may concern only this recipient or message
-// kind, so it never closes the channel itself: it asks for an early health
-// check instead, unless the caller abandoned the send.
+// so an unreachable provider cannot hang the request that triggered it. Sends
+// never decide h: one may fail for a single recipient, or report a success it
+// could not confirm. A send that fails while its caller and timeout are still
+// alive only asks for an early check.
 func (s *Engine) deliver(ctx context.Context, h *senderHealth, send func(context.Context) error) error {
-	started := time.Now()
-	sendCtx, cancel := context.WithTimeout(ctx, s.cfg.Registration.VerificationSendTimeout)
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.Registration.VerificationSendTimeout)
 	defer cancel()
-	err := send(sendCtx)
-	switch {
-	case err == nil:
-		h.record(started, nil)
-	case ctx.Err() == nil:
+	err := send(ctx)
+	if err != nil && ctx.Err() == nil {
 		select {
 		case h.recheck <- struct{}{}:
 		default:
