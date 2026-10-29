@@ -242,6 +242,7 @@ pkg authkit, type Config struct, Resource config.ResourceConfig `yaml:"resource"
 pkg authkit, type Config struct, Roles *config.Roles `yaml:"-"`
 pkg authkit, type Config struct, SMS config.SMSConfig `yaml:"sms"`
 pkg authkit, type Config struct, SenderHealthInterval time.Duration `yaml:"sender_health_interval"`
+pkg authkit, type Config struct, SenderHealthRecheck time.Duration `yaml:"sender_health_recheck"`
 pkg authkit, type Config struct, SessionEventRetention time.Duration `yaml:"session_event_retention"`
 pkg authkit, type Config struct, SignIn config.SignInConfig `yaml:"sign_in"`
 pkg authkit, type Config struct, SolanaNetwork iam.SolanaNetwork `yaml:"solana_network"`

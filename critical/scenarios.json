@@ -139,5 +139,9 @@
   "AK-J38-C01": "by default a purged account's name is reserved forever, resolves to no one, answers like a live name, and a later policy does not rewrite it; invalid policies refuse startup",
   "AK-J38-C02": "finite deleted-name retention writes the expiry at purge and frees the name after it for a new account",
   "AK-J38-C03": "immediate deleted-name retention frees the name at purge while the account's former names keep their rename expiry",
-  "AK-J38-C04": "the recovery window, a due sweep inside it, and restore keep the name; only the purge frees it"
+  "AK-J38-C04": "the recovery window, a due sweep inside it, and restore keep the name; only the purge frees it",
+  "AK-J40-C01": "one failed sender health check keeps the channel open and is re-checked quickly; a second failure in a row closes it, and a closed channel is checked at the normal interval until a check passes",
+  "AK-J40-C02": "a failed real send brings one health check forward and never decides health; a burst of failed sends keeps one request, and a successful send does not clear a failed check",
+  "AK-J40-C03": "an unproven sign-in still gets its code after one failed sender check and is refused with verification_unavailable only after two in a row",
+  "AK-J40-C04": "a send its caller abandons, or that hits AuthKit's send timeout, brings no health check forward"
 }

@@ -54,6 +54,8 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 		groupSchema:       gs,
 		solanaSNSResolver: newDefaultSolanaSNSResolver(),
 		now:               time.Now,
+		emailHealth:       senderHealth{recheck: make(chan struct{}, 1)},
+		smsHealth:         senderHealth{recheck: make(chan struct{}, 1)},
 	}
 	defer func() {
 		if err != nil {

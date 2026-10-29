@@ -110,6 +110,12 @@ type Config struct {
 	// SenderHealthInterval is how often Start re-runs the senders'
 	// CheckHealth; 0 defaults to five minutes.
 	SenderHealthInterval time.Duration `yaml:"sender_health_interval"`
+	// SenderHealthRecheck is how soon a sender is checked again after its
+	// first failed check, or after a failed send, instead of waiting
+	// SenderHealthInterval; once two checks in a row have failed, checks
+	// return to SenderHealthInterval. 0 defaults to 30 seconds, and it is never
+	// longer than SenderHealthInterval.
+	SenderHealthRecheck time.Duration `yaml:"sender_health_recheck"`
 
 	// SessionEventRetention is how long session-event history rows
 	// (sign-ins and revocations, with IP and user agent: personal data) are

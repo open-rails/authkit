@@ -124,7 +124,7 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 		}
 	})
 	t.Run("AK-J04-C06_unproven_sign_in_is_refused_while_no_channel_can_send", func(t *testing.T) {
-		g := newFixture(t, proofRegistration())
+		g := newFixture(t, proofRegistration(), authtest.WithConfig(func(c *authkit.Config) { c.SenderHealthRecheck = 100 * time.Millisecond }))
 		unproven, err := g.auth.CreateUser(t.Context(), iam.NewUser{Email: "unproven-outage@example.com", Username: "unprovenoutage", Password: authtest.Password})
 		noError(t, err)
 		phoneProven, err := g.auth.CreateUser(t.Context(), iam.NewUser{Email: "phone-proven@example.com", Phone: "+12025550177", Username: "phoneproven", Password: authtest.Password, PhoneVerified: true})
