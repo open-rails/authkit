@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -14,15 +15,17 @@ import (
 )
 
 // AccountEventOptions configures a host's account event loop. Schema holds the
-// host's auth_event_cursors and account_resyncs tables (docs/event-log.md).
+// host's auth_event_cursors and account_resyncs tables (docs/event-log.md) for
+// one tenant: the authority cursor is not per tenant.
 type AccountEventOptions struct {
 	Interval time.Duration // zero uses thirty seconds
 	Pool     *pgxpool.Pool
 	Schema   string
 	Handle   func(context.Context, iam.Event) error
 	// Sync applies one account's current state. It retries parked and due
-	// accounts, and syncs every account in the Reconcile statuses before
-	// first use or after an operator resets the tenant cursor.
+	// accounts, and syncs every account in the Reconcile statuses (deleted,
+	// banned or both) before first use or after an operator resets the
+	// tenant cursor. A failed first-use sync is not parked: it fails the pass.
 	Sync      func(ctx context.Context, userID string) error
 	Reconcile []iam.UserStatus
 }
@@ -46,6 +49,10 @@ type AccountEventLoop struct {
 func (a *Client) StartAccountEvents(ctx context.Context, o AccountEventOptions) (*AccountEventLoop, error) {
 	if a == nil || a.tenantID.IsZero() || o.Pool == nil || o.Schema == "" || o.Handle == nil || o.Sync == nil {
 		return nil, errors.New("authkit: account events need a ForTenant view, Pool, Schema, Handle and Sync")
+	}
+	// Syncing live accounts on first use would never finish inside one pass.
+	if len(o.Reconcile) == 0 || slices.ContainsFunc(o.Reconcile, func(s iam.UserStatus) bool { return s != iam.UserStatusDeleted && s != iam.UserStatusBanned }) {
+		return nil, fmt.Errorf("authkit: account events reconcile only deleted and banned accounts, not %q", o.Reconcile)
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	r := &AccountEventLoop{client: a, options: o, cancel: cancel, done: make(chan struct{})}

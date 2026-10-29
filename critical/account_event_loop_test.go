@@ -21,7 +21,8 @@ type accountHost struct {
 	mu            sync.Mutex
 	handled       []string
 	synced        []string
-	fail          map[string]bool // user IDs whose events and syncs fail
+	fail          map[string]bool                     // user IDs whose events and syncs fail
+	after         func(context.Context, string) error // runs after a successful sync
 	slow          time.Duration
 	running, most int
 }
@@ -42,13 +43,18 @@ func (h *accountHost) handle(_ context.Context, e iam.Event) error {
 	return nil
 }
 
-func (h *accountHost) sync(_ context.Context, userID string) error {
+func (h *accountHost) sync(ctx context.Context, userID string) error {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	if h.fail[userID] {
+		h.mu.Unlock()
 		return fmt.Errorf("host refused %s", userID)
 	}
 	h.synced = append(h.synced, userID)
+	after := h.after
+	h.mu.Unlock()
+	if after != nil {
+		return after(ctx, userID)
+	}
 	return nil
 }
 
@@ -69,12 +75,15 @@ func (f *fixture) createAccountEventTables(t *testing.T) {
 	noError(t, err)
 }
 
+func (f *fixture) accountEventOptions(pool *pgxpool.Pool, h *accountHost, reconcile ...iam.UserStatus) authkit.AccountEventOptions {
+	return authkit.AccountEventOptions{Interval: 20 * time.Millisecond, Pool: pool, Schema: f.schema, Handle: h.handle, Sync: h.sync, Reconcile: reconcile}
+}
+
 func (f *fixture) startAccountEvents(t *testing.T, pool *pgxpool.Pool, h *accountHost) *authkit.AccountEventLoop {
 	t.Helper()
 	view, err := f.auth.ForTenant(t.Context(), f.tenant)
 	noError(t, err)
-	loop, err := view.StartAccountEvents(context.Background(), authkit.AccountEventOptions{Interval: 20 * time.Millisecond, Pool: pool,
-		Schema: f.schema, Handle: h.handle, Sync: h.sync, Reconcile: []iam.UserStatus{iam.UserStatusDeleted}})
+	loop, err := view.StartAccountEvents(context.Background(), f.accountEventOptions(pool, h, iam.UserStatusDeleted, iam.UserStatusBanned))
 	noError(t, err)
 	t.Cleanup(func() { noError(t, loop.Stop(context.Background())) })
 	return loop
@@ -132,15 +141,30 @@ func eventIDs(events []iam.Event) []string {
 func TestCriticalAccountEventLoop(t *testing.T) {
 	tenantStream := func(f *fixture) string { return "tenant:" + f.tenant.String() }
 
-	t.Run("AK-J39-C01_failing_account_is_parked_and_retried_without_blocking_later_events", func(t *testing.T) {
+	t.Run("AK-J39-C01_first_use_reconciles_then_a_failing_account_is_parked_and_retried", func(t *testing.T) {
 		f := newFixture(t)
 		f.createAccountEventTables(t)
+		gone, barred := f.user(t), f.user(t)
+		rows, err := f.auth.DeleteUsers(t.Context(), iam.SystemIdentity(), []string{gone.ID})
+		goodBatch(t, rows, err)
+		noError(t, f.auth.Ban(t.Context(), iam.SystemIdentity(), barred.ID, iam.Ban{}))
 		bad, good := f.user(t), f.user(t)
 		h := &accountHost{fail: map[string]bool{bad.ID: true}}
+		// Syncing live accounts on first use would never finish inside one pass.
+		view, err := f.auth.ForTenant(t.Context(), f.tenant)
+		noError(t, err)
+		for _, statuses := range [][]iam.UserStatus{nil, {iam.UserStatusLive}, {iam.UserStatusActive}, {iam.UserStatusAny}, {iam.UserStatusDeleted, iam.UserStatusActive}} {
+			if _, err := view.StartAccountEvents(t.Context(), f.accountEventOptions(f.pool, h, statuses...)); err == nil || !strings.Contains(err.Error(), "only deleted and banned") {
+				t.Fatalf("Reconcile %q started: %v", statuses, err)
+			}
+		}
 		loop := f.startAccountEvents(t, f.pool, h)
 		events, end := f.drain(t, "", false)
 		eventually(t, "tenant cursor past the failing account", func() bool { return f.accountCursor(t, tenantStream(f)) == end })
-		handled, _, _ := h.seen()
+		handled, synced, _ := h.seen()
+		if !slices.Equal(synced, []string{gone.ID, barred.ID}) {
+			t.Fatalf("an empty cursor synced %v, want the deleted then the banned account", synced)
+		}
 		failed := 0
 		for _, e := range events {
 			if applied := slices.Contains(handled, e.ID); applied == (e.UserID == bad.ID) {
@@ -195,12 +219,26 @@ func TestCriticalAccountEventLoop(t *testing.T) {
 		if attempts, dueIn, ok := f.resync(t, later.ID); !ok || attempts != 0 || dueIn < 3500 || dueIn > 3610 {
 			t.Fatalf("scheduled check attempts=%d due in %.0fs (%v); want the earlier hour", attempts, dueIn, ok)
 		}
-		noError(t, authkit.ScheduleAccountResync(t.Context(), f.pool, f.schema, later.ID, time.Now().Add(-time.Second)))
-		eventually(t, "due check synced and removed", func() bool {
+		// Sync finds the ban still running and schedules the next check while the due row is handled.
+		h.mu.Lock()
+		h.after = func(ctx context.Context, userID string) error {
+			if userID != later.ID {
+				return nil
+			}
+			return authkit.ScheduleAccountResync(ctx, f.pool, f.schema, userID, time.Now().Add(time.Hour))
+		}
+		h.mu.Unlock()
+		noError(t, authkit.ScheduleAccountResync(t.Context(), f.pool, f.schema, later.ID, time.Now().Add(-2*time.Second)))
+		noError(t, authkit.ScheduleAccountResync(t.Context(), f.pool, f.schema, good.ID, time.Now().Add(-time.Second)))
+		// Due checks run in due order, so good's settles after later's.
+		eventually(t, "both due checks synced and good's removed", func() bool {
 			_, synced, _ := h.seen()
-			_, _, pending := f.resync(t, later.ID)
-			return slices.Contains(synced, later.ID) && !pending
+			_, _, pending := f.resync(t, good.ID)
+			return slices.Contains(synced, later.ID) && slices.Contains(synced, good.ID) && !pending
 		})
+		if attempts, dueIn, ok := f.resync(t, later.ID); !ok || attempts != 0 || dueIn < 3500 || dueIn > 3610 {
+			t.Fatalf("check rescheduled during Sync: present=%v attempts=%d due in %.0fs; want it kept for the next hour", ok, attempts, dueIn)
+		}
 	})
 
 	t.Run("AK-J39-C02_existing_doujins_cursor_rows_are_resumed_exactly", func(t *testing.T) {
@@ -235,15 +273,28 @@ func TestCriticalAccountEventLoop(t *testing.T) {
 		}
 	})
 
-	t.Run("AK-J39-C03_only_one_process_reads_at_a_time", func(t *testing.T) {
+	t.Run("AK-J39-C03_one_process_reads_at_a_time_under_the_doujins_lock_key", func(t *testing.T) {
 		f := newFixture(t)
 		f.createAccountEventTables(t)
+		f.user(t)
+		// During a rolling deploy an old Doujins pod holds this exact key.
+		key := f.schema + ":auth-events:" + f.tenant.String()
+		old, err := pgx.ConnectConfig(t.Context(), f.pool.Config().ConnConfig)
+		noError(t, err)
+		t.Cleanup(func() { _ = old.Close(context.Background()) })
+		_, err = old.Exec(t.Context(), "SELECT pg_advisory_lock(hashtextextended($1,0))", key)
+		noError(t, err)
 		h := &accountHost{slow: 20 * time.Millisecond}
-		f.startAccountEvents(t, f.pool, h)
+		first := f.startAccountEvents(t, f.pool, h)
 		other, err := pgxpool.New(t.Context(), f.pool.Config().ConnString())
 		noError(t, err)
 		t.Cleanup(other.Close)
-		f.startAccountEvents(t, other, h)
+		second := f.startAccountEvents(t, other, h)
+		eventually(t, "both loops finished a pass", func() bool { return first.Probe(t.Context()) == nil && second.Probe(t.Context()) == nil })
+		if handled, _, _ := h.seen(); len(handled) != 0 || f.accountCursor(t, tenantStream(f)) != "" {
+			t.Fatalf("a loop read while the old pod held %q: applied %v", key, handled)
+		}
+		noError(t, old.Close(t.Context()))
 		for range 6 {
 			f.user(t)
 			time.Sleep(30 * time.Millisecond)
