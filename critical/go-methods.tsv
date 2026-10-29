@@ -125,3 +125,4 @@ AK-GO-123	Client.AdoptNotifications	included	AK-J34-C06	notifications_test.go	Op
 AK-GO-124	Client.Tenant	included	AK-J37-C01	tenant_names_test.go:58;tenant_names_test.go:312	Selected critical contract, not every possible input
 AK-GO-125	Client.RenameTenant	included	AK-J37-C02	tenant_names_test.go:91;tenant_names_test.go:118;tenant_names_test.go:125	Selected critical contract, not every possible input
 AK-GO-126	Client.ResolveTenant	included	AK-J37-C02	tenant_names_test.go:35;tenant_names_test.go:43	Selected critical contract, not every possible input
+AK-GO-127	Client.StartAccountEvents	included	AK-J39-C01	account_event_loop_test.go:86;account_event_loop_test.go:157	Selected critical contract, not every possible input

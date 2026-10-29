@@ -66,6 +66,40 @@ before migrating every participating fleet; migration refuses active legacy
 workers. `Deps.OnEvent` is removed: migrate hosts to `ListEvents` before adopting
 this version.
 
+Hosts that apply account events can run AuthKit's loop instead of their own.
+`tenant.StartAccountEvents(ctx, authkit.AccountEventOptions{Pool, Schema, Handle, Sync, Reconcile})`
+reads the tenant stream and then the authority stream into `Handle`, every
+`Interval` (30 seconds by default). One process per schema and tenant reads at
+a time, under the session advisory lock `<schema>:auth-events:<tenant UUID>`
+held on its own connection. Cursors stay in the host's
+`<schema>.auth_event_cursors` under `tenant:<tenant UUID>` and `authority`, so
+use one tenant per schema.
+
+When `Handle` fails, the event's account is parked in `<schema>.account_resyncs`
+and the stream moves on. `Sync(userID)` reapplies the account's current state
+after 1, 5 and 15 minutes, then hourly, until it succeeds.
+`ScheduleAccountResync` queues a check for state that records no event, such
+as a temporary ban ending; a check `Sync` reschedules while it runs is kept.
+An empty tenant cursor first syncs every account in the `Reconcile` statuses,
+which may only be deleted and banned. That first sync is not parked: when
+`Sync` fails there, the pass fails and the next pass starts it again.
+
+Any other error ends the pass and keeps its cursor. The tenant stream is read
+first, so an error there, including an expired tenant cursor, also stops the
+authority stream until it is fixed. `Probe` fails after a failed pass, after
+five minutes without a good pass, or while a parked account is 15 minutes
+overdue or has failed four times. `Stop` ends the loop. The host migrates both
+tables:
+
+```sql
+CREATE TABLE app.auth_event_cursors (stream text PRIMARY KEY, cursor text NOT NULL,
+    updated_at timestamptz NOT NULL DEFAULT clock_timestamp());
+CREATE TABLE app.account_resyncs (user_id uuid PRIMARY KEY, due_at timestamptz NOT NULL,
+    attempts integer NOT NULL DEFAULT 0, last_error text,
+    updated_at timestamptz NOT NULL DEFAULT clock_timestamp());
+CREATE INDEX account_resyncs_due_at_idx ON app.account_resyncs (due_at);
+```
+
 Required `OnPurge` cleanup is separate. Each issuer's daily sweep (or overdue startup catch-up) runs
 its required cleanup before hard deletion, while the subsequent `user.purged`
 event describes what committed. Reading the log never satisfies or delays
