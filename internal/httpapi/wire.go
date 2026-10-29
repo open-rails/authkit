@@ -485,7 +485,7 @@ type UsernameCapabilities struct {
 }
 
 // ChannelCapabilities says which contact channels can deliver now: a sender
-// is configured and its latest health check, if any, passed.
+// is configured and its health verdict is not a failure.
 type ChannelCapabilities struct {
 	Email bool `json:"email"`
 	SMS   bool `json:"sms"`

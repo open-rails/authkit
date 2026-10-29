@@ -158,12 +158,14 @@ func (a *Client) Close(ctx context.Context) error {
 }
 
 // EmailAvailable reports whether email flows are offered: Deps.Email is set
-// and its latest health check, if any, passed.
+// and its health verdict (EmailHealth) is not a failure.
 func (a *Client) EmailAvailable() bool { return a.engine.EmailAvailable() }
 
-// EmailHealth is the latest Deps.Email.CheckHealth verdict and when it ran
-// (Start runs it every Config.SenderHealthInterval); a zero time means no
-// check has run.
+// EmailHealth is the Deps.Email health verdict and when the check or send
+// behind it started; a zero time means neither has happened. Start runs
+// CheckHealth every Config.SenderHealthInterval, and Config.SenderHealthRecheck
+// after a failed check or a failed real send. The verdict fails after two
+// failed checks in a row and clears when a check or a real send succeeds.
 func (a *Client) EmailHealth() (checkedAt time.Time, err error) { return a.engine.EmailHealth() }
 
 // SMSAvailable is EmailAvailable for Deps.SMS and phone flows.
@@ -186,7 +188,7 @@ func (a *Client) Ready(ctx context.Context) error { return a.engine.Ready(ctx) }
 // features that need it are refused. authkit_config fails while a survivable
 // configuration problem is in force (each was logged at New and switched off
 // or defaulted only what it concerns); authkit_email and authkit_sms report
-// the senders' latest health checks; authkit_redis pings Deps.Redis (limits
+// the senders' health verdicts (EmailHealth); authkit_redis pings Deps.Redis (limits
 // and spent DPoP proofs are per process while it fails); authkit_two_factor
 // fails while someone must hold MFA but no second factor can be enrolled;
 // authkit_issuer_keys fails naming each remote issuer whose JWKS did not
