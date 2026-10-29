@@ -25,8 +25,11 @@ pkg authkit, func NewNotificationDelivery(*pgxpool.Pool, string, map[string]Remo
 pkg authkit, func NewRemoteEventReader(RemoteEventConfig) (eventlog.Reader, error)
 pkg authkit, func NewRoles(...PersonaOption) *Roles
 pkg authkit, func ParseBootstrapManifestYAML([]byte) (iam.BootstrapManifest, error)
+pkg authkit, func ScheduleAccountResync(context.Context, *pgxpool.Pool, string, string, time.Time) error
 pkg authkit, func TenantFromContext(context.Context) (iam.TenantID, bool)
 pkg authkit, func WithRiverClient(*river.Client[pgx.Tx]) StartOption
+pkg authkit, method (*AccountEventLoop) Probe(context.Context) error
+pkg authkit, method (*AccountEventLoop) Stop(context.Context) error
 pkg authkit, method (*Client) APIBase() string
 pkg authkit, method (*Client) AcceptAgreements(context.Context, string, []iam.AgreementRef, ...Option) error
 pkg authkit, method (*Client) AcceptRemoteInvitation(context.Context, auth.Verified, string) (iam.Role, error)
@@ -139,6 +142,7 @@ pkg authkit, method (*Client) SetGroupRole(context.Context, auth.Identity, iam.G
 pkg authkit, method (*Client) SetNotificationDismissed(context.Context, string, string, bool) (notify.Item, error)
 pkg authkit, method (*Client) SetNotificationRead(context.Context, string, string, bool) (notify.Item, error)
 pkg authkit, method (*Client) Start(context.Context, ...StartOption) error
+pkg authkit, method (*Client) StartAccountEvents(context.Context, AccountEventOptions) (*AccountEventLoop, error)
 pkg authkit, method (*Client) Tenant(context.Context, iam.TenantID) (iam.Tenant, error)
 pkg authkit, method (*Client) TwoFactorMethods() []iam.TwoFactorMethod
 pkg authkit, method (*Client) Unban(context.Context, auth.Identity, string, ...Option) error
@@ -202,6 +206,14 @@ pkg authkit, type APIKeysConfig = config.APIKeysConfig
 pkg authkit, type APIKeysConfig struct
 pkg authkit, type APIKeysConfig struct, MaxTTL time.Duration `yaml:"max_ttl"`
 pkg authkit, type APIKeysConfig struct, Prefix string `yaml:"prefix"`
+pkg authkit, type AccountEventLoop struct
+pkg authkit, type AccountEventOptions struct
+pkg authkit, type AccountEventOptions struct, Handle func(context.Context, iam.Event) error
+pkg authkit, type AccountEventOptions struct, Interval time.Duration
+pkg authkit, type AccountEventOptions struct, Pool *pgxpool.Pool
+pkg authkit, type AccountEventOptions struct, Reconcile []iam.UserStatus
+pkg authkit, type AccountEventOptions struct, Schema string
+pkg authkit, type AccountEventOptions struct, Sync func(context.Context, string) error
 pkg authkit, type AgreementConfig = config.AgreementConfig
 pkg authkit, type AgreementConfig struct
 pkg authkit, type AgreementConfig struct, Key string `yaml:"key"`
@@ -242,6 +254,7 @@ pkg authkit, type Config struct, Resource config.ResourceConfig `yaml:"resource"
 pkg authkit, type Config struct, Roles *config.Roles `yaml:"-"`
 pkg authkit, type Config struct, SMS config.SMSConfig `yaml:"sms"`
 pkg authkit, type Config struct, SenderHealthInterval time.Duration `yaml:"sender_health_interval"`
+pkg authkit, type Config struct, SenderHealthRecheck time.Duration `yaml:"sender_health_recheck"`
 pkg authkit, type Config struct, SessionEventRetention time.Duration `yaml:"session_event_retention"`
 pkg authkit, type Config struct, SignIn config.SignInConfig `yaml:"sign_in"`
 pkg authkit, type Config struct, SolanaNetwork iam.SolanaNetwork `yaml:"solana_network"`

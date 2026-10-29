@@ -34,8 +34,9 @@ type Deps struct {
 
 	// Email delivers email. Nil means no email: flows that need one answer
 	// email_unavailable unless Config.Registration.AllowMissingSenders is set. Start runs its
-	// CheckHealth now and every Config.SenderHealthInterval; while it fails,
-	// email flows are unavailable (Client.EmailAvailable).
+	// CheckHealth now and every Config.SenderHealthInterval; after two failed
+	// checks in a row, email flows are unavailable until a check passes
+	// (Client.EmailAvailable).
 	Email EmailSender
 	// SMS delivers text messages, like Email (Client.SMSAvailable).
 	SMS SMSSender

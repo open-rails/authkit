@@ -155,6 +155,10 @@ func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 	if c.SenderHealthInterval <= 0 {
 		c.SenderHealthInterval = 5 * time.Minute
 	}
+	if c.SenderHealthRecheck <= 0 {
+		c.SenderHealthRecheck = 30 * time.Second
+	}
+	c.SenderHealthRecheck = min(c.SenderHealthRecheck, c.SenderHealthInterval)
 	if c.SessionEventRetention == 0 {
 		c.SessionEventRetention = 365 * 24 * time.Hour
 	}

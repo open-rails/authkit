@@ -103,6 +103,7 @@ func criticalDependencyBoundaries(t *testing.T) {
 		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
 			c.TwoFactor.Mode = iam.TwoFactorOptional
 			c.TwoFactor.Methods = []iam.TwoFactorMethod{iam.TwoFactorTOTP, iam.TwoFactorSMS}
+			c.SenderHealthRecheck = 100 * time.Millisecond
 		}), authtest.WithDeps(func(d *authkit.Deps) {
 			d.Providers = []provider.Provider{provider.OIDC("unavailable", idp.URL, "critical-client", "critical-secret", provider.WithHTTPClient(idp.Client()))}
 		}))
