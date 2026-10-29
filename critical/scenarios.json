@@ -140,7 +140,7 @@
   "AK-J38-C02": "finite deleted-name retention writes the expiry at purge and frees the name after it for a new account",
   "AK-J38-C03": "immediate deleted-name retention frees the name at purge while the account's former names keep their rename expiry",
   "AK-J38-C04": "the recovery window, a due sweep inside it, and restore keep the name; only the purge frees it",
-  "AK-J39-C01": "one failed sender health check keeps the channel open; a second failure in a row closes it until a quick re-check passes",
-  "AK-J39-C02": "failed real sends keep the channel open and bring its health check forward; a successful send clears an earlier failed check",
-  "AK-J39-C03": "an unproven sign-in still gets its code after one failed sender check and is refused with verification_unavailable only after two in a row"
+  "AK-J40-C01": "one failed sender health check keeps the channel open; a second failure in a row closes it until a quick re-check passes",
+  "AK-J40-C02": "failed real sends keep the channel open and bring its health check forward; a successful send clears an earlier failed check",
+  "AK-J40-C03": "an unproven sign-in still gets its code after one failed sender check and is refused with verification_unavailable only after two in a row"
 }

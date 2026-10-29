@@ -86,7 +86,7 @@ func holdSMS() (*heldSender[iam.SMSMessage], authtest.Option) {
 
 func TestCriticalSenderHealth(t *testing.T) {
 	outage := errors.New("owned sender outage")
-	t.Run("AK-J39-C01_one_failed_check_keeps_the_channel_and_two_in_a_row_close_it_until_a_quick_recheck_passes", func(t *testing.T) {
+	t.Run("AK-J40-C01_one_failed_check_keeps_the_channel_and_two_in_a_row_close_it_until_a_quick_recheck_passes", func(t *testing.T) {
 		email, held := holdEmail()
 		f := newFixture(t, held, heldTiming)
 		u := f.user(t)
@@ -123,7 +123,7 @@ func TestCriticalSenderHealth(t *testing.T) {
 		start().want(t, http.StatusAccepted, "")
 		f.out.Last(t, iam.MessageVerification, u.Email)
 	})
-	t.Run("AK-J39-C02_failed_sends_keep_the_channel_and_bring_its_check_forward_and_a_successful_send_clears_a_failed_check", func(t *testing.T) {
+	t.Run("AK-J40-C02_failed_sends_keep_the_channel_and_bring_its_check_forward_and_a_successful_send_clears_a_failed_check", func(t *testing.T) {
 		sms, held := holdSMS()
 		f := newFixture(t, held, heldTiming)
 		const phone = "+12025550181"
@@ -163,7 +163,7 @@ func TestCriticalSenderHealth(t *testing.T) {
 		}
 		start().want(t, http.StatusServiceUnavailable, "sms_unavailable")
 	})
-	t.Run("AK-J39-C03_unproven_sign_in_keeps_its_code_through_one_failed_check_and_is_refused_after_two_in_a_row", func(t *testing.T) {
+	t.Run("AK-J40-C03_unproven_sign_in_keeps_its_code_through_one_failed_check_and_is_refused_after_two_in_a_row", func(t *testing.T) {
 		email, held := holdEmail()
 		f := newFixture(t, proofRegistration(), held, heldTiming)
 		unproven, err := f.auth.CreateUser(t.Context(), iam.NewUser{Email: "unproven-held@example.com", Username: "unprovenheld", Password: authtest.Password})
