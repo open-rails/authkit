@@ -43,6 +43,12 @@ export const ja: AdminMessageTree = {
     cannot_target_self: "自分のアカウントにはこの操作はできません。",
     last_owner: "グループには少なくとも 1 人のオーナーが必要です。",
   },
+  offboarding: {
+    reminder:
+      "{name} のロールを変更しても、共有サービスキーは失効しません。このユーザーが保有している可能性のあるキーを確認し、必要に応じて交換または失効してください。",
+    review: "サービスキーを確認",
+    done: "完了",
+  },
   members: {
     title: "メンバー",
     description: "このグループでロールを持つ人。",

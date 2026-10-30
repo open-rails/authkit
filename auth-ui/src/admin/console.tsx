@@ -39,7 +39,11 @@ export interface AuthAdminProps extends AdminProps {
     | false
     | Pick<
         UsersAdminProps,
-        "tenantId" | "userPanels" | "confirmWarnings" | "entitlements"
+        | "tenantId"
+        | "userPanels"
+        | "confirmWarnings"
+        | "entitlements"
+        | "onReviewServiceKeys"
       >
   permissionHelp?: RolesAdminProps["permissionHelp"]
   remoteApplications?: Pick<
@@ -151,11 +155,32 @@ function Console({
       return <NoAccess />
     }
     const props = { ...shared, basePath: router.href(selected) }
+    const reviewServiceKeys =
+      enabled.has("api-keys") && scoped.credentials.read
+        ? () => router.navigate("api-keys")
+        : undefined
     switch (selected) {
       case "users":
-        return <UsersAdmin {...props} {...(users || {})} />
+        return (
+          <UsersAdmin
+            {...props}
+            {...(users || {})}
+            onReviewServiceKeys={
+              (users || {}).onReviewServiceKeys ??
+              (((users && users.tenantId) || "root") === group
+                ? reviewServiceKeys
+                : undefined)
+            }
+          />
+        )
       case "members":
-        return <MembersAdmin {...props} group={group} />
+        return (
+          <MembersAdmin
+            {...props}
+            group={group}
+            onReviewServiceKeys={reviewServiceKeys}
+          />
+        )
       case "roles":
         return (
           <RolesAdmin

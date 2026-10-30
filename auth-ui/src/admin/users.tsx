@@ -31,6 +31,7 @@ import { AdminRoot, type AdminProps } from "./root.tsx"
 import { useRouter, useSearchParams } from "./router.ts"
 import { UserPage } from "./user-page.tsx"
 import { UserBadges } from "./user-parts.tsx"
+import type { ReviewServiceKeys } from "./offboarding-lib.ts"
 import {
   directoryRole,
   entitlementTitle,
@@ -54,11 +55,17 @@ export interface UsersAdminProps extends AdminProps {
   entitlements?: readonly string[]
   /** Language tags, in the canonical form AuthKit stores, the profile editor offers by name; omit for a free-text tag. */
   languages?: readonly string[]
+  /** Optional credential inventory after a role loses access; never revokes keys. */
+  onReviewServiceKeys?: ReviewServiceKeys
 }
 
 export type Host = Pick<
   UsersAdminProps,
-  "userPanels" | "confirmWarnings" | "entitlements" | "languages"
+  | "userPanels"
+  | "confirmWarnings"
+  | "entitlements"
+  | "languages"
+  | "onReviewServiceKeys"
 >
 
 /**
@@ -73,11 +80,20 @@ export function UsersAdmin({
   confirmWarnings,
   entitlements,
   languages,
+  onReviewServiceKeys,
   ...props
 }: UsersAdminProps) {
   return (
     <AdminRoot {...props}>
-      <Users host={{ userPanels, confirmWarnings, entitlements, languages }} />
+      <Users
+        host={{
+          userPanels,
+          confirmWarnings,
+          entitlements,
+          languages,
+          onReviewServiceKeys,
+        }}
+      />
     </AdminRoot>
   )
 }
@@ -104,7 +120,16 @@ function Users({ host }: { host: Host }) {
   const roleNames = (roles.data ?? []).map((r) => r.name)
   const [first] = segments
   if (first && first !== "invitations" && access.users.read)
-    return <UserPage id={first} access={access} roles={roleNames} host={host} />
+    return (
+      <UserPage
+        key={JSON.stringify([group, first])}
+        id={first}
+        access={access}
+        roles={roleNames}
+        roleCatalog={roles.data ?? []}
+        host={host}
+      />
+    )
   const invitations = first === "invitations" || !access.users.read
   return (
     <>

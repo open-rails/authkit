@@ -33,6 +33,7 @@ export {
   type AuthAdminSection,
 } from "./console.tsx"
 export { MembersAdmin, type MembersAdminProps } from "./members.tsx"
+export type { ReviewServiceKeys } from "./offboarding-lib.ts"
 export { RolesAdmin, type RolesAdminProps } from "./roles.tsx"
 export type { PermissionHelp, PermissionHelpEntry } from "./roles-lib.ts"
 export { ApiKeysAdmin, type ApiKeysAdminProps } from "./api-keys.tsx"

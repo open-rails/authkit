@@ -574,6 +574,25 @@ otherwise accepts `userPanels`, `confirmWarnings` and `entitlements` from
 
 ### Group admins
 
+Removing a member or changing a role so that it loses permissions shows a reminder
+to review shared service keys. The reminder never revokes a key or claims that
+the person possesses a particular secret. Promotions and equivalent permission
+sets do not trigger it. Unknown role definitions are treated conservatively.
+
+`MembersAdmin` and `UsersAdmin` accept
+`onReviewServiceKeys={({ group, userId }) => ...}` to open the host's credential
+inventory. Supply it only when that destination is available to the operator;
+the destination must enforce its own authorization. Without it, the general
+reminder still appears with a Done button. `AuthAdmin` connects the review button
+to its API keys panel only when that panel is enabled, readable, and administers
+the same group as the role change. A host may override the Users review action
+through `users.onReviewServiceKeys` for its own inventory.
+
+The reminder covers group-member removals and directory-role changes performed
+through these panels. Host-owned role editors and command-line offboarding need
+their own reminder; AuthKit cannot discover who received a shared secret from
+the key's creator metadata.
+
 ```tsx
 import {
   ApiKeysAdmin,
@@ -739,7 +758,6 @@ Password changes re-authenticate with the account's available sign-in methods
 before opening the editor. The editor asks for one new password, with standard
 username and `new-password` autocomplete metadata. If its authentication proof
 expires while editing, the normal step-up guard still protects submission.
-
 
 ### Account notifications
 

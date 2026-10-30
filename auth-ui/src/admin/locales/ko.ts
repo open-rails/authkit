@@ -43,6 +43,12 @@ export const ko: AdminMessageTree = {
     cannot_target_self: "자신의 계정에는 이 작업을 할 수 없습니다.",
     last_owner: "그룹에는 소유자가 한 명 이상 있어야 합니다.",
   },
+  offboarding: {
+    reminder:
+      "{name}님의 역할을 변경해도 공유 서비스 키는 취소되지 않습니다. 이 사용자가 보유할 수 있는 키를 검토하고 필요한 경우 교체하거나 취소하세요.",
+    review: "서비스 키 검토",
+    done: "완료",
+  },
   members: {
     title: "구성원",
     description: "이 그룹에서 역할을 가진 사람들입니다.",
