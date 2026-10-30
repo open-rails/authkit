@@ -6,7 +6,11 @@ import {
   transportFailure,
   readAuthKitError,
 } from "@openrails/auth-ui/client"
-import { createAdminClient } from "@openrails/auth-ui/admin"
+import {
+  AuthAdmin,
+  UsersAdmin,
+  createAdminClient,
+} from "@openrails/auth-ui/admin"
 import {
   AccountSecurity,
   NotificationBell,
@@ -162,12 +166,35 @@ export function App() {
           <div data-testid="notification-inbox">
             <NotificationInbox
               pageSize={1}
-              renderItem={params.has("notification-default") ? () => null : (item) => <p>{item.origin.id}</p>}
+              renderItem={
+                params.has("notification-default")
+                  ? () => null
+                  : (item) => <p>{item.origin.id}</p>
+              }
             />
           </div>
         </>
       )}
       <output data-testid="profile-email">{user?.email ?? ""}</output>
+      {session.status === "authenticated" && params.has("admin-group") && (
+        <AuthAdmin
+          key={session.userId}
+          auth={client}
+          baseUrl={baseUrl}
+          basePath="/team"
+          group={params.get("admin-group")!}
+          users={false}
+          sections={["members", "api-keys"]}
+        />
+      )}
+      {session.status === "authenticated" && params.has("admin-users") && (
+        <UsersAdmin
+          key={session.userId}
+          auth={client}
+          baseUrl={baseUrl}
+          basePath="/directory"
+        />
+      )}
       <button onClick={() => setOpen(true)}>Open sign in</button>
       <button onClick={() => void client.signOut()}>Sign out</button>
       <SignInDialog

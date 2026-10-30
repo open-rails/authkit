@@ -43,6 +43,12 @@ export const zh: AdminMessageTree = {
     cannot_target_self: "不能对自己的账号执行此操作。",
     last_owner: "群组至少要保留一位所有者。",
   },
+  offboarding: {
+    reminder:
+      "更改 {name} 的角色不会撤销共享服务密钥。请检查此人可能持有的密钥，并在需要时更换或撤销。",
+    review: "检查服务密钥",
+    done: "完成",
+  },
   members: {
     title: "成员",
     description: "在此群组中拥有角色的人。",

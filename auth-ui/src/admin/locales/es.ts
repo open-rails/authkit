@@ -43,6 +43,12 @@ export const es: AdminMessageTree = {
     cannot_target_self: "No puedes hacer esto con tu propia cuenta.",
     last_owner: "El grupo conserva al menos un propietario.",
   },
+  offboarding: {
+    reminder:
+      "Cambiar el rol de {name} no revoca las claves de servicio compartidas. Revisa las claves que pueda tener y sustitúyelas o revócalas si es necesario.",
+    review: "Revisar claves de servicio",
+    done: "Listo",
+  },
   members: {
     title: "Miembros",
     description: "Personas con un rol en este grupo.",

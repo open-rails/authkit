@@ -43,6 +43,12 @@ export const en = {
     cannot_target_self: "You can't do this to your own account.",
     last_owner: "The group keeps at least one owner.",
   },
+  offboarding: {
+    reminder:
+      "Changing {name}'s role does not revoke shared service keys. Review any keys they may possess and replace or revoke them if needed.",
+    review: "Review service keys",
+    done: "Done",
+  },
   members: {
     title: "Members",
     description: "People who hold a role in this group.",

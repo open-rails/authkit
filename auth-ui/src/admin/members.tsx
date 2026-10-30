@@ -1,6 +1,10 @@
 import { useCallback, useId, useState } from "react"
 
-import type { GroupMember, Invitation } from "../client/generated/wire.ts"
+import type {
+  GroupMember,
+  GroupRole,
+  Invitation,
+} from "../client/generated/wire.ts"
 import { Badge } from "../ui/badge.tsx"
 import { Button } from "../ui/button.tsx"
 import { Input } from "../ui/input.tsx"
@@ -32,23 +36,39 @@ import { AdminRoot, type GroupAdminProps } from "./root.tsx"
 import { ownerRole, roleTitle } from "./roles-lib.ts"
 import { useRouter, useSearchParams } from "./router.ts"
 import { useActions } from "./write.ts"
+import { losesRoleAccess, type ReviewServiceKeys } from "./offboarding-lib.ts"
+import { ServiceKeyReminder } from "./service-key-reminder.tsx"
 
-export type MembersAdminProps = GroupAdminProps
+export interface MembersAdminProps extends GroupAdminProps {
+  /** Optional credential inventory for a post-removal reminder; never revokes keys. */
+  onReviewServiceKeys?: ReviewServiceKeys
+}
 
 /**
  * One group's members and invitations: who holds which role, changing or
  * removing it, inviting by email or link. Views: `basePath` (members,
  * `?role=` filter) and `basePath/invitations`.
  */
-export function MembersAdmin({ group, ...props }: MembersAdminProps) {
+export function MembersAdmin({
+  group,
+  onReviewServiceKeys,
+  ...props
+}: MembersAdminProps) {
   return (
     <AdminRoot {...props}>
-      <Members group={group} />
+      <Members
+        key={group}
+        group={group}
+        onReviewServiceKeys={onReviewServiceKeys}
+      />
     </AdminRoot>
   )
 }
 
-function Members({ group }: { group: string }) {
+function Members({
+  group,
+  onReviewServiceKeys,
+}: Pick<MembersAdminProps, "group" | "onReviewServiceKeys">) {
   const { t } = useAdminMessages()
   const { client } = useAdmin()
   const { segments } = useRouter()
@@ -83,7 +103,13 @@ function Members({ group }: { group: string }) {
         />
       )}
       {view === "members" && access.members.read ? (
-        <MemberList group={group} access={access} roles={assignable} />
+        <MemberList
+          group={group}
+          access={access}
+          roles={assignable}
+          roleCatalog={roles.data ?? []}
+          onReviewServiceKeys={onReviewServiceKeys}
+        />
       ) : (
         <Invitations group={group} access={access} roles={assignable} />
       )}
@@ -97,10 +123,14 @@ function MemberList({
   group,
   access,
   roles,
+  roleCatalog,
+  onReviewServiceKeys,
 }: {
   group: string
   access: GroupAdminAccess
   roles: string[]
+  roleCatalog: readonly GroupRole[]
+  onReviewServiceKeys?: ReviewServiceKeys
 }) {
   const { t } = useAdminMessages()
   const { client } = useAdmin()
@@ -109,6 +139,9 @@ function MemberList({
   const role = search.get("role") ?? ""
   const [status, setStatus] = useState("")
   const [removing, setRemoving] = useState<GroupMember | null>(null)
+  const [review, setReview] = useState<{ userId: string; name: string } | null>(
+    null
+  )
   const owner = access.persona ? ownerRole(access.persona) : ""
   const page = useCallback(
     (cursor?: string, signal?: AbortSignal) =>
@@ -131,12 +164,26 @@ function MemberList({
   const actions = useActions(
     `authkit.members:${group}`,
     {
-      setRole: (d: { userId: string; role: string; name: string }) =>
-        client.setMemberRole(group, d.userId, d.role),
+      setRole: (d: {
+        userId: string
+        role: string
+        previousRole: string
+        name: string
+      }) => client.setMemberRole(group, d.userId, d.role),
       remove: (d: { userId: string; name: string }) =>
         client.removeMember(group, d.userId),
     },
     (kind, _result, data) => {
+      setReview(
+        kind === "remove" ||
+          losesRoleAccess(
+            (data as { previousRole: string }).previousRole,
+            (data as { role: string }).role,
+            roleCatalog
+          )
+          ? { userId: data.userId, name: data.name }
+          : null
+      )
       setStatus(
         kind === "remove"
           ? t("members.removed", { name: data.name })
@@ -188,6 +235,18 @@ function MemberList({
           {status && !actions.error && <Notice tone="success">{status}</Notice>}
         </Body>
       )}
+      {review && (
+        <Body>
+          <ServiceKeyReminder
+            name={review.name}
+            onReview={
+              onReviewServiceKeys &&
+              (() => onReviewServiceKeys({ group, userId: review.userId }))
+            }
+            onDismiss={() => setReview(null)}
+          />
+        </Body>
+      )}
       {members.loading ? (
         <Loading />
       ) : members.error && !members.items ? (
@@ -233,6 +292,7 @@ function MemberList({
                             void actions.run("setRole", {
                               userId: m.subject.id,
                               role: e.target.value,
+                              previousRole: m.role,
                               name,
                             })
                           }
@@ -290,7 +350,14 @@ function MemberList({
             name: memberName(removing),
           })
         }
-      />
+      >
+        {removing && (
+          <p className="text-sm text-muted-foreground">
+            {t("offboarding.reminder", { name: memberName(removing) })}
+          </p>
+        )}
+        <ErrorText error={actions.error} />
+      </ConfirmDialog>
     </Section>
   )
 }

@@ -1,6 +1,6 @@
 import { useCallback, useId, useState, type ReactNode } from "react"
 
-import type { UserEntry } from "../client/generated/wire.ts"
+import type { GroupRole, UserEntry } from "../client/generated/wire.ts"
 import { Notice } from "../components/account/shared.tsx"
 import { Badge } from "../ui/badge.tsx"
 import { Button } from "../ui/button.tsx"
@@ -70,6 +70,8 @@ import { BanLine, UserBadges } from "./user-parts.tsx"
 import { directoryRole, restorableUntil, userName } from "./users-lib.ts"
 import { useWarnings } from "./warnings.tsx"
 import { useActions } from "./write.ts"
+import { losesRoleAccess } from "./offboarding-lib.ts"
+import { ServiceKeyReminder } from "./service-key-reminder.tsx"
 
 // Sign-in methods and sign-out reasons the server records; others show as sent.
 const METHODS = {
@@ -93,11 +95,13 @@ export function UserPage({
   id,
   access,
   roles,
+  roleCatalog,
   host,
 }: {
   id: string
   access: UsersPermissions
   roles: string[]
+  roleCatalog: readonly GroupRole[]
   host: Host
 }) {
   const { t } = useAdminMessages()
@@ -108,6 +112,7 @@ export function UserPage({
   )
   const [open, setOpen] = useState<Open>(null)
   const [status, setStatus] = useState("")
+  const [reviewServiceKeys, setReviewServiceKeys] = useState(false)
   const [changes, setChanges] = useState(0)
   const user = loaded.data
   const role = user ? directoryRole(user, tenantId) : null
@@ -122,12 +127,18 @@ export function UserPage({
       delete: () => client.deleteUser(id),
       restore: () => client.restoreUser(id),
       signOut: () => client.revokeUserSessions(id),
-      role: (d: { role: string }) =>
+      role: (d: { role: string; previousRole: string | null }) =>
         d.role
           ? client.setMemberRole(group, id, d.role)
           : client.removeMember(group, id),
     },
     (kind, _result, data) => {
+      const change = data as
+        { role?: string; previousRole?: string | null } | undefined
+      setReviewServiceKeys(
+        kind === "role" &&
+          losesRoleAccess(change?.previousRole, change?.role, roleCatalog)
+      )
       const role = (data as { role?: string } | undefined)?.role
       setStatus(
         kind === "role"
@@ -273,6 +284,17 @@ export function UserPage({
         </Body>
       </Section>
 
+      {reviewServiceKeys && (
+        <ServiceKeyReminder
+          name={name}
+          onReview={
+            host.onReviewServiceKeys &&
+            (() => host.onReviewServiceKeys?.({ group, userId: id }))
+          }
+          onDismiss={() => setReviewServiceKeys(false)}
+        />
+      )}
+
       <Details
         user={user}
         onEdit={
@@ -399,9 +421,15 @@ export function UserPage({
         busy={actions.busy}
         onConfirm={() =>
           pendingRole !== null &&
-          void actions.run("role", { role: pendingRole })
+          void actions.run("role", { role: pendingRole, previousRole: role })
         }
       >
+        {pendingRole !== null &&
+          losesRoleAccess(role, pendingRole, roleCatalog) && (
+            <p className="text-sm text-muted-foreground">
+              {t("offboarding.reminder", { name })}
+            </p>
+          )}
         <ErrorText error={actions.error} />
       </TypedConfirm>
       <ConfirmDialog

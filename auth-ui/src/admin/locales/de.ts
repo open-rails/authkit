@@ -43,6 +43,12 @@ export const de: AdminMessageTree = {
     cannot_target_self: "Das kannst du nicht mit deinem eigenen Konto tun.",
     last_owner: "Die Gruppe behält mindestens einen Eigentümer.",
   },
+  offboarding: {
+    reminder:
+      "Eine Änderung der Rolle von {name} widerruft keine gemeinsam genutzten Dienstschlüssel. Prüfe, welche Schlüssel diese Person möglicherweise besitzt, und ersetze oder widerrufe sie bei Bedarf.",
+    review: "Dienstschlüssel prüfen",
+    done: "Fertig",
+  },
   members: {
     title: "Mitglieder",
     description: "Personen mit einer Rolle in dieser Gruppe.",

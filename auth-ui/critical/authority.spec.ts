@@ -358,3 +358,146 @@ test("AK-UI-10: TS contract: administrator user lifecycle, session containment a
     await context.close()
   }
 })
+
+const reminder = (name: string) =>
+  `Changing ${name}'s role does not revoke shared service keys. Review any keys they may possess and replace or revoke them if needed.`
+
+test("AK-UI-19: native group offboarding reminds after access loss, preserves service keys and opens the permitted key inventory", async ({
+  page,
+  request,
+}) => {
+  const manager = await seed(request)
+  const member = await seed(request)
+  const response = await request.post("/__fixture/group", {
+    data: { userId: manager.id, role: "manager" },
+  })
+  expect(response.status()).toBe(201)
+  const group = (await response.json()) as { id: string }
+  await open(page, `?admin-group=${group.id}`)
+  expect((await login(page, manager)).status).toBe("complete")
+  const key = await page.evaluate(
+    async ({ group, member }) => {
+      await window.ak.admin.setMemberRole(group, member, "project:viewer")
+      return window.ak.admin.createAPIKey(group, {
+        name: "shared-offboarding-worker",
+        role: "project:viewer",
+      })
+    },
+    { group: group.id, member: member.id }
+  )
+  // Re-enter after setup to read real membership, without replacing API responses.
+  await page.getByRole("link", { name: "API keys", exact: true }).click()
+  await page.getByRole("link", { name: "Members", exact: true }).click()
+  const role = page.getByRole("combobox", {
+    name: `Role of ${member.username}`,
+  })
+  await expect(role).toHaveValue("project:viewer")
+  await role.selectOption("project:manager")
+  await expect(
+    page.getByText(`${member.username} now holds Manager.`, { exact: true })
+  ).toBeVisible()
+  await expect(
+    page.getByText(reminder(member.username), { exact: true })
+  ).not.toBeVisible()
+  await role.selectOption("project:viewer")
+  await expect(
+    page.getByText(reminder(member.username), { exact: true })
+  ).toBeVisible()
+  await page.getByRole("button", { name: "Done", exact: true }).click()
+  await expect(
+    page.getByText(reminder(member.username), { exact: true })
+  ).not.toBeVisible()
+
+  const removal = page.getByRole("button", {
+    name: `Remove: ${member.username}`,
+    exact: true,
+  })
+  await removal.click()
+  const dialog = page.getByRole("alertdialog")
+  await expect(
+    dialog.getByText(reminder(member.username), { exact: true })
+  ).toBeVisible()
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click()
+  await expect(role).toHaveValue("project:viewer")
+  await expect(
+    page.getByText(reminder(member.username), { exact: true })
+  ).not.toBeVisible()
+
+  const credentialDeletes: string[] = []
+  page.on("request", (r) => {
+    if (
+      r.method() === "DELETE" &&
+      new URL(r.url()).pathname.includes("/api-keys/")
+    )
+      credentialDeletes.push(new URL(r.url()).pathname)
+  })
+  await removal.click()
+  await dialog.getByRole("button", { name: "Remove", exact: true }).click()
+  await expect(
+    page.getByText(`${member.username} was removed.`, { exact: true })
+  ).toBeVisible()
+  await expect(
+    page.getByText(reminder(member.username), { exact: true })
+  ).toBeVisible()
+  expect(
+    (
+      await page.evaluate((id) => window.ak.admin.listMembers(id), group.id)
+    ).data.some((entry) => entry.subject.id === member.id)
+  ).toBe(false)
+  const permitted = await request.get(
+    `/api/v1/me/permissions?group_id=${group.id}`,
+    {
+      headers: { Authorization: `Bearer ${key.secret}` },
+    }
+  )
+  expect(permitted.status()).toBe(200)
+  expect((await permitted.json()).permissions).toContain("project:records:read")
+  await page
+    .getByRole("button", { name: "Review service keys", exact: true })
+    .click()
+  await expect(page).toHaveURL(/\/team\/api-keys$/)
+  await expect(
+    page.getByText("shared-offboarding-worker", { exact: true })
+  ).toBeVisible()
+  expect(credentialDeletes).toEqual([])
+})
+
+test("AK-UI-20: native account role removal shows a general reminder without inventing a credential destination", async ({
+  page,
+  request,
+}) => {
+  const operator = await seed(request, { rootRole: "operator" })
+  const subject = await seed(request, { rootRole: "reader" })
+  await open(page, "?admin-users")
+  const signedIn = await login(page, operator)
+  expect(signedIn.status).toBe("enrollment_required")
+  if (signedIn.status !== "enrollment_required")
+    throw new Error("operator needs MFA")
+  await enrollRequired(page, signedIn.enrollment.token_set)
+  await page.getByRole("link", { name: subject.username, exact: true }).click()
+  const role = page.getByRole("combobox", { name: "Root role", exact: true })
+  await expect(role).toHaveValue("root:reader")
+  await role.selectOption("")
+  await page.getByRole("button", { name: "Save role", exact: true }).click()
+  const dialog = page.getByRole("alertdialog")
+  await expect(
+    dialog.getByText(reminder(subject.username), { exact: true })
+  ).toBeVisible()
+  await dialog.getByRole("textbox").fill(subject.username)
+  await dialog.getByRole("button", { name: "Save role", exact: true }).click()
+  await expect(dialog).not.toBeVisible()
+  await expect(
+    page.getByText(reminder(subject.username), { exact: true })
+  ).toBeVisible()
+  await expect(
+    page.getByRole("button", { name: "Review service keys", exact: true })
+  ).not.toBeVisible()
+  expect(
+    (await page.evaluate((id) => window.ak.admin.getUser(id), subject.id))
+      .root_role
+  ).toBeNull()
+  await page.getByRole("button", { name: "Done", exact: true }).click()
+  await expect(
+    page.getByText(reminder(subject.username), { exact: true })
+  ).not.toBeVisible()
+})
