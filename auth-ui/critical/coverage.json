@@ -19,7 +19,8 @@
     "AK-UI-17",
     "AK-UI-18",
     "AK-UI-19",
-    "AK-UI-20"
+    "AK-UI-20",
+    "AK-UI-21"
   ],
   "requiredScenarioIDs": [
     "AK-J29-C01",
@@ -34,6 +35,7 @@
   ],
   "requiredClientMethods": [
     "AdminClient.banUser",
+    "AdminClient.capabilities",
     "AdminClient.createAPIKey",
     "AdminClient.createRole",
     "AdminClient.deleteRole",

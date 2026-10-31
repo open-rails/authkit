@@ -68,6 +68,7 @@ export const es: AdminMessageTree = {
   },
   invitations: {
     title: "Invitaciones",
+    disabled: "Las invitaciones están desactivadas para esta aplicación.",
     description:
       "Invita por correo o crea un enlace de un solo uso. El rol se asigna cuando se acepta la invitación.",
     email: "Correo",

@@ -370,15 +370,50 @@ function invitationState(i: Invitation) {
   return "pending" as const
 }
 
-export function Invitations({
-  group,
-  access,
-  roles,
-}: {
+type InvitationsProps = {
   group: string
   access: GroupAdminAccess
   roles: string[]
-}) {
+}
+
+export function Invitations(props: InvitationsProps) {
+  const { t } = useAdminMessages()
+  const { client } = useAdmin()
+  const capabilities = useLoad("capabilities", (signal) =>
+    client.capabilities(signal)
+  )
+  if (capabilities.error)
+    return (
+      <Section title={t("invitations.title")}>
+        <Body>
+          <ErrorText error={capabilities.error} onRetry={capabilities.reload} />
+        </Body>
+      </Section>
+    )
+  if (!capabilities.data)
+    return (
+      <Section title={t("invitations.title")}>
+        <Loading />
+      </Section>
+    )
+  if (!capabilities.data.invitations.enabled)
+    return (
+      <Section
+        title={t("invitations.title")}
+        actions={<Badge variant="secondary">{t("common.disabled")}</Badge>}
+      >
+        <Body>
+          <p role="status">{t("invitations.disabled")}</p>
+          {props.access.invite && (
+            <Button disabled>{t("invitations.send")}</Button>
+          )}
+        </Body>
+      </Section>
+    )
+  return <EnabledInvitations {...props} />
+}
+
+function EnabledInvitations({ group, access, roles }: InvitationsProps) {
   const { t } = useAdminMessages()
   const { client, language } = useAdmin()
   const emailId = useId()

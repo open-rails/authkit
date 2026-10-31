@@ -78,6 +78,7 @@ func New(ctx context.Context, origin, schema string, pool *pgxpool.Pool, profile
 	}
 	if profile == "unproved" {
 		cfg.Registration.Verification = iam.RegistrationVerificationOptional
+		cfg.Invitations.Disabled = true
 	}
 	client, err := authkit.New(ctx, cfg, authkit.Deps{
 		Postgres:      pool,

@@ -1,5 +1,6 @@
 "method"	"file"	"case"	"assertion"
 "AdminClient.banUser"	"auth-ui/critical/authority.spec.ts"	"TS contract administrator lifecycle"	"MFA-proven administrator; membership, session history, native login blocked/unblocked and admin-deletion restoration outcomes."
+"AdminClient.capabilities"	"auth-ui/critical/authority.spec.ts"	"AK-UI-21"	"Real enabled/disabled application flags; native Users/Members forms and no disabled invitation requests."
 "AdminClient.createAPIKey"	"auth-ui/critical/authority.spec.ts"	"TS contract group roles/API-key/PAT"	"Known authority and foreign-group refusal; role/member readbacks, API-key redaction/use/revocation; no internal auth/store mocks."
 "AdminClient.createRole"	"auth-ui/critical/authority.spec.ts"	"TS contract group roles/API-key/PAT"	"Known authority and foreign-group refusal; role/member readbacks, API-key redaction/use/revocation; no internal auth/store mocks."
 "AdminClient.deleteRole"	"auth-ui/critical/authority.spec.ts"	"TS contract group roles/API-key/PAT"	"Known authority and foreign-group refusal; role/member readbacks, API-key redaction/use/revocation; no internal auth/store mocks."

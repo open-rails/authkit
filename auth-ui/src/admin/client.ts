@@ -2,6 +2,7 @@ import { AuthKitError, readAuthKitError } from "../client/errors.ts"
 import type {
   APIKey,
   APIKeyCreated,
+  Capabilities,
   GroupMember,
   GroupRole,
   Invitation,
@@ -76,6 +77,7 @@ type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE"
 // The AuthKit route of each call, beneath the API mount; a contract test
 // holds them to the generated route catalog.
 export const ADMIN_ROUTES = {
+  capabilities: ["GET", "/capabilities"],
   permissions: ["GET", "/me/permissions"],
   listMembers: ["GET", "/groups/{group_id}/members"],
   setMemberRole: ["PUT", "/groups/{group_id}/members/users/{id}"],
@@ -223,6 +225,9 @@ export function createAdminClient(options: AdminClientOptions) {
   return {
     /** The mounted API prefix, for cache keys outside an AdminRoot. */
     scopeKey: JSON.stringify([base, options.tenantId ?? null]),
+    /** Feature availability at this API mount, independent of role grants. */
+    capabilities: (signal?: AbortSignal) =>
+      call<Capabilities>("capabilities", { signal }),
     // The caller's role and permissions in group ("root" for root).
     permissions: async (group: string, signal?: AbortSignal) => {
       const result = await call<PermissionSet>("permissions", {

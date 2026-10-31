@@ -165,14 +165,17 @@ func fixture(mux *http.ServeMux, rt, unproved *harness.Runtime, isolated *authki
 	})
 	mux.HandleFunc("POST /__fixture/user", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
-			Email, Phone, Username, Password, RootRole string
-			Verified, Isolated                         bool
+			Email, Phone, Username, Password, RootRole, Profile string
+			Verified, Isolated                                  bool
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&in); err != nil {
 			reply(w, 400, map[string]string{"error": err.Error()})
 			return
 		}
 		client := rt.Client
+		if in.Profile == "unproved" {
+			client = unproved.Client
+		}
 		if in.Isolated {
 			client = isolated
 		}

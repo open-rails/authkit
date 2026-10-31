@@ -2,6 +2,92 @@ import { test } from "./browser"
 import { expect } from "@playwright/test"
 import { enrollRequired, login, open, seed } from "./browser"
 
+test("AK-UI-21: native Users and Members invitations respect the mounted application's feature flag", async ({
+  browser,
+  request,
+}, info) => {
+  const methods = new Set<string>()
+  for (const enabled of [false, true]) {
+    const context = await browser.newContext({
+      baseURL: process.env.E2E_BASE_URL,
+    })
+    const page = await context.newPage()
+    await page.exposeFunction("__criticalMethod", (method: string) => {
+      methods.add(method)
+    })
+    const profile = enabled ? "main" : "unproved"
+    const operator = await seed(request, { rootRole: "operator", profile })
+    const query = enabled ? "" : "&unproved"
+    const invitationRequests: string[] = []
+    const observe = (r: import("@playwright/test").Request) => {
+      if (
+        new URL(r.url()).pathname.includes("/groups/") &&
+        new URL(r.url()).pathname.includes("/invitations")
+      )
+        invitationRequests.push(r.url())
+    }
+    page.on("request", observe)
+    try {
+      await open(page, `?admin-group=root${query}`)
+      const signedIn = await login(page, operator)
+      expect(signedIn.status).toBe("enrollment_required")
+      if (signedIn.status !== "enrollment_required")
+        throw new Error("operator needs MFA")
+      await enrollRequired(page, signedIn.enrollment.token_set)
+      expect(
+        (await page.evaluate(() => window.ak.admin.capabilities())).invitations
+          .enabled
+      ).toBe(enabled)
+      await page.getByRole("link", { name: "Invitations", exact: true }).click()
+      const disabled = page.getByText(
+        "Invitations are disabled for this application.",
+        { exact: true }
+      )
+      const invite = page.getByRole("button", { name: "Invite", exact: true })
+      if (enabled) {
+        await expect(disabled).not.toBeVisible()
+        await expect(
+          page.getByRole("textbox", { name: "Email", exact: true })
+        ).toBeVisible()
+        await page
+          .getByRole("combobox", { name: "Role", exact: true })
+          .selectOption("root:reader")
+        await expect(invite).toBeEnabled()
+        await invite.click()
+        await expect(
+          page.getByRole("textbox", { name: "Invitation link", exact: true })
+        ).not.toHaveValue("")
+      } else {
+        await expect(disabled).toBeVisible()
+        await expect(invite).toBeDisabled()
+        await expect(
+          page.getByRole("textbox", { name: "Email", exact: true })
+        ).not.toBeVisible()
+      }
+      // A direct Users URL goes through the same shared feature check.
+      await page.goto(`/directory/invitations?admin-users${query}`)
+      await expect(page.getByTestId("session-status")).toHaveText(
+        "authenticated"
+      )
+      if (enabled) {
+        await expect(invite).toBeEnabled()
+        await expect(disabled).not.toBeVisible()
+      } else {
+        await expect(disabled).toBeVisible()
+        await expect(invite).toBeDisabled()
+        expect(invitationRequests).toEqual([])
+      }
+    } finally {
+      page.off("request", observe)
+      await context.close()
+    }
+  }
+  await info.attach("public-client-invocations", {
+    body: JSON.stringify({ methods: [...methods].sort() }),
+    contentType: "application/json",
+  })
+})
+
 test("AK-UI-08: TS contract: group role mutations and API-key/PAT ceilings use the real permission store", async ({
   page,
   request,
