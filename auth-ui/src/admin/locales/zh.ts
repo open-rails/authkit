@@ -68,6 +68,7 @@ export const zh: AdminMessageTree = {
   },
   invitations: {
     title: "邀请",
+    disabled: "此应用已禁用邀请。",
     description: "通过邮件邀请，或创建一次性链接。邀请被接受后授予角色。",
     email: "邮箱",
     emailHint: "留空则改为创建链接。",

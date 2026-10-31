@@ -68,6 +68,7 @@ export const ko: AdminMessageTree = {
   },
   invitations: {
     title: "초대",
+    disabled: "이 애플리케이션에서는 초대가 비활성화되어 있습니다.",
     description:
       "이메일로 초대하거나 일회용 링크를 만드세요. 초대를 수락하면 역할이 부여됩니다.",
     email: "이메일",

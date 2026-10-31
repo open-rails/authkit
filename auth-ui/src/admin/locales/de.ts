@@ -70,6 +70,7 @@ export const de: AdminMessageTree = {
   },
   invitations: {
     title: "Einladungen",
+    disabled: "Einladungen sind für diese Anwendung deaktiviert.",
     description:
       "Lade per E-Mail ein oder erstelle einen einmaligen Link. Die Rolle gilt, sobald die Einladung angenommen wird.",
     email: "E-Mail",

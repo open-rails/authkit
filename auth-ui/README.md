@@ -516,7 +516,7 @@ const access = useGroupAdminAccess({ auth, group }) // access.any hides a tab
 
 The client covers AuthKit's group routes (members, invitations, roles, API
 keys, OAuth clients, remote applications), its account routes
-(`/admin/users…`) and `GET /me/permissions`; `ADMIN_ROUTES` names each call's
+(`/admin/users…`), `GET /me/permissions` and `GET /capabilities`; `ADMIN_ROUTES` names each call's
 route. Every component takes `auth`, `baseUrl` (default `/api/v1`),
 `basePath` (its views are deep links beneath it), `navigation` (the host
 router as `{ pathname, search, navigate(to, { replace }) }`; the history API
@@ -524,6 +524,12 @@ without it), `guard` (`useStepUpGuard()`, which runs every write; without it a
 stale sign-in fails the write with "sign in again"), `appearance` (default
 `theme: "inherit"`), `language` (`ADMIN_LANGUAGES`) and `messages` (the admin
 words under `admin`).
+
+The Users and Members invitation views read `invitations.enabled` from the same
+API mount's capabilities. When invitations are disabled, they show a disabled
+explanation and an inactive Invite button instead of loading or submitting
+invitations. The view waits for feature discovery and offers retry if it fails;
+role grants alone do not enable an application-disabled feature.
 
 ### Embedded console
 

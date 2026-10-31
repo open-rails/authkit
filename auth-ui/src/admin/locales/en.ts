@@ -68,6 +68,7 @@ export const en = {
   },
   invitations: {
     title: "Invitations",
+    disabled: "Invitations are disabled for this application.",
     description:
       "Invite by email, or make a single-use link. The role lands when the invitation is accepted.",
     email: "Email",

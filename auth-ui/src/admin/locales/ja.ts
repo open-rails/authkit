@@ -68,6 +68,7 @@ export const ja: AdminMessageTree = {
   },
   invitations: {
     title: "招待",
+    disabled: "このアプリケーションでは招待が無効になっています。",
     description:
       "メールで招待するか、1 回限りのリンクを作成します。ロールは招待が受け入れられたときに付与されます。",
     email: "メールアドレス",
