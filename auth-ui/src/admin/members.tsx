@@ -435,7 +435,7 @@ export function Invitations({
         >
           <Body>
             <form
-              className="grid gap-4 sm:grid-cols-[1fr_14rem_auto] sm:items-end"
+              className="grid gap-4 sm:grid-cols-[1fr_14rem_auto] sm:items-start"
               onSubmit={(e) => {
                 e.preventDefault()
                 setLink(null)
@@ -478,7 +478,7 @@ export function Invitations({
               <Button
                 type="submit"
                 disabled={actions.busy || (!chosen && !roleOptional)}
-                className="sm:mb-[1.375rem]"
+                className="sm:mt-5"
               >
                 {t("invitations.send")}
               </Button>
