@@ -6,6 +6,10 @@ readable: public/account projections normalize them and name claims already
 resolve without regard to case. Reading an old row does not rename it or alter
 its aliases. External providers' separate display names are unchanged.
 
+Usernames, aliases and reserved names are unique per tenant: apps that share a
+tenant share one namespace, and every rule below (blocking, forwarding,
+reservation) applies within that tenant only.
+
 Configure an app-owned list for automatic usernames:
 
 ```go
