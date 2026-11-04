@@ -25,6 +25,12 @@ export const es: AuthUiMessageBundle = {
     markUnread: "Marcar como no leída",
     unreadLabel: "Notificaciones, elementos sin leer",
   },
+  contactProof: {
+    titleEmail: "Primero verifica tu correo",
+    titlePhone: "Primero verifica tu número de teléfono",
+    description:
+      "Esto requiere una dirección verificada. Enviaremos un código a {value} y luego terminarás lo que empezaste.",
+  },
   common: {
     continue: "Continuar",
     cancel: "Cancelar",
@@ -119,6 +125,8 @@ export const es: AuthUiMessageBundle = {
     sessionExpiredDescription: "Se cerró tu sesión. Inicia sesión de nuevo.",
     accountUnavailable:
       "Esta cuenta no puede usarse para iniciar sesión. Puede haber sido cerrada o restringida. Si crees que es un error, contacta con soporte.",
+    mfaReauthentication:
+      "Tu cuenta ahora exige la autenticación en dos pasos. Vuelve a iniciar sesión para terminar de configurarla.",
   },
   contactSignIn: {
     title: "Inicia sesión o regístrate",
@@ -284,6 +292,10 @@ export const es: AuthUiMessageBundle = {
     scanQr:
       "Abre tu aplicación de autenticación y escanea este código. En Microsoft Authenticator, elige + → Otra cuenta.",
     openInAuthenticator: "Abrir en la aplicación de autenticación",
+    deviceSetupHint:
+      "Tu dispositivo elige qué aplicación se abre. Para usar un autenticador concreto, ábrelo y escanea el código QR.",
+    showSetupKey: "Mostrar la clave de configuración manual",
+    hideSetupKey: "Ocultar la clave de configuración manual",
     enterSecretManually: "O introduce la clave manualmente",
     enabledTitle: "Autenticación en dos pasos activada",
     enabledDescription:
@@ -326,6 +338,7 @@ export const es: AuthUiMessageBundle = {
     submit: "Confirmar",
   },
   account: {
+    logout: "Cerrar sesión",
     security: {
       title: "Acceso y seguridad",
       description: "Formas de iniciar sesión en tu cuenta",
@@ -396,6 +409,7 @@ export const es: AuthUiMessageBundle = {
         "El envío de SMS no está disponible en este momento, por lo que cambiar tu número de teléfono está deshabilitado temporalmente.",
     },
     password: {
+      none: "ninguna",
       title: "Contraseña",
       isSet: "Establecida",
       notSet: "Sin establecer",
@@ -414,6 +428,11 @@ export const es: AuthUiMessageBundle = {
     },
     providers: {
       title: "Opciones de inicio de sesión vinculadas",
+      add: "Vincular un inicio de sesión social",
+      available: "Elige un inicio de sesión para vincularlo a tu cuenta.",
+      allLinked:
+        "Ya están vinculados todos los inicios de sesión sociales disponibles.",
+      noneLinked: "Aún no hay inicios de sesión sociales vinculados.",
       description:
         "Vincula una cuenta social para iniciar sesión más rápido y recuperar el acceso.",
       linkWith: "Vincular con {provider}",
@@ -458,6 +477,8 @@ export const es: AuthUiMessageBundle = {
         "Pide un segundo paso al iniciar sesión para que una contraseña robada no sea suficiente.",
       on: "Activada",
       off: "Desactivada",
+      requiredByPolicy:
+        "La política de tu cuenta exige la autenticación en dos pasos. Mantén al menos un método de verificación.",
       default: "Predeterminado",
       makeDefault: "Hacer predeterminado",
       remove: "Quitar",
@@ -651,7 +672,11 @@ export const es: AuthUiMessageBundle = {
       "Ya hay un método de dos factores configurado. Elimínalo antes de agregar otro.",
     "2fa_method_unavailable": "Ese método de dos factores no está disponible.",
     "2fa_required": "Se requiere autenticación de dos factores.",
+    "2fa_required_by_policy":
+      "La política de tu cuenta exige la autenticación en dos pasos. Mantén al menos un segundo factor configurado.",
     access_denied: "Se canceló el inicio de sesión.",
+    account_authority_escalation:
+      "No tienes un rango superior al de esa cuenta.",
     account_disabled: "Esta cuenta está deshabilitada.",
     account_exists_link_required:
       "Ya existe una cuenta con este correo. Inicia sesión y vincula el proveedor desde la página de tu cuenta.",
@@ -659,10 +684,21 @@ export const es: AuthUiMessageBundle = {
       "El periodo de recuperación de la cuenta ha terminado.",
     account_recovery_required:
       "Confirma la recuperación de la cuenta antes de iniciar sesión.",
+    address_mismatch: "La dirección no coincide.",
+    address_required: "Se requiere una dirección.",
+    api_key_expired: "La clave de API ha caducado.",
+    api_key_invalid: "La clave de API no es válida.",
+    api_key_not_found: "No se encontró la clave de API.",
+    api_key_revoked: "La clave de API fue revocada.",
     auth_required_for_link: "Inicia sesión antes de vincular un proveedor.",
     authentication_failed: "La autenticación falló.",
+    bad_audience: "No se acepta la audiencia del token.",
+    bad_issuer: "El emisor del token no es de confianza.",
+    bootstrap_database_not_empty:
+      "La base de datos no está vacía; se rechazó el bootstrap.",
     cannot_remove_last_contact:
       "Verifica una dirección de correo electrónico antes de eliminar tu número de teléfono.",
+    cannot_target_self: "No puedes realizar esta acción sobre ti mismo.",
     cannot_unlink_last_login_method:
       "No puedes desvincular tu último método de inicio de sesión.",
     challenge_expired: "Tu sesión de verificación expiró. Empieza de nuevo.",
@@ -670,37 +706,102 @@ export const es: AuthUiMessageBundle = {
     challenge_not_found: "Tu sesión de verificación expiró. Empieza de nuevo.",
     code_expired:
       "Ese código caducó o no se puede volver a usar. Envía un código nuevo.",
+    confirmation_wrong_token_type:
+      "Este tipo de token no admite una reclamación de confirmación.",
+    consent_required: "Permite que esta aplicación continúe.",
+    contact_not_verified:
+      "El correo electrónico o el número de teléfono no está verificado.",
+    device_keys_disabled: "Las claves de dispositivo están deshabilitadas.",
     email_already_verified: "Tu correo electrónico ya está verificado.",
     email_delivery_failed:
       "No pudimos enviar el correo de verificación. Inténtalo de nuevo o contacta con soporte.",
     email_in_use: "Este correo electrónico ya está en uso.",
     email_unavailable: "El correo no está disponible en este momento.",
+    entitlement_filter_unavailable:
+      "El filtrado por derechos no está disponible.",
+    event_cursor_expired:
+      "Este cursor de eventos ya no se conserva. Vuelve a sincronizar desde el estado actual.",
+    external_invites_disabled:
+      "Los enlaces de invitación están deshabilitados.",
     forbidden: "No tienes permiso para hacer eso.",
+    group_conflict:
+      "El id del grupo pertenece a un grupo eliminado o a un grupo de otra persona.",
+    group_not_found: "No se encontró el grupo.",
+    insufficient_authority: "No tienes autoridad para esta operación.",
     internal_error: "Algo salió mal de nuestro lado. Inténtalo de nuevo.",
+    invalid_2fa_method: "El método de dos factores no es válido.",
+    invalid_address: "La dirección no es válida.",
+    invalid_bootstrap_manifest: "El manifiesto de bootstrap no es válido.",
     invalid_challenge: "Tu sesión 2FA es inválida o ha expirado.",
     invalid_code: "Código de verificación inválido.",
+    invalid_confirmation: "La reclamación de confirmación no es válida.",
     invalid_credentials: "Correo o contraseña incorrectos.",
     invalid_domain: "La autenticación falló.",
     invalid_email: "Ingresa un correo electrónico válido.",
+    invalid_expiry: "La caducidad no es válida.",
+    invalid_id_token: "El ID token no es válido o ha caducado.",
     invalid_identifier:
       "Ingresa un correo electrónico o número de teléfono válido.",
+    invalid_invite: "La invitación no es válida.",
     invalid_link: "Este enlace no es válido o ha expirado.",
+    invalid_message_encoding: "La codificación del mensaje no es válida.",
+    invalid_oauth_client: "Los metadatos del cliente OAuth no son válidos.",
     invalid_password: "Contraseña incorrecta. Inténtalo de nuevo.",
     invalid_phone_number: "Ingresa un número de teléfono válido.",
+    invalid_preferred_language: "El idioma preferido no es válido.",
     invalid_provider: "Ese proveedor de inicio de sesión no es compatible.",
+    invalid_remote_application: "La aplicación remota no es válida.",
     invalid_request:
       "Solicitud inválida. Revisa los datos e inténtalo de nuevo.",
     invalid_signature: "La firma de la billetera no es válida.",
+    invalid_signature_encoding: "La codificación de la firma no es válida.",
     invalid_state: "La sesión de inicio no es válida. Inténtalo de nuevo.",
+    invalid_tenant_slug:
+      "Un nombre de tenant usa letras minúsculas, dígitos y guiones, empieza y termina con una letra o un dígito, y tiene como máximo 63 caracteres.",
     invalid_timestamp: "Tu sesión de verificación expiró. Empieza de nuevo.",
+    invalid_token: "El token de autenticación no es válido.",
+    invalid_ui: "El parámetro ui no es válido.",
+    invalid_until: "El valor until no es válido.",
+    invitation_expired: "La invitación ha caducado.",
+    invitation_not_found: "No se encontró la invitación.",
+    invitation_revoked: "La invitación fue revocada.",
+    invitations_disabled: "Las invitaciones están deshabilitadas.",
+    issuer_keys_unavailable:
+      "Las claves de firma del emisor del token no están disponibles temporalmente.",
+    last_owner: "No se puede quitar al último propietario.",
+    method_not_allowed: "Ese método no está permitido en esta ruta.",
+    missing_audience: "El token no tiene audiencia.",
+    missing_client_id: "El token no indica ningún cliente.",
+    missing_exp: "El token no tiene caducidad.",
     missing_fields: "Completa todos los campos obligatorios.",
+    missing_kid: "El token no indica ninguna clave.",
+    missing_name: "Se requiere un nombre.",
+    missing_session_id: "Se requiere un id de sesión.",
+    missing_sid_claim: "El token no tiene sesión.",
+    missing_sub: "El token no tiene sujeto.",
+    missing_token_typ: "El token no tiene tipo.",
+    name_admission_refused: "Se rechazó ese nombre.",
+    no_session: "No hay ninguna sesión iniciada.",
+    not_found: "No se encontró el recurso solicitado.",
+    not_implemented: "No implementado.",
+    notification_conflict:
+      "La revisión de la notificación entra en conflicto con su estado guardado.",
+    oauth_client_limit_reached:
+      "El grupo ha registrado el máximo de clientes OAuth permitido.",
+    oauth_client_not_found: "No se encontró el cliente OAuth.",
+    oauth_consent_not_found: "No has conectado esa aplicación.",
+    oauth_grant_refused: "Se rechazó la autorización.",
     oidc_begin_failed:
       "No se pudo iniciar el inicio de sesión con el proveedor.",
     oidc_exchange_failed:
       "No se pudo completar el inicio de sesión con el proveedor.",
+    origin_not_allowed: "El origen de la solicitud no está permitido.",
+    passkey_clone_detected: "Parece que la llave de acceso se ha clonado.",
     passkey_not_found: "No se encontró la llave de acceso.",
     passkey_required:
       "Esta cuenta inicia sesión con una llave de acceso. Usa tu llave de acceso para continuar.",
+    passkey_user_verification_required:
+      "La llave de acceso debe verificar al usuario.",
     password_contains_identifier:
       "La contraseña no puede contener tu nombre de usuario ni tu correo.",
     password_requirements_unmet: "La contraseña no cumple los requisitos.",
@@ -726,6 +827,23 @@ export const es: AuthUiMessageBundle = {
     provider_unavailable:
       "El proveedor de inicio de sesión no está disponible temporalmente. Inténtalo de nuevo en breve.",
     rate_limited: "Demasiados intentos. Inténtalo de nuevo más tarde.",
+    remote_application_issuer_conflict:
+      "Ese emisor ya pertenece a otra aplicación remota.",
+    remote_application_not_found: "No se encontró la aplicación remota.",
+    reserved_issuer: "Ese emisor está reservado.",
+    role_assignment_escalation: "Ese rol otorga una autoridad que no tienes.",
+    role_exists: "El grupo ya tiene un rol con ese nombre.",
+    role_limit_reached: "El grupo ha definido el máximo de roles permitido.",
+    role_not_assignable: "El rol no se puede asignar en este grupo.",
+    role_not_editable: "Solo se puede cambiar un rol definido por el grupo.",
+    role_not_found: "No se encontró el rol.",
+    sender_proof_required: "El token requiere una prueba del remitente.",
+    server_busy: "El servidor está ocupado. Inténtalo de nuevo en un momento.",
+    subject_mfa_required:
+      "La cuenta debe configurar la autenticación en dos pasos antes de poder tener este rol.",
+    tenant_conflict: "Un tenant con este ID ya tiene otro nombre.",
+    tenant_name_taken: "Ese nombre de tenant ya está en uso.",
+    token_not_yet_valid: "El token todavía no es válido.",
     too_many_accounts:
       "Demasiadas cuentas han iniciado sesión desde este dispositivo hoy. Inténtalo de nuevo más tarde.",
     too_many_devices:
@@ -742,9 +860,17 @@ export const es: AuthUiMessageBundle = {
     step_up_required: "Confirma que eres tú para continuar.",
     token_expired: "Tu sesión expiró. Inicia sesión de nuevo.",
     unauthenticated: "Inicia sesión para continuar.",
+    unknown_group_persona: "Persona de grupo desconocida.",
+    unknown_kid: "El token indica una clave desconocida.",
     unknown_provider: "Proveedor de inicio de sesión desconocido.",
+    unsupported_media_type:
+      "El cuerpo de la solicitud debe ser JSON (Content-Type: application/json).",
+    unsupported_token_typ: "El tipo de token no es compatible.",
+    use_dpop_nonce:
+      "La solicitud debe reintentarse con el nonce DPoP del servidor.",
     user_banned: "Tu cuenta está deshabilitada.",
     user_not_found: "Usuario no encontrado.",
+    user_referenced: "El usuario todavía está referenciado.",
     username_cannot_contain_at: "El nombre de usuario no puede contener @.",
     username_cannot_start_with_plus:
       "El nombre de usuario no puede comenzar con +.",

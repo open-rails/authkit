@@ -25,6 +25,12 @@ export const de: AuthUiMessageBundle = {
     markUnread: "Als ungelesen markieren",
     unreadLabel: "Benachrichtigungen, ungelesene Einträge",
   },
+  contactProof: {
+    titleEmail: "Bestätige zuerst deine E-Mail-Adresse",
+    titlePhone: "Bestätige zuerst deine Telefonnummer",
+    description:
+      "Dafür ist eine bestätigte Adresse nötig. Wir senden einen Code an {value}, danach machst du dort weiter, wo du aufgehört hast.",
+  },
   common: {
     continue: "Weiter",
     cancel: "Abbrechen",
@@ -121,6 +127,8 @@ export const de: AuthUiMessageBundle = {
       "Sie wurden abgemeldet. Bitte melden Sie sich erneut an.",
     accountUnavailable:
       "Dieses Konto kann nicht zur Anmeldung verwendet werden. Es wurde möglicherweise geschlossen oder eingeschränkt. Wenn Sie denken, dass dies ein Fehler ist, kontaktieren Sie bitte den Support.",
+    mfaReauthentication:
+      "Dein Konto erfordert jetzt die Zwei-Faktor-Authentifizierung. Melde dich erneut an, um die Einrichtung abzuschließen.",
   },
   contactSignIn: {
     title: "Anmelden oder registrieren",
@@ -287,6 +295,10 @@ export const de: AuthUiMessageBundle = {
     scanQr:
       "Öffnen Sie Ihre Authenticator-App und scannen Sie diesen Code. Wählen Sie in Microsoft Authenticator + → Anderes Konto.",
     openInAuthenticator: "In Authenticator-App öffnen",
+    deviceSetupHint:
+      "Dein Gerät entscheidet, welche App sich öffnet. Um eine bestimmte Authenticator-App zu verwenden, öffne sie und scanne den QR-Code.",
+    showSetupKey: "Manuellen Einrichtungsschlüssel anzeigen",
+    hideSetupKey: "Manuellen Einrichtungsschlüssel verbergen",
     enterSecretManually: "Oder den Schlüssel manuell eingeben",
     enabledTitle: "Zwei-Faktor-Authentifizierung aktiviert",
     enabledDescription:
@@ -330,6 +342,7 @@ export const de: AuthUiMessageBundle = {
     submit: "Bestätigen",
   },
   account: {
+    logout: "Abmelden",
     security: {
       title: "Anmeldung & Sicherheit",
       description: "Möglichkeiten, sich bei Ihrem Konto anzumelden",
@@ -400,6 +413,7 @@ export const de: AuthUiMessageBundle = {
         "Der SMS-Versand ist derzeit nicht verfügbar, daher kann Ihre Telefonnummer vorübergehend nicht geändert werden.",
     },
     password: {
+      none: "keins",
       title: "Passwort",
       isSet: "Festgelegt",
       notSet: "Nicht festgelegt",
@@ -418,6 +432,11 @@ export const de: AuthUiMessageBundle = {
     },
     providers: {
       title: "Verknüpfte Login-Optionen",
+      add: "Social-Login verknüpfen",
+      available:
+        "Wähle eine Login-Option, die du mit deinem Konto verknüpfen möchtest.",
+      allLinked: "Alle verfügbaren Social-Logins sind bereits verknüpft.",
+      noneLinked: "Noch keine Social-Logins verknüpft.",
       description:
         "Verknüpfen Sie ein Social-Konto für schnellere Anmeldung und Kontowiederherstellung.",
       linkWith: "Mit {provider} verknüpfen",
@@ -462,6 +481,8 @@ export const de: AuthUiMessageBundle = {
         "Verlange bei der Anmeldung einen zweiten Schritt, damit ein gestohlenes Passwort nicht ausreicht.",
       on: "An",
       off: "Aus",
+      requiredByPolicy:
+        "Deine Kontorichtlinie erfordert die Zwei-Faktor-Authentifizierung. Behalte mindestens eine Bestätigungsmethode.",
       default: "Standard",
       makeDefault: "Als Standard festlegen",
       remove: "Entfernen",
@@ -656,7 +677,11 @@ export const de: AuthUiMessageBundle = {
       "Es ist bereits eine Zwei-Faktor-Methode eingerichtet. Entfernen Sie sie, bevor Sie eine andere hinzufügen.",
     "2fa_method_unavailable": "Diese Zwei-Faktor-Methode ist nicht verfügbar.",
     "2fa_required": "Zwei-Faktor-Authentifizierung ist erforderlich.",
+    "2fa_required_by_policy":
+      "Deine Kontorichtlinie erfordert die Zwei-Faktor-Authentifizierung. Lass mindestens einen zweiten Faktor eingerichtet.",
     access_denied: "Die Anmeldung wurde abgebrochen.",
+    account_authority_escalation:
+      "Du hast keinen höheren Rang als dieses Konto.",
     account_disabled: "Dieses Konto ist deaktiviert.",
     account_exists_link_required:
       "Ein Konto mit dieser E-Mail existiert bereits. Melden Sie sich an und verknüpfen Sie den Anbieter auf Ihrer Kontoseite.",
@@ -664,11 +689,23 @@ export const de: AuthUiMessageBundle = {
       "Der Zeitraum für die Kontowiederherstellung ist abgelaufen.",
     account_recovery_required:
       "Bestätigen Sie die Kontowiederherstellung, bevor Sie sich anmelden.",
+    address_mismatch: "Die Adresse stimmt nicht überein.",
+    address_required: "Eine Adresse ist erforderlich.",
+    api_key_expired: "Der API-Schlüssel ist abgelaufen.",
+    api_key_invalid: "Der API-Schlüssel ist ungültig.",
+    api_key_not_found: "Der API-Schlüssel wurde nicht gefunden.",
+    api_key_revoked: "Der API-Schlüssel wurde widerrufen.",
     auth_required_for_link:
       "Melden Sie sich an, bevor Sie einen Anbieter verknüpfen.",
     authentication_failed: "Authentifizierung fehlgeschlagen.",
+    bad_audience: "Die Audience des Tokens wird nicht akzeptiert.",
+    bad_issuer: "Dem Aussteller des Tokens wird nicht vertraut.",
+    bootstrap_database_not_empty:
+      "Die Datenbank ist nicht leer; Bootstrap abgelehnt.",
     cannot_remove_last_contact:
       "Bestätigen Sie eine E-Mail-Adresse, bevor Sie Ihre Telefonnummer entfernen.",
+    cannot_target_self:
+      "Du kannst diese Aktion nicht auf dich selbst anwenden.",
     cannot_unlink_last_login_method:
       "Sie können Ihre letzte Anmeldemöglichkeit nicht entfernen.",
     challenge_expired:
@@ -678,40 +715,104 @@ export const de: AuthUiMessageBundle = {
       "Ihre Bestätigungssitzung ist abgelaufen. Bitte beginnen Sie erneut.",
     code_expired:
       "Dieser Code ist abgelaufen oder kann nicht erneut verwendet werden. Fordern Sie einen neuen Code an.",
+    confirmation_wrong_token_type:
+      "Dieser Token-Typ akzeptiert keinen Confirmation-Claim.",
+    consent_required: "Erlaube dieser App, fortzufahren.",
+    contact_not_verified:
+      "Die E-Mail-Adresse oder Telefonnummer ist nicht bestätigt.",
+    device_keys_disabled: "Geräteschlüssel sind deaktiviert.",
     email_already_verified: "Ihre E-Mail-Adresse ist bereits verifiziert.",
     email_delivery_failed:
       "Die Verifizierungs-E-Mail konnte nicht zugestellt werden. Bitte versuchen Sie es erneut oder wenden Sie sich an den Support.",
     email_in_use: "Diese E-Mail-Adresse wird bereits verwendet.",
     email_unavailable: "E-Mail ist derzeit nicht verfügbar.",
+    entitlement_filter_unavailable:
+      "Die Filterung nach Berechtigungen ist nicht verfügbar.",
+    event_cursor_expired:
+      "Dieser Ereignis-Cursor wird nicht mehr vorgehalten. Synchronisiere ausgehend vom aktuellen Stand neu.",
+    external_invites_disabled: "Einladungslinks sind deaktiviert.",
     forbidden: "Dazu haben Sie keine Berechtigung.",
+    group_conflict:
+      "Die Gruppen-ID ist bereits durch eine gelöschte Gruppe oder eine Gruppe einer anderen Persona belegt.",
+    group_not_found: "Die Gruppe wurde nicht gefunden.",
+    insufficient_authority: "Du hast nicht die Befugnis für diesen Vorgang.",
     internal_error:
       "Bei uns ist etwas schiefgelaufen. Bitte versuche es erneut.",
+    invalid_2fa_method: "Die Zwei-Faktor-Methode ist ungültig.",
+    invalid_address: "Die Adresse ist ungültig.",
+    invalid_bootstrap_manifest: "Das Bootstrap-Manifest ist ungültig.",
     invalid_challenge: "Ihre 2FA-Sitzung ist ungültig oder abgelaufen.",
     invalid_code: "Ungültiger Verifizierungscode.",
+    invalid_confirmation: "Der Confirmation-Claim ist ungültig.",
     invalid_credentials: "Falsche E-Mail oder falsches Passwort.",
     invalid_domain: "Authentifizierung fehlgeschlagen.",
     invalid_email: "Bitte geben Sie eine gültige E-Mail-Adresse ein.",
+    invalid_expiry: "Das Ablaufdatum ist ungültig.",
+    invalid_id_token: "Das ID-Token ist ungültig oder abgelaufen.",
     invalid_identifier:
       "Bitte geben Sie eine gültige E-Mail-Adresse oder Telefonnummer ein.",
+    invalid_invite: "Die Einladung ist ungültig.",
     invalid_link: "Dieser Link ist ungültig oder abgelaufen.",
+    invalid_message_encoding: "Die Kodierung der Nachricht ist ungültig.",
+    invalid_oauth_client: "Die Metadaten des OAuth-Clients sind ungültig.",
     invalid_password: "Falsches Passwort. Bitte versuchen Sie es erneut.",
     invalid_phone_number: "Bitte geben Sie eine gültige Telefonnummer ein.",
+    invalid_preferred_language: "Die bevorzugte Sprache ist ungültig.",
     invalid_provider: "Dieser Anmeldeanbieter wird nicht unterstützt.",
+    invalid_remote_application: "Die Remote-Anwendung ist ungültig.",
     invalid_request:
       "Ungültige Anfrage. Bitte prüfen Sie Ihre Eingaben und versuchen Sie es erneut.",
     invalid_signature: "Die Wallet-Signatur ist ungültig.",
+    invalid_signature_encoding: "Die Kodierung der Signatur ist ungültig.",
     invalid_state:
       "Die Anmeldesitzung ist ungültig. Bitte versuchen Sie es erneut.",
+    invalid_tenant_slug:
+      "Ein Mandantenname besteht aus Kleinbuchstaben, Ziffern und Bindestrichen, beginnt und endet mit einem Buchstaben oder einer Ziffer und hat höchstens 63 Zeichen.",
     invalid_timestamp:
       "Ihre Bestätigungssitzung ist abgelaufen. Bitte beginnen Sie erneut.",
+    invalid_token: "Das Authentifizierungstoken ist ungültig.",
+    invalid_ui: "Der ui-Parameter ist ungültig.",
+    invalid_until: "Der until-Wert ist ungültig.",
+    invitation_expired: "Die Einladung ist abgelaufen.",
+    invitation_not_found: "Die Einladung wurde nicht gefunden.",
+    invitation_revoked: "Die Einladung wurde widerrufen.",
+    invitations_disabled: "Einladungen sind deaktiviert.",
+    issuer_keys_unavailable:
+      "Die Signaturschlüssel des Token-Ausstellers sind vorübergehend nicht verfügbar.",
+    last_owner: "Der letzte Inhaber kann nicht entfernt werden.",
+    method_not_allowed: "Diese Methode ist für diesen Pfad nicht erlaubt.",
+    missing_audience: "Das Token enthält keine Audience.",
+    missing_client_id: "Das Token nennt keinen Client.",
+    missing_exp: "Das Token enthält kein Ablaufdatum.",
     missing_fields: "Bitte füllen Sie alle Pflichtfelder aus.",
+    missing_kid: "Das Token nennt keinen Schlüssel.",
+    missing_name: "Ein Name ist erforderlich.",
+    missing_session_id: "Eine Sitzungs-ID ist erforderlich.",
+    missing_sid_claim: "Das Token enthält keine Sitzung.",
+    missing_sub: "Das Token enthält kein Subjekt.",
+    missing_token_typ: "Das Token enthält keinen Typ.",
+    name_admission_refused: "Dieser Name wurde abgelehnt.",
+    no_session: "Es ist keine Sitzung angemeldet.",
+    not_found: "Die angeforderte Ressource wurde nicht gefunden.",
+    not_implemented: "Nicht implementiert.",
+    notification_conflict:
+      "Die Revision der Benachrichtigung steht im Konflikt mit ihrem gespeicherten Zustand.",
+    oauth_client_limit_reached:
+      "Die Gruppe hat die maximale Anzahl an OAuth-Clients registriert.",
+    oauth_client_not_found: "Der OAuth-Client wurde nicht gefunden.",
+    oauth_consent_not_found: "Du hast diese App nicht verbunden.",
+    oauth_grant_refused: "Die Autorisierung wurde abgelehnt.",
     oidc_begin_failed:
       "Die Anmeldung beim Anbieter konnte nicht gestartet werden.",
     oidc_exchange_failed:
       "Die Anmeldung beim Anbieter konnte nicht abgeschlossen werden.",
+    origin_not_allowed: "Der Ursprung der Anfrage ist nicht erlaubt.",
+    passkey_clone_detected: "Der Passkey wurde anscheinend geklont.",
     passkey_not_found: "Der Passkey wurde nicht gefunden.",
     passkey_required:
       "Dieses Konto meldet sich mit einem Passkey an. Verwenden Sie Ihren Passkey, um fortzufahren.",
+    passkey_user_verification_required:
+      "Der Passkey muss den Benutzer verifizieren.",
     password_contains_identifier:
       "Das Passwort darf Ihren Benutzernamen oder Ihre E-Mail-Adresse nicht enthalten.",
     password_requirements_unmet:
@@ -738,6 +839,28 @@ export const de: AuthUiMessageBundle = {
     provider_unavailable:
       "Der Anmeldeanbieter ist vorübergehend nicht verfügbar. Bitte versuchen Sie es gleich noch einmal.",
     rate_limited: "Zu viele Versuche. Bitte versuchen Sie es später erneut.",
+    remote_application_issuer_conflict:
+      "Dieser Aussteller gehört bereits zu einer anderen Remote-Anwendung.",
+    remote_application_not_found: "Die Remote-Anwendung wurde nicht gefunden.",
+    reserved_issuer: "Dieser Aussteller ist reserviert.",
+    role_assignment_escalation:
+      "Diese Rolle verleiht Befugnisse, die du selbst nicht hast.",
+    role_exists: "Die Gruppe hat bereits eine Rolle mit diesem Namen.",
+    role_limit_reached:
+      "Die Gruppe hat die maximale Anzahl an Rollen definiert.",
+    role_not_assignable:
+      "Die Rolle kann in dieser Gruppe nicht zugewiesen werden.",
+    role_not_editable:
+      "Nur von der Gruppe definierte Rollen können geändert werden.",
+    role_not_found: "Die Rolle wurde nicht gefunden.",
+    sender_proof_required: "Das Token erfordert einen Absendernachweis.",
+    server_busy: "Der Server ist ausgelastet. Versuche es gleich noch einmal.",
+    subject_mfa_required:
+      "Das Konto muss die Zwei-Faktor-Authentifizierung einrichten, bevor es diese Rolle erhalten kann.",
+    tenant_conflict:
+      "Ein Mandant mit dieser ID hat bereits einen anderen Namen.",
+    tenant_name_taken: "Dieser Mandantenname ist bereits vergeben.",
+    token_not_yet_valid: "Das Token ist noch nicht gültig.",
     too_many_accounts:
       "Auf diesem Gerät haben sich heute zu viele Konten angemeldet. Bitte versuchen Sie es später erneut.",
     too_many_devices:
@@ -756,9 +879,17 @@ export const de: AuthUiMessageBundle = {
     token_expired:
       "Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.",
     unauthenticated: "Bitte melden Sie sich an, um fortzufahren.",
+    unknown_group_persona: "Unbekannte Gruppen-Persona.",
+    unknown_kid: "Das Token nennt einen unbekannten Schlüssel.",
     unknown_provider: "Unbekannter Anmeldeanbieter.",
+    unsupported_media_type:
+      "Anfragen müssen JSON enthalten (Content-Type: application/json).",
+    unsupported_token_typ: "Der Token-Typ wird nicht unterstützt.",
+    use_dpop_nonce:
+      "Die Anfrage muss mit der DPoP-Nonce des Servers wiederholt werden.",
     user_banned: "Ihr Konto ist deaktiviert.",
     user_not_found: "Benutzer nicht gefunden.",
+    user_referenced: "Der Benutzer wird noch referenziert.",
     username_cannot_contain_at: "Der Benutzername darf kein @ enthalten.",
     username_cannot_start_with_plus:
       "Der Benutzername darf nicht mit + beginnen.",

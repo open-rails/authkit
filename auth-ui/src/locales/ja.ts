@@ -25,6 +25,12 @@ export const ja: AuthUiMessageBundle = {
     markUnread: "未読にする",
     unreadLabel: "通知、未読あり",
   },
+  contactProof: {
+    titleEmail: "まずメールアドレスを認証してください",
+    titlePhone: "まず電話番号を認証してください",
+    description:
+      "この操作には認証済みの連絡先が必要です。{value} にコードを送信し、その後で操作を完了します。",
+  },
   common: {
     continue: "続行",
     cancel: "キャンセル",
@@ -116,6 +122,8 @@ export const ja: AuthUiMessageBundle = {
       "ログアウトされました。もう一度ログインしてください。",
     accountUnavailable:
       "このアカウントではログインできません。閉鎖または制限されている可能性があります。誤りと思われる場合はサポートまでご連絡ください。",
+    mfaReauthentication:
+      "お使いのアカウントでは二要素認証が必要になりました。設定を完了するには、もう一度ログインしてください。",
   },
   contactSignIn: {
     title: "ログインまたは登録",
@@ -275,6 +283,10 @@ export const ja: AuthUiMessageBundle = {
     scanQr:
       "認証アプリを開いて、このコードをスキャンしてください。Microsoft Authenticator では「+」→「その他のアカウント」を選びます。",
     openInAuthenticator: "認証アプリで開く",
+    deviceSetupHint:
+      "開くアプリはデバイスによって選ばれます。特定の認証アプリを使う場合は、そのアプリを開いてQRコードをスキャンしてください。",
+    showSetupKey: "手動セットアップキーを表示",
+    hideSetupKey: "手動セットアップキーを隠す",
     enterSecretManually: "またはキーを手動で入力",
     enabledTitle: "2要素認証を有効にしました",
     enabledDescription: "確認方法が確認され、2FAが有効になりました。",
@@ -314,6 +326,7 @@ export const ja: AuthUiMessageBundle = {
     submit: "確認",
   },
   account: {
+    logout: "ログアウト",
     security: {
       title: "ログインとセキュリティ",
       description: "アカウントにログインする方法",
@@ -382,6 +395,7 @@ export const ja: AuthUiMessageBundle = {
         "現在SMSを送信できないため、電話番号の変更は一時的に無効になっています。",
     },
     password: {
+      none: "なし",
       title: "パスワード",
       isSet: "設定済み",
       notSet: "未設定",
@@ -400,6 +414,10 @@ export const ja: AuthUiMessageBundle = {
     },
     providers: {
       title: "連携ログインオプション",
+      add: "ソーシャルログインを連携",
+      available: "アカウントに連携するログイン方法を選択してください。",
+      allLinked: "利用可能なソーシャルログインはすべて連携済みです。",
+      noneLinked: "連携済みのソーシャルログインはまだありません。",
       description:
         "ソーシャルアカウントを連携すると、ログインが簡単になり、アクセスの復旧にも役立ちます。",
       linkWith: "{provider}と連携",
@@ -443,6 +461,8 @@ export const ja: AuthUiMessageBundle = {
         "ログイン時に2つ目の確認を求め、パスワードが盗まれても不正にログインされないようにします。",
       on: "オン",
       off: "オフ",
+      requiredByPolicy:
+        "アカウントのポリシーにより二要素認証が必要です。確認方法を1つ以上残してください。",
       default: "デフォルト",
       makeDefault: "デフォルトにする",
       remove: "削除",
@@ -631,17 +651,32 @@ export const ja: AuthUiMessageBundle = {
       "二要素認証の方法はすでに登録されています。追加する前に削除してください。",
     "2fa_method_unavailable": "その二要素認証の方法は利用できません。",
     "2fa_required": "二要素認証が必要です。",
+    "2fa_required_by_policy":
+      "アカウントのポリシーにより二要素認証が必要です。第2要素を1つ以上登録したままにしてください。",
     access_denied: "ログインがキャンセルされました。",
+    account_authority_escalation:
+      "そのアカウントに対する上位の権限がありません。",
     account_disabled: "このアカウントは無効になっています。",
     account_exists_link_required:
       "このメールアドレスのアカウントはすでに存在します。ログインしてから、アカウントページでプロバイダーを連携してください。",
     account_recovery_expired: "アカウント復旧の期間が終了しました。",
     account_recovery_required:
       "ログインする前にアカウントの復旧を確認してください。",
+    address_mismatch: "アドレスが一致しません。",
+    address_required: "アドレスが必要です。",
+    api_key_expired: "APIキーの有効期限が切れています。",
+    api_key_invalid: "APIキーが無効です。",
+    api_key_not_found: "APIキーが見つかりません。",
+    api_key_revoked: "APIキーは取り消されています。",
     auth_required_for_link: "プロバイダーを連携する前にログインしてください。",
     authentication_failed: "認証に失敗しました。",
+    bad_audience: "トークンのオーディエンスが受け入れられません。",
+    bad_issuer: "トークンの発行者は信頼されていません。",
+    bootstrap_database_not_empty:
+      "データベースが空ではないため、ブートストラップを拒否しました。",
     cannot_remove_last_contact:
       "電話番号を削除する前に、メールアドレスを確認してください。",
+    cannot_target_self: "この操作を自分自身に対して行うことはできません。",
     cannot_unlink_last_login_method: "最後のログイン方法は連携解除できません。",
     challenge_expired:
       "認証セッションの有効期限が切れました。最初からやり直してください。",
@@ -650,36 +685,98 @@ export const ja: AuthUiMessageBundle = {
       "認証セッションの有効期限が切れました。最初からやり直してください。",
     code_expired:
       "このコードは期限切れか、再利用できません。新しいコードを送信してください。",
+    confirmation_wrong_token_type:
+      "このトークンタイプは確認クレームを受け付けません。",
+    consent_required: "続行するにはこのアプリを許可してください。",
+    contact_not_verified: "メールアドレスまたは電話番号が認証されていません。",
+    device_keys_disabled: "デバイスキーは無効になっています。",
     email_already_verified: "メールアドレスはすでに認証されています。",
     email_delivery_failed:
       "認証メールを配信できませんでした。もう一度お試しいただくか、サポートにお問い合わせください。",
     email_in_use: "このメールアドレスはすでに使用されています。",
     email_unavailable: "現在メールはご利用いただけません。",
+    entitlement_filter_unavailable:
+      "利用権によるフィルタリングは利用できません。",
+    event_cursor_expired:
+      "このイベントカーソルは保持されていません。現在の状態から再同期してください。",
+    external_invites_disabled: "招待リンクは無効になっています。",
     forbidden: "この操作を行う権限がありません。",
+    group_conflict:
+      "このグループIDは、削除済みのグループまたは別のペルソナのグループで使用されています。",
+    group_not_found: "グループが見つかりません。",
+    insufficient_authority: "この操作を行う権限がありません。",
     internal_error: "サーバー側で問題が発生しました。もう一度お試しください。",
+    invalid_2fa_method: "二要素認証の方法が無効です。",
+    invalid_address: "アドレスが無効です。",
+    invalid_bootstrap_manifest: "ブートストラップマニフェストが無効です。",
     invalid_challenge: "二要素認証のセッションが無効か期限切れです。",
     invalid_code: "認証コードが無効です。",
+    invalid_confirmation: "確認クレームが無効です。",
     invalid_credentials: "メールアドレスまたはパスワードが正しくありません。",
     invalid_domain: "認証に失敗しました。",
     invalid_email: "有効なメールアドレスを入力してください。",
+    invalid_expiry: "有効期限が無効です。",
+    invalid_id_token: "IDトークンが無効か期限切れです。",
     invalid_identifier:
       "有効なメールアドレスまたは電話番号を入力してください。",
+    invalid_invite: "招待が無効です。",
     invalid_link: "このリンクは無効か期限切れです。",
+    invalid_message_encoding: "メッセージのエンコードが無効です。",
+    invalid_oauth_client: "OAuthクライアントのメタデータが無効です。",
     invalid_password: "パスワードが正しくありません。もう一度お試しください。",
     invalid_phone_number: "有効な電話番号を入力してください。",
+    invalid_preferred_language: "優先言語が無効です。",
     invalid_provider: "そのログインプロバイダーには対応していません。",
+    invalid_remote_application: "リモートアプリケーションが無効です。",
     invalid_request:
       "無効なリクエストです。入力内容を確認して、もう一度お試しください。",
     invalid_signature: "ウォレットの署名が無効です。",
+    invalid_signature_encoding: "署名のエンコードが無効です。",
     invalid_state: "ログインセッションが無効です。もう一度お試しください。",
+    invalid_tenant_slug:
+      "テナント名には英小文字、数字、ハイフンを使用し、先頭と末尾は英字または数字にして、63文字以内にしてください。",
     invalid_timestamp:
       "認証セッションの有効期限が切れました。最初からやり直してください。",
+    invalid_token: "認証トークンが無効です。",
+    invalid_ui: "ui パラメーターが無効です。",
+    invalid_until: "until の値が無効です。",
+    invitation_expired: "招待の有効期限が切れています。",
+    invitation_not_found: "招待が見つかりません。",
+    invitation_revoked: "招待は取り消されました。",
+    invitations_disabled: "招待は無効になっています。",
+    issuer_keys_unavailable: "トークン発行者の署名鍵は一時的に利用できません。",
+    last_owner: "最後のオーナーは削除できません。",
+    method_not_allowed: "このパスではそのメソッドは許可されていません。",
+    missing_audience: "トークンにオーディエンスが含まれていません。",
+    missing_client_id: "トークンにクライアントが指定されていません。",
+    missing_exp: "トークンに有効期限が含まれていません。",
     missing_fields: "必須項目をすべて入力してください。",
+    missing_kid: "トークンに鍵が指定されていません。",
+    missing_name: "名前が必要です。",
+    missing_session_id: "セッションIDが必要です。",
+    missing_sid_claim: "トークンにセッションが含まれていません。",
+    missing_sub: "トークンにサブジェクトが含まれていません。",
+    missing_token_typ: "トークンにタイプが含まれていません。",
+    name_admission_refused: "その名前は拒否されました。",
+    no_session: "ログイン中のセッションがありません。",
+    not_found: "要求されたリソースが見つかりません。",
+    not_implemented: "実装されていません。",
+    notification_conflict:
+      "通知のリビジョンが保存されている状態と競合しています。",
+    oauth_client_limit_reached:
+      "このグループが登録できるOAuthクライアントの上限に達しました。",
+    oauth_client_not_found: "OAuthクライアントが見つかりません。",
+    oauth_consent_not_found: "そのアプリは接続されていません。",
+    oauth_grant_refused: "認可が拒否されました。",
     oidc_begin_failed: "プロバイダーでのログインを開始できませんでした。",
     oidc_exchange_failed: "プロバイダーでのログインを完了できませんでした。",
+    origin_not_allowed: "リクエストのオリジンは許可されていません。",
+    passkey_clone_detected: "パスキーが複製された可能性があります。",
     passkey_not_found: "パスキーが見つかりません。",
     passkey_required:
       "このアカウントはパスキーでサインインします。続行するにはパスキーを使用してください。",
+    passkey_user_verification_required:
+      "パスキーでユーザー認証を行う必要があります。",
     password_contains_identifier:
       "パスワードにユーザー名やメールアドレスを含めることはできません。",
     password_requirements_unmet: "パスワードが要件を満たしていません。",
@@ -706,6 +803,25 @@ export const ja: AuthUiMessageBundle = {
       "サインインプロバイダーは一時的に利用できません。しばらくしてからもう一度お試しください。",
     rate_limited:
       "試行回数が多すぎます。しばらくしてからもう一度お試しください。",
+    remote_application_issuer_conflict:
+      "その発行者はすでに別のリモートアプリケーションに属しています。",
+    remote_application_not_found: "リモートアプリケーションが見つかりません。",
+    reserved_issuer: "その発行者は予約されています。",
+    role_assignment_escalation:
+      "そのロールにはあなたが持っていない権限が含まれています。",
+    role_exists: "このグループにはすでに同じ名前のロールがあります。",
+    role_limit_reached: "このグループで定義できるロールの上限に達しました。",
+    role_not_assignable: "このグループではそのロールを割り当てられません。",
+    role_not_editable: "変更できるのはグループで定義したロールのみです。",
+    role_not_found: "ロールが見つかりません。",
+    sender_proof_required: "このトークンには送信者の証明が必要です。",
+    server_busy:
+      "サーバーが混み合っています。しばらくしてからもう一度お試しください。",
+    subject_mfa_required:
+      "このロールを付与するには、アカウントで二要素認証を設定する必要があります。",
+    tenant_conflict: "このIDのテナントには、すでに別の名前が付いています。",
+    tenant_name_taken: "そのテナント名はすでに使用されています。",
+    token_not_yet_valid: "トークンはまだ有効ではありません。",
     too_many_accounts:
       "本日このデバイスからサインインしたアカウントが多すぎます。しばらくしてからもう一度お試しください。",
     too_many_devices:
@@ -722,9 +838,17 @@ export const ja: AuthUiMessageBundle = {
     token_expired:
       "セッションの有効期限が切れました。もう一度ログインしてください。",
     unauthenticated: "続行するにはログインしてください。",
+    unknown_group_persona: "不明なグループペルソナです。",
+    unknown_kid: "トークンに不明な鍵が指定されています。",
     unknown_provider: "不明なログインプロバイダーです。",
+    unsupported_media_type:
+      "リクエスト本文はJSON（Content-Type: application/json）である必要があります。",
+    unsupported_token_typ: "このトークンタイプはサポートされていません。",
+    use_dpop_nonce:
+      "サーバーのDPoP nonceを使ってリクエストを再試行する必要があります。",
     user_banned: "お使いのアカウントは無効になっています。",
     user_not_found: "ユーザーが見つかりません。",
+    user_referenced: "このユーザーはまだ参照されています。",
     username_cannot_contain_at: "ユーザー名に @ は使用できません。",
     username_cannot_start_with_plus:
       "ユーザー名を + で始めることはできません。",

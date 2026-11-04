@@ -25,6 +25,12 @@ export const ko: AuthUiMessageBundle = {
     markUnread: "읽지 않음으로 표시",
     unreadLabel: "알림, 읽지 않은 항목 있음",
   },
+  contactProof: {
+    titleEmail: "먼저 이메일을 인증하세요",
+    titlePhone: "먼저 전화번호를 인증하세요",
+    description:
+      "인증된 연락처가 필요합니다. {value}(으)로 코드를 보내드린 뒤 진행하던 작업을 마무리합니다.",
+  },
   common: {
     continue: "계속",
     cancel: "취소",
@@ -114,6 +120,8 @@ export const ko: AuthUiMessageBundle = {
     sessionExpiredDescription: "로그아웃되었습니다. 다시 로그인해 주세요.",
     accountUnavailable:
       "이 계정으로 로그인할 수 없습니다. 계정이 종료되었거나 제한되었을 수 있습니다. 오류라고 생각되면 고객 지원에 문의하세요.",
+    mfaReauthentication:
+      "이제 계정에 2단계 인증이 필요합니다. 설정을 마치려면 다시 로그인하세요.",
   },
   contactSignIn: {
     title: "로그인 또는 가입",
@@ -273,6 +281,10 @@ export const ko: AuthUiMessageBundle = {
     scanQr:
       "인증 앱을 열어 이 코드를 스캔하세요. Microsoft Authenticator에서는 + → 기타 계정을 선택하세요.",
     openInAuthenticator: "인증 앱에서 열기",
+    deviceSetupHint:
+      "어떤 앱이 열릴지는 기기가 결정합니다. 특정 인증 앱을 사용하려면 해당 앱을 열고 QR 코드를 스캔하세요.",
+    showSetupKey: "수동 설정 키 표시",
+    hideSetupKey: "수동 설정 키 숨기기",
     enterSecretManually: "또는 키를 직접 입력하세요",
     enabledTitle: "2단계 인증이 활성화되었습니다",
     enabledDescription: "인증 방법이 확인되어 2FA가 활성화되었습니다.",
@@ -312,6 +324,7 @@ export const ko: AuthUiMessageBundle = {
     submit: "확인",
   },
   account: {
+    logout: "로그아웃",
     security: {
       title: "로그인 및 보안",
       description: "계정에 로그인하는 방법",
@@ -379,6 +392,7 @@ export const ko: AuthUiMessageBundle = {
         "현재 SMS를 보낼 수 없어 전화번호 변경이 일시적으로 비활성화되었습니다.",
     },
     password: {
+      none: "없음",
       title: "비밀번호",
       isSet: "설정됨",
       notSet: "설정 안 됨",
@@ -397,6 +411,10 @@ export const ko: AuthUiMessageBundle = {
     },
     providers: {
       title: "연결된 로그인 옵션",
+      add: "소셜 로그인 연결",
+      available: "계정에 연결할 로그인을 선택하세요.",
+      allLinked: "사용 가능한 소셜 로그인이 모두 연결되어 있습니다.",
+      noneLinked: "아직 연결된 소셜 로그인이 없습니다.",
       description: "소셜 계정을 연결해 더 빠르게 로그인하고 접근을 복구하세요.",
       linkWith: "{provider} 연결",
       linked: "연결됨",
@@ -439,6 +457,8 @@ export const ko: AuthUiMessageBundle = {
         "로그인할 때 두 번째 확인을 요구해 비밀번호가 유출되어도 계정을 보호합니다.",
       on: "켜짐",
       off: "꺼짐",
+      requiredByPolicy:
+        "계정 정책에 따라 2단계 인증이 필요합니다. 인증 방법을 하나 이상 유지하세요.",
       default: "기본",
       makeDefault: "기본으로 설정",
       remove: "삭제",
@@ -623,16 +643,31 @@ export const ko: AuthUiMessageBundle = {
       "이미 2단계 인증 방법이 등록되어 있습니다. 다른 방법을 추가하려면 먼저 제거하세요.",
     "2fa_method_unavailable": "해당 2단계 인증 방법을 사용할 수 없습니다.",
     "2fa_required": "2단계 인증이 필요합니다.",
+    "2fa_required_by_policy":
+      "계정 정책에 따라 2단계 인증이 필요합니다. 두 번째 인증 수단을 하나 이상 등록해 두세요.",
     access_denied: "로그인이 취소되었습니다.",
+    account_authority_escalation:
+      "해당 계정보다 높은 권한을 가지고 있지 않습니다.",
     account_disabled: "이 계정은 비활성화되었습니다.",
     account_exists_link_required:
       "이 이메일로 된 계정이 이미 있습니다. 로그인한 후 계정 페이지에서 제공자를 연결하세요.",
     account_recovery_expired: "계정 복구 기간이 종료되었습니다.",
     account_recovery_required: "로그인하기 전에 계정 복구를 확인하세요.",
+    address_mismatch: "주소가 일치하지 않습니다.",
+    address_required: "주소가 필요합니다.",
+    api_key_expired: "API 키가 만료되었습니다.",
+    api_key_invalid: "API 키가 유효하지 않습니다.",
+    api_key_not_found: "API 키를 찾을 수 없습니다.",
+    api_key_revoked: "API 키가 폐기되었습니다.",
     auth_required_for_link: "제공자를 연결하기 전에 로그인하세요.",
     authentication_failed: "인증에 실패했습니다.",
+    bad_audience: "토큰 대상(audience)이 허용되지 않습니다.",
+    bad_issuer: "신뢰할 수 없는 토큰 발급자입니다.",
+    bootstrap_database_not_empty:
+      "데이터베이스가 비어 있지 않아 부트스트랩이 거부되었습니다.",
     cannot_remove_last_contact:
       "전화번호를 삭제하기 전에 이메일 주소를 인증하세요.",
+    cannot_target_self: "자신에게는 이 작업을 수행할 수 없습니다.",
     cannot_unlink_last_login_method:
       "마지막 로그인 방법은 연결 해제할 수 없습니다.",
     challenge_expired: "인증 세션이 만료되었습니다. 다시 시작하세요.",
@@ -640,33 +675,94 @@ export const ko: AuthUiMessageBundle = {
     challenge_not_found: "인증 세션이 만료되었습니다. 다시 시작하세요.",
     code_expired:
       "코드가 만료되었거나 다시 사용할 수 없습니다. 새 코드를 받으세요.",
+    confirmation_wrong_token_type:
+      "이 토큰 유형은 확인(confirmation) 클레임을 허용하지 않습니다.",
+    consent_required: "계속하려면 이 앱을 허용하세요.",
+    contact_not_verified: "이메일 주소 또는 전화번호가 인증되지 않았습니다.",
+    device_keys_disabled: "기기 키가 비활성화되어 있습니다.",
     email_already_verified: "이메일 주소가 이미 인증되었습니다.",
     email_delivery_failed:
       "인증 이메일을 전송하지 못했습니다. 다시 시도하거나 고객지원에 문의해 주세요.",
     email_in_use: "이미 사용 중인 이메일입니다.",
     email_unavailable: "현재 이메일을 사용할 수 없습니다.",
+    entitlement_filter_unavailable: "권한 필터링을 사용할 수 없습니다.",
+    event_cursor_expired:
+      "이 이벤트 커서는 더 이상 보관되지 않습니다. 현재 상태에서 다시 동기화하세요.",
+    external_invites_disabled: "초대 링크가 비활성화되어 있습니다.",
     forbidden: "이 작업을 수행할 권한이 없습니다.",
+    group_conflict:
+      "이 그룹 ID는 삭제된 그룹 또는 다른 페르소나의 그룹이 사용 중입니다.",
+    group_not_found: "그룹을 찾을 수 없습니다.",
+    insufficient_authority: "이 작업을 수행할 권한이 없습니다.",
     internal_error: "서버에서 문제가 발생했습니다. 다시 시도해 주세요.",
+    invalid_2fa_method: "2단계 인증 방법이 유효하지 않습니다.",
+    invalid_address: "주소가 유효하지 않습니다.",
+    invalid_bootstrap_manifest: "부트스트랩 매니페스트가 유효하지 않습니다.",
     invalid_challenge: "2FA 세션이 유효하지 않거나 만료되었습니다.",
     invalid_code: "인증 코드가 올바르지 않습니다.",
+    invalid_confirmation: "확인(confirmation) 클레임이 유효하지 않습니다.",
     invalid_credentials: "이메일 또는 비밀번호가 올바르지 않습니다.",
     invalid_domain: "인증에 실패했습니다.",
     invalid_email: "유효한 이메일 주소를 입력해주세요.",
+    invalid_expiry: "만료 시간이 유효하지 않습니다.",
+    invalid_id_token: "ID token이 유효하지 않거나 만료되었습니다.",
     invalid_identifier: "유효한 이메일 주소 또는 전화번호를 입력해주세요.",
+    invalid_invite: "초대가 유효하지 않습니다.",
     invalid_link: "이 링크는 유효하지 않거나 만료되었습니다.",
+    invalid_message_encoding: "메시지 인코딩이 유효하지 않습니다.",
+    invalid_oauth_client: "OAuth 클라이언트 메타데이터가 유효하지 않습니다.",
     invalid_password: "비밀번호가 올바르지 않습니다. 다시 시도하세요.",
     invalid_phone_number: "유효한 전화번호를 입력해주세요.",
+    invalid_preferred_language: "선호 언어가 유효하지 않습니다.",
     invalid_provider: "지원하지 않는 로그인 제공자입니다.",
+    invalid_remote_application: "원격 애플리케이션이 유효하지 않습니다.",
     invalid_request: "잘못된 요청입니다. 입력값을 확인하고 다시 시도해주세요.",
     invalid_signature: "지갑 서명이 유효하지 않습니다.",
+    invalid_signature_encoding: "서명 인코딩이 유효하지 않습니다.",
     invalid_state: "로그인 세션이 유효하지 않습니다. 다시 시도해주세요.",
+    invalid_tenant_slug:
+      "테넌트 이름은 영문 소문자, 숫자, 하이픈만 사용할 수 있고, 영문자나 숫자로 시작하고 끝나야 하며, 최대 63자입니다.",
     invalid_timestamp: "인증 세션이 만료되었습니다. 다시 시작하세요.",
+    invalid_token: "인증 토큰이 유효하지 않습니다.",
+    invalid_ui: "ui 매개변수가 유효하지 않습니다.",
+    invalid_until: "until 값이 유효하지 않습니다.",
+    invitation_expired: "초대가 만료되었습니다.",
+    invitation_not_found: "초대를 찾을 수 없습니다.",
+    invitation_revoked: "초대가 취소되었습니다.",
+    invitations_disabled: "초대가 비활성화되어 있습니다.",
+    issuer_keys_unavailable:
+      "토큰 발급자의 서명 키를 일시적으로 사용할 수 없습니다.",
+    last_owner: "마지막 소유자는 제거할 수 없습니다.",
+    method_not_allowed: "이 경로에서는 해당 메서드를 사용할 수 없습니다.",
+    missing_audience: "토큰에 대상(audience)이 없습니다.",
+    missing_client_id: "토큰에 클라이언트가 지정되지 않았습니다.",
+    missing_exp: "토큰에 만료 시간이 없습니다.",
     missing_fields: "필수 항목을 모두 입력해주세요.",
+    missing_kid: "토큰에 키가 지정되지 않았습니다.",
+    missing_name: "이름이 필요합니다.",
+    missing_session_id: "세션 ID가 필요합니다.",
+    missing_sid_claim: "토큰에 세션 정보가 없습니다.",
+    missing_sub: "토큰에 주체(subject)가 없습니다.",
+    missing_token_typ: "토큰에 유형이 없습니다.",
+    name_admission_refused: "해당 이름은 사용할 수 없습니다.",
+    no_session: "로그인된 세션이 없습니다.",
+    not_found: "요청한 리소스를 찾을 수 없습니다.",
+    not_implemented: "구현되지 않은 기능입니다.",
+    notification_conflict: "알림 리비전이 저장된 상태와 충돌합니다.",
+    oauth_client_limit_reached:
+      "이 그룹은 등록할 수 있는 OAuth 클라이언트 수의 한도에 도달했습니다.",
+    oauth_client_not_found: "OAuth 클라이언트를 찾을 수 없습니다.",
+    oauth_consent_not_found: "해당 앱은 연결되어 있지 않습니다.",
+    oauth_grant_refused: "권한 부여가 거부되었습니다.",
     oidc_begin_failed: "제공자 로그인을 시작하지 못했습니다.",
     oidc_exchange_failed: "제공자 로그인을 완료하지 못했습니다.",
+    origin_not_allowed: "허용되지 않은 요청 출처입니다.",
+    passkey_clone_detected: "패스키가 복제된 것으로 보입니다.",
     passkey_not_found: "패스키를 찾을 수 없습니다.",
     passkey_required:
       "이 계정은 패스키로 로그인합니다. 계속하려면 패스키를 사용하세요.",
+    passkey_user_verification_required:
+      "패스키에서 사용자 인증을 거쳐야 합니다.",
     password_contains_identifier:
       "비밀번호에 사용자 이름이나 이메일을 포함할 수 없습니다.",
     password_requirements_unmet: "비밀번호가 요구 사항을 충족하지 않습니다.",
@@ -691,6 +787,25 @@ export const ko: AuthUiMessageBundle = {
     provider_unavailable:
       "로그인 제공자를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해주세요.",
     rate_limited: "시도 횟수가 너무 많습니다. 잠시 후 다시 시도해주세요.",
+    remote_application_issuer_conflict:
+      "해당 발급자는 이미 다른 원격 애플리케이션에 속해 있습니다.",
+    remote_application_not_found: "원격 애플리케이션을 찾을 수 없습니다.",
+    reserved_issuer: "예약된 발급자입니다.",
+    role_assignment_escalation:
+      "해당 역할에는 회원님이 가지지 않은 권한이 포함되어 있습니다.",
+    role_exists: "이 그룹에 같은 이름의 역할이 이미 있습니다.",
+    role_limit_reached:
+      "이 그룹은 정의할 수 있는 역할 수의 한도에 도달했습니다.",
+    role_not_assignable: "이 그룹에서는 해당 역할을 할당할 수 없습니다.",
+    role_not_editable: "그룹에서 정의한 역할만 변경할 수 있습니다.",
+    role_not_found: "역할을 찾을 수 없습니다.",
+    sender_proof_required: "이 토큰에는 발신자 증명이 필요합니다.",
+    server_busy: "서버가 사용 중입니다. 잠시 후 다시 시도해주세요.",
+    subject_mfa_required:
+      "이 역할을 가지려면 계정에 2단계 인증을 등록해야 합니다.",
+    tenant_conflict: "이 ID의 테넌트는 이미 다른 이름을 사용하고 있습니다.",
+    tenant_name_taken: "이미 사용 중인 테넌트 이름입니다.",
+    token_not_yet_valid: "토큰이 아직 유효하지 않습니다.",
     too_many_accounts:
       "오늘 이 기기에서 로그인한 계정이 너무 많습니다. 잠시 후 다시 시도해주세요.",
     too_many_devices:
@@ -707,9 +822,16 @@ export const ko: AuthUiMessageBundle = {
     step_up_required: "계속하려면 본인 확인을 해주세요.",
     token_expired: "세션이 만료되었습니다. 다시 로그인하세요.",
     unauthenticated: "계속하려면 로그인하세요.",
+    unknown_group_persona: "알 수 없는 그룹 페르소나입니다.",
+    unknown_kid: "토큰에 알 수 없는 키가 지정되어 있습니다.",
     unknown_provider: "알 수 없는 로그인 제공자입니다.",
+    unsupported_media_type:
+      "요청 본문은 JSON이어야 합니다 (Content-Type: application/json).",
+    unsupported_token_typ: "지원하지 않는 토큰 유형입니다.",
+    use_dpop_nonce: "서버의 DPoP nonce로 요청을 다시 시도해야 합니다.",
     user_banned: "계정이 비활성화되었습니다.",
     user_not_found: "사용자를 찾을 수 없습니다.",
+    user_referenced: "사용자가 아직 참조되고 있습니다.",
     username_cannot_contain_at: "사용자 이름에 @를 포함할 수 없습니다.",
     username_cannot_start_with_plus: "사용자 이름은 +로 시작할 수 없습니다.",
     username_in_use: "이미 사용 중인 사용자 이름입니다.",
