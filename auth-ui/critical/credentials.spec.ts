@@ -9,6 +9,7 @@ import {
   open,
   password,
   seed,
+  settle,
 } from "./browser"
 
 test("AK-UI-11: TS contract: pending registration availability and authenticated abandonment have observable effects", async ({
@@ -163,7 +164,8 @@ test("AK-UI-12: TS contract: reset, password change, contact proof, passwordless
     (identifier) => window.ak.client.startPasswordless({ identifier }),
     who.email
   )
-  const signed = await page.evaluate(
+  const signed = await settle(
+    page,
     ({ identifier, proof }) =>
       window.ak.client.confirmPasswordless({ identifier, code: proof }),
     {
@@ -186,7 +188,8 @@ test("AK-UI-12: TS contract: reset, password change, contact proof, passwordless
     password: changedPassword,
   })
   expect(parked.status).toBe("verification_required")
-  const recovery = await page.evaluate(
+  const recovery = await settle(
+    page,
     ({ identifier, code }) =>
       window.ak.client.confirmVerification({ identifier, code }),
     {
@@ -197,7 +200,8 @@ test("AK-UI-12: TS contract: reset, password change, contact proof, passwordless
   expect(recovery?.status).toBe("account_recovery_required")
   if (recovery?.status !== "account_recovery_required")
     throw new Error("missing real recovery proof")
-  const restored = await page.evaluate(
+  const restored = await settle(
+    page,
     (token) => window.ak.client.confirmAccountRecovery(token),
     recovery.recovery.token
   )
@@ -227,7 +231,8 @@ test("AK-UI-13: TS contract: phone-only login completes its actual new-device pr
     step
   )
   const delivered = await code(request, "+12025550196", "new_device_code")
-  const complete = await page.evaluate(
+  const complete = await settle(
+    page,
     ({ step, delivered }) =>
       window.ak.client.confirmDeviceVerification({
         userId: step.user_id,

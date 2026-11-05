@@ -65,11 +65,52 @@ export async function seed(
   const user = (await response.json()) as { id: string }
   return { ...who, ...user }
 }
+type Outcome = { value?: unknown; error?: string }
+type Settled = { settled?: Record<string, Outcome> }
+// Runs call in the page and reads its outcome back with short evaluates. An
+// evaluate waiting on a call that signs in sometimes failed "Execution context
+// was destroyed" (CDP: "Promise was collected") after the call had settled.
+// Like an evaluate, call runs in the page: it sees only arg and window.
+export async function settle<A, R>(
+  page: Page,
+  call: (arg: A) => R | Promise<R>,
+  arg?: A
+): Promise<Awaited<R>> {
+  const key = await page.evaluate(
+    ({ source, arg }) => {
+      const store = ((window as unknown as Settled).settled ??= {})
+      const key = crypto.randomUUID()
+      const run = (0, eval)(`(${source})`) as (arg: unknown) => unknown
+      Promise.resolve()
+        .then(() => run(arg))
+        .then(
+          (value) => (store[key] = { value }),
+          (error: unknown) => (store[key] = { error: String(error) })
+        )
+      return key
+    },
+    { source: call.toString(), arg }
+  )
+  let outcome: Outcome | undefined
+  await expect
+    .poll(
+      async () =>
+        (outcome = await page.evaluate(
+          (key) => (window as unknown as Settled).settled?.[key],
+          key
+        )),
+      { timeout: 25_000 }
+    )
+    .toBeDefined()
+  if (outcome!.error !== undefined) throw new Error(outcome!.error)
+  return outcome!.value as Awaited<R>
+}
 export async function login(
   page: Page,
   who: { email: string; password: string }
 ) {
-  return page.evaluate(
+  return settle(
+    page,
     (who) =>
       window.ak.client.signInWithPassword({
         identifier: who.email,
@@ -119,7 +160,8 @@ export async function register(page: Page, request: APIRequestContext) {
   )
   expect(pending).toBeNull()
   const proof = await code(request, who.email)
-  const result = await page.evaluate(
+  const result = await settle(
+    page,
     ({ who, proof }) =>
       window.ak.client.confirmVerification({
         identifier: who.email,
@@ -191,7 +233,8 @@ export async function enrollRequired(
     enrollment
   )
   expect(setup.secret).toBeTruthy()
-  const created = await page.evaluate(
+  const created = await settle(
+    page,
     ({ enrollment, code }) =>
       window.ak.client.addTwoFactorFactor(
         { method: "totp", code },
