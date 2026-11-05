@@ -137,11 +137,11 @@ var buckets = map[string]ratelimit.Limit{
 	// They send an email or SMS. /register and /passwordless/start also check
 	// an account invitation when one is presented.
 	RLRegisterCreate:       {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
-	RLPasswordlessStart:    {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
+	RLPasswordlessStart:    {Limit: 15, Window: time.Hour, Cooldown: 30 * time.Second},
 	RLPasswordResetRequest: {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
-	RLVerifyRequest:        {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
+	RLVerifyRequest:        {Limit: 15, Window: time.Hour, Cooldown: 30 * time.Second},
 	RLMeContactChange:      {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
-	RLDeviceKeyEnrollBegin: {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
+	RLDeviceKeyEnrollBegin: {Limit: 15, Window: time.Hour, Cooldown: 30 * time.Second},
 	RL2FASetupSMS:          {Limit: 3, Window: 10 * time.Minute},
 	RL2FASetupEmail:        {Limit: 3, Window: 10 * time.Minute},
 	RLInviteCreate:         {Limit: 20, Window: time.Hour, Cooldown: time.Minute},
