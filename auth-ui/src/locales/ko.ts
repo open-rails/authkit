@@ -128,6 +128,8 @@ export const ko: AuthUiMessageBundle = {
     description: "이메일 또는 전화번호를 입력하세요. 코드를 보내 드립니다.",
     codeTitle: "코드 입력",
     codeSentTo: "{destination}(으)로 6자리 코드를 보냈습니다.",
+    codeWait:
+      "이메일을 확인하세요. {seconds}초 후에 다른 코드를 요청할 수 있습니다.",
     useDifferent: "다른 이메일 또는 전화번호 사용",
   },
   agreements: {

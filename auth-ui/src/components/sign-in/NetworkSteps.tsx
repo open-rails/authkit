@@ -10,6 +10,7 @@ import type {
   OAuthThirdParty,
   ScopeDescription,
 } from "#authui/client/types"
+import { statedWait } from "#authui/client/errors"
 import { useMessages } from "#authui/i18n/context"
 import { Button } from "#authui/ui/button"
 import { Checkbox } from "#authui/ui/checkbox"
@@ -37,9 +38,11 @@ export function ContactCode({ controller }: { controller: LoginController }) {
   const { state, busy, error } = controller
   const [code, setCode] = useState("")
   const [resent, setResent] = useState(false)
-  const cooldown = useCooldown(RESEND_SECONDS, state.step === "code")
+  const refused = error ?? (state.step === "code" ? state.refused : undefined)
+  const cooldown = useCooldown(RESEND_SECONDS, state.step === "code", refused)
   const spentCode = useSpentCode(error)
   if (state.step !== "code") return null
+  const waiting = statedWait(refused) !== undefined && cooldown.left > 0
   const submit = (value = code) => {
     const trimmed = value.trim()
     if (!trimmed || busy) return
@@ -51,7 +54,7 @@ export function ContactCode({ controller }: { controller: LoginController }) {
     setCode("")
     setResent(false)
     spentCode.renew()
-    await controller.resendCode()
+    if (!(await controller.resendCode())) return
     setResent(true)
     cooldown.start()
   }
@@ -67,11 +70,13 @@ export function ContactCode({ controller }: { controller: LoginController }) {
       <StepHeader
         icon={MailSend01Icon}
         title={t("contactSignIn.codeTitle")}
-        description={t("contactSignIn.codeSentTo", {
-          destination: state.identifier,
-        })}
+        description={
+          waiting
+            ? t("contactSignIn.codeWait", { seconds: cooldown.left })
+            : t("contactSignIn.codeSentTo", { destination: state.identifier })
+        }
       />
-      {error && <FormAlert>{describe(error)}</FormAlert>}
+      {error && !waiting && <FormAlert>{describe(error)}</FormAlert>}
       {resent && !error && !busy && (
         <FormAlert tone="success">{t("challenge.codeResent")}</FormAlert>
       )}

@@ -125,6 +125,7 @@ export const zh: AuthUiMessageBundle = {
     description: "输入你的邮箱或手机号码，我们会向你发送验证码。",
     codeTitle: "输入验证码",
     codeSentTo: "我们已向 {destination} 发送了 6 位验证码。",
+    codeWait: "请查看你的邮箱。{seconds} 秒后可以再次获取验证码。",
     useDifferent: "使用其他邮箱或手机号码",
   },
   agreements: {

@@ -320,6 +320,11 @@ import { de } from "@openrails/auth-ui/locales/de"
 
 - Styles install from the entry and are scoped under `.authui`; `./styles.css`
   is the same sheet for SSR.
+- A page whose CSP refuses inline styles (`style-src 'self'`) imports
+  `./styles.css` into its own CSS and names the elements the entry and
+  `input-otp` would otherwise add: `<meta id="openrails-auth-ui-styles" />` and
+  `<meta id="input-otp-style" />`. `AuthUiRoot`'s themed variables are set from
+  script, which that CSP allows.
 - Lazy-loading the components? Import `AuthUiProvider` from
   `@openrails/auth-ui/provider` in eager code so the root entry (and every
   component) stays out of the host's entry chunk.
@@ -423,6 +428,10 @@ import { ContactSignIn } from "@openrails/auth-ui"
   "I agree" box when `/capabilities` lists `registration.agreements`, and a
   provider sign-up started there carries them. `OAuthAuthorize` asks for an
   OAuth client's agreements before approving it.
+- A code asked for too soon moves on to the code step all the same, since the
+  one already out still works, and counts down the wait the refusal states.
+  `state.refused` carries that refusal. Every resend button follows a stated
+  wait.
 - `useLogin()` exposes the same steps headless: `sendCode`, `confirmCode`,
   `acceptSignUp`, `acceptAgreements`, `addPasskey`, `skipPasskey`, and
   `autofillPasskey(signal)`.

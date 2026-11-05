@@ -9,7 +9,14 @@ import {
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
 import { cn } from "cn"
 import { REGEXP_ONLY_DIGITS } from "input-otp"
-import { useId, useState, type ComponentProps, type ReactNode } from "react"
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+} from "react"
 
 import { useMessages } from "#authui/i18n/context"
 import { Alert, AlertDescription } from "#authui/ui/alert"
@@ -210,8 +217,20 @@ export function CodeField({
   autoFocus?: boolean
   length?: number
 }) {
+  const input = useRef<HTMLInputElement>(null)
+  const shut = useRef(disabled)
+  // Disabling a field drops its focus, and a send or a check disables it:
+  // reopened, it takes the focus back unless another control has it.
+  useEffect(() => {
+    const reopened = shut.current && !disabled
+    shut.current = disabled
+    if (!reopened || !autoFocus) return
+    const held = document.activeElement
+    if (!held || held.contains(input.current)) input.current?.focus()
+  }, [disabled, autoFocus])
   return (
     <InputOTP
+      ref={input}
       maxLength={length}
       pattern={REGEXP_ONLY_DIGITS}
       value={value}

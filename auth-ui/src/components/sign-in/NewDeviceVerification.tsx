@@ -35,7 +35,7 @@ export function NewDeviceVerification({
   const { state, busy, error } = controller
   const [code, setCode] = useState("")
   const [resent, setResent] = useState(false)
-  const cooldown = useCooldown(RESEND_SECONDS, state.step === "new_device")
+  const cooldown = useCooldown(RESEND_SECONDS, state.step === "new_device", error)
   const spentCode = useSpentCode(error)
   if (state.step !== "new_device") return null
 

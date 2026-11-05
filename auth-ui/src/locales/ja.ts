@@ -131,6 +131,8 @@ export const ja: AuthUiMessageBundle = {
       "メールアドレスまたは電話番号を入力してください。コードをお送りします。",
     codeTitle: "コードを入力",
     codeSentTo: "{destination} に6桁のコードを送信しました。",
+    codeWait:
+      "メールを確認してください。{seconds} 秒後に別のコードをリクエストできます。",
     useDifferent: "別のメールアドレスまたは電話番号を使う",
   },
   agreements: {

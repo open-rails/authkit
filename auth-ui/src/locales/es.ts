@@ -134,6 +134,7 @@ export const es: AuthUiMessageBundle = {
       "Escribe tu correo o número de teléfono. Te enviaremos un código.",
     codeTitle: "Introduce tu código",
     codeSentTo: "Enviamos un código de 6 dígitos a {destination}.",
+    codeWait: "Revisa tu correo. Podrás pedir otro código en {seconds} s.",
     useDifferent: "Usar otro correo o teléfono",
   },
   agreements: {

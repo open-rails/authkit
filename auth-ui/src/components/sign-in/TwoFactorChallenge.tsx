@@ -38,7 +38,7 @@ export function TwoFactorChallenge({
   const method =
     state.step === "two_factor" ? state.challenge.factor.method : ""
   const backup = method === "backup_code" || requestedBackup
-  const cooldown = useCooldown(RESEND_SECONDS, sendsCode(method))
+  const cooldown = useCooldown(RESEND_SECONDS, sendsCode(method), error)
   const spentCode = useSpentCode(error)
   if (state.step !== "two_factor") return null
 

@@ -61,7 +61,7 @@ export function TwoFactorEnrollment({
   const [choice, setChoice] = useState<TwoFactorMethod | undefined>(allowed[0])
   const [phone, setPhone] = useState("")
   const [code, setCode] = useState("")
-  const cooldown = useCooldown(30)
+  const cooldown = useCooldown(30, false, error)
   const spentCode = useSpentCode(error)
   if (state.step !== "enrollment") return null
 
