@@ -75,9 +75,12 @@ held on its own connection. Cursors stay in the host's
 `<schema>.auth_event_cursors` under `tenant:<tenant UUID>` and `authority`, so
 use one tenant per schema.
 
-When `Handle` fails, the event's account is parked in `<schema>.account_resyncs`
-and the stream moves on. `Sync(userID)` reapplies the account's current state
-after 1, 5 and 15 minutes, then hourly, until it succeeds.
+Each `Handle` and `Sync` call has its own deadline, `HandlerTimeout` (five
+minutes by default), and must return when its context ends. When `Handle`
+fails, overruns or panics, the event's account is parked in
+`<schema>.account_resyncs` and the stream moves on. `Sync(userID)` reapplies the
+account's current state after 1, 5 and 15 minutes, then hourly, until it
+succeeds, and a failed `Sync` parks the same way.
 `ScheduleAccountResync` queues a check for state that records no event, such
 as a temporary ban ending; a check `Sync` reschedules while it runs is kept.
 An empty tenant cursor first syncs every account in the `Reconcile` statuses,
@@ -88,8 +91,9 @@ Any other error ends the pass and keeps its cursor. The tenant stream is read
 first, so an error there, including an expired tenant cursor, also stops the
 authority stream until it is fixed. `Probe` fails after a failed pass, after
 five minutes without a good pass, or while a parked account is 15 minutes
-overdue or has failed four times. `Stop` ends the loop. The host migrates both
-tables:
+overdue or has failed four times. `Stop` ends the loop and parks nothing: the
+unfinished page is delivered again on the next start, so `Handle` must tolerate
+repeats. The host migrates both tables:
 
 ```sql
 CREATE TABLE app.auth_event_cursors (stream text PRIMARY KEY, cursor text NOT NULL,

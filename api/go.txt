@@ -209,6 +209,7 @@ pkg authkit, type APIKeysConfig struct, Prefix string `yaml:"prefix"`
 pkg authkit, type AccountEventLoop struct
 pkg authkit, type AccountEventOptions struct
 pkg authkit, type AccountEventOptions struct, Handle func(context.Context, iam.Event) error
+pkg authkit, type AccountEventOptions struct, HandlerTimeout time.Duration
 pkg authkit, type AccountEventOptions struct, Interval time.Duration
 pkg authkit, type AccountEventOptions struct, Pool *pgxpool.Pool
 pkg authkit, type AccountEventOptions struct, Reconcile []iam.UserStatus
