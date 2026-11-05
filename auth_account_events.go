@@ -28,6 +28,9 @@ type AccountEventOptions struct {
 	// tenant cursor. A failed first-use sync is not parked: it fails the pass.
 	Sync      func(ctx context.Context, userID string) error
 	Reconcile []iam.UserStatus
+	// HandlerTimeout limits each Handle and Sync call, which must return when
+	// its context ends. Zero uses five minutes.
+	HandlerTimeout time.Duration
 }
 
 // AccountEventLoop is a running StartAccountEvents loop.
@@ -45,7 +48,9 @@ type AccountEventLoop struct {
 // into the host. It runs one bounded pass immediately and then every thirty
 // seconds. A dedicated advisory-lock connection elects one reader per host
 // schema and tenant without occupying a pooled connection while a handler uses
-// the database. A failed event parks its account for Sync and the stream moves on.
+// the database. An event whose Handle fails, overruns or panics parks its
+// account for Sync and the stream moves on. Stopping parks nothing: an unfinished
+// page is delivered again.
 func (a *Client) StartAccountEvents(ctx context.Context, o AccountEventOptions) (*AccountEventLoop, error) {
 	if a == nil || a.tenantID.IsZero() || o.Pool == nil || o.Schema == "" || o.Handle == nil || o.Sync == nil {
 		return nil, errors.New("authkit: account events need a ForTenant view, Pool, Schema, Handle and Sync")
@@ -53,6 +58,12 @@ func (a *Client) StartAccountEvents(ctx context.Context, o AccountEventOptions) 
 	// Syncing live accounts on first use would never finish inside one pass.
 	if len(o.Reconcile) == 0 || slices.ContainsFunc(o.Reconcile, func(s iam.UserStatus) bool { return s != iam.UserStatusDeleted && s != iam.UserStatusBanned }) {
 		return nil, fmt.Errorf("authkit: account events reconcile only deleted and banned accounts, not %q", o.Reconcile)
+	}
+	if o.HandlerTimeout <= 0 {
+		// Match AuthKit's terminal-deletion worker budget. One handler may
+		// synchronize and anonymize multiple replica-backed signal tables;
+		// the poll cadence is not a deadline for that business operation.
+		o.HandlerTimeout = 5 * time.Minute
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	r := &AccountEventLoop{client: a, options: o, cancel: cancel, done: make(chan struct{})}
@@ -65,12 +76,7 @@ func (a *Client) StartAccountEvents(ctx context.Context, o AccountEventOptions) 
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
-			// Match AuthKit's terminal-deletion worker budget. One handler may
-			// synchronize and anonymize multiple replica-backed signal tables;
-			// the poll cadence is not a deadline for that business operation.
-			pass, finish := context.WithTimeout(ctx, 5*time.Minute)
-			err := r.poll(pass)
-			finish()
+			err := r.poll(ctx)
 			r.mu.Lock()
 			r.lastError = err
 			if err == nil {
@@ -138,11 +144,26 @@ func ScheduleAccountResync(ctx context.Context, pool *pgxpool.Pool, schema, user
 	return err
 }
 
+// call runs one Handle or Sync under its own deadline and returns a panic as its
+// error. ctx outlives both, so the caller can still park the account and go on.
+func (r *AccountEventLoop) call(ctx context.Context, handler func(context.Context) error) (err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("auth event handler panic: %v", p)
+		}
+	}()
+	budget, finish := context.WithTimeout(ctx, r.options.HandlerTimeout)
+	defer finish()
+	return handler(budget)
+}
+
 func (r *AccountEventLoop) park(ctx context.Context, userID, kind string, cause error, dueAt time.Time, attempts int) error {
 	table := pgx.Identifier{r.options.Schema, "account_resyncs"}.Sanitize()
+	write, finishWrite := context.WithTimeout(ctx, 30*time.Second)
+	defer finishWrite()
 	// Only replace a due check's deadline if it has not been rescheduled while
 	// Sync ran. New event failures always preserve the earliest pending check.
-	err := r.options.Pool.QueryRow(ctx, `INSERT INTO `+table+` AS pending (user_id, due_at, attempts, last_error)
+	err := r.options.Pool.QueryRow(write, `INSERT INTO `+table+` AS pending (user_id, due_at, attempts, last_error)
 		VALUES ($1, clock_timestamp()+interval '1 minute', 1, left($2, 500))
 		ON CONFLICT (user_id) DO UPDATE SET
 			due_at = LEAST(
@@ -159,7 +180,9 @@ func (r *AccountEventLoop) park(ctx context.Context, userID, kind string, cause 
 
 func (r *AccountEventLoop) resyncDue(ctx context.Context) error {
 	table := pgx.Identifier{r.options.Schema, "account_resyncs"}.Sanitize()
-	rows, err := r.options.Pool.Query(ctx, "SELECT user_id::text, due_at, attempts, updated_at FROM "+table+" WHERE due_at <= now() ORDER BY due_at LIMIT 100")
+	read, finishRead := context.WithTimeout(ctx, 30*time.Second)
+	defer finishRead()
+	rows, err := r.options.Pool.Query(read, "SELECT user_id::text, due_at, attempts, updated_at FROM "+table+" WHERE due_at <= now() ORDER BY due_at LIMIT 100")
 	if err != nil {
 		return err
 	}
@@ -174,13 +197,19 @@ func (r *AccountEventLoop) resyncDue(ctx context.Context) error {
 		return err
 	}
 	for _, row := range pending {
-		if err := r.options.Sync(ctx, row.UserID); err != nil {
+		err := r.call(ctx, func(ctx context.Context) error { return r.options.Sync(ctx, row.UserID) })
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err != nil {
 			if err := r.park(ctx, row.UserID, "resync", err, row.DueAt, row.Attempts); err != nil {
 				return err
 			}
 			continue
 		}
-		_, err := r.options.Pool.Exec(ctx, "DELETE FROM "+table+" WHERE user_id=$1 AND due_at=$2 AND attempts=$3 AND updated_at=$4", row.UserID, row.DueAt, row.Attempts, row.UpdatedAt)
+		remove, finishRemove := context.WithTimeout(ctx, 30*time.Second)
+		_, err = r.options.Pool.Exec(remove, "DELETE FROM "+table+" WHERE user_id=$1 AND due_at=$2 AND attempts=$3 AND updated_at=$4", row.UserID, row.DueAt, row.Attempts, row.UpdatedAt)
+		finishRemove()
 		if err != nil {
 			return err
 		}
@@ -191,7 +220,7 @@ func (r *AccountEventLoop) resyncDue(ctx context.Context) error {
 func (r *AccountEventLoop) poll(ctx context.Context) (err error) {
 	defer func() {
 		if p := recover(); p != nil {
-			err = fmt.Errorf("auth event handler panic: %v", p)
+			err = fmt.Errorf("auth event pass panic: %v", p)
 		}
 	}()
 	o, tenant := r.options, r.client.tenantID.String()
@@ -256,7 +285,11 @@ func (r *AccountEventLoop) poll(ctx context.Context) (err error) {
 				return errors.New("auth events: source omitted continuation cursor")
 			}
 			for _, event := range page.Events {
-				if err := o.Handle(ctx, event); err != nil {
+				err := r.call(ctx, func(ctx context.Context) error { return o.Handle(ctx, event) })
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				if err != nil {
 					if err := r.park(ctx, event.UserID, string(event.Kind), err, time.Time{}, 0); err != nil {
 						return err
 					}
@@ -293,7 +326,7 @@ func (r *AccountEventLoop) reconcile(ctx context.Context) error {
 				return err
 			}
 			for _, user := range page.Items {
-				if err := r.options.Sync(ctx, user.ID); err != nil {
+				if err := r.call(ctx, func(ctx context.Context) error { return r.options.Sync(ctx, user.ID) }); err != nil {
 					return err
 				}
 			}
