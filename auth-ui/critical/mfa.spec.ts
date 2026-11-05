@@ -1,6 +1,14 @@
 import { test } from "./browser"
 import { expect } from "@playwright/test"
-import { deliveries, login, nextCode, open, seed, totp } from "./browser"
+import {
+  deliveries,
+  login,
+  nextCode,
+  open,
+  seed,
+  settle,
+  totp,
+} from "./browser"
 
 test("AK-UI-14: TS contract: strong-factor lifecycle, backup replacement and fresh proof use actual challenges", async ({
   page,
@@ -30,7 +38,8 @@ test("AK-UI-14: TS contract: strong-factor lifecycle, backup replacement and fre
     phone
   )
   expect(smsSetup.method).toBe("sms")
-  const sms = await page.evaluate(
+  const sms = await settle(
+    page,
     ({ phoneNumber, code }) =>
       window.ak.client.addTwoFactorFactor({
         method: "sms",
@@ -46,7 +55,8 @@ test("AK-UI-14: TS contract: strong-factor lifecycle, backup replacement and fre
     window.ak.client.setupTwoFactor({ method: "totp" })
   )
   expect(setup.secret).toBeTruthy()
-  const app = await page.evaluate(
+  const app = await settle(
+    page,
     (code) => window.ak.client.addTwoFactorFactor({ method: "totp", code }),
     totp(setup.secret!)
   )
@@ -102,7 +112,8 @@ test("AK-UI-14: TS contract: strong-factor lifecycle, backup replacement and fre
     { step: challenge.second_factor, code: sms.backup_codes[0] }
   )
   expect(rejected).toEqual({ status: 401, code: "invalid_code" })
-  const signed = await page.evaluate(
+  const signed = await settle(
+    page,
     ({ step, code }) =>
       window.ak.client.verifyTwoFactor({
         userId: step.user_id,
@@ -145,7 +156,8 @@ test("AK-UI-14: TS contract: strong-factor lifecycle, backup replacement and fre
     { step: sent.second_factor, code: backup[0] }
   )
   expect(reused).toBe("invalid_code")
-  const accepted = await page.evaluate(
+  const accepted = await settle(
+    page,
     ({ step, factor, code }) =>
       window.ak.client.verifyTwoFactor({
         userId: step.user_id,

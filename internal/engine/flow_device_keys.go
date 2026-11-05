@@ -180,7 +180,7 @@ func (s *Engine) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, co
 	}
 	mfaProof, backupCode := false, ""
 	if user != nil {
-		if err := s.ensureUserAccess(ctx, user); err != nil {
+		if err := s.ensureLoginProofAccess(ctx, user); err != nil {
 			return authflow.DeviceKeyAuthResult{}, err
 		}
 		status, err := s.mfaStatus(ctx, user.ID)
@@ -208,6 +208,9 @@ func (s *Engine) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, co
 		// mandatory, enrolls one before it may hold a standing credential.
 		if err := s.requireSessionMFAStateOn(ctx, s.pg, user.ID, deviceKeyEnrollmentMethods(mfaProof), status, nil); err != nil {
 			return authflow.DeviceKeyAuthResult{}, err
+		}
+		if user.DeletedAt != nil {
+			return authflow.DeviceKeyAuthResult{}, s.deviceKeyRecovery(ctx, user, deviceKeyEnrollmentMethods(mfaProof))
 		}
 	} else if s.TwoFactorEnabled() && s.requireMFAEnrollment() {
 		return authflow.DeviceKeyAuthResult{}, iam.ErrTwoFAEnrollmentRequired

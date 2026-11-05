@@ -3,6 +3,7 @@ package httpapi
 import (
 	"net/http"
 
+	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
 )
 
@@ -12,9 +13,14 @@ func (s *Service) handleAccountRecoveryConfirmPOST(w http.ResponseWriter, r *htt
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	if err := s.svc.ConfirmAccountRecovery(r.Context(), body.Token); err != nil {
+	out, err := s.svc.ConfirmAccountRecovery(r.Context(), body.Token)
+	if err != nil {
 		writeError(w, fallback(err, errmodel.CodeInvalidCredentials))
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	if out.Kind == authflow.LoginRestored {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	s.writeAuthResult(w, r, out, authExtras{})
 }

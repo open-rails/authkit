@@ -403,6 +403,9 @@ import { SolanaSignInButton } from "@openrails/auth-ui/solana"
 - Verification link route (AuthKit `Frontend.VerifyPath`, default `/verify`):
   `<VerifyLink token={readLinkFragment(location.hash)?.token} navigate={(to) => router.replace(to)} />`
   confirms the emailed/texted link once; `useVerifyLink` is the headless hook.
+- Sign-in link landing: on `Frontend.PasswordlessPath`,
+  `<PasswordlessLink token={readLinkFragment(location.hash)?.token} navigate={(to) => router.replace(to)} />`
+  spends the emailed link once and finishes every later step in place.
 
 #### Contact-first sign-in
 

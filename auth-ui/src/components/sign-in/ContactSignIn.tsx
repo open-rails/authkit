@@ -65,7 +65,7 @@ function ContactEntry({
   const passkeys = !!capabilities?.passkeys.login && webAuthnAvailable()
   const [value, setValue] = useState(initialIdentifier ?? "")
   const [touched, setTouched] = useState(false)
-  const { busy, error, autofillPasskey } = login
+  const { state, busy, error, autofillPasskey } = login
 
   // The field's autofill offers saved passkeys while the form is shown.
   useEffect(() => {
@@ -102,6 +102,9 @@ function ContactEntry({
           title={t("contactSignIn.title")}
           description={t("contactSignIn.description")}
         />
+        {state.step === "credentials" && state.recovered && !error && (
+          <FormAlert tone="success">{t("signIn.recovered")}</FormAlert>
+        )}
         {error && <FormAlert>{describe(error)}</FormAlert>}
         <TextField
           label={t("fields.emailOrPhone")}

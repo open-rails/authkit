@@ -37,6 +37,7 @@ func ErrorMetadata() map[errmodel.Code]any {
 		errmodel.CodePasswordRequirementsUnmet: errmodel.PasswordRequirements{},
 		errmodel.CodeProviderError:             ProviderError{},
 		errmodel.CodeTwoFARequired:             TwoFactorRequired{},
+		errmodel.CodeAccountRecoveryRequired:   authflow.AccountRecoveryConfirmation{},
 		errmodel.CodeAgreementRequired:         errmodel.AgreementsRequired{},
 		errmodel.CodeDeletionRefused:           errmodel.Refusal{},
 		errmodel.CodeConsentRevocationRefused:  errmodel.Refusal{},

@@ -560,11 +560,11 @@ export const de: AuthUiMessageBundle = {
       title: "Konto löschen",
       dangerZone: "Gefahrenzone",
       description:
-        "Das Löschen Ihres Kontos ist unwiderruflich. Bitte überlegen Sie es sich gut.",
+        "Sie können Ihr Konto 30 Tage lang wiederherstellen, indem Sie sich anmelden. Danach wird es endgültig gelöscht.",
       warningAccess:
         "Wenn Sie Ihr Konto löschen, verlieren Sie den Zugriff darauf und auf alle gekauften Abonnements.",
       warningPermanent:
-        "Bitte beachten Sie, dass Sie Ihr Konto nach dem Löschen nicht wiederherstellen können.",
+        "Nach 30 Tagen können Sie Ihr Konto nicht mehr wiederherstellen.",
       confirmHint: "Geben Sie zur Bestätigung {word} in das Feld unten ein.",
       confirmLabel: "Bestätigung",
       confirmWord: "LÖSCHEN",
@@ -632,7 +632,7 @@ export const de: AuthUiMessageBundle = {
   recovery: {
     title: "Konto wiederherstellen?",
     description:
-      "Dieses Konto wurde gelöscht. Sie können es bis {date} wiederherstellen; danach wird es endgültig entfernt.",
+      "Dieses Konto wurde gelöscht und kann noch wiederhergestellt werden. Es wird {when}, am {date}, endgültig gelöscht.",
     confirm: "Konto wiederherstellen",
   },
   callback: {

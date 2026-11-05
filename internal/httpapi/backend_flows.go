@@ -49,7 +49,7 @@ type flowsBackend interface {
 	FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, code, signature, secondFactor string) (authflow.DeviceKeyAuthResult, error)
 	FinishDeviceKeyLogin(ctx context.Context, challengeID, signature string) (authflow.DeviceKeyAuthResult, error)
 	FinishPasskeyLogin(ctx context.Context, response []byte, userAgent string, ip net.IP) (authflow.LoginOutcome, error)
-	ConfirmAccountRecovery(ctx context.Context, token string) error
+	ConfirmAccountRecovery(ctx context.Context, token string) (authflow.LoginOutcome, error)
 	FinishPasskeyRegistration(ctx context.Context, userID string, response []byte) (iam.Passkey, error)
 	GenerateSIWSChallenge(ctx context.Context, domain, address, username string) (siws.SignInInput, error)
 	Get2FASettings(ctx context.Context, userID string) (*authflow.TwoFactorSettings, error)

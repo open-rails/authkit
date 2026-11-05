@@ -149,7 +149,20 @@ func TestCriticalRecovery(t *testing.T) {
 		u := g.user(t)
 		session := g.signIn(t, u)
 		g.call(t, "DELETE", "/me", session.AccessToken, nil).want(t, http.StatusNoContent, "")
+		// A password alone gets a code, the same answer as an unverified
+		// account; only the code reaches the restore step.
 		r := g.call(t, "POST", "/password/login", "", map[string]string{"identifier": u.Email, "password": u.Password})
+		r.want(t, http.StatusOK, "")
+		var parked struct {
+			Status   string        `json:"status"`
+			Tokens   *iam.TokenSet `json:"token_set"`
+			Recovery *struct{}     `json:"recovery"`
+		}
+		decode(t, r.body, &parked)
+		if parked.Status != "verification_required" || parked.Tokens != nil || parked.Recovery != nil {
+			t.Fatalf("password alone reached the restore step: %s", r.body)
+		}
+		r = g.call(t, "POST", "/verify/confirm", "", map[string]string{"identifier": u.Email, "code": g.out.Last(t, iam.MessageVerification, u.Email).Code})
 		r.want(t, http.StatusOK, "")
 		var recovery struct {
 			Status   string        `json:"status"`
@@ -162,7 +175,8 @@ func TestCriticalRecovery(t *testing.T) {
 		if recovery.Status != "account_recovery_required" || recovery.Tokens != nil || recovery.Recovery.Token == "" {
 			t.Fatalf("self deletion did not require recovery proof: %s", r.body)
 		}
-		g.call(t, "POST", "/account/recovery/confirm", "", map[string]string{"token": recovery.Recovery.Token}).want(t, http.StatusNoContent, "")
+		tokensFrom(t, g.call(t, "POST", "/account/recovery/confirm", "", map[string]string{"token": recovery.Recovery.Token}), u.ID)
+		g.call(t, "POST", "/account/recovery/confirm", "", map[string]string{"token": recovery.Recovery.Token}).want(t, http.StatusUnauthorized, "invalid_credentials")
 		g.signIn(t, u)
 		result, err := g.auth.DeleteUsers(t.Context(), iam.SystemIdentity(), []string{u.ID})
 		noError(t, err)

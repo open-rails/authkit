@@ -16,6 +16,7 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
@@ -68,7 +69,7 @@ func (s *Engine) PasswordLogin(ctx context.Context, in authflow.PasswordLoginInp
 			return s.recoverPendingLogin(ctx, in, kindRegisterPhone, identifier)
 		}
 	default:
-		u, err = s.getUserByUsername(ctx, identifier)
+		u, err = s.loginUserByUsername(ctx, identifier)
 		if err != nil || u == nil {
 			if err := spendPasswordCheck(ctx, in.Password); err != nil {
 				return authflow.LoginOutcome{}, err
@@ -92,11 +93,28 @@ func (s *Engine) PasswordLogin(ctx context.Context, in authflow.PasswordLoginInp
 	if err != nil {
 		return s.passwordRejected(ctx, in, u.ID, err)
 	}
+	if out, parked, err := s.restoreGate(ctx, in, u); err != nil || parked {
+		return out, err
+	}
 	out, err := s.finishFirstFactor(ctx, loginProof{Version: version, AuthenticatedAt: time.Now().UTC(), Input: loginSessionInput{UserID: u.ID, AuthMethods: []string{"pwd"}, Event: "password_login", UserAgent: in.UserAgent, IP: in.IP}})
 	if errors.Is(err, errmodel.ErrUserBanned) || errors.Is(err, jwt.ErrTokenUnverifiable) {
 		return s.rejectLogin(ctx, in, u.ID, loginRejection(err)), nil
 	}
 	return out, err
+}
+
+// loginUserByUsername also finds a deleted account: it keeps its name through
+// the recovery window, and a sign-in by that name goes on to restore it.
+func (s *Engine) loginUserByUsername(ctx context.Context, username string) (*db.User, error) {
+	u, err := s.getUserByUsername(ctx, username)
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return u, err
+	}
+	r, err := s.q.UserByUsername(ctx, db.UserByUsernameParams{TenantID: s.tenantKey(ctx), Username: username})
+	if err != nil {
+		return nil, err
+	}
+	return &r, nil
 }
 
 // loginRejection maps a credential or account-gate failure to its rejection reason.

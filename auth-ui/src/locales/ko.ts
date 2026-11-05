@@ -531,10 +531,10 @@ export const ko: AuthUiMessageBundle = {
     delete: {
       title: "계정 삭제",
       dangerZone: "위험 영역",
-      description: "계정 삭제는 되돌릴 수 없습니다. 신중하게 생각하세요.",
+      description: "30일 이내에 로그인하면 계정을 복구할 수 있습니다. 그 이후에는 영구적으로 삭제됩니다.",
       warningAccess:
         "계정을 삭제하면 계정과 구매한 모든 구독에 대한 접근 권한을 잃게 됩니다.",
-      warningPermanent: "계정이 삭제되면 복구할 수 없다는 점을 유의하세요.",
+      warningPermanent: "30일이 지나면 계정을 복구할 수 없습니다.",
       confirmHint: "확인하려면 아래 입력란에 {word}를 입력하세요.",
       confirmLabel: "확인",
       confirmWord: "DELETE",
@@ -600,7 +600,7 @@ export const ko: AuthUiMessageBundle = {
   recovery: {
     title: "계정을 복구할까요?",
     description:
-      "이 계정은 삭제되었습니다. {date}까지 복구할 수 있으며, 그 이후에는 영구적으로 삭제됩니다.",
+      "이 계정은 삭제되었지만 아직 복구할 수 있습니다. {when}({date}) 영구적으로 삭제됩니다.",
     confirm: "계정 복구",
   },
   callback: {

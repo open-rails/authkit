@@ -38,7 +38,9 @@ type loginProof struct {
 	StrongMFA       bool              `json:"strong_mfa,omitempty"`
 	// DeviceCode: the sign-in waits on a new-device code (Config.SignIn).
 	DeviceCode bool `json:"device_code,omitempty"`
-	expected   []byte
+	// DeviceKey: a device-key enrollment, which finishes itself once restored.
+	DeviceKey bool `json:"device_key,omitempty"`
+	expected  []byte
 }
 
 func (s *Engine) loadLoginProof(ctx context.Context, userID, nonce string) (loginProof, error) {

@@ -41,12 +41,15 @@ const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
   ["minute", 60],
 ]
 
+// The page's language, or the browser's.
+export function pageLocale(): string | undefined {
+  return typeof document !== "undefined"
+    ? document.documentElement.lang || undefined
+    : undefined
+}
+
 export function relativeTime(iso: string, now = Date.now()): string {
-  const locale =
-    typeof document !== "undefined"
-      ? document.documentElement.lang || undefined
-      : undefined
-  const fmt = new Intl.RelativeTimeFormat(locale, { numeric: "auto" })
+  const fmt = new Intl.RelativeTimeFormat(pageLocale(), { numeric: "auto" })
   const diff = (new Date(iso).getTime() - now) / 1000
   for (const [unit, secs] of UNITS) {
     if (Math.abs(diff) >= secs) return fmt.format(Math.round(diff / secs), unit)

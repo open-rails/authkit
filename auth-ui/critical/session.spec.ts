@@ -1,6 +1,6 @@
 import { test } from "./browser"
 import { expect } from "@playwright/test"
-import { identity, login, open, register, seed } from "./browser"
+import { identity, login, open, register, seed, settle } from "./browser"
 
 test("AK-UI-01: AK-J29-C01: start, stop, subscribe and browser restore retain only the current identity", async ({
   page,
@@ -322,7 +322,8 @@ test("AK-UI-06: AK-J29-C04: contact proof cannot replay a mutation across a repl
 }) => {
   const who = identity()
   await open(page, "?unproved")
-  const signIn = await page.evaluate(
+  const signIn = await settle(
+    page,
     (who) =>
       window.ak.client.register({
         identifier: who.email,
@@ -332,7 +333,7 @@ test("AK-UI-06: AK-J29-C04: contact proof cannot replay a mutation across a repl
     who
   )
   expect(signIn?.status).toBe("complete")
-  const result = await page.evaluate(async () => {
+  const result = await settle(page, async () => {
     const seen: { identifier: string; channel: string }[] = []
     const unregister = window.ak.client.onContactProofRequired(
       async (proof) => {

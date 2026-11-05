@@ -65,6 +65,12 @@ func (s *Engine) sendEmailVerificationToUser(ctx context.Context, u *db.User, tt
 	if ttl <= 0 {
 		ttl = defaultEmailVerificationTTL
 	}
+	return s.sendEmailVerificationCode(ctx, u, ttl)
+}
+
+// sendEmailVerificationCode sends a code proving the mailbox, proven before or
+// not: a deleted account's restore asks for it again.
+func (s *Engine) sendEmailVerificationCode(ctx context.Context, u *db.User, ttl time.Duration) error {
 	if u.Email == nil {
 		return iam.ErrUserNotFound
 	}

@@ -552,8 +552,9 @@ const (
 	// AuthVerificationRequired: a code went to verification.identifier; confirm
 	// it at POST /verify/confirm.
 	AuthVerificationRequired AuthStatus = "verification_required"
-	// AuthAccountRecoveryRequired: the account is deleted and restorable;
-	// confirm recovery.token at POST /account/recovery/confirm.
+	// AuthAccountRecoveryRequired: the account is deleted and restorable. No
+	// session exists; POST /account/recovery/confirm with recovery.token
+	// restores it and continues this sign-in.
 	AuthAccountRecoveryRequired AuthStatus = "account_recovery_required"
 	// AuthDeviceVerificationRequired: a new device past the account's limit
 	// (Config.SignIn.NewDevicesPerAccount); a code went to the owner's

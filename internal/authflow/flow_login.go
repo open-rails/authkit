@@ -95,7 +95,12 @@ type LoginOutcome struct {
 	Device         *DeviceChallenge
 }
 
-const LoginRecoveryRequired LoginOutcomeKind = "account_recovery_required"
+const (
+	LoginRecoveryRequired LoginOutcomeKind = "account_recovery_required"
+	// LoginRestored: the account is back and this answer signed nobody in. A
+	// device-key enrollment finishes itself; any other client signs in again.
+	LoginRestored LoginOutcomeKind = "account_restored"
+)
 
 // PasswordLoginInput is a password login attempt. Identifier is an email
 // (contains "@"), an E.164 phone ("+…") or a username.

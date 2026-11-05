@@ -17,6 +17,14 @@ func (e *DeviceKeySecondFactorRequired) Error() string {
 	return "device key enrollment requires a second factor"
 }
 
+// DeviceKeyRecoveryRequired stops an enrollment on a self-deleted account,
+// with no key enrolled. Once confirmed, the same finish succeeds.
+type DeviceKeyRecoveryRequired struct{ Confirmation AccountRecoveryConfirmation }
+
+func (e *DeviceKeyRecoveryRequired) Error() string {
+	return "device key enrollment requires account recovery"
+}
+
 // DeviceKey is the public projection of one native-client credential.
 type DeviceKeyChallenge struct {
 	ID        string
