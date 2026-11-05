@@ -537,11 +537,11 @@ export const ja: AuthUiMessageBundle = {
     delete: {
       title: "アカウントを削除",
       dangerZone: "危険な操作",
-      description: "アカウントの削除は取り消せません。よくご検討ください。",
+      description: "30日以内にログインすればアカウントを復元できます。その後は完全に削除されます。",
       warningAccess:
         "アカウントを削除すると、アカウントおよび購入したすべてのサブスクリプションにアクセスできなくなります。",
       warningPermanent:
-        "削除したアカウントは復元できませんのでご注意ください。",
+        "30日を過ぎると、アカウントは復元できません。",
       confirmHint: "確認のため、下の欄に {word} と入力してください。",
       confirmLabel: "確認",
       confirmWord: "DELETE",
@@ -607,7 +607,7 @@ export const ja: AuthUiMessageBundle = {
   recovery: {
     title: "アカウントを復元しますか？",
     description:
-      "このアカウントは削除されました。{date}まで復元できます。それ以降は完全に削除されます。",
+      "このアカウントは削除されましたが、まだ復元できます。{when}（{date}）に完全に削除されます。",
     confirm: "アカウントを復元",
   },
   callback: {

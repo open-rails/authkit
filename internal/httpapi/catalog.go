@@ -173,7 +173,7 @@ func Catalog() []RouteSpec {
 		{Method: POST, Path: "/device-verification/confirm", Group: auth, Auth: public, Bucket: RLStepUpCode, MountedWhen: FeatureNewDevices,
 			Request: DeviceVerificationConfirmRequest{}, Responses: signedIn, serve: handle((*Service).handleDeviceVerificationConfirmPOST)},
 		{Method: POST, Path: "/account/recovery/confirm", Group: auth, Auth: public, Bucket: RLPasswordLogin,
-			Request: TokenRequest{}, Responses: replyNoContent, serve: handle((*Service).handleAccountRecoveryConfirmPOST)},
+			Request: TokenRequest{}, Responses: []Reply{{http.StatusOK, AuthResult{}}, {http.StatusNoContent, nil}}, serve: handle((*Service).handleAccountRecoveryConfirmPOST)},
 		{Method: POST, Path: "/passwordless/start", Group: auth, Auth: public, Bucket: RLPasswordlessStart, MountedWhen: FeaturePasswordless,
 			Request: PasswordlessStartRequest{}, Responses: replyAccepted, serve: handle((*Service).handlePasswordlessStartPOST)},
 		{Method: POST, Path: "/passwordless/confirm", Group: auth, Auth: public, Bucket: RLPasswordlessConfirm, MountedWhen: FeaturePasswordless,

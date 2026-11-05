@@ -86,10 +86,6 @@ export function useLogin(options: LoginOptions = {}) {
   const passkeys = !!capabilities?.passkeys.login
   const { busy, error, run, clearError } = useTask()
   const [state, setState] = useState<LoginState>({ step: "credentials" })
-  // Kept so account recovery can sign straight back in.
-  const credentials = useRef<{ identifier: string; password: string } | null>(
-    null
-  )
   // Backup codes a forced enrollment issued, shown once signed in.
   const pendingCodes = useRef<string[]>([])
   // A code sign-up offers a passkey once it is signed in.
@@ -101,7 +97,6 @@ export function useLogin(options: LoginOptions = {}) {
 
   const finish = useCallback((returnTo?: string) => {
     const codes = pendingCodes.current
-    credentials.current = null
     pendingCodes.current = []
     if (codes.length) {
       setState({ step: "backup_codes", codes, returnTo })
@@ -174,7 +169,6 @@ export function useLogin(options: LoginOptions = {}) {
   const signIn = useCallback(
     (input: { identifier: string; password: string }) =>
       run(async () => {
-        credentials.current = input
         pendingCodes.current = []
         apply(await client.signInWithPassword(input))
       }),
@@ -189,7 +183,6 @@ export function useLogin(options: LoginOptions = {}) {
       opts: { returnTo?: string; inviteCode?: string } = {}
     ) =>
       run(async () => {
-        credentials.current = null
         pendingCodes.current = []
         let refused: AuthKitError | undefined
         try {
@@ -295,6 +288,15 @@ export function useLogin(options: LoginOptions = {}) {
     [client, run, state]
   )
 
+  // Spends an emailed sign-in link's token; every later step follows.
+  const confirmLink = useCallback(
+    (token: string) =>
+      run(async () => {
+        apply(await client.confirmPasswordless({ token }))
+      }),
+    [client, run, apply]
+  )
+
   // Adds a passkey after a code sign-up; closing the prompt keeps the offer.
   const addPasskey = useCallback(
     () =>
@@ -329,7 +331,6 @@ export function useLogin(options: LoginOptions = {}) {
         void run(() => Promise.reject(toAuthKitError(err)))
         return
       }
-      credentials.current = null
       pendingCodes.current = []
       apply(result)
     },
@@ -341,7 +342,6 @@ export function useLogin(options: LoginOptions = {}) {
   const signInWithPasskey = useCallback(
     () =>
       run(async () => {
-        credentials.current = null
         pendingCodes.current = []
         let result: SignInResult
         try {
@@ -361,7 +361,6 @@ export function useLogin(options: LoginOptions = {}) {
   const signInWithPopup = useCallback(
     (provider: string, opts: { returnTo?: string; inviteCode?: string } = {}) =>
       run(async () => {
-        credentials.current = null
         pendingCodes.current = []
         const out = await client.signInWithPopup(provider, opts)
         if (out.ok) return apply(out.result)
@@ -520,15 +519,14 @@ export function useLogin(options: LoginOptions = {}) {
     [client, run, apply, state]
   )
 
-  // Restores a soft-deleted account, then signs in again if we can.
+  // Restores a soft-deleted account; the answer is the sign-in going on.
   const confirmRecovery = useCallback(
     () =>
       run(async () => {
         if (state.step !== "recovery") return
-        await client.confirmAccountRecovery(state.recovery.token)
-        const again = credentials.current
-        if (!again) return setState({ step: "credentials", recovered: true })
-        apply(await client.signInWithPassword(again))
+        const result = await client.confirmAccountRecovery(state.recovery.token)
+        if (!result) return setState({ step: "credentials", recovered: true })
+        apply(result)
       }),
     [client, run, apply, state]
   )
@@ -564,7 +562,6 @@ export function useLogin(options: LoginOptions = {}) {
   }, [state])
 
   const reset = useCallback(() => {
-    credentials.current = null
     pendingCodes.current = []
     offerPasskey.current = false
     clearError()
@@ -582,6 +579,7 @@ export function useLogin(options: LoginOptions = {}) {
     sendCode,
     resendCode,
     confirmCode,
+    confirmLink,
     acceptSignUp,
     acceptAgreements,
     declineAgreements,

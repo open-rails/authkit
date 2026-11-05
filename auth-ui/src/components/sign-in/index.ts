@@ -20,6 +20,10 @@ export {
   type NewDeviceVerificationProps,
 } from "./NewDeviceVerification.tsx"
 export { OAuthAuthorize, type OAuthAuthorizeProps } from "./OAuthAuthorize.tsx"
+export {
+  PasswordlessLink,
+  type PasswordlessLinkProps,
+} from "./PasswordlessLink.tsx"
 export { RegisterForm, type RegisterFormProps } from "./RegisterForm.tsx"
 export {
   ResetPasswordForm,

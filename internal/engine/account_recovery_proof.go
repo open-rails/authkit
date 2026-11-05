@@ -3,6 +3,8 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -15,13 +17,12 @@ import (
 	"github.com/open-rails/authkit/internal/secret"
 )
 
+// accountRecoveryProof holds a finished first factor, and any second, until
+// the person chooses. It is no session: only ConfirmAccountRecovery reads it.
 type accountRecoveryProof struct {
-	AuthMethods []string  `json:"auth_methods"`
-	UserID      string    `json:"user_id"`
-	Generation  string    `json:"generation"`
-	Issuer      string    `json:"issuer"`
-	Version     int64     `json:"version"`
-	ExpiresAt   time.Time `json:"expires_at"`
+	Login     loginProof `json:"login"`
+	Issuer    string     `json:"issuer"`
+	ExpiresAt time.Time  `json:"expires_at"`
 }
 
 func (s *Engine) ensureLoginProofAccess(ctx context.Context, user *db.User) error {
@@ -44,6 +45,7 @@ func (s *Engine) bindRecoveryGeneration(ctx context.Context, tx pgx.Tx, user *db
 	}
 	deletion, err := s.qtx(tx).AccountDeletionRecoverable(ctx, db.AccountDeletionRecoverableParams{UserID: user.ID, DeletedAt: *user.DeletedAt})
 	if errors.Is(err, pgx.ErrNoRows) {
+		s.sweepDeletionsNow(ctx)
 		return errmodel.E(errmodel.CodeAccountRecoveryExpired)
 	}
 	if err != nil {
@@ -61,6 +63,22 @@ func (s *Engine) bindRecoveryGeneration(ctx context.Context, tx pgx.Tx, user *db
 	return nil
 }
 
+// sweepDeletionsNow queues today's sweep early, so someone past their date
+// signs up fresh on their next try rather than up to a day later. Its own
+// transaction: the caller's rolls back, and the sweep needs its account lock.
+func (s *Engine) sweepDeletionsNow(ctx context.Context) {
+	tx, err := s.pg.Begin(ctx)
+	if err == nil {
+		defer tx.Rollback(ctx)
+		if err = s.scheduleAccountCleanupTx(ctx, tx, []string{s.cfg.Token.Issuer}); err == nil {
+			err = tx.Commit(ctx)
+		}
+	}
+	if err != nil {
+		slog.WarnContext(ctx, "authkit: account sweep stays on its daily schedule", "error", err)
+	}
+}
+
 func (s *Engine) finishRecoveryProof(ctx context.Context, tx pgx.Tx, proof loginProof) (authflow.LoginOutcome, error) {
 	window, err := s.qtx(tx).AccountDeletionPurgeWindow(ctx, db.AccountDeletionPurgeWindowParams{ID: proof.DeletionID, UserID: proof.Input.UserID})
 	if err != nil {
@@ -72,7 +90,7 @@ func (s *Engine) finishRecoveryProof(ctx context.Context, tx pgx.Tx, proof login
 		expires = purgeAt
 	}
 	token := secret.Token(32)
-	record := accountRecoveryProof{UserID: proof.Input.UserID, Generation: proof.DeletionID, Issuer: s.cfg.Token.Issuer, Version: proof.Version, ExpiresAt: expires, AuthMethods: proof.Input.AuthMethods}
+	record := accountRecoveryProof{Login: proof, Issuer: s.cfg.Token.Issuer, ExpiresAt: expires}
 	if err := s.ephemSetJSON(ctx, "account-recovery:"+secret.Hash(token), record, expires.Sub(now)); err != nil {
 		return authflow.LoginOutcome{}, err
 	}
@@ -86,56 +104,142 @@ func (s *Engine) finishRecoveryProof(ctx context.Context, tx pgx.Tx, proof login
 	return authflow.LoginOutcome{TenantID: tenant, Kind: authflow.LoginRecoveryRequired, UserID: proof.Input.UserID, ReturnTo: proof.ReturnTo, Recovery: &authflow.AccountRecoveryConfirmation{Token: token, ExpiresAt: expires, PurgeAt: purgeAt}}, nil
 }
 
-func (s *Engine) ConfirmAccountRecovery(ctx context.Context, token string) error {
+// ConfirmAccountRecovery restores the account, then continues the sign-in the
+// proof holds, which passes the sign-in limits a recovery skipped. The restore
+// commits first: a sign-in that then fails leaves the account back, and the
+// person signs in as usual.
+func (s *Engine) ConfirmAccountRecovery(ctx context.Context, token string) (authflow.LoginOutcome, error) {
 	if len(token) < 32 || len(token) > 256 || strings.TrimSpace(token) != token {
-		return jwt.ErrTokenUnverifiable
+		return authflow.LoginOutcome{}, jwt.ErrTokenUnverifiable
 	}
 	var routeErr error
 	ctx, routeErr = s.proofContext(ctx, "account-recovery", secret.Hash(token))
 	if routeErr != nil {
-		return routeErr
+		return authflow.LoginOutcome{}, routeErr
 	}
 	key := "account-recovery:" + secret.Hash(token)
-	var proof accountRecoveryProof
-	raw, ok, err := s.ephemReadJSON(ctx, key, &proof)
+	var record accountRecoveryProof
+	raw, ok, err := s.ephemReadJSON(ctx, key, &record)
+	if err != nil {
+		return authflow.LoginOutcome{}, err
+	}
+	proof := record.Login
+	if !ok || record.Issuer != s.cfg.Token.Issuer || proof.DeletionID == "" || proof.Input.UserID == "" || proof.Version <= 0 {
+		return authflow.LoginOutcome{}, jwt.ErrTokenUnverifiable
+	}
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return authflow.LoginOutcome{}, err
+	}
+	defer tx.Rollback(ctx)
+	q := s.qtx(tx)
+	user, err := s.lockAuthenticationAccount(ctx, q, proof.Input.UserID, proof.Version, true)
+	if err != nil {
+		return authflow.LoginOutcome{}, err
+	}
+	if user.DeletedAt == nil {
+		return authflow.LoginOutcome{}, jwt.ErrTokenUnverifiable
+	}
+	settings, settingsErr := s.get2FASettings(ctx, q, user.ID)
+	status, err := s.mfaStatusWith(settings, settingsErr)
+	if err != nil {
+		return authflow.LoginOutcome{}, err
+	}
+	if err := s.requireSessionMFAStateOn(ctx, tx, user.ID, proof.Input.AuthMethods, status, nil); err != nil {
+		return authflow.LoginOutcome{}, err
+	}
+	now, err := q.StatementTimestamp(ctx)
+	if err != nil {
+		return authflow.LoginOutcome{}, err
+	}
+	if !now.Before(record.ExpiresAt) {
+		return authflow.LoginOutcome{}, jwt.ErrTokenUnverifiable
+	}
+	if err := s.claimProof(ctx, key, raw); err != nil {
+		return authflow.LoginOutcome{}, err
+	}
+	if err := s.restoreAccountDeletionOn(ctx, tx, iam.UserIdentity(user.ID), user.ID, proof.DeletionID); err != nil {
+		return authflow.LoginOutcome{}, err
+	}
+	// The restore moved the credential version, as the deletion did.
+	current, err := q.UserCredentialVersion(ctx, user.ID)
+	if err != nil {
+		return authflow.LoginOutcome{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return authflow.LoginOutcome{}, err
+	}
+	restored := authflow.LoginOutcome{Kind: authflow.LoginRestored, UserID: user.ID}
+	if proof.DeviceKey {
+		return restored, nil
+	}
+	proof.DeletionID, proof.Version = "", current.CredentialVersion
+	out, err := s.finishFirstFactor(ctx, proof)
+	if err != nil {
+		slog.WarnContext(ctx, "authkit: restored account's sign-in did not finish", "user_id", user.ID, "error", err)
+		return restored, nil
+	}
+	return out, nil
+}
+
+// restoreGate parks a password sign-in to a self-deleted account at a code to
+// its contact, so a password alone never reaches the restore step. The code's
+// confirmation does, as a code sign-in would. Anything else about the deletion
+// is finishFirstFactor's to answer.
+func (s *Engine) restoreGate(ctx context.Context, in authflow.PasswordLoginInput, u *db.User) (authflow.LoginOutcome, bool, error) {
+	if u.DeletedAt == nil {
+		return authflow.LoginOutcome{}, false, nil
+	}
+	deletion, err := s.q.AccountDeletionRecoverable(ctx, db.AccountDeletionRecoverableParams{UserID: u.ID, DeletedAt: *u.DeletedAt})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return authflow.LoginOutcome{}, false, nil
+	}
+	if err != nil {
+		return authflow.LoginOutcome{}, true, err
+	}
+	if !selfDeleted(deletion) {
+		return authflow.LoginOutcome{}, false, nil
+	}
+	s.loginFailed(ctx, in, u.ID, "account_deleted")
+	if u.Email != nil && s.EmailAvailable() {
+		if err := s.sendEmailVerificationCode(ctx, u, defaultEmailVerificationTTL); err != nil {
+			return authflow.LoginOutcome{}, true, stageErr("send_email_verification", fmt.Errorf("%w: %w", errmodel.ErrEmailVerificationSendFailed, err))
+		}
+		return s.verificationRequired(ctx, u.ID, *u.Email, "email", defaultEmailVerificationTTL)
+	}
+	if u.PhoneNumber != nil && s.SMSAvailable() {
+		if err := s.sendPhoneVerificationToUser(ctx, *u.PhoneNumber, u.ID, 0); err != nil {
+			return authflow.LoginOutcome{}, true, stageErr("send_phone_verification", fmt.Errorf("%w: %w", errmodel.ErrPhoneVerificationSendFailed, err))
+		}
+		return s.verificationRequired(ctx, u.ID, *u.PhoneNumber, "phone", defaultPhoneVerificationTTL)
+	}
+	return authflow.LoginOutcome{}, true, errmodel.ErrVerificationUnavailable
+}
+
+// deviceKeyRecovery stops a device-key enrollment on a deleted account at the
+// same proof a sign-in reaches, with no key enrolled and the ceremony live.
+func (s *Engine) deviceKeyRecovery(ctx context.Context, user *db.User, methods []string) error {
+	version, err := s.q.UserCredentialVersion(ctx, user.ID)
 	if err != nil {
 		return err
-	}
-	if !ok || proof.Issuer != s.cfg.Token.Issuer || proof.Generation == "" || proof.UserID == "" || proof.Version <= 0 {
-		return jwt.ErrTokenUnverifiable
 	}
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	user, err := s.lockAuthenticationAccount(ctx, s.qtx(tx), proof.UserID, proof.Version, true)
+	account, err := s.lockAuthenticationAccount(ctx, s.qtx(tx), user.ID, version.CredentialVersion, true)
 	if err != nil {
 		return err
 	}
-	if user.DeletedAt == nil {
-		return jwt.ErrTokenUnverifiable
+	proof := loginProof{Version: version.CredentialVersion, AuthenticatedAt: time.Now().UTC(), DeviceKey: true,
+		Input: loginSessionInput{UserID: user.ID, AuthMethods: methods, Event: "device_key_enrollment"}}
+	if err := s.bindRecoveryGeneration(ctx, tx, account, &proof); err != nil {
+		return err
 	}
-	settings, settingsErr := s.get2FASettings(ctx, s.qtx(tx), user.ID)
-	status, err := s.mfaStatusWith(settings, settingsErr)
+	out, err := s.finishRecoveryProof(ctx, tx, proof)
 	if err != nil {
 		return err
 	}
-	if err := s.requireSessionMFAStateOn(ctx, tx, user.ID, proof.AuthMethods, status, nil); err != nil {
-		return err
-	}
-	now, err := s.qtx(tx).StatementTimestamp(ctx)
-	if err != nil {
-		return err
-	}
-	if !now.Before(proof.ExpiresAt) {
-		return jwt.ErrTokenUnverifiable
-	}
-	if err := s.claimProof(ctx, key, raw); err != nil {
-		return err
-	}
-	if err := s.restoreAccountDeletionOn(ctx, tx, iam.UserIdentity(proof.UserID), proof.UserID, proof.Generation); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+	return &authflow.DeviceKeyRecoveryRequired{Confirmation: *out.Recovery}
 }

@@ -540,11 +540,11 @@ export const en = {
       title: "Delete account",
       dangerZone: "Danger zone",
       description:
-        "Deleting your account is irreversible. Please think carefully.",
+        "You can restore your account for 30 days by signing in. After that it is deleted for good.",
       warningAccess:
         "If you delete your account, you will lose access to it and to any subscriptions you purchased.",
       warningPermanent:
-        "You will be unable to recover your account once it has been deleted.",
+        "After 30 days you will be unable to recover your account.",
       confirmHint: "To confirm, type {word} in the field below.",
       confirmLabel: "Confirmation",
       confirmWord: "DELETE",
@@ -610,7 +610,7 @@ export const en = {
   recovery: {
     title: "Restore your account?",
     description:
-      "This account was deleted. You can restore it until {date}; after that it is removed for good.",
+      "This account was deleted and can still be restored. It will be deleted for good {when}, on {date}.",
     confirm: "Restore account",
   },
   callback: {

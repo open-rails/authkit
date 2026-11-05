@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The restore step says when an account goes for good, as "in 19 days, on Nov 24" in the page's language, and Restore signs the person in whichever way they signed in. `confirmAccountRecovery` now answers a `SignInResult`, or `null` when the account is back but the person must sign in again. `useLogin` no longer keeps the password.
+- `PasswordlessLink` lands AuthKit's emailed sign-in link (`Frontend.PasswordlessPath`) and finishes every later step in place, restoring a deleted account or a second factor included. `useLogin` gains `confirmLink`.
+- The delete panel no longer calls deletion irreversible: it states the 30 days to restore.
+
 - Native `createAuthClient` accepts `sessionKeyName` for independent DPoP keys when several account directories share one API URL. Use a distinct `sessionHint.key` too; the default storage names remain unchanged.
 
 - Admin dates and language names follow the admin root's `language` instead of the browser locale, and entitlements read as titles ("Premium"), the way roles do.

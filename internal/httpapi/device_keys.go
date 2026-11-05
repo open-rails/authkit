@@ -65,7 +65,12 @@ func (s *Service) handleDeviceKeyEnrollFinishPOST(w http.ResponseWriter, r *http
 	result, err := s.svc.FinishDeviceKeyEnrollment(r.Context(), req.EnrollmentID, req.Code, req.Signature, req.SecondFactor)
 	if err != nil {
 		var secondFactor *authflow.DeviceKeySecondFactorRequired
+		var recovery *authflow.DeviceKeyRecoveryRequired
 		switch {
+		case errors.As(err, &recovery):
+			// Nothing enrolled, and the ceremony stays live: once the token is
+			// confirmed, the same finish succeeds.
+			fail(w, errmodel.CodeAccountRecoveryRequired, errmodel.WithDetails(recovery.Confirmation))
 		case errors.As(err, &secondFactor):
 			// Email code and key proof are valid; the ceremony stays live for a
 			// retry that carries the second factor in code_2fa.

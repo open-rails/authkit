@@ -258,7 +258,7 @@ Mounting gives your users the routes below under `/api/v1`, plus the public keys
 | `POST /api/v1/2fa/challenge` | send the second-factor code to another of your factors |
 | `POST /api/v1/2fa/verify` | finish signing in with it |
 | `POST /api/v1/device-verification/confirm`, `/send` | finish signing in on a new device with the code sent to the account's owner, or send it again |
-| `POST /api/v1/account/recovery/confirm` | undo deleting your own account, within 30 days |
+| `POST /api/v1/account/recovery/confirm` | undo deleting your own account, within 30 days, and go on signing in |
 | `POST /api/v1/invitations/redeem` | accept an invitation |
 
 Sign-ins are limited per device over 24 hours (`Config.SignIn`): 5 accounts per browser (20 per address for a client without AuthKit's device cookie), and 10 new devices per account. Signing back into a counted account, or from a device the account used in the last 30 days, is never limited. Past the device limit, a new device enters a code sent to the owner's email or phone, which a posted password doesn't get you.

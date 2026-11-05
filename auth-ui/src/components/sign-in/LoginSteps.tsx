@@ -7,6 +7,7 @@ import { useState } from "react"
 
 import { useMessages } from "#authui/i18n/context"
 import { Button } from "#authui/ui/button"
+import { pageLocale } from "../account/lib.ts"
 import { BackupCodes } from "./BackupCodes.tsx"
 import { useCooldown } from "./cooldown.ts"
 import type { LoginController } from "./labels.ts"
@@ -22,20 +23,42 @@ import {
 import { TwoFactorChallenge } from "./TwoFactorChallenge.tsx"
 import { TwoFactorEnrollment } from "./TwoFactorEnrollment.tsx"
 
+const DAY_MS = 86_400_000
+const startOfDay = (d: Date) =>
+  new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+
+// When an account goes for good: "in 19 days" and "Nov 24". Calendar days, so
+// the count and the date agree.
+function purgeTime(purgeAt: string) {
+  const date = new Date(purgeAt)
+  if (Number.isNaN(date.getTime())) return { when: "", date: purgeAt }
+  const days = Math.round((startOfDay(date) - startOfDay(new Date())) / DAY_MS)
+  const locale = pageLocale()
+  return {
+    when: new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(
+      Math.max(0, days),
+      "day"
+    ),
+    date: new Intl.DateTimeFormat(locale, {
+      month: "short",
+      day: "numeric",
+    }).format(date),
+  }
+}
+
 function AccountRecovery({ controller }: { controller: LoginController }) {
   const { t, error: describe } = useMessages()
   const { state, busy, error } = controller
   if (state.step !== "recovery") return null
-  const date = new Date(state.recovery.purge_at)
-  const until = Number.isNaN(date.getTime())
-    ? state.recovery.purge_at
-    : new Intl.DateTimeFormat(undefined, { dateStyle: "long" }).format(date)
   return (
     <div className="flex flex-col gap-5">
       <StepHeader
         icon={UserCheck01Icon}
         title={t("recovery.title")}
-        description={t("recovery.description", { date: until })}
+        description={t(
+          "recovery.description",
+          purgeTime(state.recovery.purge_at)
+        )}
       />
       {error && <FormAlert>{describe(error)}</FormAlert>}
       <Button

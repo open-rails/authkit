@@ -373,6 +373,16 @@
           }
         },
         "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResult"
+                }
+              }
+            }
+          },
           "204": {
             "description": "No Content"
           },
@@ -14464,7 +14474,10 @@
     },
     "account_recovery_required": {
       "status": 409,
-      "message": "Confirm account recovery before signing in."
+      "message": "Confirm account recovery before signing in.",
+      "metadata": {
+        "$ref": "#/components/schemas/AccountRecoveryConfirmation"
+      }
     },
     "address_mismatch": {
       "status": 400,

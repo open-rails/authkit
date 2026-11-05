@@ -1841,12 +1841,19 @@ export function createAuthClient(options: AuthClientOptions = {}) {
         { body: { error }, bearer: null }
       ),
 
-    // Restores a soft-deleted account; the user then signs in normally.
-    confirmAccountRecovery: (token: string) =>
-      request<void>("POST", "/account/recovery/confirm", {
-        body: { token },
-        bearer: null,
-      }),
+    // Restores a soft-deleted account and goes on with the sign-in that
+    // reached it. Null: it is back, and the user signs in again.
+    confirmAccountRecovery: async (
+      token: string
+    ): Promise<SignInResult | null> => {
+      const gen = generation
+      const { status, body } = await exchange(
+        "POST",
+        "/account/recovery/confirm",
+        { body: { token }, bearer: null }
+      )
+      return status === 204 ? null : signedIn(body, gen)
+    },
 
     startPasswordless: (input: {
       identifier: string

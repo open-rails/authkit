@@ -180,20 +180,28 @@ test("AK-UI-12: TS contract: reset, password change, contact proof, passwordless
   ).toEqual([])
 
   await page.evaluate(() => window.ak.client.deleteAccount())
-  const recovery = await login(page, {
+  const beforeRecovery = (await deliveries(request, who.email)).length
+  const parked = await login(page, {
     email: who.email,
     password: changedPassword,
   })
-  expect(recovery.status).toBe("account_recovery_required")
-  if (recovery.status !== "account_recovery_required")
+  expect(parked.status).toBe("verification_required")
+  const recovery = await page.evaluate(
+    ({ identifier, code }) =>
+      window.ak.client.confirmVerification({ identifier, code }),
+    {
+      identifier: who.email,
+      code: await nextCode(request, who.email, beforeRecovery),
+    }
+  )
+  expect(recovery?.status).toBe("account_recovery_required")
+  if (recovery?.status !== "account_recovery_required")
     throw new Error("missing real recovery proof")
-  await page.evaluate(
+  const restored = await page.evaluate(
     (token) => window.ak.client.confirmAccountRecovery(token),
     recovery.recovery.token
   )
-  expect(
-    (await login(page, { email: who.email, password: changedPassword })).status
-  ).toBe("complete")
+  expect(restored?.status).toBe("complete")
   await expect(page.getByTestId("session-user")).toHaveText(who.id)
   await page.evaluate(() => window.ak.client.signOut())
 })

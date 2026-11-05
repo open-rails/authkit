@@ -503,9 +503,9 @@ export const zh: AuthUiMessageBundle = {
     delete: {
       title: "删除账户",
       dangerZone: "危险区域",
-      description: "删除账户后无法恢复，请慎重考虑。",
+      description: "30 天内登录即可恢复账户，之后将被永久删除。",
       warningAccess: "删除账户后，你将无法访问该账户及你购买的任何订阅。",
-      warningPermanent: "请记住，一旦删除帐户，您将无法恢复它。",
+      warningPermanent: "30 天后将无法恢复账户。",
       confirmHint: "如需确认，请在下方输入框中输入 {word}。",
       confirmLabel: "确认",
       confirmWord: "DELETE",
@@ -566,7 +566,7 @@ export const zh: AuthUiMessageBundle = {
   },
   recovery: {
     title: "恢复您的账户？",
-    description: "此账户已被删除。您可以在 {date} 之前恢复，之后将被永久删除。",
+    description: "此账户已被删除，但仍可恢复。将于{when}（{date}）永久删除。",
     confirm: "恢复账户",
   },
   callback: {

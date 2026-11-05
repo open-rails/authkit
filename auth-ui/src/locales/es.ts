@@ -554,11 +554,11 @@ export const es: AuthUiMessageBundle = {
     delete: {
       title: "Eliminar cuenta",
       dangerZone: "Zona de peligro",
-      description: "Eliminar tu cuenta es irreversible. Piénsalo bien.",
+      description: "Puedes restaurar tu cuenta durante 30 días iniciando sesión. Después se eliminará definitivamente.",
       warningAccess:
         "Si eliminas tu cuenta, perderás el acceso a ella y a cualquier suscripción que hayas comprado.",
       warningPermanent:
-        "Ten en cuenta que no podrás recuperar tu cuenta una vez eliminada.",
+        "Después de 30 días no podrás recuperar tu cuenta.",
       confirmHint: "Para confirmar, escribe {word} en el campo de abajo.",
       confirmLabel: "Confirmación",
       confirmWord: "ELIMINAR",
@@ -628,7 +628,7 @@ export const es: AuthUiMessageBundle = {
   recovery: {
     title: "¿Restaurar tu cuenta?",
     description:
-      "Esta cuenta fue eliminada. Puedes restaurarla hasta el {date}; después se eliminará definitivamente.",
+      "Esta cuenta fue eliminada y aún puede restaurarse. Se eliminará definitivamente {when}, el {date}.",
     confirm: "Restaurar cuenta",
   },
   callback: {
