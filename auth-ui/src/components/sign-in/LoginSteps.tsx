@@ -63,7 +63,7 @@ function VerificationRequired({ controller }: { controller: LoginController }) {
   const { state, busy, error } = controller
   const [code, setCode] = useState("")
   const [sent, setSent] = useState(false)
-  const cooldown = useCooldown(30)
+  const cooldown = useCooldown(30, false, error)
   if (state.step !== "verification") return null
   const { identifier, channel } = state.verification
   const verify = (value = code) => {

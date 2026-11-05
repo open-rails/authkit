@@ -406,7 +406,7 @@ function VerifyRegistration({ register }: { register: RegisterController }) {
   const [code, setCode] = useState("")
   const [resent, setResent] = useState(false)
   const [abandoning, setAbandoning] = useState(false)
-  const cooldown = useCooldown(30, true)
+  const cooldown = useCooldown(30, true, error)
   if (state.step !== "verify") return null
   const verify = (value = code) => {
     if (!value.trim() || busy) return

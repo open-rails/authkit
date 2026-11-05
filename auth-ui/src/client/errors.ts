@@ -17,6 +17,9 @@ export class AuthKitError extends Error {
   // {} when the code carries none; errorMetadata() reads it typed.
   readonly metadata: Record<string, unknown>
 
+  // Epoch ms: when it was refused, which a stated wait counts from.
+  readonly at = Date.now()
+
   constructor(status: number, body: AuthKitErrorBody) {
     super(body.message)
     this.name = "AuthKitError"
@@ -31,6 +34,14 @@ export class AuthKitError extends Error {
     const v = this.metadata.retry_after_seconds
     return typeof v === "number" ? v : undefined
   }
+}
+
+// What a rate limit's refusal says to wait, in seconds; undefined for any
+// other outcome.
+export function statedWait(error: unknown): number | undefined {
+  return error instanceof AuthKitError && error.code === "rate_limited"
+    ? error.retryAfterSeconds
+    : undefined
 }
 
 export async function readAuthKitError(res: Response): Promise<AuthKitError> {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
 import type { SignInResult } from "../client/authResult.ts"
-import { AuthKitError, errorMetadata } from "../client/errors.ts"
+import { AuthKitError, errorMetadata, statedWait } from "../client/errors.ts"
 import { passkeyDismissed, webAuthnAvailable } from "../client/webauthn.ts"
 import type {
   AccountRecoveryConfirmation,
@@ -45,7 +45,14 @@ export type LoginState =
       returnTo?: string
     }
   // A code went to identifier, an email or phone (contact-first sign-in).
-  | { step: "code"; identifier: string; returnTo?: string }
+  // refused: asking was too soon. The code already out still works, and this
+  // says when another can be sent.
+  | {
+      step: "code"
+      identifier: string
+      returnTo?: string
+      refused?: AuthKitError
+    }
   // The code proved a new contact: the sign-up accepts these first.
   | {
       step: "signup_agreements"
@@ -184,26 +191,39 @@ export function useLogin(options: LoginOptions = {}) {
       run(async () => {
         credentials.current = null
         pendingCodes.current = []
-        await client.startPasswordless({
-          identifier,
-          mode: "code",
-          returnTo: opts.returnTo,
-          inviteCode: opts.inviteCode,
-        })
-        setState({ step: "code", identifier, returnTo: opts.returnTo })
+        let refused: AuthKitError | undefined
+        try {
+          await client.startPasswordless({
+            identifier,
+            mode: "code",
+            returnTo: opts.returnTo,
+            inviteCode: opts.inviteCode,
+          })
+        } catch (err) {
+          if (statedWait(err) === undefined) throw err
+          refused = err as AuthKitError
+        }
+        setState({ step: "code", identifier, returnTo: opts.returnTo, refused })
       }),
     [client, run]
   )
 
+  // True once another code is on its way.
   const resendCode = useCallback(
     () =>
       run(async () => {
-        if (state.step !== "code") return
+        if (state.step !== "code") return false
         await client.startPasswordless({
           identifier: state.identifier,
           mode: "code",
           returnTo: state.returnTo,
         })
+        setState({
+          step: "code",
+          identifier: state.identifier,
+          returnTo: state.returnTo,
+        })
+        return true
       }),
     [client, run, state]
   )

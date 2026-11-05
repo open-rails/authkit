@@ -131,6 +131,7 @@ export const en = {
     description: "Enter your email or phone number. We'll send you a code.",
     codeTitle: "Enter your code",
     codeSentTo: "We sent a 6-digit code to {destination}.",
+    codeWait: "Check your email. You can ask for another code in {seconds} s.",
     useDifferent: "Use a different email or phone",
   },
   agreements: {
