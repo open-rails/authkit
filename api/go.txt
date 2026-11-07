@@ -76,6 +76,7 @@ pkg authkit, method (*Client) GroupRole(context.Context, iam.GroupRef, iam.Role)
 pkg authkit, method (*Client) GroupRoles(context.Context, iam.GroupRef, []iam.Subject) (map[iam.Subject]iam.Role, error)
 pkg authkit, method (*Client) Groups(context.Context, []string) (map[string]iam.Group, error)
 pkg authkit, method (*Client) Handler() http.Handler
+pkg authkit, method (*Client) ImportSessionEvents(context.Context, []iam.ImportSessionEvent, ...Option) (iam.ImportSessionEventsResult, error)
 pkg authkit, method (*Client) ImportSolanaLinks(context.Context, []iam.ImportSolanaLink, ...Option) (iam.ImportSolanaLinksResult, error)
 pkg authkit, method (*Client) ImportUsers(context.Context, []iam.ImportUser, iam.ImportOptions, ...Option) (iam.ImportResult, error)
 pkg authkit, method (*Client) KnownPermission(iam.Perm) bool
@@ -1050,10 +1051,17 @@ pkg authkit/iam, const RouteRegistration RouteGroup = "registration"
 pkg authkit/iam, const RouteSCIM RouteGroup = "scim"
 pkg authkit/iam, const SessionEventAccountSessionsRevoked SessionEventKind = "account_sessions_revoked"
 pkg authkit/iam, const SessionEventCreated SessionEventKind = "session_created"
+pkg authkit/iam, const SessionEventDeletedAccount ImportSessionEventReason = "deleted_account"
+pkg authkit/iam, const SessionEventDuplicate ImportSessionEventStatus = "duplicate"
 pkg authkit/iam, const SessionEventFailed SessionEventKind = "session_failed"
+pkg authkit/iam, const SessionEventImported ImportSessionEventStatus = "imported"
+pkg authkit/iam, const SessionEventInvalid ImportSessionEventReason = "invalid"
 pkg authkit/iam, const SessionEventPasswordChange SessionEventKind = "password_changed"
 pkg authkit/iam, const SessionEventPasswordRecovery SessionEventKind = "password_recovery"
+pkg authkit/iam, const SessionEventRefused ImportSessionEventStatus = "refused"
 pkg authkit/iam, const SessionEventRevoked SessionEventKind = "session_revoked"
+pkg authkit/iam, const SessionEventTooOld ImportSessionEventReason = "too_old"
+pkg authkit/iam, const SessionEventUnknownAccount ImportSessionEventReason = "unknown_account"
 pkg authkit/iam, const SolanaDevnet SolanaNetwork = "devnet"
 pkg authkit/iam, const SolanaMainnet SolanaNetwork = "mainnet"
 pkg authkit/iam, const SolanaTestnet SolanaNetwork = "testnet"
@@ -1421,6 +1429,24 @@ pkg authkit/iam, type ImportRow struct, MatchedBy ImportMatch `json:"matched_by"
 pkg authkit/iam, type ImportRow struct, Reason ImportReason `json:"reason"`
 pkg authkit/iam, type ImportRow struct, Status ImportStatus `json:"status"`
 pkg authkit/iam, type ImportRow struct, UserID string `json:"user_id"`
+pkg authkit/iam, type ImportSessionEvent struct
+pkg authkit/iam, type ImportSessionEvent struct, ID string
+pkg authkit/iam, type ImportSessionEvent struct, IP string
+pkg authkit/iam, type ImportSessionEvent struct, Issuer string
+pkg authkit/iam, type ImportSessionEvent struct, Kind SessionEventKind
+pkg authkit/iam, type ImportSessionEvent struct, Method string
+pkg authkit/iam, type ImportSessionEvent struct, OccurredAt time.Time
+pkg authkit/iam, type ImportSessionEvent struct, Reason string
+pkg authkit/iam, type ImportSessionEvent struct, UserAgent string
+pkg authkit/iam, type ImportSessionEvent struct, UserID string
+pkg authkit/iam, type ImportSessionEventReason string
+pkg authkit/iam, type ImportSessionEventRow struct
+pkg authkit/iam, type ImportSessionEventRow struct, Index int `json:"index"`
+pkg authkit/iam, type ImportSessionEventRow struct, Reason ImportSessionEventReason `json:"reason"`
+pkg authkit/iam, type ImportSessionEventRow struct, Status ImportSessionEventStatus `json:"status"`
+pkg authkit/iam, type ImportSessionEventStatus string
+pkg authkit/iam, type ImportSessionEventsResult struct
+pkg authkit/iam, type ImportSessionEventsResult struct, Rows []ImportSessionEventRow `json:"rows"`
 pkg authkit/iam, type ImportSolanaLink struct
 pkg authkit/iam, type ImportSolanaLink struct, Address string
 pkg authkit/iam, type ImportSolanaLink struct, Source string

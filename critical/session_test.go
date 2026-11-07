@@ -5,15 +5,427 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/auth"
+	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/verify"
 )
+
+func TestCriticalSessionHistoryImport(t *testing.T) {
+	rdb := realRedis(t)
+	redisDep := authtest.WithDeps(func(d *authkit.Deps) { d.Redis = rdb })
+	f := newFixture(t, redisDep)
+	entry := func(userID, id string) iam.ImportSessionEvent {
+		return iam.ImportSessionEvent{UserID: userID, ID: id, Kind: iam.SessionEventCreated,
+			OccurredAt: time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond),
+			Method:     "legacy-logins", IP: "192.0.2.47", UserAgent: "legacy browser"}
+	}
+	wantRow := func(t *testing.T, result iam.ImportSessionEventsResult, index int, status iam.ImportSessionEventStatus, reason iam.ImportSessionEventReason) {
+		t.Helper()
+		if index >= len(result.Rows) || result.Rows[index] != (iam.ImportSessionEventRow{Index: index, Status: status, Reason: reason}) {
+			t.Fatalf("row %d: %+v, want %s/%s", index, result, status, reason)
+		}
+	}
+	t.Run("AK-J05-C07_imported_history_lists_with_native_without_account_or_session_changes", func(t *testing.T) {
+		u := f.user(t)
+		f.signIn(t, u)
+		before, err := f.auth.User(t.Context(), iam.UserByID(u.ID))
+		noError(t, err)
+		sessions, err := f.auth.Sessions(t.Context(), u.ID)
+		noError(t, err)
+		events, err := f.auth.ListEvents(t.Context(), iam.EventQuery{})
+		noError(t, err)
+		messages := f.out.Messages("", "")
+		native, err := f.auth.ListSessionEvents(t.Context(), u.ID, iam.SessionEventQuery{})
+		noError(t, err)
+		if len(native.Items) != 1 || native.Items[0].SessionID == nil {
+			t.Fatalf("native sign-in missing: %+v", native)
+		}
+		success := entry(u.ID, "legacy:1")
+		success.Issuer = "doujins.com"
+		failure := entry(u.ID, "legacy:2")
+		failure.Kind, failure.Method, failure.Reason, failure.IP = iam.SessionEventFailed, "", "legacy-logins:bad-password", "2001:db8::47"
+		failure.OccurredAt = success.OccurredAt.Add(-time.Minute)
+		rows := []iam.ImportSessionEvent{success, failure, success}
+		got, err := f.auth.ImportSessionEvents(t.Context(), rows)
+		noError(t, err)
+		wantRow(t, got, 0, iam.SessionEventImported, "")
+		wantRow(t, got, 1, iam.SessionEventImported, "")
+		wantRow(t, got, 2, iam.SessionEventDuplicate, "")
+		// An acknowledged retry and a retry with changed fields preserve the original.
+		rows[0].Issuer, rows[0].IP, rows[0].Kind = "hentai0.com", "192.0.2.99", iam.SessionEventFailed
+		got, err = f.auth.ImportSessionEvents(t.Context(), rows)
+		noError(t, err)
+		for i := range rows {
+			wantRow(t, got, i, iam.SessionEventDuplicate, "")
+		}
+		page, err := f.auth.ListSessionEvents(t.Context(), u.ID, iam.SessionEventQuery{Page: iam.PageRequest{Limit: 2}})
+		noError(t, err)
+		if len(page.Items) != 2 || page.Next == "" || !reflect.DeepEqual(page.Items[0], native.Items[0]) {
+			t.Fatalf("history page: %+v", page)
+		}
+		wantSuccess := iam.SessionEvent{Kind: success.Kind, OccurredAt: success.OccurredAt, Issuer: success.Issuer,
+			Method: &success.Method, IP: &success.IP, UserAgent: &success.UserAgent}
+		imported := page.Items[1]
+		imported.OccurredAt = imported.OccurredAt.UTC()
+		if !reflect.DeepEqual(imported, wantSuccess) {
+			t.Fatalf("import changed: %+v, want %+v", page.Items[1], wantSuccess)
+		}
+		next, err := f.auth.ListSessionEvents(t.Context(), u.ID, iam.SessionEventQuery{Page: iam.PageRequest{Cursor: page.Next}})
+		noError(t, err)
+		wantFailure := iam.SessionEvent{Kind: failure.Kind, OccurredAt: failure.OccurredAt, Issuer: f.cfg.Token.Issuer,
+			Reason: &failure.Reason, IP: &failure.IP, UserAgent: &failure.UserAgent}
+		if len(next.Items) != 1 || next.Next != "" {
+			t.Fatalf("failure page: %+v", next)
+		}
+		imported = next.Items[0]
+		imported.OccurredAt = imported.OccurredAt.UTC()
+		if !reflect.DeepEqual(imported, wantFailure) {
+			t.Fatalf("failure page: %+v, want %+v", next, wantFailure)
+		}
+		filtered, err := f.auth.ListSessionEvents(t.Context(), u.ID, iam.SessionEventQuery{Kinds: []iam.SessionEventKind{iam.SessionEventFailed}})
+		noError(t, err)
+		if !reflect.DeepEqual(filtered.Items, next.Items) {
+			t.Fatalf("kind filter = %+v", filtered)
+		}
+		after, err := f.auth.User(t.Context(), iam.UserByID(u.ID))
+		noError(t, err)
+		afterSessions, err := f.auth.Sessions(t.Context(), u.ID)
+		noError(t, err)
+		afterEvents, err := f.auth.ListEvents(t.Context(), iam.EventQuery{})
+		noError(t, err)
+		if !reflect.DeepEqual(before, after) || !reflect.DeepEqual(sessions, afterSessions) ||
+			!reflect.DeepEqual(events, afterEvents) || !reflect.DeepEqual(messages, f.out.Messages("", "")) {
+			t.Fatal("history import changed account, live sessions, events or sent messages")
+		}
+		// A stable key belongs to an account, not globally to the source.
+		other := f.user(t)
+		success.UserID = other.ID
+		got, err = f.auth.ImportSessionEvents(t.Context(), []iam.ImportSessionEvent{success})
+		noError(t, err)
+		wantRow(t, got, 0, iam.SessionEventImported, "")
+		untouched, err := f.auth.User(t.Context(), iam.UserByID(other.ID))
+		noError(t, err)
+		live, err := f.auth.Sessions(t.Context(), other.ID)
+		noError(t, err)
+		if untouched.LastLogin != nil || len(live) != 0 {
+			t.Fatal("import granted a never-signed-in account a session or last login")
+		}
+	})
+	t.Run("AK-J05-C08_history_refuses_invalid_unknown_deleted_and_foreign_entries_individually", func(t *testing.T) {
+		u, deleted := f.user(t), f.user(t)
+		deletedRows, err := f.auth.DeleteUsers(t.Context(), iam.SystemIdentity(), []string{deleted.ID})
+		noError(t, err)
+		if len(deletedRows) != 1 || deletedRows[0].Err != nil {
+			t.Fatalf("delete fixture: %+v", deletedRows)
+		}
+		otherTenant := iam.NewTenantID()
+		noError(t, f.auth.CreateTenant(t.Context(), iam.Tenant{ID: otherTenant, Slug: "history-other"}))
+		other, err := f.auth.ForTenant(t.Context(), otherTenant)
+		noError(t, err)
+		foreign, err := other.CreateUser(t.Context(), iam.NewUser{Username: "foreignhistory"})
+		noError(t, err)
+		rows := []iam.ImportSessionEvent{entry(iam.NewTenantID().String(), "absent"), entry(deleted.ID, "deleted"), entry(foreign.ID, "foreign"), entry(u.ID, "valid")}
+		got, err := f.auth.ImportSessionEvents(t.Context(), rows)
+		noError(t, err)
+		wantRow(t, got, 0, iam.SessionEventRefused, iam.SessionEventUnknownAccount)
+		wantRow(t, got, 1, iam.SessionEventRefused, iam.SessionEventDeletedAccount)
+		wantRow(t, got, 2, iam.SessionEventRefused, iam.SessionEventUnknownAccount)
+		wantRow(t, got, 3, iam.SessionEventImported, "")
+		page, err := other.ListSessionEvents(t.Context(), foreign.ID, iam.SessionEventQuery{})
+		noError(t, err)
+		if len(page.Items) != 0 {
+			t.Fatal("refused foreign entry was inserted")
+		}
+		mutations := []struct {
+			name string
+			edit func(*iam.ImportSessionEvent)
+		}{
+			{"account_id", func(e *iam.ImportSessionEvent) { e.UserID = "not-a-uuid" }},
+			{"missing_id", func(e *iam.ImportSessionEvent) { e.ID = " " }},
+			{"id_length", func(e *iam.ImportSessionEvent) { e.ID = strings.Repeat("x", 257) }},
+			{"kind", func(e *iam.ImportSessionEvent) { e.Kind = iam.SessionEventRevoked }},
+			{"missing_time", func(e *iam.ImportSessionEvent) { e.OccurredAt = time.Time{} }},
+			{"future_time", func(e *iam.ImportSessionEvent) { e.OccurredAt = time.Now().Add(time.Hour) }},
+			{"issuer_length", func(e *iam.ImportSessionEvent) { e.Issuer = strings.Repeat("x", 2049) }},
+			{"blank_issuer", func(e *iam.ImportSessionEvent) { e.Issuer = " " }},
+			{"missing_source", func(e *iam.ImportSessionEvent) { e.Method, e.Reason = "", " " }},
+			{"method_length", func(e *iam.ImportSessionEvent) { e.Method = strings.Repeat("x", 257) }},
+			{"reason_length", func(e *iam.ImportSessionEvent) { e.Reason = strings.Repeat("x", 257) }},
+			{"agent_length", func(e *iam.ImportSessionEvent) { e.UserAgent = strings.Repeat("x", 4097) }},
+			{"nul", func(e *iam.ImportSessionEvent) { e.UserAgent = "bad\x00agent" }},
+			{"utf8", func(e *iam.ImportSessionEvent) { e.Method = "\xff" }},
+			{"ip", func(e *iam.ImportSessionEvent) { e.IP = "192.0.2.1/24" }},
+			{"packed_ip", func(e *iam.ImportSessionEvent) { e.IP = string([]byte{192, 0, 2, 47}) }},
+			{"ip_zone", func(e *iam.ImportSessionEvent) { e.IP = "fe80::1%eth0" }},
+		}
+		for _, test := range mutations {
+			t.Run(test.name, func(t *testing.T) {
+				invalid := entry(u.ID, test.name)
+				test.edit(&invalid)
+				valid := entry(u.ID, "after-"+test.name)
+				got, err := f.auth.ImportSessionEvents(t.Context(), []iam.ImportSessionEvent{invalid, valid})
+				noError(t, err)
+				wantRow(t, got, 0, iam.SessionEventRefused, iam.SessionEventInvalid)
+				wantRow(t, got, 1, iam.SessionEventImported, "")
+			})
+		}
+	})
+	t.Run("AK-J05-C09_concurrent_history_replay_inserts_once", func(t *testing.T) {
+		u := f.user(t)
+		rows := []iam.ImportSessionEvent{entry(u.ID, "concurrent")}
+		var results [2]iam.ImportSessionEventsResult
+		var errs [2]error
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for i := range results {
+			wg.Go(func() {
+				<-start
+				results[i], errs[i] = f.auth.ImportSessionEvents(t.Context(), rows)
+			})
+		}
+		close(start)
+		wg.Wait()
+		counts := map[iam.ImportSessionEventStatus]int{}
+		for i, result := range results {
+			noError(t, errs[i])
+			if len(result.Rows) != 1 {
+				t.Fatalf("concurrent result: %+v", result)
+			}
+			counts[result.Rows[0].Status]++
+		}
+		if counts[iam.SessionEventImported] != 1 || counts[iam.SessionEventDuplicate] != 1 {
+			t.Fatalf("concurrent outcomes: %+v", results)
+		}
+		page, err := f.auth.ListSessionEvents(t.Context(), u.ID, iam.SessionEventQuery{})
+		noError(t, err)
+		if len(page.Items) != 1 {
+			t.Fatalf("concurrent import forked history: %+v", page)
+		}
+	})
+	t.Run("AK-J05-C10_history_import_obeys_configured_and_unlimited_retention", func(t *testing.T) {
+		for _, retention := range []time.Duration{0, 24 * time.Hour, -1} {
+			t.Run(retention.String(), func(t *testing.T) {
+				f := newFixture(t, redisDep, authtest.WithConfig(func(c *authkit.Config) { c.SessionEventRetention = retention }))
+				u := f.user(t)
+				old, recent, middle := entry(u.ID, "old"), entry(u.ID, "recent"), entry(u.ID, "middle")
+				old.OccurredAt = time.Now().Add(-366 * 24 * time.Hour)
+				middle.OccurredAt = time.Now().Add(-48 * time.Hour)
+				recent.IP, recent.UserAgent = "", ""
+				got, err := f.auth.ImportSessionEvents(t.Context(), []iam.ImportSessionEvent{old, recent, middle})
+				noError(t, err)
+				wantOld := iam.SessionEventRefused
+				if retention < 0 {
+					wantOld = iam.SessionEventImported
+					wantRow(t, got, 0, wantOld, "")
+				} else {
+					wantRow(t, got, 0, wantOld, iam.SessionEventTooOld)
+				}
+				wantRow(t, got, 1, iam.SessionEventImported, "")
+				if retention > 0 {
+					wantRow(t, got, 2, iam.SessionEventRefused, iam.SessionEventTooOld)
+				} else {
+					wantRow(t, got, 2, iam.SessionEventImported, "")
+				}
+				page, err := f.auth.ListSessionEvents(t.Context(), u.ID, iam.SessionEventQuery{})
+				noError(t, err)
+				wantCount := 2
+				if retention < 0 {
+					wantCount = 3
+				} else if retention > 0 {
+					wantCount = 1
+				}
+				if len(page.Items) != wantCount || page.Items[0].IP != nil || page.Items[0].UserAgent != nil {
+					t.Fatalf("retention history: %+v", page)
+				}
+			})
+		}
+	})
+	t.Run("AK-J05-C11_history_batch_bound_and_unsupported_options_write_nothing", func(t *testing.T) {
+		u := f.user(t)
+		rows := make([]iam.ImportSessionEvent, 1001)
+		for i := range rows {
+			rows[i] = entry(u.ID, "bounded")
+		}
+		got, err := f.auth.ImportSessionEvents(t.Context(), rows)
+		if e, ok := iam.AsError(err); !ok || e.Code() != "invalid_request" || len(got.Rows) != 0 {
+			t.Fatalf("oversized import: %+v, %v", got, err)
+		}
+		page, err := f.auth.ListSessionEvents(t.Context(), u.ID, iam.SessionEventQuery{})
+		noError(t, err)
+		if len(page.Items) != 0 {
+			t.Fatal("oversized batch wrote history")
+		}
+		tx, err := f.pool.Begin(t.Context())
+		noError(t, err)
+		_, err = f.auth.ImportSessionEvents(t.Context(), rows[:1], authkit.InTx(tx))
+		if err == nil {
+			t.Fatal("unsupported transaction option accepted")
+		}
+		noError(t, tx.Rollback(t.Context()))
+		got, err = f.auth.ImportSessionEvents(t.Context(), rows[:1000])
+		noError(t, err)
+		if len(got.Rows) != 1000 {
+			t.Fatalf("boundary import returned %d rows", len(got.Rows))
+		}
+		wantRow(t, got, 0, iam.SessionEventImported, "")
+		for i := 1; i < len(got.Rows); i++ {
+			wantRow(t, got, i, iam.SessionEventDuplicate, "")
+		}
+		got, err = f.auth.ImportSessionEvents(t.Context(), nil)
+		noError(t, err)
+		if len(got.Rows) != 0 {
+			t.Fatalf("empty batch: %+v", got)
+		}
+		authority := authtest.Replica(t, f.auth, authtest.WithConfig(func(c *authkit.Config) { c.DefaultTenantID = iam.TenantID{} }))
+		got, err = authority.ImportSessionEvents(t.Context(), rows[:1])
+		if !errors.Is(err, iam.ErrTenantRequired) || len(got.Rows) != 0 {
+			t.Fatalf("unbound authority imported account history: %+v, %v", got, err)
+		}
+	})
+	t.Run("AK-J05-C12_history_partial_database_failure_and_cancellation_retry_safely", func(t *testing.T) {
+		u := f.user(t)
+		rows := []iam.ImportSessionEvent{entry(u.ID, "committed"), entry(u.ID, "database-failure"), entry(u.ID, "unprocessed")}
+		function := pgx.Identifier{f.schema, "refuse_import_fixture"}.Sanitize()
+		table := pgx.Identifier{f.schema, "session_events"}.Sanitize()
+		_, err := f.pool.Exec(t.Context(), "CREATE FUNCTION "+function+"() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.import_id = 'database-failure' THEN RAISE EXCEPTION 'injected storage failure'; END IF; RETURN NEW; END $$")
+		noError(t, err)
+		_, err = f.pool.Exec(t.Context(), "CREATE TRIGGER refuse_import_fixture BEFORE INSERT ON "+table+" FOR EACH ROW EXECUTE FUNCTION "+function+"()")
+		noError(t, err)
+		got, err := f.auth.ImportSessionEvents(t.Context(), rows)
+		if err == nil || len(got.Rows) != 1 {
+			t.Fatalf("database failure hid progress: %+v, %v", got, err)
+		}
+		wantRow(t, got, 0, iam.SessionEventImported, "")
+		page, err := f.auth.ListSessionEvents(t.Context(), u.ID, iam.SessionEventQuery{})
+		noError(t, err)
+		if len(page.Items) != 1 {
+			t.Fatalf("unprocessed rows became visible: %+v", page)
+		}
+		_, err = f.pool.Exec(t.Context(), "DROP TRIGGER refuse_import_fixture ON "+table)
+		noError(t, err)
+		cancelled, cancel := context.WithCancel(t.Context())
+		cancel()
+		got, err = f.auth.ImportSessionEvents(cancelled, rows)
+		if !errors.Is(err, context.Canceled) || len(got.Rows) != 0 {
+			t.Fatalf("cancelled import: %+v, %v", got, err)
+		}
+		got, err = f.auth.ImportSessionEvents(t.Context(), rows)
+		noError(t, err)
+		wantRow(t, got, 0, iam.SessionEventDuplicate, "")
+		wantRow(t, got, 1, iam.SessionEventImported, "")
+		wantRow(t, got, 2, iam.SessionEventImported, "")
+	})
+	t.Run("AK-J05-C13_history_import_serializes_with_account_deletion", func(t *testing.T) {
+		for _, first := range []string{"import", "delete"} {
+			t.Run(first+"_first", func(t *testing.T) {
+				u := f.user(t)
+				ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+				defer cancel()
+				gate, err := f.pool.Begin(ctx)
+				noError(t, err)
+				defer gate.Rollback(context.Background())
+				var gatePID int32
+				noError(t, gate.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&gatePID))
+				// A trigger pauses the first real operation after its account
+				// check, while pg_blocking_pids proves the second is waiting.
+				_, err = gate.Exec(ctx, "SELECT pg_advisory_xact_lock(476, 1)")
+				noError(t, err)
+				function := pgx.Identifier{f.schema, "pause_history_race"}.Sanitize()
+				table := pgx.Identifier{f.schema, "session_events"}.Sanitize()
+				event := "INSERT"
+				condition := "NEW.import_id = 'deletion-race'"
+				if first == "delete" {
+					table = pgx.Identifier{f.schema, "users"}.Sanitize()
+					event = "UPDATE"
+					condition = "OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL"
+				}
+				_, err = f.pool.Exec(ctx, "CREATE OR REPLACE FUNCTION "+function+"() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF "+condition+" THEN PERFORM pg_advisory_xact_lock(476, 1); END IF; RETURN NEW; END $$")
+				noError(t, err)
+				_, err = f.pool.Exec(ctx, "CREATE TRIGGER pause_history_race BEFORE "+event+" ON "+table+" FOR EACH ROW EXECUTE FUNCTION "+function+"()")
+				noError(t, err)
+				defer func() {
+					cancel()
+					_ = gate.Rollback(context.Background())
+					cleanup, done := context.WithTimeout(context.Background(), 5*time.Second)
+					defer done()
+					_, err := f.pool.Exec(cleanup, "DROP TRIGGER pause_history_race ON "+table)
+					if err != nil {
+						t.Error(err)
+					}
+				}()
+				type importResult struct {
+					result iam.ImportSessionEventsResult
+					err    error
+				}
+				type deleteResult struct {
+					rows []iam.OpResult
+					err  error
+				}
+				imports, deletions := make(chan importResult, 1), make(chan deleteResult, 1)
+				importHistory := func() {
+					result, err := f.auth.ImportSessionEvents(ctx, []iam.ImportSessionEvent{entry(u.ID, "deletion-race")})
+					imports <- importResult{result, err}
+				}
+				deleteAccount := func() {
+					rows, err := f.auth.DeleteUsers(ctx, iam.SystemIdentity(), []string{u.ID})
+					deletions <- deleteResult{rows, err}
+				}
+				if first == "import" {
+					go importHistory()
+				} else {
+					go deleteAccount()
+				}
+				var firstPID int32
+				eventually(t, first+" paused inside its database trigger", func() bool {
+					err := f.pool.QueryRow(ctx, "SELECT pid FROM pg_stat_activity WHERE $1::int = ANY(pg_blocking_pids(pid))", gatePID).Scan(&firstPID)
+					if errors.Is(err, pgx.ErrNoRows) {
+						return false
+					}
+					noError(t, err)
+					return true
+				})
+				if first == "import" {
+					go deleteAccount()
+				} else {
+					go importHistory()
+				}
+				eventually(t, "second operation blocked on the first account lock", func() bool {
+					var blocked bool
+					noError(t, f.pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE $1::int = ANY(pg_blocking_pids(pid)))", firstPID).Scan(&blocked))
+					return blocked
+				})
+				noError(t, gate.Commit(ctx))
+				imported, deleted := <-imports, <-deletions
+				noError(t, imported.err)
+				noError(t, deleted.err)
+				if len(deleted.rows) != 1 || deleted.rows[0].Err != nil {
+					t.Fatalf("concurrent deletion: %+v", deleted)
+				}
+				wantCount := 0
+				if first == "import" {
+					wantRow(t, imported.result, 0, iam.SessionEventImported, "")
+					wantCount = 1
+				} else {
+					wantRow(t, imported.result, 0, iam.SessionEventRefused, iam.SessionEventDeletedAccount)
+				}
+				page, err := f.auth.ListSessionEvents(ctx, u.ID, iam.SessionEventQuery{})
+				noError(t, err)
+				if len(page.Items) != wantCount {
+					t.Fatalf("history crossed deletion: %+v", page)
+				}
+			})
+		}
+	})
+}
 
 func TestCriticalSessions(t *testing.T) {
 	f := newFixture(t)

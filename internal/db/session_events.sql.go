@@ -10,6 +10,61 @@ import (
 	"time"
 )
 
+const sessionEventImport = `-- name: SessionEventImport :one
+WITH account AS MATERIALIZED (
+    SELECT id, deleted_at FROM users
+    WHERE id = $1::uuid AND tenant_id = $2::uuid
+    FOR SHARE
+), imported AS (
+    INSERT INTO session_events (occurred_at, issuer, user_id, session_id, event, method, reason, ip_addr, user_agent, import_id)
+    SELECT $3::timestamptz, $4::text, id::text, '',
+           $5::text, $6::text, $7::text,
+           $8::text, $9::text, $10::text
+    FROM account WHERE deleted_at IS NULL
+    ON CONFLICT (user_id, import_id) WHERE import_id IS NOT NULL DO NOTHING
+    RETURNING id
+)
+SELECT CASE
+    WHEN NOT EXISTS (SELECT 1 FROM account) THEN 'unknown_account'
+    WHEN EXISTS (SELECT 1 FROM account WHERE deleted_at IS NOT NULL) THEN 'deleted_account'
+    WHEN EXISTS (SELECT 1 FROM imported) THEN 'imported'
+    ELSE 'duplicate'
+END::text AS outcome
+`
+
+type SessionEventImportParams struct {
+	UserID     string
+	TenantID   string
+	OccurredAt time.Time
+	Issuer     string
+	Event      string
+	Method     *string
+	Reason     *string
+	IpAddr     *string
+	UserAgent  *string
+	ImportID   string
+}
+
+// Lock ownership and deletion state through the insert. Native entries keep
+// import_id NULL and are unaffected by the partial unique index.
+func (q *Queries) SessionEventImport(ctx context.Context, arg SessionEventImportParams) (string, error) {
+	row := q.db.QueryRow(ctx, sessionEventImport,
+		arg.UserID,
+		arg.TenantID,
+		arg.OccurredAt,
+		arg.Issuer,
+		arg.Event,
+		arg.Method,
+		arg.Reason,
+		arg.IpAddr,
+		arg.UserAgent,
+		arg.ImportID,
+	)
+	var outcome string
+	err := row.Scan(&outcome)
+	return outcome, err
+}
+
 const sessionEventInsert = `-- name: SessionEventInsert :exec
 
 INSERT INTO session_events (occurred_at, issuer, user_id, session_id, event, method, reason, ip_addr, user_agent)
@@ -46,7 +101,7 @@ func (q *Queries) SessionEventInsert(ctx context.Context, arg SessionEventInsert
 }
 
 const sessionEventsByUser = `-- name: SessionEventsByUser :many
-SELECT id, occurred_at, issuer, user_id, session_id, event, method, reason, ip_addr, user_agent FROM session_events
+SELECT id, occurred_at, issuer, user_id, session_id, event, method, reason, ip_addr, user_agent, import_id FROM session_events
 WHERE user_id = $1
   AND (cardinality($2::text[]) = 0 OR event = ANY($2::text[]))
   AND ($3::timestamptz IS NULL OR (occurred_at, id) < ($3, $4::bigint))
@@ -90,6 +145,7 @@ func (q *Queries) SessionEventsByUser(ctx context.Context, arg SessionEventsByUs
 			&i.Reason,
 			&i.IpAddr,
 			&i.UserAgent,
+			&i.ImportID,
 		); err != nil {
 			return nil, err
 		}
