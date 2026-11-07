@@ -14,9 +14,10 @@ type ImportUser struct {
 	ID string
 	// Email and Phone import unverified: another system's "verified" is not
 	// proof (someone may have confirmed another person's address there). The
-	// account is unproven until it proves one here (a code, at its first
-	// sign-in where registration requires verification, or a reset link): it
-	// adds no login method or address, and its first proof retires the
+	// account is unproven until it proves one here (a code or a reset link).
+	// Its first password sign-in requires a code when registration requires
+	// verification and Registration.UnprovenPasswordSignIn is false. Until
+	// proof it adds no login method or address, and its first proof retires the
 	// imported credentials and other addresses. The password survives only a
 	// proof by its holder: the code its password sign-in sent, confirmed with
 	// that sign-in's password proof, or a session that signed in with it.

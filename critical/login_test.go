@@ -11,6 +11,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/password"
 )
 
 func TestCriticalPasswordAdmission(t *testing.T) {
@@ -164,6 +165,84 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 		}
 		g.out.Last(t, iam.MessageNewDeviceCode, *phoneProven.Phone)
 	})
+}
+
+func TestCriticalUnprovenPasswordSignIn(t *testing.T) {
+	t.Run("required_MFA_still_applies", func(t *testing.T) {
+		f := newFixture(t, proofRegistration(), authtest.WithConfig(func(c *authkit.Config) {
+			c.Registration.UnprovenPasswordSignIn = true
+			c.TwoFactor.Mode = iam.TwoFactorRequired
+			c.TwoFactor.Methods = []iam.TwoFactorMethod{iam.TwoFactorTOTP}
+		}))
+		u, err := f.auth.CreateUser(t.Context(), iam.NewUser{Email: "unproven-mfa@example.com", Username: "unprovenmfa", Password: authtest.Password})
+		noError(t, err)
+		r := f.call(t, "POST", "/password/login", "", map[string]string{"identifier": *u.Email, "password": authtest.Password})
+		r.want(t, http.StatusOK, "")
+		var out signInResult
+		decode(t, r.body, &out)
+		if out.Status != "enrollment_required" || out.Tokens != nil {
+			t.Fatalf("unproven password sign-in bypassed required MFA: %s", r.body)
+		}
+	})
+	hash, err := password.HashArgon2id(t.Context(), authtest.Password)
+	noError(t, err)
+	for _, allow := range []bool{false, true} {
+		name := "verification_required"
+		if allow {
+			name = "unproven_password_sign_in"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t, proofRegistration(), authtest.WithConfig(func(c *authkit.Config) {
+				c.Registration.UnprovenPasswordSignIn = allow
+			}))
+			for _, imported := range []iam.ImportUser{
+				{Email: "imported-login@example.com", Username: "importedemail"},
+				{Phone: "+12025550178", Username: "importedphone"},
+			} {
+				t.Run(imported.Username, func(t *testing.T) {
+					imported.PasswordHash = &iam.PasswordHash{Hash: hash, Algo: iam.HashArgon2id}
+					result, err := f.auth.ImportUsers(t.Context(), []iam.ImportUser{imported}, iam.ImportOptions{})
+					noError(t, err)
+					if result.Inserted != 1 {
+						t.Fatalf("import result: %+v", result)
+					}
+					u, err := f.auth.User(t.Context(), iam.UserByUsername(imported.Username))
+					noError(t, err)
+					identifier := imported.Email
+					if identifier == "" {
+						identifier = imported.Phone
+					}
+					f.call(t, "POST", "/password/login", "", map[string]string{"identifier": identifier, "password": "wrong-password"}).want(t, http.StatusUnauthorized, "invalid_credentials")
+					live, err := f.auth.Sessions(t.Context(), u.ID)
+					noError(t, err)
+					if len(live) != 0 || len(f.out.Messages(iam.MessageVerification, identifier)) != 0 {
+						t.Fatal("wrong password created a session or requested verification")
+					}
+					r := f.call(t, "POST", "/password/login", "", map[string]string{"identifier": identifier, "password": authtest.Password})
+					if allow {
+						tokens := tokensFrom(t, r, u.ID)
+						f.call(t, "GET", "/me", tokens.AccessToken, nil).want(t, http.StatusOK, "")
+						if len(f.out.Messages(iam.MessageVerification, identifier)) != 0 {
+							t.Fatal("unproven password sign-in requested verification")
+						}
+					} else {
+						r.want(t, http.StatusOK, "")
+						var out signInResult
+						decode(t, r.body, &out)
+						if out.Status != "verification_required" || out.Tokens != nil {
+							t.Fatalf("default sign-in skipped contact proof: %s", r.body)
+						}
+						f.out.Last(t, iam.MessageVerification, identifier)
+					}
+					u, err = f.auth.User(t.Context(), iam.UserByID(u.ID))
+					noError(t, err)
+					if u.EmailVerified || u.PhoneVerified {
+						t.Fatal("password sign-in fabricated contact proof")
+					}
+				})
+			}
+		})
+	}
 }
 
 type deviceStep struct {

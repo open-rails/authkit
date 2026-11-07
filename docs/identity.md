@@ -37,6 +37,24 @@ A library that guards its own routes takes `client.Authenticator()` instead ([RB
 
 Events (`Client.ListEvents`) record who made a change the same way: `subject_kind` and `subject_id`, `invoker_issuer` and `invoker_id`, `credential_kind` and `credential_id`.
 
+## Registration verification
+
+`Config.Registration.Verification` (YAML `registration.verification`) is `none`
+(the default), `optional` or `required`. Contacts stay unverified until proven.
+`optional` sends a code at registration; `required` keeps a new sign-up pending
+until its code is confirmed, before creating an account.
+
+With `required`, password sign-in also asks an existing account with an unverified
+email or phone to confirm a code. Hosts can set
+`Config.Registration.UnprovenPasswordSignIn = true` (YAML
+`registration.unproven_password_sign_in: true`) to skip that sign-in check for
+existing accounts with an unproven contact, such as imported ones. It defaults to
+false. The correct password is still required, and normal sign-in checks,
+including 2FA and restoring a deleted account, still apply. Password sign-in sends
+no contact verification code for this check, and the account stays unproven:
+proof-dependent restrictions, including adding sign-in methods, still apply.
+New sign-ups and pending-registration recovery still require their code.
+
 ## Network accounts
 
 A network account, such as a shopper's at openrails.dev, is an ordinary user who proved an email or phone and accepted the network's agreements. The id merchants see is its `sub`, the user id: public (OIDC Core §8), stable, never reassigned.
