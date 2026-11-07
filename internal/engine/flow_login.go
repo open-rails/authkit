@@ -80,7 +80,7 @@ func (s *Engine) PasswordLogin(ctx context.Context, in authflow.PasswordLoginInp
 
 	// Verify the password BEFORE sending any OTP so an unauthenticated caller
 	// can neither trigger sends nor enumerate accounts.
-	if requiresVerification {
+	if requiresVerification && !s.cfg.Registration.UnprovenPasswordSignIn {
 		if out, parked, err := s.verificationGate(ctx, in, u); err != nil || parked {
 			return out, err
 		}

@@ -468,6 +468,7 @@ pkg authkit, type RegistrationConfig struct, AllowMissingSenders bool `yaml:"all
 pkg authkit, type RegistrationConfig struct, NativeUserMode iam.RegistrationMode `yaml:"native_user_mode"`
 pkg authkit, type RegistrationConfig struct, PasswordlessAutoRegistration bool `yaml:"passwordless_auto_registration"`
 pkg authkit, type RegistrationConfig struct, PasswordlessLogin bool `yaml:"passwordless_login"`
+pkg authkit, type RegistrationConfig struct, UnprovenPasswordSignIn bool `yaml:"unproven_password_sign_in"`
 pkg authkit, type RegistrationConfig struct, Verification iam.RegistrationVerificationPolicy `yaml:"verification"`
 pkg authkit, type RegistrationConfig struct, VerificationSendTimeout time.Duration `yaml:"verification_send_timeout"`
 pkg authkit, type RemoteApplicationConfig = config.RemoteApplicationConfig
