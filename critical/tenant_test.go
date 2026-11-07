@@ -7,10 +7,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/provider"
 )
 
 // An identity-only adapter preserves the original provider's sealed state.
@@ -227,6 +229,203 @@ func TestCriticalTenantAuthority(t *testing.T) {
 		noError(t, err)
 		if actor, err := f.auth.ResolveTenantActor(t.Context(), verified); !errors.Is(err, auth.ErrUnauthenticated) || actor != (iam.TenantActor{}) {
 			t.Fatalf("revoked credential retained source-account authority: %+v, %v", actor, err)
+		}
+	})
+}
+
+func TestCriticalProviderReconciliation(t *testing.T) {
+	idp := authtest.NewIdP(t)
+	otherIDP := authtest.NewIdP(t)
+	first, second := idp.Provider("first"), otherIDP.Provider("second")
+	f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
+		c.Registration.PasswordlessLogin = false
+	}), authtest.WithDeps(func(d *authkit.Deps) {
+		d.Providers = []provider.Provider{first, second}
+	}))
+	link := iam.ProviderLink{Issuer: first.Issuer(), Provider: first.Name(), Subject: "original", Email: "original@example.com"}
+	other := iam.ProviderLink{Issuer: second.Issuer(), Provider: second.Name(), Subject: "other"}
+	state := func(userID, issuer string) string {
+		t.Helper()
+		var value string
+		noError(t, f.pool.QueryRow(t.Context(), `SELECT COALESCE((SELECT row_to_json(p)::text FROM `+pgx.Identifier{f.schema, "user_providers"}.Sanitize()+` p WHERE user_id=$1 AND issuer=$2), '')`, userID, issuer).Scan(&value))
+		return value
+	}
+	t.Run("unlink_replace_retry_expectation_and_other_issuers", func(t *testing.T) {
+		u := f.user(t)
+		noError(t, f.auth.LinkProvider(t.Context(), u.ID, link))
+		noError(t, f.auth.LinkProvider(t.Context(), u.ID, other))
+		initial, unrelated := state(u.ID, link.Issuer), state(u.ID, other.Issuer)
+		desired := link
+		desired.Subject, desired.Email = "replacement", "replacement@example.com"
+		if err := f.auth.ReconcileProvider(t.Context(), u.ID, "stale", desired); !errors.Is(err, iam.ErrProviderSubjectMismatch) {
+			t.Fatalf("stale expectation = %v", err)
+		}
+		if state(u.ID, link.Issuer) != initial {
+			t.Fatal("refused reconciliation changed state")
+		}
+		noError(t, f.auth.ReconcileProvider(t.Context(), u.ID, link.Subject, desired))
+		replaced := state(u.ID, link.Issuer)
+		var stored struct{ Subject, EmailAtProvider string }
+		noError(t, f.pool.QueryRow(t.Context(), `SELECT subject,email_at_provider FROM `+pgx.Identifier{f.schema, "user_providers"}.Sanitize()+` WHERE user_id=$1 AND issuer=$2`, u.ID, link.Issuer).Scan(&stored.Subject, &stored.EmailAtProvider))
+		if stored.Subject != desired.Subject || stored.EmailAtProvider != desired.Email {
+			t.Fatalf("replacement not applied: %+v", stored)
+		}
+		desired.Email = "must-not-write@example.com"
+		noError(t, f.auth.ReconcileProvider(t.Context(), u.ID, link.Subject, desired))
+		if state(u.ID, link.Issuer) != replaced {
+			t.Fatal("retry wrote metadata")
+		}
+		desired.Subject = ""
+		noError(t, f.auth.ReconcileProvider(t.Context(), u.ID, "replacement", desired))
+		noError(t, f.auth.ReconcileProvider(t.Context(), u.ID, "replacement", desired))
+		if state(u.ID, link.Issuer) != "" || state(u.ID, other.Issuer) != unrelated {
+			t.Fatal("unlink failed or touched another issuer")
+		}
+		noError(t, f.auth.ReconcileProvider(t.Context(), u.ID, "", link))
+		if state(u.ID, link.Issuer) == "" {
+			t.Fatal("reconciliation from absent did not link")
+		}
+	})
+	t.Run("occupied_identity_rolls_back_replace", func(t *testing.T) {
+		u, owner := f.user(t), f.user(t)
+		occupied := link
+		occupied.Subject = "occupied"
+		noError(t, f.auth.LinkProvider(t.Context(), owner.ID, occupied))
+		current := link
+		current.Subject = "rollback-original"
+		noError(t, f.auth.LinkProvider(t.Context(), u.ID, current))
+		before, held := state(u.ID, link.Issuer), state(owner.ID, link.Issuer)
+		if err := f.auth.ReconcileProvider(t.Context(), u.ID, current.Subject, occupied); !errors.Is(err, iam.ErrProviderAlreadyLinked) {
+			t.Fatalf("occupied identity = %v", err)
+		}
+		if state(u.ID, link.Issuer) != before || state(owner.ID, link.Issuer) != held {
+			t.Fatal("failed replace lost a link")
+		}
+	})
+	t.Run("last_method_and_atomic_replacement", func(t *testing.T) {
+		u, err := f.auth.CreateUser(t.Context(), iam.NewUser{Username: "provideronly", Email: "provideronly@example.com", EmailVerified: true})
+		noError(t, err)
+		sole := link
+		sole.Subject = "sole-original"
+		noError(t, f.auth.LinkProvider(t.Context(), u.ID, sole))
+		remove := sole
+		remove.Subject = ""
+		before := state(u.ID, sole.Issuer)
+		if err := f.auth.ReconcileProvider(t.Context(), u.ID, sole.Subject, remove); !errors.Is(err, iam.ErrCannotUnlinkLastLoginMethod) {
+			t.Fatalf("last sign-in method = %v", err)
+		}
+		if state(u.ID, sole.Issuer) != before {
+			t.Fatal("refused last-method removal changed state")
+		}
+		next := sole
+		next.Subject = "sole-replacement"
+		unusable := next
+		unusable.Provider = "disabled"
+		if err := f.auth.ReconcileProvider(t.Context(), u.ID, sole.Subject, unusable); !errors.Is(err, iam.ErrCannotUnlinkLastLoginMethod) {
+			t.Fatalf("replacement without a usable sign-in method = %v", err)
+		}
+		if state(u.ID, sole.Issuer) != before {
+			t.Fatal("refused replacement changed the sole link")
+		}
+		noError(t, f.auth.ReconcileProvider(t.Context(), u.ID, sole.Subject, next))
+		// A second configured issuer is sufficient even without a password.
+		another := other
+		another.Subject = "sole-other"
+		noError(t, f.auth.LinkProvider(t.Context(), u.ID, another))
+		noError(t, f.auth.ReconcileProvider(t.Context(), u.ID, next.Subject, remove))
+		if state(u.ID, another.Issuer) == "" {
+			t.Fatal("last-method check removed the remaining issuer")
+		}
+	})
+	t.Run("concurrent_replacements_compare_under_the_account_lock", func(t *testing.T) {
+		u := f.user(t)
+		old := link
+		old.Subject = "race-original"
+		noError(t, f.auth.LinkProvider(t.Context(), u.ID, old))
+		start, done := make(chan struct{}), make(chan error, 2)
+		for _, subject := range []string{"race-a", "race-b"} {
+			go func() {
+				<-start
+				next := link
+				next.Subject = subject
+				done <- f.auth.ReconcileProvider(t.Context(), u.ID, old.Subject, next)
+			}()
+		}
+		close(start)
+		wins, conflicts := 0, 0
+		for range 2 {
+			switch err := <-done; {
+			case err == nil:
+				wins++
+			case errors.Is(err, iam.ErrProviderSubjectMismatch):
+				conflicts++
+			default:
+				t.Fatalf("concurrent replace = %v", err)
+			}
+		}
+		if wins != 1 || conflicts != 1 {
+			t.Fatalf("race: wins=%d conflicts=%d", wins, conflicts)
+		}
+	})
+	t.Run("concurrent_unlinks_preserve_a_last_method", func(t *testing.T) {
+		u, err := f.auth.CreateUser(t.Context(), iam.NewUser{Username: "unlinkrace", Email: "unlinkrace@example.com", EmailVerified: true})
+		noError(t, err)
+		a, b := link, other
+		a.Subject, b.Subject = "unlink-race-a", "unlink-race-b"
+		noError(t, f.auth.LinkProvider(t.Context(), u.ID, a))
+		noError(t, f.auth.LinkProvider(t.Context(), u.ID, b))
+		start, done := make(chan struct{}), make(chan error, 2)
+		for _, l := range []iam.ProviderLink{a, b} {
+			go func() {
+				<-start
+				expected := l.Subject
+				l.Subject = ""
+				done <- f.auth.ReconcileProvider(t.Context(), u.ID, expected, l)
+			}()
+		}
+		close(start)
+		wins, refusals := 0, 0
+		for range 2 {
+			switch err := <-done; {
+			case err == nil:
+				wins++
+			case errors.Is(err, iam.ErrCannotUnlinkLastLoginMethod):
+				refusals++
+			default:
+				t.Fatalf("concurrent unlink = %v", err)
+			}
+		}
+		if wins != 1 || refusals != 1 || (state(u.ID, a.Issuer) == "") == (state(u.ID, b.Issuer) == "") {
+			t.Fatal("concurrent unlinks did not retain exactly one sign-in method")
+		}
+	})
+
+	t.Run("tenant_deleted_options_and_invalid_inputs", func(t *testing.T) {
+		u := f.user(t)
+		otherTenant := iam.NewTenantID()
+		noError(t, f.auth.CreateTenant(t.Context(), iam.Tenant{ID: otherTenant, Slug: "provider-other"}))
+		view, err := f.auth.ForTenant(t.Context(), otherTenant)
+		noError(t, err)
+		if err := view.ReconcileProvider(t.Context(), u.ID, "", link); !errors.Is(err, iam.ErrUserNotFound) {
+			t.Fatalf("cross-tenant reconcile = %v", err)
+		}
+		if err := f.auth.ReconcileProvider(t.Context(), "invalid", "", link); !errors.Is(err, iam.ErrUserNotFound) {
+			t.Fatalf("invalid account = %v", err)
+		}
+		if err := f.auth.ReconcileProvider(t.Context(), u.ID, "", iam.ProviderLink{}); err == nil {
+			t.Fatal("empty issuer accepted")
+		}
+		if err := f.auth.ReconcileProvider(t.Context(), u.ID, "", link, authkit.IncludeDeleted()); err == nil {
+			t.Fatal("unsupported option accepted")
+		}
+		results, err := f.auth.DeleteUsers(t.Context(), iam.SystemIdentity(), []string{u.ID})
+		noError(t, err)
+		noError(t, results[0].Err)
+		if err := f.auth.ReconcileProvider(t.Context(), u.ID, "", link); !errors.Is(err, iam.ErrUserNotFound) {
+			t.Fatalf("deleted target = %v", err)
+		}
+		if state(u.ID, link.Issuer) != "" {
+			t.Fatal("refused target gained a provider link")
 		}
 	})
 }

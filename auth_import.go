@@ -64,6 +64,20 @@ func (a *Client) LinkProvider(ctx context.Context, userID string, l iam.Provider
 	return a.ops.LinkProvider(a.operationContext(ctx), userID, l, opts...)
 }
 
+// ReconcileProvider sets a live account's identity for desired.Issuer as a
+// trusted host operation. An empty desired.Subject removes it; an empty
+// expectedSubject expects no link. If the desired subject already matches,
+// it succeeds without changing metadata, even when the expectation is stale.
+// Otherwise the current subject must match
+// expectedSubject (iam.ErrProviderSubjectMismatch). Replacement is atomic;
+// other issuers are untouched. Removal refuses iam.ErrCannotUnlinkLastLoginMethod
+// when no other sign-in method would remain. An identity held by another
+// account is iam.ErrProviderAlreadyLinked. Like LinkProvider, it takes no
+// options and has no HTTP route.
+func (a *Client) ReconcileProvider(ctx context.Context, userID, expectedSubject string, desired iam.ProviderLink, opts ...Option) error {
+	return a.ops.ReconcileProvider(a.operationContext(ctx), userID, expectedSubject, desired, opts...)
+}
+
 // ParseBootstrapManifestYAML parses a bootstrap manifest without a Client or
 // database, so a tool can check a file before connecting: it rejects empty
 // manifests, structurally invalid entries and a root_role of another persona.
