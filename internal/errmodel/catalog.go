@@ -132,6 +132,7 @@ var (
 	CodeProviderChangeRequiresUnlink    = def("provider_change_requires_unlink", 409, "Unlink the current account before linking another.")
 	CodeProviderError                   = def("provider_error", 400, "The provider returned an error. Please try again.")
 	CodeProviderNotLinked               = def("provider_not_linked", 404, "That provider is not linked.")
+	CodeProviderSubjectMismatch         = def("provider_subject_mismatch", 409, "The current provider identity differs from the expected subject. Check the account before retrying.")
 	CodeProviderUnavailable             = def("provider_unavailable", 503, "The sign-in provider is temporarily unavailable. Try again shortly.")
 	CodeRateLimited                     = def("rate_limited", 429, "Too many attempts. Please try again later.")
 	CodeRegistrationDisabled            = def("registration_disabled", 403, "Registration is currently disabled.")

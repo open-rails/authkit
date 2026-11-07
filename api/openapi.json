@@ -14977,6 +14977,10 @@
       "status": 404,
       "message": "That provider is not linked."
     },
+    "provider_subject_mismatch": {
+      "status": 409,
+      "message": "The current provider identity differs from the expected subject. Check the account before retrying."
+    },
     "provider_unavailable": {
       "status": 503,
       "message": "The sign-in provider is temporarily unavailable. Try again shortly."

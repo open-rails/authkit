@@ -130,6 +130,7 @@ export type AuthErrorCode =
   | "provider_change_requires_unlink"
   | "provider_error"
   | "provider_not_linked"
+  | "provider_subject_mismatch"
   | "provider_unavailable"
   | "rate_limited"
   | "registration_disabled"
@@ -308,6 +309,7 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   provider_change_requires_unlink: 409,
   provider_error: 400,
   provider_not_linked: 404,
+  provider_subject_mismatch: 409,
   provider_unavailable: 503,
   rate_limited: 429,
   registration_disabled: 403,
@@ -487,6 +489,7 @@ export const AUTH_ERROR_MESSAGES = {
   provider_change_requires_unlink: "Unlink the current account before linking another.",
   provider_error: "The provider returned an error. Please try again.",
   provider_not_linked: "That provider is not linked.",
+  provider_subject_mismatch: "The current provider identity differs from the expected subject. Check the account before retrying.",
   provider_unavailable: "The sign-in provider is temporarily unavailable. Try again shortly.",
   rate_limited: "Too many attempts. Please try again later.",
   registration_disabled: "Registration is currently disabled.",

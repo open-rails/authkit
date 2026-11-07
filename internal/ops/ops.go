@@ -121,6 +121,7 @@ type Operations interface {
 	ImportUsers(ctx context.Context, rows []iam.ImportUser, o iam.ImportOptions, opts ...Option) (iam.ImportResult, error)
 	ImportSolanaLinks(ctx context.Context, rows []iam.ImportSolanaLink, opts ...Option) (iam.ImportSolanaLinksResult, error)
 	LinkProvider(ctx context.Context, userID string, l iam.ProviderLink, opts ...Option) error
+	ReconcileProvider(ctx context.Context, userID, expectedSubject string, desired iam.ProviderLink, opts ...Option) error
 
 	// SCIM provisioning.
 	ProvisioningTargets(ctx context.Context) ([]iam.ProvisioningTarget, error)

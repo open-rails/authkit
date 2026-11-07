@@ -122,6 +122,20 @@ func (q *Queries) UserProviderCountForUpdate(ctx context.Context, userID string)
 	return n, err
 }
 
+const userProviderDeleteByIssuer = `-- name: UserProviderDeleteByIssuer :exec
+DELETE FROM user_providers WHERE user_id = $1 AND issuer = $2
+`
+
+type UserProviderDeleteByIssuerParams struct {
+	UserID string
+	Issuer string
+}
+
+func (q *Queries) UserProviderDeleteByIssuer(ctx context.Context, arg UserProviderDeleteByIssuerParams) error {
+	_, err := q.db.Exec(ctx, userProviderDeleteByIssuer, arg.UserID, arg.Issuer)
+	return err
+}
+
 const userProviderDeleteBySlug = `-- name: UserProviderDeleteBySlug :exec
 DELETE FROM user_providers WHERE user_id = $1 AND provider_slug = $2
 `

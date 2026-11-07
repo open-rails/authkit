@@ -73,15 +73,9 @@ func (s *Engine) UnlinkProvider(ctx context.Context, userID, provider string) er
 		if !slices.Contains(slugs, provider) {
 			return errmodel.ErrProviderNotLinked
 		}
-		others := slices.DeleteFunc(slugs, func(slug string) bool { return slug == provider || !s.signsInWith(slug) })
-		if len(others) == 0 {
-			ok, err := s.hasSignInBesidesProviders(ctx, tx, userID, account)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				return errmodel.ErrCannotUnlinkLastLoginMethod
-			}
+		others := slices.DeleteFunc(slugs, func(slug string) bool { return slug == provider })
+		if err := s.requireRemainingSignInMethod(ctx, tx, userID, account, others); err != nil {
+			return err
 		}
 	case err != nil:
 		return err
@@ -90,6 +84,22 @@ func (s *Engine) UnlinkProvider(ctx context.Context, userID, provider string) er
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+// requireRemainingSignInMethod checks the remaining provider slugs and other
+// credentials while the caller holds the account lock.
+func (s *Engine) requireRemainingSignInMethod(ctx context.Context, tx pgx.Tx, userID string, account db.UserCredentialVersionForUpdateRow, slugs []string) error {
+	if slices.ContainsFunc(slugs, s.signsInWith) {
+		return nil
+	}
+	ok, err := s.hasSignInBesidesProviders(ctx, tx, userID, account)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errmodel.ErrCannotUnlinkLastLoginMethod
+	}
+	return nil
 }
 
 // signsInWith reports whether a provider link under slug is a way to sign in
@@ -156,6 +166,71 @@ func (s *Engine) LinkProvider(ctx context.Context, userID string, l iam.Provider
 		return iam.ErrUserNotFound
 	}
 	return s.linkProvider(ctx, userID, l)
+}
+
+// ReconcileProvider conditionally sets one issuer's link for a trusted host.
+func (s *Engine) ReconcileProvider(ctx context.Context, userID, expectedSubject string, desired iam.ProviderLink, opts ...ops.Option) error {
+	userID = strings.TrimSpace(userID)
+	if err := s.requireTenantUser(ctx, s.q, userID); err != nil {
+		return err
+	}
+	if err := noOptions("ReconcileProvider", opts); err != nil {
+		return err
+	}
+	desired.Issuer, desired.Subject, desired.Provider = strings.TrimSpace(desired.Issuer), strings.TrimSpace(desired.Subject), strings.TrimSpace(desired.Provider)
+	expectedSubject = strings.TrimSpace(expectedSubject)
+	if desired.Issuer == "" {
+		return fmt.Errorf("authkit: provider reconciliation needs an issuer")
+	}
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	q := s.qtx(tx)
+	account, err := q.UserCredentialVersionForUpdate(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && account.DeletedAt != nil {
+		return iam.ErrUserNotFound
+	}
+	if err != nil {
+		return err
+	}
+	current, err := q.UserProviderByIssuerAny(ctx, db.UserProviderByIssuerAnyParams{UserID: userID, Issuer: desired.Issuer})
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if current.Subject == desired.Subject {
+		return nil
+	}
+	if current.Subject != expectedSubject {
+		return iam.ErrProviderSubjectMismatch
+	}
+	if current.Subject != "" {
+		if err := q.UserProviderDeleteByIssuer(ctx, db.UserProviderDeleteByIssuerParams{UserID: userID, Issuer: desired.Issuer}); err != nil {
+			return err
+		}
+	}
+	if desired.Subject != "" {
+		if _, err := s.linkProviderByIssuer(ctx, q, userID, desired.Issuer, desired.Provider, desired.Subject, nullable(strings.TrimSpace(desired.Email))); err != nil {
+			return err
+		}
+	}
+	if current.VerifiedAt != nil {
+		slugs, err := q.UserProviderSlugsDistinct(ctx, userID)
+		if err != nil {
+			return err
+		}
+		if err := s.requireRemainingSignInMethod(ctx, tx, userID, account, slugs); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	if desired.Provider == solanaProviderSlug && desired.Issuer == s.solanaIssuer() && desired.Subject != "" {
+		s.maybeResolveSolanaSNSAfterLink(ctx, userID, desired.Subject)
+	}
+	return nil
 }
 
 // linkProvider links l to userID, for a caller that proved it.
