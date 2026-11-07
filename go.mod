@@ -55,7 +55,7 @@ require (
 	github.com/valyala/fasthttp v1.75.0 // indirect
 	go.mongodb.org/mongo-driver/v2 v2.5.0 // indirect
 	golang.org/x/arch v0.22.0 // indirect
-	golang.org/x/net v0.61.0 // indirect
+	golang.org/x/net v0.62.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
 
