@@ -5,6 +5,29 @@
 INSERT INTO session_events (occurred_at, issuer, user_id, session_id, event, method, reason, ip_addr, user_agent)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
 
+-- name: SessionEventImport :one
+-- Lock ownership and deletion state through the insert. Native entries keep
+-- import_id NULL and are unaffected by the partial unique index.
+WITH account AS MATERIALIZED (
+    SELECT id, deleted_at FROM users
+    WHERE id = sqlc.arg(user_id)::uuid AND tenant_id = sqlc.arg(tenant_id)::uuid
+    FOR SHARE
+), imported AS (
+    INSERT INTO session_events (occurred_at, issuer, user_id, session_id, event, method, reason, ip_addr, user_agent, import_id)
+    SELECT sqlc.arg(occurred_at)::timestamptz, sqlc.arg(issuer)::text, id::text, '',
+           sqlc.arg(event)::text, sqlc.narg(method)::text, sqlc.narg(reason)::text,
+           sqlc.narg(ip_addr)::text, sqlc.narg(user_agent)::text, sqlc.arg(import_id)::text
+    FROM account WHERE deleted_at IS NULL
+    ON CONFLICT (user_id, import_id) WHERE import_id IS NOT NULL DO NOTHING
+    RETURNING id
+)
+SELECT CASE
+    WHEN NOT EXISTS (SELECT 1 FROM account) THEN 'unknown_account'
+    WHEN EXISTS (SELECT 1 FROM account WHERE deleted_at IS NOT NULL) THEN 'deleted_account'
+    WHEN EXISTS (SELECT 1 FROM imported) THEN 'imported'
+    ELSE 'duplicate'
+END::text AS outcome;
+
 -- name: SessionEventsPruneBatch :execrows
 -- One bounded retention batch: delete up to batch_size rows older than cutoff,
 -- walking the occurred_at index. Callers loop until a short batch — never an

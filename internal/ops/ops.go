@@ -119,6 +119,7 @@ type Operations interface {
 	ApplyBootstrapManifest(ctx context.Context, m iam.BootstrapManifest, o iam.BootstrapOptions, opts ...Option) (iam.BootstrapResult, error)
 	EnsureUserRole(ctx context.Context, group iam.GroupRef, u iam.UserRef, role iam.Role, opts ...Option) (iam.User, error)
 	ImportUsers(ctx context.Context, rows []iam.ImportUser, o iam.ImportOptions, opts ...Option) (iam.ImportResult, error)
+	ImportSessionEvents(ctx context.Context, rows []iam.ImportSessionEvent, opts ...Option) (iam.ImportSessionEventsResult, error)
 	ImportSolanaLinks(ctx context.Context, rows []iam.ImportSolanaLink, opts ...Option) (iam.ImportSolanaLinksResult, error)
 	LinkProvider(ctx context.Context, userID string, l iam.ProviderLink, opts ...Option) error
 
