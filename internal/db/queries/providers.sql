@@ -14,6 +14,9 @@ SELECT EXISTS(SELECT 1 FROM user_passwords WHERE user_id = $1);
 -- name: UserProviderDeleteBySlug :exec
 DELETE FROM user_providers WHERE user_id = $1 AND provider_slug = $2;
 
+-- name: UserProviderDeleteByIssuer :exec
+DELETE FROM user_providers WHERE user_id = $1 AND issuer = $2;
+
 -- name: UserProviderUpsertByIssuer :one
 INSERT INTO user_providers (id,user_id,issuer,provider_slug,subject,email_at_provider,tenant_id)
 VALUES ($1,$2,$3,$4,$5,$6,NULLIF(sqlc.arg(tenant_id)::text,'')::uuid)

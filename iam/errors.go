@@ -112,6 +112,14 @@ var (
 // Credentials and applications (the API-key and remote-application
 // sentinels live beside their types).
 var (
+	// ErrProviderSubjectMismatch refuses reconciliation when the current
+	// subject is neither the expected nor the desired subject.
+	ErrProviderSubjectMismatch Error = errmodel.E(errmodel.CodeProviderSubjectMismatch)
+	// ErrProviderAlreadyLinked: another account holds this issuer and subject.
+	ErrProviderAlreadyLinked Error = errmodel.E(errmodel.CodeProviderAlreadyLinked)
+	// ErrCannotUnlinkLastLoginMethod: removing the provider would leave no
+	// other way to sign in.
+	ErrCannotUnlinkLastLoginMethod     Error = errmodel.E(errmodel.CodeCannotUnlinkLastLoginMethod)
 	ErrSigningNotConfigured            Error = errmodel.Internal("signing_not_configured", nil)
 	ErrDeviceKeysDisabled              Error = errmodel.E(errmodel.CodeDeviceKeysDisabled)
 	ErrRemoteApplicationIssuerConflict Error = errmodel.E(errmodel.CodeRemoteApplicationIssuerConflict)

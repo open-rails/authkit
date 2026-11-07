@@ -80,3 +80,42 @@ A network account, such as a shopper's at openrails.dev, is an ordinary user who
 `POST /device-keys/enroll/finish` refuses with `account_recovery_required` (409), its metadata the same `token`, `expires_at` and `purge_at`. No key is enrolled, and the ceremony stays live: confirm the token (`204`), then repeat the same finish.
 
 An account deleted by staff or the system, or banned, gets `account_disabled` or `user_banned`, and only `RestoreUsers` brings the first back. Past `purge_at`, sign-in answers `account_recovery_expired` and queues the sweep rather than waiting for the daily one, so once the sweep has purged the account its address signs up fresh.
+
+## Host provider reconciliation
+
+`Client.LinkProvider` adds an external sign-in identity as trusted host code.
+`Client.ReconcileProvider` conditionally adds, removes or replaces one issuer's
+identity, for example when synchronizing identities from a source system:
+
+```go
+err := client.ReconcileProvider(ctx, userID, oldSubject, iam.ProviderLink{
+    Issuer: issuer, Subject: newSubject, Provider: slug, Email: email,
+})
+```
+
+An empty `oldSubject` expects no link; an empty `newSubject` removes the link.
+Issuer and subject values are trimmed as in `LinkProvider`. If the desired
+subject already matches (including no link), the operation succeeds without
+writes, even with a stale expectation. Metadata is left alone on that no-op. Otherwise, the current subject must equal the expected subject:
+`iam.ErrProviderSubjectMismatch` (`provider_subject_mismatch`, 409) refuses a
+stale change. Hosts should keep their imported subject as the expectation;
+this operation does not establish source provenance or authorize an overwrite
+of a different subject.
+
+Replacement commits atomically under the account lock. Other issuers are
+untouched. An issuer/subject held by another account is
+`iam.ErrProviderAlreadyLinked`; a missing, deleted or other-tenant account is
+`iam.ErrUserNotFound`. Removing a verified link refuses
+`iam.ErrCannotUnlinkLastLoginMethod` when no sign-in method would remain,
+using the same rules as self-service unlink: configured verified providers,
+a password, a passkey, an enabled device key, or a passwordless contact with its
+sender configured. An unverified imported claim is removable. A replacement can
+replace the sole sign-in method, provided the resulting account can still sign
+in. Include the configured provider name when linking or replacing.
+
+Like `LinkProvider`, this is a trusted tenant Client operation, takes no
+operation options, and has no HTTP route. Hosts must never expose it directly
+to untrusted request input. Browser linking and unlinking keep their existing
+session and recent-sign-in requirements.
+
+Provider reconciliation emits no events, matching self-service link and unlink.
