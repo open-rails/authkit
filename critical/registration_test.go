@@ -38,6 +38,38 @@ func (f *fixture) expireProofs(t *testing.T) {
 
 func TestCriticalRegistration(t *testing.T) {
 	f := newFixture(t, proofRegistration())
+	t.Run("unproven_password_sign_in_keeps_new_registrations_pending", func(t *testing.T) {
+		g := newFixture(t, proofRegistration(), authtest.WithConfig(func(c *authkit.Config) {
+			c.Registration.UnprovenPasswordSignIn = true
+		}))
+		for i, address := range []string{"pending-unproven@example.com", "+12025550179"} {
+			name := fmt.Sprintf("pendingunproven%d", i)
+			g.register(t, address, name).want(t, http.StatusAccepted, "")
+			_, err := g.auth.User(t.Context(), iam.UserByUsername(name))
+			if !errors.Is(err, iam.ErrUserNotFound) {
+				t.Fatalf("registration created an account before proof: %v", err)
+			}
+			r := g.call(t, "POST", "/password/login", "", map[string]string{"identifier": address, "password": authtest.Password})
+			r.want(t, http.StatusOK, "")
+			var out signInResult
+			decode(t, r.body, &out)
+			if out.Status != "verification_required" || out.Tokens != nil {
+				t.Fatalf("pending sign-up skipped proof: %s", r.body)
+			}
+			_, err = g.auth.User(t.Context(), iam.UserByUsername(name))
+			if !errors.Is(err, iam.ErrUserNotFound) {
+				t.Fatalf("pending sign-in created an account before proof: %v", err)
+			}
+			message := g.out.Last(t, iam.MessageVerification, address)
+			r = g.call(t, "POST", "/verify/confirm", "", map[string]string{"identifier": address, "code": message.Code})
+			u, err := g.auth.User(t.Context(), iam.UserByUsername(name))
+			noError(t, err)
+			tokensFrom(t, r, u.ID)
+			if i == 0 && !u.EmailVerified || i == 1 && !u.PhoneVerified {
+				t.Fatal("confirmed registration remained unverified")
+			}
+		}
+	})
 	t.Run("AK-J03-C01_email_and_sms_require_delivered_proof", func(t *testing.T) {
 		for i, address := range []string{"signup-person@example.com", "+12025550123"} {
 			t.Run(fmt.Sprint(i), func(t *testing.T) {

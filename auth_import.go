@@ -41,6 +41,16 @@ func (a *Client) ImportUsers(ctx context.Context, rows []iam.ImportUser, o iam.I
 	return a.ops.ImportUsers(a.operationContext(ctx), rows, o, opts...)
 }
 
+// ImportSessionEvents imports up to 1000 historical sign-ins for existing
+// accounts in the selected tenant. Entries commit independently; on a database
+// error completed results are returned. A stable ID per account makes retries
+// and concurrent calls safe. Entries older than SessionEventRetention are
+// refused (negative retention keeps all history). It creates no sessions, sends
+// nothing and changes no account state. Like ImportUsers, options are unsupported.
+func (a *Client) ImportSessionEvents(ctx context.Context, rows []iam.ImportSessionEvent, opts ...Option) (iam.ImportSessionEventsResult, error) {
+	return a.ops.ImportSessionEvents(a.operationContext(ctx), rows, opts...)
+}
+
 // ImportSolanaLinks reserves legacy wallet addresses for their accounts
 // without making them login methods; only a later Sign-In with Solana proof
 // verifies one.
@@ -52,6 +62,20 @@ func (a *Client) ImportSolanaLinks(ctx context.Context, rows []iam.ImportSolanaL
 // Browser flows link through the provider login instead.
 func (a *Client) LinkProvider(ctx context.Context, userID string, l iam.ProviderLink, opts ...Option) error {
 	return a.ops.LinkProvider(a.operationContext(ctx), userID, l, opts...)
+}
+
+// ReconcileProvider sets a live account's identity for desired.Issuer as a
+// trusted host operation. An empty desired.Subject removes it; an empty
+// expectedSubject expects no link. If the desired subject already matches,
+// it succeeds without changing metadata, even when the expectation is stale.
+// Otherwise the current subject must match
+// expectedSubject (iam.ErrProviderSubjectMismatch). Replacement is atomic;
+// other issuers are untouched. Removal refuses iam.ErrCannotUnlinkLastLoginMethod
+// when no other sign-in method would remain. An identity held by another
+// account is iam.ErrProviderAlreadyLinked. Like LinkProvider, it takes no
+// options and has no HTTP route.
+func (a *Client) ReconcileProvider(ctx context.Context, userID, expectedSubject string, desired iam.ProviderLink, opts ...Option) error {
+	return a.ops.ReconcileProvider(a.operationContext(ctx), userID, expectedSubject, desired, opts...)
 }
 
 // ParseBootstrapManifestYAML parses a bootstrap manifest without a Client or

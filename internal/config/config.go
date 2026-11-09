@@ -272,13 +272,19 @@ type FrontendConfig struct {
 	AuthorizePath string `yaml:"authorize_path"`
 }
 
-// RegistrationConfig controls verification policy and public self-registration.
+// RegistrationConfig controls public self-registration and whether password
+// sign-in requires contact proof for existing accounts.
 type RegistrationConfig struct {
 	// Verification is "none" (the default), "optional" or "required". Every
 	// policy stores the address unverified until proven; "optional" also
 	// sends a code at registration. Unproven accounts cannot add sign-in
 	// methods.
 	Verification iam.RegistrationVerificationPolicy `yaml:"verification"`
+	// UnprovenPasswordSignIn lets existing accounts sign in with a password
+	// without proving their email or phone when Verification is "required".
+	// It defaults to false. New sign-ups still require proof; accounts that
+	// sign in this way stay unproven and cannot add sign-in methods.
+	UnprovenPasswordSignIn bool `yaml:"unproven_password_sign_in"`
 	// NativeUserMode controls public self-registration: "open" (the default),
 	// "invite_only" or "closed". The host operations (CreateUser, bootstrap,
 	// import) work in every mode.

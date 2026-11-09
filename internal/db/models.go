@@ -173,6 +173,7 @@ type SessionEvent struct {
 	Reason     *string
 	IpAddr     *string
 	UserAgent  *string
+	ImportID   *string
 }
 
 // Canonical business identities shared with ContentKit; accounts of different tenants are independent.
