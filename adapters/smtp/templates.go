@@ -12,6 +12,7 @@ import (
 // {value}, {device} and {date} are filled in.
 type emailCopy struct {
 	verify, change, twoFactor, login, reset, invite, exists action
+	enroll                                                  action
 
 	deviceSubject, deviceIntro, deviceWarning string
 	ignore, footer                            string
@@ -20,6 +21,8 @@ type emailCopy struct {
 	enrolledSubject, enrolledBody, newDevice  string
 	mfaResetSubject, mfaResetBody             string
 	existsNote                                string
+	codeHelp, linkHelp                        string
+	securityNote                              string
 }
 
 // action is a message asking for one step: its subject, the line saying what
@@ -27,6 +30,7 @@ type emailCopy struct {
 type action struct{ subject, intro, button string }
 
 var english = emailCopy{
+	enroll:    action{"Approve a sign-in device for {app}", "Use this code to approve a device that will be able to sign in to your {app} account. Only continue if you are setting up this device.", "Approve device"},
 	verify:    action{"Verify your {app} account", "Use this code to confirm your email address for {app}.", "Verify email"},
 	change:    action{"Confirm your new {app} email address", "Use this code to make this the email address of your {app} account.", "Confirm email"},
 	twoFactor: action{"Your {app} verification code", "Use this code to turn on two-step verification for your {app} account.", "Verify"},
@@ -43,18 +47,22 @@ var english = emailCopy{
 	welcomeSubject:  "Welcome to {app}",
 	welcomeBody:     "Your {app} account is ready.",
 	changedSubject:  "Your {app} {field} was changed",
-	changedBody:     "The {field} on your {app} account was changed to {value}. If this was not you, secure your account now.",
+	changedBody:     "The {field} on your {app} account was changed to {value}.",
 	email:           "email address",
 	phone:           "phone number",
 	enrolledSubject: "A new device can sign in to your {app} account",
-	enrolledBody:    "{device} was enrolled on your {app} account on {date} and can now sign in as you. If this was not you, revoke it and secure your email now.",
+	enrolledBody:    "{device} was enrolled on your {app} account on {date} and can now sign in as you.",
 	newDevice:       "A new device",
 	mfaResetSubject: "Two-step verification on your {app} account was reset",
 	mfaResetBody:    "An administrator removed the passkeys, second factors, backup codes and device keys of your {app} account and signed it out everywhere. Set up two-step verification again when you next sign in. If you did not ask for this, contact support now.",
 	existsNote:      "If it wasn't you, you can ignore this email. Your account is unchanged.",
+	codeHelp:        "Enter this code on the page where you requested it. If it no longer works, request a new code. Never share this code.",
+	linkHelp:        "If this link no longer works, request a new one.",
+	securityNote:    "If this was you, no further action is needed. If you do not recognize this change, open {app} directly to review your account security and contact support.",
 }
 
 var spanish = emailCopy{
+	enroll:    action{"Autoriza un dispositivo de acceso para {app}", "Usa este código para autorizar un dispositivo que podrá iniciar sesión en tu cuenta de {app}. Continúa solo si estás configurando este dispositivo.", "Autorizar dispositivo"},
 	verify:    action{"Verifica tu cuenta de {app}", "Usa este código para confirmar tu correo electrónico en {app}.", "Verificar correo"},
 	change:    action{"Confirma tu nuevo correo de {app}", "Usa este código para que esta sea la dirección de correo de tu cuenta de {app}.", "Confirmar correo"},
 	twoFactor: action{"Tu código de verificación de {app}", "Usa este código para activar la verificación en dos pasos de tu cuenta de {app}.", "Verificar"},
@@ -71,15 +79,18 @@ var spanish = emailCopy{
 	welcomeSubject:  "Bienvenido a {app}",
 	welcomeBody:     "Tu cuenta de {app} está lista.",
 	changedSubject:  "Se cambió el {field} de tu cuenta de {app}",
-	changedBody:     "El {field} de tu cuenta de {app} se cambió a {value}. Si no fuiste tú, protege tu cuenta ahora.",
+	changedBody:     "El {field} de tu cuenta de {app} se cambió a {value}.",
 	email:           "correo electrónico",
 	phone:           "teléfono",
 	enrolledSubject: "Un nuevo dispositivo puede iniciar sesión en tu cuenta de {app}",
-	enrolledBody:    "{device} se registró en tu cuenta de {app} el {date} y ya puede iniciar sesión como tú. Si no fuiste tú, revócalo y protege tu correo ahora.",
+	enrolledBody:    "{device} se registró en tu cuenta de {app} el {date} y ya puede iniciar sesión como tú.",
 	newDevice:       "Un dispositivo nuevo",
 	mfaResetSubject: "Se restableció la verificación en dos pasos de tu cuenta de {app}",
 	mfaResetBody:    "Un administrador eliminó las llaves de acceso, los segundos factores, los códigos de respaldo y las llaves de dispositivo de tu cuenta de {app} y cerró todas sus sesiones. Vuelve a configurar la verificación en dos pasos la próxima vez que inicies sesión. Si no lo pediste, contacta con soporte ahora.",
 	existsNote:      "Si no fuiste tú, puedes ignorar este correo. Tu cuenta no ha cambiado.",
+	codeHelp:        "Introduce este código en la página donde lo solicitaste. Si ya no funciona, solicita uno nuevo. No compartas este código.",
+	linkHelp:        "Si este enlace ya no funciona, solicita otro.",
+	securityNote:    "Si has realizado este cambio, no necesitas hacer nada más. Si no lo reconoces, abre {app} directamente para revisar la seguridad de tu cuenta y contacta con soporte.",
 }
 
 // email is one message before layout: a line saying what it is for, an
@@ -103,8 +114,10 @@ func emailTemplate(app string, msg iam.EmailMessage) (Content, error) {
 			a = c.change
 		case iam.PurposeTwoFactorSetup:
 			a = c.twoFactor
-		case iam.PurposePasswordlessLogin, iam.PurposeDeviceKeyEnrollment:
+		case iam.PurposePasswordlessLogin:
 			a = c.login
+		case iam.PurposeDeviceKeyEnrollment:
+			a = c.enroll
 		}
 		e = email{a.subject, a.intro, code, a.button, link, c.ignore}
 	case iam.MessageLoginCode:
@@ -129,7 +142,7 @@ func emailTemplate(app string, msg iam.EmailMessage) (Content, error) {
 			field = c.phone
 		}
 		vars = append(vars, "{field}", field, "{value}", ch.NewValue)
-		e = email{subject: c.changedSubject, intro: c.changedBody}
+		e = email{subject: c.changedSubject, intro: c.changedBody, note: c.securityNote}
 	case iam.MessageDeviceKeyEnrolled:
 		key := msg.DeviceKey
 		if key == nil {
@@ -140,14 +153,19 @@ func emailTemplate(app string, msg iam.EmailMessage) (Content, error) {
 			device = c.newDevice
 		}
 		vars = append(vars, "{device}", device, "{date}", key.CreatedAt.UTC().Format("2006-01-02 15:04 UTC"))
-		e = email{subject: c.enrolledSubject, intro: c.enrolledBody}
+		e = email{subject: c.enrolledSubject, intro: c.enrolledBody, note: c.securityNote}
 	case iam.MessageMFAReset:
 		e = email{subject: c.mfaResetSubject, intro: c.mfaResetBody}
 	default:
 		return Content{}, fmt.Errorf("smtp: no built-in template for message kind %q", msg.Kind)
 	}
+	if e.code != "" {
+		e.intro += " " + c.codeHelp
+	} else if msg.Kind == iam.MessagePasswordReset {
+		e.intro += " " + c.linkHelp
+	}
 	fill := strings.NewReplacer(vars...).Replace
-	e.subject, e.intro, e.note = fill(e.subject), fill(e.intro), fill(e.note)
+	e.subject, e.intro, e.note, e.button = fill(e.subject), fill(e.intro), fill(e.note), fill(e.button)
 	return e.render(lang, app, fill(c.footer)), nil
 }
 
@@ -155,7 +173,7 @@ const (
 	fontStack   = `-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif`
 	monoStack   = `ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace`
 	buttonColor = "#2563eb" // white text 5.2:1
-	linkColor   = "#3570ee" // 4.5:1 on white, 4.2:1 on #121212
+	linkColor   = "inherit" // inherit the email client's foreground in both schemes
 )
 
 // layout is every built-in email's HTML: tables and inline styles only, and
@@ -172,6 +190,7 @@ const layout = `<!doctype html>
 <title>{title}</title>
 </head>
 <body style="margin:0;padding:0;-webkit-text-size-adjust:100%">
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all">{preview}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
 <tr><td align="center" style="padding:32px 16px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:480px">
@@ -188,8 +207,9 @@ const layout = `<!doctype html>
 `
 
 func (e email) render(lang, app, footer string) Content {
-	text := []string{e.intro}
-	rows := row("padding:0 0 24px", escapeHTML(e.intro))
+	text := []string{e.subject, e.intro}
+	rows := row("padding:0 0 16px", `<h1 style="margin:0;font-family:`+fontStack+`;font-size:24px;line-height:32px;font-weight:700">`+escapeHTML(e.subject)+`</h1>`)
+	rows += row("padding:0 0 24px", escapeHTML(e.intro))
 	if e.code != "" {
 		text = append(text, e.code)
 		rows += row("padding:0 0 24px", `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>`+
@@ -210,7 +230,7 @@ func (e email) render(lang, app, footer string) Content {
 		rows += row("padding:0 0 24px;font-size:14px;line-height:20px;opacity:.7", escapeHTML(e.note))
 	}
 	html := strings.NewReplacer("{lang}", lang, "{title}", escapeHTML(e.subject), "{font}", fontStack, "{app}", escapeHTML(app),
-		"{body}", rows, "{footer}", escapeHTML(footer)).Replace(layout)
+		"{body}", rows, "{footer}", escapeHTML(footer), "{preview}", escapeHTML(e.intro)).Replace(layout)
 	return Content{Subject: e.subject, Text: strings.Join(text, "\n\n"), HTML: html}
 }
 
