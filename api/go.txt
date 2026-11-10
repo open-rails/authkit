@@ -83,7 +83,7 @@ pkg authkit, method (*Client) KnownPermission(iam.Perm) bool
 pkg authkit, method (*Client) LinkProvider(context.Context, string, iam.ProviderLink, ...Option) error
 pkg authkit, method (*Client) ListAPIKeys(context.Context, iam.GroupRef, iam.PageRequest) (iam.ListPage[iam.APIKey], error)
 pkg authkit, method (*Client) ListEvents(context.Context, iam.EventQuery) (iam.EventPage, error)
-pkg authkit, method (*Client) ListGroupMembers(context.Context, iam.GroupRef, iam.MemberQuery) (iam.ListPage[iam.GroupMember], error)
+pkg authkit, method (*Client) ListGroupMembers(context.Context, iam.GroupRef, iam.MemberQuery, ...Option) (iam.ListPage[iam.GroupMember], error)
 pkg authkit, method (*Client) ListGroupRoles(context.Context, iam.GroupRef) ([]iam.GroupRole, error)
 pkg authkit, method (*Client) ListGroups(context.Context, iam.GroupQuery) (iam.ListPage[iam.Group], error)
 pkg authkit, method (*Client) ListInvitations(context.Context, iam.GroupRef, iam.PageRequest) (iam.ListPage[iam.Invitation], error)
