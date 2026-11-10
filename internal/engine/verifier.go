@@ -39,6 +39,7 @@ func (s *Engine) newAuthenticator(audiences []string, own bool, opts ...verify.V
 	base := []verify.VerifierOption{
 		verify.WithSkew(authflow.AccessTokenClockSkew),
 		verify.WithDPoP(s.redis),
+		verify.WithReplayStore(s.replayStore),
 		verify.WithPublicURL(s.publicOrigin()),
 	}
 	a := &Authenticator{s: s, v: verify.NewVerifier(append(base, opts...)...), audiences: audiences, own: own}

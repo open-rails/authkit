@@ -63,6 +63,7 @@
   "AK-J14-C04": "fresh nonce retry without duplicate mutation",
   "AK-J14-C05": "trusted additional host versus arbitrary Host",
   "AK-J14-C06": "Redis outage behavior explicitly matches documented fallback",
+  "AK-J14-C07": "host replay store on PostgreSQL: one proof across replicas without Redis",
   "AK-J15-C01": "owner/admin/member/application role matrix",
   "AK-J15-C02": "cross-group/tenant/issuer and wrong subject kind",
   "AK-J15-C03": "custom-role create/update/delete and immutable declared roles",

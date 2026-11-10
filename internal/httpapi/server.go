@@ -44,7 +44,7 @@ func New(client Backend, cfg config.Config, deps config.Deps) (*Service, error) 
 		clientIPExplicit: deps.ClientIP != nil,
 		directPeerIP:     h.DirectPeerIP,
 		wrap:             deps.Wrap,
-		replays:          dpop.NewReplays(deps.Redis),
+		replays:          dpop.NewReplays(deps.Redis, deps.Replays),
 		smsSender:        deps.SMS != nil,
 	}
 	s.trustedProxies, _ = config.ParseCIDRs("trusted proxy", h.TrustedProxies)

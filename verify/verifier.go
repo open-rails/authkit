@@ -57,6 +57,7 @@ type verifierConfig struct {
 	client       *http.Client
 	dpop         bool
 	redis        redis.UniversalClient
+	replays      ReplayStore
 	nonceKey     []byte
 	storedNonces bool
 	publicURL    string
@@ -80,6 +81,25 @@ func WithHTTPClient(client *http.Client) VerifierOption {
 // proofs on its own.
 func WithDPoP(rdb redis.UniversalClient) VerifierOption {
 	return func(c *verifierConfig) { c.dpop, c.redis = true, rdb }
+}
+
+// ReplayStore spends single-use proofs (DPoP proofs, JWT-bearer and client
+// assertions) for every replica: Claim records key as spent until ttl
+// elapses and reports false when it already was. An error refuses the proof
+// as unavailable; nothing falls back to memory. A host with more than one
+// replica and no Redis implements it on the store they share.
+type ReplayStore interface {
+	Claim(ctx context.Context, key string, ttl time.Duration) (bool, error)
+}
+
+// WithReplayStore accepts DPoP-bound tokens like WithDPoP, spending each
+// proof in store instead of Redis or memory. A nil store changes nothing.
+func WithReplayStore(store ReplayStore) VerifierOption {
+	return func(c *verifierConfig) {
+		if store != nil {
+			c.dpop, c.replays = true, store
+		}
+	}
 }
 
 // WithDPoPNonce requires every DPoP proof to carry a server nonce (RFC 9449
@@ -129,7 +149,7 @@ func NewVerifier(opts ...VerifierOption) *Verifier {
 		issuers:   map[string]issuer{},
 	}
 	if cfg.dpop {
-		v.replays = dpop.NewReplays(cfg.redis)
+		v.replays = dpop.NewReplays(cfg.redis, cfg.replays)
 		if cfg.storedNonces {
 			v.dpopNonces = dpop.NewStoredNonces(cfg.redis)
 		}

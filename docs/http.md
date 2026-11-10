@@ -44,7 +44,7 @@ Every route lives beneath `HTTPConfig.BasePath`:
 - `DefaultRateLimits()` holds the defaults. `HTTPConfig.RateLimits` overrides buckets by name; an unknown name is an error.
 - Counters live in each process's memory. Set `Deps.Redis` when you run more than one replica, to share them.
 - If Redis fails, each process uses its own counters with the same limits until Redis answers again. Shared and local counter history is not transferred: a process can admit its local allowance after the shared budget was spent, and replicas have separate allowances during the outage. The fallback remains bounded, but it does not preserve a global budget across the transition. A request waits on Redis for at most 250ms, and AuthKit logs the fallback and the recovery once each.
-- Spent DPoP proofs (the token endpoint, userinfo, SCIM and `Client.NewVerifier`) and spent JWT-bearer assertions (RFC 7523) are kept the same way: in `Deps.Redis`, else in memory. A capability's `jti` is a grant record and stays in PostgreSQL.
+- Spent DPoP proofs (the token endpoint, userinfo, SCIM and `Client.NewVerifier`) and spent JWT-bearer and client assertions (RFC 7523) are kept in `Deps.Replays` when the host gives one, else the same way as counters: in `Deps.Redis`, else in memory. A host with several replicas and no Redis implements `verify.ReplayStore` on the store they share (an insert-if-absent with an expiry); its errors refuse the proof. A capability's `jti` is a grant record and stays in PostgreSQL.
 - A 429 is `rate_limited` with `Retry-After`, the `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset` headers, and the budget in `metadata`.
 
 ## Sign-in limits
