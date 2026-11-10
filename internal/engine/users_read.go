@@ -105,6 +105,10 @@ func (s *Engine) Users(ctx context.Context, ids []string) (map[string]iam.User, 
 // tombstone; a banned one is returned normally (a ban is an access decision,
 // not a visibility one); unknown ids are absent.
 func (s *Engine) PublicUsers(ctx context.Context, ids []string) (map[string]iam.PublicUser, error) {
+	return s.publicUsers(ctx, s.q, ids)
+}
+
+func (s *Engine) publicUsers(ctx context.Context, queries *db.Queries, ids []string) (map[string]iam.PublicUser, error) {
 	out := map[string]iam.PublicUser{}
 	ids = uuidsOnly(ids)
 	if len(ids) == 0 {
@@ -114,7 +118,7 @@ func (s *Engine) PublicUsers(ctx context.Context, ids []string) (map[string]iam.
 		return nil, err
 	}
 	err := inBatches(ids, func(batch []string) error {
-		rows, err := s.q.IdentityPublicUsersByIDs(ctx, db.IdentityPublicUsersByIDsParams{TenantID: s.tenantKey(ctx), Ids: batch})
+		rows, err := queries.IdentityPublicUsersByIDs(ctx, db.IdentityPublicUsersByIDsParams{TenantID: s.tenantKey(ctx), Ids: batch})
 		if err != nil {
 			return err
 		}

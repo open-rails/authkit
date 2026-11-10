@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
@@ -25,7 +27,11 @@ const proofOrigin = "https://resource.example"
 
 func proofFixture(t *testing.T, rdb redis.UniversalClient) (*fixture, *authtest.DPoPKey, authtest.User, iam.TokenSet) {
 	t.Helper()
-	f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) { c.SignIn.DPoP = authkit.DPoPRequired }), authtest.WithDeps(func(d *authkit.Deps) { d.Redis = rdb }))
+	return proofFixtureWith(t, func(d *authkit.Deps) { d.Redis = rdb })
+}
+func proofFixtureWith(t *testing.T, deps func(*authkit.Deps)) (*fixture, *authtest.DPoPKey, authtest.User, iam.TokenSet) {
+	t.Helper()
+	f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) { c.SignIn.DPoP = authkit.DPoPRequired }), authtest.WithDeps(deps))
 	key := authtest.NewDPoPKey(t)
 	u := f.user(t)
 	headers := http.Header{"DPoP": {key.Proof(t, "POST", authtest.Issuer+f.auth.APIBase()+"/password/login", "", "")}}
@@ -98,6 +104,37 @@ func realRedis(t *testing.T) *redis.Client {
 	return c
 }
 
+// replayTable is a host's verify.ReplayStore on PostgreSQL: insert-if-absent,
+// an expired key claimed again.
+type replayTable struct {
+	pool  *pgxpool.Pool
+	table string
+}
+
+func (s replayTable) Claim(ctx context.Context, key string, ttl time.Duration) (bool, error) {
+	tag, err := s.pool.Exec(ctx, "INSERT INTO "+s.table+" AS t (key, expires_at) VALUES ($1, now() + $2 * interval '1 microsecond') "+
+		"ON CONFLICT (key) DO UPDATE SET expires_at = EXCLUDED.expires_at WHERE t.expires_at <= now()", key, ttl.Microseconds())
+	return tag.RowsAffected() == 1, err
+}
+
+func postgresReplays(t *testing.T) replayTable {
+	t.Helper()
+	pool, err := pgxpool.New(t.Context(), os.Getenv("AUTHKIT_TEST_DATABASE_URL"))
+	noError(t, err)
+	t.Cleanup(pool.Close)
+	schema := pgx.Identifier{"critical_replays_" + strings.ReplaceAll(iam.NewTenantID().String(), "-", "")}.Sanitize()
+	_, err = pool.Exec(t.Context(), "CREATE SCHEMA "+schema+"; CREATE TABLE "+schema+".spent (key text PRIMARY KEY, expires_at timestamptz NOT NULL)")
+	noError(t, err)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if _, err := pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE"); err != nil {
+			t.Error(err)
+		}
+	})
+	return replayTable{pool: pool, table: schema + ".spent"}
+}
+
 func TestCriticalSenderProofs(t *testing.T) {
 	t.Run("AK-J14-C01_bound_token_requires_proof_and_server_nonce", func(t *testing.T) {
 		f, key, _, tokens := proofFixture(t, nil)
@@ -163,6 +200,49 @@ func TestCriticalSenderProofs(t *testing.T) {
 		}
 		if accepted != 1 {
 			t.Fatalf("same proof authorized%d replicas", accepted)
+		}
+	})
+	t.Run("AK-J14-C07_host_replay_store_consumes_one_proof_across_replicas_without_redis", func(t *testing.T) {
+		store := postgresReplays(t)
+		f, key, _, tokens := proofFixtureWith(t, func(d *authkit.Deps) { d.Replays = store })
+		// Without Redis each verifier would keep its own memory, as separate processes do.
+		_, a := proofServer(t, f, nil, nil)
+		_, b := proofServer(t, f, nil, nil)
+		proof := key.Proof(t, "GET", proofOrigin+"/protected", tokens.AccessToken, "")
+		servers := []string{a.URL, b.URL}
+		answers := make([]response, 2)
+		errs := make([]error, 2)
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for i := range servers {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				answers[i], errs[i] = sendProof(t.Context(), servers[i], "GET", "/protected", tokens.AccessToken, proof, "")
+			}()
+		}
+		close(start)
+		wg.Wait()
+		accepted := 0
+		for i, r := range answers {
+			noError(t, errs[i])
+			if r.status == http.StatusNoContent {
+				accepted++
+			} else if r.status != http.StatusUnauthorized {
+				t.Fatalf("unexpected replay response %d", r.status)
+			}
+		}
+		if accepted != 1 {
+			t.Fatalf("same proof authorized %d replicas", accepted)
+		}
+		if r := proofCall(t, b, "GET", "/protected", tokens.AccessToken, proof, ""); r.status != http.StatusUnauthorized {
+			t.Fatal("a proof spent in the host's store was accepted again")
+		}
+		var spent int
+		noError(t, store.pool.QueryRow(t.Context(), "SELECT count(*) FROM "+store.table).Scan(&spent))
+		if spent == 0 {
+			t.Fatal("the proof was not spent in the host's store")
 		}
 	})
 	t.Run("AK-J14-C04_nonce_retry_has_one_authorized_mutation", func(t *testing.T) {

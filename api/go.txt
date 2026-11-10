@@ -83,7 +83,7 @@ pkg authkit, method (*Client) KnownPermission(iam.Perm) bool
 pkg authkit, method (*Client) LinkProvider(context.Context, string, iam.ProviderLink, ...Option) error
 pkg authkit, method (*Client) ListAPIKeys(context.Context, iam.GroupRef, iam.PageRequest) (iam.ListPage[iam.APIKey], error)
 pkg authkit, method (*Client) ListEvents(context.Context, iam.EventQuery) (iam.EventPage, error)
-pkg authkit, method (*Client) ListGroupMembers(context.Context, iam.GroupRef, iam.MemberQuery) (iam.ListPage[iam.GroupMember], error)
+pkg authkit, method (*Client) ListGroupMembers(context.Context, iam.GroupRef, iam.MemberQuery, ...Option) (iam.ListPage[iam.GroupMember], error)
 pkg authkit, method (*Client) ListGroupRoles(context.Context, iam.GroupRef) ([]iam.GroupRole, error)
 pkg authkit, method (*Client) ListGroups(context.Context, iam.GroupQuery) (iam.ListPage[iam.Group], error)
 pkg authkit, method (*Client) ListInvitations(context.Context, iam.GroupRef, iam.PageRequest) (iam.ListPage[iam.Invitation], error)
@@ -293,6 +293,7 @@ pkg authkit, type Deps struct, OnPurge func(context.Context, iam.UserDeletion) e
 pkg authkit, type Deps struct, Postgres *pgxpool.Pool
 pkg authkit, type Deps struct, Providers []provider.Provider
 pkg authkit, type Deps struct, Redis redis.UniversalClient
+pkg authkit, type Deps struct, Replays verify.ReplayStore
 pkg authkit, type Deps struct, RequestTenant func(*http.Request) (iam.TenantID, error)
 pkg authkit, type Deps struct, ResourceHosts func(context.Context, string) (bool, error)
 pkg authkit, type Deps struct, SMS config.SMSSender
@@ -2149,6 +2150,7 @@ pkg authkit/verify, func WithGroup(context.Context, iam.GroupRef) context.Contex
 pkg authkit/verify, func WithHTTPClient(*http.Client) VerifierOption
 pkg authkit/verify, func WithPublicHosts(func(context.Context, string) (bool, error)) VerifierOption
 pkg authkit/verify, func WithPublicURL(string) VerifierOption
+pkg authkit/verify, func WithReplayStore(ReplayStore) VerifierOption
 pkg authkit/verify, func WithSkew(time.Duration) VerifierOption
 pkg authkit/verify, func WithStoredDPoPNonces() VerifierOption
 pkg authkit/verify, method (*Verifier) AddIssuer(string, []string, IssuerOptions) error
@@ -2240,6 +2242,8 @@ pkg authkit/verify, type PermissionScope struct
 pkg authkit/verify, type PermissionScope struct, AuthorityIssuer string
 pkg authkit/verify, type PermissionScope struct, GroupID string
 pkg authkit/verify, type PermissionScope struct, Persona iam.Persona
+pkg authkit/verify, type ReplayStore interface
+pkg authkit/verify, type ReplayStore interface, Claim(context.Context, string, time.Duration) (bool, error)
 pkg authkit/verify, type SessionChecker interface
 pkg authkit/verify, type SessionChecker interface, CheckRecentSignIn(context.Context, Claims) error
 pkg authkit/verify, type SessionChecker interface, CheckSession(context.Context, Claims) error

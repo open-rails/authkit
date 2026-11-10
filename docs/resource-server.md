@@ -60,7 +60,7 @@ A trusted issuer's backend can mint a customer token for its user without runnin
    - `sub`: its user;
    - `aud`: AuthKit's token endpoint;
    - `exp`: at most 2 minutes ahead (RFC 7523 §3);
-   - `jti`: 16-128 characters, spent once, where DPoP proofs are (`Deps.Redis`, else memory);
+   - `jti`: 16-128 characters, spent once, where DPoP proofs are (`Deps.Replays`, else `Deps.Redis`, else memory);
    - optionally `email`, `email_verified`, `name` and `preferred_username`.
 2. Its frontend posts the assertion to AuthKit's token endpoint, with no client: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer`, `assertion`, and optionally `scope` and a DPoP proof.
 3. The answer is an access token for `Resource.ID`:
@@ -77,8 +77,8 @@ With `Config.Resource`, the token endpoint is mounted even without an authorizat
 
 - **Validation, for every token any instance verifies:** a bound token (`cnf.jkt`) is accepted only with a fresh proof of its key (RFC 9449 §7), never as Bearer (§7.2).
 - **Proofs and nonces:**
-  - Spent proofs are kept in `Deps.Redis`, or in memory without it (one node).
-  - A proof must carry a server nonce (RFC 9449 §9). A proof without one gets `401 use_dpop_nonce` with a `DPoP-Nonce` to retry with. Nonces are kept in the same store, so there is no key to configure.
+  - Spent proofs are kept in `Deps.Replays`, else `Deps.Redis`, else in memory (one node).
+  - A proof must carry a server nonce (RFC 9449 §9). A proof without one gets `401 use_dpop_nonce` with a `DPoP-Nonce` to retry with. Nonces are kept in `Deps.Redis`, else in memory, so there is no key to configure.
   - `Deps.ResourceHosts` lets a proof name a host other than `public_url` that the host vouches for, such as a tenant's API host.
 - **Issuance (`sign_in.dpop`):**
   - `optional`, the default, lets each client choose at sign-in. A sign-in or refresh that proves a key binds the session for good: its access tokens carry `cnf.jkt`, and every refresh proves the same key (RFC 9449 §5). A client that proves no key gets bearer tokens, and a public client's refresh tokens then rotate (RFC 9700 §4.14.2).

@@ -20,6 +20,7 @@ import (
 	"github.com/open-rails/authkit/internal/rbac"
 	"github.com/open-rails/authkit/keys"
 	"github.com/open-rails/authkit/provider"
+	"github.com/open-rails/authkit/verify"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -87,6 +88,9 @@ type Engine struct {
 	// replays spends JWT-bearer assertions (RFC 7523 §3), in the store DPoP
 	// proofs are spent in: Deps.Redis, else memory.
 	replays *dpop.Replays
+	// replayStore is Deps.Replays, which the verifiers it builds spend DPoP
+	// proofs in too.
+	replayStore verify.ReplayStore
 	// resource verifies access tokens for Config.Resource.ID; nil admits
 	// none. resourceHosts is Deps.ResourceHosts.
 	resource      *resourceServer

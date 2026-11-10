@@ -12,6 +12,7 @@ import (
 	"github.com/open-rails/authkit/internal/cursor"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/ident"
+	"github.com/open-rails/authkit/internal/ops"
 )
 
 // Group reads one group, a soft-deleted one included, with DeletedAt set.
@@ -94,12 +95,33 @@ func (s *Engine) ListGroups(ctx context.Context, q iam.GroupQuery) (iam.ListPage
 
 // ListGroupMembers lists the subjects holding a role in a live group, ordered
 // by subject kind, then id.
-func (s *Engine) ListGroupMembers(ctx context.Context, ref iam.GroupRef, q iam.MemberQuery) (iam.ListPage[iam.GroupMember], error) {
+func (s *Engine) ListGroupMembers(ctx context.Context, ref iam.GroupRef, q iam.MemberQuery, opts ...ops.Option) (iam.ListPage[iam.GroupMember], error) {
 	var out iam.ListPage[iam.GroupMember]
+	host, err := hostTx("ListGroupMembers", opts)
+	if err != nil {
+		return out, err
+	}
 	if err := s.requirePG(); err != nil {
 		return out, err
 	}
-	g, err := s.resolveGroup(ctx, s.groupStore(), ref)
+	if host == nil {
+		return s.listGroupMembers(ctx, s.groupStore(), s.q, ref, q)
+	}
+	tx, err := s.joinHostTransaction(ctx, host)
+	if err != nil {
+		return out, err
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx))
+	out, err = s.listGroupMembers(ctx, s.groupStoreFor(tx), db.New(tx), ref, q)
+	if err != nil {
+		return out, err
+	}
+	return out, tx.Commit(ctx)
+}
+
+func (s *Engine) listGroupMembers(ctx context.Context, st *permissionGroupStore, queries *db.Queries, ref iam.GroupRef, q iam.MemberQuery) (iam.ListPage[iam.GroupMember], error) {
+	var out iam.ListPage[iam.GroupMember]
+	g, err := s.resolveGroup(ctx, st, ref)
 	if err != nil {
 		return out, err
 	}
@@ -121,7 +143,7 @@ func (s *Engine) ListGroupMembers(ctx context.Context, ref iam.GroupRef, q iam.M
 		return out, nil // no role of this group's persona: nobody holds one
 	}
 	limit := q.Page.PageLimit()
-	rows, err := s.q.GroupMembersPage(ctx, db.GroupMembersPageParams{
+	rows, err := queries.GroupMembersPage(ctx, db.GroupMembersPageParams{
 		GroupID: g.ID, Kinds: kinds, Roles: roles, AfterKind: after[0], AfterID: after[1],
 		LiveOnly: q.LiveOnly, PageLimit: int64(limit + 1),
 	})
@@ -145,7 +167,7 @@ func (s *Engine) ListGroupMembers(ctx context.Context, ref iam.GroupRef, q iam.M
 				ids = append(ids, m.Subject.ID)
 			}
 		}
-		users, err := s.PublicUsers(ctx, ids)
+		users, err := s.publicUsers(ctx, queries, ids)
 		if err != nil {
 			return out, err
 		}

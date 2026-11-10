@@ -91,6 +91,7 @@ func (s *Engine) newResourceServer() (*resourceServer, error) {
 	opts := []verify.VerifierOption{
 		verify.WithHTTPClient(client),
 		verify.WithDPoP(s.redis),
+		verify.WithReplayStore(s.replayStore),
 		verify.WithStoredDPoPNonces(),
 		verify.WithPublicURL(rc.PublicURL),
 	}
