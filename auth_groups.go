@@ -98,9 +98,9 @@ func (a *Client) ListGroups(ctx context.Context, q iam.GroupQuery) (iam.ListPage
 }
 
 // ListGroupMembers lists the subjects holding a role in a group, a page at a
-// time.
-func (a *Client) ListGroupMembers(ctx context.Context, ref iam.GroupRef, q iam.MemberQuery) (iam.ListPage[iam.GroupMember], error) {
-	return a.ops.ListGroupMembers(a.operationContext(ctx), ref, q)
+// time. InTx reads the host transaction's own writes without another connection.
+func (a *Client) ListGroupMembers(ctx context.Context, ref iam.GroupRef, q iam.MemberQuery, opts ...Option) (iam.ListPage[iam.GroupMember], error) {
+	return a.ops.ListGroupMembers(a.operationContext(ctx), ref, q, opts...)
 }
 
 // ListMemberships lists the live groups a subject holds a role in, a page at
