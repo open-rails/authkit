@@ -9,8 +9,8 @@ import (
 
 	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/verify"
 	"github.com/open-rails/authkit/notify"
+	"github.com/open-rails/authkit/verify"
 )
 
 // Operations is every operation of the Client that a remote deployment could
@@ -67,7 +67,7 @@ type Operations interface {
 	Group(ctx context.Context, ref iam.GroupRef) (iam.Group, error)
 	Groups(ctx context.Context, ids []string) (map[string]iam.Group, error)
 	ListGroups(ctx context.Context, q iam.GroupQuery) (iam.ListPage[iam.Group], error)
-	ListGroupMembers(ctx context.Context, ref iam.GroupRef, q iam.MemberQuery) (iam.ListPage[iam.GroupMember], error)
+	ListGroupMembers(ctx context.Context, ref iam.GroupRef, q iam.MemberQuery, opts ...Option) (iam.ListPage[iam.GroupMember], error)
 	ListMemberships(ctx context.Context, s iam.Subject, p iam.PageRequest) (iam.ListPage[iam.Membership], error)
 	GroupRoles(ctx context.Context, ref iam.GroupRef, subjects []iam.Subject) (map[iam.Subject]iam.Role, error)
 	CreateGroup(ctx context.Context, g iam.NewGroup, opts ...Option) (iam.Group, error)

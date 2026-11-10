@@ -23,7 +23,8 @@ type Option = ops.Option
 // CreateGroup, DeleteGroup, PurgeGroup, SetGroupRole, RemoveGroupMember,
 // EnsureUserRole, CreateUser, PatchPublicMetadata, Unban, CreateAPIKey,
 // RevokeAPIKey, CreateInvitation (a link), RevokeInvitation,
-// UpsertRemoteApplication and DeleteRemoteApplication take it.
+// UpsertRemoteApplication, DeleteRemoteApplication and ListGroupMembers take it.
+// ListGroupMembers uses the same schema-scoped savepoint for membership and WithUsers reads.
 func InTx(tx pgx.Tx) Option { return ops.InTx(tx) }
 
 // IfRole makes RemoveGroupMember remove the subject only while it holds
