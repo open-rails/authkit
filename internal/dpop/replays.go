@@ -22,11 +22,18 @@ const (
 
 var errReplaysFull = errors.New("dpop: in-memory replay store is full")
 
+// Store spends single-use keys for every replica: Claim records key as spent
+// for ttl and reports false when it already was (verify.ReplayStore).
+type Store interface {
+	Claim(ctx context.Context, key string, ttl time.Duration) (bool, error)
+}
+
 // Replays records spent single-use proofs (DPoP proofs, JWT-bearer
-// assertions) until they expire: in Redis when given, shared by every
-// replica, else in this process's memory (one node), which also takes over
-// while Redis fails. Never PostgreSQL.
+// assertions) until they expire: in the host's Store when given, whose
+// errors refuse; else in Redis, shared by every replica; else in this
+// process's memory (one node), which also takes over while Redis fails.
 type Replays struct {
+	store Store
 	rdb   redis.UniversalClient
 	gate  *redisfallback.Gate
 	mu    sync.Mutex
@@ -34,12 +41,15 @@ type Replays struct {
 	swept time.Time
 }
 
-// NewReplays spends proofs in rdb, or in memory when rdb is nil.
-func NewReplays(rdb redis.UniversalClient) *Replays {
-	if v := reflect.ValueOf(rdb); rdb != nil && v.Kind() == reflect.Pointer && v.IsNil() {
+// NewReplays spends proofs in store, else in rdb, else in memory.
+func NewReplays(rdb redis.UniversalClient, store Store) *Replays {
+	if isNil(rdb) {
 		rdb = nil
 	}
-	return &Replays{rdb: rdb, spent: map[string]time.Time{}, swept: time.Now(), gate: redisfallback.New(
+	if isNil(store) {
+		store = nil
+	}
+	return &Replays{store: store, rdb: rdb, spent: map[string]time.Time{}, swept: time.Now(), gate: redisfallback.New(
 		"authkit: Redis replay store failed; each process records spent proofs on its own until Redis recovers",
 		"authkit: Redis replay store recovered")}
 }
@@ -47,6 +57,9 @@ func NewReplays(rdb redis.UniversalClient) *Replays {
 // Claim is a ReplayGuard: it records key as spent for ttl, and reports false
 // when it already was.
 func (r *Replays) Claim(ctx context.Context, key string, ttl time.Duration) (bool, error) {
+	if r.store != nil {
+		return r.store.Claim(ctx, key, ttl)
+	}
 	if r.rdb != nil {
 		if claimed, ok := redisfallback.Run(ctx, r.gate, func(ctx context.Context) (bool, error) {
 			return r.rdb.SetNX(ctx, replayPrefix+key, 1, ttl).Result()
@@ -77,4 +90,13 @@ func (r *Replays) claimInMemory(key string, ttl time.Duration) (bool, error) {
 	}
 	r.spent[key] = now.Add(ttl)
 	return true, nil
+}
+
+// isNil reports a nil interface, including one holding a nil pointer.
+func isNil(v any) bool {
+	if v == nil {
+		return true
+	}
+	rv := reflect.ValueOf(v)
+	return rv.Kind() == reflect.Pointer && rv.IsNil()
 }

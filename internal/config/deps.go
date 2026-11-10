@@ -10,6 +10,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/keys"
 	"github.com/open-rails/authkit/provider"
+	"github.com/open-rails/authkit/verify"
 )
 
 // Deps is everything AuthKit reaches outside the process through: the store,
@@ -87,6 +88,11 @@ type Deps struct {
 	// replicas; it holds no other AuthKit state. Without it, and while it
 	// fails, each process keeps its own: one node only.
 	Redis redis.UniversalClient
+	// Replays spends DPoP proofs and JWT-bearer and client assertions for
+	// every replica, in place of Redis or memory: a host with more than one
+	// replica and no Redis implements it on the store they share. Its errors
+	// refuse the proof. Rate limits stay with Redis or memory.
+	Replays verify.ReplayStore
 	// ResourceHosts admits hosts besides Config.Resource.PublicURL's that the
 	// resource answers on (a host's per-tenant API hosts): a DPoP proof's htu
 	// may name https://<host> when it reports true for the request's Host.

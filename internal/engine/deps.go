@@ -37,7 +37,8 @@ func (s *Engine) applyDeps(d config.Deps) error {
 		s.ephemeral = &ephemeralKV{pool: ephemeralPool, q: db.New(ephemeralPool), tenant: s.tenantID}
 	}
 	s.redis = d.Redis
-	s.replays = dpop.NewReplays(d.Redis)
+	s.replays = dpop.NewReplays(d.Redis, d.Replays)
+	s.replayStore = d.Replays
 	s.resourceHosts = d.ResourceHosts
 	s.applyProviders(d.Providers)
 	s.email, s.sms = d.Email, d.SMS
