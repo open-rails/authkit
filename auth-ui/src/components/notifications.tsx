@@ -125,10 +125,9 @@ export function NotificationInbox({
             <div
               role="status"
               aria-label={t("notifications.loading")}
-              className="grid gap-3"
+              className="grid min-h-32 place-items-center"
             >
-              <Spinner className="size-5" />
-              <Spinner className="size-5" />
+              <Spinner className="size-5" aria-hidden="true" />
             </div>
           ) : !inbox.items.length && !inbox.error ? (
             <p role="status" className="py-8 text-center text-muted-foreground">
