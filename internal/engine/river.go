@@ -20,6 +20,9 @@ import (
 
 // riverConfig configures a River client AuthKit owns. It logs through the
 // slog default, like the rest of AuthKit, instead of River's stdout logger.
+// riverFetchBackstop is how long a job AuthKit's own fleet missed the notification of can wait.
+const riverFetchBackstop = 10 * time.Second
+
 func riverConfig(schema string) *river.Config {
 	return &river.Config{Schema: schema, Logger: slog.Default()}
 }
@@ -256,7 +259,10 @@ func (s *Engine) startOwnRiver(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	client, err := riverhelpers.New(ctx, pool, riverConfig(s.cfg.Database.RiverSchema), s.RiverJobs())
+	cfg := riverConfig(s.cfg.Database.RiverSchema)
+	// Migrate's trigger notifies every insert; the poll only backstops a dropped LISTEN (#477).
+	cfg.FetchPollInterval = riverFetchBackstop
+	client, err := riverhelpers.New(ctx, pool, cfg, s.RiverJobs())
 	if err != nil {
 		pool.Close()
 		return fmt.Errorf("authkit: construct River: %w", err)

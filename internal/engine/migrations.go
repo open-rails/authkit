@@ -12,6 +12,7 @@ import (
 	"github.com/open-rails/authkit/internal/config"
 	sqlc "github.com/open-rails/authkit/internal/db"
 	internalmigrations "github.com/open-rails/authkit/internal/migrations/postgres"
+	riverhelpers "github.com/open-rails/helpers/river"
 	"github.com/open-rails/migratekit"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivermigrate"
@@ -100,6 +101,10 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, db config.DatabaseConfig, 
 	}
 	if _, err := riverMigrator.Migrate(ctx, rivermigrate.DirectionUp, nil); err != nil {
 		return fmt.Errorf("authkit: migrate River: %w", err)
+	}
+	// Every insert notifies its queue, so AuthKit's own fleet polls only as a backstop (#477).
+	if err := riverhelpers.NotifyEveryInsert(ctx, pool, riverSchema); err != nil {
+		return fmt.Errorf("authkit: River insert notifications: %w", err)
 	}
 	return nil
 }
